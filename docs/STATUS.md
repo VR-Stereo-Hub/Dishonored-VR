@@ -17,7 +17,13 @@ backups/full diffs/CRLF verified. No movie assets changed or game launched.
 Next launch question: does rune inner art stay inside the outline through head
 turns, center and edge? Together supports fix; split means association miss;
 unrelated captured content means false association. Read native-child logs.
-Build/install identity will be appended after release validation. No main merge.
+Installed vr33-hands-working-409-gc9d1d4a41, clean sourcec9d1d4a41034d6442e42358fa807f1724b984709. DLL SHA256
+40ae3ddae27306d2ce42fc06b0c4bf3434815d802cab19b40c1c662fb9d5ffde.
+Release build and9 exports pass;55 native HUD checks, lint and diff checks pass.
+Archive: build/playtest-candidates/installs/20260917-080727-649109.
+Full mod INI diff: only add NativeMarkerChildren=1. Installed hashes and CRLF
+reverified. No game/simulator launch, no push/PR/main merge. Camera comfort
+control is available but unchanged ON, pending separate test.
 
 ## Current: native objective/rune boundary trial407 (2026-09-16)
 

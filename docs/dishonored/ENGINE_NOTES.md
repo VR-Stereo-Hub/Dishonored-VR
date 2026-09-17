@@ -10,7 +10,7 @@ Local Flash sprite169 contains static shape165 at depth1 (40px square) and
 pulse sprite168 at depth2, whose shape167 is48px square and animates to about
 62px. A single square/topology match cannot own both. New default-off
 NativeMarkerChildren associates centered child draws at60..90% of a recognized
-marker rectangle, with2mscreen-fraction thousandths center tolerance, current or
+marker rectangle, with0.002 normalized-coordinate center tolerance, current or
 previous frame only; requires minimum1% extent and near-square bounds. Content
 identity is retained in a bounded64-entry cache (2400-frame expiry), cleared on
 resource/load reset and toggle, so movement need not relearn it. Menus excluded.
