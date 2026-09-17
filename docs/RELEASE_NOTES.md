@@ -1,11 +1,10 @@
 ## Unreleased
 
-### Saved reading attachment (calibration pending)
+### Reading tilt
 
-- F10 HUD > Notes and journal on the hand can capture a comfortable left-hand
-  grip after five seconds, then reuse that attachment for notes, books and journal.
-- Shared attachment angle saves automatically; per-panel vertical offsets join
-  the existing horizontal/depth controls. Disable saved grip for the old behavior.
+- One live, saved reading tilt slider for notes, books and journal in F10 HUD.
+  Adjusts pitch around the existing attachment center. Default0 preserves the
+  accepted hand attachment. Replaces the unaccepted calibration controls.
 
 ### Controller emulation (headset test pending)
 

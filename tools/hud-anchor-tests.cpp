@@ -184,17 +184,12 @@ int main() {
         p.reset();check(p.orient(next,initial,q) && fabsf(q[3]-1)<.0001f,"reopening recaptures initial pose");
     }
     {
-        const float initial[4]={0,0,0,1},firstGrip[4]={.70710678f,0,0,.70710678f};
-        float a[4],b[4];GripPanel captured,reloaded;
-        check(captured.orient(firstGrip,initial,a),"capture comfortable hand orientation");
-        check(reloaded.load(captured.relative),"load saved relative grip");
-        const float differentOpening[4]={0,.70710678f,0,.70710678f};
-        check(reloaded.orient(firstGrip,differentOpening,b),"reopen saved attachment with different gaze");
-        for(int k=0;k<4;++k)check(fabsf(a[k]-b[k])<.0001f,"saved grip ignores reopening camera");
-        const float otherGrip[4]={0,0,0,1};
-        check(reloaded.orient(otherGrip,differentOpening,b) && fabsf(b[0]+.70710678f)<.0001f,"saved page rotates with hand");
-        const float invalid[4]={0,0,0,0};check(!reloaded.load(invalid),"reject zero saved rotation");
-        check(reloaded.valid && fabsf(reloaded.relative[0]+.70710678f)<.0001f,"bad calibration preserves prior attachment");
+        const float identity[]={0,0,0,1},yaw[]={0,.70710678f,0,.70710678f};float out[4];
+        reading_tilt(yaw,0,out);
+        for(int k=0;k<4;++k)check(fabsf(out[k]-yaw[k])<.0001f,"zero tilt retains existing attachment");
+        reading_tilt(identity,90,out);check(fabsf(out[0]-.70710678f)<.0001f && !out[1] && !out[2],"slider changes only pitch");
+        reading_tilt(identity,-90,out);check(fabsf(out[0]+.70710678f)<.0001f,"negative tilt reverses pitch");
+        reading_tilt(yaw,90,out);check(fabsf(out[0]-.5f)<.0001f && fabsf(out[1]-.5f)<.0001f && fabsf(out[2]+.5f)<.0001f,"tilt is local to attached page");
     }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;

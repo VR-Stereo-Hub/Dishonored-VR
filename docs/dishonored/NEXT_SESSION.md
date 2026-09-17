@@ -1,3 +1,18 @@
+## Current: single reading tilt slider (2026-09-17)
+
+User replaced calibration request with one rotation axis; existing attachment
+is satisfactory. Remove calibration/timer/quaternion configuration UI and path.
+Retain419 opening/hand-follow attachment, with shared ReadingTilt in degrees
+(default0, range-180..180) for notes/books/journal. F10 HUD > Notes and journal
+on the hand exposes only Reading tilt, saves live. Rotation is local pitch
+around the existing panel center; hand-relative center and all position offsets
+remain unchanged. Retain per-panel width/right/up/depth controls. Old calibration
+keys ignored. Three-axis draft never built or installed. No guessed comfortable
+pose.469 anchor tests pass, including identity at0 and signed local pitch.
+Build/install follows. One launch question: does Reading tilt adjust the book
+angle without moving its attachment point? Yes supports center-preserving tilt;
+position movement or extra rotation means the placement composition is wrong.
+
 ## Current: saved reading attachment after accepted419 (2026-09-17)
 
 419 controller changes headset-accepted. Verified DLL/banner and archived both

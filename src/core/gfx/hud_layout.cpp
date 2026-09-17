@@ -120,10 +120,8 @@ AlphaCfg& g_alpha=g_alphaBank.general;
 const char* kScopedAlpha[5]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha","WheelPartsAlpha"};
 bool g_readHand[2]={false,false};
 dvr::hudanchor::OpeningOrientation g_readOpening;
-dvr::hudanchor::GripPanel g_readGrip,g_readSavedGrip;
-bool g_readUseSaved=true;
-uint64_t g_readCalibrateAt=0;
-const char* g_readCalibrationStatus="No saved grip yet. Calibrate with your hand in its comfortable reading position.";
+dvr::hudanchor::GripPanel g_readGrip;
+float g_readTilt=0;
 float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
 bool g_visualRiding=false;
@@ -176,31 +174,8 @@ bool read_s(const char* ini, const char* key, char* out, size_t n) {
     return out[0] != 0;
 }
 
-void save_read_grip() {
-    write_i("ReadingSavedGrip",g_readUseSaved);
-    write_i("ReadingGripValid",g_readSavedGrip.valid);
-    const char* keys[]={"ReadingGripQx","ReadingGripQy","ReadingGripQz","ReadingGripQw"};
-    for(int i=0;i<4;++i){char b[32];_snprintf(b,sizeof(b),"%.7f",g_readSavedGrip.relative[i]);write_key(keys[i],b);}
-}
-void calibrate_read_grip() {
-    if(!g_readCalibrateAt || GetTickCount64()<g_readCalibrateAt)return;
-    float hp[3],hq[4],out[4];dvr::vr::HeadPose head{};
-    dvr::hudanchor::OpeningOrientation facing;dvr::hudanchor::GripPanel candidate;
-    if(dvr::vr::input_get_hand_pose(0,false,hp,hq) && dvr::vr::peek_head_pose(head)) {
-        const float camera[4]={head.qx,head.qy,head.qz,head.qw};
-        if(facing.capture(camera) && candidate.orient(hq,facing.q,out)) {
-            g_readSavedGrip=candidate;g_readUseSaved=true;save_read_grip();g_readCalibrateAt=0;
-            g_readCalibrationStatus="Saved for notes, books and journal. Recalibrate here whenever needed.";
-            DVR_INFO("hud/reading-grip: saved relative=%.7f/%.7f/%.7f/%.7f grip=%.4f/%.4f/%.4f/%.4f head=%.4f/%.4f/%.4f/%.4f",
-                candidate.relative[0],candidate.relative[1],candidate.relative[2],candidate.relative[3],
-                hq[0],hq[1],hq[2],hq[3],camera[0],camera[1],camera[2],camera[3]);
-            return;
-        }
-    }
-    if(GetTickCount64()>g_readCalibrateAt+3000) {
-        g_readCalibrateAt=0;g_readCalibrationStatus="Capture failed: left hand or head not tracked. Previous grip retained.";
-        DVR_WARN("hud/reading-grip: calibration refused, no valid tracked head/left grip; old attachment retained");
-    }
+void save_read_rotation() {
+    write_f("ReadingTilt",g_readTilt);
 }
 
 inline bool measured(int e) { return hudroute::row_measured(g_rows[e]); }
@@ -800,7 +775,6 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
 
 int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
     ++g_presentNo;
-    calibrate_read_grip();
     int n = 0;
     if(native_gameplay_reference()) return 0; // no delayed panel can overlap the reference
     // The measured elements: one isolated full-texture quad each, preserving
@@ -885,17 +859,22 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         place(d, e, a, whole, aspect, true);
         const int readPanel=e==ElNote?0:e==ElJournal?1:-1;
         if(readPanel>=0 && g_readHand[readPanel]) {
-            float hp[3],hq[4]; dvr::vr::HeadPose head{};
+            float hp[3],hq[4];dvr::vr::HeadPose head{};
             if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) || !dvr::vr::peek_head_pose(head)) {--n;continue;}
             const float camera[4]={head.qx,head.qy,head.qz,head.qw};
             d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
-            if(!g_readOpening.capture_upright(camera) && !(g_readUseSaved && g_readSavedGrip.valid)) {--n;continue;}
+            if(!g_readOpening.capture_upright(camera)) {--n;continue;}
             d.orient=dvr::vr::HudOrient::OpeningPlane;
-            auto& grip=(g_readUseSaved && g_readSavedGrip.valid) ? g_readSavedGrip : g_readGrip;
-            if(!grip.orient(hq,g_readOpening.q,d.orientation)) {--n;continue;}
-            dvr::hudanchor::camera_panel_position(hp,d.orientation,g_readDistance[readPanel],d.base);
+            float attached[4];
+            if(!g_readGrip.orient(hq,g_readOpening.q,attached)) {--n;continue;}
+            dvr::hudanchor::reading_tilt(attached,g_readTilt,d.orientation);
+            // Tilt around the existing panel center; keep its position unchanged.
+            dvr::hudanchor::camera_panel_position(hp,attached,g_readDistance[readPanel],d.base);
+            const float offset[3]={g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
+            dvr::xrmath::quat_rotate(attached[0],attached[1],attached[2],attached[3],offset,worldOffset);
+            for(int k=0;k<3;++k)d.base[k]+=worldOffset[k];
             d.width=g_readWidth[readPanel];d.height=0;
-            d.planeOff[0]=g_readRight[readPanel];d.planeOff[1]=g_readUp[readPanel];
+            d.planeOff[0]=d.planeOff[1]=0;
         }
         if (e == ElWheel && g_dialOn) {
             if (!g_dialVisual.valid) { --n; continue; }
@@ -1087,12 +1066,8 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);g_readDistance[i]=fminf(.5f,fmaxf(-.3f,read_f(ini,key,-.05f)));
         _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);g_readRight[i]=fminf(.75f,fmaxf(-.75f,read_f(ini,key,.20f)));
     }
-    g_readUseSaved=read_i(ini,"ReadingSavedGrip",1)!=0;g_readSavedGrip.reset();g_readCalibrateAt=0;
-    const float savedGrip[]={read_f(ini,"ReadingGripQx",0),read_f(ini,"ReadingGripQy",0),
-        read_f(ini,"ReadingGripQz",0),read_f(ini,"ReadingGripQw",1)};
-    if(read_i(ini,"ReadingGripValid",0) && g_readSavedGrip.load(savedGrip))
-        g_readCalibrationStatus="Saved grip loaded for notes, books and journal.";
-    else g_readCalibrationStatus="No valid saved grip. Calibrate with your hand in its comfortable reading position.";
+    const float readingTilt=read_f(ini,"ReadingTilt",0);
+    g_readTilt=std::isfinite(readingTilt)?fmaxf(-180.f,fminf(180.f,readingTilt)):0;
     for(int i=0;i<2;++i){char key[64];_snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);
         const float up=read_f(ini,key,0);g_readUp[i]=std::isfinite(up)?fmaxf(-.75f,fminf(.75f,up)):0;}
 
@@ -1178,7 +1153,7 @@ void save(const char* ini) {
         _snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);write_f(key,g_readUp[i]);
     }
 
-    save_read_grip();
+    save_read_rotation();
     set_backdrop(0, g_backdrop[0], "save");
     set_backdrop(1, g_backdrop[1], "save");
     for(int i=0;i<kMenuContexts;++i) {
@@ -1541,19 +1516,8 @@ void draw_ui() {
         ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
     }
     if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
-        ImGui::TextWrapped("Notes, books and journal share a saved attachment angle. Calibrate once with your left hand comfortably raised and look at where the page should face. Then it follows your hand without recapturing a new angle on every opening.");
-        if(ImGui::Checkbox("Use saved reading grip",&g_readUseSaved))save_read_grip();
-        if(ImGui::Button("Calibrate comfortable grip in 5 seconds")) {
-            g_readCalibrateAt=GetTickCount64()+5000;
-            g_readCalibrationStatus="Capture scheduled. Close F10, hold your left hand comfortably and look toward the page.";
-        }
-        if(g_readCalibrateAt) {
-            const uint64_t now=GetTickCount64();
-            ImGui::Text("Capture in %.1f seconds",g_readCalibrateAt>now ? (g_readCalibrateAt-now)/1000.0 : 0.0);
-            if(ImGui::Button("Cancel grip capture")){g_readCalibrateAt=0;g_readCalibrationStatus="Capture canceled. Previous attachment retained.";}
-        }
-        ImGui::TextWrapped("%s",g_readCalibrationStatus);
-        ImGui::TextWrapped("Capture saves automatically and applies to both reading panels. Size and offsets below remain independent. Disable saved grip to restore the previous opening-angle behavior.");
+        ImGui::TextWrapped("Tilt notes, books and journal around their existing hand attachment. Changes apply and save immediately.");
+        if(ImGui::SliderFloat("Reading tilt (degrees)",&g_readTilt,-180.f,180.f,"%.0f"))save_read_rotation();
         for(int i=0;i<2;++i) {
             ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
             bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);
