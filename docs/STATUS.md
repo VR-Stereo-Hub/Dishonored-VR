@@ -19,7 +19,13 @@ retain continuous right-stick vertical input after menu shaping. Horizontal
 menu shaping, wheel input and modifier ownership retain precedence.
 
 196 host checks (removed grip tests, added cross-hand/lean/menu axis checks),
-default writer/package/golden byte parity pass. Build/install follows.
+default writer/package/golden byte parity pass.
+Installed vr33-hands-working-419-g1f10404e6 from clean source1f10404e6.
+Release/9 exports/lint pass;196 controller checks and default-profile parity pass.
+Both logs/full prior DLL/INI archived in
+build/playtest-candidates/installs/20260917-104459-011878. Entire installed INI
+byte-identical to latest save; zero settings changes. DLL/INI hashes and CRLF
+independently verified. Headset result pending; source local, no new PR/merge.
 Ticket publication was explicitly requested, but automatic review rejected even
 the minimal summary to Linear; exact-text approval question pending. No issue ID.
 One launch question: in the journal powers menu, does the right stick now scroll

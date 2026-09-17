@@ -105,3 +105,10 @@ pad/axes includes context, physical right stick and final left/right axes.
 legacy grip migration, native face mapping, Y routing priorities and final menu
 scroll policy. Count is lower than417 because obsolete grip combinations were
 removed. Default writer/package/golden parity passes. Headset test pending.
+
+Installed vr33-hands-working-419-g1f10404e6 from clean source1f10404e6.
+Release/9 exports/lint pass;196 controller checks and default-profile parity pass.
+Both logs/full prior DLL/INI archived in
+build/playtest-candidates/installs/20260917-104459-011878. Entire installed INI
+byte-identical to latest save; zero settings changes. DLL/INI hashes and CRLF
+independently verified. Headset result pending; source local, no new PR/merge.
