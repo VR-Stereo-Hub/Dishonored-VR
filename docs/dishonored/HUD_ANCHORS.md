@@ -23,6 +23,17 @@ To measure and name one more element (the eight unmeasured rows, or a new one):
 
 ## VR-129: orientation, wheel close and actual HUD assets (2026-09-16)
 
+Installed395 (`vr33-hands-working-395-g6ccc5b079`), clean source6ccc5b079.
+Candidate build/playtest-candidates/vr129-hud-fixes. Both logs, prior DLL and full
+INI archived at build/playtest-candidates/installs/20260916-194857-316504.
+Full INI diff: only NativeObjectiveUpright=1 and WheelCloseAnimation=1 added.
+All existing values preserved; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `17a2f4b476f3de0496ee7f378e38f2e7e76fefe442cb8ab2b43b5065067bfc1b`.
+Release build,9 exports,32 native HUD/45 menu host checks, default profile parity,
+lint and full diff checks pass. Offline asset export helper executed successfully.
+No game/simulator launch. Current log remains391;395 headset verification pending.
+Local branch only; no push/PR/merge. First test is objective upright during head tilt.
+
 Installed391 verified/archived at vr129-hud-fixes/reported391 with unchanged INI.
 Objective icon tracking was accepted, but artwork rotates with the head. The current
 trial interprets this as head roll; gaze-position drift would require separate work.
@@ -71,7 +82,7 @@ potion and shortcut input; no new auxiliary panel behavior is included yet.
 
 Validation:32 native HUD checks (basis, preserved center/depth, constant restore,
 invalid perspective refusal);45 menu checks (250ms independent of FPS, native
-closing, delayed presents, immediate new-menu replacement). Clean candidate pending.
+closing, delayed presents, immediate new-menu replacement). Clean candidate installed; headset pending.
 
 ## Current:389 feedback and menu exit handoff (2026-09-16)
 

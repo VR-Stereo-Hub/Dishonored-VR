@@ -1,5 +1,16 @@
 ## Current: VR-129 objective orientation and wheel close (2026-09-16)
 
+Installed395 (`vr33-hands-working-395-g6ccc5b079`), clean source6ccc5b079.
+Candidate build/playtest-candidates/vr129-hud-fixes. Both logs, prior DLL and full
+INI archived at build/playtest-candidates/installs/20260916-194857-316504.
+Full INI diff: only NativeObjectiveUpright=1 and WheelCloseAnimation=1 added.
+All existing values preserved; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `17a2f4b476f3de0496ee7f378e38f2e7e76fefe442cb8ab2b43b5065067bfc1b`.
+Release build,9 exports,32 native HUD/45 menu host checks, default profile parity,
+lint and full diff checks pass. Offline asset export helper executed successfully.
+No game/simulator launch. Current log remains391;395 headset verification pending.
+Local branch only; no push/PR/merge. First test is objective upright during head tilt.
+
 Branch codex/vr-129-hud-fixes from merged PR70/main8c334aa14. Ticket VR-129.
 Verified installed391 DLL/hash/banner; both logs and unchanged full INI archived
 at build/playtest-candidates/vr129-hud-fixes/reported391. No new merge authorized.
@@ -20,7 +31,7 @@ in ignored build/hud-assets. Static authoring preview is not a populated runtime
 layout. See newest HUD_ANCHORS/ENGINE_NOTES/FLICKER_REFERENCE entries.
 
 32 native HUD and45 menu host checks pass; development release compiles. Clean
-candidate installation pending. Preserve accepted391 settings, CRLF, image-owned
+candidate installation verified. Preserve accepted391 settings, CRLF, image-owned
 orientation, pair sync and hand correction. No game/simulator/subagents.
 ONE next question: while viewing a learned objective, does tilting the head sideways
 leave the marker upright and fixed on its target? Upright supports the candidate;
