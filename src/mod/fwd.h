@@ -234,6 +234,7 @@ static bool CineBordersEnabled();
 static void CineBordersSet(bool on);
 static void CineBordersConfigure(const char* ini);
 static void CineBordersApply();
+static void ObjectiveMarkersApply();
 static bool IsLiveObject(uint8_t* p);
 static bool LooksLikeObject(uint8_t* o);
 static bool GraphInteresting(const char* c);

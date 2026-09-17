@@ -1,5 +1,12 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## VR-129 native marker boundary trial (2026-09-16)
+
+Surface: objective HUD ownership, following the existing build399 routing row.
+Task-only parent inset candidate leaves camera, stereo, image orientation, hands
+and menu lifecycle unchanged. Whole icon/text D3D ownership remains unproven;
+see ENGINE_NOTES native task-parent derivation. No visual acceptance claimed.
+
 ## VR-129: build399 accepted parts, remaining objective transfer (2026-09-16)
 
 Verified399 DLL/hash/banner, logs and saved INI archived at

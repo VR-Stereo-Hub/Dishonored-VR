@@ -1,3 +1,45 @@
+## VR-129: native task-parent boundary candidate (2026-09-16)
+
+Derived from the unique task constructor using _icon_mc/_description_mc, not a
+shape guess. Constructor VA0xBCE490 installs vtable0x11635A8; slot+0x14 is
+VA0xBC57F0. Its base placement call at0xBC5865 targets0xBBD430 (return0xBC586A).
+Both task update and base placement return24 bytes: six stack arguments. Native
+base uses first two floats as parent X/Y and sixth word for visibility; remaining
+arguments are forwarded bit-for-bit. Task update separately computes arrow angle
+when flag8 is set, updates icon scale/alpha, distance string and description
+visibility. Hooking only the task-to-base call preserves those child calculations.
+The five-byte call and nine-byte callee prolog are checked before installation.
+
+Constructor derives marker+8 from first argument and marker+0x10 from the native
+movie parameters. The task arrow-angle code converts parameter+0x14/+0x18 from
+integers to center coordinates. Candidate requires a current IsLiveObject owner,
+readable borrowed parameters and bounded dimensions before changing call arguments.
+Live table refreshes on load/menu epoch and retries unknown owners at most once/s.
+No native marker pointer or engine field write is retained. Native marker identity
+is validated by the specific caller and expected task vtable; it is not a UObject.
+
+NativeTaskMarkers (default0, installed trial1) enables a live offscreen parent
+inset. TaskMarkerEdgeInset defaults0.12, range0.05..0.30, exposed as percentage in
+F10 HUD > Objectives. Visible offscreen flag9 keeps its center-to-marker direction
+while clamping to the chosen inset rectangle. On-screen positions, flags, distance
+and opaque arguments remain native. Menu, session-loss, disabled and invalid-owner
+paths forward unchanged. Native child rotation sees the original coordinates.
+
+This is the first perceptual test of the native boundary, not completed semantic
+D3D draw ownership. The old icon classifier recognizes both its previous5% edge
+and the candidate inset. Text proximity remains and can still miss. A parent update
+is not a synchronous draw scope: do not use a thread-local flag here to classify
+later buffered Scaleform draws. Next: prove this boundary visibly moves the whole
+native marker, then connect its live parent/child identity to render ownership.
+
+7799 host checks cover the production wrapper forwarding, call fingerprint refusal,
+ray-preserving inset across angles/aspects, native fallbacks and new edge learning.
+44 native HUD checks pass. Ten offline executable checks verify call/callee, ret24,
+constructor/vtable and parameter dimension operands. No game/simulator launch.
+Installed401 DLL and banner verified before replacement; full saved INI hash is
+9c429cb77e9bc730d696357b46ed7640f5d6a4f33b8a25f25084ae8fe91a68af, newer than the
+historical install-time INI hash. Preserve these latest saved values.
+
 ## VR-129: objective script ownership review (2026-09-16)
 
 Offline review of UnrealScript declarations, UI_HUD_SF ActionScript/XML and the

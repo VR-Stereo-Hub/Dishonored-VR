@@ -1,4 +1,5 @@
 #include "hud_menu_lifecycle.h"
+#include "game/dishonored/objective_marker_policy.h"
 #include "hud_wheel_parts.h"
 // core/gfx/hud_layout.cpp - see hud_layout.h.
 #define DVR_CAT ::dvr::log::Cat::hud
@@ -629,7 +630,8 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
         // cache, otherwise title and action can stay split for their lifetime.
         const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
         const bool nativeIcon=g_nativeObjectives &&
-            g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives);
+            g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives,
+                dvr::objectivemarkers::enabled()?dvr::objectivemarkers::inset():.05f);
         if(nativeIcon) g_nativeLabels.marker(bbox,drawFrame);
         float labelPivot[4]{};
         const bool nativeLabel=g_nativeObjectives && g_nativeObjectiveLabels && !nativeIcon &&
@@ -980,6 +982,7 @@ void configure(const char* ini) {
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
     g_menuExitHeading.store(read_i(ini,"MenuExitHeading",0)!=0);
     g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
+    dvr::objectivemarkers::configure(read_i(ini,"NativeTaskMarkers",0)!=0,read_f(ini,"TaskMarkerEdgeInset",.12f));
     g_nativeObjectiveLabels=read_i(ini,"NativeObjectiveLabels",0)!=0;
     g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
@@ -1066,6 +1069,7 @@ void save(const char* ini) {
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
     write_i("MenuExitHeading",g_menuExitHeading.load());
+    write_i("NativeTaskMarkers",dvr::objectivemarkers::enabled());write_f("TaskMarkerEdgeInset",dvr::objectivemarkers::inset());
     write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
     write_i("NativeGameplayReference",g_nativeGameplayReference);
@@ -1383,6 +1387,15 @@ void draw_ui() {
         ImGui::TextWrapped("One shared alpha profile for notes, books and the journal.");
     }
     if(ImGui::CollapsingHeader("Objectives")) {
+        bool nativeTask=dvr::objectivemarkers::enabled();
+        float edgeInset=dvr::objectivemarkers::inset()*100.f;
+        const bool taskChange=ImGui::Checkbox("Native objective arrow boundary (test)",&nativeTask);
+        const bool insetChange=ImGui::SliderFloat("Offscreen arrow inset",&edgeInset,5.f,30.f,"%.0f%%");
+        if(taskChange || insetChange) {
+            dvr::objectivemarkers::configure(nativeTask,edgeInset*.01f);
+            write_i("NativeTaskMarkers",nativeTask);write_f("TaskMarkerEdgeInset",edgeInset*.01f);
+        }
+        ImGui::TextWrapped("Higher inset brings offscreen objective arrows toward the center. Applies on the next game update; on-screen target positions stay unchanged.");
         if(ImGui::Checkbox("Native gameplay HUD reference (test)",&g_nativeGameplayReference)) {
             dvr::hudcap::invalidate_content();
             write_i("NativeGameplayReference",g_nativeGameplayReference);

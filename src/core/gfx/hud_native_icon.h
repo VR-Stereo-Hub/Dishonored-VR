@@ -7,10 +7,10 @@ inline bool square_icon(const float* r,unsigned vertices,unsigned primitives) {
     const float w=r[2]-r[0],h=r[3]-r[1];
     return w>=.028f && w<=.065f && h>=.028f && h<=.065f && w/h>.85f && w/h<1.18f;
 }
-inline bool edge_icon(const float* r) {
+inline bool edge_icon(const float* r,float inset=.05f) {
     const float x=(r[0]+r[2])*.5f,y=(r[1]+r[3])*.5f;
-    return std::fabs(x-.05f)<.006f || std::fabs(x-.95f)<.006f ||
-           std::fabs(y-.05f)<.006f || std::fabs(y-.95f)<.006f;
+    return std::fabs(x-inset)<.006f || std::fabs(x-(1-inset))<.006f ||
+           std::fabs(y-inset)<.006f || std::fabs(y-(1-inset))<.006f;
 }
 // An edge-clamped sprite identifies a marker family. Keep that ownership as
 // identical content moves through the interaction region; position is not identity.
@@ -50,14 +50,14 @@ struct MarkerLabels {
 struct Markers {
     struct Entry {uint64_t key=0;uint32_t seen=0;} entries[64]{};
     void clear(){for(auto& e:entries)e=Entry{};}
-    bool observe(uint64_t key,uint32_t frame,const float* r,unsigned vertices,unsigned primitives) {
+    bool observe(uint64_t key,uint32_t frame,const float* r,unsigned vertices,unsigned primitives,float inset=.05f) {
         if(!key || !r) return false;
         Entry* oldest=&entries[0];
         for(auto& e:entries) {
             if(e.key==key && frame-e.seen<=2400){e.seen=frame;return true;}
             if(!e.key || frame-e.seen>frame-oldest->seen) oldest=&e;
         }
-        if(square_icon(r,vertices,primitives) && edge_icon(r)){*oldest={key,frame};return true;}
+        if(square_icon(r,vertices,primitives) && (edge_icon(r) || edge_icon(r,inset))){*oldest={key,frame};return true;}
         return false;
     }
 };

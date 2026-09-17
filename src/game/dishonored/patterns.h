@@ -192,6 +192,17 @@ static const uintptr_t kLetterboxAnyMask = 0x009ea130;
 static const uintptr_t kLetterboxQueryReturn = 0x00b9611c;
 static const uint32_t kLetterboxMask = 0x10;
 
+// VR-129: task subclass calls base parent placement before icon/text updates.
+// Derived via _description_mc references, ctor/vtable and update disassembly.
+static const uintptr_t kTaskParentCall=0x00bc5865;
+static const uintptr_t kTaskParentReturn=0x00bc586a;
+static const uintptr_t kTaskParentUpdate=0x00bbd430;
+static const uintptr_t kTaskMarkerVtable=0x011635a8;
+static const uint8_t kTaskParentCallBytes[5]={0xe8,0xc6,0x7b,0xff,0xff};
+static const uint8_t kTaskParentProlog[9]={0x55,0x8b,0xec,0x81,0xec,0xe8,0,0,0};
+static const uint32_t kTaskMarkerOwner=0x08,kTaskMarkerParams=0x10;
+static const uint32_t kTaskMarkerWidth=0x14,kTaskMarkerHeight=0x18;
+
 // ---- Import table slots ----
 static const uintptr_t kXIGetSlot = 0x00f946c4; // IAT slot: xinput1_3 ord 2
 static const uintptr_t kXISetSlot = 0x00f946c0; // IAT slot: xinput1_3 ord 3
