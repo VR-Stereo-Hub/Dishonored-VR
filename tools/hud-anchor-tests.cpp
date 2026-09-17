@@ -183,6 +183,19 @@ int main() {
         check(fabsf(pos[0]-.8f)<.0001f && fabsf(pos[2]-3)<.0001f,"page depth offset rotates rigidly with grip");
         p.reset();check(p.orient(next,initial,q) && fabsf(q[3]-1)<.0001f,"reopening recaptures initial pose");
     }
+    {
+        const float initial[4]={0,0,0,1},firstGrip[4]={.70710678f,0,0,.70710678f};
+        float a[4],b[4];GripPanel captured,reloaded;
+        check(captured.orient(firstGrip,initial,a),"capture comfortable hand orientation");
+        check(reloaded.load(captured.relative),"load saved relative grip");
+        const float differentOpening[4]={0,.70710678f,0,.70710678f};
+        check(reloaded.orient(firstGrip,differentOpening,b),"reopen saved attachment with different gaze");
+        for(int k=0;k<4;++k)check(fabsf(a[k]-b[k])<.0001f,"saved grip ignores reopening camera");
+        const float otherGrip[4]={0,0,0,1};
+        check(reloaded.orient(otherGrip,differentOpening,b) && fabsf(b[0]+.70710678f)<.0001f,"saved page rotates with hand");
+        const float invalid[4]={0,0,0,0};check(!reloaded.load(invalid),"reject zero saved rotation");
+        check(reloaded.valid && fabsf(reloaded.relative[0]+.70710678f)<.0001f,"bad calibration preserves prior attachment");
+    }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;
 }

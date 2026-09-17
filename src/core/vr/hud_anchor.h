@@ -119,6 +119,13 @@ inline bool billboard_degenerate(const float toHead[3], float minRight = 0.2f) {
 struct GripPanel {
     bool valid=false;float relative[4]={0,0,0,1};
     void reset(){valid=false;}
+    bool load(const float q[4]) {
+        float norm=0;
+        for(int k=0;k<4;++k){if(!std::isfinite(q[k]))return false;norm+=q[k]*q[k];}
+        if(norm<.5f || norm>1.5f)return false;
+        for(int k=0;k<4;++k)relative[k]=q[k]/std::sqrt(norm);
+        valid=true;return true;
+    }
     bool orient(const float grip[4],const float initial[4],float out[4]) {
         float norm=0;for(int i=0;i<4;++i){if(!std::isfinite(grip[i])) return false;norm+=grip[i]*grip[i];}
         if(norm<.5f || norm>1.5f) return false;

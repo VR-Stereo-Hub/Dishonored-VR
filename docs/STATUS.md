@@ -1,3 +1,30 @@
+## Current: saved reading attachment after accepted419 (2026-09-17)
+
+419 controller changes headset-accepted. Verified DLL/banner and archived both
+logs/latest profile in controller-cross-hand/accepted419. User ended the run
+with a comfortable book pose and requested a persistent default attachment.
+The log does not contain the complete reading grip quaternion/relative pose;
+scalar hand-angle/depth diagnostics cannot reconstruct it. No pose was invented.
+
+Current readers recapture upright orientation relative to the entry grip on
+each menu opening. Add shared ReadingSavedGrip (default1), validated relative
+quaternion ReadingGripQx/Qy/Qz/Qw and ReadingGripValid (default0). Without valid
+calibration retain existing behavior; no arbitrary new angle is installed.
+F10 HUD > Notes and journal on the hand offers five-second calibration: close
+F10, hold left hand comfortably, look where the page should face. Capture stores
+inverse(grip)*head orientation, preserving offsets/size, applies to notes/books/
+journal and persists automatically. Three-second tracking retry then fail-soft;
+invalid capture retains prior saved grip. Toggle restores old per-opening mode.
+New NoteHandUp/JournalHandUp sliders complement existing right/depth offsets.
+No weapon-dial lifecycle, camera, image orientation or stereo policy changes.
+472 anchor checks pass, including saved reload, changed opening gaze, rotated
+hand, invalid quaternion refusal and preservation of previous calibration.
+Build/install follows. Exact user-preferred calibration remains to be captured.
+One launch question: after using the five-second capture in a comfortable pose,
+does reopening a book from a different wrist position preserve the same fit in
+your hand? Stable fit supports the saved relative transform; changed fit means
+an entry path still replaces it. Check hud/reading-grip and installed saved keys.
+
 ## Current: cross-hand controls and powers-menu scroll (2026-09-17)
 
 417 verified against installed manifest/hash/log, both logs/latest INI archived

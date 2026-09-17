@@ -1,5 +1,12 @@
 ## Unreleased
 
+### Saved reading attachment (calibration pending)
+
+- F10 HUD > Notes and journal on the hand can capture a comfortable left-hand
+  grip after five seconds, then reuse that attachment for notes, books and journal.
+- Shared attachment angle saves automatically; per-panel vertical offsets join
+  the existing horizontal/depth controls. Disable saved grip for the old behavior.
+
 ### Controller emulation (headset test pending)
 
 - Hold Y with the right stick for native lean; grips retain existing actions.
