@@ -20,6 +20,10 @@ inline bool rune_symbol(const wchar_t* text,int count) {
     return true;
 }
 bool rune_enabled();
+bool rune_ownership();
+void configure_rune_ownership(bool on);
+bool match_rune_draw(const float* rect,float targetW,float targetH,float* pivot);
+void clear_rune_positions();
 float rune_inset();
 void configure_runes(bool on,float margin);
 bool enabled();

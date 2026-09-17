@@ -1,3 +1,60 @@
+## VR-131: clean-install startup suppression owned by proxy (2026-09-17)
+
+The previous successful launch relied on manual game-INI changes, not automatic
+proxy behavior. New LaunchArgsInstall unconditionally seeds -nostartupmovies
+before reading its optional launch file. Existing ANSI/Unicode GetCommandLine
+IAT hooks deliver it before the engine starts movies. No prior mod INI is needed;
+missing [Startup] SkipMovies defaults1. Explicit0 opts out on first lazy config
+read. Resolution0 and missing Screen settings retain startup suppression. Disabled
+proxy does not install the hook. No movie asset or game config is modified by it.
+
+Offline executable derivation: UTF16 nostartupmovies string RVA0xBC9B50 referenced
+at0x0E7065; code at0x0E7040 reads FullScreenMovie.bForceNoStartupMovies, parses
+that command-line flag, ORs results at0x0E7078, and branches past startup playback
+at0x0E707B to0x0E70F9. This is startup-only, not nomovies. No new memory hook or
+address constant is required.9 extracted production command-line tests pass with
+fresh absent INI, absent keys, zero/custom size, ANSI/Unicode and explicit optout.
+This verifies the generated launch path offline; next real launch remains the
+integration check. Prior manual game-INI overrides are restored tofalse with full
+backups/diffs so they cannot mask the proxy result. No game/simulator launched.
+
+## VR-129/VR-87: build409 report and live rune positions (2026-09-17)
+
+Verified409 DLL/banner, both logs and current full INI archived in
+build/playtest-candidates/vr129-rune-inner-artwork/reported409. Inner artwork
+partly improved, but title/distance/locator transfer and cold-start full-window
+routing remain. Edge learning and previous-frame icon proximity do not provide
+startup ownership; child-only expansion was insufficient. Do not call409 fixed.
+
+New default-off NativeRuneOwnership publishes numeric positions from the
+verified rune-symbol native parent callback after the inset, independent of
+edge observations.32 bounded entries,100ms expiry, explicit withdrawal on hidden
+or invalid input, load/menu epoch clearing. A mutex transfers snapshots between
+script/render lanes. Tokens are numeric matching keys only; no native or UObject
+pointer is later dereferenced. Live owner validation remains in MarkerInputs.
+Native center mapped through Scaleform's aspect-fit authoring canvas; recorded409
+steady native761.02/402.74 on1280x720 at3012x3122 yields.59455/.53221, matching
+recorded inner bbox.580/.518/.608/.545 and description.526/.488/.661/.526.
+
+Flash bounds:40px art,48..62px pulse,64px locator; description centered31.65px
+above,172x50 background,600px text box,21px font plus shadow. The matcher uses
+bounded native-centered artwork/label regions with a12px phase/shadow allowance.
+It routes matching draws and scales them about one current native parent, before
+legacy routing. This is still spatial draw association, not a proven GFx draw
+instance tag; overlapping HUD and fast movement remain perceptual risks. Menus
+excluded; hidden/expired/ambiguous samples refuse. Old NativeMarkerChildren is
+OFF in the next candidate; objective-only path is unchanged.
+
+97 HUD checks include cold-start body/title routing, aspect mapping, hidden,
+stale, moved and reset snapshots plus the recorded409 rectangles.7814 native
+ABI/policy checks pass. Snapshot rectangles are no substitute for headset test.
+
+Camera: log has a single F10 EyeClamp request=0, consistent with reported relief.
+Saved INI lacks EyeClamp, so explicitly preserve0 on install. Remove the requested
+F10 capsule-limit checkbox, retain the established INI mechanism for reversibility.
+No neck tuning or camera-writer changes. Startup trigger remains unknown; result
+supports the cap diagnosis but does not establish clearance-safe behavior.
+
 ## VR-129/VR-87: build407 results and child-artwork candidate (2026-09-17)
 
 Verified407 DLL and log banner; both logs and full saved INI preserved at

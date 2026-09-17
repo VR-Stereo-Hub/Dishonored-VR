@@ -7,7 +7,7 @@
 #include <initializer_list>
 static unsigned checks=0;
 void check(bool yes,const char* why){++checks;if(!yes){printf("FAIL %s\n",why);exit(1);}}
-namespace dvr::objectivemarkers {bool runeActive=true;float runeMargin=.15f;bool rune_enabled(){return runeActive;}float rune_inset(){return runeMargin;}bool active=true;float margin=.12f;bool enabled(){return active;}float inset(){return margin;}}
+namespace dvr::objectivemarkers {bool rune_ownership(){return false;} void publish_rune(uintptr_t,float,float,int,int,uint32_t){} bool runeActive=true;float runeMargin=.15f;bool rune_enabled(){return runeActive;}float rune_inset(){return runeMargin;}bool active=true;float margin=.12f;bool enabled(){return active;}float inset(){return margin;}}
 namespace dvr::vr {bool live=true;bool session_live(){return live;}}
 namespace dvr::stereo {bool projection=true;bool wants_projection(){return projection;}}
 bool riding=false,g_gameExiting=false;bool UiSurfaceRidesHud(){return riding;}

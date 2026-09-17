@@ -1,3 +1,12 @@
+## Startup suppression now comes from the proxy (2026-09-17)
+
+The preceding manual configuration fix was not automatic on a clean install.
+Proxy launch hook now provides -nostartupmovies independently of game INIs or
+prior mod settings. [Startup] SkipMovies=0 opts out. Existing native executable
+check and9 clean-config host cases verified; actual new launch not yet run.
+Previous manual true overrides restored tofalse for unmasked integration test.
+Details in ENGINE_NOTES. No texture-pack or story/movie files changed.
+
 ## VR-131: startup logos restored by texture pack (2026-09-17)
 
 Both installed DefaultEngine.ini and user DishonoredEngine.ini had

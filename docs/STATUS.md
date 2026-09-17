@@ -1,3 +1,25 @@
+## Current: live rune ownership trial after409 (2026-09-17)
+
+Branch codex/objective-marker-fixes.409 verified and reported: rune title/distance/
+locator still change layers; whole group initially on window. Logs and full INI
+at build/playtest-candidates/vr129-rune-inner-artwork/reported409. New numeric
+native-parent snapshots bypass edge learning and use measured aspect-fit mapping
+for the whole bounded rune group; spatial association remains a candidate, not
+GFx draw identity. New NativeRuneOwnership ON, older NativeMarkerChildren OFF.
+Latest task/rune insets22% and native size0.330 retained with all saved settings.
+
+F10 capsule-limit checkbox removed; explicitly install EyeClamp=0 since the log
+records the successful off comparison but saved INI lacks the value. No neck or
+stereo changes. Intros now handled by proxy -nostartupmovies from its existing
+launch hook, default on even with absent INI. Prior manual game config changes
+are reverted tofalse to test the actual proxy policy. Details in ENGINE_NOTES,
+HUD_ANCHORS and FLICKER_REFERENCE.97 HUD,7814 ABI,9 startup host checks pass.
+Build/install identity follows after release validation; no game/simulator launch.
+One launch question: is the entire rune group native from first reveal and does
+it remain together through turns and edge transitions? Splitting falsifies
+coverage; unrelated HUD joining means false association. Keep objective settings.
+No PR/merge authorization; changes remain local.
+
 ## Current: rune inner-artwork candidate, pitch ceiling identified (2026-09-17)
 
 Continue codex/objective-marker-fixes.407 objectives accepted; rune inner image

@@ -1,3 +1,13 @@
+## Live rune-parent routing follow-up (2026-09-17)
+
+409 child-only association failed to keep title/distance/locator stable and did
+not cover first appearance. New NativeRuneOwnership uses validated native rune
+positions, canvas-to-target mapping and bounded group extents before old draw
+routing. F10 HUD > Objectives > Keep rune group native from first appearance
+(test). Candidate ON, missing-key default OFF; old child-only candidate OFF.
+See ENGINE_NOTES for recorded mapping, bounds, lifetime, tests and limitations.
+One question: entire rune group together from first reveal through turns/edges?
+
 ## VR-129: rune inner artwork follow-up (2026-09-17)
 
 Build407 objectives reported correct, rune inner texture still on window while

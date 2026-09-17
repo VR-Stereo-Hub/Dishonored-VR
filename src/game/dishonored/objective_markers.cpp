@@ -1,8 +1,21 @@
 // VR-129: task-only parent update call. Native code owns marker lifetime,
 // child direction, distance and visibility. No retained native marker pointers.
 #include "game/dishonored/objective_marker_policy.h"
+#include "core/gfx/hud_native_rune.h"
+#include <mutex>
 namespace dvr::objectivemarkers {
 namespace {std::atomic<bool> on{false},runes{false};std::atomic<float> margin{.12f},runeMargin{.12f};}
+namespace {std::atomic<bool> runeOwnership{false};std::mutex runeMutex;dvr::hudnative::RunePositions runePositions;}
+bool rune_ownership(){return runeOwnership.load();}
+void clear_rune_positions(){std::lock_guard<std::mutex> lock(runeMutex);runePositions.clear();}
+void configure_rune_ownership(bool active){runeOwnership.store(active);clear_rune_positions();}
+void publish_rune(uintptr_t token,float x,float y,int w,int h,uint32_t flags){
+    std::lock_guard<std::mutex> lock(runeMutex);runePositions.update(token,x,y,w,h,flags,GetTickCount());
+}
+bool match_rune_draw(const float* rect,float w,float h,float* pivot){
+    if(!runeOwnership.load() || !runes.load())return false;
+    std::lock_guard<std::mutex> lock(runeMutex);return runePositions.match(rect,GetTickCount(),w,h,pivot);
+}
 bool rune_enabled(){return runes.load();}
 float rune_inset(){return runeMargin.load();}
 void configure_runes(bool active,float value){runeMargin.store(std::isfinite(value)?fmaxf(.05f,fminf(.30f,value)):.12f);runes.store(active);}
@@ -27,6 +40,7 @@ bool MarkerInputs(void* marker,int& w,int& h,const char*& reason,uintptr_t vtabl
     if(g_taskLoad!=g_mkLoadEvents || g_taskEpoch!=epoch || (!IsLiveObject(owner) && now>=g_taskRefresh)) {
         g_taskRefresh=now+1000;
         if(!BuildLiveSet()) return false;
+        if(g_taskLoad!=g_mkLoadEvents || g_taskEpoch!=epoch)dvr::objectivemarkers::clear_rune_positions();
         g_taskLoad=g_mkLoadEvents;g_taskEpoch=epoch;
     }
     // Validate a current UObject owner, not its class spelling or pointer reuse.
@@ -81,6 +95,10 @@ __declspec(noinline) void __fastcall RuneParentStub(void* marker,void*,float x,f
         valid=RuneInputs(marker,w,h,reason);
         if(valid) moved=dvr::objectivemarkers::inset_position(x,y,w,h,flags,dvr::objectivemarkers::rune_inset());
         else ++g_runeRefused;
+    }
+    if(dvr::objectivemarkers::rune_ownership()) {
+        // Hidden, inactive and refused instances withdraw their previous sample.
+        dvr::objectivemarkers::publish_rune((uintptr_t)marker,x,y,w,h,valid?flags:0);
     }
     ++g_runeCalls;if(moved)++g_runeMoved;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);

@@ -1,3 +1,19 @@
+## Build409 result: rune routing and camera ceiling (2026-09-17)
+
+Verified409 report archived under vr129-rune-inner-artwork/reported409.
+Surface row: HUD ownership, not stereo flicker. Whole rune group initially
+captured; title/distance/locator still alternate layers. Retire child-only
+candidate from active configuration. New live-parent position routing and its
+limitations recorded in ENGINE_NOTES. Preserve image-owned orientation and pair
+synchronization. Next question: does the entire rune group remain native from
+first reveal through head turns and edge transitions? Reappearance on window
+falsifies the new coverage; unrelated HUD captured by it means false association.
+
+Adjacent smooth camera issue:409 logged EyeClamp request=0 and tester reported
+relief. Remove F10 capsule-limit checkbox by request and preserve EyeClamp=0 in
+installed profile. Do not misreport this as a new neck correction. Trigger still
+uncertain; capsule/vent clearance remains unverified. Existing INI lever retained.
+
 ## VR-129 rune ownership and VR-87 pitch-height report (2026-09-17)
 
 Surface routing: rune inner artwork on another HUD plane is HUD ownership;

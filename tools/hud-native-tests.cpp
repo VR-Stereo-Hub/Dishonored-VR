@@ -1,7 +1,9 @@
 #include "core/gfx/hud_native_icon.h"
+#include "core/gfx/hud_native_rune.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 struct IDirect3DDevice9{};
 using HRESULT=int;
 #define FAILED(x) ((x)<0)
@@ -30,6 +32,32 @@ struct Probe{bool ok=true,transformed=false;float bbox[4]={.7f,.4f,.74f,.44f};fl
 static unsigned checks=0;
 static void check(bool yes,const char* why){++checks;if(!yes){printf("FAIL %s\n",why);exit(1);}}
 int main(){
+ dvr::hudnative::RunePositions runes;float rp[4];
+ for(float aspect:{1.f,16.f/9,2.f}) {
+  const float tw=1000*aspect,th=1000,sc=std::fmin(tw/1280,th/720),sx=sc/tw,sy=sc/th;
+  runes.clear();runes.update(1,900,350,1280,720,1,100);
+  const float x=.5f+260*sx,y=.5f-10*sy;
+  for(float size:{40.f,48.f,62.f,64.f}) {
+   float box[4]={x-size*.5f*sx,y-size*.5f*sy,x+size*.5f*sx,y+size*.5f*sy};
+   check(runes.match(box,100,tw,th,rp),"live rune body recognized without edge learning");
+   check(std::fabs(rp[0]-x)<.00001f && std::fabs(rp[1]-y)<.00001f,"all artwork shares native center");
+  }
+  float title[4]={x-86*sx,y-57*sy,x+86*sx,y-7*sy};
+  check(runes.match(title,100,tw,th,rp),"description before any icon matches current native parent");
+  check(!runes.match(title,201,tw,th,rp),"stale native snapshot refused");
+  runes.update(1,900,350,1280,720,0,101);
+  check(!runes.match(title,101,tw,th,rp),"hidden rune withdraws ownership");
+  runes.update(1,300,350,1280,720,1,102);
+  check(!runes.match(title,102,tw,th,rp),"previous position withdrawn when marker moves");
+  runes.clear();check(!runes.match(title,102,tw,th,rp),"level reset clears snapshots");
+ }
+ // Recorded409 steady sample: native761.02/402.74 -> artwork center .594/.5315.
+ runes.clear();runes.update(1,761.02f,402.74f,1280,720,3,500);
+ const float recorded[4]={.580f,.518f,.608f,.545f};
+ check(runes.match(recorded,500,3012,3122,rp),"recorded409 rune inner art matches native canvas mapping");
+ check(std::fabs(rp[0]-.594f)<.001f && std::fabs(rp[1]-.5315f)<.001f,"recorded rendered and native centers agree within rounding");
+ const float recordedTitle[4]={.526f,.488f,.661f,.526f};
+ check(runes.match(recordedTitle,500,3012,3122,rp),"recorded409 description matches same live parent without icon prerequisite");
  IDirect3DDevice9 dev;Probe p;
  shadow[6][0]=2;shadow[7][1]=-2;shadow[8][2]=1;shadow[9][0]=-1;shadow[9][1]=1;shadow[9][3]=1;
  memcpy(state,shadow,sizeof(state));
