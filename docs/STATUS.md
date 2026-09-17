@@ -21,9 +21,21 @@ arm only the installed candidate. Existing profile and stereo synchronization st
 Standalone:912 wrist/crop,101 HUD controls,44 native HUD,465 route,462 anchor and45
 menu checks pass; actual D3D11 WARP circle/hue/side-crop tests pass. Development
 release build succeeds after correcting an out-of-scope sink index; default
-writer/package/golden parity and lint pass. Final clean build/install pending.
+writer/package/golden parity and lint pass. Clean release build/install complete; identity below.
 Full wheel exit flash remains provisionally absent; rare one-frame zoom is OPEN
 with no identified image surface. No speculative camera/palette changes.
+
+Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.
+Release build and9 undecorated exports pass. Candidate:
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists.
+Both397 logs, prior DLL and full INI archived before install at
+build/playtest-candidates/installs/20260916-215151-048274.
+Full INI comparison: NativeGameplayReference1->0; add WheelSidePanels=1,
+RoundedWrist=1, RoundedWristDepth=0.350. No other byte changes. Installed DLL/INI
+hashes and CRLF verified. DLL SHA256
+`ecbb33f57672bc531140b7cff6a7461023c4bf10ec329f84f02d1a9a7b4921f7`.
+Current log remains397 until tester launch.399 has not been headset-tested.
+No game/simulator launched, no push/PR/merge; local commits only.
 
 ONE launch question: with the wheel open, are both side panels complete and on
 the window while the circular dial remains at its hand-origin position? Complete
