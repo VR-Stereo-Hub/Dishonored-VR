@@ -1,3 +1,34 @@
+## Current: native objective/rune boundary trial407 (2026-09-16)
+
+Branch codex/objective-marker-fixes, renamed by request. Installed clean source
+17ec5db4bc9932e072921cbf58a949a31115647d, build407-g17ec5db4b. DLL SHA256
+5b8bffd97393bbe8d621e145b6d80dbc4b8efe12ac10c4cdf4669ea890e82720.
+Native task and rune parent hooks each inset visible offscreen markers; native
+child direction, distance, visibility and Heart reveal logic stay engine-owned.
+F10 HUD > Objectives has separate native objective/rune toggles and inset sliders.
+Trial switches ON, both margins12%; repository missing-key fallbacks remain OFF.
+Current ownership heuristics remain; semantic parent-to-D3D draw ownership is not
+complete. Read ENGINE_NOTES top native task/rune derivations before continuing.
+
+7814 production wrapper/policy checks,44 existing native HUD checks,14 offline
+call/ABI/constructor checks, release build,9 exports and diff checks pass. No
+simulator/game launched.406 was installed but never launched; current log still
+belongs to verified accepted401, not407. Both logs, DLL and full INI archived at
+build/playtest-candidates/installs/20260916-232954-462421 before replacing406.
+Entire INI diff407: add NativeRuneMarkers=1 and RuneMarkerEdgeInset=0.120 only.
+Previous406 install added NativeTaskMarkers=1 and TaskMarkerEdgeInset=0.120 only;
+all accepted401 values retained. Installed DLL/INI hashes and CRLF verified.
+Candidate/manifest: build/playtest-candidates/vr129-native-rune-boundary.
+
+One launch question: do the objective and rune offscreen indicators move inward
+with their respective F10 inset slider while retaining direction and their artwork?
+Expected: parent artwork shifts together; on-screen target position stays native.
+Success validates both native boundaries before ownership replacement. No movement
+requires checking hook/owner/flag diagnostics; partial movement or wrong direction
+falsifies the assumed parent coverage. Read hud/task-parent and hud/rune-parent only
+after checking the407 banner. No claim of completed plane-switch or yaw fix.
+Local commits only; no new merge authorization. Preserve both logs before relaunch.
+
 ## Current: objective script review (2026-09-16)
 
 Local codex/vr-129-objective-review from merged PR71. Reviewed task/target and HUD
