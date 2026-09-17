@@ -76,6 +76,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
 // provider uses); and the ungated one for `dump hud [sink]`.
 ID3D11Texture2D* sink_texture(int sink, ID3D11DeviceContext* ctx);
 ID3D11Texture2D* panel_texture(int sink);
+ID3D11Texture2D* wheel_part_texture(int sink,int part);
 void note_marker(int sink,const float* rect);
 const dvr::hudmarker::Regions* marker_regions(int sink);
 

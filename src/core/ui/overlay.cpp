@@ -319,6 +319,15 @@ static void OverlayFrame()
     ImGui::EndTabItem(); }
 
     if (ImGui::BeginTabItem("Hands")) {
+    bool wristChanged=ImGui::Checkbox("Rounded wrist ends",&g_msRoundWrist);
+    wristChanged|=ImGui::SliderFloat("Wrist roundness",&g_msRoundDepth,.05f,.8f,"%.2f");
+    if(wristChanged) {
+        g_msReclassReq=1;
+        ConfigWriteKey("Hands","RoundedWrist",g_msRoundWrist?"1":"0","F10 Hands");
+        char amount[32];_snprintf(amount,sizeof(amount),"%.3f",g_msRoundDepth);
+        ConfigWriteKey("Hands","RoundedWristDepth",amount,"F10 Hands");
+    }
+    ImGui::TextDisabled("Rounds the cut boundary. Off restores flat wrist ends.");
     bool animBack = dvr::anim::enabled();
     if (ImGui::Checkbox("Game arms during scripted actions", &animBack)) dvr::anim::set_enabled(animBack);
     if(ImGui::Checkbox("Menu hand eye: recognize half-IPD steps",&g_mpEyeMenuHalfStep))

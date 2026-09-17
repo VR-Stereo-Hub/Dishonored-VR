@@ -1,5 +1,53 @@
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
+## VR-129: restore configured HUD and separate wheel side panels (2026-09-16)
+
+Build397 is now reported: verified DLL/hash/banner and unchanged full INI; both
+logs preserved at build/playtest-candidates/vr129-native-reference/reported397.
+NativeGameplayReference=1 ran for345 logged gameplay samples, with no toggle.
+The tester could not find the control and the native layout put HUD artwork at
+hard-to-see FOV edges. Objective head-coupled rotation was reported in this native
+path too. This weakens a capture-only explanation, but there was no matched A/B
+and no measured projection cause. Previous instructions omitted the HUD tab.
+Restore reference0; F10 > HUD now displays a conspicuous restore button whenever
+the comparison is enabled. Preserve the current native objective options.
+
+The requested D-pad shortcuts and potion controls are separate quads from the
+wheel capture. Two small D3D11 textures sample its SAME fenced delayed slot,
+before the main circle mask. The existing D3D9 capture and D3D11 read fence cover
+all three reads. No new engine object retention or memory writers. Same wheel
+visual lease governs visibility and exit; no change to the accepted dial origin,
+orientation, circle, closing animation, stereo poses or pair synchronization.
+
+- Optional [Hud] WheelSidePanels=0 by default; installed test arms1.
+- F10 > HUD > Weapon wheel side panels (expanded): enable toggle, D-pad shortcuts,
+  Health and mana. Independent anchor, Horizontal (m), Vertical (m), Size.
+- Element.wheelshortcuts and Element.wheelpotions use standard anchor/WinX/WinY/
+  WinScale and HandX/HandY/HandScale persistence. Initial window offsets are
+  -0.32/+0.32m horizontally and -0.22m vertically, widths0.23/0.28m.
+- General HUD alpha applies, independently of the dial's transparent settings.
+- Adjust captured area exposes WheelShortcuts.Crop0..3 and WheelPotions.Crop0..3:
+  left UV, right UV, bottom UV, height as fraction of image WIDTH. Defaults
+  (0.02,0.29,0.995,0.31) and (0.70,1.00,0.995,0.16) are candidate envelopes.
+  They preserve source pixel aspect at wide and square render sizes. These are
+  not measured runtime ownership rectangles; visual completeness remains open.
+
+Offline scripts locate shortcuts_mc (sprite166) and potions_mc (sprite180) in
+UI_PowerWheel_SF; both position from the bottom safe-area corners at runtime.
+Shortcuts scale90%; potions slide in from+150px on opening. Source cropping keeps
+runtime-loaded icons, counters and input symbols together. The expanded stage
+and safe-area formula mean fixed authored1280x720 letterboxing is insufficient.
+All exported assets/scripts remain ignored under build/hud-assets.
+
+Validation:101 controls,912 wrist/crop,44 native,465 route,462 anchor,45 menu host
+checks. Actual production shader on D3D11 WARP passes circle feather, hue, left/
+right source crops and identity restoration. Default profile byte parity passes.
+Final installed identity is recorded in STATUS/installed.json. No headset claim.
+ONE launch question: are both complete side panels on the window while the
+circular dial remains at its hand-origin position? Missing/clipped parts point
+to source bounds/ownership; panels moving with the dial point to placement.
+
+
 ## VR-129: build395 result and native reference comparison (2026-09-16)
 
 Installed397 (`vr33-hands-working-397-gd5f18400e`), clean sourced5f18400e.

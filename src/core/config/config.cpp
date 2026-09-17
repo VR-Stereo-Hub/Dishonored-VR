@@ -2055,6 +2055,8 @@ static void LoadConfig()
     // plane perpendicular to the forearm cuts it in a circle and moves smoothly.
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
+    g_msRoundWrist    = IniFloat(ini, "Hands", "RoundedWrist", 0) != 0.0f;
+    g_msRoundDepth    = fminf(.8f,fmaxf(.05f,IniFloat(ini,"Hands","RoundedWristDepth",.35f)));
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
     // VR-33 step 1. READ-ONLY, so it ships ON: it resolves engine names and
     // reports what it could not find, and writes nothing anywhere.
@@ -3164,6 +3166,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "WristScaleB", v, ini);
     WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "RoundedWrist", g_msRoundWrist ? "1" : "0", ini);
+    _snprintf(v,64,"%.3f",g_msRoundDepth);
+    WritePrivateProfileStringA("Hands", "RoundedWristDepth", v, ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
 #if DVR_WITH_LEGACY

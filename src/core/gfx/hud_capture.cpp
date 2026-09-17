@@ -43,6 +43,10 @@ struct Sink {
     int  cur = 0;
     ID3D11Texture2D*        outTex = nullptr;
     ID3D11RenderTargetView* outRtv = nullptr;
+    ID3D11Texture2D* partTex[2] = {};
+    ID3D11RenderTargetView* partRtv[2] = {};
+    uint32_t partW[2] = {},partH[2] = {};
+    bool partDelivered[2] = {};
     uint32_t slotW = 0, slotH = 0;
     bool     ready = false;          // slots + out texture are up at the current size
     bool     delivered = false;      // this present
@@ -75,7 +79,15 @@ long long qpc_freq() {
 }
 bool past_us(long long t0, long long us) { return (qpc_now() - t0) * 1000000 / qpc_freq() > us; }
 
+void release_parts(Sink& s) {
+    for(int p=0;p<2;++p) {
+        if(s.partRtv[p]) {s.partRtv[p]->Release();s.partRtv[p]=nullptr;}
+        if(s.partTex[p]) {s.partTex[p]->Release();s.partTex[p]=nullptr;}
+        s.partW[p]=s.partH[p]=0;s.partDelivered[p]=false;
+    }
+}
 void release_slots(Sink& s) {
+    release_parts(s);
     if (g_lastCtx) {
         ID3D11ShaderResourceView* nul = nullptr;
         g_lastCtx->PSSetShaderResources(0, 1, &nul);
@@ -360,6 +372,8 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         for (int i = 0; i < dvr::hudlayout::kMaxSinks; ++i) {
             Sink& s = g_sink[i];
             s.delivered = false;
+            s.partDelivered[0]=s.partDelivered[1]=false;
+            if(!dvr::hudlayout::wheel_parts_for_sink(i)) release_parts(s);
             const bool inUse = dvr::hudlayout::sink_in_use(i);
             anyInUse |= inUse;
             if (!inUse) {
@@ -415,6 +429,35 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 dvr::hudlayout::backdrop_for_sink(i, ap.backdrop);
                 dvr::hudlayout::circle_for_sink(i, s.slotW, s.slotH, ap.ellipse);
                 g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, &ap);
+                // Derive the small side panels from the SAME fenced delayed
+                // slot, before the wheel's circle mask. No extra D3D9 capture.
+                for(int part=0;part<2;++part) {
+                    dvr::gfx::AlphaParams side;
+                    if(!dvr::hudlayout::wheel_part_crop(i,part,s.slotW,s.slotH,side.sourceRect)) continue;
+                    const uint32_t pw=(uint32_t)ceilf((side.sourceRect[2]-side.sourceRect[0])*s.slotW);
+                    const uint32_t ph=(uint32_t)ceilf((side.sourceRect[3]-side.sourceRect[1])*s.slotH);
+                    if(!pw || !ph) continue;
+                    if(s.partW[part]!=pw || s.partH[part]!=ph) {
+                        if(s.partRtv[part]) {s.partRtv[part]->Release();s.partRtv[part]=nullptr;}
+                        if(s.partTex[part]) {s.partTex[part]->Release();s.partTex[part]=nullptr;}
+                        s.partW[part]=s.partH[part]=0;
+                        D3D11_TEXTURE2D_DESC td{};td.Width=pw;td.Height=ph;td.MipLevels=td.ArraySize=1;
+                        td.Format=DXGI_FORMAT_R8G8B8A8_UNORM;td.SampleDesc.Count=1;
+                        td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+                        if(FAILED(dev11->CreateTexture2D(&td,nullptr,&s.partTex[part])) ||
+                           FAILED(dev11->CreateRenderTargetView(s.partTex[part],nullptr,&s.partRtv[part]))) {
+                            if(s.partTex[part]) {s.partTex[part]->Release();s.partTex[part]=nullptr;}
+                            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,3000,"hud/wheel-parts: allocation failed for part %d %ux%u; main wheel retained",part,pw,ph);
+                            continue;
+                        }
+                        s.partW[part]=pw;s.partH[part]=ph;
+                        DVR_INFO("hud/wheel-parts: part=%d %ux%u source=%.3f/%.3f/%.3f/%.3f, same delayed slot as wheel",part,pw,ph,side.sourceRect[0],side.sourceRect[1],side.sourceRect[2],side.sourceRect[3]);
+                    }
+                    const auto general=dvr::hudlayout::alpha();
+                    side.mode=general.mode;side.gain=general.gain;side.floorA=general.floorA;side.gamma=general.gamma;side.mixK=general.mixK;
+                    g_blit.draw(ctx11,s.slotSrv[other],s.partRtv[part],pw,ph,&side);
+                    s.partDelivered[part]=true;
+                }
                 if (s.readFence[other]) {
                     ctx11->End(s.readFence[other]);
                     ctx11->Flush();   // an event query does not complete until the work is submitted
@@ -430,6 +473,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
     } else {
         for (Sink& s : g_sink) {
             s.delivered = false;
+            release_parts(s);
             if (s.rt && dev9 && !g_on) clear_rt(dev9, s);
             s.redirected = 0; s.markers.drawing=dvr::hudmarker::Regions{};
         }
@@ -505,6 +549,10 @@ void note_marker(int sink,const float* rect) {
 }
 const dvr::hudmarker::Regions* marker_regions(int sink) {
     return sink>=0 && sink<dvr::hudlayout::kMaxSinks && g_sink[sink].delivered ? &g_sink[sink].markers.output : nullptr;
+}
+ID3D11Texture2D* wheel_part_texture(int sink,int part) {
+    if(sink<0 || sink>=dvr::hudlayout::kMaxSinks || part<0 || part>1 || !dvr::hudlayout::wheel_parts_for_sink(sink)) return nullptr;
+    const auto& s=g_sink[sink];return s.delivered && s.partDelivered[part] ? s.partTex[part] : nullptr;
 }
 ID3D11Texture2D* panel_texture(int sink) {
     if (sink < 0 || sink >= dvr::hudlayout::kMaxSinks) return nullptr;

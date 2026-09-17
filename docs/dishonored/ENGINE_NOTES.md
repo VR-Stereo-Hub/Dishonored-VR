@@ -1,5 +1,20 @@
 # Engine notes - Dishonored (Dishonored.exe, Steam, patch 1.4)
 
+## VR-129: wheel auxiliary panel positioning (2026-09-16)
+
+Offline local UI_PowerWheel_SF ActionScript inspection: shortcuts_mc (sprite166)
+uses90% scale and centers from safe coordMin.x plus half its width, coordMax.y
+minus half width. potions_mc (sprite180) uses coordMax minus half its width/height;
+its children animate from+150px on opening. ScreenPosition works from1280x720,
+adds half of Stage excess per expanded dimension, then applies a0.85 controller
+or0.90 PC safe-area ratio. These parts are bottom-corner anchored to the expanded
+stage, not a fixed letterboxed authored image. Candidate crop envelopes therefore
+use bottom UV plus a height proportional to image width. Runtime bounds are not
+yet measured; expose adjustment and test visual completeness. Icon loading still
+uses the engine external-interface path documented below. No new engine address.
+Derived scripts/images remain ignored under build/hud-assets, never committed.
+
+
 The reverse-engineering knowledge base. Everything below was established by the original
 author (GingasVR) across proxy builds 30.0 to 38.92 and recorded in the code's comments; this
 file distills those comments so an agent does not have to read 23k lines to find a number.

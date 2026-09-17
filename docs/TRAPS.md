@@ -1,5 +1,17 @@
 # Traps and the graveyard
 
+## Native HUD comparison is deliberately stock, not a reset (2026-09-16)
+
+Build397's NativeGameplayReference=1 bypassed the tuned gameplay panels for the
+objective comparison. The tester could not locate the toggle because the launch
+instructions omitted F10's HUD tab, and the full source HUD was at the FOV edges.
+345 native-reference samples with no toggle establish that reference ran, not an
+ON/OFF comparison. Restore0 in the next installed INI; expose a prominent restore
+button in the HUD tab. Do not discard the saved placement values or interpret
+this report as a panel configuration reset. Rotation reported in the native path
+weakens capture-only attribution but does not identify the camera error.
+
+
 **Read this before spending a session on a setting that "does not work".**
 
 This file collects the traps this project has actually fallen into and the plans

@@ -1,42 +1,39 @@
-## Current: VR-129 native objective reference (2026-09-16)
+## Current: wheel side panels and rounded wrists (2026-09-16)
 
-Branch codex/vr-129-hud-fixes; local only. Previous395 verified and reported;
-both logs/full unchanged INI archived at
-build/playtest-candidates/vr129-hud-fixes/reported395. Objective failure is primarily
-head yaw/position; the prior roll candidate tested the wrong motion. F10 objective
-panel controls bypassed native rendering. Full wheel closing flash provisionally
-absent; occasional one-frame zoom is a separate OPEN, unlocalized symptom.
+Branch codex/vr-129-hud-fixes, local only. VR-129 covers the HUD; new VR-130
+covers rounded wrist ends. Build397 DLL/hash/log banner verified. Both logs and
+unchanged full INI archived at build/playtest-candidates/vr129-native-reference/reported397.
+NativeGameplayReference stayed ON:345 logged gameplay samples, no toggle events.
+The native HUD was difficult to see at the FOV edges; objective rotation was
+reported there too. The intended ON/OFF comparison did not happen. Restore the
+reference to0 in the next install; do not treat this as a resolved projection bug.
 
-New candidate NativeGameplayReference bypasses gameplay HUD panels/transforms to
-separate grouping/capture errors from native camera projection. Default off; arm
-only installed test. Menus/closing visual ownership retain normal panels. Actual
-native size control moved to Objectives; inactive objective panel controls hidden.
-Installed397 (`vr33-hands-working-397-gd5f18400e`), clean sourced5f18400e.
-Candidate build/playtest-candidates/vr129-native-reference. Release build and9
-undecorated exports pass;44 native HUD,97 controls,45 menu host checks and default
-profile/golden parity pass. Both395 logs, prior DLL and full INI archived at
-build/playtest-candidates/installs/20260916-204922-232416.
-Entire INI diff: only Hud.NativeGameplayReference=1 added; all395 values preserved.
-Installed DLL/INI hashes and CRLF verified. DLL SHA256
-`0561be4a84faf2a7266bc1d3d3e2204be840f808565d453e8fa61055672b8826`.
-Current log remains395 until user launch;397 headset comparison pending. No game
-or simulator launched, no push/PR/merge. Reference is default off in the repo.
+Implemented: two optional wheel side panels from the same delayed capture BEFORE
+the circular mask. D-pad bottom left and health/mana bottom right on the window,
+with independent anchor, horizontal/vertical position and size. F10 > HUD > Weapon
+wheel side panels is expanded by default. Crop bounds are adjustable candidates,
+not runtime GFx semantic identification. General HUD alpha applies to these parts.
+F10 > Hands > Rounded wrist ends replaces the hand's flat fan with a shallow dome;
+Wrist roundness is live. Original seam/skinning retained; packed shading basis is
+inherited, so lighting remains a headset check. Both levers default OFF in code;
+arm only the installed candidate. Existing profile and stereo synchronization stay.
 
-ONE launch question: does reference ON keep icon/title/distance fixed to the target
-through left-right head turns compared with OFF in the same location? ON-only
-improvement supports our routing/transform path; both drifting supports native
-projection versus the VR camera. Text-only change indicates another grouping issue.
-No claimed yaw fix yet. Restore reference OFF for ordinary play.
+Standalone:912 wrist/crop,101 HUD controls,44 native HUD,465 route,462 anchor and45
+menu checks pass; actual D3D11 WARP circle/hue/side-crop tests pass. Development
+release build succeeds after correcting an out-of-scope sink index; default
+writer/package/golden parity and lint pass. Final clean build/install pending.
+Full wheel exit flash remains provisionally absent; rare one-frame zoom is OPEN
+with no identified image surface. No speculative camera/palette changes.
 
-Asset source identified: objectiveMarker_primary/secondary have _description_mc
-before _icon_mc; runtime D3D semantic mapping still unknown. Missing wheel preview
-dependencies were Startup.lib and15 engine-loaded ic_item_*/ic_pow_* textures.
-Revised export helper ran successfully; verified local runtime-icon-sheet.jpg.
-See newest HUD_ANCHORS, ENGINE_NOTES and FLICKER_REFERENCE entries. Cuff feasibility
-and original-geometry-only workflow recorded in ARM_HAND_SPLIT; not implemented.
+ONE launch question: with the wheel open, are both side panels complete and on
+the window while the circular dial remains at its hand-origin position? Complete
+panels support the shared-source crop; missing/clipped artwork means crop bounds
+or source ownership need correction. Moving with the dial means placement failed.
+Rounded wrists are included but do not add a second question to this launch.
 
-Preserve all saved settings, CRLF, image-owned orientation, stereo sync and hand
-correction. User launches only; no game/simulator/subagents/push/merge.
+See newest HUD_ANCHORS, ARM_HAND_SPLIT and FLICKER_REFERENCE entries. Verify
+installed.json and log banner before reading the next run; archive both logs,
+compare the entire INI and preserve CRLF. No game/simulator/subagents/push/merge.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

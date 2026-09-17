@@ -1014,7 +1014,7 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
 // shadow must not see our own writes). Eight calls per draw, about 170 per
 // present in gameplay. State blocks would bypass this: g_stateBlocksCreated
 // reads 0 for a whole run (`draws status` prints it).
-inline bool alpha_force_wanted(int sink) { return dvr::hudlayout::alpha_for_sink(sink).mode != dvr::hudlayout::AlphaRepair; }
+inline bool alpha_force_wanted(int sink) { return dvr::hudlayout::force_capture_alpha(sink); }
 
 void alpha_force_begin(IDirect3DDevice9* dev) {
     g_origSetRs(dev, D3DRS_SEPARATEALPHABLENDENABLE, TRUE);

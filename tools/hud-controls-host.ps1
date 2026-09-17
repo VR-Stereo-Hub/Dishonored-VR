@@ -14,6 +14,10 @@ if(-not $selector.Success -or -not $capture.Success -or -not $menu.Success){thro
 $invalidate=[regex]::Match([IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_capture.cpp')),'(?ms)^void invalidate_content\(\).*?^\}')
 if(-not $invalidate.Success){throw 'Content invalidation extraction failed'}
 [IO.File]::WriteAllText((Join-Path $out 'hud_invalidate.inc'),$invalidate.Value)
+$parts=[regex]::Match($layout,'(?ms)^bool wheel_parts_for_sink\(.*?^\}')
+$force=[regex]::Match($layout,'(?ms)^bool force_capture_alpha\(.*?^\}')
+if(-not $parts.Success -or -not $force.Success){throw 'Wheel coverage extraction failed'}
+[IO.File]::WriteAllText((Join-Path $out 'hud_wheel_coverage.inc'),$parts.Value+"`n"+$force.Value)
 . (Join-Path $PSScriptRoot "lib\msvc.ps1")
 $root = Get-DvrMsvcRoot
 $sdk = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" |

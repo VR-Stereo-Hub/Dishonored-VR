@@ -1,5 +1,35 @@
 # The arm/hand split
 
+## VR-130: rounded wrist ends candidate (2026-09-16)
+
+The flat hand-end discs are visibly artificial in the supplied screenshot.
+Optional [Hands] RoundedWrist=0 replaces only the hand closure with a shallow
+ellipsoidal dome. RoundedWristDepth=0.35 is depth divided by RMS boundary radius,
+clamped0.05..0.80. F10 > Hands > Rounded wrist ends and Wrist roundness rebuild
+the mod-owned mesh through the existing reclassification request. Off restores
+the previous flat closure; CutCap must remain enabled. Sleeve caps stay flat.
+
+The exact clipped rim is t=0, four layers curve inward, and a shared tip extends
+into the removed forearm direction. Each boundary endpoint retains its skinning;
+all tip copies use one common donor so the center cannot split between segments.
+Each segment uses9 vertices/7 triangles per face. A whole-mesh capacity check
+includes both sleeves before emission; malformed boundaries or capacity shortage
+fall back to the original caps. No new game asset or engine memory writer.
+
+Position and blend formats are verified. FLOAT3 normals receive the ellipsoid
+normal, but the actual32-byte hand stream uses an unverified packed tangent basis.
+Those bytes are inherited from rim donors; no guessed encoder is introduced.
+Thus this changes geometry/silhouette, not a proven physically smooth lighting
+model. Existing cap UV-mode sampling remains, so a visible skin-color patch is
+still possible. Verify appearance in-headset before accepting this as a default.
+
+Host test extracts production MsCapVertex and MsRoundedEnd:912 checks cover
+exact seams, shared tip, retained blend/tangent/UV bytes, finite geometry,
+front/back winding, capacity refusal and malformed input, plus wide/square wheel
+crop envelopes. Development release builds. New levers stay default OFF; installed
+candidate explicitly enables rounded wrists. No headset acceptance yet.
+
+
 How the mod draws Corvo's hands without his arms, and everything needed to
 re-tune, re-derive or turn it off. This is the reference for `VR-31`; the
 research that closed the other routes is in `ENGINE_NOTES.md` (search

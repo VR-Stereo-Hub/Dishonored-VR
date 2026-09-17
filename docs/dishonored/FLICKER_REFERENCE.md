@@ -1,5 +1,27 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## VR-129: build397 report and shared-image side panels (2026-09-16)
+
+**Reported/measured:**397 DLL/hash/banner verified, both logs and unchanged INI
+archived at build/playtest-candidates/vr129-native-reference/reported397.
+NativeGameplayReference remained ON for345 gameplay log samples; no toggle event.
+Objective rotation was reported in native gameplay too, but the ON/OFF comparison
+did not run. Restore0 for ordinary play; no yaw/roll fix is established.
+
+**Surface routing:** the earlier full uncropped wheel flash remains provisionally
+absent. Occasional one-frame zoom remains OPEN and unlocalized: world, HUD or hands
+must be identified before choosing a stereo, projection or palette hypothesis.
+This candidate does not change those paths or extend the closing lease.
+
+**Implementation:** new D-pad/potion panels sample the same fenced delayed source
+as the circular wheel, before its mask, and share its visual lifetime. Two small
+D3D11 crops add no D3D9 copies or independent image ages. 101 HUD control checks,
+45 menu checks and the production WARP crop/mask/hue checks pass. No game or
+simulator launched; visual source completeness and wrist shading are untested.
+Continue from HUD_ANCHORS's one side-panel question; do not claim this resolves
+the rare exit zoom or reopen settled image-owned orientation changes.
+
+
 ## VR-129: build395 closing result and remaining zoom (2026-09-16)
 
 Installed397 (`vr33-hands-working-397-gd5f18400e`), clean sourced5f18400e.

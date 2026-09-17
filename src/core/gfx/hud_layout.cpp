@@ -1,4 +1,5 @@
 #include "hud_menu_lifecycle.h"
+#include "hud_wheel_parts.h"
 // core/gfx/hud_layout.cpp - see hud_layout.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_layout.h"
@@ -62,6 +63,8 @@ const RowDef kRows[ElCount] = {
     { "wheel",         6, {0, 0, 0, 0},                       false, AnchorWindow, "the power wheel: the weapon scroll and the grip-hold loadout (by context)" },
     { "store",         7, {0, 0, 0, 0},                       false, AnchorWindow, "the store (by context)" },
     { "missionstats",  8, {0, 0, 0, 0},                       false, AnchorWindow, "the mission stats (by context)" },
+    { "wheelshortcuts",-1, {0,0,0,0},false,AnchorWindow,"wheel D-pad shortcuts, from the same captured image" },
+    { "wheelpotions",  -1, {0,0,0,0},false,AnchorWindow,"wheel health and mana controls, from the same captured image" },
 };
 
 // The presets: the window as the abandoned branch shipped it, the hands as
@@ -90,6 +93,10 @@ hudroute::InteractionGroup g_interactionGroup;
 bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
 bool g_nativeObjectives=false;
 bool g_nativeGameplayReference=false;
+bool g_wheelParts=false;
+float g_wheelPartCrop[2][4]={{.02f,.29f,.995f,.31f},{.70f,1.f,.995f,.16f}};
+const char* kWheelPartKeys[2]={"WheelShortcuts","WheelPotions"};
+const char* kWheelPartNames[2]={"D-pad shortcuts","Health and mana"};
 float g_nativeObjectiveScale=.70f;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
@@ -447,6 +454,7 @@ void reset_presets(const char* who) {
     DVR_INFO("hud/layout: presets restored (%s)", who);
     for (int e = 0; e < ElCount; ++e) {
         ElementCfg c = { kRows[e].presetAnchor, 0, 0, 1, 0, 0, 1, {0, 0, 0, 0} };
+        if(e==ElWheelShortcuts || e==ElWheelPotions) {c.winX=e==ElWheelShortcuts?-.32f:.32f;c.winY=-.22f;}
         memcpy(c.rect, kRows[e].rect, sizeof(c.rect));   // the compiled region; a live `hud region` is replaced
         g_el[e] = c;
         char key[64];
@@ -549,6 +557,17 @@ float native_objective_scale(int e) {return !native_gameplay_reference() && g_na
 bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
 bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u<<c)); }
 bool menu_no_blur(int c) { return c>=3 && c<=8 && (g_menuBlurMask.load() & (1u<<c)); }
+bool wheel_parts_for_sink(int sink) {
+    return g_wheelParts && g_dialOn && g_visualRiding && g_ridingContext==6 &&
+        sink>=0 && sink<kMaxSinks && !g_sink[sink].crop && g_sink[sink].anchor==g_el[ElWheel].anchor;
+}
+bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rect) {
+    return wheel_parts_for_sink(sink) && part>=0 && part<2 &&
+        dvr::wheelparts::crop((unsigned)part,width,height,g_wheelPartCrop[part],rect);
+}
+bool force_capture_alpha(int sink) {
+    return alpha_for_sink(sink).mode!=AlphaRepair || (wheel_parts_for_sink(sink) && g_alpha.mode!=AlphaRepair);
+}
 void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
     memset(ellipse,0,4*sizeof(float));
     if(g_dialOn && g_dialCircle && g_visualRiding && g_ridingContext==6 &&
@@ -809,6 +828,18 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             d.subrect[2] = .5f + g_dialCropX*.5f;
             d.subrect[1] = .5f - g_dialCropY*.5f;
             d.subrect[3] = .5f + g_dialCropY*.5f;
+            for(int part=0;part<2 && n<max;++part) {
+                const int pe=part?ElWheelPotions:ElWheelShortcuts;
+                const int pa=g_el[pe].anchor;if(!anchor_visible(pa)) continue;
+                ID3D11Texture2D* partTex=dvr::hudcap::wheel_part_texture(s,part);
+                if(!partTex) continue;
+                auto& panel=out[n++];panel=dvr::vr::HudQuadDesc{};
+                panel.tex=partTex;panel.element=pe;panel.slot=pe;
+                place(panel,pe,pa,whole,aspect,false);
+                panel.width=(part?.28f:.23f)*(anchor_is_hand(pa)?g_el[pe].handScale:g_el[pe].winScale);
+                panel.height=0;
+                ++g_seen[pe];
+            }
         }
     }
     return n;
@@ -844,6 +875,7 @@ void configure(const char* ini) {
                  "mapped onto the per-element anchors; the next save writes the new keys", legacyHand, legacyWorld ? "world" : "view");
     for (int e = 0; e < ElCount; ++e) {
         ElementCfg c = { kRows[e].presetAnchor, 0, 0, 1, 0, 0, 1, {0, 0, 0, 0} };
+        if(e==ElWheelShortcuts || e==ElWheelPotions) {c.winX=e==ElWheelShortcuts?-.32f:.32f;c.winY=-.22f;}
         memcpy(c.rect, kRows[e].rect, sizeof(c.rect));
         if (e == ElDefault && legacyAll >= 0) c.anchor = legacy_anchor(legacyAll);
         else if (element_is_screen(e) && legacyMenu >= 0) c.anchor = legacy_anchor(legacyMenu);
@@ -945,6 +977,11 @@ void configure(const char* ini) {
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
+    g_wheelParts=read_i(ini,"WheelSidePanels",0)!=0;
+    for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
+        char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);
+        g_wheelPartCrop[part][k]=read_f(ini,key,g_wheelPartCrop[part][k]);
+    }
     g_nativeObjectiveScale=fminf(1.f,fmaxf(.25f,read_f(ini,"NativeObjectiveScale",.70f)));
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
     for(int i=0;i<4;++i) {
@@ -1024,6 +1061,10 @@ void save(const char* ini) {
     write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
     write_i("NativeGameplayReference",g_nativeGameplayReference);
+    write_i("WheelSidePanels",g_wheelParts);
+    for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
+        char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
+    }
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
     write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
@@ -1265,6 +1306,41 @@ void status(dvr::status::Writer& w) {
 // ---- F10 ------------------------------------------------------------------
 
 void draw_ui() {
+    if(g_nativeGameplayReference) {
+        ImGui::TextWrapped("Native HUD comparison is ON. Your configured HUD panels are bypassed.");
+        if(ImGui::Button("Restore my configured HUD")) {
+            g_nativeGameplayReference=false;write_i("NativeGameplayReference",0);dvr::hudcap::invalidate_content();
+        }
+    }
+    if(ImGui::CollapsingHeader("Weapon wheel side panels",ImGuiTreeNodeFlags_DefaultOpen)) {
+        if(ImGui::Checkbox("Separate D-pad and health/mana panels",&g_wheelParts)) {
+            write_i("WheelSidePanels",g_wheelParts);dvr::hudcap::invalidate_content();
+        }
+        ImGui::TextWrapped("Visible with the hand weapon dial. These use general HUD alpha and the same captured frame as the wheel. Position and scale each panel below.");
+        for(int part=0;part<2;++part) {
+            const int e=part?ElWheelPotions:ElWheelShortcuts;ImGui::PushID(700+part);
+            ImGui::TextUnformatted(kWheelPartNames[part]);
+            int anchor=g_el[e].anchor;
+            const char* names[]={"off","window","world","handL","handR"};
+            int choice=anchor>=AnchorWindow?anchor-1:0;
+            if(ImGui::Combo("Anchor",&choice,names,5)) {anchor=choice?choice+1:AnchorOff;set_element_anchor(e,anchor,"F10 wheel parts");}
+            const bool hand=anchor_is_hand(anchor);
+            float x=hand?g_el[e].handX:g_el[e].winX,y=hand?g_el[e].handY:g_el[e].winY,scale=hand?g_el[e].handScale:g_el[e].winScale;
+            bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f,"%.3f");
+            moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f,"%.3f");
+            moved|=ImGui::SliderFloat("Size",&scale,.25f,3.f,"%.2fx");
+            if(moved) set_element_place(e,hand,x,y,scale,"F10 wheel parts");
+            if(ImGui::TreeNode("Adjust captured area")) {
+                bool changed=ImGui::SliderFloat("Left edge",&g_wheelPartCrop[part][0],0,1,"%.3f");
+                changed|=ImGui::SliderFloat("Right edge",&g_wheelPartCrop[part][1],0,1,"%.3f");
+                changed|=ImGui::SliderFloat("Bottom edge",&g_wheelPartCrop[part][2],0,1,"%.3f");
+                changed|=ImGui::SliderFloat("Height (fraction of image width)",&g_wheelPartCrop[part][3],.02f,.6f,"%.3f");
+                if(changed) for(int k=0;k<4;++k) {char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);}
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        }
+    }
     if(ImGui::CollapsingHeader("Menu immersion")) {
         bool keep=g_menuExitHeading.load();
         if(ImGui::Checkbox("Keep viewing direction when closing menus",&keep)) {g_menuExitHeading.store(keep);write_i("MenuExitHeading",keep);}
@@ -1380,6 +1456,7 @@ void draw_ui() {
     for (int e = 0; e < ElCount; ++e) {
         ImGui::PushID(e);
         int a = g_el[e].anchor;
+        if(e==ElWheelShortcuts || e==ElWheelPotions) {ImGui::PopID();continue;}
         if(e==ElObjective && g_nativeObjectives) {
             ImGui::Text("objective     native game target | seen %u",g_seen[e]);
             ImGui::TextDisabled("Use Objectives above. Panel anchor/offset/scale do not apply in native mode.");
