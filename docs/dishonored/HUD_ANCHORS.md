@@ -9,7 +9,10 @@ around the existing panel center; hand-relative center and all position offsets
 remain unchanged. Retain per-panel width/right/up/depth controls. Old calibration
 keys ignored. Three-axis draft never built or installed. No guessed comfortable
 pose.469 anchor tests pass, including identity at0 and signed local pitch.
-Build/install follows. One launch question: does Reading tilt adjust the book
+Installed vr33-hands-working-423-g4770f6d8d;469 anchor checks, release,9 exports,
+lint and production default-profile parity pass. Both logs/full DLL/INI archived
+at build/playtest-candidates/installs/20260917-114630-645045. Entire installed
+INI byte-identical; CRLF and DLL/INI hashes verified. No game/simulator launch. One launch question: does Reading tilt adjust the book
 angle without moving its attachment point? Yes supports center-preserving tilt;
 position movement or extra rotation means the placement composition is wrong.
 
