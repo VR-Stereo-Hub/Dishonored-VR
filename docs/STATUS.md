@@ -10,7 +10,12 @@ Full scope/limitations in ENGINE_NOTES and FLICKER_REFERENCE. Preserve entire
 latest installed profile unchanged; no camera/intro/stereo policy changes.
 Next question: does the inner rune icon stay native through the turn that
 previously caused the flash? Persistence falsifies coverage; unrelated HUD
-remaining native indicates false association. Build/install identity follows.
+remaining native indicates false association.
+Installed vr33-hands-working-413-g612760965 from clean source612760965.
+Release build,9 exports,107 HUD checks,lint pass. Both logs/full prior INI/DLL
+archived at build/playtest-candidates/installs/20260917-084907-002805.
+Entire installed INI byte-identical to latest saved profile; zero settings
+changes, CRLF and DLL/INI hashes independently verified. Headset result pending.
 Continue codex/objective-marker-fixes; no game/simulator launch or main merge.
 
 ## Current: live rune ownership trial after409 (2026-09-17)
