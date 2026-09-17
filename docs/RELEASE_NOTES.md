@@ -1,5 +1,15 @@
 ## Unreleased
 
+### Wheel side panels and rounded wrists
+
+- Independently position D-pad and health/mana panels alongside the hand weapon
+  dial, with one shared alpha group in F10 > HUD > Weapon wheel side panels.
+- Rounded wrist ends with live roundness control in F10 > Hands.
+- Preserve wheel visuals through the native closing animation. Expose native
+  objective scale and an optional native-HUD comparison; comparison defaults off.
+- Promote the complete accepted F10 profile, including final shared side alpha.
+  Objective ownership misses and rare exit zoom remain tracked under VR-129.
+
 ### HUD follow-up
 
 - Shared alpha for notes/books/journal and independent interaction alpha; original

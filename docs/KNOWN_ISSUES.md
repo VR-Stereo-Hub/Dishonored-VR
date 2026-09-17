@@ -1,5 +1,9 @@
 # Known issues
 
+- Objective markers or their text can occasionally transfer to the window HUD
+  when heuristic recognition misses; native-reference diagnostics do not fix
+  target projection. Rare wheel-exit zoom remains unlocalized (VR-129).
+
 - Weapon wheel can still show positional flicker on left-eye hands/weapons during
   physical head turns (VR-128). Reading flicker is reported resolved on378.
 - Native objective icons are accepted; title/distance association still uses proximity

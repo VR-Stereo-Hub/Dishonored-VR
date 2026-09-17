@@ -1,49 +1,28 @@
-## Current: accepted399 profile and shared wheel-side alpha (2026-09-16)
+## Current: HUD branch accepted for merge (2026-09-16)
 
-Installed401 (`vr33-hands-working-401-g4f974a5da`), clean source4f974a5da.
-Release build and9 exports pass. Candidate build/playtest-candidates/vr129-side-alpha.
-Both399 logs, previous DLL and full INI archived before writes at
-build/playtest-candidates/installs/20260916-222842-601598.
-Entire INI diff: five new WheelPartsAlpha keys only (repair,1,0,1,1).
-All saved399 settings retained byte-for-byte. Installed INI equals release/golden;
-DLL/INI hashes and CRLF verified. DLL SHA256
-`37a2879456709ca3bf4a3fc0e8df925a5c8251b812c7684695d0ab928d040004`.
-Current log remains399 until user launch;401 alpha isolation is headset-pending.
-No game/simulator launched or publication performed.
+Build401 (vr33-hands-working-401-g4f974a5da) accepted for publication/merge.
+DLL hash and log banner verified; both logs and latest full F10 INI archived at
+build/playtest-candidates/vr129-side-alpha/accepted401. User explicitly authorized
+PR and merge of codex/vr-129-hud-fixes into VR-Main; preserve the feature branch.
 
-Branch codex/vr-129-hud-fixes, local only.399 DLL/hash/log verified; both logs and
-last-run INI archived at build/playtest-candidates/vr129-wheel-parts-rounded-wrists/reported399.
-D-pad/potion separation and rounded wrists are headset-accepted. The side-panel
-grey background needs independent tuning. Objectives improved but still sometimes
-appear on the window; this is OPEN, not a verified projection fix.
+Latest profile captured byte-for-byte in release INI, golden and production
+WriteDefaultIni. Only new tuning since previous defaults: WheelPartsAlphaMode=mix,
+Gain0.890,Gamma0.660,Mix2.090 (Floor remains0). Accepted INI SHA256
+9c429cb77e9bc730d696357b46ed7640f5d6a4f33b8a25f25084ae8fe91a68af.
+Installed401 remains the tested binary; no reinstall is required for a defaults
+literal update. No game/simulator launch. Production writer/package/golden parity,
+lint and diff checks pass; final release build is part of PR validation.
 
-Complete saved F10 profile promoted into WriteDefaultIni, release INI and golden
-INI per explicit request. Includes wrist roundness0.640, native objective scale
-0.440, wheel width0.360m/crop0.440x0.390/distance0.040m/deadzone0.003m, both tuned
-side crops/placements, and saved alpha/menu settings. NativeGameplayReference=0.
-No version bump or automatic replacement of an existing INI.
+Accepted scope: wheel closing visual ownership; independent D-pad/potion window
+panels with shared alpha; rounded wrists; accessible native objective controls;
+complete tuned defaults. Host evidence:104 HUD controls,912 wrist/crop,44 native,
+465 route,462 anchor,45 menu checks and actual D3D11 WARP mask/hue/crop checks.
 
-Added shared WheelPartsAlpha Mode/Gain/Floor/Gamma/Mix under F10 > HUD > Weapon
-wheel side panels. Both side crops and capture-coverage policy use this group;
-wheel, general, notes/books, interactions and pause alpha remain separate.
-Initial values match prior general alpha to preserve the accepted picture.
-These are alpha/brightness controls, not selective grey-artwork removal.
-
-104 production HUD control checks and writer/package/golden byte parity pass;
-development release builds. Final clean install identity follows below.
-Objective logs show recognized marker draws remain native. Recognition still
-uses learned content and short-lived label proximity; unmatched artwork can
-route to a panel. Added rate-limited hud/native-miss for8-vertex/10-primitive
-candidates actually going to capture, excluding successful native bypasses.
-Those shapes are NOT confirmed objective identities. Do not broaden routing on
-topology alone. No camera/stereo/hand geometry or objective routing changes.
-
-ONE next launch question: do the new shared side-panel alpha controls affect
-both D-pad/potions without changing the main wheel or other HUD? Both sides only
-confirms group isolation; one side unchanged or other HUD changing means the
-selector/capture path is wrong. Grey artwork may need further targeted removal.
-User launches only; archive both logs, compare full INI, preserve CRLF. No game,
-simulator, subagents, push or merge. Objective window leak remains a follow-up.
+VR-129 remains open for occasional objective/window transfers, incomplete native
+label association and the earlier rare wheel-exit zoom. Capture-miss logging is
+diagnostic, not proof of semantic ownership. VR-130 rounded wrists are accepted.
+No new test requested for this merge. Next work should start from updated VR-Main,
+read current HUD_ANCHORS/FLICKER_REFERENCE, and verify installed.json/log identity.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

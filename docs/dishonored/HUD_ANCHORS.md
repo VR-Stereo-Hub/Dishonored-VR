@@ -1,5 +1,17 @@
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
+## Branch acceptance and final defaults (2026-09-16)
+
+401 DLL/hash/banner verified. Tester accepted the branch for PR/merge; both logs
+and latest F10 INI archived under vr129-side-alpha/accepted401. Latest side alpha:
+mix, gain0.890, floor0, gamma0.660, mix weight2.090. Entire saved INI is now the
+production writer, release and golden profile, byte-for-byte with CRLF.
+Installed401 is retained. No claim that acceptance resolves the intermittent
+objective window transfer or earlier one-frame exit zoom; VR-129 remains open.
+Rounded ends and auxiliary panels are accepted. Merge authorization is explicit;
+feature branch must be preserved. No simulator or game launched by the agent.
+
+
 ## VR-129: accepted side panels, shared alpha and saved profile (2026-09-16)
 
 Installed401 (`vr33-hands-working-401-g4f974a5da`), clean source4f974a5da.

@@ -6,7 +6,9 @@
 - [x] Export native wheel/HUD Scaleform, textures, structure and authoring previews locally.
 - [x] Implement guarded native-upright and animation-length visual lease candidates.
 - [ ] Headset: objective upright tracking and residual wheel closing flash.
-- [ ] Separate potion/shortcut panels using measured native component identity.
+- [x] Separate potion/shortcut panels with tuned source crops and shared alpha; headset accepted.
+- [x] Rounded wrist ends and latest full F10 profile accepted (VR-130).
+- [ ] Replace objective heuristic misses with reliable ownership (VR-129).
 
 ## VR-50 F11 clarity follow-up (2026-09-15)
 
