@@ -1,3 +1,13 @@
+## Accepted marker candidate413 (2026-09-17)
+
+Tester accepted the objective/rune work for merge after413; this is practical
+acceptance, not a claim that every possible single-frame artifact is eliminated.
+Installed DLL hash and413 log banner verified; both logs/latest profile archived
+in build/playtest-candidates/vr129-rune-icon-continuity/accepted413.
+107 native HUD checks,7814 native marker ABI checks and9 startup-policy checks
+passed across this branch, plus release build and9 export validation.
+Next work: controller emulation parity with BioShock1 modifier/menu controls.
+
 ## Current: rune icon continuity after411 (2026-09-17)
 
 411 verified; group, startup and camera behavior reported good, only occasional

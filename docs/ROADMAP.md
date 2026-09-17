@@ -8,7 +8,7 @@
 - [ ] Headset: objective upright tracking and residual wheel closing flash.
 - [x] Separate potion/shortcut panels with tuned source crops and shared alpha; headset accepted.
 - [x] Rounded wrist ends and latest full F10 profile accepted (VR-130).
-- [ ] Replace objective heuristic misses with reliable ownership (VR-129).
+- [x] Native objective/rune parent placement and bounded icon continuity accepted (VR-129).
 
 ## VR-50 F11 clarity follow-up (2026-09-15)
 
