@@ -14,7 +14,14 @@ stereo changes. Intros now handled by proxy -nostartupmovies from its existing
 launch hook, default on even with absent INI. Prior manual game config changes
 are reverted tofalse to test the actual proxy policy. Details in ENGINE_NOTES,
 HUD_ANCHORS and FLICKER_REFERENCE.97 HUD,7814 ABI,9 startup host checks pass.
-Build/install identity follows after release validation; no game/simulator launch.
+Installed vr33-hands-working-411-gfaebfbbac from clean sourcefaebfbbacce0871dd8334a2bd1d420c723b23259.
+DLL SHA256 f23073806db02e547ff7ab5f666f30db0da78f21852711923d462e9a59d50fe1.
+Release build,9 exports,lint pass. Both logs/full prior INI/DLL archived at
+build/playtest-candidates/installs/20260917-083639-637886. Entire INI diff only
+NativeMarkerChildren1->0, add NativeRuneOwnership=1 and EyeClamp=0. Installed
+DLL/INI hashes and CRLF verified. Both game startup flags restoredtrue->false
+with full backups/diffs in candidate/startup-config-before-proxy. No game or
+simulator launched; new integration/headset result pending.
 One launch question: is the entire rune group native from first reveal and does
 it remain together through turns and edge transitions? Splitting falsifies
 coverage; unrelated HUD joining means false association. Keep objective settings.
