@@ -10,7 +10,10 @@ to upright. No calibration UI, additional axes, camera or stereo changes.
 The exit log again lacks complete left-grip pose; do not claim the preferred
 pose was recovered. Latest saved trim is0. Added bounded entry/full-pose logs
 for subsequent reports. Standalone tests vary entry wrist rotation and hand
-height/yaw. Build/install follows. One launch question: opening the same book
+height/yaw. Installed vr33-hands-working-425-g17b228d64.564 anchor checks, release,9 exports
+and lint pass. Both logs/full prior DLL/INI archived at
+build/playtest-candidates/installs/20260917-115527-386246. Entire installed INI
+byte-identical; CRLF and DLL/INI hashes verified. No game/simulator launch. One launch question: opening the same book
 with your hand low versus near eye level, does it face you comfortably in both
 cases without changing the slider? Yes supports geometry-based entry tilt;
 wrong/inverted or unchanged pitch falsifies the fit/sign/context path.
