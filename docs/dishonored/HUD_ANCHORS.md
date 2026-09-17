@@ -1,3 +1,22 @@
+## Current: fixed captured reading attachment (2026-09-17)
+
+425 automatic entry tilt was active in logs but did not resolve the reported
+inconsistency. Its per-opening grip reference remained variable. Verified425
+DLL/banner and archived both logs/latest profile in reading-auto-tilt/reported425.
+The last full Note pose at16752906 supplies gripQ=(.672240,-.104614,-.336110,.651290)
+and pageQ=(-.049763,-.026783,.011967,.998330), autoTilt=-45.267, manual=0.
+This is the last recorded book sample, not a claimed exact shutdown sample.
+Replace entry fitting with fixed inverse(gripQ)*pageQ reference. Preserve the
+placement basis separately by removing the old pitch from pageQ before deriving
+its grip-relative rotation. This reproduces both orientation and the existing
+position offsets at that sample; both then follow the current hand rigidly.
+No head/opening pose participates. Keep one additive ReadingTilt slider for
+notes/books/journal. Remove the failed automatic pitch helper; history remains
+below. Headset confirmation pending. Test: open the same book with different
+initial hand poses, then return to the comfortable pose. Does its angle remain
+correct and identical? Consistent but wrong means trim/reference needs adjustment;
+variable means another attachment path remains. No game or simulator launch.
+
 ## Current: automatic reading entry tilt after423 (2026-09-17)
 
 423 DLL/banner verified; both logs/latest INI archived in reading-tilt/reported423.

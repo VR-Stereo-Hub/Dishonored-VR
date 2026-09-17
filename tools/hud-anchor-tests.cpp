@@ -192,21 +192,32 @@ int main() {
         reading_tilt(yaw,90,out);check(fabsf(out[0]-.5f)<.0001f && fabsf(out[1]-.5f)<.0001f && fabsf(out[2]+.5f)<.0001f,"tilt is local to attached page");
     }
     {
-        const float q[]={0,0,0,1},eye[]={0,0,0};float angle=123;
-        const float level[]={0,0,-.5f},low[]={0,-.5f,-.5f},high[]={0,.5f,-.5f};
-        check(reading_entry_tilt(q,level,eye,angle) && fabsf(angle)<.001f,"eye-level opening needs no tilt");
-        check(reading_entry_tilt(q,low,eye,angle) && fabsf(angle+45)<.001f,"low opening automatically tilts toward eyes");
-        check(reading_entry_tilt(q,high,eye,angle) && fabsf(angle-45)<.001f,"high opening tilts down toward eyes");
-        const float behind[]={0,-.5f,.5f};check(!reading_entry_tilt(q,behind,eye,angle),"behind-head panel uses fallback");
-        const float turn[]={0,.70710678f,0,.70710678f},left[]={-.5f,-.5f,0};
-        check(reading_entry_tilt(turn,left,eye,angle) && fabsf(angle+45)<.001f,"automatic tilt survives head yaw");
-        for(int i=0;i<30;++i){
-            const float a=i*.05f,grip[]={std::sin(a),0,0,std::cos(a)};float attached[4],out[4];GripPanel p;
-            check(p.orient(grip,q,attached),"vary entry wrist angle");
-            check(reading_entry_tilt(attached,low,eye,angle),"fit from panel center");
-            reading_tilt(attached,angle,out);
-            check(fabsf(out[0]+.38268343f)<.0001f && fabsf(out[3]-.92387953f)<.0001f,"opening tilt independent of entry wrist rotation");
+        const float grip[]={.672240f,-.104614f,-.336110f,.651290f};
+        const float recorded[]={-.049763f,-.026783f,.011967f,.998330f};
+        float place[4],page[4],expectedPlace[4];
+        check(reading_grip_reference(grip,place,page),"recorded grip accepted");
+        reading_tilt(recorded,45.267f,expectedPlace);
+        for(int k=0;k<4;++k){
+            check(fabsf(page[k]-recorded[k])<.00001f,"reproduce recorded comfortable page");
+            check(fabsf(place[k]-expectedPlace[k])<.00001f,"reproduce placement independently of page pitch");
         }
+        for(int i=0;i<30;++i){
+            float turn[4],moved[4],p[4],o[4],expected[4],expectedP[4];
+            dvr::xrmath::quat_axis_angle(0,1,0,i*.1f,turn);
+            dvr::xrmath::quat_mul(turn,grip,moved);
+            check(reading_grip_reference(moved,p,o),"rotated grip accepted");
+            dvr::xrmath::quat_mul(turn,page,expected);
+            dvr::xrmath::quat_mul(turn,place,expectedP);
+            for(int k=0;k<4;++k){
+                check(fabsf(o[k]-expected[k])<.00001f,"page rotates rigidly with hand");
+                check(fabsf(p[k]-expectedP[k])<.00001f,"placement rotates rigidly with hand");
+            }
+            check(reading_grip_reference(grip,p,o),"return to reference after different initial hand poses");
+            for(int k=0;k<4;++k)check(fabsf(o[k]-page[k])<.00001f,"no opening history changes reference");
+        }
+        const float zero[]={0,0,0,0},bad[]={NAN,0,0,1};
+        check(!reading_grip_reference(zero,place,page),"invalid zero grip refused");
+        check(!reading_grip_reference(bad,place,page),"nonfinite grip refused");
     }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;

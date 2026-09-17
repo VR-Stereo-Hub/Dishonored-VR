@@ -119,9 +119,7 @@ dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
 const char* kScopedAlpha[5]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha","WheelPartsAlpha"};
 bool g_readHand[2]={false,false};
-dvr::hudanchor::OpeningOrientation g_readOpening;
-dvr::hudanchor::GripPanel g_readGrip;
-float g_readTilt=0,g_readAutoTilt=0;
+float g_readTilt=0;
 float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
 bool g_visualRiding=false;
@@ -540,7 +538,6 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     g_menuRiding=riding;
     if(!changed) return;
     dvr::hudcap::invalidate_content();
-    g_readOpening.reset();g_readGrip.reset();g_readAutoTilt=0;
     g_visualRiding=visual;g_ridingContext=visualContext;
     if(!visual) {
         for(int s=0;s<kMaxSinks;++s) if(g_sink[s].anchor>=0 && g_sink[s].rideOnly) free_sink(s);
@@ -851,33 +848,20 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         place(d, e, a, whole, aspect, true);
         const int readPanel=e==ElNote?0:e==ElJournal?1:-1;
         if(readPanel>=0 && g_readHand[readPanel]) {
-            float hp[3],hq[4];dvr::vr::HeadPose head{};
-            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) || !dvr::vr::peek_head_pose(head)) {--n;continue;}
-            const float camera[4]={head.qx,head.qy,head.qz,head.qw};
+            float hp[3],hq[4],attached[4],page[4];
+            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) ||
+               !dvr::hudanchor::reading_grip_reference(hq,attached,page)) {--n;continue;}
             d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
-            if(!g_readOpening.capture_upright(camera)) {--n;continue;}
             d.orient=dvr::vr::HudOrient::OpeningPlane;
-            const bool opening=!g_readGrip.valid;
-            float attached[4];
-            if(!g_readGrip.orient(hq,g_readOpening.q,attached)) {--n;continue;}
-            // Tilt around the existing panel center; keep its position unchanged.
             dvr::hudanchor::camera_panel_position(hp,attached,g_readDistance[readPanel],d.base);
             const float offset[3]={g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
             dvr::xrmath::quat_rotate(attached[0],attached[1],attached[2],attached[3],offset,worldOffset);
             for(int k=0;k<3;++k)d.base[k]+=worldOffset[k];
-            if(opening) {
-                const float eye[3]={head.px,head.py,head.pz};
-                const bool fitted=dvr::hudanchor::reading_entry_tilt(attached,d.base,eye,g_readAutoTilt);
-                if(!fitted)g_readAutoTilt=0;
-                DVR_INFO("hud/reading-entry: panel=%s fit=%d autoTilt=%.3f manual=%.3f center=%.4f/%.4f/%.4f eye=%.4f/%.4f/%.4f gripQ=%.6f/%.6f/%.6f/%.6f",
-                    kReadNames[readPanel],int(fitted),g_readAutoTilt,g_readTilt,d.base[0],d.base[1],d.base[2],
-                    eye[0],eye[1],eye[2],hq[0],hq[1],hq[2],hq[3]);
-            }
-            dvr::hudanchor::reading_tilt(attached,g_readAutoTilt+g_readTilt,d.orientation);
+            dvr::hudanchor::reading_tilt(page,g_readTilt,d.orientation);
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-                "hud/reading-pose: panel=%s center=%.4f/%.4f/%.4f gripQ=%.6f/%.6f/%.6f/%.6f panelQ=%.6f/%.6f/%.6f/%.6f autoTilt=%.3f manual=%.3f",
+                "hud/reading-pose: reference=fixed425 panel=%s center=%.4f/%.4f/%.4f gripQ=%.6f/%.6f/%.6f/%.6f panelQ=%.6f/%.6f/%.6f/%.6f manual=%.3f",
                 kReadNames[readPanel],d.base[0],d.base[1],d.base[2],hq[0],hq[1],hq[2],hq[3],
-                d.orientation[0],d.orientation[1],d.orientation[2],d.orientation[3],g_readAutoTilt,g_readTilt);
+                d.orientation[0],d.orientation[1],d.orientation[2],d.orientation[3],g_readTilt);
             d.width=g_readWidth[readPanel];d.height=0;
             d.planeOff[0]=d.planeOff[1]=0;
         }
@@ -1521,7 +1505,7 @@ void draw_ui() {
         ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
     }
     if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
-        ImGui::TextWrapped("Opening tilt automatically faces eye height from your hand position, then follows your hand. This slider adds extra tilt without moving the attachment. Changes apply and save immediately.");
+        ImGui::TextWrapped("Books and notes use a fixed attachment to your hand, regardless of how you open them. This slider tilts the page without moving its attachment. Changes apply and save immediately.");
         if(ImGui::SliderFloat("Reading tilt (degrees)",&g_readTilt,-180.f,180.f,"%.0f"))save_read_rotation();
         for(int i=0;i<2;++i) {
             ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);

@@ -115,17 +115,19 @@ inline bool billboard_degenerate(const float toHead[3], float minRight = 0.2f) {
     return r < minRight;
 }
 
-// Pitch the opening page toward eye height using its actual center. Keep
-// the accepted upright yaw and center; only the pitch axis is adjusted.
-inline bool reading_entry_tilt(const float upright[4],const float center[3],const float eye[3],float& degrees) {
-    const float forward[3]={0,0,-1};float f[3];
-    for(int k=0;k<4;++k)if(!std::isfinite(upright[k]))return false;
-    for(int k=0;k<3;++k)if(!std::isfinite(center[k]) || !std::isfinite(eye[k]))return false;
-    dvr::xrmath::quat_rotate(upright[0],upright[1],upright[2],upright[3],forward,f);
-    const float ahead=(center[0]-eye[0])*f[0]+(center[2]-eye[2])*f[2];
-    if(!std::isfinite(ahead) || ahead<.06f)return false;
-    degrees=-std::atan2(eye[1]-center[1],ahead)*57.2957795f;
-    return std::isfinite(degrees);
+// Fixed hand-relative reference from build425's last recorded reading pose.
+// See HUD_ANCHORS.md: placement excludes the old pitch around the page center.
+// No opening pose or head pose enters this attachment.
+inline bool reading_grip_reference(const float grip[4],float placement[4],float orientation[4]) {
+    float norm=0;
+    for(int k=0;k<4;++k){if(!std::isfinite(grip[k]))return false;norm+=grip[k]*grip[k];}
+    if(norm<.5f || norm>1.5f)return false;
+    float q[4];for(int k=0;k<4;++k)q[k]=grip[k]/std::sqrt(norm);
+    const float positionBasis[4]={-.40300430f,.21334590f,.30818517f,.83492093f};
+    const float pageBasis[4]={-.69327391f,.07831469f,.36655338f,.61552963f};
+    dvr::xrmath::quat_mul(q,positionBasis,placement);
+    dvr::xrmath::quat_mul(q,pageBasis,orientation);
+    return true;
 }
 
 // Adjust only pitch around the page's horizontal axis. Position is separate.
