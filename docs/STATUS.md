@@ -1,3 +1,18 @@
+## Installed misc candidate431 (2026-09-17)
+
+Installed vr33-hands-working-431-g2591ebc5c from clean source on codex/misc-fixes.
+Release,9 exports,908 HUD checks,85 animation catalog checks plus existing
+animation blend checks, cinematic math and extracted production camera scope
+checks pass. Default-profile byte parity and lint pass. Both logs, prior DLL
+and complete INI archived at build/playtest-candidates/installs/20260917-125202-935413.
+Whole INI comparison: only ReadingTilt -31.000->0.000, ReadingTiltReference=1,
+and Cine.SpecialHeadLook=1 added. Reversing those changes yields identical prior
+bytes; CRLF and installed DLL/INI hashes independently verified. No game launch.
+F10 Animations exposes arm-state choices; F10 View has the armed special-camera
+option. One question this launch: natural head look during Y-lean and normal
+camera movement after release? Keyholes and animation checkbox perception remain
+separate follow-up validation. Texture allocation crash is diagnosed, not fixed.
+
 ## Current: misc fixes after merged PR73 (2026-09-17)
 
 Controller/reading work merged to VR-Main in PR73 (374440668); preserved its
