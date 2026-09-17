@@ -1,3 +1,14 @@
+## Current: objective script review (2026-09-16)
+
+Local codex/vr-129-objective-review from merged PR71. Reviewed task/target and HUD
+UnrealScript declarations, native marker Flash hierarchy/actions and all2554
+verified native exec registrations. Findings: ENGINE_NOTES top VR-129 review.
+Current draw-shape/proximity routing cannot guarantee whole-marker ownership;
+upright correction only rotates on-screen geometry and does not fix yaw projection.
+The native task-marker parent/update path is the next investigation boundary.
+No runtime code, build, installed401, F10 defaults or game files changed. No new
+launch requested. VR-129 remains open; this review is not a perceptual fix.
+
 ## Current: HUD improvements merged in PR71 (2026-09-16)
 
 Build401 (vr33-hands-working-401-g4f974a5da) accepted for publication/merge.

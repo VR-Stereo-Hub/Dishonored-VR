@@ -1,3 +1,89 @@
+## VR-129: objective script ownership review (2026-09-16)
+
+Offline review of UnrealScript declarations, UI_HUD_SF ActionScript/XML and the
+merged native HUD classifier. Installed401 and all saved settings are unchanged.
+This is evidence about ownership and failure modes, not a headset-confirmed fix.
+
+### Engine ownership and intended behavior
+
+- DishonoredObjective owns tasks; DishonoredTask_Base owns an array of targets.
+  A target carries an Actor, localized target-name references, optional status and
+  a vanish preset. DisSeqAct_UpdateTaskTarget can replace a target by index. A
+  fixed marker per objective, or a cached Actor surviving a load, is insufficient.
+- Objective and task each have separate hidden/show-HUD-marker state. Preserve
+  active/completed/failed task state, marker visibility and target replacement.
+- DisGFxMoviePlayerHUD declares native m_TaskMarkers and m_SortedMarkers arrays,
+  separately from awareness, grenade and heart marker arrays and popup queues.
+  These are native Pointer arrays, not reflected UObject marker instances. Do not
+  treat their elements as safe UObject identities or infer their private layout.
+- DisTweaks_GFxMoviePlayerHUD exposes task/optional marker settings: symbol,
+  bounds, world/screen Z offsets, focus permission, bounding-box clamp, scale and
+  alpha variation. Task-specific settings include distance display, near-target
+  vanish presets and combat opacity reduction. Class defaults name PC marker-area
+  ratio0.90 and console0.85, but the HUD uses the asset instance
+  Twk_InGameUI.Twk_GFxMoviePlayerHUD. Blank class-default symbols and zero values
+  are not evidence of the runtime asset values or of disabled functionality.
+- Native method bodies are absent from these UnrealScript exports. Property
+  names establish candidate inputs, not the projection, distance-unit formula,
+  focus algorithm or the native marker struct ABI.
+
+### Flash structure and limits
+
+- Primary/secondary objective symbols are sprite178/174. Both contain description
+  sprite160 at depth1 and icon177/173 at depth4. The description contains a
+  background shape and a centered text field with a drop shadow. Shared sprite160
+  is also used by other marker types, so its identity alone is not objective-only.
+- The parent clips' exported frame action only stops the timeline. The root
+  fakeObjectiveMarker function attaches a sample secondary marker at fixed screen
+  coordinates; it is authoring-preview code, not live world tracking.
+- This export contains no marker-specific ActionScript class that implements
+  live target projection/title/distance updates. Native HUD code remains the
+  next boundary to inspect; do not mistake ObjectivesNotification/Window for
+  the in-world target markers.
+
+- Verified native-registration scan reproduced the known crossbow class and
+  enumerated2554 entries. Case-insensitive Marker/Objective/Task filtering found
+  journal toggles/list requests, objective actions/cheats and a task-value accessor,
+  but no task-marker projection/update exec. This rules out a named script-native
+  shortcut in that population, not the existence of internal native update code.
+
+### Concrete mismatches in the mod
+
+- hud_native_icon.h learns an icon family only after an8-vertex/10-primitive,
+  near-square draw reaches the hard-coded5%/95% edge band. This resembles the PC
+  class-default marker area but is not a runtime semantic identity. Interior-first,
+  differently scaled or differently clamped markers need not qualify.
+- MarkerLabels accepts short/wide draws only near current/prior-frame icon boxes.
+  Description depth precedes icon depth in the Flash asset. This cannot guarantee
+  first-frame association, association after fast movement, or ownership when
+  multiple markers overlap. Native render batching still needs runtime tracing.
+- hud_layout.cpp lets unrecognized components fall through to spatial/default
+  routing. That is a concrete route to the window while a recognized sibling stays
+  native. Existing native-miss logging does not prove which missed draw is a marker.
+- NativeIconScope sizes only recognized draws. Labels share the marker pivot only
+  when proximity succeeds; an isolated unlearned icon can bypass capture at scale1.
+  This provides a plausible explanation for size changes and separated labels,
+  not proof of the cause in any particular recorded headset frame.
+- NativeObjectiveUpright rotates projected geometry around an unchanged screen
+  center. It can compensate screen roll; it cannot supply world-space position,
+  correct head-yaw projection, or turn a screen sprite into a world billboard.
+
+### Implementation direction and acceptance boundary
+
+Find the native task-marker update/display boundary, preserve the game's target,
+visibility, label/distance and edge behavior, and identify the complete parent
+before redirecting/scaling. Keep all children under one transform and ownership.
+If a world billboard is desired, separately verify the target-to-world projection
+and a world-up orientation; do not conflate this with screen-roll correction.
+Any engine writer needs reflected properties where available, current IsLiveObject
+for UObject owners/targets, and separately verified native pointer lifetimes.
+No guessed marker layout or broad shape-threshold change is justified by this review.
+
+Future validation must include primary/optional targets, two nearby markers,
+interior-first appearance, edge clamping, rapid head turns, approach/vanish,
+completion/target replacement and a level load. Test visibility in both eyes and
+keep icon, title and distance under the same transform. No new launch requested.
+
 # Engine notes - Dishonored (Dishonored.exe, Steam, patch 1.4)
 
 ## VR-129: wheel auxiliary panel positioning (2026-09-16)
