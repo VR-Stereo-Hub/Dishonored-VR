@@ -1,3 +1,39 @@
+## Current: misc fixes after merged PR73 (2026-09-17)
+
+Controller/reading work merged to VR-Main in PR73 (374440668); preserved its
+branch. Active branch codex/misc-fixes. Accepted427 ReadingTilt=-31 becomes0,
+with versioned migration preserving the same physical angle. Latest427 logs,
+INI and crash dump archived under reading-fixed-grip/accepted427.
+
+VR-134: F10 Animations lists all40 shipped player FSM entries (23 master,11
+upper,6 left) with independent live/saved arm checkboxes, active state display,
+filter and reset. Existing handback defaults remain until overridden. States,
+not individual clips: sequence history can be stale. Existing body correction,
+blend and liveness rules retained. Camera classification ignores these new
+visibility overrides, so checking walking does not claim special head look.
+
+VR-133:119 lean trace samples retain player influence0/1/0 and PVR head writes;
+native lean adds about10 degrees of camera roll after that write. Decompiled
+lean limits pitch/yaw; keyholes relocate the controller. Candidate extends the
+existing draw-scoped head owner only to these two explicit states, restores
+native fields after both eyes, and carries physical yaw once on return to Walk
+with refreshed identity validation. Native translation remains; special views
+use raw HMD position rather than gameplay neck cancellation. Default-off
+Cine.SpecialHeadLook has F10 View toggle; arm it for the next lean test.
+
+Crash is a separate unresolved allocation failure: SYSTEMMEM DXT5 twin
+1920x2048 lv1 returned0x8007000e before LockRect INVALIDCALL. Installed exe is
+already large-address-aware. Preserved dump lacks memory-info stream; do not
+claim leak, texture-pack causality or camera causality. Add failure-only virtual
+memory/commit diagnostics and memory-info metadata to ordinary crash dumps.
+No destructive shadow eviction or device-policy change. No game/simulator run.
+
+Next launch question: while holding Y and leaning, can the head turn naturally
+and return to normal movement after release? Stable hold/exit supports scoped
+ownership; hold-only failure points at native modifiers, exit-only failure at
+handoff. Any repeat crash requires allocation diagnostics. Keyhole validation
+and animation checkbox perception follow separately, not in this launch.
+
 ## Current: accepted reading attachment and controller merge (2026-09-17)
 
 Build427 fixed reading attachment accepted after ReadingTilt=-31.000 adjustment.

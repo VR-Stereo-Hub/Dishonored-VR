@@ -7320,3 +7320,34 @@ UI_Powers_Large exports are journal-style alternatives, not this missing wheel a
 Revised tools/hud-assets-export.ps1 exports dependencies and remaps the import for
 FFDec. Static frame export still cannot execute native callbacks. Extracted output
 and full scripts remain local ignored build/hud-assets only.
+
+## VR-133 lean/keyhole ownership and allocation failure (2026-09-17)
+
+Source427 DLL/banner verified.119 trace samples in StatePlayerMasterLeaning
+show influence(anim/player/look)=0/1/0 while ProcessViewRotation still injects
+physical head orientation. Example1915: HMD roll1.91, PC1.90, final cache10.00;
+2009: HMD-0.92, PC-0.91, cache9.09. The existing cinematic ownership gate does
+not include this state. This supports modifier interference, not stale eyes.
+
+Local decompiled StatePlayerMasterLeaning declares pitch limits +/-35 and yaw
++/-60, release time0.2s. DishonoredCamera_Lean is a separate influence after
+player control; spring/pivot, stick pitch/roll, collision and tilt properties
+are present. StatePlayerMasterHolePeeking carries a door, fade state and a
+controller-reposition flag. Declarations do not establish native function bodies.
+No new engine offsets required: use the existing reflected FSM and camera fields.
+Candidate explicitly scopes physical head look to lean/keyhole while preserving
+native location, validates current live owners and restores original fields after
+both eye draws. Input delta writer stands down only on a successful scope lease;
+exit applies the reference-to-current yaw once through the existing gameplay
+writer after current-table revalidation. Unknown states do not acquire ownership.
+
+At17783125 the SYSTEMMEM twin for1920x2048 DXT5 (format894720068),1 level failed
+with0x8007000e. Existing shadow path then leaves an unlockable DEFAULT texture;
+reported dialog says LockRect D3DERR_INVALIDCALL. Crash occurred after pause
+opened, following lean. Allocation pressure is established; its source is not.
+Current exe PE flag LARGE_ADDRESS_AWARE is already set. The preserved46MB dump
+has no MemoryInfoList stream. Failure-only VirtualQuery/GlobalMemoryStatusEx
+logging now distinguishes total/largest free virtual region and system commit.
+Ordinary minidumps add memory metadata without copying full process memory.
+No eviction: native mip streaming reads retained CPU twins, so dropping them
+without a replacement changes resource semantics. Crash prevention remains open.

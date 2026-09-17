@@ -10,7 +10,10 @@ SRWLOCK sampleLock = SRWLOCK_INIT;
 Snapshot published;
 Handoff handoff;
 Handoff classifier;
+Handoff cameraClassifier;
 bool watch = true, handback = true, cinematicHandback = false, mantleHandback = false;
+char rulesIni[MAX_PATH]={};
+struct ArmOverrides { int values[armRuleCount]; ArmOverrides(){for(int& v:values)v=-1;} } armOverrides;
 unsigned releaseMs = 250, blendMs = 150;
 // Mantle is controlled independently by MantleHandBack. The previous controller
 // preference remains the default; the current cinematic-comfort test enables it.
@@ -130,6 +133,18 @@ void drop_sample(uint8_t* pawn,const Snapshot& s) {
         previous=key;beat=now+(falling?100:1000);
     }
 }
+bool default_arm_rule(int lane,const char* state) {
+    return (lane==0 && ((mantleHandback && !strcmp(state,"StatePlayerMasterMantle")) ||
+        (cinematicHandback && dvr::scene_state::cinematic(state)) || listed(masterRules,state))) ||
+        (lane==1 && listed(upperRules,state));
+}
+bool resolve_arm_rule(int lane,const char* state) {
+    const int i=arm_rule_index(lane,state);
+    return arm_rule_value(i>=0?armOverrides.values[i]:-1,default_arm_rule(lane,state));
+}
+void arm_rule_key(int i,char* key,size_t n) {
+    _snprintf_s(key,n,_TRUNCATE,"Arms.%d.%s",armRules[i].lane,armRules[i].state);
+}
 void report(const Snapshot& s) {
     Log("anim: gen=%u %s master=%s upper=%s left=%s pending=%s body=%d seq=%s picker=%d reason=%s age=%llu ms",
         s.generation,!s.valid?"UNKNOWN":s.game?"GAME":"PLAYER",s.state[0],s.state[1],s.state[2],s.pending,s.bodyMode,s.sequence,s.picker,s.reason,GetTickCount64()-s.stamp);
@@ -152,8 +167,31 @@ void set_cinematic(bool on) {
 }
 bool enabled() { AcquireSRWLockShared(&lock); bool on=handback; ReleaseSRWLockShared(&lock); return on; }
 void set_enabled(bool on) {
-    AcquireSRWLockExclusive(&lock); handback=on; handoff=Handoff{}; ReleaseSRWLockExclusive(&lock);
-    Log("anim: HandBack=%d (live)",on?1:0);
+    AcquireSRWLockExclusive(&lock); handback=on; handoff=Handoff{};
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    if(*ini)WritePrivateProfileStringA("Anim","HandBack",on?"1":"0",ini);
+    Log("anim: HandBack=%d (live, saved)",on?1:0);
+}
+bool arm_rule_enabled(int i) {
+    if(i<0 || i>=armRuleCount)return false;
+    AcquireSRWLockShared(&lock);
+    const bool on=resolve_arm_rule(armRules[i].lane,armRules[i].state);
+    ReleaseSRWLockShared(&lock);return on;
+}
+void set_arm_rule(int i,bool on) {
+    if(i<0 || i>=armRuleCount)return;
+    AcquireSRWLockExclusive(&lock);armOverrides.values[i]=on?1:0;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    char key[128];arm_rule_key(i,key,sizeof(key));
+    if(*ini)WritePrivateProfileStringA("Anim",key,on?"1":"0",ini);
+    Log("anim: %s=%d (live, saved)",key,int(on));
+}
+void reset_arm_rules() {
+    AcquireSRWLockExclusive(&lock);armOverrides=ArmOverrides{};
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    for(int i=0;i<armRuleCount;++i){char key[128];arm_rule_key(i,key,sizeof(key));
+        if(*ini)WritePrivateProfileStringA("Anim",key,nullptr,ini);}
+    Log("anim: per-state arm overrides reset to inherited defaults");
 }
 float weight() {
     dvr::render_profile::Scope profile(dvr::render_profile::AnimationWeight);
@@ -249,15 +287,17 @@ void tick() {
         text(s.reason,sizeof(s.reason),"live-object table was stale; rebuilt");
     }
     AcquireSRWLockExclusive(&lock);
-    if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; }
+    if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; cameraClassifier=Handoff{}; }
     const bool cinematic=cinematicHandback && dvr::scene_state::cinematic(s.state[0]);
     const bool mantle=mantleHandback && !strcmp(s.state[0],"StatePlayerMasterMantle");
-    const bool match=mantle || cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]);
+    cameraClassifier.update(s.valid,mantle || cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]),watch,now,releaseMs,0);
+    s.cameraAction=s.valid && cameraClassifier.game;
+    const bool match=resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
     classifier.update(s.valid,match,watch,now,releaseMs,0);
     handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
-    if (s.valid) text(s.reason,sizeof(s.reason),mantle?"mantle handback":cinematic?"cinematic handback":listed(masterRules,s.state[0])?"master rule":listed(upperRules,s.state[1])?"upper rule":classifier.game?"release hysteresis":"unlisted state");
+    if (s.valid) text(s.reason,sizeof(s.reason),match?"selected animation arms":classifier.game?"release hysteresis":"no selected active action");
     published=s;
     ReleaseSRWLockExclusive(&lock);
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
@@ -266,6 +306,9 @@ void tick() {
 }
 void configure(const char* ini) {
     AcquireSRWLockExclusive(&lock);
+    text(rulesIni,sizeof(rulesIni),ini);
+    for(int i=0;i<armRuleCount;++i){char key[128];arm_rule_key(i,key,sizeof(key));
+        int v=GetPrivateProfileIntA("Anim",key,-1,ini);armOverrides.values[i]=(v==0 || v==1)?v:-1;}
     dropWatch=GetPrivateProfileIntA("Anim","DropWatch",1,ini)!=0;
     Log("config: [Anim] DropWatch=%d (read-only native drop eligibility)",dropWatch);
     const int watchSetting=GetPrivateProfileIntA("Anim","StateWatch",-1,ini);

@@ -1,4 +1,5 @@
 #pragma once
+#include "animation_rules.h"
 #include "game/dishonored/hands/hand_frame.h"
 namespace dvr { namespace status { class Writer; } }
 namespace dvr::anim {
@@ -9,7 +10,7 @@ struct Snapshot {
     unsigned long long stamp = 0, entered[3] = {};
     unsigned long long sequenceAt = 0, stateAddress[3] = {};
     int bodyMode = -1, picker = -1, dialogState = -1;
-    bool valid = false, game = false;
+    bool valid = false, game = false, cameraAction = false;
 };
 void tick();
 void configure(const char* ini);
@@ -23,6 +24,9 @@ bool mantle_enabled();
 void set_mantle(bool on);
 void set_cinematic(bool on);
 void set_enabled(bool on);
+bool arm_rule_enabled(int index);
+void set_arm_rule(int index,bool on);
+void reset_arm_rules();
 bool active(); // immediate ownership, including release hysteresis
 bool native_draw(); // blend reached identity: release split/suppression
 float weight(); // controller correction: 1 = controller, 0 = native

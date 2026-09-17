@@ -140,7 +140,7 @@ inline void reading_tilt(const float attached[4],float degrees,float out[4]) {
 // Headset-accepted trim becomes zero. Legacy settings keep the same physical angle.
 inline float reading_trim(float saved,bool currentReference) {
     if(!std::isfinite(saved))return 0;
-    return std::fmax(-180.f,std::fmin(180.f,saved+(currentReference?0.f:31.f)));
+    return currentReference ? std::fmax(-180.f,std::fmin(180.f,saved)) : std::remainder(saved+31.f,360.f);
 }
 inline void reading_alignment(const float attached[4],float trim,float out[4]) {
     reading_tilt(attached,trim-31.f,out);

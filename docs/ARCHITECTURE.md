@@ -985,3 +985,10 @@ in the Dishonored pad bridge. Share BioShock1 controls and menu semantics, but
 use Dishonored held D-pad shortcut events and native Y meaning. One atomic config
 tuple avoids partially applied settings; no new engine-memory seam. See
 [detailed mapping and limits](dishonored/CONTROLLER_EMULATION.md).
+
+## 2026-09-17: special camera ownership and animation choices
+
+Lean and keyhole camera states reuse the existing scoped final-camera writer,
+not a second global pose correction. Successful scope leases suppress competing
+input head deltas; a validated one-shot exit carries physical yaw back. Arm
+checkboxes operate on all three FSM lanes and do not redefine camera ownership.

@@ -223,6 +223,7 @@ int main() {
         check(reading_trim(-31,false)==0,"accepted old trim becomes zero");
         check(reading_trim(0,true)==0,"new zero remains zero");
         check(reading_trim(10,false)==41,"legacy custom angle preserved");
+        check(reading_trim(180,false)==-149,"legacy edge angle wraps without changing physical rotation");
         const float q[]={0,0,0,1};float old[4],updated[4];
         reading_tilt(q,-31,old);reading_alignment(q,0,updated);
         for(int k=0;k<4;++k)check(fabsf(old[k]-updated[k])<.000001f,"rebase retains accepted physical orientation");

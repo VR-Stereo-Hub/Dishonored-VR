@@ -1,3 +1,16 @@
+## VR-133 native special-camera instability (2026-09-17)
+
+Surface: whole-world camera rotation and translation during/after lean, adjacent
+to camera-writer interference; no eye-specific flicker established. Build427
+report and measured roll mismatch are in ENGINE_NOTES. Candidate uses the
+existing validated draw-scoped owner for explicit lean/keyhole states, keeps
+image-owned orientation and stereo pair synchronization unchanged, and restores
+the native fields before the next engine update. Unknown ownership holds its
+reference; a real special-state change resets it. Headset result pending.
+The later texture LockRect error follows a logged out-of-memory twin allocation;
+it is not evidence of a stereo or camera-memory corruption. Separate diagnostics
+added; allocation cause and prevention remain unresolved.
+
 ## Accepted marker candidate413 (2026-09-17)
 
 Tester accepted the objective/rune work for merge after413; this is practical

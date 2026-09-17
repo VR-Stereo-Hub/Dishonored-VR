@@ -38,7 +38,7 @@ static void CinePitchBegin(bool scene,bool doubleDraw) {
     const double now=MaimNowMs();
     const bool menu=UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && now-g_uiPollMs<500);
-    const bool animation=state.valid && (state.game || dvr::scene_state::cinematic(state.state[0]));
+    const bool animation=state.valid && (state.cameraAction || dvr::scene_state::cinematic(state.state[0]));
     const bool rollLock=CineRollEnabled() && state.valid && dvr::scene_state::cinematic(state.state[0]);
     const bool ready=(CinePitchEnabled() || rollLock) && scene && animation && !menu &&
         dvr::stereo::wants_projection() && dvr::vr::session_live() && !dvr::vr::cinematic_active() &&

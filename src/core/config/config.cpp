@@ -883,6 +883,7 @@ static void WriteDefaultIni(const char* ini)
         "StereoState=1\n"
         "HideBorders=1\n"
         "HeadLook=1\n"
+        "SpecialHeadLook=0\n"
         "Trace=1\n"
         "LockRoll=1\n"
         "\n"
@@ -3458,6 +3459,7 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Screen",key,(dvr::vr::mono_anchor_contexts()&(1u<<i)) ? "1" : "0",ini);
     }
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","SpecialHeadLook",SpecialHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);

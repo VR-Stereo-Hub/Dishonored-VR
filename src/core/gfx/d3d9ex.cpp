@@ -246,6 +246,24 @@ Translate translate_buffer(DWORD* usage, D3DPOOL* pool) {
 }
 
 namespace {
+// Failure-only diagnostic. No eviction of live CPU copies: mip streaming reads them.
+void shadow_memory_failure(HRESULT hr) {
+    static unsigned reports=0;if(reports++>=3)return;
+    MEMORYSTATUSEX memory={};memory.dwLength=sizeof(memory);
+    const bool known=GlobalMemoryStatusEx(&memory)!=FALSE;
+    uint64_t freeBytes=0,largest=0,committed=0;uintptr_t cursor=0;
+    MEMORY_BASIC_INFORMATION region={};
+    while(VirtualQuery((void*)cursor,&region,sizeof(region))==sizeof(region)) {
+        const uint64_t bytes=region.RegionSize;
+        if(region.State==MEM_FREE){freeBytes+=bytes;if(bytes>largest)largest=bytes;}
+        if(region.State==MEM_COMMIT)committed+=bytes;
+        const uintptr_t next=(uintptr_t)region.BaseAddress+region.RegionSize;
+        if(next<=cursor)break;cursor=next;
+    }
+    DVR_ERROR("device/shadow-memory: hr=0x%08lx virtualFree=%.1fMiB largestFree=%.1fMiB committed=%.1fMiB systemKnown=%d availableCommit=%.1fMiB physicalAvailable=%.1fMiB liveTwins=%d; allocation failure, no successful lock claimed",
+        (unsigned long)hr,freeBytes/1048576.0,largest/1048576.0,committed/1048576.0,int(known),
+        memory.ullAvailPageFile/1048576.0,memory.ullAvailPhys/1048576.0,g_mapCount);
+}
 void shadow_put(void* real, IDirect3DBaseTexture9* twin, uint64_t bytes) {
     EnterCriticalSection(&g_cs);
     if (map_put(real, twin)) { ++g_shadowMade; g_shadowBytes += bytes; }
@@ -266,6 +284,7 @@ void shadow_register_texture(IDirect3DDevice9* dev, IDirect3DTexture9* real, UIN
     const HRESULT hr = dev->CreateTexture(w, h, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &twin, nullptr);
     if (FAILED(hr) || !twin) {
         ++g_shadowFailed;
+        shadow_memory_failure(hr);
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 5,
                         "device/shadow: SYSTEMMEM twin for texture %p (%ux%u lv=%u fmt=%d) refused 0x%08lx - its locks "
                         "will FAIL", (void*)real, w, h, levels, (int)fmt, (unsigned long)hr);
@@ -279,6 +298,7 @@ void shadow_register_cube(IDirect3DDevice9* dev, IDirect3DCubeTexture9* real, UI
     const HRESULT hr = dev->CreateCubeTexture(edge, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &twin, nullptr);
     if (FAILED(hr) || !twin) {
         ++g_shadowFailed;
+        shadow_memory_failure(hr);
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 5,
                         "device/shadow: SYSTEMMEM twin for cube texture %p (%u lv=%u fmt=%d) refused 0x%08lx - its "
                         "locks will FAIL", (void*)real, edge, levels, (int)fmt, (unsigned long)hr);
@@ -292,6 +312,7 @@ void shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* real
     const HRESULT hr = dev->CreateVolumeTexture(w, h, d, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &twin, nullptr);
     if (FAILED(hr) || !twin) {
         ++g_shadowFailed;
+        shadow_memory_failure(hr);
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 5,
                         "device/shadow: SYSTEMMEM twin for volume texture %p refused 0x%08lx - its locks will FAIL",
                         (void*)real, (unsigned long)hr);

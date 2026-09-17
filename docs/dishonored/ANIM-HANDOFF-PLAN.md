@@ -1,3 +1,18 @@
+## VR-134 F10 Animations (2026-09-17)
+
+The new Animations tab exposes all40 shipped FSM lane/state entries listed in
+section2.1. A checked active state hands arms/weapons back to native animation;
+any checked lane can request it. Unchecking a state removes that trigger only.
+The master enable applies to all choices. Existing250ms release/150ms blend and
+stale-state fail-soft remain. No changes to animation playback or engine writes.
+
+Persistent overrides use [Anim] Arms.<lane>.<state>=0|1. Missing keys inherit
+HandBackMaster/HandBackUpper and mantle/cinematic defaults. Checkboxes save live;
+reset deletes only these40 overrides. Default profile need not materialize every
+inherited value. Active state labels and filter help find an action. Clip history
+is not playback state; individual clips within one action share its checkbox.
+85 catalog checks plus existing blend/freshness tests pass. Headset pending.
+
 # VR-88 plan: know when a scripted animation owns the body, and hand it back
 
 **Status: phases 1 and 2 implemented together, enabled by default at user request. Headset validation pending: the first playtest after implementation ran the previous installed build, so it is not evidence for this code.** Branch `claude/vr-88-anim-handback`, off

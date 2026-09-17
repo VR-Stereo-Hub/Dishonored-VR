@@ -140,6 +140,9 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Suppress animation up/down tilt",&pitchLock)) CinePitchSet(pitchLock);
         bool rollLock=CineRollEnabled();
         if (ImGui::Checkbox("Suppress cinematic roll",&rollLock)) CineRollSet(rollLock);
+        bool specialHead=SpecialHeadEnabled();
+        if(ImGui::Checkbox("Natural head look in lean / keyholes",&specialHead))SpecialHeadSet(specialHead);
+        ImGui::TextDisabled("Keeps native peek position; head rotation bypasses native view limits.");
         bool mantleHands=dvr::anim::mantle_enabled();
         if (ImGui::Checkbox("Native hands while mantling",&mantleHands)) dvr::anim::set_mantle(mantleHands);
         bool cineHands=dvr::anim::cinematic_enabled();
@@ -349,6 +352,31 @@ static void OverlayFrame()
     }
 
     ImGui::EndTabItem(); }
+
+    if (ImGui::BeginTabItem("Animations")) {
+        bool enabled=dvr::anim::enabled();
+        if(ImGui::Checkbox("Enable selected game arms",&enabled))dvr::anim::set_enabled(enabled);
+        ImGui::TextWrapped("Checked actions show the game's animated arms and weapons. Unchecked actions keep tracked hands. Any checked active action can show the arms. Choices save immediately.");
+        ImGui::TextWrapped("Lists all 40 shipped player action states. Individual animation clips within an action share its setting.");
+        if(ImGui::Button("Reset animation choices"))dvr::anim::reset_arm_rules();
+        const auto state=dvr::anim::snapshot();
+        ImGui::TextDisabled("Current: %s / %s / %s",state.state[0],state.state[1],state.state[2]);
+        static ImGuiTextFilter filter;filter.Draw("Find animation");
+        const char* groups[]={"Whole body","Upper body and weapon","Left hand"};
+        for(int lane=0;lane<3;++lane) {
+            if(!ImGui::CollapsingHeader(groups[lane],ImGuiTreeNodeFlags_DefaultOpen))continue;
+            for(int i=0;i<dvr::anim::armRuleCount;++i){
+                const auto& rule=dvr::anim::armRules[i];
+                if(rule.lane!=lane || (!filter.PassFilter(rule.label) && !filter.PassFilter(rule.state)))continue;
+                ImGui::PushID(i);bool on=dvr::anim::arm_rule_enabled(i);
+                if(ImGui::Checkbox(rule.label,&on))dvr::anim::set_arm_rule(i,on);
+                if(state.valid && !strcmp(state.state[lane],rule.state)){ImGui::SameLine();ImGui::TextDisabled("active");}
+                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",rule.state);
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndTabItem();
+    }
 
     if (ImGui::BeginTabItem("Hands")) {
     bool wristChanged=ImGui::Checkbox("Rounded wrist ends",&g_msRoundWrist);
