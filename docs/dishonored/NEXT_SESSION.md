@@ -1,6 +1,6 @@
 ## Current: VR-129 native objective reference (2026-09-16)
 
-Branch codex/vr-129-hud-fixes; local only. Installed395 verified and reported;
+Branch codex/vr-129-hud-fixes; local only. Previous395 verified and reported;
 both logs/full unchanged INI archived at
 build/playtest-candidates/vr129-hud-fixes/reported395. Objective failure is primarily
 head yaw/position; the prior roll candidate tested the wrong motion. F10 objective
@@ -11,8 +11,16 @@ New candidate NativeGameplayReference bypasses gameplay HUD panels/transforms to
 separate grouping/capture errors from native camera projection. Default off; arm
 only installed test. Menus/closing visual ownership retain normal panels. Actual
 native size control moved to Objectives; inactive objective panel controls hidden.
-44 native HUD,97 controls,45 menu host checks, default/golden parity pass. Development
-release compiles. Final clean candidate/build/install verification follows.
+Installed397 (`vr33-hands-working-397-gd5f18400e`), clean sourced5f18400e.
+Candidate build/playtest-candidates/vr129-native-reference. Release build and9
+undecorated exports pass;44 native HUD,97 controls,45 menu host checks and default
+profile/golden parity pass. Both395 logs, prior DLL and full INI archived at
+build/playtest-candidates/installs/20260916-204922-232416.
+Entire INI diff: only Hud.NativeGameplayReference=1 added; all395 values preserved.
+Installed DLL/INI hashes and CRLF verified. DLL SHA256
+`0561be4a84faf2a7266bc1d3d3e2204be840f808565d453e8fa61055672b8826`.
+Current log remains395 until user launch;397 headset comparison pending. No game
+or simulator launched, no push/PR/merge. Reference is default off in the repo.
 
 ONE launch question: does reference ON keep icon/title/distance fixed to the target
 through left-right head turns compared with OFF in the same location? ON-only

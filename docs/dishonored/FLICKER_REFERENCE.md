@@ -2,6 +2,17 @@
 
 ## VR-129: build395 closing result and remaining zoom (2026-09-16)
 
+Installed397 (`vr33-hands-working-397-gd5f18400e`), clean sourced5f18400e.
+Candidate build/playtest-candidates/vr129-native-reference. Release build and9
+undecorated exports pass;44 native HUD,97 controls,45 menu host checks and default
+profile/golden parity pass. Both395 logs, prior DLL and full INI archived at
+build/playtest-candidates/installs/20260916-204922-232416.
+Entire INI diff: only Hud.NativeGameplayReference=1 added; all395 values preserved.
+Installed DLL/INI hashes and CRLF verified. DLL SHA256
+`0561be4a84faf2a7266bc1d3d3e2204be840f808565d453e8fa61055672b8826`.
+Current log remains395 until user launch;397 headset comparison pending. No game
+or simulator launched, no push/PR/merge. Reference is default off in the repo.
+
 395 DLL/hash/banner verified; logs and unchanged full INI archived at
 build/playtest-candidates/vr129-hud-fixes/reported395. Full uncropped wheel flash
 is reported absent so far with WheelCloseAnimation=1; provisional acceptance,
