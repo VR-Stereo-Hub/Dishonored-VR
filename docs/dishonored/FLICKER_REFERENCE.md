@@ -1,3 +1,18 @@
+## VR-129 rune ownership and VR-87 pitch-height report (2026-09-17)
+
+Surface routing: rune inner artwork on another HUD plane is HUD ownership;
+smooth pitch-correlated vertical translation is adjacent VR-87 camera ceiling,
+not eye flicker. Build407 verified and logs archived under reported407.
+Objectives accepted; rune inner child remains split. Derived child size/hierarchy
+and new guarded association are in ENGINE_NOTES. No image-owned orientation,
+stereo synchronization, menu lifecycle or hand changes.
+Camera accounting reproduces cap-related vertical loss in both stances; expose
+existing EyeClamp in F10 Comfort, retain enabled policy for rune launch. Neck
+retuning would not remove the cap term and is not attempted. No visual fix
+claimed for either new trial. Next launch asks only if rune artwork stays united.
+Then compare capsule limit on/off in open space with both stances, retaining
+collision/vent regression scope before accepting any camera policy change.
+
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
 ## VR-129 native marker boundary trial (2026-09-16)

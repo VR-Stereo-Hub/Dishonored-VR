@@ -1,3 +1,34 @@
+## VR-129/VR-87: build407 results and child-artwork candidate (2026-09-17)
+
+Verified407 DLL and log banner; both logs and full saved INI preserved at
+build/playtest-candidates/vr129-native-rune-boundary/reported407. Objectives
+reported correct. Rune description/distance/locator/outline correct; inner art
+still captured onto window. Task final counters122286/84618 calls/moved, no
+refusals; rune19090/8672, no refusals. Saved inset task22%, rune17% retained.
+
+Local Flash sprite169 contains static shape165 at depth1 (40px square) and
+pulse sprite168 at depth2, whose shape167 is48px square and animates to about
+62px. A single square/topology match cannot own both. New default-off
+NativeMarkerChildren associates centered child draws at60..90% of a recognized
+marker rectangle, with2mscreen-fraction thousandths center tolerance, current or
+previous frame only; requires minimum1% extent and near-square bounds. Content
+identity is retained in a bounded64-entry cache (2400-frame expiry), cleared on
+resource/load reset and toggle, so movement need not relearn it. Menus excluded.
+Child scaling uses the common center. This remains heuristic association, not
+native GFx instance-to-draw identity; overlapping similar artwork can match.
+Initial association may require the marker to be briefly steady.55 native host
+checks pass including stale/remote/off-center/tiny rejection, cache and reset.
+
+Pitch residual matches the existing VR-87 final ceiling limitation, not a new
+stereo flicker. Standing episode16 at+24.8deg,198 samples/eye: residualU
+-4.02/-4.61uu, capdelta -3.99/-4.57uu; at-25.5deg residual+6.87/+7.12uu.
+Crouched episode1 +23deg359 samples: residual-4.35/-5.30uu, cap-4.27/-5.21uu.
+Rendering remains near the capsule ceiling while raw head height changes.
+Existing EyeClamp now exposed at F10 Comfort and saved; unchanged enabled
+fallback. No camera-writer or neck tuning changes; disable comparison pending
+separate launch. Removing the cap can expose above-capsule geometry: do not
+claim clearance-safe fix from these measurements.
+
 ## VR-129: rune marker boundary and independent inset (2026-09-16)
 
 Branch renamed by request to codex/objective-marker-fixes. Read DisGadget_Heart,

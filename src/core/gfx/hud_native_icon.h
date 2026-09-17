@@ -22,6 +22,28 @@ struct MarkerLabels {
         for(auto& r:regions) if(r.valid && r.frame==frame && std::fabs(r.rect[0]-box[0])<.001f && std::fabs(r.rect[1]-box[1])<.001f) return;
         auto& r=regions[next++%16];for(int k=0;k<4;++k)r.rect[k]=box[k];r.frame=frame;r.valid=true;
     }
+    // Rune artwork is a centered 40px square inside a 48px pulse that grows
+    // to 62px. Require a recent recognized parent, containment and center match.
+    // This is bounded draw association, not native instance identity.
+    bool child(const float* box,uint32_t frame,float* pivot) const {
+        if(!box) return false;
+        for(int k=0;k<4;++k) if(!std::isfinite(box[k])) return false;
+        const float w=box[2]-box[0],h=box[3]-box[1];
+        if(w<.010f || h<.010f || w/h<.85f || w/h>1.18f) return false;
+        const Region* best=nullptr;
+        for(const auto& r:regions) {
+            if(!r.valid || frame-r.frame>1) continue;
+            const float rw=r.rect[2]-r.rect[0],rh=r.rect[3]-r.rect[1];
+            if(w<rw*.60f || w>rw*.90f || h<rh*.60f || h>rh*.90f) continue;
+            if(std::fabs(box[0]+box[2]-r.rect[0]-r.rect[2])>.004f ||
+               std::fabs(box[1]+box[3]-r.rect[1]-r.rect[3])>.004f) continue;
+            if(best && (std::fabs(best->rect[0]-r.rect[0])>.002f ||
+                        std::fabs(best->rect[1]-r.rect[1])>.002f)) return false;
+            best=&r;
+        }
+        if(!best) return false;
+        for(int k=0;k<4;++k)pivot[k]=best->rect[k];return true;
+    }
     bool label(const float* box,uint32_t frame,float* pivot) const {
         if(!box) return false;
         const float w=box[2]-box[0],h=box[3]-box[1];
@@ -50,6 +72,20 @@ struct MarkerLabels {
 struct Markers {
     struct Entry {uint64_t key=0;uint32_t seen=0;} entries[64]{};
     void clear(){for(auto& e:entries)e=Entry{};}
+    bool known(uint64_t key,uint32_t frame) {
+        if(!key) return false;
+        for(auto& e:entries) if(e.key==key && frame-e.seen<=2400){e.seen=frame;return true;}
+        return false;
+    }
+    void remember(uint64_t key,uint32_t frame) {
+        if(!key) return;
+        Entry* oldest=&entries[0];
+        for(auto& e:entries) {
+            if(e.key==key){e.seen=frame;return;}
+            if(!e.key || frame-e.seen>frame-oldest->seen) oldest=&e;
+        }
+        *oldest={key,frame};
+    }
     bool observe(uint64_t key,uint32_t frame,const float* r,unsigned vertices,unsigned primitives,float inset=.05f,float runeInset=.05f) {
         if(!key || !r) return false;
         Entry* oldest=&entries[0];

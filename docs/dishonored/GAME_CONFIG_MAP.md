@@ -1,3 +1,14 @@
+## VR-131: startup logos restored by texture pack (2026-09-17)
+
+Both installed DefaultEngine.ini and user DishonoredEngine.ini had
+[FullScreenMovie] bForceNoStartupMovies=false. Set only that key true in both;
+full backups/diffs at build/playtest-candidates/vr129-native-rune-boundary/
+reported407/startup-config. Native policy does not depend on movie resolution
+or replacement bytes. No assets removed; bForceNoMovies and loading/story movie
+settings unchanged. tools/setup-game-ini.ps1 -SkipStartupMovies reapplies the
+user setting with backup. A later pack/config overwrite may need reapplication.
+Configuration verified byte-for-byte with CRLF; next-launch behavior unverified.
+
 # The game's own config folder: what is in it and what it is good for
 
 `%USERPROFILE%\Documents\My Games\Dishonored\DishonoredGame\Config\`

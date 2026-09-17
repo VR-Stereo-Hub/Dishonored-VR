@@ -194,6 +194,12 @@ static void OverlayFrame()
     // button: with the right mode it stays put.
     ImGui::Separator();
     ImGui::TextUnformatted("neck (pitch pivot)");
+    bool eyeClamp=g_eyeClampCfg!=0;
+    if(ImGui::Checkbox("Limit camera height to player capsule (test)",&eyeClamp)) {
+        g_eyeClampCfg=eyeClamp?1:0;
+        DVR_INFO("eyeclamp: F10 request=%d; existing script/camera clamp owns application",(int)g_eyeClampCfg);
+    }
+    ImGui::TextWrapped("Turning this off preserves tracked vertical motion, but can let your view pass above low ceilings. Save settings to keep the choice.");
     {
         bool uprightArc=dvr::camera::upright_pitch_arc();
         if (ImGui::Checkbox("Upright position at steep pitch",&uprightArc)) dvr::camera::set_upright_pitch_arc(uprightArc);

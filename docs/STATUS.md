@@ -1,3 +1,24 @@
+## Current: rune inner-artwork candidate, pitch ceiling identified (2026-09-17)
+
+Continue codex/objective-marker-fixes.407 objectives accepted; rune inner image
+alone still on window. Verified DLL/banner; both logs/latest INI archived at
+build/playtest-candidates/vr129-native-rune-boundary/reported407.
+New child association is a guarded heuristic with bounded content cache, not
+native instance ownership. F10 HUD > Objectives > Keep marker inner artwork
+native (test), missing-key default off, next candidate on.55 host checks pass.
+Preserve saved task22% and rune17% insets and all other latest F10 values.
+
+VR-87 vertical pitch symptom matches final camera ceiling in both stances;
+existing EyeClamp exposed in F10 Comfort, retained ON for rune test. Full
+measurements/limits in ENGINE_NOTES and FLICKER_REFERENCE. Camera comparison
+is a separate next test; no neck retuning or clearance-safe fix claimed.
+VR-131 startup-only suppression restored in both game INIs; only one key each,
+backups/full diffs/CRLF verified. No movie assets changed or game launched.
+Next launch question: does rune inner art stay inside the outline through head
+turns, center and edge? Together supports fix; split means association miss;
+unrelated captured content means false association. Read native-child logs.
+Build/install identity will be appended after release validation. No main merge.
+
 ## Current: native objective/rune boundary trial407 (2026-09-16)
 
 Branch codex/objective-marker-fixes, renamed by request. Installed clean source

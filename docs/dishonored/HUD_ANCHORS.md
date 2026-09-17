@@ -1,3 +1,17 @@
+## VR-129: rune inner artwork follow-up (2026-09-17)
+
+Build407 objectives reported correct, rune inner texture still on window while
+outline/title/distance/locator correct. Verified logs and complete settings saved
+at build/playtest-candidates/vr129-native-rune-boundary/reported407.
+NativeMarkerChildren trial adds bounded centered-child association plus content
+cache; F10 HUD > Objectives > Keep marker inner artwork native (test).
+Missing-key default OFF, candidate ON. Existing task22% and rune17% inset kept.
+One launch question: does the inner rune image stay inside its outline as the
+marker crosses the center and becomes an edge indicator? Together validates the
+candidate; split means this association misses the actual draw and logs must
+identify it. Unrelated HUD joining indicates false association. Native semantic
+ownership remains incomplete; no claim of a general marker-class identifier.
+
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
 ## Native objective and rune boundary trial (2026-09-16)
