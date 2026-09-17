@@ -1,3 +1,10 @@
+## Controller emulation (2026-09-17)
+
+- [x] Merge accepted marker work via PR72; branch from updated main.
+- [x] Inspect BioShock1 modifier/menu policy and stock Dishonored mappings.
+- [x] Add F10 Controls, pure composer, saved settings and221 host checks.
+- [ ] Headset: modifier D-pad shortcut selection without locomotion leakage.
+
 # Roadmap
 
 ## VR-129 HUD orientation and closing lifecycle

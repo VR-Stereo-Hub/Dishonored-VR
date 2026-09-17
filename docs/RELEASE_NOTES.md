@@ -1,5 +1,13 @@
 ## Unreleased
 
+### Controller emulation (headset test pending)
+
+- F10 Controls: selectable D-pad modifier, left/right stick flip and X+Y pause
+  chord. Modifier plus menu/chord opens the journal; menu hold is a fallback.
+- Restore Y to native lean/adrenaline instead of pause. Existing controller
+  settings are preserved; selecting R3 or left grip explicitly reserves its
+  previous health-hold or weapon-wheel action.
+
 ### Wheel side panels and rounded wrists
 
 - Independently position D-pad and health/mana panels alongside the hand weapon

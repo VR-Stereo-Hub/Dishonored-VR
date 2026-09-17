@@ -1,4 +1,5 @@
 #include "core/framework/render_profile.h"
+#include "core/input/controller_emulation.h"
 // core/config/config.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -319,16 +320,13 @@ static void WriteDefaultIni(const char* ini)
         "; game and the tools both see for real (docs/VERIFICATION.md gotcha 14).\n"
         "DataDir=D:\\dvr-data\n"
         "[Controllers]\n"
-        "; Stage 6.4: Index controllers = virtual Xbox-360 pad via SteamVR's\n"
-        "; ACTION input system (rebindable in SteamVR > Controller Bindings).\n"
-        "; Left stick = move. Right stick X = turn (Y = head only in gameplay).\n"
-        "; R trigger = right hand (sword)  L trigger = left hand (power/gun)\n"
-        "; R A = JUMP + menu confirm       R B = stealth + menu back\n"
-        "; L A = interact/use              L B = pause menu\n"
-        "; L trackpad press = power wheel  R trackpad press = zoom\n"
-        "; R grip = choke/attack           L grip = adrenaline (Y)\n"
-        "; L stick click = sneak (LS)      R stick click = RECENTER lean\n"
-        "; Head-mouse auto-pauses while a menu (visible cursor) is open.\n"
+        "; A jump, B stealth, X interact, Y lean/adrenaline.\n"
+        "; Menu tap pauses; modifier+menu (or hold menu) opens journal.\n"
+        "; Modifier:0 off,1 right thumbrest,2 R3,3 left grip,4 left thumbrest.\n"
+        "; Flip:0 left stick D-pad,1 right stick D-pad. Chord: X+Y as menu.\n"
+        "DpadModifier=1\n"
+        "DpadFlip=0\n"
+        "PauseChord=1\n"
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
@@ -1516,6 +1514,12 @@ static void LoadConfig()
             "tracked head displacement, so modelling it here counted it twice.",
             (int)g_neckRollArc, g_neckRollArc ? "ROLLED head (pre-VR-91)" : "roll-free");
     }
+    dvr::controller::configure({int(GetPrivateProfileIntA("Controllers","DpadModifier",1,ini)),
+        GetPrivateProfileIntA("Controllers","DpadFlip",0,ini)!=0,
+        GetPrivateProfileIntA("Controllers","PauseChord",1,ini)!=0});
+    const auto controller=dvr::controller::config();
+    Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
+        controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
     g_padDeadzone = IniFloat(ini, "Controllers", "Deadzone", 0.12f);
@@ -3106,6 +3110,12 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Menu", "CacheNameLookups", g_nameIndexCacheOn ? "1" : "0", ini);
     WritePrivateProfileStringA("Menu", "PawnFromController", g_pawnFromController ? "1" : "0", ini);
     char v[64];
+    const auto controller=dvr::controller::config();
+    _snprintf(v,64,"%d",controller.modifier);
+    WritePrivateProfileStringA("Controllers","DpadModifier",v,ini);
+    WritePrivateProfileStringA("Controllers","DpadFlip",controller.flip ? "1" : "0",ini);
+    WritePrivateProfileStringA("Controllers","PauseChord",controller.pauseChord ? "1" : "0",ini);
+
     _snprintf(v, 64, "%.1f", g_posScaleUU);
     WritePrivateProfileStringA("PosTrack", "Scale", v, ini);
     _snprintf(v, 64, "%.2f", g_screenDist);

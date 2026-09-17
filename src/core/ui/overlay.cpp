@@ -76,6 +76,38 @@ static void OverlayFrame()
     ImGui::Text("IPD %.0f mm", g_ipdM * 1000.0f);
 
     if (!ImGui::BeginTabBar("vrtabs")) { ImGui::End(); return; }
+    if (ImGui::BeginTabItem("Controls")) {
+        auto c=dvr::controller::config();
+        const char* mods[]={"Off","Right thumbrest","R3 (right stick click)","Left grip","Left thumbrest"};
+        bool changed=ImGui::Combo("D-pad modifier",&c.modifier,mods,5);
+        if(ImGui::Checkbox("Flip D-pad to right stick",&c.flip)) {
+            // Thumbrest selection follows the opposite hand when flipping.
+            if(c.modifier==dvr::controller::RightRest || c.modifier==dvr::controller::LeftRest)
+                c.modifier=c.flip ? dvr::controller::LeftRest : dvr::controller::RightRest;
+            changed=true;
+        }
+        changed|=ImGui::Checkbox("X + Y pause chord",&c.pauseChord);
+        if(changed) {
+            dvr::controller::configure(c);
+            char value[16];_snprintf(value,sizeof(value),"%d",c.modifier);
+            ConfigWriteKey("Controllers","DpadModifier",value,"F10 Controls");
+            ConfigWriteKey("Controllers","DpadFlip",c.flip ? "1" : "0","F10 Controls");
+            ConfigWriteKey("Controllers","PauseChord",c.pauseChord ? "1" : "0","F10 Controls");
+        }
+        ImGui::TextWrapped("Hold the modifier, then use the %s stick for D-pad shortcuts. That stick stops moving or turning while selecting.",c.flip ? "right" : "left");
+        ImGui::TextWrapped("Tap menu to pause. Hold the modifier and press menu to open the journal. Holding menu alone also opens the journal.");
+        ImGui::TextWrapped("X + Y substitutes for menu when the runtime reserves the menu button. Modifier + X + Y opens the journal.");
+        ImGui::TextWrapped("Y alone uses the game's Y binding: lean/adrenaline in the standard layout.");
+        if(c.modifier==dvr::controller::R3)
+            ImGui::TextWrapped("R3 is reserved for the modifier; its health-elixir hold is unavailable. Both-stick recenter still works.");
+        if(c.modifier==dvr::controller::LeftGrip)
+            ImGui::TextWrapped("Left grip is reserved for the modifier; it will not open the weapon wheel. Use another modifier to keep the wheel available.");
+        if((c.modifier==dvr::controller::RightRest && c.flip) ||
+           (c.modifier==dvr::controller::LeftRest && !c.flip))
+            ImGui::TextWrapped("The thumbrest and selecting stick are on the same hand. Choose the opposite thumbrest or flip the stick.");
+        ImGui::TextWrapped("No thumbrest input on your controller? Choose R3. Settings apply and save immediately.");
+        ImGui::EndTabItem();
+    }
     if (ImGui::BeginTabItem("Aim")) {
         bool fire = FireAimEnabled();
         if (ImGui::Checkbox("Aim crossbow and pistol from controller", &fire)) FireAimSet(fire,"F10");

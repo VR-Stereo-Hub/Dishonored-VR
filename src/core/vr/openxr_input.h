@@ -18,21 +18,9 @@
 #pragma once
 
 #include <openxr/openxr.h>
+#include "core/vr/input_snapshot.h"
 
 namespace dvr::vr {
-
-// The raw controller state the pad bridge composes from. `active` false =
-// no data this frame (no session, not FOCUSED, actions unbound).
-struct InputSnapshot {
-    float mv[2] = {0, 0};      // left thumbstick x, y (XR: +y forward)
-    float lk[2] = {0, 0};      // right thumbstick
-    float trigL = 0, trigR = 0;
-    float gripL = 0, gripR = 0;
-    bool  a = false, b = false, x = false, y = false;
-    bool  clkL = false, clkR = false;   // stick clicks
-    bool  menu = false;                 // left menu button, or the X+Y chord
-    bool  active = false;
-};
 
 // After xrCreateInstance: create the action set + actions, suggest bindings.
 void input_create(XrInstance instance);

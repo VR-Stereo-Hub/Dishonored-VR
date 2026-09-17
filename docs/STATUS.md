@@ -1,3 +1,29 @@
+## Current: controller emulation improvements (2026-09-17)
+
+PR72 merged accepted marker/startup work into VR-Main at6a403c600; preserved
+feature branch. New branch codex/controller-emulation-improvements starts there.
+Installed413 DLL/banner verified and both logs/latest profile archived in
+build/playtest-candidates/vr129-rune-icon-continuity/accepted413 before new work.
+
+New F10 Controls tab: DpadModifier0..4 matches BioShock1's explicit choices,
+DpadFlip0 selects left stick,1 right; flip automatically swaps thumbrest choice.
+PauseChord1 enables X+Y as menu. Default modifier1/right thumbrest, flip0/left.
+Menu tap pulses Start150ms on release; modifier+menu immediately holds Back;
+500ms unmodified hold also yields Back. Back ownership survives releasing the
+modifier first. Chord consumes X/Y until both release. Y now forwards native Y.
+
+Pure composer precedes Dishonored pad shaping. All four D-pad directions are
+HELD: game Select on press/Use on release, not BioShock ammo pulses. Consume the
+selected stick, R3 health input or left-grip wheel input only when assigned.
+Wheel can still use hand direction with D-pad shortcut assignment. Recenter and
+accepted menu navigation retained. No camera/stereo/engine-memory writes added.
+221 host checks and production default-writer/package/golden byte parity pass.
+Linear ticket creation pending explicit external-publication permission after
+approval review rejection; no ticket identifier invented. Build/install follows.
+One launch question: does right-thumbrest + left stick select/use all four
+shortcuts without walking? Correct selection supports runtime-to-pad mapping;
+no response implies binding/threshold gap, walking implies consumption failure.
+
 ## Accepted marker candidate413 (2026-09-17)
 
 Tester accepted the objective/rune work for merge after413; this is practical
