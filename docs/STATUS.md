@@ -1,3 +1,18 @@
+## Current: rune icon continuity after411 (2026-09-17)
+
+411 verified; group, startup and camera behavior reported good, only occasional
+brief inner-rune-icon transfer during head turn remains. Both logs/latest INI
+archived under vr129-live-rune-ownership/reported411. New candidate bridges only
+already native-confirmed small icon content for two frames/100ms maximum, no
+self-renewal, current draw center, cleared by menu/reset/toggle.107 HUD checks
+pass. Exact flash absent from sampled log; phase mismatch remains hypothesis.
+Full scope/limitations in ENGINE_NOTES and FLICKER_REFERENCE. Preserve entire
+latest installed profile unchanged; no camera/intro/stereo policy changes.
+Next question: does the inner rune icon stay native through the turn that
+previously caused the flash? Persistence falsifies coverage; unrelated HUD
+remaining native indicates false association. Build/install identity follows.
+Continue codex/objective-marker-fixes; no game/simulator launch or main merge.
+
 ## Current: live rune ownership trial after409 (2026-09-17)
 
 Branch codex/objective-marker-fixes.409 verified and reported: rune title/distance/

@@ -32,6 +32,19 @@ struct Probe{bool ok=true,transformed=false;float bbox[4]={.7f,.4f,.74f,.44f};fl
 static unsigned checks=0;
 static void check(bool yes,const char* why){++checks;if(!yes){printf("FAIL %s\n",why);exit(1);}}
 int main(){
+ dvr::hudnative::RuneIconContinuity continuity;
+ const float runeArt[4]={.48f,.48f,.52f,.52f},movedArt[4]={.7f,.48f,.74f,.52f};
+ check(!continuity.route(7,10,100,runeArt,8,10,false),"unconfirmed icon cannot acquire continuity");
+ check(continuity.route(7,10,100,runeArt,8,10,true),"native match seeds same-content continuity");
+ check(continuity.route(7,11,110,movedArt,8,10,false),"one missed moving frame retains ownership");
+ check(continuity.route(7,12,120,movedArt,8,10,false),"second missed frame remains bounded");
+ check(!continuity.route(7,13,130,movedArt,8,10,false),"fallback cannot renew itself past two frames");
+ check(!continuity.route(8,11,110,runeArt,8,10,false),"other icon content cannot borrow continuity");
+ check(!continuity.route(7,11,201,runeArt,8,10,false),"long wall-clock gap expires even in one frame");
+ const float wideText[4]={.4f,.48f,.6f,.51f};
+ check(!continuity.route(8,11,110,wideText,8,10,true),"description cannot seed icon-only continuity");
+ check(!continuity.route(8,11,110,runeArt,4,2,true),"unobserved topology not guessed as icon");
+ continuity.clear();check(!continuity.route(7,11,110,runeArt,8,10,false),"menu/load/reset clears continuity");
  dvr::hudnative::RunePositions runes;float rp[4];
  for(float aspect:{1.f,16.f/9,2.f}) {
   const float tw=1000*aspect,th=1000,sc=std::fmin(tw/1280,th/720),sx=sc/tw,sy=sc/th;

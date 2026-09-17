@@ -1,3 +1,33 @@
+## VR-129: build411 accepted except brief inner-icon transfer (2026-09-17)
+
+Verified411 DLL/banner; both logs and latest full INI archived in
+build/playtest-candidates/vr129-live-rune-ownership/reported411. Group routing,
+startup behavior and camera state reported good; residual is a brief rune-icon
+transfer to window while turning. Logs have44 sampled native-rune matches and
+no sampled non-vitals native-miss, so the exact flash is not captured. A missed
+position match immediately falls through to ordinary routing; callback/draw
+phase mismatch is a hypothesis, not a measured cause. Wider regions and longer
+native snapshot lifetimes were not applied.
+
+Candidate: only an8-vertex/10-primitive small near-square draw already matched
+to a live rune can retain ownership by its existing content key for at most two
+render frames AND100ms. A fallback does not renew its own lease.32 bounded slots;
+menu changes, resource/load reset, config reload and ownership toggle clear it.
+No native pointers, old image, old location or pixel data retained. A fallback
+uses the current draw center for scaling and preserves current game visibility.
+Other content, text, unsupported topology and expired entries do not qualify.
+This addresses transient routing loss, not a persistent missing identity. If the
+reported icon has a changing content key or gap longer than the lease, it will
+still miss. Diagnostic hud/rune-continuity counts fallbacks, independently of
+native parent matches; neither proves a perceptual fix.107 native HUD checks
+pass, including moving-frame fallback, nonrenewal, expiry, isolation and reset.
+
+Launch question: does only the rune inner icon now stay native during the head
+turn that caused its brief window flash? No flash supports the candidate; a
+remaining flash means the timing/content hypothesis needs new draw evidence;
+unrelated HUD retaining native ownership means an association regression.
+Camera, intros, stereo synchronization and all INI values remain unchanged.
+
 ## VR-131: clean-install startup suppression owned by proxy (2026-09-17)
 
 The previous successful launch relied on manual game-INI changes, not automatic

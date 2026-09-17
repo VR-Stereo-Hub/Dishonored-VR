@@ -2,6 +2,32 @@
 #include <cmath>
 #include <cstdint>
 namespace dvr::hudnative {
+// Render-lane continuity for already identified small rune artwork. Fallback
+// does not renew its lease or retain an image, location, or engine object.
+struct RuneIconContinuity {
+    struct Entry {uint64_t key=0;uint32_t frame=0,ms=0;} entries[32]{};
+    void clear(){for(auto& e:entries)e=Entry{};}
+    static bool icon(const float* r,unsigned vertices,unsigned primitives) {
+        if(!r || vertices!=8 || primitives!=10)return false;
+        for(int k=0;k<4;++k)if(!std::isfinite(r[k]))return false;
+        const float w=r[2]-r[0],h=r[3]-r[1];
+        return w>=.01f && h>=.01f && w<=.07f && h<=.07f && w/h>.8f && w/h<1.25f;
+    }
+    bool route(uint64_t key,uint32_t frame,uint32_t ms,const float* r,
+               unsigned vertices,unsigned primitives,bool confirmed) {
+        if(!key || !icon(r,vertices,primitives))return false;
+        Entry* oldest=&entries[0];
+        for(auto& e:entries){
+            if(e.key==key){
+                if(confirmed)e={key,frame,ms};
+                return confirmed || (frame-e.frame<=2 && ms-e.ms<=100);
+            }
+            if(!e.key || frame-e.frame>frame-oldest->frame)oldest=&e;
+        }
+        if(confirmed){*oldest={key,frame,ms};return true;}
+        return false;
+    }
+};
 // Numeric snapshots only. The native callback validates each borrowed instance;
 // no engine pointer is dereferenced or trusted later on the render thread.
 struct RunePositions {

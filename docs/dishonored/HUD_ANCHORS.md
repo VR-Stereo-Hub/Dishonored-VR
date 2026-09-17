@@ -1,3 +1,11 @@
+## Rune icon continuity trial after411 (2026-09-17)
+
+411 group routing accepted apart from brief inner-icon transfer while turning.
+NativeRuneOwnership now retains already confirmed small icon content for at most
+two frames/100ms, without renewing on fallback. Current draw position is used;
+menus/reset/toggle clear ownership.107 host checks pass. No INI changes needed.
+Exact flash remains unmeasured; details and counterpredictions in FLICKER_REFERENCE.
+
 ## Live rune-parent routing follow-up (2026-09-17)
 
 409 child-only association failed to keep title/distance/locator stable and did
