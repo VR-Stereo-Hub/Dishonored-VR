@@ -191,6 +191,23 @@ int main() {
         reading_tilt(identity,-90,out);check(fabsf(out[0]+.70710678f)<.0001f,"negative tilt reverses pitch");
         reading_tilt(yaw,90,out);check(fabsf(out[0]-.5f)<.0001f && fabsf(out[1]-.5f)<.0001f && fabsf(out[2]+.5f)<.0001f,"tilt is local to attached page");
     }
+    {
+        const float q[]={0,0,0,1},eye[]={0,0,0};float angle=123;
+        const float level[]={0,0,-.5f},low[]={0,-.5f,-.5f},high[]={0,.5f,-.5f};
+        check(reading_entry_tilt(q,level,eye,angle) && fabsf(angle)<.001f,"eye-level opening needs no tilt");
+        check(reading_entry_tilt(q,low,eye,angle) && fabsf(angle+45)<.001f,"low opening automatically tilts toward eyes");
+        check(reading_entry_tilt(q,high,eye,angle) && fabsf(angle-45)<.001f,"high opening tilts down toward eyes");
+        const float behind[]={0,-.5f,.5f};check(!reading_entry_tilt(q,behind,eye,angle),"behind-head panel uses fallback");
+        const float turn[]={0,.70710678f,0,.70710678f},left[]={-.5f,-.5f,0};
+        check(reading_entry_tilt(turn,left,eye,angle) && fabsf(angle+45)<.001f,"automatic tilt survives head yaw");
+        for(int i=0;i<30;++i){
+            const float a=i*.05f,grip[]={std::sin(a),0,0,std::cos(a)};float attached[4],out[4];GripPanel p;
+            check(p.orient(grip,q,attached),"vary entry wrist angle");
+            check(reading_entry_tilt(attached,low,eye,angle),"fit from panel center");
+            reading_tilt(attached,angle,out);
+            check(fabsf(out[0]+.38268343f)<.0001f && fabsf(out[3]-.92387953f)<.0001f,"opening tilt independent of entry wrist rotation");
+        }
+    }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;
 }

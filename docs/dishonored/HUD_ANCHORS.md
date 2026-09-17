@@ -1,3 +1,20 @@
+## Current: automatic reading entry tilt after423 (2026-09-17)
+
+423 DLL/banner verified; both logs/latest INI archived in reading-tilt/reported423.
+Single manual tilt still depended on opening hand position because initial page
+was forced upright at every height. Compute initial pitch from actual panel
+center to eye height in the opening yaw plane, then latch it for this opening.
+Keep hand-follow rotation and position offsets; do not swivel as the head moves.
+Single ReadingTilt remains additive trim. Behind-head/degenerate fit falls back
+to upright. No calibration UI, additional axes, camera or stereo changes.
+The exit log again lacks complete left-grip pose; do not claim the preferred
+pose was recovered. Latest saved trim is0. Added bounded entry/full-pose logs
+for subsequent reports. Standalone tests vary entry wrist rotation and hand
+height/yaw. Build/install follows. One launch question: opening the same book
+with your hand low versus near eye level, does it face you comfortably in both
+cases without changing the slider? Yes supports geometry-based entry tilt;
+wrong/inverted or unchanged pitch falsifies the fit/sign/context path.
+
 ## Current: single reading tilt slider (2026-09-17)
 
 User replaced calibration request with one rotation axis; existing attachment

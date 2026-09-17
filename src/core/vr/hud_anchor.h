@@ -115,6 +115,19 @@ inline bool billboard_degenerate(const float toHead[3], float minRight = 0.2f) {
     return r < minRight;
 }
 
+// Pitch the opening page toward eye height using its actual center. Keep
+// the accepted upright yaw and center; only the pitch axis is adjusted.
+inline bool reading_entry_tilt(const float upright[4],const float center[3],const float eye[3],float& degrees) {
+    const float forward[3]={0,0,-1};float f[3];
+    for(int k=0;k<4;++k)if(!std::isfinite(upright[k]))return false;
+    for(int k=0;k<3;++k)if(!std::isfinite(center[k]) || !std::isfinite(eye[k]))return false;
+    dvr::xrmath::quat_rotate(upright[0],upright[1],upright[2],upright[3],forward,f);
+    const float ahead=(center[0]-eye[0])*f[0]+(center[2]-eye[2])*f[2];
+    if(!std::isfinite(ahead) || ahead<.06f)return false;
+    degrees=-std::atan2(eye[1]-center[1],ahead)*57.2957795f;
+    return std::isfinite(degrees);
+}
+
 // Adjust only pitch around the page's horizontal axis. Position is separate.
 inline void reading_tilt(const float attached[4],float degrees,float out[4]) {
     const float half=degrees*.00872664626f;
