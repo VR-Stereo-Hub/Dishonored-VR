@@ -1,7 +1,9 @@
 #include "core/gfx/hud_native_icon.h"
+#include "core/gfx/hud_native_rune.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <initializer_list>
 struct IDirect3DDevice9{};
 using HRESULT=int;
 #define FAILED(x) ((x)<0)
@@ -30,6 +32,45 @@ struct Probe{bool ok=true,transformed=false;float bbox[4]={.7f,.4f,.74f,.44f};fl
 static unsigned checks=0;
 static void check(bool yes,const char* why){++checks;if(!yes){printf("FAIL %s\n",why);exit(1);}}
 int main(){
+ dvr::hudnative::RuneIconContinuity continuity;
+ const float runeArt[4]={.48f,.48f,.52f,.52f},movedArt[4]={.7f,.48f,.74f,.52f};
+ check(!continuity.route(7,10,100,runeArt,8,10,false),"unconfirmed icon cannot acquire continuity");
+ check(continuity.route(7,10,100,runeArt,8,10,true),"native match seeds same-content continuity");
+ check(continuity.route(7,11,110,movedArt,8,10,false),"one missed moving frame retains ownership");
+ check(continuity.route(7,12,120,movedArt,8,10,false),"second missed frame remains bounded");
+ check(!continuity.route(7,13,130,movedArt,8,10,false),"fallback cannot renew itself past two frames");
+ check(!continuity.route(8,11,110,runeArt,8,10,false),"other icon content cannot borrow continuity");
+ check(!continuity.route(7,11,201,runeArt,8,10,false),"long wall-clock gap expires even in one frame");
+ const float wideText[4]={.4f,.48f,.6f,.51f};
+ check(!continuity.route(8,11,110,wideText,8,10,true),"description cannot seed icon-only continuity");
+ check(!continuity.route(8,11,110,runeArt,4,2,true),"unobserved topology not guessed as icon");
+ continuity.clear();check(!continuity.route(7,11,110,runeArt,8,10,false),"menu/load/reset clears continuity");
+ dvr::hudnative::RunePositions runes;float rp[4];
+ for(float aspect:{1.f,16.f/9,2.f}) {
+  const float tw=1000*aspect,th=1000,sc=std::fmin(tw/1280,th/720),sx=sc/tw,sy=sc/th;
+  runes.clear();runes.update(1,900,350,1280,720,1,100);
+  const float x=.5f+260*sx,y=.5f-10*sy;
+  for(float size:{40.f,48.f,62.f,64.f}) {
+   float box[4]={x-size*.5f*sx,y-size*.5f*sy,x+size*.5f*sx,y+size*.5f*sy};
+   check(runes.match(box,100,tw,th,rp),"live rune body recognized without edge learning");
+   check(std::fabs(rp[0]-x)<.00001f && std::fabs(rp[1]-y)<.00001f,"all artwork shares native center");
+  }
+  float title[4]={x-86*sx,y-57*sy,x+86*sx,y-7*sy};
+  check(runes.match(title,100,tw,th,rp),"description before any icon matches current native parent");
+  check(!runes.match(title,201,tw,th,rp),"stale native snapshot refused");
+  runes.update(1,900,350,1280,720,0,101);
+  check(!runes.match(title,101,tw,th,rp),"hidden rune withdraws ownership");
+  runes.update(1,300,350,1280,720,1,102);
+  check(!runes.match(title,102,tw,th,rp),"previous position withdrawn when marker moves");
+  runes.clear();check(!runes.match(title,102,tw,th,rp),"level reset clears snapshots");
+ }
+ // Recorded409 steady sample: native761.02/402.74 -> artwork center .594/.5315.
+ runes.clear();runes.update(1,761.02f,402.74f,1280,720,3,500);
+ const float recorded[4]={.580f,.518f,.608f,.545f};
+ check(runes.match(recorded,500,3012,3122,rp),"recorded409 rune inner art matches native canvas mapping");
+ check(std::fabs(rp[0]-.594f)<.001f && std::fabs(rp[1]-.5315f)<.001f,"recorded rendered and native centers agree within rounding");
+ const float recordedTitle[4]={.526f,.488f,.661f,.526f};
+ check(runes.match(recordedTitle,500,3012,3122,rp),"recorded409 description matches same live parent without icon prerequisite");
  IDirect3DDevice9 dev;Probe p;
  shadow[6][0]=2;shadow[7][1]=-2;shadow[8][2]=1;shadow[9][0]=-1;shadow[9][1]=1;shadow[9][3]=1;
  memcpy(state,shadow,sizeof(state));
@@ -54,6 +95,12 @@ int main(){
  check(markers.observe(45,2,edge,8,10),"edge observation seeds marker content");
  check(markers.observe(45,3,center,8,10),"same marker remains native in center interaction region");
  check(!markers.observe(46,3,center,8,10),"another icon does not inherit marker ownership");
+ dvr::hudnative::Markers children;
+ children.remember(47,4);
+ check(children.known(47,5),"learned inner content survives marker movement");
+ check(!children.known(48,5),"unrelated content is not learned");
+ check(!children.known(47,2406),"inner content expires");
+ children.clear();check(!children.known(47,5),"resource reset clears child keys");
  markers.clear();check(!markers.observe(45,4,center,8,10),"resource reset clears learned content");
  dvr::hudnative::MarkerLabels labels;float pivot[4];
  const float label[4]={.43f,.525f,.57f,.55f},far[4]={.1f,.7f,.3f,.73f};
@@ -62,6 +109,16 @@ int main(){
  check(labels.label(label,21,pivot),"label before marker uses adjacent draw evidence");
  check(!labels.label(label,22,pivot),"stale marker cannot claim text");
  check(!labels.label(far,20,pivot),"distant interaction remains untouched");
+ const float outline[4]={.47f,.47f,.53f,.53f},inner[4]={.475f,.475f,.525f,.525f};
+ labels.clear();labels.marker(outline,30);
+ check(labels.child(inner,30,pivot) && pivot[0]==outline[0],"rune inner artwork shares outline pivot");
+ check(labels.child(inner,31,pivot),"child before outline can use previous frame");
+ check(!labels.child(inner,32,pivot),"old outline cannot claim a child");
+ const float dot[4]={.498f,.498f,.502f,.502f};check(!labels.child(dot,30,pivot),"tiny reticle cannot join larger outline");
+ check(!labels.child(far,30,pivot),"distant HUD cannot join marker");
+ const float shifted[4]={.48f,.475f,.53f,.525f};
+ check(!labels.child(shifted,30,pivot),"off-center artwork refused");
+ labels.clear();check(!labels.child(inner,30,pivot),"reset clears inner association");
  labels.clear();check(!labels.label(label,20,pivot),"menu/reset clears label geometry");
  p=Probe{};p.bbox[0]=.4f;p.bbox[1]=.55f;p.bbox[2]=.6f;p.bbox[3]=.58f;
  for(int i=0;i<4;++i)p.nativePivot[i]=center[i];

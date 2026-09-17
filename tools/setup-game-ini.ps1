@@ -18,6 +18,7 @@
 param(
     [switch]$VRBaseline,
     [switch]$Console,
+    [switch]$SkipStartupMovies,
     [switch]$Restore,
     [string]$ConfigDir = ""
 )
@@ -130,6 +131,12 @@ if ($VRBaseline) {
     } else {
         Write-Host "VR baseline already in place, nothing written."
     }
+}
+
+# Startup-only policy survives replacement of movie assets by a texture pack.
+if ($SkipStartupMovies) {
+    Backup $engine
+    Set-IniKeyInSection $engine "FullScreenMovie" "bForceNoStartupMovies" "true" | Out-Null
 }
 
 if ($Console) {

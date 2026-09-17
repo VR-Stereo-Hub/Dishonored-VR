@@ -3579,6 +3579,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
       WritePrivateProfileStringA("Stereo", "HoldUntagged", hv, ini); }
+    WritePrivateProfileStringA("PosTrack", "EyeClamp", g_eyeClampCfg ? "1" : "0", ini);
     // 41.1: the [Neck] lever
     WritePrivateProfileStringA("Neck", "Mode", NeckModeName(g_neckMode), ini);
     _snprintf(v, 64, "%.3f", g_neckBelowM);

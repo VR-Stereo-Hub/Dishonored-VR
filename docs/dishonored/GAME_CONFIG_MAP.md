@@ -1,3 +1,23 @@
+## Startup suppression now comes from the proxy (2026-09-17)
+
+The preceding manual configuration fix was not automatic on a clean install.
+Proxy launch hook now provides -nostartupmovies independently of game INIs or
+prior mod settings. [Startup] SkipMovies=0 opts out. Existing native executable
+check and9 clean-config host cases verified; actual new launch not yet run.
+Previous manual true overrides restored tofalse for unmasked integration test.
+Details in ENGINE_NOTES. No texture-pack or story/movie files changed.
+
+## VR-131: startup logos restored by texture pack (2026-09-17)
+
+Both installed DefaultEngine.ini and user DishonoredEngine.ini had
+[FullScreenMovie] bForceNoStartupMovies=false. Set only that key true in both;
+full backups/diffs at build/playtest-candidates/vr129-native-rune-boundary/
+reported407/startup-config. Native policy does not depend on movie resolution
+or replacement bytes. No assets removed; bForceNoMovies and loading/story movie
+settings unchanged. tools/setup-game-ini.ps1 -SkipStartupMovies reapplies the
+user setting with backup. A later pack/config overwrite may need reapplication.
+Configuration verified byte-for-byte with CRLF; next-launch behavior unverified.
+
 # The game's own config folder: what is in it and what it is good for
 
 `%USERPROFILE%\Documents\My Games\Dishonored\DishonoredGame\Config\`

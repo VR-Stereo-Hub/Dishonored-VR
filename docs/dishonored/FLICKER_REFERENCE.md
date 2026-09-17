@@ -1,4 +1,82 @@
+## Accepted marker candidate413 (2026-09-17)
+
+Tester accepted the objective/rune work for merge after413; this is practical
+acceptance, not a claim that every possible single-frame artifact is eliminated.
+Installed DLL hash and413 log banner verified; both logs/latest profile archived
+in build/playtest-candidates/vr129-rune-icon-continuity/accepted413.
+107 native HUD checks,7814 native marker ABI checks and9 startup-policy checks
+passed across this branch, plus release build and9 export validation.
+Next work: controller emulation parity with BioShock1 modifier/menu controls.
+
+## VR-129: build411 accepted except brief inner-icon transfer (2026-09-17)
+
+Verified411 DLL/banner; both logs and latest full INI archived in
+build/playtest-candidates/vr129-live-rune-ownership/reported411. Group routing,
+startup behavior and camera state reported good; residual is a brief rune-icon
+transfer to window while turning. Logs have44 sampled native-rune matches and
+no sampled non-vitals native-miss, so the exact flash is not captured. A missed
+position match immediately falls through to ordinary routing; callback/draw
+phase mismatch is a hypothesis, not a measured cause. Wider regions and longer
+native snapshot lifetimes were not applied.
+
+Candidate: only an8-vertex/10-primitive small near-square draw already matched
+to a live rune can retain ownership by its existing content key for at most two
+render frames AND100ms. A fallback does not renew its own lease.32 bounded slots;
+menu changes, resource/load reset, config reload and ownership toggle clear it.
+No native pointers, old image, old location or pixel data retained. A fallback
+uses the current draw center for scaling and preserves current game visibility.
+Other content, text, unsupported topology and expired entries do not qualify.
+This addresses transient routing loss, not a persistent missing identity. If the
+reported icon has a changing content key or gap longer than the lease, it will
+still miss. Diagnostic hud/rune-continuity counts fallbacks, independently of
+native parent matches; neither proves a perceptual fix.107 native HUD checks
+pass, including moving-frame fallback, nonrenewal, expiry, isolation and reset.
+
+Launch question: does only the rune inner icon now stay native during the head
+turn that caused its brief window flash? No flash supports the candidate; a
+remaining flash means the timing/content hypothesis needs new draw evidence;
+unrelated HUD retaining native ownership means an association regression.
+Camera, intros, stereo synchronization and all INI values remain unchanged.
+
+## Build409 result: rune routing and camera ceiling (2026-09-17)
+
+Verified409 report archived under vr129-rune-inner-artwork/reported409.
+Surface row: HUD ownership, not stereo flicker. Whole rune group initially
+captured; title/distance/locator still alternate layers. Retire child-only
+candidate from active configuration. New live-parent position routing and its
+limitations recorded in ENGINE_NOTES. Preserve image-owned orientation and pair
+synchronization. Next question: does the entire rune group remain native from
+first reveal through head turns and edge transitions? Reappearance on window
+falsifies the new coverage; unrelated HUD captured by it means false association.
+
+Adjacent smooth camera issue:409 logged EyeClamp request=0 and tester reported
+relief. Remove F10 capsule-limit checkbox by request and preserve EyeClamp=0 in
+installed profile. Do not misreport this as a new neck correction. Trigger still
+uncertain; capsule/vent clearance remains unverified. Existing INI lever retained.
+
+## VR-129 rune ownership and VR-87 pitch-height report (2026-09-17)
+
+Surface routing: rune inner artwork on another HUD plane is HUD ownership;
+smooth pitch-correlated vertical translation is adjacent VR-87 camera ceiling,
+not eye flicker. Build407 verified and logs archived under reported407.
+Objectives accepted; rune inner child remains split. Derived child size/hierarchy
+and new guarded association are in ENGINE_NOTES. No image-owned orientation,
+stereo synchronization, menu lifecycle or hand changes.
+Camera accounting reproduces cap-related vertical loss in both stances; expose
+existing EyeClamp in F10 Comfort, retain enabled policy for rune launch. Neck
+retuning would not remove the cap term and is not attempted. No visual fix
+claimed for either new trial. Next launch asks only if rune artwork stays united.
+Then compare capsule limit on/off in open space with both stances, retaining
+collision/vent regression scope before accepting any camera policy change.
+
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
+
+## VR-129 native marker boundary trial (2026-09-16)
+
+Surface: objective HUD ownership, following the existing build399 routing row.
+Task-only parent inset candidate leaves camera, stereo, image orientation, hands
+and menu lifecycle unchanged. Whole icon/text D3D ownership remains unproven;
+see ENGINE_NOTES native task-parent derivation. No visual acceptance claimed.
 
 ## VR-129: build399 accepted parts, remaining objective transfer (2026-09-16)
 

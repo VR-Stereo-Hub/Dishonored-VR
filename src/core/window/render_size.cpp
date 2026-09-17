@@ -377,6 +377,7 @@ static wchar_t g_launchCmdW[2048] = L"";
 static char    g_launchOrigA[1024] = "";     // the game's real command line, kept before the hooks go in
 static wchar_t g_launchOrigW[1024] = L"";
 static int     g_launchSlots = 0;
+static bool    g_skipStartupMovies = true; // clean installs suppress startup logos
 static bool    g_launchResolved = false;     // the late ini read has happened
 static bool    g_launchResolving = false;    // re-entry guard
 
@@ -422,8 +423,10 @@ static void LaunchArgsWrite(uint32_t w, uint32_t h, bool full)
 // came from and goes in the log, so a run says which file the engine obeyed.
 static void LaunchArgsBuild(uint32_t w, uint32_t h, bool full, bool virt, const char* src)
 {
-    if (!w || !h) { g_launchCmdA[0] = 0; g_launchCmdW[0] = 0; g_launchExtra[0] = 0; return; }
-    _snprintf(g_launchExtra, sizeof(g_launchExtra), "-ResX=%u -ResY=%u %s", w, h, full ? "-FullScreen" : "-Windowed");
+    char resolution[96] = "";
+    if(w && h) _snprintf(resolution,sizeof(resolution),"-ResX=%u -ResY=%u %s",w,h,full?"-FullScreen":"-Windowed");
+    _snprintf(g_launchExtra,sizeof(g_launchExtra),"%s%s%s",resolution,
+        resolution[0] && g_skipStartupMovies?" ":"",g_skipStartupMovies?"-nostartupmovies":"");
     g_launchExtra[sizeof(g_launchExtra) - 1] = 0;
     _snprintf(g_launchCmdA, sizeof(g_launchCmdA), "%s %s", g_launchOrigA, g_launchExtra);
     g_launchCmdA[sizeof(g_launchCmdA) - 1] = 0;
@@ -460,6 +463,8 @@ static void LaunchArgsResolveFromIni(void)
         g_launchResolving = false;
         return;
     }
+    g_skipStartupMovies=GetPrivateProfileIntA("Startup","SkipMovies",1,ini)!=0;
+    LaunchArgsBuild(g_launchW,g_launchH,g_launchFull,g_launchVirtual,"startup movie policy");
     const int iw    = GetPrivateProfileIntA("Screen", "RenderWidth", -1, ini);
     const int ih    = GetPrivateProfileIntA("Screen", "RenderHeight", -1, ini);
     const int ifull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini);
@@ -518,6 +523,7 @@ static void LaunchArgsInstall()
         wcsncpy(g_launchOrigW, origW ? origW : L"", 1023);
         g_launchOrigW[1023] = 0;
     }
+    LaunchArgsBuild(0,0,true,false,"clean-install startup movie policy");
     char path[MAX_PATH];
     LaunchArgsPath(path, MAX_PATH);
     HANDLE f = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);

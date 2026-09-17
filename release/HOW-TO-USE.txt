@@ -41,3 +41,8 @@ reset every setting. Create disable_vr.txt to disable the mod without
 uninstalling.
 
 Known issues and troubleshooting: KNOWN_ISSUES.txt and TROUBLESHOOTING.txt.
+
+Startup logos are suppressed automatically by the proxy, including replacement
+movie files from texture packs. No prior game-INI edit is required. To opt out,
+add [Startup] SkipMovies=0 to dishonored_vr.ini before launch. Story movies are
+not disabled by this startup-only policy.

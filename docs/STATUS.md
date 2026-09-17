@@ -1,3 +1,131 @@
+## Accepted marker candidate413 (2026-09-17)
+
+Tester accepted the objective/rune work for merge after413; this is practical
+acceptance, not a claim that every possible single-frame artifact is eliminated.
+Installed DLL hash and413 log banner verified; both logs/latest profile archived
+in build/playtest-candidates/vr129-rune-icon-continuity/accepted413.
+107 native HUD checks,7814 native marker ABI checks and9 startup-policy checks
+passed across this branch, plus release build and9 export validation.
+Next work: controller emulation parity with BioShock1 modifier/menu controls.
+
+## Current: rune icon continuity after411 (2026-09-17)
+
+411 verified; group, startup and camera behavior reported good, only occasional
+brief inner-rune-icon transfer during head turn remains. Both logs/latest INI
+archived under vr129-live-rune-ownership/reported411. New candidate bridges only
+already native-confirmed small icon content for two frames/100ms maximum, no
+self-renewal, current draw center, cleared by menu/reset/toggle.107 HUD checks
+pass. Exact flash absent from sampled log; phase mismatch remains hypothesis.
+Full scope/limitations in ENGINE_NOTES and FLICKER_REFERENCE. Preserve entire
+latest installed profile unchanged; no camera/intro/stereo policy changes.
+Next question: does the inner rune icon stay native through the turn that
+previously caused the flash? Persistence falsifies coverage; unrelated HUD
+remaining native indicates false association.
+Installed vr33-hands-working-413-g612760965 from clean source612760965.
+Release build,9 exports,107 HUD checks,lint pass. Both logs/full prior INI/DLL
+archived at build/playtest-candidates/installs/20260917-084907-002805.
+Entire installed INI byte-identical to latest saved profile; zero settings
+changes, CRLF and DLL/INI hashes independently verified. Headset result pending.
+Continue codex/objective-marker-fixes; no game/simulator launch or main merge.
+
+## Current: live rune ownership trial after409 (2026-09-17)
+
+Branch codex/objective-marker-fixes.409 verified and reported: rune title/distance/
+locator still change layers; whole group initially on window. Logs and full INI
+at build/playtest-candidates/vr129-rune-inner-artwork/reported409. New numeric
+native-parent snapshots bypass edge learning and use measured aspect-fit mapping
+for the whole bounded rune group; spatial association remains a candidate, not
+GFx draw identity. New NativeRuneOwnership ON, older NativeMarkerChildren OFF.
+Latest task/rune insets22% and native size0.330 retained with all saved settings.
+
+F10 capsule-limit checkbox removed; explicitly install EyeClamp=0 since the log
+records the successful off comparison but saved INI lacks the value. No neck or
+stereo changes. Intros now handled by proxy -nostartupmovies from its existing
+launch hook, default on even with absent INI. Prior manual game config changes
+are reverted tofalse to test the actual proxy policy. Details in ENGINE_NOTES,
+HUD_ANCHORS and FLICKER_REFERENCE.97 HUD,7814 ABI,9 startup host checks pass.
+Installed vr33-hands-working-411-gfaebfbbac from clean sourcefaebfbbacce0871dd8334a2bd1d420c723b23259.
+DLL SHA256 f23073806db02e547ff7ab5f666f30db0da78f21852711923d462e9a59d50fe1.
+Release build,9 exports,lint pass. Both logs/full prior INI/DLL archived at
+build/playtest-candidates/installs/20260917-083639-637886. Entire INI diff only
+NativeMarkerChildren1->0, add NativeRuneOwnership=1 and EyeClamp=0. Installed
+DLL/INI hashes and CRLF verified. Both game startup flags restoredtrue->false
+with full backups/diffs in candidate/startup-config-before-proxy. No game or
+simulator launched; new integration/headset result pending.
+One launch question: is the entire rune group native from first reveal and does
+it remain together through turns and edge transitions? Splitting falsifies
+coverage; unrelated HUD joining means false association. Keep objective settings.
+No PR/merge authorization; changes remain local.
+
+## Current: rune inner-artwork candidate, pitch ceiling identified (2026-09-17)
+
+Continue codex/objective-marker-fixes.407 objectives accepted; rune inner image
+alone still on window. Verified DLL/banner; both logs/latest INI archived at
+build/playtest-candidates/vr129-native-rune-boundary/reported407.
+New child association is a guarded heuristic with bounded content cache, not
+native instance ownership. F10 HUD > Objectives > Keep marker inner artwork
+native (test), missing-key default off, next candidate on.55 host checks pass.
+Preserve saved task22% and rune17% insets and all other latest F10 values.
+
+VR-87 vertical pitch symptom matches final camera ceiling in both stances;
+existing EyeClamp exposed in F10 Comfort, retained ON for rune test. Full
+measurements/limits in ENGINE_NOTES and FLICKER_REFERENCE. Camera comparison
+is a separate next test; no neck retuning or clearance-safe fix claimed.
+VR-131 startup-only suppression restored in both game INIs; only one key each,
+backups/full diffs/CRLF verified. No movie assets changed or game launched.
+Next launch question: does rune inner art stay inside the outline through head
+turns, center and edge? Together supports fix; split means association miss;
+unrelated captured content means false association. Read native-child logs.
+Installed vr33-hands-working-409-gc9d1d4a41, clean sourcec9d1d4a41034d6442e42358fa807f1724b984709. DLL SHA256
+40ae3ddae27306d2ce42fc06b0c4bf3434815d802cab19b40c1c662fb9d5ffde.
+Release build and9 exports pass;55 native HUD checks, lint and diff checks pass.
+Archive: build/playtest-candidates/installs/20260917-080727-649109.
+Full mod INI diff: only add NativeMarkerChildren=1. Installed hashes and CRLF
+reverified. No game/simulator launch, no push/PR/main merge. Camera comfort
+control is available but unchanged ON, pending separate test.
+
+## Current: native objective/rune boundary trial407 (2026-09-16)
+
+Branch codex/objective-marker-fixes, renamed by request. Installed clean source
+17ec5db4bc9932e072921cbf58a949a31115647d, build407-g17ec5db4b. DLL SHA256
+5b8bffd97393bbe8d621e145b6d80dbc4b8efe12ac10c4cdf4669ea890e82720.
+Native task and rune parent hooks each inset visible offscreen markers; native
+child direction, distance, visibility and Heart reveal logic stay engine-owned.
+F10 HUD > Objectives has separate native objective/rune toggles and inset sliders.
+Trial switches ON, both margins12%; repository missing-key fallbacks remain OFF.
+Current ownership heuristics remain; semantic parent-to-D3D draw ownership is not
+complete. Read ENGINE_NOTES top native task/rune derivations before continuing.
+
+7814 production wrapper/policy checks,44 existing native HUD checks,14 offline
+call/ABI/constructor checks, release build,9 exports and diff checks pass. No
+simulator/game launched.406 was installed but never launched; current log still
+belongs to verified accepted401, not407. Both logs, DLL and full INI archived at
+build/playtest-candidates/installs/20260916-232954-462421 before replacing406.
+Entire INI diff407: add NativeRuneMarkers=1 and RuneMarkerEdgeInset=0.120 only.
+Previous406 install added NativeTaskMarkers=1 and TaskMarkerEdgeInset=0.120 only;
+all accepted401 values retained. Installed DLL/INI hashes and CRLF verified.
+Candidate/manifest: build/playtest-candidates/vr129-native-rune-boundary.
+
+One launch question: do the objective and rune offscreen indicators move inward
+with their respective F10 inset slider while retaining direction and their artwork?
+Expected: parent artwork shifts together; on-screen target position stays native.
+Success validates both native boundaries before ownership replacement. No movement
+requires checking hook/owner/flag diagnostics; partial movement or wrong direction
+falsifies the assumed parent coverage. Read hud/task-parent and hud/rune-parent only
+after checking the407 banner. No claim of completed plane-switch or yaw fix.
+Local commits only; no new merge authorization. Preserve both logs before relaunch.
+
+## Current: objective script review (2026-09-16)
+
+Local codex/vr-129-objective-review from merged PR71. Reviewed task/target and HUD
+UnrealScript declarations, native marker Flash hierarchy/actions and all2554
+verified native exec registrations. Findings: ENGINE_NOTES top VR-129 review.
+Current draw-shape/proximity routing cannot guarantee whole-marker ownership;
+upright correction only rotates on-screen geometry and does not fix yaw projection.
+The native task-marker parent/update path is the next investigation boundary.
+No runtime code, build, installed401, F10 defaults or game files changed. No new
+launch requested. VR-129 remains open; this review is not a perceptual fix.
+
 ## Current: HUD improvements merged in PR71 (2026-09-16)
 
 Build401 (vr33-hands-working-401-g4f974a5da) accepted for publication/merge.

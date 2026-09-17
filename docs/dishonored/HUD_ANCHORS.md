@@ -1,4 +1,46 @@
+## Rune icon continuity trial after411 (2026-09-17)
+
+411 group routing accepted apart from brief inner-icon transfer while turning.
+NativeRuneOwnership now retains already confirmed small icon content for at most
+two frames/100ms, without renewing on fallback. Current draw position is used;
+menus/reset/toggle clear ownership.107 host checks pass. No INI changes needed.
+Exact flash remains unmeasured; details and counterpredictions in FLICKER_REFERENCE.
+
+## Live rune-parent routing follow-up (2026-09-17)
+
+409 child-only association failed to keep title/distance/locator stable and did
+not cover first appearance. New NativeRuneOwnership uses validated native rune
+positions, canvas-to-target mapping and bounded group extents before old draw
+routing. F10 HUD > Objectives > Keep rune group native from first appearance
+(test). Candidate ON, missing-key default OFF; old child-only candidate OFF.
+See ENGINE_NOTES for recorded mapping, bounds, lifetime, tests and limitations.
+One question: entire rune group together from first reveal through turns/edges?
+
+## VR-129: rune inner artwork follow-up (2026-09-17)
+
+Build407 objectives reported correct, rune inner texture still on window while
+outline/title/distance/locator correct. Verified logs and complete settings saved
+at build/playtest-candidates/vr129-native-rune-boundary/reported407.
+NativeMarkerChildren trial adds bounded centered-child association plus content
+cache; F10 HUD > Objectives > Keep marker inner artwork native (test).
+Missing-key default OFF, candidate ON. Existing task22% and rune17% inset kept.
+One launch question: does the inner rune image stay inside its outline as the
+marker crosses the center and becomes an edge indicator? Together validates the
+candidate; split means this association misses the actual draw and logs must
+identify it. Unrelated HUD joining indicates false association. Native semantic
+ownership remains incomplete; no claim of a general marker-class identifier.
+
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
+
+## Native objective and rune boundary trial (2026-09-16)
+
+Local branch codex/objective-marker-fixes. Native parent call wrappers inset visible
+offscreen task/rune markers; independent F10 HUD > Objectives sliders default to
+12% in the installed trial. Repository fallback switches remain off. Bone charms
+are excluded by the current native symbol. Review/ABI/limits in ENGINE_NOTES top.
+This does not finish semantic draw ownership: title/distance can still fall through
+existing proximity routing. One launch asks whether objective and rune edge arrows
+move inward together with their marker artwork while retaining direction.
 
 ## Branch acceptance and final defaults (2026-09-16)
 

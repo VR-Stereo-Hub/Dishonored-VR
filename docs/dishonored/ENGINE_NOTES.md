@@ -1,3 +1,286 @@
+## VR-129: build411 accepted except brief inner-icon transfer (2026-09-17)
+
+Verified411 DLL/banner; both logs and latest full INI archived in
+build/playtest-candidates/vr129-live-rune-ownership/reported411. Group routing,
+startup behavior and camera state reported good; residual is a brief rune-icon
+transfer to window while turning. Logs have44 sampled native-rune matches and
+no sampled non-vitals native-miss, so the exact flash is not captured. A missed
+position match immediately falls through to ordinary routing; callback/draw
+phase mismatch is a hypothesis, not a measured cause. Wider regions and longer
+native snapshot lifetimes were not applied.
+
+Candidate: only an8-vertex/10-primitive small near-square draw already matched
+to a live rune can retain ownership by its existing content key for at most two
+render frames AND100ms. A fallback does not renew its own lease.32 bounded slots;
+menu changes, resource/load reset, config reload and ownership toggle clear it.
+No native pointers, old image, old location or pixel data retained. A fallback
+uses the current draw center for scaling and preserves current game visibility.
+Other content, text, unsupported topology and expired entries do not qualify.
+This addresses transient routing loss, not a persistent missing identity. If the
+reported icon has a changing content key or gap longer than the lease, it will
+still miss. Diagnostic hud/rune-continuity counts fallbacks, independently of
+native parent matches; neither proves a perceptual fix.107 native HUD checks
+pass, including moving-frame fallback, nonrenewal, expiry, isolation and reset.
+
+Launch question: does only the rune inner icon now stay native during the head
+turn that caused its brief window flash? No flash supports the candidate; a
+remaining flash means the timing/content hypothesis needs new draw evidence;
+unrelated HUD retaining native ownership means an association regression.
+Camera, intros, stereo synchronization and all INI values remain unchanged.
+
+## VR-131: clean-install startup suppression owned by proxy (2026-09-17)
+
+The previous successful launch relied on manual game-INI changes, not automatic
+proxy behavior. New LaunchArgsInstall unconditionally seeds -nostartupmovies
+before reading its optional launch file. Existing ANSI/Unicode GetCommandLine
+IAT hooks deliver it before the engine starts movies. No prior mod INI is needed;
+missing [Startup] SkipMovies defaults1. Explicit0 opts out on first lazy config
+read. Resolution0 and missing Screen settings retain startup suppression. Disabled
+proxy does not install the hook. No movie asset or game config is modified by it.
+
+Offline executable derivation: UTF16 nostartupmovies string RVA0xBC9B50 referenced
+at0x0E7065; code at0x0E7040 reads FullScreenMovie.bForceNoStartupMovies, parses
+that command-line flag, ORs results at0x0E7078, and branches past startup playback
+at0x0E707B to0x0E70F9. This is startup-only, not nomovies. No new memory hook or
+address constant is required.9 extracted production command-line tests pass with
+fresh absent INI, absent keys, zero/custom size, ANSI/Unicode and explicit optout.
+This verifies the generated launch path offline; next real launch remains the
+integration check. Prior manual game-INI overrides are restored tofalse with full
+backups/diffs so they cannot mask the proxy result. No game/simulator launched.
+
+## VR-129/VR-87: build409 report and live rune positions (2026-09-17)
+
+Verified409 DLL/banner, both logs and current full INI archived in
+build/playtest-candidates/vr129-rune-inner-artwork/reported409. Inner artwork
+partly improved, but title/distance/locator transfer and cold-start full-window
+routing remain. Edge learning and previous-frame icon proximity do not provide
+startup ownership; child-only expansion was insufficient. Do not call409 fixed.
+
+New default-off NativeRuneOwnership publishes numeric positions from the
+verified rune-symbol native parent callback after the inset, independent of
+edge observations.32 bounded entries,100ms expiry, explicit withdrawal on hidden
+or invalid input, load/menu epoch clearing. A mutex transfers snapshots between
+script/render lanes. Tokens are numeric matching keys only; no native or UObject
+pointer is later dereferenced. Live owner validation remains in MarkerInputs.
+Native center mapped through Scaleform's aspect-fit authoring canvas; recorded409
+steady native761.02/402.74 on1280x720 at3012x3122 yields.59455/.53221, matching
+recorded inner bbox.580/.518/.608/.545 and description.526/.488/.661/.526.
+
+Flash bounds:40px art,48..62px pulse,64px locator; description centered31.65px
+above,172x50 background,600px text box,21px font plus shadow. The matcher uses
+bounded native-centered artwork/label regions with a12px phase/shadow allowance.
+It routes matching draws and scales them about one current native parent, before
+legacy routing. This is still spatial draw association, not a proven GFx draw
+instance tag; overlapping HUD and fast movement remain perceptual risks. Menus
+excluded; hidden/expired/ambiguous samples refuse. Old NativeMarkerChildren is
+OFF in the next candidate; objective-only path is unchanged.
+
+97 HUD checks include cold-start body/title routing, aspect mapping, hidden,
+stale, moved and reset snapshots plus the recorded409 rectangles.7814 native
+ABI/policy checks pass. Snapshot rectangles are no substitute for headset test.
+
+Camera: log has a single F10 EyeClamp request=0, consistent with reported relief.
+Saved INI lacks EyeClamp, so explicitly preserve0 on install. Remove the requested
+F10 capsule-limit checkbox, retain the established INI mechanism for reversibility.
+No neck tuning or camera-writer changes. Startup trigger remains unknown; result
+supports the cap diagnosis but does not establish clearance-safe behavior.
+
+## VR-129/VR-87: build407 results and child-artwork candidate (2026-09-17)
+
+Verified407 DLL and log banner; both logs and full saved INI preserved at
+build/playtest-candidates/vr129-native-rune-boundary/reported407. Objectives
+reported correct. Rune description/distance/locator/outline correct; inner art
+still captured onto window. Task final counters122286/84618 calls/moved, no
+refusals; rune19090/8672, no refusals. Saved inset task22%, rune17% retained.
+
+Local Flash sprite169 contains static shape165 at depth1 (40px square) and
+pulse sprite168 at depth2, whose shape167 is48px square and animates to about
+62px. A single square/topology match cannot own both. New default-off
+NativeMarkerChildren associates centered child draws at60..90% of a recognized
+marker rectangle, with0.002 normalized-coordinate center tolerance, current or
+previous frame only; requires minimum1% extent and near-square bounds. Content
+identity is retained in a bounded64-entry cache (2400-frame expiry), cleared on
+resource/load reset and toggle, so movement need not relearn it. Menus excluded.
+Child scaling uses the common center. This remains heuristic association, not
+native GFx instance-to-draw identity; overlapping similar artwork can match.
+Initial association may require the marker to be briefly steady.55 native host
+checks pass including stale/remote/off-center/tiny rejection, cache and reset.
+
+Pitch residual matches the existing VR-87 final ceiling limitation, not a new
+stereo flicker. Standing episode16 at+24.8deg,198 samples/eye: residualU
+-4.02/-4.61uu, capdelta -3.99/-4.57uu; at-25.5deg residual+6.87/+7.12uu.
+Crouched episode1 +23deg359 samples: residual-4.35/-5.30uu, cap-4.27/-5.21uu.
+Rendering remains near the capsule ceiling while raw head height changes.
+Existing EyeClamp now exposed at F10 Comfort and saved; unchanged enabled
+fallback. No camera-writer or neck tuning changes; disable comparison pending
+separate launch. Removing the cap can expose above-capsule geometry: do not
+claim clearance-safe fix from these measurements.
+
+## VR-129: rune marker boundary and independent inset (2026-09-16)
+
+Branch renamed by request to codex/objective-marker-fixes. Read DisGadget_Heart,
+DisHeartTargetTracker, DisTweaks_Heart and the HUD/tweak declarations before edits.
+Heart tracks collectible targets separately from task objectives; HUD declares
+m_HeartMarkers and separate rune/bone-charm marker settings. Preserve equip/reveal,
+nearest-target/refresh behavior, distance and combat opacity. Do not reuse task
+visibility policy to make hidden Heart targets appear.
+
+Flash runeMarker is sprite170: description160 at depth1, locator163 at depth4,
+icon169 at depth6. Its description is above the icon, as for objectives, but the
+locator is an additional owned child. Preview attachment is fake authoring code.
+Native Heart constructor0xBCEBD0 installs vtable0x11635D8; update slot+0x14 points
+to0xBC5D00. Its parent call0xBC5D75 targets the same base0xBBD430 and returns at
+0xBC5D7A. Both update/base ret24 contracts verified. This update subsequently
+handles locator offset, icon presentation and description/distance behavior.
+
+Heart code is shared with bone charms: candidate further requires the live
+borrowed settings symbol to equal runeMarker. Base constructor stores settings
+pointer at marker+0x0C; base clip creation reads its leading FString data/count.
+Validate count11 including terminator, bounded capacity and full readable UTF-16
+buffer. Native pointers are never mistaken for UObject liveness. Current owner
+IsLiveObject, current load/menu live-table refresh and native caller/vtable checks
+are the same as the task trial. Other Heart symbols forward unchanged.
+
+NativeRuneMarkers defaults0; installed trial1. RuneMarkerEdgeInset defaults0.12,
+range5..30 percent, with independent controls in F10 HUD > Objectives. Only visible
+offscreen flags are inset, using parent coordinates while forwarding the game's
+remaining arguments unchanged. Whole icon/text/locator semantic D3D ownership is
+still pending native-boundary visual evidence. Existing draw matcher recognizes
+both candidate edge margins without claiming native instance-to-draw identity.
+
+7814 production wrapper/policy and44 native HUD host checks pass. Rune cases include
+independent margin/toggle, wrong caller, non-rune symbol, truncated/null symbol and
+all five corrupted call bytes. Release build and offline hook derivation checks
+required before install. No game/simulator launched, no headset acceptance yet.
+
+## VR-129: native task-parent boundary candidate (2026-09-16)
+
+Derived from the unique task constructor using _icon_mc/_description_mc, not a
+shape guess. Constructor VA0xBCE490 installs vtable0x11635A8; slot+0x14 is
+VA0xBC57F0. Its base placement call at0xBC5865 targets0xBBD430 (return0xBC586A).
+Both task update and base placement return24 bytes: six stack arguments. Native
+base uses first two floats as parent X/Y and sixth word for visibility; remaining
+arguments are forwarded bit-for-bit. Task update separately computes arrow angle
+when flag8 is set, updates icon scale/alpha, distance string and description
+visibility. Hooking only the task-to-base call preserves those child calculations.
+The five-byte call and nine-byte callee prolog are checked before installation.
+
+Constructor derives marker+8 from first argument and marker+0x10 from the native
+movie parameters. The task arrow-angle code converts parameter+0x14/+0x18 from
+integers to center coordinates. Candidate requires a current IsLiveObject owner,
+readable borrowed parameters and bounded dimensions before changing call arguments.
+Live table refreshes on load/menu epoch and retries unknown owners at most once/s.
+No native marker pointer or engine field write is retained. Native marker identity
+is validated by the specific caller and expected task vtable; it is not a UObject.
+
+NativeTaskMarkers (default0, installed trial1) enables a live offscreen parent
+inset. TaskMarkerEdgeInset defaults0.12, range0.05..0.30, exposed as percentage in
+F10 HUD > Objectives. Visible offscreen flag9 keeps its center-to-marker direction
+while clamping to the chosen inset rectangle. On-screen positions, flags, distance
+and opaque arguments remain native. Menu, session-loss, disabled and invalid-owner
+paths forward unchanged. Native child rotation sees the original coordinates.
+
+This is the first perceptual test of the native boundary, not completed semantic
+D3D draw ownership. The old icon classifier recognizes both its previous5% edge
+and the candidate inset. Text proximity remains and can still miss. A parent update
+is not a synchronous draw scope: do not use a thread-local flag here to classify
+later buffered Scaleform draws. Next: prove this boundary visibly moves the whole
+native marker, then connect its live parent/child identity to render ownership.
+
+7799 host checks cover the production wrapper forwarding, call fingerprint refusal,
+ray-preserving inset across angles/aspects, native fallbacks and new edge learning.
+44 native HUD checks pass. Ten offline executable checks verify call/callee, ret24,
+constructor/vtable and parameter dimension operands. No game/simulator launch.
+Installed401 DLL and banner verified before replacement; full saved INI hash is
+9c429cb77e9bc730d696357b46ed7640f5d6a4f33b8a25f25084ae8fe91a68af, newer than the
+historical install-time INI hash. Preserve these latest saved values.
+
+## VR-129: objective script ownership review (2026-09-16)
+
+Offline review of UnrealScript declarations, UI_HUD_SF ActionScript/XML and the
+merged native HUD classifier. Installed401 and all saved settings are unchanged.
+This is evidence about ownership and failure modes, not a headset-confirmed fix.
+
+### Engine ownership and intended behavior
+
+- DishonoredObjective owns tasks; DishonoredTask_Base owns an array of targets.
+  A target carries an Actor, localized target-name references, optional status and
+  a vanish preset. DisSeqAct_UpdateTaskTarget can replace a target by index. A
+  fixed marker per objective, or a cached Actor surviving a load, is insufficient.
+- Objective and task each have separate hidden/show-HUD-marker state. Preserve
+  active/completed/failed task state, marker visibility and target replacement.
+- DisGFxMoviePlayerHUD declares native m_TaskMarkers and m_SortedMarkers arrays,
+  separately from awareness, grenade and heart marker arrays and popup queues.
+  These are native Pointer arrays, not reflected UObject marker instances. Do not
+  treat their elements as safe UObject identities or infer their private layout.
+- DisTweaks_GFxMoviePlayerHUD exposes task/optional marker settings: symbol,
+  bounds, world/screen Z offsets, focus permission, bounding-box clamp, scale and
+  alpha variation. Task-specific settings include distance display, near-target
+  vanish presets and combat opacity reduction. Class defaults name PC marker-area
+  ratio0.90 and console0.85, but the HUD uses the asset instance
+  Twk_InGameUI.Twk_GFxMoviePlayerHUD. Blank class-default symbols and zero values
+  are not evidence of the runtime asset values or of disabled functionality.
+- Native method bodies are absent from these UnrealScript exports. Property
+  names establish candidate inputs, not the projection, distance-unit formula,
+  focus algorithm or the native marker struct ABI.
+
+### Flash structure and limits
+
+- Primary/secondary objective symbols are sprite178/174. Both contain description
+  sprite160 at depth1 and icon177/173 at depth4. The description contains a
+  background shape and a centered text field with a drop shadow. Shared sprite160
+  is also used by other marker types, so its identity alone is not objective-only.
+- The parent clips' exported frame action only stops the timeline. The root
+  fakeObjectiveMarker function attaches a sample secondary marker at fixed screen
+  coordinates; it is authoring-preview code, not live world tracking.
+- This export contains no marker-specific ActionScript class that implements
+  live target projection/title/distance updates. Native HUD code remains the
+  next boundary to inspect; do not mistake ObjectivesNotification/Window for
+  the in-world target markers.
+
+- Verified native-registration scan reproduced the known crossbow class and
+  enumerated2554 entries. Case-insensitive Marker/Objective/Task filtering found
+  journal toggles/list requests, objective actions/cheats and a task-value accessor,
+  but no task-marker projection/update exec. This rules out a named script-native
+  shortcut in that population, not the existence of internal native update code.
+
+### Concrete mismatches in the mod
+
+- hud_native_icon.h learns an icon family only after an8-vertex/10-primitive,
+  near-square draw reaches the hard-coded5%/95% edge band. This resembles the PC
+  class-default marker area but is not a runtime semantic identity. Interior-first,
+  differently scaled or differently clamped markers need not qualify.
+- MarkerLabels accepts short/wide draws only near current/prior-frame icon boxes.
+  Description depth precedes icon depth in the Flash asset. This cannot guarantee
+  first-frame association, association after fast movement, or ownership when
+  multiple markers overlap. Native render batching still needs runtime tracing.
+- hud_layout.cpp lets unrecognized components fall through to spatial/default
+  routing. That is a concrete route to the window while a recognized sibling stays
+  native. Existing native-miss logging does not prove which missed draw is a marker.
+- NativeIconScope sizes only recognized draws. Labels share the marker pivot only
+  when proximity succeeds; an isolated unlearned icon can bypass capture at scale1.
+  This provides a plausible explanation for size changes and separated labels,
+  not proof of the cause in any particular recorded headset frame.
+- NativeObjectiveUpright rotates projected geometry around an unchanged screen
+  center. It can compensate screen roll; it cannot supply world-space position,
+  correct head-yaw projection, or turn a screen sprite into a world billboard.
+
+### Implementation direction and acceptance boundary
+
+Find the native task-marker update/display boundary, preserve the game's target,
+visibility, label/distance and edge behavior, and identify the complete parent
+before redirecting/scaling. Keep all children under one transform and ownership.
+If a world billboard is desired, separately verify the target-to-world projection
+and a world-up orientation; do not conflate this with screen-roll correction.
+Any engine writer needs reflected properties where available, current IsLiveObject
+for UObject owners/targets, and separately verified native pointer lifetimes.
+No guessed marker layout or broad shape-threshold change is justified by this review.
+
+Future validation must include primary/optional targets, two nearby markers,
+interior-first appearance, edge clamping, rapid head turns, approach/vanish,
+completion/target replacement and a level load. Test visibility in both eyes and
+keep icon, title and distance under the same transform. No new launch requested.
+
 # Engine notes - Dishonored (Dishonored.exe, Steam, patch 1.4)
 
 ## VR-129: wheel auxiliary panel positioning (2026-09-16)

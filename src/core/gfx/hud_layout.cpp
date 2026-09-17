@@ -1,4 +1,5 @@
 #include "hud_menu_lifecycle.h"
+#include "game/dishonored/objective_marker_policy.h"
 #include "hud_wheel_parts.h"
 // core/gfx/hud_layout.cpp - see hud_layout.h.
 #define DVR_CAT ::dvr::log::Cat::hud
@@ -9,8 +10,10 @@
 #include "core/framework/status.h"
 #include "core/framework/frame_hooks.h"
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/capture.h"
 #include "core/gfx/hud_route.h"
 #include "core/gfx/hud_native_icon.h"
+#include "core/gfx/hud_native_rune.h"
 #include "core/util/log.h"
 #include "core/util/clock.h"
 #include "core/vr/hud_anchor.h"
@@ -86,12 +89,14 @@ const int         kMenuContexts = 6;
 
 ElementCfg g_el[ElCount];
 hudroute::StableRoutes g_stableRoutes;
-dvr::hudnative::Markers g_nativeMarkers;
+dvr::hudnative::Markers g_nativeMarkers,g_nativeChildContent;
 dvr::hudnative::MarkerLabels g_nativeLabels;
+dvr::hudnative::RuneIconContinuity g_runeIconContinuity;
 bool g_nativeObjectiveLabels=false,g_nativeObjectiveUpright=false,g_wheelCloseAnimation=false;
 hudroute::InteractionGroup g_interactionGroup;
 bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
 bool g_nativeObjectives=false;
+bool g_nativeMarkerChildren=false;
 bool g_nativeGameplayReference=false;
 bool g_wheelParts=false;
 float g_wheelPartCrop[2][4]={{.02f,.29f,.995f,.31f},{.70f,1.f,.995f,.16f}};
@@ -542,13 +547,13 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     if(!visual) {
         for(int s=0;s<kMaxSinks;++s) if(g_sink[s].anchor>=0 && g_sink[s].rideOnly) free_sink(s);
     }
-    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeLabels.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeLabels.clear();g_runeIconContinuity.clear();
     DVR_INFO("hud/layout: visual context=%d inputRiding=%d closing=%d tail=%d frame=%u",
         visualContext,(int)riding,(int)wheelClosing,(int)tail,frame);
     if(visual) DVR_INFO("hud/layout: the screen is %s on the %s",kRows[element_for_context(visualContext)].name,kAnchorNames[g_el[element_for_context(visualContext)].anchor]);
     else DVR_INFO("hud/layout: the screen left: routing by element again");
 }
-void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeLabels.clear(); }
+void forget_draw_owners() { dvr::objectivemarkers::clear_rune_positions(); g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();g_nativeLabels.clear(); }
 bool native_gameplay_reference() {return g_nativeGameplayReference && !g_visualRiding;}
 bool native_objective_upright(int e) {return !native_gameplay_reference() && g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
 bool menu_exit_heading() {return g_menuExitHeading.load();}
@@ -625,21 +630,58 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, drawFrame,
         isolatedIcon && spatial==ElPrompt ? ElDefault : spatial,bbox);
     if(id.context<0 && bbox) {
+        float runePivot[4]{};
+        const bool runeDraw=g_nativeObjectives && dvr::objectivemarkers::match_rune_draw(
+            bbox,(float)dvr::capture::width(),(float)dvr::capture::height(),runePivot);
+        const bool runeBridge=g_nativeObjectives && dvr::objectivemarkers::rune_ownership() &&
+            dvr::objectivemarkers::rune_enabled() && g_runeIconContinuity.route(
+                drawKey,drawFrame,GetTickCount(),bbox,vertices,primitives,runeDraw);
+        if(runeBridge && !runeDraw) {
+            // This draw is current. Preserve native ownership, not an old pose.
+            runePivot[0]=runePivot[2]=(bbox[0]+bbox[2])*.5f;
+            runePivot[1]=runePivot[3]=(bbox[1]+bbox[3])*.5f;
+            static uint32_t bridges=0;++bridges;
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                "hud/rune-continuity: bridges=%u key=%016llx frame=%u; same confirmed icon, at most two frames/100ms, current draw center",
+                bridges,drawKey,drawFrame);
+        }
+        if(runeDraw || runeBridge) {
+            if(nativePivot)memcpy(nativePivot,runePivot,sizeof(runePivot));
+            if(elementOut)*elementOut=ElObjective;
+            ++g_routeFrame;++g_routeCounts[ElObjective];++g_seen[ElObjective];
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                "hud/native-rune: rect=%.3f/%.3f/%.3f/%.3f pivot=%.3f/%.3f key=%016llx; source=%s",
+                bbox[0],bbox[1],bbox[2],bbox[3],runePivot[0],runePivot[1],drawKey,runeDraw?"live parent":"confirmed icon continuity");
+            return -1;
+        }
         // Group decisions outrank the first spatial hint retained by the old
         // cache, otherwise title and action can stay split for their lifetime.
         const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
         const bool nativeIcon=g_nativeObjectives &&
-            g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives);
+            g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives,
+                dvr::objectivemarkers::enabled()?dvr::objectivemarkers::inset():.05f,
+                dvr::objectivemarkers::rune_enabled()?dvr::objectivemarkers::rune_inset():.05f);
         if(nativeIcon) g_nativeLabels.marker(bbox,drawFrame);
         float labelPivot[4]{};
         const bool nativeLabel=g_nativeObjectives && g_nativeObjectiveLabels && !nativeIcon &&
             g_nativeLabels.label(bbox,drawFrame,labelPivot);
-        if(nativeLabel && nativePivot) memcpy(nativePivot,labelPivot,sizeof(labelPivot));
+        bool nativeChild=false;
+        if(g_nativeObjectives && g_nativeMarkerChildren && !nativeIcon) {
+            if(g_nativeChildContent.known(drawKey,drawFrame)) {
+                nativeChild=true;memcpy(labelPivot,bbox,sizeof(labelPivot));
+            } else if(g_nativeLabels.child(bbox,drawFrame,labelPivot)) {
+                nativeChild=true;g_nativeChildContent.remember(drawKey,drawFrame);
+            }
+        }
+        if(nativeChild) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+            "hud/native-child: key=%016llx vertices=%u primitives=%u rect=%.3f/%.3f/%.3f/%.3f; centered artwork shares marker pivot",
+            drawKey,vertices,primitives,bbox[0],bbox[1],bbox[2],bbox[3]);
+        if((nativeLabel || nativeChild) && nativePivot) memcpy(nativePivot,labelPivot,sizeof(labelPivot));
         if(nativeLabel) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
             "hud/native-label: rect=%.3f/%.3f/%.3f/%.3f marker=%.3f/%.3f/%.3f/%.3f; proximity candidate, native shared pivot",
             bbox[0],bbox[1],bbox[2],bbox[3],labelPivot[0],labelPivot[1],labelPivot[2],labelPivot[3]);
-        if(nativeIcon || nativeLabel || (!g_nativeObjectives && g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
-            e=ElObjective;if(!nativeLabel) g_stableRoutes.adopt(drawKey,drawFrame,e);
+        if(nativeIcon || nativeLabel || nativeChild || (!g_nativeObjectives && g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
+            e=ElObjective;if(!nativeLabel && !nativeChild) g_stableRoutes.adopt(drawKey,drawFrame,e);
         } else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
             // A title crossing the central region is not the reticle. Preserve
             // the native measured dot/grown reticle rather than adopting it.
@@ -860,7 +902,7 @@ void configure(const char* ini) {
     for (int s = 0; s < kMaxSinks; ++s) { g_sink[s].anchor = -1; g_sink[s].crop = false; g_sink[s].rideOnly = false; g_sink[s].element=-1; g_sinkLabel[s][0] = 0; }
     for (int a = 0; a < AnchorCount; ++a) g_sinkOf[a][0] = g_sinkOf[a][1] = -1;
     for(int e=0;e<ElCount;++e) g_elementSink[e]=-1;
-    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeLabels.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();g_nativeLabels.clear();
     memset(g_seen, 0, sizeof(g_seen));
     memset(g_lastRouted, 0, sizeof(g_lastRouted));
     // VR-117's keys, read once and rewritten on the next save: one hand
@@ -980,9 +1022,13 @@ void configure(const char* ini) {
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
     g_menuExitHeading.store(read_i(ini,"MenuExitHeading",0)!=0);
     g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
+    dvr::objectivemarkers::configure(read_i(ini,"NativeTaskMarkers",0)!=0,read_f(ini,"TaskMarkerEdgeInset",.12f));
+    dvr::objectivemarkers::configure_runes(read_i(ini,"NativeRuneMarkers",0)!=0,read_f(ini,"RuneMarkerEdgeInset",.12f));
     g_nativeObjectiveLabels=read_i(ini,"NativeObjectiveLabels",0)!=0;
     g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
+    dvr::objectivemarkers::configure_rune_ownership(read_i(ini,"NativeRuneOwnership",0)!=0);
+    g_nativeMarkerChildren=read_i(ini,"NativeMarkerChildren",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
     g_wheelParts=read_i(ini,"WheelSidePanels",0)!=0;
@@ -1066,8 +1112,12 @@ void save(const char* ini) {
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
     write_i("MenuExitHeading",g_menuExitHeading.load());
+    write_i("NativeRuneMarkers",dvr::objectivemarkers::rune_enabled());write_f("RuneMarkerEdgeInset",dvr::objectivemarkers::rune_inset());
+    write_i("NativeTaskMarkers",dvr::objectivemarkers::enabled());write_f("TaskMarkerEdgeInset",dvr::objectivemarkers::inset());
     write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
+    write_i("NativeRuneOwnership",dvr::objectivemarkers::rune_ownership());
+    write_i("NativeMarkerChildren",g_nativeMarkerChildren);
     write_i("NativeGameplayReference",g_nativeGameplayReference);
     write_i("WheelSidePanels",g_wheelParts);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
@@ -1383,12 +1433,39 @@ void draw_ui() {
         ImGui::TextWrapped("One shared alpha profile for notes, books and the journal.");
     }
     if(ImGui::CollapsingHeader("Objectives")) {
+        bool runeTask=dvr::objectivemarkers::rune_enabled();
+        float runeInset=dvr::objectivemarkers::rune_inset()*100.f;
+        const bool runeChange=ImGui::Checkbox("Native rune arrow boundary (test)",&runeTask);
+        const bool runeInsetChange=ImGui::SliderFloat("Rune arrow inset",&runeInset,5.f,30.f,"%.0f%%");
+        if(runeChange || runeInsetChange) {
+            dvr::objectivemarkers::configure_runes(runeTask,runeInset/100.f);
+            write_i("NativeRuneMarkers",runeTask);write_f("RuneMarkerEdgeInset",runeInset/100.f);
+        }
+        bool nativeTask=dvr::objectivemarkers::enabled();
+        float edgeInset=dvr::objectivemarkers::inset()*100.f;
+        const bool taskChange=ImGui::Checkbox("Native objective arrow boundary (test)",&nativeTask);
+        const bool insetChange=ImGui::SliderFloat("Offscreen arrow inset",&edgeInset,5.f,30.f,"%.0f%%");
+        if(taskChange || insetChange) {
+            dvr::objectivemarkers::configure(nativeTask,edgeInset*.01f);
+            write_i("NativeTaskMarkers",nativeTask);write_f("TaskMarkerEdgeInset",edgeInset*.01f);
+        }
+        ImGui::TextWrapped("Higher inset brings offscreen objective arrows toward the center. Applies on the next game update; on-screen target positions stay unchanged.");
         if(ImGui::Checkbox("Native gameplay HUD reference (test)",&g_nativeGameplayReference)) {
             dvr::hudcap::invalidate_content();
             write_i("NativeGameplayReference",g_nativeGameplayReference);
             DVR_INFO("hud/native-reference: requested=%d; menu visual ownership takes precedence",(int)g_nativeGameplayReference);
         }
         ImGui::TextWrapped("Reference ON keeps all gameplay HUD in the game image, at native size and color. Turn OFF to restore your HUD settings. Menus keep their configured panels. Compare head turning in the same spot.");
+        bool runeOwnership=dvr::objectivemarkers::rune_ownership();
+        if(ImGui::Checkbox("Keep rune group native from first appearance (test)",&runeOwnership)) {
+            dvr::objectivemarkers::configure_rune_ownership(runeOwnership);
+            g_runeIconContinuity.clear();
+            write_i("NativeRuneOwnership",runeOwnership);
+        }
+        if(ImGui::Checkbox("Keep marker inner artwork native (test)",&g_nativeMarkerChildren)) {
+            write_i("NativeMarkerChildren",g_nativeMarkerChildren);
+            g_nativeLabels.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();
+        }
         if(g_nativeObjectives && !g_nativeGameplayReference) {
             if(ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx")) {
                 write_f("NativeObjectiveScale",g_nativeObjectiveScale);
