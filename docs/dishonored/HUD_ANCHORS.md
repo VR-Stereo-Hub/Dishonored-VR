@@ -17,6 +17,13 @@ initial hand poses, then return to the comfortable pose. Does its angle remain
 correct and identical? Consistent but wrong means trim/reference needs adjustment;
 variable means another attachment path remains. No game or simulator launch.
 
+Installed vr33-hands-working-427-g15503fbcc from clean source.900 HUD anchor
+checks, default-profile parity, release build,9 exports and lint pass. Both logs
+and prior DLL/INI archived at build/playtest-candidates/installs/20260917-122258-812613.
+Full installed INI is byte-identical to prior saved profile; CRLF and DLL/INI
+hashes independently verified. Headset result pending.
+
+
 ## Current: automatic reading entry tilt after423 (2026-09-17)
 
 423 DLL/banner verified; both logs/latest INI archived in reading-tilt/reported423.
