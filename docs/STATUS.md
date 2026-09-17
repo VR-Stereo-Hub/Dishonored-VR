@@ -1,24 +1,30 @@
-## Current: HUD follow-up accepted for merge (2026-09-16)
+## Current: HUD improvements merged in PR71 (2026-09-16)
 
-The maintainer accepted the current work as sufficient and explicitly authorized
-PR publication and merge to VR-Main. This ends the active HUD test loop; it is not
-a claim that every residual issue has been eliminated. Preserve codex/hud-fixes
-after merge. Installed391/source56b422dc2 remains the playtest build, with its DLL
-hash and log banner verified before the merge checkpoint; both logs and full INI
-are archived under build/playtest-candidates/hud-menu-exit/merge-checkpoint-*.
-No install or settings change is part of this merge.
+Build401 (vr33-hands-working-401-g4f974a5da) accepted for publication/merge.
+DLL hash and log banner verified; both logs and latest full F10 INI archived at
+build/playtest-candidates/vr129-side-alpha/accepted401. User explicitly authorized
+PR and merge of codex/vr-129-hud-fixes into VR-Main. PR71 merges this work;
+the local and remote feature branch are preserved.
 
-Accepted earlier reports: reader grip rotation, wheel origin, crouch grouping,
-interaction hue and pause world stability; closing flash provisionally absent.
-Residual pause hand-size variation remains open. Native objective text association
-and menu exit heading are implemented with tests; final acceptance is aggregate,
-not a separate detailed verdict for each mechanism. Candidate levers retain their
-repository defaults. Latest installed settings remain preserved independently.
+Latest profile captured byte-for-byte in release INI, golden and production
+WriteDefaultIni. Only new tuning since previous defaults: WheelPartsAlphaMode=mix,
+Gain0.890,Gamma0.660,Mix2.090 (Floor remains0). Accepted INI SHA256
+9c429cb77e9bc730d696357b46ed7640f5d6a4f33b8a25f25084ae8fe91a68af.
+Installed401 remains the tested binary; no reinstall is required for a defaults
+literal update. No game/simulator launch. Production writer/package/golden parity,
+lint and diff checks pass; clean release build and all9 exports pass.
+PR: https://github.com/VR-Stereo-Hub/Dishonored-VR/pull/71
 
-Validation: clean release,9 exports,38 menu and23 native HUD checks; default
-writer/package/golden byte parity and lint pass. No game/simulator or subagents.
-Canonical details: HUD_ANCHORS.md and FLICKER_REFERENCE.md. Reopen a targeted
-investigation only when requested; verify installed.json and preserve both logs.
+Accepted scope: wheel closing visual ownership; independent D-pad/potion window
+panels with shared alpha; rounded wrists; accessible native objective controls;
+complete tuned defaults. Host evidence:104 HUD controls,912 wrist/crop,44 native,
+465 route,462 anchor,45 menu checks and actual D3D11 WARP mask/hue/crop checks.
+
+VR-129 remains open for occasional objective/window transfers, incomplete native
+label association and the earlier rare wheel-exit zoom. Capture-miss logging is
+diagnostic, not proof of semantic ownership. VR-130 rounded wrists are accepted.
+No new test requested for this merge. Next work should start from updated VR-Main,
+read current HUD_ANCHORS/FLICKER_REFERENCE, and verify installed.json/log identity.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

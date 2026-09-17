@@ -69,8 +69,10 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     }
     // The camera position for the world pass just arrived: whatever c0..c3 holds
     // now is the matrix that pass will draw with.
-    if (data && startReg <= 5 && startReg + count > 5 && g_vpRowSeen == 0xF)
+    if (data && startReg <= 5 && startReg + count > 5 && g_vpRowSeen == 0xF) {
         dvr::pose::note_render_vp(g_vpRows, g_camPosC5, true);
+        dvr::hudclass::note_world_view(g_vpRows);
+    }
 
     // ---- 30.70: live rig census + the stepped identifier -------------------
     // One unguarded increment per skinned upload (render thread only, no lock,

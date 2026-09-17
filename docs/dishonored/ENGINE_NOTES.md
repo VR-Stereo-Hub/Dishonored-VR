@@ -1,5 +1,20 @@
 # Engine notes - Dishonored (Dishonored.exe, Steam, patch 1.4)
 
+## VR-129: wheel auxiliary panel positioning (2026-09-16)
+
+Offline local UI_PowerWheel_SF ActionScript inspection: shortcuts_mc (sprite166)
+uses90% scale and centers from safe coordMin.x plus half its width, coordMax.y
+minus half width. potions_mc (sprite180) uses coordMax minus half its width/height;
+its children animate from+150px on opening. ScreenPosition works from1280x720,
+adds half of Stage excess per expanded dimension, then applies a0.85 controller
+or0.90 PC safe-area ratio. These parts are bottom-corner anchored to the expanded
+stage, not a fixed letterboxed authored image. Candidate crop envelopes therefore
+use bottom UV plus a height proportional to image width. Runtime bounds are not
+yet measured; expose adjustment and test visual completeness. Icon loading still
+uses the engine external-interface path documented below. No new engine address.
+Derived scripts/images remain ignored under build/hud-assets, never committed.
+
+
 The reverse-engineering knowledge base. Everything below was established by the original
 author (GingasVR) across proxy builds 30.0 to 38.92 and recorded in the code's comments; this
 file distills those comments so an agent does not have to read 23k lines to find a number.
@@ -6974,3 +6989,51 @@ not a discovered semantic field. Scale the associated draw around the marker piv
 rather than its own center. Never retain glyph ownership across unrelated draws.
 Ambiguous markers refuse; batching/order/layout are limitations. Host tests verify
 pivot arithmetic and shader restore, not actual title identification.
+
+## VR-129 native Scaleform assets and closing lifetime (2026-09-16)
+
+Offline UE Viewer -export -3rdparty successfully exports UI_PowerWheel_SF.upk and
+UI_HUD_SF.upk. FFDec opens their GFX and resolves external textures when exported
+TGAs sit beside the movie.1280x720 wheel contains distinct wheel_mc, shortcuts_mc,
+potions_mc and PC alternatives. Runtime scripts control safe-area positioning,
+item population and shortcut mode; static authoring preview does not execute those.
+Wheel/background/potion/D-pad close alpha tweens are250ms, with native OnClosed
+notification following the wheel tween. Quick-shortcut use outside the wheel has
+additional staged delays; do not generalize wheel lifetime to it. No new engine
+offset/address or memory writer is introduced. Source game assets remain local.
+
+Native upright HUD candidate reuses MpReadCtx's symmetric-perspective basis test:
+normalize view-projection x/y columns, require unit homogeneous-forward column and
+orthogonality, project UE world +Z, refuse near-vertical view. Focal ratio preserves
+angular shape while rotating clip XY around existing marker center. Depth/clip W
+and shader shadow remain unchanged; original constants restored after each draw.
+Basis is captured at c5 camera upload on render thread and usable only in the same
+present/thread. Unknown/asymmetric/degenerate basis refuses upright correction.
+The legacy pose yaw solver refused391; this independent bounded basis extraction
+is a candidate requiring its own logged/headset confirmation, not a solved pose
+correspondence claim. Offline workflow and sources are in HUD_ANCHORS VR-129.
+
+## VR-129 objective children and runtime icon imports (2026-09-16)
+
+UI_HUD_SF offline XML: objectiveMarker_primary sprite178 and secondary174 share
+_description_mc sprite160 at display depth1; _icon_mc is177/173 at depth4.
+_description_mc.txt is DefineEditText159 (with drop-shadow filter); its panel is
+shape158. Icon artwork is35x35 authored pixels. Child names are established from
+exports; no correspondence from GFx instance to intercepted D3D draw is established.
+The title-before-icon order undermines frame-local positional grouping.395 contains
+8-vertex/10-primitive icon AND wide description composites, so topology alone is
+not semantic identity. Runtime draw keys include resource pointers and must not be
+baked as universal signatures. Current F10 panel controls are bypassed by native
+objective mode; NativeObjectiveScale is the consumer that still changes recognized
+native geometry. No new engine addresses, offsets or memory writers introduced.
+
+PowerWheel imports common_assets/lib.swf, but standalone Common_assets package is
+absent. DefaultEngine lists it as a startup package, and UModel's Startup inventory
+locates SwfMovie lib and lib_* textures.54 external textures resolved from lib XML.
+The itemIcons sprite301 is an animated shell; EquipmentIcon.SetIconImage invokes
+req_EquipmentIconImage to load runtime artwork.15 Startup textures ic_item_* and
+ic_pow_* match the screenshot's equipment and powers. UI_ItemIcons_Large and
+UI_Powers_Large exports are journal-style alternatives, not this missing wheel art.
+Revised tools/hud-assets-export.ps1 exports dependencies and remaps the import for
+FFDec. Static frame export still cannot execute native callbacks. Extracted output
+and full scripts remain local ignored build/hud-assets only.

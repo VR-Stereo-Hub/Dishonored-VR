@@ -147,6 +147,8 @@ struct MsCapSeg { uint32_t a, b; uint8_t sd; };   // oriented as the HAND side w
 static MsCapSeg g_msCapSeg[MS_MAX_CAPSEG];
 static int      g_msCapSegN = 0;
 static bool     g_msCap = true;               // [Hands] CutCap - close the cut end
+static bool     g_msRoundWrist = false;      // optional rounded hand closure
+static float    g_msRoundDepth = .35f;       // depth as a fraction of rim radius
 static bool     g_msCapTwo = true;            // [Hands] CutCapTwoSided
 static int      g_msCapTris = 0;              // cap triangles in the last build
 static int      g_msCapUv[3] = { -1, -1, -1 };// the ring vertex each cap took its colour from

@@ -576,6 +576,9 @@ static void WriteDefaultIni(const char* ini)
         "RouteByDrawOrder=0\n"
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
+        "RoundedWrist=1\n"
+        "RoundedWristDepth=0.640\n"
+        "PaletteEyeMenuHalfStep=1\n"
         "CrawlTuck=1\n"
         "CrawlTuckCamera=0\n"
         "AttachViewLens=1\n"
@@ -902,9 +905,29 @@ static void WriteDefaultIni(const char* ini)
         "; `draws on|off|status|regions|kill <key>|hud|unkill` live, and the F10 HUD tickbox.\n"
         "Census=0\n"
         "[Hud]\n"
+        "WheelPartsAlphaMode=mix\n"
+        "WheelPartsAlphaGain=0.890\n"
+        "WheelPartsAlphaFloor=0.000\n"
+        "WheelPartsAlphaGamma=0.660\n"
+        "WheelPartsAlphaMix=2.090\n"
+        "WheelSidePanels=1\n"
+        "NativeGameplayReference=0\n"
+        "NativeObjectiveUpright=1\n"
+        "WheelCloseAnimation=1\n"
+        "MenuExitHeading=1\n"
+        "NativeObjectiveLabels=1\n"
+        "PauseSceneFreshness=1\n"
+        "PauseAlphaMode=repair\n"
+        "PauseAlphaGain=1.950\n"
+        "PauseAlphaFloor=0.660\n"
+        "PauseAlphaGamma=0.850\n"
+        "PauseAlphaMix=1.350\n"
+        "NativeObjectiveIcons=1\n"
+        "NativeObjectiveScale=0.440\n"
+        "ObjectiveScreenTracking=0\n"
         "GroupInteractions=1\n"
         "RouteObjectives=1\n"
-        "WeaponDialAlphaMode=repair\n"
+        "WeaponDialAlphaMode=mix\n"
         "WeaponDialAlphaMix=1.000\n"
         "ReadingAlphaMode=repair\n"
         "ReadingAlphaGain=1.000\n"
@@ -918,9 +941,9 @@ static void WriteDefaultIni(const char* ini)
         "InteractionAlphaMix=1.000\n"
         "NoteHandRight=0.320\n"
         "JournalHandRight=0.320\n"
-        "WeaponDialAlphaGain=3.000\n"
-        "WeaponDialAlphaFloor=0.000\n"
-        "WeaponDialAlphaGamma=0.500\n"
+        "WeaponDialAlphaGain=0.600\n"
+        "WeaponDialAlphaFloor=0.180\n"
+        "WeaponDialAlphaGamma=1.160\n"
         "NoteFollowHand=1\n"
         "NoteHandWidth=0.660\n"
         "NoteHandDistance=0.020\n"
@@ -928,9 +951,9 @@ static void WriteDefaultIni(const char* ini)
         "JournalHandWidth=0.660\n"
         "JournalHandDistance=0.020\n"
         "WeaponDialDirectionOnly=1\n"
-        "WeaponDialDeadzone=0.002\n"
+        "WeaponDialDeadzone=0.003\n"
         "WeaponDialCircle=1\n"
-        "WeaponDialDistance=0.050\n"
+        "WeaponDialDistance=0.040\n"
         "HeadLookPause=1\n"
         "NoBlurPause=1\n"
         "HeadLookNote=1\n"
@@ -944,10 +967,10 @@ static void WriteDefaultIni(const char* ini)
         "HeadLookMissionStats=0\n"
         "NoBlurMissionStats=0\n"
         "WeaponDial=1\n"
-        "WeaponDialWidth=0.300\n"
+        "WeaponDialWidth=0.360\n"
         "WeaponDialRadius=0.080\n"
-        "WeaponDialCropX=0.420\n"
-        "WeaponDialCropY=0.420\n"
+        "WeaponDialCropX=0.440\n"
+        "WeaponDialCropY=0.390\n"
         "; THE HUD ON ITS ANCHORS (VR-117; core/gfx/hud_class, hud_capture, hud_layout).\n"
         "; Panel=1 redirects the game's own Scaleform HUD draws into private targets and shows\n"
         "; them on quads in the headset instead of in the world: a WINDOW in front of the\n"
@@ -1173,7 +1196,21 @@ static void WriteDefaultIni(const char* ini)
         "Element.missionstats.WinScale=1.000\n"
         "Element.missionstats.HandX=0.000\n"
         "Element.missionstats.HandY=0.000\n"
-        "Element.missionstats.HandScale=1.000\n", kConfigVersion);
+        "Element.missionstats.HandScale=1.000\n"
+        "WheelShortcuts.Crop0=0.055\n"
+        "WheelShortcuts.Crop1=0.228\n"
+        "WheelShortcuts.Crop2=0.945\n"
+        "WheelShortcuts.Crop3=0.163\n"
+        "WheelPotions.Crop0=0.723\n"
+        "WheelPotions.Crop1=0.947\n"
+        "WheelPotions.Crop2=0.948\n"
+        "WheelPotions.Crop3=0.082\n"
+        "Element.wheelpotions.WinX=0.716\n"
+        "Element.wheelpotions.WinY=0.660\n"
+        "Element.wheelpotions.WinScale=0.780\n"
+        "Element.wheelshortcuts.WinX=-0.504\n"
+        "Element.wheelshortcuts.WinY=0.695\n"
+        "Element.wheelshortcuts.WinScale=0.730\n", kConfigVersion);
     fclose(f);
 }
 
@@ -2055,6 +2092,8 @@ static void LoadConfig()
     // plane perpendicular to the forearm cuts it in a circle and moves smoothly.
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
+    g_msRoundWrist    = IniFloat(ini, "Hands", "RoundedWrist", 0) != 0.0f;
+    g_msRoundDepth    = fminf(.8f,fmaxf(.05f,IniFloat(ini,"Hands","RoundedWristDepth",.35f)));
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
     // VR-33 step 1. READ-ONLY, so it ships ON: it resolves engine names and
     // reports what it could not find, and writes nothing anywhere.
@@ -3164,6 +3203,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "WristScaleB", v, ini);
     WritePrivateProfileStringA("Hands", "WristPlane", g_msPlane ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "CutCap", g_msCap ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "RoundedWrist", g_msRoundWrist ? "1" : "0", ini);
+    _snprintf(v,64,"%.3f",g_msRoundDepth);
+    WritePrivateProfileStringA("Hands", "RoundedWristDepth", v, ini);
     WritePrivateProfileStringA("Hands", "CutCapTwoSided", g_msCapTwo ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PoseReport", g_prOn ? "1" : "0", ini);
 #if DVR_WITH_LEGACY

@@ -2,9 +2,9 @@
 namespace dvr::hudalpha {
 struct Config { int mode; float gain,floorA,gamma,mixK; };
 inline Config original() {return {0,1,0,1,1};}
-enum Owner {General,Wheel,Reading,Interaction,Pause};
+enum Owner {General,Wheel,Reading,Interaction,Pause,WheelParts};
 struct Bank {
-    Config general=original(),special[4]={original(),original(),original(),original()};
+    Config general=original(),special[5]={original(),original(),original(),original(),original()};
     const Config& for_owner(Owner owner) const {return owner==General ? general : special[owner-1];}
     void reset_general() {general=original();}
 };

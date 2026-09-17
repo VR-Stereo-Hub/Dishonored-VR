@@ -1,5 +1,120 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## VR-129: build399 accepted parts, remaining objective transfer (2026-09-16)
+
+Verified399 DLL/hash/banner, logs and saved INI archived at
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists/reported399.
+Side-panel separation and rounded wrists accepted. Objective marker improved
+but sometimes transfers onto window: classify as HUD ownership, not evidence
+of a new stereo or image-orientation fault. Existing sampled logs cannot identify
+the reported transition. New topology-limited miss logging records non-native
+capture candidates without modifying routing; see HUD_ANCHORS. Rare wheel-exit
+zoom remains open from the previous report; no new result for it this run.
+Shared side-alpha controls retain the same image-owned source and existing fence.
+
+
+## VR-129: build397 report and shared-image side panels (2026-09-16)
+
+Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.
+Release build and9 undecorated exports pass. Candidate:
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists.
+Both397 logs, prior DLL and full INI archived before install at
+build/playtest-candidates/installs/20260916-215151-048274.
+Full INI comparison: NativeGameplayReference1->0; add WheelSidePanels=1,
+RoundedWrist=1, RoundedWristDepth=0.350. No other byte changes. Installed DLL/INI
+hashes and CRLF verified. DLL SHA256
+`ecbb33f57672bc531140b7cff6a7461023c4bf10ec329f84f02d1a9a7b4921f7`.
+Current log remains397 until tester launch.399 has not been headset-tested.
+No game/simulator launched, no push/PR/merge; local commits only.
+
+**Reported/measured:**397 DLL/hash/banner verified, both logs and unchanged INI
+archived at build/playtest-candidates/vr129-native-reference/reported397.
+NativeGameplayReference remained ON for345 gameplay log samples; no toggle event.
+Objective rotation was reported in native gameplay too, but the ON/OFF comparison
+did not run. Restore0 for ordinary play; no yaw/roll fix is established.
+
+**Surface routing:** the earlier full uncropped wheel flash remains provisionally
+absent. Occasional one-frame zoom remains OPEN and unlocalized: world, HUD or hands
+must be identified before choosing a stereo, projection or palette hypothesis.
+This candidate does not change those paths or extend the closing lease.
+
+**Implementation:** new D-pad/potion panels sample the same fenced delayed source
+as the circular wheel, before its mask, and share its visual lifetime. Two small
+D3D11 crops add no D3D9 copies or independent image ages. 101 HUD control checks,
+45 menu checks and the production WARP crop/mask/hue checks pass. No game or
+simulator launched; visual source completeness and wrist shading are untested.
+Continue from HUD_ANCHORS's one side-panel question; do not claim this resolves
+the rare exit zoom or reopen settled image-owned orientation changes.
+
+
+## VR-129: build395 closing result and remaining zoom (2026-09-16)
+
+Installed397 (`vr33-hands-working-397-gd5f18400e`), clean sourced5f18400e.
+Candidate build/playtest-candidates/vr129-native-reference. Release build and9
+undecorated exports pass;44 native HUD,97 controls,45 menu host checks and default
+profile/golden parity pass. Both395 logs, prior DLL and full INI archived at
+build/playtest-candidates/installs/20260916-204922-232416.
+Entire INI diff: only Hud.NativeGameplayReference=1 added; all395 values preserved.
+Installed DLL/INI hashes and CRLF verified. DLL SHA256
+`0561be4a84faf2a7266bc1d3d3e2204be840f808565d453e8fa61055672b8826`.
+Current log remains395 until user launch;397 headset comparison pending. No game
+or simulator launched, no push/PR/merge. Reference is default off in the repo.
+
+395 DLL/hash/banner verified; logs and unchanged full INI archived at
+build/playtest-candidates/vr129-hud-fixes/reported395. Full uncropped wheel flash
+is reported absent so far with WheelCloseAnimation=1; provisional acceptance,
+not proof over every exit. Preserve the250ms native animation lease and delayed
+tail. A separate occasional one-frame apparent zoom is reported at wheel exit.
+Surface is not yet isolated to world, HUD or hands. Route by section1's surface
+identification step before choosing projection, mono or palette changes. Existing
+rate-limited logs cannot correlate a specific visible frame; do not call it a
+measured FOV change or lengthen the visual lease as a speculative fix.
+
+Objective complaint is predominantly head yaw/position, not a confirmed roll bug.
+395 upright basis accepted102/104 logged samples; the roll-only test did not test
+the main complaint. Roll acceptance remains unknown. NativeGameplayReference
+isolates normal gameplay HUD routing/transforms from native target projection;
+menus, existing image-owned orientation, pair synchronization and hand correction
+are preserved. Standalone44 native HUD checks cover successful-draw health,
+failure/refusal, expiry, menu exclusion and shader-state bypass. No new stereo or
+menu-exit camera behavior is proposed. See HUD_ANCHORS newest entry for the one
+launch question and next steps. The tiny exit zoom remains OPEN and separate.
+
+## VR-129: wheel exit flash still open (2026-09-16)
+
+Installed395 (`vr33-hands-working-395-g6ccc5b079`), clean source6ccc5b079.
+Candidate build/playtest-candidates/vr129-hud-fixes. Both logs, prior DLL and full
+INI archived at build/playtest-candidates/installs/20260916-194857-316504.
+Full INI diff: only NativeObjectiveUpright=1 and WheelCloseAnimation=1 added.
+All existing values preserved; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `17a2f4b476f3de0496ee7f378e38f2e7e76fefe442cb8ab2b43b5065067bfc1b`.
+Release build,9 exports,32 native HUD/45 menu host checks, default profile parity,
+lint and full diff checks pass. Offline asset export helper executed successfully.
+No game/simulator launch. Current log remains391;395 headset verification pending.
+Local branch only; no push/PR/merge. First test is objective upright during head tilt.
+
+Surface: full uncropped wheel HUD briefly appears on the general plane at exit;
+route via HUD capture/lifecycle, not whole-world mono or hand palette correction.
+Build391 DLL/hash/banner verified and logs archived at
+build/playtest-candidates/vr129-hud-fixes/reported391. Previous apparent closing
+acceptance is retracted by the new report. Existing native closing +three-present
+visual lease is insufficient in at least one observed case.
+
+Offline native Scaleform inspection establishes250ms closing fades for wheel,
+background, D-pad and potions. Three presents are only25ms at120Hz or50ms at60Hz.
+Candidate WheelCloseAnimation keeps visual ownership at least250ms from input
+release and three presents beyond last observed native closing, while new menus
+supersede immediately. The causal timing mismatch is a hypothesis, not a measured
+frame-correlated cause; the old log lacks timestamps of the visible flash itself.
+45 production menu tests include high-FPS early expiry as a negative control.
+Potential cost: gameplay HUD can remain cropped briefly during the animation tail.
+No input/scene permission extension, image retagging or hand/stereo policy change.
+
+Objective head-roll correction is separate: transform only native HUD geometry
+around its marker pivot using validated current-render perspective basis; old yaw
+solver refusal is not claimed as basis validation.32 native HUD checks pass;
+headset result pending. Both new controls are default off and live in F10. Next
+launch asks only whether the objective stays world-upright during head tilt.
 
 ## Merge disposition (2026-09-16)
 

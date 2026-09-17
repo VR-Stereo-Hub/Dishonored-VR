@@ -1,5 +1,56 @@
 # The arm/hand split
 
+## VR-130: rounded ends accepted (2026-09-16)
+
+Build399's rounded hand ends are headset-reported satisfactory. The saved
+RoundedWristDepth=0.640 and RoundedWrist=1 are now repo defaults by explicit
+request, alongside the complete last-run F10 profile. Both logs and INI are
+archived under vr129-wheel-parts-rounded-wrists/reported399. No geometry or
+packed-normal encoding change in this follow-up; retain the earlier limitations.
+
+
+## VR-130: rounded wrist ends candidate (2026-09-16)
+
+Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.
+Release build and9 undecorated exports pass. Candidate:
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists.
+Both397 logs, prior DLL and full INI archived before install at
+build/playtest-candidates/installs/20260916-215151-048274.
+Full INI comparison: NativeGameplayReference1->0; add WheelSidePanels=1,
+RoundedWrist=1, RoundedWristDepth=0.350. No other byte changes. Installed DLL/INI
+hashes and CRLF verified. DLL SHA256
+`ecbb33f57672bc531140b7cff6a7461023c4bf10ec329f84f02d1a9a7b4921f7`.
+Current log remains397 until tester launch.399 has not been headset-tested.
+No game/simulator launched, no push/PR/merge; local commits only.
+
+The flat hand-end discs are visibly artificial in the supplied screenshot.
+Optional [Hands] RoundedWrist=0 replaces only the hand closure with a shallow
+ellipsoidal dome. RoundedWristDepth=0.35 is depth divided by RMS boundary radius,
+clamped0.05..0.80. F10 > Hands > Rounded wrist ends and Wrist roundness rebuild
+the mod-owned mesh through the existing reclassification request. Off restores
+the previous flat closure; CutCap must remain enabled. Sleeve caps stay flat.
+
+The exact clipped rim is t=0, four layers curve inward, and a shared tip extends
+into the removed forearm direction. Each boundary endpoint retains its skinning;
+all tip copies use one common donor so the center cannot split between segments.
+Each segment uses9 vertices/7 triangles per face. A whole-mesh capacity check
+includes both sleeves before emission; malformed boundaries or capacity shortage
+fall back to the original caps. No new game asset or engine memory writer.
+
+Position and blend formats are verified. FLOAT3 normals receive the ellipsoid
+normal, but the actual32-byte hand stream uses an unverified packed tangent basis.
+Those bytes are inherited from rim donors; no guessed encoder is introduced.
+Thus this changes geometry/silhouette, not a proven physically smooth lighting
+model. Existing cap UV-mode sampling remains, so a visible skin-color patch is
+still possible. Verify appearance in-headset before accepting this as a default.
+
+Host test extracts production MsCapVertex and MsRoundedEnd:912 checks cover
+exact seams, shared tip, retained blend/tangent/UV bytes, finite geometry,
+front/back winding, capacity refusal and malformed input, plus wide/square wheel
+crop envelopes. Development release builds. New levers stay default OFF; installed
+candidate explicitly enables rounded wrists. No headset acceptance yet.
+
+
 How the mod draws Corvo's hands without his arms, and everything needed to
 re-tune, re-derive or turn it off. This is the reference for `VR-31`; the
 research that closed the other routes is in `ENGINE_NOTES.md` (search
@@ -343,3 +394,23 @@ are ONE artifact. A fail-soft that keeps half of the pair is not soft.
 * The normal on cap vertices is inherited rather than forced on this asset,
   because NORMAL here is not a FLOAT3 and re-encoding a packed normal without
   knowing the asset's bias would be a guess.
+
+## Authored cuff feasibility (2026-09-16, planning only)
+
+An original cuff mesh can be attached without replacing the game's hand asset.
+MsCapVertex already allocates generated vertices, copies donor blend indices and
+weights, and supplies new position/normal data; MsCaps builds boundary-closing fans
+in the owned split geometry. An authored ring can extend this mechanism. No cuff
+implementation or Blender connection was made during this HUD investigation.
+
+Workflow: export the selected hand locally as reference, reproduce the installed
+cut plane and coordinate/bind-pose conventions, author only the new cuff in Blender,
+and export that original geometry with skinning/attachment metadata. Derive cuff
+boundary placement from the actual cut loop or regenerate it when cut settings
+change. Reuse the same corrected hand bone palette for both eyes; copying an
+independent live controller transform would risk sliding or stereo separation.
+Appending to the split mesh inherits its material/UV constraints. A separate cuff
+draw permits original cloth/leather textures but requires deliberate lighting,
+depth and D3D state restoration. Keep game-derived reference meshes local; only
+original cuff vertices/textures and tooling can be committed. Existing capped-hand
+rendering remains the fallback for unknown mesh/vertex declarations.

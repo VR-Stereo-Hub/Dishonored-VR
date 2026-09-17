@@ -1,3 +1,4 @@
+#include "rounded_wrist.h"
 // game/dishonored/hands/mesh_split.cpp - included by src/mod/dishonoredvr.cpp
 // (unity build). See state chunk 55 for why this exists and what it reads.
 //
@@ -1152,6 +1153,53 @@ static int MsRingUvMode(const uint32_t* ring, int n, int uvOff, int uvType)
 }
 
 
+// Rounded hand end, keeping the existing flat sleeve closure. All vertices
+// are mod-owned; original endpoint blend indices/weights remain paired.
+static bool MsRoundedEnd(int sd,const uint32_t* ring,int n,int hub,const float* center,
+                         const uint8_t* look,int posOff,int nrmOff,int uvOff,int uvSz)
+{
+    int segments=0;float radius2=0;
+    for(int i=0;i<g_msCapSegN;++i) if(g_msCapSeg[i].sd==sd) ++segments;
+    const int faces=g_msCapTwo?2:1;
+    if(!segments || g_msClipN+segments*9*faces>MS_MAX_CLIPV ||
+       g_msOutN+segments*7*faces>MS_MAX_OUT) return false;
+    for(int i=0;i<n;++i) {
+        float p[3];memcpy(p,MsRawOf(ring[i])+posOff,12);
+        for(int k=0;k<3;++k){const float d=p[k]-center[k];radius2+=d*d;}
+    }
+    const float depth=std::sqrt(radius2/n)*g_msRoundDepth;
+    // Validate the entire boundary before appending anything. A malformed rim
+    // retains the old closure rather than a partially emitted dome.
+    for(int i=0;i<n;++i) {
+        float p[3],out[3],normal[3];memcpy(p,MsRawOf(ring[i])+posOff,12);
+        if(!dvr::wrist::point(p,center,g_msAxis[sd],depth,.5f,out,normal)) return false;
+    }
+    const int cls=MS_CLS_HAND_A+sd-1;
+    for(int face=0;face<faces;++face) for(int i=0;i<g_msCapSegN;++i) {
+        const auto& seg=g_msCapSeg[i];if(seg.sd!=sd) continue;
+        uint32_t v[9];
+        for(int layer=0;layer<4;++layer) for(int end=0;end<2;++end) {
+            const uint32_t skin=end?seg.b:seg.a;float p[3],out[3],normal[3];
+            memcpy(p,MsRawOf(skin)+posOff,12);
+            dvr::wrist::point(p,center,g_msAxis[sd],depth,layer*.25f,out,normal);
+            if(face) for(float& x:normal)x=-x;
+            // Retain each rim donor's packed tangent basis. Only FLOAT3 normals
+            // have a verified encoder here; do not guess packed normal fields.
+            uint8_t appearance[MS_MAX_STRIDE];memcpy(appearance,MsRawOf(skin),g_msStride);
+            if(uvOff>=0) memcpy(appearance+uvOff,look+uvOff,uvSz);
+            v[layer*2+end]=MsCapVertex(skin,appearance,out,normal,posOff,nrmOff);
+        }
+        float tip[3],normal[3];
+        for(int k=0;k<3;++k){tip[k]=center[k]-g_msAxis[sd][k]*depth;normal[k]=g_msAxis[sd][k]*(face?1.f:-1.f);}
+        v[8]=MsCapVertex(ring[hub],look,tip,normal,posOff,nrmOff);
+        auto emit=[&](uint32_t a,uint32_t b,uint32_t c){if(face)MsEmit(a,c,b,cls);else MsEmit(a,b,c,cls);++g_msCapTris;};
+        for(int layer=0;layer<3;++layer) {const int j=layer*2;emit(v[j],v[j+3],v[j+1]);emit(v[j],v[j+2],v[j+3]);}
+        emit(v[6],v[8],v[7]);
+    }
+    Log("ms/rounded: side=%d segments=%d depth=%.4f model units amount=%.3f; boundary and donor skinning retained, packed tangent basis inherited",sd,segments,depth,g_msRoundDepth);
+    return true;
+}
+
 // Close both stumps at the cut: one fan per side, per class.
 static void MsCaps(void)
 {
@@ -1178,6 +1226,10 @@ static void MsCaps(void)
                        (UINT)(g_msEl[ue].Offset + uvSz) <= g_msStride)
                       ? g_msEl[ue].Offset : -1;
 
+    const int faces=g_msCapTwo?2:1;
+    const bool roundFits=g_msClipN+(g_msCapSegN*11+2)*faces<=MS_MAX_CLIPV &&
+        g_msOutN+g_msCapSegN*8*faces<=MS_MAX_OUT;
+    if(g_msRoundWrist && !roundFits) Log("ms/rounded: complete hands plus sleeve closure exceed capacity; retaining flat caps");
     static uint32_t ring[MS_MAX_CAPSEG * 2];
     const int ringMax = (int)(sizeof(ring) / sizeof(ring[0]));
     for (int sd = 1; sd <= 2; sd++) {
@@ -1223,9 +1275,12 @@ static void MsCaps(void)
         // is not drawn at all, so nothing stands between the eye and the BACK
         // of the hand's cap; a one-sided disc would be culled from exactly the
         // angle the hole was visible from, and the hole would still be there.
+        const bool rounded=g_msRoundWrist && roundFits && MsRoundedEnd(sd,ring,n,hub,cen,look,posOff,nrmOff,uvOff,uvSz);
+        if(g_msRoundWrist && !rounded) Log("ms/rounded: side=%d refused invalid geometry or capacity; flat closure retained",sd);
         const float* ax = g_msAxis[sd];
         for (int pass = 0; pass < 2; pass++) {
             const bool handSide = (pass == 0);
+            if(handSide && rounded) continue;
             const int cls = handSide ? (MS_CLS_HAND_A + sd - 1)
                                      : (MS_CLS_ARM_A + sd - 1);
             for (int face = 0; face < (g_msCapTwo ? 2 : 1); face++) {

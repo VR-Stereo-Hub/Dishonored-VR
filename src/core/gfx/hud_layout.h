@@ -49,7 +49,7 @@ inline bool anchor_is_hand(int a) { return a == AnchorHandL || a == AnchorHandR;
 enum Element : int {
     ElDefault = 0, ElVitals, ElReticle, ElPrompt, ElEquipment, ElSubtitles, ElObjective, ElToast,
     ElTutorial, ElDetection, ElSkipGauge, ElDarkVision, ElVignette,
-    ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElCount
+    ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElWheelShortcuts, ElWheelPotions, ElCount
 };
 const char* element_name(int e);
 int element_from_name(const char* s);   // -1 when unknown (the legacy names all, health, mana, menu map)
@@ -113,7 +113,13 @@ bool pause_scene_freshness();
 bool menu_exit_heading();   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();
+bool native_gameplay_reference();
+bool wheel_parts_for_sink(int sink);
+bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rect);
+bool force_capture_alpha(int sink);
+AlphaCfg wheel_parts_alpha();
 float native_objective_scale(int element);
+bool native_objective_upright(int element);
 bool menu_stereo_hold();
 bool menu_head_look(int context);
 bool menu_no_blur(int context);

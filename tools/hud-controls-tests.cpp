@@ -7,11 +7,13 @@
 #include <initializer_list>
 namespace dvr::hudlayout {
 static dvr::hudalpha::Bank g_alphaBank;
+static auto& g_alpha=g_alphaBank.general;static bool g_wheelParts=false,g_dialOn=true;
 static bool g_visualRiding=false;static int g_ridingContext=-1;
 static ElementCfg g_el[ElCount]{};
 struct Sink {int anchor=-1;bool crop=false;int element=-1;} g_sink[kMaxSinks];
 int element_for_context(int c) {return c==4?ElNote:c==5?ElJournal:c==6?ElWheel:ElPause;}
 #include "hud_alpha_selector.inc"
+#include "hud_wheel_coverage.inc"
 }
 #include "hud_alpha_capture.inc"
 using SHORT=int16_t;
@@ -66,5 +68,14 @@ int main(){
  for(int i=0;i<120;++i){testTime=i*1000./120;if(MenuStep(-32767,1))++oldPulses;if(vertical(-32767)==-32767)++newSamples;}
  check(oldPulses<10 && newSamples==120,"one-second reading hold keeps 120 analog samples instead of sparse menu pulses");
  check(vertical(0)==0 && vertical(16384)==16384 && vertical(-16384)==-16384,"neutral partial speed and direction stay native");
+ g_visualRiding=true;g_ridingContext=6;g_wheelParts=true;
+ g_alphaBank.special[0].mode=AlphaRepair;g_alpha.mode=AlphaRepair;g_alphaBank.special[4]={AlphaCaptured,.6f,.18f,1.16f,1};
+ check(alpha_force_wanted(0),"side panels obtain coverage even when wheel uses repair alpha");
+ check(wheel_parts_alpha().gain==.6f && wheel_parts_alpha().gamma==1.16f,"both side crops select shared dedicated alpha");
+ g_alphaBank.reset_general();check(wheel_parts_alpha().floorA==.18f,"general reset preserves side panel settings");
+ check(alpha_for_sink(0).mode==AlphaRepair,"side alpha does not replace wheel alpha");
+ g_wheelParts=false;check(!alpha_force_wanted(0),"disabling side panels restores original wheel capture policy");
+ g_wheelParts=true;g_visualRiding=false;check(!wheel_parts_for_sink(0),"no side panels outside wheel visual lease");
+ g_visualRiding=true;g_ridingContext=4;check(!wheel_parts_for_sink(0),"notes cannot inherit wheel side panels");
  std::printf("%u HUD controls checks passed; old menu pulses %d/120, reading %d/120\n",checks,oldPulses,newSamples);
 }

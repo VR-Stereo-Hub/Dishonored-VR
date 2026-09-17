@@ -1,5 +1,191 @@
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
+## Branch acceptance and final defaults (2026-09-16)
+
+401 DLL/hash/banner verified. Tester accepted the branch for PR/merge; both logs
+and latest F10 INI archived under vr129-side-alpha/accepted401. Latest side alpha:
+mix, gain0.890, floor0, gamma0.660, mix weight2.090. Entire saved INI is now the
+production writer, release and golden profile, byte-for-byte with CRLF.
+Installed401 is retained. No claim that acceptance resolves the intermittent
+objective window transfer or earlier one-frame exit zoom; VR-129 remains open.
+Rounded ends and auxiliary panels are accepted. Merge authorization is explicit;
+feature branch must be preserved. No simulator or game launched by the agent.
+
+
+## VR-129: accepted side panels, shared alpha and saved profile (2026-09-16)
+
+Installed401 (`vr33-hands-working-401-g4f974a5da`), clean source4f974a5da.
+Release build and9 exports pass. Candidate build/playtest-candidates/vr129-side-alpha.
+Both399 logs, previous DLL and full INI archived before writes at
+build/playtest-candidates/installs/20260916-222842-601598.
+Entire INI diff: five new WheelPartsAlpha keys only (repair,1,0,1,1).
+All saved399 settings retained byte-for-byte. Installed INI equals release/golden;
+DLL/INI hashes and CRLF verified. DLL SHA256
+`37a2879456709ca3bf4a3fc0e8df925a5c8251b812c7684695d0ab928d040004`.
+Current log remains399 until user launch;401 alpha isolation is headset-pending.
+No game/simulator launched or publication performed.
+
+399 DLL/hash/log verified; both logs and full saved INI archived in
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists/reported399.
+The separated D-pad/potions work in-headset. Grey background remains; add one
+independent WheelPartsAlpha group (Mode/Gain/Floor/Gamma/Mix), visible directly
+under F10 > HUD > Weapon wheel side panels. Both pre-circle crops consume it,
+and its alpha source participates in shared-sink coverage forcing. General
+reset persists all five scoped groups first; it cannot reset the side panels.
+Initial side alpha equals the prior general values (repair,1,0,1,1).
+No new shader or guessed grey color key. Gamma changes brightness; these controls
+do not distinguish background art from icon art. Selective removal remains open
+if ordinary alpha tuning is insufficient.
+
+Per explicit request, preserve every last-run value as the repo default in the
+production writer, packaged INI and golden. Includes all accepted experimental
+flags, native reference OFF, tuned wheel/side crop/position/alpha and wrist
+roundness0.640. New side-alpha fields are the only additions to that exact INI.
+104 controls checks and production-writer byte parity pass; development build
+passes. Installed identity belongs in current STATUS and installed.json.
+
+Objective report: mostly correct, occasional window transfer still observed.
+Existing log ends with known objective draws routed to native frame; no event
+identifies the reported bad frame. The content matcher learns edge-clamped icon
+families; labels use current/prior-present proximity. Unlearned or changed art
+can still miss, especially in interaction regions. Do not equate the configured
+objective=window label with actual capture: NativeObjectiveIcons overrides it.
+Add hud/native-miss only after native bypasses, recording destination, spatial
+hint, content key, rectangle and interaction proximity for8/10 topology. This
+is a diagnostic population, not confirmed markers. No claimed routing fix.
+
+One launch question: do shared side-panel alpha adjustments affect both panels
+without affecting the wheel or other HUD? Success establishes isolation; failures
+identify group selection/capture coverage. Objective miss logs can be inspected
+from the same ordinary run without a second requested test.
+
+
+## VR-129: restore configured HUD and separate wheel side panels (2026-09-16)
+
+Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.
+Release build and9 undecorated exports pass. Candidate:
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists.
+Both397 logs, prior DLL and full INI archived before install at
+build/playtest-candidates/installs/20260916-215151-048274.
+Full INI comparison: NativeGameplayReference1->0; add WheelSidePanels=1,
+RoundedWrist=1, RoundedWristDepth=0.350. No other byte changes. Installed DLL/INI
+hashes and CRLF verified. DLL SHA256
+`ecbb33f57672bc531140b7cff6a7461023c4bf10ec329f84f02d1a9a7b4921f7`.
+Current log remains397 until tester launch.399 has not been headset-tested.
+No game/simulator launched, no push/PR/merge; local commits only.
+
+Build397 is now reported: verified DLL/hash/banner and unchanged full INI; both
+logs preserved at build/playtest-candidates/vr129-native-reference/reported397.
+NativeGameplayReference=1 ran for345 logged gameplay samples, with no toggle.
+The tester could not find the control and the native layout put HUD artwork at
+hard-to-see FOV edges. Objective head-coupled rotation was reported in this native
+path too. This weakens a capture-only explanation, but there was no matched A/B
+and no measured projection cause. Previous instructions omitted the HUD tab.
+Restore reference0; F10 > HUD now displays a conspicuous restore button whenever
+the comparison is enabled. Preserve the current native objective options.
+
+The requested D-pad shortcuts and potion controls are separate quads from the
+wheel capture. Two small D3D11 textures sample its SAME fenced delayed slot,
+before the main circle mask. The existing D3D9 capture and D3D11 read fence cover
+all three reads. No new engine object retention or memory writers. Same wheel
+visual lease governs visibility and exit; no change to the accepted dial origin,
+orientation, circle, closing animation, stereo poses or pair synchronization.
+
+- Optional [Hud] WheelSidePanels=0 by default; installed test arms1.
+- F10 > HUD > Weapon wheel side panels (expanded): enable toggle, D-pad shortcuts,
+  Health and mana. Independent anchor, Horizontal (m), Vertical (m), Size.
+- Element.wheelshortcuts and Element.wheelpotions use standard anchor/WinX/WinY/
+  WinScale and HandX/HandY/HandScale persistence. Initial window offsets are
+  -0.32/+0.32m horizontally and -0.22m vertically, widths0.23/0.28m.
+- General HUD alpha applies, independently of the dial's transparent settings.
+- Adjust captured area exposes WheelShortcuts.Crop0..3 and WheelPotions.Crop0..3:
+  left UV, right UV, bottom UV, height as fraction of image WIDTH. Defaults
+  (0.02,0.29,0.995,0.31) and (0.70,1.00,0.995,0.16) are candidate envelopes.
+  They preserve source pixel aspect at wide and square render sizes. These are
+  not measured runtime ownership rectangles; visual completeness remains open.
+
+Offline scripts locate shortcuts_mc (sprite166) and potions_mc (sprite180) in
+UI_PowerWheel_SF; both position from the bottom safe-area corners at runtime.
+Shortcuts scale90%; potions slide in from+150px on opening. Source cropping keeps
+runtime-loaded icons, counters and input symbols together. The expanded stage
+and safe-area formula mean fixed authored1280x720 letterboxing is insufficient.
+All exported assets/scripts remain ignored under build/hud-assets.
+
+Validation:101 controls,912 wrist/crop,44 native,465 route,462 anchor,45 menu host
+checks. Actual production shader on D3D11 WARP passes circle feather, hue, left/
+right source crops and identity restoration. Default profile byte parity passes.
+Final installed identity is recorded in STATUS/installed.json. No headset claim.
+ONE launch question: are both complete side panels on the window while the
+circular dial remains at its hand-origin position? Missing/clipped parts point
+to source bounds/ownership; panels moving with the dial point to placement.
+
+
+## VR-129: build395 result and native reference comparison (2026-09-16)
+
+Installed397 (`vr33-hands-working-397-gd5f18400e`), clean sourced5f18400e.
+Candidate build/playtest-candidates/vr129-native-reference. Release build and9
+undecorated exports pass;44 native HUD,97 controls,45 menu host checks and default
+profile/golden parity pass. Both395 logs, prior DLL and full INI archived at
+build/playtest-candidates/installs/20260916-204922-232416.
+Entire INI diff: only Hud.NativeGameplayReference=1 added; all395 values preserved.
+Installed DLL/INI hashes and CRLF verified. DLL SHA256
+`0561be4a84faf2a7266bc1d3d3e2204be840f808565d453e8fa61055672b8826`.
+Current log remains395 until user launch;397 headset comparison pending. No game
+or simulator launched, no push/PR/merge. Reference is default off in the repo.
+
+Verified395 DLL/hash/log banner; both logs and full unchanged INI archived at
+build/playtest-candidates/vr129-hud-fixes/reported395. Main reported objective
+failure is movement/swivel during left-right head turning; head roll was not
+specifically tested. The preceding roll correction addressed a different motion.
+102 of104 rate-limited upright samples accepted the current rendered basis;
+that proves execution for sampled recognized draws, not correct target tracking.
+Title/distance still change planes. Current objective-row position/scale settings
+are ineffective under NativeObjectiveIcons=1 because that path bypasses the panel.
+
+Offline UI_HUD_SF identifies objectiveMarker_primary (sprite178) and
+objectiveMarker_secondary (174). Both own _description_mc (160, depth1) and
+_icon_mc (177/173, depth4). Description text lives in _description_mc.txt.
+Description is drawn before the icon. Our current/prior-present proximity matcher
+can lose that association during movement; these D3D draws do not carry the movie
+instance names. No semantic runtime identity hook or target-projection fix is yet
+established. Do not hard-code run-specific draw keys or widen proximity blindly.
+
+Candidate NativeGameplayReference (default off, live F10 > Objectives) leaves all
+normal gameplay HUD draws in the game image, bypassing capture, alpha, size and
+upright transforms, and suppresses delayed HUD panels. Menus and wheel closing
+visual ownership supersede it. Successful forwarded HUD draws supply a separate
+500ms entry-health heartbeat; failed draws, device failures, missing handoff and
+expired samples refuse. This avoids interpreting intentional lack of capture as
+an unhealthy menu redirect. Stereo/image orientation and hand correction unchanged.
+Toggling invalidates delayed panels but preserves learned marker content. Beat
+logs explicitly expect empty capture during the reference. The active native size
+slider is now under Objectives, and inactive objective panel controls are hidden.
+
+ONE next launch question: does enabling the native gameplay reference stop the
+objective icon/title/distance from shifting away from the target during left-right
+head turns, compared with reference OFF at the same location? ON stable and OFF
+unstable supports our capture/grouping/transform path; both unstable points toward
+native target projection versus the VR-rendered camera. Text-only improvement
+isolates an additional grouping failure. This is a diagnostic, not a claimed fix.
+Keep normal-size differences out of the tracking verdict. Restore reference OFF
+for ordinary play. No game/simulator or subagents were used.
+
+Offline preview correction: wheel imports ../common_assets/lib.swf, whose cooked
+movie is Startup.lib. itemIcons is sprite301; its133 frames are animation/layout,
+not a populated wheel. EquipmentIcon.SetIconImage calls req_EquipmentIconImage;
+15 ic_item_*/ic_pow_* textures in Startup supply the actual artwork. Exported54
+shared-library textures plus15 runtime icons; the revised export helper resolves
+the library import and exports its scripts. Static FFDec frames still do not run
+engine callbacks or inventory population. Large journal illustration packages are
+not the wheel icon source. All assets, scripts and previews remain ignored local
+build/hud-assets; runtime-icon-sheet.jpg is a verified contact sheet, not a game
+screenshot. wheel_mc, shortcuts_mc and potions_mc remain separate components.
+
+Validation:44 native HUD production-scope/policy/health checks,97 HUD controls,
+45 menu lifecycle checks and default profile/golden parity pass. Development
+release builds. Final clean candidate identity belongs in installed.json and the
+current STATUS entry; actual head-yaw result remains pending.
+
 The game's Scaleform HUD, taken out of the eye textures and shown on quads the
 runtime layer composites: a head-locked WINDOW, a WORLD-parked window, and the
 LEFT and RIGHT hands (what build 38.92 shipped as the wrist HUD), per ELEMENT
@@ -20,6 +206,69 @@ wheel are the same draw class; the paused world is a live stereo pair.
 
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
+
+## VR-129: orientation, wheel close and actual HUD assets (2026-09-16)
+
+Installed395 (`vr33-hands-working-395-g6ccc5b079`), clean source6ccc5b079.
+Candidate build/playtest-candidates/vr129-hud-fixes. Both logs, prior DLL and full
+INI archived at build/playtest-candidates/installs/20260916-194857-316504.
+Full INI diff: only NativeObjectiveUpright=1 and WheelCloseAnimation=1 added.
+All existing values preserved; installed DLL/INI hashes and CRLF verified.
+DLL SHA256 `17a2f4b476f3de0496ee7f378e38f2e7e76fefe442cb8ab2b43b5065067bfc1b`.
+Release build,9 exports,32 native HUD/45 menu host checks, default profile parity,
+lint and full diff checks pass. Offline asset export helper executed successfully.
+No game/simulator launch. Current log remains391;395 headset verification pending.
+Local branch only; no push/PR/merge. First test is objective upright during head tilt.
+
+Installed391 verified/archived at vr129-hud-fixes/reported391 with unchanged INI.
+Objective icon tracking was accepted, but artwork rotates with the head. The current
+trial interprets this as head roll; gaze-position drift would require separate work.
+Default-off NativeObjectiveUpright (F10 HUD grouping) transforms native icon/text
+about the shared marker pivot, preserving center/depth and accepted size. World-up
+comes from the current rendered perspective matrix at the camera-position upload,
+with finite, unit-forward, orthogonality and near-vertical guards. Thread-local and
+current-present validity prevents borrowing a newer live HMD orientation. Refusal
+leaves accepted native sizing unchanged. Symmetric projection is a prerequisite;
+this reuses the hand reader's documented basis validation, not the old yaw solver.
+The old diagnostic yaw solver reports refusal in391 and is not evidence for this
+new upright result. Logs explicitly report renderedBasis and correction angle.
+
+Brief wheel closing flash remains reported, superseding provisional acceptance.
+Default-off WheelCloseAnimation (F10 menu immersion) retains visual ownership for
+at least250ms after input release and three presents after the closing flag stops.
+Native closing can extend the interval. New menus/loading supersede immediately.
+This uses exported animation timing, not an arbitrary frame count; at high FPS the
+old three-present tail can end before the animation. It can keep gameplay HUD on
+the wheel crop during that short tail; headset confirmation is required.
+
+Offline inspection succeeded: UE Viewer exported UI_PowerWheel_SF (56 objects) and
+UI_HUD_SF (12 objects); FFDec exported85 wheel scripts and410 HUD scripts plus
+frame previews and XML. All outputs/tool binaries are ignored local build assets.
+The first preview had red missing-texture placeholders; copying exported TGAs next
+to the GFX resolved the external image references. Authored frames do not run the
+scripts that populate weapon items, localize labels or reposition for safe area.
+
+Measured native structure:1280x720 movie; wheel_mc is centered around640,354 in
+authoring coordinates; shortcuts_mc is the lower-left component, potions_mc the
+lower-right. Separate PC variants exist. Runtime scripts reposition the components
+using safe-area/movie-space conversion (PC factor.9, console.85); authored bounds
+must not become fixed live capture rectangles. Potions expose health and mana;
+shortcut component has up/down/left/right slots and assignment logic. Wheel,
+background, D-pad and potion close fades are250ms. Standalone quick-shortcut behavior
+has additional delays, so it must not inherit a blanket wheel-close rule.
+
+Repeatable tool: tools/hud-assets-export.ps1, using official portable UE Viewer
+and FFDec. Official references: [UE Viewer export](https://www.gildor.org/projects/umodel/faq),
+[UE Explorer scope](https://github.com/UE-Explorer/UE-Explorer),
+[FFDec](https://www.free-decompiler.com/flash/). UE Explorer remains useful for
+package/script declarations; actual movie layout is available through GFX export.
+No package modified or extracted game data committed. Next auxiliary-panel work
+should use these component identities and runtime placement, preserving native
+potion and shortcut input; no new auxiliary panel behavior is included yet.
+
+Validation:32 native HUD checks (basis, preserved center/depth, constant restore,
+invalid perspective refusal);45 menu checks (250ms independent of FPS, native
+closing, delayed presents, immediate new-menu replacement). Clean candidate installed; headset pending.
 
 ## Current:389 feedback and menu exit handoff (2026-09-16)
 

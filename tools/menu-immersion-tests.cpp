@@ -81,6 +81,15 @@ int main(){
  check(!visual.update(false,0,false,24),"expired visual tail releases gameplay HUD");
  visual.update(true,6,false,30);check(!visual.update(true,3,false,31),"pause replaces wheel immediately");
  visual.update(true,6,false,40);check(!visual.update(false,2,false,41),"loading cannot retain old wheel");
+ visual={};visual.update(true,6,false,1,1000,true);
+ check(visual.update(false,0,false,2,1010,true),"timed wheel tail starts at input release");
+ check(visual.update(false,0,false,40,1200,true),"high FPS cannot expire native250ms close early");
+ check(!visual.update(false,0,false,60,1261,true),"timed tail expires after animation and delayed presents");
+ visual.update(true,6,false,61,1300,true);visual.update(false,0,true,62,1310,true);
+ check(visual.update(false,0,true,90,1700,true),"native closing retains ownership beyond minimum interval");
+ check(visual.update(false,0,false,93,1740,true),"three final delayed images remain cropped");
+ check(!visual.update(false,0,false,94,1750,true),"closing complete releases normal HUD");
+ visual.update(true,6,false,95,1800,true);check(!visual.update(true,3,false,96,1810,true),"new pause immediately supersedes wheel tail");
  link(pc,4,cam);link(pc,8,pawn);link(pc,12,world);link(world,4,game);link(game,4,pp);
  MenuHeadBegin(true,true);check(g_mhScope&&builds==1,"first menu refreshes live table and starts scope");MenuHeadEnd();
  sample.yaw=.2f;sample.gen=2;MenuHeadBegin(true,true);

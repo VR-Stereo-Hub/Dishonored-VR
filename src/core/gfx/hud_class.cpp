@@ -1014,7 +1014,7 @@ bool record(uint8_t entry, UINT prims, const Probe* probe, int element) {
 // shadow must not see our own writes). Eight calls per draw, about 170 per
 // present in gameplay. State blocks would bypass this: g_stateBlocksCreated
 // reads 0 for a whole run (`draws status` prints it).
-inline bool alpha_force_wanted(int sink) { return dvr::hudlayout::alpha_for_sink(sink).mode != dvr::hudlayout::AlphaRepair; }
+inline bool alpha_force_wanted(int sink) { return dvr::hudlayout::force_capture_alpha(sink); }
 
 void alpha_force_begin(IDirect3DDevice9* dev) {
     g_origSetRs(dev, D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
@@ -1052,20 +1052,34 @@ void note_blend_tuple() {
              (unsigned long)g_srcBlendA, (unsigned long)g_dstBlendA);
 }
 
+thread_local float g_nativeCo=1,g_nativeSi=0,g_nativeAspect=1;
+thread_local uint32_t g_nativeFrame=0;
+thread_local bool g_nativeBasis=false;
+bool native_basis(float& co,float& si,float& aspect) {
+    if(!g_nativeBasis || g_nativeFrame!=(uint32_t)dvr::frame::count()) return false;
+    co=g_nativeCo;si=g_nativeSi;aspect=g_nativeAspect;return true;
+}
+
 // Native icon sizing changes only its own shader transform, then restores every
 // touched row through the original setter. Never changes the shadow or capture.
 struct NativeIconScope {
     IDirect3DDevice9* dev;int rows[4]{},count=0;float saved[4][4]{};
     NativeIconScope(IDirect3DDevice9* device,const Probe& p,int element):dev(device) {
         const float scale=dvr::hudlayout::native_objective_scale(element);
-        if(scale>=1 || !p.ok || p.transformed) return;
+        const bool wanted=dvr::hudlayout::native_objective_upright(element);
+        float co=1,si=0,aspect=1;
+        const bool upright=wanted && native_basis(co,si,aspect);
+        if(wanted) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+            "hud/native-upright: renderedBasis=%d angle=%.2f aspect=%.3f frame=%u; center unchanged",
+            (int)upright,std::atan2(si,co)*57.29578f,aspect,(unsigned)dvr::frame::count());
+        if((scale>=1 && !upright) || !p.ok || p.transformed) return;
         float changed[4][4]{};int n=0;
         for(int i=0;i<4;++i) {
             const int row=p.xcol[i];if(row<0) continue;
             if(row>=256) return;
             for(int j=0;j<n;++j) if(rows[j]==row) return;
             rows[n]=row;memcpy(saved[n],dvr::frame::vs_const_shadow_row(row),sizeof(saved[n]));
-            if(!dvr::hudnative::scale_column(saved[n],p.nativePivot,scale,changed[n])) return;
+            if(!dvr::hudnative::transform_column(saved[n],p.nativePivot,scale,co,si,aspect,changed[n])) return;
             ++n;
         }
         if(n<3) return;
@@ -1115,7 +1129,9 @@ HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
             return r;
         }
     }
-    return dvr::frame::raw_draw_prim(self, type, start, prims);
+    const HRESULT result=dvr::frame::raw_draw_prim(self, type, start, prims);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT base,
@@ -1133,7 +1149,9 @@ HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE ty
             return r;
         }
     }
-    return dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
+    const HRESULT result=dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT prims,
@@ -1152,7 +1170,9 @@ HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE typ
             return r;
         }
     }
-    return g_origDpUp(self, type, prims, verts, stride);
+    const HRESULT result=g_origDpUp(self, type, prims, verts, stride);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
@@ -1173,7 +1193,9 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
             return r;
         }
     }
-    return g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+    const HRESULT result=g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 #undef HUD_DRAW_PROLOGUE
@@ -1379,6 +1401,12 @@ void set_game_counters(uint32_t (*viewportDraws)(), uint32_t (*postRenderDispatc
     g_viewportDraws = viewportDraws;
     g_postRender = postRenderDispatches;
     g_prLast = g_postRender ? g_postRender() : 0;
+}
+
+void note_world_view(const float* vp) {
+    g_nativeFrame=(uint32_t)dvr::frame::count();
+    g_nativeBasis=dvr::hudlayout::native_objective_upright(dvr::hudlayout::ElObjective) && vp &&
+        dvr::hudnative::upright_basis(vp,g_nativeCo,g_nativeSi,g_nativeAspect);
 }
 
 void on_set_render_target(DWORD idx, IDirect3DSurface9* rt) {
