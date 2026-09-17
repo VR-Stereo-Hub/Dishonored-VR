@@ -19,7 +19,16 @@ Wheel can still use hand direction with D-pad shortcut assignment. Recenter and
 accepted menu navigation retained. No camera/stereo/engine-memory writes added.
 221 host checks and production default-writer/package/golden byte parity pass.
 Linear ticket creation pending explicit external-publication permission after
-approval review rejection; no ticket identifier invented. Build/install follows.
+approval review rejection; no ticket identifier invented.
+Installed vr33-hands-working-417-gdc6751a0f from clean sourcedc6751a0f.
+Release/9 exports/lint/221 controller checks and default-profile byte parity pass.
+Both logs, previous DLL and full INI archived at
+build/playtest-candidates/installs/20260917-092418-488098.
+Entire installed INI differs only by three new Controllers keys:
+DpadModifier=1,DpadFlip=0,PauseChord=1. Removing those lines reproduces
+prior INI byte-for-byte; CRLF and installed hashes independently verified.
+No game/simulator launch. Controller source remains local, no new PR/merge.
+
 One launch question: does right-thumbrest + left stick select/use all four
 shortcuts without walking? Correct selection supports runtime-to-pad mapping;
 no response implies binding/threshold gap, walking implies consumption failure.

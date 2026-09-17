@@ -65,3 +65,12 @@ golden are byte-identical. First test compile lacked initializer_list include;
 fixed. First release compile found UINT-to-int list-initialization narrowing in
 the config read; added explicit conversion. Neither failed build was installed.
 No game/simulator launched. Headset behavior remains pending on this branch.
+
+Installed vr33-hands-working-417-gdc6751a0f from clean sourcedc6751a0f.
+Release/9 exports/lint/221 controller checks and default-profile byte parity pass.
+Both logs, previous DLL and full INI archived at
+build/playtest-candidates/installs/20260917-092418-488098.
+Entire installed INI differs only by three new Controllers keys:
+DpadModifier=1,DpadFlip=0,PauseChord=1. Removing those lines reproduces
+prior INI byte-for-byte; CRLF and installed hashes independently verified.
+No game/simulator launch. Controller source remains local, no new PR/merge.
