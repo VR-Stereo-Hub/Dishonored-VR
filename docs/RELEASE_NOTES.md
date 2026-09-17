@@ -1,4 +1,28 @@
+## Controller and reading controls (2026-09-17)
+
+F10 Controls supports cross-hand D-pad modifiers, alternate menu and pause chord.
+Y uses the right stick for native lean; menu scrolling is restored. Notes/books
+use the accepted fixed hand attachment; its preferred angle is Reading tilt0.
+
 ## Unreleased
+
+### Reading tilt
+
+- One live, saved reading tilt slider for notes, books and journal in F10 HUD.
+  Adjusts pitch around the existing attachment center. Default0 preserves the
+  accepted hand attachment. Replaces the unaccepted calibration controls.
+
+### Controller emulation (headset test pending)
+
+- Hold Y with the right stick for native lean; grips retain existing actions.
+- Thumbrest modifiers automatically pair with the opposite stick.
+- Restore continuous right-stick vertical scrolling in native non-wheel menus.
+
+- F10 Controls: selectable D-pad modifier, left/right stick flip and X+Y pause
+  chord. Modifier plus menu/chord opens the journal; menu hold is a fallback.
+- Restore Y to native lean/adrenaline instead of pause. Existing controller
+  settings are preserved; selecting R3 or left grip explicitly reserves its
+  previous health-hold or weapon-wheel action.
 
 ### Wheel side panels and rounded wrists
 

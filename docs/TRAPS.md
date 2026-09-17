@@ -1,5 +1,12 @@
 # Traps and the graveyard
 
+## Reading attachment is a relative pose, not an opening pitch fit (2026-09-17)
+
+425 logged successful entry pitch fits but still rebuilt the grip reference on
+every opening. A height-based pitch does not preserve a preferred hand-relative
+attachment. The final full reading pose now supplies that reference; see
+HUD_ANCHORS.md. Do not recapture it from each opening head/hand orientation.
+
 ## Native HUD comparison is deliberately stock, not a reset (2026-09-16)
 
 Build397's NativeGameplayReference=1 bypassed the tuned gameplay panels for the

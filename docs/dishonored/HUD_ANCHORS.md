@@ -1,3 +1,106 @@
+## Current: accepted reading attachment and controller merge (2026-09-17)
+
+Build427 fixed reading attachment accepted after ReadingTilt=-31.000 adjustment.
+Rebase that exact physical angle to zero; ReadingTiltReference=1 versions the
+trim so older saved angles migrate without changing appearance. Both427 logs
+and latest INI archived in reading-fixed-grip/accepted427; DLL/banner verified.
+VR-132 tracks accepted controller and reading work. New lean/keyhole camera
+instability and subsequent texture allocation failure are VR-133; animation
+checkboxes are VR-134 under VR-89. These follow on codex/misc-fixes after the
+explicitly authorized controller PR/merge. Crash log reports SYSTEMMEM twin
+allocation 0x8007000e before texture LockRect failure; camera causality unproven.
+
+## Current: fixed captured reading attachment (2026-09-17)
+
+425 automatic entry tilt was active in logs but did not resolve the reported
+inconsistency. Its per-opening grip reference remained variable. Verified425
+DLL/banner and archived both logs/latest profile in reading-auto-tilt/reported425.
+The last full Note pose at16752906 supplies gripQ=(.672240,-.104614,-.336110,.651290)
+and pageQ=(-.049763,-.026783,.011967,.998330), autoTilt=-45.267, manual=0.
+This is the last recorded book sample, not a claimed exact shutdown sample.
+Replace entry fitting with fixed inverse(gripQ)*pageQ reference. Preserve the
+placement basis separately by removing the old pitch from pageQ before deriving
+its grip-relative rotation. This reproduces both orientation and the existing
+position offsets at that sample; both then follow the current hand rigidly.
+No head/opening pose participates. Keep one additive ReadingTilt slider for
+notes/books/journal. Remove the failed automatic pitch helper; history remains
+below. Headset confirmation pending. Test: open the same book with different
+initial hand poses, then return to the comfortable pose. Does its angle remain
+correct and identical? Consistent but wrong means trim/reference needs adjustment;
+variable means another attachment path remains. No game or simulator launch.
+
+Installed vr33-hands-working-427-g15503fbcc from clean source.900 HUD anchor
+checks, default-profile parity, release build,9 exports and lint pass. Both logs
+and prior DLL/INI archived at build/playtest-candidates/installs/20260917-122258-812613.
+Full installed INI is byte-identical to prior saved profile; CRLF and DLL/INI
+hashes independently verified. Headset result pending.
+
+
+## Current: automatic reading entry tilt after423 (2026-09-17)
+
+423 DLL/banner verified; both logs/latest INI archived in reading-tilt/reported423.
+Single manual tilt still depended on opening hand position because initial page
+was forced upright at every height. Compute initial pitch from actual panel
+center to eye height in the opening yaw plane, then latch it for this opening.
+Keep hand-follow rotation and position offsets; do not swivel as the head moves.
+Single ReadingTilt remains additive trim. Behind-head/degenerate fit falls back
+to upright. No calibration UI, additional axes, camera or stereo changes.
+The exit log again lacks complete left-grip pose; do not claim the preferred
+pose was recovered. Latest saved trim is0. Added bounded entry/full-pose logs
+for subsequent reports. Standalone tests vary entry wrist rotation and hand
+height/yaw. Installed vr33-hands-working-425-g17b228d64.564 anchor checks, release,9 exports
+and lint pass. Both logs/full prior DLL/INI archived at
+build/playtest-candidates/installs/20260917-115527-386246. Entire installed INI
+byte-identical; CRLF and DLL/INI hashes verified. No game/simulator launch. One launch question: opening the same book
+with your hand low versus near eye level, does it face you comfortably in both
+cases without changing the slider? Yes supports geometry-based entry tilt;
+wrong/inverted or unchanged pitch falsifies the fit/sign/context path.
+
+## Current: single reading tilt slider (2026-09-17)
+
+User replaced calibration request with one rotation axis; existing attachment
+is satisfactory. Remove calibration/timer/quaternion configuration UI and path.
+Retain419 opening/hand-follow attachment, with shared ReadingTilt in degrees
+(default0, range-180..180) for notes/books/journal. F10 HUD > Notes and journal
+on the hand exposes only Reading tilt, saves live. Rotation is local pitch
+around the existing panel center; hand-relative center and all position offsets
+remain unchanged. Retain per-panel width/right/up/depth controls. Old calibration
+keys ignored. Three-axis draft never built or installed. No guessed comfortable
+pose.469 anchor tests pass, including identity at0 and signed local pitch.
+Installed vr33-hands-working-423-g4770f6d8d;469 anchor checks, release,9 exports,
+lint and production default-profile parity pass. Both logs/full DLL/INI archived
+at build/playtest-candidates/installs/20260917-114630-645045. Entire installed
+INI byte-identical; CRLF and DLL/INI hashes verified. No game/simulator launch. One launch question: does Reading tilt adjust the book
+angle without moving its attachment point? Yes supports center-preserving tilt;
+position movement or extra rotation means the placement composition is wrong.
+
+## Saved reading grip (2026-09-17)
+
+Current readers recapture upright orientation relative to the entry grip on
+each menu opening. Add shared ReadingSavedGrip (default1), validated relative
+quaternion ReadingGripQx/Qy/Qz/Qw and ReadingGripValid (default0). Without valid
+calibration retain existing behavior; no arbitrary new angle is installed.
+F10 HUD > Notes and journal on the hand offers five-second calibration: close
+F10, hold left hand comfortably, look where the page should face. Capture stores
+inverse(grip)*head orientation, preserving offsets/size, applies to notes/books/
+journal and persists automatically. Three-second tracking retry then fail-soft;
+invalid capture retains prior saved grip. Toggle restores old per-opening mode.
+New NoteHandUp/JournalHandUp sliders complement existing right/depth offsets.
+No weapon-dial lifecycle, camera, image orientation or stereo policy changes.
+472 anchor checks pass, including saved reload, changed opening gaze, rotated
+hand, invalid quaternion refusal and preservation of previous calibration.
+Installed vr33-hands-working-421-gddc7000cd from clean sourceddc7000cd.
+Release build/9 exports/lint and472 anchor checks pass. Both logs/full previous
+DLL/INI archived at build/playtest-candidates/installs/20260917-114102-728633.
+Entire installed INI byte-identical to latest save; zero settings changes,
+CRLF and DLL/INI hashes independently verified. No game/simulator launch.
+Exact preferred attachment awaits the one-time F10 capture; no guessed pose
+promoted into repository defaults. Branch local; no PR/main merge requested.
+One launch question: after using the five-second capture in a comfortable pose,
+does reopening a book from a different wrist position preserve the same fit in
+your hand? Stable fit supports the saved relative transform; changed fit means
+an entry path still replaces it. Check hud/reading-grip and installed saved keys.
+
 ## Rune icon continuity trial after411 (2026-09-17)
 
 411 group routing accepted apart from brief inner-icon transfer while turning.

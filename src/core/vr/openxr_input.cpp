@@ -20,24 +20,6 @@
 namespace dvr::vr {
 namespace {
 
-// Grip squeeze -> bumper with hysteresis (press/release thresholds).
-constexpr float kGripPress = 0.70f;
-constexpr float kGripRelease = 0.55f;
-// Left menu button: short press -> START, hold -> BACK (Touch has no second
-// system-legal menu button). START is emitted as a short pulse on release so
-// the game's per-tick edge detection cannot miss it.
-constexpr uint64_t kMenuLongMs = 500;
-constexpr uint64_t kStartPulseMs = 150;
-// Ammo-slot select (session 19, headset-revised): while the right-stick
-// CLICK is held, stick directions past kFlickPress select the ammo slot
-// (dpad up/down/left pulses); re-arm inside +-kFlickRearm, cooldown against
-// machine-gunning. Zoom is removed - RS-click never reaches the game.
-constexpr float kFlickPress = 0.65f;
-constexpr float kFlickRearm = 0.30f;
-constexpr uint64_t kFlickPulseMs = 150;
-constexpr uint64_t kFlickCooldownMs = 300;
-
-
 XrActionSet g_actionSet = XR_NULL_HANDLE;
 
 XrAction g_move = XR_NULL_HANDLE;      // VECTOR2F left thumbstick
@@ -92,17 +74,6 @@ XrSpace g_baseSpace = XR_NULL_HANDLE;  // app space, owned by the runtime
 bool g_attached = false;
 bool g_created = false;
 bool g_loggedAttachFail = false;
-
-// Render-thread state for the composers.
-bool g_gripLatchedL = false;
-bool g_gripLatchedR = false;
-uint64_t g_menuDownMs = 0;
-uint64_t g_startPulseUntilMs = 0;
-bool g_flickArmed = true;
-uint16_t g_flickPulseBit = 0;
-uint64_t g_flickPulseUntilMs = 0;
-uint64_t g_flickCooldownMs = 0;
-bool g_rsClickWasDown = false;
 
 // M6 hand poses. Located on the render thread in input_sync; read from the
 // GAME thread by the adapter's aim path, so publish through atomics-guarded
@@ -352,9 +323,9 @@ void input_create(XrInstance instance) {
     // Unbound actions simply read inactive (read_float/read_bool return 0).
 
     // Valve Index. A/B on BOTH hands (left has no x/y paths), analog squeeze,
-    // no menu button (system/click is reserved - never bind), no thumbrest:
-    // the noThumbrestYet fallback keeps RS-click as the ammo modifier, and
-    // menu goes to a firm left-trackpad press (boolean action on the float
+    // no menu button (system/click is reserved - never bind), no thumbrest.
+    // Choose R3 in F10 Controls for the modifier. Menu goes to a firm
+    // left-trackpad press (boolean action on the float
     // force component - the runtime thresholds it).
     XrActionSuggestedBinding index[] = {
         {g_move, path(instance, "/user/hand/left/input/thumbstick")},
@@ -504,9 +475,6 @@ void input_on_session_teardown() {
     invalidate_hand_slots();
     g_attached = false;
     g_attachedAtomic.store(false, std::memory_order_relaxed);
-    g_gripLatchedL = g_gripLatchedR = false;
-    g_menuDownMs = 0;
-    g_startPulseUntilMs = 0;
     publish_inactive();
 }
 
@@ -556,17 +524,16 @@ void input_sync(XrSession session, XrTime predictedDisplayTime) {
     s.gripR = read_float(session, g_gripR);
     s.a = read_bool(session, g_btnA);
     s.b = read_bool(session, g_btnB);
-    // s62c (BioShock): LEFT X+Y together = the menu button, for the Steam Link
-    // overlay that swallows the real one. Latched until both release, so the
-    // button released second cannot fire its own action on the way out.
-    const bool btnXDown = read_bool(session, g_btnX);
-    const bool btnYDown = read_bool(session, g_btnY);
-    const bool menuChord = btnXDown && btnYDown;
-    static bool s_menuChordLatch = false;
-    if (menuChord) s_menuChordLatch = true;
-    else if (!btnXDown && !btnYDown) s_menuChordLatch = false;
-    if (!s_menuChordLatch) { s.x = btnXDown; s.y = btnYDown; }
-    s.menu = read_bool(session, g_menu) || menuChord;
+    // Menu/chord/modifier policy belongs to the Dishonored pad composer.
+    s.x = read_bool(session, g_btnX);
+    s.y = read_bool(session, g_btnY);
+    s.menu = read_bool(session, g_menu);
+    s.restL = read_bool(session, g_thumbrestL);
+    s.restR = read_bool(session, g_thumbrestR);
+    for (int h=0;h<2;++h) if ((h ? s.restR : s.restL) && !g_thumbrestSeen[h]) {
+        g_thumbrestSeen[h]=true;
+        XRLOG("input: %s thumbrest touch reported",h ? "right" : "left");
+    }
     // Both stick clicks together = the recenter chord (one edge per chord,
     // re-armed when both release); while held neither click reaches the game.
     const bool clickL = read_bool(session, g_stickClickL);

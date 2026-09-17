@@ -119,8 +119,8 @@ dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
 const char* kScopedAlpha[5]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha","WheelPartsAlpha"};
 bool g_readHand[2]={false,false};
-dvr::hudanchor::OpeningOrientation g_readOpening;
-dvr::hudanchor::GripPanel g_readGrip;
+float g_readTilt=0;
+float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
 bool g_visualRiding=false;
 WheelVisualLease g_wheelVisual;
@@ -170,6 +170,11 @@ bool read_s(const char* ini, const char* key, char* out, size_t n) {
     out[0] = 0;
     GetPrivateProfileStringA("Hud", key, "", out, (DWORD)n, ini);
     return out[0] != 0;
+}
+
+void save_read_rotation() {
+    write_f("ReadingTilt",g_readTilt);
+    write_i("ReadingTiltReference",1);
 }
 
 inline bool measured(int e) { return hudroute::row_measured(g_rows[e]); }
@@ -534,15 +539,6 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     g_menuRiding=riding;
     if(!changed) return;
     dvr::hudcap::invalidate_content();
-    g_readOpening.reset();g_readGrip.reset();
-    if(riding && (context==4 || context==5)) {
-        dvr::vr::HeadPose h{};float hp[3],hq[4],out[4];
-        if(dvr::vr::peek_head_pose(h)) {
-            const float q[4]={h.qx,h.qy,h.qz,h.qw};
-            if(g_readOpening.capture_upright(q) && dvr::vr::input_get_hand_pose(0,false,hp,hq))
-                g_readGrip.orient(hq,g_readOpening.q,out);
-        }
-    }
     g_visualRiding=visual;g_ridingContext=visualContext;
     if(!visual) {
         for(int s=0;s<kMaxSinks;++s) if(g_sink[s].anchor>=0 && g_sink[s].rideOnly) free_sink(s);
@@ -853,16 +849,22 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         place(d, e, a, whole, aspect, true);
         const int readPanel=e==ElNote?0:e==ElJournal?1:-1;
         if(readPanel>=0 && g_readHand[readPanel]) {
-            float hp[3],hq[4]; dvr::vr::HeadPose head{};
-            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) || !dvr::vr::peek_head_pose(head)) {--n;continue;}
-            const float camera[4]={head.qx,head.qy,head.qz,head.qw};
+            float hp[3],hq[4],attached[4],page[4];
+            if(!dvr::vr::input_get_hand_pose(0,false,hp,hq) ||
+               !dvr::hudanchor::reading_grip_reference(hq,attached,page)) {--n;continue;}
             d.anchor=dvr::vr::HudAnchor::LocalBillboard;d.hand=0;
-            if(!g_readOpening.capture_upright(camera)) {--n;continue;}
             d.orient=dvr::vr::HudOrient::OpeningPlane;
-            if(!g_readGrip.orient(hq,g_readOpening.q,d.orientation)) {--n;continue;}
-            dvr::hudanchor::camera_panel_position(hp,d.orientation,g_readDistance[readPanel],d.base);
+            dvr::hudanchor::camera_panel_position(hp,attached,g_readDistance[readPanel],d.base);
+            const float offset[3]={g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
+            dvr::xrmath::quat_rotate(attached[0],attached[1],attached[2],attached[3],offset,worldOffset);
+            for(int k=0;k<3;++k)d.base[k]+=worldOffset[k];
+            dvr::hudanchor::reading_alignment(page,g_readTilt,d.orientation);
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                "hud/reading-pose: reference=fixed425 panel=%s center=%.4f/%.4f/%.4f gripQ=%.6f/%.6f/%.6f/%.6f panelQ=%.6f/%.6f/%.6f/%.6f manual=%.3f",
+                kReadNames[readPanel],d.base[0],d.base[1],d.base[2],hq[0],hq[1],hq[2],hq[3],
+                d.orientation[0],d.orientation[1],d.orientation[2],d.orientation[3],g_readTilt);
             d.width=g_readWidth[readPanel];d.height=0;
-            d.planeOff[0]=g_readRight[readPanel];d.planeOff[1]=0;
+            d.planeOff[0]=d.planeOff[1]=0;
         }
         if (e == ElWheel && g_dialOn) {
             if (!g_dialVisual.valid) { --n; continue; }
@@ -1054,6 +1056,11 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);g_readDistance[i]=fminf(.5f,fmaxf(-.3f,read_f(ini,key,-.05f)));
         _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);g_readRight[i]=fminf(.75f,fmaxf(-.75f,read_f(ini,key,.20f)));
     }
+    const bool currentReference=read_i(ini,"ReadingTiltReference",0)==1;
+    g_readTilt=dvr::hudanchor::reading_trim(read_f(ini,"ReadingTilt",currentReference?0.f:-31.f),currentReference);
+    for(int i=0;i<2;++i){char key[64];_snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);
+        const float up=read_f(ini,key,0);g_readUp[i]=std::isfinite(up)?fmaxf(-.75f,fminf(.75f,up)):0;}
+
     g_dialDistance=fminf(.50f,fmaxf(-.30f,read_f(ini,"WeaponDialDistance",0)));
     g_dialDirection = read_i(ini,"WeaponDialDirectionOnly",1)!=0;
     g_dialCircle = read_i(ini,"WeaponDialCircle",1)!=0;
@@ -1133,8 +1140,10 @@ void save(const char* ini) {
         _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
         _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
         _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);write_f(key,g_readRight[i]);
+        _snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);write_f(key,g_readUp[i]);
     }
 
+    save_read_rotation();
     set_backdrop(0, g_backdrop[0], "save");
     set_backdrop(1, g_backdrop[1], "save");
     for(int i=0;i<kMenuContexts;++i) {
@@ -1497,19 +1506,22 @@ void draw_ui() {
         ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
     }
     if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
-        ImGui::TextWrapped("Opens upright at the saved hand offset, then rotates and moves rigidly with the left hand. Negative distance moves it closer to your eyes. The element must use a visible anchor.");
+        ImGui::TextWrapped("Books and notes use a fixed attachment to your hand, regardless of how you open them. This slider tilts the page without moving its attachment. Changes apply and save immediately.");
+        if(ImGui::SliderFloat("Reading tilt (degrees)",&g_readTilt,-180.f,180.f,"%.0f"))save_read_rotation();
         for(int i=0;i<2;++i) {
             ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
             bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);
             change|=ImGui::SliderFloat("Panel width (m)",&g_readWidth[i],.15f,1.5f,"%.2f");
             change|=ImGui::SliderFloat("Distance offset (m, + farther)",&g_readDistance[i],-.30f,.50f,"%.2f");
             change|=ImGui::SliderFloat("Horizontal offset (m, + right)",&g_readRight[i],-.75f,.75f,"%.2f");
+            change|=ImGui::SliderFloat("Vertical offset (m, + up)",&g_readUp[i],-.75f,.75f,"%.2f");
             if(change) {
                 char key[64];
                 _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
                 _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
                 _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
                 _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);write_f(key,g_readRight[i]);
+        _snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);write_f(key,g_readUp[i]);
             }
             ImGui::PopID();
         }

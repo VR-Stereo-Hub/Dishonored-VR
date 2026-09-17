@@ -5,6 +5,9 @@
 
 #include "core/input/weapon_dial.h"
 #include "core/input/reading_input.h"
+#include "core/input/controller_emulation.h"
+
+static dvr::controller::Composer g_controllerComposer;
 
 static inline SHORT PadStick(float v)
 {
@@ -21,6 +24,7 @@ static void UpdateVirtualPad()
     if (!g_padEnabled || !g_xrOn) {
         float x=0,y=0; bool selected=false;
         dvr::hudlayout::wheel_input(false,false,x,y,selected);
+        g_controllerComposer.reset();
         g_padActive = false; return;
     }
     MeleeTick();
@@ -32,7 +36,7 @@ static void UpdateVirtualPad()
     // 41.0: ONE input path. The controllers arrive as the runtime layer's
     // snapshot (published under g_xrCs) with the Touch semantics the Quest
     // bindings always had: left grip = power wheel, right grip = choke, A jump,
-    // B stealth, X interact, Y/menu pause, stick clicks = sprint / health hold.
+    // B stealth, X interact, Y lean/adrenaline, menu tap pause, modifier+menu journal.
     // The OpenVR action set and the legacy wand path went with the OpenVR
     // backend; everything gameplay-side that only the OpenVR path used to run
     // (physical crouch pulses, the overlay pointer, the fire tracer, motion
@@ -44,12 +48,16 @@ static void UpdateVirtualPad()
         g_crouchRefOk = false;
         Log("postrack: re-centered (both stick clicks)");
     }
+    const auto controller=dvr::controller::config();
+    const bool leanGameplay=in.active && !g_ovlVisible && !UiSurfaceBlocks() &&
+        !g_menuOpen && !g_inMenu && !CineActive() && in.gripL<.7f;
+    const auto emulation=g_controllerComposer.step(in,controller,GetTickCount64(),leanGameplay);
     if (in.active) {
         active = true;
         g_dbgRawMx = in.mv[0]; g_dbgRawMy = in.mv[1];  // 38.25 pre-shaping
         float mx = in.mv[0], my = in.mv[1], tx = in.lk[0], ty = in.lk[1];
         float hr = in.trigR, hl = in.trigL;
-        WORD b = 0;
+        WORD b = emulation.buttons;
         static bool wheelWas = false, chokeWas = false;
         bool wheel = in.gripL > (wheelWas ? 0.7f : 0.9f);
         bool choke = in.gripR > (chokeWas ? 0.7f : 0.9f);
@@ -62,7 +70,7 @@ static void UpdateVirtualPad()
         bool userStealth = in.b;
         if (userStealth)     b |= XINPUT_GAMEPAD_B;       // stealth
         if (in.x)            b |= XINPUT_GAMEPAD_X;       // interact
-        if (in.y || in.menu) b |= XINPUT_GAMEPAD_START;   // pause
+        if (in.y)            b |= XINPUT_GAMEPAD_Y;       // native lean/adrenaline
         if (SprintBit(in.clkL)) b |= XINPUT_GAMEPAD_LEFT_THUMB; // SPRINT 38.28
         HealthElixirTick(in.clkR);                        // health hold
         {   // stick-click edges stay measured facts
@@ -248,7 +256,7 @@ static void UpdateVirtualPad()
     // 38.46: walking in the room pushes the movement stick, so the pawn goes
     // where you went - through the game's own collision, no wall clipping.
     // Never during a menu; that stick is navigation there.
-    if (g_roomScaleCfg && active && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu &&
+    if (g_roomScaleCfg && active && !emulation.suppressLeft && !emulation.lean && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu &&
         !CineActive()) {
         float f = g_roomFwdM, rr = g_roomRightM;
         float len = sqrtf(f * f + rr * rr);
@@ -333,6 +341,25 @@ static void UpdateVirtualPad()
         xs.Gamepad.sThumbLY = MenuStep(xs.Gamepad.sThumbLY, 1);
         xs.Gamepad.sThumbRX = 0;   // one navigation axis only - a second one
         xs.Gamepad.sThumbRY = 0;   // double-steps the same list
+    }
+
+    // Re-apply at the final boundary: room-scale and menu/wheel shaping must
+    // not resurrect a stick already consumed as a D-pad. Hand wheel aiming
+    // remains available; its composed left-stick direction is independent.
+    const bool nativeMenu=active && (UiSurfaceBlocks() || g_menuOpen);
+    dvr::controller::final_axes(emulation,nativeMenu,wheelInput,PadStick(in.lk[0]),PadStick(in.lk[1]),
+        xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
+    if(emulation.lean || (nativeMenu && fabsf(in.lk[1])>.15f))
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
+            "pad/axes: lean=%d menu=%d context=%d right=(%.3f %.3f) deliveredL=(%d %d) deliveredR=(%d %d)",
+            int(emulation.lean),int(nativeMenu),UiSurfaceContext(),in.lk[0],in.lk[1],
+            xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
+    const unsigned controlState=unsigned(emulation.buttons) | (emulation.modifier ? 0x10000u : 0u);
+    static unsigned lastControlState=~0u;
+    if(controlState!=lastControlState){lastControlState=controlState;
+        Log("pad/controls: modifier=%d side=%s held=%d special=0x%04x final=0x%04x",
+            controller.modifier,controller.flip ? "right" : "left",int(emulation.modifier),
+            emulation.buttons,xs.Gamepad.wButtons);
     }
 
     // 38.25 crawlbox: mirror the delivered (post-shaping) movement stick for

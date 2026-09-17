@@ -115,6 +115,37 @@ inline bool billboard_degenerate(const float toHead[3], float minRight = 0.2f) {
     return r < minRight;
 }
 
+// Fixed hand-relative reference from build425's last recorded reading pose.
+// See HUD_ANCHORS.md: placement excludes the old pitch around the page center.
+// No opening pose or head pose enters this attachment.
+inline bool reading_grip_reference(const float grip[4],float placement[4],float orientation[4]) {
+    float norm=0;
+    for(int k=0;k<4;++k){if(!std::isfinite(grip[k]))return false;norm+=grip[k]*grip[k];}
+    if(norm<.5f || norm>1.5f)return false;
+    float q[4];for(int k=0;k<4;++k)q[k]=grip[k]/std::sqrt(norm);
+    const float positionBasis[4]={-.40300430f,.21334590f,.30818517f,.83492093f};
+    const float pageBasis[4]={-.69327391f,.07831469f,.36655338f,.61552963f};
+    dvr::xrmath::quat_mul(q,positionBasis,placement);
+    dvr::xrmath::quat_mul(q,pageBasis,orientation);
+    return true;
+}
+
+// Adjust only pitch around the page's horizontal axis. Position is separate.
+inline void reading_tilt(const float attached[4],float degrees,float out[4]) {
+    const float half=degrees*.00872664626f;
+    const float pitch[]={std::sin(half),0,0,std::cos(half)};
+    dvr::xrmath::quat_mul(attached,pitch,out);
+}
+
+// Headset-accepted trim becomes zero. Legacy settings keep the same physical angle.
+inline float reading_trim(float saved,bool currentReference) {
+    if(!std::isfinite(saved))return 0;
+    return std::fmax(-180.f,std::fmin(180.f,saved+(currentReference?0.f:31.f)));
+}
+inline void reading_alignment(const float attached[4],float trim,float out[4]) {
+    reading_tilt(attached,trim-31.f,out);
+}
+
 // Preserve the initial upright page, then rigidly follow grip rotation.
 struct GripPanel {
     bool valid=false;float relative[4]={0,0,0,1};

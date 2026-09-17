@@ -183,6 +183,50 @@ int main() {
         check(fabsf(pos[0]-.8f)<.0001f && fabsf(pos[2]-3)<.0001f,"page depth offset rotates rigidly with grip");
         p.reset();check(p.orient(next,initial,q) && fabsf(q[3]-1)<.0001f,"reopening recaptures initial pose");
     }
+    {
+        const float identity[]={0,0,0,1},yaw[]={0,.70710678f,0,.70710678f};float out[4];
+        reading_tilt(yaw,0,out);
+        for(int k=0;k<4;++k)check(fabsf(out[k]-yaw[k])<.0001f,"zero tilt retains existing attachment");
+        reading_tilt(identity,90,out);check(fabsf(out[0]-.70710678f)<.0001f && !out[1] && !out[2],"slider changes only pitch");
+        reading_tilt(identity,-90,out);check(fabsf(out[0]+.70710678f)<.0001f,"negative tilt reverses pitch");
+        reading_tilt(yaw,90,out);check(fabsf(out[0]-.5f)<.0001f && fabsf(out[1]-.5f)<.0001f && fabsf(out[2]+.5f)<.0001f,"tilt is local to attached page");
+    }
+    {
+        const float grip[]={.672240f,-.104614f,-.336110f,.651290f};
+        const float recorded[]={-.049763f,-.026783f,.011967f,.998330f};
+        float place[4],page[4],expectedPlace[4];
+        check(reading_grip_reference(grip,place,page),"recorded grip accepted");
+        reading_tilt(recorded,45.267f,expectedPlace);
+        for(int k=0;k<4;++k){
+            check(fabsf(page[k]-recorded[k])<.00001f,"reproduce recorded comfortable page");
+            check(fabsf(place[k]-expectedPlace[k])<.00001f,"reproduce placement independently of page pitch");
+        }
+        for(int i=0;i<30;++i){
+            float turn[4],moved[4],p[4],o[4],expected[4],expectedP[4];
+            dvr::xrmath::quat_axis_angle(0,1,0,i*.1f,turn);
+            dvr::xrmath::quat_mul(turn,grip,moved);
+            check(reading_grip_reference(moved,p,o),"rotated grip accepted");
+            dvr::xrmath::quat_mul(turn,page,expected);
+            dvr::xrmath::quat_mul(turn,place,expectedP);
+            for(int k=0;k<4;++k){
+                check(fabsf(o[k]-expected[k])<.00001f,"page rotates rigidly with hand");
+                check(fabsf(p[k]-expectedP[k])<.00001f,"placement rotates rigidly with hand");
+            }
+            check(reading_grip_reference(grip,p,o),"return to reference after different initial hand poses");
+            for(int k=0;k<4;++k)check(fabsf(o[k]-page[k])<.00001f,"no opening history changes reference");
+        }
+        const float zero[]={0,0,0,0},bad[]={NAN,0,0,1};
+        check(!reading_grip_reference(zero,place,page),"invalid zero grip refused");
+        check(!reading_grip_reference(bad,place,page),"nonfinite grip refused");
+    }
+    {
+        check(reading_trim(-31,false)==0,"accepted old trim becomes zero");
+        check(reading_trim(0,true)==0,"new zero remains zero");
+        check(reading_trim(10,false)==41,"legacy custom angle preserved");
+        const float q[]={0,0,0,1};float old[4],updated[4];
+        reading_tilt(q,-31,old);reading_alignment(q,0,updated);
+        for(int k=0;k<4;++k)check(fabsf(old[k]-updated[k])<.000001f,"rebase retains accepted physical orientation");
+    }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;
 }

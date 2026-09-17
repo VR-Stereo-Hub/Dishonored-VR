@@ -977,3 +977,11 @@ Objective icon size and projected travel are independent. Bounds travel with the
 captured slot, never a current rectangle applied to older pixels. Bounded crops
 reserve other HUD layers and fall back on overlap/budget ambiguity. No engine
 writer, stereo eye tag or image orientation policy changes. See HUD_ANCHORS.
+
+## 2026-09-17: controller emulation policy
+
+Keep raw XR actions separate from a pure, sequence-tested modifier/menu composer
+in the Dishonored pad bridge. Share BioShock1 controls and menu semantics, but
+use Dishonored held D-pad shortcut events and native Y meaning. One atomic config
+tuple avoids partially applied settings; no new engine-memory seam. See
+[detailed mapping and limits](dishonored/CONTROLLER_EMULATION.md).
