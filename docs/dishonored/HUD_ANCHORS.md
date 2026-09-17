@@ -2,6 +2,17 @@
 
 ## VR-129: accepted side panels, shared alpha and saved profile (2026-09-16)
 
+Installed401 (`vr33-hands-working-401-g4f974a5da`), clean source4f974a5da.
+Release build and9 exports pass. Candidate build/playtest-candidates/vr129-side-alpha.
+Both399 logs, previous DLL and full INI archived before writes at
+build/playtest-candidates/installs/20260916-222842-601598.
+Entire INI diff: five new WheelPartsAlpha keys only (repair,1,0,1,1).
+All saved399 settings retained byte-for-byte. Installed INI equals release/golden;
+DLL/INI hashes and CRLF verified. DLL SHA256
+`37a2879456709ca3bf4a3fc0e8df925a5c8251b812c7684695d0ab928d040004`.
+Current log remains399 until user launch;401 alpha isolation is headset-pending.
+No game/simulator launched or publication performed.
+
 399 DLL/hash/log verified; both logs and full saved INI archived in
 build/playtest-candidates/vr129-wheel-parts-rounded-wrists/reported399.
 The separated D-pad/potions work in-headset. Grey background remains; add one
