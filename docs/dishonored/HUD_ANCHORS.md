@@ -13,7 +13,13 @@ New NoteHandUp/JournalHandUp sliders complement existing right/depth offsets.
 No weapon-dial lifecycle, camera, image orientation or stereo policy changes.
 472 anchor checks pass, including saved reload, changed opening gaze, rotated
 hand, invalid quaternion refusal and preservation of previous calibration.
-Build/install follows. Exact user-preferred calibration remains to be captured.
+Installed vr33-hands-working-421-gddc7000cd from clean sourceddc7000cd.
+Release build/9 exports/lint and472 anchor checks pass. Both logs/full previous
+DLL/INI archived at build/playtest-candidates/installs/20260917-114102-728633.
+Entire installed INI byte-identical to latest save; zero settings changes,
+CRLF and DLL/INI hashes independently verified. No game/simulator launch.
+Exact preferred attachment awaits the one-time F10 capture; no guessed pose
+promoted into repository defaults. Branch local; no PR/main merge requested.
 One launch question: after using the five-second capture in a comfortable pose,
 does reopening a book from a different wrist position preserve the same fit in
 your hand? Stable fit supports the saved relative transform; changed fit means
