@@ -1,6 +1,31 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
 
+## VR-129: wheel exit flash still open (2026-09-16)
+
+Surface: full uncropped wheel HUD briefly appears on the general plane at exit;
+route via HUD capture/lifecycle, not whole-world mono or hand palette correction.
+Build391 DLL/hash/banner verified and logs archived at
+build/playtest-candidates/vr129-hud-fixes/reported391. Previous apparent closing
+acceptance is retracted by the new report. Existing native closing +three-present
+visual lease is insufficient in at least one observed case.
+
+Offline native Scaleform inspection establishes250ms closing fades for wheel,
+background, D-pad and potions. Three presents are only25ms at120Hz or50ms at60Hz.
+Candidate WheelCloseAnimation keeps visual ownership at least250ms from input
+release and three presents beyond last observed native closing, while new menus
+supersede immediately. The causal timing mismatch is a hypothesis, not a measured
+frame-correlated cause; the old log lacks timestamps of the visible flash itself.
+45 production menu tests include high-FPS early expiry as a negative control.
+Potential cost: gameplay HUD can remain cropped briefly during the animation tail.
+No input/scene permission extension, image retagging or hand/stereo policy change.
+
+Objective head-roll correction is separate: transform only native HUD geometry
+around its marker pivot using validated current-render perspective basis; old yaw
+solver refusal is not claimed as basis validation.32 native HUD checks pass;
+headset result pending. Both new controls are default off and live in F10. Next
+launch asks only whether the objective stays world-upright during head tilt.
+
 ## Merge disposition (2026-09-16)
 
 Current HUD follow-up accepted as sufficient for merge by the maintainer. This is

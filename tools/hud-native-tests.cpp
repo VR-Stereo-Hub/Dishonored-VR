@@ -7,7 +7,9 @@ using HRESULT=int;
 #define FAILED(x) ((x)<0)
 #define DVR_LOG_EVERY_MS(...) ((void)0)
 static float scale=.7f,state[256][4]{},shadow[256][4]{};static int failRow=-1,writes=0;
-namespace dvr::hudlayout {float native_objective_scale(int){return scale;}}
+bool upright=false,basisValid=true;float basisCo=1,basisSi=0,basisAspect=1;
+bool native_basis(float& c,float& s,float& a){c=basisCo;s=basisSi;a=basisAspect;return basisValid;}
+namespace dvr::hudlayout {float native_objective_scale(int){return scale;}bool native_objective_upright(int){return upright;}}
 namespace dvr::frame {
 const float* vs_const_shadow_row(int row){return shadow[row];}
 HRESULT orig_set_vs_const(IDirect3DDevice9*,int row,const float* v,int){++writes;if(row==failRow){failRow=-1;return -1;}memcpy(state[row],v,16);return 0;}
@@ -57,5 +59,21 @@ int main(){
   check(std::fabs(labelY-(-.13f*.7f))<.00001f,"native label spacing scales about marker center, not its own text center");
  }
  check(!memcmp(state,shadow,sizeof(state)),"label scaling restores all shader constants");
+ float vp[16]={0,0,0,1, 2,0,0,0, 0,3,0,0, 0,0,1,0},co,si,aspect;
+ check(dvr::hudnative::upright_basis(vp,co,si,aspect) && co==1 && si==0,"world up projects upright without head tilt");
+ vp[4]=1.7320508f;vp[5]=-1.5f;vp[8]=1;vp[9]=2.5980762f;
+ check(dvr::hudnative::upright_basis(vp,co,si,aspect) && std::fabs(si+.5f)<.0001f,"rendered roll projects world up independently of yaw");
+ check(std::fabs(aspect-2.f/3)<.0001f,"asymmetric pixel dimensions preserve focal aspect");
+ vp[3]=0;check(!dvr::hudnative::upright_basis(vp,co,si,aspect),"non-perspective matrix refused");
+ p=Probe{};upright=true;basisCo=0;basisSi=-1;basisAspect=2.f/3;
+ {NativeIconScope scope(&dev,p,6);
+  const float cx=.72f,cy=.42f;
+  check(std::fabs(state[6][0]*cx+state[7][0]*cy+state[9][0]-.44f)<.0001f,"upright transform retains marker target x");
+  check(std::fabs(state[6][1]*cx+state[7][1]*cy+state[9][1]-.16f)<.0001f,"upright transform retains marker target y");
+  check(state[9][3]==1 && state[8][2]==1,"upright preserves depth and clip w");
+ }
+ check(!memcmp(state,shadow,sizeof(state)),"upright restores shader state");
+ basisValid=false;basisCo=1;basisSi=0;basisAspect=1;
+ {NativeIconScope scope(&dev,p,6);check(std::fabs(state[6][0]-1.4f)<.0001f,"unavailable render basis retains accepted sizing");}
  printf("%u native HUD checks passed\n",checks);
 }

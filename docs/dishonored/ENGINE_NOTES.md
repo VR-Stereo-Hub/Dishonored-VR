@@ -6974,3 +6974,26 @@ not a discovered semantic field. Scale the associated draw around the marker piv
 rather than its own center. Never retain glyph ownership across unrelated draws.
 Ambiguous markers refuse; batching/order/layout are limitations. Host tests verify
 pivot arithmetic and shader restore, not actual title identification.
+
+## VR-129 native Scaleform assets and closing lifetime (2026-09-16)
+
+Offline UE Viewer -export -3rdparty successfully exports UI_PowerWheel_SF.upk and
+UI_HUD_SF.upk. FFDec opens their GFX and resolves external textures when exported
+TGAs sit beside the movie.1280x720 wheel contains distinct wheel_mc, shortcuts_mc,
+potions_mc and PC alternatives. Runtime scripts control safe-area positioning,
+item population and shortcut mode; static authoring preview does not execute those.
+Wheel/background/potion/D-pad close alpha tweens are250ms, with native OnClosed
+notification following the wheel tween. Quick-shortcut use outside the wheel has
+additional staged delays; do not generalize wheel lifetime to it. No new engine
+offset/address or memory writer is introduced. Source game assets remain local.
+
+Native upright HUD candidate reuses MpReadCtx's symmetric-perspective basis test:
+normalize view-projection x/y columns, require unit homogeneous-forward column and
+orthogonality, project UE world +Z, refuse near-vertical view. Focal ratio preserves
+angular shape while rotating clip XY around existing marker center. Depth/clip W
+and shader shadow remain unchanged; original constants restored after each draw.
+Basis is captured at c5 camera upload on render thread and usable only in the same
+present/thread. Unknown/asymmetric/degenerate basis refuses upright correction.
+The legacy pose yaw solver refused391; this independent bounded basis extraction
+is a candidate requiring its own logged/headset confirmation, not a solved pose
+correspondence claim. Offline workflow and sources are in HUD_ANCHORS VR-129.

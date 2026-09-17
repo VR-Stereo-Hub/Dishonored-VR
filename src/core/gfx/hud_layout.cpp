@@ -11,6 +11,7 @@
 #include "core/gfx/hud_route.h"
 #include "core/gfx/hud_native_icon.h"
 #include "core/util/log.h"
+#include "core/util/clock.h"
 #include "core/vr/hud_anchor.h"
 #include "core/vr/openxr_runtime.h"
 
@@ -84,7 +85,7 @@ ElementCfg g_el[ElCount];
 hudroute::StableRoutes g_stableRoutes;
 dvr::hudnative::Markers g_nativeMarkers;
 dvr::hudnative::MarkerLabels g_nativeLabels;
-bool g_nativeObjectiveLabels=false;
+bool g_nativeObjectiveLabels=false,g_nativeObjectiveUpright=false,g_wheelCloseAnimation=false;
 hudroute::InteractionGroup g_interactionGroup;
 bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
 bool g_nativeObjectives=false;
@@ -498,7 +499,7 @@ bool screen_can_ride(int context) {
 void set_menu_riding(bool riding, int context, bool wheelClosing) {
     const uint32_t frame=(uint32_t)dvr::frame::count();
     const bool newWheel=riding && context==6 && (!g_menuRiding || g_ridingContext!=6);
-    const bool wheelVisual=g_wheelVisual.update(riding,context,wheelClosing,frame);
+    const bool wheelVisual=g_wheelVisual.update(riding,context,wheelClosing,frame,dvr::clock::now_ms(),g_wheelCloseAnimation);
     const bool tail=g_wheelVisual.tail;
     const bool visual=riding || wheelVisual;
     if(newWheel) {
@@ -538,6 +539,7 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     else DVR_INFO("hud/layout: the screen left: routing by element again");
 }
 void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeLabels.clear(); }
+bool native_objective_upright(int e) {return g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
 bool menu_exit_heading() {return g_menuExitHeading.load();}
 bool pause_scene_freshness() {return g_pauseSceneFreshness.load();}
 bool menu_riding() { return g_menuRiding; }
@@ -929,6 +931,8 @@ void configure(const char* ini) {
     g_menuExitHeading.store(read_i(ini,"MenuExitHeading",0)!=0);
     g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
     g_nativeObjectiveLabels=read_i(ini,"NativeObjectiveLabels",0)!=0;
+    g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
+    g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeObjectiveScale=fminf(1.f,fmaxf(.25f,read_f(ini,"NativeObjectiveScale",.70f)));
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
@@ -1006,9 +1010,10 @@ void save(const char* ini) {
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
     write_i("MenuExitHeading",g_menuExitHeading.load());
+    write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
-    write_i("ObjectiveScreenTracking",g_objectiveScreen);
+    write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
     write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
     for(int i=0;i<4;++i) save_scoped_alpha(i);
     for(int i=0;i<2;++i) {
@@ -1269,6 +1274,7 @@ void draw_ui() {
     }
     if(ImGui::CollapsingHeader("Pause menu alpha")) {
         draw_scoped_alpha(3);
+        if(ImGui::Checkbox("Keep wheel crop through closing animation (test)",&g_wheelCloseAnimation)) write_i("WheelCloseAnimation",g_wheelCloseAnimation);
         bool fresh=g_pauseSceneFreshness.load();
         if(ImGui::Checkbox("Recent pause scene uploads (test)",&fresh)) {g_pauseSceneFreshness.store(fresh);write_i("PauseSceneFreshness",fresh);}
     }
@@ -1282,13 +1288,14 @@ void draw_ui() {
         change|=ImGui::Checkbox("Objective markers follow screen",&g_objectiveScreen);
         change|=ImGui::Checkbox("Native objective icons (test)",&g_nativeObjectives);
         change|=ImGui::Checkbox("Native objective title and distance (test)",&g_nativeObjectiveLabels);
+        change|=ImGui::Checkbox("Keep native objectives upright (test)",&g_nativeObjectiveUpright);
         change|=ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx");
         ImGui::TextWrapped("Native test learns edge-clamped marker content and keeps it native when it moves through the center. Size preserves the native center. Unlearned isolated icons remain native at original size; similar artwork can match.");
         ImGui::TextWrapped("Screen tracking separates marker size from screen position. Window/world markers follow the rendered field of view; their window scale controls icon size. Native game edge indicators remain.");
         ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Objective uses its own anchor and placement below.");
         if(change) {
             write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
-            write_i("ObjectiveScreenTracking",g_objectiveScreen);
+            write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
             write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
             rebalance();refresh_status_line();
         }

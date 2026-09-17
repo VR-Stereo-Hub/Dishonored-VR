@@ -1,5 +1,13 @@
 # Roadmap
 
+## VR-129 HUD orientation and closing lifecycle
+
+- [x] Create new branch/ticket from merged PR70 and preserve391 evidence.
+- [x] Export native wheel/HUD Scaleform, textures, structure and authoring previews locally.
+- [x] Implement guarded native-upright and animation-length visual lease candidates.
+- [ ] Headset: objective upright tracking and residual wheel closing flash.
+- [ ] Separate potion/shortcut panels using measured native component identity.
+
 ## VR-50 F11 clarity follow-up (2026-09-15)
 
 - [x] Trace fullscreen reset and narrow-FOV feedback; preserve findings in PERFORMANCE.md.

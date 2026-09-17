@@ -1,24 +1,30 @@
-## Current: HUD follow-up accepted for merge (2026-09-16)
+## Current: VR-129 objective orientation and wheel close (2026-09-16)
 
-The maintainer accepted the current work as sufficient and explicitly authorized
-PR publication and merge to VR-Main. This ends the active HUD test loop; it is not
-a claim that every residual issue has been eliminated. Preserve codex/hud-fixes
-after merge. Installed391/source56b422dc2 remains the playtest build, with its DLL
-hash and log banner verified before the merge checkpoint; both logs and full INI
-are archived under build/playtest-candidates/hud-menu-exit/merge-checkpoint-*.
-No install or settings change is part of this merge.
+Branch codex/vr-129-hud-fixes from merged PR70/main8c334aa14. Ticket VR-129.
+Verified installed391 DLL/hash/banner; both logs and unchanged full INI archived
+at build/playtest-candidates/vr129-hud-fixes/reported391. No new merge authorized.
 
-Accepted earlier reports: reader grip rotation, wheel origin, crouch grouping,
-interaction hue and pause world stability; closing flash provisionally absent.
-Residual pause hand-size variation remains open. Native objective text association
-and menu exit heading are implemented with tests; final acceptance is aggregate,
-not a separate detailed verdict for each mechanism. Candidate levers retain their
-repository defaults. Latest installed settings remain preserved independently.
+Report: objective artwork inherits unwanted head rotation; brief uncropped wheel
+flash still occurs at exit, retracting provisional closing-flash acceptance.
+New default-off live F10 candidates NativeObjectiveUpright and WheelCloseAnimation.
+First rotates recognized native objective art/text about the existing target,
+using same-render-thread/current-present perspective basis at camera upload; no
+live head pose or world/stereo changes. This tests head roll, not gaze-position
+tracking. Second retains wheel crop for the exported250ms closing animation plus
+three delayed presents. Input and scene permission are independent.
 
-Validation: clean release,9 exports,38 menu and23 native HUD checks; default
-writer/package/golden byte parity and lint pass. No game/simulator or subagents.
-Canonical details: HUD_ANCHORS.md and FLICKER_REFERENCE.md. Reopen a targeted
-investigation only when requested; verify installed.json and preserve both logs.
+Offline assets exported successfully with UE Viewer and JPEXS FFDec: wheel,
+shortcuts and potions are separate Scaleform components. tools/hud-assets-export.ps1
+reproduces local extraction. All game-derived movies/textures/scripts/previews stay
+in ignored build/hud-assets. Static authoring preview is not a populated runtime
+layout. See newest HUD_ANCHORS/ENGINE_NOTES/FLICKER_REFERENCE entries.
+
+32 native HUD and45 menu host checks pass; development release compiles. Clean
+candidate installation pending. Preserve accepted391 settings, CRLF, image-owned
+orientation, pair sync and hand correction. No game/simulator/subagents.
+ONE next question: while viewing a learned objective, does tilting the head sideways
+leave the marker upright and fixed on its target? Upright supports the candidate;
+unchanged requires renderedBasis log; wrong rotation rejects its basis/sign.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

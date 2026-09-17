@@ -61,6 +61,31 @@ struct Markers {
         return false;
     }
 };
+// Reuse the symmetric perspective basis checks used by the hand draw reader.
+// World +Z projected into the rendered camera gives upright screen direction.
+inline bool upright_basis(const float* vp,float& co,float& si,float& aspect) {
+    float r[3],u[3],f[3],rn=0,un=0,fn=0;
+    for(int i=0;i<16;++i) if(!std::isfinite(vp[i])) return false;
+    for(int i=0;i<3;++i){r[i]=vp[i*4];u[i]=vp[i*4+1];f[i]=vp[i*4+3];rn+=r[i]*r[i];un+=u[i]*u[i];fn+=f[i]*f[i];}
+    rn=std::sqrt(rn);un=std::sqrt(un);fn=std::sqrt(fn);
+    if(rn<1e-4f || un<1e-4f || std::fabs(fn-1)>.01f) return false;
+    float ru=0,rf=0,uf=0;
+    for(int i=0;i<3;++i){r[i]/=rn;u[i]/=un;ru+=r[i]*u[i];rf+=r[i]*f[i];uf+=u[i]*f[i];}
+    if(std::fabs(ru)>.02f || std::fabs(rf)>.02f || std::fabs(uf)>.02f) return false;
+    const float len=std::sqrt(r[2]*r[2]+u[2]*u[2]);
+    if(len<.15f) return false; // looking nearly vertical: upright is singular
+    co=u[2]/len;si=-r[2]/len;aspect=rn/un;
+    return aspect>.1f && aspect<10;
+}
+inline bool transform_column(const float* src,const float* rect,float scale,float co,float si,float aspect,float* dst) {
+    if(!(scale>=.25f && scale<=1) || !std::isfinite(co) || !std::isfinite(si) || !(aspect>.1f && aspect<10)) return false;
+    const float cx=rect[0]+rect[2]-1,cy=1-rect[1]-rect[3];
+    for(int i=0;i<4;++i) if(!std::isfinite(src[i])) return false;
+    const float x=src[0]-cx*src[3],y=src[1]-cy*src[3];
+    dst[0]=scale*(co*x-si*aspect*y)+cx*src[3];
+    dst[1]=scale*(si*x/aspect+co*y)+cy*src[3];
+    dst[2]=src[2];dst[3]=src[3];return true;
+}
 // Scale projected geometry about its own center; keep clip w/depth unchanged.
 inline bool scale_column(const float* src,const float* rect,float scale,float* dst) {
     if(!(scale>=.25f && scale<=1)) return false;

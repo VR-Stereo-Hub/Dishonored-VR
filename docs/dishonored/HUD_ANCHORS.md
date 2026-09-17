@@ -21,6 +21,58 @@ wheel are the same draw class; the paused world is a live stereo pair.
 To measure and name one more element (the eight unmeasured rows, or a new one):
 `HUD_ELEMENTS_HOWTO.md`.
 
+## VR-129: orientation, wheel close and actual HUD assets (2026-09-16)
+
+Installed391 verified/archived at vr129-hud-fixes/reported391 with unchanged INI.
+Objective icon tracking was accepted, but artwork rotates with the head. The current
+trial interprets this as head roll; gaze-position drift would require separate work.
+Default-off NativeObjectiveUpright (F10 HUD grouping) transforms native icon/text
+about the shared marker pivot, preserving center/depth and accepted size. World-up
+comes from the current rendered perspective matrix at the camera-position upload,
+with finite, unit-forward, orthogonality and near-vertical guards. Thread-local and
+current-present validity prevents borrowing a newer live HMD orientation. Refusal
+leaves accepted native sizing unchanged. Symmetric projection is a prerequisite;
+this reuses the hand reader's documented basis validation, not the old yaw solver.
+The old diagnostic yaw solver reports refusal in391 and is not evidence for this
+new upright result. Logs explicitly report renderedBasis and correction angle.
+
+Brief wheel closing flash remains reported, superseding provisional acceptance.
+Default-off WheelCloseAnimation (F10 menu immersion) retains visual ownership for
+at least250ms after input release and three presents after the closing flag stops.
+Native closing can extend the interval. New menus/loading supersede immediately.
+This uses exported animation timing, not an arbitrary frame count; at high FPS the
+old three-present tail can end before the animation. It can keep gameplay HUD on
+the wheel crop during that short tail; headset confirmation is required.
+
+Offline inspection succeeded: UE Viewer exported UI_PowerWheel_SF (56 objects) and
+UI_HUD_SF (12 objects); FFDec exported85 wheel scripts and410 HUD scripts plus
+frame previews and XML. All outputs/tool binaries are ignored local build assets.
+The first preview had red missing-texture placeholders; copying exported TGAs next
+to the GFX resolved the external image references. Authored frames do not run the
+scripts that populate weapon items, localize labels or reposition for safe area.
+
+Measured native structure:1280x720 movie; wheel_mc is centered around640,354 in
+authoring coordinates; shortcuts_mc is the lower-left component, potions_mc the
+lower-right. Separate PC variants exist. Runtime scripts reposition the components
+using safe-area/movie-space conversion (PC factor.9, console.85); authored bounds
+must not become fixed live capture rectangles. Potions expose health and mana;
+shortcut component has up/down/left/right slots and assignment logic. Wheel,
+background, D-pad and potion close fades are250ms. Standalone quick-shortcut behavior
+has additional delays, so it must not inherit a blanket wheel-close rule.
+
+Repeatable tool: tools/hud-assets-export.ps1, using official portable UE Viewer
+and FFDec. Official references: [UE Viewer export](https://www.gildor.org/projects/umodel/faq),
+[UE Explorer scope](https://github.com/UE-Explorer/UE-Explorer),
+[FFDec](https://www.free-decompiler.com/flash/). UE Explorer remains useful for
+package/script declarations; actual movie layout is available through GFX export.
+No package modified or extracted game data committed. Next auxiliary-panel work
+should use these component identities and runtime placement, preserving native
+potion and shortcut input; no new auxiliary panel behavior is included yet.
+
+Validation:32 native HUD checks (basis, preserved center/depth, constant restore,
+invalid perspective refusal);45 menu checks (250ms independent of FPS, native
+closing, delayed presents, immediate new-menu replacement). Clean candidate pending.
+
 ## Current:389 feedback and menu exit handoff (2026-09-16)
 
 Installed391 (`vr33-hands-working-391-g56b422dc2`), clean source56b422dc2.

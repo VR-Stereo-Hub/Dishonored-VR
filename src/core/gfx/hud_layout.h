@@ -114,6 +114,7 @@ bool menu_exit_heading();   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();
 float native_objective_scale(int element);
+bool native_objective_upright(int element);
 bool menu_stereo_hold();
 bool menu_head_look(int context);
 bool menu_no_blur(int context);
