@@ -1,3 +1,40 @@
+## VR-129: rune marker boundary and independent inset (2026-09-16)
+
+Branch renamed by request to codex/objective-marker-fixes. Read DisGadget_Heart,
+DisHeartTargetTracker, DisTweaks_Heart and the HUD/tweak declarations before edits.
+Heart tracks collectible targets separately from task objectives; HUD declares
+m_HeartMarkers and separate rune/bone-charm marker settings. Preserve equip/reveal,
+nearest-target/refresh behavior, distance and combat opacity. Do not reuse task
+visibility policy to make hidden Heart targets appear.
+
+Flash runeMarker is sprite170: description160 at depth1, locator163 at depth4,
+icon169 at depth6. Its description is above the icon, as for objectives, but the
+locator is an additional owned child. Preview attachment is fake authoring code.
+Native Heart constructor0xBCEBD0 installs vtable0x11635D8; update slot+0x14 points
+to0xBC5D00. Its parent call0xBC5D75 targets the same base0xBBD430 and returns at
+0xBC5D7A. Both update/base ret24 contracts verified. This update subsequently
+handles locator offset, icon presentation and description/distance behavior.
+
+Heart code is shared with bone charms: candidate further requires the live
+borrowed settings symbol to equal runeMarker. Base constructor stores settings
+pointer at marker+0x0C; base clip creation reads its leading FString data/count.
+Validate count11 including terminator, bounded capacity and full readable UTF-16
+buffer. Native pointers are never mistaken for UObject liveness. Current owner
+IsLiveObject, current load/menu live-table refresh and native caller/vtable checks
+are the same as the task trial. Other Heart symbols forward unchanged.
+
+NativeRuneMarkers defaults0; installed trial1. RuneMarkerEdgeInset defaults0.12,
+range5..30 percent, with independent controls in F10 HUD > Objectives. Only visible
+offscreen flags are inset, using parent coordinates while forwarding the game's
+remaining arguments unchanged. Whole icon/text/locator semantic D3D ownership is
+still pending native-boundary visual evidence. Existing draw matcher recognizes
+both candidate edge margins without claiming native instance-to-draw identity.
+
+7814 production wrapper/policy and44 native HUD host checks pass. Rune cases include
+independent margin/toggle, wrong caller, non-rune symbol, truncated/null symbol and
+all five corrupted call bytes. Release build and offline hook derivation checks
+required before install. No game/simulator launched, no headset acceptance yet.
+
 ## VR-129: native task-parent boundary candidate (2026-09-16)
 
 Derived from the unique task constructor using _icon_mc/_description_mc, not a

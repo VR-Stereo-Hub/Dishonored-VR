@@ -203,6 +203,13 @@ static const uint8_t kTaskParentProlog[9]={0x55,0x8b,0xec,0x81,0xec,0xe8,0,0,0};
 static const uint32_t kTaskMarkerOwner=0x08,kTaskMarkerParams=0x10;
 static const uint32_t kTaskMarkerWidth=0x14,kTaskMarkerHeight=0x18;
 
+// Same base placement ABI, called only from the Heart marker update.
+static const uintptr_t kRuneParentCall=0x00bc5d75,kRuneParentReturn=0x00bc5d7a;
+static const uintptr_t kHeartMarkerVtable=0x011635d8;
+static const uint8_t kRuneParentCallBytes[5]={0xe8,0xb6,0x76,0xff,0xff};
+static const uint32_t kMarkerSettings=0x0c;
+static const uint32_t kMarkerSymbolData=0,kMarkerSymbolCount=4,kMarkerSymbolCapacity=8;
+
 // ---- Import table slots ----
 static const uintptr_t kXIGetSlot = 0x00f946c4; // IAT slot: xinput1_3 ord 2
 static const uintptr_t kXISetSlot = 0x00f946c0; // IAT slot: xinput1_3 ord 3

@@ -50,14 +50,14 @@ struct MarkerLabels {
 struct Markers {
     struct Entry {uint64_t key=0;uint32_t seen=0;} entries[64]{};
     void clear(){for(auto& e:entries)e=Entry{};}
-    bool observe(uint64_t key,uint32_t frame,const float* r,unsigned vertices,unsigned primitives,float inset=.05f) {
+    bool observe(uint64_t key,uint32_t frame,const float* r,unsigned vertices,unsigned primitives,float inset=.05f,float runeInset=.05f) {
         if(!key || !r) return false;
         Entry* oldest=&entries[0];
         for(auto& e:entries) {
             if(e.key==key && frame-e.seen<=2400){e.seen=frame;return true;}
             if(!e.key || frame-e.seen>frame-oldest->seen) oldest=&e;
         }
-        if(square_icon(r,vertices,primitives) && (edge_icon(r) || edge_icon(r,inset))){*oldest={key,frame};return true;}
+        if(square_icon(r,vertices,primitives) && (edge_icon(r) || edge_icon(r,inset) || edge_icon(r,runeInset))){*oldest={key,frame};return true;}
         return false;
     }
 };

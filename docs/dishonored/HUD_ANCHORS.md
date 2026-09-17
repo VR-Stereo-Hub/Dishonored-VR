@@ -1,5 +1,15 @@
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
+## Native objective and rune boundary trial (2026-09-16)
+
+Local branch codex/objective-marker-fixes. Native parent call wrappers inset visible
+offscreen task/rune markers; independent F10 HUD > Objectives sliders default to
+12% in the installed trial. Repository fallback switches remain off. Bone charms
+are excluded by the current native symbol. Review/ABI/limits in ENGINE_NOTES top.
+This does not finish semantic draw ownership: title/distance can still fall through
+existing proximity routing. One launch asks whether objective and rune edge arrows
+move inward together with their marker artwork while retaining direction.
+
 ## Branch acceptance and final defaults (2026-09-16)
 
 401 DLL/hash/banner verified. Tester accepted the branch for PR/merge; both logs

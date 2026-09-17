@@ -7,10 +7,12 @@
 #include <initializer_list>
 static unsigned checks=0;
 void check(bool yes,const char* why){++checks;if(!yes){printf("FAIL %s\n",why);exit(1);}}
-namespace dvr::objectivemarkers {bool active=true;float margin=.12f;bool enabled(){return active;}float inset(){return margin;}}
+namespace dvr::objectivemarkers {bool runeActive=true;float runeMargin=.15f;bool rune_enabled(){return runeActive;}float rune_inset(){return runeMargin;}bool active=true;float margin=.12f;bool enabled(){return active;}float inset(){return margin;}}
 namespace dvr::vr {bool live=true;bool session_live(){return live;}}
 namespace dvr::stereo {bool projection=true;bool wants_projection(){return projection;}}
 bool riding=false,g_gameExiting=false;bool UiSurfaceRidesHud(){return riding;}
+uint32_t g_runeCalls=0,g_runeMoved=0,g_runeRefused=0;bool runeSymbol=true;
+bool RuneInputs(void*,int& w,int& h,const char*& reason){w=1000;h=800;reason="rune-host";return runeSymbol;}
 uint32_t g_taskCalls=0,g_taskMoved=0,g_taskRefused=0;bool liveOwner=true;
 bool TaskInputs(void*,int& w,int& h,const char*& reason){w=1000;h=800;reason="host";return liveOwner;}
 struct Capture {void* marker;float x,y;uint32_t a,b;float distance;uint32_t flags;unsigned calls=0;} captured;
@@ -19,12 +21,15 @@ void __fastcall Original(void* marker,void*,float x,float y,uint32_t a,uint32_t 
 }
 using TaskParentFn=void (__thiscall*)(void*,float,float,uint32_t,uint32_t,float,uint32_t);
 uintptr_t kTaskParentUpdate=(uintptr_t)&Original;
-uintptr_t kTaskParentReturn=1000;
+uintptr_t kTaskParentReturn=1000,kRuneParentReturn=2000,currentReturn=1000;
+uint8_t kRuneParentCallBytes[5]={0xe8,0,0,0,0};
 uint8_t kTaskParentCallBytes[5]={0xe8,0,0,0,0};
-#define _ReturnAddress() ((void*)kTaskParentReturn)
+#define _ReturnAddress() ((void*)currentReturn)
 #define DVR_LOG_EVERY_MS(...) ((void)0)
 #include "objective_stub.inc"
 #include "objective_fingerprint.inc"
+#include "rune_stub.inc"
+#include "rune_fingerprint.inc"
 int main(){
  using dvr::objectivemarkers::inset_position;
  for(int w:{1280,1920,3012}) for(int h:{720,1080,3122}) for(int percent:{5,12,20,30}) for(int angle=0;angle<360;angle+=5){
@@ -54,5 +59,19 @@ int main(){
  dvr::hudnative::Markers markers;float edge[4]={.86f,.48f,.90f,.52f};
  check(markers.observe(42,1,edge,8,10,.12f),"new candidate edge still learns native icon family");
  edge[0]=.4f;edge[2]=.44f;check(markers.observe(42,2,edge,8,10,.12f),"learned family retained in interior");
+ check(dvr::objectivemarkers::rune_symbol(L"runeMarker",11),"native rune symbol accepted");
+ check(!dvr::objectivemarkers::rune_symbol(L"boneCharmMarker",16),"bone charm excluded");
+ check(!dvr::objectivemarkers::rune_symbol(L"runeMarker",10),"truncated symbol excluded");
+ check(!dvr::objectivemarkers::rune_symbol(nullptr,11),"null symbol excluded");
+ currentReturn=kRuneParentReturn;dvr::stereo::projection=true;
+ auto runeCall=[](){RuneParentStub((void*)321,nullptr,990,400,0xabcdef12,0x1234abcd,1700,9);};
+ runeCall();check(captured.marker==(void*)321 && captured.x==850 && captured.y==400,"rune wrapper applies independent margin");
+ check(captured.a==0xabcdef12 && captured.b==0x1234abcd && captured.distance==1700 && captured.flags==9,"rune ABI payload preserved");
+ runeSymbol=false;runeCall();check(captured.x==990,"non-rune Heart marker forwarded unchanged");runeSymbol=true;
+ dvr::objectivemarkers::runeActive=false;runeCall();check(captured.x==990,"rune toggle independent of objective toggle");dvr::objectivemarkers::runeActive=true;
+ currentReturn=kTaskParentReturn;runeCall();check(captured.x==990,"unexpected rune caller forwards unchanged");
+ rel=(int32_t)(kTaskParentUpdate-kRuneParentReturn);memcpy(kRuneParentCallBytes+1,&rel,4);
+ memcpy(copy,kRuneParentCallBytes,5);check(RuneParentFingerprint(copy),"rune call target verified");
+ for(int i=0;i<5;++i){copy[i]^=1;check(!RuneParentFingerprint(copy),"rune corrupt byte rejected");copy[i]^=1;}
  printf("%u objective marker checks passed\n",checks);
 }

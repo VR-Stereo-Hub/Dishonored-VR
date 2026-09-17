@@ -9,6 +9,11 @@ $fp=[regex]::Match($text,'(?ms)^bool TaskParentFingerprint.*?^\}')
 if(-not $stub.Success -or -not $fp.Success){throw 'Production wrapper extraction failed'}
 [IO.File]::WriteAllText((Join-Path $out 'objective_stub.inc'),$stub.Value)
 [IO.File]::WriteAllText((Join-Path $out 'objective_fingerprint.inc'),$fp.Value)
+$runeStub=[regex]::Match($text,'(?ms)^__declspec\(noinline\) void __fastcall RuneParentStub.*?^\}')
+$runeFp=[regex]::Match($text,'(?ms)^bool RuneParentFingerprint.*?^\}')
+if(-not $runeStub.Success -or -not $runeFp.Success){throw 'Rune wrapper extraction failed'}
+[IO.File]::WriteAllText((Join-Path $out 'rune_stub.inc'),$runeStub.Value)
+[IO.File]::WriteAllText((Join-Path $out 'rune_fingerprint.inc'),$runeFp.Value)
 . (Join-Path $PSScriptRoot "lib\msvc.ps1")
 $root = Get-DvrMsvcRoot
 $sdk = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" |

@@ -631,7 +631,8 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
         const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
         const bool nativeIcon=g_nativeObjectives &&
             g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives,
-                dvr::objectivemarkers::enabled()?dvr::objectivemarkers::inset():.05f);
+                dvr::objectivemarkers::enabled()?dvr::objectivemarkers::inset():.05f,
+                dvr::objectivemarkers::rune_enabled()?dvr::objectivemarkers::rune_inset():.05f);
         if(nativeIcon) g_nativeLabels.marker(bbox,drawFrame);
         float labelPivot[4]{};
         const bool nativeLabel=g_nativeObjectives && g_nativeObjectiveLabels && !nativeIcon &&
@@ -983,6 +984,7 @@ void configure(const char* ini) {
     g_menuExitHeading.store(read_i(ini,"MenuExitHeading",0)!=0);
     g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
     dvr::objectivemarkers::configure(read_i(ini,"NativeTaskMarkers",0)!=0,read_f(ini,"TaskMarkerEdgeInset",.12f));
+    dvr::objectivemarkers::configure_runes(read_i(ini,"NativeRuneMarkers",0)!=0,read_f(ini,"RuneMarkerEdgeInset",.12f));
     g_nativeObjectiveLabels=read_i(ini,"NativeObjectiveLabels",0)!=0;
     g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
@@ -1069,6 +1071,7 @@ void save(const char* ini) {
     set_hand(1, g_hand[1], "save");
     set_alpha(g_alpha, "save");
     write_i("MenuExitHeading",g_menuExitHeading.load());
+    write_i("NativeRuneMarkers",dvr::objectivemarkers::rune_enabled());write_f("RuneMarkerEdgeInset",dvr::objectivemarkers::rune_inset());
     write_i("NativeTaskMarkers",dvr::objectivemarkers::enabled());write_f("TaskMarkerEdgeInset",dvr::objectivemarkers::inset());
     write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
@@ -1387,6 +1390,14 @@ void draw_ui() {
         ImGui::TextWrapped("One shared alpha profile for notes, books and the journal.");
     }
     if(ImGui::CollapsingHeader("Objectives")) {
+        bool runeTask=dvr::objectivemarkers::rune_enabled();
+        float runeInset=dvr::objectivemarkers::rune_inset()*100.f;
+        const bool runeChange=ImGui::Checkbox("Native rune arrow boundary (test)",&runeTask);
+        const bool runeInsetChange=ImGui::SliderFloat("Rune arrow inset",&runeInset,5.f,30.f,"%.0f%%");
+        if(runeChange || runeInsetChange) {
+            dvr::objectivemarkers::configure_runes(runeTask,runeInset/100.f);
+            write_i("NativeRuneMarkers",runeTask);write_f("RuneMarkerEdgeInset",runeInset/100.f);
+        }
         bool nativeTask=dvr::objectivemarkers::enabled();
         float edgeInset=dvr::objectivemarkers::inset()*100.f;
         const bool taskChange=ImGui::Checkbox("Native objective arrow boundary (test)",&nativeTask);
