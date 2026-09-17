@@ -6,15 +6,15 @@ Changes apply and save immediately in `[Controllers]`.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| DpadModifier |1|0 off,1 right thumbrest,2 R3,3 left grip,4 left thumbrest |
-| DpadFlip |0|0 left stick,1 right stick; F10 flip also moves a thumbrest modifier to the opposite hand |
+| DpadModifier |1|0 off,1 right thumbrest,2 R3,4 left thumbrest; old3 becomes off |
+| DpadFlip |0|0 left stick,1 right stick; F10 flip also moves a thumbrest modifier to the opposite hand; choosing a thumbrest always selects the other stick |
 | PauseChord |1|X+Y can substitute for the menu button |
 
 Hold the modifier and move the selecting stick past0.65 along its dominant
 axis. The game receives a held D-pad direction, released when centered or the
 modifier is released. That stick does not also move/turn. The other stick is
 unchanged. Thumbrest contact alone preserves sub-threshold movement, matching
-BioShock1's behavior. R3/grip modifiers consume their selecting stick throughout
+BioShock1's behavior. R3 modifier consumes its selecting stick throughout
 the hold. Modifier off restores ordinary sticks.
 
 Tap menu for pause. Modifier plus menu immediately holds the journal button.
@@ -27,8 +27,8 @@ single-button input delay. Turn off the chord to forward both buttons normally.
 
 Y forwards the game's native Y binding, lean/adrenaline in standard layouts.
 The game still owns alternate controller layouts. R3 modifier reserves the
-existing health-elixir hold; left-grip modifier reserves the weapon-wheel grip.
-F10 explains these conflicts. Both-stick recenter remains the existing raw XR
+existing health-elixir hold. Both grips always retain their gameplay actions.
+F10 explains the R3 conflict. Both-stick recenter remains the existing raw XR
 chord. Index/other controllers without thumbrest input can choose R3. Vive wands
 without face buttons need a reachable menu binding; X+Y does not create absent
 hardware buttons. SteamVR binding suggestions and shim manifests are unchanged.
@@ -74,3 +74,34 @@ Entire installed INI differs only by three new Controllers keys:
 DpadModifier=1,DpadFlip=0,PauseChord=1. Removing those lines reproduces
 prior INI byte-for-byte; CRLF and installed hashes independently verified.
 No game/simulator launch. Controller source remains local, no new PR/merge.
+
+## Cross-hand correction and powers scroll after417 (2026-09-17)
+
+Verified417 log shows both thumbrests present. Left-rest modifier4 was used with
+DpadFlip0 (left stick) and detected held without a D-pad direction. One thumb
+cannot touch its rest and move that same stick; warning text alone was not
+sufficient. Normalize the pairing at config/composer/UI boundaries. Right rest
+means left stick, left rest means right stick. Explicit R3 still permits either.
+The final installed profile remains right rest/left stick from the latest save.
+
+Grip mode is removed. Numeric3 now means off, not a silently reassigned button;
+left rest remains4 so existing choices survive. Both grips pass through intact.
+
+Y remains the native lean/adrenaline button. In active gameplay with no wheel,
+menu, cinematic or F10 overlay, Y routes the physical right axes to the game's
+left lean axes and zeros right axes so it does not also turn. Left-stick motion
+and room-scale synthesis cannot override this final mapping. It takes priority
+over D-pad but not over X+Y menu consumption. Native action determines lean vs
+adrenaline behavior. The game's response to that axis mapping is not yet headset
+verified; no new native field writes, addresses or game configuration edits.
+
+Powers/journal scrolling was blocked by ordinary menu shaping setting RX/RY0.
+Restore continuous right Y after that shaping for recognized native menus,
+excluding wheel and respecting D-pad right-stick consumption. Horizontal menu
+axes remain unchanged to avoid restoring the old double-step behavior. Log
+pad/axes includes context, physical right stick and final left/right axes.
+
+196 standalone checks pass, covering supported modifiers, opposite pairing,
+legacy grip migration, native face mapping, Y routing priorities and final menu
+scroll policy. Count is lower than417 because obsolete grip combinations were
+removed. Default writer/package/golden parity passes. Headset test pending.

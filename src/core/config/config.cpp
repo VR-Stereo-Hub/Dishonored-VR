@@ -322,7 +322,7 @@ static void WriteDefaultIni(const char* ini)
         "[Controllers]\n"
         "; A jump, B stealth, X interact, Y lean/adrenaline.\n"
         "; Menu tap pauses; modifier+menu (or hold menu) opens journal.\n"
-        "; Modifier:0 off,1 right thumbrest,2 R3,3 left grip,4 left thumbrest.\n"
+        "; Modifier:0 off,1 right thumbrest,2 R3,4 left thumbrest (3 retired).\n"
         "; Flip:0 left stick D-pad,1 right stick D-pad. Chord: X+Y as menu.\n"
         "DpadModifier=1\n"
         "DpadFlip=0\n"

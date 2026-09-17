@@ -2,6 +2,10 @@
 
 ### Controller emulation (headset test pending)
 
+- Hold Y with the right stick for native lean; grips retain existing actions.
+- Thumbrest modifiers automatically pair with the opposite stick.
+- Restore continuous right-stick vertical scrolling in native non-wheel menus.
+
 - F10 Controls: selectable D-pad modifier, left/right stick flip and X+Y pause
   chord. Modifier plus menu/chord opens the journal; menu hold is a fallback.
 - Restore Y to native lean/adrenaline instead of pause. Existing controller

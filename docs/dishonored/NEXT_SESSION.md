@@ -1,3 +1,32 @@
+## Current: cross-hand controls and powers-menu scroll (2026-09-17)
+
+417 verified against installed manifest/hash/log, both logs/latest INI archived
+at build/playtest-candidates/controller-emulation/reported417. Report: Y lean
+needs the right stick; left thumbrest modifier did not work; remove grip choice;
+right-stick scroll absent in journal powers menu. Logs prove both thumbrests
+reported. Left modifier4 was paired with left stick (flip0); no direction bits,
+whereas R3 produced all four D-pad directions. Same-hand pairing is the measured
+configuration mistake, not missing left touch. Updated policy automatically
+pairs either thumbrest with its opposite stick, including old INI combinations.
+
+Remove grip mode from UI and composer; keep left-rest numeric value4. Old mode3
+normalizes toOff and neither grip is consumed. Gameplay-only Y sends physical
+right-stick axes to native left-stick lean axes at the final pad boundary and
+zeros right axes; it outranks D-pad and excludes menus/wheel/cinematics/F10.
+No engine-memory changes or camera writes. Lean behavior still needs headset
+confirmation; it uses the existing native Y action. Native non-wheel menus now
+retain continuous right-stick vertical input after menu shaping. Horizontal
+menu shaping, wheel input and modifier ownership retain precedence.
+
+196 host checks (removed grip tests, added cross-hand/lean/menu axis checks),
+default writer/package/golden byte parity pass. Build/install follows.
+Ticket publication was explicitly requested, but automatic review rejected even
+the minimal summary to Linear; exact-text approval question pending. No issue ID.
+One launch question: in the journal powers menu, does the right stick now scroll
+up/down normally? Success confirms final-axis restoration; no response with
+nonzero pad/axes RY means the menu needs another native input path; zero RY
+means a context/modifier gate is still consuming it. Do not launch game/simulator.
+
 ## Current: controller emulation improvements (2026-09-17)
 
 PR72 merged accepted marker/startup work into VR-Main at6a403c600; preserved

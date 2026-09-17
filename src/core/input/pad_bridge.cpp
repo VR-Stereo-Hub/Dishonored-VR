@@ -49,7 +49,9 @@ static void UpdateVirtualPad()
         Log("postrack: re-centered (both stick clicks)");
     }
     const auto controller=dvr::controller::config();
-    const auto emulation=g_controllerComposer.step(in,controller,GetTickCount64());
+    const bool leanGameplay=in.active && !g_ovlVisible && !UiSurfaceBlocks() &&
+        !g_menuOpen && !g_inMenu && !CineActive() && in.gripL<.7f;
+    const auto emulation=g_controllerComposer.step(in,controller,GetTickCount64(),leanGameplay);
     if (in.active) {
         active = true;
         g_dbgRawMx = in.mv[0]; g_dbgRawMy = in.mv[1];  // 38.25 pre-shaping
@@ -254,7 +256,7 @@ static void UpdateVirtualPad()
     // 38.46: walking in the room pushes the movement stick, so the pawn goes
     // where you went - through the game's own collision, no wall clipping.
     // Never during a menu; that stick is navigation there.
-    if (g_roomScaleCfg && active && !emulation.suppressLeft && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu &&
+    if (g_roomScaleCfg && active && !emulation.suppressLeft && !emulation.lean && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu &&
         !CineActive()) {
         float f = g_roomFwdM, rr = g_roomRightM;
         float len = sqrtf(f * f + rr * rr);
@@ -344,8 +346,14 @@ static void UpdateVirtualPad()
     // Re-apply at the final boundary: room-scale and menu/wheel shaping must
     // not resurrect a stick already consumed as a D-pad. Hand wheel aiming
     // remains available; its composed left-stick direction is independent.
-    if(emulation.suppressLeft && !wheelInput) xs.Gamepad.sThumbLX=xs.Gamepad.sThumbLY=0;
-    if(emulation.suppressRight) xs.Gamepad.sThumbRX=xs.Gamepad.sThumbRY=0;
+    const bool nativeMenu=active && (UiSurfaceBlocks() || g_menuOpen);
+    dvr::controller::final_axes(emulation,nativeMenu,wheelInput,PadStick(in.lk[0]),PadStick(in.lk[1]),
+        xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
+    if(emulation.lean || (nativeMenu && fabsf(in.lk[1])>.15f))
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
+            "pad/axes: lean=%d menu=%d context=%d right=(%.3f %.3f) deliveredL=(%d %d) deliveredR=(%d %d)",
+            int(emulation.lean),int(nativeMenu),UiSurfaceContext(),in.lk[0],in.lk[1],
+            xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
     const unsigned controlState=unsigned(emulation.buttons) | (emulation.modifier ? 0x10000u : 0u);
     static unsigned lastControlState=~0u;
     if(controlState!=lastControlState){lastControlState=controlState;
