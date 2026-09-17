@@ -137,6 +137,15 @@ inline void reading_tilt(const float attached[4],float degrees,float out[4]) {
     dvr::xrmath::quat_mul(attached,pitch,out);
 }
 
+// Headset-accepted trim becomes zero. Legacy settings keep the same physical angle.
+inline float reading_trim(float saved,bool currentReference) {
+    if(!std::isfinite(saved))return 0;
+    return std::fmax(-180.f,std::fmin(180.f,saved+(currentReference?0.f:31.f)));
+}
+inline void reading_alignment(const float attached[4],float trim,float out[4]) {
+    reading_tilt(attached,trim-31.f,out);
+}
+
 // Preserve the initial upright page, then rigidly follow grip rotation.
 struct GripPanel {
     bool valid=false;float relative[4]={0,0,0,1};

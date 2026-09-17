@@ -219,6 +219,14 @@ int main() {
         check(!reading_grip_reference(zero,place,page),"invalid zero grip refused");
         check(!reading_grip_reference(bad,place,page),"nonfinite grip refused");
     }
+    {
+        check(reading_trim(-31,false)==0,"accepted old trim becomes zero");
+        check(reading_trim(0,true)==0,"new zero remains zero");
+        check(reading_trim(10,false)==41,"legacy custom angle preserved");
+        const float q[]={0,0,0,1};float old[4],updated[4];
+        reading_tilt(q,-31,old);reading_alignment(q,0,updated);
+        for(int k=0;k<4;++k)check(fabsf(old[k]-updated[k])<.000001f,"rebase retains accepted physical orientation");
+    }
     std::printf("%u hud-anchor checks passed\n", checks);
     return 0;
 }

@@ -904,6 +904,7 @@ static void WriteDefaultIni(const char* ini)
         "Census=0\n"
         "[Hud]\n"
         "ReadingTilt=0\n"
+        "ReadingTiltReference=1\n"
         "WheelPartsAlphaMode=mix\n"
         "WheelPartsAlphaGain=0.890\n"
         "WheelPartsAlphaFloor=0.000\n"

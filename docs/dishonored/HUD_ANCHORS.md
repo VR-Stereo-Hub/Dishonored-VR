@@ -1,3 +1,15 @@
+## Current: accepted reading attachment and controller merge (2026-09-17)
+
+Build427 fixed reading attachment accepted after ReadingTilt=-31.000 adjustment.
+Rebase that exact physical angle to zero; ReadingTiltReference=1 versions the
+trim so older saved angles migrate without changing appearance. Both427 logs
+and latest INI archived in reading-fixed-grip/accepted427; DLL/banner verified.
+VR-132 tracks accepted controller and reading work. New lean/keyhole camera
+instability and subsequent texture allocation failure are VR-133; animation
+checkboxes are VR-134 under VR-89. These follow on codex/misc-fixes after the
+explicitly authorized controller PR/merge. Crash log reports SYSTEMMEM twin
+allocation 0x8007000e before texture LockRect failure; camera causality unproven.
+
 ## Current: fixed captured reading attachment (2026-09-17)
 
 425 automatic entry tilt was active in logs but did not resolve the reported

@@ -174,6 +174,7 @@ bool read_s(const char* ini, const char* key, char* out, size_t n) {
 
 void save_read_rotation() {
     write_f("ReadingTilt",g_readTilt);
+    write_i("ReadingTiltReference",1);
 }
 
 inline bool measured(int e) { return hudroute::row_measured(g_rows[e]); }
@@ -857,7 +858,7 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             const float offset[3]={g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
             dvr::xrmath::quat_rotate(attached[0],attached[1],attached[2],attached[3],offset,worldOffset);
             for(int k=0;k<3;++k)d.base[k]+=worldOffset[k];
-            dvr::hudanchor::reading_tilt(page,g_readTilt,d.orientation);
+            dvr::hudanchor::reading_alignment(page,g_readTilt,d.orientation);
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
                 "hud/reading-pose: reference=fixed425 panel=%s center=%.4f/%.4f/%.4f gripQ=%.6f/%.6f/%.6f/%.6f panelQ=%.6f/%.6f/%.6f/%.6f manual=%.3f",
                 kReadNames[readPanel],d.base[0],d.base[1],d.base[2],hq[0],hq[1],hq[2],hq[3],
@@ -1055,8 +1056,8 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);g_readDistance[i]=fminf(.5f,fmaxf(-.3f,read_f(ini,key,-.05f)));
         _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);g_readRight[i]=fminf(.75f,fmaxf(-.75f,read_f(ini,key,.20f)));
     }
-    const float readingTilt=read_f(ini,"ReadingTilt",0);
-    g_readTilt=std::isfinite(readingTilt)?fmaxf(-180.f,fminf(180.f,readingTilt)):0;
+    const bool currentReference=read_i(ini,"ReadingTiltReference",0)==1;
+    g_readTilt=dvr::hudanchor::reading_trim(read_f(ini,"ReadingTilt",currentReference?0.f:-31.f),currentReference);
     for(int i=0;i<2;++i){char key[64];_snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);
         const float up=read_f(ini,key,0);g_readUp[i]=std::isfinite(up)?fmaxf(-.75f,fminf(.75f,up)):0;}
 

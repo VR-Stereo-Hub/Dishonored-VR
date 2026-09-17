@@ -1,3 +1,9 @@
+## Controller and reading controls (2026-09-17)
+
+F10 Controls supports cross-hand D-pad modifiers, alternate menu and pause chord.
+Y uses the right stick for native lean; menu scrolling is restored. Notes/books
+use the accepted fixed hand attachment; its preferred angle is Reading tilt0.
+
 ## Unreleased
 
 ### Reading tilt
