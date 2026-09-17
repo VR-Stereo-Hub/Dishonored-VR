@@ -1,41 +1,34 @@
-## Current: VR-129 objective orientation and wheel close (2026-09-16)
+## Current: VR-129 native objective reference (2026-09-16)
 
-Installed395 (`vr33-hands-working-395-g6ccc5b079`), clean source6ccc5b079.
-Candidate build/playtest-candidates/vr129-hud-fixes. Both logs, prior DLL and full
-INI archived at build/playtest-candidates/installs/20260916-194857-316504.
-Full INI diff: only NativeObjectiveUpright=1 and WheelCloseAnimation=1 added.
-All existing values preserved; installed DLL/INI hashes and CRLF verified.
-DLL SHA256 `17a2f4b476f3de0496ee7f378e38f2e7e76fefe442cb8ab2b43b5065067bfc1b`.
-Release build,9 exports,32 native HUD/45 menu host checks, default profile parity,
-lint and full diff checks pass. Offline asset export helper executed successfully.
-No game/simulator launch. Current log remains391;395 headset verification pending.
-Local branch only; no push/PR/merge. First test is objective upright during head tilt.
+Branch codex/vr-129-hud-fixes; local only. Installed395 verified and reported;
+both logs/full unchanged INI archived at
+build/playtest-candidates/vr129-hud-fixes/reported395. Objective failure is primarily
+head yaw/position; the prior roll candidate tested the wrong motion. F10 objective
+panel controls bypassed native rendering. Full wheel closing flash provisionally
+absent; occasional one-frame zoom is a separate OPEN, unlocalized symptom.
 
-Branch codex/vr-129-hud-fixes from merged PR70/main8c334aa14. Ticket VR-129.
-Verified installed391 DLL/hash/banner; both logs and unchanged full INI archived
-at build/playtest-candidates/vr129-hud-fixes/reported391. No new merge authorized.
+New candidate NativeGameplayReference bypasses gameplay HUD panels/transforms to
+separate grouping/capture errors from native camera projection. Default off; arm
+only installed test. Menus/closing visual ownership retain normal panels. Actual
+native size control moved to Objectives; inactive objective panel controls hidden.
+44 native HUD,97 controls,45 menu host checks, default/golden parity pass. Development
+release compiles. Final clean candidate/build/install verification follows.
 
-Report: objective artwork inherits unwanted head rotation; brief uncropped wheel
-flash still occurs at exit, retracting provisional closing-flash acceptance.
-New default-off live F10 candidates NativeObjectiveUpright and WheelCloseAnimation.
-First rotates recognized native objective art/text about the existing target,
-using same-render-thread/current-present perspective basis at camera upload; no
-live head pose or world/stereo changes. This tests head roll, not gaze-position
-tracking. Second retains wheel crop for the exported250ms closing animation plus
-three delayed presents. Input and scene permission are independent.
+ONE launch question: does reference ON keep icon/title/distance fixed to the target
+through left-right head turns compared with OFF in the same location? ON-only
+improvement supports our routing/transform path; both drifting supports native
+projection versus the VR camera. Text-only change indicates another grouping issue.
+No claimed yaw fix yet. Restore reference OFF for ordinary play.
 
-Offline assets exported successfully with UE Viewer and JPEXS FFDec: wheel,
-shortcuts and potions are separate Scaleform components. tools/hud-assets-export.ps1
-reproduces local extraction. All game-derived movies/textures/scripts/previews stay
-in ignored build/hud-assets. Static authoring preview is not a populated runtime
-layout. See newest HUD_ANCHORS/ENGINE_NOTES/FLICKER_REFERENCE entries.
+Asset source identified: objectiveMarker_primary/secondary have _description_mc
+before _icon_mc; runtime D3D semantic mapping still unknown. Missing wheel preview
+dependencies were Startup.lib and15 engine-loaded ic_item_*/ic_pow_* textures.
+Revised export helper ran successfully; verified local runtime-icon-sheet.jpg.
+See newest HUD_ANCHORS, ENGINE_NOTES and FLICKER_REFERENCE entries. Cuff feasibility
+and original-geometry-only workflow recorded in ARM_HAND_SPLIT; not implemented.
 
-32 native HUD and45 menu host checks pass; development release compiles. Clean
-candidate installation verified. Preserve accepted391 settings, CRLF, image-owned
-orientation, pair sync and hand correction. No game/simulator/subagents.
-ONE next question: while viewing a learned objective, does tilting the head sideways
-leave the marker upright and fixed on its target? Upright supports the candidate;
-unchanged requires renderedBasis log; wrong rotation rejects its basis/sign.
+Preserve all saved settings, CRLF, image-owned orientation, stereo sync and hand
+correction. User launches only; no game/simulator/subagents/push/merge.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

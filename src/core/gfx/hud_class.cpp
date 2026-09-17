@@ -1129,7 +1129,9 @@ HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
             return r;
         }
     }
-    return dvr::frame::raw_draw_prim(self, type, start, prims);
+    const HRESULT result=dvr::frame::raw_draw_prim(self, type, start, prims);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT base,
@@ -1147,7 +1149,9 @@ HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE ty
             return r;
         }
     }
-    return dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
+    const HRESULT result=dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT prims,
@@ -1166,7 +1170,9 @@ HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE typ
             return r;
         }
     }
-    return g_origDpUp(self, type, prims, verts, stride);
+    const HRESULT result=g_origDpUp(self, type, prims, verts, stride);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
@@ -1187,7 +1193,9 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
             return r;
         }
     }
-    return g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+    const HRESULT result=g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
+    if(hudNow && dvr::hudcap::armed()) dvr::hudcap::note_native_reference(result);
+    return result;
 }
 
 #undef HUD_DRAW_PROLOGUE

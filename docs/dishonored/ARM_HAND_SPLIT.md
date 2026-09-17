@@ -343,3 +343,23 @@ are ONE artifact. A fail-soft that keeps half of the pair is not soft.
 * The normal on cap vertices is inherited rather than forced on this asset,
   because NORMAL here is not a FLOAT3 and re-encoding a packed normal without
   knowing the asset's bias would be a guess.
+
+## Authored cuff feasibility (2026-09-16, planning only)
+
+An original cuff mesh can be attached without replacing the game's hand asset.
+MsCapVertex already allocates generated vertices, copies donor blend indices and
+weights, and supplies new position/normal data; MsCaps builds boundary-closing fans
+in the owned split geometry. An authored ring can extend this mechanism. No cuff
+implementation or Blender connection was made during this HUD investigation.
+
+Workflow: export the selected hand locally as reference, reproduce the installed
+cut plane and coordinate/bind-pose conventions, author only the new cuff in Blender,
+and export that original geometry with skinning/attachment metadata. Derive cuff
+boundary placement from the actual cut loop or regenerate it when cut settings
+change. Reuse the same corrected hand bone palette for both eyes; copying an
+independent live controller transform would risk sliding or stereo separation.
+Appending to the split mesh inherits its material/UV constraints. A separate cuff
+draw permits original cloth/leather textures but requires deliberate lighting,
+depth and D3D state restoration. Keep game-derived reference meshes local; only
+original cuff vertices/textures and tooling can be committed. Existing capped-hand
+rendering remains the fallback for unknown mesh/vertex declarations.

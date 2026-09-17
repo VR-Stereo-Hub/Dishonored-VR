@@ -7,6 +7,14 @@ $text=[IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_class.cpp'))
 $body=[regex]::Match($text,'(?ms)^struct NativeIconScope \{.*?^\};')
 if(-not $body.Success){throw 'Native scope extraction failed'}
 [IO.File]::WriteAllText((Join-Path $out 'hud_native_scope.inc'),$body.Value)
+$layout=[IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_layout.cpp'))
+$policy=[regex]::Matches($layout,'(?m)^(bool native_gameplay_reference|bool native_objective_upright|float native_objective_scale)\(.*$')
+if($policy.Count -ne 3){throw 'Native reference policy extraction failed'}
+[IO.File]::WriteAllText((Join-Path $out 'hud_native_policy.inc'),(($policy | ForEach-Object {$_.Value}) -join "`n"))
+$capture=[IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_capture.cpp'))
+$health=[regex]::Match($capture,'(?ms)^static DWORD g_lastNativeReferenceMs=0;.*?(?=^bool redirect_failed)')
+if(-not $health.Success){throw 'Native reference health extraction failed'}
+[IO.File]::WriteAllText((Join-Path $out 'hud_reference_health.inc'),$health.Value)
 . (Join-Path $PSScriptRoot "lib\msvc.ps1")
 $root = Get-DvrMsvcRoot
 $sdk = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" |

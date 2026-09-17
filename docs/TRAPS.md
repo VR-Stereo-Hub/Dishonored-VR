@@ -750,3 +750,18 @@ reseed the neighborhood. Small size plus central position also does not identify
 the reticle: moving10-primitive button draws were eligible for that exclusion.
 Measured centered two-primitive reticle protection is narrower. These corrections
 do not establish semantic identity for animated/rebatched UI. See HUD_ANCHORS.
+
+## Native objective controls and incomplete Flash previews (2026-09-16)
+
+NativeObjectiveIcons=1 returns recognized objectives to the game frame, bypassing
+Element.objective anchor/WinX/WinY/WinScale. Editing those controls cannot affect
+that path. Use NativeObjectiveScale; F10 now shows the active controls and explains
+the inactive panel settings. Do not interpret unchanged panel sliders as proof of
+wrong icon identity without following the native consumer.
+
+An exported GFX authoring frame is not the runtime HUD. Wheel assets span its own
+package, Startup's imported lib movie, and engine-loaded equipment icon textures.
+Resolving only the wheel's adjacent TGA files misses imports; resolving the library
+still misses native req_EquipmentIconImage execution. Use the full dependency
+export and inspect individual runtime textures; do not present a static frame as a
+complete populated wheel or assume more geometry is inside the wheel movie.

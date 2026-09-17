@@ -6997,3 +6997,28 @@ present/thread. Unknown/asymmetric/degenerate basis refuses upright correction.
 The legacy pose yaw solver refused391; this independent bounded basis extraction
 is a candidate requiring its own logged/headset confirmation, not a solved pose
 correspondence claim. Offline workflow and sources are in HUD_ANCHORS VR-129.
+
+## VR-129 objective children and runtime icon imports (2026-09-16)
+
+UI_HUD_SF offline XML: objectiveMarker_primary sprite178 and secondary174 share
+_description_mc sprite160 at display depth1; _icon_mc is177/173 at depth4.
+_description_mc.txt is DefineEditText159 (with drop-shadow filter); its panel is
+shape158. Icon artwork is35x35 authored pixels. Child names are established from
+exports; no correspondence from GFx instance to intercepted D3D draw is established.
+The title-before-icon order undermines frame-local positional grouping.395 contains
+8-vertex/10-primitive icon AND wide description composites, so topology alone is
+not semantic identity. Runtime draw keys include resource pointers and must not be
+baked as universal signatures. Current F10 panel controls are bypassed by native
+objective mode; NativeObjectiveScale is the consumer that still changes recognized
+native geometry. No new engine addresses, offsets or memory writers introduced.
+
+PowerWheel imports common_assets/lib.swf, but standalone Common_assets package is
+absent. DefaultEngine lists it as a startup package, and UModel's Startup inventory
+locates SwfMovie lib and lib_* textures.54 external textures resolved from lib XML.
+The itemIcons sprite301 is an animated shell; EquipmentIcon.SetIconImage invokes
+req_EquipmentIconImage to load runtime artwork.15 Startup textures ic_item_* and
+ic_pow_* match the screenshot's equipment and powers. UI_ItemIcons_Large and
+UI_Powers_Large exports are journal-style alternatives, not this missing wheel art.
+Revised tools/hud-assets-export.ps1 exports dependencies and remaps the import for
+FFDec. Static frame export still cannot execute native callbacks. Extracted output
+and full scripts remain local ignored build/hud-assets only.

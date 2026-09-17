@@ -468,14 +468,14 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         DVR_INFO("hud/beat: presents=%u armed=%u redirected=%.1f/present (%s) delivered=%u empty-while-armed=%u "
                  "(even %u, odd %u) | slots %ux%u of %ux%u (scale %.2f) | fences: blit waits %u timeouts %u, "
                  "read waits %u timeouts %u | restore failures %u | gate: on=%d xr=%d menu=%d game=%d handoff=%d "
-                 "failed=%d -> %s. Prediction while armed: empty=0; empty==armed/2 all on one parity = the HUD "
+                 "failed=%d nativeReference=%d -> %s. Prediction while armed: reference=1 expects empty==armed; otherwise empty=0; empty==armed/2 all on one parity = the HUD "
                  "tail lands in ONE re-entry pass; empty==armed = the rule matched nothing",
                  g_winPresents, g_winArmedPresents, g_winPresents ? (double)redir / g_winPresents : 0.0,
                  per[0] ? per + 1 : "no sink in use", deliv, g_winEmptyArmed, g_winEmptyEven, g_winEmptyOdd,
                  g_sink[0].slotW, g_sink[0].slotH, g_rtW, g_rtH, g_slotScale,
                  g_blitWaits, g_blitTimeouts, g_readWaits, g_readTimeouts, g_restoreFails,
                  (int)g_on, (int)dvr::hud::projection_mode(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady,
-                 (int)g_failed, wantArm ? "ARMED" : "idle");
+                 (int)g_failed, (int)dvr::hudlayout::native_gameplay_reference(), wantArm ? "ARMED" : "idle");
         if (!wantArm) {
             g_offReason = g_failed ? "a D3D failure latched this session (the lines above name it)"
                         : !g_handoffReady ? "the hand-off to D3D11 is not ready, so the redirect is held off "
@@ -511,17 +511,26 @@ ID3D11Texture2D* panel_texture(int sink) {
     return g_sink[sink].outTex;
 }
 
+static DWORD g_lastNativeReferenceMs=0;
+void note_native_reference(HRESULT result) {
+    if(SUCCEEDED(result) && dvr::hudlayout::native_gameplay_reference()) g_lastNativeReferenceMs=GetTickCount();
+}
 bool redirect_healthy() {
     // The recent-redirect window alone: g_armed is recomputed every present and
     // drops on any untagged present (the ring drains, none/s=1 in the beat), and
     // a health check that blinks with it cancelled the ride's open-gap stand-in
     // on the first pause measured (2026-09-15, the sewers on the simulator).
     if (!g_on || !g_handoffReady || g_failed) return false;
-    return (GetTickCount() - g_lastRedirectMs) < 500;
+    // A successful intentional gameplay bypass keeps the entry gate warm,
+    // without claiming a redirected draw or masking device/handoff failures.
+    // Menu visual ownership immediately resumes normal capture.
+    return (GetTickCount() - g_lastRedirectMs) < 500 ||
+           (g_lastNativeReferenceMs && GetTickCount() - g_lastNativeReferenceMs < 500);
 }
 bool redirect_failed() { return g_failed; }
 
 void on_reset() {
+    g_lastNativeReferenceMs=0;
     g_handoffReady = false;
     for (Sink& s : g_sink) { release_slots(s); release_rt(s); s.redirected = 0; }
     g_rtFailed = false;

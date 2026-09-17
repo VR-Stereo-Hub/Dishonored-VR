@@ -113,6 +113,7 @@ bool pause_scene_freshness();
 bool menu_exit_heading();   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();
+bool native_gameplay_reference();
 float native_objective_scale(int element);
 bool native_objective_upright(int element);
 bool menu_stereo_hold();

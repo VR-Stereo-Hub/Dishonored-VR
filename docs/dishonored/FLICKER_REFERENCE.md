@@ -1,5 +1,26 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## VR-129: build395 closing result and remaining zoom (2026-09-16)
+
+395 DLL/hash/banner verified; logs and unchanged full INI archived at
+build/playtest-candidates/vr129-hud-fixes/reported395. Full uncropped wheel flash
+is reported absent so far with WheelCloseAnimation=1; provisional acceptance,
+not proof over every exit. Preserve the250ms native animation lease and delayed
+tail. A separate occasional one-frame apparent zoom is reported at wheel exit.
+Surface is not yet isolated to world, HUD or hands. Route by section1's surface
+identification step before choosing projection, mono or palette changes. Existing
+rate-limited logs cannot correlate a specific visible frame; do not call it a
+measured FOV change or lengthen the visual lease as a speculative fix.
+
+Objective complaint is predominantly head yaw/position, not a confirmed roll bug.
+395 upright basis accepted102/104 logged samples; the roll-only test did not test
+the main complaint. Roll acceptance remains unknown. NativeGameplayReference
+isolates normal gameplay HUD routing/transforms from native target projection;
+menus, existing image-owned orientation, pair synchronization and hand correction
+are preserved. Standalone44 native HUD checks cover successful-draw health,
+failure/refusal, expiry, menu exclusion and shader-state bypass. No new stereo or
+menu-exit camera behavior is proposed. See HUD_ANCHORS newest entry for the one
+launch question and next steps. The tiny exit zoom remains OPEN and separate.
 
 ## VR-129: wheel exit flash still open (2026-09-16)
 

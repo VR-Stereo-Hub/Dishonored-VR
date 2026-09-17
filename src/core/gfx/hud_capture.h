@@ -84,6 +84,8 @@ const dvr::hudmarker::Regions* marker_regions(int sink);
 // compiled, a redirected draw within the last 500 ms), and whether a D3D
 // failure has latched this session (the ride then falls back to the mono
 // screen rather than show a window with nothing on it).
+// Successful intentional gameplay bypass, distinct from redirected draws.
+void note_native_reference(HRESULT result);
 bool redirect_healthy();
 bool redirect_failed();
 

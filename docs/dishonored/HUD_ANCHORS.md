@@ -1,5 +1,60 @@
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
+## VR-129: build395 result and native reference comparison (2026-09-16)
+
+Verified395 DLL/hash/log banner; both logs and full unchanged INI archived at
+build/playtest-candidates/vr129-hud-fixes/reported395. Main reported objective
+failure is movement/swivel during left-right head turning; head roll was not
+specifically tested. The preceding roll correction addressed a different motion.
+102 of104 rate-limited upright samples accepted the current rendered basis;
+that proves execution for sampled recognized draws, not correct target tracking.
+Title/distance still change planes. Current objective-row position/scale settings
+are ineffective under NativeObjectiveIcons=1 because that path bypasses the panel.
+
+Offline UI_HUD_SF identifies objectiveMarker_primary (sprite178) and
+objectiveMarker_secondary (174). Both own _description_mc (160, depth1) and
+_icon_mc (177/173, depth4). Description text lives in _description_mc.txt.
+Description is drawn before the icon. Our current/prior-present proximity matcher
+can lose that association during movement; these D3D draws do not carry the movie
+instance names. No semantic runtime identity hook or target-projection fix is yet
+established. Do not hard-code run-specific draw keys or widen proximity blindly.
+
+Candidate NativeGameplayReference (default off, live F10 > Objectives) leaves all
+normal gameplay HUD draws in the game image, bypassing capture, alpha, size and
+upright transforms, and suppresses delayed HUD panels. Menus and wheel closing
+visual ownership supersede it. Successful forwarded HUD draws supply a separate
+500ms entry-health heartbeat; failed draws, device failures, missing handoff and
+expired samples refuse. This avoids interpreting intentional lack of capture as
+an unhealthy menu redirect. Stereo/image orientation and hand correction unchanged.
+Toggling invalidates delayed panels but preserves learned marker content. Beat
+logs explicitly expect empty capture during the reference. The active native size
+slider is now under Objectives, and inactive objective panel controls are hidden.
+
+ONE next launch question: does enabling the native gameplay reference stop the
+objective icon/title/distance from shifting away from the target during left-right
+head turns, compared with reference OFF at the same location? ON stable and OFF
+unstable supports our capture/grouping/transform path; both unstable points toward
+native target projection versus the VR-rendered camera. Text-only improvement
+isolates an additional grouping failure. This is a diagnostic, not a claimed fix.
+Keep normal-size differences out of the tracking verdict. Restore reference OFF
+for ordinary play. No game/simulator or subagents were used.
+
+Offline preview correction: wheel imports ../common_assets/lib.swf, whose cooked
+movie is Startup.lib. itemIcons is sprite301; its133 frames are animation/layout,
+not a populated wheel. EquipmentIcon.SetIconImage calls req_EquipmentIconImage;
+15 ic_item_*/ic_pow_* textures in Startup supply the actual artwork. Exported54
+shared-library textures plus15 runtime icons; the revised export helper resolves
+the library import and exports its scripts. Static FFDec frames still do not run
+engine callbacks or inventory population. Large journal illustration packages are
+not the wheel icon source. All assets, scripts and previews remain ignored local
+build/hud-assets; runtime-icon-sheet.jpg is a verified contact sheet, not a game
+screenshot. wheel_mc, shortcuts_mc and potions_mc remain separate components.
+
+Validation:44 native HUD production-scope/policy/health checks,97 HUD controls,
+45 menu lifecycle checks and default profile/golden parity pass. Development
+release builds. Final clean candidate identity belongs in installed.json and the
+current STATUS entry; actual head-yaw result remains pending.
+
 The game's Scaleform HUD, taken out of the eye textures and shown on quads the
 runtime layer composites: a head-locked WINDOW, a WORLD-parked window, and the
 LEFT and RIGHT hands (what build 38.92 shipped as the wrist HUD), per ELEMENT

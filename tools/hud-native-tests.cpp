@@ -9,7 +9,18 @@ using HRESULT=int;
 static float scale=.7f,state[256][4]{},shadow[256][4]{};static int failRow=-1,writes=0;
 bool upright=false,basisValid=true;float basisCo=1,basisSi=0,basisAspect=1;
 bool native_basis(float& c,float& s,float& a){c=basisCo;s=basisSi;a=basisAspect;return basisValid;}
-namespace dvr::hudlayout {float native_objective_scale(int){return scale;}bool native_objective_upright(int){return upright;}}
+namespace dvr::hudlayout {
+constexpr int ElObjective=6;
+bool g_nativeGameplayReference=false,g_visualRiding=false,g_menuRiding=false,g_nativeObjectives=true;
+bool& g_nativeObjectiveUpright=upright;float& g_nativeObjectiveScale=scale;
+#include "hud_native_policy.inc"
+}
+using DWORD=uint32_t;static DWORD nowMs=5000;DWORD GetTickCount(){return nowMs;}
+#define SUCCEEDED(x) ((x)>=0)
+namespace dvr::hudcap {
+bool g_on=true,g_handoffReady=true,g_failed=false;DWORD g_lastRedirectMs=0;
+#include "hud_reference_health.inc"
+}
 namespace dvr::frame {
 const float* vs_const_shadow_row(int row){return shadow[row];}
 HRESULT orig_set_vs_const(IDirect3DDevice9*,int row,const float* v,int){++writes;if(row==failRow){failRow=-1;return -1;}memcpy(state[row],v,16);return 0;}
@@ -75,5 +86,22 @@ int main(){
  check(!memcmp(state,shadow,sizeof(state)),"upright restores shader state");
  basisValid=false;basisCo=1;basisSi=0;basisAspect=1;
  {NativeIconScope scope(&dev,p,6);check(std::fabs(state[6][0]-1.4f)<.0001f,"unavailable render basis retains accepted sizing");}
+ using namespace dvr::hudlayout;
+ using namespace dvr::hudcap;
+ check(!redirect_healthy(),"no draw does not prove a healthy redirect");
+ g_nativeGameplayReference=true;upright=true;writes=0;
+ {NativeIconScope scope(&dev,p,6);check(writes==0,"reference bypasses both sizing and roll shader writes");}
+ note_native_reference(-1);check(!redirect_healthy(),"failed native draw does not permit menu entry");
+ note_native_reference(0);check(redirect_healthy(),"successful intentional native draw allows menu entry");
+ g_failed=true;check(!redirect_healthy(),"native reference cannot mask a latched D3D failure");g_failed=false;
+ g_handoffReady=false;check(!redirect_healthy(),"native reference requires handoff readiness");g_handoffReady=true;
+ g_on=false;check(!redirect_healthy(),"disabled capture does not ride menus");g_on=true;
+ g_visualRiding=true;g_menuRiding=true;
+ check(!native_gameplay_reference(),"menu and wheel closing visual ownership supersede reference");
+ check(native_objective_scale(6)==1 && !native_objective_upright(6),"menu HUD is not objective corrected");
+ nowMs+=501;note_native_reference(0);check(!redirect_healthy(),"menu calls cannot refresh native gameplay heartbeat");
+ g_visualRiding=false;g_menuRiding=false;g_nativeGameplayReference=false;
+ check(native_objective_scale(6)==scale && native_objective_upright(6),"turning reference off restores saved objective settings");
+ check(native_objective_scale(-1)==1 && !native_objective_upright(-1),"unidentified draws never inherit objective transforms");
  printf("%u native HUD checks passed\n",checks);
 }

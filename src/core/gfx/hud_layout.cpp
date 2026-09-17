@@ -89,6 +89,7 @@ bool g_nativeObjectiveLabels=false,g_nativeObjectiveUpright=false,g_wheelCloseAn
 hudroute::InteractionGroup g_interactionGroup;
 bool g_groupInteractions=false,g_routeObjectives=false,g_objectiveScreen=false;
 bool g_nativeObjectives=false;
+bool g_nativeGameplayReference=false;
 float g_nativeObjectiveScale=.70f;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
@@ -539,11 +540,12 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     else DVR_INFO("hud/layout: the screen left: routing by element again");
 }
 void forget_draw_owners() { g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeLabels.clear(); }
-bool native_objective_upright(int e) {return g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
+bool native_gameplay_reference() {return g_nativeGameplayReference && !g_visualRiding;}
+bool native_objective_upright(int e) {return !native_gameplay_reference() && g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
 bool menu_exit_heading() {return g_menuExitHeading.load();}
 bool pause_scene_freshness() {return g_pauseSceneFreshness.load();}
 bool menu_riding() { return g_menuRiding; }
-float native_objective_scale(int e) {return g_nativeObjectives && !g_menuRiding && e==ElObjective ? g_nativeObjectiveScale : 1.f;}
+float native_objective_scale(int e) {return !native_gameplay_reference() && g_nativeObjectives && !g_menuRiding && e==ElObjective ? g_nativeObjectiveScale : 1.f;}
 bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
 bool menu_head_look(int c) { return c>=3 && c<=8 && (g_menuHeadMask.load() & (1u<<c)); }
 bool menu_no_blur(int c) { return c>=3 && c<=8 && (g_menuBlurMask.load() & (1u<<c)); }
@@ -584,6 +586,13 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 // ---- routing --------------------------------------------------------------
 
 int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives, float* nativePivot) {
+    if(native_gameplay_reference()) {
+        if(elementOut) *elementOut=-1;
+        ++g_routeFrame;
+        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+            "hud/native-reference: gameplay draw left in game image; capture/alpha/objective transforms bypassed frame=%u",(unsigned)dvr::frame::count());
+        return -1;
+    }
     if(nativePivot && bbox) memcpy(nativePivot,bbox,4*sizeof(float));
     hudroute::Identity id;
     id.context = g_visualRiding ? g_ridingContext : -1;
@@ -692,6 +701,7 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
 int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
     ++g_presentNo;
     int n = 0;
+    if(native_gameplay_reference()) return 0; // no delayed panel can overlap the reference
     // The measured elements: one isolated full-texture quad each, preserving
     // its reference region's placement while allowing motion outside it.
     // Only while its draws keep arriving (the sink delivers the previous
@@ -934,6 +944,7 @@ void configure(const char* ini) {
     g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
+    g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
     g_nativeObjectiveScale=fminf(1.f,fmaxf(.25f,read_f(ini,"NativeObjectiveScale",.70f)));
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
     for(int i=0;i<4;++i) {
@@ -1012,6 +1023,7 @@ void save(const char* ini) {
     write_i("MenuExitHeading",g_menuExitHeading.load());
     write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
+    write_i("NativeGameplayReference",g_nativeGameplayReference);
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
     write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
@@ -1228,6 +1240,7 @@ void status(dvr::status::Writer& w) {
     w.kv("handRWidth", (double)g_hand[1].widthM);
     w.kv("menuInWindow", g_menuInWindow);
     w.kv("menuRiding", g_menuRiding);
+    w.kv("nativeGameplayReference", native_gameplay_reference());
     w.kv("ridingContext", g_ridingContext);
     w.kv("alphaMode", kAlphaModeNames[g_alpha.mode]);
     w.kv("alphaGain", (double)g_alpha.gain);
@@ -1282,6 +1295,21 @@ void draw_ui() {
         draw_scoped_alpha(1);
         ImGui::TextWrapped("One shared alpha profile for notes, books and the journal.");
     }
+    if(ImGui::CollapsingHeader("Objectives")) {
+        if(ImGui::Checkbox("Native gameplay HUD reference (test)",&g_nativeGameplayReference)) {
+            dvr::hudcap::invalidate_content();
+            write_i("NativeGameplayReference",g_nativeGameplayReference);
+            DVR_INFO("hud/native-reference: requested=%d; menu visual ownership takes precedence",(int)g_nativeGameplayReference);
+        }
+        ImGui::TextWrapped("Reference ON keeps all gameplay HUD in the game image, at native size and color. Turn OFF to restore your HUD settings. Menus keep their configured panels. Compare head turning in the same spot.");
+        if(g_nativeObjectives && !g_nativeGameplayReference) {
+            if(ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx")) {
+                write_f("NativeObjectiveScale",g_nativeObjectiveScale);
+                DVR_INFO("hud/native-size: requested=%.3f; applies to recognized icon/description draws",g_nativeObjectiveScale);
+            }
+            ImGui::TextWrapped("Size affects recognized native markers and descriptions. Position comes from the game target; panel offsets do not apply. Identification is still experimental.");
+        }
+    }
     if(ImGui::CollapsingHeader("HUD grouping")) {
         bool change=ImGui::Checkbox("Keep interaction labels together",&g_groupInteractions);
         change|=ImGui::Checkbox("Route moving objective markers",&g_routeObjectives);
@@ -1289,10 +1317,10 @@ void draw_ui() {
         change|=ImGui::Checkbox("Native objective icons (test)",&g_nativeObjectives);
         change|=ImGui::Checkbox("Native objective title and distance (test)",&g_nativeObjectiveLabels);
         change|=ImGui::Checkbox("Keep native objectives upright (test)",&g_nativeObjectiveUpright);
-        change|=ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx");
+        ImGui::TextDisabled("Native size and comparison controls are in Objectives above.");
         ImGui::TextWrapped("Native test learns edge-clamped marker content and keeps it native when it moves through the center. Size preserves the native center. Unlearned isolated icons remain native at original size; similar artwork can match.");
         ImGui::TextWrapped("Screen tracking separates marker size from screen position. Window/world markers follow the rendered field of view; their window scale controls icon size. Native game edge indicators remain.");
-        ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Objective uses its own anchor and placement below.");
+        ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Panel placement below applies only when native icons are disabled.");
         if(change) {
             write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
             write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
@@ -1352,6 +1380,12 @@ void draw_ui() {
     for (int e = 0; e < ElCount; ++e) {
         ImGui::PushID(e);
         int a = g_el[e].anchor;
+        if(e==ElObjective && g_nativeObjectives) {
+            ImGui::Text("objective     native game target | seen %u",g_seen[e]);
+            ImGui::TextDisabled("Use Objectives above. Panel anchor/offset/scale do not apply in native mode.");
+            ImGui::PopID();
+            continue;
+        }
         ImGui::Text("%-13s", kRows[e].name); ImGui::SameLine();
         ImGui::SetNextItemWidth(110.0f);
         if (ImGui::Combo("##anchor", &a, kAnchorNames, AnchorCount)) set_element_anchor(e, a, "F10 HUD");
