@@ -1,51 +1,38 @@
-## Current: wheel side panels and rounded wrists (2026-09-16)
+## Current: accepted399 profile and shared wheel-side alpha (2026-09-16)
 
-Branch codex/vr-129-hud-fixes, local only. VR-129 covers the HUD; new VR-130
-covers rounded wrist ends. Build397 DLL/hash/log banner verified. Both logs and
-unchanged full INI archived at build/playtest-candidates/vr129-native-reference/reported397.
-NativeGameplayReference stayed ON:345 logged gameplay samples, no toggle events.
-The native HUD was difficult to see at the FOV edges; objective rotation was
-reported there too. The intended ON/OFF comparison did not happen. Restore the
-reference to0 in the next install; do not treat this as a resolved projection bug.
+Branch codex/vr-129-hud-fixes, local only.399 DLL/hash/log verified; both logs and
+last-run INI archived at build/playtest-candidates/vr129-wheel-parts-rounded-wrists/reported399.
+D-pad/potion separation and rounded wrists are headset-accepted. The side-panel
+grey background needs independent tuning. Objectives improved but still sometimes
+appear on the window; this is OPEN, not a verified projection fix.
 
-Implemented: two optional wheel side panels from the same delayed capture BEFORE
-the circular mask. D-pad bottom left and health/mana bottom right on the window,
-with independent anchor, horizontal/vertical position and size. F10 > HUD > Weapon
-wheel side panels is expanded by default. Crop bounds are adjustable candidates,
-not runtime GFx semantic identification. General HUD alpha applies to these parts.
-F10 > Hands > Rounded wrist ends replaces the hand's flat fan with a shallow dome;
-Wrist roundness is live. Original seam/skinning retained; packed shading basis is
-inherited, so lighting remains a headset check. Both levers default OFF in code;
-arm only the installed candidate. Existing profile and stereo synchronization stay.
+Complete saved F10 profile promoted into WriteDefaultIni, release INI and golden
+INI per explicit request. Includes wrist roundness0.640, native objective scale
+0.440, wheel width0.360m/crop0.440x0.390/distance0.040m/deadzone0.003m, both tuned
+side crops/placements, and saved alpha/menu settings. NativeGameplayReference=0.
+No version bump or automatic replacement of an existing INI.
 
-Standalone:912 wrist/crop,101 HUD controls,44 native HUD,465 route,462 anchor and45
-menu checks pass; actual D3D11 WARP circle/hue/side-crop tests pass. Development
-release build succeeds after correcting an out-of-scope sink index; default
-writer/package/golden parity and lint pass. Clean release build/install complete; identity below.
-Full wheel exit flash remains provisionally absent; rare one-frame zoom is OPEN
-with no identified image surface. No speculative camera/palette changes.
+Added shared WheelPartsAlpha Mode/Gain/Floor/Gamma/Mix under F10 > HUD > Weapon
+wheel side panels. Both side crops and capture-coverage policy use this group;
+wheel, general, notes/books, interactions and pause alpha remain separate.
+Initial values match prior general alpha to preserve the accepted picture.
+These are alpha/brightness controls, not selective grey-artwork removal.
 
-Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.
-Release build and9 undecorated exports pass. Candidate:
-build/playtest-candidates/vr129-wheel-parts-rounded-wrists.
-Both397 logs, prior DLL and full INI archived before install at
-build/playtest-candidates/installs/20260916-215151-048274.
-Full INI comparison: NativeGameplayReference1->0; add WheelSidePanels=1,
-RoundedWrist=1, RoundedWristDepth=0.350. No other byte changes. Installed DLL/INI
-hashes and CRLF verified. DLL SHA256
-`ecbb33f57672bc531140b7cff6a7461023c4bf10ec329f84f02d1a9a7b4921f7`.
-Current log remains397 until tester launch.399 has not been headset-tested.
-No game/simulator launched, no push/PR/merge; local commits only.
+104 production HUD control checks and writer/package/golden byte parity pass;
+development release builds. Final clean install identity follows below.
+Objective logs show recognized marker draws remain native. Recognition still
+uses learned content and short-lived label proximity; unmatched artwork can
+route to a panel. Added rate-limited hud/native-miss for8-vertex/10-primitive
+candidates actually going to capture, excluding successful native bypasses.
+Those shapes are NOT confirmed objective identities. Do not broaden routing on
+topology alone. No camera/stereo/hand geometry or objective routing changes.
 
-ONE launch question: with the wheel open, are both side panels complete and on
-the window while the circular dial remains at its hand-origin position? Complete
-panels support the shared-source crop; missing/clipped artwork means crop bounds
-or source ownership need correction. Moving with the dial means placement failed.
-Rounded wrists are included but do not add a second question to this launch.
-
-See newest HUD_ANCHORS, ARM_HAND_SPLIT and FLICKER_REFERENCE entries. Verify
-installed.json and log banner before reading the next run; archive both logs,
-compare the entire INI and preserve CRLF. No game/simulator/subagents/push/merge.
+ONE next launch question: do the new shared side-panel alpha controls affect
+both D-pad/potions without changing the main wheel or other HUD? Both sides only
+confirms group isolation; one side unchanged or other HUD changing means the
+selector/capture path is wrong. Grey artwork may need further targeted removal.
+User launches only; archive both logs, compare full INI, preserve CRLF. No game,
+simulator, subagents, push or merge. Objective window leak remains a follow-up.
 
 ## Current handoff: VR-126 refined dial and menu immersion (2026-09-16)
 

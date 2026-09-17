@@ -69,8 +69,11 @@ int main(){
  check(oldPulses<10 && newSamples==120,"one-second reading hold keeps 120 analog samples instead of sparse menu pulses");
  check(vertical(0)==0 && vertical(16384)==16384 && vertical(-16384)==-16384,"neutral partial speed and direction stay native");
  g_visualRiding=true;g_ridingContext=6;g_wheelParts=true;
- g_alphaBank.special[0].mode=AlphaRepair;g_alpha.mode=AlphaCaptured;
+ g_alphaBank.special[0].mode=AlphaRepair;g_alpha.mode=AlphaRepair;g_alphaBank.special[4]={AlphaCaptured,.6f,.18f,1.16f,1};
  check(alpha_force_wanted(0),"side panels obtain coverage even when wheel uses repair alpha");
+ check(wheel_parts_alpha().gain==.6f && wheel_parts_alpha().gamma==1.16f,"both side crops select shared dedicated alpha");
+ g_alphaBank.reset_general();check(wheel_parts_alpha().floorA==.18f,"general reset preserves side panel settings");
+ check(alpha_for_sink(0).mode==AlphaRepair,"side alpha does not replace wheel alpha");
  g_wheelParts=false;check(!alpha_force_wanted(0),"disabling side panels restores original wheel capture policy");
  g_wheelParts=true;g_visualRiding=false;check(!wheel_parts_for_sink(0),"no side panels outside wheel visual lease");
  g_visualRiding=true;g_ridingContext=4;check(!wheel_parts_for_sink(0),"notes cannot inherit wheel side panels");

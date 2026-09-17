@@ -1,5 +1,18 @@
 # Flicker reference: symptoms, fixes, evidence, and investigation guide
 
+## VR-129: build399 accepted parts, remaining objective transfer (2026-09-16)
+
+Verified399 DLL/hash/banner, logs and saved INI archived at
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists/reported399.
+Side-panel separation and rounded wrists accepted. Objective marker improved
+but sometimes transfers onto window: classify as HUD ownership, not evidence
+of a new stereo or image-orientation fault. Existing sampled logs cannot identify
+the reported transition. New topology-limited miss logging records non-native
+capture candidates without modifying routing; see HUD_ANCHORS. Rare wheel-exit
+zoom remains open from the previous report; no new result for it this run.
+Shared side-alpha controls retain the same image-owned source and existing fence.
+
+
 ## VR-129: build397 report and shared-image side panels (2026-09-16)
 
 Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.

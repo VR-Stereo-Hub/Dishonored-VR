@@ -112,7 +112,7 @@ WindowCfg  g_win = kPresetWindow;
 HandCfg    g_hand[2] = { kPresetHand, kPresetHand };
 dvr::hudalpha::Bank g_alphaBank;
 AlphaCfg& g_alpha=g_alphaBank.general;
-const char* kScopedAlpha[4]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha"};
+const char* kScopedAlpha[5]={"WeaponDialAlpha","ReadingAlpha","InteractionAlpha","PauseAlpha","WheelPartsAlpha"};
 bool g_readHand[2]={false,false};
 dvr::hudanchor::OpeningOrientation g_readOpening;
 dvr::hudanchor::GripPanel g_readGrip;
@@ -271,6 +271,7 @@ int alpha_mode_from_name(const char* s) {
     return -1;
 }
 const AlphaCfg& alpha() { return g_alpha; }
+AlphaCfg wheel_parts_alpha() { return g_alphaBank.for_owner(dvr::hudalpha::WheelParts); }
 AlphaCfg alpha_for_sink(int sink) {
     using namespace dvr::hudalpha;
     Owner owner=General;
@@ -566,7 +567,7 @@ bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rec
         dvr::wheelparts::crop((unsigned)part,width,height,g_wheelPartCrop[part],rect);
 }
 bool force_capture_alpha(int sink) {
-    return alpha_for_sink(sink).mode!=AlphaRepair || (wheel_parts_for_sink(sink) && g_alpha.mode!=AlphaRepair);
+    return alpha_for_sink(sink).mode!=AlphaRepair || (wheel_parts_for_sink(sink) && wheel_parts_alpha().mode!=AlphaRepair);
 }
 void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
     memset(ellipse,0,4*sizeof(float));
@@ -659,6 +660,13 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     if(g_nativeObjectives && id.context<0 && isolatedIcon && spatial!=ElVitals && e!=ElPrompt &&
        !hudroute::centered_reticle(bbox,primitives)) {if(elementOut) *elementOut=ElDefault;++g_routeFrame;return -1;}
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
+    // This topology includes observed objective artwork, but is not semantic
+    // identity. Record misses without stealing unrelated prompts from panels.
+    if(g_nativeObjectives && id.context<0 && e!=ElObjective && bbox && vertices==8 && primitives==10)
+        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+            "hud/native-miss: topology candidate routed=%s positional=%s anchor=%s key=%016llx rect=%.3f/%.3f/%.3f/%.3f nearInteraction=%d; not confirmed objective",
+            kRows[e].name,kRows[spatial].name,kAnchorNames[g_el[e].anchor],drawKey,
+            bbox[0],bbox[1],bbox[2],bbox[3],(int)g_interactionGroup.near_group(bbox,drawFrame));
     if (anchor == AnchorOff) anchor = AnchorOff;   // a hidden sink: redirected, never delivered
     const bool crop = crop_eligible(e);
     int s = crop ? g_elementSink[e] : g_sinkOf[anchor][0];
@@ -984,7 +992,7 @@ void configure(const char* ini) {
     }
     g_nativeObjectiveScale=fminf(1.f,fmaxf(.25f,read_f(ini,"NativeObjectiveScale",.70f)));
     g_menuHeadMask.store(headMask); g_menuBlurMask.store(blurMask);
-    for(int i=0;i<4;++i) {
+    for(int i=0;i<5;++i) {
         auto& a=g_alphaBank.special[i];a=g_alpha;char key[64],mode[32];
         _snprintf(key,sizeof(key),"%sMode",kScopedAlpha[i]);
         if(read_s(ini,key,mode,sizeof(mode))) {const int m=alpha_mode_from_name(mode);if(m>=0) a.mode=m;}
@@ -1068,7 +1076,7 @@ void save(const char* ini) {
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
     write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
-    for(int i=0;i<4;++i) save_scoped_alpha(i);
+    for(int i=0;i<5;++i) save_scoped_alpha(i);
     for(int i=0;i<2;++i) {
         char key[64];
         _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
@@ -1193,7 +1201,7 @@ bool command(const char* args) {
     if (!strcmp(w1, "alpha")) {
         if (n < 2 || !strcmp(w2, "status")) { log_alpha(); return true; }
         if(!strcmp(w2,"reset")) {
-            for(int i=0;i<4;++i) save_scoped_alpha(i);
+            for(int i=0;i<5;++i) save_scoped_alpha(i);
             g_alphaBank.reset_general();set_alpha(g_alpha,"original general alpha");return true;
         }
         AlphaCfg c = g_alpha;
@@ -1316,7 +1324,10 @@ void draw_ui() {
         if(ImGui::Checkbox("Separate D-pad and health/mana panels",&g_wheelParts)) {
             write_i("WheelSidePanels",g_wheelParts);dvr::hudcap::invalidate_content();
         }
-        ImGui::TextWrapped("Visible with the hand weapon dial. These use general HUD alpha and the same captured frame as the wheel. Position and scale each panel below.");
+        ImGui::TextWrapped("Visible with the hand weapon dial. These share their own alpha controls and the same captured frame as the wheel. Position and scale each panel below.");
+        ImGui::TextUnformatted("D-pad and health/mana alpha (shared)");
+        draw_scoped_alpha(4);
+        ImGui::TextWrapped("These controls affect only the two side panels. A lower gamma darkens grey artwork; it is not a selective background mask.");
         for(int part=0;part<2;++part) {
             const int e=part?ElWheelPotions:ElWheelShortcuts;ImGui::PushID(700+part);
             ImGui::TextUnformatted(kWheelPartNames[part]);
@@ -1526,13 +1537,13 @@ void draw_ui() {
         ImGui::PopID();
     }
     ImGui::Separator();
-    ImGui::Text("GENERAL HUD ALPHA (excludes wheel, reading panels and interactables)");
+    ImGui::Text("GENERAL HUD ALPHA (excludes all dedicated alpha groups)");
     {
         if(ImGui::Button("Restore original general alpha")) {
-            for(int i=0;i<4;++i) save_scoped_alpha(i);
+            for(int i=0;i<5;++i) save_scoped_alpha(i);
             g_alphaBank.reset_general();set_alpha(g_alpha,"F10 original general alpha");
         }
-        ImGui::TextWrapped("General HUD only. Original: repair, gain 1, floor 0, gamma 1, mix 1. Wheel, reading and interactable alpha remain independent.");
+        ImGui::TextWrapped("General HUD only. Original: repair, gain 1, floor 0, gamma 1, mix 1. Wheel, side panels, reading, interactable and pause alpha remain independent.");
         AlphaCfg c = g_alpha;
         bool ch = false;
         int mode = c.mode;

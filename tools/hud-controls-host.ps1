@@ -8,7 +8,7 @@ $selector=[regex]::Match($layout,'(?ms)^AlphaCfg alpha_for_sink\(.*?^\}')
 $capture=[regex]::Match([IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_class.cpp')),'(?m)^inline bool alpha_force_wanted.*$')
 $menu=[regex]::Match([IO.File]::ReadAllText((Join-Path $repo 'src/game/dishonored/game_state.cpp')),'(?ms)^static SHORT MenuStep\(.*?^\}')
 if(-not $selector.Success -or -not $capture.Success -or -not $menu.Success){throw 'Production source extraction failed'}
-[IO.File]::WriteAllText((Join-Path $out 'hud_alpha_selector.inc'),$selector.Value)
+[IO.File]::WriteAllText((Join-Path $out 'hud_alpha_selector.inc'),$selector.Value+"`n"+([regex]::Match($layout,'(?m)^AlphaCfg wheel_parts_alpha.*$').Value))
 [IO.File]::WriteAllText((Join-Path $out 'hud_alpha_capture.inc'),$capture.Value)
 [IO.File]::WriteAllText((Join-Path $out 'hud_menu_step.inc'),$menu.Value)
 $invalidate=[regex]::Match([IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_capture.cpp')),'(?ms)^void invalidate_content\(\).*?^\}')

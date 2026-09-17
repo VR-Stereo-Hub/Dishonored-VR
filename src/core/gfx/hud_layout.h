@@ -117,6 +117,7 @@ bool native_gameplay_reference();
 bool wheel_parts_for_sink(int sink);
 bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rect);
 bool force_capture_alpha(int sink);
+AlphaCfg wheel_parts_alpha();
 float native_objective_scale(int element);
 bool native_objective_upright(int element);
 bool menu_stereo_hold();

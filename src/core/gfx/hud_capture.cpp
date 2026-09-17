@@ -453,8 +453,8 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                         s.partW[part]=pw;s.partH[part]=ph;
                         DVR_INFO("hud/wheel-parts: part=%d %ux%u source=%.3f/%.3f/%.3f/%.3f, same delayed slot as wheel",part,pw,ph,side.sourceRect[0],side.sourceRect[1],side.sourceRect[2],side.sourceRect[3]);
                     }
-                    const auto general=dvr::hudlayout::alpha();
-                    side.mode=general.mode;side.gain=general.gain;side.floorA=general.floorA;side.gamma=general.gamma;side.mixK=general.mixK;
+                    const auto group=dvr::hudlayout::wheel_parts_alpha();
+                    side.mode=group.mode;side.gain=group.gain;side.floorA=group.floorA;side.gamma=group.gamma;side.mixK=group.mixK;
                     g_blit.draw(ctx11,s.slotSrv[other],s.partRtv[part],pw,ph,&side);
                     s.partDelivered[part]=true;
                 }

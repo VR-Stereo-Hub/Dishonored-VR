@@ -1,5 +1,42 @@
 # The HUD on its anchors (VR-117, VR-118, VR-119, VR-120)
 
+## VR-129: accepted side panels, shared alpha and saved profile (2026-09-16)
+
+399 DLL/hash/log verified; both logs and full saved INI archived in
+build/playtest-candidates/vr129-wheel-parts-rounded-wrists/reported399.
+The separated D-pad/potions work in-headset. Grey background remains; add one
+independent WheelPartsAlpha group (Mode/Gain/Floor/Gamma/Mix), visible directly
+under F10 > HUD > Weapon wheel side panels. Both pre-circle crops consume it,
+and its alpha source participates in shared-sink coverage forcing. General
+reset persists all five scoped groups first; it cannot reset the side panels.
+Initial side alpha equals the prior general values (repair,1,0,1,1).
+No new shader or guessed grey color key. Gamma changes brightness; these controls
+do not distinguish background art from icon art. Selective removal remains open
+if ordinary alpha tuning is insufficient.
+
+Per explicit request, preserve every last-run value as the repo default in the
+production writer, packaged INI and golden. Includes all accepted experimental
+flags, native reference OFF, tuned wheel/side crop/position/alpha and wrist
+roundness0.640. New side-alpha fields are the only additions to that exact INI.
+104 controls checks and production-writer byte parity pass; development build
+passes. Installed identity belongs in current STATUS and installed.json.
+
+Objective report: mostly correct, occasional window transfer still observed.
+Existing log ends with known objective draws routed to native frame; no event
+identifies the reported bad frame. The content matcher learns edge-clamped icon
+families; labels use current/prior-present proximity. Unlearned or changed art
+can still miss, especially in interaction regions. Do not equate the configured
+objective=window label with actual capture: NativeObjectiveIcons overrides it.
+Add hud/native-miss only after native bypasses, recording destination, spatial
+hint, content key, rectangle and interaction proximity for8/10 topology. This
+is a diagnostic population, not confirmed markers. No claimed routing fix.
+
+One launch question: do shared side-panel alpha adjustments affect both panels
+without affecting the wheel or other HUD? Success establishes isolation; failures
+identify group selection/capture coverage. Objective miss logs can be inspected
+from the same ordinary run without a second requested test.
+
+
 ## VR-129: restore configured HUD and separate wheel side panels (2026-09-16)
 
 Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.

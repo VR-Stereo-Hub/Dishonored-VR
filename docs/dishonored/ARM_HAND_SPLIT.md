@@ -1,5 +1,14 @@
 # The arm/hand split
 
+## VR-130: rounded ends accepted (2026-09-16)
+
+Build399's rounded hand ends are headset-reported satisfactory. The saved
+RoundedWristDepth=0.640 and RoundedWrist=1 are now repo defaults by explicit
+request, alongside the complete last-run F10 profile. Both logs and INI are
+archived under vr129-wheel-parts-rounded-wrists/reported399. No geometry or
+packed-normal encoding change in this follow-up; retain the earlier limitations.
+
+
 ## VR-130: rounded wrist ends candidate (2026-09-16)
 
 Installed399 (`vr33-hands-working-399-g489cca700`), clean source489cca700.
