@@ -885,6 +885,12 @@ static void WriteDefaultIni(const char* ini)
         "HeadLook=1\n"
         "Trace=1\n"
         "LockRoll=1\n"
+        "; VR-133 the door keyhole (hold Use on a door): 1 holds the render FOV at the\n"
+        "; gameplay target while peeking, lets the head own the view through the draw scope\n"
+        "; instead of the game's +-35/+-17.6 deg cone, and carries the head's yaw once on\n"
+        "; the way out (the game snaps the controller back to the pre-entry heading).\n"
+        "; Ships 0 until headset-confirmed; `keyhole on|off|status` live, F10 Cine block.\n"
+        "KeyholeHold=0\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"
@@ -997,7 +1003,9 @@ static void WriteDefaultIni(const char* ini)
         "; no row claims (an element the mod has not named yet still shows, and `hud list` counts\n"
         "; it); the six screens (pause, note, journal, wheel, store, missionstats) route by their\n"
         "; UI owner while they ride, and take the mono screen when set off or frame. A row with\n"
-        "; no Region rides 'default' until `hud region <name> x0,y0,x1,y1` names one.\n"
+        "; no Region rides 'default' until `hud region <name> x0,y0,x1,y1` names one. The\n"
+        "; keyhole row is the door keyhole's black mask (VR-133): claimed by the peeking state,\n"
+        "; not a rectangle, and off by default because it is a flat-screen framing device.\n"
         "; Element.<name>.WinX/WinY/WinScale place it on the window or the world window,\n"
         "; .HandX/HandY/HandScale on either hand (metres in the anchor's plane, a size factor).\n"
         "; `hud anchor <name|all> <anchor>`, `hud place <name> window|hand <x> <y> [scale]`,\n"
@@ -1014,6 +1022,7 @@ static void WriteDefaultIni(const char* ini)
         "Element.detection=frame\n"
         "Element.skipgauge=window\n"
         "Element.darkvision=window\n"
+        "Element.keyhole=off\n"
         "Element.vignette=window\n"
         "Element.pause=world\n"
         "Element.note=window\n"
@@ -2249,6 +2258,7 @@ static void LoadConfig()
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
     CineFovConfigure(ini);
+    KeyholeConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
@@ -3462,6 +3472,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","KeyholeHold",KeyholeHoldEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockPitch",CinePitchEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Blink", "ControllerAim",

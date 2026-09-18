@@ -68,6 +68,38 @@ int main() {
     check(dvr::hudroute::route(rows, n, rect_id(0.0f, 0.45f, 1.0f, 0.55f), Default) == Reticle,
           "a full-width band 10 % tall is not a vignette: its centre decides (the reticle here)");
 
+    // ---- VR-133: the keyhole mask, claimed by state ------------------------
+    {
+        Row kh[] = {
+            { "default",   -1, {0, 0, 0, 0},                 false },
+            { "vitals",    -1, {0.0f, 0.0f, 0.20f, 0.27f},   false },
+            { "reticle",   -1, {0.47f, 0.47f, 0.53f, 0.53f}, false },
+            { "prompt",    -1, {0.52f, 0.46f, 0.80f, 0.62f}, false },
+            { "keyhole",   -1, {0, 0, 0, 0},                 false, true },
+            { "vignette",  -1, {0, 0, 0, 0},                 true },
+        };
+        const int kn = sizeof(kh) / sizeof(kh[0]);
+        enum { KDefault = 0, KVitals, KReticle, KPrompt, KKeyhole, KVignette };
+        auto peek = [](float x0, float y0, float x1, float y1) { Identity id = rect_id(x0, y0, x1, y1); id.keyhole = true; return id; };
+        // The four measured mask draws (the pub door, head centred and at yaw 40).
+        check(dvr::hudroute::route(kh, kn, peek(0.0f, 0.0f, 1.0f, 0.229f), KDefault) == KKeyhole, "the top band routes to keyhole while peeking");
+        check(dvr::hudroute::route(kh, kn, peek(0.0f, 0.771f, 1.0f, 1.0f), KDefault) == KKeyhole, "the bottom band routes to keyhole while peeking");
+        check(dvr::hudroute::route(kh, kn, peek(-0.015f, 0.221f, 1.015f, 0.779f), KDefault) == KKeyhole, "the middle band routes to keyhole, not the reticle its centre would pick");
+        check(dvr::hudroute::route(kh, kn, peek(0.183f, 0.216f, 0.807f, 0.784f), KDefault) == KKeyhole, "the silhouette routes to keyhole while peeking");
+        check(dvr::hudroute::route(kh, kn, peek(0.208f, 0.188f, 0.839f, 0.812f), KDefault) == KKeyhole, "the grown silhouette routes to keyhole ahead of the vignette rule");
+        // The rest of the HUD keeps its rows while peeking.
+        check(dvr::hudroute::route(kh, kn, peek(0.050f, 0.065f, 0.101f, 0.210f), KDefault) == KVitals, "the health fill still routes to vitals while peeking");
+        check(dvr::hudroute::route(kh, kn, peek(0.524f, 0.481f, 0.774f, 0.602f), KDefault) == KPrompt, "the interaction plate (0.25 wide) still routes to prompt while peeking");
+        check(dvr::hudroute::route(kh, kn, peek(0.497f, 0.497f, 0.503f, 0.503f), KDefault) == KReticle, "the reticle dot still routes to reticle while peeking");
+        // Outside the state the same shapes route as before: nothing changes for a non-peeking player.
+        check(dvr::hudroute::route(kh, kn, rect_id(0.0f, 0.0f, 1.0f, 0.229f), KDefault) == KDefault, "a full-width band outside the keyhole state routes as before (default)");
+        check(dvr::hudroute::route(kh, kn, rect_id(0.208f, 0.188f, 0.839f, 0.812f), KDefault) == KVignette, "the wide silhouette outside the keyhole state is a vignette as before");
+        check(dvr::hudroute::route(kh, kn, rect_id(-0.015f, 0.221f, 1.015f, 0.779f), KDefault) == KReticle, "the middle band outside the keyhole state routes by centre as before");
+        Identity none; none.context = -1; none.hasRect = false; std::memset(none.rect, 0, sizeof(none.rect)); none.keyhole = true;
+        check(dvr::hudroute::route(kh, kn, none, KDefault) == KDefault, "a draw with no rectangle is not a mask even while peeking");
+        check(!dvr::hudroute::keyhole_mask(peek(0.30f, 0.40f, 0.79f, 0.60f)), "a 0.49-wide draw is not the mask");
+    }
+
     // ---- an unmeasured row never claims ------------------------------------
     check(!dvr::hudroute::row_measured(rows[Equipment]), "an all-zero region is unmeasured");
     {

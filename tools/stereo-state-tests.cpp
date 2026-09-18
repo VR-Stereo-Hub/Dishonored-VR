@@ -17,6 +17,12 @@ int main() {
     check(eligible(false,true,false,true,true,"StatePlayerMasterWalk",false),"walk handoff ignores stale cinematic latch");
     check(!eligible(false,true,false,false,true,"StatePlayerMasterWalk",true),"walk does not bypass loading qualification");
     check(!eligible(false,true,false,true,true,"StatePlayerMasterInStore",true),"store is not dialogue");
+    // VR-133: the keyhole stays stereo on a live view or a fresh scene, like a
+    // cinematic (the head owns the view through the draw scope there).
+    check(eligible(false,true,false,true,true,"StatePlayerMasterHolePeeking",false),"keyhole with a live view stays stereo");
+    check(eligible(false,true,false,false,true,"StatePlayerMasterHolePeeking",true),"keyhole with a fresh scene stays stereo");
+    check(!eligible(false,true,false,false,true,"StatePlayerMasterHolePeeking",false),"silent keyhole falls back");
+    check(!eligible(false,true,true,true,true,"StatePlayerMasterHolePeeking",true),"a menu over the keyhole falls back");
     check(!eligible(false,true,false,true,true,"unknown",true),"unknown state is not a cinematic");
     check(eligible(true,true,false,true,false,"unknown",false),"normal strict gameplay remains available without StateWatch");
     check(!eligible(true,false,false,true,true,"StatePlayerMasterWalk",true),"no-pawn beats strict");

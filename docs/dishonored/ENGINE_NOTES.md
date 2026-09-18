@@ -7320,3 +7320,74 @@ UI_Powers_Large exports are journal-style alternatives, not this missing wheel a
 Revised tools/hud-assets-export.ps1 exports dependencies and remaps the import for
 FFDec. Static frame export still cannot execute native callbacks. Extracted output
 and full scripts remain local ignored build/hud-assets only.
+
+## VR-133 the door keyhole: state, camera ownership, FOV and the exit (2026-09-18)
+
+Holding Use on a door seats the player at the keyhole. Everything below was measured on
+the simulator (the Hound Pits pub door, build 430 = VR-Main `37444066`, then the fix
+builds 431/432) and cross-checked against the build-296 headset log of 2026-09-16, which
+held three real peeks. Bindings from the game's `DefaultInput.ini`: Use is gamepad X
+(`XboxTypeS_X = GBA_Use_Gamepad`) and keyboard F; B is `GBA_Sneak_Gamepad | Dis_ExitKeyhole`.
+The mod's physical crouch synthesises B (the intro-boat trap), which is one way a peek
+ends. A peek ENDS on a Use PRESS or `Dis_ExitKeyhole` (a native exec on
+`DishonoredPlayerController`); releasing the hold does nothing.
+
+**The state.** The pawn's master FSM goes `StatePlayerMasterWalk -> StatePlayerMasterHolePeeking
+-> StatePlayerMasterWalk`, no intermediate; `body=2` while peeking. `dvr::scene_state::keyhole()`
+names it; `anim: ... master=StatePlayerMasterHolePeeking` is the log line.
+
+**Camera ownership.** `cine/trace` influence(anim/player/look) reads 0/1/0 for ~300 ms after the
+flip (the camera blends to the hole) then **0/0/1** for the whole peek: `DisCamera_Look` owns the
+camera. Its cone is the ini's `m_HorizontalVisionAngle=6400` / `m_VerticalVisionAngle=3200`
+rotator units = +-35.2 / +-17.6 deg. Inside the cone the controller yaw follows the head exactly
+(`ctrl = 90.0 + headYaw`); at the edge it stops (head -60 -> view 61.4 on the sim, head +36 ->
+view 90+35.2 in the headset log). That edge is "the world moves with the head". The authored
+`CameraCache.POV.Rotation` during the peek is the hole's forward, held fixed while no yaw is
+written to the controller, so composing the head onto it through the existing draw scope
+(VR-70's `begin_view_scope`) frees the view: yaw 60 and pitch -30 both render (fix run 1,
+`cine/head: ... owner=keyhole`, 4436 scopes, 4436 restores, 0 refused).
+
+**FOV.** The game blends the `camera+0x53c` sensor from 108.1 toward ~75 deg while peeking:
+linear ~3.2 deg/s on build 296 (never converged in an 8 s peek), an exponential 108 -> 75 in
+~40 s on build 430 (105.6 at +0.5 s, 90.0 at +4 s, 82.4 at +8 s, 75.0 at +40 s). On build 296
+the layer claim followed the sensor (`fovaudit src=readback`), so the projection layer's
+tangents shrank with it: the picture receding into a smaller rectangle. On VR-Main the VR-50
+gameplay scope already writes `CameraCache.POV.FOV` = 103 for both eye draws and the claim
+follows that scoped number, so the RENDER does not shrink (captures at +0 s and +4 s are
+identical) even though the sensor still decays underneath; the persistent lever's
+`natural base` stayed 75.0 throughout (no recapture). The `KeyholeHold` hold makes that
+explicit and independent of `[Screen] ProjectionFov`: `hold_target` = the requested gameplay
+FOV (103) or the headset target when the request is off, and its own `ExitBridge` covers the
+ramp back (the sensor is back at 108 within ~500 ms of the Walk flip on 430: `keyhole=0/1`
+for one 500 ms line, then `0/0`).
+
+**The exit residue.** On the flip to Walk the game snaps the controller yaw back to the
+pre-entry heading (89.8) within 500 ms, wherever the head is. Measured: head turned 20 deg
+during the peek, view back at 89.8 after it = a 20 deg offset between the physical head and
+the world that persists (the yaw writer is relative). With `KeyholeHold=1` the head's travel
+since the keyhole reference is carried once on the first fresh dispatch after the flip
+(`keyhole/exit: carry yaw -20.001 deg once`); ctrl, pawn and view settle at 69.8 and the game
+does not re-blend them afterwards (stable for the 6 s watched).
+
+**Position.** The cache Z dips from -22.8 to -61.7 at the hole (authored) and returns to
+-22.8 on exit, then -29.6 while the pawn stays crouched (headset log, build 296).
+
+**The mask.** `_root.keyHole_mc` is a Scaleform movieclip: four HUD draws per present while
+peeking (the census, head centred): `[0,0 - 1,0.229]` and `[0,0.771 - 1,1]` (two full-width
+bands, 1 draw each), `[-0.015,0.221 - 1.015,0.779]` (1.03 x 0.56) and `[0.183,0.216 -
+0.807,0.784]` (0.625 x 0.568, the silhouette). At yaw 40 the silhouette reads `[0.214,0.180 -
+0.844,0.820]` (0.63 x 0.64): past the 60 % vignette rule, so it flipped from the `reticle`
+row (off) to `vignette` (the window quad) and popped into view. Every mask draw is at least
+half the screen wide and no other gameplay element is wider than 0.30 (the prompt plate is
+0.25), so the `keyhole` row claims by state + width (`hudroute::keyhole_mask`), ahead of
+the vignette rule; routed counts while peeking: `keyhole=1616 vitals=6299 reticle=404
+objective=569 default=0`.
+
+**Stereo verdict.** `stereo/state` with strict=0 read STEREO/FALLBACK across the peek by
+`viewLive` alone; the policy now treats the keyhole like a cinematic (live view or fresh
+scene = stereo). With `[Cine] StereoState=1` (shipped) it was stereo throughout anyway.
+
+Logs: `D:\dvr-data\logs\vr133-*` on the dev PC (build 296 peeks, the 430 baseline, the two
+fix runs). Not touched here: the Y-lean part of VR-133 and the SYSTEMMEM/LockRect crash
+(today's crash entry on build 296 is three access violations at `d3d9.dll+0x11cc37`,
+reading past a page in a copy loop).

@@ -1,3 +1,32 @@
+## Current: the door keyhole in the headset (VR-133, 2026-09-18)
+
+Branch `claude/vr-133-keyhole-camera` off VR-Main 37444066, builds 431/432, simulator
+verified, headset pending. The keyhole (hold Use on a door) had three faults on build 296:
+the picture shrank over ~8 s, the world glued to the head at the edge of the game's look
+cone (+-35/+-17.6 deg), and a peek left the world rotated by the head's travel. Measured
+on the simulator (baseline 430, then the fix): the shrink is already gone on VR-Main
+(VR-50's scoped FOV write holds the render at 103 while the game's sensor still decays
+108 -> 75 underneath); the cone and the exit residue were real (head 20 deg during the
+peek = a 20 deg offset after it). [Cine] KeyholeHold=1 (ships 0, installed 1 on this PC)
+makes the keyhole a second owner of VR-70's draw-scoped head look, holds the FOV
+explicitly with its own exit tail, and carries the head's yaw once on the flip back to
+Walk (`keyhole/exit: carry yaw -20.001 deg once`; ctrl/view settle at 69.8 and stay).
+The black box is the game's four-draw keyhole mask; its silhouette grows past the 60 %
+vignette rule on a sideways look, so it flipped from a hidden row to the window: now the
+`keyhole` HUD row, claimed by state + width, Element.keyhole=off. Live A/B: `keyhole
+on|off`. Installed on this PC: build 432 with the repo's default profile plus
+KeyholeHold=1 (backup `dishonored_vr.ini.pre-vr133-20260918`). Logs in
+`D:\dvr-data\logs\vr133-*`. Not done: the Y-lean part of VR-133 and the SYSTEMMEM/LockRect
+crash (today's entry on 296: `d3d9.dll+0x11cc37` reading past a page in a copy loop).
+One headset question: peek through the pub door, look 45 deg left and 30 deg down, stand
+up with your head turned: is the picture full size the whole time, does the view follow
+the head past where it used to stop, is the door where your head says it is afterwards,
+and is the black shape gone? A shrink means the scoped FOV is not what the renderer
+consumes in the headset; a stop at the cone means the scope refused (`cine/head: ...
+refused` / `hold:` lines say why); a rotated world afterwards means the carry was refused
+or overwritten (`keyhole/exit:` and `armfollow/yaw`); a black shape means a mask draw
+narrower than 0.5 (`hud/layout: routed this window` names its row).
+
 ## Current: accepted reading attachment and controller merge (2026-09-17)
 
 Build427 fixed reading attachment accepted after ReadingTilt=-31.000 adjustment.

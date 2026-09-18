@@ -5,6 +5,13 @@
 - [x] Add F10 Controls, pure composer, saved settings and221 host checks.
 - [ ] Headset: modifier D-pad shortcut selection without locomotion leakage.
 
+## The door keyhole (VR-133, 2026-09-18)
+
+- [x] Simulator: the keyhole state named, the head owns the view past the game's cone, the FOV held, the yaw carried on exit (build 432).
+- [x] Simulator: the keyhole mask routed to its own hidden HUD row (`keyhole=1616 default=0` while peeking).
+- [ ] Headset: full-size picture through the peek, head look past the cone, the world where the head says on exit, no black shape; then promote `[Cine] KeyholeHold=1`.
+- [ ] The Y-lean camera part of VR-133 and the SYSTEMMEM/LockRect crash.
+
 # Roadmap
 
 ## VR-129 HUD orientation and closing lifecycle

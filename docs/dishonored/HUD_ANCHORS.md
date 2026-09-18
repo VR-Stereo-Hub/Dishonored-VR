@@ -1070,7 +1070,9 @@ Elements (the rows of `hud_layout.cpp`, in `hud list` order): `default`
 (every draw no row claims), `vitals` (the health and mana bars, one row: they
 interleave in x), `reticle`, `prompt`, `equipment`, `subtitles`, `objective`,
 `toast`, `tutorial`, `detection`, `skipgauge`, `darkvision` (the last eight
-UNMEASURED: they ride `default` until `hud region` names them), `vignette` (a
+UNMEASURED: they ride `default` until `hud region` names them), `keyhole` (the door
+keyhole's mask, claimed by the peeking STATE plus a width rule, ships off: VR-133,
+section 8), `vignette` (a
 draw wider and taller than 60 %), and the screens `pause`, `note`, `journal`,
 `wheel`, `store`, `missionstats` (claimed by their UI owner context while they
 ride; set off or frame, a screen takes the mono screen). Sinks are per (anchor,
@@ -1368,3 +1370,29 @@ left the game on the loading board for eight minutes, run 1 of this branch).
   start-up (`EXCEPTION 0xc0000005 ... [d3d9.dll+...] (other)`, right after the reflection
   resolves) are in every log since the VR-Main base 274-g85f9ef6e, three per run, at a
   different offset per build: a guarded probe reading a page edge, not this branch's.
+
+## 8. The keyhole mask (2026-09-18, VR-133, `claude/vr-133-keyhole-camera`)
+
+RelWithDebInfo builds 430-432, `dvr-xrsim` at 90 Hz, 3012x3122, `stereo reentry`, the Hound
+Pits pub door through Continue. The census (`draws on` / `draws regions`) while the pawn was
+in `StatePlayerMasterHolePeeking`, head centred, 412 presents:
+
+    [-0.000,-0.000 - 1.000,0.229]  1.000 x 0.229  n=1.0  411/412  tex=none  (top band)
+    [-0.000,0.771 - 1.000,1.000]   1.000 x 0.229  n=1.0  411/412  tex=none  (bottom band)
+    [-0.015,0.221 - 1.015,0.779]   1.030 x 0.559  n=1.0  411/412  tex=none  (middle band; centre 0.5,0.5 -> reticle by rectangle)
+    [0.183,0.216 - 0.807,0.784]    0.625 x 0.568  n=1.0  410/412  tex=none  (the silhouette)
+
+and at head yaw 40 the silhouette grew to `[0.214,0.180 - 0.844,0.820]` (0.629 x 0.641),
+past the 60 % vignette rule. So before this branch the bands rode `default` (the window),
+the middle band and the silhouette rode `reticle` (off) with the head centred, and the
+silhouette flipped to `vignette` (the window) when the view neared the cone: the black
+shape that appeared on a sideways look. No other gameplay element is wider than 0.30 (the
+prompt plate 0.25, vitals 0.20), so the `keyhole` row claims any draw at least 0.5 wide
+while the game side publishes the state (`dvr::hudlayout::set_keyhole_active`), ahead of the
+vignette rule (`hudroute::keyhole_mask`, 478 host checks). Routed counts on the fix build
+while peeking: `keyhole=1616 vitals=6299 reticle=404 objective=569 default=0`; on exit
+`hud/keyhole: mask routing off`. The row ships `Element.keyhole=off` (the mask is a
+flat-screen framing device); `hud anchor keyhole window` brings it back live. The row
+follows the state whether or not `[Cine] KeyholeHold` is on. The mod's quad slot space
+(`kMaxHudQuads`) grew from 32 to 36 for the extra row. Not judged in a headset yet.
+

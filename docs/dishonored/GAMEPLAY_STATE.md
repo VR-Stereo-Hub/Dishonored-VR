@@ -54,6 +54,7 @@ Ordered by how much is currently blocked on it.
 | Is the player blocking, or ready, or not ready | melee behaviour and hand pose |
 | Is a cinematic or conversation running | the camera seam and the HUD both care |
 | Is the player possessing, leaning, choking | each already has a documented yaw window (see ENGINE_NOTES); the mod should not fight them |
+| Is the player peeking through a door keyhole | **answered (VR-133)**: master state `StatePlayerMasterHolePeeking`, `body=2`, the camera owned by the look influence (anim/player/look = 0/0/1) inside a +-35/+-17.6 deg cone, the FOV sensor blending toward 75 deg. `dvr::scene_state::keyhole()` names it; with `[Cine] KeyholeHold=1` the head owns the view through the draw scope, the render FOV is held, the yaw is carried once on exit; the HUD's `keyhole` row hides the mask. ENGINE_NOTES "VR-133 the door keyhole" |
 
 ### World and camera
 

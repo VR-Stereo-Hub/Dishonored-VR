@@ -245,6 +245,7 @@
 #include "game/dishonored/stereo_state.cpp"
 #include "game/dishonored/cinematic_trace.cpp"
 #include "game/dishonored/cinematic_fov.cpp"
+#include "game/dishonored/keyhole.cpp"
 #include "game/dishonored/cinematic_pitch.cpp"
 #include "game/dishonored/menu_immersion.cpp"
 #include "game/dishonored/cinematic_letterbox.cpp"

@@ -39,7 +39,7 @@ static void CineTraceSet(bool on) {
     Log("cine/trace: %s (live); no engine writes", on ? "ON" : "off");
 }
 static void CineTraceTick() {
-    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled() && !CinePitchEnabled() && !CineRollEnabled()) || g_ctResolved || !RflNamesReady()) return;
+    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled() && !CinePitchEnabled() && !CineRollEnabled() && !KeyholeHoldEnabled()) || g_ctResolved || !RflNamesReady()) return;
     const double now = MaimNowMs();
     if (now < g_ctResolveAfter || !IsLiveObject(g_camObj) || !CamStillValid()) return;
     g_ctResolveAfter = now + 5000;
@@ -155,6 +155,15 @@ int32_t g_chWritten[3]={};
 uint32_t g_chWrites=0, g_chRestores=0, g_chRefused=0;
 double g_chNextLog=0, g_chRetry=0, g_chInputUntil=0;
 const char* g_chReason="startup";
+// VR-133: the keyhole's exit carry. The authored base and the head reference
+// of the last keyhole scope survive the Reset on the Walk flip, so the walking
+// writer can add the head's travel once (the game snaps the controller back to
+// the pre-entry heading; without this the world is rotated by that travel).
+int32_t g_khBase[3]={};
+dvr::cine::Matrix g_khRef={};
+bool g_khOwned=false, g_khResume=false;
+double g_khLastScopeMs=0;
+uint32_t g_khScopes=0;
 bool ChSlot(const CtIdentity& id) {
     auto* obj=(uint8_t*)id.value.obj;
     if (!IsLiveObject(obj) || !RangeReadable((void*)kGObjHdr,12)) return false;
@@ -199,7 +208,7 @@ static bool CineHeadOwnsInput() {
     const double now=MaimNowMs();
     return g_cineHead.load() && g_trackingEnabled && g_rotInject && g_chReference &&
         now<=g_chInputUntil && now>=g_chInputUntil-100 &&
-        state.valid && dvr::scene_state::cinematic(state.state[0]) &&
+        state.valid && (dvr::scene_state::cinematic(state.state[0]) || KeyholeActive(state)) &&
         !g_menuOpen && !g_inMenu && !g_mainMenu && !g_gameExiting &&
         dvr::vr::session_live() && dvr::stereo::wants_projection() && !dvr::vr::cinematic_active() &&
         ChValidate((uint8_t*)g_chOwner[0].value.obj);
@@ -240,6 +249,11 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     float animWeight=CtWeight(cam,0), playerWeight=CtWeight(cam,1), lookWeight=CtWeight(cam,2);
     const auto state=dvr::anim::snapshot();
     const bool scripted=state.valid && dvr::scene_state::cinematic(state.state[0]);
+    // VR-133: the keyhole is a second explicit owner. The game's look influence
+    // holds the camera at the hole inside a cone; composing the head onto that
+    // authored base through this scope is what lets the player look around.
+    const bool keyholeOwned=KeyholeActive(state);
+    const bool owned=scripted || keyholeOwned;
     const bool ownerChanged=g_chReference && !ChValidate((uint8_t*)g_chOwner[0].value.obj);
     // Explicit cinematic states keep one owner across influence blends. Outside
     // those states only fully authored cameras use this scope.
@@ -248,7 +262,7 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     const dvr::cine::Conditions conditions={
         g_cineHead.load() && g_trackingEnabled && g_rotInject,
         UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu, ownerChanged,
-        known, scripted || animWeight>0, dvr::cine::owns_rotation(scripted,animWeight,playerWeight,lookWeight),
+        known, owned || animWeight>0, dvr::cine::owns_rotation(owned,animWeight,playerWeight,lookWeight),
         sceneDraw, runtimeReady, poseReady};
     const auto action=dvr::cine::action(conditions);
     if (action==dvr::cine::Action::Reset) {
@@ -269,7 +283,7 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
         cam=CtObject(pc,g_ctPcCamera); pawn=CtObject(pc,g_ctPawn);
         animWeight=CtWeight(cam,0); playerWeight=CtWeight(cam,1); lookWeight=CtWeight(cam,2);
         if (!cam || cam!=g_camObj || !pawn || !CamAlive() ||
-            !dvr::cine::owns_rotation(scripted,animWeight,playerWeight,lookWeight)) {
+            !dvr::cine::owns_rotation(owned,animWeight,playerWeight,lookWeight)) {
             g_chRetry=now+1000; ChReason("hold: refreshed owner unavailable"); return;
         }
     }
@@ -279,7 +293,8 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
             ChReset("identity capture refused"); return;
         }
         g_chLoad=g_mkLoadEvents; g_chRef=h; g_chReferenceHead=head; g_chReference=true; g_chReason="active";
-        Log("cine/head: entered authored camera=%p pc=%p pawn=%p gen=%u; physical orientation anchored",cam,pc,pawn,head.gen);
+        Log("cine/head: entered authored camera=%p pc=%p pawn=%p gen=%u owner=%s; physical orientation anchored",cam,pc,pawn,head.gen,
+            keyholeOwned ? "keyhole" : "cinematic");
     }
     int32_t authored[3]={}; dvr::cine::Matrix composed;
     if (!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,authored,12) ||
@@ -294,18 +309,61 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     g_chHead=head;
     g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true,head.rawPosition);
     if (!g_chScope) { ++g_chRefused; ChReason("hold: scope write refused"); return; }
-    g_chInputUntil=scripted ? now+100 : 0;
+    g_chInputUntil=owned ? now+100 : 0;
+    // VR-133: remember the keyhole's base for the exit carry (the authored
+    // yaw is the hole's forward; the reference is the head at entry).
+    g_khOwned=keyholeOwned;
+    if (keyholeOwned) { memcpy(g_khBase,authored,sizeof(g_khBase)); g_khRef=g_chRef; ++g_khScopes; }
     ++g_chWrites; CineHeadPublish();
     if(now>=g_chNextLog) {
         g_chNextLog=now+500;
-        Log("cine/head: scope=%u gen=%u authored(P/Y/R)=%.2f/%.2f/%.2f composed=%.2f/%.2f/%.2f restored=%u refused=%u double=%d scripted=%d upright=%d/%d",
+        Log("cine/head: scope=%u gen=%u authored(P/Y/R)=%.2f/%.2f/%.2f composed=%.2f/%.2f/%.2f restored=%u refused=%u double=%d scripted=%d keyhole=%d upright=%d/%d",
             g_chWrites,head.gen,authored[0]*360.0f/65536,authored[1]*360.0f/65536,authored[2]*360.0f/65536,
-            g_chWritten[0]*360.0f/65536,g_chWritten[1]*360.0f/65536,g_chWritten[2]*360.0f/65536,g_chRestores,g_chRefused,(int)doubleDraw,(int)scripted,(int)CinePitchEnabled(),(int)CineRollEnabled());
+            g_chWritten[0]*360.0f/65536,g_chWritten[1]*360.0f/65536,g_chWritten[2]*360.0f/65536,g_chRestores,g_chRefused,(int)doubleDraw,(int)scripted,(int)keyholeOwned,(int)CinePitchEnabled(),(int)CineRollEnabled());
     }
 }
 static void CineHeadEnd() {
     if (!g_chScope) return;
-    if (dvr::camera::end_view_scope()) ++g_chRestores;
-    else { ++g_chRefused; ChReset("restore refused: identity or engine field changed"); }
+    if (dvr::camera::end_view_scope()) {
+        ++g_chRestores;
+        if (g_khOwned) { g_khResume=true; g_khLastScopeMs=MaimNowMs(); }
+    }
+    else { ++g_chRefused; g_khResume=false; ChReset("restore refused: identity or engine field changed"); }
     g_chScope=false;
+}
+// VR-133: hand the keyhole's physical turn to the walking rotation writer once,
+// the shape of MenuHeadResumeYaw. On exit the game snaps the controller back to
+// the pre-entry heading while the head is wherever the player left it; the
+// delta is the head's travel since the keyhole reference, applied by the next
+// fresh dispatch. No engine writes here; the owner is revalidated first, and a
+// load, a menu, a stale pose or a lapsed lease refuses the carry.
+static bool CineHeadResumeYaw(int32_t& delta) {
+    delta=0;
+    if (!g_khResume || UiSurfaceBlocks() || dvr::camera::second_pass_for_current_thread()) return false;
+    if (GetCurrentThreadId()!=g_sdDrawTid) return false;
+    if (CineHeadOwnsInput()) return false;             // still owned: the carry waits
+    g_khResume=false;
+    const double now=MaimNowMs(); HtSample head{};
+    const auto state=dvr::anim::snapshot();
+    const bool walking=state.valid && (!strcmp(state.state[0],"StatePlayerMasterWalk") ||
+        !strcmp(state.state[0],"StatePlayerMasterFalling") || !strcmp(state.state[0],"StatePlayerMasterJump"));
+    const bool valid=KeyholeHoldEnabled() && g_trackingEnabled && g_rotInject &&
+        !g_mainMenu && !g_gameExiting && !CineActive() && dvr::vr::session_live() &&
+        now>=g_khLastScopeMs && now-g_khLastScopeMs<=1000 && walking &&
+        BuildLiveSet() && ChValidate((uint8_t*)g_chOwner[0].value.obj) &&
+        HtConsumeSample(&head) && head.ok && head.poseOk && now>=head.locateMs && now-head.locateMs<=100;
+    int32_t desired[3]{};
+    const bool composed=valid && dvr::cine::compose(g_khBase,g_khRef,
+        dvr::cine::rotation(head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll),desired,nullptr);
+    if (!composed) {
+        Log("keyhole/exit: yaw handoff refused (lever=%d walking=%d master=%s sinceScope=%.0f ms owner=%d pose=%d); the walking view keeps the game's heading",
+            (int)KeyholeHoldEnabled(),(int)walking,state.valid ? state.state[0] : "unknown",now-g_khLastScopeMs,
+            (int)ChValidate((uint8_t*)g_chOwner[0].value.obj),(int)(head.ok && head.poseOk));
+        return false;
+    }
+    delta=(int32_t)std::remainder((double)desired[1]-g_khBase[1],65536.0);
+    Log("keyhole/exit: carry yaw %.3f deg once into gameplay (keyhole base %.2f, %u scopes); owner revalidated, head gen=%u",
+        delta*360.f/65536,g_khBase[1]*360.f/65536,g_khScopes,head.gen);
+    g_khScopes=0;
+    return true;
 }

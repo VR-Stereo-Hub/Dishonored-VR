@@ -48,7 +48,7 @@ inline bool anchor_is_hand(int a) { return a == AnchorHandL || a == AnchorHandR;
 // owner context while they ride.
 enum Element : int {
     ElDefault = 0, ElVitals, ElReticle, ElPrompt, ElEquipment, ElSubtitles, ElObjective, ElToast,
-    ElTutorial, ElDetection, ElSkipGauge, ElDarkVision, ElVignette,
+    ElTutorial, ElDetection, ElSkipGauge, ElDarkVision, ElKeyhole, ElVignette,
     ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElWheelShortcuts, ElWheelPotions, ElCount
 };
 const char* element_name(int e);
@@ -111,6 +111,8 @@ bool     screen_can_ride(int context);          // the row exists and its anchor
 void     set_menu_riding(bool riding, int context, bool wheelClosing = false);
 bool pause_scene_freshness();
 bool menu_exit_heading();   // published by the game side each poll
+void set_keyhole_active(bool on);   // VR-133: the pawn is peeking through a door keyhole (game side, script lane)
+bool keyhole_active();
 void forget_draw_owners();
 bool menu_riding();
 bool native_gameplay_reference();

@@ -11,6 +11,7 @@ LONG g_cfLoad=0;
 uint32_t g_cfOffset=0,g_cfWrites=0,g_cfRestores=0,g_cfRefused=0;
 dvr::cine_fov::Scope g_cfScope;
 dvr::cine_fov::ExitBridge g_cfBridge;
+dvr::cine_fov::ExitBridge g_cfKeyhole; // VR-133: its own tail, never primed by a cinematic
 double g_cfRetry=0,g_cfLog=0,g_cfResolveAfter=0;
 const char* g_cfReason="startup";
 SRWLOCK g_cfLock=SRWLOCK_INIT;
@@ -55,7 +56,7 @@ static void CineFovConfigure(const char* ini) {
     ProjectionFovSet(IniFloat(ini,"Screen","ProjectionFov",103.0f));
 }
 static float CineFovClaim() {
-    if (!CineFovEnabled() && ProjectionFovGet()==0) return 0;
+    if (!CineFovEnabled() && ProjectionFovGet()==0 && !KeyholeHoldEnabled()) return 0;
     AcquireSRWLockShared(&g_cfLock);
     const auto now=GetTickCount64();
     const float result=g_cfStamp && now>=g_cfStamp && now-g_cfStamp<=150 ? g_cfClaim : 0;
@@ -80,10 +81,20 @@ static void CineFovBegin(bool scene) {
     const bool keep=g_cfBridge.update(authored,ready && walking && CfValidate(),
         dvr::camera::rendered_fov_deg(),target,GetTickCount64());
     const float requested=ProjectionFovGet();
+    // VR-133: the keyhole. The game zooms its sensor 108 -> 75 over ~8 s while
+    // the player peeks; the scoped draw write holds the render at the gameplay
+    // target instead (zoom discarded, the layer stays full size) and its own
+    // tail keeps the hold through the ~350 ms native ramp back after the state
+    // flips to Walk. A cinematic keeps precedence over both.
+    const bool keyholeReady=dvr::cine_fov::eligible(KeyholeHoldEnabled(),scene,menu && !menuFovAllowed,projection,state.valid,target);
+    const bool keyholeNow=keyholeReady && dvr::scene_state::keyhole(state.state[0]);
+    const bool keyholeTail=g_cfKeyhole.update(keyholeNow,keyholeReady && walking && CfValidate(),
+        dvr::camera::rendered_fov_deg(),target,GetTickCount64()) && !keyholeNow;
+    const bool hold=!keep && (keyholeNow || keyholeTail);
     const bool gameplay=!keep && !dvr::scene_state::cinematic(state.state[0]) &&
-        dvr::cine_fov::eligible(requested>0,scene,menu && !menuFovAllowed,projection,state.valid,target);
+        (hold || dvr::cine_fov::eligible(requested>0,scene,menu && !menuFovAllowed,projection,state.valid,target));
     if (!keep && !gameplay) {
-        if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d scene=%d projection=%d stateValid=%d target=%.2f requested=%.2f",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu,scene,projection,state.valid,target,requested);
+        if (g_cfHaveOwner) Log("cine/fov: released writes=%u restores=%u refused=%u master=%s menu=%d scene=%d projection=%d stateValid=%d target=%.2f requested=%.2f keyhole=%d",g_cfWrites,g_cfRestores,g_cfRefused,state.state[0],menu,scene,projection,state.valid,target,requested,(int)KeyholeHoldEnabled());
         g_cfHaveOwner=false; CfPublish(0); return;
     }
     CineTraceTick();
@@ -109,8 +120,8 @@ static void CineFovBegin(bool scene) {
     }
     auto* cam=(uint8_t*)g_cfOwner[0].value.obj;
     float* field=(float*)(cam+g_cfOffset);
-    const float drawTarget=gameplay && RangeReadable(field,4)
-        ? dvr::cine_fov::gameplay_target(*field,target,requested) : target;
+    const float drawTarget=hold ? dvr::cine_fov::hold_target(target,requested)
+        : gameplay && RangeReadable(field,4) ? dvr::cine_fov::gameplay_target(*field,target,requested) : target;
     if (!RangeReadable(field,4) || !g_cfScope.begin(field,drawTarget,CfValidate())) {
         ++g_cfRefused; CfRefuse("scope write refused: identity, field or FOV"); return;
     }
@@ -118,8 +129,8 @@ static void CineFovBegin(bool scene) {
     ++g_cfWrites; g_cfReason="active"; CfPublish(drawTarget);
     if (now>=g_cfLog) {
         g_cfLog=now+500;
-        Log("cine/fov: master=%s dialog=%d cache %.2f -> %.2f sensor=%.2f writes=%u restored=%u refused=%u exitBridge=%d gameplay=%d requested=%.2f; scoped claim, verify rendered acceptance",
-            state.state[0],state.dialogState,g_cfScope.before,drawTarget,dvr::camera::rendered_fov_deg(),g_cfWrites,g_cfRestores,g_cfRefused,keep&&!authored,gameplay,requested);
+        Log("cine/fov: master=%s dialog=%d cache %.2f -> %.2f sensor=%.2f writes=%u restored=%u refused=%u exitBridge=%d gameplay=%d requested=%.2f keyhole=%d/%d; scoped claim, verify rendered acceptance",
+            state.state[0],state.dialogState,g_cfScope.before,drawTarget,dvr::camera::rendered_fov_deg(),g_cfWrites,g_cfRestores,g_cfRefused,keep&&!authored,gameplay,requested,(int)keyholeNow,(int)keyholeTail);
     }
 }
 static void CineFovEnd() {

@@ -1,5 +1,11 @@
 # Known issues
 
+- Peeking through a door keyhole (VR-133): with `[Cine] KeyholeHold=0` (the shipped
+  default until a headset run confirms it) the view stops at the game's look cone and a
+  peek leaves the world rotated by the head's travel during it; set it to 1 or
+  `keyhole on` live. The Y-lean camera swivel and the SYSTEMMEM/LockRect crash on the
+  same ticket are open.
+
 - Objective markers or their text can occasionally transfer to the window HUD
   when heuristic recognition misses; native-reference diagnostics do not fix
   target projection. Rare wheel-exit zoom remains unlocalized (VR-129).

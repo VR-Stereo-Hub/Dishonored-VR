@@ -75,6 +75,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "cinehead") && DvrOnOff(args, &b)) { CineHeadSet(b); return true; }
+    if (!strcmp(cmd, "keyhole")) {   // VR-133: the door keyhole lever
+        if (DvrOnOff(args, &b)) { KeyholeHoldSet(b); return true; }
+        Log("keyhole: status lever=%d inKeyhole=%d headLook=%d claim=%.1f sensor=%.1f headOwnsInput=%d (keyhole on|off)",
+            (int)KeyholeHoldEnabled(), (int)KeyholeInState(), (int)CineHeadEnabled(), CineFovClaim(),
+            dvr::camera::rendered_fov_deg(), (int)CineHeadOwnsInput());
+        return true;
+    }
     if (!strcmp(cmd, "cinetrace") && DvrOnOff(args, &b)) { CineTraceSet(b); return true; }
     if (!strcmp(cmd, "recenter")) { RecenterHead(); return true; }
     // VR-30: the arm-follow probe. Read-only, reports on its own every 30 s.
