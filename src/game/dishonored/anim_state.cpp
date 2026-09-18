@@ -1,5 +1,6 @@
 #include "core/framework/render_profile.h"
-// VR-88: included after reflect.cpp in the unity TU. Engine reads only.
+#include <algorithm>
+// VR-88/VR-134: reads player states; optionally rejects native action requests before entry.
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/anim_policy.h"
 #include "game/dishonored/stereo_state_policy.h"
@@ -14,6 +15,11 @@ Handoff cameraClassifier;
 bool watch = true, handback = true, cinematicHandback = false, mantleHandback = false;
 char rulesIni[MAX_PATH]={};
 struct ArmOverrides { int values[armRuleCount]; ArmOverrides(){for(int& v:values)v=-1;} } armOverrides;
+bool actionAllowed[armRuleCount];
+std::atomic<unsigned> disabledActions{0};
+float viewRightCm=0;
+dvr::hooks::Detour actionDetour;
+uintptr_t actionResume=kAnimRequestState+sizeof(kAnimRequestStateBytes);
 unsigned releaseMs = 250, blendMs = 150;
 // Mantle is controlled independently by MantleHandBack. The previous controller
 // preference remains the default; the current cinematic-comfort test enables it.
@@ -145,6 +151,62 @@ bool resolve_arm_rule(int lane,const char* state) {
 void arm_rule_key(int i,char* key,size_t n) {
     _snprintf_s(key,n,_TRUNCATE,"Arms.%d.%s",armRules[i].lane,armRules[i].state);
 }
+// Reject at the request boundary, before pending state, entry callbacks or locks change.
+// Unknown/stale ownership always runs the original request. Fresh slot membership is
+// checked only for a disabled player action, not for the ordinary engine request path.
+bool __cdecl reject_action(uint8_t* fsm,uint8_t* request) {
+    if(!disabledActions.load() || !request || !RangeReadable(request,kAnimRequestClassOff+sizeof(void*)))return false;
+    const Snapshot s=snapshot();
+    if(!s.valid || !fresh(s.stamp,GetTickCount64()) || !IsLiveObject(g_peCtrl) || !IsLiveObject(fsm))return false;
+    auto* pawn=object(g_peCtrl,controllerPawnOff);
+    if(!pawn || pawn!=lastPawn)return false;
+    int lane=-1;
+    for(int n=0;n<3;++n)if(object(pawn,pawnFsm[n])==fsm){lane=n;break;}
+    if(lane<0)return false;
+    auto* cls=*(uint8_t**)(request+kAnimRequestClassOff);
+    if(!IsLiveObject(cls))return false;
+    const char* name=objectName(cls);
+    if(!name)return false;
+    const int rule=arm_rule_index(lane,name);
+    if(!cancellable_action(rule) || action_enabled(rule))return false;
+    // Do not prevent an action already underway from completing/re-entering.
+    if(object(fsm,idOff)==cls)return false;
+    if(!RangeReadable((void*)kGObjHdr,12))return false;
+    auto** objects=*(uint8_t***)kGObjHdr;
+    const uint32_t count=*(uint32_t*)(kGObjHdr+4);
+    if(!objects || count>4000000 || !RangeReadable(objects,count*sizeof(void*)))return false;
+    unsigned found=0;
+    for(uint32_t n=0;n<count && found!=15;++n){
+        auto* p=objects[n];if(p==g_peCtrl)found|=1;if(p==pawn)found|=2;if(p==fsm)found|=4;if(p==cls)found|=8;
+    }
+    if(found!=15)return false;
+    DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,500,"anim/action: rejected lane=%d state=%s before native entry",lane,name);
+    return true;
+}
+__declspec(naked) void action_stub() {
+    __asm {
+        pushfd
+        pushad
+        mov eax,[esp+40]
+        push eax
+        push ecx
+        call reject_action
+        add esp,8
+        test al,al
+        jnz denied
+        popad
+        popfd
+        push ebp
+        mov ebp,esp
+        push -1
+        jmp dword ptr [actionResume]
+    denied:
+        popad
+        popfd
+        xor eax,eax
+        ret 12
+    }
+}
 void report(const Snapshot& s) {
     Log("anim: gen=%u %s master=%s upper=%s left=%s pending=%s body=%d seq=%s picker=%d reason=%s age=%llu ms",
         s.generation,!s.valid?"UNKNOWN":s.game?"GAME":"PLAYER",s.state[0],s.state[1],s.state[2],s.pending,s.bodyMode,s.sequence,s.picker,s.reason,GetTickCount64()-s.stamp);
@@ -192,6 +254,34 @@ void reset_arm_rules() {
     for(int i=0;i<armRuleCount;++i){char key[128];arm_rule_key(i,key,sizeof(key));
         if(*ini)WritePrivateProfileStringA("Anim",key,nullptr,ini);}
     Log("anim: per-state arm overrides reset to inherited defaults");
+}
+bool action_gate_ready(){return actionDetour.on;}
+bool action_enabled(int i) {
+    if(!cancellable_action(i))return true;
+    AcquireSRWLockShared(&lock);bool on=actionAllowed[i];ReleaseSRWLockShared(&lock);return on;
+}
+void set_action_enabled(int i,bool on) {
+    if(!cancellable_action(i))return;
+    AcquireSRWLockExclusive(&lock);actionAllowed[i]=on;
+    unsigned count=0;for(int n=0;n<armRuleCount;++n)if(cancellable_action(n) && !actionAllowed[n])++count;
+    disabledActions.store(count);
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    char key[128];_snprintf_s(key,sizeof(key),_TRUNCATE,"Action.%d.%s",armRules[i].lane,armRules[i].state);
+    if(*ini)WritePrivateProfileStringA("Anim",key,on?"1":"0",ini);
+    Log("anim/action: %s=%d (next request; current action is allowed to finish)",key,int(on));
+}
+float view_right_cm(){AcquireSRWLockShared(&lock);float v=viewRightCm;ReleaseSRWLockShared(&lock);return v;}
+void set_view_right_cm(float cm){
+    if(!std::isfinite(cm))return;cm=std::clamp(cm,-20.0f,20.0f);
+    AcquireSRWLockExclusive(&lock);viewRightCm=cm;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    char v[32];_snprintf_s(v,sizeof(v),_TRUNCATE,"%.3f",cm);
+    if(*ini)WritePrivateProfileStringA("Anim","ViewRightCm",v,ini);
+    Log("anim/alignment: native animation view right=%.2f cm (manual trim, not a measured correction)",cm);
+}
+float view_right_metres(){
+    if(g_menuOpen || g_inMenu || g_mainMenu || UiSurfaceBlocks())return 0;
+    return active()?view_right_cm()*.01f*(1.0f-weight()):0.0f;
 }
 float weight() {
     dvr::render_profile::Scope profile(dvr::render_profile::AnimationWeight);
@@ -305,10 +395,27 @@ void tick() {
     }
 }
 void configure(const char* ini) {
+    if(!actionDetour.on) {
+        if(RangeReadable((void*)kAnimRequestState,sizeof(kAnimRequestStatePrefix)) &&
+           !memcmp((void*)kAnimRequestState,kAnimRequestStatePrefix,sizeof(kAnimRequestStatePrefix)))
+            dvr::hooks::detour_install(actionDetour,"anim/action",kAnimRequestState,kAnimRequestStateBytes,sizeof(kAnimRequestStateBytes),action_stub);
+        else Log("anim/action: request gate refused: native entry prefix mismatch at %p",(void*)kAnimRequestState);
+    }
     AcquireSRWLockExclusive(&lock);
     text(rulesIni,sizeof(rulesIni),ini);
     for(int i=0;i<armRuleCount;++i){char key[128];arm_rule_key(i,key,sizeof(key));
         int v=GetPrivateProfileIntA("Anim",key,-1,ini);armOverrides.values[i]=(v==0 || v==1)?v:-1;}
+    unsigned disabled=0;
+    for(int i=0;i<armRuleCount;++i){char key[128];
+        _snprintf_s(key,sizeof(key),_TRUNCATE,"Action.%d.%s",armRules[i].lane,armRules[i].state);
+        actionAllowed[i]=!cancellable_action(i) || GetPrivateProfileIntA("Anim",key,1,ini)!=0;
+        if(!actionAllowed[i])++disabled;
+    }
+    disabledActions.store(disabled);
+    char alignment[32];GetPrivateProfileStringA("Anim","ViewRightCm","0",alignment,sizeof(alignment),ini);
+    viewRightCm=(float)atof(alignment);if(!std::isfinite(viewRightCm))viewRightCm=0;
+    viewRightCm=std::clamp(viewRightCm,-20.0f,20.0f);
+    Log("anim/action: request gate=%d disabled=%u; native view right=%.2f cm",int(actionDetour.on),disabled,viewRightCm);
     dropWatch=GetPrivateProfileIntA("Anim","DropWatch",1,ini)!=0;
     Log("config: [Anim] DropWatch=%d (read-only native drop eligibility)",dropWatch);
     const int watchSetting=GetPrivateProfileIntA("Anim","StateWatch",-1,ini);

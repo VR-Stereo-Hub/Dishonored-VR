@@ -1,6 +1,7 @@
 #include "game/dishonored/animation_rules.h"
 #include "game/dishonored/anim_policy_test.h"
 #include <cstdio>
+#include <initializer_list>
 int main(){
     using namespace dvr::anim;int failures=AnimPolicyTests();unsigned checks=0;
     auto check=[&](bool ok,const char* label){++checks;if(!ok){++failures;std::printf("FAIL %s\n",label);}};
@@ -13,5 +14,14 @@ int main(){
     check(arm_rule_index(1,"StatePlayerAction")!=arm_rule_index(2,"StatePlayerAction"),"upper and left rules independent");
     check(arm_rule_value(-1,true) && !arm_rule_value(-1,false),"unset inherits defaults");
     check(!arm_rule_value(0,true) && arm_rule_value(1,false),"checkbox overrides either default");
+    unsigned cancellable=0;for(int i=0;i<armRuleCount;++i)if(cancellable_action(i))++cancellable;
+    check(cancellable==18,"bounded cancellable entry catalog");
+    check(!cancellable_action(-1) && !cancellable_action(armRuleCount),"invalid indices cannot cancel");
+    for(const char* state:{"StatePlayerMasterWalk","StatePlayerMasterFalling","StatePlayerMasterDead","StatePlayerMasterPossess","StatePlayerMasterStunned"})
+        check(!cancellable_action(arm_rule_index(0,state)),"locomotion/recovery remains reachable");
+    check(cancellable_action(arm_rule_index(0,"StatePlayerMasterLeaning")),"lean request cancellable");
+    check(cancellable_action(arm_rule_index(0,"StatePlayerMasterJump")),"jump request cancellable");
+    check(cancellable_action(arm_rule_index(1,"StatePlayerGrabCorpse")),"body pickup request cancellable");
+    check(!cancellable_action(arm_rule_index(1,"StatePlayerCarryCorpseIdle")),"carry recovery remains reachable");
     std::printf("%u animation catalog checks, %d failures\n",checks,failures);return failures?1:0;
 }

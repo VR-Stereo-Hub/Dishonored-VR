@@ -1,3 +1,40 @@
+## VR-134 native action request boundary (2026-09-17)
+
+Offline derivation used the installed Steam executable and ue3-natives --verify,
+which first reproduced the known crossbow context. Dis_Lean_Toggle native exec
+at VA009EE740 dispatches controller vtable+056C; controller class derivation
+gives vtable01118738 and implementation00AB4C00. That calls pawn lean handler
+00AB1E50, which submits master FSM requests through00A74FA0 and checks EAX
+before applying the lean state. This provides a real action-entry caller rather
+than a guessed state write. Addresses introduced into production live in patterns.h.
+
+RequestState VA00A74FA0 is thiscall with three stack arguments and ret0C.
+Argument1 is a request object whose+4 field is the target UClass; argument2 is
+entry context and argument3 is query-only. Entry bytes55 8B EC 6A FF are complete
+instructions and are replayed on passthrough. The body reads target class before
+calling00A74F20 eligibility, tests its result, and only then writes pending
+class/state+88/+8C and calls native handlers. Failure returns0. Lean's caller
+branches around further action work when that result is zero.
+
+The new hook returns0 before this body only for a disabled catalog entry belonging
+to the current live player's exact master/upper/left FSM. It validates current
+controller/pawn/FSM/class membership, a fresh sampled state and current GObjects
+membership, and allows an already-current state. No pending/current state fields,
+transition maps or object vtables are modified. NPCs, recovery states and unknown
+ownership pass through. The native request may have callers with earlier side
+effects; gameplay suppression for each supported action is not yet headset-proven.
+
+Misleading routes: class constructors00A7CA20/40 are thunks, not native requests;
+their target constructors reveal vtables but do not expose a virtual RequestState.
+A displacement-only scan generated unrelated candidates and was not evidence.
+Do not confuse disasm-rva input RVA with ue3-natives output absolute VA.
+
+Build431 keyhole result: installed DLL and log banner verified before archiving
+both logs/latestINI in misc-special-camera/reported431. Explicit keyhole scopes
+recorded successful restores and zero sampled refusals; several one-shot exit
+yaw carries completed. Tester reports door/keyhole fixed. Lean and prior texture
+allocation failure remain separate open validation.
+
 ## VR-129: build411 accepted except brief inner-icon transfer (2026-09-17)
 
 Verified411 DLL/banner; both logs and latest full INI archived in

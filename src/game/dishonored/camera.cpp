@@ -9,6 +9,7 @@
 #include "core/util/mem.h"
 #include "game/dishonored/patterns.h"
 #include "game/dishonored/z_account.h"
+#include "game/dishonored/anim_state.h"
 
 #include "game/dishonored/positional_math.h"
 #include <atomic>
@@ -77,6 +78,7 @@ struct ViewScope {
     uint32_t rotOff=0, locOff=0;
     int32_t originalRot[3]={}, writtenRot[3]={};
     float originalPos[3]={}, base[3]={}, right[3]={}, pos[3]={};
+    float animationRightUu=0;
     bool composedPositionBasis=false;
     int firstEye=0;
     Writer previous;
@@ -559,6 +561,7 @@ bool begin_view_scope(uint8_t* cam,uint32_t rotOff,const int32_t rot[3],
     next.camera=cam; next.rotOff=rotOff; next.locOff=kFields[g_field].off;
     next.validate=validate; next.firstEye=firstEye; next.previous=g_eyeWriter;
     next.composedPositionBasis=authoredPosition || positionOverride;
+    next.animationRightUu=dvr::anim::view_right_metres()*g_scale;
     Writer prior=g_eyeWriter;
     if (prior.camera != cam || prior.fieldOff != next.locOff) prior.lastOk=false;
     if (!current_base(cam,next.locOff,prior,next.base)) return false;
@@ -737,6 +740,7 @@ bool apply_offsets(uint8_t* camObj) {
     float off[3];
     for (int i = 0; i < 3; ++i) {
         off[i] = eyeRight[i] * eyeUu;
+        if(scoped() && haveBasis)off[i]+=pr[i]*g_viewScope.animationRightUu;
         if (posLive && haveBasis) off[i] += pr[i] * pos[0] + u[i] * pos[1] + f[i] * pos[2];
         if (za) {
             zw.eyeW[i] = eyeRight[i] * eyeUu;

@@ -1,3 +1,16 @@
+## VR-133 build431 keyhole acceptance (2026-09-17)
+
+Door/keyhole camera behavior reported fixed. DLL/banner verified; both logs and
+INI archived in build/playtest-candidates/misc-special-camera/reported431.
+Native keyhole scopes record restoration with zero sampled refusals and successful
+one-shot exit yaw carries. This accepts the keyhole behavior, not every lean case
+or the unrelated texture allocation failure. No new stereo synchronization change.
+
+VR-134 follow-up adds default-zero manual native-animation view alignment, frozen
+per validated camera scope for both eyes and restored afterward. This addresses a
+reported steady lateral mismatch, not an established flicker. Cause is unmeasured;
+headset alignment testing remains separate from the action-cancellation launch.
+
 ## VR-133 native special-camera instability (2026-09-17)
 
 Surface: whole-world camera rotation and translation during/after lean, adjacent

@@ -51,6 +51,21 @@ inline int arm_rule_index(int lane,const char* state) {
     for(int i=0;i<armRuleCount;++i)if(armRules[i].lane==lane && !std::strcmp(armRules[i].state,state))return i;
     return -1;
 }
+// Only entry actions can be cancelled. Recovery/locomotion and terminal states
+// must remain reachable, including exits from possession and equipment changes.
+inline bool cancellable_action(int i) {
+    if(i<0 || i>=armRuleCount)return false;
+    const auto& r=armRules[i];
+    if(r.lane==0) return !std::strcmp(r.state,"StatePlayerMasterLeaning") ||
+        !std::strcmp(r.state,"StatePlayerMasterJump") || !std::strcmp(r.state,"StatePlayerMasterAction") ||
+        !std::strcmp(r.state,"StatePlayerMasterMantle") || !std::strcmp(r.state,"StatePlayerMasterAssassinate") ||
+        !std::strcmp(r.state,"StatePlayerMasterHolePeeking") || !std::strcmp(r.state,"StatePlayerMasterClimb") ||
+        !std::strcmp(r.state,"StatePlayerMasterPrePossess") || !std::strcmp(r.state,"StatePlayerMasterSlide") ||
+        !std::strcmp(r.state,"StatePlayerMasterChoke");
+    return !std::strcmp(r.state,"StatePlayerMeleeAttack") || !std::strcmp(r.state,"StatePlayerBlock") ||
+        !std::strcmp(r.state,"StatePlayerGenericFatality") || !std::strcmp(r.state,"StatePlayerAction") ||
+        !std::strcmp(r.state,"StatePlayerGrabMovable") || !std::strcmp(r.state,"StatePlayerGrabCorpse");
+}
 inline bool arm_rule_value(int overrideValue,bool inherited) {
     return overrideValue<0 ? inherited : overrideValue!=0;
 }

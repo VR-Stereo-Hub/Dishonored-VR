@@ -24,6 +24,8 @@ void position_offset_uu(float* p) { p[0]=11;p[1]=22;p[2]=33; }
 void cinematic_position_offset_uu(float* p) { p[0]=1;p[1]=2;p[2]=3; }
 bool apply_offsets(uint8_t*);
 bool end_view_scope();
+float g_scale=100;
+namespace dvr::anim { float testRight=0; float view_right_metres(){return testRight;} }
 #include "cinematic-scope-extracted.h"
 bool current_base(uint8_t* p,uint32_t offset,Writer& prior,float* out) {
     if (!baseOk) return false;
@@ -62,6 +64,12 @@ bool writerSame(const Writer& a,const Writer& b) {
       a.writes==b.writes && memcmp(a.last,b.last,12)==0 && memcmp(a.lastOff,b.lastOff,12)==0;
 }
 int main() {
+    reset();dvr::anim::testRight=.05f;begin();
+    check(g_viewScope.animationRightUu==5,"animation alignment converts metres to world scale");
+    dvr::anim::testRight=-.1f;
+    check(g_viewScope.animationRightUu==5,"both eyes retain scope-entry alignment despite live setting change");
+    check(end_view_scope() && fieldsOriginal(),"animation alignment restores incoming fields");
+    dvr::anim::testRight=0;
     reset();Writer previous=g_eyeWriter;
     bool entered=begin();
     check(entered && g_viewScope.pos[0]==1 && g_viewScope.pos[1]==2 && g_viewScope.pos[2]==3,

@@ -1,3 +1,22 @@
+## Current: independent action controls candidate (2026-09-17)
+
+codex/misc-fixes, VR-134. Build431 door/keyhole fix reported accepted; both logs,
+latestINI and verified DLL identity preserved in misc-special-camera/reported431.
+Lean and texture allocation crash remain separate open items in VR-133.
+
+F10 Animations:18 Enable action toggles reject native FSM requests before entry;
+all40 Show game arms choices remain independent of cancellation and camera ownership.
+Automatic/recovery/story states cannot be cancelled by this UI. Existing saved arm
+values are retained. Native animation view left/right is a default-zero manual trim,
+not a proven automatic correction. Both eyes share a frozen scope value; menus skip it.
+Details and limitations: ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.md current sections.
+
+Next launch: does Jumping disabled prevent the jump, with Enable action checked
+live restoring it? No jump followed by normal jump supports the new boundary.
+Jumping while disabled means missed ownership/request path; inability to jump after
+enabling means a cancellation regression. Check build banner and read the log.
+Do not combine this with the later arm/alignment perceptual test.
+
 ## Installed misc candidate431 (2026-09-17)
 
 Installed vr33-hands-working-431-g2591ebc5c from clean source on codex/misc-fixes.

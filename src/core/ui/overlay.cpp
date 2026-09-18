@@ -356,9 +356,17 @@ static void OverlayFrame()
     if (ImGui::BeginTabItem("Animations")) {
         bool enabled=dvr::anim::enabled();
         if(ImGui::Checkbox("Enable selected game arms",&enabled))dvr::anim::set_enabled(enabled);
-        ImGui::TextWrapped("Checked actions show the game's animated arms and weapons. Unchecked actions keep tracked hands. Any checked active action can show the arms. Choices save immediately.");
+        ImGui::TextWrapped("Enable action allows the action itself. Turn it off to reject its next request; an action already underway can finish. Show game arms selects native animated arms instead of tracked hands. Both choices save immediately.");
+        ImGui::TextWrapped("Automatic, recovery and story states have arm controls only. Any checked active state can request game arms.");
+        if(!dvr::anim::action_gate_ready())ImGui::TextColored(ImVec4(1,.5f,.2f,1),"Action gate unavailable: actions will not be blocked.");
+        float viewRight=dvr::anim::view_right_cm();
+        if(ImGui::SliderFloat("Animation view left/right",&viewRight,-20.0f,20.0f,"%.1f cm"))dvr::anim::set_view_right_cm(viewRight);
+        ImGui::TextDisabled("Positive moves your viewpoint right. Native animated camera scopes only; 0 is unchanged.");
+        if(ImGui::Button("Reset animation alignment"))dvr::anim::set_view_right_cm(0);
         ImGui::TextWrapped("Lists all 40 shipped player action states. Individual animation clips within an action share its setting.");
-        if(ImGui::Button("Reset animation choices"))dvr::anim::reset_arm_rules();
+        if(ImGui::Button("Reset arm choices"))dvr::anim::reset_arm_rules();
+        ImGui::SameLine();
+        if(ImGui::Button("Enable all actions"))for(int i=0;i<dvr::anim::armRuleCount;++i)dvr::anim::set_action_enabled(i,true);
         const auto state=dvr::anim::snapshot();
         ImGui::TextDisabled("Current: %s / %s / %s",state.state[0],state.state[1],state.state[2]);
         static ImGuiTextFilter filter;filter.Draw("Find animation");
@@ -369,7 +377,14 @@ static void OverlayFrame()
                 const auto& rule=dvr::anim::armRules[i];
                 if(rule.lane!=lane || (!filter.PassFilter(rule.label) && !filter.PassFilter(rule.state)))continue;
                 ImGui::PushID(i);bool on=dvr::anim::arm_rule_enabled(i);
-                if(ImGui::Checkbox(rule.label,&on))dvr::anim::set_arm_rule(i,on);
+                ImGui::TextUnformatted(rule.label);
+                if(dvr::anim::cancellable_action(i)) {
+                    bool allowed=dvr::anim::action_enabled(i);
+                    ImGui::BeginDisabled(!dvr::anim::action_gate_ready());
+                    if(ImGui::Checkbox("Enable action",&allowed))dvr::anim::set_action_enabled(i,allowed);
+                    ImGui::EndDisabled();ImGui::SameLine();
+                }
+                if(ImGui::Checkbox("Show game arms",&on))dvr::anim::set_arm_rule(i,on);
                 if(state.valid && !strcmp(state.state[lane],rule.state)){ImGui::SameLine();ImGui::TextDisabled("active");}
                 if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",rule.state);
                 ImGui::PopID();

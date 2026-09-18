@@ -1,3 +1,35 @@
+## VR-134 independent action requests and arms (2026-09-17)
+
+F10 Animations now has separate Enable action and Show game arms controls.
+Action.<lane>.<state>=0 rejects the next native RequestState before it modifies
+pending state or calls entry handlers. An existing action may finish. All actions
+default enabled; Arms.* overrides keep their previous meaning and values.
+18 voluntary state entries expose cancellation; the other22 automatic/recovery/
+story states expose arms only. This is FSM state control, not per-clip playback.
+Generic full-body/item states group more than one action. Native callers which
+perform work before requesting a state remain a headset-validation limitation.
+
+The hook verifies its exact entry bytes and fails open for unknown/stale player
+identity, new level objects awaiting a live-table refresh, unmatched state names,
+or a missing hook. It rechecks the current pawn/FSM chain and current GObjects
+membership for a disabled request, retains no engine object identity across a
+menu, and writes no engine state fields. See ENGINE_NOTES for the native ABI.
+
+ViewRightCm (default0, range-20..20cm) provides manual native-animation viewpoint
+alignment. Positive moves the view right toward arms reported to the right.
+Only existing validated native camera scopes with native handback active use it;
+menus do not. The scope freezes one value for both eyes and restores native fields.
+It does not measure a root cause or automatically move the body. Build431 contains
+large lateral tracked-head offsets, but those are requested offsets, not proof of
+misalignment. No guessed nonzero correction ships.
+
+Validation:96 catalog/policy checks plus22 existing handoff checks;1000 calls
+through the extracted production x86 stub verify pass/reject return, stack cleanup,
+this pointer and request parameter. Camera math and extracted scope checks include
+alignment unit conversion, pair freezing and exact restoration. Headset pending.
+First launch isolates cancellation: Jumping disabled in the candidate INI; enabling
+it live should restore jumping. Arms/alignment remain at saved settings/zero.
+
 ## VR-134 F10 Animations (2026-09-17)
 
 The new Animations tab exposes all40 shipped FSM lane/state entries listed in
