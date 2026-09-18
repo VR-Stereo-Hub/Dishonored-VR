@@ -1,3 +1,11 @@
+## Cancellable action does not imply native pose ownership (2026-09-17)
+
+Build435 enabled native poses for every cancellable state, including generic upper/
+left Action states used by movement transitions. This caused repeated hand-control
+handoffs around jumps/landings despite movement Arms.* choices being off. The build
+was rejected and its complete pose/split changes reverted. Keep input/action
+eligibility separate from pose policy; test movement integration, not only helpers.
+
 ## Arm visibility and animation ownership are different (2026-09-17)
 
 Build433 Arms.* checkboxes selected native pose ownership as well as full-arm drawing.

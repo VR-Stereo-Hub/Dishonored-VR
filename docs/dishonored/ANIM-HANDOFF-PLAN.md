@@ -1,3 +1,37 @@
+## Build435 rejected: restore build433 pose policy (2026-09-17)
+
+Tester reports unwanted crouch animation, native animation close to the face and
+loss of normal control/view after jumping through a window. Installed435 DLL hash
+and banner verified; both logs and latestINI archived in
+build/playtest-candidates/animation-visible-hands/reported435. Run ends in normal
+PreExit; this is not evidence of a crash.
+
+Confirmed design error: native_pose_requested used cancellable_action as a native
+pose trigger. Generic upper/left StatePlayerAction also covers movement transitions,
+not only deliberate item interactions. Logs show repeated GAME ownership during
+Jump/Falling/Walk with JumpIn/JumpLandSmall sequence history and native split-hands
+reason, despite saved Jump/Falling/Walk arms being0. Sequence history is supporting
+context, not authoritative playback identity. This broadens hand ownership beyond
+the requested mantle fix. Exact close-face and view-disruption causes remain open.
+
+Revert all435 production changes and their policy tests to exact433 source: original
+arm-driven classifier, draw bypasses, mesh palette/depth path and F10 wording.
+Keep433 action-cancellation controls, camera/keyhole fixes and latest saved settings.
+No new camera compensation or guessed offset. The original limitation returns:
+unchecking Show game arms also restores tracked hands, overriding native hand poses.
+Do not describe that option as independently controlling geometry in this rollback.
+
+Future work must explicitly distinguish pose choice from forearm geometry, preserve
+ordinary movement ownership, and first validate one named mantle path. A generic
+FSM StatePlayerAction match or cancellation eligibility is not a native-pose policy.
+The435 test proved that helper-level policy checks cannot establish comfortable
+native rendering or correct movement integration.435 is rejected, not accepted.
+
+Next launch is recovery only: are normal crouching, jumping and looking around
+restored, including the same window exit? Normal behavior supports435 as the
+regression; a remaining fault requires tracing433 or persistent session state.
+No new animation-visibility test in that launch.
+
 ## VR-134: arm visibility must not select pose ownership (2026-09-17)
 
 Build433 mantle report confirmed in verified logs: Arms.0.StatePlayerMasterMantle=0

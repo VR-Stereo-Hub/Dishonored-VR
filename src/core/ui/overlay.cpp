@@ -355,9 +355,9 @@ static void OverlayFrame()
 
     if (ImGui::BeginTabItem("Animations")) {
         bool enabled=dvr::anim::enabled();
-        if(ImGui::Checkbox("Use native animation poses",&enabled))dvr::anim::set_enabled(enabled);
-        ImGui::TextWrapped("Enable action allows the action itself. Turn it off to reject its next request; an action already underway can finish. Show game arms controls forearm visibility; hidden arms keep animated hands and weapons. Both choices save immediately.");
-        ImGui::TextWrapped("Automatic, recovery and story states have arm controls only. Whole-body actions take priority over upper/left visibility. Normal walking retains tracked hands.");
+        if(ImGui::Checkbox("Enable selected game arms",&enabled))dvr::anim::set_enabled(enabled);
+        ImGui::TextWrapped("Enable action allows the action itself. Turn it off to reject its next request; an action already underway can finish. Show game arms selects native animated arms instead of tracked hands. Both choices save immediately.");
+        ImGui::TextWrapped("Automatic, recovery and story states have arm controls only. Any checked active state can request game arms.");
         if(!dvr::anim::action_gate_ready())ImGui::TextColored(ImVec4(1,.5f,.2f,1),"Action gate unavailable: actions will not be blocked.");
         float viewRight=dvr::anim::view_right_cm();
         if(ImGui::SliderFloat("Animation view left/right",&viewRight,-20.0f,20.0f,"%.1f cm"))dvr::anim::set_view_right_cm(viewRight);
@@ -404,7 +404,7 @@ static void OverlayFrame()
     }
     ImGui::TextDisabled("Rounds the cut boundary. Off restores flat wrist ends.");
     bool animBack = dvr::anim::enabled();
-    if (ImGui::Checkbox("Native poses during scripted actions", &animBack)) dvr::anim::set_enabled(animBack);
+    if (ImGui::Checkbox("Game arms during scripted actions", &animBack)) dvr::anim::set_enabled(animBack);
     if(ImGui::Checkbox("Menu hand eye: recognize half-IPD steps",&g_mpEyeMenuHalfStep))
         Log("hands: menu signed half-step candidate=%d",(int)g_mpEyeMenuHalfStep);
     ImGui::TextDisabled("Menu-only test. Uses measured jump direction; does not predict alternating eyes.");

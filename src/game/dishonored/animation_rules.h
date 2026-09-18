@@ -66,12 +66,6 @@ inline bool cancellable_action(int i) {
         !std::strcmp(r.state,"StatePlayerGenericFatality") || !std::strcmp(r.state,"StatePlayerAction") ||
         !std::strcmp(r.state,"StatePlayerGrabMovable") || !std::strcmp(r.state,"StatePlayerGrabCorpse");
 }
-inline bool native_pose_requested(int index,bool inheritedPose,bool showArms) {
-    return inheritedPose || cancellable_action(index) || showArms;
-}
-inline bool split_native_hands(bool nativePose,bool fullArms) {
-    return nativePose && !fullArms;
-}
 inline bool arm_rule_value(int overrideValue,bool inherited) {
     return overrideValue<0 ? inherited : overrideValue!=0;
 }
