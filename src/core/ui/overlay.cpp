@@ -157,6 +157,12 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Stereo while possessing",&possession)) PossessionStereoSet(possession);
         bool rain=RainHideEnabled();
         if (ImGui::Checkbox("Hide camera rain (the rain box only)",&rain)) RainHideSet(rain);
+        int rainDist=RainDistance();
+        if (ImGui::SliderInt("Rain distance uu (-1 native)",&rainDist,-1,600)) RainDistanceSet(rainDist);
+        int lensDist=LensDistance();
+        if (ImGui::SliderInt("Lens effects distance uu (0 native)",&lensDist,0,90)) LensDistanceSet(lensDist);
+        bool keep=LensKeepSize();
+        if (ImGui::Checkbox("Lens effects keep their size",&keep)) LensKeepSizeSet(keep);
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
     }

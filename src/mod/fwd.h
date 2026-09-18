@@ -18,6 +18,15 @@ static void RainConfigure(const char* ini);
 static void RainHideSet(bool on);
 static bool RainHideEnabled();
 static bool RainTraceEnabled();
+static void RainDistanceSet(int uu);
+static int RainDistance();
+static void LensTick();                 // VR-137 (lens_control.cpp)
+static void LensConfigure(const char* ini);
+static void LensDistanceSet(int uu);
+static int LensDistance();
+static void LensKeepSizeSet(bool on);
+static bool LensKeepSize();
+static bool LensTraceEnabled();
 static bool DvrSceneVerdict();
 static bool StereoStateEnabled();
 static void StereoStateSet(bool on);

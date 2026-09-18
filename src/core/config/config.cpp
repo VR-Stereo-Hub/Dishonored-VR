@@ -891,6 +891,12 @@ static void WriteDefaultIni(const char* ini)
         "[Rain]\n"
         "Hide=0\n"
         "Trace=1\n"
+        "Distance=-1\n"
+        "\n"
+        "[Lens]\n"
+        "Distance=0\n"
+        "KeepSize=1\n"
+        "Trace=1\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"
@@ -2256,6 +2262,7 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    LensConfigure(ini);
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -3472,6 +3479,10 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
+    { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
+      _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }
+    WritePrivateProfileStringA("Lens","KeepSize",LensKeepSize() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Lens","Trace",LensTraceEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);

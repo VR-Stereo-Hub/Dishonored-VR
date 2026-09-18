@@ -24,6 +24,20 @@
 #include <cmath>
 
 static std::atomic<bool> g_rainHide{false}, g_rainTrace{true};
+// VR-136: the rain slab's distance. The camera re-places m_pRainBoxEmitter every
+// frame at camLoc + viewForward * t, t = min over axes of m_RainBoxExtent / |f|
+// (the view ray's exit from that box; build458 steady samples: fwd 500..660 uu,
+// right ~0, up ~0). The extent's only other read is the debug box draw. So the
+// extent IS the slab's distance: writing it moves the rain toward the eyes, and
+// 0 centres it on the head. < 0 = native, untouched.
+static std::atomic<int> g_rainDistUu{-1};
+static void RainDistanceSet(int uu) {
+    if (uu > 2000) uu = 2000;
+    g_rainDistUu.store(uu < 0 ? -1 : uu);
+    Log("rain: distance=%d uu (%s; the emitter is placed this far ahead along the view)",
+        uu < 0 ? -1 : uu, uu < 0 ? "native m_RainBoxExtent, untouched" : "written to m_RainBoxExtent each sample");
+}
+static int RainDistance() { return g_rainDistUu.load(); }
 
 static void RainHideSet(bool on) {
     g_rainHide.store(on);
@@ -34,6 +48,7 @@ static bool RainTraceEnabled() { return g_rainTrace.load(); }
 static void RainConfigure(const char* ini) {
     g_rainTrace.store(GetPrivateProfileIntA("Rain", "Trace", 1, ini) != 0);
     RainHideSet(GetPrivateProfileIntA("Rain", "Hide", 0, ini) != 0);
+    RainDistanceSet(GetPrivateProfileIntA("Rain", "Distance", -1, ini));
 }
 
 // A UFunction by (declaring class, name). FindFunctionObj matches the name
@@ -73,7 +88,10 @@ static uint8_t* RainPtr(uint8_t* o, uint32_t off) {
 static void RainTick() {
     const bool hide = g_rainHide.load(), trace = g_rainTrace.load();
     static uint8_t* hidComp = nullptr;          // the one component WE hid
-    if (!hide && !trace && !hidComp) return;
+    static uint8_t* extCam = nullptr;           // the camera whose extent WE wrote
+    static float extOrig[3] = {};
+    const int wantDist = g_rainDistUu.load();
+    if (!hide && !trace && !hidComp && wantDist < 0 && !extCam) return;
     static unsigned long long next = 0, nextRebuild = 0;
     const unsigned long long now = GetTickCount64();
     if (now < next) return;
@@ -161,6 +179,37 @@ static void RainTick() {
                         : !cam ? "no live player camera" : !emitter ? "no live rain emitter (no rain here)"
                         : "no live particle component";
         if (why != lastRefusal) { Log("rain: hide armed, nothing hidden: %s", why); lastRefusal = why; }
+    }
+
+    // The distance lever. The native value is captured from the camera the
+    // first time it is written and restored only to that same camera, reached
+    // through the live chain this sample; a changed camera is released unwritten.
+    if (extCam && extCam != cam) {
+        Log("rain: released camera %p without restoring its extent - it is no longer the live player camera", (void*)extCam);
+        extCam = nullptr;
+    }
+    if (cam && extentOff && RangeReadable(cam + extentOff, 12)) {
+        float* ext = (float*)(cam + extentOff);
+        if (wantDist >= 0) {
+            if (!extCam) {
+                memcpy(extOrig, ext, sizeof(extOrig)); extCam = cam;
+                Log("rain: distance lever took camera %p: native extent (%.1f %.1f %.1f) -> %d uu", (void*)cam,
+                    extOrig[0], extOrig[1], extOrig[2], wantDist);
+            }
+            const float d = (float)wantDist;
+            if (ext[0] != d || ext[1] != d || ext[2] != d) {
+                static unsigned long long rewrites = 0;
+                // The first write is expected; later ones mean the engine reset it.
+                if (++rewrites > 1) DVR_LOG_EVERY_MS(dvr::log::Cat::script, dvr::log::Level::Info, 10000,
+                    "rain: extent was reset by the engine to (%.1f %.1f %.1f); rewritten to %d uu (%llu writes)",
+                    ext[0], ext[1], ext[2], wantDist, rewrites);
+                ext[0] = ext[1] = ext[2] = d;
+            }
+        } else if (extCam == cam) {
+            memcpy(ext, extOrig, sizeof(extOrig));
+            Log("rain: distance lever off - restored native extent (%.1f %.1f %.1f)", extOrig[0], extOrig[1], extOrig[2]);
+            extCam = nullptr;
+        }
     }
 
     if (!trace) return;

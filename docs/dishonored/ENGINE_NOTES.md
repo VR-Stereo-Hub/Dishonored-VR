@@ -35,14 +35,53 @@ design waits on those numbers. Unverified in game as of this entry.
 
 Build458 run (08:33): `m_RainBoxExtent` = 500/500/500 uu, 40 drops,
 `m_RainDirection` 0,0,-1, `m_fRainSpawnKillRate` 0 in the first rainy area and
-about 10000 in a later one. The Emitter ACTOR's Location sat 74..118 m from the
-camera (e.g. fwd -5080 right -4672 up 2686 uu) and moved only when the emitter
-was re-created, so the actor Location does NOT describe where drops are drawn:
-the drops are placed natively around the view inside the extent. A near-eye
-design therefore cannot come from moving the actor; the candidates are the
-extent and the drop module. The `m_Stage` lookup missed: it is a struct member
-at offset 0, which `RflOffsetOf` reports as a miss, so the effect stage logged
-as unavailable (evidence only, not gated).
+about 10000 in a later one.
+
+**Where the rain is drawn (derived 2026-09-18, RETRACTS the first reading).**
+The emitter is re-placed every camera update by the native at VA 0x6D8951
+(`cmp [cam+0x4dc],0`, gated by `[cam+0x4c8]==1`): the view forward (Rotator
+-> Vector, `call 0x40da70`) is taken into the emitter's frame (vtable +0x1BC),
+`t = min over axes of m_RainBoxExtent[i] / |f[i]|` (the `fdivr [edi+0x4e0/4/8]`
+chain, a zero component takes a constant), and the emitter moves to
+`POV.Location + forward * t` (`call 0x6539C0` on GWorld). The only other read
+of the extent in that function draws the debug box (`[cam+0x4c0]&8` =
+`m_bDebugDrawRainBox`, `call 0x6476F0`). The same function traces from the
+camera along `m_RainDirection` for shelter (`call 0x64E7A0`, flags 0x2086) and
+fades `m_fRainSpawnKillRate` (0x520) on the result. Measured: 143 steady
+samples put the emitter at fwd 499..662 uu, right |<20|, up ~-6 (one -153) in
+the camera frame: a slab of rain about 5 m ahead that turns with the view.
+That is the pane. The first `rain/box` line of each level (74..118 m away,
+e.g. fwd -5080) is the emitter's spawn position before its first update, NOT
+where the drops draw; the earlier note saying the actor Location does not
+describe the drops was wrong and is retracted. So the extent IS the slab's
+distance: `[Rain] Distance` writes it (0 centres the emitter on the camera).
+The drop module's own spawn volume (`DisParticleModuleRainDrops.m_Extent`,
+per template) is not read by the mod.
+
+**Lens effects (VR-137).** `DishonoredPlayerPawn.m_pCurHealthLensEffect` is an
+`EmitterCameraLensEffectBase` (the red low-health vignette). All lens effects
+live in `Camera.CameraLensEffects` and are placed by the native
+`UpdateLocation(CamLoc, CamRot, CamFOVDeg)` (exec thunk VA 0x5BB5D0, which
+calls the implementation through vtable +0x3AC; `ue3-natives class` resolved
+that slot to garbage, so the implementation was not disassembled).
+Declarations: `DistFromCamera` default 90 uu, `BaseFOV` 80. Whether this build
+scales the distance by FOV is what the `lens/fx` line's measured `fwd`
+answers. `[Lens] Distance` writes `DistFromCamera`; `[Lens] KeepSize` rescales
+through native `Actor.SetDrawScale` by the same ratio. `m_Stage` of
+`DisPossessionEffectSettings` is at +0 (it now resolves through
+`FindPropOffsetChecked`, which accepts a zero offset).
+
+**Possessable classes.** From the shipped scripts, `DisPossessablePawn`
+subclasses: DisPossessionProxyPawn, DishonoredNPCPawn, DisTallboyNPCPawn,
+DisDLC06NPCPawn, DisDLC06AssassinNPCPawn, DisDLC06ButcherNPCPawn,
+DisDLC06SummonedAssassinNPCPawn, DisDLC07NPCPawn, DisDLC07AssassinNPCPawn,
+DisDLC07GravehoundNPCPawn, DisDLC07SummonedAssassinNPCPawn,
+DisDLC07TentacleNPCPawn. `DisPossessableInterface` is also implemented by
+DisFish, DisGameCrowdAgentSkeletalRat and DisRiverKrust, which are not pawns:
+possessing one puts the controller in a DisPossessionProxyPawn (measured for
+rats). The validator walks the class chain through `kSuperFieldOff` (+0x44)
+once that walk reproduces the player pawn's Pawn/Actor ancestry, and falls
+back to the list above.
 
 ## Build452 full-dump texture accounting (2026-09-18)
 

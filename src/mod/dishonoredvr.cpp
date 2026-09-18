@@ -246,6 +246,7 @@
 #include "game/dishonored/stereo_state.cpp"
 #include "game/dishonored/cinematic_trace.cpp"
 #include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
+#include "game/dishonored/lens_control.cpp"   // VR-137: after rain_control (shared helpers)
 #include "game/dishonored/cinematic_fov.cpp"
 #include "game/dishonored/cinematic_pitch.cpp"
 #include "game/dishonored/menu_immersion.cpp"
