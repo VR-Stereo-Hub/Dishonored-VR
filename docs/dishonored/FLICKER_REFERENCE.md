@@ -1,11 +1,39 @@
-## Possession mono: research handoff (2026-09-18)
+## VR-135: possession mono, refusing gate measured (2026-09-18)
 
-Reported whole possession mono despite usable control. No confirmed render refusal
-identified yet. Explicit power stage3 and possession camera state2 found in local
-declarations; master FSM excludes nonplayer pawn for safety. Do not bypass that
-layout guard or force all scenes stereo. Read NEXT_SESSION priority1 for exact
-source/evidence and preserve entry/exit, menus and image-owned pose synchronization.
-No candidate or headset validation yet.
+1. **Symptom:** whole view, both eyes, mono for the entire controlled
+   possession (rat/NPC); control and camera otherwise correct. Surface: the
+   re-entry's single draw, section 1 row "mono interruption". Not an eye-tag,
+   weapon or palette issue. PrePossess (zoom toward the target, still the player
+   pawn) stayed stereo.
+2. **Reproduction identity:** installed452 (`vr33-hands-working-452-g1d029a1eb`,
+   DLL 537812eb...), current-run log archived in
+   `build/playtest-candidates/claude-handoff452/support-20260918-080956-790.zip`.
+   Possession window 2992812..3013140 ms.
+3. **Measured gate (not inferred):** at 2992812 `cyl: controller pawn 185E1400 ->
+   00000000` (the controller Pawn became `DisPossessionProxyPawn` at 2993421),
+   `gameplay verdict: FALSE (no live pawn)`, `stereo/state: FALLBACK pawn=0
+   valid=0 master=`, `reentry: gates -> SINGLE draw (scene state refused)`; beats
+   `mono/s=95..119 L/s=0 R/s=0` through 3009031. `view=1` and camera uploads
+   continued throughout, so the scene WAS drawing. The two refusing terms are the
+   capsule liveness (refuses non-player classes by design) and the anim FSM
+   (discards non-PlayerPawn by design). The earlier candidate cinematic intervals
+   (2787406.., 2829250..) were dialogue latches and stayed STEREO: retracted as
+   possession candidates.
+4. **Change:** `possession_state.cpp`, read-only: the controller's live Pawn is
+   one of the four DisPossessablePawn classes AND its `m_pPossessingController`
+   is our live controller AND its `m_pPossessingPlayerPawn` is a live player pawn.
+   Only DvrSceneVerdict consumes it (`possession_eligible`: no menu, UI surface not
+   blocking, view dispatching, raw camera uploads within 150 ms). Capsule, FSM and
+   gameplay verdicts are unchanged. `[Cine] PossessionStereo` (code default 0,
+   installed 1), live `possessionstereo on|off`, F10 checkbox.
+   Counterprediction: if the new gate is the only refusal, the next possession
+   logs `possession/stereo: VALIDATED` then `stereo/state: STEREO ... possessed=1`
+   and the beat shows L/s=R/s; if it still shows `mono/s`, another gate (the
+   stereo method or runtime) refuses and the log names it.
+5. **Results:** builds, lint clean, golden regenerated; NOT yet run. No headset or
+   simulator verdict.
+6. **Status:** measured cause, candidate installed, open. Entry/exit transitions
+   and menus during possession are the regression watch.
 
 ## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
 

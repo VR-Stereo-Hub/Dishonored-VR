@@ -881,6 +881,7 @@ static void WriteDefaultIni(const char* ini)
         "LockPitch=1\n"
         "LockFov=1\n"
         "StereoState=1\n"
+        "PossessionStereo=0\n"
         "HideBorders=1\n"
         "HeadLook=1\n"
         "SpecialHeadLook=0\n"
@@ -2249,6 +2250,7 @@ static void LoadConfig()
     }
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
+    PossessionStereoConfigure(ini);
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -3462,6 +3464,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","SpecialHeadLook",SpecialHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);

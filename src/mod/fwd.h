@@ -8,6 +8,11 @@ static bool DvrGameCommand(const char* cmd, const char* args);
 static void DvrConsoleApply();
 static void GameStateTick();
 static bool DvrScriptViewLive();
+static void PossessionStateTick();      // VR-135 (possession_state.cpp)
+static bool PossessionStereoLive();
+static bool PossessionStereoEnabled();
+static void PossessionStereoSet(bool on);
+static void PossessionStereoConfigure(const char* ini);
 static bool DvrSceneVerdict();
 static bool StereoStateEnabled();
 static void StereoStateSet(bool on);

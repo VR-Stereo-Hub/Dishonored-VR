@@ -19,4 +19,12 @@ inline bool eligible(bool strict, bool pawn, bool menu, bool viewLive,
     // fallback with the UI guard off, unknown, or blocked.
     return (viewLive || (uiClear && sceneFresh)) && !std::strcmp(state,"StatePlayerMasterWalk");
 }
+// VR-135: a validated controlled possession stands in for the player pawn and
+// its FSM (neither exists while possessing). Every other term still applies:
+// no menu, a UI surface that does not block, the view pipeline dispatching and
+// the scene camera uploading now. Nothing here can outlive the validation.
+inline bool possession_eligible(bool possessed, bool menu, bool viewLive,
+                                bool sceneFreshRaw, bool uiClear) {
+    return possessed && !menu && uiClear && viewLive && sceneFreshRaw;
+}
 }

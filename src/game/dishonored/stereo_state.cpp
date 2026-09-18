@@ -17,6 +17,9 @@ static bool DvrSceneVerdict() {
     const bool strict=DvrGameplayVerdict();
     const auto state=dvr::anim::snapshot(); // current live-object checked FSM, 150 ms expiry
     const bool pawn=CylTruthLive();
+    // VR-135: a validated controlled possession. The capsule term refuses the
+    // possessed pawn by design; this is its own read-only proof, not a relaxed one.
+    const bool possessed=!pawn && PossessionStereoLive();
     const bool view=DvrScriptViewLive();
     const double nowMs=MaimNowMs();
     const bool note=g_uiNoteOpen && nowMs-g_uiPollMs<500.0;
@@ -27,7 +30,7 @@ static bool DvrSceneVerdict() {
     static SRWLOCK lock=SRWLOCK_INIT;
     static uint32_t serial=0;
     static unsigned long long moved=0, movedRaw=0;
-    static int last=-1, lastDialog=-2, lastStandIn=-1;
+    static int last=-1, lastDialog=-2, lastStandIn=-1, lastPossessed=-1;
     static char lastState[96]={};
     static dvr::ui_ride::RideGrace grace;
     static double pendingSince=0;
@@ -35,7 +38,7 @@ static bool DvrSceneVerdict() {
     AcquireSRWLockExclusive(&lock);
     const uint32_t current=(uint32_t)dvr::camera::render_pos_serial();
     if (current!=serial) { serial=current; moved=now; movedRaw=now; }
-    if (menu || !pawn || !state.valid) moved=0;
+    if (menu || !pawn || !state.valid) moved=0;   // possession reads the RAW clock below
     const bool sceneFresh=moved && now>=moved && now-moved<=150;
     // VR-117: the ride stand-in. While an in-game screen rides the HUD window
     // (or for 1500 ms after it closes: the resume gap, and for 300 ms after a
@@ -59,17 +62,20 @@ static bool DvrSceneVerdict() {
     else if (!pendingSince && ridePossible) pendingSince=(double)now;
     const bool pending=pendingSince>0 && (double)now-pendingSince<300.0;
     const int standIn=rides?1:inGrace?2:pending?3:0;
-    const bool result=standIn ? dvr::ui_ride::ride_eligible(pawn,sceneFreshRaw,gateFresh)
+    const bool uiClear=UiSurfaceEnabled() && !UiSurfaceBlocks();
+    const bool result=standIn ? dvr::ui_ride::ride_eligible(pawn || possessed,sceneFreshRaw,gateFresh)
                     : !StereoStateEnabled() ? strict
-                    : dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh,UiSurfaceEnabled() && !UiSurfaceBlocks());
-    if ((int)result!=last || lastDialog!=state.dialogState || strcmp(lastState,state.state[0]) || standIn!=lastStandIn) {
-        last=result; lastDialog=state.dialogState; lastStandIn=standIn;
+                    : possessed ? dvr::scene_state::possession_eligible(possessed,menu,view,sceneFreshRaw,uiClear)
+                    : dvr::scene_state::eligible(strict,pawn,menu,view,state.valid,state.state[0],sceneFresh,uiClear);
+    if ((int)result!=last || lastDialog!=state.dialogState || strcmp(lastState,state.state[0]) || standIn!=lastStandIn ||
+        (int)possessed!=lastPossessed) {
+        last=result; lastDialog=state.dialogState; lastStandIn=standIn; lastPossessed=possessed;
         strncpy_s(lastState,state.state[0],_TRUNCATE);
         static const char* const kStandIn[4]={"none","riding","resume grace","open pending"};
-        Log("stereo/state: %s strict=%d pawn=%d menu=%d note=%d view=%d latch=%d "
+        Log("stereo/state: %s strict=%d pawn=%d possessed=%d menu=%d note=%d view=%d latch=%d "
             "valid=%d master=%s dialog=%d (0=listening 1=choosing -1=unknown) sceneFresh=%d c5age=%llu "
             "standIn=%s rawAge=%llu gateAge=%lu -> presentation only; input locks retained%s",
-            result?"STEREO":"FALLBACK",strict,pawn,menu,note,
+            result?"STEREO":"FALLBACK",strict,pawn,possessed,menu,note,
             view,g_cineNow,state.valid,state.state[0],state.dialogState,sceneFresh,moved?now-moved:~0ull,
             kStandIn[standIn],movedRaw?now-movedRaw:~0ull,dvr::hud::gate_age_ms(),
             standIn?" (a screen on the HUD window, the world on the projection)":"");

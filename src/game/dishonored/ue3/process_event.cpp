@@ -165,6 +165,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     dvr::anim::tick(); // VR-88: sample before any hand override writes
+    PossessionStateTick(); // VR-135: read-only; the presentation verdict reads its result
     CineTraceTick(); // VR-70: read-only camera trace layout
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
     // 41.0: the per-eye camera seam, same lane and cadence as the lever. The

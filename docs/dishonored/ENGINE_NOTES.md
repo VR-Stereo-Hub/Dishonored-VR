@@ -1,3 +1,24 @@
+## Possession ownership (VR-135, 2026-09-18)
+
+**Possession.** While possessing, `Controller.Pawn` is a `DisPossessablePawn`
+subclass: `DisPossessionProxyPawn` (rats, fish; measured in the build452 log,
+`crouch/pawn: now ... (DisPossessionProxyPawn) via ctrl+0x248`) or
+`DishonoredNPCPawn` (people); `DisDLC06NPCPawn` and `DisTallboyNPCPawn` extend
+the latter. The script declarations give two back-pointers on the possessable,
+`m_pPossessingController` (DishonoredPlayerController) and
+`m_pPossessingPlayerPawn` (DishonoredPlayerPawn); both are resolved by name
+through `RflOffsetOf("DisPossessablePawn", ...)`, never by a copied number, and
+the resolved offsets print on the `possession/stereo: layout` line. Validation
+= pawn class in that list AND pawn live AND back-pointer == our live controller
+AND the player pawn live with a PlayerPawn class. The controller also carries
+`m_PossessionEffectSettings.m_Stage` (EDisPossessionEffectStage Off/Intro/While/
+Warning/Outro); it is logged as evidence, not gated, until a run shows its
+timing against the pawn switch. The power component's own
+`DishonoredActivePowerComponent_Possess.m_PossessionStage` (PossessionActive=3)
+was not needed: the pawn back-pointers are set by the engine only while a
+possession is in force. The capsule reader and the anim FSM reader both refuse
+this pawn on purpose (their offsets belong to DishonoredPlayerPawn) and still do.
+
 ## Build452 full-dump texture accounting (2026-09-18)
 
 Exact DLL SHA256537812eb74f594ba3b700284f782132af14620de31509dbd0d3b55098cd091b4.

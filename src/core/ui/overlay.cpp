@@ -153,6 +153,8 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Guard menu/loading stereo and input",&surface)) UiSurfaceSet(surface);
         bool sceneState=StereoStateEnabled();
         if (ImGui::Checkbox("Stereo cinematic/dialogue states",&sceneState)) StereoStateSet(sceneState);
+        bool possession=PossessionStereoEnabled();
+        if (ImGui::Checkbox("Stereo while possessing",&possession)) PossessionStereoSet(possession);
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
     }
