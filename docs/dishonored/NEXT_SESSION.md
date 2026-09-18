@@ -22,7 +22,19 @@
   check ... TRUSTED` and a VALIDATED line naming a DishonoredNPCPawn.
 - The memory watcher was stopped by the tester. Ask before re-arming.
 
-## Launch question (VR-136): does moving the rain slab fix the pane?
+## Launch question NOW (VR-138): are the pistol and crossbow solid from both sides?
+Build464 (banner `vr33-hands-working-464-g0b7171bd1`, DLL affccb00...), the
+installed ini arms `[Mirror] Enabled=1`. Hold the pistol, turn it to see the
+side that used to be hollow; then the crossbow.
+- Solid, no flicker on parts that were already modelled: keep it.
+- A copy floating beside the gun: the plane is wrong. Read `mirror/build`
+  (face counts, plane) and fix live: `mirror plane <asset> <x|y|z> <offset> <+|->`.
+- Still hollow: `mirror/build` says REFUSED (reason given) or kept 0; or
+  `mirror/beat` drawn stays 0 (the asset name differs: `[Mirror] Assets`).
+- Flicker/z-fight on the grip or stock: raise `[Mirror] FillRadius`.
+F10 "Mirror pistol/crossbow" toggles it live for an A/B.
+
+## Launch question after that (VR-136): does moving the rain slab fix the pane?
 In a rainy area, open F10, set "Rain distance uu" to 0, look around.
 - Rain around you, falling past, no sheet: keep it; next build writes
   `[Rain] Distance=0` into the installed ini (byte-aware, CRLF).

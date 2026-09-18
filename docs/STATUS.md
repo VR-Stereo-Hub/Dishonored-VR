@@ -1,3 +1,14 @@
+## Installed464: weapon mirror built and armed (2026-09-18)
+
+Installed464 = `vr33-hands-working-464-g0b7171bd1`, DLL affccb00..., symbols by
+hash. VR-138 implemented per WEAPON_MIRROR_PLAN.md (deviations recorded at its
+top): pistol and crossbow get a second draw, reflected in reference-pose space
+on the palette, cull flipped, through our index buffer of missing triangles
+only; plane measured from the cut face or `[Mirror] Plane_<asset>`. frame_test
+pins the math. Installed ini: only `[Mirror] Enabled=1` added (238d9d68...,
+CRLF). No run since 462; its logs were already archived. Unverified in game.
+Launch question: see NEXT_SESSION (mirror first; the rain question waits).
+
 ## Installed462: all possessables, near-eye rain and lens levers, mirror plan (2026-09-18)
 
 Tester confirmed possession stereo on 458 (rat). Installed462 =
