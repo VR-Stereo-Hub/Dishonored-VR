@@ -1,3 +1,11 @@
+## Installed450: effect owner diagnostics (2026-09-17)
+
+Installed vr33-hands-working-450-gba2294ed7. Release and9 exports pass.
+Existing Cine Trace1 verified active. Complete INI unchanged byte-for-byte;
+CRLF and installed hashes independently verified. Both logs/priorDLL/INI archived
+at installs/20260917-223627-579719. No game launched. Hit tilt and effect suppression
+remain unresolved; candidate only identifies the live native owners.
+
 ## Hit-camera, health lens and rain ownership research (2026-09-17)
 
 Build448 stick recovery reported accepted. DLL/banner verified; logs/latestINI
