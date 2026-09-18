@@ -1,0 +1,187 @@
+# VR-138: filling the unmodelled side of the pistol and crossbow (plan)
+
+Status: PLAN, not implemented. Written 2026-09-18 to be implemented as written.
+Scope: `Wpn_PlyGunElite` (pistol) and `crossbow_01` (crossbow, 1961 verts per
+VR-57-MODEL-RAY.md). The sword, the Heart and the other items are out of scope.
+
+## 1. The idea
+
+The weapons are skinned draws, and the mod already owns them. Every placed
+weapon pass goes through `weapon_attach.cpp`, which rewrites the bone palette
+(`patched[i] = delta * P[i]`, `MpBuild`), draws, then restores the palette. A
+mirrored copy is one more draw inside that scope:
+
+```
+mirror[i] = delta * P[i] * S          S = reflection in REFERENCE-POSE space
+```
+
+S sits on the RIGHT of the palette, so it reflects the vertex buffer's own
+coordinates BEFORE skinning. Every bone gets the same S, so the weighted blend
+commutes (`sum w_i P_i (S v) = (sum w_i P_i) S v`) exactly as the rigid delta
+does on the left (VR-33 section 1). Multi-bone weapons (the pistol's hammer,
+the crossbow's arms) therefore mirror correctly, and the plane can be measured
+once from the vertex buffer instead of per frame.
+
+A reflection reverses triangle winding, so the mirror draw flips
+`D3DRS_CULLMODE` (CW <-> CCW) and restores it afterwards.
+
+## 2. Only fill what is missing
+
+Mirroring the WHOLE mesh would z-fight wherever the model already has both
+sides (grips, triggers, the crossbow stock). The mirror draw therefore goes
+through OUR index buffer, holding only triangles whose mirror image lands where
+the original has no geometry:
+
+1. Signed distance `d(v) = n . (v - c)` to the plane (n unit, c on the plane).
+   The modelled side is `d >= 0` (the plane choice guarantees that, section 3).
+2. Build a hash of every used vertex with `d < -Eps` (the geometry that already
+   exists on the unmodelled side), cell 1 uu.
+3. Keep triangle T only if: all three vertices have `d >= -Eps`; T is not on
+   the plane (`max |d| > Eps`, or it is a cut-face cap that would coincide with
+   itself); and no hashed vertex lies within `FillRadius` of `S * centroid(T)`.
+   `Eps` = 0.25 uu, `FillRadius` = 1.5 uu. Both are ini keys.
+4. Log `kept K of N triangles`. K = 0 means nothing is missing (or the plane is
+   wrong) and the mirror refuses.
+
+## 3. The plane, measured from the vertex buffer
+
+A reader, `WmBuildContract`, based on `BrReadGeometry` (bolt_model_ray.cpp)
+but streaming (no 1024-vertex cap, no per-vertex arrays except the
+kept-triangle output):
+
+* Same guards as `BrReadGeometry`: TRIANGLELIST only, FLOAT3 POSITION in
+  stream 0, stride/offset equal to the contract, index range inside the buffer,
+  READONLY lock where the usage allows. The pointers from `GetStreamSource` /
+  `GetIndices` are released inside the call; only the values are kept (VR-33
+  section 5 rule).
+* Pass 1 over the used vertices: the bbox, and for each axis a count of
+  vertices within 0.1 uu of the min face and of the max face.
+* The barrel axis is the longest bbox extent and is never the mirror axis.
+  Of the other two axes and their two faces, the CUT FACE is the face with the
+  densest vertex slab: an open half-model has an edge loop on its cut plane.
+  Accept only when that count is at least 3% of the used vertices AND at least
+  3x the opposite face on the same axis. Otherwise refuse and log
+  `mirror/build: no cut face - set [Mirror] Plane_<asset>`.
+* n = that axis, pointing into the modelled half. c = that face's coordinate.
+* The override `[Mirror] Plane_<asset>=<x|y|z>,<offset>,<+|->` replaces the
+  measurement entirely. Its log line says the plane was NOT measured.
+
+Pass 2 builds the kept index list (section 2) into a `D3DPOOL_MANAGED`,
+`D3DUSAGE_WRITEONLY` index buffer. That is the pattern `mesh_split.cpp` uses
+for `g_msIb` (the `CreateIndexBuffer` near line 1539): 16-bit unless an index
+exceeds 65535. The same original index values are used, so the draw keeps the
+game's `baseVertex/minIndex/numVertices`.
+
+Build once per contract, lazily, on the first placed draw of an allowed
+asset. Store it on the `WaMesh` (new fields below) and drop it wherever the
+contract is invalidated (`WaInvalidateContracts`, `WaRetireContractsNotIn`,
+the menu-keep revalidation). Keyed by the vb/ib VALUES and the asset, so a
+reused address with a different asset is a rebuild, not a reuse.
+
+## 4. Code changes, file by file
+
+**`src/game/dishonored/hands/weapon_mirror.cpp` (new, unity-included right
+after `weapon_attach.cpp`'s state chunk, before `weapon_attach.cpp` itself so
+the draw sites can call it; prototypes in `src/mod/fwd.h`)**
+
+```cpp
+struct WmContract {           // one per WaMesh, zero = not built
+    uint8_t  state;           // 0 unbuilt, 1 built, 2 refused (no retry until rebuild)
+    char     why[64];         // refusal reason, logged once
+    float    n[3], c[3];      // plane, reference-pose space
+    bool     measured;        // false = ini override
+    IDirect3DIndexBuffer9* ib; // ours, MANAGED
+    D3DFORMAT fmt; UINT prims; // kept triangles
+    UINT     totalPrims;
+};
+static bool WmEnabledFor(const WaMesh* w);                 // lever + asset allowlist
+static bool WmBuildContract(IDirect3DDevice9*, WaMesh*, WmContract*);
+static void WmMirrorMatrix(const WmContract*, float S[12]);  // 3x4, S = I - 2nn^T, t = 2(n.c)n
+static void WmComposeRight(const float* P, const float* S, float* out, UINT regs); // out_i = P_i * S
+static bool WmDraw(IDirect3DDevice9* dev, WaMesh* w, const float* sourcePalette,
+                   UINT boneReg, UINT regs, const dvr::hf::Xform& delta,
+                   INT baseVertex, UINT minIndex, UINT numVertices);
+static void WmRelease(WaMesh* w, const char* why);           // on contract drop and device loss
+static bool WmCommand(const char* args);                     // the seam word
+```
+
+`WmDraw` steps, all inside the caller's patched-palette scope:
+1. `WmEnabledFor(w)`, the contract built (`WmBuildContract` on first use), and
+   `prims > 0`; else return false with no state touched.
+2. `WmComposeRight(source, S, tmp)`, then `MpBuild(patched, tmp, regs, &delta)`,
+   then `orig_set_vs_const(boneReg, patched, regs)`. The caller restores
+   `source` after, as it already does.
+3. Save `D3DRS_CULLMODE`. Set the opposite (NONE stays NONE).
+4. Save the current index buffer (`GetIndices`, release immediately, keep the
+   value), `SetIndices(ours)`, then `orig_draw_indexed(dev, D3DPT_TRIANGLELIST,
+   baseVertex, minIndex, numVertices, 0, prims)`, then `SetIndices(saved value)`.
+   The saved pointer is re-set without holding a reference across the draw. If
+   `SetIndices(saved)` needs a live reference, take it with `GetIndices` and
+   release it after the restore, all within this function.
+5. Restore the cull mode. Count ok/failed in `g_wm*` counters.
+
+**`src/game/dishonored/hands/weapon_attach.cpp`, three call sites, each after a
+successful original draw, before the palette and viewport restore (so the
+mirror shares the full depth range):**
+* the main placed path (`orig_draw_indexed` near line 1474, after `BrMeasure`),
+* `WaPatchAndDraw`, indexed branch only (the sibling depth/shadow passes use
+  the identical delta, so the mirror follows them into every pass),
+* NOT `WaDrawPrim` (non-indexed): no index buffer to substitute. Log once
+  that a non-indexed pass of a mirrored asset was left unmirrored.
+
+**`src/mod/state/57b_game_dishonored_hands_weapon_attach.inc`**: add
+`WmContract mirror;` to `WaMesh`. Every place that zeroes or evicts a WaMesh
+calls `WmRelease` first.
+
+**Config (`config.cpp` defaults + golden, `commands.cpp`, `overlay.cpp`)**
+
+| Key | Default | Meaning |
+|---|---|---|
+| `[Mirror] Enabled` | 0 | the lever; code default off, installed ini arms it for the test |
+| `[Mirror] Assets` | `Wpn_PlyGunElite,crossbow_01` | exact asset names from `w->asset` |
+| `[Mirror] Eps` | 0.25 | uu, on-plane tolerance |
+| `[Mirror] FillRadius` | 1.5 | uu, "already modelled here" radius |
+| `[Mirror] Plane_<asset>` | unset | override: `y,1.25,+` |
+
+Seam: `mirror on|off|status|rebuild|plane <asset> <axis> <offset> <sign>`.
+F10: a checkbox "Mirror pistol/crossbow" and a "Rebuild" button.
+
+## 5. Logging (so one run answers the questions)
+
+* `mirror/build: '<asset>' verts V used U prims N | bbox (..)-(..) | barrel
+  axis A | cut face <axis><min|max> at <c> holding H verts (P%, opposite O) ->
+  plane n=(..) c=.. MEASURED | kept K of N triangles (Eps, FillRadius)`.
+  The refusal variant names the failed test with its numbers.
+* `mirror/beat` every 5 s while armed: mirrored draws/s per asset, failures,
+  and the cull mode it found (it must name the native mode).
+* On a refusal to draw: the reason, once per spell (`DVR_LOG_EVERY_MS`).
+
+## 6. Risks and how each is handled
+
+* **Wrong plane**: the mirror floats beside the gun. The build line gives the
+  numbers, and `mirror plane` fixes it live without a rebuild of the DLL.
+* **Normal-map handedness**: the mirrored side's bumps light from the wrong
+  side (the binormal sign comes from the vertex, not the palette). This is
+  cosmetic and accepted for a first cut. It says so on the build line.
+* **Depth pre-pass / shadows**: the mirror follows every pass the attach
+  places, so depth and colour agree. Shadows gain the mirrored half, which is
+  correct.
+* **The model ray**: `BrMeasure` runs on the ORIGINAL draw before the mirror,
+  and the mirror never publishes a delta. The ray is unchanged by construction.
+* **Stereo**: the mirror draw happens inside the game's draw call, so the
+  re-entry's second eye repeats it like any other pass.
+* **Menus and loads**: the contract drop paths release our index buffer, and
+  no draw happens without a placed contract in the current Present.
+* **Device loss**: MANAGED pool survives a reset; `WmRelease` on device
+  teardown mirrors `g_msIb`'s handling.
+
+## 7. Verification
+
+1. Build, lint, golden. `frame_test`: add `mirror_compose_commutes` next to
+   `compose_commutes` in `hand_frame_test.h`: for random P, S reflection, D
+   rigid: `D*(P*S)` applied to v equals `D*P` applied to `S*v`, and `det < 0`.
+   Also `mirror_can_fail`: a non-reflection S must fail the det test.
+2. Headset, one question: with the pistol and then the crossbow in hand, turn
+   the weapon to see its far side. Is it solid, with no flicker on parts that
+   were already there? Log check: two `mirror/build` lines with MEASURED planes
+   and K > 0, and `mirror/beat` counts about equal to the weapon's draw rate.

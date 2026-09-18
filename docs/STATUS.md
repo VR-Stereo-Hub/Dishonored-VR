@@ -1,3 +1,29 @@
+## Installed462: all possessables, near-eye rain and lens levers, mirror plan (2026-09-18)
+
+Tester confirmed possession stereo on 458 (rat). Installed462 =
+`vr33-hands-working-462-gdd19939ac`, DLL b212d154..., symbols archived by hash,
+458 logs/ini/crash archived in build/playtest-candidates/near-eye-effects.
+Installed ini unchanged (a55a9106...); new keys run on code defaults (native).
+Streaming config unchanged. Memory watcher was stopped by the tester; not re-armed.
+
+- VR-135: possession now validates every DisPossessablePawn class (DLC06/07
+  pawns were missing) through the engine's SuperField chain, trusted only after
+  it reproduces the player pawn's ancestry; full class list as fallback.
+- VR-136: the rain pane is DERIVED: the camera re-places its rain emitter each
+  frame at the view ray's exit from `m_RainBoxExtent` (500 uu), a slab ~5 m
+  ahead that turns with the head (143 steady samples: fwd 499..662, right ~0).
+  `[Rain] Distance` / F10 slider / `raindistance` writes the extent (0 = on the
+  head). Hide lever unchanged.
+- VR-137: low-health vignette = `m_pCurHealthLensEffect`, an
+  EmitterCameraLensEffectBase at `DistFromCamera` 90 uu. `lens/fx` logs each
+  effect's measured position; `[Lens] Distance` + `KeepSize` move it nearer.
+- VR-138: weapon mirroring planned in docs/dishonored/WEAPON_MIRROR_PLAN.md
+  (reference-pose reflection on the palette, own index buffer of missing
+  triangles only, measured cut plane). Not implemented.
+
+Launch question: in the rain, does F10 "Rain distance" at 0 turn the pane into
+rain around you? See NEXT_SESSION. No game launched by Claude, no PR, no merge.
+
 ## Installed458: possession stereo armed, rain measured (2026-09-18)
 
 Continue codex/misc-fixes. Installed458 = `vr33-hands-working-458-ge5246ba2f`,
@@ -28,8 +54,9 @@ possessions VALIDATED and presented stereo (beats L/s=R/s, mono/s=0); about
 0.6 s mono at each entry while the engine's own camera uploads paused. Headset
 verdict still wanted. The three caught startup exceptions match 452's exactly
 (same two functions, shifted +0x8f0 by the new code): pre-existing, not new.
-Rain: extent 500 uu cube, 40 drops; the emitter actor sits 74..118 m away, so
-its Location is not the drop box (ENGINE_NOTES top). No PR, no merge.
+Rain: extent 500 uu cube, 40 drops. (The "74..118 m, not the drop box" reading
+was retracted the same day: that was only the first sample per level; steady
+samples put the emitter 5..6.6 m straight ahead. See the section above.)
 
 ## Claude takeover: accepted streaming run, rain and possession pending (2026-09-18)
 
