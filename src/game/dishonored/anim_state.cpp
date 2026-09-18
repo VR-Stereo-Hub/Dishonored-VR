@@ -38,6 +38,7 @@ int lastSequenceIndex = -1;
 unsigned long long nextRead = 0, nextBeat = 0;
 unsigned weightFrame = ~0u;
 float frameWeight = 1;
+bool frameMantleSplit = false;
 void text(char* dst, size_t n, const char* src) { _snprintf_s(dst,n,_TRUNCATE,"%s",src ? src : "unknown"); }
 bool read(uint8_t* obj, uint32_t off, void* dst, size_t n) {
     if (!obj || !off || !RangeReadable(obj+off,n)) return false;
@@ -289,13 +290,17 @@ float weight() {
     const auto now=GetTickCount64();
     const bool valid=watch && handback && published.valid && fresh(published.stamp,now);
     const unsigned frame=(unsigned)dvr::frame::count();
-    if (!valid) { frameWeight=1; weightFrame=~0u; }
-    else if (weightFrame!=frame) { frameWeight=handoff.value(now,blendMs); weightFrame=frame; }
+    if (!valid) { frameWeight=1; frameMantleSplit=false; weightFrame=~0u; }
+    else if (weightFrame!=frame) { frameWeight=handoff.value(now,blendMs); frameMantleSplit=published.mantleSplit; weightFrame=frame; }
     const float w=frameWeight;
     ReleaseSRWLockExclusive(&lock); return w;
 }
 bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.game; }
 bool native_draw() { return weight()<=0.0001f; }
+bool native_full_arms() {
+    if(!native_draw())return false;
+    AcquireSRWLockShared(&lock);const bool full=!frameMantleSplit;ReleaseSRWLockShared(&lock);return full;
+}
 void tick() {
     if (!TryAcquireSRWLockExclusive(&sampleLock)) return;
     struct Unlock { ~Unlock() { ReleaseSRWLockExclusive(&sampleLock); } } unlock;
@@ -379,15 +384,16 @@ void tick() {
     AcquireSRWLockExclusive(&lock);
     if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; cameraClassifier=Handoff{}; }
     const bool cinematic=cinematicHandback && dvr::scene_state::cinematic(s.state[0]);
-    const bool mantle=mantleHandback && !strcmp(s.state[0],"StatePlayerMasterMantle");
+    const bool mantle=mantle_pose_requested(mantleHandback,s.state[0]);
     cameraClassifier.update(s.valid,mantle || cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]),watch,now,releaseMs,0);
     s.cameraAction=s.valid && cameraClassifier.game;
-    const bool match=resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
+    const bool match=mantle || resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
     classifier.update(s.valid,match,watch,now,releaseMs,0);
+    s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) : (!match && classifier.game && previous.mantleSplit));
     handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
-    if (s.valid) text(s.reason,sizeof(s.reason),match?"selected animation arms":classifier.game?"release hysteresis":"no selected active action");
+    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?"mantle native pose with split hands":"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
     published=s;
     ReleaseSRWLockExclusive(&lock);
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {

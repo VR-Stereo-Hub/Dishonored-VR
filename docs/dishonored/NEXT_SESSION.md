@@ -1,3 +1,54 @@
+## Mantle-only pose/visibility correction and upright wheel (2026-09-17)
+
+Build437 rollback accepted: normal movement restored. Dark Vision test with
+NoBlurWheel0 also reported successful; pause with blur suppression was successful.
+That does not eliminate a wheel-specific suppression conflict. Restore NoBlurWheel1
+at the user's request; Dark Vision remains an open, reproducible-risk hypothesis.
+
+VR-134 now adds native hand pose ownership only for explicit master Mantle when
+MantleHandBack is enabled. The mantle Arms checkbox selects full native geometry
+versus existing split hand geometry, preserving the native palette/depth once
+handoff reaches native. Other master/upper/left states keep build437 pose policy.
+No cancellation-eligibility pose trigger, camera edit or engine-memory writer added.
+Hidden-mantle geometry policy is frozen with pose weight per render frame and held
+through the existing release hysteresis. Existing action cancellation is unchanged.
+Other states' Arms controls still choose native versus tracked poses; independent
+geometry for those states is unfinished.
+
+Wheel opening uses the existing yaw-only upright capture for both its visual plane
+and gesture axes. Opening position, distance offset, crop and later fixed anchoring
+are unchanged. Pitch/roll at entry no longer tilt the wheel.
+
+Host checks:138 animation catalog/policy checks plus22 handoff checks,2204 wheel
+checks,908 HUD anchor checks pass. These establish policy/math, not visual comfort.
+Next launch question: with Mantling enabled and Show game arms unchecked, does a
+mantle retain animated hands with forearms hidden and return to normal tracking?
+Tracked/frozen hands or full forearms fail the separation; a bad exit fails release.
+Do not interpret these checks as headset acceptance or a fix to Dark Vision.
+
+## Dark Vision plus weapon wheel blackout isolation (2026-09-17)
+
+Build437 rollback headset-confirmed normal for movement. New report: Dark Vision
+works until opening the weapon wheel; world turns black while highlighted people
+remain visible. Menu still appears to affect color/bloom despite blur suppression.
+Verified437 DLL and log banner; logs/profile archived under
+build/playtest-candidates/darkvision-menu/reported437.
+
+MenuEffectsTick suppresses only reflected DisPostProcessManager.m_UIPPWeight.
+Log confirms suppression during wheel context6. This is not proof that every UI
+post-process effect is disabled, nor that this write causes the blackout.
+Surface is the world scene with surviving Dark Vision silhouettes, not an
+established eye-pair synchronization fault.
+
+Prepared config-only A/B on the same437 DLL: NoBlurWheel1->0, every other INI byte
+preserved, full diff and CRLF verified. Both logs/prior DLL/INI archived under
+build/playtest-candidates/installs/20260917-211007-808112.
+Question: with Dark Vision active, does opening the wheel still black out the world?
+Expected if suppression conflicts: native menu background returns and scenery stays
+visible. If black persists, suppression alone is insufficient; inspect native menu
+post-process composition and head-look rendering separately. No headset result yet.
+No code fix claimed and no game launched. Other menus and repo defaults unchanged.
+
 ## Installed437: recovery rollback to build433 (2026-09-17)
 
 Installed vr33-hands-working-437-g0d415c741 on codex/misc-fixes.

@@ -24,7 +24,7 @@ struct State {
         for (int i=0;i<3;++i) tracked = tracked && std::isfinite(hand[i]) && std::isfinite(head[i]);
         if (!held) { held = true; lost = false; valid = tracked;
             if (valid) { for (int i=0;i<3;++i) center[i]=hand[i];
-                if(cameraQ && !opening.capture(cameraQ)) valid=false; } }
+                if(cameraQ && !opening.capture_upright(cameraQ)) valid=false; } }
         if (!tracked) { valid = false; lost = true; }
         // Never re-seed mid-gesture after a tracking loss or invalid opening.
         if (!valid || lost || radius <= deadM || radius <= 0) return false;

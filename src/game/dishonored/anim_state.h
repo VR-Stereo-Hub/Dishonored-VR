@@ -10,7 +10,7 @@ struct Snapshot {
     unsigned long long stamp = 0, entered[3] = {};
     unsigned long long sequenceAt = 0, stateAddress[3] = {};
     int bodyMode = -1, picker = -1, dialogState = -1;
-    bool valid = false, game = false, cameraAction = false;
+    bool valid = false, game = false, cameraAction = false, mantleSplit = false;
 };
 void tick();
 void configure(const char* ini);
@@ -35,7 +35,8 @@ void set_view_right_cm(float cm);
 float view_right_metres(); // zero outside native handback, blended with its ownership
 
 bool active(); // immediate ownership, including release hysteresis
-bool native_draw(); // blend reached identity: release split/suppression
+bool native_draw(); // blend reached identity: native pose
+bool native_full_arms(); // native draw except explicit hidden-forearm mantle
 float weight(); // controller correction: 1 = controller, 0 = native
 hf::Xform blend(const hf::Xform& transform);
 }

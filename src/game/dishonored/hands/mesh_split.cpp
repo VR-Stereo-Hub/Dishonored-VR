@@ -2988,9 +2988,11 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
-    g_msPassThrough = dvr::anim::native_draw();
+    const bool nativePose=dvr::anim::native_draw();
+    g_msPassThrough = dvr::anim::native_full_arms();
     if (g_msPassThrough) return false;
-    if (g_msMode == MS_MODE_OFF) return false;
+    const bool nativeHands=nativePose && !g_msPassThrough;
+    if (g_msMode == MS_MODE_OFF && !nativeHands) return false;
     MsContract con;
     {
         const char* why = NULL;
@@ -3016,13 +3018,15 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         }
     }
     int lo, hi;
-    switch (g_msMode) {
+    switch (nativeHands ? MS_MODE_HANDS : g_msMode) {
     case MS_MODE_HANDS: lo = MS_CLS_HAND_A; hi = MS_CLS_HAND_B; break;
     case MS_MODE_ARMS:  lo = MS_CLS_ARM_A;  hi = MS_CLS_ARM_B;  break;
     case MS_MODE_OTHER: lo = MS_CLS_OTHER;  hi = MS_CLS_OTHER;  break;
     case MS_MODE_ALL:   lo = MS_CLS_HAND_A; hi = MS_CLS_OTHER;  break;
     default: return false;
     }
+    if(nativeHands)DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+        "anim/draw: native animated hands only; forearms clipped, controller palette/depth overrides bypassed");
     const int start = g_msClsStart[lo];
     int count = 0;
     for (int c = lo; c <= hi; c++) count += g_msClsCount[c];
@@ -3054,7 +3058,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // The palette must be the COMPLETE verified interval for this split, not
     // merely three registers of something. g_mpCacheN is 0 until every
     // register in the interval is valid, so this is a state test.
-    bool perClass = g_mpOn && g_msMode == MS_MODE_HANDS &&
+    bool perClass = !nativePose && g_mpOn && g_msMode == MS_MODE_HANDS &&
                     g_mpPalN > 0 && g_mpCacheN == g_mpPalN;
     if (perClass) {
         for (int c = MS_CLS_HAND_A; c <= MS_CLS_HAND_B; c++)
@@ -3066,7 +3070,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             }
         if (!nrng) perClass = false;
     }
-    if (g_mpOn && g_msMode == MS_MODE_HANDS && !perClass)
+    if (!nativePose && g_mpOn && g_msMode == MS_MODE_HANDS && !perClass)
         InterlockedIncrement(&g_mpNoCache);
     if (!perClass) {
         rng[0].cls = -1; rng[0].start = start; rng[0].count = count; nrng = 1;
@@ -3104,7 +3108,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // never be occluded; restore the full range for our draws only, and put the
     // game's own back on every exit path below.
     D3DVIEWPORT9 savedVp; bool vpSaved = false;
-    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp))) {
+    if (!nativePose && g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp))) {
         g_mpDepthSeen[0] = savedVp.MinZ; g_mpDepthSeen[1] = savedVp.MaxZ;
         if (savedVp.MaxZ < 0.5f) {          // only when it really is crushed
             D3DVIEWPORT9 full = savedVp;
@@ -3129,7 +3133,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // eye question has to be asked in; asking it per hand compared a draw with
     // itself.
     MpDrawCtx ctx; ctx.ok = false; ctx.why = "not acquired";
-    if (g_mpWorld) {
+    if (!nativePose && g_mpWorld) {
         g_mpDrawsEntered++;
         if (MpAcquireCtx(dev, &ctx)) {
             g_mpDrawsSampled++;

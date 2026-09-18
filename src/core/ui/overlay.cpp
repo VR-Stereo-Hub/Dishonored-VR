@@ -356,7 +356,7 @@ static void OverlayFrame()
     if (ImGui::BeginTabItem("Animations")) {
         bool enabled=dvr::anim::enabled();
         if(ImGui::Checkbox("Enable selected game arms",&enabled))dvr::anim::set_enabled(enabled);
-        ImGui::TextWrapped("Enable action allows the action itself. Turn it off to reject its next request; an action already underway can finish. Show game arms selects native animated arms instead of tracked hands. Both choices save immediately.");
+        ImGui::TextWrapped("Enable action allows the action itself. Turn it off to reject its next request; an action already underway can finish. For Mantling, Show game arms changes forearm visibility while hands stay animated. Other states still select native arms instead of tracked hands. Both choices save immediately.");
         ImGui::TextWrapped("Automatic, recovery and story states have arm controls only. Any checked active state can request game arms.");
         if(!dvr::anim::action_gate_ready())ImGui::TextColored(ImVec4(1,.5f,.2f,1),"Action gate unavailable: actions will not be blocked.");
         float viewRight=dvr::anim::view_right_cm();

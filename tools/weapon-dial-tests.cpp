@@ -72,5 +72,19 @@ int main() {
  s.update(true,true,fixedHand,fixedHead,.04f,.002f,x,y,cameraQ,true);
  fixedHand[0]=.003f;s.update(true,true,fixedHand,fixedHead,.04f,.002f,x,y,turnedQ,true);
  check(x>.999f && std::fabs(y)<.00001f && s.opening.q[3]==1,"head turn cannot rotate dial or selection axes");
+ // Opening head pitch/roll cannot tilt the dial or its gesture plane.
+ for(float pitch:{-.8f,0.f,.8f}) for(float roll:{-.6f,.6f}) {
+   float qp[4],qr[4],qy[4],tilt[4],opening[4];
+   dvr::xrmath::quat_axis_angle(1,0,0,pitch,qp);
+   dvr::xrmath::quat_axis_angle(0,0,1,roll,qr);
+   dvr::xrmath::quat_axis_angle(0,1,0,.7f,qy);
+   dvr::xrmath::quat_mul(qp,qr,tilt);dvr::xrmath::quat_mul(qy,tilt,opening);
+   s.reset();float start[3]={0,0,-.5f},entryEye[3]={0,0,0},up[3]={0,1,0},out[3];
+   check(s.update(true,true,start,entryEye,.04f,.002f,x,y,opening,true),"tilted opening accepted");
+   dvr::xrmath::quat_rotate(s.opening.q[0],s.opening.q[1],s.opening.q[2],s.opening.q[3],up,out);
+   check(std::fabs(out[0])<.00001f && std::fabs(out[1]-1)<.00001f && std::fabs(out[2])<.00001f,"dial remains vertical");
+   start[1]+=.003f;s.update(true,true,start,entryEye,.04f,.002f,x,y,turnedQ,true);
+   check(std::fabs(x)<.00001f && y>.999f,"world-up hand motion selects up after tilted entry");
+ }
  std::printf("weapon dial: %d checks PASS\n",checks);
 }

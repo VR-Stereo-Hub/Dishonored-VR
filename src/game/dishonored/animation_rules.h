@@ -66,6 +66,11 @@ inline bool cancellable_action(int i) {
         !std::strcmp(r.state,"StatePlayerGenericFatality") || !std::strcmp(r.state,"StatePlayerAction") ||
         !std::strcmp(r.state,"StatePlayerGrabMovable") || !std::strcmp(r.state,"StatePlayerGrabCorpse");
 }
+// Only explicit mantle gains native pose ownership when its arms are hidden.
+// Cancellation eligibility and generic item actions must never select hand pose.
+inline bool mantle_pose_requested(bool enabled,const char* master) {
+    return enabled && master && !std::strcmp(master,"StatePlayerMasterMantle");
+}
 inline bool arm_rule_value(int overrideValue,bool inherited) {
     return overrideValue<0 ? inherited : overrideValue!=0;
 }
