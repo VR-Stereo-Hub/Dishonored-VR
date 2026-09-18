@@ -1,3 +1,34 @@
+## Released wheel camera ownership candidate (2026-09-17)
+
+Latest on-disk run is448 (log ends22:29:16), not installed450. Installed450
+DLL SHA256 matches its manifest; no effects/owners telemetry has run yet.
+Do not label this as450 playtest evidence. Existing448 log shows530 Walk samples
+with Wheel ownership and zero head rotation writes; tracking remains valid.
+By contrast2232 Walk/Other samples have writes. At53567609, Walk/UpperIdle,
+script menu0, UI-derived menu1, cinematic0, head valid, writes0, script age1091ms.
+This establishes stale menu ownership, not proof of the exact reported hit frame.
+
+Fix candidate extends released-wheel handling to the shared UI owner. A focused
+VR controller with released grip, no script menu and no cinematic invalidates
+the native wheel-open bit after250ms. Remaining menus are still scanned. The
+existing wheel visual closing lease remains independent. No new engine writes
+or hit-reaction suppression. Native head injection resumes via its existing
+absolute pitch and menu-exit yaw path.210 controller policy checks pass.
+
+Tester clarified effects should be retained near the real view boundary.
+Installed Element.vignette was window, scale1.620. Candidate routes that
+full-screen category to frame (native scene image, not a small window quad).
+This broad category also includes full-screen fades; it is not a verified
+health-only material ID. World anchor would retain window dimensions, so it
+would not address the small border. Rain is preserved unchanged: its native
+particle owner must be measured before adjusting distance/extent.
+Read-only hit/health/rain diagnostics remain enabled for the candidate.
+
+One launch question: after opening/releasing the wheel and taking hits, does
+head pitch remain correct without pausing? Success supports stale UI ownership;
+failure with resumed head writes points back to the native hit reaction.
+Headset result pending. No game launched.
+
 ## Installed450: effect owner diagnostics (2026-09-17)
 
 Installed vr33-hands-working-450-gba2294ed7. Release and9 exports pass.

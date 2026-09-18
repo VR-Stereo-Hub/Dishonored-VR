@@ -82,6 +82,17 @@ struct Composer {
 inline bool released_wheel(bool active,bool reportedWheel,bool held,bool scriptMenu,bool cinematic) {
     return active && reportedWheel && !held && !scriptMenu && !cinematic;
 }
+// Presentation needs a short close grace; the native movie animates for250ms.
+// A fresh hold, focus loss, another menu or a cinematic cancels the rejection.
+struct WheelOwnerRelease {
+    uint64_t since=0;
+    bool pending=false;
+    bool update(bool eligible,uint64_t now) {
+        if(!eligible){pending=false;return false;}
+        if(!pending || now<since){pending=true;since=now;}
+        return now-since>=250;
+    }
+};
 // Final boundary after menu shaping: preserve native vertical menu scrolling,
 // and route right-stick lean into the game's left axes without also turning.
 inline void final_axes(const Result& r,bool menu,bool wheel,int16_t rightX,int16_t rightY,

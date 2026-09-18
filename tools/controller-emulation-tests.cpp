@@ -92,6 +92,15 @@ int main(){
     check(!released_wheel(true,true,false,false,true),"cinematic remains blocked");
     check(!released_wheel(false,true,false,false,false),"inactive input remains neutral");
     check(!released_wheel(true,false,false,false,false),"other contexts unchanged");
+    {WheelOwnerRelease owner;
+     check(!owner.update(true,100),"wheel close grace begins");
+     check(!owner.update(true,349),"wheel close grace lasts250ms");
+     check(owner.update(true,350),"stale wheel releases scene ownership");
+     check(owner.update(true,900),"stale owner cannot reacquire each poll");
+     check(!owner.update(false,901),"hold or other owner resets release");
+     check(!owner.update(true,902),"new release gets fresh grace");
+     check(!owner.update(true,10),"clock reset fails closed");
+     check(owner.update(true,260),"release recovers after clock reset");}
     check(unpack(pack({99,false,true})).modifier==RightRest,"invalid modifier falls back to known default");
     configure({R3,true,false});auto c=config();check(c.modifier==R3 && c.flip && !c.pauseChord,"settings publish complete tuple");
     std::printf("%d controller emulation checks passed\n",checks);
