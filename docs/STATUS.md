@@ -1,3 +1,22 @@
+## Crash support tooling (2026-09-17)
+
+VR-133: Microsoft-signed ProcDump12.01 downloaded locally under build/diagnostics.
+External capture tested on a disposable non-game fixture: valid minidump contains
+threads, modules and MemoryInfoList. No game launched or dump captured.
+Full game-memory capture was blocked by automatic approval review pending explicit
+consent; user question remains pending. Watcher is not armed.
+
+Added tools/collect-support.ps1 and release/Collect VR Support.cmd. Installed the
+collector beside the game and added it to package.ps1. Real support ZIP created in
+build/support-tests. Tests cover locked log, spaces, custom DataDir, optional missing
+files, whitelist, dump exclusion by default and explicit dump inclusion.
+Added opt-in tools/watch-crashes.ps1: exact-path/PID attachment, memory CSV, one
+dump on memory threshold/exception/termination, then preserve logs. Normal exits
+can trigger and must not be labelled crashes. No automatic uploads.
+Added archive-symbols.ps1 to packaging; exact443 DLL/PDB retained by DLL SHA256.
+See docs/CRASH_SUPPORT.md for player workflow, limitations and crash-prevention plan.
+Build443 DLL and installed INI unchanged. Allocation crash is not fixed.
+
 ## Build443 texture allocation crash confirmed (2026-09-17)
 
 Wheel options reported working before a rendering-thread Texture LockRect

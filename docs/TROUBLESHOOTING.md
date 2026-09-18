@@ -1,3 +1,11 @@
+## Collect a crash report
+
+After a problem, double-click Collect VR Support.cmd beside Dishonored.exe.
+A ZIP appears in Desktop/DishonoredVR Support. Send it with what you were doing,
+your headset/runtime and any texture mods. Collect before relaunching if possible.
+Nothing uploads automatically; logs can contain local paths. Memory dumps are
+excluded unless explicitly requested. See CRASH_SUPPORT.md in the repository.
+
 # Troubleshooting
 
 First: find your log. It is `dishonored_vr.log` in the game folder (next to `Dishonored.exe`,
