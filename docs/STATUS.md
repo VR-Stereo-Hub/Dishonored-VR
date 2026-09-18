@@ -1,3 +1,11 @@
+## Installed448: wheel input recovery candidate (2026-09-17)
+
+Installed vr33-hands-working-448-gf2e1d52b0.202 controller tests, release and9
+exports pass. Both logs/prior DLL/full INI archived at
+installs/20260917-221854-588188. Entire INI unchanged; CRLF and DLL/INI hashes
+independently verified. External memory watcher45180 is waiting, stderr empty.
+No game launched. Right-stick recovery after counterattack remains headset-pending.
+
 ## Released wheel input recovery and armed memory capture (2026-09-17)
 
 Full memory capture explicitly authorized. External watcher PID recorded in
