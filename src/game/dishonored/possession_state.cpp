@@ -40,13 +40,56 @@ static bool PossessionStereoLive() {
     return ok && now >= ok && now - ok <= 250;
 }
 
-// Every class in the shipped scripts that extends DisPossessablePawn. The
-// back-pointer offsets are declared on DisPossessablePawn, so they are read
-// only on a class known to carry them.
-static bool PossessableClass(const char* cls) {
-    static const char* const kClasses[] = {
-        "DisPossessionProxyPawn", "DishonoredNPCPawn", "DisDLC06NPCPawn", "DisTallboyNPCPawn" };
+// Class name of a UClass object itself (its own FName), not of its class.
+static const char* PossStructName(uint8_t* cls) {
+    if (!cls || ((uintptr_t)cls & 3) || !RangeReadable(cls, kSuperFieldOff + 4)) return nullptr;
+    return RealName(*(uint32_t*)(cls + kNameOff));
+}
+
+// Does obj's class descend from `base`, by the engine's own SuperField chain?
+// -1 = the chain could not be read (caller falls back to the name list).
+static int PossIsA(uint8_t* obj, const char* base) {
+    if (!obj || !RangeReadable(obj + kClassOff, 4)) return -1;
+    uint8_t* cls = *(uint8_t**)(obj + kClassOff);
+    for (int depth = 0; cls && depth < 32; ++depth) {
+        const char* n = PossStructName(cls);
+        if (!n) return -1;
+        if (!strcmp(n, base)) return 1;
+        if (!strcmp(n, "Object")) return 0;
+        cls = *(uint8_t**)(cls + kSuperFieldOff);
+    }
+    return -1;
+}
+
+// The ancestry walk is trusted only once it reproduces a published chain:
+// the live player pawn must reach Pawn and Actor (ENGINE_NOTES, SuperField).
+static int g_possChain = -1;   // -1 untested, 0 failed, 1 passed
+static void PossVerifyChain(uint8_t* playerPawn) {
+    int& verified = g_possChain;
+    if (verified >= 0 || !playerPawn) return;
+    const int pawn = PossIsA(playerPawn, "Pawn"), actor = PossIsA(playerPawn, "Actor");
+    const int wrong = PossIsA(playerPawn, "DisPossessablePawn");
+    verified = (pawn == 1 && actor == 1 && wrong == 0) ? 1 : 0;
+    Log("possession/stereo: SuperField chain check on the player pawn: Pawn=%d Actor=%d DisPossessablePawn=%d (want 1/1/0) -> %s",
+        pawn, actor, wrong, verified ? "ancestry walk TRUSTED" : "ancestry walk REFUSED, class name list only");
+}
+
+// Every DisPossessablePawn subclass in the shipped scripts (base game and both
+// DLCs), the fallback when the ancestry walk is not trusted. Rats, fish and
+// river krusts are not pawns: possessing one puts the player in a
+// DisPossessionProxyPawn. The back-pointers are declared on DisPossessablePawn,
+// so they are read only on a class that carries them.
+static bool PossessableClass(uint8_t* pawn, const char* cls) {
     if (!cls) return false;
+    if (g_possChain == 1) {
+        const int a = PossIsA(pawn, "DisPossessablePawn");
+        if (a >= 0) return a == 1;
+    }
+    static const char* const kClasses[] = {
+        "DisPossessionProxyPawn", "DishonoredNPCPawn", "DisTallboyNPCPawn",
+        "DisDLC06NPCPawn", "DisDLC06AssassinNPCPawn", "DisDLC06ButcherNPCPawn",
+        "DisDLC06SummonedAssassinNPCPawn", "DisDLC07NPCPawn", "DisDLC07AssassinNPCPawn",
+        "DisDLC07GravehoundNPCPawn", "DisDLC07SummonedAssassinNPCPawn", "DisDLC07TentacleNPCPawn" };
     for (const char* c : kClasses) if (!strcmp(cls, c)) return true;
     return false;
 }
@@ -64,17 +107,18 @@ static void PossessionStateTick() {
     nextSample = now + 50;
 
     static uint32_t pawnOff = 0, ctrlOff = 0, playerOff = 0, fxOff = 0, stageOff = 0;
-    static bool resolved = false;
+    static bool resolved = false, stageOk = false;
     if (!resolved && RflNamesReady()) {
         pawnOff   = RflOffsetOf("Controller", "Pawn");
         ctrlOff   = RflOffsetOf("DisPossessablePawn", "m_pPossessingController");
         playerOff = RflOffsetOf("DisPossessablePawn", "m_pPossessingPlayerPawn");
         fxOff     = RflOffsetOf("DishonoredPlayerController", "m_PossessionEffectSettings");
-        stageOff  = RflOffsetOf("DisPossessionEffectSettings", "m_Stage");
+        // A struct member at offset 0 is valid; RflOffsetOf reports 0 as a miss.
+        stageOk   = FindPropOffsetChecked("DisPossessionEffectSettings", "m_Stage", &stageOff);
         resolved = true;
         Log("possession/stereo: layout Controller.Pawn=+0x%x DisPossessablePawn.m_pPossessingController=+0x%x "
-            "m_pPossessingPlayerPawn=+0x%x effect=+0x%x stage=+0x%x%s",
-            pawnOff, ctrlOff, playerOff, fxOff, stageOff,
+            "m_pPossessingPlayerPawn=+0x%x effect=+0x%x stage=%s+0x%x%s",
+            pawnOff, ctrlOff, playerOff, fxOff, stageOk ? "" : "MISSING ", stageOff,
             (pawnOff && ctrlOff && playerOff) ? "" : "  <-- REQUIRED FIELD MISSING, possession stays mono");
     }
 
@@ -88,7 +132,10 @@ static void PossessionStateTick() {
     if (!pawnOff || !ctrlOff || !playerOff) why = "layout unresolved";
     else if (!ctrl || !IsLiveObject(ctrl) || !LooksLikeObj(ctrl)) why = "controller not live";
     else if (!(pawn = PossReadPtr(ctrl, pawnOff))) why = "controller has no pawn";
-    else if (!PossessableClass(cls = ObjClassName(pawn))) why = "pawn is not possessable (ordinary play)";
+    else if (!PossessableClass(pawn, cls = ObjClassName(pawn))) {
+        why = "pawn is not possessable (ordinary play)";
+        if (cls && !strcmp(cls, "DishonoredPlayerPawn") && IsLiveObject(pawn)) PossVerifyChain(pawn);
+    }
     else if (!IsLiveObject(pawn)) {
         why = "possessable pawn not in the live table";
         // The proxy is spawned after the level's table was built. The capsule
@@ -103,7 +150,7 @@ static void PossessionStateTick() {
         if (!pc || !strstr(pc, "PlayerPawn")) why = "possessing player pawn has the wrong class";
         else ok = true;
     }
-    if (fxOff && stageOff && ctrl && pawn) {
+    if (fxOff && stageOk && ctrl && pawn) {
         unsigned char v = 255;
         if (RangeReadable(ctrl + fxOff + stageOff, 1)) { v = *(ctrl + fxOff + stageOff); stage = v <= 4 ? v : -1; }
     }

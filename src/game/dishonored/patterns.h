@@ -58,6 +58,10 @@ static const uintptr_t kGNamesNum  = 0x1435678;
 static const uint32_t  kNameOff  = 0x28;
 static const uint32_t  kClassOff = 0x30;
 static const uint32_t  kOuterOff = 0x24;
+// UStruct::SuperField (ENGINE_NOTES "UStruct::SuperField is at +0x44": the offset
+// at which DishonoredPlayerPawn -> Pawn -> Actor -> Object resolve by name). Users
+// re-verify that chain at runtime before trusting an ancestry answer.
+static const uint32_t  kSuperFieldOff = 0x44;
 
 // ---- SkeletalMeshComponent layout (VR-31, resolved from UE3 reflection at
 // runtime; these are the values measured on this build 2026-09-06, kept here so
