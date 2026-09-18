@@ -1,3 +1,19 @@
+## Installed437: recovery rollback to build433 (2026-09-17)
+
+Installed vr33-hands-working-437-g0d415c741 on codex/misc-fixes.
+All production source matches build433 commit5dee90153 exactly. Release build,
+9 export checks,96 catalog/policy checks and22 handoff checks pass.
+Both logs, prior DLL and full INI archived at
+build/playtest-candidates/installs/20260917-210002-856329.
+Independent installed DLL/INI hash checks pass. Entire installed INI is
+byte-identical to the previous one, including latest F10 values; CRLF verified.
+No game or simulator launched. Headset recovery test pending.
+
+One launch question: are normal crouching, jumping and looking around restored,
+including the same window exit? Success supports the build435 regression being
+removed. Remaining disruption requires investigating the earlier path or session
+state. Independent arm visibility is still unfinished; do not test that here.
+
 ## Build435 rejected: restore build433 pose policy (2026-09-17)
 
 Tester reports unwanted crouch animation, native animation close to the face and
