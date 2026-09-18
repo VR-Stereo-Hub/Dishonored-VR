@@ -1,3 +1,20 @@
+## Build443 reported freeze repeats allocation failure (2026-09-17)
+
+After longer play, tester reported a freeze instead of the prior crash dialog.
+Process was already absent when inspected; no live hang dump was possible.
+Installed443 DLL/banner verified, both logs/latest profile preserved under
+build/playtest-candidates/wheel-options/freeze443.
+
+Final log at51895218: SYSTEMMEM1024x1024 DXT5 single-level shadow creation fails
+8007000e. VirtualFree67.1MiB, largestFree0.9MiB, committed3563.1MiB,
+liveTwins3003; physicalAvailable14933.9MiB. Same allocation failure class as
+the previous crash, now with a smaller requested texture and smaller free block.
+Reported freeze cannot be independently classified as a deadlock without stacks.
+Do not treat it as evidence of a new wheel/camera defect. No prevention fix yet.
+External full-dump permission remains pending; watcher not armed. No game launched
+or settings changed. Priority is capture before exhaustion and identify memory
+owners/lifetimes. Full-memory dumps may contain private process data.
+
 ## Crash support tooling (2026-09-17)
 
 VR-133: Microsoft-signed ProcDump12.01 downloaded locally under build/diagnostics.
