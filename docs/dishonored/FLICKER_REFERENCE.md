@@ -30,10 +30,17 @@
    logs `possession/stereo: VALIDATED` then `stereo/state: STEREO ... possessed=1`
    and the beat shows L/s=R/s; if it still shows `mono/s`, another gate (the
    stereo method or runtime) refuses and the log names it.
-5. **Results:** builds, lint clean, golden regenerated; NOT yet run. No headset or
-   simulator verdict.
-6. **Status:** measured cause, candidate installed, open. Entry/exit transitions
-   and menus during possession are the regression watch.
+5. **Results:** build458 run 08:33-08:54 (banner verified, log in
+   `build/playtest-candidates/possession-rain/support-20260918-085448-848.zip`).
+   Two rat possessions (5089906..5109625, 5126843..5147062): `VALIDATED
+   (DisPossessionProxyPawn)`, `stereo/state: STEREO possessed=1`, beats L/s=R/s
+   68..112, mono/s=0 throughout. Counterprediction held. Remaining gap: about
+   0.6 s FALLBACK at each entry between the pawn switch and validation, with
+   camera uploads also silent (rawAge 593..610), so the engine itself paused
+   there. Exit returned to the player FSM with no refusal. No headset verdict
+   yet (log-level result only).
+6. **Status:** log-confirmed stereo during possession; perceptual verdict open.
+   The entry gap is the next thing to look at only if it is visible.
 
 ## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
 

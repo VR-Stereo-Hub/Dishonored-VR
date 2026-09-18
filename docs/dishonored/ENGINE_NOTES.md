@@ -33,6 +33,17 @@ A raw `HiddenGame` write would not reach the render proxy. The `rain/box` line
 logs the box extent and the emitter's location in the camera frame; the near-eye
 design waits on those numbers. Unverified in game as of this entry.
 
+Build458 run (08:33): `m_RainBoxExtent` = 500/500/500 uu, 40 drops,
+`m_RainDirection` 0,0,-1, `m_fRainSpawnKillRate` 0 in the first rainy area and
+about 10000 in a later one. The Emitter ACTOR's Location sat 74..118 m from the
+camera (e.g. fwd -5080 right -4672 up 2686 uu) and moved only when the emitter
+was re-created, so the actor Location does NOT describe where drops are drawn:
+the drops are placed natively around the view inside the extent. A near-eye
+design therefore cannot come from moving the actor; the candidates are the
+extent and the drop module. The `m_Stage` lookup missed: it is a struct member
+at offset 0, which `RflOffsetOf` reports as a miss, so the effect stage logged
+as unavailable (evidence only, not gated).
+
 ## Build452 full-dump texture accounting (2026-09-18)
 
 Exact DLL SHA256537812eb74f594ba3b700284f782132af14620de31509dbd0d3b55098cd091b4.

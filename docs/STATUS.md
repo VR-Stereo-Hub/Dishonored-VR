@@ -22,9 +22,14 @@ extent, drops, emitter position in the camera frame) and adds a targeted hide of
 only that emitter via native PrimitiveComponent.SetHidden, shipped OFF. Near-eye
 placement waits on the rain/box numbers from a rainy run. Unverified.
 
-Launch question (one): during a rat possession, is the view stereo? Details and
-outcome meanings in docs/dishonored/NEXT_SESSION.md. No game launched, no PR,
-no merge.
+Result of the 08:33 run (tester launched; watcher dump is a normal-exit
+termination dump, peak private 2497.5 MiB / virtual 3318.4 MiB): both rat
+possessions VALIDATED and presented stereo (beats L/s=R/s, mono/s=0); about
+0.6 s mono at each entry while the engine's own camera uploads paused. Headset
+verdict still wanted. The three caught startup exceptions match 452's exactly
+(same two functions, shifted +0x8f0 by the new code): pre-existing, not new.
+Rain: extent 500 uu cube, 40 drops; the emitter actor sits 74..118 m away, so
+its Location is not the drop box (ENGINE_NOTES top). No PR, no merge.
 
 ## Claude takeover: accepted streaming run, rain and possession pending (2026-09-18)
 
