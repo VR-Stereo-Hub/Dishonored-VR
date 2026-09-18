@@ -1,4 +1,12 @@
-## Current: independent action controls candidate (2026-09-17)
+## Installed433: independent action controls (2026-09-17)
+
+Installed vr33-hands-working-433-g5dee90153 from clean source. Release build,
+9 exports,96 catalog checks,22 handoff checks,1000 production hook ABI calls,
+cinematic math/scope restoration tests, default-profile parity and lint pass.
+Archive: build/playtest-candidates/installs/20260917-202500-036762.
+Both logs preserved. Full installedINI diff contains exactly one added setting:
+Anim.Action.0.StatePlayerMasterJump=0. Removing it reproduces every prior byte;
+CRLF and installed DLL/INI hashes independently verified. No game launched.
 
 codex/misc-fixes, VR-134. Build431 door/keyhole fix reported accepted; both logs,
 latestINI and verified DLL identity preserved in misc-special-camera/reported431.
