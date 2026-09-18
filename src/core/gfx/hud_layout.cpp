@@ -59,6 +59,7 @@ const RowDef kRows[ElCount] = {
     { "detection",    -1, {0, 0, 0, 0},                       false, AnchorWindow, "the detection arrows around the reticle (unmeasured)" },
     { "skipgauge",    -1, {0, 0, 0, 0},                       false, AnchorWindow, "the hold-to-skip gauge (unmeasured)" },
     { "darkvision",   -1, {0, 0, 0, 0},                       false, AnchorWindow, "the dark vision overlay (unmeasured)" },
+    { "keyhole",      -1, {0, 0, 0, 0},                       false, AnchorOff,    "the keyhole mask while peeking through a door: any draw at least half the screen wide while the pawn is in the keyhole state (two full-width bands, a 1.03 x 0.56 band and a 0.63 x 0.57 silhouette; the pub door, 2026-09-18)" },
     { "vignette",     -1, {0, 0, 0, 0},                       true,  AnchorWindow, "any draw wider and taller than 60 % of the screen (a full-screen fill)" },
     { "pause",         3, {0, 0, 0, 0},                       false, AnchorWindow, "the pause menu (by its UI owner context while it rides)" },
     { "note",          4, {0, 0, 0, 0},                       false, AnchorWindow, "a readable note (by context)" },
@@ -122,6 +123,7 @@ bool g_readHand[2]={false,false};
 float g_readTilt=0;
 float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
+std::atomic<bool> g_keyholeActive{false};   // VR-133: written on the script lane, read by sink_for
 bool g_visualRiding=false;
 WheelVisualLease g_wheelVisual;
 float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
@@ -187,6 +189,7 @@ void rebuild_rows() {
         g_rows[e].name = kRows[e].name;
         g_rows[e].context = kRows[e].context;
         g_rows[e].vignette = kRows[e].vignette;
+        g_rows[e].keyhole = (e == ElKeyhole);
         memcpy(g_rows[e].rect, g_el[e].rect, sizeof(g_rows[e].rect));
     }
 }
@@ -237,7 +240,7 @@ void refresh_status_line() {
         const char* why = "";
         if (g_el[e].anchor == AnchorOff) why = "(hidden)";
         else if(e==ElObjective && g_routeObjectives) why="(moving-shape candidate)";
-        else if (kRows[e].context < 0 && e != ElDefault && !kRows[e].vignette && !measured(e)) why = "(no region: rides default)";
+        else if (kRows[e].context < 0 && e != ElDefault && e != ElKeyhole && !kRows[e].vignette && !measured(e)) why = "(no region: rides default)";
         w = _snprintf(p, n, "%s=%s%s ", kRows[e].name, kAnchorNames[g_el[e].anchor], why);
         if (w < 0 || (size_t)w >= n) break;
         p += w; n -= w;
@@ -553,6 +556,12 @@ void forget_draw_owners() { dvr::objectivemarkers::clear_rune_positions(); g_sta
 bool native_gameplay_reference() {return g_nativeGameplayReference && !g_visualRiding;}
 bool native_objective_upright(int e) {return !native_gameplay_reference() && g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
 bool menu_exit_heading() {return g_menuExitHeading.load();}
+void set_keyhole_active(bool on) {
+    if (g_keyholeActive.exchange(on) != on)
+        DVR_INFO("hud/keyhole: mask routing %s (the four mask draws -> the '%s' row, anchor %s)",
+                 on ? "ON" : "off", kRows[ElKeyhole].name, kAnchorNames[g_el[ElKeyhole].anchor]);
+}
+bool keyhole_active() { return g_keyholeActive.load(); }
 bool pause_scene_freshness() {return g_pauseSceneFreshness.load();}
 bool menu_riding() { return g_menuRiding; }
 float native_objective_scale(int e) {return !native_gameplay_reference() && g_nativeObjectives && !g_menuRiding && e==ElObjective ? g_nativeObjectiveScale : 1.f;}
@@ -619,6 +628,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     id.context = g_visualRiding ? g_ridingContext : -1;
     id.hasRect = bbox != nullptr;
     if (bbox) memcpy(id.rect, bbox, sizeof(id.rect)); else memset(id.rect, 0, sizeof(id.rect));
+    id.keyhole = g_keyholeActive.load();
     const int spatial = hudroute::route(g_rows, ElCount, id, ElDefault);
     const uint32_t drawFrame=(uint32_t)dvr::frame::count();
     const bool isolatedIcon=id.context<0 && g_nativeObjectives && bbox &&
@@ -1306,6 +1316,7 @@ void log_list() {
         char idn[96];
         if (kRows[e].context >= 0) _snprintf(idn, sizeof(idn), "context %d", kRows[e].context);
         else if (kRows[e].vignette) _snprintf(idn, sizeof(idn), "wider and taller than 60 %%");
+        else if (e == ElKeyhole) _snprintf(idn, sizeof(idn), "at least half the screen wide while peeking through a keyhole");
         else if (measured(e)) _snprintf(idn, sizeof(idn), "region [%.3f,%.3f - %.3f,%.3f]", g_el[e].rect[0], g_el[e].rect[1], g_el[e].rect[2], g_el[e].rect[3]);
         else _snprintf(idn, sizeof(idn), e == ElDefault ? "everything unclaimed" : "UNMEASURED (rides default)");
         idn[sizeof(idn) - 1] = 0;
@@ -1569,6 +1580,7 @@ void draw_ui() {
         ImGui::SameLine();
         if (kRows[e].context >= 0) ImGui::TextDisabled("screen");
         else if (kRows[e].vignette) ImGui::TextDisabled("full-screen rule");
+        else if (e == ElKeyhole) ImGui::TextDisabled("keyhole state rule");
         else if (e == ElDefault) ImGui::TextDisabled("unclaimed draws");
         else if(e==ElObjective && g_routeObjectives) ImGui::TextDisabled("moving marker");
         else if (measured(e)) ImGui::TextDisabled("region ok");

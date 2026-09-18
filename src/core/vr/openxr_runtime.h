@@ -662,8 +662,10 @@ void set_hud_texture_provider(HudTextureProviderFn fn);
 // other descriptor's. The swapchain is sized to the CROP and filled with
 // CopySubresourceRegion, so a quad costs its own pixels, not the whole sink.
 // The runtime accepts 16 layers; the array holds the slots, the cap hides the
-// rest and counts them.
-constexpr int kMaxHudQuads = 32;
+// rest and counts them. The slot space is one per element row, one per anchor
+// catch-all and the objective marker slots (hud_layout's static_assert); the
+// keyhole row (VR-133) took it past 32.
+constexpr int kMaxHudQuads = 36;
 enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2, LocalBillboard = 3 };
 enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1, CameraPlane = 2, OpeningPlane = 3 };
 struct HudQuadDesc {

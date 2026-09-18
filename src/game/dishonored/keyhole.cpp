@@ -61,6 +61,9 @@ static void KeyholeTick() {
     const double now=MaimNowMs();
     uint8_t* pc=g_ctLayout && IsLiveObject(g_peCtrl) ? g_peCtrl : nullptr;
     uint8_t* cam=CtObject(pc,g_ctPcCamera);
+    // The HUD's keyhole mask row follows the state, lever or not: hiding the
+    // mask is the element table's decision ([Hud] Element.keyhole, ships off).
+    dvr::hudlayout::set_keyhole_active(in);
     if (in && !g_khIn) {
         g_khIn=true; g_khEnterMs=now; g_khLogMs=now+1000; ++g_khPeeks;
         g_khEntryHeadYaw=g_hmdYaw*57.29578f; g_khEntryCtrlYaw=KhCtrlYawDeg();

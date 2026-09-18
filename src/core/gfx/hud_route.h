@@ -47,13 +47,26 @@ struct Row {
     int   context;        // >= 0: the screen's UI owner context (dvr::mono::Context); -1: a gameplay element
     float rect[4];        // the region that claims a draw whose CENTRE lies inside; all zero = unmeasured
     bool  vignette;       // the rule "wider AND taller than 60 % of the screen" instead of a rectangle
+    bool  keyhole = false; // VR-133: the keyhole mask's row, claimed by STATE (see keyhole_mask)
 };
 
 struct Identity {
     int   context;        // the riding screen's context, or -1
     bool  hasRect;
     float rect[4];
+    bool  keyhole = false; // VR-133: the pawn is peeking through a door keyhole (published by the game side)
 };
+
+// VR-133: the keyhole mask is four HUD draws per present while the pawn peeks
+// (measured on the pub door, 2026-09-18): two full-width bands 0.229 tall at
+// the top and bottom, a 1.03 x 0.56 middle band and a 0.63 x 0.57 silhouette
+// that grows past 60 % when the view nears the cone's edge. Every one is at
+// least half the screen wide; no other gameplay element is wider than 0.30
+// (the prompt's plate is 0.25). So while the state is on, width alone names
+// the mask, ahead of the vignette rule the silhouette otherwise trips.
+inline bool keyhole_mask(const Identity& id) {
+    return id.keyhole && id.hasRect && id.rect[2] - id.rect[0] >= 0.5f;
+}
 
 inline bool row_measured(const Row& r) { return r.rect[2] > r.rect[0] && r.rect[3] > r.rect[1]; }
 
@@ -115,13 +128,16 @@ inline int route(const Row* rows, int n, const Identity& id, int defaultRow) {
     if (!id.hasRect) return defaultRow;
     const float w = id.rect[2] - id.rect[0], h = id.rect[3] - id.rect[1];
     const float cx = (id.rect[0] + id.rect[2]) * 0.5f, cy = (id.rect[1] + id.rect[3]) * 0.5f;
+    if (keyhole_mask(id)) {
+        for (int i = 0; i < n; ++i) if (rows[i].keyhole) return i;
+    }
     if (w > 0.6f && h > 0.6f) {
         for (int i = 0; i < n; ++i) if (rows[i].vignette) return i;
         return defaultRow;
     }
     for (int i = 0; i < n; ++i) {
         const Row& r = rows[i];
-        if (r.context >= 0 || r.vignette || !row_measured(r)) continue;
+        if (r.context >= 0 || r.vignette || r.keyhole || !row_measured(r)) continue;
         if (cx >= r.rect[0] && cx <= r.rect[2] && cy >= r.rect[1] && cy <= r.rect[3]) return i;
     }
     return defaultRow;
