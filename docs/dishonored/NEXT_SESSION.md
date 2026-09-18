@@ -1,4 +1,12 @@
-## Current: retain animation with hidden arms (2026-09-17)
+## Installed435: retain animation with hidden arms (2026-09-17)
+
+Clean source bdd7d207a installed as vr33-hands-working-435-gbdd7d207a.
+Release,9 exports,103 catalog/policy checks plus22 handoff checks, lint and
+default-profile parity pass. Both logs/priorDLL/fullINI preserved at
+build/playtest-candidates/installs/20260917-204023-021893. Whole INI comparison
+changes only Jump action0->1, adds Mantle action1 and Mantle Arms1->0.
+Reversing those changes reproduces every prior byte. CRLF and installed DLL/INI
+hashes independently verified. No game/simulator launched. Headset test pending.
 
 Build433 mantle regression confirmed: Arms off returns hands to controller tracking
 while the native FSM remains Mantle. Logs/latestINI archived in
