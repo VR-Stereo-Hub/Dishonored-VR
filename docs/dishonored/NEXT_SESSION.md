@@ -1,3 +1,14 @@
+## Installed452: released wheel camera recovery (2026-09-17)
+
+Installed vr33-hands-working-452-g1d029a1eb.210 controller checks, release build,
+9 exports and diff checks pass. Prior DLL/INI and both logs archived at
+installs/20260917-230637-442851. Independent whole-file comparison proves the
+only installed INI change is Element.vignette=window to frame; CRLF and installed
+DLL/INI hashes verified. All other current F10 values preserved. Rain unchanged.
+Symbols archived by DLL hash. No game launched. Test question remains below.
+Latest448 log is preserved;450 was installed but not represented by a new log.
+No crash-prevention claim and no headset acceptance of452 yet.
+
 ## Released wheel camera ownership candidate (2026-09-17)
 
 Latest on-disk run is448 (log ends22:29:16), not installed450. Installed450
