@@ -1,3 +1,18 @@
+## Current: retain animation with hidden arms (2026-09-17)
+
+Build433 mantle regression confirmed: Arms off returns hands to controller tracking
+while the native FSM remains Mantle. Logs/latestINI archived in
+animation-action-controls/reported433 after DLL/banner verification.
+VR-134 now separates native pose ownership from full-arm visibility. Hidden arms
+draw clipped/rounded animated hands with the original native palette; weapons retain
+native animation. Camera and cancellation hook unchanged.103 policy/catalog checks
+plus22 handoff checks pass. See ANIM-HANDOFF-PLAN.md current section.
+
+Next launch isolates mantle: action enabled, forearms hidden, native hands/weapon
+should still animate through the climb. Static/tracked hands falsify pose separation;
+full forearms indicate split routing failure. Restore the prior jump-disable test to
+enabled so it cannot interfere with reaching the ledge. Keep all other saved settings.
+
 ## Installed433: independent action controls (2026-09-17)
 
 Installed vr33-hands-working-433-g5dee90153 from clean source. Release build,

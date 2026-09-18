@@ -1,3 +1,32 @@
+## VR-134: arm visibility must not select pose ownership (2026-09-17)
+
+Build433 mantle report confirmed in verified logs: Arms.0.StatePlayerMasterMantle=0
+produces PLAYER while the master FSM remains Mantle and reports a mantle sequence.
+Arms=1 produces GAME. Thus the visible animation was overridden by tracked hands;
+this is not evidence that the native mantle action was cancelled. Both logs/latestINI
+are preserved in animation-action-controls/reported433. Native block requests were
+also logged as rejected, but no general cancellation acceptance is inferred.
+
+Correction: native action pose ownership derives from voluntary action states and
+existing scripted-action defaults independently of Arms.*. Visibility selects full
+arms versus the existing clipped/rounded hands under the native animated palette.
+Weapon native ownership remains intact. The split bypasses controller palette and
+depth overrides for native hands. Normal unchecked walking remains controller-driven.
+Whole-body action visibility takes priority over upper/left states; idle/walking
+do not override a real upper-body action. Visibility is frozen with pose weight for
+a render frame, preserving the stereo pair. No engine state or camera change.
+
+103 catalog/policy checks plus22 handoff checks pass. New cases cover hidden mantle
+retaining its pose, unchanged checked mantle, tracked walking and split/full geometry
+routing. Release builds. Headset result pending; existing split qualification still
+fails open if geometry is unavailable. Earlier433 documentation calling Arms.*
+independent was incomplete: it was independent of action rejection, not native pose.
+
+Next launch: with Enable action on and Show game arms off for Mantling, do the hands
+and weapon still animate through the climb while forearms remain hidden? Normal
+animation supports separation; tracked/static hands mean another pose override;
+visible forearms mean the split route failed. Enable action stays on for this test.
+
 ## VR-134 independent action requests and arms (2026-09-17)
 
 F10 Animations now has separate Enable action and Show game arms controls.

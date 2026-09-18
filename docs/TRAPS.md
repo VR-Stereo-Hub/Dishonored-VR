@@ -1,3 +1,11 @@
+## Arm visibility and animation ownership are different (2026-09-17)
+
+Build433 Arms.* checkboxes selected native pose ownership as well as full-arm drawing.
+Unchecked mantle therefore kept the native FSM action but overrode its hand animation
+with controller placement. Separate pose classification from mesh visibility. Hidden
+arms must use the clipped hand mesh with native bone constants, not controller poses.
+See ANIM-HANDOFF-PLAN.md for verified log evidence and the corrective candidate.
+
 # Traps and the graveyard
 
 ## Reading attachment is a relative pose, not an opening pitch fit (2026-09-17)

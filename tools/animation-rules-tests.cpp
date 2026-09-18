@@ -23,5 +23,13 @@ int main(){
     check(cancellable_action(arm_rule_index(0,"StatePlayerMasterJump")),"jump request cancellable");
     check(cancellable_action(arm_rule_index(1,"StatePlayerGrabCorpse")),"body pickup request cancellable");
     check(!cancellable_action(arm_rule_index(1,"StatePlayerCarryCorpseIdle")),"carry recovery remains reachable");
+    const int mantle=arm_rule_index(0,"StatePlayerMasterMantle");
+    check(native_pose_requested(mantle,true,false),"hidden mantle arms retain native pose");
+    check(native_pose_requested(mantle,false,false),"voluntary action retains pose without inherited visibility");
+    check(native_pose_requested(mantle,true,true),"visible mantle arms retain same pose");
+    check(!native_pose_requested(arm_rule_index(0,"StatePlayerMasterWalk"),false,false),"walking remains tracked");
+    check(split_native_hands(true,false),"native pose with hidden arms uses animated hand geometry");
+    check(!split_native_hands(true,true),"native pose with visible arms passes full mesh");
+    check(!split_native_hands(false,false),"tracked pose retains normal hand pipeline");
     std::printf("%u animation catalog checks, %d failures\n",checks,failures);return failures?1:0;
 }
