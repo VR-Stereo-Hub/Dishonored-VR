@@ -8,6 +8,13 @@ param(
 )
 $ErrorActionPreference='Stop'
 $ProcDump=(Resolve-Path -LiteralPath $ProcDump).Path
+# Match the32-bit game so dumps contain native x86 thread contexts. The64-bit
+# utility captures WOW64 host contexts that our x86 stack reader cannot unwind.
+if([IO.Path]::GetFileName($ProcDump) -ieq 'procdump64.exe') {
+    $x86Dumper=Join-Path (Split-Path -Parent $ProcDump) 'procdump.exe'
+    if(-not(Test-Path -LiteralPath $x86Dumper)){throw 'Use the signed32-bit procdump.exe from the same Microsoft package.'}
+    $ProcDump=(Resolve-Path -LiteralPath $x86Dumper).Path
+}
 $sig=Get-AuthenticodeSignature -LiteralPath $ProcDump
 if($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'ProcDump must have a valid Microsoft signature.' }
 $gameExe=Join-Path (Resolve-Path -LiteralPath $GameDir).Path 'Dishonored.exe'

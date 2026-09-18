@@ -1,3 +1,39 @@
+## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
+
+Tester reports hit-camera behavior correct in this run; health vignette invisible
+after frame routing, so the effect placement change is not accepted. Rain unchanged.
+Build452 log banner and installed DLL hash verified. No binary or INI changed.
+
+Captured still-live PID27044 with full ProcDump (3605MB), a later64-bit mini
+snapshot and a32-bit mini snapshot. Local dumps are D:/dvr-data/dumps/
+pause-freeze452-27044*.dmp. Logs/current profile and hashes preserved in
+build/playtest-candidates/pause-freeze452/support-20260918-072855-650.zip.
+Exact452 symbols already archived by DLL hash. No uploads or process termination.
+
+Full dump contains the engine fatal buffer indicating virtual-memory exhaustion.
+The error text is game-generated; its generic disk-space advice is not a diagnosis.
+32-bit mini dump shows main thread25820 in engine fatal cleanup, waiting, while
+threads14964 and15576 wait for the allocator critical section owned by25820.
+This supports an out-of-memory fatal that hangs in cleanup, not a demonstrated
+new pause rendering deadlock. Process private bytes3318243328; virtual bytes
+4121595904. Dump memory map below4GiB:165.28MiB free in total, largest21.875MiB.
+A free-space snapshot does not identify the failed allocation size or owner.
+Unlike443, no final SYSTEMMEM shadow failure is logged; engine allocator fatal
+is directly evidenced by the retained message and stacks.
+
+Tool correction: procdump64 captures AMD64/WOW64 contexts; the existing x86
+reader produces invalid register values on those and must not be trusted.
+The32-bit procdump.exe gives valid x86 registers/frame chains. Watcher now selects
+the signed32-bit sibling when handed procdump64.exe; full64-bit dump remains
+useful for memory inspection. Capture tested directly on the live failed game.
+
+Next: attribute retained memory/texture twins using exact symbols/full dump,
+then choose a measured footprint reduction. No crash-prevention fix is claimed.
+Do not repeat the vignette-to-frame approach as a successful placement fix.
+Restore a visible dedicated effects surface in a future candidate; do not
+silently accept disappearance. Native rain emitter observed with40 drops;
+health lens pointer null in final trace is not proof no red HUD draw existed.
+
 ## Installed452: released wheel camera recovery (2026-09-17)
 
 Installed vr33-hands-working-452-g1d029a1eb.210 controller checks, release build,
