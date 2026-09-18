@@ -94,3 +94,33 @@ Do not repeat the vignette-to-frame approach as a successful placement fix.
 Restore a visible dedicated effects surface in a future candidate; do not
 silently accept disappearance. Native rain emitter observed with40 drops;
 health lens pointer null in final trace is not proof no red HUD draw existed.
+
+## Build452 memory investigation and streaming test (2026-09-18)
+
+Saved dump analyzed with exact452 symbols:2596 live CPU texture twins,
+10200 created minus7604 released, zero twin allocation failures in this run.
+The old shadowBytes counter is cumulative, not live memory.2580 2D twins
+describe1754.64MiB of pixel payload including mip chains;16 cubes excluded.
+86 textures with4096 maximum dimension account for638.67MiB;351 at2048
+account for752.46MiB. Payload estimate excludes driver overhead/alignment.
+Detailed derivation and limits are in ENGINE_NOTES below its new investigation.
+
+Both current game INIs set NumStreamedMips=0 for13 SystemSettings groups.
+Dump confirms large texture objects have full resident/requested mip chains.
+This is strong retained-workload evidence, not proof all crashes are fixed or
+that no other leak exists. Do not attribute who installed those settings.
+
+User authorized closing the newly running game. Closed before config edits.
+Prepared/applied reversible test: only those13 entries per file changed to-1.
+Both full INIs backed up/diffed, CRLF verified, mod INI unchanged. Build452 retained.
+Evidence/config manifest: build/playtest-candidates/texture-streaming452.
+Both logs/current profile archived in its preinstall support ZIP.
+Texture pack,4096 limits, pool160, headset resolution and F10 values unchanged.
+32-bit memory watcher PID28440 armed at3000MB, one dump on threshold/exception/
+exit; no game launched. Verify watcher output before next session's launch.
+
+One launch question: does the previously failing play/pause sequence complete
+without freezing with streaming restored? Expected: lower retained memory and
+normal pause. Freeze with lower memory weakens this mitigation; renewed memory
+exhaustion means streaming is insufficient. Stability in one run is not a release
+guarantee. Vignette placement remains unresolved and was not changed in this test.

@@ -1,3 +1,57 @@
+## Build452 full-dump texture accounting (2026-09-18)
+
+Exact DLL SHA256537812eb74f594ba3b700284f782132af14620de31509dbd0d3b55098cd091b4.
+PDB symbols locate dvr::d3d9ex g_map/g_mapCount and lifecycle counters.
+Map traversal16-byte Ent entries, excluding null/tomb, matches2596 live;
+made10200 minus released7604 exactly reconciles. Failed0. This snapshot cannot
+prove absence of lifetime leaks; it does disprove treating cumulative shadowBytes
+26451.47MiB as live allocation.2580 2D textures plus16 cubes remain.
+
+For this exact Windows D3D9 binary, GetLevelDesc code at RVA0x65D50 bounds
+levels using byte[this-8], dispatches via surface array[this+4].
+Surface getter0x628A0 ->0x62CC0 ->0x62C60 derives dimensions from owning texture
+header. Format[this+8], width[this+32], height[this+36], pool[this+20] are
+consistent with these descriptors; pool2 is SYSTEMMEM. These are offline driver
+layout observations, never runtime writer offsets. Formats:2090 DXT1,312 DXT5,
+158 L8,10 V8U8,10 A8R8G8B8. Sum format-correct mip payloads:
+DXT1737.36MiB, all2D1754.64MiB. Excludes16 cube textures, resource headers,
+row alignment, GPU resources and other driver allocations. It is a payload
+estimate, not a measured VirtualAlloc ownership sum. Largest dimension4096:
+86 twins638.67MiB;2048:351 twins752.46MiB. Combined1391.13MiB.
+
+Reflected Texture2D SizeX260/SizeY264, resident316/requested312 and bIsStreamable
+280 mask1, Texture.LODGroup146 recovered from dump UProperty objects via existing
+UProperty offset0x5c and UBool mask0x6c. Initial use of0x60 for bool mask was
+invalid and corrected before drawing conclusions. Of2019 Texture2D objects,
+1522 flagged streamable;428 of429 with dimensions at least2048 flagged streamable.
+Sample4096 textures have13 resident/requested mips. Streamable eligibility
+does not prove the group policy permits eviction.
+
+Active user DishonoredEngine.ini and installed DefaultEngine.ini SystemSettings
+both set NumStreamedMips=0 for world/normal/specular, character/normal/specular,
+weapon/normal/specular, vehicle/normal/specular and cinematic. No attribution
+to texture pack installer is established. Dishonored parser references its
+NumStreamedMips= key at RVA0x1771A8, parses integer and stores group+0x10.
+Epic's current texture settings documentation describes0 as fully resident,
+-1 as all mips eligible; UE3 archived URL was inaccessible. Current documentation
+is supporting context, not proof of this fork's final streaming behavior:
+https://dev.epicgames.com/documentation/unreal-engine/texture-format-support-and-settings-in-unreal-engine
+
+Targeted test changes only those13 fields per file to-1, with complete backups,
+full diffs and CRLF validation under build/playtest-candidates/texture-streaming452.
+No DLL change, no pack removal, no maximum resolution/pool/F10 changes. User
+authorized closing game; process absent verified before edit. First attempted
+installer refused on the no-process shell exit code before any writes; corrected
+guard then applied and verified both files. Memory watcher uses signed x86 dumper.
+Restored streaming is a mitigation candidate, not yet headset/memory-confirmed.
+
+Alternative: reducing4096 textures to2048 would reduce that class's shadow payload
+by roughlythree quarters, but is not this test. Dropping shadows blindly is unsafe:
+native READONLY mip-copy locks require retained data, and DEFAULT textures cannot
+serve those locks. A future pageable/reconstructible shadow backing would need
+explicit correctness and streaming tests. Do not claim the lifecycle counters
+justify eviction. Saved full dump remains available to investigate other owners.
+
 ## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
 
 Tester reports hit-camera behavior correct in this run; health vignette invisible
