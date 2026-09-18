@@ -1,3 +1,17 @@
+## Wheel opening faces eye position (2026-09-17)
+
+Build439 accepted for mantle and upright wheel. Verified installed DLL/banner;
+both logs and latest INI archived under mantle-upright/accepted439.
+Remaining wheel issue: opening while looking away leaves an awkward yaw.
+Keep its hand-origin position and face the opening eye position in the horizontal
+plane, rather than inherit head rotation. Freeze orientation afterward.
+Visual, gesture axes and distance offset share the same opening normal.
+No mantle, camera, blur or settings changes. Existing wheel tests now measure
+movement along the actual panel right axis, not world X for an off-center panel.
+Next launch: does opening the wheel while looking left/right leave it at the hand,
+upright and squarely facing your position? A tilted/edge-on wheel fails facing;
+movement after opening fails the frozen anchor.
+
 ## Installed439: mantle-only visibility candidate (2026-09-17)
 
 Clean source59cc23a01 installed as vr33-hands-working-439-g59cc23a01.

@@ -52,7 +52,9 @@ int main() {
  for(float side:{-.6f,0.f,.6f}) for(float height:{-.4f,0.f,.4f}) {
    s.reset();float start[3]={side,height,-.5f},eye2[3]={0,0,0};
    s.update(true,true,start,eye2,.04f,.002f,x,y,cameraQ,true);
-   start[0]+=.003f;
+   float axis[3],right[3]={1,0,0};
+   dvr::xrmath::quat_rotate(s.opening.q[0],s.opening.q[1],s.opening.q[2],s.opening.q[3],right,axis);
+   for(int k=0;k<3;++k)start[k]+=.003f*axis[k];
    check(s.update(true,true,start,eye2,.04f,.002f,x,y,cameraQ,true) && x>.999f && std::fabs(y)<.00001f,"3mm selects full right independent of hand position");
  }
  for(int degree=0;degree<360;++degree) {
@@ -85,6 +87,18 @@ int main() {
    check(std::fabs(out[0])<.00001f && std::fabs(out[1]-1)<.00001f && std::fabs(out[2])<.00001f,"dial remains vertical");
    start[1]+=.003f;s.update(true,true,start,entryEye,.04f,.002f,x,y,turnedQ,true);
    check(std::fabs(x)<.00001f && y>.999f,"world-up hand motion selects up after tilted entry");
+ }
+ // Head yaw at opening must not alter orientation or the frozen selection plane.
+ for(float yaw:{-2.f,0.f,2.f}) {
+   s.reset();float q[4],start[3]={-.3f,0,-.4f},eyeAt[3]={0,0,0};
+   dvr::xrmath::quat_axis_angle(0,1,0,yaw,q);
+   check(s.update(true,true,start,eyeAt,.04f,.002f,x,y,q,true),"side opening accepted");
+   float normal[3],z[3]={0,0,1};
+   dvr::xrmath::quat_rotate(s.opening.q[0],s.opening.q[1],s.opening.q[2],s.opening.q[3],z,normal);
+   check(std::fabs(normal[0]-.6f)<.00001f && std::fabs(normal[2]-.8f)<.00001f,"panel faces eye position regardless of head yaw");
+   start[0]+=.003f*.8f;start[2]-=.003f*.6f;
+   s.update(true,true,start,eyeAt,.04f,.002f,x,y,q,true);
+   check(x>.999f && std::fabs(y)<.00001f,"selection agrees with positional facing");
  }
  std::printf("weapon dial: %d checks PASS\n",checks);
 }

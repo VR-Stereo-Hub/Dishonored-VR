@@ -24,7 +24,16 @@ struct State {
         for (int i=0;i<3;++i) tracked = tracked && std::isfinite(hand[i]) && std::isfinite(head[i]);
         if (!held) { held = true; lost = false; valid = tracked;
             if (valid) { for (int i=0;i<3;++i) center[i]=hand[i];
-                if(cameraQ && !opening.capture_upright(cameraQ)) valid=false; } }
+                if(cameraQ) {
+                    // Face the opening eye position, independent of head rotation.
+                    const float dx=head[0]-center[0],dz=head[2]-center[2];
+                    if(dx*dx+dz*dz<.0001f) valid=false;
+                    else {
+                        const float yaw=std::atan2(dx,dz);
+                        const float q[4]={0,std::sin(yaw*.5f),0,std::cos(yaw*.5f)};
+                        valid=opening.capture(q);
+                    }
+                } } }
         if (!tracked) { valid = false; lost = true; }
         // Never re-seed mid-gesture after a tracking loss or invalid opening.
         if (!valid || lost || radius <= deadM || radius <= 0) return false;

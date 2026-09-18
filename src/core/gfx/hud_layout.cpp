@@ -530,7 +530,8 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
         const bool tracked=dvr::vr::peek_head_pose(head) && dvr::vr::input_get_hand_pose(0,false,hp,hq);
         const float eye[3]={head.px,head.py,head.pz},camera[4]={head.qx,head.qy,head.qz,head.qw},f[3]={0,0,-1};
         g_dialVisual.update(true,tracked,hp,eye,g_dialRadius,g_dialDeadM,x,y,camera,g_dialDirection);
-        dvr::xrmath::quat_rotate(camera[0],camera[1],camera[2],camera[3],f,g_dialForward);
+        const auto* q=g_dialVisual.opening.q;
+        dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],f,g_dialForward);
         DVR_INFO("hud/dial: visual entry tracked=%d valid=%d center=%.3f/%.3f/%.3f frame=%u",
             (int)tracked,(int)g_dialVisual.valid,hp[0],hp[1],hp[2],frame);
     }
@@ -594,7 +595,8 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
     if (!was && g_dial.held) {
         g_dialVisual.reset();
         const float f[3]={0,0,-1};
-        dvr::xrmath::quat_rotate(head.qx,head.qy,head.qz,head.qw,f,g_dialForward);
+        const auto* q=g_dial.opening.q;
+        dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],f,g_dialForward);
     }
     if(g_dial.held) {if(g_dial.valid) g_dialVisual=g_dial;else g_dialVisual.reset();}
     if (was != g_dial.held)
