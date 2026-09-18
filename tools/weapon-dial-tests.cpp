@@ -100,5 +100,17 @@ int main() {
    s.update(true,true,start,eyeAt,.04f,.002f,x,y,q,true);
    check(x>.999f && std::fabs(y)<.00001f,"selection agrees with positional facing");
  }
+ for(bool tiltOn:{false,true})for(bool yawOn:{false,true}) {
+   float yawQ[4],tiltQ[4],headQ[4],expected[4],identity[4]={0,0,0,1};
+   dvr::xrmath::quat_axis_angle(0,1,0,.8f,yawQ);
+   dvr::xrmath::quat_axis_angle(1,0,0,.4f,tiltQ);
+   dvr::xrmath::quat_mul(yawQ,tiltQ,headQ);
+   dvr::xrmath::quat_mul(yawOn?yawQ:identity,tiltOn?tiltQ:identity,expected);
+   s.reset();float start[3]={0,0,-.5f},eyeAt[3]={0,0,0};
+   check(s.update(true,true,start,eyeAt,.04f,.002f,x,y,headQ,true,tiltOn,yawOn),"entry option combination valid");
+   for(int k=0;k<4;++k)check(std::fabs(s.opening.q[k]-expected[k])<.00001f,"independent entry angle selection");
+   s.update(true,true,start,eyeAt,.04f,.002f,x,y,identity,true,!tiltOn,!yawOn);
+   for(int k=0;k<4;++k)check(std::fabs(s.opening.q[k]-expected[k])<.00001f,"angle options cannot change open wheel");
+ }
  std::printf("weapon dial: %d checks PASS\n",checks);
 }

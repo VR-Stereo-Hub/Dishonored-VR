@@ -1,3 +1,13 @@
+## Wheel entry angle options (2026-09-17)
+
+Added F10 Weapon dial controls for Follow head tilt on opening and Follow horizontal
+head angle on opening. Hud WeaponDialEntryTilt/WeaponDialEntryYaw default0.
+Both off retains441 hand-origin upright positional facing. Both on restores full
+opening head orientation. Individual toggles replace only yaw or pitch/roll.
+Visual, distance normal and gesture axes share that frozen orientation.
+Options save immediately and take effect on next opening, not mid-gesture.
+Build441 has no claimed headset acceptance. No camera or mantle changes.
+
 ## Wheel opening faces eye position (2026-09-17)
 
 Build439 accepted for mantle and upright wheel. Verified installed DLL/banner;
