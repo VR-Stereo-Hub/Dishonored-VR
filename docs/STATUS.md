@@ -1,3 +1,28 @@
+## Build443 texture allocation crash confirmed (2026-09-17)
+
+Wheel options reported working before a rendering-thread Texture LockRect
+D3DERR_INVALIDCALL crash. Installed443 DLL hash and log banner verified. Both
+logs, latest INI and any existing crash text preserved under
+build/playtest-candidates/wheel-options/crash443. Crash text may predate this run;
+only verified443 log lines are attributed here.
+
+Final log at50621312 records HRESULT8007000e creating a1920x2048 single-level
+SYSTEMMEM shadow texture, format894720068 (DXT5). VirtualFree63.6MiB,
+largestFree2.1MiB, committed3572.8MiB, liveTwins2869. System available commit
+6974.2MiB and physical available15603.1MiB: evidence points to process address
+space exhaustion/fragmentation, not system RAM exhaustion. Failure follows pause
+menu entry. shadow_register_texture returns without a twin on allocation failure;
+the DEFAULT texture remains, so its later lock cannot use the required SYSTEMMEM
+redirect. This matches the screenshot failure and earlier427 allocation signature.
+
+Immediate failure chain established; dominant memory owner, possible leak versus
+asset load, and texture-pack contribution remain unmeasured. Do not attribute it
+to head rotation or call it fixed by reverting working wheel controls.
+No new candidate or setting changes. Next engineering step is measure live shadow
+bytes accurately by format/mips and address-space use across load/menu boundaries,
+then choose a bounded reduction or allocation-path fix. Do not report failed
+texture locks as success or discard shadows that READONLY locks may require.
+
 ## Installed443: entry angle controls (2026-09-17)
 
 Installed vr33-hands-working-443-g057805b9a; release,9 exports and2249 wheel
