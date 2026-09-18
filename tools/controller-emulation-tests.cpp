@@ -86,6 +86,12 @@ int main(){
      ry=0;final_axes(o,false,false,500,23000,lx,ly,rx,ry);check(!ry,"gameplay cannot receive stick pitch");
      final_axes(o,true,true,500,23000,lx,ly,rx,ry);check(!ry,"weapon wheel keeps its own selection axes");
      o.suppressRight=true;final_axes(o,true,false,500,23000,lx,ly,rx,ry);check(!ry,"D-pad owns stick before menu scroll");}
+    check(released_wheel(true,true,false,false,false),"released stale wheel cannot own axes");
+    check(!released_wheel(true,true,true,false,false),"held wheel retains selection");
+    check(!released_wheel(true,true,false,true,false),"real script menu retains navigation");
+    check(!released_wheel(true,true,false,false,true),"cinematic remains blocked");
+    check(!released_wheel(false,true,false,false,false),"inactive input remains neutral");
+    check(!released_wheel(true,false,false,false,false),"other contexts unchanged");
     check(unpack(pack({99,false,true})).modifier==RightRest,"invalid modifier falls back to known default");
     configure({R3,true,false});auto c=config();check(c.modifier==R3 && c.flip && !c.pauseChord,"settings publish complete tuple");
     std::printf("%d controller emulation checks passed\n",checks);

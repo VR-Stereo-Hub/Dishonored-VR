@@ -77,6 +77,11 @@ struct Composer {
         return out;
     }
 };
+// A released physical wheel gesture cannot keep owning controller axes merely
+// because the game's UI open bit stayed set after an interrupted action.
+inline bool released_wheel(bool active,bool reportedWheel,bool held,bool scriptMenu,bool cinematic) {
+    return active && reportedWheel && !held && !scriptMenu && !cinematic;
+}
 // Final boundary after menu shaping: preserve native vertical menu scrolling,
 // and route right-stick lean into the game's left axes without also turning.
 inline void final_axes(const Result& r,bool menu,bool wheel,int16_t rightX,int16_t rightY,

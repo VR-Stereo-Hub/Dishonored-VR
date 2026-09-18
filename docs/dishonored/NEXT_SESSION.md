@@ -1,3 +1,25 @@
+## Released wheel input recovery and armed memory capture (2026-09-17)
+
+Full memory capture explicitly authorized. External watcher PID recorded in
+build/diagnostics/watch-next.pid, waiting via signed ProcDump for user launch;
+Memory threshold3300MB, one full dump on threshold/exception/termination.
+Initial Windows PowerShell worker failed module autoload; restarted with the
+verified available pwsh host. Waiting message confirmed, no game launched.
+
+Build443 counterattack report archived after DLL/banner verification under
+wheel-options/counterattack443. At52632281 reflected Wheel ownership opens during
+blocking; combat continues after grip release while context6 remains published.
+Log explicitly maps raw right input to delivered left axes with right axes zero.
+Lean is0. Exact reason the native UI flag persists remains unproven.
+
+Targeted input guard: while physical wheel grip is released, a lone wheel UI bit
+cannot select wheel-axis routing or ordinary menu shaping. Script menus/cinematics
+still win; presentation state and engine memory are unchanged. Other stale UI
+effects remain outside this input fix. Log pad/wheel-release names the refusal.
+Next launch question: after counterattacking and releasing the wheel grip, does the
+right stick keep turning rather than moving? Failure requires final-axis evidence.
+The separately armed memory capture is observational and may briefly pause play.
+
 ## Build443 reported freeze repeats allocation failure (2026-09-17)
 
 After longer play, tester reported a freeze instead of the prior crash dialog.
