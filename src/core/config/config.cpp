@@ -885,6 +885,12 @@ static void WriteDefaultIni(const char* ini)
         "HeadLook=1\n"
         "Trace=1\n"
         "LockRoll=1\n"
+        "; VR-133 the door keyhole (hold Use on a door): 1 holds the render FOV at the\n"
+        "; gameplay target while peeking, lets the head own the view through the draw scope\n"
+        "; instead of the game's +-35/+-17.6 deg cone, and carries the head's yaw once on\n"
+        "; the way out (the game snaps the controller back to the pre-entry heading).\n"
+        "; Ships 0 until headset-confirmed; `keyhole on|off|status` live, F10 Cine block.\n"
+        "KeyholeHold=0\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"
@@ -2249,6 +2255,7 @@ static void LoadConfig()
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
     CineFovConfigure(ini);
+    KeyholeConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
@@ -3462,6 +3469,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","KeyholeHold",KeyholeHoldEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockPitch",CinePitchEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Blink", "ControllerAim",

@@ -222,6 +222,12 @@ static void CineFovBegin(bool scene);
 static void CineFovEnd();
 static float CineFovClaim();
 static float CineFovScopeTarget();
+static bool KeyholeHoldEnabled();      // VR-133: the door keyhole lever and state
+static bool KeyholeActive(const dvr::anim::Snapshot& s);
+static void KeyholeHoldSet(bool on);
+static void KeyholeConfigure(const char* ini);
+static void KeyholeTick();
+static bool KeyholeInState();
 static bool CineHeadOwnsInput();
 static void CineHeadNoteDispatch();
 static bool CineHeadDispatchFresh();
@@ -230,6 +236,7 @@ static void CineHeadSet(bool on);
 static void CineHeadBegin(bool sceneDraw, bool doubleDraw);
 static void CineHeadPublish();
 static void CineHeadEnd();
+static bool CineHeadResumeYaw(int32_t& delta);   // VR-133: the keyhole's exit carry
 static bool CineBordersEnabled();
 static void CineBordersSet(bool on);
 static void CineBordersConfigure(const char* ini);

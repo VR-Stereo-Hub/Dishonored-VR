@@ -166,6 +166,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     dvr::anim::tick(); // VR-88: sample before any hand override writes
     CineTraceTick(); // VR-70: read-only camera trace layout
+    KeyholeTick();   // VR-133: the door keyhole's state edges (read-only)
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
     // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
     // lever only revalidates the camera object while it is armed, so the seam
@@ -498,6 +499,12 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // disk flush). That burst was the microstutter. The boat is
                 // handled by the intro skip; turn [Overlay] DevTools=1 on
                 // to get them back for the real seat-in fix.
+                // VR-133: the keyhole's exit exec is rare (a Use press, or the
+                // B pulse the physical crouch synthesises) and names who ended
+                // a peek, so it prints unconditionally.
+                if (!strcmp(nm, "Dis_ExitKeyhole"))
+                    Log("keyhole: Dis_ExitKeyhole dispatched on %s (in keyhole state=%d)",
+                        ObjClassName((uint8_t*)obj) ? ObjClassName((uint8_t*)obj) : "?", (int)KeyholeInState());
                 if (g_ovlDev &&
                    (!strcmp(nm, "PawnEnteredVolume")  ||
                     !strcmp(nm, "PawnLeavingVolume")  ||

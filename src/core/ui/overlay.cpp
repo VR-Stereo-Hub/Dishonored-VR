@@ -152,6 +152,8 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Stereo cinematic/dialogue states",&sceneState)) StereoStateSet(sceneState);
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
+        bool keyhole=KeyholeHoldEnabled();
+        if (ImGui::Checkbox("Keyhole: hold FOV, head owns the view (candidate)",&keyhole)) KeyholeHoldSet(keyhole);
     }
     {
         bool imagePose=dvr::vr::image_orientation_enabled();
