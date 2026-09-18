@@ -1,3 +1,13 @@
+## Installed439: mantle-only visibility candidate (2026-09-17)
+
+Clean source59cc23a01 installed as vr33-hands-working-439-g59cc23a01.
+Release build,9 exports and lint pass in addition to the host checks below.
+Both logs/prior DLL/full INI archived at
+build/playtest-candidates/installs/20260917-212054-067201.
+Complete INI comparison changes only NoBlurWheel0->1; reversing that replacement
+reproduces every prior byte. Installed DLL/INI hashes and CRLF independently pass.
+No game launched. Mantle visual correctness and exit remain headset-unverified.
+
 ## Mantle-only pose/visibility correction and upright wheel (2026-09-17)
 
 Build437 rollback accepted: normal movement restored. Dark Vision test with
