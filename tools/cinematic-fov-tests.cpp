@@ -66,6 +66,21 @@ int main() {
         check(cinematic(state),"cinematic handback state classified");
     check(!cinematic("StatePlayerMasterWalk"),"walk releases cinematic ownership");
     check(!cinematic("StatePlayerMasterInStore"),"store does not enter cinematic handback");
+    // VR-133: the keyhole is its own state, never a cinematic, and its hold
+    // lands on the number the walking scope converges to.
+    using dvr::scene_state::keyhole;
+    check(keyhole("StatePlayerMasterHolePeeking"),"keyhole state classified");
+    check(!cinematic("StatePlayerMasterHolePeeking"),"keyhole is not a cinematic handback");
+    check(!keyhole("StatePlayerMasterWalk") && !keyhole("StatePlayerMasterLeaning"),"walk and lean are not the keyhole");
+    check(hold_target(wide,103)==103,"keyhole hold lands on the requested gameplay FOV");
+    check(std::fabs(hold_target(wide,103)-gameplay_target(wide,wide,103))<0.0001f,"hold equals the converged walking scope: no step at release");
+    check(hold_target(wide,0)==wide,"projection FOV off holds at the headset target");
+    check(hold_target(wide,150)==wide && hold_target(wide,std::numeric_limits<float>::quiet_NaN())==wide,"out-of-range request holds at the headset target");
+    ExitBridge keyholeTail, cinematicTail;
+    check(keyholeTail.update(true,false,90,108,1000),"keyhole primes its own tail");
+    check(keyholeTail.update(false,true,90,108,1100),"keyhole tail covers the native ramp back");
+    check(!keyholeTail.update(false,true,107.8f,108,1400),"keyhole tail releases once the sensor is back");
+    check(!cinematicTail.update(false,true,90,108,1100),"a keyhole never primes the cinematic tail");
     dvr::anim::Handoff classify, blend;
     classify.update(true,true,true,1000,250,0);
     blend.update(true,classify.game,true,1000,0,150);

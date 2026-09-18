@@ -15,6 +15,12 @@ inline float gameplay_target(float original,float headsetTarget,float requested)
         std::tan(requested*rad*0.5f)/std::tan(headsetTarget*rad*0.5f))/rad;
     return valid(result)?result:0;
 }
+// VR-133: the keyhole holds the render at the gameplay target, zoom discarded.
+// The same number the walking scope converges to once the native sensor is
+// back at its base, so the hold's release is a no-op, not a step.
+inline float hold_target(float headsetTarget,float requested) {
+    return std::isfinite(requested) && requested>=60 && requested<=120 ? requested : headsetTarget;
+}
 // A cinematic may end before the native zoom blend returns to the VR FOV.
 // Keep the same owner's override until readback converges, with a bounded
 // escape for a stalled sensor. The observed exit recovered in1125ms.

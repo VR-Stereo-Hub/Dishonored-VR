@@ -885,7 +885,12 @@ static void ApplyHeadToViewRotation(void* parms)
         return;
     }
     int32_t menuDelta=0;
-    const bool menuResume=MenuHeadResumeYaw(menuDelta);
+    bool menuResume=MenuHeadResumeYaw(menuDelta);
+    // VR-133: the keyhole's exit carry rides the same one-shot path as the
+    // menu's: the head's travel while the draw scope owned the view is added
+    // to this dispatch's yaw once, and the delta reference re-seats.
+    int32_t keyholeDelta=0;
+    if (CineHeadResumeYaw(keyholeDelta)) { menuDelta+=keyholeDelta; menuResume=true; }
     if(menuResume) {
         prevYaw=g_hmdYaw;prevPitch=g_hmdPitch;havePrev=true;
         frHave=false;frWriteMs=-1.0e9;

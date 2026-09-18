@@ -169,6 +169,10 @@ int main() {
     check(owns_rotation(true,0.4f,0.6f,0),"scripted blend retains the same head scope");
     check(!owns_rotation(false,0.4f,0.6f,0),"ordinary gameplay blend retains native head path");
     check(!owns_rotation(true,-1,0,1),"unknown influence refuses scripted head scope");
+    // VR-133: the keyhole's look-influence camera (0/0/1) is an explicit owner
+    // only through the keyhole state; the same weights in ordinary play are not.
+    check(owns_rotation(true,0,0,1),"keyhole look influence uses the head scope when the state owns it");
+    check(!owns_rotation(false,0,0,1),"look influence alone does not take the head scope");
     // Regression: a left/right sweep while holding the Empress must not orbit
     // a tilted local axis. Expectations are independent Euler axis values.
     const int32_t steep[3]={-10518,10114,5936};
