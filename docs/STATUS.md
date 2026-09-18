@@ -1,3 +1,15 @@
+## Installed443: entry angle controls (2026-09-17)
+
+Installed vr33-hands-working-443-g057805b9a; release,9 exports and2249 wheel
+checks pass, including all four entry-angle combinations and mid-gesture stability.
+Full INI unchanged byte-for-byte; CRLF and installed hashes independently verified.
+Both logs/prior DLL/profile archived in installs/20260917-213358-688802.
+Prior log banner did not match441; no441 playtest interpreted. No game launched.
+Next launch question: do the two F10 entry toggles independently control opening
+tilt and horizontal angle after closing/reopening the wheel? Expected: selected
+axes follow entry head orientation, unchecked axes retain upright positional facing.
+Failure indicates option persistence or orientation selection needs investigation.
+
 ## Wheel entry angle options (2026-09-17)
 
 Added F10 Weapon dial controls for Follow head tilt on opening and Follow horizontal
