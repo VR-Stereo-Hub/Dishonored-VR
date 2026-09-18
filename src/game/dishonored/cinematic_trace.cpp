@@ -89,6 +89,27 @@ static void CineTraceDraw() {
     uint8_t* pc = IsLiveObject(g_peCtrl) ? g_peCtrl : nullptr;
     uint8_t* cam = CtObject(pc, g_ctPcCamera);
     uint8_t* pawn = CtObject(pc, g_ctPawn);
+    // Read-only effect ownership evidence; do not suppress a guessed HUD rectangle.
+    static uint32_t hitOff=0,healthOff=0,healthIndexOff=0,rainOff=0,rainCountOff=0,targetOff=0;
+    static double effectNext=0;
+    if(now>=effectNext) {
+        effectNext=now+1000;
+        if(!hitOff)FindPropOffsetChecked("DishonoredPlayerCamera","m_pHitReact_Influence",&hitOff);
+        if(!healthOff)FindPropOffsetChecked("DishonoredPlayerPawn","m_pCurHealthLensEffect",&healthOff);
+        if(!healthIndexOff)FindPropOffsetChecked("DishonoredPlayerPawn","m_iActiveHealthEffect",&healthIndexOff);
+        if(!rainOff)FindPropOffsetChecked("DishonoredPlayerCamera","m_pRainBoxEmitter",&rainOff);
+        if(!rainCountOff)FindPropOffsetChecked("DishonoredPlayerCamera","m_NumRainDrops",&rainCountOff);
+        if(!targetOff)FindPropOffsetChecked("DishonoredCameraInfluence","m_TargetWeight",&targetOff);
+        auto* hit=CtObject(cam,hitOff);auto* health=CtObject(pawn,healthOff);auto* rain=CtObject(cam,rainOff);
+        float weight=-1,target=-1;int healthIndex=-1,rainCount=-1;
+        if(g_ctWeight)CtRead(hit,g_ctWeight,&weight,4);
+        if(targetOff)CtRead(hit,targetOff,&target,4);
+        if(healthIndexOff)CtRead(pawn,healthIndexOff,&healthIndex,4);
+        if(rainCountOff)CtRead(cam,rainCountOff,&rainCount,4);
+        Log("effects/owners: hit=%p weight=%.3f target=%.3f health=%p class=%s index=%d rain=%p class=%s drops=%d layout=%d/%d/%d; read-only, null may mean inactive or unavailable",
+            hit,weight,target,health,health?ObjClassName(health):"none",healthIndex,
+            rain,rain?ObjClassName(rain):"none",rainCount,int(hitOff!=0),int(healthOff!=0),int(rainOff!=0));
+    }
     int32_t pcRot[3] = {}, camRot[3] = {};
     float loc[3] = {}, c5[3] = {}, pos[3] = {}, cinePos[3] = {};
     const bool pcOk = g_ctActorRot && CtRead(pc, g_ctActorRot, pcRot, sizeof(pcRot));

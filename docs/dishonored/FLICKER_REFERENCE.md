@@ -1,3 +1,28 @@
+## Hit-camera, health lens and rain ownership research (2026-09-17)
+
+Build448 stick recovery reported accepted. DLL/banner verified; logs/latestINI
+archived under wheel-release/hit-tilt448. New report: hit leaves upward view bias
+until pause; low-health border distracting on frame; rain removal requested.
+Decompiled declarations identify DishonoredCamera_HitReact (PhysicalReact spring
+base), camera.m_pHitReact_Influence, pawn.m_pCurHealthLensEffect and
+m_HealthEffects (post-process plus lens emitter), DisTweaks_EmitterCameraLensEffect,
+DisSeqAct_SetRainEmitter and camera.m_pRainBoxEmitter/m_NumRainDrops.
+Rain drops/impacts have separate particle modules. Lens base sets foreground depth
+priority and exposes BaseFOV/DistFromCamera. This is not proof the symptom is a
+Scaleform HUD element; moving the generic vignette row could target the wrong draw.
+
+No gameplay hit-react disable: the cheat also affects native strong reactions.
+No guessed shader/geometry suppression. Candidate adds bounded read-only logging
+of reflected live hit weight/target, health emitter/index and rain emitter/drop count
+to the existing Cine Trace. No camera writer or rendering change.
+Next launch question: after taking a hit, does the upward bias persist until pause?
+Expected evidence is effects/owners plus synchronized existing camera trace; this
+is diagnostic, not a claimed fix. Low health/rain target presence can be read from
+the same log if present, without another test request.
+
+ProcDump captured a1.23GB full dump on normal exit (code0), not threshold/crash.
+One-shot watcher completed; no longer armed. Keep as baseline, not crash evidence.
+
 ## Mantle-only pose/visibility correction and upright wheel (2026-09-17)
 
 Build437 rollback accepted: normal movement restored. Dark Vision test with
