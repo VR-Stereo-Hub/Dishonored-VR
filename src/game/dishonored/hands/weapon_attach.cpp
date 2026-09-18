@@ -474,6 +474,10 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
                                         numVertices, startIndex, primCount)
         : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
     if (hr) *hr = drawHr;
+    // VR-138: the sibling passes take the mirror too, so depth and colour agree.
+    if (SUCCEEDED(drawHr) && indexed)
+        WmDraw(dev, w, source, (UINT)start, (UINT)cnt, delta, type, baseVertex, minIndex,
+               numVertices, startIndex, primCount);
     if (changedVp && FAILED(dev->SetViewport(&savedVp)))
         InterlockedIncrement(&g_waRestoreFail);
     if (SUCCEEDED(drawHr)) {
@@ -553,6 +557,7 @@ static void WaInvalidateContracts(const char* why)
     const int n = g_waMeshN;
     g_waMeshN = 0;
     memset(g_waMesh, 0, sizeof(g_waMesh));
+    WmReleaseAll(why);   // VR-138: our index buffers belong to the dropped geometry
     for (int i = 0; i < 3; ++i) g_rflHeldObj[i] = NULL;
     InterlockedExchangeAdd(&g_waDroppedLoad, (LONG)n);
     Log("wa: dropped %d contract(s) - %s. A contract holds the component it was "
@@ -1475,6 +1480,9 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
     if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
+    // VR-138: the mirrored copy, inside the same patched palette and depth range.
+    if (SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,
+                                  minIndex, numVertices, startIndex, primCount);
     if (changedVp && FAILED(dev->SetViewport(&savedVp))) InterlockedIncrement(&g_waRestoreFail);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs))) {
         InterlockedIncrement(&g_waRestoreFail);

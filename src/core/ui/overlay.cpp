@@ -163,6 +163,10 @@ static void OverlayFrame()
         if (ImGui::SliderInt("Lens effects distance uu (0 native)",&lensDist,0,90)) LensDistanceSet(lensDist);
         bool keep=LensKeepSize();
         if (ImGui::Checkbox("Lens effects keep their size",&keep)) LensKeepSizeSet(keep);
+        bool mirror=WmEnabled();
+        if (ImGui::Checkbox("Mirror pistol/crossbow (fill the missing side)",&mirror)) WmSet(mirror);
+        ImGui::SameLine();
+        if (ImGui::Button("Rebuild mirror")) WmReleaseAll("rebuild from F10");
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
     }

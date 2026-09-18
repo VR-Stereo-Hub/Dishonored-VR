@@ -27,6 +27,11 @@ static int LensDistance();
 static void LensKeepSizeSet(bool on);
 static bool LensKeepSize();
 static bool LensTraceEnabled();
+static void WmConfigure(const char* ini);   // VR-138 (hands/weapon_mirror.cpp)
+static void WmSet(bool on);
+static bool WmEnabled();
+static bool WmCommand(const char* args);
+static void WmReleaseAll(const char* why);
 static bool DvrSceneVerdict();
 static bool StereoStateEnabled();
 static void StereoStateSet(bool on);

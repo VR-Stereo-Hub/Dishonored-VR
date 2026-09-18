@@ -898,6 +898,12 @@ static void WriteDefaultIni(const char* ini)
         "KeepSize=1\n"
         "Trace=1\n"
         "\n"
+        "[Mirror]\n"
+        "Enabled=0\n"
+        "Assets=Wpn_PlyGunElite,crossbow_01\n"
+        "Eps=0.25\n"
+        "FillRadius=1.5\n"
+        "\n"
         "[Anim]\n"
         "DropWatch=1\n"
         "MantleHandBack=1\n"
@@ -2263,6 +2269,7 @@ static void LoadConfig()
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
     LensConfigure(ini);
+    WmConfigure(ini);
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -3483,6 +3490,7 @@ static void OverlaySaveDefaults()
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }
     WritePrivateProfileStringA("Lens","KeepSize",LensKeepSize() ? "1" : "0",ini);
     WritePrivateProfileStringA("Lens","Trace",LensTraceEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Mirror","Enabled",WmEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);

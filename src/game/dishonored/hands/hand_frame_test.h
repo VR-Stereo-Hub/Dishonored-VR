@@ -561,6 +561,37 @@ static inline int run_all(ReportFn fn, void* ctx)
             sqrtf(ep), sqrtf(movedPalm), d0, d1, rotation_diff_deg(Hn, D.r));
     }
 
+    // ---- 12a. VR-138 mirror: D * (P * S) v == D * (P * (S v)), det < 0 -------
+    {
+        const float M[12] = { 0.812f, -0.414f, 0.410f, 12.5f,
+                              0.188f,  0.842f, 0.506f, -3.25f,
+                             -0.555f, -0.346f, 0.757f, 40.0f };
+        const float n[3] = { 0.0f, 1.0f, 0.0f }, c[3] = { 0.0f, 1.25f, 0.0f };
+        float S[12], MS[12], out[12];
+        reflection_3x4(n, c, S);
+        mirror_palette_right(M, S, MS, 3);
+        Xform D; D.r = mul3(rot_axis_deg(0, 21.0f), rot_axis_deg(1, 44.0f));
+        D.t[0] = -3.0f; D.t[1] = 7.0f; D.t[2] = 1.5f;
+        compose_3x4(D, MS, out);
+        const float v[3] = { 8.5f, 4.0f, -2.25f };
+        float sv[3], pv[3], a[3], b[3];
+        for (int i = 0; i < 3; i++) sv[i] = S[i*4+0]*v[0] + S[i*4+1]*v[1] + S[i*4+2]*v[2] + S[i*4+3];
+        for (int i = 0; i < 3; i++) pv[i] = M[i*4+0]*sv[0] + M[i*4+1]*sv[1] + M[i*4+2]*sv[2] + M[i*4+3];
+        apply_point(D, pv, b);
+        for (int i = 0; i < 3; i++) a[i] = out[i*4+0]*v[0] + out[i*4+1]*v[1] + out[i*4+2]*v[2] + out[i*4+3];
+        float e = 0.0f; for (int i = 0; i < 3; i++) e += fabsf(a[i] - b[i]);
+        const float det = S[0]*(S[5]*S[10]-S[6]*S[9]) - S[1]*(S[4]*S[10]-S[6]*S[8]) + S[2]*(S[4]*S[9]-S[5]*S[8]);
+        const float mv = sv[1] - c[1], ov = v[1] - c[1];
+        rec(&r, "mirror_compose", e < 1e-3f && fabsf(det + 1.0f) < 1e-5f && fabsf(mv + ov) < 1e-5f,
+            "reflecting before skinning equals skinning the reflected vertex, error %.6f; "
+            "det(S) %.5f (want -1); plane distance %.3f -> %.3f", e, det, ov, mv);
+        // The same test must fail for a non-reflection (identity S): det +1.
+        float I12[12] = { 1,0,0,0, 0,1,0,0, 0,0,1,0 };
+        const float detI = I12[0]*(I12[5]*I12[10]-I12[6]*I12[9]);
+        rec(&r, "mirror_can_fail", fabsf(detI + 1.0f) > 0.5f,
+            "an identity S reads det %.1f, which the mirror test rejects", detI);
+    }
+
     // ---- 12. the reported error metric -------------------------------------
     {
         const float a = rotation_angle_deg(rot_axis_deg(1, 90.0f));

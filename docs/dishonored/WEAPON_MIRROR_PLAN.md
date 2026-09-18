@@ -1,6 +1,13 @@
 # VR-138: filling the unmodelled side of the pistol and crossbow (plan)
 
-Status: PLAN, not implemented. Written 2026-09-18 to be implemented as written.
+Status: IMPLEMENTED 2026-09-18 (`src/game/dishonored/hands/weapon_mirror.cpp`),
+shipped `[Mirror] Enabled=0` in code, not yet seen in a headset. Deviations from
+the plan below, both deliberate: (1) the per-geometry state is a separate
+8-entry table keyed by the draw's buffers, ranges, stride and asset, not a
+WaMesh field - WaMesh is memset/evicted in several places and the table needs
+one release hook (`WaInvalidateContracts`) and rebuilds on any key mismatch;
+(2) the math lives in `hand_frame.h` (`reflection_3x4`, `mirror_palette_right`)
+so `frame_test` pins it (`mirror_compose`, `mirror_can_fail`).
 Scope: `Wpn_PlyGunElite` (pistol) and `crossbow_01` (crossbow, 1961 verts per
 VR-57-MODEL-RAY.md). The sword, the Heart and the other items are out of scope.
 
