@@ -1,3 +1,10 @@
+## Installed441: hand-origin wheel facing (2026-09-17)
+
+Installed vr33-hands-working-441-g3ffbee221. Release,9 exports and2213 wheel
+checks pass. Entire INI byte-identical; CRLF and installed hashes verified.
+Both logs/prior DLL/INI archived in installs/20260917-213123-337079.
+No game launched; headset opening-facing test below remains pending.
+
 ## Wheel opening faces eye position (2026-09-17)
 
 Build439 accepted for mantle and upright wheel. Verified installed DLL/banner;
