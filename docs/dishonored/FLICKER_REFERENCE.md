@@ -1,3 +1,12 @@
+## Possession mono: research handoff (2026-09-18)
+
+Reported whole possession mono despite usable control. No confirmed render refusal
+identified yet. Explicit power stage3 and possession camera state2 found in local
+declarations; master FSM excludes nonplayer pawn for safety. Do not bypass that
+layout guard or force all scenes stereo. Read NEXT_SESSION priority1 for exact
+source/evidence and preserve entry/exit, menus and image-owned pose synchronization.
+No candidate or headset validation yet.
+
 ## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
 
 Tester reports hit-camera behavior correct in this run; health vignette invisible

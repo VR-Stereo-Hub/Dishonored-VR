@@ -1,3 +1,22 @@
+## Claude takeover: accepted streaming run, rain and possession pending (2026-09-18)
+
+Continue codex/misc-fixes. Installed452 unchanged; latest DLL/banner verified,
+both logs/current profile archived under build/playtest-candidates/claude-handoff452.
+User reports no crash.9m46s memory capture: peak private2056.9MiB, virtual2819.3MiB;
+normal exit0. Prior freeze snapshot private3164.5MiB, virtual3930.7MiB. This supports
+memory optimization, not a controlled FPS result or universal crash-free claim.
+Streaming config accepted; preserve13 group overrides to-1 in both game INIs.
+Watcher completed and is NOT armed. Exit dump is not crash evidence.
+
+User requests near-eye rain or targeted disable, plus stereo during possession.
+Decompiled possession power stage3 and camera state2 provide candidate explicit
+signals; current player FSM reader intentionally excludes possessed nonplayer
+pawns. Neither feature has been patched. Health vignette remains invisible and
+unresolved. See rewritten docs/dishonored/NEXT_SESSION.md for bounded next actions,
+source files, exact evidence, and all session rules. User now requires new commits
+credited to configured GitHub identity, overriding older neutral-author policy.
+No game launched, new DLL installed, PR opened or merge performed this turn.
+
 ## Build452 memory investigation and streaming test (2026-09-18)
 
 Saved dump analyzed with exact452 symbols:2596 live CPU texture twins,
