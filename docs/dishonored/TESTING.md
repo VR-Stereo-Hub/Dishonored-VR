@@ -41,6 +41,34 @@ non-black, equal bboxes; a black eye is attributed in `xrsim.log`), `smoke.xrs`,
 moving shows in `dump capture`). `stereo.xrs`, `world-6dof.xrs`, `coupling-hand.xrs` and
 `eye-check.ps1` wait for a stereo method (S2).
 
+### The door keyhole (VR-133)
+
+Needs a save facing a closed door (the dev PC's Continue save is the Hound Pits pub door).
+Walk in: Return on the title, Return on Continue, Return on the confirmation, ~45 s, one
+Return on the board, then `[game] state: GAMEPLAY`. Use is gamepad X; a peek ENDS on a
+Use PRESS (releasing the hold does nothing), so release before pressing. `head rot a b c`
+is yaw, pitch, roll. On this PC pass `-Dir D:\dvr-data\xrsim`.
+
+```powershell
+.\tools\game-cmd.ps1 "keyhole on"                 # the lever, live (status: keyhole status)
+.\tools\xrsim-cmd.ps1 "reset" "head rot 0 0 0"
+.\tools\xrsim-shot.ps1 -Out D:\dvr-data\shots\kh\walk0
+.\tools\xrsim-cmd.ps1 "btn x down"                # hold Use: anim: master=StatePlayerMasterHolePeeking, keyhole: ENTER
+.\tools\xrsim-shot.ps1 -Out ...\peek0 ; (4 s) ; .\tools\xrsim-shot.ps1 -Out ...\peek4s   # identical = no shrink
+.\tools\xrsim-cmd.ps1 "head rot 60 0 0"  ; .\tools\xrsim-shot.ps1 -Out ...\yaw60        # past the +-35 cone: the view follows
+.\tools\xrsim-cmd.ps1 "head rot 0 -30 0" ; .\tools\xrsim-shot.ps1 -Out ...\pitch30      # past the +-17.6 cone
+.\tools\xrsim-cmd.ps1 "head rot 20 0 0" "btn x up" ; .\tools\xrsim-cmd.ps1 "btn x press 200"   # leave with the head turned 20
+```
+
+Read: `cine/head: entered authored camera ... owner=keyhole` and `cine/head: scope=N ...
+keyhole=1` with `refused=0`; `keyhole: active ... headOwnsInput=1`; `keyhole: EXIT ...
+travel -20.0` then `keyhole/exit: carry yaw -20.0 deg once`; `armfollow/yaw` ctrl/view at
+pre-entry + travel (69.8 for 89.8 - 20) and stable; `cine/fov: ... keyhole=1/0` while
+peeking, `0/1` for one line after, then `0/0`; `hud/layout: routed this window: ...
+keyhole=N default=0` while peeking. `keyhole off` and repeat is the A/B: the view stops at
+the cone, `headOwnsInput=0`, no carry. The game auto-pauses when it loses focus: a census
+that returns 0 clusters means the pause menu is riding (`Escape` once).
+
 ## Headset checklist (S0/S1, Quest 3 via VDXR)
 
 - The game on a head-locked screen in BOTH eyes; F5 recenters; head look turns the game

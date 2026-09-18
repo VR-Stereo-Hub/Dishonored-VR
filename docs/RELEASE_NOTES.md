@@ -1,3 +1,16 @@
+## The door keyhole (2026-09-18, VR-133, unreleased)
+
+- `[Cine] KeyholeHold` (ships 0; `keyhole on|off|status`, F10 Cine block): while peeking
+  through a door keyhole the head owns the view through the draw scope instead of the
+  game's +-35/+-17.6 deg look cone, the render FOV is held at the gameplay target through
+  the peek and the ramp back, and the head's yaw is carried once into the walking view on
+  the way out (the game snaps the controller back to the pre-entry heading).
+- The keyhole's black mask is the `keyhole` HUD row, claimed by the peeking state, and ships
+  `Element.keyhole=off`; `hud anchor keyhole window` shows it again.
+- Log: `keyhole: ENTER/EXIT/active`, `keyhole/exit: carry yaw`, `hud/keyhole: mask routing`,
+  `cine/head: ... owner=keyhole`, `cine/fov: ... keyhole=now/tail`; `Dis_ExitKeyhole` prints
+  unconditionally.
+
 ## Controller and reading controls (2026-09-17)
 
 F10 Controls supports cross-hand D-pad modifiers, alternate menu and pause chord.
