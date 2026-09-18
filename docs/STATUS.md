@@ -1,3 +1,31 @@
+## Installed458: possession stereo armed, rain measured (2026-09-18)
+
+Continue codex/misc-fixes. Installed458 = `vr33-hands-working-458-ge5246ba2f`,
+DLL 8aef77f4..., symbols in build/symbol-archive/<DLL hash>. Manifest and the
+452 logs/ini archived pre-install in build/playtest-candidates/possession-rain.
+Installed ini: only `[Cine] PossessionStereo=1` and `[Rain] Hide=0 Trace=1`
+added (whole-file diff, CRLF verified). Streaming config untouched (13 x -1 in
+both game INIs). Memory watcher armed (3000 MB, signed x86 procdump) at
+D:/dvr-data/support-watch/20260918-082952-438; it is tied to the Claude session
+that started it, so verify it is still running before relying on a dump.
+
+VR-135 (possession mono): cause MEASURED in the 452 log. At the pawn switch the
+capsule liveness refused `DisPossessionProxyPawn` (by design), so stereo/state
+fell to FALLBACK pawn=0 valid=0 and the re-entry drew once for the whole
+possession while the view and camera uploads stayed live. Commit 4b0fdb3f8 adds
+a read-only validated-possession term (pawn back-pointers name our live
+controller and a live player pawn) consumed ONLY by the presentation verdict;
+menu/UI/view/upload terms and every gameplay guard unchanged. Unverified.
+
+VR-136 (rain pane): commit e5246ba2f logs the camera rain box (`rain/box`:
+extent, drops, emitter position in the camera frame) and adds a targeted hide of
+only that emitter via native PrimitiveComponent.SetHidden, shipped OFF. Near-eye
+placement waits on the rain/box numbers from a rainy run. Unverified.
+
+Launch question (one): during a rat possession, is the view stereo? Details and
+outcome meanings in docs/dishonored/NEXT_SESSION.md. No game launched, no PR,
+no merge.
+
 ## Claude takeover: accepted streaming run, rain and possession pending (2026-09-18)
 
 Continue codex/misc-fixes. Installed452 unchanged; latest DLL/banner verified,
