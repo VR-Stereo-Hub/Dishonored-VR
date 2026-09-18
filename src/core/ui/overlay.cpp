@@ -155,6 +155,8 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Stereo cinematic/dialogue states",&sceneState)) StereoStateSet(sceneState);
         bool possession=PossessionStereoEnabled();
         if (ImGui::Checkbox("Stereo while possessing",&possession)) PossessionStereoSet(possession);
+        bool rain=RainHideEnabled();
+        if (ImGui::Checkbox("Hide camera rain (the rain box only)",&rain)) RainHideSet(rain);
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
     }

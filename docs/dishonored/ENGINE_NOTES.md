@@ -1,4 +1,4 @@
-## Possession ownership (VR-135, 2026-09-18)
+## Possession ownership and the camera rain box (VR-135/VR-136, 2026-09-18)
 
 **Possession.** While possessing, `Controller.Pawn` is a `DisPossessablePawn`
 subclass: `DisPossessionProxyPawn` (rats, fish; measured in the build452 log,
@@ -18,6 +18,20 @@ timing against the pawn switch. The power component's own
 was not needed: the pawn back-pointers are set by the engine only while a
 possession is in force. The capsule reader and the anim FSM reader both refuse
 this pawn on purpose (their offsets belong to DishonoredPlayerPawn) and still do.
+
+**Rain.** `DishonoredPlayerCamera` owns the rain: `m_pRainBoxEmitter` (Emitter,
+observed with 40 drops), `m_RainBoxExtent`, `m_NumRainDrops`,
+`m_fRainSpawnKillRate`, `m_RainDirection` (default 0,0,-1), and separate impact
+fields. The drop module is `DisParticleModuleRainDrops` (parameters
+`MaxParticles`, `SpawnKillRate`, its own `m_Extent`); `Dis_SetRainEmitter` (a
+Kismet action) sets drops/impact distances/start delay per level. The candidate
+hides ONLY that emitter's `ParticleSystemComponent` through the native
+`PrimitiveComponent.SetHidden` (found by name AND declaring class: SetHidden also
+exists on Actor with a different parameter block), called through ProcessEvent on
+the script lane with the re-entry flag, as `console.cpp` and `mat_hide.cpp` do.
+A raw `HiddenGame` write would not reach the render proxy. The `rain/box` line
+logs the box extent and the emitter's location in the camera frame; the near-eye
+design waits on those numbers. Unverified in game as of this entry.
 
 ## Build452 full-dump texture accounting (2026-09-18)
 

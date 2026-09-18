@@ -13,6 +13,11 @@ static bool PossessionStereoLive();
 static bool PossessionStereoEnabled();
 static void PossessionStereoSet(bool on);
 static void PossessionStereoConfigure(const char* ini);
+static void RainTick();                 // VR-136 (rain_control.cpp)
+static void RainConfigure(const char* ini);
+static void RainHideSet(bool on);
+static bool RainHideEnabled();
+static bool RainTraceEnabled();
 static bool DvrSceneVerdict();
 static bool StereoStateEnabled();
 static void StereoStateSet(bool on);

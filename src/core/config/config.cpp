@@ -888,6 +888,10 @@ static void WriteDefaultIni(const char* ini)
         "Trace=1\n"
         "LockRoll=1\n"
         "\n"
+        "[Rain]\n"
+        "Hide=0\n"
+        "Trace=1\n"
+        "\n"
         "[Anim]\n"
         "DropWatch=1\n"
         "MantleHandBack=1\n"
@@ -2251,6 +2255,7 @@ static void LoadConfig()
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
+    RainConfigure(ini);
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -3465,6 +3470,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);
