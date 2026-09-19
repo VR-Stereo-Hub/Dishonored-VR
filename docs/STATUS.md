@@ -11,10 +11,13 @@ current settings; only Choke section and VitalsMode/VitalsDebug are removed.
 Research/code remains in codex/archive-hud-choke-20260919 and tracked archive.
 Do not restore or revive the experiments. No branch history rewritten.
 
-Release build and908 HUD checks pass; lint requires staged removals before its
-git-ls-files inventory can be read. New candidate install will retain the current
-accepted486 INI byte-for-byte, including VDXR selection. SteamVR inversion is
-still an open investigation; retaining diagnostics does not claim it fixed.
+Installed vr33-hands-working-512-g3f4d323e0 from clean source commit 3f4d323e0.
+Release build, lint, 908 HUD checks and 9 export checks passed. Installed DLL
+and INI hashes independently match installed.json; the entire accepted486 INI
+is byte-identical, with CRLF and explicit VDXR selection preserved. Prior DLL,
+INI and both logs archived under build/playtest-candidates/installs/
+20260919-125236-071385. Build512 has not been headset-tested.
+SteamVR inversion remains open; retained diagnostics do not claim it fixed.
 No game or simulator launch, no PR/merge. Continue on codex/hud-improvements.
 
 ## Claude handoff: accepted486 PR, SteamVR extraction, deferred HUD/choke (2026-09-19)
