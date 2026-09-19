@@ -81,6 +81,13 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     if (g_bqDepth > 0) return;
 #endif
 
+    // VR-143: the bounded capture around the first stand-up after a load, and
+    // the script lane's own clock. The probe runs ABOVE the scope so it never
+    // times itself; it reads g_pePawn from the PREVIOUS dispatch, which at
+    // thousands of events a second is not a distinction worth a reorder.
+    // Outside the capture window the scope is one bool test.
+    StandUpProbeTick();
+    SupLaneScope suLane;
     UiSurfaceTick(); // bounded read-only UI discovery, independent of motion hands
     MenuEffectsTick(); // game lane only; independently selected menu UI blend
     InterlockedIncrement(&g_peCalls);

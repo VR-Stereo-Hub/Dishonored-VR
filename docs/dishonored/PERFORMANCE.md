@@ -766,3 +766,92 @@ as52107a094; resulting source/release/test trees match the accepted combination.
 Source branches remain.103 FOV,120% pixels and strict desktop suppression remain
 the accepted profile. No new controlled performance percentage is established.
 Subsequent HUD work is VR-126 and is documented in HUD_ANCHORS, outside this research.
+
+
+## VR-143: the stand-up stall - streaming and paging are CLEARED (2026-09-19)
+
+The ticket was opened on run 499's reading that the load window carried 11996
+`TexLockRect` calls, making texture streaming and the device shadow copy the
+first suspects. Run 514 measured a comparable stall directly and clears both.
+
+Run 514 (`vr33-hands-working-514-g8bba892f7-dirty`), the save load at t=6634593:
+
+- `perf: frame gap 2441ms ... sat in: out/idle (waiting for the game thread) of
+  #7664 tag -1 (2437.6 ms of in 1.3 / out 2440.1; wait 0.0 lock 0.6 endFrame 0.1)`
+- `device/stream (gap)`: all twenty 100 ms buckets 0.0/0.0 MB, `totals uploads 0
+  (0.0 MB, 0.0 ms CPU in UpdateSurface) creates 0 (0.0 MB) releases 0`
+- `gpumem (gap)`: VRAM 2003 / 15293 MB and flat over 4 s, system-backed 88 MB
+  and unmoving, largest free address range 1322.8 MB and unmoving
+
+So: no texture uploads, no creations, no VRAM growth, no paging, no 32-bit
+address pressure, and the render thread idle waiting on the game thread. The
+streaming hypothesis does not survive this, and neither does paging.
+
+**The measurement trap that remains.** `out` is "not our present hooks", which
+is NOT the same as "not the mod". Every mod tick on the GAME thread - `PeLatch`,
+the hand drive, the latches, the property resolvers, the marker hooks - runs
+inside `ProcessEvent` and lands in the same `out` bucket as the engine's own
+work. Run 499's conclusion that "the mod's hook scopes were no higher than
+elsewhere" was read off the present-thread split, which never covered that lane.
+
+**The instrument built for it** (`StandUpProbeTick`, `crouch.cpp`): the first
+stand-up after a new pawn starts a bounded 4 s capture, 40 buckets of 100 ms,
+recording presents and the script lane's own time and outermost dispatch count
+per bucket, then printing them beside `device/stream`, `gpumem` and a `perf`
+mark. A bucket the script lane never reached rolls forward EMPTY rather than
+being skipped, because a run of empty buckets is the signature that matters: the
+game thread was inside the engine and not in our code at all.
+
+The reading is stated on the line and can print the unwelcome answer either way.
+Script-lane ms rising with the buckets where presents collapse means the stall is
+ours. A flat or empty script lane while presents collapse means the game thread
+was in the engine and the mod is a bystander, which closes the ticket rather
+than continuing it. Not yet run.
+
+
+## VR-143 SOLVED: the stall is the crawl tuck deferring every discovery (2026-09-19)
+
+Run 516, the first stand-up after a load, from the probe built for this ticket:
+
+```
+standup: presents per 100 ms, oldest first: 2 0 0 0 ... 0 1 1 0 ... 1 2
+standup: script-lane ms per 100 ms: 3132 0 0 0 ... 0 64 652 0 ... 88 39
+standup: totals over 4000 ms - 7 present(s) (571.4 ms mean), script lane 3975 ms
+         in 218 outermost dispatch(es) = 99% of wall, 35 buckets the script lane
+         never reached
+```
+
+99% of the window inside our own ProcessEvent handler. The empty buckets are the
+signature working as designed: the lane could not roll a bucket because it was
+still inside one dispatch.
+
+What ran in it, from the same window (t=8176000..8180000):
+
+| t | what |
+|---|---|
+| 8176000 | `script: EndCrouch`, `script: NotifyTakeHit` - knocked out of crouch |
+| 8176000 | `skc: drive is ON but NO SkelControl slots are latched (probeFails=0)` |
+| 8176000 | `skc: ==== SkelControl probe over 115054 objects ====` |
+| 8176296 | the walk returns - 296 ms - then the ownership dump and `skc/prop` |
+| 8178453 | `graft:` x25 |
+| 8179140 | `wa/scale`, `wa/comp`, `wa/id` - weapon attach derivation |
+| 8179968 | `dc:` x102 - draw capture re-arm |
+| 8180000 | `blink: latched the live PowerBlink` - the latch finally gets its turn |
+
+**Cause.** The crawl tuck's `if (t) return;` in `ApplyHandToMesh` sits above
+`ApplyHandToMeshInner`, which holds the whole 30.95 discovery block. A crouch
+therefore parked every discovery until the player stood, and the load left
+nothing warm, so all of it ran at once. `probeFails=0` proves the probe had never
+been attempted, not that it had failed.
+
+Note that the walk itself is only 296 ms of the 4000. The rest is the cascade it
+gates: graft, weapon attach, draw capture, each re-deriving from scratch.
+
+**Fix.** The tuck runs the discovery and skips only the calibration request and
+the drive writes. The fault guard moved above the tuck so the discovery stays
+inside the walk's recovery, and every path out clears `g_walkTid`.
+
+**Not yet re-measured.** The prediction this makes, and which the next run can
+refute: the same capture should show the script lane spread thin across the
+window instead of 99% in it, because the work now happens during the crouch
+rather than at the release. If it does not, the cascade has another gate.

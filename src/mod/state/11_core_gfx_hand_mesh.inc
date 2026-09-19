@@ -137,6 +137,23 @@ static volatile LONG g_bpReq = 0;
 static uint8_t* g_blkObj = NULL;
 static uint32_t g_blkIdx = 0;
 static void*    g_blkCls = NULL;
+// VR-36: the pawn that owned the latch when it was taken. GObjects keeps a
+// destroyed object in its slot until the collector runs, so pointer + class
+// identity alone calls a dead PowerBlink alive across a save load. See BlkAlive.
+static uint8_t* g_blkPawnAt = NULL;
+// VR-147: THE SWEEP'S OWN CENSUS.
+// A sweep that FINDS the player Blink logs a line. A sweep that finds nothing
+// used to log nothing at all, so a run with no Blink hook was indistinguishable
+// from a run with a healthy one: the whole [blink] category was silent, and
+// `blinkdir`/`blinkdst` never install without a latch, so they could not speak
+// either. A counter that can only report success is not evidence. These say
+// what the sweep SAW, so "the power does not exist in this level" and "it
+// exists and our liveness test rejected it" stop looking identical.
+static uint32_t g_blkSweeps   = 0;   // full wraps since the last latch
+static uint32_t g_blkScanned  = 0;   // GObjects slots examined in this wrap
+static uint32_t g_blkClassHit = 0;   // ActivePowerComponent_Blink found at all
+static uint32_t g_blkNotLive  = 0;   // ...of those, refused by BpIsLive
+static double   g_blkTellMs   = 0.0; // the fruitless-sweep line is rate limited
 static bool     g_blkTest = false;
 static bool     g_blkHookOnUI = false;   // mirror for the overlay (32.21)
 // 38.52 MAGIC AIMING. The 32.26 detour was left gated to blink on purpose

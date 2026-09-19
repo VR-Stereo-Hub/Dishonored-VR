@@ -92,12 +92,52 @@ static inline bool BlkAlive()            // 32.6 lesson, again
     uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
     if (!objs || ((uintptr_t)objs & 3) || g_blkIdx >= num) return false;
     if ((uint8_t*)objs[g_blkIdx] != g_blkObj) return false;
-    return *(void**)(g_blkObj + kClassOff) == g_blkCls;
+    if (*(void**)(g_blkObj + kClassOff) != g_blkCls) return false;
+    // VR-36: A SLOT THAT STILL HOLDS THE POINTER IS NOT A LIVE OBJECT.
+    //
+    // The three tests above are pointer, index and class identity, and all three
+    // survive a save load: UE3 leaves a destroyed UObject in its GObjects slot
+    // until the collector sweeps, which in the 2026-09-19 run took 23.8 seconds.
+    // For that whole time BlinkLatch saw a live latch and returned at once,
+    // while the game's real PowerBlink was a NEW object - so every call to
+    // BlinkDirHook failed `self != g_blkObj` and Blink silently aimed with the
+    // engine's own head vector. The log said it exactly: `blinkdir: 943 calls
+    // (0 ours) | ray ready 0, refused 0`, 943 traces and not one of them ours,
+    // with neither the ready nor the refused counter moving because the return
+    // happens before the ray is even asked for. It then healed on its own once
+    // the collector ran, which is why it reads as "it came back eventually".
+    //
+    // The player pawn is replaced by that same load and PeLatch already notices
+    // (it clears the cinematic latch on a new pawn for the same reason). So the
+    // latch is only alive while the pawn it was taken under is still the current
+    // one. A pointer compare, in the same idiom as the three above.
+    //
+    // g_blkPawnAt == NULL means the latch was taken before any pawn was known;
+    // that is allowed to stand until a pawn arrives, and the first pawn then
+    // costs one re-sweep rather than leaving a latch nobody can vouch for.
+    if (g_blkPawnAt && g_pePawn && g_blkPawnAt != g_pePawn) return false;
+    return true;
 }
 
 
 static void BlinkLatch()
 {
+    // VR-36: SAY WHY THE LATCH WENT, ON THE TRANSITION, ONCE.
+    // Without this line a healthy run and a run whose Blink is head-aimed
+    // produce identical text until the next `blinkdir:` beat two seconds later,
+    // and that beat only reports the symptom (0 ours) rather than the cause.
+    // Resetting g_blkNextFind matters as much as the log: a fruitless sweep
+    // parks the finder for two seconds, and serving that out after a load would
+    // hand the player two seconds of head-aimed Blink for no reason.
+    if (g_blkObj && g_blkPawnAt && g_pePawn && g_blkPawnAt != g_pePawn) {
+        Log("blink: dropping the PowerBlink latch @ %p - the pawn it was taken "
+            "under (%p) is no longer the current one (%p), i.e. a save or level "
+            "load. Re-sweeping now; Blink uses the engine's own head vector until "
+            "the new one is latched",
+            (void*)g_blkObj, (void*)g_blkPawnAt, (void*)g_pePawn);
+        g_blkObj = NULL; g_blkIdx = 0; g_blkCls = NULL; g_blkPawnAt = NULL;
+        g_blkNextFind = 0.0;
+    }
     if (BlkAlive()) return;
     // 32.99: SLICED. This walk - every object in GObjects, a readability
     // probe and a class-name compare each - used to run in ONE gulp on the
@@ -118,19 +158,43 @@ static void BlinkLatch()
     if (end > num) end = num;
     for (; cur < end; cur++) {
         uint8_t* o = (uint8_t*)objs[cur];
+        ++g_blkScanned;
         if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x100)) continue;
         const char* cn = ObjClassName(o);
         if (!cn || !strstr(cn, "ActivePowerComponent_Blink")) continue;
-        if (!BpIsLive(o)) continue;
+        ++g_blkClassHit;
+        if (!BpIsLive(o)) { ++g_blkNotLive; continue; }
         g_blkObj = o; g_blkIdx = cur; g_blkCls = *(void**)(o + kClassOff);
-        Log("blink: latched the live PowerBlink @ %p (GObjects[%u])",
-            (void*)o, cur);
+        g_blkPawnAt = g_pePawn;
+        g_blkSweeps = 0; g_blkScanned = 0; g_blkClassHit = 0;
+        g_blkNotLive = 0; g_blkTellMs = 0.0;
+        Log("blink: latched the live PowerBlink @ %p (GObjects[%u]) under pawn %p "
+            "- the latch is dropped when that pawn is replaced (a save or level "
+            "load), because GObjects keeps the dead one until the collector runs",
+            (void*)o, cur, (void*)g_pePawn);
         return;
     }
     if (end == num) {          // sweep wrapped without a hit: rest, restart
+        ++g_blkSweeps;
+        // Once on the first fruitless wrap, then every 30 s while it stays
+        // fruitless. Silence here is what made a dead Blink hook invisible.
+        if (g_blkSweeps == 1 || now >= g_blkTellMs) {
+            g_blkTellMs = now + 30000.0;
+            DVR_WARN("blink: %u full sweep(s) of %u GObjects slot(s) found NO live "
+                "PowerBlink, so the aim hooks are NOT installed and Blink is using "
+                "the ENGINE'S OWN HEAD VECTOR. Of what was scanned, %u object(s) "
+                "were an ActivePowerComponent_Blink and %u of those were refused by "
+                "the liveness walk. class=0 means the power does not exist in this "
+                "level yet (Blink is granted by the mark - an early save has none, "
+                "and that is not a fault); class>0 with all of them refused means "
+                "the object IS there and BpIsLive is rejecting it, which IS a fault "
+                "and is the case to report",
+                g_blkSweeps, g_blkScanned, g_blkClassHit, g_blkNotLive);
+        }
         cur = 1;
+        g_blkScanned = 0; g_blkClassHit = 0; g_blkNotLive = 0;
         g_blkNextFind = now + 2000.0;
-        g_blkObj = NULL; g_blkIdx = 0; g_blkCls = NULL;
+        g_blkObj = NULL; g_blkIdx = 0; g_blkCls = NULL; g_blkPawnAt = NULL;
     }
 }
 

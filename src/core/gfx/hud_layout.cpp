@@ -551,7 +551,7 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     if(visual) DVR_INFO("hud/layout: the screen is %s on the %s",kRows[element_for_context(visualContext)].name,kAnchorNames[g_el[element_for_context(visualContext)].anchor]);
     else DVR_INFO("hud/layout: the screen left: routing by element again");
 }
-void forget_draw_owners() { dvr::objectivemarkers::clear_rune_positions(); g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();g_nativeLabels.clear(); }
+void forget_draw_owners() { dvr::objectivemarkers::clear_rune_positions();dvr::objectivemarkers::clear_awareness_positions(); g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();g_nativeLabels.clear(); }
 bool native_gameplay_reference() {return g_nativeGameplayReference && !g_visualRiding;}
 bool native_objective_upright(int e) {return !native_gameplay_reference() && g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
 bool menu_exit_heading() {return g_menuExitHeading.load();}
@@ -651,6 +651,31 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
                 "hud/native-rune: rect=%.3f/%.3f/%.3f/%.3f pivot=%.3f/%.3f key=%016llx; source=%s",
                 bbox[0],bbox[1],bbox[2],bbox[3],runePivot[0],runePivot[1],drawKey,runeDraw?"live parent":"confirmed icon continuity");
+            return -1;
+        }
+        // VR-148: THE AWARENESS METER BELONGS TO ITS ENEMY, NOT TO A PANEL.
+        //
+        // No row rectangle can claim it - it moves with the head it is over, the
+        // same reason `objective` ships unmeasured - so until now it fell to the
+        // `default` row and was lifted onto the default window quad, offset and
+        // scaled by Element.default.Win*. That is why the meters were near the
+        // right enemies but not on them: the whole layer had been moved.
+        //
+        // Returning -1 leaves the draw in the game image at the position the
+        // engine gave it, exactly as the rune group does. It only applies to
+        // draws the native parent hook has published a live position for, so a
+        // refused or stale marker keeps the previous behaviour (fail soft).
+        float awarePivot[4]{};
+        if(dvr::objectivemarkers::awareness_enabled() &&
+           dvr::objectivemarkers::match_awareness_draw(
+               bbox,(float)dvr::capture::width(),(float)dvr::capture::height(),awarePivot)) {
+            if(nativePivot)memcpy(nativePivot,awarePivot,sizeof(awarePivot));
+            if(elementOut)*elementOut=ElDetection;
+            ++g_routeFrame;++g_routeCounts[ElDetection];++g_seen[ElDetection];
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                "hud/native-awareness: rect=%.3f/%.3f/%.3f/%.3f pivot=%.3f/%.3f key=%016llx verts=%u prims=%u; "
+                "left in the game image at the engine position (the hud/awareness-parent line carries the census)",
+                bbox[0],bbox[1],bbox[2],bbox[3],awarePivot[0],awarePivot[1],drawKey,vertices,primitives);
             return -1;
         }
         // Group decisions outrank the first spatial hint retained by the old
@@ -1033,6 +1058,8 @@ void configure(const char* ini) {
     g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
     dvr::objectivemarkers::configure_rune_ownership(read_i(ini,"NativeRuneOwnership",1)!=0);
+    dvr::objectivemarkers::configure_heart_all_symbols(read_i(ini,"NativeHeartAllSymbols",1)!=0);
+    dvr::objectivemarkers::configure_awareness(read_i(ini,"NativeAwarenessMarkers",1)!=0);
     g_nativeMarkerChildren=read_i(ini,"NativeMarkerChildren",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
@@ -1129,6 +1156,8 @@ void save(const char* ini) {
     write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
     write_i("NativeRuneOwnership",dvr::objectivemarkers::rune_ownership());
+    write_i("NativeHeartAllSymbols",dvr::objectivemarkers::heart_all_symbols());
+    write_i("NativeAwarenessMarkers",dvr::objectivemarkers::awareness_enabled());
     write_i("NativeMarkerChildren",g_nativeMarkerChildren);
     write_i("NativeGameplayReference",g_nativeGameplayReference);
     write_i("WheelSidePanels",g_wheelParts);
@@ -1482,6 +1511,19 @@ void draw_ui() {
             write_i("NativeMarkerChildren",g_nativeMarkerChildren);
             g_nativeLabels.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();
         }
+        bool heartAll=dvr::objectivemarkers::heart_all_symbols();
+        if(ImGui::Checkbox("Treat every Heart marker, not only runes (test)",&heartAll)) {
+            dvr::objectivemarkers::configure_heart_all_symbols(heartAll);
+            g_runeIconContinuity.clear();
+            write_i("NativeHeartAllSymbols",heartAll);
+        }
+        ImGui::TextWrapped("Bone charms use the same Heart marker as runes and differ only by their Flash symbol, which has never been read. ON accepts every Heart symbol; the hud/heart-symbol log line names each one it sees either way.");
+        bool aware=dvr::objectivemarkers::awareness_enabled();
+        if(ImGui::Checkbox("Keep enemy awareness meters in the game image (test)",&aware)) {
+            dvr::objectivemarkers::configure_awareness(aware);
+            write_i("NativeAwarenessMarkers",aware);
+        }
+        ImGui::TextWrapped("The awareness meter tracks an enemy head, so no panel rectangle can claim it and it rides the default window instead. ON leaves its draws where the engine put them. Takes effect at the next hook install; read hud/awareness-parent for the census.");
         if(g_nativeObjectives && !g_nativeGameplayReference) {
             if(ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx")) {
                 write_f("NativeObjectiveScale",g_nativeObjectiveScale);

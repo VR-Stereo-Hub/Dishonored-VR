@@ -1,3 +1,143 @@
+## ONE cause behind both the Blink head-aim and the stand-up stall (2026-09-19)
+
+Run 516 measured it. The stand-up probe reported, for the first stand after a
+load: 40 x 100 ms, 7 presents in the whole window (571 ms mean), and script lane
+3975 ms of 4000 = 99% of wall. The stall is OURS, and the window names it.
+
+The cause is one early return. ApplyHandToMeshInner holds the 30.95 block - the
+SkelControl probe, the Blink latch, BlinkHookTick, BlinkDestTick, BlinkTraceTick,
+CrouchStateTick - and 30.95 deliberately hoisted that block above every early
+return INSIDE Inner. But Inner is the LAST call in ApplyHandToMesh, below the
+crawl tuck's `if (t) return;`. So a crouch parked the entire discovery.
+
+That single fact explains both reports:
+
+- Load a save while crouched and the tuck holds from the load until you stand.
+  No probe runs, no Blink latches, so Blink uses the engine's own head vector.
+  Switching power and back "fixed" it because anything that released the tuck
+  let the discovery run. The tester's own sequence, exactly.
+- Standing releases the tuck and every deferred step fires in one burst on the
+  game thread: the 115054-object SkelControl probe and its property walk
+  (296 ms for the walk alone), the graft, the weapon-attach derivation, the
+  draw-capture re-arm. Measured in run 516 at t=8176000..8180000, with
+  `script: NotifyTakeHit` in the same millisecond - being knocked out of crouch
+  does it too, which the tester reported and which confirms the trigger is the
+  RELEASE, not the input.
+
+Fixed: the tuck now runs the discovery and skips only the calibration request
+and the drive writes, which is all it ever meant. The fault guard moved above
+the tuck so the discovery stays inside the recovery the walk has always had,
+and every path out of there clears g_walkTid. The work now spreads over the
+crouch instead of being saved up for the moment the player stands.
+
+NOT fixed, same class, named in the code: the `AnimReleaseControls()` and
+`!g_handMesh` returns still sit above the guard and the discovery.
+
+Also cleared this session: VR-143's texture-streaming and paging suspects, by
+reading run 514's comparable load stall (0.0 MB uploaded and created, VRAM flat).
+PERFORMANCE.md carries it.
+
+Build 518 installed via the new tools\install-candidate.ps1. Release, lint,
+exports, 908 hud-anchor, 107 native HUD, 20 crawl-strength and 138 animation
+catalog checks pass. No merge.
+
+Next: one run. Load a crouched save and stand - `standup:` should now show the
+lane spread thin instead of 99% of wall, and Blink should be on controller aim
+from the load without touching the power wheel.
+
+## Blink silence, the stand-up stall probe, one-click install (2026-09-19)
+
+Still on claude/hud-improvements-pt-2 (PR #77). Build 514 was played; three
+results and one new fault.
+
+CONFIRMED FROM THE TESTER'S LOG. The VR-147 Blink latch fix works: the drop fired
+at the save load (pawn 185EA000 -> 185E3C00) and re-latched 31 ms later, against
+the 23.8 s the same transition cost in run 512. VR-148 awareness markers install
+and match: 2996 published, 0 refused, 5238 draws matched, 4 ambiguous, and the
+widest accepted draw was 61x62 authoring px, comfortably inside the 160x160
+bound - which is the measurement that would tighten it. VR-149 has no result yet:
+no bone charm was revealed by the Heart in that run, so `hud/heart-symbol` has
+nothing to say.
+
+NEW FAULT, and the expensive one. A later run had Blink back on head aim and the
+log carried NO `[blink]` lines at all. The latch logs its successes and says
+nothing about a sweep that finds nothing, and the aim hooks only install once the
+latch exists, so a dead Blink hook and a healthy one produce identical text. Two
+states hide behind that silence and want opposite responses: the power not
+existing in the level yet (an early save, not a fault) versus the object existing
+and the liveness walk refusing it (a fault). Config was diffed between the working
+and broken runs and is byte-identical, so it is not a setting. The fruitless sweep
+now warns with the population it examined. TRAPS.md carries the class.
+
+VR-143, the stand-up stall: texture streaming and paging are CLEARED, not by a
+new run but by reading run 514's comparable load stall - 2437.6 ms of 2440.1 in
+out/idle waiting for the game thread, with device/stream at 0.0 MB uploaded and
+created and VRAM flat. What remains unmeasured is that `out` means "not our
+present hooks", not "not the mod": every mod tick on the game thread runs inside
+ProcessEvent and lands in the same bucket. The new probe captures the first
+stand-up after a load at 100 ms resolution and times that lane. Not yet run.
+
+`tools\install-candidate.ps1` is the tester's one-button install: it refuses
+while the game is running, archives the previous DLL, INI and both logs first,
+leaves the INI alone, and prints the installed hash and the settings that matter.
+
+FOUND AND NOT FIXED: `tools\camera-clamp-host.ps1` no longer compiles. Its regex
+takes `^struct Writer \{.*?^\};` but the production declaration ends `} g_viewScope;`,
+and `write_offset` has referenced `g_viewScope` and `scoped()` since 5dee90153.
+Pre-existing on this branch, not from this work. Filed as VR-150.
+
+Next: one run. Blink somewhere Blink exists, and read `blink:` - either a latch
+line or the new fruitless-sweep warning with its counts. Reveal a bone charm with
+the Heart for `hud/heart-symbol`. Load a crouched save and stand up for
+`standup:`. Then tighten the awareness window against the 61x62 measurement.
+
+## HUD improvements pt 2: blink latch, bone charms, awareness meters (2026-09-19)
+
+Branch claude/hud-improvements-pt-2, off codex/hud-improvements after that branch
+got its PR (#76, out of draft). PR #76 now carries one extra commit that makes the
+2026-09-19 run's own F10 tuning the shipped defaults, including the return to
+2750x2850; the runtime selection is deliberately not baked.
+
+Three faults, all read out of the run 512 log rather than guessed.
+
+BLINK AIM AFTER A SAVE LOAD (VR-147) - root cause found and fixed, not yet re-run. The log
+reads `blinkdir: 943 calls (0 ours) | ray ready 0, refused 0` at t=4027265, 23.8 s
+after the player controller changed at t=4004171 and 0.7 s before the PowerBlink
+re-latched at t=4027984. BlkAlive tested pointer, index and class identity, all of
+which a destroyed UObject keeps until the collector sweeps its GObjects slot, so
+BlinkLatch saw a live latch while the game's real Blink was a new object and every
+hook call fell through the `self != g_blkObj` guard to the engine's head aim. The
+latch is now tied to the pawn it was taken under (PeLatch already notices a new
+pawn) and the drop is logged with both pointers. TRAPS.md carries the class.
+
+BONE CHARMS (VR-149) - mechanism confirmed, symbol still unread. Bone charms use the same
+Heart marker, update and parent call as runes; only the Flash symbol differs, and
+`runeMarker` was the only accepted spelling. Run 512 refused 23787 Heart calls on
+that test. The bone charm spelling is not in the exe as ANSI or UTF-16 and the
+packages are compressed, so it is NOT guessed: the gate now validates the bounded
+shape of any Heart symbol, `hud/heart-symbol` names each distinct symbol a run
+sees, and `[Hud] NativeHeartAllSymbols` accepts them all.
+
+ENEMY AWARENESS METERS (VR-148) - first candidate, unverified. Derived the third native
+marker family offline (vtable 0x11635c0, update 0xbbd630, parent call 0xbbd784,
+constructor 0xbce9a0, which pushes the wide `head_jnt` while its update pushes
+fadeIn/visible/quickFadeOut); ENGINE_NOTES carries the full route and the grenade
+and DLC families it was separated from. The meters were riding the `default` row's
+window panel because no rectangle can claim a marker that moves with its enemy.
+The new hook publishes the engine placement and the router leaves matched draws in
+the game image. The match window is an explicit BOUND and the log reports what
+would tighten it.
+
+Both new levers ship default OFF per the repo rule and are ON in the installed INI
+as the trial, which is the same pattern NativeRuneMarkers used. Release build,
+lint, exports, the default-profile byte check and 908/107/465/104 HUD host checks
+pass. No game or simulator launch. No merge.
+
+Next: one headset run. Read `blink: dropping the PowerBlink latch` after a save
+reload, `hud/heart-symbol` with a bone charm revealed by the Heart, and
+`hud/awareness-parent` with an alerted guard on screen. Then bake the bone charm
+symbol as a measured constant and tighten the awareness match window.
+
 ## Selective cleanup for SteamVR continuation (2026-09-19)
 
 Latest user instruction supersedes the exact486-only handoff: remove ONLY failed

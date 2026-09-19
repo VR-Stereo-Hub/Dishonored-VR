@@ -459,6 +459,12 @@ static bool AnimReleaseControls()
     return now;
 }
 
+// VR-143/VR-147: set while the crawl tuck is holding the rig. The discovery at
+// the top of ApplyHandToMeshInner still runs; everything below it - the
+// calibration request and the drive writes - does not, which is what the tuck
+// has always meant. See the tuck block in ApplyHandToMesh for why.
+static bool g_skcTuckDiscoveryOnly = false;
+
 static void ApplyHandToMeshInner()
 {
     // 40.1 GATE STATE. When the hands are wrong the first question is always
@@ -574,6 +580,10 @@ static void ApplyHandToMeshInner()
     CrouchStateTick();     // 32.25
     BlinkDestTick();       // 32.26
     BlinkTraceTick();      // 32.31
+    // VR-143/VR-147: the end of the 30.95 must-always-run block. A tuck gets
+    // everything above this line and nothing below it, which is what it meant
+    // before the discovery was accidentally on the wrong side of the return.
+    if (g_skcTuckDiscoveryOnly) return;
     if (InterlockedExchange(&g_skcCalReq, 0)) {                  // 32.12
         g_skcCalGo = true;
         g_skcCalUntil = MaimNowMs() + 3000.0;
@@ -1191,6 +1201,12 @@ static void ApplyHandToMesh()
     // this lane reads, rebuilds or writes through them. A no-op unless a menu
     // asked for a validation.
     MkScriptTick();
+    // VR-143: these two returns are the same class as the tuck's was - they
+    // sit ABOVE the fault guard and the discovery, so a menu that releases the
+    // controls, or a run with no hand mesh, still parks the probe and the
+    // Blink latch. Neither is what the tester hit (the tuck was), so neither
+    // is moved here; they are named so the next reader does not have to
+    // re-derive the shape.
     if (AnimReleaseControls()) { BoneVisTick(); return; }
     AutoHandStartTick();
     // 38.30: ArmsHideTick MUST run above every early return. In 38.29 it sat
@@ -1207,6 +1223,29 @@ static void ApplyHandToMesh()
     // user measured as flawless. Skipping the whole apply is exactly what
     // HOME does; the engine's own recompute restores the animation pose
     // within a frame, and we resume the moment the crawl ends.
+    // VR-143/VR-147: THE GUARD IS ARMED ABOVE THE TUCK NOW.
+    // It used to be armed below it, which was fine while the tuck simply
+    // returned. The tuck now runs the discovery instead of skipping it, and
+    // that discovery walks engine objects, so it has to be inside the
+    // recovery the walk has always had. Every path out from here clears
+    // g_walkTid: leaving it set would let WalkVEH longjmp on a fault raised
+    // by code that is not the walk at all.
+    static bool vehOnce = false;
+    if (!vehOnce) { vehOnce = true; AddVectoredExceptionHandler(1, WalkVEH); }
+    g_walkTid = GetCurrentThreadId();
+    if (setjmp(g_walkJmp)) {
+        g_walkTid = 0;
+        g_fpCandN = 0; g_fpSel = -1; g_fpWritten = NULL; g_fpWritten2 = NULL;
+        g_fpRef = NULL; g_fpHaveRef = false;
+        g_fpCalPhase = 0; g_fpPivotPend = 0;
+        g_fpCollectMs = MaimNowMs() + 1500.0;
+        if (g_gtActive) { g_gtActive = false; Log("gt: ==== aborted - an object died mid-test ===="); }
+        Log("handmesh: recovered from a dying object (fault #%ld) - rescanning",
+            (long)g_walkFaults);
+        Log("handmesh: fault eip=%p touching=%p anchor(WalkVEH)=%p",
+            (void*)g_walkFaultEip, (void*)g_walkFaultAddr, (void*)&WalkVEH);
+        return;
+    }
     {
         bool t = CrawlTuckNow();
         if (t != g_skcTucked) {
@@ -1223,24 +1262,39 @@ static void ApplyHandToMesh()
             Log("hands: %s (cylinder %.1f)",
                 t ? "TUCKED while crouched" : "back", g_cylLast);
         }
-        if (t) return;
-    }
-    static bool vehOnce = false;
-    if (!vehOnce) { vehOnce = true; AddVectoredExceptionHandler(1, WalkVEH); }
-
-    g_walkTid = GetCurrentThreadId();
-    if (setjmp(g_walkJmp)) {
-        g_walkTid = 0;
-        g_fpCandN = 0; g_fpSel = -1; g_fpWritten = NULL; g_fpWritten2 = NULL;
-        g_fpRef = NULL; g_fpHaveRef = false;
-        g_fpCalPhase = 0; g_fpPivotPend = 0;
-        g_fpCollectMs = MaimNowMs() + 1500.0;
-        if (g_gtActive) { g_gtActive = false; Log("gt: ==== aborted - an object died mid-test ===="); }
-        Log("handmesh: recovered from a dying object (fault #%ld) - rescanning",
-            (long)g_walkFaults);
-        Log("handmesh: fault eip=%p touching=%p anchor(WalkVEH)=%p",
-            (void*)g_walkFaultEip, (void*)g_walkFaultAddr, (void*)&WalkVEH);
-        return;
+        // VR-143/VR-147: A TUCK MUST NOT PARK THE DISCOVERY.
+        //
+        // This used to `return`, and ApplyHandToMeshInner is the LAST call in
+        // this function - so a tuck skipped the SkelControl probe, the Blink
+        // latch and the whole 30.95 block with it. 30.95 hoisted that block
+        // above every early return INSIDE Inner for exactly this reason, and
+        // then all of Inner ended up below an early return out here.
+        //
+        // Measured (run 516, VR-143): load a save while crouched and the tuck
+        // holds from the load until you stand. For that whole time no probe
+        // ran and no Blink latched, so Blink used the ENGINE'S OWN HEAD VECTOR
+        // - which is exactly the "Blink is head-aiming after a load" report,
+        // and why switching power and back appeared to fix it: anything that
+        // released the tuck let the discovery run. Then standing released it
+        // and every deferred step fired in one burst on the game thread: the
+        // 115054-object SkelControl probe with its property walk, the graft,
+        // the weapon-attach derivation and the draw-capture re-arm. The
+        // stand-up probe measured that burst at 3975 ms of lane time in a
+        // 4000 ms window, 99% of wall, with 7 presents in it. That is the
+        // two-to-three second freeze on the first stand-up after a load, and
+        // it is ours.
+        //
+        // So the tuck now runs the discovery and skips only what it was ever
+        // meant to skip: the calibration request and the drive writes. The
+        // work is spread over the crouch instead of being saved up for the
+        // moment the player stands.
+        if (t) {
+            g_skcTuckDiscoveryOnly = true;
+            ApplyHandToMeshInner();
+            g_skcTuckDiscoveryOnly = false;
+            g_walkTid = 0;
+            return;
+        }
     }
     DbgProbeTick();
     CamSeamTick();     // 30.40: camera-seam recon (read-only, game thread)
