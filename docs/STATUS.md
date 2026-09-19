@@ -1,3 +1,16 @@
+## Run503 and the Codex plan (2026-09-19)
+
+Run503 (build 503, banner verified; logs in build/playtest-candidates/hud-improvements/run503):
+the vitals were invisible everywhere. The palm attach switched off the XR quads,
+and the in-scene draw never drew, with its refusals unlogged. The physical choke
+held RB twice but the game never choked; the pad binding set 2 maps RB to attack.
+The tester also cannot switch ReduceDesktopPresent off while the desktop mirror
+is off, and many overlapping vitals settings are live at once (VitalsBack is
+still on). All of it, with the fix design, is in
+docs/dishonored/CODEX_PLAN_VITALS_CHOKE.md for Codex to implement. The next
+session starts at docs/dishonored/NEXT_SESSION.md. No new install. No PR
+change, no merge.
+
 ## Candidate 503: vitals drawn on the hand model, physical choke (2026-09-19)
 
 Candidate 503 = `vr33-hands-working-503-g7159acacf` (DLL 30d2e34d...), frozen with
