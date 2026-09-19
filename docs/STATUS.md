@@ -1,3 +1,50 @@
+## ONE cause behind both the Blink head-aim and the stand-up stall (2026-09-19)
+
+Run 516 measured it. The stand-up probe reported, for the first stand after a
+load: 40 x 100 ms, 7 presents in the whole window (571 ms mean), and script lane
+3975 ms of 4000 = 99% of wall. The stall is OURS, and the window names it.
+
+The cause is one early return. ApplyHandToMeshInner holds the 30.95 block - the
+SkelControl probe, the Blink latch, BlinkHookTick, BlinkDestTick, BlinkTraceTick,
+CrouchStateTick - and 30.95 deliberately hoisted that block above every early
+return INSIDE Inner. But Inner is the LAST call in ApplyHandToMesh, below the
+crawl tuck's `if (t) return;`. So a crouch parked the entire discovery.
+
+That single fact explains both reports:
+
+- Load a save while crouched and the tuck holds from the load until you stand.
+  No probe runs, no Blink latches, so Blink uses the engine's own head vector.
+  Switching power and back "fixed" it because anything that released the tuck
+  let the discovery run. The tester's own sequence, exactly.
+- Standing releases the tuck and every deferred step fires in one burst on the
+  game thread: the 115054-object SkelControl probe and its property walk
+  (296 ms for the walk alone), the graft, the weapon-attach derivation, the
+  draw-capture re-arm. Measured in run 516 at t=8176000..8180000, with
+  `script: NotifyTakeHit` in the same millisecond - being knocked out of crouch
+  does it too, which the tester reported and which confirms the trigger is the
+  RELEASE, not the input.
+
+Fixed: the tuck now runs the discovery and skips only the calibration request
+and the drive writes, which is all it ever meant. The fault guard moved above
+the tuck so the discovery stays inside the recovery the walk has always had,
+and every path out of there clears g_walkTid. The work now spreads over the
+crouch instead of being saved up for the moment the player stands.
+
+NOT fixed, same class, named in the code: the `AnimReleaseControls()` and
+`!g_handMesh` returns still sit above the guard and the discovery.
+
+Also cleared this session: VR-143's texture-streaming and paging suspects, by
+reading run 514's comparable load stall (0.0 MB uploaded and created, VRAM flat).
+PERFORMANCE.md carries it.
+
+Build 518 installed via the new tools\install-candidate.ps1. Release, lint,
+exports, 908 hud-anchor, 107 native HUD, 20 crawl-strength and 138 animation
+catalog checks pass. No merge.
+
+Next: one run. Load a crouched save and stand - `standup:` should now show the
+lane spread thin instead of 99% of wall, and Blink should be on controller aim
+from the load without touching the power wheel.
+
 ## Blink silence, the stand-up stall probe, one-click install (2026-09-19)
 
 Still on claude/hud-improvements-pt-2 (PR #77). Build 514 was played; three

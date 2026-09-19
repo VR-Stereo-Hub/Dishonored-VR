@@ -807,3 +807,51 @@ Script-lane ms rising with the buckets where presents collapse means the stall i
 ours. A flat or empty script lane while presents collapse means the game thread
 was in the engine and the mod is a bystander, which closes the ticket rather
 than continuing it. Not yet run.
+
+
+## VR-143 SOLVED: the stall is the crawl tuck deferring every discovery (2026-09-19)
+
+Run 516, the first stand-up after a load, from the probe built for this ticket:
+
+```
+standup: presents per 100 ms, oldest first: 2 0 0 0 ... 0 1 1 0 ... 1 2
+standup: script-lane ms per 100 ms: 3132 0 0 0 ... 0 64 652 0 ... 88 39
+standup: totals over 4000 ms - 7 present(s) (571.4 ms mean), script lane 3975 ms
+         in 218 outermost dispatch(es) = 99% of wall, 35 buckets the script lane
+         never reached
+```
+
+99% of the window inside our own ProcessEvent handler. The empty buckets are the
+signature working as designed: the lane could not roll a bucket because it was
+still inside one dispatch.
+
+What ran in it, from the same window (t=8176000..8180000):
+
+| t | what |
+|---|---|
+| 8176000 | `script: EndCrouch`, `script: NotifyTakeHit` - knocked out of crouch |
+| 8176000 | `skc: drive is ON but NO SkelControl slots are latched (probeFails=0)` |
+| 8176000 | `skc: ==== SkelControl probe over 115054 objects ====` |
+| 8176296 | the walk returns - 296 ms - then the ownership dump and `skc/prop` |
+| 8178453 | `graft:` x25 |
+| 8179140 | `wa/scale`, `wa/comp`, `wa/id` - weapon attach derivation |
+| 8179968 | `dc:` x102 - draw capture re-arm |
+| 8180000 | `blink: latched the live PowerBlink` - the latch finally gets its turn |
+
+**Cause.** The crawl tuck's `if (t) return;` in `ApplyHandToMesh` sits above
+`ApplyHandToMeshInner`, which holds the whole 30.95 discovery block. A crouch
+therefore parked every discovery until the player stood, and the load left
+nothing warm, so all of it ran at once. `probeFails=0` proves the probe had never
+been attempted, not that it had failed.
+
+Note that the walk itself is only 296 ms of the 4000. The rest is the cascade it
+gates: graft, weapon attach, draw capture, each re-deriving from scratch.
+
+**Fix.** The tuck runs the discovery and skips only the calibration request and
+the drive writes. The fault guard moved above the tuck so the discovery stays
+inside the walk's recovery, and every path out clears `g_walkTid`.
+
+**Not yet re-measured.** The prediction this makes, and which the next run can
+refute: the same capture should show the script lane spread thin across the
+window instead of 99% in it, because the work now happens during the crouch
+rather than at the release. If it does not, the cascade has another gate.

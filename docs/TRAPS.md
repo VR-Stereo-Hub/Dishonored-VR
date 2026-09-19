@@ -1,3 +1,28 @@
+## Hoisting a block above the early returns inside a function does not help if the function itself is below one (2026-09-19)
+
+`ApplyHandToMeshInner` opens with a comment from 30.95: the SkelControl probe and
+the Blink latch "run FIRST, above every early return", because burying them meant
+"five separate ways for them to silently never execute". That hoist was correct
+and it was not enough. `ApplyHandToMeshInner` is the LAST call in its caller
+`ApplyHandToMesh`, under three early returns - including the crawl tuck's
+`if (t) return;`. The block was at the top of a function that was at the bottom.
+
+Cost: two separate user-visible faults, reported weeks apart and investigated as
+if unrelated.
+
+- Blink aiming with the engine's head vector after loading a crouched save, which
+  "fixed itself" if you switched power and back (anything that released the tuck
+  let the latch run).
+- A two-to-three second freeze on the first stand-up after a load, measured at
+  3975 ms of script-lane time in a 4000 ms window - every deferred discovery step
+  firing at once the moment the tuck released.
+
+**When a block must always run, check the whole call chain, not the function it
+lives in.** The guard that skips it may be one frame up. The lesson generalises
+to `PawnCollisionTick`, which already carries the right instinct in its own
+comment - "load liveness must not wait for a pawn event or head/hand drive" - and
+is called straight from `PeHandler` for exactly that reason.
+
 ## A latch that logs only its successes cannot report being dead (2026-09-19)
 
 Blink went back to head aim and the log had **no `[blink]` lines at all** - not
