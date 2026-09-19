@@ -1,3 +1,27 @@
+## Vitals on the back of the hand, mirrored left panel (VR-142, 2026-09-19)
+
+Run490 (banner verified; logs in build/playtest-candidates/hud-improvements/run490):
+the split works in the headset. The left (mana) panel sat oddly next to the right
+one, and the log's ini explains it: mana's HandX was 0.078, set in the same
+direction as health's 0.084 instead of mirrored, and both part textures still
+spanned the whole vitals region with the content off to one side. Candidate 494:
+- `[Hud] VitalsMirror=1` (default): mana takes health's placement with X
+  negated; its own sliders are hidden while linked.
+- `[Hud] VitalsAutoCrop=1` (default): each part is trimmed at the split line
+  (+0.01 of the screen), so its content is centred, and its panel width shrinks
+  in proportion, so the pixel scale is unchanged.
+- `[Hud] VitalsBack=0` (off by default, F10): both panels lie ON the back of the
+  hand as watch faces (FollowGrip) and move with it, from their own offsets:
+  `VitalsBack.Out/Along/Forward/Tilt/Spin` (0.045 m out, then 0). HandL/HandR
+  are untouched for every other hand element. The left hand mirrors the right:
+  the out offset and the spin flip sign. The panels are compositor quads, so
+  they draw over the hand, not into it. Anchoring uses the controller grip,
+  not the hand mesh's own rendered transform.
+- A hand panel in FollowGrip mode now has a SPIN (`HandL/HandR.Spin`, F10,
+  `hud hand l|r spin <deg>`): a turn in the panel's own plane. Host tests: spin
+  keeps the normal, +90 turns the panel's right onto its up, spin 0 is the old
+  orientation exactly.
+
 ## Split health / mana across both hands (VR-142, 2026-09-19)
 
 The vitals row (health bar, mana bar, equipped item) is one measured element,

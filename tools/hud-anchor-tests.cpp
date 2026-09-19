@@ -56,6 +56,15 @@ int main() {
         float yaw90[4]; dvr::xrmath::quat_axis_angle(0, 1, 0, 3.14159265f * 0.5f, yaw90);
         follow_grip_orientation(yaw90, 1, 0.0f, fq);
         rot(fq, zAxis, o); check(near3(o, 0, 0, 1), "a +90 yaw grip turns the right hand's normal from -X to +Z");
+        // VR-142: the spin turns the panel in its own plane and never moves its normal.
+        float sq[4];
+        follow_grip_orientation(ident, 1, 0.0f, sq, 90.0f);
+        rot(sq, zAxis, o); check(near3(o, -1, 0, 0), "a spin keeps the panel's normal on the back of the hand");
+        rot(sq, xAxis, o); check(near3(o, 0, 1, 0), "a +90 spin turns the panel's right (grip +Z) onto its up (grip +Y)");
+        follow_grip_orientation(ident, 1, 0.0f, sq, 0.0f);
+        follow_grip_orientation(ident, 1, 0.0f, fq);
+        check(std::fabs(sq[0]-fq[0]) + std::fabs(sq[1]-fq[1]) + std::fabs(sq[2]-fq[2]) + std::fabs(sq[3]-fq[3]) < 1e-6f,
+              "spin 0 is the old orientation exactly");
     }
     // Wrist position: grip + R(q)*offset + lift along world up.
     {

@@ -77,7 +77,7 @@ const RowDef kRows[ElCount] = {
 // the window (the VR-117 picture: a tester who updates sees no change until the
 // headset judges the split), the alpha at identity.
 const WindowCfg kPresetWindow = { 1.30f, 1.25f, 0.0f, -0.10f, 0.0f };
-const HandCfg   kPresetHand   = { 0.0f, 0.0f, 0.0f, 0.06f, 0.22f, false, 0.0f };
+const HandCfg   kPresetHand   = { 0.0f, 0.0f, 0.0f, 0.06f, 0.22f, false, 0.0f, 0.0f };
 const char* const kAlphaModeNames[3] = { "repair", "captured", "mix" };
 const AlphaCfg  kPresetAlpha = { AlphaRepair, 1.0f, 0.0f, 1.0f, 1.0f };
 const Backdrop  kPresetBackdrop = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -112,6 +112,20 @@ float g_vitalsLine[2]={.125f,.065f};
 float g_vitalsCrop[2][4]={{0.f,0.f,.200f,.270f},{0.f,0.f,.200f,.270f}};
 const char* kVitalsPartKeys[2]={"VitalsHealth","VitalsMana"};
 const char* kVitalsPartNames[2]={"Health","Mana and equipped item"};
+// Run490: the left panel sat oddly - its HandX (0.078) was set by hand in the
+// SAME direction as the right's (0.084), and each part texture still spanned
+// the whole vitals region with its content off to one side. Mirror links the
+// mana panel to health's placement (x negated), and AutoCrop trims each part
+// at the split line so its content is centred.
+bool g_vitalsMirror=true,g_vitalsAutoCrop=true;
+// The back-of-hand mode: both panels lie ON the back of the hand like a watch
+// face (FollowGrip), from their own offsets, leaving HandL/HandR untouched for
+// every other hand element. [0] out from the back of the hand, [1] along the
+// knuckles (grip +Y), [2] along the controller (grip Z), [3] tilt, [4] spin.
+// The left hand mirrors the right: the out offset and the spin flip sign.
+bool g_vitalsBack=false;
+float g_vitalsBackCfg[5]={.045f,0.f,0.f,0.f,0.f};
+const char* kVitalsBackKeys[5]={"VitalsBack.Out","VitalsBack.Along","VitalsBack.Forward","VitalsBack.Tilt","VitalsBack.Spin"};
 float g_nativeObjectiveScale=.70f;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
@@ -453,6 +467,7 @@ void set_hand(int which, const HandCfg& h, const char* who) {
     for (float* f : axes) { if (*f < -0.3f) *f = -0.3f; if (*f > 0.3f) *f = 0.3f; }
     if (c.tiltDeg < -90.0f) c.tiltDeg = -90.0f;
     if (c.tiltDeg > 90.0f) c.tiltDeg = 90.0f;
+    if (!(c.spinDeg >= -180.0f && c.spinDeg <= 180.0f)) c.spinDeg = 0.0f;
     const bool changed = memcmp(&c, &g_hand[which], sizeof(c)) != 0;
     g_hand[which] = c;
     if (changed)
@@ -469,6 +484,7 @@ void set_hand(int which, const HandCfg& h, const char* who) {
     _snprintf(key, sizeof(key), "%s.Width", hn); write_f(key, c.widthM);
     _snprintf(key, sizeof(key), "%s.Orient", hn); write_key(key, c.followGrip ? "grip" : "billboard");
     _snprintf(key, sizeof(key), "%s.Tilt", hn); write_f(key, c.tiltDeg);
+    _snprintf(key, sizeof(key), "%s.Spin", hn); write_f(key, c.spinDeg);
     refresh_status_line();
 }
 
@@ -584,6 +600,11 @@ bool vitals_part(int sink,int part,float* rect,float* halfPlane) {
     const float* c=g_vitalsCrop[part];
     if(!(c[2]>c[0] && c[3]>c[1])) return false;
     for(int k=0;k<4;++k) rect[k]=c[k];
+    if(g_vitalsAutoCrop) {   // trim at the line's far end (+0.01 of the screen), so each part's content is centred
+        const float lo=fminf(g_vitalsLine[0],g_vitalsLine[1])-.01f,hi=fmaxf(g_vitalsLine[0],g_vitalsLine[1])+.01f;
+        if(part==0) rect[2]=fminf(rect[2],hi); else rect[0]=fmaxf(rect[0],lo);
+        if(!(rect[2]>rect[0])) return false;
+    }
     const float y0=g_el[ElVitals].rect[1],y1=g_el[ElVitals].rect[3];
     const float slope=y1>y0 ? (g_vitalsLine[1]-g_vitalsLine[0])/(y1-y0) : 0.f;
     // f(u,v) = u - top - slope*(v-y0): < 0 left of the line (health), > 0 right (mana).
@@ -772,6 +793,13 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
         d.lift = g_hand[h].liftM;
         d.orient = g_hand[h].followGrip ? dvr::vr::HudOrient::FollowGrip : dvr::vr::HudOrient::Billboard;
         d.tiltDeg = g_hand[h].tiltDeg;
+        d.spinDeg = g_hand[h].spinDeg;
+        if(g_vitalsBack && (e==ElVitalsHealth || e==ElVitalsMana)) {   // VR-142: on the back of the hand
+            const float side=h ? -1.f : 1.f;   // the back of the hand faces grip -X on the right, +X on the left
+            d.base[0]=side*g_vitalsBackCfg[0]; d.base[1]=g_vitalsBackCfg[1]; d.base[2]=g_vitalsBackCfg[2];
+            d.lift=0; d.orient=dvr::vr::HudOrient::FollowGrip;
+            d.tiltDeg=g_vitalsBackCfg[3]; d.spinDeg=h ? g_vitalsBackCfg[4] : -g_vitalsBackCfg[4];
+        }
         d.width = g_hand[h].widthM * (wholeSink ? rw : 1.0f) * c.handScale;
         d.height = 0.0f;
         d.planeOff[0] = (wholeSink ? cxN * g_hand[h].widthM : 0.0f) + c.handX;
@@ -813,13 +841,24 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
                 const int pa=g_el[pe].anchor;if(!anchor_visible(pa)) continue;
                 ID3D11Texture2D* partTex=dvr::hudcap::vitals_part_texture(s,part);
                 if(!partTex) continue;
-                const float* c=g_vitalsCrop[part];
+                float c[4],hp[3];
+                if(!vitals_part(s,part,c,hp)) continue;
+                if(part==1 && g_vitalsMirror) {   // mana takes health's placement, mirrored across the body
+                    g_el[ElVitalsMana].handX=-g_el[ElVitalsHealth].handX;g_el[ElVitalsMana].handY=g_el[ElVitalsHealth].handY;
+                    g_el[ElVitalsMana].handScale=g_el[ElVitalsHealth].handScale;
+                    g_el[ElVitalsMana].winX=-g_el[ElVitalsHealth].winX;g_el[ElVitalsMana].winY=g_el[ElVitalsHealth].winY;
+                    g_el[ElVitalsMana].winScale=g_el[ElVitalsHealth].winScale;
+                }
                 auto& panel=out[n++];panel=dvr::vr::HudQuadDesc{};
                 panel.tex=partTex;panel.element=pe;panel.slot=pe;
                 const float whole[4]={0,0,1,1};
                 memcpy(panel.subrect,whole,sizeof(panel.subrect));
                 place(panel,pe,pa,whole,aspect,false);
                 if(!anchor_is_hand(pa)) panel.width=g_win.widthM*(c[2]-c[0])*g_el[pe].winScale;
+                else if(g_vitalsAutoCrop) {   // keep pixel scale: a trimmed part is narrower, not stretched
+                    const float full=g_vitalsCrop[part][2]-g_vitalsCrop[part][0];
+                    if(full>0) panel.width*=(c[2]-c[0])/full;
+                }
                 panel.height=0;
                 ++g_seen[pe];
             }
@@ -1032,6 +1071,7 @@ void configure(const char* ini) {
         _snprintf(key, sizeof(key), "%s.Orient", hn);
         if (read_s(ini, key, v, sizeof(v))) h.followGrip = !_stricmp(v, "grip");
         _snprintf(key, sizeof(key), "%s.Tilt", hn); h.tiltDeg = read_f(ini, key, h.tiltDeg);
+        _snprintf(key, sizeof(key), "%s.Spin", hn); h.spinDeg = read_f(ini, key, h.spinDeg);
         g_hand[k] = h;
     }
     {   // VR-119
@@ -1081,6 +1121,11 @@ void configure(const char* ini) {
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
     g_wheelParts=read_i(ini,"WheelSidePanels",0)!=0;
     g_vitalsSplit=read_i(ini,"VitalsSplit",0)!=0;
+    g_vitalsMirror=read_i(ini,"VitalsMirror",1)!=0;g_vitalsAutoCrop=read_i(ini,"VitalsAutoCrop",1)!=0;
+    g_vitalsBack=read_i(ini,"VitalsBack",0)!=0;
+    for(int k=0;k<5;++k) g_vitalsBackCfg[k]=read_f(ini,kVitalsBackKeys[k],g_vitalsBackCfg[k]);
+    DVR_INFO("hud/vitals-split: mirror=%d autocrop=%d back-of-hand=%d (out %.3f along %.3f forward %.3f tilt %.0f spin %.0f)",
+        g_vitalsMirror,g_vitalsAutoCrop,g_vitalsBack,g_vitalsBackCfg[0],g_vitalsBackCfg[1],g_vitalsBackCfg[2],g_vitalsBackCfg[3],g_vitalsBackCfg[4]);
     g_vitalsLine[0]=read_f(ini,"VitalsSplit.Top",g_vitalsLine[0]);g_vitalsLine[1]=read_f(ini,"VitalsSplit.Bottom",g_vitalsLine[1]);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kVitalsPartKeys[part],k);
@@ -1188,6 +1233,8 @@ void save(const char* ini) {
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
     }
+    write_i("VitalsMirror",g_vitalsMirror);write_i("VitalsAutoCrop",g_vitalsAutoCrop);write_i("VitalsBack",g_vitalsBack);
+    for(int k=0;k<5;++k) write_f(kVitalsBackKeys[k],g_vitalsBackCfg[k]);
     write_i("VitalsSplit",g_vitalsSplit);write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kVitalsPartKeys[part],k);write_f(key,g_vitalsCrop[part][k]);
@@ -1299,6 +1346,7 @@ bool command(const char* args) {
         else if (!strcmp(w3, "lift")) c.liftM = v;
         else if (!strcmp(w3, "width")) c.widthM = v;
         else if (!strcmp(w3, "tilt")) c.tiltDeg = v;
+        else if (!strcmp(w3, "spin")) c.spinDeg = v;
         else { DVR_WARN("hud: hand wants l|r then billboard|grip or x|y|z|lift|width|tilt <v>"); return true; }
         set_hand(which, c, "the seam");
         return true;
@@ -1449,8 +1497,21 @@ void draw_ui() {
         bool line=ImGui::SliderFloat("Split line at the top (screen x)",&g_vitalsLine[0],0,.3f,"%.3f");
         line|=ImGui::SliderFloat("Split line at the bottom (screen x)",&g_vitalsLine[1],0,.3f,"%.3f");
         if(line) {write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);}
+        if(ImGui::Checkbox("Mana mirrors health's placement",&g_vitalsMirror)) write_i("VitalsMirror",g_vitalsMirror);
+        ImGui::SameLine();
+        if(ImGui::Checkbox("Trim each part at the line",&g_vitalsAutoCrop)) {write_i("VitalsAutoCrop",g_vitalsAutoCrop);dvr::hudcap::invalidate_content();}
+        if(ImGui::Checkbox("Lay both on the back of the hands (moves with the hand)",&g_vitalsBack)) write_i("VitalsBack",g_vitalsBack);
+        if(g_vitalsBack) {
+            bool b=ImGui::SliderFloat("Out from the back of the hand (m)",&g_vitalsBackCfg[0],-.1f,.15f,"%.3f");
+            b|=ImGui::SliderFloat("Along the knuckles (m)",&g_vitalsBackCfg[1],-.15f,.15f,"%.3f");
+            b|=ImGui::SliderFloat("Along the controller (m)",&g_vitalsBackCfg[2],-.15f,.15f,"%.3f");
+            b|=ImGui::SliderFloat("Tilt (deg)",&g_vitalsBackCfg[3],-90,90,"%.0f");
+            b|=ImGui::SliderFloat("Spin (deg)",&g_vitalsBackCfg[4],-180,180,"%.0f");
+            if(b) for(int k=0;k<5;++k) write_f(kVitalsBackKeys[k],g_vitalsBackCfg[k]);
+            ImGui::TextDisabled("The left hand mirrors these. The panels' own size and offsets below still apply.");
+        }
         if(ImGui::Button("Mirror the right hand panel onto the left hand")) {
-            HandCfg m=g_hand[1];m.x=-m.x;set_hand(0,m,"F10 vitals split (mirrored HandR)");
+            HandCfg m=g_hand[1];m.x=-m.x;m.spinDeg=-m.spinDeg;set_hand(0,m,"F10 vitals split (mirrored HandR)");
         }
         for(int part=0;part<2;++part) {
             const int e=part?ElVitalsMana:ElVitalsHealth;ImGui::PushID(720+part);
@@ -1461,10 +1522,13 @@ void draw_ui() {
             if(ImGui::Combo("Anchor",&choice,names,5)) {anchor=choice?choice+1:AnchorOff;set_element_anchor(e,anchor,"F10 vitals split");}
             const bool hand=anchor_is_hand(anchor);
             float x=hand?g_el[e].handX:g_el[e].winX,y=hand?g_el[e].handY:g_el[e].winY,scale=hand?g_el[e].handScale:g_el[e].winScale;
-            bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f,"%.3f");
-            moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f,"%.3f");
-            moved|=ImGui::SliderFloat("Size",&scale,.25f,3.f,"%.2fx");
-            if(moved) set_element_place(e,hand,x,y,scale,"F10 vitals split");
+            if(part==1 && g_vitalsMirror) ImGui::TextDisabled("Placement mirrors health (x %.3f, y %.3f, size %.2fx)",x,y,scale);
+            else {
+                bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f,"%.3f");
+                moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f,"%.3f");
+                moved|=ImGui::SliderFloat("Size",&scale,.1f,3.f,"%.2fx");
+                if(moved) set_element_place(e,hand,x,y,scale,"F10 vitals split");
+            }
             if(ImGui::TreeNode("Crop (screen fractions)")) {
                 bool changed=ImGui::SliderFloat("Left",&g_vitalsCrop[part][0],0,.4f,"%.3f");
                 changed|=ImGui::SliderFloat("Top",&g_vitalsCrop[part][1],0,.4f,"%.3f");
@@ -1724,6 +1788,7 @@ void draw_ui() {
         ch |= ImGui::SliderFloat("lift along world up (m)", &c.liftM, 0.0f, 0.3f, "%.3f");
         ch |= ImGui::SliderFloat("panel width (m)", &c.widthM, 0.06f, 0.40f, "%.2f");
         if (c.followGrip) ch |= ImGui::SliderFloat("tilt toward the eyes (deg)", &c.tiltDeg, -90.0f, 90.0f, "%.0f");
+        if (c.followGrip) ch |= ImGui::SliderFloat("spin in its own plane (deg)", &c.spinDeg, -180.0f, 180.0f, "%.0f");
         if (ch) set_hand(k, c, "F10 HUD");
         ImGui::PopID();
     }

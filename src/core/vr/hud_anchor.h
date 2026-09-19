@@ -68,14 +68,21 @@ inline void tilt_left(float out[4])  { out[0] = 0.0f; out[1] = 0.70710678f;  out
 // the eyes). Applied in the panel's own frame, so it behaves at every grip
 // orientation, not only the tuning pose (the "pivot that breaks everything"
 // lesson in xr_math.h).
-inline void follow_grip_orientation(const float grip[4], int hand, float userTiltDeg, float out[4]) {
+// VR-142: then an optional SPIN about the panel's own normal, so a panel lying
+// on the back of the hand can be turned to run along it. 0 = unchanged.
+inline void follow_grip_orientation(const float grip[4], int hand, float userTiltDeg, float out[4],
+                                    float spinDeg = 0.0f) {
     float tilt[4];
     if (hand == 1) tilt_right(tilt); else tilt_left(tilt);
     float base[4];
     dvr::xrmath::quat_mul(grip, tilt, base);
     float nod[4];
     dvr::xrmath::quat_axis_angle(1.0f, 0.0f, 0.0f, userTiltDeg * 3.14159265f / 180.0f, nod);
-    dvr::xrmath::quat_mul(base, nod, out);
+    if (spinDeg == 0.0f) { dvr::xrmath::quat_mul(base, nod, out); return; }
+    float nodded[4], spin[4];
+    dvr::xrmath::quat_mul(base, nod, nodded);
+    dvr::xrmath::quat_axis_angle(0.0f, 0.0f, 1.0f, spinDeg * 3.14159265f / 180.0f, spin);
+    dvr::xrmath::quat_mul(nodded, spin, out);
 }
 
 // The panel's centre: grip + R(grip) * offset (the user's x/y/z in the hand's

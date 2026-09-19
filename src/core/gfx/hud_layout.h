@@ -73,6 +73,7 @@ struct HandCfg {
     float widthM;
     bool  followGrip;                // false = billboard to the head (38.92), true = watch face
     float tiltDeg;                   // FollowGrip: nod about the panel's right axis
+    float spinDeg;                   // FollowGrip: turn in the panel's own plane (VR-142)
 };
 
 // VR-119: the HUD alpha (core/gfx/blit_quad.h explains the modes) and a

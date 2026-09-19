@@ -4986,7 +4986,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                     const auto& q=g_views[0].pose.orientation;
                     oq[0]=q.x; oq[1]=q.y; oq[2]=q.z; oq[3]=q.w;
                 } else if (d.orient == HudOrient::FollowGrip) {
-                    dvr::hudanchor::follow_grip_orientation(gq, d.hand ? 1 : 0, d.tiltDeg, oq);
+                    dvr::hudanchor::follow_grip_orientation(gq, d.hand ? 1 : 0, d.tiltDeg, oq, d.spinDeg);
                 } else {
                     if (dvr::hudanchor::billboard_degenerate(toHead)) { g_hudStatDegenerate.fetch_add(1, std::memory_order_relaxed); continue; }
                     const float len = sqrtf(toHead[0] * toHead[0] + toHead[1] * toHead[1] + toHead[2] * toHead[2]);

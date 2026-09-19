@@ -678,6 +678,7 @@ struct HudQuadDesc {
     float planeOff[2] = {0.0f, 0.0f};
     float width = 1.25f, height = 0.0f;
     float tiltDeg = 0.0f;
+    float spinDeg = 0.0f;              // FollowGrip: turn in the panel's plane (VR-142)
     float orientation[4] = {0,0,0,1}; // OpeningPlane: LOCAL-space opening orientation
     float subrect[4] = {0.0f, 0.0f, 1.0f, 1.0f};
 };
