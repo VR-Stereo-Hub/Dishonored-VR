@@ -102,6 +102,49 @@ Ent* map_find(void* real) {
 }
 void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; e->updates = 0; e->roMask = 0; e->surfaceRefused = 0; --g_mapCount; ++g_mapTombs; }
 
+// PERF (2026-09-18): the streaming time series. The census only counted
+// uploads since load, which cannot say whether uploads line up with a hitch.
+// 100 ms buckets, 64 of them (6.4 s), indexed by tick/100. Writers are the
+// render thread (unlock, create, release); the reader is the present thread's
+// gap and beat lines. Races only blur a counter, never touch memory.
+struct StreamBucket { volatile LONG slot; volatile LONG ups, creates, releases; volatile LONG upKB, createKB, upUs; };
+constexpr int kStreamBuckets = 64;
+StreamBucket g_stream[kStreamBuckets];
+StreamBucket* stream_bucket() {
+    const LONG slot = (LONG)(GetTickCount64() / 100);
+    StreamBucket& b = g_stream[slot % kStreamBuckets];
+    if (b.slot != slot) {   // a bucket from 6.4 s ago: reuse it (a race blurs one count)
+        b.ups = b.creates = b.releases = 0; b.upKB = b.createKB = b.upUs = 0;
+        InterlockedExchange(&b.slot, slot);
+    }
+    return &b;
+}
+// Bytes of one w x h level of fmt (block formats round up to 4x4 blocks).
+uint64_t level_bytes(D3DFORMAT fmt, UINT w, UINT h) {
+    if (!w) w = 1; if (!h) h = 1;
+    switch ((DWORD)fmt) {
+    case D3DFMT_DXT1: return (uint64_t)((w + 3) / 4) * ((h + 3) / 4) * 8;
+    case D3DFMT_DXT2: case D3DFMT_DXT3: case D3DFMT_DXT4: case D3DFMT_DXT5:
+    case MAKEFOURCC('A','T','I','2'): return (uint64_t)((w + 3) / 4) * ((h + 3) / 4) * 16;
+    case D3DFMT_A16B16G16R16F: case D3DFMT_A16B16G16R16: case D3DFMT_G32R32F: return (uint64_t)w * h * 8;
+    case D3DFMT_A32B32G32R32F: return (uint64_t)w * h * 16;
+    case D3DFMT_L8: case D3DFMT_A8: case D3DFMT_P8: return (uint64_t)w * h;
+    case D3DFMT_R5G6B5: case D3DFMT_A1R5G5B5: case D3DFMT_X1R5G5B5: case D3DFMT_A4R4G4B4:
+    case D3DFMT_L16: case D3DFMT_A8L8: case D3DFMT_V8U8: case D3DFMT_R16F: return (uint64_t)w * h * 2;
+    default: return (uint64_t)w * h * 4;
+    }
+}
+uint64_t chain_bytes(D3DFORMAT fmt, UINT w, UINT h, UINT levels) {
+    uint64_t sum = 0;
+    if (!levels) levels = 32;
+    for (UINT i = 0; i < levels; ++i) {
+        sum += level_bytes(fmt, w, h);
+        if (w == 1 && h == 1) break;
+        w = w > 1 ? w / 2 : 1; h = h > 1 ? h / 2 : 1;
+    }
+    return sum;
+}
+
 } // namespace
 
 bool parse_managed(const char* s, Managed* out) {
@@ -291,6 +334,9 @@ void shadow_register_texture(IDirect3DDevice9* dev, IDirect3DTexture9* real, UIN
         return;
     }
     shadow_put(real, twin, (uint64_t)w * h * 4);
+    StreamBucket* b = stream_bucket();
+    InterlockedIncrement(&b->creates);
+    InterlockedExchangeAdd(&b->createKB, (LONG)(chain_bytes(fmt, w, h, levels) / 1024));
 }
 void shadow_register_cube(IDirect3DDevice9* dev, IDirect3DCubeTexture9* real, UINT edge, UINT levels, D3DFORMAT fmt) {
     if (g_managed != Managed::Shadow || !dev || !real) return;
@@ -305,6 +351,9 @@ void shadow_register_cube(IDirect3DDevice9* dev, IDirect3DCubeTexture9* real, UI
         return;
     }
     shadow_put(real, twin, (uint64_t)edge * edge * 4 * 6);
+    StreamBucket* b = stream_bucket();
+    InterlockedIncrement(&b->creates);
+    InterlockedExchangeAdd(&b->createKB, (LONG)(chain_bytes(fmt, edge, edge, levels) * 6 / 1024));
 }
 void shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* real, UINT w, UINT h, UINT d, UINT levels, D3DFORMAT fmt) {
     if (g_managed != Managed::Shadow || !dev || !real) return;
@@ -368,8 +417,17 @@ bool update_one_level(void* real, IDirect3DBaseTexture9* twin, int level, int fa
     }
     bool ok = false;
     if (src && dst) {
+        LARGE_INTEGER t0, t1, f; QueryPerformanceCounter(&t0);
         const HRESULT hr = g_dev->UpdateSurface(src, nullptr, dst, nullptr);
-        if (SUCCEEDED(hr)) { ++g_shadowLevelCopies; ok = true; }
+        QueryPerformanceCounter(&t1); QueryPerformanceFrequency(&f);
+        if (SUCCEEDED(hr)) {
+            ++g_shadowLevelCopies; ok = true;
+            D3DSURFACE_DESC d;
+            StreamBucket* b = stream_bucket();
+            InterlockedIncrement(&b->ups);
+            if (SUCCEEDED(dst->GetDesc(&d))) InterlockedExchangeAdd(&b->upKB, (LONG)((level_bytes(d.Format, d.Width, d.Height) + 1023) / 1024));
+            InterlockedExchangeAdd(&b->upUs, (LONG)((t1.QuadPart - t0.QuadPart) * 1000000 / f.QuadPart));
+        }
         else {
             ++g_shadowLevelCopyFailed;
             if (g_shadowLevelFirstHr == S_OK) g_shadowLevelFirstHr = hr;
@@ -448,7 +506,7 @@ void shadow_released(void* real) {
     if (e && e->updates == 0) ++g_shadowDroppedNeverUpdated;
     if (e) map_remove(e);
     LeaveCriticalSection(&g_cs);
-    if (twin) { twin->Release(); ++g_shadowReleased; }
+    if (twin) { twin->Release(); ++g_shadowReleased; InterlockedIncrement(&stream_bucket()->releases); }
 }
 
 // VR-15: the twin population, walked on demand only (32768 slots is one
@@ -529,4 +587,25 @@ void status(dvr::status::Writer& w) {
     w.kv("shadowDroppedNeverUpdated", (unsigned long)dropped);
 }
 
+
+// PERF (2026-09-18): the last `n` 100 ms buckets, oldest first, as one line.
+// Called at every frame gap: uploads that arrive in a burst right before a
+// stall are the texture-streaming signature; an empty ring clears streaming.
+void stream_log_recent(const char* why, int n) {
+    if (n > kStreamBuckets - 1) n = kStreamBuckets - 1;
+    const LONG now = (LONG)(GetTickCount64() / 100);
+    char line[1400]; int o = 0; LONG tu = 0, tc = 0, tr = 0, tkb = 0, tckb = 0, tus = 0;
+    for (int k = n - 1; k >= 0 && o < (int)sizeof(line) - 64; --k) {
+        const StreamBucket& b = g_stream[(now - k) % kStreamBuckets];
+        const bool live = b.slot == now - k;
+        const LONG u = live ? b.ups : 0, kb = live ? b.upKB : 0, c = live ? b.creates : 0, ckb = live ? b.createKB : 0;
+        const LONG r = live ? b.releases : 0, us = live ? b.upUs : 0;
+        tu += u; tc += c; tr += r; tkb += kb; tckb += ckb; tus += us;
+        o += _snprintf(line + o, sizeof(line) - o, " %.1f/%.1f", kb / 1024.0, ckb / 1024.0);
+    }
+    line[sizeof(line) - 1] = 0;
+    DVR_INFO("device/stream (%s): last %d x 100 ms, oldest first, uploaded/created MB:%s | totals uploads %ld (%.1f MB, %.1f ms CPU "
+             "in UpdateSurface) creates %ld (%.1f MB) releases %ld. A burst of MB right before a stall is texture streaming; "
+             "zeros clear it.", why, n, line, (long)tu, tkb / 1024.0, tus / 1000.0, (long)tc, tckb / 1024.0, (long)tr);
+}
 } // namespace dvr::d3d9ex

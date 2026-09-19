@@ -415,6 +415,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
     (void)self;
     g_xrOn = g_vrReady = dvr::frame::xr_live();   // the session, as of this present
     MfNoteTag();   // VR-76: the runtime's eye tag for the flicker history
+    dvr::gpu_memory::tick();   // PERF: video/process memory at 4 Hz (read-only)
     dvr::aim::tick(DvrGameplayVerdict(), dvr::stereo::wants_projection());
     // VR-117: the HUD redirect's game-side gate: the scene is drawing (the
     // presentation verdict, which a riding screen keeps true). The power wheel
@@ -440,6 +441,10 @@ static void DvrGameTick(IDirect3DDevice9* self)
                     (int)(nowMs < g_maimArmedUntil),
                     g_fpCalPhase, (int)g_gtActive, gp.where);
                 dvr::perf::log_gap_ring();
+                // PERF (2026-09-18): what memory and texture streaming were doing
+                // in the 2 s before this stall (the periodic xrEndFrame hitch).
+                dvr::d3d9ex::stream_log_recent("gap", 20);
+                dvr::gpu_memory::log_now("gap");
             }
             static double lastPresentMs = 0.0;
             if (lastPresentMs != 0.0 && !dvr::perf::enabled()) {

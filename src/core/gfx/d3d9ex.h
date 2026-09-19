@@ -116,6 +116,9 @@ uint32_t dropped_never_updated();
 uint32_t skipped_readonly();   // unlocks with nothing to push, because the lock was READONLY
 void  shadow_released(void* real);                // the real texture's last Release
 bool  shadow_active();                            // Ex live, translating, Managed=shadow
+// PERF (2026-09-18): one line with the last n 100 ms buckets of streamed
+// uploads/creations (MB) and totals, for the frame-gap line.
+void  stream_log_recent(const char* why, int n);
 // VR-15: the twin population. `live` twins the map holds, `neverUpdated` how
 // many of those have carried no successful UpdateTexture, `droppedNeverUpdated`
 // how many were released without ever carrying one. A live twin at zero is a
