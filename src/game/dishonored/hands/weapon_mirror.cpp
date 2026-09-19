@@ -48,7 +48,6 @@ bool g_wmOn = false;
 float g_wmEps = 0.25f, g_wmFill = 1.5f;
 bool g_wmBack = false;   // [Mirror] BackFaces: redraw the weapon with its back faces (fills one-sided holes)
 bool g_wmCaps = true;        // [Mirror] Caps: close open holes (where the hand covered the model) with fans
-float g_wmSymSkip = 0.90f;   // [Mirror] SymmetricSkip: a plane scoring this high means both sides exist; no copy
 LONG g_wmBackDrawn = 0, g_wmCapDrawn = 0;
 char g_wmAssets[256] = "Wpn_PlyGunElite,crossbow_01";
 char g_wmIni[MAX_PATH] = "";
@@ -68,8 +67,8 @@ static void WmReleaseAll(const char* why) {
 }
 static void WmSet(bool on) {
     g_wmOn = on;
-    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu, back faces %s, hole caps %s, symmetric skip %.2f)",
-        on ? "ON" : "off", g_wmAssets, g_wmEps, g_wmFill, g_wmBack ? "ON" : "off", g_wmCaps ? "ON" : "off", g_wmSymSkip);
+    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu, back faces %s, hole caps %s)",
+        on ? "ON" : "off", g_wmAssets, g_wmEps, g_wmFill, g_wmBack ? "ON" : "off", g_wmCaps ? "ON" : "off");
 }
 static bool WmEnabled() { return g_wmOn; }
 static void WmConfigure(const char* ini) {
@@ -82,8 +81,6 @@ static void WmConfigure(const char* ini) {
     if (!(g_wmFill > 0.0f && g_wmFill < 50.0f)) g_wmFill = 1.5f;
     g_wmBack = GetPrivateProfileIntA("Mirror", "BackFaces", 0, ini) != 0;
     g_wmCaps = GetPrivateProfileIntA("Mirror", "Caps", 1, ini) != 0;
-    GetPrivateProfileStringA("Mirror", "SymmetricSkip", "0.90", v, sizeof(v), ini); g_wmSymSkip = (float)atof(v);
-    if (!(g_wmSymSkip > 0.0f && g_wmSymSkip <= 1.01f)) g_wmSymSkip = 0.90f;
     WmSet(GetPrivateProfileIntA("Mirror", "Enabled", 0, ini) != 0);
 }
 
@@ -376,43 +373,84 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
                       "xyz"[bestA], bestScore[bestA], second, e->asset);
             msg[sizeof(msg) - 1] = 0; refuseKeepCaps(msg); return;
         }
-        // Installed473: the crossbow scored x 0.976 - both sides are modelled, and
-        // its 50 "missing" triangles were near-duplicates that z-fought on the right.
-        if (bestScore[bestA] >= g_wmSymSkip) {
-            char m2[200];
-            _snprintf(m2, sizeof(m2), "already symmetric (%c %.3f >= [Mirror] SymmetricSkip %.2f): both sides are modelled and a "
-                      "copy would only z-fight; hole caps only", "xyz"[bestA], bestScore[bestA], g_wmSymSkip);
-            m2[sizeof(m2) - 1] = 0; refuseKeepCaps(m2); return;
-        }
-        // The modelled half is the side holding more vertices.
+        e->n[0] = e->n[1] = e->n[2] = 0; e->c[0] = e->c[1] = e->c[2] = 0;
+        e->n[bestA] = 1.0f; e->c[bestA] = bestC[bestA];   // provisional; the modelled side is chosen below
+    }
+    // Triangles: area, unit normal, centroid. The winding convention is not
+    // assumed (UE3 flips it): the sign that makes normals point OUT of the model
+    // is measured, area-weighted, against the mesh centre.
+    const size_t nTri = idx.size() / 3;
+    std::vector<float> tn(nTri * 3), tc(nTri * 3), ta(nTri);
+    double mc[3] = {}, mcw = 0, outward = 0;
+    for (size_t t = 0; t < nTri; ++t) {
+        const float* p0 = &pos[(idx[t*3] - minIndex) * 3]; const float* p1 = &pos[(idx[t*3+1] - minIndex) * 3];
+        const float* p2 = &pos[(idx[t*3+2] - minIndex) * 3];
+        const float u[3] = { p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2] }, v[3] = { p2[0]-p0[0], p2[1]-p0[1], p2[2]-p0[2] };
+        const float n[3] = { u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0] };
+        const float len = sqrtf(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
+        ta[t] = 0.5f * len;
+        for (int i = 0; i < 3; ++i) { tn[t*3+i] = len > 1e-12f ? n[i] / len : 0; tc[t*3+i] = (p0[i] + p1[i] + p2[i]) / 3; mc[i] += tc[t*3+i] * ta[t]; }
+        mcw += ta[t];
+    }
+    for (double& x : mc) x = mcw > 0 ? x / mcw : 0;
+    for (size_t t = 0; t < nTri; ++t)
+        outward += ta[t] * ((tc[t*3]-mc[0])*tn[t*3] + (tc[t*3+1]-mc[1])*tn[t*3+1] + (tc[t*3+2]-mc[2])*tn[t*3+2]);
+    const float sgn = outward >= 0 ? 1.0f : -1.0f;
+    for (float& x : tn) x *= sgn;
+    const int ax = e->n[0] != 0 ? 0 : e->n[1] != 0 ? 1 : 2;
+    // Installed476: the crossbow's VERTICES are 97.6% symmetric, yet one whole
+    // side draws nothing - its vertices exist (edges, the thickness of the other
+    // side's plates) but no faces look out of that side. So the modelled side is
+    // the one with more area FACING OUT of it, and coverage below asks for a
+    // surface with the same facing, not merely a vertex nearby.
+    double faceOut[2] = {};   // [0] the +axis side, [1] the -axis side
+    for (size_t t = 0; t < nTri; ++t) {
+        const float d = tc[t*3+ax] - e->c[ax], f = tn[t*3+ax];
+        if (d > g_wmEps && f > 0.3f) faceOut[0] += ta[t];
+        else if (d < -g_wmEps && f < -0.3f) faceOut[1] += ta[t];
+    }
+    if (e->measured) {
+        e->n[ax] = faceOut[0] >= faceOut[1] ? 1.0f : -1.0f;
         for (UINT i = 0; i < numVerts; ++i) if (used[i]) {
-            const float d = pos[i*3+bestA] - bestC[bestA];
+            const float d = (pos[i*3+ax] - e->c[ax]) * e->n[ax];
             if (d > g_wmEps) ++sideHi; else if (d < -g_wmEps) ++sideLo;
         }
-        e->n[0] = e->n[1] = e->n[2] = 0; e->c[0] = e->c[1] = e->c[2] = 0;
-        e->n[bestA] = sideHi >= sideLo ? 1.0f : -1.0f;
-        e->c[bestA] = bestC[bestA];
     }
     float S[12]; dvr::hf::reflection_3x4(e->n, e->c, S);
     auto dist = [&](const float* p) { return e->n[0]*(p[0]-e->c[0]) + e->n[1]*(p[1]-e->c[1]) + e->n[2]*(p[2]-e->c[2]); };
 
-    // What already exists on the unmodelled side, hashed by FillRadius cells.
+    // What already exists on the unmodelled side: surface samples (centroid,
+    // corners, edge midpoints) of every triangle touching it, each carrying its
+    // triangle for the outward normal, hashed by FillRadius cells.
     const float cell = g_wmFill;
     auto key = [&](const float* p) -> long long {
         const long long x = (long long)floorf(p[0] / cell), y = (long long)floorf(p[1] / cell), z = (long long)floorf(p[2] / cell);
         return ((x & 0x1FFFFF) << 42) | ((y & 0x1FFFFF) << 21) | (z & 0x1FFFFF);
     };
-    std::unordered_map<long long, std::vector<UINT>> other;
+    struct Smp { float p[3]; UINT t; };
+    std::unordered_map<long long, std::vector<Smp>> other;
     UINT nOther = 0;
-    for (UINT i = 0; i < numVerts; ++i) if (used[i] && dist(&pos[i*3]) < -g_wmEps) { other[key(&pos[i*3])].push_back(i); ++nOther; }
-    auto occupied = [&](const float* m) {
+    for (size_t t = 0; t < nTri; ++t) {
+        const float* q[3] = { &pos[(idx[t*3] - minIndex) * 3], &pos[(idx[t*3+1] - minIndex) * 3], &pos[(idx[t*3+2] - minIndex) * 3] };
+        if (!(dist(q[0]) < -g_wmEps || dist(q[1]) < -g_wmEps || dist(q[2]) < -g_wmEps)) continue;
+        ++nOther;
+        float sp[7][3];
+        for (int i = 0; i < 3; ++i) {
+            sp[0][i] = tc[t*3+i];
+            for (int k = 0; k < 3; ++k) { sp[1+k][i] = q[k][i]; sp[4+k][i] = 0.5f * (q[k][i] + q[(k+1)%3][i]); }
+        }
+        for (auto& x : sp) { Smp m{ { x[0], x[1], x[2] }, (UINT)t }; other[key(x)].push_back(m); }
+    }
+    auto covered = [&](const float* m, const float* rn) {
         for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy) for (int dz = -1; dz <= 1; ++dz) {
             const float q[3] = { m[0] + dx * cell, m[1] + dy * cell, m[2] + dz * cell };
             auto it = other.find(key(q));
             if (it == other.end()) continue;
-            for (UINT i : it->second) {
-                const float ddx = pos[i*3] - m[0], ddy = pos[i*3+1] - m[1], ddz = pos[i*3+2] - m[2];
-                if (ddx*ddx + ddy*ddy + ddz*ddz <= cell * cell) return true;
+            for (const Smp& s2 : it->second) {
+                const float ddx = s2.p[0] - m[0], ddy = s2.p[1] - m[1], ddz = s2.p[2] - m[2];
+                if (ddx*ddx + ddy*ddy + ddz*ddz > cell * cell) continue;
+                const float* on = &tn[s2.t * 3];
+                if (on[0]*rn[0] + on[1]*rn[1] + on[2]*rn[2] > 0.5f) return true;
             }
         }
         return false;
@@ -420,31 +458,32 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     std::vector<uint32_t> kept; kept.reserve(idx.size());
     UINT skipSide = 0, skipPlane = 0, skipCovered = 0;
     uint32_t maxIdx = 0;
-    for (size_t t = 0; t + 2 < idx.size(); t += 3) {
-        const float* p0 = &pos[(idx[t] - minIndex) * 3]; const float* p1 = &pos[(idx[t+1] - minIndex) * 3];
-        const float* p2 = &pos[(idx[t+2] - minIndex) * 3];
+    for (size_t t = 0; t < nTri; ++t) {
+        const float* p0 = &pos[(idx[t*3] - minIndex) * 3]; const float* p1 = &pos[(idx[t*3+1] - minIndex) * 3];
+        const float* p2 = &pos[(idx[t*3+2] - minIndex) * 3];
         const float d0 = dist(p0), d1 = dist(p1), d2 = dist(p2);
         if (d0 < -g_wmEps || d1 < -g_wmEps || d2 < -g_wmEps) { ++skipSide; continue; }
         if ((std::max)(d0, (std::max)(d1, d2)) <= g_wmEps) { ++skipPlane; continue; }
-        const float cen[3] = { (p0[0]+p1[0]+p2[0]) / 3, (p0[1]+p1[1]+p2[1]) / 3, (p0[2]+p1[2]+p2[2]) / 3 };
+        float rn[3] = { tn[t*3], tn[t*3+1], tn[t*3+2] }; rn[ax] = -rn[ax];   // the copy's outward facing
         float m[3];
-        for (int i = 0; i < 3; ++i) m[i] = S[i*4]*cen[0] + S[i*4+1]*cen[1] + S[i*4+2]*cen[2] + S[i*4+3];
-        // Build464/467: a single stray vertex near the mirrored centroid used to
-        // skip the whole triangle (1040 of 2772 on the pistol), leaving holes.
-        // Skip only when the centroid AND all three mirrored corners land on
-        // existing geometry: the footprint is really modelled already.
-        if (nOther && occupied(m)) {
-            bool covered = true;
+        for (int i = 0; i < 3; ++i) m[i] = S[i*4]*tc[t*3] + S[i*4+1]*tc[t*3+1] + S[i*4+2]*tc[t*3+2] + S[i*4+3];
+        // Skip only when the mirrored centroid AND all three mirrored corners
+        // land on existing surface FACING THE SAME WAY: really modelled already.
+        if (nOther && covered(m, rn)) {
+            bool all = true;
             for (const float* pv : { p0, p1, p2 }) {
                 float mv[3];
                 for (int i = 0; i < 3; ++i) mv[i] = S[i*4]*pv[0] + S[i*4+1]*pv[1] + S[i*4+2]*pv[2] + S[i*4+3];
-                if (!occupied(mv)) { covered = false; break; }
+                if (!covered(mv, rn)) { all = false; break; }
             }
-            if (covered) { ++skipCovered; continue; }
+            if (all) { ++skipCovered; continue; }
         }
-        kept.push_back(idx[t]); kept.push_back(idx[t+1]); kept.push_back(idx[t+2]);
-        maxIdx = (std::max)(maxIdx, (std::max)(idx[t], (std::max)(idx[t+1], idx[t+2])));
+        kept.push_back(idx[t*3]); kept.push_back(idx[t*3+1]); kept.push_back(idx[t*3+2]);
+        maxIdx = (std::max)(maxIdx, (std::max)(idx[t*3], (std::max)(idx[t*3+1], idx[t*3+2])));
     }
+    Log("mirror/facing: '%s' outward sign %+.0f | area facing OUT of the +%c side %.1f, of the -%c side %.1f -> modelled side %c%c "
+        "(the side with no outward faces is the one that draws empty; copies need a same-facing surface to be skipped)",
+        e->asset, sgn, "xyz"[ax], faceOut[0], "xyz"[ax], faceOut[1], e->n[ax] > 0 ? '+' : '-', "xyz"[ax]);
     const UINT keptPrims = (UINT)(kept.size() / 3);
     Log("mirror/build: '%s' verts %u used %u prims %u | bbox (%.1f %.1f %.1f)-(%.1f %.1f %.1f) | barrel axis %c | "
         "plane n=(%.0f %.0f %.0f) through %c=%.2f %s%s | sides %u/%u | faces min/max x %u/%u y %u/%u z %u/%u | kept %u of %u "

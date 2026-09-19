@@ -215,7 +215,7 @@ triangles the mirror kept were near-duplicates of existing faces (the symmetry
 is 0.21 uu off-centre), which z-fight. The back-face pass on its thin two-layer
 parts can z-fight the same way, and it showed no visible help in either run.
 Installed476:
-- `[Mirror] SymmetricSkip=0.90`: a plane scoring at least this means no copy.
+- `[Mirror] SymmetricSkip=0.90` (removed in installed478, see 6c).
 - `[Mirror] BackFaces=0` in the installed ini.
 - `[Mirror] Caps=1`, new: the missing areas sit where the hand covered the
   model in flat play, so they are expected to be OPEN holes. Boundary loops
@@ -227,6 +227,23 @@ Installed476:
   both weapons means the meshes are closed and the gaps are not holes (next
   suspects: culling on the reflected/cut draw or the hand cut hiding weapon
   triangles).
+
+## 6c. Installed476 result: the symmetric-skip was wrong (2026-09-19)
+
+Tester: the crossbow's whole left side is invisible, and the pistol still misses a
+little. So `SymmetricSkip` was wrong: the crossbow's vertices are 97.6% symmetric,
+but its faces are not. The unmodelled side keeps its vertices (edges and the
+thickness of the other side's plates) with no faces looking out of it. The
+vertex-only occupancy test had the same blind spot, and that is why the
+installed470/473 copies kept only 50 triangles. Installed478:
+- SymmetricSkip removed.
+- The modelled side is the one with more area facing OUT of it; the normals'
+  outward sign is measured against the mesh centre, so winding is not assumed.
+- A mirrored triangle is skipped only when its centroid and all three corners
+  land on existing surface facing the same way (normal dot > 0.5).
+- `mirror/facing:` logs both sides' outward area and the chosen side.
+Hole caps stay on: run476 capped 58 crossbow loops (388 triangles) and 25
+pistol loops (165 triangles).
 
 ## 7. Verification
 

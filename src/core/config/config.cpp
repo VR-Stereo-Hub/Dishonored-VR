@@ -907,7 +907,6 @@ static void WriteDefaultIni(const char* ini)
         "FillRadius=1.5\n"
         "BackFaces=0\n"
         "Caps=1\n"
-        "SymmetricSkip=0.90\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"
