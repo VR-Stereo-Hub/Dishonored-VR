@@ -27,12 +27,11 @@
 #include <atomic>
 #include <cmath>
 
-// Code defaults = the tester's preferred settings (installed470's session, run470
-// final state): the lens effects at 2 uu, no rescale, native placement (follow
-// off - installed476 tried it on and the tester preferred 470's look).
+// Code defaults = the tester's chosen settings (run480 final state, 2026-09-19):
+// the lens effects at 18 uu, no rescale, re-placed per eye (follow on).
 // Distance=0 gives back the native 90 uu sheet.
-static std::atomic<int> g_lensDistUu{2};
-static std::atomic<bool> g_lensKeepSize{false}, g_lensTrace{true}, g_lensFollow{false};
+static std::atomic<int> g_lensDistUu{18};
+static std::atomic<bool> g_lensKeepSize{false}, g_lensTrace{true}, g_lensFollow{true};
 static std::atomic<int> g_lensRainPct{100};
 
 static void LensDistanceSet(int uu) {
@@ -65,8 +64,8 @@ static int LensRainPct() { return g_lensRainPct.load(); }
 static void LensConfigure(const char* ini) {
     g_lensTrace.store(GetPrivateProfileIntA("Lens", "Trace", 1, ini) != 0);
     LensKeepSizeSet(GetPrivateProfileIntA("Lens", "KeepSize", 0, ini) != 0);
-    LensDistanceSet(GetPrivateProfileIntA("Lens", "Distance", 2, ini));
-    LensFollowSet(GetPrivateProfileIntA("Lens", "FollowHead", 0, ini) != 0);
+    LensDistanceSet(GetPrivateProfileIntA("Lens", "Distance", 18, ini));
+    LensFollowSet(GetPrivateProfileIntA("Lens", "FollowHead", 1, ini) != 0);
     LensRainPctSet(GetPrivateProfileIntA("Lens", "RainStrength", 100, ini));
 }
 
