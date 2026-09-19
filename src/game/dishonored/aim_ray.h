@@ -139,6 +139,7 @@ inline void visual_append(dvr::vr::AimVisualConfig& out, const Ray& ray, bool do
 }
 
 struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.5f;
+                int rgb[3] = {255, 255, 255};   // VR-141: dot/beam colour, white by default
                 bool bothPoses = false;      // draw the GRIP ray too, at half size
                 bool controlDot = false; 
                 // VR-57: transport the hand trim onto this ray, so tuning the hand
@@ -149,6 +150,7 @@ struct Config { bool dot = false, laser = false; int hand = 0; float distanceM =
 Config config();
 bool model_ray_requested();
 void configure(const Config& cfg, const char* origin);
+bool draw_reticle_ui();   // VR-141: the reticle's look, in the F10 HUD tab; true = changed (the caller saves)
 Ray ray(); // most recent present-thread snapshot, no recomputation
 // One publication for the visual ray and native firing consumer. The head
 // basis is sampled on the present lane alongside the hand, not fetched at fire.

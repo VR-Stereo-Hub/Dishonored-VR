@@ -1,3 +1,21 @@
+## Reticle customization in the HUD tab (VR-141, 2026-09-19)
+
+The reticle in the headset is the mod's controller dot (`[Crosshair] Dot=1`);
+the game's own reticle row is `off` in the tested layout. Its look moved from
+the Aim tab to a "Reticle" section of the HUD tab: on/off, the beam, the hand,
+distance (0.5-50 m), size (0.05-2 degrees) and colour as R, G, B sliders
+(0-255) with a White button. Every change applies live and is written at once
+(`[Crosshair] Dot/Laser/Hand/DistanceM/SizeDeg/ColorR/ColorG/ColorB`). The ray
+options (follow the hand trim, bolt geometry, the head-anchored control dot)
+stay in the Aim tab.
+
+The colour used to be baked into the dot texture as red 255/60/40 once per
+session. It is now a parameter of the runtime layer (`set_aim_dot_color`, a
+`41.0 (Dishonored)` seam in `openxr_runtime.cpp`): a change marks the texture
+dirty and the next publish rebuilds it on the present thread. The shape and the
+premultiplication are unchanged. The dot, the beam and the control dot share the
+texture, so they share the colour. Default white.
+
 ## Wheel entry angle options (2026-09-17)
 
 Added F10 Weapon dial controls for Follow head tilt on opening and Follow horizontal

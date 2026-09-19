@@ -388,6 +388,10 @@ static void WriteDefaultIni(const char* ini)
         "Hand=left\n"
         "DistanceM=8.000\n"
         "SizeDeg=0.500\n"
+        "; VR-141: the reticle colour, 0..255 each (white). Live: F10 HUD tab.\n"
+        "ColorR=255\n"
+        "ColorG=255\n"
+        "ColorB=255\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -1595,6 +1599,9 @@ static void LoadConfig()
         crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.5f);
         crosshair.bothPoses = GetPrivateProfileIntA("Crosshair", "BothPoses", 0, ini) != 0;
         crosshair.controlDot = GetPrivateProfileIntA("Crosshair", "ControlDot", 0, ini) != 0;
+        crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
+        crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
+        crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -3629,6 +3636,8 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Crosshair", "DistanceM", v, ini);
         _snprintf(v, 64, "%.3f", crosshair.sizeDeg);
         WritePrivateProfileStringA("Crosshair", "SizeDeg", v, ini);
+        const char* rgbKeys[3] = {"ColorR", "ColorG", "ColorB"};
+        for (int i = 0; i < 3; ++i) { _snprintf(v, 64, "%d", crosshair.rgb[i]); WritePrivateProfileStringA("Crosshair", rgbKeys[i], v, ini); }
     }
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());

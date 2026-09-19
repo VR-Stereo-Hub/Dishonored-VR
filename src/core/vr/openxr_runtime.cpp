@@ -117,6 +117,10 @@ constexpr uint32_t kLaserTexSize = 64;
 XrSwapchain g_laserSwapchain = XR_NULL_HANDLE;
 std::vector<XrSwapchainImageD3D11KHR> g_laserImages;
 ID3D11Texture2D* g_laserDot = nullptr; // CPU-generated source, copied in per frame
+// 41.0 (Dishonored, VR-141): the dot colour, 0x00BBGGRR, default white; a change
+// marks the texture dirty and the next publish rebuilds it on the present thread.
+std::atomic<uint32_t> g_laserRgb{0x00FFFFFFu};
+std::atomic<bool> g_laserRgbDirty{false};
 std::atomic<bool> g_laserOn{false};
 std::atomic<int> g_laserHand{1};
 std::atomic<float> g_laserPitchTrim{0.0f}, g_laserYawTrim{0.0f};
@@ -2143,8 +2147,10 @@ void teardown_session(const char* why) {
 // blend it with plain source-alpha. Generated on the CPU once per session -
 // this is a handful of kilobytes and needs no shader, no render target and no
 // interaction with the game's own D3D state.
-void create_laser(int64_t format) {
-    uint32_t px[kLaserTexSize * kLaserTexSize];
+// 41.0 (Dishonored, VR-141): the colour is a parameter (it was a fixed red
+// 255/60/40); the shape and premultiplication are unchanged.
+void fill_laser_pixels(uint32_t* px, uint32_t rgb) {
+    const float cr = float(rgb & 0xFF), cg = float((rgb >> 8) & 0xFF), cb = float((rgb >> 16) & 0xFF);
     for (uint32_t y = 0; y < kLaserTexSize; ++y) {
         for (uint32_t x = 0; x < kLaserTexSize; ++x) {
             float dx = (x + 0.5f) / kLaserTexSize * 2.0f - 1.0f;
@@ -2152,16 +2158,22 @@ void create_laser(int64_t format) {
             float r = sqrtf(dx * dx + dy * dy);
             float a = r >= 1.0f ? 0.0f : powf(1.0f - r, 1.5f);
             if (r < 0.25f) a = 1.0f; // bright core, so the beam stays readable
-            // Red laser, premultiplied (rgb already scaled by alpha).
-            uint8_t rr = static_cast<uint8_t>(255.0f * a);
-            uint8_t gg = static_cast<uint8_t>(60.0f * a);
-            uint8_t bb = static_cast<uint8_t>(40.0f * a);
+            // Premultiplied (rgb already scaled by alpha).
+            uint8_t rr = static_cast<uint8_t>(cr * a);
+            uint8_t gg = static_cast<uint8_t>(cg * a);
+            uint8_t bb = static_cast<uint8_t>(cb * a);
             uint8_t aa = static_cast<uint8_t>(255.0f * a);
             px[y * kLaserTexSize + x] = (static_cast<uint32_t>(aa) << 24) |
                                         (static_cast<uint32_t>(bb) << 16) |
                                         (static_cast<uint32_t>(gg) << 8) | rr;
         }
     }
+}
+
+void create_laser(int64_t format) {
+    uint32_t px[kLaserTexSize * kLaserTexSize];
+    fill_laser_pixels(px, g_laserRgb.load());
+    g_laserRgbDirty.store(false);
 
     D3D11_TEXTURE2D_DESC td{};
     td.Width = kLaserTexSize;
@@ -3547,6 +3559,11 @@ bool publish_laser_image() {
     XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
     wi.timeout = XR_INFINITE_DURATION;
     const bool imageReady = XR_SUCCEEDED(xrWaitSwapchainImage(g_laserSwapchain, &wi));
+    if (imageReady && g_laserRgbDirty.exchange(false)) {   // VR-141: a colour change, rebuilt here
+        static uint32_t px[kLaserTexSize * kLaserTexSize];
+        fill_laser_pixels(px, g_laserRgb.load());
+        g_context->UpdateSubresource(g_laserDot, 0, nullptr, px, kLaserTexSize * 4, 0);
+    }
     if (imageReady)
         g_context->CopyResource(g_laserImages[index].texture, g_laserDot);
     XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
@@ -6351,6 +6368,10 @@ void set_aim_visual(const AimVisualConfig& cfg) {
     if (cfg.enabled) ++g_aimVisualStats.publishes;
     else g_aimVisualStats.last = AimVisualResult::Off;
 }
+void set_aim_dot_color(uint8_t r, uint8_t g, uint8_t b) {
+    const uint32_t rgb = uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16);
+    if (g_laserRgb.exchange(rgb) != rgb) g_laserRgbDirty.store(true);
+}
 AimVisualStats aim_visual_stats() {
     AimVisualStats s = g_aimVisualStats; s.layerLimit = g_aimLayerLimit; return s;
 }
@@ -6736,6 +6757,7 @@ void set_laser(const LaserConfig&) {}
 void set_aim_visual(const AimVisualConfig&) {}
 AimVisualStats aim_visual_stats() { return {}; }
 void set_control_dot(const ControlDotConfig&) {}
+void set_aim_dot_color(uint8_t, uint8_t, uint8_t) {}
 ControlDotStats control_dot_stats() { return {}; }
 void set_aim_dot(const AimDotConfig&) {}
 void set_hud_texture_provider(HudTextureProviderFn) {}

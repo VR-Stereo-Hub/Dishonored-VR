@@ -1050,6 +1050,17 @@ static void OverlayFrame()
                                 hq.submitted, hq.untracked, hq.hiddenBudget);
         }
         ImGui::Separator();
+        if (ImGui::CollapsingHeader("Reticle", ImGuiTreeNodeFlags_DefaultOpen) && dvr::aim::draw_reticle_ui()) {   // VR-141: saved at once
+            const auto rc = dvr::aim::config(); char rv[32];
+            ConfigWriteKey("Crosshair", "Dot", rc.dot ? "1" : "0", "F10 HUD");
+            ConfigWriteKey("Crosshair", "Laser", rc.laser ? "1" : "0", "F10 HUD");
+            ConfigWriteKey("Crosshair", "Hand", rc.hand ? "right" : "left", "F10 HUD");
+            _snprintf(rv, sizeof(rv), "%.3f", rc.distanceM); ConfigWriteKey("Crosshair", "DistanceM", rv, "F10 HUD");
+            _snprintf(rv, sizeof(rv), "%.3f", rc.sizeDeg); ConfigWriteKey("Crosshair", "SizeDeg", rv, "F10 HUD");
+            const char* rk[3] = {"ColorR", "ColorG", "ColorB"};
+            for (int i = 0; i < 3; ++i) { _snprintf(rv, sizeof(rv), "%d", rc.rgb[i]); ConfigWriteKey("Crosshair", rk[i], rv, "F10 HUD"); }
+        }
+        ImGui::Separator();
         dvr::hudlayout::draw_ui();
     ImGui::EndTabItem(); }
 
