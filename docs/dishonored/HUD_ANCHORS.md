@@ -4,7 +4,7 @@ Run490 (banner verified; logs in build/playtest-candidates/hud-improvements/run4
 the split works in the headset. The left (mana) panel sat oddly next to the right
 one, and the log's ini explains it: mana's HandX was 0.078, set in the same
 direction as health's 0.084 instead of mirrored, and both part textures still
-spanned the whole vitals region with the content off to one side. Candidate 494:
+spanned the whole vitals region with the content off to one side. Candidate 493:
 - `[Hud] VitalsMirror=1` (default): mana takes health's placement with X
   negated; its own sliders are hidden while linked.
 - `[Hud] VitalsAutoCrop=1` (default): each part is trimmed at the split line

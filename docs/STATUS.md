@@ -1,3 +1,17 @@
+## Run490 result and candidate 493: vitals on the back of the hand (2026-09-19)
+
+Run490 (banner verified; logs in build/playtest-candidates/hud-improvements/run490):
+the reticle controls and the health/mana split work in the headset. The left
+panel sat oddly (its HandX was set in the same direction as the right's, and the
+part textures were not trimmed). The tester's reticle (white, 0.69 degrees) is
+now the default. Candidate 493 = `vr33-hands-working-493-g3dc587932` (DLL
+8e430f57...), frozen with install.ps1 in
+build/playtest-candidates/hud-improvements/install-493, NOT installed (the tester
+was playing): VitalsMirror, VitalsAutoCrop, and the new VitalsBack mode (both
+panels as watch faces on the back of the hands, moving with them; the installer
+turns it on, F10 turns it off). A dry run on run490's ini added only those three
+keys, CRLF intact. HUD_ANCHORS.md top section.
+
 ## codex/hud-improvements: reticle look and split vitals, candidate 490 (2026-09-19)
 
 New branch off codex/misc-fixes (PR #75, not merged). Candidate 490 =
