@@ -49,8 +49,7 @@ inline bool anchor_is_hand(int a) { return a == AnchorHandL || a == AnchorHandR;
 enum Element : int {
     ElDefault = 0, ElVitals, ElReticle, ElPrompt, ElEquipment, ElSubtitles, ElObjective, ElToast,
     ElTutorial, ElDetection, ElSkipGauge, ElDarkVision, ElVignette,
-    ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElWheelShortcuts, ElWheelPotions,
-    ElVitalsHealth, ElVitalsMana, ElCount
+    ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElWheelShortcuts, ElWheelPotions, ElCount
 };
 const char* element_name(int e);
 int element_from_name(const char* s);   // -1 when unknown (the legacy names all, health, mana, menu map)
@@ -73,7 +72,6 @@ struct HandCfg {
     float widthM;
     bool  followGrip;                // false = billboard to the head (38.92), true = watch face
     float tiltDeg;                   // FollowGrip: nod about the panel's right axis
-    float spinDeg;                   // FollowGrip: turn in the panel's own plane (VR-142)
 };
 
 // VR-119: the HUD alpha (core/gfx/blit_quad.h explains the modes) and a
@@ -118,27 +116,6 @@ bool menu_riding();
 bool native_gameplay_reference();
 bool wheel_parts_for_sink(int sink);
 bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rect);
-// VR-142: the split vitals. part 0 = health, 1 = mana and the equipped item; the
-// source crop and the diagonal half-plane, both in the sink texture's UV.
-bool vitals_part(int sink,int part,float* rect,float* halfPlane);
-// VR-142: where the DRAWN palm appears in XR LOCAL space (position, rotation),
-// published by the hand draw once per present while an attach needs it.
-bool wants_palm_pose();
-void set_hand_palm_pose(int hand, const float p[3], const float q[4], bool flipped);
-// VR-142: the vitals drawn IN the game frame on the hand ([Hud] VitalsInScene).
-bool vitals_scene_on();
-bool vitals_debug();
-void vitals_scene_result(int hand,int eye,const char* reason,bool drawn);
-void vitals_scene_reset();
-struct VitalsSceneCfg {
-    int   part = 0;                 // 0 health, 1 mana
-    float pos[3] = {0, 0, 0};       // metres, palm-local (the attach step)
-    float q[4] = {0, 0, 0, 1};      // palm-local rotation
-    bool  flip = false;             // the palm map mirrored at the capture
-    float widthM = 0.06f;
-    float trimCm[3] = {0, 0, 0};
-};
-bool vitals_scene_cfg(int hand, VitalsSceneCfg* out);
 bool force_capture_alpha(int sink);
 AlphaCfg wheel_parts_alpha();
 float native_objective_scale(int element);

@@ -1,3 +1,22 @@
+## Selective cleanup for SteamVR continuation (2026-09-19)
+
+Latest user instruction supersedes the exact486-only handoff: remove ONLY failed
+physical choke and split/attached/model health-mana experiments. Keep possession,
+rain/lens, wheel blackout, crash/stability, weapon models/animations, reticle UI
+and defaults, and SteamVR diagnostics. Original combined vitals remains.
+
+Production code is c01058558 plus305f1d3dc reticle defaults and the two source
+diffs from e30554204 SteamVR diagnostics. Release profile preserves all unrelated
+current settings; only Choke section and VitalsMode/VitalsDebug are removed.
+Research/code remains in codex/archive-hud-choke-20260919 and tracked archive.
+Do not restore or revive the experiments. No branch history rewritten.
+
+Release build and908 HUD checks pass; lint requires staged removals before its
+git-ls-files inventory can be read. New candidate install will retain the current
+accepted486 INI byte-for-byte, including VDXR selection. SteamVR inversion is
+still an open investigation; retaining diagnostics does not claim it fixed.
+No game or simulator launch, no PR/merge. Continue on codex/hud-improvements.
+
 ## Claude handoff: accepted486 PR, SteamVR extraction, deferred HUD/choke (2026-09-19)
 
 The user accepts the current486 state and requests PR/branch separation with

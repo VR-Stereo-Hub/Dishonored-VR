@@ -1,11 +1,26 @@
-# Next session: accepted486 PR and branch separation
+## Selective cleanup for SteamVR continuation (2026-09-19)
 
-Read CLAUDE.md, AGENTS.md and
-[CLAUDE_HANDOFF_BUILD486_BRANCH_SPLIT.md](CLAUDE_HANDOFF_BUILD486_BRANCH_SPLIT.md).
+Latest user instruction supersedes the exact486-only handoff: remove ONLY failed
+physical choke and split/attached/model health-mana experiments. Keep possession,
+rain/lens, wheel blackout, crash/stability, weapon models/animations, reticle UI
+and defaults, and SteamVR diagnostics. Original combined vitals remains.
 
-The user superseded the vitals/choke implementation plan. Prepare the accepted486
-PR, extract only the native SteamVR work onto its own branch, and retire the mixed
-HUD/choke PR while preserving research. Do not implement those deferred features.
-Do not launch the game/simulator, merge, or change the installed VDXR486 baseline.
-The handoff gives verified commits, existing PRs75/76, archived draft research,
-branch boundaries, validation expectations and completion criteria.
+Production code is c01058558 plus305f1d3dc reticle defaults and the two source
+diffs from e30554204 SteamVR diagnostics. Release profile preserves all unrelated
+current settings; only Choke section and VitalsMode/VitalsDebug are removed.
+Research/code remains in codex/archive-hud-choke-20260919 and tracked archive.
+Do not restore or revive the experiments. No branch history rewritten.
+
+Release build and908 HUD checks pass; lint requires staged removals before its
+git-ls-files inventory can be read. New candidate install will retain the current
+accepted486 INI byte-for-byte, including VDXR selection. SteamVR inversion is
+still an open investigation; retaining diagnostics does not claim it fixed.
+No game or simulator launch, no PR/merge. Continue on codex/hud-improvements.
+
+Next: verify current build/playtest-candidates/installed.json and log banner.
+Continue native SteamVR investigation from e30554204. Do not use the old
+exact486-only branch-split instructions: reticle work is explicitly retained.
+Do not change runtime or revive whole-image flips without a targeted test.
+Read only current STATUS and relevant ENGINE_NOTES/FLICKER_REFERENCE entries.
+The retained SteamVR audit compares head/eye orientations at one predicted time.
+All usual log archive, full INI comparison, CRLF, liveness and no-launch rules apply.

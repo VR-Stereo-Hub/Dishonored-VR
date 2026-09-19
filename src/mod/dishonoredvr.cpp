@@ -157,7 +157,6 @@
 #include "core/input/hotkeys.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::pad
-#include "game/dishonored/choke_gesture.cpp"   // VR-145: before the pad, which consumes it
 #include "core/input/pad_bridge.cpp"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::overlay

@@ -34,7 +34,6 @@ namespace dvr::gfx {
 struct AlphaParams {
     float sourceRect[4] = {0,0,1,1}; // source UV crop; default samples whole texture
     float ellipse[4] = {0,0,0,0}; // center UV and radii; zero radii disable
-    float halfPlane[3] = {0,0,0}; // VR-142: keep a*u + b*v + c >= 0 in SOURCE uv; a = b = 0 disables
     int   mode = 0;
     float gain = 1.0f, floorA = 0.0f, gamma = 1.0f, mixK = 1.0f;
     float backdrop[4] = {0, 0, 0, 0};   // r, g, b, a (a = 0: no plate)

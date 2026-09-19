@@ -66,7 +66,6 @@ static void UpdateVirtualPad()
         g_wheelHeld = wheelHeld;
         if (wheelHeld)       b |= XINPUT_GAMEPAD_LEFT_SHOULDER;
         if (choke)           b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
-        if (ChokeGestureTick(wheelHeld)) b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;   // VR-145: the physical choke
         if (in.a)            b |= XINPUT_GAMEPAD_A;       // jump
         bool userStealth = in.b;
         if (userStealth)     b |= XINPUT_GAMEPAD_B;       // stealth

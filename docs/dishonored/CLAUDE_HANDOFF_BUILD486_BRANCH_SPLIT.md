@@ -1,3 +1,10 @@
+# Superseded scope notice (2026-09-19)
+
+Latest user request preserves reticle work as well as possession/rain, wheel
+blackout, crash fixes and weapon-model work. Only choke and split/attached
+health-mana are removed. Follow NEXT_SESSION.md; do not execute this historical
+exact486-only branch/PR plan without a new request.
+
 # Claude handoff: accepted build486 PR, SteamVR branch, deferred HUD/choke
 
 ## Current instruction and boundaries

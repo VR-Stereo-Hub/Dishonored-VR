@@ -109,76 +109,6 @@ void release_slots(Sink& s) {
     s.delivered = false;
 }
 
-// VR-142: the vitals parts as D3D9 textures, for the in-scene draw on the hand.
-// Copied (same size, so a multisampled source resolves) from the vitals sink's
-// private target at the present, before its clear: the next frame's hand draws
-// sample this frame's HUD. DEFAULT pool: released on reset.
-IDirect3DTexture9* g_vsTex[2] = {};
-UINT g_vsW[2] = {}, g_vsH[2] = {};
-float g_vsRect[2][4] = {}, g_vsHp[2][3] = {};
-bool g_vsOk[2] = {};
-const char* g_vsReason[2]={"no copy yet","no copy yet"};
-unsigned long long g_vsMs[2]={};
-void vs_note(int part,const char* reason) {
-    g_vsReason[part]=reason;
-    static unsigned counts[2]={};static unsigned long long last[2]={};
-    ++counts[part];const auto now=GetTickCount64();
-    if(!last[part] || now-last[part]>=3000) {
-        last[part]=now;
-        DVR_INFO("hud/vitals-copy: part=%d attempts=%u result=%s armed=%d present=%u",part,counts[part],reason,g_armed,g_presentNo);
-    }
-}
-void vs_release() {
-    dvr::hudlayout::vitals_scene_reset();
-    g_vsMs[0]=g_vsMs[1]=0;g_vsReason[0]=g_vsReason[1]="device reset or release";
-    for (int k = 0; k < 2; ++k) { if (g_vsTex[k]) { g_vsTex[k]->Release(); g_vsTex[k] = nullptr; } g_vsOk[k] = false; g_vsW[k] = g_vsH[k] = 0; }
-}
-void vs_copy(IDirect3DDevice9* dev, int i, IDirect3DSurface9* rt) {
-    // Only the vitals sink owns these flags. Other sinks must not invalidate
-    // a successful copy later in this same end_frame loop.
-    float probe[4],plane[3];
-    if(!dvr::hudlayout::vitals_scene_on() ||
-       (!dvr::hudlayout::vitals_part(i,0,probe,plane) && !dvr::hudlayout::vitals_part(i,1,probe,plane))) return;
-    for (int part = 0; part < 2; ++part) {
-        float r[4], hp[3];
-        if (!dvr::hudlayout::vitals_part(i, part, r, hp)) {vs_note(part,"invalid crop or no vitals sink");continue;}
-        if(!rt || !g_rtW || !g_rtH) {vs_note(part,"no source target");continue;}
-        if(!g_armed || !g_sink[i].redirected || g_sink[i].clearBeforeDraw) {
-            vs_note(part,!g_armed?"redirect not armed":g_sink[i].clearBeforeDraw?"source awaiting clear":"no HUD draws this present");continue;
-        }
-        RECT src = {(LONG)(r[0] * g_rtW), (LONG)(r[1] * g_rtH), (LONG)ceilf(r[2] * g_rtW), (LONG)ceilf(r[3] * g_rtH)};
-        if (src.left < 0) src.left = 0; if (src.top < 0) src.top = 0;
-        if (src.right > (LONG)g_rtW) src.right = (LONG)g_rtW; if (src.bottom > (LONG)g_rtH) src.bottom = (LONG)g_rtH;
-        const UINT w = (UINT)(src.right - src.left), h = (UINT)(src.bottom - src.top);
-        if (src.right<=src.left || src.bottom<=src.top || w < 4 || h < 4) {vs_note(part,"empty source rectangle");continue;}
-        if (!g_vsTex[part] || g_vsW[part] != w || g_vsH[part] != h) {
-            if (g_vsTex[part]) { g_vsTex[part]->Release(); g_vsTex[part] = nullptr; }
-            if (FAILED(dev->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &g_vsTex[part], nullptr)) ||
-                !g_vsTex[part]) {
-                g_vsTex[part] = nullptr;vs_note(part,"texture allocation failed");
-                DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "hud/vitals-scene: part %d texture %ux%u refused", part, w, h);
-                continue;
-            }
-            g_vsW[part] = w; g_vsH[part] = h;
-            DVR_INFO("hud/vitals-scene: part %d texture %ux%u from the vitals sink (%ld,%ld)-(%ld,%ld)", part, w, h,
-                     src.left, src.top, src.right, src.bottom);
-        }
-        IDirect3DSurface9* dst = nullptr;
-        if (FAILED(g_vsTex[part]->GetSurfaceLevel(0, &dst)) || !dst) {vs_note(part,"texture surface unavailable");continue;}
-        const HRESULT hr = dev->StretchRect(rt, &src, dst, nullptr, D3DTEXF_NONE);
-        dst->Release();
-        if (FAILED(hr)) {
-            vs_note(part,"StretchRect failed");
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000, "hud/vitals-scene: part %d copy refused (0x%08lx)", part, (unsigned long)hr);
-            continue;
-        }
-        g_vsRect[part][0] = (float)src.left / g_rtW; g_vsRect[part][1] = (float)src.top / g_rtH;
-        g_vsRect[part][2] = (float)src.right / g_rtW; g_vsRect[part][3] = (float)src.bottom / g_rtH;
-        memcpy(g_vsHp[part], hp, sizeof(hp));
-        g_vsOk[part] = true;g_vsMs[part]=GetTickCount64();vs_note(part,"copied current HUD before clear");
-    }
-}
-
 void release_rt(Sink& s) {
     if (s.rt) { s.rt->Release(); s.rt = nullptr; }
 }
@@ -363,8 +293,6 @@ float slot_scale() { return g_slotScale; }
 void set_game_gate(bool arm, bool menuOverride) { g_gameGate = arm; g_menuOverride = menuOverride; }
 bool armed() { return g_armed; }
 void invalidate_content() {
-    g_vsOk[0]=g_vsOk[1]=false;g_vsReason[0]=g_vsReason[1]="content invalidated";
-    dvr::hudlayout::vitals_scene_reset();
     for(auto& s:g_sink) {
         s.slotValid[0]=s.slotValid[1]=false;s.delivered=false;
         s.markers.reset();s.redirected=0;s.clearBeforeDraw=true;
@@ -437,8 +365,6 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         else g_lastRedirectMs = GetTickCount();
     }
 
-    g_vsOk[0]=g_vsOk[1]=false;
-    g_vsReason[0]=g_vsReason[1]=g_armed?"vitals sink not copied":"redirect not armed";
     bool anyReady = false, anyInUse = false, blitOk = false;
     if (g_on && dev9 && dev11 && ctx11 && !g_failed) {
         g_lastCtx = ctx11;
@@ -478,7 +404,6 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 RECT src = {0, 0, (LONG)g_rtW, (LONG)g_rtH};
                 const HRESULT sr = dev9->StretchRect(s.rt, &src, s.slotRt[s.cur], nullptr, D3DTEXF_LINEAR);
                 s.markers.copied(s.cur,SUCCEEDED(sr));
-                vs_copy(dev9, i, s.rt);   // VR-142: before the clear below
                 if (SUCCEEDED(sr)) {
                     if (s.blitFence[s.cur]) { s.blitFence[s.cur]->Issue(D3DISSUE_END); s.blitIssued[s.cur] = true; }
                     s.slotValid[s.cur] = true;
@@ -508,9 +433,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 // slot, before the wheel's circle mask. No extra D3D9 capture.
                 for(int part=0;part<2;++part) {
                     dvr::gfx::AlphaParams side;
-                    const bool wheel=dvr::hudlayout::wheel_part_crop(i,part,s.slotW,s.slotH,side.sourceRect);
-                    const bool vitals=!wheel && dvr::hudlayout::vitals_part(i,part,side.sourceRect,side.halfPlane);   // VR-142
-                    if(!wheel && !vitals) continue;
+                    if(!dvr::hudlayout::wheel_part_crop(i,part,s.slotW,s.slotH,side.sourceRect)) continue;
                     const uint32_t pw=(uint32_t)ceilf((side.sourceRect[2]-side.sourceRect[0])*s.slotW);
                     const uint32_t ph=(uint32_t)ceilf((side.sourceRect[3]-side.sourceRect[1])*s.slotH);
                     if(!pw || !ph) continue;
@@ -530,7 +453,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                         s.partW[part]=pw;s.partH[part]=ph;
                         DVR_INFO("hud/wheel-parts: part=%d %ux%u source=%.3f/%.3f/%.3f/%.3f, same delayed slot as wheel",part,pw,ph,side.sourceRect[0],side.sourceRect[1],side.sourceRect[2],side.sourceRect[3]);
                     }
-                    const auto group=vitals ? dvr::hudlayout::alpha_for_sink(i) : dvr::hudlayout::wheel_parts_alpha();
+                    const auto group=dvr::hudlayout::wheel_parts_alpha();
                     side.mode=group.mode;side.gain=group.gain;side.floorA=group.floorA;side.gamma=group.gamma;side.mixK=group.mixK;
                     g_blit.draw(ctx11,s.slotSrv[other],s.partRtv[part],pw,ph,&side);
                     s.partDelivered[part]=true;
@@ -631,11 +554,6 @@ ID3D11Texture2D* wheel_part_texture(int sink,int part) {
     if(sink<0 || sink>=dvr::hudlayout::kMaxSinks || part<0 || part>1 || !dvr::hudlayout::wheel_parts_for_sink(sink)) return nullptr;
     const auto& s=g_sink[sink];return s.delivered && s.partDelivered[part] ? s.partTex[part] : nullptr;
 }
-ID3D11Texture2D* vitals_part_texture(int sink,int part) {   // VR-142
-    float r[4],h[3];
-    if(sink<0 || sink>=dvr::hudlayout::kMaxSinks || part<0 || part>1 || !dvr::hudlayout::vitals_part(sink,part,r,h)) return nullptr;
-    const auto& s=g_sink[sink];return s.delivered && s.partDelivered[part] ? s.partTex[part] : nullptr;
-}
 ID3D11Texture2D* panel_texture(int sink) {
     if (sink < 0 || sink >= dvr::hudlayout::kMaxSinks) return nullptr;
     return g_sink[sink].outTex;
@@ -659,18 +577,7 @@ bool redirect_healthy() {
 }
 bool redirect_failed() { return g_failed; }
 
-const char* vitals_scene_copy_reason(int part) {
-    if(part<0 || part>1) return "invalid part";
-    return g_vsOk[part] && GetTickCount64()-g_vsMs[part]>=250?"copy older than 250 ms":g_vsReason[part];
-}
-bool vitals_scene_texture(int part, IDirect3DTexture9** tex, float rect[4], float hp[3], unsigned* w, unsigned* h) {
-    if (part < 0 || part > 1 || !g_vsOk[part] || !g_vsTex[part] || GetTickCount64()-g_vsMs[part]>=250) return false;
-    *tex = g_vsTex[part]; memcpy(rect, g_vsRect[part], 4 * sizeof(float)); memcpy(hp, g_vsHp[part], 3 * sizeof(float));
-    *w = g_vsW[part]; *h = g_vsH[part];
-    return true;
-}
 void on_reset() {
-    vs_release();
     g_lastNativeReferenceMs=0;
     g_handoffReady = false;
     for (Sink& s : g_sink) { release_slots(s); release_rt(s); s.redirected = 0; }
@@ -680,7 +587,6 @@ void on_reset() {
 }
 
 void shutdown() {
-    vs_release();
     g_armed = false;
     g_handoffReady = false;
     g_on = false;

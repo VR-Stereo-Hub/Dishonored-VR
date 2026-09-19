@@ -904,18 +904,6 @@ static void WriteDefaultIni(const char* ini)
         "FollowHead=1\n"
         "RainStrength=100\n"
         "\n"
-        "[Choke]\n"
-        "; VR-145: a quick right-hand move to the left shoulder holds RB (the game's\n"
-        "; choke/block button) while the hand stays near it. F10 Controls.\n"
-        "Gesture=0\n"
-        "EnterM=0.140\n"
-        "ExitM=0.220\n"
-        "MinSpeed=0.900\n"
-        "WindowMs=400.000\n"
-        "ShoulderLeftM=0.170\n"
-        "ShoulderDownM=0.220\n"
-        "ShoulderBackM=0.040\n"
-        "\n"
         "[Mirror]\n"
         "Enabled=0\n"
         "Assets=Wpn_PlyGunElite,crossbow_01\n"
@@ -946,8 +934,6 @@ static void WriteDefaultIni(const char* ini)
         "; `draws on|off|status|regions|kill <key>|hud|unkill` live, and the F10 HUD tickbox.\n"
         "Census=0\n"
         "[Hud]\n"
-        "VitalsMode=hand\n"
-        "VitalsDebug=0\n"
         "ReadingTilt=0\n"
         "ReadingTiltReference=1\n"
         "WheelPartsAlphaMode=mix\n"
@@ -2299,7 +2285,6 @@ static void LoadConfig()
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
     LensConfigure(ini);
-    ChokeConfigure(ini);   // VR-145
     WmConfigure(ini);
     CineFovConfigure(ini);
     CinePitchConfigure(ini);

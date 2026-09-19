@@ -2,7 +2,6 @@
 // (VR-117). Run by tools/hud-anchor-host.ps1; never launches the game.
 #include "core/vr/hud_anchor.h"
 #include "core/gfx/hud_marker.h"
-#include "core/gfx/vitals_policy.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -18,24 +17,6 @@ static void rot(const float q[4], const float v[3], float out[3]) {
     dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], v, out);
 }
 int main() {
-    using namespace dvr::vitals;
-    check(migrate("",-1,false,false)==Hand,"new profile defaults to hand panels");
-    check(migrate("",0,false,false)==Window,"legacy unsplit migrates to window");
-    check(migrate("",1,true,true)==Model,"legacy model wins overlapping switches");
-    check(migrate("",1,true,false)==Attached,"legacy attach migrates to attached");
-    check(migrate("hand",1,true,true)==Hand,"explicit selector overrides obsolete keys");
-    check(migrate("window",1,true,true)==Window,"window owns split and attachment");
-    DrawProof proof;
-    check(!proof.fresh(1000),"no draw leaves fallback visible");
-    proof.drawn(0,1000);
-    check(!proof.fresh(1100),"one eye cannot hide a binocular fallback");
-    proof.drawn(1,1010);
-    check(proof.fresh(1249),"both recent eyes suppress the fallback");
-    check(!proof.fresh(1250),"250 ms without an eye restores fallback");
-    proof.drawn(0,1300);
-    check(!proof.fresh(1400),"one live eye cannot mask stale other eye");
-    proof.drawn(1,1400);proof.reset();
-    check(!proof.fresh(1401),"reset or mode change requires new draw proof");
     using namespace dvr::hudanchor;
     const float zAxis[3] = {0, 0, 1}, yAxis[3] = {0, 1, 0}, xAxis[3] = {1, 0, 0};
     float q[4], o[3];
@@ -75,15 +56,6 @@ int main() {
         float yaw90[4]; dvr::xrmath::quat_axis_angle(0, 1, 0, 3.14159265f * 0.5f, yaw90);
         follow_grip_orientation(yaw90, 1, 0.0f, fq);
         rot(fq, zAxis, o); check(near3(o, 0, 0, 1), "a +90 yaw grip turns the right hand's normal from -X to +Z");
-        // VR-142: the spin turns the panel in its own plane and never moves its normal.
-        float sq[4];
-        follow_grip_orientation(ident, 1, 0.0f, sq, 90.0f);
-        rot(sq, zAxis, o); check(near3(o, -1, 0, 0), "a spin keeps the panel's normal on the back of the hand");
-        rot(sq, xAxis, o); check(near3(o, 0, 1, 0), "a +90 spin turns the panel's right (grip +Z) onto its up (grip +Y)");
-        follow_grip_orientation(ident, 1, 0.0f, sq, 0.0f);
-        follow_grip_orientation(ident, 1, 0.0f, fq);
-        check(std::fabs(sq[0]-fq[0]) + std::fabs(sq[1]-fq[1]) + std::fabs(sq[2]-fq[2]) + std::fabs(sq[3]-fq[3]) < 1e-6f,
-              "spin 0 is the old orientation exactly");
     }
     // Wrist position: grip + R(q)*offset + lift along world up.
     {
