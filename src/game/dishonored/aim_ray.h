@@ -138,7 +138,7 @@ inline void visual_append(dvr::vr::AimVisualConfig& out, const Ray& ray, bool do
     }
 }
 
-struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.5f;
+struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.69f;   // run490: the tester's size
                 int rgb[3] = {255, 255, 255};   // VR-141: dot/beam colour, white by default
                 bool bothPoses = false;      // draw the GRIP ray too, at half size
                 bool controlDot = false; 

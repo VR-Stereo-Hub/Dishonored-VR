@@ -387,7 +387,7 @@ static void WriteDefaultIni(const char* ini)
         "Laser=0\n"
         "Hand=left\n"
         "DistanceM=8.000\n"
-        "SizeDeg=0.500\n"
+        "SizeDeg=0.690\n"
         "; VR-141: the reticle colour, 0..255 each (white). Live: F10 HUD tab.\n"
         "ColorR=255\n"
         "ColorG=255\n"
@@ -1596,7 +1596,7 @@ static void LoadConfig()
         char hand[32]; GetPrivateProfileStringA("Crosshair", "Hand", "left", hand, sizeof(hand), ini);
         crosshair.hand = !_stricmp(hand, "left") ? 0 : !_stricmp(hand, "right") ? 1 : -1;
         crosshair.distanceM = IniFloat(ini, "Crosshair", "DistanceM", 8.0f);
-        crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.5f);
+        crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.69f);   // VR-141: the tester's run490 size
         crosshair.bothPoses = GetPrivateProfileIntA("Crosshair", "BothPoses", 0, ini) != 0;
         crosshair.controlDot = GetPrivateProfileIntA("Crosshair", "ControlDot", 0, ini) != 0;
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
