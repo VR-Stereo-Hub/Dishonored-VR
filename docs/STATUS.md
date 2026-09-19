@@ -1,3 +1,12 @@
+## Run486 result and the branch PR (2026-09-19)
+
+Run486 (banner verified; logs in build/playtest-candidates/wheel-blackout/run486):
+the tester accepted the weapon mirror as good enough (pistol straddle 103
+triangles, crossbow 8, depth bias 1). No shot or sword swing ran in this log, so
+HandAnimMelee/HandAnimFire are still unverified in the headset. codex/misc-fixes
+is opened as a PR to VR-Main (not merged). The HUD work continues on
+codex/hud-improvements.
+
 ## Installed486: swing/shot hand animation, barrel gaps, copy depth bias (2026-09-19)
 
 Run483 (banner verified; logs in build/playtest-candidates/wheel-blackout/run483):
