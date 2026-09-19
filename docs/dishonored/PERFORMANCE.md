@@ -1,3 +1,28 @@
+## Reboot/save comparison and resolution check (2026-09-19)
+
+After a PC restart and a known-good save, the tester reports performance close
+to the prior baseline with a possible small residual slowdown. These two changes
+were combined; neither is independently established as the cause or fix.
+A remembered VD resolution percentage changed from about102 to112, prompting an
+actual-dimension audit. Latest verified build486 starts at tick107093; DLL hash
+34bc3cb31eb540190a4c0dd2291ac47a0be7a325e9b871622913cabd50969c3d.
+Artifacts: build/playtest-candidates/hud-improvements/run486-after-reboot.
+
+Latest and original accepted486 both create3012x3122 game targets and eye
+swapchains, with VDXR recommending2688x2880. Archived464,470,473,476,483 and490
+also have those same dimensions;480 additionally has its already documented
+accidental1355x1405 reset. VDXR currently reports1.000 supersampling and1.000
+upscaling.3012/2688 is1.1205, numerically consistent with the reported112 percent;
+this is an inference about the overlay number, not verified overlay semantics.
+No logged evidence supports a new render-resolution increase across these runs.
+The remembered102 percent remains unverified. No resolution setting changed.
+
+Before the reboot report, the streamer was restarted with the game closed and
+without settings changes; prior process27772 was replaced by32024 at12:15:02.
+Its effect was not tested separately. The poor run preceding that restart is
+archived as run486-rollback. Do not call the reboot, save, streamer restart or
+resolution a confirmed explanation of the earlier regression.
+
 ## Rollback489 performance regression and accepted486 baseline (2026-09-19)
 
 Tester reports poor performance from launch after the rollback. Verified489

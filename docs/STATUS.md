@@ -1,3 +1,11 @@
+## Post-reboot baseline check (2026-09-19)
+
+Build486 remains installed on VDXR. Reboot plus a known-good save reportedly
+returned near prior performance; a small residual difference is unconfirmed.
+Actual3012x3122 render dimensions and2688x2880 runtime recommendation match the
+accepted pre-split logs. No resolution change made. PERFORMANCE.md records
+the evidence,112-percent inference, and combined-test limitation.
+
 ## Restored accepted pre-split486 after poor489 run (2026-09-19)
 
 Installed rebuilt3ec56e3bc, banner vr33-hands-working-486-g3ec56e3bc, with the
