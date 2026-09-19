@@ -1,3 +1,16 @@
+## Installed470: wheel blackout fix, fuller mirror, back faces (2026-09-18)
+
+Run467 (banner verified, logs in build/playtest-candidates/hitch-instrument/run467):
+the periodic hitch was the Virtual Desktop network (tester: VD network spiked
+every ~5 s; a router restart plus H.264+ made it smooth at 100-110 fps; gpumem
+read VRAM 15% of budget, nothing paged - paging killed). Pistol mirrored but
+incomplete; crossbow symmetric (47 triangles), so its gaps are one-sided faces.
+The world went black after a 62 ms wheel re-open (VR-140): the menu-blur exit
+restore is the inferred cause. Installed470 = `vr33-hands-working-470-gc4becc905`
+(DLL 572c930c...): no restore write on menu exit plus a gameplay watchdog;
+looser mirror fill; `[Mirror] BackFaces=1` added to the installed ini (only
+change, CRLF). No PR, no merge.
+
 ## Installed467: periodic hitch instrumented, mirror plane by symmetry (2026-09-18)
 
 Run464 (banner verified; logs in build/playtest-candidates/weapon-mirror/run464):

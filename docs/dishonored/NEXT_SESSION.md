@@ -22,7 +22,17 @@
   check ... TRUSTED` and a VALIDATED line naming a DishonoredNPCPawn.
 - The memory watcher was stopped by the tester. Ask before re-arming.
 
-## Launch question NOW (build467, VR-138): are the pistol and crossbow filled in now?
+## Launch question NOW (build470, VR-140): can a fast wheel flick still black the world?
+Banner `vr33-hands-working-470-gc4becc905`, DLL 572c930c.... Tap the wheel open
+and shut as fast as possible, many times (with and without Dark Vision).
+- World never goes black: the restore was the cause (FLICKER_REFERENCE VR-140).
+- Black again: read for `menu/blur: UI post-process weight ... held` (WARN). If it
+  fired, the game itself left the weight up - find the other owner; if it did
+  not, the black is not this weight.
+Passive: `mirror/build` kept counts and `mirror/beat` back-face passes; the
+pistol/crossbow look is an observation, not this launch's question.
+
+## Previous question (build467, VR-138): answered - pistol mostly filled, crossbow no change
 Banner `vr33-hands-working-467-g8f79caeae`, DLL e939e54b.... Play normally for
 5+ minutes (walking included) so the hitch instruments collect, and look at the
 far side of the pistol and the crossbow.
