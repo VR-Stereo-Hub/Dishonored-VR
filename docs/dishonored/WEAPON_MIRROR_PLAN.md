@@ -206,6 +206,28 @@ F10: a checkbox "Mirror pistol/crossbow" and a "Rebuild" button.
 * **Device loss**: MANAGED pool survives a reset; `WmRelease` on device
   teardown mirrors `g_msIb`'s handling.
 
+## 6b. Installed473 result and the hole-cap change (2026-09-18)
+
+Tester: the pistol still misses a few areas; the crossbow is not visibly
+mirrored; its right side flickers. The log explains the last two: the
+crossbow's best plane is x 0.976, so both sides are already modelled. The 50
+triangles the mirror kept were near-duplicates of existing faces (the symmetry
+is 0.21 uu off-centre), which z-fight. The back-face pass on its thin two-layer
+parts can z-fight the same way, and it showed no visible help in either run.
+Installed474:
+- `[Mirror] SymmetricSkip=0.90`: a plane scoring at least this means no copy.
+- `[Mirror] BackFaces=0` in the installed ini.
+- `[Mirror] Caps=1`, new: the missing areas sit where the hand covered the
+  model in flat play, so they are expected to be OPEN holes. Boundary loops
+  (welded at 0.02 uu so UV seams do not count) are closed with fans over their
+  own vertices, culling off, in the weapon's own palette. Refused per loop:
+  open chains, longer than 96 edges, wider than 45% of the model, and sheet
+  outlines (a flat one-layer part whose neighbours lie inside the loop).
+  `mirror/caps:` logs every count. Counterprediction: `boundary edges 0` on
+  both weapons means the meshes are closed and the gaps are not holes (next
+  suspects: culling on the reflected/cut draw or the hand cut hiding weapon
+  triangles).
+
 ## 7. Verification
 
 1. Build, lint, golden. `frame_test`: add `mirror_compose_commutes` next to

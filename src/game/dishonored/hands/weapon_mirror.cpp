@@ -34,6 +34,8 @@ struct WmEntry {
     IDirect3DDevice9* dev;
     IDirect3DIndexBuffer9* ours;
     UINT prims;
+    IDirect3DIndexBuffer9* caps;   // hole caps: fans over open boundary loops, existing vertices only
+    UINT capPrims;
     float n[3], c[3];
     bool measured;
     unsigned long long lastUse;
@@ -45,7 +47,9 @@ int g_wmN = 0;
 bool g_wmOn = false;
 float g_wmEps = 0.25f, g_wmFill = 1.5f;
 bool g_wmBack = false;   // [Mirror] BackFaces: redraw the weapon with its back faces (fills one-sided holes)
-LONG g_wmBackDrawn = 0;
+bool g_wmCaps = true;        // [Mirror] Caps: close open holes (where the hand covered the model) with fans
+float g_wmSymSkip = 0.90f;   // [Mirror] SymmetricSkip: a plane scoring this high means both sides exist; no copy
+LONG g_wmBackDrawn = 0, g_wmCapDrawn = 0;
 char g_wmAssets[256] = "Wpn_PlyGunElite,crossbow_01";
 char g_wmIni[MAX_PATH] = "";
 LONG g_wmDrawn = 0, g_wmFailed = 0, g_wmRefused = 0;
@@ -53,6 +57,7 @@ LONG g_wmDrawn = 0, g_wmFailed = 0, g_wmRefused = 0;
 
 static void WmReleaseEntry(WmEntry* e) {
     if (e->ours) { e->ours->Release(); e->ours = nullptr; }
+    if (e->caps) { e->caps->Release(); e->caps = nullptr; }
     memset(e, 0, sizeof(*e));
 }
 static void WmReleaseAll(const char* why) {
@@ -63,8 +68,8 @@ static void WmReleaseAll(const char* why) {
 }
 static void WmSet(bool on) {
     g_wmOn = on;
-    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu, back faces %s)", on ? "ON" : "off", g_wmAssets, g_wmEps,
-        g_wmFill, g_wmBack ? "ON" : "off");
+    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu, back faces %s, hole caps %s, symmetric skip %.2f)",
+        on ? "ON" : "off", g_wmAssets, g_wmEps, g_wmFill, g_wmBack ? "ON" : "off", g_wmCaps ? "ON" : "off", g_wmSymSkip);
 }
 static bool WmEnabled() { return g_wmOn; }
 static void WmConfigure(const char* ini) {
@@ -76,6 +81,9 @@ static void WmConfigure(const char* ini) {
     if (!(g_wmEps > 0.0f && g_wmEps < 10.0f)) g_wmEps = 0.25f;
     if (!(g_wmFill > 0.0f && g_wmFill < 50.0f)) g_wmFill = 1.5f;
     g_wmBack = GetPrivateProfileIntA("Mirror", "BackFaces", 0, ini) != 0;
+    g_wmCaps = GetPrivateProfileIntA("Mirror", "Caps", 1, ini) != 0;
+    GetPrivateProfileStringA("Mirror", "SymmetricSkip", "0.90", v, sizeof(v), ini); g_wmSymSkip = (float)atof(v);
+    if (!(g_wmSymSkip > 0.0f && g_wmSymSkip <= 1.01f)) g_wmSymSkip = 0.90f;
     WmSet(GetPrivateProfileIntA("Mirror", "Enabled", 0, ini) != 0);
 }
 
@@ -102,6 +110,130 @@ static bool WmPlaneOverride(const char* asset, float n[3], float c[3]) {
     n[0] = n[1] = n[2] = 0; c[0] = c[1] = c[2] = 0;
     n[a] = sign == '-' ? -1.0f : 1.0f; c[a] = off;
     return true;
+}
+
+static IDirect3DIndexBuffer9* WmMakeIb(IDirect3DDevice9* dev, const std::vector<uint32_t>& v) {
+    uint32_t mx = 0; for (uint32_t x : v) mx = (std::max)(mx, x);
+    const bool wide = mx > 0xFFFF; const UINT isz = wide ? 4 : 2, bytes = (UINT)v.size() * isz;
+    IDirect3DIndexBuffer9* ib = nullptr; void* p = nullptr;
+    if (v.empty() || FAILED(dev->CreateIndexBuffer(bytes, D3DUSAGE_WRITEONLY, wide ? D3DFMT_INDEX32 : D3DFMT_INDEX16,
+                                                   D3DPOOL_MANAGED, &ib, NULL)) || !ib) return nullptr;
+    if (FAILED(ib->Lock(0, bytes, &p, 0)) || !p) { ib->Release(); return nullptr; }
+    for (size_t i = 0; i < v.size(); ++i) { if (wide) ((uint32_t*)p)[i] = v[i]; else ((uint16_t*)p)[i] = (uint16_t)v[i]; }
+    ib->Unlock();
+    return ib;
+}
+
+// Hole caps (installed473 report: the pistol near the handle and the crossbow's
+// lower left stay open, and the crossbow is already left/right symmetric,
+// x 0.976, so a mirror has nothing to add there). A first-person model is not
+// modelled where the hand covered it, so with the hand cut away those regions
+// may be OPEN: a loop of edges each used by one triangle. Each loop is closed
+// with a fan over its own existing vertices (no new vertices, so the skinning
+// and palette are the weapon's own), drawn with culling off. Positions are
+// welded first so a UV seam is not mistaken for a hole. Refused per loop, the
+// reason counted: longer than 96 edges or wider than 45% of the model (a
+// silhouette, not a hole), and a SHEET outline - an open flat part (a bow limb
+// modelled as one layer) whose adjacent triangles lie INSIDE the loop, where a
+// cap would lay a second surface on the sheet and z-fight.
+static void WmBuildCaps(IDirect3DDevice9* dev, WmEntry* e, const std::vector<uint32_t>& idx, const std::vector<float>& pos,
+                        UINT minIndex, const float ext[3]) {
+    if (!g_wmCaps) return;
+    const float weld = 0.02f;
+    std::unordered_map<long long, uint32_t> weldMap; std::vector<uint32_t> wid(pos.size() / 3, 0xFFFFFFFFu), rep;
+    auto wkey = [&](const float* p) {
+        const long long x = (long long)floorf(p[0] / weld + 0.5f), y = (long long)floorf(p[1] / weld + 0.5f),
+                        z = (long long)floorf(p[2] / weld + 0.5f);
+        return ((x & 0x1FFFFF) << 42) | ((y & 0x1FFFFF) << 21) | (z & 0x1FFFFF);
+    };
+    for (uint32_t x : idx) {
+        const uint32_t v = x - minIndex;
+        if (wid[v] != 0xFFFFFFFFu) continue;
+        auto it = weldMap.emplace(wkey(&pos[v * 3]), (uint32_t)rep.size());
+        if (it.second) rep.push_back(v);
+        wid[v] = it.first->second;
+    }
+    std::unordered_map<unsigned long long, int> uses;
+    auto ukey = [](uint32_t a, uint32_t b) { return a < b ? ((unsigned long long)a << 32) | b : ((unsigned long long)b << 32) | a; };
+    for (size_t t = 0; t + 2 < idx.size(); t += 3)
+        for (int k = 0; k < 3; ++k) {
+            const uint32_t a = wid[idx[t + k] - minIndex], b = wid[idx[t + (k + 1) % 3] - minIndex];
+            if (a != b) ++uses[ukey(a, b)];
+        }
+    // A boundary edge a->b in its triangle's winding; the triangle's third corner rides along.
+    std::unordered_map<uint32_t, std::pair<uint32_t, uint32_t>> next;
+    std::unordered_map<uint32_t, uint32_t> rawOf;
+    UINT boundary = 0, branchy = 0;
+    for (size_t t = 0; t + 2 < idx.size(); t += 3)
+        for (int k = 0; k < 3; ++k) {
+            const uint32_t ra = idx[t + k], rb = idx[t + (k + 1) % 3], rc = idx[t + (k + 2) % 3];
+            const uint32_t a = wid[ra - minIndex], b = wid[rb - minIndex];
+            if (a == b || uses[ukey(a, b)] != 1) continue;
+            ++boundary;
+            if (!next.emplace(a, std::make_pair(b, rc)).second) ++branchy;
+            rawOf.emplace(a, ra); rawOf.emplace(b, rb);
+        }
+    const float maxExt = (std::max)(ext[0], (std::max)(ext[1], ext[2]));
+    std::vector<uint32_t> out; std::unordered_map<uint32_t, bool> done;
+    UINT loops = 0, capped = 0, tooLong = 0, tooWide = 0, sheet = 0, open = 0;
+    for (auto& kv : next) {
+        if (done.count(kv.first)) continue;
+        std::vector<uint32_t> loop, thirds; uint32_t cur = kv.first; bool closed = false;
+        while (loop.size() <= 97) {
+            if (done.count(cur)) { closed = cur == kv.first; break; }
+            done[cur] = true; loop.push_back(cur);
+            auto it = next.find(cur);
+            if (it == next.end()) break;
+            thirds.push_back(it->second.second);
+            cur = it->second.first;
+        }
+        ++loops;
+        if (!closed) { ++open; continue; }
+        if (loop.size() < 3) continue;
+        if (loop.size() > 96) { ++tooLong; continue; }
+        float c[3] = {}, n[3] = {}, dia = 0;
+        for (uint32_t w : loop) for (int a = 0; a < 3; ++a) c[a] += pos[rep[w] * 3 + a] / (float)loop.size();
+        for (size_t i = 0; i < loop.size(); ++i) {   // Newell normal and diameter
+            const float* p = &pos[rep[loop[i]] * 3]; const float* q = &pos[rep[loop[(i + 1) % loop.size()]] * 3];
+            n[0] += (p[1] - q[1]) * (p[2] + q[2]); n[1] += (p[2] - q[2]) * (p[0] + q[0]); n[2] += (p[0] - q[0]) * (p[1] + q[1]);
+            const float dx = p[0] - c[0], dy = p[1] - c[1], dz = p[2] - c[2];
+            dia = (std::max)(dia, 2 * sqrtf(dx * dx + dy * dy + dz * dz));
+        }
+        if (dia > 0.45f * maxExt) { ++tooWide; continue; }
+        const float nlen = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (nlen > 1e-6f) {
+            const float nn[3] = { n[0] / nlen, n[1] / nlen, n[2] / nlen };
+            const float ax[3] = { fabsf(nn[0]) < 0.9f ? 1.f : 0.f, fabsf(nn[0]) < 0.9f ? 0.f : 1.f, 0.f };
+            float u[3] = { ax[1] * nn[2] - ax[2] * nn[1], ax[2] * nn[0] - ax[0] * nn[2], ax[0] * nn[1] - ax[1] * nn[0] };
+            const float ul = sqrtf(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]); for (float& x : u) x /= ul;
+            const float v[3] = { nn[1] * u[2] - nn[2] * u[1], nn[2] * u[0] - nn[0] * u[2], nn[0] * u[1] - nn[1] * u[0] };
+            auto proj = [&](const float* p, float& x, float& y, float& d) {
+                const float r[3] = { p[0] - c[0], p[1] - c[1], p[2] - c[2] };
+                x = r[0] * u[0] + r[1] * u[1] + r[2] * u[2]; y = r[0] * v[0] + r[1] * v[1] + r[2] * v[2];
+                d = fabsf(r[0] * nn[0] + r[1] * nn[1] + r[2] * nn[2]);
+            };
+            std::vector<float> px(loop.size()), py(loop.size()); float dd;
+            for (size_t i = 0; i < loop.size(); ++i) proj(&pos[rep[loop[i]] * 3], px[i], py[i], dd);
+            UINT flatInside = 0;
+            for (uint32_t r : thirds) {
+                float qx, qy, qd; proj(&pos[(r - minIndex) * 3], qx, qy, qd);
+                bool in = false;
+                for (size_t i = 0, j = loop.size() - 1; i < loop.size(); j = i++)
+                    if ((py[i] > qy) != (py[j] > qy) && qx < (px[j] - px[i]) * (qy - py[i]) / (py[j] - py[i]) + px[i]) in = !in;
+                if (in && qd < 0.1f * dia + 0.05f) ++flatInside;
+            }
+            if (flatInside * 2 > thirds.size()) { ++sheet; continue; }
+        }
+        for (size_t i = 1; i + 1 < loop.size(); ++i) {
+            out.push_back(rawOf[loop[0]]); out.push_back(rawOf[loop[i]]); out.push_back(rawOf[loop[i + 1]]);
+        }
+        ++capped;
+    }
+    e->caps = WmMakeIb(dev, out); e->capPrims = e->caps ? (UINT)(out.size() / 3) : 0;
+    Log("mirror/caps: '%s' boundary edges %u (welded at %.2f uu; %u branch points) | loops %u: capped %u (%u triangles), "
+        "refused: open chain %u, longer than 96 edges %u, wider than 45%% of the model %u, sheet outline %u%s",
+        e->asset, boundary, weld, branchy, loops, capped, e->capPrims, open, tooLong, tooWide, sheet,
+        boundary ? "" : " - the model is CLOSED: the missing areas are not holes in this mesh");
 }
 
 // Read the draw's geometry, find the plane, build our index buffer. Every
@@ -159,6 +291,8 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     ib->Release(); vb->Release();
     if (why) { refuse(why); return; }
     for (float f : pos) if (!std::isfinite(f)) { refuse("a non-finite position"); return; }
+    // A refused copy still draws its hole caps.
+    auto refuseKeepCaps = [&](const char* w) { refuse(w); if (e->caps) { e->state = 1; e->prims = 0; e->dev = dev; } };
 
     // Used vertices, bbox.
     std::vector<uint8_t> used(numVerts, 0);
@@ -170,6 +304,7 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     }
     const float ext[3] = { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
     const int barrel = ext[0] >= ext[1] && ext[0] >= ext[2] ? 0 : ext[1] >= ext[2] ? 1 : 2;
+    WmBuildCaps(dev, e, idx, pos, minIndex, ext);
 
     // The plane: the ini override, else the SYMMETRY PLANE. Build464 refused
     // both weapons under the first rule (a cut face: 26 of 6330 pistol and 8 of
@@ -239,7 +374,15 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
         if (bestScore[bestA] < 0.20f || bestScore[bestA] < 1.15f * second) {
             _snprintf(msg, sizeof(msg), "no clear symmetry plane (best %c %.3f, next %.3f; need >= 0.20 and >= 1.15x) - set [Mirror] Plane_%s",
                       "xyz"[bestA], bestScore[bestA], second, e->asset);
-            msg[sizeof(msg) - 1] = 0; refuse(msg); return;
+            msg[sizeof(msg) - 1] = 0; refuseKeepCaps(msg); return;
+        }
+        // Installed473: the crossbow scored x 0.976 - both sides are modelled, and
+        // its 50 "missing" triangles were near-duplicates that z-fought on the right.
+        if (bestScore[bestA] >= g_wmSymSkip) {
+            char m2[200];
+            _snprintf(m2, sizeof(m2), "already symmetric (%c %.3f >= [Mirror] SymmetricSkip %.2f): both sides are modelled and a "
+                      "copy would only z-fight; hole caps only", "xyz"[bestA], bestScore[bestA], g_wmSymSkip);
+            m2[sizeof(m2) - 1] = 0; refuseKeepCaps(m2); return;
         }
         // The modelled half is the side holding more vertices.
         for (UINT i = 0; i < numVerts; ++i) if (used[i]) {
@@ -313,17 +456,10 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
         e->measured ? "MEASURED" : "from [Mirror] Plane_ (NOT measured)",
         e->measured ? "" : "", sideHi, sideLo, faceCnt[0][0], faceCnt[0][1], faceCnt[1][0], faceCnt[1][1], faceCnt[2][0], faceCnt[2][1],
         keptPrims, primCount, skipSide, skipPlane, skipCovered, nOther, g_wmEps, g_wmFill);
-    if (!keptPrims) { refuse("nothing to fill (0 triangles kept) - the plane may be wrong"); return; }
-
-    const bool wide = maxIdx > 0xFFFF;
-    const UINT isz = wide ? 4 : 2, bytes = (UINT)kept.size() * isz;
-    IDirect3DIndexBuffer9* ours = nullptr;
-    if (FAILED(dev->CreateIndexBuffer(bytes, D3DUSAGE_WRITEONLY, wide ? D3DFMT_INDEX32 : D3DFMT_INDEX16,
-                                      D3DPOOL_MANAGED, &ours, NULL)) || !ours) { refuse("our index buffer could not be created"); return; }
-    void* p = nullptr;
-    if (FAILED(ours->Lock(0, bytes, &p, 0)) || !p) { ours->Release(); refuse("our index buffer would not lock"); return; }
-    for (size_t i = 0; i < kept.size(); ++i) { if (wide) ((uint32_t*)p)[i] = kept[i]; else ((uint16_t*)p)[i] = (uint16_t)kept[i]; }
-    ours->Unlock();
+    (void)maxIdx;
+    if (!keptPrims) { refuseKeepCaps("nothing to fill (0 triangles kept) - the plane may be wrong"); return; }
+    IDirect3DIndexBuffer9* ours = WmMakeIb(dev, kept);
+    if (!ours) { refuseKeepCaps("our index buffer could not be created"); return; }
     e->ours = ours; e->prims = keptPrims; e->dev = dev; e->state = 1;
 }
 
@@ -370,10 +506,22 @@ static void WmDraw(IDirect3DDevice9* dev, const WaMesh* w, const float* source, 
             InterlockedIncrement(&g_wmBackDrawn);
         dev->SetRenderState(D3DRS_CULLMODE, cull);
     }
+    // The hole caps: the weapon's own palette (the caller's, still bound), culling
+    // off because a fan's winding follows the loop, not the outside.
+    if (e->state == 1 && e->caps && e->capPrims) {
+        dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+        if (SUCCEEDED(dev->SetIndices(e->caps))) {
+            if (SUCCEEDED(dvr::frame::orig_draw_indexed(dev, D3DPT_TRIANGLELIST, baseVertex, minIndex, numVerts, 0, e->capPrims)))
+                InterlockedIncrement(&g_wmCapDrawn);
+            dev->SetIndices(ibo);
+        }
+        if (haveCull) dev->SetRenderState(D3DRS_CULLMODE, cull);
+    }
     if (e->state != 1 || !e->ours) {
         ibo->Release();
         DVR_LOG_EVERY_MS(::dvr::log::Cat::hands, ::dvr::log::Level::Info, 5000,
-            "mirror/beat: '%s' mirror not built (state %d); back-face passes %ld", e->asset, e->state, g_wmBackDrawn);
+            "mirror/beat: '%s' copy not drawn (state %d); hole caps %u prims, cap passes %ld, back-face passes %ld",
+            e->asset, e->state, e->capPrims, g_wmCapDrawn, g_wmBackDrawn);
         return;
     }
 
@@ -393,8 +541,8 @@ static void WmDraw(IDirect3DDevice9* dev, const WaMesh* w, const float* source, 
     if (ok) { InterlockedIncrement(&g_wmDrawn); InterlockedIncrement(&e->drawn); }
     else { InterlockedIncrement(&g_wmFailed); InterlockedIncrement(&e->failed); }
     DVR_LOG_EVERY_MS(::dvr::log::Cat::hands, ::dvr::log::Level::Info, 5000,
-        "mirror/beat: drawn %ld failed %ld refused builds %ld back-face passes %ld | last '%s' kept %u prims, native cull %lu (1 none 2 cw 3 ccw), %d built",
-        g_wmDrawn, g_wmFailed, g_wmRefused, g_wmBackDrawn, e->asset, e->prims, (unsigned long)cull, g_wmN);
+        "mirror/beat: drawn %ld failed %ld refused builds %ld back-face passes %ld cap passes %ld | last '%s' kept %u prims, caps %u prims, native cull %lu (1 none 2 cw 3 ccw), %d built",
+        g_wmDrawn, g_wmFailed, g_wmRefused, g_wmBackDrawn, g_wmCapDrawn, e->asset, e->prims, e->capPrims, (unsigned long)cull, g_wmN);
 }
 
 static bool WmCommand(const char* args) {
@@ -404,6 +552,12 @@ static bool WmCommand(const char* args) {
     if (!strncmp(args, "back ", 5) && DvrOnOff(args + 5, &b)) {
         g_wmBack = b; Log("mirror: back faces %s", b ? "ON" : "off");
         if (g_wmIni[0]) WritePrivateProfileStringA("Mirror", "BackFaces", b ? "1" : "0", g_wmIni);
+        return true;
+    }
+    if (!strncmp(args, "caps ", 5) && DvrOnOff(args + 5, &b)) {
+        g_wmCaps = b; Log("mirror: hole caps %s (rebuilding)", b ? "ON" : "off");
+        if (g_wmIni[0]) WritePrivateProfileStringA("Mirror", "Caps", b ? "1" : "0", g_wmIni);
+        WmReleaseAll("caps toggled");
         return true;
     }
     if (!strncmp(args, "plane ", 6)) {
