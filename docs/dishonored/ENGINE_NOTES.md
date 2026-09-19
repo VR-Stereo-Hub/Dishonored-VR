@@ -7803,3 +7803,68 @@ Its source remains locally recoverable in build/steamvr-image-flip-uninstalled.
 Do not revive it without identifying the inverted surface and explaining why
 correct hands would remain correct. The frozen506 hash, validation and installed
 INI comparison are recorded in STATUS.md. No headset-confirmed fix yet.
+
+
+## VR-148: the awareness marker, the third native marker family (2026-09-19)
+
+`DisGFxMoviePlayerHUD` declares four native marker arrays - `m_TaskMarkers`,
+`m_AwarenessMarkers`, `m_GrenadeMarkers`, `m_HeartMarkers` - plus
+`m_SortedMarkers`. VR-129 hooked task and Heart. This is the derivation of the
+other two, done offline with the toolkit and with no game running.
+
+Route: `tools/disasm-rva.py <exe> calls 0x7bd430` lists the five static callers
+of the shared base placement `0xbbd430` - `0xbbd784`, `0xbbdb2d`, `0xbc5865`
+(task, known), `0xbc5d75` (Heart, known) and `0xcc1b57`. Scanning `.rdata` and
+`.data` for a dword at slot `+0x14` whose value is a function containing one of
+those call sites gives four sibling 6-slot (0x18) vtables in one block:
+
+| Vtable | Update (slot +0x14) | Parent call | Constructor | Strings the ctor pushes | Family |
+|---|---|---|---|---|---|
+| 0x1163590 | 0xbbd430 | - | 0xbce439 | - | base |
+| 0x11635a8 | 0xbc57f0 | 0xbc5865 | 0xbce490 | `_icon_mc`, `_description_mc`, `txt` | task |
+| 0x11635c0 | 0xbbd630 | 0xbbd784 | 0xbce9a0 | wide `head_jnt`; update pushes `fadeIn`, `visible`, `quickFadeOut` | AWARENESS |
+| 0x11635d8 | 0xbc5d00 | 0xbc5d75 | 0xbcebd0 | `_icon_mc`, `_description_mc`, `_locator_mc` | Heart (runes, bone charms) |
+
+Two more sit outside the block: vtable 0x1163808 (update 0xbbdaf0, call
+0xbbdb2d, ctor pushes `_grenade_mc` and `_locator_mc`) is the grenade family,
+and vtable 0x11b5704 (update 0xcc1b10, call 0xcc1b57) pushes its HUD strings
+from a different `.rdata` region and is the DLC HUD.
+
+The awareness identification is by construction, not by shape: a marker whose
+constructor names the head joint and whose update drives fade-in, visible and
+quick-fade-out is the meter that appears over an alerted enemy's head. The call
+site `0xbbd784` is `e8 a7 fc ff ff`, returns at `0xbbd789`, and hands the base
+six stack dwords with `this` in ecx - the same `ret 24` contract the task and
+Heart seams verified, and the callee prolog is the same nine bytes.
+
+Why it needed a hook at all: no row rectangle can claim a marker that moves with
+its enemy, so awareness draws fell to the `default` row and were lifted onto the
+default window quad, offset and scaled by `Element.default.Win*`. The meters were
+therefore near the right enemies but not on them. The hook publishes only the
+engine's placement; the router leaves matched draws in the game's own image.
+Unlike task and rune it insets nothing - dragging a head-tracked meter to the
+frame edge would be the opposite of the fix.
+
+The match window (160x160 authoring px, +/-96 px offset) is a BOUND, not a
+measurement: the awareness artwork's real size has never been read, so the
+`hud/awareness-parent` line reports the widest accepted draw and the worst
+offset, which is what would tighten it.
+
+## VR-149: bone charms share the Heart marker, and the symbol is the only tell
+
+ENGINE_NOTES' own VR-129 entry records it: Heart code is shared with bone charms,
+and the seam narrowed to runes by requiring the borrowed settings symbol to equal
+`runeMarker` (11 wide chars including the terminator). Run 512 refused 23787
+Heart parent calls on that test, so bone-charm markers do reach the hook.
+
+The bone charm's symbol spelling has NOT been read and is not guessed here. It is
+authored in the Scaleform movie: searching `Dishonored.exe` for `runeMarker` as
+both ANSI and UTF-16 finds nothing, and `UI_HUD_SF.upk` is LZO-compressed. The
+adjacent wide strings at 0xd5dcd8 (`runes`, `boneCharms`, `crackedCharms`) are
+the journal's section names, not marker symbols.
+
+So the gate now validates the bounded SHAPE of any Heart symbol rather than
+exactly 11 characters, logs each distinct symbol it sees by name with whether it
+was accepted (`hud/heart-symbol`, at most eight), and `[Hud] NativeHeartAllSymbols`
+accepts them all. One run with a bone charm revealed by the Heart both proves the
+feature and prints the name, so the constant can be baked from a measurement.

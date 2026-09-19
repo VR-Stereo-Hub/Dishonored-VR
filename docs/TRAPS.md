@@ -1,3 +1,33 @@
+## A GObjects slot that still holds the pointer is not a live object (2026-09-19)
+
+Blink aimed with the engine's own HEAD vector for 23.8 seconds after a save load
+in run 512, and the tester saw it persist across the reload rather than being
+cleared by it. The cause was not the aim code: `BlinkDirHook` refuses any call
+whose `self` is not the latched player `PowerBlink`, and the latch was stale.
+
+`BlkAlive` tested three things - the GObjects slot still holds the same pointer,
+the index is in range, and the class pointer is unchanged - and all three survive
+a save load, because UE3 leaves a destroyed UObject in its slot until the
+collector sweeps. So `BlinkLatch` saw a live latch and returned at once while the
+game's real Blink was a NEW object. It healed on its own when the collector
+finally ran, which is exactly the shape that reads as "it came back eventually"
+and sends the next session looking at the aim maths.
+
+The class of trap: **identity is not liveness.** CLAUDE.md already says
+`IsLiveObject` is the only valid liveness test and that a class-name comparison
+catches reuse but not freeing; a class POINTER comparison does not catch it
+either. Any latch onto an engine object needs something that changes when the
+level does. The fix ties the Blink latch to the player pawn it was taken under -
+`PeLatch` already notices a new pawn, and already clears the cinematic latch for
+the same reason - and logs the drop with both pawn pointers.
+
+What made it expensive to see: `blinkdir: 943 calls (0 ours) | ray ready 0,
+refused 0`. Neither the ready nor the refused counter moved, because the return
+happens before the ray is ever asked for, so the only evidence that anything was
+wrong was the parenthesised `(0 ours)` against a healthy-looking call count. The
+counters could not fail their own hypothesis. `blink: dropping the PowerBlink
+latch` now names the cause on the transition.
+
 ## Cancellable action does not imply native pose ownership (2026-09-17)
 
 Build435 enabled native poses for every cancellable state, including generic upper/
