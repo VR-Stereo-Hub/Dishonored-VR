@@ -40,6 +40,9 @@ struct ControlDotStats {
              refusedNoTexture = 0, refusedBudget = 0, refusedGeometry = 0;
 };
 void set_control_dot(const ControlDotConfig& cfg);
+// VR-141 (Dishonored): the dot/beam colour. The dot texture is rebuilt on the
+// present thread at its next publish; default white.
+void set_aim_dot_color(uint8_t r, uint8_t g, uint8_t b);
 ControlDotStats control_dot_stats();
 
 // All three APIs run on the present thread (including the F10 draw callback).
