@@ -77,6 +77,8 @@ static void OverlayFrame()
 
     if (!ImGui::BeginTabBar("vrtabs")) { ImGui::End(); return; }
     if (ImGui::BeginTabItem("Controls")) {
+        ChokeDrawUi();   // VR-145
+        ImGui::Separator();
         auto c=dvr::controller::config();
         const char* mods[]={"Off","Right thumbrest","R3 (right stick click)","Left thumbrest"};
         const int modes[]={dvr::controller::Off,dvr::controller::RightRest,dvr::controller::R3,dvr::controller::LeftRest};

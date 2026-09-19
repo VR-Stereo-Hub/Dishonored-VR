@@ -22,6 +22,8 @@ static void RainDistanceSet(int uu);
 static int RainDistance();
 static void LensTick();                 // VR-137 (lens_control.cpp)
 static void LensConfigure(const char* ini);
+static void ChokeConfigure(const char* ini);   // VR-145 (choke_gesture.cpp)
+static void ChokeDrawUi();
 static void LensDistanceSet(int uu);
 static int LensDistance();
 static void LensKeepSizeSet(bool on);
