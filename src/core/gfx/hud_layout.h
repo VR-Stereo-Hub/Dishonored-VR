@@ -49,7 +49,8 @@ inline bool anchor_is_hand(int a) { return a == AnchorHandL || a == AnchorHandR;
 enum Element : int {
     ElDefault = 0, ElVitals, ElReticle, ElPrompt, ElEquipment, ElSubtitles, ElObjective, ElToast,
     ElTutorial, ElDetection, ElSkipGauge, ElDarkVision, ElVignette,
-    ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElWheelShortcuts, ElWheelPotions, ElCount
+    ElPause, ElNote, ElJournal, ElWheel, ElStore, ElMissionStats, ElWheelShortcuts, ElWheelPotions,
+    ElVitalsHealth, ElVitalsMana, ElCount
 };
 const char* element_name(int e);
 int element_from_name(const char* s);   // -1 when unknown (the legacy names all, health, mana, menu map)
@@ -116,6 +117,9 @@ bool menu_riding();
 bool native_gameplay_reference();
 bool wheel_parts_for_sink(int sink);
 bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rect);
+// VR-142: the split vitals. part 0 = health, 1 = mana and the equipped item; the
+// source crop and the diagonal half-plane, both in the sink texture's UV.
+bool vitals_part(int sink,int part,float* rect,float* halfPlane);
 bool force_capture_alpha(int sink);
 AlphaCfg wheel_parts_alpha();
 float native_objective_scale(int element);

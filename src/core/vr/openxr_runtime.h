@@ -663,7 +663,7 @@ void set_hud_texture_provider(HudTextureProviderFn fn);
 // CopySubresourceRegion, so a quad costs its own pixels, not the whole sink.
 // The runtime accepts 16 layers; the array holds the slots, the cap hides the
 // rest and counts them.
-constexpr int kMaxHudQuads = 32;
+constexpr int kMaxHudQuads = 34;   // 41.x (Dishonored, VR-142): +2 for the split health / mana panels
 enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2, LocalBillboard = 3 };
 enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1, CameraPlane = 2, OpeningPlane = 3 };
 struct HudQuadDesc {

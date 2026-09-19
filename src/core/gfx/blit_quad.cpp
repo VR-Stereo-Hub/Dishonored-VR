@@ -37,7 +37,7 @@ const char* kSrc =
     // is the 41.2 shader exactly.
     "cbuffer AlphaCB : register(b0) {\n"
     "    float4 p0;      // mode, gain, floor, gamma\n"
-    "    float4 p1;      // mixK, 0, 0, 0\n"
+    "    float4 p1;      // mixK, half-plane a, b, c (VR-142; a = b = 0 off)\n"
     "    float4 plate;   // backdrop r, g, b, a (straight colour, composed under)\n"
     "    float4 ellipse; // center UV, radii\n"
     "    float4 sourceRect; // source UV bounds\n"
@@ -59,6 +59,10 @@ const char* kSrc =
     "    if (ellipse.z > 0 && ellipse.w > 0) {\n"
     "        float r = length((i.uv - ellipse.xy) / ellipse.zw);\n"
     "        coverage = saturate((1.0-r) / max(fwidth(r), 0.0001));\n"
+    "    }\n"
+    "    if (abs(p1.y) + abs(p1.z) > 0.0) {\n"
+    "        float g = p1.y * uv.x + p1.z * uv.y + p1.w;\n"
+    "        coverage *= saturate(g / max(fwidth(g), 0.00001) + 0.5);\n"
     "    }\n"
     "    return float4(rgb + plate.rgb * pa, a + pa) * coverage;\n"
     "}\n";
@@ -156,7 +160,7 @@ void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
     const bool alphaRepair = alpha && psAlpha_ && cb_;
     if (alphaRepair) {
         const float k[20] = { (float)alpha->mode, alpha->gain, alpha->floorA, alpha->gamma,
-                              alpha->mixK, 0.0f, 0.0f, 0.0f,
+                              alpha->mixK, alpha->halfPlane[0], alpha->halfPlane[1], alpha->halfPlane[2],
                               alpha->backdrop[0], alpha->backdrop[1], alpha->backdrop[2], alpha->backdrop[3],
                               alpha->ellipse[0],alpha->ellipse[1],alpha->ellipse[2],alpha->ellipse[3],
                               alpha->sourceRect[0],alpha->sourceRect[1],alpha->sourceRect[2],alpha->sourceRect[3] };

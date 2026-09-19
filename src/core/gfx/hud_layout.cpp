@@ -68,6 +68,8 @@ const RowDef kRows[ElCount] = {
     { "missionstats",  8, {0, 0, 0, 0},                       false, AnchorWindow, "the mission stats (by context)" },
     { "wheelshortcuts",-1, {0,0,0,0},false,AnchorWindow,"wheel D-pad shortcuts, from the same captured image" },
     { "wheelpotions",  -1, {0,0,0,0},false,AnchorWindow,"wheel health and mana controls, from the same captured image" },
+    { "vitalshealth",  -1, {0,0,0,0},false,AnchorHandR,"the health bar, cut from the vitals image along the split line (VitalsSplit=1)" },
+    { "vitalsmana",    -1, {0,0,0,0},false,AnchorHandL,"the mana bar and the equipped item, cut from the vitals image (VitalsSplit=1)" },
 };
 
 // The presets: the window as the abandoned branch shipped it, the hands as
@@ -102,6 +104,14 @@ bool g_wheelParts=false;
 float g_wheelPartCrop[2][4]={{.02f,.29f,.995f,.31f},{.70f,1.f,.995f,.16f}};
 const char* kWheelPartKeys[2]={"WheelShortcuts","WheelPotions"};
 const char* kWheelPartNames[2]={"D-pad shortcuts","Health and mana"};
+// VR-142: the vitals image cut in two along a diagonal: the bars are slanted,
+// so no rectangle separates them. The line runs from (Top, y0) to (Bottom, y1)
+// of the vitals region, in screen fractions; health keeps the left side.
+bool g_vitalsSplit=false;
+float g_vitalsLine[2]={.125f,.065f};
+float g_vitalsCrop[2][4]={{0.f,0.f,.200f,.270f},{0.f,0.f,.200f,.270f}};
+const char* kVitalsPartKeys[2]={"VitalsHealth","VitalsMana"};
+const char* kVitalsPartNames[2]={"Health","Mana and equipped item"};
 float g_nativeObjectiveScale=.70f;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
@@ -569,6 +579,18 @@ bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rec
     return wheel_parts_for_sink(sink) && part>=0 && part<2 &&
         dvr::wheelparts::crop((unsigned)part,width,height,g_wheelPartCrop[part],rect);
 }
+bool vitals_part(int sink,int part,float* rect,float* halfPlane) {
+    if(!g_vitalsSplit || part<0 || part>1 || sink<0 || sink>=kMaxSinks || g_elementSink[ElVitals]!=sink || g_visualRiding) return false;
+    const float* c=g_vitalsCrop[part];
+    if(!(c[2]>c[0] && c[3]>c[1])) return false;
+    for(int k=0;k<4;++k) rect[k]=c[k];
+    const float y0=g_el[ElVitals].rect[1],y1=g_el[ElVitals].rect[3];
+    const float slope=y1>y0 ? (g_vitalsLine[1]-g_vitalsLine[0])/(y1-y0) : 0.f;
+    // f(u,v) = u - top - slope*(v-y0): < 0 left of the line (health), > 0 right (mana).
+    const float s=part ? 1.f : -1.f;
+    halfPlane[0]=s; halfPlane[1]=-s*slope; halfPlane[2]=-s*(g_vitalsLine[0]-slope*y0);
+    return true;
+}
 bool force_capture_alpha(int sink) {
     return alpha_for_sink(sink).mode!=AlphaRepair || (wheel_parts_for_sink(sink) && wheel_parts_alpha().mode!=AlphaRepair);
 }
@@ -785,6 +807,27 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         D3D11_TEXTURE2D_DESC td{};
         tex->GetDesc(&td);
         const float aspect = td.Width ? (float)td.Height / (float)td.Width : 1.0f;
+        if(e==ElVitals && g_vitalsSplit && !g_visualRiding) {   // VR-142: two panels instead of one
+            for(int part=0;part<2 && n<max;++part) {
+                const int pe=part?ElVitalsMana:ElVitalsHealth;
+                const int pa=g_el[pe].anchor;if(!anchor_visible(pa)) continue;
+                ID3D11Texture2D* partTex=dvr::hudcap::vitals_part_texture(s,part);
+                if(!partTex) continue;
+                const float* c=g_vitalsCrop[part];
+                auto& panel=out[n++];panel=dvr::vr::HudQuadDesc{};
+                panel.tex=partTex;panel.element=pe;panel.slot=pe;
+                const float whole[4]={0,0,1,1};
+                memcpy(panel.subrect,whole,sizeof(panel.subrect));
+                place(panel,pe,pa,whole,aspect,false);
+                if(!anchor_is_hand(pa)) panel.width=g_win.widthM*(c[2]-c[0])*g_el[pe].winScale;
+                panel.height=0;
+                ++g_seen[pe];
+            }
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,5000,
+                "hud/vitals-split: health on %s, mana on %s (line top=%.3f bottom=%.3f); the whole vitals quad is replaced",
+                kAnchorNames[g_el[ElVitalsHealth].anchor],kAnchorNames[g_el[ElVitalsMana].anchor],g_vitalsLine[0],g_vitalsLine[1]);
+            continue;
+        }
         if(e==ElObjective && g_objectiveScreen && !anchor_is_hand(a)) {
             const auto* regions=dvr::hudcap::marker_regions(s);
             float th=0,tv=0;int source=0;unsigned sw=0,sh=0;
@@ -1037,6 +1080,16 @@ void configure(const char* ini) {
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
     g_wheelParts=read_i(ini,"WheelSidePanels",0)!=0;
+    g_vitalsSplit=read_i(ini,"VitalsSplit",0)!=0;
+    g_vitalsLine[0]=read_f(ini,"VitalsSplit.Top",g_vitalsLine[0]);g_vitalsLine[1]=read_f(ini,"VitalsSplit.Bottom",g_vitalsLine[1]);
+    for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
+        char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kVitalsPartKeys[part],k);
+        g_vitalsCrop[part][k]=read_f(ini,key,g_vitalsCrop[part][k]);
+    }
+    DVR_INFO("hud/vitals-split: %s line top=%.3f bottom=%.3f | health crop %.3f,%.3f,%.3f,%.3f on %s | mana crop %.3f,%.3f,%.3f,%.3f on %s",
+        g_vitalsSplit?"ON":"off",g_vitalsLine[0],g_vitalsLine[1],
+        g_vitalsCrop[0][0],g_vitalsCrop[0][1],g_vitalsCrop[0][2],g_vitalsCrop[0][3],kAnchorNames[g_el[ElVitalsHealth].anchor],
+        g_vitalsCrop[1][0],g_vitalsCrop[1][1],g_vitalsCrop[1][2],g_vitalsCrop[1][3],kAnchorNames[g_el[ElVitalsMana].anchor]);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);
         g_wheelPartCrop[part][k]=read_f(ini,key,g_wheelPartCrop[part][k]);
@@ -1134,6 +1187,10 @@ void save(const char* ini) {
     write_i("WheelSidePanels",g_wheelParts);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
+    }
+    write_i("VitalsSplit",g_vitalsSplit);write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);
+    for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
+        char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kVitalsPartKeys[part],k);write_f(key,g_vitalsCrop[part][k]);
     }
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
@@ -1386,6 +1443,39 @@ void draw_ui() {
             g_nativeGameplayReference=false;write_i("NativeGameplayReference",0);dvr::hudcap::invalidate_content();
         }
     }
+    if(ImGui::CollapsingHeader("Split health / mana (VR-142)",ImGuiTreeNodeFlags_DefaultOpen)) {
+        if(ImGui::Checkbox("Split the vitals into two panels",&g_vitalsSplit)) {write_i("VitalsSplit",g_vitalsSplit);dvr::hudcap::invalidate_content();}
+        ImGui::TextWrapped("The health and mana bars are slanted, so they are cut along a diagonal line. Health keeps the left of the line, mana and the equipped item the right. Vitals must be on an anchor (not off) for its image to exist.");
+        bool line=ImGui::SliderFloat("Split line at the top (screen x)",&g_vitalsLine[0],0,.3f,"%.3f");
+        line|=ImGui::SliderFloat("Split line at the bottom (screen x)",&g_vitalsLine[1],0,.3f,"%.3f");
+        if(line) {write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);}
+        if(ImGui::Button("Mirror the right hand panel onto the left hand")) {
+            HandCfg m=g_hand[1];m.x=-m.x;set_hand(0,m,"F10 vitals split (mirrored HandR)");
+        }
+        for(int part=0;part<2;++part) {
+            const int e=part?ElVitalsMana:ElVitalsHealth;ImGui::PushID(720+part);
+            ImGui::TextUnformatted(kVitalsPartNames[part]);
+            int anchor=g_el[e].anchor;
+            const char* names[]={"off","window","world","handL","handR"};
+            int choice=anchor>=AnchorWindow?anchor-1:0;
+            if(ImGui::Combo("Anchor",&choice,names,5)) {anchor=choice?choice+1:AnchorOff;set_element_anchor(e,anchor,"F10 vitals split");}
+            const bool hand=anchor_is_hand(anchor);
+            float x=hand?g_el[e].handX:g_el[e].winX,y=hand?g_el[e].handY:g_el[e].winY,scale=hand?g_el[e].handScale:g_el[e].winScale;
+            bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f,"%.3f");
+            moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f,"%.3f");
+            moved|=ImGui::SliderFloat("Size",&scale,.25f,3.f,"%.2fx");
+            if(moved) set_element_place(e,hand,x,y,scale,"F10 vitals split");
+            if(ImGui::TreeNode("Crop (screen fractions)")) {
+                bool changed=ImGui::SliderFloat("Left",&g_vitalsCrop[part][0],0,.4f,"%.3f");
+                changed|=ImGui::SliderFloat("Top",&g_vitalsCrop[part][1],0,.4f,"%.3f");
+                changed|=ImGui::SliderFloat("Right",&g_vitalsCrop[part][2],0,.4f,"%.3f");
+                changed|=ImGui::SliderFloat("Bottom",&g_vitalsCrop[part][3],0,.4f,"%.3f");
+                if(changed) for(int k=0;k<4;++k) {char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kVitalsPartKeys[part],k);write_f(key,g_vitalsCrop[part][k]);}
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        }
+    }
     if(ImGui::CollapsingHeader("Weapon wheel side panels",ImGuiTreeNodeFlags_DefaultOpen)) {
         if(ImGui::Checkbox("Separate D-pad and health/mana panels",&g_wheelParts)) {
             write_i("WheelSidePanels",g_wheelParts);dvr::hudcap::invalidate_content();
@@ -1568,7 +1658,7 @@ void draw_ui() {
     for (int e = 0; e < ElCount; ++e) {
         ImGui::PushID(e);
         int a = g_el[e].anchor;
-        if(e==ElWheelShortcuts || e==ElWheelPotions) {ImGui::PopID();continue;}
+        if(e==ElWheelShortcuts || e==ElWheelPotions || e==ElVitalsHealth || e==ElVitalsMana) {ImGui::PopID();continue;}
         if(e==ElObjective && g_nativeObjectives) {
             ImGui::Text("objective     native game target | seen %u",g_seen[e]);
             ImGui::TextDisabled("Use Objectives above. Panel anchor/offset/scale do not apply in native mode.");

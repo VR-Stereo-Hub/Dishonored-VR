@@ -1,3 +1,35 @@
+## Split health / mana across both hands (VR-142, 2026-09-19)
+
+The vitals row (health bar, mana bar, equipped item) is one measured element,
+captured into its own sink. The bars are slanted and interleave in x, and one
+draw spans the whole region (run486: `rect=-0.008/0.013/0.168/0.191`), so no
+per-draw route or rectangle separates them. With `[Hud] VitalsSplit=1` the
+vitals sink's delivered image is cut into two textures, exactly as the wheel's
+side panels are (same fenced slot, no extra capture):
+
+- each part has its own crop (`VitalsHealth.Crop0..3`, `VitalsMana.Crop0..3`,
+  screen fractions, default the vitals region 0,0,0.2,0.27);
+- a DIAGONAL mask from the split line, which runs from `VitalsSplit.Top` at the
+  region's top to `VitalsSplit.Bottom` at its bottom (screen x; defaults 0.125
+  and 0.065, a guess from a flat screenshot). Health keeps the left of the
+  line, mana and the item the right. The mask is a half-plane added to the HUD
+  blit's shader (`AlphaParams::halfPlane`, antialiased by `fwidth`); zero keeps
+  the old shader's output exactly.
+
+Two new rows carry the panels' anchors and placement: `vitalshealth` (preset
+handR) and `vitalsmana` (preset handL), with the usual `Element.<name>` keys.
+They claim no draws. While the split is on, the whole vitals quad is replaced by
+the two panels; the vitals row itself must stay on an anchor (not off) so its
+image is captured. The runtime's quad pool grew from 32 to 34 slots for them
+(`kMaxHudQuads`, `41.x (Dishonored, VR-142)`). F10 HUD tab, "Split health /
+mana": the switch, the two line sliders, each panel's anchor, position, size
+and crop, and "Mirror the right hand panel onto the left hand" (copies HandR
+to HandL with X negated). `hud/vitals-split:` logs the settings at load and the
+anchors every 5 s while it draws.
+
+Not yet: attaching both panels to the wrist so they move like the hand-held
+notes (next step on this branch).
+
 ## Reticle customization in the HUD tab (VR-141, 2026-09-19)
 
 The reticle in the headset is the mod's controller dot (`[Crosshair] Dot=1`);

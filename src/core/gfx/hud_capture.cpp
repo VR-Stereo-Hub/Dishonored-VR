@@ -433,7 +433,9 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 // slot, before the wheel's circle mask. No extra D3D9 capture.
                 for(int part=0;part<2;++part) {
                     dvr::gfx::AlphaParams side;
-                    if(!dvr::hudlayout::wheel_part_crop(i,part,s.slotW,s.slotH,side.sourceRect)) continue;
+                    const bool wheel=dvr::hudlayout::wheel_part_crop(i,part,s.slotW,s.slotH,side.sourceRect);
+                    const bool vitals=!wheel && dvr::hudlayout::vitals_part(i,part,side.sourceRect,side.halfPlane);   // VR-142
+                    if(!wheel && !vitals) continue;
                     const uint32_t pw=(uint32_t)ceilf((side.sourceRect[2]-side.sourceRect[0])*s.slotW);
                     const uint32_t ph=(uint32_t)ceilf((side.sourceRect[3]-side.sourceRect[1])*s.slotH);
                     if(!pw || !ph) continue;
@@ -453,7 +455,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                         s.partW[part]=pw;s.partH[part]=ph;
                         DVR_INFO("hud/wheel-parts: part=%d %ux%u source=%.3f/%.3f/%.3f/%.3f, same delayed slot as wheel",part,pw,ph,side.sourceRect[0],side.sourceRect[1],side.sourceRect[2],side.sourceRect[3]);
                     }
-                    const auto group=dvr::hudlayout::wheel_parts_alpha();
+                    const auto group=vitals ? dvr::hudlayout::alpha_for_sink(i) : dvr::hudlayout::wheel_parts_alpha();
                     side.mode=group.mode;side.gain=group.gain;side.floorA=group.floorA;side.gamma=group.gamma;side.mixK=group.mixK;
                     g_blit.draw(ctx11,s.slotSrv[other],s.partRtv[part],pw,ph,&side);
                     s.partDelivered[part]=true;
@@ -552,6 +554,11 @@ const dvr::hudmarker::Regions* marker_regions(int sink) {
 }
 ID3D11Texture2D* wheel_part_texture(int sink,int part) {
     if(sink<0 || sink>=dvr::hudlayout::kMaxSinks || part<0 || part>1 || !dvr::hudlayout::wheel_parts_for_sink(sink)) return nullptr;
+    const auto& s=g_sink[sink];return s.delivered && s.partDelivered[part] ? s.partTex[part] : nullptr;
+}
+ID3D11Texture2D* vitals_part_texture(int sink,int part) {   // VR-142
+    float r[4],h[3];
+    if(sink<0 || sink>=dvr::hudlayout::kMaxSinks || part<0 || part>1 || !dvr::hudlayout::vitals_part(sink,part,r,h)) return nullptr;
     const auto& s=g_sink[sink];return s.delivered && s.partDelivered[part] ? s.partTex[part] : nullptr;
 }
 ID3D11Texture2D* panel_texture(int sink) {
