@@ -21,6 +21,17 @@ vertices within 0.5 uu of the candidate plane are excluded (they match
 themselves). Accept the best axis at >= 0.20 and >= 1.15x the next axis; the
 modelled half is the side with more vertices. `mirror/plane` logs every axis's
 best score and offset, so a refusal still names a usable override.
+
+**Build467 result (headset):** pistol mostly filled (plane x=0.09, kept 1109 of
+2772), still missing some parts on the left and possibly the top; crossbow
+unchanged - it is symmetric (x score 0.976), kept only 47 triangles, so its gaps
+are ONE-SIDED faces, not a missing half. Build468: (1) a triangle is skipped as
+"already modelled" only when its centroid AND all three mirrored corners land on
+existing geometry (a single stray vertex skipped 1040 pistol triangles);
+(2) `[Mirror] BackFaces=1` redraws the weapon with the cull flipped and the same
+corrected palette, so a hole seen from the unmodelled side shows the far wall's
+back face instead of nothing (closed surfaces hide it behind the front faces).
+Seam: `mirror back on|off`.
 Scope: `Wpn_PlyGunElite` (pistol) and `crossbow_01` (crossbow, 1961 verts per
 VR-57-MODEL-RAY.md). The sword, the Heart and the other items are out of scope.
 

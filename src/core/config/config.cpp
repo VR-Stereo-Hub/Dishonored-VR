@@ -903,6 +903,7 @@ static void WriteDefaultIni(const char* ini)
         "Assets=Wpn_PlyGunElite,crossbow_01\n"
         "Eps=0.25\n"
         "FillRadius=1.5\n"
+        "BackFaces=0\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"

@@ -44,6 +44,8 @@ WmEntry g_wm[kWmMax];
 int g_wmN = 0;
 bool g_wmOn = false;
 float g_wmEps = 0.25f, g_wmFill = 1.5f;
+bool g_wmBack = false;   // [Mirror] BackFaces: redraw the weapon with its back faces (fills one-sided holes)
+LONG g_wmBackDrawn = 0;
 char g_wmAssets[256] = "Wpn_PlyGunElite,crossbow_01";
 char g_wmIni[MAX_PATH] = "";
 LONG g_wmDrawn = 0, g_wmFailed = 0, g_wmRefused = 0;
@@ -61,7 +63,8 @@ static void WmReleaseAll(const char* why) {
 }
 static void WmSet(bool on) {
     g_wmOn = on;
-    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu)", on ? "ON" : "off", g_wmAssets, g_wmEps, g_wmFill);
+    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu, back faces %s)", on ? "ON" : "off", g_wmAssets, g_wmEps,
+        g_wmFill, g_wmBack ? "ON" : "off");
 }
 static bool WmEnabled() { return g_wmOn; }
 static void WmConfigure(const char* ini) {
@@ -72,6 +75,7 @@ static void WmConfigure(const char* ini) {
     GetPrivateProfileStringA("Mirror", "FillRadius", "1.5", v, sizeof(v), ini); g_wmFill = (float)atof(v);
     if (!(g_wmEps > 0.0f && g_wmEps < 10.0f)) g_wmEps = 0.25f;
     if (!(g_wmFill > 0.0f && g_wmFill < 50.0f)) g_wmFill = 1.5f;
+    g_wmBack = GetPrivateProfileIntA("Mirror", "BackFaces", 0, ini) != 0;
     WmSet(GetPrivateProfileIntA("Mirror", "Enabled", 0, ini) != 0);
 }
 
@@ -282,7 +286,19 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
         const float cen[3] = { (p0[0]+p1[0]+p2[0]) / 3, (p0[1]+p1[1]+p2[1]) / 3, (p0[2]+p1[2]+p2[2]) / 3 };
         float m[3];
         for (int i = 0; i < 3; ++i) m[i] = S[i*4]*cen[0] + S[i*4+1]*cen[1] + S[i*4+2]*cen[2] + S[i*4+3];
-        if (nOther && occupied(m)) { ++skipCovered; continue; }
+        // Build464/467: a single stray vertex near the mirrored centroid used to
+        // skip the whole triangle (1040 of 2772 on the pistol), leaving holes.
+        // Skip only when the centroid AND all three mirrored corners land on
+        // existing geometry: the footprint is really modelled already.
+        if (nOther && occupied(m)) {
+            bool covered = true;
+            for (const float* pv : { p0, p1, p2 }) {
+                float mv[3];
+                for (int i = 0; i < 3; ++i) mv[i] = S[i*4]*pv[0] + S[i*4+1]*pv[1] + S[i*4+2]*pv[2] + S[i*4+3];
+                if (!occupied(mv)) { covered = false; break; }
+            }
+            if (covered) { ++skipCovered; continue; }
+        }
         kept.push_back(idx[t]); kept.push_back(idx[t+1]); kept.push_back(idx[t+2]);
         maxIdx = (std::max)(maxIdx, (std::max)(idx[t], (std::max)(idx[t+1], idx[t+2])));
     }
@@ -341,16 +357,32 @@ static void WmDraw(IDirect3DDevice9* dev, const WaMesh* w, const float* source, 
         WmBuild(dev, e, baseVertex, minIndex, numVerts, startIndex, primCount);
     }
     e->lastUse = now;
-    if (e->state != 1 || !e->ours) { ibo->Release(); return; }
+    DWORD cull = D3DCULL_NONE;
+    const bool haveCull = SUCCEEDED(dev->GetRenderState(D3DRS_CULLMODE, &cull));
+    const DWORD flipped = cull == D3DCULL_CW ? D3DCULL_CCW : D3DCULL_CW;
+    // The back-face pass: the same draw, same (corrected) palette the caller
+    // just drew with, cull flipped. On a closed surface the back faces sit
+    // behind the front ones and fail the depth test; where the model is
+    // one-sided (a hole seen from the unmodelled side) they show, filling it.
+    if (g_wmBack && haveCull && cull != D3DCULL_NONE) {
+        dev->SetRenderState(D3DRS_CULLMODE, flipped);
+        if (SUCCEEDED(dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex, numVerts, startIndex, primCount)))
+            InterlockedIncrement(&g_wmBackDrawn);
+        dev->SetRenderState(D3DRS_CULLMODE, cull);
+    }
+    if (e->state != 1 || !e->ours) {
+        ibo->Release();
+        DVR_LOG_EVERY_MS(::dvr::log::Cat::hands, ::dvr::log::Level::Info, 5000,
+            "mirror/beat: '%s' mirror not built (state %d); back-face passes %ld", e->asset, e->state, g_wmBackDrawn);
+        return;
+    }
 
     static float mirrored[WA_MAX_REGS*4], patched[WA_MAX_REGS*4];
     float S[12]; dvr::hf::reflection_3x4(e->n, e->c, S);
     dvr::hf::mirror_palette_right(source, S, mirrored, regs);
     MpBuild(patched, mirrored, regs, &delta);
     bool ok = SUCCEEDED(dvr::frame::orig_set_vs_const(dev, boneReg, patched, regs));
-    DWORD cull = D3DCULL_NONE;
-    const bool haveCull = ok && SUCCEEDED(dev->GetRenderState(D3DRS_CULLMODE, &cull));
-    if (haveCull && cull != D3DCULL_NONE) dev->SetRenderState(D3DRS_CULLMODE, cull == D3DCULL_CW ? D3DCULL_CCW : D3DCULL_CW);
+    if (ok && haveCull && cull != D3DCULL_NONE) dev->SetRenderState(D3DRS_CULLMODE, flipped);
     if (ok && SUCCEEDED(dev->SetIndices(e->ours))) {
         ok = SUCCEEDED(dvr::frame::orig_draw_indexed(dev, D3DPT_TRIANGLELIST, baseVertex, minIndex, numVerts, 0, e->prims));
         dev->SetIndices(ibo);
@@ -361,14 +393,19 @@ static void WmDraw(IDirect3DDevice9* dev, const WaMesh* w, const float* source, 
     if (ok) { InterlockedIncrement(&g_wmDrawn); InterlockedIncrement(&e->drawn); }
     else { InterlockedIncrement(&g_wmFailed); InterlockedIncrement(&e->failed); }
     DVR_LOG_EVERY_MS(::dvr::log::Cat::hands, ::dvr::log::Level::Info, 5000,
-        "mirror/beat: drawn %ld failed %ld refused builds %ld | last '%s' kept %u prims, native cull %lu (1 none 2 cw 3 ccw), %d built",
-        g_wmDrawn, g_wmFailed, g_wmRefused, e->asset, e->prims, (unsigned long)cull, g_wmN);
+        "mirror/beat: drawn %ld failed %ld refused builds %ld back-face passes %ld | last '%s' kept %u prims, native cull %lu (1 none 2 cw 3 ccw), %d built",
+        g_wmDrawn, g_wmFailed, g_wmRefused, g_wmBackDrawn, e->asset, e->prims, (unsigned long)cull, g_wmN);
 }
 
 static bool WmCommand(const char* args) {
     bool b = false;
     if (DvrOnOff(args, &b)) { WmSet(b); return true; }
     if (!strcmp(args, "rebuild")) { WmReleaseAll("rebuild by request"); return true; }
+    if (!strncmp(args, "back ", 5) && DvrOnOff(args + 5, &b)) {
+        g_wmBack = b; Log("mirror: back faces %s", b ? "ON" : "off");
+        if (g_wmIni[0]) WritePrivateProfileStringA("Mirror", "BackFaces", b ? "1" : "0", g_wmIni);
+        return true;
+    }
     if (!strncmp(args, "plane ", 6)) {
         char asset[64], axis[4], sign[4] = "+"; float off = 0;
         if (sscanf(args + 6, "%63s %3s %f %3s", asset, axis, &off, sign) >= 3 && g_wmIni[0]) {
