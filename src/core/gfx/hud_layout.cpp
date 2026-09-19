@@ -138,16 +138,23 @@ float g_vaSeconds=10.f;   // the tester asked for 10 (candidate 495 had 5)
 unsigned long long g_vaStart=0;              // 0 = not counting
 float g_vaPanelPos[2][3]={},g_vaPanelQ[4]={0,0,0,1};
 const char* kVaKeys[2]={"VitalsAttach.L","VitalsAttach.R"};
-SRWLOCK g_animOffLock = SRWLOCK_INIT;
-float g_animOffQ[2][4] = {{0,0,0,1},{0,0,0,1}}, g_animOffT[2][3] = {};
-unsigned long long g_animOffMs[2] = {};
-bool hand_anim_offset(int h, float q[4], float t[3]) {
-    AcquireSRWLockShared(&g_animOffLock);
-    const bool fresh = g_animOffMs[h] && GetTickCount64() - g_animOffMs[h] < 150;
-    memcpy(q, g_animOffQ[h], 4 * sizeof(float)); memcpy(t, g_animOffT[h], 3 * sizeof(float));
-    ReleaseSRWLockShared(&g_animOffLock);
-    // Identity (not animating) needs no move.
-    return fresh && !(fabsf(q[3]) > .999999f && fabsf(t[0]) + fabsf(t[1]) + fabsf(t[2]) < 1e-5f);
+// Run497: anchored to the controller, the panels drifted from the drawn hand with
+// a stance change (the hand model's place relative to the controller is not
+// constant), and the animation move carried back from the controller did not
+// land. The panels now ride the DRAWN palm: the hand draw publishes, once per
+// present, where its palm appears in XR space, and the attach step stores each
+// panel relative to that. Frame 1 = palm, 0 = grip (older captures).
+int g_vaFrame[2]={0,0};
+SRWLOCK g_palmLock = SRWLOCK_INIT;
+float g_palmPos[2][3] = {}, g_palmQ[2][4] = {{0,0,0,1},{0,0,0,1}};
+unsigned long long g_palmMs[2] = {};
+bool hand_palm_pose(int h, float p[3], float q[4]) {
+    if (h < 0 || h > 1) return false;
+    AcquireSRWLockShared(&g_palmLock);
+    const bool fresh = g_palmMs[h] && GetTickCount64() - g_palmMs[h] < 150;
+    memcpy(p, g_palmPos[h], 3 * sizeof(float)); memcpy(q, g_palmQ[h], 4 * sizeof(float));
+    ReleaseSRWLockShared(&g_palmLock);
+    return fresh;
 }
 int vitals_hand(int part) { const int a=g_el[part?ElVitalsMana:ElVitalsHealth].anchor; return a==AnchorHandL?0:a==AnchorHandR?1:-1; }
 float g_nativeObjectiveScale=.70f;
@@ -636,14 +643,15 @@ bool vitals_part(int sink,int part,float* rect,float* halfPlane) {
     halfPlane[0]=s; halfPlane[1]=-s*slope; halfPlane[2]=-s*(g_vitalsLine[0]-slope*y0);
     return true;
 }
-void set_hand_anim_offset(int hand, const float q[4], const float t[3]) {
+bool wants_palm_pose() { return g_vitalsSplit && (g_vaStart || g_vaOn); }
+void set_hand_palm_pose(int hand, const float p[3], const float q[4]) {
     if (hand < 0 || hand > 1) return;
+    for (int k = 0; k < 3; ++k) if (!std::isfinite(p[k])) return;
     for (int k = 0; k < 4; ++k) if (!std::isfinite(q[k])) return;
-    for (int k = 0; k < 3; ++k) if (!std::isfinite(t[k])) return;
-    AcquireSRWLockExclusive(&g_animOffLock);
-    memcpy(g_animOffQ[hand], q, 4 * sizeof(float)); memcpy(g_animOffT[hand], t, 3 * sizeof(float));
-    g_animOffMs[hand] = GetTickCount64();
-    ReleaseSRWLockExclusive(&g_animOffLock);
+    AcquireSRWLockExclusive(&g_palmLock);
+    memcpy(g_palmPos[hand], p, 3 * sizeof(float)); memcpy(g_palmQ[hand], q, 4 * sizeof(float));
+    g_palmMs[hand] = GetTickCount64();
+    ReleaseSRWLockExclusive(&g_palmLock);
 }
 bool force_capture_alpha(int sink) {
     return alpha_for_sink(sink).mode!=AlphaRepair || (wheel_parts_for_sink(sink) && wheel_parts_alpha().mode!=AlphaRepair);
@@ -842,16 +850,19 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
             d.anchor=dvr::vr::HudAnchor::LocalBillboard; d.orient=dvr::vr::HudOrient::OpeningPlane;
             memcpy(d.base,g_vaPanelPos[vaPart],sizeof(d.base)); memcpy(d.orientation,g_vaPanelQ,sizeof(d.orientation));
             d.planeOff[0]=d.planeOff[1]=0; d.lift=0;
-        } else if(vaPart>=0 && g_vaOn && g_vaValid[h]) {   // the attached pose, in this hand's grip frame
+        } else if(vaPart>=0 && g_vaOn && g_vaValid[h] && g_vaFrame[h]==0) {   // an older capture, in the grip frame
             d.orient=dvr::vr::HudOrient::GripLocal; d.lift=0;
             memcpy(d.base,g_vaPos[h],sizeof(d.base)); memcpy(d.orientation,g_vaQ[h],sizeof(d.orientation));
             d.planeOff[0]=d.planeOff[1]=0;
-        }
-        if(vaPart>=0 && !g_vaStart && hand_anim_offset(h,d.animQ,d.animT)) {
-            d.animOn=true;
-            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
-                "hud/vitals-anim: %s panel follows the animated hand: move %.3f/%.3f/%.3f m, turn %.1f deg",
-                h?"right":"left",d.animT[0],d.animT[1],d.animT[2],2.f*acosf(fminf(1.f,fabsf(d.animQ[3])))*57.29578f);
+        } else if(vaPart>=0 && g_vaOn && g_vaValid[h] && g_vaFrame[h]==1) {   // on the drawn palm (the caller checked it is fresh)
+            float pp[3],pq[4],r[3];
+            if(hand_palm_pose(h,pp,pq)) {
+                dvr::xrmath::quat_rotate(pq[0],pq[1],pq[2],pq[3],g_vaPos[h],r);
+                for(int k=0;k<3;++k) d.base[k]=pp[k]+r[k];
+                dvr::xrmath::quat_mul(pq,g_vaQ[h],d.orientation);
+                d.anchor=dvr::vr::HudAnchor::LocalBillboard; d.orient=dvr::vr::HudOrient::OpeningPlane;
+                d.lift=0; d.planeOff[0]=d.planeOff[1]=0;
+            }
         }
     } else {
         d.anchor = anchor == AnchorWorld ? dvr::vr::HudAnchor::WindowWorld : dvr::vr::HudAnchor::Window;
@@ -874,20 +885,25 @@ void vitals_attach_tick() {
         const int h=vitals_hand(part);
         if(h<0) { DVR_WARN("hud/vitals-attach: %s is not on a hand anchor - nothing captured for it",kVitalsPartNames[part]); continue; }
         float gp[3],gq[4];
-        if(!dvr::vr::input_get_hand_pose(h,false,gp,gq)) {
-            DVR_WARN("hud/vitals-attach: the %s hand was not tracked at the end of the countdown - its previous attachment stands",h?"right":"left");
-            continue;
+        int frame=1;
+        if(!hand_palm_pose(h,gp,gq)) {
+            frame=0;
+            if(!dvr::vr::input_get_hand_pose(h,false,gp,gq)) {
+                DVR_WARN("hud/vitals-attach: the %s hand was neither drawn nor tracked at the end of the countdown - its previous attachment stands",h?"right":"left");
+                continue;
+            }
+            DVR_WARN("hud/vitals-attach: the %s palm was not being drawn - captured against the controller grip instead (it will not follow stance or animation)",h?"right":"left");
         }
         float inv[4]; dvr::xrmath::quat_conj(gq,inv);
         const float rel[3]={g_vaPanelPos[part][0]-gp[0],g_vaPanelPos[part][1]-gp[1],g_vaPanelPos[part][2]-gp[2]};
         dvr::xrmath::quat_rotate(inv[0],inv[1],inv[2],inv[3],rel,g_vaPos[h]);
         dvr::xrmath::quat_mul(inv,g_vaPanelQ,g_vaQ[h]);
-        g_vaValid[h]=true;
+        g_vaValid[h]=true; g_vaFrame[h]=frame;
         char v[160];
-        _snprintf(v,sizeof(v),"%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],g_vaQ[h][0],g_vaQ[h][1],g_vaQ[h][2],g_vaQ[h][3]);
+        _snprintf(v,sizeof(v),"%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f%s",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],g_vaQ[h][0],g_vaQ[h][1],g_vaQ[h][2],g_vaQ[h][3],frame?",palm":"");
         v[sizeof(v)-1]=0; write_key(kVaKeys[h],v);
-        DVR_INFO("hud/vitals-attach: %s captured on the %s grip: offset %.3f/%.3f/%.3f m (%.3f m from the grip), rotation %s",
-            kVitalsPartNames[part],h?"right":"left",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],
+        DVR_INFO("hud/vitals-attach: %s captured on the %s %s: offset %.3f/%.3f/%.3f m (%.3f m away), rotation %s",
+            kVitalsPartNames[part],h?"right":"left",frame?"DRAWN PALM":"grip",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],
             sqrtf(g_vaPos[h][0]*g_vaPos[h][0]+g_vaPos[h][1]*g_vaPos[h][1]+g_vaPos[h][2]*g_vaPos[h][2]),v);
     }
     g_vaOn=g_vaValid[0] || g_vaValid[1];
@@ -937,6 +953,14 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
                 const int pa=g_el[pe].anchor;if(!anchor_visible(pa)) continue;
                 ID3D11Texture2D* partTex=dvr::hudcap::vitals_part_texture(s,part);
                 if(!partTex) continue;
+                {
+                    const int ph=pa==AnchorHandL?0:pa==AnchorHandR?1:-1;float tp[3],tq[4];
+                    if(ph>=0 && !g_vaStart && g_vaOn && g_vaValid[ph] && g_vaFrame[ph]==1 && !hand_palm_pose(ph,tp,tq)) {
+                        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,5000,
+                            "hud/vitals-attach: the %s palm is not being drawn - its panel is hidden until it is",ph?"right":"left");
+                        continue;
+                    }
+                }
                 float c[4],hp[3];
                 if(!vitals_part(s,part,c,hp)) continue;
                 if(part==1 && g_vitalsMirror) {   // mana takes health's placement, mirrored across the body
@@ -1224,6 +1248,7 @@ void configure(const char* ini) {
         char v[160]="";float p[7];
         g_vaValid[h]=read_s(ini,kVaKeys[h],v,sizeof(v)) &&
             sscanf(v,"%f,%f,%f,%f,%f,%f,%f",&p[0],&p[1],&p[2],&p[3],&p[4],&p[5],&p[6])==7;
+        g_vaFrame[h]=strstr(v,"palm") ? 1 : 0;
         if(g_vaValid[h]) {
             const float n=sqrtf(p[3]*p[3]+p[4]*p[4]+p[5]*p[5]+p[6]*p[6]);
             if(!(n>.5f && n<1.5f)) { g_vaValid[h]=false; continue; }
@@ -1620,7 +1645,9 @@ void draw_ui() {
             if(ImGui::Checkbox("Use the attached placement",&g_vaOn)) write_i("VitalsAttach",g_vaOn);
             ImGui::SameLine();
             if(ImGui::Button("Forget it")) { g_vaOn=false;g_vaValid[0]=g_vaValid[1]=false;write_i("VitalsAttach",0);write_key(kVaKeys[0],nullptr);write_key(kVaKeys[1],nullptr); }
-            ImGui::TextDisabled("left %s, right %s. It overrides the back-of-hand and panel offsets.",g_vaValid[0]?"attached":"none",g_vaValid[1]?"attached":"none");
+            ImGui::TextDisabled("left %s, right %s. It overrides the back-of-hand and panel offsets.",
+                g_vaValid[0]?(g_vaFrame[0]?"on the drawn palm":"on the grip (re-attach to follow the hand model)"):"none",
+                g_vaValid[1]?(g_vaFrame[1]?"on the drawn palm":"on the grip (re-attach to follow the hand model)"):"none");
         }
         if(ImGui::Checkbox("Lay both on the back of the hands (moves with the hand)",&g_vitalsBack)) write_i("VitalsBack",g_vitalsBack);
         if(g_vitalsBack) {

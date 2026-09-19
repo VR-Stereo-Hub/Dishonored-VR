@@ -4996,13 +4996,6 @@ void on_present_end(ID3D11Texture2D* frame) {
                     const XrQuaternionf fq = quat_facing(n);
                     oq[0] = fq.x; oq[1] = fq.y; oq[2] = fq.z; oq[3] = fq.w;
                 }
-                if (d.animOn) {   // 41.x (Dishonored, VR-142): follow the animated hand
-                    float moved[3], q2[4];
-                    dvr::xrmath::quat_rotate(d.animQ[0], d.animQ[1], d.animQ[2], d.animQ[3], pos, moved);
-                    for (int k = 0; k < 3; ++k) pos[k] = moved[k] + d.animT[k];
-                    dvr::xrmath::quat_mul(d.animQ, oq, q2);
-                    memcpy(oq, q2, sizeof(oq));
-                }
                 const float rx[3] = {1, 0, 0}, uy[3] = {0, 1, 0};
                 dvr::xrmath::quat_rotate(oq[0], oq[1], oq[2], oq[3], rx, right);
                 dvr::xrmath::quat_rotate(oq[0], oq[1], oq[2], oq[3], uy, up);

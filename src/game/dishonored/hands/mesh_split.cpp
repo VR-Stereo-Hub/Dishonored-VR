@@ -2561,27 +2561,34 @@ static void MpDrawCompare(const MpDrawCtx* c)
 // Place one hand through an already-acquired draw context. Reads no device
 // state of its own, so both hands of a draw are guaranteed to use identical
 // constants rather than merely expected to.
-// VR-142: where the DRAWN hand is relative to its controller while the game
-// animates it, as a rigid move in XR space, for the HUD panels attached to that
-// hand. The drawn hand is W_blend * inverse(W_full) applied to the controller's
-// target, with W = L*D*inverse(L) in camera-relative world units. The map from XR
-// to that world is the one the translation path uses (dcam = k * B * ruf, ruf =
-// F * R_head^T * (p - p_head)), so M = B * F * R_head^T carries it back:
-// Rd = M^T * Rg * M and td = head - Rd*head + M^T * Wt / k. Identity when the
-// hand is not animated (the two deltas are equal). The camera sits at one eye,
-// so a turn carries a sub-centimetre error; the panel is a readout, not a sight.
-static void MpPublishAnimOffset(int hand, const MpDrawCtx* c, const dvr::hf::Xform& Dfull,
-                                const dvr::hf::Xform& Dblend, float k) {
-    if (hand < 0 || hand > 1 || !c || !c->basisProper || !(k > 0)) return;
+// VR-142: where the DRAWN palm appears in XR space, for the HUD panels attached
+// to the hand model. Candidate 497 anchored the panels to the controller and
+// carried only the animation's move back; in the headset they drifted with a
+// stance change and did not follow the swing. This publishes the drawn palm
+// itself: the controller's palm target T (camera-relative world), moved by the
+// animation blend W = L * D_blend * inverse(D_full) * inverse(L), then mapped to
+// XR with the inverse of the translation path's own map (M = B * F * R_head^T)
+// and the RENDERED world scale (the one the eye separation uses), from this
+// draw's eye. Once per present per hand, and only while an attach needs it: the
+// draw path is hot and 497 took a lock on every hand draw.
+static void MpPublishPalm(int hand, const MpDrawCtx* c, const dvr::hf::Xform& Dfull,
+                          const dvr::hf::Xform& Dblend, const dvr::hf::Xform& T) {
+    static uint32_t last[2] = {0xFFFFFFFFu, 0xFFFFFFFFu};
+    if (hand < 0 || hand > 1 || !c || !c->basisProper || !dvr::hudlayout::wants_palm_pose()) return;
+    const uint32_t present = (uint32_t)dvr::frame::count();
+    if (last[hand] == present) return;
+    const float s = dvr::camera::world_scale();
+    if (!(s > 1.0f)) return;
     dvr::hf::Xform L; L.r = c->R_L; for (int i = 0; i < 3; ++i) L.t[i] = c->t[i];
     dvr::hf::Xform invL, invDf;
     if (!dvr::wf::inverse(L, &invL) || !dvr::wf::inverse(Dfull, &invDf)) return;
     const dvr::hf::Xform W = dvr::hf::xform_mul(dvr::hf::xform_mul(L, dvr::hf::xform_mul(Dblend, invDf)), invL);
-    dvr::hf::Mat3 Rg = W.r;
-    for (int col = 0; col < 3; ++col) {   // strip any uniform model scale
-        const float n = sqrtf(Rg.m[col]*Rg.m[col] + Rg.m[3+col]*Rg.m[3+col] + Rg.m[6+col]*Rg.m[6+col]);
+    const dvr::hf::Xform P = dvr::hf::xform_mul(W, T);   // the drawn palm, camera-relative world
+    dvr::hf::Mat3 R = P.r;
+    for (int col = 0; col < 3; ++col) {   // strip the model scale
+        const float n = sqrtf(R.m[col]*R.m[col] + R.m[3+col]*R.m[3+col] + R.m[6+col]*R.m[6+col]);
         if (!(n > 1e-6f) || !std::isfinite(n)) return;
-        for (int row = 0; row < 3; ++row) Rg.m[row*3+col] /= n;
+        for (int row = 0; row < 3; ++row) R.m[row*3+col] /= n;
     }
     dvr::vr::HeadPose head{};
     if (!dvr::vr::peek_head_pose(head)) return;
@@ -2597,35 +2604,48 @@ static void MpPublishAnimOffset(int hand, const MpDrawCtx* c, const dvr::hf::Xfo
     dvr::hf::Mat3 B;
     for (int row = 0; row < 3; ++row) { B.m[row*3+0] = c->r[row]; B.m[row*3+1] = c->u[row]; B.m[row*3+2] = c->f[row]; }
     dvr::hf::Mat3 F = dvr::hf::identity3(); F.m[8] = -1.0f;
-    const dvr::hf::Mat3 Mx = dvr::hf::mul3(dvr::hf::mul3(B, F), dvr::hf::transpose3(Rh));
-    const dvr::hf::Mat3 MxT = dvr::hf::transpose3(Mx);
-    const dvr::hf::Mat3 Rd = dvr::hf::mul3(dvr::hf::mul3(MxT, Rg), Mx);
-    const float hp[3] = {head.px, head.py, head.pz};
-    float rh[3], wt[3], mt[3], td[3];
-    dvr::hf::mulv3(Rd, hp, rh);
-    for (int i = 0; i < 3; ++i) wt[i] = W.t[i] / k;
-    dvr::hf::mulv3(MxT, wt, mt);
-    for (int i = 0; i < 3; ++i) td[i] = hp[i] - rh[i] + mt[i];
-    // Rd to a quaternion (x, y, z, w).
+    const dvr::hf::Mat3 Mt = dvr::hf::transpose3(dvr::hf::mul3(dvr::hf::mul3(B, F), dvr::hf::transpose3(Rh)));
+    // The draw's eye in XR: the head plus half the IPD along the head's right.
+    const float eyeSide = (float)g_mpEyeState * 0.5f * g_ipdM;
+    float pos[3], mp[3];
+    const float pt[3] = {P.t[0] / s, P.t[1] / s, P.t[2] / s};
+    dvr::hf::mulv3(Mt, pt, mp);
+    pos[0] = head.px + Rh.m[0] * eyeSide + mp[0];
+    pos[1] = head.py + Rh.m[3] * eyeSide + mp[1];
+    pos[2] = head.pz + Rh.m[6] * eyeSide + mp[2];
+    dvr::hf::Mat3 Rx = dvr::hf::mul3(Mt, R);
+    const float det = Rx.m[0]*(Rx.m[4]*Rx.m[8]-Rx.m[5]*Rx.m[7]) - Rx.m[1]*(Rx.m[3]*Rx.m[8]-Rx.m[5]*Rx.m[6]) + Rx.m[2]*(Rx.m[3]*Rx.m[7]-Rx.m[4]*Rx.m[6]);
+    if (det < 0) for (int row = 0; row < 3; ++row) Rx.m[row*3+2] = -Rx.m[row*3+2];   // a proper frame; constant, so a capture cancels it
     float q[4];
-    const float tr = Rd.m[0] + Rd.m[4] + Rd.m[8];
+    const float tr = Rx.m[0] + Rx.m[4] + Rx.m[8];
     if (tr > 0) {
-        const float s = sqrtf(tr + 1.0f) * 2.0f;
-        q[3] = 0.25f * s; q[0] = (Rd.m[7] - Rd.m[5]) / s; q[1] = (Rd.m[2] - Rd.m[6]) / s; q[2] = (Rd.m[3] - Rd.m[1]) / s;
-    } else if (Rd.m[0] > Rd.m[4] && Rd.m[0] > Rd.m[8]) {
-        const float s = sqrtf(1.0f + Rd.m[0] - Rd.m[4] - Rd.m[8]) * 2.0f;
-        q[3] = (Rd.m[7] - Rd.m[5]) / s; q[0] = 0.25f * s; q[1] = (Rd.m[1] + Rd.m[3]) / s; q[2] = (Rd.m[2] + Rd.m[6]) / s;
-    } else if (Rd.m[4] > Rd.m[8]) {
-        const float s = sqrtf(1.0f + Rd.m[4] - Rd.m[0] - Rd.m[8]) * 2.0f;
-        q[3] = (Rd.m[2] - Rd.m[6]) / s; q[0] = (Rd.m[1] + Rd.m[3]) / s; q[1] = 0.25f * s; q[2] = (Rd.m[5] + Rd.m[7]) / s;
+        const float sq = sqrtf(tr + 1.0f) * 2.0f;
+        q[3] = 0.25f * sq; q[0] = (Rx.m[7] - Rx.m[5]) / sq; q[1] = (Rx.m[2] - Rx.m[6]) / sq; q[2] = (Rx.m[3] - Rx.m[1]) / sq;
+    } else if (Rx.m[0] > Rx.m[4] && Rx.m[0] > Rx.m[8]) {
+        const float sq = sqrtf(1.0f + Rx.m[0] - Rx.m[4] - Rx.m[8]) * 2.0f;
+        q[3] = (Rx.m[7] - Rx.m[5]) / sq; q[0] = 0.25f * sq; q[1] = (Rx.m[1] + Rx.m[3]) / sq; q[2] = (Rx.m[2] + Rx.m[6]) / sq;
+    } else if (Rx.m[4] > Rx.m[8]) {
+        const float sq = sqrtf(1.0f + Rx.m[4] - Rx.m[0] - Rx.m[8]) * 2.0f;
+        q[3] = (Rx.m[2] - Rx.m[6]) / sq; q[0] = (Rx.m[1] + Rx.m[3]) / sq; q[1] = 0.25f * sq; q[2] = (Rx.m[5] + Rx.m[7]) / sq;
     } else {
-        const float s = sqrtf(1.0f + Rd.m[8] - Rd.m[0] - Rd.m[4]) * 2.0f;
-        q[3] = (Rd.m[3] - Rd.m[1]) / s; q[0] = (Rd.m[2] + Rd.m[6]) / s; q[1] = (Rd.m[5] + Rd.m[7]) / s; q[2] = 0.25f * s;
+        const float sq = sqrtf(1.0f + Rx.m[8] - Rx.m[0] - Rx.m[4]) * 2.0f;
+        q[3] = (Rx.m[3] - Rx.m[1]) / sq; q[0] = (Rx.m[2] + Rx.m[6]) / sq; q[1] = (Rx.m[5] + Rx.m[7]) / sq; q[2] = 0.25f * sq;
     }
     const float qn = sqrtf(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
     if (!(qn > 0.5f) || !std::isfinite(qn)) return;
     for (float& v : q) v /= qn;
-    dvr::hudlayout::set_hand_anim_offset(hand, q, td);
+    last[hand] = present;
+    dvr::hudlayout::set_hand_palm_pose(hand, pos, q);
+    // An instrument that can fail: the drawn palm against the controller grip.
+    // Not animating, the distance is the hand model's own offset from the
+    // controller, constant across poses; if it changes with a stance change,
+    // THAT is the drift the tester saw, and this line names its size.
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "hud/palm: %s drawn palm at %.3f/%.3f/%.3f (XR), %.3f m from the grip, anim weight %.2f, eye %+d",
+        hand ? "right" : "left", pos[0], pos[1], pos[2],
+        [&] { float gp[3], gq[4]; if (!dvr::vr::input_get_hand_pose(hand, false, gp, gq)) return -1.0f;
+              return sqrtf((gp[0]-pos[0])*(gp[0]-pos[0]) + (gp[1]-pos[1])*(gp[1]-pos[1]) + (gp[2]-pos[2])*(gp[2]-pos[2])); }(),
+        dvr::anim::weight(), g_mpEyeState);
 }
 
 static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
@@ -2831,14 +2851,12 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // AFTER the model scale, so that factor is carried exactly once.
         const dvr::hf::Xform Dfull = D;
         D = dvr::anim::blend(D); // blend once; weapons inherit this same correction
-        MpPublishAnimOffset(hand, c, Dfull, D, k);
+        MpPublishPalm(hand, c, Dfull, D, target);
         WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
-        const dvr::hf::Xform Dfull = D;
         D = dvr::anim::blend(D);
-        MpPublishAnimOffset(hand, c, Dfull, D, k);
         g_mpPalmTargetOk[hand] = false;
     }
     for (int i = 0; i < 3; i++)

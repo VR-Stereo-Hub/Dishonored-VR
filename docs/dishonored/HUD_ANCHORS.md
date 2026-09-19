@@ -1,3 +1,35 @@
+## Vitals attached to the drawn palm; the wheel stutter (VR-142, 2026-09-19)
+
+Run497 (logs in build/playtest-candidates/hud-improvements/run497, the previous
+run in `dishonored_vr.prev.log`): the panels did not follow the hand. During
+sword swings `hud/vitals-anim` applied moves up to 0.20 m and 29 degrees, but
+the tester saw only a slight attempt, and a stance change left the panels wrong
+in the stance they were not attached in. A controller-relative anchor cannot
+follow a hand model whose place relative to the controller changes. Candidate
+499 retires that move and attaches to the DRAWN palm:
+- The hand draw publishes, once per present per hand and only while an attach
+  needs it, where its palm appears in XR LOCAL space. That is the controller's
+  palm target T moved by the animation blend
+  (W = L * D_blend * inverse(D_full) * inverse(L)), mapped to XR by
+  M = B * F * R_head^T at the RENDERED world scale, from the draw's eye.
+- The attach step captures each panel relative to that palm (the ini value ends
+  in `,palm`). Older captures stay grip-relative until re-attached, and F10 says
+  which. A palm that is not being drawn hides its panel.
+- `hud/palm:` every 3 s: the drawn palm's XR position, its distance from the
+  controller grip, the animation weight and the eye. The distance is the
+  instrument for the stance drift: constant means no drift, a change with
+  stance is the drift's size.
+
+The wheel stutter (measured, not yet fixed): while the wheel is open, the share
+of ticks drawn for one eye only (`menu/head ... singles/writes`) grew from 10%
+(run470) to 25% (run486) to 47% (run497). The skips are mostly `camera silent`
+(no camera upload since the previous draw), and the second draw costs 2.2 ms in
+the wheel (0.5 ms in run470). Two suspects: (a) candidate 497's per-hand-draw
+head-pose lock, now once per present and only while attaching (removed from the
+grip path), and (b) `[VR] ReduceDesktopPresent`, set to 1 in F10 between run473
+and run476, when the ratio first rose. The next log's ratio separates (a); if
+it stays high, (b) is the A/B.
+
 ## Attached vitals follow the animated hand; 10 s countdown (VR-142, 2026-09-19)
 
 Candidate 495's attach step was accepted in the headset. Two follow-ups:
