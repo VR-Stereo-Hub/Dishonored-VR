@@ -4975,13 +4975,15 @@ void on_present_end(ID3D11Texture2D* frame) {
                 float pos[3];
                 if (d.anchor == HudAnchor::LocalBillboard) {
                     memcpy(pos, d.base, sizeof(pos)); anchorName = "weapon dial";
-                } else dvr::hudanchor::wrist_position(gp, gq, d.base, d.lift, pos);
+                } else dvr::hudanchor::wrist_position(gp, gq, d.base, d.orient == HudOrient::GripLocal ? 0.0f : d.lift, pos);
                 const float toHead[3] = {head[0] - pos[0], head[1] - pos[1], head[2] - pos[2]};
                 if (dvr::hudanchor::too_near(toHead)) { g_hudStatNear.fetch_add(1, std::memory_order_relaxed); continue; }
                 if (dvr::hudanchor::behind_face(toHead, headFwd)) { g_hudStatBehind.fetch_add(1, std::memory_order_relaxed); continue; }
                 float oq[4];
                 if (d.orient == HudOrient::OpeningPlane) {
                     memcpy(oq,d.orientation,sizeof(oq));
+                } else if (d.orient == HudOrient::GripLocal) {   // 41.x (Dishonored, VR-142): the attached pose
+                    dvr::xrmath::quat_mul(gq, d.orientation, oq);
                 } else if (d.orient == HudOrient::CameraPlane) {
                     const auto& q=g_views[0].pose.orientation;
                     oq[0]=q.x; oq[1]=q.y; oq[2]=q.z; oq[3]=q.w;

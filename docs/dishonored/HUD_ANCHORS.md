@@ -1,3 +1,26 @@
+## Attach the vitals by holding the hands to them (VR-142, 2026-09-19)
+
+Candidate 493's back-of-hand mode placed the panels at the far end of the hand
+model, and its sliders (+-0.15 m) could not reach. Tester's ini at that point:
+`VitalsBack.Out=-0.027 Along=0.143 Forward=-0.086 Spin=-18`. The back-of-hand
+guess assumed an axis convention; the attach step measures instead:
+
+1. F10 HUD, "Split health / mana": "Attach to my hands". Both panels freeze
+   0.40 m ahead of the head as it was at the press, 0.12 m to their hand's side
+   and 0.15 m down, facing the head.
+2. A countdown (`seconds`, 2-10, default 5). The tester holds each hand where
+   its panel should ride.
+3. At zero, each panel's pose is taken into its hand's grip frame (offset and
+   rotation) and saved as `[Hud] VitalsAttach.L/.R = x,y,z,qx,qy,qz,qw`, with
+   `VitalsAttach=1`. The panel then renders as grip * that pose (a new runtime
+   orientation, `HudOrient::GripLocal`), so it moves rigidly with the hand. An
+   untracked hand at zero keeps its previous attachment, and the log says so.
+   It overrides the back-of-hand mode and the panel offsets; "Use the attached
+   placement" and "Forget it" undo it. The back-of-hand sliders now reach
+   +-0.4 m.
+`hud/vitals-attach:` logs the start, and each capture with its offset, its
+distance from the grip and its rotation.
+
 ## Vitals on the back of the hand, mirrored left panel (VR-142, 2026-09-19)
 
 Run490 (banner verified; logs in build/playtest-candidates/hud-improvements/run490):

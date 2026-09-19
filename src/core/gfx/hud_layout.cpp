@@ -126,6 +126,19 @@ bool g_vitalsMirror=true,g_vitalsAutoCrop=true;
 bool g_vitalsBack=false;
 float g_vitalsBackCfg[5]={.045f,0.f,0.f,0.f,0.f};
 const char* kVitalsBackKeys[5]={"VitalsBack.Out","VitalsBack.Along","VitalsBack.Forward","VitalsBack.Tilt","VitalsBack.Spin"};
+// Candidate 493: the back-of-hand guess landed at the far end of the hand model
+// with too little slider range. The ATTACH step measures instead of guessing:
+// both panels freeze in front of the head, the tester holds each hand where its
+// panel should ride, and after the countdown each panel's pose is stored in its
+// hand's grip frame (position and rotation). No axis convention is assumed.
+// [0] = left hand (mana), [1] = right hand (health), by the part's anchor.
+bool g_vaOn=false,g_vaValid[2]={false,false};
+float g_vaPos[2][3]={},g_vaQ[2][4]={{0,0,0,1},{0,0,0,1}};
+float g_vaSeconds=5.f;
+unsigned long long g_vaStart=0;              // 0 = not counting
+float g_vaPanelPos[2][3]={},g_vaPanelQ[4]={0,0,0,1};
+const char* kVaKeys[2]={"VitalsAttach.L","VitalsAttach.R"};
+int vitals_hand(int part) { const int a=g_el[part?ElVitalsMana:ElVitalsHealth].anchor; return a==AnchorHandL?0:a==AnchorHandR?1:-1; }
 float g_nativeObjectiveScale=.70f;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
 dvr::weapon_dial::State g_dial;
@@ -804,6 +817,16 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
         d.height = 0.0f;
         d.planeOff[0] = (wholeSink ? cxN * g_hand[h].widthM : 0.0f) + c.handX;
         d.planeOff[1] = (wholeSink ? cyN * g_hand[h].widthM : 0.0f) + c.handY;
+        const int vaPart=e==ElVitalsHealth?0:e==ElVitalsMana?1:-1;
+        if(vaPart>=0 && g_vaStart) {   // VR-142: the attach countdown: frozen in front of the head
+            d.anchor=dvr::vr::HudAnchor::LocalBillboard; d.orient=dvr::vr::HudOrient::OpeningPlane;
+            memcpy(d.base,g_vaPanelPos[vaPart],sizeof(d.base)); memcpy(d.orientation,g_vaPanelQ,sizeof(d.orientation));
+            d.planeOff[0]=d.planeOff[1]=0; d.lift=0;
+        } else if(vaPart>=0 && g_vaOn && g_vaValid[h]) {   // the attached pose, in this hand's grip frame
+            d.orient=dvr::vr::HudOrient::GripLocal; d.lift=0;
+            memcpy(d.base,g_vaPos[h],sizeof(d.base)); memcpy(d.orientation,g_vaQ[h],sizeof(d.orientation));
+            d.planeOff[0]=d.planeOff[1]=0;
+        }
     } else {
         d.anchor = anchor == AnchorWorld ? dvr::vr::HudAnchor::WindowWorld : dvr::vr::HudAnchor::Window;
         d.base[0] = g_win.latM; d.base[1] = g_win.upM; d.base[2] = -g_win.distM;
@@ -816,8 +839,55 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
 
 } // namespace
 
+// The attach step's clock, on the present thread: at the end of the countdown
+// each part's frozen panel pose is taken into its hand's grip frame.
+void vitals_attach_tick() {
+    if(!g_vaStart || GetTickCount64()-g_vaStart < (unsigned long long)(g_vaSeconds*1000.f)) return;
+    g_vaStart=0;
+    for(int part=0;part<2;++part) {
+        const int h=vitals_hand(part);
+        if(h<0) { DVR_WARN("hud/vitals-attach: %s is not on a hand anchor - nothing captured for it",kVitalsPartNames[part]); continue; }
+        float gp[3],gq[4];
+        if(!dvr::vr::input_get_hand_pose(h,false,gp,gq)) {
+            DVR_WARN("hud/vitals-attach: the %s hand was not tracked at the end of the countdown - its previous attachment stands",h?"right":"left");
+            continue;
+        }
+        float inv[4]; dvr::xrmath::quat_conj(gq,inv);
+        const float rel[3]={g_vaPanelPos[part][0]-gp[0],g_vaPanelPos[part][1]-gp[1],g_vaPanelPos[part][2]-gp[2]};
+        dvr::xrmath::quat_rotate(inv[0],inv[1],inv[2],inv[3],rel,g_vaPos[h]);
+        dvr::xrmath::quat_mul(inv,g_vaPanelQ,g_vaQ[h]);
+        g_vaValid[h]=true;
+        char v[160];
+        _snprintf(v,sizeof(v),"%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],g_vaQ[h][0],g_vaQ[h][1],g_vaQ[h][2],g_vaQ[h][3]);
+        v[sizeof(v)-1]=0; write_key(kVaKeys[h],v);
+        DVR_INFO("hud/vitals-attach: %s captured on the %s grip: offset %.3f/%.3f/%.3f m (%.3f m from the grip), rotation %s",
+            kVitalsPartNames[part],h?"right":"left",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],
+            sqrtf(g_vaPos[h][0]*g_vaPos[h][0]+g_vaPos[h][1]*g_vaPos[h][1]+g_vaPos[h][2]*g_vaPos[h][2]),v);
+    }
+    g_vaOn=g_vaValid[0] || g_vaValid[1];
+    write_i("VitalsAttach",g_vaOn);
+}
+void vitals_attach_start() {
+    dvr::vr::HeadPose head{};
+    if(!dvr::vr::peek_head_pose(head)) { DVR_WARN("hud/vitals-attach: no head pose - not started"); return; }
+    const float q[4]={head.qx,head.qy,head.qz,head.qw};
+    const float fwd0[3]={0,0,-1},right0[3]={1,0,0},up0[3]={0,1,0};
+    float f[3],r[3],u[3];
+    dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],fwd0,f);
+    dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],right0,r);
+    dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],up0,u);
+    for(int part=0;part<2;++part) {
+        const float side=vitals_hand(part)==0 ? -1.f : 1.f;   // the part's own hand's side
+        for(int k=0;k<3;++k) g_vaPanelPos[part][k]=(&head.px)[k]+f[k]*.40f+r[k]*side*.12f-u[k]*.15f;
+    }
+    memcpy(g_vaPanelQ,q,sizeof(g_vaPanelQ));   // facing the head as it was at the press
+    g_vaStart=GetTickCount64();
+    DVR_INFO("hud/vitals-attach: countdown %.0f s - the panels are frozen 0.40 m ahead; hold each hand where its panel should ride",g_vaSeconds);
+}
+
 int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
     ++g_presentNo;
+    vitals_attach_tick();
     int n = 0;
     if(native_gameplay_reference()) return 0; // no delayed panel can overlap the reference
     // The measured elements: one isolated full-texture quad each, preserving
@@ -1123,6 +1193,19 @@ void configure(const char* ini) {
     g_vitalsSplit=read_i(ini,"VitalsSplit",0)!=0;
     g_vitalsMirror=read_i(ini,"VitalsMirror",1)!=0;g_vitalsAutoCrop=read_i(ini,"VitalsAutoCrop",1)!=0;
     g_vitalsBack=read_i(ini,"VitalsBack",0)!=0;
+    g_vaOn=read_i(ini,"VitalsAttach",0)!=0;
+    for(int h=0;h<2;++h) {
+        char v[160]="";float p[7];
+        g_vaValid[h]=read_s(ini,kVaKeys[h],v,sizeof(v)) &&
+            sscanf(v,"%f,%f,%f,%f,%f,%f,%f",&p[0],&p[1],&p[2],&p[3],&p[4],&p[5],&p[6])==7;
+        if(g_vaValid[h]) {
+            const float n=sqrtf(p[3]*p[3]+p[4]*p[4]+p[5]*p[5]+p[6]*p[6]);
+            if(!(n>.5f && n<1.5f)) { g_vaValid[h]=false; continue; }
+            for(int k=0;k<3;++k) g_vaPos[h][k]=p[k];
+            for(int k=0;k<4;++k) g_vaQ[h][k]=p[3+k]/n;
+        }
+    }
+    DVR_INFO("hud/vitals-attach: %s (left %s, right %s)",g_vaOn?"ON":"off",g_vaValid[0]?"captured":"none",g_vaValid[1]?"captured":"none");
     for(int k=0;k<5;++k) g_vitalsBackCfg[k]=read_f(ini,kVitalsBackKeys[k],g_vitalsBackCfg[k]);
     DVR_INFO("hud/vitals-split: mirror=%d autocrop=%d back-of-hand=%d (out %.3f along %.3f forward %.3f tilt %.0f spin %.0f)",
         g_vitalsMirror,g_vitalsAutoCrop,g_vitalsBack,g_vitalsBackCfg[0],g_vitalsBackCfg[1],g_vitalsBackCfg[2],g_vitalsBackCfg[3],g_vitalsBackCfg[4]);
@@ -1234,6 +1317,7 @@ void save(const char* ini) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
     }
     write_i("VitalsMirror",g_vitalsMirror);write_i("VitalsAutoCrop",g_vitalsAutoCrop);write_i("VitalsBack",g_vitalsBack);
+    write_i("VitalsAttach",g_vaOn);
     for(int k=0;k<5;++k) write_f(kVitalsBackKeys[k],g_vitalsBackCfg[k]);
     write_i("VitalsSplit",g_vitalsSplit);write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
@@ -1500,11 +1584,23 @@ void draw_ui() {
         if(ImGui::Checkbox("Mana mirrors health's placement",&g_vitalsMirror)) write_i("VitalsMirror",g_vitalsMirror);
         ImGui::SameLine();
         if(ImGui::Checkbox("Trim each part at the line",&g_vitalsAutoCrop)) {write_i("VitalsAutoCrop",g_vitalsAutoCrop);dvr::hudcap::invalidate_content();}
+        if(g_vaStart) {
+            const float left=g_vaSeconds-(GetTickCount64()-g_vaStart)/1000.f;
+            ImGui::TextColored(ImVec4(1,.8f,.2f,1),"ATTACHING in %.1f s: hold each hand where its panel should ride",left>0?left:0);
+        } else if(ImGui::Button("Attach to my hands (panels freeze in front of you, then a countdown)")) vitals_attach_start();
+        ImGui::SameLine(); ImGui::SetNextItemWidth(90);
+        ImGui::SliderFloat("seconds",&g_vaSeconds,2,10,"%.0f");
+        if(g_vaValid[0] || g_vaValid[1]) {
+            if(ImGui::Checkbox("Use the attached placement",&g_vaOn)) write_i("VitalsAttach",g_vaOn);
+            ImGui::SameLine();
+            if(ImGui::Button("Forget it")) { g_vaOn=false;g_vaValid[0]=g_vaValid[1]=false;write_i("VitalsAttach",0);write_key(kVaKeys[0],nullptr);write_key(kVaKeys[1],nullptr); }
+            ImGui::TextDisabled("left %s, right %s. It overrides the back-of-hand and panel offsets.",g_vaValid[0]?"attached":"none",g_vaValid[1]?"attached":"none");
+        }
         if(ImGui::Checkbox("Lay both on the back of the hands (moves with the hand)",&g_vitalsBack)) write_i("VitalsBack",g_vitalsBack);
         if(g_vitalsBack) {
-            bool b=ImGui::SliderFloat("Out from the back of the hand (m)",&g_vitalsBackCfg[0],-.1f,.15f,"%.3f");
-            b|=ImGui::SliderFloat("Along the knuckles (m)",&g_vitalsBackCfg[1],-.15f,.15f,"%.3f");
-            b|=ImGui::SliderFloat("Along the controller (m)",&g_vitalsBackCfg[2],-.15f,.15f,"%.3f");
+            bool b=ImGui::SliderFloat("Out from the back of the hand (m)",&g_vitalsBackCfg[0],-.4f,.4f,"%.3f");
+            b|=ImGui::SliderFloat("Along the knuckles (m)",&g_vitalsBackCfg[1],-.4f,.4f,"%.3f");
+            b|=ImGui::SliderFloat("Along the controller (m)",&g_vitalsBackCfg[2],-.4f,.4f,"%.3f");
             b|=ImGui::SliderFloat("Tilt (deg)",&g_vitalsBackCfg[3],-90,90,"%.0f");
             b|=ImGui::SliderFloat("Spin (deg)",&g_vitalsBackCfg[4],-180,180,"%.0f");
             if(b) for(int k=0;k<5;++k) write_f(kVitalsBackKeys[k],g_vitalsBackCfg[k]);

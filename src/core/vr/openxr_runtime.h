@@ -665,7 +665,9 @@ void set_hud_texture_provider(HudTextureProviderFn fn);
 // rest and counts them.
 constexpr int kMaxHudQuads = 34;   // 41.x (Dishonored, VR-142): +2 for the split health / mana panels
 enum class HudAnchor : uint8_t { Window = 0, WindowWorld = 1, Hand = 2, LocalBillboard = 3 };
-enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1, CameraPlane = 2, OpeningPlane = 3 };
+// GripLocal (VR-142): base is an offset in the grip frame (no lift) and
+// orientation a rotation relative to the grip, both captured by the attach step.
+enum class HudOrient : uint8_t { Billboard = 0, FollowGrip = 1, CameraPlane = 2, OpeningPlane = 3, GripLocal = 4 };
 struct HudQuadDesc {
     ID3D11Texture2D* tex = nullptr;    // R8G8B8A8 family, premultiplied + repaired alpha
     HudAnchor anchor = HudAnchor::Window;
