@@ -1,3 +1,15 @@
+## Claude handoff: accepted486 PR, SteamVR extraction, deferred HUD/choke (2026-09-19)
+
+The user accepts the current486 state and requests PR/branch separation with
+health/mana splitting and choke removed from active delivery but research retained.
+This supersedes the earlier implementation plan. Claude is to execute
+docs/dishonored/CLAUDE_HANDOFF_BUILD486_BRANCH_SPLIT.md.
+PR75 already has identical production content to486; PR76 is the mixed work to
+retire only after preservation. SteamVR e30554204 is diagnostics, not a fixed
+orientation path. Research snapshot and incomplete calibration patch are tracked
+in docs/dishonored/archive/vitals-choke-20260919. Current installed DLL/INI unchanged.
+No PR/branch reorganization or push has been performed by this preparation step.
+
 ## Post-reboot baseline check (2026-09-19)
 
 Build486 remains installed on VDXR. Reboot plus a known-good save reportedly
