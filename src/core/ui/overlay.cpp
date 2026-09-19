@@ -140,6 +140,9 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Suppress animation up/down tilt",&pitchLock)) CinePitchSet(pitchLock);
         bool rollLock=CineRollEnabled();
         if (ImGui::Checkbox("Suppress cinematic roll",&rollLock)) CineRollSet(rollLock);
+        bool specialHead=SpecialHeadEnabled();
+        if(ImGui::Checkbox("Natural head look in lean / keyholes",&specialHead))SpecialHeadSet(specialHead);
+        ImGui::TextDisabled("Keeps native peek position; head rotation bypasses native view limits.");
         bool mantleHands=dvr::anim::mantle_enabled();
         if (ImGui::Checkbox("Native hands while mantling",&mantleHands)) dvr::anim::set_mantle(mantleHands);
         bool cineHands=dvr::anim::cinematic_enabled();
@@ -150,6 +153,24 @@ static void OverlayFrame()
         if (ImGui::Checkbox("Guard menu/loading stereo and input",&surface)) UiSurfaceSet(surface);
         bool sceneState=StereoStateEnabled();
         if (ImGui::Checkbox("Stereo cinematic/dialogue states",&sceneState)) StereoStateSet(sceneState);
+        bool possession=PossessionStereoEnabled();
+        if (ImGui::Checkbox("Stereo while possessing",&possession)) PossessionStereoSet(possession);
+        bool rain=RainHideEnabled();
+        if (ImGui::Checkbox("Hide camera rain (the rain box only)",&rain)) RainHideSet(rain);
+        int rainDist=RainDistance();
+        if (ImGui::SliderInt("Rain distance uu (-1 native)",&rainDist,-1,600)) RainDistanceSet(rainDist);
+        int lensDist=LensDistance();
+        if (ImGui::SliderInt("Lens effects distance uu (0 native)",&lensDist,0,90)) LensDistanceSet(lensDist);
+        bool keep=LensKeepSize();
+        if (ImGui::Checkbox("Lens effects keep their size",&keep)) LensKeepSizeSet(keep);
+        bool follow=LensFollowHead();
+        if (ImGui::Checkbox("Lens effects follow the head (per eye)",&follow)) LensFollowSet(follow);
+        int rainPct=LensRainPct();
+        if (ImGui::SliderInt("Rain lens strength % (100 native)",&rainPct,0,100)) LensRainPctSet(rainPct);
+        bool mirror=WmEnabled();
+        if (ImGui::Checkbox("Mirror pistol/crossbow (fill the missing side)",&mirror)) WmSet(mirror);
+        ImGui::SameLine();
+        if (ImGui::Button("Rebuild mirror")) WmReleaseAll("rebuild from F10");
         bool borders=CineBordersEnabled();
         if (ImGui::Checkbox("Hide cinematic black borders",&borders)) CineBordersSet(borders);
     }
@@ -349,6 +370,55 @@ static void OverlayFrame()
     }
 
     ImGui::EndTabItem(); }
+
+    if (ImGui::BeginTabItem("Animations")) {
+        bool enabled=dvr::anim::enabled();
+        if(ImGui::Checkbox("Enable selected game arms",&enabled))dvr::anim::set_enabled(enabled);
+        ImGui::TextWrapped("Enable action allows the action itself. Turn it off to reject its next request; an action already underway can finish. For Mantling, Show game arms changes forearm visibility while hands stay animated. Other states still select native arms instead of tracked hands. Both choices save immediately.");
+        ImGui::TextWrapped("Automatic, recovery and story states have arm controls only. Any checked active state can request game arms.");
+        if(!dvr::anim::action_gate_ready())ImGui::TextColored(ImVec4(1,.5f,.2f,1),"Action gate unavailable: actions will not be blocked.");
+        float viewRight=dvr::anim::view_right_cm();
+        if(ImGui::SliderFloat("Animation view left/right",&viewRight,-20.0f,20.0f,"%.1f cm"))dvr::anim::set_view_right_cm(viewRight);
+        ImGui::TextDisabled("Positive moves your viewpoint right. Native animated camera scopes only; 0 is unchanged.");
+        if(ImGui::Button("Reset animation alignment"))dvr::anim::set_view_right_cm(0);
+        ImGui::Separator();
+        ImGui::TextUnformatted("Game animation on the tracked hands (arms stay hidden)");
+        bool melee=dvr::anim::hand_anim_melee();
+        if(ImGui::Checkbox("Sword swing animation",&melee))dvr::anim::set_hand_anim_melee(melee);
+        bool fire=dvr::anim::hand_anim_fire();
+        if(ImGui::Checkbox("Shooting animation (pistol, crossbow)",&fire))dvr::anim::set_hand_anim_fire(fire);
+        ImGui::TextDisabled("Like mantling: the hand plays the game's clip, then returns to the controller.");
+        ImGui::TextDisabled("Show game arms on Melee attack / Item action also shows the forearms.");
+        ImGui::Separator();
+        ImGui::TextWrapped("Lists all 40 shipped player action states. Individual animation clips within an action share its setting.");
+        if(ImGui::Button("Reset arm choices"))dvr::anim::reset_arm_rules();
+        ImGui::SameLine();
+        if(ImGui::Button("Enable all actions"))for(int i=0;i<dvr::anim::armRuleCount;++i)dvr::anim::set_action_enabled(i,true);
+        const auto state=dvr::anim::snapshot();
+        ImGui::TextDisabled("Current: %s / %s / %s",state.state[0],state.state[1],state.state[2]);
+        static ImGuiTextFilter filter;filter.Draw("Find animation");
+        const char* groups[]={"Whole body","Upper body and weapon","Left hand"};
+        for(int lane=0;lane<3;++lane) {
+            if(!ImGui::CollapsingHeader(groups[lane],ImGuiTreeNodeFlags_DefaultOpen))continue;
+            for(int i=0;i<dvr::anim::armRuleCount;++i){
+                const auto& rule=dvr::anim::armRules[i];
+                if(rule.lane!=lane || (!filter.PassFilter(rule.label) && !filter.PassFilter(rule.state)))continue;
+                ImGui::PushID(i);bool on=dvr::anim::arm_rule_enabled(i);
+                ImGui::TextUnformatted(rule.label);
+                if(dvr::anim::cancellable_action(i)) {
+                    bool allowed=dvr::anim::action_enabled(i);
+                    ImGui::BeginDisabled(!dvr::anim::action_gate_ready());
+                    if(ImGui::Checkbox("Enable action",&allowed))dvr::anim::set_action_enabled(i,allowed);
+                    ImGui::EndDisabled();ImGui::SameLine();
+                }
+                if(ImGui::Checkbox("Show game arms",&on))dvr::anim::set_arm_rule(i,on);
+                if(state.valid && !strcmp(state.state[lane],rule.state)){ImGui::SameLine();ImGui::TextDisabled("active");}
+                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s",rule.state);
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndTabItem();
+    }
 
     if (ImGui::BeginTabItem("Hands")) {
     bool wristChanged=ImGui::Checkbox("Rounded wrist ends",&g_msRoundWrist);

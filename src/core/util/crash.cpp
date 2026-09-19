@@ -240,7 +240,7 @@ bool write_dump(EXCEPTION_POINTERS* ep, const char* why, bool fullMemory)
     MINIDUMP_EXCEPTION_INFORMATION mei = { GetCurrentThreadId(), ep, FALSE };
     const MINIDUMP_TYPE flags = fullMemory
         ? (MINIDUMP_TYPE)(MiniDumpWithFullMemory | MiniDumpWithFullMemoryInfo | MiniDumpWithThreadInfo)
-        : (MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithDataSegs);
+        : (MINIDUMP_TYPE)(MiniDumpWithIndirectlyReferencedMemory | MiniDumpWithDataSegs | MiniDumpWithFullMemoryInfo);
     BOOL ok = g_miniDump(GetCurrentProcess(), GetCurrentProcessId(), f,
                          flags,
                          ep ? &mei : nullptr, nullptr, nullptr);

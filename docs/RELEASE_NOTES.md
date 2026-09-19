@@ -1,3 +1,9 @@
+## Misc fixes candidate (2026-09-17)
+
+F10 Animations adds saved arm-visibility choices for all40 player action states.
+F10 View adds an experimental natural head-look option for lean/keyholes.
+Texture allocation failures now log memory pressure; crash prevention is pending.
+
 ## Controller and reading controls (2026-09-17)
 
 F10 Controls supports cross-hand D-pad modifiers, alternate menu and pause chord.

@@ -1,3 +1,411 @@
+## DisPostProcessManager UI fade timer goes NaN (VR-140, 2026-09-18)
+
+Layout, reflected by name on build 473 (`pp/watch: armed`): `m_RequiredEffects[21]`
++0x168 (int per eEffectPp), `m_EffectStates[21]` +0x1bc (byte: 0 stopped,
+1 warming, 2 running, 3 cooling, 4 aborting), `m_UIStateDuration` +0x284,
+`m_UIPPFadeOutTime` +0x288, `m_UIPPFadeInTime` +0x28c, `m_UIPPWeight` +0x290
+(0.2 s in and out for the wheel). Both arrays are sized Epp_Count (21), not
+Epp_MAX. Effect 19 is Epp_UberUI (the menu blur); effect 3 (Dark Vision) reads
+state 2 with no request all session, which is normal.
+
+Measured (run473): a close that lands while UberUI is WARMING can leave
+`m_UIStateDuration` NaN. The effect then sits in Cooling forever and the scene
+post-processes to black; HUD, markers and Dark Vision silhouettes draw after it
+and survive. Camera fade (`FadeAmount`) and `ColorScale` are not involved. The
+game's own code path that produces the NaN was not located: `disp 0x284` has
+~40 hits in the image, and none was traced. The mod repairs the value only when
+it is already non-finite (`pp/repair`).
+
+## Possession ownership and the camera rain box (VR-135/VR-136, 2026-09-18)
+
+**Possession.** While possessing, `Controller.Pawn` is a `DisPossessablePawn`
+subclass: `DisPossessionProxyPawn` (rats, fish; measured in the build452 log,
+`crouch/pawn: now ... (DisPossessionProxyPawn) via ctrl+0x248`) or
+`DishonoredNPCPawn` (people); `DisDLC06NPCPawn` and `DisTallboyNPCPawn` extend
+the latter. The script declarations give two back-pointers on the possessable,
+`m_pPossessingController` (DishonoredPlayerController) and
+`m_pPossessingPlayerPawn` (DishonoredPlayerPawn); both are resolved by name
+through `RflOffsetOf("DisPossessablePawn", ...)`, never by a copied number, and
+the resolved offsets print on the `possession/stereo: layout` line. Validation
+= pawn class in that list AND pawn live AND back-pointer == our live controller
+AND the player pawn live with a PlayerPawn class. The controller also carries
+`m_PossessionEffectSettings.m_Stage` (EDisPossessionEffectStage Off/Intro/While/
+Warning/Outro); it is logged as evidence, not gated, until a run shows its
+timing against the pawn switch. The power component's own
+`DishonoredActivePowerComponent_Possess.m_PossessionStage` (PossessionActive=3)
+was not needed: the pawn back-pointers are set by the engine only while a
+possession is in force. The capsule reader and the anim FSM reader both refuse
+this pawn on purpose (their offsets belong to DishonoredPlayerPawn) and still do.
+
+**Rain.** `DishonoredPlayerCamera` owns the rain: `m_pRainBoxEmitter` (Emitter,
+observed with 40 drops), `m_RainBoxExtent`, `m_NumRainDrops`,
+`m_fRainSpawnKillRate`, `m_RainDirection` (default 0,0,-1), and separate impact
+fields. The drop module is `DisParticleModuleRainDrops` (parameters
+`MaxParticles`, `SpawnKillRate`, its own `m_Extent`); `Dis_SetRainEmitter` (a
+Kismet action) sets drops/impact distances/start delay per level. The candidate
+hides ONLY that emitter's `ParticleSystemComponent` through the native
+`PrimitiveComponent.SetHidden` (found by name AND declaring class: SetHidden also
+exists on Actor with a different parameter block), called through ProcessEvent on
+the script lane with the re-entry flag, as `console.cpp` and `mat_hide.cpp` do.
+A raw `HiddenGame` write would not reach the render proxy. The `rain/box` line
+logs the box extent and the emitter's location in the camera frame; the near-eye
+design waits on those numbers. Unverified in game as of this entry.
+
+Build458 run (08:33): `m_RainBoxExtent` = 500/500/500 uu, 40 drops,
+`m_RainDirection` 0,0,-1, `m_fRainSpawnKillRate` 0 in the first rainy area and
+about 10000 in a later one.
+
+**Where the rain is drawn (derived 2026-09-18, RETRACTS the first reading).**
+The emitter is re-placed every camera update by the native at VA 0x6D8951
+(`cmp [cam+0x4dc],0`, gated by `[cam+0x4c8]==1`): the view forward (Rotator
+-> Vector, `call 0x40da70`) is taken into the emitter's frame (vtable +0x1BC),
+`t = min over axes of m_RainBoxExtent[i] / |f[i]|` (the `fdivr [edi+0x4e0/4/8]`
+chain, a zero component takes a constant), and the emitter moves to
+`POV.Location + forward * t` (`call 0x6539C0` on GWorld). The only other read
+of the extent in that function draws the debug box (`[cam+0x4c0]&8` =
+`m_bDebugDrawRainBox`, `call 0x6476F0`). The same function traces from the
+camera along `m_RainDirection` for shelter (`call 0x64E7A0`, flags 0x2086) and
+fades `m_fRainSpawnKillRate` (0x520) on the result. Measured: 143 steady
+samples put the emitter at fwd 499..662 uu, right |<20|, up ~-6 (one -153) in
+the camera frame: a slab of rain about 5 m ahead that turns with the view.
+That is the pane. The first `rain/box` line of each level (74..118 m away,
+e.g. fwd -5080) is the emitter's spawn position before its first update, NOT
+where the drops draw; the earlier note saying the actor Location does not
+describe the drops was wrong and is retracted. So the extent IS the slab's
+distance: `[Rain] Distance` writes it (0 centres the emitter on the camera).
+The drop module's own spawn volume (`DisParticleModuleRainDrops.m_Extent`,
+per template) is not read by the mod.
+
+**The rain PANE is a lens effect (run470, 2026-09-18).** The tester's pane moved
+with F10 "Lens effects distance", not "Rain distance", and the rain-box hide did
+not remove it. The live lens effect in the rain was `DisEmitterCameraLensEffect_Looping`
+(`lens/fx` at 4917406: DistFromCamera 90, BaseFOV 80, DrawScale 1.0, measured
+fwd 72.0 uu - so this build DOES scale the distance by FOV, 90 -> ~72 at the
+103-degree view). The camera rain box (m_RainBoxExtent) is a separate, real
+effect; its lever works but is not the pane. Wanted next: scale the looping lens
+rain down (DrawScale with KeepSize off) and a per-class lens hide.
+
+**Lens effects (VR-137).** `DishonoredPlayerPawn.m_pCurHealthLensEffect` is an
+`EmitterCameraLensEffectBase` (the red low-health vignette). All lens effects
+live in `Camera.CameraLensEffects` and are placed by the native
+`UpdateLocation(CamLoc, CamRot, CamFOVDeg)` (exec thunk VA 0x5BB5D0, which
+calls the implementation through vtable +0x3AC; `ue3-natives class` resolved
+that slot to garbage, so the implementation was not disassembled).
+Declarations: `DistFromCamera` default 90 uu, `BaseFOV` 80. Whether this build
+scales the distance by FOV is what the `lens/fx` line's measured `fwd`
+answers. `[Lens] Distance` writes `DistFromCamera`; `[Lens] KeepSize` rescales
+through native `Actor.SetDrawScale` by the same ratio. `m_Stage` of
+`DisPossessionEffectSettings` is at +0 (it now resolves through
+`FindPropOffsetChecked`, which accepts a zero offset).
+
+**Possessable classes.** From the shipped scripts, `DisPossessablePawn`
+subclasses: DisPossessionProxyPawn, DishonoredNPCPawn, DisTallboyNPCPawn,
+DisDLC06NPCPawn, DisDLC06AssassinNPCPawn, DisDLC06ButcherNPCPawn,
+DisDLC06SummonedAssassinNPCPawn, DisDLC07NPCPawn, DisDLC07AssassinNPCPawn,
+DisDLC07GravehoundNPCPawn, DisDLC07SummonedAssassinNPCPawn,
+DisDLC07TentacleNPCPawn. `DisPossessableInterface` is also implemented by
+DisFish, DisGameCrowdAgentSkeletalRat and DisRiverKrust, which are not pawns:
+possessing one puts the controller in a DisPossessionProxyPawn (measured for
+rats). The validator walks the class chain through `kSuperFieldOff` (+0x44)
+once that walk reproduces the player pawn's Pawn/Actor ancestry, and falls
+back to the list above.
+
+## Build452 full-dump texture accounting (2026-09-18)
+
+Exact DLL SHA256537812eb74f594ba3b700284f782132af14620de31509dbd0d3b55098cd091b4.
+PDB symbols locate dvr::d3d9ex g_map/g_mapCount and lifecycle counters.
+Map traversal16-byte Ent entries, excluding null/tomb, matches2596 live;
+made10200 minus released7604 exactly reconciles. Failed0. This snapshot cannot
+prove absence of lifetime leaks; it does disprove treating cumulative shadowBytes
+26451.47MiB as live allocation.2580 2D textures plus16 cubes remain.
+
+For this exact Windows D3D9 binary, GetLevelDesc code at RVA0x65D50 bounds
+levels using byte[this-8], dispatches via surface array[this+4].
+Surface getter0x628A0 ->0x62CC0 ->0x62C60 derives dimensions from owning texture
+header. Format[this+8], width[this+32], height[this+36], pool[this+20] are
+consistent with these descriptors; pool2 is SYSTEMMEM. These are offline driver
+layout observations, never runtime writer offsets. Formats:2090 DXT1,312 DXT5,
+158 L8,10 V8U8,10 A8R8G8B8. Sum format-correct mip payloads:
+DXT1737.36MiB, all2D1754.64MiB. Excludes16 cube textures, resource headers,
+row alignment, GPU resources and other driver allocations. It is a payload
+estimate, not a measured VirtualAlloc ownership sum. Largest dimension4096:
+86 twins638.67MiB;2048:351 twins752.46MiB. Combined1391.13MiB.
+
+Reflected Texture2D SizeX260/SizeY264, resident316/requested312 and bIsStreamable
+280 mask1, Texture.LODGroup146 recovered from dump UProperty objects via existing
+UProperty offset0x5c and UBool mask0x6c. Initial use of0x60 for bool mask was
+invalid and corrected before drawing conclusions. Of2019 Texture2D objects,
+1522 flagged streamable;428 of429 with dimensions at least2048 flagged streamable.
+Sample4096 textures have13 resident/requested mips. Streamable eligibility
+does not prove the group policy permits eviction.
+
+Active user DishonoredEngine.ini and installed DefaultEngine.ini SystemSettings
+both set NumStreamedMips=0 for world/normal/specular, character/normal/specular,
+weapon/normal/specular, vehicle/normal/specular and cinematic. No attribution
+to texture pack installer is established. Dishonored parser references its
+NumStreamedMips= key at RVA0x1771A8, parses integer and stores group+0x10.
+Epic's current texture settings documentation describes0 as fully resident,
+-1 as all mips eligible; UE3 archived URL was inaccessible. Current documentation
+is supporting context, not proof of this fork's final streaming behavior:
+https://dev.epicgames.com/documentation/unreal-engine/texture-format-support-and-settings-in-unreal-engine
+
+Targeted test changes only those13 fields per file to-1, with complete backups,
+full diffs and CRLF validation under build/playtest-candidates/texture-streaming452.
+No DLL change, no pack removal, no maximum resolution/pool/F10 changes. User
+authorized closing game; process absent verified before edit. First attempted
+installer refused on the no-process shell exit code before any writes; corrected
+guard then applied and verified both files. Memory watcher uses signed x86 dumper.
+Restored streaming is a mitigation candidate, not yet headset/memory-confirmed.
+
+Alternative: reducing4096 textures to2048 would reduce that class's shadow payload
+by roughlythree quarters, but is not this test. Dropping shadows blindly is unsafe:
+native READONLY mip-copy locks require retained data, and DEFAULT textures cannot
+serve those locks. A future pageable/reconstructible shadow backing would need
+explicit correctness and streaming tests. Do not claim the lifecycle counters
+justify eviction. Saved full dump remains available to investigate other owners.
+
+## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
+
+Tester reports hit-camera behavior correct in this run; health vignette invisible
+after frame routing, so the effect placement change is not accepted. Rain unchanged.
+Build452 log banner and installed DLL hash verified. No binary or INI changed.
+
+Captured still-live PID27044 with full ProcDump (3605MB), a later64-bit mini
+snapshot and a32-bit mini snapshot. Local dumps are D:/dvr-data/dumps/
+pause-freeze452-27044*.dmp. Logs/current profile and hashes preserved in
+build/playtest-candidates/pause-freeze452/support-20260918-072855-650.zip.
+Exact452 symbols already archived by DLL hash. No uploads or process termination.
+
+Full dump contains the engine fatal buffer indicating virtual-memory exhaustion.
+The error text is game-generated; its generic disk-space advice is not a diagnosis.
+32-bit mini dump shows main thread25820 in engine fatal cleanup, waiting, while
+threads14964 and15576 wait for the allocator critical section owned by25820.
+This supports an out-of-memory fatal that hangs in cleanup, not a demonstrated
+new pause rendering deadlock. Process private bytes3318243328; virtual bytes
+4121595904. Dump memory map below4GiB:165.28MiB free in total, largest21.875MiB.
+A free-space snapshot does not identify the failed allocation size or owner.
+Unlike443, no final SYSTEMMEM shadow failure is logged; engine allocator fatal
+is directly evidenced by the retained message and stacks.
+
+Tool correction: procdump64 captures AMD64/WOW64 contexts; the existing x86
+reader produces invalid register values on those and must not be trusted.
+The32-bit procdump.exe gives valid x86 registers/frame chains. Watcher now selects
+the signed32-bit sibling when handed procdump64.exe; full64-bit dump remains
+useful for memory inspection. Capture tested directly on the live failed game.
+
+Next: attribute retained memory/texture twins using exact symbols/full dump,
+then choose a measured footprint reduction. No crash-prevention fix is claimed.
+Do not repeat the vignette-to-frame approach as a successful placement fix.
+Restore a visible dedicated effects surface in a future candidate; do not
+silently accept disappearance. Native rain emitter observed with40 drops;
+health lens pointer null in final trace is not proof no red HUD draw existed.
+
+Offline dump derivation: fatal text referenced by executable call at
+RVA0x9598E points to VA0x140A950. It records the engine memory fatal and allocation
+call chain through0x9DE2ED/0x9DE4AA/0x9DD151/0x9DD83F. Critical section instance
+0x02F318AC has owner25820 and recursion1 in this dump. Native wrapper at
+RVA0x5DD760 enters the allocation lock before dispatch; waiting threads return
+through0x9DD7A2. These are read-only dump observations, not new hook addresses
+or permissions to write engine memory.
+
+## Released wheel camera ownership candidate (2026-09-17)
+
+Latest on-disk run is448 (log ends22:29:16), not installed450. Installed450
+DLL SHA256 matches its manifest; no effects/owners telemetry has run yet.
+Do not label this as450 playtest evidence. Existing448 log shows530 Walk samples
+with Wheel ownership and zero head rotation writes; tracking remains valid.
+By contrast2232 Walk/Other samples have writes. At53567609, Walk/UpperIdle,
+script menu0, UI-derived menu1, cinematic0, head valid, writes0, script age1091ms.
+This establishes stale menu ownership, not proof of the exact reported hit frame.
+
+Fix candidate extends released-wheel handling to the shared UI owner. A focused
+VR controller with released grip, no script menu and no cinematic invalidates
+the native wheel-open bit after250ms. Remaining menus are still scanned. The
+existing wheel visual closing lease remains independent. No new engine writes
+or hit-reaction suppression. Native head injection resumes via its existing
+absolute pitch and menu-exit yaw path.210 controller policy checks pass.
+
+Tester clarified effects should be retained near the real view boundary.
+Installed Element.vignette was window, scale1.620. Candidate routes that
+full-screen category to frame (native scene image, not a small window quad).
+This broad category also includes full-screen fades; it is not a verified
+health-only material ID. World anchor would retain window dimensions, so it
+would not address the small border. Rain is preserved unchanged: its native
+particle owner must be measured before adjusting distance/extent.
+Read-only hit/health/rain diagnostics remain enabled for the candidate.
+
+One launch question: after opening/releasing the wheel and taking hits, does
+head pitch remain correct without pausing? Success supports stale UI ownership;
+failure with resumed head writes points back to the native hit reaction.
+Headset result pending. No game launched.
+
+## Hit-camera, health lens and rain ownership research (2026-09-17)
+
+Build448 stick recovery reported accepted. DLL/banner verified; logs/latestINI
+archived under wheel-release/hit-tilt448. New report: hit leaves upward view bias
+until pause; low-health border distracting on frame; rain removal requested.
+Decompiled declarations identify DishonoredCamera_HitReact (PhysicalReact spring
+base), camera.m_pHitReact_Influence, pawn.m_pCurHealthLensEffect and
+m_HealthEffects (post-process plus lens emitter), DisTweaks_EmitterCameraLensEffect,
+DisSeqAct_SetRainEmitter and camera.m_pRainBoxEmitter/m_NumRainDrops.
+Rain drops/impacts have separate particle modules. Lens base sets foreground depth
+priority and exposes BaseFOV/DistFromCamera. This is not proof the symptom is a
+Scaleform HUD element; moving the generic vignette row could target the wrong draw.
+
+No gameplay hit-react disable: the cheat also affects native strong reactions.
+No guessed shader/geometry suppression. Candidate adds bounded read-only logging
+of reflected live hit weight/target, health emitter/index and rain emitter/drop count
+to the existing Cine Trace. No camera writer or rendering change.
+Next launch question: after taking a hit, does the upward bias persist until pause?
+Expected evidence is effects/owners plus synchronized existing camera trace; this
+is diagnostic, not a claimed fix. Low health/rain target presence can be read from
+the same log if present, without another test request.
+
+ProcDump captured a1.23GB full dump on normal exit (code0), not threshold/crash.
+One-shot watcher completed; no longer armed. Keep as baseline, not crash evidence.
+
+## Build443 reported freeze repeats allocation failure (2026-09-17)
+
+After longer play, tester reported a freeze instead of the prior crash dialog.
+Process was already absent when inspected; no live hang dump was possible.
+Installed443 DLL/banner verified, both logs/latest profile preserved under
+build/playtest-candidates/wheel-options/freeze443.
+
+Final log at51895218: SYSTEMMEM1024x1024 DXT5 single-level shadow creation fails
+8007000e. VirtualFree67.1MiB, largestFree0.9MiB, committed3563.1MiB,
+liveTwins3003; physicalAvailable14933.9MiB. Same allocation failure class as
+the previous crash, now with a smaller requested texture and smaller free block.
+Reported freeze cannot be independently classified as a deadlock without stacks.
+Do not treat it as evidence of a new wheel/camera defect. No prevention fix yet.
+External full-dump permission remains pending; watcher not armed. No game launched
+or settings changed. Priority is capture before exhaustion and identify memory
+owners/lifetimes. Full-memory dumps may contain private process data.
+
+## Build443 texture allocation crash confirmed (2026-09-17)
+
+Wheel options reported working before a rendering-thread Texture LockRect
+D3DERR_INVALIDCALL crash. Installed443 DLL hash and log banner verified. Both
+logs, latest INI and any existing crash text preserved under
+build/playtest-candidates/wheel-options/crash443. Crash text may predate this run;
+only verified443 log lines are attributed here.
+
+Final log at50621312 records HRESULT8007000e creating a1920x2048 single-level
+SYSTEMMEM shadow texture, format894720068 (DXT5). VirtualFree63.6MiB,
+largestFree2.1MiB, committed3572.8MiB, liveTwins2869. System available commit
+6974.2MiB and physical available15603.1MiB: evidence points to process address
+space exhaustion/fragmentation, not system RAM exhaustion. Failure follows pause
+menu entry. shadow_register_texture returns without a twin on allocation failure;
+the DEFAULT texture remains, so its later lock cannot use the required SYSTEMMEM
+redirect. This matches the screenshot failure and earlier427 allocation signature.
+
+Immediate failure chain established; dominant memory owner, possible leak versus
+asset load, and texture-pack contribution remain unmeasured. Do not attribute it
+to head rotation or call it fixed by reverting working wheel controls.
+No new candidate or setting changes. Next engineering step is measure live shadow
+bytes accurately by format/mips and address-space use across load/menu boundaries,
+then choose a bounded reduction or allocation-path fix. Do not report failed
+texture locks as success or discard shadows that READONLY locks may require.
+
+## Build435 rejected: restore build433 pose policy (2026-09-17)
+
+Tester reports unwanted crouch animation, native animation close to the face and
+loss of normal control/view after jumping through a window. Installed435 DLL hash
+and banner verified; both logs and latestINI archived in
+build/playtest-candidates/animation-visible-hands/reported435. Run ends in normal
+PreExit; this is not evidence of a crash.
+
+Confirmed design error: native_pose_requested used cancellable_action as a native
+pose trigger. Generic upper/left StatePlayerAction also covers movement transitions,
+not only deliberate item interactions. Logs show repeated GAME ownership during
+Jump/Falling/Walk with JumpIn/JumpLandSmall sequence history and native split-hands
+reason, despite saved Jump/Falling/Walk arms being0. Sequence history is supporting
+context, not authoritative playback identity. This broadens hand ownership beyond
+the requested mantle fix. Exact close-face and view-disruption causes remain open.
+
+Revert all435 production changes and their policy tests to exact433 source: original
+arm-driven classifier, draw bypasses, mesh palette/depth path and F10 wording.
+Keep433 action-cancellation controls, camera/keyhole fixes and latest saved settings.
+No new camera compensation or guessed offset. The original limitation returns:
+unchecking Show game arms also restores tracked hands, overriding native hand poses.
+Do not describe that option as independently controlling geometry in this rollback.
+
+Future work must explicitly distinguish pose choice from forearm geometry, preserve
+ordinary movement ownership, and first validate one named mantle path. A generic
+FSM StatePlayerAction match or cancellation eligibility is not a native-pose policy.
+The435 test proved that helper-level policy checks cannot establish comfortable
+native rendering or correct movement integration.435 is rejected, not accepted.
+
+Next launch is recovery only: are normal crouching, jumping and looking around
+restored, including the same window exit? Normal behavior supports435 as the
+regression; a remaining fault requires tracing433 or persistent session state.
+No new animation-visibility test in that launch.
+
+## VR-134: arm visibility must not select pose ownership (2026-09-17)
+
+Build433 mantle report confirmed in verified logs: Arms.0.StatePlayerMasterMantle=0
+produces PLAYER while the master FSM remains Mantle and reports a mantle sequence.
+Arms=1 produces GAME. Thus the visible animation was overridden by tracked hands;
+this is not evidence that the native mantle action was cancelled. Both logs/latestINI
+are preserved in animation-action-controls/reported433. Native block requests were
+also logged as rejected, but no general cancellation acceptance is inferred.
+
+Correction: native action pose ownership derives from voluntary action states and
+existing scripted-action defaults independently of Arms.*. Visibility selects full
+arms versus the existing clipped/rounded hands under the native animated palette.
+Weapon native ownership remains intact. The split bypasses controller palette and
+depth overrides for native hands. Normal unchecked walking remains controller-driven.
+Whole-body action visibility takes priority over upper/left states; idle/walking
+do not override a real upper-body action. Visibility is frozen with pose weight for
+a render frame, preserving the stereo pair. No engine state or camera change.
+
+103 catalog/policy checks plus22 handoff checks pass. New cases cover hidden mantle
+retaining its pose, unchanged checked mantle, tracked walking and split/full geometry
+routing. Release builds. Headset result pending; existing split qualification still
+fails open if geometry is unavailable. Earlier433 documentation calling Arms.*
+independent was incomplete: it was independent of action rejection, not native pose.
+
+Next launch: with Enable action on and Show game arms off for Mantling, do the hands
+and weapon still animate through the climb while forearms remain hidden? Normal
+animation supports separation; tracked/static hands mean another pose override;
+visible forearms mean the split route failed. Enable action stays on for this test.
+
+## VR-134 native action request boundary (2026-09-17)
+
+Offline derivation used the installed Steam executable and ue3-natives --verify,
+which first reproduced the known crossbow context. Dis_Lean_Toggle native exec
+at VA009EE740 dispatches controller vtable+056C; controller class derivation
+gives vtable01118738 and implementation00AB4C00. That calls pawn lean handler
+00AB1E50, which submits master FSM requests through00A74FA0 and checks EAX
+before applying the lean state. This provides a real action-entry caller rather
+than a guessed state write. Addresses introduced into production live in patterns.h.
+
+RequestState VA00A74FA0 is thiscall with three stack arguments and ret0C.
+Argument1 is a request object whose+4 field is the target UClass; argument2 is
+entry context and argument3 is query-only. Entry bytes55 8B EC 6A FF are complete
+instructions and are replayed on passthrough. The body reads target class before
+calling00A74F20 eligibility, tests its result, and only then writes pending
+class/state+88/+8C and calls native handlers. Failure returns0. Lean's caller
+branches around further action work when that result is zero.
+
+The new hook returns0 before this body only for a disabled catalog entry belonging
+to the current live player's exact master/upper/left FSM. It validates current
+controller/pawn/FSM/class membership, a fresh sampled state and current GObjects
+membership, and allows an already-current state. No pending/current state fields,
+transition maps or object vtables are modified. NPCs, recovery states and unknown
+ownership pass through. The native request may have callers with earlier side
+effects; gameplay suppression for each supported action is not yet headset-proven.
+
+Misleading routes: class constructors00A7CA20/40 are thunks, not native requests;
+their target constructors reveal vtables but do not expose a virtual RequestState.
+A displacement-only scan generated unrelated candidates and was not evidence.
+Do not confuse disasm-rva input RVA with ue3-natives output absolute VA.
+
+Build431 keyhole result: installed DLL and log banner verified before archiving
+both logs/latestINI in misc-special-camera/reported431. Explicit keyhole scopes
+recorded successful restores and zero sampled refusals; several one-shot exit
+yaw carries completed. Tester reports door/keyhole fixed. Lean and prior texture
+allocation failure remain separate open validation.
+
 ## VR-129: build411 accepted except brief inner-icon transfer (2026-09-17)
 
 Verified411 DLL/banner; both logs and latest full INI archived in
@@ -7320,3 +7728,34 @@ UI_Powers_Large exports are journal-style alternatives, not this missing wheel a
 Revised tools/hud-assets-export.ps1 exports dependencies and remaps the import for
 FFDec. Static frame export still cannot execute native callbacks. Extracted output
 and full scripts remain local ignored build/hud-assets only.
+
+## VR-133 lean/keyhole ownership and allocation failure (2026-09-17)
+
+Source427 DLL/banner verified.119 trace samples in StatePlayerMasterLeaning
+show influence(anim/player/look)=0/1/0 while ProcessViewRotation still injects
+physical head orientation. Example1915: HMD roll1.91, PC1.90, final cache10.00;
+2009: HMD-0.92, PC-0.91, cache9.09. The existing cinematic ownership gate does
+not include this state. This supports modifier interference, not stale eyes.
+
+Local decompiled StatePlayerMasterLeaning declares pitch limits +/-35 and yaw
++/-60, release time0.2s. DishonoredCamera_Lean is a separate influence after
+player control; spring/pivot, stick pitch/roll, collision and tilt properties
+are present. StatePlayerMasterHolePeeking carries a door, fade state and a
+controller-reposition flag. Declarations do not establish native function bodies.
+No new engine offsets required: use the existing reflected FSM and camera fields.
+Candidate explicitly scopes physical head look to lean/keyhole while preserving
+native location, validates current live owners and restores original fields after
+both eye draws. Input delta writer stands down only on a successful scope lease;
+exit applies the reference-to-current yaw once through the existing gameplay
+writer after current-table revalidation. Unknown states do not acquire ownership.
+
+At17783125 the SYSTEMMEM twin for1920x2048 DXT5 (format894720068),1 level failed
+with0x8007000e. Existing shadow path then leaves an unlockable DEFAULT texture;
+reported dialog says LockRect D3DERR_INVALIDCALL. Crash occurred after pause
+opened, following lean. Allocation pressure is established; its source is not.
+Current exe PE flag LARGE_ADDRESS_AWARE is already set. The preserved46MB dump
+has no MemoryInfoList stream. Failure-only VirtualQuery/GlobalMemoryStatusEx
+logging now distinguishes total/largest free virtual region and system commit.
+Ordinary minidumps add memory metadata without copying full process memory.
+No eviction: native mip streaming reads retained CPU twins, so dropping them
+without a replacement changes resource semantics. Crash prevention remains open.

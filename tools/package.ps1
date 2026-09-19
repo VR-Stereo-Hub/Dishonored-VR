@@ -44,6 +44,8 @@ if ($Matches[1] -ne $version) {
 
 & "$repo\tools\exports-check.ps1" "$bin\d3d9.dll"
 
+& "$repo\tools\archive-symbols.ps1" -BinDir $bin
+
 $stage = "$OutDir\dishonored-vr-v$version"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -58,6 +60,8 @@ Copy-Item "$repo\release\HOW-TO-USE.txt" "$stage\HOW-TO-USE.txt"
 # The repository default profile is the byte copy of the confirmed installed ini.
 Copy-Item "$repo\release\dishonored_vr.ini" "$stage\dishonored_vr.ini"
 Copy-Item "$repo\tools\setup-game-ini.ps1" "$stage\setup-game-ini.ps1"
+Copy-Item "$repo\tools\collect-support.ps1" "$stage\collect-support.ps1"
+Copy-Item "$repo\release\Collect VR Support.cmd" "$stage\Collect VR Support.cmd"
 
 $zip = "$OutDir\dishonored-vr-v$version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }

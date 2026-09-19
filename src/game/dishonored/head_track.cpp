@@ -885,7 +885,10 @@ static void ApplyHeadToViewRotation(void* parms)
         return;
     }
     int32_t menuDelta=0;
-    const bool menuResume=MenuHeadResumeYaw(menuDelta);
+    int32_t specialDelta=0;
+    const bool specialResume=SpecialHeadResumeYaw(specialDelta);
+    const bool menuResume=MenuHeadResumeYaw(menuDelta) || specialResume;
+    menuDelta+=specialDelta;
     if(menuResume) {
         prevYaw=g_hmdYaw;prevPitch=g_hmdPitch;havePrev=true;
         frHave=false;frWriteMs=-1.0e9;

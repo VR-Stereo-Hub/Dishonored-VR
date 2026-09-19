@@ -120,18 +120,161 @@ bool MbOwnerValid(uint8_t* manager) {
     return CtObject(CtObject(world,g_mbGame),g_mbManager)==manager;
 }
 }
+// VR-140 instrument, read-only. The black world is drawn and post-processed to
+// black at the backbuffer ~400 ms after a re-opened wheel movie finally closes,
+// and the UI weight read 0 throughout (run470). This logs the game's whole
+// post-process state machine and the camera's fade/colour-scale fields: every
+// change of an effect's state or request count, and a full snapshot when the
+// frameid judge sees THE EYES BECOME ONE PICTURE (then every 3 s while it holds).
+// It can fail its hypothesis: a black run whose snapshot shows every effect
+// Stopped, no request held, FadeAmount 0 and ColorScale 1 clears the game's
+// post-process and camera fade, and points at our own draws.
+namespace {
+enum PwField { PwReq,PwState,PwUiDur,PwUiOut,PwUiIn,PwUiW,PwKsW,PwKsDur,PwBend,PwKo,PwFadeAmt,PwFadeColor,
+               PwCamPpA,PwColorScale,PwFadeAlpha,PwFadeLeft,PwPpTargets,PwCount };
+struct PwDef { const char* cls; const char* prop; };
+const PwDef kPwDefs[PwCount]={
+    {"DisPostProcessManager","m_RequiredEffects"},{"DisPostProcessManager","m_EffectStates"},
+    {"DisPostProcessManager","m_UIStateDuration"},{"DisPostProcessManager","m_UIPPFadeOutTime"},
+    {"DisPostProcessManager","m_UIPPFadeInTime"},{"DisPostProcessManager","m_UIPPWeight"},
+    {"DisPostProcessManager","m_KismetPPWeight"},{"DisPostProcessManager","m_KismetStateDuration"},
+    {"DisPostProcessManager","m_BendTimeIntensity"},{"DisPostProcessManager","m_KnockOutTimer"},
+    {"Camera","FadeAmount"},{"Camera","FadeColor"},{"Camera","CamOverridePostProcessAlpha"},
+    {"Camera","ColorScale"},{"Camera","FadeAlpha"},{"Camera","FadeTimeRemaining"},
+    {"DishonoredPlayerCamera","m_PostProcessTargets"}};
+constexpr int kPwEffects=21; // eEffectPp up to Epp_Count (the arrays are sized Epp_Count)
+uint32_t g_pwOff[PwCount]{},g_pwFadeOff=0,g_pwFadeMask=0,g_pwScaleOff=0,g_pwScaleMask=0;
+int g_pwResolved=0; bool g_pwBoolsDone=false,g_pwOne=false,g_pwHaveLast=false;
+double g_pwNext=0,g_pwOneNext=0;
+int32_t g_pwReq[kPwEffects]{}; uint8_t g_pwState[kPwEffects]{};
+}
+static void PpWatchSnapshot(const char* why,uint8_t* manager,uint8_t* cam) {
+    int32_t req[kPwEffects]{}; uint8_t st[kPwEffects]{};
+    const bool mOk=manager && CtRead(manager,g_pwOff[PwReq],req,sizeof(req)) && CtRead(manager,g_pwOff[PwState],st,sizeof(st));
+    char effects[23*16]="none"; int n=0;
+    for(int i=0;mOk && i<kPwEffects;++i) if(req[i] || st[i])
+        n+=snprintf(effects+n,sizeof(effects)-n,"%s%d:r%d/s%d",n?" ":"",i,req[i],st[i]);
+    auto f=[](uint8_t* o,uint32_t off){float v=-999;if(o&&off)CtRead(o,off,&v,4);return v;};
+    // Every non-finite float in the manager's transient block after the state
+    // array (to the UI params' end): a NaN that spread past the timer shows here.
+    int nonFinite=0; float block[72]{};
+    const uint32_t from=(g_pwOff[PwState]+kPwEffects+3)&~3u;
+    if(manager && CtRead(manager,from,block,sizeof(block))) for(float v:block) nonFinite+=!std::isfinite(v);
+    float scale[3]{-999,-999,-999},alpha[2]{-999,-999}; uint8_t color[4]{}; uint32_t bits[2]{}; int32_t targets[2]{-1,-1};
+    if(cam) { CtRead(cam,g_pwOff[PwColorScale],scale,12);CtRead(cam,g_pwOff[PwFadeAlpha],alpha,8);
+              CtRead(cam,g_pwOff[PwFadeColor],color,4);CtRead(cam,g_pwOff[PwPpTargets],targets,8);
+              if(g_pwFadeOff)CtRead(cam,g_pwFadeOff,&bits[0],4); if(g_pwScaleOff)CtRead(cam,g_pwScaleOff,&bits[1],4); }
+    Log("pp/watch: %s | manager=%p effects(index:required/state, 0 stop 1 warm 2 run 3 cool 4 abort)=%s | "
+        "ui dur=%.3f out=%.3f in=%.3f weight=%.3f | kismet weight=%.3f dur=%.3f | bend=%.3f ko=%.3f | non-finite floats +%x..+%x: %d",
+        why,manager,mOk?effects:"unreadable",f(manager,g_pwOff[PwUiDur]),f(manager,g_pwOff[PwUiOut]),f(manager,g_pwOff[PwUiIn]),
+        f(manager,g_pwOff[PwUiW]),f(manager,g_pwOff[PwKsW]),f(manager,g_pwOff[PwKsDur]),f(manager,g_pwOff[PwBend]),f(manager,g_pwOff[PwKo]),from,from+(uint32_t)sizeof(block),nonFinite);
+    Log("pp/watch: %s | camera=%p fading=%d amount=%.3f color=%u,%u,%u,%u alpha=%.3f/%.3f left=%.3f | colorScaling=%d scale=%.3f/%.3f/%.3f | "
+        "camPpAlpha=%.3f ppTargets=%d (-999/-1 = unreadable; a black world under the game's own fade reads fading=1 amount>0 or scale near 0)",
+        why,cam,g_pwFadeMask?(bits[0]&g_pwFadeMask)!=0:-1,f(cam,g_pwOff[PwFadeAmt]),color[2],color[1],color[0],color[3],alpha[0],alpha[1],
+        f(cam,g_pwOff[PwFadeLeft]),g_pwScaleMask?(bits[1]&g_pwScaleMask)!=0:-1,scale[0],scale[1],scale[2],f(cam,g_pwOff[PwCamPpA]),targets[1]);
+}
+// VR-140 fix. run473 measured the black world's cause: a wheel closed while the
+// game's UberUI effect (19) was still WARMING turned m_UIStateDuration into NaN
+// (7100140, state warm -> cool). NaN never reaches the fade-out time, so the
+// effect sits in Cooling forever with a NaN blend and the world post-processes to
+// black (AT ONE PICTURE: 19:r0/s3 dur=nan for 37 s, fade and colour scale clean).
+// The repair writes only a value that is already non-finite, and only the one
+// the state machine is waiting on: Cooling gets the fade-out time (the fade
+// completes to Stopped), Warming the fade-in time, Running 0. A finite value is
+// never touched, so this cannot change a healthy fade.
+static void PpUiFadeRepair(uint8_t* manager,const uint8_t* st) {
+    static uint32_t repairs=0;
+    const uint32_t durOff=g_pwOff[PwUiDur];
+    float dur=0;
+    if(!manager || !durOff || !CtRead(manager,durOff,&dur,4) || std::isfinite(dur)) return;
+    const uint8_t state=st[19];
+    float fix=0;
+    if(state==3) { if(!CtRead(manager,g_pwOff[PwUiOut],&fix,4)) return; }
+    else if(state==1) { if(!CtRead(manager,g_pwOff[PwUiIn],&fix,4)) return; }
+    if(!std::isfinite(fix) || fix<0 || fix>10) fix=0.2f;
+    if(!IsLiveObject(manager)) return;
+    memcpy(manager+durOff,&fix,4); ++repairs;
+    DVR_WARN("pp/repair: UberUI m_UIStateDuration was %f in state %u (0 stop 1 warm 2 run 3 cool) - wrote %.3f so the "
+             "game's fade can finish (repair #%u; the game's own warm->cool switch produced the NaN, VR-140)",
+             dur,(unsigned)state,fix,repairs);
+}
+static void PpWatchTick() {
+    const double now=MaimNowMs();
+    if(now<g_pwNext) return;
+    g_pwNext=now+100;
+    if(g_pwResolved<PwCount) { // one GObjects walk per tick, never a burst
+        if(!FindPropOffsetChecked(kPwDefs[g_pwResolved].cls,kPwDefs[g_pwResolved].prop,&g_pwOff[g_pwResolved])) {
+            Log("pp/watch: %s.%s not reflected - instrument off (no write either way)",kPwDefs[g_pwResolved].cls,kPwDefs[g_pwResolved].prop);
+            g_pwResolved=PwCount+1; return;
+        }
+        if(++g_pwResolved==PwCount) Log("pp/watch: armed (read-only; states/required +%x/+%x, camera FadeAmount +%x)",
+                                        g_pwOff[PwReq],g_pwOff[PwState],g_pwOff[PwFadeAmt]);
+        return;
+    }
+    if(g_pwResolved!=PwCount || !g_mbWorld || !g_mbGame || !g_mbManager) return;
+    if(!g_pwBoolsDone) { g_pwBoolsDone=true; FindBoolProp("Camera","bEnableFading",&g_pwFadeOff,&g_pwFadeMask);
+                         FindBoolProp("Camera","bEnableColorScaling",&g_pwScaleOff,&g_pwScaleMask); return; }
+    auto* world=CtObject(IsLiveObject(g_peCtrl)?g_peCtrl:nullptr,g_mbWorld);
+    auto* manager=CtObject(CtObject(world,g_mbGame),g_mbManager);
+    auto* cam=CtObject(IsLiveObject(g_peCtrl)?g_peCtrl:nullptr,g_ctPcCamera);
+    int32_t req[kPwEffects]{}; uint8_t st[kPwEffects]{};
+    if(manager && CtRead(manager,g_pwOff[PwReq],req,sizeof(req)) && CtRead(manager,g_pwOff[PwState],st,sizeof(st))) {
+        if(!g_pwHaveLast || memcmp(req,g_pwReq,sizeof(req)) || memcmp(st,g_pwState,sizeof(st))) {
+            char why[96]; snprintf(why,sizeof(why),"CHANGED (menu=%d ride=%d context=%d)",(int)(g_menuOpen||g_inMenu),
+                                   (int)UiSurfaceRidesHud(),UiSurfaceContext());
+            PpWatchSnapshot(why,manager,cam);
+            memcpy(g_pwReq,req,sizeof(req));memcpy(g_pwState,st,sizeof(st));g_pwHaveLast=true;
+        }
+    }
+    PpUiFadeRepair(manager,st);
+    const bool one=dvr::frameid::last().onePicture;
+    if(one && (!g_pwOne || now>=g_pwOneNext)) { PpWatchSnapshot(g_pwOne?"ONE PICTURE still":"AT ONE PICTURE",manager,cam); g_pwOneNext=now+3000; }
+    else if(!one && g_pwOne) PpWatchSnapshot("TWO PICTURES again",manager,cam);
+    g_pwOne=one;
+}
 static void MenuEffectsTick() {
     if(GetCurrentThreadId()!=g_sdDrawTid) return; // engine game/draw lane only
+    PpWatchTick();
     const int context=UiSurfaceContext();
     const bool want=UiSurfaceRidesHud() && dvr::hudlayout::menu_no_blur(context) && !g_gameExiting;
     auto* old=(uint8_t*)g_mbOwner.value.obj;
+    // 2026-09-18 blackout: the exit used to write back the game's last nonzero
+    // weight (1.0 for the wheel). A wheel opened and closed within 62 ms of a
+    // previous close (run467, 4001703..4001765) left that restore landing after
+    // the game had finished its own fade, so the full menu post-process stayed
+    // on the world: black, with the HUD markers, Dark Vision silhouettes and the
+    // pause menu still drawing over it. The game drives this weight itself on
+    // every open and close, so the exit now writes NOTHING: the worst case is a
+    // skipped fade, never a stuck one.
     if(g_mbHave && (!want || UiSurfaceEpoch()!=g_mbEpoch || context!=g_mbContext || !MbOwnerValid(old))) {
-        float value=0;
-        if(BuildLiveSet() && MbOwnerValid(old) && CtRead(old,g_mbWeight,&value,4) && value==0 && MbOwnerValid(old))
-            memcpy(old+g_mbWeight,&g_mbBefore,4);
+        float value=-1;
+        if(MbOwnerValid(old)) CtRead(old,g_mbWeight,&value,4);
+        Log("menu/blur: released context=%d (weight now %.3f, game value before %.3f) - no restore write; the game owns its fade",
+            g_mbContext,value,g_mbBefore);
         g_mbHave=false;
     }
-    if(!want) return;
+    if(!want) {
+        // Read-only watchdog: in gameplay the UI weight belongs at 0. A value
+        // held high with no menu is the blackout's signature, from any cause.
+        static double next=0,highSince=0; static bool warned=false;
+        const double now=MaimNowMs();
+        if(!g_mbWeight || !g_mbWorld || !g_mbGame || !g_mbManager || now<next) return;
+        next=now+500;
+        if(UiSurfaceBlocks() || UiSurfaceRidesHud() || g_menuOpen || g_inMenu || g_mainMenu) { highSince=0; warned=false; return; }
+        auto* world=CtObject(IsLiveObject(g_peCtrl)?g_peCtrl:nullptr,g_mbWorld);
+        auto* manager=CtObject(CtObject(world,g_mbGame),g_mbManager);
+        float value=0;
+        if(!manager || !CtRead(manager,g_mbWeight,&value,4)) return;
+        if(!(value<=0.5f)) { // NaN too: a non-finite weight is as stuck as a high one
+            if(!highSince) highSince=now;
+            if(!warned && now-highSince>1500) {
+                warned=true;
+                DVR_WARN("menu/blur: UI post-process weight %.3f held for %.1f s in GAMEPLAY with no menu - the world is under the "
+                         "menu effect (the black-screen signature). Read-only: nothing written.",value,(now-highSince)/1000.0);
+            }
+        } else { highSince=0; warned=false; }
+        return;
+    }
     if(!g_mbWeight || !g_mbWorld || !g_mbGame || !g_mbManager) {
         if(MaimNowMs()<g_mbResolveAt) return;
         g_mbResolveAt=MaimNowMs()+5000;

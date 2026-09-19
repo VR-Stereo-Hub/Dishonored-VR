@@ -18,13 +18,36 @@ struct State {
     dvr::hudanchor::OpeningOrientation opening;
     void reset() { held = valid = lost = false; opening.reset(); }
     bool update(bool down, bool tracked, const float hand[3], const float head[3],
-                float radius, float deadM, float& x, float& y, const float* cameraQ = nullptr, bool directionOnly = false) {
+                float radius, float deadM, float& x, float& y, const float* cameraQ = nullptr, bool directionOnly = false, bool entryTilt = false, bool entryYaw = false) {
         x = y = 0;
         if (!down) { reset(); return false; }
         for (int i=0;i<3;++i) tracked = tracked && std::isfinite(hand[i]) && std::isfinite(head[i]);
         if (!held) { held = true; lost = false; valid = tracked;
             if (valid) { for (int i=0;i<3;++i) center[i]=hand[i];
-                if(cameraQ && !opening.capture(cameraQ)) valid=false; } }
+                if(cameraQ) {
+                    // Face the opening eye position, independent of head rotation.
+                    const float dx=head[0]-center[0],dz=head[2]-center[2];
+                    if(dx*dx+dz*dz<.0001f) valid=false;
+                    else {
+                        const float yaw=std::atan2(dx,dz);
+                        const float q[4]={0,std::sin(yaw*.5f),0,std::cos(yaw*.5f)};
+                        if(!entryTilt && !entryYaw) valid=opening.capture(q);
+                        else {
+                            dvr::hudanchor::OpeningOrientation camera,flat;
+                            valid=camera.capture(cameraQ) && flat.capture_upright(cameraQ);
+                            if(valid) {
+                                const float* base=entryYaw?flat.q:q;
+                                if(entryTilt) {
+                                    const float inverse[4]={-flat.q[0],-flat.q[1],-flat.q[2],flat.q[3]};
+                                    float tilt[4],result[4];
+                                    dvr::xrmath::quat_mul(inverse,camera.q,tilt);
+                                    dvr::xrmath::quat_mul(base,tilt,result);
+                                    valid=opening.capture(result);
+                                } else valid=opening.capture(base);
+                            }
+                        }
+                    }
+                } } }
         if (!tracked) { valid = false; lost = true; }
         // Never re-seed mid-gesture after a tracking loss or invalid opening.
         if (!valid || lost || radius <= deadM || radius <= 0) return false;
