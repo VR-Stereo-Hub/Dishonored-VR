@@ -255,7 +255,7 @@ crossbow 366.5 vs 149.3). Kept 1352 of 2772 on the pistol (797 counted as
 already modelled) and 120 of 1957 on the crossbow (767). The pistol regression is
 consistent with the 480 coverage test: a same-facing sample point within
 FillRadius (1.5 uu) counted as modelled, so small raised parts next to a flat
-face were skipped. Installed482: coverage is the true point-to-triangle distance
+face were skipped. Installed483: coverage is the true point-to-triangle distance
 within `[Mirror] CoverTol` (0.3 uu), on a same-facing triangle, for the
 centroid and all three corners. Counterprediction: the "already modelled" count
 drops on both weapons, and the missing areas shrink without a flicker returning.

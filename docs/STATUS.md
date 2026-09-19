@@ -1,3 +1,16 @@
+## Installed483: rain defaults saved, pistol coverage tightened (2026-09-19)
+
+Run480 (banner verified; logs in build/playtest-candidates/wheel-blackout/run480):
+crossbow much better, a few areas still missing; the pistol misses more than 476;
+no flicker. An accidental F11 toggled the engine's fullscreen twice (Reset to
+1355x1405 and back to 3012x3122 within ~1 s): FOV stayed 108.06, the stereo beat
+recovered to 103/103, and the mod ini was unchanged, so no harm. Installed483 =
+`vr33-hands-working-483-g0d5325169` (DLL 4ec3a876...): rain lens defaults = run480's
+final state (distance 18, keep-size off, follow-head on, rain box shown), and a
+mirror copy counts as already modelled only within 0.3 uu of a same-facing
+triangle (`[Mirror] CoverTol`; WEAPON_MIRROR_PLAN 6d). Installed ini: Lens
+Distance 2->18, FollowHead 0->1 (CRLF verified). No PR, no merge.
+
 ## Installed480: blackout fixed, rain back to 470, mirror by facing (2026-09-19)
 
 Run476 (banner verified; logs in build/playtest-candidates/wheel-blackout/run476):
