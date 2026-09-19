@@ -388,6 +388,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     CineHeadPublish();
     CinePitchPublish();
     MenuHeadPublish();
+    if (wrote) LensFollowEye(+1);   // VR-137: the lens effects from THIS eye's camera
     const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
     dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
                                        SdOpenPoseRecord(+1, g_sdPairId, true), acct2, ++g_sdDrawAttempt);
@@ -455,6 +456,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         CineHeadBegin(g_sdTick.gameplay, g_sdTick.doubleIt);
         CinePitchBegin(g_sdTick.gameplay,g_sdTick.doubleIt);
         CineFovBegin(g_sdTick.gameplay);
+        if (g_sdTick.gameplay) LensFollowEye(g_sdTick.doubleIt ? -1 : 0);   // VR-137: after this tick's camera writes
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
         g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
         InterlockedExchange(&g_sdInDrawTid,

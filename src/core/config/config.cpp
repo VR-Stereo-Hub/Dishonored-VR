@@ -889,14 +889,16 @@ static void WriteDefaultIni(const char* ini)
         "LockRoll=1\n"
         "\n"
         "[Rain]\n"
-        "Hide=0\n"
+        "Hide=1\n"
         "Trace=1\n"
         "Distance=-1\n"
         "\n"
         "[Lens]\n"
-        "Distance=0\n"
-        "KeepSize=1\n"
+        "Distance=1\n"
+        "KeepSize=0\n"
         "Trace=1\n"
+        "FollowHead=1\n"
+        "RainStrength=100\n"
         "\n"
         "[Mirror]\n"
         "Enabled=0\n"
@@ -3491,6 +3493,8 @@ static void OverlaySaveDefaults()
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }
     WritePrivateProfileStringA("Lens","KeepSize",LensKeepSize() ? "1" : "0",ini);
     WritePrivateProfileStringA("Lens","Trace",LensTraceEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Lens","FollowHead",LensFollowHead() ? "1" : "0",ini);
+    { char v[16]; _snprintf(v,sizeof(v),"%d",LensRainPct()); WritePrivateProfileStringA("Lens","RainStrength",v,ini); }
     WritePrivateProfileStringA("Mirror","Enabled",WmEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);

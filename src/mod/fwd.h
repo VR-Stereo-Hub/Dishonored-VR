@@ -27,6 +27,11 @@ static int LensDistance();
 static void LensKeepSizeSet(bool on);
 static bool LensKeepSize();
 static bool LensTraceEnabled();
+static void LensFollowSet(bool on);
+static bool LensFollowHead();
+static void LensRainPctSet(int pct);
+static int LensRainPct();
+static void LensFollowEye(int eye);
 static void WmConfigure(const char* ini);   // VR-138 (hands/weapon_mirror.cpp)
 static void WmSet(bool on);
 static bool WmEnabled();

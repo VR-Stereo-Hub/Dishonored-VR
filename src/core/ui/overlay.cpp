@@ -163,6 +163,10 @@ static void OverlayFrame()
         if (ImGui::SliderInt("Lens effects distance uu (0 native)",&lensDist,0,90)) LensDistanceSet(lensDist);
         bool keep=LensKeepSize();
         if (ImGui::Checkbox("Lens effects keep their size",&keep)) LensKeepSizeSet(keep);
+        bool follow=LensFollowHead();
+        if (ImGui::Checkbox("Lens effects follow the head (per eye)",&follow)) LensFollowSet(follow);
+        int rainPct=LensRainPct();
+        if (ImGui::SliderInt("Rain lens strength % (100 native)",&rainPct,0,100)) LensRainPctSet(rainPct);
         bool mirror=WmEnabled();
         if (ImGui::Checkbox("Mirror pistol/crossbow (fill the missing side)",&mirror)) WmSet(mirror);
         ImGui::SameLine();

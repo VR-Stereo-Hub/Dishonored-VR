@@ -27,8 +27,11 @@
 #include <atomic>
 #include <cmath>
 
-static std::atomic<int> g_lensDistUu{0};
-static std::atomic<bool> g_lensKeepSize{true}, g_lensTrace{true};
+// Code defaults = the tester's accepted settings (run473, 2026-09-18): the rain
+// lens at 1 uu, no rescale. Distance=0 gives back the native 90 uu sheet.
+static std::atomic<int> g_lensDistUu{1};
+static std::atomic<bool> g_lensKeepSize{false}, g_lensTrace{true}, g_lensFollow{true};
+static std::atomic<int> g_lensRainPct{100};
 
 static void LensDistanceSet(int uu) {
     if (uu < 0) uu = 0;
@@ -43,10 +46,26 @@ static void LensKeepSizeSet(bool on) {
 static int LensDistance() { return g_lensDistUu.load(); }
 static bool LensKeepSize() { return g_lensKeepSize.load(); }
 static bool LensTraceEnabled() { return g_lensTrace.load(); }
+static void LensFollowSet(bool on) {
+    g_lensFollow.store(on);
+    Log("lens: followhead=%d (%s)", on ? 1 : 0, on ? "re-placed from each eye's rendered camera before that eye draws"
+                                                   : "native: placed once per tick from the game camera");
+}
+static void LensRainPctSet(int pct) {
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    g_lensRainPct.store(pct);
+    Log("lens: rain strength=%d%% (%s)", pct, pct >= 100 ? "native, untouched"
+        : "the looping lens effect's own fade weight (its 'Fade' particle parameter) is capped here every draw");
+}
+static bool LensFollowHead() { return g_lensFollow.load(); }
+static int LensRainPct() { return g_lensRainPct.load(); }
 static void LensConfigure(const char* ini) {
     g_lensTrace.store(GetPrivateProfileIntA("Lens", "Trace", 1, ini) != 0);
-    LensKeepSizeSet(GetPrivateProfileIntA("Lens", "KeepSize", 1, ini) != 0);
-    LensDistanceSet(GetPrivateProfileIntA("Lens", "Distance", 0, ini));
+    LensKeepSizeSet(GetPrivateProfileIntA("Lens", "KeepSize", 0, ini) != 0);
+    LensDistanceSet(GetPrivateProfileIntA("Lens", "Distance", 1, ini));
+    LensFollowSet(GetPrivateProfileIntA("Lens", "FollowHead", 1, ini) != 0);
+    LensRainPctSet(GetPrivateProfileIntA("Lens", "RainStrength", 100, ini));
 }
 
 namespace {
@@ -178,4 +197,72 @@ static void LensTick() {
         for (int i = 0; i < num; ++i) lastSet[i] = ((uint8_t**)data)[i];
         if (trace) Log("lens: camera %p holds %d lens effect(s); health lens %p", (void*)cam, num, (void*)health);
     }
+}
+
+// VR-137 follow-head. The camera places every lens effect ONCE per tick through
+// the native UpdateLocation(CamLoc, CamRot, FOV), from the game camera before the
+// mod writes each eye's position (the eye field is the cache POV location,
+// +0x330). At 1 uu that sheet is fixed in the world while each eye sits 3 uu to
+// one side of it and the tracked head moves: it does not follow the head. Here
+// the same native call runs again right before each eye's draw, from that eye's
+// rendered cache POV, so the effect sits where the game would put it for the view
+// actually drawn. UpdateLocation ends in ForceUpdateComponents, so the move
+// reaches this draw. Particles the system spawned in world space stay where they
+// were born; only the emitter and its local-space sprites follow.
+//
+// Rain strength: DisEmitterCameraLensEffect_Looping drives its particle system's
+// 'Fade' parameter from m_fCurFadeWeight, ramped by m_fFadeSpeed each tick; a
+// cap written every draw holds it near RainStrength% (overshoot = one tick's ramp).
+// DRAW LANE only (the viewport draw thread, where the scene draw hook runs).
+static void LensFollowEye(int eye) {
+    if (!g_lensFollow.load() && g_lensRainPct.load() >= 100) return;
+    if (GetCurrentThreadId() != g_sdDrawTid || !RflNamesReady() || !g_ctLayout || !g_ctCache) return;
+    static bool resolved = false;
+    static uint32_t pcCamOff = 0, arrOff = 0, fovOff = 0, fadeOff = 0;
+    static uint8_t* fnUpdate = nullptr;
+    static uint32_t moves = 0, refusals = 0, caps = 0;
+    if (!resolved) {
+        resolved = true;
+        pcCamOff = RflOffsetOf("PlayerController", "PlayerCamera");
+        arrOff   = RflOffsetOf("Camera", "CameraLensEffects");
+        FindPropOffsetChecked("TPOV", "FOV", &fovOff);
+        fadeOff  = RflOffsetOf("DisEmitterCameraLensEffect_Looping", "m_fCurFadeWeight");
+        fnUpdate = RainFindClassFunction("EmitterCameraLensEffectBase", "UpdateLocation");
+        Log("lens/follow: layout PlayerCamera=+0x%x CameraLensEffects=+0x%x TPOV.FOV=+0x%x m_fCurFadeWeight=+0x%x "
+            "UpdateLocation=%p%s", pcCamOff, arrOff, fovOff, fadeOff, (void*)fnUpdate,
+            (pcCamOff && arrOff && fovOff && fnUpdate) ? "" : "  <-- incomplete: follow-head refuses (native placement stays)");
+    }
+    uint8_t* ctrl = IsLiveObject(g_peCtrl) ? g_peCtrl : nullptr;
+    uint8_t* cam = RainPtr(ctrl, pcCamOff);
+    if (!cam || !IsLiveObject(cam)) return;
+    uint8_t* data = nullptr; int32_t num = 0;
+    if (!RflArrayAt(cam, arrOff, &data, &num) || num <= 0) return;
+    if (num > 16) num = 16;
+    uint8_t* pov = cam + g_ctCache + g_ctPov;
+    struct { float loc[3]; int32_t rot[3]; float fov; } parms{};
+    const bool povOk = fovOff && RangeReadable(pov, fovOff + 4) &&
+        (memcpy(parms.loc, pov + g_ctLoc, 12), memcpy(parms.rot, pov + g_ctRot, 12), memcpy(&parms.fov, pov + fovOff, 4), true) &&
+        std::isfinite(parms.loc[0] + parms.loc[1] + parms.loc[2]) && parms.fov > 10.f && parms.fov < 170.f;
+    const int pct = g_lensRainPct.load();
+    for (int i = 0; i < num; ++i) {
+        uint8_t* fx = ((uint8_t**)data)[i];
+        const char* cn = fx && IsLiveObject(fx) ? ObjClassName(fx) : nullptr;
+        if (!cn || !strstr(cn, "LensEffect")) continue;
+        if (pct < 100 && fadeOff && !strcmp(cn, "DisEmitterCameraLensEffect_Looping") && RangeReadable(fx + fadeOff, 4)) {
+            float* w = (float*)(fx + fadeOff);
+            const float cap = pct / 100.f;
+            if (std::isfinite(*w) && *w > cap) { *w = cap; ++caps; }
+        }
+        if (!g_lensFollow.load()) continue;
+        if (!povOk || !fnUpdate) { ++refusals; continue; }
+        auto p = parms;   // UpdateLocation takes const out params; never hand it ours to keep
+        g_peReentry = true;
+        ((PFN_ProcessEventCall)kProcessEvent)(fx, fnUpdate, &p, NULL);
+        g_peReentry = false;
+        ++moves;
+    }
+    DVR_LOG_EVERY_MS(DVR_CAT, dvr::log::Level::Info, 5000,
+        "lens/follow: eye %+d re-placed %u time(s) from the rendered POV (loc %.1f %.1f %.1f fov %.1f), refused %u, "
+        "rain strength caps %u (%d%%); zero moves with lens effects present means the native placement is what you see",
+        eye, moves, parms.loc[0], parms.loc[1], parms.loc[2], parms.fov, refusals, caps, pct);
 }
