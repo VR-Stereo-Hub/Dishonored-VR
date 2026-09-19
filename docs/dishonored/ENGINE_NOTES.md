@@ -1,3 +1,21 @@
+## DisPostProcessManager UI fade timer goes NaN (VR-140, 2026-09-18)
+
+Layout, reflected by name on build 473 (`pp/watch: armed`): `m_RequiredEffects[21]`
++0x168 (int per eEffectPp), `m_EffectStates[21]` +0x1bc (byte: 0 stopped,
+1 warming, 2 running, 3 cooling, 4 aborting), `m_UIStateDuration` +0x284,
+`m_UIPPFadeOutTime` +0x288, `m_UIPPFadeInTime` +0x28c, `m_UIPPWeight` +0x290
+(0.2 s in and out for the wheel). Both arrays are sized Epp_Count (21), not
+Epp_MAX. Effect 19 is Epp_UberUI (the menu blur); effect 3 (Dark Vision) reads
+state 2 with no request all session, which is normal.
+
+Measured (run473): a close that lands while UberUI is WARMING can leave
+`m_UIStateDuration` NaN. The effect then sits in Cooling forever and the scene
+post-processes to black; HUD, markers and Dark Vision silhouettes draw after it
+and survive. Camera fade (`FadeAmount`) and `ColorScale` are not involved. The
+game's own code path that produces the NaN was not located: `disp 0x284` has
+~40 hits in the image, and none was traced. The mod repairs the value only when
+it is already non-finite (`pp/repair`).
+
 ## Possession ownership and the camera rain box (VR-135/VR-136, 2026-09-18)
 
 **Possession.** While possessing, `Controller.Pawn` is a `DisPossessablePawn`

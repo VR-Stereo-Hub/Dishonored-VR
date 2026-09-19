@@ -142,7 +142,7 @@ const PwDef kPwDefs[PwCount]={
     {"Camera","FadeAmount"},{"Camera","FadeColor"},{"Camera","CamOverridePostProcessAlpha"},
     {"Camera","ColorScale"},{"Camera","FadeAlpha"},{"Camera","FadeTimeRemaining"},
     {"DishonoredPlayerCamera","m_PostProcessTargets"}};
-constexpr int kPwEffects=23; // eEffectPp through Epp_MAX
+constexpr int kPwEffects=21; // eEffectPp up to Epp_Count (the arrays are sized Epp_Count)
 uint32_t g_pwOff[PwCount]{},g_pwFadeOff=0,g_pwFadeMask=0,g_pwScaleOff=0,g_pwScaleMask=0;
 int g_pwResolved=0; bool g_pwBoolsDone=false,g_pwOne=false,g_pwHaveLast=false;
 double g_pwNext=0,g_pwOneNext=0;
@@ -155,18 +155,48 @@ static void PpWatchSnapshot(const char* why,uint8_t* manager,uint8_t* cam) {
     for(int i=0;mOk && i<kPwEffects;++i) if(req[i] || st[i])
         n+=snprintf(effects+n,sizeof(effects)-n,"%s%d:r%d/s%d",n?" ":"",i,req[i],st[i]);
     auto f=[](uint8_t* o,uint32_t off){float v=-999;if(o&&off)CtRead(o,off,&v,4);return v;};
+    // Every non-finite float in the manager's transient block after the state
+    // array (to the UI params' end): a NaN that spread past the timer shows here.
+    int nonFinite=0; float block[72]{};
+    const uint32_t from=(g_pwOff[PwState]+kPwEffects+3)&~3u;
+    if(manager && CtRead(manager,from,block,sizeof(block))) for(float v:block) nonFinite+=!std::isfinite(v);
     float scale[3]{-999,-999,-999},alpha[2]{-999,-999}; uint8_t color[4]{}; uint32_t bits[2]{}; int32_t targets[2]{-1,-1};
     if(cam) { CtRead(cam,g_pwOff[PwColorScale],scale,12);CtRead(cam,g_pwOff[PwFadeAlpha],alpha,8);
               CtRead(cam,g_pwOff[PwFadeColor],color,4);CtRead(cam,g_pwOff[PwPpTargets],targets,8);
               if(g_pwFadeOff)CtRead(cam,g_pwFadeOff,&bits[0],4); if(g_pwScaleOff)CtRead(cam,g_pwScaleOff,&bits[1],4); }
     Log("pp/watch: %s | manager=%p effects(index:required/state, 0 stop 1 warm 2 run 3 cool 4 abort)=%s | "
-        "ui dur=%.3f out=%.3f in=%.3f weight=%.3f | kismet weight=%.3f dur=%.3f | bend=%.3f ko=%.3f",
+        "ui dur=%.3f out=%.3f in=%.3f weight=%.3f | kismet weight=%.3f dur=%.3f | bend=%.3f ko=%.3f | non-finite floats +%x..+%x: %d",
         why,manager,mOk?effects:"unreadable",f(manager,g_pwOff[PwUiDur]),f(manager,g_pwOff[PwUiOut]),f(manager,g_pwOff[PwUiIn]),
-        f(manager,g_pwOff[PwUiW]),f(manager,g_pwOff[PwKsW]),f(manager,g_pwOff[PwKsDur]),f(manager,g_pwOff[PwBend]),f(manager,g_pwOff[PwKo]));
+        f(manager,g_pwOff[PwUiW]),f(manager,g_pwOff[PwKsW]),f(manager,g_pwOff[PwKsDur]),f(manager,g_pwOff[PwBend]),f(manager,g_pwOff[PwKo]),from,from+(uint32_t)sizeof(block),nonFinite);
     Log("pp/watch: %s | camera=%p fading=%d amount=%.3f color=%u,%u,%u,%u alpha=%.3f/%.3f left=%.3f | colorScaling=%d scale=%.3f/%.3f/%.3f | "
         "camPpAlpha=%.3f ppTargets=%d (-999/-1 = unreadable; a black world under the game's own fade reads fading=1 amount>0 or scale near 0)",
         why,cam,g_pwFadeMask?(bits[0]&g_pwFadeMask)!=0:-1,f(cam,g_pwOff[PwFadeAmt]),color[2],color[1],color[0],color[3],alpha[0],alpha[1],
         f(cam,g_pwOff[PwFadeLeft]),g_pwScaleMask?(bits[1]&g_pwScaleMask)!=0:-1,scale[0],scale[1],scale[2],f(cam,g_pwOff[PwCamPpA]),targets[1]);
+}
+// VR-140 fix. run473 measured the black world's cause: a wheel closed while the
+// game's UberUI effect (19) was still WARMING turned m_UIStateDuration into NaN
+// (7100140, state warm -> cool). NaN never reaches the fade-out time, so the
+// effect sits in Cooling forever with a NaN blend and the world post-processes to
+// black (AT ONE PICTURE: 19:r0/s3 dur=nan for 37 s, fade and colour scale clean).
+// The repair writes only a value that is already non-finite, and only the one
+// the state machine is waiting on: Cooling gets the fade-out time (the fade
+// completes to Stopped), Warming the fade-in time, Running 0. A finite value is
+// never touched, so this cannot change a healthy fade.
+static void PpUiFadeRepair(uint8_t* manager,const uint8_t* st) {
+    static uint32_t repairs=0;
+    const uint32_t durOff=g_pwOff[PwUiDur];
+    float dur=0;
+    if(!manager || !durOff || !CtRead(manager,durOff,&dur,4) || std::isfinite(dur)) return;
+    const uint8_t state=st[19];
+    float fix=0;
+    if(state==3) { if(!CtRead(manager,g_pwOff[PwUiOut],&fix,4)) return; }
+    else if(state==1) { if(!CtRead(manager,g_pwOff[PwUiIn],&fix,4)) return; }
+    if(!std::isfinite(fix) || fix<0 || fix>10) fix=0.2f;
+    if(!IsLiveObject(manager)) return;
+    memcpy(manager+durOff,&fix,4); ++repairs;
+    DVR_WARN("pp/repair: UberUI m_UIStateDuration was %f in state %u (0 stop 1 warm 2 run 3 cool) - wrote %.3f so the "
+             "game's fade can finish (repair #%u; the game's own warm->cool switch produced the NaN, VR-140)",
+             dur,(unsigned)state,fix,repairs);
 }
 static void PpWatchTick() {
     const double now=MaimNowMs();
@@ -196,6 +226,7 @@ static void PpWatchTick() {
             memcpy(g_pwReq,req,sizeof(req));memcpy(g_pwState,st,sizeof(st));g_pwHaveLast=true;
         }
     }
+    PpUiFadeRepair(manager,st);
     const bool one=dvr::frameid::last().onePicture;
     if(one && (!g_pwOne || now>=g_pwOneNext)) { PpWatchSnapshot(g_pwOne?"ONE PICTURE still":"AT ONE PICTURE",manager,cam); g_pwOneNext=now+3000; }
     else if(!one && g_pwOne) PpWatchSnapshot("TWO PICTURES again",manager,cam);

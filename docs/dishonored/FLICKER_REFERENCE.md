@@ -58,7 +58,30 @@
    no request, FadeAmount 0 and ColorScale 1/1/1 clears both the game's
    post-process chain and its camera fade, and points back at our own draws.
    A UberUI (19) entry stuck at run/cool, a request count left at 1, or a fade or
-   colour scale near 0 names the owner. Result pending.
+   colour scale near 0 names the owner.
+11. **Result, run473 (`vr33-hands-working-473-g3ed002524`, logs
+   `build/playtest-candidates/wheel-blackout/run473`): CAUSE MEASURED.** The
+   tester reproduced the black world. Four wheel flicks ~100 ms apart
+   (7099812..7100593); at 7100140 a close landed while UberUI (effect 19) was
+   still WARMING (state 1, dur 0.055) and the game's warm -> cool switch wrote
+   `m_UIStateDuration` = NaN. NaN never reaches the fade-out time (0.2 s), so the
+   effect stayed in Cooling (`19:r0/s3 dur=-nan`) for the rest of the session and
+   the world post-processed to black from 7101171 (`AT ONE PICTURE`). Camera fade
+   and colour scale clean throughout (fading=0, amount 0, scale 1/1/1),
+   `m_UIPPWeight` 0.000, request count 0: only the timer was broken. Two short
+   one-picture windows earlier (6935593, 6977500) were healthy states with no
+   NaN, so the one-picture judge alone is not the blackout signature; `dur=-nan`
+   with state 19 not stopped is. Whether our 0 weight write during Warming feeds
+   the NaN is NOT established (normal opens and closes with the same write stay
+   finite).
+12. **Fix, installed474:** `pp/repair` in `menu_immersion.cpp` writes the fade
+   time the state machine is waiting on (Cooling: `m_UIPPFadeOutTime`, Warming:
+   `m_UIPPFadeInTime`, Running: 0) only when `m_UIStateDuration` is already
+   non-finite, and warns with the values. A finite timer is never written.
+   Counterprediction: after a flick burst the log shows `pp/repair` and then
+   `19` leaving the list and `TWO PICTURES again` within ~0.3 s; a `pp/repair`
+   followed by a world that stays black means the NaN also reached another field
+   (the snapshot's non-finite count says which block). Headset result pending.
 
 ## VR-135: possession mono, refusing gate measured (2026-09-18)
 
