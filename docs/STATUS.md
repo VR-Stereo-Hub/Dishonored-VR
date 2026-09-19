@@ -1,3 +1,17 @@
+## Installed467: periodic hitch instrumented, mirror plane by symmetry (2026-09-18)
+
+Run464 (banner verified; logs in build/playtest-candidates/weapon-mirror/run464):
+the weapon mirror REFUSED both weapons (no cut face), so nothing changed on
+screen. The periodic drop is measured: ~90 ms stalls inside the runtime's
+xrEndFrame on a ~4 s beat, the same rate walking or standing (12.6 vs 14.3/min)
+and in the pause menu; game GPU time normal; not the streaming change (the
+pre-change 452 run has it); rate grew from ~2-6 to 10-30/min across builds
+353..464. Full record: PERFORMANCE.md top section. Installed467 =
+`vr33-hands-working-467-g8f79caeae` (DLL e939e54b...) adds read-only `gpumem`
+and `device/stream` lines at every frame gap (paging vs streaming) and finds
+the mirror plane by symmetry. Installed ini unchanged (238d9d68...). No
+watcher armed. No PR, no merge.
+
 ## Installed464: weapon mirror built and armed (2026-09-18)
 
 Installed464 = `vr33-hands-working-464-g0b7171bd1`, DLL affccb00..., symbols by

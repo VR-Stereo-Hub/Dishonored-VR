@@ -22,7 +22,19 @@
   check ... TRUSTED` and a VALIDATED line naming a DishonoredNPCPawn.
 - The memory watcher was stopped by the tester. Ask before re-arming.
 
-## Launch question NOW (VR-138): are the pistol and crossbow solid from both sides?
+## Launch question NOW (build467, VR-138): are the pistol and crossbow filled in now?
+Banner `vr33-hands-working-467-g8f79caeae`, DLL e939e54b.... Play normally for
+5+ minutes (walking included) so the hitch instruments collect, and look at the
+far side of the pistol and the crossbow.
+- Filled in: read `mirror/plane` + `mirror/build` (MEASURED plane, kept K).
+- Still hollow: `mirror/build ... REFUSED` names why; `mirror/plane` gives every
+  axis's score for a `mirror plane <asset> <axis> <offset> <sign>` override.
+- Floating copy: wrong axis/offset; override as above.
+Passive, no question: at every frame gap read `device/stream (gap)` (MB uploaded
+/created in the 2 s before) and `gpumem (gap)` (VRAM vs budget, NON_LOCAL,
+free address range). PERFORMANCE.md top section says what each reading kills.
+
+## Previous launch question (VR-138, build464): answered - no change, both REFUSED
 Build464 (banner `vr33-hands-working-464-g0b7171bd1`, DLL affccb00...), the
 installed ini arms `[Mirror] Enabled=1`. Hold the pistol, turn it to see the
 side that used to be hollow; then the crossbow.
