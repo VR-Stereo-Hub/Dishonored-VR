@@ -136,16 +136,36 @@ static void PcRefreshLayout(IDirect3DDevice9* dev)
     {
         static void* said[16];
         static int   saidN = 0;
+        static bool  saidFull = false;
         bool seen = false;
         for (int i = 0; i < saidN; i++) if (said[i] == key) { seen = true; break; }
         if (!seen) {
-            if (saidN < 16) said[saidN++] = key;
-            Log("pcap/layout: shader %p declares ViewProjectionMatrix c%d, "
-                "BoneMatrices c%d, LocalToWorld c%d. Read from its own constant "
-                "table - several shaders draw this mesh and they do not agree. "
-                "Printed once per shader (%d distinct so far); the layout does "
-                "not change between reads.",
-                key, lay.vp, lay.bones, lay.localToWorld, saidN);
+            // VR-152: THE CAP LEAKED. `if (saidN < 16) said[saidN++] = key;`
+            // stopped REMEMBERING at sixteen but did not stop LOGGING, so the
+            // seventeenth distinct shader onward printed this line on EVERY
+            // DRAW, forever - the exact per-draw unbounded log the comment
+            // above says it was written to prevent. Measured: 77992 of these
+            // in one 49 minute run, 26.6 lines a second, against 5.3/s in the
+            // run before it, and each one is a five-argument format plus file
+            // I/O on the render thread. Mean tick over the same two runs went
+            // 9.41 ms -> 10.70 ms.
+            //
+            // Full now means silent, not louder: say so once and stop.
+            if (saidN < 16) {
+                said[saidN++] = key;
+                Log("pcap/layout: shader %p declares ViewProjectionMatrix c%d, "
+                    "BoneMatrices c%d, LocalToWorld c%d. Read from its own constant "
+                    "table - several shaders draw this mesh and they do not agree. "
+                    "Printed once per shader (%d distinct so far); the layout does "
+                    "not change between reads.",
+                    key, lay.vp, lay.bones, lay.localToWorld, saidN);
+            } else if (!saidFull) {
+                saidFull = true;
+                DVR_WARN("pcap/layout: sixteen distinct shaders named; no further "
+                         "ones will be printed. This line replaces a per-draw log "
+                         "that used to fire for every shader past the sixteenth. "
+                         "Placement is unaffected - only the naming stops.");
+            }
         }
     }
 }

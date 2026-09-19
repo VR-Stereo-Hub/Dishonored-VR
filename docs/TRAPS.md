@@ -1,3 +1,20 @@
+## A cap that stops remembering must also stop logging (2026-09-19)
+
+`pcap/layout` kept a sixteen-entry table of shaders it had already named:
+
+    if (saidN < 16) said[saidN++] = key;
+    Log("pcap/layout: shader %p declares ...");
+
+Past sixteen it stopped recording but kept printing, so every later shader
+logged on EVERY DRAW - 77992 lines in one run, five-argument formats plus file
+I/O on the render thread. The comment immediately above it explains that the
+table exists because an earlier version "produced a 25 MB log in a single short
+run". The lesson had been learned and the guard still leaked.
+
+**When a bounded table fills, the branch that writes to it and the branch that
+acts on it must end together.** Say once that the bound was reached, then go
+quiet. Check every `if (n < CAP)` for what happens on the else.
+
 ## Hoisting a block above the early returns inside a function does not help if the function itself is below one (2026-09-19)
 
 `ApplyHandToMeshInner` opens with a comment from 30.95: the SkelControl probe and
