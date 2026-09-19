@@ -1,3 +1,20 @@
+## Watch the pair rate, not the tick mean (2026-09-19)
+
+A judder report was nearly dismissed because the obvious number barely moved.
+Mean `perf: tick` went 9.41 -> 10.70 ms between the smooth build and the one the
+tester called laggy: 13%, easy to wave off as scene difference. The stereo pair
+rate over the same two runs went from a median of 109/s to 45/s - a 59% loss,
+and the thing the headset actually experiences.
+
+The tick mean is averaged over 3 s windows that include menus, loads and
+cutscenes, so it dilutes a gameplay collapse. `stereo: beat ... L/s` counts the
+unique pairs submitted and does not.
+
+**When someone reports judder at a high reported framerate, read
+`stereo: beat` L/s first**, and read its DISTRIBUTION rather than its mean - p25
+and median separate a steady low rate from an occasional dip, and those are
+different faults.
+
 ## A cap that stops remembering must also stop logging (2026-09-19)
 
 `pcap/layout` kept a sixteen-entry table of shaders it had already named:

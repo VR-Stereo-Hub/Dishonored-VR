@@ -907,3 +907,68 @@ discovery that VR-143 moved into the crouch.
 **Not established:** why the distinct-shader count passed sixteen when it did.
 Different levels draw different shaders, and the laggy run is twice as long, so
 the 5x rate rise may be content rather than a change in our code.
+
+
+## VR-152: the pair rate, and a per-draw mutex on the HUD path (2026-09-19)
+
+**The tick mean was the wrong number to watch.** It moved 9.41 -> 10.70 ms
+between the smooth build and the reported one, which is 13% and looks minor. The
+number that matters is the stereo pair rate the headset actually receives, and
+it collapsed:
+
+| `stereo: beat` L/s | build 512 (smooth) | build 522 (reported laggy) |
+|---|---|---|
+| p25 | 101 | 42 |
+| median | **109** | **45** |
+| p75 | 112 | 83 |
+| max | 116 | 113 |
+
+Against a 120 Hz display, 109 unique pairs a second is nearly every slot. 45 is
+barely a third, so each frame is held for two or three display periods and the
+hold length varies. That is invisible standing still and obvious the moment
+anything moves, which is exactly the report. `mono/s=0` throughout, so this is
+not the mono path.
+
+**Read the pair rate, not the tick mean.** The tick mean is averaged over windows
+that include menus and loads, and it understated a 59% loss as 13%.
+
+**Where it went.** Per-CALL hook cost, same two runs (`sampleMean`):
+
+| hook | 512 | 522 |
+|---|---|---|
+| `DrawIndexedPrimitiveUP-hook-inclusive` | 0.581 us | **1.059 us** |
+| `DrawPrimitiveUP-hook-inclusive` | 1.438 us | 2.336 us |
+| `indexed-hook-inclusive` | 0.848 us | 0.914 us |
+| `TexLockRect-hook-inclusive` | 5.929 us | 7.812 us |
+
+`DrawIndexedPrimitiveUP` is the Scaleform HUD path - it is where `sink_for` runs
+- and it nearly doubled. That is where VR-148 put `match_awareness_draw`.
+
+Caveat, and it is a real one: `TexLockRect` also rose 32% and has nothing to do
+with that change, so part of this is machine or scene difference rather than
+code. The runs are different levels. The per-call rise on the HUD path is much
+larger than the others and lands exactly on the touched code, which is why it is
+the first suspect rather than the proven cause.
+
+**Fixed: one lock per frame instead of one per draw.** `match_awareness_draw` and
+`match_rune_draw` both took the writer's mutex on every gameplay HUD draw - tens
+of thousands a second - putting the render thread in contention with the game
+thread at draw rate, and worst exactly when the feature had something to do. The
+render thread now keeps a private copy of the small position table and refreshes
+it once per frame under the lock. `match()` already refuses any sample older
+than 100 ms, several frames, so a copy one frame old changes no decision.
+`AwarenessPositions::match` became const and reports what it accepted through an
+out-param; the census counters moved to relaxed atomics outside the lock.
+
+**Prediction the next run can refute:** the median `stereo: beat` L/s returns
+toward 109 and `DrawIndexedPrimitiveUP` sampleMean returns toward 0.6 us. If the
+pair rate does not move, the per-draw lock was not the cost and the next step is
+a controlled A/B - same save, same spot, toggling NativeAwarenessMarkers and
+NativeHeartAllSymbols from F10, which needs no rebuild.
+
+**What is NOT the cause.** 120 Hz: the tester has run 120 for days and build 512
+is also 120 Hz, so it is a constant across the good and bad runs. Also worth
+recording for whoever reads the tick line next: of a 9.7 ms tick, 3.4 ms is
+`xrWaitFrame` and the line prints PACE-BOUND on many samples, meaning that part
+is headroom rather than cost. Our own present-path work is about 2.6 ms and the
+render thread about 3.3 ms.

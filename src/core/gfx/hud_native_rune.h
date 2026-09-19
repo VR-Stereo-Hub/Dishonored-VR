@@ -89,9 +89,7 @@ struct RunePositions {
 struct AwarenessPositions {
     struct Point {uintptr_t token=0;float x=0,y=0,w=0,h=0;uint32_t ms=0;bool visible=false;};
     Point points[32]{};
-    float worstW=0,worstH=0,worstDx=0,worstDy=0;
-    unsigned matched=0,ambiguous=0;
-    void clear(){for(auto& p:points)p=Point{};worstW=worstH=worstDx=worstDy=0;matched=ambiguous=0;}
+    void clear(){for(auto& p:points)p=Point{};}
     void update(uintptr_t token,float x,float y,int w,int h,uint32_t flags,uint32_t ms) {
         Point* slot=&points[0];
         for(auto& p:points){
@@ -101,7 +99,13 @@ struct AwarenessPositions {
         const bool visible=(flags&1) && w>=64 && h>=64 && std::isfinite(x) && std::isfinite(y);
         *slot={token,x,y,(float)w,(float)h,ms,visible};
     }
-    bool match(const float* r,uint32_t ms,float targetW,float targetH,float* pivot) {
+    // VR-152: CONST, and it records nothing. It used to mutate its own census
+    // counters, which forced every caller to hold the writer's lock. The render
+    // thread now matches against a private per-frame copy and reports what it
+    // accepted through `out`, so the per-draw lock is gone entirely.
+    struct Accepted { float w=0,h=0,dx=0,dy=0; bool ambiguous=false; };
+    bool match(const float* r,uint32_t ms,float targetW,float targetH,float* pivot,
+               Accepted* out=nullptr) const {
         if(!r || targetW<1 || targetH<1) return false;
         for(int k=0;k<4;++k)if(!std::isfinite(r[k]))return false;
         const float rw=r[2]-r[0],rh=r[3]-r[1];
@@ -123,15 +127,11 @@ struct AwarenessPositions {
             if(pw>160 || ph>160 || std::fabs(dx)>96 || std::fabs(dy)>96)continue;
             const float d=dx*dx+dy*dy;
             // Two published markers equally close cannot both own the draw.
-            if(best && std::fabs(d-bestD)<1) {++ambiguous;return false;}
+            if(best && std::fabs(d-bestD)<1) {if(out)out->ambiguous=true;return false;}
             if(d<bestD){best=&p;bestD=d;bx=x;by=y;bw=pw;bh=ph;bdx=dx;bdy=dy;}
         }
         if(!best)return false;
-        if(bw>worstW)worstW=bw;
-        if(bh>worstH)worstH=bh;
-        if(std::fabs(bdx)>std::fabs(worstDx))worstDx=bdx;
-        if(std::fabs(bdy)>std::fabs(worstDy))worstDy=bdy;
-        ++matched;
+        if(out){out->w=bw;out->h=bh;out->dx=bdx;out->dy=bdy;}
         pivot[0]=pivot[2]=bx;pivot[1]=pivot[3]=by;return true;
     }
 };

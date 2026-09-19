@@ -15,6 +15,16 @@ namespace {std::atomic<bool> awareness{false};std::mutex awarenessMutex;dvr::hud
 // sample is only usable for 100 ms (AwarenessPositions::match drops anything
 // older), so one atomic stamp answers the common case before any lock.
 namespace {std::atomic<uint32_t> awarenessStampMs{0};}
+// VR-152: the census, kept OUT of the matcher so the matcher needs no lock.
+// Diagnostic only; relaxed is the right ordering for a counter nobody branches on.
+namespace {std::atomic<uint32_t> awareMatched{0},awareAmbiguous{0};
+           std::atomic<uint32_t> awareWorstW{0},awareWorstH{0},awareWorstDx{0},awareWorstDy{0};
+           std::atomic<uint32_t> awareGen{0};}
+static void AwareNoteWorst(std::atomic<uint32_t>& slot,float v){
+    const uint32_t mag=(uint32_t)(v<0?-v:v);
+    uint32_t cur=slot.load(std::memory_order_relaxed);
+    while(mag>cur && !slot.compare_exchange_weak(cur,mag,std::memory_order_relaxed)) {}
+}
 bool rune_ownership(){return runeOwnership.load();}
 void clear_rune_positions(){std::lock_guard<std::mutex> lock(runeMutex);runePositions.clear();}
 void configure_rune_ownership(bool active){runeOwnership.store(active);clear_rune_positions();}
@@ -23,7 +33,20 @@ void publish_rune(uintptr_t token,float x,float y,int w,int h,uint32_t flags){
 }
 bool match_rune_draw(const float* rect,float w,float h,float* pivot){
     if(!runeOwnership.load() || !runes.load())return false;
-    std::lock_guard<std::mutex> lock(runeMutex);return runePositions.match(rect,GetTickCount(),w,h,pivot);
+    // VR-152: one lock per FRAME, not one per draw - the same fix and the same
+    // reason as match_awareness_draw below. This one predates that feature, but
+    // NativeHeartAllSymbols widened what publishes into the table, so it is hit
+    // harder now. RunePositions::match is already const, so the render thread
+    // can keep a private copy; match() refuses any sample older than 100 ms,
+    // which is several frames, so a copy one frame old changes nothing.
+    static uint32_t snapFrame=0xffffffffu;
+    static dvr::hudnative::RunePositions snap;
+    const uint32_t frame=(uint32_t)dvr::frame::count();
+    if(frame!=snapFrame){
+        std::lock_guard<std::mutex> lock(runeMutex);
+        snap=runePositions;snapFrame=frame;
+    }
+    return snap.match(rect,GetTickCount(),w,h,pivot);
 }
 bool rune_enabled(){return runes.load();}
 float rune_inset(){return runeMargin.load();}
@@ -31,7 +54,14 @@ void configure_runes(bool active,float value){runeMargin.store(std::isfinite(val
 bool heart_all_symbols(){return heartAll.load();}
 void configure_heart_all_symbols(bool active){heartAll.store(active);clear_rune_positions();}
 bool awareness_enabled(){return awareness.load();}
-void clear_awareness_positions(){awarenessStampMs.store(0,std::memory_order_release);std::lock_guard<std::mutex> lock(awarenessMutex);awarenessPositions.clear();}
+void clear_awareness_positions(){
+    awarenessStampMs.store(0,std::memory_order_release);
+    awareMatched.store(0,std::memory_order_relaxed);awareAmbiguous.store(0,std::memory_order_relaxed);
+    awareWorstW.store(0,std::memory_order_relaxed);awareWorstH.store(0,std::memory_order_relaxed);
+    awareWorstDx.store(0,std::memory_order_relaxed);awareWorstDy.store(0,std::memory_order_relaxed);
+    awareGen.fetch_add(1,std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(awarenessMutex);awarenessPositions.clear();
+}
 void configure_awareness(bool active){awareness.store(active);clear_awareness_positions();}
 void publish_awareness(uintptr_t token,float x,float y,int w,int h,uint32_t flags){
     const uint32_t now=GetTickCount();
@@ -42,17 +72,52 @@ void publish_awareness(uintptr_t token,float x,float y,int w,int h,uint32_t flag
 }
 bool match_awareness_draw(const float* rect,float w,float h,float* pivot){
     if(!awareness.load(std::memory_order_relaxed))return false;
-    // The lock-free gate: nothing published, or nothing published recently
-    // enough for match() to accept, so there is nothing to lock for.
+    // Gate 1, lock-free: nothing published, or nothing published recently enough
+    // for match() to accept it, so there is nothing to lock for. This is the
+    // common case - most of the time nobody has noticed you.
     const uint32_t stamp=awarenessStampMs.load(std::memory_order_acquire);
     if(!stamp || GetTickCount()-stamp>100)return false;
-    std::lock_guard<std::mutex> lock(awarenessMutex);return awarenessPositions.match(rect,GetTickCount(),w,h,pivot);
+    // Gate 2: ONE lock per frame, not one per draw.
+    //
+    // This runs from the HUD draw hook, so it is called for every gameplay HUD
+    // draw - tens of thousands a second. Taking the writer's mutex on each of
+    // them put the render thread in contention with the game thread at draw
+    // rate, and it showed: DrawIndexedPrimitiveUP went from 0.581 us to 1.059 us
+    // a call between the build before this feature and the build after it, and
+    // the stereo pair rate the headset actually receives fell from a median of
+    // 109/s to 45/s. It was worst exactly when the feature had something to do,
+    // which is when enemies are around and the player is moving.
+    //
+    // The table is small and only this thread reads it, so the render thread
+    // keeps its own copy and refreshes it once per frame under the lock. A copy
+    // at most one frame old is not a correctness question here: match() already
+    // refuses any sample older than 100 ms, which is several frames.
+    static uint32_t snapFrame=0xffffffffu;
+    static dvr::hudnative::AwarenessPositions snap;
+    const uint32_t frame=(uint32_t)dvr::frame::count();
+    if(frame!=snapFrame){
+        std::lock_guard<std::mutex> lock(awarenessMutex);
+        snap=awarenessPositions;snapFrame=frame;
+    }
+    dvr::hudnative::AwarenessPositions::Accepted acc;
+    if(!snap.match(rect,GetTickCount(),w,h,pivot,&acc)){
+        if(acc.ambiguous) awareAmbiguous.fetch_add(1,std::memory_order_relaxed);
+        return false;
+    }
+    awareMatched.fetch_add(1,std::memory_order_relaxed);
+    AwareNoteWorst(awareWorstW,acc.w);AwareNoteWorst(awareWorstH,acc.h);
+    AwareNoteWorst(awareWorstDx,acc.dx);AwareNoteWorst(awareWorstDy,acc.dy);
+    return true;
 }
 void awareness_report(float& worstW,float& worstH,float& worstDx,float& worstDy,unsigned& matched,unsigned& ambiguous){
-    std::lock_guard<std::mutex> lock(awarenessMutex);
-    worstW=awarenessPositions.worstW;worstH=awarenessPositions.worstH;
-    worstDx=awarenessPositions.worstDx;worstDy=awarenessPositions.worstDy;
-    matched=awarenessPositions.matched;ambiguous=awarenessPositions.ambiguous;
+    // Plain atomic reads - no lock, and none needed: these are counters, and the
+    // line that prints them is a census, not a decision.
+    worstW=(float)awareWorstW.load(std::memory_order_relaxed);
+    worstH=(float)awareWorstH.load(std::memory_order_relaxed);
+    worstDx=(float)awareWorstDx.load(std::memory_order_relaxed);
+    worstDy=(float)awareWorstDy.load(std::memory_order_relaxed);
+    matched=awareMatched.load(std::memory_order_relaxed);
+    ambiguous=awareAmbiguous.load(std::memory_order_relaxed);
 }
 bool enabled(){return on.load();}
 float inset(){return margin.load();}
