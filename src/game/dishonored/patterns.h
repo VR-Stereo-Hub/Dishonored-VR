@@ -221,6 +221,26 @@ static const uint8_t kRuneParentCallBytes[5]={0xe8,0xb6,0x76,0xff,0xff};
 static const uint32_t kMarkerSettings=0x0c;
 static const uint32_t kMarkerSymbolData=0,kMarkerSymbolCount=4,kMarkerSymbolCapacity=8;
 
+// VR-148: the AWARENESS marker (the meter over an enemy head), the third of the
+// four native marker families DisGFxMoviePlayerHUD declares (m_TaskMarkers,
+// m_AwarenessMarkers, m_GrenadeMarkers, m_HeartMarkers). Derived the same way
+// the task and Heart seams were, not guessed:
+//   `disasm-rva.py calls 0x7bd430` gives the five static callers of the shared
+//   base placement - 0x7bd784, 0x7bdb2d, 0x7c5865 (task), 0x7c5d75 (Heart) and
+//   0x8c1b57. Scanning .rdata for a slot at +0x14 holding each caller's
+//   enclosing function gives four sibling 6-slot vtables at 0x18 stride:
+//   0x1163590 (base, update IS 0xbbd430), 0x11635a8 (task), 0x11635c0 and
+//   0x11635d8 (Heart). The constructor that installs 0x11635c0 is 0xbce9a0 and
+//   the only string it pushes is the wide "head_jnt"; its update 0xbbd630
+//   pushes fadeIn/visible/quickFadeOut. A marker parented to the head joint
+//   that fades in and out is the awareness meter. For contrast the 0x1163808
+//   constructor pushes "_grenade_mc" (grenades) and 0x11b5704's pushes the DLC
+//   HUD strings from a different .rdata block.
+// Same ABI as the other two: __thiscall, six stack dwords, callee ret 24.
+static const uintptr_t kAwarenessParentCall=0x00bbd784,kAwarenessParentReturn=0x00bbd789;
+static const uintptr_t kAwarenessMarkerVtable=0x011635c0;
+static const uint8_t kAwarenessParentCallBytes[5]={0xe8,0xa7,0xfc,0xff,0xff};
+
 // ---- Import table slots ----
 static const uintptr_t kXIGetSlot = 0x00f946c4; // IAT slot: xinput1_3 ord 2
 static const uintptr_t kXISetSlot = 0x00f946c0; // IAT slot: xinput1_3 ord 3

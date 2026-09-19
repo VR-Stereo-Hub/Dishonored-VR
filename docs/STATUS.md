@@ -1,3 +1,50 @@
+## HUD improvements pt 2: blink latch, bone charms, awareness meters (2026-09-19)
+
+Branch claude/hud-improvements-pt-2, off codex/hud-improvements after that branch
+got its PR (#76, out of draft). PR #76 now carries one extra commit that makes the
+2026-09-19 run's own F10 tuning the shipped defaults, including the return to
+2750x2850; the runtime selection is deliberately not baked.
+
+Three faults, all read out of the run 512 log rather than guessed.
+
+BLINK AIM AFTER A SAVE LOAD (VR-147) - root cause found and fixed, not yet re-run. The log
+reads `blinkdir: 943 calls (0 ours) | ray ready 0, refused 0` at t=4027265, 23.8 s
+after the player controller changed at t=4004171 and 0.7 s before the PowerBlink
+re-latched at t=4027984. BlkAlive tested pointer, index and class identity, all of
+which a destroyed UObject keeps until the collector sweeps its GObjects slot, so
+BlinkLatch saw a live latch while the game's real Blink was a new object and every
+hook call fell through the `self != g_blkObj` guard to the engine's head aim. The
+latch is now tied to the pawn it was taken under (PeLatch already notices a new
+pawn) and the drop is logged with both pointers. TRAPS.md carries the class.
+
+BONE CHARMS (VR-149) - mechanism confirmed, symbol still unread. Bone charms use the same
+Heart marker, update and parent call as runes; only the Flash symbol differs, and
+`runeMarker` was the only accepted spelling. Run 512 refused 23787 Heart calls on
+that test. The bone charm spelling is not in the exe as ANSI or UTF-16 and the
+packages are compressed, so it is NOT guessed: the gate now validates the bounded
+shape of any Heart symbol, `hud/heart-symbol` names each distinct symbol a run
+sees, and `[Hud] NativeHeartAllSymbols` accepts them all.
+
+ENEMY AWARENESS METERS (VR-148) - first candidate, unverified. Derived the third native
+marker family offline (vtable 0x11635c0, update 0xbbd630, parent call 0xbbd784,
+constructor 0xbce9a0, which pushes the wide `head_jnt` while its update pushes
+fadeIn/visible/quickFadeOut); ENGINE_NOTES carries the full route and the grenade
+and DLC families it was separated from. The meters were riding the `default` row's
+window panel because no rectangle can claim a marker that moves with its enemy.
+The new hook publishes the engine placement and the router leaves matched draws in
+the game image. The match window is an explicit BOUND and the log reports what
+would tighten it.
+
+Both new levers ship default OFF per the repo rule and are ON in the installed INI
+as the trial, which is the same pattern NativeRuneMarkers used. Release build,
+lint, exports, the default-profile byte check and 908/107/465/104 HUD host checks
+pass. No game or simulator launch. No merge.
+
+Next: one headset run. Read `blink: dropping the PowerBlink latch` after a save
+reload, `hud/heart-symbol` with a bone charm revealed by the Heart, and
+`hud/awareness-parent` with an alerted guard on screen. Then bake the bone charm
+symbol as a measured constant and tighten the awareness match window.
+
 ## Selective cleanup for SteamVR continuation (2026-09-19)
 
 Latest user instruction supersedes the exact486-only handoff: remove ONLY failed
