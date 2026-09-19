@@ -245,6 +245,23 @@ installed470/473 copies kept only 50 triangles. Installed480:
 Hole caps stay on: run476 capped 58 crossbow loops (388 triangles) and 25
 pistol loops (165 triangles).
 
+## 6d. Installed480 result: crossbow filled, pistol worse (2026-09-19)
+
+Tester: the crossbow is much better, with only a few mirrored areas missing (the
+tester checked the other side); the pistol misses MORE than in 476; no flicker on
+either. Run480 (logs in build/playtest-candidates/wheel-blackout/run480): both
+modelled sides were chosen as -x by outward-facing area (pistol 526.7 vs 244.2,
+crossbow 366.5 vs 149.3). Kept 1352 of 2772 on the pistol (797 counted as
+already modelled) and 120 of 1957 on the crossbow (767). The pistol regression is
+consistent with the 480 coverage test: a same-facing sample point within
+FillRadius (1.5 uu) counted as modelled, so small raised parts next to a flat
+face were skipped. Installed482: coverage is the true point-to-triangle distance
+within `[Mirror] CoverTol` (0.3 uu), on a same-facing triangle, for the
+centroid and all three corners. Counterprediction: the "already modelled" count
+drops on both weapons, and the missing areas shrink without a flicker returning.
+If flicker returns, the copies now land within 0.3-1.5 uu of real surfaces;
+lower CoverTol or raise it until it stops.
+
 ## 7. Verification
 
 1. Build, lint, golden. `frame_test`: add `mirror_compose_commutes` next to

@@ -45,7 +45,7 @@ constexpr int kWmMax = 8;
 WmEntry g_wm[kWmMax];
 int g_wmN = 0;
 bool g_wmOn = false;
-float g_wmEps = 0.25f, g_wmFill = 1.5f;
+float g_wmEps = 0.25f, g_wmFill = 1.5f, g_wmCoverTol = 0.3f;
 bool g_wmBack = false;   // [Mirror] BackFaces: redraw the weapon with its back faces (fills one-sided holes)
 bool g_wmCaps = true;        // [Mirror] Caps: close open holes (where the hand covered the model) with fans
 LONG g_wmBackDrawn = 0, g_wmCapDrawn = 0;
@@ -81,6 +81,8 @@ static void WmConfigure(const char* ini) {
     if (!(g_wmFill > 0.0f && g_wmFill < 50.0f)) g_wmFill = 1.5f;
     g_wmBack = GetPrivateProfileIntA("Mirror", "BackFaces", 0, ini) != 0;
     g_wmCaps = GetPrivateProfileIntA("Mirror", "Caps", 1, ini) != 0;
+    GetPrivateProfileStringA("Mirror", "CoverTol", "0.3", v, sizeof(v), ini); g_wmCoverTol = (float)atof(v);
+    if (!(g_wmCoverTol > 0.0f && g_wmCoverTol < 5.0f)) g_wmCoverTol = 0.3f;
     WmSet(GetPrivateProfileIntA("Mirror", "Enabled", 0, ini) != 0);
 }
 
@@ -419,39 +421,64 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     float S[12]; dvr::hf::reflection_3x4(e->n, e->c, S);
     auto dist = [&](const float* p) { return e->n[0]*(p[0]-e->c[0]) + e->n[1]*(p[1]-e->c[1]) + e->n[2]*(p[2]-e->c[2]); };
 
-    // What already exists on the unmodelled side: surface samples (centroid,
-    // corners, edge midpoints) of every triangle touching it, each carrying its
-    // triangle for the outward normal, hashed by FillRadius cells.
-    const float cell = g_wmFill;
-    auto key = [&](const float* p) -> long long {
-        const long long x = (long long)floorf(p[0] / cell), y = (long long)floorf(p[1] / cell), z = (long long)floorf(p[2] / cell);
-        return ((x & 0x1FFFFF) << 42) | ((y & 0x1FFFFF) << 21) | (z & 0x1FFFFF);
-    };
-    struct Smp { float p[3]; UINT t; };
-    std::unordered_map<long long, std::vector<Smp>> other;
+    // What already exists on the unmodelled side: every triangle touching it,
+    // bucketed into FillRadius cells by its bounding box. Installed480 measured
+    // coverage against SAMPLE POINTS within FillRadius (1.5 uu) and the pistol
+    // lost areas it had in 476: a small raised part whose mirror lands within
+    // 1.5 uu of any same-facing surface counted as modelled. Coverage is now the
+    // true point-to-triangle distance, within [Mirror] CoverTol, on a triangle
+    // facing the same way (normal dot > 0.5).
+    const float cell = g_wmFill, tol = g_wmCoverTol;
+    auto ckey = [&](long long x, long long y, long long z) { return ((x & 0x1FFFFF) << 42) | ((y & 0x1FFFFF) << 21) | (z & 0x1FFFFF); };
+    std::unordered_map<long long, std::vector<UINT>> other;
     UINT nOther = 0;
     for (size_t t = 0; t < nTri; ++t) {
         const float* q[3] = { &pos[(idx[t*3] - minIndex) * 3], &pos[(idx[t*3+1] - minIndex) * 3], &pos[(idx[t*3+2] - minIndex) * 3] };
         if (!(dist(q[0]) < -g_wmEps || dist(q[1]) < -g_wmEps || dist(q[2]) < -g_wmEps)) continue;
         ++nOther;
-        float sp[7][3];
+        long long lo3[3], hi3[3];
         for (int i = 0; i < 3; ++i) {
-            sp[0][i] = tc[t*3+i];
-            for (int k = 0; k < 3; ++k) { sp[1+k][i] = q[k][i]; sp[4+k][i] = 0.5f * (q[k][i] + q[(k+1)%3][i]); }
+            const float mn = (std::min)(q[0][i], (std::min)(q[1][i], q[2][i])) - tol, mx = (std::max)(q[0][i], (std::max)(q[1][i], q[2][i])) + tol;
+            lo3[i] = (long long)floorf(mn / cell); hi3[i] = (long long)floorf(mx / cell);
         }
-        for (auto& x : sp) { Smp m{ { x[0], x[1], x[2] }, (UINT)t }; other[key(x)].push_back(m); }
+        if ((hi3[0]-lo3[0]+1) * (hi3[1]-lo3[1]+1) * (hi3[2]-lo3[2]+1) > 4096) continue;   // absurdly large: never on a weapon
+        for (long long x = lo3[0]; x <= hi3[0]; ++x) for (long long y = lo3[1]; y <= hi3[1]; ++y) for (long long z = lo3[2]; z <= hi3[2]; ++z)
+            other[ckey(x, y, z)].push_back((UINT)t);
     }
+    // Squared distance from p to triangle (a, b, c): the closest-point regions test.
+    auto triDist2 = [](const float* p, const float* a, const float* b, const float* c) {
+        auto sub = [](const float* x, const float* y, float* o) { o[0] = x[0]-y[0]; o[1] = x[1]-y[1]; o[2] = x[2]-y[2]; };
+        auto dot = [](const float* x, const float* y) { return x[0]*y[0] + x[1]*y[1] + x[2]*y[2]; };
+        float ab[3], ac[3], ap[3], bp[3], cp[3], r[3];
+        sub(b, a, ab); sub(c, a, ac); sub(p, a, ap);
+        const float d1 = dot(ab, ap), d2 = dot(ac, ap);
+        auto at = [&](const float* x) { sub(p, x, r); return dot(r, r); };
+        if (d1 <= 0 && d2 <= 0) return at(a);
+        sub(p, b, bp); const float d3 = dot(ab, bp), d4 = dot(ac, bp);
+        if (d3 >= 0 && d4 <= d3) return at(b);
+        const float vc = d1 * d4 - d3 * d2;
+        if (vc <= 0 && d1 >= 0 && d3 <= 0) { const float v = d1 / (d1 - d3); const float x[3] = { a[0]+v*ab[0], a[1]+v*ab[1], a[2]+v*ab[2] }; return at(x); }
+        sub(p, c, cp); const float d5 = dot(ab, cp), d6 = dot(ac, cp);
+        if (d6 >= 0 && d5 <= d6) return at(c);
+        const float vb = d5 * d2 - d1 * d6;
+        if (vb <= 0 && d2 >= 0 && d6 <= 0) { const float w = d2 / (d2 - d6); const float x[3] = { a[0]+w*ac[0], a[1]+w*ac[1], a[2]+w*ac[2] }; return at(x); }
+        const float va = d3 * d6 - d5 * d4;
+        if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+            const float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+            const float x[3] = { b[0]+w*(c[0]-b[0]), b[1]+w*(c[1]-b[1]), b[2]+w*(c[2]-b[2]) }; return at(x);
+        }
+        const float den = 1.0f / (va + vb + vc), v = vb * den, w = vc * den;
+        const float x[3] = { a[0]+ab[0]*v+ac[0]*w, a[1]+ab[1]*v+ac[1]*w, a[2]+ab[2]*v+ac[2]*w };
+        return at(x);
+    };
     auto covered = [&](const float* m, const float* rn) {
-        for (int dx = -1; dx <= 1; ++dx) for (int dy = -1; dy <= 1; ++dy) for (int dz = -1; dz <= 1; ++dz) {
-            const float q[3] = { m[0] + dx * cell, m[1] + dy * cell, m[2] + dz * cell };
-            auto it = other.find(key(q));
-            if (it == other.end()) continue;
-            for (const Smp& s2 : it->second) {
-                const float ddx = s2.p[0] - m[0], ddy = s2.p[1] - m[1], ddz = s2.p[2] - m[2];
-                if (ddx*ddx + ddy*ddy + ddz*ddz > cell * cell) continue;
-                const float* on = &tn[s2.t * 3];
-                if (on[0]*rn[0] + on[1]*rn[1] + on[2]*rn[2] > 0.5f) return true;
-            }
+        auto it = other.find(ckey((long long)floorf(m[0] / cell), (long long)floorf(m[1] / cell), (long long)floorf(m[2] / cell)));
+        if (it == other.end()) return false;
+        for (UINT t : it->second) {
+            const float* on = &tn[t * 3];
+            if (on[0]*rn[0] + on[1]*rn[1] + on[2]*rn[2] <= 0.5f) continue;
+            if (triDist2(m, &pos[(idx[t*3] - minIndex) * 3], &pos[(idx[t*3+1] - minIndex) * 3], &pos[(idx[t*3+2] - minIndex) * 3]) <= tol * tol)
+                return true;
         }
         return false;
     };
@@ -487,14 +514,14 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     const UINT keptPrims = (UINT)(kept.size() / 3);
     Log("mirror/build: '%s' verts %u used %u prims %u | bbox (%.1f %.1f %.1f)-(%.1f %.1f %.1f) | barrel axis %c | "
         "plane n=(%.0f %.0f %.0f) through %c=%.2f %s%s | sides %u/%u | faces min/max x %u/%u y %u/%u z %u/%u | kept %u of %u "
-        "(skipped: other side %u, on plane %u, already modelled %u; %u verts on the other side) Eps %.2f Fill %.2f | "
+        "(skipped: other side %u, on plane %u, already modelled %u; %u triangles on the other side) Eps %.2f Fill %.2f CoverTol %.2f | "
         "normal maps on the copy light from the mirrored side (cosmetic, accepted)",
         e->asset, numVerts, nUsed, primCount, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], "xyz"[barrel],
         e->n[0], e->n[1], e->n[2], "xyz"[e->n[0] != 0 ? 0 : e->n[1] != 0 ? 1 : 2],
         e->n[0] != 0 ? e->c[0] : e->n[1] != 0 ? e->c[1] : e->c[2],
         e->measured ? "MEASURED" : "from [Mirror] Plane_ (NOT measured)",
         e->measured ? "" : "", sideHi, sideLo, faceCnt[0][0], faceCnt[0][1], faceCnt[1][0], faceCnt[1][1], faceCnt[2][0], faceCnt[2][1],
-        keptPrims, primCount, skipSide, skipPlane, skipCovered, nOther, g_wmEps, g_wmFill);
+        keptPrims, primCount, skipSide, skipPlane, skipCovered, nOther, g_wmEps, g_wmFill, g_wmCoverTol);
     (void)maxIdx;
     if (!keptPrims) { refuseKeepCaps("nothing to fill (0 triangles kept) - the plane may be wrong"); return; }
     IDirect3DIndexBuffer9* ours = WmMakeIb(dev, kept);
