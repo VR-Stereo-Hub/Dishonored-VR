@@ -44,6 +44,21 @@
    (c) menu/head camera writes at the ride end. Needed instrument: at the frameid
    ONE-PICTURE transition, dump the post-process manager's entry weights, camera
    FOV/rotation and the hudcap routing state.
+9. **Watchdog blind spot found:** the run470 watchdog tested `weight > 0.5`, so a
+   NaN weight would have read as healthy. It now also warns on a non-finite value.
+10. **Instrument, installed473 (read-only, `pp/watch`):** logs the whole
+   `DisPostProcessManager` state machine (`m_RequiredEffects[i]` and
+   `m_EffectStates[i]` for every eEffectPp, 0 stop 1 warm 2 run 3 cool 4 abort;
+   the UI and Kismet weights and timers) and the camera's own fade and colour
+   scale (`bEnableFading`, `FadeAmount`, `FadeColor`, `FadeAlpha`,
+   `bEnableColorScaling`, `ColorScale`, `CamOverridePostProcessAlpha`,
+   `m_PostProcessTargets` count). A line on every state or request change, a
+   snapshot `AT ONE PICTURE` and every 3 s while the eyes stay one picture.
+   Counterprediction: a black run whose snapshot shows every effect stopped with
+   no request, FadeAmount 0 and ColorScale 1/1/1 clears both the game's
+   post-process chain and its camera fade, and points back at our own draws.
+   A UberUI (19) entry stuck at run/cool, a request count left at 1, or a fade or
+   colour scale near 0 names the owner. Result pending.
 
 ## VR-135: possession mono, refusing gate measured (2026-09-18)
 
