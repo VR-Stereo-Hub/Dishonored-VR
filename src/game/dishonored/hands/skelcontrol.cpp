@@ -542,17 +542,55 @@ static void ApplyHandToMeshInner()
             g_skcProbeFails = 0;
         }
         skcWasGameplay = skcInGameplay;
-        // 33.2: heal the stuck menu flag itself while we are here - two
-        // seconds of real 3D rendering IS gameplay, whatever the flag says.
+        // 33.2 / VR-153: heal the stuck menu flag - two seconds of real 3D
+        // rendering IS gameplay, whatever the flag says.
+        //
+        // THIS TEST COULD NEVER FIRE. It read
+        //     if (skcInGameplay && (g_menuOpen || g_inMenu))
+        // with skcInGameplay defined six lines up as (!g_menuOpen && !g_inMenu).
+        // That is (!A && !B) && (A || B): always false, in every state. When
+        // 41.0 removed the fork's splice counter, skcInGameplay was redefined
+        // in terms of the very flags this was meant to rescue, and the rescue
+        // became dead code. `menu: flag cleared` appears ZERO times in a 95 MB
+        // playtest log. Three separate comments in ue3/process_event.cpp say a
+        // lingering flag is fine because "the stale-flag ghost test already
+        // cleans it up" - all three were relying on this.
+        //
+        // What it cost: the death screen fires Req_CanLoadGame, which the menu
+        // vocabulary treats as a menu opening. Nothing closes it, so after a
+        // death the mod believed a menu was open for 77 seconds - until the
+        // player opened the pause menu by hand and resumed. For that whole time
+        // the runtime sat on the mono screen (the "small square render") and
+        // pad_bridge passed the right stick through as menu navigation, so it
+        // drove movement like the left one.
+        //
+        // The replacement uses signals that do NOT derive from the flags:
+        //   - the scene-draw counter is advancing (real 3D rendering, which is
+        //     what the original comment meant)
+        //   - no UI surface is actually blocking (a genuine pause menu, wheel
+        //     or loading screen sets this, so a real menu is not cleared)
+        // Both must hold continuously for two seconds.
         static double gpSinceMs = 0.0;
-        double tgp = MaimNowMs();
-        if (skcInGameplay && (g_menuOpen || g_inMenu)) {
+        static uint32_t gpDrawsAt = 0;
+        static double gpDrawsMs = 0.0;
+        const double tgp = MaimNowMs();
+        const uint32_t gpDraws = SceneDrawDraws();
+        if (gpDraws != gpDrawsAt) { gpDrawsAt = gpDraws; gpDrawsMs = tgp; }
+        const bool sceneRendering = gpDrawsMs != 0.0 && (tgp - gpDrawsMs) < 250.0;
+        const bool claimsMenu = (g_menuOpen || g_inMenu);
+        if (claimsMenu && sceneRendering && !UiSurfaceBlocks()) {
             if (gpSinceMs == 0.0) gpSinceMs = tgp;
-            if (tgp - gpSinceMs > 2000.0) {
+            else if (tgp - gpSinceMs > 2000.0) {
+                gpSinceMs = 0.0;
+                const bool wasOpen = g_menuOpen, wasIn = g_inMenu;
                 g_menuOpen = false; g_inMenu = false;
-                Log("menu: flag cleared - 2 s of full scene rendering while "
-                    "it claimed a menu was open (death screen leaves it "
-                    "stuck; this is the arms-after-reload fix)");
+                DVR_WARN("menu: flag cleared after 2.0 s of scene rendering with no UI "
+                         "surface blocking, while it claimed a menu was open "
+                         "(menuOpen=%d inMenu=%d). A death screen leaves the flag set "
+                         "and nothing closes it; while it is set the runtime stays on "
+                         "the mono screen and the right stick is passed through as menu "
+                         "navigation. F9 forces gameplay mode by hand if this ever misses",
+                         (int)wasOpen, (int)wasIn);
             }
         } else {
             gpSinceMs = 0.0;

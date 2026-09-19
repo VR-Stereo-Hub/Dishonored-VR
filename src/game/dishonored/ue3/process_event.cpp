@@ -384,8 +384,21 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                     // (38.70: the NewGameClicked arm lived here and never
                     // fired - the skip now triggers on the intro boat's
                     // measured spawn position instead, in IntroSkipApply)
+                // VR-153: Req_CanLoadGame is NOT on this list any more. It is a
+                // capability QUERY - "may a load happen from here" - and the
+                // DEATH SCREEN asks it. Nothing answers with a close, so a death
+                // left the mod believing a menu was open until the player opened
+                // the pause menu by hand and resumed: 77 seconds in the playtest
+                // log, with the runtime stuck on the mono screen (reported as a
+                // "small square render") and the right stick passed through as
+                // menu navigation, driving movement like the left one.
+                //
+                // The real load browser still registers: it fires SaveSlotInfos
+                // and LoadGameClicked, both still here. CanSaveGame stays too -
+                // it has not been observed on the death screen and removing it
+                // without evidence would be trading one guess for another.
                 } else if (strstr(nm, "OpenPauseMenu") || strstr(nm, "MessageBox") ||
-                           strstr(nm, "CanLoadGame") || strstr(nm, "CanSaveGame") ||
+                           strstr(nm, "CanSaveGame") ||
                            strstr(nm, "SaveSlotInfos") || strstr(nm, "BackToWindows") ||
                            strstr(nm, "LoadGameClicked")) {
                     if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }

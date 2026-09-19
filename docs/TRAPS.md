@@ -1,3 +1,39 @@
+## A rescue whose condition contradicts itself (2026-09-19)
+
+`ApplyHandToMeshInner` carried a healer for the stuck menu flag, added in 33.2
+and described as "two seconds of real 3D rendering IS gameplay, whatever the
+flag says". It read:
+
+    bool skcInGameplay = (!g_menuOpen && !g_inMenu);
+    ...
+    if (skcInGameplay && (g_menuOpen || g_inMenu))
+
+That is `(!A && !B) && (A || B)`. **Always false, in every state.** The rescue
+had never run once. `menu: flag cleared` appears ZERO times in a 95 MB playtest
+log.
+
+It was not written that way. 33.2 judged gameplay by the fork's splice counter,
+which is independent of the flags. When 41.0 removed the splice counter,
+`skcInGameplay` was redefined in terms of the very flags the healer existed to
+rescue, and the redefinition quietly turned the rescue into dead code. The
+comment above it still described the old behaviour, so it read as working.
+
+**Three other comments were relying on it.** `ue3/process_event.cpp` says, in
+three separate places, that a lingering menu flag is acceptable because "the
+stale-flag ghost test already cleans it up". None of them could.
+
+What it cost a playtester: the death screen fires `Req_CanLoadGame`, which the
+menu vocabulary treats as a menu opening, and nothing closes it. After dying,
+the mod believed a menu was open for 77 seconds - until the player opened the
+pause menu by hand and resumed. For that whole time the runtime sat on the mono
+screen (reported as "a small square render") and `pad_bridge` passed the right
+stick through as menu navigation, so it drove movement like the left stick.
+
+**When a rescue is rewritten to use a different signal, re-derive its
+condition.** A predicate defined in terms of the state it is meant to repair
+cannot repair it. And a safety net that other code cites by name deserves a log
+line that fires when it works, so its silence is visible.
+
 ## Watch the pair rate, not the tick mean (2026-09-19)
 
 A judder report was nearly dismissed because the obvious number barely moved.
