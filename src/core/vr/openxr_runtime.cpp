@@ -2490,7 +2490,7 @@ void pump_events() {
 }
 
 // --------------------------------------------------------------------------
-// SteamVR shim runtime selection (s62). SteamVR ships no 32-bit OpenXR
+// SteamVR shim runtime selection (s62). Older SteamVR versions had no 32-bit OpenXR
 // runtime; the release zip carries dvr_steamvr32.dll (an OpenXR-on-OpenVR
 // runtime, src/tools/ovrshim/) + openvr_api.dll beside the mod. When the
 // native runtime attempt fails, the mod writes a runtime manifest and points
@@ -2605,10 +2605,7 @@ void log_active_runtime_expectation() {
     }
     char narrow[MAX_PATH * 3] = {};
     WideCharToMultiByte(CP_UTF8, 0, val, -1, narrow, sizeof(narrow), nullptr, nullptr);
-    if (wcsstr(val, L"steamxr"))
-        XRLOG("xr: 32-bit ActiveRuntime points at SteamVR ('%s') which has no "
-                "32-bit support - expecting the shim", narrow);
-    else if (GetFileAttributesW(val) == INVALID_FILE_ATTRIBUTES)
+    if (GetFileAttributesW(val) == INVALID_FILE_ATTRIBUTES)
         XRLOG("xr: 32-bit ActiveRuntime manifest missing on disk ('%s') - "
                 "expecting the shim", narrow);
     else
@@ -2662,24 +2659,13 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
             g_pfnQpcToXrTime ? "is measured" : "reads n/a");
     if (XR_FAILED(r)) {
         XRLOG("xr: [%s] xrCreateInstance failed: %s", label, res_str(r));
-        // XR_ERROR_RUNTIME_UNAVAILABLE from a 32-bit process is very rarely a
-        // broken install: SteamVR has never shipped a 32-bit OpenXR runtime, and
-        // BioShock is a 32-bit game. Anyone on Lighthouse hardware (Index, Vive)
-        // or running Steam Link, i.e. with SteamVR as the active runtime, lands
-        // here every single time. Saying so turns "the mod does nothing" into an
-        // actionable report - and it is a whole class of them.
+        // SteamVR 2.17 added native 32-bit OpenXR. Failure does not prove
+        // the selected runtime lacks 32-bit support.
         if (r == XR_ERROR_RUNTIME_UNAVAILABLE && !quietExplainer) {
-            XRLOG("xr: -----------------------------------------------------------");
-            XRLOG("xr: The active OpenXR runtime has no 32-bit support. This game is");
-            XRLOG("xr: 32-bit, so VR cannot start. SteamVR is the usual cause: it has");
-            XRLOG("xr: never shipped a 32-bit OpenXR runtime, which also covers Index,");
-            XRLOG("xr: Vive and Steam Link setups.");
-            XRLOG("xr: Fix: copy dvr_steamvr32.dll and openvr_api.dll from the release");
-            XRLOG("xr: zip next to the game exe (beside d3d9.dll) - the mod then");
-            XRLOG("xr: falls back to its bundled SteamVR shim automatically. Or set a");
-            XRLOG("xr: runtime that ships 32-bit (Virtual Desktop's VDXR, Oculus/Meta)");
-            XRLOG("xr: as the active OpenXR runtime and relaunch.");
-            XRLOG("xr: -----------------------------------------------------------");
+            XRLOG("xr: No native runtime reachable from this 32-bit game. SteamVR 2.17+, "
+                  "VDXR and Meta support 32-bit OpenXR: verify the selected manifest. "
+                  "The optional SteamVR shim needs dvr_steamvr32.dll and openvr_api.dll "
+                  "beside the game executable.");
         }
         g_instance = XR_NULL_HANDLE;
         return r;
@@ -3226,6 +3212,43 @@ void on_present_begin() {
     g_viewsValid =
         XR_SUCCEEDED(xrLocateViews(g_session, &vli, &vs, 2, &viewCount, g_views)) &&
         viewCount == 2 && (vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT);
+    // VR-146: compare independent head/eye locates before changing images.
+    // Bounded to six minutes, one sample per three seconds, native SteamVR only.
+    if (strncmp(g_runtimeName, "SteamVR/OpenXR", 14) == 0) {
+        static uint64_t nextAuditMs = 0;
+        static unsigned auditCount = 0;
+        const uint64_t now = GetTickCount64();
+        if (auditCount < 120 && now >= nextAuditMs) {
+            nextAuditMs = now + 3000;
+            ++auditCount;
+            XRLOG("xr: orientation audit %u session=%s headValid=%d headFlags=0x%llx viewsValid=%d viewFlags=0x%llx count=%u time=%lld",
+                  auditCount, state_str(g_state), poseOk ? 1 : 0,
+                  static_cast<unsigned long long>(sl.locationFlags), g_viewsValid ? 1 : 0,
+                  static_cast<unsigned long long>(vs.viewStateFlags), viewCount,
+                  static_cast<long long>(locateTime));
+            const XrQuaternionf qs[] = {sl.pose.orientation, g_views[0].pose.orientation,
+                                       g_views[1].pose.orientation};
+            const char* names[] = {"VIEW-space head", "left eye", "right eye"};
+            for (int i = 0; i < 3; ++i) {
+                const auto& q = qs[i];
+                const float n2 = q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w;
+                const float roll = -atan2f(2*(q.x*q.y + q.w*q.z),
+                                           1-2*(q.x*q.x + q.z*q.z))*57.29578f;
+                XRLOG("xr: orientation audit %s q=(%.6f %.6f %.6f %.6f) norm2=%.6f cameraRoll=%.3f deg valid=%d",
+                      names[i], q.x,q.y,q.z,q.w,n2,roll,
+                      (i == 0 ? poseOk : g_viewsValid) ? 1 : 0);
+            }
+            if (poseOk && g_viewsValid) {
+                const XrPosef mid = parallel_eye_tag(g_views[0].pose, g_views[1].pose, 0, 0);
+                const auto& h = qs[0];
+                const auto& e = mid.orientation;
+                const float hn = sqrtf(h.x*h.x+h.y*h.y+h.z*h.z+h.w*h.w);
+                const float dot = hn > 1e-6f ? fabsf((h.x*e.x+h.y*e.y+h.z*e.z+h.w*e.w)/hn) : 0;
+                XRLOG("xr: orientation audit head-vs-eye-mid=%.3f deg; near zero means the raw runtime paths agree, not that the headset is upright",
+                      2*acosf(fminf(1.0f,dot))*57.29578f);
+            }
+        }
+    }
     phase_record(kPhLocate, tPhase);
     // s51: the VDXR view logger - a bounded, self-expiring burst (the fov-watch
     // lesson: nothing unthrottled lives on the present path). Answers whether

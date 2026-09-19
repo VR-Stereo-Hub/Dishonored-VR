@@ -1,3 +1,38 @@
+## Native SteamVR orientation investigation, candidate 506 (2026-09-19)
+
+VR-146: native SteamVR/OpenXR 2.17.10 starts this x86 game without the bundled
+shim. The first build503 run used forced Meta compatibility; disabling SteamVR's
+openxr.metaUnityPluginCompatibility (2 -> 0) changed the reported runtime to
+plain SteamVR/OpenXR, but did not correct the reported inversion. Runtime=native
+and SteamVR's steamxr_win32.json are selected explicitly in the installed INI.
+The tester reports inverted world and menus with upright hands in gameplay.
+
+The verified build503 log reports head roll near +/-179 degrees. This is a lead,
+not proof of bad tracking: the old log does not establish whether the headset was
+being worn at each sample. Candidate506 adds a native-SteamVR-only audit comparing
+VIEW-space head and both eye quaternions, norms, validity, session state, derived
+camera roll and angular disagreement at one predicted timestamp. It samples
+once per three seconds for up to 120 samples. No orientation correction yet.
+The whole-image flip experiment was compiled and host-tested but never installed;
+it was removed from production source after the upright-hands clarification.
+Recoverable scratch source is under build/steamvr-image-flip-uninstalled.
+
+Installed candidate: build/playtest-candidates/hud-improvements/install-506,
+banner vr33-hands-working-506-ga1e15d41e-dirty,
+DLL SHA256 8fcb8458070fadc6fdfa9ed5b6a5b17139c76e4e09c727cd3fd392ce1646625a.
+Installer copied from install-503, dry-run on a copy of the live INI, then run.
+Full INI comparison: no changes, CRLF 1283/1283. Both old logs and INI archived
+under before-install-20260919-111559, native client log separately archived.
+Release, lint, 923 HUD checks, 9 choke checks and byte-identical default profiles
+pass. No game/simulator launch, no merge. Headset result pending: hold upright
+in main menu then gameplay, compare the reported surfaces with the raw pose audit.
+
+Vitals stage1 is committed as a1e15d41e and inherited by506, but the magenta/bar
+question has not been run;505 remains frozen. Game-space capture still waits on
+model draw proof. Choke calibration/output and desktop-present A/B remain pending;
+uncommitted calibration prototypes are preserved only under build/choke-in-progress
+and are not in506. See ENGINE_NOTES.md for SteamVR evidence and next decisions.
+
 ## Vitals selector and model diagnostic candidate 505 (2026-09-19)
 
 Implemented the first gated stage of CODEX_PLAN_VITALS_CHOKE.md. Candidate505
