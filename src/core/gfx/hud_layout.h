@@ -124,7 +124,18 @@ bool vitals_part(int sink,int part,float* rect,float* halfPlane);
 // VR-142: where the DRAWN palm appears in XR LOCAL space (position, rotation),
 // published by the hand draw once per present while an attach needs it.
 bool wants_palm_pose();
-void set_hand_palm_pose(int hand, const float p[3], const float q[4]);
+void set_hand_palm_pose(int hand, const float p[3], const float q[4], bool flipped);
+// VR-142: the vitals drawn IN the game frame on the hand ([Hud] VitalsInScene).
+bool vitals_scene_on();
+struct VitalsSceneCfg {
+    int   part = 0;                 // 0 health, 1 mana
+    float pos[3] = {0, 0, 0};       // metres, palm-local (the attach step)
+    float q[4] = {0, 0, 0, 1};      // palm-local rotation
+    bool  flip = false;             // the palm map mirrored at the capture
+    float widthM = 0.06f;
+    float trimCm[3] = {0, 0, 0};
+};
+bool vitals_scene_cfg(int hand, VitalsSceneCfg* out);
 bool force_capture_alpha(int sink);
 AlphaCfg wheel_parts_alpha();
 float native_objective_scale(int element);

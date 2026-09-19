@@ -145,6 +145,10 @@ const char* kVaKeys[2]={"VitalsAttach.L","VitalsAttach.R"};
 // present, where its palm appears in XR space, and the attach step stores each
 // panel relative to that. Frame 1 = palm, 0 = grip (older captures).
 int g_vaFrame[2]={0,0};
+bool g_vaFlip[2]={false,false}, g_palmFlip[2]={false,false};
+// VR-142: draw the vitals in the game frame on the hand instead of as XR quads.
+bool g_vitalsScene=false;
+float g_vsTrim[2][3]={};
 SRWLOCK g_palmLock = SRWLOCK_INIT;
 float g_palmPos[2][3] = {}, g_palmQ[2][4] = {{0,0,0,1},{0,0,0,1}};
 unsigned long long g_palmMs[2] = {};
@@ -644,13 +648,37 @@ bool vitals_part(int sink,int part,float* rect,float* halfPlane) {
     return true;
 }
 bool wants_palm_pose() { return g_vitalsSplit && (g_vaStart || g_vaOn); }
-void set_hand_palm_pose(int hand, const float p[3], const float q[4]) {
+bool vitals_scene_on() { return g_vitalsSplit && g_vitalsScene && !g_visualRiding; }
+bool vitals_scene_cfg(int hand, VitalsSceneCfg* out) {
+    if (!vitals_scene_on() || hand < 0 || hand > 1) return false;
+    int part = -1;
+    for (int p = 0; p < 2; ++p) if (vitals_hand(p) == hand) part = p;
+    if (part < 0 || !g_vaValid[hand] || g_vaFrame[hand] != 1) return false;   // needs a palm attach
+    out->part = part;
+    memcpy(out->pos, g_vaPos[hand], sizeof(out->pos)); memcpy(out->q, g_vaQ[hand], sizeof(out->q));
+    out->flip = g_vaFlip[hand];
+    const int e = part ? ElVitalsMana : ElVitalsHealth;
+    float w = g_hand[hand].widthM * g_el[e].handScale;
+    if (g_vitalsAutoCrop) {
+        float r[4], hp[3];
+        const int s = g_elementSink[ElVitals];
+        if (s >= 0 && vitals_part(s, part, r, hp)) {
+            const float full = g_vitalsCrop[part][2] - g_vitalsCrop[part][0];
+            if (full > 0) w *= (r[2] - r[0]) / full;
+        }
+    }
+    out->widthM = w;
+    memcpy(out->trimCm, g_vsTrim[hand], sizeof(out->trimCm));
+    return true;
+}
+void set_hand_palm_pose(int hand, const float p[3], const float q[4], bool flipped) {
     if (hand < 0 || hand > 1) return;
     for (int k = 0; k < 3; ++k) if (!std::isfinite(p[k])) return;
     for (int k = 0; k < 4; ++k) if (!std::isfinite(q[k])) return;
     AcquireSRWLockExclusive(&g_palmLock);
     memcpy(g_palmPos[hand], p, 3 * sizeof(float)); memcpy(g_palmQ[hand], q, 4 * sizeof(float));
     g_palmMs[hand] = GetTickCount64();
+    g_palmFlip[hand] = flipped;
     ReleaseSRWLockExclusive(&g_palmLock);
 }
 bool force_capture_alpha(int sink) {
@@ -898,9 +926,9 @@ void vitals_attach_tick() {
         const float rel[3]={g_vaPanelPos[part][0]-gp[0],g_vaPanelPos[part][1]-gp[1],g_vaPanelPos[part][2]-gp[2]};
         dvr::xrmath::quat_rotate(inv[0],inv[1],inv[2],inv[3],rel,g_vaPos[h]);
         dvr::xrmath::quat_mul(inv,g_vaPanelQ,g_vaQ[h]);
-        g_vaValid[h]=true; g_vaFrame[h]=frame;
+        g_vaValid[h]=true; g_vaFrame[h]=frame; g_vaFlip[h]=frame && g_palmFlip[h];
         char v[160];
-        _snprintf(v,sizeof(v),"%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f%s",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],g_vaQ[h][0],g_vaQ[h][1],g_vaQ[h][2],g_vaQ[h][3],frame?",palm":"");
+        _snprintf(v,sizeof(v),"%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f%s",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],g_vaQ[h][0],g_vaQ[h][1],g_vaQ[h][2],g_vaQ[h][3],frame?(g_vaFlip[h]?",palmF":",palm"):"");
         v[sizeof(v)-1]=0; write_key(kVaKeys[h],v);
         DVR_INFO("hud/vitals-attach: %s captured on the %s %s: offset %.3f/%.3f/%.3f m (%.3f m away), rotation %s",
             kVitalsPartNames[part],h?"right":"left",frame?"DRAWN PALM":"grip",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],
@@ -950,6 +978,10 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         if(e==ElVitals && g_vitalsSplit && !g_visualRiding) {   // VR-142: two panels instead of one
             for(int part=0;part<2 && n<max;++part) {
                 const int pe=part?ElVitalsMana:ElVitalsHealth;
+                if(vitals_scene_on()) {   // drawn in the game frame on the hand instead
+                    const int ph=vitals_hand(part);
+                    if(ph>=0 && g_vaValid[ph] && g_vaFrame[ph]==1) continue;
+                }
                 const int pa=g_el[pe].anchor;if(!anchor_visible(pa)) continue;
                 ID3D11Texture2D* partTex=dvr::hudcap::vitals_part_texture(s,part);
                 if(!partTex) continue;
@@ -1244,11 +1276,16 @@ void configure(const char* ini) {
     g_vitalsMirror=read_i(ini,"VitalsMirror",1)!=0;g_vitalsAutoCrop=read_i(ini,"VitalsAutoCrop",1)!=0;
     g_vitalsBack=read_i(ini,"VitalsBack",0)!=0;
     g_vaOn=read_i(ini,"VitalsAttach",0)!=0;
+    g_vitalsScene=read_i(ini,"VitalsInScene",0)!=0;
+    for(int h=0;h<2;++h) for(int k=0;k<3;++k) {
+        char key[48];_snprintf(key,sizeof(key),"VitalsInScene.%s.Trim%d",h?"R":"L",k);g_vsTrim[h][k]=read_f(ini,key,0.f);
+    }
     for(int h=0;h<2;++h) {
         char v[160]="";float p[7];
         g_vaValid[h]=read_s(ini,kVaKeys[h],v,sizeof(v)) &&
             sscanf(v,"%f,%f,%f,%f,%f,%f,%f",&p[0],&p[1],&p[2],&p[3],&p[4],&p[5],&p[6])==7;
         g_vaFrame[h]=strstr(v,"palm") ? 1 : 0;
+        g_vaFlip[h]=strstr(v,"palmF")!=nullptr;
         if(g_vaValid[h]) {
             const float n=sqrtf(p[3]*p[3]+p[4]*p[4]+p[5]*p[5]+p[6]*p[6]);
             if(!(n>.5f && n<1.5f)) { g_vaValid[h]=false; continue; }
@@ -1369,6 +1406,7 @@ void save(const char* ini) {
     }
     write_i("VitalsMirror",g_vitalsMirror);write_i("VitalsAutoCrop",g_vitalsAutoCrop);write_i("VitalsBack",g_vitalsBack);
     write_i("VitalsAttach",g_vaOn);
+    write_i("VitalsInScene",g_vitalsScene);
     for(int k=0;k<5;++k) write_f(kVitalsBackKeys[k],g_vitalsBackCfg[k]);
     write_i("VitalsSplit",g_vitalsSplit);write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
@@ -1648,6 +1686,16 @@ void draw_ui() {
             ImGui::TextDisabled("left %s, right %s. It overrides the back-of-hand and panel offsets.",
                 g_vaValid[0]?(g_vaFrame[0]?"on the drawn palm":"on the grip (re-attach to follow the hand model)"):"none",
                 g_vaValid[1]?(g_vaFrame[1]?"on the drawn palm":"on the grip (re-attach to follow the hand model)"):"none");
+        }
+        if(ImGui::Checkbox("Draw them ON the hand model (in the game image)",&g_vitalsScene)) write_i("VitalsInScene",g_vitalsScene);
+        if(g_vitalsScene) {
+            ImGui::TextDisabled("Uses the attachment above (re-attach once if it says 'on the grip'). Fine-tune per hand:");
+            for(int h=0;h<2;++h) {
+                ImGui::PushID(760+h);
+                bool t=ImGui::SliderFloat3(h?"right hand trim (cm, palm frame)":"left hand trim (cm, palm frame)",g_vsTrim[h],-15,15,"%.1f");
+                if(t) for(int k=0;k<3;++k) {char key[48];_snprintf(key,sizeof(key),"VitalsInScene.%s.Trim%d",h?"R":"L",k);write_f(key,g_vsTrim[h][k]);}
+                ImGui::PopID();
+            }
         }
         if(ImGui::Checkbox("Lay both on the back of the hands (moves with the hand)",&g_vitalsBack)) write_i("VitalsBack",g_vitalsBack);
         if(g_vitalsBack) {

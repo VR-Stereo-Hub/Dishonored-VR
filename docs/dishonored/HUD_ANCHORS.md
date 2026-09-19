@@ -1,3 +1,33 @@
+## The vitals drawn in the game frame, on the hand (VR-142, 2026-09-19)
+
+Run499 showed that a compositor quad cannot be locked to the hand model. With
+`[Hud] VitalsInScene=1` (F10 "Draw them ON the hand model"), each vitals part is
+drawn INSIDE the hand's own draw instead:
+- The texture: at the present, before the vitals sink's target is cleared, each
+  part's rectangle is copied (same size, so a multisampled target resolves)
+  into a D3D9 texture (`hud_capture.cpp`, DEFAULT pool, released on reset). The
+  hand draws of the next frame sample it: one present of HUD latency.
+- The pose: the drawn palm (the controller's palm target moved by the animation
+  blend, the same transform the hand's palette gets), camera-relative world,
+  kept per draw, so per eye.
+- The panel: the attach step's palm-local capture (metres, the XR palm axes;
+  the z sign is undone where the XR map mirrored, stored as `,palmF`), scaled by
+  the rendered world scale, plus a per-hand trim in cm
+  (`VitalsInScene.L/R.Trim0..2`).
+- The draw: after the hand's ranges, once per hand, eye and present, a textured
+  fan in pretransformed coordinates projected with THIS draw's ViewProjection
+  and viewport. It is clipped at the split line in UV, so the mask is geometry,
+  not a shader. It uses the fixed function (no shader of ours), additive like
+  the HUD's own repair look, depth off, the whole device state captured before
+  and applied after, through `raw_draw_prim`.
+- The XR quad for a part drawn this way is not submitted. A hand that is not
+  placed (refused, native pose) draws no panel.
+`hud/vitals-scene:` logs draws, refusals, the polygon, size and centre every
+5 s, and each texture's allocation. Not measured yet: whether the game's
+post-process (the scene target is tone-mapped after the hands) changes the
+panels' colours. The panel is drawn after the hand, with no depth test, so it
+sits over the hand and anything at that pixel.
+
 ## Run499: the drawn-palm attach is worse; why a quad cannot be locked to the hand (VR-142, 2026-09-19)
 
 Tester: the panels attach even worse than before and do not track during
