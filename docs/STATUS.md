@@ -1,3 +1,18 @@
+## Candidate 503: vitals drawn on the hand model, physical choke (2026-09-19)
+
+Candidate 503 = `vr33-hands-working-503-g7159acacf` (DLL 30d2e34d...), frozen with
+install.ps1 in build/playtest-candidates/hud-improvements/install-503, NOT
+installed (the tester was playing). The installer sets [Hud] VitalsInScene=1 and
+[Choke] Gesture=1; a dry run on the live ini added only those, CRLF intact.
+- VR-142: the vitals parts are drawn INSIDE the hand's own draw (D3D9 texture
+  copies of the vitals sink, the drawn palm, this draw's ViewProjection, a fan
+  clipped at the split line). Needs one re-attach (records the palm map's
+  mirror flag). HUD_ANCHORS.md top.
+- VR-145: the physical choke (right hand quickly to the left shoulder, held
+  there, holds RB). CHOKE_GESTURE.md; host tests in tools/choke-gesture-host.ps1.
+Open: VR-143 (crouched-load stand-up stall), VR-144 (wheel stutter; the next
+A/B is ReduceDesktopPresent).
+
 ## Run499: palm attach worse, wheel stutter halved, crouched-load stall (2026-09-19)
 
 Run499 (build 499, banner verified; logs in build/playtest-candidates/hud-improvements/run499).
