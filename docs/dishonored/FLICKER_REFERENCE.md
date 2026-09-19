@@ -81,7 +81,13 @@
    Counterprediction: after a flick burst the log shows `pp/repair` and then
    `19` leaving the list and `TWO PICTURES again` within ~0.3 s; a `pp/repair`
    followed by a world that stays black means the NaN also reached another field
-   (the snapshot's non-finite count says which block). Headset result pending.
+   (the snapshot's non-finite count says which block).
+13. **Result, run476 (`vr33-hands-working-476-g5735d27b8`, logs
+   `build/playtest-candidates/wheel-blackout/run476`): FIXED, headset-confirmed.**
+   The tester flicked the wheel repeatedly (22 opens) and the world never went
+   black. `pp/repair` fired 46 times, every one on state 3 (Cooling) with a NaN
+   timer, and the frameid judge reported no one-picture window all session. So
+   the NaN is common (roughly two per fast flick), not a rare race.
 
 ## VR-135: possession mono, refusing gate measured (2026-09-18)
 
