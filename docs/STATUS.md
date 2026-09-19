@@ -1,3 +1,15 @@
+## Candidate 495: attach the vitals by holding the hands to them (2026-09-19)
+
+Candidate 493 was installed by the tester (banner verified in the live log).
+Its back-of-hand guess put the panels at the far end of the hand model and the
+sliders could not reach. Candidate 495 = `vr33-hands-working-495-g7c1fc3370`
+(DLL b270ae83...), frozen with install.ps1 in
+build/playtest-candidates/hud-improvements/install-495, NOT installed (the tester
+was playing): F10 "Attach to my hands" freezes both panels in front of the head,
+counts down, then stores each panel's pose in its hand's grip frame. The
+back-of-hand sliders reach +-0.4 m. The installer sets VitalsBack=0 (a dry run
+on the live ini changed only that line, CRLF intact). HUD_ANCHORS.md top.
+
 ## Run490 result and candidate 493: vitals on the back of the hand (2026-09-19)
 
 Run490 (banner verified; logs in build/playtest-candidates/hud-improvements/run490):
