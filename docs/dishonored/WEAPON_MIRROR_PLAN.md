@@ -262,6 +262,23 @@ drops on both weapons, and the missing areas shrink without a flicker returning.
 If flicker returns, the copies now land within 0.3-1.5 uu of real surfaces;
 lower CoverTol or raise it until it stops.
 
+## 6e. Installed483 result: pistol mostly filled, barrel gaps, crossbow flicker (2026-09-19)
+
+Tester: the pistol is better, most areas filled, but two major gaps remain on the
+barrel. The crossbow is decent, but its top left now flickers against the model
+and a few areas on the left are still missing. Run483: pistol kept 1684 of 2772
+(465 already modelled), crossbow 538 of 1957 (349). Changes in installed485:
+- `[Mirror] Straddle=2.0`: a triangle crossing the plane that sits mostly on the
+  modelled side and reaches at most 2 uu past it is now mirrored. A barrel is
+  centred on the plane, so its top and bottom faces cross it and were never
+  copied, which fits the two barrel gaps.
+- `[Mirror] DepthBias` (code 0, installed 1): the copy draws pushed back by
+  1e-4 of the viewport's depth range per unit plus a slope term, so the real
+  surface wins every near-coincident pixel. `mirror bias <n>` sets it live.
+Counterprediction: `mirror/straddle:` counts > 0 and the barrel gaps close. If the
+crossbow flicker survives DepthBias 1, raise it; if copies then vanish behind
+nearby surfaces, the bias is too large.
+
 ## 7. Verification
 
 1. Build, lint, golden. `frame_test`: add `mirror_compose_commutes` next to

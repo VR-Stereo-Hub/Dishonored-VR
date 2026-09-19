@@ -908,6 +908,8 @@ static void WriteDefaultIni(const char* ini)
         "BackFaces=0\n"
         "Caps=1\n"
         "CoverTol=0.3\n"
+        "Straddle=2.0\n"
+        "DepthBias=0\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"

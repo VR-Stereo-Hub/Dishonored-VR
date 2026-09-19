@@ -46,6 +46,9 @@ WmEntry g_wm[kWmMax];
 int g_wmN = 0;
 bool g_wmOn = false;
 float g_wmEps = 0.25f, g_wmFill = 1.5f, g_wmCoverTol = 0.3f;
+float g_wmStraddle = 2.0f;   // [Mirror] Straddle: plane-crossing triangles mostly on the modelled side are mirrored too (uu past the plane)
+float g_wmBias = 0.0f;       // [Mirror] DepthBias: push the copy back so a real surface always wins (1e-4 of the depth range per unit)
+LONG g_wmBiasDraws = 0;
 bool g_wmBack = false;   // [Mirror] BackFaces: redraw the weapon with its back faces (fills one-sided holes)
 bool g_wmCaps = true;        // [Mirror] Caps: close open holes (where the hand covered the model) with fans
 LONG g_wmBackDrawn = 0, g_wmCapDrawn = 0;
@@ -82,6 +85,10 @@ static void WmConfigure(const char* ini) {
     g_wmBack = GetPrivateProfileIntA("Mirror", "BackFaces", 0, ini) != 0;
     g_wmCaps = GetPrivateProfileIntA("Mirror", "Caps", 1, ini) != 0;
     GetPrivateProfileStringA("Mirror", "CoverTol", "0.3", v, sizeof(v), ini); g_wmCoverTol = (float)atof(v);
+    GetPrivateProfileStringA("Mirror", "Straddle", "2.0", v, sizeof(v), ini); g_wmStraddle = (float)atof(v);
+    if (!(g_wmStraddle >= 0.0f && g_wmStraddle < 20.0f)) g_wmStraddle = 2.0f;
+    GetPrivateProfileStringA("Mirror", "DepthBias", "0", v, sizeof(v), ini); g_wmBias = (float)atof(v);
+    if (!(g_wmBias >= 0.0f && g_wmBias <= 100.0f)) g_wmBias = 0.0f;
     if (!(g_wmCoverTol > 0.0f && g_wmCoverTol < 5.0f)) g_wmCoverTol = 0.3f;
     WmSet(GetPrivateProfileIntA("Mirror", "Enabled", 0, ini) != 0);
 }
@@ -483,13 +490,23 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
         return false;
     };
     std::vector<uint32_t> kept; kept.reserve(idx.size());
-    UINT skipSide = 0, skipPlane = 0, skipCovered = 0;
+    UINT skipSide = 0, skipPlane = 0, skipCovered = 0, straddled = 0;
     uint32_t maxIdx = 0;
     for (size_t t = 0; t < nTri; ++t) {
         const float* p0 = &pos[(idx[t*3] - minIndex) * 3]; const float* p1 = &pos[(idx[t*3+1] - minIndex) * 3];
         const float* p2 = &pos[(idx[t*3+2] - minIndex) * 3];
         const float d0 = dist(p0), d1 = dist(p1), d2 = dist(p2);
-        if (d0 < -g_wmEps || d1 < -g_wmEps || d2 < -g_wmEps) { ++skipSide; continue; }
+        // Installed483: two gaps on the pistol barrel. A barrel is centred on the
+        // plane, so its faces near the top and bottom CROSS it, and a triangle with
+        // any corner past the plane was never mirrored. One that sits mostly on
+        // the modelled side (reaching at most [Mirror] Straddle past the plane) is
+        // mirrored now; where the copy overlaps its own original, the coverage test
+        // below skips it (same surface, same facing) and DepthBias settles the rest.
+        const float dMin = (std::min)(d0, (std::min)(d1, d2)), dMax = (std::max)(d0, (std::max)(d1, d2));
+        if (dMin < -g_wmEps) {
+            if (!(dMax > g_wmEps && -dMin <= g_wmStraddle && dMax > -dMin)) { ++skipSide; continue; }
+            ++straddled;
+        }
         if ((std::max)(d0, (std::max)(d1, d2)) <= g_wmEps) { ++skipPlane; continue; }
         float rn[3] = { tn[t*3], tn[t*3+1], tn[t*3+2] }; rn[ax] = -rn[ax];   // the copy's outward facing
         float m[3];
@@ -508,6 +525,8 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
         kept.push_back(idx[t*3]); kept.push_back(idx[t*3+1]); kept.push_back(idx[t*3+2]);
         maxIdx = (std::max)(maxIdx, (std::max)(idx[t*3], (std::max)(idx[t*3+1], idx[t*3+2])));
     }
+    Log("mirror/straddle: '%s' %u plane-crossing triangle(s) considered (reaching <= %.2f uu past the plane, mostly on the modelled side)",
+        e->asset, straddled, g_wmStraddle);
     Log("mirror/facing: '%s' outward sign %+.0f | area facing OUT of the +%c side %.1f, of the -%c side %.1f -> modelled side %c%c "
         "(the side with no outward faces is the one that draws empty; copies need a same-facing surface to be skipped)",
         e->asset, sgn, "xyz"[ax], faceOut[0], "xyz"[ax], faceOut[1], e->n[ax] > 0 ? '+' : '-', "xyz"[ax]);
@@ -597,18 +616,33 @@ static void WmDraw(IDirect3DDevice9* dev, const WaMesh* w, const float* source, 
     MpBuild(patched, mirrored, regs, &delta);
     bool ok = SUCCEEDED(dvr::frame::orig_set_vs_const(dev, boneReg, patched, regs));
     if (ok && haveCull && cull != D3DCULL_NONE) dev->SetRenderState(D3DRS_CULLMODE, flipped);
+    // Installed483: the crossbow's top left flickered where a copy lands close to
+    // a real surface. The copy is pushed back by DepthBias (scaled to the game's
+    // own viewport depth range: the weapon draws into a compressed MinZ..MaxZ)
+    // plus a slope term, so the original wins every near-coincident pixel.
+    DWORD oldBias = 0, oldSlope = 0; bool biased = false;
+    D3DVIEWPORT9 vp{};
+    if (ok && g_wmBias > 0 && SUCCEEDED(dev->GetViewport(&vp)) &&
+        SUCCEEDED(dev->GetRenderState(D3DRS_DEPTHBIAS, &oldBias)) && SUCCEEDED(dev->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &oldSlope))) {
+        const float range = vp.MaxZ - vp.MinZ > 0 ? vp.MaxZ - vp.MinZ : 1.0f;
+        const float bias = g_wmBias * 1e-4f * range, slope = g_wmBias;
+        dev->SetRenderState(D3DRS_DEPTHBIAS, *(const DWORD*)&bias);
+        dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *(const DWORD*)&slope);
+        biased = true; InterlockedIncrement(&g_wmBiasDraws);
+    }
     if (ok && SUCCEEDED(dev->SetIndices(e->ours))) {
         ok = SUCCEEDED(dvr::frame::orig_draw_indexed(dev, D3DPT_TRIANGLELIST, baseVertex, minIndex, numVerts, 0, e->prims));
         dev->SetIndices(ibo);
     } else ok = false;
+    if (biased) { dev->SetRenderState(D3DRS_DEPTHBIAS, oldBias); dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, oldSlope); }
     if (haveCull && cull != D3DCULL_NONE) dev->SetRenderState(D3DRS_CULLMODE, cull);
     ibo->Release();
     // The caller restores the game's palette after this returns.
     if (ok) { InterlockedIncrement(&g_wmDrawn); InterlockedIncrement(&e->drawn); }
     else { InterlockedIncrement(&g_wmFailed); InterlockedIncrement(&e->failed); }
     DVR_LOG_EVERY_MS(::dvr::log::Cat::hands, ::dvr::log::Level::Info, 5000,
-        "mirror/beat: drawn %ld failed %ld refused builds %ld back-face passes %ld cap passes %ld | last '%s' kept %u prims, caps %u prims, native cull %lu (1 none 2 cw 3 ccw), %d built",
-        g_wmDrawn, g_wmFailed, g_wmRefused, g_wmBackDrawn, g_wmCapDrawn, e->asset, e->prims, e->capPrims, (unsigned long)cull, g_wmN);
+        "mirror/beat: drawn %ld failed %ld refused builds %ld back-face passes %ld cap passes %ld biased %ld (DepthBias %.2f, viewport depth %.4f..%.4f) | last '%s' kept %u prims, caps %u prims, native cull %lu (1 none 2 cw 3 ccw), %d built",
+        g_wmDrawn, g_wmFailed, g_wmRefused, g_wmBackDrawn, g_wmCapDrawn, g_wmBiasDraws, g_wmBias, vp.MinZ, vp.MaxZ, e->asset, e->prims, e->capPrims, (unsigned long)cull, g_wmN);
 }
 
 static bool WmCommand(const char* args) {
@@ -618,6 +652,13 @@ static bool WmCommand(const char* args) {
     if (!strncmp(args, "back ", 5) && DvrOnOff(args + 5, &b)) {
         g_wmBack = b; Log("mirror: back faces %s", b ? "ON" : "off");
         if (g_wmIni[0]) WritePrivateProfileStringA("Mirror", "BackFaces", b ? "1" : "0", g_wmIni);
+        return true;
+    }
+    if (!strncmp(args, "bias ", 5)) {
+        const float f = (float)atof(args + 5);
+        if (f >= 0 && f <= 100) { g_wmBias = f; Log("mirror: depth bias %.2f (live)", f);
+            char v[32]; _snprintf(v, sizeof(v), "%.2f", f); v[sizeof(v) - 1] = 0;
+            if (g_wmIni[0]) WritePrivateProfileStringA("Mirror", "DepthBias", v, g_wmIni); }
         return true;
     }
     if (!strncmp(args, "caps ", 5) && DvrOnOff(args + 5, &b)) {
