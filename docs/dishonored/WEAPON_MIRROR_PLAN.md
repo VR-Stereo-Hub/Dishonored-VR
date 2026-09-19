@@ -267,7 +267,7 @@ lower CoverTol or raise it until it stops.
 Tester: the pistol is better, most areas filled, but two major gaps remain on the
 barrel. The crossbow is decent, but its top left now flickers against the model
 and a few areas on the left are still missing. Run483: pistol kept 1684 of 2772
-(465 already modelled), crossbow 538 of 1957 (349). Changes in installed485:
+(465 already modelled), crossbow 538 of 1957 (349). Changes in installed486:
 - `[Mirror] Straddle=2.0`: a triangle crossing the plane that sits mostly on the
   modelled side and reaches at most 2 uu past it is now mirrored. A barrel is
   centred on the plane, so its top and bottom faces cross it and were never

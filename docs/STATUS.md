@@ -1,3 +1,19 @@
+## Installed486: swing/shot hand animation, barrel gaps, copy depth bias (2026-09-19)
+
+Run483 (banner verified; logs in build/playtest-candidates/wheel-blackout/run483):
+pistol mostly filled (kept 1684) with two gaps on the barrel; crossbow decent,
+but its top left flickers against the model and a few left-side areas are still
+missing. Installed486 = `vr33-hands-working-486-g3ec56e3bc` (DLL 58078be3...):
+- Mirror: plane-crossing faces mostly on the modelled side are mirrored
+  (`[Mirror] Straddle=2.0`), and the copy is depth-biased behind real surfaces
+  (`[Mirror] DepthBias`, code 0, installed 1; `mirror bias <n>` live).
+  WEAPON_MIRROR_PLAN 6e.
+- Animation: sword swing (StatePlayerMeleeAttack) and shot (any *fire* clip in
+  StatePlayerAction; run483 measured Pistol_Fire) can play the game animation on
+  the tracked hands with the arms hidden, like mantling. F10 Animations tab;
+  `[Anim] HandAnimMelee/HandAnimFire`, code 0, installed 1. ANIM-HANDOFF-PLAN end.
+Installed ini: the three keys above added (CRLF verified). No PR, no merge.
+
 ## Installed483: rain defaults saved, pistol coverage tightened (2026-09-19)
 
 Run480 (banner verified; logs in build/playtest-candidates/wheel-blackout/run480):
