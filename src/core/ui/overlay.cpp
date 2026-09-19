@@ -381,6 +381,15 @@ static void OverlayFrame()
         if(ImGui::SliderFloat("Animation view left/right",&viewRight,-20.0f,20.0f,"%.1f cm"))dvr::anim::set_view_right_cm(viewRight);
         ImGui::TextDisabled("Positive moves your viewpoint right. Native animated camera scopes only; 0 is unchanged.");
         if(ImGui::Button("Reset animation alignment"))dvr::anim::set_view_right_cm(0);
+        ImGui::Separator();
+        ImGui::TextUnformatted("Game animation on the tracked hands (arms stay hidden)");
+        bool melee=dvr::anim::hand_anim_melee();
+        if(ImGui::Checkbox("Sword swing animation",&melee))dvr::anim::set_hand_anim_melee(melee);
+        bool fire=dvr::anim::hand_anim_fire();
+        if(ImGui::Checkbox("Shooting animation (pistol, crossbow)",&fire))dvr::anim::set_hand_anim_fire(fire);
+        ImGui::TextDisabled("Like mantling: the hand plays the game's clip, then returns to the controller.");
+        ImGui::TextDisabled("Show game arms on Melee attack / Item action also shows the forearms.");
+        ImGui::Separator();
         ImGui::TextWrapped("Lists all 40 shipped player action states. Individual animation clips within an action share its setting.");
         if(ImGui::Button("Reset arm choices"))dvr::anim::reset_arm_rules();
         ImGui::SameLine();

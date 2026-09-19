@@ -22,6 +22,10 @@ bool enabled();
 bool cinematic_enabled();
 bool mantle_enabled();
 void set_mantle(bool on);
+bool hand_anim_melee();   // [Anim] HandAnimMelee: sword swings play the game animation on the hands
+bool hand_anim_fire();    // [Anim] HandAnimFire: shots (*Fire* clips) play the game animation on the hands
+void set_hand_anim_melee(bool on);
+void set_hand_anim_fire(bool on);
 void set_cinematic(bool on);
 void set_enabled(bool on);
 bool arm_rule_enabled(int index);

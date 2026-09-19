@@ -518,3 +518,17 @@ The takedowns, fatalities and body pickup were judged right in the headset. **Le
 `Mantle` is removed from the default `HandBackMaster` list. Ladder climbing (`Climb`) keeps
 the hand-back by request, though it was not observed in this run. Not every action
 variant was tried.
+
+## Swing and shot on the tracked hands (2026-09-19)
+
+Run483 measured where a shot lives: `Pistol_Fire#0` plays inside
+`StatePlayerAction` (the upper lane, the left lane, or both). That state also
+carries reloads and the sword sneak in/out, so the shot is matched on the CLIP
+name (any sequence containing "fire", case-insensitive), not on the state. The
+sword swing is its own state, `StatePlayerMeleeAttack`. Both now use the mantle
+path: native pose on the hands with the forearms hidden (`mantleSplit`), unless
+that state's "Show game arms" is also checked. The camera classifier is NOT
+widened, so neither takes the camera. Levers: `[Anim] HandAnimMelee`,
+`[Anim] HandAnimFire`, default 0, in the F10 Animations tab (saved on change).
+The crossbow's fire clip name is not yet measured; the next run's `anim:` lines
+say whether it contains "fire".

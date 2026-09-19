@@ -912,6 +912,8 @@ static void WriteDefaultIni(const char* ini)
         "[Anim]\n"
         "DropWatch=1\n"
         "MantleHandBack=1\n"
+        "HandAnimMelee=0\n"
+        "HandAnimFire=0\n"
         "CinematicHandBack=1\n"
         "StateWatch=1\n"
         "HandBack=1\n"

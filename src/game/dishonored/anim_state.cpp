@@ -13,6 +13,10 @@ Handoff handoff;
 Handoff classifier;
 Handoff cameraClassifier;
 bool watch = true, handback = true, cinematicHandback = false, mantleHandback = false;
+// Game animation on the tracked hands with the arms hidden, like mantling: the
+// sword swing (StatePlayerMeleeAttack) and the shot (a *Fire* clip inside
+// StatePlayerAction, where run483 measured Pistol_Fire). New levers: default off.
+bool handAnimMelee = false, handAnimFire = false;
 char rulesIni[MAX_PATH]={};
 struct ArmOverrides { int values[armRuleCount]; ArmOverrides(){for(int& v:values)v=-1;} } armOverrides;
 bool actionAllowed[armRuleCount];
@@ -223,6 +227,21 @@ void set_mantle(bool on) {
     AcquireSRWLockExclusive(&lock); mantleHandback=on; ReleaseSRWLockExclusive(&lock);
     Log("anim: MantleHandBack=%d (live)",on?1:0);
 }
+static bool has_fire_clip(const char* seq) {   // "Pistol_Fire#0", "Crossbow_Fire..." in any case
+    for (const char* p=seq; *p; ++p) if (!_strnicmp(p,"fire",4)) return true;
+    return false;
+}
+bool hand_anim_melee() { AcquireSRWLockShared(&lock); bool on=handAnimMelee; ReleaseSRWLockShared(&lock); return on; }
+bool hand_anim_fire() { AcquireSRWLockShared(&lock); bool on=handAnimFire; ReleaseSRWLockShared(&lock); return on; }
+static void set_hand_anim(bool fire,bool on) {
+    AcquireSRWLockExclusive(&lock); (fire?handAnimFire:handAnimMelee)=on;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    const char* key=fire?"HandAnimFire":"HandAnimMelee";
+    if(*ini)WritePrivateProfileStringA("Anim",key,on?"1":"0",ini);
+    Log("anim: %s=%d (live, saved; game animation on the tracked hands, arms hidden unless that state shows game arms)",key,on?1:0);
+}
+void set_hand_anim_melee(bool on) { set_hand_anim(false,on); }
+void set_hand_anim_fire(bool on) { set_hand_anim(true,on); }
 bool cinematic_enabled() { AcquireSRWLockShared(&lock); bool on=cinematicHandback; ReleaseSRWLockShared(&lock); return on; }
 void set_cinematic(bool on) {
     AcquireSRWLockExclusive(&lock); cinematicHandback=on; ReleaseSRWLockExclusive(&lock);
@@ -387,13 +406,22 @@ void tick() {
     const bool mantle=mantle_pose_requested(mantleHandback,s.state[0]);
     cameraClassifier.update(s.valid,mantle || cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]),watch,now,releaseMs,0);
     s.cameraAction=s.valid && cameraClassifier.game;
-    const bool match=mantle || resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
+    // Swing / shot: the same split-native path as mantle. The shot is matched on
+    // the clip, not the state, because StatePlayerAction also carries reloads and
+    // the sword sneak in/out.
+    const bool swing=handAnimMelee && !strcmp(s.state[1],"StatePlayerMeleeAttack");
+    const int fireLane=!strcmp(s.state[1],"StatePlayerAction")?1:!strcmp(s.state[2],"StatePlayerAction")?2:-1;
+    const bool fire=handAnimFire && fireLane>0 && has_fire_clip(s.sequence);
+    const bool handPose=swing || fire;
+    const bool match=mantle || handPose || resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
     classifier.update(s.valid,match,watch,now,releaseMs,0);
-    s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) : (!match && classifier.game && previous.mantleSplit));
+    s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) :
+        handPose ? !(swing ? resolve_arm_rule(1,s.state[1]) : resolve_arm_rule(fireLane,s.state[fireLane])) :
+        (!match && classifier.game && previous.mantleSplit));
     handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
-    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?"mantle native pose with split hands":"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
+    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands":fire?"shot native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
     published=s;
     ReleaseSRWLockExclusive(&lock);
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
@@ -432,6 +460,9 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
+    handAnimMelee=GetPrivateProfileIntA("Anim","HandAnimMelee",0,ini)!=0;
+    handAnimFire=GetPrivateProfileIntA("Anim","HandAnimFire",0,ini)!=0;
+    Log("config: [Anim] HandAnimMelee=%d HandAnimFire=%d (game animation on the tracked hands, arms hidden)",handAnimMelee,handAnimFire);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
     blendMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendMs",150,ini); if(blendMs>2000) blendMs=2000;
     char buf[1024];
@@ -447,13 +478,15 @@ void configure(const char* ini) {
 // still being tuned by headset runs. An edited list in the ini is kept as is.
 void save(const char* ini) {
     AcquireSRWLockShared(&lock);
-    const bool w=watch, b=handback, c=cinematicHandback, mantle=mantleHandback; const unsigned r=releaseMs, m=blendMs;
+    const bool w=watch, b=handback, c=cinematicHandback, mantle=mantleHandback, hm=handAnimMelee, hf=handAnimFire; const unsigned r=releaseMs, m=blendMs;
     ReleaseSRWLockShared(&lock);
     char v[16];
     WritePrivateProfileStringA("Anim","StateWatch",w?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandBack",b?"1":"0",ini);
     WritePrivateProfileStringA("Anim","CinematicHandBack",c?"1":"0",ini);
     WritePrivateProfileStringA("Anim","MantleHandBack",mantle?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HandAnimMelee",hm?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HandAnimFire",hf?"1":"0",ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",r); WritePrivateProfileStringA("Anim","ReleaseMs",v,ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",m); WritePrivateProfileStringA("Anim","HandBackBlendMs",v,ini);
 }
