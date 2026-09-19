@@ -1,3 +1,21 @@
+## Session end: installed470 results, handoff (2026-09-18)
+
+Installed470 (`vr33-hands-working-470-gc4becc905`, DLL 572c930c...) run by the
+tester; logs archived in build/playtest-candidates/wheel-blackout/run470.
+- VR-139 hitch: SOLVED outside the mod (VD network; router restart + H.264+).
+- VR-140 black world after wheel flicks: reproduced. The UI-blur restore
+  hypothesis is RETRACTED (weight read 0, watchdog silent). New lead: black
+  starts ~400 ms after the game's own wheel movie finally closes following
+  mid-close re-opens; black at the backbuffer. FLICKER_REFERENCE VR-140 item 7-8.
+- VR-138 mirror: pistol nearly filled (kept 1248/2772), a little missing near the
+  handle; crossbow bottom-left still missing (kept 50; its plane comes from the
+  symmetric top). Back-face pass armed; no visible help reported.
+- VR-136/137 rain: the pane is `DisEmitterCameraLensEffect_Looping` (a lens
+  effect), moved to the eyes by the LENS distance slider; tester wants it scaled
+  down. Rain-box distance and hide work on a different effect.
+- VR-135 possession: accepted (rat); widened to all classes, people untested.
+Installed ini: 464's plus `[Mirror] BackFaces=1`. No PR, no merge.
+
 ## Installed470: wheel blackout fix, fuller mirror, back faces (2026-09-18)
 
 Run467 (banner verified, logs in build/playtest-candidates/hitch-instrument/run467):

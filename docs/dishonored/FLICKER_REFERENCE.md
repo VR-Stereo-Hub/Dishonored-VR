@@ -19,9 +19,31 @@
    flicks, and the new `menu/blur: UI post-process weight ... held ... in
    GAMEPLAY` warning never fires; if the warning fires without our write, the
    game itself sticks and another owner must be found.
-5. **Change:** build468 exit writes nothing; read-only gameplay watchdog.
-   Not yet run.
-6. **Status:** cause inferred from timing + mechanism, fix built, headset open.
+5. **Change:** build470 (468 in the plan) exit writes nothing; read-only
+   gameplay watchdog.
+6. **Result, run470 (`vr33-hands-working-470-gc4becc905`, logs
+   `build/playtest-candidates/wheel-blackout/run470`): HYPOTHESIS RETRACTED.**
+   The tester reproduced the black world by flicking the wheel. Every
+   `menu/blur: released` read the weight at 0.000 and the watchdog never fired:
+   the UI post-process weight is NOT the cause. The no-restore change stays
+   (harmless) but fixes nothing here.
+7. **New measured timing (the lead):** 12 wheel open/close cycles ~250 ms apart,
+   last close 5410140. The game's own `pPowerWheel` bMovieIsOpen went 1 -> 0 only
+   at 5410390 (it had stayed 1 through every flick), the mod's HUD layout left the
+   wheel at 5410406 ("the screen left: routing by element again"), and at 5410812
+   `stereo: frameid THE EYES BECAME ONE PICTURE at stage bb` - identical black
+   eyes from then on (frameid 3s: one-picture 20 then 39/39, 40/40). run467 had
+   the same shape (a 62 ms re-open while the movie never closed). So the black
+   begins ~400 ms after the game finally closes a wheel movie that was re-opened
+   mid-close. Stereo pairs, tags and draw counts stay normal: the scene is drawn
+   black at the backbuffer (stage bb), before capture.
+8. **Next suspects, in order:** (a) the game's own post-process or scene state
+   when a wheel is re-opened during its close (test: flick with the mod's wheel
+   features off - `[Menu] NoBlurWheel=0`, wheel ride/HUD redirect off - and see if
+   it still blacks); (b) the HUD redirect (hudcap) routing state at the ride end;
+   (c) menu/head camera writes at the ride end. Needed instrument: at the frameid
+   ONE-PICTURE transition, dump the post-process manager's entry weights, camera
+   FOV/rotation and the hudcap routing state.
 
 ## VR-135: possession mono, refusing gate measured (2026-09-18)
 

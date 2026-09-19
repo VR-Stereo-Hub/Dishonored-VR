@@ -58,6 +58,15 @@ distance: `[Rain] Distance` writes it (0 centres the emitter on the camera).
 The drop module's own spawn volume (`DisParticleModuleRainDrops.m_Extent`,
 per template) is not read by the mod.
 
+**The rain PANE is a lens effect (run470, 2026-09-18).** The tester's pane moved
+with F10 "Lens effects distance", not "Rain distance", and the rain-box hide did
+not remove it. The live lens effect in the rain was `DisEmitterCameraLensEffect_Looping`
+(`lens/fx` at 4917406: DistFromCamera 90, BaseFOV 80, DrawScale 1.0, measured
+fwd 72.0 uu - so this build DOES scale the distance by FOV, 90 -> ~72 at the
+103-degree view). The camera rain box (m_RainBoxExtent) is a separate, real
+effect; its lever works but is not the pane. Wanted next: scale the looping lens
+rain down (DrawScale with KeepSize off) and a per-class lens hide.
+
 **Lens effects (VR-137).** `DishonoredPlayerPawn.m_pCurHealthLensEffect` is an
 `EmitterCameraLensEffectBase` (the red low-health vignette). All lens effects
 live in `Camera.CameraLensEffects` and are placed by the native
