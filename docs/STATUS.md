@@ -1,3 +1,16 @@
+## Candidate 499: vitals on the drawn palm; wheel stutter measured (2026-09-19)
+
+Run497 (logs in build/playtest-candidates/hud-improvements/run497, previous run
+in the .prev log): the panels did not follow the hand model across a stance
+change or an animation. The wheel stutters: the share of one-eye ticks in the
+wheel is 10% (run470) -> 25% (run486) -> 47% (run497). Candidate 499 =
+`vr33-hands-working-499-g1cd485a08` (DLL 1fc2128e...), frozen with install.ps1 in
+build/playtest-candidates/hud-improvements/install-499, NOT installed (the tester
+was playing): the attach captures against the DRAWN palm (re-attach needed), and
+497's per-hand-draw lock is gone. No ini change. HUD_ANCHORS.md top section.
+If the wheel ratio stays high, the next A/B is [VR] ReduceDesktopPresent (1 since
+run476).
+
 ## Candidate 497: attached vitals follow animations, 10 s countdown (2026-09-19)
 
 Candidate 495 is installed (live log banner); the tester accepted the attach
