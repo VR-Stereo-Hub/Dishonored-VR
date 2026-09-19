@@ -1,3 +1,18 @@
+## codex/hud-improvements: reticle look and split vitals, candidate 490 (2026-09-19)
+
+New branch off codex/misc-fixes (PR #75, not merged). Candidate 490 =
+`vr33-hands-working-490-g91b18ebb5` (DLL 3bbfc88c...), built and frozen in
+build/playtest-candidates/hud-improvements/install-490 with install.ps1. NOT
+installed yet: the tester was playing. The installer archives both logs and the
+ini, copies the DLL, sets `[Hud] VitalsSplit=1` and mirrors HandR onto HandL
+(X negated). A dry run on run486's ini changed only those lines, CRLF intact.
+- VR-141: the reticle (the controller dot) has size, distance and RGB colour in
+  the F10 HUD tab, saved on change; default white (was a fixed red).
+- VR-142: the vitals image is cut along a diagonal into a health panel (handR)
+  and a mana plus equipped-item panel (handL), with line and crop sliders.
+  HUD_ANCHORS.md top sections.
+Next: attach both vitals panels to the wrist, like the hand-held notes.
+
 ## Run486 result and the branch PR (2026-09-19)
 
 Run486 (banner verified; logs in build/playtest-candidates/wheel-blackout/run486):
