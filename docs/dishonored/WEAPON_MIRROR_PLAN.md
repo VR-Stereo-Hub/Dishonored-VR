@@ -215,7 +215,7 @@ triangles the mirror kept were near-duplicates of existing faces (the symmetry
 is 0.21 uu off-centre), which z-fight. The back-face pass on its thin two-layer
 parts can z-fight the same way, and it showed no visible help in either run.
 Installed476:
-- `[Mirror] SymmetricSkip=0.90` (removed in installed478, see 6c).
+- `[Mirror] SymmetricSkip=0.90` (removed in installed480, see 6c).
 - `[Mirror] BackFaces=0` in the installed ini.
 - `[Mirror] Caps=1`, new: the missing areas sit where the hand covered the
   model in flat play, so they are expected to be OPEN holes. Boundary loops
@@ -235,7 +235,7 @@ little. So `SymmetricSkip` was wrong: the crossbow's vertices are 97.6% symmetri
 but its faces are not. The unmodelled side keeps its vertices (edges and the
 thickness of the other side's plates) with no faces looking out of it. The
 vertex-only occupancy test had the same blind spot, and that is why the
-installed470/473 copies kept only 50 triangles. Installed478:
+installed470/473 copies kept only 50 triangles. Installed480:
 - SymmetricSkip removed.
 - The modelled side is the one with more area facing OUT of it; the normals'
   outward sign is measured against the mesh centre, so winding is not assumed.

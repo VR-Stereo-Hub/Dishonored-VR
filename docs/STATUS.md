@@ -1,3 +1,19 @@
+## Installed480: blackout fixed, rain back to 470, mirror by facing (2026-09-19)
+
+Run476 (banner verified; logs in build/playtest-candidates/wheel-blackout/run476):
+VR-140 FIXED, headset-confirmed. No blackout across 22 wheel opens; `pp/repair`
+fired 46 times, all on a NaN Cooling timer. Rain: the tester preferred
+installed470's look, so the defaults are back to 470's end state (lens 2 uu,
+keep-size off, rain box shown, follow-head off). The FollowHead and RainStrength
+levers stay available, both off by default.
+Mirror: the crossbow's left side was invisible because SymmetricSkip (476)
+refused it; its vertices are symmetric but its faces are not. Installed480 =
+`vr33-hands-working-480-ge7493c9f2` (DLL 124adab4...): the modelled side is
+picked by outward-facing area, a copy is skipped only over same-facing surface,
+SymmetricSkip is removed, and hole caps stay on (WEAPON_MIRROR_PLAN 6c).
+Installed ini: Rain Hide 1->0, Lens Distance 1->2, FollowHead 1->0 (CRLF
+verified). No PR, no merge.
+
 ## Installed476: blackout cause measured and repaired, rain lens follows the head, hole caps (2026-09-19)
 
 Run473 (banner verified; logs in build/playtest-candidates/wheel-blackout/run473):
