@@ -1,3 +1,49 @@
+## Blink silence, the stand-up stall probe, one-click install (2026-09-19)
+
+Still on claude/hud-improvements-pt-2 (PR #77). Build 514 was played; three
+results and one new fault.
+
+CONFIRMED FROM THE TESTER'S LOG. The VR-147 Blink latch fix works: the drop fired
+at the save load (pawn 185EA000 -> 185E3C00) and re-latched 31 ms later, against
+the 23.8 s the same transition cost in run 512. VR-148 awareness markers install
+and match: 2996 published, 0 refused, 5238 draws matched, 4 ambiguous, and the
+widest accepted draw was 61x62 authoring px, comfortably inside the 160x160
+bound - which is the measurement that would tighten it. VR-149 has no result yet:
+no bone charm was revealed by the Heart in that run, so `hud/heart-symbol` has
+nothing to say.
+
+NEW FAULT, and the expensive one. A later run had Blink back on head aim and the
+log carried NO `[blink]` lines at all. The latch logs its successes and says
+nothing about a sweep that finds nothing, and the aim hooks only install once the
+latch exists, so a dead Blink hook and a healthy one produce identical text. Two
+states hide behind that silence and want opposite responses: the power not
+existing in the level yet (an early save, not a fault) versus the object existing
+and the liveness walk refusing it (a fault). Config was diffed between the working
+and broken runs and is byte-identical, so it is not a setting. The fruitless sweep
+now warns with the population it examined. TRAPS.md carries the class.
+
+VR-143, the stand-up stall: texture streaming and paging are CLEARED, not by a
+new run but by reading run 514's comparable load stall - 2437.6 ms of 2440.1 in
+out/idle waiting for the game thread, with device/stream at 0.0 MB uploaded and
+created and VRAM flat. What remains unmeasured is that `out` means "not our
+present hooks", not "not the mod": every mod tick on the game thread runs inside
+ProcessEvent and lands in the same bucket. The new probe captures the first
+stand-up after a load at 100 ms resolution and times that lane. Not yet run.
+
+`tools\install-candidate.ps1` is the tester's one-button install: it refuses
+while the game is running, archives the previous DLL, INI and both logs first,
+leaves the INI alone, and prints the installed hash and the settings that matter.
+
+FOUND AND NOT FIXED: `tools\camera-clamp-host.ps1` no longer compiles. Its regex
+takes `^struct Writer \{.*?^\};` but the production declaration ends `} g_viewScope;`,
+and `write_offset` has referenced `g_viewScope` and `scoped()` since 5dee90153.
+Pre-existing on this branch, not from this work. Filed as VR-150.
+
+Next: one run. Blink somewhere Blink exists, and read `blink:` - either a latch
+line or the new fruitless-sweep warning with its counts. Reveal a bone charm with
+the Heart for `hud/heart-symbol`. Load a crouched save and stand up for
+`standup:`. Then tighten the awareness window against the 61x62 measurement.
+
 ## HUD improvements pt 2: blink latch, bone charms, awareness meters (2026-09-19)
 
 Branch claude/hud-improvements-pt-2, off codex/hud-improvements after that branch

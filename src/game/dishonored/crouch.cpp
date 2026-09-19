@@ -89,6 +89,121 @@ static void PawnCollisionTick()
 }
 
 
+// VR-143: THE STAND-UP STALL PROBE.
+//
+// The report is: load a save made while crouched, stand up, and the game
+// freezes for two to three seconds. Run 514's comparable load stall measured
+// 2437.6 ms of 2440.1 in `out/idle (waiting for the game thread)`, with
+// `device/stream` at 0.0 MB uploaded and 0.0 MB created and VRAM flat - which
+// clears texture streaming and paging, the two suspects this ticket was opened
+// on. What OUT cannot separate is the engine's own work from the mod's, because
+// every mod tick on the game thread runs inside ProcessEvent and lands in the
+// same bucket.
+//
+// So this captures the four seconds after the FIRST stand-up following a new
+// pawn (a save or level load), at 100 ms resolution, and prints the script
+// lane's own time beside the present count. A bucket the script lane never
+// reached rolls forward EMPTY on the next tick rather than being skipped: a run
+// of empty buckets means the game thread was inside the engine and not in our
+// code at all, which is the reading that ends the ticket.
+//
+// Script lane throughout. The window is bounded, self-disarming, and the whole
+// probe costs one bool test per ProcessEvent when it is not running.
+static void SupRoll(double now)
+{
+    while (g_supActive && now >= g_supBucketEnd) {
+        if (g_supBucketN < kSupBuckets) {
+            const uint32_t presents = dvr::frame::count();
+            SupBucket& b = g_supBucket[g_supBucketN++];
+            b.laneMs    = (float)g_supLaneAcc;
+            b.laneCalls = g_supLaneCalls;
+            b.presents  = presents - g_supPresentAt;
+            g_supPresentAt = presents;
+        }
+        g_supLaneAcc = 0.0; g_supLaneCalls = 0;
+        g_supBucketEnd += 100.0;
+        if (g_supBucketN >= kSupBuckets) break;
+    }
+}
+
+
+static void SupReport()
+{
+    char presentsLine[kSupBuckets * 5 + 8] = "";
+    char laneLine[kSupBuckets * 7 + 8] = "";
+    int pn = 0, ln = 0;
+    double laneTotal = 0.0; uint32_t presentTotal = 0, callTotal = 0, empty = 0;
+    for (int i = 0; i < g_supBucketN; ++i) {
+        const SupBucket& b = g_supBucket[i];
+        laneTotal += b.laneMs; presentTotal += b.presents; callTotal += b.laneCalls;
+        if (!b.laneCalls) ++empty;
+        if (pn < (int)sizeof(presentsLine) - 6)
+            pn += _snprintf(presentsLine + pn, sizeof(presentsLine) - pn, "%u ", b.presents);
+        if (ln < (int)sizeof(laneLine) - 8)
+            ln += _snprintf(laneLine + ln, sizeof(laneLine) - ln, "%.0f ", b.laneMs);
+    }
+    const double wall = g_supBucketN * 100.0;
+    Log("standup: FIRST STAND-UP AFTER A LOAD - %d x 100 ms from the stand "
+        "(capsule %.1f -> %.1f uu, pawn %p)",
+        g_supBucketN, g_supFromCyl, g_supToCyl, (void*)g_supPawnSeen);
+    Log("standup: presents per 100 ms, oldest first: %s", presentsLine);
+    Log("standup: script-lane ms per 100 ms, same buckets: %s", laneLine);
+    Log("standup: totals over %.0f ms - %u present(s) (%.1f ms mean), script lane "
+        "%.0f ms in %u outermost dispatch(es) = %.0f%% of wall, %u bucket(s) the "
+        "script lane never reached",
+        wall, presentTotal, presentTotal ? wall / presentTotal : 0.0,
+        laneTotal, callTotal, wall > 0 ? laneTotal * 100.0 / wall : 0.0, empty);
+    Log("standup: HOW TO READ IT. The stall sits in out/idle waiting for the game "
+        "thread, and the ProcessEvent lane is the only mod work on that thread. "
+        "If the script-lane ms rise with the buckets where presents collapse, the "
+        "stall is OURS and the next question is which tick inside it. If the "
+        "script lane stays flat, or the buckets are EMPTY while presents collapse, "
+        "the game thread was inside the ENGINE and the mod is a bystander - that "
+        "answer closes this ticket rather than continuing it. Read the "
+        "device/stream and gpumem lines below with it: run 514's comparable stall "
+        "had 0.0 MB of both, which is what already cleared texture streaming.");
+    dvr::d3d9ex::stream_log_recent("standup", kSupBuckets);
+    dvr::gpu_memory::log_now("standup");
+    dvr::perf::mark("first stand-up after a load", "standup probe");
+}
+
+
+static void StandUpProbeTick()
+{
+    const double now = MaimNowMs();
+    if (g_supActive) {
+        SupRoll(now);
+        if (g_supBucketN >= kSupBuckets) {
+            g_supActive = false; g_supLaneOn = false;
+            SupReport();
+        }
+        return;
+    }
+    // A NEW PAWN IS THE LOAD SIGNAL. [Hud] LoadGameClicked only counts a menu
+    // click, so it misses a quickload and a level transition; the pawn does not,
+    // and it is the same signal the Blink latch uses (VR-147).
+    if (g_pePawn && g_pePawn != g_supPawnSeen) {
+        g_supPawnSeen = g_pePawn; g_supArmed = true; g_supSawCrouch = false;
+    }
+    if (!g_supArmed || g_cylLast <= 0.0f) return;
+    // The same hysteresis the crawl tuck uses, for the same reason: the capsule
+    // flaps 65<->33 during a crouch entry, so a plain threshold would fire on
+    // the flap rather than on a real stand.
+    if (!g_supSawCrouch) { if (g_cylLast < 76.0f) { g_supSawCrouch = true; g_supFromCyl = g_cylLast; } return; }
+    if (g_cylLast <= 80.0f) return;
+    g_supToCyl = g_cylLast;
+    g_supArmed = false; g_supSawCrouch = false;
+    g_supActive = true; g_supBucketN = 0; g_supStartMs = now;
+    g_supBucketEnd = now + 100.0;
+    g_supPresentAt = dvr::frame::count();
+    g_supLaneAcc = 0.0; g_supLaneCalls = 0; g_supLaneOn = true;
+    Log("standup: capturing %d x 100 ms - first stand-up (capsule %.1f -> %.1f uu) "
+        "since pawn %p arrived. The script lane is being timed for this window only",
+        kSupBuckets, g_supFromCyl, g_supToCyl, (void*)g_supPawnSeen);
+}
+
+
+
 // 38.19 CRAWL TUCK. Measured A/B (user): under-table crawling is flawless
 // with the hand drive OFF (HOME) and hit-or-miss with it on, even after the
 // 38.18 height fix - the world-space arm posing collides with the crawl

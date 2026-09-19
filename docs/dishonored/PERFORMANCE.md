@@ -766,3 +766,44 @@ as52107a094; resulting source/release/test trees match the accepted combination.
 Source branches remain.103 FOV,120% pixels and strict desktop suppression remain
 the accepted profile. No new controlled performance percentage is established.
 Subsequent HUD work is VR-126 and is documented in HUD_ANCHORS, outside this research.
+
+
+## VR-143: the stand-up stall - streaming and paging are CLEARED (2026-09-19)
+
+The ticket was opened on run 499's reading that the load window carried 11996
+`TexLockRect` calls, making texture streaming and the device shadow copy the
+first suspects. Run 514 measured a comparable stall directly and clears both.
+
+Run 514 (`vr33-hands-working-514-g8bba892f7-dirty`), the save load at t=6634593:
+
+- `perf: frame gap 2441ms ... sat in: out/idle (waiting for the game thread) of
+  #7664 tag -1 (2437.6 ms of in 1.3 / out 2440.1; wait 0.0 lock 0.6 endFrame 0.1)`
+- `device/stream (gap)`: all twenty 100 ms buckets 0.0/0.0 MB, `totals uploads 0
+  (0.0 MB, 0.0 ms CPU in UpdateSurface) creates 0 (0.0 MB) releases 0`
+- `gpumem (gap)`: VRAM 2003 / 15293 MB and flat over 4 s, system-backed 88 MB
+  and unmoving, largest free address range 1322.8 MB and unmoving
+
+So: no texture uploads, no creations, no VRAM growth, no paging, no 32-bit
+address pressure, and the render thread idle waiting on the game thread. The
+streaming hypothesis does not survive this, and neither does paging.
+
+**The measurement trap that remains.** `out` is "not our present hooks", which
+is NOT the same as "not the mod". Every mod tick on the GAME thread - `PeLatch`,
+the hand drive, the latches, the property resolvers, the marker hooks - runs
+inside `ProcessEvent` and lands in the same `out` bucket as the engine's own
+work. Run 499's conclusion that "the mod's hook scopes were no higher than
+elsewhere" was read off the present-thread split, which never covered that lane.
+
+**The instrument built for it** (`StandUpProbeTick`, `crouch.cpp`): the first
+stand-up after a new pawn starts a bounded 4 s capture, 40 buckets of 100 ms,
+recording presents and the script lane's own time and outermost dispatch count
+per bucket, then printing them beside `device/stream`, `gpumem` and a `perf`
+mark. A bucket the script lane never reached rolls forward EMPTY rather than
+being skipped, because a run of empty buckets is the signature that matters: the
+game thread was inside the engine and not in our code at all.
+
+The reading is stated on the line and can print the unwelcome answer either way.
+Script-lane ms rising with the buckets where presents collapse means the stall is
+ours. A flat or empty script lane while presents collapse means the game thread
+was in the engine and the mod is a bystander, which closes the ticket rather
+than continuing it. Not yet run.

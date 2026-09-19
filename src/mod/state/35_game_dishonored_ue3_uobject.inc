@@ -104,5 +104,53 @@ static bool FindFpMesh();
 
 static uint8_t* g_peCtrl  = NULL;
 static uint8_t* g_pePawn  = NULL;
+
+// VR-143: THE STAND-UP STALL PROBE, and the script lane's own clock.
+//
+// The stall after standing up from a loaded crouched save measures as `out/idle
+// (waiting for the game thread)` - run 514's comparable load stall read 2437.6 ms
+// of 2440.1 out, with texture streaming at exactly 0.0 MB and VRAM flat, which
+// clears the streaming and paging suspects the ticket was opened on.
+//
+// What OUT does not separate is the engine's own work from OURS. The perf split
+// covers the present thread; every mod tick on the GAME thread - PeLatch, the
+// hand drive, the latches, the property resolvers - runs inside ProcessEvent and
+// lands in the same OUT bucket as the engine. So a session can read "not our
+// hooks" off the perf line and still be looking at our own code.
+//
+// This is the missing half. The scope times the OUTERMOST PeHandler only, and
+// only while the probe is running, so an ordinary frame pays one bool test.
+// Everything here is touched from the ProcessEvent lane alone.
+static bool     g_supLaneOn    = false;   // armed only inside the capture window
+static int      g_supLaneDepth = 0;       // our own ProcessEvent calls re-enter
+static double   g_supLaneAcc   = 0.0;     // ms in the current bucket
+static uint32_t g_supLaneCalls = 0;       // outermost dispatches in it
+struct SupLaneScope {
+    double t0;
+    SupLaneScope() : t0((g_supLaneOn && g_supLaneDepth++ == 0) ? MaimNowMs() : 0.0) {}
+    ~SupLaneScope() {
+        if (g_supLaneDepth > 0) --g_supLaneDepth;
+        if (t0 > 0.0) { g_supLaneAcc += MaimNowMs() - t0; ++g_supLaneCalls; }
+    }
+    SupLaneScope(const SupLaneScope&) = delete;
+    SupLaneScope& operator=(const SupLaneScope&) = delete;
+};
+// The window: 40 buckets of 100 ms. A bucket the script lane never reached
+// rolls forward EMPTY rather than being skipped, because a run of empty
+// buckets is the signature that matters: the game thread was inside the engine
+// and not in our code at all.
+struct SupBucket { float laneMs; uint32_t laneCalls; uint32_t presents; };
+static const int kSupBuckets = 40;
+static SupBucket g_supBucket[kSupBuckets];
+static int      g_supBucketN   = 0;
+static double   g_supBucketEnd = 0.0;
+static uint32_t g_supPresentAt = 0;
+static bool     g_supActive    = false;   // the capture window is running
+static bool     g_supArmed     = false;   // a new pawn arrived; waiting for crouch
+static bool     g_supSawCrouch = false;   // and then for the stand
+static uint8_t* g_supPawnSeen  = NULL;    // the pawn the arming was done under
+static double   g_supStartMs   = 0.0;
+static float    g_supFromCyl   = 0.0f;    // the capsule either side of the stand
+static float    g_supToCyl     = 0.0f;
 static void*    g_clsCtrl = NULL;      // their UClass pointers, for cheap re-checks
 static void*    g_clsPawn = NULL;

@@ -1,3 +1,32 @@
+## A latch that logs only its successes cannot report being dead (2026-09-19)
+
+Blink went back to head aim and the log had **no `[blink]` lines at all** - not
+one, in a whole run. That is not a quiet fault, it is an invisible one, and it
+sent a session looking at the aim maths and at settings before anyone noticed
+the category was empty.
+
+The chain: `BlinkLatch` logs when it FINDS the player `PowerBlink` and logs
+nothing when a full sweep of GObjects finds none. `blinkdst` and `blinkdir` only
+install once the latch exists, so they cannot speak either. A run whose sweep
+never succeeds therefore produces exactly as much `[blink]` text as a run where
+the feature was never compiled in: zero.
+
+Two different states were behind that same silence, and they need opposite
+responses: **the power does not exist in this level yet** (Blink is granted by
+the mark, so an early save legitimately has none, and there is nothing to fix),
+versus **the object is there and our liveness walk is rejecting it** (a real
+fault). The log could not tell them apart because it counted only successes.
+
+The general rule this project already has - an instrument that cannot fail its
+own hypothesis is not evidence - has a corollary: **a latch must report the
+sweep that found nothing, with the population it examined.** The fruitless sweep
+now warns once and then every 30 s with how many slots it scanned, how many were
+the right class at all, and how many of those the liveness walk refused, and the
+line says in words which reading is a fault and which is not.
+
+Cost of not having it: two runs and a headset session spent diffing settings
+that turned out byte-identical between the working and broken runs.
+
 ## A GObjects slot that still holds the pointer is not a live object (2026-09-19)
 
 Blink aimed with the engine's own HEAD vector for 23.8 seconds after a save load
