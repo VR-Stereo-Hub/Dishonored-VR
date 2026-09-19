@@ -23,7 +23,7 @@
 #include <atomic>
 #include <cmath>
 
-static std::atomic<bool> g_rainHide{true}, g_rainTrace{true};
+static std::atomic<bool> g_rainHide{false}, g_rainTrace{true};
 // VR-136: the rain slab's distance. The camera re-places m_pRainBoxEmitter every
 // frame at camLoc + viewForward * t, t = min over axes of m_RainBoxExtent / |f|
 // (the view ray's exit from that box; build458 steady samples: fwd 500..660 uu,
@@ -47,7 +47,7 @@ static bool RainHideEnabled() { return g_rainHide.load(); }
 static bool RainTraceEnabled() { return g_rainTrace.load(); }
 static void RainConfigure(const char* ini) {
     g_rainTrace.store(GetPrivateProfileIntA("Rain", "Trace", 1, ini) != 0);
-    RainHideSet(GetPrivateProfileIntA("Rain", "Hide", 1, ini) != 0);   // default = the tester's accepted setting (run473)
+    RainHideSet(GetPrivateProfileIntA("Rain", "Hide", 0, ini) != 0);
     RainDistanceSet(GetPrivateProfileIntA("Rain", "Distance", -1, ini));
 }
 
