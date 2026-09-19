@@ -1058,8 +1058,8 @@ void configure(const char* ini) {
     g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
     dvr::objectivemarkers::configure_rune_ownership(read_i(ini,"NativeRuneOwnership",1)!=0);
-    dvr::objectivemarkers::configure_heart_all_symbols(read_i(ini,"NativeHeartAllSymbols",0)!=0);
-    dvr::objectivemarkers::configure_awareness(read_i(ini,"NativeAwarenessMarkers",0)!=0);
+    dvr::objectivemarkers::configure_heart_all_symbols(read_i(ini,"NativeHeartAllSymbols",1)!=0);
+    dvr::objectivemarkers::configure_awareness(read_i(ini,"NativeAwarenessMarkers",1)!=0);
     g_nativeMarkerChildren=read_i(ini,"NativeMarkerChildren",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
