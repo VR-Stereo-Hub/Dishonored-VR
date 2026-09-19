@@ -1,3 +1,13 @@
+## Candidate 497: attached vitals follow animations, 10 s countdown (2026-09-19)
+
+Candidate 495 is installed (live log banner); the tester accepted the attach
+step. Candidate 497 = `vr33-hands-working-497-g3a3643256` (DLL b049184e...),
+frozen with install.ps1 in build/playtest-candidates/hud-improvements/install-497,
+NOT installed (the tester was playing). The countdown defaults to 10 s, and the
+attached panels follow the drawn hand during game animations (the hand draw
+publishes its offset from the controller as an XR-space move). No ini change (a
+dry run on the live ini changed nothing). HUD_ANCHORS.md top section.
+
 ## Candidate 495: attach the vitals by holding the hands to them (2026-09-19)
 
 Candidate 493 was installed by the tester (banner verified in the live log).
