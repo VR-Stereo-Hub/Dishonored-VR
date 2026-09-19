@@ -72,7 +72,11 @@ void configure(const Config& cfg, const char* origin) {
     // The control dot is head-anchored and lives entirely in the runtime: it must
     // keep drawing when the hand ray is refused, which is half of what it is for.
     dvr::vr::set_control_dot({cfg.controlDot, 1.5f, cfg.distanceM, cfg.sizeDeg});
+    int rgb[3];
+    for (int i = 0; i < 3; ++i) rgb[i] = cfg.rgb[i] < 0 ? 0 : cfg.rgb[i] > 255 ? 255 : cfg.rgb[i];
+    dvr::vr::set_aim_dot_color((uint8_t)rgb[0], (uint8_t)rgb[1], (uint8_t)rgb[2]);
     g_lastWhy = "";
+    DVR_INFO("crosshair: colour %d/%d/%d (RGB)", rgb[0], rgb[1], rgb[2]);
     DVR_INFO("crosshair: config from %s Dot=%d Laser=%d Hand=%s DistanceM=%.2f SizeDeg=%.2f "
              "ControlDot=%d (XR LOCAL fixed-distance guide; FireFromHand independently controls launch%s)",
              origin, cfg.dot, cfg.laser, cfg.hand ? "right" : "left", cfg.distanceM,
@@ -394,15 +398,29 @@ void command(const char* args) {
                   "hand left|right | distance 0.5..50 | size 0.05..2");
     log_status();
 }
-void draw_ui() {
+// VR-141: the reticle's look lives in the HUD tab. Every change is saved at once.
+bool draw_reticle_ui() {
     auto cfg = config(); bool changed = false;
-    ImGui::TextWrapped("Controller pointing guide at a fixed distance. The crossbow toggle above aims its launch through this endpoint.");
-    changed |= ImGui::Checkbox("Controller dot", &cfg.dot);
-    changed |= ImGui::Checkbox("Controller beam", &cfg.laser);
+    ImGui::TextWrapped("The reticle is the controller dot: a pointing guide at a fixed distance along the aim ray.");
+    changed |= ImGui::Checkbox("Reticle (controller dot)", &cfg.dot);
+    ImGui::SameLine();
+    changed |= ImGui::Checkbox("Beam", &cfg.laser);
     changed |= ImGui::RadioButton("Left hand", &cfg.hand, 0); ImGui::SameLine();
     changed |= ImGui::RadioButton("Right hand", &cfg.hand, 1);
-    changed |= ImGui::SliderFloat("Guide distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
-    changed |= ImGui::SliderFloat("Dot size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
+    changed |= ImGui::SliderFloat("Reticle distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
+    changed |= ImGui::SliderFloat("Reticle size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
+    changed |= ImGui::SliderInt("Red", &cfg.rgb[0], 0, 255);
+    changed |= ImGui::SliderInt("Green", &cfg.rgb[1], 0, 255);
+    changed |= ImGui::SliderInt("Blue", &cfg.rgb[2], 0, 255);
+    ImGui::ColorButton("##reticle", ImVec4(cfg.rgb[0] / 255.f, cfg.rgb[1] / 255.f, cfg.rgb[2] / 255.f, 1.f));
+    ImGui::SameLine();
+    if (ImGui::Button("White")) { cfg.rgb[0] = cfg.rgb[1] = cfg.rgb[2] = 255; changed = true; }
+    if (changed) configure(cfg, "F10 HUD");
+    return changed;
+}
+void draw_ui() {
+    auto cfg = config(); bool changed = false;
+    ImGui::TextWrapped("The reticle's look (on/off, hand, distance, size, colour) is in the HUD tab. The crossbow toggle above aims its launch through the reticle's endpoint.");
     changed |= ImGui::Checkbox("Ray follows the hand trim", &cfg.followHandTrim);
     changed |= ImGui::Checkbox("Ray from loaded bolt geometry", &cfg.modelRay);
     ImGui::TextWrapped("On, the dot, beam and shot move with the numpad hand trim "

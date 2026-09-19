@@ -7759,3 +7759,47 @@ logging now distinguishes total/largest free virtual region and system commit.
 Ordinary minidumps add memory metadata without copying full process memory.
 No eviction: native mip streaming reads retained CPU twins, so dropping them
 without a replacement changes resource semantics. Crash prevention remains open.
+
+## Native SteamVR orientation audit (VR-146, 2026-09-19)
+
+Valve added native 32-bit OpenXR in SteamVR 2.17:
+[official SteamVR announcements](https://steamcommunity.com/app/250820/announcements/?snr=2_groupannouncements_detail_).
+This machine's runtime identifies as 2.17.10. Both observed runs used native
+OpenXR, not dvr_steamvr32.dll. The mod's old startup text incorrectly claimed
+SteamVR never supported x86; corrected without changing native-first selection.
+
+Evidence: installed build503 SHA256
+30d2e34d7553c996ea94558daba22f15efa2fd0e312d422ce6f738cd4b738321.
+First run used SteamVR/OpenXR in Meta compatibility mode. SteamVR settings
+openxr.metaUnityPluginCompatibility was forced (2); setting it to0 while the
+runtime was stopped changed the next runtime identity to SteamVR/OpenXR.
+The second log banner is vr33-hands-working-503-g7159acacf, tick5343687.
+The inversion remained reported: menus and world inverted, hands upright after
+loading gameplay. The compatibility-only explanation is falsified for this run.
+Both logs are preserved in install-506/before-install-20260919-111559 under
+build/playtest-candidates/hud-improvements; the earlier settings comparison is
+in steamvr-native-503 in the same parent directory.
+
+Head tracking reports roll178.47 at tick5354265 and179.60 at5362109. TrackHead
+reads -atan2(matrix[1][0],matrix[1][1]); DvrPoseTo3x4 uses a conventional Hamilton
+quaternion matrix and both reference spaces are created with identity offsets.
+No static evidence identifies a conversion defect. The old log cannot correlate
+these samples with headset wear, so this is not evidence to subtract180 degrees.
+
+Candidate506 measures xrLocateSpace(VIEW,LOCAL) and xrLocateViews at the same
+predicted display time, logging validity, quaternion norms, derived camera roll
+and head-versus-eye-midpoint angular separation. Three-second cadence,120 samples
+maximum, native SteamVR only. It makes no camera or pixel corrections. Expected
+test: same inversion with headset held upright in menu and gameplay. Large raw
+head/eye disagreement implicates the independently located VIEW-space pose;
+agreement with upright raw poses directs investigation to camera/layer transforms;
+agreement near180 while worn upright directs investigation to the runtime/local
+reference frame. Invalid samples or an unworn headset cannot choose among these.
+
+A speculative whole-image Y flip was built and passed a WARP copy test, but was
+never installed and was removed from production after the upright-hands report.
+A pixel-copy test validates the copy operation, not its suitability as a fix.
+Its source remains locally recoverable in build/steamvr-image-flip-uninstalled.
+Do not revive it without identifying the inverted surface and explaining why
+correct hands would remain correct. The frozen506 hash, validation and installed
+INI comparison are recorded in STATUS.md. No headset-confirmed fix yet.

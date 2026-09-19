@@ -1,3 +1,218 @@
+## Selective cleanup for SteamVR continuation (2026-09-19)
+
+Latest user instruction supersedes the exact486-only handoff: remove ONLY failed
+physical choke and split/attached/model health-mana experiments. Keep possession,
+rain/lens, wheel blackout, crash/stability, weapon models/animations, reticle UI
+and defaults, and SteamVR diagnostics. Original combined vitals remains.
+
+Production code is c01058558 plus305f1d3dc reticle defaults and the two source
+diffs from e30554204 SteamVR diagnostics. Release profile preserves all unrelated
+current settings; only Choke section and VitalsMode/VitalsDebug are removed.
+Research/code remains in codex/archive-hud-choke-20260919 and tracked archive.
+Do not restore or revive the experiments. No branch history rewritten.
+
+Installed vr33-hands-working-512-g3f4d323e0 from clean source commit 3f4d323e0.
+Release build, lint, 908 HUD checks and 9 export checks passed. Installed DLL
+and INI hashes independently match installed.json; the entire accepted486 INI
+is byte-identical, with CRLF and explicit VDXR selection preserved. Prior DLL,
+INI and both logs archived under build/playtest-candidates/installs/
+20260919-125236-071385. Build512 has not been headset-tested.
+SteamVR inversion remains open; retained diagnostics do not claim it fixed.
+No game or simulator launch, no PR/merge. Continue on codex/hud-improvements.
+
+## Claude handoff: accepted486 PR, SteamVR extraction, deferred HUD/choke (2026-09-19)
+
+The user accepts the current486 state and requests PR/branch separation with
+health/mana splitting and choke removed from active delivery but research retained.
+This supersedes the earlier implementation plan. Claude is to execute
+docs/dishonored/CLAUDE_HANDOFF_BUILD486_BRANCH_SPLIT.md.
+PR75 already has identical production content to486; PR76 is the mixed work to
+retire only after preservation. SteamVR e30554204 is diagnostics, not a fixed
+orientation path. Research snapshot and incomplete calibration patch are tracked
+in docs/dishonored/archive/vitals-choke-20260919. Current installed DLL/INI unchanged.
+No PR/branch reorganization or push has been performed by this preparation step.
+
+## Post-reboot baseline check (2026-09-19)
+
+Build486 remains installed on VDXR. Reboot plus a known-good save reportedly
+returned near prior performance; a small residual difference is unconfirmed.
+Actual3012x3122 render dimensions and2688x2880 runtime recommendation match the
+accepted pre-split logs. No resolution change made. PERFORMANCE.md records
+the evidence,112-percent inference, and combined-test limitation.
+
+## Restored accepted pre-split486 after poor489 run (2026-09-19)
+
+Installed rebuilt3ec56e3bc, banner vr33-hands-working-486-g3ec56e3bc, with the
+complete archived install486 INI except explicit nativeVDXR. Frozen rollback-486
+installer dry-run and full actual INI diff verified, CRLF preserved.489 was the
+immediate pre-split source but486 was the last accepted pre-split playtest.
+Performance regression measured, cause unproven; details and comparison limits
+in docs/dishonored/PERFORMANCE.md. Next: one launch to compare immediate gameplay
+smoothness with the prior accepted baseline. No source branch reset or merge.
+
+## Restored pre-split build489 (2026-09-19)
+
+At tester request, stopped the vitals/choke plan and SteamVR investigation and
+restored the installed game to c01058558, immediately before the health/mana
+split. Release rebuilt in isolated build/pre-split-source; current branch source
+and later commits preserved. Installed banner vr33-hands-working-489-gc01058558,
+SHA256 71540df18a6f9dd13f4ef9812db5b333c368782f25c71178ec530d8353d9bae6.
+Frozen installer copied from503 in build/playtest-candidates/hud-improvements/rollback-489;
+dry run and install verified. Pre490 HUD section restored, Choke section removed,
+Runtime=native with explicit 32-bit VDXR manifest. Full INI diff reviewed,
+CRLF1253/1253; logs/INI archived before installation. Release, lint and908 HUD
+host checks pass. No game launch, no merge. Candidate506 test is superseded.
+
+## Native SteamVR orientation investigation, candidate 506 (2026-09-19)
+
+VR-146: native SteamVR/OpenXR 2.17.10 starts this x86 game without the bundled
+shim. The first build503 run used forced Meta compatibility; disabling SteamVR's
+openxr.metaUnityPluginCompatibility (2 -> 0) changed the reported runtime to
+plain SteamVR/OpenXR, but did not correct the reported inversion. Runtime=native
+and SteamVR's steamxr_win32.json are selected explicitly in the installed INI.
+The tester reports inverted world and menus with upright hands in gameplay.
+
+The verified build503 log reports head roll near +/-179 degrees. This is a lead,
+not proof of bad tracking: the old log does not establish whether the headset was
+being worn at each sample. Candidate506 adds a native-SteamVR-only audit comparing
+VIEW-space head and both eye quaternions, norms, validity, session state, derived
+camera roll and angular disagreement at one predicted timestamp. It samples
+once per three seconds for up to 120 samples. No orientation correction yet.
+The whole-image flip experiment was compiled and host-tested but never installed;
+it was removed from production source after the upright-hands clarification.
+Recoverable scratch source is under build/steamvr-image-flip-uninstalled.
+
+Installed candidate: build/playtest-candidates/hud-improvements/install-506,
+banner vr33-hands-working-506-ga1e15d41e-dirty,
+DLL SHA256 8fcb8458070fadc6fdfa9ed5b6a5b17139c76e4e09c727cd3fd392ce1646625a.
+Installer copied from install-503, dry-run on a copy of the live INI, then run.
+Full INI comparison: no changes, CRLF 1283/1283. Both old logs and INI archived
+under before-install-20260919-111559, native client log separately archived.
+Release, lint, 923 HUD checks, 9 choke checks and byte-identical default profiles
+pass. No game/simulator launch, no merge. Headset result pending: hold upright
+in main menu then gameplay, compare the reported surfaces with the raw pose audit.
+
+Vitals stage1 is committed as a1e15d41e and inherited by506, but the magenta/bar
+question has not been run;505 remains frozen. Game-space capture still waits on
+model draw proof. Choke calibration/output and desktop-present A/B remain pending;
+uncommitted calibration prototypes are preserved only under build/choke-in-progress
+and are not in506. See ENGINE_NOTES.md for SteamVR evidence and next decisions.
+
+## Vitals selector and model diagnostic candidate 505 (2026-09-19)
+
+Implemented the first gated stage of CODEX_PLAN_VITALS_CHOKE.md. Candidate505
+is frozen with a copied/hash-checked install.ps1 and a successful live-INI-copy
+dry run (only VitalsMode=model and VitalsDebug=1; CRLF preserved).
+Static fix: later HUD sinks invalidated the vitals copy. Both-eye draw proof now
+protects the XR fallback; refusal counters and independent magenta squares make
+the next run falsifiable. HUD_ANCHORS.md has the owner audit and full identity.
+Release, lint, HUD/choke/default-profile host tests pass. No launch or merge.
+Next: install505 and observe squares/bars; game-space capture waits on that
+result. Choke calibration/output and desktop-present A/B remain later stages.
+
+## Run503 and the Codex plan (2026-09-19)
+
+Run503 (build 503, banner verified; logs in build/playtest-candidates/hud-improvements/run503):
+the vitals were invisible everywhere. The palm attach switched off the XR quads,
+and the in-scene draw never drew, with its refusals unlogged. The physical choke
+held RB twice but the game never choked; the pad binding set 2 maps RB to attack.
+The tester also cannot switch ReduceDesktopPresent off while the desktop mirror
+is off, and many overlapping vitals settings are live at once (VitalsBack is
+still on). All of it, with the fix design, is in
+docs/dishonored/CODEX_PLAN_VITALS_CHOKE.md for Codex to implement. The next
+session starts at docs/dishonored/NEXT_SESSION.md. No new install. No PR
+change, no merge.
+
+## Candidate 503: vitals drawn on the hand model, physical choke (2026-09-19)
+
+Candidate 503 = `vr33-hands-working-503-g7159acacf` (DLL 30d2e34d...), frozen with
+install.ps1 in build/playtest-candidates/hud-improvements/install-503, NOT
+installed (the tester was playing). The installer sets [Hud] VitalsInScene=1 and
+[Choke] Gesture=1; a dry run on the live ini added only those, CRLF intact.
+- VR-142: the vitals parts are drawn INSIDE the hand's own draw (D3D9 texture
+  copies of the vitals sink, the drawn palm, this draw's ViewProjection, a fan
+  clipped at the split line). Needs one re-attach (records the palm map's
+  mirror flag). HUD_ANCHORS.md top.
+- VR-145: the physical choke (right hand quickly to the left shoulder, held
+  there, holds RB). CHOKE_GESTURE.md; host tests in tools/choke-gesture-host.ps1.
+Open: VR-143 (crouched-load stand-up stall), VR-144 (wheel stutter; the next
+A/B is ReduceDesktopPresent).
+
+## Run499: palm attach worse, wheel stutter halved, crouched-load stall (2026-09-19)
+
+Run499 (build 499, banner verified; logs in build/playtest-candidates/hud-improvements/run499).
+The drawn-palm attach is worse and does not track animations: a compositor quad
+cannot be locked to the hand model (scale 100 vs 108 uu/m, render latency).
+HUD_ANCHORS.md top. Proposed: draw the vitals INTO the game frame in the hand
+draw. Not built; awaiting the tester's go-ahead. The wheel opens better. The
+one-eye ratio went from 47% to 28%, and the next A/B is ReduceDesktopPresent (VR-144).
+New VR-143: a ~3 s stall on the first stand-up after loading a crouched save,
+outside the mod's present path (PERFORMANCE.md top). No new install.
+
+## Candidate 499: vitals on the drawn palm; wheel stutter measured (2026-09-19)
+
+Run497 (logs in build/playtest-candidates/hud-improvements/run497, previous run
+in the .prev log): the panels did not follow the hand model across a stance
+change or an animation. The wheel stutters: the share of one-eye ticks in the
+wheel is 10% (run470) -> 25% (run486) -> 47% (run497). Candidate 499 =
+`vr33-hands-working-499-g1cd485a08` (DLL 1fc2128e...), frozen with install.ps1 in
+build/playtest-candidates/hud-improvements/install-499, NOT installed (the tester
+was playing): the attach captures against the DRAWN palm (re-attach needed), and
+497's per-hand-draw lock is gone. No ini change. HUD_ANCHORS.md top section.
+If the wheel ratio stays high, the next A/B is [VR] ReduceDesktopPresent (1 since
+run476).
+
+## Candidate 497: attached vitals follow animations, 10 s countdown (2026-09-19)
+
+Candidate 495 is installed (live log banner); the tester accepted the attach
+step. Candidate 497 = `vr33-hands-working-497-g3a3643256` (DLL b049184e...),
+frozen with install.ps1 in build/playtest-candidates/hud-improvements/install-497,
+NOT installed (the tester was playing). The countdown defaults to 10 s, and the
+attached panels follow the drawn hand during game animations (the hand draw
+publishes its offset from the controller as an XR-space move). No ini change (a
+dry run on the live ini changed nothing). HUD_ANCHORS.md top section.
+
+## Candidate 495: attach the vitals by holding the hands to them (2026-09-19)
+
+Candidate 493 was installed by the tester (banner verified in the live log).
+Its back-of-hand guess put the panels at the far end of the hand model and the
+sliders could not reach. Candidate 495 = `vr33-hands-working-495-g7c1fc3370`
+(DLL b270ae83...), frozen with install.ps1 in
+build/playtest-candidates/hud-improvements/install-495, NOT installed (the tester
+was playing): F10 "Attach to my hands" freezes both panels in front of the head,
+counts down, then stores each panel's pose in its hand's grip frame. The
+back-of-hand sliders reach +-0.4 m. The installer sets VitalsBack=0 (a dry run
+on the live ini changed only that line, CRLF intact). HUD_ANCHORS.md top.
+
+## Run490 result and candidate 493: vitals on the back of the hand (2026-09-19)
+
+Run490 (banner verified; logs in build/playtest-candidates/hud-improvements/run490):
+the reticle controls and the health/mana split work in the headset. The left
+panel sat oddly (its HandX was set in the same direction as the right's, and the
+part textures were not trimmed). The tester's reticle (white, 0.69 degrees) is
+now the default. Candidate 493 = `vr33-hands-working-493-g3dc587932` (DLL
+8e430f57...), frozen with install.ps1 in
+build/playtest-candidates/hud-improvements/install-493, NOT installed (the tester
+was playing): VitalsMirror, VitalsAutoCrop, and the new VitalsBack mode (both
+panels as watch faces on the back of the hands, moving with them; the installer
+turns it on, F10 turns it off). A dry run on run490's ini added only those three
+keys, CRLF intact. HUD_ANCHORS.md top section.
+
+## codex/hud-improvements: reticle look and split vitals, candidate 490 (2026-09-19)
+
+New branch off codex/misc-fixes (PR #75, not merged). Candidate 490 =
+`vr33-hands-working-490-g91b18ebb5` (DLL 3bbfc88c...), built and frozen in
+build/playtest-candidates/hud-improvements/install-490 with install.ps1. NOT
+installed yet: the tester was playing. The installer archives both logs and the
+ini, copies the DLL, sets `[Hud] VitalsSplit=1` and mirrors HandR onto HandL
+(X negated). A dry run on run486's ini changed only those lines, CRLF intact.
+- VR-141: the reticle (the controller dot) has size, distance and RGB colour in
+  the F10 HUD tab, saved on change; default white (was a fixed red).
+- VR-142: the vitals image is cut along a diagonal into a health panel (handR)
+  and a mana plus equipped-item panel (handL), with line and crop sliders.
+  HUD_ANCHORS.md top sections.
+Next: attach both vitals panels to the wrist, like the hand-held notes.
+
 ## Run486 result and the branch PR (2026-09-19)
 
 Run486 (banner verified; logs in build/playtest-candidates/wheel-blackout/run486):

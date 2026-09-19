@@ -10,7 +10,7 @@
 //  core/vr/openxr_runtime.cpp). A function the shim lacks is then a runtime
 //  "unsupported", never the donor's mod-fails-to-load-with-error-127 trap.
 //
-//  Why it exists: SteamVR ships no 32-bit OpenXR runtime, and all three games
+//  Why it exists: SteamVR before 2.17 had no 32-bit OpenXR, and these games
 //  are x86. This DLL implements the mod's OpenXR surface backed by OpenVR
 //  (SteamVR), which fully supports 32-bit applications.
 //

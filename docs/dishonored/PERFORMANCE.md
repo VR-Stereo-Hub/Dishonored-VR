@@ -1,3 +1,79 @@
+## Reboot/save comparison and resolution check (2026-09-19)
+
+After a PC restart and a known-good save, the tester reports performance close
+to the prior baseline with a possible small residual slowdown. These two changes
+were combined; neither is independently established as the cause or fix.
+A remembered VD resolution percentage changed from about102 to112, prompting an
+actual-dimension audit. Latest verified build486 starts at tick107093; DLL hash
+34bc3cb31eb540190a4c0dd2291ac47a0be7a325e9b871622913cabd50969c3d.
+Artifacts: build/playtest-candidates/hud-improvements/run486-after-reboot.
+
+Latest and original accepted486 both create3012x3122 game targets and eye
+swapchains, with VDXR recommending2688x2880. Archived464,470,473,476,483 and490
+also have those same dimensions;480 additionally has its already documented
+accidental1355x1405 reset. VDXR currently reports1.000 supersampling and1.000
+upscaling.3012/2688 is1.1205, numerically consistent with the reported112 percent;
+this is an inference about the overlay number, not verified overlay semantics.
+No logged evidence supports a new render-resolution increase across these runs.
+The remembered102 percent remains unverified. No resolution setting changed.
+
+Before the reboot report, the streamer was restarted with the game closed and
+without settings changes; prior process27772 was replaced by32024 at12:15:02.
+Its effect was not tested separately. The poor run preceding that restart is
+archived as run486-rollback. Do not call the reboot, save, streamer restart or
+resolution a confirmed explanation of the earlier regression.
+
+## Rollback489 performance regression and accepted486 baseline (2026-09-19)
+
+Tester reports poor performance from launch after the rollback. Verified489
+banner and installed DLL71540df1; archived full run in
+build/playtest-candidates/hud-improvements/run489-rollback. Runtime is VDXR1.0.10,
+3012x3122,120Hz, matching accepted486. Whole INI comparison with pre490 differs
+only in explicit VDXR selection and reticle appearance. Build optimization flags
+and generator instance match the main checkout. No cause established.
+
+Whole-session descriptive comparison (different lengths/scenes, not a controlled
+benchmark): accepted486 5.6min,97 tick samples, median9.4ms,p9010.6ms,5.5 gaps>=60ms/min;
+rollback489 36.1min,626 samples, median10.7ms,p9016.0ms,11.4 gaps>=60ms/min.
+489 logs575 frame-gap events attributed to xrEndFrame across all gap lengths;
+486 has none in that category. This locates waits, not their underlying cause.
+VDXR's own log has no reported error. SteamVR processes were absent after exit.
+
+Correction to rollback target:489 was the immediate pre-split source, while486
+was the last accepted pre-split playtest. Rebuilt3ec56e3bc in isolated checkout,
+froze rollback-486 with copied503 installer and dry-run, and installed it with
+its entire archived install486 INI except explicit nativeVDXR selection.
+Hash34bc3cb31eb540190a4c0dd2291ac47a0be7a325e9b871622913cabd50969c3d;
+banner vr33-hands-working-486-g3ec56e3bc. This is a rebuild, not the original DLL.
+Full installed INI diff removes reticle colour keys and restores SizeDeg0.500;
+CRLF1249/1249. Prior logs preserved. Next question: does performance return to the
+previous baseline immediately after loading? Improvement implicates the intervening
+reticle change or session state; no improvement leaves runtime/streamer/system
+state and the rebuild comparison open. No claimed fix, launch, or merge.
+
+## Vitals-first candidate and pending desktop-present A/B (2026-09-19)
+
+Candidate505 implements the selector/model-draw diagnostic stage of
+CODEX_PLAN_VITALS_CHOKE.md. It leaves ReduceDesktopPresent unchanged so the
+first question remains model drawing. VR-144 still needs the independent
+ReduceDesktopPresent=0 comparison with run499's 28% wheel singles/writes.
+No new wheel measurement or performance verdict is claimed.
+
+## Wheel stutter and the crouched-load stand-up stall (2026-09-19, VR-144, VR-143)
+
+- VR-144, the weapon wheel stutter: the share of one-eye ticks while the wheel
+  is open (`menu/head ... singles/writes`) was 10% (run470), 25% (run486), 47%
+  (run497) and 28% (run499). Build 497 took a head-pose lock on every hand draw.
+  Build 499 made it once per present, only while attaching, and the ratio fell
+  back to 28%. Remaining suspect: `[VR] ReduceDesktopPresent`, 0 -> 1 between
+  run473 and run476, when the ratio first rose. Next: an A/B.
+- VR-143, the stand-up stall after loading a crouched save: run499 loaded
+  crouched and stood at 19399687. The next perf tick read 20.5 ms at 48.6/s,
+  against 9.5 ms at 95-106/s normally. The excess is `out` idle 10.7 ms, outside
+  the mod's present path, and the mod's hook scopes were no higher than
+  elsewhere. The load window shows 11996 TexLockRect calls in 3 s, so texture
+  streaming and the device shadow copy are the first suspects. Not fixed.
+
 # Performance research
 
 ## Periodic xrEndFrame hitch: measured, not yet explained (2026-09-18)

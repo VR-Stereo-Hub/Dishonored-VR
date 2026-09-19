@@ -1,0 +1,312 @@
+--- a/src/game/dishonored/choke_gesture.h
++++ b/src/game/dishonored/choke_gesture.h
+@@ -6,6 +6,7 @@
+ // right +X, up +Y, forward -Z.
+ #pragma once
+ #include <cmath>
++#include <algorithm>
+ namespace dvr::choke {
+
+ struct Config {
+@@ -14,21 +15,89 @@
+     float exitM = 0.22f;         // hold: until the hand is farther than this
+     float minSpeed = 0.9f;       // m/s: the hand's peak speed in the last `windowMs` before entering
+     float windowMs = 400.0f;
+-    float leftM = 0.17f, downM = 0.22f, backM = 0.04f;   // the left shoulder from the head
++    float shoulder[3]={-.17f,-.22f,-.04f}; // yaw-frame right, up, forward
++    bool calibrated=false;
+ };
+
+-inline void shoulder_point(const Config& c, const float head[3], const float headQ[4], float out[3]) {
++inline void yaw_basis(const float headQ[4],float r[3],float f[3]) {
+     // Yaw-only basis from the head's forward (-Z rotated), flattened.
+     const float x = headQ[0], y = headQ[1], z = headQ[2], w = headQ[3];
+-    float f[3] = { -(2*(x*z + w*y)), -(2*(y*z - w*x)), -(1 - 2*(x*x + y*y)) };
++    f[0]=-(2*(x*z+w*y));f[1]=0;f[2]=-(1-2*(x*x+y*y));
+     f[1] = 0;
+     float n = std::sqrt(f[0]*f[0] + f[2]*f[2]);
+     if (!(n > 1e-4f)) { f[0] = 0; f[2] = -1; n = 1; }
+     f[0] /= n; f[2] /= n;
+-    const float r[3] = { -f[2], 0.0f, f[0] };   // right = forward x up
+-    for (int i = 0; i < 3; ++i) out[i] = head[i] - r[i] * c.leftM - f[i] * c.backM;
+-    out[1] -= c.downM;
++    r[0]=-f[2];r[1]=0;r[2]=f[0];
+ }
++inline void shoulder_point(const Config& c,const float head[3],const float q[4],float out[3]) {
++    float r[3],f[3];yaw_basis(q,r,f);
++    for(int k=0;k<3;++k) out[k]=head[k]+r[k]*c.shoulder[0]+f[k]*c.shoulder[2];
++    out[1]+=c.shoulder[1];
++}
++inline void to_yaw(const float hand[3],const float head[3],const float q[4],float out[3]) {
++    float r[3],f[3];yaw_basis(q,r,f);
++    const float x=hand[0]-head[0],z=hand[2]-head[2];
++    out[0]=x*r[0]+z*r[2];out[1]=hand[1]-head[1];out[2]=x*f[0]+z*f[2];
++}
++inline float distance(const float a[3],const float b[3]) {
++    float d=0;for(int k=0;k<3;++k) d+=(a[k]-b[k])*(a[k]-b[k]);return std::sqrt(d);
++}
++inline bool finite3(const float p[3]) {return std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]);}
++struct Try {float position[3]={};float peak=0;};
++inline bool fit(const Try tries[3],Config& out) {
++    Config result=out;
++    for(const auto& t: {tries[0],tries[1],tries[2]}) if(!finite3(t.position) || !std::isfinite(t.peak) || t.peak<0) return false;
++    for(int k=0;k<3;++k) result.shoulder[k]=(tries[0].position[k]+tries[1].position[k]+tries[2].position[k])/3;
++    float spread=0,slowest=tries[0].peak;
++    for(int i=0;i<3;++i) {spread=std::max(spread,distance(tries[i].position,result.shoulder));slowest=std::min(slowest,tries[i].peak);}
++    result.enterM=std::max(.08f,spread+.05f);result.exitM=result.enterM+.08f;
++    result.minSpeed=std::max(.4f,.6f*slowest);result.windowMs=600;result.calibrated=true;
++    out=result;return true;
++}
++// Three countdown/move/one-second-hold trials. No output button while active.
++struct Calibration {
++    enum Phase {Idle,Countdown,Move,Hold,Done};
++    Phase phase=Idle;int count=0;Try tries[3];
++    double due=0,prevMs=0,settleMs=0;bool havePrev=false;
++    float prev[3]={},settle[3]={},sum[3]={},holdPeak=0;int samples=0;
++    struct Speed {double ms=-1e30;float value=0;};Speed history[256];unsigned cursor=0;
++    bool active() const {return phase==Countdown || phase==Move || phase==Hold;}
++    void clear_motion() {havePrev=false;cursor=0;for(auto& v:history)v=Speed{};}
++    void start(double now) {*this=Calibration{};phase=Countdown;due=now+3000;}
++    void cancel() {*this=Calibration{};}
++    float recent_peak(double now) const {float p=0;for(const auto& v:history) if(now>=v.ms && now-v.ms<=600) p=std::max(p,v.value);return p;}
++    // 1 = move cue, 2 = accepted trial, 3 = completed, -1 = retry after tracking/gate loss.
++    int update(double now,const float hand[3],const float head[3],const float q[4],bool allowed) {
++        if(!active()) return 0;
++        bool finite=finite3(hand) && finite3(head);for(int k=0;k<4;++k) finite&=std::isfinite(q[k]);
++        if(!allowed || !finite) {
++            const bool retry=phase!=Countdown || havePrev;
++            phase=Countdown;due=now+3000;clear_motion();return retry?-1:0;
++        }
++        if(phase==Countdown) {if(now<due)return 0;phase=Move;clear_motion();return 1;}
++        float pos[3];to_yaw(hand,head,q,pos);
++        if(!havePrev) {for(int k=0;k<3;++k)prev[k]=hand[k];prevMs=now;havePrev=true;return 0;}
++        const double dt=now-prevMs;
++        if(dt<=0 || dt>150) {phase=Countdown;due=now+3000;clear_motion();return -1;}
++        const float speed=distance(hand,prev)/(float)(dt/1000);
++        for(int k=0;k<3;++k)prev[k]=hand[k];prevMs=now;
++        history[cursor++%256]={now,speed};
++        if(phase==Move && speed<=.15f && recent_peak(now)>=.2f) {
++            phase=Hold;settleMs=now;holdPeak=recent_peak(now);samples=0;
++            for(int k=0;k<3;++k){settle[k]=pos[k];sum[k]=0;}
++        }
++        if(phase==Hold) {
++            if(speed>.15f || distance(pos,settle)>.04f) {phase=Move;return 0;}
++            for(int k=0;k<3;++k)sum[k]+=pos[k];++samples;
++            if(now-settleMs>=1000) {
++                for(int k=0;k<3;++k)tries[count].position[k]=sum[k]/samples;
++                tries[count].peak=holdPeak;++count;clear_motion();
++                phase=count==3?Done:Countdown;due=now+3000;return count==3?3:2;
++            }
++        }
++        return 0;
++    }
++};
+
+ struct State {
+     bool  held = false;
+@@ -42,6 +111,9 @@
+     bool update(const Config& c, double nowMs, const float hand[3], const float head[3],
+                 const float headQ[4], bool allowed, int* edge) {
+         *edge = 0;
++        if(!allowed || !c.enabled || !finite3(hand) || !finite3(head)) {
++            if(held)*edge=-1;held=false;havePrev=false;peakMs=-1e30;lastSpeed=0;return false;
++        }
+         if (havePrev && nowMs > prevMs) {
+             const float dx = hand[0]-prev[0], dy = hand[1]-prev[1], dz = hand[2]-prev[2];
+             lastSpeed = std::sqrt(dx*dx + dy*dy + dz*dz) / (float)((nowMs - prevMs) / 1000.0);
+--- a/src/game/dishonored/choke_gesture.cpp
++++ b/src/game/dishonored/choke_gesture.cpp
+@@ -1,79 +1,95 @@
+-// VR-145: the physical choke. Included by the unity build before pad_bridge.cpp,
+-// which ORs ChokeGestureTick() into RB (the game's block/choke button). Plan and
+-// levers: docs/dishonored/CHOKE_GESTURE.md.
++// Physical choke calibration and pad output; engine binding reads live on the script lane.
+ #include "game/dishonored/choke_gesture.h"
+ #include <imgui.h>
+
+ static dvr::choke::Config g_chokeCfg;
+-static dvr::choke::State  g_chokeState;
+-static char g_chokeIni[MAX_PATH] = "";
+-
++static dvr::choke::State g_chokeState;
++static dvr::choke::Calibration g_chokeCal;
++static char g_chokeIni[MAX_PATH]="";
++// 0 unknown/auto, 1 RB, 2 RT, 3 LB, 4 LT. Script publishes, present consumes.
++static std::atomic<int> g_chokeBinding{0},g_chokeBindingSet{0};
++static std::atomic<unsigned long long> g_chokeBindingMs{0};
++static int g_chokeOutput=0;
++static const char* ChokeOutputName(int n) {const char* names[]={"auto (unresolved)","RB","RT","LB","LT"};return names[n>=0 && n<5?n:0];}
+ static void ChokeConfigure(const char* ini) {
+-    _snprintf(g_chokeIni, sizeof(g_chokeIni), "%s", ini); g_chokeIni[sizeof(g_chokeIni) - 1] = 0;
+-    auto f = [&](const char* k, float d) { return IniFloat(ini, "Choke", k, d); };
+-    g_chokeCfg.enabled  = GetPrivateProfileIntA("Choke", "Gesture", 0, ini) != 0;
+-    g_chokeCfg.enterM   = f("EnterM", g_chokeCfg.enterM);
+-    g_chokeCfg.exitM    = f("ExitM", g_chokeCfg.exitM);
+-    g_chokeCfg.minSpeed = f("MinSpeed", g_chokeCfg.minSpeed);
+-    g_chokeCfg.windowMs = f("WindowMs", g_chokeCfg.windowMs);
+-    g_chokeCfg.leftM    = f("ShoulderLeftM", g_chokeCfg.leftM);
+-    g_chokeCfg.downM    = f("ShoulderDownM", g_chokeCfg.downM);
+-    g_chokeCfg.backM    = f("ShoulderBackM", g_chokeCfg.backM);
+-    if (g_chokeCfg.exitM < g_chokeCfg.enterM) g_chokeCfg.exitM = g_chokeCfg.enterM;
+-    Log("config: [Choke] Gesture=%d EnterM=%.2f ExitM=%.2f MinSpeed=%.2f m/s WindowMs=%.0f shoulder left %.2f down %.2f back %.2f "
+-        "(right hand to the left shoulder holds RB, the game's choke/block button)",
+-        g_chokeCfg.enabled, g_chokeCfg.enterM, g_chokeCfg.exitM, g_chokeCfg.minSpeed, g_chokeCfg.windowMs,
+-        g_chokeCfg.leftM, g_chokeCfg.downM, g_chokeCfg.backM);
++    strncpy_s(g_chokeIni,ini,_TRUNCATE);
++    auto f=[&](const char* key,float fallback) {const float v=IniFloat(ini,"Choke",key,fallback);return std::isfinite(v)?v:fallback;};
++    g_chokeCfg.enabled=GetPrivateProfileIntA("Choke","Gesture",0,ini)!=0;
++    g_chokeCfg.enterM=fmaxf(.05f,f("EnterM",.14f));g_chokeCfg.exitM=fmaxf(g_chokeCfg.enterM,f("ExitM",.22f));
++    g_chokeCfg.minSpeed=fmaxf(.2f,f("MinSpeed",.9f));g_chokeCfg.windowMs=fmaxf(50,f("WindowMs",400));
++    g_chokeCfg.shoulder[0]=f("ShoulderX",-f("ShoulderLeftM",.17f));
++    g_chokeCfg.shoulder[1]=f("ShoulderY",-f("ShoulderDownM",.22f));
++    g_chokeCfg.shoulder[2]=f("ShoulderZ",-f("ShoulderBackM",.04f));
++    g_chokeCfg.calibrated=GetPrivateProfileIntA("Choke","Calibrated",0,ini)!=0;
++    char output[24];GetPrivateProfileStringA("Choke","Output","auto",output,sizeof(output),ini);
++    g_chokeOutput=0;for(int i=1;i<5;++i)if(!_stricmp(output,ChokeOutputName(i)))g_chokeOutput=i;
++    Log("choke: load Gesture=%d calibrated=%d shoulder yaw XYZ=%.3f/%.3f/%.3f enter=%.3f exit=%.3f speed=%.3f output=%s active pad set=unknown (await live Input.Bindings)",
++        g_chokeCfg.enabled,g_chokeCfg.calibrated,g_chokeCfg.shoulder[0],g_chokeCfg.shoulder[1],g_chokeCfg.shoulder[2],g_chokeCfg.enterM,g_chokeCfg.exitM,g_chokeCfg.minSpeed,ChokeOutputName(g_chokeOutput));
+ }
+ static void ChokeSave(const char* who) {
+-    if (!g_chokeIni[0]) return;
+-    char v[32];
+-    WritePrivateProfileStringA("Choke", "Gesture", g_chokeCfg.enabled ? "1" : "0", g_chokeIni);
+-    auto w = [&](const char* k, float x) { _snprintf(v, sizeof(v), "%.3f", x); WritePrivateProfileStringA("Choke", k, v, g_chokeIni); };
+-    w("EnterM", g_chokeCfg.enterM); w("ExitM", g_chokeCfg.exitM); w("MinSpeed", g_chokeCfg.minSpeed);
+-    w("WindowMs", g_chokeCfg.windowMs); w("ShoulderLeftM", g_chokeCfg.leftM);
+-    w("ShoulderDownM", g_chokeCfg.downM); w("ShoulderBackM", g_chokeCfg.backM);
+-    Log("choke: settings saved (%s)", who);
++    if(!g_chokeIni[0])return;
++    auto w=[&](const char* key,float x) {char v[32];_snprintf(v,sizeof(v),"%.3f",x);WritePrivateProfileStringA("Choke",key,v,g_chokeIni);};
++    WritePrivateProfileStringA("Choke","Gesture",g_chokeCfg.enabled?"1":"0",g_chokeIni);
++    WritePrivateProfileStringA("Choke","Calibrated",g_chokeCfg.calibrated?"1":"0",g_chokeIni);
++    WritePrivateProfileStringA("Choke","Output",g_chokeOutput?ChokeOutputName(g_chokeOutput):"auto",g_chokeIni);
++    w("EnterM",g_chokeCfg.enterM);w("ExitM",g_chokeCfg.exitM);w("MinSpeed",g_chokeCfg.minSpeed);w("WindowMs",g_chokeCfg.windowMs);
++    w("ShoulderX",g_chokeCfg.shoulder[0]);w("ShoulderY",g_chokeCfg.shoulder[1]);w("ShoulderZ",g_chokeCfg.shoulder[2]);
++    for(const char* key:{"ShoulderLeftM","ShoulderDownM","ShoulderBackM"})WritePrivateProfileStringA("Choke",key,nullptr,g_chokeIni);
++    Log("choke: saved %s calibrated=%d XYZ=%.3f/%.3f/%.3f enter=%.3f exit=%.3f minSpeed=%.3f window=%.0f output=%s",
++        who,g_chokeCfg.calibrated,g_chokeCfg.shoulder[0],g_chokeCfg.shoulder[1],g_chokeCfg.shoulder[2],g_chokeCfg.enterM,g_chokeCfg.exitM,g_chokeCfg.minSpeed,g_chokeCfg.windowMs,ChokeOutputName(g_chokeOutput));
+ }
+-
+-// Called once per pad update. True = hold RB this update.
+-static bool ChokeGestureTick(bool wheelHeld) {
+-    float hp[3], hq[4];
+-    dvr::vr::HeadPose head{};
+-    const bool tracked = dvr::vr::input_get_hand_pose(1, false, hp, hq) && dvr::vr::peek_head_pose(head);
+-    const bool allowed = tracked && !wheelHeld && !g_menuOpen && !g_inMenu && !g_mainMenu &&
+-                         !UiSurfaceBlocks() && !g_ovlVisible;
+-    if (!tracked) { hp[0] = hp[1] = hp[2] = 0; }
+-    const float hpos[3] = {head.px, head.py, head.pz}, hquat[4] = {head.qx, head.qy, head.qz, head.qw};
+-    int edge = 0;
+-    const bool held = g_chokeState.update(g_chokeCfg, MaimNowMs(), hp, hpos, hquat, allowed, &edge);
+-    if (edge > 0)
+-        Log("choke: START - right hand %.2f m from the left shoulder (enter %.2f), peak speed within %.0f ms; RB held",
+-            g_chokeState.lastDist, g_chokeCfg.enterM, g_chokeCfg.windowMs);
+-    else if (edge < 0)
+-        Log("choke: RELEASE - %s (hand %.2f m from the shoulder, exit %.2f)",
+-            allowed ? "the hand left the shoulder" : "a menu, the wheel, the overlay or lost tracking",
+-            g_chokeState.lastDist, g_chokeCfg.exitM);
+-    else if (g_chokeCfg.enabled && tracked)
+-        DVR_LOG_EVERY_MS(::dvr::log::Cat::pad, ::dvr::log::Level::Debug, 2000,
+-            "choke: idle, hand %.2f m from the shoulder, speed %.2f m/s", g_chokeState.lastDist, g_chokeState.lastSpeed);
+-    return held;
++static void ChokeResetTracking() {
++    g_chokeState=dvr::choke::State{};
++    if(g_chokeCal.active()) {g_chokeCal.cancel();Log("choke/cal: cancelled - virtual pad or controller tracking unavailable");}
+ }
+-
++// Returns the chosen pad output while held, zero on release or unresolved binding.
++static int ChokeGestureTick(bool wheelHeld) {
++    float hp[3]={},hq[4]={};dvr::vr::HeadPose head{};
++    const bool tracked=dvr::vr::input_get_hand_pose(1,false,hp,hq) && dvr::vr::peek_head_pose(head);
++    const bool gameplay=tracked && !wheelHeld && !g_menuOpen && !g_inMenu && !g_mainMenu && !UiSurfaceBlocks();
++    const float hpos[3]={head.px,head.py,head.pz},hquat[4]={head.qx,head.qy,head.qz,head.qw};
++    const double now=MaimNowMs();
++    const bool wasCalibrating=g_chokeCal.active();
++    if(wasCalibrating) {
++        const int event=g_chokeCal.update(now,hp,hpos,hquat,gameplay);
++        if(event==1)Log("choke/cal: try %d/3 MOVE now, then hold for one second",g_chokeCal.count+1);
++        if(event<0)Log("choke/cal: retry try %d/3 after tracking/menu/wheel interruption; countdown 3 s",g_chokeCal.count+1);
++        if(event>=2) {
++            const auto& t=g_chokeCal.tries[g_chokeCal.count-1];
++            Log("choke/cal: try %d/3 accepted yaw XYZ=%.3f/%.3f/%.3f peak preceding 600 ms=%.3f m/s",g_chokeCal.count,t.position[0],t.position[1],t.position[2],t.peak);
++            if(event==3 && dvr::choke::fit(g_chokeCal.tries,g_chokeCfg))ChokeSave("three-trial calibration");
++            else Log("choke/cal: try %d/3 countdown 3 s",g_chokeCal.count+1);
++        }
++    }
++    int output=g_chokeOutput;
++    if(!output && GetTickCount64()-g_chokeBindingMs.load()<2000)output=g_chokeBinding.load();
++    const bool allowed=gameplay && !g_ovlVisible && !wasCalibrating && output!=0;
++    int edge=0;const bool held=g_chokeState.update(g_chokeCfg,now,hp,hpos,hquat,allowed,&edge);
++    if(edge>0)Log("choke: START distance=%.3f output=%s active pad set=%d (0=unresolved); button held, game choke state not yet proven",g_chokeState.lastDist,ChokeOutputName(output),g_chokeBindingSet.load());
++    if(edge<0)Log("choke: RELEASE reason=%s distance=%.3f",allowed?"left shoulder zone":"menu/wheel/overlay/tracking/calibration/binding",g_chokeState.lastDist);
++    return held?output:0;
++}
+ static void ChokeDrawUi() {
+-    auto& c = g_chokeCfg; bool ch = false;
+-    ch |= ImGui::Checkbox("Physical choke: right hand to the left shoulder", &c.enabled);
+-    ImGui::TextDisabled("Move the right hand quickly to the left shoulder behind a target, and keep it there to hold the choke.");
+-    if (c.enabled) {
+-        ch |= ImGui::SliderFloat("Start within (m)", &c.enterM, 0.05f, 0.35f, "%.2f");
+-        ch |= ImGui::SliderFloat("Release beyond (m)", &c.exitM, 0.08f, 0.50f, "%.2f");
+-        ch |= ImGui::SliderFloat("Quick move speed (m/s)", &c.minSpeed, 0.2f, 3.0f, "%.2f");
+-        ch |= ImGui::SliderFloat("Shoulder: left of head (m)", &c.leftM, 0.0f, 0.4f, "%.2f");
+-        ch |= ImGui::SliderFloat("Shoulder: below head (m)", &c.downM, 0.0f, 0.5f, "%.2f");
+-        ch |= ImGui::SliderFloat("Shoulder: behind head (m)", &c.backM, -0.2f, 0.3f, "%.2f");
+-        if (c.exitM < c.enterM) c.exitM = c.enterM;
+-        ImGui::TextDisabled("Now: hand %.2f m from the shoulder, %.2f m/s, choke %s",
+-            g_chokeState.lastDist, g_chokeState.lastSpeed, g_chokeState.held ? "HELD" : "off");
++    auto& c=g_chokeCfg;bool changed=ImGui::Checkbox("Physical choke: right hand to the shoulder",&c.enabled);
++    ImGui::TextDisabled("Hand distance %.2f m, speed %.2f m/s, %s",g_chokeState.lastDist,g_chokeState.lastSpeed,g_chokeState.held?"HELD":"off");
++    if(!g_chokeCal.active()) {
++        if(ImGui::Button("Calibrate choke (3 tries)")) {g_chokeCal.start(MaimNowMs());g_chokeState=dvr::choke::State{};Log("choke/cal: try 1/3 countdown 3 s; no gesture output during calibration");}
++    } else {
++        if(ImGui::Button("Cancel choke calibration")) {g_chokeCal.cancel();Log("choke/cal: cancelled by F10");}
++        if(g_chokeCal.phase==dvr::choke::Calibration::Countdown)ImGui::Text("Try %d/3 starts in %.1f s",g_chokeCal.count+1,fmax(0.0,(g_chokeCal.due-MaimNowMs())/1000));
++        else ImGui::Text("Try %d/3: %s",g_chokeCal.count+1,g_chokeCal.phase==dvr::choke::Calibration::Hold?"hold still for one second":"make a natural choke move");
+     }
+-    if (ch) ChokeSave("F10 Controls");
++    ImGui::TextDisabled("Active pad set %d (0=unresolved), observed choke button %s",g_chokeBindingSet.load(),ChokeOutputName(g_chokeBinding.load()));
++    if(ImGui::TreeNode("Advanced##choke")) {
++        changed|=ImGui::SliderFloat("Start within (m)",&c.enterM,.05f,.5f,"%.3f");
++        changed|=ImGui::SliderFloat("Release beyond (m)",&c.exitM,.08f,.7f,"%.3f");
++        changed|=ImGui::SliderFloat("Minimum speed (m/s)",&c.minSpeed,.2f,3.f,"%.2f");
++        changed|=ImGui::SliderFloat("Speed window (ms)",&c.windowMs,100,1000,"%.0f");
++        changed|=ImGui::SliderFloat3("Shoulder right/up/forward (m)",c.shoulder,-.7f,.7f,"%.3f");
++        const char* outputs[]={"Auto: live binding","RB","RT","LB","LT"};changed|=ImGui::Combo("Output override",&g_chokeOutput,outputs,5);
++        ImGui::TextWrapped("Auto waits for the game's live binding. An override is for testing a known binding. The ordinary right grip still sends RB.");
++        ImGui::TreePop();
++    }
++    if(c.exitM<c.enterM)c.exitM=c.enterM;
++    if(changed) {g_chokeState=dvr::choke::State{};ChokeSave("F10 Controls");}
+ }
+--- a/src/core/input/pad_bridge.cpp
++++ b/src/core/input/pad_bridge.cpp
+@@ -25,6 +25,7 @@
+         float x=0,y=0; bool selected=false;
+         dvr::hudlayout::wheel_input(false,false,x,y,selected);
+         g_controllerComposer.reset();
++        ChokeResetTracking();
+         g_padActive = false; return;
+     }
+     MeleeTick();
+@@ -52,6 +53,7 @@
+     const bool leanGameplay=in.active && !g_ovlVisible && !UiSurfaceBlocks() &&
+         !g_menuOpen && !g_inMenu && !CineActive() && in.gripL<.7f;
+     const auto emulation=g_controllerComposer.step(in,controller,GetTickCount64(),leanGameplay);
++    if(!in.active) ChokeResetTracking();
+     if (in.active) {
+         active = true;
+         g_dbgRawMx = in.mv[0]; g_dbgRawMy = in.mv[1];  // 38.25 pre-shaping
+@@ -66,7 +68,11 @@
+         g_wheelHeld = wheelHeld;
+         if (wheelHeld)       b |= XINPUT_GAMEPAD_LEFT_SHOULDER;
+         if (choke)           b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+-        if (ChokeGestureTick(wheelHeld)) b |= XINPUT_GAMEPAD_RIGHT_SHOULDER;   // VR-145: the physical choke
++        const int gesture=ChokeGestureTick(wheelHeld);
++        if(gesture==1)b|=XINPUT_GAMEPAD_RIGHT_SHOULDER;
++        else if(gesture==2)hr=1.f;
++        else if(gesture==3)b|=XINPUT_GAMEPAD_LEFT_SHOULDER;
++        else if(gesture==4)hl=1.f;
+         if (in.a)            b |= XINPUT_GAMEPAD_A;       // jump
+         bool userStealth = in.b;
+         if (userStealth)     b |= XINPUT_GAMEPAD_B;       // stealth

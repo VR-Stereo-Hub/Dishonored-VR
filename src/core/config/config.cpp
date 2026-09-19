@@ -279,8 +279,8 @@ static void WriteDefaultIni(const char* ini)
         "; 90 Hz, still reported at 120). The SAME size at 120 Hz beats at 1.05-1.11 slots and\n"
         "; ghosts badly - the fault was never the resolution, it was the tick not dividing into\n"
         "; the display period. If you change one, check `stereo: rate` for the other.\n"
-        "RenderWidth=3012\n"
-        "RenderHeight=3122\n"
+        "RenderWidth=2750\n"
+        "RenderHeight=2850\n"
         "RenderFullscreen=1\n"
         "VirtualMode=1\n"
         "; FovLever WRITES the game camera FOV on every script dispatch (0 = off).\n"
@@ -299,7 +299,7 @@ static void WriteDefaultIni(const char* ini)
         "[VR]\n"
         "DesktopMirrorOff=1\n"
         "DesktopMirrorStrictOff=1\n"
-        "ReduceDesktopPresent=0\n"
+        "ReduceDesktopPresent=1\n"
         "; Runtime=auto tries the 32-bit OpenXR runtime the system registers (Virtual\n"
         "; Desktop's VDXR, Oculus) and falls back to the bundled SteamVR shim\n"
         "; (dvr_steamvr32.dll) when there is none; native|steamvr force one.\n"
@@ -357,6 +357,9 @@ static void WriteDefaultIni(const char* ini)
         "; 108 uu/m: headset-judged 2026-09-05, tuned live with PgDn from 98 and kept.\n"
         "Scale=108.0\n"
         "MaxMeters=0.80\n"
+        "; EyeClamp (38.24) keeps the tracked eye inside the engine's own bounds. The\n"
+        "; headset run of 2026-09-19 kept it OFF; 1 restores the clamp and its margin.\n"
+        "EyeClamp=0\n"
         "FlipX=0\n"
         "[Neck]\n"
         "UprightPitchArc=1\n"
@@ -388,6 +391,10 @@ static void WriteDefaultIni(const char* ini)
         "Hand=left\n"
         "DistanceM=8.000\n"
         "SizeDeg=0.500\n"
+        "; VR-141: the reticle colour, 0..255 each (white). Live: F10 HUD tab.\n"
+        "ColorR=255\n"
+        "ColorG=255\n"
+        "ColorB=255\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -881,10 +888,10 @@ static void WriteDefaultIni(const char* ini)
         "LockPitch=1\n"
         "LockFov=1\n"
         "StereoState=1\n"
-        "PossessionStereo=0\n"
+        "PossessionStereo=1\n"
         "HideBorders=1\n"
         "HeadLook=1\n"
-        "SpecialHeadLook=0\n"
+        "SpecialHeadLook=1\n"
         "Trace=1\n"
         "LockRoll=1\n"
         "\n"
@@ -901,7 +908,7 @@ static void WriteDefaultIni(const char* ini)
         "RainStrength=100\n"
         "\n"
         "[Mirror]\n"
-        "Enabled=0\n"
+        "Enabled=1\n"
         "Assets=Wpn_PlyGunElite,crossbow_01\n"
         "Eps=0.25\n"
         "FillRadius=1.5\n"
@@ -909,7 +916,7 @@ static void WriteDefaultIni(const char* ini)
         "Caps=1\n"
         "CoverTol=0.3\n"
         "Straddle=2.0\n"
-        "DepthBias=0\n"
+        "DepthBias=1\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"
@@ -921,6 +928,28 @@ static void WriteDefaultIni(const char* ini)
         "HandBack=1\n"
         "ReleaseMs=250\n"
         "HandBackBlendMs=150\n"
+        "; Arms.<lane>.<state> and Action.<lane>.<state> are the per-state handback rules\n"
+        "; (VR-88). 1 hands the state back to the game's own animation, 0 keeps the VR\n"
+        "; hands driving it. Lane 0 is the master state, 1 and 2 the upper-body states.\n"
+        "; These are the rules the 2026-09-19 headset run was played with.\n"
+        "Arms.0.StatePlayerMasterAction=1\n"
+        "Arms.0.StatePlayerMasterWalk=0\n"
+        "Arms.0.StatePlayerMasterLeaning=0\n"
+        "Arms.0.StatePlayerMasterSwim=0\n"
+        "Arms.0.StatePlayerMasterJump=0\n"
+        "Arms.0.StatePlayerMasterFalling=0\n"
+        "Arms.0.StatePlayerMasterHolePeeking=0\n"
+        "Arms.0.StatePlayerMasterSlide=0\n"
+        "Arms.0.StatePlayerMasterMantle=0\n"
+        "Arms.1.StatePlayerUpperIdle=0\n"
+        "Arms.1.StatePlayerMeleeAttack=0\n"
+        "Arms.1.StatePlayerGrabMovable=1\n"
+        "Arms.1.StatePlayerBlock=0\n"
+        "Arms.2.StatePlayerUpperIdle=0\n"
+        "Arms.2.StatePlayerGrabMovable=0\n"
+        "Action.0.StatePlayerMasterJump=1\n"
+        "Action.0.StatePlayerMasterMantle=1\n"
+        "Action.1.StatePlayerBlock=1\n"
         "[Draws]\n"
         "; The HUD draw census (core/gfx/hud_class), default OFF. Census=1 buckets every draw in\n"
         "; a present by entry point, render target, viewport, depth state, blend, texture stage\n"
@@ -933,10 +962,10 @@ static void WriteDefaultIni(const char* ini)
         "ReadingTilt=0\n"
         "ReadingTiltReference=1\n"
         "WheelPartsAlphaMode=mix\n"
-        "WheelPartsAlphaGain=0.890\n"
+        "WheelPartsAlphaGain=0.280\n"
         "WheelPartsAlphaFloor=0.000\n"
-        "WheelPartsAlphaGamma=0.660\n"
-        "WheelPartsAlphaMix=2.090\n"
+        "WheelPartsAlphaGamma=0.630\n"
+        "WheelPartsAlphaMix=1.930\n"
         "WheelSidePanels=1\n"
         "NativeGameplayReference=0\n"
         "NativeObjectiveUpright=1\n"
@@ -950,7 +979,18 @@ static void WriteDefaultIni(const char* ini)
         "PauseAlphaGamma=0.850\n"
         "PauseAlphaMix=1.350\n"
         "NativeObjectiveIcons=1\n"
-        "NativeObjectiveScale=0.440\n"
+        "NativeObjectiveScale=0.330\n"
+        "; The native marker levers (VR-129). NativeTaskMarkers keeps an offscreen\n"
+        "; objective marker inside the frame at TaskMarkerEdgeInset; the Rune keys do\n"
+        "; the same for the Heart's rune markers, and NativeRuneOwnership keeps that\n"
+        "; group native from its first appearance. On, at 0.220, is what the\n"
+        "; 2026-09-19 headset run was played with. Live: F10 HUD tab.\n"
+        "NativeTaskMarkers=1\n"
+        "TaskMarkerEdgeInset=0.220\n"
+        "NativeRuneMarkers=1\n"
+        "RuneMarkerEdgeInset=0.220\n"
+        "NativeRuneOwnership=1\n"
+        "NativeMarkerChildren=0\n"
         "ObjectiveScreenTracking=0\n"
         "GroupInteractions=1\n"
         "RouteObjectives=1\n"
@@ -1041,7 +1081,7 @@ static void WriteDefaultIni(const char* ini)
         "Element.detection=frame\n"
         "Element.skipgauge=window\n"
         "Element.darkvision=window\n"
-        "Element.vignette=window\n"
+        "Element.vignette=frame\n"
         "Element.pause=world\n"
         "Element.note=window\n"
         "Element.journal=window\n"
@@ -1108,10 +1148,10 @@ static void WriteDefaultIni(const char* ini)
         "WindowNote=1\n"
         "WindowJournal=1\n"
         "WindowWheel=1\n"
-        "WindowStore=1\n"
+        "WindowStore=0\n"
         "WindowMissionStats=1\n"
         "Element.default.WinX=0.184\n"
-        "Element.default.WinY=0.185\n"
+        "Element.default.WinY=-0.153\n"
         "Element.default.WinScale=1.570\n"
         "Element.vitals.WinX=-0.167\n"
         "Element.vitals.WinY=0.106\n"
@@ -1226,7 +1266,7 @@ static void WriteDefaultIni(const char* ini)
         "Element.missionstats.HandScale=1.000\n"
         "WheelShortcuts.Crop0=0.055\n"
         "WheelShortcuts.Crop1=0.228\n"
-        "WheelShortcuts.Crop2=0.945\n"
+        "WheelShortcuts.Crop2=0.952\n"
         "WheelShortcuts.Crop3=0.163\n"
         "WheelPotions.Crop0=0.723\n"
         "WheelPotions.Crop1=0.947\n"
@@ -1307,8 +1347,8 @@ static void LoadConfig()
         // display period at 90 Hz, which is what killed the ghosting (see
         // ENGINE_NOTES, "The ghosting was the cadence beat"). At 120 Hz the same
         // size beats at 1.05-1.11 slots per frame and ghosts.
-        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 3012, ini);
-        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 3122, ini);
+        g_resWantW = (uint32_t)GetPrivateProfileIntA("Screen", "RenderWidth", 2750, ini);
+        g_resWantH = (uint32_t)GetPrivateProfileIntA("Screen", "RenderHeight", 2850, ini);
         g_resWantFull = GetPrivateProfileIntA("Screen", "RenderFullscreen", 1, ini) != 0;
         g_resVirtual = GetPrivateProfileIntA("Screen", "VirtualMode", 1, ini) != 0 || g_launchVirtual;
         if (!g_resWantW && g_launchW && g_launchH) {   // the launch file carried an ask the ini lost
@@ -1592,9 +1632,12 @@ static void LoadConfig()
         char hand[32]; GetPrivateProfileStringA("Crosshair", "Hand", "left", hand, sizeof(hand), ini);
         crosshair.hand = !_stricmp(hand, "left") ? 0 : !_stricmp(hand, "right") ? 1 : -1;
         crosshair.distanceM = IniFloat(ini, "Crosshair", "DistanceM", 8.0f);
-        crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.5f);
+        crosshair.sizeDeg = IniFloat(ini, "Crosshair", "SizeDeg", 0.69f);   // VR-141: the tester's run490 size
         crosshair.bothPoses = GetPrivateProfileIntA("Crosshair", "BothPoses", 0, ini) != 0;
         crosshair.controlDot = GetPrivateProfileIntA("Crosshair", "ControlDot", 0, ini) != 0;
+        crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
+        crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
+        crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -2073,7 +2116,7 @@ static void LoadConfig()
             dvr::zacct::roll_mode() ? "LATERAL residual against head ROLL (VR-91)"
                                     : "VERTICAL residual against camera PITCH (VR-78)");
     }
-    g_eyeClampCfg    = IniFloat(ini, "PosTrack", "EyeClamp", 1) != 0.0f; // 38.24
+    g_eyeClampCfg    = IniFloat(ini, "PosTrack", "EyeClamp", 0) != 0.0f; // 38.24; off since the 2026-09-19 run
     g_eyeClampMargin = IniFloat(ini, "PosTrack", "EyeClampMargin", 8.0f);
     if (g_eyeClampMargin < 2.0f)  g_eyeClampMargin = 2.0f;
     if (g_eyeClampMargin > 30.0f) g_eyeClampMargin = 30.0f;
@@ -2954,7 +2997,7 @@ static void LoadConfig()
             GetPrivateProfileStringA("VR", "DesktopEyeSource", "", source, sizeof(source), ini);
             dvr::desktop_eye::set_source(source[0] ? source : "draw",
                 source[0] ? ini : "compiled default (ini key absent)");
-            dvr::desktop_eye::set_reduced_present(GetPrivateProfileIntA("VR", "ReduceDesktopPresent", 0, ini) != 0);
+            dvr::desktop_eye::set_reduced_present(GetPrivateProfileIntA("VR", "ReduceDesktopPresent", 1, ini) != 0);
             dvr::desktop_eye::set_mirror_off(GetPrivateProfileIntA("VR", "DesktopMirrorOff", 1, ini) != 0);
             dvr::desktop_eye::set_strict_off(GetPrivateProfileIntA("VR", "DesktopMirrorStrictOff", 1, ini) != 0);
         }
@@ -3629,6 +3672,8 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Crosshair", "DistanceM", v, ini);
         _snprintf(v, 64, "%.3f", crosshair.sizeDeg);
         WritePrivateProfileStringA("Crosshair", "SizeDeg", v, ini);
+        const char* rgbKeys[3] = {"ColorR", "ColorG", "ColorB"};
+        for (int i = 0; i < 3; ++i) { _snprintf(v, 64, "%d", crosshair.rgb[i]); WritePrivateProfileStringA("Crosshair", rgbKeys[i], v, ini); }
     }
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());
