@@ -121,6 +121,9 @@ bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rec
 // VR-142: the split vitals. part 0 = health, 1 = mana and the equipped item; the
 // source crop and the diagonal half-plane, both in the sink texture's UV.
 bool vitals_part(int sink,int part,float* rect,float* halfPlane);
+// VR-142: the drawn hand's offset from its controller while the game animates
+// it, as a rigid XR-space move (q, t). Published by the hand draw (any thread).
+void set_hand_anim_offset(int hand, const float q[4], const float t[3]);
 bool force_capture_alpha(int sink);
 AlphaCfg wheel_parts_alpha();
 float native_objective_scale(int element);

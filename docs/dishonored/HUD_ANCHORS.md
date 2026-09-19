@@ -1,3 +1,23 @@
+## Attached vitals follow the animated hand; 10 s countdown (VR-142, 2026-09-19)
+
+Candidate 495's attach step was accepted in the headset. Two follow-ups:
+- The countdown defaults to 10 s (slider 2-20; it was 5).
+- During a game animation (mantle, the new swing/shot, any "Show game arms"
+  state) the drawn hand leaves the controller: its palette delta blends toward
+  the game's own pose (`dvr::anim::blend`). The attached panels stayed on the
+  controller. The hand draw now publishes where the DRAWN hand is relative to
+  its controller as a rigid XR-space move. The world delta is
+  W = L * D_blend * inverse(D_full) * inverse(L). It is carried back to XR by
+  the inverse of the translation path's own map (M = B * F * R_head^T), which
+  gives Rd = M^T Rg M and td = head - Rd*head + M^T Wt / k. The runtime applies
+  it after the grip placement (`HudQuadDesc::animOn`). It is the identity when
+  nothing animates, and it is ignored when older than 150 ms.
+  `hud/vitals-anim:` logs the move and the turn while it applies.
+Counterprediction: during a mantle with game arms hidden, `hud/vitals-anim`
+reports a move of centimetres and the panels ride the drawn hands. A panel that
+flies off in the wrong direction means a handedness error in M; the log's move
+names it.
+
 ## Attach the vitals by holding the hands to them (VR-142, 2026-09-19)
 
 Candidate 493's back-of-hand mode placed the panels at the far end of the hand

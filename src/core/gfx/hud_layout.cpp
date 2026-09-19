@@ -134,10 +134,21 @@ const char* kVitalsBackKeys[5]={"VitalsBack.Out","VitalsBack.Along","VitalsBack.
 // [0] = left hand (mana), [1] = right hand (health), by the part's anchor.
 bool g_vaOn=false,g_vaValid[2]={false,false};
 float g_vaPos[2][3]={},g_vaQ[2][4]={{0,0,0,1},{0,0,0,1}};
-float g_vaSeconds=5.f;
+float g_vaSeconds=10.f;   // the tester asked for 10 (candidate 495 had 5)
 unsigned long long g_vaStart=0;              // 0 = not counting
 float g_vaPanelPos[2][3]={},g_vaPanelQ[4]={0,0,0,1};
 const char* kVaKeys[2]={"VitalsAttach.L","VitalsAttach.R"};
+SRWLOCK g_animOffLock = SRWLOCK_INIT;
+float g_animOffQ[2][4] = {{0,0,0,1},{0,0,0,1}}, g_animOffT[2][3] = {};
+unsigned long long g_animOffMs[2] = {};
+bool hand_anim_offset(int h, float q[4], float t[3]) {
+    AcquireSRWLockShared(&g_animOffLock);
+    const bool fresh = g_animOffMs[h] && GetTickCount64() - g_animOffMs[h] < 150;
+    memcpy(q, g_animOffQ[h], 4 * sizeof(float)); memcpy(t, g_animOffT[h], 3 * sizeof(float));
+    ReleaseSRWLockShared(&g_animOffLock);
+    // Identity (not animating) needs no move.
+    return fresh && !(fabsf(q[3]) > .999999f && fabsf(t[0]) + fabsf(t[1]) + fabsf(t[2]) < 1e-5f);
+}
 int vitals_hand(int part) { const int a=g_el[part?ElVitalsMana:ElVitalsHealth].anchor; return a==AnchorHandL?0:a==AnchorHandR?1:-1; }
 float g_nativeObjectiveScale=.70f;
 hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context), rebuilt on a region change
@@ -625,6 +636,15 @@ bool vitals_part(int sink,int part,float* rect,float* halfPlane) {
     halfPlane[0]=s; halfPlane[1]=-s*slope; halfPlane[2]=-s*(g_vitalsLine[0]-slope*y0);
     return true;
 }
+void set_hand_anim_offset(int hand, const float q[4], const float t[3]) {
+    if (hand < 0 || hand > 1) return;
+    for (int k = 0; k < 4; ++k) if (!std::isfinite(q[k])) return;
+    for (int k = 0; k < 3; ++k) if (!std::isfinite(t[k])) return;
+    AcquireSRWLockExclusive(&g_animOffLock);
+    memcpy(g_animOffQ[hand], q, 4 * sizeof(float)); memcpy(g_animOffT[hand], t, 3 * sizeof(float));
+    g_animOffMs[hand] = GetTickCount64();
+    ReleaseSRWLockExclusive(&g_animOffLock);
+}
 bool force_capture_alpha(int sink) {
     return alpha_for_sink(sink).mode!=AlphaRepair || (wheel_parts_for_sink(sink) && wheel_parts_alpha().mode!=AlphaRepair);
 }
@@ -826,6 +846,12 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
             d.orient=dvr::vr::HudOrient::GripLocal; d.lift=0;
             memcpy(d.base,g_vaPos[h],sizeof(d.base)); memcpy(d.orientation,g_vaQ[h],sizeof(d.orientation));
             d.planeOff[0]=d.planeOff[1]=0;
+        }
+        if(vaPart>=0 && !g_vaStart && hand_anim_offset(h,d.animQ,d.animT)) {
+            d.animOn=true;
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
+                "hud/vitals-anim: %s panel follows the animated hand: move %.3f/%.3f/%.3f m, turn %.1f deg",
+                h?"right":"left",d.animT[0],d.animT[1],d.animT[2],2.f*acosf(fminf(1.f,fabsf(d.animQ[3])))*57.29578f);
         }
     } else {
         d.anchor = anchor == AnchorWorld ? dvr::vr::HudAnchor::WindowWorld : dvr::vr::HudAnchor::Window;
@@ -1589,7 +1615,7 @@ void draw_ui() {
             ImGui::TextColored(ImVec4(1,.8f,.2f,1),"ATTACHING in %.1f s: hold each hand where its panel should ride",left>0?left:0);
         } else if(ImGui::Button("Attach to my hands (panels freeze in front of you, then a countdown)")) vitals_attach_start();
         ImGui::SameLine(); ImGui::SetNextItemWidth(90);
-        ImGui::SliderFloat("seconds",&g_vaSeconds,2,10,"%.0f");
+        ImGui::SliderFloat("seconds",&g_vaSeconds,2,20,"%.0f");
         if(g_vaValid[0] || g_vaValid[1]) {
             if(ImGui::Checkbox("Use the attached placement",&g_vaOn)) write_i("VitalsAttach",g_vaOn);
             ImGui::SameLine();

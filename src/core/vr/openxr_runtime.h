@@ -681,6 +681,12 @@ struct HudQuadDesc {
     float width = 1.25f, height = 0.0f;
     float tiltDeg = 0.0f;
     float spinDeg = 0.0f;              // FollowGrip: turn in the panel's plane (VR-142)
+    // VR-142: while the game animates the hand, the drawn hand leaves the
+    // controller; this rigid XR-space move (applied after the grip placement)
+    // carries a hand panel with the drawn hand. Identity when not animating.
+    bool  animOn = false;
+    float animQ[4] = {0, 0, 0, 1};
+    float animT[3] = {0, 0, 0};
     float orientation[4] = {0,0,0,1}; // OpeningPlane: LOCAL-space opening orientation
     float subrect[4] = {0.0f, 0.0f, 1.0f, 1.0f};
 };
