@@ -167,7 +167,14 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     const float ext[3] = { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
     const int barrel = ext[0] >= ext[1] && ext[0] >= ext[2] ? 0 : ext[1] >= ext[2] ? 1 : 2;
 
-    // The plane: the ini override, else the cut face (the densest face slab).
+    // The plane: the ini override, else the SYMMETRY PLANE. Build464 refused
+    // both weapons under the first rule (a cut face: 26 of 6330 pistol and 8 of
+    // 1961 crossbow vertices on the densest face), so these meshes are not cut
+    // open at a plane; they carry a symmetric core (barrel, grip, bow arms) and
+    // miss detail on one side. The mirror plane is the one across which the most
+    // vertices find a DIFFERENT vertex at their reflection. Vertices within
+    // 0.5 uu of a candidate plane are left out of the score: they match
+    // themselves and would make any dense slab look symmetric.
     UINT faceCnt[3][2] = {};
     for (UINT i = 0; i < numVerts; ++i) if (used[i])
         for (int a = 0; a < 3; ++a) {
@@ -176,20 +183,68 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
             if (hi[a] - pos[i*3+a] <= tol) ++faceCnt[a][1];
         }
     e->measured = !WmPlaneOverride(e->asset, e->n, e->c);
-    int bestA = -1, bestF = 0; UINT bestCnt = 0, bestOpp = 0;
+    float bestScore[3] = { -1, -1, -1 }, bestC[3] = { 0, 0, 0 };
+    UINT sideHi = 0, sideLo = 0;
     if (e->measured) {
-        for (int a = 0; a < 3; ++a) if (a != barrel)
-            for (int f = 0; f < 2; ++f)
-                if (faceCnt[a][f] > bestCnt) { bestCnt = faceCnt[a][f]; bestOpp = faceCnt[a][1 - f]; bestA = a; bestF = f; }
+        const float r = 0.5f;
+        auto vkey = [&](float x, float y, float z) -> long long {
+            const long long a = (long long)floorf(x / r), b = (long long)floorf(y / r), c = (long long)floorf(z / r);
+            return ((a & 0x1FFFFF) << 42) | ((b & 0x1FFFFF) << 21) | (c & 0x1FFFFF);
+        };
+        std::unordered_map<long long, std::vector<UINT>> grid;
+        std::vector<UINT> sample;
+        for (UINT i = 0; i < numVerts; ++i) if (used[i]) grid[vkey(pos[i*3], pos[i*3+1], pos[i*3+2])].push_back(i);
+        const UINT stepV = nUsed > 1500 ? nUsed / 1500 : 1; UINT seen = 0;
+        for (UINT i = 0; i < numVerts; ++i) if (used[i] && (seen++ % stepV) == 0) sample.push_back(i);
+        auto score = [&](int a, float c) -> float {
+            UINT hit = 0, n = 0;
+            for (UINT i : sample) {
+                const float d = pos[i*3+a] - c;
+                if (fabsf(d) < r) continue;
+                float m[3] = { pos[i*3], pos[i*3+1], pos[i*3+2] }; m[a] = c - d;
+                ++n;
+                bool found = false;
+                for (int dx = -1; dx <= 1 && !found; ++dx) for (int dy = -1; dy <= 1 && !found; ++dy) for (int dz = -1; dz <= 1 && !found; ++dz) {
+                    auto it = grid.find(vkey(m[0] + dx * r, m[1] + dy * r, m[2] + dz * r));
+                    if (it == grid.end()) continue;
+                    for (UINT k : it->second) {
+                        if (k == i) continue;
+                        const float ex = pos[k*3] - m[0], ey = pos[k*3+1] - m[1], ez = pos[k*3+2] - m[2];
+                        if (ex*ex + ey*ey + ez*ez <= r * r) { found = true; break; }
+                    }
+                }
+                if (found) ++hit;
+            }
+            return n >= 32 ? (float)hit / (float)n : -1.0f;
+        };
+        for (int a = 0; a < 3; ++a) {
+            if (ext[a] < 1.0f) continue;
+            // coarse: 33 offsets across the middle 80% of the extent, then refine
+            const float c0 = lo[a] + 0.1f * ext[a], span = 0.8f * ext[a], st = span / 32.0f;
+            for (int k = 0; k <= 32; ++k) { const float c = c0 + k * st, sc = score(a, c); if (sc > bestScore[a]) { bestScore[a] = sc; bestC[a] = c; } }
+            const float cc = bestC[a];
+            for (int k = -8; k <= 8; ++k) { const float c = cc + k * st / 8.0f, sc = score(a, c); if (sc > bestScore[a]) { bestScore[a] = sc; bestC[a] = c; } }
+        }
+        int bestA = 0;
+        for (int a = 1; a < 3; ++a) if (bestScore[a] > bestScore[bestA]) bestA = a;
+        float second = -1; for (int a = 0; a < 3; ++a) if (a != bestA && bestScore[a] > second) second = bestScore[a];
+        Log("mirror/plane: '%s' symmetry search (fraction of vertices whose reflection lands on another vertex, 0.5 uu): "
+            "x %.3f at %.2f | y %.3f at %.2f | z %.3f at %.2f | bbox (%.1f %.1f %.1f)-(%.1f %.1f %.1f)",
+            e->asset, bestScore[0], bestC[0], bestScore[1], bestC[1], bestScore[2], bestC[2], lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
         char msg[200];
-        if (bestA < 0 || bestCnt < nUsed * 3 / 100 || bestCnt < 3 * (bestOpp + 1)) {
-            _snprintf(msg, sizeof(msg), "no cut face (best %c%s %u of %u used verts, opposite %u; need >= 3%% and >= 3x) - set [Mirror] Plane_%s",
-                      bestA < 0 ? '?' : "xyz"[bestA], bestF ? "max" : "min", bestCnt, nUsed, bestOpp, e->asset);
+        if (bestScore[bestA] < 0.20f || bestScore[bestA] < 1.15f * second) {
+            _snprintf(msg, sizeof(msg), "no clear symmetry plane (best %c %.3f, next %.3f; need >= 0.20 and >= 1.15x) - set [Mirror] Plane_%s",
+                      "xyz"[bestA], bestScore[bestA], second, e->asset);
             msg[sizeof(msg) - 1] = 0; refuse(msg); return;
         }
+        // The modelled half is the side holding more vertices.
+        for (UINT i = 0; i < numVerts; ++i) if (used[i]) {
+            const float d = pos[i*3+bestA] - bestC[bestA];
+            if (d > g_wmEps) ++sideHi; else if (d < -g_wmEps) ++sideLo;
+        }
         e->n[0] = e->n[1] = e->n[2] = 0; e->c[0] = e->c[1] = e->c[2] = 0;
-        e->n[bestA] = bestF ? -1.0f : 1.0f;            // into the modelled half
-        e->c[bestA] = bestF ? hi[bestA] : lo[bestA];
+        e->n[bestA] = sideHi >= sideLo ? 1.0f : -1.0f;
+        e->c[bestA] = bestC[bestA];
     }
     float S[12]; dvr::hf::reflection_3x4(e->n, e->c, S);
     auto dist = [&](const float* p) { return e->n[0]*(p[0]-e->c[0]) + e->n[1]*(p[1]-e->c[1]) + e->n[2]*(p[2]-e->c[2]); };
@@ -233,14 +288,14 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     }
     const UINT keptPrims = (UINT)(kept.size() / 3);
     Log("mirror/build: '%s' verts %u used %u prims %u | bbox (%.1f %.1f %.1f)-(%.1f %.1f %.1f) | barrel axis %c | "
-        "plane n=(%.0f %.0f %.0f) through %c=%.2f %s%s | faces min/max x %u/%u y %u/%u z %u/%u | kept %u of %u "
+        "plane n=(%.0f %.0f %.0f) through %c=%.2f %s%s | sides %u/%u | faces min/max x %u/%u y %u/%u z %u/%u | kept %u of %u "
         "(skipped: other side %u, on plane %u, already modelled %u; %u verts on the other side) Eps %.2f Fill %.2f | "
         "normal maps on the copy light from the mirrored side (cosmetic, accepted)",
         e->asset, numVerts, nUsed, primCount, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], "xyz"[barrel],
         e->n[0], e->n[1], e->n[2], "xyz"[e->n[0] != 0 ? 0 : e->n[1] != 0 ? 1 : 2],
         e->n[0] != 0 ? e->c[0] : e->n[1] != 0 ? e->c[1] : e->c[2],
         e->measured ? "MEASURED" : "from [Mirror] Plane_ (NOT measured)",
-        e->measured ? "" : "", faceCnt[0][0], faceCnt[0][1], faceCnt[1][0], faceCnt[1][1], faceCnt[2][0], faceCnt[2][1],
+        e->measured ? "" : "", sideHi, sideLo, faceCnt[0][0], faceCnt[0][1], faceCnt[1][0], faceCnt[1][1], faceCnt[2][0], faceCnt[2][1],
         keptPrims, primCount, skipSide, skipPlane, skipCovered, nOther, g_wmEps, g_wmFill);
     if (!keptPrims) { refuse("nothing to fill (0 triangles kept) - the plane may be wrong"); return; }
 

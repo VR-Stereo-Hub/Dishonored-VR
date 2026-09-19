@@ -8,6 +8,19 @@ WaMesh field - WaMesh is memset/evicted in several places and the table needs
 one release hook (`WaInvalidateContracts`) and rebuilds on any key mismatch;
 (2) the math lives in `hand_frame.h` (`reflection_3x4`, `mirror_palette_right`)
 so `frame_test` pins it (`mirror_compose`, `mirror_can_fail`).
+
+**Build464 result (headset): no visible change - both builds REFUSED.** The
+cut-face rule of section 3 found no cut: `Wpn_PlyGunElite` best face xmin 26 of
+6330 used vertices (opposite 5), `crossbow_01` ymin 8 of 1961 (opposite 6), both
+under the 3% floor. These meshes are not half-models cut at a plane; they have a
+symmetric core and miss detail on one side. Build465 replaces section 3's
+measurement with a SYMMETRY SEARCH: for each axis, 33 offsets over the middle
+80% of the extent then a 17-step refinement, scoring the fraction of sampled
+vertices (<= 1500) whose reflection lands within 0.5 uu of a DIFFERENT vertex;
+vertices within 0.5 uu of the candidate plane are excluded (they match
+themselves). Accept the best axis at >= 0.20 and >= 1.15x the next axis; the
+modelled half is the side with more vertices. `mirror/plane` logs every axis's
+best score and offset, so a refusal still names a usable override.
 Scope: `Wpn_PlyGunElite` (pistol) and `crossbow_01` (crossbow, 1961 verts per
 VR-57-MODEL-RAY.md). The sword, the Heart and the other items are out of scope.
 
