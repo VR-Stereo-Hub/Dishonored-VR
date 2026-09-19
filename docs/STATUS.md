@@ -1,3 +1,16 @@
+## Restored pre-split build489 (2026-09-19)
+
+At tester request, stopped the vitals/choke plan and SteamVR investigation and
+restored the installed game to c01058558, immediately before the health/mana
+split. Release rebuilt in isolated build/pre-split-source; current branch source
+and later commits preserved. Installed banner vr33-hands-working-489-gc01058558,
+SHA256 71540df18a6f9dd13f4ef9812db5b333c368782f25c71178ec530d8353d9bae6.
+Frozen installer copied from503 in build/playtest-candidates/hud-improvements/rollback-489;
+dry run and install verified. Pre490 HUD section restored, Choke section removed,
+Runtime=native with explicit 32-bit VDXR manifest. Full INI diff reviewed,
+CRLF1253/1253; logs/INI archived before installation. Release, lint and908 HUD
+host checks pass. No game launch, no merge. Candidate506 test is superseded.
+
 ## Native SteamVR orientation investigation, candidate 506 (2026-09-19)
 
 VR-146: native SteamVR/OpenXR 2.17.10 starts this x86 game without the bundled
