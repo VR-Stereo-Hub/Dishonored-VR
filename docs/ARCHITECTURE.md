@@ -992,3 +992,12 @@ Lean and keyhole camera states reuse the existing scoped final-camera writer,
 not a second global pose correction. Successful scope leases suppress competing
 input head deltas; a validated one-shot exit carries physical yaw back. Arm
 checkboxes operate on all three FSM lanes and do not redefine camera ownership.
+
+## 2026-09-19: one vitals placement owner and per-eye draw proof
+
+VitalsMode owns routing and presentation; legacy booleans migrate once and
+retire on save. Model mode keeps XR fallback until both eyes submit textured
+bars within 250 ms. Debug geometry cannot establish that proof. Texture validity
+belongs to the vitals sink and is reset once per present, never by unrelated
+sinks. See HUD_ANCHORS.md for the diagnostic candidate and deferred game-space
+capture gate.

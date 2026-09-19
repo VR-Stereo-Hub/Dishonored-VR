@@ -2575,7 +2575,19 @@ static bool g_vsPalmOk[2] = {false, false};
 static uint32_t g_vsDrawn[2][2] = {{0xFFFFFFFFu, 0xFFFFFFFFu}, {0xFFFFFFFFu, 0xFFFFFFFFu}};   // [hand][eye] present
 static IDirect3DVertexBuffer9* g_vsVb = nullptr;
 static IDirect3DDevice9* g_vsVbDev = nullptr;
-static LONG g_vsDraws = 0, g_vsRefused = 0;
+enum VsResult { VsDraw,VsPalm,VsContext,VsConfig,VsTexture,VsOnce,VsClip,VsBehind,VsBuffer,VsLock,VsState,VsDrawFail,VsCount };
+static const char* kVsResult[VsCount]={"drawn","no palm for this hand","ctx not ok","no palm attach cfg","no texture","once-per-eye gate","empty clipped polygon","behind eye or invalid projection","VB allocation failed","VB lock failed","state-block failed","draw hr failed"};
+static void VitalsSceneNote(int hand,int eye,VsResult result,bool debug,HRESULT hr=S_OK) {
+    static unsigned counts[2][2][VsCount]={};static unsigned long long last[2][2]={};
+    ++counts[hand][debug?1:0][result];const auto now=GetTickCount64();
+    if(!debug && result!=VsOnce) dvr::hudlayout::vitals_scene_result(hand,eye,kVsResult[result],result==VsDraw);
+    if(!last[hand][debug?1:0] || now-last[hand][debug?1:0]>=3000) {
+        last[hand][debug?1:0]=now;const auto* c=counts[hand][debug?1:0];
+        DVR_INFO("hud/vitals-scene: %s %s eye=%d result=%s hr=0x%08lx | drawn=%u noPalm=%u ctx=%u cfg=%u texture=%u once=%u clipped=%u behind=%u vb=%u lock=%u state=%u drawFail=%u copy=%s",
+            hand?"right":"left",debug?"MAGENTA":"bars",eye,kVsResult[result],(unsigned long)hr,
+            c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8],c[9],c[10],c[11],dvr::hudcap::vitals_scene_copy_reason(hand?0:1));
+    }
+}
 
 // The drawn palm: T (the controller's palm target, camera-relative world) moved
 // by the animation blend W = L * D_blend * inverse(D_full) * inverse(L).
@@ -2598,17 +2610,26 @@ static bool MpDrawnPalm(const MpDrawCtx* c, const dvr::hf::Xform& Dfull, const d
 static void VitalsSceneRelease() {
     if (g_vsVb) { g_vsVb->Release(); g_vsVb = nullptr; }
     g_vsVbDev = nullptr;
+    dvr::hudlayout::vitals_scene_reset();
 }
 
-static void VitalsSceneDraw(IDirect3DDevice9* dev, int hand, const MpDrawCtx* c) {
-    if (hand < 0 || hand > 1 || !g_vsPalmOk[hand] || !c || !c->ok) return;
-    dvr::hudlayout::VitalsSceneCfg cfg;
-    if (!dvr::hudlayout::vitals_scene_cfg(hand, &cfg)) return;
-    IDirect3DTexture9* tex = nullptr; float rect[4], hp[3]; unsigned tw = 0, th = 0;
-    if (!dvr::hudcap::vitals_scene_texture(cfg.part, &tex, rect, hp, &tw, &th)) { InterlockedIncrement(&g_vsRefused); return; }
-    const int eyeIdx = g_mpEyeState > 0 ? 1 : 0;
-    const uint32_t present = (uint32_t)dvr::frame::count();
-    if (g_vsDrawn[hand][eyeIdx] == present) return;   // once per hand, eye and present
+static void VitalsSceneDraw(IDirect3DDevice9* dev, int hand, const MpDrawCtx* c, bool debug) {
+    if(hand<0 || hand>1) return;
+    const int eyeIdx=g_mpEyeState>0?1:0;
+    auto note=[&](VsResult r,HRESULT hr=S_OK) {VitalsSceneNote(hand,eyeIdx,r,debug,hr);};
+    if(!c || !c->ok) {note(VsContext);return;}
+    if(!g_vsPalmOk[hand]) {note(VsPalm);return;}
+    dvr::hudlayout::VitalsSceneCfg cfg{};
+    IDirect3DTexture9* tex=nullptr;float rect[4]={0,0,1,1},hp[3]={};unsigned tw=1,th=1;
+    if(debug) {cfg.part=hand?0:1;cfg.pos[1]=.05f;cfg.widthM=.04f;}
+    else {
+        if(!dvr::hudlayout::vitals_scene_cfg(hand,&cfg)) {note(VsConfig);return;}
+        if(!dvr::hudcap::vitals_scene_texture(cfg.part,&tex,rect,hp,&tw,&th)) {note(VsTexture);return;}
+    }
+    static uint32_t debugDrawn[2][2]={{~0u,~0u},{~0u,~0u}};
+    auto& drawn=debug?debugDrawn[hand][eyeIdx]:g_vsDrawn[hand][eyeIdx];
+    const uint32_t present=(uint32_t)dvr::frame::count();
+    if(drawn==present) {note(VsOnce);return;}
     const float s = dvr::camera::world_scale() > 1.0f ? dvr::camera::world_scale() : 100.0f;
     const dvr::hf::Xform& P = g_vsPalm[hand];
 
@@ -2650,7 +2671,7 @@ static void VitalsSceneDraw(IDirect3DDevice9* dev, int hand, const MpDrawCtx* c)
         }
         n = m; memcpy(poly, out, sizeof(float) * 2 * m);
     }
-    if (n < 3) return;
+    if (n < 3) {note(VsClip);return;}
 
     struct V { float x, y, z, rhw, u, v; } verts[8];
     const D3DVIEWPORT9& vp = c->viewport;
@@ -2660,7 +2681,7 @@ static void VitalsSceneDraw(IDirect3DDevice9* dev, int hand, const MpDrawCtx* c)
         float clip[4];
         for (int j = 0; j < 4; ++j)
             clip[j] = p[0]*c->vp[0*4+j] + p[1]*c->vp[1*4+j] + p[2]*c->vp[2*4+j] + c->vp[3*4+j];
-        if (!(clip[3] > 0.01f)) { InterlockedIncrement(&g_vsRefused); return; }   // behind the eye
+        if (!(clip[3] > 0.01f) || !std::isfinite(clip[0]) || !std::isfinite(clip[1]) || !std::isfinite(clip[3])) {note(VsBehind);return;}   // behind the eye
         const float iw = 1.0f / clip[3];
         verts[i].x = vp.X + (clip[0] * iw * 0.5f + 0.5f) * vp.Width - 0.5f;
         verts[i].y = vp.Y + (0.5f - clip[1] * iw * 0.5f) * vp.Height - 0.5f;
@@ -2672,26 +2693,30 @@ static void VitalsSceneDraw(IDirect3DDevice9* dev, int hand, const MpDrawCtx* c)
     if (!g_vsVb) {
         if (FAILED(dev->CreateVertexBuffer(sizeof(verts), D3DUSAGE_WRITEONLY, D3DFVF_XYZRHW | D3DFVF_TEX1,
                                            D3DPOOL_MANAGED, &g_vsVb, nullptr)) || !g_vsVb) {
-            g_vsVb = nullptr; InterlockedIncrement(&g_vsRefused); return;
+            g_vsVb = nullptr;note(VsBuffer);return;
         }
         g_vsVbDev = dev;
     }
     void* mem = nullptr;
-    if (FAILED(g_vsVb->Lock(0, sizeof(V) * n, &mem, 0)) || !mem) { InterlockedIncrement(&g_vsRefused); return; }
+    if (FAILED(g_vsVb->Lock(0, sizeof(V) * n, &mem, 0)) || !mem) {note(VsLock);return;}
     memcpy(mem, verts, sizeof(V) * n);
     g_vsVb->Unlock();
 
     IDirect3DStateBlock9* saved = nullptr;
-    if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) { InterlockedIncrement(&g_vsRefused); return; }
+    if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) {note(VsState);return;}
     dev->SetVertexShader(nullptr); dev->SetPixelShader(nullptr);
     dev->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1);
     dev->SetStreamSource(0, g_vsVb, 0, sizeof(V));
     dev->SetTexture(0, tex);
+    dev->SetRenderState(D3DRS_TEXTUREFACTOR,0xFFFF00FF);
+    dev->SetStreamSourceFreq(0,1);
+    dev->SetRenderState(D3DRS_CLIPPLANEENABLE,0);
+    dev->SetRenderState(D3DRS_FILLMODE,D3DFILL_SOLID);
     for (DWORD st = 1; st < 8; ++st) dev->SetTexture(st, nullptr);
     dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-    dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    dev->SetTextureStageState(0, D3DTSS_COLORARG1, debug?D3DTA_TFACTOR:D3DTA_TEXTURE);
     dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
-    dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, debug?D3DTA_TFACTOR:D3DTA_TEXTURE);
     dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
     dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
     dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
@@ -2713,19 +2738,15 @@ static void VitalsSceneDraw(IDirect3DDevice9* dev, int hand, const MpDrawCtx* c)
     dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
     dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
     // Additive, like the HUD's own repair look: the capture is black where empty.
-    dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_ALPHABLENDENABLE, debug?FALSE:TRUE);
     dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
     dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
     dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_ONE);
     dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, FALSE);
     const HRESULT hr = dvr::frame::raw_draw_prim(dev, D3DPT_TRIANGLEFAN, 0, (UINT)(n - 2));
     saved->Apply(); saved->Release();
-    if (SUCCEEDED(hr)) { g_vsDrawn[hand][eyeIdx] = present; InterlockedIncrement(&g_vsDraws); }
-    else InterlockedIncrement(&g_vsRefused);
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-        "hud/vitals-scene: drawn %ld refused %ld | last: %s panel on the %s hand, %d-gon, %.1f x %.1f uu, centre %.1f/%.1f/%.1f uu "
-        "(camera-relative), hr=0x%08lx", g_vsDraws, g_vsRefused, cfg.part ? "mana" : "health", hand ? "right" : "left", n, W, H,
-        C[0], C[1], C[2], (unsigned long)hr);
+    if(SUCCEEDED(hr)) drawn=present;
+    note(SUCCEEDED(hr)?VsDraw:VsDrawFail,hr);
 }
 
 // VR-142: where the DRAWN palm appears in XR space, for the HUD panels attached
@@ -2800,12 +2821,17 @@ static void MpPublishPalm(int hand, const MpDrawCtx* c, const dvr::hf::Xform& Df
     // Not animating, the distance is the hand model's own offset from the
     // controller, constant across poses; if it changes with a stance change,
     // THAT is the drift the tester saw, and this line names its size.
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+    static unsigned long long palmLogMs[2]={};
+    const auto now=GetTickCount64();
+    if(!palmLogMs[hand] || now-palmLogMs[hand]>=3000) {
+    palmLogMs[hand]=now;
+    DVR_INFO(
         "hud/palm: %s drawn palm at %.3f/%.3f/%.3f (XR), %.3f m from the grip, anim weight %.2f, eye %+d",
         hand ? "right" : "left", pos[0], pos[1], pos[2],
         [&] { float gp[3], gq[4]; if (!dvr::vr::input_get_hand_pose(hand, false, gp, gq)) return -1.0f;
               return sqrtf((gp[0]-pos[0])*(gp[0]-pos[0]) + (gp[1]-pos[1])*(gp[1]-pos[1]) + (gp[2]-pos[2])*(gp[2]-pos[2])); }(),
         dvr::anim::weight(), g_mpEyeState);
+    }
 }
 
 static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
@@ -3394,6 +3420,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         }
     }
 
+    g_vsPalmOk[0]=g_vsPalmOk[1]=false;
     bool placedHand[2] = {false, false};   // VR-142: the hands this draw placed, for the in-scene vitals
     if (SUCCEEDED(dev->SetIndices(g_msIb))) {
         for (int r = 0; r < nrng; r++) {
@@ -3467,8 +3494,13 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         // draw after this one inherits our delta.
         if (perClass)
             dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
-        if (ctx.ok && dvr::hudlayout::vitals_scene_on())   // VR-142: the vitals on the hands, this draw's own matrices
-            for (int h = 0; h < 2; ++h) if (placedHand[h]) VitalsSceneDraw(dev, h, &ctx);
+        if(dvr::hudlayout::vitals_scene_on()) {
+            for(int h=0;h<2;++h) {
+                g_vsPalmOk[h]=g_vsPalmOk[h] && placedHand[h];
+                VitalsSceneDraw(dev,h,&ctx,false);
+                if(dvr::hudlayout::vitals_debug()) VitalsSceneDraw(dev,h,&ctx,true);
+            }
+        }
 
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/palette_axis_beat.inc"

@@ -1,3 +1,78 @@
+## Vitals ownership and model diagnostics (2026-09-19)
+
+Candidate 505, `vr33-hands-working-505-g5501e2f9a-dirty`, is frozen in
+`build/playtest-candidates/hud-improvements/install-505`. DLL SHA256:
+`e240f7e10ffa42d14cea88d1a2bdd9761f8d9c859c0476772c142af020fd37c8`.
+The installer is copied from install-503; its dry run adds only VitalsMode=model
+and VitalsDebug=1 to a copy of the live INI (1285 CRLF lines). No launch yet.
+
+Static finding: vs_copy cleared BOTH part-valid flags on EVERY sink, before
+checking whether that sink was the vitals sink. A later unrelated sink erased
+a successful copy. Validity now resets once per end_frame; only the owning
+vitals sink can publish it. Copies require armed redirection and actual draws,
+run before clear, expire at 250 ms, and invalidate on reset/content changes.
+Copy reasons distinguish missing sink, unarmed redirect, empty draws, invalid
+crop, allocation/surface/copy failures and a successful current-frame copy.
+
+VitalsMode is the sole placement owner. Missing new and legacy keys default to
+hand. An explicit mode wins old keys; otherwise migration chooses model for
+VitalsInScene, attached for VitalsAttach, then hand/window from VitalsSplit.
+VitalsBack is retired without carrying its guessed offsets forward. The next
+mode save or full save removes the obsolete switches and back-of-hand sliders.
+The legacy VitalsInScene.L/R.Trim keys remain placement data, not an enable flag.
+
+Model mode suppresses each XR part only after textured draws succeeded in BOTH
+eyes within 250 ms. It restores an attached quad if either eye expires. Magenta
+success never counts as textured success. Legacy palm captures cannot be used
+as controller-local poses: re-attachment now independently saves VitalsGrip.L/R
+for the fallback. Until then a visible default grip placement is used and logged.
+The old palm mapping remains for this diagnostic candidate; game-space capture
+is deliberately gated on the first headset result, as the implementation plan
+requires. No new engine-memory writer was introduced.
+
+`hud vitals debug on|off` persists VitalsDebug; `hud vitals mode <mode>` changes
+placement; `hud vitals status` names mode, effective owner, part anchor, sink,
+route age, model refusal and copy reason. F10 Health / mana exposes the same
+selector. The magenta quad is untextured, 4 cm square, offset 5 cm in palm +Y,
+and independent of attachment/copy validity. It draws alongside the bars.
+Per-hand, per-path 3 s counters cover context, palm, config, texture, once-per-eye,
+clipping, behind-eye/nonfinite projection, VB, lock, state block and draw HRESULT.
+The palette class mapping agrees at both call sites: HAND_B maps to right (1).
+A shared throttle hid the other palm's log; each hand now has its own timer.
+Palm validity is cleared for each original draw so an earlier draw cannot supply
+stale geometry. A successful HRESULT proves submission, not visible pixels.
+
+### F10 shared-setting audit
+
+| Controls / keys | Owner and other readers | Effective behavior |
+|---|---|---|
+| Health / mana VitalsMode | Router, capture, XR provider, model draw | window owns one unsplit row; hand owns two hand panels; attached owns grip quads; model owns textured scene draws with attached fallback. |
+| Element.vitals anchor / Hand / Win placement | Mode owns anchor; window reads Win placement | Generic row removed from F10. Seam anchor changes explain mode ownership. Split modes require an always-present source sink and ignore source-row placement. |
+| Element.vitalshealth / vitalsmana | Hand reads offsets and scale; attached/model read scale | Fixed health right, mana left. Only active controls are shown; inactive offsets are retained. |
+| VitalsMirror | Hand-mode provider | Only hand placement mirrors; attached/model sizes are independent. |
+| VitalsSplit.Top/Bottom, VitalsHealth/Mana.Crop*, VitalsAutoCrop | D3D11 parts and D3D9 model copy | Shared image definition for all split modes; changes invalidate content. Hidden in window mode. |
+| VitalsAttach.L/R, VitalsGrip.L/R | Model's legacy palm pose, attached fallback's grip pose | Countdown saves both independently. No separate enable checkbox; VitalsMode owns use. |
+| VitalsInScene.L/R.Trim* | Model placement | Visible only in model; resets draw proof when edited. |
+| VitalsDebug | Model diagnostic | Default off; no texture dependency and no ownership proof. |
+| HandL/HandR X/Y/Z/Lift/Orient/Tilt/Spin | All generic hand panels | Affect vitals only in hand mode. Attached/model placement ignores them; hand-panel width still supplies the base part size in metres. |
+| HandL/HandR.Width and element HandScale | Generic hand panels and split vitals sizing | Explicit shared size: width times part scale, reduced by autocrop fraction. |
+| Window distance/width/height/up/lateral | All window elements, including window vitals | Shared window settings; per-element Win offsets/scale remain local. |
+| WheelSidePanels / WheelShortcuts / WheelPotions | Weapon dial's menu image | Separate from gameplay vitals. The wheel's Health and mana controls never set VitalsMode or its crops. |
+| Wheel alpha, gameplay/menu/reader alpha and backdrop | Capture composition by context | Independent scoped banks; model bars still use the existing additive pre-tone-map path. |
+| WeaponDial / note and journal FollowHand | Dedicated menu panels plus generic element list | Generic offsets hidden when dedicated controls own placement; anchor still chooses the menu sink. |
+| Objective native flags / marker controls | Native markers versus redirected objective row | Generic objective row is explanatory while native ownership is active. |
+| NativeGameplayReference | Router/provider bypass | Dominates every gameplay panel mode; visible restore button and status reason explain the bypass. |
+| Reticle size/distance/RGB | Controller reticle | Independent of vitals and the native HUD reticle source. |
+
+Validation: Release (repository preset RelWithDebInfo), lint, 923 HUD anchor
+checks, 9 existing choke checks, and production/default-profile byte equality.
+The profile test exposed pre-existing packaged-profile drift and LF-only golden
+bytes; both were regenerated from the production writer. First launch question:
+are magenta squares visible on both hands with the health/mana bars? Missing
+squares implicate geometry/draw placement; squares with missing bars implicate
+copy/config; both visible permits the game-space attachment step. Colour after
+tone mapping and perceived stability remain unmeasured.
+
 ## The vitals drawn in the game frame, on the hand (VR-142, 2026-09-19)
 
 Run499 showed that a compositor quad cannot be locked to the hand model. With

@@ -946,6 +946,8 @@ static void WriteDefaultIni(const char* ini)
         "; `draws on|off|status|regions|kill <key>|hud|unkill` live, and the F10 HUD tickbox.\n"
         "Census=0\n"
         "[Hud]\n"
+        "VitalsMode=hand\n"
+        "VitalsDebug=0\n"
         "ReadingTilt=0\n"
         "ReadingTiltReference=1\n"
         "WheelPartsAlphaMode=mix\n"

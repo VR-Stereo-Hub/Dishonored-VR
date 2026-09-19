@@ -1,3 +1,15 @@
+## Vitals selector and model diagnostic candidate 505 (2026-09-19)
+
+Implemented the first gated stage of CODEX_PLAN_VITALS_CHOKE.md. Candidate505
+is frozen with a copied/hash-checked install.ps1 and a successful live-INI-copy
+dry run (only VitalsMode=model and VitalsDebug=1; CRLF preserved).
+Static fix: later HUD sinks invalidated the vitals copy. Both-eye draw proof now
+protects the XR fallback; refusal counters and independent magenta squares make
+the next run falsifiable. HUD_ANCHORS.md has the owner audit and full identity.
+Release, lint, HUD/choke/default-profile host tests pass. No launch or merge.
+Next: install505 and observe squares/bars; game-space capture waits on that
+result. Choke calibration/output and desktop-present A/B remain later stages.
+
 ## Run503 and the Codex plan (2026-09-19)
 
 Run503 (build 503, banner verified; logs in build/playtest-candidates/hud-improvements/run503):

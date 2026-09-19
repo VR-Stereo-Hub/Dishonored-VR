@@ -1,3 +1,11 @@
+## Vitals-first candidate and pending desktop-present A/B (2026-09-19)
+
+Candidate505 implements the selector/model-draw diagnostic stage of
+CODEX_PLAN_VITALS_CHOKE.md. It leaves ReduceDesktopPresent unchanged so the
+first question remains model drawing. VR-144 still needs the independent
+ReduceDesktopPresent=0 comparison with run499's 28% wheel singles/writes.
+No new wheel measurement or performance verdict is claimed.
+
 ## Wheel stutter and the crouched-load stand-up stall (2026-09-19, VR-144, VR-143)
 
 - VR-144, the weapon wheel stutter: the share of one-eye ticks while the wheel

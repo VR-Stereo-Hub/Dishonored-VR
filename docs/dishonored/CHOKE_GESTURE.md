@@ -5,6 +5,15 @@
 A choke by gesture: the right hand brought QUICKLY up to the left shoulder
 starts it, and it lasts only while the hand is held close to that shoulder.
 
+## Run503 correction and current gate (2026-09-19)
+
+The prior output claim below is only valid for pad binding set 1. Run503 held RB
+without entering StatePlayerMasterChoke; set 2 maps RB to attack. The first
+candidate from CODEX_PLAN_VITALS_CHOKE.md changes only vitals ownership and
+diagnostics. The existing 9 choke host checks pass, but they cannot establish
+the active game binding or successful choking. Output research and three-try
+calibration follow as a separate candidate; do not interpret RB held as success.
+
 ## What the game offers
 
 The choke is not its own button. `DishonoredInput.ini` binds

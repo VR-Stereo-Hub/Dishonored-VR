@@ -117,25 +117,45 @@ IDirect3DTexture9* g_vsTex[2] = {};
 UINT g_vsW[2] = {}, g_vsH[2] = {};
 float g_vsRect[2][4] = {}, g_vsHp[2][3] = {};
 bool g_vsOk[2] = {};
+const char* g_vsReason[2]={"no copy yet","no copy yet"};
+unsigned long long g_vsMs[2]={};
+void vs_note(int part,const char* reason) {
+    g_vsReason[part]=reason;
+    static unsigned counts[2]={};static unsigned long long last[2]={};
+    ++counts[part];const auto now=GetTickCount64();
+    if(!last[part] || now-last[part]>=3000) {
+        last[part]=now;
+        DVR_INFO("hud/vitals-copy: part=%d attempts=%u result=%s armed=%d present=%u",part,counts[part],reason,g_armed,g_presentNo);
+    }
+}
 void vs_release() {
+    dvr::hudlayout::vitals_scene_reset();
+    g_vsMs[0]=g_vsMs[1]=0;g_vsReason[0]=g_vsReason[1]="device reset or release";
     for (int k = 0; k < 2; ++k) { if (g_vsTex[k]) { g_vsTex[k]->Release(); g_vsTex[k] = nullptr; } g_vsOk[k] = false; g_vsW[k] = g_vsH[k] = 0; }
 }
 void vs_copy(IDirect3DDevice9* dev, int i, IDirect3DSurface9* rt) {
-    g_vsOk[0] = g_vsOk[1] = false;
-    if (!dvr::hudlayout::vitals_scene_on() || !rt || !g_rtW || !g_rtH) return;
+    // Only the vitals sink owns these flags. Other sinks must not invalidate
+    // a successful copy later in this same end_frame loop.
+    float probe[4],plane[3];
+    if(!dvr::hudlayout::vitals_scene_on() ||
+       (!dvr::hudlayout::vitals_part(i,0,probe,plane) && !dvr::hudlayout::vitals_part(i,1,probe,plane))) return;
     for (int part = 0; part < 2; ++part) {
         float r[4], hp[3];
-        if (!dvr::hudlayout::vitals_part(i, part, r, hp)) continue;
+        if (!dvr::hudlayout::vitals_part(i, part, r, hp)) {vs_note(part,"invalid crop or no vitals sink");continue;}
+        if(!rt || !g_rtW || !g_rtH) {vs_note(part,"no source target");continue;}
+        if(!g_armed || !g_sink[i].redirected || g_sink[i].clearBeforeDraw) {
+            vs_note(part,!g_armed?"redirect not armed":g_sink[i].clearBeforeDraw?"source awaiting clear":"no HUD draws this present");continue;
+        }
         RECT src = {(LONG)(r[0] * g_rtW), (LONG)(r[1] * g_rtH), (LONG)ceilf(r[2] * g_rtW), (LONG)ceilf(r[3] * g_rtH)};
         if (src.left < 0) src.left = 0; if (src.top < 0) src.top = 0;
         if (src.right > (LONG)g_rtW) src.right = (LONG)g_rtW; if (src.bottom > (LONG)g_rtH) src.bottom = (LONG)g_rtH;
         const UINT w = (UINT)(src.right - src.left), h = (UINT)(src.bottom - src.top);
-        if (w < 4 || h < 4) continue;
+        if (src.right<=src.left || src.bottom<=src.top || w < 4 || h < 4) {vs_note(part,"empty source rectangle");continue;}
         if (!g_vsTex[part] || g_vsW[part] != w || g_vsH[part] != h) {
             if (g_vsTex[part]) { g_vsTex[part]->Release(); g_vsTex[part] = nullptr; }
             if (FAILED(dev->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &g_vsTex[part], nullptr)) ||
                 !g_vsTex[part]) {
-                g_vsTex[part] = nullptr;
+                g_vsTex[part] = nullptr;vs_note(part,"texture allocation failed");
                 DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "hud/vitals-scene: part %d texture %ux%u refused", part, w, h);
                 continue;
             }
@@ -144,17 +164,18 @@ void vs_copy(IDirect3DDevice9* dev, int i, IDirect3DSurface9* rt) {
                      src.left, src.top, src.right, src.bottom);
         }
         IDirect3DSurface9* dst = nullptr;
-        if (FAILED(g_vsTex[part]->GetSurfaceLevel(0, &dst)) || !dst) continue;
+        if (FAILED(g_vsTex[part]->GetSurfaceLevel(0, &dst)) || !dst) {vs_note(part,"texture surface unavailable");continue;}
         const HRESULT hr = dev->StretchRect(rt, &src, dst, nullptr, D3DTEXF_NONE);
         dst->Release();
         if (FAILED(hr)) {
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "hud/vitals-scene: part %d copy refused (0x%08lx)", part, (unsigned long)hr);
+            vs_note(part,"StretchRect failed");
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 3000, "hud/vitals-scene: part %d copy refused (0x%08lx)", part, (unsigned long)hr);
             continue;
         }
         g_vsRect[part][0] = (float)src.left / g_rtW; g_vsRect[part][1] = (float)src.top / g_rtH;
         g_vsRect[part][2] = (float)src.right / g_rtW; g_vsRect[part][3] = (float)src.bottom / g_rtH;
         memcpy(g_vsHp[part], hp, sizeof(hp));
-        g_vsOk[part] = true;
+        g_vsOk[part] = true;g_vsMs[part]=GetTickCount64();vs_note(part,"copied current HUD before clear");
     }
 }
 
@@ -342,6 +363,8 @@ float slot_scale() { return g_slotScale; }
 void set_game_gate(bool arm, bool menuOverride) { g_gameGate = arm; g_menuOverride = menuOverride; }
 bool armed() { return g_armed; }
 void invalidate_content() {
+    g_vsOk[0]=g_vsOk[1]=false;g_vsReason[0]=g_vsReason[1]="content invalidated";
+    dvr::hudlayout::vitals_scene_reset();
     for(auto& s:g_sink) {
         s.slotValid[0]=s.slotValid[1]=false;s.delivered=false;
         s.markers.reset();s.redirected=0;s.clearBeforeDraw=true;
@@ -414,6 +437,8 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         else g_lastRedirectMs = GetTickCount();
     }
 
+    g_vsOk[0]=g_vsOk[1]=false;
+    g_vsReason[0]=g_vsReason[1]=g_armed?"vitals sink not copied":"redirect not armed";
     bool anyReady = false, anyInUse = false, blitOk = false;
     if (g_on && dev9 && dev11 && ctx11 && !g_failed) {
         g_lastCtx = ctx11;
@@ -634,8 +659,12 @@ bool redirect_healthy() {
 }
 bool redirect_failed() { return g_failed; }
 
+const char* vitals_scene_copy_reason(int part) {
+    if(part<0 || part>1) return "invalid part";
+    return g_vsOk[part] && GetTickCount64()-g_vsMs[part]>=250?"copy older than 250 ms":g_vsReason[part];
+}
 bool vitals_scene_texture(int part, IDirect3DTexture9** tex, float rect[4], float hp[3], unsigned* w, unsigned* h) {
-    if (part < 0 || part > 1 || !g_vsOk[part] || !g_vsTex[part]) return false;
+    if (part < 0 || part > 1 || !g_vsOk[part] || !g_vsTex[part] || GetTickCount64()-g_vsMs[part]>=250) return false;
     *tex = g_vsTex[part]; memcpy(rect, g_vsRect[part], 4 * sizeof(float)); memcpy(hp, g_vsHp[part], 3 * sizeof(float));
     *w = g_vsW[part]; *h = g_vsH[part];
     return true;

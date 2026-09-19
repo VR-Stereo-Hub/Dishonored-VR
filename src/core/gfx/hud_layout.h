@@ -127,6 +127,9 @@ bool wants_palm_pose();
 void set_hand_palm_pose(int hand, const float p[3], const float q[4], bool flipped);
 // VR-142: the vitals drawn IN the game frame on the hand ([Hud] VitalsInScene).
 bool vitals_scene_on();
+bool vitals_debug();
+void vitals_scene_result(int hand,int eye,const char* reason,bool drawn);
+void vitals_scene_reset();
 struct VitalsSceneCfg {
     int   part = 0;                 // 0 health, 1 mana
     float pos[3] = {0, 0, 0};       // metres, palm-local (the attach step)

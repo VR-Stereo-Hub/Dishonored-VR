@@ -80,6 +80,7 @@ ID3D11Texture2D* wheel_part_texture(int sink,int part);
 ID3D11Texture2D* vitals_part_texture(int sink,int part);   // VR-142: 0 health, 1 mana
 // VR-142: the part as a D3D9 texture for the in-scene draw (the previous present's
 // HUD), its screen-fraction rectangle, the split half-plane and its size.
+const char* vitals_scene_copy_reason(int part);
 bool vitals_scene_texture(int part, IDirect3DTexture9** tex, float rect[4], float hp[3], unsigned* w, unsigned* h);
 void note_marker(int sink,const float* rect);
 const dvr::hudmarker::Regions* marker_regions(int sink);

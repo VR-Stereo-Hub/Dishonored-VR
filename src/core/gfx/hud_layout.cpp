@@ -1,3 +1,4 @@
+#include "vitals_policy.h"
 #include "hud_menu_lifecycle.h"
 #include "game/dishonored/objective_marker_policy.h"
 #include "hud_wheel_parts.h"
@@ -107,7 +108,12 @@ const char* kWheelPartNames[2]={"D-pad shortcuts","Health and mana"};
 // VR-142: the vitals image cut in two along a diagonal: the bars are slanted,
 // so no rectangle separates them. The line runs from (Top, y0) to (Bottom, y1)
 // of the vitals region, in screen fractions; health keeps the left side.
-bool g_vitalsSplit=false;
+dvr::vitals::Mode g_vitalsMode=dvr::vitals::Hand;
+bool g_vitalsSplit=true;
+bool g_vitalsDebug=false;
+dvr::vitals::DrawProof g_vitalsProof[2];
+const char* g_vitalsReason[2]={"no model draw yet","no model draw yet"};
+const char* g_vitalsOwner[2]={"pending","pending"};
 float g_vitalsLine[2]={.125f,.065f};
 float g_vitalsCrop[2][4]={{0.f,0.f,.200f,.270f},{0.f,0.f,.200f,.270f}};
 const char* kVitalsPartKeys[2]={"VitalsHealth","VitalsMana"};
@@ -118,14 +124,6 @@ const char* kVitalsPartNames[2]={"Health","Mana and equipped item"};
 // mana panel to health's placement (x negated), and AutoCrop trims each part
 // at the split line so its content is centred.
 bool g_vitalsMirror=true,g_vitalsAutoCrop=true;
-// The back-of-hand mode: both panels lie ON the back of the hand like a watch
-// face (FollowGrip), from their own offsets, leaving HandL/HandR untouched for
-// every other hand element. [0] out from the back of the hand, [1] along the
-// knuckles (grip +Y), [2] along the controller (grip Z), [3] tilt, [4] spin.
-// The left hand mirrors the right: the out offset and the spin flip sign.
-bool g_vitalsBack=false;
-float g_vitalsBackCfg[5]={.045f,0.f,0.f,0.f,0.f};
-const char* kVitalsBackKeys[5]={"VitalsBack.Out","VitalsBack.Along","VitalsBack.Forward","VitalsBack.Tilt","VitalsBack.Spin"};
 // Candidate 493: the back-of-hand guess landed at the far end of the hand model
 // with too little slider range. The ATTACH step measures instead of guessing:
 // both panels freeze in front of the head, the tester holds each hand where its
@@ -145,6 +143,8 @@ const char* kVaKeys[2]={"VitalsAttach.L","VitalsAttach.R"};
 // present, where its palm appears in XR space, and the attach step stores each
 // panel relative to that. Frame 1 = palm, 0 = grip (older captures).
 int g_vaFrame[2]={0,0};
+float g_vaGripPos[2][3]={},g_vaGripQ[2][4]={{0,0,0,1},{0,0,0,1}};
+bool g_vaGripValid[2]={};
 bool g_vaFlip[2]={false,false}, g_palmFlip[2]={false,false};
 // VR-142: draw the vitals in the game frame on the hand instead of as XR quads.
 bool g_vitalsScene=false;
@@ -281,7 +281,18 @@ int acquire_sink(int anchor, bool crop, int element = -1) {
 
 // Every sink goes back to the pool; the next draws re-acquire what they need
 // (a config change costs one target rebuild, never a dropped draw).
+void apply_vitals_mode() {
+    g_vitalsSplit=g_vitalsMode!=dvr::vitals::Window;
+    g_vitalsScene=g_vitalsMode==dvr::vitals::Model;
+    g_vaOn=g_vitalsMode>=dvr::vitals::Attached;
+    // The capture row must exist even when it is only a source for split parts.
+    g_el[ElVitals].anchor=g_vitalsSplit?AnchorHandR:AnchorWindow;
+    g_el[ElVitalsHealth].anchor=AnchorHandR;
+    g_el[ElVitalsMana].anchor=AnchorHandL;
+}
+
 void rebalance() {
+    apply_vitals_mode();
     g_stableRoutes.clear();g_interactionGroup.clear();
     for (int s = 0; s < kMaxSinks; ++s) free_sink(s);
 }
@@ -425,6 +436,10 @@ void backdrop_for_sink(int sink, float rgba[4]) {
 void set_element_anchor(int e, int anchor, const char* who) {
     if (e < 0 || e >= ElCount) return;
     if (anchor < 0 || anchor >= AnchorCount) return;
+    if(e==ElVitals || e==ElVitalsHealth || e==ElVitalsMana) {
+        DVR_INFO("hud/vitals: anchor owned by VitalsMode=%s; use the Health / mana selector",dvr::vitals::name(g_vitalsMode));
+        return;
+    }
     if (g_el[e].anchor != anchor)
         DVR_INFO("hud/layout: element %s anchor %s -> %s (%s)%s", kRows[e].name,
                  kAnchorNames[g_el[e].anchor], kAnchorNames[anchor], who,
@@ -647,7 +662,39 @@ bool vitals_part(int sink,int part,float* rect,float* halfPlane) {
     halfPlane[0]=s; halfPlane[1]=-s*slope; halfPlane[2]=-s*(g_vitalsLine[0]-slope*y0);
     return true;
 }
-bool wants_palm_pose() { return g_vitalsSplit && (g_vaStart || g_vaOn); }
+void vitals_scene_result(int hand,int eye,const char* reason,bool drawn) {
+    if(hand<0 || hand>1) return;
+    g_vitalsReason[hand]=reason;
+    if(drawn) g_vitalsProof[hand].drawn(eye,GetTickCount64());
+}
+void vitals_scene_reset() {
+    for(int h=0;h<2;++h) {g_vitalsProof[h].reset();g_vitalsReason[h]="no model draw since reset";}
+}
+bool vitals_debug() {return g_vitalsDebug;}
+void save_vitals_mode() {
+    write_key("VitalsMode",dvr::vitals::name(g_vitalsMode));write_i("VitalsDebug",g_vitalsDebug);
+    const char* old[]={"VitalsSplit","VitalsAttach","VitalsInScene","VitalsBack","VitalsBack.Out","VitalsBack.Along","VitalsBack.Forward","VitalsBack.Tilt","VitalsBack.Spin"};
+    for(const char* key:old) write_key(key,nullptr);
+}
+void set_vitals_mode(dvr::vitals::Mode mode) {
+    g_vitalsMode=mode;g_vaStart=0;vitals_scene_reset();rebalance();
+    save_vitals_mode();dvr::hudcap::invalidate_content();
+    DVR_INFO("hud/vitals: mode=%s (owner %s)",dvr::vitals::name(mode),mode==dvr::vitals::Model?"model with attached fallback":dvr::vitals::name(mode));
+}
+void vitals_status() {
+    DVR_INFO("hud/vitals: mode=%s (owner %s), debug=%d",dvr::vitals::name(g_vitalsMode),g_vitalsScene?"model with attached fallback":dvr::vitals::name(g_vitalsMode),g_vitalsDebug);
+    for(int p=0;p<2;++p) {
+        const int h=vitals_hand(p),e=p?ElVitalsMana:ElVitalsHealth;
+        const int sink=g_elementSink[ElVitals];
+        const bool fresh=g_vitalsProof[h].fresh(GetTickCount64());
+        DVR_INFO("hud/vitals: part=%s anchor=%s owner=%s sink=%d routedAge=%u reason=%s modelReason=%s copy=%s",
+            kVitalsPartNames[p],kAnchorNames[g_vitalsSplit?g_el[e].anchor:g_el[ElVitals].anchor],
+            g_vitalsScene && fresh?"model":g_vaOn?"attached":dvr::vitals::name(g_vitalsMode),sink,g_presentNo-g_lastRouted[ElVitals],
+            native_gameplay_reference()?"native reference bypass":g_visualRiding?"menu owns HUD":sink<0?"no vitals sink":g_presentNo-g_lastRouted[ElVitals]>2?"no recent vitals routes":fresh?"model draw fresh":"XR fallback (model unproven or older than 250 ms)",
+            g_vitalsReason[h],dvr::hudcap::vitals_scene_copy_reason(p));
+    }
+}
+bool wants_palm_pose() { return g_vitalsSplit && (g_vaStart || g_vaOn || g_vitalsScene); }
 bool vitals_scene_on() { return g_vitalsSplit && g_vitalsScene && !g_visualRiding; }
 bool vitals_scene_cfg(int hand, VitalsSceneCfg* out) {
     if (!vitals_scene_on() || hand < 0 || hand > 1) return false;
@@ -863,12 +910,6 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
         d.orient = g_hand[h].followGrip ? dvr::vr::HudOrient::FollowGrip : dvr::vr::HudOrient::Billboard;
         d.tiltDeg = g_hand[h].tiltDeg;
         d.spinDeg = g_hand[h].spinDeg;
-        if(g_vitalsBack && (e==ElVitalsHealth || e==ElVitalsMana)) {   // VR-142: on the back of the hand
-            const float side=h ? -1.f : 1.f;   // the back of the hand faces grip -X on the right, +X on the left
-            d.base[0]=side*g_vitalsBackCfg[0]; d.base[1]=g_vitalsBackCfg[1]; d.base[2]=g_vitalsBackCfg[2];
-            d.lift=0; d.orient=dvr::vr::HudOrient::FollowGrip;
-            d.tiltDeg=g_vitalsBackCfg[3]; d.spinDeg=h ? g_vitalsBackCfg[4] : -g_vitalsBackCfg[4];
-        }
         d.width = g_hand[h].widthM * (wholeSink ? rw : 1.0f) * c.handScale;
         d.height = 0.0f;
         d.planeOff[0] = (wholeSink ? cxN * g_hand[h].widthM : 0.0f) + c.handX;
@@ -878,19 +919,17 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
             d.anchor=dvr::vr::HudAnchor::LocalBillboard; d.orient=dvr::vr::HudOrient::OpeningPlane;
             memcpy(d.base,g_vaPanelPos[vaPart],sizeof(d.base)); memcpy(d.orientation,g_vaPanelQ,sizeof(d.orientation));
             d.planeOff[0]=d.planeOff[1]=0; d.lift=0;
-        } else if(vaPart>=0 && g_vaOn && g_vaValid[h] && g_vaFrame[h]==0) {   // an older capture, in the grip frame
+        } else if(vaPart>=0 && g_vaOn && g_vaGripValid[h]) {
             d.orient=dvr::vr::HudOrient::GripLocal; d.lift=0;
-            memcpy(d.base,g_vaPos[h],sizeof(d.base)); memcpy(d.orientation,g_vaQ[h],sizeof(d.orientation));
+            memcpy(d.base,g_vaGripPos[h],sizeof(d.base)); memcpy(d.orientation,g_vaGripQ[h],sizeof(d.orientation));
             d.planeOff[0]=d.planeOff[1]=0;
-        } else if(vaPart>=0 && g_vaOn && g_vaValid[h] && g_vaFrame[h]==1) {   // on the drawn palm (the caller checked it is fresh)
-            float pp[3],pq[4],r[3];
-            if(hand_palm_pose(h,pp,pq)) {
-                dvr::xrmath::quat_rotate(pq[0],pq[1],pq[2],pq[3],g_vaPos[h],r);
-                for(int k=0;k<3;++k) d.base[k]=pp[k]+r[k];
-                dvr::xrmath::quat_mul(pq,g_vaQ[h],d.orientation);
-                d.anchor=dvr::vr::HudAnchor::LocalBillboard; d.orient=dvr::vr::HudOrient::OpeningPlane;
-                d.lift=0; d.planeOff[0]=d.planeOff[1]=0;
-            }
+        } else if(vaPart>=0 && g_vaOn) {
+            // Legacy palm captures are not grip-local. Keep a visible grip quad
+            // until a new attach can measure a genuine grip-local fallback.
+            d.orient=dvr::vr::HudOrient::GripLocal; d.lift=0;
+            d.base[0]=0;d.base[1]=.05f;d.base[2]=0;
+            d.orientation[0]=d.orientation[1]=d.orientation[2]=0;d.orientation[3]=1;
+            d.planeOff[0]=d.planeOff[1]=0;
         }
     } else {
         d.anchor = anchor == AnchorWorld ? dvr::vr::HudAnchor::WindowWorld : dvr::vr::HudAnchor::Window;
@@ -912,6 +951,16 @@ void vitals_attach_tick() {
     for(int part=0;part<2;++part) {
         const int h=vitals_hand(part);
         if(h<0) { DVR_WARN("hud/vitals-attach: %s is not on a hand anchor - nothing captured for it",kVitalsPartNames[part]); continue; }
+        float gripP[3],gripQ[4];
+        if(dvr::vr::input_get_hand_pose(h,false,gripP,gripQ)) {
+            float inv[4],rel[3];dvr::xrmath::quat_conj(gripQ,inv);
+            for(int k=0;k<3;++k) rel[k]=g_vaPanelPos[part][k]-gripP[k];
+            dvr::xrmath::quat_rotate(inv[0],inv[1],inv[2],inv[3],rel,g_vaGripPos[h]);
+            dvr::xrmath::quat_mul(inv,g_vaPanelQ,g_vaGripQ[h]);g_vaGripValid[h]=true;
+            char key[48],v[160];_snprintf(key,sizeof(key),"VitalsGrip.%s",h?"R":"L");
+            _snprintf(v,sizeof(v),"%.4f,%.4f,%.4f,%.6f,%.6f,%.6f,%.6f",g_vaGripPos[h][0],g_vaGripPos[h][1],g_vaGripPos[h][2],g_vaGripQ[h][0],g_vaGripQ[h][1],g_vaGripQ[h][2],g_vaGripQ[h][3]);
+            write_key(key,v);
+        }
         float gp[3],gq[4];
         int frame=1;
         if(!hand_palm_pose(h,gp,gq)) {
@@ -934,8 +983,7 @@ void vitals_attach_tick() {
             kVitalsPartNames[part],h?"right":"left",frame?"DRAWN PALM":"grip",g_vaPos[h][0],g_vaPos[h][1],g_vaPos[h][2],
             sqrtf(g_vaPos[h][0]*g_vaPos[h][0]+g_vaPos[h][1]*g_vaPos[h][1]+g_vaPos[h][2]*g_vaPos[h][2]),v);
     }
-    g_vaOn=g_vaValid[0] || g_vaValid[1];
-    write_i("VitalsAttach",g_vaOn);
+    g_vitalsProof[0].reset();g_vitalsProof[1].reset();
 }
 void vitals_attach_start() {
     dvr::vr::HeadPose head{};
@@ -978,24 +1026,20 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
         if(e==ElVitals && g_vitalsSplit && !g_visualRiding) {   // VR-142: two panels instead of one
             for(int part=0;part<2 && n<max;++part) {
                 const int pe=part?ElVitalsMana:ElVitalsHealth;
-                if(vitals_scene_on()) {   // drawn in the game frame on the hand instead
-                    const int ph=vitals_hand(part);
-                    if(ph>=0 && g_vaValid[ph] && g_vaFrame[ph]==1) continue;
+                const int ph=vitals_hand(part);
+                const bool model=vitals_scene_on() && !g_vaStart && ph>=0 && g_vitalsProof[ph].fresh(GetTickCount64());
+                const char* owner=model?"model":g_vaOn?(g_vaGripValid[ph]?"attached":"attached (default grip; re-attach)"):"hand";
+                if(strcmp(owner,g_vitalsOwner[part])) {
+                    g_vitalsOwner[part]=owner;
+                    DVR_INFO("hud/vitals: %s owner=%s reason=%s",kVitalsPartNames[part],owner,model?"both eyes drew within 250 ms":g_vitalsReason[ph]);
                 }
+                if(model) continue;
                 const int pa=g_el[pe].anchor;if(!anchor_visible(pa)) continue;
                 ID3D11Texture2D* partTex=dvr::hudcap::vitals_part_texture(s,part);
-                if(!partTex) continue;
-                {
-                    const int ph=pa==AnchorHandL?0:pa==AnchorHandR?1:-1;float tp[3],tq[4];
-                    if(ph>=0 && !g_vaStart && g_vaOn && g_vaValid[ph] && g_vaFrame[ph]==1 && !hand_palm_pose(ph,tp,tq)) {
-                        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,5000,
-                            "hud/vitals-attach: the %s palm is not being drawn - its panel is hidden until it is",ph?"right":"left");
-                        continue;
-                    }
-                }
+                if(!partTex) {g_vitalsReason[ph]="no delivered XR part texture";continue;}
                 float c[4],hp[3];
                 if(!vitals_part(s,part,c,hp)) continue;
-                if(part==1 && g_vitalsMirror) {   // mana takes health's placement, mirrored across the body
+                if(part==1 && g_vitalsMirror && g_vitalsMode==dvr::vitals::Hand) {   // mana takes health's placement, mirrored across the body
                     g_el[ElVitalsMana].handX=-g_el[ElVitalsHealth].handX;g_el[ElVitalsMana].handY=g_el[ElVitalsHealth].handY;
                     g_el[ElVitalsMana].handScale=g_el[ElVitalsHealth].handScale;
                     g_el[ElVitalsMana].winX=-g_el[ElVitalsHealth].winX;g_el[ElVitalsMana].winY=g_el[ElVitalsHealth].winY;
@@ -1272,11 +1316,13 @@ void configure(const char* ini) {
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
     g_wheelParts=read_i(ini,"WheelSidePanels",0)!=0;
-    g_vitalsSplit=read_i(ini,"VitalsSplit",0)!=0;
+    char mode[32]="";read_s(ini,"VitalsMode",mode,sizeof(mode));
+    g_vitalsMode=dvr::vitals::migrate(mode,read_i(ini,"VitalsSplit",-1),read_i(ini,"VitalsAttach",0)!=0,read_i(ini,"VitalsInScene",0)!=0);
+    g_vitalsDebug=read_i(ini,"VitalsDebug",0)!=0;
+    apply_vitals_mode();
+    g_vitalsProof[0].reset();g_vitalsProof[1].reset();
+    DVR_INFO("hud/vitals: mode=%s (owner %s)",dvr::vitals::name(g_vitalsMode),g_vitalsScene?"model with attached fallback":dvr::vitals::name(g_vitalsMode));
     g_vitalsMirror=read_i(ini,"VitalsMirror",1)!=0;g_vitalsAutoCrop=read_i(ini,"VitalsAutoCrop",1)!=0;
-    g_vitalsBack=read_i(ini,"VitalsBack",0)!=0;
-    g_vaOn=read_i(ini,"VitalsAttach",0)!=0;
-    g_vitalsScene=read_i(ini,"VitalsInScene",0)!=0;
     for(int h=0;h<2;++h) for(int k=0;k<3;++k) {
         char key[48];_snprintf(key,sizeof(key),"VitalsInScene.%s.Trim%d",h?"R":"L",k);g_vsTrim[h][k]=read_f(ini,key,0.f);
     }
@@ -1293,10 +1339,17 @@ void configure(const char* ini) {
             for(int k=0;k<4;++k) g_vaQ[h][k]=p[3+k]/n;
         }
     }
+    for(int h=0;h<2;++h) {
+        g_vaGripValid[h]=g_vaValid[h] && g_vaFrame[h]==0;
+        if(g_vaGripValid[h]) {memcpy(g_vaGripPos[h],g_vaPos[h],sizeof(g_vaPos[h]));memcpy(g_vaGripQ[h],g_vaQ[h],sizeof(g_vaQ[h]));}
+        char key[48],v[160]="";float p[7];_snprintf(key,sizeof(key),"VitalsGrip.%s",h?"R":"L");
+        if(read_s(ini,key,v,sizeof(v)) && sscanf(v,"%f,%f,%f,%f,%f,%f,%f",p,p+1,p+2,p+3,p+4,p+5,p+6)==7) {
+            bool finite=true;for(float x:p) finite&=std::isfinite(x);
+            const float n=sqrtf(p[3]*p[3]+p[4]*p[4]+p[5]*p[5]+p[6]*p[6]);
+            if(finite && n>.5f && n<1.5f) {g_vaGripValid[h]=true;for(int k=0;k<3;++k) g_vaGripPos[h][k]=p[k];for(int k=0;k<4;++k) g_vaGripQ[h][k]=p[k+3]/n;}
+        }
+    }
     DVR_INFO("hud/vitals-attach: %s (left %s, right %s)",g_vaOn?"ON":"off",g_vaValid[0]?"captured":"none",g_vaValid[1]?"captured":"none");
-    for(int k=0;k<5;++k) g_vitalsBackCfg[k]=read_f(ini,kVitalsBackKeys[k],g_vitalsBackCfg[k]);
-    DVR_INFO("hud/vitals-split: mirror=%d autocrop=%d back-of-hand=%d (out %.3f along %.3f forward %.3f tilt %.0f spin %.0f)",
-        g_vitalsMirror,g_vitalsAutoCrop,g_vitalsBack,g_vitalsBackCfg[0],g_vitalsBackCfg[1],g_vitalsBackCfg[2],g_vitalsBackCfg[3],g_vitalsBackCfg[4]);
     g_vitalsLine[0]=read_f(ini,"VitalsSplit.Top",g_vitalsLine[0]);g_vitalsLine[1]=read_f(ini,"VitalsSplit.Bottom",g_vitalsLine[1]);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kVitalsPartKeys[part],k);
@@ -1404,11 +1457,9 @@ void save(const char* ini) {
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
     }
-    write_i("VitalsMirror",g_vitalsMirror);write_i("VitalsAutoCrop",g_vitalsAutoCrop);write_i("VitalsBack",g_vitalsBack);
-    write_i("VitalsAttach",g_vaOn);
-    write_i("VitalsInScene",g_vitalsScene);
-    for(int k=0;k<5;++k) write_f(kVitalsBackKeys[k],g_vitalsBackCfg[k]);
-    write_i("VitalsSplit",g_vitalsSplit);write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);
+    save_vitals_mode();
+    write_i("VitalsMirror",g_vitalsMirror);write_i("VitalsAutoCrop",g_vitalsAutoCrop);
+    write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kVitalsPartKeys[part],k);write_f(key,g_vitalsCrop[part][k]);
     }
@@ -1460,6 +1511,14 @@ bool command(const char* args) {
     char w1[24] = "", w2[24] = "", w3[24] = "", w4[24] = "", w5[24] = "", w6[24] = "";
     const int n = sscanf(args, "%23s %23s %23s %23s %23s %23s", w1, w2, w3, w4, w5, w6);
     if (n < 1) return false;
+    if(!strcmp(w1,"vitals")) {
+        if(!strcmp(w2,"debug") && n==3 && (!strcmp(w3,"on") || !strcmp(w3,"off"))) {
+            g_vitalsDebug=!strcmp(w3,"on");save_vitals_mode();vitals_scene_reset();
+        } else if(!strcmp(w2,"mode") && n==3) {
+            for(int i=0;i<4;++i) if(!strcmp(w3,dvr::vitals::name((dvr::vitals::Mode)i))) {set_vitals_mode((dvr::vitals::Mode)i);vitals_status();return true;}
+        }
+        vitals_status();return true;
+    }
     if (!strcmp(w1, "reset")) { reset_presets("the seam"); return true; }
     if (!strcmp(w1, "layout")) { log_status(); return true; }
     if (!strcmp(w1, "list")) { log_list(); return true; }
@@ -1664,68 +1723,54 @@ void draw_ui() {
             g_nativeGameplayReference=false;write_i("NativeGameplayReference",0);dvr::hudcap::invalidate_content();
         }
     }
-    if(ImGui::CollapsingHeader("Split health / mana (VR-142)",ImGuiTreeNodeFlags_DefaultOpen)) {
-        if(ImGui::Checkbox("Split the vitals into two panels",&g_vitalsSplit)) {write_i("VitalsSplit",g_vitalsSplit);dvr::hudcap::invalidate_content();}
-        ImGui::TextWrapped("The health and mana bars are slanted, so they are cut along a diagonal line. Health keeps the left of the line, mana and the equipped item the right. Vitals must be on an anchor (not off) for its image to exist.");
-        bool line=ImGui::SliderFloat("Split line at the top (screen x)",&g_vitalsLine[0],0,.3f,"%.3f");
-        line|=ImGui::SliderFloat("Split line at the bottom (screen x)",&g_vitalsLine[1],0,.3f,"%.3f");
-        if(line) {write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);}
-        if(ImGui::Checkbox("Mana mirrors health's placement",&g_vitalsMirror)) write_i("VitalsMirror",g_vitalsMirror);
-        ImGui::SameLine();
-        if(ImGui::Checkbox("Trim each part at the line",&g_vitalsAutoCrop)) {write_i("VitalsAutoCrop",g_vitalsAutoCrop);dvr::hudcap::invalidate_content();}
-        if(g_vaStart) {
-            const float left=g_vaSeconds-(GetTickCount64()-g_vaStart)/1000.f;
-            ImGui::TextColored(ImVec4(1,.8f,.2f,1),"ATTACHING in %.1f s: hold each hand where its panel should ride",left>0?left:0);
-        } else if(ImGui::Button("Attach to my hands (panels freeze in front of you, then a countdown)")) vitals_attach_start();
-        ImGui::SameLine(); ImGui::SetNextItemWidth(90);
-        ImGui::SliderFloat("seconds",&g_vaSeconds,2,20,"%.0f");
-        if(g_vaValid[0] || g_vaValid[1]) {
-            if(ImGui::Checkbox("Use the attached placement",&g_vaOn)) write_i("VitalsAttach",g_vaOn);
-            ImGui::SameLine();
-            if(ImGui::Button("Forget it")) { g_vaOn=false;g_vaValid[0]=g_vaValid[1]=false;write_i("VitalsAttach",0);write_key(kVaKeys[0],nullptr);write_key(kVaKeys[1],nullptr); }
-            ImGui::TextDisabled("left %s, right %s. It overrides the back-of-hand and panel offsets.",
-                g_vaValid[0]?(g_vaFrame[0]?"on the drawn palm":"on the grip (re-attach to follow the hand model)"):"none",
-                g_vaValid[1]?(g_vaFrame[1]?"on the drawn palm":"on the grip (re-attach to follow the hand model)"):"none");
-        }
-        if(ImGui::Checkbox("Draw them ON the hand model (in the game image)",&g_vitalsScene)) write_i("VitalsInScene",g_vitalsScene);
-        if(g_vitalsScene) {
-            ImGui::TextDisabled("Uses the attachment above (re-attach once if it says 'on the grip'). Fine-tune per hand:");
-            for(int h=0;h<2;++h) {
-                ImGui::PushID(760+h);
-                bool t=ImGui::SliderFloat3(h?"right hand trim (cm, palm frame)":"left hand trim (cm, palm frame)",g_vsTrim[h],-15,15,"%.1f");
-                if(t) for(int k=0;k<3;++k) {char key[48];_snprintf(key,sizeof(key),"VitalsInScene.%s.Trim%d",h?"R":"L",k);write_f(key,g_vsTrim[h][k]);}
-                ImGui::PopID();
+    if(ImGui::CollapsingHeader("Health / mana",ImGuiTreeNodeFlags_DefaultOpen)) {
+        int mode=(int)g_vitalsMode;const char* modes[]={"window","hand","attached","model"};
+        if(ImGui::Combo("Placement",&mode,modes,4)) set_vitals_mode((dvr::vitals::Mode)mode);
+        if(g_vitalsMode==dvr::vitals::Window) {
+            float x=g_el[ElVitals].winX,y=g_el[ElVitals].winY,scale=g_el[ElVitals].winScale;
+            bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f);
+            moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f);
+            moved|=ImGui::SliderFloat("Size",&scale,.1f,3.f);
+            if(moved) set_element_place(ElVitals,false,x,y,scale,"F10 vitals window");
+        } else {
+            bool line=ImGui::SliderFloat("Split line at the top (screen x)",&g_vitalsLine[0],0,.3f,"%.3f");
+            line|=ImGui::SliderFloat("Split line at the bottom (screen x)",&g_vitalsLine[1],0,.3f,"%.3f");
+            if(line) {write_f("VitalsSplit.Top",g_vitalsLine[0]);write_f("VitalsSplit.Bottom",g_vitalsLine[1]);dvr::hudcap::invalidate_content();}
+            if(ImGui::Checkbox("Trim each part at the line",&g_vitalsAutoCrop)) {write_i("VitalsAutoCrop",g_vitalsAutoCrop);dvr::hudcap::invalidate_content();}
+            if(g_vaOn) {
+                if(g_vaStart) ImGui::Text("ATTACHING in %.1f s",fmaxf(0,g_vaSeconds-(GetTickCount64()-g_vaStart)/1000.f));
+                else if(ImGui::Button("Attach to my hands")) vitals_attach_start();
+                ImGui::SliderFloat("Countdown (seconds)",&g_vaSeconds,2,20,"%.0f");
+                ImGui::TextDisabled("Left grip: %s. Right grip: %s.",g_vaGripValid[0]?"captured":"default (attach to calibrate)",g_vaGripValid[1]?"captured":"default (attach to calibrate)");
             }
-        }
-        if(ImGui::Checkbox("Lay both on the back of the hands (moves with the hand)",&g_vitalsBack)) write_i("VitalsBack",g_vitalsBack);
-        if(g_vitalsBack) {
-            bool b=ImGui::SliderFloat("Out from the back of the hand (m)",&g_vitalsBackCfg[0],-.4f,.4f,"%.3f");
-            b|=ImGui::SliderFloat("Along the knuckles (m)",&g_vitalsBackCfg[1],-.4f,.4f,"%.3f");
-            b|=ImGui::SliderFloat("Along the controller (m)",&g_vitalsBackCfg[2],-.4f,.4f,"%.3f");
-            b|=ImGui::SliderFloat("Tilt (deg)",&g_vitalsBackCfg[3],-90,90,"%.0f");
-            b|=ImGui::SliderFloat("Spin (deg)",&g_vitalsBackCfg[4],-180,180,"%.0f");
-            if(b) for(int k=0;k<5;++k) write_f(kVitalsBackKeys[k],g_vitalsBackCfg[k]);
-            ImGui::TextDisabled("The left hand mirrors these. The panels' own size and offsets below still apply.");
-        }
-        if(ImGui::Button("Mirror the right hand panel onto the left hand")) {
-            HandCfg m=g_hand[1];m.x=-m.x;m.spinDeg=-m.spinDeg;set_hand(0,m,"F10 vitals split (mirrored HandR)");
-        }
-        for(int part=0;part<2;++part) {
-            const int e=part?ElVitalsMana:ElVitalsHealth;ImGui::PushID(720+part);
-            ImGui::TextUnformatted(kVitalsPartNames[part]);
-            int anchor=g_el[e].anchor;
-            const char* names[]={"off","window","world","handL","handR"};
-            int choice=anchor>=AnchorWindow?anchor-1:0;
-            if(ImGui::Combo("Anchor",&choice,names,5)) {anchor=choice?choice+1:AnchorOff;set_element_anchor(e,anchor,"F10 vitals split");}
-            const bool hand=anchor_is_hand(anchor);
-            float x=hand?g_el[e].handX:g_el[e].winX,y=hand?g_el[e].handY:g_el[e].winY,scale=hand?g_el[e].handScale:g_el[e].winScale;
-            if(part==1 && g_vitalsMirror) ImGui::TextDisabled("Placement mirrors health (x %.3f, y %.3f, size %.2fx)",x,y,scale);
-            else {
-                bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f,"%.3f");
-                moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f,"%.3f");
-                moved|=ImGui::SliderFloat("Size",&scale,.1f,3.f,"%.2fx");
-                if(moved) set_element_place(e,hand,x,y,scale,"F10 vitals split");
+            if(g_vitalsScene) {
+                ImGui::TextWrapped("Model mode uses attached quads until both eyes draw the bars, and restores them after 250 ms without a draw.");
+                if(ImGui::Checkbox("Magenta palm diagnostic",&g_vitalsDebug)) {save_vitals_mode();vitals_scene_reset();}
+                for(int h=0;h<2;++h) {
+                    ImGui::PushID(760+h);
+                    if(ImGui::SliderFloat3(h?"right trim (cm)":"left trim (cm)",g_vsTrim[h],-15,15,"%.1f")) {
+                        for(int k=0;k<3;++k) {char key[48];_snprintf(key,sizeof(key),"VitalsInScene.%s.Trim%d",h?"R":"L",k);write_f(key,g_vsTrim[h][k]);}
+                        vitals_scene_reset();
+                    }
+                    ImGui::TextDisabled("%s",g_vitalsReason[h]);ImGui::PopID();
+                }
             }
+            if(g_vitalsMode==dvr::vitals::Hand && ImGui::Checkbox("Mana mirrors health's placement",&g_vitalsMirror)) write_i("VitalsMirror",g_vitalsMirror);
+            for(int part=0;part<2;++part) {
+                const int e=part?ElVitalsMana:ElVitalsHealth;ImGui::PushID(720+part);
+                ImGui::TextUnformatted(kVitalsPartNames[part]);
+                if(g_vitalsMode==dvr::vitals::Hand) {
+                    float x=g_el[e].handX,y=g_el[e].handY,scale=g_el[e].handScale;
+                    if(part==1 && g_vitalsMirror) ImGui::TextDisabled("Placement mirrors health");
+                    else {
+                        bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f,"%.3f");
+                        moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f,"%.3f");
+                        moved|=ImGui::SliderFloat("Size",&scale,.1f,3.f,"%.2fx");
+                        if(moved) set_element_place(e,true,x,y,scale,"F10 vitals hand");
+                    }
+                } else {
+                    if(ImGui::SliderFloat("Size",&g_el[e].handScale,.1f,3.f,"%.2fx")) set_element_place(e,true,g_el[e].handX,g_el[e].handY,g_el[e].handScale,"F10 attached size");
+                }
             if(ImGui::TreeNode("Crop (screen fractions)")) {
                 bool changed=ImGui::SliderFloat("Left",&g_vitalsCrop[part][0],0,.4f,"%.3f");
                 changed|=ImGui::SliderFloat("Top",&g_vitalsCrop[part][1],0,.4f,"%.3f");
@@ -1735,6 +1780,7 @@ void draw_ui() {
                 ImGui::TreePop();
             }
             ImGui::PopID();
+            }
         }
     }
     if(ImGui::CollapsingHeader("Weapon wheel side panels",ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1919,7 +1965,7 @@ void draw_ui() {
     for (int e = 0; e < ElCount; ++e) {
         ImGui::PushID(e);
         int a = g_el[e].anchor;
-        if(e==ElWheelShortcuts || e==ElWheelPotions || e==ElVitalsHealth || e==ElVitalsMana) {ImGui::PopID();continue;}
+        if(e==ElVitals || e==ElWheelShortcuts || e==ElWheelPotions || e==ElVitalsHealth || e==ElVitalsMana) {ImGui::PopID();continue;}
         if(e==ElObjective && g_nativeObjectives) {
             ImGui::Text("objective     native game target | seen %u",g_seen[e]);
             ImGui::TextDisabled("Use Objectives above. Panel anchor/offset/scale do not apply in native mode.");
