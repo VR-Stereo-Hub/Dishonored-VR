@@ -137,6 +137,10 @@ static volatile LONG g_bpReq = 0;
 static uint8_t* g_blkObj = NULL;
 static uint32_t g_blkIdx = 0;
 static void*    g_blkCls = NULL;
+// VR-36: the pawn that owned the latch when it was taken. GObjects keeps a
+// destroyed object in its slot until the collector runs, so pointer + class
+// identity alone calls a dead PowerBlink alive across a save load. See BlkAlive.
+static uint8_t* g_blkPawnAt = NULL;
 static bool     g_blkTest = false;
 static bool     g_blkHookOnUI = false;   // mirror for the overlay (32.21)
 // 38.52 MAGIC AIMING. The 32.26 detour was left gated to blink on purpose
