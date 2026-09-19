@@ -1,3 +1,13 @@
+## Restored accepted pre-split486 after poor489 run (2026-09-19)
+
+Installed rebuilt3ec56e3bc, banner vr33-hands-working-486-g3ec56e3bc, with the
+complete archived install486 INI except explicit nativeVDXR. Frozen rollback-486
+installer dry-run and full actual INI diff verified, CRLF preserved.489 was the
+immediate pre-split source but486 was the last accepted pre-split playtest.
+Performance regression measured, cause unproven; details and comparison limits
+in docs/dishonored/PERFORMANCE.md. Next: one launch to compare immediate gameplay
+smoothness with the prior accepted baseline. No source branch reset or merge.
+
 ## Restored pre-split build489 (2026-09-19)
 
 At tester request, stopped the vitals/choke plan and SteamVR investigation and

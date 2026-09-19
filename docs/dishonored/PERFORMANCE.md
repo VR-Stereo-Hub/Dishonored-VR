@@ -1,3 +1,31 @@
+## Rollback489 performance regression and accepted486 baseline (2026-09-19)
+
+Tester reports poor performance from launch after the rollback. Verified489
+banner and installed DLL71540df1; archived full run in
+build/playtest-candidates/hud-improvements/run489-rollback. Runtime is VDXR1.0.10,
+3012x3122,120Hz, matching accepted486. Whole INI comparison with pre490 differs
+only in explicit VDXR selection and reticle appearance. Build optimization flags
+and generator instance match the main checkout. No cause established.
+
+Whole-session descriptive comparison (different lengths/scenes, not a controlled
+benchmark): accepted486 5.6min,97 tick samples, median9.4ms,p9010.6ms,5.5 gaps>=60ms/min;
+rollback489 36.1min,626 samples, median10.7ms,p9016.0ms,11.4 gaps>=60ms/min.
+489 logs575 frame-gap events attributed to xrEndFrame across all gap lengths;
+486 has none in that category. This locates waits, not their underlying cause.
+VDXR's own log has no reported error. SteamVR processes were absent after exit.
+
+Correction to rollback target:489 was the immediate pre-split source, while486
+was the last accepted pre-split playtest. Rebuilt3ec56e3bc in isolated checkout,
+froze rollback-486 with copied503 installer and dry-run, and installed it with
+its entire archived install486 INI except explicit nativeVDXR selection.
+Hash34bc3cb31eb540190a4c0dd2291ac47a0be7a325e9b871622913cabd50969c3d;
+banner vr33-hands-working-486-g3ec56e3bc. This is a rebuild, not the original DLL.
+Full installed INI diff removes reticle colour keys and restores SizeDeg0.500;
+CRLF1249/1249. Prior logs preserved. Next question: does performance return to the
+previous baseline immediately after loading? Improvement implicates the intervening
+reticle change or session state; no improvement leaves runtime/streamer/system
+state and the rebuild comparison open. No claimed fix, launch, or merge.
+
 ## Vitals-first candidate and pending desktop-present A/B (2026-09-19)
 
 Candidate505 implements the selector/model-draw diagnostic stage of
