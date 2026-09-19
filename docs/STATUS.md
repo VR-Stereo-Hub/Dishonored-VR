@@ -1,3 +1,14 @@
+## Run499: palm attach worse, wheel stutter halved, crouched-load stall (2026-09-19)
+
+Run499 (build 499, banner verified; logs in build/playtest-candidates/hud-improvements/run499).
+The drawn-palm attach is worse and does not track animations: a compositor quad
+cannot be locked to the hand model (scale 100 vs 108 uu/m, render latency).
+HUD_ANCHORS.md top. Proposed: draw the vitals INTO the game frame in the hand
+draw. Not built; awaiting the tester's go-ahead. The wheel opens better. The
+one-eye ratio went from 47% to 28%, and the next A/B is ReduceDesktopPresent (VR-144).
+New VR-143: a ~3 s stall on the first stand-up after loading a crouched save,
+outside the mod's present path (PERFORMANCE.md top). No new install.
+
 ## Candidate 499: vitals on the drawn palm; wheel stutter measured (2026-09-19)
 
 Run497 (logs in build/playtest-candidates/hud-improvements/run497, previous run

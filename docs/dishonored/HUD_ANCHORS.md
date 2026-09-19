@@ -1,3 +1,24 @@
+## Run499: the drawn-palm attach is worse; why a quad cannot be locked to the hand (VR-142, 2026-09-19)
+
+Tester: the panels attach even worse than before and do not track during
+animations. Run499 (logs in build/playtest-candidates/hud-improvements/run499):
+- The attach captured against the drawn palm (`,palm`, 0.05-0.11 m away).
+- `hud/palm:` put the drawn palm 0.03-0.12 m from the controller grip while
+  nothing animated (anim weight 1.00). A palm rigid in the controller would hold
+  one distance, so this estimate moves on its own.
+- One mechanism is measured: the hands are placed at `[Hands] WorldScaleUU=100`
+  game units per metre, but the world renders at `[PosTrack] Scale=108`. So a
+  drawn hand sits 7.4% closer to the eye than its controller, and the gap grows
+  with reach. That is a stance- and pose-dependent drift of the same size as the
+  report.
+- Not resolved: the estimate mixes the draw's camera basis, which is rendered
+  from an older head pose (PoseLag 2), with the head pose at publish time. In
+  a head turn that error is a few centimetres at arm's length.
+Verdict: an XR compositor quad placed from a reconstructed palm has different
+latency and scale from the image the hand is drawn in, so it cannot be locked
+to the hand model. The panel has to be drawn INTO the game's own frame, in the
+hand draw, with that draw's own matrices. Proposed next; not built.
+
 ## Vitals attached to the drawn palm; the wheel stutter (VR-142, 2026-09-19)
 
 Run497 (logs in build/playtest-candidates/hud-improvements/run497, the previous

@@ -1,3 +1,18 @@
+## Wheel stutter and the crouched-load stand-up stall (2026-09-19, VR-144, VR-143)
+
+- VR-144, the weapon wheel stutter: the share of one-eye ticks while the wheel
+  is open (`menu/head ... singles/writes`) was 10% (run470), 25% (run486), 47%
+  (run497) and 28% (run499). Build 497 took a head-pose lock on every hand draw.
+  Build 499 made it once per present, only while attaching, and the ratio fell
+  back to 28%. Remaining suspect: `[VR] ReduceDesktopPresent`, 0 -> 1 between
+  run473 and run476, when the ratio first rose. Next: an A/B.
+- VR-143, the stand-up stall after loading a crouched save: run499 loaded
+  crouched and stood at 19399687. The next perf tick read 20.5 ms at 48.6/s,
+  against 9.5 ms at 95-106/s normally. The excess is `out` idle 10.7 ms, outside
+  the mod's present path, and the mod's hook scopes were no higher than
+  elsewhere. The load window shows 11996 TexLockRect calls in 3 s, so texture
+  streaming and the device shadow copy are the first suspects. Not fixed.
+
 # Performance research
 
 ## Periodic xrEndFrame hitch: measured, not yet explained (2026-09-18)
