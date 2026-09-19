@@ -214,7 +214,7 @@ crossbow's best plane is x 0.976, so both sides are already modelled. The 50
 triangles the mirror kept were near-duplicates of existing faces (the symmetry
 is 0.21 uu off-centre), which z-fight. The back-face pass on its thin two-layer
 parts can z-fight the same way, and it showed no visible help in either run.
-Installed474:
+Installed476:
 - `[Mirror] SymmetricSkip=0.90`: a plane scoring at least this means no copy.
 - `[Mirror] BackFaces=0` in the installed ini.
 - `[Mirror] Caps=1`, new: the missing areas sit where the hand covered the

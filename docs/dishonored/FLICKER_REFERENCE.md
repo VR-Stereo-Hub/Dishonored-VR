@@ -74,7 +74,7 @@
    with state 19 not stopped is. Whether our 0 weight write during Warming feeds
    the NaN is NOT established (normal opens and closes with the same write stay
    finite).
-12. **Fix, installed474:** `pp/repair` in `menu_immersion.cpp` writes the fade
+12. **Fix, installed476:** `pp/repair` in `menu_immersion.cpp` writes the fade
    time the state machine is waiting on (Cooling: `m_UIPPFadeOutTime`, Warming:
    `m_UIPPFadeInTime`, Running: 0) only when `m_UIStateDuration` is already
    non-finite, and warns with the values. A finite timer is never written.

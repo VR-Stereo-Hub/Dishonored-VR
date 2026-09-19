@@ -1,3 +1,23 @@
+## Installed476: blackout cause measured and repaired, rain lens follows the head, hole caps (2026-09-19)
+
+Run473 (banner verified; logs in build/playtest-candidates/wheel-blackout/run473):
+VR-140 CAUSE MEASURED - a wheel close during the UberUI fade-in turned the game's
+`m_UIStateDuration` into NaN; the effect sat in Cooling forever and the world
+post-processed to black. Camera fade and colour scale were clean (FLICKER_REFERENCE
+VR-140 items 11-12, ENGINE_NOTES top). Installed476 =
+`vr33-hands-working-476-g5735d27b8` (DLL c86dfafe...):
+- VR-140: `pp/repair` rewrites the timer only when it is already non-finite.
+- VR-137 rain: the tester's settings are the defaults (rain box hidden, lens at
+  1 uu, no rescale); the lens effects are re-placed per eye from the rendered
+  camera (`[Lens] FollowHead=1`); `[Lens] RainStrength` (F10, 100 = native) caps
+  the looping lens effect's fade weight.
+- VR-138: open holes in the weapon meshes are capped (`[Mirror] Caps=1`); a model
+  already symmetric (crossbow x 0.976) gets no copy (`SymmetricSkip=0.90`), which
+  should end the right-side flicker; BackFaces off.
+Installed ini: Rain Hide 0->1, a [Lens] section, Mirror BackFaces 1->0 (CRLF
+verified). `release/dishonored_vr.ini` was already stale (no Rain/Lens/Mirror);
+untouched. No PR, no merge.
+
 ## Session end: installed470 results, handoff (2026-09-18)
 
 Installed470 (`vr33-hands-working-470-gc4becc905`, DLL 572c930c...) run by the
