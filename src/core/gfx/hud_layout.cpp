@@ -1027,12 +1027,12 @@ void configure(const char* ini) {
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
     g_menuExitHeading.store(read_i(ini,"MenuExitHeading",0)!=0);
     g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
-    dvr::objectivemarkers::configure(read_i(ini,"NativeTaskMarkers",0)!=0,read_f(ini,"TaskMarkerEdgeInset",.12f));
-    dvr::objectivemarkers::configure_runes(read_i(ini,"NativeRuneMarkers",0)!=0,read_f(ini,"RuneMarkerEdgeInset",.12f));
+    dvr::objectivemarkers::configure(read_i(ini,"NativeTaskMarkers",1)!=0,read_f(ini,"TaskMarkerEdgeInset",.22f));
+    dvr::objectivemarkers::configure_runes(read_i(ini,"NativeRuneMarkers",1)!=0,read_f(ini,"RuneMarkerEdgeInset",.22f));
     g_nativeObjectiveLabels=read_i(ini,"NativeObjectiveLabels",0)!=0;
     g_nativeObjectiveUpright=read_i(ini,"NativeObjectiveUpright",0)!=0;
     g_wheelCloseAnimation=read_i(ini,"WheelCloseAnimation",0)!=0;
-    dvr::objectivemarkers::configure_rune_ownership(read_i(ini,"NativeRuneOwnership",0)!=0);
+    dvr::objectivemarkers::configure_rune_ownership(read_i(ini,"NativeRuneOwnership",1)!=0);
     g_nativeMarkerChildren=read_i(ini,"NativeMarkerChildren",0)!=0;
     g_nativeObjectives=read_i(ini,"NativeObjectiveIcons",0)!=0;
     g_nativeGameplayReference=read_i(ini,"NativeGameplayReference",0)!=0;
