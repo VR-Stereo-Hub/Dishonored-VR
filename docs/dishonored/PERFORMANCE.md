@@ -855,3 +855,55 @@ inside the walk's recovery, and every path out clears `g_walkTid`.
 refute: the same capture should show the script lane spread thin across the
 window instead of 99% in it, because the work now happens during the crouch
 rather than at the release. If it does not, the cascade has another gate.
+
+
+## VR-152: a per-draw log that leaked its own cap (2026-09-19)
+
+**Report:** framerate reads high and consistent (100-110) but movement feels
+laggy and stuttery; standing still and looking around is smooth; the weapon
+wheel shows high FPS and feels just as bad. It was better a day or two earlier.
+
+**120 Hz is NOT the change.** The tester runs 120 and has for days, and the
+archived build 512 log is also 120 Hz and was the smooth one. The refresh is a
+constant here, so it cannot be the regression. Recorded because the shipped ini
+comment argues for 90 Hz and a reader will reach for it.
+
+**What did change, measured over two runs at the same 2750x2850:**
+
+| | build 512 (smooth) | build 517 (laggy) |
+|---|---|---|
+| mean `perf: tick` | 9.41 ms | 10.70 ms |
+| mean rate | 103.2/s | 89.2/s |
+| samples | 486 | 884 |
+| `pcap/layout` lines | 5.3/s | 26.6/s |
+
+**Cause 1, and the large one: `pcap/layout` leaked its cap.** The per-shader
+naming guard reads
+
+    if (saidN < 16) said[saidN++] = key;
+    Log("pcap/layout: shader %p declares ...");
+
+It stops REMEMBERING at sixteen and does not stop LOGGING, so the seventeenth
+distinct shader onward prints on EVERY DRAW, forever. 77992 of those lines in
+one 49 minute run - a five-argument format plus file I/O per draw, on the render
+thread. The comment directly above it says it exists to prevent exactly this
+("it produced a 25 MB log in a single short run"); the guard just did not hold
+past sixteen. Full now means silent, with one Warn saying so.
+
+**Cause 2, mine, from the same day: the awareness census paid for a line it does
+not print.** `awareness_report` takes the position mutex and was called on every
+parent update (16667 in one run) only to build arguments for a line gated to
+once a second - and that mutex is the one `match_awareness_draw` takes per HUD
+draw on the RENDER thread. Cross-thread contention at game-thread rate, for
+nothing. The gate now runs first. `match_awareness_draw` also gets a lock-free
+early out on an atomic publish stamp, because the common case is that no meter
+is live at all and a mutex per draw to discover that is pure contention.
+
+**Prediction the next run can refute:** mean `perf: tick` returns toward 9.4 ms
+and `pcap/layout` falls to a handful of lines for the whole run. If the tick
+does not move, these two were not the cost and the next suspect is the
+discovery that VR-143 moved into the crouch.
+
+**Not established:** why the distinct-shader count passed sixteen when it did.
+Different levels draw different shaders, and the laggy run is twice as long, so
+the 5x rate rise may be content rather than a change in our code.

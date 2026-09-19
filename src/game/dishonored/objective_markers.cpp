@@ -8,6 +8,13 @@ namespace {std::atomic<bool> on{false},runes{false};std::atomic<float> margin{.1
 namespace {std::atomic<bool> runeOwnership{false};std::mutex runeMutex;dvr::hudnative::RunePositions runePositions;}
 namespace {std::atomic<bool> heartAll{false};}
 namespace {std::atomic<bool> awareness{false};std::mutex awarenessMutex;dvr::hudnative::AwarenessPositions awarenessPositions;}
+// VR-152: the newest publish, readable without the lock. match_awareness_draw
+// runs on the render thread for EVERY gameplay HUD draw, and the common case by
+// far is that no awareness meter is live at all - nobody has noticed you. Taking
+// a mutex per draw to discover that is contention for nothing. A published
+// sample is only usable for 100 ms (AwarenessPositions::match drops anything
+// older), so one atomic stamp answers the common case before any lock.
+namespace {std::atomic<uint32_t> awarenessStampMs{0};}
 bool rune_ownership(){return runeOwnership.load();}
 void clear_rune_positions(){std::lock_guard<std::mutex> lock(runeMutex);runePositions.clear();}
 void configure_rune_ownership(bool active){runeOwnership.store(active);clear_rune_positions();}
@@ -24,13 +31,21 @@ void configure_runes(bool active,float value){runeMargin.store(std::isfinite(val
 bool heart_all_symbols(){return heartAll.load();}
 void configure_heart_all_symbols(bool active){heartAll.store(active);clear_rune_positions();}
 bool awareness_enabled(){return awareness.load();}
-void clear_awareness_positions(){std::lock_guard<std::mutex> lock(awarenessMutex);awarenessPositions.clear();}
+void clear_awareness_positions(){awarenessStampMs.store(0,std::memory_order_release);std::lock_guard<std::mutex> lock(awarenessMutex);awarenessPositions.clear();}
 void configure_awareness(bool active){awareness.store(active);clear_awareness_positions();}
 void publish_awareness(uintptr_t token,float x,float y,int w,int h,uint32_t flags){
-    std::lock_guard<std::mutex> lock(awarenessMutex);awarenessPositions.update(token,x,y,w,h,flags,GetTickCount());
+    const uint32_t now=GetTickCount();
+    {std::lock_guard<std::mutex> lock(awarenessMutex);awarenessPositions.update(token,x,y,w,h,flags,now);}
+    // Only a VISIBLE sample opens the matcher. A hidden or refused instance
+    // withdraws its point and must not keep the render thread locking.
+    if(flags&1) awarenessStampMs.store(now,std::memory_order_release);
 }
 bool match_awareness_draw(const float* rect,float w,float h,float* pivot){
-    if(!awareness.load())return false;
+    if(!awareness.load(std::memory_order_relaxed))return false;
+    // The lock-free gate: nothing published, or nothing published recently
+    // enough for match() to accept, so there is nothing to lock for.
+    const uint32_t stamp=awarenessStampMs.load(std::memory_order_acquire);
+    if(!stamp || GetTickCount()-stamp>100)return false;
     std::lock_guard<std::mutex> lock(awarenessMutex);return awarenessPositions.match(rect,GetTickCount(),w,h,pivot);
 }
 void awareness_report(float& worstW,float& worstH,float& worstDx,float& worstDy,unsigned& matched,unsigned& ambiguous){
@@ -179,6 +194,17 @@ __declspec(noinline) void __fastcall AwarenessParentStub(void* marker,void*,floa
     }
     ++g_awareCalls;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    // VR-152: NEVER PAY FOR A LINE YOU DO NOT PRINT (CLAUDE.md). awareness_report
+    // takes the position mutex, and it was being called on EVERY parent update -
+    // 16667 of them in one run - purely to build arguments for a line that prints
+    // once a second. Worse, that mutex is the one match_awareness_draw takes per
+    // HUD draw on the RENDER thread, so this was cross-thread contention paid at
+    // game-thread rate for nothing. The gate now comes first and the report only
+    // runs on the call that will actually print.
+    static double nextCensusMs=0;
+    const double censusNow=MaimNowMs();
+    if(censusNow<nextCensusMs) return;
+    nextCensusMs=censusNow+1000.0;
     float worstW=0,worstH=0,worstDx=0,worstDy=0;unsigned matched=0,ambiguous=0;
     dvr::objectivemarkers::awareness_report(worstW,worstH,worstDx,worstDy,matched,ambiguous);
     DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
