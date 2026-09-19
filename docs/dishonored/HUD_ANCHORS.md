@@ -1,3 +1,27 @@
+## Wheel entry angle options (2026-09-17)
+
+Added F10 Weapon dial controls for Follow head tilt on opening and Follow horizontal
+head angle on opening. Hud WeaponDialEntryTilt/WeaponDialEntryYaw default0.
+Both off retains441 hand-origin upright positional facing. Both on restores full
+opening head orientation. Individual toggles replace only yaw or pitch/roll.
+Visual, distance normal and gesture axes share that frozen orientation.
+Options save immediately and take effect on next opening, not mid-gesture.
+Build441 has no claimed headset acceptance. No camera or mantle changes.
+
+## Wheel opening faces eye position (2026-09-17)
+
+Build439 accepted for mantle and upright wheel. Verified installed DLL/banner;
+both logs and latest INI archived under mantle-upright/accepted439.
+Remaining wheel issue: opening while looking away leaves an awkward yaw.
+Keep its hand-origin position and face the opening eye position in the horizontal
+plane, rather than inherit head rotation. Freeze orientation afterward.
+Visual, gesture axes and distance offset share the same opening normal.
+No mantle, camera, blur or settings changes. Existing wheel tests now measure
+movement along the actual panel right axis, not world X for an off-center panel.
+Next launch: does opening the wheel while looking left/right leave it at the hand,
+upright and squarely facing your position? A tilted/edge-on wheel fails facing;
+movement after opening fails the frozen anchor.
+
 ## Current: accepted reading attachment and controller merge (2026-09-17)
 
 Build427 fixed reading attachment accepted after ReadingTilt=-31.000 adjustment.

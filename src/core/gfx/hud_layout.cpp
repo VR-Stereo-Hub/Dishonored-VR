@@ -107,6 +107,7 @@ hudroute::Row g_rows[ElCount];       // the routing view of g_el (rect + context
 dvr::weapon_dial::State g_dial;
 dvr::weapon_dial::State g_dialVisual; // survives grip release until the screen closes
 bool g_dialDirection = true, g_dialCircle = true;
+bool g_dialEntryTilt=false,g_dialEntryYaw=false;
 float g_dialDeadM = .002f, g_dialDistance = 0;
 float g_dialForward[3] = {0,0,-1};
 std::atomic<uint32_t> g_menuHeadMask{0},g_menuBlurMask{0};
@@ -529,8 +530,9 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
         float hp[3]{},hq[4]{},x=0,y=0;dvr::vr::HeadPose head{};
         const bool tracked=dvr::vr::peek_head_pose(head) && dvr::vr::input_get_hand_pose(0,false,hp,hq);
         const float eye[3]={head.px,head.py,head.pz},camera[4]={head.qx,head.qy,head.qz,head.qw},f[3]={0,0,-1};
-        g_dialVisual.update(true,tracked,hp,eye,g_dialRadius,g_dialDeadM,x,y,camera,g_dialDirection);
-        dvr::xrmath::quat_rotate(camera[0],camera[1],camera[2],camera[3],f,g_dialForward);
+        g_dialVisual.update(true,tracked,hp,eye,g_dialRadius,g_dialDeadM,x,y,camera,g_dialDirection,g_dialEntryTilt,g_dialEntryYaw);
+        const auto* q=g_dialVisual.opening.q;
+        dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],f,g_dialForward);
         DVR_INFO("hud/dial: visual entry tracked=%d valid=%d center=%.3f/%.3f/%.3f frame=%u",
             (int)tracked,(int)g_dialVisual.valid,hp[0],hp[1],hp[2],frame);
     }
@@ -590,11 +592,12 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
     const float hqCamera[4] = {head.qx,head.qy,head.qz,head.qw};
     const bool was = g_dial.held;
     handSelected = g_dial.update(held && permitted && g_dialOn, tracked, hp, eye,
-                                g_dialRadius, g_dialDeadM, x, y, hqCamera, g_dialDirection);
+                                g_dialRadius, g_dialDeadM, x, y, hqCamera, g_dialDirection,g_dialEntryTilt,g_dialEntryYaw);
     if (!was && g_dial.held) {
         g_dialVisual.reset();
         const float f[3]={0,0,-1};
-        dvr::xrmath::quat_rotate(head.qx,head.qy,head.qz,head.qw,f,g_dialForward);
+        const auto* q=g_dial.opening.q;
+        dvr::xrmath::quat_rotate(q[0],q[1],q[2],q[3],f,g_dialForward);
     }
     if(g_dial.held) {if(g_dial.valid) g_dialVisual=g_dial;else g_dialVisual.reset();}
     if (was != g_dial.held)
@@ -1064,6 +1067,8 @@ void configure(const char* ini) {
     g_dialDistance=fminf(.50f,fmaxf(-.30f,read_f(ini,"WeaponDialDistance",0)));
     g_dialDirection = read_i(ini,"WeaponDialDirectionOnly",1)!=0;
     g_dialCircle = read_i(ini,"WeaponDialCircle",1)!=0;
+    g_dialEntryTilt=read_i(ini,"WeaponDialEntryTilt",0)!=0;
+    g_dialEntryYaw=read_i(ini,"WeaponDialEntryYaw",0)!=0;
     g_dialDeadM = fminf(.01f,fmaxf(.0005f,read_f(ini,"WeaponDialDeadzone",.002f)));
     g_dialOn = read_i(ini, "WeaponDial", 0) != 0;
     g_dialWidth = fminf(1.2f, fmaxf(.15f, read_f(ini,"WeaponDialWidth",.35f)));
@@ -1154,6 +1159,8 @@ void save(const char* ini) {
     write_f("WeaponDialDistance",g_dialDistance);
     write_i("WeaponDialDirectionOnly",g_dialDirection);
     write_i("WeaponDialCircle",g_dialCircle);
+    write_i("WeaponDialEntryTilt",g_dialEntryTilt);
+    write_i("WeaponDialEntryYaw",g_dialEntryYaw);
     write_f("WeaponDialDeadzone",g_dialDeadM);
     write_i("WeaponDial", g_dialOn ? 1 : 0);
     write_f("WeaponDialWidth",g_dialWidth);
@@ -1533,6 +1540,9 @@ void draw_ui() {
         changed |= ImGui::SliderFloat("Distance offset (m, + farther)",&g_dialDistance,-.30f,.50f,"%.2f");
         changed |= ImGui::Checkbox("Direction only (tiny movement selects)",&g_dialDirection);
         changed |= ImGui::Checkbox("Circular crop",&g_dialCircle);
+        changed |= ImGui::Checkbox("Follow head tilt on opening",&g_dialEntryTilt);
+        changed |= ImGui::Checkbox("Follow horizontal head angle on opening",&g_dialEntryYaw);
+        ImGui::TextWrapped("Applies next opening. Off: upright and facing your position. On: use the selected head angles at entry. Orientation stays fixed while open.");
         changed |= ImGui::SliderFloat("Neutral radius (m)",&g_dialDeadM,.0005f,.010f,"%.4f");
         changed |= ImGui::SliderFloat("Dial width (m)", &g_dialWidth, .15f, 1.2f, "%.2f");
         if(!g_dialDirection) changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
@@ -1544,6 +1554,8 @@ void draw_ui() {
             write_f("WeaponDialDistance",g_dialDistance);
             write_i("WeaponDialDirectionOnly",g_dialDirection);
             write_i("WeaponDialCircle",g_dialCircle);
+    write_i("WeaponDialEntryTilt",g_dialEntryTilt);
+    write_i("WeaponDialEntryYaw",g_dialEntryYaw);
             write_f("WeaponDialDeadzone",g_dialDeadM);
             write_i("WeaponDial",g_dialOn ? 1 : 0);
             write_f("WeaponDialWidth",g_dialWidth); write_f("WeaponDialRadius",g_dialRadius);

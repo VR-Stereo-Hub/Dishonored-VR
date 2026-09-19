@@ -219,6 +219,21 @@ int main() {
     check(fixed,"361 physical yaw angles preserve fixed room position with composed camera heading");
     check(negative,"old native-matrix basis produces more than10uu false travel at fixed position");
     check(reframed,"menu entry neck correction round-trips yaw frames without positional drift");
+    check(special_camera("StatePlayerMasterLeaning")==1 && special_camera("StatePlayerMasterHolePeeking")==2 &&
+          special_camera("StatePlayerMasterWalk")==0 && special_camera(nullptr)==0,"only explicit lean/keyhole states claim special head look");
+    int32_t carry=0;
+    check(special_resume_delta(179*pi/180,-179*pi/180,carry) && std::abs(carry-364)<=1,"special exit yaw wraps across 180 degrees");
+    check(!special_resume_delta(NAN,0,carry),"invalid exit reference refuses handoff");
+    bool specialGood=true;
+    for(int degrees=-100;degrees<=100;degrees+=5){
+        const int32_t leaned[]={5000,12000,1820};
+        const double angle=degrees*pi/180;
+        comfort(leaned,0,0,0,.2,angle,-.1,true,true,out,&basis);
+        specialGood &= std::abs(out[0]*unit-.2)<unit && std::abs(out[2]*unit+.1)<unit;
+        special_resume_delta(0,angle,carry);
+        specialGood &= std::abs(std::remainder((12000+carry-out[1])*unit,2*pi))<unit;
+    }
+    check(specialGood,"special gaze bypasses native pitch/roll and exit carries identical yaw");
     std::printf("Cinematic head math: %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }

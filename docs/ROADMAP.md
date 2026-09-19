@@ -1,9 +1,16 @@
+## Misc fixes (2026-09-17)
+
+- [x] VR-134: animation-state arm checkboxes implemented with host coverage.
+- [x] VR-133: lean trace, decompiled special states and crash allocation boundary inspected.
+- [ ] VR-133: headset validate special-camera candidate; resolve allocation failure.
+- [ ] VR-134: headset validate arm checkboxes.
+
 ## Controller emulation (2026-09-17)
 
 - [x] Merge accepted marker work via PR72; branch from updated main.
 - [x] Inspect BioShock1 modifier/menu policy and stock Dishonored mappings.
 - [x] Add F10 Controls, pure composer, saved settings and221 host checks.
-- [ ] Headset: modifier D-pad shortcut selection without locomotion leakage.
+- [x] Headset: modifier D-pad selection, menu scrolling and reading attachment accepted; PR73 merged.
 
 # Roadmap
 

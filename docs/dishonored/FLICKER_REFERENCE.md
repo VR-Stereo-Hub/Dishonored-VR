@@ -1,3 +1,341 @@
+## VR-140: persistent black world after a fast wheel open/close (2026-09-18)
+
+1. **Symptom:** whole world black in both eyes, persistent; map markers, Dark
+   Vision silhouettes (2026-09-17 occurrence) and the pause menu still draw.
+   Surface: the game's own scene after post-processing, not a missing eye, mono
+   interruption or held frame. Supersedes the open question in "Dark Vision plus
+   weapon wheel blackout isolation" below (its NoBlurWheel=0 A/B never ran).
+2. **Identity:** installed467 (`vr33-hands-working-467-g8f79caeae`), logs in
+   `build/playtest-candidates/hitch-instrument/run467`.
+3. **Measured:** wheel closed 4001578, re-opened 4001703, closed 4001765 (62 ms
+   open; the tester did not see it open); `pPowerWheel` bMovieIsOpen stayed 1
+   across both (3999062..4002078). Capture sample 4003531: 0% non-black (healthy
+   3883531: 77%). Stereo pairs, tags and draw counts normal throughout: the scene
+   is drawn and post-processed to black. `menu/blur` retained=1.000 on each exit.
+4. **Hypothesis:** MenuEffectsTick's exit restore of `m_UIPPWeight` (the game's
+   last nonzero value, 1.0) landed after the game finished its own fade, leaving
+   the full menu post-process on the world. Counterprediction: if the restore is
+   the cause, build468 (no restore write) never blacks out on repeated fast wheel
+   flicks, and the new `menu/blur: UI post-process weight ... held ... in
+   GAMEPLAY` warning never fires; if the warning fires without our write, the
+   game itself sticks and another owner must be found.
+5. **Change:** build470 (468 in the plan) exit writes nothing; read-only
+   gameplay watchdog.
+6. **Result, run470 (`vr33-hands-working-470-gc4becc905`, logs
+   `build/playtest-candidates/wheel-blackout/run470`): HYPOTHESIS RETRACTED.**
+   The tester reproduced the black world by flicking the wheel. Every
+   `menu/blur: released` read the weight at 0.000 and the watchdog never fired:
+   the UI post-process weight is NOT the cause. The no-restore change stays
+   (harmless) but fixes nothing here.
+7. **New measured timing (the lead):** 12 wheel open/close cycles ~250 ms apart,
+   last close 5410140. The game's own `pPowerWheel` bMovieIsOpen went 1 -> 0 only
+   at 5410390 (it had stayed 1 through every flick), the mod's HUD layout left the
+   wheel at 5410406 ("the screen left: routing by element again"), and at 5410812
+   `stereo: frameid THE EYES BECAME ONE PICTURE at stage bb` - identical black
+   eyes from then on (frameid 3s: one-picture 20 then 39/39, 40/40). run467 had
+   the same shape (a 62 ms re-open while the movie never closed). So the black
+   begins ~400 ms after the game finally closes a wheel movie that was re-opened
+   mid-close. Stereo pairs, tags and draw counts stay normal: the scene is drawn
+   black at the backbuffer (stage bb), before capture.
+8. **Next suspects, in order:** (a) the game's own post-process or scene state
+   when a wheel is re-opened during its close (test: flick with the mod's wheel
+   features off - `[Menu] NoBlurWheel=0`, wheel ride/HUD redirect off - and see if
+   it still blacks); (b) the HUD redirect (hudcap) routing state at the ride end;
+   (c) menu/head camera writes at the ride end. Needed instrument: at the frameid
+   ONE-PICTURE transition, dump the post-process manager's entry weights, camera
+   FOV/rotation and the hudcap routing state.
+9. **Watchdog blind spot found:** the run470 watchdog tested `weight > 0.5`, so a
+   NaN weight would have read as healthy. It now also warns on a non-finite value.
+10. **Instrument, installed473 (read-only, `pp/watch`):** logs the whole
+   `DisPostProcessManager` state machine (`m_RequiredEffects[i]` and
+   `m_EffectStates[i]` for every eEffectPp, 0 stop 1 warm 2 run 3 cool 4 abort;
+   the UI and Kismet weights and timers) and the camera's own fade and colour
+   scale (`bEnableFading`, `FadeAmount`, `FadeColor`, `FadeAlpha`,
+   `bEnableColorScaling`, `ColorScale`, `CamOverridePostProcessAlpha`,
+   `m_PostProcessTargets` count). A line on every state or request change, a
+   snapshot `AT ONE PICTURE` and every 3 s while the eyes stay one picture.
+   Counterprediction: a black run whose snapshot shows every effect stopped with
+   no request, FadeAmount 0 and ColorScale 1/1/1 clears both the game's
+   post-process chain and its camera fade, and points back at our own draws.
+   A UberUI (19) entry stuck at run/cool, a request count left at 1, or a fade or
+   colour scale near 0 names the owner.
+11. **Result, run473 (`vr33-hands-working-473-g3ed002524`, logs
+   `build/playtest-candidates/wheel-blackout/run473`): CAUSE MEASURED.** The
+   tester reproduced the black world. Four wheel flicks ~100 ms apart
+   (7099812..7100593); at 7100140 a close landed while UberUI (effect 19) was
+   still WARMING (state 1, dur 0.055) and the game's warm -> cool switch wrote
+   `m_UIStateDuration` = NaN. NaN never reaches the fade-out time (0.2 s), so the
+   effect stayed in Cooling (`19:r0/s3 dur=-nan`) for the rest of the session and
+   the world post-processed to black from 7101171 (`AT ONE PICTURE`). Camera fade
+   and colour scale clean throughout (fading=0, amount 0, scale 1/1/1),
+   `m_UIPPWeight` 0.000, request count 0: only the timer was broken. Two short
+   one-picture windows earlier (6935593, 6977500) were healthy states with no
+   NaN, so the one-picture judge alone is not the blackout signature; `dur=-nan`
+   with state 19 not stopped is. Whether our 0 weight write during Warming feeds
+   the NaN is NOT established (normal opens and closes with the same write stay
+   finite).
+12. **Fix, installed476:** `pp/repair` in `menu_immersion.cpp` writes the fade
+   time the state machine is waiting on (Cooling: `m_UIPPFadeOutTime`, Warming:
+   `m_UIPPFadeInTime`, Running: 0) only when `m_UIStateDuration` is already
+   non-finite, and warns with the values. A finite timer is never written.
+   Counterprediction: after a flick burst the log shows `pp/repair` and then
+   `19` leaving the list and `TWO PICTURES again` within ~0.3 s; a `pp/repair`
+   followed by a world that stays black means the NaN also reached another field
+   (the snapshot's non-finite count says which block).
+13. **Result, run476 (`vr33-hands-working-476-g5735d27b8`, logs
+   `build/playtest-candidates/wheel-blackout/run476`): FIXED, headset-confirmed.**
+   The tester flicked the wheel repeatedly (22 opens) and the world never went
+   black. `pp/repair` fired 46 times, every one on state 3 (Cooling) with a NaN
+   timer, and the frameid judge reported no one-picture window all session. So
+   the NaN is common (roughly two per fast flick), not a rare race.
+
+## VR-135: possession mono, refusing gate measured (2026-09-18)
+
+1. **Symptom:** whole view, both eyes, mono for the entire controlled
+   possession (rat/NPC); control and camera otherwise correct. Surface: the
+   re-entry's single draw, section 1 row "mono interruption". Not an eye-tag,
+   weapon or palette issue. PrePossess (zoom toward the target, still the player
+   pawn) stayed stereo.
+2. **Reproduction identity:** installed452 (`vr33-hands-working-452-g1d029a1eb`,
+   DLL 537812eb...), current-run log archived in
+   `build/playtest-candidates/claude-handoff452/support-20260918-080956-790.zip`.
+   Possession window 2992812..3013140 ms.
+3. **Measured gate (not inferred):** at 2992812 `cyl: controller pawn 185E1400 ->
+   00000000` (the controller Pawn became `DisPossessionProxyPawn` at 2993421),
+   `gameplay verdict: FALSE (no live pawn)`, `stereo/state: FALLBACK pawn=0
+   valid=0 master=`, `reentry: gates -> SINGLE draw (scene state refused)`; beats
+   `mono/s=95..119 L/s=0 R/s=0` through 3009031. `view=1` and camera uploads
+   continued throughout, so the scene WAS drawing. The two refusing terms are the
+   capsule liveness (refuses non-player classes by design) and the anim FSM
+   (discards non-PlayerPawn by design). The earlier candidate cinematic intervals
+   (2787406.., 2829250..) were dialogue latches and stayed STEREO: retracted as
+   possession candidates.
+4. **Change:** `possession_state.cpp`, read-only: the controller's live Pawn is
+   one of the four DisPossessablePawn classes AND its `m_pPossessingController`
+   is our live controller AND its `m_pPossessingPlayerPawn` is a live player pawn.
+   Only DvrSceneVerdict consumes it (`possession_eligible`: no menu, UI surface not
+   blocking, view dispatching, raw camera uploads within 150 ms). Capsule, FSM and
+   gameplay verdicts are unchanged. `[Cine] PossessionStereo` (code default 0,
+   installed 1), live `possessionstereo on|off`, F10 checkbox.
+   Counterprediction: if the new gate is the only refusal, the next possession
+   logs `possession/stereo: VALIDATED` then `stereo/state: STEREO ... possessed=1`
+   and the beat shows L/s=R/s; if it still shows `mono/s`, another gate (the
+   stereo method or runtime) refuses and the log names it.
+5. **Results:** build458 run 08:33-08:54 (banner verified, log in
+   `build/playtest-candidates/possession-rain/support-20260918-085448-848.zip`).
+   Two rat possessions (5089906..5109625, 5126843..5147062): `VALIDATED
+   (DisPossessionProxyPawn)`, `stereo/state: STEREO possessed=1`, beats L/s=R/s
+   68..112, mono/s=0 throughout. Counterprediction held. Remaining gap: about
+   0.6 s FALLBACK at each entry between the pawn switch and validation, with
+   camera uploads also silent (rawAge 593..610), so the engine itself paused
+   there. Exit returned to the player FSM with no refusal. No headset verdict
+   yet (log-level result only).
+6. **Status:** log-confirmed stereo during possession; perceptual verdict open.
+   The entry gap is the next thing to look at only if it is visible.
+
+## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
+
+Tester reports hit-camera behavior correct in this run; health vignette invisible
+after frame routing, so the effect placement change is not accepted. Rain unchanged.
+Build452 log banner and installed DLL hash verified. No binary or INI changed.
+
+Captured still-live PID27044 with full ProcDump (3605MB), a later64-bit mini
+snapshot and a32-bit mini snapshot. Local dumps are D:/dvr-data/dumps/
+pause-freeze452-27044*.dmp. Logs/current profile and hashes preserved in
+build/playtest-candidates/pause-freeze452/support-20260918-072855-650.zip.
+Exact452 symbols already archived by DLL hash. No uploads or process termination.
+
+Full dump contains the engine fatal buffer indicating virtual-memory exhaustion.
+The error text is game-generated; its generic disk-space advice is not a diagnosis.
+32-bit mini dump shows main thread25820 in engine fatal cleanup, waiting, while
+threads14964 and15576 wait for the allocator critical section owned by25820.
+This supports an out-of-memory fatal that hangs in cleanup, not a demonstrated
+new pause rendering deadlock. Process private bytes3318243328; virtual bytes
+4121595904. Dump memory map below4GiB:165.28MiB free in total, largest21.875MiB.
+A free-space snapshot does not identify the failed allocation size or owner.
+Unlike443, no final SYSTEMMEM shadow failure is logged; engine allocator fatal
+is directly evidenced by the retained message and stacks.
+
+Tool correction: procdump64 captures AMD64/WOW64 contexts; the existing x86
+reader produces invalid register values on those and must not be trusted.
+The32-bit procdump.exe gives valid x86 registers/frame chains. Watcher now selects
+the signed32-bit sibling when handed procdump64.exe; full64-bit dump remains
+useful for memory inspection. Capture tested directly on the live failed game.
+
+Next: attribute retained memory/texture twins using exact symbols/full dump,
+then choose a measured footprint reduction. No crash-prevention fix is claimed.
+Do not repeat the vignette-to-frame approach as a successful placement fix.
+Restore a visible dedicated effects surface in a future candidate; do not
+silently accept disappearance. Native rain emitter observed with40 drops;
+health lens pointer null in final trace is not proof no red HUD draw existed.
+
+## Released wheel camera ownership candidate (2026-09-17)
+
+Latest on-disk run is448 (log ends22:29:16), not installed450. Installed450
+DLL SHA256 matches its manifest; no effects/owners telemetry has run yet.
+Do not label this as450 playtest evidence. Existing448 log shows530 Walk samples
+with Wheel ownership and zero head rotation writes; tracking remains valid.
+By contrast2232 Walk/Other samples have writes. At53567609, Walk/UpperIdle,
+script menu0, UI-derived menu1, cinematic0, head valid, writes0, script age1091ms.
+This establishes stale menu ownership, not proof of the exact reported hit frame.
+
+Fix candidate extends released-wheel handling to the shared UI owner. A focused
+VR controller with released grip, no script menu and no cinematic invalidates
+the native wheel-open bit after250ms. Remaining menus are still scanned. The
+existing wheel visual closing lease remains independent. No new engine writes
+or hit-reaction suppression. Native head injection resumes via its existing
+absolute pitch and menu-exit yaw path.210 controller policy checks pass.
+
+Tester clarified effects should be retained near the real view boundary.
+Installed Element.vignette was window, scale1.620. Candidate routes that
+full-screen category to frame (native scene image, not a small window quad).
+This broad category also includes full-screen fades; it is not a verified
+health-only material ID. World anchor would retain window dimensions, so it
+would not address the small border. Rain is preserved unchanged: its native
+particle owner must be measured before adjusting distance/extent.
+Read-only hit/health/rain diagnostics remain enabled for the candidate.
+
+One launch question: after opening/releasing the wheel and taking hits, does
+head pitch remain correct without pausing? Success supports stale UI ownership;
+failure with resumed head writes points back to the native hit reaction.
+Headset result pending. No game launched.
+
+## Hit-camera, health lens and rain ownership research (2026-09-17)
+
+Build448 stick recovery reported accepted. DLL/banner verified; logs/latestINI
+archived under wheel-release/hit-tilt448. New report: hit leaves upward view bias
+until pause; low-health border distracting on frame; rain removal requested.
+Decompiled declarations identify DishonoredCamera_HitReact (PhysicalReact spring
+base), camera.m_pHitReact_Influence, pawn.m_pCurHealthLensEffect and
+m_HealthEffects (post-process plus lens emitter), DisTweaks_EmitterCameraLensEffect,
+DisSeqAct_SetRainEmitter and camera.m_pRainBoxEmitter/m_NumRainDrops.
+Rain drops/impacts have separate particle modules. Lens base sets foreground depth
+priority and exposes BaseFOV/DistFromCamera. This is not proof the symptom is a
+Scaleform HUD element; moving the generic vignette row could target the wrong draw.
+
+No gameplay hit-react disable: the cheat also affects native strong reactions.
+No guessed shader/geometry suppression. Candidate adds bounded read-only logging
+of reflected live hit weight/target, health emitter/index and rain emitter/drop count
+to the existing Cine Trace. No camera writer or rendering change.
+Next launch question: after taking a hit, does the upward bias persist until pause?
+Expected evidence is effects/owners plus synchronized existing camera trace; this
+is diagnostic, not a claimed fix. Low health/rain target presence can be read from
+the same log if present, without another test request.
+
+ProcDump captured a1.23GB full dump on normal exit (code0), not threshold/crash.
+One-shot watcher completed; no longer armed. Keep as baseline, not crash evidence.
+
+## Mantle-only pose/visibility correction and upright wheel (2026-09-17)
+
+Build437 rollback accepted: normal movement restored. Dark Vision test with
+NoBlurWheel0 also reported successful; pause with blur suppression was successful.
+That does not eliminate a wheel-specific suppression conflict. Restore NoBlurWheel1
+at the user's request; Dark Vision remains an open, reproducible-risk hypothesis.
+
+VR-134 now adds native hand pose ownership only for explicit master Mantle when
+MantleHandBack is enabled. The mantle Arms checkbox selects full native geometry
+versus existing split hand geometry, preserving the native palette/depth once
+handoff reaches native. Other master/upper/left states keep build437 pose policy.
+No cancellation-eligibility pose trigger, camera edit or engine-memory writer added.
+Hidden-mantle geometry policy is frozen with pose weight per render frame and held
+through the existing release hysteresis. Existing action cancellation is unchanged.
+Other states' Arms controls still choose native versus tracked poses; independent
+geometry for those states is unfinished.
+
+Wheel opening uses the existing yaw-only upright capture for both its visual plane
+and gesture axes. Opening position, distance offset, crop and later fixed anchoring
+are unchanged. Pitch/roll at entry no longer tilt the wheel.
+
+Host checks:138 animation catalog/policy checks plus22 handoff checks,2204 wheel
+checks,908 HUD anchor checks pass. These establish policy/math, not visual comfort.
+Next launch question: with Mantling enabled and Show game arms unchecked, does a
+mantle retain animated hands with forearms hidden and return to normal tracking?
+Tracked/frozen hands or full forearms fail the separation; a bad exit fails release.
+Do not interpret these checks as headset acceptance or a fix to Dark Vision.
+
+## Dark Vision plus weapon wheel blackout isolation (2026-09-17)
+
+Build437 rollback headset-confirmed normal for movement. New report: Dark Vision
+works until opening the weapon wheel; world turns black while highlighted people
+remain visible. Menu still appears to affect color/bloom despite blur suppression.
+Verified437 DLL and log banner; logs/profile archived under
+build/playtest-candidates/darkvision-menu/reported437.
+
+MenuEffectsTick suppresses only reflected DisPostProcessManager.m_UIPPWeight.
+Log confirms suppression during wheel context6. This is not proof that every UI
+post-process effect is disabled, nor that this write causes the blackout.
+Surface is the world scene with surviving Dark Vision silhouettes, not an
+established eye-pair synchronization fault.
+
+Prepared config-only A/B on the same437 DLL: NoBlurWheel1->0, every other INI byte
+preserved, full diff and CRLF verified. Both logs/prior DLL/INI archived under
+build/playtest-candidates/installs/20260917-211007-808112.
+Question: with Dark Vision active, does opening the wheel still black out the world?
+Expected if suppression conflicts: native menu background returns and scenery stays
+visible. If black persists, suppression alone is insufficient; inspect native menu
+post-process composition and head-look rendering separately. No headset result yet.
+No code fix claimed and no game launched. Other menus and repo defaults unchanged.
+
+## Build435 rejected: restore build433 pose policy (2026-09-17)
+
+Tester reports unwanted crouch animation, native animation close to the face and
+loss of normal control/view after jumping through a window. Installed435 DLL hash
+and banner verified; both logs and latestINI archived in
+build/playtest-candidates/animation-visible-hands/reported435. Run ends in normal
+PreExit; this is not evidence of a crash.
+
+Confirmed design error: native_pose_requested used cancellable_action as a native
+pose trigger. Generic upper/left StatePlayerAction also covers movement transitions,
+not only deliberate item interactions. Logs show repeated GAME ownership during
+Jump/Falling/Walk with JumpIn/JumpLandSmall sequence history and native split-hands
+reason, despite saved Jump/Falling/Walk arms being0. Sequence history is supporting
+context, not authoritative playback identity. This broadens hand ownership beyond
+the requested mantle fix. Exact close-face and view-disruption causes remain open.
+
+Revert all435 production changes and their policy tests to exact433 source: original
+arm-driven classifier, draw bypasses, mesh palette/depth path and F10 wording.
+Keep433 action-cancellation controls, camera/keyhole fixes and latest saved settings.
+No new camera compensation or guessed offset. The original limitation returns:
+unchecking Show game arms also restores tracked hands, overriding native hand poses.
+Do not describe that option as independently controlling geometry in this rollback.
+
+Future work must explicitly distinguish pose choice from forearm geometry, preserve
+ordinary movement ownership, and first validate one named mantle path. A generic
+FSM StatePlayerAction match or cancellation eligibility is not a native-pose policy.
+The435 test proved that helper-level policy checks cannot establish comfortable
+native rendering or correct movement integration.435 is rejected, not accepted.
+
+Next launch is recovery only: are normal crouching, jumping and looking around
+restored, including the same window exit? Normal behavior supports435 as the
+regression; a remaining fault requires tracing433 or persistent session state.
+No new animation-visibility test in that launch.
+
+## VR-133 build431 keyhole acceptance (2026-09-17)
+
+Door/keyhole camera behavior reported fixed. DLL/banner verified; both logs and
+INI archived in build/playtest-candidates/misc-special-camera/reported431.
+Native keyhole scopes record restoration with zero sampled refusals and successful
+one-shot exit yaw carries. This accepts the keyhole behavior, not every lean case
+or the unrelated texture allocation failure. No new stereo synchronization change.
+
+VR-134 follow-up adds default-zero manual native-animation view alignment, frozen
+per validated camera scope for both eyes and restored afterward. This addresses a
+reported steady lateral mismatch, not an established flicker. Cause is unmeasured;
+headset alignment testing remains separate from the action-cancellation launch.
+
+## VR-133 native special-camera instability (2026-09-17)
+
+Surface: whole-world camera rotation and translation during/after lean, adjacent
+to camera-writer interference; no eye-specific flicker established. Build427
+report and measured roll mismatch are in ENGINE_NOTES. Candidate uses the
+existing validated draw-scoped owner for explicit lean/keyhole states, keeps
+image-owned orientation and stereo pair synchronization unchanged, and restores
+the native fields before the next engine update. Unknown ownership holds its
+reference; a real special-state change resets it. Headset result pending.
+The later texture LockRect error follows a logged out-of-memory twin allocation;
+it is not evidence of a stereo or camera-memory corruption. Separate diagnostics
+added; allocation cause and prevention remain unresolved.
+
 ## Accepted marker candidate413 (2026-09-17)
 
 Tester accepted the objective/rune work for merge after413; this is practical

@@ -19,6 +19,13 @@ static const uintptr_t kModEnd     = 0x400000 + 0x1206A0C; // end of .reloc
 static const uintptr_t kDataStart  = 0x400000 + 0xE69000;  // .data VA
 static const uintptr_t kDataEnd    = kDataStart + 0x21B3BC;
 
+// VR-134: native FSM RequestState entry; thiscall(request*, context*, queryOnly), ret12.
+// Request +4 is the target UClass. Verified from the lean caller and transition body.
+static const uintptr_t kAnimRequestState=0x00A74FA0;
+static const uint8_t kAnimRequestStateBytes[]={0x55,0x8b,0xec,0x6a,0xff};
+static const uint8_t kAnimRequestStatePrefix[]={0x55,0x8b,0xec,0x6a,0xff,0x68,0xc0,0xf0,0xf4,0x00,0x64,0xa1,0,0,0,0};
+static const uint32_t kAnimRequestClassOff=4;
+
 // VR-125: D3D9 query-read helper, thiscall + four stack args, ret16.
 // Complete polling loop preserved by diagnostic; ENGINE_NOTES derivation.
 static const uintptr_t kD3D9QueryRead = 0x009bcf50;
@@ -51,6 +58,10 @@ static const uintptr_t kGNamesNum  = 0x1435678;
 static const uint32_t  kNameOff  = 0x28;
 static const uint32_t  kClassOff = 0x30;
 static const uint32_t  kOuterOff = 0x24;
+// UStruct::SuperField (ENGINE_NOTES "UStruct::SuperField is at +0x44": the offset
+// at which DishonoredPlayerPawn -> Pawn -> Actor -> Object resolve by name). Users
+// re-verify that chain at runtime before trusting an ancestry answer.
+static const uint32_t  kSuperFieldOff = 0x44;
 
 // ---- SkeletalMeshComponent layout (VR-31, resolved from UE3 reflection at
 // runtime; these are the values measured on this build 2026-09-06, kept here so

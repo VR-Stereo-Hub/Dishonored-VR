@@ -881,14 +881,41 @@ static void WriteDefaultIni(const char* ini)
         "LockPitch=1\n"
         "LockFov=1\n"
         "StereoState=1\n"
+        "PossessionStereo=0\n"
         "HideBorders=1\n"
         "HeadLook=1\n"
+        "SpecialHeadLook=0\n"
         "Trace=1\n"
         "LockRoll=1\n"
+        "\n"
+        "[Rain]\n"
+        "Hide=0\n"
+        "Trace=1\n"
+        "Distance=-1\n"
+        "\n"
+        "[Lens]\n"
+        "Distance=18\n"
+        "KeepSize=0\n"
+        "Trace=1\n"
+        "FollowHead=1\n"
+        "RainStrength=100\n"
+        "\n"
+        "[Mirror]\n"
+        "Enabled=0\n"
+        "Assets=Wpn_PlyGunElite,crossbow_01\n"
+        "Eps=0.25\n"
+        "FillRadius=1.5\n"
+        "BackFaces=0\n"
+        "Caps=1\n"
+        "CoverTol=0.3\n"
+        "Straddle=2.0\n"
+        "DepthBias=0\n"
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"
         "MantleHandBack=1\n"
+        "HandAnimMelee=0\n"
+        "HandAnimFire=0\n"
         "CinematicHandBack=1\n"
         "StateWatch=1\n"
         "HandBack=1\n"
@@ -2248,6 +2275,10 @@ static void LoadConfig()
     }
     CineBordersConfigure(ini);
     StereoStateConfigure(ini);
+    PossessionStereoConfigure(ini);
+    RainConfigure(ini);
+    LensConfigure(ini);
+    WmConfigure(ini);
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -3458,8 +3489,19 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Screen",key,(dvr::vr::mono_anchor_contexts()&(1u<<i)) ? "1" : "0",ini);
     }
     WritePrivateProfileStringA("Cine","HeadLook",CineHeadEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","SpecialHeadLook",SpecialHeadEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","HideBorders",CineBordersEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
+    { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
+      _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }
+    WritePrivateProfileStringA("Lens","KeepSize",LensKeepSize() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Lens","Trace",LensTraceEnabled() ? "1" : "0",ini);
+    WritePrivateProfileStringA("Lens","FollowHead",LensFollowHead() ? "1" : "0",ini);
+    { char v[16]; _snprintf(v,sizeof(v),"%d",LensRainPct()); WritePrivateProfileStringA("Lens","RainStrength",v,ini); }
+    WritePrivateProfileStringA("Mirror","Enabled",WmEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockFov",CineFovEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","LockRoll",CineRollEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Camera","HeadBasedMovement",HeadMovementEnabled() ? "1" : "0",ini);

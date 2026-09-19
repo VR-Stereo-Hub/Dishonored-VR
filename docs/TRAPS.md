@@ -1,3 +1,19 @@
+## Cancellable action does not imply native pose ownership (2026-09-17)
+
+Build435 enabled native poses for every cancellable state, including generic upper/
+left Action states used by movement transitions. This caused repeated hand-control
+handoffs around jumps/landings despite movement Arms.* choices being off. The build
+was rejected and its complete pose/split changes reverted. Keep input/action
+eligibility separate from pose policy; test movement integration, not only helpers.
+
+## Arm visibility and animation ownership are different (2026-09-17)
+
+Build433 Arms.* checkboxes selected native pose ownership as well as full-arm drawing.
+Unchecked mantle therefore kept the native FSM action but overrode its hand animation
+with controller placement. Separate pose classification from mesh visibility. Hidden
+arms must use the clipped hand mesh with native bone constants, not controller poses.
+See ANIM-HANDOFF-PLAN.md for verified log evidence and the corrective candidate.
+
 # Traps and the graveyard
 
 ## Reading attachment is a relative pose, not an opening pitch fit (2026-09-17)

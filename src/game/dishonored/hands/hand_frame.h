@@ -473,6 +473,36 @@ static inline void compose_3x4(const Xform& D, const float* src, float* out)
     for (int i = 0; i < 3; i++) for (int j = 0; j < 4; j++) out[i*4+j] = r[i][j];
 }
 
+// VR-138: the reflection S across a plane (unit normal n through point c), as
+// a 3x4 row-major affine map: S v = v - 2 n (n . (v - c)).
+static inline void reflection_3x4(const float* n, const float* c, float* S)
+{
+    const float nc = n[0]*c[0] + n[1]*c[1] + n[2]*c[2];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) S[i*4+j] = (i == j ? 1.0f : 0.0f) - 2.0f*n[i]*n[j];
+        S[i*4+3] = 2.0f*nc*n[i];
+    }
+}
+
+// VR-138: out = P * S for a palette of 3x4 bone rows (count registers, three
+// per bone). S acts on the vertex BEFORE skinning: every bone takes the same
+// S on the right, so the weighted blend reflects the reference-pose mesh.
+static inline void mirror_palette_right(const float* P, const float* S, float* out, unsigned count)
+{
+    for (unsigned b = 0; b + 3 <= count; b += 3) {
+        const float* p = P + b*4; float* o = out + b*4; float r[3][4];
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 4; j++) {
+                float v = p[i*4+0]*S[0*4+j] + p[i*4+1]*S[1*4+j] + p[i*4+2]*S[2*4+j];
+                if (j == 3) v += p[i*4+3];
+                r[i][j] = v;
+            }
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 4; j++) o[i*4+j] = r[i][j];
+    }
+    for (unsigned k = (count/3)*3; k < count; k++)
+        for (int j = 0; j < 4; j++) out[k*4+j] = P[k*4+j];
+}
+
 // Apply an Xform to a point. Used by the self-test's pivot check and by the
 // residual instrument.
 static inline void apply_point(const Xform& D, const float* p, float* out)

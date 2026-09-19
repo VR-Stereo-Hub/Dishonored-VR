@@ -296,7 +296,8 @@ static void UpdateVirtualPad()
     // the same signal the skc gates trust), so menu shaping now requires
     // the renderer to AGREE a menu is showing. A real menu is unchanged; a
     // ghost flag during stereo gameplay can no longer eat the sticks.
-    const bool wheelInput = active && (UiSurfaceWheel() ||
+    const bool releasedWheel=dvr::controller::released_wheel(active,UiSurfaceWheel(),g_wheelHeld,g_menuOpen,CineActive());
+    const bool wheelInput = active && !releasedWheel && (UiSurfaceWheel() ||
         (g_wheelHeld && !UiSurfaceBlocks() && !g_menuOpen && !CineActive()));
     float handX=0,handY=0; bool handSelected=false;
     dvr::hudlayout::wheel_input(active && g_wheelHeld, wheelInput && !g_ovlVisible,
@@ -336,7 +337,7 @@ static void UpdateVirtualPad()
         DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,2000,
             "pad/pause: raw=(%.3f %.3f) out=(%d %d) continuous=1 native-axes=1",
             in.mv[0],in.mv[1],(int)xs.Gamepad.sThumbLX,(int)xs.Gamepad.sThumbLY);
-    } else if (dvr::weapon_dial::step_menu(g_menuOpen || UiSurfaceBlocks(), wheelInput) && active) {
+    } else if (dvr::weapon_dial::step_menu(g_menuOpen || (UiSurfaceBlocks() && !releasedWheel), wheelInput) && active) {
         xs.Gamepad.sThumbLX = MenuStep(xs.Gamepad.sThumbLX, 0);
         xs.Gamepad.sThumbLY = MenuStep(xs.Gamepad.sThumbLY, 1);
         xs.Gamepad.sThumbRX = 0;   // one navigation axis only - a second one
@@ -346,7 +347,13 @@ static void UpdateVirtualPad()
     // Re-apply at the final boundary: room-scale and menu/wheel shaping must
     // not resurrect a stick already consumed as a D-pad. Hand wheel aiming
     // remains available; its composed left-stick direction is independent.
-    const bool nativeMenu=active && (UiSurfaceBlocks() || g_menuOpen);
+    const bool nativeMenu=active && (g_menuOpen || (UiSurfaceBlocks() && !releasedWheel));
+    if(releasedWheel) {
+        xs.Gamepad.sThumbRY=0;
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
+            "pad/wheel-release: UI still reports wheel after grip release; keep gameplay axes rawR=(%.3f %.3f) RX=%d LX=%d",
+            in.lk[0],in.lk[1],(int)xs.Gamepad.sThumbRX,(int)xs.Gamepad.sThumbLX);
+    }
     dvr::controller::final_axes(emulation,nativeMenu,wheelInput,PadStick(in.lk[0]),PadStick(in.lk[1]),
         xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
     if(emulation.lean || (nativeMenu && fabsf(in.lk[1])>.15f))

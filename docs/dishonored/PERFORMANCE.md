@@ -1,5 +1,59 @@
 # Performance research
 
+## Periodic xrEndFrame hitch: measured, not yet explained (2026-09-18)
+
+**Report:** a large frame drop every 5-10 s, believed to happen while walking.
+
+**Measured in the build464 run** (`vr33-hands-working-464-g0b7171bd1`, 120 Hz,
+VDXR, 3012x3122, mirror-off/strict; logs in
+`build/playtest-candidates/weapon-mirror/run464`):
+
+- 363 of 366 gameplay frame gaps sit in `present-tail (xrEndFrame)` on the +1
+  (pair-closing) present, 60-107 ms, typically 88-94 ms (about 11 display slots).
+  Bursts of 1-7 such stalls about 100 ms apart.
+- Burst starts sit on a ~4.0 s beat that jitters by about +-1 s (consecutive
+  intervals pair up to ~8 s: 3016+5297, 2906+5250, 2625+5453). Peak of the
+  interval histogram 4.0-4.5 s.
+- **Not movement.** Burst rate while moving (>= 30 uu/s) 12.6/min vs still
+  14.3/min; head turning >= 20 deg/s 14.5/min vs calm 14.2/min (458 run the
+  same: 11.8 vs 12.0). Bursts also occur with the pause menu open (13 in 464).
+  Walking makes a 90 ms freeze visible; it does not cause it.
+- **Not the game's draw cost.** In 146 of 154 gap rings the game's own GPU time
+  per present is normal (median max 4.7 ms); the last presents' timing queries
+  are pending. Only 8 rings show a present over 20 ms.
+- **Not the texture-streaming change.** The 452 run from before the
+  NumStreamedMips=-1 change (07:34) already had 16.9 stalls/min >= 60 ms.
+- **Not phase-locked to the mod's 3 s diagnostic beat** (burst delay after the
+  capture beat is spread evenly over 0-3 s). No runtime period change all run.
+- **Not the capture queue.** Blit-fence timeouts are 5-7 per run (lifetime);
+  20-50% of grabs wait on the fence, so D3D9 queue depth is bounded by the
+  capture ring.
+- **It got worse over the last builds.** Stalls >= 60 ms per gameplay minute,
+  per archived build (noisy, sessions differ): 353-395 1.6-6.6; 397 18.1,
+  399 10.1; 407-427 1.7-6.9; 431-448 5.3-11.2; 452 10.3-16.9; 458 15.6;
+  464 29.7 (>= 80 ms: 19.2). Same ~90 ms signature throughout, so one
+  mechanism fired more often, not a new one. 90 Hz runs (239-264) sat at the
+  same low rates as early 120 Hz runs, so the display rate is not the driver.
+
+**Hypotheses left, each with the instrument that can kill it (build465):**
+
+1. Video-memory paging (32-bit process, 4096 texture pack, ~3.3 GB of texture
+   creations per census, 3012x3122 targets): `gpumem` samples DXGI
+   QueryVideoMemoryInfo LOCAL/NON_LOCAL usage vs budget for the D3D9 adapter at
+   4 Hz, with process private bytes and the largest free address range; logged
+   every 10 s, on any NON_LOCAL move of 64 MB, and at every frame gap.
+   Prediction if paging: usage at/over budget or NON_LOCAL moving at the stalls.
+2. Texture-streaming uploads through the Managed=shadow twins (every streamed
+   mip is an UpdateSurface): `device/stream` logs the last 2 s in 100 ms buckets
+   (uploaded MB / created MB, CPU ms inside UpdateSurface) at every frame gap.
+   Prediction if streaming: a burst of MB in the buckets just before a stall.
+3. The runtime/streamer side (VDXR/VD encoder or network): what remains if
+   both of the above read flat at the stalls. The VD performance overlay
+   (network latency, encode) during a burst would then be the next evidence.
+
+No mitigation shipped: pacing to a fixed rate was already tried (2026-09-15)
+and felt laggier; nothing else is justified until one hypothesis survives.
+
 ## Status: accepted FOV/mirror improvements merged; broader research shelved
 
 The earlier research established a substantial

@@ -8,6 +8,35 @@ static bool DvrGameCommand(const char* cmd, const char* args);
 static void DvrConsoleApply();
 static void GameStateTick();
 static bool DvrScriptViewLive();
+static void PossessionStateTick();      // VR-135 (possession_state.cpp)
+static bool PossessionStereoLive();
+static bool PossessionStereoEnabled();
+static void PossessionStereoSet(bool on);
+static void PossessionStereoConfigure(const char* ini);
+static void RainTick();                 // VR-136 (rain_control.cpp)
+static void RainConfigure(const char* ini);
+static void RainHideSet(bool on);
+static bool RainHideEnabled();
+static bool RainTraceEnabled();
+static void RainDistanceSet(int uu);
+static int RainDistance();
+static void LensTick();                 // VR-137 (lens_control.cpp)
+static void LensConfigure(const char* ini);
+static void LensDistanceSet(int uu);
+static int LensDistance();
+static void LensKeepSizeSet(bool on);
+static bool LensKeepSize();
+static bool LensTraceEnabled();
+static void LensFollowSet(bool on);
+static bool LensFollowHead();
+static void LensRainPctSet(int pct);
+static int LensRainPct();
+static void LensFollowEye(int eye);
+static void WmConfigure(const char* ini);   // VR-138 (hands/weapon_mirror.cpp)
+static void WmSet(bool on);
+static bool WmEnabled();
+static bool WmCommand(const char* args);
+static void WmReleaseAll(const char* why);
 static bool DvrSceneVerdict();
 static bool StereoStateEnabled();
 static void StereoStateSet(bool on);
@@ -223,6 +252,9 @@ static void CineFovEnd();
 static float CineFovClaim();
 static float CineFovScopeTarget();
 static bool CineHeadOwnsInput();
+static bool SpecialHeadEnabled();
+static void SpecialHeadSet(bool on);
+static bool SpecialHeadResumeYaw(int32_t& delta);
 static void CineHeadNoteDispatch();
 static bool CineHeadDispatchFresh();
 static bool CineHeadEnabled();

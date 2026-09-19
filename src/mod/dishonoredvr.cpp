@@ -43,6 +43,7 @@
 #include "core/gfx/desktop_eye.h"
 #include "core/vr/pose_record.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/gpu_memory.h"
 #include "core/vr/hud_stub.h"
 #include "core/gfx/hud_class.h"
 #include "core/gfx/hud_capture.h"
@@ -204,6 +205,7 @@
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/weapon_id.cpp"
 #endif
+#include "game/dishonored/hands/weapon_mirror.cpp"   // VR-138: called from weapon_attach.cpp
 #include "game/dishonored/hands/weapon_attach.cpp"
 #include "game/dishonored/hands/draw_census.cpp"
 #undef DVR_CAT
@@ -242,8 +244,11 @@
 #include "game/dishonored/ue3/uobject.cpp"
 #include "game/dishonored/ue3/reflect.cpp"
 #include "game/dishonored/anim_state.cpp"
+#include "game/dishonored/possession_state.cpp"   // VR-135: before its one consumer
 #include "game/dishonored/stereo_state.cpp"
 #include "game/dishonored/cinematic_trace.cpp"
+#include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
+#include "game/dishonored/lens_control.cpp"   // VR-137: after rain_control (shared helpers)
 #include "game/dishonored/cinematic_fov.cpp"
 #include "game/dishonored/cinematic_pitch.cpp"
 #include "game/dishonored/menu_immersion.cpp"

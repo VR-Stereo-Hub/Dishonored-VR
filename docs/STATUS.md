@@ -1,3 +1,699 @@
+## Run486 result and the branch PR (2026-09-19)
+
+Run486 (banner verified; logs in build/playtest-candidates/wheel-blackout/run486):
+the tester accepted the weapon mirror as good enough (pistol straddle 103
+triangles, crossbow 8, depth bias 1). No shot or sword swing ran in this log, so
+HandAnimMelee/HandAnimFire are still unverified in the headset. codex/misc-fixes
+is opened as a PR to VR-Main (not merged). The HUD work continues on
+codex/hud-improvements.
+
+## Installed486: swing/shot hand animation, barrel gaps, copy depth bias (2026-09-19)
+
+Run483 (banner verified; logs in build/playtest-candidates/wheel-blackout/run483):
+pistol mostly filled (kept 1684) with two gaps on the barrel; crossbow decent,
+but its top left flickers against the model and a few left-side areas are still
+missing. Installed486 = `vr33-hands-working-486-g3ec56e3bc` (DLL 58078be3...):
+- Mirror: plane-crossing faces mostly on the modelled side are mirrored
+  (`[Mirror] Straddle=2.0`), and the copy is depth-biased behind real surfaces
+  (`[Mirror] DepthBias`, code 0, installed 1; `mirror bias <n>` live).
+  WEAPON_MIRROR_PLAN 6e.
+- Animation: sword swing (StatePlayerMeleeAttack) and shot (any *fire* clip in
+  StatePlayerAction; run483 measured Pistol_Fire) can play the game animation on
+  the tracked hands with the arms hidden, like mantling. F10 Animations tab;
+  `[Anim] HandAnimMelee/HandAnimFire`, code 0, installed 1. ANIM-HANDOFF-PLAN end.
+Installed ini: the three keys above added (CRLF verified). No PR, no merge.
+
+## Installed483: rain defaults saved, pistol coverage tightened (2026-09-19)
+
+Run480 (banner verified; logs in build/playtest-candidates/wheel-blackout/run480):
+crossbow much better, a few areas still missing; the pistol misses more than 476;
+no flicker. An accidental F11 toggled the engine's fullscreen twice (Reset to
+1355x1405 and back to 3012x3122 within ~1 s): FOV stayed 108.06, the stereo beat
+recovered to 103/103, and the mod ini was unchanged, so no harm. Installed483 =
+`vr33-hands-working-483-g0d5325169` (DLL 4ec3a876...): rain lens defaults = run480's
+final state (distance 18, keep-size off, follow-head on, rain box shown), and a
+mirror copy counts as already modelled only within 0.3 uu of a same-facing
+triangle (`[Mirror] CoverTol`; WEAPON_MIRROR_PLAN 6d). Installed ini: Lens
+Distance 2->18, FollowHead 0->1 (CRLF verified). No PR, no merge.
+
+## Installed480: blackout fixed, rain back to 470, mirror by facing (2026-09-19)
+
+Run476 (banner verified; logs in build/playtest-candidates/wheel-blackout/run476):
+VR-140 FIXED, headset-confirmed. No blackout across 22 wheel opens; `pp/repair`
+fired 46 times, all on a NaN Cooling timer. Rain: the tester preferred
+installed470's look, so the defaults are back to 470's end state (lens 2 uu,
+keep-size off, rain box shown, follow-head off). The FollowHead and RainStrength
+levers stay available, both off by default.
+Mirror: the crossbow's left side was invisible because SymmetricSkip (476)
+refused it; its vertices are symmetric but its faces are not. Installed480 =
+`vr33-hands-working-480-ge7493c9f2` (DLL 124adab4...): the modelled side is
+picked by outward-facing area, a copy is skipped only over same-facing surface,
+SymmetricSkip is removed, and hole caps stay on (WEAPON_MIRROR_PLAN 6c).
+Installed ini: Rain Hide 1->0, Lens Distance 1->2, FollowHead 1->0 (CRLF
+verified). No PR, no merge.
+
+## Installed476: blackout cause measured and repaired, rain lens follows the head, hole caps (2026-09-19)
+
+Run473 (banner verified; logs in build/playtest-candidates/wheel-blackout/run473):
+VR-140 CAUSE MEASURED - a wheel close during the UberUI fade-in turned the game's
+`m_UIStateDuration` into NaN; the effect sat in Cooling forever and the world
+post-processed to black. Camera fade and colour scale were clean (FLICKER_REFERENCE
+VR-140 items 11-12, ENGINE_NOTES top). Installed476 =
+`vr33-hands-working-476-g5735d27b8` (DLL c86dfafe...):
+- VR-140: `pp/repair` rewrites the timer only when it is already non-finite.
+- VR-137 rain: the tester's settings are the defaults (rain box hidden, lens at
+  1 uu, no rescale); the lens effects are re-placed per eye from the rendered
+  camera (`[Lens] FollowHead=1`); `[Lens] RainStrength` (F10, 100 = native) caps
+  the looping lens effect's fade weight.
+- VR-138: open holes in the weapon meshes are capped (`[Mirror] Caps=1`); a model
+  already symmetric (crossbow x 0.976) gets no copy (`SymmetricSkip=0.90`), which
+  should end the right-side flicker; BackFaces off.
+Installed ini: Rain Hide 0->1, a [Lens] section, Mirror BackFaces 1->0 (CRLF
+verified). `release/dishonored_vr.ini` was already stale (no Rain/Lens/Mirror);
+untouched. No PR, no merge.
+
+## Session end: installed470 results, handoff (2026-09-18)
+
+Installed470 (`vr33-hands-working-470-gc4becc905`, DLL 572c930c...) run by the
+tester; logs archived in build/playtest-candidates/wheel-blackout/run470.
+- VR-139 hitch: SOLVED outside the mod (VD network; router restart + H.264+).
+- VR-140 black world after wheel flicks: reproduced. The UI-blur restore
+  hypothesis is RETRACTED (weight read 0, watchdog silent). New lead: black
+  starts ~400 ms after the game's own wheel movie finally closes following
+  mid-close re-opens; black at the backbuffer. FLICKER_REFERENCE VR-140 item 7-8.
+- VR-138 mirror: pistol nearly filled (kept 1248/2772), a little missing near the
+  handle; crossbow bottom-left still missing (kept 50; its plane comes from the
+  symmetric top). Back-face pass armed; no visible help reported.
+- VR-136/137 rain: the pane is `DisEmitterCameraLensEffect_Looping` (a lens
+  effect), moved to the eyes by the LENS distance slider; tester wants it scaled
+  down. Rain-box distance and hide work on a different effect.
+- VR-135 possession: accepted (rat); widened to all classes, people untested.
+Installed ini: 464's plus `[Mirror] BackFaces=1`. No PR, no merge.
+
+## Installed470: wheel blackout fix, fuller mirror, back faces (2026-09-18)
+
+Run467 (banner verified, logs in build/playtest-candidates/hitch-instrument/run467):
+the periodic hitch was the Virtual Desktop network (tester: VD network spiked
+every ~5 s; a router restart plus H.264+ made it smooth at 100-110 fps; gpumem
+read VRAM 15% of budget, nothing paged - paging killed). Pistol mirrored but
+incomplete; crossbow symmetric (47 triangles), so its gaps are one-sided faces.
+The world went black after a 62 ms wheel re-open (VR-140): the menu-blur exit
+restore is the inferred cause. Installed470 = `vr33-hands-working-470-gc4becc905`
+(DLL 572c930c...): no restore write on menu exit plus a gameplay watchdog;
+looser mirror fill; `[Mirror] BackFaces=1` added to the installed ini (only
+change, CRLF). No PR, no merge.
+
+## Installed467: periodic hitch instrumented, mirror plane by symmetry (2026-09-18)
+
+Run464 (banner verified; logs in build/playtest-candidates/weapon-mirror/run464):
+the weapon mirror REFUSED both weapons (no cut face), so nothing changed on
+screen. The periodic drop is measured: ~90 ms stalls inside the runtime's
+xrEndFrame on a ~4 s beat, the same rate walking or standing (12.6 vs 14.3/min)
+and in the pause menu; game GPU time normal; not the streaming change (the
+pre-change 452 run has it); rate grew from ~2-6 to 10-30/min across builds
+353..464. Full record: PERFORMANCE.md top section. Installed467 =
+`vr33-hands-working-467-g8f79caeae` (DLL e939e54b...) adds read-only `gpumem`
+and `device/stream` lines at every frame gap (paging vs streaming) and finds
+the mirror plane by symmetry. Installed ini unchanged (238d9d68...). No
+watcher armed. No PR, no merge.
+
+## Installed464: weapon mirror built and armed (2026-09-18)
+
+Installed464 = `vr33-hands-working-464-g0b7171bd1`, DLL affccb00..., symbols by
+hash. VR-138 implemented per WEAPON_MIRROR_PLAN.md (deviations recorded at its
+top): pistol and crossbow get a second draw, reflected in reference-pose space
+on the palette, cull flipped, through our index buffer of missing triangles
+only; plane measured from the cut face or `[Mirror] Plane_<asset>`. frame_test
+pins the math. Installed ini: only `[Mirror] Enabled=1` added (238d9d68...,
+CRLF). No run since 462; its logs were already archived. Unverified in game.
+Launch question: see NEXT_SESSION (mirror first; the rain question waits).
+
+## Installed462: all possessables, near-eye rain and lens levers, mirror plan (2026-09-18)
+
+Tester confirmed possession stereo on 458 (rat). Installed462 =
+`vr33-hands-working-462-gdd19939ac`, DLL b212d154..., symbols archived by hash,
+458 logs/ini/crash archived in build/playtest-candidates/near-eye-effects.
+Installed ini unchanged (a55a9106...); new keys run on code defaults (native).
+Streaming config unchanged. Memory watcher was stopped by the tester; not re-armed.
+
+- VR-135: possession now validates every DisPossessablePawn class (DLC06/07
+  pawns were missing) through the engine's SuperField chain, trusted only after
+  it reproduces the player pawn's ancestry; full class list as fallback.
+- VR-136: the rain pane is DERIVED: the camera re-places its rain emitter each
+  frame at the view ray's exit from `m_RainBoxExtent` (500 uu), a slab ~5 m
+  ahead that turns with the head (143 steady samples: fwd 499..662, right ~0).
+  `[Rain] Distance` / F10 slider / `raindistance` writes the extent (0 = on the
+  head). Hide lever unchanged.
+- VR-137: low-health vignette = `m_pCurHealthLensEffect`, an
+  EmitterCameraLensEffectBase at `DistFromCamera` 90 uu. `lens/fx` logs each
+  effect's measured position; `[Lens] Distance` + `KeepSize` move it nearer.
+- VR-138: weapon mirroring planned in docs/dishonored/WEAPON_MIRROR_PLAN.md
+  (reference-pose reflection on the palette, own index buffer of missing
+  triangles only, measured cut plane). Not implemented.
+
+Launch question: in the rain, does F10 "Rain distance" at 0 turn the pane into
+rain around you? See NEXT_SESSION. No game launched by Claude, no PR, no merge.
+
+## Installed458: possession stereo armed, rain measured (2026-09-18)
+
+Continue codex/misc-fixes. Installed458 = `vr33-hands-working-458-ge5246ba2f`,
+DLL 8aef77f4..., symbols in build/symbol-archive/<DLL hash>. Manifest and the
+452 logs/ini archived pre-install in build/playtest-candidates/possession-rain.
+Installed ini: only `[Cine] PossessionStereo=1` and `[Rain] Hide=0 Trace=1`
+added (whole-file diff, CRLF verified). Streaming config untouched (13 x -1 in
+both game INIs). Memory watcher armed (3000 MB, signed x86 procdump) at
+D:/dvr-data/support-watch/20260918-082952-438; it is tied to the Claude session
+that started it, so verify it is still running before relying on a dump.
+
+VR-135 (possession mono): cause MEASURED in the 452 log. At the pawn switch the
+capsule liveness refused `DisPossessionProxyPawn` (by design), so stereo/state
+fell to FALLBACK pawn=0 valid=0 and the re-entry drew once for the whole
+possession while the view and camera uploads stayed live. Commit 4b0fdb3f8 adds
+a read-only validated-possession term (pawn back-pointers name our live
+controller and a live player pawn) consumed ONLY by the presentation verdict;
+menu/UI/view/upload terms and every gameplay guard unchanged. Unverified.
+
+VR-136 (rain pane): commit e5246ba2f logs the camera rain box (`rain/box`:
+extent, drops, emitter position in the camera frame) and adds a targeted hide of
+only that emitter via native PrimitiveComponent.SetHidden, shipped OFF. Near-eye
+placement waits on the rain/box numbers from a rainy run. Unverified.
+
+Result of the 08:33 run (tester launched; watcher dump is a normal-exit
+termination dump, peak private 2497.5 MiB / virtual 3318.4 MiB): both rat
+possessions VALIDATED and presented stereo (beats L/s=R/s, mono/s=0); about
+0.6 s mono at each entry while the engine's own camera uploads paused. Headset
+verdict still wanted. The three caught startup exceptions match 452's exactly
+(same two functions, shifted +0x8f0 by the new code): pre-existing, not new.
+Rain: extent 500 uu cube, 40 drops. (The "74..118 m, not the drop box" reading
+was retracted the same day: that was only the first sample per level; steady
+samples put the emitter 5..6.6 m straight ahead. See the section above.)
+
+## Claude takeover: accepted streaming run, rain and possession pending (2026-09-18)
+
+Continue codex/misc-fixes. Installed452 unchanged; latest DLL/banner verified,
+both logs/current profile archived under build/playtest-candidates/claude-handoff452.
+User reports no crash.9m46s memory capture: peak private2056.9MiB, virtual2819.3MiB;
+normal exit0. Prior freeze snapshot private3164.5MiB, virtual3930.7MiB. This supports
+memory optimization, not a controlled FPS result or universal crash-free claim.
+Streaming config accepted; preserve13 group overrides to-1 in both game INIs.
+Watcher completed and is NOT armed. Exit dump is not crash evidence.
+
+User requests near-eye rain or targeted disable, plus stereo during possession.
+Decompiled possession power stage3 and camera state2 provide candidate explicit
+signals; current player FSM reader intentionally excludes possessed nonplayer
+pawns. Neither feature has been patched. Health vignette remains invisible and
+unresolved. See rewritten docs/dishonored/NEXT_SESSION.md for bounded next actions,
+source files, exact evidence, and all session rules. User now requires new commits
+credited to configured GitHub identity, overriding older neutral-author policy.
+No game launched, new DLL installed, PR opened or merge performed this turn.
+
+## Build452 memory investigation and streaming test (2026-09-18)
+
+Saved dump analyzed with exact452 symbols:2596 live CPU texture twins,
+10200 created minus7604 released, zero twin allocation failures in this run.
+The old shadowBytes counter is cumulative, not live memory.2580 2D twins
+describe1754.64MiB of pixel payload including mip chains;16 cubes excluded.
+86 textures with4096 maximum dimension account for638.67MiB;351 at2048
+account for752.46MiB. Payload estimate excludes driver overhead/alignment.
+Detailed derivation and limits are in ENGINE_NOTES below its new investigation.
+
+Both current game INIs set NumStreamedMips=0 for13 SystemSettings groups.
+Dump confirms large texture objects have full resident/requested mip chains.
+This is strong retained-workload evidence, not proof all crashes are fixed or
+that no other leak exists. Do not attribute who installed those settings.
+
+User authorized closing the newly running game. Closed before config edits.
+Prepared/applied reversible test: only those13 entries per file changed to-1.
+Both full INIs backed up/diffed, CRLF verified, mod INI unchanged. Build452 retained.
+Evidence/config manifest: build/playtest-candidates/texture-streaming452.
+Both logs/current profile archived in its preinstall support ZIP.
+Texture pack,4096 limits, pool160, headset resolution and F10 values unchanged.
+32-bit memory watcher PID28440 armed at3000MB, one dump on threshold/exception/
+exit; no game launched. Verify watcher output before next session's launch.
+
+One launch question: does the previously failing play/pause sequence complete
+without freezing with streaming restored? Expected: lower retained memory and
+normal pause. Freeze with lower memory weakens this mitigation; renewed memory
+exhaustion means streaming is insufficient. Stability in one run is not a release
+guarantee. Vignette placement remains unresolved and was not changed in this test.
+
+## Build452 pause hang: live dump proves engine memory fatal (2026-09-18)
+
+Tester reports hit-camera behavior correct in this run; health vignette invisible
+after frame routing, so the effect placement change is not accepted. Rain unchanged.
+Build452 log banner and installed DLL hash verified. No binary or INI changed.
+
+Captured still-live PID27044 with full ProcDump (3605MB), a later64-bit mini
+snapshot and a32-bit mini snapshot. Local dumps are D:/dvr-data/dumps/
+pause-freeze452-27044*.dmp. Logs/current profile and hashes preserved in
+build/playtest-candidates/pause-freeze452/support-20260918-072855-650.zip.
+Exact452 symbols already archived by DLL hash. No uploads or process termination.
+
+Full dump contains the engine fatal buffer indicating virtual-memory exhaustion.
+The error text is game-generated; its generic disk-space advice is not a diagnosis.
+32-bit mini dump shows main thread25820 in engine fatal cleanup, waiting, while
+threads14964 and15576 wait for the allocator critical section owned by25820.
+This supports an out-of-memory fatal that hangs in cleanup, not a demonstrated
+new pause rendering deadlock. Process private bytes3318243328; virtual bytes
+4121595904. Dump memory map below4GiB:165.28MiB free in total, largest21.875MiB.
+A free-space snapshot does not identify the failed allocation size or owner.
+Unlike443, no final SYSTEMMEM shadow failure is logged; engine allocator fatal
+is directly evidenced by the retained message and stacks.
+
+Tool correction: procdump64 captures AMD64/WOW64 contexts; the existing x86
+reader produces invalid register values on those and must not be trusted.
+The32-bit procdump.exe gives valid x86 registers/frame chains. Watcher now selects
+the signed32-bit sibling when handed procdump64.exe; full64-bit dump remains
+useful for memory inspection. Capture tested directly on the live failed game.
+
+Next: attribute retained memory/texture twins using exact symbols/full dump,
+then choose a measured footprint reduction. No crash-prevention fix is claimed.
+Do not repeat the vignette-to-frame approach as a successful placement fix.
+Restore a visible dedicated effects surface in a future candidate; do not
+silently accept disappearance. Native rain emitter observed with40 drops;
+health lens pointer null in final trace is not proof no red HUD draw existed.
+
+## Installed452: released wheel camera recovery (2026-09-17)
+
+Installed vr33-hands-working-452-g1d029a1eb.210 controller checks, release build,
+9 exports and diff checks pass. Prior DLL/INI and both logs archived at
+installs/20260917-230637-442851. Independent whole-file comparison proves the
+only installed INI change is Element.vignette=window to frame; CRLF and installed
+DLL/INI hashes verified. All other current F10 values preserved. Rain unchanged.
+Symbols archived by DLL hash. No game launched. Test question remains below.
+Latest448 log is preserved;450 was installed but not represented by a new log.
+No crash-prevention claim and no headset acceptance of452 yet.
+
+## Released wheel camera ownership candidate (2026-09-17)
+
+Latest on-disk run is448 (log ends22:29:16), not installed450. Installed450
+DLL SHA256 matches its manifest; no effects/owners telemetry has run yet.
+Do not label this as450 playtest evidence. Existing448 log shows530 Walk samples
+with Wheel ownership and zero head rotation writes; tracking remains valid.
+By contrast2232 Walk/Other samples have writes. At53567609, Walk/UpperIdle,
+script menu0, UI-derived menu1, cinematic0, head valid, writes0, script age1091ms.
+This establishes stale menu ownership, not proof of the exact reported hit frame.
+
+Fix candidate extends released-wheel handling to the shared UI owner. A focused
+VR controller with released grip, no script menu and no cinematic invalidates
+the native wheel-open bit after250ms. Remaining menus are still scanned. The
+existing wheel visual closing lease remains independent. No new engine writes
+or hit-reaction suppression. Native head injection resumes via its existing
+absolute pitch and menu-exit yaw path.210 controller policy checks pass.
+
+Tester clarified effects should be retained near the real view boundary.
+Installed Element.vignette was window, scale1.620. Candidate routes that
+full-screen category to frame (native scene image, not a small window quad).
+This broad category also includes full-screen fades; it is not a verified
+health-only material ID. World anchor would retain window dimensions, so it
+would not address the small border. Rain is preserved unchanged: its native
+particle owner must be measured before adjusting distance/extent.
+Read-only hit/health/rain diagnostics remain enabled for the candidate.
+
+One launch question: after opening/releasing the wheel and taking hits, does
+head pitch remain correct without pausing? Success supports stale UI ownership;
+failure with resumed head writes points back to the native hit reaction.
+Headset result pending. No game launched.
+
+## Installed450: effect owner diagnostics (2026-09-17)
+
+Installed vr33-hands-working-450-gba2294ed7. Release and9 exports pass.
+Existing Cine Trace1 verified active. Complete INI unchanged byte-for-byte;
+CRLF and installed hashes independently verified. Both logs/priorDLL/INI archived
+at installs/20260917-223627-579719. No game launched. Hit tilt and effect suppression
+remain unresolved; candidate only identifies the live native owners.
+
+## Hit-camera, health lens and rain ownership research (2026-09-17)
+
+Build448 stick recovery reported accepted. DLL/banner verified; logs/latestINI
+archived under wheel-release/hit-tilt448. New report: hit leaves upward view bias
+until pause; low-health border distracting on frame; rain removal requested.
+Decompiled declarations identify DishonoredCamera_HitReact (PhysicalReact spring
+base), camera.m_pHitReact_Influence, pawn.m_pCurHealthLensEffect and
+m_HealthEffects (post-process plus lens emitter), DisTweaks_EmitterCameraLensEffect,
+DisSeqAct_SetRainEmitter and camera.m_pRainBoxEmitter/m_NumRainDrops.
+Rain drops/impacts have separate particle modules. Lens base sets foreground depth
+priority and exposes BaseFOV/DistFromCamera. This is not proof the symptom is a
+Scaleform HUD element; moving the generic vignette row could target the wrong draw.
+
+No gameplay hit-react disable: the cheat also affects native strong reactions.
+No guessed shader/geometry suppression. Candidate adds bounded read-only logging
+of reflected live hit weight/target, health emitter/index and rain emitter/drop count
+to the existing Cine Trace. No camera writer or rendering change.
+Next launch question: after taking a hit, does the upward bias persist until pause?
+Expected evidence is effects/owners plus synchronized existing camera trace; this
+is diagnostic, not a claimed fix. Low health/rain target presence can be read from
+the same log if present, without another test request.
+
+ProcDump captured a1.23GB full dump on normal exit (code0), not threshold/crash.
+One-shot watcher completed; no longer armed. Keep as baseline, not crash evidence.
+
+## Installed448: wheel input recovery candidate (2026-09-17)
+
+Installed vr33-hands-working-448-gf2e1d52b0.202 controller tests, release and9
+exports pass. Both logs/prior DLL/full INI archived at
+installs/20260917-221854-588188. Entire INI unchanged; CRLF and DLL/INI hashes
+independently verified. External memory watcher45180 is waiting, stderr empty.
+No game launched. Right-stick recovery after counterattack remains headset-pending.
+
+## Released wheel input recovery and armed memory capture (2026-09-17)
+
+Full memory capture explicitly authorized. External watcher PID recorded in
+build/diagnostics/watch-next.pid, waiting via signed ProcDump for user launch;
+Memory threshold3300MB, one full dump on threshold/exception/termination.
+Initial Windows PowerShell worker failed module autoload; restarted with the
+verified available pwsh host. Waiting message confirmed, no game launched.
+
+Build443 counterattack report archived after DLL/banner verification under
+wheel-options/counterattack443. At52632281 reflected Wheel ownership opens during
+blocking; combat continues after grip release while context6 remains published.
+Log explicitly maps raw right input to delivered left axes with right axes zero.
+Lean is0. Exact reason the native UI flag persists remains unproven.
+
+Targeted input guard: while physical wheel grip is released, a lone wheel UI bit
+cannot select wheel-axis routing or ordinary menu shaping. Script menus/cinematics
+still win; presentation state and engine memory are unchanged. Other stale UI
+effects remain outside this input fix. Log pad/wheel-release names the refusal.
+Next launch question: after counterattacking and releasing the wheel grip, does the
+right stick keep turning rather than moving? Failure requires final-axis evidence.
+The separately armed memory capture is observational and may briefly pause play.
+
+## Build443 reported freeze repeats allocation failure (2026-09-17)
+
+After longer play, tester reported a freeze instead of the prior crash dialog.
+Process was already absent when inspected; no live hang dump was possible.
+Installed443 DLL/banner verified, both logs/latest profile preserved under
+build/playtest-candidates/wheel-options/freeze443.
+
+Final log at51895218: SYSTEMMEM1024x1024 DXT5 single-level shadow creation fails
+8007000e. VirtualFree67.1MiB, largestFree0.9MiB, committed3563.1MiB,
+liveTwins3003; physicalAvailable14933.9MiB. Same allocation failure class as
+the previous crash, now with a smaller requested texture and smaller free block.
+Reported freeze cannot be independently classified as a deadlock without stacks.
+Do not treat it as evidence of a new wheel/camera defect. No prevention fix yet.
+External full-dump permission remains pending; watcher not armed. No game launched
+or settings changed. Priority is capture before exhaustion and identify memory
+owners/lifetimes. Full-memory dumps may contain private process data.
+
+## Crash support tooling (2026-09-17)
+
+VR-133: Microsoft-signed ProcDump12.01 downloaded locally under build/diagnostics.
+External capture tested on a disposable non-game fixture: valid minidump contains
+threads, modules and MemoryInfoList. No game launched or dump captured.
+Full game-memory capture was blocked by automatic approval review pending explicit
+consent; user question remains pending. Watcher is not armed.
+
+Added tools/collect-support.ps1 and release/Collect VR Support.cmd. Installed the
+collector beside the game and added it to package.ps1. Real support ZIP created in
+build/support-tests. Tests cover locked log, spaces, custom DataDir, optional missing
+files, whitelist, dump exclusion by default and explicit dump inclusion.
+Added opt-in tools/watch-crashes.ps1: exact-path/PID attachment, memory CSV, one
+dump on memory threshold/exception/termination, then preserve logs. Normal exits
+can trigger and must not be labelled crashes. No automatic uploads.
+Added archive-symbols.ps1 to packaging; exact443 DLL/PDB retained by DLL SHA256.
+See docs/CRASH_SUPPORT.md for player workflow, limitations and crash-prevention plan.
+Build443 DLL and installed INI unchanged. Allocation crash is not fixed.
+
+## Build443 texture allocation crash confirmed (2026-09-17)
+
+Wheel options reported working before a rendering-thread Texture LockRect
+D3DERR_INVALIDCALL crash. Installed443 DLL hash and log banner verified. Both
+logs, latest INI and any existing crash text preserved under
+build/playtest-candidates/wheel-options/crash443. Crash text may predate this run;
+only verified443 log lines are attributed here.
+
+Final log at50621312 records HRESULT8007000e creating a1920x2048 single-level
+SYSTEMMEM shadow texture, format894720068 (DXT5). VirtualFree63.6MiB,
+largestFree2.1MiB, committed3572.8MiB, liveTwins2869. System available commit
+6974.2MiB and physical available15603.1MiB: evidence points to process address
+space exhaustion/fragmentation, not system RAM exhaustion. Failure follows pause
+menu entry. shadow_register_texture returns without a twin on allocation failure;
+the DEFAULT texture remains, so its later lock cannot use the required SYSTEMMEM
+redirect. This matches the screenshot failure and earlier427 allocation signature.
+
+Immediate failure chain established; dominant memory owner, possible leak versus
+asset load, and texture-pack contribution remain unmeasured. Do not attribute it
+to head rotation or call it fixed by reverting working wheel controls.
+No new candidate or setting changes. Next engineering step is measure live shadow
+bytes accurately by format/mips and address-space use across load/menu boundaries,
+then choose a bounded reduction or allocation-path fix. Do not report failed
+texture locks as success or discard shadows that READONLY locks may require.
+
+## Installed443: entry angle controls (2026-09-17)
+
+Installed vr33-hands-working-443-g057805b9a; release,9 exports and2249 wheel
+checks pass, including all four entry-angle combinations and mid-gesture stability.
+Full INI unchanged byte-for-byte; CRLF and installed hashes independently verified.
+Both logs/prior DLL/profile archived in installs/20260917-213358-688802.
+Prior log banner did not match441; no441 playtest interpreted. No game launched.
+Next launch question: do the two F10 entry toggles independently control opening
+tilt and horizontal angle after closing/reopening the wheel? Expected: selected
+axes follow entry head orientation, unchecked axes retain upright positional facing.
+Failure indicates option persistence or orientation selection needs investigation.
+
+## Wheel entry angle options (2026-09-17)
+
+Added F10 Weapon dial controls for Follow head tilt on opening and Follow horizontal
+head angle on opening. Hud WeaponDialEntryTilt/WeaponDialEntryYaw default0.
+Both off retains441 hand-origin upright positional facing. Both on restores full
+opening head orientation. Individual toggles replace only yaw or pitch/roll.
+Visual, distance normal and gesture axes share that frozen orientation.
+Options save immediately and take effect on next opening, not mid-gesture.
+Build441 has no claimed headset acceptance. No camera or mantle changes.
+
+## Installed441: hand-origin wheel facing (2026-09-17)
+
+Installed vr33-hands-working-441-g3ffbee221. Release,9 exports and2213 wheel
+checks pass. Entire INI byte-identical; CRLF and installed hashes verified.
+Both logs/prior DLL/INI archived in installs/20260917-213123-337079.
+No game launched; headset opening-facing test below remains pending.
+
+## Wheel opening faces eye position (2026-09-17)
+
+Build439 accepted for mantle and upright wheel. Verified installed DLL/banner;
+both logs and latest INI archived under mantle-upright/accepted439.
+Remaining wheel issue: opening while looking away leaves an awkward yaw.
+Keep its hand-origin position and face the opening eye position in the horizontal
+plane, rather than inherit head rotation. Freeze orientation afterward.
+Visual, gesture axes and distance offset share the same opening normal.
+No mantle, camera, blur or settings changes. Existing wheel tests now measure
+movement along the actual panel right axis, not world X for an off-center panel.
+Next launch: does opening the wheel while looking left/right leave it at the hand,
+upright and squarely facing your position? A tilted/edge-on wheel fails facing;
+movement after opening fails the frozen anchor.
+
+## Installed439: mantle-only visibility candidate (2026-09-17)
+
+Clean source59cc23a01 installed as vr33-hands-working-439-g59cc23a01.
+Release build,9 exports and lint pass in addition to the host checks below.
+Both logs/prior DLL/full INI archived at
+build/playtest-candidates/installs/20260917-212054-067201.
+Complete INI comparison changes only NoBlurWheel0->1; reversing that replacement
+reproduces every prior byte. Installed DLL/INI hashes and CRLF independently pass.
+No game launched. Mantle visual correctness and exit remain headset-unverified.
+
+## Mantle-only pose/visibility correction and upright wheel (2026-09-17)
+
+Build437 rollback accepted: normal movement restored. Dark Vision test with
+NoBlurWheel0 also reported successful; pause with blur suppression was successful.
+That does not eliminate a wheel-specific suppression conflict. Restore NoBlurWheel1
+at the user's request; Dark Vision remains an open, reproducible-risk hypothesis.
+
+VR-134 now adds native hand pose ownership only for explicit master Mantle when
+MantleHandBack is enabled. The mantle Arms checkbox selects full native geometry
+versus existing split hand geometry, preserving the native palette/depth once
+handoff reaches native. Other master/upper/left states keep build437 pose policy.
+No cancellation-eligibility pose trigger, camera edit or engine-memory writer added.
+Hidden-mantle geometry policy is frozen with pose weight per render frame and held
+through the existing release hysteresis. Existing action cancellation is unchanged.
+Other states' Arms controls still choose native versus tracked poses; independent
+geometry for those states is unfinished.
+
+Wheel opening uses the existing yaw-only upright capture for both its visual plane
+and gesture axes. Opening position, distance offset, crop and later fixed anchoring
+are unchanged. Pitch/roll at entry no longer tilt the wheel.
+
+Host checks:138 animation catalog/policy checks plus22 handoff checks,2204 wheel
+checks,908 HUD anchor checks pass. These establish policy/math, not visual comfort.
+Next launch question: with Mantling enabled and Show game arms unchecked, does a
+mantle retain animated hands with forearms hidden and return to normal tracking?
+Tracked/frozen hands or full forearms fail the separation; a bad exit fails release.
+Do not interpret these checks as headset acceptance or a fix to Dark Vision.
+
+## Dark Vision plus weapon wheel blackout isolation (2026-09-17)
+
+Build437 rollback headset-confirmed normal for movement. New report: Dark Vision
+works until opening the weapon wheel; world turns black while highlighted people
+remain visible. Menu still appears to affect color/bloom despite blur suppression.
+Verified437 DLL and log banner; logs/profile archived under
+build/playtest-candidates/darkvision-menu/reported437.
+
+MenuEffectsTick suppresses only reflected DisPostProcessManager.m_UIPPWeight.
+Log confirms suppression during wheel context6. This is not proof that every UI
+post-process effect is disabled, nor that this write causes the blackout.
+Surface is the world scene with surviving Dark Vision silhouettes, not an
+established eye-pair synchronization fault.
+
+Prepared config-only A/B on the same437 DLL: NoBlurWheel1->0, every other INI byte
+preserved, full diff and CRLF verified. Both logs/prior DLL/INI archived under
+build/playtest-candidates/installs/20260917-211007-808112.
+Question: with Dark Vision active, does opening the wheel still black out the world?
+Expected if suppression conflicts: native menu background returns and scenery stays
+visible. If black persists, suppression alone is insufficient; inspect native menu
+post-process composition and head-look rendering separately. No headset result yet.
+No code fix claimed and no game launched. Other menus and repo defaults unchanged.
+
+## Installed437: recovery rollback to build433 (2026-09-17)
+
+Installed vr33-hands-working-437-g0d415c741 on codex/misc-fixes.
+All production source matches build433 commit5dee90153 exactly. Release build,
+9 export checks,96 catalog/policy checks and22 handoff checks pass.
+Both logs, prior DLL and full INI archived at
+build/playtest-candidates/installs/20260917-210002-856329.
+Independent installed DLL/INI hash checks pass. Entire installed INI is
+byte-identical to the previous one, including latest F10 values; CRLF verified.
+No game or simulator launched. Headset recovery test pending.
+
+One launch question: are normal crouching, jumping and looking around restored,
+including the same window exit? Success supports the build435 regression being
+removed. Remaining disruption requires investigating the earlier path or session
+state. Independent arm visibility is still unfinished; do not test that here.
+
+## Build435 rejected: restore build433 pose policy (2026-09-17)
+
+Tester reports unwanted crouch animation, native animation close to the face and
+loss of normal control/view after jumping through a window. Installed435 DLL hash
+and banner verified; both logs and latestINI archived in
+build/playtest-candidates/animation-visible-hands/reported435. Run ends in normal
+PreExit; this is not evidence of a crash.
+
+Confirmed design error: native_pose_requested used cancellable_action as a native
+pose trigger. Generic upper/left StatePlayerAction also covers movement transitions,
+not only deliberate item interactions. Logs show repeated GAME ownership during
+Jump/Falling/Walk with JumpIn/JumpLandSmall sequence history and native split-hands
+reason, despite saved Jump/Falling/Walk arms being0. Sequence history is supporting
+context, not authoritative playback identity. This broadens hand ownership beyond
+the requested mantle fix. Exact close-face and view-disruption causes remain open.
+
+Revert all435 production changes and their policy tests to exact433 source: original
+arm-driven classifier, draw bypasses, mesh palette/depth path and F10 wording.
+Keep433 action-cancellation controls, camera/keyhole fixes and latest saved settings.
+No new camera compensation or guessed offset. The original limitation returns:
+unchecking Show game arms also restores tracked hands, overriding native hand poses.
+Do not describe that option as independently controlling geometry in this rollback.
+
+Future work must explicitly distinguish pose choice from forearm geometry, preserve
+ordinary movement ownership, and first validate one named mantle path. A generic
+FSM StatePlayerAction match or cancellation eligibility is not a native-pose policy.
+The435 test proved that helper-level policy checks cannot establish comfortable
+native rendering or correct movement integration.435 is rejected, not accepted.
+
+Next launch is recovery only: are normal crouching, jumping and looking around
+restored, including the same window exit? Normal behavior supports435 as the
+regression; a remaining fault requires tracing433 or persistent session state.
+No new animation-visibility test in that launch.
+
+## Installed435: retain animation with hidden arms (2026-09-17)
+
+Clean source bdd7d207a installed as vr33-hands-working-435-gbdd7d207a.
+Release,9 exports,103 catalog/policy checks plus22 handoff checks, lint and
+default-profile parity pass. Both logs/priorDLL/fullINI preserved at
+build/playtest-candidates/installs/20260917-204023-021893. Whole INI comparison
+changes only Jump action0->1, adds Mantle action1 and Mantle Arms1->0.
+Reversing those changes reproduces every prior byte. CRLF and installed DLL/INI
+hashes independently verified. No game/simulator launched. Headset test pending.
+
+Build433 mantle regression confirmed: Arms off returns hands to controller tracking
+while the native FSM remains Mantle. Logs/latestINI archived in
+animation-action-controls/reported433 after DLL/banner verification.
+VR-134 now separates native pose ownership from full-arm visibility. Hidden arms
+draw clipped/rounded animated hands with the original native palette; weapons retain
+native animation. Camera and cancellation hook unchanged.103 policy/catalog checks
+plus22 handoff checks pass. See ANIM-HANDOFF-PLAN.md current section.
+
+Next launch isolates mantle: action enabled, forearms hidden, native hands/weapon
+should still animate through the climb. Static/tracked hands falsify pose separation;
+full forearms indicate split routing failure. Restore the prior jump-disable test to
+enabled so it cannot interfere with reaching the ledge. Keep all other saved settings.
+
+## Installed433: independent action controls (2026-09-17)
+
+Installed vr33-hands-working-433-g5dee90153 from clean source. Release build,
+9 exports,96 catalog checks,22 handoff checks,1000 production hook ABI calls,
+cinematic math/scope restoration tests, default-profile parity and lint pass.
+Archive: build/playtest-candidates/installs/20260917-202500-036762.
+Both logs preserved. Full installedINI diff contains exactly one added setting:
+Anim.Action.0.StatePlayerMasterJump=0. Removing it reproduces every prior byte;
+CRLF and installed DLL/INI hashes independently verified. No game launched.
+
+codex/misc-fixes, VR-134. Build431 door/keyhole fix reported accepted; both logs,
+latestINI and verified DLL identity preserved in misc-special-camera/reported431.
+Lean and texture allocation crash remain separate open items in VR-133.
+
+F10 Animations:18 Enable action toggles reject native FSM requests before entry;
+all40 Show game arms choices remain independent of cancellation and camera ownership.
+Automatic/recovery/story states cannot be cancelled by this UI. Existing saved arm
+values are retained. Native animation view left/right is a default-zero manual trim,
+not a proven automatic correction. Both eyes share a frozen scope value; menus skip it.
+Details and limitations: ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.md current sections.
+
+Next launch: does Jumping disabled prevent the jump, with Enable action checked
+live restoring it? No jump followed by normal jump supports the new boundary.
+Jumping while disabled means missed ownership/request path; inability to jump after
+enabling means a cancellation regression. Check build banner and read the log.
+Do not combine this with the later arm/alignment perceptual test.
+
+## Installed misc candidate431 (2026-09-17)
+
+Installed vr33-hands-working-431-g2591ebc5c from clean source on codex/misc-fixes.
+Release,9 exports,908 HUD checks,85 animation catalog checks plus existing
+animation blend checks, cinematic math and extracted production camera scope
+checks pass. Default-profile byte parity and lint pass. Both logs, prior DLL
+and complete INI archived at build/playtest-candidates/installs/20260917-125202-935413.
+Whole INI comparison: only ReadingTilt -31.000->0.000, ReadingTiltReference=1,
+and Cine.SpecialHeadLook=1 added. Reversing those changes yields identical prior
+bytes; CRLF and installed DLL/INI hashes independently verified. No game launch.
+F10 Animations exposes arm-state choices; F10 View has the armed special-camera
+option. One question this launch: natural head look during Y-lean and normal
+camera movement after release? Keyholes and animation checkbox perception remain
+separate follow-up validation. Texture allocation crash is diagnosed, not fixed.
+
+## Current: misc fixes after merged PR73 (2026-09-17)
+
+Controller/reading work merged to VR-Main in PR73 (374440668); preserved its
+branch. Active branch codex/misc-fixes. Accepted427 ReadingTilt=-31 becomes0,
+with versioned migration preserving the same physical angle. Latest427 logs,
+INI and crash dump archived under reading-fixed-grip/accepted427.
+
+VR-134: F10 Animations lists all40 shipped player FSM entries (23 master,11
+upper,6 left) with independent live/saved arm checkboxes, active state display,
+filter and reset. Existing handback defaults remain until overridden. States,
+not individual clips: sequence history can be stale. Existing body correction,
+blend and liveness rules retained. Camera classification ignores these new
+visibility overrides, so checking walking does not claim special head look.
+
+VR-133:119 lean trace samples retain player influence0/1/0 and PVR head writes;
+native lean adds about10 degrees of camera roll after that write. Decompiled
+lean limits pitch/yaw; keyholes relocate the controller. Candidate extends the
+existing draw-scoped head owner only to these two explicit states, restores
+native fields after both eyes, and carries physical yaw once on return to Walk
+with refreshed identity validation. Native translation remains; special views
+use raw HMD position rather than gameplay neck cancellation. Default-off
+Cine.SpecialHeadLook has F10 View toggle; arm it for the next lean test.
+
+Crash is a separate unresolved allocation failure: SYSTEMMEM DXT5 twin
+1920x2048 lv1 returned0x8007000e before LockRect INVALIDCALL. Installed exe is
+already large-address-aware. Preserved dump lacks memory-info stream; do not
+claim leak, texture-pack causality or camera causality. Add failure-only virtual
+memory/commit diagnostics and memory-info metadata to ordinary crash dumps.
+No destructive shadow eviction or device-policy change. No game/simulator run.
+
+Next launch question: while holding Y and leaning, can the head turn naturally
+and return to normal movement after release? Stable hold/exit supports scoped
+ownership; hold-only failure points at native modifiers, exit-only failure at
+handoff. Any repeat crash requires allocation diagnostics. Keyhole validation
+and animation checkbox perception follow separately, not in this launch.
+
 ## Current: accepted reading attachment and controller merge (2026-09-17)
 
 Build427 fixed reading attachment accepted after ReadingTilt=-31.000 adjustment.

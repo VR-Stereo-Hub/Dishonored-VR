@@ -1,5 +1,6 @@
 #include "core/framework/render_profile.h"
-// VR-88: included after reflect.cpp in the unity TU. Engine reads only.
+#include <algorithm>
+// VR-88/VR-134: reads player states; optionally rejects native action requests before entry.
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/anim_policy.h"
 #include "game/dishonored/stereo_state_policy.h"
@@ -10,7 +11,19 @@ SRWLOCK sampleLock = SRWLOCK_INIT;
 Snapshot published;
 Handoff handoff;
 Handoff classifier;
+Handoff cameraClassifier;
 bool watch = true, handback = true, cinematicHandback = false, mantleHandback = false;
+// Game animation on the tracked hands with the arms hidden, like mantling: the
+// sword swing (StatePlayerMeleeAttack) and the shot (a *Fire* clip inside
+// StatePlayerAction, where run483 measured Pistol_Fire). New levers: default off.
+bool handAnimMelee = false, handAnimFire = false;
+char rulesIni[MAX_PATH]={};
+struct ArmOverrides { int values[armRuleCount]; ArmOverrides(){for(int& v:values)v=-1;} } armOverrides;
+bool actionAllowed[armRuleCount];
+std::atomic<unsigned> disabledActions{0};
+float viewRightCm=0;
+dvr::hooks::Detour actionDetour;
+uintptr_t actionResume=kAnimRequestState+sizeof(kAnimRequestStateBytes);
 unsigned releaseMs = 250, blendMs = 150;
 // Mantle is controlled independently by MantleHandBack. The previous controller
 // preference remains the default; the current cinematic-comfort test enables it.
@@ -29,6 +42,7 @@ int lastSequenceIndex = -1;
 unsigned long long nextRead = 0, nextBeat = 0;
 unsigned weightFrame = ~0u;
 float frameWeight = 1;
+bool frameMantleSplit = false;
 void text(char* dst, size_t n, const char* src) { _snprintf_s(dst,n,_TRUNCATE,"%s",src ? src : "unknown"); }
 bool read(uint8_t* obj, uint32_t off, void* dst, size_t n) {
     if (!obj || !off || !RangeReadable(obj+off,n)) return false;
@@ -130,6 +144,74 @@ void drop_sample(uint8_t* pawn,const Snapshot& s) {
         previous=key;beat=now+(falling?100:1000);
     }
 }
+bool default_arm_rule(int lane,const char* state) {
+    return (lane==0 && ((mantleHandback && !strcmp(state,"StatePlayerMasterMantle")) ||
+        (cinematicHandback && dvr::scene_state::cinematic(state)) || listed(masterRules,state))) ||
+        (lane==1 && listed(upperRules,state));
+}
+bool resolve_arm_rule(int lane,const char* state) {
+    const int i=arm_rule_index(lane,state);
+    return arm_rule_value(i>=0?armOverrides.values[i]:-1,default_arm_rule(lane,state));
+}
+void arm_rule_key(int i,char* key,size_t n) {
+    _snprintf_s(key,n,_TRUNCATE,"Arms.%d.%s",armRules[i].lane,armRules[i].state);
+}
+// Reject at the request boundary, before pending state, entry callbacks or locks change.
+// Unknown/stale ownership always runs the original request. Fresh slot membership is
+// checked only for a disabled player action, not for the ordinary engine request path.
+bool __cdecl reject_action(uint8_t* fsm,uint8_t* request) {
+    if(!disabledActions.load() || !request || !RangeReadable(request,kAnimRequestClassOff+sizeof(void*)))return false;
+    const Snapshot s=snapshot();
+    if(!s.valid || !fresh(s.stamp,GetTickCount64()) || !IsLiveObject(g_peCtrl) || !IsLiveObject(fsm))return false;
+    auto* pawn=object(g_peCtrl,controllerPawnOff);
+    if(!pawn || pawn!=lastPawn)return false;
+    int lane=-1;
+    for(int n=0;n<3;++n)if(object(pawn,pawnFsm[n])==fsm){lane=n;break;}
+    if(lane<0)return false;
+    auto* cls=*(uint8_t**)(request+kAnimRequestClassOff);
+    if(!IsLiveObject(cls))return false;
+    const char* name=objectName(cls);
+    if(!name)return false;
+    const int rule=arm_rule_index(lane,name);
+    if(!cancellable_action(rule) || action_enabled(rule))return false;
+    // Do not prevent an action already underway from completing/re-entering.
+    if(object(fsm,idOff)==cls)return false;
+    if(!RangeReadable((void*)kGObjHdr,12))return false;
+    auto** objects=*(uint8_t***)kGObjHdr;
+    const uint32_t count=*(uint32_t*)(kGObjHdr+4);
+    if(!objects || count>4000000 || !RangeReadable(objects,count*sizeof(void*)))return false;
+    unsigned found=0;
+    for(uint32_t n=0;n<count && found!=15;++n){
+        auto* p=objects[n];if(p==g_peCtrl)found|=1;if(p==pawn)found|=2;if(p==fsm)found|=4;if(p==cls)found|=8;
+    }
+    if(found!=15)return false;
+    DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,500,"anim/action: rejected lane=%d state=%s before native entry",lane,name);
+    return true;
+}
+__declspec(naked) void action_stub() {
+    __asm {
+        pushfd
+        pushad
+        mov eax,[esp+40]
+        push eax
+        push ecx
+        call reject_action
+        add esp,8
+        test al,al
+        jnz denied
+        popad
+        popfd
+        push ebp
+        mov ebp,esp
+        push -1
+        jmp dword ptr [actionResume]
+    denied:
+        popad
+        popfd
+        xor eax,eax
+        ret 12
+    }
+}
 void report(const Snapshot& s) {
     Log("anim: gen=%u %s master=%s upper=%s left=%s pending=%s body=%d seq=%s picker=%d reason=%s age=%llu ms",
         s.generation,!s.valid?"UNKNOWN":s.game?"GAME":"PLAYER",s.state[0],s.state[1],s.state[2],s.pending,s.bodyMode,s.sequence,s.picker,s.reason,GetTickCount64()-s.stamp);
@@ -145,6 +227,21 @@ void set_mantle(bool on) {
     AcquireSRWLockExclusive(&lock); mantleHandback=on; ReleaseSRWLockExclusive(&lock);
     Log("anim: MantleHandBack=%d (live)",on?1:0);
 }
+static bool has_fire_clip(const char* seq) {   // "Pistol_Fire#0", "Crossbow_Fire..." in any case
+    for (const char* p=seq; *p; ++p) if (!_strnicmp(p,"fire",4)) return true;
+    return false;
+}
+bool hand_anim_melee() { AcquireSRWLockShared(&lock); bool on=handAnimMelee; ReleaseSRWLockShared(&lock); return on; }
+bool hand_anim_fire() { AcquireSRWLockShared(&lock); bool on=handAnimFire; ReleaseSRWLockShared(&lock); return on; }
+static void set_hand_anim(bool fire,bool on) {
+    AcquireSRWLockExclusive(&lock); (fire?handAnimFire:handAnimMelee)=on;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    const char* key=fire?"HandAnimFire":"HandAnimMelee";
+    if(*ini)WritePrivateProfileStringA("Anim",key,on?"1":"0",ini);
+    Log("anim: %s=%d (live, saved; game animation on the tracked hands, arms hidden unless that state shows game arms)",key,on?1:0);
+}
+void set_hand_anim_melee(bool on) { set_hand_anim(false,on); }
+void set_hand_anim_fire(bool on) { set_hand_anim(true,on); }
 bool cinematic_enabled() { AcquireSRWLockShared(&lock); bool on=cinematicHandback; ReleaseSRWLockShared(&lock); return on; }
 void set_cinematic(bool on) {
     AcquireSRWLockExclusive(&lock); cinematicHandback=on; ReleaseSRWLockExclusive(&lock);
@@ -152,8 +249,59 @@ void set_cinematic(bool on) {
 }
 bool enabled() { AcquireSRWLockShared(&lock); bool on=handback; ReleaseSRWLockShared(&lock); return on; }
 void set_enabled(bool on) {
-    AcquireSRWLockExclusive(&lock); handback=on; handoff=Handoff{}; ReleaseSRWLockExclusive(&lock);
-    Log("anim: HandBack=%d (live)",on?1:0);
+    AcquireSRWLockExclusive(&lock); handback=on; handoff=Handoff{};
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    if(*ini)WritePrivateProfileStringA("Anim","HandBack",on?"1":"0",ini);
+    Log("anim: HandBack=%d (live, saved)",on?1:0);
+}
+bool arm_rule_enabled(int i) {
+    if(i<0 || i>=armRuleCount)return false;
+    AcquireSRWLockShared(&lock);
+    const bool on=resolve_arm_rule(armRules[i].lane,armRules[i].state);
+    ReleaseSRWLockShared(&lock);return on;
+}
+void set_arm_rule(int i,bool on) {
+    if(i<0 || i>=armRuleCount)return;
+    AcquireSRWLockExclusive(&lock);armOverrides.values[i]=on?1:0;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    char key[128];arm_rule_key(i,key,sizeof(key));
+    if(*ini)WritePrivateProfileStringA("Anim",key,on?"1":"0",ini);
+    Log("anim: %s=%d (live, saved)",key,int(on));
+}
+void reset_arm_rules() {
+    AcquireSRWLockExclusive(&lock);armOverrides=ArmOverrides{};
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    for(int i=0;i<armRuleCount;++i){char key[128];arm_rule_key(i,key,sizeof(key));
+        if(*ini)WritePrivateProfileStringA("Anim",key,nullptr,ini);}
+    Log("anim: per-state arm overrides reset to inherited defaults");
+}
+bool action_gate_ready(){return actionDetour.on;}
+bool action_enabled(int i) {
+    if(!cancellable_action(i))return true;
+    AcquireSRWLockShared(&lock);bool on=actionAllowed[i];ReleaseSRWLockShared(&lock);return on;
+}
+void set_action_enabled(int i,bool on) {
+    if(!cancellable_action(i))return;
+    AcquireSRWLockExclusive(&lock);actionAllowed[i]=on;
+    unsigned count=0;for(int n=0;n<armRuleCount;++n)if(cancellable_action(n) && !actionAllowed[n])++count;
+    disabledActions.store(count);
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    char key[128];_snprintf_s(key,sizeof(key),_TRUNCATE,"Action.%d.%s",armRules[i].lane,armRules[i].state);
+    if(*ini)WritePrivateProfileStringA("Anim",key,on?"1":"0",ini);
+    Log("anim/action: %s=%d (next request; current action is allowed to finish)",key,int(on));
+}
+float view_right_cm(){AcquireSRWLockShared(&lock);float v=viewRightCm;ReleaseSRWLockShared(&lock);return v;}
+void set_view_right_cm(float cm){
+    if(!std::isfinite(cm))return;cm=std::clamp(cm,-20.0f,20.0f);
+    AcquireSRWLockExclusive(&lock);viewRightCm=cm;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    char v[32];_snprintf_s(v,sizeof(v),_TRUNCATE,"%.3f",cm);
+    if(*ini)WritePrivateProfileStringA("Anim","ViewRightCm",v,ini);
+    Log("anim/alignment: native animation view right=%.2f cm (manual trim, not a measured correction)",cm);
+}
+float view_right_metres(){
+    if(g_menuOpen || g_inMenu || g_mainMenu || UiSurfaceBlocks())return 0;
+    return active()?view_right_cm()*.01f*(1.0f-weight()):0.0f;
 }
 float weight() {
     dvr::render_profile::Scope profile(dvr::render_profile::AnimationWeight);
@@ -161,13 +309,17 @@ float weight() {
     const auto now=GetTickCount64();
     const bool valid=watch && handback && published.valid && fresh(published.stamp,now);
     const unsigned frame=(unsigned)dvr::frame::count();
-    if (!valid) { frameWeight=1; weightFrame=~0u; }
-    else if (weightFrame!=frame) { frameWeight=handoff.value(now,blendMs); weightFrame=frame; }
+    if (!valid) { frameWeight=1; frameMantleSplit=false; weightFrame=~0u; }
+    else if (weightFrame!=frame) { frameWeight=handoff.value(now,blendMs); frameMantleSplit=published.mantleSplit; weightFrame=frame; }
     const float w=frameWeight;
     ReleaseSRWLockExclusive(&lock); return w;
 }
 bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.game; }
 bool native_draw() { return weight()<=0.0001f; }
+bool native_full_arms() {
+    if(!native_draw())return false;
+    AcquireSRWLockShared(&lock);const bool full=!frameMantleSplit;ReleaseSRWLockShared(&lock);return full;
+}
 void tick() {
     if (!TryAcquireSRWLockExclusive(&sampleLock)) return;
     struct Unlock { ~Unlock() { ReleaseSRWLockExclusive(&sampleLock); } } unlock;
@@ -249,15 +401,27 @@ void tick() {
         text(s.reason,sizeof(s.reason),"live-object table was stale; rebuilt");
     }
     AcquireSRWLockExclusive(&lock);
-    if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; }
+    if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; cameraClassifier=Handoff{}; }
     const bool cinematic=cinematicHandback && dvr::scene_state::cinematic(s.state[0]);
-    const bool mantle=mantleHandback && !strcmp(s.state[0],"StatePlayerMasterMantle");
-    const bool match=mantle || cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]);
+    const bool mantle=mantle_pose_requested(mantleHandback,s.state[0]);
+    cameraClassifier.update(s.valid,mantle || cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]),watch,now,releaseMs,0);
+    s.cameraAction=s.valid && cameraClassifier.game;
+    // Swing / shot: the same split-native path as mantle. The shot is matched on
+    // the clip, not the state, because StatePlayerAction also carries reloads and
+    // the sword sneak in/out.
+    const bool swing=handAnimMelee && !strcmp(s.state[1],"StatePlayerMeleeAttack");
+    const int fireLane=!strcmp(s.state[1],"StatePlayerAction")?1:!strcmp(s.state[2],"StatePlayerAction")?2:-1;
+    const bool fire=handAnimFire && fireLane>0 && has_fire_clip(s.sequence);
+    const bool handPose=swing || fire;
+    const bool match=mantle || handPose || resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
     classifier.update(s.valid,match,watch,now,releaseMs,0);
+    s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) :
+        handPose ? !(swing ? resolve_arm_rule(1,s.state[1]) : resolve_arm_rule(fireLane,s.state[fireLane])) :
+        (!match && classifier.game && previous.mantleSplit));
     handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
-    if (s.valid) text(s.reason,sizeof(s.reason),mantle?"mantle handback":cinematic?"cinematic handback":listed(masterRules,s.state[0])?"master rule":listed(upperRules,s.state[1])?"upper rule":classifier.game?"release hysteresis":"unlisted state");
+    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands":fire?"shot native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
     published=s;
     ReleaseSRWLockExclusive(&lock);
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
@@ -265,7 +429,27 @@ void tick() {
     }
 }
 void configure(const char* ini) {
+    if(!actionDetour.on) {
+        if(RangeReadable((void*)kAnimRequestState,sizeof(kAnimRequestStatePrefix)) &&
+           !memcmp((void*)kAnimRequestState,kAnimRequestStatePrefix,sizeof(kAnimRequestStatePrefix)))
+            dvr::hooks::detour_install(actionDetour,"anim/action",kAnimRequestState,kAnimRequestStateBytes,sizeof(kAnimRequestStateBytes),action_stub);
+        else Log("anim/action: request gate refused: native entry prefix mismatch at %p",(void*)kAnimRequestState);
+    }
     AcquireSRWLockExclusive(&lock);
+    text(rulesIni,sizeof(rulesIni),ini);
+    for(int i=0;i<armRuleCount;++i){char key[128];arm_rule_key(i,key,sizeof(key));
+        int v=GetPrivateProfileIntA("Anim",key,-1,ini);armOverrides.values[i]=(v==0 || v==1)?v:-1;}
+    unsigned disabled=0;
+    for(int i=0;i<armRuleCount;++i){char key[128];
+        _snprintf_s(key,sizeof(key),_TRUNCATE,"Action.%d.%s",armRules[i].lane,armRules[i].state);
+        actionAllowed[i]=!cancellable_action(i) || GetPrivateProfileIntA("Anim",key,1,ini)!=0;
+        if(!actionAllowed[i])++disabled;
+    }
+    disabledActions.store(disabled);
+    char alignment[32];GetPrivateProfileStringA("Anim","ViewRightCm","0",alignment,sizeof(alignment),ini);
+    viewRightCm=(float)atof(alignment);if(!std::isfinite(viewRightCm))viewRightCm=0;
+    viewRightCm=std::clamp(viewRightCm,-20.0f,20.0f);
+    Log("anim/action: request gate=%d disabled=%u; native view right=%.2f cm",int(actionDetour.on),disabled,viewRightCm);
     dropWatch=GetPrivateProfileIntA("Anim","DropWatch",1,ini)!=0;
     Log("config: [Anim] DropWatch=%d (read-only native drop eligibility)",dropWatch);
     const int watchSetting=GetPrivateProfileIntA("Anim","StateWatch",-1,ini);
@@ -276,6 +460,9 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
+    handAnimMelee=GetPrivateProfileIntA("Anim","HandAnimMelee",0,ini)!=0;
+    handAnimFire=GetPrivateProfileIntA("Anim","HandAnimFire",0,ini)!=0;
+    Log("config: [Anim] HandAnimMelee=%d HandAnimFire=%d (game animation on the tracked hands, arms hidden)",handAnimMelee,handAnimFire);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
     blendMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendMs",150,ini); if(blendMs>2000) blendMs=2000;
     char buf[1024];
@@ -291,13 +478,15 @@ void configure(const char* ini) {
 // still being tuned by headset runs. An edited list in the ini is kept as is.
 void save(const char* ini) {
     AcquireSRWLockShared(&lock);
-    const bool w=watch, b=handback, c=cinematicHandback, mantle=mantleHandback; const unsigned r=releaseMs, m=blendMs;
+    const bool w=watch, b=handback, c=cinematicHandback, mantle=mantleHandback, hm=handAnimMelee, hf=handAnimFire; const unsigned r=releaseMs, m=blendMs;
     ReleaseSRWLockShared(&lock);
     char v[16];
     WritePrivateProfileStringA("Anim","StateWatch",w?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandBack",b?"1":"0",ini);
     WritePrivateProfileStringA("Anim","CinematicHandBack",c?"1":"0",ini);
     WritePrivateProfileStringA("Anim","MantleHandBack",mantle?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HandAnimMelee",hm?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HandAnimFire",hf?"1":"0",ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",r); WritePrivateProfileStringA("Anim","ReleaseMs",v,ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",m); WritePrivateProfileStringA("Anim","HandBackBlendMs",v,ini);
 }

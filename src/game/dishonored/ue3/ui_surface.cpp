@@ -2,6 +2,7 @@
 // Read-only. Root identity is checked against its current GObjects slot; child
 // identities are read afresh from the engine/player/world/UI-manager chain.
 #include "core/vr/mono_anchor.h"
+#include "core/input/controller_emulation.h"
 #include "game/dishonored/movie_completion.h"
 namespace {
 std::atomic<bool> g_usEnabled{false},g_usBlocked{true};
@@ -11,6 +12,7 @@ std::atomic<bool> g_usWheelActive{false};
 std::atomic<int> g_usActiveContext{-1};
 std::atomic<unsigned> g_usContextEpoch{0};
 dvr::ui_ride::RideLatch g_usRideLatch;
+dvr::controller::WheelOwnerRelease g_usWheelRelease;
 SRWLOCK g_usLock=SRWLOCK_INIT;
 CtIdentity g_usEngine;
 uint32_t g_usScan=0;
@@ -209,7 +211,9 @@ static void UiSurfacePoll() {
         engine,player,pc,world,game,manager,overlay,(int)loadKnown);
     int screen=-1;
     dvr::mono::Context context=dvr::mono::Other;
-    bool blocked=false,wheelClosing=false;
+    bool blocked=false,wheelClosing=false,wheelObserved=false;
+    dvr::vr::InputSnapshot wheelInput;
+    dvr::vr::input_snapshot(&wheelInput); // locked snapshot, not pad-thread globals
     for(int i=0;manager && i<10;++i) {
         if(!g_usMenus[i]) continue;
         uint8_t* obj=nullptr;
@@ -228,6 +232,25 @@ static void UiSurfacePoll() {
                 continue;
             }
         } else if(!(bits&g_usOpenMask)) continue;
+        if(i==4) {
+            wheelObserved=true;
+            const bool released=dvr::controller::released_wheel(
+                g_padEnabled && g_xrOn && wheelInput.active,true,
+                wheelInput.gripL>.7f,g_menuOpen,CineActive());
+            if(g_usWheelRelease.update(released,GetTickCount64())) {
+                // The physical hold ended, but an interrupted native action left
+                // m_bWheelIsOpen set. Release every menu consumer together:
+                // head tracking, scene ownership, UI effects and pad shaping.
+                // Keep the existing visual close lease separate from input.
+                uint32_t closing=0;
+                wheelClosing=g_usClosingMask && CtRead(obj,g_usClosing,&closing,4) &&
+                    (closing&g_usClosingMask)!=0;
+                DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                    "ui/wheel-release: reject stale open flag after250ms released grip=%.3f; resume gameplay camera and scan remaining menus",
+                    wheelInput.gripL);
+                continue;
+            }
+        }
         if(i==0) {
             uint8_t value=0;
             if(!CtRead(obj,g_usScreen,&value,1)) { known=false; continue; }
@@ -237,6 +260,7 @@ static void UiSurfacePoll() {
         }
         blocked=true; context=g_usKinds[i]; break;
     }
+    if(!wheelObserved) g_usWheelRelease.update(false,GetTickCount64());
     if(!known && !blocked) { blocked=true; context=dvr::mono::Other; }
     if(!blocked && g_cineNow) context=dvr::mono::Cinematic;
     UsPublish(context,blocked,known,screen,presenting?1:0,mode,wheelClosing);

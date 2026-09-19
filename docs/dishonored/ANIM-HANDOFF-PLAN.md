@@ -1,3 +1,141 @@
+## Mantle-only pose/visibility correction and upright wheel (2026-09-17)
+
+Build437 rollback accepted: normal movement restored. Dark Vision test with
+NoBlurWheel0 also reported successful; pause with blur suppression was successful.
+That does not eliminate a wheel-specific suppression conflict. Restore NoBlurWheel1
+at the user's request; Dark Vision remains an open, reproducible-risk hypothesis.
+
+VR-134 now adds native hand pose ownership only for explicit master Mantle when
+MantleHandBack is enabled. The mantle Arms checkbox selects full native geometry
+versus existing split hand geometry, preserving the native palette/depth once
+handoff reaches native. Other master/upper/left states keep build437 pose policy.
+No cancellation-eligibility pose trigger, camera edit or engine-memory writer added.
+Hidden-mantle geometry policy is frozen with pose weight per render frame and held
+through the existing release hysteresis. Existing action cancellation is unchanged.
+Other states' Arms controls still choose native versus tracked poses; independent
+geometry for those states is unfinished.
+
+Wheel opening uses the existing yaw-only upright capture for both its visual plane
+and gesture axes. Opening position, distance offset, crop and later fixed anchoring
+are unchanged. Pitch/roll at entry no longer tilt the wheel.
+
+Host checks:138 animation catalog/policy checks plus22 handoff checks,2204 wheel
+checks,908 HUD anchor checks pass. These establish policy/math, not visual comfort.
+Next launch question: with Mantling enabled and Show game arms unchecked, does a
+mantle retain animated hands with forearms hidden and return to normal tracking?
+Tracked/frozen hands or full forearms fail the separation; a bad exit fails release.
+Do not interpret these checks as headset acceptance or a fix to Dark Vision.
+
+## Build435 rejected: restore build433 pose policy (2026-09-17)
+
+Tester reports unwanted crouch animation, native animation close to the face and
+loss of normal control/view after jumping through a window. Installed435 DLL hash
+and banner verified; both logs and latestINI archived in
+build/playtest-candidates/animation-visible-hands/reported435. Run ends in normal
+PreExit; this is not evidence of a crash.
+
+Confirmed design error: native_pose_requested used cancellable_action as a native
+pose trigger. Generic upper/left StatePlayerAction also covers movement transitions,
+not only deliberate item interactions. Logs show repeated GAME ownership during
+Jump/Falling/Walk with JumpIn/JumpLandSmall sequence history and native split-hands
+reason, despite saved Jump/Falling/Walk arms being0. Sequence history is supporting
+context, not authoritative playback identity. This broadens hand ownership beyond
+the requested mantle fix. Exact close-face and view-disruption causes remain open.
+
+Revert all435 production changes and their policy tests to exact433 source: original
+arm-driven classifier, draw bypasses, mesh palette/depth path and F10 wording.
+Keep433 action-cancellation controls, camera/keyhole fixes and latest saved settings.
+No new camera compensation or guessed offset. The original limitation returns:
+unchecking Show game arms also restores tracked hands, overriding native hand poses.
+Do not describe that option as independently controlling geometry in this rollback.
+
+Future work must explicitly distinguish pose choice from forearm geometry, preserve
+ordinary movement ownership, and first validate one named mantle path. A generic
+FSM StatePlayerAction match or cancellation eligibility is not a native-pose policy.
+The435 test proved that helper-level policy checks cannot establish comfortable
+native rendering or correct movement integration.435 is rejected, not accepted.
+
+Next launch is recovery only: are normal crouching, jumping and looking around
+restored, including the same window exit? Normal behavior supports435 as the
+regression; a remaining fault requires tracing433 or persistent session state.
+No new animation-visibility test in that launch.
+
+## VR-134: arm visibility must not select pose ownership (2026-09-17)
+
+Build433 mantle report confirmed in verified logs: Arms.0.StatePlayerMasterMantle=0
+produces PLAYER while the master FSM remains Mantle and reports a mantle sequence.
+Arms=1 produces GAME. Thus the visible animation was overridden by tracked hands;
+this is not evidence that the native mantle action was cancelled. Both logs/latestINI
+are preserved in animation-action-controls/reported433. Native block requests were
+also logged as rejected, but no general cancellation acceptance is inferred.
+
+Correction: native action pose ownership derives from voluntary action states and
+existing scripted-action defaults independently of Arms.*. Visibility selects full
+arms versus the existing clipped/rounded hands under the native animated palette.
+Weapon native ownership remains intact. The split bypasses controller palette and
+depth overrides for native hands. Normal unchecked walking remains controller-driven.
+Whole-body action visibility takes priority over upper/left states; idle/walking
+do not override a real upper-body action. Visibility is frozen with pose weight for
+a render frame, preserving the stereo pair. No engine state or camera change.
+
+103 catalog/policy checks plus22 handoff checks pass. New cases cover hidden mantle
+retaining its pose, unchanged checked mantle, tracked walking and split/full geometry
+routing. Release builds. Headset result pending; existing split qualification still
+fails open if geometry is unavailable. Earlier433 documentation calling Arms.*
+independent was incomplete: it was independent of action rejection, not native pose.
+
+Next launch: with Enable action on and Show game arms off for Mantling, do the hands
+and weapon still animate through the climb while forearms remain hidden? Normal
+animation supports separation; tracked/static hands mean another pose override;
+visible forearms mean the split route failed. Enable action stays on for this test.
+
+## VR-134 independent action requests and arms (2026-09-17)
+
+F10 Animations now has separate Enable action and Show game arms controls.
+Action.<lane>.<state>=0 rejects the next native RequestState before it modifies
+pending state or calls entry handlers. An existing action may finish. All actions
+default enabled; Arms.* overrides keep their previous meaning and values.
+18 voluntary state entries expose cancellation; the other22 automatic/recovery/
+story states expose arms only. This is FSM state control, not per-clip playback.
+Generic full-body/item states group more than one action. Native callers which
+perform work before requesting a state remain a headset-validation limitation.
+
+The hook verifies its exact entry bytes and fails open for unknown/stale player
+identity, new level objects awaiting a live-table refresh, unmatched state names,
+or a missing hook. It rechecks the current pawn/FSM chain and current GObjects
+membership for a disabled request, retains no engine object identity across a
+menu, and writes no engine state fields. See ENGINE_NOTES for the native ABI.
+
+ViewRightCm (default0, range-20..20cm) provides manual native-animation viewpoint
+alignment. Positive moves the view right toward arms reported to the right.
+Only existing validated native camera scopes with native handback active use it;
+menus do not. The scope freezes one value for both eyes and restores native fields.
+It does not measure a root cause or automatically move the body. Build431 contains
+large lateral tracked-head offsets, but those are requested offsets, not proof of
+misalignment. No guessed nonzero correction ships.
+
+Validation:96 catalog/policy checks plus22 existing handoff checks;1000 calls
+through the extracted production x86 stub verify pass/reject return, stack cleanup,
+this pointer and request parameter. Camera math and extracted scope checks include
+alignment unit conversion, pair freezing and exact restoration. Headset pending.
+First launch isolates cancellation: Jumping disabled in the candidate INI; enabling
+it live should restore jumping. Arms/alignment remain at saved settings/zero.
+
+## VR-134 F10 Animations (2026-09-17)
+
+The new Animations tab exposes all40 shipped FSM lane/state entries listed in
+section2.1. A checked active state hands arms/weapons back to native animation;
+any checked lane can request it. Unchecking a state removes that trigger only.
+The master enable applies to all choices. Existing250ms release/150ms blend and
+stale-state fail-soft remain. No changes to animation playback or engine writes.
+
+Persistent overrides use [Anim] Arms.<lane>.<state>=0|1. Missing keys inherit
+HandBackMaster/HandBackUpper and mantle/cinematic defaults. Checkboxes save live;
+reset deletes only these40 overrides. Default profile need not materialize every
+inherited value. Active state labels and filter help find an action. Clip history
+is not playback state; individual clips within one action share its checkbox.
+85 catalog checks plus existing blend/freshness tests pass. Headset pending.
+
 # VR-88 plan: know when a scripted animation owns the body, and hand it back
 
 **Status: phases 1 and 2 implemented together, enabled by default at user request. Headset validation pending: the first playtest after implementation ran the previous installed build, so it is not evidence for this code.** Branch `claude/vr-88-anim-handback`, off
@@ -380,3 +518,17 @@ The takedowns, fatalities and body pickup were judged right in the headset. **Le
 `Mantle` is removed from the default `HandBackMaster` list. Ladder climbing (`Climb`) keeps
 the hand-back by request, though it was not observed in this run. Not every action
 variant was tried.
+
+## Swing and shot on the tracked hands (2026-09-19)
+
+Run483 measured where a shot lives: `Pistol_Fire#0` plays inside
+`StatePlayerAction` (the upper lane, the left lane, or both). That state also
+carries reloads and the sword sneak in/out, so the shot is matched on the CLIP
+name (any sequence containing "fire", case-insensitive), not on the state. The
+sword swing is its own state, `StatePlayerMeleeAttack`. Both now use the mantle
+path: native pose on the hands with the forearms hidden (`mantleSplit`), unless
+that state's "Show game arms" is also checked. The camera classifier is NOT
+widened, so neither takes the camera. Levers: `[Anim] HandAnimMelee`,
+`[Anim] HandAnimFire`, default 0, in the F10 Animations tab (saved on change).
+The crossbow's fire clip name is not yet measured; the next run's `anim:` lines
+say whether it contains "fire".

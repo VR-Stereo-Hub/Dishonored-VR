@@ -4,7 +4,7 @@
 #include "game/dishonored/cinematic_policy.h"
 // VR-70: camera ownership trace and draw-scoped head rotation; after reflection in the unity TU.
 namespace {
-std::atomic<bool> g_cineTrace{false}, g_cineHead{false};
+std::atomic<bool> g_cineTrace{false}, g_cineHead{false}, g_specialHead{false};
 uint32_t g_ctPcCamera, g_ctPawn, g_ctActorRot, g_ctCache, g_ctPov;
 uint32_t g_ctLoc, g_ctRot, g_ctStyle, g_ctInfluence[3], g_ctWeight;
 bool g_ctResolved = false, g_ctLayout = false;
@@ -28,6 +28,8 @@ float CtWeight(uint8_t* cam, int index) {
 }
 }
 static void CineTraceConfigure(const char* ini) {
+    g_specialHead.store(GetPrivateProfileIntA("Cine","SpecialHeadLook",0,ini)!=0);
+    Log("camera/special: SpecialHeadLook=%d (lean/keyhole final-camera head look)",int(g_specialHead.load()));
     g_cineHead.store(GetPrivateProfileIntA("Cine", "HeadLook", 1, ini) != 0);
     Log("cine/head: %s ([Cine] HeadLook), draw-scoped authored rotation", g_cineHead.load() ? "ON" : "off");
     g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 1, ini) != 0);
@@ -87,6 +89,27 @@ static void CineTraceDraw() {
     uint8_t* pc = IsLiveObject(g_peCtrl) ? g_peCtrl : nullptr;
     uint8_t* cam = CtObject(pc, g_ctPcCamera);
     uint8_t* pawn = CtObject(pc, g_ctPawn);
+    // Read-only effect ownership evidence; do not suppress a guessed HUD rectangle.
+    static uint32_t hitOff=0,healthOff=0,healthIndexOff=0,rainOff=0,rainCountOff=0,targetOff=0;
+    static double effectNext=0;
+    if(now>=effectNext) {
+        effectNext=now+1000;
+        if(!hitOff)FindPropOffsetChecked("DishonoredPlayerCamera","m_pHitReact_Influence",&hitOff);
+        if(!healthOff)FindPropOffsetChecked("DishonoredPlayerPawn","m_pCurHealthLensEffect",&healthOff);
+        if(!healthIndexOff)FindPropOffsetChecked("DishonoredPlayerPawn","m_iActiveHealthEffect",&healthIndexOff);
+        if(!rainOff)FindPropOffsetChecked("DishonoredPlayerCamera","m_pRainBoxEmitter",&rainOff);
+        if(!rainCountOff)FindPropOffsetChecked("DishonoredPlayerCamera","m_NumRainDrops",&rainCountOff);
+        if(!targetOff)FindPropOffsetChecked("DishonoredCameraInfluence","m_TargetWeight",&targetOff);
+        auto* hit=CtObject(cam,hitOff);auto* health=CtObject(pawn,healthOff);auto* rain=CtObject(cam,rainOff);
+        float weight=-1,target=-1;int healthIndex=-1,rainCount=-1;
+        if(g_ctWeight)CtRead(hit,g_ctWeight,&weight,4);
+        if(targetOff)CtRead(hit,targetOff,&target,4);
+        if(healthIndexOff)CtRead(pawn,healthIndexOff,&healthIndex,4);
+        if(rainCountOff)CtRead(cam,rainCountOff,&rainCount,4);
+        Log("effects/owners: hit=%p weight=%.3f target=%.3f health=%p class=%s index=%d rain=%p class=%s drops=%d layout=%d/%d/%d; read-only, null may mean inactive or unavailable",
+            hit,weight,target,health,health?ObjClassName(health):"none",healthIndex,
+            rain,rain?ObjClassName(rain):"none",rainCount,int(hitOff!=0),int(healthOff!=0),int(rainOff!=0));
+    }
     int32_t pcRot[3] = {}, camRot[3] = {};
     float loc[3] = {}, c5[3] = {}, pos[3] = {}, cinePos[3] = {};
     const bool pcOk = g_ctActorRot && CtRead(pc, g_ctActorRot, pcRot, sizeof(pcRot));
@@ -148,6 +171,9 @@ struct CtIdentity {
 };
 CtIdentity g_chOwner[3]; // camera, controller, pawn
 bool g_chReference=false, g_chScope=false;
+int g_chKind=0;
+bool g_chExitPending=false;
+double g_chExitReferenceYaw=0,g_chExitScopeMs=0;
 LONG g_chLoad=0;
 dvr::cine::Matrix g_chRef={};
 HtSample g_chHead={},g_chReferenceHead={};
@@ -199,7 +225,8 @@ static bool CineHeadOwnsInput() {
     const double now=MaimNowMs();
     return g_cineHead.load() && g_trackingEnabled && g_rotInject && g_chReference &&
         now<=g_chInputUntil && now>=g_chInputUntil-100 &&
-        state.valid && dvr::scene_state::cinematic(state.state[0]) &&
+        state.valid && (dvr::scene_state::cinematic(state.state[0]) ||
+            (g_specialHead.load() && dvr::cine::special_camera(state.state[0]))) &&
         !g_menuOpen && !g_inMenu && !g_mainMenu && !g_gameExiting &&
         dvr::vr::session_live() && dvr::stereo::wants_projection() && !dvr::vr::cinematic_active() &&
         ChValidate((uint8_t*)g_chOwner[0].value.obj);
@@ -213,6 +240,26 @@ static bool CineHeadDispatchFresh() {
 static bool CineHeadEnabled() { return g_cineHead.load(); }
 static void CineHeadSet(bool on) {
     g_cineHead.store(on); Log("cine/head: %s (live)",on ? "ON" : "off");
+}
+static bool SpecialHeadEnabled(){return g_specialHead.load();}
+static void SpecialHeadSet(bool on){g_specialHead.store(on);Log("camera/special: SpecialHeadLook=%d (live)",int(on));}
+static bool SpecialHeadResumeYaw(int32_t& delta) {
+    delta=0;
+    if(!g_chExitPending || dvr::camera::second_pass_for_current_thread() || GetCurrentThreadId()!=g_sdDrawTid)return false;
+    const auto state=dvr::anim::snapshot();
+    if(state.valid && dvr::cine::special_camera(state.state[0]))return false;
+    g_chExitPending=false;
+    const double now=MaimNowMs();HtSample head{};
+    const bool valid=g_specialHead.load() && g_cineHead.load() && g_trackingEnabled && g_rotInject &&
+        state.valid && !strcmp(state.state[0],"StatePlayerMasterWalk") &&
+        !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_gameExiting &&
+        dvr::vr::session_live() && dvr::stereo::wants_projection() &&
+        now>=g_chExitScopeMs && now-g_chExitScopeMs<=1000 &&
+        BuildLiveSet() && ChValidate((uint8_t*)g_chOwner[0].value.obj) &&
+        HtConsumeSample(&head) && head.ok && head.poseOk && now>=head.locateMs && now-head.locateMs<=100;
+    const bool carry=valid && dvr::cine::special_resume_delta(g_chExitReferenceYaw,head.yaw*g_flipYaw,delta);
+    Log("camera/special-exit: carry=%d delta=%.3f deg; owner/context/pose revalidated",int(carry),delta*360.f/65536);
+    return carry;
 }
 static void CineHeadPublish() {
     if (g_chScope) HtPublishCameraRecord(3,g_chHead,g_chWritten[1]*360.0f/65536,
@@ -239,7 +286,11 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     }
     float animWeight=CtWeight(cam,0), playerWeight=CtWeight(cam,1), lookWeight=CtWeight(cam,2);
     const auto state=dvr::anim::snapshot();
-    const bool scripted=state.valid && dvr::scene_state::cinematic(state.state[0]);
+    const int special=state.valid && g_specialHead.load()?dvr::cine::special_camera(state.state[0]):0;
+    const bool scripted=state.valid && (dvr::scene_state::cinematic(state.state[0]) || special);
+    const int kind=special?special:scripted?3:0;
+    if(state.valid && g_chReference && (special || g_chKind==1 || g_chKind==2) && kind!=g_chKind)
+        ChReset("camera state changed");
     const bool ownerChanged=g_chReference && !ChValidate((uint8_t*)g_chOwner[0].value.obj);
     // Explicit cinematic states keep one owner across influence blends. Outside
     // those states only fully authored cameras use this scope.
@@ -275,37 +326,39 @@ static void CineHeadBegin(bool sceneDraw, bool doubleDraw) {
     }
     const auto h=dvr::cine::rotation(head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll);
     if (!g_chReference) {
+        g_chExitPending=false; // never carry a prior owner/reference into this interval
         if (!ChCapture(cam,&g_chOwner[0]) || !ChCapture(pc,&g_chOwner[1]) || !ChCapture(pawn,&g_chOwner[2])) {
             ChReset("identity capture refused"); return;
         }
-        g_chLoad=g_mkLoadEvents; g_chRef=h; g_chReferenceHead=head; g_chReference=true; g_chReason="active";
+        g_chLoad=g_mkLoadEvents; g_chKind=kind; g_chRef=h; g_chReferenceHead=head; g_chReference=true; g_chReason="active";
         Log("cine/head: entered authored camera=%p pc=%p pawn=%p gen=%u; physical orientation anchored",cam,pc,pawn,head.gen);
     }
     int32_t authored[3]={}; dvr::cine::Matrix composed;
     if (!CtRead(cam,g_ctCache+g_ctPov+g_ctRot,authored,12) ||
         !dvr::cine::compose(authored,g_chRef,h,g_chWritten,&composed)) { ChReset("rotation invalid"); return; }
-    if (CinePitchEnabled() || CineRollEnabled()) {
+    if (special || CinePitchEnabled() || CineRollEnabled()) {
         if (!dvr::cine::comfort(authored,
             g_chReferenceHead.pitch*g_flipPitch,g_chReferenceHead.yaw*g_flipYaw,g_chReferenceHead.roll*g_flipRoll,
             head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll,
-            CinePitchEnabled(),CineRollEnabled(),g_chWritten,&composed)) { ChReset("physical comfort pose unavailable"); return; }
+            special || CinePitchEnabled(),special || CineRollEnabled(),g_chWritten,&composed)) { ChReset("physical comfort pose unavailable"); return; }
     }
     const float right[3]={(float)composed.m[0][1],(float)composed.m[1][1],(float)composed.m[2][1]};
     g_chHead=head;
     g_chScope=dvr::camera::begin_view_scope(cam,g_ctCache+g_ctPov+g_ctRot,g_chWritten,right,doubleDraw ? -1 : 0,ChValidate,true,head.rawPosition);
     if (!g_chScope) { ++g_chRefused; ChReason("hold: scope write refused"); return; }
     g_chInputUntil=scripted ? now+100 : 0;
+    if(special){g_chExitPending=true;g_chExitReferenceYaw=g_chReferenceHead.yaw*g_flipYaw;g_chExitScopeMs=now;}
     ++g_chWrites; CineHeadPublish();
     if(now>=g_chNextLog) {
         g_chNextLog=now+500;
-        Log("cine/head: scope=%u gen=%u authored(P/Y/R)=%.2f/%.2f/%.2f composed=%.2f/%.2f/%.2f restored=%u refused=%u double=%d scripted=%d upright=%d/%d",
+        Log("cine/head: scope=%u gen=%u authored(P/Y/R)=%.2f/%.2f/%.2f composed=%.2f/%.2f/%.2f restored=%u refused=%u double=%d scripted=%d special=%d upright=%d/%d",
             g_chWrites,head.gen,authored[0]*360.0f/65536,authored[1]*360.0f/65536,authored[2]*360.0f/65536,
-            g_chWritten[0]*360.0f/65536,g_chWritten[1]*360.0f/65536,g_chWritten[2]*360.0f/65536,g_chRestores,g_chRefused,(int)doubleDraw,(int)scripted,(int)CinePitchEnabled(),(int)CineRollEnabled());
+            g_chWritten[0]*360.0f/65536,g_chWritten[1]*360.0f/65536,g_chWritten[2]*360.0f/65536,g_chRestores,g_chRefused,(int)doubleDraw,(int)scripted,special,(int)CinePitchEnabled(),(int)CineRollEnabled());
     }
 }
 static void CineHeadEnd() {
     if (!g_chScope) return;
     if (dvr::camera::end_view_scope()) ++g_chRestores;
-    else { ++g_chRefused; ChReset("restore refused: identity or engine field changed"); }
+    else { ++g_chRefused; g_chExitPending=false; ChReset("restore refused: identity or engine field changed"); }
     g_chScope=false;
 }
