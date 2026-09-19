@@ -125,13 +125,43 @@ static void MenuEffectsTick() {
     const int context=UiSurfaceContext();
     const bool want=UiSurfaceRidesHud() && dvr::hudlayout::menu_no_blur(context) && !g_gameExiting;
     auto* old=(uint8_t*)g_mbOwner.value.obj;
+    // 2026-09-18 blackout: the exit used to write back the game's last nonzero
+    // weight (1.0 for the wheel). A wheel opened and closed within 62 ms of a
+    // previous close (run467, 4001703..4001765) left that restore landing after
+    // the game had finished its own fade, so the full menu post-process stayed
+    // on the world: black, with the HUD markers, Dark Vision silhouettes and the
+    // pause menu still drawing over it. The game drives this weight itself on
+    // every open and close, so the exit now writes NOTHING: the worst case is a
+    // skipped fade, never a stuck one.
     if(g_mbHave && (!want || UiSurfaceEpoch()!=g_mbEpoch || context!=g_mbContext || !MbOwnerValid(old))) {
-        float value=0;
-        if(BuildLiveSet() && MbOwnerValid(old) && CtRead(old,g_mbWeight,&value,4) && value==0 && MbOwnerValid(old))
-            memcpy(old+g_mbWeight,&g_mbBefore,4);
+        float value=-1;
+        if(MbOwnerValid(old)) CtRead(old,g_mbWeight,&value,4);
+        Log("menu/blur: released context=%d (weight now %.3f, game value before %.3f) - no restore write; the game owns its fade",
+            g_mbContext,value,g_mbBefore);
         g_mbHave=false;
     }
-    if(!want) return;
+    if(!want) {
+        // Read-only watchdog: in gameplay the UI weight belongs at 0. A value
+        // held high with no menu is the blackout's signature, from any cause.
+        static double next=0,highSince=0; static bool warned=false;
+        const double now=MaimNowMs();
+        if(!g_mbWeight || !g_mbWorld || !g_mbGame || !g_mbManager || now<next) return;
+        next=now+500;
+        if(UiSurfaceBlocks() || UiSurfaceRidesHud() || g_menuOpen || g_inMenu || g_mainMenu) { highSince=0; warned=false; return; }
+        auto* world=CtObject(IsLiveObject(g_peCtrl)?g_peCtrl:nullptr,g_mbWorld);
+        auto* manager=CtObject(CtObject(world,g_mbGame),g_mbManager);
+        float value=0;
+        if(!manager || !CtRead(manager,g_mbWeight,&value,4)) return;
+        if(value>0.5f) {
+            if(!highSince) highSince=now;
+            if(!warned && now-highSince>1500) {
+                warned=true;
+                DVR_WARN("menu/blur: UI post-process weight %.3f held for %.1f s in GAMEPLAY with no menu - the world is under the "
+                         "menu effect (the black-screen signature). Read-only: nothing written.",value,(now-highSince)/1000.0);
+            }
+        } else { highSince=0; warned=false; }
+        return;
+    }
     if(!g_mbWeight || !g_mbWorld || !g_mbGame || !g_mbManager) {
         if(MaimNowMs()<g_mbResolveAt) return;
         g_mbResolveAt=MaimNowMs()+5000;

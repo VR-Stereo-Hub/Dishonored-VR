@@ -1,3 +1,28 @@
+## VR-140: persistent black world after a fast wheel open/close (2026-09-18)
+
+1. **Symptom:** whole world black in both eyes, persistent; map markers, Dark
+   Vision silhouettes (2026-09-17 occurrence) and the pause menu still draw.
+   Surface: the game's own scene after post-processing, not a missing eye, mono
+   interruption or held frame. Supersedes the open question in "Dark Vision plus
+   weapon wheel blackout isolation" below (its NoBlurWheel=0 A/B never ran).
+2. **Identity:** installed467 (`vr33-hands-working-467-g8f79caeae`), logs in
+   `build/playtest-candidates/hitch-instrument/run467`.
+3. **Measured:** wheel closed 4001578, re-opened 4001703, closed 4001765 (62 ms
+   open; the tester did not see it open); `pPowerWheel` bMovieIsOpen stayed 1
+   across both (3999062..4002078). Capture sample 4003531: 0% non-black (healthy
+   3883531: 77%). Stereo pairs, tags and draw counts normal throughout: the scene
+   is drawn and post-processed to black. `menu/blur` retained=1.000 on each exit.
+4. **Hypothesis:** MenuEffectsTick's exit restore of `m_UIPPWeight` (the game's
+   last nonzero value, 1.0) landed after the game finished its own fade, leaving
+   the full menu post-process on the world. Counterprediction: if the restore is
+   the cause, build468 (no restore write) never blacks out on repeated fast wheel
+   flicks, and the new `menu/blur: UI post-process weight ... held ... in
+   GAMEPLAY` warning never fires; if the warning fires without our write, the
+   game itself sticks and another owner must be found.
+5. **Change:** build468 exit writes nothing; read-only gameplay watchdog.
+   Not yet run.
+6. **Status:** cause inferred from timing + mechanism, fix built, headset open.
+
 ## VR-135: possession mono, refusing gate measured (2026-09-18)
 
 1. **Symptom:** whole view, both eyes, mono for the entire controlled
