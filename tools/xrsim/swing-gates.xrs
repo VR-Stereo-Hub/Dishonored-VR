@@ -1,0 +1,70 @@
+# swing-gates.xrs - the motion sword (VR-37): a swing must do NOTHING while the
+# game is not asking for one, and must say which gate stopped it.
+#
+# Needs the same as swing-edge.xrs: a loaded level in GAMEPLAY, GamepadOnly=0.
+# Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-gates.xrs
+#
+# Each leg swings the same 0.68 m in 200 ms (about 5 m/s, well over the 3.6
+# threshold) and expects ONE `swing: BLOCKED` line naming the gate, and no FIRE.
+# The last leg opens every gate and expects the FIRE, so a sequence that passes
+# because the detector is simply dead cannot pass.
+
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing on; swing mode edge; swing threshold 3.6; swing sword on; swing force off; swing output rt
+@wait 1000
+
+# 1. The right grip is held: that is block, and a blocking arm is not attacking.
+@mark
+grip r squeeze 2500
+@wait 500
+hand r to grip -0.35 1.00 -0.45 0 0 0 200
+@log swing: BLOCKED .* a grip is held
+@wait 800
+@nolog swing: FIRE
+@nolog swing: BLOCKED
+@wait 2500
+
+# 1b. The left grip opens the power wheel, which the mod already counts as a UI
+#     surface: picking off the wheel moves the hand fast and must not swing.
+@mark
+grip l squeeze 2500
+@wait 700
+hand r to grip 0.25 1.30 -0.40 0 0 0 200
+@log swing: BLOCKED .* not a gameplay view
+@wait 800
+@nolog swing: FIRE
+@wait 2500
+hand r to grip -0.35 1.00 -0.45 0 0 0 1200
+@wait 1500
+
+# 2. The pause menu is up.
+@mark
+@key Escape
+@wait 2000
+hand r to grip 0.25 1.30 -0.40 0 0 0 200
+@log swing: BLOCKED .* not a gameplay view
+@nolog swing: FIRE
+@key Escape
+@wait 3000
+
+# 3. The sword is sheathed (hold Use). The attack input would DRAW it, which is
+#    not what a swing of an empty hand should do.
+@mark
+btn x press 1500
+@wait 3500
+@modassert features.swing.closedBy ne open
+hand r to grip -0.35 1.00 -0.45 0 0 0 200
+@log swing: BLOCKED .* the sword is not in the right hand
+@nolog swing: FIRE
+@wait 1500
+
+# 4. Every gate open again: the same swing fires. Draw the sword first.
+trigger r pull 300
+@wait 2500
+@mark
+hand r to grip 0.25 1.30 -0.40 0 0 0 200
+@log swing: FIRE #\d+ slash
+@log swing: HONOURED slash

@@ -31,6 +31,8 @@
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
+//   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|sword|output rt|rb|
+//         log|force|sim <peak> [humpMs] [reps]|save   the motion sword (game/dishonored/swing.h) - VR-37
 //   console <text>               run a game console command on the script lane
 //   dump frame|capture|eyes|hud [sink]
 //   hud on|off|status|scale <f>  the HUD redirect (core/gfx/hud_capture) - VR-117
@@ -138,6 +140,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "anim")) return dvr::anim::command(args);   // VR-88: shipped, not legacy
+    if (!strcmp(cmd, "swing")) return dvr::swing::command(args);  // VR-37: the motion sword
     if (!strcmp(cmd, "dc")) return DcCommand(args);
     if (!strcmp(cmd, "ms")) return MsCommand(args);
     if (!strcmp(cmd, "pose")) return PrCommand(args);
@@ -648,6 +651,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::desktop_eye::status(w);
     dvr::aim::status(w);
     dvr::anim::status(w);
+    dvr::swing::status(w);
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);

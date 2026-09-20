@@ -2323,6 +2323,7 @@ static void LoadConfig()
     // ships ON: its whole purpose is to report what the game is doing, and a
     // reporter nobody enables reports nothing.
     dvr::anim::configure(ini);
+    dvr::swing::configure(ini);   // VR-37: the motion sword's own [Melee] keys
     CineTraceConfigure(ini);
     UiSurfaceConfigure(ini);
     {   // VR-117: the HUD on its anchors. The layout owns the [Hud] placement keys.
@@ -3534,6 +3535,7 @@ static void OverlaySaveDefaults()
                                    g_skcRotSignP < 0 ? "-1" : "1", ini);
     }
     dvr::anim::save(ini);   // VR-88: the F10 Hands checkbox must survive a restart
+    dvr::swing::save(ini);  // VR-37: the motion sword's levers
     // VR-117: the HUD redirect, the census, the region probe and the layout
     WritePrivateProfileStringA("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", ini);
     _snprintf(v, 64, "%.2f", dvr::hudcap::slot_scale());
