@@ -1,15 +1,16 @@
-## Session handoff 2026-09-20 (evening): the motion sword is headset-judged, one PR
+## Session handoff 2026-09-20 (evening): the motion sword is headset-judged and merged
 
-- **One PR, #81, `claude/vr-37-physical-swing` into `VR-Main`, ready to merge, NOT
-  merged** - the merge waits for an explicit yes. It carries VR-37 (the slash) and
-  VR-155 (the sneak kill); #83 was folded into it.
+- **MERGED: PR #81 into `VR-Main` as `50249bde`, 2026-09-20, with permission.** It
+  carried VR-37 (the slash) and VR-155 (the sneak kill); #83 was folded into it and
+  both tickets are Done. The landed tree is identical to the head that was tested.
 - Headset run on the dev PC (VDXR, 3012x3122): 47 swings, 46 honoured, 0 refused,
   2 `HONOURED kill`. Verdict: nothing to change. The shipped defaults are now the
   judged build's: `Detector=edge`, `Stab=1`, `StabStyle=plunge`, `HonourHaptic=1`.
   Record and the caveat (both kills came through the SLASH detector; the slow-plunge
   path is simulator-proven only): `docs/dishonored/PHYSICAL_SWING.md` section 2a.
-- Open after the merge: VR-156 (a readable kill-available signal), and one headset
-  observation of a slow plunge producing the kill.
+- Open: VR-156 (a readable kill-available signal; it also carries the one headset
+  observation still owed, a SLOW plunge under 3.6 m/s producing the kill).
+- `VR-Main` = `50249bde`. The dev PC runs the Debug build of the merged head.
 - Found and not fixed, VR-159: an ini older than `kConfigVersion` is rewritten
   wholesale at launch, which silently drops a machine's render size and F10 tuning
   (the dev PC's 3012x3122 would have become 2750x2850). The dev PC's ini is pinned at
