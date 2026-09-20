@@ -74,7 +74,7 @@ for ($i = 0; $i -lt $MaxPresses; $i++) {
     $p = Get-Process $proc -ErrorAction SilentlyContinue
     if (-not $p) { "FAIL: game process died"; exit 1 }
     [W]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
-    & (Join-Path $PSScriptRoot "game-key.ps1") Enter | Out-Null
+    & (Join-Path $PSScriptRoot "game-key.ps1") -Key Enter | Out-Null
     Start-Sleep -Milliseconds 3500
 }
 "FAIL: gameplay never reached (timed out after $MaxPresses presses)"
