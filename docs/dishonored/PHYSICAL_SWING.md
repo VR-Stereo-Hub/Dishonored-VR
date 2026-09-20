@@ -31,8 +31,34 @@ Two detectors, chosen by `[Melee] Detector` and live by `swing mode`:
 | `edge` | Hand speed from two successive poses, the head's own movement subtracted, the median of the last three readings. The attack fires **the instant that crosses `EdgeSpeed`**, so the game's wind-up lands the hit where the arm is going. A fire clears an arm latch that only two slow readings in a row (below `RearmSpeed`) set again, and `CooldownMs` separately bounds a shake | The feel of the sibling BioShock mod's wrench swing, whose 3.6 m/s was tuned in a headset |
 | `sustain` | EMA-smoothed room-space speed; a run above `SwingSpeed` must last `SwingMs` AND cover `SwingDistM`, then the attack is held for `HoldMs`. Keeps exactly the gates it always had (hand mesh, wheel, a 3 s mute after any UI event) | The detector this mod shipped until VR-37, moved verbatim and kept as the live A/B |
 
-`Detector=sustain` is the shipped default until a headset verdict picks one; the
-flip to `edge` is its own commit.
+`Detector=edge` is the shipped default since the headset run of 2026-09-20
+(section 2a); until then it was `sustain`, and the flip is its own commit.
+
+### 2a. The headset run (2026-09-20, the dev PC)
+
+Build `3051531e` + the plunge, VirtualDesktopXR, 3012x3122 honoured, the installed
+ini preset to `Detector=edge`, `Stab=1`, `StabStyle=plunge`, `HonourHaptic=1` and
+otherwise the defaults above. The player's verdict: nothing to change. The log:
+
+| What | Count | Note |
+|---|---|---|
+| `swing: FIRE ... slash` | 47 | 3.70 to 6.35 m/s, median 4.18: the 3.6 threshold sits just under this player's slowest real swing |
+| `swing: HONOURED slash` | 44 | 15 to 109 ms after the fire, median 31 |
+| `swing: HONOURED kill` | **2** | master `StatePlayerMasterAssassinate`, one with `Sword_Ready_Assassination_FastBack_Master`: the stealth kill, from a gesture |
+| `swing: NOT HONOURED` | 0 | the right trigger is the attack on this install |
+| `swing: INCONCLUSIVE` | 1 | the sword was already mid-attack at the fire |
+| `swing: BLOCKED` | 6 | 2 the power wheel, 2 the sword sheathed, **2 `the game owns the body (master=StatePlayerMasterAssassinate)`** - a swing during the kill animation, stopped by the gate that exists for it |
+| `swing: tracking jump` | 0 | |
+| samples / dup | 22607 / 46179 | on a real runtime two presents in three carry no new hand pose: the sample identity is not a simulator nicety |
+
+**What it does NOT show.** Both kills came through the SLASH detector: a kill plunge
+made in earnest is faster than 3.6 m/s, the slash took it, and the game made the
+attack the assassination. The stab detector was armed 18 times over the session and
+produced 0 stabs, 0 stray attacks and 1 rejection (`plunge travel: started +0.12 m
+... travel 0.11 (needs 0.20) ... peak 1.61 m/s`, a slow half-move). So `Stab=1` is
+proven HARMLESS over a session of sneaking and its own positive case - a slow,
+deliberate plunge under 3.6 m/s becoming the kill - is proven on the simulator only.
+It ships on because that is the build that was judged; `swing stab off` is the A/B.
 
 ### The sample feed, and why it looks the way it does
 
@@ -109,7 +135,7 @@ keys have new names and resolve from compiled defaults when absent, so there is 
 | Key | Default | Range | Meaning |
 |---|---|---|---|
 | `Enabled` | 1 | | the gesture |
-| `Detector` | `sustain` | edge, sustain | see section 2 |
+| `Detector` | `edge` | edge, sustain | see section 2 |
 | `EdgeSpeed` | 3.6 | 0.3-10 | edge: the hand speed (m/s) that is a swing |
 | `RearmSpeed` | 1.0 | 0.05-9, effective <= 0.9 x EdgeSpeed | edge: how slow the hand must get to re-arm |
 | `CooldownMs` | 300 | 0-2000 | both: between attacks |
@@ -118,13 +144,14 @@ keys have new names and resolve from compiled defaults when absent, so there is 
 | `Median` | 1 | | edge: median of three readings; 0 = raw |
 | `RequireSword` | 1 | | edge: the sword gate |
 | `Output` | `rt` | rt, rb | the pad input pressed |
-| `HonourMs` / `HonourHaptic` | 600 / 0 | 100-2000 | the watch window; a second soft tick on HONOURED |
+| `HonourMs` / `HonourHaptic` | 600 / 1 | 100-2000 | the watch window; a second soft tick on HONOURED |
 | `SwingSpeed` / `SwingMs` / `SwingDistM` / `HoldMs` | 1.8 / 120 / 0.25 / 220 | | sustain only |
 | `Haptic` | 1 | | the tick on a fire |
 
-**3.6, 1.0, 300 and 120 are the sibling mod's headset-tuned numbers, used here as
-STARTING values.** They describe a player's arm, not an engine, which is why they
-may cross games at all; they are not yet a Dishonored verdict.
+**3.6, 1.0, 300 and 120 are the sibling mod's headset-tuned numbers.** They describe
+a player's arm, not an engine, which is why they may cross games at all. One
+Dishonored headset run on one rig (section 2a) left them unchanged; a second rig is
+a second data point, and the PEAK readout is how it would be taken.
 
 ## 4. Words, status, F10
 
@@ -208,8 +235,9 @@ live as `swing stab style plunge|thrust`, an F10 combo):
 **Why it is its own shape.** A stab is 1.5 to 2.5 m/s over 20 to 35 cm. It never
 crosses a slash threshold, and lowering that threshold while crouched would turn
 every reach, lean and point into an attack in the middle of a stealth approach. A
-false positive here costs a whole run, so the thrust ships OFF and is judged on
-four things at once:
+false positive here costs a whole run, so it is judged on four things at once
+(`Stab=1` ships since the headset run of section 2a, which armed it 18 times and
+saw no stray attack):
 
 | Bar | Key | Default | What it rejects |
 |---|---|---|---|

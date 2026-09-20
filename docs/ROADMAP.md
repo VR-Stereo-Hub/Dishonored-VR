@@ -4,9 +4,10 @@
 - [x] Pure decision core (edge + sustain) with 36 host checks; adapter, gates, pulse, honoured-check.
 - [x] `swing` word, `features.swing` status, F10 rows, default ini (parity gate passes).
 - [x] Simulator: `swing-edge.xrs` and `swing-gates.xrs` pass; rb output reads NOT HONOURED as it should.
-- [ ] Headset: A/B `swing mode edge` against `sustain`, tune `EdgeSpeed` from PEAK, then flip the default.
+- [x] Headset (dev PC, VDXR, 3012x3122): 47 swings, 46 honoured, 0 refused, 2 stealth kills; nothing to change. Default flipped to `edge`.
 - [x] VR-155: the thrust detector, armed off the crouch capsule; 16 host checks, `swing-stab.xrs` passes.
-- [ ] VR-155 headset: `Stab=1` behind an unaware guard gives `HONOURED kill`; minutes of sneaking give no stray attack.
+- [x] VR-155 headset: `HONOURED kill` twice (through the slash detector: a kill plunge in earnest is over 3.6 m/s); armed 18 times, no stray attack.
+- [ ] VR-155: a SLOW plunge (under 3.6 m/s) producing the kill in the headset - the stab detector's own positive case, simulator-proven only.
 - [ ] VR-156: a readable kill-available signal, for arming on it and a haptic ready cue.
 
 ## Misc fixes (2026-09-17)
