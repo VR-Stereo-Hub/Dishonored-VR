@@ -61,6 +61,10 @@ static void SwingTracePresentTick()
     g_swHead = (g_swHead + 1) % kSwRing;
     if (g_swCount < kSwRing) ++g_swCount;
 
+    // VR-165: the arc test rides the same present-rate sample. g_hmdPitch is
+    // the head pitch the camera seam already uses, in radians.
+    SwingArcWatch(p[0], p[1], p[2], g_hmdPitch * 57.29578f);
+
     // Arm on a big recent excursion in Z, which is what the reports describe
     // (being moved up and down / back and forth). No frequency is computed.
     if (g_swCount < 32) return;
@@ -143,28 +147,117 @@ static void SwingClimbWatch(const char* masterState)
     // Any face button or trigger counts as "the player did something". The
     // grab is a button in every scheme, so a press within the window is enough
     // to explain a climb without claiming which button it was.
-    static double lastPressMs = 0.0;
-    if (InterlockedCompareExchange(&g_padBtnsPub, 0, 0) != 0) lastPressMs = now;
+    // THE TEST MUST BE AUDITABLE. The first version printed "ON A PRESS - 0 ms
+    // ago" for all five climbs in a run, which is the answer it would give if
+    // the mask were NEVER zero - a held button, or a mask that does not clear.
+    // Nothing else in the log could tell those apart, so the result was
+    // worthless in exactly the way this project keeps rediscovering: an
+    // instrument that cannot print the unwelcome answer is not evidence.
+    //
+    // So it now tracks how long the mask has been continuously non-zero, and
+    // reports the mask itself. "Asked" only counts when the mask went zero
+    // recently enough for the press to be a distinct event; a mask that has
+    // been held for seconds is reported as UNAUDITABLE rather than as a press.
+    static double lastPressMs = 0.0, lastZeroMs = 0.0;
+    static LONG   lastMask = 0;
+    const LONG mask = InterlockedCompareExchange(&g_padBtnsPub, 0, 0);
+    if (mask != 0) lastPressMs = now; else lastZeroMs = now;
+    lastMask = mask;
 
     static bool wasClimbing = false;
     static int  unaskedRun = 0, askedRun = 0;
     if (climbing && !wasClimbing) {
-        const double sincePress = now - lastPressMs;
-        const bool asked = lastPressMs > 0.0 && sincePress < 600.0;
-        if (asked) { ++askedRun; unaskedRun = 0; }
-        else       { ++unaskedRun; askedRun = 0; }
-        Log("swing/climb: entered Climb %s - last button press %.0f ms ago. %s "
-            "(asked-in-a-row %d, unasked-in-a-row %d). An UNASKED climb is the bug re-arming; "
-            "an asked one is the player, and a run of asked ones is just testing.",
-            asked ? "ON A PRESS" : "with NO recent press",
-            lastPressMs > 0.0 ? sincePress : -1.0,
-            asked ? "player input explains this" : "NOTHING THE PLAYER DID EXPLAINS THIS",
+        const double sincePress = lastPressMs > 0.0 ? now - lastPressMs : -1.0;
+        const double heldFor    = lastZeroMs > 0.0 ? now - lastZeroMs : -1.0;
+        // A press only explains the climb if the pad was actually idle at some
+        // point in the last couple of seconds. Otherwise we cannot distinguish
+        // "pressed to grab" from "mask never clears".
+        const bool auditable = lastZeroMs > 0.0 && heldFor < 2000.0;
+        const bool asked     = auditable && sincePress >= 0.0 && sincePress < 600.0;
+        if (!auditable) { /* neither run advances: the test did not decide */ }
+        else if (asked) { ++askedRun; unaskedRun = 0; }
+        else            { ++unaskedRun; askedRun = 0; }
+        Log("swing/climb: entered Climb - mask=0x%04x, last non-zero %.0f ms ago, pad last IDLE "
+            "%.0f ms ago -> %s (asked-in-a-row %d, unasked-in-a-row %d)",
+            (unsigned)mask, sincePress, heldFor,
+            !auditable ? "UNAUDITABLE: the pad mask has not been idle recently, so a press "
+                         "cannot be told from a stuck mask and this climb decides nothing"
+                       : asked ? "ASKED: player input explains this"
+                               : "UNASKED: NOTHING THE PLAYER DID EXPLAINS THIS",
             askedRun, unaskedRun);
         if (unaskedRun >= 2)
-            Log("swing/climb: %d consecutive climbs with no button behind them - this is the "
-                "signature to chase, and it is NOT the tester grabbing repeatedly", unaskedRun);
+            Log("swing/climb: %d consecutive AUDITABLE climbs with no button behind them - this "
+                "is the signature to chase, and it is NOT the tester grabbing repeatedly",
+                unaskedRun);
     }
     wasClimbing = climbing;
+}
+
+// VR-165: DOES THE EYE TRAVEL ON AN ARC WHEN THE HEAD PITCHES?
+//
+// The user reported that in the bugged state looking up sends the view into the
+// sky and looking down does the reverse - a huge swivel. Two measurements then
+// said it is not what it sounds like: head pitch spans 165.6 deg while camera
+// pitch spans 162.6, a ratio of 0.98, so the ANGLE is tracked almost exactly
+// 1:1 and nothing is amplifying it; and the neck pivot is constant at
+// 0.321/0.062 across 454 samples, so the modelled lever arm is not growing.
+//
+// A camera that rotates correctly but TRANSLATES on a long arc produces exactly
+// that sensation, and it also explains "I feel taller", which has survived
+// every measurement so far. So the question is no longer the angle - it is
+// whether the eye position moves as a function of pitch, and with what radius.
+//
+// This correlates the render camera's position against head pitch over a short
+// window and reports the implied radius: how far the eye moves per radian of
+// pitch. Standing still and looking around, a correct camera moves by roughly
+// the neck offset (a few uu). A number in the hundreds is the arc the user is
+// describing, and its size names the offset that is wrong.
+//
+// Read-only. It derives a radius from measured spans and says what would make
+// it meaningless, rather than asserting one.
+static void SwingArcWatch(float camX, float camY, float camZ, float headPitchDeg)
+{
+    if (!g_swOn) return;
+    const double now = MaimNowMs();
+    static double winStart = 0.0;
+    static float pMin = 1e30f, pMax = -1e30f;
+    static float xMin = 1e30f, xMax = -1e30f, yMin = 1e30f, yMax = -1e30f, zMin = 1e30f, zMax = -1e30f;
+    static int   n = 0;
+
+    if (winStart == 0.0) winStart = now;
+    if (headPitchDeg < pMin) pMin = headPitchDeg;
+    if (headPitchDeg > pMax) pMax = headPitchDeg;
+    if (camX < xMin) xMin = camX; if (camX > xMax) xMax = camX;
+    if (camY < yMin) yMin = camY; if (camY > yMax) yMax = camY;
+    if (camZ < zMin) zMin = camZ; if (camZ > zMax) zMax = camZ;
+    ++n;
+
+    if (now - winStart < 2000.0) return;
+    const float pitchSpanDeg = pMax - pMin;
+    const float posSpan = sqrtf((xMax - xMin) * (xMax - xMin) +
+                                (yMax - yMin) * (yMax - yMin) +
+                                (zMax - zMin) * (zMax - zMin));
+    const float pitchRad = pitchSpanDeg * 0.0174533f;
+    // Only meaningful when the head actually pitched; otherwise the ratio is
+    // position change divided by nothing, which is how a previous instrument in
+    // this same file produced a number that meant nothing.
+    if (n >= 30 && pitchSpanDeg >= 20.0f) {
+        const float radiusUu = posSpan / (pitchRad > 0.01f ? pitchRad : 1.0f);
+        if (radiusUu > 60.0f)
+            Log("swing/arc: the eye moved %.1f uu while the head pitched %.1f deg -> implied "
+                "radius %.0f uu per radian. A correct camera moves about the neck offset (a few "
+                "uu); this is an ARC, and its radius is the offset that is wrong. Walking also "
+                "moves the eye, so treat this as a lead only if the player was standing still.",
+                posSpan, pitchSpanDeg, radiusUu);
+        else
+            DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 30000,
+                "swing/arc: eye moved %.1f uu over %.1f deg of pitch -> radius %.0f uu/rad "
+                "(under the 60 uu/rad lead threshold; this is normal head motion)",
+                posSpan, pitchSpanDeg, radiusUu);
+    }
+    winStart = now; n = 0;
+    pMin = 1e30f; pMax = -1e30f;
+    xMin = yMin = zMin = 1e30f; xMax = yMax = zMax = -1e30f;
 }
 
 static void SwingTraceConfigure(const char* ini)

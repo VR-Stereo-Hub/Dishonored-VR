@@ -604,6 +604,7 @@ static void GoDumpMenuSettings(const char* who);
 // VR-165: the raw present-rate camera series (swing_trace.cpp). Read-only.
 static void SwingTracePresentTick();
 static void SwingClimbWatch(const char* masterState);
+static void SwingArcWatch(float camX, float camY, float camZ, float headPitchDeg);
 static void SwingTraceConfigure(const char* ini);
 static bool SwingTraceCommand(const char* args);
 // VR-165: which camera modifier is still swinging (cam_modifiers.cpp). Read-only.
