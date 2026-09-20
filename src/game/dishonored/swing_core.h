@@ -7,7 +7,7 @@
 // exactly the code the headset does. Everything that knows the game (the gates,
 // the trigger pulse, the haptic, the log) lives in the adapter, melee.cpp.
 //
-// Two detectors share one arm latch and one cooldown:
+// Three detectors share one arm latch and one cooldown:
 //
 //   kEdge     the feel of the sibling BioShock mod's wrench swing. Raw 2-sample
 //             speed, the head's own movement subtracted, and the attack fires the
@@ -19,6 +19,15 @@
 //   kSustain  the detector this mod shipped until VR-37, moved here verbatim and
 //             kept as the live A/B: EMA-smoothed room-space speed, and a fire only
 //             once a run has lasted SustainMs AND covered SustainDistM.
+//   thrust    the sneak kill (VR-155), alongside kEdge. A player creeping up behind
+//             a guard stabs, and a stab is short, slow and straight: about 1.5 to
+//             2 m/s over 20 to 30 cm, which never crosses a slash threshold, while
+//             lowering that threshold would turn every reach into an attack in the
+//             middle of a stealth approach. So it is its own shape: the hand
+//             EXTENDING away from the shoulder, mostly in a straight line, mostly
+//             forward, and only while the adapter says it is armed (sneaking).
+//             The game has no separate input for the kill; it is the attack in
+//             context, so a thrust presses what a slash presses.
 //
 // POSITION in, not speed in. The simulated swing (`swing sim`) synthesises
 // positions too, so the differencing, the dt window and the head-relative
@@ -30,7 +39,8 @@
 namespace dvr::swing {
 
 enum Detector : int { kSustain = 0, kEdge = 1 };
-enum Fired : int { kFiredNone = 0, kFiredSlash = 1 };
+enum Fired : int { kFiredNone = 0, kFiredSlash = 1, kFiredStab = 2 };
+enum StabReject : int { kStabOk = 0, kStabTravel, kStabRatio, kStabForward };
 
 // Closed gates, filled by the adapter per sample. The core needs to know only
 // that something is closed; the adapter owns what each bit means and its text.
@@ -74,6 +84,13 @@ struct Config {
     float sustainSpeed = 1.8f;     // m/s, the sustain gate
     float sustainMs    = 120.0f;
     float sustainDistM = 0.25f;
+    bool  stab         = false;    // the thrust detector (edge mode only)
+    float stabSpeed    = 1.5f;     // m/s of EXTENSION that starts a thrust
+    float stabTravelM  = 0.20f;    // extension a thrust must gain...
+    float stabWindowMs = 400.0f;   // ...within this long
+    float stabRatio    = 0.75f;    // extension gained / path travelled: how straight
+    float stabForward  = 0.5f;     // dot(thrust direction, where the head faces, flattened)
+    float shoulder[3]  = { 0.17f, 0.22f, 0.04f };   // right, down, back of the head, metres
 };
 
 // The two levels can be typed in either order without the latch becoming
@@ -90,6 +107,8 @@ struct Sample {
     bool     handValid = false;
     bool     headValid = false;
     uint32_t closed = 0;         // Gate bits that are closed right now
+    float    headFwd[2] = { 0.0f, -1.0f };   // where the head faces, flattened: (x, z), unit
+    bool     stabArmed = false;  // the adapter's verdict that a thrust may count (sneaking)
 };
 
 struct Verdict {
@@ -104,6 +123,11 @@ struct Verdict {
     float    cooldownLeftMs = 0.0f;
     bool     flick = false;      // sustain: a run ended without qualifying
     float    runMs = 0.0f, runDistM = 0.0f, runPeak = 0.0f;
+    // thrust: radial is this sample's extension speed (median of three). The rest
+    // describe a run at the moment it fired or was rejected.
+    float    radial = 0.0f;
+    int      stabReject = kStabOk;
+    float    stabTravel = 0.0f, stabRatio = 0.0f, stabForward = 0.0f, stabMs = 0.0f, stabPeak = 0.0f;
 };
 
 inline bool finite3(const float* v) {
@@ -119,7 +143,7 @@ public:
     Verdict feed(const Sample& s, const Config& c) {
         Verdict v{};
         if (!s.handValid || !finite3(s.hand) || !std::isfinite(s.tMs)) {
-            have_ = false; forget();              // lost tracking: re-seed
+            have_ = false; forget(); stabRun_ = false;   // lost tracking: re-seed
             return v;
         }
         const bool headOk = s.headValid && finite3(s.head);
@@ -148,6 +172,7 @@ public:
                     v.rawSpeed = len(d) / sec;
                     v.speed = c.median ? median3(v.rawSpeed) : v.rawSpeed;
                     edge(s, c, v);
+                    if (c.stab && headOk) thrust(s, c, d, v); else stabRun_ = false;
                 }
                 else                     sustain(s, c, roomStep, v);
             }
@@ -165,7 +190,7 @@ private:
     // three speeds ignores any single outlier and costs one sample of latency
     // (11 ms at 90 Hz). A re-seed zeroes the history, so the first reading after
     // one can never fire by itself.
-    void forget() { ring_[0] = ring_[1] = ring_[2] = 0.0f; }
+    void forget() { ring_[0] = ring_[1] = ring_[2] = 0.0f; sring_[0] = sring_[1] = sring_[2] = 0.0f; }
     float median3(float x) {
         ring_[ringI_] = x; ringI_ = (ringI_ + 1) % 3;
         const float a = ring_[0], b = ring_[1], c = ring_[2];
@@ -211,6 +236,74 @@ private:
         else                               fire(s, v);
     }
 
+    // The thrust. `d` is this sample's hand displacement, head movement already
+    // subtracted when HeadRel is on - which is what makes a step forward WITH the
+    // stab count as arm extension only, and a lean back not count as a stab.
+    //
+    // The shoulder is modelled from the head, YAW ONLY (a nod or a tilt must not
+    // swing it), and is used for ONE thing: the direction "away from the body".
+    // The extension itself is measured from the hand's own displacement along
+    // that direction, never as a change in hand-to-shoulder distance - that way a
+    // head that turns with the hand held still moves the modelled shoulder and
+    // produces no extension at all.
+    void thrust(const Sample& s, const Config& c, const float* d, Verdict& v) {
+        const float fx = s.headFwd[0], fz = s.headFwd[1];
+        const float sh[3] = { s.head[0] + (-fz) * c.shoulder[0] - fx * c.shoulder[2],
+                              s.head[1] - c.shoulder[1],
+                              s.head[2] + ( fx) * c.shoulder[0] - fz * c.shoulder[2] };
+        float u[3] = { s.hand[0] - sh[0], s.hand[1] - sh[1], s.hand[2] - sh[2] };
+        const float ul = len(u);
+        if (ul < 0.05f) { stabRun_ = false; return; }      // the hand is AT the shoulder: no direction
+        u[0] /= ul; u[1] /= ul; u[2] /= ul;
+        const float step = d[0]*u[0] + d[1]*u[1] + d[2]*u[2];
+        const double dt = s.tMs - lastMs_;
+        const float raw = step / (float)(dt * 0.001);
+        // the same one-bad-sample argument as the slash, on its own history
+        sring_[sringI_] = raw; sringI_ = (sringI_ + 1) % 3;
+        const float a = sring_[0], b = sring_[1], e = sring_[2];
+        v.radial = c.median ? (a > b ? (b > e ? b : a > e ? e : a) : (a > e ? a : b > e ? e : b)) : raw;
+
+        if (v.fired) { stabRun_ = false; return; }          // a slash took this gesture
+        if (!s.stabArmed) { stabRun_ = false; return; }     // standing up in a fight: silent
+        if (!stabRun_) {
+            // Not while the latch is down: the hand is still finishing a gesture that
+            // already attacked, and a run begun here only ends as a stray REJECTED line.
+            if (!armed_ || v.radial < c.stabSpeed) return;
+            stabRun_ = true; stabDone_ = false; stabStartMs_ = s.tMs - dt;
+            stabTravel_ = 0.0f; stabPath_ = 0.0f; stabPeak_ = 0.0f;
+            stabNet_[0] = stabNet_[1] = stabNet_[2] = 0.0f;
+        }
+        stabTravel_ += step; stabPath_ += len(d);
+        stabNet_[0] += d[0]; stabNet_[1] += d[1]; stabNet_[2] += d[2];
+        if (v.radial > stabPeak_) stabPeak_ = v.radial;
+        const float ms = (float)(s.tMs - stabStartMs_);
+        const bool over = v.radial < 0.5f * c.stabSpeed || ms > c.stabWindowMs;
+        if (stabDone_) { if (over) stabRun_ = false; return; }
+        auto describe = [&](int why) {
+            const float nl = len(stabNet_);
+            v.stabReject = why; v.stabTravel = stabTravel_; v.stabMs = ms; v.stabPeak = stabPeak_;
+            v.stabRatio = stabPath_ > 1e-4f ? stabTravel_ / stabPath_ : 0.0f;
+            v.stabForward = nl > 1e-4f ? (stabNet_[0] * fx + stabNet_[2] * fz) / nl : 0.0f;
+        };
+        if (stabTravel_ >= c.stabTravelM) {
+            describe(kStabOk);
+            stabDone_ = true;
+            if (v.stabRatio < c.stabRatio)          v.stabReject = kStabRatio;
+            else if (v.stabForward < c.stabForward) v.stabReject = kStabForward;
+            else if (!armed_) { /* the tail of a gesture that already attacked: silent */ }
+            else {
+                v.cooldownLeftMs = cooldown_left(s, c);
+                blockLatched_ = false;               // a thrust is its own gesture, with its own one verdict
+                if (s.closed)                      block(kBlockGate, s, v);
+                else if (v.cooldownLeftMs > 0.0f)  block(kBlockCooldown, s, v);
+                else { fire(s, v); v.fired = kFiredStab; }
+            }
+        } else if (over) {
+            describe(kStabTravel);
+            stabRun_ = false;
+        }
+    }
+
     // The pre-VR-37 detector, verbatim apart from reporting why it declined.
     // A run starts when the smoothed speed crosses the gate, accumulates travel
     // while above it, survives a dip to 70 % of the gate, and fires only once it
@@ -249,6 +342,11 @@ private:
     int    slow_ = 0;
     float  ring_[3] = {};
     int    ringI_ = 0;
+    float  sring_[3] = {};
+    int    sringI_ = 0;
+    bool   stabRun_ = false, stabDone_ = false;
+    double stabStartMs_ = 0.0;
+    float  stabTravel_ = 0.0f, stabPath_ = 0.0f, stabPeak_ = 0.0f, stabNet_[3] = {};
     bool   haveFire_ = false;
     double lastFireMs_ = 0.0;
     float  sm_ = 0.0f;

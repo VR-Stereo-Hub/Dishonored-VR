@@ -139,6 +139,78 @@ int main() {
       s.hand[0] = 0.1f; s.tMs = 11.0;
       check(k.feed(s, raw).fired == kFiredSlash, "with no head pose the hand's own speed still counts"); }
 
+
+    // ---- The sneak-kill thrust (VR-155) ---------------------------------------
+    // A body in space: the head at (0, 1.6, 0) facing -Z, so the modelled right
+    // shoulder is at (0.17, 1.38, 0.04), and the sword hand starts a forearm in
+    // front of it. Velocities are vectors here because DIRECTION is the test.
+    struct V3 { float x, y, z; };
+    struct Stab { int slash = 0, stab = 0, blocks = 0, rejects = 0, why = 0; float travel = 0, ratio = 0, fwd = 0; };
+    auto body = [](const Config& c, double ms, bool armed, const std::function<V3(double)>& hand,
+                   const std::function<V3(double)>& head = nullptr,
+                   const std::function<float(double)>& yawDeg = nullptr, uint32_t closed = 0) {
+        Core k; Stab r; const double dt = 1000.0 / 90.0;
+        float h[3] = { 0.20f, 1.25f, -0.25f }, hd[3] = { 0.0f, 1.6f, 0.0f };
+        for (double at = 0.0; at <= ms; at += dt) {
+            Sample s; s.handValid = s.headValid = true; s.tMs = at; s.closed = closed; s.stabArmed = armed;
+            for (int i = 0; i < 3; ++i) { s.hand[i] = h[i]; s.head[i] = hd[i]; }
+            const float yaw = yawDeg ? yawDeg(at) * 0.0174533f : 0.0f;
+            s.headFwd[0] = -std::sin(yaw); s.headFwd[1] = -std::cos(yaw);
+            const Verdict v = k.feed(s, c);
+            if (v.fired == kFiredSlash) ++r.slash;
+            if (v.fired == kFiredStab) { ++r.stab; r.travel = v.stabTravel; r.ratio = v.stabRatio; r.fwd = v.stabForward; }
+            if (v.block) ++r.blocks;
+            if (v.stabReject) { ++r.rejects; r.why = v.stabReject; }
+            const V3 a = hand(at); const float sec = (float)(dt * 0.001);
+            h[0] += a.x * sec; h[1] += a.y * sec; h[2] += a.z * sec;
+            if (head) { const V3 b = head(at); hd[0] += b.x * sec; hd[1] += b.y * sec; hd[2] += b.z * sec; }
+        }
+        return r; };
+    auto hump = [](float peak, double humpMs, double t) {
+        return t < humpMs ? peak * (float)std::sin(3.14159265358979 * t / humpMs) : 0.0f; };
+    Config sc = edge; sc.stab = true;
+
+    { const Stab r = body(sc, 500, true, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) }; });
+      check(r.stab == 1 && r.slash == 0, "a 0.28 m thrust forward at 2.2 m/s is one stab and no slash");
+      check(r.travel >= 0.20f && r.ratio > 0.85f && r.fwd > 0.95f, "and it was judged on extension, straightness and direction"); }
+    { const Stab r = body(sc, 500, false, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) }; });
+      check(r.stab == 0 && r.rejects == 0 && r.blocks == 0, "the same thrust standing up in a fight (not armed) is nothing, and says nothing"); }
+    { Config off = sc; off.stab = false;
+      const Stab r = body(off, 500, true, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) }; });
+      check(r.stab == 0 && r.slash == 0, "with the lever off a thrust never fires: it is under the slash threshold by design"); }
+    { const Stab r = body(sc, 400, true, [&](double t) { return V3{ 0, 0, -hump(2.0f, 100, t) }; });
+      check(r.stab == 0 && r.rejects == 1 && r.why == kStabTravel, "a 0.13 m jab is rejected on travel, once"); }
+    { const Stab r = body(sc, 500, true, [&](double t) { return V3{ hump(2.2f, 250, t), 0, 0 }; });
+      check(r.stab == 0, "a sweep out to the side is not a stab"); }
+    { const Stab r = body(sc, 500, true, [&](double t) { return V3{ 0, -hump(2.2f, 250, t), 0 }; });
+      check(r.stab == 0, "reaching down to the floor is not a stab"); }
+    { const Stab r = body(sc, 900, true, [&](double t) { return V3{ 0, 0, t < 400 ? -0.8f : 0.0f }; });
+      check(r.stab == 0 && r.rejects == 0, "a slow 0.3 m drift forward never starts a thrust at all"); }
+    { const Stab r = body(sc, 900, true, [&](double t) {
+          return V3{ 0, 0, t < 200 ? -hump(2.2f, 200, t) : t < 500 ? 0.0f : hump(2.2f, 200, t - 500) }; });
+      check(r.stab == 1, "pulling the hand back after a stab is not a second one"); }
+    { const Stab r = body(sc, 600, true, [&](double) { return V3{ 0, 0, 0 }; }, nullptr,
+          [&](double t) { return t < 300 ? (float)(t * 0.3) : 90.0f; });
+      check(r.stab == 0 && r.rejects == 0, "turning the head 90 degrees with the hand still moves the modelled shoulder and extends nothing"); }
+    { const Stab r = body(sc, 500, true, [&](double) { return V3{ 0, 0, 0 }; },
+          [&](double t) { return V3{ 0, 0, hump(1.2f, 200, t) }; });
+      check(r.stab == 0, "leaning the head 0.15 m back from a still hand is not a stab"); }
+    { const Stab r = body(sc, 500, true, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) - hump(1.5f, 300, t) }; },
+          [&](double t) { return V3{ 0, 0, -hump(1.5f, 300, t) }; });
+      check(r.stab == 1, "stepping into the stab still counts: the step is subtracted, the extension is what is left"); }
+    { const Stab r = body(sc, 500, true, [&](double t) { return V3{ hump(6.0f, 200, t), 0, 0 }; });
+      check(r.slash == 1 && r.stab == 0, "a real slash while sneaking is a slash, once"); }
+    { const Stab r = body(sc, 500, true, [&](double t) { return V3{ 0, 0, -hump(6.0f, 200, t) }; });
+      check(r.slash + r.stab == 1, "a hard punch forward is ONE attack, whichever detector took it"); }
+    { const Stab r = body(sc, 500, true, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) }; }, nullptr, nullptr, kGateSword);
+      check(r.stab == 0 && r.blocks == 1, "a thrust against a closed gate is blocked once and says so"); }
+    { Config yc = sc; // the body turned 90 degrees to the left: forward is -X now
+      Core k; int stabs = 0; const double dt = 1000.0 / 90.0; float x = -0.25f;
+      for (double at = 0; at <= 500; at += dt) { Sample s; s.handValid = s.headValid = true; s.tMs = at; s.stabArmed = true;
+          s.head[1] = 1.6f; s.headFwd[0] = -1.0f; s.headFwd[1] = 0.0f; s.hand[0] = x; s.hand[1] = 1.25f; s.hand[2] = -0.20f;
+          if (k.feed(s, yc).fired == kFiredStab) ++stabs; x -= hump(2.2f, 200, at) * (float)(dt * 0.001); }
+      check(stabs == 1, "forward is where the HEAD faces: turned left, a thrust along -X is the stab"); }
+
     // The pre-VR-37 detector, kept as the live A/B.
     Config sus; sus.detector = kSustain;
     { Core k; const Tally t = drive(k, sus, 600, 90, humps(4.0f, 300));
