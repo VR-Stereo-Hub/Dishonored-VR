@@ -110,6 +110,23 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   down your view. Head tracking, positional (lean/peek/crouch) tracking and the FOV lever work.
   The hands come back on the winning stereo method; setting `GamepadOnly=0` re-enables the old
   hand code, which is compiled but untested on this render.
+- **Swinging the sword: the swing decides WHEN, the game decides WHERE** [S3, VR-37]. A
+  swing of the right hand presses the attack; where the blade lands follows the game's own
+  view and its melee camera assist, exactly as it does for the trigger, not the arc your
+  hand drew. With the sword sheathed a swing does nothing (the attack input would draw it):
+  draw it with the trigger first. A swing is ignored while a grip is held (block, the power
+  wheel), in menus and while the F10 overlay is up. `[Melee] Detector=edge` is the new
+  detector and the shipped default since it was judged in a headset (2026-09-20); `sustain`
+  is the old one, kept for comparison. Tuning: `docs/dishonored/PHYSICAL_SWING.md` section 6.
+- **The sneak kill by gesture** [S3, VR-155]. A fast stab behind an unaware guard is a swing, and
+  the game makes it the stealth kill: seen twice in the headset. `[Melee] Stab=1` (shipped, with
+  `Detector=edge`) additionally makes a SLOW deliberate stab of the sword hand while crouched press the attack, which the game turns into
+  the stealth kill behind an unaware guard. The default motion is a PLUNGE (`StabStyle=plunge`:
+  a fist raised to about the shoulder and driven down, because the blade sits in a reverse grip);
+  `thrust` is the straight-out alternative. That slow-stab detector is proven on the simulator and
+  was harmless over a headset session (armed 18 times, no stray attack) but has not yet produced
+  a kill of its own there. Nothing tells you when a kill is available other than the game's own
+  prompt (VR-156). Tuning: `PHYSICAL_SWING.md` section 7.
 - **The HUD is back on a window and on the hands, per element** [S3, VR-117, VR-120]. Every
   element rides the window preset (1.25 m at 1.30 m) by default; the F10 HUD tab (or `hud
   anchor <element> handL|handR|world|frame|off`) moves each one. Only the vitals (health

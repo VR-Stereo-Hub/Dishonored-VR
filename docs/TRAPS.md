@@ -1,3 +1,36 @@
+## A detector fed once per present sees every pose twice (VR-37, 2026-09-20)
+
+The motion sword never fired on the native stereo render and nothing in its log
+said why: every gate read open (`melee: peak=.. track=1 wheel=0`) and the peak was
+far over the threshold. The render presents twice per game tick
+(`stereo: beat out/s=171 L/s=85`), `MeleeTick` ran once per present, and the repeat
+read as a zero step: the smoothed speed halved, the run ended, and the next real
+step covered two frames of travel in one frame's time. Three scripted 0.68 m swings
+became ten 4-39 ms "flicks" with 8-14 m/s peaks.
+
+Two wrong identities were tried before the right one, and each one passed a first
+test. A pose compared with the last pose drops a hand at rest for ever (the
+simulator's is bit-identical), so the latch never re-arms. `locate_gen()` is the
+HEAD's cadence, and some new locate generations carry the previous hand pose. The
+identity of a hand sample is the hand sample's own generation.
+
+**The rule:** anything that differences successive poses on the present lane must
+key on the generation of the thing it differences, never on the present and never
+on a neighbour's counter. And a per-sample log (`swing log on`) finds in one run
+what a 5 s peak line cannot: the peak line reported 14 m/s faithfully and explained
+nothing.
+
+## A speed that one sample can decide is a false attack waiting for a bad sample (VR-37)
+
+A smooth 1.6 m/s reach read 2.9 and 3.2 m/s on single samples, a few tenths under
+the swing threshold. The cause on the simulator was a repeated pose followed by a
+doubled step; a lone tracking-noise spike on a headset has the same shape. The
+first suspect was the simulator's clock, and fixing that (rightly, for its own
+reasons) moved the reading from 3.11 to 3.20. The median of the last three speeds
+ignores any single outlier in either direction for one sample of latency, and the
+same reach reads 1.61. **A threshold on a raw two-sample difference has no margin
+that a single sample cannot cross.**
+
 ## A cap that stops remembering must also stop logging (2026-09-19)
 
 `pcap/layout` kept a sixteen-entry table of shaders it had already named:
@@ -177,6 +210,16 @@ the ticket was filed blaming "something outside both files".
 
 > **A file that exists beats the ini you edited.** A setting with two persistent
 > homes has no owner.
+
+### VR-37: two keys whose compiled default no longer means anything
+
+`[Melee] SwingSpeed=1.8` and `HoldMs=220` have been written into every installed
+ini since the alpha, so changing their compiled defaults changes nothing on any
+machine that has run the mod. The edge detector therefore got NEW key names
+(`EdgeSpeed`, `PulseMs`, ...) that resolve from compiled defaults when absent,
+with no `kConfigVersion` bump - a bump rewrites the whole ini and keeps three keys.
+`SwingMs`, `SwingDistM` and `Haptic` were read for years and never written by
+`WriteDefaultIni`; they ship now.
 
 ### What to do before touching a key
 

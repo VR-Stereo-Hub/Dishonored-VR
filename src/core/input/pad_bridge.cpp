@@ -205,7 +205,14 @@ static void UpdateVirtualPad()
         xs.Gamepad.sThumbRY      = (g_inMenu || wheelHeld) ? PadStick(ty) : 0;
         xs.Gamepad.bRightTrigger = (BYTE)(hr * 255.0f);
         xs.Gamepad.bLeftTrigger  = (BYTE)(hl * 255.0f);
-        if (MeleeActive()) xs.Gamepad.bRightTrigger = 255;   // sword swing
+        // VR-37: a physical swing presses the attack for a moment. It ADDS to the
+        // player's own trigger and never replaces it. [Melee] Output=rb is for an
+        // install whose pad binding set puts the attack on the right shoulder.
+        dvr::swing::note_real_trigger(hr);
+        if (MeleeActive()) {
+            if (dvr::swing::output_rb()) xs.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+            else xs.Gamepad.bRightTrigger = 255;
+        }
         static WORD lastB = 0xffff;
         if (b != lastB) { lastB = b; Log("pad: xbtn=0x%04x", b); }
         // 38.81: "can't use my right stick on Quest" - nothing logged the
@@ -449,6 +456,7 @@ static DWORD WINAPI hkXInputGetState(DWORD user, XINPUT_STATE* st)
     // gamepad path if the pad is there from the very first poll at startup.
     if (user == 0 && g_padEnabled && st) {
         InterlockedIncrement(&g_padPolls);
+        dvr::swing::note_pad_poll();   // VR-37: never reset, unlike the heartbeat above
         EnterCriticalSection(&g_padLock);
         *st = g_padState;
         LeaveCriticalSection(&g_padLock);

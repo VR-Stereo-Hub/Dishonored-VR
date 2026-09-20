@@ -106,6 +106,7 @@ static void OverlayFrame()
             ImGui::TextWrapped("R3 is reserved for the modifier; its health-elixir hold is unavailable. Both-stick recenter still works.");
         ImGui::TextWrapped("Thumbrest selection automatically uses the opposite stick. Both grips retain their normal actions.");
         ImGui::TextWrapped("No thumbrest input on your controller? Choose R3. Settings apply and save immediately.");
+        dvr::swing::draw_ui();   // VR-37: the motion sword
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Aim")) {

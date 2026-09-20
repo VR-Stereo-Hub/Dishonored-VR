@@ -1,0 +1,65 @@
+# swing-plunge.xrs - the sneak kill as a PLUNGE (VR-155): the blade sits in a
+# reverse grip, so the kill is a fist raised to about the shoulder and driven
+# down, a little forward. Crouched it presses the attack; standing it is silent;
+# and the same downward move from waist height is reaching for loot, not a kill.
+#
+# Needs the same as swing-edge.xrs: a loaded level in GAMEPLAY, GamepadOnly=0.
+# Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-plunge.xrs
+#
+# The simulated head is at (0, 1.6, 0) facing -Z, so the shoulder line is y=1.38.
+# "Raised" is y=1.55 (17 cm above it); "waist" is y=1.10 (28 cm below it).
+# Whether the attack becomes the KILL needs an unaware guard and is the headset
+# run's to show: the line is `swing: HONOURED kill`.
+
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing on; swing mode edge; swing threshold 3.6; swing filter median; swing sword on; swing output rt
+@mod swing stab style plunge
+@mod swing stab on; swing stab arm sneak; swing stab start 0.05; swing stab speed 1.5; swing stab travel 0.20; swing stab ratio 0.75; swing stab forward 0.5
+@wait 1000
+
+# 1. Standing: raise the fist and plunge. Silent.
+@mark
+hand r to grip 0.20 1.55 -0.25 0 0 0 700
+@wait 1000
+hand r to grip 0.20 1.22 -0.37 0 0 0 250
+@wait 1200
+@nolog (stab|swing): FIRE
+@nolog stab: REJECTED
+
+# 2. Crouched: the wind-up is not an attack, the plunge is.
+@mark
+btn b press 150
+@log stab: ARMED - crouch 6s
+hand r to grip 0.20 1.55 -0.25 0 0 0 700
+@wait 1000
+@nolog (stab|swing): FIRE
+hand r to grip 0.20 1.22 -0.37 0 0 0 250
+@log stab: FIRE plunge
+@log swing: FIRE #\d+ stab
+@log swing: HONOURED
+@wait 1000
+
+# 3. Crouched: the same downward move from waist height is rejected on its START.
+@mark
+hand r to grip 0.20 1.10 -0.30 0 0 0 1200
+@wait 1500
+hand r to grip 0.20 0.77 -0.42 0 0 0 250
+@log stab: REJECTED plunge start
+@nolog (stab|swing): FIRE
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+
+# 4. Stand up, and three simulated plunges: 0 standing, 3 armed for the test.
+@mark
+btn b press 150
+@log stab: DISARMED 6s
+@mod swing stab sim 2.2 200 3
+@log swing: sim window finished: 0 fire 8s
+@mod swing stab arm always
+@mark
+@mod swing stab sim 2.2 200 3
+@log swing: sim window finished: 3 fire 8s
+@mod swing stab arm sneak; swing stab off

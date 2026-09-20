@@ -116,6 +116,8 @@ XrTime now_xr_time() {
 }
 
 uint64_t now_ms() { return static_cast<uint64_t>(GetTickCount64()); }
+// Sub-millisecond, for interpolated motion (see Motion::startFineMs).
+double now_fine_ms() { return static_cast<double>(now_xr_time()) * 1e-6; }
 
 XrResult on_seh(const char* what) {
     static std::atomic<uint32_t> s_count{0};

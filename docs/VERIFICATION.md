@@ -7,6 +7,21 @@ question the simulator could answer is a wasted session.
 
 ## 1. The decision table
 
+VR-37 the motion sword: `tools\swing-core-host.ps1` compiles the pure decision core
+(60 checks: the threshold, one swing one attack, re-arm and cooldown, one verdict
+per swing, a body turn, repeated poses, doubled samples through the median, the
+tracking-jump and dt hygiene, the sustain detector, `swing sim`, the thrust). In the game:
+`tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` (a reach does not fire and
+peaks under 2.2 m/s, a swing fires and is HONOURED, a body turn does not fire) and
+`swing-gates.xrs` (block grip, power wheel, pause menu, sheathed sword: one BLOCKED
+line each with its reason, then the same swing fires) and `swing-stab.xrs` (VR-155:
+a thrust standing is silent, crouching arms it off the capsule, the thrust fires and
+is HONOURED, a jab is REJECTED on travel, a floor reach and a slash are not stabs,
+standing disarms) and `swing-plunge.xrs` (the default style: a raised fist driven down fires crouched, is silent standing, and is REJECTED on `start` from waist height). All need a loaded level in
+GAMEPLAY and `GamepadOnly=0`, and only ever MOVE the hand: `hand r grip pose`
+teleports it, which the detector discards as a tracking jump. Reading the log:
+`docs/dishonored/PHYSICAL_SWING.md` section 2.
+
 VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
 production camera writer and clamp functions. Nineteen checks cover exact-write
 ownership through a Z clamp, repeated descent, release, stereo offsets and fresh
@@ -117,7 +132,7 @@ head/hand poses, controls, errors) and per shot `capture\<name>_left.png`, `_rig
 `_sbs.png`, `<name>.json` (layers with type/space/size/pose, `derived.eyeSeparationM`,
 `derived.claimRatioH`, `derived.aimRayMaxDevDeg`, `stats.meanLuma`, `stats.nonBlackPct`,
 `stats.bboxL/R` (41.0), and per layer `src[]` (the source image's `nonBlackPct`, `bbox`,
-`image`, `releasedOnFrame`)). `state.json` also carries `quadLayers`, `capNonBlackL/R`, and (41.1) the per-eye release age of the last projection submit `eyeAgeL/R` (0 = released inside the submitting frame, 1+ = a held image), `eyeAgeMaxL/R`, `eyeSameSwapchain`, `projSubmits/projMonoSubmits/projStaleSubmits` and `endPhaseMs` (xrEndFrame minus displayTime). Sequences: `stale-eye.xrs` (the one-sided tag stream on demand, must fail with `vrpace strict off` on a broken game side), `pause-resume.xrs` (`@key Escape` twice, the eye ages after), `tools\arming-hammer.ps1 -Cycles 30` (exit 2 = the sim saw a held eye, 3 = the mod's pair probe did, 5 = not in gameplay). `xrsim-run.ps1` accepts `@key <name> [n] [ms]`. The neck: `camera pitchtest 30` with `head rot 0 30 0` at a fixed position, then `head pose 0 1.6303 0.0671 0 30 0` on the arc, `dump eyes` at each step (ENGINE_NOTES "The pitch pivot").
+`image`, `releasedOnFrame`)). `state.json` also carries `quadLayers`, `capNonBlackL/R`, and (41.1) the per-eye release age of the last projection submit `eyeAgeL/R` (0 = released inside the submitting frame, 1+ = a held image), `eyeAgeMaxL/R`, `eyeSameSwapchain`, `projSubmits/projMonoSubmits/projStaleSubmits` and `endPhaseMs` (xrEndFrame minus displayTime). Sequences: `stale-eye.xrs` (the one-sided tag stream on demand, must fail with `vrpace strict off` on a broken game side), `pause-resume.xrs` (`@key Escape` twice, the eye ages after), `tools\arming-hammer.ps1 -Cycles 30` (exit 2 = the sim saw a held eye, 3 = the mod's pair probe did, 5 = not in gameplay). `xrsim-run.ps1` accepts `@key <name> [n] [ms]`. **Asserting on the MOD from a sequence (VR-37):** `@assert` reads the SIMULATOR's `state.json` and cannot see the mod at all, so `xrsim-run.ps1` also takes `@mark` (forget the mod log written so far), `@log <regex> [<n>s]` (wait for a mod log line written since the mark; a match moves the mark past it, so consecutive `@log` lines assert an ORDER), `@nolog <regex>` (fail if one matched since the mark - a swing that must NOT fire) and `@modassert <dotted.path> <op> <value>` (the mod's `status.json`, fetched fresh through the seam). A sim line may carry several commands separated by `;`, sent as ONE atomic batch - a head and a hand that must move together cannot be two writes. The log is read as Latin-1 so a text offset is a file offset; decoded as UTF-8, one stray high byte made the mark overshoot and the next read matched lines from before it. `-Dir` now defaults from `DVR_DATA_DIR` like `xrsim-launch.ps1`. The neck: `camera pitchtest 30` with `head rot 0 30 0` at a fixed position, then `head pose 0 1.6303 0.0671 0 30 0` on the arc, `dump eyes` at each step (ENGINE_NOTES "The pitch pivot").
 
 Hard invariants: no wait in the sim is unbounded (30 s starve grant); the control channel
 polls on its own thread (a frame-path poller could never receive the `step` that unblocks it);

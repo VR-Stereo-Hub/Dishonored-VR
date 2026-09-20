@@ -312,6 +312,11 @@ static void RflStateTick(void)
         g_rflHeldObj[i] = heldObj[i];
         g_rflHeldSocket[i] = heldSock[i];
     }
+    // VR-37: the motion sword asks "is the sword in the right hand" from the
+    // present lane. found[1] is the EQUIPPED Primary item, class name first.
+    InterlockedExchange(&g_rflPrimaryKind,
+        !found[1][0] ? 0 : !strncmp(found[1], "DishonoredWepSword", 18) ? 1 : 2);
+    { const LONG t = (LONG)GetTickCount(); InterlockedExchange(&g_rflPrimaryKindTick, t ? t : 1); }
 
     // THE EQUIPMENT REVISION, from validated identity. Computed HERE and nowhere
     // else, because this is the only point in the tick where the read is known

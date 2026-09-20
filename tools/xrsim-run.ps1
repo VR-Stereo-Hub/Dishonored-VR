@@ -2,6 +2,7 @@
 #
 # A .xrs file is sim commands, one per line, with a few directives:
 #   #  ...                comment
+#   <cmd>[; <cmd>]        sim commands; ';' sends them as ONE atomic batch (same frame)
 #   @wait <ms>            sleep
 #   @frames <n>           wait for the sim's frame counter to advance n
 #   @shot <name>          capture; the result object is collected and returned
@@ -19,6 +20,17 @@
 #                         pause menu, so "@key Escape" twice is a pause/resume.
 #                         This is the session-33 oracle: the symptom there was a
 #                         frame-rate COLLAPSE, which no state field records.
+#   @mark                 forget the mod log written so far: @log and @nolog only
+#                         look at what the mod wrote AFTER the last mark (the
+#                         start of the sequence is the first mark).
+#   @log <regex> [<n>s]   wait up to n seconds (default 5) for a line of the MOD's
+#                         log, written since the mark, to match. A match moves the
+#                         mark past it, so consecutive @log lines assert an ORDER.
+#   @nolog <regex>        fail if a line since the mark matches (a swing that must
+#                         NOT fire). Does not move the mark.
+#   @modassert <a.b.c> <op> <v>   assert on the MOD's status.json (dotted path),
+#                         fetched fresh through the seam. @assert reads the
+#                         SIMULATOR's state.json and cannot see the mod at all.
 #
 # Usage:
 #   .\tools\xrsim-run.ps1 -Path .\tools\xrsim\smoke.xrs
@@ -28,7 +40,7 @@ param(
     [string]$Path = "",
     [string[]]$Steps = @(),
     [string]$GamePath = "",
-    [string]$Dir = "$env:LOCALAPPDATA\DishonoredVR\xrsim",
+    [string]$Dir = "",
     [string]$OutDir = "",
     [double]$Delay = 0,
     # One mod poll period (1 Hz) plus margin. Anything shorter and consecutive
@@ -38,6 +50,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot "lib\game-path.ps1")
+# The same default as xrsim-launch.ps1, so DVR_DATA_DIR moves both together.
+if (-not $Dir) { $Dir = Join-Path (Get-DvrDataDir) "xrsim" }
 
 if ($Path) {
     if (-not (Test-Path $Path)) { throw "sequence not found: $Path" }
@@ -50,6 +65,26 @@ $stateScript = Join-Path $PSScriptRoot "xrsim-state.ps1"
 $shotScript  = Join-Path $PSScriptRoot "xrsim-shot.ps1"
 $gameCmd     = Join-Path $PSScriptRoot "game-cmd.ps1"
 $keyScript   = Join-Path $PSScriptRoot "game-key.ps1"
+
+$statusScript = Join-Path $PSScriptRoot "status-dump.ps1"
+
+# The mod's log, read shared (the game holds it open) from a byte mark.
+$modLog = Get-DvrLogPath $GamePath
+$script:logMark = if (Test-Path $modLog) { (Get-Item $modLog).Length } else { 0 }
+function Read-ModLogSince([long]$from) {
+    if (-not (Test-Path $modLog)) { return "" }
+    $fs = [IO.File]::Open($modLog, 'Open', 'Read', 'ReadWrite')
+    try {
+        if ($from -gt $fs.Length) { $from = 0 }      # the log rotated under us
+        $fs.Seek($from, 'Begin') | Out-Null
+        # Latin-1 on purpose: one byte is one character, so an offset into the text
+        # IS an offset into the file. Decoded as UTF-8, a stray high byte in the log
+        # becomes a 3-byte replacement character, the mark overshoots the file, and
+        # the next read starts from the top and matches lines from before the mark.
+        $sr = New-Object IO.StreamReader($fs, [Text.Encoding]::GetEncoding(28591))
+        return $sr.ReadToEnd()
+    } finally { $fs.Close() }
+}
 
 $shots = @()
 $n = 0
@@ -87,6 +122,49 @@ try {
                 $del = if ($Matches[3]) { [int]$Matches[3] } else { 500 }
                 & $keyScript -Key $Matches[1] -Repeat $rep -Delay $del | Out-Null
             }
+            elseif ($line -match '^@mark\s*$') {
+                $script:logMark = if (Test-Path $modLog) { (Get-Item $modLog).Length } else { 0 }
+            }
+            elseif ($line -match '^@log\s+(.+?)(?:\s+(\d+)s)?$') {
+                $rx = $Matches[1]; $secs = if ($Matches[2]) { [int]$Matches[2] } else { 5 }
+                $deadline = (Get-Date).AddSeconds($secs); $hit = $null; $text = ""
+                do {
+                    $text = Read-ModLogSince $script:logMark
+                    $hit = [regex]::Match($text, $rx)
+                    if ($hit.Success) { break }
+                    Start-Sleep -Milliseconds 250
+                } while ((Get-Date) -lt $deadline)
+                if (-not $hit.Success) { throw "LOG FAILED: no mod log line matched /$rx/ within ${secs}s of the mark" }
+                $eol = $text.IndexOf("`n", $hit.Index); if ($eol -lt 0) { $eol = $text.Length }
+                $bol = $text.LastIndexOf("`n", [Math]::Max(0, $hit.Index - 1)) + 1
+                Write-Host "      matched: $($text.Substring($bol, $eol - $bol).Trim())"
+                $script:logMark += $eol
+            }
+            elseif ($line -match '^@nolog\s+(.+)$') {
+                $rx = $Matches[1]
+                $hit = [regex]::Match((Read-ModLogSince $script:logMark), $rx)
+                if ($hit.Success) { throw "NOLOG FAILED: the mod log matched /$rx/ since the mark: $($hit.Value)" }
+            }
+            elseif ($line -match '^@modassert\s+(\S+)\s+(eq|ne|gt|ge|lt|le)\s+(.+)$') {
+                $k = $Matches[1]; $op = $Matches[2]; $v = $Matches[3]
+                $actual = (& $statusScript -Raw) | ConvertFrom-Json
+                foreach ($part in $k -split '\.') {
+                    if ($null -eq $actual) { break }
+                    $actual = $actual.$part
+                }
+                if ($null -eq $actual) { throw "MODASSERT FAILED: status.json has no '$k'" }
+                if ($actual -is [bool]) { $actual = "$actual".ToLower() }
+                $ok = switch ($op) {
+                    'eq' { "$actual" -eq $v }
+                    'ne' { "$actual" -ne $v }
+                    'gt' { [double]$actual -gt [double]$v }
+                    'ge' { [double]$actual -ge [double]$v }
+                    'lt' { [double]$actual -lt [double]$v }
+                    'le' { [double]$actual -le [double]$v }
+                }
+                if (-not $ok) { throw "MODASSERT FAILED: $k ($actual) $op $v" }
+                Write-Host "      $k = $actual"
+            }
             elseif ($line -match '^@fps\s+([\d.]+)(?:\s+([\d.]+))?') {
                 $min = [double]$Matches[1]
                 $secs = if ($Matches[2]) { [double]$Matches[2] } else { 3.0 }
@@ -114,7 +192,10 @@ try {
                 if (-not $ok) { throw "ASSERT FAILED: $k ($actual) $op $v" }
             }
             else {
-                & $cmdScript -Dir $Dir -Quiet $line | Out-Null
+                # ';' groups sim commands into ONE atomic batch, applied on the same
+                # frame: a head and a hand that must move TOGETHER cannot be two writes.
+                $simCmds = @($line -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                & $cmdScript -Dir $Dir -Quiet @simCmds | Out-Null
             }
         } catch {
             if (-not $ContinueOnError) { throw }

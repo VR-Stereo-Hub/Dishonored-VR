@@ -1,0 +1,63 @@
+# swing-edge.xrs - the motion sword (VR-37): does swinging the right controller
+# swing the sword, and does ordinary hand movement leave it alone?
+#
+# Needs: a loaded level in GAMEPLAY (not a menu, not the title's attract scene -
+# look at an xrsim-shot first), [Mode] GamepadOnly=0, and a build that has the
+# `swing` word. Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-edge.xrs
+#
+# How to read a failure: every `swing: BLOCKED` line names the gate that closed,
+# and `swing status` (tools\game-cmd.ps1 "swing status") prints the gate, the
+# counters and the PEAK speed. A FIRE with no HONOURED line means the pulse
+# reached the pad and the game did not start an attack; the NOT HONOURED line
+# says which of the two known reasons it looks like.
+#
+# The hand is only ever MOVED here, never placed: `hand r grip pose` teleports it,
+# and a teleport is a tracking jump, which the detector discards on purpose.
+
+# The sword has to be in the hand. With it sheathed the first pull draws it; with
+# it drawn this is one ordinary attack. Either way the sword is out afterwards.
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing on; swing mode edge; swing threshold 3.6; swing rearm 1.0; swing cooldown 300; swing rel on; swing filter median; swing sword on; swing output rt
+@wait 1000
+@mark
+
+# 1. A reach is not a swing: 0.68 m in 900 ms peaks near 1.6 m/s. The bound is 2.2,
+#    not the 3.6 threshold: single doubled samples used to read 2.9-3.2 here, and
+#    the median of three is what keeps them out of the decision.
+hand r to grip -0.35 1.00 -0.45 0 0 0 900
+@wait 1600
+@nolog swing: FIRE
+@modassert features.swing.peakSpeed10s lt 2.2
+@modassert features.swing.gateOpen eq true
+
+# 2. A swing is: the same 0.68 m in 200 ms peaks near 5 m/s. One attack, and the
+#    game has to be SEEN starting it - the pulse reaching the pad proves nothing.
+hand r to grip 0.25 1.30 -0.40 0 0 0 200
+@log swing: FIRE #\d+ slash
+@log swing: HONOURED slash
+@wait 1200
+@nolog swing: FIRE
+@modassert features.swing.notHonoured eq 0
+
+# 3. Back the other way: the latch re-armed while the hand rested.
+hand r to grip -0.35 1.00 -0.45 0 0 0 200
+@log swing: FIRE #\d+ slash
+@log swing: HONOURED slash
+@wait 1200
+
+# 4. Turning the whole body is not a swing: head and hand move together.
+@mark
+head to 0.60 1.60 0 0 0 0 200; hand r to grip 0.25 1.00 -0.45 0 0 0 200
+@wait 1200
+@nolog swing: FIRE
+head to 0 1.60 0 0 0 0 1500; hand r to grip -0.35 1.00 -0.45 0 0 0 1500
+@wait 2000
+
+# 5. Three simulated swings through the real decision core and the real gates.
+@mark
+@mod swing sim 5 200 3
+@log swing: sim window finished: 3 fire 8s
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200

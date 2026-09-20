@@ -1001,3 +1001,27 @@ bars within 250 ms. Debug geometry cannot establish that proof. Texture validity
 belongs to the vitals sink and is reset once per present, never by unrelated
 sinks. See HUD_ANCHORS.md for the diagnostic candidate and deferred game-space
 capture gate.
+
+## 2026-09-20: the motion sword's core takes positions, and its new keys take new names (VR-37)
+
+The decision core (`game/dishonored/swing_core.h`) is pure and takes POSITIONS and a
+timestamp, not speeds, and the simulated swing (`swing sim`) synthesises positions
+too. The sibling BioShock mod's `sim` injects speeds, which skips the differencing,
+the dt window and the head-relative subtraction - the three places this port's
+faults turned out to live. It sits beside `animation_rules.h` and `fire_aim_math.h`
+rather than in `core/input/`: the gates and the thrust's shoulder model (VR-155) are
+game-feel constructs. The adapter stays in the unity build because it reads about
+ten of its globals.
+
+The sample identity is the hand sample's generation and dt is the predicted display
+time: the render presents twice per tick, and the head's `locate_gen()` is a
+different cadence from the hand sync (TRAPS, 2026-09-20).
+
+The old detector is kept verbatim behind `[Melee] Detector=sustain` WITH its old
+gates, so the A/B is the old behaviour and nothing else, and it stays the shipped
+default until a headset verdict. The edge detector's keys have new names instead of
+re-defaulted old ones, with no `kConfigVersion` bump, because `SwingSpeed` and
+`HoldMs` are materialised in every install. `Output=rt|rb` exists because the
+active pad binding set is a property of the install, and the honoured-check
+(`StatePlayerMeleeAttack` within `HonourMs` of a fire) is the instrument that says
+which a given machine needs: a press reaching the pad proves nothing.

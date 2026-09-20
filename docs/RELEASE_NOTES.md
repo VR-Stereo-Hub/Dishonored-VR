@@ -1,3 +1,22 @@
+## Motion sword (2026-09-20, judged in the headset on one rig)
+
+Swinging the right controller swings the sword again. The old detector never fired
+on the stereo render; it is kept as `[Melee] Detector=sustain` and now works, and the
+new default `edge` detector fires the instant your hand speed crosses `EdgeSpeed`, the way
+the BioShock mod's wrench does. F10 > Controls > Motion sword shows your PEAK hand
+speed and the gate that is stopping a swing. New `[Melee]` keys (all optional, the
+old ones are untouched): `Detector`, `EdgeSpeed`, `RearmSpeed`, `PulseMs`,
+`PulseMinPolls`, `HeadRel`, `Median`, `RequireSword`, `Output`, `HonourMs`,
+`HonourHaptic`. Tuning guide: `docs/dishonored/PHYSICAL_SWING.md`.
+
+The sneak kill: a fast stab behind an unaware guard is a swing, and the game makes it
+the stealth kill. `[Melee] Stab=1` (on by default) also lets a slow, deliberate stab
+while you are crouched press the attack, which the game turns into the stealth kill
+behind an unaware guard. New keys `Stab`, `StabArm`, `StabSpeed`, `StabTravelM`,
+`StabRatio`, `StabForward`, `StabWindowMs`, `ShoulderRightM/DownM/BackM`, and
+`StabStyle` (`plunge`, the default: a raised fist driven down, for the reverse grip
+the sword sits in; or `thrust`) with `StabStartBelowM`.
+
 ## Misc fixes candidate (2026-09-17)
 
 F10 Animations adds saved arm-visibility choices for all40 player action states.

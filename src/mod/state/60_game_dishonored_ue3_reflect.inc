@@ -130,6 +130,14 @@ static const char* RflSocketName(int v)
 // verified against instead of another weapon's.
 static uint8_t* g_rflHeldObj[3] = {};
 static int      g_rflHeldSocket[3] = {};
+// VR-37: what the RIGHT hand holds, for the motion sword on the present lane.
+// The equip[] strings are rewritten in place on the script lane and must not be
+// compared from another thread, so the one fact that lane needs is published as
+// two atomics: the kind (0 nothing in hand, 1 the sword, 2 another item) and the
+// GetTickCount() of the successful read that produced it (0 = never read). A
+// failed read leaves both alone, so the stamp ages out: unknown is not a sword.
+static volatile LONG g_rflPrimaryKind = 0;
+static volatile LONG g_rflPrimaryKindTick = 0;
 
 // ---- THE EQUIPMENT REVISION -------------------------------------------------
 //

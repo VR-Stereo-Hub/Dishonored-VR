@@ -1,3 +1,15 @@
+## Motion sword (VR-37, 2026-09-20)
+
+- [x] Measure the old detector on the simulator: 0 attacks from three swings, every gate open.
+- [x] Pure decision core (edge + sustain) with 36 host checks; adapter, gates, pulse, honoured-check.
+- [x] `swing` word, `features.swing` status, F10 rows, default ini (parity gate passes).
+- [x] Simulator: `swing-edge.xrs` and `swing-gates.xrs` pass; rb output reads NOT HONOURED as it should.
+- [x] Headset (dev PC, VDXR, 3012x3122): 47 swings, 46 honoured, 0 refused, 2 stealth kills; nothing to change. Default flipped to `edge`.
+- [x] VR-155: the thrust detector, armed off the crouch capsule; 16 host checks, `swing-stab.xrs` passes.
+- [x] VR-155 headset: `HONOURED kill` twice (through the slash detector: a kill plunge in earnest is over 3.6 m/s); armed 18 times, no stray attack.
+- [ ] VR-155: a SLOW plunge (under 3.6 m/s) producing the kill in the headset - the stab detector's own positive case, simulator-proven only.
+- [ ] VR-156: a readable kill-available signal, for arming on it and a haptic ready cue.
+
 ## Misc fixes (2026-09-17)
 
 - [x] VR-134: animation-state arm checkboxes implemented with host coverage.

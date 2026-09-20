@@ -188,7 +188,7 @@ extern FrameGate g_gate;
 // The control channel (xrsim_control.cpp).
 void control_start();
 void control_stop();
-void control_apply_pending();          // called inside xrWaitFrame, the commit point
+void control_apply_pending(double motionClockMs);   // called inside xrWaitFrame, the commit point; the clock `to` motions run on
 void control_write_state();
 void rig_staging_init();
 
