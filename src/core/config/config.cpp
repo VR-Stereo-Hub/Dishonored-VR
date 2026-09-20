@@ -881,8 +881,17 @@ static void WriteDefaultIni(const char* ini)
         "PawnFromController=1\n"
         "CacheNameLookups=0\n"
         "\n"
+        "; GameOptsOnStart=1 reads the GAME's own option settings into the log once, a few\n"
+        "; seconds after gameplay starts. It exists because the tester plays in a headset and\n"
+        "; cannot reach a prompt, so a diagnostic that has to be asked for never runs at all.\n"
+        "; Those twelve settings (kill cam, head bob, crosshair, auto aim, light shafts, ...)\n"
+        "; are NOT in the game's inis - they live in Steam's OPTIONS.sav profile blob, and the\n"
+        "; [SystemSettings] entries are only a mirror of it which has already been caught\n"
+        "; disagreeing with the menu. The line prints both sides, so a disagreement shows.\n"
+        "; Read-only, one burst, then silent. The F10 Advanced tab re-runs it on demand.\n"
         "[Diagnostics]\n"
         "GcFaultDump=1\n"
+        "GameOptsOnStart=1\n"
         "\n"
         "[Cine]\n"
         "LockPitch=1\n"
@@ -2347,6 +2356,7 @@ static void LoadConfig()
     RainConfigure(ini);
     LensConfigure(ini);
     WmConfigure(ini);
+    GameOptsConfigure(ini);   // VR-157: [Diag] GameOptsOnStart
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
