@@ -65,6 +65,10 @@ void set_mono_anchor(bool on, uint32_t contexts);
 bool mono_anchor_enabled();
 uint32_t mono_anchor_contexts();
 void recenter_mono_anchor();
+// VR-154: increments whenever the runtime moves the LOCAL space origin. A
+// caller holding a position measured against that origin compares this with
+// what it saw last and re-takes its reference when it differs.
+uint32_t local_space_generation();
 void set_mono_context(dvr::mono::Context context, bool forceMono);
 // The DXGI format the eye swapchains were created with (0 before the first
 // frame); the stereo methods render into the same typeless family.

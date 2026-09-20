@@ -60,6 +60,7 @@ Copy-Item "$repo\release\HOW-TO-USE.txt" "$stage\HOW-TO-USE.txt"
 # The repository default profile is the byte copy of the confirmed installed ini.
 Copy-Item "$repo\release\dishonored_vr.ini" "$stage\dishonored_vr.ini"
 Copy-Item "$repo\tools\setup-game-ini.ps1" "$stage\setup-game-ini.ps1"
+Copy-Item "$repo\tools\vr-runtime.ps1" "$stage\vr-runtime.ps1"
 Copy-Item "$repo\tools\collect-support.ps1" "$stage\collect-support.ps1"
 Copy-Item "$repo\release\Collect VR Support.cmd" "$stage\Collect VR Support.cmd"
 

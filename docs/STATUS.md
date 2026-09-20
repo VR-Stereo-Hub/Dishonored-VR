@@ -1,3 +1,94 @@
+## Session handoff 2026-09-19 (late): SteamVR, the judder, and two retractions
+
+### Where things are RIGHT NOW
+
+- `VR-Main` = `50e35be44`. PRs #75, #76, #77 and #79 merged today with permission.
+- **Working branch: `claude/vr-154-steamvr-origin-only`** (`c6942c577`) = VR-Main
+  + the VR-154 origin fix + `tools/vr-runtime.ps1` + its packaging. NOT merged.
+- Installed on the dev PC: `d3d9.dll` SHA256 `0E759C8B...`, built from `548c31693`
+  on that branch. Its INI has `Runtime=steamvr`, `XrRuntimeJson` empty.
+- The tester holds a zip with that EXACT dll (byte-identical, not a rebuild - the
+  banner embeds __DATE__/__TIME__ so no rebuild can match), an INI defaulting to
+  `Runtime=steamvr`, and `vr-runtime.ps1`.
+- `claude/vr-152-pair-rate` (`6bf9dd6fc`) holds three commits NOT on VR-Main and
+  NOT in the zip. One of them is a real fix (see VR-153 below).
+
+### Fixed and confirmed by the tester today
+
+VR-147 Blink latch (drop + re-latch in 31 ms against 23.8 s), VR-148 awareness
+markers (2996 published, 0 refused, 5238 draws matched), VR-143 the crouch
+stand-up stall - one early return had parked the whole discovery block, and the
+stand-up probe measured 3975 ms of script lane in a 4000 ms window.
+
+### TWO THINGS I GOT WRONG - read these before trusting the record
+
+1. **"SteamVR's LOCAL origin is on the floor, so the jump is a standing height."**
+   Withdrawn. A guess about where SteamVR puts LOCAL, and it reasoned from a
+   standing wearer who is SEATED. The VR-154 mechanism does not depend on it and
+   still holds; the magnitude and direction are not claimed.
+2. **"Use the stereo method's pass eye instead of inferring it."** Proposed,
+   built, and reverted the same hour. It is already in the graveyard, falsified:
+   `55_game_dishonored_hands_mesh_split.inc` records 0 of 83,400 corrected draws
+   finding a doubled pass, because the passes run on the game thread and the
+   draws on the render thread. The lever exists as `[Hands] PaletteEyeFromPass`,
+   default off and inert, kept as the proof. **Grep the graveyard before
+   proposing an approach.** The hypothesis sits 20 lines above its own refutation
+   and reads like a plan if you stop early.
+
+### Open, in the order I would take them
+
+1. **VR-154, unverified.** One SteamVR run with a headset recenter settles it AND
+   VR-146. Read `postrack: origin moved` (did it fire) and the two
+   `postrack: reference taken` lines either side of the recenter - they MEASURE
+   the origin shift instead of assuming it. The same line prints head roll:
+   near 0 = upright in a gravity-aligned space (seated reads the same), near
+   +/-180 = the LOCAL space is inverted, which is VR-146's answer.
+   VR-146 is also reframed: a recenter fixing the orientation rules OUT an
+   inverted image, because a flipped texture does not care about a recenter. Do
+   not revive the whole-image flip.
+2. **VR-152 judder, REOPENED.** It was auto-closed by #79's `Fixes` line and the
+   judder is not fixed. What landed: the `pcap/layout` cap leak (77992 log lines
+   per run -> 15, confirmed) and the awareness census mutex. The prediction that
+   the tick would return toward 9.4 ms was REFUTED - it went 10.70 -> 11.11 ->
+   13.00 across later runs. Watch `stereo: beat ... L/s`, not the tick mean:
+   median pairs/s went 109 (build 512) -> 45 (build 522), a 59% loss the tick
+   mean showed as 13%. TRAPS.md carries that reading error.
+   Wrong-eye draws per 1000 classified across 51 archived builds: settled era
+   0.000-0.039, build 512 0.087, 527 0.862 - the worst since 385. BUT 489 already
+   hit 0.433 with a 249k sample and none of my code, so the baseline is wobbly
+   and a step change is NOT established. `SAME%` is the strongest correlate
+   (+0.39); session length is not (+0.09).
+   The tester has a Puppis router and a wired cable arriving, so the next run is
+   the first clean-network baseline. Get that before attributing anything.
+3. **VR-153 death/respawn, FIXED BUT UNSHIPPED.** The stuck-menu rescue could
+   never fire - `skcInGameplay && (g_menuOpen || g_inMenu)` with skcInGameplay
+   defined as `!g_menuOpen && !g_inMenu` is `(!A && !B) && (A || B)`, false in
+   every state, and `menu: flag cleared` appears zero times in a 95 MB log. The
+   death screen fires `Req_CanLoadGame`, nothing closes it, and for 77 seconds
+   the runtime sat on the mono screen (the "small square") with the right stick
+   passed through as menu navigation. Fix is on `claude/vr-152-pair-rate`
+   (`c41539bfb`). **Ask before cherry-picking** - the user asked for the SteamVR
+   fix only. F9 forces gameplay mode meanwhile.
+4. VR-149 bone charms: still unproven, no bone charm has been revealed by the
+   Heart in any run. `hud/heart-symbol` names the symbol when one is.
+5. VR-151 HOW-TO-USE is stale (says stereo and motion controls "are being
+   rebuilt", and tells the reader to set resolution in the game's video options,
+   which is inert). The fix was written and the PR CLOSED at the user's request -
+   do not reopen it unasked. The zip the tester holds has the stale text.
+6. VR-150 `camera-clamp-host.ps1` does not compile (its Writer regex predates
+   `g_viewScope`). Pre-existing, from `5dee90153`.
+
+### Process notes worth keeping
+
+- `[VR] XrRuntimeJson` sets `XR_RUNTIME_JSON`, which the OpenXR loader reads
+  BEFORE the system default. A path left there silently beats whatever is picked
+  in SteamVR or Virtual Desktop. That ate an evening; `tools/vr-runtime.ps1`
+  exists so it cannot happen again.
+- The log rotates ONE deep. A SteamVR run was lost to it today.
+- `tools/install-candidate.ps1` is the tester's one-button install: refuses while
+  the game is running, archives the previous DLL/INI/both logs first, leaves the
+  INI alone.
+
 ## ONE cause behind both the Blink head-aim and the stand-up stall (2026-09-19)
 
 Run 516 measured it. The stand-up probe reported, for the first stand after a
