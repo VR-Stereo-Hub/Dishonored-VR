@@ -422,24 +422,27 @@ static void GameOptsApply()
         const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
         uint8_t* pdata = NULL; int32_t pnum = 0;
         if (off && RflArrayAt(obj, off, &pdata, &pnum) && pdata && pnum > 0) {
-            const int dwords = 48;   // enough to show several entries at any plausible stride
+            // The first version batched with `(i & 11) == 11`, a bitmask where a
+            // modulo was meant, so the printed index ranges overlapped and the
+            // stream could not be reassembled. Six dwords a line, indices exact.
+            const int dwords = 96;   // 16 rows: enough to see a stride repeat
             if (RangeReadable(pdata, dwords * 4)) {
-                char line[700]; int used = 0;
-                for (int i = 0; i < dwords; ++i) {
-                    const int w = _snprintf(line + used, sizeof(line) - used, "%s%08x",
-                                            i ? " " : "", ((const uint32_t*)pdata)[i]);
-                    if (w <= 0) break;
-                    used += w;
-                    if ((i & 11) == 11) {
-                        line[used] = 0;
-                        Log("gameopts/raw:   [%2d..%2d] %s", i - 11, i, line);
-                        used = 0;
-                    }
-                }
-                Log("gameopts/raw: %d entries at %p. The dwords above are the head of the array. "
-                    "PropertyId is the FIRST field of SettingsProperty, and the PSI enum runs to "
-                    "153, so the stride is whatever step makes small ids appear regularly. "
-                    "Derive it from these bytes - do not assume it.", (int)pnum, (void*)pdata);
+                const uint32_t* d = (const uint32_t*)pdata;
+                for (int i = 0; i < dwords; i += 6)
+                    Log("gameopts/raw:   [%2d] %08x %08x %08x %08x %08x %08x",
+                        i, d[i], d[i+1], d[i+2], d[i+3], d[i+4], d[i+5]);
+                // The shape is already visible in the first dump: small values
+                // in the PSI range (12, 13, 16, 29, 30, 31, 37, 55, 59...) recur
+                // beside 1s and 2s that look like the Owner and Type enums. If
+                // OnlineProfileSetting is { Owner, PropertyId, Type, Value1,
+                // Value2, AdvertisementType } then the stride is 6 dwords, and
+                // this prints one candidate entry per line so that is checkable
+                // by eye rather than asserted.
+                Log("gameopts/raw: %d entries at %p, printed 6 dwords per line. If the stride IS "
+                    "6 dwords then each line is one setting and column 2 is its PropertyId - the "
+                    "PSI enum runs to 153, so a column of small plausible ids confirms it and a "
+                    "column of noise refutes it. Do not assume; read the column.",
+                    (int)pnum, (void*)pdata);
             } else {
                 Log("gameopts/raw: array data at %p is not readable for %d dwords",
                     (void*)pdata, dwords);
@@ -563,6 +566,57 @@ static void GoDumpMenuSettings(const char* who)
     const uint32_t offId       = RflOffsetOf("DisSetting", "m_SettingID");
     Log("gameopts/menu: DisSettingsCategory.m_Settings +0x%x | DisSetting.m_SettingID +0x%x "
         "(a 0 is UNRESOLVED and the rows below are then not evidence)", offSettings, offId);
+    if (!offSettings) {
+        Log("gameopts/menu: without m_Settings the categories cannot be walked; nothing below");
+        return;
+    }
+    // The previous build resolved the offsets and then stopped, so it reported
+    // "12 categories" and never said what was in them. Walk them.
+    //
+    // The category stride is not assumed: DisSettingsCategory holds a name, an
+    // array of subcategories and an array of settings, and its packed size has
+    // not been measured. So this reads the ids at the resolved offset for each
+    // category slot and reports how many it could read, and the ids it found.
+    // If the stride is wrong the ids will be noise, and a column of values far
+    // outside the PSI range (which runs to 153) says so without being asserted.
+    const uint32_t catStride = RflOffsetOf("DisSettingsCategory", "m_SubCategories") ? 0 : 0;
+    (void)catStride;
+    int printed = 0, plausible = 0, wild = 0;
+    for (int c = 0; c < ncat && c < 16; ++c) {
+        // Each element of an array<struct> is the struct itself, laid out end to
+        // end. Without a measured struct size the only honest thing is to read
+        // the FIRST category and say so, rather than stride blindly across all.
+        if (c > 0) break;
+        uint8_t* setsData = NULL; int32_t nsets = 0;
+        if (!RflArrayAt(cats, offSettings, &setsData, &nsets) || nsets <= 0 || nsets > 256) {
+            Log("gameopts/menu: category 0: m_Settings unreadable or implausible (n=%d). The "
+                "DisSettingsCategory stride is not measured, so categories past the first are "
+                "deliberately NOT walked - striding on a guess is how a table of nonsense gets "
+                "reported as evidence.", (int)nsets);
+            break;
+        }
+        Log("gameopts/menu: category 0 holds %d setting(s):", (int)nsets);
+        for (int i = 0; i < nsets && i < 64; ++i) {
+            // DisSetting is { int m_SettingID; FString m_SettingNameOverride; }
+            // so the id is at +0 of a 16-byte element (int + 12-byte FString).
+            // That size is a candidate, not a measurement: the ids it produces
+            // are the test.
+            const uint8_t* e = setsData + (size_t)i * 16;
+            if (!RangeReadable((void*)e, 4)) break;
+            const int32_t id = *(const int32_t*)e;
+            const bool ok = id >= 0 && id <= 200;
+            if (ok) ++plausible; else ++wild;
+            Log("gameopts/menu:   [%2d] m_SettingID=%d%s", i, (int)id,
+                ok ? "" : "   <- outside the PSI range: the 16-byte element guess is wrong");
+            ++printed;
+        }
+    }
+    Log("gameopts/menu: %d id(s) printed, %d plausible, %d outside the PSI range. %s",
+        printed, plausible, wild,
+        wild > plausible
+          ? "MOSTLY WILD: the element size is wrong and none of these ids are evidence."
+          : "If these are plausible they are the ids OnSettingChange takes, and they can be "
+            "compared against the PSI table to see whether the two schemes agree.");
 }
 
 // For the F10 button. Read-only and idempotent, so it just queues.
