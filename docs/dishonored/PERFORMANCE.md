@@ -264,6 +264,58 @@ a performance pass. The honest sentence for rig B today: **3012x3122 per eye is 
 4070-Ti-SUPER-class setting; on the RTX 4060 it renders 54-56 pairs/s at best and no
 change to the mod's own code can lift that past about 62.**
 
+### RESULT, headset run 1, rig B, 2026-09-20 (the streamer's share, and a retraction)
+
+Rig B (RTX 4060), VDXR at 120 Hz (`hmd 8.33 ms = 120.0 Hz`), `res: HONOURED - the game
+renders 3012x3122`, `stereo reentry`, build `vr33-hands-working-550-ged3621c8`, `config
+RelWithDebInfo`, DLL sha256 `6EE3CD19`. The newest save, standing still, 46 windows of 3 s
+after the last `state: GAMEPLAY`. Log `D:\dvr-data\logs\vr160-HEADSET-rel-120hz.log`, GPU
+samples `vr160-headset-gpu.csv` and `vr160-headset-gpu-all.csv`. The streamer's overlay
+read 45-50 fps in the same minutes.
+
+| | tick median / p90 | pairs/s (`L/s`) | `R` P1+P2 | `cap lock` P1+P2 | `tick` field P1+P2 | GPU span per tick |
+|---|---|---|---|---|---|---|
+| Headset, 120 Hz | 22.1 / 22.3 ms | 44.7 (45) | 5.1 + 6.1 | 2.1 + 2.1 | 1.2 + 1.2 | 17.4 ms, `idle(d3d9)` 0.0 |
+| Simulator leg B, for scale (a different view) | 18.9 / 21.1 ms | 52.5 | 3.6 + 3.2 | 1.5 + 1.8 | 0.8 + 1.0 | 13.9 ms |
+
+GPU engines over the same 113 s: the game's 3D engine **76.1 %**, the streamer's video
+encode engine 21.3 % (its own silicon), the streamer's 3D engine 6.8 %.
+
+- **Q1 settled: the streamer's overlay counts stereo pairs.** It read 45-50 while the log
+  read 44.7 pairs/s and 90 presents/s. "40 fps" is pairs per second.
+- **The rate half of the prediction held** (at or under 54: it is 44.7). **The
+  utilisation half is REFUTED**: the game's 3D engine was predicted at or above the
+  simulator's 86 % and reads 76 %. 76.1 % over 89.4 scene renders/s is 8.5 ms of GPU per
+  render (8.0 on the simulator; the streamer's colour conversion shares the card). With
+  the streamer's 6.8 % set aside, the card's ceiling in the headset is about 93 % / 8.5 ms
+  = 109 renders/s = **about 55 pairs/s**, and the game runs at 82 % of it.
+- **So in the headset the render thread is the co-limit, more than on the simulator.**
+  The render thread never waits for the game thread (`idle` 0.2, no STARVED window, no
+  12 s cycle in this spot) and never waits for the runtime (`wait` 0.0, 0 PACE-BOUND).
+  It spends 11.2 ms per tick in `R`, 6.6 ms in our present path outside the fence, and
+  4.2 ms at the fence. The CPU-side share of that (our per-draw hooks inside `R`, the
+  2.4 ms `tick` field, the 2.4 ms `end` field) is what the 18 % of idle card can be
+  bought with: **at most about 44.7 -> 55 pairs/s**, and not past it. The ceiling
+  sentence stands with a smaller number: no change to the mod's code lifts this card past
+  about 55 pairs/s in the headset at this size.
+- The tick is flat to 0.2 ms across all 46 windows, with nothing pacing it. That is a
+  steady scene on a steady load, and it makes this spot a good A/B bench.
+
+**RETRACTION.** "The `game_tick` hitch is Debug-only and needs no ticket" (the simulator
+results above) is withdrawn. The optimised build in the headset shows 12 of them in 135 s:
+`perf: frame gap 40-51 ms ... sat in: game_tick`, irregular, three times as a pair one
+second apart. The simulator's optimised window had none, so the owner is something the
+headset lane runs and the simulator lane does not, or runs cheaper. No log line clusters
+before them (`ledger:` lines follow a gap, they do not cause it). Open, tracked on VR-160 (no separate ticket, by decision). Also seen
+and not pursued: 112 `reentry: gates -> DOUBLE draw after N single tick(s)` recoveries in
+the same 135 s, about 0.8 a second, with `L/s == R/s` holding at the 3 s scale (VR-77).
+
+Measured in passing, for the Q3 table: `draws/regions` 4035 probes per 3 s at 0.8 us per
+probe = 1.1 ms/s; NativeProfile's `DrawIndexedPrimitiveUP-hook-inclusive` 26,000 calls per
+3 s at 0.8 us sampled mean = 6.9 ms/s. Both are under 1 % of wall time. The shipped-on
+instruments are therefore NOT the 18 %; what is left is the hooks on the indexed draw
+path, the constant hook (VR-162) and the present path's own 2.4 + 2.4 ms per tick.
+
 ## Reboot/save comparison and resolution check (2026-09-19)
 
 After a PC restart and a known-good save, the tester reports performance close
