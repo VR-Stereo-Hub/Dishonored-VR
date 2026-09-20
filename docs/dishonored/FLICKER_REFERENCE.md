@@ -3273,3 +3273,43 @@ headset entries are historical. Accepted image-owned orientation remains unchang
    state, and whatever the X-ungrab path leaves set that the jump path clears.
    Not yet examined. `PSI_Gameplay_CameraRelativeClimbing` (VR-161) is a
    candidate but cannot be read yet and is NOT assumed either way.
+
+## VR-165 RETRACTION: both frequency figures were instrument artefacts (2026-09-20)
+
+The entry above states the chain swing "oscillated at ~8 Hz". **That number is
+retracted.** So is the ~110 Hz a later instrument reported for the same motion.
+
+- The ~8 Hz came from `cachePos` in the `cine/trace` lines, which are logged
+  about every **109 ms** - roughly 9 Hz. A 9 Hz sampler cannot resolve an 8 Hz
+  oscillation; the figure was aliasing, and it reached a Linear ticket before
+  anyone checked the logging interval.
+- The ~110 Hz came from `cam_modifiers`' own counter, which samples on the
+  ProcessEvent lane and was reporting approximately its own dispatch rate.
+
+**There is no trustworthy period for this bug, and none should be quoted** until
+a sampler faster than the motion produces one.
+
+What survives, because it never depended on frequency: our own writer is flat
+(0 reversals on all three axes of `posRequest`, and on the head pose, during a
+confirmed swinging window), and the camera modifier stack is eliminated - 120+
+`cammod` tables, always one entry, `CameraModifier_CameraShake` at alpha 0,
+identical swinging and settled.
+
+**The lesson, which is section 4's whole purpose:** a counter's units are not
+the units of the thing it counts. Before believing any rate out of this project,
+read how often the source line is emitted, and compare it against the period
+being claimed. Both of these would have been caught by that one check.
+
+**New evidence, from the user and worth more than either number:** the
+oscillation continues inside the weapon wheel at the same rate while game time
+is slowed. Time dilation scales game-time animation, so whatever drives this
+runs on real time or per-present. Crouch pulsing was checked as the obvious
+real-time candidate and is NOT it (zero pulses, two crouch transitions all run).
+Different actions clear it on different occasions - wheel once, Blink another -
+so it is a state several transitions happen to reset, not one owner with one
+release.
+
+**Instrument now installed:** `swing_trace.cpp` samples `render_pos_world` once
+per PRESENT into a ring and dumps the raw `ms,x,y,z` samples when a large
+excursion arms it. It derives nothing; its header tells the reader to check the
+sample spacing before reading the shape.

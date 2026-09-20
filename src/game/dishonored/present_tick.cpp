@@ -503,6 +503,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
         ResVerdictTick();  // 41.1: the render size against the picker's ask, once per size
         SceneProbePresentTick();
+        SwingTracePresentTick();   // VR-165: one sample per present, no derived rate
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
         (void)CineActive();   // VR-73: the latch's engine-flag clear runs every present, pad or not
         UpdateVirtualPad();

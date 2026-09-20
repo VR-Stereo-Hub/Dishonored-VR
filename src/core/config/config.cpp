@@ -897,6 +897,10 @@ static void WriteDefaultIni(const char* ini)
         "; measured, our own writer was flat and the GAME camera oscillated, so the owner is\n"
         "; a modifier that is not releasing. Read-only, and it prints ONLY while swinging.\n"
         "CamModProbe=1\n"
+        "; SwingTrace=1 (VR-165) samples the render camera once per PRESENT and dumps the raw\n"
+        "; samples when a big excursion trips. It derives no frequency on purpose: two earlier\n"
+        "; instruments each reported a rate that was really their own sampling rate.\n"
+        "SwingTrace=1\n"
         "\n"
         "[Cine]\n"
         "LockPitch=1\n"
@@ -2363,6 +2367,7 @@ static void LoadConfig()
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
+    SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;

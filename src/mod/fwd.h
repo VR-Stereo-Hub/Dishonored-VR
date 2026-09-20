@@ -601,6 +601,10 @@ static void GameOptsSetAuto(bool on,const char* who);
 static bool GameOptsAutoFired();
 static void GameOptsConfigure(const char* ini);
 static void GoDumpMenuSettings(const char* who);
+// VR-165: the raw present-rate camera series (swing_trace.cpp). Read-only.
+static void SwingTracePresentTick();
+static void SwingTraceConfigure(const char* ini);
+static bool SwingTraceCommand(const char* args);
 // VR-165: which camera modifier is still swinging (cam_modifiers.cpp). Read-only.
 static void CamModTick();
 static void CamModConfigure(const char* ini);

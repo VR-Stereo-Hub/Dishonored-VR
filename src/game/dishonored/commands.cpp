@@ -411,6 +411,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "gameopts")) return GameOptsCommand(args);   // VR-157
     if (!strcmp(cmd, "cammod")) return CamModCommand(args);       // VR-165
+    if (!strcmp(cmd, "swing")) return SwingTraceCommand(args);     // VR-165
     if (!strcmp(cmd, "dump")) {
         FrameDumpRequest(args[0] ? args : "frame");
         return true;
