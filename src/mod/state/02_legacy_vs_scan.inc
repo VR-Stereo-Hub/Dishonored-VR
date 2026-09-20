@@ -9,6 +9,14 @@ static float    g_vsSum[VS_REGS];          // last checksum (change detection)
 static bool     g_vsHave[VS_REGS];
 static bool     g_scanEnabled = false;  // per-upload matrix scanner (costs fps)
 static bool     g_forceNoVSync = true;  // uncap the game from the monitor
+// VR-158 (run 2026-09-20): ForceNoVSync is ONE-WAY. UncapPresent returns at its
+// first line when the flag is off, so clearing it never puts vsync back - it
+// only stops forcing it off, and this game asks for IMMEDIATE by itself. The
+// measured run turned vsync "on" and the device kept IMMEDIATE. To A/B vsync
+// at all, the ON leg has to be forced too.
+//   -1 = don't touch (the historical meaning of ForceNoVSync=0)
+//    0 = force IMMEDIATE      1 = force INTERVAL_ONE
+static int      g_vsyncWant = -1;
 static int      g_scanDumps   = 0;
 static bool     g_wpnDiag    = false;   // Stage 8.0: weapon-VP cluster diag
 static bool     g_wpnEnabled = false;   // Stage 8.1: weapon mesh follows hand

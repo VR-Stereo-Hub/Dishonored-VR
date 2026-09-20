@@ -39,10 +39,31 @@ static void ResLiveQueue(uint32_t w,uint32_t h) {
         w,h,g_resLiveFull.load()?"fullscreen":"windowed");
 }
 
-// VR-158: is the running device fullscreen? Read from what the last Reset
-// actually produced, not from what was asked for - the two differ whenever a
-// resize is refused, and the F10 checkbox must show the device, not the wish.
-static bool ResLiveFullscreen() { return !g_gameWindowed; }
+// VR-158, corrected 2026-09-20 by a measured run.
+//
+// `ResLiveFullscreen()` used to return `!g_gameWindowed` - the device's real
+// state - on the argument that a control must show the device and not the wish.
+// That reasoning was right and the reading was useless, because under
+// VirtualMode the device is windowed BY DESIGN and can never read otherwise:
+//
+//   res: CreateDevice - VirtualMode: the game asked FULLSCREEN 2750x2850 (our
+//   advertised mode); creating it WINDOWED with the backbuffer kept
+//
+// Two faults followed, both measured in one run. The F10 checkbox could never
+// stay ticked (tick it, next frame it reads the device, snaps back). And
+// `ResLiveSetVsync` fed that same reading into the resize as its fullscreen
+// argument, so a vsync toggle asked for a WINDOWED 2750x2850 where VR-50 had
+// always passed 1 - the engine clamped it to the desktop and the render
+// collapsed to 1355x1405.
+//
+// So: the resize argument comes from what was ASKED (`g_resLiveFull`, still
+// defaulting to 1), and the device's own state is reported separately and
+// named for what it is.
+static bool ResLiveWantFullscreen() { return g_resLiveFull.load()!=0; }
+static bool ResLiveDeviceWindowed() { return g_gameWindowed; }
+// True when the proxy is the reason the device is windowed, rather than the ask.
+static bool ResLiveWindowedByVirtualMode() { return g_resVirtual && g_gameWindowed; }
+static bool ResLiveFullscreen() { return ResLiveWantFullscreen(); }
 
 // VR-158: ask for a live fullscreen change at the CURRENT render size. It
 // rides the whole guarded path the resolution control already proved: same
@@ -62,29 +83,62 @@ static void ResLiveSetFullscreen(bool full,const char* who) {
             full?"on":"off",who,state);
         return;
     }
-    Log("res/live: fullscreen %s asked by %s; device is %s at %ux%u - re-entering the resize path",
-        full?"on":"off",who,ResLiveFullscreen()?"fullscreen":"windowed",w,h);
+    // MEASURED 2026-09-20: a windowed ask larger than the desktop is silently
+    // clamped by the engine, and the render collapsed 2750x2850 -> 1355x1405
+    // with only a NOT CONFIRMED line ten seconds later to show for it. Refuse
+    // it up front and name both sizes, because losing the render resolution is
+    // a worse outcome than not switching.
+    if (!full) {
+        const int dw=GetSystemMetrics(SM_CXSCREEN),dh=GetSystemMetrics(SM_CYSCREEN);
+        if (dw>0 && dh>0 && ((int)w>dw || (int)h>dh)) {
+            Log("res/live: fullscreen off REFUSED (%s) - %ux%u does not fit the desktop %dx%d, and a "
+                "windowed ask is clamped to it (this is what collapsed the render to 1355x1405). "
+                "Lower the render size first if you want the windowed leg.",who,w,h,dw,dh);
+            return;
+        }
+    }
+    Log("res/live: fullscreen %s asked by %s; asked state was %s, device is %s at %ux%u%s - "
+        "re-entering the resize path",
+        full?"on":"off",who,ResLiveWantFullscreen()?"fullscreen":"windowed",
+        ResLiveDeviceWindowed()?"windowed":"fullscreen",w,h,
+        ResLiveWindowedByVirtualMode()
+            ? " (windowed BY VIRTUALMODE, not by the ask - the proxy creates the advertised "
+              "fullscreen mode windowed, so the device can never read fullscreen while it is on)"
+            : "");
     g_resLiveFull.store(full?1:0);
     ResLiveQueue(w,h);
 }
 
-// VR-158: vsync is NOT live on its own. g_forceNoVSync is read by
-// UncapPresent, which only runs at CreateDevice and Reset, so flipping the
-// flag alone changes nothing until the next device event. Provoke one at the
-// current size, keeping the fullscreen state the device already has.
+// VR-158: vsync is NOT live on its own. UncapPresent runs only at CreateDevice
+// and Reset, so the flag has to be followed by a device event.
+//
+// CORRECTED 2026-09-20 after the first run, which found two faults:
+//
+//  1. This used to pass the DEVICE's fullscreen state into the resize. Under
+//     VirtualMode that reads windowed always, so a vsync toggle asked for a
+//     windowed 2750x2850, the engine clamped it to the desktop, and the render
+//     collapsed to 1355x1405. It now leaves the fullscreen ask alone entirely -
+//     changing vsync must not change anything else.
+//  2. Clearing ForceNoVSync did not turn vsync ON. This game asks for
+//     IMMEDIATE itself, and the old UncapPresent returned at its first line
+//     when the flag was off, so the ON leg was never forced and the device kept
+//     running uncapped. `g_vsyncWant` now forces both directions.
 static void ResLiveSetVsync(bool vsyncOn,const char* who) {
-    const bool wantForceOff=!vsyncOn;
-    if (g_forceNoVSync==wantForceOff) {
-        Log("perf: vsync %s asked by %s - already there (ForceNoVSync=%d); no reset provoked",
-            vsyncOn?"on":"off",who,(int)g_forceNoVSync);
+    const int want=vsyncOn?1:0;
+    if (g_vsyncWant==want) {
+        Log("perf: vsync %s asked by %s - already forced that way; no reset provoked",
+            vsyncOn?"on":"off",who);
         return;
     }
-    g_forceNoVSync=wantForceOff;
-    Log("perf: vsync %s asked by %s -> ForceNoVSync=%d; provoking a device reset so "
-        "UncapPresent can act (the present interval in force is logged by that reset, "
-        "and THAT line is the evidence, not this one)",
-        vsyncOn?"on":"off",who,(int)g_forceNoVSync);
-    ResLiveSetFullscreen(ResLiveFullscreen(),"vsync change");
+    g_vsyncWant=want;
+    g_forceNoVSync=!vsyncOn;          // kept in step so the ini and cfg dump agree
+    const uint32_t w=dvr::capture::width(),h=dvr::capture::height();
+    Log("perf: vsync %s asked by %s -> vsyncWant=%d ForceNoVSync=%d; provoking a device reset at "
+        "%ux%u WITHOUT touching the fullscreen ask (%s). The reset's own present-interval line is "
+        "the evidence; this line is only the request",
+        vsyncOn?"on":"off",who,g_vsyncWant,(int)g_forceNoVSync,w,h,
+        ResLiveWantFullscreen()?"fullscreen":"windowed");
+    ResLiveSetFullscreen(ResLiveWantFullscreen(),"vsync change");
 }
 static void ResLivePoll() {
     int state=ResLiveState();

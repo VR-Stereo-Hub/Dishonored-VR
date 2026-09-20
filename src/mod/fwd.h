@@ -60,6 +60,9 @@ static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who);
 static void ResLiveQueue(uint32_t w,uint32_t h);
 // VR-158: live fullscreen and vsync, both through the proven resize path.
 static bool ResLiveFullscreen();
+static bool ResLiveWantFullscreen();
+static bool ResLiveDeviceWindowed();
+static bool ResLiveWindowedByVirtualMode();
 static void ResLiveSetFullscreen(bool full,const char* who);
 static void ResLiveSetVsync(bool vsyncOn,const char* who);
 static void ResLiveApply(void* viewport);

@@ -941,3 +941,39 @@ project has paid for more than once. The live F10 levers deliberately write only
 the mod's own keys. **If the profile write path is built later, these two are the
 ones to leave out of it, or the mod and the game will fight over the device every
 launch.**
+
+## VR-158: "show the device, not the wish" was right and still produced two bugs (2026-09-20)
+
+A control should report what actually happened, not what was asked. That rule is
+sound and it is why the F10 fullscreen checkbox read `!g_gameWindowed`. It was
+still wrong here, because **under VirtualMode the device is windowed BY DESIGN**
+and the reading is a constant:
+
+```
+res: CreateDevice - VirtualMode: the game asked FULLSCREEN 2750x2850 (our advertised
+mode); creating it WINDOWED with the backbuffer kept
+```
+
+Two faults came out of that single reading in one run:
+
+- the checkbox could never stay ticked - tick it, next frame it re-read the
+  device, snapped back;
+- `ResLiveSetVsync` fed the same reading into the engine resize as its
+  fullscreen argument, so changing VSYNC asked for a WINDOWED 2750x2850. The
+  engine clamps a windowed ask to the desktop, and the render collapsed to
+  1355x1405 with only a `NOT CONFIRMED` line ten seconds later.
+
+**The lesson.** A state reported by the engine is not automatically the right
+INPUT for the next engine call. Reporting state and deciding an argument are two
+different jobs, and one accessor doing both silently coupled a vsync change to a
+resolution change. Split them: `ResLiveWantFullscreen()` decides,
+`ResLiveDeviceWindowed()` reports, and `ResLiveWindowedByVirtualMode()` says
+when the two differ for a known reason.
+
+**And: a lever with one working direction is not an A/B.** `ForceNoVSync` only
+ever forced vsync OFF - `UncapPresent` returns at its first line when the flag
+is clear. Clearing it does not turn vsync on, it stops forcing it off, and this
+game asks for `D3DPRESENT_INTERVAL_IMMEDIATE` itself. The "vsync on" leg ran
+uncapped and would have reported no difference for entirely the wrong reason.
+Before trusting any A/B, check that the OFF leg and the ON leg are both forced,
+and that the instrument logs the value actually in force rather than the request.

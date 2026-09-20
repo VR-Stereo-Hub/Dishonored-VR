@@ -818,11 +818,22 @@ static void OverlayFrame()
                 ConfigWriteKey("Perf", "ForceNoVSync", vsyncOn ? "0" : "1", "F10 Display");
             }
             ImGui::EndDisabled();
-            ImGui::TextDisabled("Device now: %s, present %s. Windowed presents through DWM; "
-                                "fullscreen exclusive does not.",
-                                ResLiveFullscreen() ? "fullscreen" : "windowed",
-                                g_forceNoVSync ? "uncapped" : "vsynced");
+            // VR-158, corrected by the 2026-09-20 run: the checkbox shows what
+            // was ASKED. It used to show the device, which under VirtualMode is
+            // windowed by design, so ticking it snapped straight back.
+            ImGui::TextDisabled("Asked: %s. Device: %s. Present: %s.",
+                                ResLiveWantFullscreen() ? "fullscreen" : "windowed",
+                                ResLiveDeviceWindowed() ? "windowed" : "fullscreen",
+                                g_vsyncWant == 1 ? "vsynced (forced)"
+                                                 : (g_vsyncWant == 0 ? "uncapped (forced)"
+                                                                     : "the game's own choice"));
+            if (ResLiveWindowedByVirtualMode())
+                ImGui::TextDisabled("VirtualMode is ON, so the device is WINDOWED whatever this asks: "
+                                    "the proxy creates the advertised mode windowed. True fullscreen "
+                                    "needs a real display mode and VirtualMode off.");
             ImGui::TextDisabled("Each switch costs one device reset - the same brief pause as a resize.");
+            ImGui::TextDisabled("A windowed ask larger than the desktop is refused: the engine clamps it "
+                                "and the render size is lost.");
         }
         ImGui::Separator();
     }
