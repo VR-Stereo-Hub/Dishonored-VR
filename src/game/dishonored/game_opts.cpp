@@ -164,7 +164,7 @@ uint8_t* GoScanForProfileObject()
     // Rank instead of taking the first, and PRINT EVERY CANDIDATE. The choice
     // being invisible is what made the first run's failure ambiguous: a refusal
     // on the wrong object reads identically to a refusal on the right one.
-    struct Cand { uint8_t* obj; const char* cls; int score; };
+    struct Cand { uint8_t* obj; const char* cls; int score; int32_t entries; };
     Cand cands[16]; int nc = 0; int hits = 0;
     for (uint32_t i = 0; i < onum; i++) {
         if ((i & 1023) == 0) {
@@ -183,24 +183,51 @@ uint8_t* GoScanForProfileObject()
         // Most derived wins: Ark is the game's own, then anything that is not
         // the bare base class, then the base class as a last resort.
         const int score = strstr(cn, "Ark") ? 3 : (strcmp(cn, "OnlineProfileSettings") ? 2 : 1);
-        if (nc < 16) { cands[nc].obj = o; cands[nc].cls = cn; cands[nc].score = score; ++nc; }
+        if (nc < 16) { cands[nc].obj = o; cands[nc].cls = cn; cands[nc].score = score; cands[nc].entries = -1; ++nc; }
     }
     if (!nc) {
         Log("gameopts: REFUSED - no live *ProfileSettings object in %u objects. The settings "
             "may not be loaded until the options menu has been opened once this session.", onum);
         return NULL;
     }
-    int best = 0;
-    for (int i = 1; i < nc; ++i) if (cands[i].score > cands[best].score) best = i;
-    Log("gameopts: object-table scan found %d live *ProfileSettings (%d listed). Ranking most "
-        "derived first, because run 2 took the base class and every id refused:", hits, nc);
+    // RANK BY DATA, NOT BY CLASS NAME. Run 4 measured that the top-ranked
+    // ArkProfileSettings had a ProfileSettings array of ZERO entries, so every
+    // id refused - correctly, because there was nothing to answer about. Class
+    // name says which object is most derived; it does not say which one is
+    // LOADED, and loaded is the only property that matters here. There were two
+    // ArkProfileSettings and two UIDataProvider_OnlineProfileSettings in the
+    // table, and this only ever looked at one of them.
+    //
+    // So: read every candidate's array length first and prefer a populated one,
+    // breaking ties by how derived it is. Print the length beside each, because
+    // "empty" and "wrong object" produced identical refusals for three runs.
+    const uint32_t offArr = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
+    int best = -1;
+    Log("gameopts: object-table scan found %d live *ProfileSettings (%d listed). Ranking by "
+        "whether the settings array is actually POPULATED, then by how derived the class is:",
+        hits, nc);
+    for (int i = 0; i < nc; ++i) {
+        uint8_t* d = NULL; int32_t n = -1;
+        if (offArr) RflArrayAt(cands[i].obj, offArr, &d, &n);
+        cands[i].entries = n;
+        const bool loaded = n > 0;
+        if (best < 0) best = i;
+        else {
+            const bool bl = cands[best].entries > 0;
+            if ((loaded && !bl) || (loaded == bl && cands[i].score > cands[best].score)) best = i;
+        }
+    }
     for (int i = 0; i < nc; ++i)
-        Log("gameopts:   %s %p %-28s score=%d", i == best ? "USING  " : "       ",
-            (void*)cands[i].obj, cands[i].cls, cands[i].score);
-    if (cands[best].score == 1)
-        Log("gameopts: WARNING - the best candidate is the BASE class OnlineProfileSettings. "
-            "If the ids refuse again, the game's ArkProfileSettings instance is not in the "
-            "table yet and this is not a parms-block problem.");
+        Log("gameopts:   %s %p %-40s score=%d entries=%d%s",
+            i == best ? "USING  " : "       ", (void*)cands[i].obj, cands[i].cls,
+            cands[i].score, cands[i].entries,
+            cands[i].entries == 0 ? "  (EMPTY: cannot answer anything)" : "");
+    if (best >= 0 && cands[best].entries <= 0)
+        Log("gameopts: WARNING - EVERY candidate's settings array is empty, so the profile is "
+            "not loaded anywhere in the object table. The refusals below are expected and are "
+            "NOT a parms-block fault. The settings most likely arrive only once the options "
+            "menu has been opened, or the async profile read has not completed this session.");
+    if (best < 0) return NULL;
     return cands[best].obj;
 }
 

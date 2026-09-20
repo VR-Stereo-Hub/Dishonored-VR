@@ -48,6 +48,10 @@ bool     g_cmHaveZ     = false;
 int      g_cmSwingRuns = 0;     // consecutive fast reversals seen
 float    g_cmExtreme   = 0.0f;   // running extreme of the current leg
 int      g_cmLeg       = 0;      // -1 falling, +1 rising, 0 unknown
+double   g_cmBeatMs    = 0.0;    // the watcher's own heartbeat
+double   g_cmPeakHz    = 0.0;
+float    g_cmPeakAmp   = 0.0f;
+bool     g_cmPrinted   = false;  // has any table printed this session?
 int      g_cmReversals = 0;
 double   g_cmWindowMs  = 0.0;
 float    g_cmZMin=0.0f, g_cmZMax=0.0f;
@@ -123,14 +127,30 @@ static void CamModTick()
     float z = 0.0f;
     if (CmCameraZ(cam, &z)) {
         if (g_cmHaveZ) {
-            const float d = z - g_cmLastZ;
-            if (d > 0.0f) { if (z > g_cmExtreme) g_cmExtreme = z; }
-            else if (d < 0.0f) { if (z < g_cmExtreme) g_cmExtreme = z; }
-            // A turn: we have moved back from the running extreme by more than
-            // the threshold, in the opposite sense to the leg we were on.
-            const float back = z - g_cmExtreme;
-            if (g_cmLeg >= 0 && back < -kCmTurnUu) { ++g_cmReversals; g_cmLeg = -1; g_cmExtreme = z; }
-            else if (g_cmLeg <= 0 && back > kCmTurnUu) { ++g_cmReversals; g_cmLeg = 1; g_cmExtreme = z; }
+            // REGRESSION FIXED. The first version of this updated g_cmExtreme
+            // toward z on EVERY sample, in whichever direction z had just
+            // moved. That made the extreme track z, so `z - extreme` was always
+            // about zero and could never cross the threshold: the detector
+            // counted nothing and the probe printed no table at all during a
+            // reproduction the user confirmed. A counter that cannot fire is
+            // worse than the noisy one it replaced, and this one shipped
+            // untested because the swing did not occur on the run after it.
+            //
+            // The extreme belongs to the LEG, and only ever moves further OUT:
+            // on a rising leg it is the highest z seen, on a falling leg the
+            // lowest. A turn is z retreating from it by more than kCmTurnUu.
+            if (g_cmLeg > 0) { if (z > g_cmExtreme) g_cmExtreme = z; }
+            else if (g_cmLeg < 0) { if (z < g_cmExtreme) g_cmExtreme = z; }
+            else {
+                // No leg yet: adopt one as soon as there is real movement.
+                if (z > g_cmExtreme + kCmTurnUu) { g_cmLeg = 1; g_cmExtreme = z; }
+                else if (z < g_cmExtreme - kCmTurnUu) { g_cmLeg = -1; g_cmExtreme = z; }
+            }
+            if (g_cmLeg > 0 && z < g_cmExtreme - kCmTurnUu) {
+                ++g_cmReversals; g_cmLeg = -1; g_cmExtreme = z;
+            } else if (g_cmLeg < 0 && z > g_cmExtreme + kCmTurnUu) {
+                ++g_cmReversals; g_cmLeg = 1; g_cmExtreme = z;
+            }
             if (z < g_cmZMin) g_cmZMin = z;
             if (z > g_cmZMax) g_cmZMax = z;
         } else { g_cmZMin = g_cmZMax = g_cmExtreme = z; g_cmWindowMs = now; g_cmLeg = 0; }
@@ -153,7 +173,25 @@ static void CamModTick()
     const bool swinging = (hz >= 2.0 && amp > 15.0f);
     if (swinging) { g_cmLastMoveMs = now; ++g_cmSwingRuns; }
     const bool justStopped = !swinging && g_cmSwingRuns > 0 && (now - g_cmLastMoveMs) < 3000.0;
+    // The detector must be able to say it is alive. Its first version counted
+    // nothing and printed nothing, and "no tables" read exactly like "no
+    // swing" - so a broken instrument looked like a clean run. This line makes
+    // silence explainable: it reports what the watcher is actually seeing, and
+    // the peak it has seen, so a threshold that is never reached is visible
+    // rather than invisible.
+    if (g_cmPeakHz < hz) g_cmPeakHz = hz;
+    if (g_cmPeakAmp < amp) g_cmPeakAmp = amp;
+    if (now >= g_cmBeatMs) {
+        g_cmBeatMs = now + 30000.0;
+        Log("cammod: watching - this window %.1f Hz / %.1f uu; peak since the last beat "
+            "%.1f Hz / %.1f uu; a table prints at >= 2.0 Hz AND > 15 uu. %s",
+            hz, amp, g_cmPeakHz, g_cmPeakAmp,
+            g_cmPrinted ? "Tables have printed this session."
+                        : "NO table has printed yet this session.");
+        g_cmPeakHz = 0.0; g_cmPeakAmp = 0.0f;
+    }
     if (!swinging && !justStopped) { if (!swinging) g_cmSwingRuns = 0; return; }
+    g_cmPrinted = true;
     if (!swinging) g_cmSwingRuns = 0;
 
     uint8_t* data = NULL; int32_t num = 0;
