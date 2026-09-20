@@ -128,7 +128,7 @@ static void RainTick() {
     if (emitter && !IsLiveObject(emitter)) {
         // An emitter spawned after the table was built. Bounded rebuild, then
         // the next sample decides; never trust it this sample.
-        if (now >= nextRebuild) { nextRebuild = now + 2000; BuildLiveSet(); }
+        if (now >= nextRebuild) { nextRebuild = now + 2000; RefreshLiveSet(2000); }   // VR-160
         emitter = nullptr;
     }
     const char* ec = emitter ? ObjClassName(emitter) : nullptr;

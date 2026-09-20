@@ -408,7 +408,7 @@ static bool YawOwnerValid()
     if (!IsLiveObject(c) || !IsLiveObject(p)) {
         static double nextLive=0;
         const double now=MaimNowMs();
-        if(now>=nextLive) { BuildLiveSet(); nextLive=now+500; }
+        if(now>=nextLive) { RefreshLiveSet(500); nextLive=now+500; }   // VR-160
         if(!IsLiveObject(c) || !IsLiveObject(p)) return YawRefuse("pair not live");
     }
     if (!YawPairLive(c, p)) return YawRefuse("pair not in current GObjects (or rebind pending)");

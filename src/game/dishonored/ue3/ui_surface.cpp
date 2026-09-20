@@ -181,7 +181,7 @@ static void UiSurfacePoll() {
     if(now<g_usNext) return;
     g_usNext=now+50;
     if(!g_usResolved) { UsPublish(dvr::mono::Other,true,false,-1,-1,-1); return; }
-    if(now>=g_usRefresh) { BuildLiveSet(); g_usRefresh=now+1000; }
+    if(now>=g_usRefresh) { RefreshLiveSet(1000); g_usRefresh=now+1000; }   // VR-160: shared with the other periodic callers
     if(!ChSlot(g_usEngine)) { UsPublish(dvr::mono::Other,true,false,-1,-1,-1); return; }
     auto* engine=(uint8_t*)g_usEngine.value.obj;
     uint8_t mode=0,transition=0; uint32_t started=0,hints=0; void* movie=nullptr;
