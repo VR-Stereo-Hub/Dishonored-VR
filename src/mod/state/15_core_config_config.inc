@@ -82,6 +82,14 @@ static bool     g_launchFull = true;
 static bool     g_launchVirtual = false;            // the file asked for VirtualMode (wins over the ini)
 static const char* kBuildTag = "41.0";
 static const int kConfigVersion = 13; // bump to refresh users' ini with new defaults
+// NOT bumped for VR-157's [Diagnostics] GameOptsOnStart, on purpose. A bump
+// makes LoadConfig call WriteDefaultIni, which throws the whole file away and
+// carries over exactly three keys ([VR] Runtime, [VR] XrRuntimeJson, [Paths]
+// DataDir) - every tuned F10 value in it is lost. That is a very expensive way
+// to introduce a key that already has a default: IniFloat's own fallback
+// supplies it when the key is absent, and the F10 control writes it the first
+// time it is touched. Bump this only when a user's existing VALUE would be
+// wrong for the new build, never merely to add a key.
 
 // Load config exactly once, lazily, from OUTSIDE the loader lock (first export
 // call). Safe to call repeatedly; only the first does work.

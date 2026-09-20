@@ -80,10 +80,32 @@ const GoEntry kGoTable[] = {
 };
 const int kGoCount = (int)(sizeof(kGoTable) / sizeof(kGoTable[0]));
 
-// A request from the seam, drained on the script lane next to DvrConsoleApply.
+// Grace between "gameplay is live" and the automatic read. Long enough that a
+// level load's script burst is over, short enough that it lands inside any
+// playtest worth reading.
+const int kGoAutoDelayMs = 4000;
+
+// A request, drained on the script lane next to DvrConsoleApply.
 // 0 = idle, 1 = profile + SystemSettings, 2 = SystemSettings only (no
 // player controller needed beyond the console's own).
 volatile long g_goReq = 0;
+
+// VR-157: IT MUST ASK ITSELF. The tester plays in a headset and cannot alt-tab
+// to a prompt, so a diagnostic that only fires from `game-cmd.ps1` is a
+// diagnostic that never fires - which is exactly what happened on its first
+// build: the seam word shipped, two runs went by, and the log had no
+// `gameopts` line in it at all. The repo's own PR template already says a seam
+// word with no F10 control is not shipped; this is that rule with the extra
+// step that the answer needs no interaction whatever.
+//
+// So: it runs ONCE per session, on its own, a few seconds after gameplay is
+// first verified (the profile object hangs off the player controller, which
+// does not exist on the title screen). Read-only, one burst of lines, then
+// silent. `[Diagnostics] GameOptsOnStart=0` opts out; the F10 button and the seam
+// word re-run it on demand.
+bool   g_goAuto     = true;    // [Diagnostics] GameOptsOnStart
+bool   g_goAutoDone = false;   // fired for this session
+double g_goReadyMs  = 0.0;     // when gameplay was first seen
 
 // Latched UFunctions. Looked up once; a miss is logged with the name so a
 // rename in a future game build reads as a miss and not as a zero.
@@ -212,6 +234,22 @@ void GoReadSystemSetting(const char* key, char* out, int cap)
 // the same reason (RunConsole re-enters our own ProcessEvent hook).
 static void GameOptsApply()
 {
+    // The self-ask. Waits for a player controller AND a settled gameplay
+    // verdict, then a short grace so the profile read does not land in the
+    // middle of a level load's script burst.
+    if (g_goAuto && !g_goAutoDone && !g_goReq && g_peCtrl && DvrGameplayVerdict()) {
+        const double now = MaimNowMs();
+        if (g_goReadyMs <= 0.0) {
+            g_goReadyMs = now;
+            Log("gameopts: gameplay reached; the automatic read fires in %d ms "
+                "([Diagnostics] GameOptsOnStart=0 turns it off)", kGoAutoDelayMs);
+        } else if (now - g_goReadyMs >= (double)kGoAutoDelayMs) {
+            g_goAutoDone = true;
+            InterlockedExchange(&g_goReq, 1);
+            Log("gameopts: automatic read (nobody asked for it; this is the one "
+                "per session, so a headset run produces the answer by itself)");
+        }
+    }
     const long req = InterlockedExchange(&g_goReq, 0);
     if (!req) return;
     if (g_peReentry) { InterlockedExchange(&g_goReq, req); return; }
@@ -257,6 +295,32 @@ static void GameOptsApply()
             "system column is still valid.");
     Log("gameopts: ---- end ----");
 }
+
+// Ships ON. The workflow here is that the tester plays and the maintainers read
+// the log afterwards, so a diagnostic that has to be asked for is one that is
+// never asked for. It costs one burst of lines, once, and then nothing.
+static void GameOptsConfigure(const char* ini)
+{
+    g_goAuto = IniFloat(ini, "Diagnostics", "GameOptsOnStart", 1) != 0.0f;
+    Log("gameopts: automatic read on gameplay %s ([Diagnostics] GameOptsOnStart)",
+        g_goAuto ? "ON" : "off");
+}
+
+// For the F10 button. Read-only and idempotent, so it just queues.
+static void GameOptsRequest(const char* who)
+{
+    InterlockedExchange(&g_goReq, 1);
+    Log("gameopts: read queued by %s", who);
+}
+static bool GameOptsAutoEnabled() { return g_goAuto; }
+static void GameOptsSetAuto(bool on, const char* who)
+{
+    g_goAuto = on;
+    Log("gameopts: automatic read on gameplay %s (%s)", on ? "ON" : "off", who);
+}
+// True once this session's automatic read has fired, so the panel can say so
+// rather than leaving the reader wondering whether it is coming.
+static bool GameOptsAutoFired() { return g_goAutoDone; }
 
 // The seam word. Read-only, so it needs no confirmation and no A/B toggle.
 static bool GameOptsCommand(const char* args)
