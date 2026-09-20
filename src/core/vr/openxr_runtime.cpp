@@ -198,6 +198,14 @@ std::atomic<uint32_t> g_monoMask{0xffffffffu},g_monoContext{0},g_monoReset{0};
 dvr::mono::Anchor g_monoAnchor;
 uint32_t g_monoResetSeen=0;
 XrTime g_monoSpaceChange=0;
+// VR-154: a LOCAL reference-space change means the RUNTIME moved the origin -
+// a headset recenter, a room-setup change, a guardian re-seed. Everything the
+// mod measured against the old origin is stale from that moment. The mono
+// anchor already reacted; nothing else did, and nothing outside this file could
+// even find out. One counter, read by whoever holds an origin-relative
+// reference. Engine-agnostic: the runtime layer says WHAT happened, the game
+// side decides what to drop.
+std::atomic<uint32_t> g_localSpaceGen{0};
 std::atomic<float> g_screenWidthM{2.4f};  // quad width in meters
 std::atomic<bool> g_cameraMode{false};    // M3: drive the game camera from the HMD
 
@@ -2473,7 +2481,16 @@ void pump_events() {
             }
         } else if (ev.type == XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING) {
             const auto* change=reinterpret_cast<const XrEventDataReferenceSpaceChangePending*>(&ev);
-            if(change->referenceSpaceType==XR_REFERENCE_SPACE_TYPE_LOCAL) g_monoSpaceChange=change->changeTime;
+            if(change->referenceSpaceType==XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                g_monoSpaceChange=change->changeTime;
+                const uint32_t gen=g_localSpaceGen.fetch_add(1,std::memory_order_release)+1;
+                XRLOG("xr: LOCAL reference space CHANGED (generation %u) - the runtime moved "
+                      "the origin (a headset recenter, room setup, or guardian re-seed). Every "
+                      "origin-relative reference the mod holds is stale from here: the "
+                      "positional and crouch references are dropped and re-taken at the next "
+                      "pose. If height or lean is wrong immediately after a recenter and this "
+                      "line is absent, the runtime did not announce the change",gen);
+            }
         } else if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
             teardown_session("instance loss pending");
             return;
@@ -6626,6 +6643,7 @@ void set_mono_anchor(bool on,uint32_t contexts) {
 }
 bool mono_anchor_enabled() { return g_monoAnchored.load(); }
 uint32_t mono_anchor_contexts() { return g_monoMask.load(); }
+uint32_t local_space_generation() { return g_localSpaceGen.load(std::memory_order_acquire); }
 void recenter_mono_anchor() { g_monoReset.fetch_add(1); }
 void set_mono_context(dvr::mono::Context context,bool forceMono) {
     g_monoContext.store((uint32_t)context | (forceMono?0x100u:0u));
@@ -6685,6 +6703,7 @@ void set_screen_head_locked(bool) {}
 void set_mono_anchor(bool,uint32_t) {}
 bool mono_anchor_enabled() { return false; }
 uint32_t mono_anchor_contexts() { return 0; }
+uint32_t local_space_generation() { return 0; }   // no runtime, no origin to move
 void recenter_mono_anchor() {}
 void set_mono_context(dvr::mono::Context,bool) {}
 int64_t swapchain_format() { return 0; }

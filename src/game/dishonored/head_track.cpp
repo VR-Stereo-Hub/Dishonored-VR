@@ -1289,10 +1289,60 @@ static void TrackHead(const float (*m)[4])
         }
         g_f5Was = f5;
 
+        // VR-154: THE RUNTIME CAN MOVE THE ORIGIN UNDER US.
+        //
+        // g_posRef* is a position in the LOCAL space, and the displacement that
+        // drives lean and height is (pose - ref). When the runtime recenters -
+        // the Quest menu button through SteamVR, a room-setup change, a
+        // guardian re-seed - the LOCAL origin moves and the held reference
+        // means nothing, so the displacement jumps by however far it went.
+        //
+        // This never showed on VDXR, where a mid-session recenter is rare and
+        // the origin sits close to the head anyway. It shows on SteamVR because
+        // the headset button recentres mid-session, every time.
+        //
+        // WHERE SteamVR's LOCAL origin sits is NOT established here. An earlier
+        // note in this comment said "the floor, so the jump is a standing
+        // height" - that was a guess, and the tester is SEATED, so it was not
+        // even the right body position to reason from. What is established is
+        // the mechanism: the reference is a point in a space whose origin moved,
+        // so the displacement jumps by the shift, whatever the shift is. The
+        // reference line below prints the position each reference is taken at,
+        // and two of them either side of a recenter measure the shift directly
+        // instead of assuming it.
+        //
+        // The crouch reference goes with it - it is a head height in the same
+        // space and is stale for exactly the same reason.
+        {
+            static uint32_t posSpaceGen = 0;
+            const uint32_t gen = dvr::vr::local_space_generation();
+            if (gen != posSpaceGen) {
+                posSpaceGen = gen;
+                if (g_posHaveRef || g_crouchRefOk)
+                    Log("postrack: origin moved (LOCAL space generation %u) - dropping the "
+                        "position and crouch references; both re-take at the next pose. "
+                        "The reference being dropped was (%.3f %.3f %.3f) m",
+                        gen, g_posRefX, g_posRefY, g_posRefZ);
+                g_posHaveRef = false;
+                g_crouchRefOk = false;
+            }
+        }
         float rawDx = 0.0f, rawDy = 0.0f, rawDz = 0.0f;   // the raw head displacement (m), for the projection lane
         if (g_posTrack) {
             float px = m[0][3], py = m[1][3], pz = m[2][3]; // meters
             if (!g_posHaveRef) {
+                // VR-154: name the origin the reference was taken against, and
+                // the head's ORIENTATION at that moment. A gravity-aligned
+                // space shows roll near zero for an upright wearer; roll near
+                // +/-180 is the SPACE being inverted, which is what the SteamVR
+                // report describes - and no image flip can fix that, because
+                // what is wrong is the pose. That the tester's recenter fixes
+                // the orientation is itself the proof: a flipped texture would
+                // not care about a recenter.
+                Log("postrack: reference taken at (%.3f %.3f %.3f) m, head roll %+.1f deg "
+                    "pitch %+.1f deg (roll near 0 = gravity-aligned with the wearer upright, "
+                    "seated or standing; near +/-180 = the LOCAL space itself is inverted)",
+                    px, py, pz, g_hmdRoll * 57.2957795f, g_hmdPitch * 57.2957795f);
                 g_posRefX = px; g_posRefY = py; g_posRefZ = pz;
                 g_posHaveRef = true;
             }
