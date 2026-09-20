@@ -954,3 +954,113 @@ Resolving only the wheel's adjacent TGA files misses imports; resolving the libr
 still misses native req_EquipmentIconImage execution. Use the full dependency
 export and inspect individual runtime textures; do not present a static frame as a
 complete populated wheel or assume more geometry is inside the wheel movie.
+
+## VR-157: a player option read out of a game ini is a stale setting (2026-09-20)
+
+The stale-setting class again, with a new home. `DishonoredEngine.ini`
+`[SystemSettings] bAllowLightShafts=True` on the dev PC while the in-game menu
+reported light shafts OFF. The file's timestamp was recent, so "out of date" is
+not an explanation on its own.
+
+**None of the twelve player-facing option settings live in the game's 21 inis.**
+They live in the Steam Cloud profile blob, `userdata/<id>/205100/remote/OPTIONS.sav`
+- bit-packed, 722 bytes, not text. The `[SystemSettings]` entries for the five
+graphics ones are a mirror of it, and the mirror is not authoritative.
+
+The trap has the shape this file keeps recording: a value that can be READ,
+matches a plausible key name, and is not what the consumer uses. Grepping the
+config folder for `LightShaft` returns a hit, and the hit is wrong.
+
+**The rule.** Before treating any option value as the setting, find every place
+it can live, read what the RUN resolved it to, and confirm it reached the
+consumer. For these twelve that is `gameopts` on the seam, which prints the
+profile's value and the live `SystemSettings` value side by side and marks a row
+as not-evidence when the engine's own name for the id does not match the table.
+
+**Do not "fix" this by writing the ini.** The game rewrites these files from its
+own menus, so anything written there is provisional, and a mod that silently
+rewrites a player's graphics settings is indistinguishable from a mod that broke
+them. That is already the standing reason `-VRBaseline` touches only four values.
+
+## VR-158: two writers for fullscreen and vsync (2026-09-20, avoided on purpose)
+
+The mod already owns both: `[Screen] RenderFullscreen` / `VirtualMode` and
+`[Perf] ForceNoVSync`. The game's option profile owns them too
+(`PSI_GraphicsPC_bFullScreen` 116, `PSI_GraphicsPC_bVSync` 117).
+
+Writing the profile entries as part of the "settings a fresh install arrives
+with" work would create two writers for one value, which is the failure this
+project has paid for more than once. The live F10 levers deliberately write only
+the mod's own keys. **If the profile write path is built later, these two are the
+ones to leave out of it, or the mod and the game will fight over the device every
+launch.**
+
+## VR-158: "show the device, not the wish" was right and still produced two bugs (2026-09-20)
+
+**The code these two lessons came from is NOT on this branch.** The live
+fullscreen and vsync levers were built, measured, found faulty three ways and
+parked on 2026-09-20; they live on `claude/vr-157-game-opts-probe` and in PR #82.
+The lessons are kept here anyway, because that is what this file is for and
+because they are what keep fullscreen and vsync out of VR-161's write path.
+
+A control should report what actually happened, not what was asked. That rule is
+sound and it is why the F10 fullscreen checkbox read `!g_gameWindowed`. It was
+still wrong here, because **under VirtualMode the device is windowed BY DESIGN**
+and the reading is a constant:
+
+```
+res: CreateDevice - VirtualMode: the game asked FULLSCREEN 2750x2850 (our advertised
+mode); creating it WINDOWED with the backbuffer kept
+```
+
+Two faults came out of that single reading in one run:
+
+- the checkbox could never stay ticked - tick it, next frame it re-read the
+  device, snapped back;
+- `ResLiveSetVsync` fed the same reading into the engine resize as its
+  fullscreen argument, so changing VSYNC asked for a WINDOWED 2750x2850. The
+  engine clamps a windowed ask to the desktop, and the render collapsed to
+  1355x1405 with only a `NOT CONFIRMED` line ten seconds later.
+
+**The lesson.** A state reported by the engine is not automatically the right
+INPUT for the next engine call. Reporting state and deciding an argument are two
+different jobs, and one accessor doing both silently coupled a vsync change to a
+resolution change. Split them: `ResLiveWantFullscreen()` decides,
+`ResLiveDeviceWindowed()` reports, and `ResLiveWindowedByVirtualMode()` says
+when the two differ for a known reason.
+
+**And: a lever with one working direction is not an A/B.** `ForceNoVSync` only
+ever forced vsync OFF - `UncapPresent` returns at its first line when the flag
+is clear. Clearing it does not turn vsync on, it stops forcing it off, and this
+game asks for `D3DPRESENT_INTERVAL_IMMEDIATE` itself. The "vsync on" leg ran
+uncapped and would have reported no difference for entirely the wrong reason.
+Before trusting any A/B, check that the OFF leg and the ON leg are both forced,
+and that the instrument logs the value actually in force rather than the request.
+
+## A shipped .ps1 with no .cmd wrapper does not run for the user (2026-09-20)
+
+`vr-runtime.ps1` was reported as not working. It works: run correctly it rewrote
+the ini on the first try. It had simply never executed - the selection was still
+`Runtime=steamvr` and the ini's mtime predated every attempt.
+
+A `.ps1` dropped in the game folder has three ways to do nothing, and all three
+look the same from outside:
+
+- double-clicking opens it in an editor instead of running it;
+- "Run with PowerShell" runs it under the machine's ExecutionPolicy and closes
+  the window the instant it is refused;
+- typing the bare name at a prompt fails, because PowerShell does not search the
+  current directory (`.\name.ps1` is required).
+
+`collect-support.ps1` already shipped with `Collect VR Support.cmd` beside it and
+was never reported as broken. That wrapper was the whole difference.
+
+**The rule: anything shipped in the release zip for a person to run gets a `.cmd`
+wrapper**, with `-NoProfile -ExecutionPolicy Bypass -File "%~dp0..."`, `-GameDir
+"%~dp0."` and a `pause` so the answer can be read. A double-click cannot pass an
+argument, so a script with modes asks for one. `Switch VR Runtime.cmd` does this.
+
+The general lesson is the one this file keeps recording in other forms: **"the
+tool does not work" and "the tool was never invoked" produce the same report**,
+and they are distinguished by evidence - here the ini's timestamp, which said
+plainly that nothing had written it.
