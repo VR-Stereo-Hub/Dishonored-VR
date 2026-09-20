@@ -32,6 +32,9 @@
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
+//   gameopts [read|system]       VR-157: READ the game's own option settings -
+//                                the profile blob's value and the live
+//                                SystemSettings mirror, side by side. Read-only.
 //   dump frame|capture|eyes|hud [sink]
 //   hud on|off|status|scale <f>  the HUD redirect (core/gfx/hud_capture) - VR-117
 //   hud regions on|off           route elements by screen region (the probe)
@@ -406,6 +409,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("console: queued '%s' for the script lane", g_dvrConsoleReq);
         return true;
     }
+    if (!strcmp(cmd, "gameopts")) return GameOptsCommand(args);   // VR-157
     if (!strcmp(cmd, "dump")) {
         FrameDumpRequest(args[0] ? args : "frame");
         return true;
