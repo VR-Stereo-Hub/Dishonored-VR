@@ -433,18 +433,48 @@ static void DvrGameTick(IDirect3DDevice9* self)
         {
             double nowMs = MaimNowMs();
             dvr::perf::Gap gp;
+            // VR-160: a gap report is three Info lines and two large formats
+            // (the ring's tail, twenty streaming buckets). With the headset off
+            // the wearer's head every present is a gap, and one 29 minute run
+            // wrote 10,694 reports = 32,000 lines that all said the same thing.
+            // The first kGapItemised of any window are itemised; the rest are
+            // COUNTED, and the count prints once with its worst and its owners.
+            // The count is the evidence. The copies were not.
+            const double   kGapWindowMs = 5000.0;
+            const unsigned kGapItemised = 3;
+            static double   gapWinStart = 0.0;
+            static unsigned gapInWin = 0, gapHeld = 0, gapHeld60 = 0, gapHeldTail = 0;
+            static float    gapHeldWorst = 0.0f;
+            static const char* gapHeldWorstOwner = "";
+            if (nowMs - gapWinStart >= kGapWindowMs) {
+                if (gapHeld)
+                    Log("perf: frame gaps - %u MORE in the last %.0f s not itemised (the first %u of a window are): "
+                        "%u of them >= 60 ms, worst %.0f ms sat in: %s, %u sat in present-tail (xrEndFrame). A steady "
+                        "stream of these with the headset idle is the runtime throttling, not the game",
+                        gapHeld, kGapWindowMs / 1000.0, kGapItemised, gapHeld60, gapHeldWorst, gapHeldWorstOwner,
+                        gapHeldTail);
+                gapWinStart = nowMs; gapInWin = 0; gapHeld = gapHeld60 = gapHeldTail = 0;
+                gapHeldWorst = 0.0f; gapHeldWorstOwner = "";
+            }
             if (dvr::perf::take_gap(&gp)) {
-                Log("perf: frame gap %.0fms (%.1fx the mean present interval %.1f ms)  swingAge=%.0fms (-1 by design "
-                    "under GamepadOnly) aimWin=%d cal=%d gt=%d | %s",
-                    gp.ms, gp.medianMs > 0.0f ? gp.ms / gp.medianMs : 0.0f, gp.medianMs,
-                    g_meleeLastMs ? nowMs - g_meleeLastMs : -1.0,
-                    (int)(nowMs < g_maimArmedUntil),
-                    g_fpCalPhase, (int)g_gtActive, gp.where);
-                dvr::perf::log_gap_ring();
-                // PERF (2026-09-18): what memory and texture streaming were doing
-                // in the 2 s before this stall (the periodic xrEndFrame hitch).
-                dvr::d3d9ex::stream_log_recent("gap", 20);
-                dvr::gpu_memory::log_now("gap");
+                if (gapInWin++ < kGapItemised) {
+                    Log("perf: frame gap %.0fms (%.1fx the mean present interval %.1f ms)  swingAge=%.0fms (-1 by design "
+                        "under GamepadOnly) aimWin=%d cal=%d gt=%d | %s",
+                        gp.ms, gp.medianMs > 0.0f ? gp.ms / gp.medianMs : 0.0f, gp.medianMs,
+                        g_meleeLastMs ? nowMs - g_meleeLastMs : -1.0,
+                        (int)(nowMs < g_maimArmedUntil),
+                        g_fpCalPhase, (int)g_gtActive, gp.where);
+                    dvr::perf::log_gap_ring();
+                    // PERF (2026-09-18): what memory and texture streaming were doing
+                    // in the 2 s before this stall (the periodic xrEndFrame hitch).
+                    dvr::d3d9ex::stream_log_recent("gap", 20);
+                    dvr::gpu_memory::log_now("gap");
+                } else {
+                    ++gapHeld;
+                    if (gp.ms >= 60.0f) ++gapHeld60;
+                    if (strstr(gp.owner, "present-tail")) ++gapHeldTail;
+                    if (gp.ms > gapHeldWorst) { gapHeldWorst = gp.ms; gapHeldWorstOwner = gp.owner; }
+                }
             }
             static double lastPresentMs = 0.0;
             if (lastPresentMs != 0.0 && !dvr::perf::enabled()) {

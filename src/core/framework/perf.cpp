@@ -415,6 +415,7 @@ void gap_check(const Rec& prev, int64_t tEntry) {
         {"out/R (executing the frame)", prev.rUs}};
     int best = 0;
     for (int i = 1; i < 8; ++i) if (ph[i].us > ph[best].us) best = i;
+    g_gap.owner = ph[best].name;
     const uint32_t timeouts = dvr::vr::pace_timeouts();
     const uint32_t dTimeouts = timeouts - g_gapPaceTimeoutsSeen;
     g_gapPaceTimeoutsSeen = timeouts;
@@ -738,9 +739,17 @@ bool take_gap(Gap* out) {
 }
 
 void log_gap_ring() {
+    // VR-160: the gate runs BEFORE the format. ring_line sorts sixteen records
+    // and makes about seventeen _snprintf calls, and it used to run on every
+    // gap for a line that prints at most once a second.
+    static unsigned long last = 0;
+    const unsigned long now = GetTickCount();
+    if (last != 0 && now - last < 1000) return;
+    if (!::dvr::log::enabled(DVR_CAT, ::dvr::log::Level::Info)) return;
+    last = now;
     char buf[1024];
     ring_line(buf, sizeof(buf), 16, "perf: gap ring");
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000, "%s", buf);
+    DVR_INFO("%s", buf);
 }
 
 void set_device(IDirect3DDevice9* dev) {

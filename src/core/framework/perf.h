@@ -130,6 +130,9 @@ void note(Flag f);
 struct Gap {
     float    ms = 0, medianMs = 0;
     uint32_t present = 0;
+    // The phase the gap sat in, as a static string (the same name `where`
+    // opens with), so a caller can tally owners without parsing text.
+    const char* owner = "";
     char     where[480] = "";
 };
 bool take_gap(Gap* out);      // true once per detected gap (present thread)

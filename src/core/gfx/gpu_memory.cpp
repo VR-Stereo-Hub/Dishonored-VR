@@ -92,6 +92,7 @@ void tick() {
 
 void log_now(const char* why) {
     if (!g_adapter || !g_n) return;
+    if (!::dvr::log::enabled(DVR_CAT, ::dvr::log::Level::Info)) return;
     const Sample& c = g_ring[(g_n - 1) % kRing];
     uint64_t lmin = ~0ull, lmax = 0, nmin = ~0ull, nmax = 0, fmin = ~0ull;
     const int k = g_n < kRing ? g_n : kRing;
