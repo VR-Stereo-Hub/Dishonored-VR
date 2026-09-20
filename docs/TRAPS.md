@@ -977,3 +977,31 @@ game asks for `D3DPRESENT_INTERVAL_IMMEDIATE` itself. The "vsync on" leg ran
 uncapped and would have reported no difference for entirely the wrong reason.
 Before trusting any A/B, check that the OFF leg and the ON leg are both forced,
 and that the instrument logs the value actually in force rather than the request.
+
+## A shipped .ps1 with no .cmd wrapper does not run for the user (2026-09-20)
+
+`vr-runtime.ps1` was reported as not working. It works: run correctly it rewrote
+the ini on the first try. It had simply never executed - the selection was still
+`Runtime=steamvr` and the ini's mtime predated every attempt.
+
+A `.ps1` dropped in the game folder has three ways to do nothing, and all three
+look the same from outside:
+
+- double-clicking opens it in an editor instead of running it;
+- "Run with PowerShell" runs it under the machine's ExecutionPolicy and closes
+  the window the instant it is refused;
+- typing the bare name at a prompt fails, because PowerShell does not search the
+  current directory (`.\name.ps1` is required).
+
+`collect-support.ps1` already shipped with `Collect VR Support.cmd` beside it and
+was never reported as broken. That wrapper was the whole difference.
+
+**The rule: anything shipped in the release zip for a person to run gets a `.cmd`
+wrapper**, with `-NoProfile -ExecutionPolicy Bypass -File "%~dp0..."`, `-GameDir
+"%~dp0."` and a `pause` so the answer can be read. A double-click cannot pass an
+argument, so a script with modes asks for one. `Switch VR Runtime.cmd` does this.
+
+The general lesson is the one this file keeps recording in other forms: **"the
+tool does not work" and "the tool was never invoked" produce the same report**,
+and they are distinguished by evidence - here the ini's timestamp, which said
+plainly that nothing had written it.
