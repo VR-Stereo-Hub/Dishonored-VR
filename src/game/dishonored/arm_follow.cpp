@@ -481,6 +481,7 @@ static void ArmLookFind()
 // One read of the live values, on the script lane. Logs only CHANGES (plus a
 // periodic summary), so a run where nothing moves stays quiet and a run where
 // something moves says so the moment it does.
+static const unsigned kAfChangeLines = 8;   // change lines per field; the counters keep the rest
 static void ArmFollowTick()
 {
     // THIS RUNS ON EVERY ProcessEvent DISPATCH - thousands per second. The
@@ -531,9 +532,15 @@ static void ArmFollowTick()
                 g_afFieldSeen[i] = true; g_afFieldLast[i] = v;
                 DVR_INFO("armfollow: %s = %.3f (first read)", kAfFieldNames[i], v);
             } else if (v != g_afFieldLast[i]) {
+                // VR-160: the first kAfChangeLines changes answer the question
+                // (does the game drive this); the rest are counted and read with
+                // `armfollow status`. A field the game drives every frame used to
+                // print for the whole run, on the script lane.
                 ++g_afFieldMoves[i];
-                DVR_INFO("armfollow: %s %.3f -> %.3f  <-- DRIVEN AT RUNTIME (change #%u)",
-                         kAfFieldNames[i], g_afFieldLast[i], v, g_afFieldMoves[i]);
+                if (g_afFieldMoves[i] <= kAfChangeLines)
+                    DVR_INFO("armfollow: %s %.3f -> %.3f  <-- DRIVEN AT RUNTIME (change #%u%s)",
+                             kAfFieldNames[i], g_afFieldLast[i], v, g_afFieldMoves[i],
+                             g_afFieldMoves[i] == kAfChangeLines ? "; further changes are counted, not printed" : "");
                 g_afFieldLast[i] = v;
             }
         }
@@ -555,8 +562,10 @@ static void ArmFollowTick()
                          kAfInfNames[i], (void*)inf, w, t);
             } else if (w != g_afInfWLast[i] || t != g_afInfTLast[i]) {
                 ++g_afInfMoves[i];
-                DVR_INFO("armfollow: %s weight %.3f -> %.3f target %.3f -> %.3f  <-- THE GAME DRIVES THIS "
-                         "(change #%u)", kAfInfNames[i], g_afInfWLast[i], w, g_afInfTLast[i], t, g_afInfMoves[i]);
+                if (g_afInfMoves[i] <= kAfChangeLines)
+                    DVR_INFO("armfollow: %s weight %.3f -> %.3f target %.3f -> %.3f  <-- THE GAME DRIVES THIS "
+                             "(change #%u%s)", kAfInfNames[i], g_afInfWLast[i], w, g_afInfTLast[i], t, g_afInfMoves[i],
+                             g_afInfMoves[i] == kAfChangeLines ? "; further changes are counted, not printed" : "");
                 g_afInfWLast[i] = w; g_afInfTLast[i] = t;
             }
         }

@@ -982,9 +982,12 @@ static void ApplyHeadToViewRotation(void* parms)
     }
     (void)dp;
 
-    static int hb = 0;
-    if (++hb >= 150) {
-        hb = 0;
+    // VR-160: a TIME gate. This was a dispatch count (every 150th), so the line's
+    // rate followed the dispatch rate: about two a second at 300 dispatches/s.
+    static unsigned long hbLast = 0;
+    const unsigned long hbNow = GetTickCount();
+    if (hbLast == 0 || hbNow - hbLast >= 3000) {
+        hbLast = hbNow;
         // 41.1: the ROLL is on the line too. `wrote` is what we asked for and
         // `incoming` is what the engine handed us THIS dispatch: incoming near
         // the last write = the engine kept our roll, incoming ~0 while we keep
