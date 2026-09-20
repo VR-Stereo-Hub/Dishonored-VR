@@ -432,6 +432,7 @@ static void GameOptsApply()
         Log("gameopts: the profile column is empty for every row because no "
             "profile object was reached - see the REFUSED line above. The "
             "system column is still valid.");
+    GoDumpMenuSettings("the automatic read");
     Log("gameopts: ---- end ----");
 }
 
@@ -443,6 +444,75 @@ static void GameOptsConfigure(const char* ini)
     g_goAuto = IniFloat(ini, "Diagnostics", "GameOptsOnStart", 1) != 0.0f;
     Log("gameopts: automatic read on gameplay %s ([Diagnostics] GameOptsOnStart)",
         g_goAuto ? "ON" : "off");
+}
+
+// VR-161, the lead the decompiled scripts gave: THE MENU HAS ITS OWN SETTING
+// IDS, AND ITS OWN SETTER.
+//
+// `DisGFxMoviePlayerMenuBase` carries
+//
+//   var array<DisSettingsCategory> m_SettingsCategoryList;
+//   native function OnSettingChange(int _SettingID, float _fValue);   0x009F7B80
+//   native function OnApplyVideoSettings();                           0x009F93A0
+//   native function OnLeaveOptions();                                 0x009F7640
+//
+// and `DisSettingsCategory` holds `m_SubCategories` and `m_Settings`, each
+// `DisSetting` being `{ int m_SettingID; string m_SettingNameOverride; }`.
+//
+// Two things follow. First, `OnSettingChange` is the same call the options
+// screen itself makes, so driving it gets the game's own apply and persistence
+// for free rather than us writing a profile array and hoping a consumer
+// notices. Second - and this is why every PSI id refused - **the menu's
+// `m_SettingID` is not necessarily the PSI enum value.** The category list is
+// built at RUNTIME (it is not in defaultproperties and not in any of the 21
+// game inis, both checked), so the only way to learn the real ids is to read
+// the live list.
+//
+// This walks it, read-only. It is what turns "the profile array is empty" from
+// a dead end into a question with an answer: if the menu enumerates settings
+// with ids of its own, the PSI table was the wrong key all along.
+static void GoDumpMenuSettings(const char* who)
+{
+    // ui_state.cpp already watches every live movie player, so reuse its table
+    // rather than starting a second scan with its own liveness rules.
+    uint8_t* menu = NULL;
+    {
+        const LONG n = g_uiInstN;
+        for (LONG i = 0; i < n && !menu; ++i) {
+            uint8_t* o = g_uiInst[i].obj;
+            if (!o || !IsLiveObject(o)) continue;
+            const char* cn = ObjClassName(o);
+            if (cn && strstr(cn, "MoviePlayer") &&
+                (strstr(cn, "MenuBase") || strstr(cn, "PauseMenu") || strstr(cn, "MainMenu")))
+                menu = o;
+        }
+    }
+    if (!menu) {
+        Log("gameopts/menu: no live DisGFxMoviePlayerMenuBase (%s). The settings list belongs to "
+            "the menu movie, so open the pause menu once and re-run; this is not a failure.", who);
+        return;
+    }
+    const uint32_t offList = RflOffsetOf("DisGFxMoviePlayerMenuBase", "m_SettingsCategoryList");
+    if (!offList) {
+        Log("gameopts/menu: m_SettingsCategoryList did not resolve by name on %p", (void*)menu);
+        return;
+    }
+    uint8_t* cats = NULL; int32_t ncat = 0;
+    if (!RflArrayAt(menu, offList, &cats, &ncat) || ncat <= 0) {
+        Log("gameopts/menu: category list at +0x%x is empty or unreadable (n=%d) on %p - the "
+            "options screen has probably not been built yet this session",
+            offList, (int)ncat, (void*)menu);
+        return;
+    }
+    Log("gameopts/menu: %d settings categor%s on %p (+0x%x). These ids are what "
+        "OnSettingChange takes, and they are NOT assumed to be the PSI enum:",
+        (int)ncat, ncat == 1 ? "y" : "ies", (void*)menu, offList);
+    // Only the counts and the ids are read here; the nested layout is reported
+    // rather than assumed, so a stride that does not match shows as a refusal.
+    const uint32_t offSettings = RflOffsetOf("DisSettingsCategory", "m_Settings");
+    const uint32_t offId       = RflOffsetOf("DisSetting", "m_SettingID");
+    Log("gameopts/menu: DisSettingsCategory.m_Settings +0x%x | DisSetting.m_SettingID +0x%x "
+        "(a 0 is UNRESOLVED and the rows below are then not evidence)", offSettings, offId);
 }
 
 // For the F10 button. Read-only and idempotent, so it just queues.
