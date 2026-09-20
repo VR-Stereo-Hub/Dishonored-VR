@@ -2405,7 +2405,7 @@ static void LoadConfig()
         dvr::hudlayout::configure(ini);
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
         dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
-        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 0) != 0.0f);   // VR-160, default off
+        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);   // VR-160: ON since the headset verdict (no HUD flicker reported); 0 restores every present
         dvr::hudclass::set_regions_enabled(IniFloat(ini, "Hud", "Regions", 0) != 0.0f);
         dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }

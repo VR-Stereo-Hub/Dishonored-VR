@@ -23,7 +23,7 @@ namespace {
 // ---- the lever ------------------------------------------------------------
 bool  g_wanted = false;
 bool  g_on = false;
-bool  g_oncePerPair = false;   // VR-160, default off
+bool  g_oncePerPair = true;    // VR-160: on since the headset verdict; [Hud] OncePerPair=0 / `hud pair off`
 bool  g_heldLast = false;      // the previous present was held: this one never is
 uint32_t g_winHeld = 0;        // presents held this window (the beat prints it)
 float g_slotScale = 0.5f;
