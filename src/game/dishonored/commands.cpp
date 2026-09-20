@@ -31,7 +31,7 @@
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
-//   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|sword|output rt|rb|
+//   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|filter raw|median|sword|output rt|rb|
 //         log|force|sim <peak> [humpMs] [reps]|save   the motion sword (game/dishonored/swing.h) - VR-37
 //   console <text>               run a game console command on the script lane
 //   dump frame|capture|eyes|hud [sink]

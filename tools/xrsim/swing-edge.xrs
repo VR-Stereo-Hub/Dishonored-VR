@@ -20,15 +20,17 @@ hand r to grip 0.25 1.30 -0.40 0 0 0 1200
 @wait 1500
 trigger r pull 300
 @wait 2500
-@mod swing on; swing mode edge; swing threshold 3.6; swing rearm 1.0; swing cooldown 300; swing rel on; swing sword on; swing output rt
+@mod swing on; swing mode edge; swing threshold 3.6; swing rearm 1.0; swing cooldown 300; swing rel on; swing filter median; swing sword on; swing output rt
 @wait 1000
 @mark
 
-# 1. A reach is not a swing: 0.68 m in 900 ms peaks near 1.1 m/s.
+# 1. A reach is not a swing: 0.68 m in 900 ms peaks near 1.6 m/s. The bound is 2.2,
+#    not the 3.6 threshold: single doubled samples used to read 2.9-3.2 here, and
+#    the median of three is what keeps them out of the decision.
 hand r to grip -0.35 1.00 -0.45 0 0 0 900
 @wait 1600
 @nolog swing: FIRE
-@modassert features.swing.peakSpeed10s lt 3.6
+@modassert features.swing.peakSpeed10s lt 2.2
 @modassert features.swing.gateOpen eq true
 
 # 2. A swing is: the same 0.68 m in 200 ms peaks near 5 m/s. One attack, and the

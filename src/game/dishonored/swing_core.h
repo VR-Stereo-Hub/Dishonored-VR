@@ -70,6 +70,7 @@ struct Config {
     float rearmSpeed   = 1.0f;     // m/s, the hand must slow below this to re-arm
     float cooldownMs   = 300.0f;   // between fires, both detectors
     bool  headRel      = true;     // edge: subtract the head's own movement
+    bool  median       = true;     // edge: decide on the median of the last 3 speeds
     float sustainSpeed = 1.8f;     // m/s, the sustain gate
     float sustainMs    = 120.0f;
     float sustainDistM = 0.25f;
@@ -98,6 +99,7 @@ struct Verdict {
     int      block = kBlockNone; // set ONCE per gesture, not once per sample
     uint32_t closed = 0;         // the closed gates at the block
     float    speed = 0.0f;       // the speed the decision used
+    float    rawSpeed = 0.0f;    // edge: this sample's own 2-sample speed, before the median
     float    roomSpeed = 0.0f;   // the raw room-space speed, for comparison
     float    cooldownLeftMs = 0.0f;
     bool     flick = false;      // sustain: a run ended without qualifying
@@ -117,7 +119,7 @@ public:
     Verdict feed(const Sample& s, const Config& c) {
         Verdict v{};
         if (!s.handValid || !finite3(s.hand) || !std::isfinite(s.tMs)) {
-            have_ = false;                        // lost tracking: re-seed
+            have_ = false; forget();              // lost tracking: re-seed
             return v;
         }
         const bool headOk = s.headValid && finite3(s.head);
@@ -130,6 +132,7 @@ public:
                 const float roomStep = len(d);
                 if (roomStep / (float)(dt * 0.001) > kMaxSpeed) {
                     v.jump = true; v.roomSpeed = roomStep / (float)(dt * 0.001);
+                    forget();
                     seed(s, headOk);
                     return v;
                 }
@@ -141,16 +144,33 @@ public:
                 const float sec = (float)(dt * 0.001);
                 v.sampled = true;
                 v.roomSpeed = roomStep / sec;
-                if (c.detector == kEdge) { v.speed = len(d) / sec; edge(s, c, v); }
+                if (c.detector == kEdge) {
+                    v.rawSpeed = len(d) / sec;
+                    v.speed = c.median ? median3(v.rawSpeed) : v.rawSpeed;
+                    edge(s, c, v);
+                }
                 else                     sustain(s, c, roomStep, v);
             }
-            // a gap beyond kMaxDtMs, or time running backwards: re-seed below
+            else forget();     // a gap beyond kMaxDtMs, or time running backwards: re-seed below
         }
         seed(s, headOk);
         return v;
     }
 
 private:
+    // One sample can lie in either direction. Measured 2026-09-20: a repeated pose
+    // reads 0 and the sample after it carries two frames of travel in one frame's
+    // time, so a 1.6 m/s reach showed single samples of 2.9 and 3.2 - and a lone
+    // tracking-noise spike on a headset has the same shape. The median of the last
+    // three speeds ignores any single outlier and costs one sample of latency
+    // (11 ms at 90 Hz). A re-seed zeroes the history, so the first reading after
+    // one can never fire by itself.
+    void forget() { ring_[0] = ring_[1] = ring_[2] = 0.0f; }
+    float median3(float x) {
+        ring_[ringI_] = x; ringI_ = (ringI_ + 1) % 3;
+        const float a = ring_[0], b = ring_[1], c = ring_[2];
+        return a > b ? (b > c ? b : a > c ? c : a) : (a > c ? a : b > c ? c : b);
+    }
     void seed(const Sample& s, bool headOk) {
         lastHand_[0] = s.hand[0]; lastHand_[1] = s.hand[1]; lastHand_[2] = s.hand[2];
         lastHeadOk_ = headOk;
@@ -227,6 +247,8 @@ private:
     double lastMs_ = 0.0;
     bool   armed_ = true, blockLatched_ = false;
     int    slow_ = 0;
+    float  ring_[3] = {};
+    int    ringI_ = 0;
     bool   haveFire_ = false;
     double lastFireMs_ = 0.0;
     float  sm_ = 0.0f;

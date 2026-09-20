@@ -283,10 +283,10 @@ void beat(double now) {
 void report() {
     char why[160]; const double now = MaimNowMs(); closed_text(gates(now), now, why, sizeof(why));
     Log("swing: %s%s%s detector=%s output=%s | edge %.2f m/s rearm %.2f (effective %.2f) cooldown %.0f ms pulse %.0f ms "
-        "polls>=%d headRel=%d requireSword=%d%s | sustain %.2f m/s %.0f ms %.2f m hold %.0f ms",
+        "polls>=%d headRel=%d median=%d requireSword=%d%s | sustain %.2f m/s %.0f ms %.2f m hold %.0f ms",
         g_meleeOn ? "ON" : "OFF", *veto() ? " vetoed by " : "", veto(), detector_name(), output_name(),
         st.edgeSpeed, st.rearmSpeed, effective_rearm(st), st.cooldownMs, st.pulseMs, st.pulseMinPolls,
-        (int)st.headRel, (int)st.requireSword, force ? " (FORCED open)" : "",
+        (int)st.headRel, (int)st.median, (int)st.requireSword, force ? " (FORCED open)" : "",
         g_meleeSpeed, g_meleeSwingMs, g_meleeSwingDist, g_meleeHoldMs);
     Log("swing: gate: %s | armed=%d samples=%u dup=%u fires=%u blocked=%u (last: %s) honoured=%u kills=%u notHonoured=%u "
         "inconclusive=%u | last %.2f m/s, PEAK SINCE LAST STATUS %.2f m/s <- tune the threshold from this",
@@ -375,8 +375,8 @@ void tick() {
     // `swing log on`, per sample while the hand is moving: the cadence itself is
     // the thing under test (which generation, how far, over how long).
     if (speedLog && v.roomSpeed > 0.5f)
-        Log("swing: sample handGen=%u (+%u) locateGen=%u t=%.2f ms speed=%.2f room=%.2f jump=%d x=%.3f y=%.3f z=%.3f",
-            gen, genStep, dvr::vr::locate_gen(), s.tMs, v.speed, v.roomSpeed, (int)v.jump, s.hand[0], s.hand[1], s.hand[2]);
+        Log("swing: sample handGen=%u (+%u) locateGen=%u t=%.2f ms speed=%.2f raw=%.2f room=%.2f jump=%d x=%.3f y=%.3f z=%.3f",
+            gen, genStep, dvr::vr::locate_gen(), s.tMs, v.speed, v.rawSpeed, v.roomSpeed, (int)v.jump, s.hand[0], s.hand[1], s.hand[2]);
     handle(v, s, now, "live");
 }
 
@@ -391,17 +391,18 @@ void configure(const char* ini) {
     st.pulseMs    = clampf(IniFloat(ini, "Melee", "PulseMs", 120.0f), 20.0f, 500.0f);
     st.pulseMinPolls = (int)clampf(IniFloat(ini, "Melee", "PulseMinPolls", 2.0f), 0.0f, 10.0f);
     st.headRel    = IniFloat(ini, "Melee", "HeadRel", 1) != 0.0f;
+    st.median     = IniFloat(ini, "Melee", "Median", 1) != 0.0f;
     st.requireSword = IniFloat(ini, "Melee", "RequireSword", 1) != 0.0f;
     GetPrivateProfileStringA("Melee", "Output", "rt", buf, sizeof(buf), ini);
     st.outputRb = !_stricmp(buf, "rb");
     st.honourMs = clampf(IniFloat(ini, "Melee", "HonourMs", 600.0f), 100.0f, 2000.0f);
     st.honourHaptic = IniFloat(ini, "Melee", "HonourHaptic", 0) != 0.0f;
     Log("config: [Melee] Detector=%s (%s) EdgeSpeed=%.2f RearmSpeed=%.2f (effective %.2f) PulseMs=%.0f PulseMinPolls=%d "
-        "HeadRel=%d RequireSword=%d Output=%s HonourMs=%.0f HonourHaptic=%d - this line reports the SETTING; watch for "
+        "HeadRel=%d Median=%d RequireSword=%d Output=%s HonourMs=%.0f HonourHaptic=%d - this line reports the SETTING; watch for "
         "'swing: FIRE' to know it fires, and 'swing: beat' names the closed gate when it does not",
         detector_name(), st.detectorFromIni ? "ini" : "shipped default", st.edgeSpeed, st.rearmSpeed,
-        effective_rearm(st), st.pulseMs, st.pulseMinPolls, (int)st.headRel, (int)st.requireSword, output_name(),
-        st.honourMs, (int)st.honourHaptic);
+        effective_rearm(st), st.pulseMs, st.pulseMinPolls, (int)st.headRel, (int)st.median, (int)st.requireSword,
+        output_name(), st.honourMs, (int)st.honourHaptic);
 }
 
 void save(const char* ini) {
@@ -414,6 +415,7 @@ void save(const char* ini) {
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.pulseMs);    WritePrivateProfileStringA("Melee", "PulseMs", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%d", st.pulseMinPolls); WritePrivateProfileStringA("Melee", "PulseMinPolls", v, ini);
     WritePrivateProfileStringA("Melee", "HeadRel", st.headRel ? "1" : "0", ini);
+    WritePrivateProfileStringA("Melee", "Median", st.median ? "1" : "0", ini);
     WritePrivateProfileStringA("Melee", "RequireSword", st.requireSword ? "1" : "0", ini);
     WritePrivateProfileStringA("Melee", "Output", output_name(), ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.honourMs);   WritePrivateProfileStringA("Melee", "HonourMs", v, ini);
@@ -441,6 +443,13 @@ bool command(const char* args) {
     else if (!strcmp(sub, "pulse") && *a)     { st.pulseMs = clampf(f, 20.0f, 500.0f); Log("swing: PulseMs=%.0f (live, edge detector; sustain keeps HoldMs=%.0f)", st.pulseMs, g_meleeHoldMs); said = true; }
     else if (!strcmp(sub, "polls") && *a)     { st.pulseMinPolls = (int)clampf(f, 0.0f, 10.0f); Log("swing: PulseMinPolls=%d (live; 0 = time only)", st.pulseMinPolls); said = true; }
     else if (!strcmp(sub, "rel") && (on || off))   { st.headRel = on; live.reset(); Log("swing: HeadRel=%d (live) - %s", (int)on, on ? "the head's own movement is subtracted, so turning the body is not a swing" : "raw room-space hand speed"); said = true; }
+    else if (!strcmp(sub, "filter") && (!strcmp(a, "raw") || !strcmp(a, "median"))) {
+        st.median = !strcmp(a, "median"); live.reset();
+        Log("swing: Median=%d (live) - %s", (int)st.median, st.median
+            ? "the decision uses the median of the last 3 speeds: one lying sample decides nothing, at one sample of latency"
+            : "the decision uses each sample's own speed, as the sibling BioShock mod does");
+        said = true;
+    }
     else if (!strcmp(sub, "sword") && (on || off)) { st.requireSword = on; Log("swing: RequireSword=%d (live)", (int)on); said = true; }
     else if (!strcmp(sub, "output") && (!strcmp(a, "rt") || !strcmp(a, "rb"))) { st.outputRb = !strcmp(a, "rb"); close_pulse(); Log("swing: Output=%s (live) - the input the pulse presses; the HONOURED line says whether the game took it as an attack", output_name()); said = true; }
     else if (!strcmp(sub, "honour") && *a)    { st.honourMs = clampf(f, 100.0f, 2000.0f); Log("swing: HonourMs=%.0f (live)", st.honourMs); said = true; }
@@ -459,7 +468,7 @@ bool command(const char* args) {
     else if (!strcmp(sub, "save")) { char ini[MAX_PATH]; ini_path(ini); save(ini); Log("swing: [Melee] written to %s", ini); said = true; }
     else if (*sub && strcmp(sub, "status"))
         Log("swing: status | on|off | mode edge|sustain | threshold <m/s> | rearm <m/s> | cooldown <ms> | pulse <ms> | "
-            "polls <n> | rel on|off | sword on|off | output rt|rb | honour <ms> | log on|off | force on|off | "
+            "polls <n> | rel on|off | filter raw|median | sword on|off | output rt|rb | honour <ms> | log on|off | force on|off | "
             "sim <peak m/s> [humpMs] [reps] | save");
     if (!said || !strcmp(sub, "status")) report();
     return true;
@@ -475,7 +484,7 @@ void status(dvr::status::Writer& w) {
     w.kv("threshold", (double)(st.detector == kEdge ? st.edgeSpeed : g_meleeSpeed));
     w.kv("rearmEffective", (double)effective_rearm(st));
     w.kv("cooldownMs", (double)g_meleeCoolMs); w.kv("pulseMs", (double)(st.detector == kEdge ? st.pulseMs : g_meleeHoldMs));
-    w.kv("headRel", st.headRel); w.kv("requireSword", st.requireSword); w.kv("forced", force);
+    w.kv("headRel", st.headRel); w.kv("median", st.median); w.kv("requireSword", st.requireSword); w.kv("forced", force);
     w.kv("gateOpen", m == 0); w.kv("closedBy", why);
     w.kv("armed", live.armed()); w.kv("pulse", pulse_active());
     w.kv("samples", (unsigned long)n.samples); w.kv("dupSamples", (unsigned long)n.dups); w.kv("stillSamples", (unsigned long)n.still);

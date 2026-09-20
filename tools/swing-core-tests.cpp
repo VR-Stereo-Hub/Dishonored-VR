@@ -55,7 +55,10 @@ int main() {
       check(t.fires == 1, "a 3.7 m/s swing crosses a 3.6 threshold exactly once"); }
     { Core k; const Tally t = drive(k, edge, 400, 90, humps(6.0f, 200));
       check(t.fires == 1 && t.blocks == 0, "one swing is one attack, up-stroke and down-stroke together");
-      check(t.firstFireMs < 60.0, "the attack fires on the rising edge, not after the swing"); }
+      Core r; Config rc = edge; rc.median = false; const Tally u = drive(r, rc, 400, 90, humps(6.0f, 200));
+      check(t.firstFireMs < 100.0, "the attack fires on the rising edge, before the swing even peaks");
+      check(u.fires == 1 && t.firstFireMs - u.firstFireMs <= 1000.0 / 90.0 + 0.01,
+            "and the median costs at most one sample over raw speed"); }
     { Core k; const Tally t = drive(k, edge, 800, 90,
           [](double ms) { return 2.0f + 4.0f * (float)std::fabs(std::sin(3.14159265358979 * ms / 200.0)); });
       check(t.fires == 1, "a hand that never slows below the re-arm level cannot fire twice"); }
@@ -89,32 +92,52 @@ int main() {
       check(std::fabs(effective_rearm(c) - 3.24f) < 1e-4f, "the re-arm level is capped at 0.9 x the threshold");
       check(drive(k, c, 1199, 90, humps(6.0f, 200)).fires == 3, "a re-arm level typed above the threshold still re-arms"); }
 
+    // The median of three: one lying sample, in either direction, decides nothing.
+    { // A 3.0 m/s swing delivered the way the simulator delivered it: a repeated
+      // pose, then a sample carrying two frames of travel in one frame's time.
+      auto run = [](bool median) { Core k; Config c; c.detector = kEdge; c.median = median; int fires = 0;
+          const double dt = 1000.0 / 90.0; float x = 0, owed = 0; int i = 0;
+          for (double at = 0; at < 400.0; at += dt, ++i) {
+              Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x;
+              if (k.feed(s, c).fired) ++fires;
+              const float step = humps(3.0f, 200)(at) * (float)(dt * 0.001);
+              if (i % 5 == 4) owed = step; else { x += step + owed; owed = 0; } }
+          return fires; };
+      check(run(true) == 0, "a 3.0 m/s swing with doubled samples (raw peaks of 6) does not fire through the median");
+      check(run(false) == 1, "and does fire on raw speed, so the median lever is what stopped it"); }
+    { Core k; Config c = edge; Sample s; s.handValid = true; s.tMs = 0; k.feed(s, c);
+      s.hand[0] = 0.1f; s.tMs = 11.0;
+      check(!k.feed(s, c).fired, "the first reading after a seed cannot fire by itself");
+      s.hand[0] = 0.2f; s.tMs = 22.0;
+      check(k.feed(s, c).fired == kFiredSlash, "the second one confirms it: one sample of latency"); }
+
     // Sample hygiene: what the differencing must refuse to turn into a speed.
-    { Core k; Sample s; s.handValid = s.headValid = true; s.tMs = 0; k.feed(s, edge);
+    Config raw = edge; raw.median = false;   // these pin the differencing, one sample at a time
+    { Core k; Sample s; s.handValid = s.headValid = true; s.tMs = 0; k.feed(s, raw);
       s.hand[0] = 0.5f; s.tMs = 1.0;
-      check(!k.feed(s, edge).sampled, "two poses 1 ms apart produce no speed");
-      s.tMs = 11.0; const Verdict v = k.feed(s, edge);
+      check(!k.feed(s, raw).sampled, "two poses 1 ms apart produce no speed");
+      s.tMs = 11.0; const Verdict v = k.feed(s, raw);
       check(v.jump && !v.sampled && !v.fired && std::fabs(v.roomSpeed - 0.5f / 0.011f) < 0.5f,
             "and the older seed is kept, so the travel is timed over the full gap: 45 m/s, a tracking jump, discarded");
-      s.hand[0] = 0.55f; s.tMs = 22.0; const Verdict w = k.feed(s, edge);
+      s.hand[0] = 0.55f; s.tMs = 22.0; const Verdict w = k.feed(s, raw);
       check(w.sampled && w.fired == kFiredSlash && std::fabs(w.speed - 0.05f / 0.011f) < 0.2f,
             "the jump re-seeded, so the next real sample is timed from where the hand reappeared"); }
-    { Core k; Sample s; s.handValid = s.headValid = true; s.tMs = 0; k.feed(s, edge);
+    { Core k; Sample s; s.handValid = s.headValid = true; s.tMs = 0; k.feed(s, raw);
       s.hand[0] = 0.2f; s.tMs = 11.0;
-      check(k.feed(s, edge).fired == kFiredSlash, "18 m/s is a very fast arm and still a swing"); }
-    { Core k; Sample s; s.handValid = s.headValid = true; s.tMs = 0; k.feed(s, edge);
+      check(k.feed(s, raw).fired == kFiredSlash, "18 m/s is a very fast arm and still a swing"); }
+    { Core k; Sample s; s.handValid = s.headValid = true; s.tMs = 0; k.feed(s, raw);
       s.hand[0] = 2.0f; s.tMs = 500.0;
-      check(!k.feed(s, edge).sampled, "a 500 ms gap (an alt-tab, a load) re-seeds instead of reading 4 m/s");
-      s.handValid = false; s.tMs = 511.0; k.feed(s, edge);
+      check(!k.feed(s, raw).sampled, "a 500 ms gap (an alt-tab, a load) re-seeds instead of reading 4 m/s");
+      s.handValid = false; s.tMs = 511.0; k.feed(s, raw);
       s.handValid = true; s.hand[0] = 0.0f; s.tMs = 522.0;
-      check(!k.feed(s, edge).sampled, "a hand that lost tracking re-seeds where it reappears"); }
-    { Core k; Sample s; s.handValid = true; s.tMs = 0; k.feed(s, edge);
-      s.hand[1] = NAN; s.tMs = 11.0; k.feed(s, edge);
+      check(!k.feed(s, raw).sampled, "a hand that lost tracking re-seeds where it reappears"); }
+    { Core k; Sample s; s.handValid = true; s.tMs = 0; k.feed(s, raw);
+      s.hand[1] = NAN; s.tMs = 11.0; k.feed(s, raw);
       s.hand[1] = 0.0f; s.hand[0] = 1.0f; s.tMs = 22.0;
-      check(!k.feed(s, edge).sampled, "a non-finite pose is treated as lost tracking"); }
-    { Core k; Sample s; s.handValid = true; s.headValid = false; s.tMs = 0; k.feed(s, edge);
+      check(!k.feed(s, raw).sampled, "a non-finite pose is treated as lost tracking"); }
+    { Core k; Sample s; s.handValid = true; s.headValid = false; s.tMs = 0; k.feed(s, raw);
       s.hand[0] = 0.1f; s.tMs = 11.0;
-      check(k.feed(s, edge).fired == kFiredSlash, "with no head pose the hand's own speed still counts"); }
+      check(k.feed(s, raw).fired == kFiredSlash, "with no head pose the hand's own speed still counts"); }
 
     // The pre-VR-37 detector, kept as the live A/B.
     Config sus; sus.detector = kSustain;
