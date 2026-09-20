@@ -173,6 +173,9 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     GameOptsApply();   // VR-157: the seam's `gameopts` read, same lane, read-only
     dvr::anim::tick(); // VR-88: sample before any hand override writes
+    // VR-165: was that climb asked for? Uses the snapshot anim::tick just refreshed.
+    { const dvr::anim::Snapshot swSnap = dvr::anim::snapshot();
+      SwingClimbWatch(swSnap.state[0]); }
     PossessionStateTick(); // VR-135: read-only; the presentation verdict reads its result
     RainTick();            // VR-136: rain box measurement; the native hide only when [Rain] Hide=1
     LensTick();            // VR-137: camera lens effects measured; moved only when [Lens] Distance > 0

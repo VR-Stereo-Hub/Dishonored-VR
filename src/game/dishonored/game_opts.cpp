@@ -396,6 +396,56 @@ static void GameOptsApply()
                     "wrong, not the profile being absent. That is the thing to fix next.");
         }
     }
+    // VR-161, run 5: THE ACCESSORS ARE THE PROBLEM, AND NOTHING ELSE IS.
+    //
+    // The eliminations are now complete. The object is right (ArkProfileSettings,
+    // ranked and printed). The array is POPULATED - 115 entries. And all
+    // fourteen ids still refuse. So it is not the wrong object and not an
+    // unloaded profile: `GetProfileSettingName` and `GetProfileSettingValueInt`
+    // called through ProcessEvent do not work here, for a reason the return
+    // value cannot express.
+    //
+    // The original header said this file would never walk the array by hand,
+    // because the OnlineProfileSetting -> SettingsProperty -> SettingsData chain
+    // has enum fields of unmeasured width and a guessed stride would produce
+    // confident nonsense. That reasoning was right, and the answer is not to
+    // guess the stride now - it is to MEASURE it. With 115 entries in hand the
+    // data can name its own layout: PropertyId is the first field of
+    // SettingsProperty, the ids are a known set (the PSI enum runs to 153), and
+    // a stride that is correct makes recognisable ids appear at a fixed step
+    // while a wrong one produces noise.
+    //
+    // So this dumps the head of the array as raw dwords, once, and says what it
+    // is for. Deriving the stride from that is offline work on real bytes,
+    // which is the thing this project's rules actually ask for.
+    if (obj) {
+        const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
+        uint8_t* pdata = NULL; int32_t pnum = 0;
+        if (off && RflArrayAt(obj, off, &pdata, &pnum) && pdata && pnum > 0) {
+            const int dwords = 48;   // enough to show several entries at any plausible stride
+            if (RangeReadable(pdata, dwords * 4)) {
+                char line[700]; int used = 0;
+                for (int i = 0; i < dwords; ++i) {
+                    const int w = _snprintf(line + used, sizeof(line) - used, "%s%08x",
+                                            i ? " " : "", ((const uint32_t*)pdata)[i]);
+                    if (w <= 0) break;
+                    used += w;
+                    if ((i & 11) == 11) {
+                        line[used] = 0;
+                        Log("gameopts/raw:   [%2d..%2d] %s", i - 11, i, line);
+                        used = 0;
+                    }
+                }
+                Log("gameopts/raw: %d entries at %p. The dwords above are the head of the array. "
+                    "PropertyId is the FIRST field of SettingsProperty, and the PSI enum runs to "
+                    "153, so the stride is whatever step makes small ids appear regularly. "
+                    "Derive it from these bytes - do not assume it.", (int)pnum, (void*)pdata);
+            } else {
+                Log("gameopts/raw: array data at %p is not readable for %d dwords",
+                    (void*)pdata, dwords);
+            }
+        }
+    }
     Log("gameopts: ---- the game's own option settings, READ ONLY ----");
     Log("gameopts: profile = the Steam Cloud blob (OPTIONS.sav); system = what "
         "FSystemSettings holds now. A disagreement is the finding, not an error.");

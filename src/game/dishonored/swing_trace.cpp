@@ -116,6 +116,57 @@ static void SwingTracePresentTick()
     Log("swing: ---- end of series %d ----", g_swDumps);
 }
 
+// VR-165: DID THE PLAYER ASK FOR THAT CLIMB, OR DID THE GAME RE-GRAB BY ITSELF?
+//
+// A run showed five Climb -> Falling -> Walk cycles in ten seconds, every
+// Falling lasting 0.0 s, which looked exactly like "constantly trying to fall
+// and not succeeding". It was very nearly reported as the bug's signature. The
+// user then pointed out that they had deliberately grabbed and released the
+// chain several times to provoke it - so that sequence is indistinguishable
+// from ordinary input, and reporting it would have been reporting the tester's
+// own hands back at them.
+//
+// The discriminator is therefore not the cycle. It is whether a Climb entry was
+// PRECEDED BY A BUTTON. A climb the player asked for has a press within the
+// preceding window; one the game started on its own does not. That is the line
+// between "the tester was testing" and "the bug re-armed itself", and nothing
+// else in the log draws it.
+//
+// Read-only: it samples the pad state the mod already synthesises, and the
+// master state the script lane already reads. It writes neither.
+static void SwingClimbWatch(const char* masterState)
+{
+    if (!g_swOn || !masterState) return;
+    const double now = MaimNowMs();
+    const bool climbing = strstr(masterState, "Climb") != NULL;
+
+    // Any face button or trigger counts as "the player did something". The
+    // grab is a button in every scheme, so a press within the window is enough
+    // to explain a climb without claiming which button it was.
+    static double lastPressMs = 0.0;
+    if (InterlockedCompareExchange(&g_padBtnsPub, 0, 0) != 0) lastPressMs = now;
+
+    static bool wasClimbing = false;
+    static int  unaskedRun = 0, askedRun = 0;
+    if (climbing && !wasClimbing) {
+        const double sincePress = now - lastPressMs;
+        const bool asked = lastPressMs > 0.0 && sincePress < 600.0;
+        if (asked) { ++askedRun; unaskedRun = 0; }
+        else       { ++unaskedRun; askedRun = 0; }
+        Log("swing/climb: entered Climb %s - last button press %.0f ms ago. %s "
+            "(asked-in-a-row %d, unasked-in-a-row %d). An UNASKED climb is the bug re-arming; "
+            "an asked one is the player, and a run of asked ones is just testing.",
+            asked ? "ON A PRESS" : "with NO recent press",
+            lastPressMs > 0.0 ? sincePress : -1.0,
+            asked ? "player input explains this" : "NOTHING THE PLAYER DID EXPLAINS THIS",
+            askedRun, unaskedRun);
+        if (unaskedRun >= 2)
+            Log("swing/climb: %d consecutive climbs with no button behind them - this is the "
+                "signature to chase, and it is NOT the tester grabbing repeatedly", unaskedRun);
+    }
+    wasClimbing = climbing;
+}
+
 static void SwingTraceConfigure(const char* ini)
 {
     g_swOn = IniFloat(ini, "Diagnostics", "SwingTrace", 1) != 0.0f;
