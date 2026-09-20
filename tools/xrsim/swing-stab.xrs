@@ -1,0 +1,91 @@
+# swing-stab.xrs - the sneak-kill thrust (VR-155): a thrust of the sword hand
+# while crouched presses the attack; the same thrust standing does nothing; a
+# reach to the floor is not a thrust.
+#
+# Needs the same as swing-edge.xrs: a loaded level in GAMEPLAY, GamepadOnly=0.
+# Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-stab.xrs
+#
+# What this can and cannot show. It shows the GESTURE: armed by the game's own
+# crouch, recognised by extension, straightness and direction, and pressing the
+# attack (HONOURED slash in a level with nobody to kill). Whether that attack
+# becomes the stealth kill is the game's decision and needs an unaware guard in
+# front: `swing: HONOURED kill` is the line, and it is the headset run's to get.
+#
+# The simulated head is at (0, 1.6, 0) facing -Z, so the modelled right shoulder
+# is near (0.17, 1.38, 0.04). Thrusts go from a forearm in front of it straight
+# out along -Z. The hand is only ever MOVED: a teleport is a tracking jump.
+
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing on; swing mode edge; swing threshold 3.6; swing filter median; swing sword on; swing output rt
+@mod swing stab on; swing stab arm sneak; swing stab speed 1.5; swing stab travel 0.20; swing stab ratio 0.75; swing stab forward 0.5
+@wait 1000
+
+# 1. Standing: the thrust is not armed, fires nothing and says nothing about it.
+@mark
+@modassert features.swing.stab.armed eq false
+hand r to grip 0.20 1.25 -0.60 0 0 0 250
+@wait 1200
+@nolog (stab|swing): FIRE
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+
+# 2. Crouch (the game's own, B): the edge is logged once, then the same thrust fires
+#    and the game starts an attack because of it.
+@mark
+btn b press 150
+@log stab: ARMED - crouch 6s
+@modassert features.swing.stab.armed eq true
+hand r to grip 0.20 1.25 -0.60 0 0 0 250
+@log stab: FIRE extension
+@log swing: FIRE #\d+ stab
+@log swing: HONOURED
+@wait 1000
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+
+# 3. Still crouched: a short jab is rejected on travel, and the line says by how much.
+@mark
+hand r to grip 0.20 1.25 -0.37 0 0 0 120
+@log stab: REJECTED travel
+@nolog (stab|swing): FIRE
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+
+# 4. Still crouched: reaching down to the floor is not a thrust. 0.45 m in 450 ms
+#    peaks near 1.9 m/s: fast enough to START a thrust, and rejected for not going
+#    forward. (In 250 ms the same reach peaks at 3.65 m/s, which IS a slash.)
+@mark
+hand r to grip 0.20 0.80 -0.30 0 0 0 450
+@wait 1400
+@nolog (stab|swing): FIRE
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+
+# 5. Still crouched: a real slash is still a slash, once.
+@mark
+hand r to grip -0.40 1.10 -0.35 0 0 0 200
+@log swing: FIRE #\d+ slash
+@wait 1000
+@nolog swing: FIRE #\d+ stab
+hand r to grip 0.20 1.25 -0.25 0 0 0 1200
+@wait 1500
+
+# 6. Stand up again: disarmed, logged once.
+@mark
+btn b press 150
+@log stab: DISARMED 6s
+@modassert features.swing.stab.armed eq false
+
+# 7. Three simulated thrusts through the real core, gates and arming. Standing,
+#    so they must NOT fire; then armed for the test, they must.
+@mark
+@mod swing stab sim 2.2 200 3
+@log swing: sim window finished: 0 fire 8s
+@mod swing stab arm always
+@mark
+@mod swing stab sim 2.2 200 3
+@log swing: sim window finished: 3 fire 8s
+@mod swing stab arm sneak; swing stab off

@@ -50,9 +50,10 @@ static void HealthElixirTick(bool held)
 // does: the render presents twice per game tick (stereo: beat out/s=171 L/s=85),
 // so a detector fed once per PRESENT sees every hand pose twice. The pre-VR-37
 // detector read three scripted 0.68 m swings as ten 4-39 ms "flicks" with peaks
-// of 8-14 m/s and never fired. tick() therefore feeds the core once per LOCATE
-// (dvr::vr::locate_gen) and never a pose identical to the last one, and takes dt
-// from the runtime's predicted display time.
+// of 8-14 m/s and never fired. tick() therefore feeds the core once per HAND
+// SAMPLE GENERATION (input_hand_aim_sample(1).generation - the head's locate_gen
+// is a different cadence, and a pose compared with the last one drops a hand at
+// rest for ever), and takes dt from the runtime's predicted display time.
 #include "game/dishonored/swing_core.h"
 
 namespace dvr::swing {
@@ -66,11 +67,17 @@ struct Settings : Config {
     float honourMs      = 600.0f;   // [Melee] HonourMs
     bool  honourHaptic  = false;    // [Melee] HonourHaptic
     bool  iniEnabled    = true;     // what [Melee] Enabled asked for, before any veto
+    int   stabArm       = 0;        // [Melee] StabArm: 0 sneak (crouched), 1 always
     bool  detectorFromIni = false;
 };
 Settings st;
 Core live, simCore;
 bool force = false;                 // `swing force on`: skip the sword gate, never saved
+// The thrust (VR-155): who armed it, and what the last few seconds looked like.
+struct StabStats { unsigned fires = 0, rejects = 0; char armedBy[64] = "none", lastReject[120] = "none";
+                   float peak[2] = {}, travel[2] = {}, ratio[2] = {}; double bucketMs = 0; bool armed = false; } sb;
+bool simStab = false;               // `swing stab sim`: the simulated hand thrusts instead of sweeping
+float headFwd[2] = { 0.0f, -1.0f }; // where the head faces, flattened; the last good one is kept
 bool speedLog = false;              // `swing log on`
 volatile LONG padPollsTotal = 0;
 
@@ -106,6 +113,30 @@ int sword_kind(unsigned* ageMs) {
     if (ageMs) *ageMs = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
     return (int)InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
 }
+
+// Is a thrust allowed to count? Sneaking is the game's own crouch, read from the
+// collision capsule the crouch module already samples every 50 ms (87.5 standing,
+// 65 crouched): it is the one reading that covers the crouch button AND a physical
+// crouch, because the physical crouch presses that same button. Under 50 is a vent
+// or a crawlspace, where the game owns the stance and a stab has no room. A stale
+// capsule is unknown, and unknown is not sneaking. Edges are logged, state is not.
+bool stab_armed(double now) {
+    char why[64]; bool armed = false;
+    if (!st.stab) _snprintf_s(why, sizeof(why), _TRUNCATE, "none (the thrust is off)");
+    else if (st.stabArm == 1) { armed = true; _snprintf_s(why, sizeof(why), _TRUNCATE, "always (StabArm=always)"); }
+    else if (g_cylOkMs <= 0.0 || now - g_cylOkMs > 1000.0)
+        _snprintf_s(why, sizeof(why), _TRUNCATE, "none (the stance has not been read for %.0f ms)", g_cylOkMs > 0.0 ? now - g_cylOkMs : -1.0);
+    else if (g_cylLast < 50.0f) _snprintf_s(why, sizeof(why), _TRUNCATE, "none (crawlspace, capsule %.1f)", g_cylLast);
+    else if (g_cylLast < 76.0f) { armed = true; _snprintf_s(why, sizeof(why), _TRUNCATE, "crouch (capsule %.1f)", g_cylLast); }
+    else _snprintf_s(why, sizeof(why), _TRUNCATE, "none (standing, capsule %.1f)", g_cylLast);
+    if (armed != sb.armed) {
+        Log("stab: %s - %s", armed ? "ARMED" : "DISARMED", why);
+        sb.armed = armed;
+    }
+    _snprintf_s(sb.armedBy, sizeof(sb.armedBy), _TRUNCATE, "%s", why);
+    return armed;
+}
+float two(const float* b) { return b[0] > b[1] ? b[0] : b[1]; }
 
 // The gates, fail closed. The sustain detector keeps exactly the gates it had
 // before VR-37, so `swing mode sustain` is the old behaviour and nothing else.
@@ -241,6 +272,25 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
             "swing: speed %.2f m/s (room %.2f, %s, %s) armed=%d closed=0x%x samples=%u dup=%u",
             v.speed, v.roomSpeed, src, detector_name(), (int)(sim.on ? simCore : live).armed(),
             s.closed, n.samples, n.dups);
+    if (now - sb.bucketMs > 5000.0) { sb.bucketMs = now; sb.peak[1] = sb.peak[0]; sb.travel[1] = sb.travel[0];
+        sb.ratio[1] = sb.ratio[0]; sb.peak[0] = sb.travel[0] = sb.ratio[0] = 0.0f; }
+    if (v.radial > sb.peak[0]) sb.peak[0] = v.radial;
+    if (v.stabTravel > sb.travel[0]) { sb.travel[0] = v.stabTravel; sb.ratio[0] = v.stabRatio; }
+    if (v.stabReject) {
+        ++sb.rejects;
+        const char* bar = v.stabReject == kStabTravel ? "travel" : v.stabReject == kStabRatio ? "ratio" : "forward";
+        _snprintf_s(sb.lastReject, sizeof(sb.lastReject), _TRUNCATE,
+            "%s: travel %.2f m (needs %.2f) ratio %.2f (needs %.2f) forward %.2f (needs %.2f)", bar,
+            v.stabTravel, st.stabTravelM, v.stabRatio, st.stabRatio, v.stabForward, st.stabForward);
+        // The tuning feedback: which bar, and by how much. One line per thrust.
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 500,
+            "stab: REJECTED %s (%s) - peak extension %.2f m/s over %.0f ms", sb.lastReject, src, v.stabPeak, v.stabMs);
+    }
+    if (v.fired == kFiredStab) {
+        ++sb.fires;
+        Log("stab: FIRE extension %.2f m/s travel %.2f m ratio %.2f forward %.2f in %.0f ms (%s, armed by %s)",
+            v.stabPeak, v.stabTravel, v.stabRatio, v.stabForward, v.stabMs, src, sb.armedBy);
+    }
     if (v.fired) {
         ++n.fires; g_meleeCount++; g_meleeLastMs = now;
         const bool edgeMode = st.detector == kEdge;
@@ -254,8 +304,9 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
         if (g_meleeHaptic) MaimHaptic(1, 0.7f, 0.08f);
         const double h1 = MaimNowMs();
         if (edgeMode)
-            Log("swing: FIRE #%u slash %.2f m/s (%s, detector=edge, threshold %.2f) -> %s %.0f ms, polls>=%d, haptic=%.1fms",
-                n.fires, v.speed, src, st.edgeSpeed, output_name(), len, pulse.minPolls, h1 - h0);
+            Log("swing: FIRE #%u %s %.2f m/s (%s, detector=edge, threshold %.2f) -> %s %.0f ms, polls>=%d, haptic=%.1fms",
+                n.fires, v.fired == kFiredStab ? "stab" : "slash", v.speed, src, st.edgeSpeed, output_name(), len,
+                pulse.minPolls, h1 - h0);
         else
             Log("swing: FIRE #%u slash %.2f m/s (%s, detector=sustain, run %.0f ms %.2f m) -> %s %.0f ms, haptic=%.1fms",
                 n.fires, v.speed, src, v.runMs, v.runDistM, output_name(), len, h1 - h0);
@@ -268,7 +319,8 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
             _snprintf_s(why, sizeof(why), _TRUNCATE, "not re-armed (the hand never slowed below %.2f m/s since the last attack)", effective_rearm(st));
         else _snprintf_s(why, sizeof(why), _TRUNCATE, "cooldown (%.0f of %.0f ms left)", v.cooldownLeftMs, st.cooldownMs);
         _snprintf_s(n.lastBlock, sizeof(n.lastBlock), _TRUNCATE, "%s", why);
-        Log("swing: BLOCKED %.2f m/s (%s, detector=%s): %s", v.speed, src, detector_name(), why);
+        Log("swing: BLOCKED %.2f m/s (%s, detector=%s%s): %s", v.speed, src, detector_name(),
+            v.stabTravel > 0.0f ? ", a thrust" : "", why);
     }
     if (v.flick)
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
@@ -346,14 +398,22 @@ void tick() {
 
     if (sim.on) {
         const double phase = now - sim.startMs;
-        if (phase >= 2.0 * (double)sim.humpMs * (double)sim.reps) {
+        // A thrust sim counts THRUSTS: the hand alternates direction to stay in reach,
+        // so every thrust out is followed by the hand coming back, which is not one.
+        if (phase >= 2.0 * (double)sim.humpMs * (double)(simStab ? sim.reps * 2 : sim.reps)) {
             sim.on = false; live.reset();
             Log("swing: sim window finished: %u fire(s), %u blocked of %d swing(s) at %.1f m/s peak",
                 n.fires - sim.fires0, n.blocked - sim.blocked0, sim.reps, sim.peak);
             return;
         }
-        Sample s; s.hand[0] = sim_offset(sim.peak, sim.humpMs, phase); s.hand[1] = 1.2f; s.hand[2] = -0.4f;
-        s.handValid = true; s.tMs = now; s.closed = gates(now);
+        // A slash sweeps across the body; a thrust goes out along where the head
+        // faces from a forearm in front of the modelled shoulder.
+        Sample s; s.handValid = true; s.tMs = now; s.closed = gates(now);
+        if (simStab) {
+            s.headValid = true; s.head[1] = 1.6f; s.headFwd[0] = 0.0f; s.headFwd[1] = -1.0f;
+            s.hand[0] = 0.20f; s.hand[1] = 1.25f; s.hand[2] = -0.25f - sim_offset(sim.peak, sim.humpMs, phase);
+            s.stabArmed = stab_armed(now);
+        } else { s.hand[0] = sim_offset(sim.peak, sim.humpMs, phase); s.hand[1] = 1.2f; s.hand[2] = -0.4f; }
         handle(simCore.feed(s, st), s, now, "sim");
         return;
     }
@@ -365,7 +425,15 @@ void tick() {
     s.handValid = dev >= 0 && dev < 16 && g_devPoseOk[dev];
     if (s.handValid) { s.hand[0] = g_devPose[dev][0][3]; s.hand[1] = g_devPose[dev][1][3]; s.hand[2] = g_devPose[dev][2][3]; }
     s.headValid = g_devPoseOk[0];
-    if (s.headValid) { s.head[0] = g_devPose[0][0][3]; s.head[1] = g_devPose[0][1][3]; s.head[2] = g_devPose[0][2][3]; }
+    if (s.headValid) {
+        s.head[0] = g_devPose[0][0][3]; s.head[1] = g_devPose[0][1][3]; s.head[2] = g_devPose[0][2][3];
+        // Forward is the pose's -Z column, flattened. Looking straight up or down
+        // leaves nothing to flatten, so the last good heading is kept.
+        const float fx = -g_devPose[0][0][2], fz = -g_devPose[0][2][2], fl = sqrtf(fx * fx + fz * fz);
+        if (fl > 0.2f) { headFwd[0] = fx / fl; headFwd[1] = fz / fl; }
+    }
+    s.headFwd[0] = headFwd[0]; s.headFwd[1] = headFwd[1];
+    s.stabArmed = st.detector == kEdge && stab_armed(now);
     // One sample per LOCATE: the render presents twice per game tick, and the
     // second present carries the pose the first one did. Read as a zero step, that
     // repeat is what kept the old detector from ever completing a run. A pose that
@@ -387,6 +455,9 @@ void tick() {
     if (speedLog && v.roomSpeed > 0.5f)
         Log("swing: sample handGen=%u (+%u) locateGen=%u t=%.2f ms speed=%.2f raw=%.2f room=%.2f jump=%d x=%.3f y=%.3f z=%.3f",
             gen, genStep, dvr::vr::locate_gen(), s.tMs, v.speed, v.rawSpeed, v.roomSpeed, (int)v.jump, s.hand[0], s.hand[1], s.hand[2]);
+    if (speedLog && st.stab && v.radial > 0.5f)
+        Log("stab: sample extension=%.2f m/s armed=%d fwd=(%.2f,%.2f) travel=%.2f ratio=%.2f", v.radial, (int)s.stabArmed,
+            s.headFwd[0], s.headFwd[1], v.stabTravel, v.stabRatio);
     handle(v, s, now, "live");
 }
 
@@ -407,6 +478,22 @@ void configure(const char* ini) {
     st.outputRb = !_stricmp(buf, "rb");
     st.honourMs = clampf(IniFloat(ini, "Melee", "HonourMs", 600.0f), 100.0f, 2000.0f);
     st.honourHaptic = IniFloat(ini, "Melee", "HonourHaptic", 0) != 0.0f;
+    st.stab         = IniFloat(ini, "Melee", "Stab", 0) != 0.0f;
+    st.stabSpeed    = clampf(IniFloat(ini, "Melee", "StabSpeed", 1.5f), 0.3f, 6.0f);
+    st.stabTravelM  = clampf(IniFloat(ini, "Melee", "StabTravelM", 0.20f), 0.05f, 0.8f);
+    st.stabRatio    = clampf(IniFloat(ini, "Melee", "StabRatio", 0.75f), 0.0f, 1.0f);
+    st.stabForward  = clampf(IniFloat(ini, "Melee", "StabForward", 0.5f), -1.0f, 1.0f);
+    st.stabWindowMs = clampf(IniFloat(ini, "Melee", "StabWindowMs", 400.0f), 100.0f, 1500.0f);
+    st.shoulder[0]  = clampf(IniFloat(ini, "Melee", "ShoulderRightM", 0.17f), -0.5f, 0.5f);
+    st.shoulder[1]  = clampf(IniFloat(ini, "Melee", "ShoulderDownM", 0.22f), -0.5f, 0.5f);
+    st.shoulder[2]  = clampf(IniFloat(ini, "Melee", "ShoulderBackM", 0.04f), -0.5f, 0.5f);
+    GetPrivateProfileStringA("Melee", "StabArm", "sneak", buf, sizeof(buf), ini);
+    st.stabArm = !_stricmp(buf, "always") ? 1 : 0;
+    Log("config: [Melee] Stab=%d StabArm=%s StabSpeed=%.2f StabTravelM=%.2f StabRatio=%.2f StabForward=%.2f "
+        "StabWindowMs=%.0f Shoulder R/D/B=%.2f/%.2f/%.2f - the sneak-kill thrust; it needs Detector=edge, and "
+        "'stab: ARMED' in the log says when a thrust can count", (int)st.stab, st.stabArm ? "always" : "sneak",
+        st.stabSpeed, st.stabTravelM, st.stabRatio, st.stabForward, st.stabWindowMs, st.shoulder[0], st.shoulder[1],
+        st.shoulder[2]);
     Log("config: [Melee] Detector=%s (%s) EdgeSpeed=%.2f RearmSpeed=%.2f (effective %.2f) PulseMs=%.0f PulseMinPolls=%d "
         "HeadRel=%d Median=%d RequireSword=%d Output=%s HonourMs=%.0f HonourHaptic=%d - this line reports the SETTING; watch for "
         "'swing: FIRE' to know it fires, and 'swing: beat' names the closed gate when it does not",
@@ -430,6 +517,16 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Melee", "Output", output_name(), ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.honourMs);   WritePrivateProfileStringA("Melee", "HonourMs", v, ini);
     WritePrivateProfileStringA("Melee", "HonourHaptic", st.honourHaptic ? "1" : "0", ini);
+    WritePrivateProfileStringA("Melee", "Stab", st.stab ? "1" : "0", ini);
+    WritePrivateProfileStringA("Melee", "StabArm", st.stabArm ? "always" : "sneak", ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabSpeed);    WritePrivateProfileStringA("Melee", "StabSpeed", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabTravelM);  WritePrivateProfileStringA("Melee", "StabTravelM", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabRatio);    WritePrivateProfileStringA("Melee", "StabRatio", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabForward);  WritePrivateProfileStringA("Melee", "StabForward", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.stabWindowMs); WritePrivateProfileStringA("Melee", "StabWindowMs", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.shoulder[0]);  WritePrivateProfileStringA("Melee", "ShoulderRightM", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.shoulder[1]);  WritePrivateProfileStringA("Melee", "ShoulderDownM", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.shoulder[2]);  WritePrivateProfileStringA("Melee", "ShoulderBackM", v, ini);
 }
 
 bool command(const char* args) {
@@ -438,6 +535,51 @@ bool command(const char* args) {
     const bool on = !strcmp(a, "on"), off = !strcmp(a, "off");
     const float f = (float)atof(a);
     bool said = false;
+    if (!strcmp(sub, "stab")) {
+        const float g = (float)atof(b);
+        if (!strcmp(a, "on") || !strcmp(a, "off")) {
+            st.stab = !strcmp(a, "on"); live.reset();
+            Log("stab: %s (live; 'swing save' or F10 writes it)%s", st.stab ? "ON" : "OFF",
+                st.stab && st.detector != kEdge ? " - it needs 'swing mode edge' and does nothing under sustain" : "");
+        }
+        else if (!strcmp(a, "speed") && *b)   { st.stabSpeed = clampf(g, 0.3f, 6.0f);     Log("stab: StabSpeed=%.2f m/s of extension (live)", st.stabSpeed); }
+        else if (!strcmp(a, "travel") && *b)  { st.stabTravelM = clampf(g, 0.05f, 0.8f);  Log("stab: StabTravelM=%.2f (live)", st.stabTravelM); }
+        else if (!strcmp(a, "ratio") && *b)   { st.stabRatio = clampf(g, 0.0f, 1.0f);     Log("stab: StabRatio=%.2f, extension gained over path travelled (live)", st.stabRatio); }
+        else if (!strcmp(a, "forward") && *b) { st.stabForward = clampf(g, -1.0f, 1.0f);  Log("stab: StabForward=%.2f, dot with where the head faces (live)", st.stabForward); }
+        else if (!strcmp(a, "window") && *b)  { st.stabWindowMs = clampf(g, 100.0f, 1500.0f); Log("stab: StabWindowMs=%.0f (live)", st.stabWindowMs); }
+        else if (!strcmp(a, "arm") && (!strcmp(b, "sneak") || !strcmp(b, "always"))) {
+            st.stabArm = !strcmp(b, "always") ? 1 : 0;
+            Log("stab: StabArm=%s (live) - %s", b, st.stabArm ? "a thrust counts standing up too; for isolating the arming from the detector"
+                                                              : "a thrust counts only while crouched");
+        }
+        else if (!strcmp(a, "shoulder") && *b && *c) {
+            char d4[24] = {}; sscanf(args, "%*s %*s %*s %*s %23s", d4);
+            st.shoulder[0] = clampf(g, -0.5f, 0.5f); st.shoulder[1] = clampf((float)atof(c), -0.5f, 0.5f);
+            if (*d4) st.shoulder[2] = clampf((float)atof(d4), -0.5f, 0.5f);
+            Log("stab: shoulder right/down/back = %.2f/%.2f/%.2f m from the head (live)", st.shoulder[0], st.shoulder[1], st.shoulder[2]);
+        }
+        else if (!strcmp(a, "sim") && *b) {
+            sim = Sim{}; sim.on = true; simStab = true; sim.startMs = MaimNowMs();
+            sim.peak = clampf(g, 0.0f, kMaxSpeed - 1.0f);
+            sim.humpMs = *c ? clampf((float)atof(c), 20.0f, 2000.0f) : 200.0f;
+            char d4[24] = {}; sscanf(args, "%*s %*s %*s %*s %23s", d4);
+            sim.reps = *d4 ? (int)clampf((float)atof(d4), 1.0f, 10.0f) : 1;
+            sim.fires0 = n.fires; sim.blocked0 = n.blocked; simCore.reset();
+            Log("stab: sim %d thrust(s) peaking at %.1f m/s of extension, %.0f ms each, straight out from the shoulder, "
+                "through the real core, the real gates and the real arming (armed now: %s)", sim.reps, sim.peak, sim.humpMs, sb.armedBy);
+            return true;
+        }
+        else if (*a && strcmp(a, "status"))
+            Log("swing stab: status | on|off | speed <m/s> | travel <m> | ratio <0-1> | forward <-1..1> | window <ms> | "
+                "arm sneak|always | shoulder <right> <down> [back] | sim <peak m/s> [humpMs] [reps]");
+        Log("stab: %s arm=%s armed now: %s | speed %.2f m/s travel %.2f m ratio %.2f forward %.2f window %.0f ms shoulder "
+            "%.2f/%.2f/%.2f | fires=%u rejects=%u (last: %s) | 10 s: PEAK extension %.2f m/s, best travel %.2f m at ratio %.2f "
+            "<- lower the bar the REJECTED line names",
+            st.stab ? "ON" : "OFF", st.stabArm ? "always" : "sneak", sb.armedBy, st.stabSpeed, st.stabTravelM, st.stabRatio,
+            st.stabForward, st.stabWindowMs, st.shoulder[0], st.shoulder[1], st.shoulder[2], sb.fires, sb.rejects,
+            sb.lastReject, two(sb.peak), two(sb.travel), two(sb.ratio));
+        return true;
+    }
     if (!strcmp(sub, "on"))  { set_on(true);  return true; }
     if (!strcmp(sub, "off")) { set_on(false); return true; }
     if (!strcmp(sub, "mode") && (!strcmp(a, "edge") || !strcmp(a, "sustain"))) {
@@ -466,7 +608,7 @@ bool command(const char* args) {
     else if (!strcmp(sub, "log") && (on || off))   { speedLog = on; Log("swing: speed log %s (10 Hz)", on ? "ON" : "off"); said = true; }
     else if (!strcmp(sub, "force") && (on || off)) { force = on; if (on) DVR_WARN("swing: FORCE on - the sword gate is bypassed until 'swing force off' or the next launch; never saved"); else Log("swing: force off"); said = true; }
     else if (!strcmp(sub, "sim") && *a) {
-        sim = Sim{}; sim.on = true; sim.startMs = MaimNowMs();
+        sim = Sim{}; sim.on = true; simStab = false; sim.startMs = MaimNowMs();
         sim.peak = clampf(f, 0.0f, kMaxSpeed - 1.0f);
         sim.humpMs = *b ? clampf((float)atof(b), 20.0f, 2000.0f) : 200.0f;
         sim.reps = *c ? (int)clampf((float)atof(c), 1.0f, 10.0f) : 1;
@@ -479,7 +621,7 @@ bool command(const char* args) {
     else if (*sub && strcmp(sub, "status"))
         Log("swing: status | on|off | mode edge|sustain | threshold <m/s> | rearm <m/s> | cooldown <ms> | pulse <ms> | "
             "polls <n> | rel on|off | filter raw|median | sword on|off | output rt|rb | honour <ms> | log on|off | force on|off | "
-            "sim <peak m/s> [humpMs] [reps] | save");
+            "sim <peak m/s> [humpMs] [reps] | save | stab ... (the sneak-kill thrust: 'swing stab' lists it)");
     if (!said || !strcmp(sub, "status")) report();
     return true;
 }
@@ -503,6 +645,12 @@ void status(dvr::status::Writer& w) {
     w.kv("notHonoured", (unsigned long)n.notHonoured); w.kv("inconclusive", (unsigned long)n.inconclusive);
     w.kv("lastSpeed", (double)n.lastSpeed); w.kv("peakSpeed10s", (double)peak10s());
     w.kv("sim", sim.on);
+    w.obj("stab");
+    w.kv("on", st.stab); w.kv("arm", st.stabArm ? "always" : "sneak"); w.kv("armed", sb.armed); w.kv("armedBy", sb.armedBy);
+    w.kv("fires", (unsigned long)sb.fires); w.kv("rejects", (unsigned long)sb.rejects); w.kv("lastReject", sb.lastReject);
+    w.kv("peakExtension10s", (double)two(sb.peak)); w.kv("bestTravel10s", (double)two(sb.travel));
+    w.kv("bestRatio10s", (double)two(sb.ratio));
+    w.end_obj();
     w.end_obj();
 }
 
@@ -549,6 +697,30 @@ void draw_ui() {
     }
     ImGui::SliderFloat("swing cooldown (ms)", &g_meleeCoolMs, 0.0f, 1000.0f, "%.0f");
     if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", g_meleeCoolMs); ConfigWriteKey("Melee", "CooldownMs", v, "F10 Controls"); }
+    if (st.detector == kEdge) {
+        ImGui::Separator();
+        if (ImGui::Checkbox("a thrust while sneaking is the stealth kill", &st.stab)) {
+            live.reset(); ConfigWriteKey("Melee", "Stab", st.stab ? "1" : "0", "F10 Controls");
+        }
+        if (st.stab) {
+            ImGui::SliderFloat("thrust speed needed (m/s)", &st.stabSpeed, 0.5f, 4.0f, "%.2f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabSpeed); ConfigWriteKey("Melee", "StabSpeed", v, "F10 Controls"); }
+            ImGui::SliderFloat("thrust reach needed (m)", &st.stabTravelM, 0.05f, 0.50f, "%.2f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabTravelM); ConfigWriteKey("Melee", "StabTravelM", v, "F10 Controls"); }
+            ImGui::SliderFloat("how straight (0-1)", &st.stabRatio, 0.3f, 1.0f, "%.2f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabRatio); ConfigWriteKey("Melee", "StabRatio", v, "F10 Controls"); }
+            ImGui::SliderFloat("how forward (0-1)", &st.stabForward, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabForward); ConfigWriteKey("Melee", "StabForward", v, "F10 Controls"); }
+            bool always = st.stabArm == 1;
+            if (ImGui::Checkbox("count a thrust standing up too (testing)", &always)) {
+                st.stabArm = always ? 1 : 0; ConfigWriteKey("Melee", "StabArm", always ? "always" : "sneak", "F10 Controls");
+            }
+            ImGui::Text("thrust: %s", sb.armedBy);
+            ImGui::Text("PEAK extension (10 s) %.2f m/s, best reach %.2f m at %.2f straight", two(sb.peak), two(sb.travel), two(sb.ratio));
+            ImGui::Text("stabs %u  rejected %u: %s", sb.fires, sb.rejects, sb.lastReject);
+        }
+        ImGui::Separator();
+    }
     char why[160]; closed_text(gates(now), now, why, sizeof(why));
     ImGui::Text("last %.2f m/s   PEAK (10 s) %.2f m/s", n.lastSpeed, peak10s());
     ImGui::Text("gate: %s", why);
