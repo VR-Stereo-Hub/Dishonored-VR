@@ -154,7 +154,18 @@ uint8_t* GoScanForProfileObject()
         Log("gameopts: REFUSED - object table looks wrong (objs=%p num=%u)", (void*)objs, onum);
         return NULL;
     }
-    uint8_t* found = NULL; const char* foundCls = NULL; int hits = 0;
+    // MEASURED 2026-09-20 (run 2): the scan found FIVE live *ProfileSettings and
+    // this loop took the first one, which was `OnlineProfileSettings` - the base
+    // class. All fourteen ids then refused. The game's own settings live on the
+    // `ArkProfileSettings` subclass (tools/uscript/.../Engine/ArkProfileSettings.uc),
+    // so "first match" was the wrong rule and a base-class instance answered
+    // nothing, exactly as it should.
+    //
+    // Rank instead of taking the first, and PRINT EVERY CANDIDATE. The choice
+    // being invisible is what made the first run's failure ambiguous: a refusal
+    // on the wrong object reads identically to a refusal on the right one.
+    struct Cand { uint8_t* obj; const char* cls; int score; };
+    Cand cands[16]; int nc = 0; int hits = 0;
     for (uint32_t i = 0; i < onum; i++) {
         if ((i & 1023) == 0) {
             uint32_t left = onum - i; if (left > 1024) left = 1024;
@@ -169,16 +180,28 @@ uint8_t* GoScanForProfileObject()
         if (!IsLiveObject(o)) continue;
         if (!strncmp(cn, "Default__", 9)) continue;
         ++hits;
-        if (!found) { found = o; foundCls = cn; }
+        // Most derived wins: Ark is the game's own, then anything that is not
+        // the bare base class, then the base class as a last resort.
+        const int score = strstr(cn, "Ark") ? 3 : (strcmp(cn, "OnlineProfileSettings") ? 2 : 1);
+        if (nc < 16) { cands[nc].obj = o; cands[nc].cls = cn; cands[nc].score = score; ++nc; }
     }
-    if (!found) {
+    if (!nc) {
         Log("gameopts: REFUSED - no live *ProfileSettings object in %u objects. The settings "
             "may not be loaded until the options menu has been opened once this session.", onum);
         return NULL;
     }
-    Log("gameopts: object-table scan found %d live *ProfileSettings; using %p (%s)",
-        hits, (void*)found, foundCls);
-    return found;
+    int best = 0;
+    for (int i = 1; i < nc; ++i) if (cands[i].score > cands[best].score) best = i;
+    Log("gameopts: object-table scan found %d live *ProfileSettings (%d listed). Ranking most "
+        "derived first, because run 2 took the base class and every id refused:", hits, nc);
+    for (int i = 0; i < nc; ++i)
+        Log("gameopts:   %s %p %-28s score=%d", i == best ? "USING  " : "       ",
+            (void*)cands[i].obj, cands[i].cls, cands[i].score);
+    if (cands[best].score == 1)
+        Log("gameopts: WARNING - the best candidate is the BASE class OnlineProfileSettings. "
+            "If the ids refuse again, the game's ArkProfileSettings instance is not in the "
+            "table yet and this is not a parms-block problem.");
+    return cands[best].obj;
 }
 
 // The ArkProfileSettings object. Asks the controller's own native first,

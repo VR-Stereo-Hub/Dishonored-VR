@@ -3214,3 +3214,62 @@ request, with strict suppression enabled and pacing off. Performance improvement
 remains subjective. Exact acceptance identity/archive and promotion scope are in
 PERFORMANCE.md, Accepted profile and publication. Earlier strict-default0 and pending
 headset entries are historical. Accepted image-owned orientation remains unchanged.
+
+## VR-165: the chain-climb swing is NOT the camera modifier stack (2026-09-20)
+
+1. **Symptom:** after leaving a chain the camera goes on swinging as if still on
+   it, with jitter, for tens of seconds. Surface: the game's own camera POV, not
+   a missing eye, a mono interruption or a held frame - the stereo judges are
+   clean throughout (0 one-picture windows, 0 wrong-eye draws). Reproduced by
+   ungrabbing the chain with X rather than jumping off; jumping off clears it.
+2. **Identity:** tester build `533-g82e126174` (report), probe run on
+   `02e59354c`, VirtualDesktopXR 1.0.10.
+3. **Measured, offline, from the tester's log.** The engine's player state
+   machine is clean through the whole episode: `Climb -> Jump -> Falling ->
+   Walk`, no stuck state. Scanning the run for sustained camera-Z oscillation
+   puts every hit on the chain and past the dismount (peak 109 uu of range,
+   continuing ~23 s after he got off). Our own positional request against the
+   game's camera, same windows:
+
+   | window | our request (U) | game camera (Z) |
+   |---|---|---|
+   | during the climb | 0 reversals, 3.74 uu | 91 reversals, 413.67 uu |
+   | after the dismount | 1 reversal, 4.67 uu | 166 reversals, 260.44 uu |
+   | baseline walking | 3 reversals, 4.95 uu | 13 reversals, 49.16 uu |
+
+   **Our writer is flat in every window.** The swing is entirely game-side, so
+   no clamp on the mod's camera seam can reach it.
+4. **Hypothesis:** a `DishonoredCamera.ini` camera modifier (Lean, Dodge, Shake,
+   Recoil, HitReact, PhysicalReact, BumpSmoother, the DisableArmFollow pair) is
+   not releasing at the dismount. Counterprediction: the modifier list shows an
+   entry whose alpha stays up while swinging and falls when it settles.
+5. **Instrument:** `cammod` (`game/dishonored/cam_modifiers.cpp`), read-only,
+   `[Diagnostics] CamModProbe=1`. Walks `Camera.ModifierList` and prints each
+   modifier's alpha, target, priority and disabled bit, but only while the
+   camera is actually swinging and once more when it settles. Every offset comes
+   from the name-keyed resolver; an unresolved one prints `unresolved` rather
+   than a zero.
+6. **Result: HYPOTHESIS REFUTED.** The probe caught the swing (199.7 uu while
+   SWINGING, 6.3 uu once SETTLED) and `ModifierList` held exactly ONE entry
+   throughout:
+
+   ```
+   [0] CameraModifier_CameraShake  alpha=0.000 target=0.000 prio=127 disabled=0
+   ```
+
+   Zero weight, identical swinging and settled. **The modifier stack is
+   eliminated**: the `DishonoredCamera.ini` sections configure classes that
+   never enter the runtime stack at all, so that ini is not the route to this.
+   The swing lives in the camera's own POV update. Do not return to
+   `ModifierList` for this symptom.
+7. **Instrument fault found and fixed in the same pass.** The first version
+   counted a reversal per ProcessEvent dispatch, so it reported "249 reversals
+   in 1010 ms" - not a frequency of anything, and not comparable with the ~8 Hz
+   the offline analysis measured. It now counts direction changes of an
+   excursion greater than 2 uu and reports a rate in Hz, so the sampling rate no
+   longer changes the answer. The amplitude column was always sound and is what
+   the swinging/settled judgement used.
+8. **Open, next suspects:** the camera's own POV computation for the climb
+   state, and whatever the X-ungrab path leaves set that the jump path clears.
+   Not yet examined. `PSI_Gameplay_CameraRelativeClimbing` (VR-161) is a
+   candidate but cannot be read yet and is NOT assumed either way.
