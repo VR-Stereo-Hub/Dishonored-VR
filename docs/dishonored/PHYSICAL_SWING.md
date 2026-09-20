@@ -21,7 +21,7 @@ for a readable kill-available signal is VR-156.
 
 The decision is `src/game/dishonored/swing_core.h`: pure, no engine objects, hand
 and head positions and a timestamp in, a verdict out. `tools\swing-core-host.ps1`
-drives exactly that code (52 checks, 16 of them the thrust). The game side is `melee.cpp`
+drives exactly that code (60 checks: 16 the thrust, 8 the plunge). The game side is `melee.cpp`
 (`namespace dvr::swing`, declared in `swing.h`), present lane throughout.
 
 Two detectors, chosen by `[Melee] Detector` and live by `swing mode`:
@@ -153,7 +153,7 @@ sim <peak m/s> [humpMs] [reps] | save`
 
 | Intent | Command | Read |
 |---|---|---|
-| the decision core | `tools\swing-core-host.ps1` | `swing-core: 52 checks passed` |
+| the decision core | `tools\swing-core-host.ps1` | `swing-core: 60 checks passed` |
 | a swing fires, a reach and a body turn do not | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` | FIRE then HONOURED; `peakSpeed10s lt 2.2` on the reach; `sim window finished: 3 fire(s)` |
 | every gate blocks once and says why | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-gates.xrs` | four BLOCKED reasons, then the same swing fires |
 
@@ -187,6 +187,24 @@ game has no separate input for the stealth kill: the input ini binds no
 assassinate alias, the kill is the attack in context. So the thrust presses what a
 slash presses and the game decides what it becomes.
 
+**Two motions, because it depends how the blade sits in the hand** (`StabStyle`,
+live as `swing stab style plunge|thrust`, an F10 combo):
+
+- `plunge` (the default). In the headset the sword sits in a REVERSE (ice-pick)
+  grip, and a forward thrust with a blade pointing down out of the fist is not a
+  movement anyone makes. The kill is a fist raised to about the shoulder and driven
+  DOWN, a little forward, which is also what the game's own from-behind animation
+  does. The axis is fixed: down, tilted 20 degrees the way the head faces.
+  `StabForward` then means how closely the whole move followed that line. It has
+  one bar the thrust cannot have: it must START high. `StabStartBelowM` (0.05) is
+  how far below the shoulder line the hand may start; reaching down for loot starts
+  at the waist, and that single fact rejects it (`stab: REJECTED plunge start:
+  started -0.31 m from the shoulder line`). Ducking with the fist raised moves head
+  and hand together and extends nothing.
+- `thrust`: straight out from the shoulder, the way the head faces, for a forward
+  grip. It was the first design and is kept as the A/B. Everything below about
+  "extension away from the shoulder" describes this one.
+
 **Why it is its own shape.** A stab is 1.5 to 2.5 m/s over 20 to 35 cm. It never
 crosses a slash threshold, and lowering that threshold while crouched would turn
 every reach, lean and point into an attack in the middle of a stealth approach. A
@@ -219,7 +237,7 @@ silent: no verdict, no log line. `StabArm=always` exists to separate the arming
 from the detector while testing. `StabArm=kill` (arm when the game would accept a
 kill, with a haptic ready cue) waits on VR-156.
 
-**Words.** `swing stab status | on|off | speed | travel | ratio | forward | window |
+**Words.** `swing stab status | on|off | style plunge|thrust | start <m> | speed | travel | ratio | forward | window |
 arm sneak|always | shoulder <right> <down> [back] | sim <peak> [humpMs] [reps]`.
 `status.json` `features.swing.stab`: on, arm, armed, armedBy, fires, rejects,
 lastReject, peakExtension10s, bestTravel10s, bestRatio10s. F10 rows under Motion
@@ -240,6 +258,13 @@ a 0.45 m reach to the floor in 450 ms does not fire; a slash while crouched is a
 slash, once; standing up logs DISARMED; `swing stab sim 2.2 200 3` fires 0 standing
 and 3 with `arm always`. Host: 16 thrust checks inside the 52.
 
+**The plunge, measured the same day** (`tools\xrsim\swing-plunge.xrs`, 4 legs):
+standing, raising the fist and plunging is silent; crouched, the wind-up (0.30 m up
+in 700 ms) is not an attack, and the plunge (0.35 m in 250 ms) logs `stab: FIRE
+plunge 3.02 m/s travel 0.21 m ratio 1.00 aim 1.00 start +0.14 m in 78 ms`, HONOURED
+16 ms later; the same downward move from waist height is `REJECTED plunge start:
+started -0.31 m`; the sim fires 0 standing and 3 armed. Host: 8 plunge checks (60).
+
 **Not measured, and what would measure it.** Whether the attack becomes the KILL.
 The dev PC's newest save is the Hound Pits pub, which has nobody to kill, so every
 thrust above was honoured as `StatePlayerMeleeAttack`. Behind an unaware guard the
@@ -249,6 +274,8 @@ line to look for is `swing: HONOURED kill (master=StatePlayerMasterAssassinate)`
 
 | What you notice | Read | Change |
 |---|---|---|
+| A plunge is REJECTED on `start` | `started -0.xx m from the shoulder line` | you wind up lower than the model expects: raise `StabStartBelowM` to a little more than that number, or fix the shoulder height with `swing stab shoulder` |
+| Picking things up while crouched stabs | the FIRE line's `start` | lower `StabStartBelowM` (0 or negative = must start at or above the shoulder) |
 | The stab never fires | `stab: REJECTED <bar>` and `swing stab status` (PEAK extension, best travel, best ratio) | lower the bar the line names: `StabTravelM` first, then `StabSpeed`, `StabRatio`, `StabForward` |
 | No REJECTED line either | `stab: ARMED` in the log, F10 "thrust:" row | not armed: crouch, or `swing stab arm always` to isolate. No line at all with it armed means the extension never reached `StabSpeed` |
 | It stabs when you reach or gesture while sneaking | the FIRE line's ratio and forward | raise `StabRatio` or `StabForward`, then `StabTravelM` |

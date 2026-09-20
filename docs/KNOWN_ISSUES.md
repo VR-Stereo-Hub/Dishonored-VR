@@ -119,8 +119,10 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   detector and `sustain` the old one; the shipped default is `sustain` until a headset
   verdict picks one. Tuning: `docs/dishonored/PHYSICAL_SWING.md` section 6.
 - **The sneak-kill thrust ships OFF** [S3, VR-155]. `[Melee] Stab=1` (with `Detector=edge`)
-  makes a thrust of the sword hand while crouched press the attack, which the game turns into
-  the stealth kill behind an unaware guard. The gesture is proven on the simulator; the kill
+  makes a stab of the sword hand while crouched press the attack, which the game turns into
+  the stealth kill behind an unaware guard. The default motion is a PLUNGE (`StabStyle=plunge`:
+  a fist raised to about the shoulder and driven down, because the blade sits in a reverse grip);
+  `thrust` is the straight-out alternative. The gesture is proven on the simulator; the kill
   itself has not been observed yet, and nothing tells you when a kill is available other than
   the game's own prompt (VR-156). Tuning: `PHYSICAL_SWING.md` section 7.
 - **The HUD is back on a window and on the hands, per element** [S3, VR-117, VR-120]. Every

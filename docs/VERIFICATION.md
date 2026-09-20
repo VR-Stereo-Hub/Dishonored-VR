@@ -8,7 +8,7 @@ question the simulator could answer is a wasted session.
 ## 1. The decision table
 
 VR-37 the motion sword: `tools\swing-core-host.ps1` compiles the pure decision core
-(52 checks: the threshold, one swing one attack, re-arm and cooldown, one verdict
+(60 checks: the threshold, one swing one attack, re-arm and cooldown, one verdict
 per swing, a body turn, repeated poses, doubled samples through the median, the
 tracking-jump and dt hygiene, the sustain detector, `swing sim`, the thrust). In the game:
 `tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` (a reach does not fire and
@@ -17,7 +17,7 @@ peaks under 2.2 m/s, a swing fires and is HONOURED, a body turn does not fire) a
 line each with its reason, then the same swing fires) and `swing-stab.xrs` (VR-155:
 a thrust standing is silent, crouching arms it off the capsule, the thrust fires and
 is HONOURED, a jab is REJECTED on travel, a floor reach and a slash are not stabs,
-standing disarms). All need a loaded level in
+standing disarms) and `swing-plunge.xrs` (the default style: a raised fist driven down fires crouched, is silent standing, and is REJECTED on `start` from waist height). All need a loaded level in
 GAMEPLAY and `GamepadOnly=0`, and only ever MOVE the hand: `hand r grip pose`
 teleports it, which the detector discards as a tracking jump. Reading the log:
 `docs/dishonored/PHYSICAL_SWING.md` section 2.

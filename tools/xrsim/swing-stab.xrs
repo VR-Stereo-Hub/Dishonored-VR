@@ -20,6 +20,7 @@ hand r to grip 0.20 1.25 -0.25 0 0 0 1200
 trigger r pull 300
 @wait 2500
 @mod swing on; swing mode edge; swing threshold 3.6; swing filter median; swing sword on; swing output rt
+@mod swing stab style thrust
 @mod swing stab on; swing stab arm sneak; swing stab speed 1.5; swing stab travel 0.20; swing stab ratio 0.75; swing stab forward 0.5
 @wait 1000
 
@@ -39,7 +40,7 @@ btn b press 150
 @log stab: ARMED - crouch 6s
 @modassert features.swing.stab.armed eq true
 hand r to grip 0.20 1.25 -0.60 0 0 0 250
-@log stab: FIRE extension
+@log stab: FIRE thrust
 @log swing: FIRE #\d+ stab
 @log swing: HONOURED
 @wait 1000
@@ -49,7 +50,7 @@ hand r to grip 0.20 1.25 -0.25 0 0 0 1200
 # 3. Still crouched: a short jab is rejected on travel, and the line says by how much.
 @mark
 hand r to grip 0.20 1.25 -0.37 0 0 0 120
-@log stab: REJECTED travel
+@log stab: REJECTED thrust travel
 @nolog (stab|swing): FIRE
 hand r to grip 0.20 1.25 -0.25 0 0 0 1200
 @wait 1500

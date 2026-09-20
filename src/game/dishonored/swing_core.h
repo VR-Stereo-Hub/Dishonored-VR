@@ -40,7 +40,14 @@ namespace dvr::swing {
 
 enum Detector : int { kSustain = 0, kEdge = 1 };
 enum Fired : int { kFiredNone = 0, kFiredSlash = 1, kFiredStab = 2 };
-enum StabReject : int { kStabOk = 0, kStabTravel, kStabRatio, kStabForward };
+enum StabReject : int { kStabOk = 0, kStabTravel, kStabRatio, kStabForward, kStabStart };
+// The sneak kill has two shapes, because it depends how the blade sits in the hand.
+//   kPlunge  the sword is held in a REVERSE (ice-pick) grip, so the kill is a fist
+//            raised to about the shoulder and driven DOWN, a little forward - which
+//            is also what the game's own from-behind animation does. It must START
+//            high: reaching down for loot starts low, and that one fact rejects it.
+//   kThrust  a forward-grip stab straight out from the shoulder, kept as the A/B.
+enum StabStyle : int { kThrust = 0, kPlunge = 1 };
 
 // Closed gates, filled by the adapter per sample. The core needs to know only
 // that something is closed; the adapter owns what each bit means and its text.
@@ -91,6 +98,8 @@ struct Config {
     float stabRatio    = 0.75f;    // extension gained / path travelled: how straight
     float stabForward  = 0.5f;     // dot(thrust direction, where the head faces, flattened)
     float shoulder[3]  = { 0.17f, 0.22f, 0.04f };   // right, down, back of the head, metres
+    int   stabStyle    = kPlunge;
+    float stabStartBelowM = 0.05f; // plunge: how far BELOW the shoulder line the hand may start
 };
 
 // The two levels can be typed in either order without the latch becoming
@@ -128,6 +137,7 @@ struct Verdict {
     float    radial = 0.0f;
     int      stabReject = kStabOk;
     float    stabTravel = 0.0f, stabRatio = 0.0f, stabForward = 0.0f, stabMs = 0.0f, stabPeak = 0.0f;
+    float    stabStartDy = 0.0f; // plunge: where the hand started, metres above (+) the shoulder line
 };
 
 inline bool finite3(const float* v) {
@@ -251,10 +261,17 @@ private:
         const float sh[3] = { s.head[0] + (-fz) * c.shoulder[0] - fx * c.shoulder[2],
                               s.head[1] - c.shoulder[1],
                               s.head[2] + ( fx) * c.shoulder[0] - fz * c.shoulder[2] };
-        float u[3] = { s.hand[0] - sh[0], s.hand[1] - sh[1], s.hand[2] - sh[2] };
-        const float ul = len(u);
-        if (ul < 0.05f) { stabRun_ = false; return; }      // the hand is AT the shoulder: no direction
-        u[0] /= ul; u[1] /= ul; u[2] /= ul;
+        float u[3];
+        if (c.stabStyle == kPlunge) {
+            // Down, tilted 20 degrees the way the head faces: a fixed axis, because
+            // a plunge is aimed by gravity and the body, not by where the hand is.
+            u[0] = fx * 0.342f; u[1] = -0.940f; u[2] = fz * 0.342f;
+        } else {
+            u[0] = s.hand[0] - sh[0]; u[1] = s.hand[1] - sh[1]; u[2] = s.hand[2] - sh[2];
+            const float ul = len(u);
+            if (ul < 0.05f) { stabRun_ = false; return; }  // the hand is AT the shoulder: no direction
+            u[0] /= ul; u[1] /= ul; u[2] /= ul;
+        }
         const float step = d[0]*u[0] + d[1]*u[1] + d[2]*u[2];
         const double dt = s.tMs - lastMs_;
         const float raw = step / (float)(dt * 0.001);
@@ -270,6 +287,8 @@ private:
             // already attacked, and a run begun here only ends as a stray REJECTED line.
             if (!armed_ || v.radial < c.stabSpeed) return;
             stabRun_ = true; stabDone_ = false; stabStartMs_ = s.tMs - dt;
+            // where the hand was BEFORE this sample moved it, against the shoulder line
+            stabStartDy_ = (s.hand[1] - d[1]) - sh[1];
             stabTravel_ = 0.0f; stabPath_ = 0.0f; stabPeak_ = 0.0f;
             stabNet_[0] = stabNet_[1] = stabNet_[2] = 0.0f;
         }
@@ -283,12 +302,18 @@ private:
             const float nl = len(stabNet_);
             v.stabReject = why; v.stabTravel = stabTravel_; v.stabMs = ms; v.stabPeak = stabPeak_;
             v.stabRatio = stabPath_ > 1e-4f ? stabTravel_ / stabPath_ : 0.0f;
-            v.stabForward = nl > 1e-4f ? (stabNet_[0] * fx + stabNet_[2] * fz) / nl : 0.0f;
+            // how well the whole movement followed its axis: the head's heading for a
+            // thrust, the down-and-forward axis for a plunge
+            v.stabForward = nl <= 1e-4f ? 0.0f : c.stabStyle == kPlunge
+                ? (stabNet_[0] * u[0] + stabNet_[1] * u[1] + stabNet_[2] * u[2]) / nl
+                : (stabNet_[0] * fx + stabNet_[2] * fz) / nl;
+            v.stabStartDy = stabStartDy_;
         };
         if (stabTravel_ >= c.stabTravelM) {
             describe(kStabOk);
             stabDone_ = true;
-            if (v.stabRatio < c.stabRatio)          v.stabReject = kStabRatio;
+            if (c.stabStyle == kPlunge && stabStartDy_ < -c.stabStartBelowM) v.stabReject = kStabStart;
+            else if (v.stabRatio < c.stabRatio)     v.stabReject = kStabRatio;
             else if (v.stabForward < c.stabForward) v.stabReject = kStabForward;
             else if (!armed_) { /* the tail of a gesture that already attacked: silent */ }
             else {
@@ -346,7 +371,7 @@ private:
     int    sringI_ = 0;
     bool   stabRun_ = false, stabDone_ = false;
     double stabStartMs_ = 0.0;
-    float  stabTravel_ = 0.0f, stabPath_ = 0.0f, stabPeak_ = 0.0f, stabNet_[3] = {};
+    float  stabTravel_ = 0.0f, stabPath_ = 0.0f, stabPeak_ = 0.0f, stabNet_[3] = {}, stabStartDy_ = 0.0f;
     bool   haveFire_ = false;
     double lastFireMs_ = 0.0;
     float  sm_ = 0.0f;

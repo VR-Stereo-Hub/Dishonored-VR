@@ -168,7 +168,7 @@ int main() {
         return r; };
     auto hump = [](float peak, double humpMs, double t) {
         return t < humpMs ? peak * (float)std::sin(3.14159265358979 * t / humpMs) : 0.0f; };
-    Config sc = edge; sc.stab = true;
+    Config sc = edge; sc.stab = true; sc.stabStyle = kThrust;   // the forward-grip stab; the plunge follows
 
     { const Stab r = body(sc, 500, true, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) }; });
       check(r.stab == 1 && r.slash == 0, "a 0.28 m thrust forward at 2.2 m/s is one stab and no slash");
@@ -210,6 +210,31 @@ int main() {
           s.head[1] = 1.6f; s.headFwd[0] = -1.0f; s.headFwd[1] = 0.0f; s.hand[0] = x; s.hand[1] = 1.25f; s.hand[2] = -0.20f;
           if (k.feed(s, yc).fired == kFiredStab) ++stabs; x -= hump(2.2f, 200, at) * (float)(dt * 0.001); }
       check(stabs == 1, "forward is where the HEAD faces: turned left, a thrust along -X is the stab"); }
+
+    // ---- The plunge: the same kill with the blade in a reverse grip -------------
+    // body() starts the hand at (0.20, 1.25, -0.25), 13 cm below the shoulder line
+    // (1.38). `lift` raises it first, slowly, the way a player winds up.
+    { Config pc = edge; pc.stab = true; pc.stabStyle = kPlunge;
+      auto plunge = [&](double t0, float peak) { return [=](double t) {
+          if (t < 300) return V3{ 0, 0.30f / 0.3f, 0 };                 // lift 30 cm in 300 ms, 1 m/s
+          const float v = t < t0 ? 0.0f : hump(peak, 200, t - t0); return V3{ 0, -0.94f * v, -0.342f * v }; }; };
+      Stab r = body(pc, 900, true, plunge(400, 2.2f));
+      check(r.stab == 1 && r.slash == 0, "a raised fist driven down and a little forward is one stab");
+      check(r.fwd > 0.9f && r.ratio > 0.85f, "judged along the down-and-forward axis");
+      r = body(pc, 900, false, plunge(400, 2.2f));
+      check(r.stab == 0 && r.rejects == 0, "standing up it is nothing, and says nothing");
+      r = body(pc, 600, true, [&](double t) { const float v = hump(2.2f, 200, t); return V3{ 0, -0.94f * v, -0.342f * v }; });
+      check(r.stab == 0 && r.rejects == 1 && r.why == kStabStart, "the same plunge from waist height is reaching for loot: rejected on where it started");
+      r = body(pc, 500, true, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) }; });
+      check(r.stab == 0, "a forward thrust is not a plunge");
+      r = body(pc, 900, true, plunge(400, 2.2f), [&](double t) { const float v = t < 400 ? 0.0f : hump(2.2f, 200, t - 400);
+          return V3{ 0, -0.94f * v, -0.342f * v }; });
+      check(r.stab == 0, "ducking with the fist raised moves head and hand together and is not a plunge");
+      r = body(pc, 900, true, plunge(400, 6.0f));
+      check(r.slash + r.stab == 1, "a hard plunge is ONE attack, whichever detector took it");
+      Config tc = pc; tc.stabStyle = kThrust;
+      r = body(tc, 900, true, plunge(400, 2.2f));
+      check(r.stab == 0, "and under the thrust style a plunge is not a thrust: the style lever is a real A/B"); }
 
     // The pre-VR-37 detector, kept as the live A/B.
     Config sus; sus.detector = kSustain;

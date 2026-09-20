@@ -74,7 +74,7 @@ Settings st;
 Core live, simCore;
 bool force = false;                 // `swing force on`: skip the sword gate, never saved
 // The thrust (VR-155): who armed it, and what the last few seconds looked like.
-struct StabStats { unsigned fires = 0, rejects = 0; char armedBy[64] = "none", lastReject[120] = "none";
+struct StabStats { unsigned fires = 0, rejects = 0; char armedBy[64] = "none", lastReject[240] = "none";
                    float peak[2] = {}, travel[2] = {}, ratio[2] = {}; double bucketMs = 0; bool armed = false; } sb;
 bool simStab = false;               // `swing stab sim`: the simulated hand thrusts instead of sweeping
 float headFwd[2] = { 0.0f, -1.0f }; // where the head faces, flattened; the last good one is kept
@@ -137,6 +137,7 @@ bool stab_armed(double now) {
     return armed;
 }
 float two(const float* b) { return b[0] > b[1] ? b[0] : b[1]; }
+const char* style_name() { return st.stabStyle == kPlunge ? "plunge" : "thrust"; }
 
 // The gates, fail closed. The sustain detector keeps exactly the gates it had
 // before VR-37, so `swing mode sustain` is the old behaviour and nothing else.
@@ -278,18 +279,25 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
     if (v.stabTravel > sb.travel[0]) { sb.travel[0] = v.stabTravel; sb.ratio[0] = v.stabRatio; }
     if (v.stabReject) {
         ++sb.rejects;
-        const char* bar = v.stabReject == kStabTravel ? "travel" : v.stabReject == kStabRatio ? "ratio" : "forward";
+        const char* bar = v.stabReject == kStabTravel ? "travel" : v.stabReject == kStabRatio ? "ratio"
+                        : v.stabReject == kStabStart ? "start" : "forward";
+        if (st.stabStyle == kPlunge)
+            _snprintf_s(sb.lastReject, sizeof(sb.lastReject), _TRUNCATE,
+                "%s: started %+.2f m from the shoulder line (needs %+.2f or higher) travel %.2f (needs %.2f) ratio %.2f "
+                "(needs %.2f) aim %.2f (needs %.2f)", bar, v.stabStartDy, -st.stabStartBelowM, v.stabTravel,
+                st.stabTravelM, v.stabRatio, st.stabRatio, v.stabForward, st.stabForward);
+        else
         _snprintf_s(sb.lastReject, sizeof(sb.lastReject), _TRUNCATE,
             "%s: travel %.2f m (needs %.2f) ratio %.2f (needs %.2f) forward %.2f (needs %.2f)", bar,
             v.stabTravel, st.stabTravelM, v.stabRatio, st.stabRatio, v.stabForward, st.stabForward);
         // The tuning feedback: which bar, and by how much. One line per thrust.
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 500,
-            "stab: REJECTED %s (%s) - peak extension %.2f m/s over %.0f ms", sb.lastReject, src, v.stabPeak, v.stabMs);
+            "stab: REJECTED %s %s (%s) - peak %.2f m/s over %.0f ms", style_name(), sb.lastReject, src, v.stabPeak, v.stabMs);
     }
     if (v.fired == kFiredStab) {
         ++sb.fires;
-        Log("stab: FIRE extension %.2f m/s travel %.2f m ratio %.2f forward %.2f in %.0f ms (%s, armed by %s)",
-            v.stabPeak, v.stabTravel, v.stabRatio, v.stabForward, v.stabMs, src, sb.armedBy);
+        Log("stab: FIRE %s %.2f m/s travel %.2f m ratio %.2f aim %.2f start %+.2f m in %.0f ms (%s, armed by %s)",
+            style_name(), v.stabPeak, v.stabTravel, v.stabRatio, v.stabForward, v.stabStartDy, v.stabMs, src, sb.armedBy);
     }
     if (v.fired) {
         ++n.fires; g_meleeCount++; g_meleeLastMs = now;
@@ -411,7 +419,9 @@ void tick() {
         Sample s; s.handValid = true; s.tMs = now; s.closed = gates(now);
         if (simStab) {
             s.headValid = true; s.head[1] = 1.6f; s.headFwd[0] = 0.0f; s.headFwd[1] = -1.0f;
-            s.hand[0] = 0.20f; s.hand[1] = 1.25f; s.hand[2] = -0.25f - sim_offset(sim.peak, sim.humpMs, phase);
+            const float o = sim_offset(sim.peak, sim.humpMs, phase);
+            if (st.stabStyle == kPlunge) { s.hand[0] = 0.20f; s.hand[1] = 1.55f - 0.940f * o; s.hand[2] = -0.25f - 0.342f * o; }
+            else                         { s.hand[0] = 0.20f; s.hand[1] = 1.25f;              s.hand[2] = -0.25f - o; }
             s.stabArmed = stab_armed(now);
         } else { s.hand[0] = sim_offset(sim.peak, sim.humpMs, phase); s.hand[1] = 1.2f; s.hand[2] = -0.4f; }
         handle(simCore.feed(s, st), s, now, "sim");
@@ -489,6 +499,11 @@ void configure(const char* ini) {
     st.shoulder[2]  = clampf(IniFloat(ini, "Melee", "ShoulderBackM", 0.04f), -0.5f, 0.5f);
     GetPrivateProfileStringA("Melee", "StabArm", "sneak", buf, sizeof(buf), ini);
     st.stabArm = !_stricmp(buf, "always") ? 1 : 0;
+    GetPrivateProfileStringA("Melee", "StabStyle", "plunge", buf, sizeof(buf), ini);
+    st.stabStyle = !_stricmp(buf, "thrust") ? kThrust : kPlunge;
+    st.stabStartBelowM = clampf(IniFloat(ini, "Melee", "StabStartBelowM", 0.05f), -0.3f, 0.6f);
+    Log("config: [Melee] StabStyle=%s StabStartBelowM=%.2f - plunge = a raised fist driven down (the blade in a reverse "
+        "grip), thrust = straight out from the shoulder", style_name(), st.stabStartBelowM);
     Log("config: [Melee] Stab=%d StabArm=%s StabSpeed=%.2f StabTravelM=%.2f StabRatio=%.2f StabForward=%.2f "
         "StabWindowMs=%.0f Shoulder R/D/B=%.2f/%.2f/%.2f - the sneak-kill thrust; it needs Detector=edge, and "
         "'stab: ARMED' in the log says when a thrust can count", (int)st.stab, st.stabArm ? "always" : "sneak",
@@ -519,6 +534,8 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Melee", "HonourHaptic", st.honourHaptic ? "1" : "0", ini);
     WritePrivateProfileStringA("Melee", "Stab", st.stab ? "1" : "0", ini);
     WritePrivateProfileStringA("Melee", "StabArm", st.stabArm ? "always" : "sneak", ini);
+    WritePrivateProfileStringA("Melee", "StabStyle", style_name(), ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabStartBelowM); WritePrivateProfileStringA("Melee", "StabStartBelowM", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabSpeed);    WritePrivateProfileStringA("Melee", "StabSpeed", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabTravelM);  WritePrivateProfileStringA("Melee", "StabTravelM", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabRatio);    WritePrivateProfileStringA("Melee", "StabRatio", v, ini);
@@ -542,6 +559,13 @@ bool command(const char* args) {
             Log("stab: %s (live; 'swing save' or F10 writes it)%s", st.stab ? "ON" : "OFF",
                 st.stab && st.detector != kEdge ? " - it needs 'swing mode edge' and does nothing under sustain" : "");
         }
+        else if (!strcmp(a, "style") && (!strcmp(b, "plunge") || !strcmp(b, "thrust"))) {
+            st.stabStyle = !strcmp(b, "thrust") ? kThrust : kPlunge; live.reset();
+            Log("stab: StabStyle=%s (live) - %s", style_name(), st.stabStyle == kPlunge
+                ? "a fist raised to about the shoulder and driven down, a little forward; it must START high"
+                : "straight out from the shoulder, the way the head faces");
+        }
+        else if (!strcmp(a, "start") && *b)   { st.stabStartBelowM = clampf(g, -0.3f, 0.6f); Log("stab: StabStartBelowM=%.2f - a plunge may start this far below the shoulder line (live)", st.stabStartBelowM); }
         else if (!strcmp(a, "speed") && *b)   { st.stabSpeed = clampf(g, 0.3f, 6.0f);     Log("stab: StabSpeed=%.2f m/s of extension (live)", st.stabSpeed); }
         else if (!strcmp(a, "travel") && *b)  { st.stabTravelM = clampf(g, 0.05f, 0.8f);  Log("stab: StabTravelM=%.2f (live)", st.stabTravelM); }
         else if (!strcmp(a, "ratio") && *b)   { st.stabRatio = clampf(g, 0.0f, 1.0f);     Log("stab: StabRatio=%.2f, extension gained over path travelled (live)", st.stabRatio); }
@@ -570,12 +594,12 @@ bool command(const char* args) {
             return true;
         }
         else if (*a && strcmp(a, "status"))
-            Log("swing stab: status | on|off | speed <m/s> | travel <m> | ratio <0-1> | forward <-1..1> | window <ms> | "
+            Log("swing stab: status | on|off | style plunge|thrust | start <m below the shoulder> | speed <m/s> | travel <m> | ratio <0-1> | forward <-1..1> | window <ms> | "
                 "arm sneak|always | shoulder <right> <down> [back] | sim <peak m/s> [humpMs] [reps]");
-        Log("stab: %s arm=%s armed now: %s | speed %.2f m/s travel %.2f m ratio %.2f forward %.2f window %.0f ms shoulder "
+        Log("stab: %s style=%s startBelow=%.2f arm=%s armed now: %s | speed %.2f m/s travel %.2f m ratio %.2f forward %.2f window %.0f ms shoulder "
             "%.2f/%.2f/%.2f | fires=%u rejects=%u (last: %s) | 10 s: PEAK extension %.2f m/s, best travel %.2f m at ratio %.2f "
             "<- lower the bar the REJECTED line names",
-            st.stab ? "ON" : "OFF", st.stabArm ? "always" : "sneak", sb.armedBy, st.stabSpeed, st.stabTravelM, st.stabRatio,
+            st.stab ? "ON" : "OFF", style_name(), st.stabStartBelowM, st.stabArm ? "always" : "sneak", sb.armedBy, st.stabSpeed, st.stabTravelM, st.stabRatio,
             st.stabForward, st.stabWindowMs, st.shoulder[0], st.shoulder[1], st.shoulder[2], sb.fires, sb.rejects,
             sb.lastReject, two(sb.peak), two(sb.travel), two(sb.ratio));
         return true;
@@ -646,7 +670,7 @@ void status(dvr::status::Writer& w) {
     w.kv("lastSpeed", (double)n.lastSpeed); w.kv("peakSpeed10s", (double)peak10s());
     w.kv("sim", sim.on);
     w.obj("stab");
-    w.kv("on", st.stab); w.kv("arm", st.stabArm ? "always" : "sneak"); w.kv("armed", sb.armed); w.kv("armedBy", sb.armedBy);
+    w.kv("on", st.stab); w.kv("style", style_name()); w.kv("arm", st.stabArm ? "always" : "sneak"); w.kv("armed", sb.armed); w.kv("armedBy", sb.armedBy);
     w.kv("fires", (unsigned long)sb.fires); w.kv("rejects", (unsigned long)sb.rejects); w.kv("lastReject", sb.lastReject);
     w.kv("peakExtension10s", (double)two(sb.peak)); w.kv("bestTravel10s", (double)two(sb.travel));
     w.kv("bestRatio10s", (double)two(sb.ratio));
@@ -699,10 +723,20 @@ void draw_ui() {
     if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", g_meleeCoolMs); ConfigWriteKey("Melee", "CooldownMs", v, "F10 Controls"); }
     if (st.detector == kEdge) {
         ImGui::Separator();
-        if (ImGui::Checkbox("a thrust while sneaking is the stealth kill", &st.stab)) {
+        if (ImGui::Checkbox("a stab while sneaking is the stealth kill", &st.stab)) {
             live.reset(); ConfigWriteKey("Melee", "Stab", st.stab ? "1" : "0", "F10 Controls");
         }
         if (st.stab) {
+            int sty = st.stabStyle == kPlunge ? 0 : 1;
+            const char* stys[] = { "plunge: raised fist driven down (reverse grip)", "thrust: straight out from the shoulder" };
+            if (ImGui::Combo("stab motion", &sty, stys, 2)) {
+                st.stabStyle = sty == 0 ? kPlunge : kThrust; live.reset();
+                ConfigWriteKey("Melee", "StabStyle", style_name(), "F10 Controls");
+            }
+            if (st.stabStyle == kPlunge) {
+                ImGui::SliderFloat("may start this far below the shoulder (m)", &st.stabStartBelowM, -0.20f, 0.40f, "%.2f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabStartBelowM); ConfigWriteKey("Melee", "StabStartBelowM", v, "F10 Controls"); }
+            }
             ImGui::SliderFloat("thrust speed needed (m/s)", &st.stabSpeed, 0.5f, 4.0f, "%.2f");
             if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabSpeed); ConfigWriteKey("Melee", "StabSpeed", v, "F10 Controls"); }
             ImGui::SliderFloat("thrust reach needed (m)", &st.stabTravelM, 0.05f, 0.50f, "%.2f");

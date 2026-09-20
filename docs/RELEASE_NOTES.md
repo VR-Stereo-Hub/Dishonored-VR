@@ -12,7 +12,9 @@ old ones are untouched): `Detector`, `EdgeSpeed`, `RearmSpeed`, `PulseMs`,
 The sneak kill, off by default: `[Melee] Stab=1` makes a thrust of the sword hand
 while you are crouched press the attack, which the game turns into the stealth kill
 behind an unaware guard. New keys `Stab`, `StabArm`, `StabSpeed`, `StabTravelM`,
-`StabRatio`, `StabForward`, `StabWindowMs`, `ShoulderRightM/DownM/BackM`.
+`StabRatio`, `StabForward`, `StabWindowMs`, `ShoulderRightM/DownM/BackM`, and
+`StabStyle` (`plunge`, the default: a raised fist driven down, for the reverse grip
+the sword sits in; or `thrust`) with `StabStartBelowM`.
 
 ## Misc fixes candidate (2026-09-17)
 

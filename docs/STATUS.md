@@ -40,7 +40,12 @@
    on the VR-37 branch, pushed, not merged). `swing stab on` while crouched: a thrust
    fires at 0.20 m of extension and is HONOURED; standing it is silent; a jab, a
    floor reach and a slash are not stabs (`swing-stab.xrs`, 7 legs). NOT observed:
-   the kill itself - the dev PC's newest save is the Hound Pits pub, which has nobody
+   the kill itself. The default motion became a PLUNGE after the first headset
+   feedback: the sword sits in a reverse grip, so a forward thrust is not a move
+   anyone makes (`StabStyle=plunge|thrust`, `swing-plunge.xrs`). The dev PC's
+   installed ini is preset for the run (edge, Stab=1, plunge) and pinned at
+   `[Meta] Version=13` so the 09-19 default refresh does not drop its 3012x3122 to
+   2750x2850. Not seen yet because the dev PC's newest save is the Hound Pits pub, which has nobody
    to kill. Headset: crouch behind an unaware guard, thrust, look for
    `swing: HONOURED kill`. Tuning: PHYSICAL_SWING.md section 7.
 3. VR-156, research: a readable kill-available signal for the thrust's ready cue.
