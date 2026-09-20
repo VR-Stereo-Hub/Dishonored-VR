@@ -901,3 +901,30 @@ Resolving only the wheel's adjacent TGA files misses imports; resolving the libr
 still misses native req_EquipmentIconImage execution. Use the full dependency
 export and inspect individual runtime textures; do not present a static frame as a
 complete populated wheel or assume more geometry is inside the wheel movie.
+
+## VR-157: a player option read out of a game ini is a stale setting (2026-09-20)
+
+The stale-setting class again, with a new home. `DishonoredEngine.ini`
+`[SystemSettings] bAllowLightShafts=True` on the dev PC while the in-game menu
+reported light shafts OFF. The file's timestamp was recent, so "out of date" is
+not an explanation on its own.
+
+**None of the twelve player-facing option settings live in the game's 21 inis.**
+They live in the Steam Cloud profile blob, `userdata/<id>/205100/remote/OPTIONS.sav`
+- bit-packed, 722 bytes, not text. The `[SystemSettings]` entries for the five
+graphics ones are a mirror of it, and the mirror is not authoritative.
+
+The trap has the shape this file keeps recording: a value that can be READ,
+matches a plausible key name, and is not what the consumer uses. Grepping the
+config folder for `LightShaft` returns a hit, and the hit is wrong.
+
+**The rule.** Before treating any option value as the setting, find every place
+it can live, read what the RUN resolved it to, and confirm it reached the
+consumer. For these twelve that is `gameopts` on the seam, which prints the
+profile's value and the live `SystemSettings` value side by side and marks a row
+as not-evidence when the engine's own name for the id does not match the table.
+
+**Do not "fix" this by writing the ini.** The game rewrites these files from its
+own menus, so anything written there is provisional, and a mod that silently
+rewrites a player's graphics settings is indistinguishable from a mod that broke
+them. That is already the standing reason `-VRBaseline` touches only four values.

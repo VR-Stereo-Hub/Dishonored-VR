@@ -7868,3 +7868,42 @@ exactly 11 characters, logs each distinct symbol it sees by name with whether it
 was accepted (`hud/heart-symbol`, at most eight), and `[Hud] NativeHeartAllSymbols`
 accepts them all. One run with a bone charm revealed by the Heart both proves the
 feature and prints the name, so the constant can be baked from a measurement.
+
+## VR-157: the option profile, read through the engine's own accessors (2026-09-20)
+
+The player's option settings are not in the game's inis (see
+`GAME_CONFIG_MAP.md` for where they are and the id table). Reading them needs
+the engine, because the values live in a `UOnlineProfileSettings` object and the
+names live in the packages, not in the image.
+
+Derived with `tools/ue3-natives.py <exe> natives --grep Profile` (the native exec
+registration table, 2554 entries):
+
+| Function | Exec thunk | What it gives |
+|---|---|---|
+| `UOnlinePlayerStorage::GetProfileSettingName` | `0x005CBD60` | an id's own FName - the instrument's self-check |
+| `UOnlinePlayerStorage::GetProfileSettingValueInt` | `0x005CC210` | the value, with a bool saying whether it answered |
+| `UOnlinePlayerStorage::GetProfileSettingValueId` | `0x005CC000` | the mapped value id and list index |
+| `UOnlinePlayerStorage::SetProfileSettingValueId` | `0x005CC400` | the write (**not used yet**) |
+| `UOnlineProfileSettings::SetToDefaults` | `0x005CD3A0` | reset |
+| `UDisGFxMoviePlayerMenuBase::OnLeaveOptions` | `0x009F7640` | the game's own apply path |
+
+`DishonoredPlayerController.GetProfileSettings()` is native and returns the
+`ArkProfileSettings` object; `SaveProfile()` is an **exec** on the same class and
+is what persists to `OPTIONS.sav`.
+
+**None of these are called through their exec thunks.** They are UFunctions, so
+they go through `ProcessEvent` exactly as `ConsoleCommand` does in `console.cpp`
+- same lane, same `g_peReentry` guard, same reason (our own hook re-enters). The
+parms blocks are plain and are validated by their results rather than asserted:
+`GetProfileSettings` must return an object whose class name contains
+`ProfileSettings` and which passes `IsLiveObject`, and each id's name must match
+the PSI spelling. A failure on either is logged as a refusal with the value that
+produced it, and the row is marked as not evidence.
+
+**Why no hand-walked array.** `OnlineProfileSetting { BYTE Owner; SettingsProperty
+ProfileSetting; }` wraps `SettingsProperty { INT PropertyId; SettingsData Data;
+BYTE AdvertisementType; }` wraps `SettingsData { BYTE Type; INT Value1; void*
+Value2; }`. Three enum fields whose packed widths and padding have not been
+measured on this build. A guessed stride would produce a table of confident
+nonsense, so the engine walks its own array instead.
