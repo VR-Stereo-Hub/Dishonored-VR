@@ -65,6 +65,16 @@ struct Motion {
     Pose from = pose_identity();
     Pose to = pose_identity();
     uint64_t startMs = 0;
+    // The interpolation clock is the frame's DISPLAY TIME, which is what a real
+    // runtime predicts a pose for. Two clocks were tried and both lied to a mod
+    // that differences successive hand poses (the Dishonored motion sword, VR-37):
+    // GetTickCount64 steps in ~15.6 ms, so the hand held still for a frame and then
+    // jumped; and the wall clock drifts against predictedDisplayTime, which free
+    // pacing advances by one fixed period per frame, so after a hitch the hand had
+    // moved 50 ms of travel in a frame stamped 11 ms - a slow reach read 3.1 m/s.
+    // A negative start means "stamp me at the next commit", so the start and every
+    // later evaluation are on the same clock.
+    double startFineMs = -1.0;
     uint32_t durMs = 0;
     bool linear = false;
     bool isAim = false;   // hand motions only: which pose slot is being driven
@@ -237,6 +247,7 @@ void apply_line(const char* line) {
             g_headMotion.to.p = v3(a.f(2), a.f(3), a.f(4));
             g_headMotion.to.q = quat_from_ypr(deg2rad(a.f(5)), deg2rad(a.f(6)), deg2rad(a.f(7)));
             g_headMotion.startMs = now_ms();
+            g_headMotion.startFineMs = -1.0;
             g_headMotion.durMs = a.u(8, 500);
         } else if (a.is(1, "orbit")) {
             g_orbit.active = true;
@@ -314,6 +325,7 @@ void apply_line(const char* line) {
             m.to.p = v3(a.f(4), a.f(5), a.f(6));
             m.to.q = quat_from_ypr(deg2rad(a.f(7)), deg2rad(a.f(8)), deg2rad(a.f(9)));
             m.startMs = now_ms();
+            m.startFineMs = -1.0;
             m.durMs = a.u(10, 500);
         } else {
             set_error("unknown hand subcommand '%s'", a.s(2));
@@ -801,7 +813,7 @@ void control_start() {
         std::lock_guard<std::mutex> lock(g_pendingMutex);
         g_dirty = true;
     }
-    control_apply_pending();
+    control_apply_pending(now_fine_ms());
     g_thread = std::thread(thread_proc);
     XRSIM_LOG("xrsim: control channel live at %ls", log::dir());
 }
@@ -817,7 +829,7 @@ void control_stop() {
 }
 
 // THE COMMIT POINT. Called from inside xrWaitFrame.
-void control_apply_pending() {
+void control_apply_pending(double motionClockMs) {
     std::lock_guard<std::mutex> lock(g_pendingMutex);
     const uint64_t nowMs = now_ms();
     const uint64_t frame = snapshot().index;
@@ -838,9 +850,13 @@ void control_apply_pending() {
         g_dirty = true;
     }
 
+    const double fineMs = motionClockMs;
+    if (g_headMotion.active && g_headMotion.startFineMs < 0.0) g_headMotion.startFineMs = fineMs;
+    for (int h = 0; h < 2; ++h)
+        if (g_handMotion[h].active && g_handMotion[h].startFineMs < 0.0) g_handMotion[h].startFineMs = fineMs;
     if (g_headMotion.active) {
-        const uint64_t el = nowMs - g_headMotion.startMs;
-        float t = g_headMotion.durMs ? static_cast<float>(el) / g_headMotion.durMs : 1.0f;
+        const double el = fineMs - g_headMotion.startFineMs;
+        float t = g_headMotion.durMs ? static_cast<float>(el / g_headMotion.durMs) : 1.0f;
         if (t >= 1.0f) { t = 1.0f; g_headMotion.active = false; }
         g_staging.head = pose_lerp(g_headMotion.from, g_headMotion.to,
                                    g_headMotion.linear ? t : ease_smooth(t));
@@ -850,8 +866,8 @@ void control_apply_pending() {
     for (int h = 0; h < 2; ++h) {
         Motion& m = g_handMotion[h];
         if (!m.active) continue;
-        const uint64_t el = nowMs - m.startMs;
-        float t = m.durMs ? static_cast<float>(el) / m.durMs : 1.0f;
+        const double el = fineMs - m.startFineMs;
+        float t = m.durMs ? static_cast<float>(el / m.durMs) : 1.0f;
         if (t >= 1.0f) { t = 1.0f; m.active = false; }
         const Pose p = pose_lerp(m.from, m.to, m.linear ? t : ease_smooth(t));
         if (m.isAim) g_staging.aim[h] = p; else g_staging.grip[h] = p;

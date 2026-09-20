@@ -253,7 +253,10 @@ static XrResult impl_WaitFrame(XrSession session, const XrFrameWaitInfo*,
     // THE COMMIT POINT. Everything the agent staged since the last frame lands
     // here, atomically, so a multi-line command file (head pose + trigger + step)
     // is one instantaneous rig change that never tears across a frame.
-    control_apply_pending();
+    // Interpolated motion is evaluated AT the display time this frame will carry,
+    // so a pose and its predictedDisplayTime describe the same instant.
+    control_apply_pending((g.pacing.mode == PaceMode::Free && g_nextDisplay != 0)
+                              ? static_cast<double>(g_nextDisplay) * 1e-6 : now_fine_ms());
 
     {
         std::lock_guard<std::mutex> lock(g_snapMutex);
