@@ -5,7 +5,9 @@
 - [x] `swing` word, `features.swing` status, F10 rows, default ini (parity gate passes).
 - [x] Simulator: `swing-edge.xrs` and `swing-gates.xrs` pass; rb output reads NOT HONOURED as it should.
 - [ ] Headset: A/B `swing mode edge` against `sustain`, tune `EdgeSpeed` from PEAK, then flip the default.
-- [ ] VR-155: the sneak-kill thrust. VR-156: a readable kill-available signal.
+- [x] VR-155: the thrust detector, armed off the crouch capsule; 16 host checks, `swing-stab.xrs` passes.
+- [ ] VR-155 headset: `Stab=1` behind an unaware guard gives `HONOURED kill`; minutes of sneaking give no stray attack.
+- [ ] VR-156: a readable kill-available signal, for arming on it and a haptic ready cue.
 
 ## Misc fixes (2026-09-17)
 

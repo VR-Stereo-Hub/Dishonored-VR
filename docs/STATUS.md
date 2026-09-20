@@ -36,9 +36,13 @@
    the wheel. Then `swing mode sustain` for the comparison. The tuning table is
    PHYSICAL_SWING.md section 6. The verdict decides the shipped `Detector` default,
    which flips in its own commit.
-2. VR-155, the sneak-kill thrust: a `Thrust` detector in the same core (extension of
-   the hand away from a yaw-only shoulder point), armed while crouched. Needs a save
-   with guards; the dev PC's newest save is the Hound Pits pub, which has none.
+2. **VR-155, the sneak-kill thrust: BUILT on `claude/vr-155-sneak-thrust`** (stacked
+   on the VR-37 branch, pushed, not merged). `swing stab on` while crouched: a thrust
+   fires at 0.20 m of extension and is HONOURED; standing it is silent; a jab, a
+   floor reach and a slash are not stabs (`swing-stab.xrs`, 7 legs). NOT observed:
+   the kill itself - the dev PC's newest save is the Hound Pits pub, which has nobody
+   to kill. Headset: crouch behind an unaware guard, thrust, look for
+   `swing: HONOURED kill`. Tuning: PHYSICAL_SWING.md section 7.
 3. VR-156, research: a readable kill-available signal for the thrust's ready cue.
 
 ### What is deliberately not here

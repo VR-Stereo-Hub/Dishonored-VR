@@ -9,6 +9,11 @@ old ones are untouched): `Detector`, `EdgeSpeed`, `RearmSpeed`, `PulseMs`,
 `PulseMinPolls`, `HeadRel`, `Median`, `RequireSword`, `Output`, `HonourMs`,
 `HonourHaptic`. Tuning guide: `docs/dishonored/PHYSICAL_SWING.md`.
 
+The sneak kill, off by default: `[Melee] Stab=1` makes a thrust of the sword hand
+while you are crouched press the attack, which the game turns into the stealth kill
+behind an unaware guard. New keys `Stab`, `StabArm`, `StabSpeed`, `StabTravelM`,
+`StabRatio`, `StabForward`, `StabWindowMs`, `ShoulderRightM/DownM/BackM`.
+
 ## Misc fixes candidate (2026-09-17)
 
 F10 Animations adds saved arm-visibility choices for all40 player action states.
