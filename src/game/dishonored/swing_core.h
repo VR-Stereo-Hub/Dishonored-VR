@@ -82,7 +82,7 @@ constexpr float kMaxSpeed = 20.0f;
 constexpr int kRearmSamples = 2;
 
 struct Config {
-    int   detector     = kSustain;
+    int   detector     = kEdge;
     float edgeSpeed    = 3.6f;     // m/s, fire on the crossing
     float rearmSpeed   = 1.0f;     // m/s, the hand must slow below this to re-arm
     float cooldownMs   = 300.0f;   // between fires, both detectors

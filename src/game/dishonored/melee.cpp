@@ -65,7 +65,7 @@ struct Settings : Config {
     bool  outputRb      = false;    // [Melee] Output=rb
     bool  requireSword  = true;     // [Melee] RequireSword
     float honourMs      = 600.0f;   // [Melee] HonourMs
-    bool  honourHaptic  = false;    // [Melee] HonourHaptic
+    bool  honourHaptic  = true;     // [Melee] HonourHaptic
     bool  iniEnabled    = true;     // what [Melee] Enabled asked for, before any veto
     int   stabArm       = 0;        // [Melee] StabArm: 0 sneak (crouched), 1 always
     bool  detectorFromIni = false;
@@ -476,7 +476,7 @@ void configure(const char* ini) {
     st.iniEnabled = IniFloat(ini, "Melee", "Enabled", 1) != 0.0f;
     GetPrivateProfileStringA("Melee", "Detector", "", buf, sizeof(buf), ini);
     st.detectorFromIni = buf[0] != 0;
-    st.detector = !_stricmp(buf, "edge") ? kEdge : kSustain;
+    st.detector = !_stricmp(buf, "sustain") ? kSustain : kEdge;   // edge since the 2026-09-20 headset verdict
     st.edgeSpeed  = clampf(IniFloat(ini, "Melee", "EdgeSpeed", 3.6f), 0.3f, 10.0f);
     st.rearmSpeed = clampf(IniFloat(ini, "Melee", "RearmSpeed", 1.0f), 0.05f, 9.0f);
     st.pulseMs    = clampf(IniFloat(ini, "Melee", "PulseMs", 120.0f), 20.0f, 500.0f);
@@ -487,8 +487,8 @@ void configure(const char* ini) {
     GetPrivateProfileStringA("Melee", "Output", "rt", buf, sizeof(buf), ini);
     st.outputRb = !_stricmp(buf, "rb");
     st.honourMs = clampf(IniFloat(ini, "Melee", "HonourMs", 600.0f), 100.0f, 2000.0f);
-    st.honourHaptic = IniFloat(ini, "Melee", "HonourHaptic", 0) != 0.0f;
-    st.stab         = IniFloat(ini, "Melee", "Stab", 0) != 0.0f;
+    st.honourHaptic = IniFloat(ini, "Melee", "HonourHaptic", 1) != 0.0f;
+    st.stab         = IniFloat(ini, "Melee", "Stab", 1) != 0.0f;
     st.stabSpeed    = clampf(IniFloat(ini, "Melee", "StabSpeed", 1.5f), 0.3f, 6.0f);
     st.stabTravelM  = clampf(IniFloat(ini, "Melee", "StabTravelM", 0.20f), 0.05f, 0.8f);
     st.stabRatio    = clampf(IniFloat(ini, "Melee", "StabRatio", 0.75f), 0.0f, 1.0f);
