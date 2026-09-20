@@ -1,3 +1,69 @@
+## Session handoff 2026-09-20: the game's own option settings, and two live display levers
+
+### Where things are RIGHT NOW
+
+- `VR-Main` = `fd5fbde99`. **Working branch: `claude/vr-157-game-opts-probe`** (`ef299585c`)
+  = VR-Main + two commits. NOT merged.
+- Installed on the dev PC: Release from `ef299585c`, both new levers in.
+- Carried over from yesterday and still open: VR-154 (unverified, one SteamVR run
+  with a recenter settles it and VR-146), VR-152 judder (REOPENED), VR-153
+  death/respawn (fixed but unshipped on `claude/vr-152-pair-rate`).
+
+### VR-157: where the player's option settings actually live
+
+**None of the twelve are in the game's 21 inis.** They are in the Steam Cloud
+profile blob, `userdata/<id>/205100/remote/OPTIONS.sav` - 722 bytes, bit-packed
+UE3 `OnlineProfileSettings`, not text. The id table is
+`tools/uscript/dishonored/Engine/OnlineProfileSettings.uc`; the twelve ids and
+their `[SystemSettings]` mirrors are tabulated in `GAME_CONFIG_MAP.md`.
+
+The mirror is not authoritative and has been caught disagreeing:
+`DishonoredEngine.ini [SystemSettings] bAllowLightShafts=True` while the in-game
+menu reported light shafts off. That disagreement is what makes the probe worth
+having rather than a table lookup.
+
+`gameopts` on the seam (read-only, needs GAMEPLAY) prints both sides per
+setting: the profile value through the engine's own `GetProfileSettingValueInt`,
+and the live renderer value through `scale get <key>`. It verifies each id's
+name with `GetProfileSettingName` and marks a row `MISMATCH - do not believe
+this row` when the table is wrong for this build, and it distinguishes
+`NO ANSWER` from a value of 0 so a missing id cannot read as a setting that is
+off.
+
+**Still open after one run of it**: which of `Gamepad_bAutoAim` (81) and
+`Gamepad_bFriction` (83) the menu labels "Auto Aim" and which "Aim Assist". The
+INT localization files carry neither string, so it needs the log next to the
+menu, not another grep.
+
+### VR-158: fullscreen and vsync are now live levers
+
+Both were unswitchable during a run. Fullscreen was the literal `1` in
+`UWindowsViewport::Resize` (VR-50); vsync is read only by `UncapPresent`, which
+runs at CreateDevice and Reset. `fullscreen on|off`, `vsync on|off`, and two
+checkboxes in F10 Display. Each costs one device reset.
+
+**Nothing is measured.** The prediction is in `PERFORMANCE.md`: at one fixed
+resolution with the mirror already off, windowed -> fullscreen should move the
+tick and pairs/s; vsync should move the present rate but not pairs/s. If
+fullscreen moves nothing, the windowed cost and the desktop-mirror cost are the
+same cost and the mechanism is wrong - record that outcome rather than leaving
+the prediction standing.
+
+Read pairs/s on `stereo: beat`, not the tick mean. TRAPS carries the VR-152
+reading error where a 59% pair loss showed as 13% on the tick.
+
+### Next steps
+
+1. One gameplay run with `gameopts` - it answers VR-157 outright and pins the
+   aim-assist label. No headset needed.
+2. The VR-158 four-way A/B at one resolution, in the headset.
+3. The VR-157 WRITE path is deliberately not built. `SetProfileSettingValueId`
+   (`0x005CC400`) and `SaveProfile()` exist, and `OnLeaveOptions` (`0x009F7640`)
+   is the game's own apply path, but which consumers honour a write live is
+   exactly what the probe is for. Fullscreen and vsync must stay OUT of any
+   profile write - the mod already owns both.
+4. Still carried: VR-154, VR-152, VR-153 as above.
+
 ## Session handoff 2026-09-19 (late): SteamVR, the judder, and two retractions
 
 ### Where things are RIGHT NOW
