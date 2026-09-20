@@ -117,6 +117,10 @@ Dishonored already runs `xrWaitFrame` on a pace thread, as Infinite does.
 
 ### Suspects of ours, found by reading (none measured on rig B yet)
 
+This table is the state BEFORE the simulator legs and is kept as written. Suspects 1 and
+2 are decided in "The ranked table after the simulator legs" below. Suspect 3 is VR-162;
+suspects 8 and 11 are VR-163.
+
 | # | Suspect | Evidence | Status |
 |---|---|---|---|
 | 1 | The card at 18.8 MP per pair | GPU span 12.3 ms per pair, `idle(d3d9)` 0.1 ms; rig A is about 2x the card and ran about 2x the rate | open: headset run 1 (GPU engine utilisation beside the log) |
@@ -150,6 +154,115 @@ baselines. That outcome means the card is the limit at this size and the rest is
 written proposal. The unwelcome outcome the run can print instead: the 3D engine well
 under 90 % with the span still near the tick, which means the render thread is starving
 the card and suspects 3, 4, 6 and 7 are where the rate is.
+
+Both halves of this were then answered on the SIMULATOR, which renders the same
+3012x3122 (results below), so the headset run shrinks to one question the simulator
+cannot answer: what the streamer's encode takes from the same card at 120 Hz.
+
+### RESULTS, simulator lane, rig B, 2026-09-20 (Q0 measured half, Q2 rungs 3-4, the card's ceiling)
+
+All legs: rig B (RTX 4060), the simulator (`dvr-xrsim`, 90 Hz, free pace), the newest save
+(an interior with the hands drawn; a picture was looked at before any number), simulated
+head fixed at `head rot 0 0 0`, `res: HONOURED - the game renders 3012x3122` (the SAME
+render size as the headset; only the compositor's 1032x1104 capture is smaller),
+`stereo reentry`, `[Capture] Mode=shared` (it is the default now; the 9Ex shared capture
+is NOT off), 30 s settle then 38 windows of 3 s. Logs: `D:\dvr-data\logs\vr160-sim-*.log`.
+Not headset performance: no encoder, no streamer, no compositor pacing.
+
+**Debug / RelWithDebInfo / Debug** (medians over 38 windows each):
+
+| Leg | Build, config, DLL sha256 | tick median / p90 | pairs/s | `R` P1+P2 | `cap lock` P1+P2 | GPU span per tick |
+|---|---|---|---|---|---|---|
+| A1 | `550-ged3621c8` Debug `BE1DE2B5` | 20.1 / 23.5 ms | 49.7 | 5.7 + 5.0 | 0.2 + 0.9 | 15.4 ms |
+| B | `548-g3487c5d0-dirty` RelWithDebInfo (same source as 550) | 18.9 / 21.1 ms | 52.5 | 3.6 + 3.2 | 1.5 + 1.8 | 13.9 ms |
+| A2 | `550-ged3621c8` Debug `BE1DE2B5` | 20.4 / 23.4 ms | 49.0 | 5.8 + 5.0 | 0.1 + 0.7 | 16.2 ms |
+
+- **Debug costs 1.2-1.5 ms per tick here, 6-7 %.** It is real and it is not "40 fps".
+- **The prediction was half wrong, usefully.** Debug does inflate the render thread's own
+  time: `R` falls 3.9 ms per tick in the optimised build, which is our per-draw hooks and
+  the engine's submission running under them. But `cap lock` did not hold still: it ROSE
+  2.2 ms per tick and ate most of the saving. `lock` in shared mode is the wait on the
+  previous present's blit fence, a GPU wait. Make the CPU side faster and the present
+  thread simply arrives at the fence earlier. That is what a card-limited frame looks like.
+
+**`stereo reentry` against `stereo mono`, with the game's 3D engine utilisation** (Windows
+`GPU Engine` counter for the game's process, 1 s samples stamped with the log's clock and
+joined to the 3 s perf windows; RelWithDebInfo `550-ged3621c8`, DLL `6EE3CD19`):
+
+| Method | scene renders/s | pairs/s | GPU 3D engine | GPU-busy per scene render |
+|---|---|---|---|---|
+| `reentry`, fast phase (idle 0.4 ms) | 108-112 | 54-56 | 86-87.5 % | 7.9-8.0 ms |
+| `reentry`, slow phase (idle 7.5 ms) | 91-93 | 45-47 | 72.7-73.4 % | 7.9 ms |
+| `mono` (PACE-BOUND at the simulator's 90 Hz) | 90 | n/a | 72.4-74.8 % | 8.1 ms |
+
+- **The card's ceiling at this size is about 62 pairs/s.** Three independent rows give the
+  same 7.9-8.1 ms of GPU-busy time per scene render at 3012x3122 on the RTX 4060, capture
+  copies included. 1000 / 8.0 = 125 renders/s = 62 pairs/s at 100 % utilisation. This is an
+  instrument that could have failed its own hypothesis: had `mono` and `reentry` disagreed,
+  or had the slow phase shown a different cost per render, the counter would not have been
+  measuring render work. They agree to 3 %.
+- **What it means for the asked rates.** Two full scene renders per displayed frame need
+  240 renders/s at 120 Hz (1.92 s of GPU per second), 180 at 90 Hz (1.44) and 144 at 72 Hz
+  (1.15). None fits in one second of this card at 9.40 MP per eye. The size at which 90 Hz
+  fits needs about 5.5 ms per render; how render cost scales with pixels ON THIS CARD is
+  unmeasured (the 0.64 ms/MP fit is rig A's) and stays unmeasured by decision.
+- **The recorded prediction for headset run 1 is REFUTED in its wording and confirmed in
+  its substance**: the 3D engine never reads above 90 % (max 87.5 %), and the limit is
+  still the card. 86 % busy at 55 pairs/s against a 62 ceiling means everything of ours
+  that starves or stalls the card is worth at most 12 % in the fast phase. The earlier
+  "about 80 pairs/s" ceiling from the 12.3 ms D3D9 span was too generous: the span stops
+  at Present entry and leaves out the capture blit and the D3D11 side.
+- **The headset will read LOWER than the simulator**, not higher: Virtual Desktop's encode
+  and colour conversion share this card. 09-18 in the headset was 54 pairs/s median with
+  no slow phase; the simulator's fast phase is 55.
+
+**A 12-13 s cycle on the game thread, found by looking at the series instead of the
+median.** Every leg alternates about 6 s of tick 17.5-18.5 ms (`idle` 0.4, render thread
+never waits) with about 6 s of tick 21-24 ms (`idle` 6-8 ms, `RENDER THREAD STARVED`),
+15-20 of 38 windows. Its size is the same in Debug (7.0-7.9 ms) and RelWithDebInfo
+(6.8-8.1 ms). Our script-lane code is several times slower under `/Od`, the engine's is
+the same binary in both, so **this cycle is not the mod's code**: it is the engine's or
+the level's (a looping scripted sequence is the likely owner). No log line's rate differs
+between the slow and fast windows (`tools\perf-tick-cycle.py`, 14 slow against 17 fast). It costs this
+save about 9 % of its mean rate. The 09-18 headset log, on a different spot, shows 20
+STARVED windows of 337, so it is content, not a constant. Not pursued further: the mod
+cannot shorten the engine's game thread, and VR-143's trap is respected (the claim rests
+on the Debug A/B, not on `out` being "not ours").
+
+One hitch IS ours and is Debug-only: `perf: frame gap 41-44 ms ... sat in: game_tick`,
+a present that spent 19-22 ms in `DvrGameTick` and 36-38 ms inside our hook, about once
+a second in the slow phase. 22 of them in leg A2's gameplay, 13 itemised in A1's window, and
+**none in leg B**: the RelWithDebInfo measurement window has zero frame gaps of any
+owner. So it is a cost of the unoptimised build, it is part of why a Debug build feels
+worse than its 6 % median says, and it needs no ticket beyond the banner's warning.
+
+**The frame-gap change works as designed**: a window with 5 gaps printed 3 itemised and
+`perf: frame gaps - 2 MORE in the last 5 s not itemised ... worst 41 ms sat in: game_tick,
+0 sat in present-tail (xrEndFrame)`. The banner reads `config Debug` / `config
+RelWithDebInfo`, the Debug `Warn` prints, and the Debug tick line carries its tag.
+
+### The ranked table after the simulator legs
+
+| # | Suspect | Measured cost | Status | Decided by |
+|---|---|---|---|---|
+| 1 | The card at 9.40 MP per eye, two scene renders per frame | 8.0 ms GPU-busy per render = a 62 pairs/s ceiling; we run at 86 % of it | CONFIRMED (simulator). The headset number with the encoder on the same card is owed | `mono` vs `reentry` vs the slow phase, three agreeing rows |
+| 2 | The engine's 12 s game-thread cycle on this save | 6-8 ms per tick for half the time, about 9 % of the mean | CONFIRMED not ours; content-dependent | identical in Debug and RelWithDebInfo |
+| 3 | Debug build | 1.2-1.5 ms per tick, 6-7 % | CONFIRMED, and fixed as a trap (banner, Warn, install line) | A1 / B / A2 |
+| 4 | Everything of ours on the render thread and the present path (suspects 3, 4, 6, 8 above: the doubled constant hook, the shipped-on instruments, the per-draw SRW lock, the HUD pass) | bounded above by the 12 % between 55 and 62 pairs/s, all of them together | OPEN, bounded. Worth doing for the 12 %; cannot reach 72 Hz, let alone 90 or 120 | the GPU utilisation rows |
+| 5 | `game_tick` 20 ms spikes at about 1 Hz in the slow phase | about 4 % of that phase, Debug only; zero gaps of any owner in the RelWithDebInfo window | CONFIRMED a Debug-build artifact | the itemised gap lines, A1/A2 against B |
+| 6 | One-eye ticks (`gates -> DOUBLE draw after N single`) | not measured in these legs (`L/s == R/s`, `none/s=0` throughout) | OPEN for the headset logs only | - |
+| 7 | The log | not flushed per line; 3 lines per gap now bounded | ELIMINATED as a rate cost; hygiene fixed | source + the summary line |
+| 8 | A game-side cap | none | ELIMINATED | the ini |
+
+**What this says about the architecture (proposal material, no code):** at this size on
+this card the only routes to the headset's rate are fewer pixels per scene render, or
+fewer scene renders per displayed frame. The first is a settings decision that belongs
+to the player and was set aside for this investigation. The second is what this file
+already lists as unbuilt: alternate-eye rendering (one fresh eye per displayed frame,
+with its temporal mismatch) or a reprojected second eye. Neither is a fix to make inside
+a performance pass. The honest sentence for rig B today: **3012x3122 per eye is a
+4070-Ti-SUPER-class setting; on the RTX 4060 it renders 54-56 pairs/s at best and no
+change to the mod's own code can lift that past about 62.**
 
 ## Reboot/save comparison and resolution check (2026-09-19)
 
