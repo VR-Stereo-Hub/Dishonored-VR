@@ -592,6 +592,9 @@ static inline void SkcRotApply();
 static inline void BoneWigApply();
 static int RunConsole(const wchar_t* wcmd, char* reply, int replyCap);
 static void IntroSkipApply();
+// VR-157: the game's own option settings, read-only (game/dishonored/game_opts.cpp).
+static void GameOptsApply();
+static bool GameOptsCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);
