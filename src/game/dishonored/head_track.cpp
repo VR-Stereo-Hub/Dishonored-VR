@@ -1612,6 +1612,40 @@ static void TrackHead(const float (*m)[4])
         // subtract a gameplay neck arc that the authored camera never acquired.
         dvr::camera::set_position_offset_uu(zPos[0], zPos[1], zPos[2],
                                             g_neckMode == 2 ? zRaw : zPos);
+        // VR-165: WHICH TERM IS THE ARC? The swing/arc instrument measured the
+        // eye orbiting at about 350 uu per radian of head pitch, clustered over
+        // four independent windows, while head rotation tracked 1:1 and the
+        // neck pivot stayed constant at 0.321/0.062 m. At the configured
+        // WorldScaleUU=100 that pivot can only produce about 32 uu, so the arc
+        // is NOT the neck model and the remaining term is the positional lane.
+        //
+        // The two are already kept apart here for the VR-78 accounting probe,
+        // so the answer costs one line: print the decomposition, with the scale
+        // and the pivot that produced it, whenever the total is far larger than
+        // the neck arc alone could explain. Rate limited, and it prints the
+        // INPUTS beside the result so a wrong scale and a wrong delta cannot be
+        // confused with each other.
+        {
+            const float totalUu = std::sqrt(zPos[0]*zPos[0] + zPos[1]*zPos[1] + zPos[2]*zPos[2]);
+            const float neckUu  = std::sqrt(zNeck[0]*zNeck[0] + zNeck[1]*zNeck[1] + zNeck[2]*zNeck[2]);
+            const float rawUu   = std::sqrt(zRaw[0]*zRaw[0] + zRaw[1]*zRaw[1] + zRaw[2]*zRaw[2]);
+            // The neck arc's own ceiling: the pivot radius times the scale is
+            // the most it can contribute, whatever the pitch.
+            const float neckMaxUu = std::hypot(g_neckEffBelowM, g_neckEffBehindM) * g_posScaleUU * 2.0f;
+            if (totalUu > 120.0f)
+                DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 1000,
+                    "pos/decomp: TOTAL %.1f uu = raw %.1f + neck %.1f | pitch %.1f deg | "
+                    "scale %.1f uu/m, pivot %.3f/%.3f m (neck can contribute at most ~%.1f uu) | "
+                    "posTrack=%d neckMode=%d projection=%d. %s",
+                    totalUu, rawUu, neckUu, g_hmdPitch * 57.29578f,
+                    g_posScaleUU, g_neckEffBelowM, g_neckEffBehindM, neckMaxUu,
+                    (int)g_posTrack, g_neckMode, (int)dvr::stereo::wants_projection(),
+                    rawUu > neckUu
+                      ? "RAW dominates: the positional lane is producing the arc, so the suspect "
+                        "is the head delta or the scale it is multiplied by, not the neck model."
+                      : "NECK dominates: the arc is the neck model after all, which would mean "
+                        "the pivot or the scale feeding it is not what the steady log line says.");
+        }
         if (dvr::zacct::enabled()) {
             dvr::zacct::Head zh;
             zh.seq = (uint32_t)g_frame;
