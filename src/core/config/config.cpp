@@ -894,6 +894,12 @@ static void WriteDefaultIni(const char* ini)
         "SpecialHeadLook=1\n"
         "Trace=1\n"
         "LockRoll=1\n"
+        "; SkipHoldMs (VR-165): during a cutscene the pad is parked - sticks and triggers to\n"
+        "; zero, buttons dropped - so a stray press cannot eject you from a scripted scene.\n"
+        "; That also dropped the game's own hold-to-skip, and a tester could not skip the\n"
+        "; chair scene at all. A button HELD this long passes through the park; a pulse never\n"
+        "; can, which is the protection 38.65 actually wanted. 0 = park everything, as before.\n"
+        "SkipHoldMs=300\n"
         "\n"
         "[Rain]\n"
         "Hide=0\n"
@@ -2333,6 +2339,9 @@ static void LoadConfig()
         dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }
     CineBordersConfigure(ini);
+    // VR-165: how long a button must be HELD to pass the cinematic pad park.
+    g_cineSkipHoldMs = (int)IniFloat(ini, "Cine", "SkipHoldMs", 300);
+    Log("cine: SkipHoldMs=%d ms (a held button reaches the game during a cutscene so hold-to-skip works; a pulse still cannot. 0 = park every button)", g_cineSkipHoldMs);
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
