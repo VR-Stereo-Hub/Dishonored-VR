@@ -63,6 +63,7 @@ Copy-Item "$repo\tools\setup-game-ini.ps1" "$stage\setup-game-ini.ps1"
 Copy-Item "$repo\tools\vr-runtime.ps1" "$stage\vr-runtime.ps1"
 Copy-Item "$repo\tools\collect-support.ps1" "$stage\collect-support.ps1"
 Copy-Item "$repo\release\Collect VR Support.cmd" "$stage\Collect VR Support.cmd"
+Copy-Item "$repo\release\Switch VR Runtime.cmd" "$stage\Switch VR Runtime.cmd"
 
 $zip = "$OutDir\dishonored-vr-v$version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
