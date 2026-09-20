@@ -171,9 +171,13 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     }
     dvr::bridge_profile::present();
     dvr::perf::stamp(dvr::perf::kEntry);
+    dvr::perf::part_begin();    // VR-160: `perf parts on` names what the present path spends
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
+    dvr::perf::part_mark("hk.abTick");
     if (g_cb.pre_tick) g_cb.pre_tick(self);
+    dvr::perf::part_mark("hk.preTick(seam+status)");
     dvr::hudclass::present_tick(self);   // VR-117: close the present's draw record, refresh the backbuffer identity
+    dvr::perf::part_mark("hk.hudclassTick");
     // 41.1: a method that presents twice per tick is paced by the runtime's
     // pair pacing (one xrWaitFrame per pair); a per-present cap would halve
     // the tick rate.
@@ -186,6 +190,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // waits for the frame (this is what paces the game to the headset),
     // begins it and locates the head and the views.
     dvr::vr::on_present_begin();
+    dvr::perf::part_mark("hk.xrBegin(wait)");
     dvr::perf::stamp(dvr::perf::kAfterBegin);
     track_session();
 
@@ -239,6 +244,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::desktop_eye::begin_present(g_count);
     const uint32_t priorCapture = dvr::capture::delivered_serial();
     dvr::stereo::end_frame(devs, out);
+    dvr::perf::part_mark("hk.method(capture+fence)");
     dvr::perf::stamp(dvr::perf::kAfterEnd);
     {
         dvr::desktop_eye::Record record;
@@ -250,9 +256,12 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     }
     // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
     // method and the runtime on purpose: they belong to no stereo method.
+    dvr::perf::part_mark("hk.sceneQueryProfiles");
     dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
+    dvr::perf::part_mark("hk.hudRedirectEnd");
     if (out.tex) ++g_submits;
     dvr::vr::on_present_end(out.tex);
+    dvr::perf::part_mark("hk.xrEnd");
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
     dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
     // VR-115: only desktop delivery can be omitted. All per-eye engine, capture,

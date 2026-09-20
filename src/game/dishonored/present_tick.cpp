@@ -14,8 +14,11 @@ static void DvrPreTick(IDirect3DDevice9*)
         // "[game] state:" transition line, and the crash filter re-arm
         double nowMs = MaimNowMs();
         dvr::command::poll(nowMs);
+        dvr::perf::part_mark("pt.seamPoll");
         dvr::status::tick(nowMs);
+        dvr::perf::part_mark("pt.statusJson");
         GameStateTick();
+        dvr::perf::part_mark("pt.gameState");
         if ((g_frame & 255) == 0) dvr::crash::rearm();
         {   // 41.1 (session 8): the creation census's deltas, every 60 s at Debug
             static uint64_t censusMs = 0;
@@ -413,9 +416,11 @@ static bool DvrGameplayVerdict()
 static void DvrGameTick(IDirect3DDevice9* self)
 {
     (void)self;
+    dvr::perf::part_mark("hk.stereoBegin+verdicts");   // VR-160: `perf parts on`; the run is opened in hkPresent
     g_xrOn = g_vrReady = dvr::frame::xr_live();   // the session, as of this present
     MfNoteTag();   // VR-76: the runtime's eye tag for the flicker history
     dvr::gpu_memory::tick();   // PERF: video/process memory at 4 Hz (read-only)
+    dvr::perf::part_mark("gt.gpumem");
     dvr::aim::tick(DvrGameplayVerdict(), dvr::stereo::wants_projection());
     // VR-117: the HUD redirect's game-side gate: the scene is drawing (the
     // presentation verdict, which a riding screen keeps true). The power wheel
@@ -423,6 +428,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
     // owner is DisGFxMoviePlayerPowerWheel; the mouse scroll opens it too), so
     // it no longer parks the redirect.
     dvr::hudcap::set_game_gate(DvrSceneVerdict(), UiSurfaceRidesHud());
+    dvr::perf::part_mark("gt.aim+gate");
         // 30.24: hitch detector. Any Present-to-Present gap over 80 ms gets
         // logged with what was in flight, so "lag spike on swing" becomes a
         // measured correlation instead of a hunch. 41.1 (session 8): the tick
@@ -505,6 +511,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
             }
         }
 
+        dvr::perf::part_mark("gt.gap+tid");
         g_gameFrames++;
         SbTick();   // 30.83: SpaceBases oracle (legacy stub unless -Legacy)
         {   // 34.7: one-shot block-property hunt, ~30 s in so a level is loaded
@@ -512,7 +519,9 @@ static void DvrGameTick(IDirect3DDevice9* self)
             if (!bhDone && MaimNowMs() > 30000.0) { bhDone = 1; BlockPropHunt(); }
         }
         StereoUpdate();   // the live-tuning hotkeys
+        dvr::perf::part_mark("gt.stereoKeys");
         DvrConsumePoses();
+        dvr::perf::part_mark("gt.consumePoses");
         // 41.2 (VR-31): the hand pass's beat ticks HERE, not only from inside
         // the draw callback. Driven from the callback alone it could never
         // print the one case it claims to name - "the stereo method never
@@ -520,7 +529,9 @@ static void DvrGameTick(IDirect3DDevice9* self)
         // callback does not run. An instrument that cannot report its own
         // worst answer is not an instrument.
         HmBeat();
+        dvr::perf::part_mark("gt.hmBeat");
         DcTick();        // VR-31 route (b): the draw census and its cycler
+        dvr::perf::part_mark("gt.dcTick");
         // 41.0: the camera seam learns the eye the active method wants next,
         // the IPD and the world scale; the eyetest reads c5 back here.
         dvr::camera::set_eye(dvr::stereo::active() ? dvr::stereo::active()->eye_for_next_frame() : 0);
@@ -530,13 +541,18 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::camera::postest_present_tick();
         dvr::camera::set_head_pitch_deg(g_hmdPitch * 57.29578f);   // 41.1: the pitchtest's input
         dvr::camera::pitchtest_present_tick();
+        dvr::perf::part_mark("gt.cameraSeam");
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
         ResVerdictTick();  // 41.1: the render size against the picker's ask, once per size
         SceneProbePresentTick();
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }
+        dvr::perf::part_mark("gt.fov+res+probe");
         (void)CineActive();   // VR-73: the latch's engine-flag clear runs every present, pad or not
+        dvr::perf::part_mark("gt.cineActive");
         UpdateVirtualPad();
+        dvr::perf::part_mark("gt.virtualPad");
         FrameDumpTick(self);
+        dvr::perf::part_mark("gt.frameDump");
         // UE3 probe: automatic at ~frame 900 and ~frame 14400, or F9 on demand
         bool f9 = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
         bool f9Edge = f9 && !g_f9WasDown;
@@ -640,9 +656,11 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 hbQpc = now.QuadPart;
             }
         }
+        dvr::perf::part_mark("gt.heartbeat+keys");
         HeadInjectTick();
         RotInjectTick();
         SteerTick();
+        dvr::perf::part_mark("gt.inject+steer");
 
         // ---------------------------------------------------------------
         // Key map after the 30.9 diet - one job each:
@@ -825,6 +843,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
                 }
             }
         }
+        dvr::perf::part_mark("gt.weaponWatch+hotkeys");
 
 }
 

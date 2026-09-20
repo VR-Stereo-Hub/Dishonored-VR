@@ -18,6 +18,7 @@
 #include <string.h>
 
 namespace dvr::perf {
+void parts_log(uint32_t presents);   // VR-160: defined with the parts table, below
 namespace {
 
 // ---- one record per present ---------------------------------------------------
@@ -389,7 +390,7 @@ void window_close(uint64_t nowMs) {
     }
     w.marks = g_marks;
     g_last = w;
-    if (total) { DVR_INFO("%s", g_lastLine); DVR_INFO("%s", g_lastGpuLine); }
+    if (total) { DVR_INFO("%s", g_lastLine); DVR_INFO("%s", g_lastGpuLine); parts_log(total); }
     g_p1 = Sum(); g_p2 = Sum(); g_m = Sum();
     g_windowIncomplete = 0;
     g_windowMs = nowMs;
@@ -781,6 +782,56 @@ void set_gpu_enabled(bool on) {
                 : "no queries issued; the tick line keeps the CPU split");
 }
 bool gpu_enabled() { return g_gpuEnabled; }
+
+// ---- VR-160: named parts of the present path ------------------------------
+namespace {
+struct Part { const char* name; int64_t ticks; uint32_t n; };
+const int kParts = 48;
+Part     g_parts[kParts] = {};
+int      g_partN = 0;
+bool     g_partsOn = false;
+int64_t  g_partLast = 0;
+uint32_t g_partOverflow = 0;
+}
+void set_parts(bool on) {
+    if (on == g_partsOn) return;
+    g_partsOn = on; g_partN = 0; g_partLast = 0; g_partOverflow = 0;
+    DVR_INFO("perf: parts %s (%s)", on ? "ON" : "off",
+             on ? "one QPC read per mark on the present thread; `perf: parts` prints with the tick line"
+                : "one bool load per mark");
+}
+bool parts_enabled() { return g_partsOn; }
+void part_begin() { if (g_partsOn) g_partLast = now_qpc(); }
+void part_mark(const char* name) {
+    if (!g_partsOn || !g_partLast) return;
+    const int64_t now = now_qpc();
+    const int64_t d = now - g_partLast;
+    g_partLast = now;
+    for (int i = 0; i < g_partN; ++i)
+        if (g_parts[i].name == name) { g_parts[i].ticks += d; ++g_parts[i].n; return; }
+    if (g_partN >= kParts) { ++g_partOverflow; return; }
+    g_parts[g_partN].name = name; g_parts[g_partN].ticks = d; g_parts[g_partN].n = 1; ++g_partN;
+}
+// Called at the window close, with the window's present count.
+void parts_log(uint32_t presents) {
+    if (!g_partsOn || !g_partN || !presents) return;
+    char buf[1400]; int n = 0; double sumUs = 0.0;
+    for (int i = 1; i < g_partN; ++i)                       // insertion sort, largest first
+        for (int j = i; j > 0 && g_parts[j].ticks > g_parts[j - 1].ticks; --j) {
+            Part t = g_parts[j]; g_parts[j] = g_parts[j - 1]; g_parts[j - 1] = t;
+        }
+    for (int i = 0; i < g_partN; ++i) {
+        const double perUs = (double)us(0, g_parts[i].ticks) / presents;
+        sumUs += perUs;
+        if (n < (int)sizeof(buf) - 64 && (perUs >= 1.0 || i < 12))
+            n += _snprintf(buf + n, sizeof(buf) - n, " %s=%.0f", g_parts[i].name, perUs);
+        g_parts[i].ticks = 0; g_parts[i].n = 0;
+    }
+    buf[sizeof(buf) - 1] = 0;
+    DVR_INFO("perf: parts, us per PRESENT over %u presents, largest first (sum %.0f us; compare with `in` minus wait "
+             "and lock on the tick line; a part names the code that ran BEFORE its mark):%s%s", presents, sumUs, buf,
+             g_partOverflow ? " | TABLE FULL: marks dropped" : "");
+}
 
 void set_enabled(bool on) {
     if (on == g_enabled) return;

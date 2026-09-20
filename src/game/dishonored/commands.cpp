@@ -540,13 +540,17 @@ static void GameStateTick()
     // VR-62: sample the terms INDIVIDUALLY, so the scoreboard scores exactly the
     // values this function decides on and cannot disagree with it.
     UiSurfacePoll();
+    dvr::perf::part_mark("gs.uiSurfacePoll");
     const bool suCyl    = CylTruthLive();
+    dvr::perf::part_mark("gs.cylTruth");
     const bool suNoMenu = !g_menuOpen && !g_inMenu && !g_mainMenu && !UiSurfaceBlocks();
     const bool suView   = DvrScriptViewLive();
     // VR-62 observation. Sampled with the same values the state machine is
     // about to decide on, so its "proposed" verdict cannot disagree with the
     // real one for any reason except the one substitution it makes.
+    dvr::perf::part_mark("gs.viewLive");
     UiPoll(suCyl, suView);
+    dvr::perf::part_mark("gs.uiPoll");
 
     const char* s;
     if (!suCyl)                        s = "NO_PAWN";
@@ -572,7 +576,9 @@ static void GameStateTick()
     // suspends them instead and the resume validates them before use; =0 is
     // the old transition exactly. hands/menu_keep.h.
     MkPresentTick(s, suCyl);
+    dvr::perf::part_mark("gs.menuKeep");
     SuTick(suCyl, suNoMenu, suView, !g_cineNow, DvrGameplayVerdict());
+    dvr::perf::part_mark("gs.startupScore");
 
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
