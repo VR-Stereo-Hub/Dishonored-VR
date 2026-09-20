@@ -78,7 +78,8 @@ struct Sim { bool on = false; double startMs = 0; float peak = 0, humpMs = 200; 
              unsigned fires0 = 0, blocked0 = 0; } sim;
 struct Pulse { double openMs = 0, untilMs = 0; LONG polls0 = 0; int minPolls = 0; } pulse;
 struct Honour { bool on = false; unsigned long long fireTick = 0; double fireMs = 0;
-                bool upper0Attack = false, valid0 = false, realTrig = false; LONG polls0 = 0; } hon;
+                bool upper0Attack = false, valid0 = false, realTrig = false; LONG polls0 = 0;
+                char sawBlock[96] = ""; } hon;   // a block state the upper lane passed through in the window
 struct Stats { unsigned samples = 0, dups = 0, still = 0, fires = 0, blocked = 0, honoured = 0, kills = 0,
                notHonoured = 0, inconclusive = 0;
                float lastSpeed = 0, peak = 0, bucket[2] = {}; double bucketMs = 0;
@@ -172,6 +173,10 @@ void honour_poll(double now) {
     const unsigned long long t = GetTickCount64();
     const unsigned age = (unsigned)(t - hon.fireTick);
     const char* got = NULL; bool kill = false;
+    // The block is over long before the window closes, so it has to be caught in
+    // passing: at the timeout the upper lane reads idle again and says nothing.
+    if (s.valid && !hon.sawBlock[0] && strstr(s.state[1], "Block"))
+        _snprintf_s(hon.sawBlock, sizeof(hon.sawBlock), _TRUNCATE, "%s", s.state[1]);
     if (s.valid) {
         if (!strcmp(s.state[0], "StatePlayerMasterAssassinate") && s.entered[0] + 50 >= hon.fireTick) { got = s.state[0]; kill = true; }
         else if (!strcmp(s.state[1], "StatePlayerGenericFatality") && s.entered[1] + 50 >= hon.fireTick) { got = s.state[1]; kill = true; }
@@ -209,11 +214,16 @@ void honour_poll(double now) {
     } else {
         ++n.notHonoured;
         unsigned sAge = 0; const int kind = sword_kind(&sAge);
-        DVR_WARN("swing: NOT HONOURED after %u ms - master=%s upper=%s primary=%s pad polls %ld -> %ld output=%s. "
-                 "Polls flat = the game never read the pad while the pulse was open (raise PulseMs or PulseMinPolls). "
-                 "An upper block state = this install's pad binding maps the input to block (try 'swing output rb')",
-                 age, s.state[0], s.state[1], kind == 1 ? "sword" : kind == 2 ? "another item" : "none",
-                 (long)hon.polls0, (long)polls, output_name());
+        if (hon.sawBlock[0])
+            DVR_WARN("swing: NOT HONOURED after %u ms - the game BLOCKED instead (upper passed through %s): this install's "
+                     "pad binding puts block on %s, so the attack is on the other input - try 'swing output %s'",
+                     age, hon.sawBlock, output_name(), st.outputRb ? "rt" : "rb");
+        else
+            DVR_WARN("swing: NOT HONOURED after %u ms - master=%s upper=%s primary=%s pad polls %ld -> %ld output=%s, and no "
+                     "block state was seen. Polls flat = the game never read the pad while the pulse was open (raise "
+                     "PulseMs or PulseMinPolls); polls moving = the game read the press and did nothing with it",
+                     age, s.state[0], s.state[1], kind == 1 ? "sword" : kind == 2 ? "another item" : "none",
+                     (long)hon.polls0, (long)polls, output_name());
     }
 }
 
