@@ -316,6 +316,64 @@ probe = 1.1 ms/s; NativeProfile's `DrawIndexedPrimitiveUP-hook-inclusive` 26,000
 instruments are therefore NOT the 18 %; what is left is the hooks on the indexed draw
 path, the constant hook (VR-162) and the present path's own 2.4 + 2.4 ms per tick.
 
+### RESULTS, round 2, rig B, 2026-09-20: four costs of ours on the present thread, and the size test
+
+`perf parts on` (new, default off) splits the present path into named parts. It named three
+of these in three simulator legs; the fourth came from `hud off` against `hud on`.
+
+| # | Cost | Where | Measured | Fix |
+|---|---|---|---|---|
+| 1 | The video-memory sampler (added 2026-09-18) | `gpu_memory::tick`, present thread | gated to 4 Hz as designed, but one sample is two kernel video-memory queries plus a `VirtualQuery` walk of the whole 32-bit address space: 25.8 ms on the simulator, 27.6 ms (max 46.9) in the headset. 0.8 ms per present averaged = four stalls a second. This is the `sat in: game_tick` frame gap, and it explains the retraction above: it is a wall-clock cost, so the optimised build has it too | its own low-priority thread at 1 Hz; it prints its own cost; `[Perf] GpuMem=`, `gpumem on|off` |
+| 2 | The HUD panel, twice per displayed frame | `hudcap::end_frame` | per in-use element, per PRESENT: a full 3012x3122 `StretchRect`, a full-size clear, a D3D11 draw and a `Flush`. `hud off` / `hud on` / `hud off`, fast phase: 16.0 / 17.8 / 16.0 ms per tick (62 against 56 pairs/s) | `[Hud] OncePerPair`, `hud pair on|off`: hold the first present of a pair (clear only, last output stays delivered, never two holds in a row) |
+| 3 | `status.json`, once a second | `status::tick`, present thread | file create, write, close and rename on the present thread | built on the present thread, written by a worker; the present thread never waits for the disk |
+| 4 | The live-object table | `BuildLiveSet` | a copy and `qsort` of about 115,000 pointers with the table's lock held throughout, from five independent periodic timers on two threads | copy and `std::sort` into a scratch buffer with no reader lock, swap under the lock; `RefreshLiveSet(maxAgeMs)` lets periodic callers share one rebuild |
+
+Simulator, fast phase, same save and view, RelWithDebInfo, 3012x3122: **17.8 ms (56 pairs/s)
+before, 15.7 ms (63.7 pairs/s) after**, the game's 3D engine at 93 %, zero frame gaps in the
+window. `OncePerPair` off / on / off on its own: 16.9 / 15.8 / 16.9 ms; `hud/beat` reads
+`held` = presents / 2, deliveries halved, `empty-while-armed=0`.
+
+**Headset run 2** (VDXR 120 Hz, 3012x3122, build `vr33-hands-working-557-g02d34c1e`, `config
+RelWithDebInfo`, DLL sha256 `BF472731`, the same save, standing still, 19 windows per leg;
+log `vr160-HEADSET2-fixes-120hz.log`):
+
+| Leg | tick median / p90 | pairs/s | our present path (`in`, P1+P2) | frame gaps |
+|---|---|---|---|---|
+| Headset run 1, before the fixes | 22.1 / 22.3 ms | 44.7 | 10.5 ms | 12 in 135 s, all `game_tick` |
+| Fixes, `OncePerPair` off | 20.6 / 20.9 ms | 48.3 | 8.2 ms | 1 in the whole run |
+| Fixes, `OncePerPair` on | 19.9 / 20.1 ms | 49.7 | 5.0 ms | (same run) |
+
+The game's 3D engine 81.8 %, the streamer's 3D 7.3 % and encode 23 %: 8.2 ms of GPU per scene
+render, a headset ceiling near 56 pairs/s, and the game now at 88 % of it (82 % before).
+Hands healthy (`hands OWNER=SkelControl writes=302/3s`). The player reported no HUD flicker
+with `OncePerPair` on and an overlay reading of 45-52, and could not judge smoothness
+standing still. On that verdict the missing-key default of `[Hud] OncePerPair` is now 1
+(no config-version bump, so no ini is rewritten: VR-159). Scope of the judgement: about a
+minute, standing, three elements; the lever stays for anyone who sees otherwise.
+
+**The size test, because the question was whether something deeper is wrong.** One
+simulator leg at the sibling mod's 2064x2208 per eye (4.56 MP), same build, same save,
+`res: HONOURED - the game renders 2064x2208`. Prediction recorded before it: 70-85 pairs/s,
+and a rate still near 50 would mean a deeper fault.
+
+| Size per eye | fast phase | GPU 3D engine | slow phase |
+|---|---|---|---|
+| 3012x3122 (9.40 MP) | 15.7 ms, 63.7 pairs/s | 93 % | 20-21 ms, 48-49 pairs/s |
+| 2064x2208 (4.56 MP) | 11.1-11.9 ms, 84-90 pairs/s, touching the simulator's 90 Hz pace | 63-67 % | 20.3 ms, 49 pairs/s |
+
+CONFIRMED: on the render side the pixel count is the limit on this card, and at the
+sibling's size the same code reaches the sibling's class of rate with a third of the card
+idle. The four files `arm-res.ps1` writes were restored byte-for-byte afterwards.
+
+**And one thing the size test exposed.** The SLOW phase of this save's 12 s cycle does not
+move with the size at all: 20.3 ms at both. There the game thread needs about 20 ms per
+tick and nothing on the render side matters. The earlier reading "identical in Debug and
+RelWithDebInfo, so not the mod's code" is WEAKER than it was written: script-lane code that
+spends its time in `VirtualQuery` (every `RangeReadable`) costs the same in both configs,
+so that A/B could not have told such code from the engine's. OPEN, and the next test is
+direct: the same leg with the ProcessEvent hook not installed. The headset spot shows no
+such phase (`idle` 0.2 ms), so this is about other places in the game, not that one.
+
 ## Reboot/save comparison and resolution check (2026-09-19)
 
 After a PC restart and a known-good save, the tester reports performance close
