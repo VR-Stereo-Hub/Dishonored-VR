@@ -333,6 +333,42 @@ static void GameOptsApply()
     GoLatchFns();
     uint8_t* obj = (req == 1) ? GoProfileObject() : NULL;
 
+    // VR-161, run 3: the object is now demonstrably the right one
+    // (ArkProfileSettings, ranked and printed) and ALL FOURTEEN ids still
+    // refused. So "wrong object" is eliminated and two hypotheses remain, which
+    // look identical from the accessor's return value alone:
+    //
+    //   (a) the profile's own ProfileSettings array is EMPTY - the settings are
+    //       not loaded yet, and no accessor can answer about an id that is not
+    //       in the array. That would also explain GetProfileSettings returning
+    //       null: the subsystem is simply not up.
+    //   (b) the array is populated and OUR parms blocks are wrong.
+    //
+    // Reading the array's LENGTH separates them, and needs no native call at
+    // all - it is the same name-keyed resolver plus the TArray reader the rest
+    // of the mod uses. A number here is worth more than another guess at a
+    // calling convention.
+    if (obj) {
+        const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
+        uint8_t* pdata = NULL; int32_t pnum = -1;
+        if (!off) {
+            Log("gameopts: OnlinePlayerStorage.ProfileSettings did not resolve by name, so the "
+                "array length cannot be read; the refusals below are UNEXPLAINED");
+        } else if (!RflArrayAt(obj, off, &pdata, &pnum)) {
+            Log("gameopts: ProfileSettings array at +0x%x is unreadable on %p - the refusals "
+                "below are UNEXPLAINED", off, (void*)obj);
+        } else {
+            Log("gameopts: ProfileSettings array at +0x%x holds %d entr%s. %s",
+                off, (int)pnum, pnum == 1 ? "y" : "ies",
+                pnum <= 0
+                  ? "EMPTY: the profile is not loaded, so NO accessor can answer any id and the "
+                    "refusals below are expected, not a parms-block fault. The settings probably "
+                    "arrive only once the options menu has been opened, or the async profile "
+                    "read has not completed."
+                  : "POPULATED: the settings ARE here, so a refusal below is OUR call being "
+                    "wrong, not the profile being absent. That is the thing to fix next.");
+        }
+    }
     Log("gameopts: ---- the game's own option settings, READ ONLY ----");
     Log("gameopts: profile = the Steam Cloud blob (OPTIONS.sav); system = what "
         "FSystemSettings holds now. A disagreement is the finding, not an error.");
