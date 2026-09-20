@@ -529,6 +529,20 @@ void draw_ui() {
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.rearmSpeed); ConfigWriteKey("Melee", "RearmSpeed", v, "F10 Controls"); }
         ImGui::SliderFloat("attack press (ms)", &st.pulseMs, 20.0f, 300.0f, "%.0f");
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.pulseMs); ConfigWriteKey("Melee", "PulseMs", v, "F10 Controls"); }
+        if (ImGui::Checkbox("ignore one bad tracking sample (median of 3)", &st.median)) {
+            live.reset(); ConfigWriteKey("Melee", "Median", st.median ? "1" : "0", "F10 Controls");
+        }
+        if (ImGui::Checkbox("turning my body is not a swing (head-relative)", &st.headRel)) {
+            live.reset(); ConfigWriteKey("Melee", "HeadRel", st.headRel ? "1" : "0", "F10 Controls");
+        }
+        if (ImGui::Checkbox("only with the sword in my hand", &st.requireSword))
+            ConfigWriteKey("Melee", "RequireSword", st.requireSword ? "1" : "0", "F10 Controls");
+        int out = st.outputRb ? 1 : 0;
+        const char* outs[] = { "right trigger (usual)", "right shoulder" };
+        if (ImGui::Combo("a swing presses", &out, outs, 2)) {
+            st.outputRb = out != 0; close_pulse();
+            ConfigWriteKey("Melee", "Output", output_name(), "F10 Controls");
+        }
     } else {
         ImGui::SliderFloat("swing speed needed (m/s)", &g_meleeSpeed, 0.5f, 6.0f, "%.2f");
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", g_meleeSpeed); ConfigWriteKey("Melee", "SwingSpeed", v, "F10 Controls"); }
