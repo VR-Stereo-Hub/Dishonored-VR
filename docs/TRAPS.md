@@ -928,3 +928,16 @@ as not-evidence when the engine's own name for the id does not match the table.
 own menus, so anything written there is provisional, and a mod that silently
 rewrites a player's graphics settings is indistinguishable from a mod that broke
 them. That is already the standing reason `-VRBaseline` touches only four values.
+
+## VR-158: two writers for fullscreen and vsync (2026-09-20, avoided on purpose)
+
+The mod already owns both: `[Screen] RenderFullscreen` / `VirtualMode` and
+`[Perf] ForceNoVSync`. The game's option profile owns them too
+(`PSI_GraphicsPC_bFullScreen` 116, `PSI_GraphicsPC_bVSync` 117).
+
+Writing the profile entries as part of the "settings a fresh install arrives
+with" work would create two writers for one value, which is the failure this
+project has paid for more than once. The live F10 levers deliberately write only
+the mod's own keys. **If the profile write path is built later, these two are the
+ones to leave out of it, or the mod and the game will fight over the device every
+launch.**

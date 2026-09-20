@@ -7907,3 +7907,32 @@ BYTE AdvertisementType; }` wraps `SettingsData { BYTE Type; INT Value1; void*
 Value2; }`. Three enum fields whose packed widths and padding have not been
 measured on this build. A guessed stride would produce a table of confident
 nonsense, so the engine walks its own array instead.
+
+## VR-158: the engine resize takes a fullscreen argument (2026-09-20)
+
+`UWindowsViewport::Resize` at `kWindowsViewportResize`, `__fastcall` with six
+stack args and `ret 0x18`:
+
+```
+(native, nullptr, w, h, bFullscreen, option, x, y)
+```
+
+VR-50 passed the literal `1` for `bFullscreen`, which is why no lever could put a
+running game into windowed mode and back. `option` is bit 1 of the FViewport
+flags word at `kFViewportFlags`. Arg 3 is now the requested flag, and the whole
+surrounding guard - window-thread check, `kWindowsFViewportVtable` and
+`kWindowsViewportVtable` compares, the resize prologue and `ret` byte checks, the
+live `GameViewportClient` owner search, the queue/poll/confirm state machine - is
+unchanged.
+
+**That resize is also the only way to make a vsync change take.**
+`g_forceNoVSync` has one consumer, `UncapPresent` (`core/window/game_window.cpp`),
+which rewrites `D3DPRESENT_PARAMETERS::PresentationInterval`, and it runs only at
+`CreateDevice` and at `Reset` (`present_tick.cpp`, `DvrBeforeReset`). Flipping the
+flag on its own changes nothing until the next device event, so `vsync on|off`
+provokes a same-size resize and reports the present interval the reset produced.
+The reset's own line is the evidence; the request line is not.
+
+`g_gameWindowed` is set from the reset's present params, so it - not the
+requested flag - is what the F10 checkbox and `ResLiveFullscreen()` report. A
+refused resize therefore shows the device, not the wish.

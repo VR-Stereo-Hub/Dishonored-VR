@@ -4,6 +4,13 @@ namespace {
 std::atomic<int> g_resLiveState{0}; // idle,queued,calling,confirmed,awaiting capture; negative=refused
 std::atomic<uint64_t> g_resLiveSize{0};
 std::atomic<unsigned long long> g_resLiveStamp{0};
+// VR-158: the fullscreen flag the queued resize will ask for. The engine's
+// Resize has always taken one; until now it was the literal 1, so nothing
+// could switch a running game to windowed and back. Ships 1, the shipped
+// behaviour. The device Reset this resize provokes is also what makes a
+// vsync change take: present_tick.cpp's DvrBeforeReset runs UncapPresent,
+// which reads g_forceNoVSync at that moment.
+std::atomic<int> g_resLiveFull{1};
 void ResLiveRefuse(const char* why) {
     g_resLiveState.store(-1);
     Log("res/live: REFUSED: %s; current render remains authoritative",why);
@@ -28,7 +35,56 @@ static void ResLiveQueue(uint32_t w,uint32_t h) {
     g_resLiveSize.store(((uint64_t)w<<32)|h);
     g_resLiveStamp.store(GetTickCount64());
     g_resLiveState.store(1);
-    Log("res/live: queued %ux%u; no D3D reset on overlay/render lane",w,h);
+    Log("res/live: queued %ux%u %s; no D3D reset on overlay/render lane",
+        w,h,g_resLiveFull.load()?"fullscreen":"windowed");
+}
+
+// VR-158: is the running device fullscreen? Read from what the last Reset
+// actually produced, not from what was asked for - the two differ whenever a
+// resize is refused, and the F10 checkbox must show the device, not the wish.
+static bool ResLiveFullscreen() { return !g_gameWindowed; }
+
+// VR-158: ask for a live fullscreen change at the CURRENT render size. It
+// rides the whole guarded path the resolution control already proved: same
+// window-thread check, same viewport ABI byte verification, same live-owner
+// validation, same refusal reasons. A refused switch leaves the running
+// device exactly as it was and says why.
+static void ResLiveSetFullscreen(bool full,const char* who) {
+    const uint32_t w=dvr::capture::width(),h=dvr::capture::height();
+    if (!w || !h) {
+        Log("res/live: fullscreen %s REFUSED (%s) - capture reports no size yet (%ux%u)",
+            full?"on":"off",who,w,h);
+        return;
+    }
+    const int state=ResLiveState();
+    if (state==1 || state==2 || state==4) {
+        Log("res/live: fullscreen %s REFUSED (%s) - a resize is already in flight (state=%d)",
+            full?"on":"off",who,state);
+        return;
+    }
+    Log("res/live: fullscreen %s asked by %s; device is %s at %ux%u - re-entering the resize path",
+        full?"on":"off",who,ResLiveFullscreen()?"fullscreen":"windowed",w,h);
+    g_resLiveFull.store(full?1:0);
+    ResLiveQueue(w,h);
+}
+
+// VR-158: vsync is NOT live on its own. g_forceNoVSync is read by
+// UncapPresent, which only runs at CreateDevice and Reset, so flipping the
+// flag alone changes nothing until the next device event. Provoke one at the
+// current size, keeping the fullscreen state the device already has.
+static void ResLiveSetVsync(bool vsyncOn,const char* who) {
+    const bool wantForceOff=!vsyncOn;
+    if (g_forceNoVSync==wantForceOff) {
+        Log("perf: vsync %s asked by %s - already there (ForceNoVSync=%d); no reset provoked",
+            vsyncOn?"on":"off",who,(int)g_forceNoVSync);
+        return;
+    }
+    g_forceNoVSync=wantForceOff;
+    Log("perf: vsync %s asked by %s -> ForceNoVSync=%d; provoking a device reset so "
+        "UncapPresent can act (the present interval in force is logged by that reset, "
+        "and THAT line is the evidence, not this one)",
+        vsyncOn?"on":"off",who,(int)g_forceNoVSync);
+    ResLiveSetFullscreen(ResLiveFullscreen(),"vsync change");
 }
 static void ResLivePoll() {
     int state=ResLiveState();
@@ -89,19 +145,24 @@ static void ResLiveApply(void* viewport) {
     }
     if (!owner || !IsLiveObject(owner)) { ResLiveRefuse("no live GameViewportClient owner"); return; }
     // Persist/advertise before resize, so the engine can validate the new mode.
+    const bool wantFull=g_resLiveFull.load()!=0;
     g_resVirtual=true;
-    ResRequest(w,h,true,"F10 live total-pixel scale");
+    ResRequest(w,h,wantFull,"F10 live total-pixel scale");
     if (!IsLiveObject(owner) || *(void**)(owner+kGameViewportNativeViewport)!=viewport ||
         *(uintptr_t*)view!=kWindowsFViewportVtable || *(HWND*)(native+kWindowsViewportHwnd)!=g_gameWnd) {
         ResLiveRefuse("viewport ownership changed before call"); return;
     }
     const int option=(*(uint32_t*)(view+kFViewportFlags)>>1)&1;
     const int x=*(int*)(native+kWindowsViewportPosX),y=*(int*)(native+kWindowsViewportPosY);
-    Log("res/live: engine resize %ux%u owner=%p viewport=%p thread=%lu option=%d; before stereo tags",w,h,owner,viewport,GetCurrentThreadId(),option);
+    Log("res/live: engine resize %ux%u %s owner=%p viewport=%p thread=%lu option=%d; before stereo tags",
+        w,h,wantFull?"fullscreen":"windowed",owner,viewport,GetCurrentThreadId(),option);
     // Six stack args, ret24. The native routine owns window/RHI synchronization.
+    // VR-158: arg 3 is the fullscreen flag. It was the literal 1 from VR-50
+    // until now, which is why nothing could switch a running game to windowed.
     using ResizeFn=void(__fastcall*)(void*,void*,uint32_t,uint32_t,int,int,int,int);
-    ((ResizeFn)kWindowsViewportResize)(native,nullptr,w,h,1,option,x,y);
+    ((ResizeFn)kWindowsViewportResize)(native,nullptr,w,h,wantFull?1:0,option,x,y);
     g_resLiveStamp.store(GetTickCount64());
     g_resLiveState.store(4);
-    Log("res/live: engine returned; awaiting capture %ux%u (return alone is not acceptance)",w,h);
+    Log("res/live: engine returned; awaiting capture %ux%u (return alone is not acceptance; "
+        "the device is %s after the call)",w,h,g_gameWindowed?"windowed":"fullscreen");
 }

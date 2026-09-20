@@ -907,3 +907,42 @@ discovery that VR-143 moved into the crouch.
 **Not established:** why the distinct-shader count passed sixteen when it did.
 Different levels draw different shaders, and the laggy run is twice as long, so
 the 5x rate rise may be content rather than a change in our code.
+
+## VR-158: fullscreen and vsync as live A/B levers (2026-09-20, UNMEASURED)
+
+**Status: built and installed, nothing measured yet.** The prediction below has
+not been tested and must not be quoted as a result.
+
+**Where it came from.** Setting the game to windowed through its own settings
+menu was reported to cost a large amount of performance, resembling the state
+before the desktop mirror was turned off. That is a mechanism worth testing, not
+a coincidence: a windowed D3D9 swapchain presents through DWM composition, so
+every desktop present is paid for, while a fullscreen exclusive device bypasses
+it. If that is what happens, the windowed cost and the desktop-mirror cost
+(`DesktopMirrorOff`, already a measured win) are the same cost seen twice.
+
+**What was missing.** Neither lever could be switched during a run. Fullscreen
+was the literal `1` in the engine resize call; vsync (`[Perf] ForceNoVSync`, which
+defaults to 1) is only read by `UncapPresent` at device create and reset, so it
+had never been A/B'd in a headset at the current frame path. Both now switch live
+through the resize path VR-50 proved - `fullscreen on|off` and `vsync on|off` on
+the seam, and two checkboxes in the F10 Display tab. Each costs one device reset.
+
+**Prediction the next run can refute.** At ONE fixed resolution, with the desktop
+mirror already off:
+
+* windowed -> fullscreen moves the tick and `stereo: beat` pairs/s measurably
+* vsync on -> off moves the present rate but NOT the pair rate
+
+If fullscreen moves nothing once the mirror is off, the mechanism above is wrong
+and the two costs are one; record that outcome here rather than leaving the
+prediction standing.
+
+**Read pairs/s, not the tick mean.** TRAPS carries the reading error from VR-152:
+median pairs went 109 to 45 across two builds, a 59% loss that the tick mean
+showed as 13%.
+
+**Four combinations, one session, one resolution.** Changing the resolution
+between legs makes the comparison worthless, and `[Screen] RenderFullscreen` is
+written by the toggle, so the ini after the session reports the last leg, not the
+shipped default.

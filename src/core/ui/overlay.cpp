@@ -798,6 +798,33 @@ static void OverlayFrame()
         ImGui::TextDisabled("Set applies and saves. A brief pause during resize is expected.");
         ImGui::TextDisabled("110%% means 10%% more pixels. FOV remains unchanged.");
         ImGui::Separator();
+        // VR-158: live fullscreen and vsync. Both ride the resize path above -
+        // fullscreen because it is one argument of the engine call, vsync
+        // because the device Reset that resize provokes is the only moment
+        // UncapPresent runs. Both default to the shipped behaviour, both fail
+        // soft: a refused switch leaves the running device alone and logs why.
+        ImGui::TextUnformatted("Live display A/B (both take effect now, no relaunch)");
+        {
+            const bool busy = resizeState==1 || resizeState==2 || resizeState==4;
+            bool liveFull = ResLiveFullscreen();
+            ImGui::BeginDisabled(busy);
+            if (ImGui::Checkbox("fullscreen (live)", &liveFull)) {
+                ResLiveSetFullscreen(liveFull, "F10 Display");
+                ConfigWriteKey("Screen", "RenderFullscreen", liveFull ? "1" : "0", "F10 Display");
+            }
+            bool vsyncOn = !g_forceNoVSync;
+            if (ImGui::Checkbox("vsync (live)", &vsyncOn)) {
+                ResLiveSetVsync(vsyncOn, "F10 Display");
+                ConfigWriteKey("Perf", "ForceNoVSync", vsyncOn ? "0" : "1", "F10 Display");
+            }
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Device now: %s, present %s. Windowed presents through DWM; "
+                                "fullscreen exclusive does not.",
+                                ResLiveFullscreen() ? "fullscreen" : "windowed",
+                                g_forceNoVSync ? "uncapped" : "vsynced");
+            ImGui::TextDisabled("Each switch costs one device reset - the same brief pause as a resize.");
+        }
+        ImGui::Separator();
     }
     if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
         dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());

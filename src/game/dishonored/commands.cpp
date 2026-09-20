@@ -32,6 +32,10 @@
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
 //   console <text>               run a game console command on the script lane
+//   fullscreen on|off            VR-158: live fullscreen, through the engine's own
+//                                resize (one device reset); windowed presents via DWM
+//   vsync on|off                 VR-158: live vsync ([Perf] ForceNoVSync), which needs
+//                                that same reset before UncapPresent can act
 //   gameopts [read|system]       VR-157: READ the game's own option settings -
 //                                the profile blob's value and the live
 //                                SystemSettings mirror, side by side. Read-only.
@@ -410,6 +414,19 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "gameopts")) return GameOptsCommand(args);   // VR-157
+    // VR-158: the live display A/B. Both provoke one device reset.
+    if (!strcmp(cmd, "fullscreen")) {
+        if (DvrOnOff(args, &b)) { ResLiveSetFullscreen(b, "seam"); ConfigWriteKey("Screen", "RenderFullscreen", b ? "1" : "0", "the seam"); return true; }
+        Log("res/live: fullscreen on|off (device is %s; `vsync on|off` is the other half)",
+            ResLiveFullscreen() ? "fullscreen" : "windowed");
+        return true;
+    }
+    if (!strcmp(cmd, "vsync")) {
+        if (DvrOnOff(args, &b)) { ResLiveSetVsync(b, "seam"); ConfigWriteKey("Perf", "ForceNoVSync", b ? "0" : "1", "the seam"); return true; }
+        Log("res/live: vsync on|off (present is %s; ForceNoVSync=%d)",
+            g_forceNoVSync ? "uncapped" : "vsynced", (int)g_forceNoVSync);
+        return true;
+    }
     if (!strcmp(cmd, "dump")) {
         FrameDumpRequest(args[0] ? args : "frame");
         return true;

@@ -58,6 +58,10 @@ static const char* NeckModeName(int mode);     // 41.1: the [Neck] lever
 static void ResEnumModes(const char* who);     // 41.1: the render-resolution picker (core/window/render_size.cpp)
 static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who);
 static void ResLiveQueue(uint32_t w,uint32_t h);
+// VR-158: live fullscreen and vsync, both through the proven resize path.
+static bool ResLiveFullscreen();
+static void ResLiveSetFullscreen(bool full,const char* who);
+static void ResLiveSetVsync(bool vsyncOn,const char* who);
 static void ResLiveApply(void* viewport);
 static void ResLivePoll();
 static int ResLiveState();
