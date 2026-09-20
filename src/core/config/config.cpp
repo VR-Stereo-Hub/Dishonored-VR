@@ -892,6 +892,11 @@ static void WriteDefaultIni(const char* ini)
         "[Diagnostics]\n"
         "GcFaultDump=1\n"
         "GameOptsOnStart=1\n"
+        "; CamModProbe=1 (VR-165) names which camera modifier is still weighted while the\n"
+        "; camera swings. A tester came off a chain and the camera kept swinging for ~23 s;\n"
+        "; measured, our own writer was flat and the GAME camera oscillated, so the owner is\n"
+        "; a modifier that is not releasing. Read-only, and it prints ONLY while swinging.\n"
+        "CamModProbe=1\n"
         "\n"
         "[Cine]\n"
         "LockPitch=1\n"
@@ -2356,7 +2361,8 @@ static void LoadConfig()
     RainConfigure(ini);
     LensConfigure(ini);
     WmConfigure(ini);
-    GameOptsConfigure(ini);   // VR-157: [Diag] GameOptsOnStart
+    GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
+    CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;

@@ -130,8 +130,61 @@ void GoLatchFns()
         (void*)g_goFnGetSettings, (void*)g_goFnName, (void*)g_goFnValueInt);
 }
 
-// The ArkProfileSettings object, via the controller's own native. Returns
-// NULL and says why on every failure path.
+// VR-161: find the profile object by WALKING GObjects, which is what the first
+// run forced.
+//
+// MEASURED 2026-09-20: `GetProfileSettings` resolved fine as a UFunction
+// (0x16842F00) and, called through ProcessEvent on the latched player
+// controller, returned 00000000. Every one of the fourteen rows came back
+// empty. Either the parms block for that native is not a bare return pointer,
+// or the object does not hang off the controller the way the script signature
+// suggests.
+//
+// Rather than keep guessing at a parms block, ask the object table. The class
+// name is the thing we actually know, `FindFunctionObj` already proves this
+// walk, and the result is checked the same way: it must be live and its class
+// must name a ProfileSettings. This does not care which class owns the
+// accessor or what its calling convention is.
+uint8_t* GoScanForProfileObject()
+{
+    if (!RangeReadable((void*)kGObjHdr, 12)) return NULL;
+    void** objs = *(void***)kGObjHdr;
+    uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) {
+        Log("gameopts: REFUSED - object table looks wrong (objs=%p num=%u)", (void*)objs, onum);
+        return NULL;
+    }
+    uint8_t* found = NULL; const char* foundCls = NULL; int hits = 0;
+    for (uint32_t i = 0; i < onum; i++) {
+        if ((i & 1023) == 0) {
+            uint32_t left = onum - i; if (left > 1024) left = 1024;
+            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+        }
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, kClassOff + 4)) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || !strstr(cn, "ProfileSettings")) continue;
+        // A class-name match catches the CLASS objects and the defaults too;
+        // only a live instance can answer a value.
+        if (!IsLiveObject(o)) continue;
+        if (!strncmp(cn, "Default__", 9)) continue;
+        ++hits;
+        if (!found) { found = o; foundCls = cn; }
+    }
+    if (!found) {
+        Log("gameopts: REFUSED - no live *ProfileSettings object in %u objects. The settings "
+            "may not be loaded until the options menu has been opened once this session.", onum);
+        return NULL;
+    }
+    Log("gameopts: object-table scan found %d live *ProfileSettings; using %p (%s)",
+        hits, (void*)found, foundCls);
+    return found;
+}
+
+// The ArkProfileSettings object. Asks the controller's own native first,
+// because that is the route the script declares, and falls back to the object
+// table when it hands back nothing - which is what happened on the first run.
+// Returns NULL and says why on every failure path.
 uint8_t* GoProfileObject()
 {
     if (!g_peCtrl) {
@@ -150,9 +203,9 @@ uint8_t* GoProfileObject()
     g_peReentry = false;
     uint8_t* obj = (uint8_t*)parms.ReturnValue;
     if (!obj || ((uintptr_t)obj & 3) || !RangeReadable(obj, kClassOff + 4)) {
-        Log("gameopts: REFUSED - GetProfileSettings returned %p (null, "
-            "misaligned or unreadable)", (void*)obj);
-        return NULL;
+        Log("gameopts: GetProfileSettings returned %p (null, misaligned or unreadable) "
+            "- falling back to the object table", (void*)obj);
+        return GoScanForProfileObject();
     }
     const char* cn = ObjClassName(obj);
     if (!cn || !strstr(cn, "ProfileSettings")) {

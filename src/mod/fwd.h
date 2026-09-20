@@ -600,6 +600,10 @@ static bool GameOptsAutoEnabled();
 static void GameOptsSetAuto(bool on,const char* who);
 static bool GameOptsAutoFired();
 static void GameOptsConfigure(const char* ini);
+// VR-165: which camera modifier is still swinging (cam_modifiers.cpp). Read-only.
+static void CamModTick();
+static void CamModConfigure(const char* ini);
+static bool CamModCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);
