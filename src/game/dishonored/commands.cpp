@@ -589,6 +589,8 @@ static void DvrStatusProvider(dvr::status::Writer& w)
 {
     w.kv("version", DVR_VERSION);
     w.kv("build", DVR_BUILD_ID);
+    w.kv("config", DVR_BUILD_CONFIG);
+    w.kv("optimised", (bool)DVR_BUILD_OPTIMISED);
     w.kv("backend", "openxr");
     w.kv("runtime", dvr::vr::runtime_name());
     w.kv("session", dvr::vr::session_state_name());

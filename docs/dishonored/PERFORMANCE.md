@@ -1,3 +1,156 @@
+## VR-160: the dev PC's 43-57 pairs/s - what the record already answers (2026-09-20)
+
+**Report:** about 40 fps in the headset on the dev PC, while the sibling BioShock
+mod is comfortable on the same PC. Decisions taken for this investigation: the render
+size stays 3012x3122 (no resolution sweep), the headset test rate is 120 Hz, and
+headset runs are few, so everything a log or the simulator can answer is answered
+there first. No new run is claimed in this entry; every number below was already on disk.
+
+### The populations (Q1). Do not combine them.
+
+| Name | What it counts | Where it is read |
+|---|---|---|
+| ticks/s | game ticks per second. Under `reentry` one tick draws two scenes | `perf: tick N ms (X/s, ...)` |
+| presents/s | calls to Present. Under `reentry` this is 2 x ticks/s | the same line, `Y presents/s`; `stereo: beat out/s` |
+| fresh pairs/s | complete stereo pairs with both eyes renewed. Equals ticks/s ONLY while every tick draws both eyes | `stereo: beat L/s` and `R/s` |
+| the streamer overlay's fps | application submissions as Virtual Desktop counts them | the overlay. WHICH of the above it matches is unverified; headset run 1 reads both in one marked window |
+
+`L/s` is what the player perceives as smoothness. VR-152 showed it can fall 59 % while
+the tick mean moves 13 %, because a tick that draws one eye is still a tick. In both
+dev-PC logs below the armed invariant holds (`L/s == R/s == out/s / 2`), so here
+ticks/s, pairs/s and `L/s` are the same number: 43-55. "40 fps" is that number.
+
+### Two rigs are mixed in this file (the correction that matters most)
+
+| | Rig A (the tester's) | Rig B (the dev PC) |
+|---|---|---|
+| GPU | RTX 4070 Ti SUPER (STATUS "The rig") | RTX 4060 (`adapter[0]: NVIDIA GeForce RTX 4060` in both logs), Ryzen 5 5600X |
+| Runs in this file | builds 239-527: every 9.4-13 ms tick, the 0.64 ms/MP + 5.6 ms fit, "quarter pixels bought about 6 %", the 100-110/s judder report | `vr37-pre-existing.log`, `vr37-HEADSET-run1.log` |
+| 3012x3122 judged in the headset | yes, 2026-09-15 | never |
+
+Every headline number above this entry is rig A's. **No like-for-like regression on rig
+B is established**: there is no earlier rig-B headset number at this size to regress
+from. `arm-res.ps1` predicts 11.6 ms at 9.40 MP and rig B measures 18.3, so that fit is
+not this card's. A measurement carries the identity of what it measured; this file
+did not carry the machine, and from this entry on it does.
+
+Rig B, active play only (tick < 60 ms; exact over every `perf: tick` line), VDXR,
+90 Hz, `stereo reentry`, `res: HONOURED - the game renders 3012x3122`:
+
+| Log | Build | Config | tick median / p90 | cap=lock P1 / P2 | out P1 / P2 | annotations |
+|---|---|---|---|---|---|---|
+| `vr37-pre-existing.log` 09-18 | `vr33-hands-working-434-g94202ce8` | UNKNOWN (the banner could not say) | 18.3 / 20.6 ms, 337 windows, 0 idle | 2.10 / 2.60 ms | 3.60 / 5.40 ms | 20 RENDER THREAD STARVED, 9 PACE-BOUND |
+| `vr37-HEADSET-run1.log` 09-20 | `vr33-hands-working-540-g3051531e-dirty` | Debug (STATUS) | 23.0 / 24.2 ms, 214 active of 541 | 1.55 / 1.10 ms | 5.00 / 5.10 ms | 379 PACE-BOUND (mostly the idle block), 14 STARVED |
+
+The 09-20 log's other 327 windows are the headset sitting idle: the runtime drops to
+72 Hz (`hmd 13.89 ms`), ticks read 74-612 ms, and 10,487 of its 10,694 frame gaps sit in
+`present-tail (xrEndFrame)`. The 72 Hz block is a cleaner idle filter than a tick
+threshold. The 09-18 log never leaves 90 Hz and has no `present-tail` gap at all.
+
+### This card's GPU cost was already in the log
+
+`vr37-pre-existing.log`, active play: `perf: gpu/present render-to-entry=6.1-7.3 ms
+capture=0.2-0.3 idle(d3d9)=0.0-0.1 | per tick span=12.1-14.6 dma=0.5 idle=0.1-0.2`,
+341-355 of 341-355 resolved, 0 late, at about 57 ticks/s (17.5 ms tick).
+
+Two scene renders cost about 12.3 ms of D3D9 GPU span per pair on rig B at 9.40 MP per
+eye. That span alone is over 11.11 ms (90 Hz) and 8.33 ms (120 Hz); with everything
+else free it caps rig B near 80 pairs/s at this size. Per this file's own evidence
+rules a D3D9 span can contain feeding gaps, so 12.3 ms is an UPPER bound on GPU busy
+time. Whether the card or the render thread owns it is the question headset run 1
+decides, and it also decides where the other ~5 ms per tick can be won.
+
+### Q0: the build config, static half
+
+- The project sets no optimisation flags, so each config is the generator's default.
+  Debug: `/Od /Ob0 /RTC1 /MTd`, `_DEBUG`, `_ITERATOR_DEBUG_LEVEL=2`. "Release" in every
+  script means RelWithDebInfo: `/O2 /Ob1 /Zi /MT`. No `/GL` or LTCG anywhere. A true
+  `/Ob2` Release is never built (`CMakePresets.json` has `debug` and `release` ->
+  RelWithDebInfo only).
+- `build.ps1`, `install.ps1` and the `xrsim-*` scripts default to Debug;
+  `install-candidate.ps1` and `package.ps1` are always RelWithDebInfo. So tester builds
+  were optimised and dev-PC installs were not, unless `-Release` was typed.
+- The banner printed version, build id, `__DATE__ __TIME__` and no config. Two logs of
+  the two configs differed only in the DLL's size (7.2 MB against 4.8 MB). There are no
+  `_DEBUG` or `assert` blocks in `src/`, so Debug's cost is codegen, runtime checks and
+  the debug CRT, all on the CPU side.
+- **Fixed with this entry (the banner commit and the install-script commit):** the banner, the crash header and `status.json` name the
+  config; an unoptimised build logs one `Warn` and tags its own `perf: tick` line
+  (optimised lines are byte-identical to before, for the scripts that parse them);
+  `install.ps1` prints the DLL's hash and a three-line warning for a Debug install. The
+  default stays Debug by decision: the simulator workflow relies on it.
+
+**Prediction, recorded before the simulator A/B runs** (Debug / RelWithDebInfo / Debug,
+one save, one spot): Debug inflates `pre`, `tick`, `method` minus `lock`, `end`, and the
+share of `out` that is our per-draw hooks. It does not move `cap lock` or the GPU span.
+If Debug costs under 1 ms per tick on the simulator it cannot explain 23.0 against
+18.3 ms, and those two runs differ for another reason (scene, or build 434 was Debug
+as well). The unwelcome answer this can print: Debug is most of the gap, and half of
+"40 fps" on 09-20 was the install script.
+
+### Q5: nothing game-side caps the rate
+
+Read from `DishonoredEngine.ini` `[SystemSettings]` and `[Engine.Engine]` on rig B:
+`bSmoothFrameRate=FALSE` (so `MaxSmoothedFrameRate=130` is inert), `UseVsync=False`,
+`MaxMultisamples=1`, `MaxAnisotropy=4`, `ResX/ResY=3012/3122`, `ScreenPercentage=100`,
+`OneFrameThreadLag=True`, `DynamicShadows=True`, `MaxShadowResolution=800`. Neither log
+mentions smoothing or vsync. The only pacer in the system is `xrEndFrame`.
+
+### Q6: why BioShock Infinite is comfortable on the same card (architecture only)
+
+From the sibling repo's own docs; no constant is carried over. Infinite uses the SAME
+stereo bet: the scene-draw root called twice per tick, two presents per pair. On this
+RTX 4060 it logs 77-80 pairs/s, at the runtime's native 2064x2208 per eye (4.56 MP),
+and its record says it was already GPU over budget there before its settings pass.
+
+> Infinite is comfortable because it draws less than half the pixels per pair on the
+> same card (9.1 MP against Dishonored's 18.8 MP) and hands each eye to the runtime
+> with one same-device D3D11 `CopyResource` and no fence. Dishonored is a D3D9 game, so
+> each eye crosses to D3D11 through a fenced shared surface (`cap lock` 1.1-2.6 ms per
+> present on rig B), and the 3012x3122 default was judged on a card with about twice
+> the throughput.
+
+Differences worth a written proposal, not code: Infinite holds ONE XR frame open across
+both presents of a pair (one wait, one locate, one prediction, one `xrEndFrame`); its
+per-draw detours cost one relaxed atomic load when idle (about 380 draws per present).
+Dishonored already runs `xrWaitFrame` on a pace thread, as Infinite does.
+
+### Suspects of ours, found by reading (none measured on rig B yet)
+
+| # | Suspect | Evidence | Status |
+|---|---|---|---|
+| 1 | The card at 18.8 MP per pair | GPU span 12.3 ms per pair, `idle(d3d9)` 0.1 ms; rig A is about 2x the card and ran about 2x the rate | open: headset run 1 (GPU engine utilisation beside the log) |
+| 2 | Debug build | 09-20 was Debug; all CPU-side | open: simulator A/B, prediction above |
+| 3 | `hkSetVSConstF` has no early-out and carries its view-model-hide block, its `DcNotePalette` call and its palette cache TWICE (`vs_const_hook.cpp` 219-256 and 307-361) | verified in source. It is the highest-frequency hook in the mod. `g_hmStaticWindow` is decremented twice per static upload, and two palette caches with different length rules write one buffer | open, and a correctness question before it is a cost question: ticket, measure with NativeProfile's `ConstHook` scope, do not delete blind (hands are headset-judged) |
+| 4 | Instruments the shipped ini turns ON against compiled defaults of OFF: `[Hud] Regions=1`, `[Perf] NativeProfile=1`, `[Perf] BridgeGpu=1`; also `[Hands] DrawCensus=1`, `[Cine] Trace=1` | `probe_draw` locks a vertex buffer and hashes up to 8 KB per HUD-class draw; NativeProfile wraps about 20 D3D9 entry points; 15,771 `native-profile:`, 49,304 `cine/trace` and 17,402 `dc:` lines in the 09-20 run. DiagnosticAb's mask (about 1 % on rig A) never covered these | open: one grouped off/on/off rung |
+| 5 | Ticks that draw one eye | 8,964 `reentry: gates -> DOUBLE draw after N single tick(s)` lines on 09-20, 6,944 on 09-18. VR-77 is this signature | open: count per minute in the standing-still windows of run 1 |
+| 6 | `anim::weight()` takes an exclusive SRW lock, and `GetTickCount64`, on every draw, twice on a qualifying one (`draw_census.cpp:241`, `mesh_split.cpp:2991`) | read, not measured | open |
+| 7 | The script lane: `PeHandler` has one early return; about 40 `strstr`/`strcmp` and a `RealName` per dispatch; `UiSurfaceTick` walks 1024 GObjects slots with `IsLiveObject` every 16 ms; an unresolved `CineTraceTick` re-runs about 11 full GObjects walks every 5 s | read, not measured. Lands in `out`, which is NOT "not the mod" (the VR-143 trap) | open |
+| 8 | The HUD redirect's per-sink `StretchRect` and clears are charged to `end`, which the gap line names `present-tail (xrEndFrame)` | `frame_hooks.cpp` 242-256: `hudcap::end_frame` sits between the two stamps | an attribution fault in our own instrument; ticket |
+| 9 | The frame-gap report | one ungated Info line per gap, plus a 16-record ring format and two more ungated Info lines, all formatted whether or not they print; about 10,500 of each on 09-20 | fires when the rate has ALREADY collapsed, so it is hygiene, not the 40 fps; fix follows in its own commit |
+| 10 | The log write path | NOT flushed per line: buffered stdio, `fflush` every 200 ms, format before the lock (`log.cpp` 29, 84) | eliminated as a per-line flush |
+| 11 | `DVR_SKIP` | `dvr::diag::skip()` has one caller, the echo command. The env knob disables nothing, so the ladder rung that relies on it cannot run as written | fault; ticket. `DISHONORED_VR_XR_SAFE=1` and `[Mode] GamepadOnly=1` are the levers that exist |
+| 12 | A game-side cap | smoothing and vsync off (above) | eliminated |
+
+Not repeated, and why: nonblocking Present, the max-frame-latency sweep, the query-wait
+helper, dynamic shadows via ini, FrameId-off and pair pacing as a default all failed on
+rig A for reasons that do not depend on the card. The resolution route is the one whose
+negative was rig A's alone; it stays closed here by decision, not by evidence.
+
+### Headset run 1, the plan and its prediction (recorded before the run)
+
+One launch, RelWithDebInfo, 120 Hz, 3012x3122, one save, one spot, standing still, with
+GPU utilisation and the per-process GPU engine counters sampled beside the log. Marked
+windows: `stereo reentry` 60 s, `stereo mono` 45 s, `stereo reentry` 60 s, the suspect-4
+instruments off as one group 45 s, `hud off` 45 s, `stereo reentry` 60 s to close.
+
+Prediction: the game's 3D engine reads above 90 % under `reentry`; `mono` runs at 1.8-2x
+`reentry`'s rate; the instrument and HUD rungs sit inside the spread of the three
+baselines. That outcome means the card is the limit at this size and the rest is a
+written proposal. The unwelcome outcome the run can print instead: the 3D engine well
+under 90 % with the span still near the tick, which means the render thread is starving
+the card and suspects 3, 4, 6 and 7 are where the rate is.
+
 ## Reboot/save comparison and resolution check (2026-09-19)
 
 After a PC restart and a known-good save, the tester reports performance close

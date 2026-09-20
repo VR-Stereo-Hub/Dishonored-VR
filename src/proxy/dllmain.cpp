@@ -35,8 +35,17 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
             dvr::log::configure(lv, cats);
         }
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info,
-                "=== Dishonored VR proxy loaded (dishonoredvr %s, build %s, built %s %s) ===",
-                DVR_VERSION, DVR_BUILD_ID, __DATE__, __TIME__);
+                "=== Dishonored VR proxy loaded (dishonoredvr %s, build %s, config %s, built %s %s) ===",
+                DVR_VERSION, DVR_BUILD_ID, DVR_BUILD_CONFIG, __DATE__, __TIME__);
+        // VR-160: a Debug build was played and measured for a day as if it
+        // were the tester's build, because nothing in the log said otherwise.
+#if !DVR_BUILD_OPTIMISED
+        DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Warn,
+                "build: this is an UNOPTIMISED %s build (/Od, runtime checks, the debug CRT). It is for the "
+                "simulator and the debugger. Its `perf:` numbers are NOT comparable with a RelWithDebInfo "
+                "build's; play and measure on `build.ps1 -Release` + `install.ps1 -Release`",
+                DVR_BUILD_CONFIG);
+#endif
 
         // VR-33: the pose lock and the rotation/grip frame self-test. Here
         // because it must be in place before the first draw and before any

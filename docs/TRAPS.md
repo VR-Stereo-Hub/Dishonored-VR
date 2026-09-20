@@ -1,3 +1,28 @@
+## A performance number carries its MACHINE and its build CONFIG (VR-160, 2026-09-20)
+
+An investigation opened by treating 43-54 pairs/s on the dev PC as a regression from
+the 100 pairs/s in PERFORMANCE.md. Those were two machines: the record's fast runs are an
+RTX 4070 Ti SUPER, the dev PC is an RTX 4060, and nothing beside the numbers said so.
+The 3012x3122 default, the `arm-res.ps1` cost fit and "quarter pixels bought about 6 %"
+were all judged on the faster card and none of them predicts the slower one.
+
+The same day one of the two dev-PC runs was an unoptimised Debug build
+(`install.ps1` installs Debug unless `-Release` is typed) and its log could not say so:
+the banner printed the build id and no config, and the two DLLs differed only in size.
+
+**The rule:** every performance number is written with the GPU (the log's
+`adapter[0]:` line), the build tag AND the config (the banner's `config` field, since
+VR-160), the resolved render size (`res: HONOURED`) and the headset rate (`[hmd .. Hz]`
+on the tick line). A comparison across any of the four is not an A/B. "Do not attribute
+logs to machines by drive letter" has a twin: do not attribute a rate to a build until
+the machines match.
+
+Related, same session: `DVR_SKIP` is documented in CLAUDE.md and TESTING.md as a
+subsystem bisector and **disables nothing** - `dvr::diag::skip()` has exactly one
+caller, the `skip` echo command. The levers that exist are `DISHONORED_VR_XR_SAFE=1`
+and `[Mode] GamepadOnly=1`. A rung of a cost ladder built on `DVR_SKIP=hands` would
+have measured nothing and reported "no cost".
+
 ## A detector fed once per present sees every pose twice (VR-37, 2026-09-20)
 
 The motion sword never fired on the native stereo render and nothing in its log

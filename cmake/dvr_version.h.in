@@ -5,3 +5,18 @@
 
 #define DVR_VERSION  "@DVR_VERSION@"   // from project(... VERSION) in CMakeLists.txt
 #define DVR_BUILD_ID "@DVR_BUILD_ID@"  // git describe --tags --always --dirty
+
+// VR-160: the build CONFIG, so a log can say what it was compiled as. It comes
+// from a per-config compile definition (src/CMakeLists.txt), not from this
+// header, because the generator is multi-config and this file is stamped once
+// for all of them. A Debug build is /Od /RTC1 with the debug CRT: its `perf:`
+// numbers are not comparable with a RelWithDebInfo build's, and until this
+// existed two logs of the two were told apart only by the size of the DLL.
+#ifndef DVR_BUILD_CONFIG
+#define DVR_BUILD_CONFIG "unknown"
+#endif
+#ifdef _DEBUG
+#define DVR_BUILD_OPTIMISED 0
+#else
+#define DVR_BUILD_OPTIMISED 1
+#endif

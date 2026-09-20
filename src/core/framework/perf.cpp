@@ -9,6 +9,7 @@
 #include "core/gfx/stereo.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
+#include "dvr_version.h"
 
 #include <windows.h>
 #include <atomic>
@@ -304,8 +305,16 @@ void window_close(uint64_t nowMs) {
                     1000.0f / periodMs, periodMs)
         : _snprintf(paced, sizeof(paced), "[hmd period UNKNOWN - the runtime leaves predictedDisplayPeriod at 0] ");
     if (w.paceBound && pacedN > 0)
-        _snprintf(paced + pacedN, sizeof(paced) - pacedN, "PACE-BOUND (wait %.1f ms/present = the headset's "
+        pacedN += _snprintf(paced + pacedN, sizeof(paced) - pacedN, "PACE-BOUND (wait %.1f ms/present = the headset's "
                   "cadence at %.2f ms; the split is a budget, not a bottleneck) ", w.waitMs, periodMs);
+    // VR-160: a tick line gets pasted into tickets without its banner, so an
+    // unoptimised build says so ON the line. Optimised builds print nothing
+    // here and the line stays byte-identical for the scripts that parse it.
+#if !DVR_BUILD_OPTIMISED
+    if (pacedN > 0 && pacedN < (int)sizeof(paced))
+        _snprintf(paced + pacedN, sizeof(paced) - pacedN, "[UNOPTIMISED " DVR_BUILD_CONFIG " build: not comparable] ");
+#endif
+    paced[sizeof(paced) - 1] = 0;
     char c1[400], c2[400], cm[400], mk[240];
     marker_text(mk, sizeof(mk), g_p1, g_p2, g_m, w);
     if (w.stereo) {
