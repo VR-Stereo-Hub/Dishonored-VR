@@ -1,3 +1,14 @@
+## Motion sword candidate (2026-09-20, headset test pending)
+
+Swinging the right controller swings the sword again. The old detector never fired
+on the stereo render; it is kept as `[Melee] Detector=sustain` and now works, and a
+new `edge` detector fires the instant your hand speed crosses `EdgeSpeed`, the way
+the BioShock mod's wrench does. F10 > Controls > Motion sword shows your PEAK hand
+speed and the gate that is stopping a swing. New `[Melee]` keys (all optional, the
+old ones are untouched): `Detector`, `EdgeSpeed`, `RearmSpeed`, `PulseMs`,
+`PulseMinPolls`, `HeadRel`, `Median`, `RequireSword`, `Output`, `HonourMs`,
+`HonourHaptic`. Tuning guide: `docs/dishonored/PHYSICAL_SWING.md`.
+
 ## Misc fixes candidate (2026-09-17)
 
 F10 Animations adds saved arm-visibility choices for all40 player action states.

@@ -2640,8 +2640,34 @@ the landing point, and it was judged not visible in the headset.
   (distance by hand pitch); a landing marker drawn through the fork (`dxvk_vr_mark`).
 - Motion aim: freshly spawned projectile objects near the camera get their aim vector
   rewritten (`MotionAimTick`, `MaimWriteAim`, `SteerTick`); haptics on catch.
-- Melee: swing detection on controller velocity (`MeleeTick`, `[Melee]` speed/sustain/
-  distance gates); block/choke state (`BlockStateTick`).
+- Melee: the motion sword (VR-37). `MeleeTick` is now the thin entry to `dvr::swing`
+  (`melee.cpp`, decision core `swing_core.h`): one sample per hand sample generation,
+  an edge or a sustain detector, fail-closed gates, an attack pulse on the virtual
+  pad and a check that the game really entered `StatePlayerMeleeAttack`. Design,
+  levers and every measurement: `PHYSICAL_SWING.md`. Block/choke state
+  (`BlockStateTick`).
+  - **The attack input, measured 2026-09-20 on the dev PC** (simulator, the Hound
+    Pits save): the virtual pad's right trigger with the sword sheathed drives upper
+    `StatePlayerEquipChange` then `StatePlayerTransitionItemIn` (the first press
+    DRAWS); with it drawn, upper `StatePlayerMeleeAttack`, sequence
+    `Gadgets_SwordSlash_Right` / `_Left`, 15-16 ms after the press opens. The right
+    shoulder drives upper `StatePlayerBlock`. So this install runs a pad binding set
+    with the attack on the right trigger (sets 1, 3 and 4 of `DishonoredInput.ini`;
+    set 2 swaps them). Which set another install runs is NOT known from this, and
+    the choke work (VR-145) hit exactly that; `swing: NOT HONOURED ... the game
+    BLOCKED instead` is the log line that answers it per machine.
+  - **Holding Use sheathes**: `btn x press 1500` takes the equipment read from
+    `Primary DishonoredWepSword EQUIPPED` to `primary=none` inside 3.5 s. There is no
+    holster binding in the input ini; it is the held Use button.
+  - **The right hand's item for the present lane**: `RflStateTick` publishes
+    `g_rflPrimaryKind` (0 nothing, 1 the sword, 2 another item) and
+    `g_rflPrimaryKindTick` as atomics after every successful read. The `equip[]`
+    strings are rewritten in place at 4 Hz with no lock and carry the instance name
+    after the class (`DishonoredWepSword (<name>)`), so they are neither safe to
+    compare from another thread nor equal to the bare class name.
+  - **The hand sync and the head locate are different cadences.** `locate_gen()` is
+    not the identity of a hand sample: some new locate generations carry the previous
+    hand pose. `input_hand_aim_sample(h).generation` is.
 - Menu/cine: `g_menuOpen`/`g_inMenu` from script events and the cursor; `CineActive` latch
   cleared when no live pawn (the main menu fires the same toggle); dialog holds.
 - Console: `RunConsole` drives the engine console from the script lane (the intro skip:

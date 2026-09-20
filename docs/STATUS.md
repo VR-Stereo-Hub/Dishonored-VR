@@ -1,3 +1,53 @@
+## Session handoff 2026-09-20: the motion sword (VR-37)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-37-physical-swing`, off `VR-Main` `fd5fbde9`, pushed, NOT merged.
+  Everything else in the 2026-09-19 handoff below still stands.
+- **Swinging the right controller swings the sword, proven on the simulator, not
+  yet judged in a headset.** Full record: `docs/dishonored/PHYSICAL_SWING.md`.
+- The dev PC has this branch's Debug `d3d9.dll` installed. The DLL and ini it
+  replaced are in `D:\dvr-data\backup-pre-vr37\`. `swing save` was exercised during
+  testing, so the INSTALLED ini on this PC reads `[Melee] Detector=edge` (the
+  shipped default is `sustain`).
+- Logs of every run: `D:\dvr-data\logs\vr37-*.log`.
+
+### What was measured
+
+- The old detector never fired: three scripted 0.68 m swings, sword drawn, every
+  gate open, 0 attacks, ten "flicks" of 4-39 ms with 8-14 m/s peaks. The render
+  presents twice per tick (`out/s=171 L/s=85`) and it was fed once per present.
+- `Detector=edge`: a swing fires at 4.3-4.6 m/s and the game is in
+  `StatePlayerMeleeAttack` 15-16 ms later (HONOURED), every time. A 0.68 m reach in
+  900 ms peaks 1.61 m/s and does not fire. A body turn (head and hand together)
+  does not fire, and DOES with `swing rel off`.
+- Gates: block grip, power wheel, pause menu, sheathed sword each give exactly one
+  `swing: BLOCKED` line with the reason.
+- `Output=rb` on this machine: the game BLOCKS and the check says NOT HONOURED, so
+  the right trigger is the attack here. Another install may differ; its log says.
+- `Detector=sustain` on the clean sample feed fires too (`run 122 ms 0.50 m`), so
+  the headset A/B is a fair one.
+
+### Next steps
+
+1. **Headset, the user:** `swing mode edge`, swing, read PEAK in F10 > Controls >
+   Motion sword (or `swing status`), set `EdgeSpeed` a little under it, play a few
+   minutes watching for false attacks while walking, turning, reaching and using
+   the wheel. Then `swing mode sustain` for the comparison. The tuning table is
+   PHYSICAL_SWING.md section 6. The verdict decides the shipped `Detector` default,
+   which flips in its own commit.
+2. VR-155, the sneak-kill thrust: a `Thrust` detector in the same core (extension of
+   the hand away from a yaw-only shoulder point), armed while crouched. Needs a save
+   with guards; the dev PC's newest save is the Hound Pits pub, which has none.
+3. VR-156, research: a readable kill-available signal for the thrust's ready cue.
+
+### What is deliberately not here
+
+- The shipped default stays `Detector=sustain` until the headset verdict.
+- No aim for the blade: the swing decides when, the game decides where.
+- The choke gesture (VR-145) is untouched; what this work learned about the pad
+  binding is on that ticket.
+
 ## Session handoff 2026-09-19 (late): SteamVR, the judder, and two retractions
 
 ### Where things are RIGHT NOW

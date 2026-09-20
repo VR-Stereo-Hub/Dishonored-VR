@@ -1,3 +1,12 @@
+## Motion sword (VR-37, 2026-09-20)
+
+- [x] Measure the old detector on the simulator: 0 attacks from three swings, every gate open.
+- [x] Pure decision core (edge + sustain) with 36 host checks; adapter, gates, pulse, honoured-check.
+- [x] `swing` word, `features.swing` status, F10 rows, default ini (parity gate passes).
+- [x] Simulator: `swing-edge.xrs` and `swing-gates.xrs` pass; rb output reads NOT HONOURED as it should.
+- [ ] Headset: A/B `swing mode edge` against `sustain`, tune `EdgeSpeed` from PEAK, then flip the default.
+- [ ] VR-155: the sneak-kill thrust. VR-156: a readable kill-available signal.
+
 ## Misc fixes (2026-09-17)
 
 - [x] VR-134: animation-state arm checkboxes implemented with host coverage.

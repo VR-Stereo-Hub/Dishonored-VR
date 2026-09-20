@@ -7,6 +7,18 @@ question the simulator could answer is a wasted session.
 
 ## 1. The decision table
 
+VR-37 the motion sword: `tools\swing-core-host.ps1` compiles the pure decision core
+(36 checks: the threshold, one swing one attack, re-arm and cooldown, one verdict
+per swing, a body turn, repeated poses, doubled samples through the median, the
+tracking-jump and dt hygiene, the sustain detector, `swing sim`). In the game:
+`tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` (a reach does not fire and
+peaks under 2.2 m/s, a swing fires and is HONOURED, a body turn does not fire) and
+`swing-gates.xrs` (block grip, power wheel, pause menu, sheathed sword: one BLOCKED
+line each with its reason, then the same swing fires). Both need a loaded level in
+GAMEPLAY and `GamepadOnly=0`, and only ever MOVE the hand: `hand r grip pose`
+teleports it, which the detector discards as a tracking jump. Reading the log:
+`docs/dishonored/PHYSICAL_SWING.md` section 2.
+
 VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
 production camera writer and clamp functions. Nineteen checks cover exact-write
 ownership through a Z clamp, repeated descent, release, stereo offsets and fresh
