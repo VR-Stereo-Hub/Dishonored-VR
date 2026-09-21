@@ -45,7 +45,7 @@ moving shows in `dump capture`). `stereo.xrs`, `world-6dof.xrs`, `coupling-hand.
 
 - The game on a head-locked screen in BOTH eyes; F5 recenters; head look turns the game
   camera 1:1; lean/crouch; roomscale auto-recenter.
-- The gamepad works (sticks, triggers, faces); both stick clicks recenter.
+- The gamepad works (sticks, triggers, faces); both stick clicks: a tap opens the F10 panel, a hold (~0.6 s) recenters.
 - F10 opens on the screen; `screen distance` / `screen width` move it; sliders save.
 - Menus and loading screens show on the screen; no `EXCEPTION` in the log; the session
   survives alt-tab (`xr: SUBMISSION IDLE` lines name the reason while it idles).

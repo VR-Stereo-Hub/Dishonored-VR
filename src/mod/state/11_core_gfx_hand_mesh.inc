@@ -112,21 +112,16 @@ static float    g_sbSweepBase[86];    // bone0.x at the start of this slot
 // behind one switch. Off by default, remembered in the ini.
 static bool     g_ovlDev = false;
 static float    g_heightOffsetM = 0.0f;   // [Tracking] HeightOffsetM
-// ---- 31.0: point at the overlay with a controller -------------------------
-// Computed where the action system lives (it needs the analog trigger) and
-// consumed by OverlayFrame, which runs long before that code. The panel is
-// head-locked and centred, so the controller ray's offset from your view
-// direction maps straight onto it - no plane intersection needed.
-static float    g_ovlRayX = 0.0f, g_ovlRayY = 0.0f;   // ray offset / forward
-static bool     g_ovlPtrDown = false, g_ovlPtrValid = false;
-// 31.3: mouse only. Pointing a controller at the panel read as fiddly in
-// practice - it fights your aim, the trigger doubles as weapon fire, and a
-// panel you open for ten seconds does not justify learning a new input. The
-// code stays behind an ini flag for anyone who wants it; nothing in the
-// overlay advertises it any more.
-static bool     g_ovlPtrEnable = false;   // [Overlay] ControllerPointer
-static int      g_ovlPtrHand = 1;        // which controller points
-static float    g_ovlPtrGain = 2.2f;
+// ---- VR-174: the F10 panel from the controllers ------------------------------
+// 31.3 made the panel mouse-only because pointing "fights your aim, the trigger doubles
+// as weapon fire". VR-174 answers both: while the panel is up the game does not hear the
+// pointing hand's trigger or stick (pad_bridge.cpp), and the cursor comes from the eye's
+// FOV rather than a gain (overlay.cpp, OvlInjectControllerPointer).
+static bool     g_ovlPtrEnable = true;    // [Overlay] ControllerPointer
+static int      g_ovlPtrHand = 1;         // [Overlay] PointerHand: which controller points
+// Text size, independent of the window size. <= 0 = not chosen yet: seeded from the eye
+// texture height once, then owned by the "UI text scale" slider ([Overlay] UiScale).
+static float    g_ovlUiScale = 0.0f;
 static volatile LONG g_skcReq = 0;   // 30.90 SkelControl probe request
 // 32.8 blink probe: declared up here because the overlay (which arms it) is
 // compiled long before the probe itself.

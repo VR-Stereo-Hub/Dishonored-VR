@@ -421,7 +421,10 @@ static void DvrGameTick(IDirect3DDevice9* self)
     MfNoteTag();   // VR-76: the runtime's eye tag for the flicker history
     dvr::gpu_memory::tick();   // PERF: video/process memory at 4 Hz (read-only)
     dvr::perf::part_mark("gt.gpumem");
-    dvr::aim::tick(DvrGameplayVerdict(), dvr::stereo::wants_projection());
+    // VR-174: the aim laser and dot land ON the F10 panel and fight its cursor for the same
+    // pixels, so while it is up the ray is off like it is in a menu (the setting is untouched
+    // and comes straight back). Firing is off anyway: the panel owns the trigger.
+    dvr::aim::tick(DvrGameplayVerdict() && !g_ovlVisible, dvr::stereo::wants_projection());
     // VR-117: the HUD redirect's game-side gate: the scene is drawing (the
     // presentation verdict, which a riding screen keeps true). The power wheel
     // is the same draw class as the HUD and RIDES the window like a menu (its
@@ -899,7 +902,7 @@ static ID3D11Device* DvrFrameD3D11(ID3D11DeviceContext** ctx)
 // from here - the overlay's own draw callback).
 static void DvrOverlayDraw(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* rtv, uint32_t w, uint32_t h)
 {
-    OverlayFrame();
+    OverlayFrame(w, h);   // VR-174: the panel is sized and pointed against this texture
     if (!g_ovlVisible || !g_ovlInit) return;
     D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
     ctx->RSSetViewports(1, &vp);

@@ -362,6 +362,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/dishonored/ARM_HAND_SPLIT.md` | **The arm/hand split** (VR-31): how the hands are cut from the arms, the three cut shapes and why, the clip and the cap, every ini key and hotkey, how to read the log, the traps |
 | `docs/dishonored/TESTING.md` | Install/launch loop, flat and simulator checks, headset checklist, crash triage |
 | `docs/dishonored/DESKTOP_MIRROR.md` | **The desktop mirror's eye policy** (VR-53/VR-54): why the game window alternated eyes, where the pin lives and why it is not in the runtime layer, the pause-menu session loss, and the counter reading that was retracted |
+| `docs/dishonored/F10_MOTION_CONTROLS.md` | **The F10 panel from the controllers** (VR-174): the port plan from the BioShock trilogy mod, what exists here, the four lessons it paid for, verification |
 | `docs/dishonored/FLICKER_REFERENCE.md` | **First stop for any flicker issue; update during every investigation.** Symptoms, confirmed fixes, open issues, dead ends, code/commit evidence, and linked continuation plans |
 | `docs/dishonored/BRIEF-eye-flicker.md` | The eye-flicker investigation: four hypotheses argued and killed. ANSWERED - kept as the graveyard |
 | `docs/dishonored/XR_HANDOFF.md` | The pre-41.0 OpenXR/Quest presentation bug (historical; the pipeline it describes is gone) |

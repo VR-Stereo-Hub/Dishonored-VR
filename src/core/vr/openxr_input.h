@@ -51,6 +51,11 @@ void input_haptic(int hand, float amp, float durSec);
 // Both stick clicks pressed together = the recenter chord (one edge per
 // chord, re-armed when both release). Returns true once per chord.
 bool take_recenter_chord();
+// VR-174 (Dishonored): the both-stick-click chord's TAP (released within 350 ms) toggles the
+// F10 panel; its HOLD (600 ms) is the recenter above. Off = the original instant recenter.
+bool take_panel_chord();
+bool chord_tap_opens_panel();
+void set_chord_tap_opens_panel(bool on);
 
 // One status line inside vr::draw_debug_ui().
 void input_draw_debug_ui();
