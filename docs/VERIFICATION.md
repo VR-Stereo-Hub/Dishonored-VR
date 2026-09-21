@@ -22,6 +22,14 @@ GAMEPLAY and `GamepadOnly=0`, and only ever MOVE the hand: `hand r grip pose`
 teleports it, which the detector discards as a tracking jump. Reading the log:
 `docs/dishonored/PHYSICAL_SWING.md` section 2.
 
+VR-172 the game's own camera shake: `tools\xrsim-run.ps1 -Path tools\xrsim\camshake.xrs` (five
+legs, each an A/B on one lever: by default a jump leaves 7.6 uu, the kept stair smoother's
+push-off lag; with the master off the landing dip is back at 42 uu; with `Landing` allowed
+alone it is back at 40 uu; a pistol shot reads 0.000 deg of pitch with `Fire` removed and 2.84
+with it allowed, which is also what proves the first shot happened). `camshake capture <s>
+<tag>` is the instrument: one CSV row per game tick in the data dir's `dumps\`, read the ROWS
+and not only the summary line. Never stage walking on the sewer save: it stands on a ledge.
+
 VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
 production camera writer and clamp functions. Nineteen checks cover exact-write
 ownership through a Z clamp, repeated descent, release, stereo offsets and fresh

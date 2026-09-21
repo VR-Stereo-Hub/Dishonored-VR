@@ -289,6 +289,26 @@ the ticket was filed blaming "something outside both files".
 > **A file that exists beats the ini you edited.** A setting with two persistent
 > homes has no owner.
 
+### The command seam is ONE slot, polled at 1 Hz (VR-172)
+
+Two `tools\game-cmd.ps1` calls inside the same second are not two commands: the second
+write replaces the first before the mod has read it. It cost four attribution rounds:
+each round sent `camshake release all` and then `camshake hold <one handle> 0`, the
+release was overwritten every time, every handle stayed at zero from the round before,
+and every round read shake-free whichever handle it thought it was testing. The log
+showed it at once - each `hold` line had no `release` line before it. Send everything
+for one moment in ONE call (`game-cmd.ps1 "a" "b" "c"` writes them as lines of one
+file), and wait out the poll before acting on it. The `.xrs` runner's `@mod a; b; c`
+is already safe.
+
+### A capture window that opens late measures the wrong half (VR-172)
+
+A jump was captured with the window opening after the takeoff, the push-off was absent
+from the rows, and the absence was read as "this handle removed it". The summary line
+could not have shown the difference; the tick-by-tick rows of four captures side by
+side did. When an A/B result is an ABSENCE, check the rows contain the event at all
+before crediting the lever.
+
 ### VR-37: two keys whose compiled default no longer means anything
 
 `[Melee] SwingSpeed=1.8` and `HoldMs=220` have been written into every installed

@@ -1,3 +1,13 @@
+## The game's own camera shake is off (2026-09-21)
+
+On a monitor a bobbing, kicking camera is feedback. In a headset it is your view moving
+without your head. It is now removed by default: the bob and roll on the move, the weapon
+kick, the dip when you land, and the jolts on hits and explosions. New section
+`[CameraShake]`: `Suppress=1`, and `Walk`, `Fire`, `Landing`, `Hits`, `Generic` at 0 (set
+one to 1 to let the game move the camera for that again), `Smoother=1` (the game's stair
+smoother, which is not a shake and is kept). Live: `camshake on|off`, `camshake allow <name>
+on|off`, or F10 > Controls > Camera shake.
+
 ## Motion sword (2026-09-20, judged in the headset on one rig)
 
 Swinging the right controller swings the sword again. The old detector never fired
