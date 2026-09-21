@@ -14,6 +14,13 @@ of the threshold without attacking is called a NEAR MISS on its own line, and F1
 shows the count. New key `EdgeTravelM` (off): a swing must cover that many metres
 before it can attack, for rejecting a sharp jolt without raising the speed; it delays
 a real swing, it never refuses one. Details: `docs/dishonored/PHYSICAL_SWING.md` 2b.
+## The sword's swing trail is hidden (2026-09-21)
+
+The swoosh the game draws on a sword attack follows its own attack animation, not the
+blade in your hand, so in the headset it hung in the air beside the sword. It is now
+hidden for the player's swings (enemies keep theirs). New section `[SwordTrail]`:
+`Hide=1`, `Trace=1`, `Template=Sword_Trail`. Live: `swordtrail on|off`, or the checkbox
+in F10 > Controls > Motion sword.
 
 ## Motion sword (2026-09-20, judged in the headset on one rig)
 

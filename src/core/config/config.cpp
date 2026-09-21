@@ -1008,6 +1008,17 @@ static void WriteDefaultIni(const char* ini)
         "Trace=1\n"
         "Distance=-1\n"
         "\n"
+        "; The sword's swing trail (VR-171). The game draws a swoosh along the path of\n"
+        "; its own attack animation; in the headset the blade is in YOUR hand, so the\n"
+        "; ribbon hangs where the blade is not. Hide=1 withholds it for the player's\n"
+        "; swings only (enemy trails are untouched). Live: `swordtrail on|off`, or\n"
+        "; F10 > Controls > Motion sword. Template is part of the name of the particle\n"
+        "; effect to hide; `swordtrail census` then one swing names what an attack adds.\n"
+        "[SwordTrail]\n"
+        "Hide=1\n"
+        "Trace=1\n"
+        "Template=Sword_Trail\n"
+        "\n"
         "[Lens]\n"
         "Distance=18\n"
         "KeepSize=0\n"
@@ -2451,6 +2462,7 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    SwordTrailConfigure(ini);   // VR-171
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
@@ -3672,6 +3684,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
+    SwordTrailSave(ini);   // VR-171
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }

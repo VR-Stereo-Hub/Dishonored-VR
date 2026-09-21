@@ -8120,3 +8120,75 @@ write following profile reload and leaving later gameplay edits alone (80 total)
 The fix depends on another mode0 application occurring before gameplay; if none
 occurs, trace profile-load completion instead. No live acceptance claimed.
 Full next-session decision tree and archives are at the top of STATUS.md.
+
+## VR-171: the sword's swing trail, what it is and what it is not (2026-09-21)
+
+**What the player sees.** A sword attack draws a swoosh ribbon. In the headset the
+blade is in the player's hand and the ribbon is generated from the game's animated
+mesh, so it sits off the blade. Nothing in the repo knew the effect's objects, and
+the script dump is not on the dev PC, so both answers below came from runtime
+instruments in `src/game/dishonored/trail_control.cpp`.
+
+**Eliminated: it is not a stock anim-trail notify.** The three events a UE3
+`AnimNotify_Trails` raises on the mesh's owner all exist in the name table
+(`TrailsNotify`=13774, `TrailsNotifyEnd`=13775, `TrailsNotifyTick`=13776 on this
+build), and the ProcessEvent observer, which sees every dispatch before the engine
+runs its body, saw **0 of them from anyone across 4 sword attacks** (the probe
+counted attacks from `dvr::anim::snapshot()` `state[1] == StatePlayerMeleeAttack`, so
+the zero had a population). A hide built on withholding the notify's particle
+template was written against that route and removed when the measurement came back;
+it never ran. Do not return to `TrailsNotify` for the player's sword.
+
+**What it is.** One `ParticleSystemComponent` on the player pawn, particle template
+**`Sword_Trail`**. Found by `swordtrail census`: the pawn's `Actor.AllComponents`
+(+0x44, by name) snapshotted idle and again 100, 300 and 600 ms into the next sword
+attack. Result: 27 components before, 0 new and 0 changed at +282 and +305 ms, **1
+new at +604 ms** (`class=ParticleSystemComponent hidden=0 active=1
+template='Sword_Trail'`), nothing else new or changed. The per-scan reader then put
+its first appearance at **282 to 290 ms** after the attack state is entered. The
+component is NOT transient: it stays in the pawn's list between swings and is reused
+(one sighting across 27 attacks), so hiding it once holds.
+
+| By name (`RflOffsetOf` / `FindBoolProp`) | Offset on this build |
+|---|---|
+| `Actor.AllComponents` | +0x44 |
+| `ParticleSystemComponent.Template` | +0x1c4 |
+| `ParticleSystemComponent.bIsActive` | +0x208 / 0x80 |
+| `PrimitiveComponent.HiddenGame` | +0x114 / 0x4 |
+| `SkeletalMeshComponent.SkeletalMesh` | +0x1d4 |
+
+These are resolved by name at runtime and are listed for the record only; nothing
+hardcodes them.
+
+**The hide.** The engine's own native `PrimitiveComponent.SetHidden` through the
+outbound ProcessEvent path on the script lane, the pattern the camera's rain box
+already uses (VR-136): the native reaches the render proxy, a raw `HiddenGame` write
+would not. Measured: `HiddenGame 0 -> 1`; three further attacks did not make the
+engine show it again; the lever off shows exactly that component (`hidden now 0`) and
+on hides it again. A particle component may be pooled, so every scan re-judges the
+components the mod hid: one that is live, still hidden and no longer a sword trail is
+shown again, one that is no longer a live object is dropped without a write.
+
+**A fault the first default-on run found, fixed.** With the lever on from launch the
+trail was hidden in the same scan it first appeared (258 ms into the first attack),
+and ONE SCAN LATER the mod logged `released component ... it is no longer a live
+object` and forgot it: the live-object table is refreshed on a 2 s bound (VR-160), so
+a component a few milliseconds old is attached, hidden by the mod and absent from the
+table. The ribbon stayed hidden but the lever could no longer show it again. Earlier
+runs missed it because there the hide arrived seconds after the spawn. What counts as
+live for a component still on the pawn is now that the engine handed it to us in the
+pawn's own `AllComponents` on this very scan (the rain box's rule: write only to what
+the live chain reached this sample); the table is consulted only for a component that
+has LEFT the pawn. `trail-hide.xrs` leg 0 is that path, and asserts `holding = 1`
+after a wait, which is the assertion that would have caught it.
+
+**What the simulator could not say.** About 30 per-eye captures with the hide OFF -
+delays swept from 90 to 900 ms into an attack, the simulated hand still and sweeping
+through the view - never differed from an idle capture by more than 0.2 % of pixels
+(the hilt moving). The ribbon could not be made to appear in a simulator capture at
+all, so a capture A/B there cannot fail and is not evidence. A reading consistent
+with that, NOT established: the mod drives the hand bones from the controller, so the
+trail's sockets follow the hand and draw little or nothing for the slow simulated
+hand, and a ribbon near but off the blade in the headset is the 11 to 12 degree gap
+between a socket-mounted weapon's component and its drawn transform (VR-33). The
+hide is a verified write; whether it is an honoured one is the headset's to say.

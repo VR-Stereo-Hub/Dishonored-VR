@@ -25,6 +25,13 @@ GAMEPLAY and `GamepadOnly=0`, and only ever MOVE the hand: `hand r grip pose`
 teleports it, which the detector discards as a tracking jump. Reading the log:
 `docs/dishonored/PHYSICAL_SWING.md` section 2.
 
+VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
+trail's particle component is found on the pawn by its template, the native hide takes
+`HiddenGame 0 -> 1`, three more attacks do not show it again, the lever shows and re-hides
+it). It asserts the MECHANICS only; its header records why a capture A/B is not in it (the
+ribbon never appeared in a simulator capture with the hide off). `swordtrail census` then
+one swing names whatever an attack adds to the pawn.
+
 VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
 production camera writer and clamp functions. Nineteen checks cover exact-write
 ownership through a Z clamp, repeated descent, release, stereo offsets and fresh

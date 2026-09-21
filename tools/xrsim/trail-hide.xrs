@@ -1,0 +1,84 @@
+# trail-hide.xrs - the sword's swing trail (VR-171): is it found on the player's
+# pawn, does the native hide take, does it survive more attacks, and does the
+# lever put it back?
+#
+# Needs: a loaded level in GAMEPLAY (look at an xrsim-shot first), [Mode]
+# GamepadOnly=0. Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\trail-hide.xrs -Dir <sim dir>
+#
+# WHAT THIS CANNOT SAY. It asserts the MECHANICS: the component is found by its
+# template, HiddenGame goes 0 -> 1 through the engine's own SetHidden, the engine
+# does not show it again on the next attacks, and the lever shows and re-hides it.
+# It does NOT assert that the ribbon is gone from the picture, because the ribbon
+# could not be made to appear in a simulator capture at all: about 30 per-eye
+# captures with the hide OFF, swept from 90 to 900 ms into an attack, with the hand
+# still and with the hand sweeping through the view, never differed from idle by
+# more than 0.2 % of pixels (the hilt moving). A capture A/B that cannot show the
+# ribbon with the lever off cannot fail, so it is not here. The picture is the
+# headset's to judge; F10 > Controls > Motion sword has the checkbox for the A/B.
+
+hand r to grip 0.12 1.45 -0.45 0 0 0 800
+@wait 1200
+trigger r pull 300
+@wait 2500
+
+# 0. The path a player actually takes: the lever ON from launch and the trail not yet
+#    created. It must be hidden as it appears AND still be held a moment later. The
+#    first default-on run hid it and then lost it one scan later (a component 258 ms
+#    old is not in the 2 s live-object table yet), after which the lever could not show
+#    it again. `holding` is what catches that, so it is asserted after a wait.
+@mod swordtrail on
+@wait 500
+trigger r pull 200
+@wait 2500
+@nolog trail: released component
+@modassert features.swordTrail.holding eq 1
+
+# 1. Lever off: an attack puts the trail on the pawn and nothing hides it.
+@mod swordtrail off
+@log trail: SHOWED component .* the lever went off
+@modassert features.swordTrail.holding eq 0
+@mark
+trigger r pull 200
+@wait 2000
+@nolog trail: HID
+@modassert features.swordTrail.hide eq false
+@modassert features.swordTrail.trailsSeen ge 1
+@modassert features.swordTrail.lastTemplate eq Sword_Trail
+@modassert features.swordTrail.holding eq 0
+
+# 2. Lever on: it is hidden where it sits, through the engine's own SetHidden.
+@mark
+@mod swordtrail on
+@log trail: HID the sword trail .* via native SetHidden: HiddenGame 0 -> 1
+@modassert features.swordTrail.holding eq 1
+
+# 3. Three more attacks: the engine must not show it again behind our back. If it
+#    did, the scan would hide it again and `hidden` would climb past 1 for this leg.
+@mark
+trigger r pull 200
+@wait 2000
+trigger r pull 200
+@wait 2000
+trigger r pull 200
+@wait 2000
+@nolog trail: HID
+@nolog trail: SHOWED
+@modassert features.swordTrail.holding eq 1
+@modassert features.swordTrail.lastRefusal eq none
+
+# 4. Lever off shows exactly the component we hid, and on hides it again.
+@mark
+@mod swordtrail off
+@log trail: SHOWED component .* again \(hidden now 0\): the lever went off
+@modassert features.swordTrail.holding eq 0
+@mod swordtrail on
+@log trail: HID the sword trail
+@modassert features.swordTrail.holding eq 1
+
+# 5. The census instrument still names what an attack adds (nothing new now: the
+#    trail component is already attached, which is itself the finding).
+@mark
+@mod swordtrail census
+@wait 500
+trigger r pull 200
+@log trail/census: done 8s
