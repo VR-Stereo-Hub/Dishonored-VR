@@ -646,6 +646,10 @@ static bool GadgetAimEnabled();
 static void GadgetAimSet(bool on, const char* who);
 static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
+static bool PowerAimEnabled();                                  // VR-44 (power_aim.cpp)
+static void PowerAimSet(bool on, const char* who);
+static void PowerAimConfigure(const char* ini);
+static bool PowerAimCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);

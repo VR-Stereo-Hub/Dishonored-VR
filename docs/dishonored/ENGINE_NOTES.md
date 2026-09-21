@@ -8376,3 +8376,43 @@ moved. The accessor lead came from Windblast's routine itself, which fetches its
 through `0x00BF9610 call 0x00B515C0`. Seven of the accessor's call sites sit in
 power-component code: `0x00BF657D`, `0x00BF8F08`, `0x00BF9610`, `0x00BF9B94`,
 `0x00BFABF2`, `0x00BFB104` and `0x00BFD3D9`.
+
+**Measured (build 618, headset, 2026-09-21).** Windblast was cast 2-3 times; Possession was
+held and released several times (on people), then used; Devouring Swarm was cast about
+6 times on a second save. The prediction was half right:
+* **Windblast:** its routine `0x00BF9570` runs ONCE PER CAST. It is called from
+  `0x00A96B48` (the cast animation), and it fetches the camera at `0x00BF9610`.
+* **Possession:** it does NOT go through the aim-assist. Its own code fetches the camera
+  about 50-90 times a second while held, at `0x00BFB104`, `0x00BF657D` and `0x00BF8F08`,
+  in lockstep.
+* **Devouring Swarm:** no Swarm-class code ever fetched the camera. It spawns
+  `Twk_DevouringSwarm_Lvl1` from `0x00BFE2AB`, at the Location of the actor in its
+  component's `+0x94` (`m_pSpawnPoint`, a `DisGameCrowdDynamicSpawnPoint`).
+* **The aim-assist search `0x00C12B00`** ticked +1 per cast for EVERY power (return
+  `0x00C4B8AE`). It is a cast-time lookup, not any power's continuous aim.
+* Dark Vision (`0x00BF9B99`) and Blink (`0x00BFABF7`) also fetch the camera. In the
+  second save, `0x00C014C9` and `0x00C0447A` (item-context code, no power class in the
+  registers) fetched it roughly 110 and 30 times a second throughout.
+
+`0x00B515C0` returns the camera ACTOR. Its actor Location/Rotation are at `+0xC4`/`+0xD0`,
+and its cached POV at `+0x330`/`+0x33C`. Callers use one pair or the other.
+
+## The power aim seams (VR-44, 2026-09-21)
+
+The seams are in `power_aim.cpp`, controlled by `[Aim] PowersFromHand` (default 1) and the
+F10 row "Windblast, Possession, Swarm". No engine field is written.
+* **Windblast** `0x00BF9615` (`8B 88 3C 03 00 00`, just after the camera fetch). `eax`
+  becomes a camera-shaped block whose POV location and rotator come from the hand ray.
+  Those feed `m_vOrigin` (`+0xA4`) and, through `0x0040DA70`, `m_vDirection` (`+0xB0`).
+* **Possession** `0x00BF8F4C` (`A1 E0 B0 26 01`, an absolute load). This point is just after
+  `0x0040DA70` builds the camera direction into `ebp-0xA4` from the actor Rotation, with the
+  camera location in `ebp-0x40`. The pick scores every candidate by distance and angle
+  against both. Both locals are overwritten with the hand ray. The camera pointer
+  `ebp-0x90` is read afterwards only for its FOV (`+0x53C`).
+* **Swarm (predicted)**: UsePower's aim-assist search `0x00C12B00`. Its two camera reads,
+  `0x00C12B56` (the location) and `0x00C12BC0` (the rotator), both `[esi+384h]`, each get
+  the camera-shaped block. This applies only when the search's return address
+  (`[ebx+4]`, aligned frame) is `0x00C4B8AE`. The two hooks install together or not at
+  all. Whether Swarm's spawn point follows this search is measured by `swarm/place:`
+  (`aim_source.cpp`, `[Aim] SourceProbe`), which reports each swarm spawn's offset from the
+  head ray and from the hand ray.

@@ -283,7 +283,8 @@ static void SpawnCensusTick()
         // from the HEAD ray and from the HAND ray. Whichever it sits on is the ray the
         // placement follows. Perpendicular distances, in world units.
         const char* nmS = nm ? RealName(nm) : nullptr;
-        if (c.locOk && nmS && strstr(nmS, "SpringRazor")) {
+        const bool isSwarm = nmS && strstr(nmS, "DevouringSwarm");   // VR-44: the same verdict
+        if (c.locOk && nmS && (strstr(nmS, "SpringRazor") || isSwarm)) {
             float cam[3], ho[3], hd[3]; const char* why = nullptr;
             const bool camOk = dvr::camera::render_pos_world(cam);
             const bool handOk = HandRayWorld(ho, hd, &why);
@@ -299,8 +300,9 @@ static void SpawnCensusTick()
             float aH = 0, aC = 0;
             const float dHead = camOk ? perp(cam, vd, c.loc, &aH) : -1;
             const float dHand = handOk ? perp(ho, hd, c.loc, &aC) : -1;
-            Log("razor/place: landed at (%.0f,%.0f,%.0f) - %.0f uu off the HEAD ray (%.0f along), "
+            Log("%s: landed at (%.0f,%.0f,%.0f) - %.0f uu off the HEAD ray (%.0f along), "
                 "%.0f uu off the HAND ray (%.0f along)%s. The smaller offset is the ray placement follows",
+                isSwarm ? "swarm/place" : "razor/place",
                 c.loc[0], c.loc[1], c.loc[2], dHead, aH, dHand, aC, handOk ? "" : " [hand ray unavailable]");
         }
         int k = 0;

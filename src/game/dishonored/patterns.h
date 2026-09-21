@@ -213,6 +213,24 @@ static const uintptr_t kWindblastAim = 0x00BF9570;   // push ebp; mov ebp,esp; s
 static const uint8_t   kWindblastAimBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18 };
 static const uintptr_t kPowerAssist = 0x00C12B00;    // push ebx; mov ebx,esp; sub esp,8
 static const uint8_t   kPowerAssistBytes[6] = { 0x53, 0x8B, 0xDC, 0x83, 0xEC, 0x08 };
+// VR-44: the power aim seams (power_aim.cpp; ENGINE_NOTES "The power aim seams").
+// Windblast: right after its routine fetches the camera actor (0x00BF9610 call 0x00B515C0),
+// the POV rotator +0x33C and location +0x330 are read off it; eax becomes our POV.
+static const uintptr_t kWindPovSeam = 0x00BF9615;   // mov ecx,[eax+33Ch]
+static const uint8_t   kWindPovSeamBytes[6] = { 0x8B, 0x88, 0x3C, 0x03, 0x00, 0x00 };
+// Possession's per-tick target pick: the camera location is in ebp-0x40 and its direction
+// in ebp-0xA4 once 0x0040DA70 returns (0x00BF8F47); the pick scores every candidate against
+// both. Seam just after, on an absolute-address load.
+static const uintptr_t kPossPickSeam = 0x00BF8F4C;  // mov eax,[0126B0E0h]
+static const uint8_t   kPossPickSeamBytes[5] = { 0xA1, 0xE0, 0xB0, 0x26, 0x01 };
+// UsePower's aim-assist search 0x00C12B00 reads the camera twice: the location at
+// 0x00C12B56 and the rotator at 0x00C12BC0 (both [esi+384h] = the controller's camera).
+// Only the call from UsePower's slot +0x184 (return 0x00C4B8AE) is redirected.
+static const uintptr_t kAssistLocSeam = 0x00C12B56; // mov eax,[esi+384h]
+static const uint8_t   kAssistLocSeamBytes[6] = { 0x8B, 0x86, 0x84, 0x03, 0x00, 0x00 };
+static const uintptr_t kAssistRotSeam = 0x00C12BC0; // mov ecx,[esi+384h]
+static const uint8_t   kAssistRotSeamBytes[6] = { 0x8B, 0x8E, 0x84, 0x03, 0x00, 0x00 };
+static const uint32_t  kAssistFromUsePower = 0x00C4B8AE;
 static const uintptr_t kExecTrace = 0x006D0ED0;      // push ebp; mov ebp,esp; sub esp,0E4h
 static const uint8_t   kExecTraceBytes[9] = { 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xE4, 0x00, 0x00, 0x00 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;

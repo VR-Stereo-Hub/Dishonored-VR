@@ -39,7 +39,8 @@ SourceProbe=1` (the read-only probes/censuses below need it), `[Hud] Element.ret
    `claude/vr-44-head-aim-pt2-powers` off this one. Static map in ENGINE_NOTES "Where the
    powers read their aim": Windblast reads the camera POV at `0x00BF9570`; Possession and
    Swarm are predicted to take their aim from the UsePower aim-assist search `0x00C12B00`.
-   Next: a read-only counter per site per power class, then the seams.
+   Census measured (build 618); seams built in `power_aim.cpp` (`[Aim] PowersFromHand`):
+   Windblast `0x00BF9615`, Possession `0x00BF8F4C`, Swarm via the aim-assist (predicted).
 
 Probes left, all read-only and armed only by `[Aim] SourceProbe` (code default 0; the
 installed ini has it at 1): the SpawnActor and trace censuses and the helper probe in

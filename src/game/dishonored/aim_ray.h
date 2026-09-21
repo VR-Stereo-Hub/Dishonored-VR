@@ -169,6 +169,7 @@ void request_blink_ray(bool enabled);
 // VR-166: interaction is a third engine consumer of the same ray, with its own arming.
 void request_interact_ray(bool enabled);
 void request_throw_ray(bool enabled);      // VR-166: grenades and other throws
+void request_power_ray(bool enabled);      // VR-44: Windblast, Possession, Devouring Swarm
 void tick(bool gameplay, bool projectionWanted);
 void command(const char* args);
 void draw_ui();
