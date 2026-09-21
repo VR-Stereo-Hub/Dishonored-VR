@@ -126,56 +126,77 @@ static bool ThrowAimCommand(const char* args)
     return true;
 }
 
-// ---- the gadget projectile (spring razor) -------------------------------------
-// 0x00C30040 is shared by seven vtable slots: it spawns a gadget projectile at the hand
-// (SpawnActor at 0x00C300AB), then builds the throw direction from the SOURCE PAWN's
-// rotation (+0xD0) at 0x00C300E6 - the head, in VR. The 9 bytes at 0x00C300DD
-// (mov ecx,[ebp-4]; add ecx,0D0h) become "ECX = the rotator to use": the pawn's, or a
-// hand-ray rotator for the player's own throw. [Aim] GadgetFromHand (default 1).
+// ---- the spring razor's placement (VR-166) ------------------------------------------
+// A razor is PLACED, not thrown. Its wall-placement trace 0x00C32C30 (the placement
+// routine 0x00C3B570 calls it at 0x00C3B5BF, and spawns from the context's +0xB8/+0xC4
+// it fills) takes the trace start and rotator from the camera POV via esi:
+// [[owner+0x26C]+0x384]+0x330 is a location and +0x33C a rotator. esi holds that
+// pointer only until 0x00C32CC8 (then xor esi,esi at 0x00C330E5), so replacing
+// `add esi,330h` at 0x00C32C91 with "esi = the POV to use" moves the start, the
+// direction and the wall/floor/ceiling pitch test (+-0x1FFF) to the hand in one step.
+// Everything after (reach, surface fit, the preview) stays the game's. Found statically
+// by following the lea of +0xB4 into this callee: the writes to +0xB8 are [reg+4] off
+// that pointer, which is why a displacement search for 0xB8 never found them.
+// The source must be within kRzNear of the rendered view or it is not the POV and we
+// refuse (fail soft, reason logged). [Aim] GadgetFromHand (default 1) and F10 choose.
 static dvr::hooks::Detour g_gdDet;
-static uintptr_t g_gdBack = kGadgetRotBack;
-static uint32_t g_gdUse = 0;                          // ECX the conversion receives
-static int32_t g_gdRot[3];
+static uintptr_t g_gdBack = kRazorTraceBack;
+static uint32_t g_gdUse = 0;                          // esi the trace continues with
+static uint8_t g_gdPov[0x40];                         // location +0, rotator +0xC
 static volatile LONG g_gdSeen = 0, g_gdDriven = 0;
 static const char* volatile g_gdWhy = "not asked yet";
+static const float kRzNear = 150.0f;                  // uu between the POV and the render eye
 
 static bool GadgetAimEnabled() { return g_gdOn.load(); }
 
-extern "C" void __cdecl GadgetAimHandler(uint8_t* frame, uint8_t* self)
+extern "C" void __cdecl GadgetAimHandler(uint8_t* base, uint8_t* frame)
 {
     InterlockedIncrement(&g_gdSeen);
-    uint8_t* pawn = (frame && RangeReadable(frame - 4, 4)) ? *(uint8_t**)(frame - 4) : nullptr;
-    g_gdUse = (uint32_t)(uintptr_t)(pawn + 0xD0);        // the engine's own choice
+    uint8_t* pov = base + 0x330;
+    g_gdUse = (uint32_t)(uintptr_t)pov;               // the engine's own choice
     const char* why = nullptr;
+    float cam[3] = {0, 0, 0}, sep = -1.0f;
     if (!g_gdOn.load()) why = "head aim selected";
     else if (g_gamepadOnly) why = "[Mode] GamepadOnly=1 keeps the head";
     else if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow) why = "not in gameplay";
-    else if (!pawn || pawn != g_pePawn) why = "not the player's throw";
-    else if (!RangeReadable(pawn + 0xD0, 12)) why = "pawn rotation unreadable";
+    else if (!base || !RangeReadable(pov, sizeof(g_gdPov))) why = "POV unreadable";
+    else if (!dvr::camera::render_pos_world(cam)) why = "render eye position unknown";
+    else {
+        const float* p = (const float*)pov;
+        const float v[3] = { p[0] - cam[0], p[1] - cam[1], p[2] - cam[2] };
+        sep = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (!(sep < kRzNear)) why = "the source is not the view location";
+    }
     float o[3], d[3];
     if (!why && !HandRayWorld(o, d, &why)) {}
+    const uint8_t* ctxCfg = (frame && RangeReadable(frame - 0x3c, 4)) ? *(uint8_t**)(frame - 0x3c) : nullptr;
+    const char* cn = (ctxCfg && LooksLikeObj((uint8_t*)ctxCfg)) ? ObjClassName((uint8_t*)ctxCfg) : "?";
     if (why) {
         g_gdWhy = why;
         DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 20,
-            "gadget/aim: the shared gadget routine ran and was REFUSED: %s (object %s, pawn %p, player %p)",
-            why, (self && LooksLikeObj(self)) ? ObjClassName(self) : "?", (void*)pawn, (void*)g_pePawn);
+            "gadget/aim: razor placement trace REFUSED: %s (POV %.0f uu from the render eye, "
+            "limit %.0f; config %s) - the head places it", why, sep, kRzNear, cn);
         return;
     }
+    memcpy(g_gdPov, pov, sizeof(g_gdPov));
+    const int32_t* was = (const int32_t*)(pov + 0xC);
     const float kU = 32768.0f / 3.14159265f;
-    const int32_t* was = (const int32_t*)(pawn + 0xD0);
     const float h = sqrtf(d[0] * d[0] + d[1] * d[1]);
-    g_gdRot[0] = (int32_t)(atan2f(d[2], h) * kU);
-    g_gdRot[1] = (int32_t)(atan2f(d[1], d[0]) * kU);
-    g_gdRot[2] = was[2];
-    g_gdUse = (uint32_t)(uintptr_t)g_gdRot;
+    float* L = (float*)g_gdPov; int32_t* R = (int32_t*)(g_gdPov + 0xC);
+    L[0] = o[0]; L[1] = o[1]; L[2] = o[2];
+    R[0] = (int32_t)(atan2f(d[2], h) * kU);
+    R[1] = (int32_t)(atan2f(d[1], d[0]) * kU);
+    R[2] = was[2];                                    // roll stays the engine's
+    g_gdUse = (uint32_t)(uintptr_t)g_gdPov;
     InterlockedIncrement(&g_gdDriven);
     g_gdWhy = "driving";
-    const char* cn = (self && LooksLikeObj(self)) ? ObjClassName(self) : "?";
-    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 40,
-        "gadget/aim: %s thrown along the HAND - pitch %.1f -> %.1f deg, yaw %.1f -> %.1f deg "
-        "(the pawn's rotation -> ours; spawn point, speed and arc stay the game's)",
-        cn, was[0] / kU * 57.29578f, g_gdRot[0] / kU * 57.29578f,
-        was[1] / kU * 57.29578f, g_gdRot[1] / kU * 57.29578f);
+    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 12,
+        "gadget/aim: razor placement traced from the HAND - start moved %.0f uu, pitch %.1f -> %.1f "
+        "deg, yaw %.1f -> %.1f deg (POV was %.0f uu from the render eye; config %s)",
+        sqrtf((o[0] - ((float*)pov)[0]) * (o[0] - ((float*)pov)[0]) + (o[1] - ((float*)pov)[1]) * (o[1] - ((float*)pov)[1]) +
+              (o[2] - ((float*)pov)[2]) * (o[2] - ((float*)pov)[2])),
+        (int16_t)was[0] / kU * 57.29578f, R[0] / kU * 57.29578f,
+        (int16_t)was[1] / kU * 57.29578f, R[1] / kU * 57.29578f, sep, cn);
 }
 
 __declspec(naked) static void GadgetAimThunk()
@@ -190,8 +211,8 @@ __declspec(naked) static void GadgetAimThunk()
         fninit
         cld
         push edx
-        push esi                    ; the routine's object
-        push ebp                    ; its frame: [ebp-4] is the source pawn
+        push ebp                    ; the trace's frame: [ebp-3Ch] its config object
+        push esi                    ; the POV's owner (before add esi,330h)
         call GadgetAimHandler
         add esp, 8
         pop edx
@@ -199,7 +220,7 @@ __declspec(naked) static void GadgetAimThunk()
         mov esp, edx
         popad
         popfd
-        mov ecx, dword ptr [g_gdUse] ; replaces: mov ecx,[ebp-4]; add ecx,0D0h
+        mov esi, dword ptr [g_gdUse] ; replaces: add esi,330h
         jmp dword ptr [g_gdBack]
     }
 }
@@ -208,11 +229,11 @@ static void GadgetAimSet(bool on, const char* who)
 {
     g_gdOn.store(on);
     if (on && !g_gdDet.on)
-        dvr::hooks::detour_install(g_gdDet, "gadget/aim", kGadgetRotSeam, kGadgetRotSeamBytes,
-                                   sizeof(kGadgetRotSeamBytes), (void*)&GadgetAimThunk);
+        dvr::hooks::detour_install(g_gdDet, "gadget/aim", kRazorTraceSeam, kRazorTraceSeamBytes,
+                                   sizeof(kRazorTraceSeamBytes), (void*)&GadgetAimThunk);
     dvr::aim::request_throw_ray((on || g_thOn.load()) && !g_gamepadOnly);
-    Log("gadget/aim: owner %s (%s) - hook %s. Spring razors (the shared gadget routine) leave "
-        "along the published hand ray; spawn point, speed and arc stay the game's",
+    Log("gadget/aim: owner %s (%s) - hook %s. Spring razors are placed along the published hand "
+        "ray (the placement trace 0x00C32C30); reach and surface fit stay the game's",
         on ? "HAND" : "HEAD", who, g_gdDet.on ? "ready" : "NOT installed");
 }
 
@@ -229,7 +250,7 @@ static bool GadgetAimCommand(const char* args)
         ConfigWriteKey("Aim", "GadgetFromHand", b ? "1" : "0", "the seam");
         return true;
     }
-    Log("gadget/aim: on|off (now %s) %ld/%ld driven/seen (last: %s). Seen moves only when a "
-        "gadget is thrown", g_gdOn.load() ? "HAND" : "HEAD", (long)g_gdDriven, (long)g_gdSeen, g_gdWhy);
+    Log("gadget/aim: on|off (now %s) %ld/%ld driven/seen (last: %s). Seen moves while a "
+        "spring razor is out", g_gdOn.load() ? "HAND" : "HEAD", (long)g_gdDriven, (long)g_gdSeen, g_gdWhy);
     return true;
 }

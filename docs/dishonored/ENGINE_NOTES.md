@@ -8291,3 +8291,38 @@ Build 611 result: the write-watch armed on an object named exactly
 the head ray. Build 612 captures `this` at the placement routine's entry (`0x00C3B570`,
 6 bytes `53 8B DC 83 EC 08`, read-only). It then arms the watch on THAT object's `+0xB8`
 for 60 s, so the second and third placements name the writer.
+
+## The razor placement seam (VR-166, 2026-09-21)
+
+**Found statically; the write-watch was retired without its result.** Build 612 armed
+the watch and logged seven placements, but it reported only at the window's end, and
+the game closed first. Build 613 was never run. The watch had a second weakness: it ran
+on the game thread and armed that thread through `SetThreadContext(GetCurrentThread())`,
+which Windows does not honour reliably. It could have been blind to the very writer it
+was looking for.
+
+The route was the placement routine's first call. At `0x00C3B5BF` it calls
+`0x00C32C30(this, &this->+0xB4, 1)`. When that call returns nonzero, the routine takes
+the simple branch at `0x00C3B81A` and spawns from `+0xB8/+0xC4`. The callee receives a
+POINTER to `+0xB4`, so its writes to `+0xB8` are `[reg+4]` off that pointer. That is why
+`disasm-rva.py disp 0xB8` never found them. Nothing else to fix in the search: a
+displacement search cannot see out-parameters.
+
+`0x00C32C30` is the razor's wall-placement trace. Its callers are `0x00C33632`,
+`0x00C3381B` and `0x00C3B5BF`.
+
+* The owner comes from `0x00BFF440`, then `esi = [[owner+0x26C]+0x384] + 0x330`. That is
+  a location at `+0`, with a rotator at `+0xC` (`0x0040DA70` turns it into the direction).
+  The rotator's pitch picks the plane: above `0x1FFF` is the ceiling, below `-0x1FFF` the
+  floor, anything else the wall.
+* `esi` holds that pointer only until `0x00C32CC8`. It is zeroed at `0x00C330E5`.
+* The trace is `0x00BE15C0` at `0x00C33229`, from `ebp-0x34` (the start) to `ebp-0x48`
+  (the end), with extent `0x00C33307` after it.
+
+Seam (`throw_aim.cpp`, `[Aim] GadgetFromHand`): `add esi,330h` at `0x00C32C91`
+(`81 C6 30 03 00 00`, no relative operand) becomes `mov esi,[g_gdUse]`. That is either
+the engine's POV, or a copy with the location set to the hand-ray origin and the pitch
+and yaw set from the hand-ray direction. This one change moves the start point, the
+direction and the plane choice together. It refuses when the POV is more than 150 uu from
+the render eye, because then the source is not the view. The old gadget seam at
+`0x00C300DD` is gone: it never ran for the razor.

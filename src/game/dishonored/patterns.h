@@ -183,12 +183,15 @@ static const uintptr_t kInteractSelectorRet    = 0x00AB7CBB;   // its only calle
 static const uintptr_t kThrowRotSeam = 0x00C3908C;   // mov ecx,[ebp-78h]; lea edx,[ebp-74h]; push edx
 static const uint8_t   kThrowRotSeamBytes[7] = { 0x8B, 0x4D, 0x88, 0x8D, 0x55, 0x8C, 0x52 };
 static const uintptr_t kThrowRotBack = 0x00C39093;   // the rotator -> direction call
-// VR-166: the shared gadget-projectile routine 0x00C30040 (7 vtable slots; the spring razor
-// throw). After SpawnActor at 0x00C300AB it converts the SOURCE PAWN's rotation (+0xD0,
-// the head in VR) to the throw direction at 0x00C300E6. ENGINE_NOTES "The gadget seam".
-static const uintptr_t kGadgetRotSeam = 0x00C300DD;  // mov ecx,[ebp-4]; add ecx,0D0h
-static const uint8_t   kGadgetRotSeamBytes[9] = { 0x8B, 0x4D, 0xFC, 0x81, 0xC1, 0xD0, 0x00, 0x00, 0x00 };
-static const uintptr_t kGadgetRotBack = 0x00C300E6;  // the rotator -> direction call
+// VR-166: the spring razor's wall-placement trace 0x00C32C30 (this = the razor context;
+// callers 0x00C33632, 0x00C3381B and the placement routine at 0x00C3B5BF). It takes the
+// trace START and ROTATOR from [[owner+0x26C]+0x384]+0x330 / +0x33C - the camera POV, the
+// head in VR - via esi, which holds that pointer only until 0x00C32CC8. Its result
+// (hit actor, location, normal) lands in the context's +0xB4/+0xB8/+0xC4. ENGINE_NOTES
+// "The razor placement seam". The 6 bytes are `add esi,330h`: no relative operand.
+static const uintptr_t kRazorTraceSeam = 0x00C32C91;
+static const uint8_t   kRazorTraceSeamBytes[6] = { 0x81, 0xC6, 0x30, 0x03, 0x00, 0x00 };
+static const uintptr_t kRazorTraceBack = 0x00C32C97;
 // VR-166: SpawnActor's entry, for a READ-ONLY caller census (aim_source.cpp) that names
 // the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
 static const uintptr_t kSpawnActor = 0x00C66070;
@@ -200,9 +203,6 @@ static const uint8_t   kTraceHelperABytes[6] = { 0x55, 0x8B, 0xEC, 0x8B, 0x45, 0
 static const uintptr_t kTraceHelperB = 0x00AA60D0;   // push ebp; mov ebp,esp; sub esp,60h
 static const uintptr_t kTraceHelperC = 0x00AA5FF0;   // push ebp; mov ebp,esp; sub esp,60h
 static const uint8_t   kTraceHelperBCBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x60 };
-// VR-166: the spring razor placement routine (this = the razor context it places from).
-static const uintptr_t kRazorPlace = 0x00C3B570;     // push ebx; mov ebx,esp; sub esp,8
-static const uint8_t   kRazorPlaceBytes[6] = { 0x53, 0x8B, 0xDC, 0x83, 0xEC, 0x08 };
 static const uintptr_t kExecTrace = 0x006D0ED0;      // push ebp; mov ebp,esp; sub esp,0E4h
 static const uint8_t   kExecTraceBytes[9] = { 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xE4, 0x00, 0x00, 0x00 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;

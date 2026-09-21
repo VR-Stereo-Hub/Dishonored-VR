@@ -125,12 +125,10 @@ static bool AimSourceCommand(const char* args)
 // Script lane. Drains the ring and names what it saw.
 static void SpawnCensusTick();
 static void TraceCensusTick();
-static void RazorWatchTick();
 static void AimSourceTick()
 {
     SpawnCensusTick();   // VR-166: the spawn-site census rides the same arming
     if (g_asrcOn) TraceCensusTick();   // VR-166: and so does the trace census
-    if (g_asrcOn) RazorWatchTick();    // VR-166: and the razor placement write-watch
     if (!g_asrcDet.on) return;
     // VR-166: the power aim fields the scripts declare. Property offsets live in the
     // packages, not the image, so they are resolved here once in gameplay; the log line
@@ -481,141 +479,4 @@ static void TraceCensusTick()
             "while the spring razor is out are its placement trace",
             kNames[c.id & 3], c.ret, obj ? ObjClassName(c.obj) : "not a UObject");
     }
-}
-
-// ---- VR-166: who writes the razor's placement point (hardware write-watch, READ-ONLY) --
-// The razor spawns at its context's +0xB8 (location; +0xC4 the normal), read at
-// 0x00C3B81A inside the placement routine 0x00C3B570, and it lands on the HEAD ray
-// (measured: 6-10 uu off it, 28-91 uu off the hand's). Static reading did not find the
-// writer, so DR0 watches +0xB8 for writes on every thread and a vectored handler records
-// each writing EIP with the first three return addresses on its stack. Armed once, on
-// the first live DisItemContext_UseSpringRazor; reported after 20 s or 16 writers.
-// The legacy src/legacy/aim_watch.cpp is the same technique.
-#include <tlhelp32.h>
-namespace {
-struct RwRec { uint32_t eip, n, ret[3]; };
-RwRec g_rwRecs[16];
-volatile LONG g_rwN = 0, g_rwTotal = 0;
-uintptr_t g_rwAddr = 0;
-PVOID g_rwVeh = nullptr;
-double g_rwArmedMs = 0;
-bool g_rwDone = false;
-}
-static LONG CALLBACK RazorWatchVeh(PEXCEPTION_POINTERS ep)
-{
-    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP) return EXCEPTION_CONTINUE_SEARCH;
-    CONTEXT* c = ep->ContextRecord;
-    if (!(c->Dr6 & 0x1) || !g_rwAddr) return EXCEPTION_CONTINUE_SEARCH;
-    c->Dr6 = 0;
-    InterlockedIncrement(&g_rwTotal);
-    const uint32_t eip = (uint32_t)c->Eip;
-    LONG n = g_rwN; if (n > 16) n = 16;
-    for (LONG i = 0; i < n; ++i) if (g_rwRecs[i].eip == eip) { ++g_rwRecs[i].n; return EXCEPTION_CONTINUE_EXECUTION; }
-    const LONG idx = InterlockedIncrement(&g_rwN) - 1;
-    if (idx < 16) {
-        RwRec& r = g_rwRecs[idx]; r.eip = eip; r.n = 1; r.ret[0] = r.ret[1] = r.ret[2] = 0;
-        const uint32_t* sp = (const uint32_t*)c->Esp; int got = 0;
-        for (int k = 0; k < 48 && got < 3; ++k) {
-            if (!RangeReadable((void*)(sp + k), 4)) break;
-            const uint32_t v = sp[k];
-            if (v >= 0x401000 && v < 0xF40000) r.ret[got++] = v;
-        }
-    }
-    return EXCEPTION_CONTINUE_EXECUTION;
-}
-// The placement routine's entry: remember the context it runs on. Read-only.
-static uint8_t* volatile g_rwCtx = nullptr;
-static dvr::hooks::Detour g_rpDet;
-static uint32_t g_rpRet = (uint32_t)(kRazorPlace + sizeof(kRazorPlaceBytes));
-extern "C" void __cdecl RazorPlaceHook(uint8_t* self) { if (!g_rwCtx) g_rwCtx = self; }
-extern "C" __declspec(naked) void RazorPlaceStub(void)
-{
-    __asm {
-        pushfd
-        pushad
-        mov edx, esp
-        sub esp, 528
-        and esp, -16
-        fxsave [esp]
-        fninit
-        cld
-        push edx
-        mov ecx, [edx+18h]          ; ECX at entry: the razor context
-        push ecx
-        call RazorPlaceHook
-        add esp, 4
-        pop edx
-        fxrstor [esp]
-        mov esp, edx
-        popad
-        popfd
-        push ebx                    ; displaced: 53 8b dc 83 ec 08
-        mov ebx, esp
-        sub esp, 8
-        jmp dword ptr [g_rpRet]
-    }
-}
-static void RazorWatchApply(bool enable)
-{
-    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-    if (snap == INVALID_HANDLE_VALUE) return;
-    THREADENTRY32 te; te.dwSize = sizeof(te);
-    const DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
-    if (Thread32First(snap, &te)) do {
-        if (te.th32OwnerProcessID != pid) continue;
-        const bool other = te.th32ThreadID != self;
-        HANDLE th = other ? OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID)
-                          : GetCurrentThread();
-        if (!th) continue;
-        if (other) SuspendThread(th);
-        CONTEXT c; memset(&c, 0, sizeof(c)); c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
-        if (GetThreadContext(th, &c)) {
-            if (enable) { c.Dr0 = (DWORD)g_rwAddr; c.Dr7 = (c.Dr7 & ~(0x3u | (0xFu << 16))) | 0x1u | (0x1u << 16) | (0x3u << 18); }
-            else        { c.Dr0 = 0; c.Dr7 &= ~(0x3u | (0xFu << 16)); }
-            c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
-            SetThreadContext(th, &c);
-        }
-        if (other) { ResumeThread(th); CloseHandle(th); }
-    } while (Thread32Next(snap, &te));
-    CloseHandle(snap);
-}
-static void RazorWatchTick()
-{
-    if (!g_rpDet.on) {
-        static bool tried = false;
-        if (!tried) { tried = true;
-            dvr::hooks::detour_install(g_rpDet, "razor/place", kRazorPlace, kRazorPlaceBytes,
-                                       sizeof(kRazorPlaceBytes), (void*)&RazorPlaceStub); }
-    }
-    if (g_rwDone) return;
-    const double now = MaimNowMs();
-    if (g_rwAddr) {
-        // Print each writer as it is caught: build 612 held the report for the window's end
-        // and the game closed first, so nine placements produced nothing.
-        static LONG printed = 0;
-        LONG have = g_rwN; if (have > 16) have = 16;
-        for (; printed < have; ++printed)
-            Log("razor/watch: WRITER eip=0x%08X ret=0x%08X 0x%08X 0x%08X (first write %ld of the window)",
-                g_rwRecs[printed].eip, g_rwRecs[printed].ret[0], g_rwRecs[printed].ret[1],
-                g_rwRecs[printed].ret[2], (long)g_rwTotal);
-        if (now - g_rwArmedMs < 120000.0 && g_rwN < 16) return;
-        RazorWatchApply(false);
-        LONG n = g_rwN; if (n > 16) n = 16;
-        Log("razor/watch: %ld write(s) to the placement point, %ld writer(s) - READ-ONLY; the writer that "
-            "fires while aiming the razor is the placement code:", (long)g_rwTotal, (long)n);
-        for (LONG i = 0; i < n; ++i)
-            Log("razor/watch:   eip=0x%08X hits=%u ret=0x%08X 0x%08X 0x%08X", g_rwRecs[i].eip, g_rwRecs[i].n,
-                g_rwRecs[i].ret[0], g_rwRecs[i].ret[1], g_rwRecs[i].ret[2]);
-        g_rwAddr = 0; g_rwDone = true;
-        return;
-    }
-    // The object the placement routine actually runs on, captured at its entry (build 611
-    // armed on the class-named template instead and saw 0 writes).
-    uint8_t* ctx = g_rwCtx;
-    if (!ctx || !RangeReadable(ctx + 0xB8, 12)) return;
-    if (!g_rwVeh) g_rwVeh = AddVectoredExceptionHandler(1, RazorWatchVeh);
-    g_rwAddr = (uintptr_t)(ctx + 0xB8); g_rwArmedMs = now; g_rwN = 0; g_rwTotal = 0;
-    RazorWatchApply(true);
-    Log("razor/watch: ARMED on the placing context %s %p +0xB8 for 120 s - place the razor again",
-        LooksLikeObj(ctx) ? ObjClassName(ctx) : "?", (void*)ctx);
 }
