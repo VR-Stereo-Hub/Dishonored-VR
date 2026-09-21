@@ -6,6 +6,7 @@
 #include "core/framework/status.h"
 #include "core/gfx/blit_quad.h"
 #include "core/gfx/hud_layout.h"
+#include "core/gfx/stereo.h"
 #include "core/util/log.h"
 #include "core/vr/hud_stub.h"
 #include "core/vr/openxr_runtime.h"
@@ -22,6 +23,9 @@ namespace {
 // ---- the lever ------------------------------------------------------------
 bool  g_wanted = false;
 bool  g_on = false;
+bool  g_oncePerPair = true;    // VR-160: on since the headset verdict; [Hud] OncePerPair=0 / `hud pair off`
+bool  g_heldLast = false;      // the previous present was held: this one never is
+uint32_t g_winHeld = 0;        // presents held this window (the beat prints it)
 float g_slotScale = 0.5f;
 bool  g_gameGate = false;
 bool  g_menuOverride = false;
@@ -279,6 +283,14 @@ void apply_wanted(const char* why) {
 // ---------------------------------------------------------------------------
 
 bool enabled() { return g_on; }
+bool once_per_pair() { return g_oncePerPair; }
+void set_once_per_pair(bool on) {
+    if (on == g_oncePerPair) return;
+    g_oncePerPair = on; g_heldLast = false;
+    DVR_INFO("hud: the panel's copy and hand-off run %s (`hud pair on|off`, [Hud] OncePerPair=). ON holds the first "
+             "present of a two-present tick: its target is cleared, its last output stays delivered, the copy "
+             "happens on the pair-closing present; hud/beat prints held=", on ? "ONCE PER STEREO PAIR" : "every present");
+}
 void set_enabled(bool on) { g_wanted = on; apply_wanted("asked"); }
 
 void set_slot_scale(float s) {
@@ -365,12 +377,21 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         else g_lastRedirectMs = GetTickCount();
     }
 
+    // VR-160: hold this present? Only under a method that presents twice per tick, only while the
+    // pair is still OPEN-TO-COME (the runtime holds one XR frame across both presents, so
+    // pair_open() is true on the closing present), and never twice in a row.
+    const bool twoPresents = dvr::stereo::active() && dvr::stereo::active()->presents_per_tick() > 1;
+    const bool hold = g_oncePerPair && twoPresents && !dvr::vr::pair_open() && !g_heldLast;
+    g_heldLast = hold;
+    if (hold) ++g_winHeld;
+
     bool anyReady = false, anyInUse = false, blitOk = false;
     if (g_on && dev9 && dev11 && ctx11 && !g_failed) {
         g_lastCtx = ctx11;
         blitOk = g_blit.init(dev11);
         for (int i = 0; i < dvr::hudlayout::kMaxSinks; ++i) {
             Sink& s = g_sink[i];
+            const bool hadDelivered = s.delivered, hadPart0 = s.partDelivered[0], hadPart1 = s.partDelivered[1];
             s.delivered = false;
             s.partDelivered[0]=s.partDelivered[1]=false;
             if(!dvr::hudlayout::wheel_parts_for_sink(i)) release_parts(s);
@@ -398,6 +419,14 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             if (!blitOk || !ensure_slots(dev9, dev11, i)) { s.redirected = 0; continue; }
             anyReady = true;
             s.winRedirected += s.redirected;
+            if (hold) {
+                // This present's HUD draws are dropped with the clear; the output texture still holds the
+                // last pair's picture and stays delivered, so the quad never misses a frame.
+                clear_rt(dev9, s);
+                s.delivered = hadDelivered; s.partDelivered[0] = hadPart0; s.partDelivered[1] = hadPart1;
+                s.redirected = 0; s.markers.drawing=dvr::hudmarker::Regions{};
+                continue;
+            }
             if (!s.redirected && g_armed) ++s.winEmpty;
             {
                 read_wait(s, s.cur);
@@ -509,12 +538,14 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             one[39] = 0;
             strncat(per, one, sizeof(per) - strlen(per) - 1);
         }
-        DVR_INFO("hud/beat: presents=%u armed=%u redirected=%.1f/present (%s) delivered=%u empty-while-armed=%u "
+        DVR_INFO("hud/beat: presents=%u held=%u (once-per-pair %s; on expects held near presents/2 and delivered near "
+                 "presents/2 per sink) armed=%u redirected=%.1f/present (%s) delivered=%u empty-while-armed=%u "
                  "(even %u, odd %u) | slots %ux%u of %ux%u (scale %.2f) | fences: blit waits %u timeouts %u, "
                  "read waits %u timeouts %u | restore failures %u | gate: on=%d xr=%d menu=%d game=%d handoff=%d "
                  "failed=%d nativeReference=%d -> %s. Prediction while armed: reference=1 expects empty==armed; otherwise empty=0; empty==armed/2 all on one parity = the HUD "
                  "tail lands in ONE re-entry pass; empty==armed = the rule matched nothing",
-                 g_winPresents, g_winArmedPresents, g_winPresents ? (double)redir / g_winPresents : 0.0,
+                 g_winPresents, g_winHeld, g_oncePerPair ? "ON" : "off", g_winArmedPresents,
+                 g_winPresents ? (double)redir / g_winPresents : 0.0,
                  per[0] ? per + 1 : "no sink in use", deliv, g_winEmptyArmed, g_winEmptyEven, g_winEmptyOdd,
                  g_sink[0].slotW, g_sink[0].slotH, g_rtW, g_rtH, g_slotScale,
                  g_blitWaits, g_blitTimeouts, g_readWaits, g_readTimeouts, g_restoreFails,
@@ -534,6 +565,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         }
         g_winStartMs = GetTickCount();
         g_winPresents = g_winArmedPresents = g_winEmptyArmed = g_winEmptyEven = g_winEmptyOdd = 0;
+        g_winHeld = 0;
         for (Sink& s : g_sink) s.winRedirected = s.winDelivered = s.winEmpty = 0;
         dvr::hudlayout::log_status();
     }
@@ -627,6 +659,8 @@ void status(dvr::status::Writer& w) {
 bool command(const char* args) {
     if (!strcmp(args, "on"))  { g_failed = false; set_enabled(true);  return true; }
     if (!strcmp(args, "off")) { set_enabled(false); return true; }
+    if (!strcmp(args, "pair on"))  { set_once_per_pair(true);  return true; }
+    if (!strcmp(args, "pair off")) { set_once_per_pair(false); return true; }
     if (!strncmp(args, "scale", 5)) {
         const char* a = args + 5;
         while (*a == ' ') ++a;

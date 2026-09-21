@@ -100,6 +100,8 @@ target_link_libraries(dvr_proxy PRIVATE
     user32 gdi32 advapi32 ole32 uuid windowscodecs dwmapi imm32
 )
 target_compile_options(dvr_proxy PRIVATE /W3 /permissive-)
+# VR-160: the log banner names the config it was built as (dvr_version.h).
+target_compile_definitions(dvr_proxy PRIVATE DVR_BUILD_CONFIG="$<CONFIG>")
 if(DVR_WITH_OPENXR)
     # Static loader linked straight into the proxy: no extra DLL ships and the
     # game's import table is untouched (the loader is not a DLL import).

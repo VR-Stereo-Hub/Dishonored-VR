@@ -66,9 +66,9 @@ void emit(const char* fmt, ...)
             char hd[512];
             int hn = snprintf(hd, sizeof(hd) - 2,
                 "\r\n===== run %04u-%02u-%02u %02u:%02u:%02u  "
-                "dishonoredvr %s build %s  pid=%lu  %s =====",
+                "dishonoredvr %s build %s config %s  pid=%lu  %s =====",
                 st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond,
-                DVR_VERSION, DVR_BUILD_ID, (unsigned long)GetCurrentProcessId(), g_ctx);
+                DVR_VERSION, DVR_BUILD_ID, DVR_BUILD_CONFIG, (unsigned long)GetCurrentProcessId(), g_ctx);
             if (hn > 0) {
                 hd[hn] = '\r'; hd[hn + 1] = '\n';
                 DWORD hw = 0;

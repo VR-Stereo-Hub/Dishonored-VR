@@ -130,6 +130,9 @@ void note(Flag f);
 struct Gap {
     float    ms = 0, medianMs = 0;
     uint32_t present = 0;
+    // The phase the gap sat in, as a static string (the same name `where`
+    // opens with), so a caller can tally owners without parsing text.
+    const char* owner = "";
     char     where[480] = "";
 };
 bool take_gap(Gap* out);      // true once per detected gap (present thread)
@@ -139,6 +142,17 @@ void log_gap_ring();          // the ring's tail at Info, at most once per secon
 // and no line prints. Default on: eight QPC reads per present.
 void set_enabled(bool on);
 bool enabled();
+
+// VR-160: the present path split into NAMED PARTS (`perf parts on|off`, [Perf] Parts=, default
+// off). The tick line says `tick 1.2 end 1.2` and not what is inside them. part_begin() opens a
+// timed run on the present thread, part_mark(name) charges the time since the previous mark to
+// `name` (a string LITERAL: the table keys on the pointer). Off = one bool load per call. On =
+// one QPC read per mark, about 25 ns. The line prints with the tick line, largest first, and it
+// says its own population: us per PRESENT, summed marks against the measured `in`.
+void set_parts(bool on);
+bool parts_enabled();
+void part_begin();
+void part_mark(const char* name);
 
 // Print the last 3 s line again now (`perf status`), then the ring's tail.
 void log_status();

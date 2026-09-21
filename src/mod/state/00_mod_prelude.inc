@@ -35,6 +35,7 @@
 #include <xinput.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <algorithm>   // VR-160: std::sort in the live-object table (ue3/uobject.cpp)
 #include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>

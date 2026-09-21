@@ -592,6 +592,8 @@ void status(dvr::status::Writer& w) {
 // Called at every frame gap: uploads that arrive in a burst right before a
 // stall are the texture-streaming signature; an empty ring clears streaming.
 void stream_log_recent(const char* why, int n) {
+    // Twenty _snprintf calls into 1400 bytes: not paid for a line that will not print.
+    if (!::dvr::log::enabled(DVR_CAT, ::dvr::log::Level::Info)) return;
     if (n > kStreamBuckets - 1) n = kStreamBuckets - 1;
     const LONG now = (LONG)(GetTickCount64() / 100);
     char line[1400]; int o = 0; LONG tu = 0, tc = 0, tr = 0, tkb = 0, tckb = 0, tus = 0;

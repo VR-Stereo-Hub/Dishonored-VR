@@ -1805,6 +1805,8 @@ static void LoadConfig()
     {   // 41.1 (session 8): the tick budget's levers, both default on
         const bool inst = IniFloat(ini, "Perf", "Instruments", 1) != 0.0f;
         dvr::perf::set_cpu_scopes(GetPrivateProfileIntA("Perf", "CpuScopes", 0, ini)!=0);
+        dvr::perf::set_parts(GetPrivateProfileIntA("Perf", "Parts", 0, ini)!=0);   // VR-160, default off
+        dvr::gpu_memory::set_enabled(GetPrivateProfileIntA("Perf", "GpuMem", 1, ini)!=0);   // VR-160: off the present thread
         dvr::native_profile::set_enabled(GetPrivateProfileIntA("Perf", "NativeProfile", 0, ini)!=0);
         dvr::bridge_profile::set_enabled(GetPrivateProfileIntA("Perf", "BridgeGpu", 0, ini)!=0);
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
@@ -2431,6 +2433,7 @@ static void LoadConfig()
         dvr::hudlayout::configure(ini);
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
         dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
+        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);   // VR-160: ON since the headset verdict (no HUD flicker reported); 0 restores every present
         dvr::hudclass::set_regions_enabled(IniFloat(ini, "Hud", "Regions", 0) != 0.0f);
         dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }

@@ -141,7 +141,7 @@ static void PossessionStateTick() {
         // The proxy is spawned after the level's table was built. The capsule
         // tick rebuilds on its own failure when PawnFromController is on; this
         // covers the other configuration, bounded the same way.
-        if (!g_pawnFromController && now >= nextRebuild) { nextRebuild = now + 1000; BuildLiveSet(); }
+        if (!g_pawnFromController && now >= nextRebuild) { nextRebuild = now + 1000; RefreshLiveSet(1000); }   // VR-160
     }
     else if (PossReadPtr(pawn, ctrlOff) != ctrl) why = "pawn's possessing controller is not ours";
     else if (!(player = PossReadPtr(pawn, playerOff)) || !IsLiveObject(player)) why = "possessing player pawn not live";

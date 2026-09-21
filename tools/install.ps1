@@ -55,6 +55,15 @@ $oldFork = Join-Path $GamePath "dxvk_d3d9.dll"
 if (Test-Path $oldFork) { Remove-Item $oldFork -Force; Write-Host "Removed the retired dxvk_d3d9.dll" }
 
 Write-Host "Installed $config build to $GamePath"
-Write-Host "  d3d9.dll        $(Get-Item $proxy | Select-Object -ExpandProperty LastWriteTime)"
+Write-Host "  d3d9.dll        $(Get-Item $proxy | Select-Object -ExpandProperty LastWriteTime)  sha256 $((Get-FileHash $proxy -Algorithm SHA256).Hash.Substring(0,16))"
+# VR-160: a Debug build was played and measured in the headset for a day because
+# this script said "Debug" once, in the middle of four lines. Say it so it is read.
+if (-not $Release) {
+    Write-Host ""
+    Write-Host "  *** This is the UNOPTIMISED Debug build (/Od, runtime checks, the debug CRT). ***" -ForegroundColor Yellow
+    Write-Host "  *** Fine for the simulator and the debugger. NOT for playing or for any        ***" -ForegroundColor Yellow
+    Write-Host "  *** performance number: use  build.ps1 -Release  then  install.ps1 -Release    ***" -ForegroundColor Yellow
+    Write-Host ""
+}
 if (Test-Path $shim) { Write-Host "  dvr_steamvr32.dll + openvr_api.dll (SteamVR shim, sha256 verified)" }
 Write-Host "Log: $(Join-Path $GamePath 'dishonored_vr.log')   harness files: $(Get-DvrDataDir)"

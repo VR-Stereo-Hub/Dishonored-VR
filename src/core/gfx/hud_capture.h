@@ -42,6 +42,14 @@ namespace dvr::hudcap {
 // [Hud] Panel / `hud on|off`. Refuses when patterns.h has no measured fingerprint.
 bool enabled();
 void set_enabled(bool on);
+// VR-160: the panel's copy, clear-after-copy, D3D11 draw and flush ONCE per stereo pair instead of
+// once per present ([Hud] OncePerPair=, `hud pair on|off`; shipped OFF, ON since the 2026-09-20 headset verdict). The panel is one image both
+// eyes share, and a two-presents-per-tick method paid for it twice: 1.8 ms of an 18 ms tick with one
+// element in use (simulator, RTX 4060, 3012x3122). A held present still clears the private target,
+// so nothing accumulates, and keeps the last delivered output, so no quad drops out. It never holds
+// two presents in a row: with pairing broken it degrades to every other present, not to never.
+bool once_per_pair();
+void set_once_per_pair(bool on);
 
 // [Hud] SlotScale: a sink's texture is the frame's size times this. The window
 // subtends about 50 degrees, so half the render's height is already more than

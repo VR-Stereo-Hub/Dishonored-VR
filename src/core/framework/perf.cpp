@@ -9,6 +9,7 @@
 #include "core/gfx/stereo.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
+#include "dvr_version.h"
 
 #include <windows.h>
 #include <atomic>
@@ -17,6 +18,7 @@
 #include <string.h>
 
 namespace dvr::perf {
+void parts_log(uint32_t presents);   // VR-160: defined with the parts table, below
 namespace {
 
 // ---- one record per present ---------------------------------------------------
@@ -304,8 +306,16 @@ void window_close(uint64_t nowMs) {
                     1000.0f / periodMs, periodMs)
         : _snprintf(paced, sizeof(paced), "[hmd period UNKNOWN - the runtime leaves predictedDisplayPeriod at 0] ");
     if (w.paceBound && pacedN > 0)
-        _snprintf(paced + pacedN, sizeof(paced) - pacedN, "PACE-BOUND (wait %.1f ms/present = the headset's "
+        pacedN += _snprintf(paced + pacedN, sizeof(paced) - pacedN, "PACE-BOUND (wait %.1f ms/present = the headset's "
                   "cadence at %.2f ms; the split is a budget, not a bottleneck) ", w.waitMs, periodMs);
+    // VR-160: a tick line gets pasted into tickets without its banner, so an
+    // unoptimised build says so ON the line. Optimised builds print nothing
+    // here and the line stays byte-identical for the scripts that parse it.
+#if !DVR_BUILD_OPTIMISED
+    if (pacedN > 0 && pacedN < (int)sizeof(paced))
+        _snprintf(paced + pacedN, sizeof(paced) - pacedN, "[UNOPTIMISED " DVR_BUILD_CONFIG " build: not comparable] ");
+#endif
+    paced[sizeof(paced) - 1] = 0;
     char c1[400], c2[400], cm[400], mk[240];
     marker_text(mk, sizeof(mk), g_p1, g_p2, g_m, w);
     if (w.stereo) {
@@ -380,7 +390,7 @@ void window_close(uint64_t nowMs) {
     }
     w.marks = g_marks;
     g_last = w;
-    if (total) { DVR_INFO("%s", g_lastLine); DVR_INFO("%s", g_lastGpuLine); }
+    if (total) { DVR_INFO("%s", g_lastLine); DVR_INFO("%s", g_lastGpuLine); parts_log(total); }
     g_p1 = Sum(); g_p2 = Sum(); g_m = Sum();
     g_windowIncomplete = 0;
     g_windowMs = nowMs;
@@ -406,6 +416,7 @@ void gap_check(const Rec& prev, int64_t tEntry) {
         {"out/R (executing the frame)", prev.rUs}};
     int best = 0;
     for (int i = 1; i < 8; ++i) if (ph[i].us > ph[best].us) best = i;
+    g_gap.owner = ph[best].name;
     const uint32_t timeouts = dvr::vr::pace_timeouts();
     const uint32_t dTimeouts = timeouts - g_gapPaceTimeoutsSeen;
     g_gapPaceTimeoutsSeen = timeouts;
@@ -729,9 +740,17 @@ bool take_gap(Gap* out) {
 }
 
 void log_gap_ring() {
+    // VR-160: the gate runs BEFORE the format. ring_line sorts sixteen records
+    // and makes about seventeen _snprintf calls, and it used to run on every
+    // gap for a line that prints at most once a second.
+    static unsigned long last = 0;
+    const unsigned long now = GetTickCount();
+    if (last != 0 && now - last < 1000) return;
+    if (!::dvr::log::enabled(DVR_CAT, ::dvr::log::Level::Info)) return;
+    last = now;
     char buf[1024];
     ring_line(buf, sizeof(buf), 16, "perf: gap ring");
-    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000, "%s", buf);
+    DVR_INFO("%s", buf);
 }
 
 void set_device(IDirect3DDevice9* dev) {
@@ -763,6 +782,56 @@ void set_gpu_enabled(bool on) {
                 : "no queries issued; the tick line keeps the CPU split");
 }
 bool gpu_enabled() { return g_gpuEnabled; }
+
+// ---- VR-160: named parts of the present path ------------------------------
+namespace {
+struct Part { const char* name; int64_t ticks; uint32_t n; };
+const int kParts = 48;
+Part     g_parts[kParts] = {};
+int      g_partN = 0;
+bool     g_partsOn = false;
+int64_t  g_partLast = 0;
+uint32_t g_partOverflow = 0;
+}
+void set_parts(bool on) {
+    if (on == g_partsOn) return;
+    g_partsOn = on; g_partN = 0; g_partLast = 0; g_partOverflow = 0;
+    DVR_INFO("perf: parts %s (%s)", on ? "ON" : "off",
+             on ? "one QPC read per mark on the present thread; `perf: parts` prints with the tick line"
+                : "one bool load per mark");
+}
+bool parts_enabled() { return g_partsOn; }
+void part_begin() { if (g_partsOn) g_partLast = now_qpc(); }
+void part_mark(const char* name) {
+    if (!g_partsOn || !g_partLast) return;
+    const int64_t now = now_qpc();
+    const int64_t d = now - g_partLast;
+    g_partLast = now;
+    for (int i = 0; i < g_partN; ++i)
+        if (g_parts[i].name == name) { g_parts[i].ticks += d; ++g_parts[i].n; return; }
+    if (g_partN >= kParts) { ++g_partOverflow; return; }
+    g_parts[g_partN].name = name; g_parts[g_partN].ticks = d; g_parts[g_partN].n = 1; ++g_partN;
+}
+// Called at the window close, with the window's present count.
+void parts_log(uint32_t presents) {
+    if (!g_partsOn || !g_partN || !presents) return;
+    char buf[1400]; int n = 0; double sumUs = 0.0;
+    for (int i = 1; i < g_partN; ++i)                       // insertion sort, largest first
+        for (int j = i; j > 0 && g_parts[j].ticks > g_parts[j - 1].ticks; --j) {
+            Part t = g_parts[j]; g_parts[j] = g_parts[j - 1]; g_parts[j - 1] = t;
+        }
+    for (int i = 0; i < g_partN; ++i) {
+        const double perUs = (double)us(0, g_parts[i].ticks) / presents;
+        sumUs += perUs;
+        if (n < (int)sizeof(buf) - 64 && (perUs >= 1.0 || i < 12))
+            n += _snprintf(buf + n, sizeof(buf) - n, " %s=%.0f", g_parts[i].name, perUs);
+        g_parts[i].ticks = 0; g_parts[i].n = 0;
+    }
+    buf[sizeof(buf) - 1] = 0;
+    DVR_INFO("perf: parts, us per PRESENT over %u presents, largest first (sum %.0f us; compare with `in` minus wait "
+             "and lock on the tick line; a part names the code that ran BEFORE its mark):%s%s", presents, sumUs, buf,
+             g_partOverflow ? " | TABLE FULL: marks dropped" : "");
+}
 
 void set_enabled(bool on) {
     if (on == g_enabled) return;

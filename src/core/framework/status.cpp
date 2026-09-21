@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <string.h>
+#include <string>
 
 namespace dvr::status {
 
@@ -58,6 +59,7 @@ Provider g_provider = nullptr;
 double   g_lastMs = 0.0;
 char     g_path[MAX_PATH] = "";
 Writer   g_writer;
+void write_text(const char* text, size_t len);   // VR-160: defined with the writer thread, below
 }
 
 void set_provider(Provider p) { g_provider = p; }
@@ -74,20 +76,73 @@ void write_now()
     g_writer.begin();
     g_provider(g_writer);
     g_writer.end();
+    write_text(g_writer.text(), g_writer.length());
+}
+
+// VR-160: the 1 Hz write, off the present thread. The JSON is still BUILT on the present thread
+// (the provider reads state that belongs to it), but fopen / fwrite / fclose / MoveFileEx went to
+// a worker: together with the seam poll they measured 0.2 ms per present averaged = about 20 ms
+// once a second on the thread that presents. write_now() stays synchronous for the `status` word
+// and the F10 button, whose callers read the file straight after.
+namespace {
+SRWLOCK     g_ioLock = SRWLOCK_INIT;
+std::string g_ioPending;
+bool        g_ioHave = false;
+HANDLE      g_ioEvent = nullptr;
+bool        g_ioFailed = false;
+
+void write_text(const char* text, size_t len)
+{
     char tmp[MAX_PATH];
     dvr::paths::in_data_dir(tmp, "status.json.tmp");
+    static SRWLOCK fileLock = SRWLOCK_INIT;   // write_now and the worker share one tmp file
+    AcquireSRWLockExclusive(&fileLock);
     FILE* f = fopen(tmp, "wb");
-    if (!f) return;
-    fwrite(g_writer.text(), 1, g_writer.length(), f);
-    fclose(f);
-    MoveFileExA(tmp, path(), MOVEFILE_REPLACE_EXISTING);   // readers never see a torn file
+    if (f) {
+        fwrite(text, 1, len, f);
+        fclose(f);
+        MoveFileExA(tmp, path(), MOVEFILE_REPLACE_EXISTING);   // readers never see a torn file
+    }
+    ReleaseSRWLockExclusive(&fileLock);
+}
+
+DWORD WINAPI io_thread(void*)
+{
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    std::string mine;
+    for (;;) {
+        WaitForSingleObject(g_ioEvent, INFINITE);
+        AcquireSRWLockExclusive(&g_ioLock);
+        const bool have = g_ioHave;
+        if (have) { mine.swap(g_ioPending); g_ioHave = false; }
+        ReleaseSRWLockExclusive(&g_ioLock);
+        if (have) write_text(mine.data(), mine.size());
+    }
+}
 }
 
 void tick(double nowMs)
 {
     if (nowMs - g_lastMs < 1000.0) return;
     g_lastMs = nowMs;
-    write_now();
+    if (!g_provider) return;
+    if (!g_ioEvent && !g_ioFailed) {
+        g_ioEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+        HANDLE h = g_ioEvent ? CreateThread(nullptr, 0, io_thread, nullptr, 0, nullptr) : nullptr;
+        if (h) CloseHandle(h);
+        else { g_ioFailed = true; DVR_WARN("status: no writer thread (%lu) - status.json is written on the present thread", GetLastError()); }
+    }
+    if (g_ioFailed) { write_now(); return; }
+    g_writer.begin();
+    g_provider(g_writer);
+    g_writer.end();
+    // TryAcquire: the present thread never waits for the disk, not even for this lock. A busy
+    // writer means this second's snapshot is skipped and the next one lands.
+    if (!TryAcquireSRWLockExclusive(&g_ioLock)) return;
+    g_ioPending.assign(g_writer.text(), g_writer.length());
+    g_ioHave = true;
+    ReleaseSRWLockExclusive(&g_ioLock);
+    SetEvent(g_ioEvent);
 }
 
 } // namespace dvr::status

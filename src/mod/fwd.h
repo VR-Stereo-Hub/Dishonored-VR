@@ -237,6 +237,7 @@ static void HeadInjectTick();
 static bool FindPlayerController();
 static int CmpPtr(const void* a, const void* b);
 static bool BuildLiveSet();
+static bool RefreshLiveSet(uint32_t maxAgeMs);   // VR-160: the periodic callers
 static void CineTraceConfigure(const char* ini);
 static void CineTraceTick();
 static void CineTraceDraw();

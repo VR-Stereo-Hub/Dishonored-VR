@@ -75,27 +75,75 @@ static int CmpPtr(const void* a, const void* b)
 // in place, so an unlocked reader can search a half-built or freed array.
 static SRWLOCK g_liveLock = SRWLOCK_INIT;
 
+// VR-160: a rebuild is a copy and a sort of about 115,000 pointers. It used to
+// run with the table's lock held for all of it (about 12 ms, `perf parts`:
+// gs.uiSurfacePoll), several times a second from independent timers on the
+// present thread and the script lane, so every rebuild was a stall on the
+// thread that called it AND a block on every IsLiveObject reader on the other.
+// Now: the copy and the sort run into a SCRATCH buffer with no reader lock held
+// (std::sort on integers, not qsort through a function pointer), and the table
+// is swapped in under the lock in microseconds. One builder at a time.
+// A failed rebuild still empties the table: IsLiveObject then refuses
+// everything, which is the fail-safe this table has always had.
+static SRWLOCK   g_liveBuildLock = SRWLOCK_INIT;
+static void**    g_liveScratch = NULL;
+static uint32_t  g_liveScratchCap = 0;
+static ULONGLONG g_liveBuiltMs = 0;      // GetTickCount64 of the last successful rebuild
+static uint32_t  g_liveRebuilds = 0, g_liveReuses = 0;
+
 static bool BuildLiveSet()
 {
+    AcquireSRWLockExclusive(&g_liveBuildLock);
+    struct UnlockBuild { ~UnlockBuild() { ReleaseSRWLockExclusive(&g_liveBuildLock); } } unlockBuild;
+    uint32_t n = 0;
+    bool ok = false;
+    do {
+        if (!RangeReadable((void*)kGObjHdr, 12)) break;
+        void**   objs = *(void***)kGObjHdr;
+        uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
+        if (((uintptr_t)objs & 3) || num < 2000 || num > 4000000) break;
+        if (!RangeReadable(objs, (size_t)num * sizeof(void*))) break;
+        if (num > g_liveScratchCap) {
+            void** p = (void**)realloc(g_liveScratch, (size_t)(num + 4096) * sizeof(void*));
+            if (!p) break;
+            g_liveScratch = p; g_liveScratchCap = num + 4096;
+        }
+        for (uint32_t i = 0; i < num; i++) {
+            void* o = objs[i];
+            if (o && !((uintptr_t)o & 3)) g_liveScratch[n++] = o;
+        }
+        std::sort(g_liveScratch, g_liveScratch + n,
+                  [](void* a, void* b) { return (uintptr_t)a < (uintptr_t)b; });
+        ok = true;
+    } while (0);
+
     AcquireSRWLockExclusive(&g_liveLock);
-    struct Unlock { ~Unlock() { ReleaseSRWLockExclusive(&g_liveLock); } } unlock;
-    g_liveN = 0;
-    if (!RangeReadable((void*)kGObjHdr, 12)) return false;
-    void**   objs = *(void***)kGObjHdr;
-    uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
-    if (((uintptr_t)objs & 3) || num < 2000 || num > 4000000) return false;
-    if (!RangeReadable(objs, (size_t)num * sizeof(void*))) return false;
-    if (num > g_liveCap) {
-        void** p = (void**)realloc(g_liveSet, (size_t)(num + 4096) * sizeof(void*));
-        if (!p) return false;
-        g_liveSet = p; g_liveCap = num + 4096;
+    if (ok) {
+        void** t = g_liveSet; g_liveSet = g_liveScratch; g_liveScratch = t;
+        uint32_t c = g_liveCap; g_liveCap = g_liveScratchCap; g_liveScratchCap = c;
+        g_liveN = n;
+        g_liveBuiltMs = GetTickCount64();
+        ++g_liveRebuilds;
+    } else {
+        g_liveN = 0;
     }
-    for (uint32_t i = 0; i < num; i++) {
-        void* o = objs[i];
-        if (o && !((uintptr_t)o & 3)) g_liveSet[g_liveN++] = o;
-    }
-    qsort(g_liveSet, g_liveN, sizeof(void*), CmpPtr);
-    return g_liveN > 1000;
+    const bool good = ok && g_liveN > 1000;
+    ReleaseSRWLockExclusive(&g_liveLock);
+    return good;
+}
+
+// VR-160: for the PERIODIC callers. Each of them rebuilt on its own timer, so
+// the table was rebuilt five or six times a second to satisfy five "no older
+// than my period" contracts that one rebuild satisfies. A caller passes the age
+// it already tolerated (its own period) and gets exactly that guarantee.
+// A caller that needs the table fresh NOW keeps calling BuildLiveSet().
+static bool RefreshLiveSet(uint32_t maxAgeMs)
+{
+    AcquireSRWLockShared(&g_liveLock);
+    const bool fresh = g_liveN > 1000 && GetTickCount64() - g_liveBuiltMs < maxAgeMs;
+    ReleaseSRWLockShared(&g_liveLock);
+    if (fresh) { ++g_liveReuses; return true; }
+    return BuildLiveSet();
 }
 
 

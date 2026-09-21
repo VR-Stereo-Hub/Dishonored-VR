@@ -85,7 +85,7 @@ static void PawnCollisionTick()
     nextRebuild = now + 1000.0;
     // A fresh table cannot authorize an old level's unpossessed pawn: the
     // retry still follows the controller's current reference and all guards.
-    if (BuildLiveSet()) PawnCollisionHeight();
+    if (RefreshLiveSet(1000)) PawnCollisionHeight();   // VR-160: shared with the other periodic callers
 }
 
 

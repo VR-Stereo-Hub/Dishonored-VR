@@ -314,6 +314,7 @@ void draw11(ID3D11Device* dev, ID3D11DeviceContext* ctx, Stage st, ID3D11ShaderR
 
 // ---- the judgement ---------------------------------------------------------
 void summary(const char* prefix) {
+    if (!::dvr::log::enabled(DVR_CAT, ::dvr::log::Level::Info)) return;
     char buf[900];
     int n = _snprintf(buf, sizeof(buf), "stereo: frameid %s pairs=%u | one-picture pairs bb=%u slot=%u out=%u sc=%u",
                       prefix, g_pairsWindow, g_samePairsWindow[0], g_samePairsWindow[1], g_samePairsWindow[2], g_samePairsWindow[3]);

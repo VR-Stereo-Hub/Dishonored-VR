@@ -1,3 +1,65 @@
+## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-160-perf-4060-attribution`, off `VR-Main` `5dfe6c9d`, pushed, PR open
+  (`Ref VR-160`), NOT merged. VR-160 is In Progress: one headset number is still owed.
+- **The dev PC now has the RelWithDebInfo build of this branch installed**
+  (`vr33-hands-working-550-ged3621c8`, `config RelWithDebInfo`, d3d9.dll sha256
+  `6EE3CD19...`). Its ini is byte-identical to the one the session started with; the
+  DLL and ini it replaced are in `D:\dvr-data\backup-vr160\`.
+- The full record is the VR-160 entry at the top of `docs/dishonored/PERFORMANCE.md`.
+
+### What was found
+
+- **The record mixed two machines.** Every fast number in PERFORMANCE.md (9.4 ms ticks,
+  about 100 pairs/s, the 0.64 ms/MP fit, "quarter pixels bought 6 %") is the tester's
+  RTX 4070 Ti SUPER. The dev PC is an RTX 4060, and 3012x3122 was never judged on it.
+  There was no regression to find.
+- **The card's ceiling at 3012x3122 is about 62 pairs/s**, measured on the simulator
+  (which renders the same size): 7.9-8.1 ms of GPU-busy time per scene render, the same
+  under `stereo mono`, `stereo reentry` and the slow phase. The mod runs at 86-87 % of
+  that (54-56 pairs/s). All of the mod's own overhead together is worth at most 12 %.
+  Two scene renders per displayed frame cannot reach 72, 90 or 120 Hz at this size on
+  this card.
+- **Debug costs 6-7 %** (20.1 / 18.9 / 20.4 ms, Debug / RelWithDebInfo / Debug) plus one
+  40 ms `game_tick` hitch a second that the optimised build does not have. The log could
+  not say which config wrote it; now the banner, the crash header, `status.json` and a
+  Debug tick line all do, and `install.ps1` warns loudly. Default stays Debug.
+- **A 12-13 s game-thread cycle on this save** (6 s at 17.5 ms, 6 s at 22-24 ms) is
+  identical in Debug and RelWithDebInfo, so it is the engine's or the level's, not ours.
+- BioShock Infinite is comfortable on the same card because it draws 9.1 MP per pair
+  against Dishonored's 18.8 MP, with the same two-renders-per-tick method.
+- Nothing game-side caps the rate; the log is not flushed per line; the shared (no CPU
+  copy) capture is already the default.
+
+### Fixed on the branch (one commit each)
+
+The build config in the banner and status.json; the loud Debug line in `install.ps1`;
+frame gaps itemised three per 5 s window with the rest counted (a headset-idle run wrote
+32,000 lines of them); `armfollow` and `headtrack` lines bounded; `boot.ps1` passing its
+key by name (it could not walk in at all); four analysis scripts under `tools\perf-*`.
+
+### Found and not fixed
+
+- VR-162: `hkSetVSConstF` carries its view-model hide, its `DcNotePalette` call and its
+  palette cache twice. Correctness first, cost second; hands are headset-judged, so one
+  block per build.
+- VR-163: `DVR_SKIP` disables nothing, and the HUD redirect's copies are timed inside the
+  field the gap line calls `present-tail (xrEndFrame)`.
+- The shipped ini turns on `[Hud] Regions`, `[Perf] NativeProfile` and `[Perf] BridgeGpu`
+  against compiled defaults of off. Unmeasured on this card and bounded by the 12 %.
+
+### Next steps
+
+1. **Headset, the user, one short run** (steps on VR-160): the RelWithDebInfo build at
+   120 Hz, standing still for three minutes, while the GPU sampler runs. It answers the
+   one thing the simulator cannot: what the streamer's encode takes from the same card.
+2. Decide the route, which is the user's call and not a code fix: a render size this
+   card can hold, or an architectural change (alternate-eye or a reprojected second
+   eye). PERFORMANCE.md states the arithmetic; nothing is built.
+3. VR-162, then the shipped-on instruments, for the bounded 12 %.
+
 ## Session handoff 2026-09-20 (evening): the motion sword is headset-judged and merged
 
 - **MERGED: PR #81 into `VR-Main` as `50249bde`, 2026-09-20, with permission.** It
