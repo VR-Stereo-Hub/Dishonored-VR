@@ -45,6 +45,19 @@ because the old lumped line could not tell a stale scope from a lost owner.
 Also not the cause, checked: #85's live-table changes (`RefreshLiveSet`) do
 not touch this path. The exit's `BuildLiveSet()` is still a forced rebuild.
 
+**The immersive carry never covered flat screens at all.** On the simulator the
+journal (a flat screen, not riding) showed no `menu/head` line: head 0 -> -40 deg
+while it was open, view unchanged on close (-214.05 -> -214.05). The head writer
+re-stamps its reference every dispatch while a UI surface blocks, so any screen
+without the immersive carry, or with a refused one, dropped the turn. The head
+writer now holds the head yaw from the moment a gameplay menu blocks (Pause,
+Note, Journal, Wheel, Store, MissionStats) and adds the whole turn once on the
+first gameplay write, unless the immersive carry already did
+(`menu/hold: ... carrying`, or `... the immersive carry owned the exit`). Loads,
+the main menu and cinematics drop the hold. Simulator after: journal -214.05 ->
+-254.05 for a -40 turn; pause (flat on the sim) -254.05 -> -214.05 for +40.
+The riding pause menu's stand-down path is not reachable on the simulator.
+
 ## A detector fed once per present sees every pose twice (VR-37, 2026-09-20)
 
 The motion sword never fired on the native stereo render and nothing in its log
