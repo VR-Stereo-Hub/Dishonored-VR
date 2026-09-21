@@ -8416,3 +8416,24 @@ F10 row "Windblast, Possession, Swarm". No engine field is written.
   all. Whether Swarm's spawn point follows this search is measured by `swarm/place:`
   (`aim_source.cpp`, `[Aim] SourceProbe`), which reports each swarm spawn's offset from the
   head ray and from the hand ray.
+
+**Build 619 result (headset).** Windblast and Possession followed the hand. Swarm did
+not. Its only logged landing was 105 uu off the head ray and 114 uu off the hand ray,
+1,537 uu out. The aim-assist swap redirected every cast, which shows the swarm point
+does not come from that search. It also redirected a cast whose camera POV was
+7,883 uu from the hand, which means the POV is not always at the player. **Retired.**
+
+**Where Swarm really aims.** Swarm slot `+0x168` (`0x00BFAE60`) calls `0x00BE9310` at
+`0x00BFAEE4`; the other caller is `0x00BFB03F`. `0x00BE9310` calls the controller's
+`GetPlayerViewPoint` (vtable `+0x3C4`) into `ebp-0x18` (location) and `ebp-0x30`
+(rotator). It then converts the rotator to a direction (`0x0040DA70`), traces
+(`0x0064E7A0`) and returns the hit. `0x00BF8C00` then creates `m_pSpawnPoint` (`+0x94`)
+at that point, and the swarm spawns from it (`0x00BFE2AB`). The census missed Swarm
+because nothing in this path calls the camera accessor. The only accessor call nearby
+is inside the eye helper `0x00AC80C0`, which returns to `0x00AC812F`, outside the
+census range. The shared pick `0x00BFB090` belongs to Possession, not Swarm.
+
+**Seam:** `0x00BE9337`, 7 bytes: `lea eax,[ebp-24h]; push eax; lea ecx,[ebp-30h]` (no
+relative operand). This point is just after `GetPlayerViewPoint` returns. The hook
+overwrites both locals with the hand ray. All three power seams now refuse when the
+engine's view source is more than 150 uu from the render eye.

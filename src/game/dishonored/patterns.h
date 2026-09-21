@@ -196,23 +196,6 @@ static const uintptr_t kRazorTraceBack = 0x00C32C97;
 // the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
 static const uintptr_t kSpawnActor = 0x00C66070;
 static const uint8_t   kSpawnActorBytes[5] = { 0x55, 0x8B, 0xEC, 0x33, 0xC0 };
-// VR-166: the trace entry points, for a READ-ONLY caller census that names the spring
-// razor's placement trace. Three controller camera-trace helpers and AActor::execTrace.
-static const uintptr_t kTraceHelperA = 0x00AA5100;   // push ebp; mov ebp,esp; mov eax,[ebp+34h]
-static const uint8_t   kTraceHelperABytes[6] = { 0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x34 };
-static const uintptr_t kTraceHelperB = 0x00AA60D0;   // push ebp; mov ebp,esp; sub esp,60h
-static const uintptr_t kTraceHelperC = 0x00AA5FF0;   // push ebp; mov ebp,esp; sub esp,60h
-static const uint8_t   kTraceHelperBCBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x60 };
-// VR-44: READ-ONLY probe sites for the power aim census (aim_source.cpp). ENGINE_NOTES
-// "Where the powers read their aim". The player-camera accessor (pawn -> controller ->
-// camera; 95 callers, seven in power-component code), Windblast's aim routine (the
-// component's slot +0x168 calls it), and UsePower's aim-assist search (slot +0x184).
-static const uintptr_t kCamAccessor = 0x00B515C0;    // mov eax,[ecx+26Ch]
-static const uint8_t   kCamAccessorBytes[6] = { 0x8B, 0x81, 0x6C, 0x02, 0x00, 0x00 };
-static const uintptr_t kWindblastAim = 0x00BF9570;   // push ebp; mov ebp,esp; sub esp,18h
-static const uint8_t   kWindblastAimBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18 };
-static const uintptr_t kPowerAssist = 0x00C12B00;    // push ebx; mov ebx,esp; sub esp,8
-static const uint8_t   kPowerAssistBytes[6] = { 0x53, 0x8B, 0xDC, 0x83, 0xEC, 0x08 };
 // VR-44: the power aim seams (power_aim.cpp; ENGINE_NOTES "The power aim seams").
 // Windblast: right after its routine fetches the camera actor (0x00BF9610 call 0x00B515C0),
 // the POV rotator +0x33C and location +0x330 are read off it; eax becomes our POV.
@@ -223,16 +206,11 @@ static const uint8_t   kWindPovSeamBytes[6] = { 0x8B, 0x88, 0x3C, 0x03, 0x00, 0x
 // both. Seam just after, on an absolute-address load.
 static const uintptr_t kPossPickSeam = 0x00BF8F4C;  // mov eax,[0126B0E0h]
 static const uint8_t   kPossPickSeamBytes[5] = { 0xA1, 0xE0, 0xB0, 0x26, 0x01 };
-// UsePower's aim-assist search 0x00C12B00 reads the camera twice: the location at
-// 0x00C12B56 and the rotator at 0x00C12BC0 (both [esi+384h] = the controller's camera).
-// Only the call from UsePower's slot +0x184 (return 0x00C4B8AE) is redirected.
-static const uintptr_t kAssistLocSeam = 0x00C12B56; // mov eax,[esi+384h]
-static const uint8_t   kAssistLocSeamBytes[6] = { 0x8B, 0x86, 0x84, 0x03, 0x00, 0x00 };
-static const uintptr_t kAssistRotSeam = 0x00C12BC0; // mov ecx,[esi+384h]
-static const uint8_t   kAssistRotSeamBytes[6] = { 0x8B, 0x8E, 0x84, 0x03, 0x00, 0x00 };
-static const uint32_t  kAssistFromUsePower = 0x00C4B8AE;
-static const uintptr_t kExecTrace = 0x006D0ED0;      // push ebp; mov ebp,esp; sub esp,0E4h
-static const uint8_t   kExecTraceBytes[9] = { 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xE4, 0x00, 0x00, 0x00 };
+// Devouring Swarm: 0x00BE9310 (two callers, both Swarm: 0x00BFAEE4, 0x00BFB03F) asks the
+// controller for its view point (GetPlayerViewPoint, vtable +0x3C4) into ebp-0x18 (location)
+// and ebp-0x30 (rotator), traces out along it and places the spawn point where it lands.
+static const uintptr_t kSwarmViewSeam = 0x00BE9337;  // lea eax,[ebp-24h]; push eax; lea ecx,[ebp-30h]
+static const uint8_t   kSwarmViewSeamBytes[7] = { 0x8D, 0x45, 0xDC, 0x50, 0x8D, 0x4D, 0xD0 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

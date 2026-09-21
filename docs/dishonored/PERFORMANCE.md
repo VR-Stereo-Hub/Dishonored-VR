@@ -1384,3 +1384,41 @@ capture confirmed each size it was given.
 take it first. For fullscreen, the honest test is VirtualMode OFF at a real
 display mode (2560x1440) against VirtualMode ON windowed at the same 2560x1440,
 so mode is the only variable.
+
+## VR-44: hot-path probes removed after a lag report (2026-09-21, UNMEASURED fix)
+
+**Report.** Build 619 felt noticeably laggier in the headset.
+
+**Measured.** All three runs were at 144 Hz, so the rate is not a variable here. The
+figures below are gameplay `perf: tick` samples (runs over 30 ticks/s):
+
+| Build | Ticks/s (mean) | Game time outside our frame path |
+|---|---|---|
+| 615 | 115.5 | 2.2 ms |
+| 618 (power census added) | 94.0 | 3.9 ms |
+| 619 (power seams added) | 96.3 | 3.7 ms |
+
+The step is at 618, not 619. Within the 619 run, the game ran at about 127 ticks/s
+(1.5 ms) for 30 s with every hook installed. It then fell to 75-90 ticks/s before any
+power was used. So the extra cost scales with the scene and is not a flat per-frame
+cost. The scenes were not the same across the runs, so this does not prove the cause.
+
+**Suspects, and what was done about each:**
+* **The power census.** Its hook on `0x00B515C0`, the camera accessor, has 95 callers,
+  and AI code is among them. The hook ran a full `pushfd/pushad/fxsave/fxrstor` on every
+  call before filtering for power-code callers. That cost grows with the number of NPCs.
+  REMOVED; its result is recorded in ENGINE_NOTES.
+* **The trace census (VR-166).** It hooked `execTrace` and three camera-trace helpers,
+  which AI and script traces call constantly. It was already on in 615, so it is not
+  the step, but it is a standing cost. REMOVED; its job ended with the razor seam.
+* **The aim-assist swap (619).** It ran only on casts from UsePower's slot. It is not a
+  hot path, but it was also wrong (see ENGINE_NOTES). RETIRED.
+
+**Still on, and why:**
+* The spawn census stays, because spawns are rare and it measures the swarm's landing
+  point. It is armed by `[Aim] SourceProbe`.
+* The power seams run only on a cast. The one exception is Possession's pick, which
+  runs every tick, but only while Possession is held.
+
+**Next run.** Compare ticks/s against 615 in the same kind of scene. If the drop
+persists with these probes gone, set `SourceProbe=0` as the next A/B.
