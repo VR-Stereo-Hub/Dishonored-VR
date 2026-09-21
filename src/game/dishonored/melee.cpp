@@ -59,6 +59,14 @@ static void HealthElixirTick(bool held)
 namespace dvr::swing {
 namespace {
 
+// VR-170. 3.6 was one player's number: their 47 headset swings ran 3.70 to 6.35 m/s
+// (median 4.18), so it sat just under THEIR slowest swing, and players who swing
+// softer reported misses. 3.0 is 1.9 x the fastest non-swing measured through the
+// median (a smooth reach, 1.61) and 0.72 x that player's median. The hump census
+// below is what moves it next, from a log instead of a feeling.
+constexpr float kShippedEdgeSpeed = 3.0f;
+constexpr float kOldShippedEdgeSpeed = 3.6f;
+
 struct Settings : Config {
     float pulseMs       = 120.0f;   // [Melee] PulseMs: the edge detector's attack press
     int   pulseMinPolls = 2;        // [Melee] PulseMinPolls: hold until the game polled N times
@@ -69,6 +77,9 @@ struct Settings : Config {
     bool  iniEnabled    = true;     // what [Melee] Enabled asked for, before any veto
     int   stabArm       = 0;        // [Melee] StabArm: 0 sneak (crouched), 1 always
     bool  detectorFromIni = false;
+    // VR-170: what ships. The core's own 3.6 stays, because the host tests pin it;
+    // the shipped number is the adapter's, and configure() reads the same default.
+    Settings() { edgeSpeed = kShippedEdgeSpeed; }
 };
 Settings st;
 Core live, simCore;
@@ -91,6 +102,16 @@ struct Stats { unsigned samples = 0, dups = 0, still = 0, fires = 0, blocked = 0
                notHonoured = 0, inconclusive = 0;
                float lastSpeed = 0, peak = 0, bucket[2] = {}; double bucketMs = 0;
                char lastBlock[160] = "none"; uint32_t closed = 0; } n;
+// The hump census (VR-170): every live hand movement that rose above the re-arm
+// level, binned by its peak in 0.5 m/s steps (the last bin is 6.0 and up), split
+// into the ones that attacked and the ones that did not. nearMiss counts movements
+// with the gates open that peaked within 20 % under the threshold and did NOT
+// fire: if a player says swings are being missed, this is the number that agrees
+// or disagrees with them. Simulated swings are never counted.
+constexpr int kCensusBins = 13;
+struct Census { unsigned fired[kCensusBins] = {}, quiet[kCensusBins] = {}, humps = 0, nearMiss = 0;
+                float lastPeak = 0, lastTravel = 0, lastMs = 0; int lastFired = 0;
+                float minFirePeak = 0, minFireTravel = 0, maxQuietPeak = 0; double printedAt = 0; unsigned printedHumps = 0; } cen;
 dvr::anim::Snapshot body; double bodyMs = 0;
 float realTrigger = 0.0f;
 
@@ -259,11 +280,68 @@ void honour_poll(double now) {
     }
 }
 
+bool live_src(const char* src) { return src && !strcmp(src, "live"); }
+void census_text(char* out, size_t cap) {
+    int at = _snprintf_s(out, cap, _TRUNCATE, "no attack by peak m/s:");
+    for (int i = 0; i < kCensusBins && at > 0 && (size_t)at < cap; ++i)
+        if (cen.quiet[i]) at += _snprintf_s(out + at, cap - at, _TRUNCATE, " %.1f%s:%u", i * 0.5f, i == kCensusBins - 1 ? "+" : "", cen.quiet[i]);
+    if (at > 0 && (size_t)at < cap) at += _snprintf_s(out + at, cap - at, _TRUNCATE, " | attacked:");
+    for (int i = 0; i < kCensusBins && at > 0 && (size_t)at < cap; ++i)
+        if (cen.fired[i]) at += _snprintf_s(out + at, cap - at, _TRUNCATE, " %.1f%s:%u", i * 0.5f, i == kCensusBins - 1 ? "+" : "", cen.fired[i]);
+}
+void census_report(const char* who) {
+    char t[512]; census_text(t, sizeof(t));
+    Log("swing: census (%s) %u hand movement(s) above the %.2f m/s re-arm level since launch - %s | slowest attack peaked "
+        "%.2f m/s (least travel at a fire %.2f m), fastest non-attack %.2f m/s, %u near miss(es) (gates open, peak "
+        "within 20 %% under the %.2f threshold). Bins are 0.5 m/s wide and named by their lower edge; 0.00 means none yet. "
+        "The threshold belongs in the gap between the two lists; no gap means they overlap for this player and the travel "
+        "guard is the next lever",
+        who, cen.humps, effective_rearm(st), t, cen.minFirePeak, cen.minFireTravel, cen.maxQuietPeak, cen.nearMiss, st.edgeSpeed);
+}
+void note_hump(const Verdict& v, const Sample& s, const char* src) {
+    const bool open = !v.humpBlock && !s.closed;
+    // A near miss is UNDER the threshold by less than 20 %. A cut hump's peak is a
+    // lower bound, so it cannot be called one; a hump at or over the threshold that
+    // did not attack was held by the travel guard, and its line already says so.
+    const bool nearMiss = !v.humpFired && open && !v.humpCut && v.humpPeak >= 0.8f * st.edgeSpeed && v.humpPeak < st.edgeSpeed;
+    // The census is the PLAYER's hand. A simulated swing gets its line below and
+    // is never counted: a threshold must not be set from movements nobody made.
+    if (live_src(src)) {
+        ++cen.humps;
+        int bin = (int)(v.humpPeak * 2.0f); if (bin < 0) bin = 0; if (bin >= kCensusBins) bin = kCensusBins - 1;
+        cen.lastPeak = v.humpPeak; cen.lastTravel = v.humpTravel; cen.lastMs = v.humpMs; cen.lastFired = v.humpFired;
+        if (v.humpFired) {
+            ++cen.fired[bin];
+            if (cen.minFirePeak == 0.0f || v.humpPeak < cen.minFirePeak) cen.minFirePeak = v.humpPeak;
+        } else {
+            ++cen.quiet[bin];
+            if (open && v.humpPeak > cen.maxQuietPeak) cen.maxQuietPeak = v.humpPeak;
+            if (nearMiss) ++cen.nearMiss;
+        }
+    }
+    // One line per movement worth reading: anything that reached half the threshold.
+    // Slower ones are in the census only. Bounded by the re-arm latch: a hump cannot
+    // end more often than the hand can slow down.
+    if (v.humpPeak >= 0.5f * st.edgeSpeed)
+        Log("swing: hump (%s%s) peak=%.2f m/s travel=%.2f m over %.0f ms%s -> %s (threshold %.2f, travel guard %.2f m)%s",
+            src, live_src(src) ? "" : ", not counted in the census", v.humpPeak, v.humpTravel, v.humpMs,
+            v.humpCut ? " (CUT SHORT: tracking was lost, jumped, or no sample arrived for 100 ms - peak and travel are what was seen before the gap)" : "",
+            v.humpFired == kFiredStab ? "STAB" : v.humpFired ? "ATTACK"
+                : v.humpBlock == kBlockGate ? "no attack: a gate was closed" : v.humpBlock == kBlockRearm ? "no attack: not re-armed"
+                : v.humpBlock == kBlockCooldown ? "no attack: cooldown"
+                : v.humpPeak >= st.edgeSpeed ? "no attack: fast enough, the travel guard held it" : "no attack: under the threshold",
+            st.edgeSpeed, st.edgeTravelM,
+            nearMiss ? " - a NEAR MISS: if this was meant as a swing, the threshold is too high for this player" : "");
+}
+
 void handle(const Verdict& v, const Sample& s, double now, const char* src) {
     if (v.jump)
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
             "swing: tracking jump discarded (%.1f m/s in one sample, more than %.0f - the controller was re-acquired "
             "somewhere else, not swung)", v.roomSpeed, kMaxSpeed);
+    // Before the early return: a hump cut short by a tracking gap arrives on a
+    // verdict that carries no speed.
+    if (v.humpEnd) note_hump(v, s, src);
     if (!v.sampled) return;
     ++n.samples;
     note_speed(v.speed, now);
@@ -312,12 +390,14 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
         if (g_meleeHaptic) MaimHaptic(1, 0.7f, 0.08f);
         const double h1 = MaimNowMs();
         if (edgeMode)
-            Log("swing: FIRE #%u %s %.2f m/s (%s, detector=edge, threshold %.2f) -> %s %.0f ms, polls>=%d, haptic=%.1fms",
-                n.fires, v.fired == kFiredStab ? "stab" : "slash", v.speed, src, st.edgeSpeed, output_name(), len,
-                pulse.minPolls, h1 - h0);
+            Log("swing: FIRE #%u %s %.2f m/s after %.2f m of travel (%s, detector=edge, threshold %.2f, travel guard %.2f) -> %s %.0f ms, polls>=%d, haptic=%.1fms",
+                n.fires, v.fired == kFiredStab ? "stab" : "slash", v.speed, v.travelAtFire, src, st.edgeSpeed, st.edgeTravelM,
+                output_name(), len, pulse.minPolls, h1 - h0);
         else
             Log("swing: FIRE #%u slash %.2f m/s (%s, detector=sustain, run %.0f ms %.2f m) -> %s %.0f ms, haptic=%.1fms",
                 n.fires, v.speed, src, v.runMs, v.runDistM, output_name(), len, h1 - h0);
+        if (live_src(src) && v.fired == kFiredSlash && (cen.minFireTravel == 0.0f || v.travelAtFire < cen.minFireTravel))
+            cen.minFireTravel = v.travelAtFire;
         honour_begin(now);
     } else if (v.block) {
         ++n.blocked;
@@ -348,14 +428,18 @@ void beat(double now) {
         "locates whose hand had not moved at all",
         detector_name(), peak10s(), st.detector == kEdge ? st.edgeSpeed : st.sustainSpeed, n.samples, n.dups,
         why, n.fires, n.blocked, n.honoured, n.notHonoured, n.inconclusive, n.still);
+    if (now - cen.printedAt >= 60000.0 && cen.humps != cen.printedHumps) {
+        cen.printedAt = now; cen.printedHumps = cen.humps;
+        census_report("once a minute while it grows");
+    }
 }
 
 void report() {
     char why[160]; const double now = MaimNowMs(); closed_text(gates(now), now, why, sizeof(why));
     Log("swing: %s%s%s detector=%s output=%s | edge %.2f m/s rearm %.2f (effective %.2f) cooldown %.0f ms pulse %.0f ms "
-        "polls>=%d headRel=%d median=%d requireSword=%d%s | sustain %.2f m/s %.0f ms %.2f m hold %.0f ms",
+        "polls>=%d travel guard %.2f m headRel=%d median=%d requireSword=%d%s | sustain %.2f m/s %.0f ms %.2f m hold %.0f ms",
         g_meleeOn ? "ON" : "OFF", *veto() ? " vetoed by " : "", veto(), detector_name(), output_name(),
-        st.edgeSpeed, st.rearmSpeed, effective_rearm(st), st.cooldownMs, st.pulseMs, st.pulseMinPolls,
+        st.edgeSpeed, st.rearmSpeed, effective_rearm(st), st.cooldownMs, st.pulseMs, st.pulseMinPolls, st.edgeTravelM,
         (int)st.headRel, (int)st.median, (int)st.requireSword, force ? " (FORCED open)" : "",
         g_meleeSpeed, g_meleeSwingMs, g_meleeSwingDist, g_meleeHoldMs);
     Log("swing: gate: %s | armed=%d samples=%u dup=%u fires=%u blocked=%u (last: %s) honoured=%u kills=%u notHonoured=%u "
@@ -363,6 +447,7 @@ void report() {
         why, (int)live.armed(), n.samples, n.dups, n.fires, n.blocked, n.lastBlock, n.honoured, n.kills,
         n.notHonoured, n.inconclusive, n.lastSpeed, n.peak);
     n.peak = 0.0f;
+    census_report("status");
 }
 float clampf(float v, float lo, float hi) { return !(v == v) ? lo : v < lo ? lo : v > hi ? hi : v; }
 void ini_path(char* out) { _snprintf(out, MAX_PATH, "%s\\dishonored_vr.ini", g_dir); out[MAX_PATH - 1] = 0; }
@@ -477,7 +562,24 @@ void configure(const char* ini) {
     GetPrivateProfileStringA("Melee", "Detector", "", buf, sizeof(buf), ini);
     st.detectorFromIni = buf[0] != 0;
     st.detector = !_stricmp(buf, "sustain") ? kSustain : kEdge;   // edge since the 2026-09-20 headset verdict
-    st.edgeSpeed  = clampf(IniFloat(ini, "Melee", "EdgeSpeed", 3.6f), 0.3f, 10.0f);
+    st.edgeSpeed  = clampf(IniFloat(ini, "Melee", "EdgeSpeed", kShippedEdgeSpeed), 0.3f, 10.0f);
+    st.edgeTravelM = clampf(IniFloat(ini, "Melee", "EdgeTravelM", 0.0f), 0.0f, 1.0f);
+    // VR-170: the old default is WRITTEN in every installed ini, so a new compiled
+    // default alone reaches nobody, and a config version bump would rewrite the
+    // whole file and drop the machine's tuning (VR-159). So: once per ini, a stored
+    // value that is exactly the old default moves to the new one. EdgeSpeedRev is
+    // written either way, which is what lets a player type 3.6 back and keep it.
+    if (GetPrivateProfileIntA("Melee", "EdgeSpeedRev", 0, ini) < 1) {
+        if (fabsf(st.edgeSpeed - kOldShippedEdgeSpeed) < 0.005f) {
+            st.edgeSpeed = kShippedEdgeSpeed;
+            WritePrivateProfileStringA("Melee", "EdgeSpeed", "3.0", ini);
+            Log("config: [Melee] EdgeSpeed %.2f -> %.2f (one-time: the stored value was the old shipped default, EdgeSpeedRev=1 "
+                "written; type %.2f back in F10 or the ini and it stays)", kOldShippedEdgeSpeed, kShippedEdgeSpeed, kOldShippedEdgeSpeed);
+        } else
+            Log("config: [Melee] EdgeSpeed=%.2f kept (it is not the old shipped default %.2f, so it is this machine's own "
+                "tuning; EdgeSpeedRev=1 written)", st.edgeSpeed, kOldShippedEdgeSpeed);
+        WritePrivateProfileStringA("Melee", "EdgeSpeedRev", "1", ini);
+    }
     st.rearmSpeed = clampf(IniFloat(ini, "Melee", "RearmSpeed", 1.0f), 0.05f, 9.0f);
     st.pulseMs    = clampf(IniFloat(ini, "Melee", "PulseMs", 120.0f), 20.0f, 500.0f);
     st.pulseMinPolls = (int)clampf(IniFloat(ini, "Melee", "PulseMinPolls", 2.0f), 0.0f, 10.0f);
@@ -509,10 +611,10 @@ void configure(const char* ini) {
         "'stab: ARMED' in the log says when a thrust can count", (int)st.stab, st.stabArm ? "always" : "sneak",
         st.stabSpeed, st.stabTravelM, st.stabRatio, st.stabForward, st.stabWindowMs, st.shoulder[0], st.shoulder[1],
         st.shoulder[2]);
-    Log("config: [Melee] Detector=%s (%s) EdgeSpeed=%.2f RearmSpeed=%.2f (effective %.2f) PulseMs=%.0f PulseMinPolls=%d "
+    Log("config: [Melee] Detector=%s (%s) EdgeSpeed=%.2f EdgeTravelM=%.2f (0 = the travel guard is off) RearmSpeed=%.2f (effective %.2f) PulseMs=%.0f PulseMinPolls=%d "
         "HeadRel=%d Median=%d RequireSword=%d Output=%s HonourMs=%.0f HonourHaptic=%d - this line reports the SETTING; watch for "
         "'swing: FIRE' to know it fires, and 'swing: beat' names the closed gate when it does not",
-        detector_name(), st.detectorFromIni ? "ini" : "shipped default", st.edgeSpeed, st.rearmSpeed,
+        detector_name(), st.detectorFromIni ? "ini" : "shipped default", st.edgeSpeed, st.edgeTravelM, st.rearmSpeed,
         effective_rearm(st), st.pulseMs, st.pulseMinPolls, (int)st.headRel, (int)st.median, (int)st.requireSword,
         output_name(), st.honourMs, (int)st.honourHaptic);
 }
@@ -522,6 +624,8 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Melee", "Enabled", st.iniEnabled ? "1" : "0", ini);
     WritePrivateProfileStringA("Melee", "Detector", detector_name(), ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.edgeSpeed);  WritePrivateProfileStringA("Melee", "EdgeSpeed", v, ini);
+    WritePrivateProfileStringA("Melee", "EdgeSpeedRev", "1", ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.edgeTravelM); WritePrivateProfileStringA("Melee", "EdgeTravelM", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.rearmSpeed); WritePrivateProfileStringA("Melee", "RearmSpeed", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", g_meleeCoolMs); WritePrivateProfileStringA("Melee", "CooldownMs", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.pulseMs);    WritePrivateProfileStringA("Melee", "PulseMs", v, ini);
@@ -614,6 +718,8 @@ bool command(const char* args) {
         said = true;
     }
     else if (!strcmp(sub, "threshold") && *a) { st.edgeSpeed = clampf(f, 0.3f, 10.0f); Log("swing: EdgeSpeed=%.2f m/s, effective re-arm %.2f (live)", st.edgeSpeed, effective_rearm(st)); said = true; }
+    else if (!strcmp(sub, "travel") && *a)    { st.edgeTravelM = clampf(f, 0.0f, 1.0f); Log("swing: EdgeTravelM=%.2f m (live) - %s", st.edgeTravelM, st.edgeTravelM > 0.0f ? "a crossing fires only once the hand has covered this much in the same movement; it delays, it never blocks. Read 'least travel at a fire' in the census before choosing a value" : "the travel guard is off"); said = true; }
+    else if (!strcmp(sub, "census"))          { if (!strcmp(a, "reset")) { cen = Census{}; Log("swing: census cleared"); } census_report("asked"); return true; }
     else if (!strcmp(sub, "rearm") && *a)     { st.rearmSpeed = clampf(f, 0.05f, 9.0f); Log("swing: RearmSpeed=%.2f m/s, effective %.2f - capped at 0.9 x the threshold (live)", st.rearmSpeed, effective_rearm(st)); said = true; }
     else if (!strcmp(sub, "cooldown") && *a)  { g_meleeCoolMs = clampf(f, 0.0f, 2000.0f); Log("swing: CooldownMs=%.0f (live, both detectors)", g_meleeCoolMs); said = true; }
     else if (!strcmp(sub, "pulse") && *a)     { st.pulseMs = clampf(f, 20.0f, 500.0f); Log("swing: PulseMs=%.0f (live, edge detector; sustain keeps HoldMs=%.0f)", st.pulseMs, g_meleeHoldMs); said = true; }
@@ -643,7 +749,7 @@ bool command(const char* args) {
     }
     else if (!strcmp(sub, "save")) { char ini[MAX_PATH]; ini_path(ini); save(ini); Log("swing: [Melee] written to %s", ini); said = true; }
     else if (*sub && strcmp(sub, "status"))
-        Log("swing: status | on|off | mode edge|sustain | threshold <m/s> | rearm <m/s> | cooldown <ms> | pulse <ms> | "
+        Log("swing: status | on|off | mode edge|sustain | threshold <m/s> | travel <m> | census [reset] | rearm <m/s> | cooldown <ms> | pulse <ms> | "
             "polls <n> | rel on|off | filter raw|median | sword on|off | output rt|rb | honour <ms> | log on|off | force on|off | "
             "sim <peak m/s> [humpMs] [reps] | save | stab ... (the sneak-kill thrust: 'swing stab' lists it)");
     if (!said || !strcmp(sub, "status")) report();
@@ -669,6 +775,14 @@ void status(dvr::status::Writer& w) {
     w.kv("notHonoured", (unsigned long)n.notHonoured); w.kv("inconclusive", (unsigned long)n.inconclusive);
     w.kv("lastSpeed", (double)n.lastSpeed); w.kv("peakSpeed10s", (double)peak10s());
     w.kv("sim", sim.on);
+    w.kv("travelGuardM", (double)st.edgeTravelM);
+    w.obj("census");
+    w.kv("humps", (unsigned long)cen.humps); w.kv("nearMisses", (unsigned long)cen.nearMiss);
+    w.kv("lastPeak", (double)cen.lastPeak); w.kv("lastTravelM", (double)cen.lastTravel); w.kv("lastMs", (double)cen.lastMs);
+    w.kv("lastFired", cen.lastFired != 0);
+    w.kv("slowestAttackPeak", (double)cen.minFirePeak); w.kv("leastTravelAtFireM", (double)cen.minFireTravel);
+    w.kv("fastestNonAttackPeak", (double)cen.maxQuietPeak);
+    w.end_obj();
     w.obj("stab");
     w.kv("on", st.stab); w.kv("style", style_name()); w.kv("arm", st.stabArm ? "always" : "sneak"); w.kv("armed", sb.armed); w.kv("armedBy", sb.armedBy);
     w.kv("fires", (unsigned long)sb.fires); w.kv("rejects", (unsigned long)sb.rejects); w.kv("lastReject", sb.lastReject);
@@ -679,7 +793,8 @@ void status(dvr::status::Writer& w) {
 }
 
 void draw_ui() {
-    if (!ImGui::CollapsingHeader("Motion sword")) return;
+    // Open by default (VR-170): the speed slider is the one a player goes looking for.
+    if (!ImGui::CollapsingHeader("Motion sword", ImGuiTreeNodeFlags_DefaultOpen)) return;
     const double now = MaimNowMs();
     char v[32];
     bool onBox = g_meleeOn;
@@ -697,6 +812,8 @@ void draw_ui() {
     if (st.detector == kEdge) {
         ImGui::SliderFloat("swing speed needed (m/s)", &st.edgeSpeed, 0.5f, 8.0f, "%.2f");
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.edgeSpeed); ConfigWriteKey("Melee", "EdgeSpeed", v, "F10 Controls"); }
+        ImGui::SliderFloat("swing must travel first (m, 0 = off)", &st.edgeTravelM, 0.0f, 0.60f, "%.2f");
+        if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.edgeTravelM); ConfigWriteKey("Melee", "EdgeTravelM", v, "F10 Controls"); }
         ImGui::SliderFloat("re-arm below (m/s)", &st.rearmSpeed, 0.1f, 4.0f, "%.2f");
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.rearmSpeed); ConfigWriteKey("Melee", "RearmSpeed", v, "F10 Controls"); }
         ImGui::SliderFloat("attack press (ms)", &st.pulseMs, 20.0f, 300.0f, "%.0f");
@@ -757,9 +874,12 @@ void draw_ui() {
     }
     char why[160]; closed_text(gates(now), now, why, sizeof(why));
     ImGui::Text("last %.2f m/s   PEAK (10 s) %.2f m/s", n.lastSpeed, peak10s());
+    ImGui::Text("last movement: peak %.2f m/s over %.2f m -> %s", cen.lastPeak, cen.lastTravel, cen.lastFired ? "attack" : "no attack");
+    ImGui::Text("slowest attack %.2f m/s   fastest non-attack %.2f m/s   near misses %u", cen.minFirePeak, cen.maxQuietPeak, cen.nearMiss);
     ImGui::Text("gate: %s", why);
     ImGui::Text("fires %u  blocked %u  honoured %u  not honoured %u", n.fires, n.blocked, n.honoured, n.notHonoured);
     ImGui::TextDisabled("Swing, read PEAK, set the speed a little under it. The overlay itself closes the gate while it is up.");
+    ImGui::TextDisabled("Near misses rising = the speed is too high for you. Attacks while walking or reaching = too low.");
 }
 
 } // namespace dvr::swing

@@ -1,3 +1,50 @@
+## Session handoff 2026-09-21: the swing threshold and the hump census (VR-170)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-170-swing-threshold-census`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-170`), NOT merged. It also carries the research brief for VR-173
+  (`docs/dishonored/PLAN-contact-sword.md`). VR-171 (hide the sword trail) and VR-172
+  (camera shake control) are separate branches from the same session.
+- Simulator-verified, headset verdict owed. The record is `PHYSICAL_SWING.md` section 2b.
+
+### What changed
+
+- `[Melee] EdgeSpeed` ships at **3.0** (was 3.6, one rig's number that sat just under that
+  player's slowest swing). Existing inis are moved once by a marker-keyed migration
+  (`EdgeSpeedRev`), no `kConfigVersion` bump. Measured on the dev PC's ini, which held 3.60:
+  `config: [Melee] EdgeSpeed 3.60 -> 3.00 (one-time ...)` on the first launch, no line on the
+  next.
+- **The hump census.** Every live hand movement above the re-arm level is counted by peak
+  speed, split into attacked / did not attack, printed once a minute while it grows and on
+  `swing census`; a movement within 20 % under the threshold is a named NEAR MISS. This is the
+  half of the distribution a FIRE line never showed, and what the next threshold change is
+  read from.
+- **A travel guard (`EdgeTravelM`) exists and ships OFF.** Measured in the host tests and on
+  the simulator: a real swing has travelled only 0.15 m when it crosses the threshold, so the
+  small guard first considered decides nothing. Its value is to come from a player's census.
+- F10 > Controls > "Motion sword" opens by default; the speed slider is "swing speed needed
+  (m/s)".
+
+### What was found on the way
+
+- **The simulator's display clock leaps about 135 ms across a 50 ms game-thread hitch**, the
+  detector rightly re-seeds, and that landed inside about half of all 200 ms simulated-hand
+  swings. `swing-soft.xrs` therefore uses `swing sim` for its threshold legs (TRAPS has the
+  measurement and the suspect that was cleared). It also showed a census hole, fixed: a hump
+  ended by a tracking gap is reported `CUT SHORT`, not dropped.
+- `release/dishonored_vr.ini` had drifted from the production writer on `VR-Main`
+  (`default-profile-host.ps1` failed before any change of this session); regenerated.
+- The worktree's git identity was a personal one; the four commits were re-authored to the
+  repository's noreply identity BEFORE the first push. Nothing personal reached the remote.
+
+### Next steps
+
+1. Headset: soft swings register; walking, turning and reaching do not attack. Send the log:
+   the `swing: census` lines decide whether 3.0 stays and whether `EdgeTravelM` gets a value
+   (`least travel at a fire` against the travel on any unwanted `hump ... -> ATTACK` line).
+2. VR-173 when wanted: paste section 5 of `PLAN-contact-sword.md` into a fresh session.
+
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 
 ### Where things are RIGHT NOW

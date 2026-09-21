@@ -13,7 +13,10 @@ per swing, a body turn, repeated poses, doubled samples through the median, the
 tracking-jump and dt hygiene, the sustain detector, `swing sim`, the thrust). In the game:
 `tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` (a reach does not fire and
 peaks under 2.2 m/s, a swing fires and is HONOURED, a body turn does not fire) and
-`swing-gates.xrs` (block grip, power wheel, pause menu, sheathed sword: one BLOCKED
+`swing-soft.xrs` (VR-170: a 3.3 m/s swing attacks at the shipped 3.0 and is a named
+NEAR MISS at the old 3.6; the travel guard holds a swing shorter than itself without a
+BLOCKED line and only delays a longer one; the census counts the hand and never the
+`swing sim`), `swing-gates.xrs` (block grip, power wheel, pause menu, sheathed sword: one BLOCKED
 line each with its reason, then the same swing fires) and `swing-stab.xrs` (VR-155:
 a thrust standing is silent, crouching arms it off the capsule, the thrust fires and
 is HONOURED, a jab is REJECTED on travel, a floor reach and a slash are not stabs,

@@ -1,3 +1,20 @@
+## Motion sword: an easier swing, and a log that says where the threshold belongs (2026-09-21)
+
+The swing speed needed drops from 3.6 to **3.0 m/s** (`[Melee] EdgeSpeed`): 3.6 had
+been tuned on one player's arm and sat just under their slowest swing, so softer
+swings were being missed. An ini that still holds the old default is moved once, at
+the next launch, and the log says so; an `EdgeSpeed` you set yourself is left alone.
+The slider is F10 > Controls > Motion sword > "swing speed needed (m/s)", and that
+section now opens by default.
+
+The log now counts every hand movement by its peak speed, the ones that attacked and
+the ones that did not (`swing: census`, once a minute, and on `swing census`). Your
+threshold belongs in the gap between the two lists. A movement that came within 20 %
+of the threshold without attacking is called a NEAR MISS on its own line, and F10
+shows the count. New key `EdgeTravelM` (off): a swing must cover that many metres
+before it can attack, for rejecting a sharp jolt without raising the speed; it delays
+a real swing, it never refuses one. Details: `docs/dishonored/PHYSICAL_SWING.md` 2b.
+
 ## Motion sword (2026-09-20, judged in the headset on one rig)
 
 Swinging the right controller swings the sword again. The old detector never fired

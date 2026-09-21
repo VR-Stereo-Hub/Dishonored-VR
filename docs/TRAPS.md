@@ -299,6 +299,39 @@ with no `kConfigVersion` bump - a bump rewrites the whole ini and keeps three ke
 `SwingMs`, `SwingDistM` and `Haptic` were read for years and never written by
 `WriteDefaultIni`; they ship now.
 
+### VR-170: changing a default that every installed ini already holds
+
+`[Melee] EdgeSpeed=3.6` is in the default ini text, so it is in every installed ini,
+and lowering the compiled default to 3.0 would have reached no existing player. The
+two obvious routes are both wrong: a new key name orphans the value a player tuned
+in F10, and a `kConfigVersion` bump rewrites the whole file (VR-159). What shipped is
+a **one-time, per-key migration keyed on a marker**: `configure` moves a stored value
+only when it is exactly the OLD shipped default, and writes `EdgeSpeedRev=1` whether
+or not it moved. The marker written in BOTH branches is the part that is easy to get
+wrong: written only on a move, a player who later types the old value back is moved
+again at the next launch. The default ini text carries the marker, so a fresh install
+never runs it, and the log line says which branch ran.
+
+Simulator note: `xrsim-launch.ps1 -ViaSteam` restores the mod's ini from its
+pre-launch backup (VERIFICATION gotcha 16), so the migration's write is undone on
+the dev PC and the line reappears at every sim launch unless the installed ini
+already carries the marker. The "not on the second launch" half was tested by
+putting the ini in its post-migration state by hand before a launch.
+
+### The simulator's display clock leaps after a game-thread hitch (VR-170)
+
+Measured 2026-09-21: across a game-thread hitch of about 50 ms of wall clock, the
+simulator's predicted display time advanced 135 to 165 ms and one hand generation
+was skipped. Anything that differences poses over display time sees one sample
+carrying 150 ms of travel; the swing detector reads a gap over 100 ms as lost
+tracking and re-seeds, correctly. A hitch landed inside about half of all 200 ms
+simulated-hand swings, about 70 ms after the simulator command was applied, so **a
+simulated-hand gesture with no speed margin is not a reliable gate on this lane**.
+`swing sim` runs the same core, gates, pulse and game attack from the wall clock and
+does not leap. Suspect cleared along the way, so nobody re-walks it: the 500 ms
+`camera/source` probe does a full live-set build, but frame gaps fell within 120 ms
+of one of its samples 17 times out of 35, which is chance for a 500 ms cadence.
+
 ### What to do before touching a key
 
 1. **Find every place the value can live.** Grep for the key name across `src/`,

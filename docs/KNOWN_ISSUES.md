@@ -117,7 +117,10 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   draw it with the trigger first. A swing is ignored while a grip is held (block, the power
   wheel), in menus and while the F10 overlay is up. `[Melee] Detector=edge` is the new
   detector and the shipped default since it was judged in a headset (2026-09-20); `sustain`
-  is the old one, kept for comparison. Tuning: `docs/dishonored/PHYSICAL_SWING.md` section 6.
+  is the old one, kept for comparison. The speed needed is 3.0 m/s since VR-170 (it was 3.6,
+  one player's number): if swings are missed or ordinary movement attacks, F10 > Controls >
+  Motion sword shows your PEAK, your near misses and the slider. Tuning:
+  `docs/dishonored/PHYSICAL_SWING.md` sections 2b and 6.
 - **The sneak kill by gesture** [S3, VR-155]. A fast stab behind an unaware guard is a swing, and
   the game makes it the stealth kill: seen twice in the headset. `[Melee] Stab=1` (shipped, with
   `Detector=edge`) additionally makes a SLOW deliberate stab of the sword hand while crouched press the attack, which the game turns into
