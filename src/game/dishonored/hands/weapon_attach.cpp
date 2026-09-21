@@ -875,6 +875,18 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                             dvr::wf::Instance verdict = dvr::wf::INSTANCE_HELD;
                             if (g_waVerifyInstance) {
                                 verdict = WaVerifyDraw(known, &c2, &vOff, &vRef);
+                                // VR-166: a placed spring razor near the held one's component
+                                // vanished (placements in front of the player, measured 110-125 uu
+                                // out; ones at 61-62 uu from the component stayed). Every verdict
+                                // on the razor's buffers, with where the draw is, so held passes
+                                // and world copies can be told apart by numbers, not a radius guess.
+                                if (known->asset && strstr(known->asset, "SpringRazor"))
+                                    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 400,
+                                        "wa/razor: verdict %s offset %.1f uu (radius %.0f) draw at (%.0f,%.0f,%.0f)",
+                                        verdict == dvr::wf::INSTANCE_HELD ? "HELD" :
+                                        verdict == dvr::wf::INSTANCE_ELSEWHERE ? "ELSEWHERE" : "UNVERIFIABLE",
+                                        (double)vOff, (double)g_waPassRadiusUU,
+                                        (double)c2.t[0], (double)c2.t[1], (double)c2.t[2]);
                                 switch (verdict) {
                                 case dvr::wf::INSTANCE_HELD:
                                     InterlockedIncrement(&g_waVerifiedHeld);

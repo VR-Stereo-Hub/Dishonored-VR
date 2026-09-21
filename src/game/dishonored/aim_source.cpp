@@ -590,7 +590,15 @@ static void RazorWatchTick()
     if (g_rwDone) return;
     const double now = MaimNowMs();
     if (g_rwAddr) {
-        if (now - g_rwArmedMs < 60000.0 && g_rwN < 16) return;
+        // Print each writer as it is caught: build 612 held the report for the window's end
+        // and the game closed first, so nine placements produced nothing.
+        static LONG printed = 0;
+        LONG have = g_rwN; if (have > 16) have = 16;
+        for (; printed < have; ++printed)
+            Log("razor/watch: WRITER eip=0x%08X ret=0x%08X 0x%08X 0x%08X (first write %ld of the window)",
+                g_rwRecs[printed].eip, g_rwRecs[printed].ret[0], g_rwRecs[printed].ret[1],
+                g_rwRecs[printed].ret[2], (long)g_rwTotal);
+        if (now - g_rwArmedMs < 120000.0 && g_rwN < 16) return;
         RazorWatchApply(false);
         LONG n = g_rwN; if (n > 16) n = 16;
         Log("razor/watch: %ld write(s) to the placement point, %ld writer(s) - READ-ONLY; the writer that "
@@ -608,6 +616,6 @@ static void RazorWatchTick()
     if (!g_rwVeh) g_rwVeh = AddVectoredExceptionHandler(1, RazorWatchVeh);
     g_rwAddr = (uintptr_t)(ctx + 0xB8); g_rwArmedMs = now; g_rwN = 0; g_rwTotal = 0;
     RazorWatchApply(true);
-    Log("razor/watch: ARMED on the placing context %s %p +0xB8 for 60 s - place the razor again",
+    Log("razor/watch: ARMED on the placing context %s %p +0xB8 for 120 s - place the razor again",
         LooksLikeObj(ctx) ? ObjClassName(ctx) : "?", (void*)ctx);
 }
