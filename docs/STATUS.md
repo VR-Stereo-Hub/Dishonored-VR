@@ -1,3 +1,31 @@
+## Verified native settings candidate (2026-09-20)
+
+Installed `vr33-hands-working-556-g90543a1ad-dirty`; SHA256 `4eb0154e2069d8c06a2444ca1eaee4bdb7485c093e4e7da128a08a0853997743`.
+Prior DLL, full INI and both logs: `build/playtest-candidates/installs/20260920-205135`.
+Full installed INI byte-identical, CRLF verified; GameOptsWrite=108=1.0 remains
+armed. Release, lint, nine exports and42 production host checks pass. No launch.
+
+Fixes: apply returns a defined result; float readback compares floats; malformed,
+nonfinite, duplicate and unsupported requests are rejected before any call.
+Raw fallback removed. Existing-target equality is not reported as a change or
+proof of gameplay acceptance. Only an open pause-menu instance with a live
+settings-listener list is eligible. Readiness is polled once per second after
+initial gameplay read; closed/missing menus consume no apply attempts.
+
+Dispatch now directly calls the verified native implementation (address and
+prefix in patterns.h), checking the live pause instance's vtable target and
+code bytes. This avoids claiming ProcessEvent return proves native execution.
+Current liveness is rebuilt before each engine call. At most three eligible
+attempts; exact profile match stops retries, while the live effect remains
+explicitly unverified. No persistence call or merge.
+
+Next launch, one question: does opening Pause apply maximum head bob without
+moving the slider? Load gameplay, walk briefly, open Pause for about3 seconds,
+resume and walk. Bob becoming active supports live apply. Menu/profile1 with
+no bob means a consumer is still not updated. No eligible menu or failed
+readback is a refusal, not an apply success. If bob was already maximal before
+Pause, behavioural change is inconclusive. Read the log against this banner.
+
 ## Head-bob storage versus apply (2026-09-20)
 
 Run551 confirmed profile108 float1 ->0 and menu0, but bob stopped only after

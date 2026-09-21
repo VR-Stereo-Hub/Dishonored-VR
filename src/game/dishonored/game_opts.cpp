@@ -452,16 +452,14 @@ static void GameOptsApply()
                 "per session, so a headset run produces the answer by itself)");
         }
     }
-    // A pending write re-arms the read, so the apply path gets another attempt
-    // every few seconds until a readback proves it took. Without this the retry
-    // counter could never advance: the whole block lives inside a read that
-    // fires exactly once per session, four seconds into gameplay, which is
-    // precisely when the options screen does not exist.
+    // Poll only for readiness, not to repeatedly rewrite settings in gameplay.
     if (g_goWriteSpec[0] && !g_goWroteOnce && g_goAutoDone) {
         static double nextTry = 0.0;
         const double tnow = MaimNowMs();
-        if (nextTry == 0.0) nextTry = tnow + 5000.0;
-        else if (tnow >= nextTry) { nextTry = tnow + 5000.0; InterlockedExchange(&g_goReq, 1); }
+        if (tnow >= nextTry) {
+            nextTry = tnow + 1000.0;
+            if (BuildLiveSet() && GoFindMenuObject()) InterlockedExchange(&g_goReq, 1);
+        }
     }
     const long req = InterlockedExchange(&g_goReq, 0);
     if (!req) return;
@@ -627,28 +625,13 @@ static void GameOptsApply()
             "profile object was reached - see the REFUSED line above. The "
             "system column is unavailable when the console returns no text.");
     GoDumpMenuSettings("the automatic read");
-    // RETRY WHILE THE OPTIONS SCREEN IS OPEN. Firing once, four seconds into
-    // gameplay, is the worst possible moment for this: OnSettingChange is a
-    // native on the menu movie and appears to need a live settings context,
-    // and at that point there is none. Measured: the call ran and the profile
-    // did not change.
-    //
-    // So the spec stays pending and is retried, and the pending flag only
-    // clears when a readback proves the value actually took. Opening the
-    // options screen is then all the player has to do, which is the one thing
-    // they were going to do anyway.
-    if (obj && g_goWriteSpec[0] && !g_goWroteOnce) {
-        const bool tookAll = GoApplyWritesAndVerify(obj, g_goWriteSpec);
-        if (tookAll) {
+    if (obj && g_goWriteSpec[0] && !g_goWroteOnce && GoFindMenuObject()) {
+        const bool matched = GoApplyWritesAndVerify(obj, g_goWriteSpec);
+        ++g_goWriteTries;
+        if (matched || g_goWriteTries >= 3) {
             g_goWroteOnce = true;
-            Log("gameopts/write: every requested value now reads back at its target after %d "
-                "attempt(s); no further attempts.", g_goWriteTries + 1);
-        }
-        if (++g_goWriteTries >= 12) {
-            g_goWroteOnce = true;
-            Log("gameopts/write: giving up after %d attempts. If the values never took, the "
-                "apply path needs the options SCREEN open, not just the menu movie alive.",
-                g_goWriteTries);
+            Log("gameopts/apply: attempts=%d stopped: %s; gameplay effect still requires observation",
+                g_goWriteTries, matched ? "native returned and profile matched" : "validation/readback failed");
         }
     }
     Log("gameopts: ---- end ----");
@@ -695,70 +678,54 @@ static void GameOptsConfigure(const char* ini)
 // The live menu movie, or NULL. ui_state.cpp already watches every movie
 // player with its own liveness rules, so this reuses that table rather than
 // starting a second scan with different ones.
+// Only an open pause menu with a complete live listener list is eligible.
 static uint8_t* GoFindMenuObject()
 {
-    const LONG n = g_uiInstN;
-    for (LONG i = 0; i < n; ++i) {
-        uint8_t* o = g_uiInst[i].obj;
-        if (!o || !IsLiveObject(o)) continue;
-        const char* cn = ObjClassName(o);
-        if (cn && strstr(cn, "MoviePlayer") &&
-            (strstr(cn, "MenuBase") || strstr(cn, "PauseMenu") || strstr(cn, "MainMenu")))
-            return o;
+    static uint32_t openOff=0, openMask=0;
+    if (!openMask && !FindBoolProp("GFxMoviePlayer","bMovieIsOpen",&openOff,&openMask)) return NULL;
+    const uint32_t listeners=RflOffsetOf("DisGFxMoviePlayerMenuBase","m_SettingsListeners");
+    if (!listeners) return NULL;
+    for (LONG i=0;i<g_uiInstN && i<UI_INST_MAX;++i) {
+        uint8_t* o=g_uiInst[i].obj;
+        if (!IsLiveObject(o) || !RangeReadable(o+openOff,4)) continue;
+        const char* cls=ObjClassName(o);
+        if (!cls || strcmp(cls,"DisGFxMoviePlayerPauseMenu") ||
+            !(*(uint32_t*)(o+openOff)&openMask)) continue;
+        uint8_t* data=NULL; int32_t n=0;
+        if (!RflArrayAt(o,listeners,&data,&n) || n<=0 || n>128 || !RangeReadable(data,n*8)) continue;
+        bool valid=true;
+        for(int j=0;j<n;++j) {
+            uint8_t* object=*(uint8_t**)(data+j*8);
+            uint8_t* iface=*(uint8_t**)(data+j*8+4);
+            if (!IsLiveObject(object) || !iface || (uintptr_t)iface<(uintptr_t)object ||
+                (uintptr_t)iface-(uintptr_t)object>65536 || !RangeReadable(iface,4)) {valid=false;break;}
+        }
+        if(valid) return o;
     }
+    DVR_LOG_EVERY_MS(dvr::log::Cat::cfg,dvr::log::Level::Info,10000,
+        "gameopts/apply: pending; waiting for an open pause menu with live settings listeners; no write");
     return NULL;
 }
 
-// VR-161: THE APPLY PATH. This is what makes a written setting take effect.
-//
-// The array write reaches the profile and stops there, which is why the menu
-// showed the new value while gameplay kept using the old one. Reading the
-// native showed OnSettingChange does three things, and we were doing one:
-//
-//   1. update the profile through the typed setter        <- our write did this
-//   2. refresh a shared settings object from the profile  <- missing
-//   3. call the registered m_SettingsListeners so the     <- missing
-//      camera, pawn, controller, input and HUD pick it up
-//
-// The listeners are the point. SaveProfile only addresses persistence and was
-// never the gap.
-//
-// The id is the PROFILE id: the handler compares its argument against
-// PropertyId, so 108 is correct here and no separate menu id scheme is needed.
-// The value is a FLOAT - the same 0..1 scale the profile stores, not the
-// 0..100 percentage an earlier guess invented.
-//
-// Requires the menu movie to exist, because the function is a native on it.
-// When it does not, this refuses and says so rather than calling into nothing.
 static bool GoCallSettingChange(int id, double value)
 {
-    uint8_t* menu = GoFindMenuObject();
-    if (!menu) {
-        Log("gameopts/apply: REFUSED id=%d - no live menu movie. OnSettingChange is a native "
-            "on DisGFxMoviePlayerMenuBase, so the menu has to exist; open the pause menu once "
-            "and the object stays around for the session.", id);
-        return false;
+    if (!BuildLiveSet()) return false;
+    uint8_t* menu=GoFindMenuObject();
+    if (!menu || !RangeReadable(menu,4)) return false;
+    uint8_t* vt=*(uint8_t**)menu;
+    if (!RangeReadable(vt,kGoSettingChangeSlot+4) ||
+        *(uintptr_t*)(vt+kGoSettingChangeSlot)!=kGoNativeSettingChange ||
+        !RangeReadable((void*)kGoNativeSettingChange,sizeof(kGoSettingChangePrefix)) ||
+        memcmp((void*)kGoNativeSettingChange,kGoSettingChangePrefix,sizeof(kGoSettingChangePrefix))) {
+        Log("gameopts/apply: refused: native target or byte signature mismatch"); return false;
     }
-    static uint8_t* fn = NULL; static bool tried = false;
-    if (!tried) {
-        tried = true;
-        fn = FindFunctionObj("OnSettingChange");
-        Log("gameopts/apply: UFunction OnSettingChange %s%p",
-            fn ? "found @ " : "NOT FOUND ", (void*)fn);
-    }
-    if (!fn) return false;
-    // OnSettingChange(int _SettingID, float _fValue)
-    struct { int32_t id; float value; } parms;
-    memset(&parms, 0, sizeof(parms));
-    parms.id = (int32_t)id;
-    parms.value = (float)value;
-    g_peReentry = true;
-    ((PFN_ProcessEventCall)kProcessEvent)(menu, fn, &parms, NULL);
-    g_peReentry = false;
-    Log("gameopts/apply: called OnSettingChange(%d, %.3f) on %p. This is the game's own path, "
-        "so it should refresh the shared settings object AND notify the listeners - which is "
-        "what a raw array write never did. Whether the listeners acted is visible in the GAME, "
-        "not in this line.", id, value, (void*)menu);
+    // Direct verified implementation, not the exec thunk or a speculative FFrame.
+    // The native updates shared settings and dispatches its listener array.
+    const bool previous=g_peReentry;
+    g_peReentry=true;
+    ((void (__thiscall*)(void*,int,float))kGoNativeSettingChange)(menu,id,(float)value);
+    g_peReentry=previous;
+    Log("gameopts/apply: verified native returned id=%d value=%.6f menu=%p; checking profile separately",id,value,menu);
     return true;
 }
 
@@ -935,111 +902,48 @@ static bool GoWriteRaw(uint8_t* obj, int wantId, double newValue, int32_t* befor
 // Returns true only when EVERY id in the spec reads back at its target.
 static bool GoApplyWritesAndVerify(uint8_t* obj, const char* spec)
 {
-    if (!obj || !spec || !spec[0]) return false;
-    if (!BuildLiveSet() || !IsLiveObject(obj)) {
-        Log("gameopts/write: current live table refused object %p",obj); return false;
+    if (!obj || !spec || !*spec || !BuildLiveSet() || !IsLiveObject(obj)) return false;
+    int entries=0,ascending=0,inRange=0;
+    if (!GoVerifyStride(obj,&entries,&ascending,&inRange)) return false;
+    struct Request { int id; double value; } requests[14];
+    int count=0;
+    const char* p=spec;
+    while(*p) {
+        while(*p==' ') ++p;
+        char* end=NULL; const long id=strtol(p,&end,10);
+        if(end==p || *end!='=' || count==14) return false;
+        p=end+1; const double value=strtod(p,&end);
+        if(end==p || !std::isfinite(value) || value<0 || value>1) return false;
+        while(*end==' ') ++end;
+        if(*end && *end!=',') return false;
+        const bool allowed=id==105 || id==108 || id==109 || id==99 || id==81 || id==83 ||
+            id==120 || id==121 || id==122 || id==123;
+        if(!allowed || (id!=108 && value!=0 && value!=1)) return false;
+        for(int j=0;j<count;++j) if(requests[j].id==id) return false;
+        const GoRaw before=GoReadRaw(obj,(int)id);
+        if(!before.ok || before.owner!=2 || before.type!=(id==108?5:1)) return false;
+        requests[count++]={(int)id,value};
+        if(!*end) break;
+        p=end+1; if(!*p) return false;
     }
-    Log("gameopts/write: applying '%s'. This is a WRITE to the live profile array. A value "
-        "that changes here has NOT been shown to change the game; renderer state is unmeasured.", spec);
-    int goSeen = 0, goTook = 0;
-    const char* p = spec;
-    while (*p) {
-        while (*p == ' ' || *p == ',') ++p;
-        if (!*p) break;
-        char* endId = NULL;
-        const long id = strtol(p, &endId, 10);
-        const char* eq = strchr(p, '=');
-        if (!eq) { Log("gameopts/write: '%s' has no = ; nothing written", p); break; }
-        // Parsed as a DOUBLE, because not every setting is a boolean.
-        //
-        // CORRECTED 2026-09-20: head bob was armed as `108=100` on an assumed
-        // 0..100 profile range. That range was wrong - the stored value read
-        // back as float 1.0, so the scale is 0..1 and the write had put in a
-        // hundred times the maximum. The integer parser could not have
-        // expressed 0.5 either, so the range and the parser were wrong
-        // together, and fixing only one of them would have hidden the other.
-        char* endValue = NULL;
-        const double val = strtod(eq + 1, &endValue);
-        const bool parsedValue = endValue != eq+1;
-        while (*endValue == ' ') ++endValue;
-        if (endId != eq || endId == p || !parsedValue ||
-            (*endValue && *endValue != ',') || id<0 || id>153 || val<0.0 || val>1.0) {
-            Log("gameopts/write: malformed or out-of-range request '%s'; stopped. Every "
-                "supported setting is 0..1: the booleans take exactly 0 or 1, and head bob "
-                "is a normalised float, NOT a 0..100 percentage.",p); break;
-        }
-        int32_t before = 0;
-        // THE GAME'S OWN PATH FIRST. OnSettingChange updates the profile,
-        // refreshes the shared settings object and notifies the listeners; the
-        // raw array write only does the first of those, which is exactly why
-        // the previous attempt showed in the menu and changed nothing in play.
-        //
-        // The raw write stays as a fallback for when no menu movie exists: a
-        // value in the profile is still better than nothing, and the log says
-        // plainly which route was taken. A reader must never have to guess
-        // whether the listeners were notified.
-        const GoRaw pre = GoReadRaw(obj, (int)id);
-        if (pre.ok) before = pre.value;
-
-        // CALLED IS NOT APPLIED. The first version of this treated a
-        // successful ProcessEvent call as success and skipped the fallback -
-        // so when OnSettingChange returned without writing, nothing happened at
-        // all and the value stayed 0 in both the profile and the menu. The
-        // call landing says only that the function ran.
-        //
-        // So: call it, then CHECK. The profile value after the call is the
-        // only thing that says whether the native did anything, and the raw
-        // write still runs when it did not.
-        const bool called = GoCallSettingChange((int)id, val);
-        bool tookViaApply = false;
-        if (called) {
-            const GoRaw post = GoReadRaw(obj, (int)id);
-            if (post.ok) {
-                float pf = 0.0f, wf = (float)val;
-                memcpy(&pf, &post.value, 4);
-                tookViaApply = (post.type == 5) ? (fabsf(pf - wf) < 0.01f)
-                                                : (post.value == (int32_t)val);
-            }
-            Log("gameopts/apply:   id %ld: OnSettingChange ran and the profile %s. %s", id,
-                tookViaApply ? "CHANGED - the game's own path did the work"
-                             : "did NOT change",
-                tookViaApply ? "Listeners were notified as part of that same call."
-                             : "The native returned without writing, which usually means it "
-                               "refused: the options SCREEN is probably not open, so there is "
-                               "no current settings context for it to act on. Falling back.");
-        }
-        const bool ok = tookViaApply ? true : GoWriteRaw(obj, (int)id, val, &before);
-        if (!tookViaApply)
-            Log("gameopts/write:   id %ld: used the RAW ARRAY WRITE - the profile holds this "
-                "value and the menu will show it, but NO listener was notified, so a running "
-                "system keeps whatever it last applied.", id);
-        int32_t after = 0;
-        const GoRaw rb = GoReadRaw(obj, id);
-        if (rb.ok) after = rb.value;
-        // A float entry's raw dword is a bit pattern, so printing it as an
-        // integer reads as garbage (1.0f shows as 1065353216). Decode by the
-        // entry's own type rather than by which id it is.
-        const bool rbFloat = rb.ok && rb.type == 5;
-        float rbF = 0.0f; if (rbFloat) memcpy(&rbF, &rb.value, 4);
-        const bool took = ok && rb.ok && (rbFloat ? ((int)(rbF + 0.5f) == (int)val)
-                                                  : (after == val));
-        if (rbFloat)
-            Log("gameopts/write:   id %d: %s asked=%.3f readback=%.3f (float, raw 0x%08lx)%s",
-                id, ok ? "written" : "REFUSED - nothing written",
-                val, (double)rbF, (unsigned long)rb.value,
-                took ? "  (the array took it)" : "  (the array did NOT take it)");
-        else
-            Log("gameopts/write:   id %d: %s before=%ld asked=%.3f readback=%s%ld%s",
-                id, ok ? "written" : "REFUSED - nothing written",
-                (long)before, val, rb.ok ? "" : "(unreadable) ", (long)after,
-                took ? "  (the array took it)" : "  (the array did NOT take it)");
-        ++goSeen; if (took) ++goTook;
-        const char* comma = strchr(p, ',');
-        if (!comma) break;
-        p = comma + 1;
+    if(!count) return false;
+    bool all=true;
+    for(int i=0;i<count;++i) {
+        const int id=requests[i].id; const double value=requests[i].value;
+        const GoRaw before=GoReadRaw(obj,id);
+        const bool returned=GoCallSettingChange(id,value);
+        const GoRaw after=IsLiveObject(obj)?GoReadRaw(obj,id):GoRaw{0,0,0,0,false};
+        float f=0; memcpy(&f,&after.value,4);
+        const bool matched=returned && after.ok && after.owner==2 && after.type==(id==108?5:1) &&
+            (id==108 ? (std::isfinite(f) && fabsf(f-(float)value)<=0.00001f) : after.value==(int)value);
+        Log("gameopts/apply: id=%d native-returned=%d profile-match=%d changed-from-before=%d asked=%.6f readback=%.6f; "
+            "no raw fallback; live effect unverified",id,int(returned),int(matched),
+            int(before.ok && after.ok && before.value!=after.value),value,
+            after.ok?(after.type==5?(double)f:(double)after.value):NAN);
+        all=all && matched;
+        if(!returned) break;
     }
-    Log("gameopts/write: done. Whether the GAME honours any of these is a separate question "
-        "and this log cannot answer it - a verified write is not an honoured one.");
+    return all;
 }
 
 // For the F10 button. Read-only and idempotent, so it just queues.

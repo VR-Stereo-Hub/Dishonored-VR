@@ -1,3 +1,9 @@
+## Native settings apply candidate (2026-09-20)
+
+- [x] VR-161: verified direct native dispatch, open pause/listener gate, no raw fallback.
+- [x] VR-161:42 host checks and Release/lint/export validation; candidate installed.
+- [ ] VR-161: head bob applies after Pause without manual slider movement.
+
 ## Option and chain source review (2026-09-20)
 
 - [x] VR-161: fix nested menu enumeration and raw profile write validation; 17 host checks.

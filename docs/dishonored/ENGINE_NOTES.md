@@ -7992,3 +7992,24 @@ Range correction: maximum in this measured run was profile float1, not100.
 The default script stores float1 for id108 as well. The earlier0..100 profile
 assumption is unsupported; distinguish UI display units from stored units.
 
+## Native menu dispatch verification (2026-09-20)
+
+ue3-natives --verify reproduces the crossbow control, then resolves both
+DisGFxMoviePlayerMenuBase and DisGFxMoviePlayerPauseMenu slot+0x23c to
+0x00BCB870. The registered exec thunk parses int/float and dispatches that
+slot with this in ecx; the implementation ends ret8. constants and16-byte
+entry signature live in patterns.h as kGoNativeSettingChange,
+kGoSettingChangeSlot and kGoSettingChangePrefix. The actual native setter,
+not its FFrame exec wrapper, is called on the script lane.
+
+The candidate checks the exact pause class for selection plus IsLiveObject,
+the open bit, a bounded readable interface array, every listener object's
+liveness and interface storage, current vtable slot and target code prefix.
+A refreshed live set precedes each call. No UFunction flags are patched.
+The shared apply helper remains engine-owned. Direct-call return and profile
+match do not establish gameplay acceptance; the next headset run must do that.
+
+Review defects corrected: missing bool return, raw fallback contaminating
+success, closed arbitrary menu selection, integer rounding of float readback,
+and malformed/nonfinite request acceptance. Host tests run production
+validator/writer/apply bodies with stubbed engine access;42 checks pass.
