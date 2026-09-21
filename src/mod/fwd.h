@@ -58,6 +58,13 @@ static const char* NeckModeName(int mode);     // 41.1: the [Neck] lever
 static void ResEnumModes(const char* who);     // 41.1: the render-resolution picker (core/window/render_size.cpp)
 static void ResRequest(uint32_t w, uint32_t h, bool full, const char* who);
 static void ResLiveQueue(uint32_t w,uint32_t h);
+// VR-158: live fullscreen and vsync, both through the proven resize path.
+static bool ResLiveFullscreen();
+static bool ResLiveWantFullscreen();
+static bool ResLiveDeviceWindowed();
+static bool ResLiveWindowedByVirtualMode();
+static void ResLiveSetFullscreen(bool full,const char* who);
+static void ResLiveSetVsync(bool vsyncOn,const char* who);
 static void ResLiveApply(void* viewport);
 static void ResLivePoll();
 static int ResLiveState();
@@ -592,6 +599,9 @@ static inline void SkcRotApply();
 static inline void BoneWigApply();
 static int RunConsole(const wchar_t* wcmd, char* reply, int replyCap);
 static void IntroSkipApply();
+// VR-157: the game's own option settings, read-only (game/dishonored/game_opts.cpp).
+static void GameOptsApply();
+static bool GameOptsCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);

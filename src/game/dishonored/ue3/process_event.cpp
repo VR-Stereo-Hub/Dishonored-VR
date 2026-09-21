@@ -171,6 +171,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     }
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
+    GameOptsApply();   // VR-157: the seam's `gameopts` read, same lane, read-only
     dvr::anim::tick(); // VR-88: sample before any hand override writes
     PossessionStateTick(); // VR-135: read-only; the presentation verdict reads its result
     RainTick();            // VR-136: rain box measurement; the native hide only when [Rain] Hide=1

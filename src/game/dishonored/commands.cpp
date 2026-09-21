@@ -34,6 +34,13 @@
 //   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|filter raw|median|sword|output rt|rb|
 //         log|force|sim <peak> [humpMs] [reps]|save   the motion sword (game/dishonored/swing.h) - VR-37
 //   console <text>               run a game console command on the script lane
+//   fullscreen on|off            VR-158: live fullscreen, through the engine's own
+//                                resize (one device reset); windowed presents via DWM
+//   vsync on|off                 VR-158: live vsync ([Perf] ForceNoVSync), which needs
+//                                that same reset before UncapPresent can act
+//   gameopts [read|system]       VR-157: READ the game's own option settings -
+//                                the profile blob's value and the live
+//                                SystemSettings mirror, side by side. Read-only.
 //   dump frame|capture|eyes|hud [sink]
 //   hud on|off|status|scale <f>  the HUD redirect (core/gfx/hud_capture) - VR-117
 //   hud regions on|off           route elements by screen region (the probe)
@@ -407,6 +414,20 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         strncpy(g_dvrConsoleReq, args, sizeof(g_dvrConsoleReq) - 1);
         g_dvrConsoleReq[sizeof(g_dvrConsoleReq) - 1] = 0;
         Log("console: queued '%s' for the script lane", g_dvrConsoleReq);
+        return true;
+    }
+    if (!strcmp(cmd, "gameopts")) return GameOptsCommand(args);   // VR-157
+    // VR-158: the live display A/B. Both provoke one device reset.
+    if (!strcmp(cmd, "fullscreen")) {
+        if (DvrOnOff(args, &b)) { ResLiveSetFullscreen(b, "seam"); ConfigWriteKey("Screen", "RenderFullscreen", b ? "1" : "0", "the seam"); return true; }
+        Log("res/live: fullscreen on|off (device is %s; `vsync on|off` is the other half)",
+            ResLiveFullscreen() ? "fullscreen" : "windowed");
+        return true;
+    }
+    if (!strcmp(cmd, "vsync")) {
+        if (DvrOnOff(args, &b)) { ResLiveSetVsync(b, "seam"); ConfigWriteKey("Perf", "ForceNoVSync", b ? "0" : "1", "the seam"); return true; }
+        Log("res/live: vsync on|off (present is %s; ForceNoVSync=%d)",
+            g_forceNoVSync ? "uncapped" : "vsynced", (int)g_forceNoVSync);
         return true;
     }
     if (!strcmp(cmd, "dump")) {

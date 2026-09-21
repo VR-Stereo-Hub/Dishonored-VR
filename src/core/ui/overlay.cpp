@@ -799,6 +799,44 @@ static void OverlayFrame()
         ImGui::TextDisabled("Set applies and saves. A brief pause during resize is expected.");
         ImGui::TextDisabled("110%% means 10%% more pixels. FOV remains unchanged.");
         ImGui::Separator();
+        // VR-158: live fullscreen and vsync. Both ride the resize path above -
+        // fullscreen because it is one argument of the engine call, vsync
+        // because the device Reset that resize provokes is the only moment
+        // UncapPresent runs. Both default to the shipped behaviour, both fail
+        // soft: a refused switch leaves the running device alone and logs why.
+        ImGui::TextUnformatted("Live display A/B (both take effect now, no relaunch)");
+        {
+            const bool busy = resizeState==1 || resizeState==2 || resizeState==4;
+            bool liveFull = ResLiveFullscreen();
+            ImGui::BeginDisabled(busy);
+            if (ImGui::Checkbox("fullscreen (live)", &liveFull)) {
+                ResLiveSetFullscreen(liveFull, "F10 Display");
+                ConfigWriteKey("Screen", "RenderFullscreen", liveFull ? "1" : "0", "F10 Display");
+            }
+            bool vsyncOn = !g_forceNoVSync;
+            if (ImGui::Checkbox("vsync (live)", &vsyncOn)) {
+                ResLiveSetVsync(vsyncOn, "F10 Display");
+                ConfigWriteKey("Perf", "ForceNoVSync", vsyncOn ? "0" : "1", "F10 Display");
+            }
+            ImGui::EndDisabled();
+            // VR-158, corrected by the 2026-09-20 run: the checkbox shows what
+            // was ASKED. It used to show the device, which under VirtualMode is
+            // windowed by design, so ticking it snapped straight back.
+            ImGui::TextDisabled("Asked: %s. Device: %s. Present: %s.",
+                                ResLiveWantFullscreen() ? "fullscreen" : "windowed",
+                                ResLiveDeviceWindowed() ? "windowed" : "fullscreen",
+                                g_vsyncWant == 1 ? "vsynced (forced)"
+                                                 : (g_vsyncWant == 0 ? "uncapped (forced)"
+                                                                     : "the game's own choice"));
+            if (ResLiveWindowedByVirtualMode())
+                ImGui::TextDisabled("VirtualMode is ON, so the device is WINDOWED whatever this asks: "
+                                    "the proxy creates the advertised mode windowed. True fullscreen "
+                                    "needs a real display mode and VirtualMode off.");
+            ImGui::TextDisabled("Each switch costs one device reset - the same brief pause as a resize.");
+            ImGui::TextDisabled("A windowed ask larger than the desktop is refused: the engine clamps it "
+                                "and the render size is lost.");
+        }
+        ImGui::Separator();
     }
     if (ImGui::Button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
         dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());

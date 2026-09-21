@@ -164,3 +164,60 @@ win established; original setting restored and every game INI verified identical
 to backup. The same scene did not show a clear change from console scale get/set;
 empty replies are not proof a setting took. See RESOLUTION_FLOOR.md for populations,
 cycle costs, variation and retained evidence. Detail/LOD/decal levers remain untested.
+
+## VR-157: the twelve player-facing options are NOT in this folder (2026-09-20)
+
+The routing table above answers "which ini governs X" for engine settings. For the
+options a PLAYER sets from the game's own menus, the answer is: **none of them.**
+
+Twelve settings were checked - kill cam, head bob amount, camera-relative chain
+climbing, crosshair style, auto aim, aim assist, fullscreen, vsync, model details,
+light shafts, antialiasing, rat shadows. Every one of them lives in the Steam Cloud
+profile blob:
+
+```
+<Steam>\userdata\<id>\205100\remote\OPTIONS.sav     722 bytes
+```
+
+It is a bit-packed UE3 `OnlineProfileSettings` serialization, not text, and it is
+not in this folder at all (`My Games\...\SaveData\` holds only `Puid.txt`). The id
+table is `tools/uscript/dishonored/Engine/OnlineProfileSettings.uc`, enum
+`EProfileSettingID`:
+
+| Menu setting | PSI id | `[SystemSettings]` mirror |
+|---|---|---|
+| Kill Cam | `PSI_Gameplay_KillCamMode` 105 | none |
+| Head Bob Amount | `PSI_Gameplay_HeadBobAmount` 108 | none |
+| Chain Climbing (relative) | `PSI_Gameplay_CameraRelativeClimbing` 109 | none |
+| Crosshair Style | `PSI_HUD_CrosshairStyle` 99 | none |
+| Auto Aim | `PSI_Gamepad_bAutoAim` 81 | none |
+| Aim Assist | `PSI_Gamepad_bFriction` 83 (**label unconfirmed**) | none |
+| Fullscreen | `PSI_GraphicsPC_bFullScreen` 116 | `Fullscreen` |
+| Vsync | `PSI_GraphicsPC_bVSync` 117 | `UseVsync` |
+| Model Details | `PSI_GraphicsPC_ModelDetails` 120 | `DetailMode` |
+| Light Shafts | `PSI_GraphicsPC_LightShaftEnable` 121 | `bAllowLightShafts` |
+| Antialiasing | `PSI_GraphicsPC_AntiAliasingMode` 122 | `iType_AntiAlias` |
+| Rat Shadows | `PSI_GraphicsPC_RatShadows` 123 | `bAllowRatsShadow` |
+
+**The `[SystemSettings]` column is a MIRROR and it has already been caught lying.**
+On the dev PC `DishonoredEngine.ini [SystemSettings] bAllowLightShafts=True` while
+the in-game menu reported light shafts off. Whether the profile overrides the ini
+after startup or `bAllowLightShafts` is simply not the key the menu drives, the
+conclusion is the same: **do not read a player option out of this folder, and do
+not write one into it.** That is the stale-setting class in `docs/TRAPS.md`.
+
+The same key still appears in more than one section, and `UseVsync` and
+`Fullscreen` additionally exist in all four `[AppCompatBucketN]` sections of
+`DishonoredCompat.ini`, so a file-wide match remains wrong. Section-first, always.
+
+**How to read the truth instead.** `gameopts` on the command seam
+(`src/game/dishonored/game_opts.cpp`, read-only) reports both sides on one line
+per setting: the profile's value through the engine's own
+`GetProfileSettingValueInt`, and what the renderer holds now through
+`scale get <key>`. It never walks the `ProfileSettings` array by hand, because
+the `OnlineProfileSetting -> SettingsProperty -> SettingsData` chain has three
+enum fields whose packed widths this project has not measured. It also verifies
+each id's name with `GetProfileSettingName` and says on the line when the name
+does not match, so a wrong table reads as a mismatch rather than as a value.
+
+Needs GAMEPLAY: the profile object comes off the player controller.

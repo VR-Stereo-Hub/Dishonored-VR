@@ -7894,3 +7894,71 @@ exactly 11 characters, logs each distinct symbol it sees by name with whether it
 was accepted (`hud/heart-symbol`, at most eight), and `[Hud] NativeHeartAllSymbols`
 accepts them all. One run with a bone charm revealed by the Heart both proves the
 feature and prints the name, so the constant can be baked from a measurement.
+
+## VR-157: the option profile, read through the engine's own accessors (2026-09-20)
+
+The player's option settings are not in the game's inis (see
+`GAME_CONFIG_MAP.md` for where they are and the id table). Reading them needs
+the engine, because the values live in a `UOnlineProfileSettings` object and the
+names live in the packages, not in the image.
+
+Derived with `tools/ue3-natives.py <exe> natives --grep Profile` (the native exec
+registration table, 2554 entries):
+
+| Function | Exec thunk | What it gives |
+|---|---|---|
+| `UOnlinePlayerStorage::GetProfileSettingName` | `0x005CBD60` | an id's own FName - the instrument's self-check |
+| `UOnlinePlayerStorage::GetProfileSettingValueInt` | `0x005CC210` | the value, with a bool saying whether it answered |
+| `UOnlinePlayerStorage::GetProfileSettingValueId` | `0x005CC000` | the mapped value id and list index |
+| `UOnlinePlayerStorage::SetProfileSettingValueId` | `0x005CC400` | the write (**not used yet**) |
+| `UOnlineProfileSettings::SetToDefaults` | `0x005CD3A0` | reset |
+| `UDisGFxMoviePlayerMenuBase::OnLeaveOptions` | `0x009F7640` | the game's own apply path |
+
+`DishonoredPlayerController.GetProfileSettings()` is native and returns the
+`ArkProfileSettings` object; `SaveProfile()` is an **exec** on the same class and
+is what persists to `OPTIONS.sav`.
+
+**None of these are called through their exec thunks.** They are UFunctions, so
+they go through `ProcessEvent` exactly as `ConsoleCommand` does in `console.cpp`
+- same lane, same `g_peReentry` guard, same reason (our own hook re-enters). The
+parms blocks are plain and are validated by their results rather than asserted:
+`GetProfileSettings` must return an object whose class name contains
+`ProfileSettings` and which passes `IsLiveObject`, and each id's name must match
+the PSI spelling. A failure on either is logged as a refusal with the value that
+produced it, and the row is marked as not evidence.
+
+**Why no hand-walked array.** `OnlineProfileSetting { BYTE Owner; SettingsProperty
+ProfileSetting; }` wraps `SettingsProperty { INT PropertyId; SettingsData Data;
+BYTE AdvertisementType; }` wraps `SettingsData { BYTE Type; INT Value1; void*
+Value2; }`. Three enum fields whose packed widths and padding have not been
+measured on this build. A guessed stride would produce a table of confident
+nonsense, so the engine walks its own array instead.
+
+## VR-158: the engine resize takes a fullscreen argument (2026-09-20)
+
+`UWindowsViewport::Resize` at `kWindowsViewportResize`, `__fastcall` with six
+stack args and `ret 0x18`:
+
+```
+(native, nullptr, w, h, bFullscreen, option, x, y)
+```
+
+VR-50 passed the literal `1` for `bFullscreen`, which is why no lever could put a
+running game into windowed mode and back. `option` is bit 1 of the FViewport
+flags word at `kFViewportFlags`. Arg 3 is now the requested flag, and the whole
+surrounding guard - window-thread check, `kWindowsFViewportVtable` and
+`kWindowsViewportVtable` compares, the resize prologue and `ret` byte checks, the
+live `GameViewportClient` owner search, the queue/poll/confirm state machine - is
+unchanged.
+
+**That resize is also the only way to make a vsync change take.**
+`g_forceNoVSync` has one consumer, `UncapPresent` (`core/window/game_window.cpp`),
+which rewrites `D3DPRESENT_PARAMETERS::PresentationInterval`, and it runs only at
+`CreateDevice` and at `Reset` (`present_tick.cpp`, `DvrBeforeReset`). Flipping the
+flag on its own changes nothing until the next device event, so `vsync on|off`
+provokes a same-size resize and reports the present interval the reset produced.
+The reset's own line is the evidence; the request line is not.
+
+`g_gameWindowed` is set from the reset's present params, so it - not the
+requested flag - is what the F10 checkbox and `ResLiveFullscreen()` report. A
+refused resize therefore shows the device, not the wish.

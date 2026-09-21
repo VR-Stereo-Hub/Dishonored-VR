@@ -907,3 +907,104 @@ discovery that VR-143 moved into the crouch.
 **Not established:** why the distinct-shader count passed sixteen when it did.
 Different levels draw different shaders, and the laggy run is twice as long, so
 the 5x rate rise may be content rather than a change in our code.
+
+## VR-158: fullscreen and vsync as live A/B levers (2026-09-20, UNMEASURED)
+
+**Status: built and installed, nothing measured yet.** The prediction below has
+not been tested and must not be quoted as a result.
+
+**Where it came from.** Setting the game to windowed through its own settings
+menu was reported to cost a large amount of performance, resembling the state
+before the desktop mirror was turned off. That is a mechanism worth testing, not
+a coincidence: a windowed D3D9 swapchain presents through DWM composition, so
+every desktop present is paid for, while a fullscreen exclusive device bypasses
+it. If that is what happens, the windowed cost and the desktop-mirror cost
+(`DesktopMirrorOff`, already a measured win) are the same cost seen twice.
+
+**What was missing.** Neither lever could be switched during a run. Fullscreen
+was the literal `1` in the engine resize call; vsync (`[Perf] ForceNoVSync`, which
+defaults to 1) is only read by `UncapPresent` at device create and reset, so it
+had never been A/B'd in a headset at the current frame path. Both now switch live
+through the resize path VR-50 proved - `fullscreen on|off` and `vsync on|off` on
+the seam, and two checkboxes in the F10 Display tab. Each costs one device reset.
+
+**Prediction the next run can refute.** At ONE fixed resolution, with the desktop
+mirror already off:
+
+* windowed -> fullscreen moves the tick and `stereo: beat` pairs/s measurably
+* vsync on -> off moves the present rate but NOT the pair rate
+
+If fullscreen moves nothing once the mirror is off, the mechanism above is wrong
+and the two costs are one; record that outcome here rather than leaving the
+prediction standing.
+
+**Read pairs/s, not the tick mean.** TRAPS carries the reading error from VR-152:
+median pairs went 109 to 45 across two builds, a 59% loss that the tick mean
+showed as 13%.
+
+**Four combinations, one session, one resolution.** Changing the resolution
+between legs makes the comparison worthless, and `[Screen] RenderFullscreen` is
+written by the toggle, so the ini after the session reports the last leg, not the
+shipped default.
+
+### VR-158 run 2026-09-20: three faults, and the game has been WINDOWED all along
+
+First run of the levers. No A/B was obtained; what it produced instead is more
+useful than the A/B would have been.
+
+**The finding that reframes the ticket.** The proxy creates the device windowed
+ON PURPOSE, and always has:
+
+```
+res: CreateDevice - the game asked for 2750x2850 windowed=0 (ask 2750x2850 fullscreen, virtual ON)
+res: CreateDevice - VirtualMode: the game asked FULLSCREEN 2750x2850 (our advertised
+mode); creating it WINDOWED with the backbuffer kept
+```
+
+2750x2850 is not a display mode on this rig (the monitor lists 20 modes, the
+largest 5120x1440), which is why VirtualMode exists at all. So **every headset
+session to date has run windowed**, and if windowed-through-DWM carries a cost,
+this project has been paying it the whole time without knowing. The one
+fullscreen reset in the run was `device Reset (2560x1440 windowed=0)` - a real
+display mode.
+
+That makes the original hypothesis untestable as stated: fullscreen at the
+headset render size cannot be had while VirtualMode is on, and VirtualMode is
+required to reach that size. The comparison that IS available is fullscreen at
+2560x1440 against windowed at 2750x2850, which confounds mode with pixel count.
+
+**Fault 1 (ours): the vsync toggle collapsed the render resolution.**
+`ResLiveSetVsync` passed the DEVICE's fullscreen state into the resize. Under
+VirtualMode that reads windowed, so it asked for a windowed 2750x2850 where
+VR-50 had always passed 1. The engine clamped it to the desktop:
+
+```
+res: Reset - the game asked for 1355x1405 windowed=1 (ask 2750x2850 windowed, virtual ON)
+res/live: NOT CONFIRMED state=4 requested=2750x2850 capture=1355x1405 after10s
+```
+
+Fixed: vsync no longer touches the fullscreen ask, and a windowed ask larger
+than the desktop is refused up front with both sizes on the line.
+
+**Fault 2 (ours): the fullscreen checkbox could never stay ticked.** It read the
+device, which is windowed by design here, so it snapped back every frame. It now
+shows what was ASKED, reports the device separately, and says when VirtualMode
+is the reason the two differ.
+
+**Fault 3 (ours): the vsync ON leg never existed.** `UncapPresent` returns at
+its first line when `ForceNoVSync` is clear, so clearing the flag only stops
+forcing vsync off - it does not turn vsync on. This game asks for
+`D3DPRESENT_INTERVAL_IMMEDIATE` itself (`interval=0x80000000` at CreateDevice),
+so the "vsync on" leg ran uncapped and would have reported no difference for the
+wrong reason. `g_vsyncWant` now forces both directions and logs the interval at
+every reset, including when there was nothing to change.
+
+**What DID work.** The engine resize provokes a real device reset every time
+(`device Reset (WxH windowed=1)`, five in the run), so the mechanism for making
+a vsync change take is sound. The guarded resize path refused nothing and the
+capture confirmed each size it was given.
+
+**Next run.** Vsync is now A/B-able at a fixed size and is the cheaper question;
+take it first. For fullscreen, the honest test is VirtualMode OFF at a real
+display mode (2560x1440) against VirtualMode ON windowed at the same 2560x1440,
+so mode is the only variable.

@@ -244,6 +244,12 @@
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/ue3/uobject.cpp"
 #include "game/dishonored/ue3/reflect.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::cfg
+// VR-157: read-only; needs uobject.cpp's FindFunctionObj and console.cpp's RunConsole.
+#include "game/dishonored/game_opts.cpp"
+#undef DVR_CAT
+#define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/anim_state.cpp"
 #include "game/dishonored/possession_state.cpp"   // VR-135: before its one consumer
 #include "game/dishonored/stereo_state.cpp"

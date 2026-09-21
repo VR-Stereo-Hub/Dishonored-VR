@@ -93,8 +93,31 @@ static void FocusGuardTick()
 // run as fast as it can, and every extra frame is a fresher eye.
 static void UncapPresent(D3DPRESENT_PARAMETERS* pp, const char* where)
 {
-    if (!g_forceNoVSync || !pp) return;
-    if (pp->PresentationInterval == D3DPRESENT_INTERVAL_IMMEDIATE) return;
+    if (!pp) return;
+    // VR-158: the ON leg. `g_vsyncWant` is only set by the live lever; while it
+    // is -1 this behaves exactly as it did before, so an ini that never touches
+    // the lever sees no change.
+    //
+    // MEASURED 2026-09-20: this game asks for IMMEDIATE on its own, and the old
+    // code returned at its first line whenever the flag was off. So clearing
+    // ForceNoVSync did NOT turn vsync on - it stopped forcing it off, and the
+    // device stayed uncapped. The A/B had one working leg and reported nothing.
+    if (g_vsyncWant == 1) {
+        if (pp->PresentationInterval == D3DPRESENT_INTERVAL_ONE) {
+            Log("perf: %s - present interval already INTERVAL_ONE (vsync on, nothing to do)", where);
+            return;
+        }
+        Log("perf: %s - present interval 0x%08x -> INTERVAL_ONE (vsync ON, forced by the lever)",
+            where, (unsigned)pp->PresentationInterval);
+        pp->PresentationInterval = D3DPRESENT_INTERVAL_ONE;
+        return;
+    }
+    if (g_vsyncWant != 0 && !g_forceNoVSync) return;
+    if (pp->PresentationInterval == D3DPRESENT_INTERVAL_IMMEDIATE) {
+        Log("perf: %s - present interval already IMMEDIATE (vsync off; the GAME asked for it, "
+            "not us - so ForceNoVSync alone cannot be A/B'd here)", where);
+        return;
+    }
     Log("perf: %s - present interval 0x%08x -> IMMEDIATE (vsync off, uncapped)",
         where, (unsigned)pp->PresentationInterval);
     pp->PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
