@@ -493,6 +493,17 @@ mirror is not that fault unless the rows show otherwise.
 
 ---
 
+## 7a. The sword's swing trail is hidden, not moved (VR-171)
+
+The game's swoosh ribbon is a particle component on the pawn (template
+`Sword_Trail`) generated from the animated mesh. The weapon fix in this document
+corrects the DRAW of a mesh it can identify and never moves a component, so there is
+nothing here that could make a ribbon follow the hand: it is hidden with the engine's
+native `SetHidden` instead (`[SwordTrail] Hide=1`, `swordtrail on|off`, F10 > Controls
+> Motion sword). It is deliberately not a draw suppression: a translucent pass is
+exactly what section 4 warns against suppressing blind. What it is, how it was found
+and what was eliminated: ENGINE_NOTES, "VR-171".
+
 ## 8. The graveyard
 
 Every one of these was built, run in a headset, and failed.

@@ -1,3 +1,32 @@
+## Session handoff 2026-09-21: the sword's swing trail is hidden (VR-171)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-171-hide-sword-trail`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-171`), NOT merged. Same session as VR-170 (its own branch and PR) and VR-172.
+- Mechanics simulator-verified; the PICTURE is not, and cannot be on the simulator (below).
+  The record is ENGINE_NOTES "VR-171".
+
+### What was found
+
+- **The swoosh is not a stock anim-trail notify.** `TrailsNotify` and its two siblings are in
+  the name table and the ProcessEvent observer saw 0 of them in 4 sword attacks. A hide built on
+  that route was removed unrun.
+- **It is one particle component on the player pawn, template `Sword_Trail`**, added 282-290 ms
+  into the first attack and kept attached afterwards. `swordtrail census` found it and stays as
+  the instrument that names whatever an attack adds to the pawn.
+- **The hide** is the engine's native `SetHidden` on that component (the rain box's pattern),
+  `[SwordTrail] Hide=1` by default at the owner's request, live `swordtrail on|off`, F10 checkbox.
+- **The simulator never showed the ribbon**, about 30 captures with the hide off. So there is no
+  capture A/B: it could not have failed. `trail-hide.xrs` asserts the mechanics and says so.
+
+### Next steps
+
+1. Headset: swing the sword with the checkbox on and off (F10 > Controls > Motion sword). On: no
+   ribbon. Off: the ribbon as before. Watch an enemy swing: its trail must still be there.
+2. If a ribbon survives with the lever on, run `swordtrail census`, swing once, and send the
+   `trail/census:` lines: another template name goes into `[SwordTrail] Template`.
+
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 
 ### Where things are RIGHT NOW

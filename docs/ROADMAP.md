@@ -1,3 +1,11 @@
+## The sword's swing trail (VR-171, 2026-09-21)
+
+- [x] Probe: is it an anim-trail notify? No: 0 `TrailsNotify` from anyone in 4 sword attacks, with the names in the table.
+- [x] Component census: the attack adds one particle component to the pawn, template `Sword_Trail`, 282-290 ms in; it stays attached between swings.
+- [x] Hide with the engine's native `SetHidden`, default on, live `swordtrail on|off` and an F10 checkbox; pooled-component reuse handled.
+- [x] Simulator: `trail-hide.xrs` passes (found, hidden 0 -> 1, held through three attacks, shown and re-hidden by the lever).
+- [ ] Headset: the ribbon is gone on swings and enemy trails are unaffected. The simulator could not show the ribbon even with the hide off, so this box is the only visual evidence there will be.
+
 ## Motion sword (VR-37, 2026-09-20)
 
 - [x] Measure the old detector on the simulator: 0 attacks from three swings, every gate open.

@@ -1,3 +1,11 @@
+## The sword's swing trail is hidden (2026-09-21)
+
+The swoosh the game draws on a sword attack follows its own attack animation, not the
+blade in your hand, so in the headset it hung in the air beside the sword. It is now
+hidden for the player's swings (enemies keep theirs). New section `[SwordTrail]`:
+`Hide=1`, `Trace=1`, `Template=Sword_Trail`. Live: `swordtrail on|off`, or the checkbox
+in F10 > Controls > Motion sword.
+
 ## Motion sword (2026-09-20, judged in the headset on one rig)
 
 Swinging the right controller swings the sword again. The old detector never fired
