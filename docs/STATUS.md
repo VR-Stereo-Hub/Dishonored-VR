@@ -1,3 +1,57 @@
+## Startup reload follow-up and session handoff (2026-09-20)
+
+Installed `vr33-hands-working-558-gf83dc0edb-dirty`; SHA256
+`f0d861f7f479bdc90c6023d1e059cdce6eb4b1179ff7c005b2be5195a131eb42`.
+Release build, lint, exact nine exports and 80 production host checks pass.
+Installed INI byte-identical to previous (full comparison), CRLF verified:
+[GameOptions] DefaultsAtStartup=1; [Diagnostics] GameOptsWrite empty.
+Prior557 DLL/INI/log and prev.log archived in
+`build/playtest-candidates/installs/20260920-212026`. Never launch the game.
+
+**557 failed in gameplay:** tester still observed head bob. Log banner and
+installed hash matched557 before interpretation. At timestamp44673515 profile
+1770D800 id108 changed float1 ->0, all ten preflighted writes/readbacks succeeded.
+At44727031 the diagnostic selected the SAME populated profile1770D800 and read
+head bob float1 again. Thus a profile overwrite occurred after our startup write;
+the write/hook did not simply fail. Its exact writer and timing remain unknown.
+The original callback latched done after the first success and hid all later
+calls, so this run cannot establish how many additional startup applies occurred.
+
+**Last fix candidate:** remove first-success completion. Intercept every mode0
+apply until first verified gameplay in GameOptsApply, independent of diagnostic
+auto-read being enabled. Then close the startup window permanently for this
+process. Modes1/2 (menu applies) are never forced. Saved opt-out still disables
+writes. No retained engine pointers; every write refreshes BuildLiveSet and
+preflights all ten values. First24 native apply entries log profile, mode and
+startup-closed state, including ignored modes. This is a targeted hypothesis,
+not proven acceptance: it only fixes the overwrite if another mode0 apply
+occurs before gameplay. No menu-dependent fallback or periodic gameplay forcing.
+
+**One question next launch:** is head bob off on entering gameplay, without
+opening Pause/Options or touching sliders? Off supports live startup propagation.
+Still on: read new apply-observed lines and id108 readback before another edit.
+- If additional mode0 calls restore0 and gameplay still reads1, locate the later
+  profile writer/load completion; do not add a longer timer blindly.
+- If only one early mode0 call appears, this hook is too early for final profile
+  loading. Trace the asynchronous profile read completion and the other callers
+  of shared helper0x0093B7E0; mode1/2 logs distinguish other apply paths.
+- Profile0 with bob still on is the consumer-notification problem, distinct from
+  this run's measured overwrite. Do not claim profile match proves acceptance.
+
+**Resume map:** branch codex/vr-165-camera-source-review, existing stacked PR86;
+no merge authorized. User wants default-on startup restoration with saved F10
+Advanced opt-out; later deliberate changes survive the session. Do not switch
+to continuous enforcement. Core code game_opts.cpp, entry constants patterns.h,
+early installation proxy/dllmain.cpp, F10 overlay.cpp, config default config.cpp.
+Host harness tools/game-opts-host.ps1. Addresses/derivation in ENGINE_NOTES under
+Startup VR preset interception. Prior verified menu setter is0x00BCB870, guarded
+open pause menu/listeners; ProcessEvent returning did not prove native execution.
+Head bob108 is float type5, range0..1. Other preset targets int105=0,109=0,99=0,
+81=0,83=0,120=1,121=0,122=1,123=0. Fullscreen116/vsync117 excluded deliberately.
+Build556 native menu route + subsequent boot maximum bob were tester-confirmed;
+automatic reset to0 remains unconfirmed. Other targets need downstream checks.
+Chain-camera issue remains separate/unresolved. Preserve camera probe evidence.
+
 ## Automatic startup preset candidate (2026-09-20)
 
 Installed `vr33-hands-working-557-gba3ac15a4-dirty`, SHA256

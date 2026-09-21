@@ -8050,3 +8050,18 @@ following refusal and reapplication on a simulated next boot. The native stub
 compiles but its engine execution and mode0 timing await the installed557 run.
 Build556's next-boot float1 and maximum bob are observed/reported; they establish
 the previous native menu path, not acceptance of this new startup interception.
+
+
+### Startup completion correction after run557 (2026-09-20)
+
+Run557 installed banner/hash verified: all ten writes at44673515 succeeded;
+profile1770D800 head bob was float0 then float1 at gameplay diagnostic44727031.
+Same profile address, later overwritten value. First-success completion was
+premature; the log did not expose subsequent native calls, so the overwrite's
+source is not established. Candidate558 keeps mode0 interception enabled until
+first verified gameplay, never forces modes1/2, and logs the first24 apply
+entries regardless of mode/completion. Host tests now cover a second startup
+write following profile reload and leaving later gameplay edits alone (80 total).
+The fix depends on another mode0 application occurring before gameplay; if none
+occurs, trace profile-load completion instead. No live acceptance claimed.
+Full next-session decision tree and archives are at the top of STATUS.md.

@@ -80,8 +80,10 @@ int main() {
     rows[9][1]=123;
     GoBeforeSettingsApply(&object,1);require(rows[0][3]==7 && !g_goStartupDone);
     live=false;GoBeforeSettingsApply(&object,0);require(!g_goStartupDone);live=true;
-    GoBeforeSettingsApply(&object,0);require(g_goStartupDone && rows[0][3]==0);
-    rows[0][3]=1;GoBeforeSettingsApply(&object,0);require(rows[0][3]==1); // no reset on another startup call
+    GoBeforeSettingsApply(&object,0);require(!g_goStartupDone && rows[0][3]==0);
+    rows[0][3]=1;GoBeforeSettingsApply(&object,0);require(rows[0][3]==0); // profile reloaded during startup
+    g_goStartupDone=true;rows[0][3]=1;
+    GoBeforeSettingsApply(&object,0);require(rows[0][3]==1); // gameplay closes startup window
     GoBeforeSettingsApply(&object,1);require(rows[0][3]==1); // manual edits survive
     g_goStartupDone=false;g_goStartupPolicyRead=false;policy=0;
     GoBeforeSettingsApply(&object,0);require(g_goStartupDone && rows[0][3]==1); // saved opt-out

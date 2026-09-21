@@ -435,6 +435,7 @@ void GoReadSystemSetting(const char* key, char* out, int cap)
 // the same reason (RunConsole re-enters our own ProcessEvent hook).
 static void GameOptsApply()
 {
+    GameOptsCloseStartupWindow();
     // The self-ask. Waits for a player controller AND a settled gameplay
     // verdict, then a short grace so the profile read does not land in the
     // middle of a level load's script burst.
@@ -639,7 +640,7 @@ static void GameOptsApply()
 // Ships ON. The workflow here is that the tester plays and the maintainers read
 // the log afterwards, so a diagnostic that has to be asked for is one that is
 // never asked for. It costs one burst of lines, once, and then nothing.
-// Once per process, before the first valid startup settings application. No
+// During startup, before each mode0 settings application. No
 // retained engine pointers: every attempted write rebuilds the live-object set.
 static bool g_goStartupDone = false;
 static bool g_goStartupPolicyRead = false;
@@ -684,9 +685,20 @@ static bool GoWriteStartupDefaults(uint8_t* obj)
     return true;
 }
 
+static void GameOptsCloseStartupWindow()
+{
+    if (!g_goStartupDone && g_peCtrl && DvrGameplayVerdict()) {
+        g_goStartupDone=true;
+        Log("gameopts/defaults: startup window closed at first gameplay; further settings writes disabled");
+    }
+}
+
 static void __cdecl GoBeforeSettingsApply(uint8_t* obj, int mode)
 {
-    if (mode!=0 || g_goStartupDone) return; // never override later menu edits
+    static unsigned observed=0;
+    if (observed++<24)
+        Log("gameopts/defaults: apply observed profile=%p mode=%d startup-closed=%d",obj,mode,(int)g_goStartupDone);
+    if (mode!=0 || g_goStartupDone) return; // never override menu apply modes
     if (!g_goStartupPolicyRead) {
         // This callback runs in the engine, outside DllMain/loader lock. Read
         // here because initial settings can precede Direct3DCreate9/LoadConfig.
@@ -699,8 +711,7 @@ static void __cdecl GoBeforeSettingsApply(uint8_t* obj, int mode)
     }
     if (!g_goDefaultsAtStartup) { g_goStartupDone=true; return; }
     if (GoWriteStartupDefaults(obj)) {
-        g_goStartupDone=true;
-        Log("gameopts/defaults: ten defaults staged before engine refresh/listeners; later menu edits allowed");
+        Log("gameopts/defaults: ten defaults staged before engine refresh/listeners; startup window remains open");
     }
 }
 

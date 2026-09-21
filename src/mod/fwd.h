@@ -600,6 +600,7 @@ static bool GameOptsAutoEnabled();
 static void GameOptsSetAuto(bool on,const char* who);
 static bool GameOptsAutoFired();
 static void GameOptsConfigure(const char* ini);
+static void GameOptsCloseStartupWindow();
 static bool GameOptsStartupEnabled();
 static void GameOptsSetStartup(bool enabled);
 static uint8_t* GoFindMenuObject();
