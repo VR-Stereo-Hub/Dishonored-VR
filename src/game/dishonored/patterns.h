@@ -203,6 +203,16 @@ static const uint8_t   kTraceHelperABytes[6] = { 0x55, 0x8B, 0xEC, 0x8B, 0x45, 0
 static const uintptr_t kTraceHelperB = 0x00AA60D0;   // push ebp; mov ebp,esp; sub esp,60h
 static const uintptr_t kTraceHelperC = 0x00AA5FF0;   // push ebp; mov ebp,esp; sub esp,60h
 static const uint8_t   kTraceHelperBCBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x60 };
+// VR-44: READ-ONLY probe sites for the power aim census (aim_source.cpp). ENGINE_NOTES
+// "Where the powers read their aim". The player-camera accessor (pawn -> controller ->
+// camera; 95 callers, seven in power-component code), Windblast's aim routine (the
+// component's slot +0x168 calls it), and UsePower's aim-assist search (slot +0x184).
+static const uintptr_t kCamAccessor = 0x00B515C0;    // mov eax,[ecx+26Ch]
+static const uint8_t   kCamAccessorBytes[6] = { 0x8B, 0x81, 0x6C, 0x02, 0x00, 0x00 };
+static const uintptr_t kWindblastAim = 0x00BF9570;   // push ebp; mov ebp,esp; sub esp,18h
+static const uint8_t   kWindblastAimBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18 };
+static const uintptr_t kPowerAssist = 0x00C12B00;    // push ebx; mov ebx,esp; sub esp,8
+static const uint8_t   kPowerAssistBytes[6] = { 0x53, 0x8B, 0xDC, 0x83, 0xEC, 0x08 };
 static const uintptr_t kExecTrace = 0x006D0ED0;      // push ebp; mov ebp,esp; sub esp,0E4h
 static const uint8_t   kExecTraceBytes[9] = { 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xE4, 0x00, 0x00, 0x00 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;

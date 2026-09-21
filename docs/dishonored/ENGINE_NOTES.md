@@ -8362,3 +8362,17 @@ hook only ever runs for Blink.
 
 What would kill it: a counter at either site that does not move when that power is aimed,
 or a power whose target still follows the head while its site's input is on the hand ray.
+
+**The instrument (build after `02a955192`, not yet run).** `power/census:` in
+`aim_source.cpp`, armed by `[Aim] SourceProbe`, READ-ONLY. It has three entry hooks:
+* the player-camera accessor `0x00B515C0` (`8B 81 6C 02 00 00`; pawn -> controller ->
+  camera, 95 callers). Only callers in `0x00BE0000..0x00C60000` are counted;
+* Windblast's aim routine `0x00BF9570` (`55 8B EC 83 EC 18`);
+* UsePower's aim-assist search `0x00C12B00` (`53 8B DC 83 EC 08`), with the context's
+  item name from `+0x3C`.
+
+Each new (site, caller, class) pair logs once. A 5 s count follows for every key that
+moved. The accessor lead came from Windblast's routine itself, which fetches its camera
+through `0x00BF9610 call 0x00B515C0`. Seven of the accessor's call sites sit in
+power-component code: `0x00BF657D`, `0x00BF8F08`, `0x00BF9610`, `0x00BF9B94`,
+`0x00BFABF2`, `0x00BFB104` and `0x00BFD3D9`.
