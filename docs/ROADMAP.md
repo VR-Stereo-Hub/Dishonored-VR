@@ -6,6 +6,14 @@
 - [x] Simulator: `trail-hide.xrs` passes (found, hidden 0 -> 1, held through three attacks, shown and re-hidden by the lever).
 - [x] Fixed: with the lever on from launch the component was hidden and then forgotten one scan later (too new for the 2 s live-object table), so the lever could not show it again. Liveness for an attached component is now the pawn's own list on that scan; leg 0 of the sequence is that path.
 - [ ] Headset: the ribbon is gone on swings and enemy trails are unaffected. The simulator could not show the ribbon even with the hide off, so this box is the only visual evidence there will be.
+## The game's own camera shake (VR-172, 2026-09-21)
+
+- [x] Instrument: `camshake capture`, one row per game tick, the game's camera motion with the mod's own offset removed. Floor 0.00 / 0.00 / 0.06 uu.
+- [x] Attribution by holding one handle at zero: landing dip 45.8 uu = `PhysicalReact`, pistol kick 2.84 deg = `Recoil`, push-off lag 10.4 uu = `BumpSmoother`, bob and roll = two camera floats (already 0 through the head-bob option), `m_fReactionWeight` a master over the group. Each proven live by exaggeration.
+- [x] The feature: master + six categories, default removed (smoother kept), F10 section, `camshake` word, status.json, stand-down in cutscenes.
+- [x] Simulator: `camshake.xrs` passes (5 A/B legs); `headlook.xrs` and `swing-edge.xrs` pass with it on.
+- [ ] Headset: walking, firing, landing; and the three the simulator could not reach - damage taken, a sword landing on an enemy, explosions. A knockdown and camera collision near walls must still behave with `Landing` removed.
+- [ ] The 1.5 uu walking swing and 0.4 uu idle sway that no handle owns (the animated body the camera rides on): VR-175.
 
 ## Motion sword (VR-37, 2026-09-20)
 

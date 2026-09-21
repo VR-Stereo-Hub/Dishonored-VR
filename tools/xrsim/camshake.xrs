@@ -1,0 +1,73 @@
+# camshake.xrs - the game's own camera shake (VR-172): is it removed by default, does
+# the master switch bring it back, and does ONE category come back alone?
+#
+# Needs: a loaded level in GAMEPLAY on the dev PC's sewer save, the pistol in the left
+# hand with at least two shots, [Mode] GamepadOnly=0.
+# Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\camshake.xrs -Dir <sim dir>
+#
+# THE INSTRUMENT. `camshake capture <s> <tag>` records one row per game tick and
+# prints one CAPTURE line: the GAME's camera position minus the pawn (the mod's own
+# eye offset removed), motion faster than half a second, peak to peak per axis; and
+# the camera's POV rotation minus the controller's. Standing still reads 0.00 0.00
+# 0.06 uu and 0.000 deg: that is the noise floor every leg is judged against.
+#
+# THE ACTIONS are the two that are safe to repeat on this save's ledge: a jump in
+# place (the landing dips the camera 45.8 uu, the push-off 10.7) and one pistol shot
+# (2.84 deg of pitch). Do not add walking here: the save stands on a ledge, and a
+# drifting player slides off it and dies (it cost three rounds to learn that).
+#
+# Every leg is an A/B on one lever. The Z and pitch patterns are the assertions:
+# `Z 0.xx` is the floor, `Z dd.xx` is the game's own motion.
+
+@mod camshake on; camshake allow walk off; camshake allow fire off; camshake allow landing off; camshake allow hits off; camshake allow generic off; camshake allow smoother on; camshake release all
+@wait 4000
+
+# 1. Default: the landing dip is gone. What is left, about 10 uu, is the camera lagging
+#    the pawn for 90 ms as it leaves the ground: the stair smoother, which is kept on
+#    purpose (ENGINE_NOTES "VR-172"). So the bound here is "under 15", not the floor.
+@mark
+@mod camshake capture 4 on-jump
+@wait 800
+btn a press
+@log camshake: CAPTURE 'on-jump' .* peak to peak: X \S+ Y \S+ Z (\d|1[0-4])\.\d\d uu 8s
+@modassert features.cameraShake.suppress eq true
+@modassert features.cameraShake.handlesNotFound eq 0
+
+# 2. The master switch is what did it: off, and the landing dip is back.
+@mod camshake off
+@wait 2000
+@mark
+@mod camshake capture 4 off-jump
+@wait 800
+btn a press
+@log camshake: CAPTURE 'off-jump' .* peak to peak: X \S+ Y \S+ Z [2-9]\d\.\d\d uu 8s
+
+# 3. One category alone: landing allowed, everything else still removed. The dip is
+#    back, and the shot in leg 4 must still be flat.
+@mod camshake on; camshake allow landing on
+@wait 2000
+@mark
+@mod camshake capture 4 allow-landing-jump
+@wait 800
+btn a press
+@log camshake: CAPTURE 'allow-landing-jump' .* peak to peak: X \S+ Y \S+ Z [2-9]\d\.\d\d uu 8s
+
+# 4. A pistol shot with Fire removed: no pitch on the camera.
+@mark
+@mod camshake capture 4 on-fire
+@wait 800
+trigger l pull 200
+@log camshake: CAPTURE 'on-fire' .* controller rotation: pitch 0\.0\d\d yaw 8s
+
+# 5. Fire allowed: the kick is back. This is also the leg that proves leg 4's shot
+#    happened at all: a dry pistol would read flat here too, and fail.
+@mod camshake allow landing off; camshake allow fire on
+@wait 2000
+@mark
+@mod camshake capture 4 allow-fire
+@wait 800
+trigger l pull 200
+@log camshake: CAPTURE 'allow-fire' .* controller rotation: pitch [1-9]\.\d\d\d yaw 8s
+
+# Leave it as shipped.
+@mod camshake allow walk off; camshake allow fire off; camshake allow landing off; camshake allow hits off; camshake allow generic off; camshake allow smoother on; camshake on; camshake status

@@ -182,6 +182,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     LensTick();            // VR-137: camera lens effects measured; moved only when [Lens] Distance > 0
     CineTraceTick(); // VR-70: read-only camera trace layout
     CamModTick();    // VR-165: read-only; needs the trace's resolved camera cache
+    CamShakeTick();  // VR-172: holds the game's shake handles; before apply_offsets, so the capture reads the game's own position
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
     // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
     // lever only revalidates the camera object while it is armed, so the seam

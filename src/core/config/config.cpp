@@ -1003,6 +1003,23 @@ static void WriteDefaultIni(const char* ini)
         "; can, which is the protection 38.65 actually wanted. 0 = park everything, as before.\n"
         "SkipHoldMs=300\n"
         "\n"
+        "; The game's own camera shake (VR-172). On a monitor a bobbing, kicking camera\n"
+        "; is feedback; in a headset it is the view moving without your head. Suppress=1\n"
+        "; removes it. Each line below set to 1 lets the game move the camera for that\n"
+        "; again: Walk (bob and roll), Fire (the weapon kick), Landing (landing, physical\n"
+        "; impulses), Hits (hits and jolts), Generic (general shake and rumble). Smoother\n"
+        "; is not a shake: it glides the camera over stairs and steps, and ships at 1. Live:\n"
+        "; `camshake on|off`, `camshake allow <name> on|off`, or F10 > Controls > Camera\n"
+        "; shake. `camshake status` says which were measured and which are by name only.\n"
+        "[CameraShake]\n"
+        "Suppress=1\n"
+        "Walk=0\n"
+        "Fire=0\n"
+        "Landing=0\n"
+        "Hits=0\n"
+        "Generic=0\n"
+        "Smoother=1\n"
+        "\n"
         "[Rain]\n"
         "Hide=0\n"
         "Trace=1\n"
@@ -2463,6 +2480,7 @@ static void LoadConfig()
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
     SwordTrailConfigure(ini);   // VR-171
+    CamShakeConfigure(ini);   // VR-172
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
@@ -3685,6 +3703,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
     SwordTrailSave(ini);   // VR-171
+    CamShakeSave(ini);   // VR-172
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }

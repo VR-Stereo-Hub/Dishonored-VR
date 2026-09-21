@@ -76,6 +76,42 @@
    ribbon. Off: the ribbon as before. Watch an enemy swing: its trail must still be there.
 2. If a ribbon survives with the lever on, run `swordtrail census`, swing once, and send the
    `trail/census:` lines: another template name goes into `[SwordTrail] Template`.
+## Session handoff 2026-09-21: the game's own camera shake, attributed and removed (VR-172)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-172-camera-shake-control`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-172`), NOT merged. Same session as VR-170 (PR #89) and VR-171 (PR #90), each its
+  own branch. The record is ENGINE_NOTES "VR-172".
+- Simulator-verified for landing, the weapon kick, bob and roll. Damage taken, a sword landing
+  on an enemy and explosions could not be staged and are held by the influence's name only.
+
+### What was found
+
+- The shakes are Arkane camera influences, all at weight 1 all the time, so a weight attributes
+  nothing: the method was the same staged action with one handle held at zero, read from
+  per-tick rows. Landing dip 45.8 uu = `PhysicalReact`; pistol kick 2.84 deg = `Recoil`; the
+  jump's push-off lag 10.4 uu = `BumpSmoother` (the stair smoother, kept); bob and roll = two
+  camera floats the head-bob option already had at 0; `m_fReactionWeight` = a master over the
+  group, deliberately not used (it would take Lean and Aim with it).
+- **A walk still moves the camera 1.5 uu and standing still 0.4 uu with everything at zero.**
+  That is the animated first-person body the camera rides on, not a shake; VR-175.
+- Three readings were retracted on the way and are recorded (ENGINE_NOTES, TRAPS): the push-off
+  was first credited to `HitReact` off a capture that had opened too late; four rounds read
+  shake-free because the single-slot seam dropped the harness's release; the event's trailing
+  ints are not the stick's DeltaRot.
+- `hud-elements.xrs` fails `quadLayers (3) eq 2` on `VR-Main` with this feature off as well:
+  filed as VR-176, not touched here.
+
+### Next steps
+
+1. Headset, F10 > Controls > Camera shake: walk, sprint, fire, jump and land with the master on,
+   then off, to feel the difference. Then the three the simulator could not reach: take a hit,
+   land the sword on an enemy, stand near an explosion. If any of those still moves the view,
+   `camshake status` and the log's `camshake: beat` line say what is held.
+2. With `Landing` removed, check a knockdown and the camera near walls still behave
+   (`PhysicalReact` also carries `m_bHandleCameraCollision` in the game's own ini).
+3. Judge the stair smoother: stairs, and a jump's push-off, with `Smoother` on and off.
 
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 

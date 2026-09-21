@@ -79,6 +79,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "possessionstereo") && DvrOnOff(args, &b)) { PossessionStereoSet(b); return true; }   // VR-135
     if (!strcmp(cmd, "rainhide") && DvrOnOff(args, &b)) { RainHideSet(b); return true; }   // VR-136
     if (!strcmp(cmd, "swordtrail")) return SwordTrailCommand(args);   // VR-171
+    if (!strcmp(cmd, "camshake")) return CamShakeCommand(args);   // VR-172
     if (!strcmp(cmd, "raindistance")) { RainDistanceSet(atoi(args)); return true; }   // VR-136: uu, -1 native
     if (!strcmp(cmd, "lensdistance")) { LensDistanceSet(atoi(args)); return true; }   // VR-137: uu, 0 native
     if (!strcmp(cmd, "lenskeepsize") && DvrOnOff(args, &b)) { LensKeepSizeSet(b); return true; }   // VR-137
@@ -686,6 +687,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::anim::status(w);
     dvr::swing::status(w);
     SwordTrailStatus(w);   // VR-171
+    CamShakeStatus(w);   // VR-172
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);
