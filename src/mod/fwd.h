@@ -14,6 +14,21 @@ static bool PossessionStereoEnabled();
 static void PossessionStereoSet(bool on);
 static void PossessionStereoConfigure(const char* ini);
 static void RainTick();                 // VR-136 (rain_control.cpp)
+static void TrailTick();                // VR-171 (trail_control.cpp)
+static void SwordTrailConfigure(const char* ini);
+static void SwordTrailSave(const char* ini);
+static void SwordTrailHideSet(bool on, const char* who);
+static bool SwordTrailHideEnabled();
+static bool SwordTrailCommand(const char* args);
+static void SwordTrailStatus(dvr::status::Writer& w);
+static void CamShakeTick();             // VR-172 (cam_shake.cpp)
+static void CamShakeOnViewRot(const int32_t* in, const int32_t* prevWrite, bool havePrev, const int32_t* deltaRot, int32_t headYawU);
+static void CamShakeNoteSkipped();
+static void CamShakeConfigure(const char* ini);
+static bool CamShakeCommand(const char* args);
+static void CamShakeSave(const char* ini);
+static void CamShakeStatus(dvr::status::Writer& w);
+static void CamShakeDrawUi();
 static void RainConfigure(const char* ini);
 static void RainHideSet(bool on);
 static bool RainHideEnabled();

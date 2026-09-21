@@ -514,7 +514,14 @@ static void WriteDefaultIni(const char* ini)
         "; registering? lower it toward your PEAK. Attacking while you walk or reach?\n"
         "; raise it. RearmSpeed is how slow the hand must get before the next swing\n"
         "; can fire (never above 0.9 x EdgeSpeed); raise it if fast combos drop swings.\n"
-        "EdgeSpeed=3.6\n"
+        "; The log counts every hand movement by its peak speed (`swing: census`), the\n"
+        "; ones that attacked and the ones that did not: EdgeSpeed belongs in the gap\n"
+        "; between the two lists. EdgeTravelM makes a swing cover that many metres\n"
+        "; before it can attack (0 = off); it delays a real swing, it never refuses one.\n"
+        "; EdgeSpeedRev marks that the 3.6 -> 3.0 default change has been applied once.\n"
+        "EdgeSpeed=3.0\n"
+        "EdgeSpeedRev=1\n"
+        "EdgeTravelM=0\n"
         "RearmSpeed=1.0\n"
         "; edge: the attack is pressed for PulseMs, and at least until the game has\n"
         "; read the pad PulseMinPolls times (a hitch can swallow a short press).\n"
@@ -996,10 +1003,38 @@ static void WriteDefaultIni(const char* ini)
         "; can, which is the protection 38.65 actually wanted. 0 = park everything, as before.\n"
         "SkipHoldMs=300\n"
         "\n"
+        "; The game's own camera shake (VR-172). On a monitor a bobbing, kicking camera\n"
+        "; is feedback; in a headset it is the view moving without your head. Suppress=1\n"
+        "; removes it. Each line below set to 1 lets the game move the camera for that\n"
+        "; again: Walk (bob and roll), Fire (the weapon kick), Landing (landing, physical\n"
+        "; impulses), Hits (hits and jolts), Generic (general shake and rumble). Smoother\n"
+        "; is not a shake: it glides the camera over stairs and steps, and ships at 1. Live:\n"
+        "; `camshake on|off`, `camshake allow <name> on|off`, or F10 > Controls > Camera\n"
+        "; shake. `camshake status` says which were measured and which are by name only.\n"
+        "[CameraShake]\n"
+        "Suppress=1\n"
+        "Walk=0\n"
+        "Fire=0\n"
+        "Landing=0\n"
+        "Hits=0\n"
+        "Generic=0\n"
+        "Smoother=1\n"
+        "\n"
         "[Rain]\n"
         "Hide=0\n"
         "Trace=1\n"
         "Distance=-1\n"
+        "\n"
+        "; The sword's swing trail (VR-171). The game draws a swoosh along the path of\n"
+        "; its own attack animation; in the headset the blade is in YOUR hand, so the\n"
+        "; ribbon hangs where the blade is not. Hide=1 withholds it for the player's\n"
+        "; swings only (enemy trails are untouched). Live: `swordtrail on|off`, or\n"
+        "; F10 > Controls > Motion sword. Template is part of the name of the particle\n"
+        "; effect to hide; `swordtrail census` then one swing names what an attack adds.\n"
+        "[SwordTrail]\n"
+        "Hide=1\n"
+        "Trace=1\n"
+        "Template=Sword_Trail\n"
         "\n"
         "[Lens]\n"
         "Distance=18\n"
@@ -2444,6 +2479,8 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    SwordTrailConfigure(ini);   // VR-171
+    CamShakeConfigure(ini);   // VR-172
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
@@ -3665,6 +3702,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
+    SwordTrailSave(ini);   // VR-171
+    CamShakeSave(ini);   // VR-172
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }

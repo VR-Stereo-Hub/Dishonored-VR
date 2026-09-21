@@ -21,7 +21,7 @@ for a readable kill-available signal is VR-156.
 
 The decision is `src/game/dishonored/swing_core.h`: pure, no engine objects, hand
 and head positions and a timestamp in, a verdict out. `tools\swing-core-host.ps1`
-drives exactly that code (60 checks: 16 the thrust, 8 the plunge). The game side is `melee.cpp`
+drives exactly that code (75 checks: 16 the thrust, 8 the plunge, 15 the hump census and the travel guard). The game side is `melee.cpp`
 (`namespace dvr::swing`, declared in `swing.h`), present lane throughout.
 
 Two detectors, chosen by `[Melee] Detector` and live by `swing mode`:
@@ -59,6 +59,67 @@ produced 0 stabs, 0 stray attacks and 1 rejection (`plunge travel: started +0.12
 proven HARMLESS over a session of sneaking and its own positive case - a slow,
 deliberate plunge under 3.6 m/s becoming the kill - is proven on the simulator only.
 It ships on because that is the build that was judged; `swing stab off` is the A/B.
+
+### 2b. The threshold after that run, and the hump census (VR-170, 2026-09-21)
+
+3.6 was one player's number. Section 2a's 47 swings ran 3.70 to 6.35 m/s, so 3.6 sat
+just under THAT player's slowest swing, and players who swing softer reported swings
+that did not register. The shipped `EdgeSpeed` is **3.0**: 1.9 x the fastest
+non-swing measured through the median (the simulator's smooth reach) and 0.72 x that
+player's median. It is a default chosen from one rig and a report; the instrument
+below is what moves it next.
+
+**The hump census.** Until now the log showed the swings that attacked (`FIRE`) and
+nothing about the movements that did not, which is the half a threshold is actually
+set from. A *hump* is one excursion of the decision speed above the re-arm level: it
+starts at the first sample at or above `RearmSpeed` and ends where the latch re-arms.
+Every live hump is counted, binned by its peak in 0.5 m/s steps and split into
+attacked / did not attack:
+
+```
+swing: census (once a minute while it grows) 212 hand movement(s) above the 1.00 m/s re-arm level
+  since launch - no attack by peak m/s: 1.0:120 1.5:44 2.0:9 2.5:2 | attacked: 3.0:3 3.5:11 4.0:18 ...
+  | slowest attack peaked 3.12 m/s (least travel at a fire 0.14 m), fastest non-attack 2.71 m/s,
+  2 near miss(es) ...
+```
+
+`EdgeSpeed` belongs in the gap between the two lists. No gap means a player's fast
+reaches and soft swings overlap, and then speed alone cannot separate them: that is
+what the travel guard is for. A hump that reached half the threshold also gets its
+own line (`swing: hump (live) peak=... travel=... over ... ms -> ATTACK | no attack:
+<why>`), and one that peaked within 20 % under the threshold with the gates open is
+called a **NEAR MISS** on that line and counted: if a player says swings are being
+missed, that count agrees with them or it does not. `swing census` prints it on
+demand, `swing census reset` clears it, F10 shows the last movement, the slowest
+attack, the fastest non-attack and the near misses, and `status.json` carries
+`features.swing.census`. Simulated swings (`swing sim`) get a hump line marked
+`not counted in the census`: a threshold must not be set from movements nobody made.
+
+A hump that does not end by slowing down - tracking lost, a tracking jump, or no
+sample for longer than 100 ms - is reported `CUT SHORT` with what was seen before
+the gap, never dropped. Its peak is a lower bound, so it is never called a near miss.
+
+**The travel guard** (`EdgeTravelM`, `swing travel <m>`, F10 "swing must travel
+first") makes a crossing wait until the hand has covered that distance inside the
+same hump. It DELAYS a real swing by a sample or two; it never blocks and never
+latches, and a movement it held says so on its hump line. **It ships at 0 (off) on
+purpose.** Measured in the host tests and again on the simulator: a real swing has
+travelled only **0.15 m** when it crosses the threshold (6 m/s peak, 200 ms, median
+on), so a small guard - the 0.08 m first considered - decides nothing at all, and a
+guard large enough to reject a jolt (0.15 m and up) is a number that has to come from
+a player's census (`least travel at a fire`), not from arithmetic.
+
+**Reaching existing installs.** `EdgeSpeed=3.6` is written into every installed ini,
+so a new compiled default alone reaches nobody, and a `kConfigVersion` bump rewrites
+the whole file and drops the machine's tuning (VR-159). `dvr::swing::configure`
+therefore migrates once per ini: a stored value that is exactly the old default
+becomes 3.0, and `[Melee] EdgeSpeedRev=1` is written whether or not it moved - which
+is what lets a player type 3.6 back and keep it. The log says which happened:
+`config: [Melee] EdgeSpeed 3.60 -> 3.00 (one-time ...)` or `... kept (it is not the
+old shipped default ...)`. Measured on the dev PC's ini (it held 3.60): the line on
+the first launch, no line on the next. The core's own compiled `Config` keeps 3.6
+and guard 0, because the host tests pin them; the shipped number is the adapter's
+(`kShippedEdgeSpeed`, `melee.cpp`).
 
 ### The sample feed, and why it looks the way it does
 
@@ -136,7 +197,9 @@ keys have new names and resolve from compiled defaults when absent, so there is 
 |---|---|---|---|
 | `Enabled` | 1 | | the gesture |
 | `Detector` | `edge` | edge, sustain | see section 2 |
-| `EdgeSpeed` | 3.6 | 0.3-10 | edge: the hand speed (m/s) that is a swing |
+| `EdgeSpeed` | 3.0 (3.6 until VR-170) | 0.3-10 | edge: the hand speed (m/s) that is a swing |
+| `EdgeSpeedRev` | 1 | | marks that the one-time 3.6 -> 3.0 migration has run on this ini (section 2b) |
+| `EdgeTravelM` | 0 (off) | 0-1 | edge: metres the hand must cover in the same movement before a crossing may attack; delays, never blocks |
 | `RearmSpeed` | 1.0 | 0.05-9, effective <= 0.9 x EdgeSpeed | edge: how slow the hand must get to re-arm |
 | `CooldownMs` | 300 | 0-2000 | both: between attacks |
 | `PulseMs` / `PulseMinPolls` | 120 / 2 | 20-500 / 0-10 | edge: the press |
@@ -180,7 +243,8 @@ sim <peak m/s> [humpMs] [reps] | save`
 
 | Intent | Command | Read |
 |---|---|---|
-| the decision core | `tools\swing-core-host.ps1` | `swing-core: 60 checks passed` |
+| the decision core | `tools\swing-core-host.ps1` | `swing-core: 75 checks passed`, and the measured `census: a 6.0 m/s, 200 ms swing had travelled 0.150 m when it fired` |
+| a soft swing attacks at 3.0 and not at 3.6; the travel guard delays and never refuses; the census counts the hand and not the sim | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-soft.xrs -Dir <sim dir>` | six legs, each an A/B on one lever; the header says why the swings are `swing sim` and not the simulated hand |
 | a swing fires, a reach and a body turn do not | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` | FIRE then HONOURED; `peakSpeed10s lt 2.2` on the reach; `sim window finished: 3 fire(s)` |
 | every gate blocks once and says why | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-gates.xrs` | four BLOCKED reasons, then the same swing fires |
 
@@ -198,8 +262,8 @@ Loop: play 30 seconds, `swing status` (or F10 PEAK), change ONE value, `swing sa
 
 | What you notice | Read | Change |
 |---|---|---|
-| Swings do not register | `PEAK` against the threshold; `lastBlock` | PEAK under the threshold: lower `EdgeSpeed` to about 0.8 x your usual PEAK. A gate named: fix the gate (sword out, grip released) |
-| It attacks while you walk, turn or reach | PEAK during that movement | raise `EdgeSpeed` above it; confirm `HeadRel=1` and `Median=1` |
+| Swings do not register | `PEAK` against the threshold; `lastBlock`; the census's **near misses** | PEAK under the threshold, or near misses climbing: lower `EdgeSpeed` to about 0.8 x your usual PEAK, and not below the census's `fastest non-attack`. A gate named: fix the gate (sword out, grip released) |
+| It attacks while you walk, turn or reach | PEAK during that movement; the `swing: hump ... -> ATTACK` line for it (peak AND travel) | raise `EdgeSpeed` above it; confirm `HeadRel=1` and `Median=1`. If it was a short sharp jolt (travel well under your real swings' `least travel at a fire`), set `EdgeTravelM` between the two instead of raising the speed |
 | One swing, two attacks | two FIRE lines under 400 ms apart | raise `CooldownMs`; lower `RearmSpeed` |
 | A fast combo drops swings | `BLOCKED: not re-armed` or `cooldown` | raise `RearmSpeed` (up to 0.9 x the threshold); lower `CooldownMs` |
 | FIRE but no attack | the NOT HONOURED line | "BLOCKED instead": `swing output rb`. Polls flat: raise `PulseMs` or `PulseMinPolls` |

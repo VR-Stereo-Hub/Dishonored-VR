@@ -1,3 +1,20 @@
+## The sword's swing trail (VR-171, 2026-09-21)
+
+- [x] Probe: is it an anim-trail notify? No: 0 `TrailsNotify` from anyone in 4 sword attacks, with the names in the table.
+- [x] Component census: the attack adds one particle component to the pawn, template `Sword_Trail`, 282-290 ms in; it stays attached between swings.
+- [x] Hide with the engine's native `SetHidden`, default on, live `swordtrail on|off` and an F10 checkbox; pooled-component reuse handled.
+- [x] Simulator: `trail-hide.xrs` passes (found, hidden 0 -> 1, held through three attacks, shown and re-hidden by the lever).
+- [x] Fixed: with the lever on from launch the component was hidden and then forgotten one scan later (too new for the 2 s live-object table), so the lever could not show it again. Liveness for an attached component is now the pawn's own list on that scan; leg 0 of the sequence is that path.
+- [ ] Headset: the ribbon is gone on swings and enemy trails are unaffected. The simulator could not show the ribbon even with the hide off, so this box is the only visual evidence there will be.
+## The game's own camera shake (VR-172, 2026-09-21)
+
+- [x] Instrument: `camshake capture`, one row per game tick, the game's camera motion with the mod's own offset removed. Floor 0.00 / 0.00 / 0.06 uu.
+- [x] Attribution by holding one handle at zero: landing dip 45.8 uu = `PhysicalReact`, pistol kick 2.84 deg = `Recoil`, push-off lag 10.4 uu = `BumpSmoother`, bob and roll = two camera floats (already 0 through the head-bob option), `m_fReactionWeight` a master over the group. Each proven live by exaggeration.
+- [x] The feature: master + six categories, default removed (smoother kept), F10 section, `camshake` word, status.json, stand-down in cutscenes.
+- [x] Simulator: `camshake.xrs` passes (5 A/B legs); `headlook.xrs` and `swing-edge.xrs` pass with it on.
+- [ ] Headset: walking, firing, landing; and the three the simulator could not reach - damage taken, a sword landing on an enemy, explosions. A knockdown and camera collision near walls must still behave with `Landing` removed.
+- [ ] The 1.5 uu walking swing and 0.4 uu idle sway that no handle owns (the animated body the camera rides on): VR-175.
+
 ## Motion sword (VR-37, 2026-09-20)
 
 - [x] Measure the old detector on the simulator: 0 attacks from three swings, every gate open.
@@ -9,6 +26,14 @@
 - [x] VR-155 headset: `HONOURED kill` twice (through the slash detector: a kill plunge in earnest is over 3.6 m/s); armed 18 times, no stray attack.
 - [ ] VR-155: a SLOW plunge (under 3.6 m/s) producing the kill in the headset - the stab detector's own positive case, simulator-proven only.
 - [ ] VR-156: a readable kill-available signal, for arming on it and a haptic ready cue.
+
+### The threshold and the hump census (VR-170, 2026-09-21)
+
+- [x] Hump census and travel guard in the pure core; 75 host checks (15 new). Measured there: a real swing has travelled 0.15 m when it crosses the threshold, so the travel guard ships OFF.
+- [x] `EdgeSpeed` 3.6 -> 3.0 with a one-time per-ini migration (`EdgeSpeedRev`), no config version bump. Dev PC ini (held 3.60): line on the first launch, none on the next.
+- [x] Simulator: `swing-soft.xrs` passes (attacks at 3.0, NEAR MISS at 3.6, guard delays and never refuses, the census ignores `swing sim`); `swing-edge.xrs` and `swing-gates.xrs` still pass.
+- [x] A hump cut by a tracking gap is reported `CUT SHORT`, found when a simulator hitch made one vanish.
+- [ ] Headset: soft swings register, walking / turning / reaching does not attack; the census from that run decides whether 3.0 stays and whether `EdgeTravelM` gets a value.
 
 ## Accepted startup preset; chain remains open (2026-09-20)
 

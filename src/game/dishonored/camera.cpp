@@ -476,6 +476,16 @@ bool render_pos_world(float out[3]) {
     return true;
 }
 
+// VR-172: where the GAME put the camera, with the mod's own offset taken back out.
+// The seam's field holds base + our eye/position offset while the engine has not
+// recomputed it; current_base() is what knows the difference. The camera shake
+// capture differences this against the pawn, so the mod's own lean and eye offset
+// must not be in it. With no field chosen yet it reads the first POV block raw.
+bool game_base_pos(uint8_t* cam, float out[3]) {
+    const uint32_t off = g_field >= 0 ? kFields[g_field].off : kPovOffs[0];
+    return current_base(cam, off, g_eyeWriter, out);
+}
+
 // ---- positional tracking: the offset, the lane, the ceiling ------------------------------
 void set_position_offset_uu(float right, float up, float fwd, const float* withoutCancel) {
     AcquireSRWLockExclusive(&g_positionLock);

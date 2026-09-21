@@ -107,6 +107,7 @@ static void OverlayFrame()
         ImGui::TextWrapped("Thumbrest selection automatically uses the opposite stick. Both grips retain their normal actions.");
         ImGui::TextWrapped("No thumbrest input on your controller? Choose R3. Settings apply and save immediately.");
         dvr::swing::draw_ui();   // VR-37: the motion sword
+        CamShakeDrawUi();        // VR-172: the game's own camera shake
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Aim")) {

@@ -1025,3 +1025,13 @@ re-defaulted old ones, with no `kConfigVersion` bump, because `SwingSpeed` and
 active pad binding set is a property of the install, and the honoured-check
 (`StatePlayerMeleeAttack` within `HonourMs` of a fire) is the instrument that says
 which a given machine needs: a press reaching the pad proves nothing.
+
+- **2026-09-21 (VR-172): the game's camera shake is removed at its source, handle by handle, not
+  cancelled at the camera seam, and not through the group's master scalar.** The shakes are Arkane
+  camera influences applied in the camera's own POV update, after the view-rotation event the
+  head write rides on, so there is nothing at the seam to subtract. `m_fReactionWeight` would have
+  been one write instead of five, and was measured to remove everything at once; it is not used
+  because the same group holds `Lean`, `DisCamera_Aim` and the stair smoother. The default is
+  REMOVED, against the default-off rule for new levers, at the owner's explicit request: in a
+  headset the game's setting is the wrong one in every session. The stair smoother is measured,
+  named and kept.

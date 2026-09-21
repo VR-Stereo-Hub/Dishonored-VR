@@ -1,3 +1,36 @@
+## Motion sword: an easier swing, and a log that says where the threshold belongs (2026-09-21)
+
+The swing speed needed drops from 3.6 to **3.0 m/s** (`[Melee] EdgeSpeed`): 3.6 had
+been tuned on one player's arm and sat just under their slowest swing, so softer
+swings were being missed. An ini that still holds the old default is moved once, at
+the next launch, and the log says so; an `EdgeSpeed` you set yourself is left alone.
+The slider is F10 > Controls > Motion sword > "swing speed needed (m/s)", and that
+section now opens by default.
+
+The log now counts every hand movement by its peak speed, the ones that attacked and
+the ones that did not (`swing: census`, once a minute, and on `swing census`). Your
+threshold belongs in the gap between the two lists. A movement that came within 20 %
+of the threshold without attacking is called a NEAR MISS on its own line, and F10
+shows the count. New key `EdgeTravelM` (off): a swing must cover that many metres
+before it can attack, for rejecting a sharp jolt without raising the speed; it delays
+a real swing, it never refuses one. Details: `docs/dishonored/PHYSICAL_SWING.md` 2b.
+## The sword's swing trail is hidden (2026-09-21)
+
+The swoosh the game draws on a sword attack follows its own attack animation, not the
+blade in your hand, so in the headset it hung in the air beside the sword. It is now
+hidden for the player's swings (enemies keep theirs). New section `[SwordTrail]`:
+`Hide=1`, `Trace=1`, `Template=Sword_Trail`. Live: `swordtrail on|off`, or the checkbox
+in F10 > Controls > Motion sword.
+## The game's own camera shake is off (2026-09-21)
+
+On a monitor a bobbing, kicking camera is feedback. In a headset it is your view moving
+without your head. It is now removed by default: the bob and roll on the move, the weapon
+kick, the dip when you land, and the jolts on hits and explosions. New section
+`[CameraShake]`: `Suppress=1`, and `Walk`, `Fire`, `Landing`, `Hits`, `Generic` at 0 (set
+one to 1 to let the game move the camera for that again), `Smoother=1` (the game's stair
+smoother, which is not a shake and is kept). Live: `camshake on|off`, `camshake allow <name>
+on|off`, or F10 > Controls > Camera shake.
+
 ## Motion sword (2026-09-20, judged in the headset on one rig)
 
 Swinging the right controller swings the sword again. The old detector never fired

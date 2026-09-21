@@ -88,6 +88,12 @@ struct Config {
     float cooldownMs   = 300.0f;   // between fires, both detectors
     bool  headRel      = true;     // edge: subtract the head's own movement
     bool  median       = true;     // edge: decide on the median of the last 3 speeds
+    // edge: how far the hand must have travelled in this hump before a crossing may
+    // fire (VR-170). 0 = off, and off is what ships: a real swing has covered only
+    // about 7 cm when it crosses the threshold, so a value here is a measurement to
+    // take from the hump census, not a number to guess. A shortfall DELAYS the fire
+    // while the speed stays up; it never blocks and never latches.
+    float edgeTravelM  = 0.0f;
     float sustainSpeed = 1.8f;     // m/s, the sustain gate
     float sustainMs    = 120.0f;
     float sustainDistM = 0.25f;
@@ -138,6 +144,25 @@ struct Verdict {
     int      stabReject = kStabOk;
     float    stabTravel = 0.0f, stabRatio = 0.0f, stabForward = 0.0f, stabMs = 0.0f, stabPeak = 0.0f;
     float    stabStartDy = 0.0f; // plunge: where the hand started, metres above (+) the shoulder line
+    // edge, the hump census (VR-170). A hump is one excursion of the decision speed
+    // above the re-arm level: it starts at the first sample at or above it and ends
+    // where the latch re-arms. humpEnd is set on that ONE sample, so a player's
+    // whole session reads as one line per hand movement: the swings that fired, and
+    // - the half nobody could see before - the movements that did not, with how
+    // fast and how far they were. That distribution is what a threshold is set from.
+    bool     humpEnd = false;
+    float    humpPeak = 0.0f;    // the highest decision speed inside it, m/s
+    float    humpTravel = 0.0f;  // path covered inside it, head movement subtracted when HeadRel is on
+    float    humpMs = 0.0f;
+    int      humpFired = kFiredNone;
+    int      humpBlock = kBlockNone;
+    uint32_t humpClosed = 0;     // the closed gates at that block
+    float    travelAtFire = 0.0f;   // edge: the hump's travel at the moment it fired
+    // The hump did not end by slowing down: tracking was lost, jumped, or the samples
+    // stopped for longer than kMaxDtMs (a hitch). What it had is still reported -
+    // measured on the simulator 2026-09-21, a 135 ms game-thread stall landed inside
+    // a swing and the movement vanished from the census without a line.
+    bool     humpCut = false;
 };
 
 inline bool finite3(const float* v) {
@@ -153,6 +178,7 @@ public:
     Verdict feed(const Sample& s, const Config& c) {
         Verdict v{};
         if (!s.handValid || !finite3(s.hand) || !std::isfinite(s.tMs)) {
+            cut_hump(v);
             have_ = false; forget(); stabRun_ = false;   // lost tracking: re-seed
             return v;
         }
@@ -166,6 +192,7 @@ public:
                 const float roomStep = len(d);
                 if (roomStep / (float)(dt * 0.001) > kMaxSpeed) {
                     v.jump = true; v.roomSpeed = roomStep / (float)(dt * 0.001);
+                    cut_hump(v);
                     forget();
                     seed(s, headOk);
                     return v;
@@ -181,12 +208,14 @@ public:
                 if (c.detector == kEdge) {
                     v.rawSpeed = len(d) / sec;
                     v.speed = c.median ? median3(v.rawSpeed) : v.rawSpeed;
-                    edge(s, c, v);
+                    edge(s, c, len(d), v);
                     if (c.stab && headOk) thrust(s, c, d, v); else stabRun_ = false;
+                    if (hump_ && v.fired) humpFired_ = v.fired;   // a thrust inside the hump counts as its fire
+                    if (hump_ && v.block) { humpBlock_ = v.block; humpClosed_ = v.closed; }
                 }
                 else                     sustain(s, c, roomStep, v);
             }
-            else forget();     // a gap beyond kMaxDtMs, or time running backwards: re-seed below
+            else { cut_hump(v); forget(); }   // a gap beyond kMaxDtMs, or time running backwards: re-seed below
         }
         seed(s, headOk);
         return v;
@@ -201,6 +230,15 @@ private:
     // (11 ms at 90 Hz). A re-seed zeroes the history, so the first reading after
     // one can never fire by itself.
     void forget() { ring_[0] = ring_[1] = ring_[2] = 0.0f; sring_[0] = sring_[1] = sring_[2] = 0.0f; }
+    // A re-seed ends the hump in progress where the hand was last SEEN: its travel
+    // must not be measured across a gap, and it must not vanish either.
+    void cut_hump(Verdict& v) {
+        if (!hump_) return;
+        hump_ = false;
+        v.humpEnd = true; v.humpCut = true; v.humpPeak = humpPeak_; v.humpTravel = humpPath_;
+        v.humpMs = (float)(lastMs_ - humpStartMs_);
+        v.humpFired = humpFired_; v.humpBlock = humpBlock_; v.humpClosed = humpClosed_;
+    }
     float median3(float x) {
         ring_[ringI_] = x; ringI_ = (ringI_ + 1) % 3;
         const float a = ring_[0], b = ring_[1], c = ring_[2];
@@ -232,18 +270,36 @@ private:
         v.block = why; v.closed = s.closed;
     }
 
-    void edge(const Sample& s, const Config& c, Verdict& v) {
+    void edge(const Sample& s, const Config& c, float step, Verdict& v) {
         // Re-arm on the way down, UNCONDITIONALLY: a gate that closes mid-swing
         // must not leave the latch stuck and eat the next swing too.
         if (v.speed < effective_rearm(c)) {
-            if (++slow_ >= kRearmSamples) { armed_ = true; blockLatched_ = false; }
-        } else slow_ = 0;
+            if (++slow_ >= kRearmSamples) {
+                armed_ = true; blockLatched_ = false;
+                if (hump_) {                          // the hump ends where the latch re-arms
+                    hump_ = false;
+                    v.humpEnd = true; v.humpPeak = humpPeak_; v.humpTravel = humpPath_;
+                    v.humpMs = (float)(s.tMs - humpStartMs_);
+                    v.humpFired = humpFired_; v.humpBlock = humpBlock_; v.humpClosed = humpClosed_;
+                }
+            }
+        } else {
+            slow_ = 0;
+            if (!hump_) {
+                hump_ = true; humpStartMs_ = lastMs_; humpPath_ = 0.0f; humpPeak_ = 0.0f;
+                humpFired_ = kFiredNone; humpBlock_ = kBlockNone; humpClosed_ = 0;
+            }
+        }
+        if (hump_) { humpPath_ += step; if (v.speed > humpPeak_) humpPeak_ = v.speed; }
         if (v.speed < c.edgeSpeed) return;
+        // The travel guard: fast enough, but not far enough YET. No verdict and no
+        // latch - the same swing fires a sample or two later once it has the distance.
+        if (c.edgeTravelM > 0.0f && humpPath_ < c.edgeTravelM) return;
         v.cooldownLeftMs = cooldown_left(s, c);
         if (s.closed)                      block(kBlockGate, s, v);
         else if (!armed_)                  block(kBlockRearm, s, v);
         else if (v.cooldownLeftMs > 0.0f)  block(kBlockCooldown, s, v);
-        else                               fire(s, v);
+        else                             { fire(s, v); v.travelAtFire = humpPath_; }
     }
 
     // The thrust. `d` is this sample's hand displacement, head movement already
@@ -365,6 +421,11 @@ private:
     double lastMs_ = 0.0;
     bool   armed_ = true, blockLatched_ = false;
     int    slow_ = 0;
+    bool   hump_ = false;
+    double humpStartMs_ = 0.0;
+    float  humpPath_ = 0.0f, humpPeak_ = 0.0f;
+    int    humpFired_ = kFiredNone, humpBlock_ = kBlockNone;
+    uint32_t humpClosed_ = 0;
     float  ring_[3] = {};
     int    ringI_ = 0;
     float  sring_[3] = {};

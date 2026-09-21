@@ -117,7 +117,25 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   draw it with the trigger first. A swing is ignored while a grip is held (block, the power
   wheel), in menus and while the F10 overlay is up. `[Melee] Detector=edge` is the new
   detector and the shipped default since it was judged in a headset (2026-09-20); `sustain`
+  is the old one, kept for comparison. The speed needed is 3.0 m/s since VR-170 (it was 3.6,
+  one player's number): if swings are missed or ordinary movement attacks, F10 > Controls >
+  Motion sword shows your PEAK, your near misses and the slider. Tuning:
+  `docs/dishonored/PHYSICAL_SWING.md` sections 2b and 6.
   is the old one, kept for comparison. Tuning: `docs/dishonored/PHYSICAL_SWING.md` section 6.
+- **The sword's swing trail is hidden** [VR-171]. The game's swoosh follows its own attack
+  animation, not the blade in your hand, so it is not drawn for the player's swings (enemy
+  trails are untouched). `[SwordTrail] Hide=0`, `swordtrail off` or the checkbox in F10 >
+  Controls > Motion sword brings it back. On the first swing after a level loads the ribbon can
+  show for a frame before it is hidden; after that it stays hidden.
+- **The game's own camera shake is removed** [VR-172]. The bob and roll on the move, the weapon
+  kick, the dip on landing and the jolts on hits and explosions are the game moving your view
+  for you, and are off by default. F10 > Controls > Camera shake has one master switch and one
+  line per kind of motion to let it back. Measured on the simulator: landing, the weapon kick,
+  bob and roll. Held by name only, and yours to judge in the headset: damage taken, a sword
+  landing on an enemy, explosions. What is still there with everything removed is about 1.5 cm
+  of up-and-down body movement while walking: that is the animated body the camera rides on,
+  not a shake, and it has VR-175. The jump's small push-off lag is the game's stair
+  smoother, kept on purpose (`Smoother=0` removes it).
 - **The sneak kill by gesture** [S3, VR-155]. A fast stab behind an unaware guard is a swing, and
   the game makes it the stealth kill: seen twice in the headset. `[Melee] Stab=1` (shipped, with
   `Detector=edge`) additionally makes a SLOW deliberate stab of the sword hand while crouched press the attack, which the game turns into

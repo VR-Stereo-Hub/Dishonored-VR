@@ -1,3 +1,134 @@
+## Session handoff 2026-09-21: ONE pull request carries VR-170, VR-171 and VR-172
+
+- Branch `claude/vr-170-171-172-sword-and-camera-shake`, off `VR-Main` `d556eb58`, pushed, ONE PR
+  open against `VR-Main` with `Fixes VR-170`, `Fixes VR-171`, `Fixes VR-172`. NOT merged. The three
+  single-ticket PRs were closed as superseded by it; their branches are merged into this one
+  unchanged, and the three handoff blocks below are theirs and still hold.
+- This branch's tree is byte-identical to the local integration build that was tested as a whole:
+  `swing-soft.xrs`, `trail-hide.xrs` and `camshake.xrs` all pass on its RelWithDebInfo build
+  (`d3d9.dll` sha256 `A4DA6561...`), which is the build left installed on the dev PC.
+- Merging the three together needed keep-both resolutions in the docs, `fwd.h`, `commands.cpp` and
+  `config.cpp`; nothing else conflicted, and the default ini carries each new section once
+  (`default-profile-host.ps1` and the golden check pass on the combined tree).
+- Owed, all in the headset: the swing census from a real session, whether the sword's ribbon is
+  gone, and the three kinds of camera shake the simulator could not reach (a hit taken, the sword
+  landing on an enemy, an explosion).
+
+## Session handoff 2026-09-21: the swing threshold and the hump census (VR-170)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-170-swing-threshold-census`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-170`), NOT merged. It also carries the research brief for VR-173
+  (`docs/dishonored/PLAN-contact-sword.md`). VR-171 (hide the sword trail) and VR-172
+  (camera shake control) are separate branches from the same session.
+- Simulator-verified, headset verdict owed. The record is `PHYSICAL_SWING.md` section 2b.
+
+### What changed
+
+- `[Melee] EdgeSpeed` ships at **3.0** (was 3.6, one rig's number that sat just under that
+  player's slowest swing). Existing inis are moved once by a marker-keyed migration
+  (`EdgeSpeedRev`), no `kConfigVersion` bump. Measured on the dev PC's ini, which held 3.60:
+  `config: [Melee] EdgeSpeed 3.60 -> 3.00 (one-time ...)` on the first launch, no line on the
+  next.
+- **The hump census.** Every live hand movement above the re-arm level is counted by peak
+  speed, split into attacked / did not attack, printed once a minute while it grows and on
+  `swing census`; a movement within 20 % under the threshold is a named NEAR MISS. This is the
+  half of the distribution a FIRE line never showed, and what the next threshold change is
+  read from.
+- **A travel guard (`EdgeTravelM`) exists and ships OFF.** Measured in the host tests and on
+  the simulator: a real swing has travelled only 0.15 m when it crosses the threshold, so the
+  small guard first considered decides nothing. Its value is to come from a player's census.
+- F10 > Controls > "Motion sword" opens by default; the speed slider is "swing speed needed
+  (m/s)".
+
+### What was found on the way
+
+- **The simulator's display clock leaps about 135 ms across a 50 ms game-thread hitch**, the
+  detector rightly re-seeds, and that landed inside about half of all 200 ms simulated-hand
+  swings. `swing-soft.xrs` therefore uses `swing sim` for its threshold legs (TRAPS has the
+  measurement and the suspect that was cleared). It also showed a census hole, fixed: a hump
+  ended by a tracking gap is reported `CUT SHORT`, not dropped.
+- `release/dishonored_vr.ini` had drifted from the production writer on `VR-Main`
+  (`default-profile-host.ps1` failed before any change of this session); regenerated.
+- The worktree's git identity was a personal one; the four commits were re-authored to the
+  repository's noreply identity BEFORE the first push. Nothing personal reached the remote.
+
+### Next steps
+
+1. Headset: soft swings register; walking, turning and reaching do not attack. Send the log:
+   the `swing: census` lines decide whether 3.0 stays and whether `EdgeTravelM` gets a value
+   (`least travel at a fire` against the travel on any unwanted `hump ... -> ATTACK` line).
+2. VR-173 when wanted: paste section 5 of `PLAN-contact-sword.md` into a fresh session.
+## Session handoff 2026-09-21: the sword's swing trail is hidden (VR-171)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-171-hide-sword-trail`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-171`), NOT merged. Same session as VR-170 (its own branch and PR) and VR-172.
+- Mechanics simulator-verified; the PICTURE is not, and cannot be on the simulator (below).
+  The record is ENGINE_NOTES "VR-171".
+
+### What was found
+
+- **The swoosh is not a stock anim-trail notify.** `TrailsNotify` and its two siblings are in
+  the name table and the ProcessEvent observer saw 0 of them in 4 sword attacks. A hide built on
+  that route was removed unrun.
+- **It is one particle component on the player pawn, template `Sword_Trail`**, added 282-290 ms
+  into the first attack and kept attached afterwards. `swordtrail census` found it and stays as
+  the instrument that names whatever an attack adds to the pawn.
+- **The hide** is the engine's native `SetHidden` on that component (the rain box's pattern),
+  `[SwordTrail] Hide=1` by default at the owner's request, live `swordtrail on|off`, F10 checkbox.
+- **Found by the combined default-on run and fixed:** hidden as it appeared, then forgotten one
+  scan later because a component 258 ms old is not yet in the 2 s live-object table; the lever
+  could then not show it again. An attached component is now live because the pawn's own list
+  handed it over on that scan. `trail-hide.xrs` leg 0 covers it.
+- **The simulator never showed the ribbon**, about 30 captures with the hide off. So there is no
+  capture A/B: it could not have failed. `trail-hide.xrs` asserts the mechanics and says so.
+
+### Next steps
+
+1. Headset: swing the sword with the checkbox on and off (F10 > Controls > Motion sword). On: no
+   ribbon. Off: the ribbon as before. Watch an enemy swing: its trail must still be there.
+2. If a ribbon survives with the lever on, run `swordtrail census`, swing once, and send the
+   `trail/census:` lines: another template name goes into `[SwordTrail] Template`.
+## Session handoff 2026-09-21: the game's own camera shake, attributed and removed (VR-172)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-172-camera-shake-control`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-172`), NOT merged. Same session as VR-170 (PR #89) and VR-171 (PR #90), each its
+  own branch. The record is ENGINE_NOTES "VR-172".
+- Simulator-verified for landing, the weapon kick, bob and roll. Damage taken, a sword landing
+  on an enemy and explosions could not be staged and are held by the influence's name only.
+
+### What was found
+
+- The shakes are Arkane camera influences, all at weight 1 all the time, so a weight attributes
+  nothing: the method was the same staged action with one handle held at zero, read from
+  per-tick rows. Landing dip 45.8 uu = `PhysicalReact`; pistol kick 2.84 deg = `Recoil`; the
+  jump's push-off lag 10.4 uu = `BumpSmoother` (the stair smoother, kept); bob and roll = two
+  camera floats the head-bob option already had at 0; `m_fReactionWeight` = a master over the
+  group, deliberately not used (it would take Lean and Aim with it).
+- **A walk still moves the camera 1.5 uu and standing still 0.4 uu with everything at zero.**
+  That is the animated first-person body the camera rides on, not a shake; VR-175.
+- Three readings were retracted on the way and are recorded (ENGINE_NOTES, TRAPS): the push-off
+  was first credited to `HitReact` off a capture that had opened too late; four rounds read
+  shake-free because the single-slot seam dropped the harness's release; the event's trailing
+  ints are not the stick's DeltaRot.
+- `hud-elements.xrs` fails `quadLayers (3) eq 2` on `VR-Main` with this feature off as well:
+  filed as VR-176, not touched here.
+
+### Next steps
+
+1. Headset, F10 > Controls > Camera shake: walk, sprint, fire, jump and land with the master on,
+   then off, to feel the difference. Then the three the simulator could not reach: take a hit,
+   land the sword on an enemy, stand near an explosion. If any of those still moves the view,
+   `camshake status` and the log's `camshake: beat` line say what is held.
+2. With `Landing` removed, check a knockdown and the camera near walls still behave
+   (`PhysicalReact` also carries `m_bHandleCameraCollision` in the game's own ini).
+3. Judge the stair smoother: stairs, and a jump's push-off, with `Smoother` on and off.
+
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 
 ### Where things are RIGHT NOW

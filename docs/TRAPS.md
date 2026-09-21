@@ -289,6 +289,26 @@ the ticket was filed blaming "something outside both files".
 > **A file that exists beats the ini you edited.** A setting with two persistent
 > homes has no owner.
 
+### The command seam is ONE slot, polled at 1 Hz (VR-172)
+
+Two `tools\game-cmd.ps1` calls inside the same second are not two commands: the second
+write replaces the first before the mod has read it. It cost four attribution rounds:
+each round sent `camshake release all` and then `camshake hold <one handle> 0`, the
+release was overwritten every time, every handle stayed at zero from the round before,
+and every round read shake-free whichever handle it thought it was testing. The log
+showed it at once - each `hold` line had no `release` line before it. Send everything
+for one moment in ONE call (`game-cmd.ps1 "a" "b" "c"` writes them as lines of one
+file), and wait out the poll before acting on it. The `.xrs` runner's `@mod a; b; c`
+is already safe.
+
+### A capture window that opens late measures the wrong half (VR-172)
+
+A jump was captured with the window opening after the takeoff, the push-off was absent
+from the rows, and the absence was read as "this handle removed it". The summary line
+could not have shown the difference; the tick-by-tick rows of four captures side by
+side did. When an A/B result is an ABSENCE, check the rows contain the event at all
+before crediting the lever.
+
 ### VR-37: two keys whose compiled default no longer means anything
 
 `[Melee] SwingSpeed=1.8` and `HoldMs=220` have been written into every installed
@@ -298,6 +318,39 @@ machine that has run the mod. The edge detector therefore got NEW key names
 with no `kConfigVersion` bump - a bump rewrites the whole ini and keeps three keys.
 `SwingMs`, `SwingDistM` and `Haptic` were read for years and never written by
 `WriteDefaultIni`; they ship now.
+
+### VR-170: changing a default that every installed ini already holds
+
+`[Melee] EdgeSpeed=3.6` is in the default ini text, so it is in every installed ini,
+and lowering the compiled default to 3.0 would have reached no existing player. The
+two obvious routes are both wrong: a new key name orphans the value a player tuned
+in F10, and a `kConfigVersion` bump rewrites the whole file (VR-159). What shipped is
+a **one-time, per-key migration keyed on a marker**: `configure` moves a stored value
+only when it is exactly the OLD shipped default, and writes `EdgeSpeedRev=1` whether
+or not it moved. The marker written in BOTH branches is the part that is easy to get
+wrong: written only on a move, a player who later types the old value back is moved
+again at the next launch. The default ini text carries the marker, so a fresh install
+never runs it, and the log line says which branch ran.
+
+Simulator note: `xrsim-launch.ps1 -ViaSteam` restores the mod's ini from its
+pre-launch backup (VERIFICATION gotcha 16), so the migration's write is undone on
+the dev PC and the line reappears at every sim launch unless the installed ini
+already carries the marker. The "not on the second launch" half was tested by
+putting the ini in its post-migration state by hand before a launch.
+
+### The simulator's display clock leaps after a game-thread hitch (VR-170)
+
+Measured 2026-09-21: across a game-thread hitch of about 50 ms of wall clock, the
+simulator's predicted display time advanced 135 to 165 ms and one hand generation
+was skipped. Anything that differences poses over display time sees one sample
+carrying 150 ms of travel; the swing detector reads a gap over 100 ms as lost
+tracking and re-seeds, correctly. A hitch landed inside about half of all 200 ms
+simulated-hand swings, about 70 ms after the simulator command was applied, so **a
+simulated-hand gesture with no speed margin is not a reliable gate on this lane**.
+`swing sim` runs the same core, gates, pulse and game attack from the wall clock and
+does not leap. Suspect cleared along the way, so nobody re-walks it: the 500 ms
+`camera/source` probe does a full live-set build, but frame gaps fell within 120 ms
+of one of its samples 17 times out of 35, which is chance for a 500 ms cadence.
 
 ### What to do before touching a key
 

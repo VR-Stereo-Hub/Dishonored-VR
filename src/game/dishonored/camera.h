@@ -59,6 +59,10 @@ bool render_pos(float out[3]);
 // that only ever difference c5 against itself, where a global sign would cancel.
 bool render_pos_world(float out[3]);
 
+// VR-172: the camera position the GAME computed, in world uu, with the mod's own eye and
+// position offset removed. Script lane. False when the field is unreadable.
+bool game_base_pos(uint8_t* cam, float out[3]);
+
 // Positional tracking (lean, crouch, roomscale) on the seam (S1). The offset
 // is a VIEW-SPACE displacement in uu (right, up, forward), published every
 // present by TrackHead (head_track.cpp) - the seam is its single owner, and

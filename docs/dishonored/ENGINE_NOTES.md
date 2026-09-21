@@ -8120,3 +8120,165 @@ write following profile reload and leaving later gameplay edits alone (80 total)
 The fix depends on another mode0 application occurring before gameplay; if none
 occurs, trace profile-load completion instead. No live acceptance claimed.
 Full next-session decision tree and archives are at the top of STATUS.md.
+
+## VR-171: the sword's swing trail, what it is and what it is not (2026-09-21)
+
+**What the player sees.** A sword attack draws a swoosh ribbon. In the headset the
+blade is in the player's hand and the ribbon is generated from the game's animated
+mesh, so it sits off the blade. Nothing in the repo knew the effect's objects, and
+the script dump is not on the dev PC, so both answers below came from runtime
+instruments in `src/game/dishonored/trail_control.cpp`.
+
+**Eliminated: it is not a stock anim-trail notify.** The three events a UE3
+`AnimNotify_Trails` raises on the mesh's owner all exist in the name table
+(`TrailsNotify`=13774, `TrailsNotifyEnd`=13775, `TrailsNotifyTick`=13776 on this
+build), and the ProcessEvent observer, which sees every dispatch before the engine
+runs its body, saw **0 of them from anyone across 4 sword attacks** (the probe
+counted attacks from `dvr::anim::snapshot()` `state[1] == StatePlayerMeleeAttack`, so
+the zero had a population). A hide built on withholding the notify's particle
+template was written against that route and removed when the measurement came back;
+it never ran. Do not return to `TrailsNotify` for the player's sword.
+
+**What it is.** One `ParticleSystemComponent` on the player pawn, particle template
+**`Sword_Trail`**. Found by `swordtrail census`: the pawn's `Actor.AllComponents`
+(+0x44, by name) snapshotted idle and again 100, 300 and 600 ms into the next sword
+attack. Result: 27 components before, 0 new and 0 changed at +282 and +305 ms, **1
+new at +604 ms** (`class=ParticleSystemComponent hidden=0 active=1
+template='Sword_Trail'`), nothing else new or changed. The per-scan reader then put
+its first appearance at **282 to 290 ms** after the attack state is entered. The
+component is NOT transient: it stays in the pawn's list between swings and is reused
+(one sighting across 27 attacks), so hiding it once holds.
+
+| By name (`RflOffsetOf` / `FindBoolProp`) | Offset on this build |
+|---|---|
+| `Actor.AllComponents` | +0x44 |
+| `ParticleSystemComponent.Template` | +0x1c4 |
+| `ParticleSystemComponent.bIsActive` | +0x208 / 0x80 |
+| `PrimitiveComponent.HiddenGame` | +0x114 / 0x4 |
+| `SkeletalMeshComponent.SkeletalMesh` | +0x1d4 |
+
+These are resolved by name at runtime and are listed for the record only; nothing
+hardcodes them.
+
+**The hide.** The engine's own native `PrimitiveComponent.SetHidden` through the
+outbound ProcessEvent path on the script lane, the pattern the camera's rain box
+already uses (VR-136): the native reaches the render proxy, a raw `HiddenGame` write
+would not. Measured: `HiddenGame 0 -> 1`; three further attacks did not make the
+engine show it again; the lever off shows exactly that component (`hidden now 0`) and
+on hides it again. A particle component may be pooled, so every scan re-judges the
+components the mod hid: one that is live, still hidden and no longer a sword trail is
+shown again, one that is no longer a live object is dropped without a write.
+
+**A fault the first default-on run found, fixed.** With the lever on from launch the
+trail was hidden in the same scan it first appeared (258 ms into the first attack),
+and ONE SCAN LATER the mod logged `released component ... it is no longer a live
+object` and forgot it: the live-object table is refreshed on a 2 s bound (VR-160), so
+a component a few milliseconds old is attached, hidden by the mod and absent from the
+table. The ribbon stayed hidden but the lever could no longer show it again. Earlier
+runs missed it because there the hide arrived seconds after the spawn. What counts as
+live for a component still on the pawn is now that the engine handed it to us in the
+pawn's own `AllComponents` on this very scan (the rain box's rule: write only to what
+the live chain reached this sample); the table is consulted only for a component that
+has LEFT the pawn. `trail-hide.xrs` leg 0 is that path, and asserts `holding = 1`
+after a wait, which is the assertion that would have caught it.
+
+**What the simulator could not say.** About 30 per-eye captures with the hide OFF -
+delays swept from 90 to 900 ms into an attack, the simulated hand still and sweeping
+through the view - never differed from an idle capture by more than 0.2 % of pixels
+(the hilt moving). The ribbon could not be made to appear in a simulator capture at
+all, so a capture A/B there cannot fail and is not evidence. A reading consistent
+with that, NOT established: the mod drives the hand bones from the controller, so the
+trail's sockets follow the hand and draw little or nothing for the slow simulated
+hand, and a ribbon near but off the blade in the headset is the 11 to 12 degree gap
+between a socket-mounted weapon's component and its drawn transform (VR-33). The
+hide is a verified write; whether it is an honoured one is the headset's to say.
+## VR-172: the game's own camera shake, attributed handle by handle (2026-09-21)
+
+**What the player feels.** The game moves the camera by itself: a bob and a roll on
+the move, a kick when a weapon fires, a dip on landing, jolts on hits and
+explosions. In a headset that is the view moving without the head.
+
+**Where it lives.** Not in UE3's modifier stack (`Camera.ModifierList` holds one
+`CameraModifier_CameraShake` at alpha 0 in every sample ever taken). Dishonored's
+camera is built from Arkane influences, the graph `cam_modifiers.cpp` already reads:
+`DishonoredPlayerCamera.m_InfluenceGroups` (+0x468) -> group `m_Influences` (+0x38)
+-> `DishonoredCameraInfluence` `m_Weight` (+0x3c), `m_TargetWeight` (+0x40); and
+three config floats on the camera, `m_BobAmount` (+0x544), `m_RollAmount` (+0x548),
+`m_fReactionWeight` (+0x54c). All resolved by name at runtime; listed for the record.
+The groups on this build: group 0 `AnimDriven, PlayerControl, Look, Possess,
+FollowProjectile, UnpossessDeath`; group 2 (the reaction group) `BumpSmoother,
+PhysicalReact, HitReact, Lean, Shake, Recoil, DisCamera_Rumble, DisCamera_Aim`;
+group 3 the mantle offsets and the three arm-follow disables.
+
+**A weight cannot attribute anything.** Every reaction influence sits at weight 1 and
+target 1 in every sample of every run: an influence is always weighted and only
+produces motion when the game triggers it. Attribution is therefore an A/B: the same
+staged action with one handle held at zero. The instrument is `camshake capture <s>
+<tag>` (`src/game/dishonored/cam_shake.cpp`): one row per game tick from the fresh
+branch of `ApplyHeadToViewRotation`, the GAME's camera position minus the pawn with
+the mod's own eye and position offset removed (`dvr::camera::game_base_pos`), the
+camera cache's POV rotation minus the controller's rotation, the engine's incoming
+view rotation against the mod's last write, pawn velocity and the animation state;
+a CSV per capture in the data dir and one summary line. Noise floor standing still:
+0.00 / 0.00 / 0.06 uu and 0.000 degrees.
+
+**The table** (simulator, the sewer save, Debug build, every row with the player
+stationary and in normal states; position is camera-minus-pawn height against its
+resting value, rotation is POV minus controller):
+
+| Staged action | Nothing held | Held at zero, and the result |
+|---|---|---|
+| landing from a jump | dips 45.8 uu, overshoots 8.5 | `PhysicalReact`: -0.16 / +0.23 (gone). `HitReact`, `Recoil`, `Shake`, `Rumble` alone: unchanged (-45.6 to -47.1) |
+| leaving the ground on a jump | lags the pawn by 10.4 to 10.7 uu for about 90 ms | `BumpSmoother`: whole jump at 0.39 (gone). All five shake influences together: unchanged (-10.4) |
+| a pistol shot | 2.84 deg of POV pitch, 1.0 / 0.7 uu | `Recoil`: 0.000 deg, 0.01 uu (gone). `Shake`, `Rumble`, `PhysicalReact` alone: unchanged (2.99 to 3.05) |
+| any of the above | | `m_fReactionWeight` = 0: all three gone at once (jump 0.39 uu, shot 0.000 deg) |
+| walking (62 uu/s) | height swings 1.49 uu, half-second period; no rotation | every handle at zero, the master included: 1.51 uu, unchanged |
+| standing still | 0.39 uu slow sway | every handle at zero: 0.39, unchanged |
+
+Exaggeration, to prove a handle live before trusting its zero: `PhysicalReact` held
+at 3 takes the jump's swing from 54 to 178 uu; `m_BobAmount` and `m_RollAmount` held
+at 3 take a walk from 1.5 to 12.3 uu with 9.0 degrees of roll. Those two floats read
+0.000 before the mod touched them on this machine: the game's head-bob option, which
+the VR preset sets to 0, drives them. The engine never rewrote a held weight in
+gameplay (one write each, zero fought); it does rewrite them across a level load,
+which the fought counter showed (4 of 14).
+
+**Readings retracted on the way, so nobody re-walks them.** (1) "The push-off belongs
+to `HitReact`": the capture that showed it gone under `HitReact` = 0 had opened after
+the takeoff and never saw one. Tick-by-tick rows of four captures settled it:
+present with all five influences at zero, absent under the master scalar, and gone
+under `BumpSmoother` alone. (2) Four whole attribution rounds read shake-free
+whichever handle was held: the seam is a single slot polled at 1 Hz and the
+harness's release had been overwritten by the hold that followed it, so every handle
+was still at zero from the round before (TRAPS). (3) The view-rotation event's three
+ints after the rotator are NOT the stick's DeltaRot: a pure stick turn left 2.5
+degrees of yaw unexplained after subtracting them.
+
+**What is not a shake and is kept.** `BumpSmoother` is the stair and step smoother:
+the camera glides over a sudden rise instead of snapping with the pawn. A jump's
+push-off is the one place it reads as unrequested motion. It ships allowed, as its
+own category, for a headset verdict.
+
+**What no handle owns.** The 1.5 uu walking swing and 0.4 uu idle sway survive every
+handle including the master, and their resting height (55.3 to 55.7 uu over the
+pawn) is the `PlayerControl` influence's own source position (its
+`m_Debug_POV_Location` minus the pawn reads 55.70 in the camera-source probe). It is
+the animated first-person body the camera rides on. VR-175 carries it.
+
+**Not reached on the simulator:** `HitReact`, `Shake` and `Rumble` (a sword swing in
+the air moves nothing: 0.25 / 0.38 / 0.24 uu against 0.72 / 1.05 / 0.27 with
+everything held, both at the floor), so damage taken, a sword landing on an enemy and
+explosions are held by the influence's NAME only. Falling to death from the save's
+ledge was measured by accident: the death camera turns the POV 87 to 105 degrees away
+from the controller, which is the game's own death sequence and not a shake.
+
+**The feature.** `[CameraShake] Suppress=1`, and per category a key that lets the
+game's own motion through: `Walk` (bob, roll), `Fire` (Recoil), `Landing`
+(PhysicalReact), `Hits` (HitReact), `Generic` (Shake, Rumble), all 0, and `Smoother`
+(BumpSmoother) at 1. The five shake influences are held individually; the master
+scalar is deliberately NOT used, because the reaction group also holds `Lean`,
+`DisCamera_Aim` and the smoother. Script lane: a 250 ms slow tick revalidates the
+live camera and finds the influences by class name (`IsLiveObject`, bounded
+`RefreshLiveSet(2000)`), a camera change forgets every pointer without a write, the
+fast path writes floats only. It stands down while a cutscene owns the camera. Live:
+`camshake on|off`, `camshake allow <category> on|off`, F10 > Controls > Camera shake.

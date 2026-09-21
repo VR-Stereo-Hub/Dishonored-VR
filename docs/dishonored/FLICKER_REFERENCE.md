@@ -3262,6 +3262,15 @@ headset entries are historical. Accepted image-owned orientation remains unchang
    never enter the runtime stack at all, so that ini is not the route to this.
    The swing lives in the camera's own POV update. Do not return to
    `ModifierList` for this symptom.
+
+   **SUPERSEDED IN PART (see the correction further down, and VR-172, 2026-09-21).**
+   What is eliminated is `Camera.ModifierList` and only that. The sentence about the
+   `DishonoredCamera.ini` classes never entering the runtime is wrong as written:
+   they do not enter `ModifierList`, they live in `m_InfluenceGroups`, and VR-172
+   measured them live and writable (`PhysicalReact` owns the landing dip, `Recoil`
+   the weapon kick, `BumpSmoother` the jump's push-off lag; ENGINE_NOTES "VR-172").
+   A smooth whole-view displacement is therefore a question for the influence graph
+   and `camshake capture`, which records the game's own camera motion per game tick.
 7. **Instrument fault found and fixed in the same pass.** The first version
    counted a reversal per ProcessEvent dispatch, so it reported "249 reversals
    in 1010 ms" - not a frequency of anything, and not comparable with the ~8 Hz
