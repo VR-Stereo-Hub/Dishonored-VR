@@ -1,3 +1,39 @@
+## A build directory remembers `-Legacy`, and the build did not say so (VR-180, 2026-09-22)
+
+**What the player saw.** Every trigger pull, on either controller, froze the game for about a
+quarter of a second. It had appeared and gone away before, and it faded after some play.
+
+**What it was.** Not the player's machine, not the game and not a fault in any feature: the
+build that was installed for a headset session had `src/legacy` compiled in. One of the retired
+diagnostics there, the projectile-spawn tracer (`src/legacy/fire_tracer.cpp`, called from
+`pad_bridge.cpp` on the edge of EITHER trigger while `[Debug] FireTrace` is on, and it is on by
+default), walks the engine's whole object table for about four consecutive frames. It switches
+itself off after 30 rounds until the next launch, which is why it seemed to fade.
+
+**Why such a build existed.** `tools\build.ps1` passed `-DDVR_WITH_LEGACY` only on a first
+configure or when `-Legacy` was given. A build directory that had EVER seen `-Legacy` therefore
+kept `DVR_WITH_LEGACY:BOOL=ON` in its CMake cache, and every later plain build compiled the
+legacy code in without a word. The log banner, `status.json` and `install.ps1` said nothing
+about it, and `package.ps1` builds through the same script, so a tester's zip could carry it.
+
+**How it was measured.** The affected headset log: 766 `spawn: NEW obj[...]` lines in the
+`[legacy]` category, and `perf: frame gap ... sat in: game_tick` in runs of three consecutive
+presents at 76 to 88 ms, right after them. Simulator A/B, same source, eight trigger pulls:
+legacy ON, 11 gaps sat in `game_tick` at 75 to 133 ms and 256 spawn lines; legacy OFF, 0 and 0.
+A suspect cleared on the way, so nobody re-walks it: motion aim's projectile pool scan was NOT
+it (`aimWin=0` on every gap, zero `aim: trigger pulled` lines; `[MotionAim] Enabled=0`).
+
+**What changed.** `build.ps1` reads the cache and reconfigures whenever it disagrees with what
+was asked for, and prints which kind of build it made. The log's first line carries
+`legacy ON|off`, with a Warn under it when on; `status.json` carries `legacy`. `install.ps1`
+asks the DLL itself (a sentence `dllmain.cpp` only compiles in under the flag) and REFUSES an
+optimised legacy build unless `-AllowLegacy` is passed; a Debug one is installed with a red
+warning. `package.ps1` refuses outright. The legacy code itself is untouched.
+
+**The rule.** Any `[legacy]` line in a log means a legacy build. Before a build goes to a
+person, read the first line of its log. A quarter-second stall `sat in: game_tick` is the mod's
+own per-present work, not the game: look at what the mod runs on that event before anything else.
+
 ## A performance number carries its MACHINE and its build CONFIG (VR-160, 2026-09-20)
 
 An investigation opened by treating 43-54 pairs/s on the dev PC as a regression from

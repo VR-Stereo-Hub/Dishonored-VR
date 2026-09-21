@@ -128,6 +128,24 @@
 2. With `Landing` removed, check a knockdown and the camera near walls still behave
    (`PhysicalReact` also carries `m_bHandleCameraCollision` in the game's own ini).
 3. Judge the stair smoother: stairs, and a jump's push-off, with `Smoother` on and off.
+## Session handoff 2026-09-22: the trigger-pull freeze was a legacy build, and cannot recur silently (VR-180)
+
+- Branch `claude/vr-180-legacy-build-guard`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-180`), NOT merged. Tools and two strings only; no feature code is touched.
+- **The fault:** every trigger pull froze the game about a quarter second. The build installed
+  for the 2026-09-21 headset session had `src/legacy` compiled in, because `tools\build.ps1` only
+  passed the legacy switch on a first configure and the build directory's CMake cache still held
+  `ON`. Its projectile-spawn tracer walks every engine object on each trigger edge. Measured in the
+  headset log and by a simulator A/B (11 stalls of 75-133 ms against 0); `docs/TRAPS.md` has it all.
+- **The guard:** `build.ps1` reconfigures the switch on every call and says what it built; the
+  log's first line and `status.json` say `legacy ON|off`; `install.ps1` refuses an optimised legacy
+  build without `-AllowLegacy`; `package.ps1` refuses it outright. Proven end to end: a `-Legacy`
+  build was refused by the installer, and the plain build straight after it came out clean by
+  itself and showed 0 stalls in eight trigger pulls.
+- **Left on the dev PC:** an optimised, legacy-OFF build. Check the log's first line reads
+  `legacy off` before a headset session.
+- **Who else could have had it:** anyone given a zip packaged from a build directory that had seen
+  `-Legacy`. Any `[legacy]` line in a tester's log answers it for that tester.
 
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 

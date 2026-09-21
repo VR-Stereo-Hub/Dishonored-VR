@@ -7,6 +7,7 @@
 # NOTE: keep this file pure ASCII (PowerShell 5.1 misreads BOM-less UTF-8).
 param(
     [switch]$Release,
+    [switch]$AllowLegacy,   # VR-180: install an optimised build that carries src/legacy anyway
     [string]$GamePath = ""
 )
 
@@ -20,6 +21,16 @@ $GamePath = Get-DvrGamePath $GamePath
 $proxy = Join-Path $outDir "d3d9.dll"
 if (-not (Test-Path $proxy)) { throw "Build output missing: $proxy - run tools\build.ps1 first." }
 Assert-DvrX86Dll $proxy
+
+# VR-180: an OPTIMISED build is one somebody is about to play. Refuse it BEFORE anything
+# is copied if it carries the legacy code, unless that is said out loud. A Debug build
+# is installed and warned about below.
+$legacyBuild = Test-DvrLegacyDll $proxy
+if ($legacyBuild -and $Release -and -not $AllowLegacy) {
+    throw ("REFUSING to install: $proxy has the legacy code compiled in, and an optimised build is a build " +
+           "somebody plays. Rebuild with a plain  tools\build.ps1 -Release  (it now reconfigures the legacy " +
+           "switch off), or pass -AllowLegacy if a legacy diagnostic in the headset is really what you want.")
+}
 
 # Back up a foreign d3d9.dll exactly once (ours is recognised by the ini/log it writes).
 $existing = Join-Path $GamePath "d3d9.dll"
@@ -55,6 +66,17 @@ $oldFork = Join-Path $GamePath "dxvk_d3d9.dll"
 if (Test-Path $oldFork) { Remove-Item $oldFork -Force; Write-Host "Removed the retired dxvk_d3d9.dll" }
 
 Write-Host "Installed $config build to $GamePath"
+# VR-180: a build carrying the retired diagnostics was installed for a headset session
+# and froze the game on every trigger pull, and nothing here said what it was.
+if ($legacyBuild) {
+    Write-Host ""
+    Write-Host "  *** This build has the LEGACY code compiled in (src/legacy, retired diagnostics). ***" -ForegroundColor Red
+    Write-Host "  *** One of them scans every engine object on each trigger pull: expect a freeze.  ***" -ForegroundColor Red
+    Write-Host "  *** NOT for playing and NEVER for a tester. A plain  build.ps1  builds without it. ***" -ForegroundColor Red
+    Write-Host ""
+} else {
+    Write-Host "  legacy code: not compiled in"
+}
 Write-Host "  d3d9.dll        $(Get-Item $proxy | Select-Object -ExpandProperty LastWriteTime)  sha256 $((Get-FileHash $proxy -Algorithm SHA256).Hash.Substring(0,16))"
 # VR-160: a Debug build was played and measured in the headset for a day because
 # this script said "Debug" once, in the middle of four lines. Say it so it is read.

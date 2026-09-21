@@ -62,6 +62,15 @@ function Get-DvrStatusPath { return Join-Path (Get-DvrDataDir) "status.json" }
 
 # Same PE read as xrsim-install.ps1: refuse a 64-bit DLL before it is copied
 # next to a 32-bit game and silently ignored.
+# VR-180: does this proxy DLL carry src/legacy? Asked of the DLL itself, not of the
+# CMake cache: the cache says what the NEXT build will be, the DLL says what THIS one
+# is. The marker is a string dllmain.cpp only compiles in under DVR_WITH_LEGACY.
+function Test-DvrLegacyDll {
+    param([Parameter(Mandatory)][string]$Path)
+    $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($Path))
+    return $text.Contains('legacy code is COMPILED IN')
+}
+
 function Assert-DvrX86Dll {
     param([Parameter(Mandatory)][string]$Path)
     $fs = [System.IO.File]::OpenRead($Path)
