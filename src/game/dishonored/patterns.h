@@ -177,6 +177,12 @@ static const uintptr_t kInteractSelector       = 0x00AB70F0;   // push ebp; mov 
 static const uint8_t   kInteractSelectorBytes[10] = { 0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xD0, 0xFD, 0xF4, 0x00 };
 static const uintptr_t kInteractSelectorBack   = 0x00AB70FA;
 static const uintptr_t kInteractSelectorRet    = 0x00AB7CBB;   // its only caller's return address
+// VR-166: the throw routine 0x00C38F70 (DisItemContext_ThrowGrenade +0x1B0 -> 0x00C3AC50 -> it),
+// just before the source rotator [ebp-0x78] becomes the throw direction [ebp-0x74]
+// (0x0040DA70 at 0x00C39093). ENGINE_NOTES "The throw seam".
+static const uintptr_t kThrowRotSeam = 0x00C3908C;   // mov ecx,[ebp-78h]; lea edx,[ebp-74h]; push edx
+static const uint8_t   kThrowRotSeamBytes[7] = { 0x8B, 0x4D, 0x88, 0x8D, 0x55, 0x8C, 0x52 };
+static const uintptr_t kThrowRotBack = 0x00C39093;   // the rotator -> direction call
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

@@ -635,6 +635,11 @@ static void InteractAimSet(bool on, const char* who);
 static void InteractAimConfigure(const char* ini);
 static void InteractAimTick();
 static bool InteractAimCommand(const char* args);
+// VR-166: grenades and other throws aimed by hand (throw_aim.cpp).
+static bool ThrowAimEnabled();
+static void ThrowAimSet(bool on, const char* who);
+static void ThrowAimConfigure(const char* ini);
+static bool ThrowAimCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);

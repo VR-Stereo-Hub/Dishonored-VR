@@ -273,6 +273,7 @@
 #include "game/dishonored/aim_seam.cpp"
 #include "game/dishonored/fire_aim.cpp"
 #include "game/dishonored/interact_aim.cpp"   // VR-166: interaction aimed by hand
+#include "game/dishonored/throw_aim.cpp"      // VR-166: grenades aimed by hand
 #include "game/dishonored/ue3/ui_state.cpp"
 #include "game/dishonored/ue3/ui_surface.cpp"
 #include "game/dishonored/startup.cpp"

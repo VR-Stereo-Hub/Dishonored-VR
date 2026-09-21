@@ -49,7 +49,29 @@ static bool InteractAimEnabled() { return g_iaOn.load(); }
 
 static bool IaRefuse(const char* why) { g_iaWhy = why; InterlockedIncrement(&g_iaRefused); return false; }
 
-// The shared ray in game world units: origin at the hand, unit direction.
+// VR-166: the ONE published aim ray in game world units - origin at the hand, unit
+// direction. Shared by every engine consumer this branch adds (interaction, throws)
+// so they cannot drift apart. `why` names the refusal.
+static bool HandRayWorld(float* origin, float* dir, const char** why)
+{
+    const auto aim = dvr::aim::fire_frame();
+    float camera[3];
+    if (!dvr::camera::render_pos_world(camera)) { *why = "no world camera position"; return false; }
+    dvr::fireaim::Solution sol;
+    if (!dvr::fireaim::solve(aim, GetTickCount64(), g_viewYawRad, g_viewPitchRad,
+                             camera, g_posScaleUU, camera, sol)) {
+        *why = aim.ray.ok ? (aim.headValid ? "ray geometry refused" : "no head pose with the ray")
+                          : aim.ray.why;
+        return false;
+    }
+    float d[3] = { sol.target[0] - sol.origin[0], sol.target[1] - sol.origin[1],
+                   sol.target[2] - sol.origin[2] };
+    if (!dvr::fireaim::normalize(d)) { *why = "degenerate ray"; return false; }
+    memcpy(origin, sol.origin, 12); memcpy(dir, d, 12);
+    return true;
+}
+
+// Interaction's gates, then the shared ray.
 static bool IaHandRay(uint8_t* self, float* origin, float* dir)
 {
     if (!g_iaOn.load()) return IaRefuse("head aim selected");
@@ -57,18 +79,8 @@ static bool IaHandRay(uint8_t* self, float* origin, float* dir)
     if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow)
         return IaRefuse("not in gameplay");
     if (!self || self != g_peCtrl) return IaRefuse("not the player's controller");
-    const auto aim = dvr::aim::fire_frame();
-    float camera[3];
-    if (!dvr::camera::render_pos_world(camera)) return IaRefuse("no world camera position");
-    dvr::fireaim::Solution sol;
-    if (!dvr::fireaim::solve(aim, GetTickCount64(), g_viewYawRad, g_viewPitchRad,
-                             camera, g_posScaleUU, camera, sol))
-        return IaRefuse(aim.ray.ok ? (aim.headValid ? "ray geometry refused" : "no head pose with the ray")
-                                   : aim.ray.why);
-    float d[3] = { sol.target[0] - sol.origin[0], sol.target[1] - sol.origin[1],
-                   sol.target[2] - sol.origin[2] };
-    if (!dvr::fireaim::normalize(d)) return IaRefuse("degenerate ray");
-    memcpy(origin, sol.origin, 12); memcpy(dir, d, 12);
+    const char* why = nullptr;
+    if (!HandRayWorld(origin, dir, &why)) return IaRefuse(why);
     g_iaWhy = "driving";
     return true;
 }

@@ -479,6 +479,9 @@ static void WriteDefaultIni(const char* ini)
         "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
         "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
         "InteractFromHand=1\n"
+        "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
+        "; The spawn point, speed and arc stay the game's; 0 = head.\n"
+        "ThrowFromHand=1\n"
         "PropWatch=0\n"
         "InteractFocus=0\n"
         "[HandTracking]\n"
@@ -2458,6 +2461,7 @@ static void LoadConfig()
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
+    ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;

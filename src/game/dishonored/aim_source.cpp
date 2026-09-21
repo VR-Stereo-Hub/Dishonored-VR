@@ -126,6 +126,25 @@ static bool AimSourceCommand(const char* args)
 static void AimSourceTick()
 {
     if (!g_asrcDet.on) return;
+    // VR-166: the power aim fields the scripts declare. Property offsets live in the
+    // packages, not the image, so they are resolved here once in gameplay; the log line
+    // is what lets their native WRITERS be found offline (disasm-rva.py disp <offset>).
+    static bool resolved = false;
+    if (!resolved && CylTruthLive()) {
+        resolved = true;
+        static const char* const kProps[][2] = {
+            { "DishonoredActivePowerComponent_WindBlast", "m_vOrigin" },
+            { "DishonoredActivePowerComponent_WindBlast", "m_vDirection" },
+            { "DishonoredActivePowerComponent", "m_TargetPoint" },
+            { "DishonoredActivePowerComponent", "m_pTargetActor" },
+            { "DishonoredActivePowerComponent", "m_pSuggestedTarget" },
+            { "DishonoredActivePowerComponent_Possess", "m_PossessTarget" },
+            { "DishonoredActivePowerComponent_Possess", "m_pHighlightedTarget" },
+        };
+        for (auto& p : kProps)
+            Log("aimsrc/props: %s.%s at +0x%04x (0 = did not resolve) - READ-ONLY, for the "
+                "offline writer search", p[0], p[1], RflOffsetOf(p[0], p[1]));
+    }
     struct Seen { uint32_t ret; void* cls; long n; float worstDeg, bestDeg; char name[64]; };
     static Seen seen[32]; static int nSeen = 0;
     static double nextSummary = 0;

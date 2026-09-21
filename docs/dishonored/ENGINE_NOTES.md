@@ -8197,3 +8197,41 @@ This closes the open question from VR-85: which code writes `m_pCrosshairActor`
 Status: built and installed, not yet run. The first run must show
 `interact/aim: beat ... seen` counters moving, and `interact/focus:` changing
 with the hand while the head is still.
+
+## The throw seam: grenades (VR-166, 2026-09-21)
+
+* `DisItemContext_ThrowGrenade`: metadata `0x01362378`, ctor `0x00C2A0E0`, context
+  vtable `0x01173200`. Slot `+0x1B0` -> `0x00C3AC50` (re-derived with
+  `ue3-natives.py --verify`), which calls the throw routine `0x00C38F70` and sets bit
+  1 of context `+0x104`. The routine has one other caller, the wrapper
+  `0x00C3ABEB`. Its owner is unnamed: possibly the spring razor or an NPC throw.
+* The routine (aligned frame; ebx = entry esp, arg at `[ebx+8]` -> `ebp-0x5C`):
+  * source pawn `0x00BFF440` -> `ebp-0x58`, context -> `ebp-0x7C`;
+  * SpawnActor `0x00C66070` at `0x00C39053`, placing the projectile at the hand;
+  * then the ROTATOR address goes into `ebp-0x78`: the argument's `+0x14`, or the
+    pawn's `+0xD0` when there is no argument;
+  * `0x0040DA70` at `0x00C39093` turns it into the direction at `ebp-0x74`. That
+    direction scales the launch velocity (`0x00C39630..`), is normalised at
+    `0x00C3980C` and handed to the projectile at `0x00C398C8`. `ebp-0x78` is read
+    again at `0x00C39828`.
+* **Seam (`throw_aim.cpp`):** the 7 bytes at `0x00C3908C` (`8B 4D 88 8D 55 8C 52`,
+  no relative operand, no jump lands inside them). The bridge points `ebp-0x78` at
+  a rotator built from the published hand ray, gated on the source pawn being the
+  player's. Spawn point, speed and arc stay the game's.
+
+## Power aim fields, from the script declarations (VR-166, 2026-09-21)
+
+The aimed powers carry their aim in named fields. That is a writer to find, not a
+number to guess:
+
+* `DishonoredActivePowerComponent_WindBlast`: `Vector m_vOrigin`, `m_vDirection`
+  (transient).
+* `DishonoredActivePowerComponent_Possess`: `m_PossessTarget` (struct
+  `DisPossessTarget` with `m_PossesseeLoc`) and `m_pHighlightedTarget`. A target
+  pick, like interaction.
+* Base `DishonoredActivePowerComponent`: `m_TargetPoint`, `m_pTargetActor`,
+  `m_pSuggestedTarget` (Devouring Swarm has no fields of its own).
+
+Possession never called the shared helper `0x00BF52E0` (0 probe hits in a
+possession run). `aimsrc/props:` lines log each field's offset once in gameplay,
+for a `disasm-rva.py disp` writer search.
