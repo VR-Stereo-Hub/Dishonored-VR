@@ -244,10 +244,10 @@ static bool SwingTraceCommand(const char* args)
     if (DvrOnOff(args, &b)) {
         g_swOn = b;
         ConfigWriteKey("Diagnostics", "SwingTrace", b ? "1" : "0", "the seam");
-        Log("swing: %s (seam)", b ? "ON" : "off");
+        Log("swing: trace %s (seam: swingtrace)", b ? "ON" : "off");
         return true;
     }
-    Log("swing: on|off (now %s). %d of %d dumps used. Read-only.",
+    Log("swing: swingtrace on|off (now %s). %d of %d dumps used. Read-only.",
         g_swOn ? "ON" : "off", g_swDumps, kSwMaxDumps);
     return true;
 }
