@@ -901,6 +901,7 @@ static void ApplyHeadToViewRotation(void* parms)
         if (g_frame == lastFrameOld && !menuResume) { DVR_HEAD_REFUSE("head: write skipped - a second dispatch in presented frame %lu (ChainStamp=0)", (unsigned long)g_frame); return; }
         lastFrameOld = g_frame;
     } else if (frNow - frWriteMs < 2.0) {
+        CamShakeNoteSkipped();   // VR-172: a chain re-stamp carries no new engine value
         if (frHave) {
             rot[0] = frP; rot[1] = frY;
             if (g_rotRoll) rot[2] = frR;
@@ -925,6 +926,16 @@ static void ApplyHeadToViewRotation(void* parms)
     if (dp >  0.5f) dp =  0.5f;  if (dp < -0.5f) dp = -0.5f;
 
     int32_t before0 = rot[0], before1 = rot[1];
+    // VR-172: what the ENGINE handed us this tick against what we wrote last tick is
+    // the rotation the game added by itself (a kick, a shake) plus the stick. The
+    // three ints after the view rotator are the event's own DeltaRot when the parms
+    // are large enough to hold them; the capture logs them raw and a pure stick turn
+    // is what proves or refutes that reading. Read-only, before any write below.
+    {
+        const int32_t inNow[3] = { rot[0], rot[1], rot[2] }, prevW[3] = { frP, frY, frR };
+        const bool deltaOk = RangeReadable(parms, rotOff + 24);
+        CamShakeOnViewRot(inNow, prevW, frWriteMs > 0.0, deltaOk ? rot + 3 : nullptr, 0);
+    }
 
     // YAW stays relative: it has to compose with stick turning, which also
     // moves this value.
