@@ -631,6 +631,7 @@ static void AimSourceTick();
 static bool AimSourceCommand(const char* args);
 // VR-166: interaction aimed by hand (interact_aim.cpp).
 static bool InteractAimEnabled();
+static bool HandRayWorld(float* origin, float* dir, const char** why);   // VR-166 (interact_aim.cpp)
 static void InteractAimSet(bool on, const char* who);
 static void InteractAimConfigure(const char* ini);
 static void InteractAimTick();

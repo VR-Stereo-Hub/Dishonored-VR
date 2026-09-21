@@ -209,16 +209,20 @@ static void AimSourceTick()
 // razor throw then names its own caller. Spawns are events, not per-frame work.
 static dvr::hooks::Detour g_spwDet;
 static uint32_t g_spwRet = (uint32_t)(kSpawnActor + sizeof(kSpawnActorBytes));
-struct SpwCall { uint32_t ret; uint8_t* obj; };
+struct SpwCall { uint32_t ret; uint8_t* obj; float loc[3]; bool locOk; };
 static SpwCall g_spwRing[64];
 static volatile LONG g_spwHead = 0, g_spwTail = 0, g_spwHits = 0;
 
-extern "C" void __cdecl SpawnCensusHook(uint8_t* obj, uint32_t ret)
+extern "C" void __cdecl SpawnCensusHook(uint8_t* obj, uint32_t ret, const uint32_t* args)
 {
     InterlockedIncrement(&g_spwHits);
     const LONG h = g_spwHead;
     if (h - g_spwTail >= 64) return;
-    g_spwRing[h % 64] = { ret, obj };
+    // args[0] = the return address's slot + 4: (0, FName[8], &Location, &Rotation, ...)
+    SpwCall c = { ret, obj, {}, false };
+    const float* loc = (args && RangeReadable((void*)args, 16)) ? (const float*)(uintptr_t)args[3] : nullptr;
+    if (loc && RangeReadable((void*)loc, 12)) { memcpy(c.loc, loc, 12); c.locOk = true; }
+    g_spwRing[h % 64] = c;
     InterlockedExchange(&g_spwHead, h + 1);
 }
 
@@ -236,10 +240,12 @@ extern "C" __declspec(naked) void SpawnCensusStub(void)
         push edx
         mov eax, [edx+24h]          ; return address
         mov ecx, [edx+18h]          ; ECX at entry
+        lea ebx, [edx+28h]          ; the first stack argument
+        push ebx
         push eax
         push ecx
         call SpawnCensusHook
-        add esp, 8
+        add esp, 12
         pop edx
         fxrstor [esp]
         mov esp, edx
@@ -270,6 +276,30 @@ static void SpawnCensusTick()
         InterlockedIncrement(&g_spwTail);
         uint32_t nm = 0;
         if (c.obj && !((uintptr_t)c.obj & 3) && RangeReadable(c.obj + kNameOff, 4)) nm = *(uint32_t*)(c.obj + kNameOff);
+        // VR-166: every razor placement - where it landed, and how far that point is
+        // from the HEAD ray and from the HAND ray. Whichever it sits on is the ray the
+        // placement follows. Perpendicular distances, in world units.
+        const char* nmS = nm ? RealName(nm) : nullptr;
+        if (c.locOk && nmS && strstr(nmS, "SpringRazor")) {
+            float cam[3], ho[3], hd[3]; const char* why = nullptr;
+            const bool camOk = dvr::camera::render_pos_world(cam);
+            const bool handOk = HandRayWorld(ho, hd, &why);
+            const float cp = cosf(g_viewPitchRad);
+            const float vd[3] = { cp * cosf(g_viewYawRad), cp * sinf(g_viewYawRad), sinf(g_viewPitchRad) };
+            auto perp = [](const float* o, const float* d, const float* p, float* along) {
+                const float v[3] = { p[0] - o[0], p[1] - o[1], p[2] - o[2] };
+                const float t = v[0] * d[0] + v[1] * d[1] + v[2] * d[2];
+                *along = t;
+                const float q[3] = { v[0] - t * d[0], v[1] - t * d[1], v[2] - t * d[2] };
+                return sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+            };
+            float aH = 0, aC = 0;
+            const float dHead = camOk ? perp(cam, vd, c.loc, &aH) : -1;
+            const float dHand = handOk ? perp(ho, hd, c.loc, &aC) : -1;
+            Log("razor/place: landed at (%.0f,%.0f,%.0f) - %.0f uu off the HEAD ray (%.0f along), "
+                "%.0f uu off the HAND ray (%.0f along)%s. The smaller offset is the ray placement follows",
+                c.loc[0], c.loc[1], c.loc[2], dHead, aH, dHand, aC, handOk ? "" : " [hand ray unavailable]");
+        }
         int k = 0;
         while (k < nSeen && !(seen[k].ret == c.ret && seen[k].name == nm)) ++k;
         if (k < nSeen || nSeen >= 96) continue;

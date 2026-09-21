@@ -828,6 +828,19 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
 } // namespace
 
 int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
+    {   // VR-166: did the reticle row (the cook ring) actually draw this present? A ring
+        // that draws only some presents flickers even though its quad stays submitted.
+        static uint32_t on = 0, drawn = 0, gap = 0, worst = 0;
+        const bool up = element_drawing(ElReticle);
+        const bool drew = g_lastRouted[ElReticle] == g_presentNo;
+        if (up) { ++on; if (drew) { ++drawn; gap = 0; } else if (++gap > worst) worst = gap; }
+        else if (on) {
+            DVR_INFO("hud/aim: the reticle row was up %u presents and drew in %u of them, longest gap %u "
+                     "(a gap of 1-2 is the ring missing from the texture that present - that is the flicker)",
+                     on, drawn, worst);
+            on = drawn = gap = worst = 0;
+        }
+    }
     ++g_presentNo;
     int n = 0;
     if(native_gameplay_reference()) return 0; // no delayed panel can overlap the reference
