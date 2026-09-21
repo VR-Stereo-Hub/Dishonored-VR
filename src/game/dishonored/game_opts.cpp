@@ -657,6 +657,76 @@ static void GameOptsConfigure(const char* ini)
 // This walks it, read-only. It is what turns "the profile array is empty" from
 // a dead end into a question with an answer: if the menu enumerates settings
 // with ids of its own, the PSI table was the wrong key all along.
+// The live menu movie, or NULL. ui_state.cpp already watches every movie
+// player with its own liveness rules, so this reuses that table rather than
+// starting a second scan with different ones.
+static uint8_t* GoFindMenuObject()
+{
+    const LONG n = g_uiInstN;
+    for (LONG i = 0; i < n; ++i) {
+        uint8_t* o = g_uiInst[i].obj;
+        if (!o || !IsLiveObject(o)) continue;
+        const char* cn = ObjClassName(o);
+        if (cn && strstr(cn, "MoviePlayer") &&
+            (strstr(cn, "MenuBase") || strstr(cn, "PauseMenu") || strstr(cn, "MainMenu")))
+            return o;
+    }
+    return NULL;
+}
+
+// VR-161: THE APPLY PATH. This is what makes a written setting take effect.
+//
+// The array write reaches the profile and stops there, which is why the menu
+// showed the new value while gameplay kept using the old one. Reading the
+// native showed OnSettingChange does three things, and we were doing one:
+//
+//   1. update the profile through the typed setter        <- our write did this
+//   2. refresh a shared settings object from the profile  <- missing
+//   3. call the registered m_SettingsListeners so the     <- missing
+//      camera, pawn, controller, input and HUD pick it up
+//
+// The listeners are the point. SaveProfile only addresses persistence and was
+// never the gap.
+//
+// The id is the PROFILE id: the handler compares its argument against
+// PropertyId, so 108 is correct here and no separate menu id scheme is needed.
+// The value is a FLOAT - the same 0..1 scale the profile stores, not the
+// 0..100 percentage an earlier guess invented.
+//
+// Requires the menu movie to exist, because the function is a native on it.
+// When it does not, this refuses and says so rather than calling into nothing.
+static bool GoCallSettingChange(int id, double value)
+{
+    uint8_t* menu = GoFindMenuObject();
+    if (!menu) {
+        Log("gameopts/apply: REFUSED id=%d - no live menu movie. OnSettingChange is a native "
+            "on DisGFxMoviePlayerMenuBase, so the menu has to exist; open the pause menu once "
+            "and the object stays around for the session.", id);
+        return false;
+    }
+    static uint8_t* fn = NULL; static bool tried = false;
+    if (!tried) {
+        tried = true;
+        fn = FindFunctionObj("OnSettingChange");
+        Log("gameopts/apply: UFunction OnSettingChange %s%p",
+            fn ? "found @ " : "NOT FOUND ", (void*)fn);
+    }
+    if (!fn) return false;
+    // OnSettingChange(int _SettingID, float _fValue)
+    struct { int32_t id; float value; } parms;
+    memset(&parms, 0, sizeof(parms));
+    parms.id = (int32_t)id;
+    parms.value = (float)value;
+    g_peReentry = true;
+    ((PFN_ProcessEventCall)kProcessEvent)(menu, fn, &parms, NULL);
+    g_peReentry = false;
+    Log("gameopts/apply: called OnSettingChange(%d, %.3f) on %p. This is the game's own path, "
+        "so it should refresh the shared settings object AND notify the listeners - which is "
+        "what a raw array write never did. Whether the listeners acted is visible in the GAME, "
+        "not in this line.", id, value, (void*)menu);
+    return true;
+}
+
 static void GoDumpMenuSettings(const char* who)
 {
     // ui_state.cpp already watches every live movie player, so reuse its table
@@ -860,7 +930,23 @@ static void GoApplyWrites(uint8_t* obj, const char* spec)
                 "is a normalised float, NOT a 0..100 percentage.",p); break;
         }
         int32_t before = 0;
-        const bool ok = GoWriteRaw(obj, id, val, &before);
+        // THE GAME'S OWN PATH FIRST. OnSettingChange updates the profile,
+        // refreshes the shared settings object and notifies the listeners; the
+        // raw array write only does the first of those, which is exactly why
+        // the previous attempt showed in the menu and changed nothing in play.
+        //
+        // The raw write stays as a fallback for when no menu movie exists: a
+        // value in the profile is still better than nothing, and the log says
+        // plainly which route was taken. A reader must never have to guess
+        // whether the listeners were notified.
+        const GoRaw pre = GoReadRaw(obj, (int)id);
+        if (pre.ok) before = pre.value;
+        const bool applied = GoCallSettingChange((int)id, val);
+        const bool ok = applied ? true : GoWriteRaw(obj, (int)id, val, &before);
+        if (!applied)
+            Log("gameopts/write:   id %ld: fell back to the RAW ARRAY WRITE - the profile will "
+                "hold this value and the menu will show it, but NO listener was notified, so a "
+                "running system keeps whatever it last applied.", id);
         int32_t after = 0;
         const GoRaw rb = GoReadRaw(obj, id);
         if (rb.ok) after = rb.value;

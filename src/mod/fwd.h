@@ -600,6 +600,8 @@ static bool GameOptsAutoEnabled();
 static void GameOptsSetAuto(bool on,const char* who);
 static bool GameOptsAutoFired();
 static void GameOptsConfigure(const char* ini);
+static uint8_t* GoFindMenuObject();
+static bool GoCallSettingChange(int id, double value);
 static void GoDumpMenuSettings(const char* who);
 static void GoApplyWrites(uint8_t* obj, const char* spec);
 // VR-165: the raw present-rate camera series (swing_trace.cpp). Read-only.
