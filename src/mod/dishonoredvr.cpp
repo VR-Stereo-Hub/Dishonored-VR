@@ -257,6 +257,7 @@
 #include "game/dishonored/cam_modifiers.cpp"   // VR-165: needs cinematic_trace's resolved camera cache
 #include "game/dishonored/swing_trace.cpp"    // VR-165: raw present-rate series
 #include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
+#include "game/dishonored/trail_control.cpp"  // VR-171: the sword's swing trail; after anim_state and reflect
 #include "game/dishonored/lens_control.cpp"   // VR-137: after rain_control (shared helpers)
 #include "game/dishonored/cinematic_fov.cpp"
 #include "game/dishonored/cinematic_pitch.cpp"

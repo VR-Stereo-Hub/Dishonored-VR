@@ -719,6 +719,12 @@ void draw_ui() {
         ImGui::SliderFloat("swing speed needed (m/s)", &g_meleeSpeed, 0.5f, 6.0f, "%.2f");
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", g_meleeSpeed); ConfigWriteKey("Melee", "SwingSpeed", v, "F10 Controls"); }
     }
+    // VR-171: the game's swoosh follows its own animation, not the hand-held blade.
+    bool trailHide = SwordTrailHideEnabled();
+    if (ImGui::Checkbox("hide the sword's swing trail (it does not follow your hand)", &trailHide)) {
+        SwordTrailHideSet(trailHide, "F10 Controls");
+        ConfigWriteKey("SwordTrail", "Hide", trailHide ? "1" : "0", "F10 Controls");
+    }
     ImGui::SliderFloat("swing cooldown (ms)", &g_meleeCoolMs, 0.0f, 1000.0f, "%.0f");
     if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", g_meleeCoolMs); ConfigWriteKey("Melee", "CooldownMs", v, "F10 Controls"); }
     if (st.detector == kEdge) {
