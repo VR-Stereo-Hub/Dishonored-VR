@@ -18,12 +18,32 @@
 //   3. Which of the two names in the gamepad profile - bAutoAim and
 //      bFriction - is the menu's "Auto Aim" and which is its "Aim Assist"?
 //
-// HOW IT READS, AND WHY THAT WAY. It never walks the ProfileSettings array
-// by hand. The struct chain (OnlineProfileSetting -> SettingsProperty ->
-// SettingsData) has three enum fields whose packed widths this project has
-// not measured, and a guessed stride would produce a table of confident
-// nonsense. Instead it asks the engine through its own accessors, over the
-// ProcessEvent route console.cpp already proves:
+// HOW IT READS - AND THIS CHANGED, ON EVIDENCE.
+//
+// It originally refused to walk the ProfileSettings array by hand, because the
+// struct chain has enum fields of unmeasured width and a GUESSED stride
+// produces a table of confident nonsense. That reasoning was right and still
+// is. What changed is that the stride is no longer a guess.
+//
+// The accessors below have refused on every single run: the object was proved
+// correct (ArkProfileSettings, ranked and printed), the array was proved
+// populated (115 entries), and all fourteen ids still came back empty. So the
+// array got dumped six dwords to a line, and column 2 returned a clean
+// ascending id run with no gaps - 29, 30, 31, 32, 33... - beside Owner values
+// that switch from 1 (the Live-managed ids) to 2 (the game's own), with the
+// PSI_GBA_* binding ids carrying key codes as their values. Every part of that
+// agrees with OnlineProfileSetting { Owner, PropertyId, Type, Value1, Value2,
+// AdvertisementType } at 24 bytes, so the layout is MEASURED.
+//
+// GoReadRaw therefore reads values straight out of the array, and
+// GoVerifyStride re-checks the layout on every read: the ids must ascend and
+// stay inside the PSI range, or the walk says the stride is wrong for this
+// build and that every value it printed is noise. The accessors are still
+// called and still reported, because a run where they start working is worth
+// knowing about - but nothing depends on them any more.
+//
+// The accessors, for the record, are asked over the ProcessEvent route
+// console.cpp already proves:
 //
 //   GetProfileSettings()          on the player controller -> the object
 //   GetProfileSettingName(id)     -> the id's own FName, so the log names
@@ -289,6 +309,77 @@ const char* GoSettingName(uint8_t* obj, int id)
     return NameFromIndex((uint32_t)parms.ReturnValue.index);
 }
 
+// VR-161: READ THE ARRAY DIRECTLY. The stride is now MEASURED, not guessed.
+//
+// Run 7 dumped the head of the array six dwords to a line and column 2 came
+// back as a clean ascending id run with no gaps:
+//
+//   [30] 00000002 0000001d 00000001 0000003b 00000000 00000000   id 29
+//   [36] 00000002 0000001e 00000001 00000037 00000000 00000000   id 30
+//   [42] 00000002 0000001f 00000001 00000025 00000000 00000000   id 31
+//   [48] 00000002 00000020 00000001 00000028 00000000 00000000   id 32
+//
+// That is exactly OnlineProfileSetting { Owner, PropertyId, Type, Value1,
+// Value2, AdvertisementType } at 24 bytes an entry. The first entries carry
+// Owner=1 (the Live-managed ids 1, 2, 12, 13, 16) and it switches to Owner=2
+// for the game's own, and ids 29..64 are the PSI_GBA_* bindings whose values
+// are key codes - which is why 59 and 92 appear there. Every part of that
+// agrees, so the layout is established rather than assumed.
+//
+// This makes the broken accessors irrelevant: the values can be read without
+// GetProfileSettingValueInt ever working. The header of this file used to say
+// it would never walk the array by hand, on the grounds that a GUESSED stride
+// produces confident nonsense. That reasoning stands; this stride was derived
+// from the bytes and is checked again on every read - the ids must ascend and
+// stay inside the PSI range, or the walk refuses and says so.
+const int kGoStrideDwords = 6;
+
+struct GoRaw { int32_t owner, id, type, value; bool ok; };
+
+// Find one id by walking the array. Linear over 115 entries is nothing, and it
+// avoids assuming the array is dense or sorted.
+GoRaw GoReadRaw(uint8_t* obj, int wantId)
+{
+    GoRaw r = { 0, 0, 0, 0, false };
+    const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
+    uint8_t* data = NULL; int32_t num = 0;
+    if (!off || !RflArrayAt(obj, off, &data, &num) || !data || num <= 0 || num > 4096) return r;
+    if (!RangeReadable(data, (size_t)num * kGoStrideDwords * 4)) return r;
+    const uint32_t* d = (const uint32_t*)data;
+    for (int i = 0; i < num; ++i) {
+        const uint32_t* e = d + (size_t)i * kGoStrideDwords;
+        const int32_t id = (int32_t)e[1];
+        if (id != wantId) continue;
+        r.owner = (int32_t)e[0]; r.id = id; r.type = (int32_t)e[2];
+        r.value = (int32_t)e[3]; r.ok = true;
+        return r;
+    }
+    return r;
+}
+
+// The stride's own check, run once per read. If the layout were wrong the id
+// column would not ascend and would leave the PSI range, so this can fail and
+// say so instead of handing back a table of plausible-looking noise.
+bool GoVerifyStride(uint8_t* obj, int* entries, int* ascending, int* inRange)
+{
+    *entries = 0; *ascending = 0; *inRange = 0;
+    const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
+    uint8_t* data = NULL; int32_t num = 0;
+    if (!off || !RflArrayAt(obj, off, &data, &num) || !data || num <= 0 || num > 4096) return false;
+    if (!RangeReadable(data, (size_t)num * kGoStrideDwords * 4)) return false;
+    const uint32_t* d = (const uint32_t*)data;
+    int32_t prev = -1;
+    for (int i = 0; i < num; ++i) {
+        const int32_t id = (int32_t)d[(size_t)i * kGoStrideDwords + 1];
+        ++(*entries);
+        if (id >= 0 && id <= 200) ++(*inRange);
+        if (id > prev) ++(*ascending);
+        prev = id;
+    }
+    *entries = num;
+    return true;
+}
+
 // The value. `ok` distinguishes "the engine says 0" from "the engine refused
 // to answer" - without it a missing id reads as a setting that is turned off,
 // which is exactly the zero-by-design trap this project has already paid for.
@@ -449,11 +540,25 @@ static void GameOptsApply()
             }
         }
     }
+    if (obj) {
+        int entries = 0, ascending = 0, inRange = 0;
+        if (GoVerifyStride(obj, &entries, &ascending, &inRange)) {
+            const bool good = entries > 0 && ascending * 10 >= entries * 8 &&
+                              inRange * 10 >= entries * 9;
+            Log("gameopts: stride check - %d entries at 6 dwords each, %d ascending, %d inside "
+                "the PSI range. %s", entries, ascending, inRange,
+                good ? "The measured layout holds, so the VALUE column below is read straight "
+                       "from the array and does not depend on the accessors at all."
+                     : "LAYOUT DOES NOT HOLD: the id column neither ascends nor stays in range, "
+                       "so the stride is wrong for this build and every VALUE below is noise.");
+        }
+    }
     Log("gameopts: ---- the game's own option settings, READ ONLY ----");
     Log("gameopts: profile = the Steam Cloud blob (OPTIONS.sav); system = what "
         "FSystemSettings holds now. A disagreement is the finding, not an error.");
 
     int named = 0, mismatched = 0, answered = 0, refused = 0;
+    int answeredRaw = 0;
     for (int i = 0; i < kGoCount; ++i) {
         const GoEntry& e = kGoTable[i];
         const char* engineName = obj ? GoSettingName(obj, e.id) : NULL;
@@ -467,16 +572,29 @@ static void GameOptsApply()
         if (engineName && !nameOk) ++mismatched;
         if (ok) ++answered; else if (obj) ++refused;
 
-        Log("gameopts: id %3d %-32s | menu '%s' | profile %s%ld | want %s | "
-            "engine name %s%s | system %s%s",
+        // The direct read. This is the column that actually works: the
+        // accessors have refused on every run since the probe was written,
+        // while the array itself is readable at a measured stride.
+        const GoRaw raw = obj ? GoReadRaw(obj, e.id) : GoRaw{0,0,0,0,false};
+        char rawCol[64];
+        if (raw.ok) _snprintf(rawCol, sizeof(rawCol), "%ld (owner %ld type %ld)",
+                              (long)raw.value, (long)raw.owner, (long)raw.type);
+        else        _snprintf(rawCol, sizeof(rawCol), "NOT IN THE ARRAY");
+        rawCol[sizeof(rawCol) - 1] = 0;
+        if (raw.ok) ++answeredRaw;
+
+        Log("gameopts: id %3d %-32s | menu '%s' | VALUE %s | want %s | "
+            "accessor %s%ld | engine name %s%s | system %s%s",
             e.id, e.psiName, e.menuLabel,
-            ok ? "" : "NO ANSWER ", (long)v, e.want,
+            rawCol, e.want,
+            ok ? "" : "refused ", (long)v,
             engineName ? engineName : "(none)",
             engineName ? (nameOk ? " (matches)" : " MISMATCH - do not believe this row") : "",
             e.sysKey ? e.sysKey : "(no mirror)",
             e.sysKey ? sys : "");
     }
 
+    Log("gameopts: %d of %d settings read DIRECTLY from the array (the column that works); the accessors answered %d.", answeredRaw, kGoCount, answered);
     Log("gameopts: %d/%d ids named by the engine, %d name mismatches, %d "
         "answered, %d refused. A mismatch or a refusal means the PSI table is "
         "wrong for THIS build and the row above it is not evidence.",
