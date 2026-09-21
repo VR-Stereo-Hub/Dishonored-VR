@@ -8326,3 +8326,39 @@ and yaw set from the hand-ray direction. This one change moves the start point, 
 direction and the plane choice together. It refuses when the POV is more than 150 uu from
 the render eye, because then the source is not the view. The old gadget seam at
 `0x00C300DD` is gone: it never ran for the razor.
+
+## Where the powers read their aim (VR-44, 2026-09-21, static)
+
+**The script dump has no shortcut.** `tools/uscript/` holds declarations and
+defaultproperties, not function bodies. The power components declare their RESULTS
+(`m_vOrigin`/`m_vDirection`, `m_TargetPoint`, `m_pHighlightedTarget`), but nothing that
+says where the aim comes from. Nor is there a script-level "aim source" to override.
+`DisItemContext_UsePower` extends `DisItemContext_AimAssistAttack`.
+
+**The native shape is shared.** Every hand-aim seam so far starts at the same read:
+`[controller+0x384]` (the player camera), then `+0x330` (the POV location) and `+0x33C`
+(the POV rotator, turned into a direction by `0x0040DA70`). Interaction, razor placement
+and Blink all start there. A census of `+0x384` readers in `0x00BE0000..0x00C60000` was
+walked from each power's own vtable slots, following direct calls four deep:
+
+| Class (vtable) | Reader of the camera POV |
+|---|---|
+| `..._WindBlast` (`0x01168F48`) | slot `+0x168` `0x00BFB950` -> `0x00BF9570`: `[+0x384]` at `0x00BF95BF`, rotator `+0x33C` at `0x00BF9615`, `add eax,330h` at `0x00BF961B`. Same shape as the razor seam |
+| `..._Blink` (`0x01168698`) | `+0x1B0` `0x00BFA270` -> `0x00BF5520` (`+0x384` at `0x00BF554F`), and `0x00BE8F20` (one caller, Blink-only) |
+| `..._Possess` (`0x011684B8`) | none direct. The `+0x384` hit in slot `+0x114` (`0x00BED930`) is its serialiser |
+| `..._DevouringSwarm` (`0x011682F0`) | none direct |
+| `DisItemContext_UsePower` (`0x01183620`) | slot `+0x184` `0x00C4B800` (an override) -> `0x00C12B00`: POV location at `0x00C12B56..`, rotator at `0x00C12BCE`, then the aim-assist candidate search `0x00C03320` (which reads the POV again). `0x00C12B00`'s other caller is `0x00C14368`, beside the aim-assist cache routine `0x00C14460` that interaction already knew |
+
+**The original author's "magic-aim" cannot cover them.** `[Blink] AimAllPowers`
+redirects at `kBlkAimHook` `0x00BF595F`. That address is inside `0x00BF5520`, which is
+Blink's targeting routine, reached only from Blink's `+0x1B0`. The claim that it fires for
+every power does not survive the call graph. The class-name gate is harmless, but the
+hook only ever runs for Blink.
+
+**Prediction to test (read-only first):** two seams cover the three powers.
+* Windblast takes its cone from `0x00BF9570`.
+* Possession's highlight and Swarm's target point come from the UsePower aim-assist
+  search `0x00C12B00`, and their components only consume its result.
+
+What would kill it: a counter at either site that does not move when that power is aimed,
+or a power whose target still follows the head while its site's input is on the hand ray.
