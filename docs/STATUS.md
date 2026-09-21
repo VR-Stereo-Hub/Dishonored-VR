@@ -2,7 +2,7 @@
 
 Branch `claude/vr-166-head-aim-customization` off VR-Main `d556eb587` (which carries the
 merged #82, #85 and #86). NOT merged, no PR merge authorized. Installed and pushed:
-`vr33-hands-working-613-gaa4dbae13`. Installed ini deltas vs defaults: `[Aim]
+`vr33-hands-working-615-g9843251f5` (confirmed), then the probe-gating build. Installed ini deltas vs defaults: `[Aim]
 SourceProbe=1` (the read-only probes/censuses below need it), `[Hud] Element.reticle=window`,
 `ReticleOnAim=1`, `[Draws] Census=0`.
 
@@ -22,35 +22,25 @@ SourceProbe=1` (the read-only probes/censuses below need it), `[Hud] Element.ret
   ProcessViewRotation (a pawn pointer passed as a DeltaTime), so slides went mono. Fixed by
   an object test; confirmed with two possessions.
 
-**Open, the next session starts here:**
-1. **Spring razor PLACEMENT still follows the head** (measured 2-12 uu off the head ray,
-   16-91 uu off the hand's). The razor is placed, not thrown: the placement routine
-   `0x00C3B570` spawns it (`0x00C3BA21`) from its context's `+0xB8` (location) and
-   `+0xC4` (normal). The writer of `+0xB8` is unknown. Build 613 captures the placing
-   context at `0x00C3B570` and arms a DR0 write-watch on `+0xB8` for 120 s, printing
-   `razor/watch: WRITER eip=...` as each writer is caught. Ruled out: the three camera
-   trace helpers, execTrace, the gadget routine `0x00C300DD` (hooked, never runs for the
-   razor; `GadgetFromHand` is dead weight until retargeted).
-2. **Placed razors in front of the player VANISH** (still pickable). Same buffers as the
-   held razor, within `AttachPassRadius` 60 uu of the held component -> taken as a held
-   pass. Build 613 logs `wa/razor: verdict ... offset ... draw at (...)` per verdict.
-   Compare against `razor/place: landed at` before changing any radius
-   (VR-33-HANDS-AND-WEAPONS.md, last section).
-3. **Pickup with controller aim is finicky** on small objects. Proposed, not built: an F10
-   option to trace from the head THROUGH the hand ray's target instead of from the hand.
-4. **Powers** (Windblast, Swarm, Possession) are still head only. Field offsets resolved
-   (`aimsrc/props:`): Windblast `m_vOrigin` +0xA4 / `m_vDirection` +0xB0, base
-   `m_TargetPoint` +0x60, Possess `m_PossessTarget` +0x98 / `m_pHighlightedTarget` +0xCC.
-   Next: a writer search (`disasm-rva.py disp`) or the same write-watch technique.
+* **Spring razor placement follows the weapon ray** (build 615, headset-confirmed): 13
+  placements, every one 0 uu off the hand ray and 4-99 uu off the head's. Seam: the razor's
+  wall-placement trace `0x00C32C30` reads the camera POV through esi; `0x00C32C91` swaps in
+  one built from the hand ray (ENGINE_NOTES "The razor placement seam"). `[Aim]
+  GadgetFromHand` and the F10 "Spring razors" row now drive it; the dead gadget seam at
+  `0x00C300DD` and the razor write-watch probe are gone.
 
-**The test that is waiting (build 613, not yet run):** place the razor left/middle/right
-along a wall, three times each, within two minutes of the first placement. Read
-`razor/watch: WRITER`, `wa/razor:` and `razor/place:`. Verify the banner reads `613` first.
+**Open (PR #87 is ready for review, NOT merged):**
+1. **VR-169**: a razor placed close to the player is invisible (still works). Suspect the
+   weapon matcher claiming it as the held razor. `wa/razor:` lines (now behind `[Aim]
+   SourceProbe`) name the gate; the ticket has the next measurement.
+2. **Pickup with controller aim is finicky** on small objects. Proposed, not built: trace
+   from the head THROUGH the hand ray's target.
+3. **Powers** (Windblast, Swarm, Possession): moved to part 2, VR-44, branch
+   `claude/vr-44-head-aim-pt2-powers` off this one.
 
-Probes to REMOVE or gate before a merge: `aim_source.cpp` (SpawnActor census, trace
-census, razor write-watch, the helper probe), `wa/razor:` in weapon_attach, and the
-`GadgetFromHand` seam if it stays unused. Every one of them is read-only and armed by
-`[Aim] SourceProbe` (code default 0), except `wa/razor` (logs, first 400).
+Probes left, all read-only and armed only by `[Aim] SourceProbe` (code default 0; the
+installed ini has it at 1): the SpawnActor and trace censuses and the helper probe in
+`aim_source.cpp`, and `wa/razor:` in weapon_attach.
 
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 

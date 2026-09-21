@@ -885,7 +885,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                 // out; ones at 61-62 uu from the component stayed). Every verdict
                                 // on the razor's buffers, with where the draw is, so held passes
                                 // and world copies can be told apart by numbers, not a radius guess.
-                                if (known->asset && strstr(known->asset, "SpringRazor"))
+                                if (AimSourceProbeOn() && known->asset && strstr(known->asset, "SpringRazor"))
                                     DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 400,
                                         "wa/razor: verdict %s offset %.1f uu (radius %.0f) draw at (%.0f,%.0f,%.0f)",
                                         verdict == dvr::wf::INSTANCE_HELD ? "HELD" :
@@ -1298,13 +1298,13 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
             }
         }
     }
-    // VR-166: placed razors straight ahead vanish. Every razor draw that reaches the
+    // VR-169 ([Aim] SourceProbe): placed razors close to the player vanish. Every razor draw that reaches the
     // matcher, which gate claimed it, and how far from the camera it is: a placed razor
     // claimed as the held one (moved to the hand) is the vanish; one left alone is fine.
     {
         const bool memberRazor = match.best >= 0 && members[match.best]->asset &&
                                  strstr(members[match.best]->asset, "SpringRazor");
-        if (razorPath || memberRazor)
+        if (AimSourceProbeOn() && (razorPath || memberRazor))
             DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 400,
                 "wa/razor: matcher %s draw %.0f uu from the camera (branch %s, verdict %s): %s%s "
                 "%.1f deg / %.1f uu from its predicted transform%s",

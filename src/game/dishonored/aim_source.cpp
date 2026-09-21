@@ -28,6 +28,7 @@
 
 static dvr::hooks::Detour g_asrcDet;
 static bool g_asrcOn = false;                 // [Aim] SourceProbe
+static bool AimSourceProbeOn() { return g_asrcOn; }
 static uint32_t g_asrcRet = (uint32_t)(kAimSrcHelper + sizeof(kAimSrcHelperBytes));
 
 struct AsrcCall { uint32_t ret; uint8_t* self; float in[3]; bool inOk; };
