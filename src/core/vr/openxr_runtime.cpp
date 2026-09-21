@@ -10,6 +10,7 @@
 #include "core/vr/aim_visual.h" // 41.2 (Dishonored, VR-57): explicit one-ray visuals
 
 #include "core/util/log.h"
+#include "core/util/crash.h"   // VR-177 (Dishonored): the watchdog's probe guard
 #include "core/util/clock.h"
 #include "core/util/paths.h"
 #include "core/util/xr_math.h"
@@ -1434,6 +1435,23 @@ void describe_addr(uintptr_t a, char* out, size_t cap) {
 //   - the scan window matches watchdog_capture (8192 dwords / 24 frames). At
 //     1024/6 it gave up before reaching the first in-image return on any thread
 //     with a deep native prologue.
+// VR-177 (Dishonored): how many dwords from `esp` up to the end of the committed region
+// that holds it - the thread's stack base, in practice. The scans below used to read
+// until they FAULTED at the base (the three "reading 35BB0000" entries in every
+// playtester run's crash file), and that fault is raised while ANOTHER thread is
+// SUSPENDED: every vectored handler in the process (ours writes a file; Steam's is on the
+// stack) then runs with that thread frozen, and one that needs a lock it holds would
+// deadlock the game. VirtualQuery is a system call, so it is safe to make here.
+int watchdog_stack_dwords(uintptr_t esp, int want) {
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (!esp || !VirtualQuery(reinterpret_cast<LPCVOID>(esp), &mbi, sizeof(mbi))) return 0;
+    if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return 0;
+    const uintptr_t end = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+    if (end <= esp) return 0;
+    const uintptr_t avail = (end - esp) / sizeof(uintptr_t);
+    return avail < static_cast<uintptr_t>(want) ? static_cast<int>(avail) : want;
+}
+
 void watchdog_all_threads() {
     capture_exe_bounds();
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -1480,7 +1498,9 @@ void watchdog_all_threads() {
                 eip = ctx.Eip;
                 esp = ctx.Esp;
                 const uintptr_t* sp = reinterpret_cast<const uintptr_t*>(esp);
-                for (int i = 0; i < 8192 && nf < 24; ++i) {
+                const int lim = watchdog_stack_dwords(esp, 8192);   // VR-177: never fault here
+                dvr::crash::probe_begin();   // the __try is only a backstop now
+                for (int i = 0; i < lim && nf < 24; ++i) {
                     uintptr_t v = 0;
                     __try {
                         v = sp[i];
@@ -1489,6 +1509,7 @@ void watchdog_all_threads() {
                     }
                     if (v >= g_exeLo && v < g_exeHi) fr[nf++] = v;
                 }
+                dvr::crash::probe_end();
             }
             ResumeThread(th);
         }
@@ -1556,7 +1577,9 @@ void watchdog_capture(uint32_t tid, const char* what, int64_t stuckMs) {
             // the game image is a plausible return address. Crude, but it needs
             // no symbols and no unwind data, and the histogram is unambiguous.
             const uintptr_t* p = reinterpret_cast<const uintptr_t*>(esp);
-            for (int i = 0; i < 2048 && nFrames < 24; ++i) {
+            const int lim = watchdog_stack_dwords(esp, 2048);   // VR-177: never fault here
+            dvr::crash::probe_begin();   // the __try is only a backstop now
+            for (int i = 0; i < lim && nFrames < 24; ++i) {
                 uintptr_t v = 0;
                 __try {
                     v = p[i];
@@ -1565,6 +1588,7 @@ void watchdog_capture(uint32_t tid, const char* what, int64_t stuckMs) {
                 }
                 if (v >= g_exeLo && v < g_exeHi) frames[nFrames++] = v;
             }
+            dvr::crash::probe_end();
         }
         ResumeThread(th);
     }

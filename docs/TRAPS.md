@@ -1,3 +1,32 @@
+## A crash recorder whose budget our own probes spend cannot record the crash (VR-177, 2026-09-21)
+
+**What happened.** A playtester reported a freeze and a crash, and neither left a fault
+record. Every run's `dishonored_vr_crash.txt` held the same three entries at startup:
+`d3d9.dll+0x172c1c` and `+0x172747`, "reading" a 64 KB-aligned address. Against the
+archived PDB (`build/symbol-archive/<dll sha256>`, `llvm-symbolizer --relative-address`),
+those are the runtime watchdog's own stack scans, `watchdog_capture` and
+`watchdog_all_threads`. The watchdog reads a suspended thread's stack upward until it
+faults at the stack base, then catches the fault. The fingerprinter stops after 3 faults
+per run, so it had nothing left for a real crash.
+
+**The second trap inside it.** Those faults are raised while ANOTHER thread is SUSPENDED.
+So every vectored handler in the process runs with that thread frozen, including ours
+(which writes a file) and Steam's. A handler that needs a lock the frozen thread holds
+deadlocks the game. The watchdog built to explain freezes could cause one.
+
+**Fix.**
+* `watchdog_stack_dwords` bounds every scan by the committed region `VirtualQuery`
+  reports, so the scan never faults.
+* `dvr::crash::probe_begin/end` marks our own guarded probes. The fingerprinter ignores
+  faults raised inside them, and says how many at the next real fault.
+* The support collector now bundles `pacetrace.log` (where the watchdog writes) and a
+  `pacetrace-watchdog.txt` extract. Before this, the watchdog's output never reached us
+  from a tester.
+
+**Rule.** A recorder with a budget must not let anything we raise on purpose spend it. A
+guarded probe must not raise at all while another thread is suspended. Check the crash
+file of a NORMAL run: if it is not empty, something is spending the budget.
+
 ## A performance number carries its MACHINE and its build CONFIG (VR-160, 2026-09-20)
 
 An investigation opened by treating 43-54 pairs/s on the dev PC as a regression from

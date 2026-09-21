@@ -193,6 +193,27 @@ lines to read: `docs/dishonored/F10_MOTION_CONTROLS.md`):
 Headset-confirmed on build 602. The default size and place are the ones the tester chose
 (the geometry probe's fractions). The #87/#88 aim work is on its own branches and is not in
 this one.
+## Playtester crashes, VR-177 (2026-09-21)
+
+Branch `claude/vr-177-crash-fixes` off VR-Main. NOT merged. There are two reports from one
+playtester on build 533 (a rooftop freeze, and a crash after Piero's cutscene). Neither
+left a fault record, and the reason was our instruments (TRAPS.md, top entry):
+* the watchdog's stack scans spent the crash fingerprinter's 3-fault budget at startup;
+* those scans faulted while another thread was suspended, which is a deadlock hazard;
+* the watchdog's `pacetrace.log` was not in the support bundle.
+
+All three are fixed on this branch.
+
+Evidence so far:
+* **Piero (503):** the dialog ended normally. About 35 s later the GPU queries for 4
+  presents never resolved, and the game thread then sat 56 s inside its own frame, with
+  memory and VRAM healthy. After that the process died. A GPU/driver stall is suspected,
+  not proven.
+* **Rooftop (701):** the log just stops.
+
+Next: a tester build from this branch. The next occurrence should arrive with a
+fingerprint and watchdog stacks. The Piero UI-hold clue is noted on the ticket; the 503
+timing does not tie the stall to the shop itself.
 
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 
