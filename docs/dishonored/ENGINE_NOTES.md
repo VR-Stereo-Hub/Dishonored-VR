@@ -8273,3 +8273,14 @@ out name its placement trace.
 
 Note: the grenade projectile spawns from `0x00C39058`, which confirms the throw seam's
 routine.
+
+**Measured (build 610, headset, 2026-09-21).** Four placements, each landing 6-10 uu off
+the HEAD ray (120-142 uu along it) and 28-91 uu off the hand ray. Placement follows the
+head. The placement routine takes the point from the razor context: `+0xB8/+0xBC/+0xC0`
+is the location and `+0xC4/+0xC8/+0xCC` the normal (the simple branch at `0x00C3B81A`),
+or a transform of them when the razor sits on a moving base. The writer is not in the
+three camera-trace helpers or execTrace. `+0xB8` stores in the gadget region
+(`0x00C20856`, `0x00C2BF3F`, `0x00C30B94`, `0x00C443C1`) belong to other objects, and
+`0x00C327E0` is a destructor. Build 611 arms a hardware write-watch (DR0, write,
+4 bytes) on the live context's `+0xB8` while the razor is equipped, to name the writer
+(`razor/watch:`).

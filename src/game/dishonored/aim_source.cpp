@@ -125,10 +125,12 @@ static bool AimSourceCommand(const char* args)
 // Script lane. Drains the ring and names what it saw.
 static void SpawnCensusTick();
 static void TraceCensusTick();
+static void RazorWatchTick();
 static void AimSourceTick()
 {
     SpawnCensusTick();   // VR-166: the spawn-site census rides the same arming
     if (g_asrcOn) TraceCensusTick();   // VR-166: and so does the trace census
+    if (g_asrcOn) RazorWatchTick();    // VR-166: and the razor placement write-watch
     if (!g_asrcDet.on) return;
     // VR-166: the power aim fields the scripts declare. Property offsets live in the
     // packages, not the image, so they are resolved here once in gameplay; the log line
@@ -478,5 +480,109 @@ static void TraceCensusTick()
         Log("trace/census: NEW %s <- caller 0x%08X on %s - READ-ONLY; the callers that appear only "
             "while the spring razor is out are its placement trace",
             kNames[c.id & 3], c.ret, obj ? ObjClassName(c.obj) : "not a UObject");
+    }
+}
+
+// ---- VR-166: who writes the razor's placement point (hardware write-watch, READ-ONLY) --
+// The razor spawns at its context's +0xB8 (location; +0xC4 the normal), read at
+// 0x00C3B81A inside the placement routine 0x00C3B570, and it lands on the HEAD ray
+// (measured: 6-10 uu off it, 28-91 uu off the hand's). Static reading did not find the
+// writer, so DR0 watches +0xB8 for writes on every thread and a vectored handler records
+// each writing EIP with the first three return addresses on its stack. Armed once, on
+// the first live DisItemContext_UseSpringRazor; reported after 20 s or 16 writers.
+// The legacy src/legacy/aim_watch.cpp is the same technique.
+#include <tlhelp32.h>
+namespace {
+struct RwRec { uint32_t eip, n, ret[3]; };
+RwRec g_rwRecs[16];
+volatile LONG g_rwN = 0, g_rwTotal = 0;
+uintptr_t g_rwAddr = 0;
+PVOID g_rwVeh = nullptr;
+double g_rwArmedMs = 0;
+bool g_rwDone = false;
+}
+static LONG CALLBACK RazorWatchVeh(PEXCEPTION_POINTERS ep)
+{
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP) return EXCEPTION_CONTINUE_SEARCH;
+    CONTEXT* c = ep->ContextRecord;
+    if (!(c->Dr6 & 0x1) || !g_rwAddr) return EXCEPTION_CONTINUE_SEARCH;
+    c->Dr6 = 0;
+    InterlockedIncrement(&g_rwTotal);
+    const uint32_t eip = (uint32_t)c->Eip;
+    LONG n = g_rwN; if (n > 16) n = 16;
+    for (LONG i = 0; i < n; ++i) if (g_rwRecs[i].eip == eip) { ++g_rwRecs[i].n; return EXCEPTION_CONTINUE_EXECUTION; }
+    const LONG idx = InterlockedIncrement(&g_rwN) - 1;
+    if (idx < 16) {
+        RwRec& r = g_rwRecs[idx]; r.eip = eip; r.n = 1; r.ret[0] = r.ret[1] = r.ret[2] = 0;
+        const uint32_t* sp = (const uint32_t*)c->Esp; int got = 0;
+        for (int k = 0; k < 48 && got < 3; ++k) {
+            if (!RangeReadable((void*)(sp + k), 4)) break;
+            const uint32_t v = sp[k];
+            if (v >= 0x401000 && v < 0xF40000) r.ret[got++] = v;
+        }
+    }
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+static void RazorWatchApply(bool enable)
+{
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snap == INVALID_HANDLE_VALUE) return;
+    THREADENTRY32 te; te.dwSize = sizeof(te);
+    const DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
+    if (Thread32First(snap, &te)) do {
+        if (te.th32OwnerProcessID != pid) continue;
+        const bool other = te.th32ThreadID != self;
+        HANDLE th = other ? OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID)
+                          : GetCurrentThread();
+        if (!th) continue;
+        if (other) SuspendThread(th);
+        CONTEXT c; memset(&c, 0, sizeof(c)); c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        if (GetThreadContext(th, &c)) {
+            if (enable) { c.Dr0 = (DWORD)g_rwAddr; c.Dr7 = (c.Dr7 & ~(0x3u | (0xFu << 16))) | 0x1u | (0x1u << 16) | (0x3u << 18); }
+            else        { c.Dr0 = 0; c.Dr7 &= ~(0x3u | (0xFu << 16)); }
+            c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+            SetThreadContext(th, &c);
+        }
+        if (other) { ResumeThread(th); CloseHandle(th); }
+    } while (Thread32Next(snap, &te));
+    CloseHandle(snap);
+}
+static void RazorWatchTick()
+{
+    if (g_rwDone) return;
+    const double now = MaimNowMs();
+    if (g_rwAddr) {
+        if (now - g_rwArmedMs < 20000.0 && g_rwN < 16) return;
+        RazorWatchApply(false);
+        LONG n = g_rwN; if (n > 16) n = 16;
+        Log("razor/watch: %ld write(s) to the placement point, %ld writer(s) - READ-ONLY; the writer that "
+            "fires while aiming the razor is the placement code:", (long)g_rwTotal, (long)n);
+        for (LONG i = 0; i < n; ++i)
+            Log("razor/watch:   eip=0x%08X hits=%u ret=0x%08X 0x%08X 0x%08X", g_rwRecs[i].eip, g_rwRecs[i].n,
+                g_rwRecs[i].ret[0], g_rwRecs[i].ret[1], g_rwRecs[i].ret[2]);
+        g_rwAddr = 0; g_rwDone = true;
+        return;
+    }
+    static double next = 0;
+    if (now < next || !CylTruthLive()) return;
+    next = now + 2000.0;
+    if (!strstr(g_rflState.equip[2], "SpringRazor")) return;   // only with the razor in hand
+    if (!RangeReadable((void*)kGObjHdr, 12)) return;
+    void** objs = *(void***)kGObjHdr; const uint32_t num = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || num < 2000 || num > 4000000 || !RangeReadable(objs, (size_t)num * 4)) return;
+    for (uint32_t i = 1; i < num; ++i) {
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, kNameOff + 4)) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || strcmp(cn, "DisItemContext_UseSpringRazor")) continue;
+        const char* nm = RealName(*(uint32_t*)(o + kNameOff));
+        if (nm && !strncmp(nm, "Default__", 9)) continue;
+        if (!RangeReadable(o + 0xB8, 12)) continue;
+        if (!g_rwVeh) g_rwVeh = AddVectoredExceptionHandler(1, RazorWatchVeh);
+        g_rwAddr = (uintptr_t)(o + 0xB8); g_rwArmedMs = now; g_rwN = 0; g_rwTotal = 0;
+        RazorWatchApply(true);
+        Log("razor/watch: ARMED on %s '%s' %p +0xB8 for 20 s - aim and place the razor now",
+            cn, nm ? nm : "?", (void*)o);
+        return;
     }
 }
