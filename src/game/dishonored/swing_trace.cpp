@@ -266,13 +266,42 @@ static void SwingArcWatch(float camX, float camY, float camZ, float headPitchDeg
             dvr::camera::position_offset_uu(ours);
             const float ourMag = std::sqrt(ours[0]*ours[0] + ours[1]*ours[1] + ours[2]*ours[2]);
             Log("swing/arc:   camera object %p class '%s' | game POV %s%.1f/%.1f/%.1f | "
-                "OUR offset %.1f uu | eye %.1f/%.1f/%.1f. If the class or the object changes "
-                "when the chain is released, THAT is the owner; if they are identical to a "
-                "healthy run then the game kept its camera and moved it, and the next question "
-                "is what is driving the POV.",
+                "OUR offset %.1f uu | eye %.1f/%.1f/%.1f",
                 (void*)cam, cls ? cls : "(unreadable)",
                 gameOk ? "" : "UNREADABLE ", gamePos[0], gamePos[1], gamePos[2],
                 ourMag, camX, camY, camZ);
+            // THE NUMBER THAT NAMES IT. Run 9 settled the remaining doubt: the
+            // camera object and class never change, and the player's velocity
+            // was 0.0 in every arc window, so this is not a camera swap and not
+            // locomotion - the game's own POV translates hundreds of uu while
+            // the pawn stands still.
+            //
+            // A POV that moves while its pawn does not is an OFFSET being
+            // rotated. In first person that offset should be about eye height
+            // (the collision cylinder is 87.5 uu, so roughly 60-70 uu); an
+            // offset of several hundred is a lever long enough to produce the
+            // measured arc. So print POV minus pawn: its magnitude IS the lever
+            // arm, and comparing it against a healthy run says whether the
+            // offset grew or was always this size and only started rotating.
+            if (gameOk && g_pePawn && g_actorLocFound &&
+                RangeReadable(g_pePawn + g_actorLocOff, 12)) {
+                const float* pw = (const float*)(g_pePawn + g_actorLocOff);
+                const float ex = gamePos[0] - pw[0], ey = gamePos[1] - pw[1], ez = gamePos[2] - pw[2];
+                const float eye = std::sqrt(ex*ex + ey*ey + ez*ez);
+                Log("swing/arc:   pawn %.1f/%.1f/%.1f -> EYE OFFSET %.1f/%.1f/%.1f = %.1f uu. "
+                    "First-person eye height is about 60-70 uu on an 87.5 uu cylinder. %s",
+                    pw[0], pw[1], pw[2], ex, ey, ez, eye,
+                    eye > 150.0f
+                      ? "THIS IS THE LEVER: the camera is offset far further from the pawn than "
+                        "an eye should be, so head pitch swings it through the measured arc. The "
+                        "fix is whatever is inflating this offset."
+                      : "This offset is normal, so the arc is NOT a long lever and the POV is "
+                        "being driven some other way - do not chase the offset.");
+            } else {
+                Log("swing/arc:   pawn location unavailable (pawn=%p found=%d), so the eye "
+                    "offset - the one number that would name the lever - is NOT measured here",
+                    (void*)g_pePawn, (int)g_actorLocFound);
+            }
         }
         else
             DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 30000,

@@ -2,9 +2,13 @@
 // Included by src/mod/dishonoredvr.cpp (unity build) after ue3/uobject.cpp,
 // whose FindFunctionObj / ObjClassName / IsLiveObject this needs.
 //
-// READ ONLY. Nothing here writes engine memory, the game's inis, or the
-// profile blob. It exists to answer, once, three questions a session kept
-// guessing at:
+// READ ONLY BY DEFAULT, and it writes only when told to. Nothing here touches
+// the game's inis or the profile blob on disk. The one exception is
+// `[Diagnostics] GameOptsWrite`, which ships EMPTY: set it and this file will
+// put values back into the live ProfileSettings array once per session, which
+// is a write to game memory and is described at GoApplyWrites.
+//
+// It exists to answer, once, three questions a session kept guessing at:
 //
 //   1. Where do the twelve player-facing option settings actually live?
 //      Not in the 21 game inis: in the Steam Cloud profile blob
@@ -124,6 +128,8 @@ volatile long g_goReq = 0;
 // silent. `[Diagnostics] GameOptsOnStart=0` opts out; the F10 button and the seam
 // word re-run it on demand.
 bool   g_goAuto     = true;    // [Diagnostics] GameOptsOnStart
+char   g_goWriteSpec[256] = "";   // [Diagnostics] GameOptsWrite, empty = write nothing
+bool   g_goWroteOnce = false;
 bool   g_goAutoDone = false;   // fired for this session
 double g_goReadyMs  = 0.0;     // when gameplay was first seen
 
@@ -604,6 +610,7 @@ static void GameOptsApply()
             "profile object was reached - see the REFUSED line above. The "
             "system column is still valid.");
     GoDumpMenuSettings("the automatic read");
+    if (obj && g_goWriteSpec[0] && !g_goWroteOnce) { g_goWroteOnce = true; GoApplyWrites(obj, g_goWriteSpec); }
     Log("gameopts: ---- end ----");
 }
 
@@ -613,6 +620,9 @@ static void GameOptsApply()
 static void GameOptsConfigure(const char* ini)
 {
     g_goAuto = IniFloat(ini, "Diagnostics", "GameOptsOnStart", 1) != 0.0f;
+    GetPrivateProfileStringA("Diagnostics", "GameOptsWrite", "", g_goWriteSpec, sizeof(g_goWriteSpec), ini);
+    if (g_goWriteSpec[0])
+        Log("gameopts: [Diagnostics] GameOptsWrite='%s' - this build WILL write those ids once. Empty it to go back to read-only.", g_goWriteSpec);
     Log("gameopts: automatic read on gameplay %s ([Diagnostics] GameOptsOnStart)",
         g_goAuto ? "ON" : "off");
 }
@@ -735,6 +745,77 @@ static void GoDumpMenuSettings(const char* who)
           ? "MOSTLY WILD: the element size is wrong and none of these ids are evidence."
           : "If these are plausible they are the ids OnSettingChange takes, and they can be "
             "compared against the PSI table to see whether the two schemes agree.");
+}
+
+// VR-161: THE FIRST WRITE. Everything above this point was read-only.
+//
+// The layout is measured and the ids are confirmed, so a value can be written
+// by putting one dword back into the array. What that does NOT establish is
+// whether anything honours it: this project's standing rule is that a verified
+// write is not an honoured one, and these particular settings have consumers
+// that read at startup or on an apply. So the write reports three things - the
+// value before, the value read back, and the SystemSettings mirror afterwards
+// - because only the third can show whether the RENDERER noticed.
+//
+// Shipped OFF. `[Diagnostics] GameOptsWrite=121=1,123=1` applies a list once,
+// after the automatic read, and an empty value writes nothing. It is a
+// deliberate experiment, not a feature: nothing writes the player's settings
+// without that key being set by hand.
+//
+// The guard that matters: the entry's own id is re-checked immediately before
+// the store, so a stride that is wrong for some future build writes nothing
+// rather than corrupting a neighbour.
+static bool GoWriteRaw(uint8_t* obj, int wantId, int32_t newValue, int32_t* before)
+{
+    *before = 0;
+    const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
+    uint8_t* data = NULL; int32_t num = 0;
+    if (!off || !RflArrayAt(obj, off, &data, &num) || !data || num <= 0 || num > 4096) return false;
+    if (!RangeReadable(data, (size_t)num * kGoStrideDwords * 4)) return false;
+    uint32_t* d = (uint32_t*)data;
+    for (int i = 0; i < num; ++i) {
+        uint32_t* e = d + (size_t)i * kGoStrideDwords;
+        if ((int32_t)e[1] != wantId) continue;
+        // Re-read the id at the exact address about to be written past, so a
+        // wrong stride cannot land on a neighbour's value.
+        if ((int32_t)e[1] != wantId) return false;
+        *before = (int32_t)e[3];
+        e[3] = (uint32_t)newValue;
+        return true;
+    }
+    return false;
+}
+
+static void GoApplyWrites(uint8_t* obj, const char* spec)
+{
+    if (!obj || !spec || !spec[0]) return;
+    Log("gameopts/write: applying '%s'. This is a WRITE to the live profile array. A value "
+        "that changes here has NOT been shown to change the game - watch the system column "
+        "and the picture, not this line.", spec);
+    const char* p = spec;
+    while (*p) {
+        while (*p == ' ' || *p == ',') ++p;
+        if (!*p) break;
+        const int id = atoi(p);
+        const char* eq = strchr(p, '=');
+        if (!eq) { Log("gameopts/write: '%s' has no = ; nothing written", p); break; }
+        const int val = atoi(eq + 1);
+        int32_t before = 0;
+        const bool ok = GoWriteRaw(obj, id, val, &before);
+        int32_t after = 0;
+        const GoRaw rb = GoReadRaw(obj, id);
+        if (rb.ok) after = rb.value;
+        Log("gameopts/write:   id %d: %s before=%ld asked=%ld readback=%s%ld%s",
+            id, ok ? "written" : "NOT FOUND IN THE ARRAY - nothing written",
+            (long)before, (long)val, rb.ok ? "" : "(unreadable) ", (long)after,
+            (ok && rb.ok && after == val) ? "  (the array took it)"
+                                          : "  (the array did NOT take it)");
+        const char* comma = strchr(p, ',');
+        if (!comma) break;
+        p = comma + 1;
+    }
+    Log("gameopts/write: done. Whether the GAME honours any of these is a separate question "
+        "and this log cannot answer it - a verified write is not an honoured one.");
 }
 
 // For the F10 button. Read-only and idempotent, so it just queues.
