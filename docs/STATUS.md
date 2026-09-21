@@ -1,3 +1,19 @@
+## Session handoff 2026-09-21: ONE pull request carries VR-170, VR-171 and VR-172
+
+- Branch `claude/vr-170-171-172-sword-and-camera-shake`, off `VR-Main` `d556eb58`, pushed, ONE PR
+  open against `VR-Main` with `Fixes VR-170`, `Fixes VR-171`, `Fixes VR-172`. NOT merged. The three
+  single-ticket PRs were closed as superseded by it; their branches are merged into this one
+  unchanged, and the three handoff blocks below are theirs and still hold.
+- This branch's tree is byte-identical to the local integration build that was tested as a whole:
+  `swing-soft.xrs`, `trail-hide.xrs` and `camshake.xrs` all pass on its RelWithDebInfo build
+  (`d3d9.dll` sha256 `A4DA6561...`), which is the build left installed on the dev PC.
+- Merging the three together needed keep-both resolutions in the docs, `fwd.h`, `commands.cpp` and
+  `config.cpp`; nothing else conflicted, and the default ini carries each new section once
+  (`default-profile-host.ps1` and the golden check pass on the combined tree).
+- Owed, all in the headset: the swing census from a real session, whether the sword's ribbon is
+  gone, and the three kinds of camera shake the simulator could not reach (a hit taken, the sword
+  landing on an enemy, an explosion).
+
 ## Session handoff 2026-09-21: the swing threshold and the hump census (VR-170)
 
 ### Where things are RIGHT NOW
