@@ -1,3 +1,32 @@
+## Camera delta audit after run 549 (2026-09-20)
+
+Current state: installed `vr33-hands-working-551-g90ea17a76-dirty`, SHA256
+`d1a6c5449f0d57e0e1365ff3cf0ed1f92722f05d7625b9ea524b5f13d518b494`. Release/lint/nine exports pass.
+Full installed INI compared with prior install, CRLF preserved; camera probes
+armed and GameOptsWrite empty. Prior install archived under
+`build/playtest-candidates/installs/20260920-201617`. No game launch by agent.
+
+Run 549 matches the prior installed candidate's banner (compiled 19:43:20).
+The DLL present at review was already candidate 550, so it is not run 549's
+binary. Both logs preserved in `build/playtest-candidates/camera-source/run549`;
+the DLL in that review archive is 550 and must not be attributed to the log.
+Measured: 272 samples with EyeHeight/BaseEyeHeight=85; 272 explicit group-1
+not-live rows. Shipped declarations initialize group 1 to none. Old logs do
+not distinguish null from non-null rejection. Large eye deltas do not prove
+subtraction failure: operands and cache freshness were not recorded.
+
+Changes: log raw camera/pawn world positions, read validity and controller
+ownership beside the delta. Refuse delta on failed reads/nonfinite inputs or
+owner mismatch. Debug POVs carry source-minus-pawn plus raw source values;
+freshness remains unverified. Null group slots are explicitly EMPTY, rejected
+non-null pointers retain their address. Existing head-bob work preserved.
+
+Next launch, one question: does the PlayerControl pawn-relative source share
+the displacement after chain X-release and return after Blink? Compare standing
+pitch before, after release, then after Blink. Matching source movement points
+upstream; unchanged source with changed cache points downstream or stale debug
+fields; invalid reads/ownership or no reproduction remains inconclusive.
+
 ## Camera source and option review (2026-09-20)
 
 Current state: branch `codex/vr-165-camera-source-review`, based on the attached

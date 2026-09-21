@@ -113,16 +113,29 @@ static void CameraSourceTick()
     };
     auto vector = [](uint8_t* o,const char* cls,const char* prop,float* v) {
         v[0]=v[1]=v[2]=NAN; const uint32_t off=RflOffsetOf(cls,prop);
-        if(o && off && RangeReadable(o+off,12)) memcpy(v,o+off,12);
+        if(!o || !off || !RangeReadable(o+off,12)) return false;
+        memcpy(v,o+off,12);
+        return std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]);
     };
     float pov[3]={NAN,NAN,NAN},loc[3],vel[3];
-    if(g_ctLayout && g_ctCache) CtRead(cam,g_ctCache+g_ctPov+g_ctLoc,pov,sizeof(pov));
-    vector(pawn,"Actor","Location",loc); vector(pawn,"Actor","Velocity",vel);
+    const bool povRead=g_ctLayout && g_ctCache && CtRead(cam,g_ctCache+g_ctPov+g_ctLoc,pov,sizeof(pov));
+    const bool povOk=povRead && std::isfinite(pov[0]) && std::isfinite(pov[1]) && std::isfinite(pov[2]);
+    const bool locOk=vector(pawn,"Actor","Location",loc);
+    vector(pawn,"Actor","Velocity",vel);
+    const bool ownerOk=IsLiveObject(g_peCtrl) && g_ctPcCamera && g_ctPawn &&
+        CtObject(g_peCtrl,g_ctPcCamera)==cam && CtObject(g_peCtrl,g_ctPawn)==pawn;
+    const bool deltaOk=povOk && locOk && ownerOk;
+    float delta[3]={NAN,NAN,NAN};
+    if(deltaOk) for(int k=0;k<3;++k) delta[k]=pov[k]-loc[k];
     const dvr::anim::Snapshot state=dvr::anim::snapshot();
-    Log("camera/source: sample=%u time=%.0f cam=%p pawn=%p state=%s eye=%.2f/%.2f/%.2f "
-        "velocity=%.2f/%.2f/%.2f EyeHeight=%.2f BaseEyeHeight=%.2f; nan=unavailable/nonfinite, 500ms samples are not a frequency measurement",
-        samples,now,cam,pawn,state.state[0],pov[0]-loc[0],pov[1]-loc[1],pov[2]-loc[2],
-        vel[0],vel[1],vel[2],scalar(pawn,"Pawn","EyeHeight"),scalar(pawn,"Pawn","BaseEyeHeight"));
+    Log("camera/source: sample=%u time=%.0f cam=%p pawn=%p state=%s owner-match=%d "
+        "pov-read=%d pawn-read=%d camera-world=%.2f/%.2f/%.2f pawn-world=%.2f/%.2f/%.2f "
+        "eye-delta=%s %.2f/%.2f/%.2f velocity=%.2f/%.2f/%.2f EyeHeight=%.2f BaseEyeHeight=%.2f; "
+        "sequential cache snapshot, freshness unverified; 500ms samples are not frequency evidence",
+        samples,now,cam,pawn,state.state[0],int(ownerOk),int(povOk),int(locOk),
+        pov[0],pov[1],pov[2],loc[0],loc[1],loc[2],deltaOk?"computed":"UNAVAILABLE",
+        delta[0],delta[1],delta[2],vel[0],vel[1],vel[2],
+        scalar(pawn,"Pawn","EyeHeight"),scalar(pawn,"Pawn","BaseEyeHeight"));
     uint8_t* groups=NULL; int32_t count=0;
     const uint32_t off=RflOffsetOf("DishonoredPlayerCamera","m_InfluenceGroups");
     if(!off || !RflArrayAt(cam,off,&groups,&count) || count>16 ||
@@ -132,7 +145,8 @@ static void CameraSourceTick()
     Log("camera/source: groups=%d (separate from Camera.ModifierList)",count);
     for(int g=0;g<count;++g) {
         uint8_t* group=((uint8_t**)groups)[g];
-        if(!IsLiveObject(group)) { Log("camera/source: group=%d not live",g); continue; }
+        if(!group) { Log("camera/source: sample=%u group=%d obj=%p EMPTY null slot",samples,g,group); continue; }
+        if(!IsLiveObject(group)) { Log("camera/source: sample=%u group=%d obj=%p REJECTED non-null pointer not live",samples,g,group); continue; }
         uint8_t* influences=NULL; int32_t n=0;
         const uint32_t io=RflOffsetOf("DishonoredCameraInfluenceGroup","m_Influences");
         if(!io || !RflArrayAt(group,io,&influences,&n) || n>64 ||
@@ -149,7 +163,15 @@ static void CameraSourceTick()
             if(cls && (!strcmp(cls,"DishonoredCamera_PlayerControl") || !strcmp(cls,"DishonoredCamera_AnimDriven"))) field="m_Debug_POV_Location";
             else if(cls && !strcmp(cls,"DishonoredCamera_CrouchMantleOffset")) field="m_StartingOffset";
             else if(cls && !strcmp(cls,"DisCamera_StepUpMantleOffset")) field="m_StepUpStartPos";
-            if(strcmp(field,"not exposed")) vector(inf,cls,field,source);
+            const bool sourceOk=strcmp(field,"not exposed") && vector(inf,cls,field,source);
+            const bool worldPov=!strcmp(field,"m_Debug_POV_Location");
+            float relative[3]={NAN,NAN,NAN};
+            const bool relativeOk=worldPov && sourceOk && locOk && ownerOk;
+            if(relativeOk) for(int k=0;k<3;++k) relative[k]=source[k]-loc[k];
+            if(worldPov) Log("camera/source: sample=%u group=%d row=%d source-world=%.2f/%.2f/%.2f "
+                "source-minus-pawn=%s %.2f/%.2f/%.2f (debug field freshness unverified)",
+                samples,g,i,source[0],source[1],source[2],relativeOk?"computed":"UNAVAILABLE",
+                relative[0],relative[1],relative[2]);
             Log("camera/source: group=%d row=%d obj=%p class=%s weight=%g target=%g %s=%.2f/%.2f/%.2f",
                 g,i,inf,cls?cls:"unavailable",scalar(inf,"DishonoredCameraInfluence","m_Weight"),
                 scalar(inf,"DishonoredCameraInfluence","m_TargetWeight"),field,source[0],source[1],source[2]);

@@ -3340,3 +3340,21 @@ sample spacing before reading the shape.
    claim. Large POV-minus-pawn establishes displacement, not ownership.
 7. Validation: Release/lint/exports pass. No new headset result; no camera fix
    or clamp installed. One launch question and sequence are in STATUS.md.
+
+## Run 549 camera-source audit (2026-09-20)
+
+Smooth whole-view camera displacement after chain release remains open.
+272 source samples read both pawn eye-height fields at85. Group1 is explicitly
+not-live in all272 snapshots, not silently skipped; defaultproperties initialize
+m_InfluenceGroups[1] to none. That suggests a null slot, but the old log did not
+print the pointer and cannot prove null versus liveness rejection.
+
+The old eye field subtracts Actor.Location (+0xc4, matching the independent
+crouch resolver) from reflected camera POV. Large values alone do not establish
+failed subtraction. Raw operands, ownership and cache timing were missing.
+The new probe reports both world vectors, read success, controller ownership,
+and an unavailable result on invalid input. Absolute debug POV sources now
+also report source-minus-pawn, without asserting debug-field freshness.
+No camera-memory write or root-cause fix. Next baseline/X-release/Blink test
+and installed identity are in STATUS.md. Run549 evidence is archived locally;
+the then-installed550 DLL is a separate identity from that log.
