@@ -3053,9 +3053,15 @@ static void LoadConfig()
         "line reports the SETTING; watch for 'crouch: DOWN' to know it fires",
         g_crouchOn ? "armed" : "off", g_crouchDropM, g_crouchReleaseM);
     g_ovlDev = IniFloat(ini, "Overlay", "DevTools", 0) != 0.0f;
-    g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 0) != 0.0f;
+    // VR-174: the F10 panel from the controllers, on by default. [Overlay] PointerSpeed is
+    // retired: the cursor comes from the eye's FOV now, not a gain.
+    g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 1) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
-    g_ovlPtrGain = IniFloat(ini, "Overlay", "PointerSpeed", 2.2f);
+    dvr::vr::set_chord_tap_opens_panel(g_ovlPtrEnable);
+    {
+        const float ui = IniFloat(ini, "Overlay", "UiScale", 0.0f);   // 0 = from the eye texture
+        if (ui >= 0.8f && ui <= 2.5f) g_ovlUiScale = ui;
+    }
     g_autoHand      = IniFloat(ini, "HandTracking", "AutoStart", 1) != 0.0f;
     // 32.96: was 4 s on top of discovery time - the user asked why motion
     // controls take so long after a load. 1.5 s is enough for the rig to be

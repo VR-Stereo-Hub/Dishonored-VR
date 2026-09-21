@@ -1,3 +1,18 @@
+## F10 panel from the motion controllers, VR-174 (2026-09-21)
+
+Branch `claude/vr-174-f10-menu-motion-controls` off VR-Main, draft PR #91. NOT merged.
+This ports the BioShock trilogy mod's F10 motion controls (plan, as-built notes and the
+lines to read: `docs/dishonored/F10_MOTION_CONTROLS.md`):
+* tap both stick clicks to open the panel, hold them to recenter;
+* the right-controller ray is the cursor (through the eye FOV) and the trigger clicks;
+* the right stick scrolls, and nudges the pointed-at slider;
+* the panel is sized to the eye texture, with a text-scale slider;
+* while it is up, the right trigger and stick are withheld from the game and the laser and
+  dot are hidden.
+
+Built and installed; not yet judged in the headset. The #87/#88 aim work is on its own
+branches and is not in this one.
+
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 
 ### Where things are RIGHT NOW

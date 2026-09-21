@@ -1,3 +1,27 @@
+## F10 panel from the controllers (VR-174, 2026-09-21, not yet judged in the headset)
+
+The F10 panel works from the controllers alone:
+* **Tap both stick clicks** to open or close it. **Hold them** (about 0.6 s) to
+  recenter. Recenter used to fire the instant both clicks went down.
+* Point with the right controller, and the **trigger clicks**.
+* The **right stick up/down scrolls**. **Left/right nudges the slider you point at**, 1%
+  of its range per step and faster the further you push, starting from its current
+  value (it never jumps to where you point).
+* While the panel is up, the game does not get the right trigger or right stick, so a
+  click cannot fire or attack and a scroll cannot turn you. The left stick still walks.
+  The aim laser and dot are hidden.
+* The panel is now sized and placed against the eye image, so it is the same part of
+  the view at any render size. It has a **UI text scale** slider.
+
+Ported from the BioShock trilogy VR mod.
+
+**Keys:**
+* `[Overlay] ControllerPointer` now defaults to `1`. Setting it to `0` restores the
+  mouse-only panel and the instant recenter.
+* New: `[Overlay] UiScale` (0.8-2.5; unset = derived from the render height).
+* `[Overlay] PointerSpeed` is **removed**: the cursor follows the controller's ray
+  through the eye's field of view instead of a gain.
+
 ## Motion sword (2026-09-20, judged in the headset on one rig)
 
 Swinging the right controller swings the sword again. The old detector never fired

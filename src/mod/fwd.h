@@ -136,7 +136,7 @@ static bool EnsureCommonStates();
 static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 static void InstallWindowSubclass(const char* who);
 static void OverlaySaveDefaults();
-static void OverlayFrame();
+static void OverlayFrame(uint32_t targetW, uint32_t targetH);
 static LONG CALLBACK WalkVEH(EXCEPTION_POINTERS* xp);
 static const char* NameFromIndex(uint32_t idx);
 static bool PrintableName(const char* s);

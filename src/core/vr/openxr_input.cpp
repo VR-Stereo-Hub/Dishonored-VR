@@ -114,6 +114,12 @@ std::atomic<float> g_hapAmp[2] = {};
 std::atomic<float> g_hapDur[2] = {};
 std::atomic<bool> g_hapPend[2] = {};
 std::atomic<bool> g_recenterChord{false};
+// VR-174 (Dishonored), from the BioShock trilogy mod: the chord's TAP opens the F10 panel,
+// its HOLD recenters. Off = the original instant recenter, verbatim.
+std::atomic<bool> g_panelChord{false};
+std::atomic<bool> g_chordTapPanel{false};
+constexpr uint64_t kChordTapMs = 350;   // released within this = a tap
+constexpr uint64_t kChordHoldMs = 600;  // held this long = recenter, once
 std::atomic<bool> g_attachedAtomic{false};
 
 void publish_snapshot(const InputSnapshot& s) {
@@ -539,12 +545,41 @@ void input_sync(XrSession session, XrTime predictedDisplayTime) {
     const bool clickL = read_bool(session, g_stickClickL);
     const bool clickR = read_bool(session, g_stickClickR);
     const bool chordHeld = clickL && clickR;
+    // VR-174 (Dishonored): the chord carries TWO jobs, split by duration - a TAP toggles the
+    // F10 panel, a HOLD recenters once on the way past. Recenter takes the hold because it is
+    // rare and deliberate; opening the panel is neither. A hold that already recentered must
+    // not also toggle on release. With the split off this is the original machine verbatim.
     static bool s_chordArmed = true;
-    if (chordHeld && s_chordArmed) {
-        s_chordArmed = false;
-        g_recenterChord.store(true, std::memory_order_relaxed);
-    } else if (!clickL && !clickR) {
-        s_chordArmed = true;
+    static uint64_t s_chordDownMs = 0;
+    static bool s_chordFired = false;
+    const uint64_t nowChord = GetTickCount64();
+    if (!g_chordTapPanel.load(std::memory_order_relaxed)) {
+        if (chordHeld && s_chordArmed) {
+            s_chordArmed = false;
+            g_recenterChord.store(true, std::memory_order_relaxed);
+        } else if (!clickL && !clickR) {
+            s_chordArmed = true;
+        }
+    } else if (chordHeld) {
+        if (s_chordDownMs == 0) s_chordDownMs = nowChord;
+        if (!s_chordFired && nowChord - s_chordDownMs >= kChordHoldMs) {
+            s_chordFired = true;
+            g_recenterChord.store(true, std::memory_order_relaxed);
+            XRLOG("input: chord HOLD (%llu ms) -> recenter", (unsigned long long)(nowChord - s_chordDownMs));
+        }
+    } else if (s_chordDownMs != 0 && !clickL && !clickR) {
+        // Both up before re-arming, so rolling off one click and back on is not a gesture.
+        const uint64_t held = nowChord - s_chordDownMs;
+        if (!s_chordFired && held < kChordTapMs) {
+            g_panelChord.store(true, std::memory_order_relaxed);
+            XRLOG("input: chord TAP (%llu ms) -> F10 panel toggle", (unsigned long long)held);
+        } else if (!s_chordFired) {
+            XRLOG("input: chord released after %llu ms - between a tap (<%llu) and a hold (>=%llu), "
+                  "so nothing", (unsigned long long)held, (unsigned long long)kChordTapMs,
+                  (unsigned long long)kChordHoldMs);
+        }
+        s_chordDownMs = 0;
+        s_chordFired = false;
     }
     if (!chordHeld) { s.clkL = clickL; s.clkR = clickR; }
     s.active = true;
@@ -586,6 +621,12 @@ void input_haptic(int hand, float amp, float durSec) {
     g_hapDur[hand].store(durSec, std::memory_order_relaxed);
     g_hapPend[hand].store(true, std::memory_order_release);
 }
+
+bool take_panel_chord() {
+    return g_panelChord.exchange(false, std::memory_order_relaxed);
+}
+bool chord_tap_opens_panel() { return g_chordTapPanel.load(std::memory_order_relaxed); }
+void set_chord_tap_opens_panel(bool on) { g_chordTapPanel.store(on, std::memory_order_relaxed); }
 
 bool take_recenter_chord() {
     return g_recenterChord.exchange(false, std::memory_order_relaxed);

@@ -1,6 +1,8 @@
 # F10 menu motion controls (VR-174)
 
-**Status: PLAN, nothing built yet.** This is a port of the implementation the BioShock trilogy
+**Status: BUILT (steps 1-5), not yet judged in the headset.** Step 6 goes straight to
+the headset, because the simulator needs a game launch. The log lines below replace the
+simulator's predicted-vs-actual. This is a port of the implementation the BioShock trilogy
 VR mod ships and has headset-verified. It uses the same ImGui (1.92.8), the same OpenXR
 runtime layer, and nearly the same F10 panel. The source files, read-only, are in the
 trilogy repo:
@@ -162,3 +164,35 @@ where the panel sits.
 * A world-anchored panel on its own quad layer. The trilogy asked for this and dropped it as
   too big: it needs an offscreen render target, a swapchain, and a ray-plane pointer.
 * Driving the panel with the left hand, beyond the existing `PointerHand` key.
+
+## As built (2026-09-21)
+
+* `core/ui/overlay.cpp` holds `OvlInjectControllerPointer`, `OvlUpdateSliderTweak` and
+  `OvlProbeWindowGeometry`. `OverlayFrame(w, h)` sets `DisplaySize` to the eye texture and
+  uses `style.FontScaleMain`. There is a "UI text scale" slider at the bottom of the panel.
+* `core/vr/openxr_input.cpp` handles the chord: TAP (<350 ms) -> `take_panel_chord`, HOLD
+  (600 ms) -> `take_recenter_chord`. It is gated by `set_chord_tap_opens_panel`, which
+  follows `[Overlay] ControllerPointer`. Off is the original instant recenter.
+* `core/input/pad_bridge.cpp`:
+  * The 31.0 ray code is removed.
+  * It toggles the panel on a tap.
+  * While the panel is up it zeroes the pointing hand's trigger (and the right stick, for
+    the right hand), plus the swing's RB pulse when `[Melee] Output=rb`.
+* `present_tick.cpp`: the aim ray ticks as "not gameplay" while the panel is up, which
+  hides the laser and dot. The HUD reticle is NOT hidden; it is the game's own element.
+* Removed: `g_ovlRayX/Y`, `g_ovlPtrValid/Down`, `g_ovlPtrGain`, `[Overlay] PointerSpeed`.
+
+**Side effect, accepted:** while the panel is up, Blink (left trigger) falls back to head
+aim, because the ray is off.
+
+**What to read in the log after a headset run:**
+* `overlay: pointer owner CONTROLLER|MOUSE` - who owns the cursor, and why it changed.
+* `overlay: pointer on the ray - ndc (...) -> px (...) of WxH, tangents a/b` (every 5 s).
+  A cursor that sits off the ray by a constant factor is a rendered-vs-claimed FOV
+  mismatch. The ndc and tangents give the factor.
+* `overlay: window pos ... fractions ...` and the one-time `client rect vs eye texture` line.
+* `overlay: text scale X from the eye texture height H`.
+* `overlay: tweak START/STOP/LOST item 0x...`.
+* `input: chord TAP (N ms) -> F10 panel toggle`, `input: chord HOLD -> recenter`, and the
+  between-the-two release line.
+* `pad/overlay: the F10 panel is up - ... reach the panel, not the game`.

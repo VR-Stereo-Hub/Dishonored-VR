@@ -36,7 +36,7 @@ Virtual Desktop or a SteamVR-native headset. Troubleshooting: `docs/TROUBLESHOOT
 ## Controls (defaults)
 
 The controllers are a gamepad: left stick move, right stick turn, triggers attack and use
-powers, the face buttons as the game's own pad layout, both stick clicks together recenter.
+powers, the face buttons as the game's own pad layout, both stick clicks together: tap opens the F10 panel, hold recenters.
 Physical crouch and lean/peek work. With `[Mode] GamepadOnly=0` the original motion controls
 (swing to attack, hand-aimed Blink and weapons, END to calibrate the hands, HOME to toggle
 the hand drive) are compiled in but untested on the new render.
