@@ -110,8 +110,39 @@ static void OverlayFrame()
         ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Aim")) {
-        bool fire = FireAimEnabled();
-        if (ImGui::Checkbox("Aim crossbow and pistol from controller", &fire)) FireAimSet(fire,"F10");
+        // VR-166: one row per thing that aims. Controller = the weapon ray (the same
+        // published ray as the dot, Blink and the shots). Each choice applies live and
+        // is saved at once. Items with no hand route yet say so instead of offering a
+        // switch that would do nothing.
+        ImGui::TextUnformatted("Head or controller aim, per item");
+        auto row = [](const char* label, bool hand, bool* changed) {
+            ImGui::PushID(label);
+            ImGui::TextUnformatted(label); ImGui::SameLine(220);
+            bool h = hand;
+            if (ImGui::RadioButton("Head", !h)) h = false;
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Controller", h)) h = true;
+            ImGui::PopID();
+            *changed = h != hand;
+            return h;
+        };
+        bool changed = false;
+        bool fire = row("Crossbow and pistol", FireAimEnabled(), &changed);
+        if (changed) { FireAimSet(fire,"F10"); ConfigWriteKey("Aim","FireFromHand",fire ? "1" : "0","F10 Aim"); }
+        bool blink = row("Blink", g_blkDriveUI, &changed);
+        if (changed) {
+            g_blkDriveUI = blink; g_blkAimOnCfg = blink;
+            if (blink) g_blkDstReqUI = g_blkDstOnUI ? 0 : 1;
+            ConfigWriteKey("Blink","ControllerAim",blink ? "1" : "0","F10 Aim");
+            Log("blink: controller aim %s (F10 Aim)", blink ? "ON" : "off");
+        }
+        bool interact = row("Interactions", InteractAimEnabled(), &changed);
+        if (changed) { InteractAimSet(interact,"F10"); ConfigWriteKey("Aim","InteractFromHand",interact ? "1" : "0","F10 Aim"); }
+        ImGui::TextDisabled("Head only for now (no controller route yet): grenades, spring razors,");
+        ImGui::TextDisabled("Windblast, Devouring Swarm, Possession and the other powers.");
+        ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
+        if (g_gamepadOnly) ImGui::TextDisabled("[Mode] GamepadOnly=1: everything stays on the head.");
+        ImGui::Separator();
         dvr::aim::draw_ui();
         ImGui::EndTabItem();
     }

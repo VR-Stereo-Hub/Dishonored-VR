@@ -163,6 +163,20 @@ static const uint8_t   kBlkDirOrig[5] = { 0x8b, 0x08, 0x89, 0x4d, 0xb4 };
 // mov eax,[ebp+0Ch]. Read-only probe: aim_source.cpp. ENGINE_NOTES "shared power-aim helper".
 static const uintptr_t kAimSrcHelper = 0x00bf52e0;
 static const uint8_t   kAimSrcHelperBytes[6] = { 0x55, 0x8b, 0xec, 0x8b, 0x45, 0x0c };
+// VR-166: interaction aimed by hand. ENGINE_NOTES "The interaction seam, found".
+// The interaction wrapper 0x00AB7B80 (one caller, the controller tick at 0x00ABA8DE)
+// runs a first-pass trace 0x00AA5FF0 from the camera location and then the usable
+// selector 0x00AB70F0 on a view struct (+0x08 location, +0x14 rotator); the setter
+// 0x00AA6280 stores the winner in m_pCrosshairActor (+0x69C).
+static const uintptr_t kInteractFirstTraceCall = 0x00AA60B1;   // call 0x00AA2C20 inside 0x00AA5FF0
+static const uint8_t   kInteractFirstTraceCallBytes[5] = { 0xE8, 0x6A, 0xCB, 0xFF, 0xFF };
+static const uintptr_t kInteractTraceFn        = 0x00AA2C20;   // the engine's line check
+static const uintptr_t kInteractFirstTraceBack = 0x00AA60B6;
+static const uintptr_t kInteractFirstPassRet   = 0x00AB7C8E;   // 0x00AA5FF0's return into the wrapper
+static const uintptr_t kInteractSelector       = 0x00AB70F0;   // push ebp; mov ebp,esp; push -1; push 0x00F4FDD0
+static const uint8_t   kInteractSelectorBytes[10] = { 0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xD0, 0xFD, 0xF4, 0x00 };
+static const uintptr_t kInteractSelectorBack   = 0x00AB70FA;
+static const uintptr_t kInteractSelectorRet    = 0x00AB7CBB;   // its only caller's return address
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

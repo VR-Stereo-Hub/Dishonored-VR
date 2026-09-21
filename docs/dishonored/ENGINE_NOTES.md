@@ -8155,3 +8155,45 @@ from `DisItemContext_ProjectileAttack`, which declares `m_CachedAimAssistPos`, t
 cache VR-57 wrote to steer a crossbow bolt. `DisItemContext_UsePower` derives from
 `DisItemContext_AimAssistAttack`, which has no such cache, so powers compute their
 aim natively.
+
+## The interaction seam, found (VR-166, 2026-09-21)
+
+This closes the open question from VR-85: which code writes `m_pCrosshairActor`
+(`+0x69C`). Derived offline. Note that `tools/disasm-rva.py` takes and prints RVAs
+(its jump targets are VAs), so every address below is a VA.
+
+* **Setter** `0x00AA6280` (thiscall on the controller, `ret 0xC`). It stores arg 1
+  into `+0x69C`, clears then recomputes `m_pCrosshairHighlightActor` `+0x6A0`, and
+  writes `m_bCanInteractWithCrosshairActor` at `+0x63E` plus bit `0x2000` of
+  `+0x610`. The `+0x69C` / `+0x6A0` writes are at `0x00AA63AA` / `0x00AA63B0` /
+  `0x00AA63F3`. Found with `disasm-rva.py disp 0x69C`: four writers, and only this
+  one also writes `+0x6A0`.
+* **Wrapper** `0x00AB7B80`, the setter's only interaction caller (`0x00AB7D14`).
+  It has one caller, the controller tick at `0x00ABA8DE`.
+  1. It first runs a pass `0x00AA5FF0`. That traces from the camera location
+     (`[PC+0x384]+0x330`) along a direction argument: the camera rotation
+     (`+0x33C`, via `0x0040DA70`), or the aim-assist cache when an item supplies
+     one (`0x00C14460`). The line check itself is `0x00AA2C20`, called at
+     `0x00AA60B1` with arguments (0, hit*, origin*, dir*, flags 0x102209F, 0x80,
+     ...). `0x00AA5FF0` returns into the wrapper at `0x00AB7C8E`.
+  2. It then calls the usable selector `0x00AB70F0`, whose only caller is
+     `0x00AB7CB6`. The selector takes a view struct: location at `+0x08`, rotator at
+     `+0x14`. It builds end = location + dir(rot) * `[tweaks+0x90]`, with extent
+     `[tweaks+0x98]`, and traces with `0x00BE16E0` (flags `0x1022097`).
+  3. The setter receives the winner of the two passes.
+* **The seam (`interact_aim.cpp`).** Two byte-verified bridges, each gated on a
+  unique return address so no other caller is touched:
+  * At `0x00AA60B1`, the origin and direction POINTERS are swapped for the hand
+    ray's.
+  * At the selector entry (10 displaced bytes `55 8B EC 6A FF 68 D0 FD F4 00`), the
+    view-struct POINTER is swapped for a copy whose location and rotator are the
+    hand's.
+
+  No engine field is written, which is the lesson VR-85 learned when a direct write
+  of `+0x69C` did not survive to the next tick. The engine still does the trace,
+  validation, highlight and prompt. Both bridges use fxsave, because this code
+  keeps live x87 values.
+
+Status: built and installed, not yet run. The first run must show
+`interact/aim: beat ... seen` counters moving, and `interact/focus:` changing
+with the hand while the head is still.

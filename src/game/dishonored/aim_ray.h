@@ -166,6 +166,8 @@ void request_fire_ray(bool enabled); // sampling independent of Dot/Laser toggle
 // to keep the ray sampled on its own. A single shared request flag would have the two
 // consumers overwrite each other's arming, so each owns its own and the tick ORs them.
 void request_blink_ray(bool enabled);
+// VR-166: interaction is a third engine consumer of the same ray, with its own arming.
+void request_interact_ray(bool enabled);
 void tick(bool gameplay, bool projectionWanted);
 void command(const char* args);
 void draw_ui();

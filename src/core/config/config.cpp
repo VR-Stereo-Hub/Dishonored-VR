@@ -476,6 +476,9 @@ static void WriteDefaultIni(const char* ini)
         "; (the one Blink uses) for a vector, and how far that vector sits off the view.\n"
         "; READ-ONLY. It answers which powers and thrown items one seam could aim by hand.\n"
         "SourceProbe=0\n"
+        "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
+        "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
+        "InteractFromHand=1\n"
         "PropWatch=0\n"
         "InteractFocus=0\n"
         "[HandTracking]\n"
@@ -2454,6 +2457,7 @@ static void LoadConfig()
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
+    InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;

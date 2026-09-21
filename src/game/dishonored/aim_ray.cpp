@@ -22,6 +22,7 @@ std::mutex g_fireMutex;
 FireFrame g_fireFrame;
 std::atomic<bool> g_fireRequested{false};
 std::atomic<bool> g_blinkRequested{false};
+std::atomic<bool> g_interactRequested{false};   // VR-166
 std::atomic<bool> g_modelRequested{false};
 const char* g_lastWhy = "";
 uint64_t g_lastBeat = 0;
@@ -56,6 +57,7 @@ FireFrame fire_frame() { std::lock_guard<std::mutex> lock(g_fireMutex); return g
 Ray ray() { return fire_frame().ray; }
 void request_fire_ray(bool enabled) { g_fireRequested.store(enabled); }
 void request_blink_ray(bool enabled) { g_blinkRequested.store(enabled); }
+void request_interact_ray(bool enabled) { g_interactRequested.store(enabled); }
 void configure(const Config& cfg, const char* origin) {
     if (cfg.hand < 0 || cfg.hand > 1 || !std::isfinite(cfg.distanceM) ||
         !std::isfinite(cfg.sizeDeg) || cfg.distanceM < 0.5f || cfg.distanceM > 50 ||
@@ -89,7 +91,8 @@ void configure(const Config& cfg, const char* origin) {
 void tick(bool gameplay, bool projectionWanted) {
     const auto now = GetTickCount64();
     const bool armed = g_config.dot || g_config.laser || g_config.controlDot ||
-                       g_fireRequested.load() || g_blinkRequested.load();
+                       g_fireRequested.load() || g_blinkRequested.load() ||
+                       g_interactRequested.load();
     dvr::vr::HandAimSample sample;
     g_ray = Ray{}; g_ray.hand = g_config.hand;
     if (!armed) g_ray.why = "off";

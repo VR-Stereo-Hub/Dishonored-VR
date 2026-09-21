@@ -272,6 +272,7 @@
 // VR-57: the fire-direction probe (read-only); needs reflect.cpp's resolver above.
 #include "game/dishonored/aim_seam.cpp"
 #include "game/dishonored/fire_aim.cpp"
+#include "game/dishonored/interact_aim.cpp"   // VR-166: interaction aimed by hand
 #include "game/dishonored/ue3/ui_state.cpp"
 #include "game/dishonored/ue3/ui_surface.cpp"
 #include "game/dishonored/startup.cpp"

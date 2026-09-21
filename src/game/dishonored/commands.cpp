@@ -432,6 +432,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "cammod")) return CamModCommand(args);       // VR-165
     if (!strcmp(cmd, "aimsrc")) return AimSourceCommand(args);    // VR-166
+    if (!strcmp(cmd, "interactaim")) return InteractAimCommand(args); // VR-166
     // VR-165: not "swing" - that word is the motion sword's (VR-37) on VR-Main.
     if (!strcmp(cmd, "swingtrace")) return SwingTraceCommand(args);  // VR-165
     if (!strcmp(cmd, "dump")) {
