@@ -1,4 +1,12 @@
-## Session handoff 2026-09-21: ONE pull request carries VR-170, VR-171 and VR-172
+## Session handoff 2026-09-22: ONE pull request carries VR-170, VR-171, VR-172 and VR-180
+
+- The legacy build guard (VR-180, its own block below) was merged into this branch on 2026-09-22 at
+  the owner's request, so the PR's body now opens with four `Fixes` lines and the separate guard PR
+  was closed as superseded. The combined tree was built optimised and checked on the simulator
+  before it was pushed: banner `legacy off`, eight trigger pulls with 0 frame gaps sat in
+  `game_tick`, and the sword and camera shake settings resolved as shipped.
+
+### The three feature tickets (written 2026-09-21)
 
 - Branch `claude/vr-170-171-172-sword-and-camera-shake`, off `VR-Main` `d556eb58`, pushed, ONE PR
   open against `VR-Main` with `Fixes VR-170`, `Fixes VR-171`, `Fixes VR-172`. NOT merged. The three
