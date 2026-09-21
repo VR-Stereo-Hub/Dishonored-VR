@@ -759,7 +759,7 @@ static void GoDumpMenuSettings(const char* who)
 // The guard that matters: the entry's own id is re-checked immediately before
 // the store, so a stride that is wrong for some future build writes nothing
 // rather than corrupting a neighbour.
-static bool GoWriteRaw(uint8_t* obj, int wantId, int32_t newValue, int32_t* before)
+static bool GoWriteRaw(uint8_t* obj, int wantId, double newValue, int32_t* before)
 {
     *before = 0;
     int entries=0, ascending=0, inRange=0;
@@ -841,13 +841,23 @@ static void GoApplyWrites(uint8_t* obj, const char* spec)
         const long id = strtol(p, &endId, 10);
         const char* eq = strchr(p, '=');
         if (!eq) { Log("gameopts/write: '%s' has no = ; nothing written", p); break; }
+        // Parsed as a DOUBLE, because not every setting is a boolean.
+        //
+        // CORRECTED 2026-09-20: head bob was armed as `108=100` on an assumed
+        // 0..100 profile range. That range was wrong - the stored value read
+        // back as float 1.0, so the scale is 0..1 and the write had put in a
+        // hundred times the maximum. The integer parser could not have
+        // expressed 0.5 either, so the range and the parser were wrong
+        // together, and fixing only one of them would have hidden the other.
         char* endValue = NULL;
-        const long val = strtol(eq + 1, &endValue, 10);
+        const double val = strtod(eq + 1, &endValue);
         const bool parsedValue = endValue != eq+1;
         while (*endValue == ' ') ++endValue;
         if (endId != eq || endId == p || !parsedValue ||
-            (*endValue && *endValue != ',') || id<0 || id>153 || val<0 || val>1) {
-            Log("gameopts/write: malformed or out-of-range request '%s'; stopped",p); break;
+            (*endValue && *endValue != ',') || id<0 || id>153 || val<0.0 || val>1.0) {
+            Log("gameopts/write: malformed or out-of-range request '%s'; stopped. Every "
+                "supported setting is 0..1: the booleans take exactly 0 or 1, and head bob "
+                "is a normalised float, NOT a 0..100 percentage.",p); break;
         }
         int32_t before = 0;
         const bool ok = GoWriteRaw(obj, id, val, &before);
@@ -862,14 +872,14 @@ static void GoApplyWrites(uint8_t* obj, const char* spec)
         const bool took = ok && rb.ok && (rbFloat ? ((int)(rbF + 0.5f) == (int)val)
                                                   : (after == val));
         if (rbFloat)
-            Log("gameopts/write:   id %d: %s asked=%ld readback=%.2f (float, raw 0x%08lx)%s",
+            Log("gameopts/write:   id %d: %s asked=%.3f readback=%.3f (float, raw 0x%08lx)%s",
                 id, ok ? "written" : "REFUSED - nothing written",
-                (long)val, rbF, (unsigned long)rb.value,
+                val, (double)rbF, (unsigned long)rb.value,
                 took ? "  (the array took it)" : "  (the array did NOT take it)");
         else
-            Log("gameopts/write:   id %d: %s before=%ld asked=%ld readback=%s%ld%s",
+            Log("gameopts/write:   id %d: %s before=%ld asked=%.3f readback=%s%ld%s",
                 id, ok ? "written" : "REFUSED - nothing written",
-                (long)before, (long)val, rb.ok ? "" : "(unreadable) ", (long)after,
+                (long)before, val, rb.ok ? "" : "(unreadable) ", (long)after,
                 took ? "  (the array took it)" : "  (the array did NOT take it)");
         const char* comma = strchr(p, ',');
         if (!comma) break;
