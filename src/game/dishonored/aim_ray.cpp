@@ -4,6 +4,7 @@
 #include "game/dishonored/hands/bolt_axis.h"
 #include "game/dishonored/hands/hand_frame.h"   // VR-57: follow_trim_ray
 #include "core/vr/openxr_runtime.h"
+#include "core/gfx/hud_layout.h"   // VR-166: centred gauges ride the dot
 #include "core/vr/openxr_input.h"
 #include "core/framework/status.h"
 #include "core/util/log.h"
@@ -230,7 +231,24 @@ void tick(bool gameplay, bool projectionWanted) {
     { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = frame; }
     // controlDot never reaches this publication: it is built in the runtime from the
     // located views, so it cannot borrow the hand ray's freshness or its validity.
-    auto out = visual(g_ray, g_config.dot, g_config.laser, g_config.distanceM, g_config.sizeDeg);
+    // VR-166: the reticle row (the cook ring) rides this dot; while it draws, the dot
+    // steps aside so the gauge is not covered.
+    {
+        float pt[3] = { g_ray.originXr[0] + g_config.distanceM * g_ray.dirXr[0],
+                        g_ray.originXr[1] + g_config.distanceM * g_ray.dirXr[1],
+                        g_ray.originXr[2] + g_config.distanceM * g_ray.dirXr[2] };
+        dvr::hudlayout::set_aim_point(g_ray.ok && gameplay, pt, g_config.distanceM, g_config.hand);
+    }
+    const bool gaugeUp = dvr::hudlayout::reticle_on_aim() &&
+                         dvr::hudlayout::element_drawing(dvr::hudlayout::ElReticle);
+    static bool gaugeWas = false;
+    if (gaugeUp != gaugeWas) {
+        gaugeWas = gaugeUp;
+        DVR_INFO("crosshair: a centred HUD gauge is %s the aim dot - the dot is %s",
+                 gaugeUp ? "ON" : "off", gaugeUp ? "hidden" : "back");
+    }
+    const bool dotNow = g_config.dot && !gaugeUp;
+    auto out = visual(g_ray, dotNow, g_config.laser, g_config.distanceM, g_config.sizeDeg);
     if (g_config.bothPoses) {
         // BOTH rays, with the two ENDPOINTS published first so a tight layer
         // budget cannot drop the second one and hide half the comparison.

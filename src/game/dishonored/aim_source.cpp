@@ -123,8 +123,10 @@ static bool AimSourceCommand(const char* args)
 }
 
 // Script lane. Drains the ring and names what it saw.
+static void SpawnCensusTick();
 static void AimSourceTick()
 {
+    SpawnCensusTick();   // VR-166: the spawn-site census rides the same arming
     if (!g_asrcDet.on) return;
     // VR-166: the power aim fields the scripts declare. Property offsets live in the
     // packages, not the image, so they are resolved here once in gameplay; the log line
@@ -194,5 +196,85 @@ static void AimSourceTick()
                     seen[k].bestDeg > 900 ? -1.0f : seen[k].bestDeg, seen[k].worstDeg,
                     (long)g_asrcHits, (long)g_asrcDropped);
         }
+    }
+}
+
+// ---- VR-166: who spawns what (SpawnActor caller census, READ-ONLY) ----------
+// The spring razor's throw did not pass through either throw seam, and static reading
+// could not find its spawn site. SpawnActor (0x00C66070) is where every projectile is
+// born: this records (caller, ECX's object name) pairs - ECX is what the call sites
+// load before the call (a class/archetype object) - and names each NEW pair once. A
+// razor throw then names its own caller. Spawns are events, not per-frame work.
+static dvr::hooks::Detour g_spwDet;
+static uint32_t g_spwRet = (uint32_t)(kSpawnActor + sizeof(kSpawnActorBytes));
+struct SpwCall { uint32_t ret; uint8_t* obj; };
+static SpwCall g_spwRing[64];
+static volatile LONG g_spwHead = 0, g_spwTail = 0, g_spwHits = 0;
+
+extern "C" void __cdecl SpawnCensusHook(uint8_t* obj, uint32_t ret)
+{
+    InterlockedIncrement(&g_spwHits);
+    const LONG h = g_spwHead;
+    if (h - g_spwTail >= 64) return;
+    g_spwRing[h % 64] = { ret, obj };
+    InterlockedExchange(&g_spwHead, h + 1);
+}
+
+extern "C" __declspec(naked) void SpawnCensusStub(void)
+{
+    __asm {
+        pushfd
+        pushad
+        mov edx, esp
+        sub esp, 528
+        and esp, -16
+        fxsave [esp]
+        fninit
+        cld
+        push edx
+        mov eax, [edx+24h]          ; return address
+        mov ecx, [edx+18h]          ; ECX at entry
+        push eax
+        push ecx
+        call SpawnCensusHook
+        add esp, 8
+        pop edx
+        fxrstor [esp]
+        mov esp, edx
+        popad
+        popfd
+        push ebp                    ; displaced: 55 8b ec 33 c0
+        mov ebp, esp
+        xor eax, eax
+        jmp dword ptr [g_spwRet]
+    }
+}
+
+static void SpawnCensusTick()
+{
+    if (!g_asrcOn) return;
+    if (!g_spwDet.on) {
+        static bool tried = false;
+        if (tried) return;
+        tried = true;
+        dvr::hooks::detour_install(g_spwDet, "spawn/census", kSpawnActor, kSpawnActorBytes,
+                                   sizeof(kSpawnActorBytes), (void*)&SpawnCensusStub);
+        return;
+    }
+    struct Seen { uint32_t ret; uint32_t name; };
+    static Seen seen[96]; static int nSeen = 0;
+    while (g_spwTail < g_spwHead) {
+        const SpwCall c = g_spwRing[g_spwTail % 64];
+        InterlockedIncrement(&g_spwTail);
+        uint32_t nm = 0;
+        if (c.obj && !((uintptr_t)c.obj & 3) && RangeReadable(c.obj + kNameOff, 4)) nm = *(uint32_t*)(c.obj + kNameOff);
+        int k = 0;
+        while (k < nSeen && !(seen[k].ret == c.ret && seen[k].name == nm)) ++k;
+        if (k < nSeen || nSeen >= 96) continue;
+        seen[nSeen++] = { c.ret, nm };
+        const char* on = nm ? RealName(nm) : nullptr;
+        Log("spawn/census: NEW caller 0x%08X spawns via '%s' (ECX %p) - READ-ONLY; the caller that "
+            "appears only when the spring razor is thrown is its spawn site",
+            c.ret, on ? on : "?", (void*)c.obj);
     }
 }

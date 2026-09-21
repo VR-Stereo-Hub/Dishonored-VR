@@ -113,6 +113,13 @@ bool pause_scene_freshness();
 bool menu_exit_heading();   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();
+// VR-166: the reticle row rides the aim dot. The aim side publishes the dot's XR LOCAL
+// point every present; the row's quad sits there, head-facing. element_drawing() lets
+// the aim side hide its own dot while a centred gauge (the cook ring) is up.
+void set_aim_point(bool ok, const float xrLocal[3], float distM, int hand);
+bool reticle_on_aim();
+void set_reticle_on_aim(bool on, const char* who);
+bool element_drawing(int e);
 bool native_gameplay_reference();
 bool wheel_parts_for_sink(int sink);
 bool wheel_part_crop(int sink,int part,unsigned width,unsigned height,float* rect);

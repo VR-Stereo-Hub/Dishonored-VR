@@ -154,7 +154,13 @@ extern "C" void __cdecl GadgetAimHandler(uint8_t* frame, uint8_t* self)
     else if (!RangeReadable(pawn + 0xD0, 12)) why = "pawn rotation unreadable";
     float o[3], d[3];
     if (!why && !HandRayWorld(o, d, &why)) {}
-    if (why) { g_gdWhy = why; return; }
+    if (why) {
+        g_gdWhy = why;
+        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 20,
+            "gadget/aim: the shared gadget routine ran and was REFUSED: %s (object %s, pawn %p, player %p)",
+            why, (self && LooksLikeObj(self)) ? ObjClassName(self) : "?", (void*)pawn, (void*)g_pePawn);
+        return;
+    }
     const float kU = 32768.0f / 3.14159265f;
     const int32_t* was = (const int32_t*)(pawn + 0xD0);
     const float h = sqrtf(d[0] * d[0] + d[1] * d[1]);

@@ -13,6 +13,7 @@
 // initial hint for unchanged local draw content moving through shader transforms.
 #pragma once
 #include <stdint.h>
+#include <math.h>
 
 namespace dvr::hudroute {
 
@@ -71,6 +72,14 @@ inline bool centered_reticle(const float r[4],unsigned primitives) {
     const float cx=(r[0]+r[2])*.5f,cy=(r[1]+r[3])*.5f;
     return primitives==2 && cx>=.499f && cx<=.501f && cy>=.499f && cy<=.501f &&
         r[2]-r[0]<.05f && r[3]-r[1]<.05f;
+}
+// VR-166: a GAUGE centred on the screen - the grenade cook ring (measured: 0.071..0.118
+// square, centre 0.502,0.498, present only while cooking) - is the reticle's, not a
+// prompt's, even though it is larger than the dot and drawn with more triangles.
+inline bool centered_gauge(const float r[4]) {
+    const float cx=(r[0]+r[2])*.5f,cy=(r[1]+r[3])*.5f,w=r[2]-r[0],h=r[3]-r[1];
+    return cx>=.494f && cx<=.506f && cy>=.494f && cy<=.506f &&
+           w>=.04f && w<=.14f && h>=.04f && h<=.14f && fabsf(w-h)<.025f;
 }
 struct InteractionGroup {
     uint32_t frame=0,previousFrame=0;bool currentOk=false,previousOk=false;

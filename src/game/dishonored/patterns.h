@@ -189,6 +189,10 @@ static const uintptr_t kThrowRotBack = 0x00C39093;   // the rotator -> direction
 static const uintptr_t kGadgetRotSeam = 0x00C300DD;  // mov ecx,[ebp-4]; add ecx,0D0h
 static const uint8_t   kGadgetRotSeamBytes[9] = { 0x8B, 0x4D, 0xFC, 0x81, 0xC1, 0xD0, 0x00, 0x00, 0x00 };
 static const uintptr_t kGadgetRotBack = 0x00C300E6;  // the rotator -> direction call
+// VR-166: SpawnActor's entry, for a READ-ONLY caller census (aim_source.cpp) that names
+// the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
+static const uintptr_t kSpawnActor = 0x00C66070;
+static const uint8_t   kSpawnActorBytes[5] = { 0x55, 0x8B, 0xEC, 0x33, 0xC0 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };
