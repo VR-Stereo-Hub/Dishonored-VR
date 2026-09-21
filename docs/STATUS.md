@@ -1,3 +1,28 @@
+## Head bob accepted; audio follow-up (2026-09-20)
+
+Run558 banner/hash verified. Tester confirms head bob now turns off at startup.
+Four mode0 calls observed; the third restored head bob1 before our write reset0.
+Startup window closed at first gameplay as intended. Keep this successful path.
+No sound reported on that run; cause UNKNOWN. Preset targets exclude audio IDs
+126..129 and133. Engine Launch.log contains no useful audio initialization/error
+information; do not claim routing, zero volume, or the hook is proven responsible.
+
+Installed `vr33-hands-working-559-g7efcfcdc7-dirty`, SHA256
+`48b0bc36ca5e03f44d912da8ede4c106f0b91c355515ef753a5ca3938a34d18a`. Small READ-ONLY diagnostic update:
+log audio IDs/types/raw bits before shared refresh, and include them in the
+existing gameplay profile read. No audio writes or routing changes. Release,
+lint, nine exports, 86 host checks pass, including preservation of all five audio
+values. Full installed INI byte-identical and CRLF verified. Prior558 DLL, both
+proxy logs, INI and engine Launch.log archived at
+`build/playtest-candidates/installs/20260920-212602`.
+
+Next launch ONE question: is sound audible after loading gameplay? If yes,
+record intermittent silence without claiming this diagnostic fixed it. If no,
+compare gameopts/audio startup values with gameplay IDs126..129/133. Zero/missing
+values warrant tracing profile reload/shared refresh; nonzero profile volumes
+require checking live audio consumers and Windows/VR output/session mute. No
+forced volume changes without evidence. Existing detailed handoff follows below.
+
 ## Startup reload follow-up and session handoff (2026-09-20)
 
 Installed `vr33-hands-working-558-gf83dc0edb-dirty`; SHA256

@@ -77,6 +77,12 @@ struct GoEntry {
 };
 
 const GoEntry kGoTable[] = {
+    // Read-only audio evidence; never part of the VR write preset.
+    {126, "Audio_GlobalVolume", "Master volume", "preserve", NULL},
+    {127, "Audio_MusicVolume", "Music volume", "preserve", NULL},
+    {128, "Audio_SFXVolume", "Effects volume", "preserve", NULL},
+    {129, "Audio_VoicesVolume", "Voice volume", "preserve", NULL},
+    {133, "AudioPC_SpeakerConfiguration", "Speaker configuration", "preserve", NULL},
     // --- Gameplay -------------------------------------------------------
     { 105, "Gameplay_KillCamMode",            "Kill Cam",             "Off (0)",      NULL },
     { 108, "Gameplay_HeadBobAmount",          "Head Bob Amount",      "0",            NULL },
@@ -676,6 +682,16 @@ static bool GoWriteStartupDefaults(uint8_t* obj)
         }
     }
     if (!IsLiveObject(obj)) return false;
+    // Audio is outside the preset. Report original typed bits before the
+    // engine's shared refresh so silence can be separated from volume zero.
+    for (int id=126;id<=133;++id) {
+        if (id>129 && id!=133) continue;
+        const GoRaw audio=GoReadRaw(obj,id);
+        float volume=0.0f;
+        if (audio.ok && audio.type==5) memcpy(&volume,&audio.value,4);
+        Log("gameopts/audio: before native refresh profile=%p id=%d available=%d type=%d raw=0x%08x float=%.6f (float valid only for type5; preserved)",
+            obj,id,(int)audio.ok,audio.type,(unsigned)audio.value,volume);
+    }
     for (int j=0;j<10;++j) {
         const uint32_t before=*slots[j];
         *slots[j]=values[j];

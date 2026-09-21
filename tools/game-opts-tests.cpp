@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
-static uint32_t rows[16][6];
+static uint32_t rows[20][6];
 static int count=2;
 static bool live=true, readable=true;
 static const int kGoStrideDwords=6;
@@ -89,5 +89,10 @@ int main() {
     GoBeforeSettingsApply(&object,0);require(g_goStartupDone && rows[0][3]==1); // saved opt-out
     g_goStartupDone=false;g_goStartupPolicyRead=false;policy=1;
     GoBeforeSettingsApply(&object,0);require(rows[0][3]==0); // next launch resets again
+    count=17;
+    const int audioIds[]={126,127,128,129,133};
+    for(int i=0;i<5;++i) {rows[12+i][0]=2;rows[12+i][1]=audioIds[i];rows[12+i][2]=i==4?1:5;rows[12+i][3]=i==4?2:0x3f400000;}
+    require(GoWriteStartupDefaults(&object));
+    for(int i=0;i<5;++i) require(rows[12+i][3]==(i==4?2u:0x3f400000u));
     printf("PASS %d production validation/write checks\n",checks);
 }
