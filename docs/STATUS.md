@@ -17,6 +17,10 @@
   the instrument that names whatever an attack adds to the pawn.
 - **The hide** is the engine's native `SetHidden` on that component (the rain box's pattern),
   `[SwordTrail] Hide=1` by default at the owner's request, live `swordtrail on|off`, F10 checkbox.
+- **Found by the combined default-on run and fixed:** hidden as it appeared, then forgotten one
+  scan later because a component 258 ms old is not yet in the 2 s live-object table; the lever
+  could then not show it again. An attached component is now live because the pawn's own list
+  handed it over on that scan. `trail-hide.xrs` leg 0 covers it.
 - **The simulator never showed the ribbon**, about 30 captures with the hide off. So there is no
   capture A/B: it could not have failed. `trail-hide.xrs` asserts the mechanics and says so.
 

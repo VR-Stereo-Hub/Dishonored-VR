@@ -34,9 +34,19 @@
 //
 // A PARTICLE COMPONENT MAY BE POOLED. The one we hid can come back later carrying
 // another template (blood, sparks). Every scan therefore re-checks the components
-// WE hid: one that is still live, still hidden and no longer a sword trail is shown
-// again, and one that is gone is dropped without a write. IsLiveObject is the only
-// valid liveness test, and nothing is written through a pointer it does not pass.
+// WE hid: one that is still hidden and no longer a sword trail is shown again, and
+// one that is gone is dropped without a write.
+//
+// WHAT COUNTS AS LIVE HERE. A component found in the live pawn's own AllComponents
+// on THIS scan is live by construction: the engine just handed it to us. That is
+// the test for anything still attached, and it is the rain box's rule (write only
+// to what the live chain reached this sample). The live-object table is NOT enough
+// for it: the table is refreshed on a 2 s bound (VR-160), and the trail component is
+// created 258 ms into the first attack, so for up to two seconds it is attached,
+// hidden by us and absent from the table. The first default-on run found exactly
+// that: HID, then "released - no longer a live object" one scan later, after which
+// the lever could not show the ribbon again. The table is used only for a component
+// that has LEFT the pawn, where there is no chain to vouch for it.
 //
 // LANE: the script lane throughout (TrailTick, beside the other per-tick readers).
 #include <atomic>
@@ -111,16 +121,18 @@ bool is_trail(uint8_t* c, uint8_t** tmplOut) {
     return t && contains_nocase(obj_name(t), g_trailTemplate);
 }
 
-// The components WE hid, re-judged: shown again if they became something else or
-// the lever went off, dropped unwritten if they are gone.
+// The components WE hid, re-judged AFTER the scan: shown again if they became
+// something else or the lever went off, dropped unwritten if they are gone.
 void review_hidden(bool hide, double now) {
     for (int i = 0; i < st.nHid; ) {
         uint8_t* c = st.hid[i];
         bool drop = false;
-        if (!IsLiveObject(c)) {
+        bool attached = false;                          // reached through the live pawn THIS scan
+        for (int k = 0; k < st.nSeen; ++k) if (st.seen[k].p == c) { attached = true; break; }
+        if (!attached && !IsLiveObject(c)) {
             ++st.released; drop = true;
             if (g_trailTrace.load()) DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-                "trail: released component %p without a write - it is no longer a live object (hidden %u shown %u released %u)",
+                "trail: released component %p without a write - it has left the pawn and is no longer a live object (hidden %u shown %u released %u)",
                 (void*)c, st.hidden, st.shown, st.released);
         } else {
             uint8_t* t = nullptr;
@@ -291,8 +303,8 @@ static void TrailTick() {
     st.inAttack = attacking;
     census_tick(now, attacking, attackStarted);
 
+    scan(hide, now);              // first: it is what says which components are attached right now
     review_hidden(hide, now);
-    scan(hide, now);
 
     // The instrument must be able to fail: attacks with no trail ever seen.
     if (g_trailTrace.load() && (st.attacks == 3 || st.attacks == 10) && st.trailsSeen == 0 && now - st.attackMs > 1500.0) {

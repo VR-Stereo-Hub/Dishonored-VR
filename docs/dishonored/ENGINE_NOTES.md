@@ -8169,6 +8169,19 @@ on hides it again. A particle component may be pooled, so every scan re-judges t
 components the mod hid: one that is live, still hidden and no longer a sword trail is
 shown again, one that is no longer a live object is dropped without a write.
 
+**A fault the first default-on run found, fixed.** With the lever on from launch the
+trail was hidden in the same scan it first appeared (258 ms into the first attack),
+and ONE SCAN LATER the mod logged `released component ... it is no longer a live
+object` and forgot it: the live-object table is refreshed on a 2 s bound (VR-160), so
+a component a few milliseconds old is attached, hidden by the mod and absent from the
+table. The ribbon stayed hidden but the lever could no longer show it again. Earlier
+runs missed it because there the hide arrived seconds after the spawn. What counts as
+live for a component still on the pawn is now that the engine handed it to us in the
+pawn's own `AllComponents` on this very scan (the rain box's rule: write only to what
+the live chain reached this sample); the table is consulted only for a component that
+has LEFT the pawn. `trail-hide.xrs` leg 0 is that path, and asserts `holding = 1`
+after a wait, which is the assertion that would have caught it.
+
 **What the simulator could not say.** About 30 per-eye captures with the hide OFF -
 delays swept from 90 to 900 ms into an attack, the simulated hand still and sweeping
 through the view - never differed from an idle capture by more than 0.2 % of pixels

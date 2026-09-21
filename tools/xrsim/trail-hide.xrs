@@ -21,9 +21,22 @@ hand r to grip 0.12 1.45 -0.45 0 0 0 800
 trigger r pull 300
 @wait 2500
 
+# 0. The path a player actually takes: the lever ON from launch and the trail not yet
+#    created. It must be hidden as it appears AND still be held a moment later. The
+#    first default-on run hid it and then lost it one scan later (a component 258 ms
+#    old is not in the 2 s live-object table yet), after which the lever could not show
+#    it again. `holding` is what catches that, so it is asserted after a wait.
+@mod swordtrail on
+@wait 500
+trigger r pull 200
+@wait 2500
+@nolog trail: released component
+@modassert features.swordTrail.holding eq 1
+
 # 1. Lever off: an attack puts the trail on the pawn and nothing hides it.
 @mod swordtrail off
-@wait 500
+@log trail: SHOWED component .* the lever went off
+@modassert features.swordTrail.holding eq 0
 @mark
 trigger r pull 200
 @wait 2000
