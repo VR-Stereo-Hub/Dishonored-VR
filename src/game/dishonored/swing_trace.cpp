@@ -243,12 +243,37 @@ static void SwingArcWatch(float camX, float camY, float camZ, float headPitchDeg
     // this same file produced a number that meant nothing.
     if (n >= 30 && pitchSpanDeg >= 20.0f) {
         const float radiusUu = posSpan / (pitchRad > 0.01f ? pitchRad : 1.0f);
-        if (radiusUu > 60.0f)
+        if (radiusUu > 60.0f) {
             Log("swing/arc: the eye moved %.1f uu while the head pitched %.1f deg -> implied "
                 "radius %.0f uu per radian. A correct camera moves about the neck offset (a few "
                 "uu); this is an ARC, and its radius is the offset that is wrong. Walking also "
                 "moves the eye, so treat this as a lead only if the player was standing still.",
                 posSpan, pitchSpanDeg, radiusUu);
+            // WHOSE camera is this? Our own contribution is already known to be
+            // small (max 62 uu against a 350 uu arc), so the arc is the GAME
+            // moving its own camera - but nothing yet says whether it switched
+            // to a different camera object or mode when the chain was released.
+            // cine/trace carries that identity and fired six times in a whole
+            // run, so it was never available when it mattered. Print it HERE,
+            // beside the arc that needs explaining, rather than hoping another
+            // subsystem happens to log in the same second.
+            uint8_t* cam = g_camObj;
+            const char* cls = (cam && IsLiveObject(cam)) ? ObjClassName(cam) : NULL;
+            float gamePos[3] = {0,0,0};
+            const bool gameOk = cam && g_ctLayout && g_ctCache &&
+                                CtRead(cam, g_ctCache + g_ctPov + g_ctLoc, gamePos, sizeof(gamePos));
+            float ours[3] = {0,0,0};
+            dvr::camera::position_offset_uu(ours);
+            const float ourMag = std::sqrt(ours[0]*ours[0] + ours[1]*ours[1] + ours[2]*ours[2]);
+            Log("swing/arc:   camera object %p class '%s' | game POV %s%.1f/%.1f/%.1f | "
+                "OUR offset %.1f uu | eye %.1f/%.1f/%.1f. If the class or the object changes "
+                "when the chain is released, THAT is the owner; if they are identical to a "
+                "healthy run then the game kept its camera and moved it, and the next question "
+                "is what is driving the POV.",
+                (void*)cam, cls ? cls : "(unreadable)",
+                gameOk ? "" : "UNREADABLE ", gamePos[0], gamePos[1], gamePos[2],
+                ourMag, camX, camY, camZ);
+        }
         else
             DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 30000,
                 "swing/arc: eye moved %.1f uu over %.1f deg of pitch -> radius %.0f uu/rad "
