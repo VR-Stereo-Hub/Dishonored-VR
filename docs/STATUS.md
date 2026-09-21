@@ -1,3 +1,32 @@
+## Automatic startup preset candidate (2026-09-20)
+
+Installed `vr33-hands-working-557-gba3ac15a4-dirty`, SHA256
+`a30434f808e2b95360d04becf207ec91089a18b54cd6c5afdf25ae286804de32`.
+Archive: `build/playtest-candidates/installs/20260920-210853` (prior DLL,
+full INI, both logs, and full INI diff). Installed INI changes only:
+GameOptsWrite cleared; [GameOptions] DefaultsAtStartup=1 added. CRLF verified.
+Release build, lint, nine exports and 79 production host checks pass.
+
+Latest run556 banner/hash verified. Profile head bob was already float1 before
+menu apply, and maximum bob working immediately after boot is tester-confirmed.
+The native menu write's persistence is observed; startup preset interception is
+NEW and not yet headset-confirmed. No chain-camera resolution claimed.
+
+New preset intercepts the engine's shared settings apply BEFORE its refresh and
+listener dispatch, only mode0 and once after successful validation per process.
+All ten entries preflight together, with refreshed liveness and exact types.
+Later menu edits survive. F10 Advanced > Apply VR defaults at startup saves
+[GameOptions] DefaultsAtStartup; absent key means on, off preserves preferences
+on future boots. Policy read occurs in the engine callback outside loader lock,
+so startup before Direct3DCreate9 is covered. No persisted completion marker.
+Derivation and limits: ENGINE_NOTES, "Startup VR preset interception".
+
+Next launch, one question: is head bob OFF immediately in gameplay without
+opening Pause/Options or moving sliders? Previously maximum is the baseline.
+Off supports startup live propagation; still bobbing requires checking hook,
+mode0 observation, validation and consumer effects in the new log. No launch
+by agent, no merge. Other preset settings still require downstream acceptance.
+
 ## Verified native settings candidate (2026-09-20)
 
 Installed `vr33-hands-working-556-g90543a1ad-dirty`; SHA256 `4eb0154e2069d8c06a2444ca1eaee4bdb7485c093e4e7da128a08a0853997743`.

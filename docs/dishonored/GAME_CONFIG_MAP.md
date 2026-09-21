@@ -261,3 +261,21 @@ Range correction: maximum in this measured run was profile float1, not100.
 The default script stores float1 for id108 as well. The earlier0..100 profile
 assumption is unsupported; distinguish UI display units from stored units.
 
+
+
+### Automatic VR preset at startup
+
+The mod now defaults `[GameOptions] DefaultsAtStartup=1` even when the section
+is absent (including existing packaged INIs). F10 Advanced exposes **Apply VR
+defaults at startup** and persists the selection for the next launch. Enabled:
+restore kill cam off, head bob0, camera-relative climbing off, crosshair off,
+auto aim/aim friction off, model detail high, light shafts off, MLAA, rat shadows
+off. Deliberate options changes afterward survive for that session. Disabled:
+leave the profile preferences alone. No options-screen visit is required by
+the implementation. Fullscreen and vsync retain their existing mod paths.
+
+This uses the original engine refresh/listener path at startup, after validating
+the entire preset. Installed557 awaits live acceptance; the prior native menu
+path is confirmed for head bob, including a subsequent boot. Other individual
+settings are target values, not yet proof of downstream rendering changes.
+GameOptsWrite remains a separate diagnostic override and should be empty.

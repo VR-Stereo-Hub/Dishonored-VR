@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
-static uint32_t rows[8][6];
+static uint32_t rows[16][6];
 static int count=2;
 static bool live=true, readable=true;
 static const int kGoStrideDwords=6;
@@ -29,6 +29,11 @@ static bool GoCallSettingChange(int id,double v) {
  }
  return true;
 }
+static bool g_goStartupDone=false, g_goStartupPolicyRead=false, g_goDefaultsAtStartup=true;
+static int policy=1;
+static const int MAX_PATH=260;
+static const char* g_dir="test";
+static unsigned GetPrivateProfileIntA(const char*,const char*,int,const char*) {return policy;}
 #include "game_opts_body.inc"
 static int checks=0;
 static void require(bool v) { ++checks; if(!v) { printf("FAIL %d\n",checks);exit(1); } }
@@ -56,5 +61,31 @@ int main() {
     memcpy(&f,&rows[0][3],4);require(f==0.75f);nativeWorks=true; // no raw fallback
     const char* invalid[]={"108=nan","108=inf","108=100","108=0,","108=0,108=1","108=0,116=1","121=0.5","108=0,bad","108="};
     for(auto spec:invalid) {was=calls;require(!GoApplyWritesAndVerify(&object,spec));require(calls==was);}
+    const int presetIds[]={105,108,109,99,81,83,120,121,122,123,116,117};
+    count=12;
+    for(int i=0;i<count;++i) {
+        rows[i][0]=2;rows[i][1]=presetIds[i];rows[i][2]=i==1?5:1;rows[i][3]=7;
+    }
+    rows[9][2]=5; require(!GoWriteStartupDefaults(&object));
+    for(int i=0;i<count;++i) require(rows[i][3]==7); // no partial writes
+    rows[9][2]=1;
+    live=false; require(!GoWriteStartupDefaults(&object));live=true;
+    readable=false;require(!GoWriteStartupDefaults(&object));readable=true;
+    require(GoWriteStartupDefaults(&object));
+    for(int i=0;i<10;++i) require(rows[i][3]==(i==6||i==8?1u:0u));
+    require(rows[10][3]==7 && rows[11][3]==7); // fullscreen/vsync untouched
+    memcpy(&f,&rows[1][3],4);require(f==0.0f);
+    rows[0][3]=7;rows[9][1]=124;
+    require(!GoWriteStartupDefaults(&object));require(rows[0][3]==7); // missing target
+    rows[9][1]=123;
+    GoBeforeSettingsApply(&object,1);require(rows[0][3]==7 && !g_goStartupDone);
+    live=false;GoBeforeSettingsApply(&object,0);require(!g_goStartupDone);live=true;
+    GoBeforeSettingsApply(&object,0);require(g_goStartupDone && rows[0][3]==0);
+    rows[0][3]=1;GoBeforeSettingsApply(&object,0);require(rows[0][3]==1); // no reset on another startup call
+    GoBeforeSettingsApply(&object,1);require(rows[0][3]==1); // manual edits survive
+    g_goStartupDone=false;g_goStartupPolicyRead=false;policy=0;
+    GoBeforeSettingsApply(&object,0);require(g_goStartupDone && rows[0][3]==1); // saved opt-out
+    g_goStartupDone=false;g_goStartupPolicyRead=false;policy=1;
+    GoBeforeSettingsApply(&object,0);require(rows[0][3]==0); // next launch resets again
     printf("PASS %d production validation/write checks\n",checks);
 }

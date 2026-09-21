@@ -1124,6 +1124,14 @@ static void OverlayFrame()
         // diagnostic reachable only from game-cmd.ps1 is one that never runs,
         // which is exactly what happened to the first build of this probe.
         ImGui::TextUnformatted("The game's own option settings");
+        {
+            bool defaultsOn = GameOptsStartupEnabled();
+            if (ImGui::Checkbox("Apply VR defaults at startup", &defaultsOn)) {
+                GameOptsSetStartup(defaultsOn);
+                ConfigWriteKey("GameOptions", "DefaultsAtStartup", defaultsOn ? "1" : "0", "F10 Advanced");
+            }
+            ImGui::TextDisabled("Takes effect next launch. You can change game options during this session.");
+        }
         if (ImGui::Button("Read them into the log now")) GameOptsRequest("F10 Advanced");
         ImGui::SameLine();
         ImGui::TextDisabled("%s", GameOptsAutoFired() ? "this session's automatic read has already run"

@@ -2,11 +2,10 @@
 // Included by src/mod/dishonoredvr.cpp (unity build) after ue3/uobject.cpp,
 // whose FindFunctionObj / ObjClassName / IsLiveObject this needs.
 //
-// READ ONLY BY DEFAULT, and it writes only when told to. Nothing here touches
-// the game's inis or the profile blob on disk. The one exception is
-// `[Diagnostics] GameOptsWrite`, which ships EMPTY: set it and this file will
-// put values back into the live ProfileSettings array once per session, which
-// is a write to game memory and is described at GoApplyWrites.
+// Startup defaults are applied before the engine refreshes its shared settings.
+// [GameOptions] DefaultsAtStartup defaults on; F10 saves the next-launch policy.
+// Diagnostics remain independent; GameOptsWrite is an explicit test override.
+// No profile-file format or manual menu initialization is required.
 //
 // It exists to answer, once, three questions a session kept guessing at:
 //
@@ -640,8 +639,105 @@ static void GameOptsApply()
 // Ships ON. The workflow here is that the tester plays and the maintainers read
 // the log afterwards, so a diagnostic that has to be asked for is one that is
 // never asked for. It costs one burst of lines, once, and then nothing.
+// Once per process, before the first valid startup settings application. No
+// retained engine pointers: every attempted write rebuilds the live-object set.
+static bool g_goStartupDone = false;
+static bool g_goStartupPolicyRead = false;
+static bool g_goDefaultsAtStartup = true;
+static dvr::hooks::Detour g_goDefaultsHook;
+static uintptr_t g_goDefaultsResume = kGoApplySettings + sizeof(kGoApplySettingsPrefix);
+
+static bool GoWriteStartupDefaults(uint8_t* obj)
+{
+    const int ids[] = {105,108,109,99,81,83,120,121,122,123};
+    const uint32_t values[] = {0,0,0,0,0,0,1,0,1,0}; // float +0 for head bob
+    uint32_t* slots[10] = {};
+    int entries=0, ascending=0, inRange=0;
+    if (!BuildLiveSet() || !IsLiveObject(obj) ||
+        !GoVerifyStride(obj,&entries,&ascending,&inRange)) {
+        Log("gameopts/defaults: REFUSED profile=%p: current liveness/layout",obj);
+        return false;
+    }
+    const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
+    uint8_t* data=NULL; int32_t num=0;
+    if (!off || !RflArrayAt(obj,off,&data,&num) || !data || num!=entries ||
+        !RangeReadable(data,(size_t)num*kGoStrideDwords*4)) return false;
+    // Preflight every target before the first store; never leave half a preset.
+    for (int j=0;j<10;++j) {
+        for (int i=0;i<num;++i) {
+            uint32_t* e=(uint32_t*)data+(size_t)i*kGoStrideDwords;
+            if (e[0]==2 && e[1]==(uint32_t)ids[j] && e[2]==(ids[j]==108 ? 5u : 1u))
+                slots[j]=e+3;
+        }
+        if (!slots[j]) {
+            Log("gameopts/defaults: REFUSED profile=%p id=%d missing or wrong type; no writes",obj,ids[j]);
+            return false;
+        }
+    }
+    if (!IsLiveObject(obj)) return false;
+    for (int j=0;j<10;++j) {
+        const uint32_t before=*slots[j];
+        *slots[j]=values[j];
+        Log("gameopts/defaults: profile=%p id=%d type=%d before=0x%08x target=0x%08x readback=0x%08x",
+            obj,ids[j],ids[j]==108 ? 5 : 1,before,values[j],*slots[j]);
+    }
+    return true;
+}
+
+static void __cdecl GoBeforeSettingsApply(uint8_t* obj, int mode)
+{
+    if (mode!=0 || g_goStartupDone) return; // never override later menu edits
+    if (!g_goStartupPolicyRead) {
+        // This callback runs in the engine, outside DllMain/loader lock. Read
+        // here because initial settings can precede Direct3DCreate9/LoadConfig.
+        char ini[MAX_PATH];
+        _snprintf(ini,sizeof(ini),"%s\\dishonored_vr.ini",g_dir);
+        ini[sizeof(ini)-1]=0;
+        g_goDefaultsAtStartup=GetPrivateProfileIntA("GameOptions","DefaultsAtStartup",1,ini)!=0;
+        g_goStartupPolicyRead=true;
+        Log("gameopts/defaults: startup policy=%d",(int)g_goDefaultsAtStartup);
+    }
+    if (!g_goDefaultsAtStartup) { g_goStartupDone=true; return; }
+    if (GoWriteStartupDefaults(obj)) {
+        g_goStartupDone=true;
+        Log("gameopts/defaults: ten defaults staged before engine refresh/listeners; later menu edits allowed");
+    }
+}
+
+__declspec(naked) static void GoDefaultsStub()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax,[esp+40] // original first stack argument: profile
+        mov edx,[esp+48] // original third stack argument: apply mode
+        push edx
+        push eax
+        call GoBeforeSettingsApply
+        add esp,8
+        popad
+        popfd
+        // Replay the seven verified bytes, then execute the original body.
+        push ebp
+        mov ebp,esp
+        push ecx
+        mov eax,[ebp+10h]
+        jmp dword ptr [g_goDefaultsResume]
+    }
+}
+
+static void GameOptsInstallDefaultsHook()
+{
+    dvr::hooks::detour_install(g_goDefaultsHook,"gameopts/defaults",kGoApplySettings,
+        kGoApplySettingsPrefix,sizeof(kGoApplySettingsPrefix),(const void*)GoDefaultsStub);
+}
+
+static bool GameOptsStartupEnabled() { return g_goDefaultsAtStartup; }
+static void GameOptsSetStartup(bool enabled) { g_goDefaultsAtStartup=enabled; }
+
 static void GameOptsConfigure(const char* ini)
 {
+    g_goDefaultsAtStartup=GetPrivateProfileIntA("GameOptions","DefaultsAtStartup",1,ini)!=0;
     g_goAuto = IniFloat(ini, "Diagnostics", "GameOptsOnStart", 1) != 0.0f;
     GetPrivateProfileStringA("Diagnostics", "GameOptsWrite", "", g_goWriteSpec, sizeof(g_goWriteSpec), ini);
     if (g_goWriteSpec[0])

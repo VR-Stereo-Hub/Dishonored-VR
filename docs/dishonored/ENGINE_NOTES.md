@@ -8013,3 +8013,40 @@ Review defects corrected: missing bool return, raw fallback contaminating
 success, closed arbitrary menu selection, integer rounding of float readback,
 and malformed/nonfinite request acceptance. Host tests run production
 validator/writer/apply bodies with stubbed engine access;42 checks pass.
+
+
+### Startup VR preset interception (2026-09-20)
+
+Verified executable disassembly: shared apply helper VA `0x0093B7E0` is
+cdecl(profile, pointer-to-listener-TArray, mode), plain ret. Five E8 callers
+at RVAs 003E16A9, 007BCABD, 007BCB0B, 007C2045 and 007CBBB4. The first is in
+VA 0x007E1660: it constructs a listener list via 0x00939580, loads the profile
+from its owner, and calls with mode0, then frees the temporary list. The menu
+setter uses mode1; menu apply/leave paths also use mode2. The shared helper
+refreshes shared values via 0x00939730 and walks native listener interfaces.
+This is the same consumer propagation missing from a standalone profile write.
+
+The entry bytes `55 8B EC 51 8B 45 10` cover four whole instructions (7 bytes).
+A verified detour preserves flags/general registers, reads original stack args
+1 and3, invokes the preflight/write callback, replays the stolen instructions,
+and resumes at 0x0093B7E7. The engine executes its original refresh/dispatch.
+Installing the jump in DllMain avoids missing early startup; no config/profile
+work runs there. The first mode0 callback reads the saved policy outside the
+loader lock. Failed preflight does not mark completion. A successful write
+marks the process done so later mode0 calls and manual option changes are left
+alone. No engine object identity is retained. BuildLiveSet and IsLiveObject run
+before all-target preflight; missing/wrong-type entries prevent every write.
+
+Preset: int105=0, float108=0, int109=0, int99=0, int81=0, int83=0,
+int120=1, int121=0, int122=1, int123=0. Fullscreen/vsync excluded: their existing
+owners remain responsible. Default-on [GameOptions] DefaultsAtStartup and its
+F10 Advanced control govern the next launch; no completion flag on disk and no
+manual menu setup. A byte mismatch fails safely and logs refusal.
+
+Validation: Release build, lint, exact nine exports, 79 production host checks
+including all-target preflight, corrupt/missing types, stale objects, typed
+head-bob zero, excluded IDs, startup-only execution, saved off policy, retry
+following refusal and reapplication on a simulated next boot. The native stub
+compiles but its engine execution and mode0 timing await the installed557 run.
+Build556's next-boot float1 and maximum bob are observed/reported; they establish
+the previous native menu path, not acceptance of this new startup interception.

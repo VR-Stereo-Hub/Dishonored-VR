@@ -4,8 +4,8 @@ $repo = Split-Path -Parent $PSScriptRoot
 $eyeOut = Join-Path $repo 'build\game-opts-test'
 New-Item -ItemType Directory -Force -Path $eyeOut | Out-Null
 $sourceText = [IO.File]::ReadAllText((Join-Path $repo 'src/game/dishonored/game_opts.cpp'))
-$functions = @('GoVerifyStride','GoWriteRaw','GoApplyWritesAndVerify') | ForEach-Object {
-    $m = [regex]::Match($sourceText, "(?ms)^(?:static )?bool $_\(.*?^\}")
+$functions = @('GoVerifyStride','GoWriteRaw','GoApplyWritesAndVerify','GoWriteStartupDefaults','GoBeforeSettingsApply') | ForEach-Object {
+    $m = [regex]::Match($sourceText, "(?ms)^(?:static )?(?:bool|void)(?: __cdecl)? $_\(.*?^\}")
     if (-not $m.Success) { throw "Missing production function $_" }
     $m.Value
 }
