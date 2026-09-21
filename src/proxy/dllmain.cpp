@@ -57,6 +57,9 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
         // are loader-lock-safe. From the game's first poll we answer "pad
         // connected" (neutral state until the VR controllers come online).
         if (!g_disabled) InstallPadHook();
+        // Install only the verified jump here. Profile/config work happens
+        // later on the engine startup lane, outside the loader lock.
+        if (!g_disabled) GameOptsInstallDefaultsHook();
         // 41.1: the render-resolution picker's ask as -ResX/-ResY/-FullScreen on
         // the command line the engine reads (kernel32 + a plain file read; see
         // core/window/render_size.cpp, LaunchArgsInstall). The ini is not touched.

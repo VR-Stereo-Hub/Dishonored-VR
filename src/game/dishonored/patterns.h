@@ -371,3 +371,13 @@ static const uint32_t kWindowsViewportHwnd=0x68;
 static const uint32_t kFViewportFlags=0x5c;
 static const uint32_t kWindowsViewportPosX=0x4e4;
 static const uint32_t kWindowsViewportPosY=0x4e8;
+
+// Menu OnSettingChange: verified exec dispatch +0x23c on base and pause classes.
+// Native implementation takes (int,float), thiscall, ret8. ENGINE_NOTES apply audit.
+// Shared settings refresh + listener dispatch, cdecl(profile, listeners, mode).
+// Startup caller uses mode 0. See ENGINE_NOTES startup defaults derivation.
+static const uintptr_t kGoApplySettings = 0x0093B7E0;
+static const uint8_t kGoApplySettingsPrefix[] = {0x55,0x8b,0xec,0x51,0x8b,0x45,0x10};
+static const uintptr_t kGoNativeSettingChange = 0x00BCB870;
+static const uint32_t kGoSettingChangeSlot = 0x23c;
+static const uint8_t kGoSettingChangePrefix[] = {0x53,0x8b,0xdc,0x83,0xec,0x08,0x83,0xe4,0xf0,0x83,0xc4,0x04,0x55,0x8b,0x6b,0x04};

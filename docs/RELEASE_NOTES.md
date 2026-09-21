@@ -31,6 +31,18 @@ use the accepted fixed hand attachment; its preferred angle is Reading tilt0.
 
 ## Unreleased
 
+### VR game defaults
+
+Restore these settings at startup: Kill Cam off, Head Bob0, Chain Climbing
+Relative off, Crosshair Style off, Auto Aim off, Aim Assist off, Model Details
+high, Light Shafts off, Antialiasing MLAA and Rat Shadows off. F10 Advanced's
+Apply VR defaults at startup toggle saves an opt-out. Changes made after startup
+remain for that session. Audio preferences are preserved.
+
+The chain-camera displacement bug (VR-165) remains open; this preset is not a
+fix for it. Head bob off at startup is headset-confirmed. All ten profile targets
+match the accepted run; individual graphics effects are not independently proven.
+
 ### Reading tilt
 
 - One live, saved reading tilt slider for notes, books and journal in F10 HUD.

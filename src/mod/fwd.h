@@ -602,6 +602,28 @@ static void IntroSkipApply();
 // VR-157: the game's own option settings, read-only (game/dishonored/game_opts.cpp).
 static void GameOptsApply();
 static bool GameOptsCommand(const char* args);
+static void GameOptsRequest(const char* who);
+static bool GameOptsAutoEnabled();
+static void GameOptsSetAuto(bool on,const char* who);
+static bool GameOptsAutoFired();
+static void GameOptsConfigure(const char* ini);
+static void GameOptsCloseStartupWindow();
+static bool GameOptsStartupEnabled();
+static void GameOptsSetStartup(bool enabled);
+static uint8_t* GoFindMenuObject();
+static bool GoCallSettingChange(int id, double value);
+static void GoDumpMenuSettings(const char* who);
+static bool GoApplyWritesAndVerify(uint8_t* obj, const char* spec);
+// VR-165: the raw present-rate camera series (swing_trace.cpp). Read-only.
+static void SwingTracePresentTick();
+static void SwingClimbWatch(const char* masterState);
+static void SwingArcWatch(float camX, float camY, float camZ, float headPitchDeg);
+static void SwingTraceConfigure(const char* ini);
+static bool SwingTraceCommand(const char* args);
+// VR-165: which camera modifier is still swinging (cam_modifiers.cpp). Read-only.
+static void CamModTick();
+static void CamModConfigure(const char* ini);
+static bool CamModCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);

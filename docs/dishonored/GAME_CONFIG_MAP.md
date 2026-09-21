@@ -221,3 +221,67 @@ each id's name with `GetProfileSettingName` and says on the line when the name
 does not match, so a wrong table reads as a mismatch rather than as a value.
 
 Needs GAMEPLAY: the profile object comes off the player controller.
+
+## Head-bob apply path located (2026-09-20)
+
+Verified run551 (compiled20:15:53) against installed DLL SHA256
+`d1a6c5449f0d57e0e1365ff3cf0ed1f92722f05d7625b9ea524b5f13d518b494`.
+Evidence archived in `build/playtest-candidates/headbob-apply/20260920-202653`.
+Profile id108 began at float1, the requested write stored float0 and read back0.
+Tester observed menu0 with bob still active; moving the menu control away and
+back to0 stopped bob. Profile storage and live application are separate.
+
+Local scripts expose DisGFxMoviePlayerMenuBase.m_SettingsListeners and
+ArkSettingsListenerInterface implementations on camera, pawn, controller,
+input, HUD, post-process manager and other consumers. The interface is native
+noexport and has no script-callable callback declaration. OnlinePlayerStorage
+exposes SetProfileSettingValueFloat and SetRangedProfileSettingValueFloat;
+those declarations alone do not establish consumer notification. SaveProfile's
+script delegates to OnlinePlayerData.SaveProfileData, a persistence operation.
+
+Offline verification: ue3-natives --verify first re-derived the known crossbow
+class, then resolved DisGFxMoviePlayerMenuBase's OnSettingChange vtable slot.
+Following its exec thunk into the implementation shows the supplied setting ID
+compared directly with profile PropertyId. The handler obtains mapping/type,
+uses typed profile accessors, and unconditionally finishes by passing profile,
+its settings-listener array and apply mode1 to a common native helper.
+That helper first refreshes a shared settings object from the profile, then
+walks the 8-byte script-interface entries and invokes each listener callback.
+Thus the raw write skips both shared settings refresh and listener dispatch.
+This also resolves the menu-ID equivalence question for this handler.
+
+Implementation route: invoke the verified engine handler through its UFunction
+on a live initialized menu after validating its profile mapping and listener
+objects with a current live table. Alternatively reproduce the shared apply
+helper's verified contract, not just the camera callback. Neither route has
+been invoked by the mod yet; initialization, native signature and downstream
+acceptance need validation before promotion. Do not call SaveProfile to apply.
+
+Range correction: maximum in this measured run was profile float1, not100.
+The default script stores float1 for id108 as well. The earlier0..100 profile
+assumption is unsupported; distinguish UI display units from stored units.
+
+
+
+### Automatic VR preset at startup
+
+The mod now defaults `[GameOptions] DefaultsAtStartup=1` even when the section
+is absent (including existing packaged INIs). F10 Advanced exposes **Apply VR
+defaults at startup** and persists the selection for the next launch. Enabled:
+restore kill cam off, head bob0, camera-relative climbing off, crosshair off,
+auto aim/aim friction off, model detail high, light shafts off, MLAA, rat shadows
+off. Deliberate options changes afterward survive for that session. Disabled:
+leave the profile preferences alone. No options-screen visit is required by
+the implementation. Fullscreen and vsync retain their existing mod paths.
+
+This uses the original engine refresh/listener path at startup, after validating
+the entire preset. Installed557 awaits live acceptance; the prior native menu
+path is confirmed for head bob, including a subsequent boot. Other individual
+settings are target values, not yet proof of downstream rendering changes.
+GameOptsWrite remains a separate diagnostic override and should be empty.
+
+
+Accepted startup preset (2026-09-20): build559 logs all ten target values,
+with head bob off confirmed in gameplay. Sound worked on the subsequent run;
+profile master/music/effects/voice volumes were100/90/90/100 (type1 integers),
+speaker configuration0. No audio corrective write was made. VR-165 remains open.

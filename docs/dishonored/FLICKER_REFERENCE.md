@@ -3214,3 +3214,147 @@ request, with strict suppression enabled and pacing off. Performance improvement
 remains subjective. Exact acceptance identity/archive and promotion scope are in
 PERFORMANCE.md, Accepted profile and publication. Earlier strict-default0 and pending
 headset entries are historical. Accepted image-owned orientation remains unchanged.
+
+## VR-165: the chain-climb swing is NOT the camera modifier stack (2026-09-20)
+
+1. **Symptom:** after leaving a chain the camera goes on swinging as if still on
+   it, with jitter, for tens of seconds. Surface: the game's own camera POV, not
+   a missing eye, a mono interruption or a held frame - the stereo judges are
+   clean throughout (0 one-picture windows, 0 wrong-eye draws). Reproduced by
+   ungrabbing the chain with X rather than jumping off; jumping off clears it.
+2. **Identity:** tester build `533-g82e126174` (report), probe run on
+   `02e59354c`, VirtualDesktopXR 1.0.10.
+3. **Measured, offline, from the tester's log.** The engine's player state
+   machine is clean through the whole episode: `Climb -> Jump -> Falling ->
+   Walk`, no stuck state. Scanning the run for sustained camera-Z oscillation
+   puts every hit on the chain and past the dismount (peak 109 uu of range,
+   continuing ~23 s after he got off). Our own positional request against the
+   game's camera, same windows:
+
+   | window | our request (U) | game camera (Z) |
+   |---|---|---|
+   | during the climb | 0 reversals, 3.74 uu | 91 reversals, 413.67 uu |
+   | after the dismount | 1 reversal, 4.67 uu | 166 reversals, 260.44 uu |
+   | baseline walking | 3 reversals, 4.95 uu | 13 reversals, 49.16 uu |
+
+   **Our writer is flat in every window.** The swing is entirely game-side, so
+   no clamp on the mod's camera seam can reach it.
+4. **Hypothesis:** a `DishonoredCamera.ini` camera modifier (Lean, Dodge, Shake,
+   Recoil, HitReact, PhysicalReact, BumpSmoother, the DisableArmFollow pair) is
+   not releasing at the dismount. Counterprediction: the modifier list shows an
+   entry whose alpha stays up while swinging and falls when it settles.
+5. **Instrument:** `cammod` (`game/dishonored/cam_modifiers.cpp`), read-only,
+   `[Diagnostics] CamModProbe=1`. Walks `Camera.ModifierList` and prints each
+   modifier's alpha, target, priority and disabled bit, but only while the
+   camera is actually swinging and once more when it settles. Every offset comes
+   from the name-keyed resolver; an unresolved one prints `unresolved` rather
+   than a zero.
+6. **Result: HYPOTHESIS REFUTED.** The probe caught the swing (199.7 uu while
+   SWINGING, 6.3 uu once SETTLED) and `ModifierList` held exactly ONE entry
+   throughout:
+
+   ```
+   [0] CameraModifier_CameraShake  alpha=0.000 target=0.000 prio=127 disabled=0
+   ```
+
+   Zero weight, identical swinging and settled. **The modifier stack is
+   eliminated**: the `DishonoredCamera.ini` sections configure classes that
+   never enter the runtime stack at all, so that ini is not the route to this.
+   The swing lives in the camera's own POV update. Do not return to
+   `ModifierList` for this symptom.
+7. **Instrument fault found and fixed in the same pass.** The first version
+   counted a reversal per ProcessEvent dispatch, so it reported "249 reversals
+   in 1010 ms" - not a frequency of anything, and not comparable with the ~8 Hz
+   the offline analysis measured. It now counts direction changes of an
+   excursion greater than 2 uu and reports a rate in Hz, so the sampling rate no
+   longer changes the answer. The amplitude column was always sound and is what
+   the swinging/settled judgement used.
+8. **Open, next suspects:** the camera's own POV computation for the climb
+   state, and whatever the X-ungrab path leaves set that the jump path clears.
+   Not yet examined. `PSI_Gameplay_CameraRelativeClimbing` (VR-161) is a
+   candidate but cannot be read yet and is NOT assumed either way.
+
+## VR-165 RETRACTION: both frequency figures were instrument artefacts (2026-09-20)
+
+The entry above states the chain swing "oscillated at ~8 Hz". **That number is
+retracted.** So is the ~110 Hz a later instrument reported for the same motion.
+
+- The ~8 Hz came from `cachePos` in the `cine/trace` lines, which are logged
+  about every **109 ms** - roughly 9 Hz. A 9 Hz sampler cannot resolve an 8 Hz
+  oscillation; the figure was aliasing, and it reached a Linear ticket before
+  anyone checked the logging interval.
+- The ~110 Hz came from `cam_modifiers`' own counter, which samples on the
+  ProcessEvent lane and was reporting approximately its own dispatch rate.
+
+**There is no trustworthy period for this bug, and none should be quoted** until
+a sampler faster than the motion produces one.
+
+What survives, because it never depended on frequency: our own writer is flat
+(0 reversals on all three axes of `posRequest`, and on the head pose, during a
+confirmed swinging window), and the camera modifier stack is eliminated - 120+
+`cammod` tables, always one entry, `CameraModifier_CameraShake` at alpha 0,
+identical swinging and settled.
+
+**The lesson, which is section 4's whole purpose:** a counter's units are not
+the units of the thing it counts. Before believing any rate out of this project,
+read how often the source line is emitted, and compare it against the period
+being claimed. Both of these would have been caught by that one check.
+
+**New evidence, from the user and worth more than either number:** the
+oscillation continues inside the weapon wheel at the same rate while game time
+is slowed. Time dilation scales game-time animation, so whatever drives this
+runs on real time or per-present. Crouch pulsing was checked as the obvious
+real-time candidate and is NOT it (zero pulses, two crouch transitions all run).
+Different actions clear it on different occasions - wheel once, Blink another -
+so it is a state several transitions happen to reset, not one owner with one
+release.
+
+**Instrument now installed:** `swing_trace.cpp` samples `render_pos_world` once
+per PRESENT into a ring and dumps the raw `ms,x,y,z` samples when a large
+excursion arms it. It derives nothing; its header tells the reader to check the
+sample spacing before reading the shape.
+
+## VR-165 source graph correction and next candidate (2026-09-20)
+
+1. Symptom/surface: continuous whole-view camera displacement after X-release
+   from a chain, the smooth camera-motion category rather than eye flicker.
+2. Identity: source review based on bf5733638 and the attached healthy/bugged
+   eye-offset report. That report is prior evidence, not a new measured run.
+3. Correction: the earlier elimination of DishonoredCamera.ini influences was
+   too broad. Camera.ModifierList holds CameraModifier objects. The local class
+   declarations show a separate DishonoredPlayerCamera.m_InfluenceGroups graph,
+   with DishonoredCameraInfluenceGroup.m_Influences, m_Weight and m_TargetWeight.
+   The old probe never read that graph. Only ModifierList is eliminated.
+4. Candidate: read-only camera/source samples on the script lane every 500 ms,
+   bounded to 1800 snapshots. Includes pawn eye heights, velocity, POV offset,
+   every influence weight/target and available PlayerControl/AnimDriven debug
+   POVs and mantle source vectors. Unavailable/nonfinite values print nan.
+   This is a state comparison instrument, not a per-frame frequency probe.
+5. Counterprediction: if these sources own the displacement, a source vector or
+   influence weight changes between healthy and bugged standing pitch and
+   returns after Blink. If they stay unchanged, inspect native camera update
+   and skeletal inputs downstream; do not declare the graph innocent based
+   only on weights. Debug fields may be stale and need runtime corroboration.
+6. Radius inference removed: independent xyz/pitch extrema do not define an
+   arc radius, even above a minimum pitch threshold. Span logs make no cause
+   claim. Large POV-minus-pawn establishes displacement, not ownership.
+7. Validation: Release/lint/exports pass. No new headset result; no camera fix
+   or clamp installed. One launch question and sequence are in STATUS.md.
+
+## Run 549 camera-source audit (2026-09-20)
+
+Smooth whole-view camera displacement after chain release remains open.
+272 source samples read both pawn eye-height fields at85. Group1 is explicitly
+not-live in all272 snapshots, not silently skipped; defaultproperties initialize
+m_InfluenceGroups[1] to none. That suggests a null slot, but the old log did not
+print the pointer and cannot prove null versus liveness rejection.
+
+The old eye field subtracts Actor.Location (+0xc4, matching the independent
+crouch resolver) from reflected camera POV. Large values alone do not establish
+failed subtraction. Raw operands, ownership and cache timing were missing.
+The new probe reports both world vectors, read success, controller ownership,
+and an unavailable result on invalid input. Absolute debug POV sources now
+also report source-minus-pawn, without asserting debug-field freshness.
+No camera-memory write or root-cause fix. Next baseline/X-release/Blink test
+and installed identity are in STATUS.md. Run549 evidence is archived locally;
+the then-installed550 DLL is a separate identity from that log.

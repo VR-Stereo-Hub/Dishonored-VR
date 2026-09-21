@@ -173,10 +173,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
     GameOptsApply();   // VR-157: the seam's `gameopts` read, same lane, read-only
     dvr::anim::tick(); // VR-88: sample before any hand override writes
+    // VR-165: was that climb asked for? Uses the snapshot anim::tick just refreshed.
+    { const dvr::anim::Snapshot swSnap = dvr::anim::snapshot();
+      SwingClimbWatch(swSnap.state[0]); }
     PossessionStateTick(); // VR-135: read-only; the presentation verdict reads its result
     RainTick();            // VR-136: rain box measurement; the native hide only when [Rain] Hide=1
     LensTick();            // VR-137: camera lens effects measured; moved only when [Lens] Distance > 0
     CineTraceTick(); // VR-70: read-only camera trace layout
+    CamModTick();    // VR-165: read-only; needs the trace's resolved camera cache
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
     // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
     // lever only revalidates the camera object while it is armed, so the seam
@@ -385,8 +389,21 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                     // (38.70: the NewGameClicked arm lived here and never
                     // fired - the skip now triggers on the intro boat's
                     // measured spawn position instead, in IntroSkipApply)
+                // VR-153: Req_CanLoadGame is NOT on this list any more. It is a
+                // capability QUERY - "may a load happen from here" - and the
+                // DEATH SCREEN asks it. Nothing answers with a close, so a death
+                // left the mod believing a menu was open until the player opened
+                // the pause menu by hand and resumed: 77 seconds in the playtest
+                // log, with the runtime stuck on the mono screen (reported as a
+                // "small square render") and the right stick passed through as
+                // menu navigation, driving movement like the left one.
+                //
+                // The real load browser still registers: it fires SaveSlotInfos
+                // and LoadGameClicked, both still here. CanSaveGame stays too -
+                // it has not been observed on the death screen and removing it
+                // without evidence would be trading one guess for another.
                 } else if (strstr(nm, "OpenPauseMenu") || strstr(nm, "MessageBox") ||
-                           strstr(nm, "CanLoadGame") || strstr(nm, "CanSaveGame") ||
+                           strstr(nm, "CanSaveGame") ||
                            strstr(nm, "SaveSlotInfos") || strstr(nm, "BackToWindows") ||
                            strstr(nm, "LoadGameClicked")) {
                     if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }

@@ -286,11 +286,43 @@ static void UpdateVirtualPad()
     // dropped (a stray A or a chair-shuffle B pulse must never eject the
     // player from a scripted sequence again); sticks and triggers go to
     // zero. The game's own toggle giveth and taketh away.
+    // VR-165: ...which also dropped the SKIP. Dishonored skips a cutscene on a
+    // HELD face button with an on-screen gauge, and that hold is a button, not
+    // START, so this block ate it: a playtester reported being unable to skip
+    // the chair scene at all. 38.65's reason is still right - a stray A or a
+    // chair-shuffle B pulse must not eject anyone - so the answer is not to
+    // unpark, it is to tell a deliberate hold from a pulse.
+    //
+    // A hold of SkipHoldMs cannot be a stray pulse. This is the same
+    // discriminator the melee swing uses (sustain, not peak) and for the same
+    // reason. Sticks and triggers stay at zero regardless: nothing in a
+    // cutscene wants them, and they are what produced the chair shuffle.
     if (active && !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu && CineActive()) {
-        xs.Gamepad.wButtons &= XINPUT_GAMEPAD_START;
+        const WORD raw = xs.Gamepad.wButtons;
+        WORD pass = XINPUT_GAMEPAD_START;
+        if (g_cineSkipHoldMs > 0) {
+            const double now = MaimNowMs();
+            // One timestamp per button: when this press began, 0 while it is up.
+            for (int b = 0; b < 16; ++b) {
+                const WORD bit = (WORD)(1u << b);
+                if (bit == XINPUT_GAMEPAD_START) continue;
+                if (!(raw & bit)) { g_cineBtnDownMs[b] = 0.0; continue; }
+                if (g_cineBtnDownMs[b] == 0.0) g_cineBtnDownMs[b] = now;
+                if (now - g_cineBtnDownMs[b] >= (double)g_cineSkipHoldMs) {
+                    pass |= bit;
+                    DVR_LOG_EVERY_MS(dvr::log::Cat::pad, dvr::log::Level::Info, 2000,
+                        "pad/cine: button 0x%04x held %.0f ms (>= %d) - passing it through the "
+                        "cinematic park so a hold-to-skip can reach the game; a pulse still cannot",
+                        (unsigned)bit, now - g_cineBtnDownMs[b], g_cineSkipHoldMs);
+                }
+            }
+        }
+        xs.Gamepad.wButtons &= pass;
         xs.Gamepad.sThumbLX = 0; xs.Gamepad.sThumbLY = 0;
         xs.Gamepad.sThumbRX = 0; xs.Gamepad.sThumbRY = 0;
         xs.Gamepad.bLeftTrigger = 0; xs.Gamepad.bRightTrigger = 0;
+    } else {
+        for (int b = 0; b < 16; ++b) g_cineBtnDownMs[b] = 0.0;
     }
     // 38.82 THE DEAD RIGHT STICK. The menu flag can GHOST during gameplay
     // (measured in the user's own Quest log: "sbs: stereo (menu=1 ...)" -

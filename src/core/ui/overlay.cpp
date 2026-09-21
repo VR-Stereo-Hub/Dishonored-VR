@@ -1158,6 +1158,33 @@ static void OverlayFrame()
         ImGui::SameLine();
         ImGui::TextDisabled("probes, rig tests, the SpaceBases oracle");
         ImGui::Separator();
+        // VR-157: the game's own option settings, read-only. This control exists
+        // because the tester plays in a headset and cannot reach a prompt - a
+        // diagnostic reachable only from game-cmd.ps1 is one that never runs,
+        // which is exactly what happened to the first build of this probe.
+        ImGui::TextUnformatted("The game's own option settings");
+        {
+            bool defaultsOn = GameOptsStartupEnabled();
+            if (ImGui::Checkbox("Apply VR defaults at startup", &defaultsOn)) {
+                GameOptsSetStartup(defaultsOn);
+                ConfigWriteKey("GameOptions", "DefaultsAtStartup", defaultsOn ? "1" : "0", "F10 Advanced");
+            }
+            ImGui::TextDisabled("Takes effect next launch. You can change game options during this session.");
+        }
+        if (ImGui::Button("Read them into the log now")) GameOptsRequest("F10 Advanced");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", GameOptsAutoFired() ? "this session's automatic read has already run"
+                                                      : "the automatic read has not fired yet");
+        {
+            bool autoOn = GameOptsAutoEnabled();
+            if (ImGui::Checkbox("read once automatically when gameplay starts", &autoOn)) {
+                GameOptsSetAuto(autoOn, "F10 Advanced");
+                ConfigWriteKey("Diagnostics", "GameOptsOnStart", autoOn ? "1" : "0", "F10 Advanced");
+            }
+        }
+        ImGui::TextDisabled("Read-only. Prints the profile value and the live renderer value per");
+        ImGui::TextDisabled("setting; they are allowed to disagree, and that disagreement is the point.");
+        ImGui::Separator();
         ImGui::TextDisabled("game window %ux%u", dvr::capture::width(), dvr::capture::height());
     ImGui::EndTabItem(); }
 

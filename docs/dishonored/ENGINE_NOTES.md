@@ -7962,3 +7962,161 @@ The reset's own line is the evidence; the request line is not.
 `g_gameWindowed` is set from the reset's present params, so it - not the
 requested flag - is what the F10 checkbox and `ResLiveFullscreen()` report. A
 refused resize therefore shows the device, not the wish.
+
+## Camera influences and option layout audit (2026-09-20)
+
+Local declaration inspection distinguishes Camera.ModifierList from the
+DishonoredPlayerCamera.m_InfluenceGroups graph. The latter groups contain
+m_Influences; the influence base exposes m_Weight/m_TargetWeight.
+PlayerControl and AnimDriven expose m_Debug_POV_Location; CrouchMantleOffset
+exposes m_StartingOffset; StepUpMantleOffset exposes m_StepUpStartPos.
+All new source reads resolve fields by declaring name, without fixed offsets.
+No claim is made yet that the debug vectors update in this executable.
+
+DisSetting contains an int, FString, AND packed bool fields. The earlier
+16-byte stride omitted those flags. DisSettingsCategory has a name and two
+arrays; DisSettingsSubCategory has a name, settings array and trailing bool.
+The read-only walker derives extents from the final reflected field plus its
+x86 storage width (12 for TArray, 4 for bool word), bounds the full buffers,
+and visits all categories and nested subcategories. This relies on these
+known declarations and 4-byte alignment, not guessed PSI plausibility.
+FindPropOffsetChecked distinguishes successful offset zero from lookup failure.
+Enumeration/numeric equality alone does not prove OnSettingChange semantics.
+The native setter/apply/save path remains disabled pending mapping evidence.
+
+Profile record validation no longer uses an 80 percent ascending threshold:
+every owner/id/type must be valid and each (owner,id) unique. Raw reads choose
+the game-owned entry. Integer writes revalidate current liveness, full layout,
+owner 2/type 1, approved id and binary value. Float head bob is never written
+through that path. Host tests exercise the actual production function bodies.
+
+## Run 549 camera-source audit (2026-09-20)
+
+Smooth whole-view camera displacement after chain release remains open.
+272 source samples read both pawn eye-height fields at85. Group1 is explicitly
+not-live in all272 snapshots, not silently skipped; defaultproperties initialize
+m_InfluenceGroups[1] to none. That suggests a null slot, but the old log did not
+print the pointer and cannot prove null versus liveness rejection.
+
+The old eye field subtracts Actor.Location (+0xc4, matching the independent
+crouch resolver) from reflected camera POV. Large values alone do not establish
+failed subtraction. Raw operands, ownership and cache timing were missing.
+The new probe reports both world vectors, read success, controller ownership,
+and an unavailable result on invalid input. Absolute debug POV sources now
+also report source-minus-pawn, without asserting debug-field freshness.
+No camera-memory write or root-cause fix. Next baseline/X-release/Blink test
+and installed identity are in STATUS.md. Run549 evidence is archived locally;
+the then-installed550 DLL is a separate identity from that log.
+
+## Head-bob apply path located (2026-09-20)
+
+Verified run551 (compiled20:15:53) against installed DLL SHA256
+`d1a6c5449f0d57e0e1365ff3cf0ed1f92722f05d7625b9ea524b5f13d518b494`.
+Evidence archived in `build/playtest-candidates/headbob-apply/20260920-202653`.
+Profile id108 began at float1, the requested write stored float0 and read back0.
+Tester observed menu0 with bob still active; moving the menu control away and
+back to0 stopped bob. Profile storage and live application are separate.
+
+Local scripts expose DisGFxMoviePlayerMenuBase.m_SettingsListeners and
+ArkSettingsListenerInterface implementations on camera, pawn, controller,
+input, HUD, post-process manager and other consumers. The interface is native
+noexport and has no script-callable callback declaration. OnlinePlayerStorage
+exposes SetProfileSettingValueFloat and SetRangedProfileSettingValueFloat;
+those declarations alone do not establish consumer notification. SaveProfile's
+script delegates to OnlinePlayerData.SaveProfileData, a persistence operation.
+
+Offline verification: ue3-natives --verify first re-derived the known crossbow
+class, then resolved DisGFxMoviePlayerMenuBase's OnSettingChange vtable slot.
+Following its exec thunk into the implementation shows the supplied setting ID
+compared directly with profile PropertyId. The handler obtains mapping/type,
+uses typed profile accessors, and unconditionally finishes by passing profile,
+its settings-listener array and apply mode1 to a common native helper.
+That helper first refreshes a shared settings object from the profile, then
+walks the 8-byte script-interface entries and invokes each listener callback.
+Thus the raw write skips both shared settings refresh and listener dispatch.
+This also resolves the menu-ID equivalence question for this handler.
+
+Implementation route: invoke the verified engine handler through its UFunction
+on a live initialized menu after validating its profile mapping and listener
+objects with a current live table. Alternatively reproduce the shared apply
+helper's verified contract, not just the camera callback. Neither route has
+been invoked by the mod yet; initialization, native signature and downstream
+acceptance need validation before promotion. Do not call SaveProfile to apply.
+
+Range correction: maximum in this measured run was profile float1, not100.
+The default script stores float1 for id108 as well. The earlier0..100 profile
+assumption is unsupported; distinguish UI display units from stored units.
+
+## Native menu dispatch verification (2026-09-20)
+
+ue3-natives --verify reproduces the crossbow control, then resolves both
+DisGFxMoviePlayerMenuBase and DisGFxMoviePlayerPauseMenu slot+0x23c to
+0x00BCB870. The registered exec thunk parses int/float and dispatches that
+slot with this in ecx; the implementation ends ret8. constants and16-byte
+entry signature live in patterns.h as kGoNativeSettingChange,
+kGoSettingChangeSlot and kGoSettingChangePrefix. The actual native setter,
+not its FFrame exec wrapper, is called on the script lane.
+
+The candidate checks the exact pause class for selection plus IsLiveObject,
+the open bit, a bounded readable interface array, every listener object's
+liveness and interface storage, current vtable slot and target code prefix.
+A refreshed live set precedes each call. No UFunction flags are patched.
+The shared apply helper remains engine-owned. Direct-call return and profile
+match do not establish gameplay acceptance; the next headset run must do that.
+
+Review defects corrected: missing bool return, raw fallback contaminating
+success, closed arbitrary menu selection, integer rounding of float readback,
+and malformed/nonfinite request acceptance. Host tests run production
+validator/writer/apply bodies with stubbed engine access;42 checks pass.
+
+
+### Startup VR preset interception (2026-09-20)
+
+Verified executable disassembly: shared apply helper VA `0x0093B7E0` is
+cdecl(profile, pointer-to-listener-TArray, mode), plain ret. Five E8 callers
+at RVAs 003E16A9, 007BCABD, 007BCB0B, 007C2045 and 007CBBB4. The first is in
+VA 0x007E1660: it constructs a listener list via 0x00939580, loads the profile
+from its owner, and calls with mode0, then frees the temporary list. The menu
+setter uses mode1; menu apply/leave paths also use mode2. The shared helper
+refreshes shared values via 0x00939730 and walks native listener interfaces.
+This is the same consumer propagation missing from a standalone profile write.
+
+The entry bytes `55 8B EC 51 8B 45 10` cover four whole instructions (7 bytes).
+A verified detour preserves flags/general registers, reads original stack args
+1 and3, invokes the preflight/write callback, replays the stolen instructions,
+and resumes at 0x0093B7E7. The engine executes its original refresh/dispatch.
+Installing the jump in DllMain avoids missing early startup; no config/profile
+work runs there. The first mode0 callback reads the saved policy outside the
+loader lock. Failed preflight does not mark completion. A successful write
+marks the process done so later mode0 calls and manual option changes are left
+alone. No engine object identity is retained. BuildLiveSet and IsLiveObject run
+before all-target preflight; missing/wrong-type entries prevent every write.
+
+Preset: int105=0, float108=0, int109=0, int99=0, int81=0, int83=0,
+int120=1, int121=0, int122=1, int123=0. Fullscreen/vsync excluded: their existing
+owners remain responsible. Default-on [GameOptions] DefaultsAtStartup and its
+F10 Advanced control govern the next launch; no completion flag on disk and no
+manual menu setup. A byte mismatch fails safely and logs refusal.
+
+Validation: Release build, lint, exact nine exports, 79 production host checks
+including all-target preflight, corrupt/missing types, stale objects, typed
+head-bob zero, excluded IDs, startup-only execution, saved off policy, retry
+following refusal and reapplication on a simulated next boot. The native stub
+compiles but its engine execution and mode0 timing await the installed557 run.
+Build556's next-boot float1 and maximum bob are observed/reported; they establish
+the previous native menu path, not acceptance of this new startup interception.
+
+
+### Startup completion correction after run557 (2026-09-20)
+
+Run557 installed banner/hash verified: all ten writes at44673515 succeeded;
+profile1770D800 head bob was float0 then float1 at gameplay diagnostic44727031.
+Same profile address, later overwritten value. First-success completion was
+premature; the log did not expose subsequent native calls, so the overwrite's
+source is not established. Candidate558 keeps mode0 interception enabled until
+first verified gameplay, never forces modes1/2, and logs the first24 apply
+entries regardless of mode/completion. Host tests now cover a second startup
+write following profile reload and leaving later gameplay edits alone (80 total).
+The fix depends on another mode0 application occurring before gameplay; if none
+occurs, trace profile-load completion instead. No live acceptance claimed.
+Full next-session decision tree and archives are at the top of STATUS.md.

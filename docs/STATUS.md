@@ -141,6 +141,254 @@ reading error where a 59% pair loss showed as 13% on the tick.
    profile write - the mod already owns both.
 4. Still carried: VR-154, VR-152, VR-153 as above.
 
+## Startup defaults accepted; PR ready, chain bug OPEN (2026-09-20)
+
+PR86 finalized for review, NOT merged; remains stacked on claude/vr-164-pause-hands.
+Current branch codex/vr-165-camera-source-review. Installed/tested build559:
+`vr33-hands-working-559-g7efcfcdc7-dirty`, SHA256
+`48b0bc36ca5e03f44d912da8ede4c106f0b91c355515ef753a5ca3938a34d18a`.
+Latest log banner/hash verified; all ten requested profile values match. Tester
+confirms startup head bob off and sound working on the next run. Earlier silence
+was intermittent/unexplained; the audio diagnostic did not constitute a fix.
+Accepted DLL/INI/both logs archived in build/playtest-candidates/accepted559.
+
+Default preset: Kill Cam off; Head Bob0; Chain Climbing Relative off; Crosshair
+Style off; Auto Aim off; Aim Assist off; Model Details high; Light Shafts off;
+Antialiasing MLAA; Rat Shadows off. [GameOptions] DefaultsAtStartup=1 by default
+in code/generated INI/golden fixture and explicitly in packaged release INI.
+F10 Advanced > Apply VR defaults at startup saves opt-out for future launches.
+Startup mode0 writes continue until first gameplay (profile reloads can overwrite
+earlier writes); later menu changes survive. Audio, fullscreen and vsync excluded.
+Package change intentionally copies ONLY the requested startup-policy setting:
+tested INI also contains a machine-specific runtime manifest, unrelated grip edits
+and active camera probes, which are outside this defaults-finalization request.
+No binary change since accepted559; build/lint/exports and86 host checks passed.
+
+**VR-165 chain-camera bug remains OPEN / In Progress.** This PR improves its
+instruments, not its cause. Relative climbing off is a preference, not proof of
+resolution. Resume from FLICKER_REFERENCE and camera-source ENGINE_NOTES; use
+healthy -> chain X-release bug -> Blink comparison. EyeHeight stayed85; influence
+weights were static; missing vectors are unavailable, not zero. Group1 null was
+explicitly observed. Old frequency/radius claims were artifacts; do not reuse.
+First inspect current raw pawn/camera source deltas and correlate what changes
+and returns after Blink. No guessed clamp/reset. One question per tester launch.
+Do not merge this PR or its base without explicit authorization; no subagents.
+
+## Head bob accepted; audio follow-up (2026-09-20)
+
+Run558 banner/hash verified. Tester confirms head bob now turns off at startup.
+Four mode0 calls observed; the third restored head bob1 before our write reset0.
+Startup window closed at first gameplay as intended. Keep this successful path.
+No sound reported on that run; cause UNKNOWN. Preset targets exclude audio IDs
+126..129 and133. Engine Launch.log contains no useful audio initialization/error
+information; do not claim routing, zero volume, or the hook is proven responsible.
+
+Installed `vr33-hands-working-559-g7efcfcdc7-dirty`, SHA256
+`48b0bc36ca5e03f44d912da8ede4c106f0b91c355515ef753a5ca3938a34d18a`. Small READ-ONLY diagnostic update:
+log audio IDs/types/raw bits before shared refresh, and include them in the
+existing gameplay profile read. No audio writes or routing changes. Release,
+lint, nine exports, 86 host checks pass, including preservation of all five audio
+values. Full installed INI byte-identical and CRLF verified. Prior558 DLL, both
+proxy logs, INI and engine Launch.log archived at
+`build/playtest-candidates/installs/20260920-212602`.
+
+Next launch ONE question: is sound audible after loading gameplay? If yes,
+record intermittent silence without claiming this diagnostic fixed it. If no,
+compare gameopts/audio startup values with gameplay IDs126..129/133. Zero/missing
+values warrant tracing profile reload/shared refresh; nonzero profile volumes
+require checking live audio consumers and Windows/VR output/session mute. No
+forced volume changes without evidence. Existing detailed handoff follows below.
+
+## Startup reload follow-up and session handoff (2026-09-20)
+
+Installed `vr33-hands-working-558-gf83dc0edb-dirty`; SHA256
+`f0d861f7f479bdc90c6023d1e059cdce6eb4b1179ff7c005b2be5195a131eb42`.
+Release build, lint, exact nine exports and 80 production host checks pass.
+Installed INI byte-identical to previous (full comparison), CRLF verified:
+[GameOptions] DefaultsAtStartup=1; [Diagnostics] GameOptsWrite empty.
+Prior557 DLL/INI/log and prev.log archived in
+`build/playtest-candidates/installs/20260920-212026`. Never launch the game.
+
+**557 failed in gameplay:** tester still observed head bob. Log banner and
+installed hash matched557 before interpretation. At timestamp44673515 profile
+1770D800 id108 changed float1 ->0, all ten preflighted writes/readbacks succeeded.
+At44727031 the diagnostic selected the SAME populated profile1770D800 and read
+head bob float1 again. Thus a profile overwrite occurred after our startup write;
+the write/hook did not simply fail. Its exact writer and timing remain unknown.
+The original callback latched done after the first success and hid all later
+calls, so this run cannot establish how many additional startup applies occurred.
+
+**Last fix candidate:** remove first-success completion. Intercept every mode0
+apply until first verified gameplay in GameOptsApply, independent of diagnostic
+auto-read being enabled. Then close the startup window permanently for this
+process. Modes1/2 (menu applies) are never forced. Saved opt-out still disables
+writes. No retained engine pointers; every write refreshes BuildLiveSet and
+preflights all ten values. First24 native apply entries log profile, mode and
+startup-closed state, including ignored modes. This is a targeted hypothesis,
+not proven acceptance: it only fixes the overwrite if another mode0 apply
+occurs before gameplay. No menu-dependent fallback or periodic gameplay forcing.
+
+**One question next launch:** is head bob off on entering gameplay, without
+opening Pause/Options or touching sliders? Off supports live startup propagation.
+Still on: read new apply-observed lines and id108 readback before another edit.
+- If additional mode0 calls restore0 and gameplay still reads1, locate the later
+  profile writer/load completion; do not add a longer timer blindly.
+- If only one early mode0 call appears, this hook is too early for final profile
+  loading. Trace the asynchronous profile read completion and the other callers
+  of shared helper0x0093B7E0; mode1/2 logs distinguish other apply paths.
+- Profile0 with bob still on is the consumer-notification problem, distinct from
+  this run's measured overwrite. Do not claim profile match proves acceptance.
+
+**Resume map:** branch codex/vr-165-camera-source-review, existing stacked PR86;
+no merge authorized. User wants default-on startup restoration with saved F10
+Advanced opt-out; later deliberate changes survive the session. Do not switch
+to continuous enforcement. Core code game_opts.cpp, entry constants patterns.h,
+early installation proxy/dllmain.cpp, F10 overlay.cpp, config default config.cpp.
+Host harness tools/game-opts-host.ps1. Addresses/derivation in ENGINE_NOTES under
+Startup VR preset interception. Prior verified menu setter is0x00BCB870, guarded
+open pause menu/listeners; ProcessEvent returning did not prove native execution.
+Head bob108 is float type5, range0..1. Other preset targets int105=0,109=0,99=0,
+81=0,83=0,120=1,121=0,122=1,123=0. Fullscreen116/vsync117 excluded deliberately.
+Build556 native menu route + subsequent boot maximum bob were tester-confirmed;
+automatic reset to0 remains unconfirmed. Other targets need downstream checks.
+Chain-camera issue remains separate/unresolved. Preserve camera probe evidence.
+
+## Automatic startup preset candidate (2026-09-20)
+
+Installed `vr33-hands-working-557-gba3ac15a4-dirty`, SHA256
+`a30434f808e2b95360d04becf207ec91089a18b54cd6c5afdf25ae286804de32`.
+Archive: `build/playtest-candidates/installs/20260920-210853` (prior DLL,
+full INI, both logs, and full INI diff). Installed INI changes only:
+GameOptsWrite cleared; [GameOptions] DefaultsAtStartup=1 added. CRLF verified.
+Release build, lint, nine exports and 79 production host checks pass.
+
+Latest run556 banner/hash verified. Profile head bob was already float1 before
+menu apply, and maximum bob working immediately after boot is tester-confirmed.
+The native menu write's persistence is observed; startup preset interception is
+NEW and not yet headset-confirmed. No chain-camera resolution claimed.
+
+New preset intercepts the engine's shared settings apply BEFORE its refresh and
+listener dispatch, only mode0 and once after successful validation per process.
+All ten entries preflight together, with refreshed liveness and exact types.
+Later menu edits survive. F10 Advanced > Apply VR defaults at startup saves
+[GameOptions] DefaultsAtStartup; absent key means on, off preserves preferences
+on future boots. Policy read occurs in the engine callback outside loader lock,
+so startup before Direct3DCreate9 is covered. No persisted completion marker.
+Derivation and limits: ENGINE_NOTES, "Startup VR preset interception".
+
+Next launch, one question: is head bob OFF immediately in gameplay without
+opening Pause/Options or moving sliders? Previously maximum is the baseline.
+Off supports startup live propagation; still bobbing requires checking hook,
+mode0 observation, validation and consumer effects in the new log. No launch
+by agent, no merge. Other preset settings still require downstream acceptance.
+
+## Verified native settings candidate (2026-09-20)
+
+Installed `vr33-hands-working-556-g90543a1ad-dirty`; SHA256 `4eb0154e2069d8c06a2444ca1eaee4bdb7485c093e4e7da128a08a0853997743`.
+Prior DLL, full INI and both logs: `build/playtest-candidates/installs/20260920-205135`.
+Full installed INI byte-identical, CRLF verified; GameOptsWrite=108=1.0 remains
+armed. Release, lint, nine exports and42 production host checks pass. No launch.
+
+Fixes: apply returns a defined result; float readback compares floats; malformed,
+nonfinite, duplicate and unsupported requests are rejected before any call.
+Raw fallback removed. Existing-target equality is not reported as a change or
+proof of gameplay acceptance. Only an open pause-menu instance with a live
+settings-listener list is eligible. Readiness is polled once per second after
+initial gameplay read; closed/missing menus consume no apply attempts.
+
+Dispatch now directly calls the verified native implementation (address and
+prefix in patterns.h), checking the live pause instance's vtable target and
+code bytes. This avoids claiming ProcessEvent return proves native execution.
+Current liveness is rebuilt before each engine call. At most three eligible
+attempts; exact profile match stops retries, while the live effect remains
+explicitly unverified. No persistence call or merge.
+
+Next launch, one question: does opening Pause apply maximum head bob without
+moving the slider? Load gameplay, walk briefly, open Pause for about3 seconds,
+resume and walk. Bob becoming active supports live apply. Menu/profile1 with
+no bob means a consumer is still not updated. No eligible menu or failed
+readback is a refusal, not an apply success. If bob was already maximal before
+Pause, behavioural change is inconclusive. Read the log against this banner.
+
+## Head-bob storage versus apply (2026-09-20)
+
+Run551 confirmed profile108 float1 ->0 and menu0, but bob stopped only after
+manual menu change. Decompiled scripts plus verified native handler trace
+identify the missing shared-settings refresh and listener notification.
+OnSettingChange uses profile PropertyId directly. No native apply call has yet
+been added; no new build installed in this research step. Next implementation
+must validate a live initialized menu/listeners and use the engine apply path,
+then test actual bob without manual slider changes. Preserve the independent
+chain investigation. Full evidence/derivation: ENGINE_NOTES, "Head-bob apply
+path located". Maximum profile value measured1, not100.
+
+## Camera delta audit after run 549 (2026-09-20)
+
+Current state: installed `vr33-hands-working-551-g90ea17a76-dirty`, SHA256
+`d1a6c5449f0d57e0e1365ff3cf0ed1f92722f05d7625b9ea524b5f13d518b494`. Release/lint/nine exports pass.
+Full installed INI compared with prior install, CRLF preserved; camera probes
+armed and GameOptsWrite empty. Prior install archived under
+`build/playtest-candidates/installs/20260920-201617`. No game launch by agent.
+
+Run 549 matches the prior installed candidate's banner (compiled 19:43:20).
+The DLL present at review was already candidate 550, so it is not run 549's
+binary. Both logs preserved in `build/playtest-candidates/camera-source/run549`;
+the DLL in that review archive is 550 and must not be attributed to the log.
+Measured: 272 samples with EyeHeight/BaseEyeHeight=85; 272 explicit group-1
+not-live rows. Shipped declarations initialize group 1 to none. Old logs do
+not distinguish null from non-null rejection. Large eye deltas do not prove
+subtraction failure: operands and cache freshness were not recorded.
+
+Changes: log raw camera/pawn world positions, read validity and controller
+ownership beside the delta. Refuse delta on failed reads/nonfinite inputs or
+owner mismatch. Debug POVs carry source-minus-pawn plus raw source values;
+freshness remains unverified. Null group slots are explicitly EMPTY, rejected
+non-null pointers retain their address. Existing head-bob work preserved.
+
+Next launch, one question: does the PlayerControl pawn-relative source share
+the displacement after chain X-release and return after Blink? Compare standing
+pitch before, after release, then after Blink. Matching source movement points
+upstream; unchanged source with changed cache points downstream or stale debug
+fields; invalid reads/ownership or no reproduction remains inconclusive.
+
+## Camera source and option review (2026-09-20)
+
+Current state: branch `codex/vr-165-camera-source-review`, based on the attached
+review-plan commit `bf5733638`; no merge. The chain root cause remains open.
+Installed candidate: `vr33-hands-working-549-gbf5733638-dirty`, DLL SHA256
+`69405023822796d766ee637019ef25f88c4a2c807f90e5d97abaf97db3c8eff8`.
+Prior DLL/INI/both logs archived in
+`build/playtest-candidates/installs/20260920-194126`. Full INI comparison shows
+only GameOptsWrite cleared and CamModProbe/SwingTrace explicitly set to 1;
+CRLF verified. Final parser-correction install archived at
+`build/playtest-candidates/installs/20260920-194338`; its full INI is byte-identical.
+No new playtest banner exists yet.
+The old ModifierList probe does not inspect Dishonored camera influences.
+New script-lane `camera/source` snapshots read m_InfluenceGroups, influence
+weights/targets and exposed source vectors, pawn EyeHeight/BaseEyeHeight,
+velocity and POV-minus-pawn. Samples include healthy states, carry object
+identity, report unavailable values, and make no frequency or cause claim.
+The invalid radius estimate was removed.
+
+Option review fixes: enumerate all categories and subcategories, derive x86
+struct extents from reflected final fields including bool storage, accept a
+successfully resolved offset zero. Native setter/PSI equivalence remains
+unverified, so no OnSettingChange, OnApplyVideoSettings or SaveProfile call.
+Raw writes require a refreshed live-object table, validated unique owner/id
+records, owner 2/type 1 and an approved id/value. Head bob floats are displayed
+as floats and refused by the integer writer. Fullscreen/vsync are refused.
+Empty console replies are explicitly unavailable, never renderer evidence.
+
+Validation: Release build, lint, nine exports, and 17 host checks of the
+production validator/writer passed. Game was not launched by the agent.
+Next test: stand still and pitch normally, reproduce X-release from a chain,
+stand still and pitch again, then Blink and repeat. One question: which source
+field changes with the enlarged eye offset and returns after Blink? A source
+change names the next native writer to inspect; unchanged sources leave the
+fault downstream; no reproduction or unresolved fields is inconclusive.
+See [camera evidence](dishonored/FLICKER_REFERENCE.md) for the corrected
+elimination and [engine notes](dishonored/ENGINE_NOTES.md) for layout reasoning.
+
 ## Session handoff 2026-09-19 (late): SteamVR, the judder, and two retractions
 
 ### Where things are RIGHT NOW
@@ -4142,7 +4390,8 @@ under `GripLVersion`/`GripLParity`/`GripLX..Z` and the right-hand equivalents.
 
 ### Verified on the desk, not in the headset
 
-27 frame-maths cases pass (`build\src\RelWithDebInforame_test.exe`, and the
+27 frame-maths cases pass (`build\src\RelWithDebInfo
+rame_test.exe`, and the
 same suite runs from `DllMain` into every log). The 28 saved packets replay
 through the shipped decomposition: dominant slot 10 left / 35 right, uniform
 scale 0.9995117 to 0.9995123, worst anisotropy 6.0e-07.

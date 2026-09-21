@@ -954,8 +954,30 @@ static void WriteDefaultIni(const char* ini)
         "PawnFromController=1\n"
         "CacheNameLookups=0\n"
         "\n"
+        "; GameOptsOnStart=1 reads the GAME's own option settings into the log once, a few\n"
+        "; seconds after gameplay starts. It exists because the tester plays in a headset and\n"
+        "; cannot reach a prompt, so a diagnostic that has to be asked for never runs at all.\n"
+        "; Those twelve settings (kill cam, head bob, crosshair, auto aim, light shafts, ...)\n"
+        "; are NOT in the game's inis - they live in Steam's OPTIONS.sav profile blob, and the\n"
+        "; [SystemSettings] entries are only a mirror of it which has already been caught\n"
+        "; disagreeing with the menu. The line prints both sides, so a disagreement shows.\n"
+        "; Read-only, one burst, then silent. The F10 Advanced tab re-runs it on demand.\n"
+        "[GameOptions]\n"
+        "; Restore the VR preset each launch; F10 Advanced can disable this.\n"
+        "DefaultsAtStartup=1\n"
+        "\n"
         "[Diagnostics]\n"
         "GcFaultDump=1\n"
+        "GameOptsOnStart=1\n"
+        "; CamModProbe=1 (VR-165) names which camera modifier is still weighted while the\n"
+        "; camera swings. A tester came off a chain and the camera kept swinging for ~23 s;\n"
+        "; measured, our own writer was flat and the GAME camera oscillated, so the owner is\n"
+        "; a modifier that is not releasing. Read-only, and it prints ONLY while swinging.\n"
+        "CamModProbe=1\n"
+        "; SwingTrace=1 (VR-165) samples the render camera once per PRESENT and dumps the raw\n"
+        "; samples when a big excursion trips. It derives no frequency on purpose: two earlier\n"
+        "; instruments each reported a rate that was really their own sampling rate.\n"
+        "SwingTrace=1\n"
         "\n"
         "[Cine]\n"
         "LockPitch=1\n"
@@ -967,6 +989,12 @@ static void WriteDefaultIni(const char* ini)
         "SpecialHeadLook=1\n"
         "Trace=1\n"
         "LockRoll=1\n"
+        "; SkipHoldMs (VR-165): during a cutscene the pad is parked - sticks and triggers to\n"
+        "; zero, buttons dropped - so a stray press cannot eject you from a scripted scene.\n"
+        "; That also dropped the game's own hold-to-skip, and a tester could not skip the\n"
+        "; chair scene at all. A button HELD this long passes through the park; a pulse never\n"
+        "; can, which is the protection 38.65 actually wanted. 0 = park everything, as before.\n"
+        "SkipHoldMs=300\n"
         "\n"
         "[Rain]\n"
         "Hide=0\n"
@@ -2407,11 +2435,17 @@ static void LoadConfig()
         dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }
     CineBordersConfigure(ini);
+    // VR-165: how long a button must be HELD to pass the cinematic pad park.
+    g_cineSkipHoldMs = (int)IniFloat(ini, "Cine", "SkipHoldMs", 300);
+    Log("cine: SkipHoldMs=%d ms (a held button reaches the game during a cutscene so hold-to-skip works; a pulse still cannot. 0 = park every button)", g_cineSkipHoldMs);
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
     LensConfigure(ini);
     WmConfigure(ini);
+    GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
+    CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
+    SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;

@@ -10,6 +10,27 @@
 - [ ] VR-155: a SLOW plunge (under 3.6 m/s) producing the kill in the headset - the stab detector's own positive case, simulator-proven only.
 - [ ] VR-156: a readable kill-available signal, for arming on it and a haptic ready cue.
 
+## Accepted startup preset; chain remains open (2026-09-20)
+
+- [x] Default-on startup preset for the ten approved game options; later edits allowed.
+- [x] Head bob off on startup and sound working on retest;86 host checks pass.
+- [x] PR86 ready for review; not merged.
+- [ ] VR-165: chain-camera displacement root cause and fix remain OPEN.
+
+## Native settings apply candidate (2026-09-20)
+
+- [x] VR-161: verified direct native dispatch, open pause/listener gate, no raw fallback.
+- [x] VR-161:42 host checks and Release/lint/export validation; candidate installed.
+- [x] VR-161: startup head bob off accepted; saved F10 startup-default toggle.
+
+## Option and chain source review (2026-09-20)
+
+- [x] VR-161: fix nested menu enumeration and raw profile write validation; 17 host checks.
+- [x] VR-165: remove invalid radius inference; measure the separate influence graph.
+- [x] VR-161: native setter mapping verified; ten startup profile targets match.
+- [ ] Further per-setting visual acceptance is distinct from profile verification.
+- [ ] VR-165: correlate reproduced displacement with camera sources, then fix its owner.
+
 ## Misc fixes (2026-09-17)
 
 - [x] VR-134: animation-state arm checkboxes implemented with host coverage.
