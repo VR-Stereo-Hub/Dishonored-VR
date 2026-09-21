@@ -165,8 +165,15 @@ SourceProbe=1` (the read-only probes/censuses below need it), `[Hud] Element.ret
    SourceProbe`) name the gate; the ticket has the next measurement.
 2. **Pickup with controller aim is finicky** on small objects. Proposed, not built: trace
    from the head THROUGH the hand ray's target.
-3. **Powers** (Windblast, Swarm, Possession): moved to part 2, VR-44, branch
-   `claude/vr-44-head-aim-pt2-powers` off this one.
+3. **Powers** (Windblast, Swarm, Possession): part 2, VR-44, branch
+   `claude/vr-44-head-aim-pt2-powers` off this one. Static map in ENGINE_NOTES "Where the
+   powers read their aim": Windblast reads the camera POV at `0x00BF9570`; Possession and
+   Swarm are predicted to take their aim from the UsePower aim-assist search `0x00C12B00`.
+   Census measured (build 618); seams built in `power_aim.cpp` (`[Aim] PowersFromHand`):
+   All three headset-confirmed: Windblast `0x00BF9615` and Possession `0x00BF8F4C` (619),
+   Swarm at its GetPlayerViewPoint seam `0x00BE9337` (620: landed 26 uu off the hand ray,
+   827 off the head). The power and trace censuses were removed after a lag report; the
+   lag was reported gone on 620 (PERFORMANCE.md). PR #88 ready, NOT merged.
 
 Probes left, all read-only and armed only by `[Aim] SourceProbe` (code default 0; the
 installed ini has it at 1): the SpawnActor and trace censuses and the helper probe in

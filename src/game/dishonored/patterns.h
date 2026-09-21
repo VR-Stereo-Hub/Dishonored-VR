@@ -196,15 +196,21 @@ static const uintptr_t kRazorTraceBack = 0x00C32C97;
 // the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
 static const uintptr_t kSpawnActor = 0x00C66070;
 static const uint8_t   kSpawnActorBytes[5] = { 0x55, 0x8B, 0xEC, 0x33, 0xC0 };
-// VR-166: the trace entry points, for a READ-ONLY caller census that names the spring
-// razor's placement trace. Three controller camera-trace helpers and AActor::execTrace.
-static const uintptr_t kTraceHelperA = 0x00AA5100;   // push ebp; mov ebp,esp; mov eax,[ebp+34h]
-static const uint8_t   kTraceHelperABytes[6] = { 0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x34 };
-static const uintptr_t kTraceHelperB = 0x00AA60D0;   // push ebp; mov ebp,esp; sub esp,60h
-static const uintptr_t kTraceHelperC = 0x00AA5FF0;   // push ebp; mov ebp,esp; sub esp,60h
-static const uint8_t   kTraceHelperBCBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x60 };
-static const uintptr_t kExecTrace = 0x006D0ED0;      // push ebp; mov ebp,esp; sub esp,0E4h
-static const uint8_t   kExecTraceBytes[9] = { 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xE4, 0x00, 0x00, 0x00 };
+// VR-44: the power aim seams (power_aim.cpp; ENGINE_NOTES "The power aim seams").
+// Windblast: right after its routine fetches the camera actor (0x00BF9610 call 0x00B515C0),
+// the POV rotator +0x33C and location +0x330 are read off it; eax becomes our POV.
+static const uintptr_t kWindPovSeam = 0x00BF9615;   // mov ecx,[eax+33Ch]
+static const uint8_t   kWindPovSeamBytes[6] = { 0x8B, 0x88, 0x3C, 0x03, 0x00, 0x00 };
+// Possession's per-tick target pick: the camera location is in ebp-0x40 and its direction
+// in ebp-0xA4 once 0x0040DA70 returns (0x00BF8F47); the pick scores every candidate against
+// both. Seam just after, on an absolute-address load.
+static const uintptr_t kPossPickSeam = 0x00BF8F4C;  // mov eax,[0126B0E0h]
+static const uint8_t   kPossPickSeamBytes[5] = { 0xA1, 0xE0, 0xB0, 0x26, 0x01 };
+// Devouring Swarm: 0x00BE9310 (two callers, both Swarm: 0x00BFAEE4, 0x00BFB03F) asks the
+// controller for its view point (GetPlayerViewPoint, vtable +0x3C4) into ebp-0x18 (location)
+// and ebp-0x30 (rotator), traces out along it and places the spawn point where it lands.
+static const uintptr_t kSwarmViewSeam = 0x00BE9337;  // lea eax,[ebp-24h]; push eax; lea ecx,[ebp-30h]
+static const uint8_t   kSwarmViewSeamBytes[7] = { 0x8D, 0x45, 0xDC, 0x50, 0x8D, 0x4D, 0xD0 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

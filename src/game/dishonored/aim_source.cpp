@@ -125,11 +125,9 @@ static bool AimSourceCommand(const char* args)
 
 // Script lane. Drains the ring and names what it saw.
 static void SpawnCensusTick();
-static void TraceCensusTick();
 static void AimSourceTick()
 {
     SpawnCensusTick();   // VR-166: the spawn-site census rides the same arming
-    if (g_asrcOn) TraceCensusTick();   // VR-166: and so does the trace census
     if (!g_asrcDet.on) return;
     // VR-166: the power aim fields the scripts declare. Property offsets live in the
     // packages, not the image, so they are resolved here once in gameplay; the log line
@@ -281,7 +279,8 @@ static void SpawnCensusTick()
         // from the HEAD ray and from the HAND ray. Whichever it sits on is the ray the
         // placement follows. Perpendicular distances, in world units.
         const char* nmS = nm ? RealName(nm) : nullptr;
-        if (c.locOk && nmS && strstr(nmS, "SpringRazor")) {
+        const bool isSwarm = nmS && strstr(nmS, "DevouringSwarm");   // VR-44: the same verdict
+        if (c.locOk && nmS && (strstr(nmS, "SpringRazor") || isSwarm)) {
             float cam[3], ho[3], hd[3]; const char* why = nullptr;
             const bool camOk = dvr::camera::render_pos_world(cam);
             const bool handOk = HandRayWorld(ho, hd, &why);
@@ -297,8 +296,9 @@ static void SpawnCensusTick()
             float aH = 0, aC = 0;
             const float dHead = camOk ? perp(cam, vd, c.loc, &aH) : -1;
             const float dHand = handOk ? perp(ho, hd, c.loc, &aC) : -1;
-            Log("razor/place: landed at (%.0f,%.0f,%.0f) - %.0f uu off the HEAD ray (%.0f along), "
+            Log("%s: landed at (%.0f,%.0f,%.0f) - %.0f uu off the HEAD ray (%.0f along), "
                 "%.0f uu off the HAND ray (%.0f along)%s. The smaller offset is the ray placement follows",
+                isSwarm ? "swarm/place" : "razor/place",
                 c.loc[0], c.loc[1], c.loc[2], dHead, aH, dHand, aC, handOk ? "" : " [hand ray unavailable]");
         }
         int k = 0;
@@ -309,175 +309,5 @@ static void SpawnCensusTick()
         Log("spawn/census: NEW caller 0x%08X spawns via '%s' (ECX %p) - READ-ONLY; the caller that "
             "appears only when the spring razor is thrown is its spawn site",
             c.ret, on ? on : "?", (void*)c.obj);
-    }
-}
-
-// ---- VR-166: who traces (trace caller census, READ-ONLY) ---------------------
-// Placing a spring razor spawns it from 0x00C3BA21 at a point computed upstream -
-// presumably a placement trace. This names every (entry, caller, object class) pair
-// that reaches the three controller camera-trace helpers or AActor::execTrace (the
-// script's Trace()), once each. The pairs that appear only while the razor is out are
-// its placement trace. Four entries share one ring; each stub tags its hook id.
-static dvr::hooks::Detour g_trDet[4];
-static uint32_t g_trRet[4] = { (uint32_t)(kTraceHelperA + 6), (uint32_t)(kTraceHelperB + 6),
-                               (uint32_t)(kTraceHelperC + 6), (uint32_t)(kExecTrace + 9) };
-struct TrCall { uint32_t id, ret; uint8_t* obj; };
-static TrCall g_trRing[128];
-static volatile LONG g_trHead = 0, g_trTail = 0;
-extern "C" void __cdecl TraceCensusHook(uint32_t id, uint8_t* obj, uint32_t ret)
-{
-    const LONG h = g_trHead;
-    if (h - g_trTail >= 128) return;
-    g_trRing[h % 128] = { id, ret, obj };
-    InterlockedExchange(&g_trHead, h + 1);
-}
-extern "C" __declspec(naked) void TraceStubA(void)
-{
-    __asm {
-        pushfd
-        pushad
-        mov edx, esp
-        sub esp, 528
-        and esp, -16
-        fxsave [esp]
-        fninit
-        cld
-        push edx
-        mov eax, [edx+24h]          ; return address
-        mov ecx, [edx+18h]          ; ECX at entry
-        push eax
-        push ecx
-        push 0
-        call TraceCensusHook
-        add esp, 12
-        pop edx
-        fxrstor [esp]
-        mov esp, edx
-        popad
-        popfd
-        push ebp
-        mov ebp, esp
-        mov eax, [ebp+34h]
-        jmp dword ptr [g_trRet + 0]
-    }
-}
-extern "C" __declspec(naked) void TraceStubB(void)
-{
-    __asm {
-        pushfd
-        pushad
-        mov edx, esp
-        sub esp, 528
-        and esp, -16
-        fxsave [esp]
-        fninit
-        cld
-        push edx
-        mov eax, [edx+24h]          ; return address
-        mov ecx, [edx+18h]          ; ECX at entry
-        push eax
-        push ecx
-        push 1
-        call TraceCensusHook
-        add esp, 12
-        pop edx
-        fxrstor [esp]
-        mov esp, edx
-        popad
-        popfd
-        push ebp
-        mov ebp, esp
-        sub esp, 60h
-        jmp dword ptr [g_trRet + 4]
-    }
-}
-extern "C" __declspec(naked) void TraceStubC(void)
-{
-    __asm {
-        pushfd
-        pushad
-        mov edx, esp
-        sub esp, 528
-        and esp, -16
-        fxsave [esp]
-        fninit
-        cld
-        push edx
-        mov eax, [edx+24h]          ; return address
-        mov ecx, [edx+18h]          ; ECX at entry
-        push eax
-        push ecx
-        push 2
-        call TraceCensusHook
-        add esp, 12
-        pop edx
-        fxrstor [esp]
-        mov esp, edx
-        popad
-        popfd
-        push ebp
-        mov ebp, esp
-        sub esp, 60h
-        jmp dword ptr [g_trRet + 8]
-    }
-}
-extern "C" __declspec(naked) void TraceStubD(void)
-{
-    __asm {
-        pushfd
-        pushad
-        mov edx, esp
-        sub esp, 528
-        and esp, -16
-        fxsave [esp]
-        fninit
-        cld
-        push edx
-        mov eax, [edx+24h]          ; return address
-        mov ecx, [edx+18h]          ; ECX at entry
-        push eax
-        push ecx
-        push 3
-        call TraceCensusHook
-        add esp, 12
-        pop edx
-        fxrstor [esp]
-        mov esp, edx
-        popad
-        popfd
-        push ebp
-        mov ebp, esp
-        sub esp, 0E4h
-        jmp dword ptr [g_trRet + 12]
-    }
-}
-
-static void TraceCensusTick()
-{
-    static const char* const kNames[4] = { "camtrace A 0x00AA5100", "camtrace B 0x00AA60D0",
-                                           "camtrace C 0x00AA5FF0", "execTrace 0x006D0ED0" };
-    static bool tried = false;
-    if (!tried) {
-        tried = true;
-        dvr::hooks::detour_install(g_trDet[0], "trace/census A", kTraceHelperA, kTraceHelperABytes, 6, (void*)&TraceStubA);
-        dvr::hooks::detour_install(g_trDet[1], "trace/census B", kTraceHelperB, kTraceHelperBCBytes, 6, (void*)&TraceStubB);
-        dvr::hooks::detour_install(g_trDet[2], "trace/census C", kTraceHelperC, kTraceHelperBCBytes, 6, (void*)&TraceStubC);
-        dvr::hooks::detour_install(g_trDet[3], "trace/census D", kExecTrace, kExecTraceBytes, 9, (void*)&TraceStubD);
-        return;
-    }
-    struct Seen { uint32_t id, ret; void* cls; };
-    static Seen seen[160]; static int nSeen = 0;
-    while (g_trTail < g_trHead) {
-        const TrCall c = g_trRing[g_trTail % 128];
-        InterlockedIncrement(&g_trTail);
-        const bool obj = c.obj && LooksLikeObj(c.obj);
-        void* cls = obj ? *(void**)(c.obj + kClassOff) : nullptr;
-        int k = 0;
-        while (k < nSeen && !(seen[k].id == c.id && seen[k].ret == c.ret && seen[k].cls == cls)) ++k;
-        if (k < nSeen || nSeen >= 160) continue;
-        seen[nSeen++] = { c.id, c.ret, cls };
-        Log("trace/census: NEW %s <- caller 0x%08X on %s - READ-ONLY; the callers that appear only "
-            "while the spring razor is out are its placement trace",
-            kNames[c.id & 3], c.ret, obj ? ObjClassName(c.obj) : "not a UObject");
     }
 }

@@ -187,6 +187,5 @@ milestone in brackets is where the fix is planned (docs/ROADMAP.md).
   The mod jumps straight to the prison (IntroSkip). Start a new game, then continue from the
   prison save.
 - Other cutscene camera modes and hard cuts still need broader regression testing.
-- **Possession, Devouring Swarm and Windblast are head-aimed** [after S3].
 - **GOG version unsupported** (different exe; every hook address is for the Steam build).
 - **Motion Blur must be off** in the game's options.
