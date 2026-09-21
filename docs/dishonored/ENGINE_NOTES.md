@@ -8437,3 +8437,8 @@ census range. The shared pick `0x00BFB090` belongs to Possession, not Swarm.
 relative operand). This point is just after `GetPlayerViewPoint` returns. The hook
 overwrites both locals with the hand ray. All three power seams now refuse when the
 engine's view source is more than 150 uu from the render eye.
+
+**Build 620 result (headset): Swarm follows the hand.** The swarm landed 26 uu off the
+hand ray and 827 uu off the head ray. One cast was refused because GetPlayerViewPoint was
+7,931 uu from the render eye (the same distance 619 saw). Some state hands the view point
+far from the player, and the guard keeps that cast on the head.

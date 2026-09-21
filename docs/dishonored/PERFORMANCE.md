@@ -1422,3 +1422,7 @@ cost. The scenes were not the same across the runs, so this does not prove the c
 
 **Next run.** Compare ticks/s against 615 in the same kind of scene. If the drop
 persists with these probes gone, set `SourceProbe=0` as the next A/B.
+
+**Build 620 (headset).** No lag was reported. The log is short (18 gameplay samples):
+104.7 ticks/s, with 3.9 ms outside the frame path. The scene differs from 615's, so this
+is a report, not a measured A/B. The suspects stay removed.
