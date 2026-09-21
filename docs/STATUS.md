@@ -128,6 +128,49 @@
 2. With `Landing` removed, check a knockdown and the camera near walls still behave
    (`PhysicalReact` also carries `m_bHandleCameraCollision` in the game's own ini).
 3. Judge the stair smoother: stairs, and a jump's push-off, with `Smoother` on and off.
+## Head aim customization, VR-166 / VR-167 / VR-168 (2026-09-21)
+
+Branch `claude/vr-166-head-aim-customization` off VR-Main `d556eb587` (which carries the
+merged #82, #85 and #86). NOT merged, no PR merge authorized. Installed and pushed:
+`vr33-hands-working-615-g9843251f5` (confirmed), then the probe-gating build. Installed ini deltas vs defaults: `[Aim]
+SourceProbe=1` (the read-only probes/censuses below need it), `[Hud] Element.reticle=window`,
+`ReticleOnAim=1`, `[Draws] Census=0`.
+
+**Headset-confirmed:**
+* F10 Aim has a Head/Controller table: crossbow+pistol, Blink, Interactions, Grenades,
+  Spring razors, each saved to the ini at once.
+* Interactions follow the weapon ray (`interact_aim.cpp`: first-pass line check
+  `0x00AA60B1` + usable selector `0x00AB70F0`).
+* Grenades follow the weapon ray (`throw_aim.cpp`: rotator seam `0x00C3908C` in the
+  throw routine `0x00C38F70`).
+* The grenade cook ring rides OUR aim dot, right size, and the dot hides meanwhile
+  (`[Hud] ReticleOnAim`, `hudroute::centered_gauge`). It drew in 229/231 presents.
+  Small flicker PARKED at the tester's call (FLICKER_REFERENCE).
+* VR-167: notes, journal and pause no longer snap the view back on close (menu-hold
+  fallback in `head_track.cpp`, plus the note-to-wheel handover in `menu_immersion.cpp`).
+* VR-168: after a possession the head writer mis-parsed the camera-modifier
+  ProcessViewRotation (a pawn pointer passed as a DeltaTime), so slides went mono. Fixed by
+  an object test; confirmed with two possessions.
+
+* **Spring razor placement follows the weapon ray** (build 615, headset-confirmed): 13
+  placements, every one 0 uu off the hand ray and 4-99 uu off the head's. Seam: the razor's
+  wall-placement trace `0x00C32C30` reads the camera POV through esi; `0x00C32C91` swaps in
+  one built from the hand ray (ENGINE_NOTES "The razor placement seam"). `[Aim]
+  GadgetFromHand` and the F10 "Spring razors" row now drive it; the dead gadget seam at
+  `0x00C300DD` and the razor write-watch probe are gone.
+
+**Open (PR #87 is ready for review, NOT merged):**
+1. **VR-169**: a razor placed close to the player is invisible (still works). Suspect the
+   weapon matcher claiming it as the held razor. `wa/razor:` lines (now behind `[Aim]
+   SourceProbe`) name the gate; the ticket has the next measurement.
+2. **Pickup with controller aim is finicky** on small objects. Proposed, not built: trace
+   from the head THROUGH the hand ray's target.
+3. **Powers** (Windblast, Swarm, Possession): moved to part 2, VR-44, branch
+   `claude/vr-44-head-aim-pt2-powers` off this one.
+
+Probes left, all read-only and armed only by `[Aim] SourceProbe` (code default 0; the
+installed ini has it at 1): the SpawnActor and trace censuses and the helper probe in
+`aim_source.cpp`, and `wa/razor:` in weapon_attach.
 
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 

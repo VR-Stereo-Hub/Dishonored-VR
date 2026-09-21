@@ -257,6 +257,7 @@
 #include "game/dishonored/cam_modifiers.cpp"   // VR-165: needs cinematic_trace's resolved camera cache
 #include "game/dishonored/cam_shake.cpp"       // VR-172: the game's own camera shake; after the trace's camera cache
 #include "game/dishonored/swing_trace.cpp"    // VR-165: raw present-rate series
+#include "game/dishonored/aim_source.cpp"     // VR-166: who shares the power-aim helper
 #include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
 #include "game/dishonored/trail_control.cpp"  // VR-171: the sword's swing trail; after anim_state and reflect
 #include "game/dishonored/lens_control.cpp"   // VR-137: after rain_control (shared helpers)
@@ -273,6 +274,8 @@
 // VR-57: the fire-direction probe (read-only); needs reflect.cpp's resolver above.
 #include "game/dishonored/aim_seam.cpp"
 #include "game/dishonored/fire_aim.cpp"
+#include "game/dishonored/interact_aim.cpp"   // VR-166: interaction aimed by hand
+#include "game/dishonored/throw_aim.cpp"      // VR-166: grenades aimed by hand
 #include "game/dishonored/ue3/ui_state.cpp"
 #include "game/dishonored/ue3/ui_surface.cpp"
 #include "game/dishonored/startup.cpp"

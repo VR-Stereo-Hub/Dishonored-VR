@@ -1,5 +1,9 @@
 # Known issues
 
+- A spring razor placed very close to you can be invisible. It still triggers and can be
+  picked up; ones placed farther away draw normally (VR-169). Razor placement itself now
+  follows the weapon ray.
+
 - Objective markers or their text can occasionally transfer to the window HUD
   when heuristic recognition misses; native-reference diagnostics do not fix
   target projection. Rare wheel-exit zoom remains unlocalized (VR-129).

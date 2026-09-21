@@ -709,7 +709,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
         } else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
             // A title crossing the central region is not the reticle. Preserve
             // the native measured dot/grown reticle rather than adopting it.
-            !hudroute::centered_reticle(bbox,primitives) &&
+            !hudroute::centered_reticle(bbox,primitives) && !hudroute::centered_gauge(bbox) &&
             g_interactionGroup.claim(bbox,drawFrame,(!g_nativeObjectives || !icon) && (spatial==ElPrompt || e==ElPrompt))) {
             e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e);
         }
@@ -751,6 +751,23 @@ bool sink_hidden(int sink) { return sink_in_use(sink) && g_sink[sink].anchor == 
 const char* sink_label(int sink) { return sink_in_use(sink) ? g_sinkLabel[sink] : "free"; }
 int sink_anchor(int sink) { return sink_in_use(sink) ? g_sink[sink].anchor : -1; }
 
+// ---- VR-166: centred gauges on the aim dot ---------------------------------
+namespace { struct AimPoint { bool ok=false; float pos[3]={}; float distM=8; int hand=0; } g_aimPt; bool g_reticleOnAim=true; }
+void set_aim_point(bool ok, const float xrLocal[3], float distM, int hand) {
+    g_aimPt.ok = ok && xrLocal && distM > 0.1f;
+    if (g_aimPt.ok) { memcpy(g_aimPt.pos, xrLocal, sizeof(g_aimPt.pos)); g_aimPt.distM = distM; g_aimPt.hand = hand; }
+}
+bool reticle_on_aim() { return g_reticleOnAim; }
+void set_reticle_on_aim(bool on, const char* who) {
+    g_reticleOnAim = on;
+    write_key("ReticleOnAim", on ? "1" : "0");
+    DVR_INFO("hud/aim: the reticle row (centred gauges such as the grenade cook ring) %s (%s)",
+             on ? "rides the aim dot along the weapon ray" : "stays on its own anchor", who);
+}
+bool element_drawing(int e) {
+    return e >= 0 && e < ElCount && anchor_visible(g_el[e].anchor) && g_presentNo - g_lastRouted[e] <= 2;
+}
+
 // ---- the provider ---------------------------------------------------------
 
 namespace {
@@ -758,6 +775,25 @@ namespace {
 void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], float aspect, bool wholeSink) {
     const ElementCfg& c = g_el[e];
     const float rw = rect[2] - rect[0];
+    // VR-166: the reticle row (the dot, the cook ring and any other centred gauge)
+    // rides OUR aim dot along the weapon ray, head-facing, at the angular size it
+    // would have had on the window. The aim side publishes the point every present.
+    if (e == ElReticle && g_reticleOnAim && g_aimPt.ok && !anchor_is_hand(anchor)) {
+        d.anchor = dvr::vr::HudAnchor::LocalBillboard;
+        d.hand = g_aimPt.hand;
+        memcpy(d.base, g_aimPt.pos, sizeof(d.base));
+        d.orient = dvr::vr::HudOrient::Billboard;
+        const float winD = g_win.distM > 0.1f ? g_win.distM : 0.1f;
+        // The element's OWN share of the window (rw), as on the window path - using the
+        // full window width here drew the ring several metres wide at the dot (build 608).
+        d.width = g_win.widthM * rw * c.winScale * (g_aimPt.distM / winD);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "hud/aim: reticle row on the dot at %.2f m, %.3f m wide (window %.3f m x rect %.3f x scale %.2f x %.2f/%.2f m)",
+            g_aimPt.distM, d.width, g_win.widthM, rw, c.winScale, g_aimPt.distM, winD);
+        d.height = 0.0f;
+        d.planeOff[0] = 0.0f; d.planeOff[1] = 0.0f;
+        return;
+    }
     // The whole texture spans the anchor's width; an element's centre sits at
     // its normalised offset times that width (and the texture's aspect for the
     // vertical), which is "where it is on the screen".
@@ -792,6 +828,19 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
 } // namespace
 
 int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
+    {   // VR-166: did the reticle row (the cook ring) actually draw this present? A ring
+        // that draws only some presents flickers even though its quad stays submitted.
+        static uint32_t on = 0, drawn = 0, gap = 0, worst = 0;
+        const bool up = element_drawing(ElReticle);
+        const bool drew = g_lastRouted[ElReticle] == g_presentNo;
+        if (up) { ++on; if (drew) { ++drawn; gap = 0; } else if (++gap > worst) worst = gap; }
+        else if (on) {
+            DVR_INFO("hud/aim: the reticle row was up %u presents and drew in %u of them, longest gap %u "
+                     "(a gap of 1-2 is the ring missing from the texture that present - that is the flicker)",
+                     on, drawn, worst);
+            on = drawn = gap = worst = 0;
+        }
+    }
     ++g_presentNo;
     int n = 0;
     if(native_gameplay_reference()) return 0; // no delayed panel can overlap the reference
@@ -1104,6 +1153,7 @@ void configure(const char* ini) {
     g_dialCropY = fminf(1.f, fmaxf(.30f, read_f(ini,"WeaponDialCropY",.40f)));
     g_dial.reset();
     g_menuInWindow = read_i(ini, "MenuInWindow", 1) != 0;
+    g_reticleOnAim = read_i(ini, "ReticleOnAim", 1) != 0;   // VR-166
     uint32_t mask = 0;
     for (int i = 0; i < kMenuContexts; ++i) {
         char key[64]; _snprintf(key, sizeof(key), "Window%s", kMenuContextNames[i]); key[63] = 0;
@@ -1164,6 +1214,7 @@ void save(const char* ini) {
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
     }
+    write_i("ReticleOnAim",g_reticleOnAim);   // VR-166
     write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
     write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
     write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
@@ -1533,6 +1584,11 @@ void draw_ui() {
         }
     }
     if(ImGui::CollapsingHeader("HUD grouping")) {
+        {   // VR-166
+            bool onAim = g_reticleOnAim;
+            if (ImGui::Checkbox("Centre gauges (grenade cook ring) ride the aim dot", &onAim))
+                set_reticle_on_aim(onAim, "F10 HUD");
+        }
         bool change=ImGui::Checkbox("Keep interaction labels together",&g_groupInteractions);
         change|=ImGui::Checkbox("Route moving objective markers",&g_routeObjectives);
         change|=ImGui::Checkbox("Objective markers follow screen",&g_objectiveScreen);

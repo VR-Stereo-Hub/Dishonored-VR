@@ -158,6 +158,53 @@ static const uint8_t   kBlkDstOrig[6] = { 0x8d, 0x85, 0x30, 0xff, 0xff, 0xff };
 static const uintptr_t kBlkDirHook = 0x00bf55a3;
 static const uintptr_t kBlkDirBack = 0x00bf55a8;
 static const uint8_t   kBlkDirOrig[5] = { 0x8b, 0x08, 0x89, 0x4d, 0xb4 };
+// VR-166: the helper Blink calls just before kBlkDirHook (call at 0xbf559e). Three direct
+// callers in the image (0xb75b26, 0xb82e73, 0xbf559e). Entry = push ebp; mov ebp,esp;
+// mov eax,[ebp+0Ch]. Read-only probe: aim_source.cpp. ENGINE_NOTES "shared power-aim helper".
+static const uintptr_t kAimSrcHelper = 0x00bf52e0;
+static const uint8_t   kAimSrcHelperBytes[6] = { 0x55, 0x8b, 0xec, 0x8b, 0x45, 0x0c };
+// VR-166: interaction aimed by hand. ENGINE_NOTES "The interaction seam, found".
+// The interaction wrapper 0x00AB7B80 (one caller, the controller tick at 0x00ABA8DE)
+// runs a first-pass trace 0x00AA5FF0 from the camera location and then the usable
+// selector 0x00AB70F0 on a view struct (+0x08 location, +0x14 rotator); the setter
+// 0x00AA6280 stores the winner in m_pCrosshairActor (+0x69C).
+static const uintptr_t kInteractFirstTraceCall = 0x00AA60B1;   // call 0x00AA2C20 inside 0x00AA5FF0
+static const uint8_t   kInteractFirstTraceCallBytes[5] = { 0xE8, 0x6A, 0xCB, 0xFF, 0xFF };
+static const uintptr_t kInteractTraceFn        = 0x00AA2C20;   // the engine's line check
+static const uintptr_t kInteractFirstTraceBack = 0x00AA60B6;
+static const uintptr_t kInteractFirstPassRet   = 0x00AB7C8E;   // 0x00AA5FF0's return into the wrapper
+static const uintptr_t kInteractSelector       = 0x00AB70F0;   // push ebp; mov ebp,esp; push -1; push 0x00F4FDD0
+static const uint8_t   kInteractSelectorBytes[10] = { 0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xD0, 0xFD, 0xF4, 0x00 };
+static const uintptr_t kInteractSelectorBack   = 0x00AB70FA;
+static const uintptr_t kInteractSelectorRet    = 0x00AB7CBB;   // its only caller's return address
+// VR-166: the throw routine 0x00C38F70 (DisItemContext_ThrowGrenade +0x1B0 -> 0x00C3AC50 -> it),
+// just before the source rotator [ebp-0x78] becomes the throw direction [ebp-0x74]
+// (0x0040DA70 at 0x00C39093). ENGINE_NOTES "The throw seam".
+static const uintptr_t kThrowRotSeam = 0x00C3908C;   // mov ecx,[ebp-78h]; lea edx,[ebp-74h]; push edx
+static const uint8_t   kThrowRotSeamBytes[7] = { 0x8B, 0x4D, 0x88, 0x8D, 0x55, 0x8C, 0x52 };
+static const uintptr_t kThrowRotBack = 0x00C39093;   // the rotator -> direction call
+// VR-166: the spring razor's wall-placement trace 0x00C32C30 (this = the razor context;
+// callers 0x00C33632, 0x00C3381B and the placement routine at 0x00C3B5BF). It takes the
+// trace START and ROTATOR from [[owner+0x26C]+0x384]+0x330 / +0x33C - the camera POV, the
+// head in VR - via esi, which holds that pointer only until 0x00C32CC8. Its result
+// (hit actor, location, normal) lands in the context's +0xB4/+0xB8/+0xC4. ENGINE_NOTES
+// "The razor placement seam". The 6 bytes are `add esi,330h`: no relative operand.
+static const uintptr_t kRazorTraceSeam = 0x00C32C91;
+static const uint8_t   kRazorTraceSeamBytes[6] = { 0x81, 0xC6, 0x30, 0x03, 0x00, 0x00 };
+static const uintptr_t kRazorTraceBack = 0x00C32C97;
+// VR-166: SpawnActor's entry, for a READ-ONLY caller census (aim_source.cpp) that names
+// the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
+static const uintptr_t kSpawnActor = 0x00C66070;
+static const uint8_t   kSpawnActorBytes[5] = { 0x55, 0x8B, 0xEC, 0x33, 0xC0 };
+// VR-166: the trace entry points, for a READ-ONLY caller census that names the spring
+// razor's placement trace. Three controller camera-trace helpers and AActor::execTrace.
+static const uintptr_t kTraceHelperA = 0x00AA5100;   // push ebp; mov ebp,esp; mov eax,[ebp+34h]
+static const uint8_t   kTraceHelperABytes[6] = { 0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x34 };
+static const uintptr_t kTraceHelperB = 0x00AA60D0;   // push ebp; mov ebp,esp; sub esp,60h
+static const uintptr_t kTraceHelperC = 0x00AA5FF0;   // push ebp; mov ebp,esp; sub esp,60h
+static const uint8_t   kTraceHelperBCBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x60 };
+static const uintptr_t kExecTrace = 0x006D0ED0;      // push ebp; mov ebp,esp; sub esp,0E4h
+static const uint8_t   kExecTraceBytes[9] = { 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xE4, 0x00, 0x00, 0x00 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

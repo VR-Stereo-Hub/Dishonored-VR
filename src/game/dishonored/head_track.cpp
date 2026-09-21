@@ -802,6 +802,64 @@ static void RotInjectTick()
 // nothing (hits=270 writes=0) had no line saying which guard refused.
 #define DVR_HEAD_REFUSE(...) DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 5000, __VA_ARGS__)
 
+// VR-167: A MENU MUST NOT EAT THE HEAD TURN MADE WHILE IT WAS OPEN.
+//
+// While a UI surface blocks, the writer below re-stamps its head reference
+// every dispatch, so the turn made during the menu is dropped and the view
+// snaps back on close. The immersive menu carry (menu_immersion.cpp,
+// `menu/exit: carry yaw`) fixes that only for screens that RIDE the HUD
+// window with head look; the journal is a flat screen and never engaged it
+// (simulator, 2026-09-20: head 0 -> -40 in the journal, view unchanged on
+// close), and a refused immersive carry fell through to the same snap. This
+// holds the head yaw from the moment a gameplay menu blocks and hands the
+// whole turn to the next gameplay write once - unless the immersive carry
+// already did. Loads, the main menu and cinematics are excluded: those really
+// do start a new heading.
+static bool g_uiHoldOn=false;
+static float g_uiHoldYaw=0;
+static LONG g_uiHoldLoad=0;
+static int g_uiHoldCtx=-1;
+static bool HeadUiHoldCarries(int ctx) {
+    return ctx==dvr::mono::Pause || ctx==dvr::mono::Note || ctx==dvr::mono::Journal ||
+           ctx==dvr::mono::Wheel || ctx==dvr::mono::Store || ctx==dvr::mono::MissionStats;
+}
+static void HeadUiHoldTrack(bool haveRef, float refYaw) {
+    if (CineHeadOwnsInput()) {
+        if (g_uiHoldOn) Log("menu/hold: a cinematic took the view - the held head turn is dropped");
+        g_uiHoldOn=false; return;
+    }
+    const int ctx=UiSurfaceContext();
+    if (!g_uiHoldOn) {
+        if (!haveRef || !HeadUiHoldCarries(ctx)) return;
+        g_uiHoldOn=true; g_uiHoldYaw=refYaw; g_uiHoldLoad=g_mkLoadEvents; g_uiHoldCtx=ctx;
+        return;
+    }
+    if (ctx>=0 && !HeadUiHoldCarries(ctx)) {
+        Log("menu/hold: context %s is not a gameplay menu - the held head turn is dropped",
+            ctx<(int)dvr::mono::Count ? dvr::mono::names[ctx] : "?");
+        g_uiHoldOn=false;
+    }
+}
+static bool HeadUiHoldResume(bool immersiveCarried, int32_t& menuDelta) {
+    if (!g_uiHoldOn) return false;
+    g_uiHoldOn=false;
+    const char* cn=(g_uiHoldCtx>=0 && g_uiHoldCtx<(int)dvr::mono::Count) ? dvr::mono::names[g_uiHoldCtx] : "?";
+    float d=g_hmdYaw-g_uiHoldYaw;
+    while (d >  3.14159265f) d -= 6.2831853f;
+    while (d < -3.14159265f) d += 6.2831853f;
+    if (immersiveCarried) {
+        Log("menu/hold: %s closed - the immersive carry owned the exit (held turn %.1f deg not added twice)",cn,d*57.29578f);
+        return false;
+    }
+    if (g_uiHoldLoad!=g_mkLoadEvents) {
+        Log("menu/hold: %s closed across a load - held turn %.1f deg dropped, the new level seeds the heading",cn,d*57.29578f);
+        return false;
+    }
+    menuDelta += (int32_t)(d * kUEPerRad * (float)g_flipYaw);
+    Log("menu/hold: %s closed - carrying the %.1f deg head turn made while it was open into the view once",cn,d*57.29578f);
+    return true;
+}
+
 static void ApplyHeadToViewRotation(void* parms)
 {
     if (!parms || !RangeReadable(parms, 40)) { DVR_HEAD_REFUSE("head: write refused - parms %p unreadable", parms); return; }
@@ -821,8 +879,22 @@ static void ApplyHeadToViewRotation(void* parms)
     float f0 = *(float*)((uint8_t*)parms + 0);
     float f4 = *(float*)((uint8_t*)parms + 4);
     const float kMinDT = 0.0005f, kMaxDT = 0.2f;    // 0.5 ms .. 200 ms
+    // VR-168: the range test alone still lost. After a possession the modifier's
+    // ViewTarget was the pawn at 0x3AA50000, which reads as 0.00126 - a plausible
+    // 1.3 ms frame - so every dispatch parsed +4 (DeltaTime) as the pitch, refused,
+    // and the head stopped writing for the rest of the session (view=0: slides went
+    // mono). A UObject at +0 IS the modifier layout, whatever it reads as a float.
+    // Only asked when both slots pass as a frame time, so the ordinary dispatch
+    // pays nothing new.
+    const bool dt0 = f0 > kMinDT && f0 < kMaxDT, dt4 = f4 > kMinDT && f4 < kMaxDT;
+    const bool viewTargetAt0 = dt0 && dt4 && LooksLikeObj(*(uint8_t**)parms);
+    if (viewTargetAt0)
+        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 4,
+            "head: Parms+0 is a UObject (%p) that also reads as a %.4f s frame time - the "
+            "camera-modifier layout, rotator at +8 (VR-168)", *(void**)parms, (double)f0);
     uint32_t rotOff;
-    if (f0 > kMinDT && f0 < kMaxDT)      rotOff = 4;
+    if (viewTargetAt0) rotOff = 8;
+    else if (dt0) rotOff = 4;
     else if (f4 > kMinDT && f4 < kMaxDT) rotOff = 8;
     else {                                           // unknown shape - hands off
         DVR_HEAD_REFUSE("head: write refused - no DeltaTime at Parms+0 (%g) or +4 (%g): unknown parms shape, hands off", f0, f4);
@@ -867,6 +939,7 @@ static void ApplyHeadToViewRotation(void* parms)
     double frNow = MaimNowMs();
     if (UiSurfaceBlocks() || CineHeadOwnsInput()) {
         if (!UiSurfaceBlocks()) CineHeadNoteDispatch();
+        HeadUiHoldTrack(havePrev, prevYaw);   // VR-167: before the re-stamp below
         YawCinematicSuspend();
         // Keep the resume reference current, but do not feed HMD deltas into
         // the native dialogue constraints: the final camera owns them once.
@@ -893,12 +966,15 @@ static void ApplyHeadToViewRotation(void* parms)
         prevYaw=g_hmdYaw;prevPitch=g_hmdPitch;havePrev=true;
         frHave=false;frWriteMs=-1.0e9;
     }
+    // VR-167: the flat-menu fallback. Only when the immersive carry did not run.
+    const bool flatCarry=HeadUiHoldResume(menuResume, menuDelta);
+    if(flatCarry) { frHave=false; frWriteMs=-1.0e9; }
     if (!g_chainStamp) {
         // 38.88: ChainStamp=0 - the exact pre-38.86 path. One write to the
         // first dispatch per presented frame; every later dispatch of the
         // chain is left alone.
         static uint32_t lastFrameOld = 0xffffffffu;
-        if (g_frame == lastFrameOld && !menuResume) { DVR_HEAD_REFUSE("head: write skipped - a second dispatch in presented frame %lu (ChainStamp=0)", (unsigned long)g_frame); return; }
+        if (g_frame == lastFrameOld && !menuResume && !flatCarry) { DVR_HEAD_REFUSE("head: write skipped - a second dispatch in presented frame %lu (ChainStamp=0)", (unsigned long)g_frame); return; }
         lastFrameOld = g_frame;
     } else if (frNow - frWriteMs < 2.0) {
         CamShakeNoteSkipped();   // VR-172: a chain re-stamp carries no new engine value

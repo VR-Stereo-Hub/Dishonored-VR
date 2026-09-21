@@ -8282,3 +8282,208 @@ live camera and finds the influences by class name (`IsLiveObject`, bounded
 `RefreshLiveSet(2000)`), a camera change forgets every pointer without a write, the
 fast path writes floats only. It stands down while a cutscene owns the camera. Live:
 `camshake on|off`, `camshake allow <category> on|off`, F10 > Controls > Camera shake.
+## Shared power-aim helper: a candidate seam for per-item hand aim (VR-166, 2026-09-20)
+
+`kAimSrcHelper` = `0x00bf52e0`, entry bytes `55 8b ec 8b 45 0c` (push ebp; mov ebp,esp;
+mov eax,[ebp+0Ch]). Blink calls it at `0xbf559e`, and the very next instruction is
+`kBlkDirHook` (`0xbf55a3`), the shipped Blink redirect, which reads the 12-byte vector
+it returns. A byte scan of `.text` finds exactly three `E8` callers: `0xb75b26`,
+`0xb82e73` and `0xbf559e`. All three read the result the same way (`mov ecx,[eax]`,
+then the other two floats). No absolute reference to the entry exists, so it is not a
+vtable slot. Blink's call site sets `ecx` first, so the helper is taken to be thiscall
+with the input vector as stack argument 2.
+
+Derived with a byte scan (the E8 census) and `tools/disasm-rva.py dis` at each caller.
+Static reading could not name the owners of `0xb75b26` and `0xb82e73`: the enclosing
+functions have no clean prologue and no vtable reference. The running game can name
+them, so `aim_source.cpp` (`[Aim] SourceProbe`, the `aimsrc` seam word) logs each new
+(caller, object class) pair with its input vector's angle off the view. READ-ONLY.
+
+Hypothesis: the other two callers are aimed powers or thrown items. If so, one seam
+here with a per-item policy table aims all of them from the weapon ray. What kills it:
+only Blink's caller ever appears, or the input does not follow the view.
+
+Related, found on the way: the original author's 38.52 "magic-aim"
+(`[Blink] AimAllPowers`, default 1) redirects every `*ActivePowerComponent*` except
+Dark Vision and Bend Time through `BlinkAimHook` at `kBlkAimHook` (`0xbf595f`). That
+hook is installed only on request (`g_blkHookReq`), and nothing requests it at
+startup. Current logs show only `blinkdir: INSTALLED`, so magic-aim is dormant. That
+is consistent with VR-44's report that Possession, Devouring Swarm and Windblast are
+head-aimed.
+
+Also from the class declarations (names only): `DisItemContext_ThrowGrenade` derives
+from `DisItemContext_ProjectileAttack`, which declares `m_CachedAimAssistPos`, the
+cache VR-57 wrote to steer a crossbow bolt. `DisItemContext_UsePower` derives from
+`DisItemContext_AimAssistAttack`, which has no such cache, so powers compute their
+aim natively.
+
+## The interaction seam, found (VR-166, 2026-09-21)
+
+This closes the open question from VR-85: which code writes `m_pCrosshairActor`
+(`+0x69C`). Derived offline. Note that `tools/disasm-rva.py` takes and prints RVAs
+(its jump targets are VAs), so every address below is a VA.
+
+* **Setter** `0x00AA6280` (thiscall on the controller, `ret 0xC`). It stores arg 1
+  into `+0x69C`, clears then recomputes `m_pCrosshairHighlightActor` `+0x6A0`, and
+  writes `m_bCanInteractWithCrosshairActor` at `+0x63E` plus bit `0x2000` of
+  `+0x610`. The `+0x69C` / `+0x6A0` writes are at `0x00AA63AA` / `0x00AA63B0` /
+  `0x00AA63F3`. Found with `disasm-rva.py disp 0x69C`: four writers, and only this
+  one also writes `+0x6A0`.
+* **Wrapper** `0x00AB7B80`, the setter's only interaction caller (`0x00AB7D14`).
+  It has one caller, the controller tick at `0x00ABA8DE`.
+  1. It first runs a pass `0x00AA5FF0`. That traces from the camera location
+     (`[PC+0x384]+0x330`) along a direction argument: the camera rotation
+     (`+0x33C`, via `0x0040DA70`), or the aim-assist cache when an item supplies
+     one (`0x00C14460`). The line check itself is `0x00AA2C20`, called at
+     `0x00AA60B1` with arguments (0, hit*, origin*, dir*, flags 0x102209F, 0x80,
+     ...). `0x00AA5FF0` returns into the wrapper at `0x00AB7C8E`.
+  2. It then calls the usable selector `0x00AB70F0`, whose only caller is
+     `0x00AB7CB6`. The selector takes a view struct: location at `+0x08`, rotator at
+     `+0x14`. It builds end = location + dir(rot) * `[tweaks+0x90]`, with extent
+     `[tweaks+0x98]`, and traces with `0x00BE16E0` (flags `0x1022097`).
+  3. The setter receives the winner of the two passes.
+* **The seam (`interact_aim.cpp`).** Two byte-verified bridges, each gated on a
+  unique return address so no other caller is touched:
+  * At `0x00AA60B1`, the origin and direction POINTERS are swapped for the hand
+    ray's.
+  * At the selector entry (10 displaced bytes `55 8B EC 6A FF 68 D0 FD F4 00`), the
+    view-struct POINTER is swapped for a copy whose location and rotator are the
+    hand's.
+
+  No engine field is written, which is the lesson VR-85 learned when a direct write
+  of `+0x69C` did not survive to the next tick. The engine still does the trace,
+  validation, highlight and prompt. Both bridges use fxsave, because this code
+  keeps live x87 values.
+
+Status: built and installed, not yet run. The first run must show
+`interact/aim: beat ... seen` counters moving, and `interact/focus:` changing
+with the hand while the head is still.
+
+## The throw seam: grenades (VR-166, 2026-09-21)
+
+* `DisItemContext_ThrowGrenade`: metadata `0x01362378`, ctor `0x00C2A0E0`, context
+  vtable `0x01173200`. Slot `+0x1B0` -> `0x00C3AC50` (re-derived with
+  `ue3-natives.py --verify`), which calls the throw routine `0x00C38F70` and sets bit
+  1 of context `+0x104`. The routine has one other caller, the wrapper
+  `0x00C3ABEB`. Its owner is unnamed: possibly the spring razor or an NPC throw.
+* The routine (aligned frame; ebx = entry esp, arg at `[ebx+8]` -> `ebp-0x5C`):
+  * source pawn `0x00BFF440` -> `ebp-0x58`, context -> `ebp-0x7C`;
+  * SpawnActor `0x00C66070` at `0x00C39053`, placing the projectile at the hand;
+  * then the ROTATOR address goes into `ebp-0x78`: the argument's `+0x14`, or the
+    pawn's `+0xD0` when there is no argument;
+  * `0x0040DA70` at `0x00C39093` turns it into the direction at `ebp-0x74`. That
+    direction scales the launch velocity (`0x00C39630..`), is normalised at
+    `0x00C3980C` and handed to the projectile at `0x00C398C8`. `ebp-0x78` is read
+    again at `0x00C39828`.
+* **Seam (`throw_aim.cpp`):** the 7 bytes at `0x00C3908C` (`8B 4D 88 8D 55 8C 52`,
+  no relative operand, no jump lands inside them). The bridge points `ebp-0x78` at
+  a rotator built from the published hand ray, gated on the source pawn being the
+  player's. Spawn point, speed and arc stay the game's.
+
+## Power aim fields, from the script declarations (VR-166, 2026-09-21)
+
+The aimed powers carry their aim in named fields. That is a writer to find, not a
+number to guess:
+
+* `DishonoredActivePowerComponent_WindBlast`: `Vector m_vOrigin`, `m_vDirection`
+  (transient).
+* `DishonoredActivePowerComponent_Possess`: `m_PossessTarget` (struct
+  `DisPossessTarget` with `m_PossesseeLoc`) and `m_pHighlightedTarget`. A target
+  pick, like interaction.
+* Base `DishonoredActivePowerComponent`: `m_TargetPoint`, `m_pTargetActor`,
+  `m_pSuggestedTarget` (Devouring Swarm has no fields of its own).
+
+Possession never called the shared helper `0x00BF52E0` (0 probe hits in a
+possession run). `aimsrc/props:` lines log each field's offset once in gameplay,
+for a `disasm-rva.py disp` writer search.
+
+## The gadget seam: spring razors (VR-166, 2026-09-21)
+
+`DisItemContext_UseSpringRazor` (metadata `0x01362530`, ctor `0x00C23B20` -> `0x00C1F1A0`,
+context vtable `0x011733E0`; `ue3-natives.py` could not see the vtable through the ctor's
+tail jump) does NOT fire through `+0x1B0`: that slot is `0x00633610`, `xor eax,eax; ret 4`.
+The razor throw is the shared gadget-projectile routine `0x00C30040`, referenced from
+seven vtable slots and called at `0x00C305B3`:
+
+* this = `esi` (`[esi+0xA4]` tweaks, `[esi+0x3C]` item); source pawn `0x00BFF440` -> `ebp-4`;
+* SpawnActor `0x00C66070` at `0x00C300AB` (projectile class `[tweaks+0x42C]`, at the hand);
+* then `mov ecx,[ebp-4]; add ecx,0D0h` at `0x00C300DD` and `0x0040DA70` at `0x00C300E6`:
+  the throw direction comes from the SOURCE PAWN's rotation, which in VR is the head.
+
+Seam (`throw_aim.cpp`, gadget half): those 9 bytes (`8B 4D FC 81 C1 D0 00 00 00`, no
+relative operand, no jump inside) become `mov ecx,[g_gdUse]`: the pawn's rotation, or a
+hand-ray rotator for the player's own throw. Found by scanning SpawnActor call sites in
+the gadget region for a nearby `0x0040DA70`, the same shape as the grenade.
+
+## Spring razor: placed, not thrown (VR-166, 2026-09-21)
+
+The SpawnActor census (build 608; `aim_source.cpp`, read-only) named the razor's spawn
+site the first time it was placed: caller `0x00C3BA21` spawning via
+`Twk_Inv_SpringRazorPlaced`. The routine is `0x00C3B570` (this = the razor context:
+`[+0xB0]` a state byte, `[+0x3C]` the item). It is referenced from `0x0136B5A4`, and it
+is not an exec thunk, since the natives table has no razor placement. It reads a pair
+at `+0xF8/+0xFC` and a dword at `+0x100`, not a position, so the placement point is
+decided UPSTREAM, presumably by a trace.
+
+So the gadget seam at `0x00C300DD` (shared gadget-projectile routine) was the wrong
+target for the razor: it never ran in a razor run, and its refusal logging proved
+that. Next instrument: a read-only caller census on the three controller camera-trace
+helpers (`0x00AA5100`, `0x00AA60D0`, `0x00AA5FF0`) and `AActor::execTrace`
+(`0x006D0ED0`). The (entry, caller, class) pairs that appear only while the razor is
+out name its placement trace.
+
+Note: the grenade projectile spawns from `0x00C39058`, which confirms the throw seam's
+routine.
+
+**Measured (build 610, headset, 2026-09-21).** Four placements, each landing 6-10 uu off
+the HEAD ray (120-142 uu along it) and 28-91 uu off the hand ray. Placement follows the
+head. The placement routine takes the point from the razor context: `+0xB8/+0xBC/+0xC0`
+is the location and `+0xC4/+0xC8/+0xCC` the normal (the simple branch at `0x00C3B81A`),
+or a transform of them when the razor sits on a moving base. The writer is not in the
+three camera-trace helpers or execTrace. `+0xB8` stores in the gadget region
+(`0x00C20856`, `0x00C2BF3F`, `0x00C30B94`, `0x00C443C1`) belong to other objects, and
+`0x00C327E0` is a destructor. Build 611 arms a hardware write-watch (DR0, write,
+4 bytes) on the live context's `+0xB8` while the razor is equipped, to name the writer
+(`razor/watch:`).
+
+Build 611 result: the write-watch armed on an object named exactly
+`DisItemContext_UseSpringRazor` (the template, not the placing context), saw 0 writes in
+20 s, and expired before any placement. Three later placements again landed 8-12 uu off
+the head ray. Build 612 captures `this` at the placement routine's entry (`0x00C3B570`,
+6 bytes `53 8B DC 83 EC 08`, read-only). It then arms the watch on THAT object's `+0xB8`
+for 60 s, so the second and third placements name the writer.
+
+## The razor placement seam (VR-166, 2026-09-21)
+
+**Found statically; the write-watch was retired without its result.** Build 612 armed
+the watch and logged seven placements, but it reported only at the window's end, and
+the game closed first. Build 613 was never run. The watch had a second weakness: it ran
+on the game thread and armed that thread through `SetThreadContext(GetCurrentThread())`,
+which Windows does not honour reliably. It could have been blind to the very writer it
+was looking for.
+
+The route was the placement routine's first call. At `0x00C3B5BF` it calls
+`0x00C32C30(this, &this->+0xB4, 1)`. When that call returns nonzero, the routine takes
+the simple branch at `0x00C3B81A` and spawns from `+0xB8/+0xC4`. The callee receives a
+POINTER to `+0xB4`, so its writes to `+0xB8` are `[reg+4]` off that pointer. That is why
+`disasm-rva.py disp 0xB8` never found them. Nothing else to fix in the search: a
+displacement search cannot see out-parameters.
+
+`0x00C32C30` is the razor's wall-placement trace. Its callers are `0x00C33632`,
+`0x00C3381B` and `0x00C3B5BF`.
+
+* The owner comes from `0x00BFF440`, then `esi = [[owner+0x26C]+0x384] + 0x330`. That is
+  a location at `+0`, with a rotator at `+0xC` (`0x0040DA70` turns it into the direction).
+  The rotator's pitch picks the plane: above `0x1FFF` is the ceiling, below `-0x1FFF` the
+  floor, anything else the wall.
+* `esi` holds that pointer only until `0x00C32CC8`. It is zeroed at `0x00C330E5`.
+* The trace is `0x00BE15C0` at `0x00C33229`, from `ebp-0x34` (the start) to `ebp-0x48`
+  (the end), with extent `0x00C33307` after it.
+
+Seam (`throw_aim.cpp`, `[Aim] GadgetFromHand`): `add esi,330h` at `0x00C32C91`
+(`81 C6 30 03 00 00`, no relative operand) becomes `mov esi,[g_gdUse]`. That is either
+the engine's POV, or a copy with the location set to the hand-ray origin and the pitch
+and yaw set from the hand-ray direction. This one change moves the start point, the
+direction and the plane choice together. It refuses when the POV is more than 150 uu from
+the render eye, because then the source is not the view. The old gadget seam at
+`0x00C300DD` is gone: it never ran for the razor.

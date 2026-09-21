@@ -1667,3 +1667,23 @@ left the game on the loading board for eight minutes, run 1 of this branch).
   start-up (`EXCEPTION 0xc0000005 ... [d3d9.dll+...] (other)`, right after the reflection
   resolves) are in every log since the VR-Main base 274-g85f9ef6e, three per run, at a
   different offset per build: a guarded probe reading a page edge, not this branch's.
+
+## The grenade cook ring on the aim dot (VR-166, 2026-09-21)
+
+Measured at a grenade release (build 607, `[Draws] Census=1`, the table dumped by the
+throw seam): centred rings of 0.071-0.118 square, centre (0.502, 0.498), present in
+58 / 36 / 23 / 7 of the 109 presents before the release. That is the cook indicator, and
+it was routed to `prompt`: the interaction group adopted it because `centered_reticle()`
+accepts only a 2-triangle draw under 0.05 across. One release so far, so these numbers
+come from a single measurement.
+
+* Routing: `hudroute::centered_gauge()` (centre within 0.006 of the middle, 0.04-0.14
+  square) keeps such a draw on the `reticle` row, whose rectangle already covers it.
+* Placement: `[Hud] ReticleOnAim=1` (default) puts the reticle row on the AIM DOT. The
+  aim side publishes the dot's XR LOCAL point each present
+  (`hudlayout::set_aim_point`), and the row becomes a `LocalBillboard` quad there, at the
+  angular size it would have on the window (width scaled by dot distance / window
+  distance). While the row draws, the dot hides (`crosshair: a centred HUD gauge is
+  ON`).
+* `Element.reticle` now ships `window`, not `off`: with the startup preset's crosshair
+  off, only centred gauges reach it.

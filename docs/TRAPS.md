@@ -23,6 +23,59 @@ caller, the `skip` echo command. The levers that exist are `DISHONORED_VR_XR_SAF
 and `[Mode] GamepadOnly=1`. A rung of a cost ladder built on `DVR_SKIP=hands` would
 have measured nothing and reported "no cost".
 
+## A pointer can pass for a frame time (VR-168, 2026-09-21)
+
+The head writer tells the two `ProcessViewRotation` layouts apart by asking
+whether Parms+0 looks like a DeltaTime (0.5-200 ms): the controller's
+`(DeltaTime, View, ...)` or the camera modifier's `(ViewTarget, DeltaTime, View)`.
+An earlier fix had already raised the lower bound because pointers read as tiny
+floats. That is only true for SOME addresses. After a possession the ViewTarget
+was the pawn at `0x3AA50000`, which reads as 0.00126 s. Every dispatch then
+parsed the modifier's DeltaTime as the pitch, refused
+(`pitch 1007518153 at Parms+4 out of range`), and the head wrote nothing for the
+rest of the session. `view` went 0, so any master state outside the stereo list
+(Slide) fell to mono.
+
+A build that "recovered after possession" (599) proved nothing about the code:
+its pawn simply sat at an address that did not pass. Classify by what the value
+IS, not by what it happens to look like. A live UObject at +0 decides the layout
+now, and it is only asked when both slots pass as a frame time.
+
+## A menu that hands over to another menu is still the same menu (VR-166, 2026-09-20)
+
+Closing a note could snap the view back to where the head was when the note
+opened. The exit carry (`menu/exit: carry yaw`, `menu_immersion.cpp`) was
+working: in a run where the note closed straight to gameplay (Note -> Other),
+the head turned -9.1 deg while reading, the carry was -9.18 deg and the view
+followed. In the merged-build runs every note close passed through a ~250 ms
+stale wheel context first (Note -> Wheel -> Other, the `ui/wheel-release`
+window). `MenuHeadBegin` treated the context change as a new menu and
+re-acquired, taking the head at the handover as the new reference. The turn
+made while reading was gone before the exit carry ever ran, and two of those
+exits also refused outright.
+
+The rule: the reference belongs to the blocked stretch, not to the context.
+A context or epoch change with the same camera, controller, pawn and load now
+keeps the entry reference (`menu/head: context 4 -> 6 while still blocked`).
+The refusal line also names which guard refused, with the scope and head ages,
+because the old lumped line could not tell a stale scope from a lost owner.
+
+Also not the cause, checked: #85's live-table changes (`RefreshLiveSet`) do
+not touch this path. The exit's `BuildLiveSet()` is still a forced rebuild.
+
+**The immersive carry never covered flat screens at all.** On the simulator the
+journal (a flat screen, not riding) showed no `menu/head` line: head 0 -> -40 deg
+while it was open, view unchanged on close (-214.05 -> -214.05). The head writer
+re-stamps its reference every dispatch while a UI surface blocks, so any screen
+without the immersive carry, or with a refused one, dropped the turn. The head
+writer now holds the head yaw from the moment a gameplay menu blocks (Pause,
+Note, Journal, Wheel, Store, MissionStats) and adds the whole turn once on the
+first gameplay write, unless the immersive carry already did
+(`menu/hold: ... carrying`, or `... the immersive carry owned the exit`). Loads,
+the main menu and cinematics drop the hold. Simulator after: journal -214.05 ->
+-254.05 for a -40 turn; pause (flat on the sim) -254.05 -> -214.05 for +40.
+The riding pause menu's stand-down path is not reachable on the simulator.
+
 ## A detector fed once per present sees every pose twice (VR-37, 2026-09-20)
 
 The motion sword never fired on the native stereo render and nothing in its log

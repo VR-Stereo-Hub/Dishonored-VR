@@ -619,3 +619,21 @@ A draw-mode pass needs real single-draw ticks and legacy shadow raw leaks in the
 window, no unexpected right output or copy failures, and no visual mirror jump.
 Startup and post-reset right output is separately counted as warmup. See
 `VR-76-CODEX-HANDOFF.md`; the headset symptom remains a separate user test.
+
+## A placed spring razor in front of the player vanishes (VR-166, 2026-09-21, OPEN)
+
+Reported on build 612: of nine placements along a wall (left, middle, right), the three
+middle ones vanished. They could still be picked up by pointing at the spot, so the actor
+was there and only its draw was gone. Landing points were logged (`razor/place:`) at
+110-125 uu along the view. The weapon-identity gate's verdicts on the razor's buffers
+read `62 uu` / `61 uu from where the engine puts that component (radius 60) - a
+DIFFERENT INSTANCE` for the visible ones. A placed razor draws from the SAME buffers
+as the held one, so a copy within `AttachPassRadius` (60 uu) of the held component is
+taken for a held pass and corrected or suppressed with it.
+
+Not fixed yet, on purpose. Accepted held offsets across archived runs spread widely
+(0-4 uu: 2763 beats, 5-9: 1942, 10-19: 2423, 20-29: 1417, 30-44: 951, 45-60: 580), and
+some of the large accepts may be world copies like this one. Shrinking the radius
+globally could reject genuine held passes. Build 613 logs every verdict on the razor's
+buffers with the draw position (`wa/razor:`). Compared against the landing points, that
+separates held passes from placed copies by numbers.

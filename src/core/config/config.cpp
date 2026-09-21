@@ -472,6 +472,18 @@ static void WriteDefaultIni(const char* ini)
         "; Native crossbow launch direction, converging from the muzzle to the controller dot.\n"
         "; Independent of the old HUD cache drive and MotionAim; live toggle in F10 Aim.\n"
         "FireFromHand=1\n"
+        "; SourceProbe=1 (VR-166) names every object that asks the shared power-aim helper\n"
+        "; (the one Blink uses) for a vector, and how far that vector sits off the view.\n"
+        "; READ-ONLY. It answers which powers and thrown items one seam could aim by hand.\n"
+        "SourceProbe=0\n"
+        "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
+        "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
+        "InteractFromHand=1\n"
+        "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
+        "; The spawn point, speed and arc stay the game's; 0 = head.\n"
+        "ThrowFromHand=1\n"
+        "; GadgetFromHand=1 (VR-166): spring razors leave along the weapon ray; 0 = head.\n"
+        "GadgetFromHand=1\n"
         "PropWatch=0\n"
         "InteractFocus=0\n"
         "[HandTracking]\n"
@@ -1223,7 +1235,11 @@ static void WriteDefaultIni(const char* ini)
         "; `hud list`, the F10 HUD tab, `hud reset`.\n"
         "Element.default=window\n"
         "Element.vitals=handR\n"
-        "Element.reticle=off\n"
+        "Element.reticle=window\n"
+        "; ReticleOnAim=1 (VR-166): the reticle row - centred gauges such as the grenade cook ring -\n"
+        "; rides the aim dot along the weapon ray (head-facing, same apparent size), and the dot\n"
+        "; hides while it draws. 0 = the row stays on its own anchor.\n"
+        "ReticleOnAim=1\n"
         "Element.prompt=window\n"
         "Element.equipment=window\n"
         "Element.subtitles=window\n"
@@ -2486,6 +2502,10 @@ static void LoadConfig()
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
+    AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
+    InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
+    ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
+    GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;

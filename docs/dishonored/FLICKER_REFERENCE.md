@@ -1,3 +1,24 @@
+## VR-166: the grenade cook ring flickers on the aim dot (2026-09-21, PARKED)
+
+Symptom (reported, build 609-g06b4b9a36): after moving the reticle row onto the aim dot, the
+cook ring blinked on and off a little while cooking. Surface: the reticle row's HUD crop
+quad (`LocalBillboard` at the dot), not the eyes and not the world.
+
+Measured: the dot's hide/show toggled cleanly (ON once, off 1.9 s later), so the quad was
+not dropped by the 2-present grace in `provide()`. The census at a release (build 607) saw
+the ring's clusters in 58 / 36 / 23 / 7 of 109 presents. That can be the arc growing through
+buckets, or the ring missing from some presents.
+
+Hypothesis: some presents carry no ring draw, and the element's sink texture that present
+is empty. Counterprediction: the ring draws in every present it is up (gap 0), which would
+put the fault in the quad or the capture instead. Instrument (build 610): at the gauge's
+close, `hud/aim: the reticle row was up N presents and drew in M of them, longest gap G`.
+Result (build 610, two cooks): the row drew in 229 of 231 and 208 of 210 presents while
+up, longest gap 2; each release also left a 3-4 present tail drawing in 1-2 of them. So the
+ring is missing from the texture for isolated 1-2 present gaps. The tester judged it
+acceptable on this build. PARKED, not fixed. If it returns, the next step is to hold the
+row's last drawn texture across a gap of up to 2 presents.
+
 ## VR-140: persistent black world after a fast wheel open/close (2026-09-18)
 
 1. **Symptom:** whole world black in both eyes, persistent; map markers, Dark

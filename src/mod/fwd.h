@@ -640,6 +640,27 @@ static bool SwingTraceCommand(const char* args);
 static void CamModTick();
 static void CamModConfigure(const char* ini);
 static bool CamModCommand(const char* args);
+// VR-166: the shared power-aim helper probe (aim_source.cpp). Read-only.
+static void AimSourceConfigure(const char* ini);
+static void AimSourceTick();
+static bool AimSourceCommand(const char* args);
+static bool AimSourceProbeOn();   // [Aim] SourceProbe: gates the read-only VR-166 probes
+// VR-166: interaction aimed by hand (interact_aim.cpp).
+static bool InteractAimEnabled();
+static bool HandRayWorld(float* origin, float* dir, const char** why);   // VR-166 (interact_aim.cpp)
+static void InteractAimSet(bool on, const char* who);
+static void InteractAimConfigure(const char* ini);
+static void InteractAimTick();
+static bool InteractAimCommand(const char* args);
+// VR-166: grenades and other throws aimed by hand (throw_aim.cpp).
+static bool ThrowAimEnabled();
+static void ThrowAimSet(bool on, const char* who);
+static void ThrowAimConfigure(const char* ini);
+static bool ThrowAimCommand(const char* args);
+static bool GadgetAimEnabled();
+static void GadgetAimSet(bool on, const char* who);
+static void GadgetAimConfigure(const char* ini);
+static bool GadgetAimCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);
