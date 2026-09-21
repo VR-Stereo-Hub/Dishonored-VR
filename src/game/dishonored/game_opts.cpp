@@ -125,6 +125,7 @@ volatile long g_goReq = 0;
 bool   g_goAuto     = true;    // [Diagnostics] GameOptsOnStart
 char   g_goWriteSpec[256] = "";   // [Diagnostics] GameOptsWrite, empty = write nothing
 bool   g_goWroteOnce = false;
+int    g_goWriteTries = 0;   // the apply path may need the options screen; retry
 bool   g_goAutoDone = false;   // fired for this session
 double g_goReadyMs  = 0.0;     // when gameplay was first seen
 
@@ -451,6 +452,17 @@ static void GameOptsApply()
                 "per session, so a headset run produces the answer by itself)");
         }
     }
+    // A pending write re-arms the read, so the apply path gets another attempt
+    // every few seconds until a readback proves it took. Without this the retry
+    // counter could never advance: the whole block lives inside a read that
+    // fires exactly once per session, four seconds into gameplay, which is
+    // precisely when the options screen does not exist.
+    if (g_goWriteSpec[0] && !g_goWroteOnce && g_goAutoDone) {
+        static double nextTry = 0.0;
+        const double tnow = MaimNowMs();
+        if (nextTry == 0.0) nextTry = tnow + 5000.0;
+        else if (tnow >= nextTry) { nextTry = tnow + 5000.0; InterlockedExchange(&g_goReq, 1); }
+    }
     const long req = InterlockedExchange(&g_goReq, 0);
     if (!req) return;
     if (g_peReentry) { InterlockedExchange(&g_goReq, req); return; }
@@ -615,7 +627,30 @@ static void GameOptsApply()
             "profile object was reached - see the REFUSED line above. The "
             "system column is unavailable when the console returns no text.");
     GoDumpMenuSettings("the automatic read");
-    if (obj && g_goWriteSpec[0] && !g_goWroteOnce) { g_goWroteOnce = true; GoApplyWrites(obj, g_goWriteSpec); }
+    // RETRY WHILE THE OPTIONS SCREEN IS OPEN. Firing once, four seconds into
+    // gameplay, is the worst possible moment for this: OnSettingChange is a
+    // native on the menu movie and appears to need a live settings context,
+    // and at that point there is none. Measured: the call ran and the profile
+    // did not change.
+    //
+    // So the spec stays pending and is retried, and the pending flag only
+    // clears when a readback proves the value actually took. Opening the
+    // options screen is then all the player has to do, which is the one thing
+    // they were going to do anyway.
+    if (obj && g_goWriteSpec[0] && !g_goWroteOnce) {
+        const bool tookAll = GoApplyWritesAndVerify(obj, g_goWriteSpec);
+        if (tookAll) {
+            g_goWroteOnce = true;
+            Log("gameopts/write: every requested value now reads back at its target after %d "
+                "attempt(s); no further attempts.", g_goWriteTries + 1);
+        }
+        if (++g_goWriteTries >= 12) {
+            g_goWroteOnce = true;
+            Log("gameopts/write: giving up after %d attempts. If the values never took, the "
+                "apply path needs the options SCREEN open, not just the menu movie alive.",
+                g_goWriteTries);
+        }
+    }
     Log("gameopts: ---- end ----");
 }
 
@@ -897,12 +932,16 @@ static bool GoWriteRaw(uint8_t* obj, int wantId, double newValue, int32_t* befor
     return false;
 }
 
-static void GoApplyWrites(uint8_t* obj, const char* spec)
+// Returns true only when EVERY id in the spec reads back at its target.
+static bool GoApplyWritesAndVerify(uint8_t* obj, const char* spec)
 {
-    if (!obj || !spec || !spec[0]) return;
-    if (!BuildLiveSet() || !IsLiveObject(obj)) { Log("gameopts/write: current live table refused object %p",obj); return; }
+    if (!obj || !spec || !spec[0]) return false;
+    if (!BuildLiveSet() || !IsLiveObject(obj)) {
+        Log("gameopts/write: current live table refused object %p",obj); return false;
+    }
     Log("gameopts/write: applying '%s'. This is a WRITE to the live profile array. A value "
         "that changes here has NOT been shown to change the game; renderer state is unmeasured.", spec);
+    int goSeen = 0, goTook = 0;
     const char* p = spec;
     while (*p) {
         while (*p == ' ' || *p == ',') ++p;
@@ -941,12 +980,39 @@ static void GoApplyWrites(uint8_t* obj, const char* spec)
         // whether the listeners were notified.
         const GoRaw pre = GoReadRaw(obj, (int)id);
         if (pre.ok) before = pre.value;
-        const bool applied = GoCallSettingChange((int)id, val);
-        const bool ok = applied ? true : GoWriteRaw(obj, (int)id, val, &before);
-        if (!applied)
-            Log("gameopts/write:   id %ld: fell back to the RAW ARRAY WRITE - the profile will "
-                "hold this value and the menu will show it, but NO listener was notified, so a "
-                "running system keeps whatever it last applied.", id);
+
+        // CALLED IS NOT APPLIED. The first version of this treated a
+        // successful ProcessEvent call as success and skipped the fallback -
+        // so when OnSettingChange returned without writing, nothing happened at
+        // all and the value stayed 0 in both the profile and the menu. The
+        // call landing says only that the function ran.
+        //
+        // So: call it, then CHECK. The profile value after the call is the
+        // only thing that says whether the native did anything, and the raw
+        // write still runs when it did not.
+        const bool called = GoCallSettingChange((int)id, val);
+        bool tookViaApply = false;
+        if (called) {
+            const GoRaw post = GoReadRaw(obj, (int)id);
+            if (post.ok) {
+                float pf = 0.0f, wf = (float)val;
+                memcpy(&pf, &post.value, 4);
+                tookViaApply = (post.type == 5) ? (fabsf(pf - wf) < 0.01f)
+                                                : (post.value == (int32_t)val);
+            }
+            Log("gameopts/apply:   id %ld: OnSettingChange ran and the profile %s. %s", id,
+                tookViaApply ? "CHANGED - the game's own path did the work"
+                             : "did NOT change",
+                tookViaApply ? "Listeners were notified as part of that same call."
+                             : "The native returned without writing, which usually means it "
+                               "refused: the options SCREEN is probably not open, so there is "
+                               "no current settings context for it to act on. Falling back.");
+        }
+        const bool ok = tookViaApply ? true : GoWriteRaw(obj, (int)id, val, &before);
+        if (!tookViaApply)
+            Log("gameopts/write:   id %ld: used the RAW ARRAY WRITE - the profile holds this "
+                "value and the menu will show it, but NO listener was notified, so a running "
+                "system keeps whatever it last applied.", id);
         int32_t after = 0;
         const GoRaw rb = GoReadRaw(obj, id);
         if (rb.ok) after = rb.value;
@@ -967,6 +1033,7 @@ static void GoApplyWrites(uint8_t* obj, const char* spec)
                 id, ok ? "written" : "REFUSED - nothing written",
                 (long)before, val, rb.ok ? "" : "(unreadable) ", (long)after,
                 took ? "  (the array took it)" : "  (the array did NOT take it)");
+        ++goSeen; if (took) ++goTook;
         const char* comma = strchr(p, ',');
         if (!comma) break;
         p = comma + 1;
