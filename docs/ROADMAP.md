@@ -10,6 +10,14 @@
 - [ ] VR-155: a SLOW plunge (under 3.6 m/s) producing the kill in the headset - the stab detector's own positive case, simulator-proven only.
 - [ ] VR-156: a readable kill-available signal, for arming on it and a haptic ready cue.
 
+### The threshold and the hump census (VR-170, 2026-09-21)
+
+- [x] Hump census and travel guard in the pure core; 75 host checks (15 new). Measured there: a real swing has travelled 0.15 m when it crosses the threshold, so the travel guard ships OFF.
+- [x] `EdgeSpeed` 3.6 -> 3.0 with a one-time per-ini migration (`EdgeSpeedRev`), no config version bump. Dev PC ini (held 3.60): line on the first launch, none on the next.
+- [x] Simulator: `swing-soft.xrs` passes (attacks at 3.0, NEAR MISS at 3.6, guard delays and never refuses, the census ignores `swing sim`); `swing-edge.xrs` and `swing-gates.xrs` still pass.
+- [x] A hump cut by a tracking gap is reported `CUT SHORT`, found when a simulator hitch made one vanish.
+- [ ] Headset: soft swings register, walking / turning / reaching does not attack; the census from that run decides whether 3.0 stays and whether `EdgeTravelM` gets a value.
+
 ## Accepted startup preset; chain remains open (2026-09-20)
 
 - [x] Default-on startup preset for the ten approved game options; later edits allowed.

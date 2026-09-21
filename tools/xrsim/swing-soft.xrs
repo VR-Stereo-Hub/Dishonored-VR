@@ -1,0 +1,92 @@
+# swing-soft.xrs - the lowered swing threshold and the hump census (VR-170).
+#
+# The question: does a SOFT swing - one the old 3.6 m/s threshold refused - attack
+# at 3.0, while a reach still does not? And does the census see both?
+#
+# Needs: a loaded level in GAMEPLAY (look at an xrsim-shot first), [Mode]
+# GamepadOnly=0. Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-soft.xrs -Dir <sim dir>
+#
+# Every leg is an A/B on one lever, so the lever is what decided it: the same
+# movement fires at 3.0 and not at 3.6; fires with the travel guard off and not
+# with a guard longer than the movement itself.
+#
+# WHY THE SWINGS ARE `swing sim` AND NOT THE SIMULATED HAND. Measured 2026-09-21 on
+# the dev PC: a game-thread hitch of about 50 ms makes the simulator's predicted
+# display time leap about 135 ms, the detector rightly reads that as a tracking gap
+# and re-seeds, and the hump in progress is reported CUT SHORT. A hitch landed
+# inside about half of all 200 ms hand swings (census after ten of them: five whole
+# at 3.28 m/s, the rest in pieces), and a soft swing has no margin to survive one.
+# `swing sim` drives the same decision core, the same gates, the same trigger pulse
+# and the game's own attack from the wall clock, which does not leap. Its humps are
+# logged and deliberately NOT counted: the census is the player's hand only.
+# The live hand keeps the leg it is reliable for: a slow reach, where a cut changes
+# nothing that is asserted.
+
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing on; swing mode edge; swing threshold 3.0; swing travel 0; swing rearm 1.0; swing cooldown 300; swing rel on; swing filter median; swing sword on; swing output rt; swing census reset
+@wait 1000
+@mark
+
+# 1. A reach is still not a swing at 3.0: 0.67 m in 900 ms peaks near 1.1 m/s, and
+#    the census counts it as a hand movement that did not attack.
+hand r to grip -0.35 1.00 -0.45 0 0 0 900
+@wait 1600
+@nolog swing: FIRE
+@modassert features.swing.census.humps ge 1
+@modassert features.swing.census.lastFired eq false
+@modassert features.swing.census.lastPeak lt 2.2
+@modassert features.swing.gateOpen eq true
+
+# 2. The soft swing: a 3.3 m/s peak, 0.42 m, 200 ms. Under the new threshold it is
+#    one attack and the game is SEEN starting it.
+@mark
+@mod swing sim 3.3 200 1
+@log swing: FIRE #\d+ slash 3\.\d+ m/s .*\(sim,
+@log swing: HONOURED slash
+@log swing: hump \(sim, not counted in the census\) peak=3\.[23]\d m/s .* -> ATTACK
+@log swing: sim window finished: 1 fire
+@modassert features.swing.notHonoured eq 0
+
+# 3. The same swing under the OLD threshold: no attack, and the hump line calls it
+#    what a player would - a near miss. This is the leg that says 3.6 was refusing
+#    this swing and the threshold lever is what changed it.
+@mod swing threshold 3.6
+@wait 500
+@mark
+@mod swing sim 3.3 200 1
+@log swing: hump \(sim.* no attack: under the threshold.*NEAR MISS
+@log swing: sim window finished: 0 fire
+@nolog swing: FIRE
+
+# 4. The travel guard is a real lever: set longer than the movement (0.9 m against
+#    0.42 m) the same swing is fast enough and never gets the distance. It is held
+#    silently - no BLOCKED line - and the hump line names the guard.
+@mod swing threshold 3.0; swing travel 0.9
+@wait 500
+@mark
+@mod swing sim 3.3 200 1
+@log swing: hump \(sim.* the travel guard held it \(threshold 3\.00, travel guard 0\.90 m\)(?! - a NEAR)
+@log swing: sim window finished: 0 fire
+@nolog swing: FIRE
+@nolog swing: BLOCKED
+
+# 5. And a guard SHORTER than the movement only delays it: it still attacks, and
+#    the FIRE line shows it waited for the distance.
+@mod swing travel 0.25
+@wait 500
+@mark
+@mod swing sim 3.3 200 1
+@log swing: FIRE #\d+ slash .* after 0\.(2[5-9]|[3-9]\d) m of travel
+@log swing: HONOURED slash
+@log swing: sim window finished: 1 fire
+
+# 6. None of that reached the census: its last movement is still the reach.
+@modassert features.swing.census.lastFired eq false
+@modassert features.swing.census.lastPeak lt 2.2
+
+# Leave it as shipped.
+@mod swing travel 0; swing threshold 3.0; swing census
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
