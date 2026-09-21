@@ -1,3 +1,24 @@
+## VR-180: a quarter-second freeze on every trigger pull was a legacy build (2026-09-22)
+
+**Report:** pulling either trigger froze and stuttered the game, every time, fading after
+some play. **Not a performance regression in any feature and not the machine:** the build had
+`src/legacy` compiled in, and its projectile-spawn tracer walks every engine object for about
+four frames after each trigger edge. `docs/TRAPS.md` has the whole account and the fix.
+
+| Build, same source, eight trigger pulls on the simulator | `perf: frame gap` sat in `game_tick` | `spawn: NEW obj` lines |
+|---|---|---|
+| legacy ON (`614-gc7317261`, RelWithDebInfo) | 11, at 75 to 133 ms | 256 |
+| legacy OFF (`614-gcce004d3`, RelWithDebInfo) | 0 | 0 |
+| legacy OFF with the VR-180 guard (`600-gd556eb58` + the guard) | 0 | 0 |
+
+In the affected headset log (VirtualDesktopXR) the same stalls read 76 to 88 ms per present in
+runs of three. The guard build on the simulator at 2064x2208: 89.7 ticks/s against a 90 Hz
+display, tick 11.1 ms. The guard adds nothing to the frame path: one word in the log banner
+and one field in `status.json`.
+
+**How to read this next time:** `sat in: game_tick` is the mod's own per-present work. A stall
+there that lines up with an input is the mod doing something on that input.
+
 ## VR-160: the dev PC's 43-57 pairs/s - what the record already answers (2026-09-20)
 
 **Report:** about 40 fps in the headset on the dev PC, while the sibling BioShock
