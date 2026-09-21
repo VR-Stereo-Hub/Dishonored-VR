@@ -879,8 +879,22 @@ static void ApplyHeadToViewRotation(void* parms)
     float f0 = *(float*)((uint8_t*)parms + 0);
     float f4 = *(float*)((uint8_t*)parms + 4);
     const float kMinDT = 0.0005f, kMaxDT = 0.2f;    // 0.5 ms .. 200 ms
+    // VR-168: the range test alone still lost. After a possession the modifier's
+    // ViewTarget was the pawn at 0x3AA50000, which reads as 0.00126 - a plausible
+    // 1.3 ms frame - so every dispatch parsed +4 (DeltaTime) as the pitch, refused,
+    // and the head stopped writing for the rest of the session (view=0: slides went
+    // mono). A UObject at +0 IS the modifier layout, whatever it reads as a float.
+    // Only asked when both slots pass as a frame time, so the ordinary dispatch
+    // pays nothing new.
+    const bool dt0 = f0 > kMinDT && f0 < kMaxDT, dt4 = f4 > kMinDT && f4 < kMaxDT;
+    const bool viewTargetAt0 = dt0 && dt4 && LooksLikeObj(*(uint8_t**)parms);
+    if (viewTargetAt0)
+        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 4,
+            "head: Parms+0 is a UObject (%p) that also reads as a %.4f s frame time - the "
+            "camera-modifier layout, rotator at +8 (VR-168)", *(void**)parms, (double)f0);
     uint32_t rotOff;
-    if (f0 > kMinDT && f0 < kMaxDT)      rotOff = 4;
+    if (viewTargetAt0) rotOff = 8;
+    else if (dt0) rotOff = 4;
     else if (f4 > kMinDT && f4 < kMaxDT) rotOff = 8;
     else {                                           // unknown shape - hands off
         DVR_HEAD_REFUSE("head: write refused - no DeltaTime at Parms+0 (%g) or +4 (%g): unknown parms shape, hands off", f0, f4);

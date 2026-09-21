@@ -23,6 +23,24 @@ caller, the `skip` echo command. The levers that exist are `DISHONORED_VR_XR_SAF
 and `[Mode] GamepadOnly=1`. A rung of a cost ladder built on `DVR_SKIP=hands` would
 have measured nothing and reported "no cost".
 
+## A pointer can pass for a frame time (VR-168, 2026-09-21)
+
+The head writer tells the two `ProcessViewRotation` layouts apart by asking
+whether Parms+0 looks like a DeltaTime (0.5-200 ms): the controller's
+`(DeltaTime, View, ...)` or the camera modifier's `(ViewTarget, DeltaTime, View)`.
+An earlier fix had already raised the lower bound because pointers read as tiny
+floats. That is only true for SOME addresses. After a possession the ViewTarget
+was the pawn at `0x3AA50000`, which reads as 0.00126 s. Every dispatch then
+parsed the modifier's DeltaTime as the pitch, refused
+(`pitch 1007518153 at Parms+4 out of range`), and the head wrote nothing for the
+rest of the session. `view` went 0, so any master state outside the stereo list
+(Slide) fell to mono.
+
+A build that "recovered after possession" (599) proved nothing about the code:
+its pawn simply sat at an address that did not pass. Classify by what the value
+IS, not by what it happens to look like. A live UObject at +0 decides the layout
+now, and it is only asked when both slots pass as a frame time.
+
 ## A menu that hands over to another menu is still the same menu (VR-166, 2026-09-20)
 
 Closing a note could snap the view back to where the head was when the note
