@@ -112,8 +112,16 @@ void module_of(const void* addr, char* name, size_t n, uintptr_t* base)
 // someone else's worker), the registers, and every pointer-looking value in
 // the top stack slots resolved to its module - a caller inside ANY DLL (VDXR,
 // dxvk, d3d11, the driver) is visible, not just Dishonored.exe.
+// VR-177: set while this thread runs a guarded probe that expects to fault (probe_begin).
+__declspec(thread) int t_probeDepth = 0;
+volatile LONG g_probeFaults = 0;   // how many were ignored, for the log line at the next real fault
+
 LONG WINAPI fingerprint(EXCEPTION_POINTERS* ep)
 {
+    if (t_probeDepth > 0) {                     // our own guarded probe: not a crash
+        InterlockedIncrement(&g_probeFaults);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     if (!ep || !ep->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
     const DWORD code = ep->ExceptionRecord->ExceptionCode;
     if ((code & 0xF0000000u) != 0xC0000000u) return EXCEPTION_CONTINUE_SEARCH;
@@ -144,6 +152,9 @@ LONG WINAPI fingerprint(EXCEPTION_POINTERS* ep)
     emit("EXCEPTION 0x%08lx at %p [%s+0x%lx] tid=%lu (%s)",
          (unsigned long)code, addr, mod, (unsigned long)((uintptr_t)addr - base),
          (unsigned long)tid, thread_name(tid));
+    if (g_probeFaults)
+        emit("  (%ld fault(s) raised inside our own guarded probes were ignored before this one - "
+             "they are not crashes and did not spend this budget)", (long)g_probeFaults);
     if (code == EXCEPTION_ACCESS_VIOLATION && ep->ExceptionRecord->NumberParameters >= 2) {
         // 40.2 THE OPERATION IS THREE-VALUED, NOT TWO. ExceptionInformation[0]
         // is 0 read, 1 write, 8 execute (DEP). The old line tested it for
@@ -327,6 +338,9 @@ void register_thread(const char* name, DWORD tid)
 }
 
 void set_context(const char* text) { context(text); }
+
+void probe_begin() { ++t_probeDepth; }
+void probe_end() { if (t_probeDepth > 0) --t_probeDepth; }
 
 void note_teardown(const char* why)
 {

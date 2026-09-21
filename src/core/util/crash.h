@@ -29,4 +29,11 @@ void register_thread(const char* name, DWORD tid); // "present", "xr-pace": name
 void set_context(const char* text);                // "openxr/VirtualDesktopXR": named in the crash file's run header
 void note_teardown(const char* why);              // game announced exit: faults after this get one line, no dump
 bool teardown_seen();
+// VR-177: a fault THIS thread raises inside a guarded probe of our own (a __try that
+// expects to fault) is not a crash. Between probe_begin and probe_end the fingerprinter
+// ignores this thread's faults entirely: no line, no dump, and none of its 3-fault budget.
+// Build 533 spent that budget on the runtime watchdog's stack scans at every startup, so no
+// real fault after them could ever be recorded. Nests; thread-local; costs nothing else.
+void probe_begin();
+void probe_end();
 } // namespace dvr::crash
