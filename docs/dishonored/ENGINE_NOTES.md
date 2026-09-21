@@ -8284,3 +8284,10 @@ three camera-trace helpers or execTrace. `+0xB8` stores in the gadget region
 `0x00C327E0` is a destructor. Build 611 arms a hardware write-watch (DR0, write,
 4 bytes) on the live context's `+0xB8` while the razor is equipped, to name the writer
 (`razor/watch:`).
+
+Build 611 result: the write-watch armed on an object named exactly
+`DisItemContext_UseSpringRazor` (the template, not the placing context), saw 0 writes in
+20 s, and expired before any placement. Three later placements again landed 8-12 uu off
+the head ray. Build 612 captures `this` at the placement routine's entry (`0x00C3B570`,
+6 bytes `53 8B DC 83 EC 08`, read-only). It then arms the watch on THAT object's `+0xB8`
+for 60 s, so the second and third placements name the writer.

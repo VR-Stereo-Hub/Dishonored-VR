@@ -523,6 +523,38 @@ static LONG CALLBACK RazorWatchVeh(PEXCEPTION_POINTERS ep)
     }
     return EXCEPTION_CONTINUE_EXECUTION;
 }
+// The placement routine's entry: remember the context it runs on. Read-only.
+static uint8_t* volatile g_rwCtx = nullptr;
+static dvr::hooks::Detour g_rpDet;
+static uint32_t g_rpRet = (uint32_t)(kRazorPlace + sizeof(kRazorPlaceBytes));
+extern "C" void __cdecl RazorPlaceHook(uint8_t* self) { if (!g_rwCtx) g_rwCtx = self; }
+extern "C" __declspec(naked) void RazorPlaceStub(void)
+{
+    __asm {
+        pushfd
+        pushad
+        mov edx, esp
+        sub esp, 528
+        and esp, -16
+        fxsave [esp]
+        fninit
+        cld
+        push edx
+        mov ecx, [edx+18h]          ; ECX at entry: the razor context
+        push ecx
+        call RazorPlaceHook
+        add esp, 4
+        pop edx
+        fxrstor [esp]
+        mov esp, edx
+        popad
+        popfd
+        push ebx                    ; displaced: 53 8b dc 83 ec 08
+        mov ebx, esp
+        sub esp, 8
+        jmp dword ptr [g_rpRet]
+    }
+}
 static void RazorWatchApply(bool enable)
 {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -549,10 +581,16 @@ static void RazorWatchApply(bool enable)
 }
 static void RazorWatchTick()
 {
+    if (!g_rpDet.on) {
+        static bool tried = false;
+        if (!tried) { tried = true;
+            dvr::hooks::detour_install(g_rpDet, "razor/place", kRazorPlace, kRazorPlaceBytes,
+                                       sizeof(kRazorPlaceBytes), (void*)&RazorPlaceStub); }
+    }
     if (g_rwDone) return;
     const double now = MaimNowMs();
     if (g_rwAddr) {
-        if (now - g_rwArmedMs < 20000.0 && g_rwN < 16) return;
+        if (now - g_rwArmedMs < 60000.0 && g_rwN < 16) return;
         RazorWatchApply(false);
         LONG n = g_rwN; if (n > 16) n = 16;
         Log("razor/watch: %ld write(s) to the placement point, %ld writer(s) - READ-ONLY; the writer that "
@@ -563,26 +601,13 @@ static void RazorWatchTick()
         g_rwAddr = 0; g_rwDone = true;
         return;
     }
-    static double next = 0;
-    if (now < next || !CylTruthLive()) return;
-    next = now + 2000.0;
-    if (!strstr(g_rflState.equip[2], "SpringRazor")) return;   // only with the razor in hand
-    if (!RangeReadable((void*)kGObjHdr, 12)) return;
-    void** objs = *(void***)kGObjHdr; const uint32_t num = *(uint32_t*)(kGObjHdr + 4);
-    if (!objs || num < 2000 || num > 4000000 || !RangeReadable(objs, (size_t)num * 4)) return;
-    for (uint32_t i = 1; i < num; ++i) {
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, kNameOff + 4)) continue;
-        const char* cn = ObjClassName(o);
-        if (!cn || strcmp(cn, "DisItemContext_UseSpringRazor")) continue;
-        const char* nm = RealName(*(uint32_t*)(o + kNameOff));
-        if (nm && !strncmp(nm, "Default__", 9)) continue;
-        if (!RangeReadable(o + 0xB8, 12)) continue;
-        if (!g_rwVeh) g_rwVeh = AddVectoredExceptionHandler(1, RazorWatchVeh);
-        g_rwAddr = (uintptr_t)(o + 0xB8); g_rwArmedMs = now; g_rwN = 0; g_rwTotal = 0;
-        RazorWatchApply(true);
-        Log("razor/watch: ARMED on %s '%s' %p +0xB8 for 20 s - aim and place the razor now",
-            cn, nm ? nm : "?", (void*)o);
-        return;
-    }
+    // The object the placement routine actually runs on, captured at its entry (build 611
+    // armed on the class-named template instead and saw 0 writes).
+    uint8_t* ctx = g_rwCtx;
+    if (!ctx || !RangeReadable(ctx + 0xB8, 12)) return;
+    if (!g_rwVeh) g_rwVeh = AddVectoredExceptionHandler(1, RazorWatchVeh);
+    g_rwAddr = (uintptr_t)(ctx + 0xB8); g_rwArmedMs = now; g_rwN = 0; g_rwTotal = 0;
+    RazorWatchApply(true);
+    Log("razor/watch: ARMED on the placing context %s %p +0xB8 for 60 s - place the razor again",
+        LooksLikeObj(ctx) ? ObjClassName(ctx) : "?", (void*)ctx);
 }
