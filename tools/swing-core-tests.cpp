@@ -140,6 +140,61 @@ int main() {
       check(k.feed(s, raw).fired == kFiredSlash, "with no head pose the hand's own speed still counts"); }
 
 
+    // ---- The hump census and the travel guard (VR-170) -------------------------
+    // One line per hand movement: what a threshold is set from. `census` drives a
+    // speed profile and collects every hump that ended.
+    struct Hump { int n = 0, fired = 0, block = 0, cut = 0; float peak = 0, travel = 0, ms = 0, atFire = 0; double fireMs = -1; };
+    // `stallAt`/`stallMs`: the samples stop for that long (a game-thread hitch) while the hand keeps moving.
+    auto census = [](const Config& c, double ms, const std::function<float(double)>& speed, uint32_t closed = 0,
+                     double stallAt = -1.0, double stallMs = 0.0) {
+        Core k; Hump h; const double dt = 1000.0 / 90.0; float x = 0;
+        for (double at = 0.0; at <= ms; at += dt) {
+            const bool stalled = stallAt >= 0.0 && at >= stallAt && at < stallAt + stallMs;
+            if (!stalled) {
+                Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x; s.closed = closed;
+                const Verdict v = k.feed(s, c);
+                if (v.fired) { h.atFire = v.travelAtFire; if (h.fireMs < 0) h.fireMs = at; }
+                if (v.humpEnd) { ++h.n; h.fired = v.humpFired; h.block = v.humpBlock; h.peak = v.humpPeak;
+                                 h.travel = v.humpTravel; h.ms = v.humpMs; if (v.humpCut) ++h.cut; }
+            }
+            x += speed(at) * (float)(dt * 0.001);
+        }
+        return h; };
+    { const Hump h = census(edge, 500, humps(6.0f, 200));
+      check(h.n == 1 && h.fired == kFiredSlash, "a swing is one hump, and the hump says it fired");
+      check(h.peak > 5.7f && h.peak <= 6.0f, "the hump's peak is the swing's peak, through the median");
+      check(h.travel > 0.70f && h.travel < 0.78f, "and its travel is the distance the hand covered: 0.76 m for this one");
+      check(h.ms > 150.0f && h.ms < 260.0f, "and it lasted about as long as the swing did");
+      std::printf("census: a 6.0 m/s, 200 ms swing had travelled %.3f m when it fired at 3.6 (of %.3f m in all)\n", h.atFire, h.travel);
+      check(h.atFire > 0.04f && h.atFire < 0.16f, "a real swing has covered well under 16 cm when it crosses the threshold: why a small travel guard decides nothing"); }
+    { const Hump h = census(edge, 500, humps(2.5f, 200));
+      check(h.n == 1 && h.fired == kFiredNone && h.block == kBlockNone && h.peak > 2.3f && h.peak < 2.51f,
+            "a 2.5 m/s movement that did not fire is still counted, with its peak: the half of the distribution a FIRE line never showed"); }
+    { const Hump h = census(edge, 500, humps(0.8f, 200));
+      check(h.n == 0, "a movement that never reaches the re-arm level is not a hump at all"); }
+    { const Hump h = census(edge, 500, humps(6.0f, 200), kGateSword);
+      check(h.n == 1 && h.fired == kFiredNone && h.block == kBlockGate, "a swing against a closed gate is a hump that names the block"); }
+    { const Hump h = census(edge, 1199, humps(6.0f, 200));
+      check(h.n == 3 && h.cut == 0, "three swings are three humps"); }
+    { // A 135 ms hitch inside a soft swing, as the simulator delivered one: the samples stop at 2.3 m/s on the way up.
+      const Hump h = census(edge, 800, humps(3.3f, 330), 0, 80.0, 135.0);
+      check(h.n >= 1 && h.cut == 1, "a swing with a hitch in the middle is still counted: the hump is cut short, not lost");
+      const Hump g = census(edge, 800, humps(3.3f, 330));
+      check(g.n == 1 && g.cut == 0 && g.peak > 3.1f, "and without the hitch the same swing is one whole hump"); }
+    { Config g = edge; g.edgeTravelM = 0.30f;
+      const Hump off = census(edge, 500, humps(6.0f, 200)), on = census(g, 500, humps(6.0f, 200));
+      check(on.n == 1 && on.fired == kFiredSlash && on.atFire >= 0.30f, "under a 0.30 m travel guard a real swing still fires, once it has the distance");
+      check(on.fireMs - off.fireMs > 0.0 && on.fireMs - off.fireMs <= 4000.0 / 90.0 + 0.01, "and the guard cost it at most four samples: it delays, it does not refuse"); }
+    { // A sharp 5 cm jolt from rest, on raw speed: 4.5 m/s for one sample.
+      auto jolt = [](float guard) { Core k; Config c; c.detector = kEdge; c.median = false; c.edgeTravelM = guard;
+          Sample s; s.handValid = true; s.tMs = 0; k.feed(s, c);
+          s.hand[0] = 0.05f; s.tMs = 11.0; const bool fired = k.feed(s, c).fired != kFiredNone;
+          int humpsSeen = 0, blocks = 0;
+          for (int i = 2; i < 8; ++i) { s.tMs = 11.0 * i; const Verdict v = k.feed(s, c); if (v.humpEnd) ++humpsSeen; if (v.block) ++blocks; }
+          return fired ? 1 : (humpsSeen == 1 && blocks == 0) ? 0 : -1; };
+      check(jolt(0.0f) == 1, "a 5 cm jolt at 4.5 m/s fires on raw speed with the guard off");
+      check(jolt(0.15f) == 0, "and does not with a 0.15 m guard - silently, no block line, but the census still counts it: the guard lever is what decided it"); }
+
     // ---- The sneak-kill thrust (VR-155) ---------------------------------------
     // A body in space: the head at (0, 1.6, 0) facing -Z, so the modelled right
     // shoulder is at (0.17, 1.38, 0.04), and the sword hand starts a forearm in
