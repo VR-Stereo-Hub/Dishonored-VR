@@ -40,8 +40,7 @@
 // AdvertisementType } at 24 bytes, so the layout is MEASURED.
 //
 // GoReadRaw therefore reads values straight out of the array, and
-// GoVerifyStride re-checks the layout on every read: the ids must ascend and
-// stay inside the PSI range, or the walk says the stride is wrong for this
+// GoVerifyStride checks owner/id uniqueness, enum types and PSI bounds, or the walk says the stride is wrong for this
 // build and that every value it printed is noise. The accessors are still
 // called and still reported, because a run where they start working is worth
 // knowing about - but nothing depends on them any more.
@@ -59,11 +58,7 @@
 // result: GetProfileSettingName must hand back a name that matches the PSI
 // spelling we asked for, and the run refuses and says so when it does not.
 //
-// The graphics half is read from the other side as well. `scale get <key>`
-// goes to FSystemSettings::Exec, which reports what the RENDERER holds, not
-// what an ini file says. Where a setting has both a profile entry and a
-// SystemSettings key, the log prints both on one line, so the answer to
-// "which one wins" is arithmetic rather than opinion.
+// Console replies are optional. Empty replies are not renderer evidence.
 
 namespace {
 
@@ -355,7 +350,7 @@ GoRaw GoReadRaw(uint8_t* obj, int wantId)
     for (int i = 0; i < num; ++i) {
         const uint32_t* e = d + (size_t)i * kGoStrideDwords;
         const int32_t id = (int32_t)e[1];
-        if (id != wantId) continue;
+        if (id != wantId || e[0] != 2) continue;
         r.owner = (int32_t)e[0]; r.id = id; r.type = (int32_t)e[2];
         r.value = (int32_t)e[3]; r.ok = true;
         return r;
@@ -363,9 +358,8 @@ GoRaw GoReadRaw(uint8_t* obj, int wantId)
     return r;
 }
 
-// The stride's own check, run once per read. If the layout were wrong the id
-// column would not ascend and would leave the PSI range, so this can fail and
-// say so instead of handing back a table of plausible-looking noise.
+// Validate every record, without an acceptance percentage or ordering assumption.
+// IDs can restart when owners change. Duplicate (owner,id) pairs are ambiguous.
 bool GoVerifyStride(uint8_t* obj, int* entries, int* ascending, int* inRange)
 {
     *entries = 0; *ascending = 0; *inRange = 0;
@@ -375,15 +369,22 @@ bool GoVerifyStride(uint8_t* obj, int* entries, int* ascending, int* inRange)
     if (!RangeReadable(data, (size_t)num * kGoStrideDwords * 4)) return false;
     const uint32_t* d = (const uint32_t*)data;
     int32_t prev = -1;
+    bool seen[3][154] = {};
+    bool valid = true;
     for (int i = 0; i < num; ++i) {
         const int32_t id = (int32_t)d[(size_t)i * kGoStrideDwords + 1];
         ++(*entries);
-        if (id >= 0 && id <= 200) ++(*inRange);
+        const uint32_t owner = d[(size_t)i * kGoStrideDwords];
+        const uint32_t type = d[(size_t)i * kGoStrideDwords + 2];
+        if (owner <= 2 && id >= 0 && id < 154 && type <= 8 && !seen[owner][id]) {
+            seen[owner][id] = true; ++(*inRange);
+        } else valid = false;
         if (id > prev) ++(*ascending);
         prev = id;
     }
     *entries = num;
-    return true;
+    if (!valid) Log("gameopts: layout REFUSED entries=%d valid-unique-owner-id-type=%d",num,*inRange);
+    return valid;
 }
 
 // The value. `ok` distinguishes "the engine says 0" from "the engine refused
@@ -419,7 +420,7 @@ void GoReadSystemSetting(const char* key, char* out, int cap)
     char reply[256] = "";
     const int n = RunConsole(w, reply, sizeof(reply));
     if (n <= 0) {
-        _snprintf(out, cap, "(scale get returned %d)", n);
+        _snprintf(out, cap, " unavailable (console reply length %d; not renderer evidence)", n);
         out[cap - 1] = 0;
         return;
     }
@@ -546,22 +547,23 @@ static void GameOptsApply()
             }
         }
     }
+    bool rawLayoutOk = false;
     if (obj) {
         int entries = 0, ascending = 0, inRange = 0;
         if (GoVerifyStride(obj, &entries, &ascending, &inRange)) {
-            const bool good = entries > 0 && ascending * 10 >= entries * 8 &&
-                              inRange * 10 >= entries * 9;
+            const bool good = entries > 0 && inRange == entries;
+            rawLayoutOk = good;
             Log("gameopts: stride check - %d entries at 6 dwords each, %d ascending, %d inside "
-                "the PSI range. %s", entries, ascending, inRange,
+                "the unique owner/id/type constraints. %s", entries, ascending, inRange,
                 good ? "The measured layout holds, so the VALUE column below is read straight "
                        "from the array and does not depend on the accessors at all."
-                     : "LAYOUT DOES NOT HOLD: the id column neither ascends nor stays in range, "
+                     : "LAYOUT DOES NOT HOLD: invalid or ambiguous records, "
                        "so the stride is wrong for this build and every VALUE below is noise.");
         }
     }
     Log("gameopts: ---- the game's own option settings, READ ONLY ----");
     Log("gameopts: profile = the Steam Cloud blob (OPTIONS.sav); system = what "
-        "FSystemSettings holds now. A disagreement is the finding, not an error.");
+        "the console reply if available; an empty reply says nothing about renderer state.");
 
     int named = 0, mismatched = 0, answered = 0, refused = 0;
     int answeredRaw = 0;
@@ -581,11 +583,14 @@ static void GameOptsApply()
         // The direct read. This is the column that actually works: the
         // accessors have refused on every run since the probe was written,
         // while the array itself is readable at a measured stride.
-        const GoRaw raw = obj ? GoReadRaw(obj, e.id) : GoRaw{0,0,0,0,false};
+        const GoRaw raw = rawLayoutOk ? GoReadRaw(obj, e.id) : GoRaw{0,0,0,0,false};
         char rawCol[64];
-        if (raw.ok) _snprintf(rawCol, sizeof(rawCol), "%ld (owner %ld type %ld)",
+        if (raw.ok && raw.type == 5) {
+            float f; memcpy(&f, &raw.value, sizeof(f));
+            _snprintf(rawCol, sizeof(rawCol), "%g (owner %ld type 5 float)", f, (long)raw.owner);
+        } else if (raw.ok) _snprintf(rawCol, sizeof(rawCol), "%ld (owner %ld type %ld)",
                               (long)raw.value, (long)raw.owner, (long)raw.type);
-        else        _snprintf(rawCol, sizeof(rawCol), "NOT IN THE ARRAY");
+        else        _snprintf(rawCol, sizeof(rawCol), "UNAVAILABLE (layout refused or id absent)");
         rawCol[sizeof(rawCol) - 1] = 0;
         if (raw.ok) ++answeredRaw;
 
@@ -608,7 +613,7 @@ static void GameOptsApply()
     if (!obj)
         Log("gameopts: the profile column is empty for every row because no "
             "profile object was reached - see the REFUSED line above. The "
-            "system column is still valid.");
+            "system column is unavailable when the console returns no text.");
     GoDumpMenuSettings("the automatic read");
     if (obj && g_goWriteSpec[0] && !g_goWroteOnce) { g_goWroteOnce = true; GoApplyWrites(obj, g_goWriteSpec); }
     Log("gameopts: ---- end ----");
@@ -688,63 +693,52 @@ static void GoDumpMenuSettings(const char* who)
     Log("gameopts/menu: %d settings categor%s on %p (+0x%x). These ids are what "
         "OnSettingChange takes, and they are NOT assumed to be the PSI enum:",
         (int)ncat, ncat == 1 ? "y" : "ies", (void*)menu, offList);
-    // Only the counts and the ids are read here; the nested layout is reported
-    // rather than assumed, so a stride that does not match shows as a refusal.
-    const uint32_t offSettings = RflOffsetOf("DisSettingsCategory", "m_Settings");
-    const uint32_t offId       = RflOffsetOf("DisSetting", "m_SettingID");
-    Log("gameopts/menu: DisSettingsCategory.m_Settings +0x%x | DisSetting.m_SettingID +0x%x "
-        "(a 0 is UNRESOLVED and the rows below are then not evidence)", offSettings, offId);
-    if (!offSettings) {
-        Log("gameopts/menu: without m_Settings the categories cannot be walked; nothing below");
-        return;
+    // Sizes follow the final reflected member, including packed bool storage.
+    // These script structs contain only 4-byte-aligned fields on this x86 build.
+    uint32_t settings=0, subs=0, subSettings=0, subTail=0, idOff=0, settingTail=0;
+    if (!FindPropOffsetChecked("DisSettingsCategory","m_Settings",&settings) ||
+        !FindPropOffsetChecked("DisSettingsCategory","m_SubCategories",&subs) ||
+        !FindPropOffsetChecked("DisSettingsSubCategory","m_Settings",&subSettings) ||
+        !FindPropOffsetChecked("DisSettingsSubCategory","m_bKeyboardBindingMenu",&subTail) ||
+        !FindPropOffsetChecked("DisSetting","m_SettingID",&idOff) ||
+        !FindPropOffsetChecked("DisSetting","m_bDropList",&settingTail)) {
+        Log("gameopts/menu: unresolved struct member; no ids inferred"); return;
     }
-    // The previous build resolved the offsets and then stopped, so it reported
-    // "12 categories" and never said what was in them. Walk them.
-    //
-    // The category stride is not assumed: DisSettingsCategory holds a name, an
-    // array of subcategories and an array of settings, and its packed size has
-    // not been measured. So this reads the ids at the resolved offset for each
-    // category slot and reports how many it could read, and the ids it found.
-    // If the stride is wrong the ids will be noise, and a column of values far
-    // outside the PSI range (which runs to 153) says so without being asserted.
-    const uint32_t catStride = RflOffsetOf("DisSettingsCategory", "m_SubCategories") ? 0 : 0;
-    (void)catStride;
-    int printed = 0, plausible = 0, wild = 0;
-    for (int c = 0; c < ncat && c < 16; ++c) {
-        // Each element of an array<struct> is the struct itself, laid out end to
-        // end. Without a measured struct size the only honest thing is to read
-        // the FIRST category and say so, rather than stride blindly across all.
-        if (c > 0) break;
-        uint8_t* setsData = NULL; int32_t nsets = 0;
-        if (!RflArrayAt(cats, offSettings, &setsData, &nsets) || nsets <= 0 || nsets > 256) {
-            Log("gameopts/menu: category 0: m_Settings unreadable or implausible (n=%d). The "
-                "DisSettingsCategory stride is not measured, so categories past the first are "
-                "deliberately NOT walked - striding on a guess is how a table of nonsense gets "
-                "reported as evidence.", (int)nsets);
-            break;
+    const uint32_t catSize=settings+12, subSize=subTail+4, settingSize=settingTail+4;
+    if(ncat>32 || catSize>256 || subSize>256 || settingSize>256 ||
+       settings<subs+12 || subTail<subSettings+12 || settingTail<idOff+4 ||
+       !RangeReadable(cats,(size_t)ncat*catSize)) {
+        Log("gameopts/menu: refused layout cats=%d sizes=%u/%u/%u",ncat,catSize,subSize,settingSize); return;
+    }
+    Log("gameopts/menu: reflected tail sizes category=%u subcategory=%u setting=%u id-offset=%u; "
+        "enumeration does not prove the native setter maps ids to PSI",catSize,subSize,settingSize,idOff);
+    int printed=0, failures=0;
+    auto dump = [&](uint8_t* owner,uint32_t off,int c,int sub) {
+        uint8_t* data=NULL; int32_t count=0;
+        if(!RflArrayAt(owner,off,&data,&count) || count<0 || count>256 ||
+           (count && !RangeReadable(data,(size_t)count*settingSize))) {
+            ++failures; Log("gameopts/menu: category=%d sub=%d unreadable settings",c,sub); return;
         }
-        Log("gameopts/menu: category 0 holds %d setting(s):", (int)nsets);
-        for (int i = 0; i < nsets && i < 64; ++i) {
-            // DisSetting is { int m_SettingID; FString m_SettingNameOverride; }
-            // so the id is at +0 of a 16-byte element (int + 12-byte FString).
-            // That size is a candidate, not a measurement: the ids it produces
-            // are the test.
-            const uint8_t* e = setsData + (size_t)i * 16;
-            if (!RangeReadable((void*)e, 4)) break;
-            const int32_t id = *(const int32_t*)e;
-            const bool ok = id >= 0 && id <= 200;
-            if (ok) ++plausible; else ++wild;
-            Log("gameopts/menu:   [%2d] m_SettingID=%d%s", i, (int)id,
-                ok ? "" : "   <- outside the PSI range: the 16-byte element guess is wrong");
+        Log("gameopts/menu: category=%d sub=%d settings=%d",c,sub,count);
+        for(int i=0;i<count;++i) {
+            int32_t id=0; memcpy(&id,data+(size_t)i*settingSize+idOff,4);
+            const char* candidate="no PSI target match";
+            for(int j=0;j<kGoCount;++j) if(kGoTable[j].id==id) candidate=kGoTable[j].psiName;
+            Log("gameopts/menu: category=%d sub=%d row=%d id=%d numeric-PSI-match=%s (mapping unverified)",c,sub,i,id,candidate);
             ++printed;
         }
+    };
+    for(int c=0;c<ncat;++c) {
+        uint8_t* cat=cats+(size_t)c*catSize;
+        dump(cat,settings,c,-1);
+        uint8_t* data=NULL; int32_t count=0;
+        if(!RflArrayAt(cat,subs,&data,&count) || count<0 || count>32 ||
+           (count && !RangeReadable(data,(size_t)count*subSize))) {
+            ++failures; Log("gameopts/menu: category=%d unreadable subcategories",c); continue;
+        }
+        for(int sub=0;sub<count;++sub) dump(data+(size_t)sub*subSize,subSettings,c,sub);
     }
-    Log("gameopts/menu: %d id(s) printed, %d plausible, %d outside the PSI range. %s",
-        printed, plausible, wild,
-        wild > plausible
-          ? "MOSTLY WILD: the element size is wrong and none of these ids are evidence."
-          : "If these are plausible they are the ids OnSettingChange takes, and they can be "
-            "compared against the PSI table to see whether the two schemes agree.");
+    Log("gameopts/menu: enumeration complete rows=%d failures=%d; setter remains disabled",printed,failures);
 }
 
 // VR-161: THE FIRST WRITE. Everything above this point was read-only.
@@ -768,6 +762,18 @@ static void GoDumpMenuSettings(const char* who)
 static bool GoWriteRaw(uint8_t* obj, int wantId, int32_t newValue, int32_t* before)
 {
     *before = 0;
+    int entries=0, ascending=0, inRange=0;
+    if (!IsLiveObject(obj) || !GoVerifyStride(obj,&entries,&ascending,&inRange)) {
+        Log("gameopts/write: refused id=%d: liveness or full layout validation failed",wantId);
+        return false;
+    }
+    // Only the approved integer settings. Float head bob is explicitly refused.
+    if (!(wantId==105 || wantId==109 || wantId==99 || wantId==81 || wantId==83 ||
+          wantId==120 || wantId==121 || wantId==122 || wantId==123) ||
+        newValue<0 || newValue>1) {
+        Log("gameopts/write: refused id=%d value=%d: unsupported id/type/value",wantId,newValue);
+        return false;
+    }
     const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
     uint8_t* data = NULL; int32_t num = 0;
     if (!off || !RflArrayAt(obj, off, &data, &num) || !data || num <= 0 || num > 4096) return false;
@@ -775,10 +781,10 @@ static bool GoWriteRaw(uint8_t* obj, int wantId, int32_t newValue, int32_t* befo
     uint32_t* d = (uint32_t*)data;
     for (int i = 0; i < num; ++i) {
         uint32_t* e = d + (size_t)i * kGoStrideDwords;
-        if ((int32_t)e[1] != wantId) continue;
+        if ((int32_t)e[1] != wantId || e[0] != 2) continue;
         // Re-read the id at the exact address about to be written past, so a
         // wrong stride cannot land on a neighbour's value.
-        if ((int32_t)e[1] != wantId) return false;
+        if ((int32_t)e[1] != wantId || e[0] != 2 || e[2] != 1 || !IsLiveObject(obj)) return false;
         *before = (int32_t)e[3];
         e[3] = (uint32_t)newValue;
         return true;
@@ -789,24 +795,32 @@ static bool GoWriteRaw(uint8_t* obj, int wantId, int32_t newValue, int32_t* befo
 static void GoApplyWrites(uint8_t* obj, const char* spec)
 {
     if (!obj || !spec || !spec[0]) return;
+    if (!BuildLiveSet() || !IsLiveObject(obj)) { Log("gameopts/write: current live table refused object %p",obj); return; }
     Log("gameopts/write: applying '%s'. This is a WRITE to the live profile array. A value "
-        "that changes here has NOT been shown to change the game - watch the system column "
-        "and the picture, not this line.", spec);
+        "that changes here has NOT been shown to change the game; renderer state is unmeasured.", spec);
     const char* p = spec;
     while (*p) {
         while (*p == ' ' || *p == ',') ++p;
         if (!*p) break;
-        const int id = atoi(p);
+        char* endId = NULL;
+        const long id = strtol(p, &endId, 10);
         const char* eq = strchr(p, '=');
         if (!eq) { Log("gameopts/write: '%s' has no = ; nothing written", p); break; }
-        const int val = atoi(eq + 1);
+        char* endValue = NULL;
+        const long val = strtol(eq + 1, &endValue, 10);
+        const bool parsedValue = endValue != eq+1;
+        while (*endValue == ' ') ++endValue;
+        if (endId != eq || endId == p || !parsedValue ||
+            (*endValue && *endValue != ',') || id<0 || id>153 || val<0 || val>1) {
+            Log("gameopts/write: malformed or out-of-range request '%s'; stopped",p); break;
+        }
         int32_t before = 0;
         const bool ok = GoWriteRaw(obj, id, val, &before);
         int32_t after = 0;
         const GoRaw rb = GoReadRaw(obj, id);
         if (rb.ok) after = rb.value;
         Log("gameopts/write:   id %d: %s before=%ld asked=%ld readback=%s%ld%s",
-            id, ok ? "written" : "NOT FOUND IN THE ARRAY - nothing written",
+            id, ok ? "written" : "REFUSED - nothing written",
             (long)before, (long)val, rb.ok ? "" : "(unreadable) ", (long)after,
             (ok && rb.ok && after == val) ? "  (the array took it)"
                                           : "  (the array did NOT take it)");

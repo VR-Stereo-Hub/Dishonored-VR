@@ -1,3 +1,10 @@
+## Option and chain source review (2026-09-20)
+
+- [x] VR-161: fix nested menu enumeration and raw profile write validation; 17 host checks.
+- [x] VR-165: remove invalid radius inference; measure the separate influence graph.
+- [ ] VR-161: verify native setter mapping and downstream setting application.
+- [ ] VR-165: correlate reproduced displacement with camera sources, then fix its owner.
+
 ## Misc fixes (2026-09-17)
 
 - [x] VR-134: animation-state arm checkboxes implemented with host coverage.

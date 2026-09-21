@@ -3313,3 +3313,30 @@ release.
 per PRESENT into a ring and dumps the raw `ms,x,y,z` samples when a large
 excursion arms it. It derives nothing; its header tells the reader to check the
 sample spacing before reading the shape.
+
+## VR-165 source graph correction and next candidate (2026-09-20)
+
+1. Symptom/surface: continuous whole-view camera displacement after X-release
+   from a chain, the smooth camera-motion category rather than eye flicker.
+2. Identity: source review based on bf5733638 and the attached healthy/bugged
+   eye-offset report. That report is prior evidence, not a new measured run.
+3. Correction: the earlier elimination of DishonoredCamera.ini influences was
+   too broad. Camera.ModifierList holds CameraModifier objects. The local class
+   declarations show a separate DishonoredPlayerCamera.m_InfluenceGroups graph,
+   with DishonoredCameraInfluenceGroup.m_Influences, m_Weight and m_TargetWeight.
+   The old probe never read that graph. Only ModifierList is eliminated.
+4. Candidate: read-only camera/source samples on the script lane every 500 ms,
+   bounded to 1800 snapshots. Includes pawn eye heights, velocity, POV offset,
+   every influence weight/target and available PlayerControl/AnimDriven debug
+   POVs and mantle source vectors. Unavailable/nonfinite values print nan.
+   This is a state comparison instrument, not a per-frame frequency probe.
+5. Counterprediction: if these sources own the displacement, a source vector or
+   influence weight changes between healthy and bugged standing pitch and
+   returns after Blink. If they stay unchanged, inspect native camera update
+   and skeletal inputs downstream; do not declare the graph innocent based
+   only on weights. Debug fields may be stale and need runtime corroboration.
+6. Radius inference removed: independent xyz/pitch extrema do not define an
+   arc radius, even above a minimum pitch threshold. Span logs make no cause
+   claim. Large POV-minus-pawn establishes displacement, not ownership.
+7. Validation: Release/lint/exports pass. No new headset result; no camera fix
+   or clamp installed. One launch question and sequence are in STATUS.md.

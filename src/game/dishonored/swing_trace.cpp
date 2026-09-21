@@ -208,110 +208,25 @@ static void SwingClimbWatch(const char* masterState)
 // whether the eye position moves as a function of pitch, and with what radius.
 //
 // This correlates the render camera's position against head pitch over a short
-// window and reports the implied radius: how far the eye moves per radian of
-// pitch. Standing still and looking around, a correct camera moves by roughly
-// the neck offset (a few uu). A number in the hundreds is the arc the user is
-// describing, and its size names the offset that is wrong.
-//
-// Read-only. It derives a radius from measured spans and says what would make
-// it meaningless, rather than asserting one.
+// window. No radius or ownership is inferred from these spans.
+// Report observed spans only. Independent axis extrema do not define a radius.
 static void SwingArcWatch(float camX, float camY, float camZ, float headPitchDeg)
 {
     if (!g_swOn) return;
     const double now = MaimNowMs();
-    static double winStart = 0.0;
-    static float pMin = 1e30f, pMax = -1e30f;
-    static float xMin = 1e30f, xMax = -1e30f, yMin = 1e30f, yMax = -1e30f, zMin = 1e30f, zMax = -1e30f;
-    static int   n = 0;
-
-    if (winStart == 0.0) winStart = now;
-    if (headPitchDeg < pMin) pMin = headPitchDeg;
-    if (headPitchDeg > pMax) pMax = headPitchDeg;
-    if (camX < xMin) xMin = camX; if (camX > xMax) xMax = camX;
-    if (camY < yMin) yMin = camY; if (camY > yMax) yMax = camY;
-    if (camZ < zMin) zMin = camZ; if (camZ > zMax) zMax = camZ;
+    static double start = 0;
+    static float lo[4], hi[4];
+    static int n = 0;
+    const float v[4] = {camX, camY, camZ, headPitchDeg};
+    for (int i=0; i<4; ++i) if (!std::isfinite(v[i])) return;
+    if (!n) { start=now; for(int i=0;i<4;++i) lo[i]=hi[i]=v[i]; }
+    for(int i=0;i<4;++i) { if(v[i]<lo[i]) lo[i]=v[i]; if(v[i]>hi[i]) hi[i]=v[i]; }
     ++n;
-
-    if (now - winStart < 2000.0) return;
-    const float pitchSpanDeg = pMax - pMin;
-    const float posSpan = sqrtf((xMax - xMin) * (xMax - xMin) +
-                                (yMax - yMin) * (yMax - yMin) +
-                                (zMax - zMin) * (zMax - zMin));
-    const float pitchRad = pitchSpanDeg * 0.0174533f;
-    // Only meaningful when the head actually pitched; otherwise the ratio is
-    // position change divided by nothing, which is how a previous instrument in
-    // this same file produced a number that meant nothing.
-    if (n >= 30 && pitchSpanDeg >= 20.0f) {
-        const float radiusUu = posSpan / (pitchRad > 0.01f ? pitchRad : 1.0f);
-        if (radiusUu > 60.0f) {
-            Log("swing/arc: the eye moved %.1f uu while the head pitched %.1f deg -> implied "
-                "radius %.0f uu per radian. A correct camera moves about the neck offset (a few "
-                "uu); this is an ARC, and its radius is the offset that is wrong. Walking also "
-                "moves the eye, so treat this as a lead only if the player was standing still.",
-                posSpan, pitchSpanDeg, radiusUu);
-            // WHOSE camera is this? Our own contribution is already known to be
-            // small (max 62 uu against a 350 uu arc), so the arc is the GAME
-            // moving its own camera - but nothing yet says whether it switched
-            // to a different camera object or mode when the chain was released.
-            // cine/trace carries that identity and fired six times in a whole
-            // run, so it was never available when it mattered. Print it HERE,
-            // beside the arc that needs explaining, rather than hoping another
-            // subsystem happens to log in the same second.
-            uint8_t* cam = g_camObj;
-            const char* cls = (cam && IsLiveObject(cam)) ? ObjClassName(cam) : NULL;
-            float gamePos[3] = {0,0,0};
-            const bool gameOk = cam && g_ctLayout && g_ctCache &&
-                                CtRead(cam, g_ctCache + g_ctPov + g_ctLoc, gamePos, sizeof(gamePos));
-            float ours[3] = {0,0,0};
-            dvr::camera::position_offset_uu(ours);
-            const float ourMag = std::sqrt(ours[0]*ours[0] + ours[1]*ours[1] + ours[2]*ours[2]);
-            Log("swing/arc:   camera object %p class '%s' | game POV %s%.1f/%.1f/%.1f | "
-                "OUR offset %.1f uu | eye %.1f/%.1f/%.1f",
-                (void*)cam, cls ? cls : "(unreadable)",
-                gameOk ? "" : "UNREADABLE ", gamePos[0], gamePos[1], gamePos[2],
-                ourMag, camX, camY, camZ);
-            // THE NUMBER THAT NAMES IT. Run 9 settled the remaining doubt: the
-            // camera object and class never change, and the player's velocity
-            // was 0.0 in every arc window, so this is not a camera swap and not
-            // locomotion - the game's own POV translates hundreds of uu while
-            // the pawn stands still.
-            //
-            // A POV that moves while its pawn does not is an OFFSET being
-            // rotated. In first person that offset should be about eye height
-            // (the collision cylinder is 87.5 uu, so roughly 60-70 uu); an
-            // offset of several hundred is a lever long enough to produce the
-            // measured arc. So print POV minus pawn: its magnitude IS the lever
-            // arm, and comparing it against a healthy run says whether the
-            // offset grew or was always this size and only started rotating.
-            if (gameOk && g_pePawn && g_actorLocFound &&
-                RangeReadable(g_pePawn + g_actorLocOff, 12)) {
-                const float* pw = (const float*)(g_pePawn + g_actorLocOff);
-                const float ex = gamePos[0] - pw[0], ey = gamePos[1] - pw[1], ez = gamePos[2] - pw[2];
-                const float eye = std::sqrt(ex*ex + ey*ey + ez*ez);
-                Log("swing/arc:   pawn %.1f/%.1f/%.1f -> EYE OFFSET %.1f/%.1f/%.1f = %.1f uu. "
-                    "First-person eye height is about 60-70 uu on an 87.5 uu cylinder. %s",
-                    pw[0], pw[1], pw[2], ex, ey, ez, eye,
-                    eye > 150.0f
-                      ? "THIS IS THE LEVER: the camera is offset far further from the pawn than "
-                        "an eye should be, so head pitch swings it through the measured arc. The "
-                        "fix is whatever is inflating this offset."
-                      : "This offset is normal, so the arc is NOT a long lever and the POV is "
-                        "being driven some other way - do not chase the offset.");
-            } else {
-                Log("swing/arc:   pawn location unavailable (pawn=%p found=%d), so the eye "
-                    "offset - the one number that would name the lever - is NOT measured here",
-                    (void*)g_pePawn, (int)g_actorLocFound);
-            }
-        }
-        else
-            DVR_LOG_EVERY_MS(dvr::log::Cat::head, dvr::log::Level::Info, 30000,
-                "swing/arc: eye moved %.1f uu over %.1f deg of pitch -> radius %.0f uu/rad "
-                "(under the 60 uu/rad lead threshold; this is normal head motion)",
-                posSpan, pitchSpanDeg, radiusUu);
-    }
-    winStart = now; n = 0;
-    pMin = 1e30f; pMax = -1e30f;
-    xMin = yMin = zMin = 1e30f; xMax = yMax = zMax = -1e30f;
+    if(now-start<2000) return;
+    Log("swing/arc: samples=%d elapsed=%.0fms xyz-span=%.1f/%.1f/%.1f pitch-span=%.1f deg; "
+        "spans include locomotion and angle wrapping; no radius or cause inferred", n, now-start,
+        hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2],hi[3]-lo[3]);
+    n=0;
 }
 
 static void SwingTraceConfigure(const char* ini)

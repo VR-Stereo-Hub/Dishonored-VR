@@ -11,18 +11,10 @@
 // ordinary walking. So the swing is game-side and no clamp on our own writer
 // can touch it.
 //
-// RESULT, run 2 (2026-09-20, the user reproduced it by ungrabbing the chain
-// with X rather than jumping off): **THE MODIFIER STACK IS NOT THE OWNER.**
-// The probe caught the swing (199.7 uu while SWINGING, 6.3 uu once SETTLED)
-// and `Camera.ModifierList` held exactly ONE entry throughout:
-//
-//   [0] CameraModifier_CameraShake  alpha=0.000 target=0.000 prio=127 disabled=0
-//
-// Zero weight, identical swinging and settled. So the suspects from
-// DishonoredCamera.ini - Lean, Dodge, Shake, BumpSmoother, the DisableArmFollow
-// pair - are ELIMINATED: those sections configure classes that never enter the
-// runtime modifier stack at all. The swing lives in the camera's own POV
-// update, not the modifier chain. Do not come back to ModifierList for this.
+// Camera.ModifierList excludes only UE3 CameraModifier objects. Dishonored uses
+// a SEPARATE m_InfluenceGroups array. An empty ModifierList never eliminated
+// those influences; the source probe below reads that actual graph.
+// The old frequency estimates were retracted; see FLICKER_REFERENCE.md.
 //
 // The probe is kept because that elimination is the result, and because it is
 // what will show a modifier arriving if one ever does.
@@ -98,9 +90,78 @@ bool CmCameraZ(uint8_t* cam, float* z)
 
 } // namespace
 
+// Sample the real source graph on the script lane, never from Present.
+// Includes healthy samples and unresolved reads; no threshold can hide a result.
+static void CameraSourceTick()
+{
+    if (!g_cmOn) return;
+    static double next=0;
+    static unsigned samples=0;
+    const double now=MaimNowMs();
+    if(now<next || samples>=1800) return;
+    next=now+500;
+    uint8_t* cam=g_camObj; uint8_t* pawn=g_pePawn;
+    if(!cam || !pawn) return;
+    ++samples;
+    if(!BuildLiveSet() || !IsLiveObject(cam) || !IsLiveObject(pawn)) {
+        Log("camera/source: sample=%u unavailable: live camera/pawn validation failed",samples); return;
+    }
+    auto scalar = [](uint8_t* o,const char* cls,const char* prop) -> float {
+        float v=NAN; const uint32_t off=RflOffsetOf(cls,prop);
+        if(o && off && RangeReadable(o+off,4)) memcpy(&v,o+off,4);
+        return v;
+    };
+    auto vector = [](uint8_t* o,const char* cls,const char* prop,float* v) {
+        v[0]=v[1]=v[2]=NAN; const uint32_t off=RflOffsetOf(cls,prop);
+        if(o && off && RangeReadable(o+off,12)) memcpy(v,o+off,12);
+    };
+    float pov[3]={NAN,NAN,NAN},loc[3],vel[3];
+    if(g_ctLayout && g_ctCache) CtRead(cam,g_ctCache+g_ctPov+g_ctLoc,pov,sizeof(pov));
+    vector(pawn,"Actor","Location",loc); vector(pawn,"Actor","Velocity",vel);
+    const dvr::anim::Snapshot state=dvr::anim::snapshot();
+    Log("camera/source: sample=%u time=%.0f cam=%p pawn=%p state=%s eye=%.2f/%.2f/%.2f "
+        "velocity=%.2f/%.2f/%.2f EyeHeight=%.2f BaseEyeHeight=%.2f; nan=unavailable/nonfinite, 500ms samples are not a frequency measurement",
+        samples,now,cam,pawn,state.state[0],pov[0]-loc[0],pov[1]-loc[1],pov[2]-loc[2],
+        vel[0],vel[1],vel[2],scalar(pawn,"Pawn","EyeHeight"),scalar(pawn,"Pawn","BaseEyeHeight"));
+    uint8_t* groups=NULL; int32_t count=0;
+    const uint32_t off=RflOffsetOf("DishonoredPlayerCamera","m_InfluenceGroups");
+    if(!off || !RflArrayAt(cam,off,&groups,&count) || count>16 ||
+        (count && !RangeReadable(groups,count*sizeof(void*)))) {
+        Log("camera/source: influence groups unavailable count=%d",count); return;
+    }
+    Log("camera/source: groups=%d (separate from Camera.ModifierList)",count);
+    for(int g=0;g<count;++g) {
+        uint8_t* group=((uint8_t**)groups)[g];
+        if(!IsLiveObject(group)) { Log("camera/source: group=%d not live",g); continue; }
+        uint8_t* influences=NULL; int32_t n=0;
+        const uint32_t io=RflOffsetOf("DishonoredCameraInfluenceGroup","m_Influences");
+        if(!io || !RflArrayAt(group,io,&influences,&n) || n>64 ||
+           (n && !RangeReadable(influences,n*sizeof(void*)))) {
+            Log("camera/source: group=%d influences unavailable n=%d",g,n); continue;
+        }
+        Log("camera/source: group=%d obj=%p weight=%g influences=%d",g,group,
+            scalar(group,"DishonoredCameraInfluenceGroup","m_Weight"),n);
+        for(int i=0;i<n;++i) {
+            uint8_t* inf=((uint8_t**)influences)[i];
+            if(!IsLiveObject(inf)) { Log("camera/source: group=%d row=%d not live",g,i); continue; }
+            const char* cls=ObjClassName(inf);
+            float source[3]={NAN,NAN,NAN}; const char* field="not exposed";
+            if(cls && (!strcmp(cls,"DishonoredCamera_PlayerControl") || !strcmp(cls,"DishonoredCamera_AnimDriven"))) field="m_Debug_POV_Location";
+            else if(cls && !strcmp(cls,"DishonoredCamera_CrouchMantleOffset")) field="m_StartingOffset";
+            else if(cls && !strcmp(cls,"DisCamera_StepUpMantleOffset")) field="m_StepUpStartPos";
+            if(strcmp(field,"not exposed")) vector(inf,cls,field,source);
+            Log("camera/source: group=%d row=%d obj=%p class=%s weight=%g target=%g %s=%.2f/%.2f/%.2f",
+                g,i,inf,cls?cls:"unavailable",scalar(inf,"DishonoredCameraInfluence","m_Weight"),
+                scalar(inf,"DishonoredCameraInfluence","m_TargetWeight"),field,source[0],source[1],source[2]);
+        }
+    }
+    if(samples==1800) Log("camera/source: sample budget exhausted; restart required for more source snapshots");
+}
+
 // Called from the script lane next to the other per-tick readers.
 static void CamModTick()
 {
+    CameraSourceTick();
     if (!g_cmOn) return;
     uint8_t* cam = g_camObj;
     if (!cam || !IsLiveObject(cam)) return;

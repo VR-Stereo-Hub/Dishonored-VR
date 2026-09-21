@@ -7907,3 +7907,30 @@ BYTE AdvertisementType; }` wraps `SettingsData { BYTE Type; INT Value1; void*
 Value2; }`. Three enum fields whose packed widths and padding have not been
 measured on this build. A guessed stride would produce a table of confident
 nonsense, so the engine walks its own array instead.
+
+## Camera influences and option layout audit (2026-09-20)
+
+Local declaration inspection distinguishes Camera.ModifierList from the
+DishonoredPlayerCamera.m_InfluenceGroups graph. The latter groups contain
+m_Influences; the influence base exposes m_Weight/m_TargetWeight.
+PlayerControl and AnimDriven expose m_Debug_POV_Location; CrouchMantleOffset
+exposes m_StartingOffset; StepUpMantleOffset exposes m_StepUpStartPos.
+All new source reads resolve fields by declaring name, without fixed offsets.
+No claim is made yet that the debug vectors update in this executable.
+
+DisSetting contains an int, FString, AND packed bool fields. The earlier
+16-byte stride omitted those flags. DisSettingsCategory has a name and two
+arrays; DisSettingsSubCategory has a name, settings array and trailing bool.
+The read-only walker derives extents from the final reflected field plus its
+x86 storage width (12 for TArray, 4 for bool word), bounds the full buffers,
+and visits all categories and nested subcategories. This relies on these
+known declarations and 4-byte alignment, not guessed PSI plausibility.
+FindPropOffsetChecked distinguishes successful offset zero from lookup failure.
+Enumeration/numeric equality alone does not prove OnSettingChange semantics.
+The native setter/apply/save path remains disabled pending mapping evidence.
+
+Profile record validation no longer uses an 80 percent ascending threshold:
+every owner/id/type must be valid and each (owner,id) unique. Raw reads choose
+the game-owned entry. Integer writes revalidate current liveness, full layout,
+owner 2/type 1, approved id and binary value. Float head bob is never written
+through that path. Host tests exercise the actual production function bodies.

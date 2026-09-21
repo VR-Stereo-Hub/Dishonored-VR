@@ -1,3 +1,41 @@
+## Camera source and option review (2026-09-20)
+
+Current state: branch `codex/vr-165-camera-source-review`, based on the attached
+review-plan commit `bf5733638`; no merge. The chain root cause remains open.
+Installed candidate: `vr33-hands-working-549-gbf5733638-dirty`, DLL SHA256
+`69405023822796d766ee637019ef25f88c4a2c807f90e5d97abaf97db3c8eff8`.
+Prior DLL/INI/both logs archived in
+`build/playtest-candidates/installs/20260920-194126`. Full INI comparison shows
+only GameOptsWrite cleared and CamModProbe/SwingTrace explicitly set to 1;
+CRLF verified. Final parser-correction install archived at
+`build/playtest-candidates/installs/20260920-194338`; its full INI is byte-identical.
+No new playtest banner exists yet.
+The old ModifierList probe does not inspect Dishonored camera influences.
+New script-lane `camera/source` snapshots read m_InfluenceGroups, influence
+weights/targets and exposed source vectors, pawn EyeHeight/BaseEyeHeight,
+velocity and POV-minus-pawn. Samples include healthy states, carry object
+identity, report unavailable values, and make no frequency or cause claim.
+The invalid radius estimate was removed.
+
+Option review fixes: enumerate all categories and subcategories, derive x86
+struct extents from reflected final fields including bool storage, accept a
+successfully resolved offset zero. Native setter/PSI equivalence remains
+unverified, so no OnSettingChange, OnApplyVideoSettings or SaveProfile call.
+Raw writes require a refreshed live-object table, validated unique owner/id
+records, owner 2/type 1 and an approved id/value. Head bob floats are displayed
+as floats and refused by the integer writer. Fullscreen/vsync are refused.
+Empty console replies are explicitly unavailable, never renderer evidence.
+
+Validation: Release build, lint, nine exports, and 17 host checks of the
+production validator/writer passed. Game was not launched by the agent.
+Next test: stand still and pitch normally, reproduce X-release from a chain,
+stand still and pitch again, then Blink and repeat. One question: which source
+field changes with the enlarged eye offset and returns after Blink? A source
+change names the next native writer to inspect; unchanged sources leave the
+fault downstream; no reproduction or unresolved fields is inconclusive.
+See [camera evidence](dishonored/FLICKER_REFERENCE.md) for the corrected
+elimination and [engine notes](dishonored/ENGINE_NOTES.md) for layout reasoning.
+
 ## Session handoff 2026-09-19 (late): SteamVR, the judder, and two retractions
 
 ### Where things are RIGHT NOW

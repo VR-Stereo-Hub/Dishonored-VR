@@ -1064,3 +1064,12 @@ The general lesson is the one this file keeps recording in other forms: **"the
 tool does not work" and "the tool was never invoked" produce the same report**,
 and they are distinguished by evidence - here the ini's timestamp, which said
 plainly that nothing had written it.
+
+## A related container is not the container under investigation (2026-09-20)
+
+An empty UE3 Camera.ModifierList was used to eliminate Dishonored's camera
+influences. They live in m_InfluenceGroups, a different graph. Only the
+measured population can be eliminated. Similarly, a menu walker stopping at
+category zero cannot characterize nested categories, and DisSetting's bool
+fields cannot be omitted when deriving its stride. The corrected instruments
+include empty/unresolved results and avoid radius or setter-mapping claims.
