@@ -767,11 +767,29 @@ static bool GoWriteRaw(uint8_t* obj, int wantId, int32_t newValue, int32_t* befo
         Log("gameopts/write: refused id=%d: liveness or full layout validation failed",wantId);
         return false;
     }
-    // Only the approved integer settings. Float head bob is explicitly refused.
-    if (!(wantId==105 || wantId==109 || wantId==99 || wantId==81 || wantId==83 ||
-          wantId==120 || wantId==121 || wantId==122 || wantId==123) ||
-        newValue<0 || newValue>1) {
-        Log("gameopts/write: refused id=%d value=%d: unsupported id/type/value",wantId,newValue);
+    // The approved list. Head bob (108) is here too now, but it is a FLOAT and
+    // is written through the float path below - never as an int.
+    //
+    // WHY IT MATTERS THAT THIS IS DATA-DRIVEN. The read reported head bob as
+    // "type 5" where every other setting is type 1, and ESettingsDataType has
+    // SDT_Float = 5. So the entry itself says how to store it. Writing 1 as an
+    // integer into a float field gives 1.4e-45, a denormal that reads as ~0 -
+    // the setting would look written and do nothing, which is precisely the
+    // "verified write is not an honoured one" trap in a new costume.
+    const bool isFloat = (wantId == 108);
+    if (!(wantId==105 || wantId==108 || wantId==109 || wantId==99 || wantId==81 ||
+          wantId==83 || wantId==120 || wantId==121 || wantId==122 || wantId==123)) {
+        Log("gameopts/write: refused id=%d: not in the approved list",wantId);
+        return false;
+    }
+    if (!isFloat && (newValue<0 || newValue>1)) {
+        Log("gameopts/write: refused id=%d value=%d: integer settings take 0 or 1 only",
+            wantId,newValue);
+        return false;
+    }
+    if (isFloat && (newValue<0 || newValue>100)) {
+        Log("gameopts/write: refused id=%d value=%d: head bob is a 0..100 float slider",
+            wantId,newValue);
         return false;
     }
     const uint32_t off = RflOffsetOf("OnlinePlayerStorage", "ProfileSettings");
@@ -784,9 +802,26 @@ static bool GoWriteRaw(uint8_t* obj, int wantId, int32_t newValue, int32_t* befo
         if ((int32_t)e[1] != wantId || e[0] != 2) continue;
         // Re-read the id at the exact address about to be written past, so a
         // wrong stride cannot land on a neighbour's value.
-        if ((int32_t)e[1] != wantId || e[0] != 2 || e[2] != 1 || !IsLiveObject(obj)) return false;
+        // The entry's own Type decides how the value is stored. 1 = SDT_Int32,
+        // 5 = SDT_Float. Anything else is refused rather than guessed at.
+        const uint32_t type = e[2];
+        const uint32_t wantType = isFloat ? 5u : 1u;
+        if ((int32_t)e[1] != wantId || e[0] != 2 || type != wantType || !IsLiveObject(obj)) {
+            Log("gameopts/write: refused id=%d: entry says type=%u, expected %u for this id - "
+                "the table and the array disagree, so nothing is written",
+                wantId, type, wantType);
+            return false;
+        }
         *before = (int32_t)e[3];
-        e[3] = (uint32_t)newValue;
+        if (isFloat) {
+            const float f = (float)newValue;
+            uint32_t bits; memcpy(&bits, &f, 4);
+            e[3] = bits;
+            Log("gameopts/write: id=%d stored as FLOAT %.1f (bits 0x%08x), not as an integer - "
+                "the entry's own type field says SDT_Float", wantId, f, bits);
+        } else {
+            e[3] = (uint32_t)newValue;
+        }
         return true;
     }
     return false;
@@ -819,11 +854,23 @@ static void GoApplyWrites(uint8_t* obj, const char* spec)
         int32_t after = 0;
         const GoRaw rb = GoReadRaw(obj, id);
         if (rb.ok) after = rb.value;
-        Log("gameopts/write:   id %d: %s before=%ld asked=%ld readback=%s%ld%s",
-            id, ok ? "written" : "REFUSED - nothing written",
-            (long)before, (long)val, rb.ok ? "" : "(unreadable) ", (long)after,
-            (ok && rb.ok && after == val) ? "  (the array took it)"
-                                          : "  (the array did NOT take it)");
+        // A float entry's raw dword is a bit pattern, so printing it as an
+        // integer reads as garbage (1.0f shows as 1065353216). Decode by the
+        // entry's own type rather than by which id it is.
+        const bool rbFloat = rb.ok && rb.type == 5;
+        float rbF = 0.0f; if (rbFloat) memcpy(&rbF, &rb.value, 4);
+        const bool took = ok && rb.ok && (rbFloat ? ((int)(rbF + 0.5f) == (int)val)
+                                                  : (after == val));
+        if (rbFloat)
+            Log("gameopts/write:   id %d: %s asked=%ld readback=%.2f (float, raw 0x%08lx)%s",
+                id, ok ? "written" : "REFUSED - nothing written",
+                (long)val, rbF, (unsigned long)rb.value,
+                took ? "  (the array took it)" : "  (the array did NOT take it)");
+        else
+            Log("gameopts/write:   id %d: %s before=%ld asked=%ld readback=%s%ld%s",
+                id, ok ? "written" : "REFUSED - nothing written",
+                (long)before, (long)val, rb.ok ? "" : "(unreadable) ", (long)after,
+                took ? "  (the array took it)" : "  (the array did NOT take it)");
         const char* comma = strchr(p, ',');
         if (!comma) break;
         p = comma + 1;
