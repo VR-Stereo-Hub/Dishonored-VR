@@ -140,7 +140,9 @@ static void OverlayFrame()
         if (changed) { InteractAimSet(interact,"F10"); ConfigWriteKey("Aim","InteractFromHand",interact ? "1" : "0","F10 Aim"); }
         bool thrown = row("Grenades", ThrowAimEnabled(), &changed);
         if (changed) { ThrowAimSet(thrown,"F10"); ConfigWriteKey("Aim","ThrowFromHand",thrown ? "1" : "0","F10 Aim"); }
-        ImGui::TextDisabled("Head only for now (no controller route yet): spring razors (untested),");
+        bool gadget = row("Spring razors", GadgetAimEnabled(), &changed);
+        if (changed) { GadgetAimSet(gadget,"F10"); ConfigWriteKey("Aim","GadgetFromHand",gadget ? "1" : "0","F10 Aim"); }
+        ImGui::TextDisabled("Head only for now (no controller route yet):");
         ImGui::TextDisabled("Windblast, Devouring Swarm, Possession and the other powers.");
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
         if (g_gamepadOnly) ImGui::TextDisabled("[Mode] GamepadOnly=1: everything stays on the head.");

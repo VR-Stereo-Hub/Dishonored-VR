@@ -8235,3 +8235,21 @@ number to guess:
 Possession never called the shared helper `0x00BF52E0` (0 probe hits in a
 possession run). `aimsrc/props:` lines log each field's offset once in gameplay,
 for a `disasm-rva.py disp` writer search.
+
+## The gadget seam: spring razors (VR-166, 2026-09-21)
+
+`DisItemContext_UseSpringRazor` (metadata `0x01362530`, ctor `0x00C23B20` -> `0x00C1F1A0`,
+context vtable `0x011733E0`; `ue3-natives.py` could not see the vtable through the ctor's
+tail jump) does NOT fire through `+0x1B0`: that slot is `0x00633610`, `xor eax,eax; ret 4`.
+The razor throw is the shared gadget-projectile routine `0x00C30040`, referenced from
+seven vtable slots and called at `0x00C305B3`:
+
+* this = `esi` (`[esi+0xA4]` tweaks, `[esi+0x3C]` item); source pawn `0x00BFF440` -> `ebp-4`;
+* SpawnActor `0x00C66070` at `0x00C300AB` (projectile class `[tweaks+0x42C]`, at the hand);
+* then `mov ecx,[ebp-4]; add ecx,0D0h` at `0x00C300DD` and `0x0040DA70` at `0x00C300E6`:
+  the throw direction comes from the SOURCE PAWN's rotation, which in VR is the head.
+
+Seam (`throw_aim.cpp`, gadget half): those 9 bytes (`8B 4D FC 81 C1 D0 00 00 00`, no
+relative operand, no jump inside) become `mov ecx,[g_gdUse]`: the pawn's rotation, or a
+hand-ray rotator for the player's own throw. Found by scanning SpawnActor call sites in
+the gadget region for a nearby `0x0040DA70`, the same shape as the grenade.

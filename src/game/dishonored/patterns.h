@@ -183,6 +183,12 @@ static const uintptr_t kInteractSelectorRet    = 0x00AB7CBB;   // its only calle
 static const uintptr_t kThrowRotSeam = 0x00C3908C;   // mov ecx,[ebp-78h]; lea edx,[ebp-74h]; push edx
 static const uint8_t   kThrowRotSeamBytes[7] = { 0x8B, 0x4D, 0x88, 0x8D, 0x55, 0x8C, 0x52 };
 static const uintptr_t kThrowRotBack = 0x00C39093;   // the rotator -> direction call
+// VR-166: the shared gadget-projectile routine 0x00C30040 (7 vtable slots; the spring razor
+// throw). After SpawnActor at 0x00C300AB it converts the SOURCE PAWN's rotation (+0xD0,
+// the head in VR) to the throw direction at 0x00C300E6. ENGINE_NOTES "The gadget seam".
+static const uintptr_t kGadgetRotSeam = 0x00C300DD;  // mov ecx,[ebp-4]; add ecx,0D0h
+static const uint8_t   kGadgetRotSeamBytes[9] = { 0x8B, 0x4D, 0xFC, 0x81, 0xC1, 0xD0, 0x00, 0x00, 0x00 };
+static const uintptr_t kGadgetRotBack = 0x00C300E6;  // the rotator -> direction call
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

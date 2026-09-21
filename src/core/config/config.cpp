@@ -482,6 +482,8 @@ static void WriteDefaultIni(const char* ini)
         "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
         "; The spawn point, speed and arc stay the game's; 0 = head.\n"
         "ThrowFromHand=1\n"
+        "; GadgetFromHand=1 (VR-166): spring razors leave along the weapon ray; 0 = head.\n"
+        "GadgetFromHand=1\n"
         "PropWatch=0\n"
         "InteractFocus=0\n"
         "[HandTracking]\n"
@@ -2462,6 +2464,7 @@ static void LoadConfig()
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
     ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
+    GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
