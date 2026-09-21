@@ -7952,3 +7952,43 @@ also report source-minus-pawn, without asserting debug-field freshness.
 No camera-memory write or root-cause fix. Next baseline/X-release/Blink test
 and installed identity are in STATUS.md. Run549 evidence is archived locally;
 the then-installed550 DLL is a separate identity from that log.
+
+## Head-bob apply path located (2026-09-20)
+
+Verified run551 (compiled20:15:53) against installed DLL SHA256
+`d1a6c5449f0d57e0e1365ff3cf0ed1f92722f05d7625b9ea524b5f13d518b494`.
+Evidence archived in `build/playtest-candidates/headbob-apply/20260920-202653`.
+Profile id108 began at float1, the requested write stored float0 and read back0.
+Tester observed menu0 with bob still active; moving the menu control away and
+back to0 stopped bob. Profile storage and live application are separate.
+
+Local scripts expose DisGFxMoviePlayerMenuBase.m_SettingsListeners and
+ArkSettingsListenerInterface implementations on camera, pawn, controller,
+input, HUD, post-process manager and other consumers. The interface is native
+noexport and has no script-callable callback declaration. OnlinePlayerStorage
+exposes SetProfileSettingValueFloat and SetRangedProfileSettingValueFloat;
+those declarations alone do not establish consumer notification. SaveProfile's
+script delegates to OnlinePlayerData.SaveProfileData, a persistence operation.
+
+Offline verification: ue3-natives --verify first re-derived the known crossbow
+class, then resolved DisGFxMoviePlayerMenuBase's OnSettingChange vtable slot.
+Following its exec thunk into the implementation shows the supplied setting ID
+compared directly with profile PropertyId. The handler obtains mapping/type,
+uses typed profile accessors, and unconditionally finishes by passing profile,
+its settings-listener array and apply mode1 to a common native helper.
+That helper first refreshes a shared settings object from the profile, then
+walks the 8-byte script-interface entries and invokes each listener callback.
+Thus the raw write skips both shared settings refresh and listener dispatch.
+This also resolves the menu-ID equivalence question for this handler.
+
+Implementation route: invoke the verified engine handler through its UFunction
+on a live initialized menu after validating its profile mapping and listener
+objects with a current live table. Alternatively reproduce the shared apply
+helper's verified contract, not just the camera callback. Neither route has
+been invoked by the mod yet; initialization, native signature and downstream
+acceptance need validation before promotion. Do not call SaveProfile to apply.
+
+Range correction: maximum in this measured run was profile float1, not100.
+The default script stores float1 for id108 as well. The earlier0..100 profile
+assumption is unsupported; distinguish UI display units from stored units.
+

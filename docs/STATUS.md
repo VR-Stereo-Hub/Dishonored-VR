@@ -1,3 +1,15 @@
+## Head-bob storage versus apply (2026-09-20)
+
+Run551 confirmed profile108 float1 ->0 and menu0, but bob stopped only after
+manual menu change. Decompiled scripts plus verified native handler trace
+identify the missing shared-settings refresh and listener notification.
+OnSettingChange uses profile PropertyId directly. No native apply call has yet
+been added; no new build installed in this research step. Next implementation
+must validate a live initialized menu/listeners and use the engine apply path,
+then test actual bob without manual slider changes. Preserve the independent
+chain investigation. Full evidence/derivation: ENGINE_NOTES, "Head-bob apply
+path located". Maximum profile value measured1, not100.
+
 ## Camera delta audit after run 549 (2026-09-20)
 
 Current state: installed `vr33-hands-working-551-g90ea17a76-dirty`, SHA256
