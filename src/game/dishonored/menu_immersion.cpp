@@ -44,6 +44,18 @@ static void MenuHeadBegin(bool scene,bool doubleDraw) {
     if(!HtConsumeSample(&head) || !head.ok || !head.poseOk || now<head.locateMs || now-head.locateMs>100 || !std::isfinite(head.pitch+head.yaw+head.roll)) return;
     CineTraceTick(); if(!g_ctLayout) return;
     const auto h=dvr::cine::rotation(head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll);
+    // VR-166 (the note snap): a screen can hand over to another WITHOUT ever
+    // unblocking - closing a note passes through a ~250 ms stale wheel context
+    // before gameplay. Re-seeding here took the head at the handover as the new
+    // reference, so the turn made while reading was dropped and the view snapped
+    // back on exit. Same camera, controller, pawn and load = the same menu stretch:
+    // keep the entry reference and only adopt the new context.
+    if((UiSurfaceEpoch()!=g_mhEpoch || context!=g_mhContext) && g_mhContext>=0 &&
+       MhValidate((uint8_t*)g_mhOwner[0].value.obj)) {
+        Log("menu/head: context %d -> %d while still blocked; owners unchanged, keeping the entry "
+            "reference so the turn made in %d carries to the exit",g_mhContext,context,g_mhContext);
+        g_mhContext=context;g_mhEpoch=UiSurfaceEpoch();
+    }
     if(UiSurfaceEpoch()!=g_mhEpoch || context!=g_mhContext || !MhValidate((uint8_t*)g_mhOwner[0].value.obj)) {
         g_mhHave=false;
         if(!BuildLiveSet()) return;
@@ -88,16 +100,30 @@ static bool MenuHeadResumeYaw(int32_t& delta) {
     if(GetCurrentThreadId()!=g_sdDrawTid) return false;
     g_mhResume=false;
     const double now=MaimNowMs();HtSample head{};
-    const bool valid=dvr::hudlayout::menu_exit_heading() && g_trackingEnabled && g_rotInject &&
-        !g_mainMenu && !g_gameExiting && !CineActive() && dvr::vr::session_live() &&
-        now>=g_mhLastScopeMs && now-g_mhLastScopeMs<=1000 &&
-        BuildLiveSet() && MhValidate((uint8_t*)g_mhOwner[0].value.obj) &&
-        HtConsumeSample(&head) && head.ok && head.poseOk && now>=head.locateMs && now-head.locateMs<=100;
+    // VR-166: name the guard that refused. One lumped line could not tell a
+    // stale scope from a lost owner from a late pose, and each points elsewhere.
+    const char* why=nullptr;
+    if(!dvr::hudlayout::menu_exit_heading()) why="option: menu exit heading is off";
+    else if(!g_trackingEnabled || !g_rotInject) why="head tracking or rotation inject is off";
+    else if(g_mainMenu || g_gameExiting) why="main menu or exiting";
+    else if(CineActive()) why="a cinematic is active";
+    else if(!dvr::vr::session_live()) why="XR session not live";
+    else if(now<g_mhLastScopeMs || now-g_mhLastScopeMs>1000) why="last menu head scope too old";
+    else if(!BuildLiveSet()) why="live-object table rebuild failed";
+    else if(!MhValidate((uint8_t*)g_mhOwner[0].value.obj)) why="camera/controller/pawn or load changed";
+    else if(!HtConsumeSample(&head) || !head.ok || !head.poseOk) why="no head sample";
+    else if(now<head.locateMs || now-head.locateMs>100) why="head sample stale";
     int32_t desired[3]{};
-    const bool composed=valid && dvr::cine::compose(g_mhBase,g_mhRef,
+    const bool composed=!why && dvr::cine::compose(g_mhBase,g_mhRef,
         dvr::cine::rotation(head.pitch*g_flipPitch,head.yaw*g_flipYaw,head.roll*g_flipRoll),desired,nullptr);
+    if(!why && !composed) why="rotation compose refused";
+    const int ctxWas=g_mhContext;
     g_mhHave=false;g_mhContext=-1;
-    if(!composed) {Log("menu/exit: yaw handoff refused: option, ownership, context or pose changed");return false;}
+    if(!composed) {
+        Log("menu/exit: yaw handoff refused: %s (scope age %.0f ms, head age %.0f ms, context was %d)",
+            why,now-g_mhLastScopeMs,head.locateMs>0 ? now-head.locateMs : -1.0,ctxWas);
+        return false;
+    }
     delta=(int32_t)std::remainder((double)desired[1]-g_mhBase[1],65536.0);
     Log("menu/exit: carry yaw %.3f deg once into gameplay; owner revalidated, head gen=%u",delta*360.f/65536,head.gen);
     return true;

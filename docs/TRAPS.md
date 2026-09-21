@@ -23,6 +23,28 @@ caller, the `skip` echo command. The levers that exist are `DISHONORED_VR_XR_SAF
 and `[Mode] GamepadOnly=1`. A rung of a cost ladder built on `DVR_SKIP=hands` would
 have measured nothing and reported "no cost".
 
+## A menu that hands over to another menu is still the same menu (VR-166, 2026-09-20)
+
+Closing a note could snap the view back to where the head was when the note
+opened. The exit carry (`menu/exit: carry yaw`, `menu_immersion.cpp`) was
+working: in a run where the note closed straight to gameplay (Note -> Other),
+the head turned -9.1 deg while reading, the carry was -9.18 deg and the view
+followed. In the merged-build runs every note close passed through a ~250 ms
+stale wheel context first (Note -> Wheel -> Other, the `ui/wheel-release`
+window). `MenuHeadBegin` treated the context change as a new menu and
+re-acquired, taking the head at the handover as the new reference. The turn
+made while reading was gone before the exit carry ever ran, and two of those
+exits also refused outright.
+
+The rule: the reference belongs to the blocked stretch, not to the context.
+A context or epoch change with the same camera, controller, pawn and load now
+keeps the entry reference (`menu/head: context 4 -> 6 while still blocked`).
+The refusal line also names which guard refused, with the scope and head ages,
+because the old lumped line could not tell a stale scope from a lost owner.
+
+Also not the cause, checked: #85's live-table changes (`RefreshLiveSet`) do
+not touch this path. The exit's `BuildLiveSet()` is still a forced rebuild.
+
 ## A detector fed once per present sees every pose twice (VR-37, 2026-09-20)
 
 The motion sword never fired on the native stereo render and nothing in its log
