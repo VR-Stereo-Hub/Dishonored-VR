@@ -193,6 +193,15 @@ static const uintptr_t kGadgetRotBack = 0x00C300E6;  // the rotator -> direction
 // the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
 static const uintptr_t kSpawnActor = 0x00C66070;
 static const uint8_t   kSpawnActorBytes[5] = { 0x55, 0x8B, 0xEC, 0x33, 0xC0 };
+// VR-166: the trace entry points, for a READ-ONLY caller census that names the spring
+// razor's placement trace. Three controller camera-trace helpers and AActor::execTrace.
+static const uintptr_t kTraceHelperA = 0x00AA5100;   // push ebp; mov ebp,esp; mov eax,[ebp+34h]
+static const uint8_t   kTraceHelperABytes[6] = { 0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x34 };
+static const uintptr_t kTraceHelperB = 0x00AA60D0;   // push ebp; mov ebp,esp; sub esp,60h
+static const uintptr_t kTraceHelperC = 0x00AA5FF0;   // push ebp; mov ebp,esp; sub esp,60h
+static const uint8_t   kTraceHelperBCBytes[6] = { 0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x60 };
+static const uintptr_t kExecTrace = 0x006D0ED0;      // push ebp; mov ebp,esp; sub esp,0E4h
+static const uint8_t   kExecTraceBytes[9] = { 0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xE4, 0x00, 0x00, 0x00 };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

@@ -784,7 +784,12 @@ void place(dvr::vr::HudQuadDesc& d, int e, int anchor, const float rect[4], floa
         memcpy(d.base, g_aimPt.pos, sizeof(d.base));
         d.orient = dvr::vr::HudOrient::Billboard;
         const float winD = g_win.distM > 0.1f ? g_win.distM : 0.1f;
-        d.width = g_win.widthM * (wholeSink ? rw : 1.0f) * c.winScale * (g_aimPt.distM / winD);
+        // The element's OWN share of the window (rw), as on the window path - using the
+        // full window width here drew the ring several metres wide at the dot (build 608).
+        d.width = g_win.widthM * rw * c.winScale * (g_aimPt.distM / winD);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "hud/aim: reticle row on the dot at %.2f m, %.3f m wide (window %.3f m x rect %.3f x scale %.2f x %.2f/%.2f m)",
+            g_aimPt.distM, d.width, g_win.widthM, rw, c.winScale, g_aimPt.distM, winD);
         d.height = 0.0f;
         d.planeOff[0] = 0.0f; d.planeOff[1] = 0.0f;
         return;

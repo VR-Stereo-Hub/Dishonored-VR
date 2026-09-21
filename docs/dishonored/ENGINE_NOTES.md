@@ -8253,3 +8253,23 @@ Seam (`throw_aim.cpp`, gadget half): those 9 bytes (`8B 4D FC 81 C1 D0 00 00 00`
 relative operand, no jump inside) become `mov ecx,[g_gdUse]`: the pawn's rotation, or a
 hand-ray rotator for the player's own throw. Found by scanning SpawnActor call sites in
 the gadget region for a nearby `0x0040DA70`, the same shape as the grenade.
+
+## Spring razor: placed, not thrown (VR-166, 2026-09-21)
+
+The SpawnActor census (build 608; `aim_source.cpp`, read-only) named the razor's spawn
+site the first time it was placed: caller `0x00C3BA21` spawning via
+`Twk_Inv_SpringRazorPlaced`. The routine is `0x00C3B570` (this = the razor context:
+`[+0xB0]` a state byte, `[+0x3C]` the item). It is referenced from `0x0136B5A4`, and it
+is not an exec thunk, since the natives table has no razor placement. It reads a pair
+at `+0xF8/+0xFC` and a dword at `+0x100`, not a position, so the placement point is
+decided UPSTREAM, presumably by a trace.
+
+So the gadget seam at `0x00C300DD` (shared gadget-projectile routine) was the wrong
+target for the razor: it never ran in a razor run, and its refusal logging proved
+that. Next instrument: a read-only caller census on the three controller camera-trace
+helpers (`0x00AA5100`, `0x00AA60D0`, `0x00AA5FF0`) and `AActor::execTrace`
+(`0x006D0ED0`). The (entry, caller, class) pairs that appear only while the razor is
+out name its placement trace.
+
+Note: the grenade projectile spawns from `0x00C39058`, which confirms the throw seam's
+routine.
