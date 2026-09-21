@@ -1,14 +1,22 @@
+## Accepted startup preset; chain remains open (2026-09-20)
+
+- [x] Default-on startup preset for the ten approved game options; later edits allowed.
+- [x] Head bob off on startup and sound working on retest;86 host checks pass.
+- [x] PR86 ready for review; not merged.
+- [ ] VR-165: chain-camera displacement root cause and fix remain OPEN.
+
 ## Native settings apply candidate (2026-09-20)
 
 - [x] VR-161: verified direct native dispatch, open pause/listener gate, no raw fallback.
 - [x] VR-161:42 host checks and Release/lint/export validation; candidate installed.
-- [ ] VR-161: head bob applies after Pause without manual slider movement.
+- [x] VR-161: startup head bob off accepted; saved F10 startup-default toggle.
 
 ## Option and chain source review (2026-09-20)
 
 - [x] VR-161: fix nested menu enumeration and raw profile write validation; 17 host checks.
 - [x] VR-165: remove invalid radius inference; measure the separate influence graph.
-- [ ] VR-161: verify native setter mapping and downstream setting application.
+- [x] VR-161: native setter mapping verified; ten startup profile targets match.
+- [ ] Further per-setting visual acceptance is distinct from profile verification.
 - [ ] VR-165: correlate reproduced displacement with camera sources, then fix its owner.
 
 ## Misc fixes (2026-09-17)

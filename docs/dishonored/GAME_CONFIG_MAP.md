@@ -279,3 +279,9 @@ the entire preset. Installed557 awaits live acceptance; the prior native menu
 path is confirmed for head bob, including a subsequent boot. Other individual
 settings are target values, not yet proof of downstream rendering changes.
 GameOptsWrite remains a separate diagnostic override and should be empty.
+
+
+Accepted startup preset (2026-09-20): build559 logs all ten target values,
+with head bob off confirmed in gameplay. Sound worked on the subsequent run;
+profile master/music/effects/voice volumes were100/90/90/100 (type1 integers),
+speaker configuration0. No audio corrective write was made. VR-165 remains open.

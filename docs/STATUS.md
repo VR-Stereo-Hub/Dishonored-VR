@@ -1,3 +1,36 @@
+## Startup defaults accepted; PR ready, chain bug OPEN (2026-09-20)
+
+PR86 finalized for review, NOT merged; remains stacked on claude/vr-164-pause-hands.
+Current branch codex/vr-165-camera-source-review. Installed/tested build559:
+`vr33-hands-working-559-g7efcfcdc7-dirty`, SHA256
+`48b0bc36ca5e03f44d912da8ede4c106f0b91c355515ef753a5ca3938a34d18a`.
+Latest log banner/hash verified; all ten requested profile values match. Tester
+confirms startup head bob off and sound working on the next run. Earlier silence
+was intermittent/unexplained; the audio diagnostic did not constitute a fix.
+Accepted DLL/INI/both logs archived in build/playtest-candidates/accepted559.
+
+Default preset: Kill Cam off; Head Bob0; Chain Climbing Relative off; Crosshair
+Style off; Auto Aim off; Aim Assist off; Model Details high; Light Shafts off;
+Antialiasing MLAA; Rat Shadows off. [GameOptions] DefaultsAtStartup=1 by default
+in code/generated INI/golden fixture and explicitly in packaged release INI.
+F10 Advanced > Apply VR defaults at startup saves opt-out for future launches.
+Startup mode0 writes continue until first gameplay (profile reloads can overwrite
+earlier writes); later menu changes survive. Audio, fullscreen and vsync excluded.
+Package change intentionally copies ONLY the requested startup-policy setting:
+tested INI also contains a machine-specific runtime manifest, unrelated grip edits
+and active camera probes, which are outside this defaults-finalization request.
+No binary change since accepted559; build/lint/exports and86 host checks passed.
+
+**VR-165 chain-camera bug remains OPEN / In Progress.** This PR improves its
+instruments, not its cause. Relative climbing off is a preference, not proof of
+resolution. Resume from FLICKER_REFERENCE and camera-source ENGINE_NOTES; use
+healthy -> chain X-release bug -> Blink comparison. EyeHeight stayed85; influence
+weights were static; missing vectors are unavailable, not zero. Group1 null was
+explicitly observed. Old frequency/radius claims were artifacts; do not reuse.
+First inspect current raw pawn/camera source deltas and correlate what changes
+and returns after Blink. No guessed clamp/reset. One question per tester launch.
+Do not merge this PR or its base without explicit authorization; no subagents.
+
 ## Head bob accepted; audio follow-up (2026-09-20)
 
 Run558 banner/hash verified. Tester confirms head bob now turns off at startup.
