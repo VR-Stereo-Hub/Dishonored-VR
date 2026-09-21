@@ -10,8 +10,9 @@ lines to read: `docs/dishonored/F10_MOTION_CONTROLS.md`):
 * while it is up, the right trigger and stick are withheld from the game and the laser and
   dot are hidden.
 
-Built and installed; not yet judged in the headset. The #87/#88 aim work is on its own
-branches and is not in this one.
+Headset-confirmed on build 602. The default size and place are the ones the tester chose
+(the geometry probe's fractions). The #87/#88 aim work is on its own branches and is not in
+this one.
 
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 

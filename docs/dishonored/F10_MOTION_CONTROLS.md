@@ -1,8 +1,8 @@
 # F10 menu motion controls (VR-174)
 
-**Status: BUILT (steps 1-5), not yet judged in the headset.** Step 6 goes straight to
-the headset, because the simulator needs a game launch. The log lines below replace the
-simulator's predicted-vs-actual. This is a port of the implementation the BioShock trilogy
+**Status: HEADSET-CONFIRMED (build 602, 2026-09-21).** Opening, pointing, clicking,
+scrolling, slider nudging and the recenter hold all worked. The default placement is
+where the tester put the panel (see "As built"). This is a port of the implementation the BioShock trilogy
 VR mod ships and has headset-verified. It uses the same ImGui (1.92.8), the same OpenXR
 runtime layer, and nearly the same F10 panel. The source files, read-only, are in the
 trilogy repo:
@@ -196,3 +196,9 @@ aim, because the ray is off.
 * `input: chord TAP (N ms) -> F10 panel toggle`, `input: chord HOLD -> recenter`, and the
   between-the-two release line.
 * `pad/overlay: the F10 panel is up - ... reach the panel, not the game`.
+
+**Headset result (build 602, 2750x2850 eye texture):** everything worked as intended. The
+tester resized and moved the panel, and the geometry probe read the final place back out:
+top-left at 0.3149,0.3596 and size 0.3855 x 0.2302 of the eye texture. That is now the
+default, replacing the trilogy's 0.42 x 0.45 centred. The text scale was left at the
+derived 1.54 (`1 + (2850/1080 - 1) * 0.5`).

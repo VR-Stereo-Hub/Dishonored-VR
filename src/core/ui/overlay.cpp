@@ -285,13 +285,15 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     OvlUpdateSliderTweak();
 
     // Size and place against the eye texture, as fractions, so the panel is the same part
-    // of the view at any resolution. 36.2: after a real-window resize WE caused, snap it
-    // back to the centre of the NEW space.
+    // of the view at any resolution. The numbers are where the tester dragged and sized it
+    // in the headset (build 602, 2750x2850, read back from the geometry probe: pos
+    // 0.3149,0.3596 size 0.3855,0.2302). 36.2: after a real-window resize WE caused, snap
+    // it back to that place in the NEW space.
     const ImVec2 ds = io.DisplaySize;
     const ImGuiCond placeCond = InterlockedExchange(&g_ovlRecenter, 0) ? ImGuiCond_Always
                                                                        : ImGuiCond_FirstUseEver;
-    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.5f, ds.y * 0.5f), placeCond, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(ds.x * 0.42f, ds.y * 0.45f), placeCond);
+    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.3149f, ds.y * 0.3596f), placeCond);
+    ImGui::SetNextWindowSize(ImVec2(ds.x * 0.3855f, ds.y * 0.2302f), placeCond);
     ImGui::Begin("Dishonored VR", &g_ovlVisible,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
     OvlProbeWindowGeometry(ds.x, ds.y);
