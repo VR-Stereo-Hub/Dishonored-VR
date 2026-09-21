@@ -25,6 +25,11 @@ if (-not $SkipBuild) { & "$repo\tools\build.ps1" -Release }
 $bin = "$repo\build\src\RelWithDebInfo"
 if (-not (Test-Path "$bin\d3d9.dll")) { throw "missing build output: $bin\d3d9.dll" }
 Assert-DvrX86Dll "$bin\d3d9.dll"
+# VR-180: this zip goes to testers. A build directory that once saw -Legacy used to
+# keep compiling the retired diagnostics into every later build, this one included.
+if (Test-DvrLegacyDll "$bin\d3d9.dll") {
+    throw "REFUSING to package: $bin\d3d9.dll has the legacy code compiled in. Run a plain tools\build.ps1 -Release and package again."
+}
 if (-not (Test-Path "$bin\dvr_steamvr32.dll")) { throw "missing build output: $bin\dvr_steamvr32.dll (DVR_WITH_OVRSHIM=OFF?)" }
 Assert-DvrX86Dll "$bin\dvr_steamvr32.dll"
 # Valve's loader ships beside the shim; refuse to package a binary whose hash
