@@ -158,6 +158,11 @@ static const uint8_t   kBlkDstOrig[6] = { 0x8d, 0x85, 0x30, 0xff, 0xff, 0xff };
 static const uintptr_t kBlkDirHook = 0x00bf55a3;
 static const uintptr_t kBlkDirBack = 0x00bf55a8;
 static const uint8_t   kBlkDirOrig[5] = { 0x8b, 0x08, 0x89, 0x4d, 0xb4 };
+// VR-166: the helper Blink calls just before kBlkDirHook (call at 0xbf559e). Three direct
+// callers in the image (0xb75b26, 0xb82e73, 0xbf559e). Entry = push ebp; mov ebp,esp;
+// mov eax,[ebp+0Ch]. Read-only probe: aim_source.cpp. ENGINE_NOTES "shared power-aim helper".
+static const uintptr_t kAimSrcHelper = 0x00bf52e0;
+static const uint8_t   kAimSrcHelperBytes[6] = { 0x55, 0x8b, 0xec, 0x8b, 0x45, 0x0c };
 static const uintptr_t kBlkTrcHook = 0x00bf5d1a;
 static const uintptr_t kBlkTrcBack = 0x00bf5d1f;
 static const uint8_t   kBlkTrcOrig[5] = { 0xf3, 0x0f, 0x11, 0x55, 0xd8 };

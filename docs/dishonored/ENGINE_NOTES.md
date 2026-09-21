@@ -8120,3 +8120,38 @@ write following profile reload and leaving later gameplay edits alone (80 total)
 The fix depends on another mode0 application occurring before gameplay; if none
 occurs, trace profile-load completion instead. No live acceptance claimed.
 Full next-session decision tree and archives are at the top of STATUS.md.
+
+## Shared power-aim helper: a candidate seam for per-item hand aim (VR-166, 2026-09-20)
+
+`kAimSrcHelper` = `0x00bf52e0`, entry bytes `55 8b ec 8b 45 0c` (push ebp; mov ebp,esp;
+mov eax,[ebp+0Ch]). Blink calls it at `0xbf559e`, and the very next instruction is
+`kBlkDirHook` (`0xbf55a3`), the shipped Blink redirect, which reads the 12-byte vector
+it returns. A byte scan of `.text` finds exactly three `E8` callers: `0xb75b26`,
+`0xb82e73` and `0xbf559e`. All three read the result the same way (`mov ecx,[eax]`,
+then the other two floats). No absolute reference to the entry exists, so it is not a
+vtable slot. Blink's call site sets `ecx` first, so the helper is taken to be thiscall
+with the input vector as stack argument 2.
+
+Derived with a byte scan (the E8 census) and `tools/disasm-rva.py dis` at each caller.
+Static reading could not name the owners of `0xb75b26` and `0xb82e73`: the enclosing
+functions have no clean prologue and no vtable reference. The running game can name
+them, so `aim_source.cpp` (`[Aim] SourceProbe`, the `aimsrc` seam word) logs each new
+(caller, object class) pair with its input vector's angle off the view. READ-ONLY.
+
+Hypothesis: the other two callers are aimed powers or thrown items. If so, one seam
+here with a per-item policy table aims all of them from the weapon ray. What kills it:
+only Blink's caller ever appears, or the input does not follow the view.
+
+Related, found on the way: the original author's 38.52 "magic-aim"
+(`[Blink] AimAllPowers`, default 1) redirects every `*ActivePowerComponent*` except
+Dark Vision and Bend Time through `BlinkAimHook` at `kBlkAimHook` (`0xbf595f`). That
+hook is installed only on request (`g_blkHookReq`), and nothing requests it at
+startup. Current logs show only `blinkdir: INSTALLED`, so magic-aim is dormant. That
+is consistent with VR-44's report that Possession, Devouring Swarm and Windblast are
+head-aimed.
+
+Also from the class declarations (names only): `DisItemContext_ThrowGrenade` derives
+from `DisItemContext_ProjectileAttack`, which declares `m_CachedAimAssistPos`, the
+cache VR-57 wrote to steer a crossbow bolt. `DisItemContext_UsePower` derives from
+`DisItemContext_AimAssistAttack`, which has no such cache, so powers compute their
+aim natively.

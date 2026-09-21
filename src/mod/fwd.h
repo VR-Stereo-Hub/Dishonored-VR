@@ -625,6 +625,10 @@ static bool SwingTraceCommand(const char* args);
 static void CamModTick();
 static void CamModConfigure(const char* ini);
 static bool CamModCommand(const char* args);
+// VR-166: the shared power-aim helper probe (aim_source.cpp). Read-only.
+static void AimSourceConfigure(const char* ini);
+static void AimSourceTick();
+static bool AimSourceCommand(const char* args);
 static bool InstallProcessEventHook();
 static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count);
 static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt);

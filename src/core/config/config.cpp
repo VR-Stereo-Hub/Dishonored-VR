@@ -472,6 +472,10 @@ static void WriteDefaultIni(const char* ini)
         "; Native crossbow launch direction, converging from the muzzle to the controller dot.\n"
         "; Independent of the old HUD cache drive and MotionAim; live toggle in F10 Aim.\n"
         "FireFromHand=1\n"
+        "; SourceProbe=1 (VR-166) names every object that asks the shared power-aim helper\n"
+        "; (the one Blink uses) for a vector, and how far that vector sits off the view.\n"
+        "; READ-ONLY. It answers which powers and thrown items one seam could aim by hand.\n"
+        "SourceProbe=0\n"
         "PropWatch=0\n"
         "InteractFocus=0\n"
         "[HandTracking]\n"
@@ -2449,6 +2453,7 @@ static void LoadConfig()
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
+    AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
