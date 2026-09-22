@@ -1,3 +1,26 @@
+## Menu freshness candidate after combined PR acceptance (2026-09-22)
+
+The user accepted the combined PR build650 apart from menu choppiness, intermittent
+mono/stereo and stepped left-hand motion. Work continues locally on
+codex/vr-178-menu-scene-freshness from combined76ae6804a. PR87/88/91/93/94 current
+heads remain ancestors. Linear VR-178 verified and marked In Progress; VR-144
+andVR-128 are related investigations, not declared fixed.
+
+Implemented default-off Hud.MenuSceneFreshness with F10 toggle. The pause-only
+previous-draw camera evidence was discarded in journal and wheel; the new bounded
+evidence survives only within the current riding/head-look menu epoch and level.
+No new engine writer, hand correction, image/pose or pairing change.
+72 new policy and404 pairing checks pass, optimized build/export/default/lint checks
+pass. Older menu-immersion harness is stale and not counted as a pass.
+Detailed evidence/limitations: docs/dishonored/FLICKER_REFERENCE.md top entry and
+docs/dishonored/PERFORMANCE.md top entry. No game launched.
+
+Next: install optimized legacy-off candidate, arm only Hud.MenuSceneFreshness=1
+in the installed INI, verify full diff/CRLF and hashes, then one launch to judge
+20 seconds of objectives/journal stereo continuity with slow head/left-hand movement.
+A steady world with continued hand stepping is a distinct follow-up; no blanket fix
+or merge readiness is claimed before that result. No merge to VR-Main authorized.
+
 ## Session handoff 2026-09-22: ONE pull request carries VR-170, VR-171, VR-172 and VR-180
 
 - The legacy build guard (VR-180, its own block below) was merged into this branch on 2026-09-22 at

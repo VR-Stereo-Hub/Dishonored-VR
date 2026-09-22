@@ -1,3 +1,26 @@
+## Menu cadence and camera-upload gate coverage (VR-178, 2026-09-22)
+
+Verified combined650-g76ae6804a, optimized and legacy off. Preserved run:
+build/playtest-candidates/menu-choppiness/run650. Source/fix scope and the
+one-question headset test are in FLICKER_REFERENCE's VR-178 entry.
+
+The journal's engine rate is high while stereo production is low. Between the
+beats at50031250 and50034250, camera-silent skips rise3160->3472 (+312),
+present-stall1464->1470 (+6), scene-state stays10573. The latter beat reports
+129 draws/s,23 second draws/s,152 presents/s. Delivery at50033437 reports
+L15/R15,mono61,none54 per second. These adjacent windows have different boundaries;
+do not treat their differences as dropped-frame counts. Pause at50040250 reports
+123 draws/s,119 second draws/s,242 presents/s; silent stays3543 from the prior
+beat while stall rises1482->1492. Average FPS conceals intermittent stereo output.
+
+The observed-upload exception only covers pause3; journal5/wheel6 throw away its
+history. New separately opt-in MenuSceneFreshness retains actual during-draw c5
+movement for less than100ms within the same menu epoch/load. Existing scheduling
+guards and compositor hold remain. No desktop-output policy or pose-lock change.
+72 policy cases and404 pairing checks pass. Headset cadence/left-hand verdict open.
+This does not prove the older ReduceDesktopPresent hypothesis in VR-144, nor
+attribute left-hand-only motion to the renderer before stereo continuity is tested.
+
 ## VR-180: a quarter-second freeze on every trigger pull was a legacy build (2026-09-22)
 
 **Report:** pulling either trigger froze and stuttered the game, every time, fading after

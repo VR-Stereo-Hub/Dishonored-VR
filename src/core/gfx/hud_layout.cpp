@@ -123,6 +123,7 @@ bool g_readHand[2]={false,false};
 float g_readTilt=0;
 float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
+std::atomic<bool> g_menuSceneFreshness{false};
 bool g_visualRiding=false;
 WheelVisualLease g_wheelVisual;
 float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
@@ -556,6 +557,7 @@ bool native_gameplay_reference() {return g_nativeGameplayReference && !g_visualR
 bool native_objective_upright(int e) {return !native_gameplay_reference() && g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
 bool menu_exit_heading() {return g_menuExitHeading.load();}
 bool pause_scene_freshness() {return g_pauseSceneFreshness.load();}
+bool menu_scene_freshness() {return g_menuSceneFreshness.load();}
 bool menu_riding() { return g_menuRiding; }
 float native_objective_scale(int e) {return !native_gameplay_reference() && g_nativeObjectives && !g_menuRiding && e==ElObjective ? g_nativeObjectiveScale : 1.f;}
 bool menu_stereo_hold() { return g_menuRiding && menu_head_look(g_ridingContext); }
@@ -1101,6 +1103,7 @@ void configure(const char* ini) {
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
     g_menuExitHeading.store(read_i(ini,"MenuExitHeading",0)!=0);
     g_pauseSceneFreshness.store(read_i(ini,"PauseSceneFreshness",0)!=0);
+    g_menuSceneFreshness.store(read_i(ini,"MenuSceneFreshness",0)!=0);
     dvr::objectivemarkers::configure(read_i(ini,"NativeTaskMarkers",1)!=0,read_f(ini,"TaskMarkerEdgeInset",.22f));
     dvr::objectivemarkers::configure_runes(read_i(ini,"NativeRuneMarkers",1)!=0,read_f(ini,"RuneMarkerEdgeInset",.22f));
     g_nativeObjectiveLabels=read_i(ini,"NativeObjectiveLabels",0)!=0;
@@ -1205,6 +1208,7 @@ void save(const char* ini) {
     write_i("NativeTaskMarkers",dvr::objectivemarkers::enabled());write_f("TaskMarkerEdgeInset",dvr::objectivemarkers::inset());
     write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);write_i("WheelCloseAnimation",g_wheelCloseAnimation);
     write_i("PauseSceneFreshness",g_pauseSceneFreshness.load());
+    write_i("MenuSceneFreshness",g_menuSceneFreshness.load());
     write_i("NativeRuneOwnership",dvr::objectivemarkers::rune_ownership());
     write_i("NativeHeartAllSymbols",dvr::objectivemarkers::heart_all_symbols());
     write_i("NativeAwarenessMarkers",dvr::objectivemarkers::awareness_enabled());
@@ -1517,6 +1521,10 @@ void draw_ui() {
             }
             ImGui::PopID();
         }
+    }
+    bool menuFresh=g_menuSceneFreshness.load();
+    if(ImGui::Checkbox("Recent scene uploads in head-tracked menus (test)",&menuFresh)) {
+        g_menuSceneFreshness.store(menuFresh);write_i("MenuSceneFreshness",menuFresh);
     }
     if(ImGui::CollapsingHeader("Pause menu alpha")) {
         draw_scoped_alpha(3);

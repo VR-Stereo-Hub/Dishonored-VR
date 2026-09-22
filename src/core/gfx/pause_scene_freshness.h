@@ -11,4 +11,23 @@ struct PauseSceneFreshness {
     }
     void clear(){uploaded=-1;}
 };
+// VR-178: camera evidence belongs to one uninterrupted riding-menu interval.
+struct MenuSceneFreshness {
+    double uploaded=-1;
+    int context=-1;
+    uint32_t epoch=0, load=0;
+    void begin(bool eligible,int nextContext,uint32_t nextEpoch,uint32_t nextLoad) {
+        if(!eligible || context!=nextContext || epoch!=nextEpoch || load!=nextLoad) uploaded=-1;
+        context=eligible ? nextContext : -1;
+        epoch=nextEpoch; load=nextLoad;
+    }
+    void complete(uint32_t before,uint32_t after,double now) {
+        if(context>=3 && context<=8 && before!=after) uploaded=now;
+    }
+    bool recent(bool enabled,int currentContext,uint32_t currentEpoch,uint32_t currentLoad,
+                bool headLook,double now) const {
+        return enabled && headLook && context>=3 && context<=8 && context==currentContext &&
+            epoch==currentEpoch && load==currentLoad && uploaded>=0 && now>=uploaded && now-uploaded<100;
+    }
+};
 }

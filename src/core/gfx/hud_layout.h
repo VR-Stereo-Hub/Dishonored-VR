@@ -110,6 +110,7 @@ void     set_menu_context_mask(uint32_t mask, const char* who);
 bool     screen_can_ride(int context);          // the row exists and its anchor is visible
 void     set_menu_riding(bool riding, int context, bool wheelClosing = false);
 bool pause_scene_freshness();
+bool menu_scene_freshness();
 bool menu_exit_heading();   // published by the game side each poll
 void forget_draw_owners();
 bool menu_riding();

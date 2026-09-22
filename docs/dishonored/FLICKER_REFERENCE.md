@@ -1,3 +1,47 @@
+## VR-178: journal and wheel scene freshness candidate (2026-09-22)
+
+Reported on combined build650: objectives/journal and wheel motion steps despite high
+displayed FPS, intermittent whole-view mono/stereo changes, and stepped left-hand motion.
+Route: mono interruption first; left-hand motion is a separate unproven consequence.
+Verified banner 650-g76ae6804a, RelWithDebInfo, legacy off, DLL SHA256
+593CDA232575CE1C88E5BC86C3193A6AE7E27DE4AA56CE5548D830A577CF4BBC.
+Both logs and the saved CRLF INI are in build/playtest-candidates/menu-choppiness/run650.
+
+Journal context5 at50034250: 129 draws/s,23 second draws/s,152 presents/s.
+From the prior beat, silent skips increase312,stall6,state0. Delivery at50033437:
+L15/R15,mono61,none54 per second. Pause afterward at50040250:119 second draws/s,
+no additional silent skips. These are three-second samples, not synchronized visual
+event counts. Detailed cadence findings: [PERFORMANCE.md](PERFORMANCE.md).
+
+Source: PauseSceneFreshness accepts context3 only. scene_draw.cpp clears its
+observed-upload history in journal5 and wheel6. Their logs repeatedly report no
+prior-draw evidence while c5 uploads during draws are discarded by the next gate.
+This identifies a gate coverage defect; it does not prove every left-hand step
+shares that cause or that camera-shake suppression caused it.
+
+Candidate: separately default-off [Hud] MenuSceneFreshness, live F10 HUD checkbox.
+Retain observed camera uploads from completed eligible menu draws for less than100ms.
+Clear evidence on context, UI epoch, level generation or eligibility changes.
+Require head-look/riding state, original scene/session/test/present guards.
+No new engine-memory writer, no change to image/pose identity, pair synchronization,
+hand correction, present-stall policy, pause-only lever or150ms compositor hold.
+
+Validation:72 production-policy host checks pass, including old pause-policy negative
+controls for journal/wheel, silent expiry, disabled option, clock rollback and
+cross-context/epoch/load rejection.404 existing reentry pairing checks pass.
+Optimized build,9 exports, compiled default/profile/golden parity,lint,diff checks pass.
+The older menu-immersion harness is stale on the combined baseline: missing diagnostic
+stubs prevent compilation; temporary host-only stubs expose its outdated menu-epoch
+assertion against the earlier reference-handoff change. Those temporary edits were
+removed; it is not counted as passing. No game or simulator launched.
+
+Headset acceptance OPEN. Next single question: does the objectives/journal view stay
+continuously stereo with smooth motion during20 seconds of slow head and left-hand
+movement? Success supports the gate fix; mono recurrence requires new silent/stall/
+scene refusals; stable stereo with a stepping hand moves investigation to hand pose/
+draw cadence (VR-128). Do not widen the hold window to hide stalled stereo images.
+Candidate install identity and complete INI delta are recorded in STATUS.
+
 ## VR-166: the grenade cook ring flickers on the aim dot (2026-09-21, PARKED)
 
 Symptom (reported, build 609-g06b4b9a36): after moving the reticle row onto the aim dot, the
@@ -1069,6 +1113,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |
 | Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
