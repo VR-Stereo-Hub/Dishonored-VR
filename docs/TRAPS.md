@@ -1,3 +1,12 @@
+## A reference that can be voted onto the thing it is a reference FROM (VR-188, 2026-09-22)
+
+The palm's frame is the hand bone offset to a "vote slot", so the grip calibrated against the vote
+slot keeps its meaning. The vote was re-run on every rebuild over a patch that moved with the
+sleeve cut, and at one length it voted for the hand bone itself: the offset became identity and
+the hand turned about 45 degrees at exactly that Numpad + step. A reference must be derived from
+something the setting under adjustment cannot move, and must be refused when it collapses onto
+the thing it references. ARM_HAND_SPLIT.md, VR-188.
+
 ## A recogniser that needs to see a thing in one place first fails when it starts somewhere else (VR-185, 2026-09-22)
 
 **What happened.** An objective marker could split from its title and distance text, and the

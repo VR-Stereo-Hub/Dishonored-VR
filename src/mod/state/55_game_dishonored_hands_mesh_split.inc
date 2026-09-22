@@ -346,6 +346,10 @@ static float    g_mpDriveGain = 1.0f;   // [Hands] PaletteDriveGain - scale trim
 // the extremities of that cloud without needing to identify a joint. A moving
 // anchor would make the residual meaningless.
 enum { MP_ANCHOR_N = 12 };
+// The palm anchor is taken from the hand beyond this plane (mesh units from the
+// hand bone; the shipped hands-length cut, [Hands] WristCutA/B -4.90), so a
+// longer sleeve never moves the anchor or the calibration's reference slot.
+static const float kMpAnchorRefCut = -4.9f;
 static uint32_t g_mpAnchorIdx[MS_CLS_N][MP_ANCHOR_N];
 static int      g_mpAnchorN[MS_CLS_N] = { 0, 0, 0, 0, 0 };
 // The anchor patch's BIND-pose centroid, for the rigid anchor below (VR-183).
@@ -358,6 +362,10 @@ static int      g_mpVoteSlot[MS_CLS_N] = { -1, -1, -1, -1, -1 };   // what the w
 // old frame at that instant: the saved grip and the trims keep their meaning, and the frame then
 // follows the hand bone rigidly.
 static dvr::hf::Mat3 g_mpSrcX[2]; static bool g_mpSrcXok[2] = { false, false }; static uint32_t g_mpSrcXGen[2] = { 0, 0 };
+// The (vote slot, hand bone) pair the offset was measured between. A rebuild
+// (a sleeve change, a level load) that keeps the pair keeps the offset instead
+// of re-measuring it at whatever pose the fingers are in at that moment.
+static int g_mpSrcXPair[2][2] = { { -1, -1 }, { -1, -1 } };
 // The anchor's offset from the rigid wrist point, in the hand bone's own (bind) space, kept the
 // same way as X: re-measured while an item is held, frozen while the hand is empty.
 static float g_mpAnchorOff[MS_CLS_N][3]; static bool g_mpAnchorOffOk[MS_CLS_N] = { false, false, false, false, false };

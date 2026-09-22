@@ -1,3 +1,16 @@
+## Session handoff 2026-09-22 (later): wheel sticks, sleeve rotation, Sleeve presets (VR-187, VR-188)
+
+VR-185 and VR-186 are headset-confirmed (build 674). Same branch, `claude/misc-fixes` (#99), not
+merged. Installed: this commit's RelWithDebInfo (`d3d9.dll` sha256 `7B5D59EA...`), not run.
+* VR-187: with `WeaponDial=1` the wheel takes only the hand's direction; both sticks ignored.
+* VR-188: the hand turned at cut -10.1 because the palm anchor's vote landed on the hand bone and
+  the calibrated offset was dropped (ARM_HAND_SPLIT top section). Anchor pinned to the hand, the
+  vote kept off the hand bone, the offset kept across rebuilds. F10 > Hands: Sleeve preset
+  (Hands / Cuffs / Forearm) and Sleeve length slider; Cuffs and Forearm are PROVISIONAL.
+* Next run: step the sleeve through the whole range (the hand must not turn), pick the cuff look
+  and press V, pick the forearm look and press V; open the wheel while running. Then bake the two
+  `MARKER #n (V) sleeve:` lines into `sleeve_presets.h`.
+
 ## Session handoff 2026-09-22: HUD markers by position, widget groups (VR-185, VR-186)
 
 **Branch.** `claude/misc-fixes` (draft PR #99, stacked on #98), not merged. Installed build is

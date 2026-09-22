@@ -1,4 +1,5 @@
 #include "rounded_wrist.h"
+#include "sleeve_presets.h"
 // game/dishonored/hands/mesh_split.cpp - included by src/mod/dishonoredvr.cpp
 // (unity build). See state chunk 55 for why this exists and what it reads.
 //
@@ -1644,13 +1645,34 @@ static bool MsUpload(IDirect3DDevice9* dev)
         // have no blend data to skin with), and fixed from here on.
         if (cls == MS_CLS_HAND_A || cls == MS_CLS_HAND_B) {
             g_mpAnchorN[cls] = 0;
+            // The patch is taken from the HAND, never from however much sleeve
+            // the cut keeps: only vertices at or beyond the hands-length plane
+            // (kMpAnchorRefCut from the hand bone) count. Measured: with the
+            // whole kept class, a longer sleeve dragged the centroid up the arm
+            // until, at -10.1, the hand bone won the weight vote below, the
+            // calibrated offset from the vote slot was dropped, and the hand
+            // turned about 45 degrees.
+            const int anchorSide = (cls == MS_CLS_HAND_A) ? 1 : 2;
+            const int anchorBone = g_msHandBone[anchorSide];
+            const bool anchorRef = g_msPlane && anchorBone >= 0;
+            float anchorPlane = 0.0f;
+            if (anchorRef) {
+                for (int a = 0; a < 3; a++) anchorPlane += g_msBoneCen[anchorBone][a] * g_msAxis[anchorSide][a];
+                anchorPlane += kMpAnchorRefCut;
+            }
+            auto inAnchorRef = [&](uint32_t v) {
+                if (!anchorRef) return true;
+                const float d = g_msVert[v].p[0] * g_msAxis[anchorSide][0] + g_msVert[v].p[1] * g_msAxis[anchorSide][1] +
+                                g_msVert[v].p[2] * g_msAxis[anchorSide][2];
+                return d >= anchorPlane;
+            };
             float cen[3] = { 0.0f, 0.0f, 0.0f };
             int cn = 0;
             for (int t = 0; t < g_msOutN; t++) {
                 if (g_msOutCls[t] != cls) continue;
                 for (int c = 0; c < 3; c++) {
                     const uint32_t v = g_msOutIdx[t * 3 + c];
-                    if ((int)v >= g_msVerts) continue;
+                    if ((int)v >= g_msVerts || !inAnchorRef(v)) continue;
                     cen[0] += g_msVert[v].p[0]; cen[1] += g_msVert[v].p[1];
                     cen[2] += g_msVert[v].p[2]; cn++;
                 }
@@ -1664,7 +1686,7 @@ static bool MsUpload(IDirect3DDevice9* dev)
                     if (g_msOutCls[t] != cls) continue;
                     for (int c = 0; c < 3; c++) {
                         const uint32_t v = g_msOutIdx[t * 3 + c];
-                        if ((int)v >= g_msVerts) continue;
+                        if ((int)v >= g_msVerts || !inAnchorRef(v)) continue;
                         bool dup = false;
                         for (int k = 0; k < g_mpAnchorN[cls] && !dup; k++)
                             if (g_mpAnchorIdx[cls][k] == v) dup = true;
@@ -1700,6 +1722,9 @@ static bool MsUpload(IDirect3DDevice9* dev)
                 const float d = sqrtf(dx*dx + dy*dy + dz*dz);
                 if (d > rad) rad = d;
             }
+            Log("ms/palette/anchor: class %s - taken from the hand beyond %.1f from the hand bone (%s), "
+                "whatever the sleeve cut (now %.1f) keeps", cls == MS_CLS_HAND_A ? "A" : "B", kMpAnchorRefCut,
+                anchorRef ? "the plane" : "NO plane or hand bone: the whole class, as before", g_msCutRel[anchorSide]);
             Log("ms/palette/anchor: class %s - %d vertex(es) within %.2f uu of "
                 "the class centroid (%.1f %.1f %.1f), from %d triangle(s). "
                 "FIXED identities, deduplicated, bind-pose compact. A radius "
@@ -1731,6 +1756,21 @@ static bool MsUpload(IDirect3DDevice9* dev)
                 for (int b = 0; b < 256; b++) {
                     if (w[b] > bestW) { secondW = bestW; bestW = w[b]; best = b; }
                     else if (w[b] > secondW) secondW = w[b];
+                }
+                // The vote names the slot the calibration offset is measured
+                // from, so it must never BE the hand bone: then the offset is
+                // identity and the calibrated hand turns (the -10.1 fault).
+                {
+                    const int hb = g_msHandBone[(cls == MS_CLS_HAND_A) ? 1 : 2];
+                    if (g_mpAnchorHandBone && best == hb && hb >= 0) {
+                        int alt = -1; float altW = 0.0f;
+                        for (int b = 0; b < 256; b++) if (b != hb && w[b] > altW) { altW = w[b]; alt = b; }
+                        Log("ms/palette/frame: class %s - the vote landed on the hand bone %d itself (%.0f%%); "
+                            "using the next slot %d (%.0f%%) as the calibration reference",
+                            cls == MS_CLS_HAND_A ? "A" : "B", hb, tot > 0.0f ? bestW * 100.0f / tot : 0.0f,
+                            alt, tot > 0.0f ? altW * 100.0f / tot : 0.0f);
+                        if (alt >= 0) { secondW = bestW; best = alt; bestW = altW; }
+                    }
                 }
                 // VR-183: the vote above is over the ANCHOR patch, which sits on the finger bases, so a
                 // finger bone can win it - measured: slots 10 and 35 won while the wrist finder named
@@ -2386,6 +2426,13 @@ static void MfMarker(void)
     DVR_WARN("MARKER #%u (V) at %02u:%02u:%02u.%03u | present #%u | the tester saw the hands jump just "
              "before this line; the flicker history below covers the %.1f s before it",
              g_mfMarks, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, pres, kMfWindowMs / 1000.0);
+    {
+        const int preset = dvr::sleeve::match(g_msCutRel[1], g_msCutRel[2], g_msRoundDepth);
+        DVR_WARN("MARKER #%u (V) sleeve: WristCutA %.2f WristCutB %.2f RoundedWristDepth %.3f RoundedWrist %d "
+                 "(preset %s) - the numbers a Sleeve preset is baked from",
+                 g_mfMarks, g_msCutRel[1], g_msCutRel[2], g_msRoundDepth, (int)g_msRoundWrist,
+                 preset >= 0 ? dvr::sleeve::kPresets[preset].name : "Custom");
+    }
 
     // Oldest first, inside the window.
     static MfRec rec[kMfRing];
@@ -2720,12 +2767,22 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
             // VR-183: the hand bone's frame, offset once to the old vote slot's (see g_mpSrcX).
             if (g_mpAnchorHandBone && g_mpVoteSlot[cls] >= 0 && g_mpVoteSlot[cls] != g_mpDomSlot[cls]) {
                 const bool held = g_mpItemInHand[hand];
+                const bool samePair = g_mpSrcXok[hand] && g_mpSrcXPair[hand][0] == g_mpVoteSlot[cls] &&
+                                      g_mpSrcXPair[hand][1] == g_mpDomSlot[cls];
+                if (!held && samePair && g_mpSrcXGen[hand] != g_mpSrcGen) {
+                    g_mpSrcXGen[hand] = g_mpSrcGen;
+                    float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
+                    Log("ms/palette/frame: %s hand - rebuilt with the same slots (vote %d, hand bone %d): the offset "
+                        "%+.1f %+.1f %+.1f deg is KEPT, not re-measured, so a sleeve change or a load cannot turn the hand",
+                        hand ? "RIGHT" : "LEFT", g_mpVoteSlot[cls], g_mpDomSlot[cls], ex, ey, ez);
+                }
                 if (held || !g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen) {
                     dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
                     if (MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy)) {
                         const bool first = !g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen;
                         g_mpSrcX[hand] = dvr::hf::mul3(dvr::hf::transpose3(sr.r), sv.r);
                         g_mpSrcXok[hand] = true; g_mpSrcXGen[hand] = g_mpSrcGen;
+                        g_mpSrcXPair[hand][0] = g_mpVoteSlot[cls]; g_mpSrcXPair[hand][1] = g_mpDomSlot[cls];
                         float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
                         if (first) Log("ms/palette/frame: %s hand - the hand bone's frame differs from the old vote slot's by "
                             "%+.1f %+.1f %+.1f deg; that offset is kept, so the calibration and trims look the same, and "
@@ -4032,6 +4089,27 @@ static void MsTick(void)
     }
 }
 
+
+// The sleeve (F10 > Hands): one cut for both arms and the end's roundness,
+// applied on the next draw of the locked mesh and written to the ini.
+static void MsSleeveApply(float cut, float roundness, const char* who)
+{
+    const float before = g_msCutRel[1];
+    g_msCutRel[1] = g_msCutRel[2] = cut;
+    g_msCutSet[1] = g_msCutSet[2] = 1;
+    g_msRoundDepth = fminf(.8f, fmaxf(.05f, roundness));
+    g_msReclassReq = 1;
+    char v[32];
+    _snprintf(v, sizeof(v), "%.2f", cut); v[31] = 0;
+    ConfigWriteKey("Hands", "WristCutA", v, who);
+    ConfigWriteKey("Hands", "WristCutB", v, who);
+    _snprintf(v, sizeof(v), "%.3f", g_msRoundDepth); v[31] = 0;
+    ConfigWriteKey("Hands", "RoundedWristDepth", v, who);
+    const int preset = dvr::sleeve::match(cut, cut, g_msRoundDepth);
+    Log("sleeve: %s -> %s: cut %.2f (was %.2f) from the hand bone on both arms, roundness %.3f%s",
+        who, preset >= 0 ? dvr::sleeve::kPresets[preset].name : "Custom", cut, before, g_msRoundDepth,
+        preset >= 0 && !dvr::sleeve::kPresets[preset].measured ? " (PROVISIONAL preset values)" : "");
+}
 
 static bool MsCommand(const char* args)
 {

@@ -531,6 +531,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);
+static void MsSleeveApply(float cut, float roundness, const char* who);
 struct PrField;
 static void PrResolve(void);
 static uint32_t PrOff(const char* cls, const char* prop);

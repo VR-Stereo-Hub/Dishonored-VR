@@ -1,5 +1,36 @@
 # The arm/hand split
 
+## VR-188: the hand turned at one sleeve length; Sleeve presets (2026-09-22)
+
+**The fault, measured.** Numpad + stepped the cut from -4.9 in 0.35-0.4 steps. At -9.7 the palm
+anchor's weight vote picked slots 10 / 35 (42 %, the hand bone runner-up at 38 %); at -10.1 it
+picked the hand bones 6 / 30 themselves (45 % against 42 %). VR-183 reads the palm frame from the
+hand bone and offsets it once to the vote slot's frame, so the saved grip keeps its meaning. With
+the vote ON the hand bone that offset is identity and was skipped: the measured -29.6 -19.0 -49.4
+deg (right) and -5.6 +3.0 +8.1 deg (left) vanished, and the hand turned. The vote drifted because
+the anchor patch was the 12 vertices nearest the centroid of the WHOLE kept hand class, and a
+longer sleeve drags that centroid up the arm toward the wrist (52.8,-96.8,11.3 at -4.9;
+52.2,-98.5,10.5 at -10.1).
+
+**The fix** (`mesh_split.cpp`, the anchor block):
+- The anchor patch is taken from the hand beyond the hands-length plane (`kMpAnchorRefCut` = -4.9
+  from the hand bone), whatever the cut keeps, so the anchor and its vote are the same at every
+  length. Logged: `ms/palette/anchor: class A - taken from the hand beyond -4.9 ...`.
+- The vote can never be the hand bone; if it lands there the next slot is used
+  (`ms/palette/frame: ... the vote landed on the hand bone`).
+- A rebuild with the same (vote slot, hand bone) keeps the measured offset instead of re-measuring
+  it at the current finger pose (`... the offset ... is KEPT`). The same run read the right hand's
+  offset as -6.2 -22.1 -45.3 on one rebuild and -29.6 -19.0 -49.4 on another, so before this a
+  level load or a sleeve change could turn the right hand by about 24 deg.
+
+**Sleeve presets** (F10 > Hands > Sleeve; `hands/sleeve_presets.h`): Hands = the shipped cut
+-4.90 with the shipped roundness 0.64. Cuffs (-7.5 / 0.30) and Forearm (-12.0 / 0.30) are
+PROVISIONAL: V now logs `MARKER #n (V) sleeve: WristCutA .. WristCutB .. RoundedWristDepth ..`,
+and the marked values replace them. The Sleeve length slider (0..30, applied on release because a
+rebuild costs a few ms) and the roundness slider make the look Custom. Both write
+`[Hands] WristCutA/B` and `RoundedWristDepth` (`sleeve: <who> -> <preset>: cut ... roundness ...`).
+Headset verdict owed.
+
 ## VR-130: rounded ends accepted (2026-09-16)
 
 Build399's rounded hand ends are headset-reported satisfactory. The saved
