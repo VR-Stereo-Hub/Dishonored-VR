@@ -669,6 +669,8 @@ static void CarryHoldSet(bool on, const char* who);
 static bool CarryHoldEnabled();
 static float CarryHoldForwardCm();
 static void CarryHoldSetForwardCm(float cm);
+static bool CarryHoldRotateEnabled();
+static void CarryHoldSetRotate(bool on);
 static bool CarryThrowTriggersSwapped();                        // VR-181: the pad bridge
 static bool CarryThrowLeftEnabled();
 static void CarryThrowLeftSet(bool on, const char* who);

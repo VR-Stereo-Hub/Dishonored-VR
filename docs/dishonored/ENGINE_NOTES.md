@@ -8579,6 +8579,14 @@ against the carried actor (the carry state's `+0x70 -> +0x58`). It also requires
 still 0 and a live carry. Then the delta becomes hand target - Location. The RB_Handle
 hooks were removed. The watch stays available on demand (`carryaim watch`).
 
+**Sixth headset run (build 659, 2026-09-22): held at the hand.** 1095 of 1095 moves were driven,
+with the object 16 uu from the hand ray origin. Reported: it flickered sideways, sat too far
+out, and did not turn with the hand. The flicker came from the last-eye anchor (FLICKER_REFERENCE,
+VR-181). The rotation now goes through the same seam. The move compares its NewRotation (a
+pointer at `[ebp-0x3C]`) against Actor.Rotation `+0xD0` (`0x0064CE0F`), so the handler writes
+both. The object's frame relative to the hand (controller forward and up, mapped through
+the head basis like the ray) is latched at the first drive of each carry.
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus

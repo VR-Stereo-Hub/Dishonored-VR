@@ -1,3 +1,26 @@
+## VR-181: a carried object held at the hand flickers sideways (2026-09-22, CANDIDATE)
+
+1. **Symptom identity:** a carried movable held at the hand by the VR-181 actor-move seam
+   flickered constantly to the left in the headset. It is one object in the world, not a
+   whole-view or eye-tag issue, and it appears only while carrying with `[Aim] CarryHoldAtHand=1`.
+2. **Reproduction identity:** build 659-gcf27c0efd-dirty (2c621ac34 plus the tree),
+   RelWithDebInfo, `stereo reentry` at 111 L/s and 111 R/s, 2750x2850, Quest 3 over Virtual
+   Desktop. The log shows 1095 of 1095 object moves driven to the hand, with no refusals, at
+   16 uu from the hand ray origin.
+3. **Hypothesis and counterprediction:** the hand target was solved from `render_pos_world`,
+   which is the camera of the LAST draw. Under re-entry that is the left or the right eye
+   depending on when the game tick lands, so the target jumped half an IPD sideways between
+   ticks. Counterprediction: anchoring on the centre eye (the midpoint of the last left/right
+   pair, `camera::render_pos_world_center`) removes the flicker. If it persists, the anchor
+   was not the cause and a second draw path for the object (its highlight mesh, or another
+   writer between ticks) is next.
+4. **Change identity:** `CarryHandFrame` in `throw_aim.cpp` uses the centre eye. The same
+   commit adds rotation with the hand and moves the default distance to 0 cm. Those are
+   separate levers (`CarryHoldRotate`, `CarryHoldForwardCm`) and can be A/B tested.
+5. **Results:** host build only. The fix has not run in the headset.
+6. **Status:** open candidate. Other hand-ray consumers (throws, interaction, powers) still
+   use the last-eye anchor. They sample once, so an error of about 3 cm does not flicker.
+
 ## VR-178: journal and wheel scene freshness candidate (2026-09-22)
 
 Reported on combined build650: objectives/journal and wheel motion steps despite high

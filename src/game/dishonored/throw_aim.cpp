@@ -318,6 +318,7 @@ static uint8_t* g_ctObj = nullptr;
 static float g_ctFrom[3], g_ctHand[3], g_ctEng[3];
 static double g_ctAt = 0; static int g_ctStep = 0;
 static const uint32_t kActorLocation = 0xC4, kActorVelocity = 0x1B4;   // as 0x00A46740 / 0x00C455E5 read them
+static const uint32_t kActorRotation = 0xD0;   // the actor move compares NewRotation against it (0x0064CE0F)
 
 static float CtDeg(const float* a, const float* b)
 {
@@ -484,7 +485,8 @@ static bool CarryThrowAimCommand(const char* args)
 static dvr::hooks::Detour g_hlDet;
 static uintptr_t g_hlBack = kMoveDeltaBack;
 static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
-static float g_hlFwdCm = 15.0f;                          // [Aim] CarryHoldForwardCm
+static float g_hlFwdCm = 0.0f;                           // [Aim] CarryHoldForwardCm (negative pulls it in)
+static bool g_hlRotOn = true;                            // [Aim] CarryHoldRotate
 static volatile uint32_t g_hlPhysOff = 0;                // Actor::Physics, resolved by name
 static volatile LONG g_hlSeen = 0, g_hlDriven = 0;
 static const char* volatile g_hlWhy = "not asked yet";
@@ -501,31 +503,120 @@ static bool CarryingMovable()
     return false;
 }
 
+// The hand's full frame in game world terms: origin, forward (the published ray) and up (the
+// controller's own up, carried into the game the same way fireaim::solve carries the ray: XR
+// vector -> the head's basis -> the view's basis). Anchored on the CENTRE eye: the last render
+// sample is one eye or the other under re-entry, and the held object flickered sideways by half
+// an IPD with it (headset, 2026-09-22).
+static bool CarryHandFrame(float* o, float* F, float* U, const char** why)
+{
+    const auto aim = dvr::aim::fire_frame();
+    float cam[3];
+    if (!dvr::camera::render_pos_world_center(cam)) { *why = "no world camera position"; return false; }
+    dvr::fireaim::Solution sol;
+    if (!dvr::fireaim::solve(aim, GetTickCount64(), g_viewYawRad, g_viewPitchRad, cam, g_posScaleUU, cam, sol)) {
+        *why = aim.ray.ok ? (aim.headValid ? "ray geometry refused" : "no head pose with the ray") : aim.ray.why;
+        return false;
+    }
+    float d[3] = { sol.target[0] - sol.origin[0], sol.target[1] - sol.origin[1], sol.target[2] - sol.origin[2] };
+    if (!dvr::fireaim::normalize(d)) { *why = "degenerate ray"; return false; }
+    // the head basis, as solve builds it
+    float q[4], n = 0;
+    for (int i = 0; i < 4; ++i) { q[i] = aim.headQuat[i]; n += q[i] * q[i]; }
+    for (float& x : q) x /= sqrtf(n);
+    const float fwd[3] = {0, 0, -1}, wup[3] = {0, 1, 0};
+    float hf[3], hr[3], hu[3];
+    dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], fwd, hf);
+    dvr::fireaim::cross(hf, wup, hr);
+    if (!dvr::fireaim::normalize(hr)) { *why = "head basis degenerate"; return false; }
+    dvr::fireaim::cross(hr, hf, hu);
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
+    const float Fv[3] = { cp * cy, cp * sy, sp }, Rv[3] = { -sy, cy, 0 }, Uv[3] = { -sp * cy, -sp * sy, cp };
+    const float* ux = aim.ray.upXr;
+    const float rel[3] = { dvr::fireaim::dot(ux, hr), dvr::fireaim::dot(ux, hu), dvr::fireaim::dot(ux, hf) };
+    float u[3];
+    for (int i = 0; i < 3; ++i) u[i] = Rv[i] * rel[0] + Uv[i] * rel[1] + Fv[i] * rel[2];
+    const float k = dvr::fireaim::dot(u, d);          // square it against the ray (it may be the trimmed axis)
+    for (int i = 0; i < 3; ++i) u[i] -= d[i] * k;
+    if (!dvr::fireaim::normalize(u)) { *why = "hand up is along the ray"; return false; }
+    memcpy(o, sol.origin, 12); memcpy(F, d, 12); memcpy(U, u, 12);
+    return true;
+}
+
+// UE3 FRotator (Pitch, Yaw, Roll; 65536 = one turn) <-> the rotation matrix's axes X/Y/Z.
+static void CtRotToAxes(const int32_t* r, float X[3], float Y[3], float Z[3])
+{
+    const float k = 6.28318531f / 65536.0f;
+    const float P = r[0] * k, Yw = r[1] * k, R = r[2] * k;
+    const float SP = sinf(P), CP = cosf(P), SY = sinf(Yw), CY = cosf(Yw), SR = sinf(R), CR = cosf(R);
+    X[0] = CP * CY; X[1] = CP * SY; X[2] = SP;
+    Y[0] = SR * SP * CY - CR * SY; Y[1] = SR * SP * SY + CR * CY; Y[2] = -SR * CP;
+    Z[0] = -(CR * SP * CY + SR * SY); Z[1] = CY * SR - CR * SP * SY; Z[2] = CR * CP;
+}
+static void CtAxesToRot(const float X[3], const float Y[3], const float Z[3], int32_t* r)
+{
+    const float k = 65536.0f / 6.28318531f;
+    r[0] = (int32_t)(atan2f(X[2], sqrtf(X[0] * X[0] + X[1] * X[1])) * k);
+    r[1] = (int32_t)(atan2f(X[1], X[0]) * k);
+    r[2] = (int32_t)(atan2f(-Y[2], Z[2]) * k);
+}
+
+// The object's rotation in the hand's frame, taken at the first drive of each carry, so it keeps
+// the orientation it was picked up in and then turns with the wrist.
+static bool g_hlRelOk = false;
+static float g_hlRel[3][3];                              // rows: object X/Y/Z in hand (F, R, U) terms
+static volatile LONG g_hlRot = 0;
+
 extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
 {
     if (!actor || actor != g_hlObj) return;              // every actor move in the game comes here
     InterlockedIncrement(&g_hlSeen);
     const char* why = nullptr;
     const uint32_t po = g_hlPhysOff;
-    float o[3], d[3];
+    float o[3], F[3], U[3];
     if (!g_hlOn.load()) why = "game hold selected";
     else if (g_gamepadOnly) why = "[Mode] GamepadOnly=1 keeps the head";
     else if (!po || !RangeReadable(actor + po, 1) || actor[po] != 0) why = "object is simulated (thrown or dropped)";
     else if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow) why = "not in gameplay";
-    else if (!frame || !RangeReadable(frame - 0x54, 12) || !RangeReadable(actor + kActorLocation, 12)) why = "move frame unreadable";
-    else HandRayWorld(o, d, &why);
+    else if (!frame || !RangeReadable(frame - 0x54, 12) || !RangeReadable(actor + kActorLocation, 12) ||
+             !RangeReadable(actor + kActorRotation, 12)) why = "move frame unreadable";
+    else CarryHandFrame(o, F, U, &why);
     if (why) { g_hlWhy = why; return; }
+    float Rh[3]; dvr::fireaim::cross(U, F, Rh);           // UE3: Y = Z x X
+    // position
     float* delta = (float*)(frame - 0x54);
     const float* L = (const float*)(actor + kActorLocation);
     const float f = g_hlFwdCm * g_posScaleUU / 100.0f;   // cm -> uu (g_posScaleUU is uu per metre)
-    const float n[3] = { o[0] + d[0] * f, o[1] + d[1] * f, o[2] + d[2] * f };
+    const float n[3] = { o[0] + F[0] * f, o[1] + F[1] * f, o[2] + F[2] * f };
     const float e[3] = { L[0] + delta[0], L[1] + delta[1], L[2] + delta[2] };   // where the game put it
     delta[0] = n[0] - L[0]; delta[1] = n[1] - L[1]; delta[2] = n[2] - L[2];
     g_hlMoved = sqrtf((n[0]-e[0])*(n[0]-e[0]) + (n[1]-e[1])*(n[1]-e[1]) + (n[2]-e[2])*(n[2]-e[2]));
+    // rotation: latch the object's frame relative to the hand once, then carry it with the hand
+    int32_t* rot = (int32_t*)(actor + kActorRotation);
+    if (g_hlRotOn) {
+        if (!g_hlRelOk) {
+            float X[3], Y[3], Z[3]; CtRotToAxes(rot, X, Y, Z);
+            const float* ax[3] = { X, Y, Z };
+            for (int i = 0; i < 3; ++i) {
+                g_hlRel[i][0] = dvr::fireaim::dot(ax[i], F);
+                g_hlRel[i][1] = dvr::fireaim::dot(ax[i], Rh);
+                g_hlRel[i][2] = dvr::fireaim::dot(ax[i], U);
+            }
+            g_hlRelOk = true;
+        }
+        float A[3][3];
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j) A[i][j] = g_hlRel[i][0] * F[j] + g_hlRel[i][1] * Rh[j] + g_hlRel[i][2] * U[j];
+        int32_t nr[3]; CtAxesToRot(A[0], A[1], A[2], nr);
+        rot[0] = nr[0]; rot[1] = nr[1]; rot[2] = nr[2];
+        // the move's own NewRotation (by pointer at [ebp-3Ch]) must agree, or it puts the old one back
+        int32_t** pNew = (int32_t**)(frame - 0x3C);
+        if (RangeReadable(pNew, 4) && *pNew && RangeReadable(*pNew, 12)) { (*pNew)[0] = nr[0]; (*pNew)[1] = nr[1]; (*pNew)[2] = nr[2]; }
+        InterlockedIncrement(&g_hlRot);
+    }
     InterlockedIncrement(&g_hlDriven);
     g_hlWhy = "driving";
 }
-
 __declspec(naked) static void CarryMoveThunk()
 {
     __asm {
@@ -696,7 +787,7 @@ static void CarryHoldTick()
             obj = (lastFocus && now - lastFocusAt < 3000 && IsLiveObject(lastFocus)) ? lastFocus : nullptr;
             src = obj ? "the focused actor (the state named none)" : "NOTHING";
         }
-        g_hlObj = obj; s0 = g_hlSeen; d0 = g_hlDriven; g_hlWhy = "not moved yet";
+        g_hlObj = obj; s0 = g_hlSeen; d0 = g_hlDriven; g_hlWhy = "not moved yet"; g_hlRelOk = false;
         Log("carry/hold: carry began - object %s %p from %s; hold owner %s", obj ? ObjClassName(obj) : "-",
             obj, src, g_hlOn.load() ? "HAND" : "GAME");
         if (obj && g_cwWanted) { g_cwWanted = false; CarryWatchArm(obj, kActorLocation); g_cwArmedAt = now; }
@@ -721,10 +812,10 @@ static void CarryHoldTick()
             up  = -r[0] * sp * cy - r[1] * sp * sy + r[2] * cp;
             if (HandRayWorld(o, d, &why)) { const float h[3] = { L[0] - o[0], L[1] - o[1], L[2] - o[2] }; toHand = sqrtf(h[0]*h[0]+h[1]*h[1]+h[2]*h[2]); }
         }
-        Log("carry/hold: carrying - %ld moves of the object seen, %ld moved to the hand (last: %s, %.0f uu "
+        Log("carry/hold: carrying - %ld moves of the object seen, %ld moved to the hand, %ld turned with it (last: %s, %.0f uu "
             "from where the game put it). Object now %.0f uu from the hand ray origin, %.0f fwd %.0f up in "
             "the view. Seen 0 while carrying = the object is not moved through the seam",
-            (long)(g_hlSeen - s0), (long)(g_hlDriven - d0), g_hlWhy, g_hlMoved, toHand, fwd, up);
+            (long)(g_hlSeen - s0), (long)(g_hlDriven - d0), (long)g_hlRot, g_hlWhy, g_hlMoved, toHand, fwd, up);
     }
     was = carry;
 }
@@ -741,9 +832,12 @@ static void CarryHoldSet(bool on, const char* who)
 }
 static void CarryHoldConfigure(const char* ini)
 {
-    g_hlFwdCm = IniFloat(ini, "Aim", "CarryHoldForwardCm", 15);
-    if (!(g_hlFwdCm >= 0 && g_hlFwdCm <= 100)) g_hlFwdCm = 15;
+    g_hlFwdCm = IniFloat(ini, "Aim", "CarryHoldForwardCm", 0);
+    if (!(g_hlFwdCm >= -40 && g_hlFwdCm <= 60)) g_hlFwdCm = 0;
+    g_hlRotOn = IniFloat(ini, "Aim", "CarryHoldRotate", 1) != 0.0f;
     CarryHoldSet(IniFloat(ini, "Aim", "CarryHoldAtHand", 1) != 0.0f, "ini [Aim] CarryHoldAtHand");
 }
 static float CarryHoldForwardCm() { return g_hlFwdCm; }
-static void CarryHoldSetForwardCm(float cm) { if (cm >= 0 && cm <= 100) g_hlFwdCm = cm; }
+static void CarryHoldSetForwardCm(float cm) { if (cm >= -40 && cm <= 60) g_hlFwdCm = cm; }
+static bool CarryHoldRotateEnabled() { return g_hlRotOn; }
+static void CarryHoldSetRotate(bool on) { g_hlRotOn = on; g_hlRelOk = false; Log("carry/hold: rotation with the hand %s", on ? "ON" : "off"); }

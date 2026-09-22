@@ -398,8 +398,12 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
             CarryHoldSet(carryHold,"F10"); ConfigWriteKey("Aim","CarryHoldAtHand",carryHold ? "1" : "0","F10 Aim");
         }
         float holdCm = CarryHoldForwardCm();
-        if (ImGui::SliderFloat("Held object ahead of the hand (cm)", &holdCm, 0.0f, 60.0f, "%.0f")) CarryHoldSetForwardCm(holdCm);
+        if (ImGui::SliderFloat("Held object ahead of the hand (cm)", &holdCm, -40.0f, 60.0f, "%.0f")) CarryHoldSetForwardCm(holdCm);
         if (ImGui::IsItemDeactivatedAfterEdit()) { char v[16]; _snprintf(v, sizeof(v), "%.0f", CarryHoldForwardCm()); v[15] = 0; ConfigWriteKey("Aim","CarryHoldForwardCm",v,"F10 Aim"); }
+        bool holdRot = CarryHoldRotateEnabled();
+        if (ImGui::Checkbox("Held object turns with the hand", &holdRot)) {
+            CarryHoldSetRotate(holdRot); ConfigWriteKey("Aim","CarryHoldRotate",holdRot ? "1" : "0","F10 Aim");
+        }
         bool powers = row("Windblast, Possession, Swarm", PowerAimEnabled(), &changed);
         if (changed) { PowerAimSet(powers,"F10"); ConfigWriteKey("Aim","PowersFromHand",powers ? "1" : "0","F10 Aim"); }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
