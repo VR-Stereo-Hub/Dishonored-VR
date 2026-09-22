@@ -1,3 +1,68 @@
+## Objective markers by position, and widget groups (VR-185, VR-186, 2026-09-22)
+
+Branch `claude/misc-fixes` (PR #99). Built RelWithDebInfo and installed; not run yet.
+
+**Where a draw's layer comes from.** In gameplay a HUD draw ends on one of two layers: the
+anchor its element rides (`window` for most rows here), or the game's own image (`frame`, or a
+native owner that returns -1 so the draw stays where the engine painted it: runes, awareness
+meters, and objectives while `NativeObjectiveIcons=1`). Every decision now names its rule:
+
+| rule (`hud/why`) | what claims the draw |
+|---|---|
+| `task-icon`, `task-text` | VR-185: within the window of a task marker's published point (below) |
+| `task-bridge` | the same icon key within two frames / 100 ms of a position match |
+| `rune`, `rune-bridge`, `awareness` | their parent hooks' published points (unchanged) |
+| `row`, `default`, `vignette`, `cache` | the row rectangles; `cache` = StableRoutes kept an earlier owner |
+| `interaction` | VR-127's prompt group |
+| `group` | VR-186: a piece with no identity of its own took its widget owner's element |
+| `marker-shape`, `marker-label`, `isolated-icon` | the shape FALLBACK, used only while the task hook is NOT live |
+
+**VR-185: task markers by position.** The task parent hook (VR-129) already ran for every task
+marker to inset it; it now also publishes the marker's point (after the inset, 1280x720
+authoring space), exactly as the rune and awareness hooks do, and the router claims a draw by
+it (`hudnative::TaskPositions`). Icon window: 96x96 authoring px within +/-48 px of the point.
+Text window (title above, distance below): up to 640x160 px, wider than tall, dx within +/-64,
+dy from -176 to +112. The text window is a BOUND, not a measurement: `hud/task-parent` prints
+the widest accepted icon and text with their offsets once a second, and those numbers tighten
+it. A marker in view on the first present after a load is claimed on that present; nothing
+depends on having seen it at an edge (TRAPS, "A recogniser that needs to see a thing in one
+place first"). Two markers equally close to a draw refuse it (`ambiguous`). With the hook live,
+`Markers::observe`, `MarkerLabels::label` and the isolated-icon rule are off; they return only
+if the hook refuses (fail soft). Positions clear on a load and on a device reset.
+
+**VR-186: widget groups** (`core/gfx/hud_group.h`). This build cannot read a draw's Scaleform
+clip. It can see that a clip's children are painted back to back: a widget is a run of
+consecutive HUD draws whose rectangles touch (0.01 margin), capped at 0.6 x 0.4 of the screen.
+A native-owned draw, a riding screen or a full-screen fill ends the run, and two pieces with
+different measured rows never share one. The run's owner is its strongest piece (interaction
+group > row > default > guessed icon). Runs are built over one present and applied from the
+next, because a draw is routed when it is drawn and its owner is often drawn after it: a widget
+can be split for the one present it first appears on. Only a draw with no identity of its own
+(`default`, or the fallback's guessed icon) is lifted; a row-owned draw is never moved, so the
+reticle and the vitals cannot be pulled into a neighbour. A piece is recorded with its OWN
+decision, so a group cannot feed its owner back to itself. No toggle.
+
+**The three reported widgets, before this change.** The vault icon, the sneak background and the
+dialogue A-button plate are all square 8-vertex/10-primitive draws in the marker's size band,
+so the isolated-icon rule left them in the game image while their siblings rode the window.
+That is read from the code; the old path wrote no line for it. The new `hud/why` lines will name
+the rule that decides each of them.
+
+**The log.**
+- `hud/why: key=... rect=... -> <element> on <layer> because <rule>`: one line per new content
+  key or CHANGED decision (at most 6 a second; the overflow is counted). A lifted piece says
+  `(its own route was <row>)`.
+- `hud/why-census: decided by task-icon=N task-text=N ... group=N | task hook LIVE`: every 3 s.
+  `marker-*` and `isolated-icon` read 0 while the hook is live; non-zero means the fallback ran.
+- `hud/group: K widget(s) ... [x0,y0-x1,y1 owner xN] ... | lifted this window N; last a -> b`:
+  every 3 s, the groups of the last present.
+- `hud/task-owner: icon|text rect=... marker=... offset=+dx/+dy authoring px -> objective on ...`.
+- `hud/task-parent: ... | draws claimed by position: icon=N (widest WxH at dx/dy) text=N ...`.
+  `text=0` while a titled marker is on screen means the title was not claimed.
+
+Host: 493 hud-route checks (the group builder and the task matcher, including the
+first-present-after-load case and a draw drawn before its owner).
+
 ## Vitals ownership and model diagnostics (2026-09-19)
 
 Candidate 505, `vr33-hands-working-505-g5501e2f9a-dirty`, is frozen in

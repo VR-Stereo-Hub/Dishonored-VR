@@ -1,3 +1,28 @@
+## A recogniser that needs to see a thing in one place first fails when it starts somewhere else (VR-185, 2026-09-22)
+
+**What happened.** An objective marker could split from its title and distance text, and the
+most reliable trigger was loading a save while looking at the marker. The old marker path only
+recognised an icon once it had been seen CLAMPED TO A SCREEN EDGE (`hudnative::Markers::observe`
+requires `edge_icon` on first sight, then remembers the content key for 2400 frames). The title
+and distance were recognised only when a recognised icon had been drawn within one frame. A
+marker that was in view when the save loaded was never at an edge, so it was never recognised:
+the icon fell to the isolated-square-icon rule and stayed in the game image, while its text
+routed to `default` on the window. Looking away clamped it to the edge, the key was remembered,
+and looking back "fixed" it (diagnosed from the code and the 2026-09-22 logs, where one
+label key routed `objective` early and `default` later; the headset run of the fix is owed).
+The first reading was that the decision was cached too early. It
+was the opposite: recognition had not happened at all.
+
+**The rule.** Do not identify a moving element by a pose it passes through only sometimes. If
+the engine publishes where the element is (the task, rune and awareness parent hooks all do),
+claim draws by that position. A remembered key is continuity, never identity.
+
+**The companion trap.** The isolated-icon rule ("a square icon not near the prompt is probably a
+marker; leave it in the image") also caught the vault prompt's icon, the sneak indicator's
+background and the dialogue A button's plate (VR-186). A guess that routes to a DIFFERENT LAYER
+than its neighbours splits every widget it misfires on. It is now the fallback for a refused
+task hook only, and even then a piece of a known widget takes its widget's owner.
+
 ## A crash recorder whose budget our own probes spend cannot record the crash (VR-177, 2026-09-21)
 
 **What happened.** A playtester reported a freeze and a crash, and neither left a fault

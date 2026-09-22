@@ -1037,3 +1037,14 @@ which a given machine needs: a press reaching the pad proves nothing.
   named and kept.
 
 - **2026-09-22 (VR-182): the hand-effect follow ships without a toggle, by the user's decision.** It is a render lever, and the rule says default OFF with a live A/B. The user ruled that a correction putting the game's own effects where the drawn hands are has no reason to be switched off. It fails soft instead: it restores the game's relative transform whenever no fresh hand correction exists, and `fx/follow:` logs every effect it moves.
+
+- **2026-09-22 (VR-185, VR-186): HUD ownership comes from what the engine publishes and what the
+  game draws together, not from shapes; no toggle, by the user's decision.** Task markers are
+  claimed by the point the task parent hook publishes (the rune and awareness pattern), so a
+  marker is its marker from its first present. Widget pieces are grouped from the draw stream: a
+  run of back-to-back touching draws is one widget, and a piece with no identity of its own takes
+  its strongest piece's element. Groups are built over one present and applied from the next,
+  because a draw must be routed when it is drawn and its owner is often drawn after it; one
+  present of split on first appearance was taken over holding every draw until the present
+  ends, which the redirect cannot do. The shape heuristics stay as the fallback for a refused
+  task hook. `HUD_ANCHORS.md` has the rules and the log lines.

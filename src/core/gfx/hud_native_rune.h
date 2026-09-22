@@ -72,6 +72,78 @@ struct RunePositions {
         pivot[0]=pivot[2]=bx;pivot[1]=pivot[3]=by;return true;
     }
 };
+// VR-185: the TASK (objective) markers' positions, published by the task
+// parent hook that has insetted them since VR-129. Before this, a task marker
+// was recognised only by its shape and only once it had been seen CLAMPED TO A
+// SCREEN EDGE, so a marker in view when a save loaded was never recognised and
+// its title and distance rode the window while the icon stayed in the image.
+//
+// Same numeric-snapshot contract as RunePositions. The icon window is the
+// rune's measured artwork with room for the one-frame phase between the
+// script callback and the draw; the TEXT window (title above, distance below)
+// has NOT been measured for task markers, so it is a deliberately generous
+// BOUND and `worst*` records the widest accepted draw of each kind in
+// authoring pixels, so a run's log is what tightens it.
+struct TaskPositions {
+    enum Kind : int { kNone = 0, kIcon = 1, kText = 2 };
+    struct Point {uintptr_t token=0;float x=0,y=0,w=0,h=0;uint32_t ms=0;bool visible=false;};
+    struct Worst {float w=0,h=0,dx=0,dy=0;unsigned matched=0;};
+    Point points[32]{};
+    Worst icon,text;
+    unsigned ambiguous=0;
+    void clear(){for(auto& p:points)p=Point{};icon=text=Worst{};ambiguous=0;}
+    void update(uintptr_t token,float x,float y,int w,int h,uint32_t flags,uint32_t ms) {
+        Point* slot=&points[0];
+        for(auto& p:points){
+            if(p.token==token){slot=&p;break;}
+            if(!p.token || ms-p.ms>ms-slot->ms)slot=&p;
+        }
+        const bool visible=(flags&1) && w>=64 && h>=64 && std::isfinite(x) && std::isfinite(y);
+        *slot={token,x,y,(float)w,(float)h,ms,visible};
+    }
+    bool any_visible(uint32_t ms) const {
+        for(const auto& p:points) if(p.token && p.visible && ms-p.ms<=100) return true;
+        return false;
+    }
+    static int classify(float pw,float ph,float dx,float dy) {
+        if(pw<=96 && ph<=96 && pw>=ph*.6f && pw<=ph*1.6f && std::fabs(dx)<=48 && std::fabs(dy)<=48) return kIcon;
+        if(pw<=640 && ph<=160 && pw>=ph*1.2f && std::fabs(dx)<=64 && dy>=-176 && dy<=112) return kText;
+        return kNone;
+    }
+    // Returns the kind matched and the marker's point as a degenerate rect.
+    int match(const float* r,uint32_t ms,float targetW,float targetH,float* pivot,float* offset=nullptr) {
+        if(!r || targetW<1 || targetH<1) return kNone;
+        for(int k=0;k<4;++k)if(!std::isfinite(r[k]))return kNone;
+        const float rw=r[2]-r[0],rh=r[3]-r[1];
+        if(rw<=0 || rh<=0)return kNone;
+        const Point* best=nullptr;float bestD=1e9f,bx=0,by=0,bw=0,bh=0,bdx=0,bdy=0;int bestKind=kNone;
+        for(const auto& p:points){
+            if(!p.token || !p.visible || ms-p.ms>100)continue;
+            // Scaleform fits the 1280x720 authoring canvas inside the target.
+            const float scale=std::fmin(targetW/p.w,targetH/p.h);
+            const float sx=scale/targetW,sy=scale/targetH;
+            const float x=.5f+(p.x-p.w*.5f)*sx,y=.5f+(p.y-p.h*.5f)*sy;
+            const float cx=(r[0]+r[2])*.5f,cy=(r[1]+r[3])*.5f;
+            const float dx=(cx-x)/sx,dy=(cy-y)/sy,pw=rw/sx,ph=rh/sy;
+            const int kind=classify(pw,ph,dx,dy);
+            if(!kind)continue;
+            const float d=dx*dx+dy*dy;
+            // Two markers equally close cannot both own the draw.
+            if(best && std::fabs(d-bestD)<1 && (std::fabs(p.x-best->x)>1 || std::fabs(p.y-best->y)>1)) {++ambiguous;return kNone;}
+            if(d<bestD){best=&p;bestD=d;bx=x;by=y;bw=pw;bh=ph;bdx=dx;bdy=dy;bestKind=kind;}
+        }
+        if(!best)return kNone;
+        Worst& wst=bestKind==kIcon?icon:text;
+        if(bw>wst.w)wst.w=bw;
+        if(bh>wst.h)wst.h=bh;
+        if(std::fabs(bdx)>std::fabs(wst.dx))wst.dx=bdx;
+        if(std::fabs(bdy)>std::fabs(wst.dy))wst.dy=bdy;
+        ++wst.matched;
+        pivot[0]=pivot[2]=bx;pivot[1]=pivot[3]=by;
+        if(offset){offset[0]=bdx;offset[1]=bdy;}
+        return bestKind;
+    }
+};
 // VR-148: the awareness meter's positions, published by the native parent hook.
 //
 // Same numeric-snapshot contract as RunePositions: nothing here is an engine

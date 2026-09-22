@@ -66,4 +66,14 @@ bool awareness_enabled();
 void configure_awareness(bool on);
 bool match_awareness_draw(const float* rect,float targetW,float targetH,float* pivot);
 void clear_awareness_positions();
+// VR-185: the task markers' positions from the task parent hook. ownership is
+// true only while the hook is installed and NativeTaskMarkers is on; without
+// it the router falls back to the shape heuristics (fail soft).
+bool task_ownership();
+bool task_visible();                     // a visible marker published within 100 ms
+void set_task_hooked(bool hooked);
+void publish_task(uintptr_t token,float x,float y,int w,int h,uint32_t flags);
+int  match_task_draw(const float* rect,float targetW,float targetH,float* pivot,float* offset); // 0 none, 1 icon, 2 text
+void clear_task_positions();
+void task_report(float* icon,float* text,unsigned& iconMatched,unsigned& textMatched,unsigned& ambiguous);
 }

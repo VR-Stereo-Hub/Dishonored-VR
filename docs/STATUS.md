@@ -1,3 +1,28 @@
+## Session handoff 2026-09-22: HUD markers by position, widget groups (VR-185, VR-186)
+
+**Branch.** `claude/misc-fixes` (draft PR #99, stacked on #98), not merged. Installed build is
+this commit's RelWithDebInfo (`d3d9.dll` sha256 `310DF2D5...`); not run yet. Pre-run logs
+archived in `build/playtest-candidates/vr185-186-hud-groups/before`.
+
+**What changed** (`HUD_ANCHORS.md`, top section; TRAPS top entry):
+* VR-185: task markers are claimed by the point the task parent hook publishes (the rune and
+  awareness pattern): icon, title and distance. Before, a marker was recognised only after it
+  had been seen clamped to a screen edge, so one in view at a load was never recognised and its
+  text rode the window while the icon stayed in the image. Diagnosed from the code and the
+  2026-09-22 logs; the headset verdict is owed. The text window is a bound: the
+  `hud/task-parent` census prints the widest accepted draws so it can be tightened.
+* VR-186: widget groups from the draw stream (`core/gfx/hud_group.h`): back-to-back touching
+  draws are one widget, and a piece with no row of its own takes the strongest piece's element.
+  Applied one present late. The isolated-square-icon rule (the suspected cause of the vault
+  icon, the sneak background and the A-button plate going to the image) runs only while the
+  task hook is not live.
+* Every decision names its rule: `hud/why` (per new key or changed decision), `hud/why-census`
+  and `hud/group` every 3 s. Host: 493 hud-route checks.
+
+**Headset run:** load a save looking at a marker; walk to a vault ledge; crouch; open a
+dialogue choice. Then read `hud/why`, `hud/why-census`, `hud/group`, `hud/task-owner`,
+`hud/task-parent` (the `text=` count and widest offsets).
+
 ## Session handoff 2026-09-22: object throwing, hand effects, wrist anchor (VR-181..VR-184); HUD next
 
 **Branches.** `claude/vr-181-object-throwing` is PR #98 (to VR-Main, not merged). `claude/misc-fixes` is draft PR #99, stacked on #98, and it is where the next session continues. The installed build is the tip of `claude/misc-fixes`.

@@ -15,6 +15,32 @@ namespace {std::atomic<bool> awareness{false};std::mutex awarenessMutex;dvr::hud
 // sample is only usable for 100 ms (AwarenessPositions::match drops anything
 // older), so one atomic stamp answers the common case before any lock.
 namespace {std::atomic<uint32_t> awarenessStampMs{0};}
+// VR-185: the task markers' published positions, same lock-free gate as awareness.
+namespace {std::atomic<bool> taskHooked{false};std::mutex taskMutex;dvr::hudnative::TaskPositions taskPositions;std::atomic<uint32_t> taskStampMs{0};}
+bool task_ownership(){return taskHooked.load() && on.load();}
+void clear_task_positions(){taskStampMs.store(0,std::memory_order_release);std::lock_guard<std::mutex> lock(taskMutex);taskPositions.clear();}
+void publish_task(uintptr_t token,float x,float y,int w,int h,uint32_t flags){
+    const uint32_t now=GetTickCount();
+    {std::lock_guard<std::mutex> lock(taskMutex);taskPositions.update(token,x,y,w,h,flags,now);}
+    if(flags&1) taskStampMs.store(now,std::memory_order_release);
+}
+int match_task_draw(const float* rect,float w,float h,float* pivot,float* offset){
+    if(!task_ownership())return 0;
+    const uint32_t stamp=taskStampMs.load(std::memory_order_acquire);
+    if(!stamp || GetTickCount()-stamp>100)return 0;
+    std::lock_guard<std::mutex> lock(taskMutex);return taskPositions.match(rect,GetTickCount(),w,h,pivot,offset);
+}
+bool task_visible(){
+    const uint32_t stamp=taskStampMs.load(std::memory_order_acquire);
+    return task_ownership() && stamp && GetTickCount()-stamp<=100;
+}
+void task_report(float* icon,float* text,unsigned& iconMatched,unsigned& textMatched,unsigned& ambiguous){
+    std::lock_guard<std::mutex> lock(taskMutex);
+    const auto& a=taskPositions.icon;const auto& b=taskPositions.text;
+    icon[0]=a.w;icon[1]=a.h;icon[2]=a.dx;icon[3]=a.dy;text[0]=b.w;text[1]=b.h;text[2]=b.dx;text[3]=b.dy;
+    iconMatched=a.matched;textMatched=b.matched;ambiguous=taskPositions.ambiguous;
+}
+void set_task_hooked(bool hooked){taskHooked.store(hooked);clear_task_positions();}
 bool rune_ownership(){return runeOwnership.load();}
 void clear_rune_positions(){std::lock_guard<std::mutex> lock(runeMutex);runePositions.clear();}
 void configure_rune_ownership(bool active){runeOwnership.store(active);clear_rune_positions();}
@@ -77,7 +103,7 @@ bool MarkerInputs(void* marker,int& w,int& h,const char*& reason,uintptr_t vtabl
     if(g_taskLoad!=g_mkLoadEvents || g_taskEpoch!=epoch || (!IsLiveObject(owner) && now>=g_taskRefresh)) {
         g_taskRefresh=now+1000;
         if(!BuildLiveSet()) return false;
-        if(g_taskLoad!=g_mkLoadEvents || g_taskEpoch!=epoch)dvr::objectivemarkers::clear_rune_positions();
+        if(g_taskLoad!=g_mkLoadEvents || g_taskEpoch!=epoch){dvr::objectivemarkers::clear_rune_positions();dvr::objectivemarkers::clear_task_positions();}
         g_taskLoad=g_mkLoadEvents;g_taskEpoch=epoch;
     }
     // Validate a current UObject owner, not its class spelling or pointer reuse.
@@ -149,11 +175,25 @@ __declspec(noinline) void __fastcall TaskParentStub(void* marker,void*,float x,f
         if(valid) moved=dvr::objectivemarkers::inset_position(x,y,w,h,flags,dvr::objectivemarkers::inset());
         else ++g_taskRefused;
     }
+    // VR-185: publish where the engine put this marker (after the inset), so
+    // the router claims its icon, title and distance by position. Hidden,
+    // inactive and refused instances withdraw their previous sample.
+    dvr::objectivemarkers::publish_task((uintptr_t)marker,x,y,w,h,valid?flags:0);
     ++g_taskCalls;if(moved)++g_taskMoved;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    // Never pay for a line you do not print: the report takes the position mutex.
+    static double nextCensusMs=0;
+    const double censusNow=MaimNowMs();
+    if(censusNow<nextCensusMs) return;
+    nextCensusMs=censusNow+1000.0;
+    float icon[4]{},text[4]{};unsigned iconN=0,textN=0,ambiguous=0;
+    dvr::objectivemarkers::task_report(icon,text,iconN,textN,ambiguous);
     DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
-        "hud/task-parent: calls=%u moved=%u refused=%u want=%d ownerValid=%d guard=%s flags=%x dimensions=%dx%d xy=%.2f/%.2f -> %.2f/%.2f distance=%.2f inset=%.3f; native children retained, draw ownership not yet established",
-        g_taskCalls,g_taskMoved,g_taskRefused,(int)want,(int)valid,reason,flags,w,h,oldX,oldY,x,y,distance,dvr::objectivemarkers::inset());
+        "hud/task-parent: calls=%u moved=%u refused=%u want=%d ownerValid=%d guard=%s flags=%x dimensions=%dx%d xy=%.2f/%.2f -> %.2f/%.2f distance=%.2f inset=%.3f "
+        "| draws claimed by position: icon=%u (widest %.0fx%.0f px at %+.0f/%+.0f; window 96x96 +/-48) text=%u (widest %.0fx%.0f px at %+.0f/%+.0f; window 640x160 dx+/-64 dy-176..+112) ambiguous=%u "
+        "(the windows are BOUNDS, these numbers tighten them; text=0 while a titled marker is on screen means its title was not claimed)",
+        g_taskCalls,g_taskMoved,g_taskRefused,(int)want,(int)valid,reason,flags,w,h,oldX,oldY,x,y,distance,dvr::objectivemarkers::inset(),
+        iconN,icon[0],icon[1],icon[2],icon[3],textN,text[0],text[1],text[2],text[3],ambiguous);
 }
 __declspec(noinline) void __fastcall RuneParentStub(void* marker,void*,float x,float y,uint32_t a,uint32_t b,float distance,uint32_t flags) {
     const float oldX=x,oldY=y;int w=0,h=0;
@@ -251,6 +291,7 @@ static void NativeMarkerInstall(uintptr_t address,uintptr_t returnAddress,bool (
 }
 static void ObjectiveMarkersApply() {
     if(dvr::objectivemarkers::enabled()) NativeMarkerInstall(kTaskParentCall,kTaskParentReturn,&TaskParentFingerprint,(void*)&TaskParentStub,g_taskHook,g_taskFailed,"task");
+    if(g_taskHook && !dvr::objectivemarkers::task_ownership()) dvr::objectivemarkers::set_task_hooked(true);
     if(dvr::objectivemarkers::rune_enabled()) NativeMarkerInstall(kRuneParentCall,kRuneParentReturn,&RuneParentFingerprint,(void*)&RuneParentStub,g_runeHook,g_runeFailed,"rune");
     if(dvr::objectivemarkers::awareness_enabled()) NativeMarkerInstall(kAwarenessParentCall,kAwarenessParentReturn,&AwarenessParentFingerprint,(void*)&AwarenessParentStub,g_awareHook,g_awareFailed,"awareness");
 }
