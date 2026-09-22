@@ -24,9 +24,13 @@ longer sleeve drags that centroid up the arm toward the wrist (52.8,-96.8,11.3 a
   level load or a sleeve change could turn the right hand by about 24 deg.
 
 **Sleeve presets** (F10 > Hands > Sleeve; `hands/sleeve_presets.h`): Hands = the shipped cut
--4.90 with the shipped roundness 0.64. Cuffs (-7.5 / 0.30) and Forearm (-12.0 / 0.30) are
-PROVISIONAL: V now logs `MARKER #n (V) sleeve: WristCutA .. WristCutB .. RoundedWristDepth ..`,
-and the marked values replace them. The Sleeve length slider (0..30, applied on release because a
+-4.90 with the shipped roundness 0.64 (kept at the tester's choice). Cuffs = -10.00 / 0.57, the
+V-marked look of the 2026-09-22 run (`MARKER #2 (V) sleeve: WristCutA -10.00 ... 0.570`).
+Forearm = -26.40 / 0.57, the length that run held for about 110 s before switching back; no
+third V line reached the log, so it is the held value, not a marked one. V logs
+`MARKER #n (V) sleeve: WristCutA .. WristCutB .. RoundedWristDepth ..` for any later retune.
+Headset, same run: the sleeve went -4.9 to -30 and back with no hand rotation reported, 52
+`offset ... is KEPT` lines and no vote on the hand bone. The Sleeve length slider (0..30, applied on release because a
 rebuild costs a few ms) and the roundness slider make the look Custom. Both write
 `[Hands] WristCutA/B` and `RoundedWristDepth` (`sleeve: <who> -> <preset>: cut ... roundness ...`).
 Headset verdict owed.

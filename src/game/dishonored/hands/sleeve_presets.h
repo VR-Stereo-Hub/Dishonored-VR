@@ -11,13 +11,14 @@ namespace dvr::sleeve {
 
 struct Preset { const char* name; float cut; float roundness; bool measured; };
 
-// Hands: the cut every release has shipped (-4.90) with the shipped roundness.
-// Cuffs and Forearm are PROVISIONAL until a headset run marks the tested
-// lengths with V (the marker line prints the cut and roundness to bake here).
+// Hands: the cut every release has shipped (-4.90) with the shipped roundness,
+// kept at the tester's choice. Cuffs: the V-marked look of the 2026-09-22 run
+// (MARKER #2, cut -10.00, roundness 0.570). Forearm: the length that run held
+// before switching back (-26.40, roundness 0.570); its V line did not reach the log.
 static const Preset kPresets[] = {
-    { "Hands",   -4.90f, 0.640f, true  },
-    { "Cuffs",   -7.50f, 0.300f, false },
-    { "Forearm", -12.0f, 0.300f, false },
+    { "Hands",   -4.90f, 0.640f, true },
+    { "Cuffs",   -10.0f, 0.570f, true },
+    { "Forearm", -26.4f, 0.570f, true },
 };
 static const int kPresetCount = sizeof(kPresets) / sizeof(kPresets[0]);
 
