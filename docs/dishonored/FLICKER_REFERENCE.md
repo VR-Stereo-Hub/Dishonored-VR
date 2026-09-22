@@ -3338,6 +3338,42 @@ remains subjective. Exact acceptance identity/archive and promotion scope are in
 PERFORMANCE.md, Accepted profile and publication. Earlier strict-default0 and pending
 headset entries are historical. Accepted image-owned orientation remains unchanged.
 
+## VR-165: an explosion reproduces it, and the offset is ADDED after the base camera (2026-09-22)
+
+1. **Symptom identity:** the same displaced/swinging whole-view camera as the chain X-release
+   case (smooth camera category, not an eye fault), reported this time after the knockback and
+   shake of an exploding oil container, with no chain involved. Cleared only by reloading the
+   save. So the chain is one trigger, not the cause.
+2. **Reproduction identity:** headset, build `679-g2d4879e0c-dirty` (RelWithDebInfo), Quest over
+   VDXR, `[Diagnostics] CamModProbe=1`, `[CameraShake] Suppress=1 Fire=1 Landing=1 Generic=1`,
+   Hits held (HitReact at weight 0). Log archived locally at
+   `build/playtest-candidates/vr185-186-hud-groups/run4`.
+3. **Measured.** The camera/source samples (500 ms) put the bugged window at 567.5 s to the
+   reload at 616.9 s: camera POV minus pawn 125-281 uu in all three axes (98 samples), against
+   44-104 uu everywhere else in the run, the same band the chain case measured (127-250). The
+   onset sample: eye offset `(-9.7, 3.9, 83.4)` at 567.0 s, `(1.5, 28.1, 142.6)` at 567.5 s,
+   pawn velocity 0 in both; a fall with `(-17, -723, -215)` uu/s followed at 569.5 s (the
+   knockback). **At the same instant `PlayerControl`'s own source POV read `(-5, 7, 77)` minus
+   the pawn, i.e. healthy, and stayed healthy through the window.** Every influence weight and
+   target read normal throughout (no stuck weight; HitReact 0/0 as our hold sets it).
+4. **What that eliminates and what it names.** The base first-person camera is not displaced;
+   the displacement is added AFTER it, by the additive graph. Influence WEIGHTS are eliminated
+   (all normal). The candidates that hold state are the `DishonoredCamera_PhysicalReact` springs
+   (`PhysicalReact`, `HitReact`, `Shake`, `Recoil`: `m_StabilityPoint` / `m_StrengthPoint`, each
+   a `DisSpringPoint` with `m_Pos`/`m_Velocity`, rotating about `m_CameraPivotOffset`, which is
+   Z=200 for HitReact), `Lean`'s `m_HeadPoint`, and `BumpSmoother`'s interpolated height.
+   **Hypothesis:** one of those springs is left off rest after an impulse and never returns.
+   **Counterprediction:** in a bugged window every spring reads at rest (`m_Pos` near 0, no
+   velocity) exactly as in a healthy one; then the springs are eliminated too and the next place
+   is the native combine of the graph.
+5. **Change identity:** diagnostic only, no camera write. `camera/springs` (one line per 500 ms
+   sample, no budget: the verbose tables used to stop the whole probe at 1800 samples, 15 min)
+   prints the eye offset and every spring's position and speed; `camera/displaced` warns once
+   per episode after 1.5 s above 115 uu and says when it returns. Offsets by name through
+   `RflOffsetOf` (`DisSpringPoint` members resolve against the ScriptStruct).
+6. **Status:** OPEN, measured, cause not yet named. VR-165. Next run: reproduce (explosion or
+   chain X-release), then read the `camera/springs` lines around `camera/displaced`.
+
 ## VR-165: the chain-climb swing is NOT the camera modifier stack (2026-09-20)
 
 1. **Symptom:** after leaving a chain the camera goes on swinging as if still on
