@@ -81,7 +81,7 @@ static uint32_t g_launchW = 0, g_launchH = 0;       // the ask the launch file c
 static bool     g_launchFull = true;
 static bool     g_launchVirtual = false;            // the file asked for VirtualMode (wins over the ini)
 static const char* kBuildTag = "41.0";
-static const int kConfigVersion = 13; // bump to refresh users' ini with new defaults
+static const int kConfigVersion = 14; // bump to refresh users' ini with new defaults
 // NOT bumped for VR-157's [Diagnostics] GameOptsOnStart, on purpose. A bump
 // makes LoadConfig call WriteDefaultIni, which throws the whole file away and
 // carries over exactly three keys ([VR] Runtime, [VR] XrRuntimeJson, [Paths]
