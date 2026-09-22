@@ -537,18 +537,7 @@ static bool CarryingMovable()
 // computed every drive and their disagreement logged, so the next run measures the cause.
 static std::atomic<bool> g_hlGameAnchor{true};
 static float g_hlAnchorGap = 0, g_hlAnchorGapView[3] = {0, 0, 0}; static volatile LONG g_hlAnchorBig = 0, g_hlAnchorN = 0;
-static bool CarryGameAnchor(float out[3])
-{
-    uint8_t* cam = g_camObj;
-    float base[3], off[3];
-    if (!cam || !dvr::camera::game_base_pos(cam, base)) return false;
-    dvr::camera::position_offset_uu(off);                        // (right, up, forward) uu
-    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad);
-    out[0] = base[0] - sy * off[0] + cy * off[2];
-    out[1] = base[1] + cy * off[0] + sy * off[2];
-    out[2] = base[2] + off[1];
-    return true;
-}
+static bool CarryGameAnchor(float out[3]) { return GameCameraAnchor(out); }   // interact_aim.cpp
 
 static bool CarryHandFrame(float* o, float* F, float* U, const char** why)
 {

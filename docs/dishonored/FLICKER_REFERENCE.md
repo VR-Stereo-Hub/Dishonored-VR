@@ -1,3 +1,31 @@
+## VR-195: the grab prompt flickers and the object cannot be used (2026-09-22, OPEN candidate)
+
+1. **Symptom identity:** looking at a usable object (a bottle, a pickup), the grab/use prompt
+   toggles on and off at about 20 Hz and pressing use does nothing. This is a GAME-STATE flicker,
+   not a render one: the controller's focus target (`m_pCrosshairActor`) itself toggles, so the
+   use lands on "nothing" half the time. Both eyes, HUD prompt plus the object's highlight.
+   Distinct from every eye-tag row in section 1.
+2. **Reproduction identity:** build 693-gcfd3ced85 (RelWithDebInfo), `stereo reentry`,
+   2750x2850, Quest 3 over Virtual Desktop, `[Aim] InteractFromHand=1`. Tester log of 2026-09-22.
+3. **Hypothesis and counterprediction:** `HandRayWorld` anchored the hand ray on
+   `render_pos_world` (c5, the camera of whichever scene draw uploaded last: an eye or a non-eye
+   pass). Interaction traces every tick, so the 3-6 uu jitter moves the trace across the edge of
+   an object's use range each frame. Evidence: the 4 Hz `interact/focus:` sampler read
+   `DishonoredMovable` / `none` on ALTERNATE samples at each object in reach, the aliased
+   signature of a frame-rate toggle. On the same run, `carry/anchor:` measured the render
+   sample 3.4-5.6 uu off the game camera on 5-49 of every ~120 drives. Counterprediction: with
+   the game-camera anchor, `interact/flicker:` stays silent at the same objects. If it still
+   reports 4+ changes a second, the anchor is eliminated. The next suspects are then the ray
+   DIRECTION (hand tremor at the range edge) or a second engine caller of the wrapper that
+   keeps the head ray.
+4. **Change identity:** `GameCameraAnchor` moved from throw_aim.cpp to interact_aim.cpp and
+   became `HandRayWorld`'s anchor. That covers interaction, throws, powers and the aim source.
+   `[Aim] HandRayGameAnchor=0` restores the old anchor for A/B. `interact/flicker:` counts focus
+   changes once per rendered frame.
+5. **Results:** host build only. Not yet run in the headset.
+6. **Status:** open candidate. The VR-181 lesson above filed interaction under "one-shot
+   uses", and that was wrong: interaction traces every tick, so it is per-frame.
+
 ## VR-181: a carried object held at the hand flickers sideways (2026-09-22, FIXED, headset-confirmed)
 
 1. **Symptom identity:** a carried movable held at the hand by the VR-181 actor-move seam
@@ -1197,6 +1225,7 @@ pose metadata without reopening the disproved historical theories.
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
+| Grab/use prompt toggles at ~20 Hz and use does nothing (a game-state flicker: the focus target toggles) | Hand ray anchored on the last render sample; `interact/flicker:` counts focus changes per frame | VR-195 open candidate: game-camera anchor (`[Aim] HandRayGameAnchor`) |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
 | Whole view lifted and tilted off the body, swinging with head rotation, for tens of seconds after a chain X-release or an explosion's knockback (not a flicker) | `camera/collide` `smoothing1` with `game-minus-nonAdditive` about 9.5x the mod's own offset; the springs read at rest | VR-165 CAUSE MEASURED 2026-09-22: the camera's collision-pop smoother (`m_bSmoothingSuddenCollision`) reads our offset back from `camera+0x330` every update and never converges (gap = offset x 9.5 at 126 ticks/s, measured). FIXED: `[CameraShake] PopSmoothing=0` (default) holds the game's glide off; headset-confirmed |
 
