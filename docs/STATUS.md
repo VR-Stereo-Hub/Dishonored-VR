@@ -15,9 +15,15 @@ pass. Older menu-immersion harness is stale and not counted as a pass.
 Detailed evidence/limitations: docs/dishonored/FLICKER_REFERENCE.md top entry and
 docs/dishonored/PERFORMANCE.md top entry. No game launched.
 
-Next: install optimized legacy-off candidate, arm only Hud.MenuSceneFreshness=1
-in the installed INI, verify full diff/CRLF and hashes, then one launch to judge
-20 seconds of objectives/journal stereo continuity with slow head/left-hand movement.
+Installed651-g410cff3ed, RelWithDebInfo, legacy off. DLL SHA256
+D24143368C2B1693D6DFE8D7039CC4858A9A0D2B339F20A24C3B1A5553F89176.
+Full installed INI comparison adds only Hud.MenuSceneFreshness=1;1293 CRLF,zero bare LF.
+INI SHA2563F780450A7D4B603D9B6C02CBAA633239DE80CBB94395A99E69F2C204D8B5611.
+Prior DLL, latest saved INI and both logs archived in
+build/playtest-candidates/menu-choppiness/before-menu-fix. Installed DLL and candidate
+hashes match;9 exports verified again after install. The log remains650 until launch.
+Next: one launch to judge20 seconds of objectives/journal stereo continuity with
+slow head/left-hand movement. Read the new banner before interpreting the run.
 A steady world with continued hand stepping is a distinct follow-up; no blanket fix
 or merge readiness is claimed before that result. No merge to VR-Main authorized.
 
