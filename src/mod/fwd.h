@@ -663,6 +663,7 @@ static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
 static void CarryThrowAimTick();
 static void CarryHoldTick();
+static void FxFollowTick();                                    // VR-182: hand effects follow the drawn hands
 static uint8_t* CarryProbeFocus();                                   // VR-181: where the carried object is held
 static void CarryHoldConfigure(const char* ini);
 static void CarryHoldSet(bool on, const char* who);

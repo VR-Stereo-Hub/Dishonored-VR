@@ -8594,6 +8594,35 @@ the pawn velocity), and trigger the release on grip-open instead of the throw bu
 `m_bThrowOnDrop` is the flag that selects the throw branch. Still unknown: what sets it,
 the speed tweak's value, and whether the angular velocity should follow the controller's.
 
+## Hand effects follow the drawn hands (VR-182, 2026-09-22)
+
+**Cause, derived.** The hands and held items are placed by a render-only palette correction
+(VR-33-HANDS-AND-WEAPONS section 1), and the game's bones stay put. So anything attached to
+those meshes stays at the game's hand. From the decompiled scripts (declarations only):
+
+* Heart: `DisGadget_Heart.m_pGlowFX` (ParticleSystemComponent), from `DisTweaks_Heart.m_pGlowFX`
+  at `m_GlowFXSocket`. The Heart's player mesh is a `DishonoredItemSkeletalComponent` with
+  `bForceUpdateAttachmentsInTick`, SDPG_Foreground and TG_PostUpdateWork, and its equip socket
+  is `LeftHandWpn`. The material glow (`m_pHeart_MIC`, `m_fGlow`) rides the mesh draw.
+* Blink: `DishonoredActivePowerComponent_Blink.m_pMeshPS` and `m_pAimingPS`.
+* Possession: `DisTweaks_Possess.m_pHandCastParticle` at `m_HandCastParticleAttachSocket`.
+* The socket names are in the content packages, not the scripts.
+
+**The follow** (`hands/fx_follow.cpp`, script lane, always on). The weapon path already
+publishes, per hand, D in the draw's camera-relative space, the drawn arm transform `L_hand`,
+and the native snapshot of every view-model component. In world terms the correction is
+`W = inverse(br) * D * br`, with `br = bridge(native arm, drawn arm)`. For every
+ParticleSystemComponent in the `Attachments` array (`SkeletalMeshComponent.Attachments`,
+resolved by name) of a snapshot mesh, the attachment's RelativeLocation/RelativeRotation are
+rewritten each tick to `inverse(S) * W * S * Rel0`, where `S = C * inverse(RelWritten)` is the
+socket recovered from the component's LocalToWorld. The engine's own attachment update does
+the rest. The element stride is proved on a live array (a live component and a sane
+RelativeScale at `+0x24` for every element), and `Rel0` is restored whenever no fresh
+correction exists. The hand comes from the snapshot, or from the bone name on the arm mesh.
+**Not yet run.** `fx/follow:` names every tracked effect, its mesh, bone and hand, and every
+non-particle attachment it leaves alone. If Blink's `m_pMeshPS` samples the arm mesh's
+surface instead of being attached, it will not appear in that list, and it needs a different fix.
+
 ## The razor placement seam (VR-166, 2026-09-21)
 
 **Found statically; the write-watch was retired without its result.** Build 612 armed

@@ -1035,3 +1035,5 @@ which a given machine needs: a press reaching the pad proves nothing.
   REMOVED, against the default-off rule for new levers, at the owner's explicit request: in a
   headset the game's setting is the wrong one in every session. The stair smoother is measured,
   named and kept.
+
+- **2026-09-22 (VR-182): the hand-effect follow ships without a toggle, by the user's decision.** It is a render lever, and the rule says default OFF with a live A/B. The user ruled that a correction putting the game's own effects where the drawn hands are has no reason to be switched off. It fails soft instead: it restores the game's relative transform whenever no fresh hand correction exists, and `fx/follow:` logs every effect it moves.
