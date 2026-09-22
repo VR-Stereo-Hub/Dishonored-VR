@@ -39,6 +39,16 @@
    `MOVED OUTSIDE the seam N times, largest X uu (fwd/right/up in the view)` names a second
    writer. A zero there puts the jump in the render and not in the game state.
    `two drives in one frame` counts drives that share a render serial.
+9. **Build 662 result: no second writer.** 0 outside moves and 0 double drives across the
+   whole carry, so the object's game state is clean. New report: the jump goes left AND right,
+   is heavy facing one world direction and slight facing the opposite way, and does not depend
+   on where the player stands. That is a WORLD-direction error. Candidate: the anchor itself.
+   c5 is uploaded by every scene draw, including non-eye passes such as shadow depth, whose
+   camera is elsewhere. Build 663 anchors on the GAME camera (`game_base_pos` plus the mod's
+   positional offset in the yaw-only frame), with `[Aim] CarryHoldAnchor` for A/B.
+   `carry/anchor:` logs, every second, how often and how far the render anchor strays from
+   the game anchor. Counterprediction: small, rare gaps there with the flicker still present
+   eliminate the anchor.
 
 ## VR-178: journal and wheel scene freshness candidate (2026-09-22)
 

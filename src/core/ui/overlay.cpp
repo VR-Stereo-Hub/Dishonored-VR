@@ -405,6 +405,10 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
             if (ImGui::SliderFloat(holdLbl[i], &v, holdMin[i], holdMax[i], "%.0f")) CarryHoldSetAdj(i, v);
             if (ImGui::IsItemDeactivatedAfterEdit()) { char b[16]; _snprintf(b, sizeof(b), "%.0f", CarryHoldAdj(i)); b[15] = 0; ConfigWriteKey("Aim", CarryHoldAdjKey(i), b, "F10 Aim"); }
         }
+        bool holdAnchor = CarryHoldGameAnchor();
+        if (ImGui::Checkbox("Anchor the held object on the game camera", &holdAnchor)) {
+            CarryHoldSetGameAnchor(holdAnchor); ConfigWriteKey("Aim","CarryHoldAnchor",holdAnchor ? "1" : "0","F10 Aim");
+        }
         bool holdKeep = CarryHoldKeepAngle();
         if (ImGui::Checkbox("Keep the angle it was picked up at", &holdKeep)) {
             CarryHoldSetKeepAngle(holdKeep); ConfigWriteKey("Aim","CarryHoldKeepPickupAngle",holdKeep ? "1" : "0","F10 Aim");

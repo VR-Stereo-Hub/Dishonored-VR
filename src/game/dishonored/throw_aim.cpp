@@ -513,11 +513,52 @@ static bool CarryingMovable()
 // vector -> the head's basis -> the view's basis). Anchored on the CENTRE eye: the last render
 // sample is one eye or the other under re-entry, and the held object flickered sideways by half
 // an IPD with it (headset, 2026-09-22).
+// The anchor. Build 662: the object was never moved by anything but this seam (0 outside moves),
+// yet it jumped left and right for single frames, hard facing one way and hardly at all facing the
+// opposite way, wherever the player stood. A WORLD-direction error. The render sample (c5) is
+// uploaded by every scene draw, including passes that are not an eye (shadow depth, captures),
+// whose camera is somewhere else; whichever drew last before the tick became the anchor. The GAME
+// camera (its base, with the mod's own offsets removed, plus the mod's positional offset in the
+// yaw-only frame, which is how the camera lane writes it) is the head this tick whatever drew.
+// [Aim] CarryHoldAnchor=1 uses it (default); 0 is the render centre eye, for A/B. Both are
+// computed every drive and their disagreement logged, so the next run measures the cause.
+static std::atomic<bool> g_hlGameAnchor{true};
+static float g_hlAnchorGap = 0, g_hlAnchorGapView[3] = {0, 0, 0}; static volatile LONG g_hlAnchorBig = 0, g_hlAnchorN = 0;
+static bool CarryGameAnchor(float out[3])
+{
+    uint8_t* cam = g_camObj;
+    float base[3], off[3];
+    if (!cam || !dvr::camera::game_base_pos(cam, base)) return false;
+    dvr::camera::position_offset_uu(off);                        // (right, up, forward) uu
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad);
+    out[0] = base[0] - sy * off[0] + cy * off[2];
+    out[1] = base[1] + cy * off[0] + sy * off[2];
+    out[2] = base[2] + off[1];
+    return true;
+}
+
 static bool CarryHandFrame(float* o, float* F, float* U, const char** why)
 {
     const auto aim = dvr::aim::fire_frame();
-    float cam[3];
-    if (!dvr::camera::render_pos_world_center(cam)) { *why = "no world camera position"; return false; }
+    float cam[3], rc[3], gc[3];
+    const bool haveR = dvr::camera::render_pos_world_center(rc), haveG = CarryGameAnchor(gc);
+    if (haveR && haveG) {   // the disagreement, every drive
+        const float d[3] = { rc[0] - gc[0], rc[1] - gc[1], rc[2] - gc[2] };
+        const float g = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        InterlockedIncrement(&g_hlAnchorN);
+        if (g > 1.5f) InterlockedIncrement(&g_hlAnchorBig);
+        if (g > g_hlAnchorGap) {
+            g_hlAnchorGap = g;
+            const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
+            g_hlAnchorGapView[0] = d[0] * cp * cy + d[1] * cp * sy + d[2] * sp;
+            g_hlAnchorGapView[1] = -d[0] * sy + d[1] * cy;
+            g_hlAnchorGapView[2] = -d[0] * sp * cy - d[1] * sp * sy + d[2] * cp;
+        }
+    }
+    const bool useG = g_hlGameAnchor.load() ? haveG : (!haveR && haveG);   // the chosen one, else the other
+    if (useG) memcpy(cam, gc, 12);
+    else if (haveR) memcpy(cam, rc, 12);
+    else { *why = "no world camera position"; return false; }
     dvr::fireaim::Solution sol;
     if (!dvr::fireaim::solve(aim, GetTickCount64(), g_viewYawRad, g_viewPitchRad, cam, g_posScaleUU, cam, sol)) {
         *why = aim.ray.ok ? (aim.headValid ? "ray geometry refused" : "no head pose with the ray") : aim.ray.why;
@@ -912,6 +953,11 @@ static void CarryHoldTick()
             (long)(g_hlSeen - s0), (long)(g_hlDriven - d0), (long)g_hlRot, g_hlWhy, g_hlMoved, toHand, fwd, up,
             (long)g_hlOutside, g_hlOutMax, g_hlOutView[0], g_hlOutView[1], g_hlOutView[2], (long)g_hlSameFrame);
         g_hlOutMax = 0;
+        Log("carry/anchor: %s anchor. Render centre eye vs game camera: %ld of %ld drives more than 1.5 uu apart, "
+            "largest %.1f uu (%.1f fwd %.1f right %.1f up in the view) in the last second. Big and frequent here "
+            "= the render sample was the jump", g_hlGameAnchor.load() ? "GAME-camera" : "RENDER-sample",
+            (long)g_hlAnchorBig, (long)g_hlAnchorN, g_hlAnchorGap, g_hlAnchorGapView[0], g_hlAnchorGapView[1], g_hlAnchorGapView[2]);
+        g_hlAnchorGap = 0; g_hlAnchorBig = 0; g_hlAnchorN = 0;
     }
     was = carry;
 }
@@ -934,12 +980,15 @@ static void CarryHoldConfigure(const char* ini)
     }
     g_hlWorldDepth.store(IniFloat(ini, "Aim", "CarryHoldWorldDepth", 1) != 0.0f);
     g_hlKeepAngle.store(IniFloat(ini, "Aim", "CarryHoldKeepPickupAngle", 0) != 0.0f);
+    g_hlGameAnchor.store(IniFloat(ini, "Aim", "CarryHoldAnchor", 1) != 0.0f);
     g_hlRotOn = IniFloat(ini, "Aim", "CarryHoldRotate", 1) != 0.0f;
     CarryHoldSet(IniFloat(ini, "Aim", "CarryHoldAtHand", 1) != 0.0f, "ini [Aim] CarryHoldAtHand");
 }
 static float CarryHoldAdj(int i) { return (i >= 0 && i < 6) ? g_hlAdj[i] : 0; }
 static const char* CarryHoldAdjKey(int i) { return (i >= 0 && i < 6) ? kHlAdjKey[i] : ""; }
 static void CarryHoldSetAdj(int i, float v) { if (i >= 0 && i < 6 && v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) g_hlAdj[i] = v; }
+static bool CarryHoldGameAnchor() { return g_hlGameAnchor.load(); }
+static void CarryHoldSetGameAnchor(bool on) { g_hlGameAnchor.store(on); Log("carry/anchor: %s", on ? "GAME camera" : "RENDER centre eye"); }
 static bool CarryHoldKeepAngle() { return g_hlKeepAngle.load(); }
 static void CarryHoldSetKeepAngle(bool on) { g_hlKeepAngle.store(on); g_hlRelOk = false; Log("carry/hold: keep the pickup angle %s", on ? "ON" : "off (fixed in the hand)"); }
 static bool CarryHoldWorldDepthEnabled() { return g_hlWorldDepth.load(); }

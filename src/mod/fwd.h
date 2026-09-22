@@ -670,6 +670,8 @@ static bool CarryHoldEnabled();
 static float CarryHoldAdj(int i);                               // 0..2 fwd/right/up cm, 3..5 pitch/yaw/roll deg
 static const char* CarryHoldAdjKey(int i);
 static void CarryHoldSetAdj(int i, float v);
+static bool CarryHoldGameAnchor();
+static void CarryHoldSetGameAnchor(bool on);
 static bool CarryHoldKeepAngle();
 static void CarryHoldSetKeepAngle(bool on);
 static bool CarryHoldWorldDepthEnabled();

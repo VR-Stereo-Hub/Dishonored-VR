@@ -507,6 +507,8 @@ static void WriteDefaultIni(const char* ini)
         "; CarryHoldKeepPickupAngle=0: the object sits the same way in the hand every time (then the\n"
         "; trims); 1 keeps whatever angle it was picked up at.\n"
         "CarryHoldKeepPickupAngle=0\n"
+        "; CarryHoldAnchor=1: place it from the GAME camera; 0 = from the last render sample (A/B).\n"
+        "CarryHoldAnchor=1\n"
         "; PowersFromHand=1 (VR-44): Windblast, Possession and Devouring Swarm aim along the\n"
         "; weapon ray instead of your view; 0 = head.\n"
         "PowersFromHand=1\n"
