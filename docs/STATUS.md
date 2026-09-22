@@ -1,3 +1,17 @@
+## Session handoff 2026-09-22: object throwing, hand effects, wrist anchor (VR-181..VR-184); HUD next
+
+**Branches.** `claude/vr-181-object-throwing` is PR #98 (to VR-Main, not merged). `claude/misc-fixes` is draft PR #99, stacked on #98, and it is where the next session continues. The installed build is the tip of `claude/misc-fixes`.
+
+**Headset-confirmed this session:**
+* VR-181: carried objects are held at the controller, turn with the wrist, and are thrown along the controller ray. The left trigger throws. The flicker was fixed by anchoring on the game camera, not the last render sample. The tuned hold offsets are the shipped defaults.
+* VR-182: hand effects follow the drawn hands (the Heart glow, the Blink and Possession effects). `hands/fx_follow.cpp`. The bone pose comes from the engine's TransformFrom/ToBoneSpace, and the tick is guarded against re-entry.
+* VR-183: an empty hand (powers) is placed from the wrist bone, so finger animation cannot swing it. A hand holding an item keeps the calibrated frame, so the reticle stays aligned.
+* VR-184: in the mod's vertex copy, hand vertices' forearm-bone influences point at the hand bone, so the wrist cut and cap stay rigid.
+
+**Traps added** (TRAPS.md): RangeReadable is a system call, so never make it per object in a scan. A ProcessEvent call from the script tick re-enters the script tick.
+
+**Next: the HUD.** VR-185 (objective markers on the wrong layer and split from their title, reproducible by loading a save while looking at a marker) and VR-186 (widget pieces split across layers: the vault icon, the sneak background, the dialogue A-button background; group them).
+
 ## Misc fixes branch: carried objects thrown by hand, VR-181 (2026-09-22)
 
 `claude/misc-fixes` off `VR-Main` after #96 (the tested build set plus VR-178) merged.
