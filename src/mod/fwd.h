@@ -676,6 +676,8 @@ static const char* CarryHoldAdjKey(int i);
 static void CarryHoldSetAdj(int i, float v);
 static bool CarryHoldGameAnchor();
 static bool CarryHoldReticleAnchored();
+static bool CarryHoldViewStep(bool rot, int axis, float amount, const char** why);   // cm / deg in the view
+static void CarryHoldSaveAdj(const char* who);
 static void CarryHoldSetReticleAnchored(bool on);
 static float CarryHoldReticleRef(int i);
 static void CarryHoldSetReticleRef(float x, float y);

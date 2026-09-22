@@ -402,13 +402,48 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         if (ImGui::Checkbox("Hold carried objects in the hand", &carryHold)) {
             CarryHoldSet(carryHold,"F10"); ConfigWriteKey("Aim","CarryHoldAtHand",carryHold ? "1" : "0","F10 Aim");
         }
-        static const char* const holdLbl[6] = { "Held: forward (cm)", "Held: right (cm)", "Held: up (cm)",
-                                                "Held: pitch (deg)", "Held: yaw (deg)", "Held: roll (deg)" };
-        static const float holdMin[6] = { -40, -40, -40, -180, -180, -180 }, holdMax[6] = { 60, 40, 40, 180, 180, 180 };
-        for (int i = 0; i < 6; ++i) {
-            float v = CarryHoldAdj(i);
-            if (ImGui::SliderFloat(holdLbl[i], &v, holdMin[i], holdMax[i], "%.0f")) CarryHoldSetAdj(i, v);
-            if (ImGui::IsItemDeactivatedAfterEdit()) { char b[16]; _snprintf(b, sizeof(b), "%.0f", CarryHoldAdj(i)); b[15] = 0; ConfigWriteKey("Aim", CarryHoldAdjKey(i), b, "F10 Aim"); }
+        {   // Held-object position, stepped in YOUR view (CarryHoldViewStep). Needs the aim ray, so
+            // it works in gameplay with the reticle on; carry something to see the effect.
+            ImGui::TextUnformatted("Held object position (steps follow your view)");
+            static int stepIx = 1;
+            static const float kCm[3] = { 0.5f, 1.0f, 3.0f }, kDeg[3] = { 1.0f, 3.0f, 10.0f };
+            ImGui::RadioButton("fine##chstep", &stepIx, 0); ImGui::SameLine();
+            ImGui::RadioButton("normal##chstep", &stepIx, 1); ImGui::SameLine();
+            ImGui::RadioButton("coarse##chstep", &stepIx, 2);
+            struct Row { const char* name; const char* neg; const char* pos; bool rot; int axis; };
+            static const Row kRows[6] = {
+                { "move", "left", "right", false, 0 }, { "move", "down", "up", false, 2 },
+                { "move", "back", "forward", false, 1 },
+                { "turn", "pitch down", "pitch up", true, 1 }, { "turn", "yaw left", "yaw right", true, 0 },
+                { "turn", "roll left", "roll right", true, 2 } };
+            static const char* lastWhy = "";
+            bool stepped = false;
+            ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
+            for (int r = 0; r < 6; ++r)
+                for (int sgn = 0; sgn < 2; ++sgn) {
+                    char lbl[48];
+                    _snprintf(lbl, sizeof(lbl), "%s %s##chv%d%d", kRows[r].name, sgn ? kRows[r].pos : kRows[r].neg, r, sgn);
+                    lbl[sizeof(lbl) - 1] = 0;
+                    if (sgn) ImGui::SameLine();
+                    if (ImGui::Button(lbl, ImVec2(ImGui::GetContentRegionAvail().x * (sgn ? 1.0f : 0.5f) - (sgn ? 0.0f : 4.0f), 0))) {
+                        const float amt = (sgn ? 1.0f : -1.0f) * (kRows[r].rot ? kDeg[stepIx] : kCm[stepIx]);
+                        if (CarryHoldViewStep(kRows[r].rot, kRows[r].axis, amt, &lastWhy)) stepped = true;
+                    }
+                }
+            ImGui::PopItemFlag();
+            if (stepped) CarryHoldSaveAdj("F10 Aim");
+            if (lastWhy[0] && strcmp(lastWhy, "ok")) ImGui::TextDisabled("last step refused: %s", lastWhy);
+            if (ImGui::TreeNode("Stored values (hand frame)##chraw")) {
+                static const char* const holdLbl[6] = { "Held: forward (cm)", "Held: right (cm)", "Held: up (cm)",
+                                                        "Held: pitch (deg)", "Held: yaw (deg)", "Held: roll (deg)" };
+                static const float holdMin[6] = { -40, -40, -40, -180, -180, -180 }, holdMax[6] = { 60, 40, 40, 180, 180, 180 };
+                for (int i = 0; i < 6; ++i) {
+                    float v = CarryHoldAdj(i);
+                    if (ImGui::SliderFloat(holdLbl[i], &v, holdMin[i], holdMax[i], "%.1f")) CarryHoldSetAdj(i, v);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) CarryHoldSaveAdj("F10 Aim");
+                }
+                ImGui::TreePop();
+            }
         }
         bool holdRet = CarryHoldReticleAnchored();
         if (ImGui::Checkbox("Held object ignores reticle changes", &holdRet)) {

@@ -8764,6 +8764,21 @@ where it is. `CarryHoldReticleAnchor=0` puts the hold back on the live reticle. 
 Aim button "Retune the hold against the current reticle" adopts the live reticle as the
 reference on purpose.
 
+**The hold is tuned in the view (2026-09-22).** The hold offsets live in the hand's frame (F =
+the ray, R, U = the controller's up), and the controller's tilt skews that frame against
+the view, so a "forward" slider moved the object diagonally. The F10 Aim steps
+(`CarryHoldViewStep`) are taken in the player's yaw frame and converted at the press: a
+move adds `H^T d`, and a turn is `Trim' = H^T Rx H Trim` (H = [F R U], the frame the drive
+uses). The turn axes are chosen by their effect with plain component cross products
+(pitch k = -Rv, yaw k = Up, roll k = -Fv), so UE3's left-handed axes need no sign bookkeeping.
+The raw hand-frame sliders stay under "Stored values".
+
+**Gamepad look sensitivity** is `PSI_Gamepad_LookXSensitivity` 78 and `...LookYSensitivity`
+79, both `SDT_Int32`, default -1 (unset) in `ArkProfileSettings` DefaultSettings[50]/[51].
+The startup defaults write 30 to both (headset choice, 2026-09-22), as optional entries:
+a profile missing them skips only these two. **Unverified** that the menu slider reads 30,
+and that 30 is on the menu's scale. The automatic read logs both ids.
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus

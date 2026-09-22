@@ -1001,6 +1001,75 @@ static void CarryHoldConfigure(const char* ini)
 static float CarryHoldAdj(int i) { return (i >= 0 && i < 6) ? g_hlAdj[i] : 0; }
 static const char* CarryHoldAdjKey(int i) { return (i >= 0 && i < 6) ? kHlAdjKey[i] : ""; }
 static void CarryHoldSetAdj(int i, float v) { if (i >= 0 && i < 6 && v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) g_hlAdj[i] = v; }
+// ---- THE VIEW-ALIGNED HOLD ADJUST (2026-09-22) -----------------------------------------------
+// The hold offsets are in the HAND's frame (F = the ray, R, U = the controller's up), which the
+// controller's tilt skews against the view, so a "forward" slider moved the object diagonally -
+// the same complaint the hand trim had. A step here is taken in the player's yaw frame (forward,
+// right, world up; pitch/yaw/roll about them) and converted into the hand-frame offsets at the
+// press, through the hand frame the hold itself uses (CarryHandFrame):
+//   move:  adj += H^T d            (H = [F R U], d the world step)
+//   turn:  Trim' = H^T Rx H Trim   (the object's world orientation is H * Trim * rel)
+// axis 0 = right / yaw, 1 = forward / pitch, 2 = up / roll. cm or degrees.
+static bool CarryHoldViewStep(bool rot, int axis, float amount, const char** why)
+{
+    float o[3], F[3], U[3];
+    if (!CarryHandFrame(o, F, U, why)) return false;
+    float Rh[3]; dvr::fireaim::cross(U, F, Rh);           // UE3: Y = Z x X, as the drive builds it
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad);
+    const float Fv[3] = { cy, sy, 0 }, Rv[3] = { -sy, cy, 0 }, Up[3] = { 0, 0, 1 };
+    if (!rot) {
+        const float* a = axis == 0 ? Rv : axis == 1 ? Fv : Up;
+        const float d[3] = { a[0] * amount, a[1] * amount, a[2] * amount };   // cm
+        const float add[3] = { dvr::fireaim::dot(d, F), dvr::fireaim::dot(d, Rh), dvr::fireaim::dot(d, U) };
+        for (int i = 0; i < 3; ++i) {
+            float v = g_hlAdj[i] + add[i];
+            v = v < kHlAdjMin[i] ? kHlAdjMin[i] : v > kHlAdjMax[i] ? kHlAdjMax[i] : v;
+            g_hlAdj[i] = v;
+        }
+    } else {
+        // Axes chosen by effect with plain component cross products: pitch lifts Fv toward Up
+        // (k = -Rv), yaw turns Fv toward Rv (k = Up), roll tips Up toward Rv (k = -Fv).
+        float k[3];
+        if (axis == 1)      { k[0] = -Rv[0]; k[1] = -Rv[1]; k[2] = -Rv[2]; }
+        else if (axis == 0) { k[0] = Up[0];  k[1] = Up[1];  k[2] = Up[2]; }
+        else                { k[0] = -Fv[0]; k[1] = -Fv[1]; k[2] = -Fv[2]; }
+        const float a = amount * 0.01745329252f, c = cosf(a), s = sinf(a), t = 1.0f - c;
+        auto rotv = [&](const float* v, float* out) {   // Rodrigues: v c + (k x v) s + k (k.v)(1-c)
+            float kx[3]; dvr::fireaim::cross(k, v, kx);
+            const float kv = dvr::fireaim::dot(k, v);
+            for (int i = 0; i < 3; ++i) out[i] = v[i] * c + kx[i] * s + k[i] * kv * t;
+        };
+        const int32_t trim[3] = { (int32_t)(g_hlAdj[3] * 65536.0f / 360.0f), (int32_t)(g_hlAdj[4] * 65536.0f / 360.0f),
+                                  (int32_t)(g_hlAdj[5] * 65536.0f / 360.0f) };
+        float T[3][3]; CtRotToAxes(trim, T[0], T[1], T[2]);   // the trim's X/Y/Z in hand coordinates
+        float N[3][3];
+        for (int col = 0; col < 3; ++col) {
+            float w[3], w2[3];
+            for (int j = 0; j < 3; ++j) w[j] = T[col][0] * F[j] + T[col][1] * Rh[j] + T[col][2] * U[j];   // to world
+            rotv(w, w2);
+            N[col][0] = dvr::fireaim::dot(w2, F); N[col][1] = dvr::fireaim::dot(w2, Rh); N[col][2] = dvr::fireaim::dot(w2, U);
+        }
+        int32_t nr[3]; CtAxesToRot(N[0], N[1], N[2], nr);
+        for (int i = 0; i < 3; ++i) {
+            float d = nr[i] * 360.0f / 65536.0f;
+            while (d > 180.0f) d -= 360.0f;
+            while (d < -180.0f) d += 360.0f;
+            g_hlAdj[3 + i] = d;
+        }
+    }
+    Log("carry/hold: view %s %s %+.1f -> offset %.1f/%.1f/%.1f cm fwd/right/up, trim %.1f/%.1f/%.1f deg p/y/r (hand frame)",
+        rot ? "turn" : "move", rot ? (axis == 1 ? "pitch" : axis == 0 ? "yaw" : "roll") : (axis == 1 ? "forward" : axis == 0 ? "right" : "up"),
+        amount, g_hlAdj[0], g_hlAdj[1], g_hlAdj[2], g_hlAdj[3], g_hlAdj[4], g_hlAdj[5]);
+    *why = "ok";
+    return true;
+}
+static void CarryHoldSaveAdj(const char* who)
+{
+    for (int i = 0; i < 6; ++i) {
+        char b[16]; _snprintf(b, sizeof(b), "%.1f", g_hlAdj[i]); b[15] = 0;
+        ConfigWriteKey("Aim", kHlAdjKey[i], b, who);
+    }
+}
 static bool CarryHoldReticleAnchored() { return g_hlRefOn.load(); }
 static void CarryHoldSetReticleAnchored(bool on) { g_hlRefOn.store(on); Log("carry/hold: reticle anchor %s", on ? "ON" : "off (rides the live reticle)"); }
 static float CarryHoldReticleRef(int i) { return (i >= 0 && i < 2) ? g_hlRef[i] : 0; }
