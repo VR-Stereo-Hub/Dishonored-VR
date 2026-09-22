@@ -1,3 +1,31 @@
+## Session handoff 2026-09-22 (misc fixes pt 2): merged to VR-Main
+
+Branch `claude/misc-fixes-pt-2` (renamed from `claude/vr-102-startup-lookups`), merged with the
+tester's permission. It carries VR-165 (PR #101) and VR-190 (PR #100) as well. Headset-confirmed
+unless marked:
+* VR-102: the startup freeze (a GObjects name/property walk per lookup, about 100 ms each) and the
+  1.6 s stall on entering gameplay (five censuses walking with a VirtualQuery per object). Names
+  and properties are indexed once, and `GObjForEach` memoises readability per region.
+  `CacheNameLookups=1` is the default.
+* VR-191: the main menu gets the native stick axes the pause menu has.
+* VR-192: the carried object's hold is anchored at the reticle it was tuned at
+  (`CarryHoldReticleX/Y`), so re-tuning the reticle does not move it.
+* VR-193: a separate left-hand trim for powers (`TrimLP*`), detected from
+  `m_EquipUsageInfo[Secondary]`. Hand and held-object adjustments step along the VIEW
+  (`AdjustInView`), in F10 and on the numpad. A held item no longer overwrites the empty hand's
+  wrist latch.
+* VR-194: the reticle stays on under the F10 panel, and the cursor draws only over the panel.
+* VR-195: the grab prompt flicker. The hand ray is anchored on the game camera
+  (`HandRayGameAnchor`). The tester reported it fixed; the FLICKER_REFERENCE entry is still
+  marked a candidate until a log confirms `interact/flicker` stays silent.
+* Gamepad look sensitivity 30 (PSI 78/79) in the startup defaults. The log shows -1 -> 30; the
+  menu slider has not been checked.
+* Defaults = the tester's last run. `kConfigVersion` 15 (14 already shipped in the 2026-09-22
+  tester zip), so every existing ini is rewritten once; the runtime choice and DataDir carry
+  over.
+
+Next: the sensitivity slider in the options menu, then `interact/flicker` in the next log.
+
 ## Session handoff 2026-09-22: VR-165 FIXED (the camera that leaves the body)
 
 Branch `claude/vr-165-camera-displacement`, PR to `VR-Main`, not merged.
@@ -25,6 +53,14 @@ plan in order. The explosion run that reproduced it without a chain is archived 
 `build/playtest-candidates/vr185-186-hud-groups/run4`; it predates the spring census, so no
 run has spring data yet. First steps are widening the census and a spring-kick seam word, both
 before asking for a headset run. PR #100 (tester ini refresh) is open and unmerged.
+
+## Tester build 2026-09-22: 686-ga351bfc31 (VR-190)
+
+`dist/dishonored-vr-41.0.0-tester-20260922-a351bfc31.zip`, `d3d9.dll` sha256 `0A3C57F6...`, the
+same DLL installed on the dev PC. `kConfigVersion` 14: a tester's older ini is rewritten once
+with the tested profile on first launch (`config: wrote fresh ini (was outdated, now v14)`);
+the VR runtime choice and DataDir carry over. Previous tester zips: build 601 (2026-09-21) and
+533 (2026-09-20). Branch `claude/vr-190-refresh-tester-ini`, PR open, not merged.
 
 ## Session handoff 2026-09-22 (final): VR-165 lead, carry reticle, new defaults
 
