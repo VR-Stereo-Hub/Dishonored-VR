@@ -500,7 +500,7 @@ bool draw_reticle_ui() {
     changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
     if (ImGui::Button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
     ImGui::SameLine();
-    if (ImGui::Button("Tested position")) { cfg.otherXDeg = -3.6f; cfg.otherYDeg = -37.2f; changed = true; }
+    if (ImGui::Button("Tested position")) { cfg.otherXDeg = -1.8f; cfg.otherYDeg = -46.2f; changed = true; }
     ImGui::TextDisabled("Powers, grenades, the sword and the rest share this one position; the aim follows the dot. "
                         "Every pistol and crossbow (any ammo, any upgrade) keeps its own aim.");
     if (changed) configure(cfg, "F10 HUD");

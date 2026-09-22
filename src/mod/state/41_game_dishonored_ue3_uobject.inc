@@ -15,7 +15,7 @@
 // full UE crouch and the fix moves to whatever Dishonored uses instead.
 static uint32_t g_cylHOff = 0, g_cylCompOff = 0;
 static int      g_cylTried = 0;
-static bool     g_nameIndexCacheOn = false; // [Menu] CacheNameLookups, separate timing A/B
+static bool     g_nameIndexCacheOn = true;  // [Menu] CacheNameLookups, separate timing A/B
 static bool     g_pawnFromController = false; // [Menu] PawnFromController, live A/B
 static uint32_t g_cylPawnOff = 0;
 static uint8_t* g_cylMeasuredPawn = NULL;

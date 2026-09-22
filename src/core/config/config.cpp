@@ -398,8 +398,8 @@ static void WriteDefaultIni(const char* ini)
         "; VR-189: one reticle position for everything but the pistol and the crossbow\n"
         "; (any ammo, any upgrade), degrees in the controller frame: +X right, +Y up.\n"
         "; The aim follows the dot. Live: F10 HUD tab, Reticle.\n"
-        "OtherItemsX=-3.60\n"
-        "OtherItemsY=-37.20\n"
+        "OtherItemsX=-1.80\n"
+        "OtherItemsY=-46.20\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -501,12 +501,12 @@ static void WriteDefaultIni(const char* ini)
         "CarryHoldAtHand=1\n"
         "; Where it sits in the hand, in the hand's own frame: cm forward/right/up and a trim in\n"
         "; degrees (pitch/yaw/roll). CarryHoldWorldDepth=1 draws it in the world, not the weapon layer.\n"
-        "CarryHoldForwardCm=-16\n"
-        "CarryHoldRightCm=3\n"
-        "CarryHoldUpCm=-27\n"
-        "CarryHoldPitch=16\n"
-        "CarryHoldYaw=4\n"
-        "CarryHoldRoll=-36\n"
+        "CarryHoldForwardCm=-21\n"
+        "CarryHoldRightCm=11\n"
+        "CarryHoldUpCm=-35\n"
+        "CarryHoldPitch=8\n"
+        "CarryHoldYaw=8\n"
+        "CarryHoldRoll=-32\n"
         "CarryHoldRotate=1\n"
         "CarryHoldWorldDepth=1\n"
         "; CarryHoldKeepPickupAngle=0: the object sits the same way in the hand every time (then the\n"
@@ -866,12 +866,12 @@ static void WriteDefaultIni(const char* ini)
         "Adjust=1\n"
         "AdjStepT=1\n"
         "AdjStepR=3\n"
-        "TrimLTX=0.0400\n"
-        "TrimLRX=8.00\n"
-        "TrimLTY=0.0400\n"
-        "TrimLRY=5.00\n"
-        "TrimLTZ=0.0520\n"
-        "TrimLRZ=1.00\n"
+        "TrimLTX=0.0257\n"
+        "TrimLRX=5.55\n"
+        "TrimLTY=0.0124\n"
+        "TrimLRY=7.52\n"
+        "TrimLTZ=0.0478\n"
+        "TrimLRZ=-1.20\n"
         "TrimRTX=0.0400\n"
         "TrimRRX=-42.00\n"
         "TrimRTY=0.0200\n"
@@ -882,6 +882,12 @@ static void WriteDefaultIni(const char* ini)
         "; (seeded from TrimL* when absent). The numpad left modes edit it while a power is out; F10\n"
         "; Hands has sliders for all three. 0 = one left trim for everything.\n"
         "PowerTrim=1\n"
+        "TrimLPTX=0.0267\n"
+        "TrimLPRX=1.34\n"
+        "TrimLPTY=0.0120\n"
+        "TrimLPRY=-4.97\n"
+        "TrimLPTZ=0.0505\n"
+        "TrimLPRZ=0.71\n"
         "; AdjustInView=1: numpad and F10 steps move the hand along your view (right, forward, up, and\n"
         "; pitch/yaw/roll about them) instead of the tilted palm axes. The stored trim is unchanged in kind.\n"
         "AdjustInView=1\n"
@@ -1030,7 +1036,7 @@ static void WriteDefaultIni(const char* ini)
         "NoteFastMono=1\n"
         "UiFlags=1\n"
         "PawnFromController=1\n"
-        "CacheNameLookups=0\n"
+        "CacheNameLookups=1\n"
         "\n"
         "; GameOptsOnStart=1 reads the GAME's own option settings into the log once, a few\n"
         "; seconds after gameplay starts. It exists because the tester plays in a headset and\n"
@@ -1873,8 +1879,8 @@ static void LoadConfig()
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
         crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
         crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
-        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", -3.6f);   // VR-189: the tester's tuned position
-        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -37.2f);
+        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", -1.8f);   // VR-189: the tester's tuned position
+        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -46.2f);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -2672,7 +2678,7 @@ static void LoadConfig()
     // VR-93 research: report changes of the screen flags the script dump declares
     // (GAMEPLAY_STATE.md section 9). Read-only, logs changes only.
     g_ufOn = IniFloat(ini, "Menu", "UiFlags", 1) != 0.0f;
-    g_nameIndexCacheOn = IniFloat(ini, "Menu", "CacheNameLookups", 0) != 0.0f;
+    g_nameIndexCacheOn = IniFloat(ini, "Menu", "CacheNameLookups", 1) != 0.0f;   // headset-confirmed 2026-09-22
     Log("config: [Menu] CacheNameLookups=%d - %s", g_nameIndexCacheOn ? 1 : 0,
         g_nameIndexCacheOn ? "reuse validated name IDs" : "scan names for every lookup (legacy)");
     g_pawnFromController = IniFloat(ini, "Menu", "PawnFromController", 1) != 0.0f;

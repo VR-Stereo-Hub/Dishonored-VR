@@ -94,6 +94,8 @@ const GoEntry kGoTable[] = {
     {  83, "Gamepad_bFriction",               "Aim Assist (expected)","0",            NULL },
     {  82, "Gamepad_AutoAimStrength",         "(strength of 81)",     "-",            NULL },
     {  84, "Gamepad_FrictionStrength",        "(strength of 83)",     "-",            NULL },
+    {  78, "Gamepad_LookXSensitivity",        "Gamepad sensitivity (X)", "30",        NULL },
+    {  79, "Gamepad_LookYSensitivity",        "Gamepad sensitivity (Y)", "30",        NULL },
     // --- Graphics -------------------------------------------------------
     { 116, "GraphicsPC_bFullScreen",          "Fullscreen",           "1",            "Fullscreen" },
     { 117, "GraphicsPC_bVSync",               "Vsync",                "0",            "UseVsync" },
@@ -652,9 +654,13 @@ static uintptr_t g_goDefaultsResume = kGoApplySettings + sizeof(kGoApplySettings
 
 static bool GoWriteStartupDefaults(uint8_t* obj)
 {
-    const int ids[] = {105,108,109,99,81,83,120,121,122,123};
-    const uint32_t values[] = {0,0,0,0,0,0,1,0,1,0}; // float +0 for head bob
-    uint32_t* slots[10] = {};
+    // 78/79: the gamepad look sensitivity, X and Y (PSI_Gamepad_LookX/YSensitivity, SDT_Int32,
+    // default -1 = unset, ArkProfileSettings DefaultSettings[50]/[51]). 30 was chosen in the
+    // headset (2026-09-22); the menu slider should read 30 after a launch.
+    const int ids[] = {105,108,109,99,81,83,120,121,122,123,78,79};
+    const uint32_t values[] = {0,0,0,0,0,0,1,0,1,0,30,30}; // float +0 for head bob
+    const int kN = (int)(sizeof(ids) / sizeof(ids[0]));
+    uint32_t* slots[sizeof(ids) / sizeof(ids[0])] = {};
     int entries=0, ascending=0, inRange=0;
     if (!BuildLiveSet() || !IsLiveObject(obj) ||
         !GoVerifyStride(obj,&entries,&ascending,&inRange)) {
@@ -666,11 +672,15 @@ static bool GoWriteStartupDefaults(uint8_t* obj)
     if (!off || !RflArrayAt(obj,off,&data,&num) || !data || num!=entries ||
         !RangeReadable(data,(size_t)num*kGoStrideDwords*4)) return false;
     // Preflight every target before the first store; never leave half a preset.
-    for (int j=0;j<10;++j) {
+    for (int j=0;j<kN;++j) {
         for (int i=0;i<num;++i) {
             uint32_t* e=(uint32_t*)data+(size_t)i*kGoStrideDwords;
             if (e[0]==2 && e[1]==(uint32_t)ids[j] && e[2]==(ids[j]==108 ? 5u : 1u))
                 slots[j]=e+3;
+        }
+        if (!slots[j] && (ids[j]==78 || ids[j]==79)) {   // optional: never block the core preset
+            Log("gameopts/defaults: id=%d (gamepad sensitivity) missing or not Int32 - skipped, the rest still apply",ids[j]);
+            continue;
         }
         if (!slots[j]) {
             Log("gameopts/defaults: REFUSED profile=%p id=%d missing or wrong type; no writes",obj,ids[j]);
@@ -688,7 +698,8 @@ static bool GoWriteStartupDefaults(uint8_t* obj)
         Log("gameopts/audio: before native refresh profile=%p id=%d available=%d type=%d raw=0x%08x float=%.6f (float valid only for type5; preserved)",
             obj,id,(int)audio.ok,audio.type,(unsigned)audio.value,volume);
     }
-    for (int j=0;j<10;++j) {
+    for (int j=0;j<kN;++j) {
+        if (!slots[j]) continue;
         const uint32_t before=*slots[j];
         *slots[j]=values[j];
         Log("gameopts/defaults: profile=%p id=%d type=%d before=0x%08x target=0x%08x readback=0x%08x",
@@ -723,7 +734,7 @@ static void __cdecl GoBeforeSettingsApply(uint8_t* obj, int mode)
     }
     if (!g_goDefaultsAtStartup) { g_goStartupDone=true; return; }
     if (GoWriteStartupDefaults(obj)) {
-        Log("gameopts/defaults: ten defaults staged before engine refresh/listeners; startup window remains open");
+        Log("gameopts/defaults: twelve defaults staged before engine refresh/listeners (gamepad sensitivity 30/30 included); startup window remains open");
     }
 }
 
