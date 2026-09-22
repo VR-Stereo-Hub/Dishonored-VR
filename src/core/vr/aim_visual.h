@@ -15,7 +15,7 @@ struct AimVisualConfig {
 };
 enum class AimVisualResult {
     Off, Invalid, Stale, NoFrame, PairPending, NotProjection, NoViews,
-    NoTexture, Budget, NearHead, ImageFailed, EndFailed, Submitted, Count
+    NoTexture, Budget, NearHead, ImageFailed, EndFailed, BehindPanel, Submitted, Count
 };
 struct AimVisualStats {
     uint32_t publishes = 0, submitted = 0, dotFrames = 0, beamFrames = 0;
@@ -47,12 +47,28 @@ ControlDotStats control_dot_stats();
 
 // All three APIs run on the present thread (including the F10 draw callback).
 void set_aim_visual(const AimVisualConfig& cfg);
+// (Dishonored) The F10 panel is drawn INTO the eye image, and every quad layer composites on top
+// of the projection, so a reticle over the panel would sit in front of it. While the panel is up
+// the host passes its rectangle as fractions of the eye texture (x0,y0 top-left .. x1,y1), and a
+// point landing inside it in either eye is not submitted: the reticle reads as BEHIND the panel
+// and stays visible beside it. on=false clears it.
+void set_aim_occluder(bool on, float x0 = 0, float y0 = 0, float x1 = 0, float y1 = 0);
+// Pure: does a point at view-space direction (vx, vy, vz; -z forward) fall inside the rect, with
+// the view's fov tangents (left/down negative) and a margin in tangent units? Shared with tests.
+inline bool aim_point_in_rect(float vx, float vy, float vz, float tl, float tr, float tu, float td,
+                              float marginTan, const float rect[4]) {
+    if (!(vz < -1e-4f) || !(tr > tl) || !(tu > td)) return false;
+    const float tx = vx / -vz, ty = vy / -vz;
+    const float mx = marginTan / (tr - tl), my = marginTan / (tu - td);
+    const float fx = (tx - tl) / (tr - tl), fy = (tu - ty) / (tu - td);
+    return fx >= rect[0] - mx && fx <= rect[2] + mx && fy >= rect[1] - my && fy <= rect[3] + my;
+}
 AimVisualStats aim_visual_stats();
 inline const char* aim_visual_result_name(AimVisualResult result) {
     const char* names[] = {"off", "invalid ray", "stale sample/publish", "no XR frame",
         "pair awaiting sibling (expected)", "no projection layer", "no valid views",
         "dot texture unavailable", "layer budget", "point near head/invalid",
-        "dot image upload failed", "xrEndFrame failed", "submitted"};
+        "dot image upload failed", "xrEndFrame failed", "behind the F10 panel", "submitted"};
     const int i = (int)result;
     return i >= 0 && i < (int)AimVisualResult::Count ? names[i] : "unknown";
 }

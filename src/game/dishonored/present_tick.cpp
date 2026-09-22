@@ -422,9 +422,12 @@ static void DvrGameTick(IDirect3DDevice9* self)
     dvr::gpu_memory::tick();   // PERF: video/process memory at 4 Hz (read-only)
     dvr::perf::part_mark("gt.gpumem");
     // VR-174: the aim laser and dot land ON the F10 panel and fight its cursor for the same
-    // pixels, so while it is up the ray is off like it is in a menu (the setting is untouched
-    // and comes straight back). Firing is off anyway: the panel owns the trigger.
-    dvr::aim::tick(DvrGameplayVerdict() && !g_ovlVisible, dvr::stereo::wants_projection());
+    // pixels, so while it is up the ray was off like it is in a menu. With [Overlay]
+    // ReticleWhileOpen it stays on so the reticle can be tuned from the panel, and the runtime
+    // drops any point the panel covers (set_aim_occluder, published by OverlayFrame), so it
+    // reads as behind the panel. Firing is off anyway: the panel owns the trigger.
+    if (!g_ovlVisible || !g_ovlReticle) dvr::vr::set_aim_occluder(false);
+    dvr::aim::tick(DvrGameplayVerdict() && (!g_ovlVisible || g_ovlReticle), dvr::stereo::wants_projection());
     // VR-117: the HUD redirect's game-side gate: the scene is drawing (the
     // presentation verdict, which a riding screen keeps true). The power wheel
     // is the same draw class as the HUD and RIDES the window like a menu (its

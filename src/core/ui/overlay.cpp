@@ -298,6 +298,10 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     ImGui::Begin("Dishonored VR", &g_ovlVisible,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
     OvlProbeWindowGeometry(ds.x, ds.y);
+    if (g_ovlReticle && ds.x > 0.0f && ds.y > 0.0f) {   // the reticle hides behind this rectangle
+        const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+        dvr::vr::set_aim_occluder(true, wp.x / ds.x, wp.y / ds.y, (wp.x + ws.x) / ds.x, (wp.y + ws.y) / ds.y);
+    }
 
     // The two things reached for most often, first and big.
     if (ImGui::Button("RECENTER  (F5)", ImVec2(-1, 0))) {
@@ -1452,6 +1456,11 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
             const char* rk[3] = {"ColorR", "ColorG", "ColorB"};
             for (int i = 0; i < 3; ++i) { _snprintf(rv, sizeof(rv), "%d", rc.rgb[i]); ConfigWriteKey("Crosshair", rk[i], rv, "F10 HUD"); }
         }
+        if (ImGui::Checkbox("Show the reticle while this panel is open", &g_ovlReticle)) {
+            ConfigWriteKey("Overlay", "ReticleWhileOpen", g_ovlReticle ? "1" : "0", "F10 HUD");
+            if (!g_ovlReticle) dvr::vr::set_aim_occluder(false);
+        }
+        ImGui::TextDisabled("it hides behind the panel; move the hand to the side to see it");
         ImGui::Separator();
         dvr::hudlayout::draw_ui();
     ImGui::EndTabItem(); }

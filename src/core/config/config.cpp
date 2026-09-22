@@ -945,6 +945,9 @@ static void WriteDefaultIni(const char* ini)
         "UiScale=1.54\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "DevTools=0\n"
+        "; ReticleWhileOpen=1: the reticle stays on while the F10 panel is up and hides where the panel\n"
+        "; covers it, so it can be tuned beside the panel. 0 = off while the panel is up (as before).\n"
+        "ReticleWhileOpen=1\n"
         "[VRHands]\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "Enabled=0\n"
@@ -3196,6 +3199,7 @@ static void LoadConfig()
     // retired: the cursor comes from the eye's FOV now, not a gain.
     g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 1) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
+    g_ovlReticle = IniFloat(ini, "Overlay", "ReticleWhileOpen", 1) != 0.0f;
     dvr::vr::set_chord_tap_opens_panel(g_ovlPtrEnable);
     {
         const float ui = IniFloat(ini, "Overlay", "UiScale", 0.0f);   // 0 = from the eye texture
