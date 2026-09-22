@@ -433,6 +433,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "cammod")) return CamModCommand(args);       // VR-165
+    if (!strcmp(cmd, "camspring")) return CamSpringCommand(args); // VR-165: kick a camera spring on demand
     if (!strcmp(cmd, "aimsrc")) return AimSourceCommand(args);    // VR-166
     if (!strcmp(cmd, "interactaim")) return InteractAimCommand(args); // VR-166
     if (!strcmp(cmd, "throwaim")) return ThrowAimCommand(args);    // VR-166

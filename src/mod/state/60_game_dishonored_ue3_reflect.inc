@@ -47,7 +47,10 @@ struct RflProp {
     uint32_t off;      // 0 = looked up and genuinely not found
     bool     done;
 };
-#define RFL_PROP_MAX 96
+// 96 until 2026-09-22: the VR-165 census reached 104 distinct names and the
+// overflow path froze the game (reflect.cpp). A linear scan of 256 short keys
+// is still far cheaper than one GObjects walk.
+#define RFL_PROP_MAX 256
 static RflProp g_rflProp[RFL_PROP_MAX];
 static int     g_rflPropN = 0;
 static LONG    g_rflHit   = 0;   // answered from cache

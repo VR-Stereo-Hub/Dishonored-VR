@@ -68,21 +68,33 @@ Also on the player camera: collision smoothing (`m_fCamCollisionLargestUnsmoothe
 `m_fCamCollisionSmoothSpeed` 12). A camera pushed into geometry and smoothed back is another
 path that keeps state.
 
-**Leading hypothesis:** one PhysicalReact-family spring (or its sleeping/accumulated-delta
-state) is left off rest by an impulse (a chain release, an explosion) and does not return,
-so its pivoted offset stays applied. The chain bug predates the mod's HitReact hold (VR-165 on
-2026-09-20, VR-172 on 2026-09-21), so the hold is not the cause, though it may matter to how
-HitReact behaves now.
+**Leading hypothesis (as written before the offline read):** one PhysicalReact-family spring
+(or its sleeping/accumulated-delta state) is left off rest by an impulse (a chain release, an
+explosion) and does not return, so its pivoted offset stays applied. The chain bug predates the
+mod's HitReact hold (VR-165 on 2026-09-20, VR-172 on 2026-09-21), so the hold is not the cause.
 
-**Counterprediction:** in a bugged window every spring reads at rest (m_Pos near 0, no
-velocity), as in a healthy one. Then springs are eliminated and the next place is the native
-combine of the graph, or camera collision smoothing.
+**What the offline read did to it (2026-09-22, ENGINE_NOTES "VR-165: the PhysicalReact spring
+and the influence update, read offline"):** REST IS `m_Pos == m_BoundPos`, not 0 (the
+stability point's default bound is (0,0,100)). The integrator always pulls to the bound, the
+influence sets `m_bIsSleeping` once both points are within 0.01, a sleeping influence is skipped
+by the group, and at rest the apply step emits no offset. An influence at weight <= 1e-8 is not
+run at all (HitReact under the hold). So a spring cannot hold a steady offset by itself; the
+hypothesis survives only as "an influence stays AWAKE off its bound" or "a bound is not where
+its pivot puts it" (slot 74 ADDS the pivot at init; only HitReact has one).
+
+**Counterprediction (corrected):** in a bugged window every PhysicalReact-family influence
+reads `s1` (asleep) or `off-rest: none`, as in a healthy one. Then the springs are eliminated
+and the next places are Lean and BumpSmoother (their own lines), the non-additive position
+against the final one (`camera/collide` `game-minus-nonAdditive`), and the camera's collision
+smoothing (`smoothing`, `status`, `lastDif`).
 
 ## 5. Instruments already on VR-Main
 
 | Instrument | What it gives | Where |
 |---|---|---|
-| `camera/springs` | every 500 ms, no budget: the eye offset and each spring's `m_Pos` and speed for PhysicalReact, HitReact, Shake, Recoil, Lean's head point, BumpSmoother's height | `cam_modifiers.cpp` |
+| `camera/springs` | every 500 ms (100 ms during a kick), no budget: raw and game-only eye offset; per PhysicalReact-family influence weight, active/sleeping/wait bits, accumulator and step, and per point pos, speed, previous pos, bound; `off-rest:` against the BOUND | `cam_modifiers.cpp` |
+| `camera/collide` | same cadence: the camera's teleported/collision/smoothing/uncovered bits, collision status, last dif, radius, height; the non-additive position and the game camera minus it; Lean's head point, angle, pivot, collided flag; BumpSmoother | same |
+| `camspring kick\|nudge\|rest <inf> [point] <x y z> [s]` | writes one spring as the engine's impulse does (both points, sleep bit cleared), then a 100 ms watch and one `camspring: VERDICT` (SETTLED / STUCK / NOT HONOURED) | same; `tools/xrsim/camspring.xrs` |
 | `camera/displaced` | one WARN per episode after 1.5 s above 115 uu, and a line when it ends: the grep anchor | same |
 | `camera/source` | the verbose per-influence table (weights, PlayerControl/AnimDriven debug POVs), first 1800 samples | same |
 | `swing:` raw series | present-rate camera position samples on a large excursion, 6 dumps a run | `swing_trace.cpp` |
@@ -96,17 +108,18 @@ runs are under `build/playtest-candidates/` (camera-source).
 
 ## 6. The plan, in order
 
-1. **Widen the census before anyone plays.** Add, per stateful influence: `m_bActive`,
+1. **DONE 2026-09-22 (built, installed, not yet run). Widen the census before anyone plays.** Add, per stateful influence: `m_bActive`,
    `m_bIsSleeping` (bool bits: `FindBoolProp`), `m_fAccumulatedDelta`, the spring's
    `m_BoundPos` and previous position, and Lean's pivot/angle/collided flag. Add the player
    camera's collision smoothing state if it has one by name. Keep one line per sample.
-2. **Make it reproducible on demand.** A seam word that kicks one influence's spring by
+2. **DONE 2026-09-22 (built, installed, not yet run): `camspring`. Make it reproducible on demand.** A seam word that kicks one influence's spring by
    writing its `m_Velocity` (`camspring kick <influence> <x y z>`), default nothing. If a kick
    leaves the camera displaced after the spring should have settled, the bug is reproduced
    without a chain or an explosion, on the simulator as well as the headset. If every kick
    settles, the springs alone are not it, and the kick is repeated during a chain release to
    look for the missing ingredient (collision, sleeping, a fixed-step accumulator).
-3. **Read the native update, offline.** `ue3-natives.py <exe> class DishonoredCamera_PhysicalReact --verify`
+3. **DONE IN PART 2026-09-22 (ENGINE_NOTES): spring, apply, driver, group combine, impulse,
+   init. Not found: what Blink, a mantle or the wheel resets. Read the native update, offline.** `ue3-natives.py <exe> class DishonoredCamera_PhysicalReact --verify`
    to its vtable, find the influence update slot, and disassemble how the spring target
    (`m_BoundPos`) is set, how the pivot is applied, when the influence sleeps, and what
    Blink/mantle/AnimDriven reset. Record findings in ENGINE_NOTES with the derivation.

@@ -38,6 +38,13 @@ alone it is back at 40 uu; a pistol shot reads 0.000 deg of pitch with `Fire` re
 with it allowed, which is also what proves the first shot happened). `camshake capture <s>
 <tag>` is the instrument: one CSV row per game tick in the data dir's `dumps\`, read the ROWS
 and not only the summary line. Never stage walking on the sewer save: it stands on a ledge.
+VR-165 the camera that leaves the body: `tools\xrsim-run.ps1 -Path tools\xrsim\camspring.xrs`
+(NOT YET RUN; its assertions are the offline read's predictions). `camspring kick|nudge|rest
+<physreact|hitreact|shake|recoil|lean> [stab|str|head] <x y z> [secs]` writes one camera spring
+the way the engine's own impulse does and ends in one `camspring: VERDICT` line (SETTLED, STUCK,
+NOT HONOURED, ENDED EARLY); leg 5 kicks the held HitReact as the negative control. On any run
+the census is `camera/springs` + `camera/collide` every 500 ms (100 ms during a kick), and
+`camera/displaced` is the grep anchor for an episode. Rest is pos == bound, not pos == 0.
 
 VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
 production camera writer and clamp functions. Nineteen checks cover exact-write

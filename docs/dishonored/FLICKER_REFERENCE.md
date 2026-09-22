@@ -1198,6 +1198,7 @@ pose metadata without reopening the disproved historical theories.
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
+| Whole view lifted and tilted off the body, swinging with head rotation, for tens of seconds after a chain X-release or an explosion's knockback (not a flicker) | Base camera healthy, offset ADDED by the reaction group or the camera after it; the PhysicalReact springs are read offline as unable to rest off their bound, so the census is looking for an AWAKE influence, a moved bound, Lean/Bump state or the camera's collision smoothing | VR-165 OPEN: brief `PLAN-VR-165-camera-displacement.md`; widened census and `camspring` installed 2026-09-22, awaiting a repro |
 
 VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
 pivot. VR-87 ceiling trimming and VR-91 roll-induced lateral motion are adjacent
@@ -3337,6 +3338,69 @@ request, with strict suppression enabled and pacing off. Performance improvement
 remains subjective. Exact acceptance identity/archive and promotion scope are in
 PERFORMANCE.md, Accepted profile and publication. Earlier strict-default0 and pending
 headset entries are historical. Accepted image-owned orientation remains unchanged.
+
+## VR-165: the widened census, the spring kick, and the spring read offline (2026-09-22)
+
+1. **Symptom identity:** unchanged from the entry below (smooth whole-view displacement, the
+   chain X-release and the explosion). No new report; this is the brief's steps 1-3.
+2. **Reproduction identity:** none yet. Installed build `vr33-hands-working-686-g902778504-dirty`
+   (RelWithDebInfo, Release script), then this commit's rebuild; installed ini unchanged
+   (`CamModProbe=1`, `[CameraShake]` Landing, Generic, Fire allowed, Hits held). The pre-install
+   logs are archived locally under `build/playtest-candidates/vr165-pre-census/`.
+3. **Offline read (step 3, ENGINE_NOTES "VR-165: the PhysicalReact spring and the influence
+   update, read offline").** Measured from the exe, not run:
+   - rest for a `DisSpringPoint` is `m_Pos == m_BoundPos` (the reset sets it; the integrator
+     pulls toward the bound; the sleep test is `|pos - bound|` and `|vel|` under 0.01);
+   - the apply step emits the strength point minus the rotated pivot, so at rest with the
+     shipped bounds a PhysicalReact-family influence adds NOTHING, and it then sets
+     `m_bIsSleeping`; the group skips a sleeping influence entirely;
+   - an influence at weight <= 1e-8 is not run at all, so HitReact (held at 0 by VR-172's
+     hold, and so in the explosion run) was out by construction there;
+   - slot 74 ADDS `m_CameraPivotOffset` to both bounds at init; only HitReact has a pivot
+     (Z=200), so a double init would leave it resting 200 uu off. Recorded as a mechanism,
+     not a finding: nothing measured shows a double init.
+   **What that does to the leading hypothesis:** a spring "left off rest that never returns" is
+   not something this integrator can do by itself. For the springs to own VR-165 the census
+   must show one AWAKE (`s0`) with pos away from bound in the bugged window, or a bound that is
+   not where its pivot puts it.
+4. **Change identity (diagnostic only, no camera write unless asked):**
+   - `camera/springs` now prints, per PhysicalReact-family influence, weight, the active,
+     sleeping and wait bits, the fixed-step accumulator and step, and per point pos, speed,
+     previous pos and bound; `off-rest:` names every point more than 1 uu or 1 uu/s off its
+     BOUND. **Correction to the brief:** its counterprediction said at rest means `m_Pos` near
+     0. The stability point's default bound is (0,0,100), so the old line would have shown a
+     healthy spring 100 uu "off rest". `game-eye=` is the game camera minus the pawn with the
+     mod's own offset removed, beside the raw `eye=`.
+   - `camera/collide` (new): the camera's `m_bTeleported`, `m_bCollisionEnabled`,
+     `m_bSmoothingSuddenCollision`, `m_bWasUncovered`, `m_CurCollisionStatus`,
+     `m_fLastCollisionDifFromNonAdditive`, collision radius and height, tick tag and pass count;
+     `m_DishonoredVTSettings.m_NonAdditive_Pos` and the game camera minus it; Lean's head point,
+     angle, height, pivot, collided and external-force flags; BumpSmoother's height and
+     compensating flag. All by name, `?` when unresolved, resolution logged once
+     (`camera/census: resolved by name`).
+   - `camera/displaced` now times its 1.5 s by the clock rather than three samples.
+   - `camspring kick|nudge|rest` (step 2): writes one influence's spring on the script lane
+     as the engine's impulse does (both points, sleep bit cleared), watches at 100 ms and ends
+     in one `camspring: VERDICT` line that can say NOT HONOURED. `tools/xrsim/camspring.xrs`
+     carries the predictions, with the held HitReact as the negative control.
+5. **Results:** Release build, lint and exports clean; installed and hash-checked. The first
+   headset launch of build 686 **froze at 0 fps on the main menu**, and the fault was the
+   census's own: it pushed the name-keyed property cache past 96 entries, after which every
+   lookup re-walked GObjects (~100 ms each), and its one-at-a-time resolve had already stalled
+   the menu 3.6 s (`build/playtest-candidates/vr165-census-hang/`, local). Fixed in the same
+   commit: a full cache refuses, the limit is 256, and the census resolves in one batch walk
+   (docs/TRAPS.md). The springs census DID print before the freeze, on the main menu's
+   attract camera: PhysicalReact `a1 s1`, stab at (0,0,100) = its bound, str at 0 = its bound,
+   i.e. asleep at rest, which is the offline read's rest state seen live. HitReact's bounds
+   read (0,0,300) and (0,0,200): the default plus its 200 uu pivot added exactly ONCE, live
+   evidence against the double-init mechanism at that moment. Not explained: HitReact reads
+   `a1` (active) at weight 0, where the offline read says the group deactivates it; the attract
+   camera (game-eye 6244 uu) may simply not run the player camera's group update. Re-read in
+   gameplay before trusting either way. No VR-165 repro
+   yet; the simulator sequence is unexecuted. No clamp, no fix.
+6. **Status:** OPEN. Next: one simulator run of `camspring.xrs` (does a kick settle; is the
+   negative control refused), then a chain X-release repro read through `camera/displaced`,
+   `camera/springs` and `camera/collide`.
 
 ## VR-165: an explosion reproduces it, and the offset is ADDED after the base camera (2026-09-22)
 

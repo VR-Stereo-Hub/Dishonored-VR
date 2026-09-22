@@ -1,0 +1,55 @@
+# camspring.xrs - VR-165 plan step 2: does a kicked camera spring come back?
+#
+# Needs: a loaded level in GAMEPLAY (the dev PC's sewer save), standing still, the head
+# still. Do not walk: the save stands on a ledge.
+# Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\camspring.xrs -Dir <sim dir>
+#
+# NOT YET RUN. Every assertion below is the PREDICTION from the offline read
+# (ENGINE_NOTES "VR-165: the PhysicalReact spring ... read offline"): a
+# PhysicalReact-family spring is pulled back to its bound, sleeps, and leaves the
+# camera where it was. A leg that fails is a result, not a broken script: record it in
+# FLICKER_REFERENCE before changing the pattern.
+#
+# THE INSTRUMENT. `camspring kick|nudge|rest <influence> [point] ...` writes one
+# influence's spring on the script lane exactly as the engine's own impulse does (both
+# points' velocities, the sleep bit cleared), then samples every 100 ms and ends in ONE
+# line: `camspring: VERDICT <label> - SETTLED | STUCK | NOT HONOURED | ENDED EARLY`.
+# NOT HONOURED is the instrument failing its own hypothesis: the point never moved.
+
+# PhysicalReact and Shake must be RUN by the engine for a kick to show: allow their
+# categories (the feature holds them at weight 0 otherwise). Hits stays held: leg 5
+# is the negative control.
+@mod camshake on; camshake allow landing on; camshake allow generic on; camshake allow hits off; camshake release all
+@wait 3000
+
+# 1. An upward kick on PhysicalReact: it moves the camera, then settles and sleeps.
+@mark
+@mod camspring kick physreact 0 0 400 4
+@log camspring: VERDICT physreact.str\+stab - SETTLED\. .* sleep bit set again\); the game camera went [1-9] 8s
+
+# 2. A position nudge: the same spring, displaced 60 uu instead of kicked.
+@mark
+@mod camspring nudge physreact 0 0 60 4
+@log camspring: VERDICT physreact.str\+stab - SETTLED\. 8s
+
+# 3. The stiff one: Shake, sideways.
+@mark
+@mod camspring kick shake 0 400 0 3
+@log camspring: VERDICT shake.str\+stab - SETTLED\. 8s
+
+# 4. Lean's head point (its own integrator and collision filter).
+@mark
+@mod camspring kick lean head 0 300 0 4
+@log camspring: VERDICT lean.head - (SETTLED|STUCK)\. 8s
+
+# 5. Negative control: HitReact is held at weight 0, which the group does not run at all,
+#    so the kick must NOT be honoured. If this says SETTLED the hold is not what the
+#    offline read says it is.
+@mark
+@mod camspring kick hitreact 0 0 400 2
+@log camspring: kick .* AT OR UNDER THE GROUP'S SKIP THRESHOLD 3s
+@log camspring: VERDICT hitreact.str\+stab - NOT HONOURED\. 6s
+
+# `camshake allow` writes the ini. The lines above match the tested profile (Landing=1,
+# Generic=1, Hits held), so they change nothing there; on another profile, restore it.
+@mod camshake release all

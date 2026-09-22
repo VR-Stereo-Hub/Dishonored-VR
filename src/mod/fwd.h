@@ -641,6 +641,7 @@ static bool SwingTraceCommand(const char* args);
 static void CamModTick();
 static void CamModConfigure(const char* ini);
 static bool CamModCommand(const char* args);
+static bool CamSpringCommand(const char* args);   // VR-165: kick|nudge|rest one camera spring
 // VR-166: the shared power-aim helper probe (aim_source.cpp). Read-only.
 static void AimSourceConfigure(const char* ini);
 static void AimSourceTick();
