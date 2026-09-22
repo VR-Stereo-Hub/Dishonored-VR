@@ -489,8 +489,8 @@ static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHan
 // Shipped defaults: the values tuned in the headset on 2026-09-22 (a bottle, the right hand).
 // Retuned in the headset later the same day (the second hold values), and again with the reticle at
 // -3.6/-37.2 (a third pass, 2026-09-22); these are tied to kHlRefDefault below.
-static const float kHlAdjDefault[6] = { -21, 11, -35, 8, 8, -32 };   // third pass, still tuned at reticle -3.6/-37.2
-static float g_hlAdj[6] = { -21, 11, -35, 8, 8, -32 };
+static const float kHlAdjDefault[6] = { -20.6f, 8.1f, -28.1f, 3.9f, 12.7f, -27.6f };   // fourth pass, still tuned at reticle -3.6/-37.2
+static float g_hlAdj[6] = { -20.6f, 8.1f, -28.1f, 3.9f, 12.7f, -27.6f };
 // THE HOLD DOES NOT FOLLOW THE RETICLE. The hold frame is built on the aim ray, and the aim ray is
 // turned by the other-items reticle offset ([Crosshair] OtherItemsX/Y), so every reticle re-tune
 // swung the carried object with it and the hold had to be tuned again. The hold now rebuilds its

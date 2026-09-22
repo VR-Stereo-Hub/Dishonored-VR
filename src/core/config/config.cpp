@@ -398,8 +398,8 @@ static void WriteDefaultIni(const char* ini)
         "; VR-189: one reticle position for everything but the pistol and the crossbow\n"
         "; (any ammo, any upgrade), degrees in the controller frame: +X right, +Y up.\n"
         "; The aim follows the dot. Live: F10 HUD tab, Reticle.\n"
-        "OtherItemsX=-1.80\n"
-        "OtherItemsY=-46.20\n"
+        "OtherItemsX=0.00\n"
+        "OtherItemsY=-48.00\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -501,12 +501,12 @@ static void WriteDefaultIni(const char* ini)
         "CarryHoldAtHand=1\n"
         "; Where it sits in the hand, in the hand's own frame: cm forward/right/up and a trim in\n"
         "; degrees (pitch/yaw/roll). CarryHoldWorldDepth=1 draws it in the world, not the weapon layer.\n"
-        "CarryHoldForwardCm=-21\n"
-        "CarryHoldRightCm=11\n"
-        "CarryHoldUpCm=-35\n"
-        "CarryHoldPitch=8\n"
-        "CarryHoldYaw=8\n"
-        "CarryHoldRoll=-32\n"
+        "CarryHoldForwardCm=-20.6\n"
+        "CarryHoldRightCm=8.1\n"
+        "CarryHoldUpCm=-28.1\n"
+        "CarryHoldPitch=3.9\n"
+        "CarryHoldYaw=12.7\n"
+        "CarryHoldRoll=-27.6\n"
         "CarryHoldRotate=1\n"
         "CarryHoldWorldDepth=1\n"
         "; CarryHoldKeepPickupAngle=0: the object sits the same way in the hand every time (then the\n"
@@ -883,11 +883,11 @@ static void WriteDefaultIni(const char* ini)
         "; Hands has sliders for all three. 0 = one left trim for everything.\n"
         "PowerTrim=1\n"
         "TrimLPTX=0.0267\n"
-        "TrimLPRX=1.34\n"
+        "TrimLPRX=9.28\n"
         "TrimLPTY=0.0120\n"
-        "TrimLPRY=-4.97\n"
+        "TrimLPRY=-11.20\n"
         "TrimLPTZ=0.0505\n"
-        "TrimLPRZ=0.71\n"
+        "TrimLPRZ=-8.36\n"
         "; AdjustInView=1: numpad and F10 steps move the hand along your view (right, forward, up, and\n"
         "; pitch/yaw/roll about them) instead of the tilted palm axes. The stored trim is unchanged in kind.\n"
         "AdjustInView=1\n"
@@ -1879,8 +1879,8 @@ static void LoadConfig()
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
         crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
         crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
-        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", -1.8f);   // VR-189: the tester's tuned position
-        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -46.2f);
+        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", 0.0f);   // VR-189: the tester's tuned position
+        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -48.0f);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");

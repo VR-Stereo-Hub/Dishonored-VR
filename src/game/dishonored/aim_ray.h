@@ -172,7 +172,7 @@ struct Config { bool dot = false, laser = false; int hand = 0; float distanceM =
                 // VR-189: one global reticle offset for everything EXCEPT the pistol and
                 // the crossbow, degrees in the controller's frame (+x right, +y up). It
                 // turns the shared ray, so the dot and the aim move together.
-                float otherXDeg = -1.8f, otherYDeg = -46.2f; };   // the tester's tuned position (2026-09-22, third pass)  // VR-57 test 1: the HEAD-anchored control
+                float otherXDeg = 0.0f, otherYDeg = -48.0f; };   // the tester's tuned position (2026-09-22, fourth pass)  // VR-57 test 1: the HEAD-anchored control
                                              // dot, which no controller enters. See
                                              // core/vr/aim_visual.h for what it settles.
 Config config();
