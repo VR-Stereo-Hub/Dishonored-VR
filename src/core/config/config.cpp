@@ -806,6 +806,9 @@ static void WriteDefaultIni(const char* ini)
         "PaletteDriveGain=1.00\n"
         "PaletteStep=0\n"
         "PaletteRotate=1\n"
+        "; AnchorBone=1 (VR-183): the palm is placed from the hand (wrist) bone, so finger animation\n"
+        "; cannot swing the hand. 0 = the old choice, the bone most weighted on the palm patch.\n"
+        "AnchorBone=1\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -2433,6 +2436,7 @@ static void LoadConfig()
     // that is testing it, and the previous stage stays reachable by turning it
     // back off.
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
+    g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.

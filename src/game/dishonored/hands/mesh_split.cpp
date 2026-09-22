@@ -1629,6 +1629,9 @@ static bool MsUpload(IDirect3DDevice9* dev)
             }
             // How tight the patch actually is, so "compact" is a number rather
             // than an intention: a wide radius means fingers are still in it.
+            g_mpAnchorBind[cls][0] = g_mpAnchorBind[cls][1] = g_mpAnchorBind[cls][2] = 0.0f;
+            for (int k = 0; k < g_mpAnchorN[cls]; k++)
+                for (int a = 0; a < 3; a++) g_mpAnchorBind[cls][a] += g_msVert[g_mpAnchorIdx[cls][k]].p[a] / (float)g_mpAnchorN[cls];
             float rad = 0.0f;
             for (int k = 0; k < g_mpAnchorN[cls]; k++) {
                 const MsVert* v = &g_msVert[g_mpAnchorIdx[cls][k]];
@@ -1668,6 +1671,21 @@ static bool MsUpload(IDirect3DDevice9* dev)
                 for (int b = 0; b < 256; b++) {
                     if (w[b] > bestW) { secondW = bestW; bestW = w[b]; best = b; }
                     else if (w[b] > secondW) secondW = w[b];
+                }
+                // VR-183: the vote above is over the ANCHOR patch, which sits on the finger bases, so a
+                // finger bone can win it - measured: slots 10 and 35 won while the wrist finder named
+                // hand bones 6 and 30. The palm then followed that finger: an animation that curled the
+                // fingers swung the whole hand around them. The hand bone is the wrist, so it is used.
+                {
+                    const int side = (cls == MS_CLS_HAND_A) ? 1 : 2;
+                    const int hb = g_msHandBone[side];
+                    if (g_mpAnchorHandBone && hb >= 0 && hb < 256) {
+                        Log("ms/palette/frame: class %s - the weight vote chose slot %d; using the HAND bone %d "
+                            "(the wrist) for the frame and a rigid anchor, so finger animation cannot move the palm "
+                            "([Hands] AnchorBone=0 restores the vote)", cls == MS_CLS_HAND_A ? "A" : "B", best, hb);
+                        g_mpVoteSlot[cls] = best;
+                        best = hb;
+                    }
                 }
                 g_mpDomSlot[cls]   = best;
                 g_mpDomWeight[cls] = (tot > 0.0f) ? bestW / tot : 0.0f;
@@ -2111,12 +2129,17 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
 //
 // Only the FRAME is normalised. The rendered palette keeps its own scale,
 // because D is composed onto the original matrices.
+static bool MpSlotFrame(int slot, const float* pal, UINT count, dvr::hf::ScaledRot* out, const char** why);
 static bool MpSourceFrame(int cls, const float* pal, UINT count,
                           dvr::hf::ScaledRot* out, const char** why)
 {
     const char* dummy = NULL; if (!why) why = &dummy;
     if (cls < 0 || cls >= MS_CLS_N)          { *why = "bad class"; return false; }
-    const int slot = g_mpDomSlot[cls];
+    return MpSlotFrame(g_mpDomSlot[cls], pal, count, out, why);
+}
+static bool MpSlotFrame(int slot, const float* pal, UINT count, dvr::hf::ScaledRot* out, const char** why)
+{
+    const char* dummy = NULL; if (!why) why = &dummy;
     if (slot < 0)                            { *why = "no dominant slot frozen for this class"; return false; }
     const int bones = (int)(count / 3);
     if (slot >= bones) {
@@ -2634,7 +2657,22 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
             /* rwhy set */
         } else {
             R_src = sr.r;
-            g_mpSrcR[hand] = sr.r; g_mpSrcOk[hand] = true;
+            // VR-183: the hand bone's frame, offset once to the old vote slot's (see g_mpSrcX).
+            if (g_mpAnchorHandBone && g_mpVoteSlot[cls] >= 0 && g_mpVoteSlot[cls] != g_mpDomSlot[cls]) {
+                if (!g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen) {
+                    dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
+                    if (MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy)) {
+                        g_mpSrcX[hand] = dvr::hf::mul3(dvr::hf::transpose3(sr.r), sv.r);
+                        g_mpSrcXok[hand] = true; g_mpSrcXGen[hand] = g_mpSrcGen;
+                        float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
+                        Log("ms/palette/frame: %s hand - the hand bone's frame differs from the old vote slot's by "
+                            "%+.1f %+.1f %+.1f deg; that offset is kept, so the calibration and trims look the same, and "
+                            "from here the palm follows the WRIST, not a finger", hand ? "RIGHT" : "LEFT", ex, ey, ez);
+                    }
+                }
+                if (g_mpSrcXok[hand]) R_src = dvr::hf::mul3(sr.r, g_mpSrcX[hand]);
+            }
+            g_mpSrcR[hand] = R_src; g_mpSrcOk[hand] = true;
             g_mpSrcScale[hand] = sr.scale;
             g_mpSrcAniso[hand] = sr.aniso;
             g_mpSrcOrtho[hand] = sr.ortho;
@@ -2840,6 +2878,19 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
 {
     if (cls < 0 || cls >= MS_CLS_N || g_mpAnchorN[cls] <= 0) return false;
     const int bones = (int)(count / 3);
+    // VR-183: RIGID with the hand bone. The patch's bind centroid carried by that bone's matrix
+    // alone, so no finger weight can move it. The blend below stays for AnchorBone=0.
+    if (g_mpAnchorHandBone && (cls == MS_CLS_HAND_A || cls == MS_CLS_HAND_B)) {
+        const int b = g_mpDomSlot[cls];
+        if (b < 0 || b >= bones) return false;
+        const float* r0 = pal + (b * 3 + 0) * 4; const float* r1 = pal + (b * 3 + 1) * 4; const float* r2 = pal + (b * 3 + 2) * 4;
+        const float* p = g_mpAnchorBind[cls];
+        out[0] = r0[0]*p[0] + r0[1]*p[1] + r0[2]*p[2] + r0[3];
+        out[1] = r1[0]*p[0] + r1[1]*p[1] + r1[2]*p[2] + r1[3];
+        out[2] = r2[0]*p[0] + r2[1]*p[1] + r2[2]*p[2] + r2[3];
+        for (int i = 0; i < 3; i++) if (!MpFinite(out[i])) return false;
+        return true;
+    }
     float acc[3] = { 0.0f, 0.0f, 0.0f };
 
     // EVERY anchor vertex must be valid or the whole anchor is refused. The

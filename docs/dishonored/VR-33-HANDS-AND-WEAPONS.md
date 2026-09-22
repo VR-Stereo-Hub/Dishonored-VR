@@ -637,3 +637,7 @@ some of the large accepts may be world copies like this one. Shrinking the radiu
 globally could reject genuine held passes. Build 613 logs every verdict on the razor's
 buffers with the draw position (`wa/razor:`). Compared against the landing points, that
 separates held passes from placed copies by numbers.
+
+## VR-183: the palm follows the wrist, not a finger (2026-09-22)
+
+Power animations that moved the fingers swung the whole hand around them. The palm's frame came from the palette slot most weighted on the anchor patch, and the patch sits on the finger bases, so a finger bone won the vote. The log shows slots 10 and 35 chosen while the wrist finder named hand bones 6 and 30. The anchor itself was the patch skinned with its full weights, so it moved with finger curl too. The frame now comes from the hand bone (`g_msHandBone`), and the anchor is the patch's bind centroid carried by that bone's matrix alone. So that the saved grip and the trims keep their meaning, the frame is `R_hand * X`, with `X = R_hand^T * R_vote` measured once per source generation: identical at that instant, rigid with the wrist after it. `[Hands] AnchorBone=1` (default), 0 = the old vote. **Not yet run.** Check the `ms/palette/frame:` lines: the hand bone chosen per class, and the offset kept from the old slot.
