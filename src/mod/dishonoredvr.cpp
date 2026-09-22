@@ -128,6 +128,7 @@
 
 // ---- every function, so the bodies below can be in any order --------------
 #include "mod/fwd.h"
+#include "game/dishonored/ue3/gobj_walk.h"   // VR-102: cheap GObjects walks; needs fwd.h
 
 // ---- function bodies by subsystem -------------------------------------------
 #if !DVR_WITH_LEGACY

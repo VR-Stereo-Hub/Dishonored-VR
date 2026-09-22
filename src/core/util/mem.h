@@ -11,6 +11,14 @@ namespace dvr::mem {
 bool range_readable(const void* p, size_t n);
 // One aligned dword, or false without touching the page.
 bool safe_read32(uintptr_t p, uint32_t* out);
+
+// A readability memo for a tight loop: one VirtualQuery per memory region instead
+// of one per entry. Only for a loop on one thread over memory the engine does not
+// free under it (a GObjects walk on the game thread: the collector runs there too).
+struct RegionMemo {
+    uintptr_t lo = 0, hi = 0;
+    bool ok(const void* p, size_t n);
+};
 } // namespace dvr::mem
 
 // Original names.

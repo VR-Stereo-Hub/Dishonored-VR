@@ -246,20 +246,9 @@ static double LuNowMs()
     return (double)c.QuadPart * 1000.0 / (double)f.QuadPart;
 }
 
-// A readability memo for a tight loop: one VirtualQuery per memory region instead of
-// one per entry. Only for a loop on one thread over tables the engine does not free
-// under it (GNames entries are never freed; see the object walk's note).
-struct LuRegion {
-    uintptr_t lo = 0, hi = 0;
-    bool ok(const void* p, size_t n) {
-        const uintptr_t a = (uintptr_t)p;
-        if (a >= lo && a + n <= hi && a + n >= a) return true;
-        if (!RangeReadable(p, n)) return false;
-        MEMORY_BASIC_INFORMATION m;
-        if (VirtualQuery(p, &m, sizeof(m))) { lo = (uintptr_t)m.BaseAddress; hi = lo + m.RegionSize; }
-        return true;
-    }
-};
+// The readability memo moved to core/util/mem.h (dvr::mem::RegionMemo) so the
+// other GObjects walks can share it (VR-102).
+using LuRegion = ::dvr::mem::RegionMemo;
 
 // The full name index: every printable GNames entry once, extended (never rescanned)
 // when the table grows. The FIRST index a string appears at wins, which is what the

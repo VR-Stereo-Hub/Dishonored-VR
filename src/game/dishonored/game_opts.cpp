@@ -193,25 +193,21 @@ uint8_t* GoScanForProfileObject()
     // on the wrong object reads identically to a refusal on the right one.
     struct Cand { uint8_t* obj; const char* cls; int score; int32_t entries; };
     Cand cands[16]; int nc = 0; int hits = 0;
-    for (uint32_t i = 0; i < onum; i++) {
-        if ((i & 1023) == 0) {
-            uint32_t left = onum - i; if (left > 1024) left = 1024;
-            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
-        }
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, kClassOff + 4)) continue;
-        const char* cn = ObjClassName(o);
-        if (!cn || !strstr(cn, "ProfileSettings")) continue;
+    // VR-102: GObjForEach - one VirtualQuery per region, one name per class.
+    const GObjWalkStats walk = GObjForEach(kClassOff + 4, [&](uint32_t, uint8_t* o, const char* cn) {
+        if (!cn || !strstr(cn, "ProfileSettings")) return true;
         // A class-name match catches the CLASS objects and the defaults too;
         // only a live instance can answer a value.
-        if (!IsLiveObject(o)) continue;
-        if (!strncmp(cn, "Default__", 9)) continue;
+        if (!IsLiveObject(o)) return true;
+        if (!strncmp(cn, "Default__", 9)) return true;
         ++hits;
         // Most derived wins: Ark is the game's own, then anything that is not
         // the bare base class, then the base class as a last resort.
         const int score = strstr(cn, "Ark") ? 3 : (strcmp(cn, "OnlineProfileSettings") ? 2 : 1);
         if (nc < 16) { cands[nc].obj = o; cands[nc].cls = cn; cands[nc].score = score; cands[nc].entries = -1; ++nc; }
-    }
+        return true;
+    });
+    Log("gameopts: object-table scan took %.0f ms over %u entries", walk.ms, walk.num);
     if (!nc) {
         Log("gameopts: REFUSED - no live *ProfileSettings object in %u objects. The settings "
             "may not be loaded until the options menu has been opened once this session.", onum);
