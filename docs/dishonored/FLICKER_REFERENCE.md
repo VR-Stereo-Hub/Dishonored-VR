@@ -30,6 +30,15 @@
    `PrimitiveComponent.SetDepthPriorityGroup`, and `carry/depth:` logs the group before and
    after. Counterprediction: if it still flickers in SDPG_World, the depth group is not the
    cause. The checkbox gives a live A/B.
+8. **Build 661 result: the depth-group prediction FAILED.** `carry/depth:` shows the mesh
+   StaticMeshComponent at group 1 at the carry start, moved to 2 by the game, then set back
+   to 1 (WORLD) by the mod about a second in, on every carry. The flicker stayed. It is
+   described as a one-frame jump of the object to the left, almost constant, and smaller while
+   the hand is still. Two candidates are eliminated: the render-eye anchor and the depth group.
+   Next instrument (build 662): at each drive, is the object still where the last drive put it?
+   `MOVED OUTSIDE the seam N times, largest X uu (fwd/right/up in the view)` names a second
+   writer. A zero there puts the jump in the render and not in the game state.
+   `two drives in one frame` counts drives that share a render serial.
 
 ## VR-178: journal and wheel scene freshness candidate (2026-09-22)
 

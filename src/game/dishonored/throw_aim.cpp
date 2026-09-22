@@ -569,6 +569,13 @@ static void CtAxesToRot(const float X[3], const float Y[3], const float Z[3], in
 // The object's rotation in the hand's frame, taken at the first drive of each carry, so it keeps
 // the orientation it was picked up in and then turns with the wrist.
 static bool g_hlRelOk = false;
+static std::atomic<bool> g_hlKeepAngle{false};          // [Aim] CarryHoldKeepPickupAngle
+// Between two of our drives nothing should move the object. If it is not where we put it, some
+// other path moved it (the candidate for a one-frame jump): count it, and keep how far and which
+// way in the VIEW's frame. Also the frame gap, since a move per frame is what the hold does.
+static float g_hlLast[3]; static bool g_hlLastOk = false;
+static volatile LONG g_hlOutside = 0; static float g_hlOutMax = 0, g_hlOutView[3] = {0, 0, 0};
+static uint32_t g_hlLastSerial = 0; static volatile LONG g_hlSameFrame = 0, g_hlSkipFrame = 0;
 static float g_hlRel[3][3];                              // rows: object X/Y/Z in hand (F, R, U) terms
 static volatile LONG g_hlRot = 0;
 
@@ -588,6 +595,26 @@ extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
     else CarryHandFrame(o, F, U, &why);
     if (why) { g_hlWhy = why; return; }
     float Rh[3]; dvr::fireaim::cross(U, F, Rh);           // UE3: Y = Z x X
+    {   // did anything move it since our last drive?
+        const float* L0 = (const float*)(actor + kActorLocation);
+        if (g_hlLastOk) {
+            const float dv[3] = { L0[0] - g_hlLast[0], L0[1] - g_hlLast[1], L0[2] - g_hlLast[2] };
+            const float dd = sqrtf(dv[0] * dv[0] + dv[1] * dv[1] + dv[2] * dv[2]);
+            if (dd > 0.5f) {
+                InterlockedIncrement(&g_hlOutside);
+                if (dd > g_hlOutMax) {
+                    g_hlOutMax = dd;
+                    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
+                    g_hlOutView[0] = dv[0] * cp * cy + dv[1] * cp * sy + dv[2] * sp;
+                    g_hlOutView[1] = -dv[0] * sy + dv[1] * cy;
+                    g_hlOutView[2] = -dv[0] * sp * cy - dv[1] * sp * sy + dv[2] * cp;
+                }
+            }
+        }
+        const uint32_t ser = dvr::camera::render_pos_serial();
+        if (g_hlLastOk && ser == g_hlLastSerial) InterlockedIncrement(&g_hlSameFrame);
+        g_hlLastSerial = ser;
+    }
     // position
     float* delta = (float*)(frame - 0x54);
     const float* L = (const float*)(actor + kActorLocation);
@@ -597,10 +624,15 @@ extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
                          o[2] + F[2] * af + Rh[2] * ar + U[2] * au };
     const float e[3] = { L[0] + delta[0], L[1] + delta[1], L[2] + delta[2] };   // where the game put it
     delta[0] = n[0] - L[0]; delta[1] = n[1] - L[1]; delta[2] = n[2] - L[2];
+    memcpy(g_hlLast, n, 12); g_hlLastOk = true;
     g_hlMoved = sqrtf((n[0]-e[0])*(n[0]-e[0]) + (n[1]-e[1])*(n[1]-e[1]) + (n[2]-e[2])*(n[2]-e[2]));
     // rotation: latch the object's frame relative to the hand once, then carry it with the hand
     int32_t* rot = (int32_t*)(actor + kActorRotation);
     if (g_hlRotOn) {
+        if (!g_hlRelOk && !g_hlKeepAngle.load()) {         // the object's X/Y/Z = the hand's F/R/U
+            for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) g_hlRel[i][j] = (i == j) ? 1.0f : 0.0f;
+            g_hlRelOk = true;
+        }
         if (!g_hlRelOk) {
             float X[3], Y[3], Z[3]; CtRotToAxes(rot, X, Y, Z);
             const float* ax[3] = { X, Y, Z };
@@ -846,6 +878,7 @@ static void CarryHoldTick()
             src = obj ? "the focused actor (the state named none)" : "NOTHING";
         }
         g_hlObj = obj; s0 = g_hlSeen; d0 = g_hlDriven; g_hlWhy = "not moved yet"; g_hlRelOk = false;
+        g_hlLastOk = false; g_hlOutside = 0; g_hlOutMax = 0; g_hlSameFrame = 0;
         Log("carry/hold: carry began - object %s %p from %s; hold owner %s", obj ? ObjClassName(obj) : "-",
             obj, src, g_hlOn.load() ? "HAND" : "GAME");
         CarryDepthToWorld(obj, true);
@@ -874,8 +907,11 @@ static void CarryHoldTick()
         }
         Log("carry/hold: carrying - %ld moves of the object seen, %ld moved to the hand, %ld turned with it (last: %s, %.0f uu "
             "from where the game put it). Object now %.0f uu from the hand ray origin, %.0f fwd %.0f up in "
-            "the view. Seen 0 while carrying = the object is not moved through the seam",
-            (long)(g_hlSeen - s0), (long)(g_hlDriven - d0), (long)g_hlRot, g_hlWhy, g_hlMoved, toHand, fwd, up);
+            "the view. Seen 0 while carrying = the object is not moved through the seam. MOVED OUTSIDE the seam %ld times, "
+            "largest %.1f uu (%.1f fwd %.1f right %.1f up in the view); two drives in one frame %ld",
+            (long)(g_hlSeen - s0), (long)(g_hlDriven - d0), (long)g_hlRot, g_hlWhy, g_hlMoved, toHand, fwd, up,
+            (long)g_hlOutside, g_hlOutMax, g_hlOutView[0], g_hlOutView[1], g_hlOutView[2], (long)g_hlSameFrame);
+        g_hlOutMax = 0;
     }
     was = carry;
 }
@@ -897,12 +933,15 @@ static void CarryHoldConfigure(const char* ini)
         g_hlAdj[i] = (v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) ? v : 0;
     }
     g_hlWorldDepth.store(IniFloat(ini, "Aim", "CarryHoldWorldDepth", 1) != 0.0f);
+    g_hlKeepAngle.store(IniFloat(ini, "Aim", "CarryHoldKeepPickupAngle", 0) != 0.0f);
     g_hlRotOn = IniFloat(ini, "Aim", "CarryHoldRotate", 1) != 0.0f;
     CarryHoldSet(IniFloat(ini, "Aim", "CarryHoldAtHand", 1) != 0.0f, "ini [Aim] CarryHoldAtHand");
 }
 static float CarryHoldAdj(int i) { return (i >= 0 && i < 6) ? g_hlAdj[i] : 0; }
 static const char* CarryHoldAdjKey(int i) { return (i >= 0 && i < 6) ? kHlAdjKey[i] : ""; }
 static void CarryHoldSetAdj(int i, float v) { if (i >= 0 && i < 6 && v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) g_hlAdj[i] = v; }
+static bool CarryHoldKeepAngle() { return g_hlKeepAngle.load(); }
+static void CarryHoldSetKeepAngle(bool on) { g_hlKeepAngle.store(on); g_hlRelOk = false; Log("carry/hold: keep the pickup angle %s", on ? "ON" : "off (fixed in the hand)"); }
 static bool CarryHoldWorldDepthEnabled() { return g_hlWorldDepth.load(); }
 static void CarryHoldSetWorldDepth(bool on) { g_hlWorldDepth.store(on); Log("carry/hold: world depth while held %s (takes effect on the next carry)", on ? "ON" : "off"); }
 
