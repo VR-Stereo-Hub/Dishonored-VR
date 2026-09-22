@@ -205,6 +205,26 @@ struct FxSeen { uint8_t* comp; };
 static FxSeen g_fxSeen[48]; static int g_fxSeenN = 0;
 static uint32_t g_fxScanAt = 0;
 
+// Class pointer -> is it a particle system or a light. A GObjects entry is a live UObject, so its
+// class pointer at +kClassOff is read raw; only a class not seen before pays ObjClassNames two
+// VirtualQuery calls. There are a few thousand classes, so the cache fills once and then the scan
+// is a pointer read and a hash probe per object.
+static uint8_t* g_fxClsKey[8192]; static int8_t g_fxClsVal[8192];
+static int FxClassKind(uint8_t* cls)                  // 0 no, 1 particle system, 2 light
+{
+    uint32_t h = (uint32_t)(((uintptr_t)cls >> 3) * 2654435761u) & 8191u;
+    for (int probe = 0; probe < 16; ++probe, h = (h + 1) & 8191u) {
+        if (g_fxClsKey[h] == cls) return g_fxClsVal[h];
+        if (!g_fxClsKey[h]) {
+            const char* cn = (RangeReadable(cls, kNameOff + 8)) ? RealName(*(uint32_t*)(cls + kNameOff)) : nullptr;
+            const int kind = !cn ? 0 : strstr(cn, "ParticleSystemComponent") ? 1 : strstr(cn, "LightComponent") ? 2 : 0;
+            g_fxClsKey[h] = cls; g_fxClsVal[h] = (int8_t)kind;
+            return kind;
+        }
+    }
+    return 0;                                         // table crowded here: skip, never stall
+}
+
 static bool FxInTrackedAttachments(uint8_t* comp)
 {
     for (int i = 0; i < g_fxN; ++i) if (g_fx[i].comp == comp) return true;
@@ -220,24 +240,34 @@ static void FxDiscoverTick(double now)
         oTemplate = RflOffsetOf("ParticleSystemComponent", "Template");
         if (!oOwner) return;
     }
+    // Build 666 ran this EVERY tick over 8192 objects with a RangeReadable (a VirtualQuery system
+    // call) on each, in the main menu too: the game fell to 0-5 fps. Now: gameplay only, 2048
+    // objects every 100 ms, and the class NAME is tested first (one pointer chase, safe on any
+    // UObject) so the checked reads happen only for the few particle and light components.
+    if (g_mainMenu || g_inMenu || g_menuOpen || !CylTruthLive()) return;
+    static double nextChunk = 0;
+    if (now < nextChunk) return;
+    nextChunk = now + 100;
     uint8_t* pawn = g_pePawn;
     if (!pawn || !RangeReadable((void*)kGObjHdr, 12)) return;
     void** objs = *(void***)kGObjHdr;
     const uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
     if (!objs || onum < 1000 || onum > 4000000) return;
     if (g_fxScanAt >= onum) g_fxScanAt = 0;
-    const uint32_t end = g_fxScanAt + 8192 < onum ? g_fxScanAt + 8192 : onum;
+    const uint32_t end = g_fxScanAt + 2048 < onum ? g_fxScanAt + 2048 : onum;
     if (!RangeReadable(objs + g_fxScanAt, (end - g_fxScanAt) * sizeof(void*))) { g_fxScanAt = 0; return; }
     for (uint32_t i = g_fxScanAt; i < end; ++i) {
         uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, oOwner + 4)) continue;
+        if (!o || ((uintptr_t)o & 3)) continue;
+        uint8_t* cls = *(uint8_t**)(o + kClassOff);        // GObjects entries are live UObjects
+        if (!cls || ((uintptr_t)cls & 3) || !FxClassKind(cls)) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || !RangeReadable(o + oOwner, 4)) continue;
         uint8_t* own = *(uint8_t**)(o + oOwner);
         if (!own || ((uintptr_t)own & 3)) continue;
         bool mine = own == pawn;
         if (!mine && oActOwner && RangeReadable(own + oActOwner, 4)) mine = *(uint8_t**)(own + oActOwner) == pawn;
         if (!mine) continue;
-        const char* cn = ObjClassName(o);
-        if (!cn || (!strstr(cn, "ParticleSystemComponent") && !strstr(cn, "LightComponent"))) continue;
         bool known = false;
         for (int k = 0; k < g_fxSeenN; ++k) if (g_fxSeen[k].comp == o) { known = true; break; }
         if (known || g_fxSeenN >= (int)(sizeof(g_fxSeen) / sizeof(g_fxSeen[0])) || !IsLiveObject(o)) continue;

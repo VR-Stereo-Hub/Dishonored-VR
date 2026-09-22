@@ -1305,3 +1305,7 @@ measured population can be eliminated. Similarly, a menu walker stopping at
 category zero cannot characterize nested categories, and DisSetting's bool
 fields cannot be omitted when deriving its stride. The corrected instruments
 include empty/unresolved results and avoid radius or setter-mapping claims.
+
+## RangeReadable is a system call: never per object in a scan (VR-182, 2026-09-22)
+
+`RangeReadable` is `VirtualQuery`, and `ObjClassName` makes two of them. The first `fx/find` pass (build 666) walked 8192 GObjects entries EVERY script tick with one or two checked reads each, in the main menu too, where a pawn exists. The game fell to 0-5 fps and stayed there. A GObjects entry is a live UObject, so its class pointer at `+kClassOff` can be read raw. Cache the verdict per class pointer and make the checked reads only for the few objects that survive the class test. Pace the scan on a clock (2048 objects every 100 ms) and keep it out of menus.
