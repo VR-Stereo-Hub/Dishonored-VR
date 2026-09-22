@@ -375,6 +375,19 @@ static void FxFollowTick()
 }
 static void FxFollowTickBody()
 {
+    {   // VR-183: which hands hold an item - the hand placement keeps the calibrated frame for those
+        bool held[2] = { false, false };
+        AcquireSRWLockShared(&g_waCompLock);
+        for (int i = 0; i < g_waCompN; ++i)
+            if (g_waComp[i].ok && g_waComp[i].isMember && g_waComp[i].hand >= 0 && g_waComp[i].hand <= 1) held[g_waComp[i].hand] = true;
+        ReleaseSRWLockShared(&g_waCompLock);
+        for (int h = 0; h < 2; ++h)
+            if (held[h] != g_mpItemInHand[h]) {
+                g_mpItemInHand[h] = held[h];
+                Log("hands/anchor: %s hand %s - placed from the %s", h ? "RIGHT" : "LEFT",
+                    held[h] ? "holds an item" : "is empty", held[h] ? "calibrated item frame (as before)" : "WRIST, finger animation cannot swing it");
+            }
+    }
     if (!RflNamesReady()) return;
     if (!g_fxAttOff) {
         static double nextTry = 0; const double t = MaimNowMs();

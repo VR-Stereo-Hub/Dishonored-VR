@@ -358,6 +358,17 @@ static int      g_mpVoteSlot[MS_CLS_N] = { -1, -1, -1, -1, -1 };   // what the w
 // old frame at that instant: the saved grip and the trims keep their meaning, and the frame then
 // follows the hand bone rigidly.
 static dvr::hf::Mat3 g_mpSrcX[2]; static bool g_mpSrcXok[2] = { false, false }; static uint32_t g_mpSrcXGen[2] = { 0, 0 };
+// The anchor's offset from the rigid wrist point, in the hand bone's own (bind) space, kept the
+// same way as X: re-measured while an item is held, frozen while the hand is empty.
+static float g_mpAnchorOff[MS_CLS_N][3]; static bool g_mpAnchorOffOk[MS_CLS_N] = { false, false, false, false, false };
+// An item (weapon, gadget) in that hand, from the weapon path's component snapshot (fx_follow's tick).
+// Held: the hand is placed exactly as before (the calibration and trims were tuned to it and the
+// reticle depends on it). Empty (powers): the wrist, so finger animation cannot swing the hand.
+static volatile bool g_mpItemInHand[2] = { false, false };
+// VR-184: [Hands] RigidWrist=1 (default) - in OUR vertex copy, a hand vertex's forearm-bone influences
+// are pointed at that side's hand bone, so arm and wrist-twist animation cannot bend the cut and cap.
+static bool g_msRigidWrist = true;
+static int  g_msIdxOff = -1, g_msIdxType = 0;       // the BLENDINDICES element, kept from the read
 
 // ---- BUILD A2: PLACEMENT THROUGH THE MEASURED CHAIN --------------------------
 //

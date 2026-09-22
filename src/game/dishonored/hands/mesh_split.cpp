@@ -276,6 +276,7 @@ static bool MsRead(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                     MsReadWeights(q, &wt, g_msVert[v].bw);
         }
         vb->Unlock();
+        g_msIdxOff = idx.off; g_msIdxType = idx.type;
         if (!fmtOk) {
             Log("ms: REFUSED - blend indices type %d / weights type %d are a "
                 "D3DDECLTYPE this module does not decode. Guessing at an "
@@ -1519,6 +1520,65 @@ static bool MsUpload(IDirect3DDevice9* dev)
         for (int v = 0; v < g_msClipN; v++)
             memcpy((uint8_t*)vp + (size_t)(g_msVerts + v) * g_msStride,
                    &g_msClipRaw[(size_t)v * MS_MAX_STRIDE], g_msStride);
+        // VR-184: THE WRIST IS RIGID WITH THE HAND. A hand vertex near the cut is partly weighted to
+        // forearm bones, so an arm or wrist-twist animation bent the cut and the cap under a hand that
+        // is placed as one rigid piece. In this copy only (the game's buffer is untouched), each such
+        // influence is pointed at that side's hand bone; its weight stays, the finger bones are left
+        // alone, so the fingers still animate. Indices only: UBYTE4 and D3DCOLOR, both decoded above.
+        if (g_msRigidWrist && g_msIdxOff >= 0 && (g_msIdxType == D3DDECLTYPE_UBYTE4 || g_msIdxType == D3DDECLTYPE_UBYTE4N ||
+                                                   g_msIdxType == D3DDECLTYPE_D3DCOLOR)) {
+            static uint8_t side[65536];
+            const int lim = nv < 65536 ? nv : 65536;
+            memset(side, 0, (size_t)lim);
+            for (int t = 0; t < g_msOutN; t++) {
+                const int cls = g_msOutCls[t];
+                if (cls != MS_CLS_HAND_A && cls != MS_CLS_HAND_B) continue;
+                for (int c = 0; c < 3; c++) {
+                    const uint32_t v = g_msOutIdx[t * 3 + c];
+                    if ((int)v < lim) side[v] = (uint8_t)(cls - MS_CLS_HAND_A + 1);
+                }
+            }
+            // WHICH BONES ARE FOREARM. Build 672 used !g_msBoneHand, and moved NOTHING (0 influences): the
+            // hand set is every bone within the wrist radius (30.8 uu) of the hand bone, which takes in the
+            // forearm-twist bones right behind the wrist - the very ones bending it. A forearm bone is the
+            // one BEHIND the hand bone along the limb axis (g_msAxis points to the fingers); fingers and the
+            // thumb sit ahead of it or beside it. 2 uu of margin keeps the thumb root out.
+            static bool armBone[MS_MAX_BONES];
+            for (int b = 0; b < MS_MAX_BONES; b++) armBone[b] = false;
+            for (int sd2 = 1; sd2 <= 2; sd2++) {
+                const int hb = g_msHandBone[sd2];
+                if (hb < 0) continue;
+                char line[1024]; int at = 0;
+                for (int b = 0; b < g_msBones && b < MS_MAX_BONES; b++) {
+                    if (g_msBoneSide[b] != sd2 || b == hb) continue;
+                    float along = 0;
+                    for (int a = 0; a < 3; a++) along += (g_msBoneCen[b][a] - g_msBoneCen[hb][a]) * g_msAxis[sd2][a];
+                    armBone[b] = along < -2.0f;
+                    if (at < (int)sizeof(line) - 24) at += _snprintf(line + at, sizeof(line) - at, " %d:%+.1f%s", b, along, armBone[b] ? "A" : "");
+                }
+                line[at < (int)sizeof(line) ? at : (int)sizeof(line) - 1] = 0;
+                Log("ms/wrist: side %d, hand bone %d - bone:uu along the limb from it (A = forearm, pointed at the hand bone):%s", sd2, hb, line);
+            }
+            static const int kUb[4] = { 0, 1, 2, 3 }, kCol[4] = { 2, 1, 0, 3 };   // logical influence -> byte
+            const int* map = (g_msIdxType == D3DDECLTYPE_D3DCOLOR) ? kCol : kUb;
+            int verts = 0, infl = 0;
+            for (int v = 0; v < lim; v++) {
+                const int sd = side[v];
+                if (!sd || g_msHandBone[sd] < 0) continue;
+                uint8_t* ib = (uint8_t*)vp + (size_t)v * g_msStride + g_msIdxOff;
+                bool touched = false;
+                for (int k = 0; k < 4; k++) {
+                    const int b = ib[map[k]];
+                    if (b < MS_MAX_BONES && g_msBoneSide[b] == sd && armBone[b] && b != g_msHandBone[sd]) {
+                        ib[map[k]] = (uint8_t)g_msHandBone[sd]; touched = true; ++infl;
+                    }
+                }
+                if (touched) ++verts;
+            }
+            Log("ms/wrist: %d hand vertex(es) had %d forearm influence(s) moved onto the hand bone (%d / %d) in our copy - "
+                "arm animation can no longer bend the wrist cut and cap; the fingers still animate ([Hands] RigidWrist=0 restores)",
+                verts, infl, g_msHandBone[1], g_msHandBone[2]);
+        }
         g_msVb->Unlock();
     }
 
@@ -2659,13 +2719,15 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
             R_src = sr.r;
             // VR-183: the hand bone's frame, offset once to the old vote slot's (see g_mpSrcX).
             if (g_mpAnchorHandBone && g_mpVoteSlot[cls] >= 0 && g_mpVoteSlot[cls] != g_mpDomSlot[cls]) {
-                if (!g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen) {
+                const bool held = g_mpItemInHand[hand];
+                if (held || !g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen) {
                     dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
                     if (MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy)) {
+                        const bool first = !g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen;
                         g_mpSrcX[hand] = dvr::hf::mul3(dvr::hf::transpose3(sr.r), sv.r);
                         g_mpSrcXok[hand] = true; g_mpSrcXGen[hand] = g_mpSrcGen;
                         float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
-                        Log("ms/palette/frame: %s hand - the hand bone's frame differs from the old vote slot's by "
+                        if (first) Log("ms/palette/frame: %s hand - the hand bone's frame differs from the old vote slot's by "
                             "%+.1f %+.1f %+.1f deg; that offset is kept, so the calibration and trims look the same, and "
                             "from here the palm follows the WRIST, not a finger", hand ? "RIGHT" : "LEFT", ex, ey, ez);
                     }
@@ -2880,17 +2942,8 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
     const int bones = (int)(count / 3);
     // VR-183: RIGID with the hand bone. The patch's bind centroid carried by that bone's matrix
     // alone, so no finger weight can move it. The blend below stays for AnchorBone=0.
-    if (g_mpAnchorHandBone && (cls == MS_CLS_HAND_A || cls == MS_CLS_HAND_B)) {
-        const int b = g_mpDomSlot[cls];
-        if (b < 0 || b >= bones) return false;
-        const float* r0 = pal + (b * 3 + 0) * 4; const float* r1 = pal + (b * 3 + 1) * 4; const float* r2 = pal + (b * 3 + 2) * 4;
-        const float* p = g_mpAnchorBind[cls];
-        out[0] = r0[0]*p[0] + r0[1]*p[1] + r0[2]*p[2] + r0[3];
-        out[1] = r1[0]*p[0] + r1[1]*p[1] + r1[2]*p[2] + r1[3];
-        out[2] = r2[0]*p[0] + r2[1]*p[1] + r2[2]*p[2] + r2[3];
-        for (int i = 0; i < 3; i++) if (!MpFinite(out[i])) return false;
-        return true;
-    }
+    const bool rigidCls = g_mpAnchorHandBone && (cls == MS_CLS_HAND_A || cls == MS_CLS_HAND_B);
+    const bool held = rigidCls && g_mpItemInHand[cls == MS_CLS_HAND_B ? 1 : 0];
     float acc[3] = { 0.0f, 0.0f, 0.0f };
 
     // EVERY anchor vertex must be valid or the whole anchor is refused. The
@@ -2935,6 +2988,28 @@ static bool MpAnchorPos(int cls, const float* pal, UINT count, float* out)
     }
     const float inv = 1.0f / (float)g_mpAnchorN[cls];
     out[0] = acc[0] * inv; out[1] = acc[1] * inv; out[2] = acc[2] * inv;
+    // VR-183: an empty hand (powers) is anchored RIGIDLY on the wrist bone, at the blended anchor's
+    // last offset from it, so finger animation cannot move it and the switch does not jump. With an
+    // item held the blended anchor stands (the calibration was tuned to it), and the offset follows it.
+    if (rigidCls) {
+        const int b = g_mpDomSlot[cls];
+        if (b < 0 || b >= bones) return false;
+        const float* r0 = pal + (b * 3 + 0) * 4; const float* r1 = pal + (b * 3 + 1) * 4; const float* r2 = pal + (b * 3 + 2) * 4;
+        dvr::hf::Xform M, Mi;
+        for (int c = 0; c < 3; c++) { M.r.m[0*3+c] = r0[c]; M.r.m[1*3+c] = r1[c]; M.r.m[2*3+c] = r2[c]; }
+        M.t[0] = r0[3]; M.t[1] = r1[3]; M.t[2] = r2[3];
+        if (!dvr::wf::inverse(M, &Mi)) return false;
+        if (held || !g_mpAnchorOffOk[cls]) {           // measure: where the blended anchor sits on the bone
+            for (int i = 0; i < 3; i++)
+                g_mpAnchorOff[cls][i] = Mi.r.m[i*3+0]*out[0] + Mi.r.m[i*3+1]*out[1] + Mi.r.m[i*3+2]*out[2] + Mi.t[i] - g_mpAnchorBind[cls][i];
+            g_mpAnchorOffOk[cls] = true;
+        }
+        if (!held) {
+            float p[3];
+            for (int i = 0; i < 3; i++) p[i] = g_mpAnchorBind[cls][i] + g_mpAnchorOff[cls][i];
+            for (int i = 0; i < 3; i++) out[i] = M.r.m[i*3+0]*p[0] + M.r.m[i*3+1]*p[1] + M.r.m[i*3+2]*p[2] + M.t[i];
+        }
+    }
     // A real finite test. `x == x` rejects NaN and cheerfully accepts
     // infinity, and an infinite anchor would propagate into the submitted
     // transform as a plausible-looking huge number.

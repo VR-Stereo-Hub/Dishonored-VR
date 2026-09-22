@@ -809,6 +809,9 @@ static void WriteDefaultIni(const char* ini)
         "; AnchorBone=1 (VR-183): the palm is placed from the hand (wrist) bone, so finger animation\n"
         "; cannot swing the hand. 0 = the old choice, the bone most weighted on the palm patch.\n"
         "AnchorBone=1\n"
+        "; RigidWrist=1 (VR-184): the wrist cut and cap stay rigid with the hand, so arm animation\n"
+        "; cannot bend them; the fingers still animate. 0 = the game's own weights.\n"
+        "RigidWrist=1\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -2437,6 +2440,7 @@ static void LoadConfig()
     // back off.
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
+    g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.
