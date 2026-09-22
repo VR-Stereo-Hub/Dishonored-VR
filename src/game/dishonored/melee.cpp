@@ -846,7 +846,6 @@ void draw_ui() {
                 st.outputRb = out != 0; close_pulse();
                 ConfigWriteKey("Melee", "Output", output_name(), "F10 Controls");
             }
-            ov::tip("Which game button a swing presses.");
         }
     } else {
         ImGui::SliderFloat("Swing speed needed (m/s)", &g_meleeSpeed, 0.5f, 6.0f, "%.2f");
@@ -877,7 +876,6 @@ void draw_ui() {
                 st.stabStyle = sty == 0 ? kPlunge : kThrust; live.reset();
                 ConfigWriteKey("Melee", "StabStyle", style_name(), "F10 Controls");
             }
-            ov::tip("Which motion counts as the stab.");
             if (ov::show(ov::Advanced)) {
                 if (st.stabStyle == kPlunge) {
                     ImGui::SliderFloat("May start this far below the shoulder (m)", &st.stabStartBelowM, -0.20f, 0.40f, "%.2f");
@@ -885,10 +883,8 @@ void draw_ui() {
                     if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabStartBelowM); ConfigWriteKey("Melee", "StabStartBelowM", v, "F10 Controls"); }
                 }
                 ImGui::SliderFloat("Thrust speed needed (m/s)", &st.stabSpeed, 0.5f, 4.0f, "%.2f");
-                ov::tip("How fast the stab must be.");
                 if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabSpeed); ConfigWriteKey("Melee", "StabSpeed", v, "F10 Controls"); }
                 ImGui::SliderFloat("Thrust reach needed (m)", &st.stabTravelM, 0.05f, 0.50f, "%.2f");
-                ov::tip("How far the stab must travel.");
                 if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabTravelM); ConfigWriteKey("Melee", "StabTravelM", v, "F10 Controls"); }
                 ImGui::SliderFloat("How straight (0-1)", &st.stabRatio, 0.3f, 1.0f, "%.2f");
                 ov::tip("How straight the path must be. Higher rejects curved swings.");

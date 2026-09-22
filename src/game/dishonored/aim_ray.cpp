@@ -486,35 +486,26 @@ bool draw_reticle_ui() {
     ov::tip("A dot at a fixed distance along where your hand aims. The aim follows it.");
     ImGui::SameLine();
     changed |= ImGui::Checkbox("Beam", &cfg.laser);
-    ov::tip("A laser line from the hand to the dot.");
     changed |= ImGui::RadioButton("Left hand", &cfg.hand, 0);
-    ov::tip("The reticle follows the left hand (powers, gadgets, the crossbow and pistol).");
     ImGui::SameLine();
     changed |= ImGui::RadioButton("Right hand", &cfg.hand, 1);
-    ov::tip("The reticle follows the right hand.");
     changed |= ImGui::SliderFloat("Reticle distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
     ov::tip("How far along the aim the dot sits. It does not stop at walls.");
     changed |= ImGui::SliderFloat("Reticle size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
     ov::tip("How big the dot looks, whatever its distance.");
     changed |= ImGui::SliderInt("Red", &cfg.rgb[0], 0, 255);
-    ov::tip("The dot's colour: red.");
     changed |= ImGui::SliderInt("Green", &cfg.rgb[1], 0, 255);
-    ov::tip("The dot's colour: green.");
     changed |= ImGui::SliderInt("Blue", &cfg.rgb[2], 0, 255);
-    ov::tip("The dot's colour: blue.");
     ImGui::ColorButton("##reticle", ImVec4(cfg.rgb[0] / 255.f, cfg.rgb[1] / 255.f, cfg.rgb[2] / 255.f, 1.f));
     ImGui::SameLine();
     if (ImGui::Button("White")) { cfg.rgb[0] = cfg.rgb[1] = cfg.rgb[2] = 255; changed = true; }
-    ov::tip("Back to a white dot.");
     // VR-189: one position for every item except the two guns.
     ImGui::SeparatorText("Reticle position: everything but the pistol and crossbow");
     changed |= ImGui::SliderFloat("Other items X (deg)", &cfg.otherXDeg, -90.0f, 90.0f, "%+.1f");
     ov::tip("Turns the aim left or right of the controller for powers, grenades, the sword and the "
             "rest. The pistol and crossbow keep their own aim.");
     changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
-    ov::tip("Turns the aim up or down for the same items.");
     if (ImGui::Button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
-    ov::tip("Straight along the controller.");
     ImGui::SameLine();
     if (ImGui::Button("Reset to default")) { cfg.otherXDeg = 0.0f; cfg.otherYDeg = -48.0f; changed = true; }
     ov::tip("The tested position (0, -48).");

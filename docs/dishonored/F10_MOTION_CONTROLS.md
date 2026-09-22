@@ -229,3 +229,19 @@ The panel now opens on **Basic**, with a view selector at the top (`[Overlay] Le
 section is collapsed by default, every control has a hover description, and every Basic and
 Advanced control saves when it changes. The per-control layout and what was removed are in
 `F10_AUDIT.md`.
+
+## VR-197: the theme (2026-09-22)
+
+The panel follows Dishonored's own look.
+* **Colour:** ink-dark panels, bone-white text, brass accents (whale-oil lamplight), oxblood on
+  the primary action (Recenter), and parchment tooltips in ink, like the notes in Dunwall.
+* **Type:** Constantia (falling back to Georgia, then Palatino) for the title, tabs and section
+  headers; Segoe UI for the body. Both load from the Windows font folder, and a missing font
+  falls back to ImGui's own and logs `overlay/theme:`.
+* **Header:** a themed title and brass rule replace ImGui's title bar. The panel still moves by
+  dragging any empty part of it, and has its own close button.
+* **Tooltips:** only where a control is not self-explanatory.
+
+`tools\ovl-theme-preview.ps1 [-Advanced]` renders a sample panel with the real theme code
+offscreen to `build\ovl-theme-preview\*.png`, so the look can be judged without a headset.
+The palette and metrics live in `src/core/ui/ovl_ui.cpp`.

@@ -5426,7 +5426,6 @@ void draw_debug_ui() {
             if (ImGui::Button("Reset maxima"))
                 for (int i = 0; i < kPhCount; ++i)
                     g_phaseMaxUs[i].store(0, std::memory_order_relaxed);
-            ov::tip("Clears the max column.");
             ImGui::TreePop();
         }
     }
@@ -5573,11 +5572,9 @@ void draw_debug_ui() {
         float dist = g_screenDistM.load(std::memory_order_relaxed);
         if (ImGui::SliderFloat("Screen distance (m)", &dist, 0.5f, 5.0f))
             g_screenDistM.store(dist, std::memory_order_relaxed);
-        ov::tip("How far away the flat screen floats.");
         float width = g_screenWidthM.load(std::memory_order_relaxed);
         if (ImGui::SliderFloat("Screen width (m)", &width, 0.5f, 6.0f))
             g_screenWidthM.store(width, std::memory_order_relaxed);
-        ov::tip("How wide the flat screen is.");
     }
 }
 

@@ -1659,19 +1659,14 @@ void draw_ui() {
     if (ov::section("Notes and journal on the hand", ov::Basic,
                     "Books, notes and the journal attach to your hand while you read them.")) {
         if (ImGui::SliderFloat("Reading tilt (degrees)", &g_readTilt, -180.f, 180.f, "%.0f")) save_read_rotation();
-        ov::tip("Tilts the page without moving where it is attached.");
         for (int i = 0; i < 2; ++i) {
             ImGui::PushID(kReadNames[i]); ImGui::TextUnformatted(kReadNames[i]);
             bool change = ImGui::Checkbox("Follow left hand", &g_readHand[i]);
             ov::tip("The page follows your left hand. Off: it floats in front of you.");
             change |= ImGui::SliderFloat("Panel width (m)", &g_readWidth[i], .15f, 1.5f, "%.2f");
-            ov::tip("How wide the page is.");
             change |= ImGui::SliderFloat("Distance offset (m, + farther)", &g_readDistance[i], -.30f, .50f, "%.2f");
-            ov::tip("Pushes the page away from or towards the hand.");
             change |= ImGui::SliderFloat("Horizontal offset (m, + right)", &g_readRight[i], -.75f, .75f, "%.2f");
-            ov::tip("Moves the page left or right of the hand.");
             change |= ImGui::SliderFloat("Vertical offset (m, + up)", &g_readUp[i], -.75f, .75f, "%.2f");
-            ov::tip("Moves the page up or down from the hand.");
             if (change) {
                 char key[64];
                 _snprintf(key, sizeof(key), "%sFollowHand", kReadNames[i]); write_i(key, g_readHand[i]);
@@ -1689,11 +1684,9 @@ void draw_ui() {
         bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
         ov::tip("Off: the game's own wheel, flat, chosen with the sticks.");
         changed |= ImGui::SliderFloat("Distance offset (m, + farther)", &g_dialDistance, -.30f, .50f, "%.2f");
-        ov::tip("Pushes the dial away from or towards your hand.");
         changed |= ImGui::Checkbox("Direction only (tiny movement selects)", &g_dialDirection);
         ov::tip("Only the direction you move counts, so a small movement picks a wedge.");
         changed |= ImGui::Checkbox("Circular crop", &g_dialCircle);
-        ov::tip("Shows the dial as a circle instead of a rectangle.");
         changed |= ImGui::Checkbox("Follow head tilt on opening", &g_dialEntryTilt);
         ov::tip("The dial tilts to match your head when it opens. Off: upright.");
         changed |= ImGui::Checkbox("Follow horizontal head angle on opening", &g_dialEntryYaw);
@@ -1701,15 +1694,11 @@ void draw_ui() {
         changed |= ImGui::SliderFloat("Neutral radius (m)", &g_dialDeadM, .0005f, .010f, "%.4f");
         ov::tip("How far the hand must move before anything is selected.");
         changed |= ImGui::SliderFloat("Dial width (m)", &g_dialWidth, .15f, 1.2f, "%.2f");
-        ov::tip("How big the dial is.");
         if (!g_dialDirection) {
             changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
-            ov::tip("How far the hand moves to reach the edge of the dial.");
         }
         changed |= ImGui::SliderFloat("Dial crop width", &g_dialCropX, .30f, 1.f, "%.2f");
-        ov::tip("How much of the wheel image is shown, across.");
         changed |= ImGui::SliderFloat("Dial crop height", &g_dialCropY, .30f, 1.f, "%.2f");
-        ov::tip("How much of the wheel image is shown, top to bottom.");
         ImGui::TextDisabled("Dial alpha");
         draw_scoped_alpha(0);
         if (changed) {
@@ -1744,21 +1733,14 @@ void draw_ui() {
             const bool hand = anchor_is_hand(anchor);
             float x = hand ? g_el[e].handX : g_el[e].winX, y = hand ? g_el[e].handY : g_el[e].winY, scale = hand ? g_el[e].handScale : g_el[e].winScale;
             bool moved = ImGui::SliderFloat("Horizontal (m)", &x, -1.5f, 1.5f, "%.3f");
-            ov::tip("Moves the panel left or right.");
             moved |= ImGui::SliderFloat("Vertical (m)", &y, -1.5f, 1.5f, "%.3f");
-            ov::tip("Moves the panel up or down.");
             moved |= ImGui::SliderFloat("Size", &scale, .25f, 3.f, "%.2fx");
-            ov::tip("Scales the panel.");
             if (moved) set_element_place(e, hand, x, y, scale, "F10 wheel parts");
             if (ov::show(ov::Debug) && ImGui::TreeNode("Adjust captured area")) {
                 bool changed = ImGui::SliderFloat("Left edge", &g_wheelPartCrop[part][0], 0, 1, "%.3f");
-                ov::tip("Where the panel's image starts, from the left of the wheel image.");
                 changed |= ImGui::SliderFloat("Right edge", &g_wheelPartCrop[part][1], 0, 1, "%.3f");
-                ov::tip("Where the panel's image ends.");
                 changed |= ImGui::SliderFloat("Bottom edge", &g_wheelPartCrop[part][2], 0, 1, "%.3f");
-                ov::tip("The bottom of the panel's image.");
                 changed |= ImGui::SliderFloat("Height (fraction of image width)", &g_wheelPartCrop[part][3], .02f, .6f, "%.3f");
-                ov::tip("How tall the panel's image is.");
                 if (changed) for (int k = 0; k < 4; ++k) { char key[64]; _snprintf(key, sizeof(key), "%s.Crop%d", kWheelPartKeys[part], k); write_f(key, g_wheelPartCrop[part][k]); }
                 ImGui::TreePop();
             }
@@ -1768,7 +1750,6 @@ void draw_ui() {
     if (ov::section("Menu immersion", ov::Advanced, "How in-game menus behave in the headset.")) {
         bool keep = g_menuExitHeading.load();
         if (ImGui::Checkbox("Keep viewing direction when closing menus", &keep)) { g_menuExitHeading.store(keep); write_i("MenuExitHeading", keep); }
-        ov::tip("Closing a menu keeps you facing where you were looking.");
         for (int i = 0; i < kMenuContexts; ++i) {
             ImGui::PushID(100 + i); ImGui::Text("%s", kMenuContextNames[i]);
             const auto bit = 1u << kMenuContextBits[i]; char key[64];
@@ -1799,7 +1780,6 @@ void draw_ui() {
             bool b = (mask & (1u << kMenuContextBits[i])) != 0;
             if (i) ImGui::SameLine();
             if (ImGui::Checkbox(kMenuContextNames[i], &b)) { ch = true; mask = b ? (mask | (1u << kMenuContextBits[i])) : (mask & ~(1u << kMenuContextBits[i])); }
-            ov::tip("Whether this screen rides a panel.");
         }
         if (ch) set_menu_context_mask(mask, "F10 HUD");
         ImGui::TextDisabled("%s", g_menuRiding ? "a screen is riding now" : "no screen riding");
@@ -1818,7 +1798,6 @@ void draw_ui() {
             ImGui::Text("%-13s", kRows[e].name); ImGui::SameLine();
             ImGui::SetNextItemWidth(110.0f);
             if (ImGui::Combo("##anchor", &a, kAnchorNames, AnchorCount)) set_element_anchor(e, a, "F10 HUD");
-            ov::tip("Where this element floats.");
             if (ov::show(ov::Debug)) {
                 ImGui::SameLine();
                 if (kRows[e].context >= 0) ImGui::TextDisabled("screen");
@@ -1841,11 +1820,8 @@ void draw_ui() {
                 bool moved = false;
                 ImGui::Indent();
                 moved |= ImGui::SliderFloat("x (m)", &x, -lim, lim, "%.3f");
-                ov::tip("Moves the element left or right on its panel.");
                 moved |= ImGui::SliderFloat("y (m)", &y, -lim, lim, "%.3f");
-                ov::tip("Moves the element up or down on its panel.");
                 moved |= ImGui::SliderFloat("scale", &s, 0.25f, 3.0f, "%.2f");
-                ov::tip("Scales the element.");
                 ImGui::Unindent();
                 if (moved) set_element_place(e, onHand, x, y, s, "F10 HUD");
             }
@@ -1859,15 +1835,11 @@ void draw_ui() {
         if (ImGui::Button("Recenter the world window")) { dvr::vr::recenter_hud_world_anchor(); DVR_INFO("hud: the world window re-seeded where the head is now (F10)"); }
         ov::tip("Puts the world-fixed window in front of where you are looking now.");
         ch |= ImGui::SliderFloat("Distance (m)", &c.distM, 0.5f, 3.0f, "%.2f");
-        ov::tip("How far away the window floats.");
         ch |= ImGui::SliderFloat("Width (m)", &c.widthM, 0.3f, 3.0f, "%.2f");
-        ov::tip("How wide the window is.");
         ch |= ImGui::SliderFloat("Height (m, 0 = automatic)", &c.heightM, 0.0f, 3.0f, "%.2f");
         ov::tip("How tall the window is. 0 keeps the image's shape.");
         ch |= ImGui::SliderFloat("Vertical offset (m)", &c.upM, -1.0f, 1.0f, "%.2f");
-        ov::tip("Moves the window up or down.");
         ch |= ImGui::SliderFloat("Lateral offset (m)", &c.latM, -1.0f, 1.0f, "%.2f");
-        ov::tip("Moves the window left or right.");
         if (ch) set_window(c, "F10 HUD");
     }
     if (ov::section("Hand panels", ov::Advanced, "The small HUD panels on each wrist.")) {
@@ -1878,22 +1850,15 @@ void draw_ui() {
             bool ch = false;
             int orient = c.followGrip ? 1 : 0;
             ch |= ImGui::RadioButton("Faces your head", &orient, 0);
-            ov::tip("Always turned towards you, never rolls.");
             ImGui::SameLine();
             ch |= ImGui::RadioButton("Follows the grip (a watch face)", &orient, 1);
-            ov::tip("Turns with your wrist, like a watch.");
             c.followGrip = orient == 1;
             ch |= ImGui::SliderFloat("x in the grip frame (m)", &c.x, -0.3f, 0.3f, "%.3f");
-            ov::tip("Moves the panel across the hand.");
             ch |= ImGui::SliderFloat("y in the grip frame (m)", &c.y, -0.3f, 0.3f, "%.3f");
-            ov::tip("Moves the panel along the hand.");
             ch |= ImGui::SliderFloat("z in the grip frame (m)", &c.z, -0.3f, 0.3f, "%.3f");
-            ov::tip("Moves the panel out from the hand.");
             ch |= ImGui::SliderFloat("Lift along world up (m)", &c.liftM, 0.0f, 0.3f, "%.3f");
-            ov::tip("Raises the panel above the hand.");
             ch |= ImGui::SliderFloat("Panel width (m)", &c.widthM, 0.06f, 0.40f, "%.2f");
-            ov::tip("How wide the panel is.");
-            if (c.followGrip) { ch |= ImGui::SliderFloat("Tilt toward the eyes (deg)", &c.tiltDeg, -90.0f, 90.0f, "%.0f"); ov::tip("Tilts the watch face towards you."); }
+            if (c.followGrip) { ch |= ImGui::SliderFloat("Tilt toward the eyes (deg)", &c.tiltDeg, -90.0f, 90.0f, "%.0f"); }
             if (ch) set_hand(k, c, "F10 HUD");
             ImGui::PopID();
         }
@@ -1928,7 +1893,6 @@ void draw_ui() {
         ov::tip("Takes the stronger of the two.");
         c.mode = mode;
         ch |= ImGui::SliderFloat("Alpha gain", &c.gain, 0.0f, 3.0f, "%.2f");
-        ov::tip("Multiplies the opacity.");
         ch |= ImGui::SliderFloat("Alpha floor (pixels with any colour)", &c.floorA, 0.0f, 1.0f, "%.2f");
         ov::tip("The least opacity any coloured pixel gets.");
         ch |= ImGui::SliderFloat("Gamma nudge", &c.gamma, 0.5f, 2.0f, "%.2f");
@@ -1941,10 +1905,8 @@ void draw_ui() {
             float col[4] = { b.r, b.g, b.b, b.a };
             ImGui::Text("%s backdrop", kBackdropKindNames[k]); ImGui::SameLine();
             bool bc = ImGui::ColorEdit3("colour", col, ImGuiColorEditFlags_NoInputs);
-            ov::tip("The plate colour behind these panels.");
             ImGui::SameLine();
             bc |= ImGui::SliderFloat("opacity (0 = no plate)", &col[3], 0.0f, 1.0f, "%.2f");
-            ov::tip("How solid the plate is.");
             if (bc) { b.r = col[0]; b.g = col[1]; b.b = col[2]; b.a = col[3]; set_backdrop(k, b, "F10 HUD"); }
             ImGui::PopID();
         }
@@ -1960,9 +1922,7 @@ void draw_ui() {
         change |= ImGui::Checkbox("Native objective icons (test)", &g_nativeObjectives);
         ov::tip("Keeps learned marker content native as it moves through the centre.");
         change |= ImGui::Checkbox("Native objective title and distance (test)", &g_nativeObjectiveLabels);
-        ov::tip("The same for the title and distance text.");
         change |= ImGui::Checkbox("Keep native objectives upright (test)", &g_nativeObjectiveUpright);
-        ov::tip("Keeps native markers upright.");
         if (change) {
             write_i("GroupInteractions", g_groupInteractions); write_i("RouteObjectives", g_routeObjectives);
             write_i("ObjectiveScreenTracking", g_objectiveScreen); write_i("NativeObjectiveUpright", g_nativeObjectiveUpright);
@@ -1972,7 +1932,6 @@ void draw_ui() {
         bool runeTask = dvr::objectivemarkers::rune_enabled();
         float runeInset = dvr::objectivemarkers::rune_inset() * 100.f;
         const bool runeChange = ImGui::Checkbox("Native rune arrow boundary (test)", &runeTask);
-        ov::tip("Keeps the rune arrows inside the view.");
         const bool runeInsetChange = ImGui::SliderFloat("Rune arrow inset", &runeInset, 5.f, 30.f, "%.0f%%");
         ov::tip("How far in from the edge rune arrows stop.");
         if (runeChange || runeInsetChange) {
@@ -1982,7 +1941,6 @@ void draw_ui() {
         bool nativeTask = dvr::objectivemarkers::enabled();
         float edgeInset = dvr::objectivemarkers::inset() * 100.f;
         const bool taskChange = ImGui::Checkbox("Native objective arrow boundary (test)", &nativeTask);
-        ov::tip("Keeps the objective arrows inside the view.");
         const bool insetChange = ImGui::SliderFloat("Offscreen arrow inset", &edgeInset, 5.f, 30.f, "%.0f%%");
         ov::tip("Higher brings offscreen arrows towards the centre. Applies on the next game update.");
         if (taskChange || insetChange) {
@@ -2035,10 +1993,8 @@ void draw_ui() {
         }
         ov::tip("Accepts recent scene draws while a head-tracked menu is open (VR-178).");
         if (ImGui::Checkbox("Keep wheel crop through closing animation (test)", &g_wheelCloseAnimation)) write_i("WheelCloseAnimation", g_wheelCloseAnimation);
-        ov::tip("Keeps the wheel's crop while it animates closed.");
         bool fresh = g_pauseSceneFreshness.load();
         if (ImGui::Checkbox("Recent pause scene uploads (test)", &fresh)) { g_pauseSceneFreshness.store(fresh); write_i("PauseSceneFreshness", fresh); }
-        ov::tip("The same for the pause menu.");
         ImGui::TextDisabled("%s", g_statusLine);
     }
     if (ov::show(ov::Advanced)) {

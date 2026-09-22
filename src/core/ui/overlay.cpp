@@ -235,7 +235,8 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     if (!g_ovlInit) {
         if (!g_dev11 || !g_ctx11 || !g_gameWnd) { g_ovlVisible = false; return; }
         ImGui::CreateContext();
-        ImGui::StyleColorsDark();
+        dvr::ovl::load_fonts();                  // VR-197: Segoe UI body, Constantia headings
+        dvr::ovl::apply_theme();                 // VR-197: the Dishonored palette and metrics
         ImGui::GetStyle().ScaleAllSizes(1.6f);   // readable at headset distance
         ImGuiIO& io = ImGui::GetIO();
         io.IniFilename = NULL;                   // no imgui.ini clutter
@@ -297,8 +298,10 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
                                                                        : ImGuiCond_FirstUseEver;
     ImGui::SetNextWindowPos(ImVec2(ds.x * 0.3149f, ds.y * 0.3596f), placeCond);
     ImGui::SetNextWindowSize(ImVec2(ds.x * 0.3855f, ds.y * 0.2302f), placeCond);
+    // VR-197: no ImGui title bar; OvlTopRow draws the themed title and the close button, and
+    // the window still moves by dragging any empty part of it.
     ImGui::Begin("Dishonored VR", &g_ovlVisible,
-                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+                 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
     OvlProbeWindowGeometry(ds.x, ds.y);
     if (g_ovlReticle && ds.x > 0.0f && ds.y > 0.0f) {   // the reticle hides behind this rectangle
         const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
@@ -307,8 +310,10 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
 
     OvlTopRow();   // VR-196: the view level, recenter, height, save (overlay_tabs.inc)
     OvlTabs();
+    ImGui::Spacing();
+    dvr::ovl::ornament();   // VR-197: the brass rule that closes the panel
     // VR-174: text size is perceptual, so it is a slider, saved at once.
-    if (ImGui::SliderFloat("UI text scale", &g_ovlUiScale, 0.8f, 2.5f, "%.2f")) {
+    if (ImGui::SliderFloat("Text size", &g_ovlUiScale, 0.8f, 2.5f, "%.2f")) {
         char v[16]; _snprintf(v, sizeof(v) - 1, "%.2f", g_ovlUiScale); v[sizeof(v) - 1] = 0;
         ConfigWriteKey("Overlay", "UiScale", v, "F10");
     }

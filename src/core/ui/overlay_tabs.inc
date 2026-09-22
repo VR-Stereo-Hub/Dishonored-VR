@@ -38,44 +38,67 @@ static void OvlSaveNeck()
 // ---- the top of the panel, above the tabs --------------------------------------------------
 static void OvlTopRow()
 {
-    {   // the view level
-        int lv = dvr::ovl::level();
-        ImGui::TextUnformatted("Show:"); ImGui::SameLine();
-        bool ch = ImGui::RadioButton("Basic", &lv, kOvlB);
-        OvlTip("Player settings: hands, reticle, controls, comfort, HUD and display.");
+    // VR-197: the themed title, with the close button the removed title bar used to carry.
+    {
+        const float closeW = ImGui::GetFrameHeight();
+        const ImVec2 start = ImGui::GetCursorPos();
+        dvr::ovl::title("Dishonored VR");
+        const ImVec2 after = ImGui::GetCursorPos();
+        ImGui::SetCursorPos(ImVec2(start.x + ImGui::GetContentRegionAvail().x - closeW, start.y));
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        if (ImGui::Button("X##ovlclose", ImVec2(closeW, closeW))) g_ovlVisible = false;
+        ImGui::PopStyleColor();
+        OvlTip("Close (F10, or click both sticks).");
+        ImGui::SetCursorPos(after);
+    }
+    {   // the view level, as three pills
+        const int lv = dvr::ovl::level();
+        int want = lv;
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("SHOW");
         ImGui::SameLine();
-        ch |= ImGui::RadioButton("Advanced", &lv, kOvlA);
+        if (dvr::ovl::pill("Basic", lv == kOvlB)) want = kOvlB;
+        OvlTip("Player settings: hands, reticle, controls, comfort, HUD and display.");
+        ImGui::SameLine(0, 4);
+        if (dvr::ovl::pill("Advanced", lv == kOvlA)) want = kOvlA;
         OvlTip("Adds preference detail most players never need: per-item options, HUD placement, "
                "neck pivot, effects.");
-        ImGui::SameLine();
-        ch |= ImGui::RadioButton("Debug", &lv, kOvlD);
+        ImGui::SameLine(0, 4);
+        if (dvr::ovl::pill("Debug", lv == kOvlD)) want = kOvlD;
         OvlTip("Adds the fixes that should stay on, A/B switches, instruments and readouts. "
                "For troubleshooting and testing builds.");
-        if (ch) {
-            dvr::ovl::set_level(lv);
+        if (want != lv) {
+            dvr::ovl::set_level(want);
             g_ovlDev = dvr::ovl::level() == kOvlD;
             ConfigWriteKey("Overlay", "Level", dvr::ovl::level_name(dvr::ovl::level()), "F10");
         }
+        ImGui::SameLine();
+        const char* ipd = "IPD 00 mm";
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(ipd).x);
+        ImGui::TextDisabled("IPD %.0f mm", g_ipdM * 1000.0f);
     }
-    if (ImGui::Button("RECENTER  (F5)", ImVec2(-1, 0))) {
+    ImGui::Spacing();
+    const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    dvr::ovl::push_primary();
+    if (ImGui::Button("RECENTER", ImVec2(half, 0))) {
         g_posHaveRef = false;
         g_crouchRefOk = false;
         g_rtdReq = 3;
         Log("overlay: recentred (position reference)");
     }
+    dvr::ovl::pop_primary();
     OvlTip("Makes where you are standing now the centre, and re-reads your standing height for "
            "real crouching. The same as F5 or clicking both sticks.");
-    ImGui::SliderFloat("Height offset (m)", &g_heightOffsetM, -1.0f, 1.0f, "%+.2f");
-    OvlTip("Raises or lowers your viewpoint. Positive makes you taller. Saved when you let go.");
-    OvlSaveOnRelease("Tracking", "HeightOffsetM", g_heightOffsetM, "%.3f");
-    if (ImGui::Button("SAVE AS DEFAULTS", ImVec2(-1, 0)))
+    ImGui::SameLine();
+    if (ImGui::Button("SAVE AS DEFAULTS", ImVec2(half, 0)))
         OverlaySaveDefaults();
     OvlTip("Writes every current setting to dishonored_vr.ini. Every Basic and Advanced setting "
            "already saves the moment you change it; this also keeps the Debug switches, which "
            "otherwise last for this session only.");
-    ImGui::TextDisabled("IPD %.0f mm", g_ipdM * 1000.0f);
-    OvlTip("The distance between your eyes, as the headset reports it. Set it on the headset.");
-    ImGui::Separator();
+    ImGui::SliderFloat("Height offset (m)", &g_heightOffsetM, -1.0f, 1.0f, "%+.2f");
+    OvlTip("Raises or lowers your viewpoint.");
+    OvlSaveOnRelease("Tracking", "HeightOffsetM", g_heightOffsetM, "%.3f");
+    ImGui::Spacing();
 }
 
 // ---- Hands ----------------------------------------------------------------------------------
@@ -109,9 +132,7 @@ static void OvlTabHands()
         OvlTip("How far up the arm is kept. Applies when you let go of the slider (the cut is rebuilt).");
         if (OvlAt(kOvlA)) {
             bool wristChanged = ImGui::Checkbox("Rounded wrist ends", &g_msRoundWrist);
-            OvlTip("Rounds the edge where the arm is cut. Off gives a flat cut.");
             wristChanged |= ImGui::SliderFloat("Wrist roundness", &g_msRoundDepth, .05f, .8f, "%.2f");
-            OvlTip("How rounded the cut edge is.");
             if (wristChanged) {
                 g_msReclassReq = 1;
                 ConfigWriteKey("Hands", "RoundedWrist", g_msRoundWrist ? "1" : "0", "F10 Hands");
@@ -131,13 +152,11 @@ static void OvlTabHands()
             dvr::anim::set_mantle(mantleHands);
             ConfigWriteKey("Anim", "MantleHandBack", mantleHands ? "1" : "0", "F10 Hands");
         }
-        OvlTip("Climbing onto a ledge plays the game's hand animation.");
         bool cineHands = dvr::anim::cinematic_enabled();
         if (ImGui::Checkbox("Game hands and arms in cinematics", &cineHands)) {
             dvr::anim::set_cinematic(cineHands);
             ConfigWriteKey("Anim", "CinematicHandBack", cineHands ? "1" : "0", "F10 Hands");
         }
-        OvlTip("Scripted scenes show the game's own arms.");
         bool melee = dvr::anim::hand_anim_melee();
         if (ImGui::Checkbox("Sword swing animation on the tracked hand", &melee)) dvr::anim::set_hand_anim_melee(melee);
         OvlTip("The hand plays the game's swing clip, then returns to the controller.");
@@ -147,12 +166,9 @@ static void OvlTabHands()
         if (!dvr::anim::action_gate_ready())
             ImGui::TextColored(ImVec4(1, .5f, .2f, 1), "Action gate unavailable: actions will not be blocked.");
         if (ImGui::Button("Reset arm choices")) dvr::anim::reset_arm_rules();
-        OvlTip("Back to the shipped choice for every action below.");
         ImGui::SameLine();
         if (ImGui::Button("Enable all actions")) for (int i = 0; i < dvr::anim::armRuleCount; ++i) dvr::anim::set_action_enabled(i, true);
-        OvlTip("Allows every action again.");
         static ImGuiTextFilter filter; filter.Draw("Find action");
-        OvlTip("Type part of an action's name to narrow the list.");
         const auto state = dvr::anim::snapshot();
         const char* groups[] = { "Whole body", "Upper body and weapon", "Left hand" };
         for (int lane = 0; lane < 3; ++lane) {
@@ -236,7 +252,6 @@ static void OvlTabHands()
         if (ImGui::SliderFloat("Animation view left/right", &viewRight, -20.0f, 20.0f, "%.1f cm")) dvr::anim::set_view_right_cm(viewRight);
         OvlTip("Moves your viewpoint sideways during the game's animated camera moments only. 0 is unchanged.");
         if (ImGui::Button("Reset animation alignment")) dvr::anim::set_view_right_cm(0);
-        OvlTip("Back to 0.");
         const auto animState = dvr::anim::snapshot();
         ImGui::TextDisabled("Animation: %s | %s / %s / %s", animState.valid ? (animState.game ? "game owns body" : "player") : "unknown",
                             animState.state[0], animState.state[1], animState.state[2]);
@@ -354,7 +369,6 @@ static void OvlTabAim()
             if (ImGui::Checkbox("Held object turns with the hand", &holdRot)) {
                 CarryHoldSetRotate(holdRot); ConfigWriteKey("Aim", "CarryHoldRotate", holdRot ? "1" : "0", "F10 Aim");
             }
-            OvlTip("Twisting your wrist turns the object.");
             bool holdKeep = CarryHoldKeepAngle();
             if (ImGui::Checkbox("Keep the angle it was picked up at", &holdKeep)) {
                 CarryHoldSetKeepAngle(holdKeep); ConfigWriteKey("Aim", "CarryHoldKeepPickupAngle", holdKeep ? "1" : "0", "F10 Aim");
@@ -364,7 +378,6 @@ static void OvlTabAim()
             if (ImGui::Checkbox("Held object ignores reticle changes", &holdRet)) {
                 CarryHoldSetReticleAnchored(holdRet); ConfigWriteKey("Aim", "CarryHoldReticleAnchor", holdRet ? "1" : "0", "F10 Aim");
             }
-            OvlTip("Re-tuning the reticle position does not move the held object.");
             const auto rc = dvr::aim::config();
             ImGui::TextDisabled("tuned at reticle %+.1f / %+.1f deg; reticle now %+.1f / %+.1f",
                                 CarryHoldReticleRef(0), CarryHoldReticleRef(1), rc.otherXDeg, rc.otherYDeg);
@@ -500,7 +513,6 @@ static void OvlTabComfort()
         OvlTip("Lower is sharper with a smaller view. Higher covers more. Saved when you let go.");
         OvlSaveOnRelease("Screen", "ProjectionFov", ProjectionFovGet(), "%.2f");
         if (ImGui::SmallButton("Reset FOV to 103")) { ProjectionFovSet(103.0f); ConfigWriteKey("Screen", "ProjectionFov", "103.00", "F10 Comfort"); }
-        OvlTip("Back to the tested 103 degrees.");
         ImGui::EndDisabled();
     }
     if (OvlSec("Crouch", kOvlB, "Crouching for real crouches Corvo.")) {
@@ -551,25 +563,20 @@ static void OvlTabComfort()
         OvlTip("Cancels the game's own neck swing, so your real neck is the only one.");
         float below = g_neckBelowM, behind = g_neckBehindM;
         ImGui::SliderFloat("Pivot below eyes (m)", &below, 0.0f, 0.30f, "%.3f");
-        OvlTip("How far below your eyes the neck pivot is.");
         if (ImGui::IsItemDeactivatedAfterEdit()) { NeckSet(g_neckMode, below, g_neckBehindM, "F10 Comfort slider"); OvlSaveNeck(); }
         else g_neckBelowM = below;
         ImGui::SliderFloat("Pivot behind eyes (m)", &behind, 0.0f, 0.30f, "%.3f");
-        OvlTip("How far behind your eyes the neck pivot is.");
         if (ImGui::IsItemDeactivatedAfterEdit()) { NeckSet(g_neckMode, g_neckBelowM, behind, "F10 Comfort slider"); OvlSaveNeck(); }
         else g_neckBehindM = behind;
         if (ImGui::Button("crouched: same as standing")) { NeckCrouchSet(-1.0f, -1.0f, "F10 Comfort"); OvlSaveNeck(); }
-        OvlTip("Crouched uses the standing pivot.");
         ImGui::SameLine();
         if (ImGui::Button("crouched: no arc")) { NeckCrouchSet(0.0f, 0.0f, "F10 Comfort"); OvlSaveNeck(); }
         OvlTip("Crouched, the game has no neck swing of its own (measured), so none is added.");
         float cb = g_neckCrouchBelowM < 0.0f ? g_neckBelowM : g_neckCrouchBelowM;
         float cf = g_neckCrouchBehindM < 0.0f ? g_neckBehindM : g_neckCrouchBehindM;
         ImGui::SliderFloat("Crouched pivot below (m)", &cb, 0.0f, 0.40f, "%.3f");
-        OvlTip("The crouched pivot's height below your eyes.");
         if (ImGui::IsItemDeactivatedAfterEdit()) { NeckCrouchSet(cb, cf, "F10 Comfort slider"); OvlSaveNeck(); }
         ImGui::SliderFloat("Crouched pivot behind (m)", &cf, 0.0f, 0.30f, "%.3f");
-        OvlTip("The crouched pivot's distance behind your eyes.");
         if (ImGui::IsItemDeactivatedAfterEdit()) { NeckCrouchSet(cb, cf, "F10 Comfort slider"); OvlSaveNeck(); }
         if (OvlAt(kOvlD)) {
             ImGui::TextDisabled("now: %s | arc R%+.1f U%+.1f F%+.1f uu at pitch %+.0f deg", NeckModeName(g_neckMode),
@@ -582,13 +589,10 @@ static void OvlTabComfort()
     if (OvlSec("Cinematics", kOvlA, "How scripted scenes and special cameras behave.")) {
         bool pitchLock = CinePitchEnabled();
         if (ImGui::Checkbox("Suppress animation up/down tilt", &pitchLock)) { CinePitchSet(pitchLock); OvlSaveBool("Cine", "LockPitch", pitchLock); }
-        OvlTip("Stops the game tilting your view up and down during animations.");
         bool rollLock = CineRollEnabled();
         if (ImGui::Checkbox("Suppress cinematic roll", &rollLock)) { CineRollSet(rollLock); OvlSaveBool("Cine", "LockRoll", rollLock); }
-        OvlTip("Stops the game rolling your view sideways in scenes.");
         bool fov = CineFovEnabled();
         if (ImGui::Checkbox("Suppress cinematic FOV zoom", &fov)) { CineFovSet(fov); OvlSaveBool("Cine", "LockFov", fov); }
-        OvlTip("Stops the game zooming the view in scenes.");
         bool specialHead = SpecialHeadEnabled();
         if (ImGui::Checkbox("Natural head look in lean / keyholes", &specialHead)) { SpecialHeadSet(specialHead); OvlSaveBool("Cine", "SpecialHeadLook", specialHead); }
         OvlTip("Keeps the game's peek position, and lets your head look around past the game's limits.");
@@ -617,7 +621,6 @@ static void OvlTabComfort()
         int rainPct = LensRainPct();
         if (ImGui::SliderInt("Rain lens strength (%, 100 native)", &rainPct, 0, 100)) LensRainPctSet(rainPct);
         if (ImGui::IsItemDeactivatedAfterEdit()) OvlSaveInt("Lens", "RainStrength", rainPct);
-        OvlTip("How strong raindrops on the lens are.");
     }
     if (OvlSec("Comfort fixes (debug)", kOvlD, "Fixes and levers for the view. Leave them as they are.")) {
         bool on = CineHeadEnabled();
@@ -640,14 +643,12 @@ static void OvlTabComfort()
         OvlTip("The game models only one side of these weapons; this fills the other. Leave on.");
         ImGui::SameLine();
         if (ImGui::Button("Rebuild mirror")) WmReleaseAll("rebuild from F10");
-        OvlTip("Rebuilds the mirrored half if it looks wrong.");
         float g = g_afCounterYaw < 0.0f ? 0.0f : g_afCounterYaw;
         if (ImGui::SliderFloat("Arm counter-yaw", &g, 0.0f, 2.0f, "%.2f")) ArmFollowSetCounterYaw(g, "F10");
         OvlTip("VR-30 lever: how much the arms are turned back against head yaw.");
         ImGui::SameLine();
         if (ImGui::SmallButton(g_afCounterYaw >= 0.0f ? "off" : "on"))
             ArmFollowSetCounterYaw(g_afCounterYaw >= 0.0f ? -1.0f : 1.0f, "F10");
-        OvlTip("Turns the counter-yaw lever off or on.");
         ImGui::BeginDisabled(HeadMovementEnabled());
         bool fon = g_frWant >= 0.0f;
         if (ImGui::Checkbox("Arms: head yaw does not turn the body", &fon)) ArmFollowSetFacing(fon ? 1.0f : -1.0f, "F10");
@@ -762,11 +763,9 @@ static void OvlTabDisplay()
     if (OvlSec("Flat screen (menus and loading)", kOvlA, "The big screen shown for the main menu and loads.")) {
         if (ImGui::SliderFloat("Screen distance (m)", &g_screenDist, 0.8f, 4.0f, "%.2f"))
             dvr::vr::set_screen(g_screenDist, g_screenWidth);
-        OvlTip("How far away the flat screen floats. Saved when you let go.");
         OvlSaveOnRelease("Screen", "DistanceMeters", g_screenDist, "%.2f");
         if (ImGui::SliderFloat("Screen width (m)", &g_screenWidth, 0.5f, 6.0f, "%.2f"))
             dvr::vr::set_screen(g_screenDist, g_screenWidth);
-        OvlTip("How wide the flat screen is. Saved when you let go.");
         OvlSaveOnRelease("Screen", "WidthMeters", g_screenWidth, "%.2f");
     }
     if (OvlSec("Stereo and capture (debug)", kOvlD, "How the game's frame becomes the headset image.")) {
@@ -826,18 +825,14 @@ static void OvlTabDisplay()
                             fl.pairs, fl.diff[0], fl.diff[1], fl.diff[2], fl.diff[3], fl.floorBb);
         ImGui::TextDisabled("side %s | picture shift %+d px | swapped pairs %u", fl.side, fl.shift, fl.swapped);
         if (ImGui::Button("Dump eyes")) FrameDumpRequest("eyes");
-        OvlTip("Writes a left and a right PNG next to the game.");
         ImGui::SameLine();
         if (ImGui::Button("Rearm 2")) SceneDrawCommand("rearm 2");
         OvlTip("Two single ticks, capture untouched.");
         ImGui::SameLine();
         if (ImGui::Button("Capture reinit")) dvr::capture::request_reinit();
-        OvlTip("Rebuilds the capture slots.");
         if (ImGui::Button("Projection off (the quad)")) dvr::stereo::set_projection_override(0);
-        OvlTip("Forces the flat screen.");
         ImGui::SameLine();
         if (ImGui::Button("Projection auto")) dvr::stereo::set_projection_override(-1);
-        OvlTip("Back to per-eye projection.");
     }
     if (OvlSec("Performance (debug)", kOvlD, "Timing instruments and benchmarks.")) {
         const dvr::perf::Window pw = dvr::perf::last_window();
@@ -926,12 +921,9 @@ static void OvlTabLog()
             if (ImGui::Selectable(dvr::log::cat_name((dvr::log::Cat)c), filterCat == c)) filterCat = c;
         ImGui::EndCombo();
     }
-    OvlTip("Show one part of the mod, or all.");
     ImGui::SameLine(); ImGui::SetNextItemWidth(90);
     ImGui::Combo("show", &minLevel, kLevels, 5);
-    OvlTip("The least important level shown.");
     ImGui::SameLine(); ImGui::Checkbox("follow", &autoScroll);
-    OvlTip("Keep scrolled to the newest line.");
     ImGui::SameLine();
     if (ImGui::Button("copy tail")) {
         size_t n = dvr::log::ring_copy(lines, 512);
@@ -942,7 +934,6 @@ static void OvlTabLog()
                                   (unsigned long)lines[i].tick, dvr::log::cat_name((dvr::log::Cat)lines[i].cat), lines[i].text);
         ImGui::SetClipboardText(clip);
     }
-    OvlTip("Copies the last 60 lines to the clipboard.");
     ImGui::SameLine();
     if (ImGui::Button("status.json")) dvr::status::write_now();
     OvlTip("Writes the status file for the test tools now.");
@@ -964,14 +955,14 @@ static void OvlTabLog()
 static void OvlTabs()
 {
     if (!ImGui::BeginTabBar("vrtabs")) return;
-    if (ImGui::BeginTabItem("Hands"))    { OvlTabHands();    ImGui::EndTabItem(); }
-    if (ImGui::BeginTabItem("Aim"))      { OvlTabAim();      ImGui::EndTabItem(); }
-    if (ImGui::BeginTabItem("Controls")) { OvlTabControls(); ImGui::EndTabItem(); }
-    if (ImGui::BeginTabItem("Comfort"))  { OvlTabComfort();  ImGui::EndTabItem(); }
-    if (ImGui::BeginTabItem("HUD"))      { OvlTabHud();      ImGui::EndTabItem(); }
-    if (ImGui::BeginTabItem("Display"))  { OvlTabDisplay();  ImGui::EndTabItem(); }
-    if (OvlAt(kOvlA) && ImGui::BeginTabItem("Game options")) { OvlTabGameOptions(); ImGui::EndTabItem(); }
-    if (OvlAt(kOvlD) && ImGui::BeginTabItem("Runtime")) { dvr::vr::draw_debug_ui(); ImGui::EndTabItem(); }
-    if (OvlAt(kOvlD) && ImGui::BeginTabItem("Log"))     { OvlTabLog(); ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("Hands"))    { OvlTabHands();    ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("Aim"))      { OvlTabAim();      ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("Controls")) { OvlTabControls(); ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("Comfort"))  { OvlTabComfort();  ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("HUD"))      { OvlTabHud();      ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("Display"))  { OvlTabDisplay();  ImGui::EndTabItem(); }
+    if (OvlAt(kOvlA) && dvr::ovl::tab("Game options")) { OvlTabGameOptions(); ImGui::EndTabItem(); }
+    if (OvlAt(kOvlD) && dvr::ovl::tab("Runtime")) { dvr::vr::draw_debug_ui(); ImGui::EndTabItem(); }
+    if (OvlAt(kOvlD) && dvr::ovl::tab("Log"))     { OvlTabLog(); ImGui::EndTabItem(); }
     ImGui::EndTabBar();
 }
