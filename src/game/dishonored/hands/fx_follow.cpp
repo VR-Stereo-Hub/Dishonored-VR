@@ -355,7 +355,25 @@ static void FxDiscoverTick(double now)
     }
 }
 
+static void FxFollowTickBody();
+// The script tick runs on EVERY ProcessEvent dispatch (thousands a second), and the hook has no
+// re-entry guard (process_event.cpp's own header says g_peReentry is not read there). Build 668
+// called TransformFromBoneSpace through ProcessEvent from inside this tick: the call re-entered
+// the hook, the hook ran this tick again, which called the engine again - a stack overflow
+// (0xC00000FD in d3d9.dll) on the first save load. So: never nested, and once per frame.
 static void FxFollowTick()
+{
+    static bool inside = false;
+    if (inside) return;
+    static uint32_t lastFrame = 0xffffffffu;
+    const uint32_t frame = (uint32_t)dvr::frame::count();
+    if (frame == lastFrame) return;
+    lastFrame = frame;
+    inside = true;
+    FxFollowTickBody();
+    inside = false;
+}
+static void FxFollowTickBody()
 {
     if (!RflNamesReady()) return;
     if (!g_fxAttOff) {
