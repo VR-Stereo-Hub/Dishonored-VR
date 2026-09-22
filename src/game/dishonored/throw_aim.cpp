@@ -341,9 +341,9 @@ static void CarryThrowAimTick()
     const float dh = CtDeg(V, g_ctHand), de = CtDeg(V, g_ctEng), mh = CtDeg(mv, g_ctHand), me = CtDeg(mv, g_ctEng);
     Log("carry/aim: flight check %s at %.0f ms: velocity %.0f uu/s is %.1f deg from the HAND, %.1f "
         "from the ENGINE aim; moved %.0f uu, %.1f deg from hand, %.1f from engine (the two aims were "
-        "%.1f apart) -> flight follows %s", ObjClassName(o), now - g_ctAt,
+        "%.1f apart) -> the path flown follows %s (judged on the distance moved: velocity turns after a hit)", ObjClassName(o), now - g_ctAt,
         sqrtf(V[0]*V[0]+V[1]*V[1]+V[2]*V[2]), dh, de, sqrtf(mv[0]*mv[0]+mv[1]*mv[1]+mv[2]*mv[2]), mh, me,
-        CtDeg(g_ctHand, g_ctEng), CtDeg(g_ctHand, g_ctEng) < 10 ? "(aims too close to tell)" : dh < de ? "the HAND" : "the ENGINE");
+        CtDeg(g_ctHand, g_ctEng), CtDeg(g_ctHand, g_ctEng) < 10 ? "(aims too close to tell)" : mh < me ? "the HAND" : "the ENGINE");
     if (++g_ctStep >= 3) g_ctObj = nullptr;
 }
 
@@ -433,11 +433,17 @@ static void CarryThrowAimConfigure(const char* ini)
 {
     CarryThrowAimSet(IniFloat(ini, "Aim", "CarryThrowFromHand", 1) != 0.0f, "ini [Aim] CarryThrowFromHand");
     CarryThrowLeftSet(IniFloat(ini, "Aim", "CarryThrowLeftTrigger", 1) != 0.0f, "ini [Aim] CarryThrowLeftTrigger");
+    CarryHoldConfigure(ini);
 }
 
 static bool CarryThrowAimCommand(const char* args)
 {
     bool b = false;
+    if (args && !strncmp(args, "hold", 4) && DvrOnOff(args + 4 + strspn(args + 4, " "), &b)) {
+        CarryHoldSet(b, "seam");
+        ConfigWriteKey("Aim", "CarryHoldAtHand", b ? "1" : "0", "the seam");
+        return true;
+    }
     if (args && !strncmp(args, "lt", 2) && DvrOnOff(args + 2 + strspn(args + 2, " "), &b)) {
         CarryThrowLeftSet(b, "seam");
         ConfigWriteKey("Aim", "CarryThrowLeftTrigger", b ? "1" : "0", "the seam");
@@ -448,8 +454,183 @@ static bool CarryThrowAimCommand(const char* args)
         ConfigWriteKey("Aim", "CarryThrowFromHand", b ? "1" : "0", "the seam");
         return true;
     }
-    Log("carry/aim: on|off, lt on|off (left-trigger throw %s). Aim now %s, %ld/%ld driven/seen, refused %ld (last: %s). Seen moves "
+    Log("carry/aim: on|off, lt on|off, hold on|off (left-trigger throw %s). Aim now %s, %ld/%ld driven/seen, refused %ld (last: %s). Seen moves "
         "only when a carried object is thrown; a plain drop never reaches the seam",
         g_ctLeft.load() ? "ON" : "off", g_ctOn.load() ? "HAND" : "HEAD", (long)g_ctDriven, (long)g_ctSeen, (long)g_ctRefused, g_ctWhy);
     return true;
 }
+
+// ---- where the carried object is HELD (VR-181, second headset run) ------------------------
+// The throw leaves along the hand, but until then the object sits where the game holds it: in
+// front of the view. The pawn holds it with an RB_Handle (DishonoredPawn.m_pMovable_Handle)
+// whose target is set through SetLocation / SetSmoothLocation (patterns.h). Both are only ever
+// called through the vtable, so their ENTRIES see every writer. While the player carries a
+// movable and the handle is the player's, the target moves to the hand: the ray origin plus
+// [Aim] CarryHoldForwardCm along the ray. [Aim] CarryHoldAtHand=0 leaves the game's target.
+// The calls are counted either way, so a carry with zero calls says plainly that the hold does
+// not go through these setters, which is the answer that would send the search elsewhere.
+static dvr::hooks::Detour g_hlLocDet, g_hlSmDet;
+static uintptr_t g_hlLocBack = kHandleSetLocBack, g_hlSmBack = kHandleSmoothLocBack;
+static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
+static float g_hlFwdCm = 15.0f;                          // [Aim] CarryHoldForwardCm
+static volatile uint32_t g_hlHandleOff = 0;              // resolved on the script lane
+static volatile LONG g_hlCalls[2] = {0, 0}, g_hlMine[2] = {0, 0}, g_hlDriven = 0;
+static const char* volatile g_hlWhy = "not asked yet";
+static uintptr_t g_hlRet[2] = {0, 0};                    // a caller of each, for the record
+static float g_hlEngDist = -1, g_hlMoved = -1;           // last engine target vs the eye; our move
+static volatile bool g_hlCarry = false;                  // script lane's view of the carry
+
+static bool CarryHoldEnabled() { return g_hlOn.load(); }
+
+static bool CarryingMovable()
+{
+    const auto s = dvr::anim::snapshot();
+    if (!s.valid) return false;
+    for (int i = 0; i < 3; ++i)
+        if (!strcmp(s.state[i], "StatePlayerGrabMovable")) return true;
+    return false;
+}
+
+// which: 0 SetLocation, 1 SetSmoothLocation. loc points at the by-value FVector argument.
+extern "C" void __cdecl CarryHoldHandler(int which, uint8_t* handle, float* loc, uintptr_t ret)
+{
+    InterlockedIncrement(&g_hlCalls[which]);
+    uint8_t* pawn = g_pePawn;
+    const uint32_t off = g_hlHandleOff;
+    if (!pawn || !off || !handle || !RangeReadable(pawn + off, 4) || *(uint8_t**)(pawn + off) != handle) return;
+    InterlockedIncrement(&g_hlMine[which]);
+    if (!g_hlRet[which]) g_hlRet[which] = ret;
+    const char* why = nullptr;
+    float cam[3];
+    if (!g_hlOn.load()) why = "game hold selected";
+    else if (g_gamepadOnly) why = "[Mode] GamepadOnly=1 keeps the head";
+    else if (!g_hlCarry) why = "not carrying a movable";
+    else if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow) why = "not in gameplay";
+    else if (!RangeReadable(loc, 12)) why = "target unreadable";
+    else if (!dvr::camera::render_pos_world(cam)) why = "render eye position unknown";
+    float o[3], d[3];
+    if (!why && !HandRayWorld(o, d, &why)) {}
+    if (why) { g_hlWhy = why; return; }
+    const float e[3] = { loc[0] - cam[0], loc[1] - cam[1], loc[2] - cam[2] };
+    g_hlEngDist = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+    const float f = g_hlFwdCm * g_posScaleUU / 100.0f;   // cm -> uu (g_posScaleUU is uu per metre)
+    const float n[3] = { o[0] + d[0] * f, o[1] + d[1] * f, o[2] + d[2] * f };
+    const float m[3] = { n[0] - loc[0], n[1] - loc[1], n[2] - loc[2] };
+    g_hlMoved = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    loc[0] = n[0]; loc[1] = n[1]; loc[2] = n[2];
+    InterlockedIncrement(&g_hlDriven);
+    g_hlWhy = "driving";
+}
+
+__declspec(naked) static void CarryHoldLocThunk()
+{
+    __asm {
+        pushfd
+        pushad
+        mov edx, esp
+        sub esp, 528
+        and esp, -16
+        fxsave [esp]
+        fninit
+        cld
+        push edx
+        mov eax, [edx + 36]         ; the caller's return address (above pushad + pushfd)
+        push eax
+        lea eax, [edx + 40]         ; the FVector argument
+        push eax
+        push ecx                    ; the RB_Handle
+        push 0
+        call CarryHoldHandler
+        add esp, 16
+        pop edx
+        fxrstor [esp]
+        mov esp, edx
+        popad
+        popfd
+        push ebp                    ; the five displaced bytes
+        mov ebp, esp
+        push -1
+        jmp dword ptr [g_hlLocBack]
+    }
+}
+
+__declspec(naked) static void CarryHoldSmoothThunk()
+{
+    __asm {
+        pushfd
+        pushad
+        mov edx, esp
+        sub esp, 528
+        and esp, -16
+        fxsave [esp]
+        fninit
+        cld
+        push edx
+        mov eax, [edx + 36]
+        push eax
+        lea eax, [edx + 40]
+        push eax
+        push ecx
+        push 1
+        call CarryHoldHandler
+        add esp, 16
+        pop edx
+        fxrstor [esp]
+        mov esp, edx
+        popad
+        popfd
+        push ebp                    ; the six displaced bytes
+        mov ebp, esp
+        mov eax, [ebp + 8]
+        jmp dword ptr [g_hlSmBack]
+    }
+}
+
+// Script lane: resolve the handle's offset by name, follow the carry, and report once a
+// second while carrying - which setter the game used, how often, and what we did.
+static void CarryHoldTick()
+{
+    if (!g_hlHandleOff) {
+        static double nextTry = 0; const double now = MaimNowMs();
+        if (now >= nextTry) { nextTry = now + 5000; g_hlHandleOff = RflOffsetOf("DishonoredPawn", "m_pMovable_Handle"); }
+    }
+    const bool carry = CarryingMovable();
+    static bool was = false;
+    static LONG c0 = 0, c1 = 0, m0 = 0, m1 = 0, dv = 0;
+    if (carry && !was) { c0 = g_hlCalls[0]; c1 = g_hlCalls[1]; m0 = g_hlMine[0]; m1 = g_hlMine[1]; dv = g_hlDriven; }
+    g_hlCarry = carry;
+    static double nextLog = 0; const double now = MaimNowMs();
+    if ((carry && now >= nextLog) || (was && !carry)) {
+        nextLog = now + 1000;
+        Log("carry/hold: %s - the player's handle (+0x%X) took SetLocation %ld, SetSmoothLocation %ld "
+            "(all handles %ld/%ld); driven %ld (last: %s). Engine target %.0f uu from the eye, moved "
+            "%.0f uu to the hand. Callers %08X / %08X. Zero of both while carrying = the hold is not "
+            "set through these", carry ? "carrying" : "carry ended", (unsigned)g_hlHandleOff,
+            (long)(g_hlMine[0] - m0), (long)(g_hlMine[1] - m1), (long)(g_hlCalls[0] - c0),
+            (long)(g_hlCalls[1] - c1), (long)(g_hlDriven - dv), g_hlWhy, g_hlEngDist, g_hlMoved,
+            (unsigned)g_hlRet[0], (unsigned)g_hlRet[1]);
+    }
+    was = carry;
+}
+
+static void CarryHoldSet(bool on, const char* who)
+{
+    g_hlOn.store(on);
+    if (!g_hlLocDet.on)
+        dvr::hooks::detour_install(g_hlLocDet, "carry/hold loc", kHandleSetLoc, kHandleSetLocBytes,
+                                   sizeof(kHandleSetLocBytes), (void*)&CarryHoldLocThunk);
+    if (!g_hlSmDet.on)
+        dvr::hooks::detour_install(g_hlSmDet, "carry/hold smooth", kHandleSmoothLoc, kHandleSmoothLocBytes,
+                                   sizeof(kHandleSmoothLocBytes), (void*)&CarryHoldSmoothThunk);
+    Log("carry/hold: owner %s (%s), %.0f cm along the ray - hooks %s/%s (they stay in to count "
+        "calls even with the game's hold)", on ? "HAND" : "GAME", who, g_hlFwdCm,
+        g_hlLocDet.on ? "ready" : "NOT installed", g_hlSmDet.on ? "ready" : "NOT installed");
+}
+static void CarryHoldConfigure(const char* ini)
+{
+    g_hlFwdCm = IniFloat(ini, "Aim", "CarryHoldForwardCm", 15);
+    if (!(g_hlFwdCm >= 0 && g_hlFwdCm <= 100)) g_hlFwdCm = 15;
+    CarryHoldSet(IniFloat(ini, "Aim", "CarryHoldAtHand", 1) != 0.0f, "ini [Aim] CarryHoldAtHand");
+}
+static float CarryHoldForwardCm() { return g_hlFwdCm; }
+static void CarryHoldSetForwardCm(float cm) { if (cm >= 0 && cm <= 100) g_hlFwdCm = cm; }

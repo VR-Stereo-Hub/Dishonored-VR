@@ -393,6 +393,13 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         if (ImGui::Checkbox("Throw carried objects with the left trigger", &carryLt)) {
             CarryThrowLeftSet(carryLt,"F10"); ConfigWriteKey("Aim","CarryThrowLeftTrigger",carryLt ? "1" : "0","F10 Aim");
         }
+        bool carryHold = CarryHoldEnabled();
+        if (ImGui::Checkbox("Hold carried objects in the hand", &carryHold)) {
+            CarryHoldSet(carryHold,"F10"); ConfigWriteKey("Aim","CarryHoldAtHand",carryHold ? "1" : "0","F10 Aim");
+        }
+        float holdCm = CarryHoldForwardCm();
+        if (ImGui::SliderFloat("Held object ahead of the hand (cm)", &holdCm, 0.0f, 60.0f, "%.0f")) CarryHoldSetForwardCm(holdCm);
+        if (ImGui::IsItemDeactivatedAfterEdit()) { char v[16]; _snprintf(v, sizeof(v), "%.0f", CarryHoldForwardCm()); v[15] = 0; ConfigWriteKey("Aim","CarryHoldForwardCm",v,"F10 Aim"); }
         bool powers = row("Windblast, Possession, Swarm", PowerAimEnabled(), &changed);
         if (changed) { PowerAimSet(powers,"F10"); ConfigWriteKey("Aim","PowersFromHand",powers ? "1" : "0","F10 Aim"); }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");

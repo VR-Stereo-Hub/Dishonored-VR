@@ -662,6 +662,12 @@ static void GadgetAimSet(bool on, const char* who);
 static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
 static void CarryThrowAimTick();
+static void CarryHoldTick();                                   // VR-181: where the carried object is held
+static void CarryHoldConfigure(const char* ini);
+static void CarryHoldSet(bool on, const char* who);
+static bool CarryHoldEnabled();
+static float CarryHoldForwardCm();
+static void CarryHoldSetForwardCm(float cm);
 static bool CarryThrowTriggersSwapped();                        // VR-181: the pad bridge
 static bool CarryThrowLeftEnabled();
 static void CarryThrowLeftSet(bool on, const char* who);

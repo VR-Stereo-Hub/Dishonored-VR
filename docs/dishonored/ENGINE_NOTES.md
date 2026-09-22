@@ -8517,6 +8517,27 @@ object. Next build: a flight check samples the object's `Location` (`+0xC4`) and
 (`+0x1B4`) 60, 200 and 450 ms after the throw. It logs the angle to the hand ray and to
 the engine's own direction, and it prints "flight follows the ENGINE" if the write is lost.
 
+**Second headset run (build 655, 2026-09-22): the throw follows the hand, confirmed.** Four
+throws, with the two aims 46 to 96 degrees apart. Each left within 0.6 to 2.8 degrees of
+the hand ray (velocity at 60 ms), and the path flown stayed within 0.2 to 4.5 degrees of
+the hand. The first run's report is superseded. The flight-check label that said "ENGINE"
+late in two throws judged by VELOCITY, which turns after a hit (speed dropped to 400-630
+uu/s while the distance moved stayed on the hand line). It now judges by the distance
+moved. The left-trigger throw worked. Still open, as reported: the object sits in front of
+the VIEW while it is held.
+
+**The hold.** The pawn holds a carried object with an `RB_Handle`
+(`DishonoredPawn.m_pMovable_Handle`, resolved by name). RB_Handle vtable `0x010640A8`
+(from `ue3-natives class`): `+0x168` SetLocation takes an FVector by value (`ret 0Ch`),
+`0x007B4A10`. `+0x16C` SetSmoothLocation takes FVector and MoveTime (`ret 10h`), `0x007A3EC0`,
+and writes the target to `+0x98..0xA0`. `+0x174` SetOrientation is `0x007B4B70` (`ret 4`).
+The exec thunks reach them only through the vtable, and the census finds zero static E8/E9
+callers, so entry detours see every writer. Which setter the hold tick uses, and from
+where, is NOT yet known. The build logs it once a second while carrying (`carry/hold:`),
+including the case where neither setter is called. `[Aim] CarryHoldAtHand=1` moves the
+target to the hand-ray origin plus `CarryHoldForwardCm` (default 15) along the ray. The
+orientation is left to the game.
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus
