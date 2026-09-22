@@ -1,4 +1,4 @@
-## VR-181: a carried object held at the hand flickers sideways (2026-09-22, CANDIDATE)
+## VR-181: a carried object held at the hand flickers sideways (2026-09-22, FIXED, headset-confirmed)
 
 1. **Symptom identity:** a carried movable held at the hand by the VR-181 actor-move seam
    flickered constantly to the left in the headset. It is one object in the world, not a
@@ -49,6 +49,11 @@
    `carry/anchor:` logs, every second, how often and how far the render anchor strays from
    the game anchor. Counterprediction: small, rare gaps there with the flicker still present
    eliminate the anchor.
+10. **Build 663 result: FIXED, headset-confirmed.** With the game-camera anchor the held object
+   stopped jumping. The tester reported it working with no flicker. The cause was the c5 anchor:
+   the camera of whichever scene draw uploaded last, eye or not. Lesson for any per-frame placement
+   in the world: anchor on the game camera, never on `render_pos_world`, which stays correct only
+   for one-shot uses such as throws, interaction and powers.
 
 ## VR-178: journal and wheel scene freshness candidate (2026-09-22)
 

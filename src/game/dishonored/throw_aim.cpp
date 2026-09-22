@@ -486,7 +486,9 @@ static dvr::hooks::Detour g_hlDet;
 static uintptr_t g_hlBack = kMoveDeltaBack;
 static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
 // [Aim] CarryHoldForwardCm/RightCm/UpCm and CarryHoldPitch/Yaw/Roll (degrees), in the HAND's frame.
-static float g_hlAdj[6] = {0, 0, 0, 0, 0, 0};
+// Shipped defaults: the values tuned in the headset on 2026-09-22 (a bottle, the right hand).
+static const float kHlAdjDefault[6] = { -32, 6, -13, -8, 16, -32 };
+static float g_hlAdj[6] = { -32, 6, -13, -8, 16, -32 };
 static const char* const kHlAdjKey[6] = { "CarryHoldForwardCm", "CarryHoldRightCm", "CarryHoldUpCm",
                                           "CarryHoldPitch", "CarryHoldYaw", "CarryHoldRoll" };
 static const float kHlAdjMin[6] = { -40, -40, -40, -180, -180, -180 }, kHlAdjMax[6] = { 60, 40, 40, 180, 180, 180 };
@@ -975,8 +977,8 @@ static void CarryHoldSet(bool on, const char* who)
 static void CarryHoldConfigure(const char* ini)
 {
     for (int i = 0; i < 6; ++i) {
-        const float v = IniFloat(ini, "Aim", kHlAdjKey[i], 0);
-        g_hlAdj[i] = (v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) ? v : 0;
+        const float v = IniFloat(ini, "Aim", kHlAdjKey[i], kHlAdjDefault[i]);
+        g_hlAdj[i] = (v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) ? v : kHlAdjDefault[i];
     }
     g_hlWorldDepth.store(IniFloat(ini, "Aim", "CarryHoldWorldDepth", 1) != 0.0f);
     g_hlKeepAngle.store(IniFloat(ini, "Aim", "CarryHoldKeepPickupAngle", 0) != 0.0f);
