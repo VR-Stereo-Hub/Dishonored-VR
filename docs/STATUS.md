@@ -1,3 +1,16 @@
+## Session handoff 2026-09-22 (final): VR-165 lead, carry reticle, new defaults
+
+`claude/misc-fixes` (#99). Installed `d3d9.dll` sha256 `E6941D34...`, not run.
+* VR-165 (the chain camera bug) reproduced by an explosion's knockback: the camera sat 125-281
+  uu from the pawn while PlayerControl's own source stayed at a healthy 77 uu, so the offset is
+  added by the additive influence graph after the base camera; weights all normal. New
+  `camera/springs` census names the spring state per sample; `camera/displaced` marks an
+  episode. FLICKER_REFERENCE top VR-165 entry. Next run: reproduce and read those lines.
+* The reticle stays up while carrying an object (the carry hands the arms back to the game,
+  which blanked the dot; the throw uses the same ray).
+* Defaults from the run: Other items 9.0 / -53.4, the carry hold (-9, 16, -32, 40, 4, -36),
+  Element.default.WinX/WinY 0.244 / -0.063.
+
 ## Session handoff 2026-09-22 (latest): Sleeve presets baked, other-items reticle (VR-188, VR-189)
 
 `claude/misc-fixes` (#99), not merged. Installed: this commit's RelWithDebInfo (`d3d9.dll` sha256

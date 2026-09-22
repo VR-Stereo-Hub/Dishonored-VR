@@ -398,8 +398,8 @@ static void WriteDefaultIni(const char* ini)
         "; VR-189: one reticle position for everything but the pistol and the crossbow\n"
         "; (any ammo, any upgrade), degrees in the controller frame: +X right, +Y up.\n"
         "; The aim follows the dot. Live: F10 HUD tab, Reticle.\n"
-        "OtherItemsX=-14.40\n"
-        "OtherItemsY=-30.00\n"
+        "OtherItemsX=9.00\n"
+        "OtherItemsY=-53.40\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -501,12 +501,12 @@ static void WriteDefaultIni(const char* ini)
         "CarryHoldAtHand=1\n"
         "; Where it sits in the hand, in the hand's own frame: cm forward/right/up and a trim in\n"
         "; degrees (pitch/yaw/roll). CarryHoldWorldDepth=1 draws it in the world, not the weapon layer.\n"
-        "CarryHoldForwardCm=-32\n"
-        "CarryHoldRightCm=6\n"
-        "CarryHoldUpCm=-13\n"
-        "CarryHoldPitch=-8\n"
-        "CarryHoldYaw=16\n"
-        "CarryHoldRoll=-32\n"
+        "CarryHoldForwardCm=-9\n"
+        "CarryHoldRightCm=16\n"
+        "CarryHoldUpCm=-32\n"
+        "CarryHoldPitch=40\n"
+        "CarryHoldYaw=4\n"
+        "CarryHoldRoll=-36\n"
         "CarryHoldRotate=1\n"
         "CarryHoldWorldDepth=1\n"
         "; CarryHoldKeepPickupAngle=0: the object sits the same way in the hand every time (then the\n"
@@ -1360,8 +1360,8 @@ static void WriteDefaultIni(const char* ini)
         "WindowWheel=1\n"
         "WindowStore=0\n"
         "WindowMissionStats=1\n"
-        "Element.default.WinX=0.184\n"
-        "Element.default.WinY=-0.153\n"
+        "Element.default.WinX=0.244\n"
+        "Element.default.WinY=-0.063\n"
         "Element.default.WinScale=1.570\n"
         "Element.vitals.WinX=-0.167\n"
         "Element.vitals.WinY=0.106\n"
@@ -1848,8 +1848,8 @@ static void LoadConfig()
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
         crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
         crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
-        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", -14.4f);   // VR-189: the tester's tuned position
-        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -30.0f);
+        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", 9.0f);   // VR-189: the tester's tuned position
+        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -53.4f);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");

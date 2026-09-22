@@ -310,7 +310,21 @@ void tick(bool gameplay, bool projectionWanted) {
         out.valid = g_ray.ok;
         out.generation = g_ray.gen; out.sampleMs = g_ray.sampleMs;
     }
-    if (dvr::anim::active() || dvr::anim::weight() < 1.0f) out = {};
+    // A carry hands the arms back to the game (Arms.1.StatePlayerGrabMovable=1), which
+    // used to blank the dot too. The carried object is thrown along this ray (VR-181),
+    // so the dot stays while carrying; every other handback still hides it.
+    {
+        const dvr::anim::Snapshot s = dvr::anim::snapshot();
+        bool carrying = false;
+        for (int i = 0; s.valid && i < 3; ++i) carrying |= !std::strcmp(s.state[i], "StatePlayerGrabMovable");
+        static bool carryWas = false;
+        if (carrying != carryWas) {
+            carryWas = carrying;
+            DVR_INFO("crosshair: %s - the dot stays up while an object is carried (it is thrown along this ray)",
+                     carrying ? "carrying an object" : "carry ended");
+        }
+        if (!carrying && (dvr::anim::active() || dvr::anim::weight() < 1.0f)) out = {};
+    }
     dvr::vr::set_aim_visual(out);
     if (std::strcmp(g_lastWhy, g_ray.why)) {
         DVR_INFO("crosshair: ray %s (hand=%s, gen=%u); %s", g_ray.why,
@@ -489,7 +503,7 @@ bool draw_reticle_ui() {
     changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
     if (ImGui::Button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
     ImGui::SameLine();
-    if (ImGui::Button("Tested position")) { cfg.otherXDeg = -14.4f; cfg.otherYDeg = -30.0f; changed = true; }
+    if (ImGui::Button("Tested position")) { cfg.otherXDeg = 9.0f; cfg.otherYDeg = -53.4f; changed = true; }
     ImGui::TextDisabled("Powers, grenades, the sword and the rest share this one position; the aim follows the dot. "
                         "Every pistol and crossbow (any ammo, any upgrade) keeps its own aim.");
     if (changed) configure(cfg, "F10 HUD");
