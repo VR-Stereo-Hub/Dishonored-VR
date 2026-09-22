@@ -650,6 +650,7 @@ void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
     }
 }
 
+bool wheel_motion_only() { return g_dialOn; }
 void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelected) {
     dvr::vr::HeadPose head{};
     float hp[3]{}, hq[4]{};

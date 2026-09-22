@@ -340,7 +340,15 @@ static void UpdateVirtualPad()
         float x=handSelected ? handX : 0, y=handSelected ? handY : 0;
         const float lm=in.mv[0]*in.mv[0]+in.mv[1]*in.mv[1];
         const float rm=in.lk[0]*in.lk[0]+in.lk[1]*in.lk[1];
-        const bool stick = fmaxf(lm,rm) > g_padDeadzone*g_padDeadzone;
+        const bool stickMoved = fmaxf(lm,rm) > g_padDeadzone*g_padDeadzone;
+        // The motion wheel is chosen by the hand only: the stick that is
+        // running or turning when the wheel opens must not pick a wedge.
+        const bool motionOnly = dvr::hudlayout::wheel_motion_only();
+        const bool stick = stickMoved && !motionOnly;
+        if (stickMoved && motionOnly)
+            DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,2000,
+                "pad/wheel: sticks IGNORED while the motion wheel is up rawL=(%.3f %.3f) rawR=(%.3f %.3f); the hand selects (WeaponDial=1)",
+                in.mv[0],in.mv[1],in.lk[0],in.lk[1]);
         if (stick) {
             const float* s=rm>lm ? in.lk : in.mv;
             dvr::weapon_dial::radial(s[0],s[1],g_padDeadzone,x,y);
@@ -390,6 +398,13 @@ static void UpdateVirtualPad()
     }
     dvr::controller::final_axes(emulation,nativeMenu,wheelInput,PadStick(in.lk[0]),PadStick(in.lk[1]),
         xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
+    // The lean remap above copies the right stick onto the left axes; on the
+    // motion wheel the left axes are the hand's direction and nothing else.
+    if (wheelInput && dvr::hudlayout::wheel_motion_only()) {
+        xs.Gamepad.sThumbLX=(SHORT)((handSelected ? handX : 0)*32767);
+        xs.Gamepad.sThumbLY=(SHORT)((handSelected ? handY : 0)*32767);
+        xs.Gamepad.sThumbRX=xs.Gamepad.sThumbRY=0;
+    }
     if(emulation.lean || (nativeMenu && fabsf(in.lk[1])>.15f))
         DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
             "pad/axes: lean=%d menu=%d context=%d right=(%.3f %.3f) deliveredL=(%d %d) deliveredR=(%d %d)",

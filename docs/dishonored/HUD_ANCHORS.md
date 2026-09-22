@@ -1,6 +1,13 @@
 ## Objective markers by position, and widget groups (VR-185, VR-186, 2026-09-22)
 
-Branch `claude/misc-fixes` (PR #99). Built RelWithDebInfo and installed; not run yet.
+Branch `claude/misc-fixes` (PR #99). Headset-confirmed 2026-09-22 (build 674-ga142995ed): markers stay
+with their text after a load while looking at one; the vault icon, the sneak background and the
+dialogue A-button plate stay with their widgets.
+
+**The wheel is chosen by the hand alone (VR-187).** While `[Hud] WeaponDial=1` both sticks are
+ignored on the wheel (also after the lean remap, which copies the right stick onto the left
+axes), so the stick you run with cannot pick a wedge: `pad/wheel: sticks IGNORED while the motion
+wheel is up`. With the dial off the sticks still point.
 
 **Where a draw's layer comes from.** In gameplay a HUD draw ends on one of two layers: the
 anchor its element rides (`window` for most rows here), or the game's own image (`frame`, or a
