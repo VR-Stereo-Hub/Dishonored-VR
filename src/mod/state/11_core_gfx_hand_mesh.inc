@@ -118,6 +118,7 @@ static float    g_heightOffsetM = 0.0f;   // [Tracking] HeightOffsetM
 // pointing hand's trigger or stick (pad_bridge.cpp), and the cursor comes from the eye's
 // FOV rather than a gain (overlay.cpp, OvlInjectControllerPointer).
 static bool     g_ovlPtrEnable = true;    // [Overlay] ControllerPointer
+static bool     g_ovlReticle = true;      // [Overlay] ReticleWhileOpen: the reticle stays on under the F10 panel
 static int      g_ovlPtrHand = 1;         // [Overlay] PointerHand: which controller points
 // Text size, independent of the window size. <= 0 = not chosen yet: seeded from the eye
 // texture height once, then owned by the "UI text scale" slider ([Overlay] UiScale).

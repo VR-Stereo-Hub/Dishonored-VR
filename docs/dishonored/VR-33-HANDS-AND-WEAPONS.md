@@ -95,6 +95,43 @@ Numpad 0 and its mode cycle moves to Numpad 1. One startup line names all of it.
 **F5 was the first binding and was unusable** - it is the game's quicksave and
 `head_track.cpp` reads it twice, so one press fired three features.
 
+**The powers trim (2026-09-22).** The left hand has a second trim, `[Hands]
+TrimLPT*/TrimLPR*`, used instead of `TrimL*` while it holds a power (the
+`DisItemPowers` item in the equipped socket, ENGINE_NOTES). A casting hand needs a
+different pose from a pistol or a gadget, and one left trim could not suit both. When
+its keys are absent they are seeded from the left trim, so turning it on moves
+nothing. While a power is out, the numpad's two left modes edit it, and the log names
+it `LEFT (power)`. `[Hands] PowerTrim=0` goes back to one left trim. The aim lane reads
+the published snapshot, so `MpCalibTick` republishes it when the item changes.
+`ms/palette/power:` logs each switch.
+
+**F10 Hands has the same adjust**: Left, Right and "Left, powers". The radio button
+follows the left hand's current item until one is picked. The first build had palm-frame
+sliders, and the headset run found them doing nothing: the power detection was wrong
+(ENGINE_NOTES, `m_EquipUsageInfo`), so they edited a trim that never applied.
+
+**The steps now follow the player's view (`[Hands] AdjustInView=1`).** The trim is
+stored in the calibrated palm frame (`base * Trim`, with `base = O_C * G`), and the grip
+calibration tilts that frame against anything the player can see. So "forward" moved the
+hand diagonally, and "pitch" turned it about a slanted axis. This had been a complaint
+since the numpad adjust was adopted. `MpTrimViewStep` takes each step in the head's yaw
+frame (right, forward, world up; pitch about right, yaw about up, roll about forward). It
+converts the step into the palm frame at the instant of the press, through `R_C * G`,
+the same base the aim transport uses: `T += base^T * d` for a move, and
+`Trim = base^T * Rx * base * Trim` for a turn. The stored value is still a palm-frame
+trim, so the hand carries it exactly as before. The numpad keys and the F10 buttons both
+use it. F10 buttons repeat while held, with fine, normal and coarse steps. The raw
+palm-frame sliders remain under "Stored values". `AdjustInView=0` restores the old palm
+axes on the numpad.
+
+**The empty hand's offset was being overwritten by a held item.** VR-183 anchors an
+empty hand (a power) on the wrist bone, through an offset to the old vote slot's frame
+that is measured once and then kept. But while an item was held, the same offset was
+re-measured on every draw from the item's grip pose. When the power came back, it reused
+the crossbow's value, and the headset run saw the hand in the wrong place after a
+crossbow round trip. A held item now takes the vote slot's frame for that draw only, and
+the latch is written only while the hand is empty.
+
 ### The model scale
 
 `[Hands] ModelScale`, one uniform factor about the target palm, applied to the

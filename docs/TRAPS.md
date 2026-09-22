@@ -1,3 +1,23 @@
+## A cache that stops remembering must stop working, not work slowly (VR-165, 2026-09-22)
+
+`RflOffsetOf` memoised property offsets in a 96-entry table, and a full table still
+answered new names by walking the whole GObjects table, about 100 ms per call on this
+build, without keeping the answer. The VR-165 census took the distinct names from under
+96 to 104. From that moment every sample re-walked GObjects dozens of times and the
+game thread sat at 0 fps on the main menu, a freeze the player could not tell from the
+normal startup hitch until it never ended. The one line that explained it (`rfl: the
+property cache is full at 96`) printed once, 1.3 s before the freeze.
+
+Now a full cache REFUSES a new name (it reads as unresolved on the caller's own line)
+and the limit is 256. The census resolves its fifty names in ONE walk
+(`RflResolveBatch`) instead of fifty: the one-at-a-time version also froze the menu for
+3.6 s on its own before the cache ever filled.
+
+**The rule:** any lookup whose miss costs a full object walk is a per-call cost of
+~100 ms. A module that needs more than a handful of names batches them, and a cache
+limit fails closed. See "A cap that stops remembering must also stop logging" below for
+the same shape in a log budget.
+
 ## A reference that can be voted onto the thing it is a reference FROM (VR-188, 2026-09-22)
 
 The palm's frame is the hand bone offset to a "vote slot", so the grip calibrated against the vote

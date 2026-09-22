@@ -487,9 +487,19 @@ static uintptr_t g_hlBack = kMoveDeltaBack;
 static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
 // [Aim] CarryHoldForwardCm/RightCm/UpCm and CarryHoldPitch/Yaw/Roll (degrees), in the HAND's frame.
 // Shipped defaults: the values tuned in the headset on 2026-09-22 (a bottle, the right hand).
-// Retuned in the headset later the same day (the second hold values).
-static const float kHlAdjDefault[6] = { -9, 16, -32, 40, 4, -36 };
-static float g_hlAdj[6] = { -9, 16, -32, 40, 4, -36 };
+// Retuned in the headset later the same day (the second hold values), and again with the reticle at
+// -3.6/-37.2 (a third pass, 2026-09-22); these are tied to kHlRefDefault below.
+static const float kHlAdjDefault[6] = { -20.6f, 8.1f, -28.1f, 3.9f, 12.7f, -27.6f };   // fourth pass, still tuned at reticle -3.6/-37.2
+static float g_hlAdj[6] = { -20.6f, 8.1f, -28.1f, 3.9f, 12.7f, -27.6f };
+// THE HOLD DOES NOT FOLLOW THE RETICLE. The hold frame is built on the aim ray, and the aim ray is
+// turned by the other-items reticle offset ([Crosshair] OtherItemsX/Y), so every reticle re-tune
+// swung the carried object with it and the hold had to be tuned again. The hold now rebuilds its
+// ray from the UNTURNED ray turned by the reticle offset it was tuned at ([Aim] CarryHoldReticleX/Y),
+// so a later reticle change leaves the object where it is. [Aim] CarryHoldReticleAnchor=0 is the
+// old behaviour (the hold rides the live reticle), for A/B.
+static const float kHlRefDefault[2] = { -3.6f, -37.2f };
+static float g_hlRef[2] = { -3.6f, -37.2f };
+static std::atomic<bool> g_hlRefOn{true};
 static const char* const kHlAdjKey[6] = { "CarryHoldForwardCm", "CarryHoldRightCm", "CarryHoldUpCm",
                                           "CarryHoldPitch", "CarryHoldYaw", "CarryHoldRoll" };
 static const float kHlAdjMin[6] = { -40, -40, -40, -180, -180, -180 }, kHlAdjMax[6] = { 60, 40, 40, 180, 180, 180 };
@@ -527,22 +537,15 @@ static bool CarryingMovable()
 // computed every drive and their disagreement logged, so the next run measures the cause.
 static std::atomic<bool> g_hlGameAnchor{true};
 static float g_hlAnchorGap = 0, g_hlAnchorGapView[3] = {0, 0, 0}; static volatile LONG g_hlAnchorBig = 0, g_hlAnchorN = 0;
-static bool CarryGameAnchor(float out[3])
-{
-    uint8_t* cam = g_camObj;
-    float base[3], off[3];
-    if (!cam || !dvr::camera::game_base_pos(cam, base)) return false;
-    dvr::camera::position_offset_uu(off);                        // (right, up, forward) uu
-    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad);
-    out[0] = base[0] - sy * off[0] + cy * off[2];
-    out[1] = base[1] + cy * off[0] + sy * off[2];
-    out[2] = base[2] + off[1];
-    return true;
-}
+static bool CarryGameAnchor(float out[3]) { return GameCameraAnchor(out); }   // interact_aim.cpp
 
 static bool CarryHandFrame(float* o, float* F, float* U, const char** why)
 {
-    const auto aim = dvr::aim::fire_frame();
+    auto aim = dvr::aim::fire_frame();
+    if (g_hlRefOn.load() && aim.ray.ok && aim.ray.baseOk) {   // the reticle the hold was tuned at, not the live one
+        for (int i = 0; i < 3; ++i) aim.ray.dirXr[i] = aim.ray.baseDirXr[i];
+        dvr::aim::turn_offset(aim.ray.dirXr, aim.ray.offRightXr, aim.ray.offUpXr, g_hlRef[0], g_hlRef[1]);
+    }
     float cam[3], rc[3], gc[3];
     const bool haveR = dvr::camera::render_pos_world_center(rc), haveG = CarryGameAnchor(gc);
     if (haveR && haveG) {   // the disagreement, every drive
@@ -985,11 +988,94 @@ static void CarryHoldConfigure(const char* ini)
     g_hlKeepAngle.store(IniFloat(ini, "Aim", "CarryHoldKeepPickupAngle", 0) != 0.0f);
     g_hlGameAnchor.store(IniFloat(ini, "Aim", "CarryHoldAnchor", 1) != 0.0f);
     g_hlRotOn = IniFloat(ini, "Aim", "CarryHoldRotate", 1) != 0.0f;
+    g_hlRefOn.store(IniFloat(ini, "Aim", "CarryHoldReticleAnchor", 1) != 0.0f);
+    for (int i = 0; i < 2; ++i) {
+        const float v = IniFloat(ini, "Aim", i ? "CarryHoldReticleY" : "CarryHoldReticleX", kHlRefDefault[i]);
+        g_hlRef[i] = (std::isfinite(v) && v >= -90 && v <= 90) ? v : kHlRefDefault[i];
+    }
+    Log("carry/hold: the hold is %s (tuned at reticle %+.1f/%+.1f deg; [Aim] CarryHoldReticleAnchor)",
+        g_hlRefOn.load() ? "ANCHORED to the reticle it was tuned at - a reticle re-tune does not move it"
+                         : "riding the LIVE reticle (the old behaviour)", g_hlRef[0], g_hlRef[1]);
     CarryHoldSet(IniFloat(ini, "Aim", "CarryHoldAtHand", 1) != 0.0f, "ini [Aim] CarryHoldAtHand");
 }
 static float CarryHoldAdj(int i) { return (i >= 0 && i < 6) ? g_hlAdj[i] : 0; }
 static const char* CarryHoldAdjKey(int i) { return (i >= 0 && i < 6) ? kHlAdjKey[i] : ""; }
 static void CarryHoldSetAdj(int i, float v) { if (i >= 0 && i < 6 && v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) g_hlAdj[i] = v; }
+// ---- THE VIEW-ALIGNED HOLD ADJUST (2026-09-22) -----------------------------------------------
+// The hold offsets are in the HAND's frame (F = the ray, R, U = the controller's up), which the
+// controller's tilt skews against the view, so a "forward" slider moved the object diagonally -
+// the same complaint the hand trim had. A step here is taken in the player's yaw frame (forward,
+// right, world up; pitch/yaw/roll about them) and converted into the hand-frame offsets at the
+// press, through the hand frame the hold itself uses (CarryHandFrame):
+//   move:  adj += H^T d            (H = [F R U], d the world step)
+//   turn:  Trim' = H^T Rx H Trim   (the object's world orientation is H * Trim * rel)
+// axis 0 = right / yaw, 1 = forward / pitch, 2 = up / roll. cm or degrees.
+static bool CarryHoldViewStep(bool rot, int axis, float amount, const char** why)
+{
+    float o[3], F[3], U[3];
+    if (!CarryHandFrame(o, F, U, why)) return false;
+    float Rh[3]; dvr::fireaim::cross(U, F, Rh);           // UE3: Y = Z x X, as the drive builds it
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad);
+    const float Fv[3] = { cy, sy, 0 }, Rv[3] = { -sy, cy, 0 }, Up[3] = { 0, 0, 1 };
+    if (!rot) {
+        const float* a = axis == 0 ? Rv : axis == 1 ? Fv : Up;
+        const float d[3] = { a[0] * amount, a[1] * amount, a[2] * amount };   // cm
+        const float add[3] = { dvr::fireaim::dot(d, F), dvr::fireaim::dot(d, Rh), dvr::fireaim::dot(d, U) };
+        for (int i = 0; i < 3; ++i) {
+            float v = g_hlAdj[i] + add[i];
+            v = v < kHlAdjMin[i] ? kHlAdjMin[i] : v > kHlAdjMax[i] ? kHlAdjMax[i] : v;
+            g_hlAdj[i] = v;
+        }
+    } else {
+        // Axes chosen by effect with plain component cross products: pitch lifts Fv toward Up
+        // (k = -Rv), yaw turns Fv toward Rv (k = Up), roll tips Up toward Rv (k = -Fv).
+        float k[3];
+        if (axis == 1)      { k[0] = -Rv[0]; k[1] = -Rv[1]; k[2] = -Rv[2]; }
+        else if (axis == 0) { k[0] = Up[0];  k[1] = Up[1];  k[2] = Up[2]; }
+        else                { k[0] = -Fv[0]; k[1] = -Fv[1]; k[2] = -Fv[2]; }
+        const float a = amount * 0.01745329252f, c = cosf(a), s = sinf(a), t = 1.0f - c;
+        auto rotv = [&](const float* v, float* out) {   // Rodrigues: v c + (k x v) s + k (k.v)(1-c)
+            float kx[3]; dvr::fireaim::cross(k, v, kx);
+            const float kv = dvr::fireaim::dot(k, v);
+            for (int i = 0; i < 3; ++i) out[i] = v[i] * c + kx[i] * s + k[i] * kv * t;
+        };
+        const int32_t trim[3] = { (int32_t)(g_hlAdj[3] * 65536.0f / 360.0f), (int32_t)(g_hlAdj[4] * 65536.0f / 360.0f),
+                                  (int32_t)(g_hlAdj[5] * 65536.0f / 360.0f) };
+        float T[3][3]; CtRotToAxes(trim, T[0], T[1], T[2]);   // the trim's X/Y/Z in hand coordinates
+        float N[3][3];
+        for (int col = 0; col < 3; ++col) {
+            float w[3], w2[3];
+            for (int j = 0; j < 3; ++j) w[j] = T[col][0] * F[j] + T[col][1] * Rh[j] + T[col][2] * U[j];   // to world
+            rotv(w, w2);
+            N[col][0] = dvr::fireaim::dot(w2, F); N[col][1] = dvr::fireaim::dot(w2, Rh); N[col][2] = dvr::fireaim::dot(w2, U);
+        }
+        int32_t nr[3]; CtAxesToRot(N[0], N[1], N[2], nr);
+        for (int i = 0; i < 3; ++i) {
+            float d = nr[i] * 360.0f / 65536.0f;
+            while (d > 180.0f) d -= 360.0f;
+            while (d < -180.0f) d += 360.0f;
+            g_hlAdj[3 + i] = d;
+        }
+    }
+    Log("carry/hold: view %s %s %+.1f -> offset %.1f/%.1f/%.1f cm fwd/right/up, trim %.1f/%.1f/%.1f deg p/y/r (hand frame)",
+        rot ? "turn" : "move", rot ? (axis == 1 ? "pitch" : axis == 0 ? "yaw" : "roll") : (axis == 1 ? "forward" : axis == 0 ? "right" : "up"),
+        amount, g_hlAdj[0], g_hlAdj[1], g_hlAdj[2], g_hlAdj[3], g_hlAdj[4], g_hlAdj[5]);
+    *why = "ok";
+    return true;
+}
+static void CarryHoldSaveAdj(const char* who)
+{
+    for (int i = 0; i < 6; ++i) {
+        char b[16]; _snprintf(b, sizeof(b), "%.1f", g_hlAdj[i]); b[15] = 0;
+        ConfigWriteKey("Aim", kHlAdjKey[i], b, who);
+    }
+}
+static bool CarryHoldReticleAnchored() { return g_hlRefOn.load(); }
+static void CarryHoldSetReticleAnchored(bool on) { g_hlRefOn.store(on); Log("carry/hold: reticle anchor %s", on ? "ON" : "off (rides the live reticle)"); }
+static float CarryHoldReticleRef(int i) { return (i >= 0 && i < 2) ? g_hlRef[i] : 0; }
+// A new tuned-at reticle. Setting it to the live reticle puts the hold back on the live ray (it moves
+// by the difference); the caller writes the keys. The F10 button uses it deliberately.
+static void CarryHoldSetReticleRef(float x, float y) { g_hlRef[0] = x; g_hlRef[1] = y; Log("carry/hold: tuned-at reticle set to %+.1f/%+.1f deg", x, y); }
 static bool CarryHoldGameAnchor() { return g_hlGameAnchor.load(); }
 static void CarryHoldSetGameAnchor(bool on) { g_hlGameAnchor.store(on); Log("carry/anchor: %s", on ? "GAME camera" : "RENDER centre eye"); }
 static bool CarryHoldKeepAngle() { return g_hlKeepAngle.load(); }

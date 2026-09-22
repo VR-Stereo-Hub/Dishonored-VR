@@ -364,6 +364,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/dishonored/DESKTOP_MIRROR.md` | **The desktop mirror's eye policy** (VR-53/VR-54): why the game window alternated eyes, where the pin lives and why it is not in the runtime layer, the pause-menu session loss, and the counter reading that was retracted |
 | `docs/dishonored/F10_MOTION_CONTROLS.md` | **The F10 panel from the controllers** (VR-174): the port plan from the BioShock trilogy mod, what exists here, the four lessons it paid for, verification |
 | `docs/dishonored/FLICKER_REFERENCE.md` | **First stop for any flicker issue; update during every investigation.** Symptoms, confirmed fixes, open issues, dead ends, code/commit evidence, and linked continuation plans |
+| `docs/dishonored/PLAN-VR-165-camera-displacement.md` | **The camera that leaves the body (VR-165)**: the measured facts, what is eliminated, the stateful camera influences and their config, the instruments already built, and the plan in order. The session brief for the chain/explosion camera bug |
 | `docs/dishonored/BRIEF-eye-flicker.md` | The eye-flicker investigation: four hypotheses argued and killed. ANSWERED - kept as the graveyard |
 | `docs/dishonored/XR_HANDOFF.md` | The pre-41.0 OpenXR/Quest presentation bug (historical; the pipeline it describes is gone) |
 | `docs/dishonored/HANDOFF-GINGASVR.md` | **The original author's handoff** (their build 39.4): what was measured, disproved, the traps, the process rules, the 39.x fixes our base lacks |

@@ -37,6 +37,20 @@ static uint32_t RflOffsetOf(const char* cls, const char* prop)
             return g_rflProp[i].off;
         }
     if (!RflNamesReady()) return 0;   // not cached: a retry later can succeed
+    // A FULL cache REFUSES instead of scanning. It used to scan and not keep the
+    // answer, so every later call to a new name was a full GObjects walk (about
+    // 100 ms each, measured 2026-09-22): the VR-165 census took the lookups from
+    // under 96 to 104 and the game thread sat at 0 fps on the main menu, dozens of
+    // scans per sample. An unresolved offset is visible on the caller's own line
+    // and every caller already treats 0 as unresolved; a freeze explains nothing.
+    if (g_rflPropN >= RFL_PROP_MAX) {
+        DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn,
+            "rfl: the property cache is full at %d - '%s::%s' and every further NEW "
+            "name is REFUSED (reads as unresolved) rather than re-scanning GObjects on "
+            "every call, which froze the game at 0 fps (VR-165, 2026-09-22). Raise "
+            "RFL_PROP_MAX.", (int)RFL_PROP_MAX, cls, prop);
+        return 0;
+    }
 
     InterlockedIncrement(&g_rflScan);
     const uint32_t off = FindPropOffset(cls, prop);
@@ -50,7 +64,7 @@ static uint32_t RflOffsetOf(const char* cls, const char* prop)
     }
     // Cached either way, the miss included: a miss costs a full scan, and
     // repeating it every tick is exactly the cadence trap this cache prevents.
-    if (g_rflPropN < RFL_PROP_MAX) {
+    {   // room is guaranteed by the refusal above
         RflProp* e = &g_rflProp[g_rflPropN++];
         _snprintf(e->cls,  sizeof(e->cls),  "%s", cls);
         _snprintf(e->prop, sizeof(e->prop), "%s", prop);
@@ -58,16 +72,76 @@ static uint32_t RflOffsetOf(const char* cls, const char* prop)
         e->prop[sizeof(e->prop) - 1] = 0;
         e->off = off;
         e->done = true;
-    } else {
-        DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn,
-            "rfl: the property cache is full at %d - further lookups re-scan "
-            "GObjects every time they are asked, which is the cadence this cache "
-            "exists to prevent.", (int)RFL_PROP_MAX);
     }
     if (off) Log("rfl: '%s::%s' resolved to +0x%04x", cls, prop, off);
     return off;
 }
 
+
+// MANY names in ONE GObjects walk (VR-165, 2026-09-22). Every RflOffsetOf miss
+// and every FindBoolProp is a full walk of the object table, about 100 ms each on
+// this build; the VR-165 census asks for about fifty names and resolving them one
+// at a time froze the game thread for 3.6 s on the main menu (measured). This walks
+// once, answers every want (a BoolProperty also gets its bit mask), and enters each
+// non-bool answer into RflOffsetOf's cache so later single lookups are hits.
+// `found` distinguishes a real offset of 0 (a struct's first member) from a miss.
+struct RflWant { const char* cls; const char* prop; bool isBool; uint32_t off; uint32_t mask; bool found; };
+static int RflResolveBatch(RflWant* w, int n)
+{
+    if (!w || n <= 0 || n > 128 || !RflNamesReady()) return 0;
+    uint32_t ci[128], pi[128];
+    for (int k = 0; k < n; ++k) {
+        w[k].off = w[k].mask = 0; w[k].found = false;
+        ci[k] = FindNameIdx(w[k].cls); pi[k] = FindNameIdx(w[k].prop);
+    }
+    if (!RangeReadable((void*)kGObjHdr, 12)) return 0;
+    void** objs = *(void***)kGObjHdr;
+    uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) return 0;
+    InterlockedIncrement(&g_rflScan);
+    const double t0 = MaimNowMs();
+    int got = 0;
+    for (uint32_t i = 0; i < onum && got < n; i++) {
+        if ((i & 1023) == 0) {
+            uint32_t left = onum - i;
+            if (left > 1024) left = 1024;
+            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
+        }
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x80)) continue;
+        const uint32_t nm = *(uint32_t*)(o + kNameOff);
+        for (int k = 0; k < n; ++k) {
+            if (w[k].found || pi[k] != nm || ci[k] == 0xffffffffu) continue;
+            uint8_t* ou = *(uint8_t**)(o + kOuterOff);
+            if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) break;
+            if (*(uint32_t*)(ou + kNameOff) != ci[k]) continue;
+            const char* pc = ObjClassName(o);
+            if (!pc || !strstr(pc, "Property")) break;
+            if (w[k].isBool) {
+                if (strcmp(pc, "BoolProperty")) continue;
+                w[k].mask = *(uint32_t*)(o + kUBoolBitMask);
+            }
+            w[k].off = *(uint32_t*)(o + kUPropOffset);
+            w[k].found = true; ++got;
+        }
+    }
+    int cached = 0;
+    for (int k = 0; k < n; ++k) {
+        if (w[k].isBool) continue;
+        bool have = false;
+        for (int i = 0; i < g_rflPropN && !have; ++i)
+            have = !strcmp(g_rflProp[i].cls, w[k].cls) && !strcmp(g_rflProp[i].prop, w[k].prop);
+        if (have || g_rflPropN >= RFL_PROP_MAX) continue;
+        RflProp* e = &g_rflProp[g_rflPropN++];
+        _snprintf(e->cls,  sizeof(e->cls),  "%s", w[k].cls);
+        _snprintf(e->prop, sizeof(e->prop), "%s", w[k].prop);
+        e->cls[sizeof(e->cls) - 1] = 0; e->prop[sizeof(e->prop) - 1] = 0;
+        e->off = w[k].off; e->done = true; ++cached;
+    }
+    Log("rfl: batch - %d of %d names resolved in ONE GObjects walk (%.0f ms, %u objects); %d entered "
+        "into the cache (now %d/%d)", got, n, MaimNowMs() - t0, onum, cached, g_rflPropN, (int)RFL_PROP_MAX);
+    return got;
+}
 
 // Try several declaring classes for one property and report which answered. A
 // property declared on a base class is not visible under a subclass's name
@@ -190,6 +264,7 @@ static void RflStateTick(void)
     int heldSock[3] = {};
     for (int i = 0; i < 3; ++i) found[i][0] = 0;
     int usable = 0, stride = g_rflStride;
+    LONG powerSocket = 0;   // DisItemPowers in the equipped socket - recorded only, see below
     const int nCand = (int)(sizeof(kRflStrideCandidates) /
                             sizeof(kRflStrideCandidates[0]));
 
@@ -198,6 +273,7 @@ static void RflStateTick(void)
         int hits = 0;
         for (int i = 0; i < 3; ++i)
             { found[i][0] = 0; heldObj[i] = NULL; heldSock[i] = 0; }
+        powerSocket = 0;
         for (int i = 0; i < num && i < 64; ++i) {
             uint8_t* slot = data + (size_t)i * (size_t)s;
             if (!RangeReadable(slot, (size_t)s)) break;
@@ -219,6 +295,12 @@ static void RflStateTick(void)
                 !RangeReadable(item + sOff, 1)) continue;
             const int usage  = (int)*(uint8_t*)(item + uOff);
             const int socket = (int)*(uint8_t*)(item + sOff);
+            // Powers are ONE inventory item (DisItemPowers) whatever power is selected, and the
+            // Primary/Secondary report below never names it. Equipped = drawn in the left hand.
+            if (socket == RFL_SOCKET_EQUIPPED) {
+                const char* pc = ObjClassName(item);
+                if (pc && !strcmp(pc, "DisItemPowers")) powerSocket = 1;
+            }
             if (usage < 0 || usage > 2) continue;
             const char* cn = ObjClassName(item);
             const char* nm = RealName(RangeReadable(item + kNameOff, 4)
@@ -298,6 +380,62 @@ static void RflStateTick(void)
     }
 
     g_rflState.ok = true;
+
+    // WHICH SLOT EACH HAND HAS EQUIPPED. The socket test above never fires for powers: a run
+    // with Blink out for minutes read DisItemPowers at socket 0 throughout (it is not a mesh
+    // that is socketed), so the first powers trim never engaged. The inventory itself says it:
+    // DishonoredInventory.m_EquipUsageInfo[EDisEquipUsage] is an array of DisEquipUsageInfo
+    // {m_iEquippedSlot, m_iReequipSlot, m_iReequipSlotNonEmpty, m_iDropSlot_NextFrame,
+    // m_VelocitySupplement, m_RotationSupplement} - 4 ints and 2 FVectors, 40 bytes - indexed
+    // by None/Primary/Secondary. [Secondary].m_iEquippedSlot is the left hand's slot.
+    // m_iEquippedSlot is at +0 and 0 reads as "unresolved" to the resolver, so the layout is
+    // confirmed by its neighbours (+4 and +28), and the Primary entry is checked against the
+    // item the socket read found in the right hand: a layout that cannot name the sword is not
+    // trusted to name the power.
+    LONG powerHeld = -1;
+    {
+        static uint32_t euOff = 0; static int layout = 0;   // 0 unknown, 1 confirmed, -1 refused
+        static LONG agree = 0, disagree = 0;
+        if (!layout) {
+            euOff = RflOffsetOf("DishonoredInventory", "m_EquipUsageInfo");
+            const uint32_t re = RflOffsetOf("DisEquipUsageInfo", "m_iReequipSlot");
+            const uint32_t rs = RflOffsetOf("DisEquipUsageInfo", "m_RotationSupplement");
+            layout = (euOff && re == 4 && rs == 28) ? 1 : -1;
+            Log("rfl/equip: m_EquipUsageInfo +0x%x, m_iReequipSlot +%u, m_RotationSupplement +%u -> %s",
+                euOff, re, rs, layout > 0 ? "layout CONFIRMED (40-byte entries, m_iEquippedSlot at +0)"
+                                          : "REFUSED - the powers trim stays off");
+        }
+        const uint32_t kStride = 40;
+        if (layout > 0 && RangeReadable(inv + euOff, kStride * 3)) {
+            const int32_t pri = *(int32_t*)(inv + euOff + kStride * 1);
+            const int32_t sec = *(int32_t*)(inv + euOff + kStride * 2);
+            auto itemAt = [&](int32_t k) -> uint8_t* {
+                if (k < 0 || k >= num || !g_rflStride) return NULL;
+                uint8_t* sl = data + (size_t)k * (size_t)g_rflStride;
+                if (!RangeReadable(sl, sizeof(void*))) return NULL;
+                uint8_t* it = *(uint8_t**)sl;
+                return (it && LooksLikeObj(it)) ? it : NULL;
+            };
+            uint8_t* priItem = itemAt(pri);
+            uint8_t* secItem = itemAt(sec);
+            if (heldObj[1]) { if (priItem == heldObj[1]) ++agree; else ++disagree; }
+            const char* sc = secItem ? ObjClassName(secItem) : NULL;
+            if (disagree > agree) powerHeld = -1;   // the check failed: do not guess
+            else powerHeld = (sc && !strcmp(sc, "DisItemPowers")) ? 1 : 0;
+            static int32_t lastSec = -2;
+            if (sec != lastSec) {
+                lastSec = sec;
+                Log("rfl/equip: left hand slot %d = %s | right hand slot %d = %s | primary check %ld agree "
+                    "%ld disagree | DisItemPowers socket %ld -> %s",
+                    sec, sc ? sc : "none", pri, priItem ? (ObjClassName(priItem) ? ObjClassName(priItem) : "?") : "none",
+                    agree, disagree, powerSocket,
+                    powerHeld == 1 ? "POWER in the left hand" : powerHeld == 0 ? "no power" : "UNTRUSTED");
+            }
+        }
+    }
+    if (InterlockedExchange(&g_rflPowerHeld, powerHeld) != powerHeld)
+        Log("rfl/state: the left hand %s (m_EquipUsageInfo[Secondary]) - the powers hand trim follows this",
+            powerHeld == 1 ? "holds a POWER" : powerHeld == 0 ? "does not hold a power" : "is UNKNOWN");
     _snprintf(g_rflWhy, sizeof(g_rflWhy),
               "reading %d slot(s), %d usable, stride %d, m_pInventory via '%s'",
               (int)num, usable, stride, which ? which : "?");

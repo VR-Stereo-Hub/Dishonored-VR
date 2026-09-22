@@ -49,6 +49,34 @@ static bool InteractAimEnabled() { return g_iaOn.load(); }
 
 static bool IaRefuse(const char* why) { g_iaWhy = why; InterlockedIncrement(&g_iaRefused); return false; }
 
+// The head this game tick, in world units: the GAME camera's base with the mod's own offsets
+// removed, plus the mod's positional offset in the yaw-only frame (how the camera lane writes
+// it). Moved here from throw_aim.cpp (VR-181, where it fixed the held object's flicker) so
+// every hand-ray consumer shares it.
+static bool GameCameraAnchor(float out[3])
+{
+    uint8_t* cam = g_camObj;
+    float base[3], off[3];
+    if (!cam || !dvr::camera::game_base_pos(cam, base)) return false;
+    dvr::camera::position_offset_uu(off);                        // (right, up, forward) uu
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad);
+    out[0] = base[0] - sy * off[0] + cy * off[2];
+    out[1] = base[1] + cy * off[0] + sy * off[2];
+    out[2] = base[2] + off[1];
+    return true;
+}
+
+// [Aim] HandRayGameAnchor=1: the hand ray is anchored on the game camera, not on
+// render_pos_world. render_pos_world is c5, the camera of whichever scene draw uploaded
+// last - the left eye, the right eye, or a non-eye pass such as shadow depth - so the
+// ray's origin jumped 3-6 uu between game ticks (carry/anchor measured it, 2026-09-22).
+// Interaction traces EVERY tick, and at the edge of an object's use range that jitter took
+// the hit in and out each frame: the grab prompt flickered about 20 times a second and a
+// grab could not land (the focus sampler read DishonoredMovable / none on alternate
+// samples). 0 = the old render-sample anchor, for A/B.
+static std::atomic<bool> g_hrGameAnchor{true};
+static volatile LONG g_hrAnchorGame = 0, g_hrAnchorRender = 0;
+
 // VR-166: the ONE published aim ray in game world units - origin at the hand, unit
 // direction. Shared by every engine consumer this branch adds (interaction, throws)
 // so they cannot drift apart. `why` names the refusal.
@@ -56,7 +84,9 @@ static bool HandRayWorld(float* origin, float* dir, const char** why)
 {
     const auto aim = dvr::aim::fire_frame();
     float camera[3];
-    if (!dvr::camera::render_pos_world(camera)) { *why = "no world camera position"; return false; }
+    if (g_hrGameAnchor.load() && GameCameraAnchor(camera)) InterlockedIncrement(&g_hrAnchorGame);
+    else if (dvr::camera::render_pos_world(camera)) InterlockedIncrement(&g_hrAnchorRender);
+    else { *why = "no world camera position"; return false; }
     dvr::fireaim::Solution sol;
     if (!dvr::fireaim::solve(aim, GetTickCount64(), g_viewYawRad, g_viewPitchRad,
                              camera, g_posScaleUU, camera, sol)) {
@@ -217,6 +247,9 @@ static void InteractAimSet(bool on, const char* who)
 
 static void InteractAimConfigure(const char* ini)
 {
+    g_hrGameAnchor.store(IniFloat(ini, "Aim", "HandRayGameAnchor", 1) != 0.0f);
+    Log("aim/anchor: the hand ray's origin is anchored on the %s ([Aim] HandRayGameAnchor)",
+        g_hrGameAnchor.load() ? "GAME camera (stable every tick)" : "LAST RENDER SAMPLE (the old anchor; jumps between eyes)");
     InteractAimSet(IniFloat(ini, "Aim", "InteractFromHand", 1) != 0.0f, "ini [Aim] InteractFromHand");
 }
 
@@ -237,10 +270,36 @@ static bool InteractAimCommand(const char* args)
 // Script lane. What the engine focused, and who aimed it - logged on CHANGE.
 static void InteractAimTick()
 {
-    static double next = 0; const double now = MaimNowMs();
+    static uint32_t focusOff = 0;
+    const double now = MaimNowMs();
+    // THE FLICKER COUNTER: the focus read once per rendered frame, and every change counted.
+    // The 250 ms sampler below aliases a 20 Hz toggle into "a change on every sample"; this
+    // names the rate. A steady focus reads 0-1 per second; the fault read about 20.
+    {
+        static uint32_t lastFrame = 0xffffffffu; static uint8_t* was = (uint8_t*)1;
+        static LONG flips = 0, frames = 0; static double winStart = 0;
+        const uint32_t frame = (uint32_t)dvr::frame::count();
+        if (focusOff && frame != lastFrame && g_peCtrl && LooksLikeObj(g_peCtrl) &&
+            RangeReadable(g_peCtrl + focusOff, 4)) {
+            lastFrame = frame; ++frames;
+            uint8_t* f = *(uint8_t**)(g_peCtrl + focusOff);
+            if (f != was) { if (was != (uint8_t*)1) ++flips; was = f; }
+            if (winStart == 0) winStart = now;
+            if (now - winStart >= 1000.0) {
+                if (flips >= 4)
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 2000,
+                        "interact/flicker: the focused object changed %ld times in %ld frames (%.0f ms) - a "
+                        "steady focus reads 0-1. Anchor %s (game %ld, render %ld hand-ray solves so far)",
+                        (long)flips, (long)frames, now - winStart,
+                        g_hrGameAnchor.load() ? "GAME camera" : "RENDER sample",
+                        (long)g_hrAnchorGame, (long)g_hrAnchorRender);
+                flips = 0; frames = 0; winStart = now;
+            }
+        }
+    }
+    static double next = 0;
     if (now < next) return;
     next = now + 250;
-    static uint32_t focusOff = 0;
     if (!focusOff) focusOff = RflOffsetOf("DishonoredPlayerController", "m_pCrosshairActor");
     uint8_t* pc = g_peCtrl;
     static uint8_t* lastFocus = (uint8_t*)1;

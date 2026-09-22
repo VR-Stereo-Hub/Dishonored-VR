@@ -44,36 +44,28 @@ static void SkcOffsetAudit()
         prpIdx[i] = FindNameIdx(kA[i].prop);
         engOff[i] = 0; engMask[i] = 0; found[i] = false;
     }
-    if (!RangeReadable((void*)kGObjHdr, 12)) { Log("skc/AUDIT: GObjects unreadable"); return; }
-    void**   objs = *(void***)kGObjHdr;
-    uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
-    if (((uintptr_t)objs & 3) || num < 2000 || num > 4000000) return;
-    // ONE walk for all eleven - not eleven walks
-    for (uint32_t i = 1; i < num; i++) {
-        if ((i & 1023) == 0) {
-            uint32_t left = num - i; if (left > 1024) left = 1024;
-            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
-        }
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x80)) continue;
+    // ONE walk for all eleven - not eleven walks. VR-102: and a cheap one.
+    const GObjWalkStats ws = GObjForEach(0x80, [&](uint32_t, uint8_t* o, const char* pc) {
         const uint32_t nm = *(uint32_t*)(o + kNameOff);
         int hit = -1;
         for (int k = 0; k < kN; k++)
             if (!found[k] && prpIdx[k] == nm) { hit = k; break; }
-        if (hit < 0) continue;
+        if (hit < 0) return true;
         uint8_t* ou = *(uint8_t**)(o + kOuterOff);
-        if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) continue;
+        if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) return true;
         const uint32_t onm = *(uint32_t*)(ou + kNameOff);
         for (int k = 0; k < kN; k++) {
             if (found[k] || prpIdx[k] != nm || clsIdx[k] != onm) continue;
-            const char* pc = ObjClassName(o);
             if (!pc || !strstr(pc, "Property")) continue;
             engOff[k]  = *(uint32_t*)(o + 0x5c);
             engMask[k] = strstr(pc, "Bool") ? *(uint32_t*)(o + 0x6c) : 0;
             found[k] = true;
         }
-    }
-    Log("skc/AUDIT: ==== engine reflection vs our constants ====");
+        return true;
+    });
+    if (!ws.ran) { Log("skc/AUDIT: GObjects unreadable or implausible"); return; }
+    Log("skc/AUDIT: ==== engine reflection vs our constants (walk %.0f ms over %u) ====",
+        ws.ms, ws.num);
     int mismatches = 0;
     for (int k = 0; k < kN; k++) {
         if (!found[k]) {
@@ -127,16 +119,16 @@ static void SkelControlProbe()
     int ownN = 0;
     int ownDropped = 0;
 
-    for (uint32_t i = 1; i < num; i++) {
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, kClassOff + 4)) continue;
+    // VR-102: GObjForEach memoises readability per region and the class name per
+    // class, so this walk is tens of ms instead of the ~0.5 s it cost per level.
+    const double skcT0 = MaimNowMs();
+    GObjForEach(kClassOff + 4, [&](uint32_t i, uint8_t* o, const char* nm) {
         // fast path once we know the class: a pointer compare instead of a
         // name lookup and substring search, per object, 103k times
         if (g_skcClsCache) {
-            if (*(void**)(o + kClassOff) != g_skcClsCache) continue;
+            if (*(void**)(o + kClassOff) != g_skcClsCache) return true;
         }
-        const char* nm = ObjClassName(o);
-        if (!nm || !strstr(nm, "SkelControl")) continue;
+        if (!nm || !strstr(nm, "SkelControl")) return true;
         if (!g_skcClsCache && !strcmp(nm, "SkelControlSingleBone"))
             g_skcClsCache = *(void**)(o + kClassOff);
         total++;
@@ -157,7 +149,9 @@ static void SkelControlProbe()
         if (f < 0 && cn < 48) { c[cn].cls = cls; c[cn].name = nm; c[cn].n = 0;
                                 c[cn].first = o; f = cn++; }
         if (f >= 0) c[f].n++;
-    }
+        return true;
+    });
+    const double skcWalkMs = MaimNowMs() - skcT0;
 
     if (ownDropped)
         Log("skc: WARNING - %d live controls did NOT fit the %d-slot ownership "
@@ -281,7 +275,11 @@ static void SkelControlProbe()
     // whose Outer is the class that declares it. Dump the candidate dwords per
     // property and the Offset column identifies itself - it ascends in
     // declaration order and stays below the class's instance size.
-    {
+    // VR-102: a pure diagnostic (skc/AUDIT checks the same offsets), so it dumps
+    // once per session instead of costing two more walks on every level load.
+    static bool propDumped = false;
+    if (!propDumped) {
+        propDumped = true;
         void* targetCls = NULL;
         for (int q = 0; q < ownN; q++) {
             if (!strcmp(own[q].cls, "SkelControlSingleBone") &&
@@ -302,12 +300,10 @@ static void SkelControlProbe()
             Log("skc/prop: name                        class            offset | "
                 "+60      +64      +68      +6c      +70      +74      +78");
             int found = 0;
-            for (uint32_t i = 1; i < num && found < 40; i++) {
-                uint8_t* o = (uint8_t*)objs[i];
-                if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x80)) continue;
-                if (*(void**)(o + kOuterOff) != targetCls) continue;
-                const char* pc = ObjClassName(o);
-                if (!pc || !strstr(pc, "Property")) continue;
+            GObjForEach(0x80, [&](uint32_t, uint8_t* o, const char* pc) {
+                if (found >= 40) return false;
+                if (*(void**)(o + kOuterOff) != targetCls) return true;
+                if (!pc || !strstr(pc, "Property")) return true;
                 const char* pn = RealName(*(uint32_t*)(o + kNameOff));
                 uint32_t* w = (uint32_t*)o;
                 // For BoolProperty the BITMASK matters as much as the offset:
@@ -321,7 +317,8 @@ static void SkelControlProbe()
                     w[0x60/4], w[0x64/4], w[0x68/4], w[0x6c/4],
                     w[0x70/4], w[0x74/4], w[0x78/4]);
                 found++;
-            }
+                return true;
+            });
             Log("skc/prop: ---- %d properties. Also walking the parent class ----", found);
             // SkelControlBase declares ControlStrength, so climb one level
             uint8_t* cls = (uint8_t*)targetCls;
@@ -329,15 +326,14 @@ static void SkelControlProbe()
                 // UStruct::SuperField sits just past the UObject header on UE3;
                 // rather than guess, list properties of every class whose name
                 // starts with SkelControl - the parent shows up by name.
-                for (uint32_t i = 1; i < num && found < 80; i++) {
-                    uint8_t* o = (uint8_t*)objs[i];
-                    if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x80)) continue;
+                GObjForEach(0x80, [&](uint32_t, uint8_t* o, const char* pc) {
+                    if (found >= 80) return false;
+                    // the class test first: it is memoised, the Outer's name is not
+                    if (!pc || !strstr(pc, "Property")) return true;
                     uint8_t* ou = *(uint8_t**)(o + kOuterOff);
-                    if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) continue;
+                    if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) return true;
                     const char* on2 = RealName(*(uint32_t*)(ou + kNameOff));
-                    if (!on2 || strcmp(on2, "SkelControlBase")) continue;
-                    const char* pc = ObjClassName(o);
-                    if (!pc || !strstr(pc, "Property")) continue;
+                    if (!on2 || strcmp(on2, "SkelControlBase")) return true;
                     const char* pn = RealName(*(uint32_t*)(o + kNameOff));
                     uint32_t* w = (uint32_t*)o;
                     Log("skc/prop: [base] %-21s %-21s %8x %8x %8x %8x %8x %8x %8x",
@@ -345,13 +341,15 @@ static void SkelControlProbe()
                         w[0x50/4], w[0x54/4], w[0x58/4], w[0x5c/4],
                         w[0x60/4], w[0x64/4], w[0x68/4]);
                     found++;
-                }
+                    return true;
+                });
             }
         }
     }
     if (!g_skcPlayerN) g_skcProbeFails++;
     else               g_skcProbeFails = 0;
-    Log("skc: ==== probe done (%d player controls) ====", g_skcPlayerN);
+    Log("skc: ==== probe done (%d player controls; object walk %.0f ms, whole probe "
+        "%.0f ms on the game thread) ====", g_skcPlayerN, skcWalkMs, MaimNowMs() - skcT0);
     if (g_graftOn) {                       // 35.7: rig reloaded - the hosts
         for (int u = 0; u < 3; u++) {      // died; restore donors, drop state
             if (!g_graftHost[u]) continue;

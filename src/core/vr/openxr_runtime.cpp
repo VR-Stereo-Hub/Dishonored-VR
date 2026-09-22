@@ -3709,6 +3709,26 @@ void note_aim_visual(AimVisualResult why, uint32_t dots = 0, uint32_t beam = 0) 
         g_aimVisualStats.generation = g_aimVisual.generation;
     }
 }
+// 41.x (Dishonored): the F10 panel's rectangle, fractions of the eye texture. See aim_visual.h.
+SRWLOCK g_aimOccLock = SRWLOCK_INIT;
+bool g_aimOccOn = false;
+float g_aimOccRect[4] = {};
+uint32_t g_aimOccHidden = 0;
+bool aim_point_occluded(const XrCompositionLayerProjection* proj, const float p[3], float sizeDeg,
+                        const float rect[4]) {
+    const float marginTan = tanf(sizeDeg * 0.5f * 3.14159265f / 180.0f);
+    for (uint32_t e = 0; e < proj->viewCount && e < 2; ++e) {
+        const XrCompositionLayerProjectionView& v = proj->views[e];
+        const float d[3] = {p[0] - v.pose.position.x, p[1] - v.pose.position.y, p[2] - v.pose.position.z};
+        float l[3];
+        dvr::xrmath::quat_rotate(-v.pose.orientation.x, -v.pose.orientation.y, -v.pose.orientation.z,
+                                 v.pose.orientation.w, d, l);   // world -> this eye's view
+        if (aim_point_in_rect(l[0], l[1], l[2], tanf(v.fov.angleLeft), tanf(v.fov.angleRight),
+                              tanf(v.fov.angleUp), tanf(v.fov.angleDown), marginTan, rect))
+            return true;
+    }
+    return false;
+}
 AimVisualResult build_aim_visual(XrCompositionLayerQuad* quads,
     const XrCompositionLayerBaseHeader** layers, uint32_t& count, int capacity,
     bool& imagePublished, uint32_t& dots, uint32_t& beam) {
@@ -3734,14 +3754,25 @@ AimVisualResult build_aim_visual(XrCompositionLayerQuad* quads,
     if (!budget) return AimVisualResult::Budget;
     uint32_t built = 0;
     bool skippedPoint = false;
+    bool occOn = false; float occRect[4] = {};
+    AcquireSRWLockShared(&g_aimOccLock);
+    occOn = g_aimOccOn; memcpy(occRect, g_aimOccRect, sizeof(occRect));
+    ReleaseSRWLockShared(&g_aimOccLock);
+    const auto* proj = reinterpret_cast<const XrCompositionLayerProjection*>(layers[0]);
+    int hidden = 0;
     for (int i = 0; i < cfg.count && (int)built < budget; ++i) {
         float distance = 0;
+        if (occOn && aim_point_occluded(proj, cfg.points[i].pos, cfg.points[i].sizeDeg, occRect)) {
+            ++hidden; continue;
+        }
         if (!build_aim_point(cfg.points[i].pos, cfg.points[i].sizeDeg, &quads[built], distance)) {
             skippedPoint = true; continue;
         }
         if (cfg.points[i].dot) ++dots; else ++beam;
         ++built;
     }
+    if (hidden) g_aimOccHidden += (uint32_t)hidden;
+    if (!built && hidden) return AimVisualResult::BehindPanel;
     if (!built) return AimVisualResult::NearHead;
     if (skippedPoint) ++g_aimVisualStats.outcomes[(int)AimVisualResult::NearHead];
     if (budget < cfg.count) ++g_aimVisualStats.outcomes[(int)AimVisualResult::Budget];
@@ -6432,6 +6463,23 @@ void set_aim_visual(const AimVisualConfig& cfg) {
     if (cfg.enabled) ++g_aimVisualStats.publishes;
     else g_aimVisualStats.last = AimVisualResult::Off;
 }
+void set_aim_occluder(bool on, float x0, float y0, float x1, float y1) {
+    const bool ok = on && std::isfinite(x0) && std::isfinite(y0) && std::isfinite(x1) &&
+                    std::isfinite(y1) && x1 > x0 && y1 > y0;
+    AcquireSRWLockExclusive(&g_aimOccLock);
+    const bool was = g_aimOccOn;
+    g_aimOccOn = ok;
+    if (ok) { g_aimOccRect[0] = x0; g_aimOccRect[1] = y0; g_aimOccRect[2] = x1; g_aimOccRect[3] = y1; }
+    const uint32_t hidden = g_aimOccHidden;
+    if (was != ok) g_aimOccHidden = 0;
+    ReleaseSRWLockExclusive(&g_aimOccLock);
+    if (was != ok)
+        DVR_LOG(::dvr::log::Cat::present, ::dvr::log::Level::Info,
+            "crosshair/panel: the reticle %s (panel %.3f,%.3f .. %.3f,%.3f of the eye texture; "
+            "%u point(s) were hidden behind it last time)",
+            ok ? "hides where the F10 panel covers it" : "is no longer clipped by the F10 panel",
+            x0, y0, x1, y1, hidden);
+}
 void set_aim_dot_color(uint8_t r, uint8_t g, uint8_t b) {
     const uint32_t rgb = uint32_t(r) | (uint32_t(g) << 8) | (uint32_t(b) << 16);
     if (g_laserRgb.exchange(rgb) != rgb) g_laserRgbDirty.store(true);
@@ -6824,6 +6872,7 @@ void set_aim_visual(const AimVisualConfig&) {}
 AimVisualStats aim_visual_stats() { return {}; }
 void set_control_dot(const ControlDotConfig&) {}
 void set_aim_dot_color(uint8_t, uint8_t, uint8_t) {}
+void set_aim_occluder(bool, float, float, float, float) {}
 ControlDotStats control_dot_stats() { return {}; }
 void set_aim_dot(const AimDotConfig&) {}
 void set_hud_texture_provider(HudTextureProviderFn) {}

@@ -37,7 +37,9 @@ controls are being rebuilt on this foundation (KNOWN_ISSUES.txt).
 Files the mod writes next to the game exe: dishonored_vr.ini (settings),
 dishonored_vr.log (send this with any bug report), dishonored_vr.prev.log,
 dishonored_vr_crash.txt (only after a crash). Delete dishonored_vr.ini to
-reset every setting. Create disable_vr.txt to disable the mod without
+reset every setting. This build replaces an older dishonored_vr.ini with the
+tested settings ONCE, on the first launch (your VR runtime choice is kept);
+what you change in F10 after that is kept. Create disable_vr.txt to disable the mod without
 uninstalling.
 
 Known issues and troubleshooting: KNOWN_ISSUES.txt and TROUBLESHOOTING.txt.

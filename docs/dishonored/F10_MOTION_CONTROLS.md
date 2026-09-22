@@ -167,6 +167,26 @@ where the panel sits.
 
 ## As built (2026-09-21)
 
+**The reticle while the panel is up (2026-09-22).** The panel used to switch the aim
+ray off, because the dot landed on the panel and fought the cursor. With `[Overlay]
+ReticleWhileOpen=1` the ray stays on. `OverlayFrame` publishes the panel's rectangle
+(fractions of the eye texture) through `dvr::vr::set_aim_occluder`. The runtime
+projects each reticle point into both eyes with the projection layer's own pose and
+fov, and drops any point inside that rectangle. A quad layer always composites over
+the projection, and the panel is drawn into the projection image, so the dot can only
+look behind the panel by not being drawn there. The aim-visual outcome
+`behind the F10 panel` counts those frames. `crosshair/panel:` logs the switch.
+
+The game's arms are part of the game image, so they are always behind the panel too.
+A hand is visible beside the panel, not through it.
+
+**The cursor only over the panel (2026-09-22, first headset run of the above).** The
+reticle was hidden correctly: it sat about 14 deg right and 13 deg up, inside the
+panel. But ImGui drew its software cursor wherever the pointer ray landed, on the panel
+or off it, so off the panel a cursor sat where the reticle should read. `io.MouseDrawCursor`
+is now set per frame to "a panel window is hovered, or a drag that started on it is
+active", so the cursor exists only on the panel and the reticle only off it.
+
 * `core/ui/overlay.cpp` holds `OvlInjectControllerPointer`, `OvlUpdateSliderTweak` and
   `OvlProbeWindowGeometry`. `OverlayFrame(w, h)` sets `DisplaySize` to the eye texture and
   uses `style.FontScaleMain`. There is a "UI text scale" slider at the bottom of the panel.

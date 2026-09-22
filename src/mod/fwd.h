@@ -103,6 +103,7 @@ static bool SceneDrawCommand(const char* args);
 static bool DvrGameplayVerdict();
 static void FrameDumpRequest(const char* what);
 static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who);   // 41.1 (session 9)
+static void MpTrimPanel();   // F10 Hands: the numpad hand adjust as sliders (mesh_split)
 static void FrameDumpTick(IDirect3DDevice9* dev);
 
 static inline bool SkcAlive(int slot);
@@ -641,6 +642,7 @@ static bool SwingTraceCommand(const char* args);
 static void CamModTick();
 static void CamModConfigure(const char* ini);
 static bool CamModCommand(const char* args);
+static bool CamSpringCommand(const char* args);   // VR-165: kick|nudge|rest one camera spring
 // VR-166: the shared power-aim helper probe (aim_source.cpp). Read-only.
 static void AimSourceConfigure(const char* ini);
 static void AimSourceTick();
@@ -673,6 +675,12 @@ static float CarryHoldAdj(int i);                               // 0..2 fwd/righ
 static const char* CarryHoldAdjKey(int i);
 static void CarryHoldSetAdj(int i, float v);
 static bool CarryHoldGameAnchor();
+static bool CarryHoldReticleAnchored();
+static bool CarryHoldViewStep(bool rot, int axis, float amount, const char** why);   // cm / deg in the view
+static void CarryHoldSaveAdj(const char* who);
+static void CarryHoldSetReticleAnchored(bool on);
+static float CarryHoldReticleRef(int i);
+static void CarryHoldSetReticleRef(float x, float y);
 static void CarryHoldSetGameAnchor(bool on);
 static bool CarryHoldKeepAngle();
 static void CarryHoldSetKeepAngle(bool on);

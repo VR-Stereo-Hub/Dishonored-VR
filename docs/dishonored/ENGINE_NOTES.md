@@ -4756,6 +4756,40 @@ slot[5] requires 0 | DishonoredWepPistol  -> own usage 0, socket 0
 The slot constraint and the item state are plainly different things, and only the
 item is the answer.
 
+### A power in the hand: `m_EquipUsageInfo[Secondary]` names its slot (2026-09-22)
+
+**RETRACTED prediction (first headset run the same day).** The socket prediction below
+failed. Blink was out for minutes, `Secondary none` held throughout, and `DisItemPowers`
+never reported the equipped socket, so the powers trim never engaged. Powers are not a
+socketed mesh.
+
+**What replaced it (from the script dump):** `DishonoredInventory.m_EquipUsageInfo
+[EDisEquipUsage]` is an array of `DisEquipUsageInfo` (`m_iEquippedSlot, m_iReequipSlot,
+m_iReequipSlotNonEmpty, m_iDropSlot_NextFrame` as ints, then `m_VelocitySupplement,
+m_RotationSupplement` as FVectors: 40 bytes). Each entry is indexed None / Primary /
+Secondary. `[Secondary].m_iEquippedSlot` is the left hand's slot in `m_Slots`, and a power
+is out when that slot holds `DisItemPowers`. `m_iEquippedSlot` sits at +0, which the
+resolver cannot tell from "unresolved", so `RflStateTick` confirms the layout from
+`m_iReequipSlot` (+4) and `m_RotationSupplement` (+28). It also checks every read against
+the right hand: `[Primary]`'s slot must hold the item the socket read found (the sword). If
+disagreements outnumber agreements, the answer reads UNKNOWN rather than guessed.
+`rfl/equip:` logs both hands' slots and the check counts on every change. **Not yet
+headset-run.**
+
+#### The first attempt, kept for the record
+
+Powers are ONE inventory item, `DisItemPowers` (`m_pCurrentActivePower`,
+`m_iPowerSlot`), whichever power is selected. The dumps above only ever caught it at
+socket 0, with a ranged weapon in the Secondary hand. The Primary/Secondary report
+never names it, and runs with Blink selected still read `Secondary none`.
+
+The prediction the powers hand trim is built on: while a power is in the left hand,
+`DisItemPowers` reads socket 1 (Equipped). `RflStateTick` treats that item in the
+equipped socket as "a power in the left hand", whatever its usage byte. It logs
+`rfl/state: the left hand holds a POWER` on each change. If a power is visibly out
+and that line never appears, the prediction is wrong, and the socket or usage the
+item actually carries has to be read from the slot dump.
+
 
 ## THE MONO WINDOW AT A LOAD IS A GHOST MENU FLAG (VR-62, 2026-09-08)
 
@@ -8282,6 +8316,136 @@ live camera and finds the influences by class name (`IsLiveObject`, bounded
 `RefreshLiveSet(2000)`), a camera change forgets every pointer without a write, the
 fast path writes floats only. It stands down while a cutscene owns the camera. Live:
 `camshake on|off`, `camshake allow <category> on|off`, F10 > Controls > Camera shake.
+## VR-165: the collision-pop smoother reads back the mod's offset (2026-09-22)
+
+The cause of VR-165, read offline and confirmed on a headset repro (FLICKER_REFERENCE,
+"VR-165: CAUSE FOUND"). All addresses are VAs; the tool prints RVAs (`dis 0x6D869B`).
+
+**Fields** (resolved by name at runtime, listed for the record): `DishonoredPlayerCamera`
+bits at +0x4c0 (`m_bTeleported` 1, `m_bCollisionEnabled` 2, `m_bSmoothingSuddenCollision` 4,
+`m_bDebugDrawRainBox` 8, `m_bWasUncovered` 0x10, `m_bAllowCamSmoothingForCollisionPop` 0x20),
+`m_CurCollisionStatus` +0x4d4, `m_fLastCollisionDifFromNonAdditive` +0x4d8, collision radius
+and height +0x4cc/+0x4d0, `m_DishonoredVTSettings` +0x414 so `m_NonAdditive_Pos` +0x45c; the
+config floats `m_fCamCollisionSmoothSpeed` +0x558 (12), `m_fCamCollisionSmoothMinDifSize`
++0x55c (10), `m_fCamCollisionLargestUnsmoothedPop` +0x560 (50), by declaration order after
+`m_fReactionWeight` +0x54c and confirmed by the instructions that read them.
+
+**The block** (inside the camera update, `0xAD82DA`..`0xAD8893`):
+1. At entry it copies LAST update's `m_NonAdditive_Pos` (+0x45c) aside (`0xAD82DD`) and
+   decides a reset when `m_bTeleported` is set or the view target has bit 0x1000 at +0x128
+   (`0xAD830A`); `m_bTeleported` is cleared there.
+2. With collision on, the camera's collision cylinder is swept from the new non-additive
+   position toward the wanted location (`0xAC4BB0`); the result is the target.
+3. The change in collision distance against `m_fLastCollisionDifFromNonAdditive`, over a
+   scale from `0x781250`, compared with `m_fCamCollisionLargestUnsmoothedPop` (`0xAD86CA`):
+   larger, and `m_bAllowCamSmoothingForCollisionPop`, sets `m_bSmoothingSuddenCollision`.
+4. While the bit is set (`0xAD8791`), the START point is `camera+0x330 - oldNonAdditive +
+   newNonAdditive` (`0xAD87A0`..`0xAD87F1`): last update's final location, carried onto the
+   new base. `0xAC0330` moves it toward the target at `m_fCamCollisionSmoothSpeed * dt`
+   (proportionally) and returns done when the gap is under `m_fCamCollisionSmoothMinDifSize`,
+   which clears the bit (`0xAD885D`). A reset clears it at once (`0xAD886E`), and so does the
+   collision-off path (`0xAD88C2`).
+
+**Why it never converges in VR.** `camera+0x330` is `kPovOffs[0]`, the POV location the mod
+writes base plus its head and eye offset into (`camera.cpp`, `write_offset`). The engine reads
+that written value back as "last final location", so each update the start point is off by our
+offset again. With `k = speed * dt` the gap settles at `offset * (1 - k) / k`: 9.5x at the
+measured 126 camera updates per second, so any offset over about 1 uu keeps it above 10 uu for
+ever. Measured on the headset: displacement/offset 9.5-10.0 in most samples, pointing along our
+offset. The onset is any pop over 50 uu (a chain release, an explosion's knockback); flat play
+has no offset in the field and converges in a fraction of a second.
+
+**For the fix:** the smoother must read back the engine's own final location. Either the field
+holds the engine's value when the next update reads it (put our write back before that point),
+or our offset is carried into what the block subtracts (`m_NonAdditive_Pos`, which other code
+also reads). Not a clamp on the POV.
+
+## VR-165: the PhysicalReact spring and the influence update, read offline (2026-09-22)
+
+The VR-165 brief's step 3. Read with `tools/ue3-natives.py --verify <exe> class <Name>`
+(the known-good `DisItemContext_FireCrossbow` re-derived exactly first) and
+`tools/disasm-rva.py <exe> dis|disp|calls`. All addresses are VAs of the Steam exe
+(no ASLR, base 0x400000); the tool prints RVAs, so `dis 0x6C0A00` is VA `0xAC0A00`.
+Nothing here is hooked or written by the mod; the census reads every field by NAME.
+
+**Vtables.** `DishonoredCameraInfluence` `0x0111DE50`, `DishonoredCamera_PhysicalReact`
+`0x0111E9D8`, `_HitReact` `0x0111EB20`, `_Lean` `0x0111E890` (constructors `0xAC7C30`,
+`0xACD720`, `0xACD740`, `0xAC7DB0`). The influence-specific slots are 73..82
+(+0x124..+0x148); every other slot is UObject's. PhysicalReact overrides 73, 74, 75,
+77, 79, 80, 81, 82; HitReact shares every one of them except 82.
+
+**Layout, confirmed by displacement** (the declaration order in the class dump, the base
+ending at +0x5c as `CrouchMantleOffset.m_StartingOffset` +0x5c already showed):
+influence `m_pOwningCam` +0x38, `m_Weight` +0x3c, `m_TargetWeight` +0x40, bits +0x44
+(`m_bActive` 1, `m_bIsSleeping` 2, `m_bWaitToBlendOneFrame` 4, `m_bUseFixedTimeStep` 8,
+`m_bHandleCameraCollision` 0x10), `m_fAccumulatedDelta` +0x48, `m_fCurFixedTimeStep`
++0x4c, `m_TransitionSpeed` +0x50, `m_fDefaultWeight` +0x54, `m_fFixedTimeStep` +0x58.
+PhysicalReact: `m_StabilityConstants` +0x5c, `m_StabilityPoint` +0x6c, `m_StrengthConstants`
++0xa8, `m_StrengthPoint` +0xb8, `m_ArmBounce_Start/End/` +0xf4/+0xf8, `m_ArmBounce` +0xfc,
+`m_CameraPivotOffset` +0x100. A `DisSpringPoint` is 60 bytes: `m_Pos` +0, `m_Velocity`
++0xc, `m_Pos_Previous` +0x18, `m_Velocity_Previous` +0x24, `m_BoundPos` +0x30.
+
+**What each slot does.**
+
+| Slot | PhysicalReact | What it does |
+|---|---|---|
+| 73 (+0x124) | `0xAC0900` | `m_fAccumulatedDelta = 0`, then slot 75. Shared by Lean. Static callers not found (the two-argument +0x124 calls near `0xAC3610` belong to another class) |
+| 74 (+0x128) | `0xAC0C50` | **`m_BoundPos += m_CameraPivotOffset` on both points.** Called from the influence init `0xAC0030` (clears active and sleeping, sets the owning camera) and the group init `0xACFBB0` (also sets weight and target to `m_fDefaultWeight`), which the camera's init calls per group (`0xAD4346`). It adds, so a second init of the same object doubles the pivot in the bound |
+| 75 (+0x12C) | `0xAC0CF0` | **The reset: each point's pos = bound, velocity 0, previous = pos, previous velocity 0.** Rest is `m_Pos == m_BoundPos`, not 0 |
+| 77 (+0x134) | `0xAC0E10` | Collision response: skipped while sleeping; removes the velocity component going into a given normal, both points |
+| 79 (+0x13C) | `0xAD49B0` | Pre-update: copies both spring constants from a tweak object. Nothing else |
+| 80 (+0x140) | `0xAC5BE0` | Apply (below) |
+| 81 (+0x144) | `0xAC0F30` | One fixed step: previous = current on both points, the integrator on each, then a distance constraint pulling the stability point toward the strength point |
+
+**The integrator** (`0xAC0A00`, semi-implicit Euler): `d = pos - bound`; if `|d|^2 > 1e-4`
+or `|v|^2 > 1`, `a = -springiness*d - damping*v`, else `a = -v`; `v += a*dt`; the velocity
+capped at `m_fMaxVelocity` when `m_bCapVelocity`; an optional per-point filter callback
+(Lean passes one); `pos += v*dt`. It always pulls toward `m_BoundPos`; nothing in the
+spring moves the bound.
+
+**The apply** (`0xAC5BE0`): both points interpolated between previous and current by
+`alpha = m_fAccumulatedDelta / m_fCurFixedTimeStep`; a rotation built from the direction
+stability-minus-strength and the view's YAW only (pitch and roll zeroed before
+`0x40DA70`), emitted as pitch and roll with yaw 0 - a tilt; the LOCATION emitted is the
+strength point's raw `m_Pos` minus that rotation times `m_CameraPivotOffset`; the arm
+bounce from `|strength interp - bound|` against `m_ArmBounce_Start/End`. Then the
+at-rest test `0xAC09A0` on both points (`|pos - bound| > 0.01` or `|v| > 0.01` is
+"moving"); when neither moves it SETS `m_bIsSleeping`. At rest with the shipped bounds
+(strength at the pivot, stability 100 uu above it) the rotation is identity and the
+location is `pivot - pivot = 0`: a PhysicalReact-family influence at rest adds nothing.
+
+**The driver** (`0xAC4A40`, the only static caller of its fixed step): slot 79; then if
+`m_bUseFixedTimeStep` and `dt > 1e-8`: `step = min(dt, m_fFixedTimeStep)`,
+`m_fCurFixedTimeStep = step`, `m_fAccumulatedDelta += step`, and while the accumulator
+exceeds `step`, one slot-81 step and `acc -= step`; then slot 80. At the headset's rate
+`dt` is under the 1/60 s fixed step, so the spring runs in real time per present.
+
+**The group update** (`0xACFD00` loop, the driver's only caller at `0xACFE9C`), per
+influence: `m_bWaitToBlendOneFrame` skips one weight blend, else `m_Weight` moves toward
+`m_TargetWeight` at `m_TransitionSpeed * dt`; **at weight <= 1e-8 the influence is not
+run at all** (and a live one is deactivated through slot 76 with `m_bActive` cleared);
+going from inactive to active clears the accumulator and calls slot 75, the reset;
+**a sleeping influence is skipped entirely: no update and no contribution**; otherwise
+its output is added scaled by `group.m_Weight * m_Weight` (additive group type 1).
+
+**The impulse** (`0xAC10F0`, called from `0xAB5984`, `0xB586AA` and two jumps near
+`0xAA5FAD`): if `|v| > 1e-4`, `v` is added to BOTH points' velocities and `m_bIsSleeping`
+is cleared.
+
+**What this means for VR-165.** A PhysicalReact-family spring cannot hold a steady
+offset at rest: it is pulled to its bound, sleeps, and a sleeping influence contributes
+nothing. It can only displace the camera while AWAKE (a spring that never settles), or
+when its bound is not where the pivot expects: the pivot is non-zero only for HitReact
+(Z=200 in the game's ini), and slot 74 ADDS it, so a second init of the same object
+would leave HitReact resting 200 uu off. HitReact at weight 0 (the mod's hold, VR-172)
+is not run at all, so in the 2026-09-22 explosion run it was out by construction.
+Constants read from the exe: skip weight `1e-8` (`0xFB9678`), at-rest epsilon `0.01`
+(`0xFB9BEC`), integrator/impulse floor `1e-4` (`0xFB9598`).
+
+Not established offline: what Blink, a mantle or the weapon wheel resets. The census
+(`camera/springs`, `camera/collide`: active, sleeping, accumulator, bounds, the camera's
+collision smoothing and `m_bTeleported`) is what will show it on the next repro.
+
 ## Shared power-aim helper: a candidate seam for per-item hand aim (VR-166, 2026-09-20)
 
 `kAimSrcHelper` = `0x00bf52e0`, entry bytes `55 8b ec 8b 45 0c` (push ebp; mov ebp,esp;
@@ -8586,6 +8750,34 @@ VR-181). The rotation now goes through the same seam. The move compares its NewR
 pointer at `[ebp-0x3C]`) against Actor.Rotation `+0xD0` (`0x0064CE0F`), so the handler writes
 both. The object's frame relative to the hand (controller forward and up, mapped through
 the head basis like the ray) is latched at the first drive of each carry.
+
+**The hold no longer follows the reticle (2026-09-22).** The hold frame is built on the
+published aim ray, and for anything but a pistol or crossbow that ray is turned by the
+other-items reticle offset (`[Crosshair] OtherItemsX/Y`, VR-189). So every reticle re-tune
+swung the held object with it: moving the reticle from +9.0/-53.4 to -3.6/-37.2 needed
+the hold re-tuned (forward -9 to -16, right 16 to 3, up -32 to -27, pitch 40 to 16).
+The ray now also publishes its direction BEFORE the offset and the controller axes the
+offset turns about (`Ray::baseDirXr/offRightXr/offUpXr`). The hold rebuilds its direction
+from those, turned by the reticle it was tuned at (`[Aim] CarryHoldReticleX/Y`, default
+-3.6/-37.2 to match the shipped hold values). A later reticle change leaves the object
+where it is. `CarryHoldReticleAnchor=0` puts the hold back on the live reticle. The F10
+Aim button "Retune the hold against the current reticle" adopts the live reticle as the
+reference on purpose.
+
+**The hold is tuned in the view (2026-09-22).** The hold offsets live in the hand's frame (F =
+the ray, R, U = the controller's up), and the controller's tilt skews that frame against
+the view, so a "forward" slider moved the object diagonally. The F10 Aim steps
+(`CarryHoldViewStep`) are taken in the player's yaw frame and converted at the press: a
+move adds `H^T d`, and a turn is `Trim' = H^T Rx H Trim` (H = [F R U], the frame the drive
+uses). The turn axes are chosen by their effect with plain component cross products
+(pitch k = -Rv, yaw k = Up, roll k = -Fv), so UE3's left-handed axes need no sign bookkeeping.
+The raw hand-frame sliders stay under "Stored values".
+
+**Gamepad look sensitivity** is `PSI_Gamepad_LookXSensitivity` 78 and `...LookYSensitivity`
+79, both `SDT_Int32`, default -1 (unset) in `ArkProfileSettings` DefaultSettings[50]/[51].
+The startup defaults write 30 to both (headset choice, 2026-09-22), as optional entries:
+a profile missing them skips only these two. **Unverified** that the menu slider reads 30,
+and that 30 is on the menu's scale. The automatic read logs both ids.
 
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn

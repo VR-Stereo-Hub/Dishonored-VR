@@ -65,6 +65,11 @@ struct Ray {
     int hand = 0;
     float originXr[3] = {}, dirXr[3] = {};
     float upXr[3] = {0, 1, 0};   // VR-181: the controller's own up, for a full hand basis (carried objects)
+    // The ray BEFORE the other-items reticle offset, and the controller axes that offset turns
+    // about. A consumer that must not move when the reticle is re-tuned (the carried object's
+    // hold) rebuilds its own direction from these. baseOk = false when the aim pose was invalid.
+    bool baseOk = false;
+    float baseDirXr[3] = {}, offRightXr[3] = {1, 0, 0}, offUpXr[3] = {0, 1, 0};
     uint32_t gen = 0;
     uint64_t sampleMs = 0;
     const char* why = "no sample";
@@ -144,6 +149,19 @@ inline void visual_append(dvr::vr::AimVisualConfig& out, const Ray& ray, bool do
     }
 }
 
+// The other-items offset: turn v about the controller's up by -xDeg, then about its right by yDeg
+// (+x right, +y up). One definition, so the ray and anything that re-derives it agree.
+inline void turn_offset(float v[3], const float right[3], const float up[3], float xDeg, float yDeg) {
+    auto turn = [v](const float* k, float deg) {
+        const float a = deg * 0.0174532925f, c = std::cos(a), s = std::sin(a);
+        const float kv = k[0]*v[0] + k[1]*v[1] + k[2]*v[2];
+        const float x[3] = { k[1]*v[2] - k[2]*v[1], k[2]*v[0] - k[0]*v[2], k[0]*v[1] - k[1]*v[0] };
+        for (int i = 0; i < 3; ++i) v[i] = v[i]*c + x[i]*s + k[i]*kv*(1 - c);
+    };
+    turn(up, -xDeg);
+    turn(right, yDeg);
+}
+
 struct Config { bool dot = false, laser = false; int hand = 0; float distanceM = 8, sizeDeg = 0.69f;   // run490: the tester's size
                 int rgb[3] = {255, 255, 255};   // VR-141: dot/beam colour, white by default
                 bool bothPoses = false;      // draw the GRIP ray too, at half size
@@ -154,7 +172,7 @@ struct Config { bool dot = false, laser = false; int hand = 0; float distanceM =
                 // VR-189: one global reticle offset for everything EXCEPT the pistol and
                 // the crossbow, degrees in the controller's frame (+x right, +y up). It
                 // turns the shared ray, so the dot and the aim move together.
-                float otherXDeg = 9.0f, otherYDeg = -53.4f; };   // the tester's tuned position (2026-09-22)  // VR-57 test 1: the HEAD-anchored control
+                float otherXDeg = 0.0f, otherYDeg = -48.0f; };   // the tester's tuned position (2026-09-22, fourth pass)  // VR-57 test 1: the HEAD-anchored control
                                              // dot, which no controller enters. See
                                              // core/vr/aim_visual.h for what it settles.
 Config config();

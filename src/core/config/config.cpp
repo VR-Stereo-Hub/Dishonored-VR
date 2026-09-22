@@ -398,8 +398,8 @@ static void WriteDefaultIni(const char* ini)
         "; VR-189: one reticle position for everything but the pistol and the crossbow\n"
         "; (any ammo, any upgrade), degrees in the controller frame: +X right, +Y up.\n"
         "; The aim follows the dot. Live: F10 HUD tab, Reticle.\n"
-        "OtherItemsX=9.00\n"
-        "OtherItemsY=-53.40\n"
+        "OtherItemsX=0.00\n"
+        "OtherItemsY=-48.00\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -501,12 +501,12 @@ static void WriteDefaultIni(const char* ini)
         "CarryHoldAtHand=1\n"
         "; Where it sits in the hand, in the hand's own frame: cm forward/right/up and a trim in\n"
         "; degrees (pitch/yaw/roll). CarryHoldWorldDepth=1 draws it in the world, not the weapon layer.\n"
-        "CarryHoldForwardCm=-9\n"
-        "CarryHoldRightCm=16\n"
-        "CarryHoldUpCm=-32\n"
-        "CarryHoldPitch=40\n"
-        "CarryHoldYaw=4\n"
-        "CarryHoldRoll=-36\n"
+        "CarryHoldForwardCm=-20.6\n"
+        "CarryHoldRightCm=8.1\n"
+        "CarryHoldUpCm=-28.1\n"
+        "CarryHoldPitch=3.9\n"
+        "CarryHoldYaw=12.7\n"
+        "CarryHoldRoll=-27.6\n"
         "CarryHoldRotate=1\n"
         "CarryHoldWorldDepth=1\n"
         "; CarryHoldKeepPickupAngle=0: the object sits the same way in the hand every time (then the\n"
@@ -514,9 +514,18 @@ static void WriteDefaultIni(const char* ini)
         "CarryHoldKeepPickupAngle=0\n"
         "; CarryHoldAnchor=1: place it from the GAME camera; 0 = from the last render sample (A/B).\n"
         "CarryHoldAnchor=1\n"
+        "; CarryHoldReticleAnchor=1: the hold stays put when [Crosshair] OtherItemsX/Y is re-tuned. It\n"
+        "; is built on the reticle it was tuned at, CarryHoldReticleX/Y (degrees); 0 = it rides the live\n"
+        "; reticle and moves with every reticle change. Live: F10 Aim.\n"
+        "CarryHoldReticleAnchor=1\n"
+        "CarryHoldReticleX=-3.60\n"
+        "CarryHoldReticleY=-37.20\n"
         "; PowersFromHand=1 (VR-44): Windblast, Possession and Devouring Swarm aim along the\n"
         "; weapon ray instead of your view; 0 = head.\n"
         "PowersFromHand=1\n"
+        "; HandRayGameAnchor=1: the hand ray starts from the GAME camera. 0 = from the last render sample,\n"
+        "; which jumps between eyes and made the grab prompt flicker at the edge of reach (A/B only).\n"
+        "HandRayGameAnchor=1\n"
         "PropWatch=0\n"
         "InteractFocus=0\n"
         "[HandTracking]\n"
@@ -857,18 +866,31 @@ static void WriteDefaultIni(const char* ini)
         "Adjust=1\n"
         "AdjStepT=1\n"
         "AdjStepR=3\n"
-        "TrimLTX=0.0400\n"
-        "TrimLRX=8.00\n"
-        "TrimLTY=0.0400\n"
-        "TrimLRY=5.00\n"
-        "TrimLTZ=0.0520\n"
-        "TrimLRZ=1.00\n"
+        "TrimLTX=0.0257\n"
+        "TrimLRX=5.55\n"
+        "TrimLTY=0.0124\n"
+        "TrimLRY=7.52\n"
+        "TrimLTZ=0.0478\n"
+        "TrimLRZ=-1.20\n"
         "TrimRTX=0.0400\n"
         "TrimRRX=-42.00\n"
         "TrimRTY=0.0200\n"
         "TrimRRY=67.00\n"
         "TrimRTZ=0.0120\n"
         "TrimRRZ=3.00\n"
+        "; PowerTrim=1: the LEFT hand uses its own trim, TrimLPT*/TrimLPR*, while it holds a power\n"
+        "; (seeded from TrimL* when absent). The numpad left modes edit it while a power is out; F10\n"
+        "; Hands has sliders for all three. 0 = one left trim for everything.\n"
+        "PowerTrim=1\n"
+        "TrimLPTX=0.0267\n"
+        "TrimLPRX=9.28\n"
+        "TrimLPTY=0.0120\n"
+        "TrimLPRY=-11.20\n"
+        "TrimLPTZ=0.0505\n"
+        "TrimLPRZ=-8.36\n"
+        "; AdjustInView=1: numpad and F10 steps move the hand along your view (right, forward, up, and\n"
+        "; pitch/yaw/roll about them) instead of the tilted palm axes. The stored trim is unchanged in kind.\n"
+        "AdjustInView=1\n"
         "AttachWeapons=1\n"
         "AttachSwordHand=1\n"
         "AttachCrossbowHand=0\n"
@@ -935,6 +957,9 @@ static void WriteDefaultIni(const char* ini)
         "UiScale=1.54\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "DevTools=0\n"
+        "; ReticleWhileOpen=1: the reticle stays on while the F10 panel is up and hides where the panel\n"
+        "; covers it, so it can be tuned beside the panel. 0 = off while the panel is up (as before).\n"
+        "ReticleWhileOpen=1\n"
         "[VRHands]\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "Enabled=0\n"
@@ -1011,7 +1036,7 @@ static void WriteDefaultIni(const char* ini)
         "NoteFastMono=1\n"
         "UiFlags=1\n"
         "PawnFromController=1\n"
-        "CacheNameLookups=0\n"
+        "CacheNameLookups=1\n"
         "\n"
         "; GameOptsOnStart=1 reads the GAME's own option settings into the log once, a few\n"
         "; seconds after gameplay starts. It exists because the tester plays in a headset and\n"
@@ -1063,6 +1088,10 @@ static void WriteDefaultIni(const char* ini)
         "; is not a shake: it glides the camera over stairs and steps, and ships at 1. Live:\n"
         "; `camshake on|off`, `camshake allow <name> on|off`, or F10 > Controls > Camera\n"
         "; shake. `camshake status` says which were measured and which are by name only.\n"
+        "; PopSmoothing (VR-165): 1 lets the game glide the camera back after a collision\n"
+        "; pop (a chain release, a knockback). In VR that glide reads back the mod's own\n"
+        "; offset, never finishes, and leaves the view lifted and swinging; 0 (the\n"
+        "; default) snaps instead. Live: `camshake allow popsmooth on|off`.\n"
         "[CameraShake]\n"
         "Suppress=1\n"
         "Walk=0\n"
@@ -1071,6 +1100,7 @@ static void WriteDefaultIni(const char* ini)
         "Hits=0\n"
         "Generic=1\n"
         "Smoother=1\n"
+        "PopSmoothing=0\n"
         "\n"
         "[Rain]\n"
         "Hide=0\n"
@@ -1849,8 +1879,8 @@ static void LoadConfig()
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
         crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
         crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
-        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", 9.0f);   // VR-189: the tester's tuned position
-        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -53.4f);
+        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", 0.0f);   // VR-189: the tester's tuned position
+        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -48.0f);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -2648,7 +2678,7 @@ static void LoadConfig()
     // VR-93 research: report changes of the screen flags the script dump declares
     // (GAMEPLAY_STATE.md section 9). Read-only, logs changes only.
     g_ufOn = IniFloat(ini, "Menu", "UiFlags", 1) != 0.0f;
-    g_nameIndexCacheOn = IniFloat(ini, "Menu", "CacheNameLookups", 0) != 0.0f;
+    g_nameIndexCacheOn = IniFloat(ini, "Menu", "CacheNameLookups", 1) != 0.0f;   // headset-confirmed 2026-09-22
     Log("config: [Menu] CacheNameLookups=%d - %s", g_nameIndexCacheOn ? 1 : 0,
         g_nameIndexCacheOn ? "reuse validated name IDs" : "scan names for every lookup (legacy)");
     g_pawnFromController = IniFloat(ini, "Menu", "PawnFromController", 1) != 0.0f;
@@ -2865,6 +2895,25 @@ static void LoadConfig()
                         (double)g_mpTrimR[h][a], (double)kMpTrimRotLimit);
             }
         }
+        // The powers trim: its own keys, seeded from the LEFT trim when they are absent, so
+        // turning it on changes nothing until it is edited (mesh_split state, MpTrimTFor).
+        g_mpPowTrimOn = GetPrivateProfileIntA("Hands", "PowerTrim", 1, ini) != 0;
+        g_mpAdjView = GetPrivateProfileIntA("Hands", "AdjustInView", 1, ini) != 0;
+        for (int a = 0; a < 3; a++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "TrimLPT%s", axn[a]);
+            const float reqT = IniFloat(ini, "Hands", k, g_mpTrimT[0][a]);
+            _snprintf(k, sizeof(k), "TrimLPR%s", axn[a]);
+            const float reqR = IniFloat(ini, "Hands", k, g_mpTrimR[0][a]);
+            g_mpTrimPT[a] = Fin::ok(reqT) ? (reqT > kMpTrimPosLimit ? kMpTrimPosLimit : reqT < -kMpTrimPosLimit ? -kMpTrimPosLimit : reqT) : 0.0f;
+            g_mpTrimPR[a] = Fin::ok(reqR) ? (reqR > kMpTrimRotLimit ? kMpTrimRotLimit : reqR < -kMpTrimRotLimit ? -kMpTrimRotLimit : reqR) : 0.0f;
+        }
+        Log("config: powers hand trim %s - translation (%+.1f %+.1f %+.1f) mm rotation "
+            "(%+.2f %+.2f %+.2f) deg, used for the LEFT hand while it holds a power "
+            "([Hands] PowerTrim, TrimLPT*/TrimLPR*; seeded from the left trim when absent)",
+            g_mpPowTrimOn ? "ON" : "off",
+            (double)(g_mpTrimPT[0]*1000.0f), (double)(g_mpTrimPT[1]*1000.0f), (double)(g_mpTrimPT[2]*1000.0f),
+            (double)g_mpTrimPR[0], (double)g_mpTrimPR[1], (double)g_mpTrimPR[2]);
         if (seeded)
             Log("config: the shared hand trim from the previous build "
                 "(TrimTX/TrimRX, %.1f %.1f %.1f mm / %.2f %.2f %.2f deg) was "
@@ -3163,6 +3212,7 @@ static void LoadConfig()
     // retired: the cursor comes from the eye's FOV now, not a gain.
     g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 1) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
+    g_ovlReticle = IniFloat(ini, "Overlay", "ReticleWhileOpen", 1) != 0.0f;
     dvr::vr::set_chord_tap_opens_panel(g_ovlPtrEnable);
     {
         const float ui = IniFloat(ini, "Overlay", "UiScale", 0.0f);   // 0 = from the eye texture
@@ -3664,6 +3714,16 @@ static void OverlaySaveDefaults()
                 _snprintf(v, 64, "%.2f", g_mpTrimR[h][a]);
                 WritePrivateProfileStringA("Hands", key, v, ini);
             }
+        }
+        WritePrivateProfileStringA("Hands", "PowerTrim", g_mpPowTrimOn ? "1" : "0", ini);
+        for (int a = 0; a < 3; a++) {
+            char key[32];
+            _snprintf(key, sizeof(key), "TrimLPT%s", ax[a]);
+            _snprintf(v, 64, "%.4f", g_mpTrimPT[a]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
+            _snprintf(key, sizeof(key), "TrimLPR%s", ax[a]);
+            _snprintf(v, 64, "%.2f", g_mpTrimPR[a]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
         }
         _snprintf(v, 64, "%.2f", g_mpModelScale);
         WritePrivateProfileStringA("Hands", "ModelScale", v, ini);

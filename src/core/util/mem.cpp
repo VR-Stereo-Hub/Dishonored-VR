@@ -22,6 +22,16 @@ bool range_readable(const void* p, size_t n)
     return true;
 }
 
+bool RegionMemo::ok(const void* p, size_t n)
+{
+    const uintptr_t a = (uintptr_t)p;
+    if (a >= lo && a + n <= hi && a + n >= a) return true;
+    if (!range_readable(p, n)) return false;
+    MEMORY_BASIC_INFORMATION m;
+    if (VirtualQuery(p, &m, sizeof(m))) { lo = (uintptr_t)m.BaseAddress; hi = lo + m.RegionSize; }
+    return true;
+}
+
 bool safe_read32(uintptr_t p, uint32_t* out)
 {
     if (p < 0x10000 || (p & 3)) return false;

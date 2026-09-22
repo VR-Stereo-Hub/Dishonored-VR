@@ -165,48 +165,37 @@ static void UiDiscover(void)
     g_uiClsN = 0; g_uiPropN = 0;
     Log("uistate: rebuild gen %d replaces %ld prior movie identities", g_uiGen, previousN);
 
-    // Pass 1: the classes.
-    uint32_t seen = 0;
-    for (uint32_t i = 0; i < onum; ++i) {
-        if ((i & 1023) == 0) {
-            uint32_t left = onum - i; if (left > 1024) left = 1024;
-            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
-        }
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, kClassOff + 4)) continue;
-        ++seen;
-        const char* cn = ObjClassName(o);
-        if (!cn || strcmp(cn, "Class")) continue;
+    // Pass 1: the classes. VR-102: both passes use GObjForEach (one VirtualQuery
+    // per memory region, one name lookup per class); each was a VirtualQuery per
+    // object and the rescan on entering gameplay cost half a second of game thread.
+    const double tLive = MaimNowMs() - t0;
+    const GObjWalkStats w1 = GObjForEach(kClassOff + 4, [&](uint32_t, uint8_t* o, const char* cn) {
+        if (!cn || strcmp(cn, "Class")) return true;
         const char* nm = RangeReadable(o + kNameOff, 4)
                              ? RealName(*(uint32_t*)(o + kNameOff)) : NULL;
-        if (!nm || !strstr(nm, "MoviePlayer")) continue;
-        if (g_uiClsN >= UI_CLS_MAX) break;
+        if (!nm || !strstr(nm, "MoviePlayer")) return true;
+        if (g_uiClsN >= UI_CLS_MAX) return false;
         UiCls* c = &g_uiCls[g_uiClsN++];
         c->obj = o; c->instances = 0;
         _snprintf(c->name, sizeof(c->name), "%s", nm);
         c->name[sizeof(c->name) - 1] = 0;
-    }
+        return true;
+    });
+    const uint32_t seen = w1.visited;
 
     // Pass 2: instances of those classes, and properties declared on them.
-    for (uint32_t i = 0; i < onum; ++i) {
-        if ((i & 1023) == 0) {
-            uint32_t left = onum - i; if (left > 1024) left = 1024;
-            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
-        }
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x80)) continue;
+    const GObjWalkStats w2 = GObjForEach(0x80, [&](uint32_t, uint8_t* o, const char* cn) {
         uint8_t* cls = *(uint8_t**)(o + kClassOff);
         const int ci = UiClsIndex(cls);
-        if (ci >= 0) { g_uiCls[ci].instances++; UiAddInstance(o, cls); continue; }
+        if (ci >= 0) { g_uiCls[ci].instances++; UiAddInstance(o, cls); return true; }
         // A property? Its Outer is the class that declares it.
-        const char* cn = ObjClassName(o);
-        if (!cn || !strstr(cn, "Property")) continue;
+        if (!cn || !strstr(cn, "Property")) return true;
         uint8_t* ou = *(uint8_t**)(o + kOuterOff);
-        if (UiClsIndex(ou) < 0) continue;
-        if (g_uiPropN >= UI_PROP_MAX) continue;
+        if (UiClsIndex(ou) < 0) return true;
+        if (g_uiPropN >= UI_PROP_MAX) return true;
         const char* pn = RangeReadable(o + kNameOff, 4)
                              ? RealName(*(uint32_t*)(o + kNameOff)) : NULL;
-        if (!pn) continue;
+        if (!pn) return true;
         UiProp* p = &g_uiProp[g_uiPropN++];
         p->owner = ou;
         _snprintf(p->name, sizeof(p->name), "%s", pn);
@@ -215,7 +204,8 @@ static void UiDiscover(void)
         p->kind[sizeof(p->kind) - 1] = 0;
         p->off  = *(uint32_t*)(o + kUPropOffset);
         p->mask = strcmp(cn, "BoolProperty") ? 0 : *(uint32_t*)(o + kUBoolBitMask);
-    }
+        return true;
+    });
 
     // CHOOSE THE OPEN BIT, and say why. Preference order is exact first, because
     // "bMovieIsOpen" is the UE3 GFxUI name; anything else is a fallback and the
@@ -247,9 +237,11 @@ static void UiDiscover(void)
     InterlockedExchange((LONG*)&g_uiReadyFlag, 1);
     g_uiReady = true;
 
-    Log("uistate: scan #%d over %u GObjects entries in %.0f ms - %d movie-player "
-        "class(es), %d property(ies) declared on them, %ld live instance(s).",
-        g_uiScans, seen, MaimNowMs() - t0, g_uiClsN, g_uiPropN, g_uiInstN);
+    Log("uistate: scan #%d over %u GObjects entries in %.0f ms (live set %.0f, walks "
+        "%.0f + %.0f) - %d movie-player class(es), %d property(ies) declared on them, "
+        "%ld live instance(s).",
+        g_uiScans, seen, MaimNowMs() - t0, tLive, w1.ms, w2.ms, g_uiClsN, g_uiPropN,
+        g_uiInstN);
     for (int i = 0; i < g_uiClsN; ++i)
         Log("uistate:   class %-36s %d instance(s)", g_uiCls[i].name, g_uiCls[i].instances);
     if (first) {

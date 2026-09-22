@@ -253,23 +253,14 @@ static void GraftDiscover()
     if (RangeReadable(g_skcPlayer[0] + kOuterOff, 4))
         wantOuter = *(uint8_t**)(g_skcPlayer[0] + kOuterOff);
     if (!wantOuter) { Log("graft: hand control has no Outer - no census"); return; }
-    void**   objs = *(void***)kGObjHdr;
-    uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
-    if (((uintptr_t)objs & 3) || num < 2000 || num > 4000000) return;
     int logged = 0;
     Log("graft: ==== SkelControls in the same tree (Outer %p) ====",
         (void*)wantOuter);
-    for (uint32_t i = 0; i < num && logged < 48; i++) {
-        if ((i & 1023) == 0) {
-            uint32_t left = num - i; if (left > 1024) left = 1024;
-            if (!RangeReadable(objs + i, left * sizeof(void*))) break;
-        }
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x100)) continue;
-        if (!RangeReadable(o + kOuterOff, 4) ||
-            *(uint8_t**)(o + kOuterOff) != wantOuter) continue;
-        const char* cn = ObjClassName(o);
-        if (!cn || strncmp(cn, "SkelControl", 11)) continue;
+    // VR-102: GObjForEach, not a VirtualQuery per object - see gobj_walk.h
+    const GObjWalkStats treeWalk = GObjForEach(0x100, [&](uint32_t, uint8_t* o, const char* cn) {
+        if (logged >= 48) return false;
+        if (*(uint8_t**)(o + kOuterOff) != wantOuter) return true;
+        if (!cn || strncmp(cn, "SkelControl", 11)) return true;
         const char* nm = RealName(*(uint32_t*)(o + kNameOff));
         float st = offStr && RangeReadable(o + offStr, 4)
                  ? *(float*)(o + offStr) : -99.0f;
@@ -279,9 +270,10 @@ static void GraftDiscover()
         Log("graft:   %p %-32s %-26s strength=%.2f%s", (void*)o,
             nm ? nm : "?", cn, st, isOurs ? "  [= our hand ctl]" : "");
         logged++;
-    }
-    Log("graft: ==== census done (%d) - pick donors from this list ====",
-        logged);
+        return true;
+    });
+    Log("graft: ==== census done (%d, walk %.0f ms) - pick donors from this list ====",
+        logged, treeWalk.ms);
 
     // 35.6: the same-tree census came back with ONLY our three controls -
     // Dishonored's player FP tree has no spare controls to borrow, unlike
@@ -297,15 +289,8 @@ static void GraftDiscover()
         char clsNames[12][40]; int clsCounts[12]; int clsN = 0;
         int shown = 0, total = 0;
         Log("graft: ==== GLOBAL SkelControl census ====");
-        for (uint32_t i = 0; i < num; i++) {
-            if ((i & 1023) == 0) {
-                uint32_t left = num - i; if (left > 1024) left = 1024;
-                if (!RangeReadable(objs + i, left * sizeof(void*))) break;
-            }
-            uint8_t* o = (uint8_t*)objs[i];
-            if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x100)) continue;
-            const char* cn = ObjClassName(o);
-            if (!cn || strncmp(cn, "SkelControl", 11)) continue;
+        const GObjWalkStats globalWalk = GObjForEach(0x100, [&](uint32_t i, uint8_t* o, const char* cn) {
+            if (!cn || strncmp(cn, "SkelControl", 11)) return true;
             total++;
             int ci = -1;
             for (int k = 0; k < clsN; k++)
@@ -343,10 +328,11 @@ static void GraftDiscover()
                     shown++;
                 }
             }
-        }
+            return true;
+        });
         for (int k = 0; k < clsN; k++)
             Log("graft: GLOBAL class %-34s x%d", clsNames[k], clsCounts[k]);
-        Log("graft: ==== GLOBAL census done (%d SkelControls total) ====",
-            total);
+        Log("graft: ==== GLOBAL census done (%d SkelControls total, walk %.0f ms) ====",
+            total, globalWalk.ms);
     }
 }

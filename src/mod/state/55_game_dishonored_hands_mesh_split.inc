@@ -768,6 +768,30 @@ static float    g_mpTrimR[2][3] = { { 0.0f, 0.0f, 0.0f },   // degrees, XYZ
 // Translation keeps its own bound: this changes rotation only.
 static const float kMpTrimRotLimit = 180.0f;
 static const float kMpTrimPosLimit = 0.25f;
+
+// THE POWERS TRIM. A second LEFT-hand trim used only while the left hand holds a power (the
+// DisItemPowers inventory item is in the equipped socket; read by RflStateTick). Casting poses
+// hold the hand differently from a gadget or a pistol, so one left trim could not suit both.
+// Same frame, units and limits as g_mpTrimT/R[0]. Seeded from the left trim when its keys are
+// absent, so turning it on moves nothing until it is edited. [Hands] PowerTrim=0 uses the one
+// left trim for everything, as before. Edited by the numpad (left modes, while a power is held)
+// and by F10 Hands.
+static float    g_mpTrimPT[3] = { 0.0f, 0.0f, 0.0f };   // metres, palm frame
+static float    g_mpTrimPR[3] = { 0.0f, 0.0f, 0.0f };   // degrees, XYZ
+static bool     g_mpPowTrimOn = true;                     // [Hands] PowerTrim
+// [Hands] AdjustInView=1: a numpad or F10 step moves the hand along YOUR view's right/forward/up
+// (and turns it about them), converted into the palm-frame trim at the press. 0 = the raw palm axes.
+static bool     g_mpAdjView = true;
+// -1 unknown (no equipment read yet), 0 no, 1 the left hand holds a power. Script lane writes,
+// the draw and present lanes read.
+static volatile LONG g_rflPowerHeld = -1;
+static inline bool MpPowerTrimActive(int hand)
+{
+    return hand == 0 && g_mpPowTrimOn && g_rflPowerHeld == 1;
+}
+// The trim that applies to this hand NOW: the powers trim for a left hand holding a power.
+static inline float* MpTrimTFor(int hand) { return MpPowerTrimActive(hand) ? g_mpTrimPT : g_mpTrimT[hand]; }
+static inline float* MpTrimRFor(int hand) { return MpPowerTrimActive(hand) ? g_mpTrimPR : g_mpTrimR[hand]; }
 // Where the old bound sat. Crossing it is worth one rate-limited NOTICE and is not
 // an error: a large trim is retained, not refused.
 static const float kMpTrimRotNotice = 45.0f;
