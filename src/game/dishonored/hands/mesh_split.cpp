@@ -2898,10 +2898,11 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // what lets a held weapon be placed before either hand has drawn.
         // The trim's translation is metres in the palm frame; k converts it
         // once, through the same effective scale the position path uses.
-        const float trimUU[3] = { g_mpTrimT[hand][0] * k, g_mpTrimT[hand][1] * k,
-                                  g_mpTrimT[hand][2] * k };
-        const dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(
-            g_mpTrimR[hand][0], g_mpTrimR[hand][1], g_mpTrimR[hand][2]);
+        // The powers trim replaces the left trim while a power is held (MpTrimTFor).
+        const float* tT = MpTrimTFor(hand);
+        const float* tR = MpTrimRFor(hand);
+        const float trimUU[3] = { tT[0] * k, tT[1] * k, tT[2] * k };
+        const dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(tR[0], tR[1], tR[2]);
         const dvr::hf::Xform target = dvr::hf::palm_target(O_C, Guse, dcam,
                                                            trimR, trimUU);
         g_mpPalmTarget[hand] = target;
@@ -3700,8 +3701,8 @@ static void MpPublishHandCal(int hand)
     MpHandCal c;
     c.G = g_mpGrip[hand];
     for (int i = 0; i < 3; i++) {
-        c.trimRdeg[i] = g_mpTrimR[hand][i];
-        c.trimTm[i]   = g_mpTrimT[hand][i];
+        c.trimRdeg[i] = MpTrimRFor(hand)[i];
+        c.trimTm[i]   = MpTrimTFor(hand)[i];
     }
     c.haveGrip = g_mpGripHave[hand];
     AcquireSRWLockExclusive(&g_mpCalLock);
@@ -3855,6 +3856,26 @@ static void MpCalibTick(void)
         }
     }
 
+    // ---- THE POWERS TRIM: follow the left hand's item --------------------
+    // The draw reads MpTrimTFor directly; the aim lane reads the published snapshot, so a change
+    // of item has to republish it or the reticle would keep the other trim.
+    {
+        static int was = -2;
+        const int now = MpPowerTrimActive(0) ? 1 : 0;
+        if (now != was) {
+            if (was != -2 || now)
+                Log("ms/palette/power: the left hand %s - it uses the %s trim, translation "
+                    "(%+.1f %+.1f %+.1f) mm rotation (%+.2f %+.2f %+.2f) deg (held=%ld, [Hands] PowerTrim=%d)",
+                    now ? "holds a POWER" : "does not hold a power", now ? "POWERS" : "LEFT",
+                    (double)(MpTrimTFor(0)[0]*1000.0f), (double)(MpTrimTFor(0)[1]*1000.0f),
+                    (double)(MpTrimTFor(0)[2]*1000.0f),
+                    (double)MpTrimRFor(0)[0], (double)MpTrimRFor(0)[1], (double)MpTrimRFor(0)[2],
+                    (long)g_rflPowerHeld, (int)g_mpPowTrimOn);
+            was = now;
+            MpPublishHandCal(0);
+        }
+    }
+
     // ---- THE NUMPAD ADJUST -------------------------------------------------
     const LONG req = InterlockedExchange(&g_mpAdjReq, 0);
     if (!req) return;
@@ -3871,10 +3892,13 @@ static void MpCalibTick(void)
             (g_mpAdjMode & 1) ? (double)kMpAdjStepR[g_mpAdjStepR]
                               : (double)(kMpAdjStepT[g_mpAdjStepT] * 100.0f),
             (g_mpAdjMode & 1) ? "deg" : "cm",
-            (double)(g_mpTrimT[mh][0]*1000.0f), (double)(g_mpTrimT[mh][1]*1000.0f),
-            (double)(g_mpTrimT[mh][2]*1000.0f),
-            (double)g_mpTrimR[mh][0], (double)g_mpTrimR[mh][1],
-            (double)g_mpTrimR[mh][2]);
+            (double)(MpTrimTFor(mh)[0]*1000.0f), (double)(MpTrimTFor(mh)[1]*1000.0f),
+            (double)(MpTrimTFor(mh)[2]*1000.0f),
+            (double)MpTrimRFor(mh)[0], (double)MpTrimRFor(mh)[1],
+            (double)MpTrimRFor(mh)[2]);
+        if (MpPowerTrimActive(mh))
+            Log("ms/palette/adjust: a POWER is in the left hand, so the left keys edit the POWERS "
+                "trim ([Hands] TrimLP*); the left trim for everything else is untouched.");
         return;
     }
 
@@ -3910,7 +3934,8 @@ static void MpCalibTick(void)
     const int   ax   = kMpAdjAxis[bit];
     const float step = rot ? kMpAdjStepR[g_mpAdjStepR]
                            : kMpAdjStepT[g_mpAdjStepT];
-    float* cell  = rot ? &g_mpTrimR[h][ax] : &g_mpTrimT[h][ax];
+    const bool powerCell = MpPowerTrimActive(h);   // a power in the left hand: its own trim
+    float* cell  = rot ? &MpTrimRFor(h)[ax] : &MpTrimTFor(h)[ax];
     const float before = *cell;
     *cell += kMpAdjSign[bit] * step;
 
@@ -3962,7 +3987,7 @@ static void MpCalibTick(void)
     static const char* tk[3] = { "TX", "TY", "TZ" };
     static const char* rk[3] = { "RX", "RY", "RZ" };
     char key[32], v[64];
-    _snprintf(key, sizeof(key), "Trim%s%s", h ? "R" : "L", rot ? rk[ax] : tk[ax]);
+    _snprintf(key, sizeof(key), "Trim%s%s", h ? "R" : (powerCell ? "LP" : "L"), rot ? rk[ax] : tk[ax]);
     _snprintf(v, sizeof(v), rot ? "%.2f" : "%.4f", (double)*cell);
     ConfigWriteKey("Hands", key, v, "the numpad adjust");
 
@@ -3977,13 +4002,91 @@ static void MpCalibTick(void)
         (double)(*cell * (rot ? 1.0f : 100.0f)), rot ? "deg" : "cm",
         (double)(before * (rot ? 1.0f : 100.0f)),
         (double)(step * (rot ? 1.0f : 100.0f)),
-        h ? "RIGHT" : "LEFT",
-        (double)(g_mpTrimT[h][0]*1000.0f), (double)(g_mpTrimT[h][1]*1000.0f),
-        (double)(g_mpTrimT[h][2]*1000.0f),
-        (double)g_mpTrimR[h][0], (double)g_mpTrimR[h][1],
-        (double)g_mpTrimR[h][2], key);
+        h ? "RIGHT" : (powerCell ? "LEFT (power)" : "LEFT"),
+        (double)(MpTrimTFor(h)[0]*1000.0f), (double)(MpTrimTFor(h)[1]*1000.0f),
+        (double)(MpTrimTFor(h)[2]*1000.0f),
+        (double)MpTrimRFor(h)[0], (double)MpTrimRFor(h)[1],
+        (double)MpTrimRFor(h)[2], key);
 }
 
+
+// F10 Hands: the numpad adjust as sliders, for the left trim, the right trim and the left
+// trim used while a power is held. Present lane (the overlay's draw callback), like the numpad.
+// A slider moves the hand live; the value is written to the ini when the slider is released.
+static void MpTrimPanel()
+{
+    ImGui::SeparatorText("Hand model position");
+    bool pt = g_mpPowTrimOn;
+    if (ImGui::Checkbox("Separate left-hand position for powers", &pt)) {
+        g_mpPowTrimOn = pt;
+        ConfigWriteKey("Hands", "PowerTrim", pt ? "1" : "0", "F10 Hands");
+        MpPublishHandCal(0);
+    }
+    // Which trim the sliders edit. Until one is picked it follows the left hand's item, so
+    // opening the panel with a power out edits the powers position, as the numpad does.
+    static int picked = -1;
+    const int inUse = MpPowerTrimActive(0) ? 2 : 0;
+    const int edit = picked < 0 ? inUse : picked;
+    static const char* const kWhich[3] = { "Left", "Right", "Left, powers" };
+    for (int i = 0; i < 3; ++i) {
+        if (i == 2 && !g_mpPowTrimOn) continue;
+        if (i) ImGui::SameLine();
+        char lbl[48];
+        _snprintf(lbl, sizeof(lbl), "%s%s##mptrim%d", kWhich[i], (i == inUse) ? " (in use)" : "", i);
+        lbl[sizeof(lbl) - 1] = 0;
+        if (ImGui::RadioButton(lbl, edit == i)) picked = i;
+    }
+    const int e = (edit == 2 && !g_mpPowTrimOn) ? 0 : edit;
+    const int hand = (e == 1) ? 1 : 0;
+    float* T = (e == 2) ? g_mpTrimPT : g_mpTrimT[hand];
+    float* R = (e == 2) ? g_mpTrimPR : g_mpTrimR[hand];
+    const char* pre = (e == 2) ? "LP" : (hand ? "R" : "L");
+    if (e == 2 && inUse != 2)
+        ImGui::TextDisabled("applies while a power is in the left hand (none is now)");
+    else if (e == 0 && inUse == 2)
+        ImGui::TextDisabled("applies to the left hand without a power (a power is out now)");
+    // Labelled in the hand's own frame, as the numpad log names them (MpTrimAxisName).
+    static const char* const kT[3] = { "right / left (cm)", "forward / back (cm)", "up / down (cm)" };
+    static const char* const kR[3] = { "pitch (deg)", "roll (deg)", "yaw (deg)" };
+    static const char* const kAx[3] = { "X", "Y", "Z" };
+    for (int a = 0; a < 6; ++a) {
+        const bool rot = a >= 3;
+        const int ax = a % 3;
+        float v = rot ? R[ax] : T[ax] * 100.0f;
+        const float lim = rot ? kMpTrimRotLimit : kMpTrimPosLimit * 100.0f;
+        char lbl[48];
+        _snprintf(lbl, sizeof(lbl), "%s##mptrim%c%d", rot ? kR[ax] : kT[ax], rot ? 'r' : 't', ax);
+        lbl[sizeof(lbl) - 1] = 0;
+        if (ImGui::SliderFloat(lbl, &v, -lim, lim, rot ? "%+.1f" : "%+.1f")) {
+            if (rot) R[ax] = v; else T[ax] = v / 100.0f;
+            MpPublishHandCal(hand);   // the reticle rides the trim, so the aim lane needs it now
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            char key[32], val[32];
+            _snprintf(key, sizeof(key), "Trim%s%s%s", pre, rot ? "R" : "T", kAx[ax]);
+            _snprintf(val, sizeof(val), rot ? "%.2f" : "%.4f", (double)(rot ? R[ax] : T[ax]));
+            ConfigWriteKey("Hands", key, val, "F10 Hands");
+            Log("ms/palette/adjust: F10 set [Hands] %s = %s (%s)", key, val,
+                e == 2 ? "LEFT hand with a power" : hand ? "RIGHT hand" : "LEFT hand");
+        }
+    }
+    if (e == 2 && ImGui::Button("Start from the left hand's position")) {
+        static const char* const kKey[2] = { "T", "R" };
+        for (int a = 0; a < 3; ++a) {
+            g_mpTrimPT[a] = g_mpTrimT[0][a];
+            g_mpTrimPR[a] = g_mpTrimR[0][a];
+            for (int r = 0; r < 2; ++r) {
+                char key[32], val[32];
+                _snprintf(key, sizeof(key), "TrimLP%s%s", kKey[r], kAx[a]);
+                _snprintf(val, sizeof(val), r ? "%.2f" : "%.4f", (double)(r ? g_mpTrimPR[a] : g_mpTrimPT[a]));
+                ConfigWriteKey("Hands", key, val, "F10 Hands");
+            }
+        }
+        MpPublishHandCal(0);
+        Log("ms/palette/adjust: F10 copied the left trim into the powers trim");
+    }
+    ImGui::TextDisabled("moves the hand and what it holds; the reticle follows it");
+}
 
 static void MsTick(void)
 {

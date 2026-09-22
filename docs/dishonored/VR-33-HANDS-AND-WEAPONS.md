@@ -95,6 +95,20 @@ Numpad 0 and its mode cycle moves to Numpad 1. One startup line names all of it.
 **F5 was the first binding and was unusable** - it is the game's quicksave and
 `head_track.cpp` reads it twice, so one press fired three features.
 
+**The powers trim (2026-09-22).** The left hand has a second trim, `[Hands]
+TrimLPT*/TrimLPR*`, used instead of `TrimL*` while it holds a power (the
+`DisItemPowers` item in the equipped socket, ENGINE_NOTES). A casting hand needs a
+different pose from a pistol or a gadget, and one left trim could not suit both. When
+its keys are absent they are seeded from the left trim, so turning it on moves
+nothing. While a power is out, the numpad's two left modes edit it, and the log names
+it `LEFT (power)`. `[Hands] PowerTrim=0` goes back to one left trim. The aim lane reads
+the published snapshot, so `MpCalibTick` republishes it when the item changes.
+`ms/palette/power:` logs each switch.
+
+**F10 Hands has the same adjust as sliders**: Left, Right and "Left, powers". The
+radio button follows the left hand's current item until one is picked. A slider moves
+the hand live, and releasing it writes the ini key.
+
 ### The model scale
 
 `[Hands] ModelScale`, one uniform factor about the target palm, applied to the

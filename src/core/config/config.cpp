@@ -875,6 +875,10 @@ static void WriteDefaultIni(const char* ini)
         "TrimRRY=67.00\n"
         "TrimRTZ=0.0120\n"
         "TrimRRZ=3.00\n"
+        "; PowerTrim=1: the LEFT hand uses its own trim, TrimLPT*/TrimLPR*, while it holds a power\n"
+        "; (seeded from TrimL* when absent). The numpad left modes edit it while a power is out; F10\n"
+        "; Hands has sliders for all three. 0 = one left trim for everything.\n"
+        "PowerTrim=1\n"
         "AttachWeapons=1\n"
         "AttachSwordHand=1\n"
         "AttachCrossbowHand=0\n"
@@ -2876,6 +2880,24 @@ static void LoadConfig()
                         (double)g_mpTrimR[h][a], (double)kMpTrimRotLimit);
             }
         }
+        // The powers trim: its own keys, seeded from the LEFT trim when they are absent, so
+        // turning it on changes nothing until it is edited (mesh_split state, MpTrimTFor).
+        g_mpPowTrimOn = GetPrivateProfileIntA("Hands", "PowerTrim", 1, ini) != 0;
+        for (int a = 0; a < 3; a++) {
+            char k[32];
+            _snprintf(k, sizeof(k), "TrimLPT%s", axn[a]);
+            const float reqT = IniFloat(ini, "Hands", k, g_mpTrimT[0][a]);
+            _snprintf(k, sizeof(k), "TrimLPR%s", axn[a]);
+            const float reqR = IniFloat(ini, "Hands", k, g_mpTrimR[0][a]);
+            g_mpTrimPT[a] = Fin::ok(reqT) ? (reqT > kMpTrimPosLimit ? kMpTrimPosLimit : reqT < -kMpTrimPosLimit ? -kMpTrimPosLimit : reqT) : 0.0f;
+            g_mpTrimPR[a] = Fin::ok(reqR) ? (reqR > kMpTrimRotLimit ? kMpTrimRotLimit : reqR < -kMpTrimRotLimit ? -kMpTrimRotLimit : reqR) : 0.0f;
+        }
+        Log("config: powers hand trim %s - translation (%+.1f %+.1f %+.1f) mm rotation "
+            "(%+.2f %+.2f %+.2f) deg, used for the LEFT hand while it holds a power "
+            "([Hands] PowerTrim, TrimLPT*/TrimLPR*; seeded from the left trim when absent)",
+            g_mpPowTrimOn ? "ON" : "off",
+            (double)(g_mpTrimPT[0]*1000.0f), (double)(g_mpTrimPT[1]*1000.0f), (double)(g_mpTrimPT[2]*1000.0f),
+            (double)g_mpTrimPR[0], (double)g_mpTrimPR[1], (double)g_mpTrimPR[2]);
         if (seeded)
             Log("config: the shared hand trim from the previous build "
                 "(TrimTX/TrimRX, %.1f %.1f %.1f mm / %.2f %.2f %.2f deg) was "
@@ -3675,6 +3697,16 @@ static void OverlaySaveDefaults()
                 _snprintf(v, 64, "%.2f", g_mpTrimR[h][a]);
                 WritePrivateProfileStringA("Hands", key, v, ini);
             }
+        }
+        WritePrivateProfileStringA("Hands", "PowerTrim", g_mpPowTrimOn ? "1" : "0", ini);
+        for (int a = 0; a < 3; a++) {
+            char key[32];
+            _snprintf(key, sizeof(key), "TrimLPT%s", ax[a]);
+            _snprintf(v, 64, "%.4f", g_mpTrimPT[a]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
+            _snprintf(key, sizeof(key), "TrimLPR%s", ax[a]);
+            _snprintf(v, 64, "%.2f", g_mpTrimPR[a]);
+            WritePrivateProfileStringA("Hands", key, v, ini);
         }
         _snprintf(v, 64, "%.2f", g_mpModelScale);
         WritePrivateProfileStringA("Hands", "ModelScale", v, ini);

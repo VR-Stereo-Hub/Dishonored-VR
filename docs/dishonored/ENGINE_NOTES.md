@@ -4756,6 +4756,20 @@ slot[5] requires 0 | DishonoredWepPistol  -> own usage 0, socket 0
 The slot constraint and the item state are plainly different things, and only the
 item is the answer.
 
+### A power in the hand is the `DisItemPowers` item, equipped (2026-09-22, NOT YET MEASURED)
+
+Powers are ONE inventory item, `DisItemPowers` (`m_pCurrentActivePower`,
+`m_iPowerSlot`), whichever power is selected. The dumps above only ever caught it at
+socket 0, with a ranged weapon in the Secondary hand. The Primary/Secondary report
+never names it, and runs with Blink selected still read `Secondary none`.
+
+The prediction the powers hand trim is built on: while a power is in the left hand,
+`DisItemPowers` reads socket 1 (Equipped). `RflStateTick` treats that item in the
+equipped socket as "a power in the left hand", whatever its usage byte. It logs
+`rfl/state: the left hand holds a POWER` on each change. If a power is visibly out
+and that line never appears, the prediction is wrong, and the socket or usage the
+item actually carries has to be read from the slot dump.
+
 
 ## THE MONO WINDOW AT A LOAD IS A GHOST MENU FLAG (VR-62, 2026-09-08)
 

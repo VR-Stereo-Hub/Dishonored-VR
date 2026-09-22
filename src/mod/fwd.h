@@ -103,6 +103,7 @@ static bool SceneDrawCommand(const char* args);
 static bool DvrGameplayVerdict();
 static void FrameDumpRequest(const char* what);
 static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who);   // 41.1 (session 9)
+static void MpTrimPanel();   // F10 Hands: the numpad hand adjust as sliders (mesh_split)
 static void FrameDumpTick(IDirect3DDevice9* dev);
 
 static inline bool SkcAlive(int slot);

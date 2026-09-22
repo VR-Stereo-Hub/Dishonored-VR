@@ -856,6 +856,7 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     ImGui::Checkbox("Correct weapon-specific lens", &g_waViewLens);
     ImGui::SliderFloat("hand / weapon size", &g_mpModelScale, 0.4f, 1.6f, "%.2f");
     ImGui::TextDisabled("hands AND held weapons, about the tracked palm - not the world scale");
+    MpTrimPanel();   // the numpad hand adjust, as sliders (left, right, left with a power)
     ImGui::Separator();
     if (!g_skcPlayerN) {
         ImGui::TextDisabled("finding the hand controls... load a save and");

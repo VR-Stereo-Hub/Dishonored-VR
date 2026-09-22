@@ -264,6 +264,7 @@ static void RflStateTick(void)
     int heldSock[3] = {};
     for (int i = 0; i < 3; ++i) found[i][0] = 0;
     int usable = 0, stride = g_rflStride;
+    LONG powerHeld = 0;   // the DisItemPowers item in the equipped socket: a power in the left hand
     const int nCand = (int)(sizeof(kRflStrideCandidates) /
                             sizeof(kRflStrideCandidates[0]));
 
@@ -272,6 +273,7 @@ static void RflStateTick(void)
         int hits = 0;
         for (int i = 0; i < 3; ++i)
             { found[i][0] = 0; heldObj[i] = NULL; heldSock[i] = 0; }
+        powerHeld = 0;
         for (int i = 0; i < num && i < 64; ++i) {
             uint8_t* slot = data + (size_t)i * (size_t)s;
             if (!RangeReadable(slot, (size_t)s)) break;
@@ -293,6 +295,12 @@ static void RflStateTick(void)
                 !RangeReadable(item + sOff, 1)) continue;
             const int usage  = (int)*(uint8_t*)(item + uOff);
             const int socket = (int)*(uint8_t*)(item + sOff);
+            // Powers are ONE inventory item (DisItemPowers) whatever power is selected, and the
+            // Primary/Secondary report below never names it. Equipped = drawn in the left hand.
+            if (socket == RFL_SOCKET_EQUIPPED) {
+                const char* pc = ObjClassName(item);
+                if (pc && !strcmp(pc, "DisItemPowers")) powerHeld = 1;
+            }
             if (usage < 0 || usage > 2) continue;
             const char* cn = ObjClassName(item);
             const char* nm = RealName(RangeReadable(item + kNameOff, 4)
@@ -372,6 +380,10 @@ static void RflStateTick(void)
     }
 
     g_rflState.ok = true;
+    if (InterlockedExchange(&g_rflPowerHeld, powerHeld) != powerHeld)
+        Log("rfl/state: the left hand %s (DisItemPowers %s) - the powers hand trim follows this",
+            powerHeld ? "holds a POWER" : "does not hold a power",
+            powerHeld ? "in the equipped socket" : "not equipped");
     _snprintf(g_rflWhy, sizeof(g_rflWhy),
               "reading %d slot(s), %d usable, stride %d, m_pInventory via '%s'",
               (int)num, usable, stride, which ? which : "?");
