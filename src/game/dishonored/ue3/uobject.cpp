@@ -226,6 +226,68 @@ static bool LooksLikeObj(uint8_t* p)
 
 
 #include "game/dishonored/ue3/name_index_cache.h"
+#include <string>
+#include <unordered_map>
+
+// ---- VR-102: what the startup freeze was made of --------------------------------------
+// Every name lookup walked the whole GNames table, and every property lookup the whole
+// GObjects table, each entry behind a VirtualQuery (RangeReadable). About 100 ms per
+// lookup on this build, and the mod does well over a hundred one-time lookups in its
+// first minute - the 10-15 s freeze after launch (measured 2026-09-22: 14.5 s without a
+// game frame, the log advancing one `rfl:` line per ~100 ms). The counters below make that
+// arithmetic on every run, lever on or off; LookupCostReport prints them at each game-state
+// change. With [Menu] CacheNameLookups=1 a lookup is a hash probe into indexes built ONCE.
+static LONG   g_luNameScans = 0, g_luPropWalks = 0, g_luIndexHits = 0, g_luIndexBuilds = 0;
+static double g_luNameMs = 0.0, g_luPropMs = 0.0, g_luBuildMs = 0.0;
+static double LuNowMs()
+{
+    static LARGE_INTEGER f = {}; if (!f.QuadPart) QueryPerformanceFrequency(&f);
+    LARGE_INTEGER c; QueryPerformanceCounter(&c);
+    return (double)c.QuadPart * 1000.0 / (double)f.QuadPart;
+}
+
+// A readability memo for a tight loop: one VirtualQuery per memory region instead of
+// one per entry. Only for a loop on one thread over tables the engine does not free
+// under it (GNames entries are never freed; see the object walk's note).
+struct LuRegion {
+    uintptr_t lo = 0, hi = 0;
+    bool ok(const void* p, size_t n) {
+        const uintptr_t a = (uintptr_t)p;
+        if (a >= lo && a + n <= hi && a + n >= a) return true;
+        if (!RangeReadable(p, n)) return false;
+        MEMORY_BASIC_INFORMATION m;
+        if (VirtualQuery(p, &m, sizeof(m))) { lo = (uintptr_t)m.BaseAddress; hi = lo + m.RegionSize; }
+        return true;
+    }
+};
+
+// The full name index: every printable GNames entry once, extended (never rescanned)
+// when the table grows. The FIRST index a string appears at wins, which is what the
+// legacy scan from index 1 upward returned. A hit is re-read from GNames before use.
+static SRWLOCK g_luNameLock = SRWLOCK_INIT;
+static std::unordered_map<std::string, uint32_t>* g_luNames = nullptr;
+static uint32_t g_luNamesBuiltTo = 1;
+
+static void LuExtendNames(uint32_t num)
+{
+    if (!g_luNames) { g_luNames = new std::unordered_map<std::string, uint32_t>(); g_luNames->reserve(262144); }
+    if (num <= g_luNamesBuiltTo) return;
+    const double t0 = LuNowMs();
+    void** nameData = *(void***)kGNamesData;
+    LuRegion rd, re;
+    const uint32_t from = g_luNamesBuiltTo;
+    for (uint32_t i = from; i < num; ++i) {
+        if (!rd.ok(nameData + i, sizeof(void*))) continue;
+        uint8_t* e = (uint8_t*)nameData[i];
+        if (!e || !re.ok(e, 0x50) || (*(uint32_t*)(e + 8) >> 1) != i) continue;
+        const char* nm = (const char*)(e + 0x10);
+        if (PrintableName(nm)) g_luNames->emplace(nm, i);
+    }
+    g_luNamesBuiltTo = num;
+    InterlockedIncrement(&g_luIndexBuilds);
+    const double ms = LuNowMs() - t0; g_luBuildMs += ms;
+    Log("lookup/index: names %u..%u indexed in %.0f ms (%zu distinct) - [Menu] CacheNameLookups=1", from, num, ms, g_luNames->size());
+}
 
 static uint32_t FindNameIdx(const char* want)
 {
@@ -233,23 +295,109 @@ static uint32_t FindNameIdx(const char* want)
     if (!RangeReadable((void*)kGNamesData, 8)) return 0xffffffffu;
     uint32_t num = *(uint32_t*)kGNamesNum;
     if (num == 0 || num > 4000000) return 0xffffffffu;
-    // Warm positive hints during scans already needed at startup, instead of
-    // walking GNames twice for every reflected property. Both lanes call here.
-    static SRWLOCK cacheLock = SRWLOCK_INIT;
-    static dvr::ue3::NameIndexCache<> cache;
-    const bool useCache = g_nameIndexCacheOn;
-    if (useCache) AcquireSRWLockExclusive(&cacheLock);
-    struct Unlock { SRWLOCK* p; ~Unlock() { if (p) ReleaseSRWLockExclusive(p); } } unlock{useCache ? &cacheLock : nullptr};
-    if (useCache) {
-        const uint32_t cached = cache.find(want, NameFromIndex);
-        if (cached != 0xffffffffu) return cached;
+    if (g_nameIndexCacheOn) {
+        AcquireSRWLockExclusive(&g_luNameLock);
+        struct Unlock { ~Unlock() { ReleaseSRWLockExclusive(&g_luNameLock); } } unlock;
+        for (int pass = 0; pass < 2; ++pass) {
+            if (g_luNames) {
+                auto it = g_luNames->find(want);
+                if (it != g_luNames->end()) {
+                    const char* nm = NameFromIndex(it->second);
+                    if (nm && !strcmp(nm, want)) { InterlockedIncrement(&g_luIndexHits); return it->second; }
+                }
+            }
+            if (pass == 0) LuExtendNames(num);   // absent: index what the table gained, then ask once more
+        }
+        return 0xffffffffu;   // the whole table is indexed: absent means absent
     }
+    // Legacy: a full scan per lookup (the freeze). Timed, so the A/B is arithmetic.
+    const double t0 = LuNowMs();
+    uint32_t found = 0xffffffffu;
     for (uint32_t i = 1; i < num; i++) {
         const char* nm = NameFromIndex(i);
-        if (useCache && nm && PrintableName(nm)) cache.remember(nm, i);
-        if (nm && !strcmp(nm, want)) return i;
+        if (nm && !strcmp(nm, want)) { found = i; break; }
     }
-    return 0xffffffffu;
+    InterlockedIncrement(&g_luNameScans); g_luNameMs += LuNowMs() - t0;
+    return found;
+}
+
+// The property index: (declaring outer's name index, property name index) -> the FIRST
+// matching property in GObjects order, as the legacy walks return, for any property class
+// and separately for BoolProperty (FindBoolProp's rule). Built in one walk; the class
+// verdict is cached per class object, so ObjClassName runs once per distinct class. Only
+// offsets and masks are kept, never object pointers, so a later GC cannot stale an answer.
+// A miss falls back to the legacy walk (a class loaded after the build), and a table
+// that has grown by more than 2000 objects since the build is re-indexed first.
+struct LuProp { uint32_t off = 0; bool any = false; uint32_t boolOff = 0, boolMask = 0; bool isBool = false; };
+static SRWLOCK g_luPropLock = SRWLOCK_INIT;
+static std::unordered_map<uint64_t, LuProp>* g_luProps = nullptr;
+static uint32_t g_luPropsBuiltAt = 0;
+static bool g_luPropsBad = false;   // the self-check disagreed: legacy only for the session
+
+static void LuBuildProps(void** objs, uint32_t onum)
+{
+    const double t0 = LuNowMs();
+    auto* m = new std::unordered_map<uint64_t, LuProp>(); m->reserve(65536);
+    std::unordered_map<uint8_t*, uint8_t> clsVerdict;   // 0 not a property, 1 a property, 2 BoolProperty
+    LuRegion ra, ro;
+    for (uint32_t i = 0; i < onum; i++) {
+        if (!ra.ok(objs + i, sizeof(void*))) continue;
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !ro.ok(o, 0x80)) continue;
+        uint8_t* cls = *(uint8_t**)(o + kClassOff);
+        auto cv = clsVerdict.find(cls);
+        uint8_t v;
+        if (cv == clsVerdict.end()) {
+            const char* pc = ObjClassName(o);
+            v = !pc || !strstr(pc, "Property") ? 0 : !strcmp(pc, "BoolProperty") ? 2 : 1;
+            clsVerdict.emplace(cls, v);
+        } else v = cv->second;
+        if (!v) continue;
+        uint8_t* ou = *(uint8_t**)(o + kOuterOff);
+        if (!ou || ((uintptr_t)ou & 3) || !RangeReadable(ou, kNameOff + 4)) continue;
+        const uint64_t key = ((uint64_t)*(uint32_t*)(ou + kNameOff) << 32) | *(uint32_t*)(o + kNameOff);
+        LuProp& e = (*m)[key];
+        if (!e.any) { e.any = true; e.off = *(uint32_t*)(o + kUPropOffset); }
+        if (v == 2 && !e.isBool) { e.isBool = true; e.boolOff = *(uint32_t*)(o + kUPropOffset); e.boolMask = *(uint32_t*)(o + kUBoolBitMask); }
+    }
+    delete g_luProps; g_luProps = m; g_luPropsBuiltAt = onum;
+    InterlockedIncrement(&g_luIndexBuilds);
+    const double ms = LuNowMs() - t0; g_luBuildMs += ms;
+    Log("lookup/index: %zu properties from %u objects indexed in %.0f ms (%zu classes seen) - [Menu] CacheNameLookups=1",
+        m->size(), onum, ms, clsVerdict.size());
+}
+
+// 0 = use the index answer in *e, 1 = not indexed (the caller walks). Takes the name
+// indexes the caller already has.
+static __declspec(thread) bool t_luBypass = false;   // the self-check's legacy half
+static int LuPropLookup(uint32_t ci, uint32_t pi, LuProp* out)
+{
+    if (!g_nameIndexCacheOn || g_luPropsBad || t_luBypass) return 1;
+    if (!RangeReadable((void*)kGObjHdr, 12)) return 1;
+    void** objs = *(void***)kGObjHdr;
+    const uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) return 1;
+    AcquireSRWLockExclusive(&g_luPropLock);
+    struct Unlock { ~Unlock() { ReleaseSRWLockExclusive(&g_luPropLock); } } unlock;
+    const uint64_t key = ((uint64_t)ci << 32) | pi;
+    for (int pass = 0; pass < 2; ++pass) {
+        if (!g_luProps) LuBuildProps(objs, onum);
+        auto it = g_luProps->find(key);
+        if (it != g_luProps->end()) { *out = it->second; InterlockedIncrement(&g_luIndexHits); return 0; }
+        if (pass == 0 && onum > g_luPropsBuiltAt + 2000) { delete g_luProps; g_luProps = nullptr; continue; }
+        break;
+    }
+    return 1;
+}
+
+// One line of totals since launch; called on every [game] state change.
+static void LookupCostReport(const char* why)
+{
+    Log("lookup/cost (%s): legacy name scans %ld = %.0f ms, legacy object walks %ld = %.0f ms, index builds %ld = %.0f ms, "
+        "index hits %ld | CacheNameLookups=%d. Each legacy scan or walk is paid on the game thread; their sum is the "
+        "startup freeze the mod causes (VR-102).",
+        why ? why : "?", g_luNameScans, g_luNameMs, g_luPropWalks, g_luPropMs, g_luIndexBuilds, g_luBuildMs, g_luIndexHits,
+        (int)g_nameIndexCacheOn);
 }
 
 
@@ -282,10 +430,15 @@ static uint8_t* FindFunctionObj(const char* fname)
 }
 
 
+static void LuSelfCheck();
 static bool FindPropOffsetChecked(const char* clsName, const char* propName, uint32_t* result)
 {
+    LuSelfCheck();
     uint32_t ci = FindNameIdx(clsName), pi = FindNameIdx(propName);
     if (ci == 0xffffffffu || pi == 0xffffffffu) return false;
+    { LuProp e; if (LuPropLookup(ci, pi, &e) == 0 && e.any) { *result = e.off; return true; } }
+    const double luT0 = LuNowMs();
+    struct LuTime { double t0; ~LuTime() { InterlockedIncrement(&g_luPropWalks); g_luPropMs += LuNowMs() - t0; } } luTime{luT0};
     if (!RangeReadable((void*)kGObjHdr, 12)) return false;
     void** objs = *(void***)kGObjHdr;
     uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
@@ -323,8 +476,12 @@ static bool FindBoolProp(const char* clsName, const char* propName,
                          uint32_t* off, uint32_t* mask)
 {
     *off = 0; *mask = 0;
+    LuSelfCheck();
     uint32_t ci = FindNameIdx(clsName), pi = FindNameIdx(propName);
     if (ci == 0xffffffffu || pi == 0xffffffffu) return false;
+    { LuProp e; if (LuPropLookup(ci, pi, &e) == 0 && e.isBool) { *off = e.boolOff; *mask = e.boolMask; return *off != 0 && *mask != 0; } }
+    const double luT0 = LuNowMs();
+    struct LuTime { double t0; ~LuTime() { InterlockedIncrement(&g_luPropWalks); g_luPropMs += LuNowMs() - t0; } } luTime{luT0};
     if (!RangeReadable((void*)kGObjHdr, 12)) return false;
     void** objs = *(void***)kGObjHdr;
     uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
@@ -348,4 +505,30 @@ static bool FindBoolProp(const char* clsName, const char* propName,
         return *off != 0 && *mask != 0;
     }
     return false;
+}
+
+// The index must return exactly what the legacy walks return. Once, the first time the
+// index exists: five known properties (three offsets, two bools) through both paths.
+// Any disagreement switches the property index off for the session and says so.
+static void LuSelfCheck()
+{
+    static LONG done = 0;
+    if (!g_nameIndexCacheOn || !g_luProps || g_luPropsBad || t_luBypass || InterlockedExchange(&done, 1)) return;
+    struct Pair { const char* c; const char* p; bool b; };
+    const Pair pairs[] = { {"Actor", "Location", false}, {"Pawn", "EyeHeight", false},
+                           {"DishonoredCameraInfluence", "m_Weight", false},
+                           {"Pawn", "bWantsToCrouch", true}, {"DishonoredPlayerCamera", "m_bSmoothingSuddenCollision", true} };
+    int agree = 0, n = 0; char line[400] = ""; int at = 0;
+    for (const Pair& q : pairs) {
+        uint32_t io = 0, im = 0, lo = 0, lm = 0; bool iok = false, lok = false;
+        if (q.b) { iok = FindBoolProp(q.c, q.p, &io, &im); t_luBypass = true; lok = FindBoolProp(q.c, q.p, &lo, &lm); t_luBypass = false; }
+        else     { iok = FindPropOffsetChecked(q.c, q.p, &io); t_luBypass = true; lok = FindPropOffsetChecked(q.c, q.p, &lo); t_luBypass = false; }
+        const bool same = iok == lok && io == lo && im == lm;
+        agree += same; ++n;
+        if (at < (int)sizeof(line) - 80)
+            at += _snprintf(line + at, sizeof(line) - at, " %s::%s %s(+0x%x/0x%x vs +0x%x/0x%x)", q.c, q.p, same ? "ok" : "MISMATCH", io, im, lo, lm);
+    }
+    if (agree != n) g_luPropsBad = true;
+    Log("lookup/selfcheck: index vs legacy walk - %d of %d agree%s |%s", agree, n,
+        agree == n ? "" : " - the PROPERTY INDEX IS OFF for this session (the legacy walks answer)", line);
 }

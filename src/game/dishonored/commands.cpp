@@ -616,6 +616,7 @@ static void GameStateTick()
     if (strcmp(s, g_dvrGameState) != 0) {
         strncpy(g_dvrGameState, s, sizeof(g_dvrGameState) - 1);
         DVR_LOG(dvr::log::Cat::menu, dvr::log::Level::Info, "[game] state: %s", s);
+        LookupCostReport(s);   // VR-102: what the lookups have cost the game thread so far
         if (!strcmp(s, "LOADING")) dvr::perf::note(dvr::perf::kFlagLevelLoad);   // the gap line's flag
         // 41.1 (session 8): the census summary once, when the first level is
         // up (the population that matters: the level's textures and meshes).
