@@ -192,6 +192,16 @@ static const uintptr_t kThrowRotBack = 0x00C39093;   // the rotator -> direction
 static const uintptr_t kRazorTraceSeam = 0x00C32C91;
 static const uint8_t   kRazorTraceSeamBytes[6] = { 0x81, 0xC6, 0x30, 0x03, 0x00, 0x00 };
 static const uintptr_t kRazorTraceBack = 0x00C32C97;
+// VR-181: a carried movable's release 0x00C45340 (this = the held item, [+0x114] its
+// DisMovableComponent; ret 4, the arg is StatePlayerGrabMovable's m_bThrowOnDrop bit, called
+// from the state's drop 0x00A698E0). On a throw it takes the pawn's aim rotator (pawn vtable
+// +0x3E8), turns it into a unit direction at [ebp-0x24] (0x0040DA70 at 0x00C4552C), and sets
+// the body's linear velocity to dir * speed + the pawn's velocity (+0x1B4) at 0x00C45641.
+// The seam is the next instruction, `push 145E1B8h` (the speed tweak's name): 5 bytes, no
+// relative operand. esi is the pawn there. ENGINE_NOTES "The carried-object throw seam".
+static const uintptr_t kCarryThrowSeam = 0x00C45531;
+static const uint8_t   kCarryThrowSeamBytes[5] = { 0x68, 0xB8, 0xE1, 0x45, 0x01 };
+static const uintptr_t kCarryThrowBack = 0x00C45536;
 // VR-166: SpawnActor's entry, for a READ-ONLY caller census (aim_source.cpp) that names
 // the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
 static const uintptr_t kSpawnActor = 0x00C66070;

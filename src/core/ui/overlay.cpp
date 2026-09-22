@@ -387,6 +387,8 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         if (changed) { ThrowAimSet(thrown,"F10"); ConfigWriteKey("Aim","ThrowFromHand",thrown ? "1" : "0","F10 Aim"); }
         bool gadget = row("Spring razors", GadgetAimEnabled(), &changed);
         if (changed) { GadgetAimSet(gadget,"F10"); ConfigWriteKey("Aim","GadgetFromHand",gadget ? "1" : "0","F10 Aim"); }
+        bool carry = row("Carried objects (throw)", CarryThrowAimEnabled(), &changed);
+        if (changed) { CarryThrowAimSet(carry,"F10"); ConfigWriteKey("Aim","CarryThrowFromHand",carry ? "1" : "0","F10 Aim"); }
         bool powers = row("Windblast, Possession, Swarm", PowerAimEnabled(), &changed);
         if (changed) { PowerAimSet(powers,"F10"); ConfigWriteKey("Aim","PowersFromHand",powers ? "1" : "0","F10 Aim"); }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");

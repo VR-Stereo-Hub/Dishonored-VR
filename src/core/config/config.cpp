@@ -484,6 +484,9 @@ static void WriteDefaultIni(const char* ini)
         "ThrowFromHand=1\n"
         "; GadgetFromHand=1 (VR-166): spring razors are placed along the weapon ray; 0 = head.\n"
         "GadgetFromHand=1\n"
+        "; CarryThrowFromHand=1 (VR-181): a carried bottle, rock or crate is thrown along the\n"
+        "; weapon ray instead of your view. Release point, speed and spin stay the game's; 0 = head.\n"
+        "CarryThrowFromHand=1\n"
         "; PowersFromHand=1 (VR-44): Windblast, Possession and Devouring Swarm aim along the\n"
         "; weapon ray instead of your view; 0 = head.\n"
         "PowersFromHand=1\n"
@@ -2512,6 +2515,7 @@ static void LoadConfig()
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
     ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
     GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
+    CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
     CinePitchConfigure(ini);

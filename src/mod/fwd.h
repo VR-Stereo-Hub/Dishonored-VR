@@ -661,6 +661,10 @@ static bool GadgetAimEnabled();
 static void GadgetAimSet(bool on, const char* who);
 static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
+static bool CarryThrowAimEnabled();                             // VR-181 (throw_aim.cpp)
+static void CarryThrowAimSet(bool on, const char* who);
+static void CarryThrowAimConfigure(const char* ini);
+static bool CarryThrowAimCommand(const char* args);
 static bool PowerAimEnabled();                                  // VR-44 (power_aim.cpp)
 static void PowerAimSet(bool on, const char* who);
 static void PowerAimConfigure(const char* ini);

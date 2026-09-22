@@ -8453,6 +8453,63 @@ the head ray. Build 612 captures `this` at the placement routine's entry (`0x00C
 6 bytes `53 8B DC 83 EC 08`, read-only). It then arms the watch on THAT object's `+0xB8`
 for 60 s, so the second and third placements name the writer.
 
+## The carried-object throw seam, and how throwables work (VR-181, 2026-09-22)
+
+**Derived offline on build 9099; not yet headset-confirmed.** Covers bottles, rocks,
+crates, anything the player picks up and carries. Not corpses: those have their own states
+(`StatePlayerGrabCorpse`, `StatePlayerCarryCorpseIdle`) and are not touched here.
+
+**What the scripts say (declarations only, no function bodies).** The object is a
+`DishonoredMovable` (a `DishonoredBreakable`), with a `DisMovableComponent` that holds
+the rigid body, who holds it (`m_pHeldBy`), the old collision setup restored on release,
+and `m_ThrowFromLocation`. Its tweak `DisTweaks_Movable` carries a weight class
+(`MWC_Tiny`..`MWC_Large`), impact damage (default 5), `m_bBlocksPlayer` and a grab sound.
+`DishonoredItem.ini [DisMovableComponent]` holds only the per-weight carry speed caps (all
+1.0) and `m_fRadiusChannelReset=200`. Nothing in the ini or the scripts names a throw speed:
+it comes from a tweak lookup inside the native code (below). The NPC throw
+(`DisWepThrowingHand`, `DisItemContext_NPCThrowObject`, `DisProjectile_ThrownObject`) is a
+separate projectile path and is not the player's.
+
+**The player's path.** Carrying is `StatePlayerGrabMovable` (vtable `0x011026C8`; it runs
+on both the upper-body and the left-arm FSMs). Its fields after `StatePlayerAction`'s:
+`+0x70` the pending movable, `+0x74` a bitfield with `m_bThrowOnDrop` at bit 0 and
+`m_bDidTransition` at bit 1. `+0x68` and `+0x6C` are the FSM and the player pawn.
+
+* Pick-up: `0x00A69860` clears `m_bThrowOnDrop`, finds the held-item object in the pawn's
+  inventory (`[pawn+0x59C]`, `0x00C0B4A0`, class test `0x00A65FB0`) and hands it the
+  movable (`0x00C3D030`).
+* Release: `0x00A698E0` finds the same held item and calls `0x00C45340(bThrowOnDrop)`
+  (`ret 4`). `edi` is the held item there; `[edi+0x114]` is the `DisMovableComponent`.
+* In `0x00C45340`, `esi` is the pawn (`0x00BFECC0`). A plain drop branches to
+  `0x00C4564B`. A throw (`arg != 0`) does this:
+  1. the pawn's vtable `+0x3E8` fills a rotator at `[ebp-0x18]`, the aim rotation;
+  2. `0x0040DA70` (rotator to unit vector, the same call the grenade throw uses) writes the
+     direction to `[ebp-0x24]`;
+  3. the speed is a float tweak looked up from `[pawn+0x4A8]` by the name at `0x0145E1B8`
+     (`0x00C86A50`);
+  4. the component is released (`0x00A4ADA0`);
+  5. `0x00A46740(&linear, &angular)` sets the body's velocities: linear =
+     `dir * speed + pawn velocity` (`[pawn+0x1B4..0x1BC]`), angular = a random vector
+     (`0x00402240`) times the same speed.
+
+  The object leaves from where it is held. There is no spawn and no projectile: it stays
+  the same physics actor the whole time.
+
+**Seam** (`throw_aim.cpp`, `[Aim] CarryThrowFromHand`, word `carryaim`, F10 Aim row
+"Carried objects (throw)"): `push 145E1B8h` at `0x00C45531` (`68 B8 E1 45 01`, 5 bytes, no
+relative operand) is the first instruction after step 2. The bridge overwrites
+`[ebp-0x24]` with the published hand ray's direction. Speed, spin, release point and
+damage stay the game's. It is gated on `esi == the player pawn`. It refuses if the
+engine's direction is not a unit vector: that means the frame is not the one derived
+here, so the check can fail its own hypothesis.
+
+**For physical throwing later.** Step 5 is the one call that decides the flight, and it
+takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
+velocity` there with the controller's measured release velocity (scaled, clamped, plus
+the pawn velocity), and trigger the release on grip-open instead of the throw button.
+`m_bThrowOnDrop` is the flag that selects the throw branch. Still unknown: what sets it,
+the speed tweak's value, and whether the angular velocity should follow the controller's.
+
 ## The razor placement seam (VR-166, 2026-09-21)
 
 **Found statically; the write-watch was retired without its result.** Build 612 armed

@@ -1,3 +1,16 @@
+## Misc fixes branch: carried objects thrown by hand, VR-181 (2026-09-22)
+
+`claude/misc-fixes` off `VR-Main` after #96 (the tested build set plus VR-178) merged.
+First item: a carried bottle, rock or crate is thrown along the controller ray
+(`[Aim] CarryThrowFromHand=1`, word `carryaim`, F10 Aim row "Carried objects (throw)").
+Derived offline: ENGINE_NOTES "The carried-object throw seam". The release routine turns
+the pawn's aim rotator into a direction and sets the body's velocity to dir * speed plus
+the pawn's velocity. The seam replaces the direction only. Built Release and installed;
+not run. **Headset check:** pick up a bottle, look one way, point the controller another
+way and throw. It should go where the controller points. The log should show a
+`carry/aim: carried object thrown along the HAND` line with pitch and yaw before and after;
+a `REFUSED` line names why. The same notes cover what a physical throw would replace.
+
 ## Menu freshness candidate after combined PR acceptance (2026-09-22)
 
 The user accepted the combined PR build650 apart from menu choppiness, intermittent
