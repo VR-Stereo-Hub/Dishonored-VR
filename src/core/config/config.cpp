@@ -395,6 +395,11 @@ static void WriteDefaultIni(const char* ini)
         "ColorR=255\n"
         "ColorG=255\n"
         "ColorB=255\n"
+        "; VR-189: one reticle position for everything but the pistol and the crossbow\n"
+        "; (any ammo, any upgrade), degrees in the controller frame: +X right, +Y up.\n"
+        "; The aim follows the dot. Live: F10 HUD tab, Reticle.\n"
+        "OtherItemsX=0.00\n"
+        "OtherItemsY=0.00\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -1843,6 +1848,8 @@ static void LoadConfig()
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
         crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
         crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
+        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", 0.0f);   // VR-189
+        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", 0.0f);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -3908,6 +3915,8 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Crosshair", "SizeDeg", v, ini);
         const char* rgbKeys[3] = {"ColorR", "ColorG", "ColorB"};
         for (int i = 0; i < 3; ++i) { _snprintf(v, 64, "%d", crosshair.rgb[i]); WritePrivateProfileStringA("Crosshair", rgbKeys[i], v, ini); }
+        _snprintf(v, 64, "%.2f", crosshair.otherXDeg); WritePrivateProfileStringA("Crosshair", "OtherItemsX", v, ini);
+        _snprintf(v, 64, "%.2f", crosshair.otherYDeg); WritePrivateProfileStringA("Crosshair", "OtherItemsY", v, ini);
     }
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());

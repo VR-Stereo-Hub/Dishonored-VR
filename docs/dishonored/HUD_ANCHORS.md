@@ -327,6 +327,21 @@ anchors every 5 s while it draws.
 Not yet: attaching both panels to the wrist so they move like the hand-held
 notes (next step on this branch).
 
+## Reticle position for everything but the pistol and crossbow (VR-189, 2026-09-22)
+
+F10 HUD > Reticle: "Other items X / Y (deg)" and a Centre button, `[Crosshair] OtherItemsX /
+OtherItemsY` (default 0). One global angle in the controller's own frame (+X right, +Y up) turns
+the SHARED aim ray in `aim_ray.cpp` before both publications, so the dot and the aim of powers,
+grenades, the sword and the rest move together (the one-ray rule). It is skipped while the aiming
+hand's equipped item is a pistol or crossbow, decided by the engine's equipped CLASS read in
+`reflect.cpp`: `DisWepCrossbow`, its DLC subclass `DisDLC06WepCrossbow` (both contain
+`WepCrossbow`) and `DishonoredWepPistol`, per the decompiled class tree (every other
+`DishonoredWeapon_Ranged` child is the grenade, the bow, the DLC saw and witch hand, and an NPC
+hand). Ammunition types and upgrades change the loaded ammo, not the equipped class, so every
+bolt and bullet keeps the gun's aim. An item not read yet gets no offset. Log:
+`crosshair: equip slot N holds '<class>' -> a GUN | another item`, and `crosshair: the aiming
+hand holds ... - the other-items offset (x, y deg) is APPLIED | skipped`. Headset tuning owed.
+
 ## Reticle customization in the HUD tab (VR-141, 2026-09-19)
 
 The reticle in the headset is the mod's controller dot (`[Crosshair] Dot=1`);

@@ -1,3 +1,16 @@
+## Session handoff 2026-09-22 (latest): Sleeve presets baked, other-items reticle (VR-188, VR-189)
+
+`claude/misc-fixes` (#99), not merged. Installed: this commit's RelWithDebInfo (`d3d9.dll` sha256
+`3E26128A...`), not run.
+* VR-187 (wheel sticks) and VR-188 (sleeve rotation) ran clean in the headset; the Sleeve presets
+  are baked: Hands -4.90/0.64, Cuffs -10.00/0.57 (V-marked), Forearm -26.40/0.57 (held value).
+* VR-189: F10 HUD > Reticle "Other items X / Y" turns the shared aim ray for everything except
+  the pistol and the crossbow (any ammo or upgrade, and the DLC crossbow), by equipped class.
+* Next run: tune Other items X/Y with a power and a grenade; the pistol and crossbow must not
+  move. Log: `crosshair: the aiming hand holds ... is APPLIED|skipped`.
+* Known: `tools\default-profile-host.ps1` fails on drift between the packaged ini and the writer
+  that predates this work (trims, cooldown, UiScale, camera shake); only VR-189's keys were added.
+
 ## Session handoff 2026-09-22 (later): wheel sticks, sleeve rotation, Sleeve presets (VR-187, VR-188)
 
 VR-185 and VR-186 are headset-confirmed (build 674). Same branch, `claude/misc-fixes` (#99), not
