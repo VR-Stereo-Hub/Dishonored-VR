@@ -8555,6 +8555,17 @@ Build 657 measured the WRONG actor: the focused `DisStatPickup`, static (Physics
 Base), while the state's component named a different `DishonoredMovable`. The focused actor
 is not the carried one, so the probe now takes the state's actor first.
 
+**Fourth headset run (build 658, 2026-09-22): the object is MOVED, not simulated or attached.**
+The carried actor is the state's `DishonoredMovable` (the focused actor was the same one this
+time). It reads `Physics=0` (PHYS_None) throughout, and its `Base` is the
+`StaticMeshCollectionActor` it was resting on: a stale base, not an attachment to the player.
+Over ten seconds of head turning, its Location stayed at 84..121 uu ahead, -15..+8 uu right
+and -37..-46 uu up in the VIEW's frame. Its distance from the hand ray origin swung 38..112
+uu. So something writes Location every tick from the camera. (`Actor::Physics +0x104`,
+`Base +0x110`, `BaseSkelComponent +0x1D8`, `Location +0xC4`, all resolved by name.) Next
+build: `carry/watch:`, a DR3 write-watch on Location.X, armed from a helper thread for one
+second of the carry. It reports the writing instructions and their callers.
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus

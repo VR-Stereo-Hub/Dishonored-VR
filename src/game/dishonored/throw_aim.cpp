@@ -17,6 +17,7 @@
 // being the player's (ebp-0x58), so NPC throws that reach the routine are untouched.
 // [Aim] ThrowFromHand (default 1) and the F10 Aim table choose; GamepadOnly keeps head.
 
+#include <tlhelp32.h>
 #define DVR_CAT ::dvr::log::Cat::script
 
 static dvr::hooks::Detour g_thDet;
@@ -603,6 +604,114 @@ static uint8_t* CarryProbeFocus()
     return (f && IsLiveObject(f)) ? f : nullptr;
 }
 
+// ---- who writes the carried object's Location (VR-181, fifth headset run) -------------------
+// Build 658 measured the carried DishonoredMovable: Physics=0 (not simulated), Base = the static
+// mesh it sat on (not attached to the player), and its Location FIXED in the view's frame (about
+// 100 uu ahead, 45 below) while its distance from the hand swung 38..112 uu. Something writes
+// Location every tick from the camera. This finds WHAT: a hardware write-watch (DR3, 4 bytes,
+// Location.X) for about a second of the carry, reporting each writing instruction with the
+// return addresses above it. Armed from a HELPER thread that suspends each other thread first:
+// the retired watch (legacy/aim_watch.cpp) set its own thread's context with
+// GetCurrentThread(), which Windows does not honour reliably (ENGINE_NOTES, the razor seam).
+struct CwRec { uint32_t eip, n, ret[4]; };
+static CwRec g_cwRecs[8];
+static volatile LONG g_cwRecN = 0, g_cwHits = 0, g_cwThreads = 0;
+static volatile uintptr_t g_cwAddr = 0;
+static uintptr_t g_cwSelfLo = 0, g_cwSelfHi = 0;
+static PVOID g_cwVeh = nullptr;
+
+static LONG CALLBACK CarryWatchVeh(PEXCEPTION_POINTERS ep)
+{
+    if (ep->ExceptionRecord->ExceptionCode != EXCEPTION_SINGLE_STEP) return EXCEPTION_CONTINUE_SEARCH;
+    CONTEXT* c = ep->ContextRecord;
+    if (!(c->Dr6 & 0x8)) return EXCEPTION_CONTINUE_SEARCH;       // not our DR3
+    c->Dr6 &= ~0xFu;
+    InterlockedIncrement(&g_cwHits);
+    const uint32_t eip = (uint32_t)c->Eip;
+    if (eip >= g_cwSelfLo && eip < g_cwSelfHi) return EXCEPTION_CONTINUE_EXECUTION;   // our own
+    LONG n = g_cwRecN; if (n > 8) n = 8;
+    for (LONG i = 0; i < n; i++)
+        if (g_cwRecs[i].eip == eip) { InterlockedIncrement((volatile LONG*)&g_cwRecs[i].n); return EXCEPTION_CONTINUE_EXECUTION; }
+    const LONG idx = InterlockedIncrement(&g_cwRecN) - 1;
+    if (idx < 8) {
+        CwRec* r = &g_cwRecs[idx];
+        r->eip = eip; r->n = 1; memset(r->ret, 0, sizeof(r->ret));
+        const uint32_t* sp = (const uint32_t*)c->Esp; int got = 0;
+        for (int k = 0; k < 48 && got < 4; k++) {
+            if (!RangeReadable(sp + k, 4)) break;
+            const uint32_t v = sp[k];
+            if (v >= 0x401000 && v < 0xF40000) r->ret[got++] = v;   // inside the exe's code
+        }
+    }
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static DWORD WINAPI CarryWatchApplyThread(LPVOID arg)
+{
+    const uintptr_t addr = (uintptr_t)arg;
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snap == INVALID_HANDLE_VALUE) return 0;
+    THREADENTRY32 te; te.dwSize = sizeof(te);
+    const DWORD self = GetCurrentThreadId(), pid = GetCurrentProcessId();
+    LONG done = 0;
+    if (Thread32First(snap, &te)) do {
+        if (te.th32OwnerProcessID != pid || te.th32ThreadID == self) continue;
+        HANDLE th = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT | THREAD_SUSPEND_RESUME, FALSE, te.th32ThreadID);
+        if (!th) continue;
+        if (SuspendThread(th) != (DWORD)-1) {
+            CONTEXT c; memset(&c, 0, sizeof(c));
+            c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+            if (GetThreadContext(th, &c)) {
+                if (addr) { c.Dr3 = (DWORD)addr; c.Dr7 = (c.Dr7 & ~((0x3u << 6) | (0xFu << 28))) | (0x1u << 6) | (0x1u << 28) | (0x3u << 30); }
+                else      { c.Dr3 = 0;           c.Dr7 &= ~((0x3u << 6) | (0xFu << 28)); }
+                c.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+                if (SetThreadContext(th, &c)) ++done;
+            }
+            ResumeThread(th);
+        }
+        CloseHandle(th);
+    } while (Thread32Next(snap, &te));
+    CloseHandle(snap);
+    g_cwThreads = done;
+    return 0;
+}
+
+static void CarryWatchApply(uintptr_t addr)
+{
+    HANDLE h = CreateThread(nullptr, 0, CarryWatchApplyThread, (LPVOID)addr, 0, nullptr);
+    if (h) { WaitForSingleObject(h, 500); CloseHandle(h); }
+}
+
+static void CarryWatchArm(uint8_t* obj, uint32_t locOff)
+{
+    if (!g_cwSelfLo) {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (VirtualQuery((void*)&CarryWatchArm, &mbi, sizeof(mbi))) {
+            g_cwSelfLo = (uintptr_t)mbi.AllocationBase; g_cwSelfHi = g_cwSelfLo + 0x800000;
+        }
+    }
+    if (!g_cwVeh) g_cwVeh = AddVectoredExceptionHandler(1, CarryWatchVeh);
+    g_cwRecN = 0; g_cwHits = 0;
+    g_cwAddr = (uintptr_t)obj + locOff;
+    CarryWatchApply(g_cwAddr);
+    Log("carry/watch: ARMED on %s %p Location.X (+0x%X) in %ld threads (from a helper thread)",
+        ObjClassName(obj), obj, locOff, (long)g_cwThreads);
+}
+
+static void CarryWatchReport(const char* why)
+{
+    if (!g_cwAddr) return;
+    CarryWatchApply(0);
+    g_cwAddr = 0;
+    LONG n = g_cwRecN; if (n > 8) n = 8;
+    Log("carry/watch: report (%s) - %ld writes seen, %ld distinct writer(s) outside the mod, cleared in %ld threads:",
+        why, (long)g_cwHits, (long)n, (long)g_cwThreads);
+    for (LONG i = 0; i < n; i++)
+        Log("carry/watch:   eip=0x%08X hits=%u  callers 0x%08X 0x%08X 0x%08X 0x%08X", g_cwRecs[i].eip,
+            g_cwRecs[i].n, g_cwRecs[i].ret[0], g_cwRecs[i].ret[1], g_cwRecs[i].ret[2], g_cwRecs[i].ret[3]);
+    if (!n) Log("carry/watch:   no writer caught. With hits=0 too the watch never fired: it was not honoured, "
+                "or Location is not written (a write of the whole vector through a wider store still fires)");
+}
 static void CarryProbe(bool carry, bool started)
 {
     static uint8_t* lastFocus = nullptr; static double lastFocusAt = 0;
@@ -628,7 +737,11 @@ static void CarryProbe(bool carry, bool started)
             comp && IsLiveObject(comp) ? ObjClassName(comp) : "-", viaComp,
             viaComp && IsLiveObject(viaComp) ? ObjClassName(viaComp) : "-", obj ? ObjClassName(obj) : "NOTHING");
     }
-    if (!carry) { obj = nullptr; return; }
+    static double armAt = 0; static int watchStep = 0;
+    if (started) { armAt = now + 300; watchStep = 0; }
+    if (!carry) { if (watchStep == 1) { CarryWatchReport("carry ended"); watchStep = 2; } obj = nullptr; return; }
+    if (obj && watchStep == 0 && now >= armAt && IsLiveObject(obj)) { CarryWatchArm(obj, kActorLocation); watchStep = 1; }
+    else if (watchStep == 1 && now >= armAt + 1000) { CarryWatchReport("one second of carry"); watchStep = 2; }
     static double next = 0;
     if (!obj || now < next) return;
     next = now + 250;
