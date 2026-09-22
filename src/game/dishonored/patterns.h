@@ -202,19 +202,14 @@ static const uintptr_t kRazorTraceBack = 0x00C32C97;
 static const uintptr_t kCarryThrowSeam = 0x00C45531;
 static const uint8_t   kCarryThrowSeamBytes[5] = { 0x68, 0xB8, 0xE1, 0x45, 0x01 };
 static const uintptr_t kCarryThrowBack = 0x00C45536;
-// VR-181: the carried object is held by the pawn's RB_Handle (DishonoredPawn.m_pMovable_Handle,
-// resolved by name). RB_Handle vtable 0x010640A8 (ue3-natives class RB_Handle): +0x168
-// SetLocation(FVector by value, ret 0Ch), +0x16C SetSmoothLocation(FVector, float MoveTime,
-// ret 10h; it writes the target to +0x98..+0xA0). Zero static callers of either (pe census):
-// only virtual calls, so an ENTRY detour catches every writer. Both prologues are relocatable:
-// push ebp; mov ebp,esp; push -1 / mov eax,[ebp+8].
-static const uintptr_t kHandleSetLoc = 0x007B4A10;
-static const uint8_t   kHandleSetLocBytes[5] = { 0x55, 0x8B, 0xEC, 0x6A, 0xFF };
-static const uintptr_t kHandleSetLocBack = 0x007B4A15;
-static const uintptr_t kHandleSmoothLoc = 0x007A3EC0;
-static const uint8_t   kHandleSmoothLocBytes[6] = { 0x55, 0x8B, 0xEC, 0x8B, 0x45, 0x08 };
-static const uintptr_t kHandleSmoothLocBack = 0x007A3EC6;
-// VR-166: SpawnActor's entry, for a READ-ONLY caller census (aim_source.cpp) that names
+// VR-181: the engine's actor move adds the move delta to Location here: `movss xmm0,[ebp-54h]`
+// (5 bytes, no relative operand), then += [esi+0C4h] and store, for Y and Z after it. esi is the
+// actor, [ebp-54h..-4Ch] the delta. Found by a DR3 write-watch on a carried object's Location.X:
+// one writer (the store at 0x0064D591), 89-96 hits a second. Every actor move passes here.
+// ENGINE_NOTES "The carried-object throw seam".
+static const uintptr_t kMoveDeltaSeam = 0x0064D584;
+static const uint8_t   kMoveDeltaSeamBytes[5] = { 0xF3, 0x0F, 0x10, 0x45, 0xAC };
+static const uintptr_t kMoveDeltaBack = 0x0064D589;// VR-166: SpawnActor's entry, for a READ-ONLY caller census (aim_source.cpp) that names
 // the spring razor's spawn site: push ebp; mov ebp,esp; xor eax,eax.
 static const uintptr_t kSpawnActor = 0x00C66070;
 static const uint8_t   kSpawnActorBytes[5] = { 0x55, 0x8B, 0xEC, 0x33, 0xC0 };

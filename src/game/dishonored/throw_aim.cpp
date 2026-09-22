@@ -24,6 +24,8 @@ static dvr::hooks::Detour g_thDet;
 static std::atomic<bool> g_thOn{true};                  // [Aim] ThrowFromHand
 static std::atomic<bool> g_gdOn{true};                  // [Aim] GadgetFromHand (below)
 static std::atomic<bool> g_ctOn{true};                  // [Aim] CarryThrowFromHand (VR-181, below)
+static uint8_t* volatile g_hlObj = nullptr;             // VR-181: the carried actor, for the move seam
+static bool g_cwWanted = false;                         // VR-181 `carryaim watch`: arm on the next carry
 static uintptr_t g_thBack = kThrowRotBack;
 static volatile LONG g_thSeen = 0, g_thDriven = 0, g_thRefused = 0;
 static const char* volatile g_thWhy = "not asked yet";
@@ -374,6 +376,7 @@ extern "C" void __cdecl CarryThrowAimHandler(uint8_t* frame, uint8_t* pawn, uint
     const float r2d = 57.29578f;
     const float wasP = atan2f(dir[2], sqrtf(dir[0] * dir[0] + dir[1] * dir[1])) * r2d;
     const float wasY = atan2f(dir[1], dir[0]) * r2d;
+    g_hlObj = nullptr;                                  // released: the move seam lets it go now
     memcpy(g_ctEng, dir, 12); memcpy(g_ctHand, d, 12);
     dir[0] = d[0]; dir[1] = d[1]; dir[2] = d[2];
     InterlockedIncrement(&g_ctDriven);
@@ -440,6 +443,11 @@ static void CarryThrowAimConfigure(const char* ini)
 static bool CarryThrowAimCommand(const char* args)
 {
     bool b = false;
+    if (args && !strcmp(args, "watch")) {
+        g_cwWanted = true;
+        Log("carry/watch: armed for the next carry (one second of Location writes)");
+        return true;
+    }
     if (args && !strncmp(args, "hold", 4) && DvrOnOff(args + 4 + strspn(args + 4, " "), &b)) {
         CarryHoldSet(b, "seam");
         ConfigWriteKey("Aim", "CarryHoldAtHand", b ? "1" : "0", "the seam");
@@ -455,31 +463,32 @@ static bool CarryThrowAimCommand(const char* args)
         ConfigWriteKey("Aim", "CarryThrowFromHand", b ? "1" : "0", "the seam");
         return true;
     }
-    Log("carry/aim: on|off, lt on|off, hold on|off (left-trigger throw %s). Aim now %s, %ld/%ld driven/seen, refused %ld (last: %s). Seen moves "
+    Log("carry/aim: on|off, lt on|off, hold on|off, watch (left-trigger throw %s). Aim now %s, %ld/%ld driven/seen, refused %ld (last: %s). Seen moves "
         "only when a carried object is thrown; a plain drop never reaches the seam",
         g_ctLeft.load() ? "ON" : "off", g_ctOn.load() ? "HAND" : "HEAD", (long)g_ctDriven, (long)g_ctSeen, (long)g_ctRefused, g_ctWhy);
     return true;
 }
 
-// ---- where the carried object is HELD (VR-181, second headset run) ------------------------
-// The throw leaves along the hand, but until then the object sits where the game holds it: in
-// front of the view. The pawn holds it with an RB_Handle (DishonoredPawn.m_pMovable_Handle)
-// whose target is set through SetLocation / SetSmoothLocation (patterns.h). Both are only ever
-// called through the vtable, so their ENTRIES see every writer. While the player carries a
-// movable and the handle is the player's, the target moves to the hand: the ray origin plus
-// [Aim] CarryHoldForwardCm along the ray. [Aim] CarryHoldAtHand=0 leaves the game's target.
-// The calls are counted either way, so a carry with zero calls says plainly that the hold does
-// not go through these setters, which is the answer that would send the search elsewhere.
-static dvr::hooks::Detour g_hlLocDet, g_hlSmDet;
-static uintptr_t g_hlLocBack = kHandleSetLocBack, g_hlSmBack = kHandleSmoothLocBack;
+// ---- where the carried object is HELD (VR-181) ---------------------------------------------
+// The throw leaves along the hand; until then the game keeps the object in front of the VIEW.
+// How, measured over four headset runs (ENGINE_NOTES "The carried-object throw seam"): it is
+// not simulated (Physics 0), not attached to the player, and not held through the pawn's
+// RB_Handle (zero setter calls). A hardware write-watch on its Location caught ONE writer, every
+// frame: the engine's actor move, which adds the move delta at [ebp-0x54] to Location at
+// 0x0064D584 with esi = the actor. That instruction is the seam: when esi is the carried object
+// the delta becomes (hand target - Location), so the object lands on the hand and the engine
+// updates its components from the new Location as it always does. Every actor move in the game
+// passes here, so the first test is one pointer compare. Gates: the object the carry state names,
+// still PHYS_None (a thrown or dropped object is simulated and is never pulled back), and the
+// carry still on. [Aim] CarryHoldAtHand (default 1), CarryHoldForwardCm (15) along the ray.
+static dvr::hooks::Detour g_hlDet;
+static uintptr_t g_hlBack = kMoveDeltaBack;
 static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
 static float g_hlFwdCm = 15.0f;                          // [Aim] CarryHoldForwardCm
-static volatile uint32_t g_hlHandleOff = 0;              // resolved on the script lane
-static volatile LONG g_hlCalls[2] = {0, 0}, g_hlMine[2] = {0, 0}, g_hlDriven = 0;
+static volatile uint32_t g_hlPhysOff = 0;                // Actor::Physics, resolved by name
+static volatile LONG g_hlSeen = 0, g_hlDriven = 0;
 static const char* volatile g_hlWhy = "not asked yet";
-static uintptr_t g_hlRet[2] = {0, 0};                    // a caller of each, for the record
-static float g_hlEngDist = -1, g_hlMoved = -1;           // last engine target vs the eye; our move
-static volatile bool g_hlCarry = false;                  // script lane's view of the carry
+static float g_hlMoved = -1;                             // the last correction, uu
 
 static bool CarryHoldEnabled() { return g_hlOn.load(); }
 
@@ -492,38 +501,32 @@ static bool CarryingMovable()
     return false;
 }
 
-// which: 0 SetLocation, 1 SetSmoothLocation. loc points at the by-value FVector argument.
-extern "C" void __cdecl CarryHoldHandler(int which, uint8_t* handle, float* loc, uintptr_t ret)
+extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
 {
-    InterlockedIncrement(&g_hlCalls[which]);
-    uint8_t* pawn = g_pePawn;
-    const uint32_t off = g_hlHandleOff;
-    if (!pawn || !off || !handle || !RangeReadable(pawn + off, 4) || *(uint8_t**)(pawn + off) != handle) return;
-    InterlockedIncrement(&g_hlMine[which]);
-    if (!g_hlRet[which]) g_hlRet[which] = ret;
+    if (!actor || actor != g_hlObj) return;              // every actor move in the game comes here
+    InterlockedIncrement(&g_hlSeen);
     const char* why = nullptr;
-    float cam[3];
+    const uint32_t po = g_hlPhysOff;
+    float o[3], d[3];
     if (!g_hlOn.load()) why = "game hold selected";
     else if (g_gamepadOnly) why = "[Mode] GamepadOnly=1 keeps the head";
-    else if (!g_hlCarry) why = "not carrying a movable";
+    else if (!po || !RangeReadable(actor + po, 1) || actor[po] != 0) why = "object is simulated (thrown or dropped)";
     else if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow) why = "not in gameplay";
-    else if (!RangeReadable(loc, 12)) why = "target unreadable";
-    else if (!dvr::camera::render_pos_world(cam)) why = "render eye position unknown";
-    float o[3], d[3];
-    if (!why && !HandRayWorld(o, d, &why)) {}
+    else if (!frame || !RangeReadable(frame - 0x54, 12) || !RangeReadable(actor + kActorLocation, 12)) why = "move frame unreadable";
+    else HandRayWorld(o, d, &why);
     if (why) { g_hlWhy = why; return; }
-    const float e[3] = { loc[0] - cam[0], loc[1] - cam[1], loc[2] - cam[2] };
-    g_hlEngDist = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+    float* delta = (float*)(frame - 0x54);
+    const float* L = (const float*)(actor + kActorLocation);
     const float f = g_hlFwdCm * g_posScaleUU / 100.0f;   // cm -> uu (g_posScaleUU is uu per metre)
     const float n[3] = { o[0] + d[0] * f, o[1] + d[1] * f, o[2] + d[2] * f };
-    const float m[3] = { n[0] - loc[0], n[1] - loc[1], n[2] - loc[2] };
-    g_hlMoved = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
-    loc[0] = n[0]; loc[1] = n[1]; loc[2] = n[2];
+    const float e[3] = { L[0] + delta[0], L[1] + delta[1], L[2] + delta[2] };   // where the game put it
+    delta[0] = n[0] - L[0]; delta[1] = n[1] - L[1]; delta[2] = n[2] - L[2];
+    g_hlMoved = sqrtf((n[0]-e[0])*(n[0]-e[0]) + (n[1]-e[1])*(n[1]-e[1]) + (n[2]-e[2])*(n[2]-e[2]));
     InterlockedIncrement(&g_hlDriven);
     g_hlWhy = "driving";
 }
 
-__declspec(naked) static void CarryHoldLocThunk()
+__declspec(naked) static void CarryMoveThunk()
 {
     __asm {
         pushfd
@@ -535,76 +538,20 @@ __declspec(naked) static void CarryHoldLocThunk()
         fninit
         cld
         push edx
-        mov eax, [edx + 36]         ; the caller's return address (above pushad + pushfd)
-        push eax
-        lea eax, [edx + 40]         ; the FVector argument
-        push eax
-        push ecx                    ; the RB_Handle
-        push 0
-        call CarryHoldHandler
-        add esp, 16
+        push esi                    ; the actor being moved
+        push ebp                    ; the move's frame: [ebp-54h] the delta
+        call CarryMoveHandler
+        add esp, 8
         pop edx
         fxrstor [esp]
         mov esp, edx
         popad
         popfd
-        push ebp                    ; the five displaced bytes
-        mov ebp, esp
-        push -1
-        jmp dword ptr [g_hlLocBack]
+        movss xmm0, dword ptr [ebp-54h] ; the five displaced bytes (re-read after the handler)
+        jmp dword ptr [g_hlBack]
     }
 }
-
-__declspec(naked) static void CarryHoldSmoothThunk()
-{
-    __asm {
-        pushfd
-        pushad
-        mov edx, esp
-        sub esp, 528
-        and esp, -16
-        fxsave [esp]
-        fninit
-        cld
-        push edx
-        mov eax, [edx + 36]
-        push eax
-        lea eax, [edx + 40]
-        push eax
-        push ecx
-        push 1
-        call CarryHoldHandler
-        add esp, 16
-        pop edx
-        fxrstor [esp]
-        mov esp, edx
-        popad
-        popfd
-        push ebp                    ; the six displaced bytes
-        mov ebp, esp
-        mov eax, [ebp + 8]
-        jmp dword ptr [g_hlSmBack]
-    }
-}
-
-// Third headset run (build 656): ZERO calls to either setter, on any handle, through a whole
-// carry. The hold does not go through the RB_Handle setters. This probe answers HOW it is held,
-// without a guess: the object is the actor the interaction had focused when the carry began
-// (cross-checked against StatePlayerGrabMovable +0x70 and its component's +0x58), and four
-// times a second it logs the actor's Physics mode, its Base (what it is attached to) and where
-// it sits in the view's frame and against the hand. Attached to an arm mesh and riding it, or
-// PHYS_RigidBody pulled by physics: the two answers need different fixes.
-static uint8_t* CarryProbeFocus()
-{
-    static uint32_t focusOff = 0;
-    if (!focusOff) focusOff = RflOffsetOf("DishonoredPlayerController", "m_pCrosshairActor");
-    uint8_t* pc = g_peCtrl;
-    if (!focusOff || !pc || !LooksLikeObj(pc) || !RangeReadable(pc + focusOff, 4)) return nullptr;
-    uint8_t* f = *(uint8_t**)(pc + focusOff);
-    return (f && IsLiveObject(f)) ? f : nullptr;
-}
-
-// ---- who writes the carried object's Location (VR-181, fifth headset run) -------------------
+// ---- who writes the carried object's Location (VR-181; on demand: `carryaim watch`) --------
 // Build 658 measured the carried DishonoredMovable: Physics=0 (not simulated), Base = the static
 // mesh it sat on (not attached to the player), and its Location FIXED in the view's frame (about
 // 100 uu ahead, 45 below) while its distance from the hand swung 38..112 uu. Something writes
@@ -619,6 +566,7 @@ static volatile LONG g_cwRecN = 0, g_cwHits = 0, g_cwThreads = 0;
 static volatile uintptr_t g_cwAddr = 0;
 static uintptr_t g_cwSelfLo = 0, g_cwSelfHi = 0;
 static PVOID g_cwVeh = nullptr;
+static double g_cwArmedAt = 0;
 
 static LONG CALLBACK CarryWatchVeh(PEXCEPTION_POINTERS ep)
 {
@@ -712,89 +660,71 @@ static void CarryWatchReport(const char* why)
     if (!n) Log("carry/watch:   no writer caught. With hits=0 too the watch never fired: it was not honoured, "
                 "or Location is not written (a write of the whole vector through a wider store still fires)");
 }
-static void CarryProbe(bool carry, bool started)
+static uint8_t* CarryProbeFocus()
 {
-    static uint8_t* lastFocus = nullptr; static double lastFocusAt = 0;
-    static uint8_t* obj = nullptr;
+    static uint32_t focusOff = 0;
+    if (!focusOff) focusOff = RflOffsetOf("DishonoredPlayerController", "m_pCrosshairActor");
+    uint8_t* pc = g_peCtrl;
+    if (!focusOff || !pc || !LooksLikeObj(pc) || !RangeReadable(pc + focusOff, 4)) return nullptr;
+    uint8_t* f = *(uint8_t**)(pc + focusOff);
+    return (f && IsLiveObject(f)) ? f : nullptr;
+}
+// Script lane: follow the carry, publish the carried object to the move seam, and report once a
+// second while carrying. The object is the one StatePlayerGrabMovable names (+0x70, its
+// DisMovableComponent, whose +0x58 is the actor); the focused actor is only a fallback.
+static void CarryHoldTick()
+{
     const double now = MaimNowMs();
-    if (!carry) { uint8_t* f = CarryProbeFocus(); if (f) { lastFocus = f; lastFocusAt = now; } }
-    if (started) {
-        obj = nullptr;
-        uint8_t* st = nullptr; uint8_t* comp = nullptr; uint8_t* viaComp = nullptr;
+    if (!g_hlPhysOff) {
+        static double nextTry = 0;
+        if (now >= nextTry) { nextTry = now + 5000; g_hlPhysOff = RflOffsetOf("Actor", "Physics"); }
+    }
+    static uint8_t* lastFocus = nullptr; static double lastFocusAt = 0;
+    const bool carry = CarryingMovable();
+    static bool was = false;
+    static LONG s0 = 0, d0 = 0;
+    if (!carry) { uint8_t* fo = CarryProbeFocus(); if (fo) { lastFocus = fo; lastFocusAt = now; } }
+    if (carry && !was) {
+        uint8_t* st = nullptr; uint8_t* comp = nullptr; uint8_t* obj = nullptr;
         const auto s = dvr::anim::snapshot();
         for (int i = 0; i < 3; ++i)
             if (!strcmp(s.state[i], "StatePlayerGrabMovable")) { st = (uint8_t*)(uintptr_t)s.stateAddress[i]; break; }
         if (st && RangeReadable(st + 0x70, 4)) comp = *(uint8_t**)(st + 0x70);
-        if (comp && RangeReadable(comp + 0x58, 4)) viaComp = *(uint8_t**)(comp + 0x58);
-        // Build 657 probed the FOCUSED actor, a static DisStatPickup (Physics 0, 214 uu ahead and
-        // moving in the view frame only as the head turned), while the state's component named a
-        // different actor, a DishonoredMovable. The state's is the one being carried: use it first.
-        if (viaComp && IsLiveObject(viaComp)) obj = viaComp;
-        else if (lastFocus && now - lastFocusAt < 3000 && IsLiveObject(lastFocus)) obj = lastFocus;
-        Log("carry/probe: carry began - focused %s (%s, %.0f ms before), state %p +0x70 component %p (%s) "
-            "-> object %p (%s); probing %s", lastFocus ? ObjClassName(lastFocus) : "none",
-            obj && obj == lastFocus ? "USED" : "not used", now - lastFocusAt, st, comp,
-            comp && IsLiveObject(comp) ? ObjClassName(comp) : "-", viaComp,
-            viaComp && IsLiveObject(viaComp) ? ObjClassName(viaComp) : "-", obj ? ObjClassName(obj) : "NOTHING");
+        if (comp && RangeReadable(comp + 0x58, 4)) obj = *(uint8_t**)(comp + 0x58);
+        const char* src = "the carry state";
+        if (!(obj && IsLiveObject(obj))) {
+            obj = (lastFocus && now - lastFocusAt < 3000 && IsLiveObject(lastFocus)) ? lastFocus : nullptr;
+            src = obj ? "the focused actor (the state named none)" : "NOTHING";
+        }
+        g_hlObj = obj; s0 = g_hlSeen; d0 = g_hlDriven; g_hlWhy = "not moved yet";
+        Log("carry/hold: carry began - object %s %p from %s; hold owner %s", obj ? ObjClassName(obj) : "-",
+            obj, src, g_hlOn.load() ? "HAND" : "GAME");
+        if (obj && g_cwWanted) { g_cwWanted = false; CarryWatchArm(obj, kActorLocation); g_cwArmedAt = now; }
     }
-    static double armAt = 0; static int watchStep = 0;
-    if (started) { armAt = now + 300; watchStep = 0; }
-    if (!carry) { if (watchStep == 1) { CarryWatchReport("carry ended"); watchStep = 2; } obj = nullptr; return; }
-    if (obj && watchStep == 0 && now >= armAt && IsLiveObject(obj)) { CarryWatchArm(obj, kActorLocation); watchStep = 1; }
-    else if (watchStep == 1 && now >= armAt + 1000) { CarryWatchReport("one second of carry"); watchStep = 2; }
-    static double next = 0;
-    if (!obj || now < next) return;
-    next = now + 250;
-    if (!IsLiveObject(obj)) { Log("carry/probe: the object is gone"); obj = nullptr; return; }
-    static uint32_t oPhys = 0, oBase = 0, oLoc = 0, oBone = 0;
-    if (!oLoc) { oPhys = RflOffsetOf("Actor", "Physics"); oBase = RflOffsetOf("Actor", "Base");
-                 oLoc = RflOffsetOf("Actor", "Location"); oBone = RflOffsetOf("Actor", "BaseSkelComponent"); }
-    const uint32_t lo = oLoc ? oLoc : kActorLocation;
-    if (!RangeReadable(obj + lo, 12)) return;
-    const float* L = (const float*)(obj + lo);
-    const int phys = (oPhys && RangeReadable(obj + oPhys, 1)) ? *(obj + oPhys) : -1;
-    uint8_t* base = (oBase && RangeReadable(obj + oBase, 4)) ? *(uint8_t**)(obj + oBase) : nullptr;
-    uint8_t* bsk = (oBone && RangeReadable(obj + oBone, 4)) ? *(uint8_t**)(obj + oBone) : nullptr;
-    float cam[3] = {0, 0, 0}; const bool haveCam = dvr::camera::render_pos_world(cam);
-    const float r[3] = { L[0] - cam[0], L[1] - cam[1], L[2] - cam[2] };
-    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
-    const float fwd = r[0] * cp * cy + r[1] * cp * sy + r[2] * sp;
-    const float rgt = -r[0] * sy + r[1] * cy;
-    const float up  = -r[0] * sp * cy - r[1] * sp * sy + r[2] * cp;
-    float o[3], d[3]; const char* why = nullptr; float toHand = -1;
-    if (HandRayWorld(o, d, &why)) { const float h[3] = { L[0] - o[0], L[1] - o[1], L[2] - o[2] }; toHand = sqrtf(h[0]*h[0]+h[1]*h[1]+h[2]*h[2]); }
-    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 120,
-        "carry/probe: %s Physics=%d (UE3 EPhysics: 0 none, 2 falling, 6 projectile, 7 interpolating, 10 rigid body) "
-        "Base=%s BaseSkelComponent=%s | in the VIEW's frame %.0f fwd %.0f right %.0f up uu (eye %s), "
-        "%.0f uu from the hand ray origin (%s). Offsets Physics +0x%X Base +0x%X Location +0x%X",
-        ObjClassName(obj), phys, base && IsLiveObject(base) ? ObjClassName(base) : base ? "?" : "none",
-        bsk && LooksLikeObj(bsk) ? ObjClassName(bsk) : bsk ? "?" : "none", fwd, rgt, up,
-        haveCam ? "known" : "UNKNOWN", toHand, why ? why : "ok", oPhys, oBase, lo);
-}
-// Script lane: resolve the handle's offset by name, follow the carry, and report once a
-// second while carrying - which setter the game used, how often, and what we did.
-static void CarryHoldTick()
-{
-    if (!g_hlHandleOff) {
-        static double nextTry = 0; const double now = MaimNowMs();
-        if (now >= nextTry) { nextTry = now + 5000; g_hlHandleOff = RflOffsetOf("DishonoredPawn", "m_pMovable_Handle"); }
+    if (g_cwAddr && (now - g_cwArmedAt > 1000 || !carry)) CarryWatchReport(carry ? "one second of carry" : "carry ended");
+    if (!carry && was) {
+        g_hlObj = nullptr;
+        Log("carry/hold: carry ended - %ld moves of the object seen, %ld moved to the hand (last: %s)",
+            (long)(g_hlSeen - s0), (long)(g_hlDriven - d0), g_hlWhy);
     }
-    const bool carry = CarryingMovable();
-    static bool was = false;
-    static LONG c0 = 0, c1 = 0, m0 = 0, m1 = 0, dv = 0;
-    if (carry && !was) { c0 = g_hlCalls[0]; c1 = g_hlCalls[1]; m0 = g_hlMine[0]; m1 = g_hlMine[1]; dv = g_hlDriven; }
-    g_hlCarry = carry;
-    CarryProbe(carry, carry && !was);
-    static double nextLog = 0; const double now = MaimNowMs();
-    if ((carry && now >= nextLog) || (was && !carry)) {
+    static double nextLog = 0;
+    if (carry && now >= nextLog) {
         nextLog = now + 1000;
-        Log("carry/hold: %s - the player's handle (+0x%X) took SetLocation %ld, SetSmoothLocation %ld "
-            "(all handles %ld/%ld); driven %ld (last: %s). Engine target %.0f uu from the eye, moved "
-            "%.0f uu to the hand. Callers %08X / %08X. Zero of both while carrying = the hold is not "
-            "set through these", carry ? "carrying" : "carry ended", (unsigned)g_hlHandleOff,
-            (long)(g_hlMine[0] - m0), (long)(g_hlMine[1] - m1), (long)(g_hlCalls[0] - c0),
-            (long)(g_hlCalls[1] - c1), (long)(g_hlDriven - dv), g_hlWhy, g_hlEngDist, g_hlMoved,
-            (unsigned)g_hlRet[0], (unsigned)g_hlRet[1]);
+        uint8_t* obj = g_hlObj;
+        float cam[3] = {0, 0, 0}, fwd = 0, up = 0, toHand = -1;
+        float o[3], d[3]; const char* why = nullptr;
+        if (obj && IsLiveObject(obj) && dvr::camera::render_pos_world(cam)) {
+            const float* L = (const float*)(obj + kActorLocation);
+            const float r[3] = { L[0] - cam[0], L[1] - cam[1], L[2] - cam[2] };
+            const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
+            fwd = r[0] * cp * cy + r[1] * cp * sy + r[2] * sp;
+            up  = -r[0] * sp * cy - r[1] * sp * sy + r[2] * cp;
+            if (HandRayWorld(o, d, &why)) { const float h[3] = { L[0] - o[0], L[1] - o[1], L[2] - o[2] }; toHand = sqrtf(h[0]*h[0]+h[1]*h[1]+h[2]*h[2]); }
+        }
+        Log("carry/hold: carrying - %ld moves of the object seen, %ld moved to the hand (last: %s, %.0f uu "
+            "from where the game put it). Object now %.0f uu from the hand ray origin, %.0f fwd %.0f up in "
+            "the view. Seen 0 while carrying = the object is not moved through the seam",
+            (long)(g_hlSeen - s0), (long)(g_hlDriven - d0), g_hlWhy, g_hlMoved, toHand, fwd, up);
     }
     was = carry;
 }
@@ -802,15 +732,12 @@ static void CarryHoldTick()
 static void CarryHoldSet(bool on, const char* who)
 {
     g_hlOn.store(on);
-    if (!g_hlLocDet.on)
-        dvr::hooks::detour_install(g_hlLocDet, "carry/hold loc", kHandleSetLoc, kHandleSetLocBytes,
-                                   sizeof(kHandleSetLocBytes), (void*)&CarryHoldLocThunk);
-    if (!g_hlSmDet.on)
-        dvr::hooks::detour_install(g_hlSmDet, "carry/hold smooth", kHandleSmoothLoc, kHandleSmoothLocBytes,
-                                   sizeof(kHandleSmoothLocBytes), (void*)&CarryHoldSmoothThunk);
-    Log("carry/hold: owner %s (%s), %.0f cm along the ray - hooks %s/%s (they stay in to count "
-        "calls even with the game's hold)", on ? "HAND" : "GAME", who, g_hlFwdCm,
-        g_hlLocDet.on ? "ready" : "NOT installed", g_hlSmDet.on ? "ready" : "NOT installed");
+    if (!g_hlDet.on)
+        dvr::hooks::detour_install(g_hlDet, "carry/hold", kMoveDeltaSeam, kMoveDeltaSeamBytes,
+                                   sizeof(kMoveDeltaSeamBytes), (void*)&CarryMoveThunk);
+    Log("carry/hold: owner %s (%s), %.0f cm along the ray - seam %s (it stays in either way; it "
+        "only ever touches the carried object)", on ? "HAND" : "GAME", who, g_hlFwdCm,
+        g_hlDet.on ? "ready" : "NOT installed");
 }
 static void CarryHoldConfigure(const char* ini)
 {

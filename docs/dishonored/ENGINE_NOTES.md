@@ -8566,6 +8566,19 @@ uu. So something writes Location every tick from the camera. (`Actor::Physics +0
 build: `carry/watch:`, a DR3 write-watch on Location.X, armed from a helper thread for one
 second of the carry. It reports the writing instructions and their callers.
 
+**Fifth headset run (build 658 + watch, 2026-09-22): ONE writer.** The DR3 watch was armed in
+134 threads from the helper thread and was honoured. It caught 89 and then 96 writes in one
+second of two carries, all from `0x0064D591`: the engine's actor move. It loads the move delta
+from `[ebp-0x54..-0x4C]` and adds it to `[esi+0xC4..0xCC]` (Location), with `esi` the actor,
+and then updates the components (`[esi+0x208]`, the collision component). The stack scan's
+"callers" were stale stack values, not frames. A static walk up from `0x0064CAB0` was not
+the enclosing function (a byte-pattern start search picked the wrong boundary) and was dropped.
+**Seam** (`throw_aim.cpp`, `[Aim] CarryHoldAtHand`): `movss xmm0,[ebp-54h]` at `0x0064D584`
+(`F3 0F 10 45 AC`). It runs for every actor move, so its first test is one pointer compare
+against the carried actor (the carry state's `+0x70 -> +0x58`). It also requires Physics
+still 0 and a live carry. Then the delta becomes hand target - Location. The RB_Handle
+hooks were removed. The watch stays available on demand (`carryaim watch`).
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus

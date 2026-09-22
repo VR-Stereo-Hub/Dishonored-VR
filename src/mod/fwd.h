@@ -662,7 +662,8 @@ static void GadgetAimSet(bool on, const char* who);
 static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
 static void CarryThrowAimTick();
-static void CarryHoldTick();                                   // VR-181: where the carried object is held
+static void CarryHoldTick();
+static uint8_t* CarryProbeFocus();                                   // VR-181: where the carried object is held
 static void CarryHoldConfigure(const char* ini);
 static void CarryHoldSet(bool on, const char* who);
 static bool CarryHoldEnabled();
