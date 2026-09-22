@@ -879,6 +879,9 @@ static void WriteDefaultIni(const char* ini)
         "; (seeded from TrimL* when absent). The numpad left modes edit it while a power is out; F10\n"
         "; Hands has sliders for all three. 0 = one left trim for everything.\n"
         "PowerTrim=1\n"
+        "; AdjustInView=1: numpad and F10 steps move the hand along your view (right, forward, up, and\n"
+        "; pitch/yaw/roll about them) instead of the tilted palm axes. The stored trim is unchanged in kind.\n"
+        "AdjustInView=1\n"
         "AttachWeapons=1\n"
         "AttachSwordHand=1\n"
         "AttachCrossbowHand=0\n"
@@ -2886,6 +2889,7 @@ static void LoadConfig()
         // The powers trim: its own keys, seeded from the LEFT trim when they are absent, so
         // turning it on changes nothing until it is edited (mesh_split state, MpTrimTFor).
         g_mpPowTrimOn = GetPrivateProfileIntA("Hands", "PowerTrim", 1, ini) != 0;
+        g_mpAdjView = GetPrivateProfileIntA("Hands", "AdjustInView", 1, ini) != 0;
         for (int a = 0; a < 3; a++) {
             char k[32];
             _snprintf(k, sizeof(k), "TrimLPT%s", axn[a]);

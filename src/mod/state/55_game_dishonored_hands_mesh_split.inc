@@ -779,6 +779,9 @@ static const float kMpTrimPosLimit = 0.25f;
 static float    g_mpTrimPT[3] = { 0.0f, 0.0f, 0.0f };   // metres, palm frame
 static float    g_mpTrimPR[3] = { 0.0f, 0.0f, 0.0f };   // degrees, XYZ
 static bool     g_mpPowTrimOn = true;                     // [Hands] PowerTrim
+// [Hands] AdjustInView=1: a numpad or F10 step moves the hand along YOUR view's right/forward/up
+// (and turns it about them), converted into the palm-frame trim at the press. 0 = the raw palm axes.
+static bool     g_mpAdjView = true;
 // -1 unknown (no equipment read yet), 0 no, 1 the left hand holds a power. Script lane writes,
 // the draw and present lanes read.
 static volatile LONG g_rflPowerHeld = -1;

@@ -264,7 +264,7 @@ static void RflStateTick(void)
     int heldSock[3] = {};
     for (int i = 0; i < 3; ++i) found[i][0] = 0;
     int usable = 0, stride = g_rflStride;
-    LONG powerHeld = 0;   // the DisItemPowers item in the equipped socket: a power in the left hand
+    LONG powerSocket = 0;   // DisItemPowers in the equipped socket - recorded only, see below
     const int nCand = (int)(sizeof(kRflStrideCandidates) /
                             sizeof(kRflStrideCandidates[0]));
 
@@ -273,7 +273,7 @@ static void RflStateTick(void)
         int hits = 0;
         for (int i = 0; i < 3; ++i)
             { found[i][0] = 0; heldObj[i] = NULL; heldSock[i] = 0; }
-        powerHeld = 0;
+        powerSocket = 0;
         for (int i = 0; i < num && i < 64; ++i) {
             uint8_t* slot = data + (size_t)i * (size_t)s;
             if (!RangeReadable(slot, (size_t)s)) break;
@@ -299,7 +299,7 @@ static void RflStateTick(void)
             // Primary/Secondary report below never names it. Equipped = drawn in the left hand.
             if (socket == RFL_SOCKET_EQUIPPED) {
                 const char* pc = ObjClassName(item);
-                if (pc && !strcmp(pc, "DisItemPowers")) powerHeld = 1;
+                if (pc && !strcmp(pc, "DisItemPowers")) powerSocket = 1;
             }
             if (usage < 0 || usage > 2) continue;
             const char* cn = ObjClassName(item);
@@ -380,10 +380,62 @@ static void RflStateTick(void)
     }
 
     g_rflState.ok = true;
+
+    // WHICH SLOT EACH HAND HAS EQUIPPED. The socket test above never fires for powers: a run
+    // with Blink out for minutes read DisItemPowers at socket 0 throughout (it is not a mesh
+    // that is socketed), so the first powers trim never engaged. The inventory itself says it:
+    // DishonoredInventory.m_EquipUsageInfo[EDisEquipUsage] is an array of DisEquipUsageInfo
+    // {m_iEquippedSlot, m_iReequipSlot, m_iReequipSlotNonEmpty, m_iDropSlot_NextFrame,
+    // m_VelocitySupplement, m_RotationSupplement} - 4 ints and 2 FVectors, 40 bytes - indexed
+    // by None/Primary/Secondary. [Secondary].m_iEquippedSlot is the left hand's slot.
+    // m_iEquippedSlot is at +0 and 0 reads as "unresolved" to the resolver, so the layout is
+    // confirmed by its neighbours (+4 and +28), and the Primary entry is checked against the
+    // item the socket read found in the right hand: a layout that cannot name the sword is not
+    // trusted to name the power.
+    LONG powerHeld = -1;
+    {
+        static uint32_t euOff = 0; static int layout = 0;   // 0 unknown, 1 confirmed, -1 refused
+        static LONG agree = 0, disagree = 0;
+        if (!layout) {
+            euOff = RflOffsetOf("DishonoredInventory", "m_EquipUsageInfo");
+            const uint32_t re = RflOffsetOf("DisEquipUsageInfo", "m_iReequipSlot");
+            const uint32_t rs = RflOffsetOf("DisEquipUsageInfo", "m_RotationSupplement");
+            layout = (euOff && re == 4 && rs == 28) ? 1 : -1;
+            Log("rfl/equip: m_EquipUsageInfo +0x%x, m_iReequipSlot +%u, m_RotationSupplement +%u -> %s",
+                euOff, re, rs, layout > 0 ? "layout CONFIRMED (40-byte entries, m_iEquippedSlot at +0)"
+                                          : "REFUSED - the powers trim stays off");
+        }
+        const uint32_t kStride = 40;
+        if (layout > 0 && RangeReadable(inv + euOff, kStride * 3)) {
+            const int32_t pri = *(int32_t*)(inv + euOff + kStride * 1);
+            const int32_t sec = *(int32_t*)(inv + euOff + kStride * 2);
+            auto itemAt = [&](int32_t k) -> uint8_t* {
+                if (k < 0 || k >= num || !g_rflStride) return NULL;
+                uint8_t* sl = data + (size_t)k * (size_t)g_rflStride;
+                if (!RangeReadable(sl, sizeof(void*))) return NULL;
+                uint8_t* it = *(uint8_t**)sl;
+                return (it && LooksLikeObj(it)) ? it : NULL;
+            };
+            uint8_t* priItem = itemAt(pri);
+            uint8_t* secItem = itemAt(sec);
+            if (heldObj[1]) { if (priItem == heldObj[1]) ++agree; else ++disagree; }
+            const char* sc = secItem ? ObjClassName(secItem) : NULL;
+            if (disagree > agree) powerHeld = -1;   // the check failed: do not guess
+            else powerHeld = (sc && !strcmp(sc, "DisItemPowers")) ? 1 : 0;
+            static int32_t lastSec = -2;
+            if (sec != lastSec) {
+                lastSec = sec;
+                Log("rfl/equip: left hand slot %d = %s | right hand slot %d = %s | primary check %ld agree "
+                    "%ld disagree | DisItemPowers socket %ld -> %s",
+                    sec, sc ? sc : "none", pri, priItem ? (ObjClassName(priItem) ? ObjClassName(priItem) : "?") : "none",
+                    agree, disagree, powerSocket,
+                    powerHeld == 1 ? "POWER in the left hand" : powerHeld == 0 ? "no power" : "UNTRUSTED");
+            }
+        }
+    }
     if (InterlockedExchange(&g_rflPowerHeld, powerHeld) != powerHeld)
-        Log("rfl/state: the left hand %s (DisItemPowers %s) - the powers hand trim follows this",
-            powerHeld ? "holds a POWER" : "does not hold a power",
-            powerHeld ? "in the equipped socket" : "not equipped");
+        Log("rfl/state: the left hand %s (m_EquipUsageInfo[Secondary]) - the powers hand trim follows this",
+            powerHeld == 1 ? "holds a POWER" : powerHeld == 0 ? "does not hold a power" : "is UNKNOWN");
     _snprintf(g_rflWhy, sizeof(g_rflWhy),
               "reading %d slot(s), %d usable, stride %d, m_pInventory via '%s'",
               (int)num, usable, stride, which ? which : "?");

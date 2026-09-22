@@ -4756,7 +4756,27 @@ slot[5] requires 0 | DishonoredWepPistol  -> own usage 0, socket 0
 The slot constraint and the item state are plainly different things, and only the
 item is the answer.
 
-### A power in the hand is the `DisItemPowers` item, equipped (2026-09-22, NOT YET MEASURED)
+### A power in the hand: `m_EquipUsageInfo[Secondary]` names its slot (2026-09-22)
+
+**RETRACTED prediction (first headset run the same day).** The socket prediction below
+failed. Blink was out for minutes, `Secondary none` held throughout, and `DisItemPowers`
+never reported the equipped socket, so the powers trim never engaged. Powers are not a
+socketed mesh.
+
+**What replaced it (from the script dump):** `DishonoredInventory.m_EquipUsageInfo
+[EDisEquipUsage]` is an array of `DisEquipUsageInfo` (`m_iEquippedSlot, m_iReequipSlot,
+m_iReequipSlotNonEmpty, m_iDropSlot_NextFrame` as ints, then `m_VelocitySupplement,
+m_RotationSupplement` as FVectors: 40 bytes). Each entry is indexed None / Primary /
+Secondary. `[Secondary].m_iEquippedSlot` is the left hand's slot in `m_Slots`, and a power
+is out when that slot holds `DisItemPowers`. `m_iEquippedSlot` sits at +0, which the
+resolver cannot tell from "unresolved", so `RflStateTick` confirms the layout from
+`m_iReequipSlot` (+4) and `m_RotationSupplement` (+28). It also checks every read against
+the right hand: `[Primary]`'s slot must hold the item the socket read found (the sword). If
+disagreements outnumber agreements, the answer reads UNKNOWN rather than guessed.
+`rfl/equip:` logs both hands' slots and the check counts on every change. **Not yet
+headset-run.**
+
+#### The first attempt, kept for the record
 
 Powers are ONE inventory item, `DisItemPowers` (`m_pCurrentActivePower`,
 `m_iPowerSlot`), whichever power is selected. The dumps above only ever caught it at
