@@ -8538,6 +8538,23 @@ including the case where neither setter is called. `[Aim] CarryHoldAtHand=1` mov
 target to the hand-ray origin plus `CarryHoldForwardCm` (default 15) along the ray. The
 orientation is left to the game.
 
+**Third headset run (build 656, 2026-09-22): the handle setters are NOT the hold.** The
+handle resolved to `DishonoredPawn +0x5A0`. Through a five-second carry, SetLocation and
+SetSmoothLocation took ZERO calls, on the player's handle and on every other handle.
+So the `CarryHoldAtHand` hook never drove anything, and the object still followed the view.
+The hooks stay in as counters. A static census of `+0x5A0` in the gameplay code found only
+property bookkeeping, not a per-frame writer. The PrimitiveComponent RB setters are vtable
+`+0x1B8` linear velocity, `+0x1BC` angular velocity, `+0x1C4` SetRBPosition and `+0x1C8`
+SetRBRotation (from the exec thunks). Their StaticMeshComponent implementations were not
+resolved: `ue3-natives` finds no vtable in that ctor. Next build: `carry/probe:` reads the
+carried actor (the focused interactable at carry start, cross-checked against
+`StatePlayerGrabMovable +0x70 -> +0x58`). Four times a second it logs `Physics`, `Base`,
+`BaseSkelComponent`, and where the actor sits in the view frame and from the hand. That
+separates "attached to a mesh that follows the camera" from "simulated and pulled".
+Build 657 measured the WRONG actor: the focused `DisStatPickup`, static (Physics 0, no
+Base), while the state's component named a different `DishonoredMovable`. The focused actor
+is not the carried one, so the probe now takes the state's actor first.
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus

@@ -586,6 +586,78 @@ __declspec(naked) static void CarryHoldSmoothThunk()
     }
 }
 
+// Third headset run (build 656): ZERO calls to either setter, on any handle, through a whole
+// carry. The hold does not go through the RB_Handle setters. This probe answers HOW it is held,
+// without a guess: the object is the actor the interaction had focused when the carry began
+// (cross-checked against StatePlayerGrabMovable +0x70 and its component's +0x58), and four
+// times a second it logs the actor's Physics mode, its Base (what it is attached to) and where
+// it sits in the view's frame and against the hand. Attached to an arm mesh and riding it, or
+// PHYS_RigidBody pulled by physics: the two answers need different fixes.
+static uint8_t* CarryProbeFocus()
+{
+    static uint32_t focusOff = 0;
+    if (!focusOff) focusOff = RflOffsetOf("DishonoredPlayerController", "m_pCrosshairActor");
+    uint8_t* pc = g_peCtrl;
+    if (!focusOff || !pc || !LooksLikeObj(pc) || !RangeReadable(pc + focusOff, 4)) return nullptr;
+    uint8_t* f = *(uint8_t**)(pc + focusOff);
+    return (f && IsLiveObject(f)) ? f : nullptr;
+}
+
+static void CarryProbe(bool carry, bool started)
+{
+    static uint8_t* lastFocus = nullptr; static double lastFocusAt = 0;
+    static uint8_t* obj = nullptr;
+    const double now = MaimNowMs();
+    if (!carry) { uint8_t* f = CarryProbeFocus(); if (f) { lastFocus = f; lastFocusAt = now; } }
+    if (started) {
+        obj = nullptr;
+        uint8_t* st = nullptr; uint8_t* comp = nullptr; uint8_t* viaComp = nullptr;
+        const auto s = dvr::anim::snapshot();
+        for (int i = 0; i < 3; ++i)
+            if (!strcmp(s.state[i], "StatePlayerGrabMovable")) { st = (uint8_t*)(uintptr_t)s.stateAddress[i]; break; }
+        if (st && RangeReadable(st + 0x70, 4)) comp = *(uint8_t**)(st + 0x70);
+        if (comp && RangeReadable(comp + 0x58, 4)) viaComp = *(uint8_t**)(comp + 0x58);
+        // Build 657 probed the FOCUSED actor, a static DisStatPickup (Physics 0, 214 uu ahead and
+        // moving in the view frame only as the head turned), while the state's component named a
+        // different actor, a DishonoredMovable. The state's is the one being carried: use it first.
+        if (viaComp && IsLiveObject(viaComp)) obj = viaComp;
+        else if (lastFocus && now - lastFocusAt < 3000 && IsLiveObject(lastFocus)) obj = lastFocus;
+        Log("carry/probe: carry began - focused %s (%s, %.0f ms before), state %p +0x70 component %p (%s) "
+            "-> object %p (%s); probing %s", lastFocus ? ObjClassName(lastFocus) : "none",
+            obj && obj == lastFocus ? "USED" : "not used", now - lastFocusAt, st, comp,
+            comp && IsLiveObject(comp) ? ObjClassName(comp) : "-", viaComp,
+            viaComp && IsLiveObject(viaComp) ? ObjClassName(viaComp) : "-", obj ? ObjClassName(obj) : "NOTHING");
+    }
+    if (!carry) { obj = nullptr; return; }
+    static double next = 0;
+    if (!obj || now < next) return;
+    next = now + 250;
+    if (!IsLiveObject(obj)) { Log("carry/probe: the object is gone"); obj = nullptr; return; }
+    static uint32_t oPhys = 0, oBase = 0, oLoc = 0, oBone = 0;
+    if (!oLoc) { oPhys = RflOffsetOf("Actor", "Physics"); oBase = RflOffsetOf("Actor", "Base");
+                 oLoc = RflOffsetOf("Actor", "Location"); oBone = RflOffsetOf("Actor", "BaseSkelComponent"); }
+    const uint32_t lo = oLoc ? oLoc : kActorLocation;
+    if (!RangeReadable(obj + lo, 12)) return;
+    const float* L = (const float*)(obj + lo);
+    const int phys = (oPhys && RangeReadable(obj + oPhys, 1)) ? *(obj + oPhys) : -1;
+    uint8_t* base = (oBase && RangeReadable(obj + oBase, 4)) ? *(uint8_t**)(obj + oBase) : nullptr;
+    uint8_t* bsk = (oBone && RangeReadable(obj + oBone, 4)) ? *(uint8_t**)(obj + oBone) : nullptr;
+    float cam[3] = {0, 0, 0}; const bool haveCam = dvr::camera::render_pos_world(cam);
+    const float r[3] = { L[0] - cam[0], L[1] - cam[1], L[2] - cam[2] };
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
+    const float fwd = r[0] * cp * cy + r[1] * cp * sy + r[2] * sp;
+    const float rgt = -r[0] * sy + r[1] * cy;
+    const float up  = -r[0] * sp * cy - r[1] * sp * sy + r[2] * cp;
+    float o[3], d[3]; const char* why = nullptr; float toHand = -1;
+    if (HandRayWorld(o, d, &why)) { const float h[3] = { L[0] - o[0], L[1] - o[1], L[2] - o[2] }; toHand = sqrtf(h[0]*h[0]+h[1]*h[1]+h[2]*h[2]); }
+    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 120,
+        "carry/probe: %s Physics=%d (UE3 EPhysics: 0 none, 2 falling, 6 projectile, 7 interpolating, 10 rigid body) "
+        "Base=%s BaseSkelComponent=%s | in the VIEW's frame %.0f fwd %.0f right %.0f up uu (eye %s), "
+        "%.0f uu from the hand ray origin (%s). Offsets Physics +0x%X Base +0x%X Location +0x%X",
+        ObjClassName(obj), phys, base && IsLiveObject(base) ? ObjClassName(base) : base ? "?" : "none",
+        bsk && LooksLikeObj(bsk) ? ObjClassName(bsk) : bsk ? "?" : "none", fwd, rgt, up,
+        haveCam ? "known" : "UNKNOWN", toHand, why ? why : "ok", oPhys, oBase, lo);
+}
 // Script lane: resolve the handle's offset by name, follow the carry, and report once a
 // second while carrying - which setter the game used, how often, and what we did.
 static void CarryHoldTick()
@@ -599,6 +671,7 @@ static void CarryHoldTick()
     static LONG c0 = 0, c1 = 0, m0 = 0, m1 = 0, dv = 0;
     if (carry && !was) { c0 = g_hlCalls[0]; c1 = g_hlCalls[1]; m0 = g_hlMine[0]; m1 = g_hlMine[1]; dv = g_hlDriven; }
     g_hlCarry = carry;
+    CarryProbe(carry, carry && !was);
     static double nextLog = 0; const double now = MaimNowMs();
     if ((carry && now >= nextLog) || (was && !carry)) {
         nextLog = now + 1000;
