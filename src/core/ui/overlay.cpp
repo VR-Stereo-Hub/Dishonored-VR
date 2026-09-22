@@ -1566,5 +1566,10 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     g_ovlAnyHovered = ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive();
     ImGui::End();
 
+    // The cursor only where the panel is (or while a drag that started on it is held). Off the
+    // panel the reticle is what the player is looking at, and a cursor drawn over the whole eye
+    // image sat on top of it.
+    io.MouseDrawCursor = ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow | ImGuiHoveredFlags_AllowWhenBlockedByPopup) ||
+                         ImGui::IsAnyItemActive();
     ImGui::Render();
 }
