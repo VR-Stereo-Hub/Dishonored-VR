@@ -3340,6 +3340,10 @@ headset entries are historical. Accepted image-owned orientation remains unchang
 
 ## VR-165: an explosion reproduces it, and the offset is ADDED after the base camera (2026-09-22)
 
+**The session brief for this bug is `PLAN-VR-165-camera-displacement.md`**: the facts, the
+eliminations, the suspects from the game's own declarations, the instruments and the plan in
+order. Start there; this entry is its provenance.
+
 1. **Symptom identity:** the same displaced/swinging whole-view camera as the chain X-release
    case (smooth camera category, not an eye fault), reported this time after the knockback and
    shake of an exploding oil container, with no chain involved. Cleared only by reloading the

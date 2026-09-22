@@ -1,3 +1,14 @@
+## Next session: VR-165, the camera that leaves the body
+
+Branch `claude/vr-165-camera-displacement` off `VR-Main` `a0ecbb042`. **Read
+`docs/dishonored/PLAN-VR-165-camera-displacement.md` first**: it carries the measured facts,
+the eliminations, the suspect list with the game's own spring config, the instruments already
+on VR-Main (`camera/springs`, `camera/displaced`, `camshake capture`, the RE toolkit) and the
+plan in order. The explosion run that reproduced it without a chain is archived at
+`build/playtest-candidates/vr185-186-hud-groups/run4`; it predates the spring census, so no
+run has spring data yet. First steps are widening the census and a spring-kick seam word, both
+before asking for a headset run. PR #100 (tester ini refresh) is open and unmerged.
+
 ## Session handoff 2026-09-22 (final): VR-165 lead, carry reticle, new defaults
 
 `claude/misc-fixes` (#99). Installed `d3d9.dll` sha256 `E6941D34...`, not run.
