@@ -1048,3 +1048,16 @@ which a given machine needs: a press reaching the pad proves nothing.
   present of split on first appearance was taken over holding every draw until the present
   ends, which the redirect cannot do. The shape heuristics stay as the fallback for a refused
   task hook. `HUD_ANCHORS.md` has the rules and the log lines.
+
+- **2026-09-22 (VR-165): the stuck collision glide is fixed by switching the game's glide off, not by
+  moving the mod's camera write.** The engine's collision-pop smoother reads the final camera
+  location back from `camera+0x330`, the field the mod writes its head and eye offset into, so the
+  glide never converges (FLICKER_REFERENCE "VR-165: CAUSE FOUND"). Removing the feedback at its
+  source would mean the engine never sees our write at the moment of its next camera update; the
+  write lands on every script dispatch and around the re-entry draws, the area with most of this
+  project's flicker history, and the camera update has no dispatch of its own to restore at. The
+  game ships a switch for the glide itself (`m_bAllowCamSmoothingForCollisionPop`, its own
+  DishonoredCamera.ini key), and in a headset a glide the head did not make is unrequested motion,
+  the VR-172 reasoning. Held clear, a pop snaps and the stuck state cannot start; nothing is
+  written to any position. `[CameraShake] PopSmoothing=1` (the game's glide) is the compiled
+  default per the default-off rule; the tested machine runs 0.

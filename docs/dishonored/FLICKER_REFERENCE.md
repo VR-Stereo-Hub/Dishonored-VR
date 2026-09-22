@@ -1198,7 +1198,7 @@ pose metadata without reopening the disproved historical theories.
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
-| Whole view lifted and tilted off the body, swinging with head rotation, for tens of seconds after a chain X-release or an explosion's knockback (not a flicker) | `camera/collide` `smoothing1` with `game-minus-nonAdditive` about 9.5x the mod's own offset; the springs read at rest | VR-165 CAUSE MEASURED 2026-09-22: the camera's collision-pop smoother (`m_bSmoothingSuddenCollision`) reads our offset back from `camera+0x330` every update and never converges (gap = offset x 9.5 at 126 ticks/s, measured). Fix pending |
+| Whole view lifted and tilted off the body, swinging with head rotation, for tens of seconds after a chain X-release or an explosion's knockback (not a flicker) | `camera/collide` `smoothing1` with `game-minus-nonAdditive` about 9.5x the mod's own offset; the springs read at rest | VR-165 CAUSE MEASURED 2026-09-22: the camera's collision-pop smoother (`m_bSmoothingSuddenCollision`) reads our offset back from `camera+0x330` every update and never converges (gap = offset x 9.5 at 126 ticks/s, measured). Fix: `[CameraShake] PopSmoothing=0` holds the game's glide off; headset pending |
 
 VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
 pivot. VR-87 ceiling trimming and VR-91 roll-induced lateral motion are adjacent
@@ -3338,6 +3338,29 @@ request, with strict suppression enabled and pacing off. Performance improvement
 remains subjective. Exact acceptance identity/archive and promotion scope are in
 PERFORMANCE.md, Accepted profile and publication. Earlier strict-default0 and pending
 headset entries are historical. Accepted image-owned orientation remains unchanged.
+
+## VR-165: the fix - the collision-pop glide held off (2026-09-22, headset pending)
+
+1. **Symptom identity:** as "VR-165: CAUSE FOUND" below.
+2. **Reproduction identity:** not yet run. Installed build: this commit, `[CameraShake]
+   PopSmoothing=0` set in the installed ini (the only change from the repro ini; the pre-fix
+   ini and logs archived locally at `build/playtest-candidates/vr165-pre-fix/`).
+3. **Hypothesis and counterprediction:** with the game's own
+   `m_bAllowCamSmoothingForCollisionPop` held clear, the engine never sets
+   `m_bSmoothingSuddenCollision` (its start test is `0xAD8757`), so a chain X-release or a
+   knockback snaps the camera and cannot leave it displaced. Falsified by any of: a
+   `camera/displaced` WARN after a chain release; `camera/collide` reading `smoothing1`; more
+   than one `camera/popsmooth: ended a running collision-pop glide` line (the engine starting
+   the glide another way).
+4. **Change identity:** `cam_modifiers.cpp` `CamPopSmoothTick` (script lane; validates the
+   camera every 250 ms, then two bit tests per dispatch): clears the allow bit and any running
+   glide bit, restores the game's value when released, logs the take, each ended glide and a
+   30 s beat. No position is written. Live A/B: `camshake allow popsmooth on|off`, F10 >
+   Camera shake. Compiled default 1 (the game's glide).
+5. **Results:** Release build, lint, exports, default-profile byte check clean; installed and
+   hash-checked. Nothing has run.
+6. **Status:** fix built, headset verdict pending. The feedback itself (the smoother reading
+   our offset back) remains; it matters only while the glide runs, which the fix prevents.
 
 ## VR-165: CAUSE FOUND - the mod's own offset feeds the engine's collision-pop smoother (2026-09-22)
 

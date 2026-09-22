@@ -113,6 +113,7 @@ struct CsnLayout {
     uint32_t telOff = 0, telMask = 0, cenOff = 0, cenMask = 0, smOff = 0, smMask = 0, uncOff = 0, uncMask = 0;
     uint32_t status = 0, lastDif = 0, radius = 0, height = 0, tickTag = 0, pass = 0;
     uint32_t dominant = 0;
+    uint32_t allowOff = 0, allowMask = 0;                         // m_bAllowCamSmoothingForCollisionPop (the VR-165 fix's switch)
 } csn;
 
 void CsnResolve()
@@ -160,6 +161,7 @@ void CsnResolve()
         { "DishonoredPlayerCamera", "m_bSmoothingSuddenCollision", true },
         { "DishonoredPlayerCamera", "m_bWasUncovered", true },
         { "DisSpringPoint", "m_Velocity_Previous", false },
+        { "DishonoredPlayerCamera", "m_bAllowCamSmoothingForCollisionPop", true },
     };
     RflResolveBatch(w, (int)(sizeof(w) / sizeof(w[0])));
     csn.w = w[0].off;
@@ -199,6 +201,7 @@ void CsnResolve()
     csn.smOff = w[34].off; csn.smMask = w[34].mask;
     csn.uncOff = w[35].off; csn.uncMask = w[35].mask;
     csn.sPrevVel = w[36].off;
+    csn.allowOff = w[37].off; csn.allowMask = w[37].mask;
     Log("camera/census: resolved by name - influence w+0x%x acc+0x%x step+0x%x active+0x%x/0x%x sleeping+0x%x/0x%x "
         "wait+0x%x/0x%x | DisSpringPoint pos+0x%x vel+0x%x prev+0x%x bound+0x%x | PhysicalReact stab+0x%x str+0x%x pivot+0x%x | "
         "Lean head+0x%x angle+0x%x height+0x%x pivot+0x%x collideDir+0x%x collided+0x%x/0x%x extforce+0x%x/0x%x | "
@@ -456,9 +459,10 @@ static void CameraSourceTick()
     // Line 2: the camera's collision smoothing, its non-additive position (what the
     // core group produced before the reaction group is added), Lean and BumpSmoother.
     n=0;
-    CsnAp(ln,n,sizeof(ln),"camera/collide: sample=%u teleported%c collisionOn%c smoothing%c uncovered%c status=",
+    CsnAp(ln,n,sizeof(ln),"camera/collide: sample=%u teleported%c collisionOn%c smoothing%c allowPopSmooth%c uncovered%c status=",
         samples,CsnBitCh(CsnBit(cam,csn.telOff,csn.telMask)),CsnBitCh(CsnBit(cam,csn.cenOff,csn.cenMask)),
-        CsnBitCh(CsnBit(cam,csn.smOff,csn.smMask)),CsnBitCh(CsnBit(cam,csn.uncOff,csn.uncMask)));
+        CsnBitCh(CsnBit(cam,csn.smOff,csn.smMask)),CsnBitCh(CsnBit(cam,csn.allowOff,csn.allowMask)),
+        CsnBitCh(CsnBit(cam,csn.uncOff,csn.uncMask)));
     if(csn.status && RangeReadable(cam+csn.status,1)) CsnAp(ln,n,sizeof(ln),"%u",(unsigned)cam[csn.status]); else CsnAp(ln,n,sizeof(ln),"?");
     CsnAp(ln,n,sizeof(ln)," lastDif=%.1f radius=%.1f height=%.1f",CsnF(cam,csn.lastDif),CsnF(cam,csn.radius),CsnF(cam,csn.height));
     if(csn.tickTag && csn.pass && RangeReadable(cam+csn.tickTag,4) && RangeReadable(cam+csn.pass,4))
@@ -615,8 +619,94 @@ static void CamSpringApply()
     w.startMs = MaimNowMs(); w.endMs = w.startMs + 1000.0 * csnReq.watchS;
 }
 
+// ---- VR-165: THE FIX - no collision-pop glide in VR ----------------------------------
+// The cause (FLICKER_REFERENCE "VR-165: CAUSE FOUND", ENGINE_NOTES "the collision-pop
+// smoother reads back the mod's offset"): after a collision pop over 50 uu the camera
+// sets m_bSmoothingSuddenCollision and glides back, starting each update from the final
+// location it reads back from camera+0x330 - the field the mod writes the head and eye
+// offset into. Our offset re-enters every update, the glide settles at 9.5x our offset
+// (measured) and never ends.
+//
+// The engine only STARTS that glide when m_bAllowCamSmoothingForCollisionPop is set (the
+// game's own DishonoredCamera.ini switch; the start test is at 0xAD8757). Held clear, a
+// pop snaps instead of gliding for a few frames - in a headset a glide the head did not
+// make is unrequested motion anyway, the reasoning of VR-172's shake removal - and the
+// stuck state cannot arise. A glide already running is ended by clearing
+// m_bSmoothingSuddenCollision, which is what the engine's own reset does (0xAD886E).
+// Not a clamp: no position is written, only the game's own two bits.
+//
+// [CameraShake] PopSmoothing: 1 = the game's own glide (the compiled default, per the
+// default-OFF lever rule), 0 = the fix. Live: `camshake allow popsmooth on|off`, F10.
+// Script lane, the lane the camera update runs on. The slow tick (250 ms) validates the
+// camera; the per-dispatch cost is two bit tests.
+std::atomic<bool> g_popSmoothAllow{true};
+struct PopFix {
+    uint8_t* cam = nullptr; bool held = false; bool origAllow = true;
+    unsigned rewrites = 0, glidesEnded = 0; double nextSlow = 0.0, nextBeat = 0.0;
+} g_pf;
+
+static void CamPopSmoothTick()
+{
+    const bool fix = !g_popSmoothAllow.load();
+    if (!fix && !g_pf.held) return;
+    const double now = MaimNowMs();
+    if (now >= g_pf.nextSlow) {
+        g_pf.nextSlow = now + 250.0;
+        if (!RflNamesReady()) return;
+        CsnResolve();
+        RefreshLiveSet(2000);                          // bounded (VR-160)
+        uint8_t* cam = g_camObj;
+        const char* cn = cam && IsLiveObject(cam) ? ObjClassName(cam) : nullptr;
+        if (!cn || !strstr(cn, "PlayerCamera")) cam = nullptr;
+        if (cam != g_pf.cam) {
+            if (g_pf.cam) Log("camera/popsmooth: the player camera changed (%p -> %p); nothing written to the old one", g_pf.cam, cam);
+            g_pf.cam = cam; g_pf.held = false;
+        }
+    }
+    uint8_t* cam = g_pf.cam;
+    if (!cam || !csn.allowOff || !csn.allowMask || !csn.smMask || csn.smOff != csn.allowOff ||
+        !RangeReadable(cam + csn.allowOff, 4)) {
+        if (fix) DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 30000,
+            "camera/popsmooth: the fix is ON but cannot act - camera %p, allow bit +0x%x/0x%x, smoothing bit +0x%x/0x%x "
+            "(both must resolve by name, in one word)", cam, csn.allowOff, csn.allowMask, csn.smOff, csn.smMask);
+        return;
+    }
+    uint32_t* bits = (uint32_t*)(cam + csn.allowOff);
+    if (!fix) {
+        // Released: the game's own value back, once.
+        if (g_pf.origAllow) *bits |= csn.allowMask;
+        Log("camera/popsmooth: released - m_bAllowCamSmoothingForCollisionPop back to %d (the game's own glide); held "
+            "for %u rewrite(s), %u running glide(s) ended", (int)g_pf.origAllow, g_pf.rewrites, g_pf.glidesEnded);
+        g_pf.held = false;
+        return;
+    }
+    if (!g_pf.held) {
+        g_pf.held = true; g_pf.origAllow = (*bits & csn.allowMask) != 0;
+        Log("camera/popsmooth: TAKEN on camera %p - m_bAllowCamSmoothingForCollisionPop was %d, held at 0; a collision pop "
+            "now snaps instead of gliding, so the VR-165 stuck glide cannot start ([CameraShake] PopSmoothing=0)",
+            cam, (int)g_pf.origAllow);
+    }
+    if (*bits & csn.allowMask) { *bits &= ~csn.allowMask; ++g_pf.rewrites; }
+    if (*bits & csn.smMask) {
+        // A glide was running: one already under way when the fix was taken, or one the
+        // engine started despite the switch - which would be a result, so it is counted.
+        *bits &= ~csn.smMask; ++g_pf.glidesEnded;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+            "camera/popsmooth: ended a running collision-pop glide (m_bSmoothingSuddenCollision cleared, as the engine's "
+            "own reset does) - %u so far. More than one while the switch is held means the engine starts it another way.",
+            g_pf.glidesEnded);
+    }
+    if (now >= g_pf.nextBeat) {
+        g_pf.nextBeat = now + 30000.0;
+        Log("camera/popsmooth: beat owner=the mod (fix ON) camera=%p allow-bit rewrites=%u glides ended=%u | rewrites stay "
+            "at 1 (the take) unless the engine re-reads its config; camera/collide's smoothing must read 0 throughout",
+            cam, g_pf.rewrites, g_pf.glidesEnded);
+    }
+}
+
 static void CamModTick()
 {
+    CamPopSmoothTick();   // VR-165: the fix (a no-op unless [CameraShake] PopSmoothing=0)
     CamSpringApply();
     CameraSourceTick();
     if (!g_cmOn) return;

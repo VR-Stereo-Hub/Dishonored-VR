@@ -365,12 +365,16 @@ static void CamShakeConfigure(const char* ini) {
         c.allow = GetPrivateProfileIntA("CameraShake", c.ini, c.allowDefault ? 1 : 0, ini) != 0;
         at += _snprintf_s(line + at, sizeof(line) - at, _TRUNCATE, " %s=%d", c.ini, (int)c.allow);
     }
-    Log("config: [CameraShake] Suppress=%d%s - Suppress=1 removes the game's own camera motion; a category at 1 lets the game's through. "
-        "'camshake status' says which of them were measured and which are by name only", (int)g_camShakeSuppress.load(), line);
+    g_popSmoothAllow.store(GetPrivateProfileIntA("CameraShake", "PopSmoothing", 1, ini) != 0);
+    Log("config: [CameraShake] Suppress=%d%s PopSmoothing=%d - Suppress=1 removes the game's own camera motion; a category at 1 lets the game's through. "
+        "PopSmoothing=0 is the VR-165 fix (no collision-pop glide, which sticks in VR). "
+        "'camshake status' says which of them were measured and which are by name only", (int)g_camShakeSuppress.load(), line,
+        (int)g_popSmoothAllow.load());
 }
 static void CamShakeSave(const char* ini) {
     WritePrivateProfileStringA("CameraShake", "Suppress", g_camShakeSuppress.load() ? "1" : "0", ini);
     for (const CsCategory& c : csCat) WritePrivateProfileStringA("CameraShake", c.ini, c.allow ? "1" : "0", ini);
+    WritePrivateProfileStringA("CameraShake", "PopSmoothing", g_popSmoothAllow.load() ? "1" : "0", ini);
 }
 static void CamShakeSuppressSet(bool on, const char* who) {
     g_camShakeSuppress.store(on);
@@ -380,7 +384,8 @@ static void CamShakeSuppressSet(bool on, const char* who) {
 static bool CamShakeSuppressed() { return g_camShakeSuppress.load(); }
 
 static void CamShakeReport() {
-    Log("camshake: suppress=%d%s%s", (int)g_camShakeSuppress.load(), *csStandDown ? " | STANDING DOWN: " : "", csStandDown);
+    Log("camshake: suppress=%d%s%s | popsmooth %s", (int)g_camShakeSuppress.load(), *csStandDown ? " | STANDING DOWN: " : "", csStandDown,
+        g_popSmoothAllow.load() ? "ALLOWED (the game's glide; VR-165 can stick)" : "removed (the VR-165 fix)");
     for (const CsCategory& c : csCat)
         Log("camshake: category %-8s %s | %s | %s", c.key, c.allow ? "ALLOWED (the game's own)" : "removed", c.label, c.measured);
     for (CsHandle& h : csH) {
@@ -400,6 +405,14 @@ static bool CamShakeCommand(const char* args) {
     if (DvrOnOff(sub, &onOff)) {
         CamShakeSuppressSet(onOff, "the seam");
         ConfigWriteKey("CameraShake", "Suppress", onOff ? "1" : "0", "the seam");
+        return true;
+    }
+    if (!strcmp(sub, "allow") && !strcmp(a, "popsmooth") && DvrOnOff(b, &onOff)) {
+        // VR-165: not a shake category, and never part of `allow all`.
+        g_popSmoothAllow.store(onOff);
+        ConfigWriteKey("CameraShake", "PopSmoothing", onOff ? "1" : "0", "the seam");
+        Log("camshake: allow popsmooth = %d (live) - %s", (int)onOff, onOff ? "the game's collision-pop glide is back (VR-165 can stick again)"
+                                                                           : "the VR-165 fix: a collision pop snaps, the glide cannot stick");
         return true;
     }
     if (!strcmp(sub, "allow") && *a && DvrOnOff(b, &onOff)) {
@@ -435,7 +448,7 @@ static bool CamShakeCommand(const char* args) {
     }
     if (*sub && strcmp(sub, "status"))
         Log("camshake: on|off | allow <walk|fire|landing|hits|generic|smoother|all> on|off | status | capture <seconds> [tag] | "
-            "hold <handle|category|all> <value> | release [handle|category|all]. Handles: shake recoil hitreact physreact rumble bob roll, bump, and one the feature never holds: reaction");
+            "hold <handle|category|all> <value> | release [handle|category|all] | allow popsmooth on|off (VR-165). Handles: shake recoil hitreact physreact rumble bob roll, bump, and one the feature never holds: reaction");
     CamShakeReport();
     return true;
 }
@@ -449,6 +462,7 @@ static void CamShakeStatus(dvr::status::Writer& w) {
     w.kv("handlesHeld", (unsigned long)held); w.kv("handlesNotFound", (unsigned long)unfound);
     w.kv("writes", (unsigned long)writes); w.kv("engineRewritesFought", (unsigned long)fought);
     w.kv("capturing", csC.on);
+    w.kv("popSmoothing", g_popSmoothAllow.load() ? "allowed" : "removed");
     w.end_obj();
 }
 
@@ -466,5 +480,12 @@ static void CamShakeDrawUi() {
         if (ImGui::Checkbox(label, &c.allow)) ConfigWriteKey("CameraShake", c.ini, c.allow ? "1" : "0", "F10");
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", c.measured);
     }
+    bool pop = g_popSmoothAllow.load();
+    if (ImGui::Checkbox("allow: the collision-pop glide (VR-165: sticks in VR, leave it off)", &pop)) {
+        g_popSmoothAllow.store(pop);
+        ConfigWriteKey("CameraShake", "PopSmoothing", pop ? "1" : "0", "F10");
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("After a chain release or a knockback the game glides the camera back to your head. "
+                                                  "In VR that glide reads back the mod's own offset and never finishes: the view stays lifted and swings.");
     ImGui::TextDisabled("Still there with everything removed: about 1.5 cm of body movement while walking.");
 }
