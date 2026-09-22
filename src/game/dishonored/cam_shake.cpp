@@ -365,7 +365,7 @@ static void CamShakeConfigure(const char* ini) {
         c.allow = GetPrivateProfileIntA("CameraShake", c.ini, c.allowDefault ? 1 : 0, ini) != 0;
         at += _snprintf_s(line + at, sizeof(line) - at, _TRUNCATE, " %s=%d", c.ini, (int)c.allow);
     }
-    g_popSmoothAllow.store(GetPrivateProfileIntA("CameraShake", "PopSmoothing", 1, ini) != 0);
+    g_popSmoothAllow.store(GetPrivateProfileIntA("CameraShake", "PopSmoothing", 0, ini) != 0);
     Log("config: [CameraShake] Suppress=%d%s PopSmoothing=%d - Suppress=1 removes the game's own camera motion; a category at 1 lets the game's through. "
         "PopSmoothing=0 is the VR-165 fix (no collision-pop glide, which sticks in VR). "
         "'camshake status' says which of them were measured and which are by name only", (int)g_camShakeSuppress.load(), line,

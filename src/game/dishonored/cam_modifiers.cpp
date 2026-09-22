@@ -635,11 +635,12 @@ static void CamSpringApply()
 // m_bSmoothingSuddenCollision, which is what the engine's own reset does (0xAD886E).
 // Not a clamp: no position is written, only the game's own two bits.
 //
-// [CameraShake] PopSmoothing: 1 = the game's own glide (the compiled default, per the
-// default-OFF lever rule), 0 = the fix. Live: `camshake allow popsmooth on|off`, F10.
+// [CameraShake] PopSmoothing: 1 = the game's own glide, 0 = the fix. The fix is the
+// default: headset-confirmed across 54 chain releases with no stuck glide (2026-09-22),
+// and the game's glide is the bug. Live: `camshake allow popsmooth on|off`, F10.
 // Script lane, the lane the camera update runs on. The slow tick (250 ms) validates the
 // camera; the per-dispatch cost is two bit tests.
-std::atomic<bool> g_popSmoothAllow{true};
+std::atomic<bool> g_popSmoothAllow{false};   // the fix is the default since the headset verdict (2026-09-22)
 struct PopFix {
     uint8_t* cam = nullptr; bool held = false; bool origAllow = true;
     unsigned rewrites = 0, glidesEnded = 0; double nextSlow = 0.0, nextBeat = 0.0;

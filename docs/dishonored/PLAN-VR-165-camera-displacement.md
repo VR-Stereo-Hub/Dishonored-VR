@@ -6,8 +6,8 @@
 > converges: the gap settles at 9.5x our offset at 126 updates/s (measured 9.5-10.0). See
 > FLICKER_REFERENCE "VR-165: CAUSE FOUND" and ENGINE_NOTES "the collision-pop smoother reads back
 > the mod's offset". The rest of this brief is the history that led there; section 4's spring
-> hypothesis is refuted. The fix is built: `[CameraShake] PopSmoothing=0` holds the game's own
-> glide switch off (ARCHITECTURE decision log 2026-09-22); headset verdict pending.
+> hypothesis is refuted. FIXED and headset-confirmed: `[CameraShake] PopSmoothing=0` (the default) holds the game's own
+> glide switch off (ARCHITECTURE decision log 2026-09-22).
 
 The single starting point for the session that finds the cause. It consolidates what is
 measured, what is eliminated, the instruments already built, and the plan in order. The

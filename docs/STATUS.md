@@ -1,3 +1,20 @@
+## Session handoff 2026-09-22: VR-165 FIXED (the camera that leaves the body)
+
+Branch `claude/vr-165-camera-displacement`, PR to `VR-Main`, not merged.
+* Cause: after a collision pop over 50 uu (a chain release, a knockback) the engine glides the
+  camera back, reading the last final location from `camera+0x330`, the field the mod writes its
+  head/eye offset into. Our offset re-enters every update and the glide settles at 9.5x our
+  offset (measured 9.5-10.0) instead of ending. ENGINE_NOTES and FLICKER_REFERENCE carry the
+  derivation and the measurement; the springs hypothesis is refuted.
+* Fix: `[CameraShake] PopSmoothing=0` (default) holds the game's own
+  `m_bAllowCamSmoothingForCollisionPop` off, so a pop snaps. Headset-confirmed. Live:
+  `camshake allow popsmooth on|off`, F10 > Camera shake.
+* Also: the census (`camera/springs`, `camera/collide`), the `camspring` kick word (its
+  simulator sequence `tools/xrsim/camspring.xrs` never ran), `RflResolveBatch`, and the name
+  cache fix (a full cache froze the game at 0 fps: TRAPS.md).
+* Known: `camera/displaced` warns on the keyhole, where the game moves the base camera itself.
+* Next: the startup freeze (about 10-15 s after launch), its own ticket and branch.
+
 ## Next session: VR-165, the camera that leaves the body
 
 Branch `claude/vr-165-camera-displacement` off `VR-Main` `a0ecbb042`. **Read

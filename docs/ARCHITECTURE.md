@@ -1059,5 +1059,6 @@ which a given machine needs: a press reaching the pad proves nothing.
   game ships a switch for the glide itself (`m_bAllowCamSmoothingForCollisionPop`, its own
   DishonoredCamera.ini key), and in a headset a glide the head did not make is unrequested motion,
   the VR-172 reasoning. Held clear, a pop snaps and the stuck state cannot start; nothing is
-  written to any position. `[CameraShake] PopSmoothing=1` (the game's glide) is the compiled
-  default per the default-off rule; the tested machine runs 0.
+  written to any position. `[CameraShake] PopSmoothing=0` (the fix) is the shipped default
+  against the default-off rule: it is headset-confirmed (54 chain releases, no stuck glide) and
+  the game's glide is the bug itself, the same exception VR-172 made.
