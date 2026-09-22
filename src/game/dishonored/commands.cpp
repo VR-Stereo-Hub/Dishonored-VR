@@ -628,6 +628,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("build", DVR_BUILD_ID);
     w.kv("config", DVR_BUILD_CONFIG);
     w.kv("optimised", (bool)DVR_BUILD_OPTIMISED);
+    w.kv("legacy", (bool)DVR_WITH_LEGACY);   // VR-180: a legacy build is never one to play
     w.kv("backend", "openxr");
     w.kv("runtime", dvr::vr::runtime_name());
     w.kv("session", dvr::vr::session_state_name());

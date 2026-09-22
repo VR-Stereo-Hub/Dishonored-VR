@@ -35,8 +35,21 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
             dvr::log::configure(lv, cats);
         }
         DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Info,
-                "=== Dishonored VR proxy loaded (dishonoredvr %s, build %s, config %s, built %s %s) ===",
-                DVR_VERSION, DVR_BUILD_ID, DVR_BUILD_CONFIG, __DATE__, __TIME__);
+                "=== Dishonored VR proxy loaded (dishonoredvr %s, build %s, config %s, legacy %s, built %s %s) ===",
+                DVR_VERSION, DVR_BUILD_ID, DVR_BUILD_CONFIG, DVR_WITH_LEGACY ? "ON" : "off", __DATE__, __TIME__);
+        // VR-180: a build with src/legacy compiled in was installed for a headset
+        // session, and one of its retired diagnostics (the projectile-spawn tracer)
+        // walks the engine's whole object table on every trigger pull: a quarter
+        // second of freeze per pull, measured. Nothing in the log said what kind of
+        // build it was. tools/install.ps1 and tools/package.ps1 look for this exact
+        // sentence in the DLL to recognise such a build, so keep the wording.
+#if DVR_WITH_LEGACY
+        DVR_LOG(dvr::log::Cat::proxy, dvr::log::Level::Warn,
+                "build: legacy code is COMPILED IN (src/legacy, -DDVR_WITH_LEGACY=ON). This build is for the "
+                "debugger and old diagnostics: its fire tracer scans every engine object on each trigger pull "
+                "([Debug] FireTrace, on by default) and freezes the game for about a quarter second. It is NOT a "
+                "build to play or to give to a tester; a plain `build.ps1` builds without it");
+#endif
         // VR-160: a Debug build was played and measured for a day as if it
         // were the tester's build, because nothing in the log said otherwise.
 #if !DVR_BUILD_OPTIMISED

@@ -46,7 +46,9 @@ hand r to grip -0.35 1.00 -0.45 0 0 0 900
 @mod swing sim 3.3 200 1
 @log swing: FIRE #\d+ slash 3\.\d+ m/s .*\(sim,
 @log swing: HONOURED slash
-@log swing: hump \(sim, not counted in the census\) peak=3\.[23]\d m/s .* -> ATTACK
+# The peak is whatever the game's tick rate samples off a 3.3 m/s half-sine: 3.11 to 3.29 across
+# the runs so far. What matters is that it sits BETWEEN the two thresholds (3.0 and 3.6).
+@log swing: hump \(sim, not counted in the census\) peak=3\.[0-5]\d m/s .* -> ATTACK
 @log swing: sim window finished: 1 fire
 @modassert features.swing.notHonoured eq 0
 
