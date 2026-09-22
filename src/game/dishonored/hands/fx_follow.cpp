@@ -36,7 +36,7 @@ struct FxEntry {
 static FxEntry g_fx[24];
 static int g_fxN = 0;
 static uint32_t g_fxStride = 0;                // Attachments element size, found at runtime
-static uint32_t g_fxAttOff = 0, g_fxL2W = kWaComponentLocalToWorld;
+static uint32_t g_fxAttOff = 0, g_fxL2W = kWaComponentLocalToWorld, g_fxLightL2W = 0;
 static volatile LONG g_fxDriven = 0, g_fxRestored = 0;
 static const char* volatile g_fxWhy = "not asked yet";
 
@@ -47,10 +47,11 @@ static FxEntry* FxFind(uint8_t* comp)
 }
 
 // A component's native world transform, column form (y = r*x + t), scale kept in the columns.
-static bool FxL2W(uint8_t* comp, dvr::hf::Xform* out)
+static bool FxL2W(uint8_t* comp, dvr::hf::Xform* out, bool light)
 {
-    if (!RangeReadable(comp + g_fxL2W, 64)) return false;
-    const float* m = (const float*)(comp + g_fxL2W);    // native rows: X, Y, Z basis, translation
+    const uint32_t off = light ? g_fxLightL2W : g_fxL2W;
+    if (!off || !RangeReadable(comp + off, 64)) return false;
+    const float* m = (const float*)(comp + off);    // native rows: X, Y, Z basis, translation
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c) out->r.m[r * 3 + c] = m[c * 4 + r];
     out->t[0] = m[12]; out->t[1] = m[13]; out->t[2] = m[14];
@@ -139,8 +140,9 @@ static void FxFollowMesh(uint8_t* mesh, int meshHand, const dvr::hf::Xform* W, c
         uint8_t* e = data + i * g_fxStride;
         uint8_t* c = *(uint8_t**)e;
         const char* cn = ObjClassName(c);
-        if (!cn || !strstr(cn, "ParticleSystemComponent")) {
-            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 24, "fx/follow: %s on %s bone %s - not a particle system, left alone",
+        const bool isLight = cn && strstr(cn, "LightComponent") != nullptr;
+        if (!cn || (!strstr(cn, "ParticleSystemComponent") && !isLight)) {
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 24, "fx/follow: %s on %s bone %s - neither a particle system nor a light, left alone",
                 cn ? cn : "?", ObjClassName(mesh), RealName(*(uint32_t*)(e + 4)));
             continue;
         }
@@ -168,7 +170,7 @@ static void FxFollowMesh(uint8_t* mesh, int meshHand, const dvr::hf::Xform* W, c
             continue;
         }
         dvr::hf::Xform C, invRelNow, invS;
-        if (!FxL2W(c, &C)) continue;
+        if (!FxL2W(c, &C, isLight)) continue;
         const dvr::hf::Xform relNow = FxRel(relT, relR, relS), rel0 = FxRel(f->t0, f->r0, relS);
         if (!dvr::wf::inverse(relNow, &invRelNow)) continue;
         const dvr::hf::Xform S = dvr::hf::xform_mul(C, invRelNow);
@@ -190,6 +192,85 @@ static void FxFollowMesh(uint8_t* mesh, int meshHand, const dvr::hf::Xform* W, c
     }
 }
 
+// ---- discovery: every particle system and light the player owns (VR-182, second run) --------
+// Build 665 tracked nothing (the filter bug below), and the headset report adds what the scripts
+// could not: the Heart's stray effect is a floating ball of LIGHT, and Possession shows two
+// effects, a light and a particle system, neither on the hand. Some of these may not be mesh
+// attachments at all (a component on the item's or the power's actor, or on the pawn). This
+// finds them wherever they live: an incremental GObjects pass (8192 objects a tick, so it never
+// stalls) keeps every live ParticleSystemComponent or LightComponent whose Owner is the pawn or an
+// actor the pawn owns. Each is logged once when found - class, name, template, owner, and whether
+// a tracked mesh carries it in Attachments - and every three seconds with where it sits in the view.
+struct FxSeen { uint8_t* comp; };
+static FxSeen g_fxSeen[48]; static int g_fxSeenN = 0;
+static uint32_t g_fxScanAt = 0;
+
+static bool FxInTrackedAttachments(uint8_t* comp)
+{
+    for (int i = 0; i < g_fxN; ++i) if (g_fx[i].comp == comp) return true;
+    return false;
+}
+
+static void FxDiscoverTick(double now)
+{
+    static uint32_t oOwner = 0, oActOwner = 0, oTemplate = 0;
+    if (!oOwner) {
+        oOwner = RflOffsetOf("ActorComponent", "Owner");
+        oActOwner = RflOffsetOf("Actor", "Owner");
+        oTemplate = RflOffsetOf("ParticleSystemComponent", "Template");
+        if (!oOwner) return;
+    }
+    uint8_t* pawn = g_pePawn;
+    if (!pawn || !RangeReadable((void*)kGObjHdr, 12)) return;
+    void** objs = *(void***)kGObjHdr;
+    const uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || onum < 1000 || onum > 4000000) return;
+    if (g_fxScanAt >= onum) g_fxScanAt = 0;
+    const uint32_t end = g_fxScanAt + 8192 < onum ? g_fxScanAt + 8192 : onum;
+    if (!RangeReadable(objs + g_fxScanAt, (end - g_fxScanAt) * sizeof(void*))) { g_fxScanAt = 0; return; }
+    for (uint32_t i = g_fxScanAt; i < end; ++i) {
+        uint8_t* o = (uint8_t*)objs[i];
+        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, oOwner + 4)) continue;
+        uint8_t* own = *(uint8_t**)(o + oOwner);
+        if (!own || ((uintptr_t)own & 3)) continue;
+        bool mine = own == pawn;
+        if (!mine && oActOwner && RangeReadable(own + oActOwner, 4)) mine = *(uint8_t**)(own + oActOwner) == pawn;
+        if (!mine) continue;
+        const char* cn = ObjClassName(o);
+        if (!cn || (!strstr(cn, "ParticleSystemComponent") && !strstr(cn, "LightComponent"))) continue;
+        bool known = false;
+        for (int k = 0; k < g_fxSeenN; ++k) if (g_fxSeen[k].comp == o) { known = true; break; }
+        if (known || g_fxSeenN >= (int)(sizeof(g_fxSeen) / sizeof(g_fxSeen[0])) || !IsLiveObject(o)) continue;
+        const char* nm = RealName(*(uint32_t*)(o + kNameOff));
+        uint8_t* tpl = (oTemplate && strstr(cn, "Particle") && RangeReadable(o + oTemplate, 4)) ? *(uint8_t**)(o + oTemplate) : nullptr;
+        const char* tn = (tpl && IsLiveObject(tpl)) ? RealName(*(uint32_t*)(tpl + kNameOff)) : "-";
+        g_fxSeen[g_fxSeenN++].comp = o;
+        Log("fx/find: %s '%s' template '%s' owned by %s%s - %s", cn, nm ? nm : "?", tn ? tn : "-", ObjClassName(own),
+            own == pawn ? " (the pawn)" : " (owned by the pawn)",
+            FxInTrackedAttachments(o) ? "a TRACKED mesh attachment" : "NOT in any tracked mesh's Attachments");
+    }
+    g_fxScanAt = end >= onum ? 0 : end;
+    static double nextPos = 0;
+    if (now < nextPos || !g_fxSeenN) return;
+    nextPos = now + 3000;
+    float cam[3]; if (!CarryGameAnchor(cam)) return;
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), cp = cosf(g_viewPitchRad), sp = sinf(g_viewPitchRad);
+    for (int k = 0; k < g_fxSeenN; ) {
+        uint8_t* o = g_fxSeen[k].comp;
+        if (!IsLiveObject(o)) { g_fxSeen[k] = g_fxSeen[--g_fxSeenN]; continue; }
+        const char* cn = ObjClassName(o);
+        dvr::hf::Xform C;
+        if (FxL2W(o, &C, cn && strstr(cn, "LightComponent") != nullptr)) {
+            const float r[3] = { C.t[0] - cam[0], C.t[1] - cam[1], C.t[2] - cam[2] };
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 300,
+                "fx/find:   %s '%s' at %.0f fwd %.0f right %.0f up uu in the view%s", cn, RealName(*(uint32_t*)(o + kNameOff)),
+                r[0] * cp * cy + r[1] * cp * sy + r[2] * sp, -r[0] * sy + r[1] * cy,
+                -r[0] * sp * cy - r[1] * sp * sy + r[2] * cp, FxInTrackedAttachments(o) ? " (tracked)" : "");
+        }
+        ++k;
+    }
+}
+
 static void FxFollowTick()
 {
     if (!RflNamesReady()) return;
@@ -199,7 +280,9 @@ static void FxFollowTick()
         nextTry = t + 5000;
         g_fxAttOff = RflOffsetOf("SkeletalMeshComponent", "Attachments");
         if (!g_fxAttOff) return;
-        Log("fx/follow: SkeletalMeshComponent.Attachments +0x%X; component LocalToWorld +0x%X", g_fxAttOff, g_fxL2W);
+        g_fxLightL2W = RflOffsetOf("LightComponent", "LightToWorld");
+        Log("fx/follow: SkeletalMeshComponent.Attachments +0x%X; component LocalToWorld +0x%X; LightComponent.LightToWorld +0x%X",
+            g_fxAttOff, g_fxL2W, g_fxLightL2W);
     }
     const double now = MaimNowMs();
     dvr::hf::Xform W[2]; bool haveW[2] = { false, false };
@@ -213,7 +296,10 @@ static void FxFollowTick()
     for (int i = 0; i < n; ++i) {
         if (!comps[i].ok || !comps[i].obj) continue;
         const char* cn = ObjClassName(comps[i].obj);
-        if (!cn || !strstr(cn, "SkeletalMeshComponent")) continue;
+        // Build 665: this said "SkeletalMeshComponent" and skipped every mesh the game uses - they are
+        // subclasses (DishonoredItemSkeletalComponent, the player's skeletal component) - so nothing was
+        // ever tracked. Attachments is declared on the base, so any skeletal subclass carries it.
+        if (!cn || !strstr(cn, "Skeletal")) continue;
         FxFollowMesh(comps[i].obj, comps[i].isRef ? -1 : comps[i].hand, W, haveW, now);
     }
     // Entries not seen for a while are gone (unequipped, destroyed): forget them.
@@ -221,6 +307,7 @@ static void FxFollowTick()
         if (now - g_fx[i].seenMs > 3000) { g_fx[i] = g_fx[--g_fxN]; continue; }
         ++i;
     }
+    FxDiscoverTick(now);
     static double nextLog = 0;
     if (g_fxN && now >= nextLog) {
         nextLog = now + 2000;

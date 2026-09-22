@@ -8623,6 +8623,8 @@ correction exists. The hand comes from the snapshot, or from the bone name on th
 non-particle attachment it leaves alone. If Blink's `m_pMeshPS` samples the arm mesh's
 surface instead of being attached, it will not appear in that list, and it needs a different fix.
 
+**First headset run (build 665): nothing followed, and nothing was tracked.** The log shows only the Attachments offset (`+0x27C`), with no stride line and no `tracking` line. The mesh filter wanted `SkeletalMeshComponent` in the class name, and every mesh the game uses is a subclass (`DishonoredItemSkeletalComponent` and the player's skeletal component), so none was ever walked. The same run added two observations. The Heart's stray effect is a floating ball of LIGHT (the heart's own inner light works). Possession shows two effects, a light and a particle system, and neither is on the hand. Build 666 fixes the filter and follows LightComponents too (`LightComponent.LightToWorld` by name). It adds `fx/find:`, an incremental GObjects pass that lists every particle system and light owned by the pawn or by an actor the pawn owns, says whether a tracked mesh carries it, and logs where it sits in the view. So an effect that is not a mesh attachment is still named.
+
 ## The razor placement seam (VR-166, 2026-09-21)
 
 **Found statically; the write-watch was retired without its result.** Build 612 armed
