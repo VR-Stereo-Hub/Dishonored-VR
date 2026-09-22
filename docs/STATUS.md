@@ -1,3 +1,12 @@
+## Session 2026-09-22 (F10 cleanup, VR-196): branch `claude/f10-cleanup`, not merged
+
+The F10 panel is rebuilt with a Basic / Advanced / Debug selector, regrouped tabs, collapsed
+sections, a tooltip on every control, and save-on-change for every Basic and Advanced setting.
+`docs/dishonored/F10_AUDIT.md` has the per-control disposition, the tester's 15 answers, and what
+the audit found (two settings no save wrote, many only SAVE AS DEFAULTS kept, two ImGui ID
+collisions). Built and installed. **Not yet seen in the game**: next, a launch to check each
+tier and that a change survives a relaunch.
+
 ## Session handoff 2026-09-22 (misc fixes pt 2): merged to VR-Main
 
 Branch `claude/misc-fixes-pt-2` (renamed from `claude/vr-102-startup-lookups`), merged with the

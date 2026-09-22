@@ -76,6 +76,7 @@ set(DVR_REAL_SOURCES
     core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
     core/vr/openxr_input.cpp   core/vr/openxr_input.h
     core/vr/hud_stub.cpp       core/vr/hud_stub.h
+    core/ui/ovl_ui.cpp         core/ui/ovl_ui.h
     core/util/xr_math.h
 )
 foreach(_f ${DVR_REAL_SOURCES})

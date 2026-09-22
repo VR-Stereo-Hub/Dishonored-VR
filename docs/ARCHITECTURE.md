@@ -1062,3 +1062,15 @@ which a given machine needs: a press reaching the pad proves nothing.
   written to any position. `[CameraShake] PopSmoothing=0` (the fix) is the shipped default
   against the default-off rule: it is headset-confirmed (54 chain releases, no stuck glide) and
   the game's glide is the bug itself, the same exception VR-172 made.
+
+
+- **2026-09-22 (VR-196): the F10 panel has three tiers, and a player setting saves itself.** The
+  panel had grown one control per investigation, so the fixes nobody should turn off sat beside
+  the settings a player is meant to change. The tier is a view filter only (`dvr::ovl`, its own
+  translation unit because the sub-panels span four): no key changed meaning or default. Every
+  Basic and Advanced control writes its ini key on change, because the audit found settings
+  that reset every launch unless SAVE AS DEFAULTS was pressed, and two that no save wrote at
+  all. Debug switches stay session-only, which is the right lifetime for an A/B lever. Controls
+  that do nothing in this game (the runtime layer's HUD-stub switches, AlternateEye) left the
+  panel behind a `41.x (Dishonored)` marker in the runtime layer, the one place it diverges
+  from the BioShock copy for this.

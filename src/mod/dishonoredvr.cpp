@@ -46,6 +46,7 @@
 #include "core/gfx/capture.h"
 #include "core/gfx/gpu_memory.h"
 #include "core/vr/hud_stub.h"
+#include "core/ui/ovl_ui.h"
 #include "core/gfx/hud_class.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/hud_layout.h"

@@ -4118,19 +4118,17 @@ static void MpCalibTick(void)
 // A slider moves the hand live; the value is written to the ini when the slider is released.
 static void MpTrimPanel()
 {
-    ImGui::SeparatorText("Hand model position");
-    bool pt = g_mpPowTrimOn;
-    if (ImGui::Checkbox("Separate left-hand position for powers", &pt)) {
-        g_mpPowTrimOn = pt;
-        ConfigWriteKey("Hands", "PowerTrim", pt ? "1" : "0", "F10 Hands");
-        MpPublishHandCal(0);
-    }
+    namespace ov = dvr::ovl;
     // Which trim the buttons edit. Until one is picked it follows the left hand's item, so
     // opening the panel with a power out edits the powers position, as the numpad does.
     static int picked = -1;
     const int inUse = MpPowerTrimActive(0) ? 2 : 0;
     const int edit = picked < 0 ? inUse : picked;
     static const char* const kWhich[3] = { "Left", "Right", "Left, powers" };
+    static const char* const kWhichTip[3] = {
+        "Edit the left hand's position (when it is not holding a power).",
+        "Edit the right hand's position.",
+        "Edit the left hand's position while it holds a power." };
     for (int i = 0; i < 3; ++i) {
         if (i == 2 && !g_mpPowTrimOn) continue;
         if (i) ImGui::SameLine();
@@ -4138,6 +4136,7 @@ static void MpTrimPanel()
         _snprintf(lbl, sizeof(lbl), "%s%s##mptrim%d", kWhich[i], (i == inUse) ? " (in use)" : "", i);
         lbl[sizeof(lbl) - 1] = 0;
         if (ImGui::RadioButton(lbl, edit == i)) picked = i;
+        ov::tip(kWhichTip[i]);
     }
     const int e = (edit == 2 && !g_mpPowTrimOn) ? 0 : edit;
     const int hand = (e == 1) ? 1 : 0;
@@ -4153,9 +4152,11 @@ static void MpTrimPanel()
     // trim at that instant (MpTrimViewStep), so the hand moves the way the button says.
     static int stepIx = 1;
     static const float kStepCm[3] = { 0.2f, 0.5f, 2.0f }, kStepDeg[3] = { 0.5f, 2.0f, 5.0f };
-    ImGui::RadioButton("fine##mpstep", &stepIx, 0); ImGui::SameLine();
-    ImGui::RadioButton("normal##mpstep", &stepIx, 1); ImGui::SameLine();
-    ImGui::RadioButton("coarse##mpstep", &stepIx, 2);
+    ImGui::RadioButton("fine##mpstep", &stepIx, 0); ov::tip("0.2 cm or 0.5 degrees per press.");
+    ImGui::SameLine();
+    ImGui::RadioButton("normal##mpstep", &stepIx, 1); ov::tip("0.5 cm or 2 degrees per press.");
+    ImGui::SameLine();
+    ImGui::RadioButton("coarse##mpstep", &stepIx, 2); ov::tip("2 cm or 5 degrees per press.");
     struct Row { const char* name; const char* neg; const char* pos; bool rot; int axis; };
     static const Row kRows[6] = {
         { "move",  "left", "right", false, 0 }, { "move", "down", "up", false, 2 },
@@ -4177,6 +4178,8 @@ static void MpTrimPanel()
                 if (MpTrimViewStep(hand, row.rot, row.axis, amt, T, R, &lastWhy)) changed = true;
                 else Log("ms/palette/adjust: F10 step REFUSED - %s", lastWhy);
             }
+            ov::tip("Moves or turns the hand the way the button says, as you see it now. Hold to "
+                    "repeat. Saved at once. Anything held moves with the hand, and the reticle follows.");
         }
     }
     ImGui::PopItemFlag();
@@ -4196,12 +4199,24 @@ static void MpTrimPanel()
         MpPublishHandCal(0);
         Log("ms/palette/adjust: F10 copied the left trim into the powers trim");
     }
-    bool av = g_mpAdjView;
-    if (ImGui::Checkbox("Numpad steps follow my view (not the palm axes)", &av)) {
-        g_mpAdjView = av;
-        ConfigWriteKey("Hands", "AdjustInView", av ? "1" : "0", "F10 Hands");
+    if (e == 2) ov::tip("Copies the normal left-hand position into the powers position.");
+    if (ov::show(ov::Advanced)) {
+        bool pt = g_mpPowTrimOn;
+        if (ImGui::Checkbox("Separate left-hand position for powers", &pt)) {
+            g_mpPowTrimOn = pt;
+            ConfigWriteKey("Hands", "PowerTrim", pt ? "1" : "0", "F10 Hands");
+            MpPublishHandCal(0);
+        }
+        ov::tip("The left hand uses its own position while it holds a power. Off: one left position for everything.");
+        bool av = g_mpAdjView;
+        if (ImGui::Checkbox("Numpad steps follow my view (not the palm axes)", &av)) {
+            g_mpAdjView = av;
+            ConfigWriteKey("Hands", "AdjustInView", av ? "1" : "0", "F10 Hands");
+        }
+        ov::tip("The numpad hand keys move along your view, like the buttons here. Off: along the "
+                "palm's own tilted axes, as before.");
     }
-    if (ImGui::TreeNode("Stored values (palm frame)##mptrimraw")) {
+    if (ov::show(ov::Debug) && ImGui::TreeNode("Stored values (palm frame)##mptrimraw")) {
         static const char* const kT[3] = { "across the palm (cm)", "along the fingers (cm)", "out of the palm (cm)" };
         static const char* const kR[3] = { "about across (deg)", "about fingers (deg)", "about out (deg)" };
         for (int a = 0; a < 6; ++a) {
@@ -4215,11 +4230,11 @@ static void MpTrimPanel()
                 if (rot) R[ax] = v; else T[ax] = v / 100.0f;
                 MpPublishHandCal(hand);
             }
+            ov::tip("The raw value in the palm's own frame ([Hands] Trim*). The step buttons edit these.");
             if (ImGui::IsItemDeactivatedAfterEdit()) MpTrimSave(pre, T, R, "F10 Hands");
         }
         ImGui::TreePop();
     }
-    ImGui::TextDisabled("moves the hand and what it holds; the reticle follows it");
 }
 
 static void MsTick(void)

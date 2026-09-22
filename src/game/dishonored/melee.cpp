@@ -793,99 +793,133 @@ void status(dvr::status::Writer& w) {
 }
 
 void draw_ui() {
-    // Open by default (VR-170): the speed slider is the one a player goes looking for.
-    if (!ImGui::CollapsingHeader("Motion sword", ImGuiTreeNodeFlags_DefaultOpen)) return;
+    namespace ov = dvr::ovl;
+    // VR-196: a Basic section, closed by default like every other.
+    if (!ov::section("Motion sword", ov::Basic, "Swing the right controller to swing the sword.")) return;
     const double now = MaimNowMs();
     char v[32];
     bool onBox = g_meleeOn;
-    if (ImGui::Checkbox("swinging the right controller swings the sword", &onBox)) {
+    if (ImGui::Checkbox("Swinging the right controller swings the sword", &onBox)) {
         set_on(onBox);
         if (g_meleeOn == onBox) ConfigWriteKey("Melee", "Enabled", onBox ? "1" : "0", "F10 Controls");
     }
+    ov::tip("Off: attack with the trigger only.");
     if (*veto()) ImGui::TextDisabled("off: vetoed by %s", veto());
-    int det = st.detector == kEdge ? 1 : 0;
-    const char* dets[] = { "sustain (the old detector)", "edge (fires on the crossing)" };
-    if (ImGui::Combo("swing detector", &det, dets, 2)) {
-        st.detector = det ? kEdge : kSustain; live.reset(); close_pulse();
-        ConfigWriteKey("Melee", "Detector", detector_name(), "F10 Controls");
+    if (ov::show(ov::Debug)) {
+        int det = st.detector == kEdge ? 1 : 0;
+        const char* dets[] = { "sustain (the old detector)", "edge (fires on the crossing)" };
+        if (ImGui::Combo("Swing detector", &det, dets, 2)) {
+            st.detector = det ? kEdge : kSustain; live.reset(); close_pulse();
+            ConfigWriteKey("Melee", "Detector", detector_name(), "F10 Controls");
+        }
+        ov::tip("Edge is the tested detector. Sustain is the old one, kept for comparison.");
     }
     if (st.detector == kEdge) {
-        ImGui::SliderFloat("swing speed needed (m/s)", &st.edgeSpeed, 0.5f, 8.0f, "%.2f");
+        ImGui::SliderFloat("Swing speed needed (m/s)", &st.edgeSpeed, 0.5f, 8.0f, "%.2f");
+        ov::tip("How fast the controller must move to count as a swing. Lower if swings are missed, "
+                "higher if walking or reaching attacks.");
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.edgeSpeed); ConfigWriteKey("Melee", "EdgeSpeed", v, "F10 Controls"); }
-        ImGui::SliderFloat("swing must travel first (m, 0 = off)", &st.edgeTravelM, 0.0f, 0.60f, "%.2f");
-        if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.edgeTravelM); ConfigWriteKey("Melee", "EdgeTravelM", v, "F10 Controls"); }
-        ImGui::SliderFloat("re-arm below (m/s)", &st.rearmSpeed, 0.1f, 4.0f, "%.2f");
-        if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.rearmSpeed); ConfigWriteKey("Melee", "RearmSpeed", v, "F10 Controls"); }
-        ImGui::SliderFloat("attack press (ms)", &st.pulseMs, 20.0f, 300.0f, "%.0f");
-        if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.pulseMs); ConfigWriteKey("Melee", "PulseMs", v, "F10 Controls"); }
-        if (ImGui::Checkbox("ignore one bad tracking sample (median of 3)", &st.median)) {
-            live.reset(); ConfigWriteKey("Melee", "Median", st.median ? "1" : "0", "F10 Controls");
-        }
-        if (ImGui::Checkbox("turning my body is not a swing (head-relative)", &st.headRel)) {
-            live.reset(); ConfigWriteKey("Melee", "HeadRel", st.headRel ? "1" : "0", "F10 Controls");
-        }
-        if (ImGui::Checkbox("only with the sword in my hand", &st.requireSword))
-            ConfigWriteKey("Melee", "RequireSword", st.requireSword ? "1" : "0", "F10 Controls");
-        int out = st.outputRb ? 1 : 0;
-        const char* outs[] = { "right trigger (usual)", "right shoulder" };
-        if (ImGui::Combo("a swing presses", &out, outs, 2)) {
-            st.outputRb = out != 0; close_pulse();
-            ConfigWriteKey("Melee", "Output", output_name(), "F10 Controls");
+        if (ov::show(ov::Advanced)) {
+            ImGui::SliderFloat("Swing must travel first (m, 0 = off)", &st.edgeTravelM, 0.0f, 0.60f, "%.2f");
+            ov::tip("A swing also has to cover this distance. Stops small flicks attacking.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.edgeTravelM); ConfigWriteKey("Melee", "EdgeTravelM", v, "F10 Controls"); }
+            ImGui::SliderFloat("Re-arm below (m/s)", &st.rearmSpeed, 0.1f, 4.0f, "%.2f");
+            ov::tip("The controller must slow below this before the next swing can count.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.rearmSpeed); ConfigWriteKey("Melee", "RearmSpeed", v, "F10 Controls"); }
+            ImGui::SliderFloat("Attack press (ms)", &st.pulseMs, 20.0f, 300.0f, "%.0f");
+            ov::tip("How long a swing holds the attack button down.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.pulseMs); ConfigWriteKey("Melee", "PulseMs", v, "F10 Controls"); }
+            if (ImGui::Checkbox("Ignore one bad tracking sample (median of 3)", &st.median)) {
+                live.reset(); ConfigWriteKey("Melee", "Median", st.median ? "1" : "0", "F10 Controls");
+            }
+            ov::tip("Ignores a single tracking glitch that would look like a fast swing.");
+            if (ImGui::Checkbox("Turning my body is not a swing (head-relative)", &st.headRel)) {
+                live.reset(); ConfigWriteKey("Melee", "HeadRel", st.headRel ? "1" : "0", "F10 Controls");
+            }
+            ov::tip("Measures the swing relative to your head, so turning around does not attack.");
+            if (ImGui::Checkbox("Only with the sword in my hand", &st.requireSword))
+                ConfigWriteKey("Melee", "RequireSword", st.requireSword ? "1" : "0", "F10 Controls");
+            ov::tip("Swings do nothing unless the sword is out.");
+            int out = st.outputRb ? 1 : 0;
+            const char* outs[] = { "right trigger (usual)", "right shoulder" };
+            if (ImGui::Combo("A swing presses", &out, outs, 2)) {
+                st.outputRb = out != 0; close_pulse();
+                ConfigWriteKey("Melee", "Output", output_name(), "F10 Controls");
+            }
+            ov::tip("Which game button a swing presses.");
         }
     } else {
-        ImGui::SliderFloat("swing speed needed (m/s)", &g_meleeSpeed, 0.5f, 6.0f, "%.2f");
+        ImGui::SliderFloat("Swing speed needed (m/s)", &g_meleeSpeed, 0.5f, 6.0f, "%.2f");
+        ov::tip("How fast the controller must move to count as a swing (sustain detector).");
         if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", g_meleeSpeed); ConfigWriteKey("Melee", "SwingSpeed", v, "F10 Controls"); }
     }
-    // VR-171: the game's swoosh follows its own animation, not the hand-held blade.
-    bool trailHide = SwordTrailHideEnabled();
-    if (ImGui::Checkbox("hide the sword's swing trail (it does not follow your hand)", &trailHide)) {
-        SwordTrailHideSet(trailHide, "F10 Controls");
-        ConfigWriteKey("SwordTrail", "Hide", trailHide ? "1" : "0", "F10 Controls");
-    }
-    ImGui::SliderFloat("swing cooldown (ms)", &g_meleeCoolMs, 0.0f, 1000.0f, "%.0f");
+    ImGui::SliderFloat("Swing cooldown (ms)", &g_meleeCoolMs, 0.0f, 1000.0f, "%.0f");
+    ov::tip("The shortest time between two swings.");
     if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", g_meleeCoolMs); ConfigWriteKey("Melee", "CooldownMs", v, "F10 Controls"); }
+    if (ov::show(ov::Debug)) {
+        // VR-171: the game's swoosh follows its own animation, not the hand-held blade.
+        bool trailHide = SwordTrailHideEnabled();
+        if (ImGui::Checkbox("Hide the sword's swing trail", &trailHide)) {
+            SwordTrailHideSet(trailHide, "F10 Controls");
+            ConfigWriteKey("SwordTrail", "Hide", trailHide ? "1" : "0", "F10 Controls");
+        }
+        ov::tip("The game's swoosh follows its own animation, not your hand (VR-171). Leave on.");
+    }
     if (st.detector == kEdge) {
-        ImGui::Separator();
-        if (ImGui::Checkbox("a stab while sneaking is the stealth kill", &st.stab)) {
+        if (ImGui::Checkbox("A stab while sneaking is the stealth kill", &st.stab)) {
             live.reset(); ConfigWriteKey("Melee", "Stab", st.stab ? "1" : "0", "F10 Controls");
         }
+        ov::tip("While sneaking, a stabbing motion does the stealth kill.");
         if (st.stab) {
             int sty = st.stabStyle == kPlunge ? 0 : 1;
             const char* stys[] = { "plunge: raised fist driven down (reverse grip)", "thrust: straight out from the shoulder" };
-            if (ImGui::Combo("stab motion", &sty, stys, 2)) {
+            if (ImGui::Combo("Stab motion", &sty, stys, 2)) {
                 st.stabStyle = sty == 0 ? kPlunge : kThrust; live.reset();
                 ConfigWriteKey("Melee", "StabStyle", style_name(), "F10 Controls");
             }
-            if (st.stabStyle == kPlunge) {
-                ImGui::SliderFloat("may start this far below the shoulder (m)", &st.stabStartBelowM, -0.20f, 0.40f, "%.2f");
-                if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabStartBelowM); ConfigWriteKey("Melee", "StabStartBelowM", v, "F10 Controls"); }
+            ov::tip("Which motion counts as the stab.");
+            if (ov::show(ov::Advanced)) {
+                if (st.stabStyle == kPlunge) {
+                    ImGui::SliderFloat("May start this far below the shoulder (m)", &st.stabStartBelowM, -0.20f, 0.40f, "%.2f");
+                    ov::tip("How low the fist may start and still count as a plunge.");
+                    if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabStartBelowM); ConfigWriteKey("Melee", "StabStartBelowM", v, "F10 Controls"); }
+                }
+                ImGui::SliderFloat("Thrust speed needed (m/s)", &st.stabSpeed, 0.5f, 4.0f, "%.2f");
+                ov::tip("How fast the stab must be.");
+                if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabSpeed); ConfigWriteKey("Melee", "StabSpeed", v, "F10 Controls"); }
+                ImGui::SliderFloat("Thrust reach needed (m)", &st.stabTravelM, 0.05f, 0.50f, "%.2f");
+                ov::tip("How far the stab must travel.");
+                if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabTravelM); ConfigWriteKey("Melee", "StabTravelM", v, "F10 Controls"); }
+                ImGui::SliderFloat("How straight (0-1)", &st.stabRatio, 0.3f, 1.0f, "%.2f");
+                ov::tip("How straight the path must be. Higher rejects curved swings.");
+                if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabRatio); ConfigWriteKey("Melee", "StabRatio", v, "F10 Controls"); }
+                ImGui::SliderFloat("How forward (0-1)", &st.stabForward, 0.0f, 1.0f, "%.2f");
+                ov::tip("How much of the motion must point forward (thrust) or down (plunge).");
+                if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabForward); ConfigWriteKey("Melee", "StabForward", v, "F10 Controls"); }
             }
-            ImGui::SliderFloat("thrust speed needed (m/s)", &st.stabSpeed, 0.5f, 4.0f, "%.2f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabSpeed); ConfigWriteKey("Melee", "StabSpeed", v, "F10 Controls"); }
-            ImGui::SliderFloat("thrust reach needed (m)", &st.stabTravelM, 0.05f, 0.50f, "%.2f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabTravelM); ConfigWriteKey("Melee", "StabTravelM", v, "F10 Controls"); }
-            ImGui::SliderFloat("how straight (0-1)", &st.stabRatio, 0.3f, 1.0f, "%.2f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabRatio); ConfigWriteKey("Melee", "StabRatio", v, "F10 Controls"); }
-            ImGui::SliderFloat("how forward (0-1)", &st.stabForward, 0.0f, 1.0f, "%.2f");
-            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.stabForward); ConfigWriteKey("Melee", "StabForward", v, "F10 Controls"); }
-            bool always = st.stabArm == 1;
-            if (ImGui::Checkbox("count a thrust standing up too (testing)", &always)) {
-                st.stabArm = always ? 1 : 0; ConfigWriteKey("Melee", "StabArm", always ? "always" : "sneak", "F10 Controls");
+            if (ov::show(ov::Debug)) {
+                bool always = st.stabArm == 1;
+                if (ImGui::Checkbox("Count a stab standing up too (testing)", &always)) {
+                    st.stabArm = always ? 1 : 0; ConfigWriteKey("Melee", "StabArm", always ? "always" : "sneak", "F10 Controls");
+                }
+                ov::tip("For testing the stab without sneaking.");
+                ImGui::TextDisabled("stab: %s", sb.armedBy);
+                ImGui::TextDisabled("PEAK extension (10 s) %.2f m/s, best reach %.2f m at %.2f straight", two(sb.peak), two(sb.travel), two(sb.ratio));
+                ImGui::TextDisabled("stabs %u  rejected %u: %s", sb.fires, sb.rejects, sb.lastReject);
             }
-            ImGui::Text("thrust: %s", sb.armedBy);
-            ImGui::Text("PEAK extension (10 s) %.2f m/s, best reach %.2f m at %.2f straight", two(sb.peak), two(sb.travel), two(sb.ratio));
-            ImGui::Text("stabs %u  rejected %u: %s", sb.fires, sb.rejects, sb.lastReject);
         }
-        ImGui::Separator();
     }
-    char why[160]; closed_text(gates(now), now, why, sizeof(why));
-    ImGui::Text("last %.2f m/s   PEAK (10 s) %.2f m/s", n.lastSpeed, peak10s());
-    ImGui::Text("last movement: peak %.2f m/s over %.2f m -> %s", cen.lastPeak, cen.lastTravel, cen.lastFired ? "attack" : "no attack");
-    ImGui::Text("slowest attack %.2f m/s   fastest non-attack %.2f m/s   near misses %u", cen.minFirePeak, cen.maxQuietPeak, cen.nearMiss);
-    ImGui::Text("gate: %s", why);
-    ImGui::Text("fires %u  blocked %u  honoured %u  not honoured %u", n.fires, n.blocked, n.honoured, n.notHonoured);
-    ImGui::TextDisabled("Swing, read PEAK, set the speed a little under it. The overlay itself closes the gate while it is up.");
-    ImGui::TextDisabled("Near misses rising = the speed is too high for you. Attacks while walking or reaching = too low.");
+    if (ov::show(ov::Debug)) {
+        char why[160]; closed_text(gates(now), now, why, sizeof(why));
+        ImGui::TextDisabled("last %.2f m/s   PEAK (10 s) %.2f m/s", n.lastSpeed, peak10s());
+        ov::tip("Swing, read PEAK, and set the swing speed a little under it.");
+        ImGui::TextDisabled("last movement: peak %.2f m/s over %.2f m -> %s", cen.lastPeak, cen.lastTravel, cen.lastFired ? "attack" : "no attack");
+        ImGui::TextDisabled("slowest attack %.2f m/s   fastest non-attack %.2f m/s   near misses %u", cen.minFirePeak, cen.maxQuietPeak, cen.nearMiss);
+        ov::tip("Near misses rising means the speed is too high for you. Attacks while walking or reaching mean too low.");
+        ImGui::TextDisabled("gate: %s", why);
+        ov::tip("Why swings are not being accepted right now. This panel being open closes the gate.");
+        ImGui::TextDisabled("fires %u  blocked %u  honoured %u  not honoured %u", n.fires, n.blocked, n.honoured, n.notHonoured);
+    }
 }
 
 } // namespace dvr::swing

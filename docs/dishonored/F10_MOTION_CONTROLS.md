@@ -222,3 +222,10 @@ tester resized and moved the panel, and the geometry probe read the final place 
 top-left at 0.3149,0.3596 and size 0.3855 x 0.2302 of the eye texture. That is now the
 default, replacing the trilogy's 0.42 x 0.45 centred. The text scale was left at the
 derived 1.54 (`1 + (2850/1080 - 1) * 0.5`).
+
+## VR-196: Basic / Advanced / Debug (2026-09-22)
+
+The panel now opens on **Basic**, with a view selector at the top (`[Overlay] Level`). Every
+section is collapsed by default, every control has a hover description, and every Basic and
+Advanced control saves when it changes. The per-control layout and what was removed are in
+`F10_AUDIT.md`.

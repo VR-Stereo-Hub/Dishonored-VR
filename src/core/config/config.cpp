@@ -956,7 +956,9 @@ static void WriteDefaultIni(const char* ini)
         "[Overlay]\n"
         "UiScale=1.54\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
-        "DevTools=0\n"
+        "; Level: which F10 controls are shown. basic = player settings, advanced = preference detail,\n"
+        "; debug = fixes that should stay on, A/B levers and instruments. Live: the selector at the top.\n"
+        "Level=basic\n"
         "; ReticleWhileOpen=1: the reticle stays on while the F10 panel is up and hides where the panel\n"
         "; covers it, so it can be tuned beside the panel. 0 = off while the panel is up (as before).\n"
         "ReticleWhileOpen=1\n"
@@ -3207,7 +3209,16 @@ static void LoadConfig()
     Log("config: physical crouch %s (down at %.2f m, up at %.2f m) - this "
         "line reports the SETTING; watch for 'crouch: DOWN' to know it fires",
         g_crouchOn ? "armed" : "off", g_crouchDropM, g_crouchReleaseM);
-    g_ovlDev = IniFloat(ini, "Overlay", "DevTools", 0) != 0.0f;
+    {   // VR-196: the F10 view level. [Overlay] Level=basic|advanced|debug; an ini that only has
+        // the old DevTools=1 opens on debug, so a maintainer's panel does not shrink on upgrade.
+        char lv[16] = "";
+        GetPrivateProfileStringA("Overlay", "Level", "", lv, sizeof(lv), ini);
+        const int legacy = IniFloat(ini, "Overlay", "DevTools", 0) != 0.0f ? dvr::ovl::Debug : dvr::ovl::Basic;
+        dvr::ovl::set_level(dvr::ovl::parse_level(lv, legacy));
+        g_ovlDev = dvr::ovl::level() == dvr::ovl::Debug;
+        Log("config: F10 view level %s ([Overlay] Level%s)", dvr::ovl::level_name(dvr::ovl::level()),
+            lv[0] ? "" : legacy == dvr::ovl::Debug ? ", migrated from DevTools=1" : ", default");
+    }
     // VR-174: the F10 panel from the controllers, on by default. [Overlay] PointerSpeed is
     // retired: the cursor comes from the eye's FOV now, not a gain.
     g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 1) != 0.0f;
@@ -3896,7 +3907,7 @@ static void OverlaySaveDefaults()
             _snprintf(v, 64, "%.1f", g_skcTrim[hh][q]);
             WritePrivateProfileStringA("Hands", k, v, ini);
         } }
-    WritePrivateProfileStringA("Overlay", "DevTools", g_ovlDev ? "1" : "0", ini);
+    WritePrivateProfileStringA("Overlay", "Level", dvr::ovl::level_name(dvr::ovl::level()), ini);
     WritePrivateProfileStringA("VRHands", "Enabled", g_hmEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "CalibTriangle", g_hmCalib ? "1" : "0", ini);
     WritePrivateProfileStringA("VRHands", "HideGameArms", g_hmHideGame ? "1" : "0", ini);

@@ -247,3 +247,51 @@ The old **View**, **Blink**, **Animations** and **Advanced** tabs dissolve into 
 5. Update the default ini (the `[Overlay] Level` key), the golden ini and the docs
    (F10_MOTION_CONTROLS, this file's final disposition).
 6. One headset pass per tier.
+
+## 5. Outcome (built 2026-09-22)
+
+The tester's answers, applied:
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Descriptions | A hover tooltip on every control, at every tier |
+| 2 | Sword readouts | Debug |
+| 3 | Head or controller aim per item | Basic |
+| 4 | The per-action game-arms list | Advanced |
+| 5 | World scale | Basic |
+| 6 | Weapon dial | Advanced (all of it) |
+| 7 | Apply VR defaults at startup | Advanced (a Game options tab) |
+| 8 | Reduce desktop presentation | Advanced; Disable desktop mirror is Basic |
+| 9 | Cinematic head look | Settled; Debug, "candidate" dropped |
+| 10 | Auto-refocus when SteamVR steals focus | Removed from the panel. The behaviour stays: it acts only when a SteamVR window takes focus |
+| 11 | The SkelControl hand system's panel | Removed (calibrate, drive, trims, crouch stance tuning, donor graft, finisher capture). The ini keys still load |
+| 12 | Old next-launch resolution picker | Removed; the live scale stays, and `res` stays on the seam |
+| 13 | Legacy FOV lever | Removed from the panel; `[Camera] FovLever` still works |
+| 14 | Blink reach modes | Debug (Aim tab) |
+| 15 | AlternateEye test and Swap eyes | Removed from the runtime panel |
+
+Built as: `core/ui/ovl_ui` (the level, `tip`, `section`), `core/ui/overlay_tabs.inc` (one
+function per tab), and tiers and tips inside every sub-panel (sword, camera shake, reticle and
+aim ray, HUD layout, hand position, runtime). Tabs: Hands, Aim, Controls, Comfort, HUD, Display,
+Game options (Advanced), Runtime and Log (Debug). `[Overlay] Level=basic|advanced|debug`
+replaces `DevTools` (DevTools=1 opens on debug).
+
+### What the audit after the rewrite found and fixed
+
+* **Controls that did not persist.** Crouch height (`[Tracking] CrouchDropM`) and flat-screen
+  width (`[Screen] WidthMeters`) were read at launch and written by nothing, SAVE AS DEFAULTS
+  included, so the sliders reset every launch. Real crouching, positional tracking, gameplay
+  FOV, head-based movement, the neck pivot, the cinematics switches, rain and lens, world
+  scale, height offset, hand size, and game hands while mantling or in cinematics were kept
+  only if SAVE AS DEFAULTS was pressed. Every Basic and Advanced control now writes its key
+  when it changes (sliders when released). Debug switches stay session-only unless SAVE AS
+  DEFAULTS is pressed, which is what an A/B switch should do.
+* **ID collisions.** The "Sleeve" header and the "Sleeve" combo, and the "Reticle" header and the
+  "Reticle" checkbox, shared an ImGui ID, which makes hovering and clicking unreliable. The
+  controls were renamed.
+* **Coverage.** Every ini key the old panel wrote is still written. The only setters no longer
+  reachable are the removed rows: strip mesh rotation, the donor graft, the HUD stub, and the old
+  picker's FOV readout. Every widget carries a tip, and every Begin/End, Push/Pop and
+  TreeNode/TreePop is balanced.
+* **Not verified in the running game.** Nothing here has been drawn yet. The first launch should
+  check that each tier shows what section 2 says, and that a change survives a relaunch.
