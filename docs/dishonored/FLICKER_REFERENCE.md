@@ -20,6 +20,16 @@
 5. **Results:** host build only. The fix has not run in the headset.
 6. **Status:** open candidate. Other hand-ray consumers (throws, interaction, powers) still
    use the last-eye anchor. They sample once, so an error of about 3 cm does not flicker.
+7. **Build 660 result: the centre-eye prediction FAILED.** The object still flickered LEFT,
+   including when held upside down, so the direction is the view's and not the object's. Every
+   move was driven (126 a second, one per game frame at 127 pairs a second), and at every tick
+   the object sat 3 uu from the hand ray origin. Its position is steady, so the fault is in
+   how it is DRAWN. Next candidate: while carried, the game moves it to SDPG_Foreground
+   (`DishonoredItemEmpty.m_OldMovableDepthGroup` saves the old group). That is the arms'
+   and weapons' group. `[Aim] CarryHoldWorldDepth=1` puts it back in SDPG_World through
+   `PrimitiveComponent.SetDepthPriorityGroup`, and `carry/depth:` logs the group before and
+   after. Counterprediction: if it still flickers in SDPG_World, the depth group is not the
+   cause. The checkbox gives a live A/B.
 
 ## VR-178: journal and wheel scene freshness candidate (2026-09-22)
 

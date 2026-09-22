@@ -397,9 +397,18 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         if (ImGui::Checkbox("Hold carried objects in the hand", &carryHold)) {
             CarryHoldSet(carryHold,"F10"); ConfigWriteKey("Aim","CarryHoldAtHand",carryHold ? "1" : "0","F10 Aim");
         }
-        float holdCm = CarryHoldForwardCm();
-        if (ImGui::SliderFloat("Held object ahead of the hand (cm)", &holdCm, -40.0f, 60.0f, "%.0f")) CarryHoldSetForwardCm(holdCm);
-        if (ImGui::IsItemDeactivatedAfterEdit()) { char v[16]; _snprintf(v, sizeof(v), "%.0f", CarryHoldForwardCm()); v[15] = 0; ConfigWriteKey("Aim","CarryHoldForwardCm",v,"F10 Aim"); }
+        static const char* const holdLbl[6] = { "Held: forward (cm)", "Held: right (cm)", "Held: up (cm)",
+                                                "Held: pitch (deg)", "Held: yaw (deg)", "Held: roll (deg)" };
+        static const float holdMin[6] = { -40, -40, -40, -180, -180, -180 }, holdMax[6] = { 60, 40, 40, 180, 180, 180 };
+        for (int i = 0; i < 6; ++i) {
+            float v = CarryHoldAdj(i);
+            if (ImGui::SliderFloat(holdLbl[i], &v, holdMin[i], holdMax[i], "%.0f")) CarryHoldSetAdj(i, v);
+            if (ImGui::IsItemDeactivatedAfterEdit()) { char b[16]; _snprintf(b, sizeof(b), "%.0f", CarryHoldAdj(i)); b[15] = 0; ConfigWriteKey("Aim", CarryHoldAdjKey(i), b, "F10 Aim"); }
+        }
+        bool holdDepth = CarryHoldWorldDepthEnabled();
+        if (ImGui::Checkbox("Held object drawn in the world (not the weapon layer)", &holdDepth)) {
+            CarryHoldSetWorldDepth(holdDepth); ConfigWriteKey("Aim","CarryHoldWorldDepth",holdDepth ? "1" : "0","F10 Aim");
+        }
         bool holdRot = CarryHoldRotateEnabled();
         if (ImGui::Checkbox("Held object turns with the hand", &holdRot)) {
             CarryHoldSetRotate(holdRot); ConfigWriteKey("Aim","CarryHoldRotate",holdRot ? "1" : "0","F10 Aim");

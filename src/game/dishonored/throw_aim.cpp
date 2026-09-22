@@ -485,7 +485,12 @@ static bool CarryThrowAimCommand(const char* args)
 static dvr::hooks::Detour g_hlDet;
 static uintptr_t g_hlBack = kMoveDeltaBack;
 static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
-static float g_hlFwdCm = 0.0f;                           // [Aim] CarryHoldForwardCm (negative pulls it in)
+// [Aim] CarryHoldForwardCm/RightCm/UpCm and CarryHoldPitch/Yaw/Roll (degrees), in the HAND's frame.
+static float g_hlAdj[6] = {0, 0, 0, 0, 0, 0};
+static const char* const kHlAdjKey[6] = { "CarryHoldForwardCm", "CarryHoldRightCm", "CarryHoldUpCm",
+                                          "CarryHoldPitch", "CarryHoldYaw", "CarryHoldRoll" };
+static const float kHlAdjMin[6] = { -40, -40, -40, -180, -180, -180 }, kHlAdjMax[6] = { 60, 40, 40, 180, 180, 180 };
+static std::atomic<bool> g_hlWorldDepth{true};           // [Aim] CarryHoldWorldDepth (see CarryHoldTick)
 static bool g_hlRotOn = true;                            // [Aim] CarryHoldRotate
 static volatile uint32_t g_hlPhysOff = 0;                // Actor::Physics, resolved by name
 static volatile LONG g_hlSeen = 0, g_hlDriven = 0;
@@ -586,8 +591,10 @@ extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
     // position
     float* delta = (float*)(frame - 0x54);
     const float* L = (const float*)(actor + kActorLocation);
-    const float f = g_hlFwdCm * g_posScaleUU / 100.0f;   // cm -> uu (g_posScaleUU is uu per metre)
-    const float n[3] = { o[0] + F[0] * f, o[1] + F[1] * f, o[2] + F[2] * f };
+    const float cm = g_posScaleUU / 100.0f;              // cm -> uu (g_posScaleUU is uu per metre)
+    const float af = g_hlAdj[0] * cm, ar = g_hlAdj[1] * cm, au = g_hlAdj[2] * cm;
+    const float n[3] = { o[0] + F[0] * af + Rh[0] * ar + U[0] * au, o[1] + F[1] * af + Rh[1] * ar + U[1] * au,
+                         o[2] + F[2] * af + Rh[2] * ar + U[2] * au };
     const float e[3] = { L[0] + delta[0], L[1] + delta[1], L[2] + delta[2] };   // where the game put it
     delta[0] = n[0] - L[0]; delta[1] = n[1] - L[1]; delta[2] = n[2] - L[2];
     g_hlMoved = sqrtf((n[0]-e[0])*(n[0]-e[0]) + (n[1]-e[1])*(n[1]-e[1]) + (n[2]-e[2])*(n[2]-e[2]));
@@ -604,9 +611,17 @@ extern "C" void __cdecl CarryMoveHandler(uint8_t* frame, uint8_t* actor)
             }
             g_hlRelOk = true;
         }
+        // the trim: a rotation in the hand's own frame (F, R, U as X, Y, Z), applied to the latched
+        // relative frame, so pitch/yaw/roll turn the object about the hand, not the world
+        const int32_t trim[3] = { (int32_t)(g_hlAdj[3] * 65536.0f / 360.0f), (int32_t)(g_hlAdj[4] * 65536.0f / 360.0f),
+                                  (int32_t)(g_hlAdj[5] * 65536.0f / 360.0f) };
+        float TX[3], TY[3], TZ[3]; CtRotToAxes(trim, TX, TY, TZ);
         float A[3][3];
-        for (int i = 0; i < 3; ++i)
-            for (int j = 0; j < 3; ++j) A[i][j] = g_hlRel[i][0] * F[j] + g_hlRel[i][1] * Rh[j] + g_hlRel[i][2] * U[j];
+        for (int i = 0; i < 3; ++i) {
+            float l[3];
+            for (int j = 0; j < 3; ++j) l[j] = TX[j] * g_hlRel[i][0] + TY[j] * g_hlRel[i][1] + TZ[j] * g_hlRel[i][2];
+            for (int j = 0; j < 3; ++j) A[i][j] = l[0] * F[j] + l[1] * Rh[j] + l[2] * U[j];
+        }
         int32_t nr[3]; CtAxesToRot(A[0], A[1], A[2], nr);
         rot[0] = nr[0]; rot[1] = nr[1]; rot[2] = nr[2];
         // the move's own NewRotation (by pointer at [ebp-3Ch]) must agree, or it puts the old one back
@@ -760,6 +775,49 @@ static uint8_t* CarryProbeFocus()
     uint8_t* f = *(uint8_t**)(pc + focusOff);
     return (f && IsLiveObject(f)) ? f : nullptr;
 }
+// VR-181 seventh headset run: held at the hand, the object still flickered to the LEFT whatever
+// its orientation, while every move was driven and the object sat 3 uu from the hand at every
+// tick. So the fault is in how it is DRAWN, not where it is. While carried, the game moves it to
+// SDPG_Foreground (DishonoredItemEmpty.m_OldMovableDepthGroup keeps the old group): the depth
+// group of the arms and weapons, which is drawn for a view at the head and gets the mod's hand
+// and weapon treatment, not the world's per-eye view. An object really at the hand belongs in the
+// WORLD group. [Aim] CarryHoldWorldDepth=1 puts it back through the engine's own
+// PrimitiveComponent.SetDepthPriorityGroup (so the render proxy is re-created, which writing the
+// byte would not do); the game restores its saved group itself on release. The counterprediction:
+// if it still flickers with the object in SDPG_World, the depth group was not the cause.
+static void CarryDepthToWorld(uint8_t* obj, bool announce)
+{
+    static uint8_t* fn = nullptr; static bool looked = false;
+    static uint32_t oColl = 0, oHi = 0, oDpg = 0;
+    if (!looked) {
+        looked = true;
+        fn = RainFindClassFunction("PrimitiveComponent", "SetDepthPriorityGroup");
+        oColl = RflOffsetOf("Actor", "CollisionComponent");
+        oHi = RflOffsetOf("DishonoredMovable", "m_pHighlightStaticMeshComponent");
+        oDpg = RflOffsetOf("PrimitiveComponent", "DepthPriorityGroup");
+        Log("carry/depth: SetDepthPriorityGroup %s, Actor.CollisionComponent +0x%X, highlight +0x%X, "
+            "PrimitiveComponent.DepthPriorityGroup +0x%X", fn ? "found" : "MISSING", oColl, oHi, oDpg);
+    }
+    if (!obj || !IsLiveObject(obj) || !oDpg) return;
+    const uint32_t offs[2] = { oColl, oHi };
+    const char* names[2] = { "mesh", "highlight" };
+    for (int i = 0; i < 2; ++i) {
+        uint8_t* c = (offs[i] && RangeReadable(obj + offs[i], 4)) ? *(uint8_t**)(obj + offs[i]) : nullptr;
+        if (!c || !IsLiveObject(c) || !RangeReadable(c + oDpg, 1)) continue;
+        const int was = c[oDpg];
+        bool set = false;
+        if (was == 2 && fn && g_hlWorldDepth.load() && g_hlOn.load()) {   // SDPG_Foreground -> SDPG_World
+            struct { uint8_t group; } p = { 1 };
+            g_peReentry = true;
+            ((PFN_ProcessEventCall)kProcessEvent)(c, fn, &p, NULL);
+            g_peReentry = false;
+            set = true;
+        }
+        if (announce || set)
+            Log("carry/depth: %s %s group %d%s (0 editor bg, 1 world, 2 foreground)", names[i], ObjClassName(c),
+                was, set ? (c[oDpg] == 1 ? " -> 1, WORLD" : " -> set asked, group did NOT change") : "");
+    }
+}
 // Script lane: follow the carry, publish the carried object to the move seam, and report once a
 // second while carrying. The object is the one StatePlayerGrabMovable names (+0x70, its
 // DisMovableComponent, whose +0x58 is the actor); the focused actor is only a fallback.
@@ -790,6 +848,7 @@ static void CarryHoldTick()
         g_hlObj = obj; s0 = g_hlSeen; d0 = g_hlDriven; g_hlWhy = "not moved yet"; g_hlRelOk = false;
         Log("carry/hold: carry began - object %s %p from %s; hold owner %s", obj ? ObjClassName(obj) : "-",
             obj, src, g_hlOn.load() ? "HAND" : "GAME");
+        CarryDepthToWorld(obj, true);
         if (obj && g_cwWanted) { g_cwWanted = false; CarryWatchArm(obj, kActorLocation); g_cwArmedAt = now; }
     }
     if (g_cwAddr && (now - g_cwArmedAt > 1000 || !carry)) CarryWatchReport(carry ? "one second of carry" : "carry ended");
@@ -802,6 +861,7 @@ static void CarryHoldTick()
     if (carry && now >= nextLog) {
         nextLog = now + 1000;
         uint8_t* obj = g_hlObj;
+        CarryDepthToWorld(obj, false);          // the game may set it again
         float cam[3] = {0, 0, 0}, fwd = 0, up = 0, toHand = -1;
         float o[3], d[3]; const char* why = nullptr;
         if (obj && IsLiveObject(obj) && dvr::camera::render_pos_world(cam)) {
@@ -826,18 +886,25 @@ static void CarryHoldSet(bool on, const char* who)
     if (!g_hlDet.on)
         dvr::hooks::detour_install(g_hlDet, "carry/hold", kMoveDeltaSeam, kMoveDeltaSeamBytes,
                                    sizeof(kMoveDeltaSeamBytes), (void*)&CarryMoveThunk);
-    Log("carry/hold: owner %s (%s), %.0f cm along the ray - seam %s (it stays in either way; it "
-        "only ever touches the carried object)", on ? "HAND" : "GAME", who, g_hlFwdCm,
+    Log("carry/hold: owner %s (%s), offset %.0f/%.0f/%.0f cm fwd/right/up, trim %.0f/%.0f/%.0f deg p/y/r - seam %s (it stays in either way; it "
+        "only ever touches the carried object)", on ? "HAND" : "GAME", who, g_hlAdj[0], g_hlAdj[1], g_hlAdj[2], g_hlAdj[3], g_hlAdj[4], g_hlAdj[5],
         g_hlDet.on ? "ready" : "NOT installed");
 }
 static void CarryHoldConfigure(const char* ini)
 {
-    g_hlFwdCm = IniFloat(ini, "Aim", "CarryHoldForwardCm", 0);
-    if (!(g_hlFwdCm >= -40 && g_hlFwdCm <= 60)) g_hlFwdCm = 0;
+    for (int i = 0; i < 6; ++i) {
+        const float v = IniFloat(ini, "Aim", kHlAdjKey[i], 0);
+        g_hlAdj[i] = (v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) ? v : 0;
+    }
+    g_hlWorldDepth.store(IniFloat(ini, "Aim", "CarryHoldWorldDepth", 1) != 0.0f);
     g_hlRotOn = IniFloat(ini, "Aim", "CarryHoldRotate", 1) != 0.0f;
     CarryHoldSet(IniFloat(ini, "Aim", "CarryHoldAtHand", 1) != 0.0f, "ini [Aim] CarryHoldAtHand");
 }
-static float CarryHoldForwardCm() { return g_hlFwdCm; }
-static void CarryHoldSetForwardCm(float cm) { if (cm >= -40 && cm <= 60) g_hlFwdCm = cm; }
+static float CarryHoldAdj(int i) { return (i >= 0 && i < 6) ? g_hlAdj[i] : 0; }
+static const char* CarryHoldAdjKey(int i) { return (i >= 0 && i < 6) ? kHlAdjKey[i] : ""; }
+static void CarryHoldSetAdj(int i, float v) { if (i >= 0 && i < 6 && v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) g_hlAdj[i] = v; }
+static bool CarryHoldWorldDepthEnabled() { return g_hlWorldDepth.load(); }
+static void CarryHoldSetWorldDepth(bool on) { g_hlWorldDepth.store(on); Log("carry/hold: world depth while held %s (takes effect on the next carry)", on ? "ON" : "off"); }
+
 static bool CarryHoldRotateEnabled() { return g_hlRotOn; }
 static void CarryHoldSetRotate(bool on) { g_hlRotOn = on; g_hlRelOk = false; Log("carry/hold: rotation with the hand %s", on ? "ON" : "off"); }

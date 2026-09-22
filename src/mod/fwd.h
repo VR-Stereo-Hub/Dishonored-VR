@@ -667,8 +667,11 @@ static uint8_t* CarryProbeFocus();                                   // VR-181: 
 static void CarryHoldConfigure(const char* ini);
 static void CarryHoldSet(bool on, const char* who);
 static bool CarryHoldEnabled();
-static float CarryHoldForwardCm();
-static void CarryHoldSetForwardCm(float cm);
+static float CarryHoldAdj(int i);                               // 0..2 fwd/right/up cm, 3..5 pitch/yaw/roll deg
+static const char* CarryHoldAdjKey(int i);
+static void CarryHoldSetAdj(int i, float v);
+static bool CarryHoldWorldDepthEnabled();
+static void CarryHoldSetWorldDepth(bool on);
 static bool CarryHoldRotateEnabled();
 static void CarryHoldSetRotate(bool on);
 static bool CarryThrowTriggersSwapped();                        // VR-181: the pad bridge
