@@ -1,3 +1,10 @@
+## Current continuation: menu freshness (2026-09-22)
+
+Use the top entry in docs/STATUS.md and FLICKER_REFERENCE.md for VR-178.
+Combined PR build650 accepted except menu cadence/mono and left-hand stepping.
+The separately gated menu freshness candidate needs its headset verdict before merge.
+Older handoff entries below are historical; do not roll back this combined build.
+
 ## Selective cleanup for SteamVR continuation (2026-09-19)
 
 Latest user instruction supersedes the exact486-only handoff: remove ONLY failed

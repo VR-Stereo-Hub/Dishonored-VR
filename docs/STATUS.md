@@ -1,3 +1,275 @@
+## Menu freshness candidate after combined PR acceptance (2026-09-22)
+
+The user accepted the combined PR build650 apart from menu choppiness, intermittent
+mono/stereo and stepped left-hand motion. Work continues locally on
+codex/vr-178-menu-scene-freshness from combined76ae6804a. PR87/88/91/93/94 current
+heads remain ancestors. Linear VR-178 verified and marked In Progress; VR-144
+andVR-128 are related investigations, not declared fixed.
+
+Implemented default-off Hud.MenuSceneFreshness with F10 toggle. The pause-only
+previous-draw camera evidence was discarded in journal and wheel; the new bounded
+evidence survives only within the current riding/head-look menu epoch and level.
+No new engine writer, hand correction, image/pose or pairing change.
+72 new policy and404 pairing checks pass, optimized build/export/default/lint checks
+pass. Older menu-immersion harness is stale and not counted as a pass.
+Detailed evidence/limitations: docs/dishonored/FLICKER_REFERENCE.md top entry and
+docs/dishonored/PERFORMANCE.md top entry. No game launched.
+
+Installed651-g410cff3ed, RelWithDebInfo, legacy off. DLL SHA256
+D24143368C2B1693D6DFE8D7039CC4858A9A0D2B339F20A24C3B1A5553F89176.
+Full installed INI comparison adds only Hud.MenuSceneFreshness=1;1293 CRLF,zero bare LF.
+INI SHA2563F780450A7D4B603D9B6C02CBAA633239DE80CBB94395A99E69F2C204D8B5611.
+Prior DLL, latest saved INI and both logs archived in
+build/playtest-candidates/menu-choppiness/before-menu-fix. Installed DLL and candidate
+hashes match;9 exports verified again after install. The log remains650 until launch.
+Next: one launch to judge20 seconds of objectives/journal stereo continuity with
+slow head/left-hand movement. Read the new banner before interpreting the run.
+A steady world with continued hand stepping is a distinct follow-up; no blanket fix
+or merge readiness is claimed before that result. No merge to VR-Main authorized.
+
+## Session handoff 2026-09-22: ONE pull request carries VR-170, VR-171, VR-172 and VR-180
+
+- The legacy build guard (VR-180, its own block below) was merged into this branch on 2026-09-22 at
+  the owner's request, so the PR's body now opens with four `Fixes` lines and the separate guard PR
+  was closed as superseded. The combined tree was built optimised and checked on the simulator
+  before it was pushed: banner `legacy off`, eight trigger pulls with 0 frame gaps sat in
+  `game_tick`, and the sword and camera shake settings resolved as shipped.
+
+### The three feature tickets (written 2026-09-21)
+
+- Branch `claude/vr-170-171-172-sword-and-camera-shake`, off `VR-Main` `d556eb58`, pushed, ONE PR
+  open against `VR-Main` with `Fixes VR-170`, `Fixes VR-171`, `Fixes VR-172`. NOT merged. The three
+  single-ticket PRs were closed as superseded by it; their branches are merged into this one
+  unchanged, and the three handoff blocks below are theirs and still hold.
+- This branch's tree is byte-identical to the local integration build that was tested as a whole:
+  `swing-soft.xrs`, `trail-hide.xrs` and `camshake.xrs` all pass on its RelWithDebInfo build
+  (`d3d9.dll` sha256 `A4DA6561...`), which is the build left installed on the dev PC.
+- Merging the three together needed keep-both resolutions in the docs, `fwd.h`, `commands.cpp` and
+  `config.cpp`; nothing else conflicted, and the default ini carries each new section once
+  (`default-profile-host.ps1` and the golden check pass on the combined tree).
+- Owed, all in the headset: the swing census from a real session, whether the sword's ribbon is
+  gone, and the three kinds of camera shake the simulator could not reach (a hit taken, the sword
+  landing on an enemy, an explosion).
+
+## Session handoff 2026-09-21: the swing threshold and the hump census (VR-170)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-170-swing-threshold-census`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-170`), NOT merged. It also carries the research brief for VR-173
+  (`docs/dishonored/PLAN-contact-sword.md`). VR-171 (hide the sword trail) and VR-172
+  (camera shake control) are separate branches from the same session.
+- Simulator-verified, headset verdict owed. The record is `PHYSICAL_SWING.md` section 2b.
+
+### What changed
+
+- `[Melee] EdgeSpeed` ships at **3.0** (was 3.6, one rig's number that sat just under that
+  player's slowest swing). Existing inis are moved once by a marker-keyed migration
+  (`EdgeSpeedRev`), no `kConfigVersion` bump. Measured on the dev PC's ini, which held 3.60:
+  `config: [Melee] EdgeSpeed 3.60 -> 3.00 (one-time ...)` on the first launch, no line on the
+  next.
+- **The hump census.** Every live hand movement above the re-arm level is counted by peak
+  speed, split into attacked / did not attack, printed once a minute while it grows and on
+  `swing census`; a movement within 20 % under the threshold is a named NEAR MISS. This is the
+  half of the distribution a FIRE line never showed, and what the next threshold change is
+  read from.
+- **A travel guard (`EdgeTravelM`) exists and ships OFF.** Measured in the host tests and on
+  the simulator: a real swing has travelled only 0.15 m when it crosses the threshold, so the
+  small guard first considered decides nothing. Its value is to come from a player's census.
+- F10 > Controls > "Motion sword" opens by default; the speed slider is "swing speed needed
+  (m/s)".
+
+### What was found on the way
+
+- **The simulator's display clock leaps about 135 ms across a 50 ms game-thread hitch**, the
+  detector rightly re-seeds, and that landed inside about half of all 200 ms simulated-hand
+  swings. `swing-soft.xrs` therefore uses `swing sim` for its threshold legs (TRAPS has the
+  measurement and the suspect that was cleared). It also showed a census hole, fixed: a hump
+  ended by a tracking gap is reported `CUT SHORT`, not dropped.
+- `release/dishonored_vr.ini` had drifted from the production writer on `VR-Main`
+  (`default-profile-host.ps1` failed before any change of this session); regenerated.
+- The worktree's git identity was a personal one; the four commits were re-authored to the
+  repository's noreply identity BEFORE the first push. Nothing personal reached the remote.
+
+### Next steps
+
+1. Headset: soft swings register; walking, turning and reaching do not attack. Send the log:
+   the `swing: census` lines decide whether 3.0 stays and whether `EdgeTravelM` gets a value
+   (`least travel at a fire` against the travel on any unwanted `hump ... -> ATTACK` line).
+2. VR-173 when wanted: paste section 5 of `PLAN-contact-sword.md` into a fresh session.
+## Session handoff 2026-09-21: the sword's swing trail is hidden (VR-171)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-171-hide-sword-trail`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-171`), NOT merged. Same session as VR-170 (its own branch and PR) and VR-172.
+- Mechanics simulator-verified; the PICTURE is not, and cannot be on the simulator (below).
+  The record is ENGINE_NOTES "VR-171".
+
+### What was found
+
+- **The swoosh is not a stock anim-trail notify.** `TrailsNotify` and its two siblings are in
+  the name table and the ProcessEvent observer saw 0 of them in 4 sword attacks. A hide built on
+  that route was removed unrun.
+- **It is one particle component on the player pawn, template `Sword_Trail`**, added 282-290 ms
+  into the first attack and kept attached afterwards. `swordtrail census` found it and stays as
+  the instrument that names whatever an attack adds to the pawn.
+- **The hide** is the engine's native `SetHidden` on that component (the rain box's pattern),
+  `[SwordTrail] Hide=1` by default at the owner's request, live `swordtrail on|off`, F10 checkbox.
+- **Found by the combined default-on run and fixed:** hidden as it appeared, then forgotten one
+  scan later because a component 258 ms old is not yet in the 2 s live-object table; the lever
+  could then not show it again. An attached component is now live because the pawn's own list
+  handed it over on that scan. `trail-hide.xrs` leg 0 covers it.
+- **The simulator never showed the ribbon**, about 30 captures with the hide off. So there is no
+  capture A/B: it could not have failed. `trail-hide.xrs` asserts the mechanics and says so.
+
+### Next steps
+
+1. Headset: swing the sword with the checkbox on and off (F10 > Controls > Motion sword). On: no
+   ribbon. Off: the ribbon as before. Watch an enemy swing: its trail must still be there.
+2. If a ribbon survives with the lever on, run `swordtrail census`, swing once, and send the
+   `trail/census:` lines: another template name goes into `[SwordTrail] Template`.
+## Session handoff 2026-09-21: the game's own camera shake, attributed and removed (VR-172)
+
+### Where things are RIGHT NOW
+
+- Branch `claude/vr-172-camera-shake-control`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-172`), NOT merged. Same session as VR-170 (PR #89) and VR-171 (PR #90), each its
+  own branch. The record is ENGINE_NOTES "VR-172".
+- Simulator-verified for landing, the weapon kick, bob and roll. Damage taken, a sword landing
+  on an enemy and explosions could not be staged and are held by the influence's name only.
+
+### What was found
+
+- The shakes are Arkane camera influences, all at weight 1 all the time, so a weight attributes
+  nothing: the method was the same staged action with one handle held at zero, read from
+  per-tick rows. Landing dip 45.8 uu = `PhysicalReact`; pistol kick 2.84 deg = `Recoil`; the
+  jump's push-off lag 10.4 uu = `BumpSmoother` (the stair smoother, kept); bob and roll = two
+  camera floats the head-bob option already had at 0; `m_fReactionWeight` = a master over the
+  group, deliberately not used (it would take Lean and Aim with it).
+- **A walk still moves the camera 1.5 uu and standing still 0.4 uu with everything at zero.**
+  That is the animated first-person body the camera rides on, not a shake; VR-175.
+- Three readings were retracted on the way and are recorded (ENGINE_NOTES, TRAPS): the push-off
+  was first credited to `HitReact` off a capture that had opened too late; four rounds read
+  shake-free because the single-slot seam dropped the harness's release; the event's trailing
+  ints are not the stick's DeltaRot.
+- `hud-elements.xrs` fails `quadLayers (3) eq 2` on `VR-Main` with this feature off as well:
+  filed as VR-176, not touched here.
+
+### Next steps
+
+1. Headset, F10 > Controls > Camera shake: walk, sprint, fire, jump and land with the master on,
+   then off, to feel the difference. Then the three the simulator could not reach: take a hit,
+   land the sword on an enemy, stand near an explosion. If any of those still moves the view,
+   `camshake status` and the log's `camshake: beat` line say what is held.
+2. With `Landing` removed, check a knockdown and the camera near walls still behave
+   (`PhysicalReact` also carries `m_bHandleCameraCollision` in the game's own ini).
+3. Judge the stair smoother: stairs, and a jump's push-off, with `Smoother` on and off.
+## Head aim customization, VR-166 / VR-167 / VR-168 (2026-09-21)
+
+Branch `claude/vr-166-head-aim-customization` off VR-Main `d556eb587` (which carries the
+merged #82, #85 and #86). NOT merged, no PR merge authorized. Installed and pushed:
+`vr33-hands-working-615-g9843251f5` (confirmed), then the probe-gating build. Installed ini deltas vs defaults: `[Aim]
+SourceProbe=1` (the read-only probes/censuses below need it), `[Hud] Element.reticle=window`,
+`ReticleOnAim=1`, `[Draws] Census=0`.
+
+**Headset-confirmed:**
+* F10 Aim has a Head/Controller table: crossbow+pistol, Blink, Interactions, Grenades,
+  Spring razors, each saved to the ini at once.
+* Interactions follow the weapon ray (`interact_aim.cpp`: first-pass line check
+  `0x00AA60B1` + usable selector `0x00AB70F0`).
+* Grenades follow the weapon ray (`throw_aim.cpp`: rotator seam `0x00C3908C` in the
+  throw routine `0x00C38F70`).
+* The grenade cook ring rides OUR aim dot, right size, and the dot hides meanwhile
+  (`[Hud] ReticleOnAim`, `hudroute::centered_gauge`). It drew in 229/231 presents.
+  Small flicker PARKED at the tester's call (FLICKER_REFERENCE).
+* VR-167: notes, journal and pause no longer snap the view back on close (menu-hold
+  fallback in `head_track.cpp`, plus the note-to-wheel handover in `menu_immersion.cpp`).
+* VR-168: after a possession the head writer mis-parsed the camera-modifier
+  ProcessViewRotation (a pawn pointer passed as a DeltaTime), so slides went mono. Fixed by
+  an object test; confirmed with two possessions.
+
+* **Spring razor placement follows the weapon ray** (build 615, headset-confirmed): 13
+  placements, every one 0 uu off the hand ray and 4-99 uu off the head's. Seam: the razor's
+  wall-placement trace `0x00C32C30` reads the camera POV through esi; `0x00C32C91` swaps in
+  one built from the hand ray (ENGINE_NOTES "The razor placement seam"). `[Aim]
+  GadgetFromHand` and the F10 "Spring razors" row now drive it; the dead gadget seam at
+  `0x00C300DD` and the razor write-watch probe are gone.
+
+**Open (PR #87 is ready for review, NOT merged):**
+1. **VR-169**: a razor placed close to the player is invisible (still works). Suspect the
+   weapon matcher claiming it as the held razor. `wa/razor:` lines (now behind `[Aim]
+   SourceProbe`) name the gate; the ticket has the next measurement.
+2. **Pickup with controller aim is finicky** on small objects. Proposed, not built: trace
+   from the head THROUGH the hand ray's target.
+3. **Powers** (Windblast, Swarm, Possession): part 2, VR-44, branch
+   `claude/vr-44-head-aim-pt2-powers` off this one. Static map in ENGINE_NOTES "Where the
+   powers read their aim": Windblast reads the camera POV at `0x00BF9570`; Possession and
+   Swarm are predicted to take their aim from the UsePower aim-assist search `0x00C12B00`.
+   Census measured (build 618); seams built in `power_aim.cpp` (`[Aim] PowersFromHand`):
+   All three headset-confirmed: Windblast `0x00BF9615` and Possession `0x00BF8F4C` (619),
+   Swarm at its GetPlayerViewPoint seam `0x00BE9337` (620: landed 26 uu off the hand ray,
+   827 off the head). The power and trace censuses were removed after a lag report; the
+   lag was reported gone on 620 (PERFORMANCE.md). PR #88 ready, NOT merged.
+
+Probes left, all read-only and armed only by `[Aim] SourceProbe` (code default 0; the
+installed ini has it at 1): the SpawnActor and trace censuses and the helper probe in
+`aim_source.cpp`, and `wa/razor:` in weapon_attach.
+## F10 panel from the motion controllers, VR-174 (2026-09-21)
+
+Branch `claude/vr-174-f10-menu-motion-controls` off VR-Main, draft PR #91. NOT merged.
+This ports the BioShock trilogy mod's F10 motion controls (plan, as-built notes and the
+lines to read: `docs/dishonored/F10_MOTION_CONTROLS.md`):
+* tap both stick clicks to open the panel, hold them to recenter;
+* the right-controller ray is the cursor (through the eye FOV) and the trigger clicks;
+* the right stick scrolls, and nudges the pointed-at slider;
+* the panel is sized to the eye texture, with a text-scale slider;
+* while it is up, the right trigger and stick are withheld from the game and the laser and
+  dot are hidden.
+
+Headset-confirmed on build 602. The default size and place are the ones the tester chose
+(the geometry probe's fractions). The #87/#88 aim work is on its own branches and is not in
+this one.
+## Playtester crashes, VR-177 (2026-09-21)
+
+Branch `claude/vr-177-crash-fixes` off VR-Main. NOT merged. There are two reports from one
+playtester on build 533 (a rooftop freeze, and a crash after Piero's cutscene). Neither
+left a fault record, and the reason was our instruments (TRAPS.md, top entry):
+* the watchdog's stack scans spent the crash fingerprinter's 3-fault budget at startup;
+* those scans faulted while another thread was suspended, which is a deadlock hazard;
+* the watchdog's `pacetrace.log` was not in the support bundle.
+
+All three are fixed on this branch.
+
+Evidence so far:
+* **Piero (503):** the dialog ended normally. About 35 s later the GPU queries for 4
+  presents never resolved, and the game thread then sat 56 s inside its own frame, with
+  memory and VRAM healthy. After that the process died. A GPU/driver stall is suspected,
+  not proven.
+* **Rooftop (701):** the log just stops.
+
+Next: a tester build from this branch. The next occurrence should arrive with a
+fingerprint and watchdog stacks. The Piero UI-hold clue is noted on the ticket; the 503
+timing does not tie the stall to the shop itself.
+## Session handoff 2026-09-22: the trigger-pull freeze was a legacy build, and cannot recur silently (VR-180)
+
+- Branch `claude/vr-180-legacy-build-guard`, off `VR-Main` `d556eb58`, pushed, PR open
+  (`Fixes VR-180`), NOT merged. Tools and two strings only; no feature code is touched.
+- **The fault:** every trigger pull froze the game about a quarter second. The build installed
+  for the 2026-09-21 headset session had `src/legacy` compiled in, because `tools\build.ps1` only
+  passed the legacy switch on a first configure and the build directory's CMake cache still held
+  `ON`. Its projectile-spawn tracer walks every engine object on each trigger edge. Measured in the
+  headset log and by a simulator A/B (11 stalls of 75-133 ms against 0); `docs/TRAPS.md` has it all.
+- **The guard:** `build.ps1` reconfigures the switch on every call and says what it built; the
+  log's first line and `status.json` say `legacy ON|off`; `install.ps1` refuses an optimised legacy
+  build without `-AllowLegacy`; `package.ps1` refuses it outright. Proven end to end: a `-Legacy`
+  build was refused by the installer, and the plain build straight after it came out clean by
+  itself and showed 0 stalls in eight trigger pulls.
+- **Left on the dev PC:** an optimised, legacy-OFF build. Check the log's first line reads
+  `legacy off` before a headset session.
+- **Who else could have had it:** anyone given a zip packaged from a build directory that had seen
+  `-Legacy`. Any `[legacy]` line in a tester's log answers it for that tester.
+
 ## Session handoff 2026-09-20 (night): the dev PC's frame rate, attributed (VR-160)
 
 ### Where things are RIGHT NOW

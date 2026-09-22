@@ -36,7 +36,19 @@ function Copy-Evidence([string]$source,[string]$name) {
     finally { if($outputStream){$outputStream.Dispose()}; if($inputStream){$inputStream.Dispose()} }
 }
 foreach($name in @('dishonored_vr.log','dishonored_vr.prev.log','dishonored_vr.ini','dishonored_vr_crash.txt')) { Copy-Evidence (Join-Path $GameDir $name) $name }
-foreach($name in @('status.json','ovrshim.log')) { Copy-Evidence (Join-Path $DataDir $name) $name }
+# VR-177: pacetrace.log carries the runtime watchdog's stacks - the only freeze evidence there is.
+foreach($name in @('status.json','ovrshim.log','pacetrace.log')) { Copy-Evidence (Join-Path $DataDir $name) $name }
+# ...and the watchdog lines alone, so a freeze report is readable without the whole trace.
+$trace=Join-Path $DataDir 'pacetrace.log'
+if (Test-Path -LiteralPath $trace -PathType Leaf) {
+    try {
+        $wd=@(Select-String -LiteralPath $trace -Pattern 'WATCHDOG' -SimpleMatch | ForEach-Object { $_.Line })
+        $wdOut=Join-Path $stage 'pacetrace-watchdog.txt'
+        if ($wd.Count) { $wd | Set-Content -LiteralPath $wdOut -Encoding UTF8 }
+        else { 'no WATCHDOG lines in pacetrace.log (no stall of 4 s or more was photographed)' | Set-Content -LiteralPath $wdOut -Encoding UTF8 }
+        $report.files+=@{ name='pacetrace-watchdog.txt'; lines=$wd.Count }
+    } catch { $report.errors+=('pacetrace-watchdog.txt : '+$_.Exception.Message) }
+}
 $dumpDir=Join-Path $DataDir 'dumps'
 $dumps=@(Get-ChildItem -LiteralPath $dumpDir -Filter '*.dmp' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
 $report.dumpInventory=@($dumps | Select-Object Name,Length,LastWriteTimeUtc)

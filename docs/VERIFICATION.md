@@ -13,7 +13,10 @@ per swing, a body turn, repeated poses, doubled samples through the median, the
 tracking-jump and dt hygiene, the sustain detector, `swing sim`, the thrust). In the game:
 `tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` (a reach does not fire and
 peaks under 2.2 m/s, a swing fires and is HONOURED, a body turn does not fire) and
-`swing-gates.xrs` (block grip, power wheel, pause menu, sheathed sword: one BLOCKED
+`swing-soft.xrs` (VR-170: a 3.3 m/s swing attacks at the shipped 3.0 and is a named
+NEAR MISS at the old 3.6; the travel guard holds a swing shorter than itself without a
+BLOCKED line and only delays a longer one; the census counts the hand and never the
+`swing sim`), `swing-gates.xrs` (block grip, power wheel, pause menu, sheathed sword: one BLOCKED
 line each with its reason, then the same swing fires) and `swing-stab.xrs` (VR-155:
 a thrust standing is silent, crouching arms it off the capsule, the thrust fires and
 is HONOURED, a jab is REJECTED on travel, a floor reach and a slash are not stabs,
@@ -21,6 +24,20 @@ standing disarms) and `swing-plunge.xrs` (the default style: a raised fist drive
 GAMEPLAY and `GamepadOnly=0`, and only ever MOVE the hand: `hand r grip pose`
 teleports it, which the detector discards as a tracking jump. Reading the log:
 `docs/dishonored/PHYSICAL_SWING.md` section 2.
+
+VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
+trail's particle component is found on the pawn by its template, the native hide takes
+`HiddenGame 0 -> 1`, three more attacks do not show it again, the lever shows and re-hides
+it). It asserts the MECHANICS only; its header records why a capture A/B is not in it (the
+ribbon never appeared in a simulator capture with the hide off). `swordtrail census` then
+one swing names whatever an attack adds to the pawn.
+VR-172 the game's own camera shake: `tools\xrsim-run.ps1 -Path tools\xrsim\camshake.xrs` (five
+legs, each an A/B on one lever: by default a jump leaves 7.6 uu, the kept stair smoother's
+push-off lag; with the master off the landing dip is back at 42 uu; with `Landing` allowed
+alone it is back at 40 uu; a pistol shot reads 0.000 deg of pitch with `Fire` removed and 2.84
+with it allowed, which is also what proves the first shot happened). `camshake capture <s>
+<tag>` is the instrument: one CSV row per game tick in the data dir's `dumps\`, read the ROWS
+and not only the summary line. Never stage walking on the sewer save: it stands on a ledge.
 
 VR-69 downward-clamp regression: `tools\camera-clamp-host.ps1` compiles the
 production camera writer and clamp functions. Nineteen checks cover exact-write
@@ -54,6 +71,7 @@ pre-regression decision passes all nine.
 | Does fullscreen or vsync change the tick? (VR-158) | log | `game-cmd.ps1 "fullscreen on\|off"`, `game-cmd.ps1 "vsync on\|off"`, or the two live checkboxes in F10 Display | each costs one device reset. Read `res/live: engine resize WxH fullscreen\|windowed`, then `perf: Reset - present interval ... -> IMMEDIATE` (absent when vsync is on). **The reset's line is the evidence, not the request's.** Judge the result on `stereo: beat` pairs/s at ONE fixed resolution, not on the tick mean - TRAPS carries the VR-152 reading error where a 59% pair loss showed as 13% on the tick. A refused switch leaves the running device alone and says why; `ResLiveFullscreen()` reports the device, not the wish |
 | What does the bbox instrument cost? | log | `game-cmd.ps1 "capture status"` | `bboxEvery=30000ms(N samples, each a full-frame CPU readback)`. `capture bbox off` removes the periodic present-thread stall entirely; `capture bbox 3000` restores the pre-2026-09-04 behaviour for the A/B. Read it against the `perf: frame gap` count |
 | Which build CONFIG wrote this log? (VR-160) | log / status | first line of the log; `status-dump.ps1` -> `config`, `optimised` | `config Debug` or `config RelWithDebInfo` in the banner. A Debug build adds a `Warn` under it and tags every `perf: tick` line `[UNOPTIMISED Debug build: not comparable]`. Debug costs 6-7 % of the tick and about one 40 ms `game_tick` hitch a second; never quote a perf number from one |
+| Does this build carry the legacy code? (VR-180) | log / status / installer | first line of the log; `status-dump.ps1` -> `legacy`; `install.ps1` | `legacy off` in the banner and `legacy code: not compiled in` from the installer. `legacy ON` adds a Warn under the banner, `install.ps1 -Release` REFUSES the build without `-AllowLegacy`, and `package.ps1` refuses it outright. Any `[legacy]` category line in a log means a legacy build: its fire tracer freezes the game about a quarter second on every trigger pull. `build.ps1` reconfigures the switch on every call now, so a build directory that once saw `-Legacy` no longer keeps it |
 | perf: tick medians over a marked window | script | `python tools\perf-tick-stats.py <log> <skipLines> <label> [maxWindows]`, `python tools\perf-tick-series.py <log> <skipLines>` | median / p90 tick, pairs/s, every field of both presents, the GPU span, STARVED and PACE-BOUND counts; windows >= 60 ms (headset idle) are dropped. The SERIES is what finds a cycle a median hides (VR-160 found a 12 s game-thread cycle that way) |
 | perf: is the card or the feeding side the limit? | script + log | `tools\perf-gpu-sample.ps1 -Seconds 40 -Out gpu.csv` while the game runs, then `python tools\perf-gpu-join.py <log> gpu.csv` | the game's 3D engine utilisation per 3 s perf window. utilisation / scene renders per second = GPU-busy ms per render; it must agree between `stereo mono` and `stereo reentry` or the counter is not measuring render work. 1000 / that = the card's ceiling in renders/s |
 | perf: what prints in slow windows that does not in fast ones? | script | `python tools\perf-tick-cycle.py <log> <skipLines> <tickThreshold>` | per-window line rates, slow against fast, ranked by difference, plus the itemised frame gaps. Empty difference = the owner is silent in the log |

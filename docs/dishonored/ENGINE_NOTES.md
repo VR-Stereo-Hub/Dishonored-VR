@@ -8120,3 +8120,486 @@ write following profile reload and leaving later gameplay edits alone (80 total)
 The fix depends on another mode0 application occurring before gameplay; if none
 occurs, trace profile-load completion instead. No live acceptance claimed.
 Full next-session decision tree and archives are at the top of STATUS.md.
+
+## VR-171: the sword's swing trail, what it is and what it is not (2026-09-21)
+
+**What the player sees.** A sword attack draws a swoosh ribbon. In the headset the
+blade is in the player's hand and the ribbon is generated from the game's animated
+mesh, so it sits off the blade. Nothing in the repo knew the effect's objects, and
+the script dump is not on the dev PC, so both answers below came from runtime
+instruments in `src/game/dishonored/trail_control.cpp`.
+
+**Eliminated: it is not a stock anim-trail notify.** The three events a UE3
+`AnimNotify_Trails` raises on the mesh's owner all exist in the name table
+(`TrailsNotify`=13774, `TrailsNotifyEnd`=13775, `TrailsNotifyTick`=13776 on this
+build), and the ProcessEvent observer, which sees every dispatch before the engine
+runs its body, saw **0 of them from anyone across 4 sword attacks** (the probe
+counted attacks from `dvr::anim::snapshot()` `state[1] == StatePlayerMeleeAttack`, so
+the zero had a population). A hide built on withholding the notify's particle
+template was written against that route and removed when the measurement came back;
+it never ran. Do not return to `TrailsNotify` for the player's sword.
+
+**What it is.** One `ParticleSystemComponent` on the player pawn, particle template
+**`Sword_Trail`**. Found by `swordtrail census`: the pawn's `Actor.AllComponents`
+(+0x44, by name) snapshotted idle and again 100, 300 and 600 ms into the next sword
+attack. Result: 27 components before, 0 new and 0 changed at +282 and +305 ms, **1
+new at +604 ms** (`class=ParticleSystemComponent hidden=0 active=1
+template='Sword_Trail'`), nothing else new or changed. The per-scan reader then put
+its first appearance at **282 to 290 ms** after the attack state is entered. The
+component is NOT transient: it stays in the pawn's list between swings and is reused
+(one sighting across 27 attacks), so hiding it once holds.
+
+| By name (`RflOffsetOf` / `FindBoolProp`) | Offset on this build |
+|---|---|
+| `Actor.AllComponents` | +0x44 |
+| `ParticleSystemComponent.Template` | +0x1c4 |
+| `ParticleSystemComponent.bIsActive` | +0x208 / 0x80 |
+| `PrimitiveComponent.HiddenGame` | +0x114 / 0x4 |
+| `SkeletalMeshComponent.SkeletalMesh` | +0x1d4 |
+
+These are resolved by name at runtime and are listed for the record only; nothing
+hardcodes them.
+
+**The hide.** The engine's own native `PrimitiveComponent.SetHidden` through the
+outbound ProcessEvent path on the script lane, the pattern the camera's rain box
+already uses (VR-136): the native reaches the render proxy, a raw `HiddenGame` write
+would not. Measured: `HiddenGame 0 -> 1`; three further attacks did not make the
+engine show it again; the lever off shows exactly that component (`hidden now 0`) and
+on hides it again. A particle component may be pooled, so every scan re-judges the
+components the mod hid: one that is live, still hidden and no longer a sword trail is
+shown again, one that is no longer a live object is dropped without a write.
+
+**A fault the first default-on run found, fixed.** With the lever on from launch the
+trail was hidden in the same scan it first appeared (258 ms into the first attack),
+and ONE SCAN LATER the mod logged `released component ... it is no longer a live
+object` and forgot it: the live-object table is refreshed on a 2 s bound (VR-160), so
+a component a few milliseconds old is attached, hidden by the mod and absent from the
+table. The ribbon stayed hidden but the lever could no longer show it again. Earlier
+runs missed it because there the hide arrived seconds after the spawn. What counts as
+live for a component still on the pawn is now that the engine handed it to us in the
+pawn's own `AllComponents` on this very scan (the rain box's rule: write only to what
+the live chain reached this sample); the table is consulted only for a component that
+has LEFT the pawn. `trail-hide.xrs` leg 0 is that path, and asserts `holding = 1`
+after a wait, which is the assertion that would have caught it.
+
+**What the simulator could not say.** About 30 per-eye captures with the hide OFF -
+delays swept from 90 to 900 ms into an attack, the simulated hand still and sweeping
+through the view - never differed from an idle capture by more than 0.2 % of pixels
+(the hilt moving). The ribbon could not be made to appear in a simulator capture at
+all, so a capture A/B there cannot fail and is not evidence. A reading consistent
+with that, NOT established: the mod drives the hand bones from the controller, so the
+trail's sockets follow the hand and draw little or nothing for the slow simulated
+hand, and a ribbon near but off the blade in the headset is the 11 to 12 degree gap
+between a socket-mounted weapon's component and its drawn transform (VR-33). The
+hide is a verified write; whether it is an honoured one is the headset's to say.
+## VR-172: the game's own camera shake, attributed handle by handle (2026-09-21)
+
+**What the player feels.** The game moves the camera by itself: a bob and a roll on
+the move, a kick when a weapon fires, a dip on landing, jolts on hits and
+explosions. In a headset that is the view moving without the head.
+
+**Where it lives.** Not in UE3's modifier stack (`Camera.ModifierList` holds one
+`CameraModifier_CameraShake` at alpha 0 in every sample ever taken). Dishonored's
+camera is built from Arkane influences, the graph `cam_modifiers.cpp` already reads:
+`DishonoredPlayerCamera.m_InfluenceGroups` (+0x468) -> group `m_Influences` (+0x38)
+-> `DishonoredCameraInfluence` `m_Weight` (+0x3c), `m_TargetWeight` (+0x40); and
+three config floats on the camera, `m_BobAmount` (+0x544), `m_RollAmount` (+0x548),
+`m_fReactionWeight` (+0x54c). All resolved by name at runtime; listed for the record.
+The groups on this build: group 0 `AnimDriven, PlayerControl, Look, Possess,
+FollowProjectile, UnpossessDeath`; group 2 (the reaction group) `BumpSmoother,
+PhysicalReact, HitReact, Lean, Shake, Recoil, DisCamera_Rumble, DisCamera_Aim`;
+group 3 the mantle offsets and the three arm-follow disables.
+
+**A weight cannot attribute anything.** Every reaction influence sits at weight 1 and
+target 1 in every sample of every run: an influence is always weighted and only
+produces motion when the game triggers it. Attribution is therefore an A/B: the same
+staged action with one handle held at zero. The instrument is `camshake capture <s>
+<tag>` (`src/game/dishonored/cam_shake.cpp`): one row per game tick from the fresh
+branch of `ApplyHeadToViewRotation`, the GAME's camera position minus the pawn with
+the mod's own eye and position offset removed (`dvr::camera::game_base_pos`), the
+camera cache's POV rotation minus the controller's rotation, the engine's incoming
+view rotation against the mod's last write, pawn velocity and the animation state;
+a CSV per capture in the data dir and one summary line. Noise floor standing still:
+0.00 / 0.00 / 0.06 uu and 0.000 degrees.
+
+**The table** (simulator, the sewer save, Debug build, every row with the player
+stationary and in normal states; position is camera-minus-pawn height against its
+resting value, rotation is POV minus controller):
+
+| Staged action | Nothing held | Held at zero, and the result |
+|---|---|---|
+| landing from a jump | dips 45.8 uu, overshoots 8.5 | `PhysicalReact`: -0.16 / +0.23 (gone). `HitReact`, `Recoil`, `Shake`, `Rumble` alone: unchanged (-45.6 to -47.1) |
+| leaving the ground on a jump | lags the pawn by 10.4 to 10.7 uu for about 90 ms | `BumpSmoother`: whole jump at 0.39 (gone). All five shake influences together: unchanged (-10.4) |
+| a pistol shot | 2.84 deg of POV pitch, 1.0 / 0.7 uu | `Recoil`: 0.000 deg, 0.01 uu (gone). `Shake`, `Rumble`, `PhysicalReact` alone: unchanged (2.99 to 3.05) |
+| any of the above | | `m_fReactionWeight` = 0: all three gone at once (jump 0.39 uu, shot 0.000 deg) |
+| walking (62 uu/s) | height swings 1.49 uu, half-second period; no rotation | every handle at zero, the master included: 1.51 uu, unchanged |
+| standing still | 0.39 uu slow sway | every handle at zero: 0.39, unchanged |
+
+Exaggeration, to prove a handle live before trusting its zero: `PhysicalReact` held
+at 3 takes the jump's swing from 54 to 178 uu; `m_BobAmount` and `m_RollAmount` held
+at 3 take a walk from 1.5 to 12.3 uu with 9.0 degrees of roll. Those two floats read
+0.000 before the mod touched them on this machine: the game's head-bob option, which
+the VR preset sets to 0, drives them. The engine never rewrote a held weight in
+gameplay (one write each, zero fought); it does rewrite them across a level load,
+which the fought counter showed (4 of 14).
+
+**Readings retracted on the way, so nobody re-walks them.** (1) "The push-off belongs
+to `HitReact`": the capture that showed it gone under `HitReact` = 0 had opened after
+the takeoff and never saw one. Tick-by-tick rows of four captures settled it:
+present with all five influences at zero, absent under the master scalar, and gone
+under `BumpSmoother` alone. (2) Four whole attribution rounds read shake-free
+whichever handle was held: the seam is a single slot polled at 1 Hz and the
+harness's release had been overwritten by the hold that followed it, so every handle
+was still at zero from the round before (TRAPS). (3) The view-rotation event's three
+ints after the rotator are NOT the stick's DeltaRot: a pure stick turn left 2.5
+degrees of yaw unexplained after subtracting them.
+
+**What is not a shake and is kept.** `BumpSmoother` is the stair and step smoother:
+the camera glides over a sudden rise instead of snapping with the pawn. A jump's
+push-off is the one place it reads as unrequested motion. It ships allowed, as its
+own category, for a headset verdict.
+
+**What no handle owns.** The 1.5 uu walking swing and 0.4 uu idle sway survive every
+handle including the master, and their resting height (55.3 to 55.7 uu over the
+pawn) is the `PlayerControl` influence's own source position (its
+`m_Debug_POV_Location` minus the pawn reads 55.70 in the camera-source probe). It is
+the animated first-person body the camera rides on. VR-175 carries it.
+
+**Not reached on the simulator:** `HitReact`, `Shake` and `Rumble` (a sword swing in
+the air moves nothing: 0.25 / 0.38 / 0.24 uu against 0.72 / 1.05 / 0.27 with
+everything held, both at the floor), so damage taken, a sword landing on an enemy and
+explosions are held by the influence's NAME only. Falling to death from the save's
+ledge was measured by accident: the death camera turns the POV 87 to 105 degrees away
+from the controller, which is the game's own death sequence and not a shake.
+
+**The feature.** `[CameraShake] Suppress=1`, and per category a key that lets the
+game's own motion through: `Walk` (bob, roll), `Fire` (Recoil), `Landing`
+(PhysicalReact), `Hits` (HitReact), `Generic` (Shake, Rumble), all 0, and `Smoother`
+(BumpSmoother) at 1. The five shake influences are held individually; the master
+scalar is deliberately NOT used, because the reaction group also holds `Lean`,
+`DisCamera_Aim` and the smoother. Script lane: a 250 ms slow tick revalidates the
+live camera and finds the influences by class name (`IsLiveObject`, bounded
+`RefreshLiveSet(2000)`), a camera change forgets every pointer without a write, the
+fast path writes floats only. It stands down while a cutscene owns the camera. Live:
+`camshake on|off`, `camshake allow <category> on|off`, F10 > Controls > Camera shake.
+## Shared power-aim helper: a candidate seam for per-item hand aim (VR-166, 2026-09-20)
+
+`kAimSrcHelper` = `0x00bf52e0`, entry bytes `55 8b ec 8b 45 0c` (push ebp; mov ebp,esp;
+mov eax,[ebp+0Ch]). Blink calls it at `0xbf559e`, and the very next instruction is
+`kBlkDirHook` (`0xbf55a3`), the shipped Blink redirect, which reads the 12-byte vector
+it returns. A byte scan of `.text` finds exactly three `E8` callers: `0xb75b26`,
+`0xb82e73` and `0xbf559e`. All three read the result the same way (`mov ecx,[eax]`,
+then the other two floats). No absolute reference to the entry exists, so it is not a
+vtable slot. Blink's call site sets `ecx` first, so the helper is taken to be thiscall
+with the input vector as stack argument 2.
+
+Derived with a byte scan (the E8 census) and `tools/disasm-rva.py dis` at each caller.
+Static reading could not name the owners of `0xb75b26` and `0xb82e73`: the enclosing
+functions have no clean prologue and no vtable reference. The running game can name
+them, so `aim_source.cpp` (`[Aim] SourceProbe`, the `aimsrc` seam word) logs each new
+(caller, object class) pair with its input vector's angle off the view. READ-ONLY.
+
+Hypothesis: the other two callers are aimed powers or thrown items. If so, one seam
+here with a per-item policy table aims all of them from the weapon ray. What kills it:
+only Blink's caller ever appears, or the input does not follow the view.
+
+Related, found on the way: the original author's 38.52 "magic-aim"
+(`[Blink] AimAllPowers`, default 1) redirects every `*ActivePowerComponent*` except
+Dark Vision and Bend Time through `BlinkAimHook` at `kBlkAimHook` (`0xbf595f`). That
+hook is installed only on request (`g_blkHookReq`), and nothing requests it at
+startup. Current logs show only `blinkdir: INSTALLED`, so magic-aim is dormant. That
+is consistent with VR-44's report that Possession, Devouring Swarm and Windblast are
+head-aimed.
+
+Also from the class declarations (names only): `DisItemContext_ThrowGrenade` derives
+from `DisItemContext_ProjectileAttack`, which declares `m_CachedAimAssistPos`, the
+cache VR-57 wrote to steer a crossbow bolt. `DisItemContext_UsePower` derives from
+`DisItemContext_AimAssistAttack`, which has no such cache, so powers compute their
+aim natively.
+
+## The interaction seam, found (VR-166, 2026-09-21)
+
+This closes the open question from VR-85: which code writes `m_pCrosshairActor`
+(`+0x69C`). Derived offline. Note that `tools/disasm-rva.py` takes and prints RVAs
+(its jump targets are VAs), so every address below is a VA.
+
+* **Setter** `0x00AA6280` (thiscall on the controller, `ret 0xC`). It stores arg 1
+  into `+0x69C`, clears then recomputes `m_pCrosshairHighlightActor` `+0x6A0`, and
+  writes `m_bCanInteractWithCrosshairActor` at `+0x63E` plus bit `0x2000` of
+  `+0x610`. The `+0x69C` / `+0x6A0` writes are at `0x00AA63AA` / `0x00AA63B0` /
+  `0x00AA63F3`. Found with `disasm-rva.py disp 0x69C`: four writers, and only this
+  one also writes `+0x6A0`.
+* **Wrapper** `0x00AB7B80`, the setter's only interaction caller (`0x00AB7D14`).
+  It has one caller, the controller tick at `0x00ABA8DE`.
+  1. It first runs a pass `0x00AA5FF0`. That traces from the camera location
+     (`[PC+0x384]+0x330`) along a direction argument: the camera rotation
+     (`+0x33C`, via `0x0040DA70`), or the aim-assist cache when an item supplies
+     one (`0x00C14460`). The line check itself is `0x00AA2C20`, called at
+     `0x00AA60B1` with arguments (0, hit*, origin*, dir*, flags 0x102209F, 0x80,
+     ...). `0x00AA5FF0` returns into the wrapper at `0x00AB7C8E`.
+  2. It then calls the usable selector `0x00AB70F0`, whose only caller is
+     `0x00AB7CB6`. The selector takes a view struct: location at `+0x08`, rotator at
+     `+0x14`. It builds end = location + dir(rot) * `[tweaks+0x90]`, with extent
+     `[tweaks+0x98]`, and traces with `0x00BE16E0` (flags `0x1022097`).
+  3. The setter receives the winner of the two passes.
+* **The seam (`interact_aim.cpp`).** Two byte-verified bridges, each gated on a
+  unique return address so no other caller is touched:
+  * At `0x00AA60B1`, the origin and direction POINTERS are swapped for the hand
+    ray's.
+  * At the selector entry (10 displaced bytes `55 8B EC 6A FF 68 D0 FD F4 00`), the
+    view-struct POINTER is swapped for a copy whose location and rotator are the
+    hand's.
+
+  No engine field is written, which is the lesson VR-85 learned when a direct write
+  of `+0x69C` did not survive to the next tick. The engine still does the trace,
+  validation, highlight and prompt. Both bridges use fxsave, because this code
+  keeps live x87 values.
+
+Status: built and installed, not yet run. The first run must show
+`interact/aim: beat ... seen` counters moving, and `interact/focus:` changing
+with the hand while the head is still.
+
+## The throw seam: grenades (VR-166, 2026-09-21)
+
+* `DisItemContext_ThrowGrenade`: metadata `0x01362378`, ctor `0x00C2A0E0`, context
+  vtable `0x01173200`. Slot `+0x1B0` -> `0x00C3AC50` (re-derived with
+  `ue3-natives.py --verify`), which calls the throw routine `0x00C38F70` and sets bit
+  1 of context `+0x104`. The routine has one other caller, the wrapper
+  `0x00C3ABEB`. Its owner is unnamed: possibly the spring razor or an NPC throw.
+* The routine (aligned frame; ebx = entry esp, arg at `[ebx+8]` -> `ebp-0x5C`):
+  * source pawn `0x00BFF440` -> `ebp-0x58`, context -> `ebp-0x7C`;
+  * SpawnActor `0x00C66070` at `0x00C39053`, placing the projectile at the hand;
+  * then the ROTATOR address goes into `ebp-0x78`: the argument's `+0x14`, or the
+    pawn's `+0xD0` when there is no argument;
+  * `0x0040DA70` at `0x00C39093` turns it into the direction at `ebp-0x74`. That
+    direction scales the launch velocity (`0x00C39630..`), is normalised at
+    `0x00C3980C` and handed to the projectile at `0x00C398C8`. `ebp-0x78` is read
+    again at `0x00C39828`.
+* **Seam (`throw_aim.cpp`):** the 7 bytes at `0x00C3908C` (`8B 4D 88 8D 55 8C 52`,
+  no relative operand, no jump lands inside them). The bridge points `ebp-0x78` at
+  a rotator built from the published hand ray, gated on the source pawn being the
+  player's. Spawn point, speed and arc stay the game's.
+
+## Power aim fields, from the script declarations (VR-166, 2026-09-21)
+
+The aimed powers carry their aim in named fields. That is a writer to find, not a
+number to guess:
+
+* `DishonoredActivePowerComponent_WindBlast`: `Vector m_vOrigin`, `m_vDirection`
+  (transient).
+* `DishonoredActivePowerComponent_Possess`: `m_PossessTarget` (struct
+  `DisPossessTarget` with `m_PossesseeLoc`) and `m_pHighlightedTarget`. A target
+  pick, like interaction.
+* Base `DishonoredActivePowerComponent`: `m_TargetPoint`, `m_pTargetActor`,
+  `m_pSuggestedTarget` (Devouring Swarm has no fields of its own).
+
+Possession never called the shared helper `0x00BF52E0` (0 probe hits in a
+possession run). `aimsrc/props:` lines log each field's offset once in gameplay,
+for a `disasm-rva.py disp` writer search.
+
+## The gadget seam: spring razors (VR-166, 2026-09-21)
+
+`DisItemContext_UseSpringRazor` (metadata `0x01362530`, ctor `0x00C23B20` -> `0x00C1F1A0`,
+context vtable `0x011733E0`; `ue3-natives.py` could not see the vtable through the ctor's
+tail jump) does NOT fire through `+0x1B0`: that slot is `0x00633610`, `xor eax,eax; ret 4`.
+The razor throw is the shared gadget-projectile routine `0x00C30040`, referenced from
+seven vtable slots and called at `0x00C305B3`:
+
+* this = `esi` (`[esi+0xA4]` tweaks, `[esi+0x3C]` item); source pawn `0x00BFF440` -> `ebp-4`;
+* SpawnActor `0x00C66070` at `0x00C300AB` (projectile class `[tweaks+0x42C]`, at the hand);
+* then `mov ecx,[ebp-4]; add ecx,0D0h` at `0x00C300DD` and `0x0040DA70` at `0x00C300E6`:
+  the throw direction comes from the SOURCE PAWN's rotation, which in VR is the head.
+
+Seam (`throw_aim.cpp`, gadget half): those 9 bytes (`8B 4D FC 81 C1 D0 00 00 00`, no
+relative operand, no jump inside) become `mov ecx,[g_gdUse]`: the pawn's rotation, or a
+hand-ray rotator for the player's own throw. Found by scanning SpawnActor call sites in
+the gadget region for a nearby `0x0040DA70`, the same shape as the grenade.
+
+## Spring razor: placed, not thrown (VR-166, 2026-09-21)
+
+The SpawnActor census (build 608; `aim_source.cpp`, read-only) named the razor's spawn
+site the first time it was placed: caller `0x00C3BA21` spawning via
+`Twk_Inv_SpringRazorPlaced`. The routine is `0x00C3B570` (this = the razor context:
+`[+0xB0]` a state byte, `[+0x3C]` the item). It is referenced from `0x0136B5A4`, and it
+is not an exec thunk, since the natives table has no razor placement. It reads a pair
+at `+0xF8/+0xFC` and a dword at `+0x100`, not a position, so the placement point is
+decided UPSTREAM, presumably by a trace.
+
+So the gadget seam at `0x00C300DD` (shared gadget-projectile routine) was the wrong
+target for the razor: it never ran in a razor run, and its refusal logging proved
+that. Next instrument: a read-only caller census on the three controller camera-trace
+helpers (`0x00AA5100`, `0x00AA60D0`, `0x00AA5FF0`) and `AActor::execTrace`
+(`0x006D0ED0`). The (entry, caller, class) pairs that appear only while the razor is
+out name its placement trace.
+
+Note: the grenade projectile spawns from `0x00C39058`, which confirms the throw seam's
+routine.
+
+**Measured (build 610, headset, 2026-09-21).** Four placements, each landing 6-10 uu off
+the HEAD ray (120-142 uu along it) and 28-91 uu off the hand ray. Placement follows the
+head. The placement routine takes the point from the razor context: `+0xB8/+0xBC/+0xC0`
+is the location and `+0xC4/+0xC8/+0xCC` the normal (the simple branch at `0x00C3B81A`),
+or a transform of them when the razor sits on a moving base. The writer is not in the
+three camera-trace helpers or execTrace. `+0xB8` stores in the gadget region
+(`0x00C20856`, `0x00C2BF3F`, `0x00C30B94`, `0x00C443C1`) belong to other objects, and
+`0x00C327E0` is a destructor. Build 611 arms a hardware write-watch (DR0, write,
+4 bytes) on the live context's `+0xB8` while the razor is equipped, to name the writer
+(`razor/watch:`).
+
+Build 611 result: the write-watch armed on an object named exactly
+`DisItemContext_UseSpringRazor` (the template, not the placing context), saw 0 writes in
+20 s, and expired before any placement. Three later placements again landed 8-12 uu off
+the head ray. Build 612 captures `this` at the placement routine's entry (`0x00C3B570`,
+6 bytes `53 8B DC 83 EC 08`, read-only). It then arms the watch on THAT object's `+0xB8`
+for 60 s, so the second and third placements name the writer.
+
+## The razor placement seam (VR-166, 2026-09-21)
+
+**Found statically; the write-watch was retired without its result.** Build 612 armed
+the watch and logged seven placements, but it reported only at the window's end, and
+the game closed first. Build 613 was never run. The watch had a second weakness: it ran
+on the game thread and armed that thread through `SetThreadContext(GetCurrentThread())`,
+which Windows does not honour reliably. It could have been blind to the very writer it
+was looking for.
+
+The route was the placement routine's first call. At `0x00C3B5BF` it calls
+`0x00C32C30(this, &this->+0xB4, 1)`. When that call returns nonzero, the routine takes
+the simple branch at `0x00C3B81A` and spawns from `+0xB8/+0xC4`. The callee receives a
+POINTER to `+0xB4`, so its writes to `+0xB8` are `[reg+4]` off that pointer. That is why
+`disasm-rva.py disp 0xB8` never found them. Nothing else to fix in the search: a
+displacement search cannot see out-parameters.
+
+`0x00C32C30` is the razor's wall-placement trace. Its callers are `0x00C33632`,
+`0x00C3381B` and `0x00C3B5BF`.
+
+* The owner comes from `0x00BFF440`, then `esi = [[owner+0x26C]+0x384] + 0x330`. That is
+  a location at `+0`, with a rotator at `+0xC` (`0x0040DA70` turns it into the direction).
+  The rotator's pitch picks the plane: above `0x1FFF` is the ceiling, below `-0x1FFF` the
+  floor, anything else the wall.
+* `esi` holds that pointer only until `0x00C32CC8`. It is zeroed at `0x00C330E5`.
+* The trace is `0x00BE15C0` at `0x00C33229`, from `ebp-0x34` (the start) to `ebp-0x48`
+  (the end), with extent `0x00C33307` after it.
+
+Seam (`throw_aim.cpp`, `[Aim] GadgetFromHand`): `add esi,330h` at `0x00C32C91`
+(`81 C6 30 03 00 00`, no relative operand) becomes `mov esi,[g_gdUse]`. That is either
+the engine's POV, or a copy with the location set to the hand-ray origin and the pitch
+and yaw set from the hand-ray direction. This one change moves the start point, the
+direction and the plane choice together. It refuses when the POV is more than 150 uu from
+the render eye, because then the source is not the view. The old gadget seam at
+`0x00C300DD` is gone: it never ran for the razor.
+
+## Where the powers read their aim (VR-44, 2026-09-21, static)
+
+**The script dump has no shortcut.** `tools/uscript/` holds declarations and
+defaultproperties, not function bodies. The power components declare their RESULTS
+(`m_vOrigin`/`m_vDirection`, `m_TargetPoint`, `m_pHighlightedTarget`), but nothing that
+says where the aim comes from. Nor is there a script-level "aim source" to override.
+`DisItemContext_UsePower` extends `DisItemContext_AimAssistAttack`.
+
+**The native shape is shared.** Every hand-aim seam so far starts at the same read:
+`[controller+0x384]` (the player camera), then `+0x330` (the POV location) and `+0x33C`
+(the POV rotator, turned into a direction by `0x0040DA70`). Interaction, razor placement
+and Blink all start there. A census of `+0x384` readers in `0x00BE0000..0x00C60000` was
+walked from each power's own vtable slots, following direct calls four deep:
+
+| Class (vtable) | Reader of the camera POV |
+|---|---|
+| `..._WindBlast` (`0x01168F48`) | slot `+0x168` `0x00BFB950` -> `0x00BF9570`: `[+0x384]` at `0x00BF95BF`, rotator `+0x33C` at `0x00BF9615`, `add eax,330h` at `0x00BF961B`. Same shape as the razor seam |
+| `..._Blink` (`0x01168698`) | `+0x1B0` `0x00BFA270` -> `0x00BF5520` (`+0x384` at `0x00BF554F`), and `0x00BE8F20` (one caller, Blink-only) |
+| `..._Possess` (`0x011684B8`) | none direct. The `+0x384` hit in slot `+0x114` (`0x00BED930`) is its serialiser |
+| `..._DevouringSwarm` (`0x011682F0`) | none direct |
+| `DisItemContext_UsePower` (`0x01183620`) | slot `+0x184` `0x00C4B800` (an override) -> `0x00C12B00`: POV location at `0x00C12B56..`, rotator at `0x00C12BCE`, then the aim-assist candidate search `0x00C03320` (which reads the POV again). `0x00C12B00`'s other caller is `0x00C14368`, beside the aim-assist cache routine `0x00C14460` that interaction already knew |
+
+**The original author's "magic-aim" cannot cover them.** `[Blink] AimAllPowers`
+redirects at `kBlkAimHook` `0x00BF595F`. That address is inside `0x00BF5520`, which is
+Blink's targeting routine, reached only from Blink's `+0x1B0`. The claim that it fires for
+every power does not survive the call graph. The class-name gate is harmless, but the
+hook only ever runs for Blink.
+
+**Prediction to test (read-only first):** two seams cover the three powers.
+* Windblast takes its cone from `0x00BF9570`.
+* Possession's highlight and Swarm's target point come from the UsePower aim-assist
+  search `0x00C12B00`, and their components only consume its result.
+
+What would kill it: a counter at either site that does not move when that power is aimed,
+or a power whose target still follows the head while its site's input is on the hand ray.
+
+**The instrument (build after `02a955192`, not yet run).** `power/census:` in
+`aim_source.cpp`, armed by `[Aim] SourceProbe`, READ-ONLY. It has three entry hooks:
+* the player-camera accessor `0x00B515C0` (`8B 81 6C 02 00 00`; pawn -> controller ->
+  camera, 95 callers). Only callers in `0x00BE0000..0x00C60000` are counted;
+* Windblast's aim routine `0x00BF9570` (`55 8B EC 83 EC 18`);
+* UsePower's aim-assist search `0x00C12B00` (`53 8B DC 83 EC 08`), with the context's
+  item name from `+0x3C`.
+
+Each new (site, caller, class) pair logs once. A 5 s count follows for every key that
+moved. The accessor lead came from Windblast's routine itself, which fetches its camera
+through `0x00BF9610 call 0x00B515C0`. Seven of the accessor's call sites sit in
+power-component code: `0x00BF657D`, `0x00BF8F08`, `0x00BF9610`, `0x00BF9B94`,
+`0x00BFABF2`, `0x00BFB104` and `0x00BFD3D9`.
+
+**Measured (build 618, headset, 2026-09-21).** Windblast was cast 2-3 times; Possession was
+held and released several times (on people), then used; Devouring Swarm was cast about
+6 times on a second save. The prediction was half right:
+* **Windblast:** its routine `0x00BF9570` runs ONCE PER CAST. It is called from
+  `0x00A96B48` (the cast animation), and it fetches the camera at `0x00BF9610`.
+* **Possession:** it does NOT go through the aim-assist. Its own code fetches the camera
+  about 50-90 times a second while held, at `0x00BFB104`, `0x00BF657D` and `0x00BF8F08`,
+  in lockstep.
+* **Devouring Swarm:** no Swarm-class code ever fetched the camera. It spawns
+  `Twk_DevouringSwarm_Lvl1` from `0x00BFE2AB`, at the Location of the actor in its
+  component's `+0x94` (`m_pSpawnPoint`, a `DisGameCrowdDynamicSpawnPoint`).
+* **The aim-assist search `0x00C12B00`** ticked +1 per cast for EVERY power (return
+  `0x00C4B8AE`). It is a cast-time lookup, not any power's continuous aim.
+* Dark Vision (`0x00BF9B99`) and Blink (`0x00BFABF7`) also fetch the camera. In the
+  second save, `0x00C014C9` and `0x00C0447A` (item-context code, no power class in the
+  registers) fetched it roughly 110 and 30 times a second throughout.
+
+`0x00B515C0` returns the camera ACTOR. Its actor Location/Rotation are at `+0xC4`/`+0xD0`,
+and its cached POV at `+0x330`/`+0x33C`. Callers use one pair or the other.
+
+## The power aim seams (VR-44, 2026-09-21)
+
+The seams are in `power_aim.cpp`, controlled by `[Aim] PowersFromHand` (default 1) and the
+F10 row "Windblast, Possession, Swarm". No engine field is written.
+* **Windblast** `0x00BF9615` (`8B 88 3C 03 00 00`, just after the camera fetch). `eax`
+  becomes a camera-shaped block whose POV location and rotator come from the hand ray.
+  Those feed `m_vOrigin` (`+0xA4`) and, through `0x0040DA70`, `m_vDirection` (`+0xB0`).
+* **Possession** `0x00BF8F4C` (`A1 E0 B0 26 01`, an absolute load). This point is just after
+  `0x0040DA70` builds the camera direction into `ebp-0xA4` from the actor Rotation, with the
+  camera location in `ebp-0x40`. The pick scores every candidate by distance and angle
+  against both. Both locals are overwritten with the hand ray. The camera pointer
+  `ebp-0x90` is read afterwards only for its FOV (`+0x53C`).
+* **Swarm (predicted)**: UsePower's aim-assist search `0x00C12B00`. Its two camera reads,
+  `0x00C12B56` (the location) and `0x00C12BC0` (the rotator), both `[esi+384h]`, each get
+  the camera-shaped block. This applies only when the search's return address
+  (`[ebx+4]`, aligned frame) is `0x00C4B8AE`. The two hooks install together or not at
+  all. Whether Swarm's spawn point follows this search is measured by `swarm/place:`
+  (`aim_source.cpp`, `[Aim] SourceProbe`), which reports each swarm spawn's offset from the
+  head ray and from the hand ray.
+
+**Build 619 result (headset).** Windblast and Possession followed the hand. Swarm did
+not. Its only logged landing was 105 uu off the head ray and 114 uu off the hand ray,
+1,537 uu out. The aim-assist swap redirected every cast, which shows the swarm point
+does not come from that search. It also redirected a cast whose camera POV was
+7,883 uu from the hand, which means the POV is not always at the player. **Retired.**
+
+**Where Swarm really aims.** Swarm slot `+0x168` (`0x00BFAE60`) calls `0x00BE9310` at
+`0x00BFAEE4`; the other caller is `0x00BFB03F`. `0x00BE9310` calls the controller's
+`GetPlayerViewPoint` (vtable `+0x3C4`) into `ebp-0x18` (location) and `ebp-0x30`
+(rotator). It then converts the rotator to a direction (`0x0040DA70`), traces
+(`0x0064E7A0`) and returns the hit. `0x00BF8C00` then creates `m_pSpawnPoint` (`+0x94`)
+at that point, and the swarm spawns from it (`0x00BFE2AB`). The census missed Swarm
+because nothing in this path calls the camera accessor. The only accessor call nearby
+is inside the eye helper `0x00AC80C0`, which returns to `0x00AC812F`, outside the
+census range. The shared pick `0x00BFB090` belongs to Possession, not Swarm.
+
+**Seam:** `0x00BE9337`, 7 bytes: `lea eax,[ebp-24h]; push eax; lea ecx,[ebp-30h]` (no
+relative operand). This point is just after `GetPlayerViewPoint` returns. The hook
+overwrites both locals with the hand ray. All three power seams now refuse when the
+engine's view source is more than 150 uu from the render eye.
+
+**Build 620 result (headset): Swarm follows the hand.** The swarm landed 26 uu off the
+hand ray and 827 uu off the head ray. One cast was refused because GetPlayerViewPoint was
+7,931 uu from the render eye (the same distance 619 saw). Some state hands the view point
+far from the player, and the guard keeps that cast on the head.

@@ -78,6 +78,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "cinestereo") && DvrOnOff(args, &b)) { StereoStateSet(b); return true; }
     if (!strcmp(cmd, "possessionstereo") && DvrOnOff(args, &b)) { PossessionStereoSet(b); return true; }   // VR-135
     if (!strcmp(cmd, "rainhide") && DvrOnOff(args, &b)) { RainHideSet(b); return true; }   // VR-136
+    if (!strcmp(cmd, "swordtrail")) return SwordTrailCommand(args);   // VR-171
+    if (!strcmp(cmd, "camshake")) return CamShakeCommand(args);   // VR-172
     if (!strcmp(cmd, "raindistance")) { RainDistanceSet(atoi(args)); return true; }   // VR-136: uu, -1 native
     if (!strcmp(cmd, "lensdistance")) { LensDistanceSet(atoi(args)); return true; }   // VR-137: uu, 0 native
     if (!strcmp(cmd, "lenskeepsize") && DvrOnOff(args, &b)) { LensKeepSizeSet(b); return true; }   // VR-137
@@ -431,6 +433,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "cammod")) return CamModCommand(args);       // VR-165
+    if (!strcmp(cmd, "aimsrc")) return AimSourceCommand(args);    // VR-166
+    if (!strcmp(cmd, "interactaim")) return InteractAimCommand(args); // VR-166
+    if (!strcmp(cmd, "throwaim")) return ThrowAimCommand(args);    // VR-166
+    if (!strcmp(cmd, "gadgetaim")) return GadgetAimCommand(args);  // VR-166
+    if (!strcmp(cmd, "poweraim")) return PowerAimCommand(args);    // VR-44
     // VR-165: not "swing" - that word is the motion sword's (VR-37) on VR-Main.
     if (!strcmp(cmd, "swingtrace")) return SwingTraceCommand(args);  // VR-165
     if (!strcmp(cmd, "dump")) {
@@ -621,6 +628,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     w.kv("build", DVR_BUILD_ID);
     w.kv("config", DVR_BUILD_CONFIG);
     w.kv("optimised", (bool)DVR_BUILD_OPTIMISED);
+    w.kv("legacy", (bool)DVR_WITH_LEGACY);   // VR-180: a legacy build is never one to play
     w.kv("backend", "openxr");
     w.kv("runtime", dvr::vr::runtime_name());
     w.kv("session", dvr::vr::session_state_name());
@@ -684,6 +692,8 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::aim::status(w);
     dvr::anim::status(w);
     dvr::swing::status(w);
+    SwordTrailStatus(w);   // VR-171
+    CamShakeStatus(w);   // VR-172
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);

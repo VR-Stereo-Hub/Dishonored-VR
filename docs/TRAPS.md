@@ -1,3 +1,67 @@
+## A crash recorder whose budget our own probes spend cannot record the crash (VR-177, 2026-09-21)
+
+**What happened.** A playtester reported a freeze and a crash, and neither left a fault
+record. Every run's `dishonored_vr_crash.txt` held the same three entries at startup:
+`d3d9.dll+0x172c1c` and `+0x172747`, "reading" a 64 KB-aligned address. Against the
+archived PDB (`build/symbol-archive/<dll sha256>`, `llvm-symbolizer --relative-address`),
+those are the runtime watchdog's own stack scans, `watchdog_capture` and
+`watchdog_all_threads`. The watchdog reads a suspended thread's stack upward until it
+faults at the stack base, then catches the fault. The fingerprinter stops after 3 faults
+per run, so it had nothing left for a real crash.
+
+**The second trap inside it.** Those faults are raised while ANOTHER thread is SUSPENDED.
+So every vectored handler in the process runs with that thread frozen, including ours
+(which writes a file) and Steam's. A handler that needs a lock the frozen thread holds
+deadlocks the game. The watchdog built to explain freezes could cause one.
+
+**Fix.**
+* `watchdog_stack_dwords` bounds every scan by the committed region `VirtualQuery`
+  reports, so the scan never faults.
+* `dvr::crash::probe_begin/end` marks our own guarded probes. The fingerprinter ignores
+  faults raised inside them, and says how many at the next real fault.
+* The support collector now bundles `pacetrace.log` (where the watchdog writes) and a
+  `pacetrace-watchdog.txt` extract. Before this, the watchdog's output never reached us
+  from a tester.
+
+**Rule.** A recorder with a budget must not let anything we raise on purpose spend it. A
+guarded probe must not raise at all while another thread is suspended. Check the crash
+file of a NORMAL run: if it is not empty, something is spending the budget.
+## A build directory remembers `-Legacy`, and the build did not say so (VR-180, 2026-09-22)
+
+**What the player saw.** Every trigger pull, on either controller, froze the game for about a
+quarter of a second. It had appeared and gone away before, and it faded after some play.
+
+**What it was.** Not the player's machine, not the game and not a fault in any feature: the
+build that was installed for a headset session had `src/legacy` compiled in. One of the retired
+diagnostics there, the projectile-spawn tracer (`src/legacy/fire_tracer.cpp`, called from
+`pad_bridge.cpp` on the edge of EITHER trigger while `[Debug] FireTrace` is on, and it is on by
+default), walks the engine's whole object table for about four consecutive frames. It switches
+itself off after 30 rounds until the next launch, which is why it seemed to fade.
+
+**Why such a build existed.** `tools\build.ps1` passed `-DDVR_WITH_LEGACY` only on a first
+configure or when `-Legacy` was given. A build directory that had EVER seen `-Legacy` therefore
+kept `DVR_WITH_LEGACY:BOOL=ON` in its CMake cache, and every later plain build compiled the
+legacy code in without a word. The log banner, `status.json` and `install.ps1` said nothing
+about it, and `package.ps1` builds through the same script, so a tester's zip could carry it.
+
+**How it was measured.** The affected headset log: 766 `spawn: NEW obj[...]` lines in the
+`[legacy]` category, and `perf: frame gap ... sat in: game_tick` in runs of three consecutive
+presents at 76 to 88 ms, right after them. Simulator A/B, same source, eight trigger pulls:
+legacy ON, 11 gaps sat in `game_tick` at 75 to 133 ms and 256 spawn lines; legacy OFF, 0 and 0.
+A suspect cleared on the way, so nobody re-walks it: motion aim's projectile pool scan was NOT
+it (`aimWin=0` on every gap, zero `aim: trigger pulled` lines; `[MotionAim] Enabled=0`).
+
+**What changed.** `build.ps1` reads the cache and reconfigures whenever it disagrees with what
+was asked for, and prints which kind of build it made. The log's first line carries
+`legacy ON|off`, with a Warn under it when on; `status.json` carries `legacy`. `install.ps1`
+asks the DLL itself (a sentence `dllmain.cpp` only compiles in under the flag) and REFUSES an
+optimised legacy build unless `-AllowLegacy` is passed; a Debug one is installed with a red
+warning. `package.ps1` refuses outright. The legacy code itself is untouched.
+
+**The rule.** Any `[legacy]` line in a log means a legacy build. Before a build goes to a
+person, read the first line of its log. A quarter-second stall `sat in: game_tick` is the mod's
+own per-present work, not the game: look at what the mod runs on that event before anything else.
+
 ## A performance number carries its MACHINE and its build CONFIG (VR-160, 2026-09-20)
 
 An investigation opened by treating 43-54 pairs/s on the dev PC as a regression from
@@ -22,6 +86,59 @@ subsystem bisector and **disables nothing** - `dvr::diag::skip()` has exactly on
 caller, the `skip` echo command. The levers that exist are `DISHONORED_VR_XR_SAFE=1`
 and `[Mode] GamepadOnly=1`. A rung of a cost ladder built on `DVR_SKIP=hands` would
 have measured nothing and reported "no cost".
+
+## A pointer can pass for a frame time (VR-168, 2026-09-21)
+
+The head writer tells the two `ProcessViewRotation` layouts apart by asking
+whether Parms+0 looks like a DeltaTime (0.5-200 ms): the controller's
+`(DeltaTime, View, ...)` or the camera modifier's `(ViewTarget, DeltaTime, View)`.
+An earlier fix had already raised the lower bound because pointers read as tiny
+floats. That is only true for SOME addresses. After a possession the ViewTarget
+was the pawn at `0x3AA50000`, which reads as 0.00126 s. Every dispatch then
+parsed the modifier's DeltaTime as the pitch, refused
+(`pitch 1007518153 at Parms+4 out of range`), and the head wrote nothing for the
+rest of the session. `view` went 0, so any master state outside the stereo list
+(Slide) fell to mono.
+
+A build that "recovered after possession" (599) proved nothing about the code:
+its pawn simply sat at an address that did not pass. Classify by what the value
+IS, not by what it happens to look like. A live UObject at +0 decides the layout
+now, and it is only asked when both slots pass as a frame time.
+
+## A menu that hands over to another menu is still the same menu (VR-166, 2026-09-20)
+
+Closing a note could snap the view back to where the head was when the note
+opened. The exit carry (`menu/exit: carry yaw`, `menu_immersion.cpp`) was
+working: in a run where the note closed straight to gameplay (Note -> Other),
+the head turned -9.1 deg while reading, the carry was -9.18 deg and the view
+followed. In the merged-build runs every note close passed through a ~250 ms
+stale wheel context first (Note -> Wheel -> Other, the `ui/wheel-release`
+window). `MenuHeadBegin` treated the context change as a new menu and
+re-acquired, taking the head at the handover as the new reference. The turn
+made while reading was gone before the exit carry ever ran, and two of those
+exits also refused outright.
+
+The rule: the reference belongs to the blocked stretch, not to the context.
+A context or epoch change with the same camera, controller, pawn and load now
+keeps the entry reference (`menu/head: context 4 -> 6 while still blocked`).
+The refusal line also names which guard refused, with the scope and head ages,
+because the old lumped line could not tell a stale scope from a lost owner.
+
+Also not the cause, checked: #85's live-table changes (`RefreshLiveSet`) do
+not touch this path. The exit's `BuildLiveSet()` is still a forced rebuild.
+
+**The immersive carry never covered flat screens at all.** On the simulator the
+journal (a flat screen, not riding) showed no `menu/head` line: head 0 -> -40 deg
+while it was open, view unchanged on close (-214.05 -> -214.05). The head writer
+re-stamps its reference every dispatch while a UI surface blocks, so any screen
+without the immersive carry, or with a refused one, dropped the turn. The head
+writer now holds the head yaw from the moment a gameplay menu blocks (Pause,
+Note, Journal, Wheel, Store, MissionStats) and adds the whole turn once on the
+first gameplay write, unless the immersive carry already did
+(`menu/hold: ... carrying`, or `... the immersive carry owned the exit`). Loads,
+the main menu and cinematics drop the hold. Simulator after: journal -214.05 ->
+-254.05 for a -40 turn; pause (flat on the sim) -254.05 -> -214.05 for +40.
+The riding pause menu's stand-down path is not reachable on the simulator.
 
 ## A detector fed once per present sees every pose twice (VR-37, 2026-09-20)
 
@@ -289,6 +406,26 @@ the ticket was filed blaming "something outside both files".
 > **A file that exists beats the ini you edited.** A setting with two persistent
 > homes has no owner.
 
+### The command seam is ONE slot, polled at 1 Hz (VR-172)
+
+Two `tools\game-cmd.ps1` calls inside the same second are not two commands: the second
+write replaces the first before the mod has read it. It cost four attribution rounds:
+each round sent `camshake release all` and then `camshake hold <one handle> 0`, the
+release was overwritten every time, every handle stayed at zero from the round before,
+and every round read shake-free whichever handle it thought it was testing. The log
+showed it at once - each `hold` line had no `release` line before it. Send everything
+for one moment in ONE call (`game-cmd.ps1 "a" "b" "c"` writes them as lines of one
+file), and wait out the poll before acting on it. The `.xrs` runner's `@mod a; b; c`
+is already safe.
+
+### A capture window that opens late measures the wrong half (VR-172)
+
+A jump was captured with the window opening after the takeoff, the push-off was absent
+from the rows, and the absence was read as "this handle removed it". The summary line
+could not have shown the difference; the tick-by-tick rows of four captures side by
+side did. When an A/B result is an ABSENCE, check the rows contain the event at all
+before crediting the lever.
+
 ### VR-37: two keys whose compiled default no longer means anything
 
 `[Melee] SwingSpeed=1.8` and `HoldMs=220` have been written into every installed
@@ -298,6 +435,39 @@ machine that has run the mod. The edge detector therefore got NEW key names
 with no `kConfigVersion` bump - a bump rewrites the whole ini and keeps three keys.
 `SwingMs`, `SwingDistM` and `Haptic` were read for years and never written by
 `WriteDefaultIni`; they ship now.
+
+### VR-170: changing a default that every installed ini already holds
+
+`[Melee] EdgeSpeed=3.6` is in the default ini text, so it is in every installed ini,
+and lowering the compiled default to 3.0 would have reached no existing player. The
+two obvious routes are both wrong: a new key name orphans the value a player tuned
+in F10, and a `kConfigVersion` bump rewrites the whole file (VR-159). What shipped is
+a **one-time, per-key migration keyed on a marker**: `configure` moves a stored value
+only when it is exactly the OLD shipped default, and writes `EdgeSpeedRev=1` whether
+or not it moved. The marker written in BOTH branches is the part that is easy to get
+wrong: written only on a move, a player who later types the old value back is moved
+again at the next launch. The default ini text carries the marker, so a fresh install
+never runs it, and the log line says which branch ran.
+
+Simulator note: `xrsim-launch.ps1 -ViaSteam` restores the mod's ini from its
+pre-launch backup (VERIFICATION gotcha 16), so the migration's write is undone on
+the dev PC and the line reappears at every sim launch unless the installed ini
+already carries the marker. The "not on the second launch" half was tested by
+putting the ini in its post-migration state by hand before a launch.
+
+### The simulator's display clock leaps after a game-thread hitch (VR-170)
+
+Measured 2026-09-21: across a game-thread hitch of about 50 ms of wall clock, the
+simulator's predicted display time advanced 135 to 165 ms and one hand generation
+was skipped. Anything that differences poses over display time sees one sample
+carrying 150 ms of travel; the swing detector reads a gap over 100 ms as lost
+tracking and re-seeds, correctly. A hitch landed inside about half of all 200 ms
+simulated-hand swings, about 70 ms after the simulator command was applied, so **a
+simulated-hand gesture with no speed margin is not a reliable gate on this lane**.
+`swing sim` runs the same core, gates, pulse and game attack from the wall clock and
+does not leap. Suspect cleared along the way, so nobody re-walks it: the 500 ms
+`camera/source` probe does a full live-set build, but frame gaps fell within 120 ms
+of one of its samples 17 times out of 35, which is chance for a 500 ms cadence.
 
 ### What to do before touching a key
 

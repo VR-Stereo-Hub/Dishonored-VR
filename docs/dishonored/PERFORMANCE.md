@@ -1,3 +1,47 @@
+## Menu cadence and camera-upload gate coverage (VR-178, 2026-09-22)
+
+Verified combined650-g76ae6804a, optimized and legacy off. Preserved run:
+build/playtest-candidates/menu-choppiness/run650. Source/fix scope and the
+one-question headset test are in FLICKER_REFERENCE's VR-178 entry.
+
+The journal's engine rate is high while stereo production is low. Between the
+beats at50031250 and50034250, camera-silent skips rise3160->3472 (+312),
+present-stall1464->1470 (+6), scene-state stays10573. The latter beat reports
+129 draws/s,23 second draws/s,152 presents/s. Delivery at50033437 reports
+L15/R15,mono61,none54 per second. These adjacent windows have different boundaries;
+do not treat their differences as dropped-frame counts. Pause at50040250 reports
+123 draws/s,119 second draws/s,242 presents/s; silent stays3543 from the prior
+beat while stall rises1482->1492. Average FPS conceals intermittent stereo output.
+
+The observed-upload exception only covers pause3; journal5/wheel6 throw away its
+history. New separately opt-in MenuSceneFreshness retains actual during-draw c5
+movement for less than100ms within the same menu epoch/load. Existing scheduling
+guards and compositor hold remain. No desktop-output policy or pose-lock change.
+72 policy cases and404 pairing checks pass. Headset cadence/left-hand verdict open.
+This does not prove the older ReduceDesktopPresent hypothesis in VR-144, nor
+attribute left-hand-only motion to the renderer before stereo continuity is tested.
+
+## VR-180: a quarter-second freeze on every trigger pull was a legacy build (2026-09-22)
+
+**Report:** pulling either trigger froze and stuttered the game, every time, fading after
+some play. **Not a performance regression in any feature and not the machine:** the build had
+`src/legacy` compiled in, and its projectile-spawn tracer walks every engine object for about
+four frames after each trigger edge. `docs/TRAPS.md` has the whole account and the fix.
+
+| Build, same source, eight trigger pulls on the simulator | `perf: frame gap` sat in `game_tick` | `spawn: NEW obj` lines |
+|---|---|---|
+| legacy ON (`614-gc7317261`, RelWithDebInfo) | 11, at 75 to 133 ms | 256 |
+| legacy OFF (`614-gcce004d3`, RelWithDebInfo) | 0 | 0 |
+| legacy OFF with the VR-180 guard (`600-gd556eb58` + the guard) | 0 | 0 |
+
+In the affected headset log (VirtualDesktopXR) the same stalls read 76 to 88 ms per present in
+runs of three. The guard build on the simulator at 2064x2208: 89.7 ticks/s against a 90 Hz
+display, tick 11.1 ms. The guard adds nothing to the frame path: one word in the log banner
+and one field in `status.json`.
+
+**How to read this next time:** `sat in: game_tick` is the mod's own per-present work. A stall
+there that lines up with an input is the mod doing something on that input.
+
 ## VR-160: the dev PC's 43-57 pairs/s - what the record already answers (2026-09-20)
 
 **Report:** about 40 fps in the headset on the dev PC, while the sibling BioShock
@@ -1384,3 +1428,45 @@ capture confirmed each size it was given.
 take it first. For fullscreen, the honest test is VirtualMode OFF at a real
 display mode (2560x1440) against VirtualMode ON windowed at the same 2560x1440,
 so mode is the only variable.
+
+## VR-44: hot-path probes removed after a lag report (2026-09-21, UNMEASURED fix)
+
+**Report.** Build 619 felt noticeably laggier in the headset.
+
+**Measured.** All three runs were at 144 Hz, so the rate is not a variable here. The
+figures below are gameplay `perf: tick` samples (runs over 30 ticks/s):
+
+| Build | Ticks/s (mean) | Game time outside our frame path |
+|---|---|---|
+| 615 | 115.5 | 2.2 ms |
+| 618 (power census added) | 94.0 | 3.9 ms |
+| 619 (power seams added) | 96.3 | 3.7 ms |
+
+The step is at 618, not 619. Within the 619 run, the game ran at about 127 ticks/s
+(1.5 ms) for 30 s with every hook installed. It then fell to 75-90 ticks/s before any
+power was used. So the extra cost scales with the scene and is not a flat per-frame
+cost. The scenes were not the same across the runs, so this does not prove the cause.
+
+**Suspects, and what was done about each:**
+* **The power census.** Its hook on `0x00B515C0`, the camera accessor, has 95 callers,
+  and AI code is among them. The hook ran a full `pushfd/pushad/fxsave/fxrstor` on every
+  call before filtering for power-code callers. That cost grows with the number of NPCs.
+  REMOVED; its result is recorded in ENGINE_NOTES.
+* **The trace census (VR-166).** It hooked `execTrace` and three camera-trace helpers,
+  which AI and script traces call constantly. It was already on in 615, so it is not
+  the step, but it is a standing cost. REMOVED; its job ended with the razor seam.
+* **The aim-assist swap (619).** It ran only on casts from UsePower's slot. It is not a
+  hot path, but it was also wrong (see ENGINE_NOTES). RETIRED.
+
+**Still on, and why:**
+* The spawn census stays, because spawns are rare and it measures the swarm's landing
+  point. It is armed by `[Aim] SourceProbe`.
+* The power seams run only on a cast. The one exception is Possession's pick, which
+  runs every tick, but only while Possession is held.
+
+**Next run.** Compare ticks/s against 615 in the same kind of scene. If the drop
+persists with these probes gone, set `SourceProbe=0` as the next A/B.
+
+**Build 620 (headset).** No lag was reported. The log is short (18 gameplay samples):
+104.7 ticks/s, with 3.9 ms outside the frame path. The scene differs from 615's, so this
+is a report, not a measured A/B. The suspects stay removed.

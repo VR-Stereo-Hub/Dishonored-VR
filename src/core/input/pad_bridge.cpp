@@ -46,7 +46,13 @@ static void UpdateVirtualPad()
     if (dvr::vr::take_recenter_chord()) {
         g_posHaveRef = false;
         g_crouchRefOk = false;
-        Log("postrack: re-centered (both stick clicks)");
+        Log("postrack: re-centered (both stick clicks%s)",
+            dvr::vr::chord_tap_opens_panel() ? ", held" : "");
+    }
+    // VR-174: a TAP of both stick clicks toggles the F10 panel (the hold recenters).
+    if (dvr::vr::take_panel_chord()) {
+        g_ovlVisible = !g_ovlVisible;
+        Log("overlay: %s (both stick clicks, tapped)", g_ovlVisible ? "OPEN" : "closed");
     }
     const auto controller=dvr::controller::config();
     const bool leanGameplay=in.active && !g_ovlVisible && !UiSurfaceBlocks() &&
@@ -174,27 +180,6 @@ static void UpdateVirtualPad()
                 }
             }
             if (crNow < crUntil) b |= XINPUT_GAMEPAD_B;
-        }
-        // 31.1: only the RAY is computed here. The previous version called
-        // ImGui::GetIO() from this thread, which runs before the overlay
-        // context exists and alongside the render thread that owns it -
-        // both a race and a null dereference waiting to happen, and the
-        // likely reason clicking did nothing.
-        {
-            float rel[3];
-            int ph = (g_ovlPtrHand >= 0 && g_ovlPtrHand <= 1) ? g_ovlPtrHand : 1;
-            if (g_ovlPtrEnable && g_ovlVisible &&
-                HandRelFull(ph, rel, NULL) && rel[2] > 0.25f) {
-                g_ovlRayX = rel[0] / rel[2];
-                g_ovlRayY = rel[1] / rel[2];
-                g_ovlPtrValid = true;
-                float trg = 0.0f;
-                trg = ph ? hr : hl;
-                g_ovlPtrDown = (trg > 0.4f);
-            } else {
-                g_ovlPtrValid = false;
-                g_ovlPtrDown = false;
-            }
         }
         xs.Gamepad.wButtons      = b;
         xs.Gamepad.sThumbLX      = PadStick(mx);
@@ -408,6 +393,27 @@ static void UpdateVirtualPad()
             emulation.buttons,xs.Gamepad.wButtons);
     }
 
+    // VR-174: THE PANEL'S INPUTS ARE NOT THE GAME'S while it is up. The pointing hand's
+    // trigger clicks the panel and its stick scrolls it and nudges sliders, so the game
+    // must hear neither - a click must not fire or attack (this is after the motion
+    // swing's pulse above, so that is caught too), and a scroll must not turn the view.
+    // HERE and not upstream: the overlay reads the same snapshot for its own input, so
+    // zeroing it earlier would leave the panel with nothing to click with. The other
+    // hand stays live: walking with the panel open still works.
+    if (active && g_ovlVisible && g_ovlPtrEnable) {
+        if (g_ovlPtrHand) {
+            xs.Gamepad.bRightTrigger = 0;
+            xs.Gamepad.sThumbRX = 0; xs.Gamepad.sThumbRY = 0;
+            if (dvr::swing::output_rb() && MeleeActive())     // [Melee] Output=rb's swing pulse
+                xs.Gamepad.wButtons &= (WORD)~XINPUT_GAMEPAD_RIGHT_SHOULDER;
+        } else {
+            xs.Gamepad.bLeftTrigger = 0;
+        }
+        DVR_LOG_EVERY_MS(DVR_CAT, dvr::log::Level::Info, 5000,
+            "pad/overlay: the F10 panel is up - the %s trigger%s reach the panel, not the game "
+            "(raw trigger %.2f)", g_ovlPtrHand ? "right" : "left",
+            g_ovlPtrHand ? " and right stick" : "", g_ovlPtrHand ? in.trigR : in.trigL);
+    }
     // 38.25 crawlbox: mirror the delivered (post-shaping) movement stick for
     // the crouch/raw diag line. SHORT writes are atomic enough for a log.
     g_dbgOutLx = active ? xs.Gamepad.sThumbLX : 0;

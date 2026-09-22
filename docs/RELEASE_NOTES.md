@@ -1,3 +1,59 @@
+## Motion sword: an easier swing, and a log that says where the threshold belongs (2026-09-21)
+
+The swing speed needed drops from 3.6 to **3.0 m/s** (`[Melee] EdgeSpeed`): 3.6 had
+been tuned on one player's arm and sat just under their slowest swing, so softer
+swings were being missed. An ini that still holds the old default is moved once, at
+the next launch, and the log says so; an `EdgeSpeed` you set yourself is left alone.
+The slider is F10 > Controls > Motion sword > "swing speed needed (m/s)", and that
+section now opens by default.
+
+The log now counts every hand movement by its peak speed, the ones that attacked and
+the ones that did not (`swing: census`, once a minute, and on `swing census`). Your
+threshold belongs in the gap between the two lists. A movement that came within 20 %
+of the threshold without attacking is called a NEAR MISS on its own line, and F10
+shows the count. New key `EdgeTravelM` (off): a swing must cover that many metres
+before it can attack, for rejecting a sharp jolt without raising the speed; it delays
+a real swing, it never refuses one. Details: `docs/dishonored/PHYSICAL_SWING.md` 2b.
+## The sword's swing trail is hidden (2026-09-21)
+
+The swoosh the game draws on a sword attack follows its own attack animation, not the
+blade in your hand, so in the headset it hung in the air beside the sword. It is now
+hidden for the player's swings (enemies keep theirs). New section `[SwordTrail]`:
+`Hide=1`, `Trace=1`, `Template=Sword_Trail`. Live: `swordtrail on|off`, or the checkbox
+in F10 > Controls > Motion sword.
+## The game's own camera shake is off (2026-09-21)
+
+On a monitor a bobbing, kicking camera is feedback. In a headset it is your view moving
+without your head. It is now removed by default: the bob and roll on the move, the weapon
+kick, the dip when you land, and the jolts on hits and explosions. New section
+`[CameraShake]`: `Suppress=1`, and `Walk`, `Fire`, `Landing`, `Hits`, `Generic` at 0 (set
+one to 1 to let the game move the camera for that again), `Smoother=1` (the game's stair
+smoother, which is not a shake and is kept). Live: `camshake on|off`, `camshake allow <name>
+on|off`, or F10 > Controls > Camera shake.
+## F10 panel from the controllers (VR-174, 2026-09-21, not yet judged in the headset)
+
+The F10 panel works from the controllers alone:
+* **Tap both stick clicks** to open or close it. **Hold them** (about 0.6 s) to
+  recenter. Recenter used to fire the instant both clicks went down.
+* Point with the right controller, and the **trigger clicks**.
+* The **right stick up/down scrolls**. **Left/right nudges the slider you point at**, 1%
+  of its range per step and faster the further you push, starting from its current
+  value (it never jumps to where you point).
+* While the panel is up, the game does not get the right trigger or right stick, so a
+  click cannot fire or attack and a scroll cannot turn you. The left stick still walks.
+  The aim laser and dot are hidden.
+* The panel is now sized and placed against the eye image, so it is the same part of
+  the view at any render size. It has a **UI text scale** slider.
+
+Ported from the BioShock trilogy VR mod.
+
+**Keys:**
+* `[Overlay] ControllerPointer` now defaults to `1`. Setting it to `0` restores the
+  mouse-only panel and the instant recenter.
+* New: `[Overlay] UiScale` (0.8-2.5; unset = derived from the render height).
+* `[Overlay] PointerSpeed` is **removed**: the cursor follows the controller's ray
+  through the eye's field of view instead of a gain.
+
 ## Motion sword (2026-09-20, judged in the headset on one rig)
 
 Swinging the right controller swings the sword again. The old detector never fired

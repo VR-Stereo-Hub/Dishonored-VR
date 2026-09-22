@@ -472,6 +472,21 @@ static void WriteDefaultIni(const char* ini)
         "; Native crossbow launch direction, converging from the muzzle to the controller dot.\n"
         "; Independent of the old HUD cache drive and MotionAim; live toggle in F10 Aim.\n"
         "FireFromHand=1\n"
+        "; SourceProbe=1 (VR-166) names every object that asks the shared power-aim helper\n"
+        "; (the one Blink uses) for a vector, and how far that vector sits off the view.\n"
+        "; READ-ONLY. It answers which powers and thrown items one seam could aim by hand.\n"
+        "SourceProbe=0\n"
+        "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
+        "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
+        "InteractFromHand=1\n"
+        "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
+        "; The spawn point, speed and arc stay the game's; 0 = head.\n"
+        "ThrowFromHand=1\n"
+        "; GadgetFromHand=1 (VR-166): spring razors are placed along the weapon ray; 0 = head.\n"
+        "GadgetFromHand=1\n"
+        "; PowersFromHand=1 (VR-44): Windblast, Possession and Devouring Swarm aim along the\n"
+        "; weapon ray instead of your view; 0 = head.\n"
+        "PowersFromHand=1\n"
         "PropWatch=0\n"
         "InteractFocus=0\n"
         "[HandTracking]\n"
@@ -514,7 +529,14 @@ static void WriteDefaultIni(const char* ini)
         "; registering? lower it toward your PEAK. Attacking while you walk or reach?\n"
         "; raise it. RearmSpeed is how slow the hand must get before the next swing\n"
         "; can fire (never above 0.9 x EdgeSpeed); raise it if fast combos drop swings.\n"
-        "EdgeSpeed=3.6\n"
+        "; The log counts every hand movement by its peak speed (`swing: census`), the\n"
+        "; ones that attacked and the ones that did not: EdgeSpeed belongs in the gap\n"
+        "; between the two lists. EdgeTravelM makes a swing cover that many metres\n"
+        "; before it can attack (0 = off); it delays a real swing, it never refuses one.\n"
+        "; EdgeSpeedRev marks that the 3.6 -> 3.0 default change has been applied once.\n"
+        "EdgeSpeed=3.0\n"
+        "EdgeSpeedRev=1\n"
+        "EdgeTravelM=0\n"
         "RearmSpeed=1.0\n"
         "; edge: the attack is pressed for PulseMs, and at least until the game has\n"
         "; read the pad PulseMinPolls times (a hitch can swallow a short press).\n"
@@ -996,10 +1018,38 @@ static void WriteDefaultIni(const char* ini)
         "; can, which is the protection 38.65 actually wanted. 0 = park everything, as before.\n"
         "SkipHoldMs=300\n"
         "\n"
+        "; The game's own camera shake (VR-172). On a monitor a bobbing, kicking camera\n"
+        "; is feedback; in a headset it is the view moving without your head. Suppress=1\n"
+        "; removes it. Each line below set to 1 lets the game move the camera for that\n"
+        "; again: Walk (bob and roll), Fire (the weapon kick), Landing (landing, physical\n"
+        "; impulses), Hits (hits and jolts), Generic (general shake and rumble). Smoother\n"
+        "; is not a shake: it glides the camera over stairs and steps, and ships at 1. Live:\n"
+        "; `camshake on|off`, `camshake allow <name> on|off`, or F10 > Controls > Camera\n"
+        "; shake. `camshake status` says which were measured and which are by name only.\n"
+        "[CameraShake]\n"
+        "Suppress=1\n"
+        "Walk=0\n"
+        "Fire=0\n"
+        "Landing=0\n"
+        "Hits=0\n"
+        "Generic=0\n"
+        "Smoother=1\n"
+        "\n"
         "[Rain]\n"
         "Hide=0\n"
         "Trace=1\n"
         "Distance=-1\n"
+        "\n"
+        "; The sword's swing trail (VR-171). The game draws a swoosh along the path of\n"
+        "; its own attack animation; in the headset the blade is in YOUR hand, so the\n"
+        "; ribbon hangs where the blade is not. Hide=1 withholds it for the player's\n"
+        "; swings only (enemy trails are untouched). Live: `swordtrail on|off`, or\n"
+        "; F10 > Controls > Motion sword. Template is part of the name of the particle\n"
+        "; effect to hide; `swordtrail census` then one swing names what an attack adds.\n"
+        "[SwordTrail]\n"
+        "Hide=1\n"
+        "Trace=1\n"
+        "Template=Sword_Trail\n"
         "\n"
         "[Lens]\n"
         "Distance=18\n"
@@ -1074,6 +1124,9 @@ static void WriteDefaultIni(const char* ini)
         "MenuExitHeading=1\n"
         "NativeObjectiveLabels=1\n"
         "PauseSceneFreshness=1\n"
+        "; MenuSceneFreshness: reuse observed scene uploads for up to 100ms in head-tracked menus.\n"
+        "; Separate test lever; stale scenes and menu/level transitions still refuse.\n"
+        "MenuSceneFreshness=0\n"
         "PauseAlphaMode=repair\n"
         "PauseAlphaGain=1.950\n"
         "PauseAlphaFloor=0.660\n"
@@ -1188,7 +1241,11 @@ static void WriteDefaultIni(const char* ini)
         "; `hud list`, the F10 HUD tab, `hud reset`.\n"
         "Element.default=window\n"
         "Element.vitals=handR\n"
-        "Element.reticle=off\n"
+        "Element.reticle=window\n"
+        "; ReticleOnAim=1 (VR-166): the reticle row - centred gauges such as the grenade cook ring -\n"
+        "; rides the aim dot along the weapon ray (head-facing, same apparent size), and the dot\n"
+        "; hides while it draws. 0 = the row stays on its own anchor.\n"
+        "ReticleOnAim=1\n"
         "Element.prompt=window\n"
         "Element.equipment=window\n"
         "Element.subtitles=window\n"
@@ -2444,11 +2501,18 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    SwordTrailConfigure(ini);   // VR-171
+    CamShakeConfigure(ini);   // VR-172
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
+    AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
+    InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
+    ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
+    GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
+    PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
@@ -3053,9 +3117,15 @@ static void LoadConfig()
         "line reports the SETTING; watch for 'crouch: DOWN' to know it fires",
         g_crouchOn ? "armed" : "off", g_crouchDropM, g_crouchReleaseM);
     g_ovlDev = IniFloat(ini, "Overlay", "DevTools", 0) != 0.0f;
-    g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 0) != 0.0f;
+    // VR-174: the F10 panel from the controllers, on by default. [Overlay] PointerSpeed is
+    // retired: the cursor comes from the eye's FOV now, not a gain.
+    g_ovlPtrEnable = IniFloat(ini, "Overlay", "ControllerPointer", 1) != 0.0f;
     g_ovlPtrHand = IniFloat(ini, "Overlay", "PointerHand", 1) != 0.0f ? 1 : 0;
-    g_ovlPtrGain = IniFloat(ini, "Overlay", "PointerSpeed", 2.2f);
+    dvr::vr::set_chord_tap_opens_panel(g_ovlPtrEnable);
+    {
+        const float ui = IniFloat(ini, "Overlay", "UiScale", 0.0f);   // 0 = from the eye texture
+        if (ui >= 0.8f && ui <= 2.5f) g_ovlUiScale = ui;
+    }
     g_autoHand      = IniFloat(ini, "HandTracking", "AutoStart", 1) != 0.0f;
     // 32.96: was 4 s on top of discovery time - the user asked why motion
     // controls take so long after a load. 1.5 s is enough for the rig to be
@@ -3665,6 +3735,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","StereoState",StereoStateEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
+    SwordTrailSave(ini);   // VR-171
+    CamShakeSave(ini);   // VR-172
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }

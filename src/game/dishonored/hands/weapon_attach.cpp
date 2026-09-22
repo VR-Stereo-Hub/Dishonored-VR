@@ -749,6 +749,9 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // weapon that is stowed. A missing reference is NOT strong - it is an
     // absence of evidence, and the normal state of a weapon just re-equipped.
     bool instStrongVeto = false;
+    // VR-166: this draw is on the spring razor's buffers, and which branch it took
+    // (0 none, 1 the contract's own draw, 2 another pass). Logging only.
+    int razorPath = 0;
     // The verdict itself, at function scope. It was previously only reachable
     // inside the block that computed it, and that is why a refused draw still
     // reached AttachDropUncorrected below and was eaten: the rule existed and
@@ -785,6 +788,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     (ib0 && g_waMesh[i].ib == ib0)) { known = &g_waMesh[i]; break; }
             // Whatever happens from here, this draw is a weapon's geometry.
             if (known && onWeaponBuffers) *onWeaponBuffers = true;
+            if (known && known->asset && strstr(known->asset, "SpringRazor")) razorPath = 1;
             if (known) {
                 PcRefreshLayout(dev);
                 // THE SHADER IS PART OF THE KEY, and leaving it out is what hid
@@ -818,6 +822,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                 // A draw on known buffers that is NOT the contract's own draw is
                 // another pass of it - the copy left at the native position.
                 if (!sameContract) {
+                    if (razorPath) razorPath = 2;
                     InterlockedIncrement(&g_waIdSeen);
                     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
                         "wa/id: another pass of '%s' on the same buffers - vb %p "
@@ -875,6 +880,18 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                             dvr::wf::Instance verdict = dvr::wf::INSTANCE_HELD;
                             if (g_waVerifyInstance) {
                                 verdict = WaVerifyDraw(known, &c2, &vOff, &vRef);
+                                // VR-166: a placed spring razor near the held one's component
+                                // vanished (placements in front of the player, measured 110-125 uu
+                                // out; ones at 61-62 uu from the component stayed). Every verdict
+                                // on the razor's buffers, with where the draw is, so held passes
+                                // and world copies can be told apart by numbers, not a radius guess.
+                                if (AimSourceProbeOn() && known->asset && strstr(known->asset, "SpringRazor"))
+                                    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 400,
+                                        "wa/razor: verdict %s offset %.1f uu (radius %.0f) draw at (%.0f,%.0f,%.0f)",
+                                        verdict == dvr::wf::INSTANCE_HELD ? "HELD" :
+                                        verdict == dvr::wf::INSTANCE_ELSEWHERE ? "ELSEWHERE" : "UNVERIFIABLE",
+                                        (double)vOff, (double)g_waPassRadiusUU,
+                                        (double)c2.t[0], (double)c2.t[1], (double)c2.t[2]);
                                 switch (verdict) {
                                 case dvr::wf::INSTANCE_HELD:
                                     InterlockedIncrement(&g_waVerifiedHeld);
@@ -1228,6 +1245,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     // both correctly - so a relaxed band picks the member instead. It is still
     // narrow enough to refuse the body mesh, which named a member at 175
     // degrees and 143 uu.
+    bool razorRelaxed = false;
     if (match.best < 0 && count > 0) {
         const float distCam = sqrtf(draw.t[0]*draw.t[0] + draw.t[1]*draw.t[1] +
                                     draw.t[2]*draw.t[2]);
@@ -1274,10 +1292,31 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                     (double)near2.angle, (double)near2.position,
                     (double)g_waAngTolDeg);
                 match = near2;
+                razorRelaxed = true;
             } else {
                 InterlockedIncrement(&g_waNearRejected);
             }
         }
+    }
+    // VR-169 ([Aim] SourceProbe): placed razors close to the player vanish. Every razor draw that reaches the
+    // matcher, which gate claimed it, and how far from the camera it is: a placed razor
+    // claimed as the held one (moved to the hand) is the vanish; one left alone is fine.
+    {
+        const bool memberRazor = match.best >= 0 && members[match.best]->asset &&
+                                 strstr(members[match.best]->asset, "SpringRazor");
+        if (AimSourceProbeOn() && (razorPath || memberRazor))
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 400,
+                "wa/razor: matcher %s draw %.0f uu from the camera (branch %s, verdict %s): %s%s "
+                "%.1f deg / %.1f uu from its predicted transform%s",
+                razorPath ? "razor-buffer" : "other-buffer",
+                (double)sqrtf(draw.t[0]*draw.t[0] + draw.t[1]*draw.t[1] + draw.t[2]*draw.t[2]),
+                razorPath == 1 ? "contract" : razorPath == 2 ? "another pass" : "unknown",
+                dvr::wf::instance_name(instVerdict),
+                match.best < 0 ? "LEFT ALONE" : match.ambiguous ? "AMBIGUOUS, left alone" :
+                    razorRelaxed ? "CLAIMED by the relaxed view-model band as " : "CLAIMED by the strict band as ",
+                match.best >= 0 && !match.ambiguous ? members[match.best]->asset : "",
+                match.best >= 0 ? (double)match.angle : 0.0, match.best >= 0 ? (double)match.position : 0.0,
+                match.best >= 0 && !match.ambiguous ? " - moved to the hand" : "");
     }
     if (match.best < 0) {
         InterlockedIncrement(&g_waNoCandidate);
