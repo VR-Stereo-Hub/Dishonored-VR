@@ -340,7 +340,10 @@ hand's equipped item is a pistol or crossbow, decided by the engine's equipped C
 hand). Ammunition types and upgrades change the loaded ammo, not the equipped class, so every
 bolt and bullet keeps the gun's aim. An item not read yet gets no offset. Log:
 `crosshair: equip slot N holds '<class>' -> a GUN | another item`, and `crosshair: the aiming
-hand holds ... - the other-items offset (x, y deg) is APPLIED | skipped`. Headset tuning owed.
+hand holds ... - the other-items offset (x, y deg) is APPLIED | skipped`. Tuned in the headset on
+2026-09-22: X -14.4, Y -30.0 (Y at the old +/-30 limit), now the shipped default; the sliders
+reach +/-90 and a "Tested position" button restores it. The F10 section had not written the two
+keys to the ini, so a tuned position was lost on restart; it now writes them with the rest.
 
 ## Reticle customization in the HUD tab (VR-141, 2026-09-19)
 

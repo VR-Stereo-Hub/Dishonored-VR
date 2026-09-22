@@ -73,7 +73,7 @@ void configure(const Config& cfg, const char* origin) {
     }
     g_config = cfg;
     for (float* o : { &g_config.otherXDeg, &g_config.otherYDeg })
-        *o = std::isfinite(*o) ? (*o < -45 ? -45 : *o > 45 ? 45 : *o) : 0;
+        *o = std::isfinite(*o) ? (*o < -90 ? -90 : *o > 90 ? 90 : *o) : 0;
     g_modelRequested.store(cfg.modelRay);
     g_ray = Ray{};
     { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = {}; }
@@ -485,9 +485,11 @@ bool draw_reticle_ui() {
     if (ImGui::Button("White")) { cfg.rgb[0] = cfg.rgb[1] = cfg.rgb[2] = 255; changed = true; }
     // VR-189: one position for every item except the two guns.
     ImGui::SeparatorText("Reticle position: everything but the pistol and crossbow");
-    changed |= ImGui::SliderFloat("Other items X (deg)", &cfg.otherXDeg, -30.0f, 30.0f, "%+.1f");
-    changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -30.0f, 30.0f, "%+.1f");
+    changed |= ImGui::SliderFloat("Other items X (deg)", &cfg.otherXDeg, -90.0f, 90.0f, "%+.1f");
+    changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
     if (ImGui::Button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
+    ImGui::SameLine();
+    if (ImGui::Button("Tested position")) { cfg.otherXDeg = -14.4f; cfg.otherYDeg = -30.0f; changed = true; }
     ImGui::TextDisabled("Powers, grenades, the sword and the rest share this one position; the aim follows the dot. "
                         "Every pistol and crossbow (any ammo, any upgrade) keeps its own aim.");
     if (changed) configure(cfg, "F10 HUD");

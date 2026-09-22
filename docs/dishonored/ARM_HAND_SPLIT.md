@@ -29,6 +29,8 @@ V-marked look of the 2026-09-22 run (`MARKER #2 (V) sleeve: WristCutA -10.00 ...
 Forearm = -26.40 / 0.57, the length that run held for about 110 s before switching back; no
 third V line reached the log, so it is the held value, not a marked one. V logs
 `MARKER #n (V) sleeve: WristCutA .. WristCutB .. RoundedWristDepth ..` for any later retune.
+Cuffs ships as the default since 2026-09-22 (`WristCutA/B=-10.00`, `RoundedWristDepth=0.570`);
+the palm anchor stays referenced to the -4.9 hands plane.
 Headset, same run: the sleeve went -4.9 to -30 and back with no hand rotation reported, 52
 `offset ... is KEPT` lines and no vote on the hand bone. The Sleeve length slider (0..30, applied on release because a
 rebuild costs a few ms) and the roundness slider make the look Custom. Both write

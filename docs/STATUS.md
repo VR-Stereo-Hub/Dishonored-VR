@@ -6,8 +6,9 @@
   are baked: Hands -4.90/0.64, Cuffs -10.00/0.57 (V-marked), Forearm -26.40/0.57 (held value).
 * VR-189: F10 HUD > Reticle "Other items X / Y" turns the shared aim ray for everything except
   the pistol and the crossbow (any ammo or upgrade, and the DLC crossbow), by equipped class.
-* Next run: tune Other items X/Y with a power and a grenade; the pistol and crossbow must not
-  move. Log: `crosshair: the aiming hand holds ... is APPLIED|skipped`.
+* Tuned: Other items X -14.4 / Y -30.0 and the Cuffs sleeve are now the shipped defaults; the
+  reticle sliders reach +/-90 (Y was capped at -30), and F10 now saves them to the ini (it did
+  not). Installed `d3d9.dll` sha256 `E4A68128...`, not run. Next run: fine-tune Y past -30.
 * Known: `tools\default-profile-host.ps1` fails on drift between the packaged ini and the writer
   that predates this work (trims, cooldown, UiScale, camera shake); only VR-189's keys were added.
 

@@ -1430,6 +1430,8 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
             ConfigWriteKey("Crosshair", "Hand", rc.hand ? "right" : "left", "F10 HUD");
             _snprintf(rv, sizeof(rv), "%.3f", rc.distanceM); ConfigWriteKey("Crosshair", "DistanceM", rv, "F10 HUD");
             _snprintf(rv, sizeof(rv), "%.3f", rc.sizeDeg); ConfigWriteKey("Crosshair", "SizeDeg", rv, "F10 HUD");
+            _snprintf(rv, sizeof(rv), "%.2f", rc.otherXDeg); ConfigWriteKey("Crosshair", "OtherItemsX", rv, "F10 HUD");   // VR-189
+            _snprintf(rv, sizeof(rv), "%.2f", rc.otherYDeg); ConfigWriteKey("Crosshair", "OtherItemsY", rv, "F10 HUD");
             const char* rk[3] = {"ColorR", "ColorG", "ColorB"};
             for (int i = 0; i < 3; ++i) { _snprintf(rv, sizeof(rv), "%d", rc.rgb[i]); ConfigWriteKey("Crosshair", rk[i], rv, "F10 HUD"); }
         }

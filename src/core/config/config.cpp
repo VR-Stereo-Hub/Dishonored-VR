@@ -398,8 +398,8 @@ static void WriteDefaultIni(const char* ini)
         "; VR-189: one reticle position for everything but the pistol and the crossbow\n"
         "; (any ammo, any upgrade), degrees in the controller frame: +X right, +Y up.\n"
         "; The aim follows the dot. Live: F10 HUD tab, Reticle.\n"
-        "OtherItemsX=0.00\n"
-        "OtherItemsY=0.00\n"
+        "OtherItemsX=-14.40\n"
+        "OtherItemsY=-30.00\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -707,7 +707,7 @@ static void WriteDefaultIni(const char* ini)
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
         "RoundedWrist=1\n"
-        "RoundedWristDepth=0.640\n"
+        "RoundedWristDepth=0.570\n"
         "PaletteEyeMenuHalfStep=1\n"
         "CrawlTuck=1\n"
         "CrawlTuckCamera=0\n"
@@ -916,8 +916,8 @@ static void WriteDefaultIni(const char* ini)
         "WristEdge=3\n"
         "WristStep=1\n"
         "WristAxis=0\n"
-        "WristCutA=-4.90\n"
-        "WristCutB=-4.90\n"
+        "WristCutA=-10.00\n"
+        "WristCutB=-10.00\n"
         "[Blink]\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "ControllerAim=1\n"
@@ -1848,8 +1848,8 @@ static void LoadConfig()
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
         crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
         crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
-        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", 0.0f);   // VR-189
-        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", 0.0f);
+        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", -14.4f);   // VR-189: the tester's tuned position
+        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -30.0f);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -2383,7 +2383,7 @@ static void LoadConfig()
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
     g_msRoundWrist    = IniFloat(ini, "Hands", "RoundedWrist", 0) != 0.0f;
-    g_msRoundDepth    = fminf(.8f,fmaxf(.05f,IniFloat(ini,"Hands","RoundedWristDepth",.35f)));
+    g_msRoundDepth    = fminf(.8f,fmaxf(.05f,IniFloat(ini,"Hands","RoundedWristDepth",.57f)));
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
     // VR-33 step 1. READ-ONLY, so it ships ON: it resolves engine names and
     // reports what it could not find, and writes nothing anywhere.
@@ -3091,7 +3091,7 @@ static void LoadConfig()
     // it is the escape hatch if a future asset makes -4.9 wrong.
     for (int s = 1; s <= 2; s++) {
         const float c = IniFloat(ini, "Hands", s == 1 ? "WristCutA" : "WristCutB",
-                                 -4.9f);
+                                 -10.0f);   // VR-188: the Cuffs preset ships as the default
         g_msCutSet[s] = (c > -1e8f) ? 1 : 0;
         if (g_msCutSet[s]) g_msCutRel[s] = c;
     }

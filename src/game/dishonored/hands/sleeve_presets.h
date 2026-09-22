@@ -11,8 +11,8 @@ namespace dvr::sleeve {
 
 struct Preset { const char* name; float cut; float roundness; bool measured; };
 
-// Hands: the cut every release has shipped (-4.90) with the shipped roundness,
-// kept at the tester's choice. Cuffs: the V-marked look of the 2026-09-22 run
+// Hands: the cut every release shipped until 2026-09-22 (-4.90) with its roundness.
+// Cuffs is the shipped default since then ([Hands] WristCutA/B, RoundedWristDepth). Cuffs: the V-marked look of the 2026-09-22 run
 // (MARKER #2, cut -10.00, roundness 0.570). Forearm: the length that run held
 // before switching back (-26.40, roundness 0.570); its V line did not reach the log.
 static const Preset kPresets[] = {
