@@ -1,5 +1,13 @@
 # VR-165: the camera that leaves the body (research brief, 2026-09-22)
 
+> **CAUSE MEASURED 2026-09-22 (headset repro, prediction confirmed).** Not the springs. The
+> camera's collision-pop smoother (`m_bSmoothingSuddenCollision`) starts each update from the
+> location read back from `camera+0x330`, which holds the MOD's head/eye offset, so it never
+> converges: the gap settles at 9.5x our offset at 126 updates/s (measured 9.5-10.0). See
+> FLICKER_REFERENCE "VR-165: CAUSE FOUND" and ENGINE_NOTES "the collision-pop smoother reads back
+> the mod's offset". The rest of this brief is the history that led there; section 4's spring
+> hypothesis is refuted. Remaining: the fix (step 5).
+
 The single starting point for the session that finds the cause. It consolidates what is
 measured, what is eliminated, the instruments already built, and the plan in order. The
 detailed history is in `FLICKER_REFERENCE.md` (every `VR-165` entry, newest first) and

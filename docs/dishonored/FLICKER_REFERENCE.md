@@ -1198,7 +1198,7 @@ pose metadata without reopening the disproved historical theories.
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
-| Whole view lifted and tilted off the body, swinging with head rotation, for tens of seconds after a chain X-release or an explosion's knockback (not a flicker) | Base camera healthy, offset ADDED by the reaction group or the camera after it; the PhysicalReact springs are read offline as unable to rest off their bound, so the census is looking for an AWAKE influence, a moved bound, Lean/Bump state or the camera's collision smoothing | VR-165 OPEN: brief `PLAN-VR-165-camera-displacement.md`; widened census and `camspring` installed 2026-09-22, awaiting a repro |
+| Whole view lifted and tilted off the body, swinging with head rotation, for tens of seconds after a chain X-release or an explosion's knockback (not a flicker) | `camera/collide` `smoothing1` with `game-minus-nonAdditive` about 9.5x the mod's own offset; the springs read at rest | VR-165 CAUSE MEASURED 2026-09-22: the camera's collision-pop smoother (`m_bSmoothingSuddenCollision`) reads our offset back from `camera+0x330` every update and never converges (gap = offset x 9.5 at 126 ticks/s, measured). Fix pending |
 
 VR-78 crouched-pitch motion was fixed later with a measured zero crouched neck
 pivot. VR-87 ceiling trimming and VR-91 roll-induced lateral motion are adjacent
@@ -3338,6 +3338,56 @@ request, with strict suppression enabled and pacing off. Performance improvement
 remains subjective. Exact acceptance identity/archive and promotion scope are in
 PERFORMANCE.md, Accepted profile and publication. Earlier strict-default0 and pending
 headset entries are historical. Accepted image-owned orientation remains unchanged.
+
+## VR-165: CAUSE FOUND - the mod's own offset feeds the engine's collision-pop smoother (2026-09-22)
+
+1. **Symptom identity:** the chain X-release displacement, reproduced on the headset; the
+   player looked down and up while displaced; opening the weapon wheel ended it before Blink
+   could be tried (the wheel has cleared it before, but not every time).
+2. **Reproduction identity:** build `vr33-hands-working-687-ge1b282a33-dirty` (the census with
+   the batch resolve, commit `25c0aeaf3`), Quest over VDXR, installed ini unchanged. Log archived
+   locally at `build/playtest-candidates/vr165-chain-repro1/`. Episode: `camera/displaced` WARN
+   at 7118.3 s, over at 7135.0 s.
+3. **Measured.**
+   - **The springs are eliminated.** From 7118.3 s every PhysicalReact-family influence reads
+     `off-rest: none`; PhysicalReact is asleep (`s1`) from 7121.3 s; Lean and BumpSmoother are
+     idle. The displacement ran on for 14 s after the springs were at rest. The brief's leading
+     hypothesis is REFUTED.
+   - **The camera's `m_bSmoothingSuddenCollision` owns it.** `camera/collide` reads `smoothing0`
+     in every sample before the episode, flips to `smoothing1` at the onset sample (7116.8 s) and
+     back to `smoothing0` at the exact sample the episode ends (7135.0 s). Final camera minus the
+     base (`game-minus-nonAdditive`) is 0.0 whenever smoothing is 0 and 40-296 uu while it is 1;
+     the base (`nonAdditive-minus-pawn`) stays about 78 uu throughout. `status=0`, `lastDif=0`.
+4. **Mechanism, read offline** (ENGINE_NOTES "VR-165: the collision-pop smoother reads back the
+   mod's offset"). When the collision-resolved camera jumps by more than
+   `m_fCamCollisionLargestUnsmoothedPop` (50) the engine sets the bit. Every update after that it
+   starts from LAST frame's final location read back from `camera+0x330`, carried onto the new
+   non-additive base, moves toward the target at `m_fCamCollisionSmoothSpeed` (12/s) and clears
+   the bit only when within `m_fCamCollisionSmoothMinDifSize` (10 uu). `camera+0x330` is
+   `kPovOffs[0]`, the field the mod writes base + its head/eye offset into. So every update
+   re-adds our offset to the start point: the gap settles at `offset * (1 - k) / k` with
+   `k = 12 * dt`, and never drops under 10 uu once our offset is above about 1 uu.
+5. **Prediction and result.** At the measured 118-130 camera ticks/s, k = 0.095 and the
+   predicted ratio displacement/offset is 9.5. **Measured 7.4-10.9, mostly 9.5-10.0, in every
+   sample where the field held our write** (samples reading our offset as 0 are ones where the
+   engine had just rewritten the field), and the displacement points along our offset (cosine
+   0.97-1.00 in most samples). Our standing offset is about 9 uu (7 up plus the eye offset):
+   9.5 x 9 = 85 uu, which is the "stuck ~75 up, ~35 sideways" of the explosion run. Looking
+   around swings it because our offset follows the head. It runs on real time and freezes in
+   pause because it is per camera update. The onset is any pop over 50 uu: a chain release, an
+   explosion's knockback. Flat play never sees it: with no offset in the field the smoother
+   converges.
+6. **What clears it:** besides converging, the engine clears the bit when the camera's
+   `m_bTeleported` is set or a flag on the view target (actor +0x128 bit 0x1000) is (both force
+   a reset, read at `0xAD830A`), and when camera collision is off (`0xAD88A6`); Blink plausibly
+   takes the teleport path (not measured). It also ends when our offset stops reaching the
+   field. The wheel run shows the camera tick falling to 48/s just
+   before it cleared; whether the wheel clears it by stopping our camera writes (VR-126 menu
+   camera-writer block) or by the slowed tick is not established, and that dependence is the
+   likely reason the wheel does not clear it every time.
+7. **Status:** CAUSE MEASURED, headset reproduction, prediction confirmed quantitatively. No fix
+   yet. The fix removes the feedback (the smoother must read back the ENGINE's location, not
+   ours) and ships as a default-OFF live A/B; it is not a clamp.
 
 ## VR-165: the widened census, the spring kick, and the spring read offline (2026-09-22)
 

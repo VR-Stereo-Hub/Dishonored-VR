@@ -8282,6 +8282,50 @@ live camera and finds the influences by class name (`IsLiveObject`, bounded
 `RefreshLiveSet(2000)`), a camera change forgets every pointer without a write, the
 fast path writes floats only. It stands down while a cutscene owns the camera. Live:
 `camshake on|off`, `camshake allow <category> on|off`, F10 > Controls > Camera shake.
+## VR-165: the collision-pop smoother reads back the mod's offset (2026-09-22)
+
+The cause of VR-165, read offline and confirmed on a headset repro (FLICKER_REFERENCE,
+"VR-165: CAUSE FOUND"). All addresses are VAs; the tool prints RVAs (`dis 0x6D869B`).
+
+**Fields** (resolved by name at runtime, listed for the record): `DishonoredPlayerCamera`
+bits at +0x4c0 (`m_bTeleported` 1, `m_bCollisionEnabled` 2, `m_bSmoothingSuddenCollision` 4,
+`m_bDebugDrawRainBox` 8, `m_bWasUncovered` 0x10, `m_bAllowCamSmoothingForCollisionPop` 0x20),
+`m_CurCollisionStatus` +0x4d4, `m_fLastCollisionDifFromNonAdditive` +0x4d8, collision radius
+and height +0x4cc/+0x4d0, `m_DishonoredVTSettings` +0x414 so `m_NonAdditive_Pos` +0x45c; the
+config floats `m_fCamCollisionSmoothSpeed` +0x558 (12), `m_fCamCollisionSmoothMinDifSize`
++0x55c (10), `m_fCamCollisionLargestUnsmoothedPop` +0x560 (50), by declaration order after
+`m_fReactionWeight` +0x54c and confirmed by the instructions that read them.
+
+**The block** (inside the camera update, `0xAD82DA`..`0xAD8893`):
+1. At entry it copies LAST update's `m_NonAdditive_Pos` (+0x45c) aside (`0xAD82DD`) and
+   decides a reset when `m_bTeleported` is set or the view target has bit 0x1000 at +0x128
+   (`0xAD830A`); `m_bTeleported` is cleared there.
+2. With collision on, the camera's collision cylinder is swept from the new non-additive
+   position toward the wanted location (`0xAC4BB0`); the result is the target.
+3. The change in collision distance against `m_fLastCollisionDifFromNonAdditive`, over a
+   scale from `0x781250`, compared with `m_fCamCollisionLargestUnsmoothedPop` (`0xAD86CA`):
+   larger, and `m_bAllowCamSmoothingForCollisionPop`, sets `m_bSmoothingSuddenCollision`.
+4. While the bit is set (`0xAD8791`), the START point is `camera+0x330 - oldNonAdditive +
+   newNonAdditive` (`0xAD87A0`..`0xAD87F1`): last update's final location, carried onto the
+   new base. `0xAC0330` moves it toward the target at `m_fCamCollisionSmoothSpeed * dt`
+   (proportionally) and returns done when the gap is under `m_fCamCollisionSmoothMinDifSize`,
+   which clears the bit (`0xAD885D`). A reset clears it at once (`0xAD886E`), and so does the
+   collision-off path (`0xAD88C2`).
+
+**Why it never converges in VR.** `camera+0x330` is `kPovOffs[0]`, the POV location the mod
+writes base plus its head and eye offset into (`camera.cpp`, `write_offset`). The engine reads
+that written value back as "last final location", so each update the start point is off by our
+offset again. With `k = speed * dt` the gap settles at `offset * (1 - k) / k`: 9.5x at the
+measured 126 camera updates per second, so any offset over about 1 uu keeps it above 10 uu for
+ever. Measured on the headset: displacement/offset 9.5-10.0 in most samples, pointing along our
+offset. The onset is any pop over 50 uu (a chain release, an explosion's knockback); flat play
+has no offset in the field and converges in a fraction of a second.
+
+**For the fix:** the smoother must read back the engine's own final location. Either the field
+holds the engine's value when the next update reads it (put our write back before that point),
+or our offset is carried into what the block subtracts (`m_NonAdditive_Pos`, which other code
+also reads). Not a clamp on the POV.
+
 ## VR-165: the PhysicalReact spring and the influence update, read offline (2026-09-22)
 
 The VR-165 brief's step 3. Read with `tools/ue3-natives.py --verify <exe> class <Name>`
