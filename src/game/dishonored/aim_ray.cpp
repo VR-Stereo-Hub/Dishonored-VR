@@ -234,24 +234,21 @@ void tick(bool gameplay, bool projectionWanted) {
         const int kind = dvr::hands::aim_item_kind(g_config.hand);
         const bool want = g_config.otherXDeg != 0 || g_config.otherYDeg != 0;
         bool used = false;
-        if (want && kind == 2 && g_ray.ok && sample.aimValid) {
+        g_ray.baseOk = false;
+        if (g_ray.ok && sample.aimValid) {
             float q[4] = { sample.aimQuat[0], sample.aimQuat[1], sample.aimQuat[2], sample.aimQuat[3] };
             const float n = std::sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
             if (n > 0.5f) {
                 for (float& c : q) c /= n;
                 const float ax[3] = {1, 0, 0}, ay[3] = {0, 1, 0};
-                float right[3], up[3];
-                dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], ax, right);
-                dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], ay, up);
-                auto turn = [](float* v, const float* k, float deg) {
-                    const float a = deg * 0.0174532925f, c = std::cos(a), s = std::sin(a);
-                    const float kv = k[0]*v[0] + k[1]*v[1] + k[2]*v[2];
-                    const float x[3] = { k[1]*v[2] - k[2]*v[1], k[2]*v[0] - k[0]*v[2], k[0]*v[1] - k[1]*v[0] };
-                    for (int i = 0; i < 3; ++i) v[i] = v[i]*c + x[i]*s + k[i]*kv*(1 - c);
-                };
-                turn(g_ray.dirXr, up, -g_config.otherXDeg);    // +x = right
-                turn(g_ray.dirXr, right, g_config.otherYDeg);  // +y = up
-                used = true;
+                dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], ax, g_ray.offRightXr);
+                dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], ay, g_ray.offUpXr);
+                for (int i = 0; i < 3; ++i) g_ray.baseDirXr[i] = g_ray.dirXr[i];
+                g_ray.baseOk = true;   // published whether or not the offset applies (the carry hold uses it)
+                if (want && kind == 2) {
+                    turn_offset(g_ray.dirXr, g_ray.offRightXr, g_ray.offUpXr, g_config.otherXDeg, g_config.otherYDeg);
+                    used = true;
+                }
             }
         }
         if (kind != kindWas || used != usedWas) {
@@ -503,7 +500,7 @@ bool draw_reticle_ui() {
     changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
     if (ImGui::Button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
     ImGui::SameLine();
-    if (ImGui::Button("Tested position")) { cfg.otherXDeg = 9.0f; cfg.otherYDeg = -53.4f; changed = true; }
+    if (ImGui::Button("Tested position")) { cfg.otherXDeg = -3.6f; cfg.otherYDeg = -37.2f; changed = true; }
     ImGui::TextDisabled("Powers, grenades, the sword and the rest share this one position; the aim follows the dot. "
                         "Every pistol and crossbow (any ammo, any upgrade) keeps its own aim.");
     if (changed) configure(cfg, "F10 HUD");

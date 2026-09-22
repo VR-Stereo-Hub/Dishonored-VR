@@ -8717,6 +8717,19 @@ pointer at `[ebp-0x3C]`) against Actor.Rotation `+0xD0` (`0x0064CE0F`), so the h
 both. The object's frame relative to the hand (controller forward and up, mapped through
 the head basis like the ray) is latched at the first drive of each carry.
 
+**The hold no longer follows the reticle (2026-09-22).** The hold frame is built on the
+published aim ray, and for anything but a pistol or crossbow that ray is turned by the
+other-items reticle offset (`[Crosshair] OtherItemsX/Y`, VR-189). So every reticle re-tune
+swung the held object with it: moving the reticle from +9.0/-53.4 to -3.6/-37.2 needed
+the hold re-tuned (forward -9 to -16, right 16 to 3, up -32 to -27, pitch 40 to 16).
+The ray now also publishes its direction BEFORE the offset and the controller axes the
+offset turns about (`Ray::baseDirXr/offRightXr/offUpXr`). The hold rebuilds its direction
+from those, turned by the reticle it was tuned at (`[Aim] CarryHoldReticleX/Y`, default
+-3.6/-37.2 to match the shipped hold values). A later reticle change leaves the object
+where it is. `CarryHoldReticleAnchor=0` puts the hold back on the live reticle. The F10
+Aim button "Retune the hold against the current reticle" adopts the live reticle as the
+reference on purpose.
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus

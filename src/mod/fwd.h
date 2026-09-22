@@ -674,6 +674,10 @@ static float CarryHoldAdj(int i);                               // 0..2 fwd/righ
 static const char* CarryHoldAdjKey(int i);
 static void CarryHoldSetAdj(int i, float v);
 static bool CarryHoldGameAnchor();
+static bool CarryHoldReticleAnchored();
+static void CarryHoldSetReticleAnchored(bool on);
+static float CarryHoldReticleRef(int i);
+static void CarryHoldSetReticleRef(float x, float y);
 static void CarryHoldSetGameAnchor(bool on);
 static bool CarryHoldKeepAngle();
 static void CarryHoldSetKeepAngle(bool on);

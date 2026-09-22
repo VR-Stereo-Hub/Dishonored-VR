@@ -406,6 +406,22 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
             if (ImGui::SliderFloat(holdLbl[i], &v, holdMin[i], holdMax[i], "%.0f")) CarryHoldSetAdj(i, v);
             if (ImGui::IsItemDeactivatedAfterEdit()) { char b[16]; _snprintf(b, sizeof(b), "%.0f", CarryHoldAdj(i)); b[15] = 0; ConfigWriteKey("Aim", CarryHoldAdjKey(i), b, "F10 Aim"); }
         }
+        bool holdRet = CarryHoldReticleAnchored();
+        if (ImGui::Checkbox("Held object ignores reticle changes", &holdRet)) {
+            CarryHoldSetReticleAnchored(holdRet); ConfigWriteKey("Aim","CarryHoldReticleAnchor",holdRet ? "1" : "0","F10 Aim");
+        }
+        {
+            const auto rc = dvr::aim::config();
+            ImGui::TextDisabled("tuned at reticle %+.1f / %+.1f deg; reticle now %+.1f / %+.1f",
+                                CarryHoldReticleRef(0), CarryHoldReticleRef(1), rc.otherXDeg, rc.otherYDeg);
+            if (ImGui::Button("Retune the hold against the current reticle")) {
+                CarryHoldSetReticleRef(rc.otherXDeg, rc.otherYDeg);
+                char b[16];
+                _snprintf(b, sizeof(b), "%.2f", rc.otherXDeg); b[15] = 0; ConfigWriteKey("Aim","CarryHoldReticleX",b,"F10 Aim");
+                _snprintf(b, sizeof(b), "%.2f", rc.otherYDeg); b[15] = 0; ConfigWriteKey("Aim","CarryHoldReticleY",b,"F10 Aim");
+            }
+            ImGui::TextDisabled("moves the object onto the current reticle's line; the sliders above then tune from there");
+        }
         bool holdAnchor = CarryHoldGameAnchor();
         if (ImGui::Checkbox("Anchor the held object on the game camera", &holdAnchor)) {
             CarryHoldSetGameAnchor(holdAnchor); ConfigWriteKey("Aim","CarryHoldAnchor",holdAnchor ? "1" : "0","F10 Aim");

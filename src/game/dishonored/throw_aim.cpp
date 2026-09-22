@@ -487,9 +487,19 @@ static uintptr_t g_hlBack = kMoveDeltaBack;
 static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
 // [Aim] CarryHoldForwardCm/RightCm/UpCm and CarryHoldPitch/Yaw/Roll (degrees), in the HAND's frame.
 // Shipped defaults: the values tuned in the headset on 2026-09-22 (a bottle, the right hand).
-// Retuned in the headset later the same day (the second hold values).
-static const float kHlAdjDefault[6] = { -9, 16, -32, 40, 4, -36 };
-static float g_hlAdj[6] = { -9, 16, -32, 40, 4, -36 };
+// Retuned in the headset later the same day (the second hold values), and again with the reticle at
+// -3.6/-37.2 (a third pass, 2026-09-22); these are tied to kHlRefDefault below.
+static const float kHlAdjDefault[6] = { -16, 3, -27, 16, 4, -36 };
+static float g_hlAdj[6] = { -16, 3, -27, 16, 4, -36 };
+// THE HOLD DOES NOT FOLLOW THE RETICLE. The hold frame is built on the aim ray, and the aim ray is
+// turned by the other-items reticle offset ([Crosshair] OtherItemsX/Y), so every reticle re-tune
+// swung the carried object with it and the hold had to be tuned again. The hold now rebuilds its
+// ray from the UNTURNED ray turned by the reticle offset it was tuned at ([Aim] CarryHoldReticleX/Y),
+// so a later reticle change leaves the object where it is. [Aim] CarryHoldReticleAnchor=0 is the
+// old behaviour (the hold rides the live reticle), for A/B.
+static const float kHlRefDefault[2] = { -3.6f, -37.2f };
+static float g_hlRef[2] = { -3.6f, -37.2f };
+static std::atomic<bool> g_hlRefOn{true};
 static const char* const kHlAdjKey[6] = { "CarryHoldForwardCm", "CarryHoldRightCm", "CarryHoldUpCm",
                                           "CarryHoldPitch", "CarryHoldYaw", "CarryHoldRoll" };
 static const float kHlAdjMin[6] = { -40, -40, -40, -180, -180, -180 }, kHlAdjMax[6] = { 60, 40, 40, 180, 180, 180 };
@@ -542,7 +552,11 @@ static bool CarryGameAnchor(float out[3])
 
 static bool CarryHandFrame(float* o, float* F, float* U, const char** why)
 {
-    const auto aim = dvr::aim::fire_frame();
+    auto aim = dvr::aim::fire_frame();
+    if (g_hlRefOn.load() && aim.ray.ok && aim.ray.baseOk) {   // the reticle the hold was tuned at, not the live one
+        for (int i = 0; i < 3; ++i) aim.ray.dirXr[i] = aim.ray.baseDirXr[i];
+        dvr::aim::turn_offset(aim.ray.dirXr, aim.ray.offRightXr, aim.ray.offUpXr, g_hlRef[0], g_hlRef[1]);
+    }
     float cam[3], rc[3], gc[3];
     const bool haveR = dvr::camera::render_pos_world_center(rc), haveG = CarryGameAnchor(gc);
     if (haveR && haveG) {   // the disagreement, every drive
@@ -985,11 +999,25 @@ static void CarryHoldConfigure(const char* ini)
     g_hlKeepAngle.store(IniFloat(ini, "Aim", "CarryHoldKeepPickupAngle", 0) != 0.0f);
     g_hlGameAnchor.store(IniFloat(ini, "Aim", "CarryHoldAnchor", 1) != 0.0f);
     g_hlRotOn = IniFloat(ini, "Aim", "CarryHoldRotate", 1) != 0.0f;
+    g_hlRefOn.store(IniFloat(ini, "Aim", "CarryHoldReticleAnchor", 1) != 0.0f);
+    for (int i = 0; i < 2; ++i) {
+        const float v = IniFloat(ini, "Aim", i ? "CarryHoldReticleY" : "CarryHoldReticleX", kHlRefDefault[i]);
+        g_hlRef[i] = (std::isfinite(v) && v >= -90 && v <= 90) ? v : kHlRefDefault[i];
+    }
+    Log("carry/hold: the hold is %s (tuned at reticle %+.1f/%+.1f deg; [Aim] CarryHoldReticleAnchor)",
+        g_hlRefOn.load() ? "ANCHORED to the reticle it was tuned at - a reticle re-tune does not move it"
+                         : "riding the LIVE reticle (the old behaviour)", g_hlRef[0], g_hlRef[1]);
     CarryHoldSet(IniFloat(ini, "Aim", "CarryHoldAtHand", 1) != 0.0f, "ini [Aim] CarryHoldAtHand");
 }
 static float CarryHoldAdj(int i) { return (i >= 0 && i < 6) ? g_hlAdj[i] : 0; }
 static const char* CarryHoldAdjKey(int i) { return (i >= 0 && i < 6) ? kHlAdjKey[i] : ""; }
 static void CarryHoldSetAdj(int i, float v) { if (i >= 0 && i < 6 && v >= kHlAdjMin[i] && v <= kHlAdjMax[i]) g_hlAdj[i] = v; }
+static bool CarryHoldReticleAnchored() { return g_hlRefOn.load(); }
+static void CarryHoldSetReticleAnchored(bool on) { g_hlRefOn.store(on); Log("carry/hold: reticle anchor %s", on ? "ON" : "off (rides the live reticle)"); }
+static float CarryHoldReticleRef(int i) { return (i >= 0 && i < 2) ? g_hlRef[i] : 0; }
+// A new tuned-at reticle. Setting it to the live reticle puts the hold back on the live ray (it moves
+// by the difference); the caller writes the keys. The F10 button uses it deliberately.
+static void CarryHoldSetReticleRef(float x, float y) { g_hlRef[0] = x; g_hlRef[1] = y; Log("carry/hold: tuned-at reticle set to %+.1f/%+.1f deg", x, y); }
 static bool CarryHoldGameAnchor() { return g_hlGameAnchor.load(); }
 static void CarryHoldSetGameAnchor(bool on) { g_hlGameAnchor.store(on); Log("carry/anchor: %s", on ? "GAME camera" : "RENDER centre eye"); }
 static bool CarryHoldKeepAngle() { return g_hlKeepAngle.load(); }
