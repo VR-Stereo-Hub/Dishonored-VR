@@ -1,3 +1,11 @@
+## Tester build 2026-09-22: 686-ga351bfc31 (VR-190)
+
+`dist/dishonored-vr-41.0.0-tester-20260922-a351bfc31.zip`, `d3d9.dll` sha256 `0A3C57F6...`, the
+same DLL installed on the dev PC. `kConfigVersion` 14: a tester's older ini is rewritten once
+with the tested profile on first launch (`config: wrote fresh ini (was outdated, now v14)`);
+the VR runtime choice and DataDir carry over. Previous tester zips: build 601 (2026-09-21) and
+533 (2026-09-20). Branch `claude/vr-190-refresh-tester-ini`, PR open, not merged.
+
 ## Session handoff 2026-09-22 (final): VR-165 lead, carry reticle, new defaults
 
 `claude/misc-fixes` (#99). Installed `d3d9.dll` sha256 `E6941D34...`, not run.
