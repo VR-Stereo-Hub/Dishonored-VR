@@ -188,13 +188,23 @@ static void UpdateVirtualPad()
         // pitch belongs to the head - EXCEPT in menus (stick navigates)
         // and while the power wheel is held open (stick points at wedges)
         xs.Gamepad.sThumbRY      = (g_inMenu || wheelHeld) ? PadStick(ty) : 0;
-        xs.Gamepad.bRightTrigger = (BYTE)(hr * 255.0f);
-        xs.Gamepad.bLeftTrigger  = (BYTE)(hl * 255.0f);
+        // VR-181: while a bottle, rock or crate is carried the LEFT trigger throws it (the
+        // game's throw is the attack, the right trigger) and the right trigger takes the left's
+        // job. [Aim] CarryThrowLeftTrigger=0 keeps the game's layout.
+        // The press that threw is still down when the carry ends: it must not reach the left
+        // hand's power, so the left trigger stays silent until it is let go.
+        const bool carrySwap = CarryThrowTriggersSwapped();
+        static bool carryWas = false, ltHeld = false;
+        if (carryWas && !carrySwap && hl > 0.2f) ltHeld = true;
+        if (ltHeld && hl < 0.1f) ltHeld = false;
+        carryWas = carrySwap;
+        xs.Gamepad.bRightTrigger = (BYTE)((carrySwap ? hl : hr) * 255.0f);
+        xs.Gamepad.bLeftTrigger  = (BYTE)((carrySwap ? hr : ltHeld ? 0.0f : hl) * 255.0f);
         // VR-37: a physical swing presses the attack for a moment. It ADDS to the
         // player's own trigger and never replaces it. [Melee] Output=rb is for an
         // install whose pad binding set puts the attack on the right shoulder.
         dvr::swing::note_real_trigger(hr);
-        if (MeleeActive()) {
+        if (MeleeActive() && !carrySwap) {   // VR-181: a swing must not throw what you carry
             if (dvr::swing::output_rb()) xs.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
             else xs.Gamepad.bRightTrigger = 255;
         }

@@ -8503,6 +8503,20 @@ damage stay the game's. It is gated on `esi == the player pawn`. It refuses if t
 engine's direction is not a unit vector: that means the frame is not the one derived
 here, so the check can fail its own hypothesis.
 
+**First headset run (build 653, 2026-09-22): the prediction FAILED.** The seam fired on
+both throws and replaced the direction: pitch 17.8 to 17.4 and yaw -128.2 to -124.6 on the
+first, pitch 22.9 to 30.4 and yaw -172.9 to -110.7 on the second. The unit-vector check
+passed both times. The objects were still reported to fly along the head. So the direction
+at `[ebp-0x24]` is not what decides the flight, or something re-aims the object after
+`0x00A46740`. That call records the release location as `m_ThrowFromLocation`
+(component `+0x74..0x7C`) and then tail-calls the movable interface's slot `+0x2C`
+(`[component+0x5C]`; its object half is `[component+0x58]`) with the linear and angular
+velocity. Nothing in the component's own vtable reads `+0x74` again. Not yet known:
+what interface slot `+0x2C` does with the velocity, and whether a later tick re-aims the
+object. Next build: a flight check samples the object's `Location` (`+0xC4`) and `Velocity`
+(`+0x1B4`) 60, 200 and 450 ms after the throw. It logs the angle to the hand ray and to
+the engine's own direction, and it prints "flight follows the ENGINE" if the write is lost.
+
 **For physical throwing later.** Step 5 is the one call that decides the flight, and it
 takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
 velocity` there with the controller's measured release velocity (scaled, clamped, plus

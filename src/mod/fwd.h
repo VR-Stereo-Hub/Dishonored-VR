@@ -661,6 +661,10 @@ static bool GadgetAimEnabled();
 static void GadgetAimSet(bool on, const char* who);
 static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
+static void CarryThrowAimTick();
+static bool CarryThrowTriggersSwapped();                        // VR-181: the pad bridge
+static bool CarryThrowLeftEnabled();
+static void CarryThrowLeftSet(bool on, const char* who);
 static bool CarryThrowAimEnabled();                             // VR-181 (throw_aim.cpp)
 static void CarryThrowAimSet(bool on, const char* who);
 static void CarryThrowAimConfigure(const char* ini);

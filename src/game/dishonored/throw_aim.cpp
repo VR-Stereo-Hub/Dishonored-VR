@@ -276,7 +276,78 @@ static const char* volatile g_ctWhy = "not asked yet";
 
 static bool CarryThrowAimEnabled() { return g_ctOn.load(); }
 
-extern "C" void __cdecl CarryThrowAimHandler(uint8_t* frame, uint8_t* pawn)
+// VR-181: the left trigger throws while something is carried. Carrying is the upper-body or
+// left-arm FSM sitting in StatePlayerGrabMovable (there is no separate carry-idle state for
+// movables, unlike corpses). Pad thread; the anim snapshot is lock-protected and says when it
+// is stale, and a stale or disabled watch never swaps.
+static std::atomic<bool> g_ctLeft{true};               // [Aim] CarryThrowLeftTrigger
+static bool CarryThrowLeftEnabled() { return g_ctLeft.load(); }
+static bool CarryThrowTriggersSwapped()
+{
+    bool carrying = false;
+    if (g_ctLeft.load() && !g_gamepadOnly) {
+        const auto s = dvr::anim::snapshot();
+        if (s.valid)
+            for (int i = 0; i < 3; ++i)
+                if (!strcmp(s.state[i], "StatePlayerGrabMovable")) { carrying = true; break; }
+    }
+    static bool was = false;
+    if (carrying != was) {
+        was = carrying;
+        Log("carry/aim: %s - triggers %s", carrying ? "carrying a movable" : "carry ended",
+            carrying ? "SWAPPED (left trigger throws, right does the left's job)" : "back to the game's layout");
+    }
+    return carrying;
+}
+static void CarryThrowLeftSet(bool on, const char* who)
+{
+    g_ctLeft.store(on);
+    Log("carry/aim: left-trigger throw %s (%s)", on ? "ON" : "off", who);
+}
+
+// VR-181 first headset run: the seam drove both throws and the object still went along the
+// head. So the direction written here is not what decides the flight, or something steers it
+// after. This follow-up MEASURES the flight: the movable ([component+0x58], the object half of
+// the m_pMovable interface 0x00A46740 dispatches through) is sampled on the script lane and its
+// travel direction logged against the hand and the engine's own direction. It can print the
+// unwelcome answer: 'flight follows ENGINE' is what a lost write looks like.
+static uint8_t* g_ctObj = nullptr;
+static float g_ctFrom[3], g_ctHand[3], g_ctEng[3];
+static double g_ctAt = 0; static int g_ctStep = 0;
+static const uint32_t kActorLocation = 0xC4, kActorVelocity = 0x1B4;   // as 0x00A46740 / 0x00C455E5 read them
+
+static float CtDeg(const float* a, const float* b)
+{
+    const float la = sqrtf(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]), lb = sqrtf(b[0]*b[0]+b[1]*b[1]+b[2]*b[2]);
+    if (!(la > 1e-4f) || !(lb > 1e-4f)) return -1.0f;
+    float c = (a[0]*b[0]+a[1]*b[1]+a[2]*b[2]) / (la * lb); c = c > 1 ? 1 : c < -1 ? -1 : c;
+    return acosf(c) * 57.29578f;
+}
+
+static void CarryThrowAimTick()
+{
+    if (!g_ctObj) return;
+    const double now = MaimNowMs();
+    static const double kAt[3] = { 60, 200, 450 };
+    if (now - g_ctAt < kAt[g_ctStep]) return;
+    uint8_t* o = g_ctObj;
+    if (!IsLiveObject(o) || !RangeReadable(o + kActorVelocity, 12)) {
+        Log("carry/aim: flight check at %.0f ms: the thrown object is gone (freed or unreadable)", now - g_ctAt);
+        g_ctObj = nullptr; return;
+    }
+    const float* L = (const float*)(o + kActorLocation);
+    const float* V = (const float*)(o + kActorVelocity);
+    const float mv[3] = { L[0] - g_ctFrom[0], L[1] - g_ctFrom[1], L[2] - g_ctFrom[2] };
+    const float dh = CtDeg(V, g_ctHand), de = CtDeg(V, g_ctEng), mh = CtDeg(mv, g_ctHand), me = CtDeg(mv, g_ctEng);
+    Log("carry/aim: flight check %s at %.0f ms: velocity %.0f uu/s is %.1f deg from the HAND, %.1f "
+        "from the ENGINE aim; moved %.0f uu, %.1f deg from hand, %.1f from engine (the two aims were "
+        "%.1f apart) -> flight follows %s", ObjClassName(o), now - g_ctAt,
+        sqrtf(V[0]*V[0]+V[1]*V[1]+V[2]*V[2]), dh, de, sqrtf(mv[0]*mv[0]+mv[1]*mv[1]+mv[2]*mv[2]), mh, me,
+        CtDeg(g_ctHand, g_ctEng), CtDeg(g_ctHand, g_ctEng) < 10 ? "(aims too close to tell)" : dh < de ? "the HAND" : "the ENGINE");
+    if (++g_ctStep >= 3) g_ctObj = nullptr;
+}
+
+extern "C" void __cdecl CarryThrowAimHandler(uint8_t* frame, uint8_t* pawn, uint8_t* item)
 {
     InterlockedIncrement(&g_ctSeen);
     const char* why = nullptr;
@@ -302,8 +373,16 @@ extern "C" void __cdecl CarryThrowAimHandler(uint8_t* frame, uint8_t* pawn)
     const float r2d = 57.29578f;
     const float wasP = atan2f(dir[2], sqrtf(dir[0] * dir[0] + dir[1] * dir[1])) * r2d;
     const float wasY = atan2f(dir[1], dir[0]) * r2d;
+    memcpy(g_ctEng, dir, 12); memcpy(g_ctHand, d, 12);
     dir[0] = d[0]; dir[1] = d[1]; dir[2] = d[2];
     InterlockedIncrement(&g_ctDriven);
+    {   // arm the flight check (see CarryThrowAimTick)
+        uint8_t* comp = (item && RangeReadable(item + 0x114, 4)) ? *(uint8_t**)(item + 0x114) : nullptr;
+        uint8_t* obj = (comp && RangeReadable(comp + 0x58, 4)) ? *(uint8_t**)(comp + 0x58) : nullptr;
+        if (obj && IsLiveObject(obj) && RangeReadable(obj + kActorLocation, 12)) {
+            memcpy(g_ctFrom, obj + kActorLocation, 12); g_ctObj = obj; g_ctAt = MaimNowMs(); g_ctStep = 0;
+        } else Log("carry/aim: flight check NOT armed: held item %p component %p object %p", item, comp, obj);
+    }
     g_ctWhy = "driving";
     DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 40,
         "carry/aim: carried object thrown along the HAND - pitch %.1f -> %.1f deg, yaw %.1f -> "
@@ -323,10 +402,11 @@ __declspec(naked) static void CarryThrowAimThunk()
         fninit
         cld
         push edx
+        push edi                    ; the held item ([edi+114h] its DisMovableComponent)
         push esi                    ; the pawn (the release's GetOwner result)
         push ebp                    ; the release's frame: [ebp-24h] the direction
         call CarryThrowAimHandler
-        add esp, 8
+        add esp, 12
         pop edx
         fxrstor [esp]
         mov esp, edx
@@ -352,18 +432,24 @@ static void CarryThrowAimSet(bool on, const char* who)
 static void CarryThrowAimConfigure(const char* ini)
 {
     CarryThrowAimSet(IniFloat(ini, "Aim", "CarryThrowFromHand", 1) != 0.0f, "ini [Aim] CarryThrowFromHand");
+    CarryThrowLeftSet(IniFloat(ini, "Aim", "CarryThrowLeftTrigger", 1) != 0.0f, "ini [Aim] CarryThrowLeftTrigger");
 }
 
 static bool CarryThrowAimCommand(const char* args)
 {
     bool b = false;
+    if (args && !strncmp(args, "lt", 2) && DvrOnOff(args + 2 + strspn(args + 2, " "), &b)) {
+        CarryThrowLeftSet(b, "seam");
+        ConfigWriteKey("Aim", "CarryThrowLeftTrigger", b ? "1" : "0", "the seam");
+        return true;
+    }
     if (DvrOnOff(args, &b)) {
         CarryThrowAimSet(b, "seam");
         ConfigWriteKey("Aim", "CarryThrowFromHand", b ? "1" : "0", "the seam");
         return true;
     }
-    Log("carry/aim: on|off (now %s) %ld/%ld driven/seen, refused %ld (last: %s). Seen moves "
+    Log("carry/aim: on|off, lt on|off (left-trigger throw %s). Aim now %s, %ld/%ld driven/seen, refused %ld (last: %s). Seen moves "
         "only when a carried object is thrown; a plain drop never reaches the seam",
-        g_ctOn.load() ? "HAND" : "HEAD", (long)g_ctDriven, (long)g_ctSeen, (long)g_ctRefused, g_ctWhy);
+        g_ctLeft.load() ? "ON" : "off", g_ctOn.load() ? "HAND" : "HEAD", (long)g_ctDriven, (long)g_ctSeen, (long)g_ctRefused, g_ctWhy);
     return true;
 }
