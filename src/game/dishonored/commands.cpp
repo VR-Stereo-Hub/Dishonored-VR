@@ -437,6 +437,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "interactaim")) return InteractAimCommand(args); // VR-166
     if (!strcmp(cmd, "throwaim")) return ThrowAimCommand(args);    // VR-166
     if (!strcmp(cmd, "gadgetaim")) return GadgetAimCommand(args);  // VR-166
+    if (!strcmp(cmd, "carryaim")) return CarryThrowAimCommand(args); // VR-181
     if (!strcmp(cmd, "poweraim")) return PowerAimCommand(args);    // VR-44
     // VR-165: not "swing" - that word is the motion sword's (VR-37) on VR-Main.
     if (!strcmp(cmd, "swingtrace")) return SwingTraceCommand(args);  // VR-165

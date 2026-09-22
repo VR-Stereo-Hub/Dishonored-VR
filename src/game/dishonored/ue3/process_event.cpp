@@ -185,6 +185,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     CamShakeTick();  // VR-172: holds the game's shake handles; before apply_offsets, so the capture reads the game's own position
     AimSourceTick(); // VR-166: read-only; drains the power-aim helper probe
     InteractAimTick(); // VR-166: logs what the engine focused and who aimed it
+    CarryThrowAimTick(); // VR-181: where a thrown carried object actually went
+    CarryHoldTick();     // VR-181: where the carried object is held, and who set it
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
     // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
     // lever only revalidates the camera object while it is armed, so the seam

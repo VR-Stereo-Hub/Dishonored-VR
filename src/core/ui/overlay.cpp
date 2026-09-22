@@ -387,6 +387,40 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         if (changed) { ThrowAimSet(thrown,"F10"); ConfigWriteKey("Aim","ThrowFromHand",thrown ? "1" : "0","F10 Aim"); }
         bool gadget = row("Spring razors", GadgetAimEnabled(), &changed);
         if (changed) { GadgetAimSet(gadget,"F10"); ConfigWriteKey("Aim","GadgetFromHand",gadget ? "1" : "0","F10 Aim"); }
+        bool carry = row("Carried objects (throw)", CarryThrowAimEnabled(), &changed);
+        if (changed) { CarryThrowAimSet(carry,"F10"); ConfigWriteKey("Aim","CarryThrowFromHand",carry ? "1" : "0","F10 Aim"); }
+        bool carryLt = CarryThrowLeftEnabled();
+        if (ImGui::Checkbox("Throw carried objects with the left trigger", &carryLt)) {
+            CarryThrowLeftSet(carryLt,"F10"); ConfigWriteKey("Aim","CarryThrowLeftTrigger",carryLt ? "1" : "0","F10 Aim");
+        }
+        bool carryHold = CarryHoldEnabled();
+        if (ImGui::Checkbox("Hold carried objects in the hand", &carryHold)) {
+            CarryHoldSet(carryHold,"F10"); ConfigWriteKey("Aim","CarryHoldAtHand",carryHold ? "1" : "0","F10 Aim");
+        }
+        static const char* const holdLbl[6] = { "Held: forward (cm)", "Held: right (cm)", "Held: up (cm)",
+                                                "Held: pitch (deg)", "Held: yaw (deg)", "Held: roll (deg)" };
+        static const float holdMin[6] = { -40, -40, -40, -180, -180, -180 }, holdMax[6] = { 60, 40, 40, 180, 180, 180 };
+        for (int i = 0; i < 6; ++i) {
+            float v = CarryHoldAdj(i);
+            if (ImGui::SliderFloat(holdLbl[i], &v, holdMin[i], holdMax[i], "%.0f")) CarryHoldSetAdj(i, v);
+            if (ImGui::IsItemDeactivatedAfterEdit()) { char b[16]; _snprintf(b, sizeof(b), "%.0f", CarryHoldAdj(i)); b[15] = 0; ConfigWriteKey("Aim", CarryHoldAdjKey(i), b, "F10 Aim"); }
+        }
+        bool holdAnchor = CarryHoldGameAnchor();
+        if (ImGui::Checkbox("Anchor the held object on the game camera", &holdAnchor)) {
+            CarryHoldSetGameAnchor(holdAnchor); ConfigWriteKey("Aim","CarryHoldAnchor",holdAnchor ? "1" : "0","F10 Aim");
+        }
+        bool holdKeep = CarryHoldKeepAngle();
+        if (ImGui::Checkbox("Keep the angle it was picked up at", &holdKeep)) {
+            CarryHoldSetKeepAngle(holdKeep); ConfigWriteKey("Aim","CarryHoldKeepPickupAngle",holdKeep ? "1" : "0","F10 Aim");
+        }
+        bool holdDepth = CarryHoldWorldDepthEnabled();
+        if (ImGui::Checkbox("Held object drawn in the world (not the weapon layer)", &holdDepth)) {
+            CarryHoldSetWorldDepth(holdDepth); ConfigWriteKey("Aim","CarryHoldWorldDepth",holdDepth ? "1" : "0","F10 Aim");
+        }
+        bool holdRot = CarryHoldRotateEnabled();
+        if (ImGui::Checkbox("Held object turns with the hand", &holdRot)) {
+            CarryHoldSetRotate(holdRot); ConfigWriteKey("Aim","CarryHoldRotate",holdRot ? "1" : "0","F10 Aim");
+        }
         bool powers = row("Windblast, Possession, Swarm", PowerAimEnabled(), &changed);
         if (changed) { PowerAimSet(powers,"F10"); ConfigWriteKey("Aim","PowersFromHand",powers ? "1" : "0","F10 Aim"); }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");

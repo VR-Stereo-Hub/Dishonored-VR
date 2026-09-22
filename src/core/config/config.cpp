@@ -484,6 +484,31 @@ static void WriteDefaultIni(const char* ini)
         "ThrowFromHand=1\n"
         "; GadgetFromHand=1 (VR-166): spring razors are placed along the weapon ray; 0 = head.\n"
         "GadgetFromHand=1\n"
+        "; CarryThrowFromHand=1 (VR-181): a carried bottle, rock or crate is thrown along the\n"
+        "; weapon ray instead of your view. Release point, speed and spin stay the game's; 0 = head.\n"
+        "CarryThrowFromHand=1\n"
+        "; CarryThrowLeftTrigger=1 (VR-181): while carrying, the LEFT trigger throws and the right\n"
+        "; trigger does the left's job; 0 = the game's layout (the right trigger throws).\n"
+        "CarryThrowLeftTrigger=1\n"
+        "; CarryHoldAtHand=1 (VR-181): a carried object is held at your hand instead of in front of\n"
+        "; your view, CarryHoldForwardCm ahead of it along the weapon ray (negative pulls it in,\n"
+        "; -40..60); 0 = the game's hold. CarryHoldRotate=1 turns it with your wrist.\n"
+        "CarryHoldAtHand=1\n"
+        "; Where it sits in the hand, in the hand's own frame: cm forward/right/up and a trim in\n"
+        "; degrees (pitch/yaw/roll). CarryHoldWorldDepth=1 draws it in the world, not the weapon layer.\n"
+        "CarryHoldForwardCm=-32\n"
+        "CarryHoldRightCm=6\n"
+        "CarryHoldUpCm=-13\n"
+        "CarryHoldPitch=-8\n"
+        "CarryHoldYaw=16\n"
+        "CarryHoldRoll=-32\n"
+        "CarryHoldRotate=1\n"
+        "CarryHoldWorldDepth=1\n"
+        "; CarryHoldKeepPickupAngle=0: the object sits the same way in the hand every time (then the\n"
+        "; trims); 1 keeps whatever angle it was picked up at.\n"
+        "CarryHoldKeepPickupAngle=0\n"
+        "; CarryHoldAnchor=1: place it from the GAME camera; 0 = from the last render sample (A/B).\n"
+        "CarryHoldAnchor=1\n"
         "; PowersFromHand=1 (VR-44): Windblast, Possession and Devouring Swarm aim along the\n"
         "; weapon ray instead of your view; 0 = head.\n"
         "PowersFromHand=1\n"
@@ -2512,6 +2537,7 @@ static void LoadConfig()
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
     ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
     GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
+    CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
     CinePitchConfigure(ini);

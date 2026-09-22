@@ -8453,6 +8453,147 @@ the head ray. Build 612 captures `this` at the placement routine's entry (`0x00C
 6 bytes `53 8B DC 83 EC 08`, read-only). It then arms the watch on THAT object's `+0xB8`
 for 60 s, so the second and third placements name the writer.
 
+## The carried-object throw seam, and how throwables work (VR-181, 2026-09-22)
+
+**Derived offline on build 9099; not yet headset-confirmed.** Covers bottles, rocks,
+crates, anything the player picks up and carries. Not corpses: those have their own states
+(`StatePlayerGrabCorpse`, `StatePlayerCarryCorpseIdle`) and are not touched here.
+
+**What the scripts say (declarations only, no function bodies).** The object is a
+`DishonoredMovable` (a `DishonoredBreakable`), with a `DisMovableComponent` that holds
+the rigid body, who holds it (`m_pHeldBy`), the old collision setup restored on release,
+and `m_ThrowFromLocation`. Its tweak `DisTweaks_Movable` carries a weight class
+(`MWC_Tiny`..`MWC_Large`), impact damage (default 5), `m_bBlocksPlayer` and a grab sound.
+`DishonoredItem.ini [DisMovableComponent]` holds only the per-weight carry speed caps (all
+1.0) and `m_fRadiusChannelReset=200`. Nothing in the ini or the scripts names a throw speed:
+it comes from a tweak lookup inside the native code (below). The NPC throw
+(`DisWepThrowingHand`, `DisItemContext_NPCThrowObject`, `DisProjectile_ThrownObject`) is a
+separate projectile path and is not the player's.
+
+**The player's path.** Carrying is `StatePlayerGrabMovable` (vtable `0x011026C8`; it runs
+on both the upper-body and the left-arm FSMs). Its fields after `StatePlayerAction`'s:
+`+0x70` the pending movable, `+0x74` a bitfield with `m_bThrowOnDrop` at bit 0 and
+`m_bDidTransition` at bit 1. `+0x68` and `+0x6C` are the FSM and the player pawn.
+
+* Pick-up: `0x00A69860` clears `m_bThrowOnDrop`, finds the held-item object in the pawn's
+  inventory (`[pawn+0x59C]`, `0x00C0B4A0`, class test `0x00A65FB0`) and hands it the
+  movable (`0x00C3D030`).
+* Release: `0x00A698E0` finds the same held item and calls `0x00C45340(bThrowOnDrop)`
+  (`ret 4`). `edi` is the held item there; `[edi+0x114]` is the `DisMovableComponent`.
+* In `0x00C45340`, `esi` is the pawn (`0x00BFECC0`). A plain drop branches to
+  `0x00C4564B`. A throw (`arg != 0`) does this:
+  1. the pawn's vtable `+0x3E8` fills a rotator at `[ebp-0x18]`, the aim rotation;
+  2. `0x0040DA70` (rotator to unit vector, the same call the grenade throw uses) writes the
+     direction to `[ebp-0x24]`;
+  3. the speed is a float tweak looked up from `[pawn+0x4A8]` by the name at `0x0145E1B8`
+     (`0x00C86A50`);
+  4. the component is released (`0x00A4ADA0`);
+  5. `0x00A46740(&linear, &angular)` sets the body's velocities: linear =
+     `dir * speed + pawn velocity` (`[pawn+0x1B4..0x1BC]`), angular = a random vector
+     (`0x00402240`) times the same speed.
+
+  The object leaves from where it is held. There is no spawn and no projectile: it stays
+  the same physics actor the whole time.
+
+**Seam** (`throw_aim.cpp`, `[Aim] CarryThrowFromHand`, word `carryaim`, F10 Aim row
+"Carried objects (throw)"): `push 145E1B8h` at `0x00C45531` (`68 B8 E1 45 01`, 5 bytes, no
+relative operand) is the first instruction after step 2. The bridge overwrites
+`[ebp-0x24]` with the published hand ray's direction. Speed, spin, release point and
+damage stay the game's. It is gated on `esi == the player pawn`. It refuses if the
+engine's direction is not a unit vector: that means the frame is not the one derived
+here, so the check can fail its own hypothesis.
+
+**First headset run (build 653, 2026-09-22): the prediction FAILED.** The seam fired on
+both throws and replaced the direction: pitch 17.8 to 17.4 and yaw -128.2 to -124.6 on the
+first, pitch 22.9 to 30.4 and yaw -172.9 to -110.7 on the second. The unit-vector check
+passed both times. The objects were still reported to fly along the head. So the direction
+at `[ebp-0x24]` is not what decides the flight, or something re-aims the object after
+`0x00A46740`. That call records the release location as `m_ThrowFromLocation`
+(component `+0x74..0x7C`) and then tail-calls the movable interface's slot `+0x2C`
+(`[component+0x5C]`; its object half is `[component+0x58]`) with the linear and angular
+velocity. Nothing in the component's own vtable reads `+0x74` again. Not yet known:
+what interface slot `+0x2C` does with the velocity, and whether a later tick re-aims the
+object. Next build: a flight check samples the object's `Location` (`+0xC4`) and `Velocity`
+(`+0x1B4`) 60, 200 and 450 ms after the throw. It logs the angle to the hand ray and to
+the engine's own direction, and it prints "flight follows the ENGINE" if the write is lost.
+
+**Second headset run (build 655, 2026-09-22): the throw follows the hand, confirmed.** Four
+throws, with the two aims 46 to 96 degrees apart. Each left within 0.6 to 2.8 degrees of
+the hand ray (velocity at 60 ms), and the path flown stayed within 0.2 to 4.5 degrees of
+the hand. The first run's report is superseded. The flight-check label that said "ENGINE"
+late in two throws judged by VELOCITY, which turns after a hit (speed dropped to 400-630
+uu/s while the distance moved stayed on the hand line). It now judges by the distance
+moved. The left-trigger throw worked. Still open, as reported: the object sits in front of
+the VIEW while it is held.
+
+**The hold.** The pawn holds a carried object with an `RB_Handle`
+(`DishonoredPawn.m_pMovable_Handle`, resolved by name). RB_Handle vtable `0x010640A8`
+(from `ue3-natives class`): `+0x168` SetLocation takes an FVector by value (`ret 0Ch`),
+`0x007B4A10`. `+0x16C` SetSmoothLocation takes FVector and MoveTime (`ret 10h`), `0x007A3EC0`,
+and writes the target to `+0x98..0xA0`. `+0x174` SetOrientation is `0x007B4B70` (`ret 4`).
+The exec thunks reach them only through the vtable, and the census finds zero static E8/E9
+callers, so entry detours see every writer. Which setter the hold tick uses, and from
+where, is NOT yet known. The build logs it once a second while carrying (`carry/hold:`),
+including the case where neither setter is called. `[Aim] CarryHoldAtHand=1` moves the
+target to the hand-ray origin plus `CarryHoldForwardCm` (default 15) along the ray. The
+orientation is left to the game.
+
+**Third headset run (build 656, 2026-09-22): the handle setters are NOT the hold.** The
+handle resolved to `DishonoredPawn +0x5A0`. Through a five-second carry, SetLocation and
+SetSmoothLocation took ZERO calls, on the player's handle and on every other handle.
+So the `CarryHoldAtHand` hook never drove anything, and the object still followed the view.
+The hooks stay in as counters. A static census of `+0x5A0` in the gameplay code found only
+property bookkeeping, not a per-frame writer. The PrimitiveComponent RB setters are vtable
+`+0x1B8` linear velocity, `+0x1BC` angular velocity, `+0x1C4` SetRBPosition and `+0x1C8`
+SetRBRotation (from the exec thunks). Their StaticMeshComponent implementations were not
+resolved: `ue3-natives` finds no vtable in that ctor. Next build: `carry/probe:` reads the
+carried actor (the focused interactable at carry start, cross-checked against
+`StatePlayerGrabMovable +0x70 -> +0x58`). Four times a second it logs `Physics`, `Base`,
+`BaseSkelComponent`, and where the actor sits in the view frame and from the hand. That
+separates "attached to a mesh that follows the camera" from "simulated and pulled".
+Build 657 measured the WRONG actor: the focused `DisStatPickup`, static (Physics 0, no
+Base), while the state's component named a different `DishonoredMovable`. The focused actor
+is not the carried one, so the probe now takes the state's actor first.
+
+**Fourth headset run (build 658, 2026-09-22): the object is MOVED, not simulated or attached.**
+The carried actor is the state's `DishonoredMovable` (the focused actor was the same one this
+time). It reads `Physics=0` (PHYS_None) throughout, and its `Base` is the
+`StaticMeshCollectionActor` it was resting on: a stale base, not an attachment to the player.
+Over ten seconds of head turning, its Location stayed at 84..121 uu ahead, -15..+8 uu right
+and -37..-46 uu up in the VIEW's frame. Its distance from the hand ray origin swung 38..112
+uu. So something writes Location every tick from the camera. (`Actor::Physics +0x104`,
+`Base +0x110`, `BaseSkelComponent +0x1D8`, `Location +0xC4`, all resolved by name.) Next
+build: `carry/watch:`, a DR3 write-watch on Location.X, armed from a helper thread for one
+second of the carry. It reports the writing instructions and their callers.
+
+**Fifth headset run (build 658 + watch, 2026-09-22): ONE writer.** The DR3 watch was armed in
+134 threads from the helper thread and was honoured. It caught 89 and then 96 writes in one
+second of two carries, all from `0x0064D591`: the engine's actor move. It loads the move delta
+from `[ebp-0x54..-0x4C]` and adds it to `[esi+0xC4..0xCC]` (Location), with `esi` the actor,
+and then updates the components (`[esi+0x208]`, the collision component). The stack scan's
+"callers" were stale stack values, not frames. A static walk up from `0x0064CAB0` was not
+the enclosing function (a byte-pattern start search picked the wrong boundary) and was dropped.
+**Seam** (`throw_aim.cpp`, `[Aim] CarryHoldAtHand`): `movss xmm0,[ebp-54h]` at `0x0064D584`
+(`F3 0F 10 45 AC`). It runs for every actor move, so its first test is one pointer compare
+against the carried actor (the carry state's `+0x70 -> +0x58`). It also requires Physics
+still 0 and a live carry. Then the delta becomes hand target - Location. The RB_Handle
+hooks were removed. The watch stays available on demand (`carryaim watch`).
+
+**Sixth headset run (build 659, 2026-09-22): held at the hand.** 1095 of 1095 moves were driven,
+with the object 16 uu from the hand ray origin. Reported: it flickered sideways, sat too far
+out, and did not turn with the hand. The flicker came from the last-eye anchor (FLICKER_REFERENCE,
+VR-181). The rotation now goes through the same seam. The move compares its NewRotation (a
+pointer at `[ebp-0x3C]`) against Actor.Rotation `+0xD0` (`0x0064CE0F`), so the handler writes
+both. The object's frame relative to the hand (controller forward and up, mapped through
+the head basis like the ray) is latched at the first drive of each carry.
+
+**For physical throwing later.** Step 5 is the one call that decides the flight, and it
+takes the whole linear velocity. A physical throw would replace `dir * speed + pawn
+velocity` there with the controller's measured release velocity (scaled, clamped, plus
+the pawn velocity), and trigger the release on grip-open instead of the throw button.
+`m_bThrowOnDrop` is the flag that selects the throw branch. Still unknown: what sets it,
+the speed tweak's value, and whether the angular velocity should follow the controller's.
+
 ## The razor placement seam (VR-166, 2026-09-21)
 
 **Found statically; the write-watch was retired without its result.** Build 612 armed

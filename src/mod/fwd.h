@@ -661,6 +661,30 @@ static bool GadgetAimEnabled();
 static void GadgetAimSet(bool on, const char* who);
 static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
+static void CarryThrowAimTick();
+static void CarryHoldTick();
+static uint8_t* CarryProbeFocus();                                   // VR-181: where the carried object is held
+static void CarryHoldConfigure(const char* ini);
+static void CarryHoldSet(bool on, const char* who);
+static bool CarryHoldEnabled();
+static float CarryHoldAdj(int i);                               // 0..2 fwd/right/up cm, 3..5 pitch/yaw/roll deg
+static const char* CarryHoldAdjKey(int i);
+static void CarryHoldSetAdj(int i, float v);
+static bool CarryHoldGameAnchor();
+static void CarryHoldSetGameAnchor(bool on);
+static bool CarryHoldKeepAngle();
+static void CarryHoldSetKeepAngle(bool on);
+static bool CarryHoldWorldDepthEnabled();
+static void CarryHoldSetWorldDepth(bool on);
+static bool CarryHoldRotateEnabled();
+static void CarryHoldSetRotate(bool on);
+static bool CarryThrowTriggersSwapped();                        // VR-181: the pad bridge
+static bool CarryThrowLeftEnabled();
+static void CarryThrowLeftSet(bool on, const char* who);
+static bool CarryThrowAimEnabled();                             // VR-181 (throw_aim.cpp)
+static void CarryThrowAimSet(bool on, const char* who);
+static void CarryThrowAimConfigure(const char* ini);
+static bool CarryThrowAimCommand(const char* args);
 static bool PowerAimEnabled();                                  // VR-44 (power_aim.cpp)
 static void PowerAimSet(bool on, const char* who);
 static void PowerAimConfigure(const char* ini);

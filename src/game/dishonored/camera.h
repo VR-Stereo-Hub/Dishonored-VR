@@ -58,6 +58,9 @@ bool render_pos(float out[3]);
 // that needs a world POINT must use this; render_pos stays raw for the consumers
 // that only ever difference c5 against itself, where a global sign would cancel.
 bool render_pos_world(float out[3]);
+// VR-181: the centre eye - the midpoint of the last left/right pair when the last two samples are
+// one IPD apart, else the latest. For anything held steady in the world across both eyes.
+bool render_pos_world_center(float out[3], bool* paired = nullptr);
 
 // VR-172: the camera position the GAME computed, in world uu, with the mod's own eye and
 // position offset removed. Script lane. False when the field is unreadable.

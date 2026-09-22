@@ -60,6 +60,8 @@ float g_fovDeg = 0.0f;
 float g_renderedFov = 0.0f;
 float g_c5[3] = {0, 0, 0};
 bool  g_c5Ok = false;
+float g_c5Prev[3] = {0, 0, 0};   // VR-181: the previous DISTINCT sample (the other eye under re-entry)
+bool  g_c5PrevOk = false;
 
 // The writer's memory of its last write, so a field the engine does NOT
 // recompute is re-based instead of accumulated, and restored on release.
@@ -429,6 +431,9 @@ bool     g_etrOn = true;                 // [Camera] EyeTrace
 volatile LONG g_c5Serial = 0;
 void note_render_pos(const float pos[3]) {
     if (!pos) return;
+    if (g_c5Ok && (pos[0] != g_c5[0] || pos[1] != g_c5[1] || pos[2] != g_c5[2])) {
+        g_c5Prev[0] = g_c5[0]; g_c5Prev[1] = g_c5[1]; g_c5Prev[2] = g_c5[2]; g_c5PrevOk = true;
+    }
     g_c5[0] = pos[0]; g_c5[1] = pos[1]; g_c5[2] = pos[2];
     g_c5Ok = true;
     InterlockedIncrement(&g_c5Serial);
@@ -473,6 +478,25 @@ bool render_pos(float out[3]) {
 bool render_pos_world(float out[3]) {
     if (!render_pos(out)) return false;
     out[0] = -out[0]; out[1] = -out[1]; out[2] = -out[2];
+    return true;
+}
+// VR-181: the CENTRE eye. Under scene-draw re-entry the samples come as left/right pairs, so the
+// last one is whichever eye drew last and anything anchored on it jumps half an IPD between
+// ticks (a carried object held at the hand flickered sideways, measured 2026-09-22). When the
+// last two distinct samples are 0.5..1.5 IPD apart they are a pair and the midpoint is the head;
+// otherwise (mono, or a real move between samples) the latest sample stands.
+bool render_pos_world_center(float out[3], bool* paired) {
+    if (paired) *paired = false;
+    if (!render_pos_world(out)) return false;
+    if (!g_c5PrevOk) return true;
+    const float p[3] = { -g_c5Prev[0], -g_c5Prev[1], -g_c5Prev[2] };
+    const float d[3] = { out[0] - p[0], out[1] - p[1], out[2] - p[2] };
+    const float sep = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    const float ipd = ipd_m() * world_scale();
+    if (ipd > 0.1f && sep > 0.5f * ipd && sep < 1.5f * ipd) {
+        for (int i = 0; i < 3; ++i) out[i] = 0.5f * (out[i] + p[i]);
+        if (paired) *paired = true;
+    }
     return true;
 }
 

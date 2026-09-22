@@ -61,6 +61,7 @@ struct Ray {
     bool ok = false;
     int hand = 0;
     float originXr[3] = {}, dirXr[3] = {};
+    float upXr[3] = {0, 1, 0};   // VR-181: the controller's own up, for a full hand basis (carried objects)
     uint32_t gen = 0;
     uint64_t sampleMs = 0;
     const char* why = "no sample";
@@ -89,6 +90,8 @@ inline Ray from_pose(int hand, bool valid, const float pos[3], const float quat[
     }
     const float inv = 1.0f / std::sqrt(norm), fwd[3] = {0, 0, -1};
     dvr::xrmath::quat_rotate(quat[0]*inv, quat[1]*inv, quat[2]*inv, quat[3]*inv, fwd, r.dirXr);
+    const float up[3] = {0, 1, 0};
+    dvr::xrmath::quat_rotate(quat[0]*inv, quat[1]*inv, quat[2]*inv, quat[3]*inv, up, r.upXr);
     for (int i = 0; i < 3; ++i) r.originXr[i] = pos[i];
     r.ok = true; r.why = "ready"; return r;
 }
