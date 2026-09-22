@@ -12,6 +12,7 @@
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/hud_route.h"
+#include "core/gfx/hud_group.h"
 #include "core/gfx/hud_native_icon.h"
 #include "core/gfx/hud_native_rune.h"
 #include "core/util/log.h"
@@ -151,6 +152,70 @@ uint32_t g_routeNoRegion = 0;        // draws with no readable region -> default
 uint32_t g_routeOverflow = 0;        // draws whose (anchor, crop) had no free sink -> default's
 uint32_t g_routeFrame = 0;           // draws left in the frame (AnchorFrame)
 char g_statusLine[768] = "not configured";
+
+// VR-185/186: WHY each draw went where it went. Every route names the rule
+// that decided it; a draw's decision is remembered by its content key, and a
+// NEW key or a CHANGED decision prints one `hud/why` line (bounded), so a
+// split widget or a marker on the wrong layer is one grep. `layer` is the
+// anchor, or -1 when a native owner left the draw in the game's own image.
+enum Why : int { WhyReference, WhyScreen, WhyVignette, WhyRow, WhyDefault, WhyCache, WhyRune, WhyRuneBridge,
+                 WhyAwareness, WhyTaskIcon, WhyTaskText, WhyTaskBridge, WhyMarkerShape, WhyMarkerLabel,
+                 WhyMarkerChild, WhyInteraction, WhyGroup, WhyIsolatedIcon, WhyCount };
+const char* const kWhyNames[WhyCount] = {
+    "native-reference (gameplay HUD left in the image)", "screen context (a riding screen claims every draw)",
+    "vignette (wider and taller than 60 %)", "row rectangle (its centre is in the row's region)",
+    "default (no row claims it)", "content cache (this key's earlier owner, StableRoutes)",
+    "rune position (the Heart marker's published point)", "rune continuity (same icon, <=2 frames)",
+    "awareness position (the enemy meter's published point)",
+    "task position: icon (the objective marker's published point)",
+    "task position: title/distance text (the objective marker's published point)",
+    "task continuity (same icon key, <=2 frames)",
+    "marker shape (FALLBACK: edge-seen square icon; the task hook is not live)",
+    "marker label (FALLBACK: text near a shape-recognised marker)", "marker child (centred artwork)",
+    "interaction group (joined the prompt's bounds)", "widget group (a piece of a widget owned by another element)",
+    "isolated square icon (FALLBACK: guessed marker; the task hook is not live)" };
+const char* const kWhyShort[WhyCount] = { "reference", "screen", "vignette", "row", "default", "cache", "rune",
+    "rune-bridge", "awareness", "task-icon", "task-text", "task-bridge", "marker-shape", "marker-label",
+    "marker-child", "interaction", "group", "isolated-icon" };
+uint32_t g_whyCounts[WhyCount];
+struct WhyEntry { uint64_t key; int16_t element; int8_t layer; int8_t why; };
+WhyEntry g_why[1024];
+dvr::hudgroup::Builder g_groups;
+dvr::hudnative::RuneIconContinuity g_taskIconContinuity;
+uint32_t g_groupLifts = 0;
+int      g_lastLiftGroup = -1, g_lastLiftFrom = -1, g_lastLiftTo = -1;
+
+const char* layer_name(int layer) { return layer < 0 ? "the game image (native owner)" : layer == AnchorFrame ? "frame (the game image)" : layer < AnchorCount ? kAnchorNames[layer] : "?"; }
+
+void note_why(uint64_t key, const float* r, int element, int layer, int why, int from = -1) {
+    if (why < 0 || why >= WhyCount) return;
+    ++g_whyCounts[why];
+    const uint32_t k = (uint32_t)(key ^ (key >> 32)) % 1024;
+    WhyEntry& w = g_why[k];
+    const bool known = key && w.key == key;
+    if (known && w.element == element && w.layer == layer && w.why == why) return;
+    const WhyEntry was = w;
+    if (key) w = { key, (int16_t)element, (int8_t)layer, (int8_t)why };
+    // At most 6 lines a second, and say how many were held back.
+    static uint32_t windowMs = 0, lines = 0, held = 0;
+    const uint32_t now = GetTickCount();
+    if (now - windowMs >= 1000) {
+        if (held) DVR_INFO("hud/why: %u further decisions this second not printed (the census in hud/layout counts them all)", held);
+        windowMs = now; lines = 0; held = 0;
+    }
+    if (++lines > 6) { ++held; return; }
+    char fromTxt[64] = "";
+    if (from >= 0 && from < ElCount) { _snprintf(fromTxt, sizeof(fromTxt), " (its own route was %s)", kRows[from].name); fromTxt[63] = 0; }
+    if (known)
+        DVR_INFO("hud/why: key=%016llx rect=%.3f/%.3f/%.3f/%.3f CHANGED %s on %s [%s] -> %s on %s because %s%s",
+                 key, r ? r[0] : 0, r ? r[1] : 0, r ? r[2] : 0, r ? r[3] : 0,
+                 kRows[was.element].name, layer_name(was.layer), kWhyShort[was.why],
+                 kRows[element].name, layer_name(layer), kWhyNames[why], fromTxt);
+    else
+        DVR_INFO("hud/why: key=%016llx rect=%.3f/%.3f/%.3f/%.3f -> %s on %s because %s%s",
+                 key, r ? r[0] : 0, r ? r[1] : 0, r ? r[2] : 0, r ? r[3] : 0,
+                 kRows[element].name, layer_name(layer), kWhyNames[why], fromTxt);
+}
 
 void write_key(const char* key, const char* value) {
     if (!g_ini[0]) return;
@@ -546,13 +611,13 @@ void set_menu_riding(bool riding, int context, bool wheelClosing) {
     if(!visual) {
         for(int s=0;s<kMaxSinks;++s) if(g_sink[s].anchor>=0 && g_sink[s].rideOnly) free_sink(s);
     }
-    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeLabels.clear();g_runeIconContinuity.clear();
+    g_stableRoutes.clear();g_interactionGroup.clear();g_nativeLabels.clear();g_runeIconContinuity.clear();g_groups.clear();g_taskIconContinuity.clear();
     DVR_INFO("hud/layout: visual context=%d inputRiding=%d closing=%d tail=%d frame=%u",
         visualContext,(int)riding,(int)wheelClosing,(int)tail,frame);
     if(visual) DVR_INFO("hud/layout: the screen is %s on the %s",kRows[element_for_context(visualContext)].name,kAnchorNames[g_el[element_for_context(visualContext)].anchor]);
     else DVR_INFO("hud/layout: the screen left: routing by element again");
 }
-void forget_draw_owners() { dvr::objectivemarkers::clear_rune_positions();dvr::objectivemarkers::clear_awareness_positions(); g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();g_nativeLabels.clear(); }
+void forget_draw_owners() { g_groups.clear();g_taskIconContinuity.clear();memset(g_why,0,sizeof(g_why));dvr::objectivemarkers::clear_rune_positions();dvr::objectivemarkers::clear_task_positions();dvr::objectivemarkers::clear_awareness_positions(); g_stableRoutes.clear();g_interactionGroup.clear();g_nativeMarkers.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();g_nativeLabels.clear(); }
 bool native_gameplay_reference() {return g_nativeGameplayReference && !g_visualRiding;}
 bool native_objective_upright(int e) {return !native_gameplay_reference() && g_nativeObjectives && g_nativeObjectiveUpright && !g_visualRiding && e==ElObjective;}
 bool menu_exit_heading() {return g_menuExitHeading.load();}
@@ -585,6 +650,7 @@ void circle_for_sink(int sink,uint32_t width,uint32_t height,float ellipse[4]) {
     }
 }
 
+bool wheel_motion_only() { return g_dialOn; }
 void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelected) {
     dvr::vr::HeadPose head{};
     float hp[3]{}, hq[4]{};
@@ -614,7 +680,7 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives, float* nativePivot) {
     if(native_gameplay_reference()) {
         if(elementOut) *elementOut=-1;
-        ++g_routeFrame;
+        ++g_routeFrame;++g_whyCounts[WhyReference];
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
             "hud/native-reference: gameplay draw left in game image; capture/alpha/objective transforms bypassed frame=%u",(unsigned)dvr::frame::count());
         return -1;
@@ -626,10 +692,21 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     if (bbox) memcpy(id.rect, bbox, sizeof(id.rect)); else memset(id.rect, 0, sizeof(id.rect));
     const int spatial = hudroute::route(g_rows, ElCount, id, ElDefault);
     const uint32_t drawFrame=(uint32_t)dvr::frame::count();
-    const bool isolatedIcon=id.context<0 && g_nativeObjectives && bbox &&
+    g_groups.begin(drawFrame);
+    // VR-185: with the task hook live, objective markers are claimed by the
+    // position the engine published for them. The shape heuristics below (an
+    // icon first seen clamped to an edge; text near such an icon; any isolated
+    // square icon left in the image) are the FALLBACK for a refused hook only:
+    // they are what split a marker from its title after a load.
+    const bool taskOwned=id.context<0 && dvr::objectivemarkers::task_ownership();
+    const bool heuristicMarkers=g_nativeObjectives && !taskOwned;
+    const bool isolatedIcon=id.context<0 && heuristicMarkers && bbox &&
         dvr::hudnative::square_icon(bbox,vertices,primitives) && !g_interactionGroup.near_group(bbox,drawFrame);
     int e = id.context >= 0 ? spatial : g_stableRoutes.resolve(drawKey, drawFrame,
         isolatedIcon && spatial==ElPrompt ? ElDefault : spatial,bbox);
+    int why = id.context >= 0 ? WhyScreen : e != spatial ? WhyCache : spatial == ElVignette ? WhyVignette :
+              spatial == ElDefault ? WhyDefault : WhyRow;
+    bool taskClaimed=false;
     if(id.context<0 && bbox) {
         float runePivot[4]{};
         const bool runeDraw=g_nativeObjectives && dvr::objectivemarkers::match_rune_draw(
@@ -650,6 +727,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
             if(nativePivot)memcpy(nativePivot,runePivot,sizeof(runePivot));
             if(elementOut)*elementOut=ElObjective;
             ++g_routeFrame;++g_routeCounts[ElObjective];++g_seen[ElObjective];
+            g_groups.cut();note_why(drawKey,bbox,ElObjective,-1,runeDraw?WhyRune:WhyRuneBridge);
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
                 "hud/native-rune: rect=%.3f/%.3f/%.3f/%.3f pivot=%.3f/%.3f key=%016llx; source=%s",
                 bbox[0],bbox[1],bbox[2],bbox[3],runePivot[0],runePivot[1],drawKey,runeDraw?"live parent":"confirmed icon continuity");
@@ -674,67 +752,133 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
             if(nativePivot)memcpy(nativePivot,awarePivot,sizeof(awarePivot));
             if(elementOut)*elementOut=ElDetection;
             ++g_routeFrame;++g_routeCounts[ElDetection];++g_seen[ElDetection];
+            g_groups.cut();note_why(drawKey,bbox,ElDetection,-1,WhyAwareness);
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
                 "hud/native-awareness: rect=%.3f/%.3f/%.3f/%.3f pivot=%.3f/%.3f key=%016llx verts=%u prims=%u; "
                 "left in the game image at the engine position (the hud/awareness-parent line carries the census)",
                 bbox[0],bbox[1],bbox[2],bbox[3],awarePivot[0],awarePivot[1],drawKey,vertices,primitives);
             return -1;
         }
-        // Group decisions outrank the first spatial hint retained by the old
-        // cache, otherwise title and action can stay split for their lifetime.
-        const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
-        const bool nativeIcon=g_nativeObjectives &&
-            g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives,
-                dvr::objectivemarkers::enabled()?dvr::objectivemarkers::inset():.05f,
-                dvr::objectivemarkers::rune_enabled()?dvr::objectivemarkers::rune_inset():.05f);
-        if(nativeIcon) g_nativeLabels.marker(bbox,drawFrame);
-        float labelPivot[4]{};
-        const bool nativeLabel=g_nativeObjectives && g_nativeObjectiveLabels && !nativeIcon &&
-            g_nativeLabels.label(bbox,drawFrame,labelPivot);
-        bool nativeChild=false;
-        if(g_nativeObjectives && g_nativeMarkerChildren && !nativeIcon) {
-            if(g_nativeChildContent.known(drawKey,drawFrame)) {
-                nativeChild=true;memcpy(labelPivot,bbox,sizeof(labelPivot));
-            } else if(g_nativeLabels.child(bbox,drawFrame,labelPivot)) {
-                nativeChild=true;g_nativeChildContent.remember(drawKey,drawFrame);
+        // VR-185: the task marker's icon, title and distance, by the position
+        // the engine published for the marker. The icon keeps its key for two
+        // frames (100 ms) across a callback/draw phase slip in a fast turn.
+        if(taskOwned) {
+            float taskPivot[4]{},offset[2]{};
+            int kind=dvr::objectivemarkers::match_task_draw(
+                bbox,(float)dvr::capture::width(),(float)dvr::capture::height(),taskPivot,offset);
+            if(kind==1) g_taskIconContinuity.route(drawKey,drawFrame,GetTickCount(),bbox,vertices,primitives,true);
+            else if(!kind && dvr::objectivemarkers::task_visible() &&
+                    g_taskIconContinuity.route(drawKey,drawFrame,GetTickCount(),bbox,vertices,primitives,false)) {
+                kind=3;
+                taskPivot[0]=taskPivot[2]=(bbox[0]+bbox[2])*.5f;
+                taskPivot[1]=taskPivot[3]=(bbox[1]+bbox[3])*.5f;
+            }
+            if(kind) {
+                const int taskWhy=kind==1?WhyTaskIcon:kind==2?WhyTaskText:WhyTaskBridge;
+                g_groups.cut();
+                if(nativePivot)memcpy(nativePivot,taskPivot,sizeof(taskPivot));
+                DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                    "hud/task-owner: %s rect=%.3f/%.3f/%.3f/%.3f marker=%.3f/%.3f offset=%+.0f/%+.0f authoring px key=%016llx verts=%u prims=%u -> objective on %s",
+                    kind==1?"icon":kind==2?"text":"icon (continuity)",bbox[0],bbox[1],bbox[2],bbox[3],taskPivot[0],taskPivot[1],
+                    offset[0],offset[1],drawKey,vertices,primitives,
+                    g_nativeObjectives?"the game image":kAnchorNames[g_el[ElObjective].anchor]);
+                if(g_nativeObjectives) {
+                    if(elementOut)*elementOut=ElObjective;
+                    ++g_routeFrame;++g_routeCounts[ElObjective];++g_seen[ElObjective];
+                    g_lastRouted[ElObjective]=g_presentNo;
+                    note_why(drawKey,bbox,ElObjective,-1,taskWhy);
+                    return -1;
+                }
+                e=ElObjective;why=taskWhy;taskClaimed=true;   // rides the objective row's own anchor below
             }
         }
-        if(nativeChild) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-            "hud/native-child: key=%016llx vertices=%u primitives=%u rect=%.3f/%.3f/%.3f/%.3f; centered artwork shares marker pivot",
-            drawKey,vertices,primitives,bbox[0],bbox[1],bbox[2],bbox[3]);
-        if((nativeLabel || nativeChild) && nativePivot) memcpy(nativePivot,labelPivot,sizeof(labelPivot));
-        if(nativeLabel) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-            "hud/native-label: rect=%.3f/%.3f/%.3f/%.3f marker=%.3f/%.3f/%.3f/%.3f; proximity candidate, native shared pivot",
-            bbox[0],bbox[1],bbox[2],bbox[3],labelPivot[0],labelPivot[1],labelPivot[2],labelPivot[3]);
-        if(nativeIcon || nativeLabel || nativeChild || (!g_nativeObjectives && g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
-            e=ElObjective;if(!nativeLabel && !nativeChild) g_stableRoutes.adopt(drawKey,drawFrame,e);
-        } else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
-            // A title crossing the central region is not the reticle. Preserve
-            // the native measured dot/grown reticle rather than adopting it.
-            !hudroute::centered_reticle(bbox,primitives) && !hudroute::centered_gauge(bbox) &&
-            g_interactionGroup.claim(bbox,drawFrame,(!g_nativeObjectives || !icon) && (spatial==ElPrompt || e==ElPrompt))) {
-            e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e);
+        if(!taskClaimed) {
+            // Group decisions outrank the first spatial hint retained by the old
+            // cache, otherwise title and action can stay split for their lifetime.
+            const bool icon=dvr::hudnative::square_icon(bbox,vertices,primitives);
+            const bool nativeIcon=heuristicMarkers &&
+                g_nativeMarkers.observe(drawKey,drawFrame,bbox,vertices,primitives,
+                    dvr::objectivemarkers::enabled()?dvr::objectivemarkers::inset():.05f,
+                    dvr::objectivemarkers::rune_enabled()?dvr::objectivemarkers::rune_inset():.05f);
+            if(nativeIcon) g_nativeLabels.marker(bbox,drawFrame);
+            float labelPivot[4]{};
+            const bool nativeLabel=heuristicMarkers && g_nativeObjectiveLabels && !nativeIcon &&
+                g_nativeLabels.label(bbox,drawFrame,labelPivot);
+            bool nativeChild=false;
+            if(g_nativeObjectives && g_nativeMarkerChildren && !nativeIcon) {
+                if(g_nativeChildContent.known(drawKey,drawFrame)) {
+                    nativeChild=true;memcpy(labelPivot,bbox,sizeof(labelPivot));
+                } else if(g_nativeLabels.child(bbox,drawFrame,labelPivot)) {
+                    nativeChild=true;g_nativeChildContent.remember(drawKey,drawFrame);
+                }
+            }
+            if(nativeChild) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                "hud/native-child: key=%016llx vertices=%u primitives=%u rect=%.3f/%.3f/%.3f/%.3f; centered artwork shares marker pivot",
+                drawKey,vertices,primitives,bbox[0],bbox[1],bbox[2],bbox[3]);
+            if((nativeLabel || nativeChild) && nativePivot) memcpy(nativePivot,labelPivot,sizeof(labelPivot));
+            if(nativeLabel) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+                "hud/native-label: rect=%.3f/%.3f/%.3f/%.3f marker=%.3f/%.3f/%.3f/%.3f; proximity candidate, native shared pivot",
+                bbox[0],bbox[1],bbox[2],bbox[3],labelPivot[0],labelPivot[1],labelPivot[2],labelPivot[3]);
+            if(nativeIcon || nativeLabel || nativeChild || (!g_nativeObjectives && g_routeObjectives && hudroute::objective_shape(bbox,vertices,primitives))) {
+                e=ElObjective;if(!nativeLabel && !nativeChild) g_stableRoutes.adopt(drawKey,drawFrame,e);
+                why=nativeLabel?WhyMarkerLabel:nativeChild?WhyMarkerChild:WhyMarkerShape;
+            } else if(g_groupInteractions && spatial!=ElVitals && spatial!=ElVignette &&
+                // A title crossing the central region is not the reticle. Preserve
+                // the native measured dot/grown reticle rather than adopting it.
+                !hudroute::centered_reticle(bbox,primitives) && !hudroute::centered_gauge(bbox) &&
+                g_interactionGroup.claim(bbox,drawFrame,(!heuristicMarkers || !icon) && (spatial==ElPrompt || e==ElPrompt))) {
+                e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e);why=WhyInteraction;
+            }
         }
     }
+    // VR-186: the widget groups. A draw with no identity of its own (default,
+    // or the fallback's isolated icon) takes the owner of the widget it was
+    // part of on the previous present; every draw is recorded with its OWN
+    // decision for this present's groups. Objectives and screens never group.
+    bool lifted=false;
+    if(id.context<0 && bbox && e!=ElObjective) {
+        const bool weak=isolatedIcon && e!=ElPrompt && spatial!=ElVitals && !hudroute::centered_reticle(bbox,primitives);
+        const int strength=weak?hudgroup::kWeak:e==ElDefault?hudgroup::kDefault:e==ElVignette?-1:
+                           why==WhyInteraction?hudgroup::kInteraction:hudgroup::kRow;
+        if(strength<0) g_groups.cut();
+        else {
+            g_groups.add(bbox,weak?ElDefault:e,strength);
+            int group=-1;
+            const int owner=g_groups.lookup(bbox,strength,&group);
+            if(owner>=0) {
+                const int from=weak?-1:e;
+                ++g_groupLifts;g_lastLiftGroup=group;g_lastLiftFrom=weak?-2:e;g_lastLiftTo=owner;
+                e=owner;why=WhyGroup;lifted=true;
+                note_why(drawKey,bbox,e,g_el[e].anchor,why,from);
+            }
+        }
+    } else if(id.context<0) g_groups.cut();
+    if(!lifted && g_nativeObjectives && id.context<0 && isolatedIcon && spatial!=ElVitals && e!=ElPrompt &&
+       !hudroute::centered_reticle(bbox,primitives)) {
+        if(elementOut) *elementOut=ElDefault;
+        ++g_routeFrame;++g_routeCounts[ElDefault];++g_seen[ElDefault];
+        note_why(drawKey,bbox,ElDefault,-1,WhyIsolatedIcon);
+        return -1;
+    }
     if(e != spatial) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
-        "hud/owner: routed %s instead of positional %s; key=%016llx rect=%.3f/%.3f/%.3f/%.3f verts=%u prims=%u",
-        kRows[e].name,kRows[spatial].name,drawKey,bbox?bbox[0]:0,bbox?bbox[1]:0,bbox?bbox[2]:0,bbox?bbox[3]:0,vertices,primitives);
+        "hud/owner: routed %s instead of positional %s (%s); key=%016llx rect=%.3f/%.3f/%.3f/%.3f verts=%u prims=%u",
+        kRows[e].name,kRows[spatial].name,kWhyShort[why],drawKey,bbox?bbox[0]:0,bbox?bbox[1]:0,bbox?bbox[2]:0,bbox?bbox[3]:0,vertices,primitives);
     if (!bbox && !g_menuRiding) ++g_routeNoRegion;
     if (elementOut) *elementOut = e;
     ++g_routeCounts[e]; ++g_seen[e];
     g_lastRouted[e] = g_presentNo;
     int anchor = g_el[e].anchor;
-    if(g_nativeObjectives && e==ElObjective && id.context<0) {++g_routeFrame;return -1;}
-    if(g_nativeObjectives && id.context<0 && isolatedIcon && spatial!=ElVitals && e!=ElPrompt &&
-       !hudroute::centered_reticle(bbox,primitives)) {if(elementOut) *elementOut=ElDefault;++g_routeFrame;return -1;}
+    const bool nativeObjective=g_nativeObjectives && e==ElObjective && id.context<0;
+    if(!lifted) note_why(drawKey,bbox,e,nativeObjective ? -1 : anchor,why);
+    if(nativeObjective) {++g_routeFrame;return -1;}
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
     // This topology includes observed objective artwork, but is not semantic
     // identity. Record misses without stealing unrelated prompts from panels.
     if(g_nativeObjectives && id.context<0 && e!=ElObjective && bbox && vertices==8 && primitives==10)
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-            "hud/native-miss: topology candidate routed=%s positional=%s anchor=%s key=%016llx rect=%.3f/%.3f/%.3f/%.3f nearInteraction=%d; not confirmed objective",
-            kRows[e].name,kRows[spatial].name,kAnchorNames[g_el[e].anchor],drawKey,
-            bbox[0],bbox[1],bbox[2],bbox[3],(int)g_interactionGroup.near_group(bbox,drawFrame));
+            "hud/native-miss: topology candidate routed=%s positional=%s anchor=%s why=%s key=%016llx rect=%.3f/%.3f/%.3f/%.3f nearInteraction=%d taskVisible=%d; not an objective",
+            kRows[e].name,kRows[spatial].name,kAnchorNames[g_el[e].anchor],kWhyShort[why],drawKey,
+            bbox[0],bbox[1],bbox[2],bbox[3],(int)g_interactionGroup.near_group(bbox,drawFrame),(int)dvr::objectivemarkers::task_visible());
     if (anchor == AnchorOff) anchor = AnchorOff;   // a hidden sink: redirected, never delivered
     const bool crop = crop_eligible(e);
     int s = crop ? g_elementSink[e] : g_sinkOf[anchor][0];
@@ -1427,6 +1571,39 @@ void log_status() {
                          "hud: %u draws this window reached no named element and ride `default` - `draws on` + `draws regions` "
                          "lists their rectangles as clusters; `hud region <name> x0,y0,x1,y1` names one live",
                          g_routeCounts[ElDefault]);
+    // VR-185/186: which RULE decided the draws of this window, and the widgets.
+    char whys[640] = "";
+    for (int w = 0; w < WhyCount; ++w) {
+        if (!g_whyCounts[w]) continue;
+        char one[40];
+        _snprintf(one, sizeof(one), " %s=%u", kWhyShort[w], g_whyCounts[w]); one[39] = 0;
+        strncat(whys, one, sizeof(whys) - strlen(whys) - 1);
+    }
+    DVR_INFO("hud/why-census: decided by%s | task hook %s (a draw at a published task marker is `task-*`; "
+             "`marker-*` and `isolated-icon` are the shape FALLBACK and read 0 while the hook is live)",
+             whys[0] ? whys : " nothing", dvr::objectivemarkers::task_ownership() ? "LIVE" : "not live");
+    if (!g_menuRiding) {
+        char groups[900] = ""; int shown = 0, multi = 0;
+        for (int i = 0; i < g_groups.prevN; ++i) {
+            const auto& g = g_groups.prev[i];
+            ++multi;
+            if (shown >= 8) continue;
+            char one[112];
+            _snprintf(one, sizeof(one), " [%.3f,%.3f-%.3f,%.3f %s x%d]", g.r[0], g.r[1], g.r[2], g.r[3],
+                      kRows[g.owner].name, g.members); one[111] = 0;
+            strncat(groups, one, sizeof(groups) - strlen(groups) - 1); ++shown;
+        }
+        DVR_INFO("hud/group: %d widget(s) of 2+ back-to-back touching draws on the last present%s | lifted this window %u "
+                 "(a piece with no identity of its own took its widget owner's layer)%s%s%s%s, overflow %u",
+                 multi, groups, g_groupLifts,
+                 g_groupLifts ? "; last " : "",
+                 g_groupLifts ? (g_lastLiftFrom == -2 ? "isolated-icon" : g_lastLiftFrom >= 0 ? kRows[g_lastLiftFrom].name : "?") : "",
+                 g_groupLifts ? " -> " : "",
+                 g_groupLifts && g_lastLiftTo >= 0 ? kRows[g_lastLiftTo].name : "",
+                 g_groups.overflow);
+    }
+    memset(g_whyCounts, 0, sizeof(g_whyCounts));
+    g_groupLifts = 0; g_groups.overflow = 0;
     memset(g_routeCounts, 0, sizeof(g_routeCounts));
     g_routeNoRegion = g_routeOverflow = g_routeFrame = 0;
     log_alpha();

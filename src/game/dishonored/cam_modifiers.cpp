@@ -98,10 +98,13 @@ static void CameraSourceTick()
     static double next=0;
     static unsigned samples=0;
     const double now=MaimNowMs();
-    if(now<next || samples>=1800) return;
+    if(now<next) return;
     next=now+500;
     uint8_t* cam=g_camObj; uint8_t* pawn=g_pePawn;
     if(!cam || !pawn) return;
+    // The verbose tables stop at 1800 samples (15 min); the one-line spring
+    // census below does not, so a displacement late in a session is still seen.
+    const bool full=samples<1800;
     ++samples;
     if(!BuildLiveSet() || !IsLiveObject(cam) || !IsLiveObject(pawn)) {
         Log("camera/source: sample=%u unavailable: live camera/pawn validation failed",samples); return;
@@ -128,7 +131,7 @@ static void CameraSourceTick()
     float delta[3]={NAN,NAN,NAN};
     if(deltaOk) for(int k=0;k<3;++k) delta[k]=pov[k]-loc[k];
     const dvr::anim::Snapshot state=dvr::anim::snapshot();
-    Log("camera/source: sample=%u time=%.0f cam=%p pawn=%p state=%s owner-match=%d "
+    if(full) Log("camera/source: sample=%u time=%.0f cam=%p pawn=%p state=%s owner-match=%d "
         "pov-read=%d pawn-read=%d camera-world=%.2f/%.2f/%.2f pawn-world=%.2f/%.2f/%.2f "
         "eye-delta=%s %.2f/%.2f/%.2f velocity=%.2f/%.2f/%.2f EyeHeight=%.2f BaseEyeHeight=%.2f; "
         "sequential cache snapshot, freshness unverified; 500ms samples are not frequency evidence",
@@ -142,7 +145,25 @@ static void CameraSourceTick()
         (count && !RangeReadable(groups,count*sizeof(void*)))) {
         Log("camera/source: influence groups unavailable count=%d",count); return;
     }
-    Log("camera/source: groups=%d (separate from Camera.ModifierList)",count);
+    if(full) Log("camera/source: groups=%d (separate from Camera.ModifierList)",count);
+    // VR-165: THE SPRING CENSUS. Measured 2026-09-22: in the bugged state the final
+    // POV sat 125-281 uu from the pawn while PlayerControl's own source POV read a
+    // normal 77 uu, so the displacement is ADDED after the base camera. The additive
+    // influences that keep state are the PhysicalReact springs (PhysicalReact,
+    // HitReact, Shake, Recoil: m_StabilityPoint / m_StrengthPoint), Lean's
+    // m_HeadPoint and BumpSmoother's interpolated height. Prediction: in a bugged
+    // window one of them holds a non-zero position (or keeps moving) that a healthy
+    // window never shows, and a reload returns it to rest. If every spring reads
+    // at rest while the eye offset is large, the springs are eliminated.
+    char springs[900]; int sp=0; springs[0]=0;
+    auto springVec=[&](uint8_t* inf,const char* cls,const char* point,float* pos,float* velo) {
+        pos[0]=pos[1]=pos[2]=velo[0]=velo[1]=velo[2]=NAN;
+        const uint32_t po=RflOffsetOf(cls,point), mp=RflOffsetOf("DisSpringPoint","m_Pos"),
+                       mv=RflOffsetOf("DisSpringPoint","m_Velocity");
+        if(!po || !RangeReadable(inf+po,64)) return false;
+        memcpy(pos,inf+po+mp,12); memcpy(velo,inf+po+mv,12);
+        return mv!=0;   // m_Pos is the first member (offset 0), so only m_Velocity proves the struct resolved
+    };
     for(int g=0;g<count;++g) {
         uint8_t* group=((uint8_t**)groups)[g];
         if(!group) { Log("camera/source: sample=%u group=%d obj=%p EMPTY null slot",samples,g,group); continue; }
@@ -168,16 +189,45 @@ static void CameraSourceTick()
             float relative[3]={NAN,NAN,NAN};
             const bool relativeOk=worldPov && sourceOk && locOk && ownerOk;
             if(relativeOk) for(int k=0;k<3;++k) relative[k]=source[k]-loc[k];
-            if(worldPov) Log("camera/source: sample=%u group=%d row=%d source-world=%.2f/%.2f/%.2f "
+            if(worldPov && full) Log("camera/source: sample=%u group=%d row=%d source-world=%.2f/%.2f/%.2f "
                 "source-minus-pawn=%s %.2f/%.2f/%.2f (debug field freshness unverified)",
                 samples,g,i,source[0],source[1],source[2],relativeOk?"computed":"UNAVAILABLE",
                 relative[0],relative[1],relative[2]);
-            Log("camera/source: group=%d row=%d obj=%p class=%s weight=%g target=%g %s=%.2f/%.2f/%.2f",
+            if(cls && sp<(int)sizeof(springs)-120) {
+                const bool react=!strcmp(cls,"DishonoredCamera_PhysicalReact") || !strcmp(cls,"DishonoredCamera_HitReact") ||
+                                 !strcmp(cls,"DishonoredCamera_Shake") || !strcmp(cls,"DishonoredCamera_Recoil");
+                const char* shortName=strstr(cls,"Camera_")?strstr(cls,"Camera_")+7:cls;
+                float a[3],av[3],b[3],bv[3];
+                if(react && springVec(inf,"DishonoredCamera_PhysicalReact","m_StabilityPoint",a,av) &&
+                   springVec(inf,"DishonoredCamera_PhysicalReact","m_StrengthPoint",b,bv))
+                    sp+=_snprintf(springs+sp,sizeof(springs)-sp," %s w%.2f stab=(%.1f,%.1f,%.1f)v%.0f str=(%.1f,%.1f,%.1f)v%.0f",
+                        shortName,scalar(inf,"DishonoredCameraInfluence","m_Weight"),a[0],a[1],a[2],
+                        sqrtf(av[0]*av[0]+av[1]*av[1]+av[2]*av[2]),b[0],b[1],b[2],sqrtf(bv[0]*bv[0]+bv[1]*bv[1]+bv[2]*bv[2]));
+                else if(!strcmp(cls,"DishonoredCamera_Lean") && springVec(inf,"DishonoredCamera_Lean","m_HeadPoint",a,av))
+                    sp+=_snprintf(springs+sp,sizeof(springs)-sp," Lean head=(%.1f,%.1f,%.1f)v%.0f",a[0],a[1],a[2],
+                        sqrtf(av[0]*av[0]+av[1]*av[1]+av[2]*av[2]));
+                else if(!strcmp(cls,"DishonoredCamera_BumpSmoother"))
+                    sp+=_snprintf(springs+sp,sizeof(springs)-sp," Bump w%.2f h=%.1f off=%.1f",
+                        scalar(inf,"DishonoredCameraInfluence","m_Weight"),
+                        scalar(inf,"DishonoredCamera_BumpSmoother","m_fLastInterpolatedHeight"),
+                        scalar(inf,"DishonoredCamera_BumpSmoother","m_fDebug_LastOffset"));
+                if(sp<0 || sp>=(int)sizeof(springs)) sp=(int)sizeof(springs)-1;
+            }
+            if(full) Log("camera/source: group=%d row=%d obj=%p class=%s weight=%g target=%g %s=%.2f/%.2f/%.2f",
                 g,i,inf,cls?cls:"unavailable",scalar(inf,"DishonoredCameraInfluence","m_Weight"),
                 scalar(inf,"DishonoredCameraInfluence","m_TargetWeight"),field,source[0],source[1],source[2]);
         }
     }
-    if(samples==1800) Log("camera/source: sample budget exhausted; restart required for more source snapshots");
+    const float eye=deltaOk ? sqrtf(delta[0]*delta[0]+delta[1]*delta[1]+delta[2]*delta[2]) : NAN;
+    Log("camera/springs: sample=%u state=%s eye=%.1f uu (healthy 44-104, the chain bug 125-281)%s",
+        samples,state.state[0],eye,springs[0]?springs:" no spring influence readable");
+    // One WARN per episode, so a report can be found by grep without a timestamp.
+    static int high=0; static bool warned=false;
+    if(std::isfinite(eye) && eye>115.0f) { if(++high==3 && !warned) { warned=true;
+        DVR_WARN("camera/displaced: the camera has sat %.0f uu from the pawn for 3 samples (1.5 s) - the VR-165 "
+                 "state. The camera/springs lines around this one say which influence holds it.",eye); } }
+    else if(std::isfinite(eye) && eye<105.0f) { if(warned) Log("camera/displaced: back to %.0f uu - episode over",eye); high=0; warned=false; }
+    if(samples==1800) Log("camera/source: verbose tables stop at 1800 samples; the camera/springs census continues");
 }
 
 // Called from the script lane next to the other per-tick readers.

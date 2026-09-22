@@ -187,6 +187,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     InteractAimTick(); // VR-166: logs what the engine focused and who aimed it
     CarryThrowAimTick(); // VR-181: where a thrown carried object actually went
     CarryHoldTick();     // VR-181: where the carried object is held, and who set it
+    FxFollowTick();      // VR-182: effects attached to the hands follow the drawn hands
     FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
     // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
     // lever only revalidates the camera object while it is armed, so the seam

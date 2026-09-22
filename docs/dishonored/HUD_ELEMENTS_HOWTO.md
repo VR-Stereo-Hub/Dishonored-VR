@@ -119,8 +119,14 @@ predicate in `ui_surface.cpp` and the opt-in mask in `hud_layout.cpp`
 
 - **An element that moves with the world** (the objective marker, a waypoint) has no
   fixed rectangle. Claiming it needs a different identity: the Scaleform display object
-  behind the draw (its instance name), which this build does not read. That is a
-  research ticket (the handoff's route 2), not a region.
+  behind the draw (its instance name), which this build does not read. Since VR-185 the
+  task, rune and awareness markers are claimed by the screen point their native parent hooks
+  publish instead (`HUD_ANCHORS.md`, "Objective markers by position"); a new moving family
+  needs its own published point, not a region.
+- **A widget made of several pieces** (a plate, a glyph, an icon) does not need a row per
+  piece: since VR-186 a piece with no row of its own takes the element of the widget it is
+  drawn with (back-to-back touching draws). Name the piece that identifies the widget; the
+  plates follow it. `hud/group` lists the widgets it found.
 - **Two elements that overlap** cannot be split by a centre rule. The health and mana
   bars interleave in x on this build (fills centred 0.076 and 0.098, frames 0.077 and
   0.103, one background centred 0.081), which is why they ship as one `vitals` row.

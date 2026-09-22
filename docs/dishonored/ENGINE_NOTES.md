@@ -8594,6 +8594,41 @@ the pawn velocity), and trigger the release on grip-open instead of the throw bu
 `m_bThrowOnDrop` is the flag that selects the throw branch. Still unknown: what sets it,
 the speed tweak's value, and whether the angular velocity should follow the controller's.
 
+## Hand effects follow the drawn hands (VR-182, 2026-09-22, FIXED, headset-confirmed)
+
+**Cause, derived.** The hands and held items are placed by a render-only palette correction
+(VR-33-HANDS-AND-WEAPONS section 1), and the game's bones stay put. So anything attached to
+those meshes stays at the game's hand. From the decompiled scripts (declarations only):
+
+* Heart: `DisGadget_Heart.m_pGlowFX` (ParticleSystemComponent), from `DisTweaks_Heart.m_pGlowFX`
+  at `m_GlowFXSocket`. The Heart's player mesh is a `DishonoredItemSkeletalComponent` with
+  `bForceUpdateAttachmentsInTick`, SDPG_Foreground and TG_PostUpdateWork, and its equip socket
+  is `LeftHandWpn`. The material glow (`m_pHeart_MIC`, `m_fGlow`) rides the mesh draw.
+* Blink: `DishonoredActivePowerComponent_Blink.m_pMeshPS` and `m_pAimingPS`.
+* Possession: `DisTweaks_Possess.m_pHandCastParticle` at `m_HandCastParticleAttachSocket`.
+* The socket names are in the content packages, not the scripts.
+
+**The follow** (`hands/fx_follow.cpp`, script lane, always on). The weapon path already
+publishes, per hand, D in the draw's camera-relative space, the drawn arm transform `L_hand`,
+and the native snapshot of every view-model component. In world terms the correction is
+`W = inverse(br) * D * br`, with `br = bridge(native arm, drawn arm)`. For every
+ParticleSystemComponent in the `Attachments` array (`SkeletalMeshComponent.Attachments`,
+resolved by name) of a snapshot mesh, the attachment's RelativeLocation/RelativeRotation are
+rewritten each tick to `inverse(S) * W * S * Rel0`, where `S = C * inverse(RelWritten)` is the
+socket recovered from the component's LocalToWorld. The engine's own attachment update does
+the rest. The element stride is proved on a live array (a live component and a sane
+RelativeScale at `+0x24` for every element), and `Rel0` is restored whenever no fresh
+correction exists. The hand comes from the snapshot, or from the bone name on the arm mesh.
+**Not yet run.** `fx/follow:` names every tracked effect, its mesh, bone and hand, and every
+non-particle attachment it leaves alone. If Blink's `m_pMeshPS` samples the arm mesh's
+surface instead of being attached, it will not appear in that list, and it needs a different fix.
+
+**First headset run (build 665): nothing followed, and nothing was tracked.** The log shows only the Attachments offset (`+0x27C`), with no stride line and no `tracking` line. The mesh filter wanted `SkeletalMeshComponent` in the class name, and every mesh the game uses is a subclass (`DishonoredItemSkeletalComponent` and the player's skeletal component), so none was ever walked. The same run added two observations. The Heart's stray effect is a floating ball of LIGHT (the heart's own inner light works). Possession shows two effects, a light and a particle system, and neither is on the hand. Build 666 fixes the filter and follows LightComponents too (`LightComponent.LightToWorld` by name). It adds `fx/find:`, an incremental GObjects pass that lists every particle system and light owned by the pawn or by an actor the pawn owns, says whether a tracked mesh carries it, and logs where it sits in the view. So an effect that is not a mesh attachment is still named.
+
+**Second headset run (build 667): the effects moved, then diverged.** The follow tracked Possession's `CastingEffect` (template `Possession_HandCast_01`) on the arm mesh bone `handAttachment_L_jnt`, and the Heart's `heart_glow` (a `DisParticleSystemComponent`) on the Heart mesh bone `Root_jnt`. The Heart glow sat in the heart, but then sprang out in a star of about five copies, and the Blink and Possession effects flew off in random directions. The log read `largest move inf uu`. The socket had been recovered as `C * inverse(RelWritten)`. The engine does not rebuild C every tick, so a stale C built with an older relative gave a wrong socket, and each write compounded the error. Build 668 takes the bone pose from the engine instead: `SkeletalMeshComponent.TransformFromBoneSpace` places the game's relative on the live bone, the correction is applied, and `TransformToBoneSpace` converts the result back, both through ProcessEvent. Nothing written feeds back. Any single correction over 120 uu is rejected and the game's relative restored.
+
+**Build 669 result: headset-confirmed.** After the re-entry fix (TRAPS: a ProcessEvent call from the script tick re-enters the script tick), the Heart's glow, the Blink hand effect and both Possession effects stayed on the drawn hands.
+
 ## The razor placement seam (VR-166, 2026-09-21)
 
 **Found statically; the write-watch was retired without its result.** Build 612 armed

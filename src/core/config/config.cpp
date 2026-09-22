@@ -395,6 +395,11 @@ static void WriteDefaultIni(const char* ini)
         "ColorR=255\n"
         "ColorG=255\n"
         "ColorB=255\n"
+        "; VR-189: one reticle position for everything but the pistol and the crossbow\n"
+        "; (any ammo, any upgrade), degrees in the controller frame: +X right, +Y up.\n"
+        "; The aim follows the dot. Live: F10 HUD tab, Reticle.\n"
+        "OtherItemsX=9.00\n"
+        "OtherItemsY=-53.40\n"
         "; Reserved; hiding the game reticle is not implemented in this step.\n"
         "; BothPoses=1 draws the GRIP pose ray beside the AIM pose ray, at 60\n"
         "; size, so a headset can name which one lies along the controller.\n"
@@ -475,7 +480,7 @@ static void WriteDefaultIni(const char* ini)
         "; SourceProbe=1 (VR-166) names every object that asks the shared power-aim helper\n"
         "; (the one Blink uses) for a vector, and how far that vector sits off the view.\n"
         "; READ-ONLY. It answers which powers and thrown items one seam could aim by hand.\n"
-        "SourceProbe=0\n"
+        "SourceProbe=1\n"
         "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
         "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
         "InteractFromHand=1\n"
@@ -496,12 +501,12 @@ static void WriteDefaultIni(const char* ini)
         "CarryHoldAtHand=1\n"
         "; Where it sits in the hand, in the hand's own frame: cm forward/right/up and a trim in\n"
         "; degrees (pitch/yaw/roll). CarryHoldWorldDepth=1 draws it in the world, not the weapon layer.\n"
-        "CarryHoldForwardCm=-32\n"
-        "CarryHoldRightCm=6\n"
-        "CarryHoldUpCm=-13\n"
-        "CarryHoldPitch=-8\n"
-        "CarryHoldYaw=16\n"
-        "CarryHoldRoll=-32\n"
+        "CarryHoldForwardCm=-9\n"
+        "CarryHoldRightCm=16\n"
+        "CarryHoldUpCm=-32\n"
+        "CarryHoldPitch=40\n"
+        "CarryHoldYaw=4\n"
+        "CarryHoldRoll=-36\n"
         "CarryHoldRotate=1\n"
         "CarryHoldWorldDepth=1\n"
         "; CarryHoldKeepPickupAngle=0: the object sits the same way in the hand every time (then the\n"
@@ -549,7 +554,7 @@ static void WriteDefaultIni(const char* ini)
         "SwingMs=120\n"
         "SwingDistM=0.25\n"
         "HoldMs=220\n"
-        "CooldownMs=300\n"
+        "CooldownMs=200\n"
         "; edge: EdgeSpeed is the hand speed (m/s) that counts as a swing. Swings not\n"
         "; registering? lower it toward your PEAK. Attacking while you walk or reach?\n"
         "; raise it. RearmSpeed is how slow the hand must get before the next swing\n"
@@ -702,7 +707,7 @@ static void WriteDefaultIni(const char* ini)
         "DrawOrderHands=-1,-1,-1,-1,-1,-1,-1,-1\n"
         "[Hands]\n"
         "RoundedWrist=1\n"
-        "RoundedWristDepth=0.640\n"
+        "RoundedWristDepth=0.570\n"
         "PaletteEyeMenuHalfStep=1\n"
         "CrawlTuck=1\n"
         "CrawlTuckCamera=0\n"
@@ -806,6 +811,12 @@ static void WriteDefaultIni(const char* ini)
         "PaletteDriveGain=1.00\n"
         "PaletteStep=0\n"
         "PaletteRotate=1\n"
+        "; AnchorBone=1 (VR-183): the palm is placed from the hand (wrist) bone, so finger animation\n"
+        "; cannot swing the hand. 0 = the old choice, the bone most weighted on the palm patch.\n"
+        "AnchorBone=1\n"
+        "; RigidWrist=1 (VR-184): the wrist cut and cap stay rigid with the hand, so arm animation\n"
+        "; cannot bend them; the fingers still animate. 0 = the game's own weights.\n"
+        "RigidWrist=1\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -846,18 +857,18 @@ static void WriteDefaultIni(const char* ini)
         "Adjust=1\n"
         "AdjStepT=1\n"
         "AdjStepR=3\n"
-        "TrimLTX=0.0200\n"
-        "TrimLRX=5.00\n"
-        "TrimLTY=0.0200\n"
-        "TrimLRY=7.00\n"
+        "TrimLTX=0.0400\n"
+        "TrimLRX=8.00\n"
+        "TrimLTY=0.0400\n"
+        "TrimLRY=5.00\n"
         "TrimLTZ=0.0520\n"
         "TrimLRZ=1.00\n"
-        "TrimRTX=0.0200\n"
-        "TrimRRX=-53.00\n"
-        "TrimRTY=0.0000\n"
-        "TrimRRY=35.00\n"
+        "TrimRTX=0.0400\n"
+        "TrimRRX=-42.00\n"
+        "TrimRTY=0.0200\n"
+        "TrimRRY=67.00\n"
         "TrimRTZ=0.0120\n"
-        "TrimRRZ=4.00\n"
+        "TrimRRZ=3.00\n"
         "AttachWeapons=1\n"
         "AttachSwordHand=1\n"
         "AttachCrossbowHand=0\n"
@@ -905,8 +916,8 @@ static void WriteDefaultIni(const char* ini)
         "WristEdge=3\n"
         "WristStep=1\n"
         "WristAxis=0\n"
-        "WristCutA=-4.90\n"
-        "WristCutB=-4.90\n"
+        "WristCutA=-10.00\n"
+        "WristCutB=-10.00\n"
         "[Blink]\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "ControllerAim=1\n"
@@ -921,6 +932,7 @@ static void WriteDefaultIni(const char* ini)
         "UseAimRay=1\n"
         "OptVer=3\n"
         "[Overlay]\n"
+        "UiScale=1.54\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "DevTools=0\n"
         "[VRHands]\n"
@@ -1054,10 +1066,10 @@ static void WriteDefaultIni(const char* ini)
         "[CameraShake]\n"
         "Suppress=1\n"
         "Walk=0\n"
-        "Fire=0\n"
-        "Landing=0\n"
+        "Fire=1\n"
+        "Landing=1\n"
         "Hits=0\n"
-        "Generic=0\n"
+        "Generic=1\n"
         "Smoother=1\n"
         "\n"
         "[Rain]\n"
@@ -1151,7 +1163,7 @@ static void WriteDefaultIni(const char* ini)
         "PauseSceneFreshness=1\n"
         "; MenuSceneFreshness: reuse observed scene uploads for up to 100ms in head-tracked menus.\n"
         "; Separate test lever; stale scenes and menu/level transitions still refuse.\n"
-        "MenuSceneFreshness=0\n"
+        "MenuSceneFreshness=1\n"
         "PauseAlphaMode=repair\n"
         "PauseAlphaGain=1.950\n"
         "PauseAlphaFloor=0.660\n"
@@ -1349,8 +1361,8 @@ static void WriteDefaultIni(const char* ini)
         "WindowWheel=1\n"
         "WindowStore=0\n"
         "WindowMissionStats=1\n"
-        "Element.default.WinX=0.184\n"
-        "Element.default.WinY=-0.153\n"
+        "Element.default.WinX=0.244\n"
+        "Element.default.WinY=-0.063\n"
         "Element.default.WinScale=1.570\n"
         "Element.vitals.WinX=-0.167\n"
         "Element.vitals.WinY=0.106\n"
@@ -1837,6 +1849,8 @@ static void LoadConfig()
         crosshair.rgb[0] = GetPrivateProfileIntA("Crosshair", "ColorR", 255, ini);   // VR-141: white by default
         crosshair.rgb[1] = GetPrivateProfileIntA("Crosshair", "ColorG", 255, ini);
         crosshair.rgb[2] = GetPrivateProfileIntA("Crosshair", "ColorB", 255, ini);
+        crosshair.otherXDeg = IniFloat(ini, "Crosshair", "OtherItemsX", 9.0f);   // VR-189: the tester's tuned position
+        crosshair.otherYDeg = IniFloat(ini, "Crosshair", "OtherItemsY", -53.4f);
         dvr::aim::configure(crosshair, ini);
         if (GetPrivateProfileIntA("Crosshair", "HideGame", 0, ini))
             Log("crosshair: HideGame is reserved and unsupported; native reticle remains visible");
@@ -2370,7 +2384,7 @@ static void LoadConfig()
     g_msPlane         = IniFloat(ini, "Hands", "WristPlane", 1) != 0.0f;
     g_msCap           = IniFloat(ini, "Hands", "CutCap", 1) != 0.0f;
     g_msRoundWrist    = IniFloat(ini, "Hands", "RoundedWrist", 0) != 0.0f;
-    g_msRoundDepth    = fminf(.8f,fmaxf(.05f,IniFloat(ini,"Hands","RoundedWristDepth",.35f)));
+    g_msRoundDepth    = fminf(.8f,fmaxf(.05f,IniFloat(ini,"Hands","RoundedWristDepth",.57f)));
     g_msCapTwo        = IniFloat(ini, "Hands", "CutCapTwoSided", 1) != 0.0f;
     // VR-33 step 1. READ-ONLY, so it ships ON: it resolves engine names and
     // reports what it could not find, and writes nothing anywhere.
@@ -2433,6 +2447,8 @@ static void LoadConfig()
     // that is testing it, and the previous stage stays reachable by turning it
     // back off.
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
+    g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
+    g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.
@@ -3076,7 +3092,7 @@ static void LoadConfig()
     // it is the escape hatch if a future asset makes -4.9 wrong.
     for (int s = 1; s <= 2; s++) {
         const float c = IniFloat(ini, "Hands", s == 1 ? "WristCutA" : "WristCutB",
-                                 -4.9f);
+                                 -10.0f);   // VR-188: the Cuffs preset ships as the default
         g_msCutSet[s] = (c > -1e8f) ? 1 : 0;
         if (g_msCutSet[s]) g_msCutRel[s] = c;
     }
@@ -3900,6 +3916,8 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Crosshair", "SizeDeg", v, ini);
         const char* rgbKeys[3] = {"ColorR", "ColorG", "ColorB"};
         for (int i = 0; i < 3; ++i) { _snprintf(v, 64, "%d", crosshair.rgb[i]); WritePrivateProfileStringA("Crosshair", rgbKeys[i], v, ini); }
+        _snprintf(v, 64, "%.2f", crosshair.otherXDeg); WritePrivateProfileStringA("Crosshair", "OtherItemsX", v, ini);
+        _snprintf(v, 64, "%.2f", crosshair.otherYDeg); WritePrivateProfileStringA("Crosshair", "OtherItemsY", v, ini);
     }
     WritePrivateProfileStringA("Stereo", "Armed", dvr::stereo::armed() ? "1" : "0", ini);
     { char hv[16]; _snprintf(hv, sizeof(hv), "%d", dvr::stereo::hold_untagged());

@@ -531,6 +531,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
 static const char* MsModeName(int m);
 static void MsTick(void);
 static bool MsCommand(const char* args);
+static void MsSleeveApply(float cut, float roundness, const char* who);
 struct PrField;
 static void PrResolve(void);
 static uint32_t PrOff(const char* cls, const char* prop);
@@ -663,6 +664,7 @@ static void GadgetAimConfigure(const char* ini);
 static bool GadgetAimCommand(const char* args);
 static void CarryThrowAimTick();
 static void CarryHoldTick();
+static void FxFollowTick();                                    // VR-182: hand effects follow the drawn hands
 static uint8_t* CarryProbeFocus();                                   // VR-181: where the carried object is held
 static void CarryHoldConfigure(const char* ini);
 static void CarryHoldSet(bool on, const char* who);

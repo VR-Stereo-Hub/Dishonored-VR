@@ -1,5 +1,6 @@
 #include "core/ui/legacy_fov_control.inc"
 #include "core/framework/render_profile.h"
+#include "game/dishonored/hands/sleeve_presets.h"
 // core/ui/overlay.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -736,6 +737,25 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     }
 
     if (ImGui::BeginTabItem("Hands")) {
+    {   // The sleeve: how much arm the drawn hands keep.
+        const int cur = dvr::sleeve::match(g_msCutRel[1], g_msCutRel[2], g_msRoundDepth);
+        if (ImGui::BeginCombo("Sleeve", cur >= 0 ? dvr::sleeve::kPresets[cur].name : "Custom")) {
+            for (int i = 0; i < dvr::sleeve::kPresetCount; ++i)
+                if (ImGui::Selectable(dvr::sleeve::kPresets[i].name, cur == i)) {
+                    g_msRoundWrist = true;
+                    ConfigWriteKey("Hands", "RoundedWrist", "1", "F10 Hands");
+                    MsSleeveApply(dvr::sleeve::kPresets[i].cut, dvr::sleeve::kPresets[i].roundness, "F10 Sleeve preset");
+                }
+            ImGui::EndCombo();
+        }
+        // Rebuilding the split takes a few ms, so the length applies on release.
+        static float shownLen = 0.0f; static bool editing = false;
+        if (!editing) shownLen = -g_msCutRel[1];
+        ImGui::SliderFloat("Sleeve length", &shownLen, 0.0f, 30.0f, "%.1f");
+        editing = ImGui::IsItemActive();
+        if (ImGui::IsItemDeactivatedAfterEdit()) MsSleeveApply(-shownLen, g_msRoundDepth, "F10 Sleeve length");
+        ImGui::TextDisabled("Hands, Cuffs or Forearm set length and roundness; the slider and the roundness make it Custom.");
+    }
     bool wristChanged=ImGui::Checkbox("Rounded wrist ends",&g_msRoundWrist);
     wristChanged|=ImGui::SliderFloat("Wrist roundness",&g_msRoundDepth,.05f,.8f,"%.2f");
     if(wristChanged) {
@@ -1410,6 +1430,8 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
             ConfigWriteKey("Crosshair", "Hand", rc.hand ? "right" : "left", "F10 HUD");
             _snprintf(rv, sizeof(rv), "%.3f", rc.distanceM); ConfigWriteKey("Crosshair", "DistanceM", rv, "F10 HUD");
             _snprintf(rv, sizeof(rv), "%.3f", rc.sizeDeg); ConfigWriteKey("Crosshair", "SizeDeg", rv, "F10 HUD");
+            _snprintf(rv, sizeof(rv), "%.2f", rc.otherXDeg); ConfigWriteKey("Crosshair", "OtherItemsX", rv, "F10 HUD");   // VR-189
+            _snprintf(rv, sizeof(rv), "%.2f", rc.otherYDeg); ConfigWriteKey("Crosshair", "OtherItemsY", rv, "F10 HUD");
             const char* rk[3] = {"ColorR", "ColorG", "ColorB"};
             for (int i = 0; i < 3; ++i) { _snprintf(rv, sizeof(rv), "%d", rc.rgb[i]); ConfigWriteKey("Crosshair", rk[i], rv, "F10 HUD"); }
         }

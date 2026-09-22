@@ -314,6 +314,14 @@ static void RflStateTick(void)
     }
     // VR-37: the motion sword asks "is the sword in the right hand" from the
     // present lane. found[1] is the EQUIPPED Primary item, class name first.
+    for (int u = 1; u <= 2; ++u) {
+        char cls[64]; _snprintf(cls, sizeof(cls), "%s", found[u]); cls[63] = 0;
+        if (char* sp = strchr(cls, ' ')) *sp = 0;            // the class, not the object name
+        const LONG gun = (strstr(cls, "WepCrossbow") || strstr(cls, "WepPistol")) ? 1 : 2;
+        if (InterlockedExchange(&g_rflSlotGun[u], gun) != gun)
+            Log("crosshair: equip slot %d holds '%s' -> %s for the other-items reticle offset", u,
+                cls[0] ? cls : "nothing", gun == 1 ? "a GUN (its aim is kept)" : "another item (offset applies)");
+    }
     InterlockedExchange(&g_rflPrimaryKind,
         !found[1][0] ? 0 : !strncmp(found[1], "DishonoredWepSword", 18) ? 1 : 2);
     { const LONG t = (LONG)GetTickCount(); InterlockedExchange(&g_rflPrimaryKindTick, t ? t : 1); }

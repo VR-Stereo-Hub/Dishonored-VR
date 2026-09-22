@@ -1,6 +1,8 @@
 // tools/hud-route-tests.cpp - the HUD element routing, on the host (VR-120).
-// Build and run: tools\hud-route-host.ps1. Pure: core/gfx/hud_route.h only.
+// Build and run: tools\hud-route-host.ps1. Pure: hud_route.h, hud_group.h (VR-186), hud_native_rune.h (VR-185).
 #include "core/gfx/hud_route.h"
+#include "core/gfx/hud_group.h"
+#include "core/gfx/hud_native_rune.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -169,6 +171,94 @@ int main() {
         check(dvr::hudroute::centered_reticle(centralButton,2),"measured centered reticle remains protected");
         retained.resolve(99,2,Default,button);retained.adopt(99,2,Prompt);
         check(retained.resolve(99,3,Default,title)==Default,"ambiguous shared sprites cannot be adopted");
+    }
+    // ---- VR-186: widget groups from back-to-back touching draws -----------
+    {
+        using namespace dvr::hudgroup;
+        Builder g;
+        const float plate[4]={.40f,.80f,.44f,.84f}, glyph[4]={.405f,.805f,.435f,.835f};
+        const float far[4]={.10f,.50f,.12f,.52f};
+        g.begin(1); g.add(plate,Default,kDefault); g.add(glyph,Prompt,kRow);
+        g.begin(2);
+        check(g.prevN==1 && g.prev[0].members==2 && g.prev[0].owner==Prompt,"plate and glyph are one widget owned by the glyph");
+        check(g.lookup(plate,kDefault)==Prompt,"the plate takes its widget owner (the fault: plate on another layer)");
+        check(g.lookup(plate,kWeak)==Prompt,"an isolated-icon plate takes its widget owner too");
+        check(g.lookup(glyph,kRow)==-1,"a piece with its own row is never lifted");
+        check(g.lookup(far,kDefault)==-1,"a draw outside every widget keeps its own route");
+        // Draw order matters: the plate drawn FIRST still gets the owner (next present).
+        g.add(glyph,Prompt,kRow); g.add(plate,Default,kDefault);
+        g.begin(3);
+        check(g.lookup(plate,kDefault)==Prompt,"owner drawn before the plate groups the same way");
+        // Not touching, or cut by a native draw: separate widgets.
+        g.add(plate,Default,kDefault); g.add(far,Prompt,kRow);
+        g.begin(4);
+        check(g.lookup(plate,kDefault)==-1,"consecutive but distant draws are not one widget");
+        g.add(plate,Default,kDefault); g.cut(); g.add(glyph,Prompt,kRow);
+        g.begin(5);
+        check(g.lookup(plate,kDefault)==-1,"a cut (native marker, vignette) ends the run");
+        // Two differently identified owners never merge, even touching.
+        const float bar[4]={.05f,.20f,.15f,.25f}, sneakIcon[4]={.14f,.24f,.17f,.27f}, sneakBack[4]={.139f,.239f,.171f,.271f};
+        g.add(bar,Vitals,kRow); g.add(sneakIcon,Prompt,kRow); g.add(sneakBack,Default,kDefault);
+        g.begin(6);
+        check(g.prevN==1 && g.prev[0].owner==Prompt,"a second row starts a new widget");
+        check(g.lookup(sneakBack,kDefault)==Prompt,"the background joins the icon it touches, not the neighbour row");
+        // The owner is the STRONGEST piece: the interaction group outranks a row.
+        const float title[4]={.52f,.48f,.70f,.52f};
+        g.add(title,Prompt,kInteraction); g.add(glyph,Default,kDefault);
+        g.begin(7);
+        check(g.lookup(glyph,kDefault)==-1,"distant default after an interaction title is its own widget");
+        // A widget owned only by `default` lifts an isolated icon onto default.
+        g.add(plate,Default,kDefault); g.add(glyph,Default,kWeak);
+        g.begin(8);
+        check(g.lookup(glyph,kWeak)==Default,"a guessed-marker icon in a default widget rides default, not the image");
+        check(g.lookup(plate,kDefault)==-1,"default does not lift default");
+        // Groups age out after three presents without HUD draws.
+        g.begin(12);
+        check(g.lookup(glyph,kWeak)==-1,"groups older than three presents are ignored");
+        // A full-screen draw is not a widget piece.
+        const float screen[4]={0,0,1,1};
+        g.add(screen,Default,kDefault); g.add(plate,Default,kDefault);
+        g.begin(13);
+        check(g.prevN==0,"a full-screen draw joins nothing");
+        // Size cap: a run cannot grow past 0.6 x 0.4 of the screen.
+        const float a1[4]={.0f,.0f,.3f,.1f}, a2[4]={.3f,.0f,.61f,.1f};
+        g.add(a1,Prompt,kRow); g.add(a2,Default,kDefault);
+        g.begin(14);
+        check(g.lookup(a2,kDefault)==-1,"a run past the size cap splits");
+    }
+    // ---- VR-185: task markers claimed by their published position --------
+    {
+        dvr::hudnative::TaskPositions t;
+        const float W=1920,H=1080;          // 16:9: 1 authoring px = 1/1280 of the width
+        t.update(1,640,360,1280,720,1,1000);
+        float pivot[4]{},off[2]{};
+        const float icon[4]={.5f-20/1280.f,.5f-20/720.f,.5f+20/1280.f,.5f+20/720.f};
+        check(t.match(icon,1010,W,H,pivot,off)==dvr::hudnative::TaskPositions::kIcon,"the icon at the published point is the marker's");
+        check(pivot[0]==.5f && pivot[1]==.5f,"the pivot is the published point");
+        const float title[4]={.5f-85/1280.f,.5f-80/720.f,.5f+85/1280.f,.5f-40/720.f};
+        check(t.match(title,1010,W,H,pivot,off)==dvr::hudnative::TaskPositions::kText,"the title above it is the marker's");
+        check(off[1]<-50 && off[1]>-70,"the offset is reported in authoring px");
+        const float dist[4]={.5f-30/1280.f,.5f+30/720.f,.5f+30/1280.f,.5f+54/720.f};
+        check(t.match(dist,1010,W,H,pivot)==dvr::hudnative::TaskPositions::kText,"the distance below it is the marker's");
+        const float prompt[4]={.5f+150/1280.f,.5f-20/720.f,.5f+350/1280.f,.5f+20/720.f};
+        check(!t.match(prompt,1010,W,H,pivot),"an interaction title right of the reticle is not claimed");
+        check(!t.match(icon,1200,W,H,pivot),"a sample older than 100 ms claims nothing");
+        t.update(1,640,360,1280,720,0,1300);
+        check(!t.match(icon,1310,W,H,pivot),"a hidden marker withdraws its point");
+        // Load while looking at the marker: nothing was ever seen at an edge,
+        // and the first draw is still claimed (the VR-185 trigger).
+        dvr::hudnative::TaskPositions fresh;
+        fresh.update(7,640,360,1280,720,1,5000);
+        check(fresh.match(icon,5001,W,H,pivot)==dvr::hudnative::TaskPositions::kIcon,"a marker in view on its first present is claimed");
+        // Two markers equally close cannot both own a draw.
+        dvr::hudnative::TaskPositions two;
+        two.update(1,620,360,1280,720,1,1000); two.update(2,660,360,1280,720,1,1000);
+        check(!two.match(icon,1010,W,H,pivot),"an equidistant draw between two markers is refused");
+        check(two.ambiguous==1,"and counted as ambiguous");
+        // A square target (the eye texture) letterboxes the canvas.
+        dvr::hudnative::TaskPositions sq; sq.update(1,1280*.25f,360,1280,720,1,1000);
+        const float sqIcon[4]={.25f-20/1280.f,.5f-20/1280.f,.25f+20/1280.f,.5f+20/1280.f};
+        check(sq.match(sqIcon,1001,2000,2000,pivot)==dvr::hudnative::TaskPositions::kIcon,"the fit is honoured on a square target");
     }
     std::printf("%u hud-route checks passed\n", checks);
     return 0;

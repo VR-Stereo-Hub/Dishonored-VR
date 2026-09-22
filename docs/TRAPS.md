@@ -1,3 +1,37 @@
+## A reference that can be voted onto the thing it is a reference FROM (VR-188, 2026-09-22)
+
+The palm's frame is the hand bone offset to a "vote slot", so the grip calibrated against the vote
+slot keeps its meaning. The vote was re-run on every rebuild over a patch that moved with the
+sleeve cut, and at one length it voted for the hand bone itself: the offset became identity and
+the hand turned about 45 degrees at exactly that Numpad + step. A reference must be derived from
+something the setting under adjustment cannot move, and must be refused when it collapses onto
+the thing it references. ARM_HAND_SPLIT.md, VR-188.
+
+## A recogniser that needs to see a thing in one place first fails when it starts somewhere else (VR-185, 2026-09-22)
+
+**What happened.** An objective marker could split from its title and distance text, and the
+most reliable trigger was loading a save while looking at the marker. The old marker path only
+recognised an icon once it had been seen CLAMPED TO A SCREEN EDGE (`hudnative::Markers::observe`
+requires `edge_icon` on first sight, then remembers the content key for 2400 frames). The title
+and distance were recognised only when a recognised icon had been drawn within one frame. A
+marker that was in view when the save loaded was never at an edge, so it was never recognised:
+the icon fell to the isolated-square-icon rule and stayed in the game image, while its text
+routed to `default` on the window. Looking away clamped it to the edge, the key was remembered,
+and looking back "fixed" it (diagnosed from the code and the 2026-09-22 logs, where one
+label key routed `objective` early and `default` later; the headset run of the fix is owed).
+The first reading was that the decision was cached too early. It
+was the opposite: recognition had not happened at all.
+
+**The rule.** Do not identify a moving element by a pose it passes through only sometimes. If
+the engine publishes where the element is (the task, rune and awareness parent hooks all do),
+claim draws by that position. A remembered key is continuity, never identity.
+
+**The companion trap.** The isolated-icon rule ("a square icon not near the prompt is probably a
+marker; leave it in the image") also caught the vault prompt's icon, the sneak indicator's
+background and the dialogue A button's plate (VR-186). A guess that routes to a DIFFERENT LAYER
+than its neighbours splits every widget it misfires on. It is now the fallback for a refused
+task hook only, and even then a piece of a known widget takes its widget's owner.
+
 ## A crash recorder whose budget our own probes spend cannot record the crash (VR-177, 2026-09-21)
 
 **What happened.** A playtester reported a freeze and a crash, and neither left a fault
@@ -1305,3 +1339,11 @@ measured population can be eliminated. Similarly, a menu walker stopping at
 category zero cannot characterize nested categories, and DisSetting's bool
 fields cannot be omitted when deriving its stride. The corrected instruments
 include empty/unresolved results and avoid radius or setter-mapping claims.
+
+## RangeReadable is a system call: never per object in a scan (VR-182, 2026-09-22)
+
+`RangeReadable` is `VirtualQuery`, and `ObjClassName` makes two of them. The first `fx/find` pass (build 666) walked 8192 GObjects entries EVERY script tick with one or two checked reads each, in the main menu too, where a pawn exists. The game fell to 0-5 fps and stayed there. A GObjects entry is a live UObject, so its class pointer at `+kClassOff` can be read raw. Cache the verdict per class pointer and make the checked reads only for the few objects that survive the class test. Pace the scan on a clock (2048 objects every 100 ms) and keep it out of menus.
+
+## A ProcessEvent call from the script tick re-enters the script tick (VR-182, 2026-09-22)
+
+The script tick (`PeHandler` in `ue3/process_event.cpp`) runs on EVERY ProcessEvent dispatch, and the hook has no re-entry guard. `g_peReentry` is only read by console.cpp and commands.cpp. A per-tick call into a native through `kProcessEvent` therefore re-enters the hook, which runs the whole tick again. Build 668 called `TransformFromBoneSpace` on every tick and overflowed the stack (`0xC00000FD` in d3d9.dll) on the first save load. Calls that happen only on a state change (`SetHidden`, `SetDepthPriorityGroup`) nest one level and get away with it. A module that calls the engine every tick needs its own `inside` guard. It should also gate on the frame, because the tick itself runs thousands of times a second.

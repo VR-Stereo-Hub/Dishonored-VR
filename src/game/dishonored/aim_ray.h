@@ -55,6 +55,9 @@ ModelRaySnapshot model_ray_snapshot(int hand);
 // against is stored with it and a mismatch discards it.
 void preload_model_ray(int hand, const float* originPalm, const float* dirPalm);
 void forget_model_ray(const char* why);
+// VR-189: what the aiming hand holds. 0 = unknown, 1 = a pistol or a crossbow (any
+// ammunition, any upgrade, the DLC crossbow), 2 = anything else. Present lane.
+int aim_item_kind(int hand);
 } // namespace dvr::hands
 namespace dvr::aim {
 struct Ray {
@@ -147,7 +150,11 @@ struct Config { bool dot = false, laser = false; int hand = 0; float distanceM =
                 bool controlDot = false; 
                 // VR-57: transport the hand trim onto this ray, so tuning the hand
                 // carries the guide and the shot. Off = the AIM pose, untouched.
-                bool modelRay = false; bool followHandTrim = false; };  // VR-57 test 1: the HEAD-anchored control
+                bool modelRay = false; bool followHandTrim = false;
+                // VR-189: one global reticle offset for everything EXCEPT the pistol and
+                // the crossbow, degrees in the controller's frame (+x right, +y up). It
+                // turns the shared ray, so the dot and the aim move together.
+                float otherXDeg = 9.0f, otherYDeg = -53.4f; };   // the tester's tuned position (2026-09-22)  // VR-57 test 1: the HEAD-anchored control
                                              // dot, which no controller enters. See
                                              // core/vr/aim_visual.h for what it settles.
 Config config();

@@ -227,6 +227,15 @@ static const char* BrWeaponFor(const WaCommon* wc,int hand)
     return "";
 }
 
+// VR-189: what the aiming hand holds, for the aim ray's other-items offset.
+// 0 = unknown (no equipment read yet), 1 = a pistol or a crossbow, 2 = anything else.
+int dvr::hands::aim_item_kind(int hand)
+{
+    if (hand < 0 || hand > 1) return 0;
+    const int slot = (hand == g_waXbowHand) ? 2 : 1;
+    return (int)InterlockedCompareExchange(&g_rflSlotGun[slot], 0, 0);
+}
+
 // The engine's equipped item for a hand. Slot 1 is the primary, slot 2 the
 // secondary, and the two hand assignments say which is which.
 static void* BrHeldFor(int hand)

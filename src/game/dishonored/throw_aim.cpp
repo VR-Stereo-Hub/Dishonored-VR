@@ -487,8 +487,9 @@ static uintptr_t g_hlBack = kMoveDeltaBack;
 static std::atomic<bool> g_hlOn{true};                   // [Aim] CarryHoldAtHand
 // [Aim] CarryHoldForwardCm/RightCm/UpCm and CarryHoldPitch/Yaw/Roll (degrees), in the HAND's frame.
 // Shipped defaults: the values tuned in the headset on 2026-09-22 (a bottle, the right hand).
-static const float kHlAdjDefault[6] = { -32, 6, -13, -8, 16, -32 };
-static float g_hlAdj[6] = { -32, 6, -13, -8, 16, -32 };
+// Retuned in the headset later the same day (the second hold values).
+static const float kHlAdjDefault[6] = { -9, 16, -32, 40, 4, -36 };
+static float g_hlAdj[6] = { -9, 16, -32, 40, 4, -36 };
 static const char* const kHlAdjKey[6] = { "CarryHoldForwardCm", "CarryHoldRightCm", "CarryHoldUpCm",
                                           "CarryHoldPitch", "CarryHoldYaw", "CarryHoldRoll" };
 static const float kHlAdjMin[6] = { -40, -40, -40, -180, -180, -180 }, kHlAdjMax[6] = { 60, 40, 40, 180, 180, 180 };

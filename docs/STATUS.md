@@ -1,3 +1,82 @@
+## Session handoff 2026-09-22 (final): VR-165 lead, carry reticle, new defaults
+
+`claude/misc-fixes` (#99). Installed `d3d9.dll` sha256 `E6941D34...`, not run.
+* VR-165 (the chain camera bug) reproduced by an explosion's knockback: the camera sat 125-281
+  uu from the pawn while PlayerControl's own source stayed at a healthy 77 uu, so the offset is
+  added by the additive influence graph after the base camera; weights all normal. New
+  `camera/springs` census names the spring state per sample; `camera/displaced` marks an
+  episode. FLICKER_REFERENCE top VR-165 entry. Next run: reproduce and read those lines.
+* The reticle stays up while carrying an object (the carry hands the arms back to the game,
+  which blanked the dot; the throw uses the same ray).
+* Defaults from the run: Other items 9.0 / -53.4, the carry hold (-9, 16, -32, 40, 4, -36),
+  Element.default.WinX/WinY 0.244 / -0.063.
+
+## Session handoff 2026-09-22 (latest): Sleeve presets baked, other-items reticle (VR-188, VR-189)
+
+`claude/misc-fixes` (#99), not merged. Installed: this commit's RelWithDebInfo (`d3d9.dll` sha256
+`3E26128A...`), not run.
+* VR-187 (wheel sticks) and VR-188 (sleeve rotation) ran clean in the headset; the Sleeve presets
+  are baked: Hands -4.90/0.64, Cuffs -10.00/0.57 (V-marked), Forearm -26.40/0.57 (held value).
+* VR-189: F10 HUD > Reticle "Other items X / Y" turns the shared aim ray for everything except
+  the pistol and the crossbow (any ammo or upgrade, and the DLC crossbow), by equipped class.
+* Tuned: Other items X -14.4 / Y -30.0 and the Cuffs sleeve are now the shipped defaults; the
+  reticle sliders reach +/-90 (Y was capped at -30), and F10 now saves them to the ini (it did
+  not). Installed `d3d9.dll` sha256 `E4A68128...`, not run. Next run: fine-tune Y past -30.
+* Known: `tools\default-profile-host.ps1` fails on drift between the packaged ini and the writer
+  that predates this work (trims, cooldown, UiScale, camera shake); only VR-189's keys were added.
+
+## Session handoff 2026-09-22 (later): wheel sticks, sleeve rotation, Sleeve presets (VR-187, VR-188)
+
+VR-185 and VR-186 are headset-confirmed (build 674). Same branch, `claude/misc-fixes` (#99), not
+merged. Installed: this commit's RelWithDebInfo (`d3d9.dll` sha256 `7B5D59EA...`), not run.
+* VR-187: with `WeaponDial=1` the wheel takes only the hand's direction; both sticks ignored.
+* VR-188: the hand turned at cut -10.1 because the palm anchor's vote landed on the hand bone and
+  the calibrated offset was dropped (ARM_HAND_SPLIT top section). Anchor pinned to the hand, the
+  vote kept off the hand bone, the offset kept across rebuilds. F10 > Hands: Sleeve preset
+  (Hands / Cuffs / Forearm) and Sleeve length slider; Cuffs and Forearm are PROVISIONAL.
+* Next run: step the sleeve through the whole range (the hand must not turn), pick the cuff look
+  and press V, pick the forearm look and press V; open the wheel while running. Then bake the two
+  `MARKER #n (V) sleeve:` lines into `sleeve_presets.h`.
+
+## Session handoff 2026-09-22: HUD markers by position, widget groups (VR-185, VR-186)
+
+**Branch.** `claude/misc-fixes` (draft PR #99, stacked on #98), not merged. Installed build is
+this commit's RelWithDebInfo (`d3d9.dll` sha256 `310DF2D5...`); not run yet. Pre-run logs
+archived in `build/playtest-candidates/vr185-186-hud-groups/before`.
+
+**What changed** (`HUD_ANCHORS.md`, top section; TRAPS top entry):
+* VR-185: task markers are claimed by the point the task parent hook publishes (the rune and
+  awareness pattern): icon, title and distance. Before, a marker was recognised only after it
+  had been seen clamped to a screen edge, so one in view at a load was never recognised and its
+  text rode the window while the icon stayed in the image. Diagnosed from the code and the
+  2026-09-22 logs; the headset verdict is owed. The text window is a bound: the
+  `hud/task-parent` census prints the widest accepted draws so it can be tightened.
+* VR-186: widget groups from the draw stream (`core/gfx/hud_group.h`): back-to-back touching
+  draws are one widget, and a piece with no row of its own takes the strongest piece's element.
+  Applied one present late. The isolated-square-icon rule (the suspected cause of the vault
+  icon, the sneak background and the A-button plate going to the image) runs only while the
+  task hook is not live.
+* Every decision names its rule: `hud/why` (per new key or changed decision), `hud/why-census`
+  and `hud/group` every 3 s. Host: 493 hud-route checks.
+
+**Headset run:** load a save looking at a marker; walk to a vault ledge; crouch; open a
+dialogue choice. Then read `hud/why`, `hud/why-census`, `hud/group`, `hud/task-owner`,
+`hud/task-parent` (the `text=` count and widest offsets).
+
+## Session handoff 2026-09-22: object throwing, hand effects, wrist anchor (VR-181..VR-184); HUD next
+
+**Branches.** `claude/vr-181-object-throwing` is PR #98 (to VR-Main, not merged). `claude/misc-fixes` is draft PR #99, stacked on #98, and it is where the next session continues. The installed build is the tip of `claude/misc-fixes`.
+
+**Headset-confirmed this session:**
+* VR-181: carried objects are held at the controller, turn with the wrist, and are thrown along the controller ray. The left trigger throws. The flicker was fixed by anchoring on the game camera, not the last render sample. The tuned hold offsets are the shipped defaults.
+* VR-182: hand effects follow the drawn hands (the Heart glow, the Blink and Possession effects). `hands/fx_follow.cpp`. The bone pose comes from the engine's TransformFrom/ToBoneSpace, and the tick is guarded against re-entry.
+* VR-183: an empty hand (powers) is placed from the wrist bone, so finger animation cannot swing it. A hand holding an item keeps the calibrated frame, so the reticle stays aligned.
+* VR-184: in the mod's vertex copy, hand vertices' forearm-bone influences point at the hand bone, so the wrist cut and cap stay rigid.
+
+**Traps added** (TRAPS.md): RangeReadable is a system call, so never make it per object in a scan. A ProcessEvent call from the script tick re-enters the script tick.
+
+**Next: the HUD.** VR-185 (objective markers on the wrong layer and split from their title, reproducible by loading a save while looking at a marker) and VR-186 (widget pieces split across layers: the vault icon, the sneak background, the dialogue A-button background; group them).
+
 ## Misc fixes branch: carried objects thrown by hand, VR-181 (2026-09-22)
 
 `claude/misc-fixes` off `VR-Main` after #96 (the tested build set plus VR-178) merged.

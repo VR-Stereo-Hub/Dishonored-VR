@@ -137,6 +137,11 @@ static int      g_rflHeldSocket[3] = {};
 // GetTickCount() of the successful read that produced it (0 = never read). A
 // failed read leaves both alone, so the stamp ages out: unknown is not a sword.
 static volatile LONG g_rflPrimaryKind = 0;
+// VR-189, per equip slot (1 primary, 2 secondary): 0 = not read yet, 1 = a pistol or a
+// crossbow, 2 = anything else, empty included. The class decides, so every ammunition
+// type and upgrade counts (they change the loaded ammo, not the equipped item), and the
+// DLC crossbow (DisDLC06WepCrossbow extends DisWepCrossbow) matches on "WepCrossbow".
+static volatile LONG g_rflSlotGun[3] = { 0, 0, 0 };
 static volatile LONG g_rflPrimaryKindTick = 0;
 
 // ---- THE EQUIPMENT REVISION -------------------------------------------------

@@ -72,6 +72,8 @@ void configure(const Config& cfg, const char* origin) {
                  origin, cfg.hand, cfg.distanceM, cfg.sizeDeg); return;
     }
     g_config = cfg;
+    for (float* o : { &g_config.otherXDeg, &g_config.otherYDeg })
+        *o = std::isfinite(*o) ? (*o < -90 ? -90 : *o > 90 ? 90 : *o) : 0;
     g_modelRequested.store(cfg.modelRay);
     g_ray = Ray{};
     { std::lock_guard<std::mutex> lock(g_fireMutex); g_fireFrame = {}; }
@@ -84,6 +86,8 @@ void configure(const Config& cfg, const char* origin) {
     dvr::vr::set_aim_dot_color((uint8_t)rgb[0], (uint8_t)rgb[1], (uint8_t)rgb[2]);
     g_lastWhy = "";
     DVR_INFO("crosshair: colour %d/%d/%d (RGB)", rgb[0], rgb[1], rgb[2]);
+    DVR_INFO("crosshair: other-items offset x %+.1f y %+.1f deg (everything but the pistol and the crossbow; "
+             "the dot and the aim move together)", g_config.otherXDeg, g_config.otherYDeg);
     DVR_INFO("crosshair: config from %s Dot=%d Laser=%d Hand=%s DistanceM=%.2f SizeDeg=%.2f "
              "ControlDot=%d (XR LOCAL fixed-distance guide; FireFromHand independently controls launch%s)",
              origin, cfg.dot, cfg.laser, cfg.hand ? "right" : "left", cfg.distanceM,
@@ -222,6 +226,44 @@ void tick(bool gameplay, bool projectionWanted) {
                 g_followWhy);
     }
 
+    // VR-189: THE OTHER-ITEMS OFFSET. Everything but the pistol and the crossbow
+    // aims along the ray turned by one global angle in the controller's own frame.
+    // Turned HERE, before both publications, so the dot and the shot stay one ray.
+    {
+        static int kindWas = -1; static bool usedWas = false;
+        const int kind = dvr::hands::aim_item_kind(g_config.hand);
+        const bool want = g_config.otherXDeg != 0 || g_config.otherYDeg != 0;
+        bool used = false;
+        if (want && kind == 2 && g_ray.ok && sample.aimValid) {
+            float q[4] = { sample.aimQuat[0], sample.aimQuat[1], sample.aimQuat[2], sample.aimQuat[3] };
+            const float n = std::sqrt(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
+            if (n > 0.5f) {
+                for (float& c : q) c /= n;
+                const float ax[3] = {1, 0, 0}, ay[3] = {0, 1, 0};
+                float right[3], up[3];
+                dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], ax, right);
+                dvr::xrmath::quat_rotate(q[0], q[1], q[2], q[3], ay, up);
+                auto turn = [](float* v, const float* k, float deg) {
+                    const float a = deg * 0.0174532925f, c = std::cos(a), s = std::sin(a);
+                    const float kv = k[0]*v[0] + k[1]*v[1] + k[2]*v[2];
+                    const float x[3] = { k[1]*v[2] - k[2]*v[1], k[2]*v[0] - k[0]*v[2], k[0]*v[1] - k[1]*v[0] };
+                    for (int i = 0; i < 3; ++i) v[i] = v[i]*c + x[i]*s + k[i]*kv*(1 - c);
+                };
+                turn(g_ray.dirXr, up, -g_config.otherXDeg);    // +x = right
+                turn(g_ray.dirXr, right, g_config.otherYDeg);  // +y = up
+                used = true;
+            }
+        }
+        if (kind != kindWas || used != usedWas) {
+            DVR_INFO("crosshair: the aiming hand holds %s - the other-items offset (%+.1f, %+.1f deg) is %s",
+                     kind == 1 ? "a PISTOL or a CROSSBOW" : kind == 2 ? "another item" : "an UNKNOWN item (no equipment read yet)",
+                     g_config.otherXDeg, g_config.otherYDeg,
+                     used ? "APPLIED" : !want ? "zero" : kind == 1 ? "skipped (their aim is kept)" :
+                     kind == 0 ? "skipped until the item is known" : "not applied (no valid ray)");
+            kindWas = kind; usedWas = used;
+        }
+    }
+
     FireFrame frame;
     frame.ray = g_ray; frame.distanceM = g_config.distanceM;
     dvr::vr::HeadPose fireHead;
@@ -268,7 +310,21 @@ void tick(bool gameplay, bool projectionWanted) {
         out.valid = g_ray.ok;
         out.generation = g_ray.gen; out.sampleMs = g_ray.sampleMs;
     }
-    if (dvr::anim::active() || dvr::anim::weight() < 1.0f) out = {};
+    // A carry hands the arms back to the game (Arms.1.StatePlayerGrabMovable=1), which
+    // used to blank the dot too. The carried object is thrown along this ray (VR-181),
+    // so the dot stays while carrying; every other handback still hides it.
+    {
+        const dvr::anim::Snapshot s = dvr::anim::snapshot();
+        bool carrying = false;
+        for (int i = 0; s.valid && i < 3; ++i) carrying |= !std::strcmp(s.state[i], "StatePlayerGrabMovable");
+        static bool carryWas = false;
+        if (carrying != carryWas) {
+            carryWas = carrying;
+            DVR_INFO("crosshair: %s - the dot stays up while an object is carried (it is thrown along this ray)",
+                     carrying ? "carrying an object" : "carry ended");
+        }
+        if (!carrying && (dvr::anim::active() || dvr::anim::weight() < 1.0f)) out = {};
+    }
     dvr::vr::set_aim_visual(out);
     if (std::strcmp(g_lastWhy, g_ray.why)) {
         DVR_INFO("crosshair: ray %s (hand=%s, gen=%u); %s", g_ray.why,
@@ -441,6 +497,15 @@ bool draw_reticle_ui() {
     ImGui::ColorButton("##reticle", ImVec4(cfg.rgb[0] / 255.f, cfg.rgb[1] / 255.f, cfg.rgb[2] / 255.f, 1.f));
     ImGui::SameLine();
     if (ImGui::Button("White")) { cfg.rgb[0] = cfg.rgb[1] = cfg.rgb[2] = 255; changed = true; }
+    // VR-189: one position for every item except the two guns.
+    ImGui::SeparatorText("Reticle position: everything but the pistol and crossbow");
+    changed |= ImGui::SliderFloat("Other items X (deg)", &cfg.otherXDeg, -90.0f, 90.0f, "%+.1f");
+    changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
+    if (ImGui::Button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
+    ImGui::SameLine();
+    if (ImGui::Button("Tested position")) { cfg.otherXDeg = 9.0f; cfg.otherYDeg = -53.4f; changed = true; }
+    ImGui::TextDisabled("Powers, grenades, the sword and the rest share this one position; the aim follows the dot. "
+                        "Every pistol and crossbow (any ammo, any upgrade) keeps its own aim.");
     if (changed) configure(cfg, "F10 HUD");
     return changed;
 }
