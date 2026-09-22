@@ -13,15 +13,16 @@
 // draw's camera-relative space, the reference (arm) mesh's draw transform L_hand, and the script
 // lane's snapshot of each mesh component's NATIVE transform. So in world terms
 //     W = inverse(br) * D * br,   br = bridge(native arm, drawn arm)   (native -> draw space)
-// and an attached component whose world transform is C = S * Rel (S the socket) should be at
-// W * S * Rel0. The engine recomputes C from the attachment's RelativeLocation/RelativeRotation
-// every update (the item meshes force it: bForceUpdateAttachmentsInTick), so the lever is the
-// attachment's relative transform:
-//     S       = C * inverse(RelWritten)        (the socket, recovered from what the engine built)
-//     RelNew  = inverse(S) * W * S * Rel0
+// and an attachment the game wants at G (its bone with the game's own relative Rel0) belongs at
+// W * G. The lever is the attachment's relative transform, which the engine turns into the world
+// transform on every attachment update. Both conversions are the ENGINE's own natives on the parent
+// mesh (TransformFromBoneSpace / TransformToBoneSpace), so the bone pose comes from the game and
+// nothing we write feeds back into the next correction (build 667 inferred the socket from the
+// component and diverged; see the correction below).
 // Rel0 is captured the first time a component is seen and put back when no fresh correction is
 // available, so a frame without hands leaves the game's own placement. Script lane only.
 
+#undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::hands
 
 struct FxEntry {
@@ -121,6 +122,43 @@ static bool FxStrideFits(uint8_t* data, int num, uint32_t stride)
     return true;
 }
 
+// SkeletalMeshComponent.TransformFromBoneSpace / TransformToBoneSpace, called through ProcessEvent.
+// Both take (name BoneName, vector InPosition, rotator InRotation, out vector, out rotator): an FName
+// (index, number), two vectors and two rotators, no aligned members, 56 bytes in declaration order.
+struct FxBoneXform { float pos[3]; int32_t rot[3]; };
+struct FxBoneParms { uint32_t nameIdx, nameNum; float inPos[3]; int32_t inRot[3]; float outPos[3]; int32_t outRot[3]; };
+static const float kFxMaxMoveUU = 120.0f;             // a hand is never a metre from the game's hand
+static volatile LONG g_fxRejected = 0;
+
+static bool FxBoneCall(bool toBone, uint8_t* mesh, const uint8_t* att, const float* pos, const int32_t* rot, FxBoneXform* out)
+{
+    static uint8_t* fnFrom = nullptr; static uint8_t* fnTo = nullptr; static bool looked = false;
+    if (!looked) {
+        looked = true;
+        fnFrom = RainFindClassFunction("SkeletalMeshComponent", "TransformFromBoneSpace");
+        fnTo   = RainFindClassFunction("SkeletalMeshComponent", "TransformToBoneSpace");
+        Log("fx/follow: TransformFromBoneSpace %s, TransformToBoneSpace %s", fnFrom ? "found" : "MISSING", fnTo ? "found" : "MISSING");
+    }
+    uint8_t* fn = toBone ? fnTo : fnFrom;
+    if (!fn || !mesh) return false;
+    FxBoneParms p; memset(&p, 0, sizeof(p));
+    p.nameIdx = *(const uint32_t*)(att + 4); p.nameNum = *(const uint32_t*)(att + 8);
+    memcpy(p.inPos, pos, 12); memcpy(p.inRot, rot, 12);
+    const float sentinel = -1.0e30f;
+    p.outPos[0] = sentinel;
+    g_peReentry = true;
+    ((PFN_ProcessEventCall)kProcessEvent)(mesh, fn, &p, NULL);
+    g_peReentry = false;
+    if (p.outPos[0] == sentinel) return false;            // the call did not write its output
+    for (int k = 0; k < 3; ++k) if (!MpFinite(p.outPos[k])) return false;
+    memcpy(out->pos, p.outPos, 12); memcpy(out->rot, p.outRot, 12);
+    return true;
+}
+static bool FxFromBone(uint8_t* mesh, const uint8_t* att, const float* pos, const int32_t* rot, FxBoneXform* out)
+{ return FxBoneCall(false, mesh, att, pos, rot, out); }
+static bool FxToBone(uint8_t* mesh, const uint8_t* att, const float* pos, const int32_t* rot, FxBoneXform* out)
+{ return FxBoneCall(true, mesh, att, pos, rot, out); }
+
 static void FxFollowMesh(uint8_t* mesh, int meshHand, const dvr::hf::Xform* W, const bool* haveW, double now)
 {
     if (!mesh || !IsLiveObject(mesh) || !RangeReadable(mesh + g_fxAttOff, 12)) return;
@@ -169,25 +207,41 @@ static void FxFollowMesh(uint8_t* mesh, int meshHand, const dvr::hf::Xform* W, c
             if (f->wrote) { memcpy(relT, f->t0, 12); memcpy(relR, f->r0, 12); f->wrote = false; InterlockedIncrement(&g_fxRestored); }
             continue;
         }
-        dvr::hf::Xform C, invRelNow, invS;
-        if (!FxL2W(c, &C, isLight)) continue;
-        const dvr::hf::Xform relNow = FxRel(relT, relR, relS), rel0 = FxRel(f->t0, f->r0, relS);
-        if (!dvr::wf::inverse(relNow, &invRelNow)) continue;
-        const dvr::hf::Xform S = dvr::hf::xform_mul(C, invRelNow);
-        if (!dvr::wf::inverse(S, &invS)) continue;
-        const dvr::hf::Xform target = dvr::hf::xform_mul(W[hand], dvr::hf::xform_mul(S, rel0));
-        const dvr::hf::Xform relNew = dvr::hf::xform_mul(invS, target);
-        float X[3], Y[3], Z[3];
-        for (int k = 0; k < 3; ++k) { X[k] = relNew.r.m[k * 3 + 0]; Y[k] = relNew.r.m[k * 3 + 1]; Z[k] = relNew.r.m[k * 3 + 2]; }
-        if (!dvr::fireaim::normalize(X) || !dvr::fireaim::normalize(Y) || !dvr::fireaim::normalize(Z)) continue;
-        bool finite = true;
-        for (int k = 0; k < 3; ++k) finite = finite && MpFinite(relNew.t[k]);
-        if (!finite) continue;
-        int32_t nr[3]; CtAxesToRot(X, Y, Z, nr);
-        const float mv[3] = { target.t[0] - C.t[0], target.t[1] - C.t[1], target.t[2] - C.t[2] };
-        f->lastMove = sqrtf(mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2]);
-        memcpy(relT, relNew.t, 12); memcpy(relR, nr, 12);
-        memcpy(f->tw, relNew.t, 12); memcpy(f->rw, nr, 12); f->wrote = true;
+        // Build 667 recovered the socket as S = C * inverse(RelWritten). The engine does not rebuild C
+        // every tick, so on a tick where C still held an OLDER relative, S came out wrong, the next
+        // write was built on it, and the error compounded: the log read "largest move inf uu" and the
+        // effects flew off in a star and in random directions. The socket now comes from the ENGINE,
+        // from the bone's current pose, which nothing we write can reach:
+        //   game   = TransformFromBoneSpace(bone, Rel0)      where the game wants the effect
+        //   target = W * game                                where the drawn hand has it
+        //   RelNew = TransformToBoneSpace(bone, target)      written as the attachment's relative
+        (void)relS;
+        FxBoneXform gameX;
+        if (!FxFromBone(mesh, e, f->t0, f->r0, &gameX)) { g_fxWhy = "TransformFromBoneSpace refused"; continue; }
+        float tp[3]; float X[3], Y[3], Z[3], TX[3], TY[3], TZ[3];
+        CtRotToAxes(gameX.rot, X, Y, Z);
+        const dvr::hf::Xform& w = W[hand];
+        for (int k = 0; k < 3; ++k)
+            tp[k] = w.r.m[k * 3 + 0] * gameX.pos[0] + w.r.m[k * 3 + 1] * gameX.pos[1] + w.r.m[k * 3 + 2] * gameX.pos[2] + w.t[k];
+        const float* ax[3] = { X, Y, Z }; float* tx[3] = { TX, TY, TZ };
+        for (int a = 0; a < 3; ++a)
+            for (int k = 0; k < 3; ++k)
+                tx[a][k] = w.r.m[k * 3 + 0] * ax[a][0] + w.r.m[k * 3 + 1] * ax[a][1] + w.r.m[k * 3 + 2] * ax[a][2];
+        if (!dvr::fireaim::normalize(TX) || !dvr::fireaim::normalize(TY) || !dvr::fireaim::normalize(TZ)) continue;
+        const float mv[3] = { tp[0] - gameX.pos[0], tp[1] - gameX.pos[1], tp[2] - gameX.pos[2] };
+        const float move = sqrtf(mv[0] * mv[0] + mv[1] * mv[1] + mv[2] * mv[2]);
+        if (!MpFinite(move) || move > kFxMaxMoveUU) {     // a bad correction must never throw it away
+            InterlockedIncrement(&g_fxRejected); g_fxWhy = "correction too large - rejected";
+            if (f->wrote) { memcpy(relT, f->t0, 12); memcpy(relR, f->r0, 12); f->wrote = false; }
+            continue;
+        }
+        int32_t trot[3]; CtAxesToRot(TX, TY, TZ, trot);
+        FxBoneXform rel;
+        if (!FxToBone(mesh, e, tp, trot, &rel)) { g_fxWhy = "TransformToBoneSpace refused"; continue; }
+        f->lastMove = move;
+        memcpy(relT, rel.pos, 12); memcpy(relR, rel.rot, 12);
+        memcpy(f->tw, rel.pos, 12); memcpy(f->rw, rel.rot, 12); f->wrote = true;
+        g_fxWhy = "driving";
         InterlockedIncrement(&g_fxDriven);
     }
 }
@@ -342,8 +396,8 @@ static void FxFollowTick()
     if (g_fxN && now >= nextLog) {
         nextLog = now + 2000;
         float mx = 0; for (int i = 0; i < g_fxN; ++i) if (g_fx[i].lastMove > mx) mx = g_fx[i].lastMove;
-        Log("fx/follow: %d effect(s) tracked, %ld corrections, %ld restored; largest move %.1f uu. Left %s, right %s",
-            g_fxN, (long)g_fxDriven, (long)g_fxRestored, mx, haveW[0] ? "live" : why[0], haveW[1] ? "live" : why[1]);
+        Log("fx/follow: %d effect(s) tracked, %ld corrections, %ld restored, %ld rejected as too large (limit %.0f uu); largest move %.1f uu (last: %s). Left %s, right %s",
+            g_fxN, (long)g_fxDriven, (long)g_fxRestored, (long)g_fxRejected, kFxMaxMoveUU, mx, g_fxWhy, haveW[0] ? "live" : why[0], haveW[1] ? "live" : why[1]);
     }
 }
 
