@@ -42,6 +42,8 @@ bool tab(const char* label);     // BeginTabItem with the label in the heading s
 void title(const char* text);
 // A thin brass rule with a centre diamond, full width.
 void ornament();
+// Always-visible controller shortcut card, shared with the offscreen preview.
+void controller_hint();
 // A selectable pill (the view selector): brass when selected. Returns true when clicked.
 bool pill(const char* label, bool selected);
 // Push/pop the colours of the panel's primary action button (brass on ink).

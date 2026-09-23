@@ -309,6 +309,7 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     }
 
     OvlTopRow();   // VR-196: the view level, recenter, height, save (overlay_tabs.inc)
+    ImGui::BeginDisabled(ConfigResetPending());
     OvlTabs();
     ImGui::Spacing();
     dvr::ovl::ornament();   // VR-197: the brass rule that closes the panel
@@ -318,6 +319,7 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         ConfigWriteKey("Overlay", "UiScale", v, "F10");
     }
     OvlTip("Size of this panel's text. Drag the window's edge to resize the panel itself.");
+    ImGui::EndDisabled();
     ImGui::TextDisabled(g_ovlPtrEnable ? "F10 or a stick-click tap closes | point, trigger clicks, "
                                          "stick scrolls / nudges a slider"
                                        : "F10 closes");

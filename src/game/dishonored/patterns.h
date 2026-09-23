@@ -451,3 +451,31 @@ static const uint8_t kGoApplySettingsPrefix[] = {0x55,0x8b,0xec,0x51,0x8b,0x45,0
 static const uintptr_t kGoNativeSettingChange = 0x00BCB870;
 static const uint32_t kGoSettingChangeSlot = 0x23c;
 static const uint8_t kGoSettingChangePrefix[] = {0x53,0x8b,0xdc,0x83,0xec,0x08,0x83,0xe4,0xf0,0x83,0xc4,0x04,0x55,0x8b,0x6b,0x04};
+
+// VR-202 rain research: RVAs, not hook targets. See ENGINE_NOTES shelter derivation.
+static const uint32_t kRainBoxUpdateRva = 0x006d8951;
+static const uint32_t kRainShelterSampleRva = 0x006d8c00;
+static const uint32_t kRainShelterDecisionRva = 0x006d8d0c;
+static const uint32_t kRainImpactUpdateRva = 0x006d8e95;
+static const uint32_t kRainSetFloatParameterRva = 0x004aa690;
+// Setter at RVA 0x4aa690 indexes i*40 and allocates elements of 0x28 bytes.
+static const uint32_t kRainParticleParamStride = 0x28;
+// Rain module Spawn/Update/Spawn count agree on native emitter instance layout.
+static const uint32_t kRainDropsUpdateRva = 0x00800790;
+static const uint32_t kRainDropsSpawnRva = 0x00800700;
+static const uint32_t kRainDropsSpawnCountRva = 0x00801370;
+static const uint32_t kRainInstanceComponentOff = 0x08;
+static const uint32_t kRainInstanceActiveCountOff = 0xd4;
+// Rain Update RVA 0x801000..0x8012c6: indexed particle records and fade alpha.
+static const uint32_t kRainInstanceDataOff = 0x40;
+static const uint32_t kRainInstanceIndicesOff = 0x44;
+static const uint32_t kRainInstanceStrideOff = 0xd0;
+static const uint32_t kRainParticleAlphaOff = 0x6c;
+static const uint32_t kRainParticleBaseAlphaOff = 0x7c;
+// Rain SpawnCount follows current LOD +0x10; Update uses fade +0x0c and position +0x10.
+static const uint32_t kRainInstanceLodOff = 0x10;
+static const uint32_t kRainParticleFadeOff = 0x0c;
+static const uint32_t kRainParticlePositionOff = 0x10;
+// Native camera recurrence at RVA 0x6d8d1e..0x6d8d6a, constants read from exe.
+static const float kRainRecoverySeed = 30.0f;       // VA 0xfb9d1c
+static const float kRainRecoveryCeiling = 10000.0f; // VA 0xfe3ff8

@@ -57,6 +57,201 @@ A report from an Index on the SteamVR shim (build `525-g548c31693`) raised two f
 Built; not installed, not headset-tested; this rig has no Index. The next shim log should
 show `desktoppresent: the desktop mirror stays ON on the SteamVR shim` and one
 `HUD window parked` or `re-parks` line per menu opening.
+## Rain branch finalized, not merged (2026-09-22)
+
+Rain recovery is headset accepted on build725; the close-overlay hide/restore is accepted.
+Final branch is rain-fixes. No merge authorized or performed. Optional outdoor rain from
+dry shelter is deferred as TODO VR-205. The next F10 art/layout overhaul is VR-206 and
+branches from this finalized tip as f10-improvements. Do not install that work without
+explicit go-ahead. Remaining broader F10 reset/save-persistence checks are recorded below.
+
+## Headset recovery acceptance and under-cover scope (2026-09-22)
+
+Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally
+accepts the recovery fix. Log shows correction to 10000 while uncovered, and exposed
+particle requests remain enabled. Archive: build/playtest-candidates/runs/vr-202-fixed-20260922-224551.
+A separate request concerns visible outdoor rain disappearing under awnings. During the
+covered interval around ticks 40609750..40613750, uncovered=0 and MaxParticles=0; exiting
+restores MaxParticles=40. This is native camera-wide suppression, not the recovery fix.
+
+The traced RainDrops update implements volume fading/recycling, not per-drop roof tests.
+Engine ParticleModuleCollision is declared, but its existence does not establish that the
+rain asset has a compatible collision module or that it can be enabled with one boolean.
+WorldRainComponent declares enable/intensity/wrap controls; no roof-mask control appears
+in its script declaration. Do not promise dry sheltered areas from simply bypassing the
+camera shelter decision. Selected scope: an optional toggle that preserves dry shelter while showing outside rain,
+provided the work remains modest. A blanket shelter bypass does not satisfy this. The
+traced camera-wide path cannot distinguish drops outside an awning from drops beneath it;
+proper filtering requires additional per-drop/region roof handling. Deferred as a separate
+feature rather than adding a leaky toggle to the accepted recovery fix. No installation or
+awning behavior change has been performed.
+
+## Install 2026-09-22 (VR-202): recovery fix approved and installed
+
+Explicit user go-ahead received. Installed `vr33-hands-working-725-gbaecc7491`, with
+DLL/ini SHA-256 verified. Full ini comparison shows only Rain Recovery added as 1;
+Trace was already 1. CRLF preserved. Prior DLL, ini and both logs archived under
+`build/playtest-candidates/installs/20260922-224035-841574`. Game not launched.
+Next launch, one question: at the same exposed location, does falling rain now remain
+visible through repeated eye-level/upward head tilts, including holding near the previous
+transition angle? Remaining visible supports the recovery fix; continued disappearance
+means the correction is insufficient. Headset acceptance remains pending.
+
+## Session 2026-09-22 (VR-202): behavioral rain recovery fix candidate
+
+Found native recovery recurrence rate *= 100*dt below its terminal threshold 10000.
+It grows at 60/90 Hz but decays toward zero above 100 updates/second, matching zero recovery
+rate and fully transparent rain layers in the measured run. Candidate promotes the current
+uncovered camera to the native terminal rate, preserving native shelter and particle logic.
+Opt-in Rain Recovery=1, live rainrecovery on|off, default off. See ENGINE_NOTES top entry.
+
+Prepared `vr33-hands-working-725-gbaecc7491`: optimized build, lint and 9/9 exports pass.
+Archived DLL and planned Recovery=1 override locally. Not installed.
+
+Build and prepare only. DO NOT INSTALL until another explicit user go-ahead. On approval,
+preserve current ini and apply Rain Recovery=1/Trace=1, with whole-file diff and CRLF checks.
+Next test is behavioral: repeated stationary head tilts should retain exposed falling rain.
+Headset acceptance remains pending; this is a fix candidate, not a confirmed resolution.
+
+## Session 2026-09-22 (VR-202): repeated pitch transitions zero rain opacity
+
+Verified build720 banner and installed DLL hash. Both 40-particle layers become fully
+transparent during repeated upward views and recover on lowering the view. Near the final
+transition angle they fluctuate together; the third layer stays nonzero. Positive particle
+requests persist. This establishes CPU opacity loss, not a generic whole-component cull.
+Archive: build/playtest-candidates/runs/vr-202-alpha-20260922-223037.
+
+Prepared `vr33-hands-working-723-g41bd201e5`: optimized build, lint and 9/9 exports pass.
+DLL archived locally; no installation performed.
+
+Next candidate adds signed fade-state counts, particle height and actual current rain-module
+extent to test the native volume-exit/fading path. See ENGINE_NOTES top entry. Diagnostic
+only; prepare/build but DO NOT INSTALL until another explicit user go-ahead.
+
+## Install 2026-09-22 (VR-202): opacity diagnostic approved
+
+User explicitly approved installation. Installed `vr33-hands-working-720-g632dca2fb`;
+DLL and ini SHA-256 verified by the installer. Entire current ini preserved byte-for-byte,
+CRLF verified, Rain Trace=1/Hide=0/Distance=-1. Both previous logs and prior DLL/ini archived
+under `build/playtest-candidates/installs/20260922-221820-803121`. Game not launched.
+Next launch, one question: does rain still cycle off/on while position and sky view stay
+steady? Hold that view for about 30 seconds after seeing the cycle, then quit. Per-instance
+alpha falling during absence supports fading; stable alpha directs work toward materials
+or rendering. Lack of reproduction leaves that distinction unresolved.
+
+## Session 2026-09-22 (VR-202): stationary cycling, prepare only
+
+Recovered build718 from the rotated previous log. Final steady sky view retains positive
+rain requests, 88..90 live particles across three instances, and advancing render time.
+Pitch-only reproduction did not repeat. Native fading can retain zero-alpha particles;
+the next read-only candidate separates per-instance counts and opacity. See ENGINE_NOTES.
+Archive: build/playtest-candidates/runs/vr-202-cycle-20260922-220215.
+
+Prepared `vr33-hands-working-720-g632dca2fb`, optimized/legacy off. Build, lint and 9/9 exports pass.
+Archived DLL under `build/playtest-candidates/vr-202-vr33-hands-working-720-g632dca2fb`.
+No installation performed. Read the current ini at any later authorized install to preserve
+concurrent changes.
+
+Do NOT install until explicit user go-ahead. Another agent is swapping builds concurrently.
+Prepare/validate only; eventual test is steady-view cycling, with layer alpha distinguishing
+simulation fading from material/render behavior.
+
+## Session 2026-09-22 (VR-202): repeatable pitch-dependent sky-rain absence
+
+The final stationary look-up/eye-height reproduction supersedes the positional hypothesis.
+Build 716-g52b55216b and installed hash match. Last 42 seconds: 162/168 samples request rain,
+including sustained upward views; only six brief native shelter suppressions. All 42 summaries
+show active, unhidden particles with spawning enabled. Shelter is not a sufficient explanation.
+Archived both logs and ini: `build/playtest-candidates/runs/vr-202-pitch-20260922-213428`.
+
+Native rain Spawn, Update and SpawnCount establish the actual emitter-instance count layout.
+Added read-only rain/particles logs for live count, bounds, render time, forced inactivity,
+world emitter placement and camera pitch, once per second under existing Rain Trace=1.
+See ENGINE_NOTES top entry for derivation, counterpredictions and interpretation limits.
+Installed `vr33-hands-working-718-g433e81335` (optimized, legacy off). Build, lint and
+9/9 exports pass; installed DLL SHA-256 matches. Full ini unchanged and CRLF preserved.
+Both previous logs archived under `build/playtest-candidates/installs/20260922-214244-326840`.
+No rain behavior changes. Next test: stationary eye-height/up/eye-height, ten seconds each,
+repeat once and quit. One question is whether the same pitch-dependent disappearance returns;
+the new log distinguishes simulation counts from bounds/render-update behavior.
+
+## Session 2026-09-22 (VR-202): positional sky-rain investigation
+
+Lens-only rain hide and restore are accepted in the headset on c17016e63; matching banner
+and DLL hash verified. The log confirms lens hide and restore with the rain box unhidden.
+The remaining sky-rain absence is reported as possibly positional, with ground splashes
+continuing. Archived run: `build/playtest-candidates/runs/vr-202-20260922-212046`.
+
+Decompiled rain classes plus native disassembly reveal a camera shelter test jittered
++/-35 uu horizontally and traced 5000 uu upward for default rain direction. Its result
+sets the particle MaxParticles to the configured count or zero; impacts have an independent
+path. Old drops=40 logging measured the configuration, not that effective parameter.
+See ENGINE_NOTES VR-202 for the measured code path, corrected RVA provenance and limits.
+
+A read-only diagnostic now logs shelter decisions, actual particle parameters, impact
+counts and camera position once per second under Rain Trace=1. It changes no weather
+behavior. Installed `vr33-hands-working-716-g52b55216b` (RelWithDebInfo, legacy off);
+DLL hash, 9/9 exports and lint verified. Whole ini unchanged with CRLF preserved,
+Rain Trace=1 and Hide=0. Install archive: `build/playtest-candidates/installs/20260922-212739-025799`.
+
+Next launch, one question: does falling rain consistently disappear and return
+between the same nearby positions while splashes continue? Hold the same view direction,
+stand 10 seconds in the raining spot, 10 in the non-raining spot, then 10 back at the first.
+The log will distinguish native suppression from active particles failing to draw.
+
+## Playtest follow-up 2026-09-22 (VR-199): narrow rain hide to the close overlay
+
+The headset report accepts the F10 changes provisionally and confirms rain disappears, but
+reports that sky rain and ground splashes disappeared too. Build banner and installed hash
+match `vr33-hands-working-712-gc1a25b64d`. Its log proves both the camera box and the
+`Over_camera_rain_01` looping lens component were hidden. Only Hide=0 -> 1 was exercised;
+restoration and reset persistence are not established. Logs and ini archived under
+`build/playtest-candidates/runs/vr-199-20260922-202644`.
+
+Required behavior: hide ONLY the close overlay; keep sky rain and splashes. The follow-up
+removes the camera box from hide targets and labels the Basic control Hide close rain
+overlay. The lens target is now measured by name, but whether this particle asset alone
+preserves all expected sky/ground rain needs a new headset A/B. The preexisting intermittent
+missing-sky-rain report is tracked separately as VR-202; ground splashes can remain during that issue.
+
+Installed follow-up: `vr33-hands-working-714-gc17016e63`, optimized, legacy off.
+DLL hash and 9/9 exports verified; full ini diff is only Rain Hide=1 -> 0. CRLF preserved.
+Install archive: `build/playtest-candidates/installs/20260922-202922-127478`.
+
+Next launch, one question: with sky rain and splashes visible, does enabling Hide close rain
+overlay remove only the close layer while both remain, and does disabling restore that
+layer? If sky rain or splashes disappear too, the lens asset needs finer separation.
+
+## Session 2026-09-22 (VR-199): F10 improvements candidate
+
+Branch `f10-improvements` from VR-Main `375dda772`. Removes reticle hand selection and
+beam from F10, and normalizes old configurations to left-hand/no-beam. The themed header
+now explains click versus hold on L3 + R3. Reset to Defaults sits beside Save as Defaults;
+it queues a reset for the next launch, backs up the ini as `.pre-reset`, and preserves
+runtime selection, runtime JSON and DataDir. Settings are disabled while reset is queued.
+
+Basic > Comfort > Rain now contains Hide rain effects. The existing camera-box hide could
+not remove the separate lens sheet documented in run470. The candidate also hides live
+camera-owned looping lens particle components whose template identifies rain, using native
+SetHidden. It refreshes liveness after menu/load epochs, revalidates current ownership and
+component identity before restore, and logs unidentified looping templates. See
+`dishonored/ENGINE_NOTES.md` VR-199 entry. This remains a candidate until a rainy-area A/B.
+
+Validation: optimized build, lint, golden/default-profile parity, reset host checks
+(success, preserved paths, backup failure, staging failure), and offscreen theme preview.
+The game is never launched by the agent. Installation records and complete ini/log backups
+live under `build/playtest-candidates/`. Installed `vr33-hands-working-712-gc1a25b64d`
+(RelWithDebInfo, legacy off), with source/installed SHA-256 matched and 9/9 exports.
+The entire installed ini is byte-identical to its predecessor, including CRLF; Rain Trace=1
+was already armed. Prior ini and both logs: `build/playtest-candidates/installs/20260922-201638-383971`.
+
+Next launch has ONE question: in a rainy area, does Basic > Comfort > Rain > Hide rain
+effects remove the close rain layer and restore it when turned off? Disappearance and
+return support the fix; unchanged rain means the log's target/template evidence determines
+the next step. Leave Reset to Defaults for its own subsequent persistence test.
+
+Still pending from #102/#103: headset inspection of all F10 tiers, save-on-change across
+relaunch, options-menu sensitivity 30, and a matching-build log check for interact/flicker.
 
 ## Session 2026-09-22 (F10 cleanup and theme, VR-196/VR-197): merged to VR-Main (#103)
 

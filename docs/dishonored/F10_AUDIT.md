@@ -295,3 +295,17 @@ replaces `DevTools` (DevTools=1 opens on debug).
   TreeNode/TreePop is balanced.
 * **Not verified in the running game.** Nothing here has been drawn yet. The first launch should
   check that each tier shows what section 2 says, and that a change survives a relaunch.
+
+## Follow-up VR-199 (2026-09-22)
+
+Reticle hand selection and Beam have been removed from the panel and normalized to left/off
+when configuration is applied. The header carries an always-visible click/hold shortcut
+hint in the existing brass/bone theme. Reset to Defaults is beside Save as Defaults and
+uses the shipped profile at next startup, with a backup and runtime/DataDir preservation.
+Rain hide is now Basic > Comfort > Rain; lens placement remains Advanced. Rain hide includes
+rain-named looping camera lens particle templates as well as the camera box, pending a
+headset A/B. Reset and all-tier headset verification remain open.
+
+VR-199 headset follow-up: hiding box and lens together also removed visible sky rain and
+splashes. The required scope is the close overlay only. The next candidate targets only
+the measured `Over_camera_rain_01` lens component; sky/ground preservation is pending.

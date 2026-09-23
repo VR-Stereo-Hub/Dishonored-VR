@@ -51,6 +51,10 @@ static void OvlTopRow()
         OvlTip("Close (F10, or click both sticks).");
         ImGui::SetCursorPos(after);
     }
+    dvr::ovl::controller_hint();
+    const bool resetPending = ConfigResetPending();
+    if (resetPending) ImGui::TextWrapped("Defaults will be restored when you restart the game.");
+    ImGui::BeginDisabled(resetPending);
     {   // the view level, as three pills
         const int lv = dvr::ovl::level();
         int want = lv;
@@ -80,7 +84,7 @@ static void OvlTopRow()
     ImGui::Spacing();
     const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
     dvr::ovl::push_primary();
-    if (ImGui::Button("RECENTER", ImVec2(half, 0))) {
+    if (ImGui::Button("RECENTER", ImVec2(-1, 0))) {
         g_posHaveRef = false;
         g_crouchRefOk = false;
         g_rtdReq = 3;
@@ -88,16 +92,32 @@ static void OvlTopRow()
     }
     dvr::ovl::pop_primary();
     OvlTip("Makes where you are standing now the centre, and re-reads your standing height for "
-           "real crouching. The same as F5 or clicking both sticks.");
-    ImGui::SameLine();
+           "real crouching. The same as F5.");
     if (ImGui::Button("SAVE AS DEFAULTS", ImVec2(half, 0)))
         OverlaySaveDefaults();
     OvlTip("Writes every current setting to dishonored_vr.ini. Every Basic and Advanced setting "
            "already saves the moment you change it; this also keeps the Debug switches, which "
            "otherwise last for this session only.");
+    ImGui::SameLine();
+    if (ImGui::Button("RESET TO DEFAULTS", ImVec2(half, 0))) ImGui::OpenPopup("Restore shipped defaults?");
+    OvlTip("Restores the shipped settings on your next launch. Keeps your VR runtime and data folder.");
+    static bool resetFailed = false;
+    if (ImGui::BeginPopupModal("Restore shipped defaults?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Restore all mod settings on the next launch?");
+        ImGui::TextUnformatted("Your current ini will be backed up. Runtime and data folder are kept.");
+        if (ImGui::Button("Restore and restart later")) {
+            resetFailed = !ConfigRequestReset();
+            if (!resetFailed) ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) { resetFailed = false; ImGui::CloseCurrentPopup(); }
+        if (resetFailed) ImGui::TextWrapped("Could not save the reset request. Check the log and try again.");
+        ImGui::EndPopup();
+    }
     ImGui::SliderFloat("Height offset (m)", &g_heightOffsetM, -1.0f, 1.0f, "%+.2f");
     OvlTip("Raises or lowers your viewpoint.");
     OvlSaveOnRelease("Tracking", "HeightOffsetM", g_heightOffsetM, "%.3f");
+    ImGui::EndDisabled();
     ImGui::Spacing();
 }
 
@@ -601,10 +621,12 @@ static void OvlTabComfort()
         if (ImGui::Checkbox("Hide cinematic black borders", &borders)) { CineBordersSet(borders); OvlSaveBool("Cine", "HideBorders", borders); }
         OvlTip("Removes the letterbox bars in scenes. The picture under them is really there.");
     }
-    if (OvlSec("Rain and lens effects", kOvlA, "Rain and the effects drawn on the camera lens.")) {
+    if (OvlSec("Rain", kOvlB, "Remove the close rain overlay while keeping world rain.")) {
         bool rain = RainHideEnabled();
-        if (ImGui::Checkbox("Hide camera rain (the rain box only)", &rain)) { RainHideSet(rain); OvlSaveBool("Rain", "Hide", rain); }
-        OvlTip("Hides the rain drawn in a box around the camera. World rain stays.");
+        if (ImGui::Checkbox("Hide close rain overlay", &rain)) { RainHideSet(rain); OvlSaveBool("Rain", "Hide", rain); }
+        OvlTip("Hides the close rain lens overlay. Keeps the sky rain box and ground-impact system.");
+    }
+    if (OvlSec("Lens effects and rain distance", kOvlA, "Placement of rain and camera lens effects.")) {
         int rainDist = RainDistance();
         if (ImGui::SliderInt("Rain distance (uu, -1 native)", &rainDist, -1, 600)) RainDistanceSet(rainDist);
         if (ImGui::IsItemDeactivatedAfterEdit()) OvlSaveInt("Rain", "Distance", rainDist);

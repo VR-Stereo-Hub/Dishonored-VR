@@ -1074,3 +1074,11 @@ which a given machine needs: a press reaching the pad proves nothing.
   that do nothing in this game (the runtime layer's HUD-stub switches, AlternateEye) left the
   panel behind a `41.x (Dishonored)` marker in the runtime layer, the one place it diverges
   from the BioShock copy for this.
+
+- **2026-09-22 (VR-199): resetting the full profile happens at startup.** F10 queues a
+  persistent reset request instead of running LoadConfig on the rendering thread. Several
+  settings create runtime/device state and cannot safely be reapplied there. At next startup
+  the production writer stages a complete profile, carries over runtime/JSON/DataDir, backs
+  up the prior file, then replaces it. Failed backup or staging leaves the old profile intact.
+  The current panel disables setting edits after the request and states that a restart is
+  needed. This also prevents save-on-change from confusing the pending-reset state.

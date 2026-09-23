@@ -1,3 +1,247 @@
+## Headset recovery acceptance and under-cover scope (2026-09-22)
+
+Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally
+accepts the recovery fix. Log shows correction to 10000 while uncovered, and exposed
+particle requests remain enabled. Archive: build/playtest-candidates/runs/vr-202-fixed-20260922-224551.
+A separate request concerns visible outdoor rain disappearing under awnings. During the
+covered interval around ticks 40609750..40613750, uncovered=0 and MaxParticles=0; exiting
+restores MaxParticles=40. This is native camera-wide suppression, not the recovery fix.
+
+The traced RainDrops update implements volume fading/recycling, not per-drop roof tests.
+Engine ParticleModuleCollision is declared, but its existence does not establish that the
+rain asset has a compatible collision module or that it can be enabled with one boolean.
+WorldRainComponent declares enable/intensity/wrap controls; no roof-mask control appears
+in its script declaration. Do not promise dry sheltered areas from simply bypassing the
+camera shelter decision. Selected scope: an optional toggle that preserves dry shelter while showing outside rain,
+provided the work remains modest. A blanket shelter bypass does not satisfy this. The
+traced camera-wide path cannot distinguish drops outside an awning from drops beneath it;
+proper filtering requires additional per-drop/region roof handling. Deferred as a separate
+feature rather than adding a leaky toggle to the accepted recovery fix. No installation or
+awning behavior change has been performed.
+
+## Fix candidate: prevent high-frequency rain recovery starvation (VR-202, 2026-09-22)
+
+Native camera code at RVA 0x6d8d1e seeds SpawnKillRate=30 on a shelter transition.
+At 0x6d8d42..0x6d8d6a, while rate<10000, it multiplies rate by the time value returned
+by VA 0x781240 and then by 100. Constants independently read from executable: VA 0xfb9d1c
+=30, VA 0xfe3ff8=10000, VA 0xfbeeac=100. This recurrence decays instead of growing when
+the time value is below 0.01 seconds. Offline recurrence reproduction after three seconds:
+60 Hz reaches 13781.8, 90 Hz 10953.2, 100 Hz stays 30, 120 Hz falls to 9.37e-28.
+The measured run has SpawnKillRate=0 during positive requests and all-transparent layers.
+Combined with the native transparent-slot recycling budget, this is a concrete recovery
+starvation mechanism. Exact causal acceptance still requires the headset fix test.
+
+Candidate adds opt-in [Rain] Recovery=1, live rainrecovery on|off, default off. At the
+existing 250 ms script cadence, it promotes the current live camera's rate to the native
+10000 terminal threshold only when uncovered and configured drops>0. Native processing
+continues to own particle spawning, fading, and shelter transitions. No particle alpha,
+position, template, or MaxParticles is written. Reflection and IsLiveObject against the
+refreshed live table guard every camera write. Disabling resets a current rate exactly at
+the correction threshold to the native transition seed; no retained object identity is
+used. Other rates are left alone. The existing idle fast path is preserved.
+
+This is a behavioral fix candidate, not another diagnostic-only candidate. Prepare with
+Recovery=1 as a planned install override, but DO NOT INSTALL until explicit go-ahead.
+At eventual installation, preserve the then-current ini, arm Recovery=1 and Trace=1,
+compare the whole ini, verify CRLF, archive logs, and verify installed hashes. One test:
+repeat the same stationary head tilts; falling rain should remain present in exposed
+views rather than becoming fully transparent. Persistent loss refutes sufficiency of this
+recovery correction. Do not claim a headset-confirmed fix before that result.
+
+## Rain opacity collapse confirmed in repeated pitch transitions (VR-202, 2026-09-22)
+
+Build720-g632dca2fb banner and installed SHA-256 match the candidate manifest.
+Archive: build/playtest-candidates/runs/vr-202-alpha-20260922-223037. Repeated stationary
+upward views correlate with both 40-slot layers becoming entirely transparent, including
+base alpha; the third layer remains nonzero. Example ticks 39424265..39428265: both layers
+40/40 zero, pitch initially about 36 degrees; at 39429265 pitch 18.69 degrees and both
+layers restore nonzero alpha. The final roughly 22..25-degree transition region alternates
+between full zero and partial opacity. Requests remain positive in sustained zero periods.
+This establishes CPU opacity loss, rather than merely absent headset pixels. It does not
+by itself establish which code path caused that loss.
+
+Native Update RVA 0x801043..0x8010ed uses particle +0x0c as a signed fade state: negative
+fades out, positive fades in, and completion can zero both current and base alpha. The
+volume-exit test at 0x801262..0x8012bb changes that sign. Particle position at +0x10 is
+transformed to component-local space before testing. SpawnCount independently follows
+instance +0x10 to its current LOD. New constants live in patterns.h. Next read-only probe
+adds fade-in/out counts and particle Z range, and resolves current LOD UpdateModules and
+rain module m_Extent. All native ownership/array checks remain in force; module/LOD reads
+require IsLiveObject. The rain helper uses world positions; do not assume other layers
+share that coordinate convention. CPU opacity can also be affected by other modules.
+
+Hypothesis: view-dependent emitter motion moves drops outside their actual simulation
+volume and fading/recovery empties opacity. Counterprediction: opacity collapses without
+corresponding fade/geometry changes, requiring another writer or module. No forced alpha,
+shelter override, or weather behavior change. Prepare/build only; installation requires
+another explicit go-ahead because concurrent branch builds are being tested.
+
+## Stationary rain cycling with live particles (VR-202, 2026-09-22)
+
+Build718-g433e81335 is identified by the archived previous-log banner after another
+branch launch rotated it. Installed DLL has since changed; do not attribute it to this run.
+Archive: build/playtest-candidates/runs/vr-202-cycle-20260922-220215.
+Pitch-only reproduction did not repeat. Final observation instead has rain appearing for
+several seconds and disappearing briefly with a steady position/view. Between ticks
+37638906 and 37654906 all sampled requests remain positive/uncovered; three valid emitter
+instances total 88..90 particles, forcedInactive=0, and LastRenderTime advances. Whole
+component inactivity and all-particles-dying do not explain this interval. Bounds change,
+but no visual transition timestamps establish correlation. Aggregate counts cannot identify
+which of three layers is visible.
+
+Native Update RVA 0x801000..0x8012c6 supplies a reason counts can mislead: indices at
+instance+0x44 select records from +0x40 with stride +0xd0. The fade path writes particle
+alpha +0x6c from base alpha +0x7c, and can zero both while retaining the slot. Constants
+are in patterns.h. The next diagnostic logs each instance separately: active count,
+readable alpha records, transparent/base-zero counts, and alpha min/max/mean. Reads are
+bounded to 512 particles per instance, validate stride/address arithmetic/readability,
+and stay under the existing one-second Rain Trace cadence. CPU alpha does not establish
+material opacity. No weather writes or guessed fix. Cycling opacity directs investigation
+to fading/recycling; stable opacity directs it toward material/render visibility.
+
+Prepare and build, but NO INSTALL until explicit user go-ahead. Another agent is swapping
+builds in parallel. Re-check identity before later installation or playtest interpretation.
+
+## Stationary pitch reproduction weakens shelter as the cause (VR-202, 2026-09-22)
+
+Matching banner and installed DLL verified for vr33-hands-working-716-g52b55216b.
+Archive: `build/playtest-candidates/runs/vr-202-pitch-20260922-213428`.
+Headset observation: at the final stationary location, looking upward consistently removes
+falling rain and returning toward eye height restores it; ground splashes persist.
+In the final 42 weather summaries (ticks 36285781..36326796), all components remain
+unhidden, active, and unsuppressed. Of 168 quarter-second samples, 162 are uncovered with
+positive MaxParticles and six are covered with zero. Sustained upward head-pitch periods
+around 23 and 28 degrees retain MaxParticles=40. Brief shelter suppression exists but
+cannot explain the repeated sustained pitch-dependent absence. This supersedes the
+positional shelter prediction below; do not force uncovered or increase configured drops.
+
+Native particle follow-up via verified class metadata/vtable and offline disassembly:
+DisParticleModuleRainDrops Spawn RVA 0x800700 and Update RVA 0x800790 use emitter-instance
+active count at +0xd4; SpawnCount RVA 0x801370 independently subtracts that count from the
+MaxParticles distribution. All use +0x08 as the component context supplied to particle
+parameter distributions. Update combines emitter position delta with particle velocity and
+module extent. The camera placement path already established that looking upward moves
+the emitter upward along the view ray. This is a candidate simulation/bounds mechanism,
+not a demonstrated defect in that code. No game-derived code or dumps are committed.
+
+The next read-only rain/particles probe resolves EmitterInstances, Bounds, BoxSphereBounds
+Origin/BoxExtent, LastRenderTime, bForcedInActive, Template and fixed-bounds flag. It reads
+only the current live PSC's instance array (maximum 32), requires each native instance's
+component back-pointer to match, and rejects unreadable or implausible counts. The two
+native layout offsets and three research RVAs are in patterns.h. Native instances are not
+UObjects; their live owner and current membership are revalidated without retaining them.
+Unknown counts/flags print -1, and unavailable bounds have boundsValid=0. One line per
+second under Rain Trace=1 includes camera pitch, world emitter position, live particle count,
+render bounds and LastRenderTime. No weather behavior changes.
+
+Next single question: does the stationary eye-height/up/eye-height cycle still remove and
+restore falling rain? Hold each view for 10 seconds, repeat once, then quit. A live count
+falling to zero directs work toward simulation; a stable count with frozen render time or
+misplaced bounds directs work toward visibility/update culling. Advancing render time does
+not prove headset pixels: material orientation and other rain systems remain possible.
+
+## Native shelter can suppress falling rain while impacts continue (VR-202, 2026-09-22)
+
+The lens-only candidate `vr33-hands-working-714-gc17016e63` is headset-confirmed for
+removing the close overlay while preserving rain. Matching banner and installed DLL hash
+verified. The run logs the lens hide at 33032765 and restoration at 33585625; the rain box
+stays unhidden. Archive: `build/playtest-candidates/runs/vr-202-20260922-212046`.
+The remaining report is positional/intermittent falling-rain absence with splashes present.
+
+Decompiled declarations distinguish DisParticleModuleRainDrops (MaxParticles and
+SpawnKillRate particle parameters) from DisParticleModuleRainImpacts. The camera declares
+m_bWasUncovered, m_fRainSpawnKillRate and independent requested/available impact counts.
+Those methods are native, so their declarations alone do not explain the behavior.
+
+Native trace of the installed Steam executable, using tools/disasm-rva.py:
+- The earlier rain-placement note incorrectly labelled 0x6D8951 a VA. It is an RVA,
+  VA 0xAD8951; this session verified its emitter test and corrected that label.
+- Shelter sampling at RVA 0x6D8C00 independently jitters camera X/Y by random*70-35
+  game units. Z remains the camera Z. The endpoint subtracts RainDirection*5000;
+  default direction (0,0,-1) makes this an upward 5000-unit test. Trace flags are 0x2086.
+- At RVA 0x6D8D0C the result updates m_bWasUncovered. Later in the same path,
+  MaxParticles receives m_NumRainDrops when uncovered, or zero otherwise.
+  SpawnKillRate is also submitted separately. Therefore m_NumRainDrops=40 in the old
+  log does NOT establish that falling drops are requested at the particle consumer.
+- The impact path begins separately at RVA 0x6D8E95. It checks requested impact count
+  and min/max distance, samples points, traces along rain direction, and checks the hit
+  normal. It does not branch on m_bWasUncovered. Splashes alone do not prove that the
+  camera shelter test should permit falling drops.
+- WorldRainComponent/WorldRainInfo is another declared system with enable/intensity
+  and wrap controls. Its contribution in this scene is not yet measured.
+
+This is a concrete positional mechanism, not yet a proved cause of the reported absence.
+Roof edges/collision above the camera are plausible; claiming incorrect collision or a
+VR-induced error would require a time-aligned missing-rain interval. No shelter override
+or guessed rain-forcing fix is installed.
+
+The VR-202 candidate adds read-only rain/weather summaries under existing Rain Trace=1:
+current camera position, uncovered, configured count, actual MaxParticles/SpawnKillRate,
+component hidden/active/suppress-spawn bits, and independent impact counts. At the existing
+250 ms sampling cadence it counts open/covered and zero/positive/unknown particle samples,
+then emits at most one summary per second. All properties resolve in one RflResolveBatch.
+InstanceParameters rows are bounds-checked, scalar-typed and matched by FName; stride 40
+is verified from the native setter at RVA 0x4AA690 (i*40 indexing and 0x28 allocation),
+then checked against reflected ParticleSysParam.Material plus pointer size. Unknown reads
+print -1, never zero. No engine memory writes or new native calls are added by the probe.
+The research RVAs and the one required stride live in patterns.h.
+
+Prediction: missing-rain positions coincide with covered samples and MaxParticles=0 while
+impact counts remain nonzero. Counterprediction: uncovered and positive MaxParticles persist
+through the absence, directing work toward particle simulation/culling or WorldRain instead.
+Next single launch: face the same direction and stand about 10 seconds in a raining spot,
+10 seconds in the nearby non-raining spot, then return for 10 seconds. Report whether the
+falling rain consistently follows that position change while splashes remain.
+
+## Rain hide headset scope correction (VR-199, 2026-09-22)
+
+Verified run: `vr33-hands-working-712-gc1a25b64d`, installed DLL SHA-256
+`3e48e0e73a6ad0ccd9b2e4aed811fc5687b2b7fdce3539db63e2e88c38bdf7a1`.
+At 32050859 Hide changed 0 -> 1. At 32050890 the camera-box component and the
+looping lens component with template `Over_camera_rain_01` both changed HiddenGame
+0 -> 1. The headset report confirms rain disappeared but includes sky rain and ground
+splashes. No off transition is present, so restoration is unverified.
+
+This establishes the lens template name, not which component supplies each visible part.
+The required option scope is only the close overlay. The next candidate leaves the camera
+box untouched and hides only the identified lens component. If sky rain or splashes still
+disappear, that particle asset combines effects and component-level hiding is too broad.
+Do not claim independent visual separation until that A/B passes.
+
+The reported intermittent absence of sky rain while ground splashes remain predates this
+change. Before this run's hide, samples show 40 requested drops and HiddenGame=0; that is
+not proof of drawn drops, and the report has no timestamp for the intermittent absence.
+The decompiled camera declares impact data separately from its box emitter; no impact
+fields are written by this toggle.
+
+## Rain hide targets the separate lens system (VR-199, 2026-09-22)
+
+The existing `[Rain] Hide` only followed `DishonoredPlayerCamera.m_pRainBoxEmitter`.
+The prior run470 observation below already separated that emitter from the visible lens
+sheet. A box hide cannot establish that the sheet is hidden.
+
+The local decompiled declarations identify two independent owners: DisSeqAct_SetRainEmitter
+configures camera-box rain, while DisSeqAct_SpawnCameraLensEffect supplies a lens class and
+DisTweaks_EmitterCameraLensEffect, with separate spawn/stop-looping inputs. The looping
+lens class derives from EmitterCameraLensEffectBase through DisEmitterCameraLensEffect,
+retains a ParticleSystemComponent, and exposes active/fade state. Its tweak object chooses
+the actual particle template. Thus class name alone does not identify rain. The candidate
+requires current Camera.CameraLensEffects membership, the looping class, and a live
+ParticleSystemComponent.Template whose name contains `rain` (case insensitive). The asset
+name is still to be verified from `rain/lens` in a matching-build rainy-area test; an
+unidentified template is logged and left alone. Health, blood and other lens classes are
+not selected. No game-derived source is committed.
+
+The hide uses reflected PrimitiveComponent.SetHidden(bool), which propagates to the render
+proxy, on the script lane at the existing 250 ms cadence. A menu/load epoch forces a fresh
+live-object table. Every target passes IsLiveObject and is reached through the current
+controller/camera/owner chain. Restore also matches component FName, owner and template;
+a retained pointer alone never authorizes a write. Disappeared targets are forgotten.
+Native hidden components are not claimed. `[Rain] Hide=0` remains the shipped default.
+
+No new addresses or numeric field offsets. All new fields use reflection by declaring
+class and property name. Build and offline validation are not a visual acceptance result.
+
 ## DisPostProcessManager UI fade timer goes NaN (VR-140, 2026-09-18)
 
 Layout, reflected by name on build 473 (`pp/watch: armed`): `m_RequiredEffects[21]`
@@ -56,7 +300,7 @@ Build458 run (08:33): `m_RainBoxExtent` = 500/500/500 uu, 40 drops,
 about 10000 in a later one.
 
 **Where the rain is drawn (derived 2026-09-18, RETRACTS the first reading).**
-The emitter is re-placed every camera update by the native at VA 0x6D8951
+The emitter is re-placed every camera update by the native at RVA 0x6D8951 (VA 0xAD8951)
 (`cmp [cam+0x4dc],0`, gated by `[cam+0x4c8]==1`): the view forward (Rotator
 -> Vector, `call 0x40da70`) is taken into the emitter's frame (vtable +0x1BC),
 `t = min over axes of m_RainBoxExtent[i] / |f[i]|` (the `fdivr [edi+0x4e0/4/8]`

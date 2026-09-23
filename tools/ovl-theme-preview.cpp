@@ -16,6 +16,7 @@ static void SamplePanel(float w, float h, bool advanced)
     ImGui::SetNextWindowSize(ImVec2(w, h));
     ImGui::Begin("Dishonored VR", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse);
     dvr::ovl::title("Dishonored VR");
+    dvr::ovl::controller_hint();
     ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("SHOW"); ImGui::SameLine();
     dvr::ovl::pill("Basic", !advanced); ImGui::SameLine(0, 4);
     dvr::ovl::pill("Advanced", advanced); ImGui::SameLine(0, 4);
@@ -25,8 +26,9 @@ static void SamplePanel(float w, float h, bool advanced)
     ImGui::TextDisabled("IPD 63 mm");
     ImGui::Spacing();
     const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-    dvr::ovl::push_primary(); ImGui::Button("RECENTER", ImVec2(half, 0)); dvr::ovl::pop_primary();
-    ImGui::SameLine(); ImGui::Button("SAVE AS DEFAULTS", ImVec2(half, 0));
+    dvr::ovl::push_primary(); ImGui::Button("RECENTER", ImVec2(-1, 0)); dvr::ovl::pop_primary();
+    ImGui::Button("SAVE AS DEFAULTS", ImVec2(half, 0));
+    ImGui::SameLine(); ImGui::Button("RESET TO DEFAULTS", ImVec2(half, 0));
     static float height = 0.06f; ImGui::SliderFloat("Height offset (m)", &height, -1, 1, "%+.2f");
     ImGui::Spacing();
     if (ImGui::BeginTabBar("tabs")) {
