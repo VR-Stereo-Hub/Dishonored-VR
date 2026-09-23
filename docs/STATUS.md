@@ -1,3 +1,31 @@
+## 2026-09-23: launcher 1.0.0 polish and F10 Layout (VR-198, PR 111)
+
+Current state: codex/vr-198-launcher remains unmerged. Public version is now
+1.0.0 (older 41.x labels were development versions). The executable is
+DishonoredVR-Launcher-v1.0.0.exe. About includes releases,
+owner-approved credits and Ko-fi copy; the supplied emblem is the EXE icon.
+Fresh setup defaults to Auto/Balanced, removes head-based walking from the
+launcher and recommends 120 Hz or 144 Hz with Virtual Desktop Beta.
+
+Update/Reinstall can optionally replace INI/F10 settings with shipped defaults.
+The checkbox defaults off, persists per user and backs up the entire INI before
+an enabled reset. Ordinary updates preserve the current-schema INI byte-for-byte.
+F10 now has Layout in all tiers, with the controller picture, Full view, Fit, 1-8x zoom,
+four-direction pan buttons, drag and scrollbars.
+
+Collect logs previously failed in the launcher's child PowerShell because
+Get-FileHash was not found. Full system PowerShell selection, local module-path
+repair and module-independent SHA256 fix this. GUI and regression mode share
+the same collector. Actual launcher collection: 19 files, four binaries, zero
+manifest errors. Scratch tests verify both preservation and reset, exact backup
+bytes and CRLF. Native F10 pointer tests verify zoom/pan/Fit; launcher fixtures
+are reviewed at 100/150% DPI. See docs/INSTALLER.md for details.
+
+Next: user review of the refreshed launcher and eventual headset validation of
+the Layout tab. No game installation or launch is authorized for this candidate;
+the installed game remains accepted F10 build736. PR 111 is not merged and no
+release/tag has been published. An online updater remains a separate feature.
+
 ## Session 2026-09-22 (drop takedowns, VR-203): branch `takedown-tweak`, PR #106, not merged
 
 A drop onto a guard often became an ordinary slash. The cause is timing. The game

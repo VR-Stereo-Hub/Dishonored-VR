@@ -40,6 +40,7 @@ void load_fonts();
 void load_art(ID3D11Device* device);
 void release_art();
 void backdrop();
+void bindings_layout(float& zoom); // zoom, drag and arrow controls for either input path
 float body_footer_height();
 void begin_body(const char* id);
 void end_body();

@@ -16,7 +16,10 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $config = if ($Debug) { 'Debug' } else { 'RelWithDebInfo' }
 $bin = Join-Path $repo "build\src\$config"
-$exe = Join-Path $bin 'DishonoredVR-Launcher.exe'
+$versionText = Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw
+if ($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read launcher version' }
+$version = $Matches[1]
+$exe = Join-Path $bin "DishonoredVR-Launcher-v$version.exe"
 if (-not (Test-Path $exe)) { throw "missing $exe - run tools\build.ps1 first" }
 $scratchRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
 $scratch = [IO.Path]::GetFullPath((Join-Path $scratchRoot 'dvr-installer-smoke'))
@@ -133,11 +136,11 @@ Assert ($after.Contains('RenderWidth=3012') -and $after.Contains('RenderHeight=3
 Assert ($after.Contains("Runtime=auto`r`n")) 'Runtime=auto'
 
 '5b. launcher preferences: the entire ini differs only in selected keys'
-$expected = $after.Replace("DesktopMirrorOff=1", "DesktopMirrorOff=0").Replace("PhysicalCrouch=1", "PhysicalCrouch=0").Replace("HeadBasedMovement=1", "HeadBasedMovement=0").Replace("[Rain]`r`nRecovery=1`r`nHide=0", "[Rain]`r`nRecovery=1`r`nHide=1").Replace("DpadModifier=1", "DpadModifier=2").Replace("DpadFlip=0", "DpadFlip=1").Replace("PauseChord=1", "PauseChord=0")
-$rc = Run ($common + @('--op','change','--runtime','auto','--quality','quality','--mirror','on','--physical-crouch','off','--hide-rain-overlay','on','--head-movement','off','--dpad-modifier','2','--dpad-flip','on','--pause-chord','off'))
+$expected = $after.Replace("DesktopMirrorOff=1", "DesktopMirrorOff=0").Replace("PhysicalCrouch=1", "PhysicalCrouch=0").Replace("[Rain]`r`nRecovery=1`r`nHide=0", "[Rain]`r`nRecovery=1`r`nHide=1").Replace("DpadModifier=1", "DpadModifier=2").Replace("DpadFlip=0", "DpadFlip=1").Replace("PauseChord=1", "PauseChord=0")
+$rc = Run ($common + @('--op','change','--runtime','auto','--quality','quality','--mirror','on','--physical-crouch','off','--hide-rain-overlay','on','--dpad-modifier','2','--dpad-flip','on','--pause-chord','off'))
 Assert ($rc -eq 0) 'preference apply succeeds'
 $changed = [IO.File]::ReadAllText($ini)
-Assert ($changed -ceq $expected) 'full ini equals expected: exactly seven selected preference values change'
+Assert ($changed -ceq $expected) 'full ini equals expected: exactly six selected preference values change'
 $le = LineEndings $ini
 Assert ($le[0] -eq $le[1] -and -not $le[2]) 'preference apply keeps CRLF and no BOM'
 $rc = Run ($common + @('--op','change','--runtime','auto','--quality','quality'))
@@ -180,6 +183,22 @@ Assert (-not $after.Contains('HeightOffsetM=0.111')) 'the old tuning is gone (as
 Assert ((Get-ChildItem $game -Filter 'dishonored_vr.ini.*.dvr-backup').Count -eq 1) 'the old ini is kept beside it'
 $rc = Run ($common + @('--op', 'uninstall', '--delete-ini'))
 Remove-Item (Join-Path $game 'dishonored_vr.ini.*.dvr-backup') -Force
+
+# Opt-in reset must replace all tuning and preserve a byte-identical backup.
+'8b. explicit update reset uses public defaults and backs up every setting'
+[IO.File]::WriteAllText($ini, $changed, $ascii)
+$rc = Run ($common + @('--op','update','--overwrite-settings'))
+Assert ($rc -eq 0) 'overwrite update succeeds'
+$reset = [IO.File]::ReadAllText($ini)
+$defaults = [IO.File]::ReadAllText((Join-Path $repo 'release\dishonored_vr.ini')).Replace('DataDir=D:\dvr-data','DataDir=')
+Assert ($reset -ceq $defaults) 'entire reset ini matches shipped defaults with portable data path'
+$resetRecord=Get-Content (Join-Path $game 'dishonored_vr_install.json') -Raw | ConvertFrom-Json
+Assert ($resetRecord.runtime -eq 'auto' -and $resetRecord.quality -eq 'balanced') 'install record reflects reset choices'
+$backups = @(Get-ChildItem -LiteralPath $game -Filter 'dishonored_vr.ini.*.dvr-backup')
+Assert ($backups.Count -eq 1 -and [IO.File]::ReadAllText($backups[0].FullName) -ceq $changed) 'full original tuning has an exact backup'
+$le = LineEndings $ini
+Assert ($le[0] -eq $le[1] -and -not $le[2]) 'reset preserves CRLF without BOM'
+$rc = Run ($common + @('--op','uninstall','--delete-ini'))
 
 '9. install with no game config folder: baseline pending, not failed'
 if ([IO.Path]::GetFullPath($cfg) -ne (Join-Path $scratch 'config')) { throw 'Invalid scratch config path' }

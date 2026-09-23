@@ -83,7 +83,7 @@ Remove-Item $stage -Recurse -Force
 # staged per config by CMake; refuse to ship one whose payload is not the DLL
 # this zip carries, or that carries the legacy code (the exe cannot be inspected
 # the way the DLL can, so the staged copy is what gets checked).
-$setup = "$bin\DishonoredVR-Launcher.exe"
+$setup = "$bin\DishonoredVR-Launcher-v$version.exe"
 if (-not (Test-Path $setup)) { throw "missing build output: $setup (the dvr_setup target did not build)" }
 $staged = "$repo\build\installer-payload\RelWithDebInfo\d3d9.dll"
 if (-not (Test-Path $staged)) { throw "missing staged installer payload: $staged" }

@@ -18,13 +18,13 @@ unsigned guideWidth = 0, guideHeight = 0;
 std::string n(const std::wstring& w) { return fs::narrow(w); }
 
 const char* kRuntimeTips[3] = {
-    "Pins Virtual Desktop's own OpenXR runtime (VDXR) for this game. In the Streamer set 90 Hz and SSW off: the tested render size was judged at 90 and ghosts at 120.",
+    "Pins Virtual Desktop's own OpenXR runtime (VDXR) for this game. Recommended: 120 Hz, or 144 Hz with Virtual Desktop Beta. Keep SSW off.",
     "Index, Vive, WMR through SteamVR, Quest over Link or Steam Link. The mod brings its own bridge (dvr_steamvr32.dll); start SteamVR before the game.",
     "The mod tries the 32-bit OpenXR runtime Windows registers and falls back to the SteamVR bridge when there is none. Pick this when unsure.",
 };
 const char* kQualityTips[3] = {
     "75% of the tested pixels, both axes scaled together. For an 8 GB card, or when Balanced stutters.",
-    "2750x2850 per eye, the size this build was tuned and judged at, with the headset at 90 Hz. Start here.",
+    "2750x2850 per eye. The recommended starting resolution.",
     "120% of the tested pixels. Sharper and slower; judged on a 4070 Ti SUPER class card. Not the place to start.",
 };
 
@@ -73,7 +73,7 @@ void headset_section(ViewState& v)
     if (hit >= 0 && !v.busy) v.choices.runtime = (Runtime)hit;
     std::string line;
     if (v.choices.runtime == Runtime::Vdxr)
-        line = v.det.vdxrPresent ? "Virtual Desktop Streamer found. Set it to 90 Hz with SSW off."
+        line = v.det.vdxrPresent ? "Virtual Desktop Streamer found. Use 120 Hz, or 144 Hz with VD Beta. SSW off."
                                  : "Virtual Desktop Streamer was not found on this PC; the mod will choose the runtime itself until it is installed.";
     else if (v.choices.runtime == Runtime::SteamVr)
         line = v.det.steamvrPresent ? "SteamVR found. Start it before the game." : "SteamVR was not found in a Steam library; install it, and start it before the game.";
@@ -104,7 +104,7 @@ void quality_section(ViewState& v)
     } else {
         line = "No graphics adapter answered; Balanced is where this build was judged.";
     }
-    line += " Set the headset to 90 Hz.";
+    line += " Recommended: 120 Hz, or 144 Hz with VD Beta.";
     status_slot("##qualitystatus", 1, line.c_str());
 }
 
@@ -133,8 +133,6 @@ void preferences_section(ViewState& v)
         if (v.choices.runtime != Runtime::SteamVr) ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
         preference_checkbox(v, Crouch, "Duck in your room to crouch. The controller crouch button still works.");
         preference_checkbox(v, Rain, "Hides only the close rain layer. Sky rain and ground splashes remain.");
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
-        preference_checkbox(v, HeadMovement, "On: movement follows your head direction. Off: movement follows your body direction.");
     }
     if (v.controlsOpen) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     if (heading("Controller shortcuts", "Choose controls that exist on your controllers; the headset name alone is not enough.", false)) {
@@ -204,6 +202,7 @@ UiAction draw_setup(ViewState& v)
         if (footer_button("Cancel")) action = UiAction::Close;
     }
     if (footer_button("Bindings")) action = UiAction::ShowGuide;
+    if (footer_button("About")) action = UiAction::ShowAbout;
     return action;
 }
 
@@ -264,6 +263,7 @@ UiAction draw_done(ViewState& v)
     if (showPlay) { if (footer_button("Launch via Steam", true, v.det.running == process::Running::No)) action = UiAction::Launch; }
     if (footer_button("Close")) action = UiAction::Close;
     if (footer_button("Bindings")) action = UiAction::ShowGuide;
+    if (footer_button("About")) action = UiAction::ShowAbout;
     return action;
 }
 
@@ -306,9 +306,14 @@ UiAction draw_manage(ViewState& v)
             ImGui::SameLine();
             if (button("Keep it", false, true, half)) action = UiAction::CancelUninstall;
         } else {
+            if (dvr::ovl::checkbox("Overwrite INI and F10 settings on update", &v.choices.overwriteSettings))
+                action = UiAction::SaveUpdatePreference;
+            wrapped_faded(v.choices.overwriteSettings
+                ? "Updates will use the new defaults. Your current settings are backed up beside the INI."
+                : "Updates keep your settings. Turn this on to replace them with the new defaults.");
             const std::string updateLabel = sameBuild ? "Reinstall this build" : fs::format("Update to %s (build %s)", v.det.version.c_str(), v.det.buildId.c_str());
             if (button(updateLabel.c_str(), !sameBuild, idle, half)) action = UiAction::Update;
-            dvr::ovl::tip(sameBuild ? "Writes the same three DLLs again. Your settings stay." : "Replaces the three DLLs with this launcher's. Your settings stay.");
+            dvr::ovl::tip("Installs this launcher's build. The overwrite toggle above controls whether your settings are reset.");
             ImGui::SameLine();
             if (button("Change settings", false, v.det.iniExists, half)) action = UiAction::ChangeSettings;
             dvr::ovl::tip("Runtime, resolution, mirror, comfort and controller shortcuts. Your other F10 settings stay.");
@@ -337,8 +342,37 @@ UiAction draw_manage(ViewState& v)
     if (footer_button("Close")) action = UiAction::Close;
     if (footer_button("Open log")) action = UiAction::OpenLog;
     if (footer_button("Bindings")) action = UiAction::ShowGuide;
+    if (footer_button("About")) action = UiAction::ShowAbout;
     return action;
 }
+UiAction draw_about(ViewState& v)
+{
+    UiAction action = UiAction::None;
+    page_header("About Dishonored VR");
+    ImGui::BeginChild("##about-body", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.8f));
+    ImGui::Text("Version %s", v.det.version.c_str());
+    wrapped_faded("A motion-controlled VR adventure in Dunwall.");
+    dvr::ovl::ornament();
+    ImGui::TextUnformatted("Credits");
+    if (button("Pizza Parker / BioVRDev")) action = UiAction::CreditPizza;
+    wrapped_faded("Mod development and continued support.");
+    if (button("VOID / mohamad-balouza")) action = UiAction::CreditVoid;
+    wrapped_faded("Mod development and contributions.");
+    if (button("Gingas / GingasVRFO")) action = UiAction::CreditGingas;
+    wrapped_faded("Creator of the original Dishonored VR mod.");
+    dvr::ovl::ornament();
+    if (button("GitHub releases")) action = UiAction::OpenReleases;
+    wrapped_faded("Download the latest release and read what's changed.");
+    dvr::ovl::ornament();
+    wrapped("If you're enjoying the mod and feeling generous, you can");
+    if (button("support it on Ko-fi", true)) action = UiAction::OpenKofi;
+    wrapped("Thank you, it genuinely helps. Every donation goes toward the AI bills that make this work possible and into further development of this mod and the ones after it. Donating is never expected, and the mod will always be free.");
+    ImGui::EndChild();
+    dvr::ovl::ornament();
+    if (button("Back to launcher")) action = UiAction::BackFromGuide;
+    return action;
+}
+
 UiAction draw_guide(ViewState& v)
 {
     page_header("Bindings");
@@ -400,6 +434,7 @@ UiAction draw(ViewState& v)
     case Screen::Done:   a = draw_done(v); break;
     case Screen::Manage: a = draw_manage(v); break;
     case Screen::Guide: a = draw_guide(v); break;
+    case Screen::About: a = draw_about(v); break;
     }
     ImGui::End();
     return a;

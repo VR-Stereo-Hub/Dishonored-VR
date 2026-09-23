@@ -53,7 +53,10 @@ try {
     & $cmake --build --preset $preset
     if ($LASTEXITCODE -ne 0) { throw "Build failed." }
     $cfg = if ($Release) { "RelWithDebInfo" } else { "Debug" }
-    $setup = Join-Path $repo "build\src\$cfg\DishonoredVR-Launcher.exe"
+    $versionText = Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw
+    if ($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read launcher version' }
+    $version = $Matches[1]
+    $setup = Join-Path $repo "build\src\$cfg\DishonoredVR-Launcher-v$version.exe"
     if (Test-Path $setup) { Write-Host "build: installer $setup (embeds this build's d3d9.dll; tools\installer-render.ps1 draws its screens)" }
 }
 finally {

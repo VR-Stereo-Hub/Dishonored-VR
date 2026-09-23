@@ -24,7 +24,7 @@ ImFont* g_italic = nullptr;
 ImFont* g_section = nullptr;
 using Microsoft::WRL::ComPtr;
 ComPtr<ID3D11Device> g_artDevice;
-ComPtr<ID3D11ShaderResourceView> g_art[5];
+ComPtr<ID3D11ShaderResourceView> g_art[6];
 bool g_primary = false;
 
 bool decode_art(ID3D11Device* device, HMODULE module, int id, ID3D11ShaderResourceView** out)
@@ -447,13 +447,70 @@ void load_art(ID3D11Device* device)
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         (LPCWSTR)&load_art, &module);
     const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    for (int i=0; i<5; ++i)
+    for (int i=0; i<6; ++i)
         if (!decode_art(device, module, 201+i, g_art[i].GetAddressOf()))
             DVR_WARN("overlay/art: embedded resource %d unavailable; using flat theme fallback", 201+i);
     if (SUCCEEDED(com)) CoUninitialize();
-    DVR_INFO("overlay/art: backdrop=%d parchment=%d metal=%d header=%d note=%d",
-        !!g_art[0], !!g_art[1], !!g_art[2], !!g_art[3], !!g_art[4]);
+    DVR_INFO("overlay/art: backdrop=%d parchment=%d metal=%d header=%d note=%d layout=%d",
+        !!g_art[0], !!g_art[1], !!g_art[2], !!g_art[3], !!g_art[4], !!g_art[5]);
 }
+static void bindings_viewer(float& zoom, bool full)
+{
+    const ImVec2 panelPos = ImGui::GetCurrentWindow()->RootWindow->Pos;
+    const ImVec2 panelSize = ImGui::GetCurrentWindow()->RootWindow->Size;
+    ImGui::TextWrapped("Quest 3 default bindings. Custom shortcuts and SteamVR bindings can differ.");
+    bool fit = button("Fit");
+    ImGui::SameLine(); if (button("Zoom -")) zoom -= .5f;
+    ImGui::SameLine(); if (button("Zoom +")) zoom += .5f;
+    if (fit) zoom = 1;
+    zoom = zoom < 1 ? 1 : zoom > 8 ? 8 : zoom;
+    ImGui::SameLine(); ImGui::Text("%.1fx", zoom);
+    ImGui::SameLine();
+    const bool expand = button(full ? "Back" : "Full view");
+    if (full && expand) ImGui::CloseCurrentPopup();
+    float dx = 0, dy = 0;
+    if (button("Left")) dx = -1;
+    ImGui::SameLine(); if (button("Right")) dx = 1;
+    ImGui::SameLine(); if (button("Up")) dy = -1;
+    ImGui::SameLine(); if (button("Down")) dy = 1;
+    ImGui::TextDisabled("Use arrows, scrollbars or drag the picture to pan.");
+    ImGui::BeginChild("##bindings-pan", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+    // Child windows have their own padding. The surrounding theme's padding is
+    // larger and can consume the entire picture at a narrow panel size.
+    const auto* window = ImGui::GetCurrentWindow();
+    const auto& style = ImGui::GetStyle();
+    const float aspect = 1539.0f / 1022.0f;
+    const float w = window->Size.x - style.ScrollbarSize - window->WindowPadding.x * 2;
+    const float h = window->Size.y - style.ScrollbarSize - window->WindowPadding.y * 2;
+    const float width = (w < h * aspect ? w : h * aspect) * zoom;
+    if (fit) { ImGui::SetScrollX(0); ImGui::SetScrollY(0); }
+    if (dx) ImGui::SetScrollX(ImGui::GetScrollX() + dx * w * .35f);
+    if (dy) ImGui::SetScrollY(ImGui::GetScrollY() + dy * h * .35f);
+    if (g_art[5] && width > 0) {
+        const float spare = ImGui::GetContentRegionAvail().x - width;
+        if (spare > 0) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + spare * .5f);
+        ImGui::Image((ImTextureID)(uintptr_t)g_art[5].Get(), ImVec2(width, width / aspect));
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+            const ImVec2 delta = ImGui::GetIO().MouseDelta;
+            ImGui::SetScrollX(ImGui::GetScrollX() - delta.x);
+            ImGui::SetScrollY(ImGui::GetScrollY() - delta.y);
+        }
+    } else ImGui::TextWrapped(g_art[5] ? "Enlarge the panel or reduce text size to view the picture." : "Bindings image unavailable.");
+    ImGui::EndChild();
+    if (!full) {
+        if (expand) ImGui::OpenPopup("##bindings-full-view");
+        ImGui::SetNextWindowPos(ImVec2(panelPos.x + 8, panelPos.y + 8));
+        ImGui::SetNextWindowSize(ImVec2(panelSize.x - 16, panelSize.y - 16));
+        if (ImGui::BeginPopupModal("##bindings-full-view", nullptr,
+                ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+            backdrop();
+            bindings_viewer(zoom, true);
+            ImGui::EndPopup();
+        }
+    }
+}
+void bindings_layout(float& zoom) { bindings_viewer(zoom, false); }
+
 float body_footer_height()
 {
     // Two footer rows plus the bottom air of the reference; scale with text.

@@ -145,7 +145,7 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
         r->fail("Could not write the render size", err); return false;
     }
     r->add(StepStatus::Ok, fs::format("Render size: %s, %ux%u per eye", quality_label(c.quality), s.w, s.h),
-           fs::format("%.0f%% of the tested 2750x2850%s. Set the headset to 90 Hz: this size was judged there, and ghosts at 120.",
+           fs::format("%.0f%% of the tested 2750x2850%s. Recommended: 120 Hz, or 144 Hz with Virtual Desktop Beta.",
                       percent_for_size(s), (c.exact.w && c.exact.h) ? ", kept exactly as it was" : ""));
 
     for (int i = 0; i < PreferenceCount; ++i) {
@@ -341,11 +341,8 @@ Detection detect(const Env& env)
         if (d.iniSize.w && d.iniSize.h) d.suggested.keep(d.iniSize);
         else d.suggested.choose(Quality::Balanced);
     } else {
-        d.suggested.runtime = d.vdxrPresent ? Runtime::Vdxr : d.steamvrPresent ? Runtime::SteamVr : Runtime::Auto;
-        // An 8 GB card measured 45-55 pairs/s at 120 % in the headset (PERFORMANCE.md,
-        // VR-160); the budget DXGI reports is about 90 % of the card's memory.
-        const uint64_t nineGiB = 9ull << 30;
-        d.suggested.quality = (d.gpu.budgetBytes && d.gpu.budgetBytes < nineGiB) ? Quality::Performance : Quality::Balanced;
+        d.suggested.runtime = Runtime::Auto;
+        d.suggested.quality = Quality::Balanced;
         d.suggested.pixelPercent = percent_for_quality(d.suggested.quality, kBalancedPercent);
     }
     DVR_INFO("setup: detect game=%s (%s) running=%d writable=%d config=%s exists=%d elevate=%d d3dcompiler=%d vdxr=%d steamvr=%d active=%s gpu=%s budget=%llu MB installed=%d sha=%.8s embedded=%.8s legacy=%d",
@@ -400,7 +397,7 @@ Report do_install(const Env& env, const Detection& det, const Choices& choices)
     return r;
 }
 
-Report do_update(const Env& env, const Detection& det)
+Report do_update(const Env& env, const Detection& det, bool overwriteSettings)
 {
     (void)env;
     Report r;
@@ -414,7 +411,22 @@ Report do_update(const Env& env, const Detection& det)
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
     remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0.");
     remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
-    if (det.iniExists && det.iniVersion < det.embeddedIniVersion) {
+    if (overwriteSettings) {
+        const std::wstring ini = fs::join(det.gameDir, kIniName);
+        DWORD err = 0;
+        if (det.iniExists) {
+            const std::wstring backup = ini + L"." + fs::timestamp_local() + L"." + std::to_wstring(GetTickCount64()) + L".dvr-backup";
+            if (!fs::copy_file(ini, backup, &err)) { r.fail("Could not back up your settings", err); return r; }
+            r.add(StepStatus::Ok, "Backed up your INI and F10 settings", n(backup));
+        }
+        if (!fs::write_file_atomic(ini, p.ini.data, p.ini.size, &err)) { r.fail("Could not reset settings", err); return r; }
+        // Fresh public defaults: auto runtime, Balanced, and no developer data path.
+        if (!apply_choices(&r, det, Choices{})) return r;
+        // apply_choices preserves a custom data directory for normal installs; a
+        // requested reset must use the portable default even when one was saved.
+        if (!profile::set(ini, L"Paths", L"DataDir", L"", &err)) { r.fail("Could not reset data folder", err); return r; }
+        r.add(StepStatus::Ok, "Replaced INI and F10 settings with this build's defaults");
+    } else if (det.iniExists && det.iniVersion < det.embeddedIniVersion) {
         // the refresh the mod would do at launch, with the runtime and size it would
         // have lost carried across from the old file (det.suggested read them)
         if (!refresh_outdated_ini(&r, det, p)) return r;
@@ -429,7 +441,8 @@ Report do_update(const Env& env, const Detection& det)
         Choices c = det.suggested;
         apply_choices(&r, det, c);
     }
-    write_install_record(&r, det, nullptr);
+    const Choices defaults;
+    write_install_record(&r, det, overwriteSettings ? &defaults : nullptr);
     return r;
 }
 

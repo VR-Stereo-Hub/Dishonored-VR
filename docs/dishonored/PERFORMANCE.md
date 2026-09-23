@@ -1530,3 +1530,12 @@ seventeen. The answers are the same: membership in the current GObjects array. E
 **Prediction:** `live:` reports a mean well under 3 ms. The steady out/idle gaps at 40 ms
 and above are the game's own, so they should mostly remain. What should go away is the
 once-a-second single-frame drops that are too small to itemise.
+
+
+## 2026-09-23: current public refresh recommendation
+
+The project owner directs the launcher and quick start to recommend 120 Hz, or
+144 Hz with Virtual Desktop Beta. This supersedes the old 90 Hz onboarding advice
+from earlier render builds. It is current product guidance, not a new measured
+benchmark in this session; historical 90/120 observations above retain their
+original build context. No timing or pacing implementation changes accompany it.

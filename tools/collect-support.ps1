@@ -7,6 +7,14 @@ param(
     [switch]$NoOpen
 )
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
+function File-Sha256([string]$path) {
+    $stream=$null; $sha=[Security.Cryptography.SHA256]::Create()
+    try {
+        $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+        return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','')
+    } finally { if($stream){$stream.Dispose()}; $sha.Dispose() }
+}
 $GameDir = (Resolve-Path -LiteralPath $GameDir).Path
 if (-not (Test-Path -LiteralPath (Join-Path $GameDir 'dishonored_vr.ini'))) { throw 'Choose the Win32 folder containing dishonored_vr.ini.' }
 $ini = Get-Content -LiteralPath (Join-Path $GameDir 'dishonored_vr.ini') -Raw
@@ -31,7 +39,7 @@ function Copy-Evidence([string]$source,[string]$name) {
         $target=Join-Path $stage $name
         $outputStream=[IO.File]::Create($target)
         $inputStream.CopyTo($outputStream); $outputStream.Dispose(); $outputStream=$null
-        $report.files+=@{ name=$name; sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash; sourceModifiedUtc=(Get-Item -LiteralPath $source).LastWriteTimeUtc.ToString('o') }
+        $report.files+=@{ name=$name; sha256=(File-Sha256 $target); sourceModifiedUtc=(Get-Item -LiteralPath $source).LastWriteTimeUtc.ToString('o') }
     } catch { $report.errors+=("$name : "+$_.Exception.Message) }
     finally { if($outputStream){$outputStream.Dispose()}; if($inputStream){$inputStream.Dispose()} }
 }
@@ -93,7 +101,10 @@ if($IncludeLatestDump -and $dumps.Count) { Copy-Evidence $dumps[0].FullName $dum
 $report.binaries=@()
 foreach($name in @('d3d9.dll','Dishonored.exe','dvr_steamvr32.dll','openvr_api.dll')) {
     $file=Join-Path $GameDir $name
-    if(Test-Path -LiteralPath $file) { $report.binaries+=@{ name=$name; sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash; version=(Get-Item -LiteralPath $file).VersionInfo.FileVersion } }
+    if(Test-Path -LiteralPath $file) {
+        try { $report.binaries+=@{ name=$name; sha256=(File-Sha256 $file); version=(Get-Item -LiteralPath $file).VersionInfo.FileVersion } }
+        catch { $report.errors+=("Binary $name : "+$_.Exception.Message) }
+    }
 }
 $report | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath (Join-Path $stage 'manifest.json') -Encoding UTF8
 @'

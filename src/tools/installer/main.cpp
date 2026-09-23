@@ -1,14 +1,14 @@
-// tools/installer/main.cpp - DishonoredVR-Launcher.exe (VR-198).
+// tools/installer/main.cpp - DishonoredVR-Launcher-v1.0.0.exe (VR-198).
 //
-//   DishonoredVR-Launcher.exe                          the window
-//   DishonoredVR-Launcher.exe --game-dir <dir>         ... against that game folder
-//   DishonoredVR-Launcher.exe --apply --op install --game-dir <dir> [--config-dir <dir>]
+//   DishonoredVR-Launcher-v1.0.0.exe                          the window
+//   DishonoredVR-Launcher-v1.0.0.exe --game-dir <dir>         ... against that game folder
+//   DishonoredVR-Launcher-v1.0.0.exe --apply --op install --game-dir <dir> [--config-dir <dir>]
 //        [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|custom]
 //        [--percent <n>] [--vdxr-json <path>] [--delete-ini]      unattended; prints the steps
 //        [--mirror on|off] [--physical-crouch on|off] [--hide-rain-overlay on|off]
-//        [--head-movement on|off] [--dpad-modifier 0|1|2|4]
+//        [--overwrite-settings] [--dpad-modifier 0|1|2|4]
 //        [--dpad-flip on|off] [--pause-chord on|off]              omitted preferences stay
-//   DishonoredVR-Launcher.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
+//   DishonoredVR-Launcher-v1.0.0.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
 //                                                   draw a screen headless (tools/installer-render.ps1)
 //   --elevated-apply ... --result <file>            what the window runs under UAC; not for hand use
 //
@@ -26,6 +26,7 @@
 #include "model/fake_states.h"
 #include "sys/fs.h"
 #include "sys/process.h"
+#include "sys/support.h"
 #include "core/util/log.h"
 #include "dvr_version.h"
 
@@ -113,6 +114,7 @@ int headless_mode(const Args& args, Env env)
         }
     }
     h.choices.vdxrJson = args.value(L"--vdxr-json");
+    h.choices.overwriteSettings = args.has(L"--overwrite-settings");
     h.deleteIni = args.has(L"--delete-ini");
     h.resultFile = args.value(L"--result");
     env.elevated = args.has(L"--elevated-apply");
@@ -139,7 +141,14 @@ int WINAPI wWinMain(HINSTANCE hinst, HINSTANCE, PWSTR, int)
     env.vdxrJsonOverride = args.value(L"--vdxr-json");
 
     int rc = 0;
-    if (args.has(L"--render")) {
+    if (args.has(L"--collect-logs")) {
+        process::attach_parent_console();
+        std::string notice;
+        rc = support::collect(env.gameDirOverride, args.value(L"--support-out"), false, &notice) ? 0 : 1;
+        const auto result = args.value(L"--result");
+        if (!result.empty()) fs::write_file_atomic(result, notice.data(), notice.size(), nullptr);
+        printf("%s\n", notice.c_str()); fflush(stdout);
+    } else if (args.has(L"--render")) {
         rc = render_mode(args);
     } else if (args.has(L"--apply") || args.has(L"--elevated-apply")) {
         rc = headless_mode(args, env);

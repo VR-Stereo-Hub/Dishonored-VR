@@ -6,8 +6,11 @@
 #include "sys/fs.h"
 #include "sys/process.h"
 #include "sys/resources.h"
+#include "sys/profile.h"
+#include "sys/support.h"
 #include "sys/steam.h"
 #include "payload_ids.h"
+#include "dvr_version.h"
 #include "core/ui/ovl_ui.h"
 #include "core/util/log.h"
 #include "imgui.h"
@@ -120,7 +123,8 @@ bool create_window(App& a, HINSTANCE hinst)
     WNDCLASSEXW wc = {}; wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = wnd_proc; wc.hInstance = hinst; wc.lpszClassName = L"DishonoredVRLauncher";
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    wc.hIcon = (HICON)LoadImageW(hinst, MAKEINTRESOURCEW(1), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR);
+    wc.hIconSm = (HICON)LoadImageW(hinst, MAKEINTRESOURCEW(1), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
     RegisterClassExW(&wc);
     const DWORD style = WS_OVERLAPPEDWINDOW;
     POINT cursor; GetCursorPos(&cursor);
@@ -204,6 +208,7 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
         s += i == Modifier ? std::to_wstring(c.preferences[i])
             : ((kPreferences[i].inverted ? !c.preferences[i] : c.preferences[i]) ? L"on" : L"off");
     }
+    if (c.overwriteSettings) s += L" --overwrite-settings";
     if (deleteIni) s += L" --delete-ini";
     s += L" --result " + process::quote_arg(resultFile);
     return s;
@@ -212,7 +217,7 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
 Report run_op(const Env& env, const Detection& det, const std::string& op, const Choices& c, bool deleteIni)
 {
     if (op == "install") return do_install(env, det, c);
-    if (op == "update") return do_update(env, det);
+    if (op == "update") return do_update(env, det, c.overwriteSettings);
     if (op == "change") return do_change(env, det, c);
     if (op == "baseline") return do_baseline(env, det);
     if (op == "disable") return do_disable(env, det, true);
@@ -288,6 +293,13 @@ void browse(App& a)
     dlg->Release();
 }
 
+std::wstring launcher_preferences()
+{
+    const std::wstring dir = fs::join(fs::known_folder(FOLDERID_LocalAppData), L"DishonoredVR");
+    fs::make_dir(dir, nullptr);
+    return fs::join(dir, L"launcher.ini");
+}
+
 void collect_support(App& a)
 {
     a.view.busy = true; a.view.busyText = "Collecting the support bundle..."; a.view.notice.clear();
@@ -295,33 +307,7 @@ void collect_support(App& a)
     if (a.worker.joinable()) a.worker.join();
     a.worker = std::thread([&a, gameDir]() {
         std::string notice;
-        const resources::Blob script = resources::rcdata(IDR_COLLECT_SUPPORT);
-        const std::wstring dir = fs::join(fs::temp_dir(), L"DishonoredVR-Launcher");
-        const std::wstring ps1 = fs::join(dir, L"collect-support.ps1");
-        const std::wstring out = fs::join(dir, L"collect-support.out.txt");
-        DWORD err = 0;
-        fs::make_dir(dir, &err);
-        if (!script.ok() || !fs::write_file_atomic(ps1, script.data, script.size, &err)) {
-            notice = "Could not unpack the support collector: " + fs::narrow(fs::win_error_text(err));
-        } else {
-            const std::wstring cmd = L"powershell.exe -NoProfile -ExecutionPolicy Bypass -File " + process::quote_arg(ps1) + L" -GameDir " + process::quote_arg(gameDir);
-            DWORD code = 0;
-            if (!process::run_wait(cmd, &code, &err, 120000, out)) {
-                notice = "Could not run PowerShell: " + fs::narrow(fs::win_error_text(err));
-            } else {
-                std::vector<uint8_t> bytes; fs::read_file(out, &bytes, nullptr);
-                std::string text((const char*)bytes.data(), bytes.size());
-                const size_t at = text.find("Support ZIP: ");
-                if (code == 0 && at != std::string::npos) {
-                    size_t end = text.find_first_of("\r\n", at);
-                    notice = "Support bundle written to " + text.substr(at + 13, end == std::string::npos ? std::string::npos : end - at - 13) + " (a folder opened on it).";
-                } else {
-                    while (!text.empty() && (text.back() == '\r' || text.back() == '\n')) text.pop_back();
-                    const size_t tail = text.find_last_of('\n');
-                    notice = fs::format("The support collector failed (exit %lu): %s", (unsigned long)code, text.substr(tail == std::string::npos ? 0 : tail + 1).c_str());
-                }
-            }
-        }
+        support::collect(gameDir, L"", true, &notice);
         DVR_INFO("setup: support bundle: %s", notice.c_str());
         std::lock_guard<std::mutex> lock(a.mu);
         a.workerOp = "support"; a.workerNotice = notice; a.workerHasDet = false;
@@ -338,7 +324,7 @@ void create_shortcut(App& a, bool desktop)
         a.view.notice = "Windows could not locate your user shortcut folders."; return;
     }
     const std::wstring dir = fs::join(base, L"DishonoredVR\\Launcher");
-    const std::wstring target = fs::join(dir, L"DishonoredVR-Launcher.exe");
+    const std::wstring target = fs::join(dir, L"DishonoredVR-Launcher-v" + fs::widen(DVR_VERSION) + L".exe");
     const std::wstring source = fs::module_path();
     DWORD err = 0;
     if (!fs::make_dir(dir, &err)) {
@@ -416,12 +402,27 @@ void dispatch(App& a, UiAction action)
         break;
     case UiAction::DesktopShortcut: create_shortcut(a, true); break;
     case UiAction::StartShortcut: create_shortcut(a, false); break;
+    case UiAction::SaveUpdatePreference: {
+        DWORD err = 0;
+        if (!profile::set(launcher_preferences(), L"Updates", L"OverwriteSettings", v.choices.overwriteSettings ? L"1" : L"0", &err))
+            v.notice = "Could not save the update preference: " + fs::narrow(fs::win_error_text(err));
+        break;
+    }
+    case UiAction::ShowAbout: v.guideReturn = v.screen; v.screen = Screen::About; break;
+    case UiAction::OpenKofi: process::open_unelevated(L"https://ko-fi.com/pizzzaparker"); break;
+    case UiAction::CreditPizza: process::open_unelevated(L"https://github.com/BioVRDev"); break;
+    case UiAction::CreditVoid: process::open_unelevated(L"https://github.com/mohamad-balouza"); break;
+    case UiAction::CreditGingas: process::open_unelevated(L"https://github.com/GingasVRFO"); break;
     case UiAction::ShowGuide: v.guideReturn = v.screen; v.screen = Screen::Guide; break;
     case UiAction::BackFromGuide: v.screen = v.guideReturn; break;
     case UiAction::Close: a.quit = true; break;
-    case UiAction::Update: start_op(a, "update", "Updating the mod..."); break;
+    case UiAction::Update:
+        v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 0) != 0;
+        start_op(a, "update", "Updating the mod..."); break;
     case UiAction::ChangeSettings:
-        v.changingSettings = true; v.screen = Screen::Setup; v.choices = v.det.suggested; v.notice.clear(); break;
+        v.changingSettings = true; v.screen = Screen::Setup; v.choices = v.det.suggested;
+        v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 0) != 0;
+        v.notice.clear(); break;
     case UiAction::CancelChange:
         v.changingSettings = false; v.screen = Screen::Manage; v.notice.clear(); break;
     case UiAction::ToggleDisable: start_op(a, v.det.disabled ? "enable" : "disable", v.det.disabled ? "Enabling VR..." : "Disabling VR..."); break;
@@ -446,6 +447,7 @@ int run_gui(HINSTANCE hinst, const Env& env)
     a.env = env;
     a.view.det = detect(env);
     a.view.choices = a.view.det.suggested;
+    a.view.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 0) != 0;
     a.view.screen = a.view.det.modInstalled ? Screen::Manage : Screen::Setup;
     a.view.logPath = dvr::log::path();
     if (!create_window(a, hinst)) {

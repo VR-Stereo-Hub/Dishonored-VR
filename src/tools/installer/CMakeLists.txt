@@ -71,6 +71,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/version.rc.in" "${CMAKE_BINARY_DIR}/
 
 add_executable(dvr_setup WIN32
     main.cpp
+    sys/support.cpp         sys/support.h
     app/win32_app.cpp        app/win32_app.h
     app/offscreen.cpp        app/offscreen.h
     ui/screens.cpp           ui/screens.h
@@ -96,7 +97,7 @@ add_executable(dvr_setup WIN32
     "${PROJECT_SOURCE_DIR}/src/core/util/log.cpp"
 )
 set_target_properties(dvr_setup PROPERTIES
-    OUTPUT_NAME "DishonoredVR-Launcher"
+    OUTPUT_NAME "DishonoredVR-Launcher-v${PROJECT_VERSION}"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/src")
 add_dependencies(dvr_setup dvr_version)
 target_include_directories(dvr_setup PRIVATE

@@ -18,7 +18,7 @@ enum class Quality { Performance = 0, Balanced = 1, Quality = 2, Custom = 3 };
 
 struct Size { uint32_t w = 0, h = 0; bool operator==(const Size& o) const { return w == o.w && h == o.h; } };
 
-constexpr uint32_t kBaseWidth = 2750, kBaseHeight = 2850;   // 100 %, judged at 90 Hz (VR-72)
+constexpr uint32_t kBaseWidth = 2750, kBaseHeight = 2850;   // 100 %, Balanced per-eye resolution
 constexpr float kPerformancePercent = 75.0f, kBalancedPercent = 100.0f, kQualityPercent = 120.0f;
 
 // Optional front-page preferences. -1 preserves the existing/shipped key.
@@ -31,19 +31,19 @@ struct Preference {
     int fallback;
     bool inverted;
 };
-enum PreferenceId { Mirror, Crouch, Rain, HeadMovement, Modifier, DpadFlip, PauseChord, PreferenceCount };
+enum PreferenceId { Mirror, Crouch, Rain, Modifier, DpadFlip, PauseChord, PreferenceCount };
 inline constexpr Preference kPreferences[] = {
     { L"VR", L"DesktopMirrorOff", L"--mirror", "Desktop mirror", 1, true },
     { L"Tracking", L"PhysicalCrouch", L"--physical-crouch", "Physical crouching", 1, false },
     { L"Rain", L"Hide", L"--hide-rain-overlay", "Hide close rain overlay", 0, false },
-    { L"Camera", L"HeadBasedMovement", L"--head-movement", "Walk in the direction you look", 1, false },
     { L"Controllers", L"DpadModifier", L"--dpad-modifier", "D-pad modifier", 1, false },
     { L"Controllers", L"DpadFlip", L"--dpad-flip", "Use right stick for D-pad", 0, false },
     { L"Controllers", L"PauseChord", L"--pause-chord", "X + Y pause shortcut", 1, false },
 };
 
 struct Choices {
-    int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
+    int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1 };
+    bool overwriteSettings = false; // explicit update opt-in, backed up before replacement
     Runtime runtime = Runtime::Auto;
     Quality quality = Quality::Balanced;
     float pixelPercent = kBalancedPercent;   // the Advanced slider; authoritative when quality == Custom

@@ -14,7 +14,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $config = if ($Debug) { 'Debug' } else { 'RelWithDebInfo' }
-$exe = Join-Path $repo "build\src\$config\DishonoredVR-Launcher.exe"
+$versionText = Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw
+if ($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read launcher version' }
+$version = $Matches[1]
+$exe = Join-Path $repo "build\src\$config\DishonoredVR-Launcher-v$version.exe"
 if (-not (Test-Path $exe)) { throw "missing $exe - run tools\build.ps1 first" }
 $out = Join-Path $repo 'build\installer-preview'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -35,6 +38,9 @@ foreach ($scale in $Scales) {
         Remove-Item $bmp.FullName
         $wrote++
     }
-    Remove-Item $bmpDir -Recurse -Force
+    $resolved = [IO.Path]::GetFullPath($bmpDir)
+    if (-not $resolved.StartsWith([IO.Path]::GetFullPath($out) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid preview cleanup path' }
+    if ((Get-Item -LiteralPath $resolved).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing preview reparse point' }
+    Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 "wrote $wrote PNGs under $out"

@@ -16,10 +16,10 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "FileDescription",  "Dishonored VR mod installer"
+            VALUE "FileDescription",  "Dishonored VR Launcher"
             VALUE "FileVersion",      "@PROJECT_VERSION@"
             VALUE "InternalName",     "DishonoredVR-Launcher"
-            VALUE "OriginalFilename", "DishonoredVR-Launcher.exe"
+            VALUE "OriginalFilename", "DishonoredVR-Launcher-v@PROJECT_VERSION@.exe"
             VALUE "ProductName",      "Dishonored VR"
             VALUE "ProductVersion",   "@PROJECT_VERSION@"
         END

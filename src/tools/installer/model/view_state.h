@@ -7,13 +7,13 @@
 
 namespace dvr::setup {
 
-enum class Screen { Setup, Done, Manage, Guide };
+enum class Screen { Setup, Done, Manage, Guide, About };
 
 enum class UiAction {
     None, Install, Browse, Rescan, Launch, Close,
     Update, ChangeSettings, CancelChange, ToggleDisable, CollectSupport,
     Uninstall, ConfirmUninstall, CancelUninstall, ApplyBaseline,
-    OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut
+    ShowAbout, OpenKofi, CreditPizza, CreditVoid, CreditGingas, SaveUpdatePreference, OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut
 };
 
 struct ViewState {
