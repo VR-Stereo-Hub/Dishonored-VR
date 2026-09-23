@@ -1498,3 +1498,35 @@ these two were the spikes is a prediction. Prediction: with both off, the next r
 appears. If the hitches remain, the next suspects are the other `BuildLiveSet()` callers
 (`cinematic_fov`, `cinematic_pitch`, `game_opts`) and the native-profile hooks
 (`NativeProfile=1`).
+
+## VR-204: the live-object table as a hash set (2026-09-22, UNMEASURED fix)
+
+**Report:** after the two diagnostics above were turned off, a few hitches remained at
+high fps.
+
+**The run's `perf: frame gap` lines** (the ones logged are 40 ms or more, or 2.5 times the
+mean present interval):
+* Most steady-play gaps sat in `out/idle (waiting for the game thread)`: 40-60 ms, every
+  few seconds, several at exactly 33 ms. Six sat in `present-tail (xrEndFrame)`, at 31-42
+  ms: the runtime or compositor.
+* The two load-time gaps line up with the `uistate` scan: 101 ms at 43719500 against a
+  114 ms gap, and 145 ms at 43795593 against a 164 ms gap. That scan runs once per load and
+  is left alone.
+* Mod work logged near the steady gaps: none that repeats.
+
+**The mod-side periodic cost:** `RefreshLiveSet` is called by the UI surface poll (1 s),
+crouch (1 s), rain, the sword trail and the camera shake (2 s). The shared table was
+therefore rebuilt about once a second. Each rebuild copies and sorts about 116,000
+pointers, about 12 ms by VR-160's measurement, on whichever thread asked. At 144 Hz that
+is at least one dropped frame each time. It sits below the gap logger's 40 ms line, so
+the log could not show it.
+
+**Change (`ue3/uobject.cpp`):** the table is now an open-addressing hash set with linear
+probing, a load factor of at most 0.5 and an integer avalanche hash. A rebuild is one
+linear pass with no sort, and `IsLiveObject` takes one or two probes instead of about
+seventeen. The answers are the same: membership in the current GObjects array. Every
+30 s the rebuild cost is summarised as `live: N rebuild(s) ... mean X ms, max Y ms`.
+
+**Prediction:** `live:` reports a mean well under 3 ms. The steady out/idle gaps at 40 ms
+and above are the game's own, so they should mostly remain. What should go away is the
+once-a-second single-frame drops that are too small to itemise.
