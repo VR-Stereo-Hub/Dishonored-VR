@@ -154,6 +154,75 @@ static void RainWeatherTrace(uint8_t* cam, uint8_t* psc, const float* pos, int h
     samples = covered = open = zero = positive = unknown = 0;
 }
 
+// VR-202: distinguish requested rain from live particles and moving render bounds.
+// Native instances are not UObjects: validate the current live PSC's array and
+// the instance's back-pointer on every read. No retained pointers and no writes.
+static void RainParticleTrace(uint8_t* psc, const float* camera, const float* emitter, const int32_t* rot)
+{
+    static unsigned long long next = 0;
+    const auto now = GetTickCount64();
+    if (now < next) return;
+    next = now + 1000;
+    static RflWant w[] = {
+        {"ParticleSystemComponent", "EmitterInstances", false},
+        {"PrimitiveComponent", "Bounds", false},
+        {"BoxSphereBounds", "Origin", false},
+        {"BoxSphereBounds", "BoxExtent", false},
+        {"PrimitiveComponent", "LastRenderTime", false},
+        {"ParticleSystemComponent", "bForcedInActive", true},
+        {"ParticleSystemComponent", "Template", false},
+        {"ParticleSystem", "bUseFixedRelativeBoundingBox", true}
+    };
+    static bool resolved = false;
+    if (!resolved) {
+        resolved = true;
+        Log("rain/particles: layout %d/8 fields (unresolved counts/flags=-1; boundsValid=0 means unavailable)",
+            RflResolveBatch(w, (int)(sizeof(w) / sizeof(w[0]))));
+    }
+    if (!IsLiveObject(psc)) return;
+    int particles = 0, valid = 0, count = -1;
+    uint8_t* data = nullptr; int32_t n = 0;
+    if (w[0].found && RflArrayAt(psc, w[0].off, &data, &n) && n >= 0 && n <= 32 &&
+        (!n || RangeReadable(data, n * sizeof(void*)))) {
+        count = n;
+        for (int i = 0; i < n; ++i) {
+            uint8_t* instance = nullptr;
+            memcpy(&instance, data + i * sizeof(void*), sizeof(instance));
+            if (!instance || ((uintptr_t)instance & 3) ||
+                !RangeReadable(instance, kRainInstanceActiveCountOff + sizeof(int))) continue;
+            uint8_t* owner = nullptr; int active = -1;
+            memcpy(&owner, instance + kRainInstanceComponentOff, sizeof(owner));
+            memcpy(&active, instance + kRainInstanceActiveCountOff, sizeof(active));
+            if (owner != psc || active < 0 || active > 100000) continue;
+            ++valid; particles += active;
+        }
+    }
+    if (count < 0 || valid != count) particles = -1;
+    float origin[3] = {}, extent[3] = {}, lastRender = -1;
+    const bool bounds = w[1].found && w[2].found && w[3].found &&
+        RangeReadable(psc + w[1].off + w[2].off, sizeof(origin)) &&
+        RangeReadable(psc + w[1].off + w[3].off, sizeof(extent));
+    if (bounds) {
+        memcpy(origin, psc + w[1].off + w[2].off, sizeof(origin));
+        memcpy(extent, psc + w[1].off + w[3].off, sizeof(extent));
+    }
+    if (w[4].found && RangeReadable(psc + w[4].off, 4)) memcpy(&lastRender, psc + w[4].off, 4);
+    auto flag = [&](uint8_t* obj, int k) -> int {
+        if (!IsLiveObject(obj) || !w[k].found || !RangeReadable(obj + w[k].off, 4)) return -1;
+        uint32_t value = 0; memcpy(&value, obj + w[k].off, 4);
+        return (value & w[k].mask) ? 1 : 0;
+    };
+    uint8_t* templ = w[6].found ? RainPtr(psc, w[6].off) : nullptr;
+    Log("rain/particles: psc=%p camera=(%.1f %.1f %.1f) pitch=%.2f yaw=%.2f "
+        "emitter=(%.1f %.1f %.1f) instances=%d valid=%d liveParticles=%d "
+        "boundsValid=%d origin=(%.1f %.1f %.1f) extent=(%.1f %.1f %.1f) "
+        "lastRenderTime=%.3f forcedInactive=%d fixedBounds=%d "
+        "(live count is not proof of drawing; compare bounds and render time across pitch)",
+        (void*)psc, camera[0], camera[1], camera[2], rot[0] * (360.0 / 65536.0), rot[1] * (360.0 / 65536.0),
+        emitter[0], emitter[1], emitter[2], count, valid, particles, bounds ? 1 : 0,
+        origin[0], origin[1], origin[2], extent[0], extent[1], extent[2], lastRender, flag(psc, 5), flag(templ, 7));
+}
+
 static void RainTick() {
     const bool hide = g_rainHide.load(), trace = g_rainTrace.load();
     struct HiddenRain { uint8_t* comp; uint8_t* owner; uint8_t* templ; uint32_t name[2]; };
@@ -360,6 +429,7 @@ static void RainTick() {
     static float lastExtent[3] = {}; static int lastDrops = -2, lastHidden = -2;
     const int hid = hiddenNow(psc);
     if (cam && cOk) RainWeatherTrace(cam, psc, cloc, hid, drops, kill);
+    if (cOk && eOk) RainParticleTrace(psc, cloc, eloc, crot);
     const bool changed = emitter != lastEmitter || drops != lastDrops || hid != lastHidden ||
                          fabsf(extent[0] - lastExtent[0]) > 0.5f || fabsf(extent[1] - lastExtent[1]) > 0.5f ||
                          fabsf(extent[2] - lastExtent[2]) > 0.5f;

@@ -1386,3 +1386,8 @@ The old rain/box line reports m_NumRainDrops. The native shelter decision can st
 MaxParticles=0 to the component while that configured count stays 40. Impact generation is
 independent. Read the actual scalar parameter and uncovered flag before attributing missing
 sky rain to rendering. rain/weather adds those consumer values; unresolved is -1.
+
+The build716 stationary pitch reproduction also shows the opposite limit: positive
+MaxParticles is only a request, not proof of live or drawn particles. Sustained upward
+views had positive requests despite reported missing rain. Track actual instance counts,
+render bounds and render time before choosing simulation versus visibility as the cause.

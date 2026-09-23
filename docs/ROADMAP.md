@@ -2,7 +2,8 @@
 
 - [x] Trace decompiled ownership and native camera shelter versus independent impact paths.
 - [x] Add read-only shelter/particle-consumer diagnostics with bounded logs.
-- [ ] Match an observed missing-rain position to shelter and effective MaxParticles.
+- [x] Match the stationary pitch reproduction: sustained absence with positive MaxParticles weakens shelter.
+- [ ] Measure actual particle count, render bounds and render time across pitch changes.
 - [ ] Fix a confirmed defect, if the absence is not expected shelter behavior.
 
 ## F10 improvements (VR-199, 2026-09-22)

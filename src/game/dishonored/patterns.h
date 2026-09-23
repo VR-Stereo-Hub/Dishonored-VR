@@ -460,3 +460,9 @@ static const uint32_t kRainImpactUpdateRva = 0x006d8e95;
 static const uint32_t kRainSetFloatParameterRva = 0x004aa690;
 // Setter at RVA 0x4aa690 indexes i*40 and allocates elements of 0x28 bytes.
 static const uint32_t kRainParticleParamStride = 0x28;
+// Rain module Spawn/Update/Spawn count agree on native emitter instance layout.
+static const uint32_t kRainDropsUpdateRva = 0x00800790;
+static const uint32_t kRainDropsSpawnRva = 0x00800700;
+static const uint32_t kRainDropsSpawnCountRva = 0x00801370;
+static const uint32_t kRainInstanceComponentOff = 0x08;
+static const uint32_t kRainInstanceActiveCountOff = 0xd4;

@@ -1,3 +1,19 @@
+## Session 2026-09-22 (VR-202): repeatable pitch-dependent sky-rain absence
+
+The final stationary look-up/eye-height reproduction supersedes the positional hypothesis.
+Build 716-g52b55216b and installed hash match. Last 42 seconds: 162/168 samples request rain,
+including sustained upward views; only six brief native shelter suppressions. All 42 summaries
+show active, unhidden particles with spawning enabled. Shelter is not a sufficient explanation.
+Archived both logs and ini: `build/playtest-candidates/runs/vr-202-pitch-20260922-213428`.
+
+Native rain Spawn, Update and SpawnCount establish the actual emitter-instance count layout.
+Added read-only rain/particles logs for live count, bounds, render time, forced inactivity,
+world emitter placement and camera pitch, once per second under existing Rain Trace=1.
+See ENGINE_NOTES top entry for derivation, counterpredictions and interpretation limits.
+No rain behavior changes. Next test: stationary eye-height/up/eye-height, ten seconds each,
+repeat once and quit. One question is whether the same pitch-dependent disappearance returns;
+the new log distinguishes simulation counts from bounds/render-update behavior.
+
 ## Session 2026-09-22 (VR-202): positional sky-rain investigation
 
 Lens-only rain hide and restore are accepted in the headset on c17016e63; matching banner

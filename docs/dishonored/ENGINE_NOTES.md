@@ -1,3 +1,41 @@
+## Stationary pitch reproduction weakens shelter as the cause (VR-202, 2026-09-22)
+
+Matching banner and installed DLL verified for vr33-hands-working-716-g52b55216b.
+Archive: `build/playtest-candidates/runs/vr-202-pitch-20260922-213428`.
+Headset observation: at the final stationary location, looking upward consistently removes
+falling rain and returning toward eye height restores it; ground splashes persist.
+In the final 42 weather summaries (ticks 36285781..36326796), all components remain
+unhidden, active, and unsuppressed. Of 168 quarter-second samples, 162 are uncovered with
+positive MaxParticles and six are covered with zero. Sustained upward head-pitch periods
+around 23 and 28 degrees retain MaxParticles=40. Brief shelter suppression exists but
+cannot explain the repeated sustained pitch-dependent absence. This supersedes the
+positional shelter prediction below; do not force uncovered or increase configured drops.
+
+Native particle follow-up via verified class metadata/vtable and offline disassembly:
+DisParticleModuleRainDrops Spawn RVA 0x800700 and Update RVA 0x800790 use emitter-instance
+active count at +0xd4; SpawnCount RVA 0x801370 independently subtracts that count from the
+MaxParticles distribution. All use +0x08 as the component context supplied to particle
+parameter distributions. Update combines emitter position delta with particle velocity and
+module extent. The camera placement path already established that looking upward moves
+the emitter upward along the view ray. This is a candidate simulation/bounds mechanism,
+not a demonstrated defect in that code. No game-derived code or dumps are committed.
+
+The next read-only rain/particles probe resolves EmitterInstances, Bounds, BoxSphereBounds
+Origin/BoxExtent, LastRenderTime, bForcedInActive, Template and fixed-bounds flag. It reads
+only the current live PSC's instance array (maximum 32), requires each native instance's
+component back-pointer to match, and rejects unreadable or implausible counts. The two
+native layout offsets and three research RVAs are in patterns.h. Native instances are not
+UObjects; their live owner and current membership are revalidated without retaining them.
+Unknown counts/flags print -1, and unavailable bounds have boundsValid=0. One line per
+second under Rain Trace=1 includes camera pitch, world emitter position, live particle count,
+render bounds and LastRenderTime. No weather behavior changes.
+
+Next single question: does the stationary eye-height/up/eye-height cycle still remove and
+restore falling rain? Hold each view for 10 seconds, repeat once, then quit. A live count
+falling to zero directs work toward simulation; a stable count with frozen render time or
+misplaced bounds directs work toward visibility/update culling. Advancing render time does
+not prove headset pixels: material orientation and other rain systems remain possible.
+
 ## Native shelter can suppress falling rain while impacts continue (VR-202, 2026-09-22)
 
 The lens-only candidate `vr33-hands-working-714-gc17016e63` is headset-confirmed for
