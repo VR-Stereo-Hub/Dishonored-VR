@@ -11,7 +11,11 @@ Required behavior: hide ONLY the close overlay; keep sky rain and splashes. The 
 removes the camera box from hide targets and labels the Basic control Hide close rain
 overlay. The lens target is now measured by name, but whether this particle asset alone
 preserves all expected sky/ground rain needs a new headset A/B. The preexisting intermittent
-missing-sky-rain report is tracked separately; ground splashes can remain during that issue.
+missing-sky-rain report is tracked separately as VR-202; ground splashes can remain during that issue.
+
+Installed follow-up: `vr33-hands-working-714-gc17016e63`, optimized, legacy off.
+DLL hash and 9/9 exports verified; full ini diff is only Rain Hide=1 -> 0. CRLF preserved.
+Install archive: `build/playtest-candidates/installs/20260922-202922-127478`.
 
 Next launch, one question: with sky rain and splashes visible, does enabling Hide close rain
 overlay remove only the close layer while both remain, and does disabling restore that
