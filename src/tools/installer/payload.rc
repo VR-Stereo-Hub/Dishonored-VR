@@ -1,0 +1,13 @@
+// tools/installer/payload.rc - the embedded payload, by file NAME only.
+// rc.exe resolves these through its include path; CMakeLists.txt points that at
+// build/installer-payload/<config>/ where the staging step put the bytes.
+#include "payload_ids.h"
+
+IDR_D3D9            RCDATA "d3d9.dll"
+IDR_SHIM            RCDATA "dvr_steamvr32.dll"
+IDR_OPENVR          RCDATA "openvr_api.dll"
+IDR_INI             RCDATA "dishonored_vr.ini"
+IDR_COLLECT_SUPPORT RCDATA "collect-support.ps1"
+IDR_HOWTO           RCDATA "HOW-TO-USE.txt"
+IDR_TROUBLESHOOTING RCDATA "TROUBLESHOOTING.md"
+IDR_KNOWN_ISSUES    RCDATA "KNOWN_ISSUES.md"
