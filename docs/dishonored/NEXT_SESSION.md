@@ -2,7 +2,8 @@
 
 Use the newest docs/STATUS.md entries. Branch f10-improvements / draft PR #109 sits on
 finalized, unmerged rain-fixes / PR #108. Revised menu art/layout is prepared for review.
-DO NOT INSTALL until explicit go-ahead. No game launch or installed ini change.
+Build733 installed with explicit approval. No game launch; all ini settings preserved,
+with existing mixed line endings normalized to CRLF. See STATUS for the archive and test.
 
 Desktop rendering, layout bounds and native widget event checks cover normal, small,
 large-text, tooltip and scrolled views. Headset/controller acceptance remains open.

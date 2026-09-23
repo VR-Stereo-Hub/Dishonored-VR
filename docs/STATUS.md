@@ -1,3 +1,16 @@
+## F10 revision installed with approval (VR-206, 2026-09-22)
+
+Installed vr33-hands-working-733-g7d78ac20f from the archived candidate after explicit
+approval. DLL SHA-256 and embedded build identity verified. Previous DLL, ini and both
+logs archived under build/playtest-candidates/installs/20260922-235702-071438.
+The existing ini had mixed line endings; normalized to CRLF. Complete file comparison
+confirms only line-ending changes and zero setting changes. Game not launched.
+
+Next launch question: does F10 remain readable and free of unintended control overlaps
+while switching Basic/Advanced/Debug and scrolling? A clean layout supports headset
+acceptance; overlap or clipping outside the scrolling body requires a layout follow-up.
+No merge performed. Future builds still require explicit installation approval.
+
 ## F10 reference refinement and layout QA (VR-206, 2026-09-22)
 
 Reworked the first image-backed pass: restrained skyline, thin title, torn parchment
