@@ -1,3 +1,11 @@
+## Rain branch finalized, not merged (2026-09-22)
+
+Rain recovery is headset accepted on build725; the close-overlay hide/restore is accepted.
+Final branch is rain-fixes. No merge authorized or performed. Optional outdoor rain from
+dry shelter is deferred as TODO VR-205. The next F10 art/layout overhaul is VR-206 and
+branches from this finalized tip as f10-improvements. Do not install that work without
+explicit go-ahead. Remaining broader F10 reset/save-persistence checks are recorded below.
+
 ## Headset recovery acceptance and under-cover scope (2026-09-22)
 
 Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally

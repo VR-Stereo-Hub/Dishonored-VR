@@ -1,3 +1,8 @@
+## Deferred rain TODO (VR-205)
+
+- [ ] Optional outdoor rain visible from awnings while keeping shelter dry. Requires
+      roof-aware filtering; a global shelter bypass is not sufficient.
+
 ## Positional falling-rain investigation (VR-202, 2026-09-22)
 
 - [x] Trace decompiled ownership and native camera shelter versus independent impact paths.
