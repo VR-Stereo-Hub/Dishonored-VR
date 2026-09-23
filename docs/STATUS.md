@@ -1,4 +1,4 @@
-## Session 2026-09-22 (F10 cleanup, VR-196): branch `claude/f10-cleanup`, not merged
+## Session 2026-09-22 (F10 cleanup and theme, VR-196/VR-197): merged to VR-Main (#103)
 
 The F10 panel is rebuilt with a Basic / Advanced / Debug selector, regrouped tabs, collapsed
 sections, a tooltip on every control, and save-on-change for every Basic and Advanced setting.
@@ -6,6 +6,10 @@ sections, a tooltip on every control, and save-on-change for every Basic and Adv
 the audit found (two settings no save wrote, many only SAVE AS DEFAULTS kept, two ImGui ID
 collisions). Built and installed. **Not yet seen in the game**: next, a launch to check each
 tier and that a change survives a relaunch.
+
+VR-197 themes the panel after Dishonored (ink, bone, brass, oxblood, parchment tooltips;
+Constantia headings over Segoe UI) and keeps tooltips only where a control is not
+self-explanatory. `tools\ovl-theme-preview.ps1` renders the theme offscreen.
 
 ## Session handoff 2026-09-22 (misc fixes pt 2): merged to VR-Main
 
