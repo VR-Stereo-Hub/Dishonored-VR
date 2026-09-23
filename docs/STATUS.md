@@ -1,3 +1,22 @@
+## Playtest follow-up 2026-09-22 (VR-199): narrow rain hide to the close overlay
+
+The headset report accepts the F10 changes provisionally and confirms rain disappears, but
+reports that sky rain and ground splashes disappeared too. Build banner and installed hash
+match `vr33-hands-working-712-gc1a25b64d`. Its log proves both the camera box and the
+`Over_camera_rain_01` looping lens component were hidden. Only Hide=0 -> 1 was exercised;
+restoration and reset persistence are not established. Logs and ini archived under
+`build/playtest-candidates/runs/vr-199-20260922-202644`.
+
+Required behavior: hide ONLY the close overlay; keep sky rain and splashes. The follow-up
+removes the camera box from hide targets and labels the Basic control Hide close rain
+overlay. The lens target is now measured by name, but whether this particle asset alone
+preserves all expected sky/ground rain needs a new headset A/B. The preexisting intermittent
+missing-sky-rain report is tracked separately; ground splashes can remain during that issue.
+
+Next launch, one question: with sky rain and splashes visible, does enabling Hide close rain
+overlay remove only the close layer while both remain, and does disabling restore that
+layer? If sky rain or splashes disappear too, the lens asset needs finer separation.
+
 ## Session 2026-09-22 (VR-199): F10 improvements candidate
 
 Branch `f10-improvements` from VR-Main `375dda772`. Removes reticle hand selection and

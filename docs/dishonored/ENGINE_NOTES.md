@@ -1,3 +1,24 @@
+## Rain hide headset scope correction (VR-199, 2026-09-22)
+
+Verified run: `vr33-hands-working-712-gc1a25b64d`, installed DLL SHA-256
+`3e48e0e73a6ad0ccd9b2e4aed811fc5687b2b7fdce3539db63e2e88c38bdf7a1`.
+At 32050859 Hide changed 0 -> 1. At 32050890 the camera-box component and the
+looping lens component with template `Over_camera_rain_01` both changed HiddenGame
+0 -> 1. The headset report confirms rain disappeared but includes sky rain and ground
+splashes. No off transition is present, so restoration is unverified.
+
+This establishes the lens template name, not which component supplies each visible part.
+The required option scope is only the close overlay. The next candidate leaves the camera
+box untouched and hides only the identified lens component. If sky rain or splashes still
+disappear, that particle asset combines effects and component-level hiding is too broad.
+Do not claim independent visual separation until that A/B passes.
+
+The reported intermittent absence of sky rain while ground splashes remain predates this
+change. Before this run's hide, samples show 40 requested drops and HiddenGame=0; that is
+not proof of drawn drops, and the report has no timestamp for the intermittent absence.
+The decompiled camera declares impact data separately from its box emitter; no impact
+fields are written by this toggle.
+
 ## Rain hide targets the separate lens system (VR-199, 2026-09-22)
 
 The existing `[Rain] Hide` only followed `DishonoredPlayerCamera.m_pRainBoxEmitter`.

@@ -12,10 +12,10 @@
 //     logged on change. This is the number a near-eye placement has to be
 //     designed from; nothing about it is guessed here.
 //  2. HIDE, only with [Rain] Hide=1 (code default off, live `rainhide on|off`,
-//     F10 Basic checkbox): native PrimitiveComponent.SetHidden on the box
-//     and rain-named looping camera lens particle components. The native propagates to the
+//     F10 Basic checkbox): native PrimitiveComponent.SetHidden on rain-named
+//     looping camera lens particle components only. The native propagates to the
 //     render proxy, which a raw HiddenGame write would not. The rain impacts
-//     and every other particle system are untouched.
+//     and camera rain box are untouched.
 //
 // LANE: the script lane (ProcessEvent), 250 ms cadence. Every sample re-reads
 // the chain from the controller and re-checks liveness; the only retained
@@ -41,7 +41,7 @@ static int RainDistance() { return g_rainDistUu.load(); }
 
 static void RainHideSet(bool on) {
     g_rainHide.store(on);
-    Log("rain: hide=%d (live; camera rain box and rain lens particles, via native SetHidden)", on ? 1 : 0);
+    Log("rain: hide=%d (live; close rain lens particles only; sky rain box untouched)", on ? 1 : 0);
 }
 static bool RainHideEnabled() { return g_rainHide.load(); }
 static bool RainTraceEnabled() { return g_rainTrace.load(); }
@@ -167,7 +167,8 @@ static void RainTick() {
         auto& c = current[currentN++]; c = { comp, owner, templ, {} };
         memcpy(c.name, comp + kNameOff, sizeof(c.name));
     };
-    if (psc) add(emitter, psc, RainPtr(psc, templateOff));
+    // VR-199 headset scope: preserve the native sky-rain box and its impact system.
+    // Only the separately identified camera lens component belongs to this toggle.
     uint8_t* lensData = nullptr; int32_t lensN = 0;
     if (cam && lensOff && RflArrayAt(cam, lensOff, &lensData, &lensN)) {
         if (lensN > 16) lensN = 16;
@@ -216,7 +217,7 @@ static void RainTick() {
             callSetHidden(c.comp, true);
             ours = hiddenNow(c.comp) == 1;
             Log("rain: HID %s owner=%p component=%p HiddenGame=%d -> %d (visual result needs headset)",
-                i == 0 && c.comp == psc ? "camera box" : "rain lens", (void*)c.owner,
+                "rain lens", (void*)c.owner,
                 (void*)c.comp, before, hiddenNow(c.comp));
         } else if (!hide && ours) {
             callSetHidden(c.comp, false);

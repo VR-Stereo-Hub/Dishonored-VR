@@ -305,3 +305,7 @@ uses the shipped profile at next startup, with a backup and runtime/DataDir pres
 Rain hide is now Basic > Comfort > Rain; lens placement remains Advanced. Rain hide includes
 rain-named looping camera lens particle templates as well as the camera box, pending a
 headset A/B. Reset and all-tier headset verification remain open.
+
+VR-199 headset follow-up: hiding box and lens together also removed visible sky rain and
+splashes. The required scope is the close overlay only. The next candidate targets only
+the measured `Over_camera_rain_01` lens component; sky/ground preservation is pending.

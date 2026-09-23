@@ -1375,3 +1375,7 @@ lens sheet remains visible (ENGINE_NOTES run470). Trace CameraLensEffects and it
 particle templates before concluding the hide flag was ignored. The looping lens class is
 shared; selecting every looping effect would hide unrelated effects. The new Basic toggle
 adds rain-named lens templates, pending an in-game A/B and target-name confirmation.
+
+VR-199 headset follow-up: hiding box and lens together also removed visible sky rain and
+splashes. The required scope is the close overlay only. The next candidate targets only
+the measured `Over_camera_rain_01` lens component; sky/ground preservation is pending.

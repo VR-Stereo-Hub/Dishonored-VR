@@ -620,10 +620,10 @@ static void OvlTabComfort()
         if (ImGui::Checkbox("Hide cinematic black borders", &borders)) { CineBordersSet(borders); OvlSaveBool("Cine", "HideBorders", borders); }
         OvlTip("Removes the letterbox bars in scenes. The picture under them is really there.");
     }
-    if (OvlSec("Rain", kOvlB, "Turn off the rain effects around your view.")) {
+    if (OvlSec("Rain", kOvlB, "Remove the close rain overlay while keeping world rain.")) {
         bool rain = RainHideEnabled();
-        if (ImGui::Checkbox("Hide rain effects", &rain)) { RainHideSet(rain); OvlSaveBool("Rain", "Hide", rain); }
-        OvlTip("Hides the camera rain and rain lens particles. Distant world weather is unchanged.");
+        if (ImGui::Checkbox("Hide close rain overlay", &rain)) { RainHideSet(rain); OvlSaveBool("Rain", "Hide", rain); }
+        OvlTip("Hides the close rain lens overlay. Keeps the sky rain box and ground-impact system.");
     }
     if (OvlSec("Lens effects and rain distance", kOvlA, "Placement of rain and camera lens effects.")) {
         int rainDist = RainDistance();
