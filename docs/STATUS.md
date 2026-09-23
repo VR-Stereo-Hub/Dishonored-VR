@@ -1,3 +1,19 @@
+## F10 image-backed overhaul prepared (VR-206, 2026-09-22)
+
+New f10-improvements branches from finalized rain-fixes at 128632768. Rain PR is #108,
+unmerged; previous #104 closed during the GitHub branch rename. Awning TODO is VR-205.
+
+Generated three reusable art masters and embedded them in the DLL: painted skyline
+background, parchment and worn metal. Shared native ImGui wrappers apply materials to
+controls, sections, tabs and notes. Default panel is centered and square (46% of shorter
+eye dimension), resizable, with independent scrolling tab contents. Tier logic, live
+controller hint, reset/save actions and existing setters remain intact. Hands size and
+Sleeve initially open. See dishonored/F10_ART_THEME.md and assets/ui/f10/README.md.
+
+Native offscreen preview and pointer-event checks pass. Optimized game build passes.
+DO NOT INSTALL until explicit go-ahead. Headset layout/controller acceptance remains open.
+No installed file was changed for this task.
+
 ## Rain branch finalized, not merged (2026-09-22)
 
 Rain recovery is headset accepted on build725; the close-overlay hide/restore is accepted.

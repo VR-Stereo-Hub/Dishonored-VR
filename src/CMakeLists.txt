@@ -82,9 +82,11 @@ set(DVR_REAL_SOURCES
 foreach(_f ${DVR_REAL_SOURCES})
     list(REMOVE_ITEM DVR_MODULE_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/${_f}")
 endforeach()
+enable_language(RC)
 add_library(dvr_proxy SHARED
     mod/dishonoredvr.cpp
     proxy/d3d9.def
+    core/ui/ovl_assets.rc
     ${DVR_REAL_SOURCES}
     ${DVR_MODULE_SOURCES}
 )
@@ -92,7 +94,7 @@ add_library(dvr_proxy SHARED
 set_source_files_properties(${DVR_MODULE_SOURCES} PROPERTIES HEADER_FILE_ONLY ON)
 set_target_properties(dvr_proxy PROPERTIES OUTPUT_NAME "d3d9" PREFIX "")
 add_dependencies(dvr_proxy dvr_version)
-target_include_directories(dvr_proxy PRIVATE . "${CMAKE_BINARY_DIR}/generated")
+target_include_directories(dvr_proxy PRIVATE . "${PROJECT_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/generated")
 # d3d11.dll and d3dcompiler_47.dll are LoadLibrary'd at runtime on purpose: the
 # proxy must add no static import that changes the game's DLL load order.
 target_link_libraries(dvr_proxy PRIVATE

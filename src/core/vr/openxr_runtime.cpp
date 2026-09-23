@@ -5388,7 +5388,7 @@ void draw_debug_ui() {
                     presentsPerSec);
 
         bool detach = g_paceDetach.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("Do not let an unfocused headset pace the game", &detach))
+        if (dvr::ovl::checkbox("Do not let an unfocused headset pace the game", &detach))
             set_pace_detach(detach);
         ov::tip("On: while the headset is not focused the game keeps its frame rate. Off: the game "
                 "runs at about 10 Hz, which reads as a freeze. Leave on.");
@@ -5400,14 +5400,14 @@ void draw_debug_ui() {
                     g_detachSkips.load(std::memory_order_relaxed),
                     g_detachKeepalives.load(std::memory_order_relaxed));
         int ka = static_cast<int>(g_paceKeepaliveMs.load(std::memory_order_relaxed));
-        if (ImGui::SliderInt("Keepalive every (ms)", &ka, 250, 5000))
+        if (dvr::ovl::slider_int("Keepalive every (ms)", &ka, 250, 5000))
             g_paceKeepaliveMs.store(static_cast<uint32_t>(ka), std::memory_order_relaxed);
         ov::tip("How often a frame is sent while unfocused. Each costs a ~100 ms hitch; too rare "
                 "and the headset may be slower to hand focus back.");
 
         // Session 54: the raffle-wedge root fix.
         bool feed = g_paceFeed.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("Feed the compositor while parked", &feed))
+        if (dvr::ovl::checkbox("Feed the compositor while parked", &feed))
             set_pace_feed(feed);
         ov::tip("While unfocused, re-sends the last real image so the runtime hands focus back on "
                 "its own (the raffle-wedge fix). Leave on.");
@@ -5423,7 +5423,7 @@ void draw_debug_ui() {
                 ImGui::Text("%-13s %6u / %6u", kPhaseNames[i],
                             g_phaseLastUs[i].load(std::memory_order_relaxed),
                             g_phaseMaxUs[i].load(std::memory_order_relaxed));
-            if (ImGui::Button("Reset maxima"))
+            if (dvr::ovl::button("Reset maxima"))
                 for (int i = 0; i < kPhCount; ++i)
                     g_phaseMaxUs[i].store(0, std::memory_order_relaxed);
             ImGui::TreePop();
@@ -5431,26 +5431,26 @@ void draw_debug_ui() {
     }
 
     bool enabled = g_enabled.load(std::memory_order_relaxed);
-    if (ImGui::Checkbox("VR enabled (paces game to headset)", &enabled))
+    if (dvr::ovl::checkbox("VR enabled (paces game to headset)", &enabled))
         g_enabled.store(enabled, std::memory_order_relaxed);
     ov::tip("Off stops sending frames to the headset. Leave on.");
 
     bool camMode = g_cameraMode.load(std::memory_order_relaxed);
-    if (ImGui::Checkbox("VR camera mode (6DOF head drive)", &camMode))
+    if (dvr::ovl::checkbox("VR camera mode (6DOF head drive)", &camMode))
         g_cameraMode.store(camMode, std::memory_order_relaxed);
     ov::tip("Off shows the game on the flat screen with no head tracking. Leave on.");
     if (camMode) {
         bool pair = g_srPairPacing.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("SR pair pacing (one waitFrame per eye pair)", &pair))
+        if (dvr::ovl::checkbox("SR pair pacing (one waitFrame per eye pair)", &pair))
             g_srPairPacing.store(pair, std::memory_order_relaxed);
         ov::tip("Paces one headset frame per left-right pair. Leave on.");
         if (pair) {
             bool sync = g_paceSync.load(std::memory_order_relaxed);
-            if (ImGui::Checkbox("Sync pair rate to headset refresh (judder A/B)", &sync))
+            if (dvr::ovl::checkbox("Sync pair rate to headset refresh (judder A/B)", &sync))
                 g_paceSync.store(sync, std::memory_order_relaxed);
             ov::tip("Spaces pairs evenly at the headset's refresh instead of the game's own speed.");
             bool strict = g_pairStrict.load(std::memory_order_relaxed);
-            if (ImGui::Checkbox("Strict pairs (mono for a frame when an eye is stale)", &strict))
+            if (dvr::ovl::checkbox("Strict pairs (mono for a frame when an eye is stale)", &strict))
                 set_pair_strict(strict);
             ov::tip("Shows one flat frame instead of a stale eye.");
             {
@@ -5471,12 +5471,12 @@ void draw_debug_ui() {
             }
         }
         bool cine = g_cineEnabled.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("Cinematic auto-detect (cutscenes/screens)", &cine))
+        if (dvr::ovl::checkbox("Cinematic auto-detect (cutscenes/screens)", &cine))
             g_cineEnabled.store(cine, std::memory_order_relaxed);
         ov::tip("Detects cutscenes and full-screen videos so they get the right presentation.");
         if (cine) {
             bool stereoC = g_cineStereo.load(std::memory_order_relaxed);
-            if (ImGui::Checkbox("Cinematics as stereo projection (off = big screen)", &stereoC))
+            if (dvr::ovl::checkbox("Cinematics as stereo projection (off = big screen)", &stereoC))
                 g_cineStereo.store(stereoC, std::memory_order_relaxed);
             ov::tip("Cutscenes in 3D around you. Off shows them on the flat screen.");
         }
@@ -5491,7 +5491,7 @@ void draw_debug_ui() {
             ov::tip("Who owns the camera and hands during cutscenes.");
         }
         bool manualFov = g_claimFovManual.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("Manual claimed FOV (distortion calibration)", &manualFov)) {
+        if (dvr::ovl::checkbox("Manual claimed FOV (distortion calibration)", &manualFov)) {
             g_claimFovManual.store(manualFov, std::memory_order_relaxed);
             if (manualFov) {
                 float cur = g_renderedHfov.load(std::memory_order_relaxed);
@@ -5502,7 +5502,7 @@ void draw_debug_ui() {
         ov::tip("Overrides the FOV the image is claimed to have. For calibrating a swimming image only.");
         if (manualFov) {
             float v = g_claimFovDeg.load(std::memory_order_relaxed);
-            if (ImGui::SliderFloat("Claimed hfov (deg) - stop the swim", &v, 40.0f, 160.0f))
+            if (dvr::ovl::slider_float("Claimed hfov (deg) - stop the swim", &v, 40.0f, 160.0f))
                 g_claimFovDeg.store(v, std::memory_order_relaxed);
             ov::tip("Adjust until the world stops swimming as you turn your head.");
         }
@@ -5555,25 +5555,25 @@ void draw_debug_ui() {
 
     if (!camMode) {
         bool anchored=g_monoAnchored.load();
-        if(ImGui::Checkbox("Anchor mono screens",&anchored)) set_mono_anchor(anchored,g_monoMask.load());
+        if(dvr::ovl::checkbox("Anchor mono screens",&anchored)) set_mono_anchor(anchored,g_monoMask.load());
         ov::tip("The flat screen stays fixed in the world instead of following your head.");
-        if(ImGui::Button("Recenter mono screen")) recenter_mono_anchor();
+        if(dvr::ovl::button("Recenter mono screen")) recenter_mono_anchor();
         ov::tip("Puts the flat screen in front of where you look now.");
         if(anchored) {
             uint32_t mask=g_monoMask.load();
             for(unsigned i=0;i<dvr::mono::Count;++i) {
                 bool on=(mask&(1u<<i))!=0;
-                if(ImGui::Checkbox(dvr::mono::names[i],&on)) {
+                if(dvr::ovl::checkbox(dvr::mono::names[i],&on)) {
                     mask=on?(mask|(1u<<i)):(mask&~(1u<<i)); g_monoMask.store(mask);
                 }
                 ov::tip("Whether this kind of screen is anchored in the world.");
             }
         }
         float dist = g_screenDistM.load(std::memory_order_relaxed);
-        if (ImGui::SliderFloat("Screen distance (m)", &dist, 0.5f, 5.0f))
+        if (dvr::ovl::slider_float("Screen distance (m)", &dist, 0.5f, 5.0f))
             g_screenDistM.store(dist, std::memory_order_relaxed);
         float width = g_screenWidthM.load(std::memory_order_relaxed);
-        if (ImGui::SliderFloat("Screen width (m)", &width, 0.5f, 6.0f))
+        if (dvr::ovl::slider_float("Screen width (m)", &width, 0.5f, 6.0f))
             g_screenWidthM.store(width, std::memory_order_relaxed);
     }
 }

@@ -1,3 +1,4 @@
+#include "core/ui/ovl_ui.h"
 // VR-196: the legacy FOV lever (legacy_fov_control.inc) left the panel; [Camera] FovLever still works.
 #include "core/framework/render_profile.h"
 #include "game/dishonored/hands/sleeve_presets.h"
@@ -252,6 +253,7 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         Log("overlay: initialized (F10 toggles; stick-click tap toggles when [Overlay] "
             "ControllerPointer=1, now %s)", g_ovlPtrEnable ? "on" : "off");
     }
+    dvr::ovl::load_art(g_dev11);
     ImGuiIO& io = ImGui::GetIO();
     const float w = (float)targetW, h = (float)targetH;
     // Text scale: authored for a 1080p desktop, so it needs SOME lift on an eye texture,
@@ -288,20 +290,21 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     ImGui::NewFrame();
     OvlUpdateSliderTweak();
 
-    // Size and place against the eye texture, as fractions, so the panel is the same part
-    // of the view at any resolution. The numbers are where the tester dragged and sized it
-    // in the headset (build 602, 2750x2850, read back from the geometry probe: pos
-    // 0.3149,0.3596 size 0.3855,0.2302). 36.2: after a real-window resize WE caused, snap
-    // it back to that place in the NEW space.
+    // Reference composition: centered square against the eye texture. A resize
+    // changes the layout without changing widget behavior or the stored settings.
     const ImVec2 ds = io.DisplaySize;
     const ImGuiCond placeCond = InterlockedExchange(&g_ovlRecenter, 0) ? ImGuiCond_Always
                                                                        : ImGuiCond_FirstUseEver;
-    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.3149f, ds.y * 0.3596f), placeCond);
-    ImGui::SetNextWindowSize(ImVec2(ds.x * 0.3855f, ds.y * 0.2302f), placeCond);
+    // VR-206: square reference composition, centered and resizable. Settings scroll.
+    const float panelSide = (ds.x < ds.y ? ds.x : ds.y) * 0.46f;
+    ImGui::SetNextWindowPos(ImVec2((ds.x-panelSide)*0.5f, (ds.y-panelSide)*0.5f), placeCond);
+    ImGui::SetNextWindowSize(ImVec2(panelSide, panelSide), placeCond);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(480,480), ImVec2(ds.x*0.95f,ds.y*0.95f));
     // VR-197: no ImGui title bar; OvlTopRow draws the themed title and the close button, and
     // the window still moves by dragging any empty part of it.
     ImGui::Begin("Dishonored VR", &g_ovlVisible,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+    dvr::ovl::backdrop();
     OvlProbeWindowGeometry(ds.x, ds.y);
     if (g_ovlReticle && ds.x > 0.0f && ds.y > 0.0f) {   // the reticle hides behind this rectangle
         const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
@@ -314,7 +317,7 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     ImGui::Spacing();
     dvr::ovl::ornament();   // VR-197: the brass rule that closes the panel
     // VR-174: text size is perceptual, so it is a slider, saved at once.
-    if (ImGui::SliderFloat("Text size", &g_ovlUiScale, 0.8f, 2.5f, "%.2f")) {
+    if (dvr::ovl::slider_float("Text size", &g_ovlUiScale, 0.8f, 2.5f, "%.2f")) {
         char v[16]; _snprintf(v, sizeof(v) - 1, "%.2f", g_ovlUiScale); v[sizeof(v) - 1] = 0;
         ConfigWriteKey("Overlay", "UiScale", v, "F10");
     }

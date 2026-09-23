@@ -15,7 +15,8 @@ static void SamplePanel(float w, float h, bool advanced)
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(w, h));
     ImGui::Begin("Dishonored VR", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse);
-    dvr::ovl::title("Dishonored VR");
+    dvr::ovl::backdrop();
+    dvr::ovl::title("DISHONORED VR");
     dvr::ovl::controller_hint();
     ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("SHOW"); ImGui::SameLine();
     dvr::ovl::pill("Basic", !advanced); ImGui::SameLine(0, 4);
@@ -26,15 +27,15 @@ static void SamplePanel(float w, float h, bool advanced)
     ImGui::TextDisabled("IPD 63 mm");
     ImGui::Spacing();
     const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-    dvr::ovl::push_primary(); ImGui::Button("RECENTER", ImVec2(-1, 0)); dvr::ovl::pop_primary();
-    ImGui::Button("SAVE AS DEFAULTS", ImVec2(half, 0));
-    ImGui::SameLine(); ImGui::Button("RESET TO DEFAULTS", ImVec2(half, 0));
-    static float height = 0.06f; ImGui::SliderFloat("Height offset (m)", &height, -1, 1, "%+.2f");
+    dvr::ovl::push_primary(); dvr::ovl::button("RECENTER", ImVec2(-1, 0)); dvr::ovl::pop_primary();
+    dvr::ovl::button("SAVE AS DEFAULTS", ImVec2(half, 0));
+    ImGui::SameLine(); dvr::ovl::button("RESET TO DEFAULTS", ImVec2(half, 0));
+    static float height = 0.06f; dvr::ovl::slider_float("Height offset (m)", &height, -1, 1, "%+.2f");
     ImGui::Spacing();
     if (ImGui::BeginTabBar("tabs")) {
         if (dvr::ovl::tab("Hands")) {
             if (dvr::ovl::section("Hand size and position", 0, nullptr, true)) {
-                static float size = 0.85f; ImGui::SliderFloat("Hand / weapon size", &size, 0.4f, 1.6f, "%.2f");
+                static float size = 0.85f; dvr::ovl::slider_float("Hand / weapon size", &size, 0.4f, 1.6f, "%.2f");
                 static int which = 0;
                 ImGui::RadioButton("Left", &which, 0); ImGui::SameLine();
                 ImGui::RadioButton("Right (in use)", &which, 1); ImGui::SameLine();
@@ -45,15 +46,15 @@ static void SamplePanel(float w, float h, bool advanced)
                 ImGui::RadioButton("coarse", &step, 2);
                 const char* rows[3][2] = { { "move left", "move right" }, { "move down", "move up" }, { "turn pitch down", "turn pitch up" } };
                 for (auto& r : rows) {
-                    ImGui::Button(r[0], ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4, 0)); ImGui::SameLine();
-                    ImGui::Button(r[1], ImVec2(ImGui::GetContentRegionAvail().x, 0));
+                    dvr::ovl::button(r[0], ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4, 0)); ImGui::SameLine();
+                    dvr::ovl::button(r[1], ImVec2(ImGui::GetContentRegionAvail().x, 0));
                 }
-                if (advanced) { static bool p = true; ImGui::Checkbox("Separate left-hand position for powers", &p); }
+                if (advanced) { static bool p = true; dvr::ovl::checkbox("Separate left-hand position for powers", &p); }
             }
             if (dvr::ovl::section("Sleeve", 0, nullptr, true)) {
                 if (ImGui::BeginCombo("Sleeve preset", "Cuffs")) ImGui::EndCombo();
-                static float len = 12.0f; ImGui::SliderFloat("Sleeve length", &len, 0, 30, "%.1f");
-                static bool round = true; ImGui::Checkbox("Rounded wrist ends", &round);
+                static float len = 12.0f; dvr::ovl::slider_float("Sleeve length", &len, 0, 30, "%.1f");
+                static bool round = true; dvr::ovl::checkbox("Rounded wrist ends", &round);
             }
             dvr::ovl::section("Game arms during actions", 0, nullptr);
             ImGui::EndTabItem();
@@ -67,18 +68,16 @@ static void SamplePanel(float w, float h, bool advanced)
     }
     ImGui::Spacing();
     dvr::ovl::ornament();
-    static float ts = 1.54f; ImGui::SliderFloat("Text size", &ts, 0.8f, 2.5f, "%.2f");
+    static float ts = 1.54f; dvr::ovl::slider_float("Text size", &ts, 0.8f, 2.5f, "%.2f");
     ImGui::TextDisabled("F10 or a stick-click tap closes | point, trigger clicks, stick scrolls / nudges a slider");
     ImGui::End();
     // A tooltip, placed by hand, to show the parchment style.
-    ImGui::SetNextWindowPos(ImVec2(w * 0.42f, h * 0.30f));
+    ImGui::SetNextWindowPos(ImVec2(w * 0.61f, h * 0.39f));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0xDC / 255.f, 0xCF / 255.f, 0xB4 / 255.f, 1));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0x2A / 255.f, 0x22 / 255.f, 0x1A / 255.f, 1));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0x6E / 255.f, 0x56 / 255.f, 0x30 / 255.f, 1));
     ImGui::Begin("##tip", nullptr, ImGuiWindowFlags_Tooltip | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize);
-    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
-    ImGui::TextUnformatted("Scales the hands and whatever they hold, around your palm. Not the world scale.");
-    ImGui::PopTextWrapPos();
+    dvr::ovl::note("Scales the hands and whatever they hold, around your palm. Not the world scale.", w * 0.32f);
     ImGui::End();
     ImGui::PopStyleColor(3);
 }
@@ -99,10 +98,41 @@ static bool SaveBmp(const char* path, const uint8_t* rgba, int w, int h, int pit
     fclose(f); return true;
 }
 
+// Exercise the production themed widgets through actual ImGui pointer events.
+static bool InteractionChecks()
+{
+    bool checked=false, disabled=false, opened=false;
+    int presses=0; float value=0;
+    ImVec2 check{}, button{}, slider{}, section{}, disabledBox{};
+    auto frame = [&](ImVec2 pointer, bool down) {
+        auto& io=ImGui::GetIO(); io.ConfigInputTrickleEventQueue=false;
+        io.AddMousePosEvent(pointer.x,pointer.y); io.AddMouseButtonEvent(0,down);
+        ImGui_ImplDX11_NewFrame(); ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(640,600));
+        ImGui::Begin("interaction-check",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoSavedSettings);
+        auto center=[] { auto a=ImGui::GetItemRectMin(), b=ImGui::GetItemRectMax(); return ImVec2((a.x+b.x)*.5f,(a.y+b.y)*.5f); };
+        dvr::ovl::checkbox("Check",&checked); check=center();
+        if (dvr::ovl::button("Press")) ++presses; button=center();
+        ImGui::SetNextItemWidth(200);
+        dvr::ovl::slider_float("Slide",&value,0,1);
+        auto a=ImGui::GetItemRectMin(); slider=ImVec2(a.x+160,center().y);
+        opened=dvr::ovl::section("Expand",0,nullptr); section=center();
+        ImGui::BeginDisabled(); dvr::ovl::checkbox("Disabled",&disabled); disabledBox=center(); ImGui::EndDisabled();
+        ImGui::End(); ImGui::Render();
+    };
+    auto click=[&](ImVec2 p) { frame(p,false); frame(p,true); frame(p,false); };
+    frame(ImVec2(-1,-1),false); frame(ImVec2(-1,-1),false);
+    click(check); click(button); click(slider); click(section); click(disabledBox);
+    const bool pass=checked && presses==1 && value>.65f && opened && !disabled;
+    printf("widget interaction: checkbox=%d button=%d slider=%.3f section=%d disabled=%d: %s\n",
+        checked,presses,value,opened,disabled,pass?"PASS":"FAIL");
+    return pass;
+}
+
 int main(int argc, char** argv)
 {
     const bool advanced = argc > 1 && !strcmp(argv[1], "advanced");
-    const int W = 1060, H = 1100;
+    const int W = argc > 2 ? atoi(argv[2]) : 1254, H = W;
     ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr;
     D3D_FEATURE_LEVEL fl;
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &dev, &fl, &ctx)) &&
@@ -119,8 +149,9 @@ int main(int argc, char** argv)
     ImGui::CreateContext();
     dvr::ovl::load_fonts();
     dvr::ovl::apply_theme();
+    dvr::ovl::load_art(dev);
     ImGui::GetStyle().ScaleAllSizes(1.6f);
-    ImGui::GetStyle().FontScaleMain = 1.54f;
+    ImGui::GetStyle().FontScaleMain = 1.54f * W / 1254.0f;
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.DisplaySize = ImVec2((float)W, (float)H);
@@ -143,8 +174,10 @@ int main(int argc, char** argv)
     if (FAILED(ctx->Map(st, 0, D3D11_MAP_READ, 0, &m))) { printf("map failed\n"); return 1; }
     const bool ok = SaveBmp("ovl-theme-preview.bmp", (const uint8_t*)m.pData, W, H, (int)m.RowPitch);
     ctx->Unmap(st, 0);
+    const bool interactions = InteractionChecks();
+    dvr::ovl::release_art();
     ImGui_ImplDX11_Shutdown();
     ImGui::DestroyContext();
     printf(ok ? "wrote ovl-theme-preview.bmp\n" : "write failed\n");
-    return ok ? 0 : 1;
+    return ok && interactions ? 0 : 1;
 }

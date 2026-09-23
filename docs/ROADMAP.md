@@ -1,3 +1,10 @@
+## F10 painted UI (VR-206)
+
+- [x] Original reusable PNG materials embedded in the DLL.
+- [x] Native controls with square default, scrolling pages and extensible helpers.
+- [x] Native preview and pointer interaction verification.
+- [ ] Headset layout/controller acceptance after explicit install approval.
+
 ## Deferred rain TODO (VR-205)
 
 - [ ] Optional outdoor rain visible from awnings while keeping shelter dry. Requires
