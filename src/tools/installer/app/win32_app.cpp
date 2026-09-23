@@ -53,6 +53,7 @@ struct App {
     bool workerHasDet = false;
     std::string workerNotice;
     DWORD lastPoll = 0;
+    DWORD lastProcessPoll = 0;
 };
 App* g_app = nullptr;
 void dispatch(App& a, UiAction action);
@@ -452,7 +453,7 @@ int run_gui(HINSTANCE hinst, const Env& env)
         return 1;
     }
     while (!a.quit) {
-        const DWORD timeout = (a.view.busy || a.framesPending > 0) ? 16 : (a.view.report.baselinePending && a.view.screen == Screen::Done ? 500 : INFINITE);
+        const DWORD timeout = (a.view.busy || a.framesPending > 0) ? 16 : (a.view.report.baselinePending && a.view.screen == Screen::Done ? 500 : 1000);
         MsgWaitForMultipleObjectsEx(0, nullptr, timeout, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
         MSG msg;
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
@@ -463,6 +464,17 @@ int run_gui(HINSTANCE hinst, const Env& env)
         }
         if (a.quit) break;
         finish_worker(a);
+        // Process changes must wake disabled Play/Update buttons after the game
+        // exits. This cheap read does not re-detect or reset unsaved UI choices.
+        const DWORD processNow = GetTickCount();
+        if (!a.view.busy && processNow - a.lastProcessPoll >= 1000) {
+            a.lastProcessPoll = processNow;
+            const auto running = process::is_running(kGameExe);
+            if (running != a.view.det.running) {
+                a.view.det.running = running;
+                a.framesPending = 3;
+            }
+        }
         // the Done screen waits for the game's first run
         if (a.view.screen == Screen::Done && a.view.report.baselinePending && !a.view.busy) {
             const DWORD now = GetTickCount();
