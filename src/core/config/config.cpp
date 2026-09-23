@@ -1540,9 +1540,7 @@ static bool WriteDefaultIni(const char* ini)
         "Element.wheelshortcuts.WinX=-0.504\n"
         "Element.wheelshortcuts.WinY=0.695\n"
         "Element.wheelshortcuts.WinScale=0.730\n"
-        "[DropTakedown]\n"
-        "ReachScale=2.00\n"
-        "HoldMs=420\n", kConfigVersion);
+        "", kConfigVersion);
     const int closed = fclose(f);
     return written > 0 && closed == 0;
 }

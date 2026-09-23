@@ -20,6 +20,22 @@ The controls are in F10 > Controls > Drop takedowns, and the live word is `drop`
 
 Next: more drops at the new defaults, and whether 2.00 ever takes a guard the player
 did not aim for.
+
+## 2026-09-23: integrate PRs 105-110 and accept the F10 layout
+
+The tester accepted build 736's F10 alignment, spacing and Debug-tab navigation.
+Integrated PRs 106, 107, 110, 108, 109 and 105, preserving both documentation
+histories. The movement/drop sampling hooks keep both implementations; the old
+inline drop watch is replaced by drop_assist. Consolidated the duplicated
+DropTakedown defaults without changing the tuned values.
+
+Combined release build, lint, nine proxy exports, production/golden/shipped
+default equality, installer host and scratch install/update/uninstall checks
+passed. HUD anchor (908), mono UI (31) and native desktop-present (240) checks
+passed. No real game launch or installation performed. Index hardware testing
+remains outstanding; the known desktop-eye host failure is tracked separately
+in VR-209. Installer work continues from PR 105 as a launcher under VR-198.
+
 ## Session 2026-09-22 (walk speed by direction, VR-204): branch `claude/vr-204-crouch-walk-slowdown`, not merged
 
 A crouched walk slowed when the left stick pushed off straight ahead. The `move/trace`
