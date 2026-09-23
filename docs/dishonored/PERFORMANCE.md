@@ -45,8 +45,8 @@ relax scene gates to conceal the later delivery deficit. The latter signature
 has prior context in VR-77 and FLICKER_REFERENCE's cadence routing, but no new
 stereo correctness claim or change is made here.
 
-No engine-code edit, candidate installation, settings change or game launch
-was performed for this investigation. Tracking issue: VR-212 (posting authorized).
+The initial investigation was read-only. Tracking issue: VR-212. The subsequent
+candidate and installation are recorded below.
 
 ## Menu cadence and camera-upload gate coverage (VR-178, 2026-09-22)
 
@@ -1601,3 +1601,9 @@ identity across a menu or GC. IsLiveObject and owner validation remain.
 
 This fixes concrete avoidable game-thread work. The entire reported hub slowdown
 is not yet attributed or headset-confirmed fixed. No quality/settings reduction.
+
+Candidate761-g14728179e built optimized with legacy off, installed with all64705
+INI bytes unchanged and CRLF verified. Launcher embeds this DLL. Native schedule
+checks,75 swing-core checks,9 exports, default writer/reset parity and lint pass.
+No game launch or post-fix headset result yet. The fixed unnecessary work is
+source-verified; the claimed FPS recovery remains pending.
