@@ -1,3 +1,29 @@
+## Stationary rain cycling with live particles (VR-202, 2026-09-22)
+
+Build718-g433e81335 is identified by the archived previous-log banner after another
+branch launch rotated it. Installed DLL has since changed; do not attribute it to this run.
+Archive: build/playtest-candidates/runs/vr-202-cycle-20260922-220215.
+Pitch-only reproduction did not repeat. Final observation instead has rain appearing for
+several seconds and disappearing briefly with a steady position/view. Between ticks
+37638906 and 37654906 all sampled requests remain positive/uncovered; three valid emitter
+instances total 88..90 particles, forcedInactive=0, and LastRenderTime advances. Whole
+component inactivity and all-particles-dying do not explain this interval. Bounds change,
+but no visual transition timestamps establish correlation. Aggregate counts cannot identify
+which of three layers is visible.
+
+Native Update RVA 0x801000..0x8012c6 supplies a reason counts can mislead: indices at
+instance+0x44 select records from +0x40 with stride +0xd0. The fade path writes particle
+alpha +0x6c from base alpha +0x7c, and can zero both while retaining the slot. Constants
+are in patterns.h. The next diagnostic logs each instance separately: active count,
+readable alpha records, transparent/base-zero counts, and alpha min/max/mean. Reads are
+bounded to 512 particles per instance, validate stride/address arithmetic/readability,
+and stay under the existing one-second Rain Trace cadence. CPU alpha does not establish
+material opacity. No weather writes or guessed fix. Cycling opacity directs investigation
+to fading/recycling; stable opacity directs it toward material/render visibility.
+
+Prepare and build, but NO INSTALL until explicit user go-ahead. Another agent is swapping
+builds in parallel. Re-check identity before later installation or playtest interpretation.
+
 ## Stationary pitch reproduction weakens shelter as the cause (VR-202, 2026-09-22)
 
 Matching banner and installed DLL verified for vr33-hands-working-716-g52b55216b.

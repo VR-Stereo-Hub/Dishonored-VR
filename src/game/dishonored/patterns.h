@@ -466,3 +466,9 @@ static const uint32_t kRainDropsSpawnRva = 0x00800700;
 static const uint32_t kRainDropsSpawnCountRva = 0x00801370;
 static const uint32_t kRainInstanceComponentOff = 0x08;
 static const uint32_t kRainInstanceActiveCountOff = 0xd4;
+// Rain Update RVA 0x801000..0x8012c6: indexed particle records and fade alpha.
+static const uint32_t kRainInstanceDataOff = 0x40;
+static const uint32_t kRainInstanceIndicesOff = 0x44;
+static const uint32_t kRainInstanceStrideOff = 0xd0;
+static const uint32_t kRainParticleAlphaOff = 0x6c;
+static const uint32_t kRainParticleBaseAlphaOff = 0x7c;

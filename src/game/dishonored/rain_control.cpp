@@ -195,6 +195,39 @@ static void RainParticleTrace(uint8_t* psc, const float* camera, const float* em
             memcpy(&active, instance + kRainInstanceActiveCountOff, sizeof(active));
             if (owner != psc || active < 0 || active > 100000) continue;
             ++valid; particles += active;
+            // Active slots can remain allocated with zero alpha. Inspect each
+            // emitter separately so another layer cannot conceal that transition.
+            uint8_t* records = nullptr; uint16_t* indices = nullptr; int stride = 0;
+            memcpy(&records, instance + kRainInstanceDataOff, sizeof(records));
+            memcpy(&indices, instance + kRainInstanceIndicesOff, sizeof(indices));
+            memcpy(&stride, instance + kRainInstanceStrideOff, sizeof(stride));
+            int read = 0, transparent = 0, baseZero = 0;
+            float sum = 0, minAlpha = 1e30f, maxAlpha = -1e30f;
+            if (active <= 512 && stride >= (int)kRainParticleBaseAlphaOff + 4 && stride <= 65536 &&
+                (!active || (records && indices && RangeReadable(indices, active * sizeof(uint16_t))))) {
+                for (int j = 0; j < active; ++j) {
+                    uint16_t slot = 0; memcpy(&slot, indices + j, sizeof(slot));
+                    const uint64_t address = (uintptr_t)records + (uint64_t)slot * stride;
+                    if (address > UINT32_MAX - kRainParticleBaseAlphaOff - 4) continue;
+                    const uint8_t* particle = (const uint8_t*)(uintptr_t)address;
+                    if (!RangeReadable(particle, kRainParticleBaseAlphaOff + 4)) continue;
+                    float alpha = 0, base = 0;
+                    memcpy(&alpha, particle + kRainParticleAlphaOff, 4);
+                    memcpy(&base, particle + kRainParticleBaseAlphaOff, 4);
+                    if (!std::isfinite(alpha) || !std::isfinite(base)) continue;
+                    ++read; sum += alpha;
+                    if (alpha <= 0.001f) ++transparent;
+                    if (base <= 0.001f) ++baseZero;
+                    if (alpha < minAlpha) minAlpha = alpha;
+                    if (alpha > maxAlpha) maxAlpha = alpha;
+                }
+            }
+            Log("rain/layer: psc=%p index=%d instance=%p active=%d alphaRead=%d "
+                "transparent=%d baseZero=%d alphaMin=%.4f alphaMax=%.4f alphaMean=%.4f "
+                "(CPU alpha only; read<active is incomplete, material visibility unmeasured)",
+                (void*)psc, i, (void*)instance, active, read, transparent, baseZero,
+                read ? minAlpha : -1, read ? maxAlpha : -1, read ? sum / read : -1);
+
         }
     }
     if (count < 0 || valid != count) particles = -1;
