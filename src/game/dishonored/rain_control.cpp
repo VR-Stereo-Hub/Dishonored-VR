@@ -154,6 +154,41 @@ static void RainWeatherTrace(uint8_t* cam, uint8_t* psc, const float* pos, int h
     samples = covered = open = zero = positive = unknown = 0;
 }
 
+// Identify the actual update modules and their rain volume, rather than assuming
+// every emitter instance in the component is a falling-rain layer.
+static void RainModuleTrace(uint8_t* psc, uint8_t* instance, int index)
+{
+    static RflWant w[] = {
+        {"ParticleLODLevel", "UpdateModules", false},
+        {"DisParticleModuleRainDrops", "m_Extent", false}
+    };
+    static bool resolved = false;
+    if (!resolved) {
+        resolved = true;
+        Log("rain/modules: layout %d/2", RflResolveBatch(w, 2));
+    }
+    uint8_t* lod = RainPtr(instance, kRainInstanceLodOff);
+    uint8_t* data = nullptr; int32_t n = 0;
+    if (!IsLiveObject(psc) || !IsLiveObject(lod) || !w[0].found ||
+        !RflArrayAt(lod, w[0].off, &data, &n) || n < 0 || n > 64 ||
+        (n && !RangeReadable(data, n * sizeof(void*)))) {
+        Log("rain/modules: psc=%p layer=%d current LOD/update modules unavailable", (void*)psc, index);
+        return;
+    }
+    for (int j = 0; j < n; ++j) {
+        uint8_t* module = nullptr; memcpy(&module, data + j * sizeof(void*), sizeof(module));
+        if (!IsLiveObject(module)) continue;
+        const char* cls = ObjClassName(module);
+        if (!cls) continue;
+        if (!strcmp(cls, "DisParticleModuleRainDrops") && w[1].found &&
+            RangeReadable(module + w[1].off, 12)) {
+            float extent[3]; memcpy(extent, module + w[1].off, sizeof(extent));
+            Log("rain/modules: psc=%p layer=%d lod=%p module=%p class=%s extent=(%.1f %.1f %.1f)",
+                (void*)psc, index, (void*)lod, (void*)module, cls, extent[0], extent[1], extent[2]);
+        }
+    }
+}
+
 // VR-202: distinguish requested rain from live particles and moving render bounds.
 // Native instances are not UObjects: validate the current live PSC's array and
 // the instance's back-pointer on every read. No retained pointers and no writes.
@@ -201,7 +236,8 @@ static void RainParticleTrace(uint8_t* psc, const float* camera, const float* em
             memcpy(&records, instance + kRainInstanceDataOff, sizeof(records));
             memcpy(&indices, instance + kRainInstanceIndicesOff, sizeof(indices));
             memcpy(&stride, instance + kRainInstanceStrideOff, sizeof(stride));
-            int read = 0, transparent = 0, baseZero = 0;
+            int read = 0, transparent = 0, baseZero = 0, fadingIn = 0, fadingOut = 0;
+            float zMin = 1e30f, zMax = -1e30f;
             float sum = 0, minAlpha = 1e30f, maxAlpha = -1e30f;
             if (active <= 512 && stride >= (int)kRainParticleBaseAlphaOff + 4 && stride <= 65536 &&
                 (!active || (records && indices && RangeReadable(indices, active * sizeof(uint16_t))))) {
@@ -211,11 +247,15 @@ static void RainParticleTrace(uint8_t* psc, const float* camera, const float* em
                     if (address > UINT32_MAX - kRainParticleBaseAlphaOff - 4) continue;
                     const uint8_t* particle = (const uint8_t*)(uintptr_t)address;
                     if (!RangeReadable(particle, kRainParticleBaseAlphaOff + 4)) continue;
-                    float alpha = 0, base = 0;
+                    float alpha = 0, base = 0, fade = 0, z = 0;
+                    memcpy(&fade, particle + kRainParticleFadeOff, 4);
+                    memcpy(&z, particle + kRainParticlePositionOff + 2 * sizeof(float), 4);
                     memcpy(&alpha, particle + kRainParticleAlphaOff, 4);
                     memcpy(&base, particle + kRainParticleBaseAlphaOff, 4);
                     if (!std::isfinite(alpha) || !std::isfinite(base)) continue;
                     ++read; sum += alpha;
+                    if (std::isfinite(fade)) { if (fade > 0) ++fadingIn; else if (fade < 0) ++fadingOut; }
+                    if (std::isfinite(z)) { if (z < zMin) zMin = z; if (z > zMax) zMax = z; }
                     if (alpha <= 0.001f) ++transparent;
                     if (base <= 0.001f) ++baseZero;
                     if (alpha < minAlpha) minAlpha = alpha;
@@ -224,9 +264,12 @@ static void RainParticleTrace(uint8_t* psc, const float* camera, const float* em
             }
             Log("rain/layer: psc=%p index=%d instance=%p active=%d alphaRead=%d "
                 "transparent=%d baseZero=%d alphaMin=%.4f alphaMax=%.4f alphaMean=%.4f "
+                "fadeIn=%d fadeOut=%d particleZ=(%.1f %.1f) emitterZ=%.1f "
                 "(CPU alpha only; read<active is incomplete, material visibility unmeasured)",
                 (void*)psc, i, (void*)instance, active, read, transparent, baseZero,
-                read ? minAlpha : -1, read ? maxAlpha : -1, read ? sum / read : -1);
+                read ? minAlpha : -1, read ? maxAlpha : -1, read ? sum / read : -1,
+                fadingIn, fadingOut, zMin < 1e30f ? zMin : -1, zMax > -1e30f ? zMax : -1, emitter[2]);
+            RainModuleTrace(psc, instance, i);
 
         }
     }

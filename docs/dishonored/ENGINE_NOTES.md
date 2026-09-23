@@ -1,3 +1,31 @@
+## Rain opacity collapse confirmed in repeated pitch transitions (VR-202, 2026-09-22)
+
+Build720-g632dca2fb banner and installed SHA-256 match the candidate manifest.
+Archive: build/playtest-candidates/runs/vr-202-alpha-20260922-223037. Repeated stationary
+upward views correlate with both 40-slot layers becoming entirely transparent, including
+base alpha; the third layer remains nonzero. Example ticks 39424265..39428265: both layers
+40/40 zero, pitch initially about 36 degrees; at 39429265 pitch 18.69 degrees and both
+layers restore nonzero alpha. The final roughly 22..25-degree transition region alternates
+between full zero and partial opacity. Requests remain positive in sustained zero periods.
+This establishes CPU opacity loss, rather than merely absent headset pixels. It does not
+by itself establish which code path caused that loss.
+
+Native Update RVA 0x801043..0x8010ed uses particle +0x0c as a signed fade state: negative
+fades out, positive fades in, and completion can zero both current and base alpha. The
+volume-exit test at 0x801262..0x8012bb changes that sign. Particle position at +0x10 is
+transformed to component-local space before testing. SpawnCount independently follows
+instance +0x10 to its current LOD. New constants live in patterns.h. Next read-only probe
+adds fade-in/out counts and particle Z range, and resolves current LOD UpdateModules and
+rain module m_Extent. All native ownership/array checks remain in force; module/LOD reads
+require IsLiveObject. The rain helper uses world positions; do not assume other layers
+share that coordinate convention. CPU opacity can also be affected by other modules.
+
+Hypothesis: view-dependent emitter motion moves drops outside their actual simulation
+volume and fading/recovery empties opacity. Counterprediction: opacity collapses without
+corresponding fade/geometry changes, requiring another writer or module. No forced alpha,
+shelter override, or weather behavior change. Prepare/build only; installation requires
+another explicit go-ahead because concurrent branch builds are being tested.
+
 ## Stationary rain cycling with live particles (VR-202, 2026-09-22)
 
 Build718-g433e81335 is identified by the archived previous-log banner after another

@@ -472,3 +472,7 @@ static const uint32_t kRainInstanceIndicesOff = 0x44;
 static const uint32_t kRainInstanceStrideOff = 0xd0;
 static const uint32_t kRainParticleAlphaOff = 0x6c;
 static const uint32_t kRainParticleBaseAlphaOff = 0x7c;
+// Rain SpawnCount follows current LOD +0x10; Update uses fade +0x0c and position +0x10.
+static const uint32_t kRainInstanceLodOff = 0x10;
+static const uint32_t kRainParticleFadeOff = 0x0c;
+static const uint32_t kRainParticlePositionOff = 0x10;

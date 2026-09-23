@@ -1,3 +1,15 @@
+## Session 2026-09-22 (VR-202): repeated pitch transitions zero rain opacity
+
+Verified build720 banner and installed DLL hash. Both 40-particle layers become fully
+transparent during repeated upward views and recover on lowering the view. Near the final
+transition angle they fluctuate together; the third layer stays nonzero. Positive particle
+requests persist. This establishes CPU opacity loss, not a generic whole-component cull.
+Archive: build/playtest-candidates/runs/vr-202-alpha-20260922-223037.
+
+Next candidate adds signed fade-state counts, particle height and actual current rain-module
+extent to test the native volume-exit/fading path. See ENGINE_NOTES top entry. Diagnostic
+only; prepare/build but DO NOT INSTALL until another explicit user go-ahead.
+
 ## Install 2026-09-22 (VR-202): opacity diagnostic approved
 
 User explicitly approved installation. Installed `vr33-hands-working-720-g632dca2fb`;
