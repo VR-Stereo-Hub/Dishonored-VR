@@ -10,6 +10,9 @@ Native rain Spawn, Update and SpawnCount establish the actual emitter-instance c
 Added read-only rain/particles logs for live count, bounds, render time, forced inactivity,
 world emitter placement and camera pitch, once per second under existing Rain Trace=1.
 See ENGINE_NOTES top entry for derivation, counterpredictions and interpretation limits.
+Installed `vr33-hands-working-718-g433e81335` (optimized, legacy off). Build, lint and
+9/9 exports pass; installed DLL SHA-256 matches. Full ini unchanged and CRLF preserved.
+Both previous logs archived under `build/playtest-candidates/installs/20260922-214244-326840`.
 No rain behavior changes. Next test: stationary eye-height/up/eye-height, ten seconds each,
 repeat once and quit. One question is whether the same pitch-dependent disappearance returns;
 the new log distinguishes simulation counts from bounds/render-update behavior.
