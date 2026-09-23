@@ -1367,3 +1367,11 @@ include empty/unresolved results and avoid radius or setter-mapping claims.
 ## A ProcessEvent call from the script tick re-enters the script tick (VR-182, 2026-09-22)
 
 The script tick (`PeHandler` in `ue3/process_event.cpp`) runs on EVERY ProcessEvent dispatch, and the hook has no re-entry guard. `g_peReentry` is only read by console.cpp and commands.cpp. A per-tick call into a native through `kProcessEvent` therefore re-enters the hook, which runs the whole tick again. Build 668 called `TransformFromBoneSpace` on every tick and overflowed the stack (`0xC00000FD` in d3d9.dll) on the first save load. Calls that happen only on a state change (`SetHidden`, `SetDepthPriorityGroup`) nest one level and get away with it. A module that calls the engine every tick needs its own `inside` guard. It should also gate on the frame, because the tick itself runs thousands of times a second.
+
+## Rain-box hide is not a lens-rain hide (VR-199, 2026-09-22)
+
+Rain is owned by two different systems. The camera-box SetHidden path can work while the
+lens sheet remains visible (ENGINE_NOTES run470). Trace CameraLensEffects and its actual
+particle templates before concluding the hide flag was ignored. The looping lens class is
+shared; selecting every looping effect would hide unrelated effects. The new Basic toggle
+adds rain-named lens templates, pending an in-game A/B and target-name confirmation.

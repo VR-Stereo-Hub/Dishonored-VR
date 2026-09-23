@@ -235,6 +235,17 @@ void ornament()
     ImGui::Dummy(ImVec2(w, 9.0f));
 }
 
+void controller_hint()
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, kBrass);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted("L3 + R3 (both sticks)");
+    ImGui::PopStyleColor();
+    ImGui::TextUnformatted("CLICK: F10 menu  |  HOLD: VD performance overlay");
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+}
+
 void title(const char* text)
 {
     {   // lamplight: a faint warm glow behind the title, fading down into the ink

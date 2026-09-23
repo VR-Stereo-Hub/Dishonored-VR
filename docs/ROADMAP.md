@@ -1,3 +1,12 @@
+## F10 improvements (VR-199, 2026-09-22)
+
+- [x] Remove reticle hand selection and beam, with old values normalized.
+- [x] Themed click/hold controller hint and Reset to Defaults beside Save as Defaults.
+- [x] Reset host verification, including persistence and safe failure paths.
+- [x] Basic rain toggle targets camera box plus identified rain lens particles.
+- [ ] Headset: rain disappears and returns in a rainy area; inspect logged target template.
+- [ ] Headset: F10 tiers, save-on-change and Reset to Defaults across relaunch.
+
 ## The sword's swing trail (VR-171, 2026-09-21)
 
 - [x] Probe: is it an anim-trail notify? No: 0 `TrailsNotify` from anyone in 4 sword attacks, with the names in the table.

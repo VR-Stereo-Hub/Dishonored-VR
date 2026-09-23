@@ -1,3 +1,31 @@
+## Rain hide targets the separate lens system (VR-199, 2026-09-22)
+
+The existing `[Rain] Hide` only followed `DishonoredPlayerCamera.m_pRainBoxEmitter`.
+The prior run470 observation below already separated that emitter from the visible lens
+sheet. A box hide cannot establish that the sheet is hidden.
+
+The local decompiled declarations identify two independent owners: DisSeqAct_SetRainEmitter
+configures camera-box rain, while DisSeqAct_SpawnCameraLensEffect supplies a lens class and
+DisTweaks_EmitterCameraLensEffect, with separate spawn/stop-looping inputs. The looping
+lens class derives from EmitterCameraLensEffectBase through DisEmitterCameraLensEffect,
+retains a ParticleSystemComponent, and exposes active/fade state. Its tweak object chooses
+the actual particle template. Thus class name alone does not identify rain. The candidate
+requires current Camera.CameraLensEffects membership, the looping class, and a live
+ParticleSystemComponent.Template whose name contains `rain` (case insensitive). The asset
+name is still to be verified from `rain/lens` in a matching-build rainy-area test; an
+unidentified template is logged and left alone. Health, blood and other lens classes are
+not selected. No game-derived source is committed.
+
+The hide uses reflected PrimitiveComponent.SetHidden(bool), which propagates to the render
+proxy, on the script lane at the existing 250 ms cadence. A menu/load epoch forces a fresh
+live-object table. Every target passes IsLiveObject and is reached through the current
+controller/camera/owner chain. Restore also matches component FName, owner and template;
+a retained pointer alone never authorizes a write. Disappeared targets are forgotten.
+Native hidden components are not claimed. `[Rain] Hide=0` remains the shipped default.
+
+No new addresses or numeric field offsets. All new fields use reflection by declaring
+class and property name. Build and offline validation are not a visual acceptance result.
+
 ## DisPostProcessManager UI fade timer goes NaN (VR-140, 2026-09-18)
 
 Layout, reflected by name on build 473 (`pp/watch: armed`): `m_RequiredEffects[21]`

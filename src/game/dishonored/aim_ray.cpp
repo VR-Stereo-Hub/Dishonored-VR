@@ -73,6 +73,9 @@ void configure(const Config& cfg, const char* origin) {
                  origin, cfg.hand, cfg.distanceM, cfg.sizeDeg); return;
     }
     g_config = cfg;
+    // VR-199: retired player options, including values from older ini files.
+    g_config.hand = 0;
+    g_config.laser = false;
     for (float* o : { &g_config.otherXDeg, &g_config.otherYDeg })
         *o = std::isfinite(*o) ? (*o < -90 ? -90 : *o > 90 ? 90 : *o) : 0;
     g_modelRequested.store(cfg.modelRay);
@@ -91,7 +94,7 @@ void configure(const Config& cfg, const char* origin) {
              "the dot and the aim move together)", g_config.otherXDeg, g_config.otherYDeg);
     DVR_INFO("crosshair: config from %s Dot=%d Laser=%d Hand=%s DistanceM=%.2f SizeDeg=%.2f "
              "ControlDot=%d (XR LOCAL fixed-distance guide; FireFromHand independently controls launch%s)",
-             origin, cfg.dot, cfg.laser, cfg.hand ? "right" : "left", cfg.distanceM,
+             origin, g_config.dot, g_config.laser, g_config.hand ? "right" : "left", cfg.distanceM,
              cfg.sizeDeg, cfg.controlDot,
              cfg.controlDot ? "; the CONTROL dot is head-anchored straight ahead at "
                               "1.50 m and DistanceM, no controller in it - it must land on "
@@ -484,11 +487,6 @@ bool draw_reticle_ui() {
     auto cfg = config(); bool changed = false;
     changed |= ImGui::Checkbox("Show the reticle", &cfg.dot);
     ov::tip("A dot at a fixed distance along where your hand aims. The aim follows it.");
-    ImGui::SameLine();
-    changed |= ImGui::Checkbox("Beam", &cfg.laser);
-    changed |= ImGui::RadioButton("Left hand", &cfg.hand, 0);
-    ImGui::SameLine();
-    changed |= ImGui::RadioButton("Right hand", &cfg.hand, 1);
     changed |= ImGui::SliderFloat("Reticle distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
     ov::tip("How far along the aim the dot sits. It does not stop at walls.");
     changed |= ImGui::SliderFloat("Reticle size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
@@ -516,7 +514,7 @@ void draw_ui() {
     namespace ov = dvr::ovl;
     auto cfg = config(); bool changed = false;
     changed |= ImGui::Checkbox("Ray follows the hand trim", &cfg.followHandTrim);
-    ov::tip("The dot, beam and shot move with the hand position adjustments. Leave on.");
+    ov::tip("The dot and shot move with the hand position adjustments. Leave on.");
     changed |= ImGui::Checkbox("Ray from loaded bolt geometry", &cfg.modelRay);
     ov::tip("Aims along the measured crossbow bolt, so the dot lines up with the weapon. Leave on.");
     changed |= ImGui::Checkbox("Control dot (head-anchored, no controller)", &cfg.controlDot);

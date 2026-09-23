@@ -5,13 +5,15 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 
-static void WriteDefaultIni(const char* ini)
+static bool g_configResetPending = false;
+
+static bool WriteDefaultIni(const char* ini)
 {
     // The maintainer requested the complete tested profile as repo defaults,
     // including saved F10 flags and diagnostics. Keep release/ini byte-aligned.
     FILE* f = fopen(ini, "w");
-    if (!f) return;
-    fprintf(f,
+    if (!f) return false;
+    const int written = fprintf(f,
         "; Dishonored VR config - edit while game is closed\n"
         "; (auto-refreshed when the mod's defaults change)\n"
         "[Meta]\n"
@@ -1521,9 +1523,31 @@ static void WriteDefaultIni(const char* ini)
         "Element.wheelshortcuts.WinX=-0.504\n"
         "Element.wheelshortcuts.WinY=0.695\n"
         "Element.wheelshortcuts.WinScale=0.730\n", kConfigVersion);
-    fclose(f);
+    const int closed = fclose(f);
+    return written > 0 && closed == 0;
 }
 
+// VR-199: replace only a complete, flushed profile. A failed reset leaves the old ini intact.
+static bool ConfigRestoreDefaults(const char* ini)
+{
+    char temp[MAX_PATH], backup[MAX_PATH];
+    if (_snprintf(temp, sizeof(temp), "%s.reset-tmp", ini) < 0 ||
+        _snprintf(backup, sizeof(backup), "%s.pre-reset", ini) < 0) return false;
+    char json[2 * MAX_PATH] = "", runtime[32] = "", data[MAX_PATH] = "";
+    GetPrivateProfileStringA("VR", "XrRuntimeJson", "", json, sizeof(json), ini);
+    GetPrivateProfileStringA("VR", "Runtime", "", runtime, sizeof(runtime), ini);
+    GetPrivateProfileStringA("Paths", "DataDir", "", data, sizeof(data), ini);
+    if (!CopyFileA(ini, backup, FALSE) || !WriteDefaultIni(temp)) return false;
+    bool ok = true;
+    if (json[0]) ok = WritePrivateProfileStringA("VR", "XrRuntimeJson", json, temp) != FALSE && ok;
+    if (runtime[0]) ok = WritePrivateProfileStringA("VR", "Runtime", runtime, temp) != FALSE && ok;
+    if (data[0]) ok = WritePrivateProfileStringA("Paths", "DataDir", data, temp) != FALSE && ok;
+    WritePrivateProfileStringA(nullptr, nullptr, nullptr, temp);
+    if (ok) ok = MoveFileExA(temp, ini, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+    if (!ok) DeleteFileA(temp);
+    WritePrivateProfileStringA(nullptr, nullptr, nullptr, ini);
+    return ok;
+}
 
 static void LoadConfig()
 {
@@ -1534,6 +1558,12 @@ static void LoadConfig()
     // create if missing, OR refresh if it predates this build's tuned defaults
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;
     int ver = (int)IniFloat(ini, "Meta", "Version", 11);
+    if (!missing && GetPrivateProfileIntA("Meta", "ResetDefaults", 0, ini)) {
+        const bool restored = ConfigRestoreDefaults(ini);
+        Log("config: reset to shipped defaults %s (runtime and DataDir preserved)",
+            restored ? "complete; previous profile saved as .pre-reset" : "FAILED; keeping existing profile");
+        if (restored) ver = kConfigVersion;
+    }
     if (missing || ver < kConfigVersion) {
         // 41.0: a launcher may have put the runtime selection into an ini that
         // has never been through this build ([VR] XrRuntimeJson from
@@ -3474,6 +3504,19 @@ static void DeviceSetManaged(const char* name, const char* who)
     WritePrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(m), ini);
     Log("device: [Device] Managed=%s written by %s - takes effect at the NEXT LAUNCH (inert while Ex=0)",
         dvr::d3d9ex::managed_name(m), who);
+}
+
+static bool ConfigResetPending() { return g_configResetPending; }
+
+static bool ConfigRequestReset()
+{
+    char ini[MAX_PATH];
+    _snprintf(ini, sizeof(ini), "%s\\dishonored_vr.ini", g_dir);
+    const bool ok = WritePrivateProfileStringA("Meta", "ResetDefaults", "1", ini) != FALSE;
+    Log("config: reset to shipped defaults %s; runtime and DataDir will be preserved",
+        ok ? "queued for next launch" : "FAILED");
+    if (ok) g_configResetPending = true;
+    return ok;
 }
 
 static void OverlaySaveDefaults()

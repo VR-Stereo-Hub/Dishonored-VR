@@ -5,21 +5,21 @@
 // DishonoredPlayerCamera owns one Emitter actor, m_pRainBoxEmitter, whose
 // particle module (DisParticleModuleRainDrops) spawns drops inside
 // m_RainBoxExtent around the view. In the headset it reads as a pane in front
-// of the eyes. Two parts:
+// of the eyes. The separate looping lens sheet is also handled (VR-199). Two parts:
 //
 //  1. MEASURE, always while [Rain] Trace=1: the box extent, the drop count and
 //     the emitter's location in the camera's own frame (forward/right/up, uu),
 //     logged on change. This is the number a near-eye placement has to be
 //     designed from; nothing about it is guessed here.
 //  2. HIDE, only with [Rain] Hide=1 (code default off, live `rainhide on|off`,
-//     F10 checkbox): the engine's own native PrimitiveComponent.SetHidden on
-//     that one emitter's ParticleSystemComponent. The native propagates to the
+//     F10 Basic checkbox): native PrimitiveComponent.SetHidden on the box
+//     and rain-named looping camera lens particle components. The native propagates to the
 //     render proxy, which a raw HiddenGame write would not. The rain impacts
 //     and every other particle system are untouched.
 //
 // LANE: the script lane (ProcessEvent), 250 ms cadence. Every sample re-reads
 // the chain from the controller and re-checks liveness; the only retained
-// pointer is the component we hid, and it is revalidated before a restore.
+// identities are hidden components, revalidated through current owners before restore.
 #include <atomic>
 #include <cmath>
 
@@ -41,7 +41,7 @@ static int RainDistance() { return g_rainDistUu.load(); }
 
 static void RainHideSet(bool on) {
     g_rainHide.store(on);
-    Log("rain: hide=%d (live; only the camera's rain box emitter, via native SetHidden)", on ? 1 : 0);
+    Log("rain: hide=%d (live; camera rain box and rain lens particles, via native SetHidden)", on ? 1 : 0);
 }
 static bool RainHideEnabled() { return g_rainHide.load(); }
 static bool RainTraceEnabled() { return g_rainTrace.load(); }
@@ -87,20 +87,29 @@ static uint8_t* RainPtr(uint8_t* o, uint32_t off) {
 
 static void RainTick() {
     const bool hide = g_rainHide.load(), trace = g_rainTrace.load();
-    static uint8_t* hidComp = nullptr;          // the one component WE hid
+    struct HiddenRain { uint8_t* comp; uint8_t* owner; uint8_t* templ; uint32_t name[2]; };
+    static HiddenRain hidden[17] = {};
+    static int hiddenN = 0;
     static uint8_t* extCam = nullptr;           // the camera whose extent WE wrote
     static float extOrig[3] = {};
     const int wantDist = g_rainDistUu.load();
-    if (!hide && !trace && !hidComp && wantDist < 0 && !extCam) return;
+    if (!hide && !trace && !hiddenN && wantDist < 0 && !extCam) return;
     static unsigned long long next = 0, nextRebuild = 0;
     const unsigned long long now = GetTickCount64();
     if (now < next) return;
     next = now + 250;
     if (!RflNamesReady()) return;
+    // A menu/load transition invalidates the old population, even if pointers match.
+    static unsigned liveEpoch = ~0u;
+    const unsigned epoch = UiSurfaceEpoch();
+    if (liveEpoch != epoch) {
+        if (!BuildLiveSet()) return;
+        liveEpoch = epoch;
+    } else if (!RefreshLiveSet(2000)) return;
 
     static bool resolved = false;
     static uint32_t pcCamOff = 0, emitterOff = 0, extentOff = 0, dropsOff = 0, killOff = 0, dirOff = 0,
-                    pscOff = 0, locOff = 0, hiddenOff = 0, hiddenMask = 0;
+                    pscOff = 0, locOff = 0, hiddenOff = 0, hiddenMask = 0, lensOff = 0, templateOff = 0;
     static uint8_t* fnSetHidden = nullptr;
     if (!resolved) {
         resolved = true;
@@ -112,6 +121,8 @@ static void RainTick() {
         dirOff     = RflOffsetOf("DishonoredPlayerCamera", "m_RainDirection");
         pscOff     = RflOffsetOf("Emitter", "ParticleSystemComponent");
         locOff     = RflOffsetOf("Actor", "Location");
+        lensOff    = RflOffsetOf("Camera", "CameraLensEffects");
+        templateOff = RflOffsetOf("ParticleSystemComponent", "Template");
         FindBoolProp("PrimitiveComponent", "HiddenGame", &hiddenOff, &hiddenMask);
         fnSetHidden = RainFindClassFunction("PrimitiveComponent", "SetHidden");
         Log("rain: layout pcCamera=+0x%x emitter=+0x%x extent=+0x%x drops=+0x%x killRate=+0x%x dir=+0x%x "
@@ -128,13 +139,13 @@ static void RainTick() {
     if (emitter && !IsLiveObject(emitter)) {
         // An emitter spawned after the table was built. Bounded rebuild, then
         // the next sample decides; never trust it this sample.
-        if (now >= nextRebuild) { nextRebuild = now + 2000; RefreshLiveSet(2000); }   // VR-160
+        if (now >= nextRebuild) { nextRebuild = now + 2000; BuildLiveSet(); }   // VR-160
         emitter = nullptr;
     }
     const char* ec = emitter ? ObjClassName(emitter) : nullptr;
     if (emitter && (!ec || !strstr(ec, "Emitter"))) emitter = nullptr;
     uint8_t* psc = RainPtr(emitter, pscOff);
-    const char* pc = psc ? ObjClassName(psc) : nullptr;
+    const char* pc = IsLiveObject(psc) ? ObjClassName(psc) : nullptr;
     if (psc && (!IsLiveObject(psc) || !pc || !strstr(pc, "ParticleSystemComponent"))) psc = nullptr;
 
     auto hiddenNow = [&](uint8_t* comp) -> int {
@@ -148,38 +159,75 @@ static void RainTick() {
         g_peReentry = false;
     };
 
-    // Restore first: the lever went off, or the emitter we hid is no longer
-    // the camera's. A component that is no longer live is dropped, never written.
-    // A restore writes ONLY to the component this sample reached through the
-    // live controller -> camera -> emitter chain. Anything else (a level change,
-    // a new emitter) is dropped without a write: the table can outlive a level,
-    // so IsLiveObject alone does not prove a retained pointer still exists.
-    if (hidComp && (!hide || hidComp != psc)) {
-        if (hidComp == psc && fnSetHidden) {
-            callSetHidden(psc, false);
-            Log("rain: RESTORED component %p (hidden now %d; hide turned off)", (void*)psc, hiddenNow(psc));
-        } else {
-            Log("rain: released component %p without a write - it is no longer the camera's rain emitter", (void*)hidComp);
+    // VR-199: the camera rain box is not the lens sheet (ENGINE_NOTES run470).
+    // Enumerate the CURRENT camera array; never restore through a retained pointer alone.
+    HiddenRain current[17] = {}; int currentN = 0;
+    auto add = [&](uint8_t* owner, uint8_t* comp, uint8_t* templ) {
+        if (!IsLiveObject(owner) || !IsLiveObject(comp) || !RangeReadable(comp + kNameOff, 8)) return;
+        auto& c = current[currentN++]; c = { comp, owner, templ, {} };
+        memcpy(c.name, comp + kNameOff, sizeof(c.name));
+    };
+    if (psc) add(emitter, psc, RainPtr(psc, templateOff));
+    uint8_t* lensData = nullptr; int32_t lensN = 0;
+    if (cam && lensOff && RflArrayAt(cam, lensOff, &lensData, &lensN)) {
+        if (lensN > 16) lensN = 16;
+        for (int i = 0; i < lensN; ++i) {
+            uint8_t* fx = ((uint8_t**)lensData)[i];
+            uint8_t* comp = nullptr; uint8_t* templ = nullptr;
+            if (fx && !IsLiveObject(fx)) {
+                // Objects created after a load must enter the live table before use.
+                if (now >= nextRebuild) { nextRebuild = now + 2000; BuildLiveSet(); }
+                continue;
+            }
+            if (!IsLiveObject(fx)) continue;
+            const char* cls = ObjClassName(fx);
+            if (!cls || strcmp(cls, "DisEmitterCameraLensEffect_Looping")) continue;
+            comp = RainPtr(fx, pscOff);
+            if (!IsLiveObject(comp)) continue;
+            templ = RainPtr(comp, templateOff);
+            if (!IsLiveObject(templ) || !RangeReadable(templ + kNameOff, 4)) continue;
+            const char* name = RealName(*(uint32_t*)(templ + kNameOff));
+            // The looping class is shared: require a rain-named particle asset too.
+            bool rain = false;
+            if (name) for (const char* c = name; *c; ++c) if (!_strnicmp(c, "rain", 4)) { rain = true; break; }
+            if (!rain) {
+                DVR_LOG_EVERY_MS(dvr::log::Cat::script, dvr::log::Level::Info, 10000,
+                    "rain/lens: skipped looping effect %p template=%s (not identified as rain)",
+                    (void*)fx, name ? name : "unresolved");
+                continue;
+            }
+            if (hide && hiddenNow(comp) == 0)
+                Log("rain/lens: matched template=%s owner=%p component=%p", name, (void*)fx, (void*)comp);
+            add(fx, comp, templ);
         }
-        hidComp = nullptr;
     }
-    if (hide && psc && fnSetHidden && hiddenOff) {
-        const int before = hiddenNow(psc);
-        if (before == 0) {
-            callSetHidden(psc, true);
-            const int after = hiddenNow(psc);
-            hidComp = psc;
-            Log("rain: HID the camera's rain box %p component %p via native SetHidden: HiddenGame %d -> %d "
-                "(a verified write, not yet an honoured one: the headset says whether the pane is gone)",
-                (void*)emitter, (void*)psc, before, after);
-        }   // already hidden and not by us: the engine's state, never claimed or restored
-    } else if (hide) {
-        static const char* lastRefusal = nullptr;
-        const char* why = !fnSetHidden || !hiddenOff ? "SetHidden/HiddenGame unresolved"
-                        : !cam ? "no live player camera" : !emitter ? "no live rain emitter (no rain here)"
-                        : "no live particle component";
-        if (why != lastRefusal) { Log("rain: hide armed, nothing hidden: %s", why); lastRefusal = why; }
+    HiddenRain nextHidden[17] = {}; int nextN = 0;
+    for (int i = 0; i < currentN; ++i) {
+        const auto& c = current[i];
+        bool ours = false;
+        for (int j = 0; j < hiddenN; ++j) {
+            const auto& h = hidden[j];
+            if (h.comp == c.comp && h.owner == c.owner && h.templ == c.templ &&
+                h.name[0] == c.name[0] && h.name[1] == c.name[1]) { ours = true; break; }
+        }
+        if (!IsLiveObject(c.comp) || !IsLiveObject(fnSetHidden) || !hiddenOff) continue;
+        const int before = hiddenNow(c.comp);
+        if (hide && before == 0) {
+            callSetHidden(c.comp, true);
+            ours = hiddenNow(c.comp) == 1;
+            Log("rain: HID %s owner=%p component=%p HiddenGame=%d -> %d (visual result needs headset)",
+                i == 0 && c.comp == psc ? "camera box" : "rain lens", (void*)c.owner,
+                (void*)c.comp, before, hiddenNow(c.comp));
+        } else if (!hide && ours) {
+            callSetHidden(c.comp, false);
+            Log("rain: RESTORED component=%p HiddenGame=%d -> %d", (void*)c.comp, before, hiddenNow(c.comp));
+            ours = hiddenNow(c.comp) != 0;
+        }
+        if (ours) nextHidden[nextN++] = c;
     }
+    memcpy(hidden, nextHidden, sizeof(hidden)); hiddenN = nextN;
+    if (hide && !currentN) DVR_LOG_EVERY_MS(dvr::log::Cat::script, dvr::log::Level::Info, 10000,
+        "rain: hide armed, no live camera rain targets (camera=%p lensCount=%d)", (void*)cam, lensN);
 
     // The distance lever. The native value is captured from the camera the
     // first time it is written and restored only to that same camera, reached

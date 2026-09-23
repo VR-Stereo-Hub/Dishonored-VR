@@ -112,7 +112,7 @@ static inline void GraftEmergencyRestore(void);
 static bool CineActive();
 static bool SprintBit(bool clickNow);
 static WORD SlideAssist(WORD b, bool userB, float mx, float my);
-static void WriteDefaultIni(const char* ini);
+static bool WriteDefaultIni(const char* ini);
 static void LoadConfig();
 static void EnsureConfig();
 // core/vr/apilayer_guard.cpp - a 64-bit implicit OpenXR API layer fails
@@ -152,6 +152,8 @@ static bool EnsureCommonStates();
 static LRESULT CALLBACK OverlayWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 static void InstallWindowSubclass(const char* who);
 static void OverlaySaveDefaults();
+static bool ConfigResetPending();
+static bool ConfigRequestReset();
 static void OverlayFrame(uint32_t targetW, uint32_t targetH);
 static LONG CALLBACK WalkVEH(EXCEPTION_POINTERS* xp);
 static const char* NameFromIndex(uint32_t idx);

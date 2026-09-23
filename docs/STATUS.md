@@ -1,3 +1,31 @@
+## Session 2026-09-22 (VR-199): F10 improvements candidate
+
+Branch `f10-improvements` from VR-Main `375dda772`. Removes reticle hand selection and
+beam from F10, and normalizes old configurations to left-hand/no-beam. The themed header
+now explains click versus hold on L3 + R3. Reset to Defaults sits beside Save as Defaults;
+it queues a reset for the next launch, backs up the ini as `.pre-reset`, and preserves
+runtime selection, runtime JSON and DataDir. Settings are disabled while reset is queued.
+
+Basic > Comfort > Rain now contains Hide rain effects. The existing camera-box hide could
+not remove the separate lens sheet documented in run470. The candidate also hides live
+camera-owned looping lens particle components whose template identifies rain, using native
+SetHidden. It refreshes liveness after menu/load epochs, revalidates current ownership and
+component identity before restore, and logs unidentified looping templates. See
+`dishonored/ENGINE_NOTES.md` VR-199 entry. This remains a candidate until a rainy-area A/B.
+
+Validation: optimized build, lint, golden/default-profile parity, reset host checks
+(success, preserved paths, backup failure, staging failure), and offscreen theme preview.
+The game is never launched by the agent. Installation records and complete ini/log backups
+live under `build/playtest-candidates/`; the installed build will be verified by hash.
+
+Next launch has ONE question: in a rainy area, does Basic > Comfort > Rain > Hide rain
+effects remove the close rain layer and restore it when turned off? Disappearance and
+return support the fix; unchanged rain means the log's target/template evidence determines
+the next step. Leave Reset to Defaults for its own subsequent persistence test.
+
+Still pending from #102/#103: headset inspection of all F10 tiers, save-on-change across
+relaunch, options-menu sensitivity 30, and a matching-build log check for interact/flicker.
+
 ## Session 2026-09-22 (F10 cleanup and theme, VR-196/VR-197): merged to VR-Main (#103)
 
 The F10 panel is rebuilt with a Basic / Advanced / Debug selector, regrouped tabs, collapsed
