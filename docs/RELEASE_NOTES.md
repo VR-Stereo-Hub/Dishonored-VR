@@ -1,3 +1,32 @@
+# 1.0.0 (first public release)
+
+1.0.0 is the first numbered release of Dishonored VR. Releases use semantic version
+numbers from now on: a patch number for fixes, a minor number for new features. The
+40.x and 41.x numbers in older notes and logs were development builds.
+
+What 1.0.0 contains, in short (the README has the full feature list):
+
+* Real stereo rendering with the head pose carried with each image, six-degree head
+  tracking, lean and physical crouch.
+* Tracked hands with the arms cut at the wrist, the sword, pistol and crossbow in hand,
+  hand-aimed Blink, powers and weapons, and head or hand aim per item.
+* The motion sword, the stealth kill by gesture, drop takedowns timed to the game,
+  throwing carried objects, and the same walking speed in every direction.
+* A per-element HUD on windows and on your hands, a hand-driven weapon dial, and
+  hand-held notes.
+* The game's camera shake and bob off by default, and rain and lens effects at a
+  comfortable depth.
+* The F10 panel in Dishonored's style, usable from the controllers, with Basic, Advanced
+  and Debug levels and a Layout tab.
+* `DishonoredVR-Launcher-v1.0.0.exe`: install, update, change settings, bindings, log
+  collection, shortcuts, disable VR and uninstall, with an About page and credits.
+* On the SteamVR bridge the desktop mirror stays on. Each new menu opens where you look,
+  and closing a menu or note no longer snaps the view back.
+
+Recommended headset refresh rate: 120 Hz, or 144 Hz with the Virtual Desktop beta.
+
+The sections below are the development notes that led here, newest first.
+
 ## Motion sword: an easier swing, and a log that says where the threshold belongs (2026-09-21)
 
 The swing speed needed drops from 3.6 to **3.0 m/s** (`[Melee] EdgeSpeed`): 3.6 had
