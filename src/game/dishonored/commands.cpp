@@ -150,6 +150,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "anim")) return dvr::anim::command(args);   // VR-88: shipped, not legacy
     if (!strcmp(cmd, "swing")) return dvr::swing::command(args);  // VR-37: the motion sword
+    if (!strcmp(cmd, "drop")) return dvr::drop::command(args);    // drop takedowns from above
     if (!strcmp(cmd, "dc")) return DcCommand(args);
     if (!strcmp(cmd, "ms")) return MsCommand(args);
     if (!strcmp(cmd, "pose")) return PrCommand(args);
@@ -695,6 +696,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::aim::status(w);
     dvr::anim::status(w);
     dvr::swing::status(w);
+    dvr::drop::status(w);
     SwordTrailStatus(w);   // VR-171
     CamShakeStatus(w);   // VR-172
     w.end_obj();

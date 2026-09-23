@@ -466,6 +466,7 @@ void set_on(bool on) {
 
 void note_real_trigger(float v) { realTrigger = v; }
 void note_pad_poll() { InterlockedIncrement(&padPollsTotal); }
+long pad_polls() { return InterlockedCompareExchange(&padPollsTotal, 0, 0); }
 bool output_rb() { return st.outputRb; }
 
 bool pulse_active() {

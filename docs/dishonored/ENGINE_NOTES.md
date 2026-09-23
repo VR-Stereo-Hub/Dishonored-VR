@@ -8971,3 +8971,63 @@ engine's view source is more than 150 uu from the render eye.
 hand ray and 827 uu off the head ray. One cast was refused because GetPlayerViewPoint was
 7,931 uu from the render eye (the same distance 619 saw). Some state hands the view point
 far from the player, and the guard keeps that cast on the head.
+
+## 2026-09-22: Drop takedown timing (VR-203)
+
+Follow-up to VR-111. Question: why does a drop onto a guard so often play an ordinary
+slash? Answered offline from the decision code the VR-111 entry named, plus the drop
+trace in the archived VR-111 logs.
+
+**What the decision is.** `DisItemContext_DropAssassinate` slot `+0x198` (`0x00C14960`)
+runs every tick while the player is airborne. It calls `0x00C09A50`, stores the result
+byte at context `+0xC0` (`m_CachedDropType`) and the target at `+0xC4`. The tweak object
+is context `+0xA4` (`m_pContextTweaks`) and the owner pawn is `+0xB0`.
+
+**Where the target comes from (`0x00C09A50`), in order:**
+1. The melee pawn-info candidate at context `+0x50` (`m_PawnInfo_Melee`, the view's melee
+   trace; the sword is not re-aimed by the mod).
+2. A trace from the pawn to the pawn plus the predicted fall (`0x00C09810`).
+3. A trace straight down by the predicted fall's Z only.
+
+Routes 2 and 3 use `0x00BE1800` with flags `0x20DF`/`0x200`. They accept only an NPC
+that passes eligibility.
+
+**Predicted fall (`0x00C09810`).** Velocity (`Actor+0x1B4`) times T plus half gravity
+times T squared, with T = tweak `+0x528`. The downward speed is clamped to at least
+tweak `+0x538`.
+
+**Eligibility (`0x00C09900`).** In order:
+* The target is not dead (vfunc `+0x678`) and its byte `+0x104` is not 10.
+* Tweak `+0x534` is greater than the pawn's Velocity.Z (no rising jump).
+* The predicted fall is deeper than tweak `+0x52C`.
+* The player-to-target height difference is greater than `+0x52C`.
+* A trace from the player reaches the target itself.
+
+A height difference at or under `+0x530` returns 2 (do it now), otherwise 1 (too high).
+There is no horizontal distance test. Reflection names the tweak fields in declaration
+order: `m_fHitWindowInSeconds` `+0x528`, `m_fMinDropDistToTarget` `+0x52C`,
+`m_fMaxDropDistToTarget` `+0x530`, `m_fMaxAllowedDropJumpVel` `+0x534`,
+`m_fMinDropDownVel` `+0x538`. The mod logs whether the reflected offsets match these
+(`drop: resolved ... matches the disassembly`) and refuses its one write if they do not.
+
+**Type 1 is not a refusal.** `0x00C14A80` re-checks `+0xB8` (`m_pPawnToWaitFor`)
+through eligibility. On 0 it fails the context, on 2 it plays the linked action, and on
+1 it returns and keeps waiting. So an attack pressed at type 1 or 2 is the kill, and only
+type 0 is lost: the press falls through to the sword's next context, the ordinary
+attack.
+
+**Measured (VR-111 run, playtest-20260914-093057, 20 ms drop trace).** One fall at vz of
+about -1900 entered `StatePlayerMeleeAttack` at type 0. The same fall read type 2 31 ms
+later, then flickered 0/2/0 as the player landed on the target and was pushed off it.
+The press came one or two ticks early. A motion swing fires on a speed crossing early
+in the arm's motion, which makes an early press the common case.
+
+**The mod's response.** `drop_assist.cpp` (`[DropTakedown]`) holds an airborne attack
+that meets type 0 and presses it the first tick the type reads 1 or 2. It reads the
+type every anim tick (about 10 ms). Nothing in the decision changes. The optional
+`ReachScale` is the one write: it multiplies `m_fHitWindowInSeconds`, the look-ahead of
+route 2.
+
+**Still unmeasured:** the shipped tweak values (logged once per tweak object as
+`drop: shipped tweaks`), the extent that `0x0056CC00` supplies to the traces, and the
+range of the melee pawn-info trace.
