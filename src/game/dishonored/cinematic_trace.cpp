@@ -32,7 +32,7 @@ static void CineTraceConfigure(const char* ini) {
     Log("camera/special: SpecialHeadLook=%d (lean/keyhole final-camera head look)",int(g_specialHead.load()));
     g_cineHead.store(GetPrivateProfileIntA("Cine", "HeadLook", 1, ini) != 0);
     Log("cine/head: %s ([Cine] HeadLook), draw-scoped authored rotation", g_cineHead.load() ? "ON" : "off");
-    g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 1, ini) != 0);
+    g_cineTrace.store(GetPrivateProfileIntA("Cine", "Trace", 0, ini) != 0);
     Log("cine/trace: %s ([Cine] Trace), read-only camera ownership at draw entry, 100 ms cadence",
         g_cineTrace.load() ? "ON" : "off");
 }

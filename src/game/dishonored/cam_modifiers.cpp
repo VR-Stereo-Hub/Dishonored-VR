@@ -37,7 +37,7 @@ namespace {
 
 // Ships ON: the tester plays in a headset and cannot reach a prompt, so a probe
 // that has to be asked for is one that never runs. [Diagnostics] CamModProbe.
-bool     g_cmOn        = true;
+bool     g_cmOn        = false;
 double   g_cmNextMs    = 0.0;
 double   g_cmLastMoveMs= 0.0;   // when the camera last moved a lot (the swing)
 float    g_cmLastZ     = 0.0f;
@@ -842,7 +842,7 @@ static void CamModTick()
 
 static void CamModConfigure(const char* ini)
 {
-    g_cmOn = IniFloat(ini, "Diagnostics", "CamModProbe", 1) != 0.0f;
+    g_cmOn = IniFloat(ini, "Diagnostics", "CamModProbe", 0) != 0.0f;
     Log("cammod: camera-modifier probe %s ([Diagnostics] CamModProbe) - read-only, prints only "
         "while the camera is actually swinging", g_cmOn ? "ON" : "off");
 }
