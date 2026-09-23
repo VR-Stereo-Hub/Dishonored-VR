@@ -425,8 +425,8 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
   LUID, is in: the runtime layer asks for the device on the adapter it names)
 - The prologue block fixed at the source; head-look in cutscene cameras
 - Hand-aimed Possession, Devouring Swarm, Windblast
-- Presentation polish; `tools\package.ps1` release; the config table (`core/config`) and the
-  dissolution of `src/mod/state`
+- Presentation polish; `tools\package.ps1` release (the zip, and the installer exe since
+  VR-198); the config table (`core/config`) and the dissolution of `src/mod/state`
 
 - [x] VR-103: script-state cinematic/dialogue stereo transitions; candidate225 headset-confirmed, PR55 approved for merge.
 

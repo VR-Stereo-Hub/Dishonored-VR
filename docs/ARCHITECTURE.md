@@ -1082,3 +1082,15 @@ which a given machine needs: a press reaching the pad proves nothing.
   up the prior file, then replaces it. Failed backup or staging leaves the old profile intact.
   The current panel disables setting edits after the request and states that a restart is
   needed. This also prevents save-on-change from confusing the pending-reset state.
+- **2026-09-23 (VR-198): the installer is a native ImGui exe in the F10 theme, with the mod
+  inside it.** A wizard framework would have approximated the look and needed its own tool on
+  the build machine; the theme already exists as C++ and the Win32 and DX11 backends are
+  vendored, so the installer draws with the same `dvr::ovl` calls the panel does and the two
+  cannot drift. It is 32-bit under the existing CMake guard (an installer has no reason to be
+  64-bit), static CRT, and embeds `d3d9.dll`, the shim, Valve's loader and the tested ini as
+  resources staged per config, so one download is the whole install and a Debug build can
+  never hand a Release installer its DLLs. It writes the ini as the byte copy plus five logged
+  keys, never a synthesised value (HANDOFF rule 6 by another route), keeps the game folder
+  clean of scripts, and elevates by running a headless copy of itself rather than the window,
+  so Steam and the folder picker stay on the player's token. Every screen renders headless to
+  a PNG, which is how the look was judged without a click. `docs/INSTALLER.md`.

@@ -188,3 +188,10 @@ if(DVR_WITH_XRSIM)
     # deliberately hold no unwindable objects.
     target_compile_options(dvr_xrsim32 PRIVATE /EHa)
 endif()
+
+# --- DishonoredVR-Setup.exe - the player's installer (VR-198) ------------------
+# Ships beside the zip. Embeds d3d9.dll, the shim, openvr_api.dll and the tested
+# ini, so it needs both DLL targets; see tools/installer/CMakeLists.txt.
+if(TARGET dvr_ovr_shim)
+    add_subdirectory(tools/installer)
+endif()

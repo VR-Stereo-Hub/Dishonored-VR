@@ -339,6 +339,28 @@ the next step. Leave Reset to Defaults for its own subsequent persistence test.
 
 Still pending from #102/#103: headset inspection of all F10 tiers, save-on-change across
 relaunch, options-menu sensitivity 30, and a matching-build log check for interact/flicker.
+## Session handoff 2026-09-23: the installer (VR-198), PR open, not merged
+
+Branch `claude/vr-198-installer` off `VR-Main` `375dda772`. `DishonoredVR-Setup.exe`: one
+32-bit exe with the mod embedded, drawn with Dear ImGui in the F10 theme (`dvr::ovl`), that
+finds the game through Steam, installs the three DLLs and the tested ini, applies the four
+game-ini values, and asks the headset runtime and the render size. Re-run it offers Update,
+Change settings, Disable/Enable VR, Collect support bundle, Uninstall. `docs/INSTALLER.md` is
+the reference; `src/tools/installer/`; `tools/package.ps1` ships it beside the zip.
+* Verified without a click: `tools\installer-render.ps1` (14 screen states at 1.0 and 1.5),
+  `tools\installer-host.ps1` (unit tests, all pass), `tools\installer-smoke.ps1` (an install
+  into a scratch folder: the ini differs from the shipped copy in exactly the five keys, the
+  four game-ini lines and nothing else, idempotent, uninstall restores the backup; all pass).
+* On the dev PC: the window detects the real game, VDXR, SteamVR and the RTX 4060 (7 GB budget,
+  so Performance is preselected); `--apply --op update` then `change` wrote the real ini, and
+  one Steam launch read them back. That launch found the ini at version 13: the mod's own
+  refresh replaced the file and kept only the runtime, dropping the size and writing
+  `DataDir=D:\dvr-data`. The installer now does that refresh itself (old file kept beside it,
+  runtime and size carried across), which is the one behaviour a player upgrading from a
+  tester zip would have hit. The dev PC's ini is back at 2064x2208 and `D:\dvr-data`.
+* Deliberately not here (tickets to file): the compiled `D:\dvr-data` fallback for a missing
+  `[Paths] DataDir` in `config.cpp`; `package.ps1` does not refuse a `-dirty` tree although
+  LINEAR_AND_GITHUB says it does; a left-handed option; an online update check.
 
 ## Session 2026-09-22 (F10 cleanup and theme, VR-196/VR-197): merged to VR-Main (#103)
 

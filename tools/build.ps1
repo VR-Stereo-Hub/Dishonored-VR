@@ -52,6 +52,9 @@ try {
     $preset = if ($Release) { "release" } else { "debug" }
     & $cmake --build --preset $preset
     if ($LASTEXITCODE -ne 0) { throw "Build failed." }
+    $cfg = if ($Release) { "RelWithDebInfo" } else { "Debug" }
+    $setup = Join-Path $repo "build\src\$cfg\DishonoredVR-Setup.exe"
+    if (Test-Path $setup) { Write-Host "build: installer $setup (embeds this build's d3d9.dll; tools\installer-render.ps1 draws its screens)" }
 }
 finally {
     Pop-Location

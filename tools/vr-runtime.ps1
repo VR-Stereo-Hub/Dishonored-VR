@@ -1,7 +1,7 @@
 # Switch which OpenXR runtime the mod uses, without hand-editing the ini.
 #
 #   vr-runtime.ps1            # show what is selected now
-#   vr-runtime.ps1 shim       # SteamVR through the bundled shim (ships as the default)
+#   vr-runtime.ps1 shim       # SteamVR through the bundled shim
 #   vr-runtime.ps1 vdxr       # Virtual Desktop's own runtime, pinned by path
 #   vr-runtime.ps1 auto       # follow whatever the system has registered
 #
@@ -13,7 +13,8 @@
 #
 # The three modes are NOT interchangeable, and `auto` does not mean "the shim":
 #   shim   dvr_steamvr32.dll directly, OpenXR-on-OpenVR. SteamVR must already be
-#          running. This is what the shipped ini selects.
+#          running. (The shipped ini selects `auto`; the installer's Headset choice
+#          writes the same two keys this script does.)
 #   vdxr   pin Virtual Desktop's runtime by path, whatever else is registered.
 #   auto   try the system's native 32-bit runtime, fall back to the shim only if
 #          there is none. With SteamVR selected that gives NATIVE SteamVR OpenXR,

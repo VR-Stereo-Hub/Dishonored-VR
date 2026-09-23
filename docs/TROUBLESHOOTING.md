@@ -17,6 +17,21 @@ report; the first lines say which build you run and which OpenXR runtime answere
 Steam version. Delete `d3d9.dll` to get the stock game back (or rename it and keep the rest).
 An older release's `dxvk_d3d9.dll` next to it is ignored; delete it too.
 
+**The installer (DishonoredVR-Setup.exe) says...** "Dishonored is running": quit the game
+through its own menu, all the way to the desktop, then try again (its `d3d9.dll` is in use).
+"Install (administrator)": the game folder is not writable by your account; the button asks
+for administrator rights once and the install runs elevated in the background. "Could not
+write DishonoredEngine.ini, access is denied" even so: Controlled Folder Access in Windows
+Security (or an antivirus) is protecting Documents; allow `DishonoredVR-Setup.exe` there,
+or run `setup-game-ini.ps1 -VRBaseline` from the zip. "Waiting for the game's first run":
+the game has never run on this PC, so its settings folder does not exist yet; launch it once
+from Steam, quit, and the open installer window applies the last four settings by itself.
+"d3dcompiler_47.dll is missing": run Windows Update or install the DirectX End-User Runtime;
+both the installer and the mod need it. "Dishonored was not found": Steam is not installed,
+or the game is not in a Steam library; use Change to point at the folder holding
+`Dishonored.exe` (GOG is a different exe and is not supported). The installer's own log is
+`%LOCALAPPDATA%\DishonoredVR\dishonored_vr_setup.log`.
+
 **It flickers for the first few seconds after a level loads, like the two eyes are
 alternating.** Known, and it clears itself. While the level streams in, the game cannot keep up
 with the headset's refresh, so one eye gets fresh frames far more often than the other - which

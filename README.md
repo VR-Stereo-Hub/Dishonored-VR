@@ -20,15 +20,24 @@ repository continues it with the author's permission. Status and next steps:
 
 ## Install (players)
 
-1. Copy `d3d9.dll`, `dvr_steamvr32.dll` and `openvr_api.dll` from the release zip into
+**Run `DishonoredVR-Setup.exe`** from the Releases page. It finds the game in your Steam
+library, installs the mod beside it, sets the four game settings the mod depends on, and
+asks two things: which headset (Quest via Virtual Desktop, a SteamVR headset, or let the
+mod choose) and how many pixels to render (Balanced is the tested 2750x2850). Everything
+else is tuned in the F10 panel inside the game. Run it again later to update, change
+those two settings, disable VR or uninstall. `docs/INSTALLER.md` says exactly what it
+writes.
+
+By hand, from the zip:
+
+1. Copy `d3d9.dll`, `dvr_steamvr32.dll` and `openvr_api.dll` into
    `<Steam>\steamapps\common\Dishonored\Binaries\Win32\` (delete any `dxvk_d3d9.dll` an
    older release left there).
-2. Set a normal resolution in the game's video options (1920x1080 windowed is a fine start;
-   the headset shows the game window's frame). A release before 41.0 forced 4032x2268 into
-   `DishonoredEngine.ini` and `DishonoredCompat.ini`; put a normal size back.
+2. Run the game once, then `setup-game-ini.ps1 -VRBaseline` from the zip for the four
+   game-side settings; `Switch VR Runtime.cmd` picks the headset runtime.
 3. Launch from Steam. Quest: Virtual Desktop streaming with VDXR as the OpenXR runtime,
-   72 Hz, SSW off. SteamVR headsets: start SteamVR first; the mod falls back to the shim.
-4. F5 recenter, F10 settings (screen distance and width live there). Motion Blur off.
+   90 Hz, SSW off. SteamVR headsets: start SteamVR first; the mod uses the bundled shim.
+4. F5 recenter, F10 settings. Motion Blur off in the game's own options.
 
 Requirements: the Steam version (GOG is a different exe), a 64-bit Windows PC, a Quest with
 Virtual Desktop or a SteamVR-native headset. Troubleshooting: `docs/TROUBLESHOOTING.md`.

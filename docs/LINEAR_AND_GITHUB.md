@@ -347,8 +347,9 @@ When the user names the version:
 3. **Build the artifact.** `.\tools\package.ps1`. It refuses on a `-dirty` tree, because a log
    from a dirty build cannot be traced to a commit.
 4. **Tag and publish.** A git tag for the version, then a GitHub release on the Releases page
-   with the zip attached. The release notes come from the milestone's tickets; the same content
-   goes into `docs/RELEASE_NOTES.md`.
+   with the zip AND `DishonoredVR-Setup-v<version>.exe` attached (both come out of
+   `package.ps1`, which checks that the exe embeds the zip's `d3d9.dll`). The release notes come
+   from the milestone's tickets; the same content goes into `docs/RELEASE_NOTES.md`.
 5. **Post the release update** on the Linear project.
 6. **Move every ticket in the milestone from `Done` to `Released`.**
 7. **Close the milestone.** The next one is the user's to create, if they want one.
