@@ -1,3 +1,19 @@
+## F10 reference refinement and layout QA (VR-206, 2026-09-22)
+
+Reworked the first image-backed pass: restrained skyline, thin title, torn parchment
+headers, folded italic notes, slate gradients and brass radio/check outlines. Recenter,
+Save and Reset occupy one row. Square defaults retain the reference proportions; automatic
+text scale follows panel size, with minimum width for button labels and a wrapped footer.
+More adjustments expands depth/yaw/roll and the advanced numpad preference.
+
+Preview now carries the full relevant Hands inventory and shares the production scrolling
+body/footer layout. Pointer-event checks and computed layout bounds pass. Visual QA covers
+1254-square Basic/Advanced, 900-square at 1.54 text, 1254-square at 2.0 text, actual tooltips,
+and scrolling to the bottom. Headset acceptance remains pending. See F10_ART_THEME.md.
+
+Build only. DO NOT INSTALL without explicit go-ahead. Branch f10-improvements, draft PR
+#109 based on finalized unmerged rain-fixes / PR #108. No installed files changed.
+
 ## F10 image-backed overhaul prepared (VR-206, 2026-09-22)
 
 New f10-improvements branches from finalized rain-fixes at 128632768. Rain PR is #108,

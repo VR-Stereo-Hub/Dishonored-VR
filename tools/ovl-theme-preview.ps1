@@ -2,7 +2,7 @@
 # so the look can be judged without a headset. Writes build\ovl-theme-preview\*.png.
 #   .\tools\ovl-theme-preview.ps1            (the Basic view)
 #   .\tools\ovl-theme-preview.ps1 -Advanced  (the Advanced view)
-param([switch]$Advanced, [ValidateRange(640,2048)][int]$Size = 1254)
+param([switch]$Advanced, [ValidateRange(640,2048)][int]$Size = 1254, [switch]$Tooltip, [switch]$Bottom, [float]$TextScale = 0)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $repo 'build\ovl-theme-preview'
@@ -30,10 +30,12 @@ try {
         $srcs ovl_assets.res /Fe:ovl_theme_preview.exe /link ole32.lib windowscodecs.lib d3d11.lib dxgi.lib d3dcompiler.lib user32.lib gdi32.lib | Tee-Object -FilePath compile.log
     if ($LASTEXITCODE -ne 0) { throw 'ovl-theme-preview compilation failed' }
     $mode = if ($Advanced) { 'advanced' } else { 'basic' }
-    & .\ovl_theme_preview.exe $mode $Size
+    $tipMode = if ($Tooltip) { "tip" } elseif ($Bottom) { "bottom" } else { "none" }
+    if ($TextScale -le 0) { $TextScale=1.54 * $Size / 1254 }
+    & .\ovl_theme_preview.exe $mode $Size $tipMode $TextScale
     if ($LASTEXITCODE -ne 0) { throw 'ovl-theme-preview failed to render' }
     Add-Type -AssemblyName System.Drawing
-    $png = Join-Path $out "ovl-theme-preview-$mode.png"
+    $png = Join-Path $out "ovl-theme-preview-$mode-$Size-$tipMode.png"
     $bmp = [System.Drawing.Bitmap]::new((Join-Path $out 'ovl-theme-preview.bmp'))
     $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
     "Wrote $png"

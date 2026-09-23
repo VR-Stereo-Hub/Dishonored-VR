@@ -4136,7 +4136,7 @@ static void MpTrimPanel()
         char lbl[48];
         _snprintf(lbl, sizeof(lbl), "%s%s##mptrim%d", kWhich[i], (i == inUse) ? " (in use)" : "", i);
         lbl[sizeof(lbl) - 1] = 0;
-        if (ImGui::RadioButton(lbl, edit == i)) picked = i;
+        if (dvr::ovl::radio_button(lbl, edit == i)) picked = i;
         ov::tip(kWhichTip[i]);
     }
     const int e = (edit == 2 && !g_mpPowTrimOn) ? 0 : edit;
@@ -4153,11 +4153,14 @@ static void MpTrimPanel()
     // trim at that instant (MpTrimViewStep), so the hand moves the way the button says.
     static int stepIx = 1;
     static const float kStepCm[3] = { 0.2f, 0.5f, 2.0f }, kStepDeg[3] = { 0.5f, 2.0f, 5.0f };
-    ImGui::RadioButton("fine##mpstep", &stepIx, 0); ov::tip("0.2 cm or 0.5 degrees per press.");
+    dvr::ovl::radio_button("fine##mpstep", &stepIx, 0); ov::tip("0.2 cm or 0.5 degrees per press.");
     ImGui::SameLine();
-    ImGui::RadioButton("normal##mpstep", &stepIx, 1); ov::tip("0.5 cm or 2 degrees per press.");
+    dvr::ovl::radio_button("normal##mpstep", &stepIx, 1); ov::tip("0.5 cm or 2 degrees per press.");
     ImGui::SameLine();
-    ImGui::RadioButton("coarse##mpstep", &stepIx, 2); ov::tip("2 cm or 5 degrees per press.");
+    dvr::ovl::radio_button("coarse##mpstep", &stepIx, 2); ov::tip("2 cm or 5 degrees per press.");
+    ImGui::SameLine();
+    const bool moreAdjustments = ImGui::TreeNode("More adjustments##mptrim");
+    if (moreAdjustments) ImGui::TreePop();
     struct Row { const char* name; const char* neg; const char* pos; bool rot; int axis; };
     static const Row kRows[6] = {
         { "move",  "left", "right", false, 0 }, { "move", "down", "up", false, 2 },
@@ -4167,7 +4170,7 @@ static void MpTrimPanel()
     static const char* lastWhy = "";
     bool changed = false;
     ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
-    for (int r = 0; r < 6; ++r) {
+    auto drawRow = [&](int r) {
         const Row& row = kRows[r];
         for (int sgn = 0; sgn < 2; ++sgn) {
             char lbl[48];
@@ -4182,7 +4185,9 @@ static void MpTrimPanel()
             ov::tip("Moves or turns the hand the way the button says, as you see it now. Hold to "
                     "repeat. Saved at once. Anything held moves with the hand, and the reticle follows.");
         }
-    }
+    };
+    drawRow(0); drawRow(1); drawRow(3);
+    if (moreAdjustments) { drawRow(2); drawRow(4); drawRow(5); }
     ImGui::PopItemFlag();
     if (changed) {
         MpPublishHandCal(hand);   // the reticle rides the trim, so the aim lane needs it now
@@ -4209,13 +4214,15 @@ static void MpTrimPanel()
             MpPublishHandCal(0);
         }
         ov::tip("The left hand uses its own position while it holds a power. Off: one left position for everything.");
-        bool av = g_mpAdjView;
-        if (dvr::ovl::checkbox("Numpad steps follow my view (not the palm axes)", &av)) {
-            g_mpAdjView = av;
-            ConfigWriteKey("Hands", "AdjustInView", av ? "1" : "0", "F10 Hands");
+        if (moreAdjustments) {
+            bool av = g_mpAdjView;
+            if (dvr::ovl::checkbox("Numpad steps follow my view (not the palm axes)", &av)) {
+                g_mpAdjView = av;
+                ConfigWriteKey("Hands", "AdjustInView", av ? "1" : "0", "F10 Hands");
+            }
+            ov::tip("The numpad hand keys move along your view, like the buttons here. Off: along the "
+                    "palm's own tilted axes, as before.");
         }
-        ov::tip("The numpad hand keys move along your view, like the buttons here. Off: along the "
-                "palm's own tilted axes, as before.");
     }
     if (ov::show(ov::Debug) && ImGui::TreeNode("Stored values (palm frame)##mptrimraw")) {
         static const char* const kT[3] = { "across the palm (cm)", "along the fingers (cm)", "out of the palm (cm)" };

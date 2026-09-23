@@ -1,3 +1,14 @@
+## Current continuation: F10 art refinement (VR-206, 2026-09-22)
+
+Use the newest docs/STATUS.md entries. Branch f10-improvements / draft PR #109 sits on
+finalized, unmerged rain-fixes / PR #108. Revised menu art/layout is prepared for review.
+DO NOT INSTALL until explicit go-ahead. No game launch or installed ini change.
+
+Desktop rendering, layout bounds and native widget event checks cover normal, small,
+large-text, tooltip and scrolled views. Headset/controller acceptance remains open.
+The optional outdoor-rain-from-shelter feature is deferred as VR-205, separate from these
+UI changes. Do not resume older menu freshness work from the historical notes below.
+
 ## Current continuation: menu freshness (2026-09-22)
 
 Use the top entry in docs/STATUS.md and FLICKER_REFERENCE.md for VR-178.

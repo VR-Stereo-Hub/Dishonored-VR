@@ -82,9 +82,9 @@ static void OvlTopRow()
         ImGui::TextDisabled("IPD %.0f mm", g_ipdM * 1000.0f);
     }
     ImGui::Spacing();
-    const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    const float actionWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2) / 3;
     dvr::ovl::push_primary();
-    if (dvr::ovl::button("RECENTER", ImVec2(-1, 0))) {
+    if (dvr::ovl::button("RECENTER", ImVec2(actionWidth, 0))) {
         g_posHaveRef = false;
         g_crouchRefOk = false;
         g_rtdReq = 3;
@@ -93,13 +93,14 @@ static void OvlTopRow()
     dvr::ovl::pop_primary();
     OvlTip("Makes where you are standing now the centre, and re-reads your standing height for "
            "real crouching. The same as F5.");
-    if (dvr::ovl::button("SAVE AS DEFAULTS", ImVec2(half, 0)))
+    ImGui::SameLine();
+    if (dvr::ovl::button("SAVE AS DEFAULTS", ImVec2(actionWidth, 0)))
         OverlaySaveDefaults();
     OvlTip("Writes every current setting to dishonored_vr.ini. Every Basic and Advanced setting "
            "already saves the moment you change it; this also keeps the Debug switches, which "
            "otherwise last for this session only.");
     ImGui::SameLine();
-    if (dvr::ovl::button("RESET TO DEFAULTS", ImVec2(half, 0))) ImGui::OpenPopup("Restore shipped defaults?");
+    if (dvr::ovl::button("RESET TO DEFAULTS", ImVec2(actionWidth, 0))) ImGui::OpenPopup("Restore shipped defaults?");
     OvlTip("Restores the shipped settings on your next launch. Keeps your VR runtime and data folder.");
     static bool resetFailed = false;
     if (ImGui::BeginPopupModal("Restore shipped defaults?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -308,10 +309,10 @@ static void OvlTabAim()
             ImGui::PushID(label);
             ImGui::TextUnformatted(label); OvlTip(tipText); ImGui::SameLine(220);
             bool h = hand;
-            if (ImGui::RadioButton("Head", !h)) h = false;
+            if (dvr::ovl::radio_button("Head", !h)) h = false;
             OvlTip("Aims where you look, as in the flat game.");
             ImGui::SameLine();
-            if (ImGui::RadioButton("Controller", h)) h = true;
+            if (dvr::ovl::radio_button("Controller", h)) h = true;
             OvlTip("Aims where the reticle points.");
             ImGui::PopID();
             *changed = h != hand;
@@ -344,11 +345,11 @@ static void OvlTabAim()
         ImGui::TextUnformatted("Position (steps follow your view; carry something to see it)");
         static int stepIx = 1;
         static const float kCm[3] = { 0.5f, 1.0f, 3.0f }, kDeg[3] = { 1.0f, 3.0f, 10.0f };
-        ImGui::RadioButton("fine##chstep", &stepIx, 0); OvlTip("0.5 cm or 1 degree per press.");
+        dvr::ovl::radio_button("fine##chstep", &stepIx, 0); OvlTip("0.5 cm or 1 degree per press.");
         ImGui::SameLine();
-        ImGui::RadioButton("normal##chstep", &stepIx, 1); OvlTip("1 cm or 3 degrees per press.");
+        dvr::ovl::radio_button("normal##chstep", &stepIx, 1); OvlTip("1 cm or 3 degrees per press.");
         ImGui::SameLine();
-        ImGui::RadioButton("coarse##chstep", &stepIx, 2); OvlTip("3 cm or 10 degrees per press.");
+        dvr::ovl::radio_button("coarse##chstep", &stepIx, 2); OvlTip("3 cm or 10 degrees per press.");
         struct Row { const char* name; const char* neg; const char* pos; bool rot; int axis; };
         static const Row kRows[6] = {
             { "move", "left", "right", false, 0 }, { "move", "down", "up", false, 2 },
@@ -452,11 +453,11 @@ static void OvlTabAim()
         }
         OvlTip("The next Blink aim writes a frame dump next to the game, for a bug report.");
         int rm = g_blkReachMode;
-        ImGui::RadioButton("Blink reach: head distance (original)", &rm, 0);
+        dvr::ovl::radio_button("Blink reach: head distance (original)", &rm, 0);
         OvlTip("Blink goes as far as the game's own aim would.");
-        ImGui::RadioButton("Blink reach: fixed", &rm, 1);
+        dvr::ovl::radio_button("Blink reach: fixed", &rm, 1);
         OvlTip("Always the max reach below.");
-        ImGui::RadioButton("Blink reach: hand pitch sets the distance", &rm, 2);
+        dvr::ovl::radio_button("Blink reach: hand pitch sets the distance", &rm, 2);
         OvlTip("Point down for a short hop, level for the max.");
         if (rm != g_blkReachMode) {
             g_blkReachMode = rm;
@@ -976,12 +977,9 @@ static void OvlTabLog()
 // The whole tab bar.
 static void OvlTabBody(const char* id, void (*draw)())
 {
-    const float footer = ImGui::GetFrameHeightWithSpacing()*3.0f;
-    ImGui::BeginChild(id, ImVec2(0, -footer), ImGuiChildFlags_None);
-    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.65f);
+    dvr::ovl::begin_body(id);
     draw();
-    ImGui::PopItemWidth();
-    ImGui::EndChild();
+    dvr::ovl::end_body();
 }
 
 static void OvlTabs()

@@ -19,9 +19,11 @@ std::atomic<int> g_level{Basic};
 ImFont* g_body = nullptr;
 ImFont* g_head = nullptr;
 ImFont* g_headBold = nullptr;
+ImFont* g_italic = nullptr;
+ImFont* g_section = nullptr;
 using Microsoft::WRL::ComPtr;
 ComPtr<ID3D11Device> g_artDevice;
-ComPtr<ID3D11ShaderResourceView> g_art[3];
+ComPtr<ID3D11ShaderResourceView> g_art[5];
 bool g_primary = false;
 
 bool decode_art(ID3D11Device* device, HMODULE module, int id, ID3D11ShaderResourceView** out)
@@ -54,10 +56,37 @@ bool decode_art(ID3D11Device* device, HMODULE module, int id, ID3D11ShaderResour
 }
 void material(int index, ImVec2 a, ImVec2 b, ImU32 tint = IM_COL32_WHITE)
 {
-    if (!g_art[index] && index != 0) ImGui::GetWindowDrawList()->AddRectFilled(a,b,
-        index == 1 ? IM_COL32(220,207,180,255) : IM_COL32(27,34,38,255));
-    if (g_art[index]) ImGui::GetWindowDrawList()->AddImage((ImTextureID)(uintptr_t)g_art[index].Get(), a, b,
-        ImVec2(0, index == 1 ? 0.35f : 0), ImVec2(1, index == 1 ? 0.65f : 1), index == 2 && tint == IM_COL32_WHITE ? IM_COL32(135,145,150,255) : tint);
+    ImDrawList* dl=ImGui::GetWindowDrawList();
+    ImVec4 color=ImGui::ColorConvertU32ToFloat4(tint);
+    color.w *= ImGui::GetStyle().Alpha;
+    tint=ImGui::ColorConvertFloat4ToU32(color);
+    if (index == 2) {
+        // Quiet slate gradient, with the painted metal grain barely visible.
+        const bool red=g_primary;
+        dl->AddRectFilledMultiColor(a,b,
+            ImGui::GetColorU32(red ? ImVec4(.26f,.085f,.065f,1) : ImVec4(.10f,.14f,.16f,1)),
+            ImGui::GetColorU32(red ? ImVec4(.20f,.055f,.045f,1) : ImVec4(.075f,.10f,.115f,1)),
+            ImGui::GetColorU32(red ? ImVec4(.16f,.05f,.04f,1) : ImVec4(.06f,.08f,.09f,1)),
+            ImGui::GetColorU32(red ? ImVec4(.21f,.065f,.05f,1) : ImVec4(.085f,.115f,.13f,1)));
+        if (g_art[2]) dl->AddImage((ImTextureID)(uintptr_t)g_art[2].Get(),a,b,
+            ImVec2(0,0),ImVec2(1,1),ImGui::GetColorU32(ImVec4(1,1,1,.07f)));
+        dl->AddRect(a,b,ImGui::GetColorU32(red ? ImVec4(.48f,.24f,.20f,.8f) : ImVec4(.32f,.39f,.41f,.65f)),2);
+        return;
+    }
+    if (!g_art[index] && index != 0) dl->AddRectFilled(a,b,ImGui::GetColorU32(ImVec4(.86f,.81f,.71f,1)));
+    ImVec2 uv0(0,0),uv1(1,1);
+    if (index == 1) { uv0.y=.35f; uv1.y=.65f; }
+    if (index == 3) { uv0.y=.29f; uv1.y=.71f; }
+    if (index == 4) { uv0.y=.06f; uv1.y=.94f; }
+    if (index == 3 && g_art[3]) {
+        const float cap=(b.y-a.y)*.65f;
+        const ImTextureID texture=(ImTextureID)(uintptr_t)g_art[3].Get();
+        dl->AddImage(texture,a,ImVec2(a.x+cap,b.y),ImVec2(0,uv0.y),ImVec2(.15f,uv1.y),tint);
+        dl->AddImage(texture,ImVec2(a.x+cap,a.y),ImVec2(b.x-cap,b.y),ImVec2(.15f,uv0.y),ImVec2(.85f,uv1.y),tint);
+        dl->AddImage(texture,ImVec2(b.x-cap,a.y),b,ImVec2(.85f,uv0.y),ImVec2(1,uv1.y),tint);
+        return;
+    }
+    if (g_art[index]) dl->AddImage((ImTextureID)(uintptr_t)g_art[index].Get(),a,b,uv0,uv1,tint);
 }
 // Keep native ImGui interaction/IDs/nav and put a reusable texture behind its draw commands.
 struct Skin {
@@ -126,14 +155,18 @@ int parse_level(const char* s, int fallback)
 void load_fonts()
 {
     // The body first: the first font added is ImGui's default.
-    static const char* const kBody[] = { "constan.ttf", "georgia.ttf", "segoeui.ttf" };
-    static const char* const kHead[] = { "constan.ttf", "georgia.ttf", "pala.ttf", "times.ttf" };
-    static const char* const kHeadBold[] = { "constanb.ttf", "georgiab.ttf", "palab.ttf", "timesbd.ttf" };
+    static const char* const kBody[] = { "times.ttf", "constan.ttf", "segoeui.ttf" };
+    static const char* const kHead[] = { "times.ttf", "constan.ttf", "pala.ttf", "georgia.ttf" };
+    static const char* const kHeadBold[] = { "PERTILI.TTF", "times.ttf", "constan.ttf", "georgia.ttf" };
     g_body = try_font(kBody, 3, 16.0f, "body");
     if (!g_body) ImGui::GetIO().Fonts->AddFontDefault();
     g_head = try_font(kHead, 4, 16.0f, "heading");
+    static const char* const sectionFont[] = { "timesbd.ttf", "constanb.ttf" };
+    g_section = try_font(sectionFont,2,17.0f,"section");
     g_headBold = try_font(kHeadBold, 4, 36.0f, "title");
     if (!g_headBold) g_headBold = g_head;
+    static const char* const italic[] = { "timesi.ttf", "constani.ttf" };
+    g_italic = try_font(italic, 2, 15.0f, "note");
 }
 
 ImFont* heading_font() { return g_head; }
@@ -143,8 +176,8 @@ void apply_theme()
     ImGuiStyle& s = ImGui::GetStyle();
     ImGui::StyleColorsDark(&s);   // a complete base; everything that matters is set below
     s.FontSizeBase = 16.0f;
-    s.WindowPadding = ImVec2(18, 16);
-    s.FramePadding = ImVec2(10, 5);
+    s.WindowPadding = ImVec2(24, 16);
+    s.FramePadding = ImVec2(12, 5);
     s.ItemSpacing = ImVec2(8, 6);
     s.ItemInnerSpacing = ImVec2(6, 4);
     s.IndentSpacing = 16;
@@ -187,7 +220,7 @@ void apply_theme()
     c[ImGuiCol_ScrollbarGrabHovered]  = kBrassDim;
     c[ImGuiCol_ScrollbarGrabActive]   = kBrass;
     c[ImGuiCol_CheckMark]             = kBrassHi;
-    c[ImGuiCol_CheckboxSelectedBg]    = kSlateHi;
+    c[ImGuiCol_CheckboxSelectedBg]    = ImVec4(0,0,0,0);
     c[ImGuiCol_SliderGrab]            = kBrass;
     c[ImGuiCol_SliderGrabActive]      = kBrassHi;
     c[ImGuiCol_Button]                = kSlateHi;
@@ -235,19 +268,30 @@ void apply_theme()
 void note(const char* text, float width)
 {
     Skin skin;
+    if (g_italic) ImGui::PushFont(g_italic,0);
     ImGui::PushStyleColor(ImGuiCol_Text, kInkText);
-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + (width > 0 ? width : ImGui::GetFontSize() * 22.0f));
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + (width > 0 ? width : ImGui::GetFontSize() * 17.0f));
     ImGui::TextUnformatted(text);
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
+    if (g_italic) ImGui::PopFont();
+    const ImVec2 at=ImGui::GetCursorScreenPos();
+    const float w=width>0?width:ImGui::GetFontSize()*17;
+    const float mid=at.x+w*.5f, y=at.y+5;
+    const ImU32 ink=ImGui::GetColorU32(ImVec4(.24f,.26f,.24f,.65f));
+    auto* dl=ImGui::GetWindowDrawList();
+    dl->AddLine(ImVec2(at.x+w*.15f,y),ImVec2(mid-13,y),ink);
+    dl->AddLine(ImVec2(mid+13,y),ImVec2(at.x+w*.85f,y),ink);
+    dl->AddQuad(ImVec2(mid,y-7),ImVec2(mid+4,y),ImVec2(mid,y+7),ImVec2(mid-4,y),ink,1.5f);
+    ImGui::Dummy(ImVec2(w,14));
     const ImVec2 p=ImGui::GetWindowPos(), z=ImGui::GetWindowSize();
-    skin.finish(1, p, ImVec2(p.x+z.x,p.y+z.y));
+    skin.finish(4, p, ImVec2(p.x+z.x,p.y+z.y));
 }
 void tip(const char* text)
 {
     if (!text || !*text || !ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) return;
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, kParchment);
-    ImGui::PushStyleColor(ImGuiCol_Border, kBrassDim);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0,0,0,0));
     ImGui::BeginTooltip();
     note(text);
     ImGui::EndTooltip();
@@ -257,17 +301,32 @@ void tip(const char* text)
 bool section(const char* name, int tier, const char* tipText, bool defaultOpen)
 {
     if (!show(tier)) return false;
-    if (g_head) ImGui::PushFont(g_head, 0.0f);
+    ImGui::Spacing();
+    if (g_section) ImGui::PushFont(g_section, ImGui::GetStyle().FontSizeBase*1.06f);
     Skin skin;
-    ImGui::PushStyleColor(ImGuiCol_Text, kInkText);
+    const ImVec2 start=ImGui::GetCursorScreenPos();
+    const float width=ImGui::GetContentRegionAvail().x;
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(1,1,1,0.10f));
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0,0,0,0.10f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,0);
     const bool open = ImGui::CollapsingHeader(name, defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : 0);
-    skin.finish(1, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+    ImGui::PopStyleVar();
+    const ImVec2 end(start.x+width,ImGui::GetItemRectMax().y);
+    skin.finish(3,start,end);
+    auto* dl=ImGui::GetWindowDrawList();
+    const ImU32 ink=ImGui::GetColorU32(kInkText);
+    const float h=end.y-start.y, cx=start.x+h*.85f, cy=start.y+h*.5f, r=h*.27f;
+    dl->AddQuad(ImVec2(cx,cy-r),ImVec2(cx+r,cy),ImVec2(cx,cy+r),ImVec2(cx-r,cy),ink,1.4f);
+    const float inner=r*.62f;
+    if (open) dl->AddQuadFilled(ImVec2(cx,cy-inner),ImVec2(cx+inner,cy),ImVec2(cx,cy+inner),ImVec2(cx-inner,cy),ink);
+    else dl->AddQuad(ImVec2(cx,cy-inner),ImVec2(cx+inner,cy),ImVec2(cx,cy+inner),ImVec2(cx-inner,cy),ink,1);
+    dl->AddText(ImVec2(start.x+h*1.9f,start.y+ImGui::GetStyle().FramePadding.y),ink,name);
     ImGui::PopStyleColor(4);
-    if (g_head) ImGui::PopFont();
+    if (g_section) ImGui::PopFont();
     tip(tipText);
+    ImGui::Spacing();
     return open;
 }
 
@@ -309,24 +368,32 @@ void ornament()
 
 void controller_hint()
 {
-    ImGui::PushStyleColor(ImGuiCol_Text, kBrass);
+    ImGui::PushStyleColor(ImGuiCol_Text, kBone);
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextUnformatted("L3 + R3 (both sticks)");
-    ImGui::PopStyleColor();
-    ImGui::TextUnformatted("CLICK: F10 menu  |  HOLD: VD performance overlay");
+    ImGui::TextUnformatted("L3 + R3: CLICK for F10 menu  |  HOLD for VD overlay");
     ImGui::PopTextWrapPos();
-    ImGui::Spacing();
+    ImGui::PopStyleColor();
 }
 
 void title(const char* text)
 {
-    if (g_headBold) ImGui::PushFont(g_headBold, ImGui::GetStyle().FontSizeBase * 2.25f);
+    if (g_headBold) ImGui::PushFont(g_headBold, ImGui::GetStyle().FontSizeBase * 2.48f);
     ImGui::PushStyleColor(ImGuiCol_Text, kBone);
     ImGui::TextUnformatted(text);
     ImGui::PopStyleColor();
     if (g_headBold) ImGui::PopFont();
-    ImGui::Spacing();
-    ornament();
+    // A short bone rule under the title, leaving the skyline unobstructed.
+    const float width=ImGui::GetContentRegionAvail().x;
+    ImGui::PushItemWidth(width*.47f);
+    const ImVec2 p=ImGui::GetCursorScreenPos();
+    auto* dl=ImGui::GetWindowDrawList();
+    const float mid=p.x+width*.235f, y=p.y+2;
+    const ImU32 col=ImGui::GetColorU32(ImVec4(.77f,.72f,.61f,.8f));
+    dl->AddLine(p,ImVec2(mid-12,p.y),col);
+    dl->AddLine(ImVec2(mid+12,p.y),ImVec2(p.x+width*.47f,p.y),col);
+    dl->AddQuad(ImVec2(mid,y-5),ImVec2(mid+3,y),ImVec2(mid,y+5),ImVec2(mid-3,y),col,1.5f);
+    ImGui::Dummy(ImVec2(width,6));
+    ImGui::PopItemWidth();
 }
 
 bool pill(const char* label, bool selected)
@@ -359,11 +426,29 @@ void load_art(ID3D11Device* device)
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         (LPCWSTR)&load_art, &module);
     const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-    for (int i=0; i<3; ++i)
+    for (int i=0; i<5; ++i)
         if (!decode_art(device, module, 201+i, g_art[i].GetAddressOf()))
             DVR_WARN("overlay/art: embedded resource %d unavailable; using flat theme fallback", 201+i);
     if (SUCCEEDED(com)) CoUninitialize();
-    DVR_INFO("overlay/art: backdrop=%d parchment=%d metal=%d", !!g_art[0], !!g_art[1], !!g_art[2]);
+    DVR_INFO("overlay/art: backdrop=%d parchment=%d metal=%d header=%d note=%d",
+        !!g_art[0], !!g_art[1], !!g_art[2], !!g_art[3], !!g_art[4]);
+}
+float body_footer_height()
+{
+    // Two footer rows plus the bottom air of the reference; scale with text.
+    return ImGui::GetFrameHeightWithSpacing()*4.0f;
+}
+void begin_body(const char* id)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(14,4));
+    ImGui::BeginChild(id,ImVec2(0,-body_footer_height()),ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::PopStyleVar();
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x*.65f);
+}
+void end_body()
+{
+    ImGui::PopItemWidth();
+    ImGui::EndChild();
 }
 void backdrop()
 {
@@ -392,12 +477,32 @@ struct FrameSkin {
 };
 bool checkbox(const char* label, bool* value)
 {
-    FrameSkin skin; const bool changed=ImGui::Checkbox(label,value); skin.finish(true); return changed;
+    const ImVec2 p=ImGui::GetCursorScreenPos(); const float h=ImGui::GetFrameHeight();
+    ImGui::PushStyleColor(ImGuiCol_FrameBg,ImVec4(0,0,0,0));
+    const bool changed=ImGui::Checkbox(label,value);
+    ImGui::PopStyleColor();
+    if (*value) ImGui::GetWindowDrawList()->AddRect(p,ImVec2(p.x+h,p.y+h),ImGui::GetColorU32(kBrass),1,0,1.4f);
+    return changed;
+}
+bool radio_button(const char* label, bool selected)
+{
+    const ImVec2 p=ImGui::GetCursorScreenPos(); const float h=ImGui::GetFrameHeight();
+    ImGui::PushStyleColor(ImGuiCol_CheckMark,ImVec4(0,0,0,0));
+    const bool changed=ImGui::RadioButton(label,selected);
+    ImGui::PopStyleColor();
+    if (selected) {
+        const ImVec2 center(p.x+h*.5f,p.y+h*.5f); auto* dl=ImGui::GetWindowDrawList();
+        dl->AddCircle(center,h*.45f,ImGui::GetColorU32(kBrassHi),0,1.4f);
+        dl->AddCircleFilled(center,h*.32f,ImGui::GetColorU32(kBrass));
+        dl->AddCircle(center,h*.32f,ImGui::GetColorU32(kBrassHi));
+    }
+    return changed;
 }
 bool radio_button(const char* label, int* value, int choice)
 {
-    // Native circles retain exact geometry and focus; no square image behind them.
-    return ImGui::RadioButton(label,value,choice);
+    const bool changed=radio_button(label,*value==choice);
+    if (changed) *value=choice;
+    return changed;
 }
 bool slider_float(const char* label,float* value,float min,float max,const char* format,ImGuiSliderFlags flags)
 {

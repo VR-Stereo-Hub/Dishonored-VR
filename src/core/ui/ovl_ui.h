@@ -7,7 +7,7 @@
 //
 // The theme (VR-197) follows Dishonored's own look: ink-dark panels, bone-white text, brass
 // accents like whale-oil lamplight, oxblood for the active state, a classical serif for
-// titles and headings over a plain sans for the body, and notes-style parchment tooltips.
+// titles, headings and body, and notes-style parchment tooltips.
 //
 // Its own translation unit because the sub-panels live in several (the unity build,
 // hud_layout.cpp, aim_ray.cpp, openxr_runtime.cpp). ImGui and embedded D3D11 artwork, called from the overlay's
@@ -33,17 +33,21 @@ void tip(const char* text);
 bool section(const char* name, int tier, const char* tipText, bool defaultOpen = false);
 
 // ---- the theme (VR-197) ----
-// The fonts: Constantia/Georgia for the body and headings, loaded
+// The fonts: Times body/italic, Perpetua Titling Light title, with fallbacks loaded
 // from the Windows font folder. A missing file falls back to ImGui's own font and says so.
 void load_fonts();
 // PNG artwork is embedded in the DLL; no game-directory assets or paths required.
 void load_art(ID3D11Device* device);
 void release_art();
 void backdrop();
+float body_footer_height();
+void begin_body(const char* id);
+void end_body();
 void note(const char* text, float width = 0.0f);
 bool button(const char* label, const ImVec2& size = ImVec2(0, 0));
 bool checkbox(const char* label, bool* value);
 bool radio_button(const char* label, int* value, int choice);
+bool radio_button(const char* label, bool selected);
 bool slider_float(const char* label, float* value, float min, float max, const char* format = "%.3f", ImGuiSliderFlags flags = 0);
 bool slider_int(const char* label, int* value, int min, int max, const char* format = "%d", ImGuiSliderFlags flags = 0);
 

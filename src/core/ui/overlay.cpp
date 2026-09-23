@@ -256,16 +256,16 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     dvr::ovl::load_art(g_dev11);
     ImGuiIO& io = ImGui::GetIO();
     const float w = (float)targetW, h = (float)targetH;
-    // Text scale: authored for a 1080p desktop, so it needs SOME lift on an eye texture,
-    // but the full h/1080 was too big in the trilogy's headset; half of it read right.
-    // The slider owns it after the first frame.
+    // Match the reference typography to the default square panel. An explicit
+    // saved UiScale still wins; the player keeps control of text size.
     if (g_ovlUiScale <= 0.0f) {
-        float fs = h > 0.0f ? 1.0f + (h / 1080.0f - 1.0f) * 0.5f : 1.6f;
-        if (fs < 1.0f) fs = 1.0f;
-        if (fs > 2.0f) fs = 2.0f;
+        const float panelPixels = (w < h ? w : h) * .46f;
+        float fs = panelPixels > 0 ? 1.54f * panelPixels / 1254.0f : 1.54f;
+        if (fs < .8f) fs = .8f;
+        if (fs > 2.5f) fs = 2.5f;
         g_ovlUiScale = fs;
-        Log("overlay: text scale %.2f from the eye texture height %.0f ([Overlay] UiScale overrides)",
-            fs, h);
+        Log("overlay: text scale %.2f from reference panel %.0f px ([Overlay] UiScale overrides)",
+            fs, panelPixels);
     }
     ImGui::GetStyle().FontScaleMain = g_ovlUiScale;   // 1.92: replaces io.FontGlobalScale
     io.MouseDrawCursor = true;                        // ImGui draws the cursor, both eyes
@@ -296,10 +296,14 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     const ImGuiCond placeCond = InterlockedExchange(&g_ovlRecenter, 0) ? ImGuiCond_Always
                                                                        : ImGuiCond_FirstUseEver;
     // VR-206: square reference composition, centered and resizable. Settings scroll.
-    const float panelSide = (ds.x < ds.y ? ds.x : ds.y) * 0.46f;
+    const float shorter = ds.x < ds.y ? ds.x : ds.y;
+    const float readableMin = (ImGui::CalcTextSize("RESET TO DEFAULTS").x + ImGui::GetStyle().FramePadding.x*2)*3
+        + ImGui::GetStyle().ItemSpacing.x*2 + ImGui::GetStyle().WindowPadding.x*2;
+    const float minSide = (readableMin < shorter*.95f) ? readableMin : shorter*.95f;
+    const float panelSide = shorter*.46f > minSide ? shorter*.46f : minSide;
     ImGui::SetNextWindowPos(ImVec2((ds.x-panelSide)*0.5f, (ds.y-panelSide)*0.5f), placeCond);
     ImGui::SetNextWindowSize(ImVec2(panelSide, panelSide), placeCond);
-    ImGui::SetNextWindowSizeConstraints(ImVec2(480,480), ImVec2(ds.x*0.95f,ds.y*0.95f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(minSide,minSide), ImVec2(ds.x*0.95f,ds.y*0.95f));
     // VR-197: no ImGui title bar; OvlTopRow draws the themed title and the close button, and
     // the window still moves by dragging any empty part of it.
     ImGui::Begin("Dishonored VR", &g_ovlVisible,
@@ -323,9 +327,11 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     }
     OvlTip("Size of this panel's text. Drag the window's edge to resize the panel itself.");
     ImGui::EndDisabled();
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled(g_ovlPtrEnable ? "F10 or a stick-click tap closes | point, trigger clicks, "
                                          "stick scrolls / nudges a slider"
                                        : "F10 closes");
+    ImGui::PopTextWrapPos();
     // Sampled here, where it is meaningful; read by the stick lane before the next NewFrame.
     g_ovlAnyHovered = ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive();
     ImGui::End();

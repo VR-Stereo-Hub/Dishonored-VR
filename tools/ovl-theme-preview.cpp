@@ -10,8 +10,20 @@
 #include "imgui_impl_dx11.h"
 #include "core/ui/ovl_ui.h"
 
+static ImVec2 tipTarget(-1,-1);
+static bool previewTip=false;
+static bool previewBottom=false;
+static bool layoutOk=true;
+static int layoutChecks=0;
+static float bodyBottom=0;
+static void CheckLayout(bool pass, const char* what)
+{
+    ++layoutChecks;
+    if (!pass) { layoutOk=false; printf("layout FAIL: %s\\n",what); }
+}
 static void SamplePanel(float w, float h, bool advanced)
 {
+    dvr::ovl::set_level(advanced?dvr::ovl::Advanced:dvr::ovl::Basic);
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(w, h));
     ImGui::Begin("Dishonored VR", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse);
@@ -26,37 +38,52 @@ static void SamplePanel(float w, float h, bool advanced)
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("IPD 63 mm").x);
     ImGui::TextDisabled("IPD 63 mm");
     ImGui::Spacing();
-    const float half = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-    dvr::ovl::push_primary(); dvr::ovl::button("RECENTER", ImVec2(-1, 0)); dvr::ovl::pop_primary();
-    dvr::ovl::button("SAVE AS DEFAULTS", ImVec2(half, 0));
-    ImGui::SameLine(); dvr::ovl::button("RESET TO DEFAULTS", ImVec2(half, 0));
+    const float actionWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 2) / 3;
+    dvr::ovl::push_primary(); dvr::ovl::button("RECENTER", ImVec2(actionWidth, 0)); dvr::ovl::pop_primary();
+    ImGui::SameLine(); dvr::ovl::button("SAVE AS DEFAULTS", ImVec2(actionWidth, 0));
+    ImGui::SameLine(); dvr::ovl::button("RESET TO DEFAULTS", ImVec2(actionWidth, 0));
+    CheckLayout(actionWidth >= ImGui::CalcTextSize("RESET TO DEFAULTS").x + ImGui::GetStyle().FramePadding.x*2,"action label fit");
     static float height = 0.06f; dvr::ovl::slider_float("Height offset (m)", &height, -1, 1, "%+.2f");
     ImGui::Spacing();
     if (ImGui::BeginTabBar("tabs")) {
         if (dvr::ovl::tab("Hands")) {
+            dvr::ovl::begin_body("hands-scroll");
             if (dvr::ovl::section("Hand size and position", 0, nullptr, true)) {
                 static float size = 0.85f; dvr::ovl::slider_float("Hand / weapon size", &size, 0.4f, 1.6f, "%.2f");
+                auto a=ImGui::GetItemRectMin(), b=ImGui::GetItemRectMax();
+                tipTarget=ImVec2(a.x+(b.x-a.x)*.55f,b.y-3);
+                if (previewTip) dvr::ovl::tip("Scales the hands and whatever they hold, around your palm. Not the world scale.");
                 static int which = 0;
-                ImGui::RadioButton("Left", &which, 0); ImGui::SameLine();
-                ImGui::RadioButton("Right (in use)", &which, 1); ImGui::SameLine();
-                ImGui::RadioButton("Left, powers", &which, 2);
+                dvr::ovl::radio_button("Left", &which, 0); ImGui::SameLine();
+                dvr::ovl::radio_button("Right (in use)", &which, 1); ImGui::SameLine();
+                dvr::ovl::radio_button("Left, powers", &which, 2);
                 static int step = 1;
-                ImGui::RadioButton("fine", &step, 0); ImGui::SameLine();
-                ImGui::RadioButton("normal", &step, 1); ImGui::SameLine();
-                ImGui::RadioButton("coarse", &step, 2);
-                const char* rows[3][2] = { { "move left", "move right" }, { "move down", "move up" }, { "turn pitch down", "turn pitch up" } };
-                for (auto& r : rows) {
+                dvr::ovl::radio_button("fine", &step, 0); ImGui::SameLine();
+                dvr::ovl::radio_button("normal", &step, 1); ImGui::SameLine();
+                dvr::ovl::radio_button("coarse", &step, 2);
+                ImGui::SameLine();
+                bool more=ImGui::TreeNode("More adjustments##mptrim");
+                if (more) ImGui::TreePop();
+                const char* rows[6][2] = { { "move left", "move right" }, { "move down", "move up" }, { "move back", "move forward" }, { "turn pitch down", "turn pitch up" }, { "turn yaw left", "turn yaw right" }, { "turn roll left", "turn roll right" } };
+                auto row = [&](int i) { const auto& r=rows[i];
                     dvr::ovl::button(r[0], ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4, 0)); ImGui::SameLine();
                     dvr::ovl::button(r[1], ImVec2(ImGui::GetContentRegionAvail().x, 0));
-                }
-                if (advanced) { static bool p = true; dvr::ovl::checkbox("Separate left-hand position for powers", &p); }
+                };
+                row(0); row(1); row(3);
+                if (more) { row(2); row(4); row(5); }
+                if (advanced) { static bool p = true; dvr::ovl::checkbox("Separate left-hand position for powers", &p);
+                    if (more) { static bool view=true; dvr::ovl::checkbox("Numpad steps follow my view (not the palm axes)",&view); } }
             }
             if (dvr::ovl::section("Sleeve", 0, nullptr, true)) {
                 if (ImGui::BeginCombo("Sleeve preset", "Cuffs")) ImGui::EndCombo();
                 static float len = 12.0f; dvr::ovl::slider_float("Sleeve length", &len, 0, 30, "%.1f");
-                static bool round = true; dvr::ovl::checkbox("Rounded wrist ends", &round);
+                if (advanced) { static bool round = true; dvr::ovl::checkbox("Rounded wrist ends", &round);
+                    static float wrist=.2f; dvr::ovl::slider_float("Wrist roundness",&wrist,.05f,.8f); }
             }
-            dvr::ovl::section("Game arms during actions", 0, nullptr);
+            dvr::ovl::section("Game arms during actions", dvr::ovl::Advanced, nullptr);
+            if (previewBottom) ImGui::SetScrollY(ImGui::GetScrollMaxY());
+            bodyBottom=ImGui::GetWindowPos().y+ImGui::GetWindowSize().y;
+            dvr::ovl::end_body();
             ImGui::EndTabItem();
         }
         if (dvr::ovl::tab("Aim")) ImGui::EndTabItem();
@@ -68,18 +95,14 @@ static void SamplePanel(float w, float h, bool advanced)
     }
     ImGui::Spacing();
     dvr::ovl::ornament();
-    static float ts = 1.54f; dvr::ovl::slider_float("Text size", &ts, 0.8f, 2.5f, "%.2f");
+    CheckLayout(ImGui::GetCursorScreenPos().y >= bodyBottom, "footer below scrolling body");
+    float ts = ImGui::GetStyle().FontScaleMain; dvr::ovl::slider_float("Text size", &ts, 0.8f, 2.5f, "%.2f");
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("F10 or a stick-click tap closes | point, trigger clicks, stick scrolls / nudges a slider");
+    ImGui::PopTextWrapPos();
+    CheckLayout(ImGui::GetItemRectMax().y < h-ImGui::GetStyle().WindowPadding.y, "footer fits panel");
     ImGui::End();
-    // A tooltip, placed by hand, to show the parchment style.
-    ImGui::SetNextWindowPos(ImVec2(w * 0.61f, h * 0.39f));
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0xDC / 255.f, 0xCF / 255.f, 0xB4 / 255.f, 1));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0x2A / 255.f, 0x22 / 255.f, 0x1A / 255.f, 1));
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0x6E / 255.f, 0x56 / 255.f, 0x30 / 255.f, 1));
-    ImGui::Begin("##tip", nullptr, ImGuiWindowFlags_Tooltip | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_AlwaysAutoResize);
-    dvr::ovl::note("Scales the hands and whatever they hold, around your palm. Not the world scale.", w * 0.32f);
-    ImGui::End();
-    ImGui::PopStyleColor(3);
+
 }
 
 static bool SaveBmp(const char* path, const uint8_t* rgba, int w, int h, int pitch)
@@ -101,9 +124,10 @@ static bool SaveBmp(const char* path, const uint8_t* rgba, int w, int h, int pit
 // Exercise the production themed widgets through actual ImGui pointer events.
 static bool InteractionChecks()
 {
+    dvr::ovl::set_level(dvr::ovl::Basic);
     bool checked=false, disabled=false, opened=false;
-    int presses=0; float value=0;
-    ImVec2 check{}, button{}, slider{}, section{}, disabledBox{};
+    int presses=0, selected=0; float value=0;
+    ImVec2 check{}, button{}, slider{}, section{}, disabledBox{}, radio{};
     auto frame = [&](ImVec2 pointer, bool down) {
         auto& io=ImGui::GetIO(); io.ConfigInputTrickleEventQueue=false;
         io.AddMousePosEvent(pointer.x,pointer.y); io.AddMouseButtonEvent(0,down);
@@ -117,13 +141,14 @@ static bool InteractionChecks()
         dvr::ovl::slider_float("Slide",&value,0,1);
         auto a=ImGui::GetItemRectMin(); slider=ImVec2(a.x+160,center().y);
         opened=dvr::ovl::section("Expand",0,nullptr); section=center();
+        dvr::ovl::radio_button("Radio",&selected,1); radio=center();
         ImGui::BeginDisabled(); dvr::ovl::checkbox("Disabled",&disabled); disabledBox=center(); ImGui::EndDisabled();
         ImGui::End(); ImGui::Render();
     };
     auto click=[&](ImVec2 p) { frame(p,false); frame(p,true); frame(p,false); };
     frame(ImVec2(-1,-1),false); frame(ImVec2(-1,-1),false);
-    click(check); click(button); click(slider); click(section); click(disabledBox);
-    const bool pass=checked && presses==1 && value>.65f && opened && !disabled;
+    click(check); click(button); click(slider); click(section); click(radio); click(disabledBox);
+    const bool pass=checked && presses==1 && value>.65f && opened && selected==1 && !disabled;
     printf("widget interaction: checkbox=%d button=%d slider=%.3f section=%d disabled=%d: %s\n",
         checked,presses,value,opened,disabled,pass?"PASS":"FAIL");
     return pass;
@@ -132,6 +157,8 @@ static bool InteractionChecks()
 int main(int argc, char** argv)
 {
     const bool advanced = argc > 1 && !strcmp(argv[1], "advanced");
+    previewTip = argc > 3 && !strcmp(argv[3],"tip");
+    previewBottom = argc>3 && !strcmp(argv[3],"bottom");
     const int W = argc > 2 ? atoi(argv[2]) : 1254, H = W;
     ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr;
     D3D_FEATURE_LEVEL fl;
@@ -151,7 +178,7 @@ int main(int argc, char** argv)
     dvr::ovl::apply_theme();
     dvr::ovl::load_art(dev);
     ImGui::GetStyle().ScaleAllSizes(1.6f);
-    ImGui::GetStyle().FontScaleMain = 1.54f * W / 1254.0f;
+    ImGui::GetStyle().FontScaleMain = argc>4 ? (float)atof(argv[4]) : 1.54f * W / 1254.0f;
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.DisplaySize = ImVec2((float)W, (float)H);
@@ -160,6 +187,7 @@ int main(int argc, char** argv)
     for (int frame = 0; frame < 4; ++frame) {
         io.DeltaTime = 1.0f / 60.0f;
         ImGui_ImplDX11_NewFrame();
+        if (previewTip && frame>1) io.AddMousePosEvent(tipTarget.x,tipTarget.y);
         ImGui::NewFrame();
         SamplePanel((float)W, (float)H, advanced);
         ImGui::Render();
@@ -179,5 +207,6 @@ int main(int argc, char** argv)
     ImGui_ImplDX11_Shutdown();
     ImGui::DestroyContext();
     printf(ok ? "wrote ovl-theme-preview.bmp\n" : "write failed\n");
-    return ok && interactions ? 0 : 1;
+    printf("layout: %d checks: %s\n",layoutChecks,layoutOk?"PASS":"FAIL");
+    return ok && interactions && layoutOk ? 0 : 1;
 }
