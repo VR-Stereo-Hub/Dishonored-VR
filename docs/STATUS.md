@@ -1,3 +1,21 @@
+## Headset recovery acceptance and under-cover scope (2026-09-22)
+
+Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally
+accepts the recovery fix. Log shows correction to 10000 while uncovered, and exposed
+particle requests remain enabled. Archive: build/playtest-candidates/runs/vr-202-fixed-20260922-224551.
+A separate request concerns visible outdoor rain disappearing under awnings. During the
+covered interval around ticks 40609750..40613750, uncovered=0 and MaxParticles=0; exiting
+restores MaxParticles=40. This is native camera-wide suppression, not the recovery fix.
+
+The traced RainDrops update implements volume fading/recycling, not per-drop roof tests.
+Engine ParticleModuleCollision is declared, but its existence does not establish that the
+rain asset has a compatible collision module or that it can be enabled with one boolean.
+WorldRainComponent declares enable/intensity/wrap controls; no roof-mask control appears
+in its script declaration. Do not promise dry sheltered areas from simply bypassing the
+camera shelter decision. Clarification pending: optional under-cover rain with potential
+roof leakage, versus outdoor-only rain that preserves dry shelter. No installation or
+awning behavior change has been performed.
+
 ## Install 2026-09-22 (VR-202): recovery fix approved and installed
 
 Explicit user go-ahead received. Installed `vr33-hands-working-725-gbaecc7491`, with
