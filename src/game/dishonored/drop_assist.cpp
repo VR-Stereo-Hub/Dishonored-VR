@@ -25,7 +25,7 @@
 // (Fallback=1) or dropped (Fallback=0). Nothing about the engine's decision changes:
 // only WHEN the press arrives. An attack that meets type 1 or 2 is never touched.
 //
-// THE REACH LEVER (default 1.00 = the shipped game). The trajectory the game traces
+// THE REACH LEVER (default 2.00; 1.00 = the shipped game). The trajectory the game traces
 // for a target is the player's velocity plus gravity over the tweak's
 // m_fHitWindowInSeconds. ReachScale multiplies that one tweak value, so the target
 // is found earlier and further along the fall. The original value is kept per
@@ -38,7 +38,7 @@
 namespace dvr::drop {
 namespace {
 
-struct Cfg { bool assist = true, fallback = true; float holdMs = 800.0f, reach = 1.0f; } cfg;
+struct Cfg { bool assist = true, fallback = true; float holdMs = 420.0f, reach = 2.0f; } cfg;   // the headset-tuned values (VR-203)
 bool dropWatch = true;   // [Anim] DropWatch: the read-only decision trace (VR-111)
 
 // ---- the published decision (script lane writes, present lane reads) ----
@@ -277,8 +277,8 @@ Gate gate(bool attack, bool swingPulse, long padPolls) {
 void configure(const char* ini) {
     cfg.assist   = GetPrivateProfileIntA("DropTakedown", "Assist", 1, ini) != 0;
     cfg.fallback = GetPrivateProfileIntA("DropTakedown", "Fallback", 1, ini) != 0;
-    cfg.holdMs   = clampf(IniFloat(ini, "DropTakedown", "HoldMs", 800.0f), 100.0f, 3000.0f);
-    const float reach = clampf(IniFloat(ini, "DropTakedown", "ReachScale", 1.0f), 0.5f, 3.0f);
+    cfg.holdMs   = clampf(IniFloat(ini, "DropTakedown", "HoldMs", 420.0f), 100.0f, 3000.0f);
+    const float reach = clampf(IniFloat(ini, "DropTakedown", "ReachScale", 2.0f), 0.5f, 3.0f);
     if (reach != cfg.reach) { cfg.reach = reach; InterlockedExchange(&reachDirty, 1); }
     dropWatch = GetPrivateProfileIntA("Anim", "DropWatch", 1, ini) != 0;
     Log("config: [DropTakedown] Assist=%d HoldMs=%.0f Fallback=%d ReachScale=%.2f (1.00 = the shipped game); "

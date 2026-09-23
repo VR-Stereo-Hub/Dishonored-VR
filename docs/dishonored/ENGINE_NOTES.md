@@ -9028,6 +9028,18 @@ type every anim tick (about 10 ms). Nothing in the decision changes. The optiona
 `ReachScale` is the one write: it multiplies `m_fHitWindowInSeconds`, the look-ahead of
 route 2.
 
-**Still unmeasured:** the shipped tweak values (logged once per tweak object as
-`drop: shipped tweaks`), the extent that `0x0056CC00` supplies to the traces, and the
-range of the melee pawn-info trace.
+**Shipped tweak values (measured 2026-09-22, `drop: shipped tweaks`,
+`DisTweaks_DropAssassinate`):** HitWindow 4.000 s, MinDropDist 0.0, MaxDropDist 350.0,
+MaxAllowedDropJumpVel 0.0 (any rising velocity refuses), MinDropDownVel 100.0,
+RayScalePercent 2.000. The reflected offsets matched the disassembly on the first run.
+
+**Headset result.** At the shipped reach, the assist held 2 swings and neither found a
+target before landing. After `ReachScale` was raised to 1.50..2.00 (HitWindow
+6.0..8.0 s), 18 swings were held on real drops. 13 of them turned into the drop kill
+between 84 and 235 ms after the swing: 12 at type 2 and 1 at type 1. Those kills were
+`Sword_Ready_Assassination_DropRight`. The other 5 landed or timed out with no target.
+So the timing hold alone was not enough; the longer look-ahead is what finds the guard
+in time. The defaults are now 2.00 and 420 ms.
+
+**Still unmeasured:** the extent that `0x0056CC00` supplies to the traces, and the range
+of the melee pawn-info trace.
