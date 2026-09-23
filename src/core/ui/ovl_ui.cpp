@@ -9,6 +9,7 @@
 #include <wrl/client.h>
 #include <vector>
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "core/util/log.h"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::overlay
@@ -93,8 +94,12 @@ struct Skin {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImDrawListSplitter split;
     Skin() { split.Split(dl, 2); split.SetCurrentChannel(dl, 1); }
-    void finish(int index, ImVec2 a, ImVec2 b, ImU32 tint=IM_COL32_WHITE) {
-        split.SetCurrentChannel(dl, 0); material(index, a, b, tint); split.Merge(dl);
+    void finish(int index, ImVec2 a, ImVec2 b, ImU32 tint=IM_COL32_WHITE, const ImVec4* clip=nullptr) {
+        split.SetCurrentChannel(dl, 0);
+        if (clip) dl->PushClipRect(ImVec2(clip->x,clip->y),ImVec2(clip->z,clip->w),true);
+        material(index, a, b, tint);
+        if (clip) dl->PopClipRect();
+        split.Merge(dl);
     }
 };
 
@@ -301,7 +306,6 @@ void tip(const char* text)
 bool section(const char* name, int tier, const char* tipText, bool defaultOpen)
 {
     if (!show(tier)) return false;
-    ImGui::Spacing();
     if (g_section) ImGui::PushFont(g_section, ImGui::GetStyle().FontSizeBase*1.06f);
     Skin skin;
     const ImVec2 start=ImGui::GetCursorScreenPos();
@@ -326,27 +330,41 @@ bool section(const char* name, int tier, const char* tipText, bool defaultOpen)
     ImGui::PopStyleColor(4);
     if (g_section) ImGui::PopFont();
     tip(tipText);
-    ImGui::Spacing();
+    if (open) ImGui::Spacing();
     return open;
 }
 
 bool tab(const char* label)
 {
-    static ImGuiID selected = 0;
-    const ImGuiID id = ImGui::GetID(label);
-    const bool wasSelected = id == selected;
     if (g_head) ImGui::PushFont(g_head, 0.0f);
     Skin skin;
-    ImGui::PushStyleColor(ImGuiCol_Text, wasSelected ? kInkText : kBone);
+    ImGui::PushStyleColor(ImGuiCol_Text, kBone);
     ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_TabSelected, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(1,1,1,0.08f));
+    const int firstVertex=skin.dl->VtxBuffer.Size;
+    const ImU32 labelColor=ImGui::GetColorU32(kBone);
     const bool open = ImGui::BeginTabItem(label);
-    skin.finish(open ? 1 : 2, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+    // BeginTabItem also lays out the bar and draws its arrows/popup. Keep the
+    // native palette light during that call, then tint only this selected label.
+    if (open) {
+        const ImVec2 a=ImGui::GetItemRectMin(), b=ImGui::GetItemRectMax();
+        const ImU32 ink=ImGui::GetColorU32(kInkText);
+        for (int i=firstVertex;i<skin.dl->VtxBuffer.Size;++i) {
+            auto& v=skin.dl->VtxBuffer[i];
+            if (v.col==labelColor && v.pos.x>=a.x && v.pos.x<=b.x && v.pos.y>=a.y && v.pos.y<=b.y)
+                v.col=ink;
+        }
+    }
+    // Native tab drawing clips at the scrolling strip. Match that clip for the
+    // decoration too, or an offscreen tab can paint over the navigation arrows.
+    const auto* bar=ImGui::GetCurrentTabBar();
+    const ImVec4 clip(bar->ScrollingRectMinX,bar->BarRect.Min.y-1,
+        bar->ScrollingRectMaxX,bar->BarRect.Max.y);
+    skin.finish(open ? 1 : 2, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),IM_COL32_WHITE,&clip);
     ImGui::PopStyleColor(5);
     if (g_head) ImGui::PopFont();
-    if (open) selected = id;
     return open;
 }
 
@@ -402,7 +420,10 @@ bool pill(const char* label, bool selected)
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.12f));
     ImGui::PushStyleColor(ImGuiCol_Text, selected ? kInkText : kBone);
-    const bool hit = ImGui::Button(label, ImVec2(ImGui::GetFontSize()*5, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign,ImVec2(.5f,.5f));
+    const float width=ImGui::CalcTextSize("Advanced").x+ImGui::GetStyle().FramePadding.x*2;
+    const bool hit = ImGui::Button(label, ImVec2(width, 0));
+    ImGui::PopStyleVar();
     skin.finish(selected ? 1 : 2, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     ImGui::PopStyleColor(3);
     return hit;
@@ -459,7 +480,15 @@ bool button(const char* label, const ImVec2& size)
 {
     Skin skin;
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImVec2 pad=ImGui::GetStyle().FramePadding;
+    if (size.x>0) {
+        const float room=(size.x-ImGui::CalcTextSize(label,nullptr,true).x)*.5f;
+        if (pad.x>room) pad.x=room>0?room:0;
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,pad);
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign,ImVec2(.5f,.5f));
     const bool changed=ImGui::Button(label,size);
+    ImGui::PopStyleVar(2);
     skin.finish(2,ImGui::GetItemRectMin(),ImGui::GetItemRectMax(),
         g_primary ? IM_COL32(255,105,85,255) : IM_COL32_WHITE);
     ImGui::PopStyleColor();

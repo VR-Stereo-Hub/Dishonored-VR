@@ -259,8 +259,8 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     // Match the reference typography to the default square panel. An explicit
     // saved UiScale still wins; the player keeps control of text size.
     if (g_ovlUiScale <= 0.0f) {
-        const float panelPixels = (w < h ? w : h) * .46f;
-        float fs = panelPixels > 0 ? 1.54f * panelPixels / 1254.0f : 1.54f;
+        const float panelPixels = w * (649.0f/2750.0f);
+        float fs = panelPixels > 0 ? panelPixels / 649.0f : 1.0f;
         if (fs < .8f) fs = .8f;
         if (fs > 2.5f) fs = 2.5f;
         g_ovlUiScale = fs;
@@ -300,9 +300,11 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     const float readableMin = (ImGui::CalcTextSize("RESET TO DEFAULTS").x + ImGui::GetStyle().FramePadding.x*2)*3
         + ImGui::GetStyle().ItemSpacing.x*2 + ImGui::GetStyle().WindowPadding.x*2;
     const float minSide = (readableMin < shorter*.95f) ? readableMin : shorter*.95f;
-    const float panelSide = shorter*.46f > minSide ? shorter*.46f : minSide;
-    ImGui::SetNextWindowPos(ImVec2((ds.x-panelSide)*0.5f, (ds.y-panelSide)*0.5f), placeCond);
-    ImGui::SetNextWindowSize(ImVec2(panelSide, panelSide), placeCond);
+    // Accepted build733 placement: 1027,1021 and 649x685 at 2750x2850.
+    // Fractions preserve the headset composition at other eye resolutions.
+    const float panelW=ds.x*(649.0f/2750.0f), panelH=ds.y*(685.0f/2850.0f);
+    ImGui::SetNextWindowPos(ImVec2(ds.x*(1027.0f/2750.0f),ds.y*(1021.0f/2850.0f)),placeCond);
+    ImGui::SetNextWindowSize(ImVec2(panelW>minSide?panelW:minSide,panelH>minSide?panelH:minSide),placeCond);
     ImGui::SetNextWindowSizeConstraints(ImVec2(minSide,minSide), ImVec2(ds.x*0.95f,ds.y*0.95f));
     // VR-197: no ImGui title bar; OvlTopRow draws the themed title and the close button, and
     // the window still moves by dragging any empty part of it.

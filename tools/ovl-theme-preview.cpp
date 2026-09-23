@@ -7,12 +7,14 @@
 #include <stdio.h>
 #include <vector>
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_dx11.h"
 #include "core/ui/ovl_ui.h"
 
 static ImVec2 tipTarget(-1,-1);
 static bool previewTip=false;
 static bool previewBottom=false;
+static bool previewDebug=false;
 static bool layoutOk=true;
 static int layoutChecks=0;
 static float bodyBottom=0;
@@ -23,17 +25,23 @@ static void CheckLayout(bool pass, const char* what)
 }
 static void SamplePanel(float w, float h, bool advanced)
 {
-    dvr::ovl::set_level(advanced?dvr::ovl::Advanced:dvr::ovl::Basic);
+    dvr::ovl::set_level(previewDebug?dvr::ovl::Debug:advanced?dvr::ovl::Advanced:dvr::ovl::Basic);
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(ImVec2(w, h));
     ImGui::Begin("Dishonored VR", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse);
     dvr::ovl::backdrop();
+    const ImVec2 titleStart=ImGui::GetCursorPos();
     dvr::ovl::title("DISHONORED VR");
+    const ImVec2 titleEnd=ImGui::GetCursorPos();
+    const float closeSize=ImGui::GetFrameHeight();
+    ImGui::SetCursorPos(ImVec2(w-ImGui::GetStyle().WindowPadding.x-closeSize,titleStart.y));
+    dvr::ovl::button("X##previewclose",ImVec2(closeSize,closeSize));
+    ImGui::SetCursorPos(titleEnd);
     dvr::ovl::controller_hint();
     ImGui::AlignTextToFramePadding(); ImGui::TextDisabled("SHOW"); ImGui::SameLine();
     dvr::ovl::pill("Basic", !advanced); ImGui::SameLine(0, 4);
-    dvr::ovl::pill("Advanced", advanced); ImGui::SameLine(0, 4);
-    dvr::ovl::pill("Debug", false);
+    dvr::ovl::pill("Advanced", advanced && !previewDebug); ImGui::SameLine(0, 4);
+    dvr::ovl::pill("Debug", previewDebug);
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("IPD 63 mm").x);
     ImGui::TextDisabled("IPD 63 mm");
@@ -45,7 +53,7 @@ static void SamplePanel(float w, float h, bool advanced)
     CheckLayout(actionWidth >= ImGui::CalcTextSize("RESET TO DEFAULTS").x + ImGui::GetStyle().FramePadding.x*2,"action label fit");
     static float height = 0.06f; dvr::ovl::slider_float("Height offset (m)", &height, -1, 1, "%+.2f");
     ImGui::Spacing();
-    if (ImGui::BeginTabBar("tabs")) {
+    if (ImGui::BeginTabBar("tabs",ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton)) {
         if (dvr::ovl::tab("Hands")) {
             dvr::ovl::begin_body("hands-scroll");
             if (dvr::ovl::section("Hand size and position", 0, nullptr, true)) {
@@ -91,6 +99,9 @@ static void SamplePanel(float w, float h, bool advanced)
         if (dvr::ovl::tab("Comfort")) ImGui::EndTabItem();
         if (dvr::ovl::tab("HUD")) ImGui::EndTabItem();
         if (dvr::ovl::tab("Display")) ImGui::EndTabItem();
+        if (advanced && dvr::ovl::tab("Game options")) ImGui::EndTabItem();
+        if (previewDebug && dvr::ovl::tab("Runtime")) ImGui::EndTabItem();
+        if (previewDebug && dvr::ovl::tab("Log")) ImGui::EndTabItem();
         ImGui::EndTabBar();
     }
     ImGui::Spacing();
@@ -154,12 +165,55 @@ static bool InteractionChecks()
     return pass;
 }
 
+// Exercise the always-visible tab list through pointer events, including the
+// offscreen last tab at the accepted narrow panel size.
+static bool NavigationChecks()
+{
+    auto& io=ImGui::GetIO();
+    ImGui::GetStyle().FontScaleMain=1.0f;
+    ImVec2 arrow{};
+    bool logSelected=false;
+    auto frame=[&](ImVec2 pointer,bool down) {
+        io.AddMousePosEvent(pointer.x,pointer.y); io.AddMouseButtonEvent(0,down);
+        ImGui_ImplDX11_NewFrame(); ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(649,685));
+        ImGui::Begin("navigation-check",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoSavedSettings);
+        const ImVec2 p=ImGui::GetCursorScreenPos();
+        arrow=ImVec2(p.x+8,p.y+ImGui::GetFrameHeight()*.5f);
+        logSelected=false;
+        if (ImGui::BeginTabBar("navtabs",ImGuiTabBarFlags_FittingPolicyScroll|ImGuiTabBarFlags_TabListPopupButton)) {
+            const char* labels[]={"Hands","Aim","Controls","Comfort","HUD","Display","Game options","Runtime","Log"};
+            for (auto label:labels) if (dvr::ovl::tab(label)) {
+                if (!strcmp(label,"Log")) logSelected=true;
+                ImGui::EndTabItem();
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::End(); ImGui::Render();
+    };
+    auto click=[&](ImVec2 p) { frame(p,false); frame(p,true); frame(p,false); };
+    frame(ImVec2(-1,-1),false); frame(ImVec2(-1,-1),false);
+    click(arrow); frame(arrow,false);
+    ImGuiWindow* popup=ImGui::FindWindowByName("##Combo_00");
+    const bool opened=popup && popup->Active && !GImGui->OpenPopupStack.empty();
+    if (opened) {
+        const float line=ImGui::GetFontSize()+ImGui::GetStyle().ItemSpacing.y;
+        click(ImVec2(popup->Pos.x+popup->WindowPadding.x+20,
+            popup->Pos.y+popup->WindowPadding.y+line*8+ImGui::GetFontSize()*.5f));
+        frame(ImVec2(-1,-1),false);
+    }
+    printf("tab navigation: list=%d offscreen Log selected=%d: %s\n",
+        opened,logSelected,opened&&logSelected?"PASS":"FAIL");
+    return opened&&logSelected;
+}
+
 int main(int argc, char** argv)
 {
-    const bool advanced = argc > 1 && !strcmp(argv[1], "advanced");
+    previewDebug=argc>1 && !strcmp(argv[1],"debug");
+    const bool advanced = previewDebug || (argc > 1 && !strcmp(argv[1], "advanced"));
     previewTip = argc > 3 && !strcmp(argv[3],"tip");
     previewBottom = argc>3 && !strcmp(argv[3],"bottom");
-    const int W = argc > 2 ? atoi(argv[2]) : 1254, H = W;
+    const int W = argc > 2 ? atoi(argv[2]) : 1254, H = argc>5 ? atoi(argv[5]) : W;
     ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr;
     D3D_FEATURE_LEVEL fl;
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &dev, &fl, &ctx)) &&
@@ -203,10 +257,11 @@ int main(int argc, char** argv)
     const bool ok = SaveBmp("ovl-theme-preview.bmp", (const uint8_t*)m.pData, W, H, (int)m.RowPitch);
     ctx->Unmap(st, 0);
     const bool interactions = InteractionChecks();
+    const bool navigation=NavigationChecks();
     dvr::ovl::release_art();
     ImGui_ImplDX11_Shutdown();
     ImGui::DestroyContext();
     printf(ok ? "wrote ovl-theme-preview.bmp\n" : "write failed\n");
     printf("layout: %d checks: %s\n",layoutChecks,layoutOk?"PASS":"FAIL");
-    return ok && interactions && layoutOk ? 0 : 1;
+    return ok && interactions && navigation && layoutOk ? 0 : 1;
 }

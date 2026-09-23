@@ -984,7 +984,7 @@ static void OvlTabBody(const char* id, void (*draw)())
 
 static void OvlTabs()
 {
-    if (!ImGui::BeginTabBar("vrtabs", ImGuiTabBarFlags_FittingPolicyScroll)) return;
+    if (!ImGui::BeginTabBar("vrtabs", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton)) return;
     if (dvr::ovl::tab("Hands"))    { OvlTabBody("OvlTabHands-scroll", OvlTabHands);    ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Aim"))      { OvlTabBody("OvlTabAim-scroll", OvlTabAim);      ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Controls")) { OvlTabBody("OvlTabControls-scroll", OvlTabControls); ImGui::EndTabItem(); }

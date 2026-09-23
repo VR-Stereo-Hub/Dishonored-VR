@@ -1,3 +1,25 @@
+## F10 accepted profile and navigation polish (VR-206, 2026-09-23)
+
+Build733 log banner and installed DLL hash match. Headset report accepts the visual
+direction with minor alignment, collapsed-spacing and Debug navigation follow-ups.
+Archived the complete ini and both logs under
+build/playtest-candidates/runs/vr-206-accepted-20260923-001000.
+All current values are saved in tests/golden/f10-tuned-2026-09-23.ini. Shipped gameplay
+and display defaults mirror that profile, including UiScale=1.00; portable runtime
+discovery stays auto/blank. Installed runtime selection and ini are untouched.
+
+Default menu placement follows the final logged 1027,1021 / 649x685 rectangle at a
+2750x2850 eye texture, stored as resolution-relative layout constants. Tier buttons now
+fit their labels and padding; the close button gets suitable horizontal padding.
+Collapsed sections lose the extra spacer rows. Tab art uses native scrolling-strip
+clipping, and selected-label tint no longer darkens bar arrows or popup entries.
+The always-visible tab-list arrow reaches every tier-eligible tab.
+
+Default writer/reset tests and byte-identical package/golden checks pass. Native preview
+at 649x685 and 1.00 text passes layout/widget checks; a pointer test opens the tab list
+and selects the offscreen Log tab. Build and prepare only, no install without a new
+explicit go-ahead. PR #109 remains unmerged above rain-fixes.
+
 ## F10 revision installed with approval (VR-206, 2026-09-22)
 
 Installed vr33-hands-working-733-g7d78ac20f from the archived candidate after explicit

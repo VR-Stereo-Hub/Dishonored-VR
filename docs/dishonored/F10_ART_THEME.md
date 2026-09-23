@@ -1,12 +1,16 @@
 # Expandable F10 art theme (VR-206)
 
 The generated background and materials follow the supplied reference while preserving
-native ImGui interaction. The default window is square, centered, and 46% of the shorter
-eye-texture dimension (1265 pixels on a 2750 x 2850 eye texture). The panel remains
-resizable, with a text-dependent minimum to keep action labels inside their buttons.
-Automatic text scale follows the square reference dimensions; a saved UiScale wins.
-Each tab has a separate scrolling child; the top controls and footer stay
-outside it. Tabs overflow by scrolling. No game or installed ini has been changed.
+native ImGui interaction. After build733 headset testing, the accepted default is
+649x685 at 2750x2850 eye resolution, positioned at 1027,1021, with UiScale=1.00.
+Resolution-relative constants retain that composition on other eye textures. The panel
+is resizable, with a text-dependent minimum that keeps action labels inside buttons.
+Each tab has independent scrolling content and a fixed header/footer. A persistent
+tab-list arrow exposes every eligible tab, alongside normal overflow scroll arrows.
+
+The complete accepted profile is tests/golden/f10-tuned-2026-09-23.ini. Shipped defaults
+carry its gameplay/display settings while preserving portable runtime auto-discovery.
+The installed ini is not changed by preparing this revision.
 
 ## Adding controls
 
@@ -58,3 +62,15 @@ rows. That fixture was replaced with the actual hover-note path and a complete c
 inventory, using the same scrolling layout as the game. Scrolled content clips at its
 child boundary and cannot paint into the fixed footer. These are desktop checks; headset
 interaction and persistence remain a separate acceptance step.
+
+## Narrow-panel navigation verification
+
+The decorated tabs previously painted outside the native scrolling strip, covering
+navigation buttons. Their material draw calls now share the native clip rectangle.
+Native bar layout also executes inside the first BeginTabItem; applying dark selected
+text beforehand made arrows and popup entries dark. The theme keeps the bar palette
+light, then recolors only the selected tab label vertices inside that tab rectangle.
+
+At 649x685 / 1.00 text, the preview checks actual pointer activation of the tab-list
+dropdown and selection of its offscreen Log entry. Its Debug fixture carries all nine
+tabs. Button padding and tier width are verified visually at this accepted text scale.

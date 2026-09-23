@@ -1,3 +1,11 @@
+## Current continuation: accepted F10 size and profile (2026-09-23)
+
+Build733 remains installed and its visual direction is headset accepted. The current
+follow-up fixes alignment/section gaps/tab navigation and adopts the accepted 649x685
+layout and 1.00 text. All saved values are archived in f10-tuned-2026-09-23.ini; shipped
+gameplay/display defaults match, retaining portable runtime discovery. See STATUS top.
+Prepare only; future installation still needs explicit approval. PR #109 stays unmerged.
+
 ## Current continuation: F10 art refinement (VR-206, 2026-09-22)
 
 Use the newest docs/STATUS.md entries. Branch f10-improvements / draft PR #109 sits on
