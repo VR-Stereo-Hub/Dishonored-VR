@@ -1,3 +1,56 @@
+## Native shelter can suppress falling rain while impacts continue (VR-202, 2026-09-22)
+
+The lens-only candidate `vr33-hands-working-714-gc17016e63` is headset-confirmed for
+removing the close overlay while preserving rain. Matching banner and installed DLL hash
+verified. The run logs the lens hide at 33032765 and restoration at 33585625; the rain box
+stays unhidden. Archive: `build/playtest-candidates/runs/vr-202-20260922-212046`.
+The remaining report is positional/intermittent falling-rain absence with splashes present.
+
+Decompiled declarations distinguish DisParticleModuleRainDrops (MaxParticles and
+SpawnKillRate particle parameters) from DisParticleModuleRainImpacts. The camera declares
+m_bWasUncovered, m_fRainSpawnKillRate and independent requested/available impact counts.
+Those methods are native, so their declarations alone do not explain the behavior.
+
+Native trace of the installed Steam executable, using tools/disasm-rva.py:
+- The earlier rain-placement note incorrectly labelled 0x6D8951 a VA. It is an RVA,
+  VA 0xAD8951; this session verified its emitter test and corrected that label.
+- Shelter sampling at RVA 0x6D8C00 independently jitters camera X/Y by random*70-35
+  game units. Z remains the camera Z. The endpoint subtracts RainDirection*5000;
+  default direction (0,0,-1) makes this an upward 5000-unit test. Trace flags are 0x2086.
+- At RVA 0x6D8D0C the result updates m_bWasUncovered. Later in the same path,
+  MaxParticles receives m_NumRainDrops when uncovered, or zero otherwise.
+  SpawnKillRate is also submitted separately. Therefore m_NumRainDrops=40 in the old
+  log does NOT establish that falling drops are requested at the particle consumer.
+- The impact path begins separately at RVA 0x6D8E95. It checks requested impact count
+  and min/max distance, samples points, traces along rain direction, and checks the hit
+  normal. It does not branch on m_bWasUncovered. Splashes alone do not prove that the
+  camera shelter test should permit falling drops.
+- WorldRainComponent/WorldRainInfo is another declared system with enable/intensity
+  and wrap controls. Its contribution in this scene is not yet measured.
+
+This is a concrete positional mechanism, not yet a proved cause of the reported absence.
+Roof edges/collision above the camera are plausible; claiming incorrect collision or a
+VR-induced error would require a time-aligned missing-rain interval. No shelter override
+or guessed rain-forcing fix is installed.
+
+The VR-202 candidate adds read-only rain/weather summaries under existing Rain Trace=1:
+current camera position, uncovered, configured count, actual MaxParticles/SpawnKillRate,
+component hidden/active/suppress-spawn bits, and independent impact counts. At the existing
+250 ms sampling cadence it counts open/covered and zero/positive/unknown particle samples,
+then emits at most one summary per second. All properties resolve in one RflResolveBatch.
+InstanceParameters rows are bounds-checked, scalar-typed and matched by FName; stride 40
+is verified from the native setter at RVA 0x4AA690 (i*40 indexing and 0x28 allocation),
+then checked against reflected ParticleSysParam.Material plus pointer size. Unknown reads
+print -1, never zero. No engine memory writes or new native calls are added by the probe.
+The research RVAs and the one required stride live in patterns.h.
+
+Prediction: missing-rain positions coincide with covered samples and MaxParticles=0 while
+impact counts remain nonzero. Counterprediction: uncovered and positive MaxParticles persist
+through the absence, directing work toward particle simulation/culling or WorldRain instead.
+Next single launch: face the same direction and stand about 10 seconds in a raining spot,
+10 seconds in the nearby non-raining spot, then return for 10 seconds. Report whether the
+falling rain consistently follows that position change while splashes remain.
+
 ## Rain hide headset scope correction (VR-199, 2026-09-22)
 
 Verified run: `vr33-hands-working-712-gc1a25b64d`, installed DLL SHA-256
@@ -105,7 +158,7 @@ Build458 run (08:33): `m_RainBoxExtent` = 500/500/500 uu, 40 drops,
 about 10000 in a later one.
 
 **Where the rain is drawn (derived 2026-09-18, RETRACTS the first reading).**
-The emitter is re-placed every camera update by the native at VA 0x6D8951
+The emitter is re-placed every camera update by the native at RVA 0x6D8951 (VA 0xAD8951)
 (`cmp [cam+0x4dc],0`, gated by `[cam+0x4c8]==1`): the view forward (Rotator
 -> Vector, `call 0x40da70`) is taken into the emitter's frame (vtable +0x1BC),
 `t = min over axes of m_RainBoxExtent[i] / |f[i]|` (the `fdivr [edi+0x4e0/4/8]`

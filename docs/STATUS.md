@@ -1,3 +1,23 @@
+## Session 2026-09-22 (VR-202): positional sky-rain investigation
+
+Lens-only rain hide and restore are accepted in the headset on c17016e63; matching banner
+and DLL hash verified. The log confirms lens hide and restore with the rain box unhidden.
+The remaining sky-rain absence is reported as possibly positional, with ground splashes
+continuing. Archived run: `build/playtest-candidates/runs/vr-202-20260922-212046`.
+
+Decompiled rain classes plus native disassembly reveal a camera shelter test jittered
++/-35 uu horizontally and traced 5000 uu upward for default rain direction. Its result
+sets the particle MaxParticles to the configured count or zero; impacts have an independent
+path. Old drops=40 logging measured the configuration, not that effective parameter.
+See ENGINE_NOTES VR-202 for the measured code path, corrected RVA provenance and limits.
+
+A read-only diagnostic now logs shelter decisions, actual particle parameters, impact
+counts and camera position once per second under Rain Trace=1. It changes no weather
+behavior. Next launch, one question: does falling rain consistently disappear and return
+between the same nearby positions while splashes continue? Hold the same view direction,
+stand 10 seconds in the raining spot, 10 in the non-raining spot, then 10 back at the first.
+The log will distinguish native suppression from active particles failing to draw.
+
 ## Playtest follow-up 2026-09-22 (VR-199): narrow rain hide to the close overlay
 
 The headset report accepts the F10 changes provisionally and confirms rain disappears, but

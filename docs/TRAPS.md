@@ -1379,3 +1379,10 @@ adds rain-named lens templates, pending an in-game A/B and target-name confirmat
 VR-199 headset follow-up: hiding box and lens together also removed visible sky rain and
 splashes. The required scope is the close overlay only. The next candidate targets only
 the measured `Over_camera_rain_01` lens component; sky/ground preservation is pending.
+
+## Configured rain count is not the particle request (VR-202, 2026-09-22)
+
+The old rain/box line reports m_NumRainDrops. The native shelter decision can still send
+MaxParticles=0 to the component while that configured count stays 40. Impact generation is
+independent. Read the actual scalar parameter and uncovered flag before attributing missing
+sky rain to rendering. rain/weather adds those consumer values; unresolved is -1.

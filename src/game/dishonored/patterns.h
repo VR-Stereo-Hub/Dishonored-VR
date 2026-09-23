@@ -451,3 +451,12 @@ static const uint8_t kGoApplySettingsPrefix[] = {0x55,0x8b,0xec,0x51,0x8b,0x45,0
 static const uintptr_t kGoNativeSettingChange = 0x00BCB870;
 static const uint32_t kGoSettingChangeSlot = 0x23c;
 static const uint8_t kGoSettingChangePrefix[] = {0x53,0x8b,0xdc,0x83,0xec,0x08,0x83,0xe4,0xf0,0x83,0xc4,0x04,0x55,0x8b,0x6b,0x04};
+
+// VR-202 rain research: RVAs, not hook targets. See ENGINE_NOTES shelter derivation.
+static const uint32_t kRainBoxUpdateRva = 0x006d8951;
+static const uint32_t kRainShelterSampleRva = 0x006d8c00;
+static const uint32_t kRainShelterDecisionRva = 0x006d8d0c;
+static const uint32_t kRainImpactUpdateRva = 0x006d8e95;
+static const uint32_t kRainSetFloatParameterRva = 0x004aa690;
+// Setter at RVA 0x4aa690 indexes i*40 and allocates elements of 0x28 bytes.
+static const uint32_t kRainParticleParamStride = 0x28;

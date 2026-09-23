@@ -1,10 +1,17 @@
+## Positional falling-rain investigation (VR-202, 2026-09-22)
+
+- [x] Trace decompiled ownership and native camera shelter versus independent impact paths.
+- [x] Add read-only shelter/particle-consumer diagnostics with bounded logs.
+- [ ] Match an observed missing-rain position to shelter and effective MaxParticles.
+- [ ] Fix a confirmed defect, if the absence is not expected shelter behavior.
+
 ## F10 improvements (VR-199, 2026-09-22)
 
 - [x] Remove reticle hand selection and beam, with old values normalized.
 - [x] Themed click/hold controller hint and Reset to Defaults beside Save as Defaults.
 - [x] Reset host verification, including persistence and safe failure paths.
 - [x] Basic rain toggle targets camera box plus identified rain lens particles.
-- [ ] Headset: rain disappears and returns in a rainy area; inspect logged target template.
+- [x] Headset: lens-only close overlay disappears and returns; template Over_camera_rain_01 confirmed.
 - [ ] Headset: F10 tiers, save-on-change and Reset to Defaults across relaunch.
 
 ## The sword's swing trail (VR-171, 2026-09-21)

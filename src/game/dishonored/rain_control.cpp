@@ -85,6 +85,75 @@ static uint8_t* RainPtr(uint8_t* o, uint32_t off) {
     return v;
 }
 
+// VR-202: read-only native weather decisions. Never force rain through shelter.
+// Called at RainTick's 250 ms cadence, emits at most one summary per second.
+static void RainWeatherTrace(uint8_t* cam, uint8_t* psc, const float* pos, int hidden, int drops, float kill)
+{
+    static RflWant w[] = {
+        {"DishonoredPlayerCamera", "m_bWasUncovered", true},
+        {"DishonoredPlayerCamera", "m_NumRequestedRainImpacts", false},
+        {"DishonoredPlayerCamera", "m_NumAvailableRainImpacts", false},
+        {"ParticleSystemComponent", "bIsActive", true},
+        {"ParticleSystemComponent", "bSuppressSpawning", true},
+        {"ParticleSystemComponent", "InstanceParameters", false},
+        {"ParticleSysParam", "Name", false},
+        {"ParticleSysParam", "ParamType", false},
+        {"ParticleSysParam", "Scalar", false},
+        {"ParticleSysParam", "Material", false}
+    };
+    static bool resolved = false;
+    static uint32_t maxName = 0xffffffffu, rateName = 0xffffffffu;
+    if (!resolved) {
+        resolved = true;
+        const int got = RflResolveBatch(w, (int)(sizeof(w) / sizeof(w[0])));
+        maxName = FindNameIdx("MaxParticles"); rateName = FindNameIdx("SpawnKillRate");
+        Log("rain/weather: layout %d/10 fields; uncovered=+0x%x/0x%x params=+0x%x "
+            "param name/type/scalar/material=+0x%x/+0x%x/+0x%x/+0x%x stride=%u; unresolved reads=-1",
+            got, w[0].off, w[0].mask, w[5].off, w[6].off, w[7].off, w[8].off, w[9].off,
+            kRainParticleParamStride);
+    }
+    auto readInt = [&](uint8_t* obj, int k) -> int {
+        if (!IsLiveObject(obj) || !w[k].found || !RangeReadable(obj + w[k].off, 4)) return -1;
+        uint32_t v = 0; memcpy(&v, obj + w[k].off, 4);
+        return w[k].isBool ? ((v & w[k].mask) ? 1 : 0) : (int)v;
+    };
+    const int uncovered = readInt(cam, 0), requested = readInt(cam, 1), available = readInt(cam, 2);
+    const int active = readInt(psc, 3), suppressed = readInt(psc, 4);
+    float effective = -1, rate = -1;
+    const bool paramLayout = w[5].found && w[6].found && w[7].found && w[8].found && w[9].found &&
+        w[6].off + 8 <= kRainParticleParamStride && w[7].off < kRainParticleParamStride &&
+        w[8].off + 4 <= kRainParticleParamStride && w[9].off + sizeof(void*) == kRainParticleParamStride;
+    uint8_t* data = nullptr; int32_t num = 0;
+    if (paramLayout && IsLiveObject(psc) && RflArrayAt(psc, w[5].off, &data, &num) &&
+        num > 0 && num <= 128 && RangeReadable(data, num * kRainParticleParamStride)) {
+        for (int i = 0; i < num; ++i) {
+            uint8_t* row = data + i * kRainParticleParamStride;
+            uint32_t name[2]; memcpy(name, row + w[6].off, sizeof(name));
+            if (name[1] || row[w[7].off] != 1) continue; // PSPT_Scalar, declared in the script
+            float value; memcpy(&value, row + w[8].off, sizeof(value));
+            if (!std::isfinite(value)) continue;
+            if (name[0] == maxName) effective = value;
+            if (name[0] == rateName) rate = value;
+        }
+    }
+    static unsigned samples = 0, covered = 0, open = 0, zero = 0, positive = 0, unknown = 0;
+    static unsigned long long nextLog = 0;
+    ++samples;
+    if (uncovered == 0) ++covered; else if (uncovered == 1) ++open;
+    if (effective == 0) ++zero; else if (effective > 0) ++positive; else ++unknown;
+    const auto now = GetTickCount64();
+    if (now < nextLog) return;
+    nextLog = now + 1000;
+    Log("rain/weather: cam=%p psc=%p pos=(%.1f %.1f %.1f) uncovered=%d "
+        "configuredDrops=%d MaxParticles=%.1f SpawnKillRate=%.2f cameraKillRate=%.2f "
+        "hidden=%d active=%d suppressSpawn=%d impacts requested=%d available=%d "
+        "| samples=%u open=%u covered=%u maxZero=%u maxPositive=%u maxUnknown=%u "
+        "(MaxParticles=0 is native suppression; positive is not proof of drawn rain)",
+        (void*)cam, (void*)psc, pos[0], pos[1], pos[2], uncovered, drops, effective, rate, kill,
+        hidden, active, suppressed, requested, available, samples, open, covered, zero, positive, unknown);
+    samples = covered = open = zero = positive = unknown = 0;
+}
+
 static void RainTick() {
     const bool hide = g_rainHide.load(), trace = g_rainTrace.load();
     struct HiddenRain { uint8_t* comp; uint8_t* owner; uint8_t* templ; uint32_t name[2]; };
@@ -290,6 +359,7 @@ static void RainTick() {
     static uint8_t* lastEmitter = (uint8_t*)1;
     static float lastExtent[3] = {}; static int lastDrops = -2, lastHidden = -2;
     const int hid = hiddenNow(psc);
+    if (cam && cOk) RainWeatherTrace(cam, psc, cloc, hid, drops, kill);
     const bool changed = emitter != lastEmitter || drops != lastDrops || hid != lastHidden ||
                          fabsf(extent[0] - lastExtent[0]) > 0.5f || fabsf(extent[1] - lastExtent[1]) > 0.5f ||
                          fabsf(extent[2] - lastExtent[2]) > 0.5f;
@@ -297,7 +367,7 @@ static void RainTick() {
         lastEmitter = emitter; lastDrops = drops; lastHidden = hid; memcpy(lastExtent, extent, sizeof(extent));
         Log("rain/box: emitter=%p (%s) psc=%p hidden=%d drops=%d extent=(%.1f %.1f %.1f) uu dir=(%.2f %.2f %.2f) "
             "killRate=%.2f | emitter in camera frame fwd=%.1f right=%.1f up=%.1f dist=%.1f uu (%s) | 100 uu = 1 m; "
-            "read-only unless [Rain] Hide=1",
+            "box visibility untouched; extent writable only with [Rain] Distance>=0",
             (void*)emitter, ec ? ec : "none", (void*)psc, hid, drops, extent[0], extent[1], extent[2],
             dir[0], dir[1], dir[2], kill, f, r, u, dist,
             eOk && cOk ? "measured" : "unavailable: -1 dist means no emitter or no camera cache");
