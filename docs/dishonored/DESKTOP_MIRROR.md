@@ -168,3 +168,33 @@ Everything below. None of it is verified.
 Performance. Roughly 78 complete pairs per second against a 90 Hz headset,
 about 9.7 ms of D3D9 GPU span per tick, 15.7 megapixels per pair at 2750x2850.
 That is the next subject and it is not touched by anything in this document.
+
+
+## 9. The SteamVR shim keeps the mirror on (VR-208, 2026-09-23)
+
+**Report:** on an Index through the SteamVR shim (build `525-g548c31693`), the game kept
+crashing until the desktop mirror was turned back on.
+
+**Measured:**
+* The shipped ini carries the accepted Quest/Virtual Desktop performance profile:
+  `DesktopMirrorOff=1` and `DesktopMirrorStrictOff=1`, promoted in `b636ed8e7`. Neither
+  was ever measured on the SteamVR shim.
+* `dishonored_vr_crash.txt` holds two fatal crashes at `Dishonored.exe+0x60907e`. The game
+  loads global `0x0145B15C`, finds it null, and calls vtable +0x2c, on a thread with
+  `CoreUIComponents.dll` on the stack. This is the original handoff's trap 6, seen before
+  only on direct-exe launches. The logs of those two runs were overwritten, because log
+  rotation keeps one previous run, so their settings are unknown.
+* The two logs supplied show the same load stall at about 20 s, with the same caught
+  `d3d9.dll+0x17298c` exception cluster. The mirror-off run was quit about 5 s after it,
+  at 0-2 presents/s. The mirror-on run recovered and played for 6 minutes.
+
+**What is NOT established:** that mirror-off causes trap 6. The link is the tester's
+report plus the missing logs.
+
+**Change (`desktop_eye.cpp`, `frame_hooks.cpp`):** when the runtime is named
+"...SteamVR shim...", `set_runtime_veto` holds the effective mirror-off at 0. The ini's
+`DesktopMirrorOff` is kept: it is still saved, and F10 still shows it. The veto is logged
+once as a `Warn`, and the `DesktopMirrorOff=` line gives the effective value. Other
+runtimes are unchanged. `desktop-present-d3d9-host` passes (240 checks).
+`desktop-eye-host` fails with "window changed to right pixels after snapshot", and it
+fails the same way on unmodified `VR-Main` (tracked separately).

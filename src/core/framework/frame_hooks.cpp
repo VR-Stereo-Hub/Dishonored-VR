@@ -112,6 +112,9 @@ void track_session() {
         namedRuntime = true;
         DVR_INFO("xr: runtime \"%s\" (instance up; session %s)", dvr::vr::runtime_name(),
                  dvr::vr::session_state_name());
+        // VR-208: the SteamVR shim keeps the desktop mirror on.
+        if (strstr(dvr::vr::runtime_name(), "SteamVR shim"))
+            dvr::desktop_eye::set_runtime_veto(true, "the SteamVR shim");
     }
     const bool live = dvr::vr::session_live();
     if (live != g_xrLive) {
