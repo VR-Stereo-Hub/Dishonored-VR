@@ -41,4 +41,3 @@ try {
     Pop-Location
     $env:INCLUDE = $oldInc; $env:LIB = $oldLib
 }
-

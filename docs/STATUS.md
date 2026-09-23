@@ -10,7 +10,9 @@ eye dimension), resizable, with independent scrolling tab contents. Tier logic, 
 controller hint, reset/save actions and existing setters remain intact. Hands size and
 Sleeve initially open. See dishonored/F10_ART_THEME.md and assets/ui/f10/README.md.
 
-Native offscreen preview and pointer-event checks pass. Optimized game build passes.
+Native offscreen Basic/Advanced previews and pointer-event checks pass. Optimized game build,
+lint and 9/9 exports pass. Prepared vr33-hands-working-731-g9b2e4a44a, archived under
+build/playtest-candidates/vr-206-vr33-hands-working-731-g9b2e4a44a.
 DO NOT INSTALL until explicit go-ahead. Headset layout/controller acceptance remains open.
 No installed file was changed for this task.
 
