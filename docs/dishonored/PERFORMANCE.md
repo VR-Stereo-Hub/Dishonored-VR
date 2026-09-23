@@ -1470,3 +1470,63 @@ persists with these probes gone, set `SourceProbe=0` as the next A/B.
 **Build 620 (headset).** No lag was reported. The log is short (18 gameplay samples):
 104.7 ticks/s, with 3.9 ms outside the frame path. The scene differs from 615's, so this
 is a report, not a measured A/B. The suspects stay removed.
+
+## VR-204: two diagnostics that ran all session, default off (2026-09-22, UNMEASURED fix)
+
+**Report:** in the fifth VR-204 run, average fps looked right but a few hitches remained.
+That build had a median stereo present rate of 237/s, against 236/s for the trace-only build.
+
+**Log census (180 s run):** `camera/source` wrote 8,625 lines (56/s) and `cine/trace` wrote
+7,442 (50/s). Together that is about 106 lines/s for the whole session.
+
+* `camera/source` is the VR-165 census (`[Diagnostics] CamModProbe=1`, shipped ON). Every
+  500 ms, `CameraSourceTick` calls `BuildLiveSet()`, a full copy and sort of GObjects
+  (115,893 slots on this save), on the script lane. It then prints a table of about 28
+  lines. VR-165 is closed. A periodic whole-table rebuild on the game thread is a hitch
+  candidate by construction.
+* `cine/trace` (`[Cine] Trace=1`, shipped ON) samples every 100 ms and prints 5 lines per
+  sample. It rebuilt the live set only once in the run (`liveRefresh=1` on 1 of 1,488
+  samples), so its cost is the logging.
+
+**Change:** both now ship 0, in code, the ini writer, the golden and packaged ini, and the
+tester's installed ini. The installed ini's original is kept beside the fifth run's logs.
+Both keys still turn the diagnostics on for an investigation.
+
+**Not measured:** the hitches themselves. The log has no frame-time histogram, so whether
+these two were the spikes is a prediction. Prediction: with both off, the next run's
+`stereo: beat` minimum rises toward its median, and a hitch at a 500 ms period no longer
+appears. If the hitches remain, the next suspects are the other `BuildLiveSet()` callers
+(`cinematic_fov`, `cinematic_pitch`, `game_opts`) and the native-profile hooks
+(`NativeProfile=1`).
+
+## VR-204: the live-object table as a hash set (2026-09-22, UNMEASURED fix)
+
+**Report:** after the two diagnostics above were turned off, a few hitches remained at
+high fps.
+
+**The run's `perf: frame gap` lines** (the ones logged are 40 ms or more, or 2.5 times the
+mean present interval):
+* Most steady-play gaps sat in `out/idle (waiting for the game thread)`: 40-60 ms, every
+  few seconds, several at exactly 33 ms. Six sat in `present-tail (xrEndFrame)`, at 31-42
+  ms: the runtime or compositor.
+* The two load-time gaps line up with the `uistate` scan: 101 ms at 43719500 against a
+  114 ms gap, and 145 ms at 43795593 against a 164 ms gap. That scan runs once per load and
+  is left alone.
+* Mod work logged near the steady gaps: none that repeats.
+
+**The mod-side periodic cost:** `RefreshLiveSet` is called by the UI surface poll (1 s),
+crouch (1 s), rain, the sword trail and the camera shake (2 s). The shared table was
+therefore rebuilt about once a second. Each rebuild copies and sorts about 116,000
+pointers, about 12 ms by VR-160's measurement, on whichever thread asked. At 144 Hz that
+is at least one dropped frame each time. It sits below the gap logger's 40 ms line, so
+the log could not show it.
+
+**Change (`ue3/uobject.cpp`):** the table is now an open-addressing hash set with linear
+probing, a load factor of at most 0.5 and an integer avalanche hash. A rebuild is one
+linear pass with no sort, and `IsLiveObject` takes one or two probes instead of about
+seventeen. The answers are the same: membership in the current GObjects array. Every
+30 s the rebuild cost is summarised as `live: N rebuild(s) ... mean X ms, max Y ms`.
+
+**Prediction:** `live:` reports a mean well under 3 ms. The steady out/idle gaps at 40 ms
+and above are the game's own, so they should mostly remain. What should go away is the
+once-a-second single-frame drops that are too small to itemise.

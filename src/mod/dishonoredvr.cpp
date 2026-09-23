@@ -255,6 +255,7 @@
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/anim_state.cpp"
 #include "game/dishonored/drop_assist.cpp"      // drop takedowns: sampled from the anim tick
+#include "game/dishonored/move_speed.cpp"     // VR-204: after anim_state (its caller) and reflect
 #include "game/dishonored/possession_state.cpp"   // VR-135: before its one consumer
 #include "game/dishonored/stereo_state.cpp"
 #include "game/dishonored/cinematic_trace.cpp"

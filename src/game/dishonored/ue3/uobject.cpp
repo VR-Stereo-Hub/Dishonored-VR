@@ -91,8 +91,28 @@ static uint32_t  g_liveScratchCap = 0;
 static ULONGLONG g_liveBuiltMs = 0;      // GetTickCount64 of the last successful rebuild
 static uint32_t  g_liveRebuilds = 0, g_liveReuses = 0;
 
+// VR-204: THE TABLE IS A HASH SET, NOT A SORTED ARRAY. The rebuild was a copy and an
+// std::sort of about 116,000 pointers (about 12 ms, VR-160's measurement), requested about
+// once a second by the periodic callers (the UI surface poll, crouch, rain, the sword trail,
+// the camera shake). At 144 Hz a frame is 6.9 ms, so every rebuild was at least one dropped
+// frame on the thread that asked: the "few hitches at high fps" of the 2026-09-22 runs.
+// An open-addressing set (linear probing, load factor at most 0.5) is built in one linear
+// pass, and a lookup is one or two probes instead of seventeen. g_liveCap is the slot
+// count (a power of two); g_liveN is still the number of objects.
+static inline uint32_t LiveSlot(uintptr_t p, uint32_t mask)
+{
+    uint32_t x = (uint32_t)p;                     // a full avalanche: object addresses share
+    x ^= x >> 16; x *= 0x7feb352du;               // their low bits (alignment), so a plain
+    x ^= x >> 15; x *= 0x846ca68bu;               // multiply-and-mask would cluster the probes
+    x ^= x >> 16;
+    return x & mask;
+}
+static double   g_liveCostSum = 0.0, g_liveCostMax = 0.0, g_liveCostNext = 0.0;
+static uint32_t g_liveCostN = 0;
+
 static bool BuildLiveSet()
 {
+    const double t0 = MaimNowMs();
     AcquireSRWLockExclusive(&g_liveBuildLock);
     struct UnlockBuild { ~UnlockBuild() { ReleaseSRWLockExclusive(&g_liveBuildLock); } } unlockBuild;
     uint32_t n = 0;
@@ -103,17 +123,22 @@ static bool BuildLiveSet()
         uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
         if (((uintptr_t)objs & 3) || num < 2000 || num > 4000000) break;
         if (!RangeReadable(objs, (size_t)num * sizeof(void*))) break;
-        if (num > g_liveScratchCap) {
-            void** p = (void**)realloc(g_liveScratch, (size_t)(num + 4096) * sizeof(void*));
+        uint32_t cap = 4096;
+        while (cap < num * 2u) cap <<= 1;
+        if (cap != g_liveScratchCap) {
+            void** p = (void**)realloc(g_liveScratch, (size_t)cap * sizeof(void*));
             if (!p) break;
-            g_liveScratch = p; g_liveScratchCap = num + 4096;
+            g_liveScratch = p; g_liveScratchCap = cap;
         }
+        memset(g_liveScratch, 0, (size_t)cap * sizeof(void*));
+        const uint32_t mask = cap - 1;
         for (uint32_t i = 0; i < num; i++) {
             void* o = objs[i];
-            if (o && !((uintptr_t)o & 3)) g_liveScratch[n++] = o;
+            if (!o || ((uintptr_t)o & 3)) continue;
+            uint32_t h = LiveSlot((uintptr_t)o, mask);
+            while (g_liveScratch[h] && g_liveScratch[h] != o) h = (h + 1) & mask;
+            if (!g_liveScratch[h]) { g_liveScratch[h] = o; ++n; }
         }
-        std::sort(g_liveScratch, g_liveScratch + n,
-                  [](void* a, void* b) { return (uintptr_t)a < (uintptr_t)b; });
         ok = true;
     } while (0);
 
@@ -129,6 +154,18 @@ static bool BuildLiveSet()
     }
     const bool good = ok && g_liveN > 1000;
     ReleaseSRWLockExclusive(&g_liveLock);
+    // The cost, as a 30 s summary: a rebuild is a periodic stall on whichever thread asked.
+    const double now = MaimNowMs(), cost = now - t0;
+    g_liveCostSum += cost; ++g_liveCostN;
+    if (cost > g_liveCostMax) g_liveCostMax = cost;
+    if (now >= g_liveCostNext) {
+        if (g_liveCostNext > 0.0)
+            Log("live: %u rebuild(s) in the last 30 s, mean %.2f ms, max %.2f ms (%u objects, %u slots; "
+                "hash set since VR-204, the sorted copy was about 12 ms); %u reuse(s) in total",
+                g_liveCostN, g_liveCostSum / g_liveCostN, g_liveCostMax, n, g_liveCap,
+                g_liveReuses);
+        g_liveCostNext = now + 30000.0; g_liveCostSum = g_liveCostMax = 0.0; g_liveCostN = 0;
+    }
     return good;
 }
 
@@ -152,15 +189,13 @@ static bool IsLiveObject(uint8_t* p)
     if (!p || ((uintptr_t)p & 3)) return false;
     AcquireSRWLockShared(&g_liveLock);
     struct Unlock { ~Unlock() { ReleaseSRWLockShared(&g_liveLock); } } unlock;
-    if (!g_liveN) return false;
-    uint32_t lo = 0, hi = g_liveN - 1;
-    while (lo <= hi) {
-        uint32_t mid = lo + (hi - lo) / 2;
-        uintptr_t v = (uintptr_t)g_liveSet[mid], t = (uintptr_t)p;
-        if (v == t) return true;
-        if (v < t) lo = mid + 1; else { if (!mid) break; hi = mid - 1; }
+    if (!g_liveN || !g_liveCap) return false;
+    const uint32_t mask = g_liveCap - 1;
+    for (uint32_t h = LiveSlot((uintptr_t)p, mask);; h = (h + 1) & mask) {
+        void* v = g_liveSet[h];
+        if (v == p) return true;
+        if (!v) return false;
     }
-    return false;
 }
 
 

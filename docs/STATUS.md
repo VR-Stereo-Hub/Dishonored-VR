@@ -20,6 +20,28 @@ The controls are in F10 > Controls > Drop takedowns, and the live word is `drop`
 
 Next: more drops at the new defaults, and whether 2.00 ever takes a guard the player
 did not aim for.
+## Session 2026-09-22 (walk speed by direction, VR-204): branch `claude/vr-204-crouch-walk-slowdown`, not merged
+
+A crouched walk slowed when the left stick pushed off straight ahead. The `move/trace`
+diagnostic found two causes, both in the game:
+* A full diagonal push was flagged as a walk, at half speed. The game reads each stick axis
+  through its own 0.3 deadzone, on top of ours.
+* Sideways ran at the game's strafe multiplier, 0.727 of straight ahead.
+
+The stick is now delivered pre-compensated for the game's deadzone, which is headset-verified:
+full diagonals no longer walk. Standing, the strafe and backward multipliers are raised to
+1.0. Crouched, the strafe multiplier scales the RUN speed, so setting it to 1.0 made a
+crouched strafe run at standing speed. Crouch speed divided by run speed came out 11% fast
+in the third run, so a closed loop was tried. It never fired in the fourth run, and the ratio alone was
+judged good, so the loop was removed. The third run also caught a performance
+regression (about 118 to 89 fps) from a continuous object scan. A "once per level" scan
+retried forever and was worse. There is no scan now: the tweak objects are read through the
+pawn's own pointer (`m_pPawnTweaks.m_pAttributeTweaks[4]`). Neither has a toggle, by request. Built and
+installed; the strafe ratio is not yet headset-tested. In the next log, look for:
+* `pad/move:`, which gives the game deadzone read from `DishonoredInput.ini`;
+* `move/speed:`, which gives the shipped multipliers and each `correction`;
+* `move/trace:` lines (off by default; `[Anim] MoveTrace=1` turns them on), where `mod=` should be the same at every `stickAng`.
+Details: ENGINE_NOTES "Walking speed by stick direction".
 
 ## Session 2026-09-22 (F10 cleanup and theme, VR-196/VR-197): merged to VR-Main (#103)
 
@@ -2094,7 +2116,6 @@ and prior DLL/INI archived at build/playtest-candidates/installs/20260917-122258
 Full installed INI is byte-identical to prior saved profile; CRLF and DLL/INI
 hashes independently verified. Headset result pending.
 
-
 ## Current: automatic reading entry tilt after423 (2026-09-17)
 
 423 DLL/banner verified; both logs/latest INI archived in reading-tilt/reported423.
@@ -2521,7 +2542,6 @@ Session log 2026-09-15 (this branch): VR-119 and VR-120 created; VR-118 answered
 transform, the shader-read columns, the clusters); the alpha capture; the element
 table with six anchors and two hands; seven simulator runs on this PC, six
 sequences green; the PR stacked on `claude/vr-117-hud-redo`.
-
 
 ## Current state: the HUD on its anchors (VR-117), headset-confirmed, PR #63 ready for review - 2026-09-15
 
@@ -3103,7 +3123,6 @@ natives table and `PropWatch` are the tools for it. Do NOT re-arm
 
 ## Earlier (2026-09-12): VR-82/83/84 merged and confirmed
 
-
 `claude/vr-85-interact-head-or-controller`, off VR-Main at `55cdb2b8`.
 
 **The goal**: interact with whatever the head OR the controller is pointing at, so a
@@ -3214,7 +3233,6 @@ measured axis for weapons with no usable projectile (needs vertex subsampling an
 multi-bone handling past the reader's 1024-vertex limit), and the VR-77/78/79/80/81 and
 VR-75 items carried from before.
 
-
 ## CURRENT (2026-09-12): native crossbow hand-aim candidate (VR-57)
 
 Implemented the byte-verified native pre-spawn firing hook. It aims the existing
@@ -3227,7 +3245,6 @@ No game or simulator was launched; runtime behavior remains unverified.
 Next: user play when ready; weapon alignment, native traces and assist are separate.
 The complete implementation and evidence are in
 [dishonored/VR-57-NATIVE-FIRE-HANDOFF.md](dishonored/VR-57-NATIVE-FIRE-HANDOFF.md).
-
 
 ## Earlier (2026-09-12, later): the projection layer is aligned; the ray is the suspect (VR-57)
 
@@ -3327,7 +3344,6 @@ choice; no measured weapon-axis comparison is invented. Full review answers,
 installed hashes, backups, instrumentation and testing:
 `dishonored/VR-57-CODEX-HANDOFF.md`. Trace and actual projectile aiming come later.
 
-
 ## Earlier (2026-09-11, later): the last hand/weapon flicker is fixed (VR-76)
 
 The one-frame rightward jump of the hands and weapon is gone. The tester played the
@@ -3370,7 +3386,6 @@ separate headset-only verdict. Keep VR-76 open until then. VR-77 burst generatio
 and VR-75 cutscene changes remain separate. Full Claude handoff, review
 corrections, backup paths and installed hashes:
 `dishonored/VR-76-CODEX-HANDOFF.md`. Source changes are uncommitted in this branch.
-
 
 ## Earlier (2026-09-11): the intro boat is fixed end to end (VR-73, PR #35)
 
@@ -6223,7 +6238,6 @@ was sampled" must never be able to read as "no difference was found".
 **Seen and not chased:** each shader draws the mesh three times per frame, and
 only one pass is depth-crushed. The purpose of the other two is unknown.
 
-
 **2026-09-06, session 19 (part 3)**: floating hands WORK, using the game's own
 hands. Built the draw census, then the mesh lock (buffer-pair identity, both
 draw entry points), then live triangle-range slicing - the mesh is a triangle
@@ -8432,7 +8446,6 @@ Archived verified234 playtest. Accepted comfort/FOV/free look; mono handoff and
 movement-heading regressions remain open. Corrected activity accounting and
 body-facing ownership in PR56, keeping PR57/58 candidates separate. Tests and
 next single-question launch are in CINEMATIC_FOV_AND_HANDS.md. No merge.
-
 
 ## Session 2026-09-14: mono UI ownership and anchoring
 
