@@ -1,4 +1,4 @@
-// tools/installer/model/installer.h - what the installer knows and what it does.
+// tools/installer/model/installer.h - what the launcher knows and what it does.
 // No ImGui in here: detect() reads the machine into a Detection, the do_*
 // functions carry out one operation and return a Report of steps with human
 // text, and the screens only draw those. The elevated child and the

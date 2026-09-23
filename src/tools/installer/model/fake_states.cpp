@@ -46,7 +46,7 @@ Report install_report(bool baselinePending, bool failed)
     r.add(StepStatus::Ok, "Render size: Balanced (tested), 2750x2850 per eye", "100% of the tested 2750x2850. Set the headset to 90 Hz: this size was judged there, and ghosts at 120.");
     r.add(StepStatus::Ok, "Data folder: %LOCALAPPDATA%\\DishonoredVR", "[Paths] DataDir= (empty)");
     if (failed) {
-        r.add(StepStatus::Failed, "Could not write DishonoredEngine.ini", "Access is denied. (5)\nControlled folder access in Windows Security may be protecting Documents; allow DishonoredVR-Setup.exe there, or apply the four values with setup-game-ini.ps1 -VRBaseline from the zip.");
+        r.add(StepStatus::Failed, "Could not write DishonoredEngine.ini", "Access is denied. (5)\nControlled folder access in Windows Security may be protecting Documents; allow DishonoredVR-Launcher.exe there, or apply the four values with setup-game-ini.ps1 -VRBaseline from the zip.");
     } else if (baselinePending) {
         r.add(StepStatus::Skipped, "Game settings: waiting for the game's first run", "The game writes its own settings folder the first time it runs. Launch Dishonored once from Steam, quit to the desktop, and this window applies the last four settings by itself.");
         r.baselinePending = true;
@@ -62,16 +62,28 @@ Report install_report(bool baselinePending, bool failed)
 
 std::vector<std::string> fake_state_names()
 {
-    return { "setup-found", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
+    return { "guide", "guide-zoom", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
              "done", "done-waiting", "done-failed", "manage", "manage-disabled", "manage-update", "manage-uninstall", "busy" };
 }
 
 bool fake_state(const std::string& name, ViewState* v)
 {
     *v = ViewState();
-    v->logPath = "C:\\Users\\player\\AppData\\Local\\DishonoredVR\\dishonored_vr_setup.log";
+    v->logPath = "C:\\Users\\player\\AppData\\Local\\DishonoredVR\\dishonored_vr_launcher.log";
+    if (name == "guide" || name == "guide-zoom") {
+        v->det = base_detection(); v->choices = v->det.suggested;
+        v->screen = Screen::Guide;
+        if (name == "guide-zoom") v->guideZoom = 2.0f;
+        return true;
+    }
     if (name == "setup-found") {
         v->det = base_detection(); v->choices = v->det.suggested; return true;
+    }
+    if (name == "setup-steamvr" || name == "setup-controls") {
+        v->det = base_detection(); v->choices = v->det.suggested;
+        v->choices.runtime = Runtime::SteamVr;
+        v->controlsOpen = name == "setup-controls";
+        return true;
     }
     if (name == "setup-notfound") {
         v->det = base_detection();

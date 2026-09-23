@@ -1,4 +1,4 @@
-# VR-198: draw every screen of DishonoredVR-Setup.exe headless and save PNGs, so the
+# VR-198: draw every screen of DishonoredVR-Launcher.exe headless and save PNGs, so the
 # look and the layout can be judged without a game, a headset or a click.
 # Writes build\installer-preview\<state>.png (and <state>@1.5.png for a 144-dpi
 # layout). The states are the named fakes in src/tools/installer/model/fake_states.cpp.
@@ -14,7 +14,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $config = if ($Debug) { 'Debug' } else { 'RelWithDebInfo' }
-$exe = Join-Path $repo "build\src\$config\DishonoredVR-Setup.exe"
+$exe = Join-Path $repo "build\src\$config\DishonoredVR-Launcher.exe"
 if (-not (Test-Path $exe)) { throw "missing $exe - run tools\build.ps1 first" }
 $out = Join-Path $repo 'build\installer-preview'
 New-Item -ItemType Directory -Force -Path $out | Out-Null

@@ -16,6 +16,25 @@
 
 namespace dvr::setup::process {
 
+bool write_shortcut(const std::wstring& linkPath, const std::wstring& target,
+                    const std::wstring& args, DWORD* err)
+{
+    IShellLinkW* link = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link));
+    if (SUCCEEDED(hr)) hr = link->SetPath(target.c_str());
+    if (SUCCEEDED(hr)) hr = link->SetArguments(args.c_str());
+    if (SUCCEEDED(hr)) hr = link->SetWorkingDirectory(fs::parent(target).c_str());
+    if (SUCCEEDED(hr)) hr = link->SetDescription(L"Configure and launch Dishonored VR");
+    if (SUCCEEDED(hr)) hr = link->SetIconLocation(target.c_str(), 0);
+    IPersistFile* file = nullptr;
+    if (SUCCEEDED(hr)) hr = link->QueryInterface(IID_PPV_ARGS(&file));
+    if (SUCCEEDED(hr)) hr = file->Save(linkPath.c_str(), TRUE);
+    if (file) file->Release();
+    if (link) link->Release();
+    if (FAILED(hr) && err) *err = HRESULT_FACILITY(hr) == FACILITY_WIN32 ? HRESULT_CODE(hr) : ERROR_GEN_FAILURE;
+    return SUCCEEDED(hr);
+}
+
 Running is_running(const wchar_t* exeName)
 {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);

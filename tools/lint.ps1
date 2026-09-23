@@ -43,7 +43,7 @@ try {
     # Keep an exact allowlist; arbitrary PNGs and every game-derived format remain banned.
     # Provenance and prompt set: assets/ui/f10/README.md.
     $authoredArt = @('assets/ui/f10/backdrop.png', 'assets/ui/f10/parchment.png',
-        'assets/ui/f10/metal.png', 'assets/ui/f10/header.png', 'assets/ui/f10/note.png')
+        'assets/ui/f10/metal.png', 'assets/ui/f10/header.png', 'assets/ui/f10/note.png', 'assets/ui/launcher/quest3-controls.png')
     $staged = @($staged | Where-Object { $_ -notin $authoredArt })
     if ($staged) { Bad "game-derived binaries tracked: $($staged -join ', ')" }
 } finally { Pop-Location }

@@ -25,5 +25,8 @@ bool open_unelevated(const std::wstring& target);
 bool open(const std::wstring& target);       // plain ShellExecute (fine when not elevated)
 std::wstring quote_arg(const std::wstring& a);
 bool attach_parent_console();
+// Creates a per-user .lnk; no launch or elevation. The caller chooses its location.
+bool write_shortcut(const std::wstring& linkPath, const std::wstring& target,
+                    const std::wstring& args, DWORD* err);
 
 } // namespace dvr::setup::process

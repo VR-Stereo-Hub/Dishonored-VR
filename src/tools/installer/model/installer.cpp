@@ -113,7 +113,7 @@ bool remove_if_present(Report* r, const std::wstring& dir, const wchar_t* name, 
     return true;
 }
 
-// The five keys. Every other line stays the tested byte copy.
+// Baseline choices plus explicitly selected preferences; all other lines stay.
 bool apply_choices(Report* r, const Detection& det, const Choices& c)
 {
     const std::wstring ini = fs::join(det.gameDir, kIniName);
@@ -126,7 +126,7 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
         json = c.vdxrJson.empty() ? det.vdxrJson : c.vdxrJson;
         if (!fs::is_file(json)) {
             r->add(StepStatus::Warn, "Virtual Desktop's runtime was not found",
-                   fs::format("No manifest at %s. The mod will pick the runtime itself (Runtime=auto); choose again from this installer once Virtual Desktop Streamer is installed.", n(json).c_str()));
+                   fs::format("No manifest at %s. The mod will pick the runtime itself (Runtime=auto); choose again from this launcher once Virtual Desktop Streamer is installed.", n(json).c_str()));
             rt = Runtime::Auto; json.clear();
         }
     }
@@ -147,6 +147,21 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
     r->add(StepStatus::Ok, fs::format("Render size: %s, %ux%u per eye", quality_label(c.quality), s.w, s.h),
            fs::format("%.0f%% of the tested 2750x2850%s. Set the headset to 90 Hz: this size was judged there, and ghosts at 120.",
                       percent_for_size(s), (c.exact.w && c.exact.h) ? ", kept exactly as it was" : ""));
+
+    for (int i = 0; i < PreferenceCount; ++i) {
+        const int value = c.preferences[i];
+        if (value < 0) continue;
+        const Preference& p = kPreferences[i];
+        if (!profile::set(ini, p.section, p.key, std::to_wstring(value), &err)) {
+            r->fail(std::string("Could not save ") + p.label, err); return false;
+        }
+        r->add(StepStatus::Ok, std::string(p.label) + ": " +
+               (i == Modifier ? std::to_string(value) : ((p.inverted ? !value : value) ? "on" : "off")),
+               fs::format("[%s] %s=%d", n(p.section).c_str(), n(p.key).c_str(), value));
+    }
+    if (rt == Runtime::SteamVr && c.preferences[Mirror] == 1)
+        r->add(StepStatus::Warn, "SteamVR keeps the desktop mirror on",
+               "Your mirror-off preference is saved for native runtimes. The SteamVR bridge overrides it.");
 
     // [Paths] DataDir: empty means %LOCALAPPDATA%\DishonoredVR. A value the player
     // set on purpose is kept; the dev PC's drive that a build once shipped is not.
@@ -221,7 +236,7 @@ bool write_install_record(Report* r, const Detection& det, const Choices* c)
     DWORD err = 0;
     if (!write_record(det.gameDir, rec, &err)) { r->fail("Could not write the install record", err); return false; }
     r->add(StepStatus::Ok, fs::format("Recorded the install: %s (%s, %s)", rec.version.c_str(), rec.buildId.c_str(), rec.config.c_str()),
-           "dishonored_vr_install.json beside the game, so this installer can update or remove exactly what it put there.");
+           "dishonored_vr_install.json beside the game, so this launcher can update or remove exactly what it put there.");
     return true;
 }
 } // namespace
@@ -314,6 +329,8 @@ Detection detect(const Env& env)
             d.iniSize.w = (uint32_t)profile::get_int(ini, L"Screen", L"RenderWidth", 0);
             d.iniSize.h = (uint32_t)profile::get_int(ini, L"Screen", L"RenderHeight", 0);
             d.iniDataDir = profile::get(ini, L"Paths", L"DataDir");
+            for (int i = 0; i < PreferenceCount; ++i)
+                d.suggested.preferences[i] = profile::get_int(ini, kPreferences[i].section, kPreferences[i].key, -1);
         }
     }
 
@@ -335,6 +352,9 @@ Detection detect(const Env& env)
              n(d.gameDir).c_str(), d.gameNote.c_str(), (int)d.running, d.gameWritable, n(d.configDir).c_str(), d.configExists, d.needsElevation,
              d.d3dcompiler, d.vdxrPresent, d.steamvrPresent, n(d.activeRuntime).c_str(), n(d.gpu.name).c_str(), (unsigned long long)(d.gpu.budgetBytes >> 20),
              d.modInstalled, d.installedSha.c_str(), d.embeddedSha.c_str(), d.embeddedLegacy);
+    for (int i = 0; i < PreferenceCount; ++i)
+        DVR_INFO("launcher: saved [%s] %s=%d (-1=use shipped default)",
+                 n(kPreferences[i].section).c_str(), n(kPreferences[i].key).c_str(), d.suggested.preferences[i]);
     return d;
 }
 
@@ -445,7 +465,7 @@ Report do_disable(const Env& env, const Detection& det, bool disabled)
     const std::wstring marker = fs::join(det.gameDir, kDisableName);
     DWORD err = 0;
     if (disabled) {
-        const char* text = "The mod is disabled while this file exists. Delete it, or use Enable VR in DishonoredVR-Setup.exe.\r\n";
+        const char* text = "The mod is disabled while this file exists. Delete it, or use Enable VR in DishonoredVR-Launcher.exe.\r\n";
         if (!fs::write_file_atomic(marker, text, strlen(text), &err)) { r.fail("Could not write disable_vr.txt", err); return r; }
         r.add(StepStatus::Ok, "VR disabled", "disable_vr.txt is beside the game: the mod loads and does nothing, so Dishonored runs flat until you enable it again.");
     } else {

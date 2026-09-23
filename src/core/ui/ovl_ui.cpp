@@ -414,14 +414,14 @@ void title(const char* text)
     ImGui::PopItemWidth();
 }
 
-bool pill(const char* label, bool selected)
+bool pill(const char* label, bool selected, float requestedWidth)
 {
     Skin skin;
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.12f));
     ImGui::PushStyleColor(ImGuiCol_Text, selected ? kInkText : kBone);
     ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign,ImVec2(.5f,.5f));
-    const float width=ImGui::CalcTextSize("Advanced").x+ImGui::GetStyle().FramePadding.x*2;
+    const float width=requestedWidth > 0 ? requestedWidth : ImGui::CalcTextSize("Advanced").x+ImGui::GetStyle().FramePadding.x*2;
     const bool hit = ImGui::Button(label, ImVec2(width, 0));
     ImGui::PopStyleVar();
     skin.finish(selected ? 1 : 2, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());

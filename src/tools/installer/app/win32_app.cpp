@@ -81,6 +81,13 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;
     App* a = g_app;
     switch (msg) {
+    case WM_GETMINMAXINFO:
+        if (a) {
+            auto* bounds = reinterpret_cast<MINMAXINFO*>(lp);
+            bounds->ptMinTrackSize.x = (LONG)(760 * a->scale);
+            bounds->ptMinTrackSize.y = (LONG)(640 * a->scale);
+        }
+        return 0;
     case WM_SIZE:
         if (a && a->swap && wp != SIZE_MINIMIZED) {
             release_rtv(*a);
@@ -110,11 +117,11 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 bool create_window(App& a, HINSTANCE hinst)
 {
     WNDCLASSEXW wc = {}; wc.cbSize = sizeof(wc);
-    wc.lpfnWndProc = wnd_proc; wc.hInstance = hinst; wc.lpszClassName = L"DishonoredVRSetup";
+    wc.lpfnWndProc = wnd_proc; wc.hInstance = hinst; wc.lpszClassName = L"DishonoredVRLauncher";
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     RegisterClassExW(&wc);
-    const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    const DWORD style = WS_OVERLAPPEDWINDOW;
     POINT cursor; GetCursorPos(&cursor);
     HMONITOR mon = MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO mi = { sizeof(mi) }; GetMonitorInfoW(mon, &mi);
@@ -126,7 +133,7 @@ bool create_window(App& a, HINSTANCE hinst)
     const int w = r.right - r.left, h = r.bottom - r.top;
     const int x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - w) / 2;
     const int y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - h) / 2;
-    std::wstring title = L"Dishonored VR Setup " + fs::widen(a.view.det.version);
+    std::wstring title = L"Dishonored VR Launcher " + fs::widen(a.view.det.version);
     if (a.view.det.config != "RelWithDebInfo") title += L" [" + fs::widen(a.view.det.config) + L"]";
     a.hwnd = CreateWindowExW(0, wc.lpszClassName, title.c_str(), style, x, y, w, h, nullptr, nullptr, hinst, nullptr);
     if (!a.hwnd) return false;
@@ -150,6 +157,8 @@ bool create_window(App& a, HINSTANCE hinst)
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     dvr::ovl::load_fonts();
+    dvr::ovl::load_art(a.dev);
+    ui::load_guide(a.dev);
     apply_scale(a, a.scale);
     ImGui_ImplWin32_Init(a.hwnd);
     ImGui_ImplDX11_Init(a.dev, a.ctx);
@@ -186,7 +195,14 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
     s += L" --quality " + fs::widen(quality_token(c.quality));
     s += fs::wformat(L" --percent %.2f", c.pixelPercent);
     if (c.exact.w && c.exact.h) s += fs::wformat(L" --size %ux%u", c.exact.w, c.exact.h);
-    if (!det.vdxrJson.empty()) s += L" --vdxr-json " + process::quote_arg(det.vdxrJson);
+    const std::wstring json = c.vdxrJson.empty() ? det.vdxrJson : c.vdxrJson;
+    if (!json.empty()) s += L" --vdxr-json " + process::quote_arg(json);
+    for (int i = 0; i < PreferenceCount; ++i) {
+        if (c.preferences[i] < 0) continue;
+        s += L" " + std::wstring(kPreferences[i].flag) + L" ";
+        s += i == Modifier ? std::to_wstring(c.preferences[i])
+            : ((kPreferences[i].inverted ? !c.preferences[i] : c.preferences[i]) ? L"on" : L"off");
+    }
     if (deleteIni) s += L" --delete-ini";
     s += L" --result " + process::quote_arg(resultFile);
     return s;
@@ -221,7 +237,7 @@ void start_op(App& a, const std::string& op, const char* busyText)
         Report report;
         std::string notice;
         if (elevate) {
-            const std::wstring resultFile = fs::join(fs::temp_dir(), L"DishonoredVR-Setup-result-" + fs::timestamp_local() + L".txt");
+            const std::wstring resultFile = fs::join(fs::temp_dir(), L"DishonoredVR-Launcher-result-" + fs::timestamp_local() + L".txt");
             DWORD code = 0, err = 0;
             DVR_INFO("setup: elevating for %s", op.c_str());
             if (!process::run_self_elevated_wait(child_args(det, op.c_str(), choices, deleteIni, resultFile), &code, &err)) {
@@ -279,7 +295,7 @@ void collect_support(App& a)
     a.worker = std::thread([&a, gameDir]() {
         std::string notice;
         const resources::Blob script = resources::rcdata(IDR_COLLECT_SUPPORT);
-        const std::wstring dir = fs::join(fs::temp_dir(), L"DishonoredVR-Setup");
+        const std::wstring dir = fs::join(fs::temp_dir(), L"DishonoredVR-Launcher");
         const std::wstring ps1 = fs::join(dir, L"collect-support.ps1");
         const std::wstring out = fs::join(dir, L"collect-support.out.txt");
         DWORD err = 0;
@@ -310,6 +326,35 @@ void collect_support(App& a)
         a.workerOp = "support"; a.workerNotice = notice; a.workerHasDet = false;
         a.workerDone = true;
     });
+}
+
+void create_shortcut(App& a, bool desktop)
+{
+    // Keep shortcuts independent of Downloads, archives and temporary build folders.
+    const std::wstring base = fs::known_folder(FOLDERID_LocalAppData);
+    const std::wstring menu = fs::known_folder(desktop ? FOLDERID_Desktop : FOLDERID_Programs);
+    if (base.empty() || menu.empty()) {
+        a.view.notice = "Windows could not locate your user shortcut folders."; return;
+    }
+    const std::wstring dir = fs::join(base, L"DishonoredVR\\Launcher");
+    const std::wstring target = fs::join(dir, L"DishonoredVR-Launcher.exe");
+    const std::wstring source = fs::module_path();
+    DWORD err = 0;
+    if (!fs::make_dir(dir, &err)) {
+        a.view.notice = "Could not create the launcher folder: " + fs::narrow(fs::win_error_text(err)); return;
+    }
+    if (!fs::iequals(source, target)) {
+        std::vector<uint8_t> bytes;
+        if (!fs::read_file(source, &bytes, &err) || !fs::write_file_atomic(target, bytes.data(), bytes.size(), &err)) {
+            a.view.notice = "Could not save the launcher copy: " + fs::narrow(fs::win_error_text(err)); return;
+        }
+    }
+    const std::wstring link = fs::join(menu, L"Dishonored VR Launcher.lnk");
+    const std::wstring args = a.view.det.gameDir.empty() ? L"" : L"--game-dir " + process::quote_arg(a.view.det.gameDir);
+    if (process::write_shortcut(link, target, args, &err))
+        a.view.notice = desktop ? "Desktop shortcut created." : "Start menu shortcut created.";
+    else a.view.notice = "Could not create the shortcut: " + fs::narrow(fs::win_error_text(err));
+    DVR_INFO("launcher: shortcut %s: %s", fs::narrow(link).c_str(), a.view.notice.c_str());
 }
 
 void finish_worker(App& a)
@@ -361,9 +406,17 @@ void dispatch(App& a, UiAction action)
         if (v.screen == Screen::Setup && !v.changingSettings) v.choices = v.det.suggested;
         break;
     case UiAction::Launch:
+        if (process::is_running(kGameExe) != process::Running::No) {
+            v.notice = "Dishonored is already running, or its process could not be checked."; break;
+        }
+        DVR_INFO("launcher: Steam launch requested (app 205100)");
         if (!process::open_unelevated(kSteamLaunchUrl)) v.notice = "Could not reach Steam from here; launch Dishonored from your Steam library.";
         else v.notice = "Asked Steam to launch Dishonored. Put the headset on.";
         break;
+    case UiAction::DesktopShortcut: create_shortcut(a, true); break;
+    case UiAction::StartShortcut: create_shortcut(a, false); break;
+    case UiAction::ShowGuide: v.guideReturn = v.screen; v.screen = Screen::Guide; break;
+    case UiAction::BackFromGuide: v.screen = v.guideReturn; break;
     case UiAction::Close: a.quit = true; break;
     case UiAction::Update: start_op(a, "update", "Updating the mod..."); break;
     case UiAction::ChangeSettings:
@@ -395,7 +448,7 @@ int run_gui(HINSTANCE hinst, const Env& env)
     a.view.screen = a.view.det.modInstalled ? Screen::Manage : Screen::Setup;
     a.view.logPath = dvr::log::path();
     if (!create_window(a, hinst)) {
-        MessageBoxW(nullptr, L"Direct3D 11 could not be started, so the installer cannot draw its window.\nThe mod itself would not run either; check the graphics driver.", L"Dishonored VR Setup", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Direct3D 11 could not be started, so the launcher cannot draw its window.\nThe mod itself would not run either; check the graphics driver.", L"Dishonored VR Launcher", MB_ICONERROR);
         return 1;
     }
     while (!a.quit) {
@@ -429,6 +482,8 @@ int run_gui(HINSTANCE hinst, const Env& env)
         }
     }
     if (a.worker.joinable()) a.worker.join();
+    ui::release_guide();
+    dvr::ovl::release_art();
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();

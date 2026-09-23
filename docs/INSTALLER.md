@@ -1,10 +1,14 @@
-# The installer: DishonoredVR-Setup.exe (VR-198)
+# The launcher: DishonoredVR-Launcher.exe (VR-198)
 
-One exe a player downloads from the Releases page and runs. It finds the game, installs
-the mod beside it, sets the game up, asks the two questions that matter (which headset,
-how many pixels) and leaves everything else to the F10 panel. Run again later it turns
-into a small control panel: update, change those two settings, disable VR, collect a
-support bundle, uninstall.
+One exe to install, configure and launch Dishonored VR. Setup offers runtime,
+render quality, desktop mirror, physical crouching, close rain overlay and movement
+direction. Controller shortcuts and exact resolution remain expandable. Returning
+players can launch through Steam, change settings, collect logs, create shortcuts,
+update, disable VR or uninstall.
+
+The **Bindings** page embeds the owner-supplied Quest 3 reference. Fit/zoom and
+scrolling keep it readable; maximize the window for more room. Current shortcut
+preferences appear above the image because custom settings can differ.
 
 It is a native 32-bit Windows program (`src/tools/installer/`), drawn with Dear ImGui in
 the F10 panel's own theme (`src/core/ui/ovl_ui.cpp`, VR-197): ink, bone, brass and
@@ -44,7 +48,7 @@ found. A failed step stops the list; nothing below it runs.
    size across too. The version the refresh targets is read from the embedded ini's own
    `[Meta] Version`, never a second constant.
 7. **Applies the choices** with the private-profile API, one key at a time, comments and
-   line endings untouched. Exactly five keys, nothing else:
+   line endings untouched. Five baseline choice keys, plus optional preferences:
 
    | Choice | Keys | Values |
    |---|---|---|
@@ -52,6 +56,11 @@ found. A failed step stops the list; nothing below it runs.
    | SteamVR headset | `[VR] Runtime`, `XrRuntimeJson` | `steamvr`, empty (the bundled shim; start SteamVR first) |
    | Let the mod choose | `[VR] Runtime`, `XrRuntimeJson` | `auto`, empty |
    | Render quality | `[Screen] RenderWidth`, `RenderHeight` | Performance 2382x2468 (75 %), Balanced 2750x2850 (100 %, the tested size), Quality 3012x3122 (120 %), or the Advanced slider's own size |
+   | Desktop mirror | [VR] DesktopMirrorOff | inverse of the checkbox; SteamVR forces it on without erasing the native preference |
+   | Physical crouching | [Tracking] PhysicalCrouch | 0 or 1 |
+   | Hide close rain overlay | [Rain] Hide | 0 or 1; sky rain and splashes stay |
+   | Walk in the direction you look | [Camera] HeadBasedMovement | 0 or 1 |
+   | Controller shortcuts | [Controllers] DpadModifier, DpadFlip, PauseChord | same values and flip policy as F10 |
    | (always) | `[Paths] DataDir` | empty, meaning `%LOCALAPPDATA%\DishonoredVR` |
 
    The runtime mapping is `tools/vr-runtime.ps1`'s. The sizes use the F10 Display
@@ -115,16 +124,15 @@ which accepts the game root, `Binaries` or `Binaries\Win32`. Then the two choice
 **Done**: the step list, the three things to remember (launch from Steam; F5 recenters
 and F10 opens the panel; Motion Blur off in the game's own options, which live in the
 Steam profile and cannot be written here), the waiting row when the game has not run,
-`Launch Dishonored` (`steam://rungameid/205100`) and `Open game folder`.
+`Launch via Steam` (`steam://rungameid/205100`) and `Open game folder`.
 
 **Manage** (an install record, or our `d3d9.dll` with a trace beside it): installed
 version and build against the one this exe carries, the game folder, VR enabled or
 disabled, the ini's runtime and size, then `Update` (oxblood when the bytes differ,
 `Reinstall this build` when they do not; the ini is untouched), `Change settings` (the
-Set up choices again, preselected from the ini; writes the five keys and re-applies the
+Set up choices again, preselected from the ini; writes the selected keys and re-applies the
 game baseline, which the game's own video options reset), `Disable VR` / `Enable VR`
-(`disable_vr.txt` beside the game: the mod loads and does nothing), `Collect support
-bundle` (unpacks `collect-support.ps1` to `%TEMP%\DishonoredVR-Setup\` and runs it with
+(`disable_vr.txt` beside the game: the mod loads and does nothing), `Collect logs` (unpacks `collect-support.ps1` to `%TEMP%\DishonoredVR-Launcher\` and runs it with
 `-GameDir`; the zip lands in `Desktop\DishonoredVR Support` and the folder opens on it),
 `Uninstall` (an inline confirmation with "also delete dishonored_vr.ini", off by default;
 mirrors `tools/uninstall.ps1`: removes `d3d9.dll` only when it is ours, the shim, Valve's
@@ -146,24 +154,24 @@ normal one), and under an over-the-shoulder elevation the admin's Documents and 
 are the wrong ones, which is why the child re-resolves nothing. Elevation is attempted at
 most once; a second denial is reported as what it usually is, Controlled Folder Access or
 an antivirus on `Documents\My Games`, which elevation does not bypass. If the whole
-installer was started as administrator, `Launch Dishonored` goes through the desktop
+installer was started as administrator, `Launch via Steam` goes through the desktop
 shell's own automation object so Steam gets the user's token; when that route is missing
 the screen says to launch from Steam instead.
 
 ## Every word it takes
 
 ```
-DishonoredVR-Setup.exe                               the window
-DishonoredVR-Setup.exe --game-dir <dir>              ... against that game folder
-DishonoredVR-Setup.exe --config-dir <dir>            ... with that game-config folder
-DishonoredVR-Setup.exe --apply --op <op> --game-dir <dir> [--config-dir <dir>]
+DishonoredVR-Launcher.exe                               the window
+DishonoredVR-Launcher.exe --game-dir <dir>              ... against that game folder
+DishonoredVR-Launcher.exe --config-dir <dir>            ... with that game-config folder
+DishonoredVR-Launcher.exe --apply --op <op> --game-dir <dir> [--config-dir <dir>]
         [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|custom]
         [--percent <n> | --size <W>x<H>] [--vdxr-json <path>] [--delete-ini]
                                                      unattended; prints the steps, exit 0 / 2 failed / 3 access denied
         <op> = install | update | change | baseline | disable | enable | uninstall
-DishonoredVR-Setup.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
+DishonoredVR-Launcher.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
                                                      draw a screen with no window (tools\installer-render.ps1)
-DishonoredVR-Setup.exe --elevated-apply ... --result <file>
+DishonoredVR-Launcher.exe --elevated-apply ... --result <file>
                                                      what the window runs under UAC; not for hand use
 ```
 
@@ -177,7 +185,7 @@ budget, installed and embedded `d3d9.dll` hashes, the legacy marker) and every s
 
 `tools\build.ps1 -Release` builds it as part of ALL (`cmake --build build --config
 RelWithDebInfo --target dvr_setup` builds just it) into `build\src\RelWithDebInfo\
-DishonoredVR-Setup.exe`, beside the DLLs. `src/tools/installer/CMakeLists.txt` stages the
+DishonoredVR-Launcher.exe`, beside the DLLs. `src/tools/installer/CMakeLists.txt` stages the
 payload **per config** into `build\installer-payload\<config>\` with `$<TARGET_FILE:...>`
 and plain copies, and copies `payload.rc` itself in the same step so rc.exe recompiles
 whenever any payload input changes (the Visual Studio generator ignores `OBJECT_DEPENDS`
@@ -188,7 +196,7 @@ is checked against `PROVENANCE.txt` at configure time. The window title and a ba
 a Debug or legacy build. `d3dcompiler_47.dll` is delay-loaded (imgui_impl_dx11 imports
 it) so an installer on a machine that lacks it can say so instead of dying in the loader.
 
-`tools\package.ps1` copies the exe to `dist\DishonoredVR-Setup-v<version>.exe` beside the
+`tools\package.ps1` copies the exe to `dist\DishonoredVR-Launcher-v<version>.exe` beside the
 zip and refuses when the staged `d3d9.dll` fails `Test-DvrLegacyDll` or differs from the
 one in the zip. The GitHub release carries both files.
 
@@ -227,3 +235,40 @@ one in the zip. The GitHub release carries both files.
 - GOG (a different exe, unsupported) and Epic auto-detection (Browse covers it).
 - The compiled fallback of `D:\dvr-data` for a MISSING `[Paths] DataDir` (`config.cpp`)
   and the version refresh that re-writes it: a mod-side fix, its own ticket.
+
+## Launcher continuation (2026-09-23)
+
+The executable, packaging, version metadata and visible title use
+DishonoredVR-Launcher. Internal source/tool paths retain installer names for
+compatibility. The returning-player screen has Launch via Steam, Bindings, Collect
+logs, Open log, Desktop shortcut and Start menu shortcut buttons. Steam launch
+uses the desktop user's unelevated shell and app 205100, with a fresh process check.
+There is no automatic game launch.
+
+Shortcut buttons atomically copy the launcher to
+%LOCALAPPDATA%/DishonoredVR/Launcher/DishonoredVR-Launcher.exe, then create a per-user
+IShellLink in the Windows Desktop/Programs known folder. The selected game path
+is quoted in the shortcut. Nothing is created until clicked. Uninstalling the
+mod keeps these independent launcher entry points.
+
+Preferences load from the installed ini. Omitted headless preference flags keep
+their values. DLL updates keep a current-version ini byte-for-byte. Old-version
+refresh still follows the existing backed-up migration policy. New optional CLI
+flags --mirror, --physical-crouch, --hide-rain-overlay, --head-movement,
+--dpad-flip and --pause-chord take on/off. --dpad-modifier accepts 0, 1, 2 or 4.
+Invalid flags fail before writes. The elevated GUI helper carries the same choices.
+
+Collect logs adds current/previous launcher logs, old setup log names, actual
+local/game shim log paths, generated SteamVR JSON, install record, game inis,
+VirtualStore shadows, runtime registration, GPU driver, CPU, RAM and OS build.
+The manifest keeps sources, timestamps and hashes distinct. Nothing is uploaded.
+
+The shared F10 pill helper accepts an optional width; its default remains unchanged.
+Launcher choices fill their row. Settings scroll independently of fixed actions.
+Validation includes the optimized build, full-ini scratch smoke comparisons, all
+seven preference mappings, omitted-flag preservation, invalid-input refusal,
+shell-link target/argument roundtrip and support ZIP collection. Offscreen fixtures
+cover Bindings fit/zoom, SteamVR mirror override and every screen at 100/150% DPI.
+
+See [BRVR launcher research](BRVR_LAUNCHER_RESEARCH.md) for the source review and
+controller-port work that remains separate.

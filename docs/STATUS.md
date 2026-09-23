@@ -21,6 +21,40 @@ The controls are in F10 > Controls > Drop takedowns, and the live word is `drop`
 Next: more drops at the new defaults, and whether 2.00 ever takes a guard the player
 did not aim for.
 
+
+## 2026-09-23: launcher continuation, Bindings, logs and shortcuts
+
+PRs 105-110 are merged into VR-Main at 1726cee95, with all source branches kept.
+Follow-up work is on codex/vr-198-launcher in the integration worktree under
+build/integrate-105-110. VR-198 remains in progress.
+
+DishonoredVR-Launcher replaces the setup branding and shares the accepted F10 art.
+Runtime/quality, desktop mirror, physical crouching, close rain overlay and
+head-based movement are visible during setup; controller shortcuts are expandable.
+SteamVR's forced mirror is explained without destroying the native preference.
+The installed-player screen launches through Steam and offers Collect logs,
+Desktop shortcut and Start menu shortcut. Shortcuts use a stable per-user copy.
+The owner-supplied image is embedded in a separate Bindings page with fit/zoom,
+scrolling, maximization and current shortcut values.
+
+[BRVR research](BRVR_LAUNCHER_RESEARCH.md) records the installer/logging review and
+semantic comparison of all four installed binding JSONs against the donor source.
+Missing haptic/touch outputs, Index force binding and provisional WMR quadrants
+are documented for a separate validated port; no engine input behavior changed.
+
+Validation: release build, lint, installer host checks including .lnk roundtrip,
+scratch smoke including complete ini comparisons for all seven preferences,
+invalid input refusal, update preservation, CRLF and backup restore. Support ZIP
+collection completed with zero errors. All 18 UI fixtures rendered at 100/150% DPI;
+visual review caught and fixed truncated choice labels. Body scrolling preserves
+footer actions. The final launcher is prepared for desktop review, not installed
+into the game.
+
+The real installed DLL is still accepted F10 build736: SHA256 begins 172AAFCD3416,
+and the latest game log banner matches. Both game logs and the full installed ini
+were archived under build/accepted-f10-736. The ini hash begins 0A09F442AC49;
+no game launch or real installation occurred during this work.
+
 ## 2026-09-23: integrate PRs 105-110 and accept the F10 layout
 
 The tester accepted build 736's F10 alignment, spacing and Debug-tab navigation.

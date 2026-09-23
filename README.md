@@ -20,7 +20,7 @@ repository continues it with the author's permission. Status and next steps:
 
 ## Install (players)
 
-**Run `DishonoredVR-Setup.exe`** from the Releases page. It finds the game in your Steam
+**Run `DishonoredVR-Launcher.exe`** from the Releases page. It finds the game in your Steam
 library, installs the mod beside it, sets the four game settings the mod depends on, and
 asks two things: which headset (Quest via Virtual Desktop, a SteamVR headset, or let the
 mod choose) and how many pixels to render (Balanced is the tested 2750x2850). Everything

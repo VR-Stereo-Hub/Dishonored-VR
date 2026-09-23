@@ -62,7 +62,7 @@ void ornament();
 // Always-visible controller shortcut card, shared with the offscreen preview.
 void controller_hint();
 // A selectable pill (the view selector): brass when selected. Returns true when clicked.
-bool pill(const char* label, bool selected);
+bool pill(const char* label, bool selected, float requestedWidth = 0.0f);
 // Push/pop the colours of the panel's primary action button (brass on ink).
 void push_primary();
 void pop_primary();

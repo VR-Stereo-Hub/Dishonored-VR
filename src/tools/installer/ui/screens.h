@@ -4,7 +4,10 @@
 #pragma once
 #include "model/view_state.h"
 
+struct ID3D11Device;
 namespace dvr::setup::ui {
+void load_guide(ID3D11Device* device);
+void release_guide();
 
 // Draws the whole root window (title, the current screen, the footer) and
 // returns the action, None when nothing was clicked.

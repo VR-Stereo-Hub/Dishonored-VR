@@ -1,4 +1,4 @@
-// tools/installer/model/choices.h - the three things a player picks, and what
+// tools/installer/model/choices.h - the choices a player picks, and what
 // each one means in dishonored_vr.ini. Everything else is the F10 panel's.
 #pragma once
 #include <stdint.h>
@@ -21,7 +21,29 @@ struct Size { uint32_t w = 0, h = 0; bool operator==(const Size& o) const { retu
 constexpr uint32_t kBaseWidth = 2750, kBaseHeight = 2850;   // 100 %, judged at 90 Hz (VR-72)
 constexpr float kPerformancePercent = 75.0f, kBalancedPercent = 100.0f, kQualityPercent = 120.0f;
 
+// Optional front-page preferences. -1 preserves the existing/shipped key.
+// Values use INI semantics, including DesktopMirrorOff's inverted meaning.
+struct Preference {
+    const wchar_t* section;
+    const wchar_t* key;
+    const wchar_t* flag;
+    const char* label;
+    int fallback;
+    bool inverted;
+};
+enum PreferenceId { Mirror, Crouch, Rain, HeadMovement, Modifier, DpadFlip, PauseChord, PreferenceCount };
+inline constexpr Preference kPreferences[] = {
+    { L"VR", L"DesktopMirrorOff", L"--mirror", "Desktop mirror", 1, true },
+    { L"Tracking", L"PhysicalCrouch", L"--physical-crouch", "Physical crouching", 1, false },
+    { L"Rain", L"Hide", L"--hide-rain-overlay", "Hide close rain overlay", 0, false },
+    { L"Camera", L"HeadBasedMovement", L"--head-movement", "Walk in the direction you look", 1, false },
+    { L"Controllers", L"DpadModifier", L"--dpad-modifier", "D-pad modifier", 1, false },
+    { L"Controllers", L"DpadFlip", L"--dpad-flip", "Use right stick for D-pad", 0, false },
+    { L"Controllers", L"PauseChord", L"--pause-chord", "X + Y pause shortcut", 1, false },
+};
+
 struct Choices {
+    int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
     Runtime runtime = Runtime::Auto;
     Quality quality = Quality::Balanced;
     float pixelPercent = kBalancedPercent;   // the Advanced slider; authoritative when quality == Custom

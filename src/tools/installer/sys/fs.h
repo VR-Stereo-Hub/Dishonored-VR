@@ -1,4 +1,4 @@
-// tools/installer/sys/fs.h - files, folders, hashes and strings for the installer.
+// tools/installer/sys/fs.h - files, folders, hashes and strings for the launcher.
 // Every path is a std::wstring and every call is the W API: a Steam library can
 // sit under a user name that is not ASCII. Nothing here touches the mod's own
 // paths.cpp (that derives the game folder from the DLL's HINSTANCE).

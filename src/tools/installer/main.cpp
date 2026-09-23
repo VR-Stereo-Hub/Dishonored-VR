@@ -1,15 +1,18 @@
-// tools/installer/main.cpp - DishonoredVR-Setup.exe (VR-198).
+// tools/installer/main.cpp - DishonoredVR-Launcher.exe (VR-198).
 //
-//   DishonoredVR-Setup.exe                          the window
-//   DishonoredVR-Setup.exe --game-dir <dir>         ... against that game folder
-//   DishonoredVR-Setup.exe --apply --op install --game-dir <dir> [--config-dir <dir>]
+//   DishonoredVR-Launcher.exe                          the window
+//   DishonoredVR-Launcher.exe --game-dir <dir>         ... against that game folder
+//   DishonoredVR-Launcher.exe --apply --op install --game-dir <dir> [--config-dir <dir>]
 //        [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|custom]
 //        [--percent <n>] [--vdxr-json <path>] [--delete-ini]      unattended; prints the steps
-//   DishonoredVR-Setup.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
+//        [--mirror on|off] [--physical-crouch on|off] [--hide-rain-overlay on|off]
+//        [--head-movement on|off] [--dpad-modifier 0|1|2|4]
+//        [--dpad-flip on|off] [--pause-chord on|off]              omitted preferences stay
+//   DishonoredVR-Launcher.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
 //                                                   draw a screen headless (tools/installer-render.ps1)
 //   --elevated-apply ... --result <file>            what the window runs under UAC; not for hand use
 //
-// The log is %LOCALAPPDATA%\DishonoredVR\dishonored_vr_setup.log (previous run
+// The log is %LOCALAPPDATA%\DishonoredVR\dishonored_vr_launcher.log (previous run
 // in .prev.log), the same folder the mod keeps its harness files in.
 #include <windows.h>
 #include <shellapi.h>
@@ -45,8 +48,8 @@ void init_log()
     if (dir.empty()) dir = fs::join(fs::known_folder(FOLDERID_LocalAppData), L"DishonoredVR");
     DWORD err = 0;
     fs::make_dir(dir, &err);
-    dvr::log::init(fs::narrow_acp(dir).c_str(), "dishonored_vr_setup");
-    DVR_INFO("Dishonored VR Setup %s (%s, %s) elevated=%d cmdline=%s", DVR_VERSION, DVR_BUILD_ID, DVR_BUILD_CONFIG,
+    dvr::log::init(fs::narrow_acp(dir).c_str(), "dishonored_vr_launcher");
+    DVR_INFO("Dishonored VR Launcher %s (%s, %s) elevated=%d cmdline=%s", DVR_VERSION, DVR_BUILD_ID, DVR_BUILD_CONFIG,
              process::is_elevated(), fs::narrow(GetCommandLineW()).c_str());
 }
 
@@ -93,6 +96,22 @@ int headless_mode(const Args& args, Env env)
         unsigned w = 0, hh = 0;
         if (swscanf_s(size.c_str(), L"%ux%u", &w, &hh) == 2 && w && hh) h.choices.keep({ w, hh });
     }
+    for (int i = 0; i < PreferenceCount; ++i) {
+        const std::wstring value = args.value(kPreferences[i].flag);
+        if (!args.has(kPreferences[i].flag)) continue;
+        if (i == Modifier) {
+            if (value != L"0" && value != L"1" && value != L"2" && value != L"4") {
+                DVR_ERROR("launcher: --dpad-modifier requires 0, 1, 2 or 4"); return 1;
+            }
+            h.choices.preferences[i] = _wtoi(value.c_str());
+        } else {
+            if (value != L"on" && value != L"off") {
+                DVR_ERROR("launcher: %s requires on or off", fs::narrow(kPreferences[i].flag).c_str()); return 1;
+            }
+            const bool on = value == L"on";
+            h.choices.preferences[i] = kPreferences[i].inverted ? !on : on;
+        }
+    }
     h.choices.vdxrJson = args.value(L"--vdxr-json");
     h.deleteIni = args.has(L"--delete-ini");
     h.resultFile = args.value(L"--result");
@@ -130,8 +149,8 @@ int WINAPI wWinMain(HINSTANCE hinst, HINSTANCE, PWSTR, int)
             // this message can be shown instead of a loader error box.
             MessageBoxW(nullptr,
                 L"d3dcompiler_47.dll is missing from Windows (the SysWOW64 folder).\n\n"
-                L"Both this installer and the mod need it. It comes with Windows 10 and 11 and with the DirectX End-User Runtime; run Windows Update or install that runtime, then start the installer again.",
-                L"Dishonored VR Setup", MB_ICONERROR);
+                L"Both this launcher and the mod need it. It comes with Windows 10 and 11 and with the DirectX End-User Runtime; run Windows Update or install that runtime, then start the launcher again.",
+                L"Dishonored VR Launcher", MB_ICONERROR);
             rc = 4;
         } else {
             rc = app::run_gui(hinst, env);
