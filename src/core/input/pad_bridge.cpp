@@ -6,6 +6,7 @@
 #include "core/input/weapon_dial.h"
 #include "core/input/reading_input.h"
 #include "core/input/controller_emulation.h"
+#include <shlobj.h>   // VR-204: SHGetFolderPathA for the game's DishonoredInput.ini
 
 static dvr::controller::Composer g_controllerComposer;
 
@@ -16,6 +17,70 @@ static inline SHORT PadStick(float v)
     float s = (a - g_padDeadzone) / (1.0f - g_padDeadzone);
     if (s > 1.0f) s = 1.0f;
     return (SHORT)((v < 0 ? -s : s) * 32767.0f);
+}
+
+// VR-204: THE MOVE STICK, AS THE GAME WILL READ IT. The game remaps each stick axis on its
+// own - DishonoredInput.ini binds XboxTypeS_LeftX/LeftY with DeadZone=0.3 - so it reads
+// (|v| - 0.3) / 0.7 per axis (fitted against 76 of 76 samples of the 2026-09-22 move/trace
+// run; the ini's OuterDeadZone=0.1 does not act), then flags bIsWalking when the result's
+// length is under 0.85 (m_fWalk_Trigger_Threshold). Our own per-axis PadStick came first.
+// Two per-axis deadzones in series eat a diagonal: a full push at 50 degrees read 0.82 and
+// the pawn walked at half speed while the same push straight ahead ran. The crouched walk
+// "slowing as the stick turns" was exactly that.
+//
+// So in gameplay the move stick is deadzoned RADIALLY (length only, direction kept), and each
+// axis is then delivered at the value the game's own per-axis remap turns back into the
+// intended one: d = dz + (1 - dz) * |c|. What the game reads is then the push you made, in
+// every direction. Menus and the wheel keep the plain per-axis stick: they read the raw
+// XInput value, not the binding's remap.
+static float g_gameMoveDz[2] = { 0.3f, 0.3f };   // the game's LeftX, LeftY DeadZone
+static void GameMoveDeadzoneLoad()
+{
+    static bool loaded = false;
+    if (loaded) return;
+    loaded = true;
+    char docs[MAX_PATH] = "", path[MAX_PATH] = "";
+    SHGetFolderPathA(NULL, CSIDL_PERSONAL, NULL, 0, docs);
+    _snprintf_s(path, sizeof(path), _TRUNCATE,
+                "%s\\My Games\\Dishonored\\DishonoredGame\\Config\\DishonoredInput.ini", docs);
+    FILE* f = nullptr;
+    bool seen[2] = { false, false };
+    if (fopen_s(&f, path, "rb") == 0 && f) {
+        char line[1024];
+        while (fgets(line, sizeof(line), f)) {
+            for (int a = 0; a < 2; ++a) {
+                if (seen[a] || !strstr(line, a ? "\"XboxTypeS_LeftY\"" : "\"XboxTypeS_LeftX\"")) continue;
+                const char* dz = strstr(line, " DeadZone=");
+                if (!dz) continue;
+                const float v = (float)atof(dz + 10);
+                if (v >= 0.0f && v < 0.9f) { g_gameMoveDz[a] = v; seen[a] = true; }
+            }
+        }
+        fclose(f);
+    }
+    Log("pad/move: the game's left-stick DeadZone X=%.2f Y=%.2f (%s) - the move stick is deadzoned "
+        "radially and delivered pre-compensated for it, so a diagonal reads as long as the push (VR-204)",
+        g_gameMoveDz[0], g_gameMoveDz[1],
+        seen[0] && seen[1] ? "from DishonoredInput.ini" : "DishonoredInput.ini binding not found: the stock 0.3");
+}
+static void GameMoveStick(float mx, float my, SHORT& lx, SHORT& ly)
+{
+    GameMoveDeadzoneLoad();
+    const float m = sqrtf(mx * mx + my * my);
+    lx = ly = 0;
+    if (m <= g_padDeadzone || m < 0.0001f) return;
+    // A 0.05 outer band: a controller stick pushed fully into a diagonal reads about 0.95-0.98.
+    float len = (m - g_padDeadzone) / (1.0f - g_padDeadzone - 0.05f);
+    if (len > 1.0f) len = 1.0f;
+    const float c[2] = { mx / m * len, my / m * len };
+    SHORT* out[2] = { &lx, &ly };
+    for (int a = 0; a < 2; ++a) {
+        const float mag = fabsf(c[a]);
+        if (mag < 0.001f) continue;
+        float d = g_gameMoveDz[a] + (1.0f - g_gameMoveDz[a]) * mag;
+        if (d > 1.0f) d = 1.0f;
+        *out[a] = (SHORT)((c[a] < 0 ? -d : d) * 32767.0f);
+    }
 }
 
 
@@ -182,8 +247,14 @@ static void UpdateVirtualPad()
             if (crNow < crUntil) b |= XINPUT_GAMEPAD_B;
         }
         xs.Gamepad.wButtons      = b;
-        xs.Gamepad.sThumbLX      = PadStick(mx);
-        xs.Gamepad.sThumbLY      = PadStick(my);
+        // VR-204: gameplay reads the move stick through the game's per-axis deadzone;
+        // menus, the wheel and cinematics read the raw axes and keep the plain shaping.
+        if (!g_inMenu && !g_menuOpen && !wheelHeld && !UiSurfaceBlocks() && !CineActive()) {
+            GameMoveStick(mx, my, xs.Gamepad.sThumbLX, xs.Gamepad.sThumbLY);
+        } else {
+            xs.Gamepad.sThumbLX  = PadStick(mx);
+            xs.Gamepad.sThumbLY  = PadStick(my);
+        }
         xs.Gamepad.sThumbRX      = PadStick(tx);
         // pitch belongs to the head - EXCEPT in menus (stick navigates)
         // and while the power wheel is held open (stick points at wedges)

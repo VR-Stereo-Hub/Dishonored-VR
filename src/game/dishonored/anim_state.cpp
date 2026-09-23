@@ -4,6 +4,7 @@
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/anim_policy.h"
 #include "game/dishonored/stereo_state_policy.h"
+#include "game/dishonored/move_speed.h"
 namespace dvr::anim {
 namespace {
 SRWLOCK lock = SRWLOCK_INIT;
@@ -392,6 +393,7 @@ void tick() {
         } else { s.picker=-1; text(s.sequence,sizeof(s.sequence),"unavailable"); }
     }
     drop_sample(pawn,s);
+    dvr::movespeed::sample(ctrlLive?g_peCtrl:nullptr,s.valid?pawn:nullptr);   // VR-204: read-only
     if (!s.valid && staleTable && now>=nextRebuild) {
         nextRebuild=now+1000;   // a rebuild is a full GObjects copy and sort: at most once a second
         const bool built=BuildLiveSet(); ++tableRebuilds;
@@ -452,6 +454,7 @@ void configure(const char* ini) {
     Log("anim/action: request gate=%d disabled=%u; native view right=%.2f cm",int(actionDetour.on),disabled,viewRightCm);
     dropWatch=GetPrivateProfileIntA("Anim","DropWatch",1,ini)!=0;
     Log("config: [Anim] DropWatch=%d (read-only native drop eligibility)",dropWatch);
+    dvr::movespeed::configure(ini);
     const int watchSetting=GetPrivateProfileIntA("Anim","StateWatch",-1,ini);
     const int backSetting=GetPrivateProfileIntA("Anim","HandBack",-1,ini);
     watch=watchSetting!=0;

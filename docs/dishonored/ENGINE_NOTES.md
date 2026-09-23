@@ -8971,3 +8971,85 @@ engine's view source is more than 150 uu from the render eye.
 hand ray and 827 uu off the head ray. One cast was refused because GetPlayerViewPoint was
 7,931 uu from the render eye (the same distance 619 saw). Some state hands the view point
 far from the player, and the guard keeps that cast on the head.
+
+## Walking speed by stick direction (VR-204, 2026-09-22)
+
+**Symptom:** a crouched walk slowed as the LEFT stick swung off straight ahead. The first
+report blamed stick turning; the run showed it was the push direction.
+
+**Measured** (the `move/trace` run, 2026-09-22, crouched, build `g375dda772-dirty` 22:39):
+
+| Full push | `m_fLastSpeedModifier` | Speed (uu/s) | `bIsWalking` |
+|---|---|---|---|
+| Straight ahead, up to 17 deg | 0.619 | 248 | 0 |
+| Diagonal, 44-57 deg | 0.309 | 124 | **1** |
+| Sideways, 90-110 deg | 0.450 | 180 | 0 |
+| Backwards, 159-171 deg (`m_bMovingBackwards=1`) | 0.619 | 248 | 0 |
+
+Before crouching, the modifier read 1.000.
+
+**Two causes, both the game's:**
+
+1. **Diagonals are flagged as a walk.** The game reads each left-stick axis on its own
+   through its binding (`DishonoredInput.ini`: `XboxTypeS_LeftX/LeftY ... DeadZone=0.3
+   OuterDeadZone=0.1`). The fit is `(|v| - 0.3) / 0.7` per axis, then `bIsWalking` when the
+   length is under 0.85 (`DisTweaks_PlayerInput m_fWalk_Trigger_Threshold`). This model
+   agreed with 76 of 76 steady samples. The same model with OuterDeadZone acting agreed with
+   58, and a radial model with 58. Our own per-axis deadzone (0.12) ran first, so a full
+   diagonal push read about 0.82 and walked at half speed.
+2. **Sideways runs at a strafe multiplier.** 0.450 / 0.619 = 0.727.
+   `DisTweaks_Pawn_Attributes` declares `m_GroundStrafeMultiplier{Run,Sneak,Sprint}` and
+   `m_GroundBackwardMultiplier{Run,Sneak,Sprint}` as `DisAttribute` (FName, a deprecated
+   float, then one base value per difficulty). The class defaults read 0 in the dump; the
+   shipped values come from the package, and the fix logs them (`move/speed:`).
+
+**Eliminated:** turning. The controller, pawn, velocity and acceleration headings stayed
+within 10 deg of each other through every change (`pawn-ctrl` is 0.0 on every line).
+`HeadBasedMovement=1` leaves FaceRotation native.
+
+**Fix (no lever, by request):**
+* `pad_bridge` `GameMoveStick` deadzones the move stick radially. It then delivers each axis
+  at `dz + (1 - dz) * |c|`, the inverse of the game's remap, with `dz` read from the game's
+  own binding. Menus, the wheel and cinematics keep the plain per-axis stick.
+* `move_speed.cpp` finds every `DisTweaks_PlayerPawn_Attributes` object with a bounded,
+  cycling GObjects scan. It raises Run's strafe and backward multipliers to 1.0, and sets
+  Sneak's strafe multiplier to `GroundSpeedCrouch / GroundSpeed`. Sneak's backward multiplier
+  and Sprint's values stay as shipped.
+
+**Shipped multipliers** (`move/speed:`, per difficulty object). Normal
+(`pAttributeTweaksNormal`): StrafeRun 0.70, StrafeSneak 0.50, BackwardRun 0.80,
+BackwardSneak 0.50. Easy, Hard and Very Hard: 0.75, 0.30, 0.60 and 0.60.
+
+**The crouched strafe scales the RUN speed** (second headset run, 2026-09-22, with every
+multiplier at 1.0). Crouched, the mod held 0.619 straight ahead and from about 135 deg
+backwards. Between about 55 and 135 deg it jumped to 0.900, the standing run speed (360
+uu/s), and the tester reported it as far too fast. The shipped 0.450 sideways was 0.900 x
+0.50, so the sneak strafe multiplier scales the run speed, not the crouch speed. The
+backward Sneak multiplier made no measurable difference: crouched backward read 0.619 in
+both runs. The game eases the mod between direction classes over about 0.5 s.
+
+**Verified:** full diagonals read `walk=0`. Standing reads 0.900 in every direction.
+
+**Third run (2026-09-22, ratio build `g32e59d5f2`).** The ratio was 275 / 400 = 0.688, and
+crouched strafe settled at **0.688** (275 uu/s) against 0.619 forward, 11% fast. So crouched
+strafe is `GroundSpeed x multiplier`, and forward is `GroundSpeedCrouch x 0.9`. The runs
+before had shown `0.9 x multiplier`. The standing run mod also read 0.938 this run against
+0.900 before. So a factor near 0.9 comes and goes, and it is not in the script dump. A
+closed loop was built to correct it: while crouched at full push, it compared the settled
+sideways mod with the settled forward mod. In the fourth run it never fired, and the tester
+judged the walking speed good on the ratio alone. It was removed because it cost a
+collision read every tick. **Open:** that run holds no steady crouched sideways sample, so
+the ratio's sideways speed is judged by feel only.
+
+**Performance trap (same run).** The first version's object scan read 512 GObjects slots
+every 10 ms on the game thread for the whole session. The median stereo present rate fell
+from 236/s (trace-only build) to 195/s and then 177/s, roughly 118 fps to 89 fps. The next
+build scanned "once per level", with a retry while any attribute object still read zeros.
+One archetype stays all zeros permanently, so that retry never ended: 22 passes of 115,893
+slots at 4,096 slots per tick, and the frame rate got worse. **No object-table scan is
+needed.** The pawn names its own objects: `DishonoredPawn.m_pPawnTweaks` (a
+`DisTweaks_Pawn`) -> `m_pAttributeTweaks[EDifficulty]`, four object pointers. The fix now
+reads those, at most once a second, and stops once all four are held for the pawn. In the
+fourth run the median stereo present rate was 220/s. That run still had the trace and the
+loop on, and both are gone now. `[Anim] MoveTrace` ships 0: it is a diagnostic, and it costs
+frames.

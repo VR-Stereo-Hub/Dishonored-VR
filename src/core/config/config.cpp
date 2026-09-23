@@ -1140,6 +1140,7 @@ static void WriteDefaultIni(const char* ini)
         "\n"
         "[Anim]\n"
         "DropWatch=1\n"
+        "MoveTrace=0\n"
         "MantleHandBack=1\n"
         "HandAnimMelee=0\n"
         "HandAnimFire=0\n"
