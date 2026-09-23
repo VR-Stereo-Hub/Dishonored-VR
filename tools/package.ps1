@@ -3,7 +3,8 @@
 # tag cannot disagree. Stages an explicit file list: d3d9.dll (proxy),
 # dvr_steamvr32.dll (the SteamVR shim runtime), openvr_api.dll (Valve,
 # hash-checked), the user docs and the game-ini setup script. The simulator
-# never ships.
+# never ships. Beside the zip goes DishonoredVR-Setup-v<version>.exe, the
+# installer (VR-198), checked to embed the same d3d9.dll the zip carries.
 # NOTE: keep this file pure ASCII (PowerShell 5.1 misreads BOM-less UTF-8).
 param(
     [string]$OutDir = "$PSScriptRoot\..\dist",
@@ -77,3 +78,20 @@ Remove-Item $stage -Recurse -Force
 
 "packaged: $zip"
 "{0} bytes" -f (Get-Item $zip).Length
+
+# VR-198: the installer ships beside the zip. It embeds its own copy of d3d9.dll,
+# staged per config by CMake; refuse to ship one whose payload is not the DLL
+# this zip carries, or that carries the legacy code (the exe cannot be inspected
+# the way the DLL can, so the staged copy is what gets checked).
+$setup = "$bin\DishonoredVR-Setup.exe"
+if (-not (Test-Path $setup)) { throw "missing build output: $setup (the dvr_setup target did not build)" }
+$staged = "$repo\build\installer-payload\RelWithDebInfo\d3d9.dll"
+if (-not (Test-Path $staged)) { throw "missing staged installer payload: $staged" }
+if (Test-DvrLegacyDll $staged) { throw "REFUSING to package: the installer's embedded d3d9.dll has the legacy code compiled in." }
+$dllHash = (Get-FileHash "$bin\d3d9.dll" -Algorithm SHA256).Hash.ToLower()
+$stagedHash = (Get-FileHash $staged -Algorithm SHA256).Hash.ToLower()
+if ($dllHash -ne $stagedHash) { throw "REFUSING to package: the installer embeds d3d9.dll $stagedHash but the zip carries $dllHash - rebuild" }
+$setupOut = "$OutDir\DishonoredVR-Setup-v$version.exe"
+Copy-Item $setup $setupOut -Force
+"packaged: $setupOut"
+"{0} bytes, embeds d3d9.dll sha256 {1}" -f (Get-Item $setupOut).Length, $dllHash
