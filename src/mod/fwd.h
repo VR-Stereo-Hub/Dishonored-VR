@@ -31,6 +31,7 @@ static void CamShakeStatus(dvr::status::Writer& w);
 static void CamShakeDrawUi();
 static void RainConfigure(const char* ini);
 static void RainHideSet(bool on);
+static void RainRecoverySet(bool on);
 static bool RainHideEnabled();
 static bool RainTraceEnabled();
 static void RainDistanceSet(int uu);

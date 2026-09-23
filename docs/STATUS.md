@@ -1,3 +1,16 @@
+## Session 2026-09-22 (VR-202): behavioral rain recovery fix candidate
+
+Found native recovery recurrence rate *= 100*dt below its terminal threshold 10000.
+It grows at 60/90 Hz but decays toward zero above 100 updates/second, matching zero recovery
+rate and fully transparent rain layers in the measured run. Candidate promotes the current
+uncovered camera to the native terminal rate, preserving native shelter and particle logic.
+Opt-in Rain Recovery=1, live rainrecovery on|off, default off. See ENGINE_NOTES top entry.
+
+Build and prepare only. DO NOT INSTALL until another explicit user go-ahead. On approval,
+preserve current ini and apply Rain Recovery=1/Trace=1, with whole-file diff and CRLF checks.
+Next test is behavioral: repeated stationary head tilts should retain exposed falling rain.
+Headset acceptance remains pending; this is a fix candidate, not a confirmed resolution.
+
 ## Session 2026-09-22 (VR-202): repeated pitch transitions zero rain opacity
 
 Verified build720 banner and installed DLL hash. Both 40-particle layers become fully

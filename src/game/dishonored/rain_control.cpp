@@ -24,6 +24,13 @@
 #include <cmath>
 
 static std::atomic<bool> g_rainHide{false}, g_rainTrace{true};
+// VR-202: opt-in native recovery correction; see ENGINE_NOTES timing derivation.
+static std::atomic<bool> g_rainRecovery{false}, g_rainRecoveryPending{false};
+static void RainRecoverySet(bool on) {
+    g_rainRecovery.store(on);
+    g_rainRecoveryPending.store(true);
+    Log("rain: recovery=%d (native uncovered recovery ceiling; shelter remains native)", on ? 1 : 0);
+}
 // VR-136: the rain slab's distance. The camera re-places m_pRainBoxEmitter every
 // frame at camLoc + viewForward * t, t = min over axes of m_RainBoxExtent / |f|
 // (the view ray's exit from that box; build458 steady samples: fwd 500..660 uu,
@@ -49,6 +56,7 @@ static void RainConfigure(const char* ini) {
     g_rainTrace.store(GetPrivateProfileIntA("Rain", "Trace", 1, ini) != 0);
     RainHideSet(GetPrivateProfileIntA("Rain", "Hide", 0, ini) != 0);
     RainDistanceSet(GetPrivateProfileIntA("Rain", "Distance", -1, ini));
+    RainRecoverySet(GetPrivateProfileIntA("Rain", "Recovery", 0, ini) != 0);
 }
 
 // A UFunction by (declaring class, name). FindFunctionObj matches the name
@@ -299,6 +307,51 @@ static void RainParticleTrace(uint8_t* psc, const float* camera, const float* em
         origin[0], origin[1], origin[2], extent[0], extent[1], extent[2], lastRender, flag(psc, 5), flag(templ, 7));
 }
 
+// The stock rate recurrence is rate *= 100 * dt until it reaches 10000.
+// Above 100 Hz it decays instead of growing, starving transparent-slot recovery.
+// Use the native terminal rate only while the current camera reports uncovered.
+static void RainRecoveryTick(uint8_t* cam) {
+    static RflWant w[] = {
+        {"DishonoredPlayerCamera", "m_bWasUncovered", true},
+        {"DishonoredPlayerCamera", "m_fRainSpawnKillRate", false},
+        {"DishonoredPlayerCamera", "m_NumRainDrops", false}
+    };
+    static bool resolved = false, wasEnabled = false;
+    const bool enabled = g_rainRecovery.load();
+    if (!enabled && !wasEnabled) { g_rainRecoveryPending.store(false); return; }
+    if (!resolved) {
+        resolved = true;
+        Log("rain/recovery: layout %d/3", RflResolveBatch(w, 3));
+    }
+    if (!IsLiveObject(cam) || !w[0].found || !w[1].found || !w[2].found ||
+        !RangeReadable(cam + w[0].off, 4) || !RangeReadable(cam + w[1].off, 4) ||
+        !RangeReadable(cam + w[2].off, 4)) return;
+    uint32_t bits = 0; int drops = 0; float rate = 0;
+    memcpy(&bits, cam + w[0].off, 4); memcpy(&rate, cam + w[1].off, 4);
+    memcpy(&drops, cam + w[2].off, 4);
+    if (!std::isfinite(rate) || rate < 0) return;
+    if (!enabled) {
+        // Re-enter the engine's normal transition recurrence on the CURRENT live
+        // camera. No saved pointer/value crosses a menu or level transition.
+        if (rate == kRainRecoveryCeiling) {
+            const float seed = kRainRecoverySeed;
+            memcpy(cam + w[1].off, &seed, 4);
+            Log("rain/recovery: disabled, current camera=%p native seed restored", (void*)cam);
+        }
+        wasEnabled = false;
+        g_rainRecoveryPending.store(false);
+        return;
+    }
+    wasEnabled = true;
+    g_rainRecoveryPending.store(false);
+    if (!(bits & w[0].mask) || drops <= 0 || rate >= kRainRecoveryCeiling) return;
+    const float corrected = kRainRecoveryCeiling;
+    memcpy(cam + w[1].off, &corrected, 4);
+    DVR_LOG_EVERY_MS(dvr::log::Cat::script, dvr::log::Level::Info, 1000,
+        "rain/recovery: cam=%p uncovered=1 requested=%d rate %.6f -> %.1f (native recovery ceiling)",
+        (void*)cam, drops, rate, corrected);
+}
+
 static void RainTick() {
     const bool hide = g_rainHide.load(), trace = g_rainTrace.load();
     struct HiddenRain { uint8_t* comp; uint8_t* owner; uint8_t* templ; uint32_t name[2]; };
@@ -307,7 +360,8 @@ static void RainTick() {
     static uint8_t* extCam = nullptr;           // the camera whose extent WE wrote
     static float extOrig[3] = {};
     const int wantDist = g_rainDistUu.load();
-    if (!hide && !trace && !hiddenN && wantDist < 0 && !extCam) return;
+    if (!hide && !trace && !hiddenN && wantDist < 0 && !extCam &&
+        !g_rainRecovery.load() && !g_rainRecoveryPending.load()) return;
     static unsigned long long next = 0, nextRebuild = 0;
     const unsigned long long now = GetTickCount64();
     if (now < next) return;
@@ -356,6 +410,7 @@ static void RainTick() {
         if (now >= nextRebuild) { nextRebuild = now + 2000; BuildLiveSet(); }   // VR-160
         emitter = nullptr;
     }
+    RainRecoveryTick(cam);
     const char* ec = emitter ? ObjClassName(emitter) : nullptr;
     if (emitter && (!ec || !strstr(ec, "Emitter"))) emitter = nullptr;
     uint8_t* psc = RainPtr(emitter, pscOff);

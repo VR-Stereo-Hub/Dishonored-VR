@@ -476,3 +476,6 @@ static const uint32_t kRainParticleBaseAlphaOff = 0x7c;
 static const uint32_t kRainInstanceLodOff = 0x10;
 static const uint32_t kRainParticleFadeOff = 0x0c;
 static const uint32_t kRainParticlePositionOff = 0x10;
+// Native camera recurrence at RVA 0x6d8d1e..0x6d8d6a, constants read from exe.
+static const float kRainRecoverySeed = 30.0f;       // VA 0xfb9d1c
+static const float kRainRecoveryCeiling = 10000.0f; // VA 0xfe3ff8

@@ -1,3 +1,32 @@
+## Fix candidate: prevent high-frequency rain recovery starvation (VR-202, 2026-09-22)
+
+Native camera code at RVA 0x6d8d1e seeds SpawnKillRate=30 on a shelter transition.
+At 0x6d8d42..0x6d8d6a, while rate<10000, it multiplies rate by the time value returned
+by VA 0x781240 and then by 100. Constants independently read from executable: VA 0xfb9d1c
+=30, VA 0xfe3ff8=10000, VA 0xfbeeac=100. This recurrence decays instead of growing when
+the time value is below 0.01 seconds. Offline recurrence reproduction after three seconds:
+60 Hz reaches 13781.8, 90 Hz 10953.2, 100 Hz stays 30, 120 Hz falls to 9.37e-28.
+The measured run has SpawnKillRate=0 during positive requests and all-transparent layers.
+Combined with the native transparent-slot recycling budget, this is a concrete recovery
+starvation mechanism. Exact causal acceptance still requires the headset fix test.
+
+Candidate adds opt-in [Rain] Recovery=1, live rainrecovery on|off, default off. At the
+existing 250 ms script cadence, it promotes the current live camera's rate to the native
+10000 terminal threshold only when uncovered and configured drops>0. Native processing
+continues to own particle spawning, fading, and shelter transitions. No particle alpha,
+position, template, or MaxParticles is written. Reflection and IsLiveObject against the
+refreshed live table guard every camera write. Disabling resets a current rate exactly at
+the correction threshold to the native transition seed; no retained object identity is
+used. Other rates are left alone. The existing idle fast path is preserved.
+
+This is a behavioral fix candidate, not another diagnostic-only candidate. Prepare with
+Recovery=1 as a planned install override, but DO NOT INSTALL until explicit go-ahead.
+At eventual installation, preserve the then-current ini, arm Recovery=1 and Trace=1,
+compare the whole ini, verify CRLF, archive logs, and verify installed hashes. One test:
+repeat the same stationary head tilts; falling rain should remain present in exposed
+views rather than becoming fully transparent. Persistent loss refutes sufficiency of this
+recovery correction. Do not claim a headset-confirmed fix before that result.
+
 ## Rain opacity collapse confirmed in repeated pitch transitions (VR-202, 2026-09-22)
 
 Build720-g632dca2fb banner and installed SHA-256 match the candidate manifest.
