@@ -1,3 +1,17 @@
+## 2026-09-23: post-merge performance candidate (VR-212)
+
+Branch codex/vr-212-drop-discovery is based on the unmerged launcher continuation.
+Last installed/run build756 has a sustained slow intro (53-76 ticks/s), substantial
+game-thread waiting, and repeated missing drop-context discovery. PR106 removed
+the old20ms discovery throttle. The candidate restores that cadence for discovery
+only, backs off1s after a failed full sweep and reuses class/readability checks
+within each script-lane slice. Attack decisions retain their existing tick cadence.
+
+Native discovery schedule tests cover absent contexts, load/table growth, owner
+changes and retry timing. Lint/diff checks pass. Optimized build next. Full measured
+record and remaining hub-cadence uncertainty: docs/dishonored/PERFORMANCE.md.
+Headset performance acceptance remains open. No merge authorized for this branch.
+
 ## 2026-09-23: launcher 1.0.0 polish and F10 Layout (VR-198, PR 111)
 
 Current state: codex/vr-198-launcher remains unmerged. Public version is now
