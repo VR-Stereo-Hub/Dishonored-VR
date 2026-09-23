@@ -251,6 +251,18 @@ IPD; `errors` and `endsOutOfOrder` must be 0.
 defect 1). A black eye is then attributed by the `COMPOSITOR fault` / `APP fault` line in
 `xrsim.log`; the mod's `dump eyes` and `dump capture` remain the independent second opinion.
 
+## The installer (VR-198)
+
+`DishonoredVR-Setup.exe` has three lanes, all without a game or a headset: `tools\installer-render.ps1`
+draws every named screen state to `build\installer-preview\*.png` (the look, at 1.0 and 1.5
+scale); `tools\installer-host.ps1` runs `tools\installer-tests.cpp` (the game-ini editor on
+synthesised files, the picker sizes, the record, sha256, quoting, the private-profile writes);
+`tools\installer-smoke.ps1` installs into a scratch folder with a runnable stand-in
+`Dishonored.exe` and asserts the DLL hashes, that the ini differs from the shipped copy in exactly
+the five keys, the four game-ini lines and nothing else, idempotence, a kept hand-edited ini,
+disable/enable and uninstall. The honoured check is one Steam launch and the log's `config:`
+lines. `docs/INSTALLER.md` has the table.
+
 ## 5. Failure modes and gotchas
 
 1. An elevated shell: the Khronos loader ignores `XR_RUNTIME_JSON` there. `xrsim-launch.ps1`

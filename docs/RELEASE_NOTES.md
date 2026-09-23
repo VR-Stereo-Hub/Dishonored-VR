@@ -87,6 +87,19 @@ use the accepted fixed hand attachment; its preferred angle is Reading tilt0.
 
 ## Unreleased
 
+### The installer (VR-198)
+
+`DishonoredVR-Setup.exe` ships beside the zip. One exe: it finds the game through Steam
+(or a Browse), installs the three DLLs and the tested `dishonored_vr.ini`, applies the four
+game-side settings `setup-game-ini.ps1 -VRBaseline` applies (backed up, section-scoped,
+CRLF kept), and asks two things: the headset runtime (Virtual Desktop, SteamVR, or let the
+mod choose; preselected from what is installed) and the render size (Performance,
+Balanced = the tested 2750x2850, Quality, or an exact percentage). It writes exactly five
+ini keys and nothing else; your F10 settings survive. Run again it offers Update, Change
+settings, Disable/Enable VR (`disable_vr.txt`), Collect support bundle and Uninstall
+(restores a backed-up `d3d9.dll`, keeps the ini). It is drawn in the F10 panel's theme.
+`docs/INSTALLER.md` has every step and every key.
+
 ### VR game defaults
 
 Restore these settings at startup: Kill Cam off, Head Bob0, Chain Climbing

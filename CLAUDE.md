@@ -326,6 +326,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   `fwd.h` (every prototype), `dishonoredvr.cpp` (includes the modules). See ARCHITECTURE for
   why this exists and how a module leaves it.
 - `src/tools/` - `xrsim/` (the simulated OpenXR runtime), `ovrshim/` (the SteamVR shim),
+  `installer/` (DishonoredVR-Setup.exe, the player's installer in the F10 theme),
   `xr_hello32/` (smoke client)
 - `third_party/` - imgui, OpenXR-SDK (submodules; the static loader links into the proxy),
   vendored OpenVR headers + `openvr_api.dll` (for the shim)
@@ -345,6 +346,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 | `docs/TRAPS.md` | **Traps and the graveyard**: the stale-setting class (check it FIRST when a key "does nothing"), instruments that could not fail their own hypothesis, plans tried and failed, and an index of the per-topic graveyards |
 | `tools/ue3-natives.py`, `tools/disasm-rva.py`, `tools/pe-xref.ps1` | **The RE toolkit** (not docs, but read them first): class to vtable, function NAME to code via the native registration table, constant hunting, caller census. See "Resources you already have" |
 | `docs/VERIFICATION.md` | **Verification catalog**: intent -> tool -> command -> how to read the result; the simulator and its instruments, the seam, captures, what still needs a human |
+| `docs/INSTALLER.md` | **The installer** (VR-198): what `DishonoredVR-Setup.exe` does step by step, the five ini keys it writes and why no others, the screens, elevation, every command-line word, the three verification lanes, the traps it paid for |
 | `docs/LINEAR_AND_GITHUB.md` | **The dev flow**: ticket -> branch -> PR -> review -> merge -> release. Statuses and what each means here, priority, labels, the ticket and PR templates, project updates, the release ritual, and what only the Linear UI can do |
 | `docs/CODE_REVIEW.md` | Every finding from the review of the original single file, with disposition |
 | `docs/KNOWN_ISSUES.md` | User-facing known issues (ships in the zip), each linked to a milestone |

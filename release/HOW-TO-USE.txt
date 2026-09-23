@@ -1,6 +1,11 @@
 Dishonored VR - quick start (41.0, the foundation build of the new render)
 ==========================================================================
 
+THE EASY WAY: run DishonoredVR-Setup.exe (beside this zip on the Releases page).
+It does steps 1 to 3 below for you, asks which headset you use and how many
+pixels to render, and can be run again later to update, change those two
+settings, disable VR or uninstall. The rest of this file is the by-hand route.
+
 1. Copy d3d9.dll, dvr_steamvr32.dll and openvr_api.dll into the game folder
    (delete any dxvk_d3d9.dll left there by a release before 41.0):
    <Steam>\steamapps\common\Dishonored\Binaries\Win32\
