@@ -15,6 +15,7 @@ Collapsed sections lose the extra spacer rows. Tab art uses native scrolling-str
 clipping, and selected-label tint no longer darkens bar arrows or popup entries.
 The always-visible tab-list arrow reaches every tier-eligible tab.
 
+Prepared vr33-hands-working-736-gab7023884; optimized build, lint and 9/9 exports pass.
 Default writer/reset tests and byte-identical package/golden checks pass. Native preview
 at 649x685 and 1.00 text passes layout/widget checks; a pointer test opens the tab list
 and selects the offscreen Log tab. Build and prepare only, no install without a new
