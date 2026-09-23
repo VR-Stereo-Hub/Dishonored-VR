@@ -1,3 +1,17 @@
+## F10 polish build736 installed (VR-206, 2026-09-23)
+
+Explicit installation approval received. Installed vr33-hands-working-736-gab7023884
+from the archived candidate; DLL hash and embedded build identity verified. Previous
+DLL, complete ini and both logs saved under
+build/playtest-candidates/installs/20260923-002234-384927.
+Full ini comparison is byte-identical, with zero setting changes and CRLF verified.
+Game not launched. No merge.
+
+Next launch question: in Debug, can the always-visible tab-list arrow reliably select
+Runtime and Log? Success supports the navigation fix at the accepted narrow size;
+a disappearing arrow or unreachable tab means the fix needs further work.
+Future candidates still require separate explicit installation approval.
+
 ## F10 accepted profile and navigation polish (VR-206, 2026-09-23)
 
 Build733 log banner and installed DLL hash match. Headset report accepts the visual

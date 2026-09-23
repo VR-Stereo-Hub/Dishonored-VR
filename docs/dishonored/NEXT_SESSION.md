@@ -1,3 +1,9 @@
+## Installed for next test: F10 build736 (2026-09-23)
+
+Build736-gab7023884 is installed with explicit approval. Full ini is byte-identical
+and CRLF verified; backups and the single Debug-navigation test are in STATUS top.
+No game launch or merge. Prior prepare-only entries below are historical.
+
 ## Current continuation: accepted F10 size and profile (2026-09-23)
 
 Build733 remains installed and its visual direction is headset accepted. The current
