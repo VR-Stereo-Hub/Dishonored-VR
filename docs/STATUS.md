@@ -6,6 +6,9 @@ rate and fully transparent rain layers in the measured run. Candidate promotes t
 uncovered camera to the native terminal rate, preserving native shelter and particle logic.
 Opt-in Rain Recovery=1, live rainrecovery on|off, default off. See ENGINE_NOTES top entry.
 
+Prepared `vr33-hands-working-725-gbaecc7491`: optimized build, lint and 9/9 exports pass.
+Archived DLL and planned Recovery=1 override locally. Not installed.
+
 Build and prepare only. DO NOT INSTALL until another explicit user go-ahead. On approval,
 preserve current ini and apply Rain Recovery=1/Trace=1, with whole-file diff and CRLF checks.
 Next test is behavioral: repeated stationary head tilts should retain exposed falling rain.
