@@ -5,6 +5,7 @@
 // is where each guard was paid for; do not renumber them.
 
 #include "core/vr/openxr_runtime.h"
+#include "core/ui/ovl_ui.h"   // 41.x (Dishonored, VR-196): the F10 tier and tooltips
 #include "core/framework/bridge_profile.h"
 #include "core/framework/diagnostic_ab.h"
 #include "core/vr/aim_visual.h" // 41.2 (Dishonored, VR-57): explicit one-ray visuals
@@ -5348,6 +5349,12 @@ void on_resize(unsigned width, unsigned height, unsigned format) {
 }
 
 void draw_debug_ui() {
+    // 41.x (Dishonored, VR-196): the F10 Runtime tab, Debug tier only. Every control carries a
+    // hover description (dvr::ovl::tip). Removed from this game's panel, because they do
+    // nothing here: the AlternateEye test (not a method this build ships) and the HUD-stub
+    // switches (cutscene bars, full-screen effects, post-FX rule, subtitles in frame, the
+    // gameswf quad) - core/vr/hud_stub answers "nothing" to all of them.
+    namespace ov = dvr::ovl;
     if (g_instance == XR_NULL_HANDLE) {
         ImGui::Text("VR: no OpenXR runtime - flat mode");
         return;
@@ -5360,11 +5367,7 @@ void draw_debug_ui() {
     }
 
     // ---- VR PACING: the session-34 fix, judged in the headset ---------------
-    // FIRST and open by default. The whole point is that the alt-tab A/B must
-    // not require alt-tabbing: reaching a keyboard is what drops the session out
-    // of FOCUSED, which is the very transition this section exists to fix.
-    if (ImGui::CollapsingHeader("VR PACING  <-- the freeze fix",
-                                ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ov::section("VR pacing", ov::Debug, "How the game is paced when the headset is not focused (a system menu, the headset off).")) {
         // Presents per second, sampled here so it is live while the user looks.
         static uint64_t lastSampleMs = 0;
         static uint32_t lastPresents = 0;
@@ -5380,7 +5383,6 @@ void draw_debug_ui() {
             lastSampleMs = nowMs;
             lastPresents = presents;
         }
-        bool focused = g_state == XR_SESSION_STATE_FOCUSED;
         ImGui::Text("session %s%s | presents/s %u", state_str(g_state),
                     g_everFocused.load(std::memory_order_relaxed) ? "" : " (never focused)",
                     presentsPerSec);
@@ -5388,12 +5390,8 @@ void draw_debug_ui() {
         bool detach = g_paceDetach.load(std::memory_order_relaxed);
         if (ImGui::Checkbox("Do not let an unfocused headset pace the game", &detach))
             set_pace_detach(detach);
-        ImGui::TextWrapped(
-            "ON = while the session is not FOCUSED the frame loop runs on its own "
-            "thread, so the game keeps its frame rate and the runtime still gets "
-            "frames (which is how FOCUSED comes back). OFF = the old behaviour: "
-            "the game runs at the runtime's not-visible cadence, about 10 Hz, "
-            "which in the headset reads as a freeze.");
+        ov::tip("On: while the headset is not focused the game keeps its frame rate. Off: the game "
+                "runs at about 10 Hz, which reads as a freeze. Leave on.");
         if (g_detachedNow)
             ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f),
                                "DETACHED right now - the game is NOT being paced");
@@ -5404,27 +5402,20 @@ void draw_debug_ui() {
         int ka = static_cast<int>(g_paceKeepaliveMs.load(std::memory_order_relaxed));
         if (ImGui::SliderInt("Keepalive every (ms)", &ka, 250, 5000))
             g_paceKeepaliveMs.store(static_cast<uint32_t>(ka), std::memory_order_relaxed);
-        ImGui::TextWrapped(
-            "How often the frame loop runs while unfocused. Each one costs a "
-            "single ~100 ms hitch; between them the game runs free. Too rare and "
-            "the headset may be slower to hand focus back.");
+        ov::tip("How often a frame is sent while unfocused. Each costs a ~100 ms hitch; too rare "
+                "and the headset may be slower to hand focus back.");
 
         // Session 54: the raffle-wedge root fix.
         bool feed = g_paceFeed.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("Feed the compositor while parked (raffle-wedge fix)", &feed))
+        if (ImGui::Checkbox("Feed the compositor while parked", &feed))
             set_pace_feed(feed);
-        ImGui::TextWrapped(
-            "ON = while the session is not FOCUSED the pace thread re-submits the "
-            "last real image (layers included), so the runtime keeps seeing a "
-            "rendering app and hands FOCUSED back on its own - the raffle-class "
-            "wedge cannot park. OFF = empty frames only, the measured park.");
+        ov::tip("While unfocused, re-sends the last real image so the runtime hands focus back on "
+                "its own (the raffle-wedge fix). Leave on.");
         ImGui::Text("feed cycles %u (%u layered)",
                     g_feedCycles.load(std::memory_order_relaxed),
                     g_feedLayered.load(std::memory_order_relaxed));
 
-        // The phase table. This is the instrument that named the blocking call;
-        // it stays visible because "which call owns the frame time" is the only
-        // question that distinguishes a fix from a coincidence.
+        // The phase table: the instrument that named the blocking call.
         if (ImGui::TreeNode("Present-path phases (last / max us)")) {
             ImGui::Text("shouldRender = %d",
                         g_lastShouldRender.load(std::memory_order_relaxed) ? 1 : 0);
@@ -5442,33 +5433,32 @@ void draw_debug_ui() {
     bool enabled = g_enabled.load(std::memory_order_relaxed);
     if (ImGui::Checkbox("VR enabled (paces game to headset)", &enabled))
         g_enabled.store(enabled, std::memory_order_relaxed);
+    ov::tip("Off stops sending frames to the headset. Leave on.");
 
     bool camMode = g_cameraMode.load(std::memory_order_relaxed);
     if (ImGui::Checkbox("VR camera mode (6DOF head drive)", &camMode))
         g_cameraMode.store(camMode, std::memory_order_relaxed);
+    ov::tip("Off shows the game on the flat screen with no head tracking. Leave on.");
     if (camMode) {
-        bool aer = g_aerEnabled.load(std::memory_order_relaxed);
-        if (ImGui::Checkbox("AlternateEye stereo test (judders)", &aer))
-            g_aerEnabled.store(aer, std::memory_order_relaxed);
         bool pair = g_srPairPacing.load(std::memory_order_relaxed);
         if (ImGui::Checkbox("SR pair pacing (one waitFrame per eye pair)", &pair))
             g_srPairPacing.store(pair, std::memory_order_relaxed);
+        ov::tip("Paces one headset frame per left-right pair. Leave on.");
         if (pair) {
-            // Session 42 judder A/B: evenly spaced pair opens vs the game's own
-            // present speed. Headset-judgeable, so it must live on a checkbox.
             bool sync = g_paceSync.load(std::memory_order_relaxed);
             if (ImGui::Checkbox("Sync pair rate to headset refresh (judder A/B)", &sync))
                 g_paceSync.store(sync, std::memory_order_relaxed);
-            // 41.1 (Dishonored): the stale-eye fail-soft A/B.
+            ov::tip("Spaces pairs evenly at the headset's refresh instead of the game's own speed.");
             bool strict = g_pairStrict.load(std::memory_order_relaxed);
             if (ImGui::Checkbox("Strict pairs (mono for a frame when an eye is stale)", &strict))
                 set_pair_strict(strict);
-            // 41.1 (Dishonored): the look-ahead lever, with the phase beside it.
+            ov::tip("Shows one flat frame instead of a stale eye.");
             {
                 static const char* kAhead[] = {"0 (the slot xrWaitFrame named)", "1 period ahead", "2 periods ahead"};
                 int ahead = g_paceAhead.load(std::memory_order_relaxed);
                 ImGui::SetNextItemWidth(260);
                 if (ImGui::Combo("Pose look-ahead (judder A/B)", &ahead, kAhead, 3)) set_pace_ahead(ahead);
+                ov::tip("How far ahead the head pose is predicted.");
                 const uint32_t phN = g_pairPhaseCount.load(std::memory_order_relaxed);
                 if (g_pfnQpcToXrTime)
                     ImGui::TextDisabled("pair phase %+.1f ms mean, missed slot %.0f%% of %u | poseGenDelta %.2f deg | lag %d",
@@ -5483,66 +5473,13 @@ void draw_debug_ui() {
         bool cine = g_cineEnabled.load(std::memory_order_relaxed);
         if (ImGui::Checkbox("Cinematic auto-detect (cutscenes/screens)", &cine))
             g_cineEnabled.store(cine, std::memory_order_relaxed);
+        ov::tip("Detects cutscenes and full-screen videos so they get the right presentation.");
         if (cine) {
             bool stereoC = g_cineStereo.load(std::memory_order_relaxed);
-            if (ImGui::Checkbox("Cinematics as stereo projection (off = big screen)",
-                                &stereoC))
+            if (ImGui::Checkbox("Cinematics as stereo projection (off = big screen)", &stereoC))
                 g_cineStereo.store(stereoC, std::memory_order_relaxed);
+            ov::tip("Cutscenes in 3D around you. Off shows them on the flat screen.");
         }
-        // Session 29 cinematic behaviour.
-        bool barsHide = dvr::hud::bars_hidden();
-        if (ImGui::Checkbox("Hide cutscene black bars", &barsHide))
-            dvr::hud::set_bars_hidden(barsHide);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Skips the WidescreenBars gameswf draw. The picture under "
-                              "the bars is really there - nothing is cropped or stretched.");
-        bool fxFrame = dvr::hud::effects_in_frame();
-        if (ImGui::Checkbox("Full-screen effects across the view", &fxFrame))
-            dvr::hud::set_effects_in_frame(fxFrame);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Water and damage flashes are gameswf fills with no texture, so "
-                              "they used to land on the HUD panel.\n"
-                              "UNTICK to put them back on the panel. Does NOT affect the "
-                              "alcohol blur, which is a textured engine post effect on the "
-                              "checkbox below.\n"
-                              "Suspected session-30 side effect: the health and EVE bar COLOUR "
-                              "fills carry the same fingerprint, so ticked may be sending them "
-                              "into the world and leaving the bars looking empty.");
-        // Session 30: the post-FX discriminator, in the menu because the alcohol
-        // blur is the one draw this rule exists to protect and the A/B has to be
-        // done in the headset while drunk.
-        bool fxRt = dvr::hud::postfx_rt_only();
-        if (ImGui::Checkbox("Post effects: source must be a render target", &fxRt))
-            dvr::hud::set_postfx_rt_only(fxRt);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("TICKED (session 30 default): the alcohol blur stays in the "
-                              "frame because it samples something the engine RENDERED.\n"
-                              "UNTICKED: the old size-only rule, which at a square render "
-                              "target also matched the game's own UI atlases and sent about 30 "
-                              "HUD draws per interval into the eye image.\n"
-                              "If the alcohol blur looks wrong, UNTICK to revert session 30.");
-        {
-            dvr::hud::RouteStats rs{};
-            dvr::hud::get_route_stats(&rs);
-            unsigned strandedTotal = 0;
-            for (int i = 0; i < dvr::hud::kRoutePassCount; ++i) strandedTotal += rs.stranded[i];
-            ImGui::Text("  routing: postFx %u (rejected %u) | effects in-frame %u (over bound "
-                        "%u) | stranded %u",
-                        rs.postFx, rs.postFxRejected, rs.effectsInFrame, rs.effectsRejected,
-                        strandedTotal);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("postFx should CLIMB while you are drunk and sit still "
-                                  "otherwise. effects in-frame climbs by 2 every frame, which "
-                                  "is the count that made the bar-fill theory.");
-        }
-        bool subsFrame = dvr::hud::cine_subs_in_frame();
-        if (ImGui::Checkbox("Cutscene subtitles in-frame (off = readable panel)", &subsFrame))
-            dvr::hud::set_cine_subs_in_frame(subsFrame);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("OFF (default): subtitles ride the head-locked HUD panel - one "
-                              "image in both eyes.\n"
-                              "ON: they render into the frame, where each eye is captured "
-                              "from a different game frame and the text can double.");
         {
             static const char* kDriveNames[] = {"off (VR drives run through cutscenes)",
                                                 "authored (camera + hands as flat)",
@@ -5551,39 +5488,33 @@ void draw_debug_ui() {
             if (dm < 0 || dm > 2) dm = 1;
             if (ImGui::Combo("During cutscenes", &dm, kDriveNames, 3))
                 set_cine_drive(static_cast<CineDrive>(dm));
-        }
-        if (aer) {
-            ImGui::SameLine();
-            bool swap = g_aerSwapEyes.load(std::memory_order_relaxed);
-            if (ImGui::Checkbox("Swap eyes (inverted-depth test)", &swap))
-                g_aerSwapEyes.store(swap, std::memory_order_relaxed);
+            ov::tip("Who owns the camera and hands during cutscenes.");
         }
         bool manualFov = g_claimFovManual.load(std::memory_order_relaxed);
         if (ImGui::Checkbox("Manual claimed FOV (distortion calibration)", &manualFov)) {
             g_claimFovManual.store(manualFov, std::memory_order_relaxed);
             if (manualFov) {
-                // Snap the slider to the current effective claim as a start point.
                 float cur = g_renderedHfov.load(std::memory_order_relaxed);
                 if (cur <= 0.0f) cur = g_hfovDeg.load(std::memory_order_relaxed);
                 if (cur > 0.0f) g_claimFovDeg.store(cur, std::memory_order_relaxed);
             }
         }
+        ov::tip("Overrides the FOV the image is claimed to have. For calibrating a swimming image only.");
         if (manualFov) {
             float v = g_claimFovDeg.load(std::memory_order_relaxed);
             if (ImGui::SliderFloat("Claimed hfov (deg) - stop the swim", &v, 40.0f, 160.0f))
                 g_claimFovDeg.store(v, std::memory_order_relaxed);
+            ov::tip("Adjust until the world stops swimming as you turn your head.");
         }
     }
     const char* layerName = g_lastLayer == 2 ? "projection" : g_lastLayer == 1 ? "quad" : "none";
-    int eyeSign = g_aerEyeSign.load(std::memory_order_relaxed);
     float readback = g_renderedHfov.load(std::memory_order_relaxed);
     float claimed = g_claimFovManual.load(std::memory_order_relaxed)
                         ? g_claimFovDeg.load(std::memory_order_relaxed)
                         : (readback > 0.0f ? readback
                                            : g_hfovDeg.load(std::memory_order_relaxed));
-    ImGui::Text("layer: %s%s | target %.1f | readback %.1f | claimed %.1f",
-                layerName, eyeSign == 0 ? "" : eyeSign < 0 ? " (AER eye L)" : " (AER eye R)",
-                g_hfovDeg.load(std::memory_order_relaxed), readback, claimed);
+    ImGui::Text("layer: %s | target %.1f | readback %.1f | claimed %.1f",
+                layerName, g_hfovDeg.load(std::memory_order_relaxed), readback, claimed);
     ImGui::Text("laser: %s | %u dot layer(s) submitted",
                 g_laserSwapchain != XR_NULL_HANDLE ? "ready" : "unavailable",
                 g_laserLayersSubmitted.load(std::memory_order_relaxed));
@@ -5625,7 +5556,9 @@ void draw_debug_ui() {
     if (!camMode) {
         bool anchored=g_monoAnchored.load();
         if(ImGui::Checkbox("Anchor mono screens",&anchored)) set_mono_anchor(anchored,g_monoMask.load());
+        ov::tip("The flat screen stays fixed in the world instead of following your head.");
         if(ImGui::Button("Recenter mono screen")) recenter_mono_anchor();
+        ov::tip("Puts the flat screen in front of where you look now.");
         if(anchored) {
             uint32_t mask=g_monoMask.load();
             for(unsigned i=0;i<dvr::mono::Count;++i) {
@@ -5633,6 +5566,7 @@ void draw_debug_ui() {
                 if(ImGui::Checkbox(dvr::mono::names[i],&on)) {
                     mask=on?(mask|(1u<<i)):(mask&~(1u<<i)); g_monoMask.store(mask);
                 }
+                ov::tip("Whether this kind of screen is anchored in the world.");
             }
         }
         float dist = g_screenDistM.load(std::memory_order_relaxed);
@@ -5642,16 +5576,6 @@ void draw_debug_ui() {
         if (ImGui::SliderFloat("Screen width (m)", &width, 0.5f, 6.0f))
             g_screenWidthM.store(width, std::memory_order_relaxed);
     }
-
-    // Session 19 HUD quad: the capture toggle. 41.x (Dishonored, VR-117): the
-    // placement sliders left this panel; the window, the hand panel and every
-    // element are on the F10 HUD tab, and persist in [Hud].
-    bool hudOn = dvr::hud::enabled();
-    if (ImGui::Checkbox("VR HUD (gameswf on a floating quad)", &hudOn))
-        dvr::hud::set_enabled(hudOn);
-    ImGui::Text("HUD quad presents %u, %u quads last present (placement: the HUD tab)",
-                g_hudFramesSubmitted.load(std::memory_order_relaxed),
-                g_hudStatSubmitted.load(std::memory_order_relaxed));
 }
 
 bool get_head_pose(HeadPose& out) {

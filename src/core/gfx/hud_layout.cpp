@@ -4,6 +4,7 @@
 // core/gfx/hud_layout.cpp - see hud_layout.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_layout.h"
+#include "core/ui/ovl_ui.h"   // VR-196
 #include "core/input/weapon_dial.h"
 #include "core/vr/openxr_input.h"
 
@@ -376,10 +377,14 @@ static void save_scoped_alpha(int i) {
 static void draw_scoped_alpha(int i) {
     ImGui::PushID(kScopedAlpha[i]);auto& a=g_alphaBank.special[i];
     bool change=ImGui::SliderFloat("Alpha gain",&a.gain,0,3,"%.2f");
+    dvr::ovl::tip("Multiplies the opacity. Lower is more see-through.");
     change|=ImGui::SliderFloat("Alpha floor",&a.floorA,0,1,"%.2f");
+    dvr::ovl::tip("The least opacity any coloured pixel gets.");
     change|=ImGui::SliderFloat("Alpha gamma",&a.gamma,.25f,4,"%.2f");
+    dvr::ovl::tip("Bends the opacity curve. Lower darkens grey artwork; it is not a background mask.");
     change|=ImGui::Combo("Alpha source",&a.mode,kAlphaModeNames,3);
-    if(a.mode==AlphaMix) change|=ImGui::SliderFloat("Repair mix weight",&a.mixK,0,4,"%.2f");
+    dvr::ovl::tip("Where transparency comes from: rebuilt from colour (repair), as captured, or the stronger of both.");
+    if(a.mode==AlphaMix) { change|=ImGui::SliderFloat("Repair mix weight",&a.mixK,0,4,"%.2f"); dvr::ovl::tip("How much the rebuilt value counts."); }
     if(change) save_scoped_alpha(i);
     ImGui::PopID();
 }
@@ -1641,321 +1646,134 @@ void status(dvr::status::Writer& w) {
 // ---- F10 ------------------------------------------------------------------
 
 void draw_ui() {
-    if(g_nativeGameplayReference) {
+    namespace ov = dvr::ovl;
+    // VR-196: every section is collapsed by default and carries its tier; the per-control
+    // disposition is docs/dishonored/F10_AUDIT.md.
+    if (g_nativeGameplayReference && ov::show(ov::Debug)) {
         ImGui::TextWrapped("Native HUD comparison is ON. Your configured HUD panels are bypassed.");
-        if(ImGui::Button("Restore my configured HUD")) {
-            g_nativeGameplayReference=false;write_i("NativeGameplayReference",0);dvr::hudcap::invalidate_content();
+        if (ImGui::Button("Restore my configured HUD")) {
+            g_nativeGameplayReference = false; write_i("NativeGameplayReference", 0); dvr::hudcap::invalidate_content();
+        }
+        ov::tip("Turns the comparison off and brings back your HUD panels.");
+    }
+    if (ov::section("Notes and journal on the hand", ov::Basic,
+                    "Books, notes and the journal attach to your hand while you read them.")) {
+        if (ImGui::SliderFloat("Reading tilt (degrees)", &g_readTilt, -180.f, 180.f, "%.0f")) save_read_rotation();
+        for (int i = 0; i < 2; ++i) {
+            ImGui::PushID(kReadNames[i]); ImGui::TextUnformatted(kReadNames[i]);
+            bool change = ImGui::Checkbox("Follow left hand", &g_readHand[i]);
+            ov::tip("The page follows your left hand. Off: it floats in front of you.");
+            change |= ImGui::SliderFloat("Panel width (m)", &g_readWidth[i], .15f, 1.5f, "%.2f");
+            change |= ImGui::SliderFloat("Distance offset (m, + farther)", &g_readDistance[i], -.30f, .50f, "%.2f");
+            change |= ImGui::SliderFloat("Horizontal offset (m, + right)", &g_readRight[i], -.75f, .75f, "%.2f");
+            change |= ImGui::SliderFloat("Vertical offset (m, + up)", &g_readUp[i], -.75f, .75f, "%.2f");
+            if (change) {
+                char key[64];
+                _snprintf(key, sizeof(key), "%sFollowHand", kReadNames[i]); write_i(key, g_readHand[i]);
+                _snprintf(key, sizeof(key), "%sHandWidth", kReadNames[i]); write_f(key, g_readWidth[i]);
+                _snprintf(key, sizeof(key), "%sHandDistance", kReadNames[i]); write_f(key, g_readDistance[i]);
+                _snprintf(key, sizeof(key), "%sHandRight", kReadNames[i]); write_f(key, g_readRight[i]);
+                _snprintf(key, sizeof(key), "%sHandUp", kReadNames[i]); write_f(key, g_readUp[i]);
+            }
+            ImGui::PopID();
         }
     }
-    if(ImGui::CollapsingHeader("Weapon wheel side panels",ImGuiTreeNodeFlags_DefaultOpen)) {
-        if(ImGui::Checkbox("Separate D-pad and health/mana panels",&g_wheelParts)) {
-            write_i("WheelSidePanels",g_wheelParts);dvr::hudcap::invalidate_content();
+    if (ov::section("Weapon dial", ov::Advanced,
+                    "Hold the left grip: the weapon wheel appears at your hand, and moving the hand selects. "
+                    "Either stick overrides the hand. Release the grip to equip. Reopen it after a change.")) {
+        bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
+        ov::tip("Off: the game's own wheel, flat, chosen with the sticks.");
+        changed |= ImGui::SliderFloat("Distance offset (m, + farther)", &g_dialDistance, -.30f, .50f, "%.2f");
+        changed |= ImGui::Checkbox("Direction only (tiny movement selects)", &g_dialDirection);
+        ov::tip("Only the direction you move counts, so a small movement picks a wedge.");
+        changed |= ImGui::Checkbox("Circular crop", &g_dialCircle);
+        changed |= ImGui::Checkbox("Follow head tilt on opening", &g_dialEntryTilt);
+        ov::tip("The dial tilts to match your head when it opens. Off: upright.");
+        changed |= ImGui::Checkbox("Follow horizontal head angle on opening", &g_dialEntryYaw);
+        ov::tip("The dial turns to where you look when it opens. Off: it faces your position.");
+        changed |= ImGui::SliderFloat("Neutral radius (m)", &g_dialDeadM, .0005f, .010f, "%.4f");
+        ov::tip("How far the hand must move before anything is selected.");
+        changed |= ImGui::SliderFloat("Dial width (m)", &g_dialWidth, .15f, 1.2f, "%.2f");
+        if (!g_dialDirection) {
+            changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
         }
-        ImGui::TextWrapped("Visible with the hand weapon dial. These share their own alpha controls and the same captured frame as the wheel. Position and scale each panel below.");
-        ImGui::TextUnformatted("D-pad and health/mana alpha (shared)");
+        changed |= ImGui::SliderFloat("Dial crop width", &g_dialCropX, .30f, 1.f, "%.2f");
+        changed |= ImGui::SliderFloat("Dial crop height", &g_dialCropY, .30f, 1.f, "%.2f");
+        ImGui::TextDisabled("Dial alpha");
+        draw_scoped_alpha(0);
+        if (changed) {
+            g_dial.reset();
+            write_f("WeaponDialDistance", g_dialDistance);
+            write_i("WeaponDialDirectionOnly", g_dialDirection);
+            write_i("WeaponDialCircle", g_dialCircle);
+            write_i("WeaponDialEntryTilt", g_dialEntryTilt);
+            write_i("WeaponDialEntryYaw", g_dialEntryYaw);
+            write_f("WeaponDialDeadzone", g_dialDeadM);
+            write_i("WeaponDial", g_dialOn ? 1 : 0);
+            write_f("WeaponDialWidth", g_dialWidth); write_f("WeaponDialRadius", g_dialRadius);
+            write_f("WeaponDialCropX", g_dialCropX); write_f("WeaponDialCropY", g_dialCropY);
+        }
+    }
+    if (ov::section("Weapon wheel side panels", ov::Advanced,
+                    "The D-pad shortcuts and the health/mana panel shown beside the hand weapon dial.")) {
+        if (ImGui::Checkbox("Separate D-pad and health/mana panels", &g_wheelParts)) {
+            write_i("WheelSidePanels", g_wheelParts); dvr::hudcap::invalidate_content();
+        }
+        ov::tip("Shows these two as their own panels you can place. Off: they stay part of the wheel image.");
+        ImGui::TextDisabled("D-pad and health/mana alpha (shared)");
         draw_scoped_alpha(4);
-        ImGui::TextWrapped("These controls affect only the two side panels. A lower gamma darkens grey artwork; it is not a selective background mask.");
-        for(int part=0;part<2;++part) {
-            const int e=part?ElWheelPotions:ElWheelShortcuts;ImGui::PushID(700+part);
+        for (int part = 0; part < 2; ++part) {
+            const int e = part ? ElWheelPotions : ElWheelShortcuts; ImGui::PushID(700 + part);
             ImGui::TextUnformatted(kWheelPartNames[part]);
-            int anchor=g_el[e].anchor;
-            const char* names[]={"off","window","world","handL","handR"};
-            int choice=anchor>=AnchorWindow?anchor-1:0;
-            if(ImGui::Combo("Anchor",&choice,names,5)) {anchor=choice?choice+1:AnchorOff;set_element_anchor(e,anchor,"F10 wheel parts");}
-            const bool hand=anchor_is_hand(anchor);
-            float x=hand?g_el[e].handX:g_el[e].winX,y=hand?g_el[e].handY:g_el[e].winY,scale=hand?g_el[e].handScale:g_el[e].winScale;
-            bool moved=ImGui::SliderFloat("Horizontal (m)",&x,-1.5f,1.5f,"%.3f");
-            moved|=ImGui::SliderFloat("Vertical (m)",&y,-1.5f,1.5f,"%.3f");
-            moved|=ImGui::SliderFloat("Size",&scale,.25f,3.f,"%.2fx");
-            if(moved) set_element_place(e,hand,x,y,scale,"F10 wheel parts");
-            if(ImGui::TreeNode("Adjust captured area")) {
-                bool changed=ImGui::SliderFloat("Left edge",&g_wheelPartCrop[part][0],0,1,"%.3f");
-                changed|=ImGui::SliderFloat("Right edge",&g_wheelPartCrop[part][1],0,1,"%.3f");
-                changed|=ImGui::SliderFloat("Bottom edge",&g_wheelPartCrop[part][2],0,1,"%.3f");
-                changed|=ImGui::SliderFloat("Height (fraction of image width)",&g_wheelPartCrop[part][3],.02f,.6f,"%.3f");
-                if(changed) for(int k=0;k<4;++k) {char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);}
+            int anchor = g_el[e].anchor;
+            const char* names[] = { "off", "window", "world", "handL", "handR" };
+            int choice = anchor >= AnchorWindow ? anchor - 1 : 0;
+            if (ImGui::Combo("Anchor", &choice, names, 5)) { anchor = choice ? choice + 1 : AnchorOff; set_element_anchor(e, anchor, "F10 wheel parts"); }
+            ov::tip("Where this panel floats: in front of you, fixed in the world, or on a hand.");
+            const bool hand = anchor_is_hand(anchor);
+            float x = hand ? g_el[e].handX : g_el[e].winX, y = hand ? g_el[e].handY : g_el[e].winY, scale = hand ? g_el[e].handScale : g_el[e].winScale;
+            bool moved = ImGui::SliderFloat("Horizontal (m)", &x, -1.5f, 1.5f, "%.3f");
+            moved |= ImGui::SliderFloat("Vertical (m)", &y, -1.5f, 1.5f, "%.3f");
+            moved |= ImGui::SliderFloat("Size", &scale, .25f, 3.f, "%.2fx");
+            if (moved) set_element_place(e, hand, x, y, scale, "F10 wheel parts");
+            if (ov::show(ov::Debug) && ImGui::TreeNode("Adjust captured area")) {
+                bool changed = ImGui::SliderFloat("Left edge", &g_wheelPartCrop[part][0], 0, 1, "%.3f");
+                changed |= ImGui::SliderFloat("Right edge", &g_wheelPartCrop[part][1], 0, 1, "%.3f");
+                changed |= ImGui::SliderFloat("Bottom edge", &g_wheelPartCrop[part][2], 0, 1, "%.3f");
+                changed |= ImGui::SliderFloat("Height (fraction of image width)", &g_wheelPartCrop[part][3], .02f, .6f, "%.3f");
+                if (changed) for (int k = 0; k < 4; ++k) { char key[64]; _snprintf(key, sizeof(key), "%s.Crop%d", kWheelPartKeys[part], k); write_f(key, g_wheelPartCrop[part][k]); }
                 ImGui::TreePop();
             }
             ImGui::PopID();
         }
     }
-    if(ImGui::CollapsingHeader("Menu immersion")) {
-        bool keep=g_menuExitHeading.load();
-        if(ImGui::Checkbox("Keep viewing direction when closing menus",&keep)) {g_menuExitHeading.store(keep);write_i("MenuExitHeading",keep);}
-        ImGui::TextWrapped("Per-menu controls. Head look keeps the world paused and rotates the rendered camera. Blur suppression is experimental; reopen the menu after changing it.");
-        for(int i=0;i<kMenuContexts;++i) {
-            ImGui::PushID(100+i); ImGui::Text("%s",kMenuContextNames[i]);
-            const auto bit=1u<<kMenuContextBits[i]; char key[64];
-            bool h=(g_menuHeadMask.load()&bit)!=0,b=(g_menuBlurMask.load()&bit)!=0;
-            if(ImGui::Checkbox("Live head look",&h)) {
-                if(h) g_menuHeadMask.fetch_or(bit); else g_menuHeadMask.fetch_and(~bit);
-                _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]);write_i(key,h);
+    if (ov::section("Menu immersion", ov::Advanced, "How in-game menus behave in the headset.")) {
+        bool keep = g_menuExitHeading.load();
+        if (ImGui::Checkbox("Keep viewing direction when closing menus", &keep)) { g_menuExitHeading.store(keep); write_i("MenuExitHeading", keep); }
+        for (int i = 0; i < kMenuContexts; ++i) {
+            ImGui::PushID(100 + i); ImGui::Text("%s", kMenuContextNames[i]);
+            const auto bit = 1u << kMenuContextBits[i]; char key[64];
+            bool h = (g_menuHeadMask.load() & bit) != 0, b = (g_menuBlurMask.load() & bit) != 0;
+            if (ImGui::Checkbox("Live head look", &h)) {
+                if (h) g_menuHeadMask.fetch_or(bit); else g_menuHeadMask.fetch_and(~bit);
+                _snprintf(key, sizeof(key), "HeadLook%s", kMenuContextNames[i]); write_i(key, h);
             }
+            ov::tip("You can look around while this menu is open; the world stays paused.");
             ImGui::SameLine();
-            if(ImGui::Checkbox("Remove menu blur",&b)) {
-                if(b) g_menuBlurMask.fetch_or(bit); else g_menuBlurMask.fetch_and(~bit);
-                _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);write_i(key,b);
+            if (ImGui::Checkbox("Remove menu blur", &b)) {
+                if (b) g_menuBlurMask.fetch_or(bit); else g_menuBlurMask.fetch_and(~bit);
+                _snprintf(key, sizeof(key), "NoBlur%s", kMenuContextNames[i]); write_i(key, b);
             }
+            ov::tip("Removes the blur behind this menu. Experimental; reopen the menu after changing it.");
             ImGui::PopID();
         }
     }
-    bool menuFresh=g_menuSceneFreshness.load();
-    if(ImGui::Checkbox("Recent scene uploads in head-tracked menus (test)",&menuFresh)) {
-        g_menuSceneFreshness.store(menuFresh);write_i("MenuSceneFreshness",menuFresh);
-    }
-    if(ImGui::CollapsingHeader("Pause menu alpha")) {
-        draw_scoped_alpha(3);
-        if(ImGui::Checkbox("Keep wheel crop through closing animation (test)",&g_wheelCloseAnimation)) write_i("WheelCloseAnimation",g_wheelCloseAnimation);
-        bool fresh=g_pauseSceneFreshness.load();
-        if(ImGui::Checkbox("Recent pause scene uploads (test)",&fresh)) {g_pauseSceneFreshness.store(fresh);write_i("PauseSceneFreshness",fresh);}
-    }
-    if(ImGui::CollapsingHeader("Notes, books and journal alpha")) {
-        draw_scoped_alpha(1);
-        ImGui::TextWrapped("One shared alpha profile for notes, books and the journal.");
-    }
-    if(ImGui::CollapsingHeader("Objectives")) {
-        bool runeTask=dvr::objectivemarkers::rune_enabled();
-        float runeInset=dvr::objectivemarkers::rune_inset()*100.f;
-        const bool runeChange=ImGui::Checkbox("Native rune arrow boundary (test)",&runeTask);
-        const bool runeInsetChange=ImGui::SliderFloat("Rune arrow inset",&runeInset,5.f,30.f,"%.0f%%");
-        if(runeChange || runeInsetChange) {
-            dvr::objectivemarkers::configure_runes(runeTask,runeInset/100.f);
-            write_i("NativeRuneMarkers",runeTask);write_f("RuneMarkerEdgeInset",runeInset/100.f);
-        }
-        bool nativeTask=dvr::objectivemarkers::enabled();
-        float edgeInset=dvr::objectivemarkers::inset()*100.f;
-        const bool taskChange=ImGui::Checkbox("Native objective arrow boundary (test)",&nativeTask);
-        const bool insetChange=ImGui::SliderFloat("Offscreen arrow inset",&edgeInset,5.f,30.f,"%.0f%%");
-        if(taskChange || insetChange) {
-            dvr::objectivemarkers::configure(nativeTask,edgeInset*.01f);
-            write_i("NativeTaskMarkers",nativeTask);write_f("TaskMarkerEdgeInset",edgeInset*.01f);
-        }
-        ImGui::TextWrapped("Higher inset brings offscreen objective arrows toward the center. Applies on the next game update; on-screen target positions stay unchanged.");
-        if(ImGui::Checkbox("Native gameplay HUD reference (test)",&g_nativeGameplayReference)) {
-            dvr::hudcap::invalidate_content();
-            write_i("NativeGameplayReference",g_nativeGameplayReference);
-            DVR_INFO("hud/native-reference: requested=%d; menu visual ownership takes precedence",(int)g_nativeGameplayReference);
-        }
-        ImGui::TextWrapped("Reference ON keeps all gameplay HUD in the game image, at native size and color. Turn OFF to restore your HUD settings. Menus keep their configured panels. Compare head turning in the same spot.");
-        bool runeOwnership=dvr::objectivemarkers::rune_ownership();
-        if(ImGui::Checkbox("Keep rune group native from first appearance (test)",&runeOwnership)) {
-            dvr::objectivemarkers::configure_rune_ownership(runeOwnership);
-            g_runeIconContinuity.clear();
-            write_i("NativeRuneOwnership",runeOwnership);
-        }
-        if(ImGui::Checkbox("Keep marker inner artwork native (test)",&g_nativeMarkerChildren)) {
-            write_i("NativeMarkerChildren",g_nativeMarkerChildren);
-            g_nativeLabels.clear();g_nativeChildContent.clear();g_runeIconContinuity.clear();
-        }
-        bool heartAll=dvr::objectivemarkers::heart_all_symbols();
-        if(ImGui::Checkbox("Treat every Heart marker, not only runes (test)",&heartAll)) {
-            dvr::objectivemarkers::configure_heart_all_symbols(heartAll);
-            g_runeIconContinuity.clear();
-            write_i("NativeHeartAllSymbols",heartAll);
-        }
-        ImGui::TextWrapped("Bone charms use the same Heart marker as runes and differ only by their Flash symbol, which has never been read. ON accepts every Heart symbol; the hud/heart-symbol log line names each one it sees either way.");
-        bool aware=dvr::objectivemarkers::awareness_enabled();
-        if(ImGui::Checkbox("Keep enemy awareness meters in the game image (test)",&aware)) {
-            dvr::objectivemarkers::configure_awareness(aware);
-            write_i("NativeAwarenessMarkers",aware);
-        }
-        ImGui::TextWrapped("The awareness meter tracks an enemy head, so no panel rectangle can claim it and it rides the default window instead. ON leaves its draws where the engine put them. Takes effect at the next hook install; read hud/awareness-parent for the census.");
-        if(g_nativeObjectives && !g_nativeGameplayReference) {
-            if(ImGui::SliderFloat("Native objective size",&g_nativeObjectiveScale,.25f,1.f,"%.2fx")) {
-                write_f("NativeObjectiveScale",g_nativeObjectiveScale);
-                DVR_INFO("hud/native-size: requested=%.3f; applies to recognized icon/description draws",g_nativeObjectiveScale);
-            }
-            ImGui::TextWrapped("Size affects recognized native markers and descriptions. Position comes from the game target; panel offsets do not apply. Identification is still experimental.");
-        }
-    }
-    if(ImGui::CollapsingHeader("HUD grouping")) {
-        {   // VR-166
-            bool onAim = g_reticleOnAim;
-            if (ImGui::Checkbox("Centre gauges (grenade cook ring) ride the aim dot", &onAim))
-                set_reticle_on_aim(onAim, "F10 HUD");
-        }
-        bool change=ImGui::Checkbox("Keep interaction labels together",&g_groupInteractions);
-        change|=ImGui::Checkbox("Route moving objective markers",&g_routeObjectives);
-        change|=ImGui::Checkbox("Objective markers follow screen",&g_objectiveScreen);
-        change|=ImGui::Checkbox("Native objective icons (test)",&g_nativeObjectives);
-        change|=ImGui::Checkbox("Native objective title and distance (test)",&g_nativeObjectiveLabels);
-        change|=ImGui::Checkbox("Keep native objectives upright (test)",&g_nativeObjectiveUpright);
-        ImGui::TextDisabled("Native size and comparison controls are in Objectives above.");
-        ImGui::TextWrapped("Native test learns edge-clamped marker content and keeps it native when it moves through the center. Size preserves the native center. Unlearned isolated icons remain native at original size; similar artwork can match.");
-        ImGui::TextWrapped("Screen tracking separates marker size from screen position. Window/world markers follow the rendered field of view; their window scale controls icon size. Native game edge indicators remain.");
-        ImGui::TextWrapped("Test controls: group nearby interaction draws and recognize the measured objective-marker shape. Other similar icons may match; disable to compare. Panel placement below applies only when native icons are disabled.");
-        if(change) {
-            write_i("GroupInteractions",g_groupInteractions);write_i("RouteObjectives",g_routeObjectives);
-            write_i("ObjectiveScreenTracking",g_objectiveScreen);write_i("NativeObjectiveUpright",g_nativeObjectiveUpright);
-            write_i("NativeObjectiveIcons",g_nativeObjectives);write_i("NativeObjectiveLabels",g_nativeObjectiveLabels);write_f("NativeObjectiveScale",g_nativeObjectiveScale);
-            rebalance();refresh_status_line();
-        }
-    }
-    if(ImGui::CollapsingHeader("Interactables alpha")) {
-        draw_scoped_alpha(2);
-        ImGui::TextWrapped("Applies to the interaction title, action prompt and icons routed onto a HUD panel. Frame keeps native game rendering.");
-    }
-    if(ImGui::CollapsingHeader("Notes and journal on the hand")) {
-        ImGui::TextWrapped("Books and notes use a fixed attachment to your hand, regardless of how you open them. This slider tilts the page without moving its attachment. Changes apply and save immediately.");
-        if(ImGui::SliderFloat("Reading tilt (degrees)",&g_readTilt,-180.f,180.f,"%.0f"))save_read_rotation();
-        for(int i=0;i<2;++i) {
-            ImGui::PushID(kReadNames[i]);ImGui::TextUnformatted(kReadNames[i]);
-            bool change=ImGui::Checkbox("Follow left hand",&g_readHand[i]);
-            change|=ImGui::SliderFloat("Panel width (m)",&g_readWidth[i],.15f,1.5f,"%.2f");
-            change|=ImGui::SliderFloat("Distance offset (m, + farther)",&g_readDistance[i],-.30f,.50f,"%.2f");
-            change|=ImGui::SliderFloat("Horizontal offset (m, + right)",&g_readRight[i],-.75f,.75f,"%.2f");
-            change|=ImGui::SliderFloat("Vertical offset (m, + up)",&g_readUp[i],-.75f,.75f,"%.2f");
-            if(change) {
-                char key[64];
-                _snprintf(key,sizeof(key),"%sFollowHand",kReadNames[i]);write_i(key,g_readHand[i]);
-                _snprintf(key,sizeof(key),"%sHandWidth",kReadNames[i]);write_f(key,g_readWidth[i]);
-                _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);write_f(key,g_readDistance[i]);
-                _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);write_f(key,g_readRight[i]);
-        _snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);write_f(key,g_readUp[i]);
-            }
-            ImGui::PopID();
-        }
-    }
-    if (ImGui::CollapsingHeader("Weapon dial")) {
-        draw_scoped_alpha(0);
-        ImGui::TextWrapped("Wheel alpha is independent of reading, interactables and general HUD alpha.");
-        bool changed = ImGui::Checkbox("World-space left-hand dial", &g_dialOn);
-        changed |= ImGui::SliderFloat("Distance offset (m, + farther)",&g_dialDistance,-.30f,.50f,"%.2f");
-        changed |= ImGui::Checkbox("Direction only (tiny movement selects)",&g_dialDirection);
-        changed |= ImGui::Checkbox("Circular crop",&g_dialCircle);
-        changed |= ImGui::Checkbox("Follow head tilt on opening",&g_dialEntryTilt);
-        changed |= ImGui::Checkbox("Follow horizontal head angle on opening",&g_dialEntryYaw);
-        ImGui::TextWrapped("Applies next opening. Off: upright and facing your position. On: use the selected head angles at entry. Orientation stays fixed while open.");
-        changed |= ImGui::SliderFloat("Neutral radius (m)",&g_dialDeadM,.0005f,.010f,"%.4f");
-        changed |= ImGui::SliderFloat("Dial width (m)", &g_dialWidth, .15f, 1.2f, "%.2f");
-        if(!g_dialDirection) changed |= ImGui::SliderFloat("Hand travel for full input (m)", &g_dialRadius, .04f, .30f, "%.2f");
-        changed |= ImGui::SliderFloat("Dial crop width", &g_dialCropX, .30f, 1.f, "%.2f");
-        changed |= ImGui::SliderFloat("Dial crop height", &g_dialCropY, .30f, 1.f, "%.2f");
-        ImGui::TextWrapped("Hold left grip: the dial stays at the opening hand position and faces your head. Move the left hand to select. Either stick overrides hand selection. Release grip to equip. Reopen after changing settings.");
-        if (changed) {
-            g_dial.reset();
-            write_f("WeaponDialDistance",g_dialDistance);
-            write_i("WeaponDialDirectionOnly",g_dialDirection);
-            write_i("WeaponDialCircle",g_dialCircle);
-    write_i("WeaponDialEntryTilt",g_dialEntryTilt);
-    write_i("WeaponDialEntryYaw",g_dialEntryYaw);
-            write_f("WeaponDialDeadzone",g_dialDeadM);
-            write_i("WeaponDial",g_dialOn ? 1 : 0);
-            write_f("WeaponDialWidth",g_dialWidth); write_f("WeaponDialRadius",g_dialRadius);
-            write_f("WeaponDialCropX",g_dialCropX); write_f("WeaponDialCropY",g_dialCropY);
-        }
-    }
-    ImGui::TextDisabled("%s", g_statusLine);
-    ImGui::Separator();
-    ImGui::Text("ELEMENTS (which anchor each one rides; 'seen' = draws routed to it this session; a row without a region rides 'default')");
-    for (int e = 0; e < ElCount; ++e) {
-        ImGui::PushID(e);
-        int a = g_el[e].anchor;
-        if(e==ElWheelShortcuts || e==ElWheelPotions) {ImGui::PopID();continue;}
-        if(e==ElObjective && g_nativeObjectives) {
-            ImGui::Text("objective     native game target | seen %u",g_seen[e]);
-            ImGui::TextDisabled("Use Objectives above. Panel anchor/offset/scale do not apply in native mode.");
-            ImGui::PopID();
-            continue;
-        }
-        ImGui::Text("%-13s", kRows[e].name); ImGui::SameLine();
-        ImGui::SetNextItemWidth(110.0f);
-        if (ImGui::Combo("##anchor", &a, kAnchorNames, AnchorCount)) set_element_anchor(e, a, "F10 HUD");
-        ImGui::SameLine();
-        if (kRows[e].context >= 0) ImGui::TextDisabled("screen");
-        else if (kRows[e].vignette) ImGui::TextDisabled("full-screen rule");
-        else if (e == ElDefault) ImGui::TextDisabled("unclaimed draws");
-        else if(e==ElObjective && g_routeObjectives) ImGui::TextDisabled("moving marker");
-        else if (measured(e)) ImGui::TextDisabled("region ok");
-        else ImGui::TextDisabled("UNMEASURED");
-        ImGui::SameLine();
-        ImGui::TextDisabled("seen %u", g_seen[e]);
-        const bool dedicated=(e==ElWheel && g_dialOn) || (e==ElNote && g_readHand[0]) || (e==ElJournal && g_readHand[1]);
-        if(dedicated) ImGui::TextDisabled("Use this menu's dedicated panel controls above.");
-        if (anchor_visible(a) && !dedicated) {
-            const bool onHand = anchor_is_hand(a);
-            float x = onHand ? g_el[e].handX : g_el[e].winX;
-            float y = onHand ? g_el[e].handY : g_el[e].winY;
-            float s = onHand ? g_el[e].handScale : g_el[e].winScale;
-            const float lim = onHand ? 0.3f : 1.5f;
-            bool moved = false;
-            ImGui::Indent();
-            moved |= ImGui::SliderFloat("x (m)", &x, -lim, lim, "%.3f");
-            moved |= ImGui::SliderFloat("y (m)", &y, -lim, lim, "%.3f");
-            moved |= ImGui::SliderFloat("scale", &s, 0.25f, 3.0f, "%.2f");
-            ImGui::Unindent();
-            if (moved) set_element_place(e, onHand, x, y, s, "F10 HUD");
-        }
-        ImGui::PopID();
-    }
-    ImGui::Separator();
-    ImGui::Text("THE WINDOW (in front of the player; 'window' is head-locked, 'world' parks where you recentred)");
-    {
-        WindowCfg c = g_win;
-        bool ch = false;
-        if (ImGui::Button("Recenter the world window")) { dvr::vr::recenter_hud_world_anchor(); DVR_INFO("hud: the world window re-seeded where the head is now (F10)"); }
-        ch |= ImGui::SliderFloat("distance (m)", &c.distM, 0.5f, 3.0f, "%.2f");
-        ch |= ImGui::SliderFloat("width (m)", &c.widthM, 0.3f, 3.0f, "%.2f");
-        ch |= ImGui::SliderFloat("height (m, 0 = the texture's aspect)", &c.heightM, 0.0f, 3.0f, "%.2f");
-        ch |= ImGui::SliderFloat("vertical offset (m)", &c.upM, -1.0f, 1.0f, "%.2f");
-        ch |= ImGui::SliderFloat("lateral offset (m)", &c.latM, -1.0f, 1.0f, "%.2f");
-        if (ch) set_window(c, "F10 HUD");
-    }
-    for (int k = 0; k < 2; ++k) {
-        ImGui::Separator();
-        ImGui::PushID(200 + k);
-        ImGui::Text("THE %s HAND PANEL (38.92's wrist HUD, on the tracked hand)", k ? "RIGHT" : "LEFT");
-        HandCfg c = g_hand[k];
-        bool ch = false;
-        int orient = c.followGrip ? 1 : 0;
-        ch |= ImGui::RadioButton("billboard: faces the head, never rolls (38.92)", &orient, 0); ImGui::SameLine();
-        ch |= ImGui::RadioButton("follow the grip: a watch face", &orient, 1);
-        c.followGrip = orient == 1;
-        ch |= ImGui::SliderFloat("x in the grip frame (m)", &c.x, -0.3f, 0.3f, "%.3f");
-        ch |= ImGui::SliderFloat("y in the grip frame (m)", &c.y, -0.3f, 0.3f, "%.3f");
-        ch |= ImGui::SliderFloat("z in the grip frame (m)", &c.z, -0.3f, 0.3f, "%.3f");
-        ch |= ImGui::SliderFloat("lift along world up (m)", &c.liftM, 0.0f, 0.3f, "%.3f");
-        ch |= ImGui::SliderFloat("panel width (m)", &c.widthM, 0.06f, 0.40f, "%.2f");
-        if (c.followGrip) ch |= ImGui::SliderFloat("tilt toward the eyes (deg)", &c.tiltDeg, -90.0f, 90.0f, "%.0f");
-        if (ch) set_hand(k, c, "F10 HUD");
-        ImGui::PopID();
-    }
-    ImGui::Separator();
-    ImGui::Text("GENERAL HUD ALPHA (excludes all dedicated alpha groups)");
-    {
-        if(ImGui::Button("Restore original general alpha")) {
-            for(int i=0;i<5;++i) save_scoped_alpha(i);
-            g_alphaBank.reset_general();set_alpha(g_alpha,"F10 original general alpha");
-        }
-        ImGui::TextWrapped("General HUD only. Original: repair, gain 1, floor 0, gamma 1, mix 1. Wheel, side panels, reading, interactable and pause alpha remain independent.");
-        AlphaCfg c = g_alpha;
-        bool ch = false;
-        int mode = c.mode;
-        ch |= ImGui::RadioButton("repair (max of r,g,b)", &mode, AlphaRepair); ImGui::SameLine();
-        ch |= ImGui::RadioButton("captured (the sink's coverage)", &mode, AlphaCaptured); ImGui::SameLine();
-        ch |= ImGui::RadioButton("mix (max of both)", &mode, AlphaMix);
-        c.mode = mode;
-        ch |= ImGui::SliderFloat("alpha gain", &c.gain, 0.0f, 3.0f, "%.2f");
-        ch |= ImGui::SliderFloat("alpha floor (pixels with any colour)", &c.floorA, 0.0f, 1.0f, "%.2f");
-        ch |= ImGui::SliderFloat("gamma nudge", &c.gamma, 0.5f, 2.0f, "%.2f");
-        if (c.mode == AlphaMix) ch |= ImGui::SliderFloat("mix: repair weight", &c.mixK, 0.0f, 2.0f, "%.2f");
-        if (ch) set_alpha(c, "F10 HUD");
-        for (int k = 0; k < 2; ++k) {
-            ImGui::PushID(100 + k);
-            Backdrop b = g_backdrop[k];
-            float col[4] = { b.r, b.g, b.b, b.a };
-            ImGui::Text("%s backdrop", kBackdropKindNames[k]); ImGui::SameLine();
-            bool bc = ImGui::ColorEdit3("colour", col, ImGuiColorEditFlags_NoInputs); ImGui::SameLine();
-            bc |= ImGui::SliderFloat("opacity (0 = no plate)", &col[3], 0.0f, 1.0f, "%.2f");
-            if (bc) { b.r = col[0]; b.g = col[1]; b.b = col[2]; b.a = col[3]; set_backdrop(k, b, "F10 HUD"); }
-            ImGui::PopID();
-        }
-    }
-    ImGui::Separator();
-    ImGui::Text("SCREENS ON THE ANCHORS (the world stays in stereo behind them; the main menu keeps the mono screen)");
-    {
+    if (ov::section("Screens on the HUD panels", ov::Advanced,
+                    "In-game screens (pause, journal and others) float on a panel with the world in 3D behind. "
+                    "The main menu keeps the flat screen.")) {
         bool on = g_menuInWindow;
-        if (ImGui::Checkbox("in-game screens ride their row's anchor", &on)) set_menu_in_window(on, "F10 HUD");
+        if (ImGui::Checkbox("In-game screens ride their panel", &on)) set_menu_in_window(on, "F10 HUD");
+        ov::tip("Off shows every in-game screen on the flat screen.");
         uint32_t mask = g_menuMask;
         bool ch = false;
         for (int i = 0; i < kMenuContexts; ++i) {
@@ -1966,10 +1784,223 @@ void draw_ui() {
         if (ch) set_menu_context_mask(mask, "F10 HUD");
         ImGui::TextDisabled("%s", g_menuRiding ? "a screen is riding now" : "no screen riding");
     }
-    ImGui::Separator();
-    if (ImGui::Button("hud reset (the presets)")) reset_presets("F10 HUD");
-    ImGui::SameLine();
-    ImGui::TextDisabled("every change here is written to [Hud] in the ini at once");
+    if (ov::section("HUD elements", ov::Advanced,
+                    "Where each part of the HUD floats: off, the window in front of you, the world, or a hand panel.")) {
+        for (int e = 0; e < ElCount; ++e) {
+            ImGui::PushID(e);
+            int a = g_el[e].anchor;
+            if (e == ElWheelShortcuts || e == ElWheelPotions) { ImGui::PopID(); continue; }
+            if (e == ElObjective && g_nativeObjectives) {
+                ImGui::TextDisabled("objective: native game target (Objectives controls apply) | seen %u", g_seen[e]);
+                ImGui::PopID();
+                continue;
+            }
+            ImGui::Text("%-13s", kRows[e].name); ImGui::SameLine();
+            ImGui::SetNextItemWidth(110.0f);
+            if (ImGui::Combo("##anchor", &a, kAnchorNames, AnchorCount)) set_element_anchor(e, a, "F10 HUD");
+            if (ov::show(ov::Debug)) {
+                ImGui::SameLine();
+                if (kRows[e].context >= 0) ImGui::TextDisabled("screen");
+                else if (kRows[e].vignette) ImGui::TextDisabled("full-screen rule");
+                else if (e == ElDefault) ImGui::TextDisabled("unclaimed draws");
+                else if (e == ElObjective && g_routeObjectives) ImGui::TextDisabled("moving marker");
+                else if (measured(e)) ImGui::TextDisabled("region ok");
+                else ImGui::TextDisabled("UNMEASURED");
+                ImGui::SameLine();
+                ImGui::TextDisabled("seen %u", g_seen[e]);
+            }
+            const bool dedicated = (e == ElWheel && g_dialOn) || (e == ElNote && g_readHand[0]) || (e == ElJournal && g_readHand[1]);
+            if (dedicated) ImGui::TextDisabled("Placed by its own section above.");
+            if (anchor_visible(a) && !dedicated) {
+                const bool onHand = anchor_is_hand(a);
+                float x = onHand ? g_el[e].handX : g_el[e].winX;
+                float y = onHand ? g_el[e].handY : g_el[e].winY;
+                float s = onHand ? g_el[e].handScale : g_el[e].winScale;
+                const float lim = onHand ? 0.3f : 1.5f;
+                bool moved = false;
+                ImGui::Indent();
+                moved |= ImGui::SliderFloat("x (m)", &x, -lim, lim, "%.3f");
+                moved |= ImGui::SliderFloat("y (m)", &y, -lim, lim, "%.3f");
+                moved |= ImGui::SliderFloat("scale", &s, 0.25f, 3.0f, "%.2f");
+                ImGui::Unindent();
+                if (moved) set_element_place(e, onHand, x, y, s, "F10 HUD");
+            }
+            ImGui::PopID();
+        }
+    }
+    if (ov::section("HUD window", ov::Advanced,
+                    "The panel in front of you that most HUD elements ride. 'window' follows your head; 'world' stays where you recentred.")) {
+        WindowCfg c = g_win;
+        bool ch = false;
+        if (ImGui::Button("Recenter the world window")) { dvr::vr::recenter_hud_world_anchor(); DVR_INFO("hud: the world window re-seeded where the head is now (F10)"); }
+        ov::tip("Puts the world-fixed window in front of where you are looking now.");
+        ch |= ImGui::SliderFloat("Distance (m)", &c.distM, 0.5f, 3.0f, "%.2f");
+        ch |= ImGui::SliderFloat("Width (m)", &c.widthM, 0.3f, 3.0f, "%.2f");
+        ch |= ImGui::SliderFloat("Height (m, 0 = automatic)", &c.heightM, 0.0f, 3.0f, "%.2f");
+        ov::tip("How tall the window is. 0 keeps the image's shape.");
+        ch |= ImGui::SliderFloat("Vertical offset (m)", &c.upM, -1.0f, 1.0f, "%.2f");
+        ch |= ImGui::SliderFloat("Lateral offset (m)", &c.latM, -1.0f, 1.0f, "%.2f");
+        if (ch) set_window(c, "F10 HUD");
+    }
+    if (ov::section("Hand panels", ov::Advanced, "The small HUD panels on each wrist.")) {
+        for (int k = 0; k < 2; ++k) {
+            ImGui::PushID(200 + k);
+            ImGui::TextUnformatted(k ? "Right hand panel" : "Left hand panel");
+            HandCfg c = g_hand[k];
+            bool ch = false;
+            int orient = c.followGrip ? 1 : 0;
+            ch |= ImGui::RadioButton("Faces your head", &orient, 0);
+            ImGui::SameLine();
+            ch |= ImGui::RadioButton("Follows the grip (a watch face)", &orient, 1);
+            c.followGrip = orient == 1;
+            ch |= ImGui::SliderFloat("x in the grip frame (m)", &c.x, -0.3f, 0.3f, "%.3f");
+            ch |= ImGui::SliderFloat("y in the grip frame (m)", &c.y, -0.3f, 0.3f, "%.3f");
+            ch |= ImGui::SliderFloat("z in the grip frame (m)", &c.z, -0.3f, 0.3f, "%.3f");
+            ch |= ImGui::SliderFloat("Lift along world up (m)", &c.liftM, 0.0f, 0.3f, "%.3f");
+            ch |= ImGui::SliderFloat("Panel width (m)", &c.widthM, 0.06f, 0.40f, "%.2f");
+            if (c.followGrip) { ch |= ImGui::SliderFloat("Tilt toward the eyes (deg)", &c.tiltDeg, -90.0f, 90.0f, "%.0f"); }
+            if (ch) set_hand(k, c, "F10 HUD");
+            ImGui::PopID();
+        }
+    }
+    if (ov::section("HUD grouping", ov::Advanced, "Which HUD pieces travel together.")) {
+        bool onAim = g_reticleOnAim;   // VR-166
+        if (ImGui::Checkbox("Centre gauges ride the aim dot", &onAim)) set_reticle_on_aim(onAim, "F10 HUD");
+        ov::tip("Gauges drawn at the centre of the screen (the grenade cook ring) follow the reticle.");
+    }
+    if (ov::section("HUD transparency", ov::Advanced, "How see-through each group of HUD panels is.")) {
+        ImGui::TextDisabled("Pause menu"); draw_scoped_alpha(3);
+        ImGui::TextDisabled("Notes, books and journal"); draw_scoped_alpha(1);
+        ImGui::TextDisabled("Interaction labels and prompts"); draw_scoped_alpha(2);
+    }
+    if (ov::section("General HUD alpha (debug)", ov::Debug,
+                    "The general HUD's transparency rule. Every other group has its own above.")) {
+        if (ImGui::Button("Restore original general alpha")) {
+            for (int i = 0; i < 5; ++i) save_scoped_alpha(i);
+            g_alphaBank.reset_general(); set_alpha(g_alpha, "F10 original general alpha");
+        }
+        ov::tip("Back to repair, gain 1, floor 0, gamma 1, mix 1.");
+        AlphaCfg c = g_alpha;
+        bool ch = false;
+        int mode = c.mode;
+        ch |= ImGui::RadioButton("repair (max of r,g,b)", &mode, AlphaRepair);
+        ov::tip("Rebuilds transparency from the colour. The default.");
+        ImGui::SameLine();
+        ch |= ImGui::RadioButton("captured", &mode, AlphaCaptured);
+        ov::tip("Uses the transparency the capture recorded.");
+        ImGui::SameLine();
+        ch |= ImGui::RadioButton("mix (max of both)", &mode, AlphaMix);
+        ov::tip("Takes the stronger of the two.");
+        c.mode = mode;
+        ch |= ImGui::SliderFloat("Alpha gain", &c.gain, 0.0f, 3.0f, "%.2f");
+        ch |= ImGui::SliderFloat("Alpha floor (pixels with any colour)", &c.floorA, 0.0f, 1.0f, "%.2f");
+        ov::tip("The least opacity any coloured pixel gets.");
+        ch |= ImGui::SliderFloat("Gamma nudge", &c.gamma, 0.5f, 2.0f, "%.2f");
+        ov::tip("Bends the opacity curve. Lower darkens grey artwork.");
+        if (c.mode == AlphaMix) { ch |= ImGui::SliderFloat("Mix: repair weight", &c.mixK, 0.0f, 2.0f, "%.2f"); ov::tip("How much the repaired value counts in the mix."); }
+        if (ch) set_alpha(c, "F10 HUD");
+        for (int k = 0; k < 2; ++k) {
+            ImGui::PushID(100 + k);
+            Backdrop b = g_backdrop[k];
+            float col[4] = { b.r, b.g, b.b, b.a };
+            ImGui::Text("%s backdrop", kBackdropKindNames[k]); ImGui::SameLine();
+            bool bc = ImGui::ColorEdit3("colour", col, ImGuiColorEditFlags_NoInputs);
+            ImGui::SameLine();
+            bc |= ImGui::SliderFloat("opacity (0 = no plate)", &col[3], 0.0f, 1.0f, "%.2f");
+            if (bc) { b.r = col[0]; b.g = col[1]; b.b = col[2]; b.a = col[3]; set_backdrop(k, b, "F10 HUD"); }
+            ImGui::PopID();
+        }
+    }
+    if (ov::section("Objectives and markers (debug)", ov::Debug,
+                    "How objective markers, runes and awareness meters are recognised. Most are tests.")) {
+        bool change = ImGui::Checkbox("Keep interaction labels together", &g_groupInteractions);
+        ov::tip("Groups nearby interaction draws into one label. Leave on.");
+        change |= ImGui::Checkbox("Route moving objective markers", &g_routeObjectives);
+        ov::tip("Recognises the measured objective-marker shape and routes it. Leave on.");
+        change |= ImGui::Checkbox("Objective markers follow screen", &g_objectiveScreen);
+        ov::tip("Separates marker size from screen position. Leave on.");
+        change |= ImGui::Checkbox("Native objective icons (test)", &g_nativeObjectives);
+        ov::tip("Keeps learned marker content native as it moves through the centre.");
+        change |= ImGui::Checkbox("Native objective title and distance (test)", &g_nativeObjectiveLabels);
+        change |= ImGui::Checkbox("Keep native objectives upright (test)", &g_nativeObjectiveUpright);
+        if (change) {
+            write_i("GroupInteractions", g_groupInteractions); write_i("RouteObjectives", g_routeObjectives);
+            write_i("ObjectiveScreenTracking", g_objectiveScreen); write_i("NativeObjectiveUpright", g_nativeObjectiveUpright);
+            write_i("NativeObjectiveIcons", g_nativeObjectives); write_i("NativeObjectiveLabels", g_nativeObjectiveLabels); write_f("NativeObjectiveScale", g_nativeObjectiveScale);
+            rebalance(); refresh_status_line();
+        }
+        bool runeTask = dvr::objectivemarkers::rune_enabled();
+        float runeInset = dvr::objectivemarkers::rune_inset() * 100.f;
+        const bool runeChange = ImGui::Checkbox("Native rune arrow boundary (test)", &runeTask);
+        const bool runeInsetChange = ImGui::SliderFloat("Rune arrow inset", &runeInset, 5.f, 30.f, "%.0f%%");
+        ov::tip("How far in from the edge rune arrows stop.");
+        if (runeChange || runeInsetChange) {
+            dvr::objectivemarkers::configure_runes(runeTask, runeInset / 100.f);
+            write_i("NativeRuneMarkers", runeTask); write_f("RuneMarkerEdgeInset", runeInset / 100.f);
+        }
+        bool nativeTask = dvr::objectivemarkers::enabled();
+        float edgeInset = dvr::objectivemarkers::inset() * 100.f;
+        const bool taskChange = ImGui::Checkbox("Native objective arrow boundary (test)", &nativeTask);
+        const bool insetChange = ImGui::SliderFloat("Offscreen arrow inset", &edgeInset, 5.f, 30.f, "%.0f%%");
+        ov::tip("Higher brings offscreen arrows towards the centre. Applies on the next game update.");
+        if (taskChange || insetChange) {
+            dvr::objectivemarkers::configure(nativeTask, edgeInset * .01f);
+            write_i("NativeTaskMarkers", nativeTask); write_f("TaskMarkerEdgeInset", edgeInset * .01f);
+        }
+        if (ImGui::Checkbox("Native gameplay HUD reference (test)", &g_nativeGameplayReference)) {
+            dvr::hudcap::invalidate_content();
+            write_i("NativeGameplayReference", g_nativeGameplayReference);
+            DVR_INFO("hud/native-reference: requested=%d; menu visual ownership takes precedence", (int)g_nativeGameplayReference);
+        }
+        ov::tip("Puts all gameplay HUD back in the game image at native size, to compare. Turn off to restore your HUD.");
+        bool runeOwnership = dvr::objectivemarkers::rune_ownership();
+        if (ImGui::Checkbox("Keep rune group native from first appearance (test)", &runeOwnership)) {
+            dvr::objectivemarkers::configure_rune_ownership(runeOwnership);
+            g_runeIconContinuity.clear();
+            write_i("NativeRuneOwnership", runeOwnership);
+        }
+        ov::tip("Rune markers stay native from the moment they appear.");
+        if (ImGui::Checkbox("Keep marker inner artwork native (test)", &g_nativeMarkerChildren)) {
+            write_i("NativeMarkerChildren", g_nativeMarkerChildren);
+            g_nativeLabels.clear(); g_nativeChildContent.clear(); g_runeIconContinuity.clear();
+        }
+        ov::tip("The artwork inside markers stays native.");
+        bool heartAll = dvr::objectivemarkers::heart_all_symbols();
+        if (ImGui::Checkbox("Treat every Heart marker, not only runes (test)", &heartAll)) {
+            dvr::objectivemarkers::configure_heart_all_symbols(heartAll);
+            g_runeIconContinuity.clear();
+            write_i("NativeHeartAllSymbols", heartAll);
+        }
+        ov::tip("Bone charms use the same Heart marker as runes. On accepts every Heart symbol.");
+        bool aware = dvr::objectivemarkers::awareness_enabled();
+        if (ImGui::Checkbox("Keep enemy awareness meters in the game image (test)", &aware)) {
+            dvr::objectivemarkers::configure_awareness(aware);
+            write_i("NativeAwarenessMarkers", aware);
+        }
+        ov::tip("Awareness meters track an enemy's head, so they stay where the game drew them. Takes effect at the next hook install.");
+        if (g_nativeObjectives && !g_nativeGameplayReference) {
+            if (ImGui::SliderFloat("Native objective size", &g_nativeObjectiveScale, .25f, 1.f, "%.2fx")) {
+                write_f("NativeObjectiveScale", g_nativeObjectiveScale);
+                DVR_INFO("hud/native-size: requested=%.3f; applies to recognized icon/description draws", g_nativeObjectiveScale);
+            }
+            ov::tip("Scales recognised native markers and descriptions.");
+        }
+    }
+    if (ov::section("HUD tests (debug)", ov::Debug, "Experimental HUD switches.")) {
+        bool menuFresh = g_menuSceneFreshness.load();
+        if (ImGui::Checkbox("Recent scene uploads in head-tracked menus (test)", &menuFresh)) {
+            g_menuSceneFreshness.store(menuFresh); write_i("MenuSceneFreshness", menuFresh);
+        }
+        ov::tip("Accepts recent scene draws while a head-tracked menu is open (VR-178).");
+        if (ImGui::Checkbox("Keep wheel crop through closing animation (test)", &g_wheelCloseAnimation)) write_i("WheelCloseAnimation", g_wheelCloseAnimation);
+        bool fresh = g_pauseSceneFreshness.load();
+        if (ImGui::Checkbox("Recent pause scene uploads (test)", &fresh)) { g_pauseSceneFreshness.store(fresh); write_i("PauseSceneFreshness", fresh); }
+        ImGui::TextDisabled("%s", g_statusLine);
+    }
+    if (ov::show(ov::Advanced)) {
+        if (ImGui::Button("Reset the HUD to its presets")) reset_presets("F10 HUD");
+        ov::tip("Puts every HUD panel, element and alpha back to the shipped layout. Saved at once.");
+    }
 }
 
 } // namespace dvr::hudlayout

@@ -467,25 +467,31 @@ static void CamShakeStatus(dvr::status::Writer& w) {
 }
 
 static void CamShakeDrawUi() {
-    if (!ImGui::CollapsingHeader("Camera shake", ImGuiTreeNodeFlags_DefaultOpen)) return;
+    namespace ov = dvr::ovl;
+    if (!ov::section("Camera shake", ov::Basic, "The game shakes and bobs the camera. In a headset that is uncomfortable.")) return;
     bool on = g_camShakeSuppress.load();
-    if (ImGui::Checkbox("remove the game's own camera shake (recommended in a headset)", &on)) {
+    if (ImGui::Checkbox("Remove the game's camera shake", &on)) {
         CamShakeSuppressSet(on, "F10");
         ConfigWriteKey("CameraShake", "Suppress", on ? "1" : "0", "F10");
     }
+    ov::tip("Recommended in a headset. About 1.5 cm of body movement while walking stays either way.");
     if (*csStandDown) ImGui::TextDisabled("standing down: %s", csStandDown);
-    ImGui::TextDisabled("Tick a line to let the game move the camera for that again:");
-    for (CsCategory& c : csCat) {
-        char label[96]; _snprintf_s(label, sizeof(label), _TRUNCATE, "allow: %s", c.label);
-        if (ImGui::Checkbox(label, &c.allow)) ConfigWriteKey("CameraShake", c.ini, c.allow ? "1" : "0", "F10");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", c.measured);
+    if (ov::show(ov::Advanced)) {
+        ImGui::TextDisabled("Tick a line to let the game move the camera for that again:");
+        for (CsCategory& c : csCat) {
+            char label[96]; _snprintf_s(label, sizeof(label), _TRUNCATE, "Allow: %s", c.label);
+            if (ImGui::Checkbox(label, &c.allow)) ConfigWriteKey("CameraShake", c.ini, c.allow ? "1" : "0", "F10");
+            ov::tip(c.measured);
+        }
     }
-    bool pop = g_popSmoothAllow.load();
-    if (ImGui::Checkbox("allow: the collision-pop glide (VR-165: sticks in VR, leave it off)", &pop)) {
-        g_popSmoothAllow.store(pop);
-        ConfigWriteKey("CameraShake", "PopSmoothing", pop ? "1" : "0", "F10");
+    if (ov::show(ov::Debug)) {
+        bool pop = g_popSmoothAllow.load();
+        if (ImGui::Checkbox("Allow: the collision-pop glide", &pop)) {
+            g_popSmoothAllow.store(pop);
+            ConfigWriteKey("CameraShake", "PopSmoothing", pop ? "1" : "0", "F10");
+        }
+        ov::tip("After a chain release or a knockback the game glides the camera back to your head. In VR "
+                "that glide reads back the mod's own offset and never finishes: the view stays lifted and "
+                "swings (VR-165). Leave off.");
     }
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("After a chain release or a knockback the game glides the camera back to your head. "
-                                                  "In VR that glide reads back the mod's own offset and never finishes: the view stays lifted and swings.");
-    ImGui::TextDisabled("Still there with everything removed: about 1.5 cm of body movement while walking.");
 }
