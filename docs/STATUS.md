@@ -23,8 +23,14 @@ are reviewed at 100/150% DPI. See docs/INSTALLER.md for details.
 
 Next: user review of the refreshed launcher and eventual headset validation of
 the Layout tab. No game installation or launch is authorized for this candidate;
-the installed game remains accepted F10 build736. PR 111 is not merged and no
-release/tag has been published. An online updater remains a separate feature.
+another session updated the installed game during this work from accepted F10
+build736 to integrated build756-g1726cee95 (the current DLL and log banner agree).
+This launcher candidate was not installed into the game; the external game/INI
+updates were left alone. PR 111 is not merged and no release/tag has been published. An online updater remains a separate feature.
+
+Final launcher: build759-g7f958ac8c, DishonoredVR-Launcher-v1.0.0.exe. Its default
+Desktop support destination was also verified: ZIP created, 19 files, four binary
+hashes, no manifest errors. Main README remains untouched.
 
 ## Session 2026-09-22 (drop takedowns, VR-203): branch `takedown-tweak`, PR #106, not merged
 
