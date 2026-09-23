@@ -16,7 +16,10 @@ component identity before restore, and logs unidentified looping templates. See
 Validation: optimized build, lint, golden/default-profile parity, reset host checks
 (success, preserved paths, backup failure, staging failure), and offscreen theme preview.
 The game is never launched by the agent. Installation records and complete ini/log backups
-live under `build/playtest-candidates/`; the installed build will be verified by hash.
+live under `build/playtest-candidates/`. Installed `vr33-hands-working-712-gc1a25b64d`
+(RelWithDebInfo, legacy off), with source/installed SHA-256 matched and 9/9 exports.
+The entire installed ini is byte-identical to its predecessor, including CRLF; Rain Trace=1
+was already armed. Prior ini and both logs: `build/playtest-candidates/installs/20260922-201638-383971`.
 
 Next launch has ONE question: in a rainy area, does Basic > Comfort > Rain > Hide rain
 effects remove the close rain layer and restore it when turned off? Disappearance and
