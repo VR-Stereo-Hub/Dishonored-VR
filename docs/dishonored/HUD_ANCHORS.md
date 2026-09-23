@@ -1,3 +1,27 @@
+## The world window re-parks for each menu (VR-207, 2026-09-23)
+
+**Report:** on an Index through the SteamVR shim (build `525-g548c31693`), the pause menu
+always appeared in the direction the session started, not in front of the player.
+
+**Measured:** the tester's log held 14 `Dis_OpenPauseMenu` and one
+`xr: HUD window parked in the world at local=(-1.270 -0.060 -0.638)`, at the first open.
+The menu window is element 13 on the world anchor.
+
+**Cause:** `g_hudWorldAnchor` is seeded from the head only while it is invalid. It was
+dropped only on `g_monoReset` (a recenter) or a reference-space change. The mono panel's
+anchor also drops whenever a projection frame goes out, but the world window is drawn
+over projection frames, so it never did. Whatever the first menu parked stayed for the
+whole session.
+
+**Fix (`openxr_runtime.cpp`):** a world window that was absent for more than 250 ms and
+is back is a new menu, so the park is dropped and re-seeded at the current head yaw. It
+logs `xr: HUD window re-parks: absent N ms`. A shorter gap, such as a held or dropped
+present, keeps the place. While the menu stays open, it stays put.
+
+**Check:** one `HUD window parked` line per menu opening, each facing the head at that
+moment. `hud-anchor-host` (908 checks) and `mono-ui-host` (31) pass. The change is in
+the submit loop, which no host test drives, so it is headset-unverified.
+
 ## Objective markers by position, and widget groups (VR-185, VR-186, 2026-09-22)
 
 Branch `claude/misc-fixes` (PR #99). Headset-confirmed 2026-09-22 (build 674-ga142995ed): markers stay

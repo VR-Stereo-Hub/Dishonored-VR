@@ -16,7 +16,13 @@ UINT g_w = 0, g_h = 0;
 D3DFORMAT g_fmt = D3DFMT_UNKNOWN;
 bool g_on = true, g_refused = false;
 bool g_reduce = false, g_callbackPending = false;
-bool g_mirrorOff = true, g_submitRefused = false;
+bool g_mirrorOff = true, g_submitRefused = false;   // EFFECTIVE: the ini's wish unless a runtime vetoes it
+// VR-208: the ini's wish and the runtime's veto, kept apart so a save writes the wish back.
+// The SteamVR shim vetoes mirror-off: a tester on an Index could not play with the
+// shipped mirror-off profile until the mirror was turned back on, and mirror-off was only
+// ever measured on Quest/Virtual Desktop.
+bool g_mirrorOffWant = true, g_mirrorVeto = false;
+char g_mirrorVetoWhy[96] = "";
 bool g_strictOff = true; // Headset-accepted: no desktop refresh for capture/callback gaps in a running XR session.
 IDirect3DQuery9* g_submitQuery = nullptr;
 int g_callbackTag = 0;
@@ -300,16 +306,33 @@ void set_reduced_present(bool on) {
 }
 bool reduced_present() { return g_reduce; }
 
-void set_mirror_off(bool on) {
+static void apply_mirror_off() {
+    const bool on = g_mirrorOffWant && !g_mirrorVeto;
     if (on != g_mirrorOff) {
         g_mirrorOff = on; invalidate(); g_callbackPending = false;
         if (g_submitQuery) { g_submitQuery->Release(); g_submitQuery = nullptr; }
         g_submitRefused = false;
         g_presentWindow = PresentWindow{}; g_presentBeatMs = GetTickCount64();
     }
-    DVR_INFO("desktoppresent: DesktopMirrorOff=%d; OFF freezes desktop updates while XR capture remains live, guarded fallback still presents", g_mirrorOff);
 }
-bool mirror_off() { return g_mirrorOff; }
+void set_mirror_off(bool on) {
+    g_mirrorOffWant = on;
+    apply_mirror_off();
+    DVR_INFO("desktoppresent: DesktopMirrorOff=%d (effective %d%s%s); OFF freezes desktop updates while XR capture "
+             "remains live, guarded fallback still presents", g_mirrorOffWant, g_mirrorOff,
+             g_mirrorVeto ? " - vetoed: " : "", g_mirrorVeto ? g_mirrorVetoWhy : "");
+}
+bool mirror_off() { return g_mirrorOffWant; }   // the ini's wish: what a save writes and F10 shows
+void set_runtime_veto(bool veto, const char* why) {
+    g_mirrorVeto = veto;
+    strncpy_s(g_mirrorVetoWhy, sizeof(g_mirrorVetoWhy), why ? why : "", _TRUNCATE);
+    g_mirrorVetoWhy[sizeof(g_mirrorVetoWhy) - 1] = 0;
+    apply_mirror_off();
+    if (veto)
+        DVR_WARN("desktoppresent: the desktop mirror stays ON on %s, whatever DesktopMirrorOff says (%d). "
+                 "Mirror-off was measured on Quest/Virtual Desktop only, and an Index on this runtime could "
+                 "not play with it until the mirror was restored (VR-208)", g_mirrorVetoWhy, g_mirrorOffWant);
+}
 void set_strict_off(bool on) {
     if (on != g_strictOff) { g_strictOff = on; on_reset(); }
     DVR_INFO("desktoppresent: DesktopMirrorStrictOff=%d; running XR suppresses capture/callback-gap desktop refresh; stopped XR, unsupported parameters or submit failure still fall back", g_strictOff);

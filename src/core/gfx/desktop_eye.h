@@ -40,6 +40,9 @@ void set_reduced_present(bool on);
 bool reduced_present();
 void set_mirror_off(bool on);
 bool mirror_off();
+// VR-208: a runtime that must keep the desktop mirror presenting (the SteamVR shim).
+// The ini's DesktopMirrorOff is kept, and still saved, but has no effect while vetoed.
+void set_runtime_veto(bool veto, const char* why);
 void set_strict_off(bool on);
 bool strict_off();
 bool set_source(const char* name, const char* origin);

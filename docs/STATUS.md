@@ -42,6 +42,21 @@ installed; the strafe ratio is not yet headset-tested. In the next log, look for
 * `move/speed:`, which gives the shipped multipliers and each `correction`;
 * `move/trace:` lines (off by default; `[Anim] MoveTrace=1` turns them on), where `mod=` should be the same at every `stickAng`.
 Details: ENGINE_NOTES "Walking speed by stick direction".
+## Session 2026-09-23 (Index report, VR-207/VR-208): branch `claude/vr-207-index-menu-and-mirror`, not merged
+
+A report from an Index on the SteamVR shim (build `525-g548c31693`) raised two faults:
+* **Pause menu stuck at the first direction (VR-207).** The world-anchored menu window was
+  parked once per session: 14 opens, 1 park. It now re-parks at the head's yaw whenever it
+  reappears after more than 250 ms away. See HUD_ANCHORS.md, top section.
+* **Crash with the shipped mirror-off profile (VR-208).** The SteamVR shim now keeps the
+  desktop mirror presenting whatever `DesktopMirrorOff` says; other runtimes are unchanged.
+  The fatal crash in the report is the game's own trap 6 (`+0x60907e`), and its causal link
+  to mirror-off is unproven: the logs of the crashing runs were overwritten. See
+  DESKTOP_MIRROR.md section 9.
+
+Built; not installed, not headset-tested; this rig has no Index. The next shim log should
+show `desktoppresent: the desktop mirror stays ON on the SteamVR shim` and one
+`HUD window parked` or `re-parks` line per menu opening.
 
 ## Session 2026-09-22 (F10 cleanup and theme, VR-196/VR-197): merged to VR-Main (#103)
 
