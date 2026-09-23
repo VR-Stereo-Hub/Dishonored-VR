@@ -55,6 +55,8 @@ bool render_offscreen(ViewState& state, float scale, const std::wstring& outBmp,
 
     ImGui::CreateContext();
     dvr::ovl::load_fonts();
+    dvr::ovl::load_art(dev);
+    ui::load_guide(dev);
     dvr::ovl::apply_theme();
     ImGui::GetStyle().ScaleAllSizes(scale);
     ImGui::GetStyle().FontScaleDpi = scale;
@@ -84,6 +86,8 @@ bool render_offscreen(ViewState& state, float scale, const std::wstring& outBmp,
     } else {
         *why = "staging map failed";
     }
+    ui::release_guide();
+    dvr::ovl::release_art();
     ImGui_ImplDX11_Shutdown();
     ImGui::DestroyContext();
     st->Release(); rtv->Release(); rt->Release(); ctx->Release(); dev->Release();

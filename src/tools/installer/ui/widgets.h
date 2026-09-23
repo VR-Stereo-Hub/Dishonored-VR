@@ -1,4 +1,4 @@
-// tools/installer/ui/widgets.h - the installer's few building blocks on top of
+// tools/installer/ui/widgets.h - the launcher's few building blocks on top of
 // the F10 theme (core/ui/ovl_ui.h): the page header, a status slot of fixed
 // height so a long path wraps inside it instead of pushing the choices around,
 // a step row with a brass or oxblood mark, and the footer whose buttons never

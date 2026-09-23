@@ -1,5 +1,5 @@
 // tools/installer/sys/install_record.h - dishonored_vr_install.json beside the
-// exe: what the installer put there and when, so a re-run can say "Installed
+// exe: what the launcher put there and when, so a re-run can say "Installed
 // 41.0.0 (build 702-gabc1234)" and an update can tell same-bytes from newer.
 // d3d9.dll carries no version resource; the sha256 is the identity, the same
 // one tools/archive-symbols.ps1 keys the symbol archive on.

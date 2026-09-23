@@ -1,7 +1,7 @@
-Dishonored VR - quick start (41.0, the foundation build of the new render)
+Dishonored VR 1.0.0 - quick start
 ==========================================================================
 
-THE EASY WAY: run DishonoredVR-Setup.exe (beside this zip on the Releases page).
+THE EASY WAY: run DishonoredVR-Launcher-v1.0.0.exe (beside this zip on the Releases page).
 It does steps 1 to 3 below for you, asks which headset you use and how many
 pixels to render, and can be run again later to update, change those two
 settings, disable VR or uninstall. The rest of this file is the by-hand route.
@@ -27,17 +27,16 @@ settings, disable VR or uninstall. The rest of this file is the by-hand route.
    development machine without any editing.
 4. Launch the game from Steam.
    - Quest via Virtual Desktop: start VD streaming with VDXR as the OpenXR
-     runtime. 90 Hz, SSW off. 90 is deliberate and is not "as high as it goes":
-     a higher refresh measured WORSE here, because the frame cost lands the
-     cadence on a bad beat. Start at 90.
+     runtime. Recommended: 120 Hz, or 144 Hz with Virtual Desktop Beta. SSW off.
    - SteamVR headsets (Vive, Index, WMR through SteamVR): start SteamVR first;
      the mod uses the bundled shim (dvr_steamvr32.dll).
 5. F5 recenters, F10 opens the settings overlay (screen distance and width).
    Turn Motion Blur off in the game's options.
 
-What you get in 41.0: the game on a head-locked screen in both eyes, head
-tracking, lean/crouch, the controllers as a gamepad. Stereo and the motion
-controls are being rebuilt on this foundation (KNOWN_ISSUES.txt).
+Stereo VR, tracked hands, motion controls, physical leaning/crouching and
+F10 settings. See Bindings in the launcher or Layout in F10 for the controller
+picture. F10: click both sticks; VD performance overlay: hold both sticks.
+The launcher can collect logs and create Desktop or Start menu shortcuts.
 
 Files the mod writes next to the game exe: dishonored_vr.ini (settings),
 dishonored_vr.log (send this with any bug report), dishonored_vr.prev.log,

@@ -19,7 +19,7 @@ try {
     foreach ($f in $tracked) {
         # tests/golden holds the ORIGINAL 38.92 ini text, em dash included
         if ($f -like 'third_party/*' -or $f -like 'tests/golden/*' -or $f -eq 'LICENSE') { continue }
-        if ($f -match '\.(png|bmp|dll|dmp|dxbc|upk|u)$') { continue }
+        if ($f -match '\.(ico|png|bmp|dll|dmp|dxbc|upk|u)$') { continue }
         $text = [System.IO.File]::ReadAllText((Join-Path $repo $f))
         if ($text.Contains($emdash)) { Bad "em dash in $f" }
         if ($f -match '\.(ps1|bat)$') {
@@ -43,7 +43,7 @@ try {
     # Keep an exact allowlist; arbitrary PNGs and every game-derived format remain banned.
     # Provenance and prompt set: assets/ui/f10/README.md.
     $authoredArt = @('assets/ui/f10/backdrop.png', 'assets/ui/f10/parchment.png',
-        'assets/ui/f10/metal.png', 'assets/ui/f10/header.png', 'assets/ui/f10/note.png')
+        'assets/ui/f10/metal.png', 'assets/ui/f10/header.png', 'assets/ui/f10/note.png', 'assets/ui/launcher/quest3-controls.png')
     $staged = @($staged | Where-Object { $_ -notin $authoredArt })
     if ($staged) { Bad "game-derived binaries tracked: $($staged -join ', ')" }
 } finally { Pop-Location }

@@ -2,6 +2,7 @@
 // rc.exe resolves these through its include path; CMakeLists.txt points that at
 // build/installer-payload/<config>/ where the staging step put the bytes.
 #include "payload_ids.h"
+1 ICON "assets/ui/launcher/launcher.ico"
 
 IDR_D3D9            RCDATA "d3d9.dll"
 IDR_SHIM            RCDATA "dvr_steamvr32.dll"
@@ -11,3 +12,5 @@ IDR_COLLECT_SUPPORT RCDATA "collect-support.ps1"
 IDR_HOWTO           RCDATA "HOW-TO-USE.txt"
 IDR_TROUBLESHOOTING RCDATA "TROUBLESHOOTING.md"
 IDR_KNOWN_ISSUES    RCDATA "KNOWN_ISSUES.md"
+
+IDR_CONTROLLER_GUIDE RCDATA "assets/ui/launcher/quest3-controls.png"

@@ -113,7 +113,7 @@ bool remove_if_present(Report* r, const std::wstring& dir, const wchar_t* name, 
     return true;
 }
 
-// The five keys. Every other line stays the tested byte copy.
+// Baseline choices plus explicitly selected preferences; all other lines stay.
 bool apply_choices(Report* r, const Detection& det, const Choices& c)
 {
     const std::wstring ini = fs::join(det.gameDir, kIniName);
@@ -126,7 +126,7 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
         json = c.vdxrJson.empty() ? det.vdxrJson : c.vdxrJson;
         if (!fs::is_file(json)) {
             r->add(StepStatus::Warn, "Virtual Desktop's runtime was not found",
-                   fs::format("No manifest at %s. The mod will pick the runtime itself (Runtime=auto); choose again from this installer once Virtual Desktop Streamer is installed.", n(json).c_str()));
+                   fs::format("No manifest at %s. The mod will pick the runtime itself (Runtime=auto); choose again from this launcher once Virtual Desktop Streamer is installed.", n(json).c_str()));
             rt = Runtime::Auto; json.clear();
         }
     }
@@ -145,8 +145,23 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
         r->fail("Could not write the render size", err); return false;
     }
     r->add(StepStatus::Ok, fs::format("Render size: %s, %ux%u per eye", quality_label(c.quality), s.w, s.h),
-           fs::format("%.0f%% of the tested 2750x2850%s. Set the headset to 90 Hz: this size was judged there, and ghosts at 120.",
+           fs::format("%.0f%% of the tested 2750x2850%s. Recommended: 120 Hz, or 144 Hz with Virtual Desktop Beta.",
                       percent_for_size(s), (c.exact.w && c.exact.h) ? ", kept exactly as it was" : ""));
+
+    for (int i = 0; i < PreferenceCount; ++i) {
+        const int value = c.preferences[i];
+        if (value < 0) continue;
+        const Preference& p = kPreferences[i];
+        if (!profile::set(ini, p.section, p.key, std::to_wstring(value), &err)) {
+            r->fail(std::string("Could not save ") + p.label, err); return false;
+        }
+        r->add(StepStatus::Ok, std::string(p.label) + ": " +
+               (i == Modifier ? std::to_string(value) : ((p.inverted ? !value : value) ? "on" : "off")),
+               fs::format("[%s] %s=%d", n(p.section).c_str(), n(p.key).c_str(), value));
+    }
+    if (rt == Runtime::SteamVr && c.preferences[Mirror] == 1)
+        r->add(StepStatus::Warn, "SteamVR keeps the desktop mirror on",
+               "Your mirror-off preference is saved for native runtimes. The SteamVR bridge overrides it.");
 
     // [Paths] DataDir: empty means %LOCALAPPDATA%\DishonoredVR. A value the player
     // set on purpose is kept; the dev PC's drive that a build once shipped is not.
@@ -221,7 +236,7 @@ bool write_install_record(Report* r, const Detection& det, const Choices* c)
     DWORD err = 0;
     if (!write_record(det.gameDir, rec, &err)) { r->fail("Could not write the install record", err); return false; }
     r->add(StepStatus::Ok, fs::format("Recorded the install: %s (%s, %s)", rec.version.c_str(), rec.buildId.c_str(), rec.config.c_str()),
-           "dishonored_vr_install.json beside the game, so this installer can update or remove exactly what it put there.");
+           "dishonored_vr_install.json beside the game, so this launcher can update or remove exactly what it put there.");
     return true;
 }
 } // namespace
@@ -314,6 +329,8 @@ Detection detect(const Env& env)
             d.iniSize.w = (uint32_t)profile::get_int(ini, L"Screen", L"RenderWidth", 0);
             d.iniSize.h = (uint32_t)profile::get_int(ini, L"Screen", L"RenderHeight", 0);
             d.iniDataDir = profile::get(ini, L"Paths", L"DataDir");
+            for (int i = 0; i < PreferenceCount; ++i)
+                d.suggested.preferences[i] = profile::get_int(ini, kPreferences[i].section, kPreferences[i].key, -1);
         }
     }
 
@@ -324,17 +341,17 @@ Detection detect(const Env& env)
         if (d.iniSize.w && d.iniSize.h) d.suggested.keep(d.iniSize);
         else d.suggested.choose(Quality::Balanced);
     } else {
-        d.suggested.runtime = d.vdxrPresent ? Runtime::Vdxr : d.steamvrPresent ? Runtime::SteamVr : Runtime::Auto;
-        // An 8 GB card measured 45-55 pairs/s at 120 % in the headset (PERFORMANCE.md,
-        // VR-160); the budget DXGI reports is about 90 % of the card's memory.
-        const uint64_t nineGiB = 9ull << 30;
-        d.suggested.quality = (d.gpu.budgetBytes && d.gpu.budgetBytes < nineGiB) ? Quality::Performance : Quality::Balanced;
+        d.suggested.runtime = Runtime::Auto;
+        d.suggested.quality = Quality::Balanced;
         d.suggested.pixelPercent = percent_for_quality(d.suggested.quality, kBalancedPercent);
     }
     DVR_INFO("setup: detect game=%s (%s) running=%d writable=%d config=%s exists=%d elevate=%d d3dcompiler=%d vdxr=%d steamvr=%d active=%s gpu=%s budget=%llu MB installed=%d sha=%.8s embedded=%.8s legacy=%d",
              n(d.gameDir).c_str(), d.gameNote.c_str(), (int)d.running, d.gameWritable, n(d.configDir).c_str(), d.configExists, d.needsElevation,
              d.d3dcompiler, d.vdxrPresent, d.steamvrPresent, n(d.activeRuntime).c_str(), n(d.gpu.name).c_str(), (unsigned long long)(d.gpu.budgetBytes >> 20),
              d.modInstalled, d.installedSha.c_str(), d.embeddedSha.c_str(), d.embeddedLegacy);
+    for (int i = 0; i < PreferenceCount; ++i)
+        DVR_INFO("launcher: saved [%s] %s=%d (-1=use shipped default)",
+                 n(kPreferences[i].section).c_str(), n(kPreferences[i].key).c_str(), d.suggested.preferences[i]);
     return d;
 }
 
@@ -380,7 +397,7 @@ Report do_install(const Env& env, const Detection& det, const Choices& choices)
     return r;
 }
 
-Report do_update(const Env& env, const Detection& det)
+Report do_update(const Env& env, const Detection& det, bool overwriteSettings)
 {
     (void)env;
     Report r;
@@ -394,7 +411,22 @@ Report do_update(const Env& env, const Detection& det)
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
     remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0.");
     remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
-    if (det.iniExists && det.iniVersion < det.embeddedIniVersion) {
+    if (overwriteSettings) {
+        const std::wstring ini = fs::join(det.gameDir, kIniName);
+        DWORD err = 0;
+        if (det.iniExists) {
+            const std::wstring backup = ini + L"." + fs::timestamp_local() + L"." + std::to_wstring(GetTickCount64()) + L".dvr-backup";
+            if (!fs::copy_file(ini, backup, &err)) { r.fail("Could not back up your settings", err); return r; }
+            r.add(StepStatus::Ok, "Backed up your INI and F10 settings", n(backup));
+        }
+        if (!fs::write_file_atomic(ini, p.ini.data, p.ini.size, &err)) { r.fail("Could not reset settings", err); return r; }
+        // Fresh public defaults: auto runtime, Balanced, and no developer data path.
+        if (!apply_choices(&r, det, Choices{})) return r;
+        // apply_choices preserves a custom data directory for normal installs; a
+        // requested reset must use the portable default even when one was saved.
+        if (!profile::set(ini, L"Paths", L"DataDir", L"", &err)) { r.fail("Could not reset data folder", err); return r; }
+        r.add(StepStatus::Ok, "Replaced INI and F10 settings with this build's defaults");
+    } else if (det.iniExists && det.iniVersion < det.embeddedIniVersion) {
         // the refresh the mod would do at launch, with the runtime and size it would
         // have lost carried across from the old file (det.suggested read them)
         if (!refresh_outdated_ini(&r, det, p)) return r;
@@ -409,7 +441,8 @@ Report do_update(const Env& env, const Detection& det)
         Choices c = det.suggested;
         apply_choices(&r, det, c);
     }
-    write_install_record(&r, det, nullptr);
+    const Choices defaults;
+    write_install_record(&r, det, overwriteSettings ? &defaults : nullptr);
     return r;
 }
 
@@ -445,7 +478,7 @@ Report do_disable(const Env& env, const Detection& det, bool disabled)
     const std::wstring marker = fs::join(det.gameDir, kDisableName);
     DWORD err = 0;
     if (disabled) {
-        const char* text = "The mod is disabled while this file exists. Delete it, or use Enable VR in DishonoredVR-Setup.exe.\r\n";
+        const char* text = "The mod is disabled while this file exists. Delete it, or use Enable VR in DishonoredVR-Launcher.exe.\r\n";
         if (!fs::write_file_atomic(marker, text, strlen(text), &err)) { r.fail("Could not write disable_vr.txt", err); return r; }
         r.add(StepStatus::Ok, "VR disabled", "disable_vr.txt is beside the game: the mod loads and does nothing, so Dishonored runs flat until you enable it again.");
     } else {

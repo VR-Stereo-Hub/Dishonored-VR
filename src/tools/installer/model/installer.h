@@ -1,4 +1,4 @@
-// tools/installer/model/installer.h - what the installer knows and what it does.
+// tools/installer/model/installer.h - what the launcher knows and what it does.
 // No ImGui in here: detect() reads the machine into a Detection, the do_*
 // functions carry out one operation and return a Report of steps with human
 // text, and the screens only draw those. The elevated child and the
@@ -77,7 +77,7 @@ struct Report {
 
 Detection detect(const Env& env);
 Report do_install(const Env& env, const Detection& det, const Choices& choices);
-Report do_update(const Env& env, const Detection& det);          // the DLLs only; ini untouched
+Report do_update(const Env& env, const Detection& det, bool overwriteSettings = false);
 Report do_change(const Env& env, const Detection& det, const Choices& choices);   // the five keys only
 Report do_baseline(const Env& env, const Detection& det);        // the four game-ini values
 Report do_disable(const Env& env, const Detection& det, bool disabled);

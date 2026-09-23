@@ -40,6 +40,7 @@ void load_fonts();
 void load_art(ID3D11Device* device);
 void release_art();
 void backdrop();
+void bindings_layout(float& zoom); // zoom, drag and arrow controls for either input path
 float body_footer_height();
 void begin_body(const char* id);
 void end_body();
@@ -62,7 +63,7 @@ void ornament();
 // Always-visible controller shortcut card, shared with the offscreen preview.
 void controller_hint();
 // A selectable pill (the view selector): brass when selected. Returns true when clicked.
-bool pill(const char* label, bool selected);
+bool pill(const char* label, bool selected, float requestedWidth = 0.0f);
 // Push/pop the colours of the panel's primary action button (brass on ink).
 void push_primary();
 void pop_primary();

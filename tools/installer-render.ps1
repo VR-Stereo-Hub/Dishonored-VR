@@ -1,4 +1,4 @@
-# VR-198: draw every screen of DishonoredVR-Setup.exe headless and save PNGs, so the
+# VR-198: draw every screen of DishonoredVR-Launcher.exe headless and save PNGs, so the
 # look and the layout can be judged without a game, a headset or a click.
 # Writes build\installer-preview\<state>.png (and <state>@1.5.png for a 144-dpi
 # layout). The states are the named fakes in src/tools/installer/model/fake_states.cpp.
@@ -14,7 +14,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $config = if ($Debug) { 'Debug' } else { 'RelWithDebInfo' }
-$exe = Join-Path $repo "build\src\$config\DishonoredVR-Setup.exe"
+$versionText = Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw
+if ($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read launcher version' }
+$version = $Matches[1]
+$exe = Join-Path $repo "build\src\$config\DishonoredVR-Launcher-v$version.exe"
 if (-not (Test-Path $exe)) { throw "missing $exe - run tools\build.ps1 first" }
 $out = Join-Path $repo 'build\installer-preview'
 New-Item -ItemType Directory -Force -Path $out | Out-Null
@@ -35,6 +38,9 @@ foreach ($scale in $Scales) {
         Remove-Item $bmp.FullName
         $wrote++
     }
-    Remove-Item $bmpDir -Recurse -Force
+    $resolved = [IO.Path]::GetFullPath($bmpDir)
+    if (-not $resolved.StartsWith([IO.Path]::GetFullPath($out) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid preview cleanup path' }
+    if ((Get-Item -LiteralPath $resolved).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Refusing preview reparse point' }
+    Remove-Item -LiteralPath $resolved -Recurse -Force
 }
 "wrote $wrote PNGs under $out"
