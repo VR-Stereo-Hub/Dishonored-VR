@@ -1138,6 +1138,18 @@ static void WriteDefaultIni(const char* ini)
         "Straddle=2.0\n"
         "DepthBias=1\n"
         "\n"
+        "; Drop takedowns from above. An attack pressed in the air before the game has\n"
+        "; found the guard below would be an ordinary slash; Assist=1 holds it up to\n"
+        "; HoldMs for the game to find one. Fallback=1 still attacks on landing if none\n"
+        "; is found. ReachScale multiplies how far ahead along the fall the game looks\n"
+        "; (1.00 = the original game; 2.00 is the headset-tuned value). Live:\n"
+        "; `drop status|on|off|hold|fallback|reach`.\n"
+        "[DropTakedown]\n"
+        "Assist=1\n"
+        "HoldMs=420\n"
+        "Fallback=1\n"
+        "ReachScale=2.00\n"
+        "\n"
         "[Anim]\n"
         "DropWatch=1\n"
         "MantleHandBack=1\n"
@@ -2556,6 +2568,7 @@ static void LoadConfig()
     // ships ON: its whole purpose is to report what the game is doing, and a
     // reporter nobody enables reports nothing.
     dvr::anim::configure(ini);
+    dvr::drop::configure(ini);   // [DropTakedown] and [Anim] DropWatch
     dvr::swing::configure(ini);   // VR-37: the motion sword's own [Melee] keys
     CineTraceConfigure(ini);
     UiSurfaceConfigure(ini);
@@ -3828,6 +3841,7 @@ static void OverlaySaveDefaults()
                                    g_skcRotSignP < 0 ? "-1" : "1", ini);
     }
     dvr::anim::save(ini);   // VR-88: the F10 Hands checkbox must survive a restart
+    dvr::drop::save(ini);
     dvr::swing::save(ini);  // VR-37: the motion sword's levers
     // VR-117: the HUD redirect, the census, the region probe and the layout
     WritePrivateProfileStringA("Hud", "Panel", dvr::hudcap::enabled() ? "1" : "0", ini);

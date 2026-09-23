@@ -31,6 +31,7 @@
 #include "game/dishonored/aim_ray.h"
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/swing.h"
+#include "game/dishonored/drop_assist.h"
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
@@ -253,6 +254,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::script
 #include "game/dishonored/anim_state.cpp"
+#include "game/dishonored/drop_assist.cpp"      // drop takedowns: sampled from the anim tick
 #include "game/dishonored/possession_state.cpp"   // VR-135: before its one consumer
 #include "game/dishonored/stereo_state.cpp"
 #include "game/dishonored/cinematic_trace.cpp"

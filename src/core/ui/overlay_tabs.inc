@@ -492,6 +492,7 @@ static void OvlTabControls()
                "Clicking both sticks recenters.");
     }
     dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
+    dvr::drop::draw_ui();    // drop takedowns (its own section)
 }
 
 // ---- Comfort --------------------------------------------------------------------------------

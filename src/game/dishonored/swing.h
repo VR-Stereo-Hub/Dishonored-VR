@@ -17,4 +17,5 @@ bool pulse_active();               // the attack input is being held for a swing
 bool output_rb();                  // [Melee] Output=rb: the pulse goes to RB, not RT
 void note_real_trigger(float v);   // the player's own trigger, for the honoured-check
 void note_pad_poll();              // the game polled the pad (never reset, unlike g_padPolls)
+long pad_polls();                  // how many times it has, for a press that must be seen
 }

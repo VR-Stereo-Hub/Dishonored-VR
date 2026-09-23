@@ -1,3 +1,26 @@
+## Session 2026-09-22 (drop takedowns, VR-203): branch `takedown-tweak`, PR #106, not merged
+
+A drop onto a guard often became an ordinary slash. The cause is timing. The game
+re-decides the drop target every airborne tick. An attack pressed while that decision
+still reads "no target" goes to the ordinary attack, and the VR-111 log shows the target
+arriving about 30 ms after such a press (ENGINE_NOTES "Drop takedown timing").
+`[DropTakedown] Assist=1` holds an airborne sword attack (trigger or swing) until the game
+finds a target. It then presses it, and the game's own kill runs. On landing or after
+`HoldMs` the held attack is delivered normally (`Fallback=1`).
+`ReachScale` lengthens the game's look-ahead (shipped `m_fHitWindowInSeconds` 4.0 s).
+The controls are in F10 > Controls > Drop takedowns, and the live word is `drop`.
+
+**Headset run, 2026-09-22:**
+* At the shipped reach (1.00), 2 held swings found no target, and both landed as
+  ordinary attacks.
+* At 1.50 to 2.00, 18 swings were held on a real drop (vz below -1000). 13 became drop kills.
+  The other 5 found no target before landing or timing out; whether a guard was below them is
+  not in the log. One more swing met a target directly and was passed untouched.
+* The defaults are the tester's values: `ReachScale=2.00`, `HoldMs=420`.
+
+Next: more drops at the new defaults, and whether 2.00 ever takes a guard the player
+did not aim for.
+
 ## Session 2026-09-22 (F10 cleanup and theme, VR-196/VR-197): merged to VR-Main (#103)
 
 The F10 panel is rebuilt with a Basic / Advanced / Debug selector, regrouped tabs, collapsed

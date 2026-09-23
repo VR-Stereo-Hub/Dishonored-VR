@@ -208,6 +208,23 @@ static void UpdateVirtualPad()
             if (dvr::swing::output_rb()) xs.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
             else xs.Gamepad.bRightTrigger = 255;
         }
+        // Drop takedowns: an attack pressed in the air before the game has found a
+        // target below would be an ordinary slash. The gate holds it until the game
+        // finds one (drop_assist.cpp). Never while carrying: the trigger throws then.
+        // With Output=rb only the swing pulse counts: RB is also the choke grip.
+        {
+            const bool rb = dvr::swing::output_rb();
+            const bool pulse = MeleeActive();
+            const bool attack = !carrySwap && (rb ? pulse : xs.Gamepad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD);
+            const auto drop = dvr::drop::gate(attack, pulse, dvr::swing::pad_polls());
+            if (drop == dvr::drop::Hold) {
+                if (rb) xs.Gamepad.wButtons &= (WORD)~XINPUT_GAMEPAD_RIGHT_SHOULDER;
+                else xs.Gamepad.bRightTrigger = 0;
+            } else if (drop == dvr::drop::Press && !carrySwap) {
+                if (rb) xs.Gamepad.wButtons |= XINPUT_GAMEPAD_RIGHT_SHOULDER;
+                else xs.Gamepad.bRightTrigger = 255;
+            }
+        }
         static WORD lastB = 0xffff;
         if (b != lastB) { lastB = b; Log("pad: xbtn=0x%04x", b); }
         // 38.81: "can't use my right stick on Quest" - nothing logged the
