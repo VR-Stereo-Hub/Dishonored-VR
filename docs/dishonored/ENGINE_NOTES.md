@@ -12,8 +12,11 @@ Engine ParticleModuleCollision is declared, but its existence does not establish
 rain asset has a compatible collision module or that it can be enabled with one boolean.
 WorldRainComponent declares enable/intensity/wrap controls; no roof-mask control appears
 in its script declaration. Do not promise dry sheltered areas from simply bypassing the
-camera shelter decision. Clarification pending: optional under-cover rain with potential
-roof leakage, versus outdoor-only rain that preserves dry shelter. No installation or
+camera shelter decision. Selected scope: an optional toggle that preserves dry shelter while showing outside rain,
+provided the work remains modest. A blanket shelter bypass does not satisfy this. The
+traced camera-wide path cannot distinguish drops outside an awning from drops beneath it;
+proper filtering requires additional per-drop/region roof handling. Deferred as a separate
+feature rather than adding a leaky toggle to the accepted recovery fix. No installation or
 awning behavior change has been performed.
 
 ## Fix candidate: prevent high-frequency rain recovery starvation (VR-202, 2026-09-22)
