@@ -1,3 +1,14 @@
+## Install 2026-09-22 (VR-202): recovery fix approved and installed
+
+Explicit user go-ahead received. Installed `vr33-hands-working-725-gbaecc7491`, with
+DLL/ini SHA-256 verified. Full ini comparison shows only Rain Recovery added as 1;
+Trace was already 1. CRLF preserved. Prior DLL, ini and both logs archived under
+`build/playtest-candidates/installs/20260922-224035-841574`. Game not launched.
+Next launch, one question: at the same exposed location, does falling rain now remain
+visible through repeated eye-level/upward head tilts, including holding near the previous
+transition angle? Remaining visible supports the recovery fix; continued disappearance
+means the correction is insufficient. Headset acceptance remains pending.
+
 ## Session 2026-09-22 (VR-202): behavioral rain recovery fix candidate
 
 Found native recovery recurrence rate *= 100*dt below its terminal threshold 10000.
