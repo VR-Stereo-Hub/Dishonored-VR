@@ -1,3 +1,14 @@
+## Install 2026-09-22 (VR-202): opacity diagnostic approved
+
+User explicitly approved installation. Installed `vr33-hands-working-720-g632dca2fb`;
+DLL and ini SHA-256 verified by the installer. Entire current ini preserved byte-for-byte,
+CRLF verified, Rain Trace=1/Hide=0/Distance=-1. Both previous logs and prior DLL/ini archived
+under `build/playtest-candidates/installs/20260922-221820-803121`. Game not launched.
+Next launch, one question: does rain still cycle off/on while position and sky view stay
+steady? Hold that view for about 30 seconds after seeing the cycle, then quit. Per-instance
+alpha falling during absence supports fading; stable alpha directs work toward materials
+or rendering. Lack of reproduction leaves that distinction unresolved.
+
 ## Session 2026-09-22 (VR-202): stationary cycling, prepare only
 
 Recovered build718 from the rotated previous log. Final steady sky view retains positive
