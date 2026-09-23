@@ -13,7 +13,11 @@ See ENGINE_NOTES VR-202 for the measured code path, corrected RVA provenance and
 
 A read-only diagnostic now logs shelter decisions, actual particle parameters, impact
 counts and camera position once per second under Rain Trace=1. It changes no weather
-behavior. Next launch, one question: does falling rain consistently disappear and return
+behavior. Installed `vr33-hands-working-716-g52b55216b` (RelWithDebInfo, legacy off);
+DLL hash, 9/9 exports and lint verified. Whole ini unchanged with CRLF preserved,
+Rain Trace=1 and Hide=0. Install archive: `build/playtest-candidates/installs/20260922-212739-025799`.
+
+Next launch, one question: does falling rain consistently disappear and return
 between the same nearby positions while splashes continue? Hold the same view direction,
 stand 10 seconds in the raining spot, 10 in the non-raining spot, then 10 back at the first.
 The log will distinguish native suppression from active particles failing to draw.
