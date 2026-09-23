@@ -1,3 +1,4 @@
+#include "core/ui/ovl_ui.h"
 #include "rounded_wrist.h"
 #include "sleeve_presets.h"
 // game/dishonored/hands/mesh_split.cpp - included by src/mod/dishonoredvr.cpp
@@ -4135,7 +4136,7 @@ static void MpTrimPanel()
         char lbl[48];
         _snprintf(lbl, sizeof(lbl), "%s%s##mptrim%d", kWhich[i], (i == inUse) ? " (in use)" : "", i);
         lbl[sizeof(lbl) - 1] = 0;
-        if (ImGui::RadioButton(lbl, edit == i)) picked = i;
+        if (dvr::ovl::radio_button(lbl, edit == i)) picked = i;
         ov::tip(kWhichTip[i]);
     }
     const int e = (edit == 2 && !g_mpPowTrimOn) ? 0 : edit;
@@ -4152,11 +4153,14 @@ static void MpTrimPanel()
     // trim at that instant (MpTrimViewStep), so the hand moves the way the button says.
     static int stepIx = 1;
     static const float kStepCm[3] = { 0.2f, 0.5f, 2.0f }, kStepDeg[3] = { 0.5f, 2.0f, 5.0f };
-    ImGui::RadioButton("fine##mpstep", &stepIx, 0); ov::tip("0.2 cm or 0.5 degrees per press.");
+    dvr::ovl::radio_button("fine##mpstep", &stepIx, 0); ov::tip("0.2 cm or 0.5 degrees per press.");
     ImGui::SameLine();
-    ImGui::RadioButton("normal##mpstep", &stepIx, 1); ov::tip("0.5 cm or 2 degrees per press.");
+    dvr::ovl::radio_button("normal##mpstep", &stepIx, 1); ov::tip("0.5 cm or 2 degrees per press.");
     ImGui::SameLine();
-    ImGui::RadioButton("coarse##mpstep", &stepIx, 2); ov::tip("2 cm or 5 degrees per press.");
+    dvr::ovl::radio_button("coarse##mpstep", &stepIx, 2); ov::tip("2 cm or 5 degrees per press.");
+    ImGui::SameLine();
+    const bool moreAdjustments = ImGui::TreeNode("More adjustments##mptrim");
+    if (moreAdjustments) ImGui::TreePop();
     struct Row { const char* name; const char* neg; const char* pos; bool rot; int axis; };
     static const Row kRows[6] = {
         { "move",  "left", "right", false, 0 }, { "move", "down", "up", false, 2 },
@@ -4166,14 +4170,14 @@ static void MpTrimPanel()
     static const char* lastWhy = "";
     bool changed = false;
     ImGui::PushItemFlag(ImGuiItemFlags_ButtonRepeat, true);
-    for (int r = 0; r < 6; ++r) {
+    auto drawRow = [&](int r) {
         const Row& row = kRows[r];
         for (int sgn = 0; sgn < 2; ++sgn) {
             char lbl[48];
             _snprintf(lbl, sizeof(lbl), "%s %s##mpv%d%d", row.name, sgn ? row.pos : row.neg, r, sgn);
             lbl[sizeof(lbl) - 1] = 0;
             if (sgn) ImGui::SameLine();
-            if (ImGui::Button(lbl, ImVec2(ImGui::GetContentRegionAvail().x * (sgn ? 1.0f : 0.5f) - (sgn ? 0.0f : 4.0f), 0))) {
+            if (dvr::ovl::button(lbl, ImVec2(ImGui::GetContentRegionAvail().x * (sgn ? 1.0f : 0.5f) - (sgn ? 0.0f : 4.0f), 0))) {
                 const float amt = (sgn ? 1.0f : -1.0f) * (row.rot ? kStepDeg[stepIx] : kStepCm[stepIx] / 100.0f);
                 if (MpTrimViewStep(hand, row.rot, row.axis, amt, T, R, &lastWhy)) changed = true;
                 else Log("ms/palette/adjust: F10 step REFUSED - %s", lastWhy);
@@ -4181,7 +4185,9 @@ static void MpTrimPanel()
             ov::tip("Moves or turns the hand the way the button says, as you see it now. Hold to "
                     "repeat. Saved at once. Anything held moves with the hand, and the reticle follows.");
         }
-    }
+    };
+    drawRow(0); drawRow(1); drawRow(3);
+    if (moreAdjustments) { drawRow(2); drawRow(4); drawRow(5); }
     ImGui::PopItemFlag();
     if (changed) {
         MpPublishHandCal(hand);   // the reticle rides the trim, so the aim lane needs it now
@@ -4193,7 +4199,7 @@ static void MpTrimPanel()
     }
     if (strcmp(lastWhy, "ok") && lastWhy[0]) ImGui::TextDisabled("last step refused: %s", lastWhy);
 
-    if (e == 2 && ImGui::Button("Start from the left hand's position")) {
+    if (e == 2 && dvr::ovl::button("Start from the left hand's position")) {
         for (int a = 0; a < 3; ++a) { g_mpTrimPT[a] = g_mpTrimT[0][a]; g_mpTrimPR[a] = g_mpTrimR[0][a]; }
         MpTrimSave("LP", g_mpTrimPT, g_mpTrimPR, "F10 Hands");
         MpPublishHandCal(0);
@@ -4202,19 +4208,21 @@ static void MpTrimPanel()
     if (e == 2) ov::tip("Copies the normal left-hand position into the powers position.");
     if (ov::show(ov::Advanced)) {
         bool pt = g_mpPowTrimOn;
-        if (ImGui::Checkbox("Separate left-hand position for powers", &pt)) {
+        if (dvr::ovl::checkbox("Separate left-hand position for powers", &pt)) {
             g_mpPowTrimOn = pt;
             ConfigWriteKey("Hands", "PowerTrim", pt ? "1" : "0", "F10 Hands");
             MpPublishHandCal(0);
         }
         ov::tip("The left hand uses its own position while it holds a power. Off: one left position for everything.");
-        bool av = g_mpAdjView;
-        if (ImGui::Checkbox("Numpad steps follow my view (not the palm axes)", &av)) {
-            g_mpAdjView = av;
-            ConfigWriteKey("Hands", "AdjustInView", av ? "1" : "0", "F10 Hands");
+        if (moreAdjustments) {
+            bool av = g_mpAdjView;
+            if (dvr::ovl::checkbox("Numpad steps follow my view (not the palm axes)", &av)) {
+                g_mpAdjView = av;
+                ConfigWriteKey("Hands", "AdjustInView", av ? "1" : "0", "F10 Hands");
+            }
+            ov::tip("The numpad hand keys move along your view, like the buttons here. Off: along the "
+                    "palm's own tilted axes, as before.");
         }
-        ov::tip("The numpad hand keys move along your view, like the buttons here. Off: along the "
-                "palm's own tilted axes, as before.");
     }
     if (ov::show(ov::Debug) && ImGui::TreeNode("Stored values (palm frame)##mptrimraw")) {
         static const char* const kT[3] = { "across the palm (cm)", "along the fingers (cm)", "out of the palm (cm)" };
@@ -4226,7 +4234,7 @@ static void MpTrimPanel()
             char lbl[48];
             _snprintf(lbl, sizeof(lbl), "%s##mptrim%c%d", rot ? kR[ax] : kT[ax], rot ? 'r' : 't', ax);
             lbl[sizeof(lbl) - 1] = 0;
-            if (ImGui::SliderFloat(lbl, &v, -lim, lim, "%+.1f")) {
+            if (dvr::ovl::slider_float(lbl, &v, -lim, lim, "%+.1f")) {
                 if (rot) R[ax] = v; else T[ax] = v / 100.0f;
                 MpPublishHandCal(hand);
             }

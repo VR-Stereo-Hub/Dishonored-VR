@@ -1,3 +1,29 @@
+## Installed for next test: F10 build736 (2026-09-23)
+
+Build736-gab7023884 is installed with explicit approval. Full ini is byte-identical
+and CRLF verified; backups and the single Debug-navigation test are in STATUS top.
+No game launch or merge. Prior prepare-only entries below are historical.
+
+## Current continuation: accepted F10 size and profile (2026-09-23)
+
+Build733 remains installed and its visual direction is headset accepted. The current
+follow-up fixes alignment/section gaps/tab navigation and adopts the accepted 649x685
+layout and 1.00 text. All saved values are archived in f10-tuned-2026-09-23.ini; shipped
+gameplay/display defaults match, retaining portable runtime discovery. See STATUS top.
+Prepare only; future installation still needs explicit approval. PR #109 stays unmerged.
+
+## Current continuation: F10 art refinement (VR-206, 2026-09-22)
+
+Use the newest docs/STATUS.md entries. Branch f10-improvements / draft PR #109 sits on
+finalized, unmerged rain-fixes / PR #108. Revised menu art/layout is prepared for review.
+Build733 installed with explicit approval. No game launch; all ini settings preserved,
+with existing mixed line endings normalized to CRLF. See STATUS for the archive and test.
+
+Desktop rendering, layout bounds and native widget event checks cover normal, small,
+large-text, tooltip and scrolled views. Headset/controller acceptance remains open.
+The optional outdoor-rain-from-shelter feature is deferred as VR-205, separate from these
+UI changes. Do not resume older menu freshness work from the historical notes below.
+
 ## Current continuation: menu freshness (2026-09-22)
 
 Use the top entry in docs/STATUS.md and FLICKER_REFERENCE.md for VR-178.

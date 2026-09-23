@@ -4,7 +4,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <windows.h>
+#include <d3d11.h>
+#include <wincodec.h>
+#include <wrl/client.h>
+#include <vector>
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "core/util/log.h"
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::overlay
@@ -15,6 +20,88 @@ std::atomic<int> g_level{Basic};
 ImFont* g_body = nullptr;
 ImFont* g_head = nullptr;
 ImFont* g_headBold = nullptr;
+ImFont* g_italic = nullptr;
+ImFont* g_section = nullptr;
+using Microsoft::WRL::ComPtr;
+ComPtr<ID3D11Device> g_artDevice;
+ComPtr<ID3D11ShaderResourceView> g_art[5];
+bool g_primary = false;
+
+bool decode_art(ID3D11Device* device, HMODULE module, int id, ID3D11ShaderResourceView** out)
+{
+    HRSRC resource = FindResourceW(module, MAKEINTRESOURCEW(id), MAKEINTRESOURCEW(10));
+    if (!resource) return false;
+    const DWORD bytes = SizeofResource(module, resource);
+    auto* data = (BYTE*)LockResource(LoadResource(module, resource));
+    if (!data || !bytes) return false;
+    ComPtr<IWICImagingFactory> factory; ComPtr<IWICStream> stream;
+    ComPtr<IWICBitmapDecoder> decoder; ComPtr<IWICBitmapFrameDecode> frame;
+    ComPtr<IWICFormatConverter> converter;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory))) ||
+        FAILED(factory->CreateStream(&stream)) || FAILED(stream->InitializeFromMemory(data, bytes)) ||
+        FAILED(factory->CreateDecoderFromStream(stream.Get(), nullptr, WICDecodeMetadataCacheOnLoad, &decoder)) ||
+        FAILED(decoder->GetFrame(0, &frame)) || FAILED(factory->CreateFormatConverter(&converter)) ||
+        FAILED(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone,
+            nullptr, 0, WICBitmapPaletteTypeCustom))) return false;
+    UINT w = 0, h = 0;
+    if (FAILED(converter->GetSize(&w, &h)) || !w || !h || w > 4096 || h > 4096) return false;
+    std::vector<BYTE> rgba((size_t)w * h * 4);
+    if (FAILED(converter->CopyPixels(nullptr, w * 4, (UINT)rgba.size(), rgba.data()))) return false;
+    D3D11_TEXTURE2D_DESC desc{}; desc.Width=w; desc.Height=h; desc.MipLevels=1; desc.ArraySize=1;
+    desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM; desc.SampleDesc.Count=1;
+    desc.Usage=D3D11_USAGE_IMMUTABLE; desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA initial{rgba.data(), w * 4, 0};
+    ComPtr<ID3D11Texture2D> texture;
+    return SUCCEEDED(device->CreateTexture2D(&desc, &initial, &texture)) &&
+        SUCCEEDED(device->CreateShaderResourceView(texture.Get(), nullptr, out));
+}
+void material(int index, ImVec2 a, ImVec2 b, ImU32 tint = IM_COL32_WHITE)
+{
+    ImDrawList* dl=ImGui::GetWindowDrawList();
+    ImVec4 color=ImGui::ColorConvertU32ToFloat4(tint);
+    color.w *= ImGui::GetStyle().Alpha;
+    tint=ImGui::ColorConvertFloat4ToU32(color);
+    if (index == 2) {
+        // Quiet slate gradient, with the painted metal grain barely visible.
+        const bool red=g_primary;
+        dl->AddRectFilledMultiColor(a,b,
+            ImGui::GetColorU32(red ? ImVec4(.26f,.085f,.065f,1) : ImVec4(.10f,.14f,.16f,1)),
+            ImGui::GetColorU32(red ? ImVec4(.20f,.055f,.045f,1) : ImVec4(.075f,.10f,.115f,1)),
+            ImGui::GetColorU32(red ? ImVec4(.16f,.05f,.04f,1) : ImVec4(.06f,.08f,.09f,1)),
+            ImGui::GetColorU32(red ? ImVec4(.21f,.065f,.05f,1) : ImVec4(.085f,.115f,.13f,1)));
+        if (g_art[2]) dl->AddImage((ImTextureID)(uintptr_t)g_art[2].Get(),a,b,
+            ImVec2(0,0),ImVec2(1,1),ImGui::GetColorU32(ImVec4(1,1,1,.07f)));
+        dl->AddRect(a,b,ImGui::GetColorU32(red ? ImVec4(.48f,.24f,.20f,.8f) : ImVec4(.32f,.39f,.41f,.65f)),2);
+        return;
+    }
+    if (!g_art[index] && index != 0) dl->AddRectFilled(a,b,ImGui::GetColorU32(ImVec4(.86f,.81f,.71f,1)));
+    ImVec2 uv0(0,0),uv1(1,1);
+    if (index == 1) { uv0.y=.35f; uv1.y=.65f; }
+    if (index == 3) { uv0.y=.29f; uv1.y=.71f; }
+    if (index == 4) { uv0.y=.06f; uv1.y=.94f; }
+    if (index == 3 && g_art[3]) {
+        const float cap=(b.y-a.y)*.65f;
+        const ImTextureID texture=(ImTextureID)(uintptr_t)g_art[3].Get();
+        dl->AddImage(texture,a,ImVec2(a.x+cap,b.y),ImVec2(0,uv0.y),ImVec2(.15f,uv1.y),tint);
+        dl->AddImage(texture,ImVec2(a.x+cap,a.y),ImVec2(b.x-cap,b.y),ImVec2(.15f,uv0.y),ImVec2(.85f,uv1.y),tint);
+        dl->AddImage(texture,ImVec2(b.x-cap,a.y),b,ImVec2(.85f,uv0.y),ImVec2(1,uv1.y),tint);
+        return;
+    }
+    if (g_art[index]) dl->AddImage((ImTextureID)(uintptr_t)g_art[index].Get(),a,b,uv0,uv1,tint);
+}
+// Keep native ImGui interaction/IDs/nav and put a reusable texture behind its draw commands.
+struct Skin {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImDrawListSplitter split;
+    Skin() { split.Split(dl, 2); split.SetCurrentChannel(dl, 1); }
+    void finish(int index, ImVec2 a, ImVec2 b, ImU32 tint=IM_COL32_WHITE, const ImVec4* clip=nullptr) {
+        split.SetCurrentChannel(dl, 0);
+        if (clip) dl->PushClipRect(ImVec2(clip->x,clip->y),ImVec2(clip->z,clip->w),true);
+        material(index, a, b, tint);
+        if (clip) dl->PopClipRect();
+        split.Merge(dl);
+    }
+};
 
 // The palette, sRGB. Named for what they are in Dunwall, not for where they are used.
 constexpr ImVec4 rgb(int r, int g, int b, float a = 1.0f) { return ImVec4(r / 255.0f, g / 255.0f, b / 255.0f, a); }
@@ -33,7 +120,7 @@ const ImVec4 kBrassHi   = rgb(0xDD, 0xB5, 0x66);
 const ImVec4 kBrassDim  = rgb(0x6E, 0x56, 0x30);
 const ImVec4 kOxblood   = rgb(0x5A, 0x1C, 0x17);   // dried blood, the Lord Protector's red
 const ImVec4 kOxbloodHi = rgb(0x74, 0x25, 0x1E);
-const ImVec4 kRule      = rgb(0x3A, 0x32, 0x27);   // brass gone dull
+const ImVec4 kRule      = rgb(0x55, 0x5D, 0x5C);   // brass gone dull
 const ImVec4 kParchment = rgb(0xDC, 0xCF, 0xB4);
 const ImVec4 kInkText   = rgb(0x2A, 0x22, 0x1A);
 
@@ -73,14 +160,18 @@ int parse_level(const char* s, int fallback)
 void load_fonts()
 {
     // The body first: the first font added is ImGui's default.
-    static const char* const kBody[] = { "segoeui.ttf", "tahoma.ttf", "arial.ttf" };
-    static const char* const kHead[] = { "constan.ttf", "georgia.ttf", "pala.ttf", "times.ttf" };
-    static const char* const kHeadBold[] = { "constanb.ttf", "georgiab.ttf", "palab.ttf", "timesbd.ttf" };
-    g_body = try_font(kBody, 3, 15.0f, "body");
+    static const char* const kBody[] = { "times.ttf", "constan.ttf", "segoeui.ttf" };
+    static const char* const kHead[] = { "times.ttf", "constan.ttf", "pala.ttf", "georgia.ttf" };
+    static const char* const kHeadBold[] = { "PERTILI.TTF", "times.ttf", "constan.ttf", "georgia.ttf" };
+    g_body = try_font(kBody, 3, 16.0f, "body");
     if (!g_body) ImGui::GetIO().Fonts->AddFontDefault();
     g_head = try_font(kHead, 4, 16.0f, "heading");
-    g_headBold = try_font(kHeadBold, 4, 22.0f, "title");
+    static const char* const sectionFont[] = { "timesbd.ttf", "constanb.ttf" };
+    g_section = try_font(sectionFont,2,17.0f,"section");
+    g_headBold = try_font(kHeadBold, 4, 36.0f, "title");
     if (!g_headBold) g_headBold = g_head;
+    static const char* const italic[] = { "timesi.ttf", "constani.ttf" };
+    g_italic = try_font(italic, 2, 15.0f, "note");
 }
 
 ImFont* heading_font() { return g_head; }
@@ -89,9 +180,9 @@ void apply_theme()
 {
     ImGuiStyle& s = ImGui::GetStyle();
     ImGui::StyleColorsDark(&s);   // a complete base; everything that matters is set below
-    s.FontSizeBase = 15.0f;
-    s.WindowPadding = ImVec2(14, 12);
-    s.FramePadding = ImVec2(8, 4);
+    s.FontSizeBase = 16.0f;
+    s.WindowPadding = ImVec2(24, 16);
+    s.FramePadding = ImVec2(12, 5);
     s.ItemSpacing = ImVec2(8, 6);
     s.ItemInnerSpacing = ImVec2(6, 4);
     s.IndentSpacing = 16;
@@ -105,7 +196,7 @@ void apply_theme()
     s.GrabRounding = 1;
     s.TabRounding = 2;
     s.WindowBorderSize = 1;
-    s.FrameBorderSize = 0;
+    s.FrameBorderSize = 1;
     s.PopupBorderSize = 1;
     s.TabBorderSize = 0;
     s.TabBarBorderSize = 1;
@@ -134,7 +225,7 @@ void apply_theme()
     c[ImGuiCol_ScrollbarGrabHovered]  = kBrassDim;
     c[ImGuiCol_ScrollbarGrabActive]   = kBrass;
     c[ImGuiCol_CheckMark]             = kBrassHi;
-    c[ImGuiCol_CheckboxSelectedBg]    = kSlateHi;
+    c[ImGuiCol_CheckboxSelectedBg]    = ImVec4(0,0,0,0);
     c[ImGuiCol_SliderGrab]            = kBrass;
     c[ImGuiCol_SliderGrabActive]      = kBrassHi;
     c[ImGuiCol_Button]                = kSlateHi;
@@ -179,43 +270,101 @@ void apply_theme()
     (void)kOxbloodHi;
 }
 
+void note(const char* text, float width)
+{
+    Skin skin;
+    if (g_italic) ImGui::PushFont(g_italic,0);
+    ImGui::PushStyleColor(ImGuiCol_Text, kInkText);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + (width > 0 ? width : ImGui::GetFontSize() * 17.0f));
+    ImGui::TextUnformatted(text);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleColor();
+    if (g_italic) ImGui::PopFont();
+    const ImVec2 at=ImGui::GetCursorScreenPos();
+    const float w=width>0?width:ImGui::GetFontSize()*17;
+    const float mid=at.x+w*.5f, y=at.y+5;
+    const ImU32 ink=ImGui::GetColorU32(ImVec4(.24f,.26f,.24f,.65f));
+    auto* dl=ImGui::GetWindowDrawList();
+    dl->AddLine(ImVec2(at.x+w*.15f,y),ImVec2(mid-13,y),ink);
+    dl->AddLine(ImVec2(mid+13,y),ImVec2(at.x+w*.85f,y),ink);
+    dl->AddQuad(ImVec2(mid,y-7),ImVec2(mid+4,y),ImVec2(mid,y+7),ImVec2(mid-4,y),ink,1.5f);
+    ImGui::Dummy(ImVec2(w,14));
+    const ImVec2 p=ImGui::GetWindowPos(), z=ImGui::GetWindowSize();
+    skin.finish(4, p, ImVec2(p.x+z.x,p.y+z.y));
+}
 void tip(const char* text)
 {
     if (!text || !*text || !ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) return;
-    // Parchment and ink, like the notes you find in Dunwall.
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, kParchment);
-    ImGui::PushStyleColor(ImGuiCol_Text, kInkText);
-    ImGui::PushStyleColor(ImGuiCol_Border, kBrassDim);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0,0,0,0));
     ImGui::BeginTooltip();
-    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
-    ImGui::TextUnformatted(text);
-    ImGui::PopTextWrapPos();
+    note(text);
     ImGui::EndTooltip();
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(2);
 }
 
 bool section(const char* name, int tier, const char* tipText, bool defaultOpen)
 {
     if (!show(tier)) return false;
-    if (g_head) ImGui::PushFont(g_head, 0.0f);
+    if (g_section) ImGui::PushFont(g_section, ImGui::GetStyle().FontSizeBase*1.06f);
+    Skin skin;
+    const ImVec2 start=ImGui::GetCursorScreenPos();
+    const float width=ImGui::GetContentRegionAvail().x;
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(1,1,1,0.10f));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0,0,0,0.10f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,0);
     const bool open = ImGui::CollapsingHeader(name, defaultOpen ? ImGuiTreeNodeFlags_DefaultOpen : 0);
-    if (g_head) ImGui::PopFont();
+    ImGui::PopStyleVar();
+    const ImVec2 end(start.x+width,ImGui::GetItemRectMax().y);
+    skin.finish(3,start,end);
+    auto* dl=ImGui::GetWindowDrawList();
+    const ImU32 ink=ImGui::GetColorU32(kInkText);
+    const float h=end.y-start.y, cx=start.x+h*.85f, cy=start.y+h*.5f, r=h*.27f;
+    dl->AddQuad(ImVec2(cx,cy-r),ImVec2(cx+r,cy),ImVec2(cx,cy+r),ImVec2(cx-r,cy),ink,1.4f);
+    const float inner=r*.62f;
+    if (open) dl->AddQuadFilled(ImVec2(cx,cy-inner),ImVec2(cx+inner,cy),ImVec2(cx,cy+inner),ImVec2(cx-inner,cy),ink);
+    else dl->AddQuad(ImVec2(cx,cy-inner),ImVec2(cx+inner,cy),ImVec2(cx,cy+inner),ImVec2(cx-inner,cy),ink,1);
+    dl->AddText(ImVec2(start.x+h*1.9f,start.y+ImGui::GetStyle().FramePadding.y),ink,name);
+    ImGui::PopStyleColor(4);
+    if (g_section) ImGui::PopFont();
     tip(tipText);
+    if (open) ImGui::Spacing();
     return open;
 }
 
 bool tab(const char* label)
 {
-    // The selected tab's label in brass, the rest in faded ink. The selection is known only
-    // after BeginTabItem draws the label, so it is last frame's: one frame late on a click.
-    static ImGuiID s_selected = 0;
-    const ImGuiID id = ImGui::GetID(label);
     if (g_head) ImGui::PushFont(g_head, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_Text, id == s_selected ? kBrassHi : kFaded);
+    Skin skin;
+    ImGui::PushStyleColor(ImGuiCol_Text, kBone);
+    ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_TabDimmedSelected, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(1,1,1,0.08f));
+    const int firstVertex=skin.dl->VtxBuffer.Size;
+    const ImU32 labelColor=ImGui::GetColorU32(kBone);
     const bool open = ImGui::BeginTabItem(label);
-    ImGui::PopStyleColor();
+    // BeginTabItem also lays out the bar and draws its arrows/popup. Keep the
+    // native palette light during that call, then tint only this selected label.
+    if (open) {
+        const ImVec2 a=ImGui::GetItemRectMin(), b=ImGui::GetItemRectMax();
+        const ImU32 ink=ImGui::GetColorU32(kInkText);
+        for (int i=firstVertex;i<skin.dl->VtxBuffer.Size;++i) {
+            auto& v=skin.dl->VtxBuffer[i];
+            if (v.col==labelColor && v.pos.x>=a.x && v.pos.x<=b.x && v.pos.y>=a.y && v.pos.y<=b.y)
+                v.col=ink;
+        }
+    }
+    // Native tab drawing clips at the scrolling strip. Match that clip for the
+    // decoration too, or an offscreen tab can paint over the navigation arrows.
+    const auto* bar=ImGui::GetCurrentTabBar();
+    const ImVec4 clip(bar->ScrollingRectMinX,bar->BarRect.Min.y-1,
+        bar->ScrollingRectMaxX,bar->BarRect.Max.y);
+    skin.finish(open ? 1 : 2, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),IM_COL32_WHITE,&clip);
+    ImGui::PopStyleColor(5);
     if (g_head) ImGui::PopFont();
-    if (open) s_selected = id;
     return open;
 }
 
@@ -237,57 +386,159 @@ void ornament()
 
 void controller_hint()
 {
-    ImGui::PushStyleColor(ImGuiCol_Text, kBrass);
+    ImGui::PushStyleColor(ImGuiCol_Text, kBone);
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextUnformatted("L3 + R3 (both sticks)");
-    ImGui::PopStyleColor();
-    ImGui::TextUnformatted("CLICK: F10 menu  |  HOLD: VD performance overlay");
+    ImGui::TextUnformatted("L3 + R3: CLICK for F10 menu  |  HOLD for VD overlay");
     ImGui::PopTextWrapPos();
-    ImGui::Spacing();
+    ImGui::PopStyleColor();
 }
 
 void title(const char* text)
 {
-    {   // lamplight: a faint warm glow behind the title, fading down into the ink
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
-        const float gh = ImGui::GetFontSize() * 5.0f;
-        const ImU32 glow = ImGui::GetColorU32(ImVec4(kBrass.x, kBrass.y, kBrass.z, 0.10f));
-        const ImU32 none = ImGui::GetColorU32(ImVec4(kBrass.x, kBrass.y, kBrass.z, 0.0f));
-        dl->AddRectFilledMultiColor(ImVec2(wp.x + 1, wp.y + 1), ImVec2(wp.x + ws.x - 1, wp.y + gh), glow, glow, none, none);
-    }
-    if (g_headBold) ImGui::PushFont(g_headBold, ImGui::GetStyle().FontSizeBase * 1.45f);
-    const float tw = ImGui::CalcTextSize(text).x;
-    const float avail = ImGui::GetContentRegionAvail().x;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail > tw ? (avail - tw) * 0.5f : 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_Text, kBrassHi);
+    if (g_headBold) ImGui::PushFont(g_headBold, ImGui::GetStyle().FontSizeBase * 2.48f);
+    ImGui::PushStyleColor(ImGuiCol_Text, kBone);
     ImGui::TextUnformatted(text);
     ImGui::PopStyleColor();
     if (g_headBold) ImGui::PopFont();
-    ornament();
+    // A short bone rule under the title, leaving the skyline unobstructed.
+    const float width=ImGui::GetContentRegionAvail().x;
+    ImGui::PushItemWidth(width*.47f);
+    const ImVec2 p=ImGui::GetCursorScreenPos();
+    auto* dl=ImGui::GetWindowDrawList();
+    const float mid=p.x+width*.235f, y=p.y+2;
+    const ImU32 col=ImGui::GetColorU32(ImVec4(.77f,.72f,.61f,.8f));
+    dl->AddLine(p,ImVec2(mid-12,p.y),col);
+    dl->AddLine(ImVec2(mid+12,p.y),ImVec2(p.x+width*.47f,p.y),col);
+    dl->AddQuad(ImVec2(mid,y-5),ImVec2(mid+3,y),ImVec2(mid,y+5),ImVec2(mid-3,y),col,1.5f);
+    ImGui::Dummy(ImVec2(width,6));
+    ImGui::PopItemWidth();
 }
 
 bool pill(const char* label, bool selected)
 {
-    if (selected) {
-        ImGui::PushStyleColor(ImGuiCol_Button, kBrassDim);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kBrassDim);
-        ImGui::PushStyleColor(ImGuiCol_Text, kBone);
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_Button, kSlate);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kUmberAct);
-        ImGui::PushStyleColor(ImGuiCol_Text, kFaded);
-    }
-    const bool hit = ImGui::Button(label);
+    Skin skin;
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.12f));
+    ImGui::PushStyleColor(ImGuiCol_Text, selected ? kInkText : kBone);
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign,ImVec2(.5f,.5f));
+    const float width=ImGui::CalcTextSize("Advanced").x+ImGui::GetStyle().FramePadding.x*2;
+    const bool hit = ImGui::Button(label, ImVec2(width, 0));
+    ImGui::PopStyleVar();
+    skin.finish(selected ? 1 : 2, ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
     ImGui::PopStyleColor(3);
     return hit;
 }
 
 void push_primary()
 {
+    g_primary = true;
     ImGui::PushStyleColor(ImGuiCol_Button, kOxblood);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kOxbloodHi);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, kBrassDim);
 }
-void pop_primary() { ImGui::PopStyleColor(3); }
+void pop_primary() { g_primary = false; ImGui::PopStyleColor(3); }
+
+void release_art() { for (auto& texture : g_art) texture.Reset(); g_artDevice.Reset(); }
+void load_art(ID3D11Device* device)
+{
+    if (!device || g_artDevice.Get() == device) return;
+    release_art(); g_artDevice = device;
+    HMODULE module = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        (LPCWSTR)&load_art, &module);
+    const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    for (int i=0; i<5; ++i)
+        if (!decode_art(device, module, 201+i, g_art[i].GetAddressOf()))
+            DVR_WARN("overlay/art: embedded resource %d unavailable; using flat theme fallback", 201+i);
+    if (SUCCEEDED(com)) CoUninitialize();
+    DVR_INFO("overlay/art: backdrop=%d parchment=%d metal=%d header=%d note=%d",
+        !!g_art[0], !!g_art[1], !!g_art[2], !!g_art[3], !!g_art[4]);
+}
+float body_footer_height()
+{
+    // Two footer rows plus the bottom air of the reference; scale with text.
+    return ImGui::GetFrameHeightWithSpacing()*4.0f;
+}
+void begin_body(const char* id)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(14,4));
+    ImGui::BeginChild(id,ImVec2(0,-body_footer_height()),ImGuiChildFlags_AlwaysUseWindowPadding);
+    ImGui::PopStyleVar();
+    ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x*.65f);
+}
+void end_body()
+{
+    ImGui::PopItemWidth();
+    ImGui::EndChild();
+}
+void backdrop()
+{
+    const ImVec2 p=ImGui::GetWindowPos(), z=ImGui::GetWindowSize();
+    material(0,p,ImVec2(p.x+z.x,p.y+z.y));
+}
+bool button(const char* label, const ImVec2& size)
+{
+    Skin skin;
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+    ImVec2 pad=ImGui::GetStyle().FramePadding;
+    if (size.x>0) {
+        const float room=(size.x-ImGui::CalcTextSize(label,nullptr,true).x)*.5f;
+        if (pad.x>room) pad.x=room>0?room:0;
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,pad);
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign,ImVec2(.5f,.5f));
+    const bool changed=ImGui::Button(label,size);
+    ImGui::PopStyleVar(2);
+    skin.finish(2,ImGui::GetItemRectMin(),ImGui::GetItemRectMax(),
+        g_primary ? IM_COL32(255,105,85,255) : IM_COL32_WHITE);
+    ImGui::PopStyleColor();
+    return changed;
+}
+struct FrameSkin {
+    Skin skin;
+    ImVec2 start=ImGui::GetCursorScreenPos();
+    float width=ImGui::CalcItemWidth(), height=ImGui::GetFrameHeight();
+    FrameSkin() { ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0,0,0,0)); }
+    void finish(bool compact=false) {
+        skin.finish(2,start,ImVec2(start.x+(compact?height:width),start.y+height));
+        ImGui::PopStyleColor();
+    }
+};
+bool checkbox(const char* label, bool* value)
+{
+    const ImVec2 p=ImGui::GetCursorScreenPos(); const float h=ImGui::GetFrameHeight();
+    ImGui::PushStyleColor(ImGuiCol_FrameBg,ImVec4(0,0,0,0));
+    const bool changed=ImGui::Checkbox(label,value);
+    ImGui::PopStyleColor();
+    if (*value) ImGui::GetWindowDrawList()->AddRect(p,ImVec2(p.x+h,p.y+h),ImGui::GetColorU32(kBrass),1,0,1.4f);
+    return changed;
+}
+bool radio_button(const char* label, bool selected)
+{
+    const ImVec2 p=ImGui::GetCursorScreenPos(); const float h=ImGui::GetFrameHeight();
+    ImGui::PushStyleColor(ImGuiCol_CheckMark,ImVec4(0,0,0,0));
+    const bool changed=ImGui::RadioButton(label,selected);
+    ImGui::PopStyleColor();
+    if (selected) {
+        const ImVec2 center(p.x+h*.5f,p.y+h*.5f); auto* dl=ImGui::GetWindowDrawList();
+        dl->AddCircle(center,h*.45f,ImGui::GetColorU32(kBrassHi),0,1.4f);
+        dl->AddCircleFilled(center,h*.32f,ImGui::GetColorU32(kBrass));
+        dl->AddCircle(center,h*.32f,ImGui::GetColorU32(kBrassHi));
+    }
+    return changed;
+}
+bool radio_button(const char* label, int* value, int choice)
+{
+    const bool changed=radio_button(label,*value==choice);
+    if (changed) *value=choice;
+    return changed;
+}
+bool slider_float(const char* label,float* value,float min,float max,const char* format,ImGuiSliderFlags flags)
+{
+    FrameSkin skin; const bool changed=ImGui::SliderFloat(label,value,min,max,format,flags); skin.finish(); return changed;
+}
+bool slider_int(const char* label,int* value,int min,int max,const char* format,ImGuiSliderFlags flags)
+{
+    FrameSkin skin; const bool changed=ImGui::SliderInt(label,value,min,max,format,flags); skin.finish(); return changed;
+}
 } // namespace dvr::ovl

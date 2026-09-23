@@ -1,0 +1,7 @@
+#include <windows.h>
+201 RCDATA "assets/ui/f10/backdrop.png"
+202 RCDATA "assets/ui/f10/parchment.png"
+203 RCDATA "assets/ui/f10/metal.png"
+
+204 RCDATA "assets/ui/f10/header.png"
+205 RCDATA "assets/ui/f10/note.png"

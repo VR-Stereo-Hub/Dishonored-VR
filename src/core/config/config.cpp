@@ -33,6 +33,7 @@ static bool WriteDefaultIni(const char* ini)
         "; scale are judged together, so moving one alone will read as wrong.\n"
         "; F10 View tunes it per person, SAVE AS DEFAULTS writes it back.\n"
         "HeightOffsetM=0.060\n"
+        "PhysicalCrouch=1\n"
         "[Stereo]\n"
         "PairTrace=1\n"
         "DrawCallerTrace=1\n"
@@ -170,7 +171,7 @@ static bool WriteDefaultIni(const char* ini)
         "SyncHz=0\n"
         "[Perf]\n"
         "CpuScopes=0\n"
-        "NativeProfile=1\n"
+        "NativeProfile=0\n"
         "DiagnosticAb=0\n"
         "BridgeGpu=1\n"
         "RenderProfile=0\n"
@@ -956,7 +957,7 @@ static bool WriteDefaultIni(const char* ini)
         "UseAimRay=1\n"
         "OptVer=3\n"
         "[Overlay]\n"
-        "UiScale=1.54\n"
+        "UiScale=1.00\n"
         "; Set from the tested machine's ini (VR-72): F10 panel and calibration keys.\n"
         "; Level: which F10 controls are shown. basic = player settings, advanced = preference detail,\n"
         "; debug = fixes that should stay on, A/B levers and instruments. Live: the selector at the top.\n"
@@ -1108,6 +1109,7 @@ static bool WriteDefaultIni(const char* ini)
         "PopSmoothing=0\n"
         "\n"
         "[Rain]\n"
+        "Recovery=1\n"
         "Hide=0\n"
         "Trace=1\n"
         "Distance=-1\n"
@@ -1186,6 +1188,7 @@ static bool WriteDefaultIni(const char* ini)
         "Action.0.StatePlayerMasterJump=1\n"
         "Action.0.StatePlayerMasterMantle=1\n"
         "Action.1.StatePlayerBlock=1\n"
+        "Arms.0.StatePlayerMasterAssassinate=1\n"
         "[Draws]\n"
         "; The HUD draw census (core/gfx/hud_class), default OFF. Census=1 buckets every draw in\n"
         "; a present by entry point, render target, viewport, depth state, blend, texture stage\n"
@@ -1536,7 +1539,10 @@ static bool WriteDefaultIni(const char* ini)
         "Element.wheelpotions.WinScale=0.780\n"
         "Element.wheelshortcuts.WinX=-0.504\n"
         "Element.wheelshortcuts.WinY=0.695\n"
-        "Element.wheelshortcuts.WinScale=0.730\n", kConfigVersion);
+        "Element.wheelshortcuts.WinScale=0.730\n"
+        "[DropTakedown]\n"
+        "ReachScale=2.00\n"
+        "HoldMs=420\n", kConfigVersion);
     const int closed = fclose(f);
     return written > 0 && closed == 0;
 }

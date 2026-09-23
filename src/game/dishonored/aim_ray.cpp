@@ -485,27 +485,27 @@ void command(const char* args) {
 bool draw_reticle_ui() {
     namespace ov = dvr::ovl;
     auto cfg = config(); bool changed = false;
-    changed |= ImGui::Checkbox("Show the reticle", &cfg.dot);
+    changed |= dvr::ovl::checkbox("Show the reticle", &cfg.dot);
     ov::tip("A dot at a fixed distance along where your hand aims. The aim follows it.");
-    changed |= ImGui::SliderFloat("Reticle distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
+    changed |= dvr::ovl::slider_float("Reticle distance (m)", &cfg.distanceM, 0.5f, 50.0f, "%.1f");
     ov::tip("How far along the aim the dot sits. It does not stop at walls.");
-    changed |= ImGui::SliderFloat("Reticle size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
+    changed |= dvr::ovl::slider_float("Reticle size (degrees)", &cfg.sizeDeg, 0.05f, 2.0f, "%.2f");
     ov::tip("How big the dot looks, whatever its distance.");
-    changed |= ImGui::SliderInt("Red", &cfg.rgb[0], 0, 255);
-    changed |= ImGui::SliderInt("Green", &cfg.rgb[1], 0, 255);
-    changed |= ImGui::SliderInt("Blue", &cfg.rgb[2], 0, 255);
+    changed |= dvr::ovl::slider_int("Red", &cfg.rgb[0], 0, 255);
+    changed |= dvr::ovl::slider_int("Green", &cfg.rgb[1], 0, 255);
+    changed |= dvr::ovl::slider_int("Blue", &cfg.rgb[2], 0, 255);
     ImGui::ColorButton("##reticle", ImVec4(cfg.rgb[0] / 255.f, cfg.rgb[1] / 255.f, cfg.rgb[2] / 255.f, 1.f));
     ImGui::SameLine();
-    if (ImGui::Button("White")) { cfg.rgb[0] = cfg.rgb[1] = cfg.rgb[2] = 255; changed = true; }
+    if (dvr::ovl::button("White")) { cfg.rgb[0] = cfg.rgb[1] = cfg.rgb[2] = 255; changed = true; }
     // VR-189: one position for every item except the two guns.
     ImGui::SeparatorText("Reticle position: everything but the pistol and crossbow");
-    changed |= ImGui::SliderFloat("Other items X (deg)", &cfg.otherXDeg, -90.0f, 90.0f, "%+.1f");
+    changed |= dvr::ovl::slider_float("Other items X (deg)", &cfg.otherXDeg, -90.0f, 90.0f, "%+.1f");
     ov::tip("Turns the aim left or right of the controller for powers, grenades, the sword and the "
             "rest. The pistol and crossbow keep their own aim.");
-    changed |= ImGui::SliderFloat("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
-    if (ImGui::Button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
+    changed |= dvr::ovl::slider_float("Other items Y (deg)", &cfg.otherYDeg, -90.0f, 90.0f, "%+.1f");
+    if (dvr::ovl::button("Centre other items")) { cfg.otherXDeg = cfg.otherYDeg = 0; changed = true; }
     ImGui::SameLine();
-    if (ImGui::Button("Reset to default")) { cfg.otherXDeg = 0.0f; cfg.otherYDeg = -48.0f; changed = true; }
+    if (dvr::ovl::button("Reset to default")) { cfg.otherXDeg = 0.0f; cfg.otherYDeg = -48.0f; changed = true; }
     ov::tip("The tested position (0, -48).");
     if (changed) configure(cfg, "F10 Aim");
     return changed;
@@ -513,11 +513,11 @@ bool draw_reticle_ui() {
 void draw_ui() {
     namespace ov = dvr::ovl;
     auto cfg = config(); bool changed = false;
-    changed |= ImGui::Checkbox("Ray follows the hand trim", &cfg.followHandTrim);
+    changed |= dvr::ovl::checkbox("Ray follows the hand trim", &cfg.followHandTrim);
     ov::tip("The dot and shot move with the hand position adjustments. Leave on.");
-    changed |= ImGui::Checkbox("Ray from loaded bolt geometry", &cfg.modelRay);
+    changed |= dvr::ovl::checkbox("Ray from loaded bolt geometry", &cfg.modelRay);
     ov::tip("Aims along the measured crossbow bolt, so the dot lines up with the weapon. Leave on.");
-    changed |= ImGui::Checkbox("Control dot (head-anchored, no controller)", &cfg.controlDot);
+    changed |= dvr::ovl::checkbox("Control dot (head-anchored, no controller)", &cfg.controlDot);
     ov::tip("An instrument: a larger dot straight ahead of your head, which must land on the centre "
             "of the game's image. Off for play.");
     if (changed) configure(cfg, "F10 Aim");

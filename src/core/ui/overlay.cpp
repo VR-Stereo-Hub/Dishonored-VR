@@ -1,3 +1,4 @@
+#include "core/ui/ovl_ui.h"
 // VR-196: the legacy FOV lever (legacy_fov_control.inc) left the panel; [Camera] FovLever still works.
 #include "core/framework/render_profile.h"
 #include "game/dishonored/hands/sleeve_presets.h"
@@ -252,18 +253,19 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         Log("overlay: initialized (F10 toggles; stick-click tap toggles when [Overlay] "
             "ControllerPointer=1, now %s)", g_ovlPtrEnable ? "on" : "off");
     }
+    dvr::ovl::load_art(g_dev11);
     ImGuiIO& io = ImGui::GetIO();
     const float w = (float)targetW, h = (float)targetH;
-    // Text scale: authored for a 1080p desktop, so it needs SOME lift on an eye texture,
-    // but the full h/1080 was too big in the trilogy's headset; half of it read right.
-    // The slider owns it after the first frame.
+    // Match the reference typography to the default square panel. An explicit
+    // saved UiScale still wins; the player keeps control of text size.
     if (g_ovlUiScale <= 0.0f) {
-        float fs = h > 0.0f ? 1.0f + (h / 1080.0f - 1.0f) * 0.5f : 1.6f;
-        if (fs < 1.0f) fs = 1.0f;
-        if (fs > 2.0f) fs = 2.0f;
+        const float panelPixels = w * (649.0f/2750.0f);
+        float fs = panelPixels > 0 ? panelPixels / 649.0f : 1.0f;
+        if (fs < .8f) fs = .8f;
+        if (fs > 2.5f) fs = 2.5f;
         g_ovlUiScale = fs;
-        Log("overlay: text scale %.2f from the eye texture height %.0f ([Overlay] UiScale overrides)",
-            fs, h);
+        Log("overlay: text scale %.2f from reference panel %.0f px ([Overlay] UiScale overrides)",
+            fs, panelPixels);
     }
     ImGui::GetStyle().FontScaleMain = g_ovlUiScale;   // 1.92: replaces io.FontGlobalScale
     io.MouseDrawCursor = true;                        // ImGui draws the cursor, both eyes
@@ -288,20 +290,27 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     ImGui::NewFrame();
     OvlUpdateSliderTweak();
 
-    // Size and place against the eye texture, as fractions, so the panel is the same part
-    // of the view at any resolution. The numbers are where the tester dragged and sized it
-    // in the headset (build 602, 2750x2850, read back from the geometry probe: pos
-    // 0.3149,0.3596 size 0.3855,0.2302). 36.2: after a real-window resize WE caused, snap
-    // it back to that place in the NEW space.
+    // Reference composition: centered square against the eye texture. A resize
+    // changes the layout without changing widget behavior or the stored settings.
     const ImVec2 ds = io.DisplaySize;
     const ImGuiCond placeCond = InterlockedExchange(&g_ovlRecenter, 0) ? ImGuiCond_Always
                                                                        : ImGuiCond_FirstUseEver;
-    ImGui::SetNextWindowPos(ImVec2(ds.x * 0.3149f, ds.y * 0.3596f), placeCond);
-    ImGui::SetNextWindowSize(ImVec2(ds.x * 0.3855f, ds.y * 0.2302f), placeCond);
+    // VR-206: square reference composition, centered and resizable. Settings scroll.
+    const float shorter = ds.x < ds.y ? ds.x : ds.y;
+    const float readableMin = (ImGui::CalcTextSize("RESET TO DEFAULTS").x + ImGui::GetStyle().FramePadding.x*2)*3
+        + ImGui::GetStyle().ItemSpacing.x*2 + ImGui::GetStyle().WindowPadding.x*2;
+    const float minSide = (readableMin < shorter*.95f) ? readableMin : shorter*.95f;
+    // Accepted build733 placement: 1027,1021 and 649x685 at 2750x2850.
+    // Fractions preserve the headset composition at other eye resolutions.
+    const float panelW=ds.x*(649.0f/2750.0f), panelH=ds.y*(685.0f/2850.0f);
+    ImGui::SetNextWindowPos(ImVec2(ds.x*(1027.0f/2750.0f),ds.y*(1021.0f/2850.0f)),placeCond);
+    ImGui::SetNextWindowSize(ImVec2(panelW>minSide?panelW:minSide,panelH>minSide?panelH:minSide),placeCond);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(minSide,minSide), ImVec2(ds.x*0.95f,ds.y*0.95f));
     // VR-197: no ImGui title bar; OvlTopRow draws the themed title and the close button, and
     // the window still moves by dragging any empty part of it.
     ImGui::Begin("Dishonored VR", &g_ovlVisible,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+    dvr::ovl::backdrop();
     OvlProbeWindowGeometry(ds.x, ds.y);
     if (g_ovlReticle && ds.x > 0.0f && ds.y > 0.0f) {   // the reticle hides behind this rectangle
         const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
@@ -314,15 +323,17 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     ImGui::Spacing();
     dvr::ovl::ornament();   // VR-197: the brass rule that closes the panel
     // VR-174: text size is perceptual, so it is a slider, saved at once.
-    if (ImGui::SliderFloat("Text size", &g_ovlUiScale, 0.8f, 2.5f, "%.2f")) {
+    if (dvr::ovl::slider_float("Text size", &g_ovlUiScale, 0.8f, 2.5f, "%.2f")) {
         char v[16]; _snprintf(v, sizeof(v) - 1, "%.2f", g_ovlUiScale); v[sizeof(v) - 1] = 0;
         ConfigWriteKey("Overlay", "UiScale", v, "F10");
     }
     OvlTip("Size of this panel's text. Drag the window's edge to resize the panel itself.");
     ImGui::EndDisabled();
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled(g_ovlPtrEnable ? "F10 or a stick-click tap closes | point, trigger clicks, "
                                          "stick scrolls / nudges a slider"
                                        : "F10 closes");
+    ImGui::PopTextWrapPos();
     // Sampled here, where it is meaningful; read by the stick lane before the next NewFrame.
     g_ovlAnyHovered = ImGui::IsAnyItemHovered() || ImGui::IsAnyItemActive();
     ImGui::End();

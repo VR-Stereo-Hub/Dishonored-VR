@@ -57,6 +57,93 @@ A report from an Index on the SteamVR shim (build `525-g548c31693`) raised two f
 Built; not installed, not headset-tested; this rig has no Index. The next shim log should
 show `desktoppresent: the desktop mirror stays ON on the SteamVR shim` and one
 `HUD window parked` or `re-parks` line per menu opening.
+## F10 polish build736 installed (VR-206, 2026-09-23)
+
+Explicit installation approval received. Installed vr33-hands-working-736-gab7023884
+from the archived candidate; DLL hash and embedded build identity verified. Previous
+DLL, complete ini and both logs saved under
+build/playtest-candidates/installs/20260923-002234-384927.
+Full ini comparison is byte-identical, with zero setting changes and CRLF verified.
+Game not launched. No merge.
+
+Next launch question: in Debug, can the always-visible tab-list arrow reliably select
+Runtime and Log? Success supports the navigation fix at the accepted narrow size;
+a disappearing arrow or unreachable tab means the fix needs further work.
+Future candidates still require separate explicit installation approval.
+
+## F10 accepted profile and navigation polish (VR-206, 2026-09-23)
+
+Build733 log banner and installed DLL hash match. Headset report accepts the visual
+direction with minor alignment, collapsed-spacing and Debug navigation follow-ups.
+Archived the complete ini and both logs under
+build/playtest-candidates/runs/vr-206-accepted-20260923-001000.
+All current values are saved in tests/golden/f10-tuned-2026-09-23.ini. Shipped gameplay
+and display defaults mirror that profile, including UiScale=1.00; portable runtime
+discovery stays auto/blank. Installed runtime selection and ini are untouched.
+
+Default menu placement follows the final logged 1027,1021 / 649x685 rectangle at a
+2750x2850 eye texture, stored as resolution-relative layout constants. Tier buttons now
+fit their labels and padding; the close button gets suitable horizontal padding.
+Collapsed sections lose the extra spacer rows. Tab art uses native scrolling-strip
+clipping, and selected-label tint no longer darkens bar arrows or popup entries.
+The always-visible tab-list arrow reaches every tier-eligible tab.
+
+Prepared vr33-hands-working-736-gab7023884; optimized build, lint and 9/9 exports pass.
+Default writer/reset tests and byte-identical package/golden checks pass. Native preview
+at 649x685 and 1.00 text passes layout/widget checks; a pointer test opens the tab list
+and selects the offscreen Log tab. Build and prepare only, no install without a new
+explicit go-ahead. PR #109 remains unmerged above rain-fixes.
+
+## F10 revision installed with approval (VR-206, 2026-09-22)
+
+Installed vr33-hands-working-733-g7d78ac20f from the archived candidate after explicit
+approval. DLL SHA-256 and embedded build identity verified. Previous DLL, ini and both
+logs archived under build/playtest-candidates/installs/20260922-235702-071438.
+The existing ini had mixed line endings; normalized to CRLF. Complete file comparison
+confirms only line-ending changes and zero setting changes. Game not launched.
+
+Next launch question: does F10 remain readable and free of unintended control overlaps
+while switching Basic/Advanced/Debug and scrolling? A clean layout supports headset
+acceptance; overlap or clipping outside the scrolling body requires a layout follow-up.
+No merge performed. Future builds still require explicit installation approval.
+
+## F10 reference refinement and layout QA (VR-206, 2026-09-22)
+
+Reworked the first image-backed pass: restrained skyline, thin title, torn parchment
+headers, folded italic notes, slate gradients and brass radio/check outlines. Recenter,
+Save and Reset occupy one row. Square defaults retain the reference proportions; automatic
+text scale follows panel size, with minimum width for button labels and a wrapped footer.
+More adjustments expands depth/yaw/roll and the advanced numpad preference.
+
+Preview now carries the full relevant Hands inventory and shares the production scrolling
+body/footer layout. Pointer-event checks and computed layout bounds pass. Visual QA covers
+1254-square Basic/Advanced, 900-square at 1.54 text, 1254-square at 2.0 text, actual tooltips,
+and scrolling to the bottom. Headset acceptance remains pending. See F10_ART_THEME.md.
+
+Prepared vr33-hands-working-733-g7d78ac20f under build/playtest-candidates. Optimized
+Win32 build, clean lint and 9/9 exports pass.
+
+Build only. DO NOT INSTALL without explicit go-ahead. Branch f10-improvements, draft PR
+#109 based on finalized unmerged rain-fixes / PR #108. No installed files changed.
+
+## F10 image-backed overhaul prepared (VR-206, 2026-09-22)
+
+New f10-improvements branches from finalized rain-fixes at 128632768. Rain PR is #108,
+unmerged; previous #104 closed during the GitHub branch rename. Awning TODO is VR-205.
+
+Generated three reusable art masters and embedded them in the DLL: painted skyline
+background, parchment and worn metal. Shared native ImGui wrappers apply materials to
+controls, sections, tabs and notes. Default panel is centered and square (46% of shorter
+eye dimension), resizable, with independent scrolling tab contents. Tier logic, live
+controller hint, reset/save actions and existing setters remain intact. Hands size and
+Sleeve initially open. See dishonored/F10_ART_THEME.md and assets/ui/f10/README.md.
+
+Native offscreen Basic/Advanced previews and pointer-event checks pass. Optimized game build,
+lint and 9/9 exports pass. Prepared vr33-hands-working-731-g9b2e4a44a, archived under
+build/playtest-candidates/vr-206-vr33-hands-working-731-g9b2e4a44a.
+DO NOT INSTALL until explicit go-ahead. Headset layout/controller acceptance remains open.
+No installed file was changed for this task.
+
 ## Rain branch finalized, not merged (2026-09-22)
 
 Rain recovery is headset accepted on build725; the close-overlay hide/restore is accepted.
