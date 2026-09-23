@@ -6,6 +6,9 @@ transition angle they fluctuate together; the third layer stays nonzero. Positiv
 requests persist. This establishes CPU opacity loss, not a generic whole-component cull.
 Archive: build/playtest-candidates/runs/vr-202-alpha-20260922-223037.
 
+Prepared `vr33-hands-working-723-g41bd201e5`: optimized build, lint and 9/9 exports pass.
+DLL archived locally; no installation performed.
+
 Next candidate adds signed fade-state counts, particle height and actual current rain-module
 extent to test the native volume-exit/fading path. See ENGINE_NOTES top entry. Diagnostic
 only; prepare/build but DO NOT INSTALL until another explicit user go-ahead.
