@@ -6,6 +6,11 @@ Pitch-only reproduction did not repeat. Native fading can retain zero-alpha part
 the next read-only candidate separates per-instance counts and opacity. See ENGINE_NOTES.
 Archive: build/playtest-candidates/runs/vr-202-cycle-20260922-220215.
 
+Prepared `vr33-hands-working-720-g632dca2fb`, optimized/legacy off. Build, lint and 9/9 exports pass.
+Archived DLL under `build/playtest-candidates/vr-202-vr33-hands-working-720-g632dca2fb`.
+No installation performed. Read the current ini at any later authorized install to preserve
+concurrent changes.
+
 Do NOT install until explicit user go-ahead. Another agent is swapping builds concurrently.
 Prepare/validate only; eventual test is steady-view cycling, with layer alpha distinguishing
 simulation fading from material/render behavior.
