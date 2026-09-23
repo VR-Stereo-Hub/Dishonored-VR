@@ -11,6 +11,9 @@ body/footer layout. Pointer-event checks and computed layout bounds pass. Visual
 1254-square Basic/Advanced, 900-square at 1.54 text, 1254-square at 2.0 text, actual tooltips,
 and scrolling to the bottom. Headset acceptance remains pending. See F10_ART_THEME.md.
 
+Prepared vr33-hands-working-733-g7d78ac20f under build/playtest-candidates. Optimized
+Win32 build, clean lint and 9/9 exports pass.
+
 Build only. DO NOT INSTALL without explicit go-ahead. Branch f10-improvements, draft PR
 #109 based on finalized unmerged rain-fixes / PR #108. No installed files changed.
 
