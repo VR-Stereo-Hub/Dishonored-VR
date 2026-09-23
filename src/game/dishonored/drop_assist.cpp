@@ -34,6 +34,7 @@
 // LANES. sample() on the script lane publishes one record under a lock; gate() on the
 // present lane reads it. Only sample() touches engine memory.
 #include "game/dishonored/drop_assist.h"
+#include "game/dishonored/drop_discovery.h"
 
 namespace dvr::drop {
 namespace {
@@ -56,7 +57,8 @@ Pub published() { AcquireSRWLockShared(&pubLock); Pub p = pub; ReleaseSRWLockSha
 struct Offs { bool tried = false; uint32_t owner = 0, status = 0, type = 0, target = 0, tag = 0, wait = 0,
               tweaks = 0, velocity = 0, hit = 0, minDrop = 0, maxDrop = 0, maxJump = 0, minDown = 0, ray = 0; } off;
 uint8_t* context = nullptr;
-uint32_t scan = 0, slot = 0;
+uint32_t slot = 0;
+DiscoverySchedule discovery;
 struct Tweak { uint8_t* obj = nullptr; float original = 0.0f; } tweakRecs[8];
 volatile LONG reachDirty = 1;   // re-apply after a config or F10 change
 
@@ -162,7 +164,8 @@ float clampf(float v, float lo, float hi) { return !(v == v) ? lo : v < lo ? lo 
 } // namespace
 
 void sample(uint8_t* pawn, const dvr::anim::Snapshot& s) {
-    if (!(cfg.assist || dropWatch || cfg.reach != 1.0f) || !s.valid || !pawn) return;
+    if (!s.valid || !pawn) { context = nullptr; discovery = {}; return; }
+    if (!(cfg.assist || dropWatch || cfg.reach != 1.0f)) return;
     resolve();
     const auto now = GetTickCount64();
     if (!off.owner || !off.status || !off.type || !off.target || !off.tag || !off.velocity ||
@@ -172,19 +175,33 @@ void sample(uint8_t* pawn, const dvr::anim::Snapshot& s) {
     if (!objects || !count || count > 4000000) return;
     uint8_t* owner = nullptr;
     if (context && (slot >= count || !RangeReadable(objects + slot, sizeof(void*)) || objects[slot] != context ||
-        !IsLiveObject(context) || !rd(context, off.owner, &owner, sizeof(owner)) || owner != pawn)) context = nullptr;
-    // Discovery is bounded: 1024 slots per tick, resumed where it stopped.
-    for (unsigned budget = 0; !context && budget < 1024; ++budget) {
-        if (scan >= count) { scan = 0; break; }
-        const uint32_t i = scan++;
-        if (!RangeReadable(objects + i, sizeof(void*))) break;
-        auto* c = objects[i];
-        if (!IsLiveObject(c)) continue;
-        const char* cls = ObjClassName(c);
-        if (!cls || !strstr(cls, "ItemContext") || !strstr(cls, "DropAssassinate")) continue;
-        if (!rd(c, off.owner, &owner, sizeof(owner)) || owner != pawn) continue;
-        context = c; slot = i;
-        Log("drop/watch: current player context discovered slot=%u class=%s", slot, cls);
+        !IsLiveObject(context) || !rd(context, off.owner, &owner, sizeof(owner)) || owner != pawn)) {
+        context = nullptr;
+        discovery.invalidate();
+    }
+    // VR-212: absent during the intro, this search otherwise runs forever on the
+    // game thread. Throttle discovery only; cached attack decisions stay per tick.
+    if (!context && discovery.begin(now, reinterpret_cast<uintptr_t>(pawn), count)) {
+        dvr::mem::RegionMemo arrayMemory, objectMemory;
+        std::unordered_map<uint8_t*, bool> classes;
+        // The caches live for this script-lane slice only, never across GC/load.
+        for (unsigned budget = 0; !context && budget < 1024 && discovery.scan < count; ++budget) {
+            const uint32_t i = discovery.scan++;
+            if (!arrayMemory.ok(objects + i, sizeof(void*))) break;
+            auto* c = objects[i];
+            if (!IsLiveObject(c) || !objectMemory.ok(c, kClassOff + sizeof(void*))) continue;
+            auto* clsObject = *(uint8_t**)(c + kClassOff);
+            auto found = classes.find(clsObject);
+            if (found == classes.end()) {
+                const char* cls = ObjClassName(c);
+                const bool match = cls && strstr(cls, "ItemContext") && strstr(cls, "DropAssassinate");
+                found = classes.emplace(clsObject, match).first;
+            }
+            if (!found->second || !rd(c, off.owner, &owner, sizeof(owner)) || owner != pawn) continue;
+            context = c; slot = i;
+            Log("drop/watch: current player context discovered slot=%u class=%s", slot, ObjClassName(c));
+        }
+        if (!context && discovery.scan >= count) discovery.exhausted(now);
     }
     Pub p; p.stamp = now; p.airborne = airborne(s.state[0]);
     int tag = -1; uint8_t* target = nullptr; float velocity[3] = {};
