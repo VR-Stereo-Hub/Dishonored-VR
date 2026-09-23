@@ -235,6 +235,7 @@ std::atomic<HudTextureProviderFn> g_hudTexProvider{nullptr};
 std::atomic<HudQuadProviderFn> g_hudQuadProvider{nullptr};
 dvr::mono::Anchor g_hudWorldAnchor;      // the world-locked window's park
 uint32_t g_hudWorldResetSeen = 0;
+ULONGLONG g_hudWorldSeenMs = 0;           // VR-207: the last present that carried a world window
 std::atomic<uint32_t> g_hudStatSubmitted{0}, g_hudStatBehind{0}, g_hudStatNear{0},
                       g_hudStatDegenerate{0}, g_hudStatBudget{0}, g_hudStatUntracked{0};
 
@@ -5019,6 +5020,23 @@ void on_present_end(ID3D11Texture2D* frame) {
             if (reset != g_hudWorldResetSeen ||
                 (g_monoSpaceChange && g_frameState.predictedDisplayTime >= g_monoSpaceChange)) {
                 g_hudWorldAnchor.reset(); g_hudWorldResetSeen = reset;
+            }
+            // VR-207: a NEW menu parks the window where the head is NOW. The park used to
+            // be dropped only by a recenter or a space change, so the first pause menu of a
+            // session fixed its place for good: a tester's log had 14 pause opens and one
+            // park. A window absent for more than 250 ms and back again is a new menu; a
+            // shorter gap (a held or dropped present) keeps its place.
+            bool worldNow = false;
+            for (int i = 0; i < nDesc; ++i)
+                if (descs[i].tex && descs[i].anchor == HudAnchor::WindowWorld) { worldNow = true; break; }
+            if (worldNow) {
+                const ULONGLONG nowMs = GetTickCount64();
+                if (g_hudWorldAnchor.valid && g_hudWorldSeenMs && nowMs - g_hudWorldSeenMs > 250) {
+                    XRLOG("xr: HUD window re-parks: absent %llu ms, so this is a new menu (VR-207)",
+                          (unsigned long long)(nowMs - g_hudWorldSeenMs));
+                    g_hudWorldAnchor.reset();
+                }
+                g_hudWorldSeenMs = nowMs;
             }
         }
 
