@@ -7,6 +7,14 @@ param(
     [switch]$NoOpen
 )
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
+function File-Sha256([string]$path) {
+    $stream=$null; $sha=[Security.Cryptography.SHA256]::Create()
+    try {
+        $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+        return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','')
+    } finally { if($stream){$stream.Dispose()}; $sha.Dispose() }
+}
 $GameDir = (Resolve-Path -LiteralPath $GameDir).Path
 if (-not (Test-Path -LiteralPath (Join-Path $GameDir 'dishonored_vr.ini'))) { throw 'Choose the Win32 folder containing dishonored_vr.ini.' }
 $ini = Get-Content -LiteralPath (Join-Path $GameDir 'dishonored_vr.ini') -Raw
@@ -31,11 +39,48 @@ function Copy-Evidence([string]$source,[string]$name) {
         $target=Join-Path $stage $name
         $outputStream=[IO.File]::Create($target)
         $inputStream.CopyTo($outputStream); $outputStream.Dispose(); $outputStream=$null
-        $report.files+=@{ name=$name; sha256=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash; sourceModifiedUtc=(Get-Item -LiteralPath $source).LastWriteTimeUtc.ToString('o') }
+        $report.files+=@{ name=$name; sha256=(File-Sha256 $target); sourceModifiedUtc=(Get-Item -LiteralPath $source).LastWriteTimeUtc.ToString('o') }
     } catch { $report.errors+=("$name : "+$_.Exception.Message) }
     finally { if($outputStream){$outputStream.Dispose()}; if($inputStream){$inputStream.Dispose()} }
 }
 foreach($name in @('dishonored_vr.log','dishonored_vr.prev.log','dishonored_vr.ini','dishonored_vr_crash.txt')) { Copy-Evidence (Join-Path $GameDir $name) $name }
+# Keep each source separate: an old shadow log must never replace today's game log.
+$localEvidence = Join-Path $env:LOCALAPPDATA 'DishonoredVR'
+foreach ($root in @($localEvidence, $DataDir) | Select-Object -Unique) {
+    $prefix = if ($root -eq $localEvidence) { 'local' } else { 'data' }
+    foreach ($name in @('dishonored_vr_launcher.log','dishonored_vr_launcher.prev.log','dishonored_vr_setup.log','dishonored_vr_setup.prev.log','ovrshim.log','dishonored_vr.log','dishonored_vr.prev.log')) {
+        Copy-Evidence (Join-Path $root $name) "$prefix-$name"
+    }
+}
+Copy-Evidence (Join-Path $GameDir 'dishonored_vr_install.json') 'install-record.json'
+Copy-Evidence (Join-Path $GameDir 'ovrshim.log') 'game-ovrshim.log'
+foreach ($name in @('actions.json','bindings_knuckles.json','bindings_vive_controller.json','bindings_oculus_touch.json','bindings_holographic_controller.json')) {
+    Copy-Evidence (Join-Path (Join-Path $GameDir 'openvr_input') $name) "steamvr-$name"
+}
+if ($GameDir -match '^[A-Za-z]:\\') {
+    $shadow = Join-Path (Join-Path $env:LOCALAPPDATA 'VirtualStore') $GameDir.Substring(3)
+    foreach ($name in @('dishonored_vr.ini','dishonored_vr.log','dishonored_vr.prev.log')) {
+        Copy-Evidence (Join-Path $shadow $name) "virtualstore-$name"
+    }
+}
+$gameConfig = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Dishonored\DishonoredGame\Config'
+foreach ($name in @('DishonoredEngine.ini','DishonoredInput.ini')) {
+    Copy-Evidence (Join-Path $gameConfig $name) "game-$name"
+}
+try {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    $cpu = Get-CimInstance Win32_Processor -ErrorAction Stop
+    $gpu = Get-CimInstance Win32_VideoController -ErrorAction Stop
+    $report.machine = @{ os=$os.Caption; build=$os.BuildNumber; ramGB=[Math]::Round($os.TotalVisibleMemorySize / 1MB,1); cpu=@($cpu.Name); gpu=@($gpu | Select-Object Name,DriverVersion) }
+} catch { $report.errors += ('Machine details unavailable: ' + $_.Exception.Message) }
+# Read the same 32-bit registry view as the game, even from 64-bit PowerShell.
+$runtimeKey=$null; $runtimeBase=$null
+try {
+    $runtimeBase=[Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine,[Microsoft.Win32.RegistryView]::Registry32)
+    $runtimeKey=$runtimeBase.OpenSubKey('SOFTWARE\Khronos\OpenXR\1')
+    $report.activeRuntime32 = if ($runtimeKey) { $runtimeKey.GetValue('ActiveRuntime','') } else { '' }
+} catch { $report.errors += ('32-bit runtime unavailable: ' + $_.Exception.Message) }
+finally { if($runtimeKey){$runtimeKey.Dispose()}; if($runtimeBase){$runtimeBase.Dispose()} }
 # VR-177: pacetrace.log carries the runtime watchdog's stacks - the only freeze evidence there is.
 foreach($name in @('status.json','ovrshim.log','pacetrace.log')) { Copy-Evidence (Join-Path $DataDir $name) $name }
 # ...and the watchdog lines alone, so a freeze report is readable without the whole trace.
@@ -56,7 +101,10 @@ if($IncludeLatestDump -and $dumps.Count) { Copy-Evidence $dumps[0].FullName $dum
 $report.binaries=@()
 foreach($name in @('d3d9.dll','Dishonored.exe','dvr_steamvr32.dll','openvr_api.dll')) {
     $file=Join-Path $GameDir $name
-    if(Test-Path -LiteralPath $file) { $report.binaries+=@{ name=$name; sha256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash; version=(Get-Item -LiteralPath $file).VersionInfo.FileVersion } }
+    if(Test-Path -LiteralPath $file) {
+        try { $report.binaries+=@{ name=$name; sha256=(File-Sha256 $file); version=(Get-Item -LiteralPath $file).VersionInfo.FileVersion } }
+        catch { $report.errors+=("Binary $name : "+$_.Exception.Message) }
+    }
 }
 $report | ConvertTo-Json -Depth 7 | Set-Content -LiteralPath (Join-Path $stage 'manifest.json') -Encoding UTF8
 @'

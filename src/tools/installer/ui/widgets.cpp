@@ -26,7 +26,7 @@ void page_header(const char* subtitle)
         const float tw = ImGui::CalcTextSize(subtitle).x;
         const float avail = ImGui::GetContentRegionAvail().x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail > tw ? (avail - tw) * 0.5f : 0.0f));
-        ImGui::TextDisabled("%s", subtitle);
+        wrapped_faded(subtitle);
     }
     ImGui::Spacing();
 }
@@ -51,7 +51,9 @@ void wrapped_faded(const char* text)
 
 void status_slot(const char* id, int lines, const char* text, const ImVec4* colour)
 {
-    const float h = ImGui::GetTextLineHeightWithSpacing() * (float)lines + ImGui::GetStyle().FramePadding.y;
+    const float textH = ImGui::CalcTextSize(text ? text : "", nullptr, false, ImGui::GetContentRegionAvail().x).y;
+    const float h = (textH > ImGui::GetTextLineHeightWithSpacing() * lines ? textH : ImGui::GetTextLineHeightWithSpacing() * lines)
+                    + ImGui::GetStyle().FramePadding.y;
     ImGui::BeginChild(id, ImVec2(0, h), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
     if (colour) ImGui::PushStyleColor(ImGuiCol_Text, *colour);
     wrapped(text ? text : "");
@@ -93,9 +95,11 @@ void step_row(const StepResult& step)
 int pill_row(const char* const* labels, int count, int selected, const char* const* tips)
 {
     int hit = -1;
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float width = (ImGui::GetContentRegionAvail().x - gap * (count - 1)) / count;
     for (int i = 0; i < count; ++i) {
-        if (i) ImGui::SameLine(0.0f, 6.0f);
-        if (dvr::ovl::pill(labels[i], i == selected)) hit = i;
+        if (i) ImGui::SameLine(0.0f, gap);
+        if (dvr::ovl::pill(labels[i], i == selected, width)) hit = i;
         if (tips && tips[i]) dvr::ovl::tip(tips[i]);
     }
     return hit;
@@ -141,7 +145,7 @@ bool button(const char* label, bool primary, bool enabled, float width)
 {
     if (primary) dvr::ovl::push_primary();
     ImGui::BeginDisabled(!enabled);
-    const bool hit = ImGui::Button(label, ImVec2(width, 0));
+    const bool hit = dvr::ovl::button(label, ImVec2(width, 0));
     ImGui::EndDisabled();
     if (primary) dvr::ovl::pop_primary();
     return hit;

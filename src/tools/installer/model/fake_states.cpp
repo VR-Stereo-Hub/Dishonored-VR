@@ -8,7 +8,7 @@ namespace {
 Detection base_detection()
 {
     Detection d;
-    d.version = "41.0.0"; d.buildId = "702-g1a2b3c4d"; d.config = "RelWithDebInfo";
+    d.version = "1.0.0"; d.buildId = "702-g1a2b3c4d"; d.config = "RelWithDebInfo";
     d.payloadOk = true; d.embeddedIniVersion = 15; d.embeddedSha = "0a3c57f6e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a";
     d.gameDir = L"D:\\SteamLibrary\\steamapps\\common\\Dishonored\\Binaries\\Win32";
     d.gameFound = true; d.gameNote = "Found in your Steam library";
@@ -21,7 +21,7 @@ Detection base_detection()
     d.steamvrPresent = true;
     d.activeRuntime = L"virtualdesktop-openxr-32.json";
     d.gpu.name = L"NVIDIA GeForce RTX 4070 Ti SUPER"; d.gpu.budgetBytes = 14ull << 30;
-    d.suggested.runtime = Runtime::Vdxr; d.suggested.quality = Quality::Balanced; d.suggested.pixelPercent = 100.0f;
+    d.suggested.runtime = Runtime::Auto; d.suggested.quality = Quality::Balanced; d.suggested.pixelPercent = 100.0f;
     return d;
 }
 Detection installed_detection()
@@ -29,7 +29,7 @@ Detection installed_detection()
     Detection d = base_detection();
     d.d3d9Present = true; d.modInstalled = true; d.iniExists = true; d.iniVersion = 15;
     d.installedSha = "5e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f";
-    d.record.valid = true; d.record.version = "41.0.0"; d.record.buildId = "686-ga351bfc31"; d.record.config = "RelWithDebInfo";
+    d.record.valid = true; d.record.version = "1.0.0"; d.record.buildId = "686-ga351bfc31"; d.record.config = "RelWithDebInfo";
     d.record.installedUtc = "2026-09-22T18:40:11Z"; d.record.runtime = "vdxr"; d.record.quality = "balanced";
     d.record.width = 2750; d.record.height = 2850;
     d.iniRuntime = Runtime::Vdxr; d.iniSize = { 2750, 2850 };
@@ -43,10 +43,10 @@ Report install_report(bool baselinePending, bool failed)
     r.add(StepStatus::Ok, "Installed openvr_api.dll", "412 KB");
     r.add(StepStatus::Ok, "Wrote dishonored_vr.ini", "A byte copy of the settings this build was tuned and tested with; only the choices below differ.");
     r.add(StepStatus::Ok, "Headset: Quest via Virtual Desktop", "[VR] Runtime=native, XrRuntimeJson=C:\\Program Files\\Virtual Desktop Streamer\\OpenXR\\virtualdesktop-openxr-32.json");
-    r.add(StepStatus::Ok, "Render size: Balanced (tested), 2750x2850 per eye", "100% of the tested 2750x2850. Set the headset to 90 Hz: this size was judged there, and ghosts at 120.");
+    r.add(StepStatus::Ok, "Render size: Balanced (tested), 2750x2850 per eye", "100% of the tested 2750x2850. Recommended: 120 Hz, or 144 Hz with Virtual Desktop Beta.");
     r.add(StepStatus::Ok, "Data folder: %LOCALAPPDATA%\\DishonoredVR", "[Paths] DataDir= (empty)");
     if (failed) {
-        r.add(StepStatus::Failed, "Could not write DishonoredEngine.ini", "Access is denied. (5)\nControlled folder access in Windows Security may be protecting Documents; allow DishonoredVR-Setup.exe there, or apply the four values with setup-game-ini.ps1 -VRBaseline from the zip.");
+        r.add(StepStatus::Failed, "Could not write DishonoredEngine.ini", "Access is denied. (5)\nControlled folder access in Windows Security may be protecting Documents; allow DishonoredVR-Launcher.exe there, or apply the four values with setup-game-ini.ps1 -VRBaseline from the zip.");
     } else if (baselinePending) {
         r.add(StepStatus::Skipped, "Game settings: waiting for the game's first run", "The game writes its own settings folder the first time it runs. Launch Dishonored once from Steam, quit to the desktop, and this window applies the last four settings by itself.");
         r.baselinePending = true;
@@ -55,23 +55,36 @@ Report install_report(bool baselinePending, bool failed)
         r.add(StepStatus::Ok, "DishonoredInput.ini: VR baseline applied", "[Engine.PlayerInput] bEnableMouseSmoothing: TRUE -> FALSE\nBacked up to DishonoredInput.ini.20260923-101500.dvr-backup.");
         r.baselineApplied = true;
     }
-    if (!failed) r.add(StepStatus::Ok, "Recorded the install: 41.0.0 (702-g1a2b3c4d, RelWithDebInfo)", "dishonored_vr_install.json beside the game.");
+    if (!failed) r.add(StepStatus::Ok, "Recorded the install: 1.0.0 (702-g1a2b3c4d, RelWithDebInfo)", "dishonored_vr_install.json beside the game.");
     return r;
 }
 }
 
 std::vector<std::string> fake_state_names()
 {
-    return { "setup-found", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
+    return { "about", "guide", "guide-zoom", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
              "done", "done-waiting", "done-failed", "manage", "manage-disabled", "manage-update", "manage-uninstall", "busy" };
 }
 
 bool fake_state(const std::string& name, ViewState* v)
 {
     *v = ViewState();
-    v->logPath = "C:\\Users\\player\\AppData\\Local\\DishonoredVR\\dishonored_vr_setup.log";
+    v->logPath = "C:\\Users\\player\\AppData\\Local\\DishonoredVR\\dishonored_vr_launcher.log";
+    if (name == "about") { v->det = base_detection(); v->screen = Screen::About; return true; }
+    if (name == "guide" || name == "guide-zoom") {
+        v->det = base_detection(); v->choices = v->det.suggested;
+        v->screen = Screen::Guide;
+        if (name == "guide-zoom") v->guideZoom = 2.0f;
+        return true;
+    }
     if (name == "setup-found") {
         v->det = base_detection(); v->choices = v->det.suggested; return true;
+    }
+    if (name == "setup-steamvr" || name == "setup-controls") {
+        v->det = base_detection(); v->choices = v->det.suggested;
+        v->choices.runtime = Runtime::SteamVr;
+        v->controlsOpen = name == "setup-controls";
+        return true;
     }
     if (name == "setup-notfound") {
         v->det = base_detection();

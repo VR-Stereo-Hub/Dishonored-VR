@@ -15,6 +15,9 @@ static ImVec2 tipTarget(-1,-1);
 static bool previewTip=false;
 static bool previewBottom=false;
 static bool previewDebug=false;
+static bool previewLayout=false;
+static bool previewFull=false;
+static float layoutZoom=1;
 static bool layoutOk=true;
 static int layoutChecks=0;
 static float bodyBottom=0;
@@ -54,6 +57,15 @@ static void SamplePanel(float w, float h, bool advanced)
     static float height = 0.06f; dvr::ovl::slider_float("Height offset (m)", &height, -1, 1, "%+.2f");
     ImGui::Spacing();
     if (ImGui::BeginTabBar("tabs",ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton)) {
+        if (previewLayout) {
+            if (dvr::ovl::tab("Layout")) {
+                dvr::ovl::begin_body("layout-scroll");
+                if (previewFull) ImGui::OpenPopup("##bindings-full-view");
+                dvr::ovl::bindings_layout(layoutZoom);
+                bodyBottom=ImGui::GetWindowPos().y+ImGui::GetWindowSize().y;
+                dvr::ovl::end_body(); ImGui::EndTabItem();
+            }
+        }
         if (dvr::ovl::tab("Hands")) {
             dvr::ovl::begin_body("hands-scroll");
             if (dvr::ovl::section("Hand size and position", 0, nullptr, true)) {
@@ -165,6 +177,52 @@ static bool InteractionChecks()
     return pass;
 }
 
+static bool LayoutInteractionChecks()
+{
+    float zoom=1; ImVec2 origin{},plus{},right{},downPoint{},fitPoint{},expandPoint{},backPoint{}; ImGuiWindow* picture=nullptr; bool expanded=false;
+    auto frame = [&](ImVec2 pointer, bool down) {
+        auto& io=ImGui::GetIO(); io.ConfigInputTrickleEventQueue=false;
+        io.AddMousePosEvent(pointer.x,pointer.y); io.AddMouseButtonEvent(0,down);
+        ImGui_ImplDX11_NewFrame(); ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0,0)); ImGui::SetNextWindowSize(ImVec2(900,640));
+        ImGui::Begin("layout-interaction",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoSavedSettings);
+        origin=ImGui::GetCursorScreenPos();
+        const auto& style=ImGui::GetStyle();
+        const float row=ImGui::GetFrameHeightWithSpacing();
+        const float caption=ImGui::CalcTextSize("Quest 3 default bindings. Custom shortcuts and SteamVR bindings can differ.",nullptr,false,ImGui::GetContentRegionAvail().x).y;
+        const float firstY=origin.y+caption+style.ItemSpacing.y+ImGui::GetFrameHeight()*.5f;
+        auto width=[&](const char* label) { return ImGui::CalcTextSize(label).x+style.FramePadding.x*2+style.ItemSpacing.x; };
+        plus=ImVec2(origin.x+width("Fit")+width("Zoom -")+width("Zoom +")*.5f,firstY);
+        right=ImVec2(origin.x+width("Left")+width("Right")*.5f,firstY+row);
+        downPoint=ImVec2(origin.x+width("Left")+width("Right")+width("Up")+width("Down")*.5f,firstY+row);
+        fitPoint=ImVec2(origin.x+width("Fit")*.5f,firstY);
+        const float lastX=origin.x+width("Fit")+width("Zoom -")+width("Zoom +")+ImGui::CalcTextSize("1.0x").x+style.ItemSpacing.x;
+        expandPoint=ImVec2(lastX+width("Full view")*.5f,firstY);
+        const float fullCaption=ImGui::CalcTextSize("Quest 3 default bindings. Custom shortcuts and SteamVR bindings can differ.",nullptr,false,884-style.WindowPadding.x*2).y;
+        backPoint=ImVec2(lastX+8+width("Back")*.5f,8+style.WindowPadding.y+fullCaption+style.ItemSpacing.y+ImGui::GetFrameHeight()*.5f);
+        dvr::ovl::bindings_layout(zoom);
+        expanded=ImGui::IsPopupOpen("##bindings-full-view");
+        ImGui::End(); ImGui::Render();
+        for (auto* window : ImGui::GetCurrentContext()->Windows)
+            if (strstr(window->Name,"layout-interaction") && strstr(window->Name,"bindings-pan")) picture=window;
+    };
+    auto click=[&](ImVec2 p) { frame(p,false); frame(p,true); frame(p,false); frame(p,false); };
+    frame(ImVec2(-1,-1),false); frame(ImVec2(-1,-1),false);
+    click(plus); click(plus); click(plus); click(plus);
+    const bool zoomed=zoom==3 && picture && picture->ScrollMax.x>0 && picture->ScrollMax.y>0;
+    click(right);
+    click(downPoint);
+    const bool panned=picture && picture->Scroll.x>0 && picture->Scroll.y>0;
+    click(fitPoint);
+    const bool fitted=zoom==1 && picture && picture->Scroll.x==0 && picture->Scroll.y==0;
+    click(expandPoint);
+    const bool opened=expanded;
+    click(backPoint);
+    const bool returned=!expanded;
+    printf("layout viewer: zoom=%d both-axis pan=%d fit=%d full-view=%d back=%d: %s\n",zoomed,panned,fitted,opened,returned,zoomed&&panned&&fitted&&opened&&returned?"PASS":"FAIL");
+    return zoomed&&panned&&fitted&&opened&&returned;
+}
+
 // Exercise the always-visible tab list through pointer events, including the
 // offscreen last tab at the accepted narrow panel size.
 static bool NavigationChecks()
@@ -209,6 +267,9 @@ static bool NavigationChecks()
 
 int main(int argc, char** argv)
 {
+    previewFull=argc>1 && !strcmp(argv[1],"layout-full");
+    previewLayout=previewFull || (argc>1 && (!strcmp(argv[1],"layout") || !strcmp(argv[1],"layout-zoom")));
+    layoutZoom=argc>1 && !strcmp(argv[1],"layout-zoom") ? 3.0f : 1.0f;
     previewDebug=argc>1 && !strcmp(argv[1],"debug");
     const bool advanced = previewDebug || (argc > 1 && !strcmp(argv[1], "advanced"));
     previewTip = argc > 3 && !strcmp(argv[3],"tip");
@@ -256,7 +317,8 @@ int main(int argc, char** argv)
     if (FAILED(ctx->Map(st, 0, D3D11_MAP_READ, 0, &m))) { printf("map failed\n"); return 1; }
     const bool ok = SaveBmp("ovl-theme-preview.bmp", (const uint8_t*)m.pData, W, H, (int)m.RowPitch);
     ctx->Unmap(st, 0);
-    const bool interactions = InteractionChecks();
+    if (!ImGui::GetCurrentContext()->OpenPopupStack.empty()) ImGui::ClosePopupToLevel(0,true);
+    const bool interactions = InteractionChecks() && LayoutInteractionChecks();
     const bool navigation=NavigationChecks();
     dvr::ovl::release_art();
     ImGui_ImplDX11_Shutdown();

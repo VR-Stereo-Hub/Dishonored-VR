@@ -991,6 +991,10 @@ static void OvlTabs()
     if (dvr::ovl::tab("Controls")) { OvlTabBody("OvlTabControls-scroll", OvlTabControls); ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Comfort"))  { OvlTabBody("OvlTabComfort-scroll", OvlTabComfort);  ImGui::EndTabItem(); }
     if (dvr::ovl::tab("HUD"))      { OvlTabBody("OvlTabHud-scroll", OvlTabHud);      ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("Layout")) {
+        OvlTabBody("OvlTabLayout-scroll", [] { static float zoom = 1; dvr::ovl::bindings_layout(zoom); });
+        ImGui::EndTabItem();
+    }
     if (dvr::ovl::tab("Display"))  { OvlTabBody("OvlTabDisplay-scroll", OvlTabDisplay);  ImGui::EndTabItem(); }
     if (OvlAt(kOvlA) && dvr::ovl::tab("Game options")) { OvlTabBody("OvlTabGameOptions-scroll", OvlTabGameOptions); ImGui::EndTabItem(); }
     if (OvlAt(kOvlD) && dvr::ovl::tab("Runtime")) { OvlTabBody("Runtime-scroll", [] { dvr::vr::draw_debug_ui(); }); ImGui::EndTabItem(); }

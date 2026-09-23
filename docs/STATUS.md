@@ -1,3 +1,59 @@
+## 2026-09-23: post-merge performance candidate (VR-212)
+
+Branch codex/vr-212-drop-discovery is based on the unmerged launcher continuation.
+Last installed/run build756 has a sustained slow intro (53-76 ticks/s), substantial
+game-thread waiting, and repeated missing drop-context discovery. PR106 removed
+the old20ms discovery throttle. The candidate restores that cadence for discovery
+only, backs off1s after a failed full sweep and reuses class/readability checks
+within each script-lane slice. Attack decisions retain their existing tick cadence.
+
+Native discovery schedule tests cover absent contexts, load/table growth, owner
+changes and retry timing. Optimized build761-g14728179e,9 exports,75 swing checks,
+default-profile/reset checks and lint pass. Installed DLL SHA256
+95622F87CD80C2E412A192E7D92D6FF5F089C27A9D7B21C2906233AE1691CC20.
+All64705 installed INI bytes are unchanged, CRLF verified; original DLL, INI and
+both logs are in build/vr212-before-install. Launcher embeds this candidate,
+SHA256539A24E5995A27E09119DD9F04E76691EFBCB8101011AFC065116A71FF6D14C1,
+and the stable desktop-shortcut copy is updated and opened. Game not launched.
+One-question headset check: same intro/hub spot, recovery toward prior FPS range.
+Full measured
+record and remaining hub-cadence uncertainty: docs/dishonored/PERFORMANCE.md.
+Headset performance acceptance remains open. No merge authorized for this branch.
+
+## 2026-09-23: launcher 1.0.0 polish and F10 Layout (VR-198, PR 111)
+
+Current state: codex/vr-198-launcher remains unmerged. Public version is now
+1.0.0 (older 41.x labels were development versions). The executable is
+DishonoredVR-Launcher-v1.0.0.exe. About includes releases,
+owner-approved credits and Ko-fi copy; the supplied emblem is the EXE icon.
+Fresh setup defaults to Auto/Balanced, removes head-based walking from the
+launcher and recommends 120 Hz or 144 Hz with Virtual Desktop Beta.
+
+Update/Reinstall can optionally replace INI/F10 settings with shipped defaults.
+The checkbox defaults off, persists per user and backs up the entire INI before
+an enabled reset. Ordinary updates preserve the current-schema INI byte-for-byte.
+F10 now has Layout in all tiers, with the controller picture, Full view, Fit, 1-8x zoom,
+four-direction pan buttons, drag and scrollbars.
+
+Collect logs previously failed in the launcher's child PowerShell because
+Get-FileHash was not found. Full system PowerShell selection, local module-path
+repair and module-independent SHA256 fix this. GUI and regression mode share
+the same collector. Actual launcher collection: 19 files, four binaries, zero
+manifest errors. Scratch tests verify both preservation and reset, exact backup
+bytes and CRLF. Native F10 pointer tests verify zoom/pan/Fit; launcher fixtures
+are reviewed at 100/150% DPI. See docs/INSTALLER.md for details.
+
+Next: user review of the refreshed launcher and eventual headset validation of
+the Layout tab. No game installation or launch is authorized for this candidate;
+another session updated the installed game during this work from accepted F10
+build736 to integrated build756-g1726cee95 (the current DLL and log banner agree).
+This launcher candidate was not installed into the game; the external game/INI
+updates were left alone. PR 111 is not merged and no release/tag has been published. An online updater remains a separate feature.
+
+Final launcher: build759-g7f958ac8c, DishonoredVR-Launcher-v1.0.0.exe. Its default
+Desktop support destination was also verified: ZIP created, 19 files, four binary
+hashes, no manifest errors. Main README remains untouched.
+
 ## Session 2026-09-22 (drop takedowns, VR-203): branch `takedown-tweak`, PR #106, not merged
 
 A drop onto a guard often became an ordinary slash. The cause is timing. The game
@@ -20,6 +76,40 @@ The controls are in F10 > Controls > Drop takedowns, and the live word is `drop`
 
 Next: more drops at the new defaults, and whether 2.00 ever takes a guard the player
 did not aim for.
+
+
+## 2026-09-23: launcher continuation, Bindings, logs and shortcuts
+
+PRs 105-110 are merged into VR-Main at 1726cee95, with all source branches kept.
+Follow-up work is on codex/vr-198-launcher in the integration worktree under
+build/integrate-105-110. VR-198 remains in progress.
+
+DishonoredVR-Launcher replaces the setup branding and shares the accepted F10 art.
+Runtime/quality, desktop mirror, physical crouching, close rain overlay and
+head-based movement are visible during setup; controller shortcuts are expandable.
+SteamVR's forced mirror is explained without destroying the native preference.
+The installed-player screen launches through Steam and offers Collect logs,
+Desktop shortcut and Start menu shortcut. Shortcuts use a stable per-user copy.
+The owner-supplied image is embedded in a separate Bindings page with fit/zoom,
+scrolling, maximization and current shortcut values.
+
+[BRVR research](BRVR_LAUNCHER_RESEARCH.md) records the installer/logging review and
+semantic comparison of all four installed binding JSONs against the donor source.
+Missing haptic/touch outputs, Index force binding and provisional WMR quadrants
+are documented for a separate validated port; no engine input behavior changed.
+
+Validation: release build, lint, installer host checks including .lnk roundtrip,
+scratch smoke including complete ini comparisons for all seven preferences,
+invalid input refusal, update preservation, CRLF and backup restore. Support ZIP
+collection completed with zero errors. All 18 UI fixtures rendered at 100/150% DPI;
+visual review caught and fixed truncated choice labels. Body scrolling preserves
+footer actions. The final launcher is prepared for desktop review, not installed
+into the game.
+
+The real installed DLL is still accepted F10 build736: SHA256 begins 172AAFCD3416,
+and the latest game log banner matches. Both game logs and the full installed ini
+were archived under build/accepted-f10-736. The ini hash begins 0A09F442AC49;
+no game launch or real installation occurred during this work.
 
 ## 2026-09-23: integrate PRs 105-110 and accept the F10 layout
 

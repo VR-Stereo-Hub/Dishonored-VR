@@ -1,3 +1,53 @@
+## Post-merge intro and hub slowdown (2026-09-23, attribution open)
+
+Reported: intro and hub rates fall into the 50s after integrating PRs105-110;
+previous intro performance was reported at least around90. This report is from
+the RTX4070 Ti SUPER tester, not the RTX4060 rig in VR-160.
+
+Identity: installed DLL SHA256
+717432F6AFC8EBAA200B7C936297069F7881FF533457BC6D81BFB95E77A9F993
+matches the log banner756-g1726cee95, RelWithDebInfo, legacy off. Current and
+previous736-gab7023884 logs both resolve2750x2850, VirtualDesktopXR, Quest3,
+144Hz and desktop mirror off. Launcher/Layout candidate759 was not installed.
+Archive: build/integrate-105-110/build/perf-last-run-20260923-024218, containing
+both logs and the full installed CRLF INI before any subsequent run.
+
+Measured on756, seconds from its first banner:
+
+| Interval | Observation | Limit on interpretation |
+| --- | --- | --- |
+|37-100s, intro|Mostly53-76 ticks/s, 12.9-18.2ms/tick; drop context unknown throughout|Not a controlled comparison against an earlier intro run|
+|88.3s|52.7 ticks/s,18.2ms/tick; P1 OUT11.9ms includes7.9ms render-thread idle; P2 OUT4.1ms includes1.2ms idle|Game-thread feeding is a material bottleneck; this does not identify the costly function|
+|120.1s|Drop context first discovered|A level transition also occurred, so subsequent improvement is confounded|
+|127-130s|115-120 ticks/s with context known|The merged build can still run quickly|
+|134.6-137.6s stereo beats|About45-50 complete pairs/s,52-53 none/s; repeated no-present-since-previous-draw refusals|This is delivery cadence, not raw Present FPS; the interval precedes a loading transition|
+|170-191s|About120-125 ticks/s with context known|Later slower windows also have a known context, excluding missing-context discovery as a complete explanation|
+
+No VRAM-budget exhaustion is evident. Capture and xrEndFrame means are small
+in the sustained slow intro block. Live-object hash rebuilds average about1ms
+at roughly1Hz; the merged hash implementation does not show the old12ms sort
+cost. MoveTrace, CamModProbe and Cine Trace resolve off.
+
+Concrete source suspect: PR106 moves drop-context discovery from a20ms-gated
+sample into the approximately10ms anim sample without a separate discovery
+throttle. An unsuccessful call scans up to1024 GObjects slots, including
+IsLiveObject and ObjClassName, whose readability checks call VirtualQuery.
+The slow intro keeps known=0, so this repeats throughout. The old build also
+scanned1024 slots while DropWatch=1, but at the lower cadence. This is increased
+work established from the diff, NOT proof of the full FPS loss. In particular,
+the later known-context slowdown needs its own attribution.
+
+Next: measure or exclude discovery cost independently of cached decision
+sampling, which must stay responsive for drop attacks. Compare the same save
+and view; scene-to-scene rate changes are not a valid A/B. Preserve render size,
+refresh and accepted gameplay behavior. Do not widen stereo hold windows or
+relax scene gates to conceal the later delivery deficit. The latter signature
+has prior context in VR-77 and FLICKER_REFERENCE's cadence routing, but no new
+stereo correctness claim or change is made here.
+
+The initial investigation was read-only. Tracking issue: VR-212. The subsequent
+candidate and installation are recorded below.
+
 ## Menu cadence and camera-upload gate coverage (VR-178, 2026-09-22)
 
 Verified combined650-g76ae6804a, optimized and legacy off. Preserved run:
@@ -1530,3 +1580,30 @@ seventeen. The answers are the same: membership in the current GObjects array. E
 **Prediction:** `live:` reports a mean well under 3 ms. The steady out/idle gaps at 40 ms
 and above are the game's own, so they should mostly remain. What should go away is the
 once-a-second single-frame drops that are too small to itemise.
+
+
+## 2026-09-23: current public refresh recommendation
+
+The project owner directs the launcher and quick start to recommend 120 Hz, or
+144 Hz with Virtual Desktop Beta. This supersedes the old 90 Hz onboarding advice
+from earlier render builds. It is current product guidance, not a new measured
+benchmark in this session; historical 90/120 observations above retain their
+original build context. No timing or pacing implementation changes accompany it.
+
+## VR-212 candidate: bounded missing drop-context discovery (2026-09-23)
+
+Discovery again runs at most once per20ms, with a1s pause after an unsuccessful
+full sweep. Pawn changes, a growing/replaced object table and invalidated cached
+contexts wake discovery. Cached attack decisions are still sampled every anim
+tick. Within each1024-slot slice, readability regions and class verdicts are
+reused; both caches expire before returning to the engine, so they retain no
+identity across a menu or GC. IsLiveObject and owner validation remain.
+
+This fixes concrete avoidable game-thread work. The entire reported hub slowdown
+is not yet attributed or headset-confirmed fixed. No quality/settings reduction.
+
+Candidate761-g14728179e built optimized with legacy off, installed with all64705
+INI bytes unchanged and CRLF verified. Launcher embeds this DLL. Native schedule
+checks,75 swing-core checks,9 exports, default writer/reset parity and lint pass.
+No game launch or post-fix headset result yet. The fixed unnecessary work is
+source-verified; the claimed FPS recovery remains pending.

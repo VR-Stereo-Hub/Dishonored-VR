@@ -1,8 +1,8 @@
-# --- DishonoredVR-Setup.exe - the player's installer (VR-198) ---------------------
+# --- DishonoredVR-Launcher.exe - the player's installer (VR-198) ---------------------
 # One 32-bit exe with the mod embedded: d3d9.dll, the SteamVR shim, Valve's
 # openvr_api.dll, the tested dishonored_vr.ini and the support collector, as
 # RCDATA resources. It draws with Dear ImGui in the F10 panel's own theme
-# (core/ui/ovl_ui.cpp) so the installer looks like the game it installs.
+# (core/ui/ovl_ui.cpp) so the launcher looks like the game it installs.
 #
 # The payload is staged PER CONFIG. `cmake --build --preset release` is
 # RelWithDebInfo, and $<TARGET_FILE:dvr_proxy> then resolves to that d3d9.dll;
@@ -24,13 +24,13 @@ set(DVR_SETUP_PAYLOAD_DIR "${CMAKE_BINARY_DIR}/installer-payload/$<CONFIG>")
 set(DVR_SETUP_RC "${CMAKE_BINARY_DIR}/installer-payload/payload.rc")
 set(DVR_OPENVR_DLL "${PROJECT_SOURCE_DIR}/third_party/openvr_headers/bin/win32/openvr_api.dll")
 
-# Valve's loader ships inside the installer: refuse to embed a binary whose hash
+# Valve's loader ships inside the launcher: refuse to embed a binary whose hash
 # PROVENANCE.txt does not record (the same gate install.ps1 and package.ps1 apply).
 file(SHA256 "${DVR_OPENVR_DLL}" _dvr_openvr_sha)
 file(READ "${PROJECT_SOURCE_DIR}/third_party/openvr_headers/PROVENANCE.txt" _dvr_prov)
 string(FIND "${_dvr_prov}" "${_dvr_openvr_sha}" _dvr_prov_hit)
 if(_dvr_prov_hit EQUAL -1)
-    message(FATAL_ERROR "openvr_api.dll sha256 ${_dvr_openvr_sha} is not in PROVENANCE.txt - refusing to embed it in the installer")
+    message(FATAL_ERROR "openvr_api.dll sha256 ${_dvr_openvr_sha} is not in PROVENANCE.txt - refusing to embed it in the launcher")
 endif()
 
 set(DVR_SETUP_STATIC_PAYLOAD
@@ -64,13 +64,14 @@ add_custom_command(
     ${_stage_cmds}
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/payload.rc" "${DVR_SETUP_RC}"
     DEPENDS dvr_proxy dvr_ovr_shim "${CMAKE_CURRENT_SOURCE_DIR}/payload.rc" ${_stage_deps}
-    COMMENT "Staging the installer payload ($<CONFIG>)"
+    COMMENT "Staging the launcher payload ($<CONFIG>)"
     VERBATIM)
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/version.rc.in" "${CMAKE_BINARY_DIR}/installer-payload/version.rc" @ONLY)
 
 add_executable(dvr_setup WIN32
     main.cpp
+    sys/support.cpp         sys/support.h
     app/win32_app.cpp        app/win32_app.h
     app/offscreen.cpp        app/offscreen.h
     ui/screens.cpp           ui/screens.h
@@ -92,15 +93,17 @@ add_executable(dvr_setup WIN32
     "${DVR_SETUP_RC}"
     "${CMAKE_BINARY_DIR}/installer-payload/version.rc"
     "${PROJECT_SOURCE_DIR}/src/core/ui/ovl_ui.cpp"
+    "${PROJECT_SOURCE_DIR}/src/core/ui/ovl_assets.rc"
     "${PROJECT_SOURCE_DIR}/src/core/util/log.cpp"
 )
 set_target_properties(dvr_setup PROPERTIES
-    OUTPUT_NAME "DishonoredVR-Setup"
+    OUTPUT_NAME "DishonoredVR-Launcher-v${PROJECT_VERSION}"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/src")
 add_dependencies(dvr_setup dvr_version)
 target_include_directories(dvr_setup PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src"
+    "${PROJECT_SOURCE_DIR}"
     "${CMAKE_BINARY_DIR}/generated"
     "${DVR_SETUP_PAYLOAD_DIR}")
 # d3dcompiler_47.dll is pragma-imported by imgui_impl_dx11. The installer must

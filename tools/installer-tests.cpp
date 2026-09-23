@@ -13,6 +13,7 @@
 #include "sys/steam.h"
 #include "sys/install_record.h"
 #include "sys/process.h"
+#include <shlobj.h>
 #include "model/choices.h"
 
 using namespace dvr::setup;
@@ -224,8 +225,39 @@ static void test_vdf()
     fs::delete_file(exe, &err);
 }
 
+static void test_shortcut()
+{
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    DWORD err = 0;
+    const auto dir = fs::join(fs::temp_dir(), L"dvr-installer-tests");
+    fs::make_dir(dir, &err);
+    const auto path = fs::join(dir, L"launcher.lnk");
+    const auto exe = fs::module_path();
+    const std::wstring args = L"--game-dir " + process::quote_arg(L"C:\\Games with spaces\\Dishonored\\Binaries\\Win32");
+    CHECK(process::write_shortcut(path, exe, args, &err));
+    IShellLinkW* link = nullptr;
+    CHECK(SUCCEEDED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&link))));
+    if (link) {
+        IPersistFile* file = nullptr;
+        CHECK(SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&file))));
+        if (file) {
+            CHECK(SUCCEEDED(file->Load(path.c_str(), STGM_READ)));
+            wchar_t actual[2048] = {};
+            CHECK(SUCCEEDED(link->GetPath(actual, 2048, nullptr, SLGP_RAWPATH)));
+            CHECK(fs::iequals(actual, exe));
+            CHECK(SUCCEEDED(link->GetArguments(actual, 2048)));
+            CHECK_EQ(std::wstring(actual), args);
+            file->Release();
+        }
+        link->Release();
+    }
+    fs::delete_file(path, &err);
+    CoUninitialize();
+}
+
 int main()
 {
+    test_shortcut();
     test_game_ini_scoped();
     test_game_ini_case();
     test_game_ini_append();

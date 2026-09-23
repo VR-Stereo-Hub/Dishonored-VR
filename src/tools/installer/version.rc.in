@@ -1,4 +1,4 @@
-// tools/installer/version.rc.in - VERSIONINFO for DishonoredVR-Setup.exe, filled
+// tools/installer/version.rc.in - VERSIONINFO for DishonoredVR-Launcher.exe, filled
 // from project(... VERSION) at configure time. The build id (git describe) is
 // shown in the window instead; it is stamped at build time and rc cannot read it.
 #include <winres.h>
@@ -16,10 +16,10 @@ BEGIN
     BEGIN
         BLOCK "040904b0"
         BEGIN
-            VALUE "FileDescription",  "Dishonored VR mod installer"
+            VALUE "FileDescription",  "Dishonored VR Launcher"
             VALUE "FileVersion",      "@PROJECT_VERSION@"
-            VALUE "InternalName",     "DishonoredVR-Setup"
-            VALUE "OriginalFilename", "DishonoredVR-Setup.exe"
+            VALUE "InternalName",     "DishonoredVR-Launcher"
+            VALUE "OriginalFilename", "DishonoredVR-Launcher-v@PROJECT_VERSION@.exe"
             VALUE "ProductName",      "Dishonored VR"
             VALUE "ProductVersion",   "@PROJECT_VERSION@"
         END

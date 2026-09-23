@@ -7,17 +7,19 @@
 
 namespace dvr::setup {
 
-enum class Screen { Setup, Done, Manage };
+enum class Screen { Setup, Done, Manage, Guide, About };
 
 enum class UiAction {
     None, Install, Browse, Rescan, Launch, Close,
     Update, ChangeSettings, CancelChange, ToggleDisable, CollectSupport,
     Uninstall, ConfirmUninstall, CancelUninstall, ApplyBaseline,
-    OpenReleases, OpenGameFolder, OpenLog
+    ShowAbout, OpenKofi, CreditPizza, CreditVoid, CreditGingas, SaveUpdatePreference, OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut
 };
 
 struct ViewState {
     Screen screen = Screen::Setup;
+    Screen guideReturn = Screen::Setup;
+    float guideZoom = 1.0f;
     Detection det;
     Choices choices;
     Report report;
@@ -29,6 +31,7 @@ struct ViewState {
     bool confirmUninstall = false;
     bool deleteIni = false;
     bool advancedOpen = false;
+    bool controlsOpen = false;
     std::string logPath;
 };
 

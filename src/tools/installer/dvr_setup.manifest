@@ -3,7 +3,7 @@
      asInvoker is load-bearing: an exe with no declared execution level gets UAC
      file virtualisation, so a write under Program Files (x86)\Steam is silently
      redirected to VirtualStore and reports success. With it declared, a denied
-     write is ERROR_ACCESS_DENIED and the installer can relaunch elevated once.
+     write is ERROR_ACCESS_DENIED and the launcher can relaunch elevated once.
      PerMonitorV2 so the window scales cleanly on a high-DPI monitor. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity type="win32" name="DishonoredVR.Setup" version="1.0.0.0" processorArchitecture="x86" />
