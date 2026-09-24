@@ -24,6 +24,20 @@ TEMP falls back. A 32 MB incompressible log produces a 23.74 MB ZIP retaining bo
 ends. Game launch/headset test not performed. Supplied attachment was a launcher
 log, not FOV telemetry; user explicitly deferred further FOV-log verification.
 
+Installed optimized candidate: 1.0.1, build v1.0.0-4-gff1b03f08 (legacy off).
+DLL SHA256 a5f498a58029da8da338f2847ed3ce9d68eea52b1d0ba6aaff416e0c720f9846.
+Launcher SHA256 61f0b06f8cb8e44ee5c247de5d8d06134e70335b84b1e52a904c1c4d6b028415.
+Entire installed INI byte-identical/CRLF, zero-setting diff, SHA256
+ff6fc98a6a15ef0aca8e4eb1bdd5377e5c845d440852bfe1d28a374f8a77473b.
+Previous DLLs, INI, record and both logs archived in this worktree under
+build/playtest-candidates/installs/20260923-214047-vr215. The existing log banner
+is stale 1.0.0 build761, not the previously installed 1.0.1 build97b5a3f77; it
+was archived without treating it as a current playtest. Actual installed launcher
+collection succeeded: 5,136,385-byte ZIP. Native Unicode-path check, 86 installer
+host checks, optimized build, lint and all nine exports pass. The running previous
+candidate in output/hotfix-1.0.1 was left open; new distributable is under
+output/hotfix-1.0.1/log-history and the stable shortcut target is updated.
+
 Next: tester can use Collect logs after reproducing an issue; history begins
 accumulating with this build and cannot recover sessions already overwritten by
 1.0.0. No merge or public release authorized.
