@@ -8,14 +8,10 @@ runtimes. Native D3D9 testing passes 240 GPU markers/pixel checks and fallback/
 reset checks. Installer smoke and optimized build pass; SteamVR settings previews
 rendered at 100/150%, normal-scale layout inspected.
 
-Pending clarification: the request specified both default mirror off and a
-SteamVR crash warning suggesting off. Existing VR-208 reports instead describe
-recovery with the mirror on. Asked whether the recovery warning should say ON
-or OFF; no answer yet. Warning wording, final packaging and installation remain
-pending that answer. The installed build is still the VR-215 candidate below.
-No game launch, merge or release. Prior compatibility evidence remains recorded
-in DESKTOP_MIRROR; performance claims remain conditional rather than new measured
-SteamVR results.
+The user confirmed the SteamVR startup recovery warning must suggest mirror ON.
+Launcher and overlay now include that guidance. Game-run verification and GitHub
+1.0.1 publication are authorized; VR-Main merge remains outside this request.
+Release verification is in progress.
 
 ## Reliable support collection and ten-run history (VR-215, 2026-09-24)
 

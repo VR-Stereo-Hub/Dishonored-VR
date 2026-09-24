@@ -134,6 +134,7 @@ void preferences_section(ViewState& v)
         preference_checkbox(v, Crouch, "Duck in your room to crouch. The controller crouch button still works.");
         preference_checkbox(v, Rain, "Hides only the close rain layer. Sky rain and ground splashes remain.");
         wrapped_faded("Turning the desktop mirror off can give a huge performance boost with any runtime.");
+        wrapped_faded("SteamVR: if the game crashes on startup, turn Desktop mirror ON and try again.");
     }
     if (v.controlsOpen) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     if (heading("Controller shortcuts", "Choose controls that exist on your controllers; the headset name alone is not enough.", false)) {

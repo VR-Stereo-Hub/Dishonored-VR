@@ -1,4 +1,4 @@
-## 1.0.1 hotfix candidate (unreleased)
+## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic
   FOV is below the camera baseline. Render resolution remains unchanged.
@@ -19,7 +19,10 @@
   newest logs first and stay below 24 MB; oversized current logs retain the build
   header and latest events, with omissions clearly listed in the manifest.
 - Missing or unreadable optional evidence no longer prevents collecting the rest.
-- Host checks pass; headset and actual GOG launch acceptance are pending.
+- Desktop mirror defaults off on every runtime, including SteamVR, for a potential
+  large performance boost. If SteamVR crashes on startup, turn Desktop mirror ON.
+- Automated checks cover FOV feedback, updates, installation, and support collection.
+  Actual GOG launch and headset comfort remain outside automated coverage.
 
 # 1.0.0 (first public release)
 

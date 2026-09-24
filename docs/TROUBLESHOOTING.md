@@ -1,3 +1,8 @@
+## SteamVR startup crash
+
+Desktop mirror defaults off for a potential large performance boost on any runtime.
+If SteamVR crashes on startup, turn **Desktop mirror ON** in the launcher and retry.
+
 ## Collect a crash report
 
 After a problem, click Collect logs in the launcher (or use Collect VR Support.cmd

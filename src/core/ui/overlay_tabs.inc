@@ -744,7 +744,7 @@ static void OvlTabDisplay()
             dvr::desktop_eye::set_mirror_off(mirrorOff);
             ConfigWriteKey("VR", "DesktopMirrorOff", mirrorOff ? "1" : "0", "F10 Display");
         }
-        OvlTip("Freezes the monitor image while VR keeps rendering. Disabling the desktop mirror can give a huge performance boost with any runtime.");
+        OvlTip("Freezes the monitor image while VR keeps rendering. Disabling the desktop mirror can give a huge performance boost with any runtime. SteamVR: if the game crashes on startup, uncheck Disable desktop mirror to turn the mirror ON.");
         if (OvlAt(kOvlA)) {
             bool strictOff = dvr::desktop_eye::strict_off();
             ImGui::BeginDisabled(!mirrorOff);
