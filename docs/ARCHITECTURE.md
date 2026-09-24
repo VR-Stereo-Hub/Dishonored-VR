@@ -1140,3 +1140,21 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+## 2026-09-25: a snap turn is body yaw written on the script lane (VR-219)
+
+The smooth turn is the game's own: the right stick reaches it as the pad's RX axis and the engine
+integrates it; the mod has never written yaw for a turn. A snap step is written where the head
+writer already writes the view rotation (the fresh branch of ApplyHeadToViewRotation), added to
+`rot[1]` with the head delta but handed to YawPublish as part of the INCOMING view, so the yaw
+book counts it as body yaw and the pawn, the hands, the aim ray and the HUD anchors turn with it
+in both facing modes. Two alternatives were not taken: a synthetic stick pulse (its size depends
+on the game's look sensitivity and on frame timing) and a pawn Rotation write (measured futile,
+4 of 186 survivors, head_track.cpp). The present lane detects the stick edge and eats RX only
+while the script writer is fresh (`g_scriptHeadOK`, age under 250 ms) and only after every
+block that takes the stick for navigation has zeroed it, so no second copy of the menu, wheel,
+book, lean and pointer predicates exists; wherever the writer is not writing, the stick stays
+the game's and turns smoothly. The retired fallback writer is refused, not extended. The step is
+taken exactly once in the fresh branch, so the 2 ms re-stamp and the second-eye replay cannot
+apply it twice; the next fresh dispatch reads the engine's incoming yaw against the write and
+logs HONOURED or NOT HONOURED, because a verified write is not an honoured one.

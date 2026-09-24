@@ -1,3 +1,17 @@
+## Unreleased
+
+### Snap turn (VR-219, 2026-09-25, not yet judged in the headset)
+
+A push of the right stick can turn you by a fixed step (45 degrees by default) instead of
+smoothly. Your body turns with the view, the same as the smooth turn does, so your hands, the
+sword, the aim ray and the HUD stay where they were in front of you and a hit lands on what is
+now in front. Off by default. F10 > Controls > Turning: "Snap turn", "Step size (degrees)";
+Advanced: the push needed, the release before the next step, and a hold-repeat. New section
+`[Turning]`: `SnapTurn=0`, `SnapAngle=45`, `SnapThreshold=0.6`, `SnapRearm=0.3`,
+`SnapRepeatMs=0`. Live: `snapturn on|off|angle <deg>|threshold|rearm|repeat|fire|mark|status`.
+Steps do not fire in menus, the power wheel, books, cinematics or keyholes, where the stick
+keeps its usual job and turns smoothly.
+
 ## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic

@@ -1,0 +1,131 @@
+# snap-turn.xrs - snap turn (VR-219): does a push of the right stick step the view AND
+# the body by the same fixed angle, once per push, and nothing else?
+#
+# Needs: a loaded level in GAMEPLAY (not a menu, not the title's attract scene - look
+# at an xrsim-shot first), [Mode] GamepadOnly=0, and a build that has the `snapturn`
+# word. Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\snap-turn.xrs
+# Run it twice, under `movement head` and under `movement character`.
+#
+# How to read a failure: `snap: FIRED` is the present lane seeing the push; `snap:
+# APPLIED` is the script lane writing it into the view; `snap: HONOURED` is the engine
+# handing the snapped yaw back on the next dispatch (a verified write is not an
+# honoured one). A FIRED with no APPLIED within 500 ms ends in `snap: NO CONSUMER`;
+# `snapturn status` prints the lane and why it is blocked. The since-mark numbers come
+# from the yaw book (view, body) and the HMD (head): four steps of 30 must read 120 on
+# view AND body and about 0 on the head, or the step landed as head yaw, which would
+# leave the pawn (and every hit) pointing the old way.
+
+reset
+head rot 0 0 0
+stick r center
+@mod snapturn on; snapturn angle 30; snapturn repeat 0; snapturn threshold 0.6; snapturn rearm 0.3
+@wait 800
+# `mark` is "start measuring here": it zeroes the counters and the since-mark yaws, so
+# the sequence can run again without a relaunch.
+@mod snapturn mark
+@wait 300
+@mark
+
+# 1. One push = one step. Held past the threshold it must NOT repeat (repeat=0).
+stick r 0.9 0
+@log snap: FIRED \+30 deg
+@log snap: APPLIED \+30
+@log snap: HONOURED
+@wait 500
+@nolog snap: FIRED .*hold-repeat
+stick r center
+@wait 300
+@mark
+
+# 2. The second push, after the stick came back under rearm.
+stick r 0.9 0
+@log snap: FIRED \+30 deg
+stick r center
+@wait 300
+@mark
+
+# 3. Under the threshold: no step, and no smooth turn either (the lane eats RX).
+stick r 0.4 0
+@wait 700
+@nolog snap: FIRED
+@modassert features.snapTurn.viewSinceMarkDeg ge 59
+@modassert features.snapTurn.viewSinceMarkDeg le 61
+stick r center
+@wait 300
+@mark
+
+# 4. Two more: 4 x 30 = 120 on the view AND on the body; the head did not move.
+stick r 0.9 0
+@log snap: FIRED \+30 deg
+stick r center
+@wait 300
+stick r 0.9 0
+@log snap: FIRED \+30 deg
+stick r center
+@wait 600
+@modassert features.snapTurn.applied eq 4
+@modassert features.snapTurn.dropped eq 0
+@modassert features.snapTurn.notHonoured eq 0
+@modassert features.snapTurn.viewSinceMarkDeg ge 119
+@modassert features.snapTurn.viewSinceMarkDeg le 121
+@modassert features.snapTurn.bodySinceMarkDeg ge 119
+@modassert features.snapTurn.bodySinceMarkDeg le 121
+@modassert features.snapTurn.headSinceMarkDeg ge -1
+@modassert features.snapTurn.headSinceMarkDeg le 1
+# A 30 deg step in one frame is a bigger yaw jump than any smooth turn: both eyes must
+# still be fresh at the next submit. (projStaleSubmits is not asserted at the end of this
+# file: it is cumulative since launch and climbs through the pause menu in step 7 by
+# design, per VERIFICATION's pause-ride note. Measured 2026-09-25: four steps added 0.)
+@shot snap_120
+@frames 30
+@assert eyeAgeL le 0
+@assert eyeAgeR le 0
+@mark
+
+# 5. A left push steps back.
+stick r -0.9 0
+@log snap: FIRED -30 deg
+stick r center
+@wait 400
+@modassert features.snapTurn.bodySinceMarkDeg ge 89
+@modassert features.snapTurn.bodySinceMarkDeg le 91
+
+# 6. A head turn afterwards moves the view only; the body stays at 90. The sim's
+#    `head rot 20` reads as -20 on the mod's HMD yaw (its sign convention), so the
+#    view moves the same way: 90 - 20 = 70. A step that had landed as head yaw would
+#    fail step 4 above, not this one; this one proves the head still reaches the view.
+head rot 20 0 0
+@frames 20
+@modassert features.snapTurn.bodySinceMarkDeg ge 89
+@modassert features.snapTurn.bodySinceMarkDeg le 91
+@modassert features.snapTurn.headSinceMarkDeg le -18
+@modassert features.snapTurn.viewSinceMarkDeg ge 68
+@modassert features.snapTurn.viewSinceMarkDeg le 72
+head rot 0 0 0
+@frames 20
+@mark
+
+# 7. A stick held into and out of the pause menu never fires: the lane is blocked
+#    while the menu owns the view, and the stick must come back under rearm first.
+@key Escape
+@wait 800
+stick r 0.9 0
+@wait 500
+@nolog snap: FIRED
+@key Escape
+@wait 800
+@nolog snap: FIRED
+stick r center
+@wait 300
+@mark
+
+# 8. Off = the game's smooth turn again: the pad line shows RX reaching the game.
+@mod snapturn off
+@wait 300
+stick r 0.9 0
+@wait 1300
+@nolog snap: FIRED
+@log pad/rs: raw=\(0\.90,0\.00\) -> RX=[1-9]
+stick r center
+@wait 300
+@mod snapturn status

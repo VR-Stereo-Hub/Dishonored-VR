@@ -32,6 +32,7 @@
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/swing.h"
 #include "game/dishonored/drop_assist.h"
+#include "game/dishonored/snap_turn.h"   // VR-219: pad_bridge (present lane) and head_track (script lane) both call it
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
@@ -228,6 +229,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::head
 #include "game/dishonored/head_track.cpp"
+#include "game/dishonored/snap_turn.cpp"   // VR-219: snap turn; rides head_track's yaw book
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::melee
 #include "game/dishonored/melee.cpp"

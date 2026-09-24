@@ -333,6 +333,18 @@ static bool WriteDefaultIni(const char* ini)
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
+        "[Turning]\n"
+        "; SnapTurn=1 turns the view AND your body in fixed steps from the right stick;\n"
+        "; 0 = the game's smooth turn. Live: `snapturn on|off`, or F10 > Controls > Turning.\n"
+        "; A step fires once per push past SnapThreshold; the stick must fall under\n"
+        "; SnapRearm before the next. SnapRepeatMs>0 repeats a held push every N ms.\n"
+        "; Steps do not fire in menus, the power wheel, books, cinematics or keyholes,\n"
+        "; where the stick keeps its usual job.\n"
+        "SnapTurn=0\n"
+        "SnapAngle=45\n"
+        "SnapThreshold=0.6\n"
+        "SnapRearm=0.3\n"
+        "SnapRepeatMs=0\n"
         "[PosTrack]\n"
         "ZAccount=1\n"
         "ZAccountRoll=0\n"
@@ -2625,6 +2637,7 @@ static void LoadConfig()
     RainConfigure(ini);
     SwordTrailConfigure(ini);   // VR-171
     CamShakeConfigure(ini);   // VR-172
+    dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
@@ -3913,6 +3926,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
     SwordTrailSave(ini);   // VR-171
     CamShakeSave(ini);   // VR-172
+    dvr::snap::save(ini);   // VR-219
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }
