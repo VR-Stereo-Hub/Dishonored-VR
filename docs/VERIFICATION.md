@@ -377,3 +377,27 @@ The cases that carry the most weight:
 | `rot_off_matches_legacy` | Any drift from the headset-confirmed translation-only behaviour |
 | `compose_commutes` | A correction that replaces the engine's animation instead of riding on it |
 
+
+## Launcher self-update and discovery (VR-214)
+
+- `tools/launcher-update-host.ps1`: release JSON/version/asset validation, bad
+  hash/size/version, replacement refusal, GOG metadata/command construction,
+  root/Binaries/EXE selection and Win64/PE64 rejection. `-Live` additionally
+  checks the public GitHub API and downloads/verifies the latest real launcher.
+- `tools/launcher-handoff-smoke.ps1`: invokes the actual EXE helper against a
+  scratch destination, waits for a harmless ping parent, compares hashes and
+  backup, then tests a wrong digest and a locked target. It opens no GUI or game.
+- `tools/installer-host.ps1` and `tools/installer-smoke.ps1`: settings and install
+  regressions. Smoke verifies default reset versus explicit `--keep-settings`,
+  whole-INI comparisons/CRLF, and rollback after the first DLL was replaced but
+  the second DLL was locked. Only a ping stand-in is used for process blocking.
+- `tools/installer-render.ps1`: includes update-popup, update-warning,
+  about-updates, update-offline, gog-home and win64 at normal/high DPI.
+
+At release time, use a copy of the previous updater-capable launcher against a
+scratch game. Publish the new asset through the normal authorized release flow,
+then Check for updates, inspect the version/notes, accept Update, and verify the
+reopened launcher's version and scratch DLL/INI hashes. No real game is needed.
+The live API/download plus local helper/payload tests cover the components now;
+they do not claim a public future-release GUI round trip has already occurred.
+Actual GOG game launch is a separate tester-owned acceptance step.

@@ -1108,3 +1108,22 @@ rendered float. Host convergence and negative-control tests cover the fix;
 spyglass/cinematic headset validation remains required. Details: ENGINE_NOTES,
 VR-213. Camera writes require fresh-table identity revalidation after UI/load
 transitions; unchanged pointer values do not bypass it.
+
+## Launcher update boundary (VR-214, 2026-09-24)
+
+The launcher remains a single offline-capable x86 EXE with its mod payload.
+Network work is separate from the install worker. Stable GitHub release tags are
+compared numerically; the exact versioned asset, digest and embedded version
+must agree before it is executed. The new executable waits for the old process,
+stages on the destination volume and replaces it with a preserved previous copy.
+Only access-denied replacement errors trigger UAC. Existing shortcuts migrate to
+one stable per-user launcher path, so later version names do not strand shortcuts.
+A resumed GUI applies the new embedded payload to the selected game. The mod
+update snapshots the full mutation set and restores it when a subsequent step
+fails. This is recovery from reported operation failures, not a power-loss journal.
+
+Discovery records store identity independently from installation validity. GOG
+metadata/registry supplies Galaxy's base game ID; no ID is guessed. A valid
+unknown-store 32-bit installation can still be installed manually. A Win64 folder
+or PE64 executable cannot receive the payload. User selection is saved separately
+from game settings. Render-resolution defaults are unchanged by this feature.

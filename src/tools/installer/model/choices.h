@@ -43,7 +43,7 @@ inline constexpr Preference kPreferences[] = {
 
 struct Choices {
     int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1 };
-    bool overwriteSettings = false; // explicit update opt-in, backed up before replacement
+    bool overwriteSettings = true; // recommended defaults, backed up before replacement
     Runtime runtime = Runtime::Auto;
     Quality quality = Quality::Balanced;
     float pixelPercent = kBalancedPercent;   // the Advanced slider; authoritative when quality == Custom

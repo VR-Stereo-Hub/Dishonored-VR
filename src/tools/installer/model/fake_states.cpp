@@ -11,6 +11,7 @@ Detection base_detection()
     d.version = "1.0.0"; d.buildId = "702-g1a2b3c4d"; d.config = "RelWithDebInfo";
     d.payloadOk = true; d.embeddedIniVersion = 15; d.embeddedSha = "0a3c57f6e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a";
     d.gameDir = L"D:\\SteamLibrary\\steamapps\\common\\Dishonored\\Binaries\\Win32";
+    d.game.valid=true;d.game.store=discovery::Store::Steam;d.game.dir=d.gameDir;
     d.gameFound = true; d.gameNote = "Found in your Steam library";
     d.running = process::Running::No;
     d.gameWritable = true;
@@ -62,7 +63,7 @@ Report install_report(bool baselinePending, bool failed)
 
 std::vector<std::string> fake_state_names()
 {
-    return { "about", "guide", "guide-zoom", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
+    return { "update-popup", "about-updates", "update-offline", "update-warning", "gog-home", "win64", "about", "guide", "guide-zoom", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
              "done", "done-waiting", "done-failed", "manage", "manage-disabled", "manage-update", "manage-uninstall", "busy" };
 }
 
@@ -131,6 +132,19 @@ bool fake_state(const std::string& name, ViewState* v)
     }
     if (name == "manage-uninstall") {
         v->det = installed_detection(); v->screen = Screen::Manage; v->confirmUninstall = true; return true;
+    }
+    if(name=="update-popup" || name=="about-updates" || name=="update-offline" || name=="update-warning" || name=="gog-home" || name=="win64") {
+        v->det=installed_detection();v->choices=v->det.suggested;v->screen=Screen::Manage;
+        updates::Release r;r.version="1.0.2";r.published="2026-09-24";r.notes="Fixes the shrinking gameplay view after loading.\nAdds automatic launcher updates and GOG discovery.\nImproves game folder selection and update recovery.";r.assetUrl="https://github.com/VR-Stereo-Hub/Dishonored-VR/releases/download/v1.0.2/DishonoredVR-Launcher-v1.0.2.exe";r.sha256=std::string(64,'a');r.size=100;
+        v->releases.push_back(r);r.version="1.0.1";r.notes="Stabilizes camera FOV after loading.";v->releases.push_back(r);
+        v->updateMessage="Checked GitHub just now.";
+        if(name=="update-popup")v->updatePopup=true;
+        if(name=="update-warning")v->choices.overwriteSettings=false;
+        if(name=="about-updates" || name=="update-offline")v->screen=Screen::About;
+        if(name=="update-offline")v->updateMessage="GitHub could not be reached. Showing saved release history.";
+        if(name=="gog-home") {v->det.game.store=discovery::Store::Gog;v->det.gameDir=L"C:\\Program Files (x86)\\GOG Galaxy\\Dishonored\\Binaries\\Win32";v->det.game.dir=v->det.gameDir;v->det.gameNote="GOG installation (32-bit)";}
+        if(name=="win64") {v->screen=Screen::Setup;v->det.gameFound=false;v->det.game.valid=false;v->det.game.unsupported64=true;v->det.gameNote="INCOMPATIBLE 64-BIT GAME: this VR mod will not work with Win64. Select the original 32-bit Dishonored in Binaries\\Win32.";}
+        return true;
     }
     if (name == "busy") {
         v->det = base_detection(); v->choices = v->det.suggested; v->busy = true; v->busyText = "Installing..."; return true;

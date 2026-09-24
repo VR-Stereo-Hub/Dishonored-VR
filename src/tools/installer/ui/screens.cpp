@@ -30,18 +30,26 @@ const char* kQualityTips[3] = {
 
 void game_section(ViewState& v, UiAction* action)
 {
-    if (!heading("Game", "Where Dishonored.exe is. The mod goes beside it.")) return;
-    const float bw = ImGui::CalcTextSize("Change...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    if (!heading("Game location", "Steam or GOG, original 32-bit Dishonored. The mod goes in Binaries\\Win32.")) return;
+    if(v.det.game.unsupported64) banner(v.det.gameNote.c_str());
+    if(v.det.games.size()>1 && ImGui::BeginCombo("Detected libraries",n(v.det.gameDir).c_str())) {
+        for(int i=0;i<(int)v.det.games.size();++i) {
+            const auto label=n(v.det.games[i].dir);
+            if(ImGui::Selectable(label.c_str(),fs::iequals(v.det.games[i].dir,v.det.gameDir))) {v.selectedGame=i;*action=UiAction::SelectGame;}
+        }
+        ImGui::EndCombo();
+    }
+    const float bw = ImGui::CalcTextSize("Choose folder...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
     ImGui::AlignTextToFramePadding();
     ImGui::BeginChild("##gamepath", ImVec2(ImGui::GetContentRegionAvail().x - bw - ImGui::GetStyle().ItemSpacing.x, ImGui::GetFrameHeight()),
                       ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
     ImGui::AlignTextToFramePadding();
-    if (v.det.gameFound) path_text(n(v.det.gameDir).c_str());
+    if (!v.det.gameDir.empty()) path_text(n(v.det.gameDir).c_str());
     else ImGui::TextDisabled("Not found");
     ImGui::EndChild();
     ImGui::SameLine();
-    if (button("Change...", false, !v.busy)) *action = UiAction::Browse;
-    dvr::ovl::tip("Point at the folder holding Dishonored.exe (Binaries\\Win32) if it is not in a Steam library, or on Epic.");
+    if (button("Choose folder...", false, !v.busy)) *action = UiAction::Browse;
+    dvr::ovl::tip("Point at the folder holding Dishonored.exe (Binaries\\Win32) for a Steam or GOG installation. You can also select the game root or Binaries folder.");
 
     std::string status = v.det.gameNote;
     const ImVec4* colour = nullptr;
@@ -85,7 +93,7 @@ void headset_section(ViewState& v)
 
 void quality_section(ViewState& v)
 {
-    if (!heading("Render quality", "How many pixels the game renders per eye. This writes [Screen] RenderWidth and RenderHeight; the F10 panel's Display tab can change it later.")) return;
+    if (!heading("Render quality", "How many pixels the game renders per eye. This writes [Screen] RenderWidth and RenderHeight; the in-game Display tab can change it later.")) return;
     char labels[3][48];
     const Size sp = size_for_percent(kPerformancePercent), sb = size_for_percent(kBalancedPercent), sq = size_for_percent(kQualityPercent);
     snprintf(labels[0], sizeof(labels[0]), "%s  %ux%u", quality_label(Quality::Performance), sp.w, sp.h);
@@ -120,7 +128,7 @@ void preference_checkbox(ViewState& v, int id, const char* tip)
 
 void preferences_section(ViewState& v)
 {
-    if (heading("Play preferences", "Saved for the next launch. F10 can change these in game.")) {
+    if (heading("Play preferences", "Saved for the next launch. L3 + R3 opens these settings in game.")) {
         if (v.choices.runtime == Runtime::SteamVr) {
             bool on = true;
             ImGui::BeginDisabled();
@@ -159,7 +167,7 @@ void preferences_section(ViewState& v)
 void advanced_section(ViewState& v)
 {
     if (v.advancedOpen) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
-    if (!heading("Advanced", "The exact pixel budget, the same slider as the F10 Display tab.", false)) return;
+    if (!heading("Advanced", "The exact pixel budget, the same slider as the in-game Display tab.", false)) return;
     float pct = v.choices.quality == Quality::Custom ? v.choices.pixelPercent : percent_for_quality(v.choices.quality, v.choices.pixelPercent);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
     if (ImGui::SliderFloat("Total pixels (%)", &pct, 50.0f, 200.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp) && !v.busy)
@@ -173,7 +181,7 @@ void advanced_section(ViewState& v)
 UiAction draw_setup(ViewState& v)
 {
     UiAction action = UiAction::None;
-    page_header(v.changingSettings ? "Choose how you play. Your other F10 settings stay as they are."
+    page_header(v.changingSettings ? "Choose how you play. Your other in-game settings stay as they are."
                                    : "Installs the VR mod beside the game and sets it up for your headset.");
     if (v.det.embeddedLegacy) banner("This build carries the retired diagnostics (legacy): it stalls on every trigger pull. Use a release build for play.");
     else if (v.det.config != "RelWithDebInfo") banner(("This is a " + v.det.config + " build of the launcher and the mod: slower, for testing, not for play.").c_str());
@@ -192,7 +200,7 @@ UiAction draw_setup(ViewState& v)
 
     footer_begin(ImGui::GetFrameHeightWithSpacing() * 2.6f);
     if (!v.notice.empty()) status_slot("##footer-notice", 1, v.notice.c_str());
-    else ImGui::TextDisabled("F10: fine tuning in game. Click both sticks for F10; hold both for the VD overlay.");
+    else ImGui::TextDisabled("L3 + R3 opens settings; hold both sticks for the VD overlay.");
     const bool canGo = v.det.gameFound && v.det.running == process::Running::No && (v.det.gameWritable || v.det.needsElevation) && v.det.payloadOk;
     if (v.changingSettings) {
         if (footer_button("Apply", true, canGo || (v.det.gameFound && v.det.iniExists))) action = UiAction::Install;
@@ -214,7 +222,7 @@ UiAction draw_done(ViewState& v)
                     : v.lastOp == "uninstall" ? "The mod is gone from the game folder."
                     : v.lastOp == "change" ? "Settings written. They apply at the next launch."
                     : v.report.baselinePending ? "Installed. One thing is left, and this window does it for you."
-                    : "Installed and ready. Launch the game from Steam.";
+                    : "Installed and ready. Launch from Steam, GOG, or the button below.";
     page_header(sub);
     if (v.busy) { spinner(v.busyText.c_str()); return action; }
 
@@ -226,25 +234,24 @@ UiAction draw_done(ViewState& v)
     const float lineH = ImGui::GetTextLineHeightWithSpacing();
     const float headingH = ImGui::GetFrameHeight() + st.ItemSpacing.y;
     float below = footerH + st.WindowPadding.y + headingH;
-    if (showPlay) below += ImGui::GetFrameHeightWithSpacing() + headingH + 3.0f * (2.0f * lineH + st.ItemSpacing.y) + st.ItemSpacing.y;
+    if (showPlay) below += ImGui::GetFrameHeightWithSpacing() + headingH + 2.0f * (2.0f * lineH + st.ItemSpacing.y) + st.ItemSpacing.y;
     if (v.report.baselinePending) below += ImGui::GetFrameHeightWithSpacing() + st.ItemSpacing.y;
     float listH = ImGui::GetContentRegionAvail().y - below;
     if (listH < lineH * 4.0f) listH = lineH * 4.0f;
-    if (heading("What happened", nullptr)) {
+    if (heading("Current Settings", nullptr)) {
         ImGui::BeginChild("##steps", ImVec2(0, listH), ImGuiChildFlags_None);
         for (const auto& s : v.report.steps) step_row(s);
         ImGui::EndChild();
     }
     if (showPlay) {
-        if (button("Desktop shortcut")) action = UiAction::DesktopShortcut;
+        if (button("Create desktop shortcut")) action = UiAction::DesktopShortcut;
         ImGui::SameLine();
-        if (button("Start menu shortcut")) action = UiAction::StartShortcut;
+        if (button("Create Start menu shortcut")) action = UiAction::StartShortcut;
     }
     if (showPlay && heading("Before you play", nullptr)) {
         static const StepResult tips[] = {
-            { "Launch Dishonored from Steam.", "A direct Dishonored.exe launch crashes at the main menu.", StepStatus::Ok },
-            { "F5 recenters. F10 opens the settings panel; everything else is tuned there.", "Height, hands, reticle, comfort, HUD and display, with Basic, Advanced and Debug views.", StepStatus::Ok },
-            { "Turn Motion Blur off in the game's own options.", "It lives in the Steam profile, not in a file this launcher can write.", StepStatus::Ok },
+            { "Launch from Steam or GOG, or use Launch via store at the bottom.", "Use the store that owns your selected installation.", StepStatus::Ok },
+            { "L3 + R3 opens the settings panel. F5 recenters.", "Height, hands, reticle, comfort, HUD and display, with Basic, Advanced and Debug views.", StepStatus::Ok },
         };
         for (const auto& t : tips) step_row(t);
     }
@@ -260,7 +267,7 @@ UiAction draw_done(ViewState& v)
     footer_begin(footerH);
     if (!v.notice.empty()) status_slot("##footer-notice", 1, v.notice.c_str());
     else ImGui::TextDisabled("%s", ("Log: " + v.logPath).c_str());
-    if (showPlay) { if (footer_button("Launch via Steam", true, v.det.running == process::Running::No)) action = UiAction::Launch; }
+    if (showPlay) { if (footer_button(discovery::launch_label(v.det.game.store), true, v.det.running == process::Running::No)) action = UiAction::Launch; }
     if (footer_button("Close")) action = UiAction::Close;
     if (footer_button("Bindings")) action = UiAction::ShowGuide;
     if (footer_button("About")) action = UiAction::ShowAbout;
@@ -281,7 +288,8 @@ UiAction draw_manage(ViewState& v)
     if (v.busy) { spinner(v.busyText.c_str()); return action; }
 
     ImGui::BeginChild("##manage-body", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 3.4f));
-    if (heading("Game", nullptr)) {
+    game_section(v,&action);
+    if (heading("Current Settings", nullptr)) {
         wrapped(n(v.det.gameDir).c_str());
         std::string line;
         if (v.det.disabled) line = "VR is DISABLED (disable_vr.txt is beside the game). ";
@@ -306,26 +314,25 @@ UiAction draw_manage(ViewState& v)
             ImGui::SameLine();
             if (button("Keep it", false, true, half)) action = UiAction::CancelUninstall;
         } else {
-            if (dvr::ovl::checkbox("Overwrite INI and F10 settings on update", &v.choices.overwriteSettings))
+            if (dvr::ovl::checkbox("Overwrite INI and in-game settings on update (recommended)", &v.choices.overwriteSettings))
                 action = UiAction::SaveUpdatePreference;
-            wrapped_faded(v.choices.overwriteSettings
-                ? "Updates will use the new defaults. Your current settings are backed up beside the INI."
-                : "Updates keep your settings. Turn this on to replace them with the new defaults.");
-            const std::string updateLabel = sameBuild ? "Reinstall this build" : fs::format("Update to %s (build %s)", v.det.version.c_str(), v.det.buildId.c_str());
+            if(v.choices.overwriteSettings) wrapped_faded("Updates use the new defaults. Your current settings are backed up beside the INI.");
+            else banner("WARNING: keeping an old INI can break new updates. Leave overwrite enabled unless you understand the changes.");
+            const std::string updateLabel = sameBuild ? "Reinstall " + v.det.version : "Update to " + v.det.version;
             if (button(updateLabel.c_str(), !sameBuild, idle, half)) action = UiAction::Update;
             dvr::ovl::tip("Installs this launcher's build. The overwrite toggle above controls whether your settings are reset.");
             ImGui::SameLine();
             if (button("Change settings", false, v.det.iniExists, half)) action = UiAction::ChangeSettings;
-            dvr::ovl::tip("Runtime, resolution, mirror, comfort and controller shortcuts. Your other F10 settings stay.");
+            dvr::ovl::tip("Runtime, resolution, mirror, comfort and controller shortcuts. Your other in-game settings stay.");
             if (button(v.det.disabled ? "Enable VR" : "Disable VR", false, true, half)) action = UiAction::ToggleDisable;
             dvr::ovl::tip("Disable leaves the mod installed and switches it off with a disable_vr.txt beside the game, so Dishonored runs flat. Enable removes the file.");
             ImGui::SameLine();
             if (button("Collect logs", false, v.det.iniExists, half)) action = UiAction::CollectSupport;
             dvr::ovl::tip("Zips the mod's log, ini and crash report into a folder on your Desktop for a bug report. Nothing is uploaded.");
-            if (button("Desktop shortcut", false, true, half)) action = UiAction::DesktopShortcut;
+            if (button("Create desktop shortcut", false, true, half)) action = UiAction::DesktopShortcut;
             dvr::ovl::tip("Keeps a copy of this launcher in your user profile, then creates a Desktop shortcut.");
             ImGui::SameLine();
-            if (button("Start menu shortcut", false, true, half)) action = UiAction::StartShortcut;
+            if (button("Create Start menu shortcut", false, true, half)) action = UiAction::StartShortcut;
             dvr::ovl::tip("Adds this launcher to your own Start menu. No administrator rights needed.");
             if (button("Uninstall", false, idle, half)) action = UiAction::Uninstall;
             dvr::ovl::tip("Removes the mod's files from the game folder. Your dishonored_vr.ini is kept unless you say otherwise.");
@@ -338,7 +345,7 @@ UiAction draw_manage(ViewState& v)
     footer_begin(ImGui::GetFrameHeightWithSpacing() * 2.6f);
     if (!v.notice.empty()) status_slot("##footer-notice", 1, v.notice.c_str());
     else ImGui::TextDisabled("Settings apply at your next launch.");
-    if (footer_button("Launch via Steam", true, v.det.gameFound && v.det.running == process::Running::No)) action = UiAction::Launch;
+    if (footer_button(discovery::launch_label(v.det.game.store), true, v.det.gameFound && v.det.running == process::Running::No)) action = UiAction::Launch;
     if (footer_button("Close")) action = UiAction::Close;
     if (footer_button("Open log")) action = UiAction::OpenLog;
     if (footer_button("Bindings")) action = UiAction::ShowGuide;
@@ -361,8 +368,25 @@ UiAction draw_about(ViewState& v)
     if (button("Gingas / GingasVRFO")) action = UiAction::CreditGingas;
     wrapped_faded("Creator of the original Dishonored VR mod.");
     dvr::ovl::ornament();
+    if(button("Check for updates",true,!v.updateChecking && !v.updateDownloading && !v.busy))action=UiAction::CheckUpdates;
+    wrapped_faded(v.updateMessage.empty()?"Checks for the latest stable release on GitHub.":v.updateMessage.c_str());
+    if(!v.releases.empty() && updates::newer(v.releases.front().version,v.det.version)) {
+        const auto& latest=v.releases.front();
+        if(button(("Update to "+latest.version).c_str(),true,latest.downloadable() && !v.busy && !v.updateDownloading && v.det.running==process::Running::No))action=UiAction::DownloadUpdate;
+        if(!latest.downloadable())banner("The release does not have a verified launcher download yet. Try again later.");
+    }
+    if(heading("Changelog history", "Recent stable GitHub releases. Saved locally for offline reading.")) {
+        if(v.releases.empty()) {
+            const auto notes=resources::rcdata(IDR_RELEASE_NOTES);
+            if(notes.ok()) {const std::string text((const char*)notes.data,notes.size);wrapped(text.c_str());}
+            else wrapped_faded("Check for updates to load release history.");
+        }
+        for(const auto& release:v.releases) {
+            const std::string label=release.version+"  "+release.published;
+            if(ImGui::CollapsingHeader(label.c_str()))wrapped(release.notes.empty()?"No changelog was provided for this release.":release.notes.c_str());
+        }
+    }
     if (button("GitHub releases")) action = UiAction::OpenReleases;
-    wrapped_faded("Download the latest release and read what's changed.");
     dvr::ovl::ornament();
     wrapped("If you're enjoying the mod and feeling generous, you can");
     if (button("support it on Ko-fi", true)) action = UiAction::OpenKofi;
@@ -435,6 +459,36 @@ UiAction draw(ViewState& v)
     case Screen::Manage: a = draw_manage(v); break;
     case Screen::Guide: a = draw_guide(v); break;
     case Screen::About: a = draw_about(v); break;
+    }
+    if(v.updateDownloading) {
+        ImGui::OpenPopup("Updating Dishonored VR");
+        if(ImGui::BeginPopupModal("Updating Dishonored VR",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+            wrapped("Downloading and verifying the new launcher. It will restart and install the mod update.");
+            ImGui::EndPopup();
+        }
+    } else if(ImGui::BeginPopupModal("Updating Dishonored VR",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::CloseCurrentPopup();ImGui::EndPopup();
+    }
+    if(v.updatePopup && !v.releases.empty()) {
+        ImGui::OpenPopup("An update is available");
+        ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x * 0.78f,0),ImGuiCond_Appearing);
+        if(ImGui::BeginPopupModal("An update is available",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+            const auto& latest=v.releases.front();
+            ImGui::Text("Dishonored VR %s",latest.version.c_str());
+            ImGui::BeginChild("##release-summary",ImVec2(0,ImGui::GetTextLineHeightWithSpacing()*7));
+            wrapped(latest.notes.empty()?"A new stable release is available.":latest.notes.substr(0,1600).c_str());
+            ImGui::EndChild();
+            if(dvr::ovl::checkbox("Overwrite INI on update (recommended)",&v.choices.overwriteSettings))a=UiAction::SaveUpdatePreference;
+            if(!v.choices.overwriteSettings)banner("Keeping an old INI can break new updates. Leave overwrite enabled.");
+            if(!v.updateMessage.empty())wrapped_faded(v.updateMessage.c_str());
+            if(!latest.downloadable())banner("This release has no verified launcher download yet.");
+            if(button(("Update to "+latest.version).c_str(),true,latest.downloadable() && !v.busy && !v.updateDownloading && v.det.running==process::Running::No)) {
+                a=UiAction::DownloadUpdate;v.updatePopup=false;ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if(button("Later")) {v.updatePopup=false;ImGui::CloseCurrentPopup();}
+            ImGui::EndPopup();
+        }
     }
     ImGui::End();
     return a;

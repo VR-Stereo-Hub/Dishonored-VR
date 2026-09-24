@@ -12,10 +12,13 @@
 #include "sys/install_record.h"
 #include "sys/process.h"
 #include "sys/gpu.h"
+#include "sys/discovery.h"
 
 namespace dvr::setup {
 
 struct Env {
+    bool updateOnStart = false;
+    bool keepSettings = false;
     std::wstring gameDirOverride;    // --game-dir, or the folder the player browsed to
     std::wstring configDirOverride;  // --config-dir (tests, and the elevated child)
     std::wstring vdxrJsonOverride;   // --vdxr-json
@@ -24,6 +27,8 @@ struct Env {
 
 struct Detection {
     // the game
+    discovery::Game game;
+    std::vector<discovery::Game> games;
     std::wstring gameDir;            // the folder holding Dishonored.exe, or ""
     bool gameFound = false;
     std::string gameNote;            // how it was found, or why not (UTF-8, for the screen)
@@ -77,7 +82,7 @@ struct Report {
 
 Detection detect(const Env& env);
 Report do_install(const Env& env, const Detection& det, const Choices& choices);
-Report do_update(const Env& env, const Detection& det, bool overwriteSettings = false);
+Report do_update(const Env& env, const Detection& det, bool overwriteSettings = true);
 Report do_change(const Env& env, const Detection& det, const Choices& choices);   // the five keys only
 Report do_baseline(const Env& env, const Detection& det);        // the four game-ini values
 Report do_disable(const Env& env, const Detection& det, bool disabled);

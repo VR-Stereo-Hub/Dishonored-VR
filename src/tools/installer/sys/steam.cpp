@@ -35,12 +35,19 @@ bool vdf_path_line(const std::string& line, std::wstring* out)
 
 std::wstring steam_path()
 {
-    wchar_t buf[1024];
-    DWORD size = sizeof(buf);
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS)
-        return normalise_slashes(buf);
-    const std::wstring fallback = L"C:\\Program Files (x86)\\Steam";
-    return fs::is_dir(fallback) ? fallback : L"";
+    for(HKEY hive:{HKEY_CURRENT_USER,HKEY_LOCAL_MACHINE})for(REGSAM view:{KEY_WOW64_32KEY,KEY_WOW64_64KEY}) {
+        HKEY key=nullptr;
+        if(RegOpenKeyExW(hive,L"Software\\Valve\\Steam",0,KEY_READ|view,&key)!=ERROR_SUCCESS)continue;
+        for(const wchar_t* name:{L"SteamPath",L"InstallPath"}) {
+            wchar_t buf[32768];DWORD size=sizeof(buf);
+            if(RegGetValueW(key,nullptr,name,RRF_RT_REG_SZ,nullptr,buf,&size)==ERROR_SUCCESS && fs::is_dir(buf)) {RegCloseKey(key);return normalise_slashes(buf);}
+        }
+        RegCloseKey(key);
+    }
+    for(const wchar_t* var:{L"ProgramFiles(x86)",L"ProgramW6432",L"ProgramFiles"}) {
+        const auto fallback=fs::join(fs::env(var),L"Steam");if(fs::is_dir(fallback))return fallback;
+    }
+    return L"";
 }
 
 std::vector<std::wstring> libraries()

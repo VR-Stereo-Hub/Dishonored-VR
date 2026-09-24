@@ -4,13 +4,14 @@
 #pragma once
 #include <string>
 #include "model/installer.h"
+#include "sys/updates.h"
 
 namespace dvr::setup {
 
 enum class Screen { Setup, Done, Manage, Guide, About };
 
 enum class UiAction {
-    None, Install, Browse, Rescan, Launch, Close,
+    None, Install, Browse, SelectGame, Rescan, Launch, Close, CheckUpdates, DownloadUpdate,
     Update, ChangeSettings, CancelChange, ToggleDisable, CollectSupport,
     Uninstall, ConfirmUninstall, CancelUninstall, ApplyBaseline,
     ShowAbout, OpenKofi, CreditPizza, CreditVoid, CreditGingas, SaveUpdatePreference, OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut
@@ -32,6 +33,10 @@ struct ViewState {
     bool deleteIni = false;
     bool advancedOpen = false;
     bool controlsOpen = false;
+    int selectedGame=-1;
+    bool updateChecking=false, updateDownloading=false, updatePopup=false;
+    std::vector<updates::Release> releases;
+    std::string updateMessage;
     std::string logPath;
 };
 

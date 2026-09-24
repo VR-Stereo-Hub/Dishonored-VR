@@ -23,9 +23,9 @@ try {
         "$inst\sys\fs.cpp", "$inst\sys\game_ini.cpp", "$inst\sys\profile.cpp", "$inst\sys\steam.cpp",
         "$inst\sys\process.cpp", "$inst\sys\install_record.cpp", "$inst\model\choices.cpp")
     & "$vc\bin\Hostx64\x86\cl.exe" /nologo /std:c++20 /EHsc /W3 /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN /I $inst $srcs `
-        /Fe:installer_tests.exe /link bcrypt.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib user32.lib uuid.lib
+        /Fe:launcher_checks.exe /link bcrypt.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib user32.lib uuid.lib
     if ($LASTEXITCODE -ne 0) { throw 'installer-tests compilation failed' }
-    & .\installer_tests.exe
+    & .\launcher_checks.exe
     $rc = $LASTEXITCODE
 } finally {
     Pop-Location

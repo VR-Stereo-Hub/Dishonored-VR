@@ -1,3 +1,13 @@
+## Launcher updates and GOG support (VR-214)
+
+- [x] GitHub startup update prompt, verified download and EXE replacement.
+- [x] About update check and cached recent release history.
+- [x] Default INI reset with warning, backups and partial-update rollback.
+- [x] Steam/GOG discovery, home folder selection, Win64 rejection, Galaxy command.
+- [x] Host tests, real GitHub download, helper handoff and native screen previews.
+- [ ] Actual GOG Galaxy launch acceptance on a GOG installation.
+- [ ] Public newer-version end-to-end acceptance after release authorization.
+
 ## 1.0.1 FOV hotfix (VR-213)
 
 - [x] Reproduce persistent downward feedback and verify a resolution-independent correction.

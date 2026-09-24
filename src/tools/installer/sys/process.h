@@ -21,7 +21,7 @@ bool run_wait(const std::wstring& cmdline, DWORD* exitCode, DWORD* err, DWORD ti
 // Opens a URL or file with the shell. From an elevated process it goes through
 // the desktop shell's own Automation object so the target (Steam, a browser)
 // runs with the user's normal token; false when that route is unavailable.
-bool open_unelevated(const std::wstring& target);
+bool open_unelevated(const std::wstring& target, const std::wstring& args = L"", const std::wstring& directory = L"");
 bool open(const std::wstring& target);       // plain ShellExecute (fine when not elevated)
 std::wstring quote_arg(const std::wstring& a);
 bool attach_parent_console();

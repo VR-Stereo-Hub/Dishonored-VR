@@ -3,7 +3,18 @@
 - Fix progressive narrowing to a small central gameplay window when automatic
   FOV is below the camera baseline. Render resolution remains unchanged.
 - Revalidate the persistent FOV writer's camera ownership after menu/load changes.
-- Host regression checks pass; headset acceptance is pending.
+- The launcher checks GitHub for stable releases and offers the newest update with
+  a short changelog. It updates itself and then installs the bundled mod.
+- About includes Check for updates and saved changelog history.
+- Updates default to replacing the INI with the tested defaults, with an exact
+  backup. Disabling replacement shows a compatibility warning.
+- Detect Steam and GOG libraries, launch GOG copies through Galaxy, and choose
+  the game folder directly from the home screen. Win64 installations are blocked.
+- Clearer Current Settings, Create shortcut buttons, and controller-first play
+  instructions (L3 + R3). Update buttons show the version without the build ID.
+- Downloads verify size, SHA-256 and version. Failed mod updates restore the
+  previous files; replacing the launcher also preserves a backup.
+- Host checks pass; headset and actual GOG launch acceptance are pending.
 
 # 1.0.0 (first public release)
 

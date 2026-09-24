@@ -1,3 +1,31 @@
+## Launcher self-update and GOG candidate (VR-214, 2026-09-24)
+
+Branch codex/vr-214-launcher-updates is stacked on the VR-213 FOV hotfix,
+version 1.0.1. The native launcher checks the official GitHub stable releases on
+startup, shows notes and an Update button, downloads the exact versioned EXE,
+verifies size/SHA-256/VERSIONINFO, and hands replacement to that new EXE after
+the old process exits. The updated launcher applies its bundled mod, preserving
+a full previous-file backup and rolling back partial failures. No game is launched.
+About has manual checks and cached recent changelogs. Overwrite INI defaults on,
+with a warning when off. Steam/GOG discovery reads both registry views, library
+manifests and GOG metadata, with common-path fallbacks and a home folder picker.
+Win64 folders and 64-bit executables are rejected; GOG launches through Galaxy.
+
+Validation: 80 installer host checks; 57 offline updater/discovery checks; prior
+live GitHub check/download verified public 1.0.0 (59 checks before one added
+Win64-empty-folder check). Real helper entry point waits for parent exit, replaces
+its target, preserves backup, and refuses wrong digests/locked targets. Installer
+smoke passes, including default whole-INI reset/CRLF, keep-settings, and rollback
+of every original file after locking the second DLL. Fifty native screen previews
+were rendered at 1.0/1.5 scale; update/GOG/Win64/About/warning layouts inspected.
+
+The actual Steam game's previous VR-213 candidate and INI remain the playtest
+baseline. Launcher-only installation does not apply a mod update to the game.
+No headset run or actual GOG launch has been performed. An end-to-end update from
+a published newer release remains a release-time acceptance check because 1.0.1
+is not public yet. See VERIFICATION and LINEAR_AND_GITHUB for the update contract.
+Nothing has been merged to VR-Main or published.
+
 ## 1.0.1 FOV feedback hotfix candidate (VR-213, 2026-09-23)
 
 Based on released v1.0.0 (02d5cf5d4), isolated on

@@ -530,3 +530,26 @@ Never invent a milestone or a release. Both are the user's call.
 | `docs/VERIFICATION.md` | Intent, to tool, to command, to how to read the result |
 | `docs/RELEASE_NOTES.md` | Per-version notes; the release ritual writes here |
 | `docs/KNOWN_ISSUES.md` | User-facing known issues; ships in the zip |
+
+## Launcher auto-update release contract (VR-214)
+
+Every future stable release must increase the `x.y.z` version in CMake and use a
+matching GitHub tag (`vX.Y.Z` preferred). Attach the release build's exact
+`DishonoredVR-Launcher-vX.Y.Z.exe`, which embeds the matching mod payload and
+VERSIONINFO. Put player-facing changelog text in the GitHub release body. The
+launcher reads the most recent 100 releases, excludes drafts/prereleases and
+retains their notes locally for offline history.
+
+Verify GitHub's asset metadata exposes `digest: sha256:<64 lowercase hex digits>`
+and the expected size before advertising the release. The launcher refuses an
+asset without matching name, official download URL, digest, size and embedded
+version. Upload the EXE before publishing; a visible release without the verified
+asset appears in history but cannot be installed. Do not replace a same-version
+asset as the update mechanism; publish a new patch version instead.
+
+Run the host, handoff and smoke checks in VERIFICATION before release, then the
+public update round trip after authorized publication. Releases predating this
+updater need one manual download of the updater-capable launcher. Subsequent
+stable releases can replace both launcher and mod through Update.
+
+GitHub's digest contract: https://docs.github.com/en/rest/releases/assets

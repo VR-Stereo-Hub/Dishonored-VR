@@ -70,7 +70,7 @@ static void test_game_ini_case()
     CHECK(ini.set("Engine.Engine", "bSmoothFrameRate", "FALSE", &note) == GameIni::Result::Unchanged);
     CHECK(note.find("already set") != std::string::npos);
     const std::string out = str(ini.serialise());
-    CHECK(out.find("bSmoothFrameRate=FALSE\r\n") != std::string::npos);   // the key keeps the file's own spelling? no: rewritten as given
+    CHECK(out.find("bsmoothframerate=FALSE\r\n") != std::string::npos);   // changed write uses supplied spelling; unchanged write preserves it
 }
 
 static void test_game_ini_append()

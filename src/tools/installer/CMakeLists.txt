@@ -40,6 +40,7 @@ set(DVR_SETUP_STATIC_PAYLOAD
     "${PROJECT_SOURCE_DIR}/release/HOW-TO-USE.txt|HOW-TO-USE.txt"
     "${PROJECT_SOURCE_DIR}/docs/TROUBLESHOOTING.md|TROUBLESHOOTING.md"
     "${PROJECT_SOURCE_DIR}/docs/KNOWN_ISSUES.md|KNOWN_ISSUES.md"
+    "${PROJECT_SOURCE_DIR}/docs/RELEASE_NOTES.md|RELEASE_NOTES.md"
 )
 set(_stage_cmds "")
 set(_stage_outs "")
@@ -69,7 +70,12 @@ add_custom_command(
 
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/version.rc.in" "${CMAKE_BINARY_DIR}/installer-payload/version.rc" @ONLY)
 
+set(DVR_SETUP_JSON "${PROJECT_SOURCE_DIR}/third_party/OpenXR-SDK/src/external/jsoncpp")
 add_executable(dvr_setup WIN32
+    sys/updates.cpp sys/updates.h sys/discovery.cpp sys/discovery.h
+    "${DVR_SETUP_JSON}/src/lib_json/json_reader.cpp"
+    "${DVR_SETUP_JSON}/src/lib_json/json_value.cpp"
+    "${DVR_SETUP_JSON}/src/lib_json/json_writer.cpp"
     main.cpp
     sys/support.cpp         sys/support.h
     app/win32_app.cpp        app/win32_app.h
@@ -101,6 +107,7 @@ set_target_properties(dvr_setup PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/src")
 add_dependencies(dvr_setup dvr_version)
 target_include_directories(dvr_setup PRIVATE
+    "${DVR_SETUP_JSON}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${PROJECT_SOURCE_DIR}/src"
     "${PROJECT_SOURCE_DIR}"
@@ -110,7 +117,7 @@ target_include_directories(dvr_setup PRIVATE
 # be able to start on a machine that lacks it and say so, hence delay-load.
 target_link_libraries(dvr_setup PRIVATE
     imgui
-    user32 gdi32 d3d11 dxgi shell32 ole32 oleaut32 uuid comctl32 advapi32 bcrypt dwmapi shcore delayimp)
+    user32 gdi32 d3d11 dxgi shell32 ole32 oleaut32 uuid comctl32 advapi32 bcrypt dwmapi shcore delayimp winhttp version)
 target_link_options(dvr_setup PRIVATE /DELAYLOAD:d3dcompiler_47.dll)
 target_compile_options(dvr_setup PRIVATE /W3 /permissive- /EHsc)
 target_compile_definitions(dvr_setup PRIVATE DVR_BUILD_CONFIG="$<CONFIG>" UNICODE _UNICODE)

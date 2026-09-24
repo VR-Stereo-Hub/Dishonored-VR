@@ -128,9 +128,9 @@ bool open(const std::wstring& target)
 // The documented de-elevation route: the desktop's shell view hands out an
 // IShellDispatch2 living in explorer.exe (medium integrity), and its
 // ShellExecute runs the target with that token, not ours.
-bool open_unelevated(const std::wstring& target)
+bool open_unelevated(const std::wstring& target, const std::wstring& args, const std::wstring& directory)
 {
-    if (!is_elevated()) return open(target);
+    if (!is_elevated()) return (INT_PTR)ShellExecuteW(nullptr, L"open", target.c_str(), args.empty()?nullptr:args.c_str(), directory.empty()?nullptr:directory.c_str(), SW_SHOWNORMAL)>32;
     bool ok = false;
     IShellWindows* windows = nullptr;
     if (FAILED(CoCreateInstance(CLSID_ShellWindows, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&windows)))) return false;
@@ -155,7 +155,11 @@ bool open_unelevated(const std::wstring& target)
                                 if (SUCCEEDED(app->QueryInterface(IID_PPV_ARGS(&shell)))) {
                                     BSTR file = SysAllocString(target.c_str());
                                     VARIANT vShow; vShow.vt = VT_I4; vShow.lVal = SW_SHOWNORMAL;
-                                    ok = SUCCEEDED(shell->ShellExecute(file, vEmpty, vEmpty, vEmpty, vShow));
+                                    VARIANT params, dir; VariantInit(&params); VariantInit(&dir);
+                                    params.vt=VT_BSTR; params.bstrVal=SysAllocString(args.c_str());
+                                    dir.vt=VT_BSTR; dir.bstrVal=SysAllocString(directory.c_str());
+                                    ok = SUCCEEDED(shell->ShellExecute(file, params, dir, vEmpty, vShow));
+                                    VariantClear(&params); VariantClear(&dir);
                                     SysFreeString(file);
                                     shell->Release();
                                 }

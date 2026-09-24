@@ -145,7 +145,7 @@ $le = LineEndings $ini
 Assert ($le[0] -eq $le[1] -and -not $le[2]) 'preference apply keeps CRLF and no BOM'
 $rc = Run ($common + @('--op','change','--runtime','auto','--quality','quality'))
 Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $changed) 'omitted preference flags preserve all saved values'
-$rc = Run ($common + @('--op','update'))
+$rc = Run ($common + @('--op','update','--keep-settings'))
 Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $changed) 'DLL update preserves the complete tuned ini'
 $rc = Run ($common + @('--op','change','--mirror','invalid'))
 Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $changed) 'invalid boolean fails before writing'
@@ -172,7 +172,7 @@ Assert (-not (Test-Path $ini)) 'dishonored_vr.ini deleted when asked'
 $old = Get-Content (Join-Path $repo 'release\dishonored_vr.ini') -Raw
 $old = $old.Replace("Version=15", "Version=13").Replace("RenderWidth=2750", "RenderWidth=2064").Replace("RenderHeight=2850", "RenderHeight=2208").Replace("Runtime=auto", "Runtime=steamvr").Replace("HeightOffsetM=0.060", "HeightOffsetM=0.111")
 [IO.File]::WriteAllText($ini, $old, $ascii)
-$rc = Run ($common + @('--op', 'update'))
+$rc = Run ($common + @('--op', 'update', '--keep-settings'))
 Assert ($rc -eq 0) "exit 0 (got $rc)"
 $after = Get-Content $ini -Raw
 Assert ($after.Contains("Version=15`r`n")) 'refreshed to the embedded version'
@@ -184,10 +184,10 @@ Assert ((Get-ChildItem $game -Filter 'dishonored_vr.ini.*.dvr-backup').Count -eq
 $rc = Run ($common + @('--op', 'uninstall', '--delete-ini'))
 Remove-Item (Join-Path $game 'dishonored_vr.ini.*.dvr-backup') -Force
 
-# Opt-in reset must replace all tuning and preserve a byte-identical backup.
-'8b. explicit update reset uses public defaults and backs up every setting'
+# The default reset must replace all tuning and preserve a byte-identical backup.
+'8b. default update reset uses public defaults and backs up every setting'
 [IO.File]::WriteAllText($ini, $changed, $ascii)
-$rc = Run ($common + @('--op','update','--overwrite-settings'))
+$rc = Run ($common + @('--op','update'))
 Assert ($rc -eq 0) 'overwrite update succeeds'
 $reset = [IO.File]::ReadAllText($ini)
 $defaults = [IO.File]::ReadAllText((Join-Path $repo 'release\dishonored_vr.ini')).Replace('DataDir=D:\dvr-data','DataDir=')
@@ -198,6 +198,16 @@ $backups = @(Get-ChildItem -LiteralPath $game -Filter 'dishonored_vr.ini.*.dvr-b
 Assert ($backups.Count -eq 1 -and [IO.File]::ReadAllText($backups[0].FullName) -ceq $changed) 'full original tuning has an exact backup'
 $le = LineEndings $ini
 Assert ($le[0] -eq $le[1] -and -not $le[2]) 'reset preserves CRLF without BOM'
+'8c. failure after a DLL write restores the entire previous version'
+$rollbackFiles=@('d3d9.dll','dvr_steamvr32.dll','openvr_api.dll','dishonored_vr.ini','dishonored_vr_install.json')
+[IO.File]::WriteAllBytes((Join-Path $game 'd3d9.dll'),[byte[]](77,90,7,8,9))
+$beforeHashes=@{}
+foreach($name in $rollbackFiles) { $beforeHashes[$name]=Sha (Join-Path $game $name) }
+$locked=[IO.File]::Open((Join-Path $game 'dvr_steamvr32.dll'),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+try { $rc=Run ($common + @('--op','update','--result',"`"$(Join-Path $scratch 'rollback.txt')`"")) } finally { $locked.Dispose() }
+Assert ($rc -ne 0) 'locked second DLL causes update failure'
+foreach($name in $rollbackFiles) { Assert ((Sha (Join-Path $game $name)) -eq $beforeHashes[$name]) "$name restored byte for byte after partial update" }
+Assert ((Get-Content (Join-Path $scratch 'rollback.txt') -Raw).Contains('restored the previous version')) 'failure report confirms rollback'
 $rc = Run ($common + @('--op','uninstall','--delete-ini'))
 
 '9. install with no game config folder: baseline pending, not failed'

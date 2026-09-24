@@ -27,6 +27,7 @@
 #include "sys/fs.h"
 #include "sys/process.h"
 #include "sys/support.h"
+#include "sys/updates.h"
 #include "core/util/log.h"
 #include "dvr_version.h"
 
@@ -114,13 +115,54 @@ int headless_mode(const Args& args, Env env)
         }
     }
     h.choices.vdxrJson = args.value(L"--vdxr-json");
-    h.choices.overwriteSettings = args.has(L"--overwrite-settings");
+    h.choices.overwriteSettings = !args.has(L"--keep-settings");
     h.deleteIni = args.has(L"--delete-ini");
     h.resultFile = args.value(L"--result");
     env.elevated = args.has(L"--elevated-apply");
     if (h.resultFile.empty()) process::attach_parent_console();
     return app::run_headless(env, h);
 }
+int complete_update(const Args& args) {
+    const auto source=fs::module_path(),target=args.value(L"--complete-update");
+    std::string error; DWORD systemError=0;
+    const bool replaced=updates::replace_launcher(source,target,fs::narrow(args.value(L"--sha256")),
+                                                  wcstoul(args.value(L"--parent-pid",L"0").c_str(),nullptr,10),&error,&systemError);
+    if(!replaced) {
+        // A launcher saved in Program Files can need UAC independently of the game.
+        if(systemError==ERROR_ACCESS_DENIED && !process::is_elevated() && !args.has(L"--no-restart")) {
+            DWORD code=0,err=0;std::wstring retry;
+            for(const auto& arg:args.v)retry+=L" "+process::quote_arg(arg);
+            if(process::run_self_elevated_wait(retry,&code,&err))return (int)code;
+        }
+        const auto result=args.value(L"--result");
+        if(!result.empty())fs::write_file_atomic(result,error.data(),error.size(),nullptr);
+        if(!args.has(L"--no-restart"))MessageBoxW(nullptr,fs::widen(error).c_str(),L"Launcher update could not finish",MB_ICONERROR);
+        return 2;
+    }
+    if(args.has(L"--no-restart"))return 0; // host replacement test, no GUI or game
+    std::wstring resume=L"--resume-update";
+    for(const wchar_t* key:{L"--game-dir",L"--config-dir"})if(!args.value(key).empty())resume+=L" "+std::wstring(key)+L" "+process::quote_arg(args.value(key));
+    if(args.has(L"--keep-settings"))resume+=L" --keep-settings";
+    // Existing shortcuts migrate to a stable path; future versions replace this file.
+    const auto stableDir=fs::join(fs::known_folder(FOLDERID_LocalAppData),L"DishonoredVR\\Launcher");
+    fs::make_dir(stableDir,nullptr);
+    const auto stable=fs::join(stableDir,L"DishonoredVR-Launcher.exe");
+    bool stableReady=fs::iequals(stable,target);
+    if(!stableReady) {
+        std::vector<uint8_t> bytes;
+        stableReady=fs::read_file(source,&bytes,nullptr) && fs::write_file_atomic(stable,bytes.data(),bytes.size(),nullptr);
+    }
+    if(stableReady)for(const auto* folder:{&FOLDERID_Desktop,&FOLDERID_Programs}) {
+        const auto link=fs::join(fs::known_folder(*folder),L"Dishonored VR Launcher.lnk");
+        if(fs::is_file(link))process::write_shortcut(link,stable,L"",nullptr);
+    }
+    if(!process::open_unelevated(target,resume)) {
+        MessageBoxW(nullptr,L"The launcher was updated, but Windows could not reopen it. Open the launcher again to install the mod update.",L"Launcher updated",MB_ICONINFORMATION);
+        return 3;
+    }
+    return 0;
+}
+
 }
 
 int WINAPI wWinMain(HINSTANCE hinst, HINSTANCE, PWSTR, int)
@@ -140,8 +182,12 @@ int WINAPI wWinMain(HINSTANCE hinst, HINSTANCE, PWSTR, int)
     env.configDirOverride = args.value(L"--config-dir");
     env.vdxrJsonOverride = args.value(L"--vdxr-json");
 
+    env.updateOnStart=args.has(L"--resume-update");
+    env.keepSettings=args.has(L"--keep-settings");
     int rc = 0;
-    if (args.has(L"--collect-logs")) {
+    if(args.has(L"--complete-update")) {
+        rc=complete_update(args);
+    } else if (args.has(L"--collect-logs")) {
         process::attach_parent_console();
         std::string notice;
         rc = support::collect(env.gameDirOverride, args.value(L"--support-out"), false, &notice) ? 0 : 1;

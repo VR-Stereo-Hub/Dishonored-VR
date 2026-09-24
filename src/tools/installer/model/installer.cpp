@@ -185,7 +185,7 @@ bool apply_baseline(Report* r, const Detection& det)
 {
     if (!det.configExists) {
         r->add(StepStatus::Skipped, "Game settings: waiting for the game's first run",
-               fs::format("The game writes its own settings folder the first time it runs (%s). Launch Dishonored once from Steam, quit to the desktop, and this window applies the last four settings by itself.", n(det.configDir).c_str()));
+               fs::format("The game writes its own settings folder the first time it runs (%s). Launch Dishonored once from Steam or GOG, quit to the desktop, and this window applies the last four settings by itself.", n(det.configDir).c_str()));
         r->baselinePending = true;
         return true;
     }
@@ -276,20 +276,18 @@ Detection detect(const Env& env)
     d.embeddedIniVersion = embedded_ini_version(p.ini);
 
     // the game
-    std::wstring why;
-    if (!env.gameDirOverride.empty()) {
-        d.gameDir = steam::normalise_game_dir(env.gameDirOverride);
-        d.gameFound = !d.gameDir.empty();
-        d.gameNote = d.gameFound ? "Chosen folder" : fs::format("No Dishonored.exe under %s", n(env.gameDirOverride).c_str());
-    } else if (!fs::env(L"DVR_GAME_DIR").empty()) {
-        d.gameDir = steam::normalise_game_dir(fs::env(L"DVR_GAME_DIR"));
-        d.gameFound = !d.gameDir.empty();
-        d.gameNote = d.gameFound ? "From DVR_GAME_DIR" : fs::format("DVR_GAME_DIR is set to %s but Dishonored.exe is not there", n(fs::env(L"DVR_GAME_DIR")).c_str());
+    d.games = discovery::find_games();
+    std::wstring selected = env.gameDirOverride.empty() ? fs::env(L"DVR_GAME_DIR") : env.gameDirOverride;
+    if (!selected.empty()) {
+        d.game = discovery::inspect(selected);
+        for (const auto& game : d.games) if (fs::iequals(game.dir,d.game.dir)) { d.game=game; break; }
     } else {
-        d.gameDir = steam::find_game_dir(&why);
-        d.gameFound = !d.gameDir.empty();
-        d.gameNote = d.gameFound ? "Found in your Steam library" : n(why) + " Use Change to point at the folder holding Dishonored.exe (the Steam build; GOG is a different exe and is not supported).";
+        // Prefer a valid installation, retaining an incompatible candidate for its warning.
+        for (const auto& game : d.games) if (game.valid) { d.game=game; break; }
+        if (d.game.dir.empty() && !d.games.empty()) d.game=d.games.front();
+        if (d.games.empty()) d.game=discovery::inspect(L"");
     }
+    d.gameDir=d.game.dir; d.gameFound=d.game.valid; d.gameNote=d.game.note;
     d.running = process::is_running(kGameExe);
     if (d.gameFound) {
         d.gameWritable = fs::probe_writable(d.gameDir, &d.gameWriteErr);
@@ -397,7 +395,7 @@ Report do_install(const Env& env, const Detection& det, const Choices& choices)
     return r;
 }
 
-Report do_update(const Env& env, const Detection& det, bool overwriteSettings)
+static Report update_impl(const Env& env, const Detection& det, bool overwriteSettings)
 {
     (void)env;
     Report r;
@@ -444,6 +442,40 @@ Report do_update(const Env& env, const Detection& det, bool overwriteSettings)
     const Choices defaults;
     write_install_record(&r, det, overwriteSettings ? &defaults : nullptr);
     return r;
+}
+
+Report do_update(const Env& env, const Detection& det, bool overwriteSettings) {
+    Report result;
+    if(!det.gameFound) {result.add(StepStatus::Failed,"Dishonored was not found",det.gameNote);return result;}
+    if(game_running_blocks(&result,process::is_running(kGameExe)))return result;
+    // Back up the complete update set before the first mutation. A later failure
+    // restores earlier successful writes, not just the file that failed.
+    struct Saved {std::wstring path,backup;bool existed=false;std::string hash;};
+    std::vector<Saved> saved;
+    const auto backupDir=fs::join(det.gameDir,L"dvr-update-backup-"+fs::timestamp_local()+L"-"+std::to_wstring(GetTickCount64()));
+    DWORD err=0;
+    if(!fs::make_dir(backupDir,&err)) {result.fail("Could not prepare the update backup",err);return result;}
+    for(const wchar_t* name:{L"d3d9.dll",L"dvr_steamvr32.dll",L"openvr_api.dll",L"dishonored_vr.ini",L"dishonored_vr_install.json",L"dxvk_d3d9.dll",L"dxvk_stereo.txt"}) {
+        Saved item;item.path=fs::join(det.gameDir,name);item.backup=fs::join(backupDir,name);item.existed=fs::is_file(item.path);
+        if(item.existed && (!fs::sha256_file(item.path,&item.hash,&err) || !fs::copy_file(item.path,item.backup,&err))) {
+            result.fail("Could not back up the installed version",err);return result;
+        }
+        saved.push_back(item);
+    }
+    result=update_impl(env,det,overwriteSettings);
+    if(result.ok) {result.add(StepStatus::Ok,"Saved previous version",n(backupDir));return result;}
+    bool restored=true;
+    for(const auto& item:saved) {
+        std::string now; const bool exists=fs::is_file(item.path);
+        if(item.existed && exists && fs::sha256_file(item.path,&now,nullptr) && now==item.hash)continue;
+        if(!item.existed) {if(exists && !fs::delete_file(item.path,&err))restored=false;continue;}
+        std::vector<uint8_t> bytes;
+        if(!fs::read_file(item.backup,&bytes,&err) || !fs::write_file_atomic(item.path,bytes.data(),bytes.size(),&err))restored=false;
+    }
+    result.add(restored?StepStatus::Warn:StepStatus::Failed,
+               restored?"Update failed; restored the previous version":"Update failed; some files could not be restored",
+               "The complete backup is in "+n(backupDir));
+    return result;
 }
 
 Report do_change(const Env& env, const Detection& det, const Choices& choices)

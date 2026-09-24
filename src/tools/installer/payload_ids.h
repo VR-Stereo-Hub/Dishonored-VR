@@ -2,6 +2,7 @@
 // Included by payload.rc (rc.exe) and by sys/resources.cpp, so the two can
 // never disagree about what number is which file.
 #pragma once
+#define IDR_RELEASE_NOTES    110
 #define IDR_D3D9             101
 #define IDR_SHIM             102
 #define IDR_OPENVR           103

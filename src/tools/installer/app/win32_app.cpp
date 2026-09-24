@@ -46,6 +46,13 @@ struct App {
     Env env;
     ViewState view;
 
+    std::thread network;
+    std::atomic<bool> cancelNetwork{false};
+    bool networkDone=false, networkDownload=false;
+    updates::Check networkCheck;
+    updates::Release networkRelease;
+    std::wstring networkFile;
+    std::string networkError;
     // the worker
     std::thread worker;
     std::mutex mu;
@@ -60,6 +67,7 @@ struct App {
 };
 App* g_app = nullptr;
 void dispatch(App& a, UiAction action);
+std::wstring launcher_preferences();
 
 void create_rtv(App& a)
 {
@@ -208,7 +216,7 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
         s += i == Modifier ? std::to_wstring(c.preferences[i])
             : ((kPreferences[i].inverted ? !c.preferences[i] : c.preferences[i]) ? L"on" : L"off");
     }
-    if (c.overwriteSettings) s += L" --overwrite-settings";
+    s += c.overwriteSettings ? L" --overwrite-settings" : L" --keep-settings";
     if (deleteIni) s += L" --delete-ini";
     s += L" --result " + process::quote_arg(resultFile);
     return s;
@@ -285,6 +293,9 @@ void browse(App& a)
                 a.env.gameDirOverride = dir.empty() ? chosen : dir;
                 a.view.det = detect(a.env);
                 if (!a.view.changingSettings) a.view.choices = a.view.det.suggested;
+                if (a.view.det.gameFound) profile::set(launcher_preferences(),L"Game",L"Directory",a.view.det.gameDir,nullptr);
+                a.view.choices.overwriteSettings=profile::get_int(launcher_preferences(),L"Updates",L"OverwriteSettings",1)!=0;
+                a.view.screen=a.view.det.modInstalled?Screen::Manage:Screen::Setup;
                 a.view.notice.clear();
             }
             item->Release();
@@ -324,7 +335,7 @@ void create_shortcut(App& a, bool desktop)
         a.view.notice = "Windows could not locate your user shortcut folders."; return;
     }
     const std::wstring dir = fs::join(base, L"DishonoredVR\\Launcher");
-    const std::wstring target = fs::join(dir, L"DishonoredVR-Launcher-v" + fs::widen(DVR_VERSION) + L".exe");
+    const std::wstring target = fs::join(dir, L"DishonoredVR-Launcher.exe");
     const std::wstring source = fs::module_path();
     DWORD err = 0;
     if (!fs::make_dir(dir, &err)) {
@@ -379,15 +390,68 @@ void finish_worker(App& a)
     a.framesPending = 3;
 }
 
+void start_network(App& a, bool download) {
+    if(a.view.updateChecking || a.view.updateDownloading) return;
+    if(download && (a.view.busy || a.view.releases.empty() || process::is_running(kGameExe)!=process::Running::No)) {
+        a.view.updateMessage="Close Dishonored and finish the current operation before updating.";return;
+    }
+    if(a.network.joinable())a.network.join();
+    a.view.updateChecking=!download;a.view.updateDownloading=download;
+    a.view.updateMessage=download?"Downloading and verifying the new launcher...":"Checking GitHub...";
+    const updates::Release release=download?a.view.releases.front():updates::Release{};
+    a.network=std::thread([&a,download,release]() {
+        updates::Check result;std::wstring file;std::string error;
+        if(download)updates::download(release,&file,&error,&a.cancelNetwork);
+        else result=updates::check(&a.cancelNetwork);
+        std::lock_guard<std::mutex> lock(a.mu);
+        a.networkCheck=std::move(result);a.networkFile=file;a.networkError=error;
+        a.networkDownload=download;a.networkRelease=release;a.networkDone=true;
+    });
+}
+void finish_network(App& a) {
+    std::lock_guard<std::mutex> lock(a.mu);
+    if(!a.networkDone)return;
+    a.networkDone=false;a.framesPending=3;
+    a.view.updateChecking=a.view.updateDownloading=false;
+    if(!a.networkDownload) {
+        a.view.releases=a.networkCheck.releases;a.view.updateMessage=a.networkCheck.message;
+        const bool newer=!a.view.releases.empty() && updates::newer(a.view.releases.front().version,a.view.det.version);
+        a.view.updatePopup=newer && a.networkCheck.online;
+        if(a.networkCheck.online && !newer) a.view.updateMessage="You're up to date. No newer stable release is available.";
+        return;
+    }
+    if(!a.networkError.empty()) {a.view.updateMessage=a.networkError;a.view.notice=a.networkError;a.view.updatePopup=true;return;}
+    if(process::is_running(kGameExe)!=process::Running::No || a.view.busy) {a.view.updateMessage="Download verified. Close Dishonored and retry Update to continue.";return;}
+    std::wstring args=L"--complete-update "+process::quote_arg(fs::module_path())+L" --parent-pid "+std::to_wstring(GetCurrentProcessId())+
+        L" --sha256 "+fs::widen(a.networkRelease.sha256)+L" --game-dir "+process::quote_arg(a.view.det.gameDir);
+    if(!a.view.det.configDir.empty())args+=L" --config-dir "+process::quote_arg(a.view.det.configDir);
+    if(!a.view.choices.overwriteSettings)args+=L" --keep-settings";
+    DWORD err=0;
+    if(!updates::start(a.networkFile,args,&err)) {a.view.updateMessage="Could not start the update: "+fs::narrow(fs::win_error_text(err));return;}
+    a.quit=true;
+}
+
 void dispatch(App& a, UiAction action)
 {
     if (action == UiAction::None) return;
     ViewState& v = a.view;
+    if(v.updateDownloading && action!=UiAction::Close) return;
     switch (action) {
     case UiAction::Install:
         start_op(a, v.changingSettings ? "change" : "install", v.changingSettings ? "Writing the settings..." : "Installing...");
         break;
     case UiAction::Browse: browse(a); break;
+    case UiAction::SelectGame:
+        if(v.selectedGame>=0 && v.selectedGame<(int)v.det.games.size()) {
+            a.env.gameDirOverride=v.det.games[v.selectedGame].dir;
+            v.det=detect(a.env);v.choices=v.det.suggested;
+            v.choices.overwriteSettings=profile::get_int(launcher_preferences(),L"Updates",L"OverwriteSettings",1)!=0;
+            v.screen=v.det.modInstalled?Screen::Manage:Screen::Setup;
+            if(v.det.gameFound)profile::set(launcher_preferences(),L"Game",L"Directory",v.det.gameDir,nullptr);
+        }
+        break;
+    case UiAction::CheckUpdates: start_network(a,false);break;
+    case UiAction::DownloadUpdate: start_network(a,true);break;
     case UiAction::Rescan:
         v.det = detect(a.env); v.notice.clear();
         if (v.screen == Screen::Setup && !v.changingSettings) v.choices = v.det.suggested;
@@ -396,9 +460,14 @@ void dispatch(App& a, UiAction action)
         if (process::is_running(kGameExe) != process::Running::No) {
             v.notice = "Dishonored is already running, or its process could not be checked."; break;
         }
-        DVR_INFO("launcher: Steam launch requested (app 205100)");
-        if (!process::open_unelevated(kSteamLaunchUrl)) v.notice = "Could not reach Steam from here; launch Dishonored from your Steam library.";
-        else v.notice = "Asked Steam to launch Dishonored. Put the headset on.";
+        {
+            const auto fresh=discovery::inspect(v.det.gameDir);
+            if(!fresh.valid) { v.notice=fresh.note; break; }
+            const auto launch=discovery::launch_command(v.det.game,discovery::galaxy_path());
+            if(!launch.error.empty()) v.notice=launch.error;
+            else if(!process::open_unelevated(launch.target,launch.args,v.det.game.root)) v.notice="Could not reach the store. Launch Dishonored from your Steam or GOG library.";
+            else v.notice="Asked the store to launch Dishonored. Put the headset on.";
+        }
         break;
     case UiAction::DesktopShortcut: create_shortcut(a, true); break;
     case UiAction::StartShortcut: create_shortcut(a, false); break;
@@ -417,11 +486,11 @@ void dispatch(App& a, UiAction action)
     case UiAction::BackFromGuide: v.screen = v.guideReturn; break;
     case UiAction::Close: a.quit = true; break;
     case UiAction::Update:
-        v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 0) != 0;
+        v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 1) != 0;
         start_op(a, "update", "Updating the mod..."); break;
     case UiAction::ChangeSettings:
         v.changingSettings = true; v.screen = Screen::Setup; v.choices = v.det.suggested;
-        v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 0) != 0;
+        v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 1) != 0;
         v.notice.clear(); break;
     case UiAction::CancelChange:
         v.changingSettings = false; v.screen = Screen::Manage; v.notice.clear(); break;
@@ -445,14 +514,24 @@ int run_gui(HINSTANCE hinst, const Env& env)
     App a;
     g_app = &a;
     a.env = env;
-    a.view.det = detect(env);
+    if(a.env.gameDirOverride.empty() && fs::env(L"DVR_GAME_DIR").empty()) {
+        const auto saved=profile::get(launcher_preferences(),L"Game",L"Directory");
+        if(discovery::inspect(saved).valid)a.env.gameDirOverride=saved;
+    }
+    a.view.det = detect(a.env);
     a.view.choices = a.view.det.suggested;
-    a.view.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 0) != 0;
+    a.view.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 1) != 0;
     a.view.screen = a.view.det.modInstalled ? Screen::Manage : Screen::Setup;
     a.view.logPath = dvr::log::path();
     if (!create_window(a, hinst)) {
         MessageBoxW(nullptr, L"Direct3D 11 could not be started, so the launcher cannot draw its window.\nThe mod itself would not run either; check the graphics driver.", L"Dishonored VR Launcher", MB_ICONERROR);
         return 1;
+    }
+    start_network(a,false);
+    if(env.updateOnStart) {
+        a.view.choices.overwriteSettings=!env.keepSettings;
+        if(a.view.det.gameFound && a.view.det.modInstalled)start_op(a,"update","Installing the downloaded mod update...");
+        else a.view.notice="Launcher updated. Select your game and install the new mod.";
     }
     while (!a.quit) {
         const DWORD timeout = (a.view.busy || a.framesPending > 0) ? 16 : (a.view.report.baselinePending && a.view.screen == Screen::Done ? 500 : 1000);
@@ -466,6 +545,7 @@ int run_gui(HINSTANCE hinst, const Env& env)
         }
         if (a.quit) break;
         finish_worker(a);
+        finish_network(a);
         // Process changes must wake disabled Play/Update buttons after the game
         // exits. This cheap read does not re-detect or reset unsaved UI choices.
         const DWORD processNow = GetTickCount();
@@ -495,6 +575,8 @@ int run_gui(HINSTANCE hinst, const Env& env)
             if (a.framesPending > 0) --a.framesPending;
         }
     }
+    a.cancelNetwork.store(true);
+    if(a.network.joinable())a.network.join();
     if (a.worker.joinable()) a.worker.join();
     ui::release_guide();
     dvr::ovl::release_art();
