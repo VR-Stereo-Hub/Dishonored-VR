@@ -1,3 +1,23 @@
+## 2026-09-24: staging is the integration branch; VR-Main is the release (VR-218)
+
+The 1.0.1 hotfix chain (PRs #114-#117, tag `v1.0.1`) was fast-forwarded onto `VR-Main` on the
+user's instruction, so `VR-Main` is `f5176aeae` = `v1.0.1`. `staging` was created from that
+tip. Open PRs #74, #62, #2 and #118 now have base `staging`.
+
+From here: branch off `staging`, PR against `staging` (`gh pr create --base staging`; the
+default branch stays `VR-Main`), `Fixes VR-<n>` on the first line, merge into `staging` only
+with the user's explicit yes. `VR-Main` moves only by the release PR (`staging` -> `VR-Main`)
+the user merges, and its tip is always the latest release tag. Linear: Done = merged to
+`staging`, Released = carried into `VR-Main` and tagged. Rewritten: `CLAUDE.md`,
+`docs/LINEAR_AND_GITHUB.md`, `CONTRIBUTING.md`, `AGENTS.md`, the PR template, the decision log.
+
+**Owed by the user (UI-only):** the Linear automation row "On PR or commit merge -> Done"
+restricted to base `staging` (Settings > Team > Issue statuses and automations); optionally a
+branch protection rule on `VR-Main` so only the release PR can write it.
+
+Next: VR-219 (snap turn) and VR-220 (trigger-only sword animation), each on its own branch off
+`staging`.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication

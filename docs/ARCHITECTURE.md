@@ -1140,3 +1140,21 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+## 2026-09-24: staging is the integration branch; VR-Main tracks releases (VR-218)
+
+Until this date VR-Main was the only branch. The 1.0.0 release and the tester zips before it
+were cut from the same tip as work still being judged, and the 1.0.1 hotfix was tagged from a
+stack of draft PRs that VR-Main did not contain, so "what can a player install" could not be
+read from a branch name. The hotfix chain was fast-forwarded onto VR-Main (its tip is the
+v1.0.1 commit), `staging` was created from that tip, and the four open PRs based on VR-Main
+were retargeted to staging.
+
+The rule from here: feature branches come off staging and their PRs target staging; merging
+into staging still needs the user's explicit yes per PR; VR-Main moves only by the release PR
+(staging -> VR-Main, merged by the user) and its tip is always the latest release tag. Linear
+Done now means merged to staging; Released means carried into VR-Main and tagged, and the
+Linear automation row that marks Done is restricted to base staging. The alternative, a
+release branch cut per version, was not taken: two long-lived branches whose difference is
+exactly "what has landed since the last release" is the smallest arrangement that answers the
+question, and a per-version branch would have to be found before it could be read.

@@ -24,11 +24,16 @@ The short version:
 
 1. Search Linear. Create the ticket from the template if it is not there, with project,
    milestone, priority and a `Type` label filled in.
-2. Branch `<owner>/vr-<n>-<slug>` off `VR-Main`. Copy the name from the ticket.
+2. Branch `<owner>/vr-<n>-<slug>` off `staging`. Type the name; do not copy Linear's
+   branch name, it carries the account holder's name.
 3. Validate in the simulator (`tools\xrsim-*`) before asking anyone for a headset run.
-4. Open the PR with `Fixes VR-<n>` as the first line of the body, and fill in the template.
-5. Merge to `VR-Main`. Linear marks the ticket Done.
+4. Open the PR **against `staging`** with `Fixes VR-<n>` as the first line of the body, and
+   fill in the template.
+5. Merge to `staging` once the maintainer says so. Linear marks the ticket Done.
 6. Update `docs/STATUS.md`, tick `docs/ROADMAP.md`, push.
+
+`VR-Main` is the release branch: its tip is always the latest tag on the Releases page, and
+only the release PR (`staging` -> `VR-Main`) moves it.
 
 ## Before you write any code
 

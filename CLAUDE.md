@@ -11,17 +11,21 @@ gamepad, and (when the motion controls are back on) draws its own hands and aims
 projectiles by hand. One backend: OpenXR - VDXR (Quest via Virtual Desktop), any native
 32-bit runtime, or the bundled `dvr_steamvr32.dll` shim for SteamVR rigs. Original mod by
 GingasVR (shipped alpha 38.92, discontinued); this repo continues it with the author's
-permission. Single game, one branch: `VR-Main`.
+permission. Single game, two branches: **`staging`** (integration; every PR lands here) and
+**`VR-Main`** (release; its tip is always the latest tag on the Releases page, moved only by the
+release PR `staging` -> `VR-Main` that the user merges).
 
 ## Hard rules
 
-- **NEVER MERGE TO `VR-Main` WITHOUT EXPLICIT PERMISSION.** Committing, pushing a feature
-  branch and opening a PR are all fine on your own judgement - none of them touch `VR-Main`.
-  **The merge is the gate**, and it is the one irreversible step. Ask, show exactly what is
-  about to land, and wait for a yes. A passing build is not permission. A finished feature is
-  not permission. **"This branch is good to go", "looks great", "nice work" and "close the
-  ticket" are NOT permission** - they are approval of the work, not of the merge; the only
-  thing that counts is the user saying to merge it. If in doubt, do not merge and ask.
+- **NEVER MERGE TO `staging` OR `VR-Main` WITHOUT EXPLICIT PERMISSION.** Committing, pushing a
+  feature branch and opening a PR against `staging` are all fine on your own judgement - none of
+  them touch either branch. **The merge into `staging` is the per-PR gate**, and it is the one
+  irreversible step. Ask, show exactly what is about to land, and wait for a yes. A passing build
+  is not permission. A finished feature is not permission. **"This branch is good to go", "looks
+  great", "nice work" and "close the ticket" are NOT permission** - they are approval of the
+  work, not of the merge; the only thing that counts is the user saying to merge it. If in doubt,
+  do not merge and ask. `VR-Main` is never a PR base for ordinary work: it moves only in the
+  release ritual (`docs/LINEAR_AND_GITHUB.md`), by a release PR the user merges themselves.
 
 - **NEVER commit game-derived content**: no decompiled UnrealScript, no extracted assets, no
   frame dumps, captures or crash dumps. `tools/uscript/` and `*.png/*.bmp/*.dmp` are gitignored
@@ -61,8 +65,10 @@ permission. Single game, one branch: `VR-Main`.
 - **Every change starts from a Linear ticket** in the "Dishonored VR Mod" project (team `VR`,
   workspace `vr-stereo-hub`). Search first; create from the template if it is not there, with
   project, milestone, priority and a `Type` label filled in. Branch `<owner>/vr-<n>-<slug>`
-  off `VR-Main`; the PR body's FIRST line is `Fixes VR-<n>` (or `Ref VR-<n>` when the base is
-  a working branch, so only the PR reaching `VR-Main` closes the ticket).
+  off `staging`; the PR's base is `staging` (`gh pr create --base staging`; the default branch
+  is `VR-Main`, so an unqualified PR targets the wrong branch); the PR body's FIRST line is
+  `Fixes VR-<n>` (or `Ref VR-<n>` when the base is a working branch, so only the PR reaching
+  `staging` closes the ticket; the release PR carries neither).
   **An agent never declares a release and never creates a milestone** - it may report that a
   milestone is full or that its tickets are all Done, and ask. How the work is carved into
   shippable pieces is the user's call. The whole flow is `docs/LINEAR_AND_GITHUB.md`.
@@ -255,7 +261,7 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 - **START**: read `docs/STATUS.md`, the current milestone in `docs/ROADMAP.md`, then
   `git log --oneline -10`. **Find the Linear ticket** for the work (search before creating;
   create from the template if absent, with project, milestone, priority and a `Type` label),
-  move it to In Progress and branch `<owner>/vr-<n>-<slug>` off `VR-Main`. Touching engine
+  move it to In Progress and branch `<owner>/vr-<n>-<slug>` off `staging`. Touching engine
   internals? Read `docs/dishonored/ENGINE_NOTES.md` first; new findings go there in the same
   commit as the code.
 - **Validate in the SIMULATOR before asking for a headset.** `tools\xrsim-launch.ps1` runs the
@@ -269,8 +275,9 @@ Extensive does not mean noisy. The rules that buy volume without cost:
 - **END**: rewrite "Current state" and "Next steps" in `docs/STATUS.md`, append a dated session
   log entry, tick `docs/ROADMAP.md` boxes, commit, push. A session that ends without pushing
   STATUS.md is a failed handoff. Copy the headset log out before every relaunch (rotation keeps
-  ten sessions). Open the PR with `Fixes VR-<n>` as the body's first line and fill in
-  `.github/PULL_REQUEST_TEMPLATE.md`; merging to `VR-Main` moves the ticket to Done. Put
+  ten sessions). Open the PR against `staging` with `Fixes VR-<n>` as the body's first line
+  and fill in `.github/PULL_REQUEST_TEMPLATE.md`; merging to `staging` moves the ticket to Done
+  (`Released` comes with the release PR into `VR-Main` and the tag). Put
   measurements and verdicts on the TICKET, not only the PR - the ticket outlives the branch.
   File a ticket for every fault found and deliberately not fixed, and name it in the PR's
   "what is deliberately not here". If a group of tickets closed, post one batch project

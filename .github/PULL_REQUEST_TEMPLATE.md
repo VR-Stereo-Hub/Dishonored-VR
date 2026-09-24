@@ -2,8 +2,10 @@ Fixes VR-
 
 <!--
   Line 1 above is the Linear link and it must be the first line of the body.
-    Fixes VR-42   when this PR targets VR-Main. Merging it closes the ticket.
+    Fixes VR-42   when this PR targets staging. Merging it closes the ticket.
     Ref   VR-42   when this PR targets a working branch. Links without closing.
+  The base is staging. VR-Main is the release branch; only the release PR
+  (staging -> VR-Main, no Fixes/Ref line) targets it.
   No ticket yet? Create one first. See docs/LINEAR_AND_GITHUB.md.
 
   Title: a conventional-commit subject - feat: / fix: / docs: / build: / tools: /
