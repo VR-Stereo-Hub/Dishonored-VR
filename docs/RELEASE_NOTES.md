@@ -14,6 +14,11 @@
   instructions (L3 + R3). Update buttons show the version without the build ID.
 - Downloads verify size, SHA-256 and version. Failed mod updates restore the
   previous files; replacing the launcher also preserves a backup.
+- Fix Collect logs failing with a missing temporary folder on fresh installations.
+- Keep the current game log plus nine previous runs. Support ZIPs include the
+  newest logs first and stay below 24 MB; oversized current logs retain the build
+  header and latest events, with omissions clearly listed in the manifest.
+- Missing or unreadable optional evidence no longer prevents collecting the rest.
 - Host checks pass; headset and actual GOG launch acceptance are pending.
 
 # 1.0.0 (first public release)

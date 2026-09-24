@@ -1,8 +1,13 @@
 ## Collect a crash report
 
-After a problem, double-click Collect VR Support.cmd beside Dishonored.exe.
+After a problem, click Collect logs in the launcher (or use Collect VR Support.cmd
+beside Dishonored.exe when present).
 A ZIP appears in Desktop/DishonoredVR Support. Send it with what you were doing,
 your headset/runtime and any texture mods. Collect before relaunching if possible.
+The game retains the current log and nine previous sessions. ZIPs prioritize the
+newest game logs and stay below 24 MB. An oversized current log keeps its build
+header and latest events; manifest.json lists every excerpt and omitted file.
+Older sessions overwritten before this feature was installed cannot be recovered.
 Nothing uploads automatically; logs can contain local paths. Memory dumps are
 excluded unless explicitly requested. See CRASH_SUPPORT.md in the repository.
 
@@ -10,27 +15,29 @@ excluded unless explicitly requested. See CRASH_SUPPORT.md in the repository.
 
 First: find your log. It is `dishonored_vr.log` in the game folder (next to `Dishonored.exe`,
 `...\steamapps\common\Dishonored\Binaries\Win32\`). The previous run is
-`dishonored_vr.prev.log`; a crash also writes `dishonored_vr_crash.txt`. Send the log with any
+`dishonored_vr.prev.log`, with older runs in `.prev2.log` through `.prev9.log`;
+a crash also writes `dishonored_vr_crash.txt`. Send the log with any
 report; the first lines say which build you run and which OpenXR runtime answered.
 
 **The game does not start / "d3d9.dll" error dialog.** The proxy is the 32-bit build for the
-Steam version. Delete `d3d9.dll` to get the stock game back (or rename it and keep the rest).
+original Steam or GOG version. Delete `d3d9.dll` to get the stock game back (or rename it and keep the rest).
 An older release's `dxvk_d3d9.dll` next to it is ignored; delete it too.
 
-**The installer (DishonoredVR-Setup.exe) says...** "Dishonored is running": quit the game
+**The installer (DishonoredVR-Launcher.exe) says...** "Dishonored is running": quit the game
 through its own menu, all the way to the desktop, then try again (its `d3d9.dll` is in use).
 "Install (administrator)": the game folder is not writable by your account; the button asks
 for administrator rights once and the install runs elevated in the background. "Could not
 write DishonoredEngine.ini, access is denied" even so: Controlled Folder Access in Windows
-Security (or an antivirus) is protecting Documents; allow `DishonoredVR-Setup.exe` there,
+Security (or an antivirus) is protecting Documents; allow `DishonoredVR-Launcher.exe` there,
 or run `setup-game-ini.ps1 -VRBaseline` from the zip. "Waiting for the game's first run":
 the game has never run on this PC, so its settings folder does not exist yet; launch it once
-from Steam, quit, and the open installer window applies the last four settings by itself.
+from Steam or GOG, quit, and the open installer window applies the last four settings by itself.
 "d3dcompiler_47.dll is missing": run Windows Update or install the DirectX End-User Runtime;
 both the installer and the mod need it. "Dishonored was not found": Steam is not installed,
-or the game is not in a Steam library; use Change to point at the folder holding
-`Dishonored.exe` (GOG is a different exe and is not supported). The installer's own log is
-`%LOCALAPPDATA%\DishonoredVR\dishonored_vr_setup.log`.
+or the game was not found in a Steam/GOG library; use Choose folder on the home
+page to point at the folder holding
+`Dishonored.exe` in Binaries\Win32. Win64 editions are incompatible. The installer's own log is
+`%LOCALAPPDATA%\DishonoredVR\dishonored_vr_launcher.log`.
 
 **It flickers for the first few seconds after a level loads, like the two eyes are
 alternating.** Known, and it clears itself. While the level streams in, the game cannot keep up

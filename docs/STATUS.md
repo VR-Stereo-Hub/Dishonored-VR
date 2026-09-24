@@ -1,3 +1,33 @@
+## Reliable support collection and ten-run history (VR-215, 2026-09-24)
+
+Stacked on VR-214, branch codex/vr-215-support-log-history, still 1.0.1.
+Released 1.0.0 native collection reproduces Windows error 3 on a fresh TEMP
+profile: CreateDirectory was called on a nested path with no parent. The helper
+now creates parents and retries under LocalAppData when TEMP is unusable. It
+reports the actual failing path and flushes the launcher log before collecting.
+
+The game and launcher keep ten sessions: current, .prev, and .prev2 through .prev9.
+A failed archive move does not truncate the current log. Support ZIPs have a hard
+24,000,000-byte ceiling (headroom below the requested 25 MB), compressed byte
+accounting, bounded context reservation and newest-first game history. If the
+current log alone is too large it retains its header and tail with an explicit
+omission marker. Manifest includes source size/time, collected hash, truncation,
+omitted files and read failures. Missing INI/data drive and unreadable optional
+files do not abort the rest. Large files stream; no whole-log RAM buffer or raw
+staging copy. Optional dumps remain opt-in and obey the same cap.
+
+Validation: production logger 27 checks (14-run retention, one-deep migration,
+locked archive), Windows PowerShell 5.1 budget suite 17 checks, existing collector
+suite, and the real launcher helper. The old EXE fails, the new EXE succeeds on
+the same fresh profile, all ten fixture sessions survive in order, and unusable
+TEMP falls back. A 32 MB incompressible log produces a 23.74 MB ZIP retaining both
+ends. Game launch/headset test not performed. Supplied attachment was a launcher
+log, not FOV telemetry; user explicitly deferred further FOV-log verification.
+
+Next: tester can use Collect logs after reproducing an issue; history begins
+accumulating with this build and cannot recover sessions already overwritten by
+1.0.0. No merge or public release authorized.
+
 ## Launcher self-update and GOG candidate (VR-214, 2026-09-24)
 
 Branch codex/vr-214-launcher-updates is stacked on the VR-213 FOV hotfix,

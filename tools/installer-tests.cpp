@@ -255,8 +255,21 @@ static void test_shortcut()
     CoUninitialize();
 }
 
+static void test_recursive_directories()
+{
+    const auto root=fs::join(fs::temp_dir(),L"dvr-dir-check-"+std::to_wstring(GetTickCount64()));
+    DWORD error=0;
+    const auto nested=fs::join(root,L"new parent\\child");
+    CHECK(fs::make_dirs(nested,&error));CHECK(fs::is_dir(nested));
+    CHECK(fs::make_dirs(nested,&error));
+    const auto blocked=fs::join(root,L"file");
+    CHECK(fs::write_file_atomic(blocked,"x",1,&error));
+    CHECK(!fs::make_dir(blocked,&error));CHECK(!fs::make_dirs(fs::join(blocked,L"child"),&error));
+}
+
 int main()
 {
+    test_recursive_directories();
     test_shortcut();
     test_game_ini_scoped();
     test_game_ini_case();

@@ -196,7 +196,7 @@ anything that is not perceptual without costing a person their evening -
 Most of this project's open bugs live on machines we cannot attach a debugger to, so a run
 that reproduces a fault and explains nothing is a wasted run and a wasted tester. Every
 session writes `dishonored_vr.log` next to the exe (previous run rotated to
-`dishonored_vr.prev.log`); `dvr::log::init` runs from `DllMain` before anything else can
+`dishonored_vr.prev.log`, then `.prev2.log` through `.prev9.log`, ten sessions total); `dvr::log::init` runs from `DllMain` before anything else can
 fail, and **must never be gated** on VR bring-up, a config read, or a headset being present.
 A run always produces a log, even one that dies in the first second.
 
@@ -268,8 +268,8 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   `docs/ARCHITECTURE.md`.
 - **END**: rewrite "Current state" and "Next steps" in `docs/STATUS.md`, append a dated session
   log entry, tick `docs/ROADMAP.md` boxes, commit, push. A session that ends without pushing
-  STATUS.md is a failed handoff. Copy the headset log out before every relaunch (rotation is
-  one deep). Open the PR with `Fixes VR-<n>` as the body's first line and fill in
+  STATUS.md is a failed handoff. Copy the headset log out before every relaunch (rotation keeps
+  ten sessions). Open the PR with `Fixes VR-<n>` as the body's first line and fill in
   `.github/PULL_REQUEST_TEMPLATE.md`; merging to `VR-Main` moves the ticket to Done. Put
   measurements and verdicts on the TICKET, not only the PR - the ticket outlives the branch.
   File a ticket for every fault found and deliberately not fixed, and name it in the PR's

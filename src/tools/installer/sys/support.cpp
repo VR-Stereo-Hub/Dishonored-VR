@@ -8,14 +8,22 @@ namespace dvr::setup::support {
 bool collect(const std::wstring& gameDir, const std::wstring& outDir, bool openFolder, std::string* notice)
 {
     const resources::Blob script = resources::rcdata(IDR_COLLECT_SUPPORT);
-    const std::wstring dir = fs::join(fs::temp_dir(), L"DishonoredVR-Launcher\\support-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
-    const std::wstring ps1 = fs::join(dir, L"collect-support.ps1");
-    const std::wstring out = fs::join(dir, L"collect-support.out.txt");
-    DWORD err = 0;
-    if (!fs::make_dir(dir, &err) || !script.ok() || !fs::write_file_atomic(ps1, script.data, script.size, &err)) {
-        *notice = "Could not unpack the support collector: " + fs::narrow(fs::win_error_text(err));
-        return false;
+    if(!script.ok()) { *notice="This launcher is missing the support collector. Download the launcher again.";return false; }
+    // VR-215: CreateDirectory only made the leaf, failing on a fresh profile.
+    // TEMP can also point at a deleted or blocked folder; try local app data next.
+    std::wstring dir,ps1,out;
+    DWORD err=0;
+    const auto leaf=L"support-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64());
+    for(const auto& root:{fs::join(fs::temp_dir(),L"DishonoredVR-Launcher"),
+                         fs::join(fs::known_folder(FOLDERID_LocalAppData),L"DishonoredVR\\SupportCollector")}) {
+        dir=fs::join(root,leaf);ps1=fs::join(dir,L"collect-support.ps1");out=fs::join(dir,L"collect-support.out.txt");
+        if(fs::make_dirs(dir,&err) && fs::write_file_atomic(ps1,script.data,script.size,&err)) {err=0;break;}
+        DVR_WARN("launcher: collector staging failed at %s: %s",fs::narrow(dir).c_str(),fs::narrow(fs::win_error_text(err)).c_str());
     }
+    if(err) {
+        *notice="Could not prepare support collection in "+fs::narrow(dir)+": "+fs::narrow(fs::win_error_text(err));return false;
+    }
+    dvr::log::flush();
     // This launcher is 32-bit: Sysnative reaches the full system PowerShell on
     // 64-bit Windows. Never resolve an executable from Downloads or PATH.
     wchar_t windows[MAX_PATH]{}; GetWindowsDirectoryW(windows, MAX_PATH);
@@ -25,7 +33,7 @@ bool collect(const std::wstring& gameDir, const std::wstring& outDir, bool openF
     if (!outDir.empty()) cmd += L" -OutDir " + process::quote_arg(outDir);
     if (!openFolder) cmd += L" -NoOpen";
     DWORD code = 0;
-    if (!process::run_wait(cmd, &code, &err, 120000, out)) {
+    if (!process::run_wait(cmd, &code, &err, 300000, out)) {
         *notice = "Could not run the collector: " + fs::narrow(fs::win_error_text(err)); return false;
     }
     std::vector<uint8_t> bytes; fs::read_file(out, &bytes, nullptr);

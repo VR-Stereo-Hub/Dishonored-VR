@@ -20,6 +20,11 @@ try {
  if($names -contains 'fixture.dmp' -or $names -contains 'secret.upk'){throw 'Unexpected private/game content'}
  $reader=[IO.StreamReader]::new($archive.GetEntry('manifest.json').Open())
  try {$manifest=$reader.ReadToEnd() | ConvertFrom-Json}finally{$reader.Dispose()}
+ foreach($file in $manifest.files) {
+  if($file.truncated -or $file.sourceBytes -ne $file.copiedBytes){throw "Small source unexpectedly shortened: $($file.name)"}
+ }
+ $entry=$archive.GetEntry('dishonored_vr.log');$reader=[IO.StreamReader]::new($entry.Open())
+ try {if($reader.ReadToEnd().Trim() -ne 'fixture log'){throw 'Log content changed'}}finally{$reader.Dispose()}
  if($manifest.errors.Count -or $manifest.dataDir -ne $data -or $manifest.dumpInventory.Count -ne 1){throw 'Manifest/directory resolution failed'}
 } finally {$archive.Dispose()}
 & "$PSScriptRoot\collect-support.ps1" -GameDir $game -OutDir (Join-Path $root 'with-dump') -IncludeLatestDump -NoOpen

@@ -15,6 +15,7 @@ bool exists(const std::wstring& path);
 bool is_dir(const std::wstring& path);
 bool is_file(const std::wstring& path);
 bool make_dir(const std::wstring& path, DWORD* err);          // one level; ok when it exists
+bool make_dirs(const std::wstring& path, DWORD* err);         // creates missing parents
 std::wstring join(const std::wstring& a, const std::wstring& b);
 std::wstring parent(const std::wstring& path);
 std::wstring filename(const std::wstring& path);

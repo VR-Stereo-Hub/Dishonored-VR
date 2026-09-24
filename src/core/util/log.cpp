@@ -44,12 +44,28 @@ void init(const char* dir, const char* base)
 {
     lock();
     if (!g_file) {
-        char prev[MAX_PATH];
         snprintf(g_path, sizeof(g_path), "%s\\%s.log", dir, base);
-        snprintf(prev, sizeof(prev), "%s\\%s.prev.log", dir, base);
-        MoveFileExA(g_path, prev, MOVEFILE_REPLACE_EXISTING);   // no-op on first run
-        // _SH_DENYNO so tools\tail-log.ps1 can follow the file while the game runs
-        g_file = _fsopen(g_path, "w", 0x40 /* _SH_DENYNO */);
+        DWORD rotateError=0;
+        // VR-215: ten sessions total. Keep .prev.log as the immediate predecessor
+        // for existing tooling; .prev2.log through .prev9.log are older sessions.
+        if(GetFileAttributesA(g_path)!=INVALID_FILE_ATTRIBUTES) {
+            for(int age=8;age>=0;--age) {
+                char from[MAX_PATH],to[MAX_PATH];
+                if(age==0) snprintf(from,sizeof(from),"%s\\%s.log",dir,base);
+                else if(age==1) snprintf(from,sizeof(from),"%s\\%s.prev.log",dir,base);
+                else snprintf(from,sizeof(from),"%s\\%s.prev%d.log",dir,base,age);
+                if(age==0) snprintf(to,sizeof(to),"%s\\%s.prev.log",dir,base);
+                else snprintf(to,sizeof(to),"%s\\%s.prev%d.log",dir,base,age+1);
+                if(!MoveFileExA(from,to,MOVEFILE_REPLACE_EXISTING)) {
+                    const DWORD error=GetLastError();
+                    if(error!=ERROR_FILE_NOT_FOUND && error!=ERROR_PATH_NOT_FOUND) {rotateError=error;break;}
+                }
+            }
+        }
+        // Never truncate the previous run if a locked archive prevents rotation.
+        // _SH_DENYNO lets tools read the current log while the game runs.
+        g_file = _fsopen(g_path, rotateError?"a":"w", 0x40 /* _SH_DENYNO */);
+        if(g_file && rotateError) fprintf(g_file,"log: history rotation failed (%lu); appending to preserve previous evidence.\n",rotateError);
         g_flushTick = GetTickCount();
     }
     unlock();

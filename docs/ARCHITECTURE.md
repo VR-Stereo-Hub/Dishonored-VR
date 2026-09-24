@@ -1127,3 +1127,16 @@ metadata/registry supplies Galaxy's base game ID; no ID is guessed. A valid
 unknown-store 32-bit installation can still be installed manually. A Win64 folder
 or PE64 executable cannot receive the payload. User selection is saved separately
 from game settings. Render-resolution defaults are unchanged by this feature.
+
+## Bounded support evidence (VR-215, 2026-09-24)
+
+Log history is rotated at initialization using kernel32/static CRT only, preserving
+DllMain safety and existing .prev.log tooling. There are ten sessions total and no
+new frame-loop work. The collector streams fixed-length snapshots with sharing
+for active logs, compresses separate trial entries, and uses measured compressed
+sizes to allocate a 24 MB budget. The final archive combines accepted entries and
+is measured before its final rename. This trades a second compression pass for
+bounded RAM, predictable disk use and a provable size check. Current oversized
+logs retain build context and recent failure evidence; the manifest makes every
+excerpt or omission explicit. Collection remains local and does not include game
+assets or implicit process dumps.

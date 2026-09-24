@@ -401,3 +401,20 @@ reopened launcher's version and scratch DLL/INI hashes. No real game is needed.
 The live API/download plus local helper/payload tests cover the components now;
 they do not claim a public future-release GUI round trip has already occurred.
 Actual GOG game launch is a separate tester-owned acceptance step.
+
+## Support collection/history (VR-215)
+
+`tools/log-history-host.ps1` uses the production logger for 14 sessions, verifies
+exact newest-ten order, migration from .prev-only, and locked-archive preservation.
+`tools/support-collector-tests.ps1` checks full small-file contents, live-readable
+logs, whitelisting and explicit dumps. `tools/support-budget-tests.ps1` checks
+compressed-size selection, complete hashes, current-log header/tail, unavailable
+data drive, no INI and unreadable logs. Run it with Windows PowerShell 5.1, which
+is the launcher's real child runtime; PowerShell 7 alone misses assembly-loading
+and provider-dependent differences.
+
+`tools/support-launcher-tests.ps1 [-OldLauncher <1.0.0-exe>]` calls the native
+--collect-logs entry point without opening UI or a game. It reproduces old error
+3, then verifies recursive staging, Unicode paths, exact ten-log order and TEMP
+fallback. The 32 MB incompressible fixture yields a roughly 23.74 MB archive
+under the production 24,000,000-byte cap. None of these fixtures is a headset run.

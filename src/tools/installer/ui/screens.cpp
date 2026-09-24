@@ -327,8 +327,8 @@ UiAction draw_manage(ViewState& v)
             if (button(v.det.disabled ? "Enable VR" : "Disable VR", false, true, half)) action = UiAction::ToggleDisable;
             dvr::ovl::tip("Disable leaves the mod installed and switches it off with a disable_vr.txt beside the game, so Dishonored runs flat. Enable removes the file.");
             ImGui::SameLine();
-            if (button("Collect logs", false, v.det.iniExists, half)) action = UiAction::CollectSupport;
-            dvr::ovl::tip("Zips the mod's log, ini and crash report into a folder on your Desktop for a bug report. Nothing is uploaded.");
+            if (button("Collect logs", false, v.det.gameFound, half)) action = UiAction::CollectSupport;
+            dvr::ovl::tip("Collects up to ten game logs, newest first, with settings and crash details. ZIP stays below 24 MB; oversized current logs keep their header and latest events. Nothing is uploaded.");
             if (button("Create desktop shortcut", false, true, half)) action = UiAction::DesktopShortcut;
             dvr::ovl::tip("Keeps a copy of this launcher in your user profile, then creates a Desktop shortcut.");
             ImGui::SameLine();

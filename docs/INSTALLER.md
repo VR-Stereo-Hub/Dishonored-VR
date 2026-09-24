@@ -317,3 +317,36 @@ the first meaningful error is shown. GUI and --collect-logs share one helper:
 This headless check writes a local ZIP without opening Explorer or launching the
 game. The real-folder regression collected 19 evidence files, four binary hashes
 and machine details with zero manifest errors. Nothing is uploaded.
+
+## 1.0.1 support collection and history (VR-215)
+
+The 1.0.0 error 3 happened before PowerShell: the launcher used single-level
+CreateDirectory for TEMP/DishonoredVR-Launcher/support-<id>, and the parent did
+not exist on fresh profiles. The helper creates missing parents, falls back to
+LocalAppData/DishonoredVR/SupportCollector if TEMP is unusable, and reports the
+failing path if neither works. Collection flushes its launcher log first. The
+system PowerShell process emits UTF-8 so non-ASCII output paths remain usable.
+Default output is Desktop/DishonoredVR Support, with LocalAppData and temp
+fallbacks for unavailable redirected desktops; explicit output errors stay visible.
+
+Both logger users retain ten sessions: .log, .prev.log, .prev2.log through
+.prev9.log. Old one-deep histories migrate without losing the previous log.
+Rotation happens only at initialization, never in the frame loop. If an archive
+move fails, the logger appends rather than truncating the current evidence and
+records why. Separate source paths retain separate names in the support ZIP.
+
+The ZIP is capped at 24,000,000 bytes. Small context gets a bounded reservation;
+game logs are tried newest to oldest, then other diagnostics. Each file snapshot
+is compressed independently with a streaming byte cap, so no guessed compression
+ratio or unbounded raw staging copy decides what fits. Current oversized text
+logs retain a header/tail excerpt; older oversized logs can be omitted so smaller
+older evidence still fits. Manifest records source/copy sizes, exact ZIP-content
+hashes, timestamps, omissions and read errors. Full small files remain exact.
+The final archive is measured before publication; an oversized ZIP is refused.
+Collection never uploads. Dumps remain explicit opt-in and share the size budget.
+
+Tests: tools/log-history-host.ps1, support-collector-tests.ps1,
+support-budget-tests.ps1 (run under Windows PowerShell 5.1), and
+support-launcher-tests.ps1. The last uses the actual 32-bit launcher, a fresh temp
+profile, a Unicode path, ten fixture sessions and an unusable TEMP. Optional
+-OldLauncher reproduces the released error before exercising the fix.

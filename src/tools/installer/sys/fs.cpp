@@ -24,8 +24,18 @@ bool is_file(const std::wstring& path)
 }
 bool make_dir(const std::wstring& path, DWORD* err)
 {
-    if (CreateDirectoryW(path.c_str(), nullptr) || GetLastError() == ERROR_ALREADY_EXISTS) return true;
+    if (CreateDirectoryW(path.c_str(), nullptr)) return true;
+    if (GetLastError() == ERROR_ALREADY_EXISTS && is_dir(path)) return true;
     if (err) *err = GetLastError();
+    return false;
+}
+
+bool make_dirs(const std::wstring& path, DWORD* err)
+{
+    if (is_dir(path)) return true;
+    const int code=SHCreateDirectoryExW(nullptr,path.c_str(),nullptr);
+    if (code==ERROR_SUCCESS || ((code==ERROR_ALREADY_EXISTS || code==ERROR_FILE_EXISTS) && is_dir(path))) return true;
+    if(err)*err=(DWORD)code;
     return false;
 }
 

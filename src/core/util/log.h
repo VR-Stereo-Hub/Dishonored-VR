@@ -25,7 +25,7 @@ enum class Cat : uint8_t {
     COUNT
 };
 
-// Opens <dir>\<base>.log, rotating an existing one to <base>.prev.log so the
+// Opens <dir>\<base>.log, keeping ten sessions: current, .prev.log, .prev2.log through .prev9.log. The
 // run that crashed survives the relaunch that reports it. Safe under the
 // loader lock: kernel32 + the static CRT only.
 void init(const char* dir, const char* base);

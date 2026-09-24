@@ -1,3 +1,11 @@
+## Support logs and history (VR-215)
+
+- [x] Reproduce released launcher error 3 with a fresh temp parent.
+- [x] Recursive staging with app-data fallback and UTF-8 output paths.
+- [x] Ten sessions retained; failed rotation preserves current evidence.
+- [x] Compressed ZIP cap, newest-first history and marked header/tail excerpts.
+- [x] Real helper, Windows PowerShell 5.1, locked/missing files and size tests.
+
 ## Launcher updates and GOG support (VR-214)
 
 - [x] GitHub startup update prompt, verified download and EXE replacement.
