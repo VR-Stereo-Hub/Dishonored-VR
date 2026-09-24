@@ -1,3 +1,36 @@
+## Published 1.0.1; prepared 1.0.2 (VR-217, 2026-09-24)
+
+Public release: https://github.com/VR-Stereo-Hub/Dishonored-VR/releases/tag/v1.0.1
+Immutable tag points to f5176aeaebeee8f1d241554b37256a3a65c44191. VR-213 through
+VR-216 are Released. Their stacked PRs remain open; VR-Main is not merged and
+the broader Stable milestone is not closed.
+
+GitHub EXE: 53172224 bytes, SHA256
+a0dc8da295e1ab025d48e191990d34d3df7f0936956fafcff070d62caaac6e61.
+ZIP: 16765759 bytes, SHA256
+3baac99bba54e51225a99440f2b81b12b36817308b5a9d900687ec78814783fe.
+Production updater passed 60 checks against public 1.0.1, downloaded/verified the
+EXE, then that downloaded EXE replaced a scratch launcher and installed the exact
+embedded mod DLL. Final native installer smoke, ZIP CRC/payload matching, lint,
+17 support-budget tests and native collector tests passed. Actual local support
+bundle after the game run: 6186150 bytes, 21 files, 0 omissions. No private logs,
+captures, simulator or game assets uploaded.
+
+Installed public 1.0.1 DLL SHA256
+87d57c92912a26e3e378f63cddb951a617cb122296294d3b9762834a74149a10;
+stable LocalAppData launcher matches public EXE. Installed INI remains entirely
+byte-identical with CRLF. Game run used 5033e4764; final commit changes only docs
+and updater host-test version arguments. See the next section for evidence and
+limitations. This PC never reproduced the affected FOV contraction.
+
+Current development branch: codex/vr-217-prepare-1.0.2, based on v1.0.1. CMake is
+1.0.2 and release notes have an empty unreleased section. No 1.0.2 binaries are
+installed or published. Tomorrow add the requested changes, validate, then use
+package.ps1. Publish tag v1.0.2 with DishonoredVR-Launcher-v1.0.2.exe and its ZIP;
+verify GitHub size/digest before publication. The 1.0.1 launcher can then offer it.
+Never replace same-version assets to deliver an update. Keep 1.0.1 tag immutable.
+The original workspace branch was left unchanged; continue in this worktree.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication

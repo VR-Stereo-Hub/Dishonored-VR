@@ -1,3 +1,7 @@
+## 1.0.2 (unreleased)
+
+Development starts from v1.0.1. Add player-facing changes here as they land.
+
 ## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic
