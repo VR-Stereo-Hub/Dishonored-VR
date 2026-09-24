@@ -32,7 +32,7 @@ try {
     if($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read version' }
     $version=$Matches[1]
     $launcher = Join-Path $repo "build\src\RelWithDebInfo\DishonoredVR-Launcher-v$version.exe"
-    if ($Live) { & .\launcher_checks.exe $launcher --live } else { & .\launcher_checks.exe $launcher }
+    if ($Live) { & .\launcher_checks.exe $launcher $version --live } else { & .\launcher_checks.exe $launcher $version }
     $rc = $LASTEXITCODE
 } finally {
     Pop-Location

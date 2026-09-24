@@ -1,7 +1,7 @@
-Dishonored VR 1.0.0 - quick start
+Dishonored VR 1.0.1 - quick start
 ==========================================================================
 
-THE EASY WAY: run DishonoredVR-Launcher-v1.0.0.exe (beside this zip on the Releases page).
+THE EASY WAY: run DishonoredVR-Launcher-v1.0.1.exe (beside this zip on the Releases page).
 It does steps 1 to 3 below for you, asks which headset you use and how many
 pixels to render, and can be run again later to update, change those two
 settings, disable VR or uninstall. The rest of this file is the by-hand route.
@@ -25,13 +25,12 @@ settings, disable VR or uninstall. The rest of this file is the by-hand route.
    the mod sets itself: the settings in dishonored_vr.ini already ship at the
    values this build was tuned and tested at, so a fresh install matches the
    development machine without any editing.
-4. Launch the game from Steam.
+4. Launch directly from Steam or GOG, or use Launch via Steam/GOG in the launcher.
    - Quest via Virtual Desktop: start VD streaming with VDXR as the OpenXR
      runtime. Recommended: 120 Hz, or 144 Hz with Virtual Desktop Beta. SSW off.
    - SteamVR headsets (Vive, Index, WMR through SteamVR): start SteamVR first;
      the mod uses the bundled shim (dvr_steamvr32.dll).
-5. F5 recenters, F10 opens the settings overlay (screen distance and width).
-   Turn Motion Blur off in the game's options.
+5. F5 recenters. L3 + R3 opens the settings panel (F10 also works).
 
 Stereo VR, tracked hands, motion controls, physical leaning/crouching and
 F10 settings. See Bindings in the launcher or Layout in F10 for the controller
@@ -39,7 +38,7 @@ picture. F10: click both sticks; VD performance overlay: hold both sticks.
 The launcher can collect logs and create Desktop or Start menu shortcuts.
 
 Files the mod writes next to the game exe: dishonored_vr.ini (settings),
-dishonored_vr.log (send this with any bug report), dishonored_vr.prev.log,
+dishonored_vr.log (send this with any bug report), dishonored_vr.prev.log through dishonored_vr.prev9.log,
 dishonored_vr_crash.txt (only after a crash). Delete dishonored_vr.ini to
 reset every setting. This build replaces an older dishonored_vr.ini with the
 tested settings ONCE, on the first launch (your VR runtime choice is kept);
@@ -52,3 +51,10 @@ Startup logos are suppressed automatically by the proxy, including replacement
 movie files from texture packs. No prior game-INI edit is required. To opt out,
 add [Startup] SkipMovies=0 to dishonored_vr.ini before launch. Story movies are
 not disabled by this startup-only policy.
+
+Updates: the launcher checks GitHub and offers a changelog and Update button.
+About includes Check for updates and recent changelogs. Keep Overwrite INI on
+for compatible defaults; previous settings are backed up.
+Desktop mirror defaults off for a potential large performance boost. If SteamVR
+crashes on startup, turn Desktop mirror ON in the launcher and retry.
+Collect logs includes newest runs first and keeps the ZIP below 24 MB.

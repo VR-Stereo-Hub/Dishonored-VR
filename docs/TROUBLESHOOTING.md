@@ -114,7 +114,7 @@ do not really support). Pick a standard size in the game's video options.
 **Head tracking stops after a save load.** F9 forces gameplay mode (re-arms the script hook);
 F5 recenters. The `[HeadTrack]` section has the fallbacks.
 
-**Stutter.** Motion Blur off. `[VR] FpsCap` pins the game to the display rate (72) or half of
+**Stutter.** `[VR] FpsCap` pins the game to the display rate (72) or half of
 it (45 at 90 Hz) for an even cadence. The `heartbeat:` lines show game fps vs headset
 submits; the per-frame capture costs more at a bigger window, so try 1920x1080.
 

@@ -1,3 +1,32 @@
+## 1.0.1 release verification (2026-09-24)
+
+All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication
+is authorized; VR-Main is not merged. Release scope is VR-213 through VR-216,
+not completion of the broader Stable milestone.
+
+Optimized build5033e4764 ran through Steam on dvr-xrsim (Quest 3): title, Continue,
+loaded Distillery District, gameplay, L3 + R3 panel open/close, pause/resume, and
+clean console quit. Both eyes rendered nonblack projection frames. 167 FOV samples
+over 166 seconds settled at 108.07 degrees from natural75; resolution stayed
+2750x2850. This PC has NEVER reproduced the reported FOV contraction. This is
+regression coverage, not reproduction or affected-player acceptance. Actual
+headset comfort, SteamVR startup recovery, and GOG Galaxy launch need those rigs.
+Incompatible x64 OBS/VD implicit layers were automatically excluded for this
+32-bit process by the existing guard; no registry changes. Initial standalone
+sim self-test needed its manifest-declared OBS opt-out, then passed60 frames.
+
+Final host gates pass: FOV feedback1284665, ownership16, cinematic30045,
+installer86, launcher57, log history27, real helper replacement/backups/refusal,
+installer rollback/reset/keep settings, lint and9 exports. Full installed INI
+is byte-identical with CRLF after install and simulator runtime restoration.
+Local-only logs/captures: build/release-validation-1.0.1. No game-derived artifacts
+are included in the release. Updater tests now take the CMake version so 1.0.2
+needs no hardcoded test-version edits. Public asset verification follows upload.
+
+Next: retain v1.0.1 as the immutable baseline for 1.0.2. Bump CMake and matching
+versioned launcher/tag, build/package, upload both assets before publishing.
+The updater requires GitHub SHA256 metadata and validates the embedded version.
+
 ## SteamVR mirror default prepared (VR-216, 2026-09-24)
 
 Branch codex/vr-216-steamvr-mirror-default is based on VR-215. SteamVR no longer

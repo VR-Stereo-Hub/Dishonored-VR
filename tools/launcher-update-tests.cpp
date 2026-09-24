@@ -19,7 +19,8 @@ std::string fixture(const std::string& tag="v1.0.1") {
     Json::StreamWriterBuilder b;return Json::writeString(b,j);
 }
 int wmain(int argc,wchar_t** argv) {
-    CHECK(argc>=2);if(argc<2)return 1;
+    CHECK(argc>=3);if(argc<3)return 1;
+    const auto currentVersion=fs::narrow(argv[2]);
     uint32_t v[3];
     CHECK(updates::version("1.0.1",v) && v[2]==1);
     CHECK(updates::newer("v1.10.0","1.9.99"));
@@ -46,10 +47,10 @@ int wmain(int argc,wchar_t** argv) {
     CHECK(updates::parse_releases(multiple,&releases,&error) && releases.front().version=="1.10.0");
     const auto scratch=fs::join(fs::temp_dir(),L"dvr-launcher-update-tests-"+std::to_wstring(GetTickCount64()));
     std::filesystem::create_directories(scratch);
-    const std::wstring exe=argv[1];updates::Release actual;actual.version="1.0.1";actual.size=fs::file_size(exe);actual.assetUrl="verified fixture";CHECK(fs::sha256_file(exe,&actual.sha256,nullptr));
+    const std::wstring exe=argv[1];updates::Release actual;actual.version=currentVersion;actual.size=fs::file_size(exe);actual.assetUrl="verified fixture";CHECK(fs::sha256_file(exe,&actual.sha256,nullptr));
     CHECK(updates::verify(exe,actual,&error));
     ++actual.size;CHECK(!updates::verify(exe,actual,&error));--actual.size;
-    actual.version="1.0.2";CHECK(!updates::verify(exe,actual,&error));actual.version="1.0.1";
+    actual.version="999.999.999";CHECK(!updates::verify(exe,actual,&error));actual.version=currentVersion;
     auto originalHash=actual.sha256;actual.sha256[0]=actual.sha256[0]=='a'?'b':'a';CHECK(!updates::verify(exe,actual,&error));actual.sha256=originalHash;
     const auto target=fs::join(scratch,L"DishonoredVR-Launcher.exe");
     std::vector<uint8_t> old={1,2,3,4};CHECK(fs::write_file_atomic(target,old.data(),old.size(),nullptr));
@@ -77,7 +78,7 @@ int wmain(int argc,wchar_t** argv) {
     // Also detect a 64-bit executable placed in a misleading Win32 directory.
     auto native=fs::join(fs::env(L"SystemRoot"),L"Sysnative\\ping.exe");
     CHECK(fs::copy_file(native,fs::join(win32,L"Dishonored.exe"),nullptr));CHECK(discovery::inspect(win32).unsupported64);
-    if(argc>2 && std::wstring(argv[2])==L"--live") {
+    if(argc>3 && std::wstring(argv[3])==L"--live") {
         auto check=updates::check();CHECK(check.online && !check.releases.empty());
         if(!check.releases.empty()) {
             std::wstring downloaded;CHECK(updates::download(check.releases.front(),&downloaded,&error));

@@ -21,6 +21,7 @@
 - [x] Reproduce persistent downward feedback and verify a resolution-independent correction.
 - [x] Host regression: interpolation, delayed readback, zoom, scopes, owner lifetime.
 - [x] Optimized build and installation with full INI comparison (byte-identical, CRLF).
+- [x] Simulator: gameplay, settings chord, pause/resume, stable 108.07-degree FOV.
 - [ ] Headset: stable full view for 30 seconds after loading at unchanged resolution.
 - [ ] Headset: spyglass zoom/recovery and cinematic transitions.
 

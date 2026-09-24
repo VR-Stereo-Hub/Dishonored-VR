@@ -1,4 +1,4 @@
-# The launcher: DishonoredVR-Launcher-v1.0.0.exe (VR-198)
+# The launcher: DishonoredVR-Launcher-v1.0.1.exe (VR-198)
 
 One exe to install, configure and launch Dishonored VR. Setup offers runtime,
 render quality, desktop mirror, physical crouching, close rain overlay and movement
@@ -56,7 +56,7 @@ found. A failed step stops the list; nothing below it runs.
    | SteamVR headset | `[VR] Runtime`, `XrRuntimeJson` | `steamvr`, empty (the bundled shim; start SteamVR first) |
    | Let the mod choose | `[VR] Runtime`, `XrRuntimeJson` | `auto`, empty |
    | Render quality | `[Screen] RenderWidth`, `RenderHeight` | Performance 2382x2468 (75 %), Balanced 2750x2850 (100 %, the tested size), Quality 3012x3122 (120 %), or the Advanced slider's own size |
-   | Desktop mirror | [VR] DesktopMirrorOff | inverse of the checkbox; SteamVR forces it on without erasing the native preference |
+   | Desktop mirror | [VR] DesktopMirrorOff | inverse of the checkbox; honored on every runtime |
    | Physical crouching | [Tracking] PhysicalCrouch | 0 or 1 |
    | Hide close rain overlay | [Rain] Hide | 0 or 1; sky rain and splashes stay |
    | Walk in the direction you look | [Camera] HeadBasedMovement | 0 or 1 |
@@ -121,9 +121,8 @@ which accepts the game root, `Binaries` or `Binaries\Win32`. Then the two choice
 `Install` is the one oxblood button. When the game folder is not writable (Steam under
 `Program Files (x86)` on a locked-down account) it reads `Install (administrator)`.
 
-**Done**: the step list, the three things to remember (launch from Steam; F5 recenters
-and F10 opens the panel; Motion Blur off in the game's own options, which live in the
-Steam profile and cannot be written here), the waiting row when the game has not run,
+**Done**: the step list, launch guidance (Steam/GOG directly or the launch button;
+F5 recenters and L3 + R3 opens settings), the waiting row when the game has not run,
 `Launch via Steam` (`steam://rungameid/205100`) and `Open game folder`.
 
 **Manage** (an install record, or our `d3d9.dll` with a trace beside it): installed
@@ -161,17 +160,17 @@ the screen says to launch from Steam instead.
 ## Every word it takes
 
 ```
-DishonoredVR-Launcher-v1.0.0.exe                               the window
-DishonoredVR-Launcher-v1.0.0.exe --game-dir <dir>              ... against that game folder
-DishonoredVR-Launcher-v1.0.0.exe --config-dir <dir>            ... with that game-config folder
-DishonoredVR-Launcher-v1.0.0.exe --apply --op <op> --game-dir <dir> [--config-dir <dir>]
+DishonoredVR-Launcher-v1.0.1.exe                               the window
+DishonoredVR-Launcher-v1.0.1.exe --game-dir <dir>              ... against that game folder
+DishonoredVR-Launcher-v1.0.1.exe --config-dir <dir>            ... with that game-config folder
+DishonoredVR-Launcher-v1.0.1.exe --apply --op <op> --game-dir <dir> [--config-dir <dir>]
         [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|custom]
         [--percent <n> | --size <W>x<H>] [--vdxr-json <path>] [--delete-ini]
                                                      unattended; prints the steps, exit 0 / 2 failed / 3 access denied
         <op> = install | update | change | baseline | disable | enable | uninstall
-DishonoredVR-Launcher-v1.0.0.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
+DishonoredVR-Launcher-v1.0.1.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
                                                      draw a screen with no window (tools\installer-render.ps1)
-DishonoredVR-Launcher-v1.0.0.exe --elevated-apply ... --result <file>
+DishonoredVR-Launcher-v1.0.1.exe --elevated-apply ... --result <file>
                                                      what the window runs under UAC; not for hand use
 ```
 
@@ -185,7 +184,7 @@ budget, installed and embedded `d3d9.dll` hashes, the legacy marker) and every s
 
 `tools\build.ps1 -Release` builds it as part of ALL (`cmake --build build --config
 RelWithDebInfo --target dvr_setup` builds just it) into `build\src\RelWithDebInfo\
-DishonoredVR-Launcher-v1.0.0.exe`, beside the DLLs. `src/tools/installer/CMakeLists.txt` stages the
+DishonoredVR-Launcher-v1.0.1.exe`, beside the DLLs. `src/tools/installer/CMakeLists.txt` stages the
 payload **per config** into `build\installer-payload\<config>\` with `$<TARGET_FILE:...>`
 and plain copies, and copies `payload.rc` itself in the same step so rc.exe recompiles
 whenever any payload input changes (the Visual Studio generator ignores `OBJECT_DEPENDS`
@@ -246,7 +245,7 @@ uses the desktop user's unelevated shell and app 205100, with a fresh process ch
 There is no automatic game launch.
 
 Shortcut buttons atomically copy the launcher to
-%LOCALAPPDATA%/DishonoredVR/Launcher/DishonoredVR-Launcher-v1.0.0.exe, then create a per-user
+%LOCALAPPDATA%/DishonoredVR/Launcher/DishonoredVR-Launcher-v1.0.1.exe, then create a per-user
 IShellLink in the Windows Desktop/Programs known folder. The selected game path
 is quoted in the shortcut. Nothing is created until clicked. Uninstalling the
 mod keeps these independent launcher entry points.
@@ -268,7 +267,7 @@ Launcher choices fill their row. Settings scroll independently of fixed actions.
 Validation includes the optimized build, full-ini scratch smoke comparisons, all
 six preference mappings, omitted-flag preservation, invalid-input refusal,
 shell-link target/argument roundtrip and support ZIP collection. Offscreen fixtures
-cover Bindings fit/zoom, SteamVR mirror override and every screen at 100/150% DPI.
+cover Bindings fit/zoom, SteamVR mirror choice and every screen at 100/150% DPI.
 
 See [BRVR launcher research](BRVR_LAUNCHER_RESEARCH.md) for the source review and
 controller-port work that remains separate.
@@ -312,7 +311,7 @@ system PowerShell path, restores its built-in module search path and hashes with
 manifest instead of aborting other evidence. Failed output is saved in full and
 the first meaningful error is shown. GUI and --collect-logs share one helper:
 
-    DishonoredVR-Launcher-v1.0.0.exe --collect-logs --game-dir <Win32> --support-out <folder> --result <textfile>
+    DishonoredVR-Launcher-v1.0.1.exe --collect-logs --game-dir <Win32> --support-out <folder> --result <textfile>
 
 This headless check writes a local ZIP without opening Explorer or launching the
 game. The real-folder regression collected 19 evidence files, four binary hashes

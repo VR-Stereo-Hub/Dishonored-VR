@@ -1,5 +1,10 @@
 # Known issues
 
+- If SteamVR crashes on startup with the default mirror-off setting, enable
+  Desktop mirror in the launcher and retry (VR-208). The setting is now honored
+  on every runtime. Actual GOG Galaxy launch acceptance remains outstanding
+  despite passing discovery and launch-command tests (VR-214).
+
 - A spring razor placed very close to you can be invisible. It still triggers and can be
   picked up; ones placed farther away draw normally (VR-169). Razor placement itself now
   follows the weapon ray.

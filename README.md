@@ -8,10 +8,10 @@ hand, crouch by crouching, and read your health and mana off your wrists.
 It runs on Quest headsets through Virtual Desktop, on SteamVR headsets such as the Index and
 Vive, and on any headset whose runtime offers 32-bit OpenXR.
 
-**Version 1.0.0.** This is the first numbered release. From here on, releases use semantic
-version numbers: 1.0.1 for fixes, 1.1.0 for new features.
+**Version 1.0.1.** The hotfix corrects FOV feedback, adds launcher updates and GOG
+support, and improves support-log collection. See [release notes](docs/RELEASE_NOTES.md).
 
-[Download the latest release](https://github.com/VR-Stereo-Hub/Dishonored-VR/releases) ·
+[Download the latest release](https://github.com/VR-Stereo-Hub/Dishonored-VR/releases) Â·
 [Support development on Ko-fi](https://ko-fi.com/pizzzaparker)
 
 ## Support the mod
@@ -106,7 +106,7 @@ that can be switched or tuned has a control in the F10 panel.
 - The headset shows each frame with the head pose it was drawn for, which fixed the judder
   and ghosting on head turns.
 - Diagnostics that cost frames ship turned off.
-- The desktop mirror is off by default to save GPU time. With SteamVR it always stays on.
+- The desktop mirror is off by default to save GPU time. If SteamVR crashes on startup, turn the mirror on and retry.
 
 ## Contents
 
@@ -144,7 +144,7 @@ that can be switched or tuned has a control in the F10 panel.
 
 ### With the launcher (recommended)
 
-1. Download `DishonoredVR-Launcher-v1.0.0.exe` from the
+1. Download `DishonoredVR-Launcher-v1.0.1.exe` from the
    [releases page](https://github.com/VR-Stereo-Hub/Dishonored-VR/releases).
 2. Run it. It finds Dishonored in your Steam library on its own. If it can't, press
    `Change...` and point it at the game folder.
@@ -179,7 +179,7 @@ rename it back.
 
 ## The launcher
 
-`DishonoredVR-Launcher-v1.0.0.exe` installs, configures and launches the mod. It uses the same
+`DishonoredVR-Launcher-v1.0.1.exe` installs, configures and launches the mod. It uses the same
 Dishonored-styled look as the in-game F10 panel.
 
 ### First-time setup
@@ -189,7 +189,7 @@ Dishonored-styled look as the in-game F10 panel.
 | Headset | "Quest via Virtual Desktop" uses Virtual Desktop's OpenXR runtime. "SteamVR headset" uses the bundled SteamVR bridge (start SteamVR first). "Let the mod choose" uses whichever 32-bit OpenXR runtime Windows has registered and falls back to the SteamVR bridge. | Let the mod choose |
 | Render quality | Performance (2382x2468 per eye, 75% of Balanced's pixels), Balanced (2750x2850, the tested size) or Quality (3012x3122, 120%). | Balanced |
 | Advanced: exact size | A slider from 50% to 200% of Balanced's pixel count. It's the same slider as the F10 Display tab. | Off |
-| Desktop mirror | Shows the game on your monitor while you play. Leaving it off saves GPU time. With SteamVR the mirror always stays on. | Off |
+| Desktop mirror | Shows the game on your monitor while you play. Leaving it off saves GPU time. If SteamVR crashes on startup, turn it on and retry. | Off |
 | Physical crouching | Crouching in real life crouches in the game. | On |
 | Hide close rain | Hides the sheet of rain drawn right in front of your eyes. Rain in the sky and splashes on the ground stay. | Off |
 | Controller shortcuts | Picks which control turns the left stick into the item-shortcut D-pad (right thumbrest, left thumbrest or right stick click), and whether X+Y also opens the pause menu. | Right thumbrest, X+Y on |
@@ -225,7 +225,7 @@ The launcher covers the big choices. Fine tuning happens in the F10 panel in gam
 The launcher can also run unattended, for scripted setups:
 
 ```
-DishonoredVR-Launcher-v1.0.0.exe --apply --op install --game-dir "<game folder>" --runtime auto --quality balanced
+DishonoredVR-Launcher-v1.0.1.exe --apply --op install --game-dir "<game folder>" --runtime auto --quality balanced
 ```
 
 `--op` takes `install`, `update`, `change`, `baseline`, `disable`, `enable` or `uninstall`.
@@ -244,14 +244,11 @@ With a Quest and Virtual Desktop, choose VDXR as the OpenXR runtime in Virtual D
 settings. The launcher detects it and pins it for the mod.
 
 With a SteamVR headset, start SteamVR before the game. The mod uses its bundled bridge, and
-the desktop mirror stays on.
+the desktop mirror defaults off. If SteamVR crashes on startup, turn it on and retry.
 
 Other runtimes work through "Let the mod choose" as long as they have a 32-bit OpenXR
 build. SteamVR's own native 32-bit OpenXR currently shows the image upside down, so SteamVR
 users should stay on the bundled bridge (see [known issues](#known-issues)).
-
-Turn Motion Blur off in the game's own options. The launcher can't change it for you,
-because the game stores it in your Steam profile.
 
 ## Controls
 
