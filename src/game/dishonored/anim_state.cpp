@@ -476,7 +476,23 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
-    handAnimMelee=GetPrivateProfileIntA("Anim","HandAnimMelee",0,ini)!=0;
+    handAnimMelee=GetPrivateProfileIntA("Anim","HandAnimMelee",1,ini)!=0;
+    // VR-220: the shipped default moves 0 -> 1 (a trigger attack now plays the game's swing
+    // on the tracked hand). The old default is WRITTEN in every installed ini, so a compiled
+    // default alone reaches nobody, and a config version bump would drop the machine's tuning
+    // (the EdgeSpeed precedent, VR-170). Once per ini: a stored 0 becomes 1 and HandAnimMeleeRev=1
+    // is written; after that a 0 is this machine's own choice and stays. A stored 0 is taken as
+    // the old default and not as a choice because the lever had never been judged in a headset
+    // before this (STATUS 2026-09-19: unverified), so nobody had chosen it on purpose.
+    if (GetPrivateProfileIntA("Anim","HandAnimMeleeRev",0,ini)<1) {
+        if (!handAnimMelee) {
+            handAnimMelee=true;
+            WritePrivateProfileStringA("Anim","HandAnimMelee","1",ini);
+            Log("config: [Anim] HandAnimMelee 0 -> 1 (one-time: a TRIGGER sword attack now plays the game's swing on the tracked hand; "
+                "the stored 0 was the old shipped default, HandAnimMeleeRev=1 written; set it to 0 in F10 or the ini and it stays)");
+        } else Log("config: [Anim] HandAnimMelee=1 kept (HandAnimMeleeRev=1 written)");
+        WritePrivateProfileStringA("Anim","HandAnimMeleeRev","1",ini);
+    }
     handAnimMeleeSwing=GetPrivateProfileIntA("Anim","HandAnimMeleeSwing",0,ini)!=0;   // VR-220
     Log("config: [Anim] HandAnimMeleeSwing=%d - 0 = only a TRIGGER sword attack plays the game's swing on the tracked hand; a physical "
         "swing keeps your arm. 1 = physical swings hand back too. 'anim/melee:' names the source of every attack",(int)handAnimMeleeSwing);
@@ -505,6 +521,7 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Anim","CinematicHandBack",c?"1":"0",ini);
     WritePrivateProfileStringA("Anim","MantleHandBack",mantle?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandAnimMelee",hm?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HandAnimMeleeRev","1",ini);            // VR-220: a saved value is this machine's choice
     WritePrivateProfileStringA("Anim","HandAnimMeleeSwing",hs?"1":"0",ini);   // VR-220
     WritePrivateProfileStringA("Anim","HandAnimFire",hf?"1":"0",ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",r); WritePrivateProfileStringA("Anim","ReleaseMs",v,ini);

@@ -138,7 +138,8 @@ The old **View**, **Blink**, **Animations** and **Advanced** tabs dissolve into 
 |---|---|---|
 | Enable selected game arms | M | the same switch as Hands > "Game arms during scripted actions"; kept once |
 | Animation view left/right + reset | D | |
-| Sword swing animation, Shooting animation | A | |
+| Sword swing animation (trigger attacks), Shooting animation | A | VR-220: the swing row is trigger-only |
+| ...also when you swing the controller (HandAnimMeleeSwing) | A | VR-220; shown under the swing row while it is on |
 | Reset arm choices, Enable all actions, filter, the 40 per-action rows | A | ASK: A or D |
 
 ### Hands tab

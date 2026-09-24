@@ -186,6 +186,40 @@ on the same machine: upper `StatePlayerBlock`, NOT HONOURED - so the instrument
 can print the unwelcome answer. Which pad binding set is active is a property of
 the install; this line is how a tester's log answers it.
 
+### The animation belongs to the trigger, not the swing (VR-220, 2026-09-25)
+
+Both attack sources reach the game as the same right-trigger press, so the game plays the
+same swing clip for either. On the tracked hand that clip used to be invisible: the palette
+correction pins the palm and the sword to the controller every frame, so a trigger attack hit
+and sounded with nothing moving in front of the player. `[Anim] HandAnimMelee` hands the hand to
+the game's clip for the attack (150 ms blend in, released 250 ms after the state ends), and
+since VR-220 it does so for a TRIGGER attack only. The swing keeps the arm: the player's arm IS
+that animation, and pinning a moving arm to the clip would yank it.
+
+The source is the mod's knowledge, not the game's. `melee.cpp` publishes every FIRE (the tick,
+when its press stopped, the fire count, and whether the player's own trigger was down too;
+atomics on the honour check's clock, stores only, nothing in the detector reads them back).
+`anim_state.cpp` classifies each attack once, per state entry or per new clip more than 100 ms
+into the state (a combo press): SWING if a fire happened and the state was entered while the
+pulse was open or within 80 ms of its close (one pad poll gap, the measured 15-16 ms to state
+entry and the 10 ms sample stride, doubled), or for a combo clip within 600 ms of the fire (the
+honour window: the game queues a press it got mid-attack and starts the next clip when the
+current one ends); else TRIGGER. Both pulled resolves to SWING. Measured on the simulator:
+a swing's attack state entered 15 ms after the fire with the pulse open; a swing 300 ms after
+a trigger slash started its clip 266 ms after the fire, 141 ms after the pulse closed, as a combo.
+
+The gate change that came with it: `kGateBody` reads the body-owning classifier
+(`cameraAction`: mantle, cinematic, the master and upper rules), not the hand-back as a whole.
+A trigger attack's hand-back sets `game` too, and gating on it refused the swing that followed a
+trigger slash for the attack plus `ReleaseMs`. Under the old defaults the two read the same.
+
+Levers: `[Anim] HandAnimMelee=1` (moved 0 -> 1 by a one-time `HandAnimMeleeRev` migration, the
+EdgeSpeed pattern, no config version bump), `HandAnimMeleeSwing=0` (also hand a physical swing
+back). Words: `anim melee on|off`, `anim melee swing on|off`, `anim melee status`. F10 > Hands >
+Game arms during actions. Log: `anim/melee: attack source=TRIGGER|SWING -> hand-back ON|off
+(entry=state|combo, fire dt=..., pulse=open|closed N ms before, realTrig=..., seq=...)`, one line
+per attack; a refusal line when the master is off. Sequence: `tools\xrsim\swing-anim.xrs`.
+
 ## 3. Levers (`[Melee]`)
 
 The pre-VR-37 keys keep their names and values: they are materialised in every
@@ -238,6 +272,10 @@ sim <peak m/s> [humpMs] [reps] | save`
   overlay closes the gate while it is up, so swing, then open it and read PEAK.
 - Every 5 s: `swing: beat ...` names the closed gate. Fires stay 0 while a gate is
   closed, and the gate named is the owner of that zero.
+
+`anim melee on|off | melee swing on|off | melee status` (VR-220): the sword hand-back and its
+source rule; `features.anim.meleeSource` and `meleeFireDtMs` in status.json name the last
+attack's verdict.
 
 ## 5. Verification
 

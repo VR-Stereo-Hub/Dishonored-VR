@@ -1140,3 +1140,19 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+## 2026-09-25: the attack source is the mod's knowledge, not the game's (VR-220)
+
+The game plays one swing clip for a sword attack whether the player pulled the trigger or swung
+the controller, because both reach it as the same trigger press; only the mod knows which. The
+sword hand-back (`HandAnimMelee`, the game's clip on the tracked hand, then back to the controller)
+therefore reads the motion sword's own fire record and applies to trigger attacks only: a swing's
+attack is the player's arm, and pinning a moving arm to the clip would yank it. The verdict is
+made once per attack and per combo clip from the fire-to-entry time and the pulse state, and every
+ambiguity resolves toward "swing" (no hand-back) because the cost of the other error is one
+un-animated trigger hit. Rejected: reading the game's own input routing (it does not distinguish),
+and gating the hand-back on the honour check's verdict (that arrives after the attack has started).
+The melee body gate moved from the whole hand-back to the body-owning classifier so a trigger
+hand-back does not refuse the swing that follows it. The shipped default moved 0 -> 1 through a
+one-time ini migration instead of a config version bump, which would have discarded every tuned
+F10 value on every tester's machine to change one key.

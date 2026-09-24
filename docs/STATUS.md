@@ -1,3 +1,31 @@
+## 2026-09-25: the sword animation follows the trigger, not the swing (VR-220), simulator-proven
+
+Branch `claude/vr-220-trigger-sword-anim` off `staging`. A trigger sword attack plays the game's
+swing on the tracked hand and hands it back; a physical swing keeps the arm. `melee.cpp` publishes
+each FIRE (tick, pulse close, count, real-trigger overlap; atomics, stores only); `anim_state.cpp`
+classifies each attack once (per state entry, or per combo clip more than 100 ms in): SWING if the
+state was entered with the pulse open or within 80 ms of its close (combo: within 600 ms of the
+fire), else TRIGGER; only TRIGGER sets the hand-back. `kGateBody` reads `cameraAction`, not `game`,
+so a trigger hand-back does not refuse the swing that follows. `[Anim] HandAnimMelee=1` (moved 0 -> 1
+once by `HandAnimMeleeRev`), `HandAnimMeleeSwing=0`; `anim melee on|off|swing on|off|status`; F10 >
+Hands > Game arms during actions.
+
+**Simulator (`tools\xrsim\swing-anim.xrs`, 56 steps; Debug and RelWithDebInfo):** trigger pull ->
+`source=TRIGGER -> hand-back ON`, `features.anim.meleeSource=trigger`; swing-edge move -> `swing:
+FIRE`, `source=SWING ... hand-back off` (fire dt 15 ms, pulse open), `HONOURED`; a swing 120 ms after
+a trigger pull fired, was not `BLOCKED ... owns the body`, and classified as a combo (fire dt 266 ms,
+pulse closed 141 ms before); `anim melee swing on` -> the same swing `hand-back ON`; `anim melee off`
+-> the refusal line. `swing-edge.xrs` passes on both builds. `swing-gates.xrs` failed 4 of 4 runs on
+a different leg each time, always a hand move cut short by a sample gap, never the body gate: VR-222.
+Migration (plain Steam launch, the tester's archived ini): `HandAnimMelee 0 -> 1 (one-time ...)` and
+`HandAnimMeleeRev=1` written; a deliberate 0 with the key stayed 0. TRAPS: `-ViaSteam` restores the
+ini and wipes a startup write. Logs: `build/playtest-candidates/vr220-trigger-anim/`.
+
+**Headset owed:** a trigger slash animates and the hand returns (150 ms in, 250 + 150 ms out); a
+physical swing keeps the hand on the controller with the hit landing; combos; a swing right after a
+trigger slash; block; mantle; a cinematic; a drop takedown; the trail still hidden. The tester's
+installed build 711 and ini were restored after the runs.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication
