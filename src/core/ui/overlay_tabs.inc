@@ -180,7 +180,15 @@ static void OvlTabHands()
         }
         bool melee = dvr::anim::hand_anim_melee();
         if (dvr::ovl::checkbox("Sword swing animation on the tracked hand", &melee)) dvr::anim::set_hand_anim_melee(melee);
-        OvlTip("The hand plays the game's swing clip, then returns to the controller.");
+        OvlTip("A TRIGGER sword attack plays the game's swing clip on the hand, then returns it to the controller. "
+               "A physical swing never does: your arm is the animation.");
+        if (melee) {   // VR-220
+            ImGui::Indent();
+            bool sw = dvr::anim::hand_anim_melee_swing();
+            if (dvr::ovl::checkbox("...also when you swing the controller", &sw)) dvr::anim::set_hand_anim_melee_swing(sw);
+            OvlTip("Off: only trigger attacks play the game's swing; a physical swing keeps your arm on the sword. On: both do.");
+            ImGui::Unindent();
+        }
         bool fire = dvr::anim::hand_anim_fire();
         if (dvr::ovl::checkbox("Shooting animation on the tracked hand (pistol, crossbow)", &fire)) dvr::anim::set_hand_anim_fire(fire);
         OvlTip("The hand plays the game's recoil clip, then returns to the controller.");

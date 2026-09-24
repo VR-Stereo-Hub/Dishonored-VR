@@ -26,6 +26,8 @@ bool hand_anim_melee();   // [Anim] HandAnimMelee: sword swings play the game an
 bool hand_anim_fire();    // [Anim] HandAnimFire: shots (*Fire* clips) play the game animation on the hands
 void set_hand_anim_melee(bool on);
 void set_hand_anim_fire(bool on);
+bool hand_anim_melee_swing();        // [Anim] HandAnimMeleeSwing: physical swings hand back too (VR-220; default off)
+void set_hand_anim_melee_swing(bool on);
 void set_cinematic(bool on);
 void set_enabled(bool on);
 bool arm_rule_enabled(int index);
