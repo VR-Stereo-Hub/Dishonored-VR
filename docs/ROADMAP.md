@@ -14,7 +14,9 @@
 - [x] Steam/GOG discovery, home folder selection, Win64 rejection, Galaxy command.
 - [x] Host tests, real GitHub download, helper handoff and native screen previews.
 - [ ] Actual GOG Galaxy launch acceptance on a GOG installation.
-- [ ] Public newer-version end-to-end acceptance after release authorization.
+- [x] Public release download, checksum/version verification, helper replacement
+  and exact embedded-payload installation into a scratch game folder.
+- [ ] Interactive update from installed 1.0.1 to a future published 1.0.2.
 
 ## 1.0.1 FOV hotfix (VR-213)
 
