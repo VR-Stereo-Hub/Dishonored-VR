@@ -22,6 +22,11 @@ bool handAnimMelee = false, handAnimFire = false;
 // VR-37) presses the same trigger, but the player's own arm is that animation; pinning it
 // to the game's clip would yank a moving arm. HandAnimMeleeSwing=1 hands swings back too.
 bool handAnimMeleeSwing = false;
+// VR-220: the trigger clip is right-handed, so by default only the right hand follows it and
+// the left stays on the controller (free to point, Blink, hold an item). 1 = both hands.
+bool handAnimMeleeBoth = false;
+unsigned char frameMask = 0;         // the mask the frame's weight was cached with
+std::atomic<unsigned char> ownedMask{0};   // hands the game owns right now (tick() publishes it; hand_owned reads it)
 unsigned long long meleeKey = 0;     // the attack classified: max(entered[1], a combo clip's sequenceAt)
 bool meleeTrigger = false;           // its verdict, latched: true = TRIGGER, false = SWING
 char meleeSource[8] = "none";        // for status.json
@@ -209,8 +214,9 @@ static bool classify_melee_source(unsigned long long T,bool combo,const Snapshot
         Log("anim/melee: attack source=%s (entry=%s, last swing #%u fire dt=%s) - [Anim] HandAnimMelee=0, the hand stays on the controller "
             "(F10 Hands > Game arms during actions, or 'anim melee on')",trigger?"TRIGGER":"SWING",combo?"combo":"state",dvr::swing::fires(),dtText);
     else if (trigger)
-        Log("anim/melee: attack source=TRIGGER -> hand-back ON: the game's swing plays on the tracked hand and returns "
-            "(entry=%s, last swing #%u fire dt=%s, pulse=%s, realTrig=%d, seq=%s)",combo?"combo":"state",dvr::swing::fires(),dtText,pulse,(int)realTrig,s.sequence);
+        Log("anim/melee: attack source=TRIGGER -> hand-back ON (%s): the game's swing plays on the tracked hand and returns "
+            "(entry=%s, last swing #%u fire dt=%s, pulse=%s, realTrig=%d, seq=%s)",handAnimMeleeBoth?"both hands":"right hand, the left stays on the controller",
+            combo?"combo":"state",dvr::swing::fires(),dtText,pulse,(int)realTrig,s.sequence);
     else
         Log("anim/melee: attack source=SWING (swing #%u) -> hand-back %s (entry=%s, fire dt=%s, pulse=%s, realTrig=%d, seq=%s)",
             dvr::swing::fires(),handAnimMeleeSwing?"ON (HandAnimMeleeSwing=1)":"off: your arm is the animation",combo?"combo":"state",
@@ -232,6 +238,14 @@ static void set_hand_anim(bool fire,bool on) {
 }
 void set_hand_anim_melee(bool on) { set_hand_anim(false,on); }
 void set_hand_anim_fire(bool on) { set_hand_anim(true,on); }
+bool hand_anim_melee_both() { AcquireSRWLockShared(&lock); bool on=handAnimMeleeBoth; ReleaseSRWLockShared(&lock); return on; }
+void set_hand_anim_melee_both(bool on) {   // VR-220
+    AcquireSRWLockExclusive(&lock); handAnimMeleeBoth=on;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    if(*ini)WritePrivateProfileStringA("Anim","HandAnimMeleeBothHands",on?"1":"0",ini);
+    Log("anim: HandAnimMeleeBothHands=%d (live, saved; %s)",on?1:0,
+        on?"both hands follow the game's swing clip":"only the right hand follows it; the left stays on the controller");
+}
 bool hand_anim_melee_swing() { AcquireSRWLockShared(&lock); bool on=handAnimMeleeSwing; ReleaseSRWLockShared(&lock); return on; }
 void set_hand_anim_melee_swing(bool on) {   // VR-220
     AcquireSRWLockExclusive(&lock); handAnimMeleeSwing=on;
@@ -307,13 +321,29 @@ float weight() {
     const auto now=GetTickCount64();
     const bool valid=watch && handback && published.valid && fresh(published.stamp,now);
     const unsigned frame=(unsigned)dvr::frame::count();
-    if (!valid) { frameWeight=1; frameMantleSplit=false; weightFrame=~0u; }
-    else if (weightFrame!=frame) { frameWeight=handoff.value(now,blendMs); frameMantleSplit=published.mantleSplit; weightFrame=frame; }
+    if (!valid) { frameWeight=1; frameMantleSplit=false; frameMask=0; weightFrame=~0u; }
+    else if (weightFrame!=frame) { frameWeight=handoff.value(now,blendMs); frameMantleSplit=published.mantleSplit; frameMask=published.handMask; weightFrame=frame; }
     const float w=frameWeight;
     ReleaseSRWLockExclusive(&lock); return w;
 }
+// VR-220: a hand outside the mask keeps its full controller correction through the hand-back.
+float weight_for(int hand) {
+    const float w=weight();
+    AcquireSRWLockShared(&lock); const unsigned char m=frameMask; ReleaseSRWLockShared(&lock);
+    return (hand>=0 && hand<2 && (m & (1u<<hand))) ? w : 1.0f;
+}
 bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.game; }
-bool native_draw() { return weight()<=0.0001f; }
+// Cheap on purpose: SkcRotApply asks per control on every ProcessEvent dispatch. The mask
+// is published by tick() as (handback && valid && game) ? handMask : 0, the same test active() makes.
+bool hand_owned(int hand) { return hand>=0 && hand<2 && (ownedMask.load() & (1u<<hand)); }
+// The whole-draw native path (the split draws the game's own pose, the weapons fall back to
+// their native draw) is for a hand-back that owns BOTH hands. A right-hand-only hand-back keeps
+// the normal per-hand path: the right hand's correction blends to identity, the left keeps its own.
+bool native_draw() {
+    if (weight()>0.0001f) return false;
+    AcquireSRWLockShared(&lock); const unsigned char m=frameMask; ReleaseSRWLockShared(&lock);
+    return m==3;
+}
 bool native_full_arms() {
     if(!native_draw())return false;
     AcquireSRWLockShared(&lock);const bool full=!frameMantleSplit;ReleaseSRWLockShared(&lock);return full;
@@ -430,14 +460,21 @@ void tick() {
     const int fireLane=!strcmp(s.state[1],"StatePlayerAction")?1:!strcmp(s.state[2],"StatePlayerAction")?2:-1;
     const bool fire=handAnimFire && fireLane>0 && has_fire_clip(s.sequence);
     const bool handPose=swing || fire;
-    const bool match=mantle || handPose || resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
+    const bool rules=resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
+    const bool match=mantle || handPose || rules;
     classifier.update(s.valid,match,watch,now,releaseMs,0);
+    // VR-220: which hands this hand-back owns. A trigger sword attack alone owns the right
+    // hand (the clip is right-handed); anything else owns both. Held through the release
+    // hysteresis so the blend out finishes on the same hands it blended in on.
+    s.handMask=!s.valid ? 0 : match ? ((swing && !mantle && !fire && !rules && !handAnimMeleeBoth) ? 2 : 3)
+                        : classifier.game ? previous.handMask : 0;
     s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) :
         handPose ? !(swing ? resolve_arm_rule(1,s.state[1]) : resolve_arm_rule(fireLane,s.state[fireLane])) :
         (!match && classifier.game && previous.mantleSplit));
     handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
+    ownedMask.store((handback && s.valid && s.game) ? s.handMask : 0);   // VR-220: what hand_owned() answers
     if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
     published=s;
     ReleaseSRWLockExclusive(&lock);
@@ -494,8 +531,10 @@ void configure(const char* ini) {
         WritePrivateProfileStringA("Anim","HandAnimMeleeRev","1",ini);
     }
     handAnimMeleeSwing=GetPrivateProfileIntA("Anim","HandAnimMeleeSwing",0,ini)!=0;   // VR-220
-    Log("config: [Anim] HandAnimMeleeSwing=%d - 0 = only a TRIGGER sword attack plays the game's swing on the tracked hand; a physical "
-        "swing keeps your arm. 1 = physical swings hand back too. 'anim/melee:' names the source of every attack",(int)handAnimMeleeSwing);
+    handAnimMeleeBoth=GetPrivateProfileIntA("Anim","HandAnimMeleeBothHands",0,ini)!=0;
+    Log("config: [Anim] HandAnimMeleeSwing=%d HandAnimMeleeBothHands=%d - 0/0 = only a TRIGGER sword attack plays the game's swing, on the RIGHT hand "
+        "only (the left stays on the controller); a physical swing keeps your arm. Swing=1: physical swings hand back too. BothHands=1: the left "
+        "hand follows the clip as well. 'anim/melee:' names the source and the hands of every attack",(int)handAnimMeleeSwing,(int)handAnimMeleeBoth);
     handAnimFire=GetPrivateProfileIntA("Anim","HandAnimFire",0,ini)!=0;
     Log("config: [Anim] HandAnimMelee=%d HandAnimFire=%d (game animation on the tracked hands, arms hidden)",handAnimMelee,handAnimFire);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
@@ -513,7 +552,7 @@ void configure(const char* ini) {
 // still being tuned by headset runs. An edited list in the ini is kept as is.
 void save(const char* ini) {
     AcquireSRWLockShared(&lock);
-    const bool w=watch, b=handback, c=cinematicHandback, mantle=mantleHandback, hm=handAnimMelee, hf=handAnimFire, hs=handAnimMeleeSwing; const unsigned r=releaseMs, m=blendMs;
+    const bool w=watch, b=handback, c=cinematicHandback, mantle=mantleHandback, hm=handAnimMelee, hf=handAnimFire, hs=handAnimMeleeSwing, hb=handAnimMeleeBoth; const unsigned r=releaseMs, m=blendMs;
     ReleaseSRWLockShared(&lock);
     char v[16];
     WritePrivateProfileStringA("Anim","StateWatch",w?"1":"0",ini);
@@ -523,6 +562,7 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Anim","HandAnimMelee",hm?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandAnimMeleeRev","1",ini);            // VR-220: a saved value is this machine's choice
     WritePrivateProfileStringA("Anim","HandAnimMeleeSwing",hs?"1":"0",ini);   // VR-220
+    WritePrivateProfileStringA("Anim","HandAnimMeleeBothHands",hb?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandAnimFire",hf?"1":"0",ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",r); WritePrivateProfileStringA("Anim","ReleaseMs",v,ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",m); WritePrivateProfileStringA("Anim","HandBackBlendMs",v,ini);
@@ -535,14 +575,17 @@ bool command(const char* args) {
     } else if (!strcmp(sub,"melee")) {   // VR-220: the sword hand-back and its source rule
         if (!strcmp(value,"on") || !strcmp(value,"off")) set_hand_anim_melee(!strcmp(value,"on"));
         else if (!strcmp(value,"swing") && (!strcmp(extra,"on") || !strcmp(extra,"off"))) set_hand_anim_melee_swing(!strcmp(extra,"on"));
-        else if (*value && strcmp(value,"status")) Log("anim: melee on|off | melee swing on|off | melee status");
+        else if (!strcmp(value,"both") && (!strcmp(extra,"on") || !strcmp(extra,"off"))) set_hand_anim_melee_both(!strcmp(extra,"on"));
+        else if (*value && strcmp(value,"status")) Log("anim: melee on|off | melee swing on|off | melee both on|off | melee status");
         AcquireSRWLockShared(&lock);
-        Log("anim/melee: HandAnimMelee=%d HandAnimMeleeSwing=%d | last attack source=%s fire dt=%lld ms | hand-back plays the game's swing on the "
-            "tracked hand for a TRIGGER attack%s",(int)handAnimMelee,(int)handAnimMeleeSwing,meleeSource,meleeFireDt,
+        Log("anim/melee: HandAnimMelee=%d HandAnimMeleeSwing=%d HandAnimMeleeBothHands=%d | last attack source=%s fire dt=%lld ms hands=%s | hand-back plays "
+            "the game's swing on the %s for a TRIGGER attack%s",(int)handAnimMelee,(int)handAnimMeleeSwing,(int)handAnimMeleeBoth,meleeSource,meleeFireDt,
+            published.handMask==3?"both":published.handMask==2?"right":published.handMask==1?"left":"none",
+            handAnimMeleeBoth?"tracked hands":"RIGHT hand (the left stays on the controller)",
             handAnimMeleeSwing?" and for a physical swing":"; a physical swing keeps your arm");
         ReleaseSRWLockShared(&lock);
         return true;
-    } else if (*sub && strcmp(sub,"status")) Log("anim: status | watch on|off | handback on|off | melee on|off | melee swing on|off | melee status");
+    } else if (*sub && strcmp(sub,"status")) Log("anim: status | watch on|off | handback on|off | melee on|off | melee swing on|off | melee both on|off | melee status");
     report(snapshot()); return true;
 }
 void status(dvr::status::Writer& w) {
@@ -550,11 +593,13 @@ void status(dvr::status::Writer& w) {
     w.kv("master",s.state[0]); w.kv("upper",s.state[1]); w.kv("left",s.state[2]); w.kv("sequence",s.sequence);
     w.kv("reason",s.reason); w.kv("bodyMode",s.bodyMode); w.kv("controllerWeight",(double)weight());
     AcquireSRWLockShared(&lock);   // VR-220: the sword hand-back's levers and the last attack's source
-    w.kv("handAnimMelee",handAnimMelee); w.kv("handAnimMeleeSwing",handAnimMeleeSwing);
+    w.kv("handAnimMelee",handAnimMelee); w.kv("handAnimMeleeSwing",handAnimMeleeSwing); w.kv("handAnimMeleeBothHands",handAnimMeleeBoth);
     w.kv("meleeSource",meleeSource); w.kv("meleeFireDtMs",(int)meleeFireDt);
+    w.kv("handMask",(int)s.handMask); w.kv("weightLeft",(double)weight_for(0)); w.kv("weightRight",(double)weight_for(1));
     ReleaseSRWLockShared(&lock);
     w.end_obj();
 }
 // Rotation interpolation is implemented separately in the pure math helper.
 hf::Xform blend(const hf::Xform& transform) { return blend_transform(transform,weight()); }
+hf::Xform blend(const hf::Xform& transform,int hand) { return blend_transform(transform,weight_for(hand)); }   // VR-220
 }

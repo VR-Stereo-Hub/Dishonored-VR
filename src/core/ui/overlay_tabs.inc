@@ -187,6 +187,9 @@ static void OvlTabHands()
             bool sw = dvr::anim::hand_anim_melee_swing();
             if (dvr::ovl::checkbox("...also when you swing the controller", &sw)) dvr::anim::set_hand_anim_melee_swing(sw);
             OvlTip("Off: only trigger attacks play the game's swing; a physical swing keeps your arm on the sword. On: both do.");
+            bool both = dvr::anim::hand_anim_melee_both();
+            if (dvr::ovl::checkbox("...on both hands", &both)) dvr::anim::set_hand_anim_melee_both(both);
+            OvlTip("Off: only the right hand follows the clip and the left stays on the controller. On: the left hand follows it too.");
             ImGui::Unindent();
         }
         bool fire = dvr::anim::hand_anim_fire();
