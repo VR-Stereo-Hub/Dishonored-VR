@@ -16,7 +16,19 @@ Host results: the old recurrence reaches 20; 32 target/interpolation combination
 converge with the fix. Delayed dispatch, target changes, zoom, invalid inputs and
 draw scopes pass. The production ownership guard passes 16 lifecycle checks;
 existing cinematic FOV suite passes 30045 checks. Optimized 32-bit build, lint
-and all9 exports pass. Installation pending.
+and all9 exports pass. Installed 1.0.1 candidate build v1.0.0-1-g136be1eaf,
+RelWithDebInfo, legacy off. DLL SHA256:
+43349836dad56533cac37e7cbe8d06a77d018a3924b4a440806554d09b637218.
+
+Full installed INI is byte-identical (empty full diff, zero setting changes),
+CRLF verified: RenderWidth=2750, RenderHeight=2850, ProjectionFov=103.00.
+Previous DLL, complete INI and both logs are archived under this worktree's
+build/playtest-candidates/installs/20260923-200056-718548. Previous log banner
+matched the previous installed DLL (1.0.0, build761-g14728179e). No new log exists
+for this candidate yet; verify the next launch banner before interpreting it.
+Bounded fovlever feedback/owner diagnostics are built in at Info level, with no
+INI edit needed. DLL-only candidate ZIP and manifest are in
+build/playtest-candidates/vr-213-1.0.1; the ZIP deliberately contains no INI.
 
 Next launch question: at the unchanged resolution, does gameplay keep its full
 view for 30 seconds after loading a save? Stable coverage supports the feedback

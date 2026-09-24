@@ -15,7 +15,10 @@
 5. Results: old-law host negative control collapses to20; fixed normal traces
    converge across32 target/interpolation pairs; zoom-input and draw-scope tests
    pass.16 production ownership checks and30045 existing cinematic checks pass.
-6. Status: source/host-confirmed mechanism, headset acceptance OPEN. Test one
+6. Installed candidate:1.0.1 / v1.0.0-1-g136be1eaf, RelWithDebInfo, legacy off.
+   Build/lint/9 exports pass; full installed INI byte-identical with CRLF verified,
+  2750x2850 and ProjectionFov103 retained. DLL SHA256 and archive in STATUS.
+7. Status: source/host-confirmed mechanism, headset acceptance OPEN. Test one
    question: stable full view for30 seconds after loading, unchanged resolution.
    Continued contraction falsifies sufficiency of this fix. Spyglass/cinematics
    are subsequent regression questions; no game or simulator launched.

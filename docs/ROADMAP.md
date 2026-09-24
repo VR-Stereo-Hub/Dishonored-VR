@@ -2,7 +2,7 @@
 
 - [x] Reproduce persistent downward feedback and verify a resolution-independent correction.
 - [x] Host regression: interpolation, delayed readback, zoom, scopes, owner lifetime.
-- [ ] Optimized build and installation with full INI comparison.
+- [x] Optimized build and installation with full INI comparison (byte-identical, CRLF).
 - [ ] Headset: stable full view for 30 seconds after loading at unchanged resolution.
 - [ ] Headset: spyglass zoom/recovery and cinematic transitions.
 
