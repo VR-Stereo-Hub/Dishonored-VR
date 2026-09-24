@@ -1,3 +1,32 @@
+## 1.0.1 FOV feedback hotfix candidate (VR-213, 2026-09-23)
+
+Based on released v1.0.0 (02d5cf5d4), isolated on
+codex/vr-213-fov-feedback-1.0.1. The persistent writer multiplied rendered
+readback by target/natural. With natural 110 and target 108.0666, that ratio
+is below one, so delayed or interpolated self-feedback collapses toward 20.
+The earlier scoped-FOV guard only protects active draw scopes.
+
+The candidate caps the scaling baseline at the target. Normal readback reaches
+the requested FOV without repeated contraction; narrower native zoom remains
+available. Expansion behavior is unchanged. Camera/controller ownership is
+revalidated with IsLiveObject, identity slots and a fresh table after load/menu
+changes. No resolution/configuration defaults changed. Version is 1.0.1.
+
+Host results: the old recurrence reaches 20; 32 target/interpolation combinations
+converge with the fix. Delayed dispatch, target changes, zoom, invalid inputs and
+draw scopes pass. The production ownership guard passes 16 lifecycle checks;
+existing cinematic FOV suite passes 30045 checks. Optimized 32-bit build, lint
+and all9 exports pass. Installation pending.
+
+Next launch question: at the unchanged resolution, does gameplay keep its full
+view for 30 seconds after loading a save? Stable coverage supports the feedback
+fix; continued contraction means readback or another FOV writer still feeds back.
+Read the matching installed-build log and archive both logs before another launch.
+Native spyglass/cinematic headset regression checks remain separate follow-ups.
+No game launched, main merge or public release performed.
+
+Details: [ENGINE_NOTES](dishonored/ENGINE_NOTES.md#vr-213-persistent-fov-feedback-101-hotfix-2026-09-23).
+
 ## 2026-09-23: post-merge performance candidate (VR-212)
 
 Branch codex/vr-212-drop-discovery is based on the unmerged launcher continuation.

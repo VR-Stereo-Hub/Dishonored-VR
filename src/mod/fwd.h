@@ -600,6 +600,7 @@ static void AutoHandStartTick();
 static void ApplyHandToMesh();
 static void ApplyHeadToViewRotation(void* parms);
 static inline void LevWrite(uint8_t* p, float t);
+static bool FovLeverOwnersReady();
 static inline void FovLeverApply();
 // VR-30: the arm-follow probe (game/dishonored/arm_follow.cpp), read-only
 static void ArmFollowTick();

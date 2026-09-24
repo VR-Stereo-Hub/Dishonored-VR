@@ -1,3 +1,11 @@
+## 1.0.1 FOV hotfix (VR-213)
+
+- [x] Reproduce persistent downward feedback and verify a resolution-independent correction.
+- [x] Host regression: interpolation, delayed readback, zoom, scopes, owner lifetime.
+- [ ] Optimized build and installation with full INI comparison.
+- [ ] Headset: stable full view for 30 seconds after loading at unchanged resolution.
+- [ ] Headset: spyglass zoom/recovery and cinematic transitions.
+
 ## F10 painted UI (VR-206)
 
 - [x] Original reusable PNG materials embedded in the DLL.

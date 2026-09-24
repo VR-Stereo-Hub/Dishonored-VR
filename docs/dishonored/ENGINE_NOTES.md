@@ -9368,3 +9368,48 @@ reads those, at most once a second, and stops once all four are held for the paw
 fourth run the median stereo present rate was 220/s. That run still had the trace and the
 loop on, and both are gone now. `[Anim] MoveTrace` ships 0: it is a diagnostic, and it costs
 frames.
+
+## VR-213: persistent FOV feedback, 1.0.1 hotfix (2026-09-23)
+
+Source baseline: public v1.0.0, 02d5cf5d4. The supplied remote report has
+natural=110, automatic target about108.1 at2750x2850, declining rendered FOV,
+and a final20-degree floor. This is reported evidence, not a local headset run.
+The same mechanism was identified in the F11 notes above but the shipped
+ProjectionFovScopeActive guard excludes only active draw scopes.
+
+`FovLeverApply` reads camera+0x53c, the rendered sensor, and writes the controller
+and other camera FOV fields. Not directly writing the sensor does not make it
+independent: the engine interpolates its output back into that sensor. The old
+law is `write = min(sensor,natural) * target/natural`, then clamp20..160.
+At target<natural, the nonzero steady state disappears. With engine blend a,
+`nextSensor = sensor * (1-a+a*target/natural)` until the20-degree floor wins.
+An exact last-write comparison would not handle interpolated or delayed echoes.
+
+The hotfix uses `base=min(natural,target)` and
+`write=min(sensor,base)*(target/base)`. The multiplier is at least1. Normal
+readback converges to target from the startup baseline; readback below the new
+base is not repeatedly contracted. The above-baseline expansion path is
+unchanged. For target<natural, native narrow zoom is passed through rather than
+multiplied by the old contracting ratio. It is not frozen to full FOV. Existing
+gameplay draw scopes still apply ProjectionFov and restore their source.
+This is a bounded correction to the persistent writer, not a claim that rendered
+readback can distinguish every authored zoom from every other camera writer.
+
+The known sensor offset is now named kFovSensor in patterns.h; no new engine
+address was derived. FovLeverOwnersReady uses the existing reflected
+PlayerController.PlayerCamera relationship and ChCapture/ChSlot identities.
+Every write pass requires live camera/controller membership. Load generation
+or UI epoch changes force BuildLiveSet and revalidation, even with unchanged
+pointers. A different identity/load clears the baseline; a revalidated same
+identity across a menu keeps it. Failed refresh/capture refuses writes and
+retries at most once a second. Eye-clamp pawn reads also require IsLiveObject.
+
+Validation: tools/fov-lever-host.ps1 models old and new recurrences,32 target/
+interpolation combinations, delayed readback, target changes, smooth authored
+zoom/recovery, invalid inputs, and temporary gameplay scopes. The old control
+reaches20, while normal fixed traces reach their requested FOV. The production
+owner helper is compiled with test objects in tools/fov-lever-owners-host.ps1:
+16 checks cover loads, UI epoch, reuse, missing ownership, failed table/capture/
+reflection and recovery. Existing cinematic FOV tests:30045 pass.
+No game/simulator launch. Actual load stability, spyglass and cinematic acceptance
+remain open. RenderWidth/RenderHeight and ProjectionFov are not changed.

@@ -126,6 +126,7 @@ static const uint8_t kPistolInitCallBytes[] = {0xFF,0xD2,0x8B,0x06,0x8B,0x90,0x4
 // is the whole reason the pistol needs its own solver entry point.
 static const uint32_t kPistolSpawnDistOff = 0x420;
 static const uint32_t kPovOffs[3] = {0x330, 0x350, 0x374};
+static const uint32_t kFovSensor = 0x53c; // Rendered FOV readback, never zoom intent.
 static const uint32_t kFovCands[4] = {0x53c, 0x540, 0x564, 0x254};
 static const uint32_t kLevCtrl[3] = {0x3ac, 0x3b0, 0x3b4};   // FOVAngle/Desired/Default
 static const uint32_t kLevCam[7]  = {0x254, 0x348, 0x368, 0x38c, 0x53c, 0x540, 0x564};

@@ -1094,3 +1094,17 @@ which a given machine needs: a press reaching the pad proves nothing.
   clean of scripts, and elevates by running a headless copy of itself rather than the window,
   so Steam and the folder picker stay on the player's token. Every screen renders headless to
   a PNG, which is how the look was judged without a click. `docs/INSTALLER.md`.
+
+## 2026-09-23: persistent FOV readback cannot use a contraction ratio (VR-213)
+
+For1.0.1, cap the persistent lever's scaling baseline at its requested target.
+The camera sensor is rendered output, including delayed/interpolated echoes of
+our own writes, so exact last-write matching cannot identify all feedback.
+A multiplier below1 compounds toward20. Using min(natural,target) as the base
+prevents that contraction while passing native narrower zoom and preserving
+the existing expansion behavior. Draw-scoped ProjectionFov remains independent.
+This deliberately does not try to infer a complete authored FOV signal from one
+rendered float. Host convergence and negative-control tests cover the fix;
+spyglass/cinematic headset validation remains required. Details: ENGINE_NOTES,
+VR-213. Camera writes require fresh-table identity revalidation after UI/load
+transitions; unchanged pointer values do not bypass it.

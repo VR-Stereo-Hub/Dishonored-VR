@@ -1,3 +1,10 @@
+## 1.0.1 hotfix candidate (unreleased)
+
+- Fix progressive narrowing to a small central gameplay window when automatic
+  FOV is below the camera baseline. Render resolution remains unchanged.
+- Revalidate the persistent FOV writer's camera ownership after menu/load changes.
+- Host regression checks pass; headset acceptance is pending.
+
 # 1.0.0 (first public release)
 
 1.0.0 is the first numbered release of Dishonored VR. Releases use semantic version

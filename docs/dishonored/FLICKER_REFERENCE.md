@@ -1,3 +1,27 @@
+## VR-213: gameplay view contracts after load (2026-09-23, candidate)
+
+1. Symptom/surface: the whole gameplay projection contracts to a central square,
+   with normal object scale inside it; main menu normally remains full. Initial
+   flicker was reported but the sustained failure is contraction. Route beside
+   section1's whole-view FOV expansion/contraction row, distinct from eye starvation.
+2. Reproduction: remote Quest3/Virtual Desktop report,2750x2850, natural110,
+   target108.1, rendered claim falling to20. No full remote build banner supplied.
+3. Cause in released v1.0.0 source: the persistent sensor ratio is below1 and
+   reads its own interpolated output. Existing draw-scope exclusion does not
+   protect dispatches between scopes. Counterprediction: removing contraction
+   from the persistent multiplier stabilizes unchanged-resolution gameplay.
+4. Candidate:1.0.1, VR-213, base=min(natural,target), live ownership checks after
+   menu/load transitions. No resolution edits or additional settings.
+5. Results: old-law host negative control collapses to20; fixed normal traces
+   converge across32 target/interpolation pairs; zoom-input and draw-scope tests
+   pass.16 production ownership checks and30045 existing cinematic checks pass.
+6. Status: source/host-confirmed mechanism, headset acceptance OPEN. Test one
+   question: stable full view for30 seconds after loading, unchanged resolution.
+   Continued contraction falsifies sufficiency of this fix. Spyglass/cinematics
+   are subsequent regression questions; no game or simulator launched.
+
+Detailed derivation: [ENGINE_NOTES](ENGINE_NOTES.md#vr-213-persistent-fov-feedback-101-hotfix-2026-09-23).
+
 ## VR-195: the grab prompt flickers and the object cannot be used (2026-09-22, OPEN candidate)
 
 1. **Symptom identity:** looking at a usable object (a bottle, a pickup), the grab/use prompt
@@ -1224,6 +1248,7 @@ pose metadata without reopening the disproved historical theories.
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
+| Gameplay projection steadily contracts after load at target below natural FOV | Persistent ratio consumes its own interpolated readback | VR-213: source/host-confirmed; 1.0.1 candidate, headset open; see top entry |
 | Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
 | Grab/use prompt toggles at ~20 Hz and use does nothing (a game-state flicker: the focus target toggles) | Hand ray anchored on the last render sample; `interact/flicker:` counts focus changes per frame | VR-195 open candidate: game-camera anchor (`[Aim] HandRayGameAnchor`) |
 | Whole view slides sideways when the head ROLLS (not a flicker) | Neck arc built from a rolled frame | VR-91 fixed, `[Neck] RollArc=0`. Listed here only so it is not mistaken for one of the above |
