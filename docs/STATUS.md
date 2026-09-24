@@ -1,3 +1,22 @@
+## SteamVR mirror default prepared (VR-216, 2026-09-24)
+
+Branch codex/vr-216-steamvr-mirror-default is based on VR-215. SteamVR no longer
+silently forces the desktop mirror on. The launcher checkbox is enabled for all
+runtimes; existing off defaults and explicit saved choices are honored. Launcher
+and in-game tooltip explain the potential large performance benefit across
+runtimes. Native D3D9 testing passes 240 GPU markers/pixel checks and fallback/
+reset checks. Installer smoke and optimized build pass; SteamVR settings previews
+rendered at 100/150%, normal-scale layout inspected.
+
+Pending clarification: the request specified both default mirror off and a
+SteamVR crash warning suggesting off. Existing VR-208 reports instead describe
+recovery with the mirror on. Asked whether the recovery warning should say ON
+or OFF; no answer yet. Warning wording, final packaging and installation remain
+pending that answer. The installed build is still the VR-215 candidate below.
+No game launch, merge or release. Prior compatibility evidence remains recorded
+in DESKTOP_MIRROR; performance claims remain conditional rather than new measured
+SteamVR results.
+
 ## Reliable support collection and ten-run history (VR-215, 2026-09-24)
 
 Stacked on VR-214, branch codex/vr-215-support-log-history, still 1.0.1.

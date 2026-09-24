@@ -152,7 +152,7 @@ Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $changed) 'invalid bool
 $rc = Run ($common + @('--op','change','--dpad-modifier','3'))
 Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $changed) 'retired modifier fails before writing'
 $rc = Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--mirror','off'))
-Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini).Contains("DesktopMirrorOff=1")) 'SteamVR keeps the native mirror preference with an explicit override warning'
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini).Contains("DesktopMirrorOff=1")) 'SteamVR saves the mirror-off choice without a runtime override'
 
 '6. disable / enable'
 $rc = Run ($common + @('--op', 'disable')); Assert ($rc -eq 0 -and (Test-Path (Join-Path $game 'disable_vr.txt'))) 'disable_vr.txt written'

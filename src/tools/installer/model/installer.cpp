@@ -159,9 +159,6 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
                (i == Modifier ? std::to_string(value) : ((p.inverted ? !value : value) ? "on" : "off")),
                fs::format("[%s] %s=%d", n(p.section).c_str(), n(p.key).c_str(), value));
     }
-    if (rt == Runtime::SteamVr && c.preferences[Mirror] == 1)
-        r->add(StepStatus::Warn, "SteamVR keeps the desktop mirror on",
-               "Your mirror-off preference is saved for native runtimes. The SteamVR bridge overrides it.");
 
     // [Paths] DataDir: empty means %LOCALAPPDATA%\DishonoredVR. A value the player
     // set on purpose is kept; the dev PC's drive that a build once shipped is not.

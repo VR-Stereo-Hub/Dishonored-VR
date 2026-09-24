@@ -36,6 +36,7 @@ int main() {
     IDirect3DSurface9* cpu=nullptr;
     require(SUCCEEDED(dev->CreateOffscreenPlainSurface(64,64,D3DFMT_X8R8G8B8,D3DPOOL_SYSTEMMEM,&cpu,nullptr)),"create readback");
     using namespace dvr::desktop_eye;
+    require(mirror_off(),"mirror is off by default before any runtime or setting is applied");
     set_device(dev); set_mirror_off(true);
     set_strict_off(false);
     begin_present(10000); on_present(0);

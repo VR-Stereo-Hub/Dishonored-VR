@@ -1607,3 +1607,14 @@ INI bytes unchanged and CRLF verified. Launcher embeds this DLL. Native schedule
 checks,75 swing-core checks,9 exports, default writer/reset parity and lint pass.
 No game launch or post-fix headset result yet. The fixed unnecessary work is
 source-verified; the claimed FPS recovery remains pending.
+
+## Mirror policy across runtimes (VR-216, 2026-09-24)
+
+Requested policy: default mirror off on SteamVR too, with visible performance
+and compatibility guidance. Remove VR-208's runtime override and disabled launcher
+checkbox. The performance hint says disabling the mirror can produce a large
+boost with any runtime; it is a conditional user-facing recommendation, not new
+cross-runtime benchmark evidence. Existing controlled throughput measurements
+above remain Quest/VDXR-specific. No new SteamVR throughput or headset startup
+measurement was performed. Native D3D9 GPU submission/pixel checks and all existing
+fallbacks pass. Retain the earlier Index startup report in DESKTOP_MIRROR.md.

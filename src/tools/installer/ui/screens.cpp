@@ -129,18 +129,11 @@ void preference_checkbox(ViewState& v, int id, const char* tip)
 void preferences_section(ViewState& v)
 {
     if (heading("Play preferences", "Saved for the next launch. L3 + R3 opens these settings in game.")) {
-        if (v.choices.runtime == Runtime::SteamVr) {
-            bool on = true;
-            ImGui::BeginDisabled();
-            dvr::ovl::checkbox("Desktop mirror", &on);
-            ImGui::EndDisabled();
-            wrapped_faded("SteamVR requires the mirror. Your native-runtime preference is kept.");
-        } else {
-            preference_checkbox(v, Mirror, "Shows the game on your monitor. SteamVR always keeps it on, even if Auto falls back to the bridge.");
-        }
-        if (v.choices.runtime != Runtime::SteamVr) ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
+        preference_checkbox(v, Mirror, "Shows the game on your monitor. Off by default on every runtime.");
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
         preference_checkbox(v, Crouch, "Duck in your room to crouch. The controller crouch button still works.");
         preference_checkbox(v, Rain, "Hides only the close rain layer. Sky rain and ground splashes remain.");
+        wrapped_faded("Turning the desktop mirror off can give a huge performance boost with any runtime.");
     }
     if (v.controlsOpen) ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     if (heading("Controller shortcuts", "Choose controls that exist on your controllers; the headset name alone is not enough.", false)) {

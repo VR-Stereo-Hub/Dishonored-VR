@@ -170,7 +170,7 @@ about 9.7 ms of D3D9 GPU span per tick, 15.7 megapixels per pair at 2750x2850.
 That is the next subject and it is not touched by anything in this document.
 
 
-## 9. The SteamVR shim keeps the mirror on (VR-208, 2026-09-23)
+## 9. Historical SteamVR mirror override (VR-208, 2026-09-23; superseded by VR-216)
 
 **Report:** on an Index through the SteamVR shim (build `525-g548c31693`), the game kept
 crashing until the desktop mirror was turned back on.
@@ -198,3 +198,17 @@ once as a `Warn`, and the `DesktopMirrorOff=` line gives the effective value. Ot
 runtimes are unchanged. `desktop-present-d3d9-host` passes (240 checks).
 `desktop-eye-host` fails with "window changed to right pixels after snapshot", and it
 fails the same way on unmodified `VR-Main` (tracked separately).
+
+## 10. Shared mirror-off default (VR-216, 2026-09-24)
+
+At the owner's request, SteamVR now honors the same DesktopMirrorOff setting as
+native runtimes. The existing compiled/INI default remains 1, but track_session
+no longer forces it to 0 for the shim. Launcher exposes an enabled Desktop mirror
+checkbox for SteamVR, Auto and native runtime selections. Explicit saved on/off
+choices remain authoritative. The current-work submission query and stopped-XR,
+unsupported-parameter and submission-failure fallback paths are unchanged.
+
+The earlier VR-208 compatibility report remains evidence, not a proven universal
+cause. Removing the blanket override is a requested policy change, not a claim
+that every SteamVR startup problem is fixed. The performance hint uses conditional
+language; prior measured throughput evidence is maintained in PERFORMANCE.md.
