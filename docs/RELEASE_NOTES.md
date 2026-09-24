@@ -8,7 +8,9 @@ hand and returns it to the controller when the attack ends. A physical swing (th
 is unchanged: your arm is the animation, and the hand stays on the controller. `[Anim]
 HandAnimMelee` is on by default from this build; an existing ini is moved from 0 to 1 once (the
 log says `config: [Anim] HandAnimMelee 0 -> 1 (one-time ...)`), and a 0 you set afterwards stays.
-New: `[Anim] HandAnimMeleeSwing=0` hands physical swings back too when set to 1. F10 > Hands >
+Only your right hand follows the clip; the left stays on the controller (`[Anim]
+HandAnimMeleeBothHands=1` makes both follow it). New: `[Anim] HandAnimMeleeSwing=0` hands
+physical swings back too when set to 1. F10 > Hands >
 Game arms during actions: "Sword swing animation on the tracked hand" and, under it, "...also
 when you swing the controller". Live: `anim melee on|off`, `anim melee swing on|off`. A physical
 swing right after a trigger attack is no longer refused by the body gate.

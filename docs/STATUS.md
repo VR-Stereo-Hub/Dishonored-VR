@@ -8,7 +8,11 @@ state was entered with the pulse open or within 80 ms of its close (combo: withi
 fire), else TRIGGER; only TRIGGER sets the hand-back. `kGateBody` reads `cameraAction`, not `game`,
 so a trigger hand-back does not refuse the swing that follows. `[Anim] HandAnimMelee=1` (moved 0 -> 1
 once by `HandAnimMeleeRev`), `HandAnimMeleeSwing=0`; `anim melee on|off|swing on|off|status`; F10 >
-Hands > Game arms during actions.
+Hands > Game arms during actions. The hand-back owns the RIGHT hand only (the headset asked for
+the left to stay free): `Snapshot.handMask`, per-hand `blend(D, hand)`, per-hand SkelControl
+release; `HandAnimMeleeBothHands=0`. A first cut deadlocked the present thread on the first
+status write (`weight_for` under the shared lock); fixed, launch clean, `swing-anim.xrs` (56)
+and `snap-turn.xrs` (88) pass on the merged RelWithDebInfo build (sha256 A699EDD4...).
 
 **Simulator (`tools\xrsim\swing-anim.xrs`, 56 steps; Debug and RelWithDebInfo):** trigger pull ->
 `source=TRIGGER -> hand-back ON`, `features.anim.meleeSource=trigger`; swing-edge move -> `swing:

@@ -213,9 +213,21 @@ The gate change that came with it: `kGateBody` reads the body-owning classifier
 A trigger attack's hand-back sets `game` too, and gating on it refused the swing that followed a
 trigger slash for the attack plus `ReleaseMs`. Under the old defaults the two read the same.
 
+The clip is right-handed, so the hand-back owns the RIGHT hand only: the snapshot carries a
+`handMask` (bit 0 left, bit 1 right; a trigger attack alone sets 2, mantle, cinematics, the
+rules and the shot set 3, held through the release), the palette correction blends per hand
+(`anim::blend(D, hand)`, the left keeps its full correction), the SkelControl release and the
+hand drive skip only the owned hand, and the whole-draw native path (`native_draw`) is for a
+hand-back that owns both. The left hand stays on the controller through a trigger slash.
+`HandAnimMeleeBothHands=1` restores the two-handed hand-back. Trap paid on the way: the status
+writer read a per-hand weight under the anim lock; SRW locks do not recurse and the present
+thread deadlocked on the first status write. Never call `weight()`, `weight_for()` or
+`snapshot()` while holding that lock.
+
 Levers: `[Anim] HandAnimMelee=1` (moved 0 -> 1 by a one-time `HandAnimMeleeRev` migration, the
 EdgeSpeed pattern, no config version bump), `HandAnimMeleeSwing=0` (also hand a physical swing
-back). Words: `anim melee on|off`, `anim melee swing on|off`, `anim melee status`. F10 > Hands >
+back), `HandAnimMeleeBothHands=0` (the left hand follows the clip too). Words: `anim melee
+on|off`, `anim melee swing on|off`, `anim melee both on|off`, `anim melee status`. F10 > Hands >
 Game arms during actions. Log: `anim/melee: attack source=TRIGGER|SWING -> hand-back ON|off
 (entry=state|combo, fire dt=..., pulse=open|closed N ms before, realTrig=..., seq=...)`, one line
 per attack; a refusal line when the master is off. Sequence: `tools\xrsim\swing-anim.xrs`.
