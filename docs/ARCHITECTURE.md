@@ -1140,3 +1140,15 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+### 2026-09-24: the reported headset lives in launcher.ini, not dishonored_vr.ini
+
+VR-223 records which headset the player has, for diagnostics. It is stored in
+the launcher's own %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model and
+the mod reads it from there for one startup log line. The mod's ini was the
+obvious home and is wrong twice: the launcher must ask before the mod (and so
+its ini) is installed, and LoadConfig rewrites that ini wholesale on a version
+bump, which would silently drop the answer. The path is fixed at
+%LOCALAPPDATA%, never [Paths] DataDir, because the launcher never reads the mod's
+DataDir. It changes no setting; per-headset defaults (as the BioShock
+Remastered VR mod applies them) would be a separate, deliberate change.

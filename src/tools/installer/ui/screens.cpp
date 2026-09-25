@@ -73,9 +73,82 @@ void game_section(ViewState& v, UiAction* action)
     status_slot("##gamestatus", 1, status.c_str(), colour);
 }
 
+// VR-223: which headset the player has, asked once and required. Recorded for
+// diagnostics only; the runtime pills below it are what the mod acts on.
+void open_headset_picker(ViewState& v)
+{
+    v.headsetPick = headset_index(v.headset);
+    v.headsetOther[0] = 0;
+    if (v.headsetPick == kHeadsetOther) snprintf(v.headsetOther, sizeof(v.headsetOther), "%s", v.headset.c_str());
+    v.headsetPicking = true;
+}
+
+void headset_picker(ViewState& v, UiAction* action)
+{
+    const bool required = v.headset.empty();
+    if (!required && !v.headsetPicking) return;
+    if (v.busy || v.updateDownloading) return;
+    const char* id = "Which headset do you have?";
+    if (!ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x * 0.86f, 0), ImGuiCond_Appearing);
+    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) return;
+    wrapped_faded(required
+        ? "Pick the headset you play on. It goes into your logs so a problem report says which hardware it came from. It changes no setting, and you can change it later."
+        : "Recorded in your logs for problem reports. It changes no setting.");
+    bool focusOther = false;
+    if (ImGui::BeginTable("##headsets", 2, ImGuiTableFlags_SizingStretchSame)) {
+        for (int i = 0; i <= kHeadsetCount; ++i) {
+            ImGui::TableNextColumn();
+            const char* label = i == kHeadsetOther ? "Something else" : kHeadsets[i];
+            ImGui::PushID(i);
+            if (ImGui::Selectable(label, v.headsetPick == i, ImGuiSelectableFlags_NoAutoClosePopups)) {
+                focusOther = i == kHeadsetOther && v.headsetPick != i;
+                v.headsetPick = i;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    std::string pickedName;
+    if (v.headsetPick == kHeadsetOther) {
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (focusOther) ImGui::SetKeyboardFocusHere();
+        ImGui::InputTextWithHint("##headset-other", "Type the headset name", v.headsetOther, kHeadsetNameMax + 1);
+        pickedName = clean_headset_name(v.headsetOther);
+    } else if (v.headsetPick >= 0 && v.headsetPick < kHeadsetCount) {
+        pickedName = kHeadsets[v.headsetPick];
+    }
+    ImGui::Spacing();
+    if (button(required ? "Continue" : "Save", true, !pickedName.empty())) {
+        v.headsetPending = pickedName;
+        *action = UiAction::SaveHeadset;
+        ImGui::CloseCurrentPopup();
+    }
+    if (!required) {
+        ImGui::SameLine();
+        if (button("Cancel")) { v.headsetPicking = false; ImGui::CloseCurrentPopup(); }
+    } else if (pickedName.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled(v.headsetPick == kHeadsetOther ? "Type a name to continue." : "Pick one to continue.");
+    }
+    ImGui::EndPopup();
+}
+
+void headset_row(ViewState& v)
+{
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Headset model:");
+    ImGui::SameLine();
+    ImGui::TextUnformatted(v.headset.empty() ? "not recorded" : v.headset.c_str());
+    ImGui::SameLine();
+    if (button("Change##headset", false, !v.busy)) open_headset_picker(v);
+    dvr::ovl::tip("The headset you play on. Recorded in the launcher and game logs for problem reports; it changes no setting.");
+}
+
 void headset_section(ViewState& v)
 {
     if (!heading("Headset", "Which OpenXR runtime the mod talks to. This writes [VR] Runtime and XrRuntimeJson in dishonored_vr.ini.")) return;
+    headset_row(v);
     const char* labels[3] = { runtime_label(Runtime::Vdxr), runtime_label(Runtime::SteamVr), runtime_label(Runtime::Auto) };
     const int hit = pill_row(labels, 3, (int)v.choices.runtime, kRuntimeTips);
     if (hit >= 0 && !v.busy) v.choices.runtime = (Runtime)hit;
@@ -289,12 +362,13 @@ UiAction draw_manage(ViewState& v)
         if (v.det.disabled) line = "VR is DISABLED (disable_vr.txt is beside the game). ";
         else line = "VR is enabled. ";
         if (v.det.iniExists) {
-            line += fs::format("Headset: %s. Render size: %ux%u per eye.", runtime_label(v.det.iniRuntime), v.det.iniSize.w, v.det.iniSize.h);
+            line += fs::format("Runtime: %s. Render size: %ux%u per eye.", runtime_label(v.det.iniRuntime), v.det.iniSize.w, v.det.iniSize.h);
         } else {
             line += "No dishonored_vr.ini yet; the mod writes the tested one at the first launch.";
         }
         if (v.det.running == process::Running::Yes) line += " Dishonored is running: quit it before updating or removing.";
         status_slot("##managestatus", 1, line.c_str());
+        headset_row(v);
     }
     if (heading("Actions", nullptr)) {
         const bool idle = v.det.running == process::Running::No;
@@ -454,6 +528,11 @@ UiAction draw(ViewState& v)
     case Screen::Guide: a = draw_guide(v); break;
     case Screen::About: a = draw_about(v); break;
     }
+    {
+        UiAction picked = UiAction::None;
+        headset_picker(v, &picked);
+        if (picked != UiAction::None) a = picked;
+    }
     if(v.updateDownloading) {
         ImGui::OpenPopup("Updating Dishonored VR");
         if(ImGui::BeginPopupModal("Updating Dishonored VR",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -463,7 +542,7 @@ UiAction draw(ViewState& v)
     } else if(ImGui::BeginPopupModal("Updating Dishonored VR",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::CloseCurrentPopup();ImGui::EndPopup();
     }
-    if(v.updatePopup && !v.releases.empty()) {
+    if(v.updatePopup && !v.releases.empty() && !v.headset.empty() && !v.headsetPicking) {
         ImGui::OpenPopup("An update is available");
         ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x * 0.78f,0),ImGuiCond_Appearing);
         if(ImGui::BeginPopupModal("An update is available",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {

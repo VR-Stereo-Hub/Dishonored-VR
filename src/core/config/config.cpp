@@ -1572,6 +1572,22 @@ static void LoadConfig()
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     Log("config: LoadConfig begin");
+    {   // VR-223: the headset the player told the launcher they have, so a log
+        // names the hardware without anyone having to ask. Read from the
+        // launcher's own file (always %LOCALAPPDATA%, never [Paths] DataDir),
+        // not the mod ini, which a version bump rewrites. The runtime's own
+        // system name is logged at session start; the two can disagree (a Quest
+        // on SteamVR reports through SteamVR), which is exactly why both print.
+        char local[MAX_PATH] = "", launcherIni[MAX_PATH] = "", model[64] = "";
+        const DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", local, sizeof(local));
+        if (n && n < sizeof(local)) {
+            _snprintf(launcherIni, MAX_PATH, "%s\\DishonoredVR\\launcher.ini", local);
+            launcherIni[MAX_PATH - 1] = 0;
+            GetPrivateProfileStringA("Headset", "Model", "", model, sizeof(model), launcherIni);
+        }
+        Log("config: headset (user reported in the launcher): %s",
+            model[0] ? model : "not recorded (launcher never run on this account, or older than VR-223)");
+    }
 
     // create if missing, OR refresh if it predates this build's tuned defaults
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;

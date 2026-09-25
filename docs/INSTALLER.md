@@ -349,3 +349,37 @@ support-budget-tests.ps1 (run under Windows PowerShell 5.1), and
 support-launcher-tests.ps1. The last uses the actual 32-bit launcher, a fresh temp
 profile, a Unicode path, ten fixture sessions and an unusable TEMP. Optional
 -OldLauncher reproduces the released error before exercising the fix.
+
+## Headset selection (VR-223)
+
+The launcher asks which headset the player has before anything else. With none
+recorded, a modal picker opens over whichever screen starts (Setup or Manage)
+and has no close control: Continue stays disabled until a headset is picked, or
+a name is typed for Something else. The update popup waits behind it.
+Afterwards the headset shows in the Headset section of Setup and in Current
+Settings on Manage, each with a Change button that reopens the picker with a
+Cancel.
+
+It is recorded only, for diagnostics. No ini key follows from it; the runtime
+pills are still what the mod acts on. The list and its order are the BioShock
+Remastered VR mod's Setup.bat question (Quest 3/3S, Quest Pro, Quest 2, Quest
+1, Rift S/CV1, Index, Vive/Vive Pro, Vive Pro 2/XR Elite, Beyond, Pimax
+Crystal/Light, Pimax 5K/8K, Reverb G2/WMR, Varjo, Pico 4, Somnium VR1, PSVR2,
+Something else), so reports from the two mods group the same way. That mod also
+flips per-headset controller defaults from the answer; this one does not yet.
+
+Where it lives: %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model, the
+label itself (a typed name is printable ASCII, 48 characters at most). It is
+kept out of dishonored_vr.ini on purpose: the picker has to work before the mod
+is installed, and a config version bump rewrites the mod's ini.
+
+Where it shows up:
+- the launcher log: `launcher: headset: user reported '<name>'` at every start,
+  `none recorded - asking` on a first run, and `user changed 'a' -> 'b'`
+- the mod log, near the top: `config: headset (user reported in the launcher): <name>`,
+  read from the same file. The runtime's own system name is logged separately
+  at session start; the two can legitimately differ (a Quest through SteamVR)
+- the support bundle manifest: `headset`
+
+Offscreen states: `headset-required`, `headset-other`, `headset-change`. Every
+other fake state has a headset set so the picker does not cover it.

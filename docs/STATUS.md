@@ -1,3 +1,25 @@
+## Launcher headset selection (VR-223, 2026-09-24)
+
+Branch `claude/vr-223-launcher-headset` off `staging`, not merged.
+
+- The launcher asks which headset the player has before anything else. With
+  none recorded it is a modal with no close control; Continue unlocks on a pick
+  (or a typed name for Something else). Change on Setup and Manage reopens it.
+- The list is the BioShock Remastered VR mod's Setup.bat question, same order.
+  Recorded only: no setting follows from it.
+- Stored in %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model. Printed in
+  the launcher log, in the mod log (`config: headset (user reported in the
+  launcher): ...`) and in the support bundle manifest. Why not the mod ini:
+  ARCHITECTURE decision log, 2026-09-24.
+- Verified: Release build clean, lint clean, support-collector-tests PASS,
+  offscreen renders of `headset-required`, `headset-other`, `headset-change`,
+  `manage`, `setup-found` checked by eye.
+- NOT verified: a real first run clicking through the picker, and the mod log
+  line in a live session. The install was refused because the game was running
+  (d3d9.dll locked); run `tools\install.ps1 -Release` once it is closed.
+- Next: per-headset controller defaults (BRVR's d-pad modifier and WMR layout
+  fixes) would be a separate ticket if wanted.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication
