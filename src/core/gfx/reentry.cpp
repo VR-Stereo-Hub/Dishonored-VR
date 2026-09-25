@@ -350,6 +350,19 @@ public:
         float along = 0.0f, other = 0.0f;
         ArbTrace arbTrace;
         bool tagged = pop_and_arbitrate(arb_, view, t, ringEye, inv, along, other, &arbTrace);
+        // VR-229: this lane remains available after the forty detailed ledger
+        // windows have been spent. Rate-limited, read-only, existing RingLedger switch.
+        if (led && arbTrace.expireReason) {
+            static const char* reasons[] = {"none", "disabled", "camera-unconfirmed", "tag-not-arrived", "front-eye-mismatch"};
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                "reentry/late-expire: reason=%s owed=%+d measured=%+d c5=%d basis=%d along=%+.3f other=%.3f ipd=%.3f "
+                "front=%+d D%u (front inspected only after camera confirmation) popEye=%+d final=%+d depth=%ld "
+                "totals disabled=%u camera=%u empty=%u front=%u; diagnosis only, labels unchanged",
+                reasons[arbTrace.expireReason], arbTrace.expiredEye, inv, view.haveC5, view.basisOk, along, other, view.ipd,
+                arbTrace.expireFrontEye, arbTrace.expireFrontDraw, ringEye, tagged ? t.eye : 0,
+                (long)(arbTrace.headBefore-arbTrace.tailBefore), g_lateExpireReason[1], g_lateExpireReason[2],
+                g_lateExpireReason[3], g_lateExpireReason[4]);
+        }
         if (arbTrace.action & ACT_LATE) {
             // F-late: the removed tag was the previous present's image, still waiting in the capture
             // slot untagged; label it so it reaches its eye instead of being held.

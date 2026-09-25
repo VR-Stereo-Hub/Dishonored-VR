@@ -1,3 +1,11 @@
+## Cinematic follow-ups (VR-228/229, 2026-09-24)
+
+- [x] Confirm pause scope exclusion and add head-look-menu permission with epoch liveness.
+- [x] Corroborate prison stale-left delivery; distinguish active repairs from expirations.
+- [x] Add bounded expiration diagnostics after detailed ledger budget exhaustion.
+- [ ] Local paused-dialogue FOV acceptance.
+- [ ] Remote expiration attribution and production-model-tested eye pairing fix.
+
 ## Cinematic square-view recovery (VR-227, 2026-09-24)
 
 - [x] Match support build and isolate persistent cinematic narrow-FOV retention.

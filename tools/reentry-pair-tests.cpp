@@ -40,6 +40,7 @@ static void reset_model() {
     g_pushAccepted = g_pushRejected = g_lastRejectedDraw = 0;
     g_popNormal = g_popRepair = g_popClearRemoved = g_popClears = g_popEmpty = g_lifecycleRemoved = 0;
     g_lateOwed = g_lateRepaired = g_lateExpired = 0;
+    memset(g_lateExpireReason,0,sizeof(g_lateExpireReason));
 }
 
 enum Fault { F_NONE, F_REPEAT_PRESENT, F_DROP_PRESENT, F_DROP_PUSH, F_ZERO_TICK };
@@ -264,6 +265,21 @@ int main() {
     const Result a = run(again), b = run(again);
     check(a.wrongEye == b.wrongEye && a.emptyPops == b.emptyPops && a.realigns == b.realigns,
           "the model is deterministic and resets between runs");
+
+    // VR-229: unresolved debt reasons must distinguish camera ambiguity from
+    // publication delay and a contradictory front tag; never infer missing data.
+    for (int reason=1; reason<=4; ++reason) {
+        reset_model(); g_lateTagRepair=reason!=1;
+        ArbState state; state.owedEye=-1; state.inStream=true; state.prevC5Ok=true;
+        ArbView view; view.haveC5=true; view.basisOk=true; view.br[0]=1; view.ipd=kIpd;
+        view.c5now[0]=reason==2?0:-kIpd;
+        if (reason==4) push_tag(+1,nullptr,91,0,91);
+        Tag tag={}; int ring=0, measured=0; float along=0, other=0; ArbTrace trace;
+        pop_and_arbitrate(state,view,tag,ring,measured,along,other,&trace);
+        check(trace.expireReason==reason && trace.expiredEye==-1,"expiry diagnostic identifies actual failed guard");
+        check(g_lateExpireReason[reason]==1 && g_lateExpired==1,"expiry population reconciles");
+        check(trace.expireFrontDraw==(reason==4?91u:0u),"front identity only claimed when inspected");
+    }
 
     if (g_fail) { printf("reentry-pair host: %d of %d checks FAILED\n", g_fail, g_checks); return 1; }
     printf("reentry-pair host: all %d checks passed\n", g_checks);

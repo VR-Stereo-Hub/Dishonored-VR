@@ -1,3 +1,64 @@
+## VR-228: paused cinematic FOV (2026-09-24, candidate)
+
+Verified local log v1.0.1-1-gaa3af7216,2750x2850, matching installed DLL SHA256
+2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1.
+At123838421 and123841109 pause releases the FOV scope in InDialog and claims41.2
+instead of108.1 degrees; UI subsequently confirms Pause,blocked1,rides1.
+Gameplay FOV already permits UiSurfaceHeadLook, but cinematic eligibility always
+rejects menu=true. The narrow native cache remains visible behind the menu.
+
+Candidate gives the cinematic path the same explicit head-look menu permission.
+It does not allow a flat menu, main menu, exit, invalid state or absent projection.
+The native source is still restored after both eye draws. CfValidate additionally
+requires the current UI epoch, forcing BuildLiveSet and full live identity capture
+on menu transitions before writing; unchanged pointers alone are insufficient.
+No new offsets, FOV values or persistent menu writes are introduced.
+
+30054 cinematic/handback checks pass, including old gate negative control,
+41.2-degree paused-source scope/restore and permission refusal cases. Existing
+feedback1284707 and owner16 checks pass. Headset acceptance remains open.
+Single local test: open pause during the same low-FOV dialogue; does the background
+remain full size while paused? A box disproves sufficiency; do not conflate with
+prison eye starvation. Prior full-gameplay square repair is locally reported good.
+
+## VR-229: prison cinematic left-eye starvation (2026-09-24, measured/open)
+
+Surface: reported inter-eye flicker during prison cinematic, resolving in gameplay.
+Route: section1 frozen/swapped/behind eye after load, plus startup starvation;
+not FOV contraction or a weapon-only report. Supplied current log verifies
+v1.0.1-1-gaa3af7216,3025x3135,Quest/VD,SharedWait0,LateTagRepair1,SingleTagRepair1,
+RingLedger1. Older archive logs carry different banners and were not mixed in.
+
+Post-load cinematic interval531075453..531164250 keeps FOV108.07. At531084890,
+48 of149 stereo submissions have a stale left eye in3s; right stale count is0.
+At531092890 the10s ledger has341 owes,308 repairs,32 expirations;308 relabels
+succeed,0 refuse. At531152921:441 owes,429 repairs,11 expire,429 relabels,0 refuse.
+No acquisition/wait failures accompany the sampled stale-eye events. The ring
+accounting reconciles, and pass2 writes are not refused. By531171890 and531174890,
+gameplay has zero stale-eye submits. This corroborates the reported timing.
+
+The known repair is active, not missing. Unresolved late confirmations and duplicate
+right delivery remain. Counters cannot distinguish camera-invariant disagreement,
+a tag still absent on the following present, or a contradictory front tag. Do not
+assume each duplicate is a visible swap, or disable C5Pair without image identity.
+All40 detailed ledger windows were spent by531065796 before the prison interval;
+there are no per-present ledger records there. This prevents a justified label fix.
+
+New read-only reentry/late-expire diagnostic under existing RingLedger logs at most
+once per3s throughout the run, beyond the detailed-window budget. It records which
+confirmation guard failed, owed/measured/front eyes, draw identity when inspected,
+camera availability/step, queue depth and cumulative per-reason populations.
+The original guard order, short circuit, tag consumption, relabel and eye output
+are unchanged.416 production pairing-host checks pass, including12 new failure-
+classification assertions; this is diagnostic coverage, not a flicker repair.
+
+Next remote question: does the prison cinematic reproduce the eye flicker in this
+instrumented build? Return the support ZIP either way. Compare expiry populations
+and event identities against a healthy gameplay interval. Camera failures require
+measured image/camera provenance; missing/front-tag failures require a deterministic
+late-publication/reordering regression before altering repair. If it does not
+reproduce, that does not establish a fix because pairing behavior is unchanged.
+
 ## VR-227 affected-player result (2026-09-24)
 
 The affected player reported that candidate `v1.0.1-1-gaa3af7216` fixed the square-view
@@ -1251,6 +1312,8 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
+| Prison cinematic inter-eye flicker, ends in gameplay | Measured stale-left delivery; late repair active with unresolved confirmations | VR-229 open; detailed windows exhausted before scene, expiration diagnostic added; see top entry |
 | Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |
 | Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |

@@ -2,8 +2,8 @@
 #include <cmath>
 namespace dvr::cine_fov {
 inline bool valid(float fov) { return std::isfinite(fov) && fov>5 && fov<175; }
-inline bool eligible(bool enabled,bool scene,bool menu,bool projection,bool state,float target) {
-    return enabled && scene && !menu && projection && state && std::isfinite(target) && target>=40 && target<=160;
+inline bool eligible(bool enabled,bool scene,bool menu,bool projection,bool state,float target,bool menuHeadLook=false) {
+    return enabled && scene && (!menu || menuHeadLook) && projection && state && std::isfinite(target) && target>=40 && target<=160;
 }
 // Scale the projection's tangent, preserving authored optical zoom magnification.
 // Zero/invalid request leaves the existing path untouched. No retained sensor feedback.

@@ -1,3 +1,11 @@
+## Successful repairs can exhaust the failure diagnostic (VR-229, 2026-09-24)
+
+The40-window ring ledger triggered on routine repaired/refused presents and spent
+its last window before the prison cinematic. Aggregate late-tag expirations and
+stale-left submissions survived, but the failed confirmation reason did not.
+A bounded rate-limited failure lane must remain available independently of that
+window budget. Existing repair being enabled is not proof every episode is repaired.
+
 ## A stable feedback loop can retain the wrong FOV (VR-227, 2026-09-24)
 
 Removing a contraction multiplier stops progressive collapse, but it does not

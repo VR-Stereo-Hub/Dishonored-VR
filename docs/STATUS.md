@@ -1,3 +1,24 @@
+## VR-228/229: pause FOV candidate and prison flicker diagnosis (2026-09-24)
+
+Original VR-227 gameplay fix is locally reported good on the installed aa3af7216.
+Both local and supplied remote log banners verify that build. Logs archived under
+primary `build/support-20260924-231346`, local logs in its `local` subdirectory.
+
+VR-228: pause in InDialog releases the108.1-degree scope and claims41.2. Candidate
+allows the existing verified head-look menu permission, with UI-epoch live-owner
+revalidation. VR-229: remote prison cinematic has stale-left submissions, repeated
+late repairs and unresolved confirmations while FOV remains108.07. All40 detailed
+windows were consumed before the scene; no proven flicker fix. Added rate-limited,
+read-only expiration reasons under RingLedger, with pairing decisions unchanged.
+Evidence and next steps: [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+
+Validation: cinematic30054, feedback1284707, ownership16, pairing416 pass.
+Local game found running during preparation; installation waits for it to close.
+Build/package identity to follow. No game launched by this task.
+Next local question: does pause retain full-size world during low-FOV dialogue?
+Separate remote question: does prison eye flicker reproduce for the new diagnostic?
+Return its support ZIP; unchanged pairing means non-reproduction alone is not a fix.
+
 ## VR-227: affected-player pass and local install (2026-09-24)
 
 The affected player reported that test build `v1.0.1-1-gaa3af7216` fixed the issue.

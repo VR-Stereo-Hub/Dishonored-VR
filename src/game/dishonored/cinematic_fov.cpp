@@ -8,6 +8,7 @@ bool g_cfGameplayScope=false; // Script/draw lane only; the render lane uses CfP
 CtIdentity g_cfOwner[3];
 bool g_cfHaveOwner=false;
 LONG g_cfLoad=0;
+unsigned g_cfEpoch=0; // VR-228: revalidate retained camera ownership across menus.
 uint32_t g_cfOffset=0,g_cfWrites=0,g_cfRestores=0,g_cfRefused=0;
 dvr::cine_fov::Scope g_cfScope;
 dvr::cine_fov::ExitBridge g_cfBridge;
@@ -24,7 +25,7 @@ void CfRefuse(const char* reason) {
     if (strcmp(g_cfReason,reason)) { g_cfReason=reason; Log("cine/fov: %s (writes=%u restores=%u refused=%u)",reason,g_cfWrites,g_cfRestores,g_cfRefused); }
 }
 bool CfValidate() {
-    if (!g_cfHaveOwner || g_cfLoad!=g_mkLoadEvents || !ChSlot(g_cfOwner[0]) ||
+    if (!g_cfHaveOwner || g_cfLoad!=g_mkLoadEvents || g_cfEpoch!=UiSurfaceEpoch() || !ChSlot(g_cfOwner[0]) ||
         !ChSlot(g_cfOwner[1]) || !ChSlot(g_cfOwner[2])) return false;
     if (!IsLiveObject((uint8_t*)g_cfOwner[0].value.obj) ||
         !IsLiveObject((uint8_t*)g_cfOwner[1].value.obj) ||
@@ -68,12 +69,12 @@ static void CineFovBegin(bool scene) {
     const auto state=dvr::anim::snapshot();
     const bool menu=UiSurfaceBlocks() || g_menuOpen || g_inMenu || g_mainMenu || g_gameExiting ||
         (g_uiNoteOpen && MaimNowMs()-g_uiPollMs<500);
-    const bool menuFovAllowed=UiSurfaceHeadLook();
+    const bool menuFovAllowed=UiSurfaceHeadLook() && !g_mainMenu && !g_gameExiting;
     const bool projection=dvr::stereo::wants_projection() && dvr::vr::session_live() &&
         !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();
     const float target=dvr::camera::fov_deg();
     const double now=MaimNowMs();
-    const bool ready=dvr::cine_fov::eligible(CineFovEnabled(),scene,menu,projection,state.valid,target);
+    const bool ready=dvr::cine_fov::eligible(CineFovEnabled(),scene,menu,projection,state.valid,target,menuFovAllowed);
     const bool authored=ready && dvr::scene_state::cinematic(state.state[0]);
     const bool walking=!strcmp(state.state[0],"StatePlayerMasterWalk") ||
         !strcmp(state.state[0],"StatePlayerMasterFalling") || !strcmp(state.state[0],"StatePlayerMasterJump");
@@ -105,7 +106,7 @@ static void CineFovBegin(bool scene) {
         auto* cam=CtObject(pc,g_ctPcCamera); auto* pawn=CtObject(pc,g_ctPawn);
         if (!cam || cam!=g_camObj || !pawn || !ChCapture(cam,&g_cfOwner[0]) ||
             !ChCapture(pc,&g_cfOwner[1]) || !ChCapture(pawn,&g_cfOwner[2])) { CfRefuse("camera/controller/pawn identity unavailable"); return; }
-        g_cfLoad=g_mkLoadEvents; g_cfHaveOwner=true; g_cfRetry=0;
+        g_cfLoad=g_mkLoadEvents; g_cfEpoch=UiSurfaceEpoch(); g_cfHaveOwner=true; g_cfRetry=0;
     }
     auto* cam=(uint8_t*)g_cfOwner[0].value.obj;
     float* field=(float*)(cam+g_cfOffset);
