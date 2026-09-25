@@ -164,7 +164,7 @@ DishonoredVR-Launcher-v1.0.1.exe                               the window
 DishonoredVR-Launcher-v1.0.1.exe --game-dir <dir>              ... against that game folder
 DishonoredVR-Launcher-v1.0.1.exe --config-dir <dir>            ... with that game-config folder
 DishonoredVR-Launcher-v1.0.1.exe --apply --op <op> --game-dir <dir> [--config-dir <dir>]
-        [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|custom]
+        [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|ultra|custom]
         [--percent <n> | --size <W>x<H>] [--vdxr-json <path>] [--delete-ini]
                                                      unattended; prints the steps, exit 0 / 2 failed / 3 access denied
         <op> = install | update | change | baseline | disable | enable | uninstall
@@ -423,3 +423,12 @@ handgrip/tip as bound, the binding is trigger-mode pull, and the left hand and
 its ray are untouched. The numbers were tuned in one headset on one Index rig and
 are not yet confirmed on a second; the trims trade a gripped hand reading slightly
 low for an open hand reading level (the fork's own note).
+
+## Ultra quality and the 300% ceiling (VR-282)
+
+Render quality has a fourth pill, Ultra quality, at 150% of the tested pixel count
+(3368x3491 per eye), a step above Quality (120%). `--quality ultra` selects it headless,
+and an ini already at that size reads back as Ultra. The Advanced slider, like the F10
+Display slider, now reaches 300% (4763x4936 per eye; the live resize accepts up to 16384
+per side). Nothing above Balanced was judged on more than one card; Ultra is for cards with
+clear headroom at Quality.

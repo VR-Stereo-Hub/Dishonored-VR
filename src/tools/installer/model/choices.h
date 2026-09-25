@@ -14,12 +14,14 @@ enum class Runtime { Vdxr = 0, SteamVr = 1, Auto = 2 };
 
 // [Screen] RenderWidth/RenderHeight as a share of the tested 2750x2850 pixel
 // count, both axes scaled together, the F10 Display picker's own arithmetic.
-enum class Quality { Performance = 0, Balanced = 1, Quality = 2, Custom = 3 };
+enum class Quality { Performance = 0, Balanced = 1, Quality = 2, Ultra = 3, Custom = 4 };
 
 struct Size { uint32_t w = 0, h = 0; bool operator==(const Size& o) const { return w == o.w && h == o.h; } };
 
 constexpr uint32_t kBaseWidth = 2750, kBaseHeight = 2850;   // 100 %, Balanced per-eye resolution
 constexpr float kPerformancePercent = 75.0f, kBalancedPercent = 100.0f, kQualityPercent = 120.0f;
+constexpr float kUltraPercent = 150.0f;       // VR-282: 3368x3491, a step above Quality
+constexpr float kMaxPercent = 300.0f;         // VR-282: the sliders' ceiling (4763x4936), as in F10
 
 // Optional front-page preferences. -1 preserves the existing/shipped key.
 // Values use INI semantics, including DesktopMirrorOff's inverted meaning.

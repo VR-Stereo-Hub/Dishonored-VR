@@ -22,10 +22,11 @@ const char* kRuntimeTips[3] = {
     "Index, Vive, WMR through SteamVR, Quest over Link or Steam Link. The mod brings its own bridge (dvr_steamvr32.dll); start SteamVR before the game.",
     "The mod tries the 32-bit OpenXR runtime Windows registers and falls back to the SteamVR bridge when there is none. Pick this when unsure.",
 };
-const char* kQualityTips[3] = {
+const char* kQualityTips[4] = {
     "75% of the tested pixels, both axes scaled together. For an 8 GB card, or when Balanced stutters.",
     "2750x2850 per eye. The recommended starting resolution.",
     "120% of the tested pixels. Sharper and slower; judged on a 4070 Ti SUPER class card. Not the place to start.",
+    "150% of the tested pixels. For cards with clear headroom at Quality; drop back if the headset stutters.",
 };
 
 void game_section(ViewState& v, UiAction* action)
@@ -171,14 +172,16 @@ void headset_section(ViewState& v)
 void quality_section(ViewState& v)
 {
     if (!heading("Render quality", "How many pixels the game renders per eye. This writes [Screen] RenderWidth and RenderHeight; the in-game Display tab can change it later.")) return;
-    char labels[3][48];
-    const Size sp = size_for_percent(kPerformancePercent), sb = size_for_percent(kBalancedPercent), sq = size_for_percent(kQualityPercent);
+    char labels[4][48];
+    const Size sp = size_for_percent(kPerformancePercent), sb = size_for_percent(kBalancedPercent), sq = size_for_percent(kQualityPercent),
+               su = size_for_percent(kUltraPercent);
     snprintf(labels[0], sizeof(labels[0]), "%s  %ux%u", quality_label(Quality::Performance), sp.w, sp.h);
     snprintf(labels[1], sizeof(labels[1]), "%s  %ux%u", quality_label(Quality::Balanced), sb.w, sb.h);
     snprintf(labels[2], sizeof(labels[2]), "%s  %ux%u", quality_label(Quality::Quality), sq.w, sq.h);
-    const char* ptrs[3] = { labels[0], labels[1], labels[2] };
+    snprintf(labels[3], sizeof(labels[3]), "%s  %ux%u", quality_label(Quality::Ultra), su.w, su.h);
+    const char* ptrs[4] = { labels[0], labels[1], labels[2], labels[3] };
     const int sel = v.choices.quality == Quality::Custom ? -1 : (int)v.choices.quality;
-    const int hit = pill_row(ptrs, 3, sel, kQualityTips);
+    const int hit = pill_row(ptrs, 4, sel, kQualityTips);
     if (hit >= 0 && !v.busy) v.choices.choose((Quality)hit);
     std::string line;
     if (v.det.gpu.known()) {
@@ -243,7 +246,7 @@ void advanced_section(ViewState& v)
     if (!heading("Advanced", "The exact pixel budget, the same slider as the in-game Display tab.", false)) return;
     float pct = v.choices.quality == Quality::Custom ? v.choices.pixelPercent : percent_for_quality(v.choices.quality, v.choices.pixelPercent);
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.55f);
-    if (ImGui::SliderFloat("Total pixels (%)", &pct, 50.0f, 200.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp) && !v.busy)
+    if (ImGui::SliderFloat("Total pixels (%)", &pct, 50.0f, kMaxPercent, "%.0f%%", ImGuiSliderFlags_AlwaysClamp) && !v.busy)
         v.choices.choose_percent(pct);
     dvr::ovl::tip("100% = 2750x2850. Higher is sharper and slower. Both axes scale together.");
     const Size s = v.choices.size();

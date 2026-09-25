@@ -27,6 +27,7 @@ float percent_for_quality(Quality q, float customPercent)
     case Quality::Performance: return kPerformancePercent;
     case Quality::Balanced: return kBalancedPercent;
     case Quality::Quality: return kQualityPercent;
+    case Quality::Ultra: return kUltraPercent;
     default: return customPercent;
     }
 }
@@ -35,6 +36,7 @@ Quality quality_for_percent(float p)
     if (fabsf(p - kPerformancePercent) < 0.5f) return Quality::Performance;
     if (fabsf(p - kBalancedPercent) < 0.5f) return Quality::Balanced;
     if (fabsf(p - kQualityPercent) < 0.5f) return Quality::Quality;
+    if (fabsf(p - kUltraPercent) < 0.5f) return Quality::Ultra;
     return Quality::Custom;
 }
 Size Choices::size() const
@@ -66,6 +68,7 @@ const char* quality_token(Quality q)
     case Quality::Performance: return "performance";
     case Quality::Balanced: return "balanced";
     case Quality::Quality: return "quality";
+    case Quality::Ultra: return "ultra";
     default: return "custom";
     }
 }
@@ -74,6 +77,7 @@ bool parse_quality(const std::wstring& t, Quality* out)
     if (fs::iequals(t, L"performance")) { *out = Quality::Performance; return true; }
     if (fs::iequals(t, L"balanced")) { *out = Quality::Balanced; return true; }
     if (fs::iequals(t, L"quality")) { *out = Quality::Quality; return true; }
+    if (fs::iequals(t, L"ultra")) { *out = Quality::Ultra; return true; }
     if (fs::iequals(t, L"custom")) { *out = Quality::Custom; return true; }
     return false;
 }
@@ -87,6 +91,7 @@ const char* quality_label(Quality q)
     case Quality::Performance: return "Performance";
     case Quality::Balanced: return "Balanced (tested)";
     case Quality::Quality: return "Quality";
+    case Quality::Ultra: return "Ultra quality";
     default: return "Custom";
     }
 }
