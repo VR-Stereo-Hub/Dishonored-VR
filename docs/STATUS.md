@@ -1,3 +1,21 @@
+## Crossbow stray piece on the mirrored side (VR-225, 2026-09-24)
+
+Branch `claude/vr-225-crossbow-mirror-caps` off `staging`, not merged.
+
+- Reported: firing the crossbow shows part of what looks like the empty model on
+  one side; it stays once the crossbow is empty.
+- Cause as reasoned, NOT measured: the VR-138 mirror reflects the reference pose
+  before skinning, so copied triangles and hole caps on the limbs keep the limbs'
+  own bones and swing about the wrong pivot when the limbs move. Full write-up:
+  WEAPON_MIRROR_PLAN.md section 6f.
+- Change: `[Mirror] BodyBoneOnly=1` copies and caps only geometry rigid on the
+  weapon's body bone; `mirror body off` restores the old copies for an A/B.
+- Verified: Release build, lint, golden ini. Installed (this build is off
+  staging, so it does not carry VR-223/VR-224).
+- HEADSET-CONFIRMED 2026-09-24: the piece is gone while firing and when empty.
+- Headset question: is the piece gone when firing and when empty, and is the
+  far side still filled? Log: `mirror/skin:` and the `on a moving bone` counts.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication

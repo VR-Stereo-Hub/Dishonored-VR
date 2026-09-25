@@ -279,6 +279,43 @@ Counterprediction: `mirror/straddle:` counts > 0 and the barrel gaps close. If t
 crossbow flicker survives DepthBias 1, raise it; if copies then vanish behind
 nearby surfaces, the bias is too large.
 
+## 6f. VR-225: a stray piece on the crossbow's mirrored side (2026-09-24, HEADSET-CONFIRMED)
+
+Reported: firing the crossbow shows part of what looks like the empty
+crossbow on one side only, and the same piece stays once the crossbow is
+empty. Nothing was measured before the change; the reasoning is from the code
+and the installed log.
+
+Mechanism (two forms, one cause). S reflects the REFERENCE POSE before
+skinning, so a copied triangle keeps its original bones: a triangle of the left
+limb lands on the right side but is skinned by the left limb. While the weapon
+holds its reference pose the copy sits where it should. When a bone that moves
+against the body moves (the limbs and string on a shot, and for as long as the
+crossbow is empty), the copy swings about the wrong pivot and lands as a
+displaced piece on the mirrored side. A hole cap is a fan over existing
+vertices: if its loop touches such a bone, the fan stretches into a sheet. The
+installed log shows the crossbow keeping 541 mirrored triangles and 58 capped
+loops (388 triangles), and the caps were added for its lower left.
+
+Change: `[Mirror] BodyBoneOnly=1` (code default 1, live `mirror body on|off`,
+which rebuilds). The build reads BLENDWEIGHT/BLENDINDICES, finds the bone the
+most vertices are rigid on (weight >= 0.99), and copies or caps only geometry
+whose every vertex is rigid on that bone. A weapon whose declaration has no
+skin elements keeps the old behaviour and says so. The default is ON, not the
+usual OFF, because it narrows a shipped lever to fix a reported fault;
+`mirror body off` restores the old copies for an A/B.
+
+Log to read: `mirror/skin: 'crossbow_01' rigid vertices per bone {...} | body
+bone N`, then `mirror/caps: ... on a moving bone M` and `mirror/build: ... on a
+moving bone K`. Counterprediction: M or K > 0 on the crossbow. If both are 0,
+nothing was removed, the build is identical to before, and the stray piece is
+not a skinning artefact (next: the fired bolt or the loaded-bolt child, VR-59).
+Headset question: does the piece go with `mirror body on` and come back with
+`mirror body off`, and does the far side the mirror fills stay filled?
+
+Result, same day, headset: with BodyBoneOnly=1 the stray piece is gone both while
+firing and with the crossbow empty; nothing else was reported changed.
+
 ## 7. Verification
 
 1. Build, lint, golden. `frame_test`: add `mirror_compose_commutes` next to
