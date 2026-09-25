@@ -13,8 +13,13 @@ read-only expiration reasons under RingLedger, with pairing decisions unchanged.
 Evidence and next steps: [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
 
 Validation: cinematic30054, feedback1284707, ownership16, pairing416 pass.
-Local game found running during preparation; installation waits for it to close.
-Build/package identity to follow. No game launched by this task.
+Per user request, ZIP only for now; installed game and INI remain untouched.
+Optimized x86 build `v1.0.1-4-g903891e7e`, legacy off; lint and9 exports pass.
+DLL SHA256 `b768aa622c9860b4a99a49fa79bcc101499f10289f185ba5f5b030da56a3a1b6`.
+Primary-checkout package: `build/test-packages/DishonoredVR-VR228-pause-FOV-VR229-diagnostics-903891e7e.zip`.
+ZIP CRC/extracted hash, x86 header, embedded build and new diagnostic string verified.
+DLL-only, no installer/INI. Separate local and remote single-question instructions.
+No game launched by this task.
 Next local question: does pause retain full-size world during low-FOV dialogue?
 Separate remote question: does prison eye flicker reproduce for the new diagnostic?
 Return its support ZIP; unchanged pairing means non-reproduction alone is not a fix.

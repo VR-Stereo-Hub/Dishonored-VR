@@ -9508,4 +9508,3 @@ and event identities against a healthy gameplay interval. Camera failures requir
 measured image/camera provenance; missing/front-tag failures require a deterministic
 late-publication/reordering regression before altering repair. If it does not
 reproduce, that does not establish a fix because pairing behavior is unchanged.
-
