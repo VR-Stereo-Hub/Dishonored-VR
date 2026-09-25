@@ -31,7 +31,7 @@ struct Preference {
     int fallback;
     bool inverted;
 };
-enum PreferenceId { Mirror, Crouch, Rain, Modifier, DpadFlip, PauseChord, PreferenceCount };
+enum PreferenceId { Mirror, Crouch, Rain, Modifier, DpadFlip, PauseChord, SnapTurn, PreferenceCount };
 inline constexpr Preference kPreferences[] = {
     { L"VR", L"DesktopMirrorOff", L"--mirror", "Desktop mirror", 1, true },
     { L"Tracking", L"PhysicalCrouch", L"--physical-crouch", "Physical crouching", 1, false },
@@ -39,10 +39,11 @@ inline constexpr Preference kPreferences[] = {
     { L"Controllers", L"DpadModifier", L"--dpad-modifier", "D-pad modifier", 1, false },
     { L"Controllers", L"DpadFlip", L"--dpad-flip", "Use right stick for D-pad", 0, false },
     { L"Controllers", L"PauseChord", L"--pause-chord", "X + Y pause shortcut", 1, false },
+    { L"Turning", L"SnapTurn", L"--snap-turn", "Snap turning", 0, false },   // VR-219; off = the game's smooth turn
 };
 
 struct Choices {
-    int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1 };
+    int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
     bool overwriteSettings = true; // recommended defaults, backed up before replacement
     Runtime runtime = Runtime::Auto;
     Quality quality = Quality::Balanced;

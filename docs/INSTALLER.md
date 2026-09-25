@@ -349,3 +349,12 @@ support-budget-tests.ps1 (run under Windows PowerShell 5.1), and
 support-launcher-tests.ps1. The last uses the actual 32-bit launcher, a fresh temp
 profile, a Unicode path, ten fixture sessions and an unusable TEMP. Optional
 -OldLauncher reproduces the released error before exercising the fix.
+
+## Snap turning (VR-219)
+
+Play preferences carries a Snap turning checkbox next to Hide close rain overlay. It
+writes `[Turning] SnapTurn` (0 = the game's smooth turn, the default; 1 = fixed steps
+from the right stick) through the same preference path as the other checkboxes, and
+`--snap-turn on|off` does the same headless. An omitted flag, like the others, leaves
+the stored value alone. The step size and the stick thresholds stay in F10 >
+Controls > Turning, where the Snap turn checkbox is also in the Basic view.

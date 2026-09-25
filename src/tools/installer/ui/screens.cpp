@@ -133,6 +133,8 @@ void preferences_section(ViewState& v)
         ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
         preference_checkbox(v, Crouch, "Duck in your room to crouch. The controller crouch button still works.");
         preference_checkbox(v, Rain, "Hides only the close rain layer. Sky rain and ground splashes remain.");
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
+        preference_checkbox(v, SnapTurn, "The right stick turns you in fixed steps instead of smoothly. Off by default; also in game under Controls > Turning.");
         wrapped_faded("Turning the desktop mirror off can give a huge performance boost with any runtime.");
         wrapped_faded("SteamVR: if the game crashes on startup, turn Desktop mirror ON and try again.");
     }
