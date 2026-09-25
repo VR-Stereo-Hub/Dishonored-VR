@@ -13,11 +13,16 @@
 #include "core/gfx/flicker_diagnostic.h"
 #include "core/gfx/stereo_menu_hold.h"
 #include "core/gfx/draw_present_progress.h"
+#include "game/dishonored/eye_basis.h"
+#include "game/dishonored/cinematic_math.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
+#include <atomic>
 
 #define DVR_CAT 0
 #define DVR_LOG_EVERY_MS(...) ((void)0)
@@ -226,7 +231,81 @@ static void diagnostic_tests() {
           "diagnostic retains raw provenance when arbitration overwrites label");
 #endif
 }
+// Same axis publisher as the camera writer plus the production arbitration.
+// Native rows stay fixed while cinematic/menu head look rotates the eye offsets.
+static void scoped_basis_regression() {
+    dvr::camera::EyeBasis published;
+    float untouched[3]={9,8,7};
+    check(!published.read(untouched) && untouched[0]==9,"no eye basis before a successful write");
+    const float native[3]={0,1,0};
+    int legacyFailures=0, schedules=0;
+    for(int yaw=-180;yaw<=180;yaw+=15) for(int pitch : {-60,0,60}) for(int roll : {-45,0,45}) {
+        const auto m=dvr::cine::rotation(pitch*0.0174532925199433,yaw*0.0174532925199433,roll*0.0174532925199433);
+        const float right[3]={(float)m.m[0][1],(float)m.m[1][1],(float)m.m[2][1]};
+        for(int legacy=0;legacy<2;++legacy) {
+            reset_model();g_lateTagRepair=true;ArbState state;ArbView view;
+            view.haveC5=true;view.ipd=kIpd;int errors=0;
+            for(int n=0;n<20;++n) {
+                const int eye=(n&1)?1:-1;const uint32_t id=n+1;
+                // On the sixth pair LEFT arrives after its image. The following
+                // RIGHT must confirm the debt, relabel LEFT and keep its own record.
+                if(n==11) push_tag(-1,nullptr,11,0,11);
+                if(n!=10) push_tag(eye,nullptr,id,0,id);
+                published.publish(native,legacy ? nullptr : right);
+                view.basisOk=published.read(view.br);
+                for(int i=0;i<3;++i)view.c5now[i]=-eye*0.5f*kIpd*right[i];
+                Tag tag={};int ring=0,inv=0;float along=0,other=0;ArbTrace trace;
+                const bool tagged=pop_and_arbitrate(state,view,tag,ring,inv,along,other,&trace);
+                if(n!=10 && (!tagged || tag.eye!=eye || tag.rec!=id))++errors;
+                if(n==11 && (!(trace.action&ACT_LATE) || trace.lateRec!=11))++errors;
+            }
+            if(legacy) legacyFailures+=errors;
+            else check(errors==0,"scoped head rotation retains eye/record identity and repairs a delayed tag");
+        }
+        ++schedules;
+    }
+    check(legacyFailures>0,"old native-basis control fails rotated cinematic schedules");
+    // Rounded, identity-joined measurements from returned P67389 -> P67390.
+    // Record65616 (delivered on P67391) carries the composed rotation of P67390.
+    const auto recorded=dvr::cine::rotation(3.680*0.0174532925199433,-12.030*0.0174532925199433,-5.938*0.0174532925199433);
+    const float recordedRight[3]={(float)recorded.m[0][1],(float)recorded.m[1][1],(float)recorded.m[2][1]};
+    const float cachedRight[3]={-0.6758f,0.7340f,0.0670f};
+    for(int legacy=0;legacy<2;++legacy) {
+        reset_model();ArbState state;state.prevC5Ok=true;
+        const float before[3]={3170.682f,-7428.086f,-1147.668f};memcpy(state.prevC5,before,sizeof(before));
+        ArbView view;view.haveC5=true;view.ipd=6.570f;
+        const float current[3]={3169.362f,-7434.485f,-1148.346f};memcpy(view.c5now,current,sizeof(current));
+        published.publish(cachedRight,legacy?nullptr:recordedRight);view.basisOk=published.read(view.br);
+        push_tag(+1,nullptr,65616,0,65616);Tag tag={};int ring=0,inv=0;float along=0,other=0;
+        pop_and_arbitrate(state,view,tag,ring,inv,along,other);
+        check(legacy ? inv==0 && other>5 : inv==1 && fabsf(along+view.ipd)<.01f && other<.01f,
+              "returned full-IPD step is ambiguous on native axis, confirmed on composed axis");
+    }
+    published.publish(native,nullptr);float after[3]={};
+    check(published.read(after) && after[0]==0 && after[1]==1 && after[2]==0,
+          "first normal write replaces scoped basis after exit or reload");
+    std::atomic<bool> done{false};
+    std::atomic<int> torn{0};
+    const float axisA[3]={1,2,3},axisB[3]={4,5,6};
+    published.publish(axisA,nullptr);
+    std::thread reader([&] {
+        do {
+            float v[3];
+            if(published.read(v) && !((v[0]==1 && v[1]==2 && v[2]==3) || (v[0]==4 && v[1]==5 && v[2]==6)))++torn;
+        } while(!done.load());
+    });
+    for(int n=0;n<100000;++n)published.publish(n&1?axisA:axisB,nullptr);
+    done.store(true);reader.join();
+    check(torn.load()==0,"concurrent eye-axis snapshots never mix publications");
+    const auto start=std::chrono::steady_clock::now();float sum=0;
+    for(int n=0;n<100000;++n) {published.publish(native,n&1?axisA:axisB);float v[3];if(published.read(v))sum+=v[0];}
+    const double us=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-start).count()/100000;
+    printf("eye basis publish+read: %.3f us/sample (host only), checksum %.0f\n",us,sum);
+    printf("scoped eye basis: %d rotated schedules, legacy identity/repair failures %d\n",schedules,legacyFailures);
+}
+
 int main() {
+    scoped_basis_regression();
     {
         dvr::stereo::DrawPresentProgress progress;
         uint32_t counter=0, oldReturn=0; unsigned oldFalseStalls=0, fixedFalseStalls=0;

@@ -1,3 +1,16 @@
+## VR-229 scoped-axis follow-up (2026-09-25)
+
+Returned candidate c4f5fe5df verifies GPU frame-id pixels OFF. Recurring recorder
+max observed0.586ms (previous diagnostic0.523ms); this is a rare window maximum,
+not an every-frame charge or a complete remote performance A/B. No new logging or
+GPU probes added for the scoped-axis correction. One script writer publishes three
+atomic floats and sequence; render reader makes at most two snapshot attempts,
+never waits/spins without bound. Local x86 host100000 publish+read iterations average
+0.078us/sample, checksum250000, concurrent no-torn-read stress passes. Host harness
+is not optimized game timing and does not prove total render cost on the tester's PC.
+The new candidate retains the earlier lightweight recorder; no claim of a measured
+headset performance improvement. Source/geometry evidence: FLICKER_REFERENCE top.
+
 ## VR-229: diagnostic overhead and false draw stalls (2026-09-25)
 
 Current returned build v1.0.1-6-g31450526c,3025x3135,shared wait0. The recorder's

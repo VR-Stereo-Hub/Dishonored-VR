@@ -1,3 +1,68 @@
+## VR-229: reload-dependent return, scoped stereo-axis mismatch (2026-09-25)
+
+Surface/route: whole-eye instability and head-turn separation, section1 stale-eye
+and doubled-edge rows. Current support-20260925-130534 log is candidate
+v1.0.1-8-gc4f5fe5df; previous log is the earlier31450526c diagnostic and must not
+be combined into its counters. Report: loading an end-of-Empress autosave makes
+that scene unstable but the following prison stable; loading a pre-scene manual
+save reverses this. In the second prison run, large head turns separate the eyes
+until looking forward again. This is reported regression/non-acceptance, not a
+successful fix just because one run improved. No precise symptom timestamps.
+
+Timeline inferred from the two cinematic/load sequences:
+
+| Interval | First/last printed cumulative stale/expiry/duplicate | progressInsideDraw sum |
+|---|---|---|
+| Empress1 581159015..581226343 | 0/0/3 ->27/0/80 | 0 |
+| Prison1 581244812..581324562 | 27/2/81 ->42/7/101 | 408 |
+| Empress2 581502281..581571234 | 64/20/132 ->64/20/132 | 4 |
+| Prison2 581589812..581669562 | 94/30/188 ->260/79/418 | 383 |
+
+These are bounded printed-window endpoints, not exact interval totals or counts
+of perceived flickers. Corresponding XR samples308/336/196/420 have no recorded
+acquire/wait/release/end errors. Two fence-timeout events occur in the whole run;
+there is no evidence they explain the sustained scene/angle dependence. GPU pixel
+probes are verified OFF. No pixel-copy proof is available from this candidate.
+The progress fix is exercised but not sufficient; Empress1 fails without exercising
+it, while both prison runs exercise it. Do not attribute the entire regression to
+that guard or call the package good on the basis of fewer stale counters.
+
+Source defect: camera::apply_offsets uses g_viewScope.right for eye displacement,
+but g_lastBasisR stays on the native cached matrix row. Scoped rotator writes do
+not update that row. Reentry used last_basis for c5 arbitration, so cinematic or
+menu head look could rotate actual stereo separation away from its classifier.
+
+Identity-joined example: P67389 c5=(3170.682,-7428.086,-1147.668), P67390
+c5=(3169.362,-7434.485,-1148.346), IPD6.570. Cached right is
+(-0.6758,0.7340,0.0670); it yields along-3.851/other5.322, inv0.
+P67390's capture serial67390 is delivered on P67391 with record65616, pair32660,
+right eye, writer3; yaw/pitch/roll=-12.030/3.680/-5.938. Its quantized composed
+right vector differs by54.1degrees, yields along-6.569/other about0.001, inv+1.
+Both raw tag positions match their c5 within rounding in this example. Thus the
+basis mismatch is not inferred only from a mislabelled image. This particular
+window's tags remain correct despite the failed measurement; it demonstrates
+loss of recovery evidence, not a timestamped proof of the reported separation.
+Other windows contain delivered-eye/record disagreement and center-eye interruptions.
+
+Candidate: independently publish the exact stereo right axis after a successful
+eye write. Two bounded coherent atomic snapshot attempts on the render lane;
+unavailable snapshot declines geometry and leaves ring fallback. Read this axis
+for arbitration and frame-id geometry. Ordinary writes replace scope axes after
+exit; no retained engine identity, engine-memory writer or translation-axis change.
+All moving-camera thresholds, late-tag confirmation and ring handling remain.
+Latest-writer basis is still not a render-frame identity; fast queued rotations
+and other remaining center-eye interruptions are not claimed solved.
+
+Validation:225 yaw/pitch/roll late-tag schedules against production publisher and
+arbitration; old native-axis negative control2184 identity/repair failures, corrected
+schedules zero. Recorded rounded camera step passes old-unknown/new-right checks.
+Concurrent snapshots, initial unavailable and return-to-native pass. Full pairing
+1678 normal/1679 diagnostic checks; cinematic math and scope ownership pass.
+No headset/game or in-game simulator launched. Costs recorded in PERFORMANCE.md.
+Next: one replacement candidate, retaining the prior baseline and CPU history with
+GPU pixels off; prison with natural head turns through fade/gameplay. Stability is
+OPEN until affected-player confirmation; no promise that a unit test proves fusion.
+
 ## VR-229 packaged acceptance build (2026-09-25)
 
 ZIP: build/test-packages/DishonoredVR-VR229-prison-fix-c4f5fe5df.zip in the primary
@@ -1475,7 +1540,7 @@ pose metadata without reopening the disproved historical theories.
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
-| Prison cinematic inter-eye flicker, ends in gameplay | Center-eye interruptions and tag skew; return-baseline ignores progress inside draw | VR-229 draw-entry progress candidate; lightweight history retained, GPU pixels off; remote acceptance pending |
+| Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |
 | Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |
 | Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |

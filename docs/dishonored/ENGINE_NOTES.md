@@ -1,3 +1,14 @@
+## Scoped camera stereo-axis publication (VR-229, 2026-09-25)
+
+A draw-scoped POV rotation changes the composed eye displacement axis without
+rewriting native cached matrix rows at kCamRight. Therefore those rows cannot
+classify the scoped stereo step. Returned P67389/90 demonstrates a full6.57uu
+step rejected as5.322uu perpendicular by the cached row, but about0.001uu on
+the composed record axis. Publish the exact successful-write eyeRight separately
+from positional axes; reentry consumes a coherent bounded snapshot. No new engine
+addresses or writes. Latest-writer axis remains a temporal approximation when the
+render lane is behind; see FLICKER_REFERENCE for the measured scope and caveats.
+
 ## VR-229 draw-entry progress baseline (2026-09-25)
 
 SceneDrawDecide's liveness comparison used g_frame saved at the prior viewport

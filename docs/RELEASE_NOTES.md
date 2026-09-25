@@ -1,3 +1,11 @@
+## Unreleased test candidate: scoped cinematic/menu stereo axis (VR-229)
+
+Correct eye classification to use the composed head-look stereo axis during
+cinematic and menu camera scopes. The preceding prison candidate was not accepted:
+reload-dependent flicker and head-turn eye separation remained. This replacement
+passes logged-geometry and delayed-tag regressions but awaits headset confirmation.
+Retains CPU flight history with GPU pixel probes disabled in the tester package.
+
 ## Unreleased prison candidate (VR-229)
 
 - Count rendering progress during draw execution, avoiding false single-draw

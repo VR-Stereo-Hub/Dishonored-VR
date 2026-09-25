@@ -353,7 +353,7 @@ public:
         ArbView view;
         view.haveC5 = haveC5;
         if (haveC5) memcpy(view.c5now, c5now, sizeof(view.c5now));
-        {   float vbf[3], vbu[3]; view.basisOk = dvr::camera::last_basis(vbf, view.br, vbu); }
+        view.basisOk = dvr::camera::last_eye_right(view.br);
         view.ipd = dvr::camera::ipd_m() * dvr::camera::world_scale();
         int ringEye = 0, inv = 0;
         float along = 0.0f, other = 0.0f;
@@ -495,8 +495,8 @@ public:
         // reports as MISSING rather than silently joining to nothing.
         dvr::capture::set_pending_rec(tagged ? t.rec : 0u);
         {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
-            float bf[3], br[3], bu[3];
-            const bool basisOk = dvr::camera::last_basis(bf, br, bu);
+            float br[3]={};
+            const bool basisOk = dvr::camera::last_eye_right(br);
             dvr::frameid::note_c5(c5now, haveC5, br, basisOk);
         }
 

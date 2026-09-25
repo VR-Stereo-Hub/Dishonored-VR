@@ -4,6 +4,8 @@
 - [x] Correct draw-progress baseline with failing old-policy control.
 - [x] Separate bounded CPU history from optional GPU pixel diagnostics.
 - [x] Benchmark actual recorder and preserve pairing regressions.
+- [x] Reject c4f5fe5df as sufficient after reload/head-turn failure report.
+- [x] Reproduce scoped/native eye-axis mismatch with logged-step and late-tag controls.
 - [ ] Affected-player stable prison cinematic through gameplay transition.
 
 ## Cinematic follow-ups (VR-228/229, 2026-09-24)

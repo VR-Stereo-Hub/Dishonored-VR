@@ -1,3 +1,14 @@
+## Stereo axis for scoped cameras (VR-229, 2026-09-25)
+
+Reentry geometry reads camera::last_eye_right: the exact axis from the most recent
+successful eye-offset write. A cinematic/menu scope uses its composed right axis;
+ordinary camera writes publish the native right row. This small bounded atomic
+snapshot is independent of positional tracking's cached axes. A failed snapshot
+leaves ring fallback; no thresholds or camera memory writes change. It is coherent
+but not tagged to the queued render view, an explicit remaining temporal limit.
+The prior cached-native classifier fails rotated delayed-tag tests. Evidence and
+failed candidate acceptance: dishonored/FLICKER_REFERENCE.md.
+
 # Architecture
 
 ## Overview

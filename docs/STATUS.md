@@ -1,3 +1,29 @@
+## VR-229: returned candidate rejected; scoped eye-axis repair (2026-09-25)
+
+Current state: support-20260925-130534 current log verifies v1.0.1-8-gc4f5fe5df.
+The tester reports reload-dependent Empress/prison alternation and new severe
+head-turn separation. The previous candidate is NOT accepted. Maintainer installed
+that exact DLL earlier at explicit request, but has not launched it; no installation
+or game launch during this investigation. Previous DLL/INI/logs remain backed up.
+
+Measured/source-confirmed: scoped camera writes offset eyes along the composed
+head-look right vector, while reentry reads cached native camera rows. Returned
+P67390 is a full6.57uu stereo step; the published axis differs by54.1degrees and
+reports5.322uu perpendicular motion. The actual record orientation reduces that
+to about0.001uu. Existing camera-confirmation guards cannot recover a late tag with
+the wrong basis. Correct the published stereo axis, preserving translation axes,
+camera writes and arbitration thresholds. Applies to cinematic/pitch/menu scopes.
+
+Validation:225 rotated late-tag schedules pass; old-axis control has2184 identity/
+repair failures. Actual rounded P67389/90 camera-step regression passes. Pairing
+1678 normal/1679 diagnostic checks pass, cinematic math/scope checks pass.
+Bounded atomic publication/read host cost0.078us/sample; no extra per-frame logging
+or GPU probes. Remote sufficiency remains OPEN. Full evidence and caveats in
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md); costs in PERFORMANCE.md.
+Next: finish optimized builds and package one replacement ZIP, no local install.
+One test question: does the formerly bad prison scene stay fused through normal
+head turns and its fade into gameplay? No additional diagnostic matrix requested.
+
 ## VR-229 packaged acceptance build (2026-09-25)
 
 ZIP: build/test-packages/DishonoredVR-VR229-prison-fix-c4f5fe5df.zip in the primary

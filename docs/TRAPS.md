@@ -1,3 +1,12 @@
+## Scoped rotation does not refresh cached camera rows (VR-229)
+
+Do not use native cached right vectors to classify eyes displaced along a scoped
+head-composed orientation. A full-IPD step becomes ambiguous at large head angles,
+so existing late-tag repair loses its required confirmation. Publish the actual eye
+axis independently of translation. A healthy ring can mask this bug; test a delayed
+tag at varied yaw/pitch/roll, not just a straight-ahead steady pair. Details and
+limits: dishonored/FLICKER_REFERENCE.md, latest VR-229 entry.
+
 ## VR-229: draw-return is not a liveness baseline (2026-09-25)
 
 The render thread can advance Present while the game thread is inside a draw.
