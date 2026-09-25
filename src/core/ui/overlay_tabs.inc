@@ -744,7 +744,7 @@ static void OvlTabDisplay()
         if (pixelPercent < 0)
             pixelPercent = g_resWantW && g_resWantH
                 ? 100.0f * ((float)g_resWantW / 2750.0f) * ((float)g_resWantH / 2850.0f) : 120.0f;
-        dvr::ovl::slider_float("Total pixels (%)", &pixelPercent, 50.0f, 200.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);
+        dvr::ovl::slider_float("Total pixels (%)", &pixelPercent, 50.0f, 300.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);   // VR-282: 300% = 4763x4936
         OvlTip("100% = 2750x2850. Higher is sharper and slower. Both axes scale together. Press Set to apply.");
         const float axisScale = sqrtf(pixelPercent * 0.01f);
         const uint32_t width = (uint32_t)(2750.0f * axisScale + 0.5f);

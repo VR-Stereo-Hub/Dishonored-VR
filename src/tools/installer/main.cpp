@@ -3,7 +3,7 @@
 //   DishonoredVR-Launcher-v1.0.0.exe                          the window
 //   DishonoredVR-Launcher-v1.0.0.exe --game-dir <dir>         ... against that game folder
 //   DishonoredVR-Launcher-v1.0.0.exe --apply --op install --game-dir <dir> [--config-dir <dir>]
-//        [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|custom]
+//        [--runtime vdxr|steamvr|auto] [--quality performance|balanced|quality|ultra|custom]
 //        [--percent <n>] [--vdxr-json <path>] [--delete-ini]      unattended; prints the steps
 //        [--mirror on|off] [--physical-crouch on|off] [--hide-rain-overlay on|off]
 //        [--overwrite-settings] [--dpad-modifier 0|1|2|4]
