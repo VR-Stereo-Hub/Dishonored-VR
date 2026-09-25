@@ -311,10 +311,10 @@ static void UpdateVirtualPad()
                 rsNow - rsLogMs > 1000.0) {
                 rsLogMs = rsNow;
                 Log("pad/rs: raw=(%.2f,%.2f) -> RX=%d RY=%d "
-                    "(menu=%d/%d cine=%d wheel=%d)",
+                    "(menu=%d/%d cine=%d wheel=%d snap=%d; with snap=1 the RX the game sees is zeroed later, at the snap block)",
                     tx, ty, (int)xs.Gamepad.sThumbRX, (int)xs.Gamepad.sThumbRY,
                     (int)g_menuOpen, (int)g_inMenu,
-                    (int)CineActive(), (int)g_wheelHeld);
+                    (int)CineActive(), (int)g_wheelHeld, (int)dvr::snap::enabled());
             }
         }
         // Stage 7.2: projectile-spawn tracer - on a shot, find the bolt/
@@ -527,6 +527,13 @@ static void UpdateVirtualPad()
             "(raw trigger %.2f)", g_ovlPtrHand ? "right" : "left",
             g_ovlPtrHand ? " and right stick" : "", g_ovlPtrHand ? in.trigR : in.trigL);
     }
+    // Snap turn (VR-219): LAST, after every context that took the right stick for
+    // navigation (menu, wheel, reading, pause, lean, the D-pad flip, the F10 pointer) has
+    // zeroed RX, so a nonzero RX here IS "the stick would turn the view" with no second
+    // copy of those predicates. The module eats it only while the script camera writer
+    // is fresh; anywhere else the game's own smooth turn stays live (fail soft).
+    if (dvr::snap::present_tick(active ? in.lk[0] : 0.0f, xs.Gamepad.sThumbRX != 0, active, MaimNowMs()))
+        xs.Gamepad.sThumbRX = 0;
     // 38.25 crawlbox: mirror the delivered (post-shaping) movement stick for
     // the crouch/raw diag line. SHORT writes are atomic enough for a log.
     g_dbgOutLx = active ? xs.Gamepad.sThumbLX : 0;

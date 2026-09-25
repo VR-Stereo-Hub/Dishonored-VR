@@ -512,6 +512,7 @@ static void OvlTabControls()
         OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
                "Clicking both sticks recenters.");
     }
+    dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
     dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
     dvr::drop::draw_ui();    // drop takedowns (its own section)
 }

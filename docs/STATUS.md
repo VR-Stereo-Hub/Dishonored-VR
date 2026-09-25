@@ -17,6 +17,33 @@ branch protection rule on `VR-Main` so only the release PR can write it.
 
 Next: VR-219 (snap turn) and VR-220 (trigger-only sword animation), each on its own branch off
 `staging`.
+## 2026-09-25: snap turn (VR-219), simulator-proven, headset owed
+
+Branch `claude/vr-219-snap-turn` off `staging`. `[Turning] SnapTurn=0` (default off), `SnapAngle=45`,
+`SnapThreshold=0.6`, `SnapRearm=0.3`, `SnapRepeatMs=0`; word `snapturn`; F10 > Controls > Turning.
+The present lane detects the stick edge (`snap_turn.cpp`, after the F10 pointer block in
+`pad_bridge.cpp`) and eats RX only while the script camera writer is fresh; the script lane
+takes the step once in the head writer's fresh branch as BODY yaw (`rot[1] += headDeltaU + snapU;
+YawPublish(viewInU + snapU, headDeltaU)`), so the pawn turns with the view in both movement modes.
+
+**Simulator (Debug build, `tools\xrsim\snap-turn.xrs`, 86 steps, under `movement head` and
+`movement character`):** four pushes at 30 deg each printed FIRED / APPLIED / HONOURED; view and
+body since mark both 119.99 deg, head 0.00; a held stick fired once; a 0.4 push neither fired nor
+smooth-turned (view stayed at 59.996); a head turn afterwards moved the view (70) and not the body
+(90); a stick held into and out of the pause menu did not fire (the first cut fired on the resume:
+the detector now disarms while the lane is blocked); `snapturn off` put RX=29043 back on the pad
+line. 14 HONOURED, 0 NOT HONOURED, 0 NO CONSUMER over the session; four steps added 0 stale eye
+submits (132 -> 132), eyes 0/0. `tools\yawtest-host.ps1` bookkeeping: 8 of 8 PASS (case 8 is the
+snap step as body yaw). Logs: `build/playtest-candidates/vr219-snap-turn/sim-run2/`.
+
+**Headset owed:** one push = one crisp step; hands, sword, reticle and prompt stay in front and a
+hit lands on what is now in front; walking goes the new way; pause menu and wheel still navigate;
+keyhole and cinematics turn smoothly. The tester's installed build 711 and its ini were restored
+after the sim runs; install a Release build of the branch to judge it.
+
+**Deliberately not here:** the yaw OWNERSHIP half of `tools\yawtest-host.ps1` does not compile
+(its slice predates the live-object table; the bookkeeping half runs again after the slicer was
+pointed at `yaw_book.h`); a ticket is filed.
 
 ## 1.0.1 release verification (2026-09-24)
 

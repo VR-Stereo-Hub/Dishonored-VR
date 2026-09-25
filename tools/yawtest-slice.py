@@ -7,7 +7,11 @@ def find(pfx):
     for i, l in enumerate(lines):
         if l.startswith(pfx): return i
     raise SystemExit("marker not found: " + pfx)
-si, ei = find("struct YawBook"), find("// Current GObjects membership")
+# The bookkeeping moved to yaw_book.h (VR-165); slice it from there, verbatim, and
+# keep si at the include line so the ownership slice below starts where it did.
+si, ei = find('#include "game/dishonored/yaw_book.h"'), find("// Current GObjects membership")
+book = io.open(str(__import__("pathlib").Path(src).parent / "yaw_book.h"), encoding="utf-8", newline="").read().replace(chr(13) + LF, LF)
+book = LF.join(l for l in book.split(LF) if not l.startswith("#pragma once") and not l.startswith("#include <cstdint>"))
 ti, tj = find("static bool YawCase"), find("static bool FindPlayerController")
 while not lines[tj - 1].strip(): tj -= 1
 hdr = ("#define _CRT_SECURE_NO_WARNINGS" + LF + "#include <stdio.h>" + LF +
@@ -19,7 +23,7 @@ tail = (LF + "int main(){ bool ok = YawSelfTest(); printf(" + chr(34) + "HOST RE
         chr(34) + ", ok?" + chr(34) + "PASS" + chr(34) + ":" + chr(34) + "FAIL" + chr(34) +
         "); return ok?0:1; }" + LF)
 io.open(dst, "w", encoding="utf-8", newline=LF).write(
-    hdr + LF.join(lines[si:ei - 1]) + LF * 2 + LF.join(lines[ti:tj]) + tail)
+    hdr + book + LF * 2 + LF.join(lines[ti:tj]) + tail)
 print("sliced %d lines of bookkeeping + %d of test" % (ei - si, tj - ti))
 
 # The second executable exercises the actual guards and pawn writer, not just math.
@@ -30,7 +34,7 @@ source_path = Path(src)
 state = (source_path.parents[2] / "mod/state/32_game_dishonored_head_track.inc").read_text()
 state = state[state.index("static uint8_t* g_yawCtrl"):state.index("static uint8_t* g_pcObj")]
 end_owner = next(i for i, l in enumerate(lines) if l.startswith("// ---- the self-test:"))
-owner = LF.join(lines[si:end_owner])
+owner = book + LF + LF.join(l for l in lines[si:end_owner] if not l.startswith('#include "game/dishonored/yaw_book.h"'))
 a = owner.index("static bool YawReadObjects(")
 b = owner.index("static bool YawSlotMatches(")
 owner = owner[:a] + "static bool YawReadObjects(void*** t, uint32_t* n) { *t = objectTable; *n = 2048; return true; }\n\n" + owner[b:]
