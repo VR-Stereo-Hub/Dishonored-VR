@@ -1,3 +1,16 @@
+## VR-229 scoped-eye replacement packaged (2026-09-25)
+
+Replacement ZIP: build/test-packages/DishonoredVR-VR229-scoped-eye-fix-9da0a0b48.zip in primary checkout,
+15894528 bytes. Build v1.0.1-10-g9da0a0b48, optimized x86, legacy OFF, CPU recorder ON,
+GPU pixel probes OFF. DLL SHA256 1150f68ce9e5bd7957e70dd07973f78cd9ff3fbe00f91c093121ca7ed0b4c3c4.
+ZIP CRC, all member checksums, extracted DLL bytes, embedded clean source identity,
+x86 PE and9 exports verified. Normal and recorder builds pass, lint clean.
+Source commit9da0a0b48 pushed to draft PR131, base staging; no merge/release.
+The prior c4f5fe5df candidate remains installed locally and is untested by the
+maintainer; this follow-up did not install or launch anything. Recommend the
+replacement instead of testing the rejected prior candidate. Remote acceptance
+and pause-submenu benefit remain OPEN. One prison head-turn/fade test, then support.
+
 ## VR-229: reload-dependent return, scoped stereo-axis mismatch (2026-09-25)
 
 Surface/route: whole-eye instability and head-turn separation, section1 stale-eye

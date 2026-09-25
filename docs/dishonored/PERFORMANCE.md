@@ -6,7 +6,7 @@ not an every-frame charge or a complete remote performance A/B. No new logging o
 GPU probes added for the scoped-axis correction. One script writer publishes three
 atomic floats and sequence; render reader makes at most two snapshot attempts,
 never waits/spins without bound. Local x86 host100000 publish+read iterations average
-0.078us/sample, checksum250000, concurrent no-torn-read stress passes. Host harness
+0.091us/sample, checksum250000, concurrent no-torn-read stress passes. Host harness
 is not optimized game timing and does not prove total render cost on the tester's PC.
 The new candidate retains the earlier lightweight recorder; no claim of a measured
 headset performance improvement. Source/geometry evidence: FLICKER_REFERENCE top.
