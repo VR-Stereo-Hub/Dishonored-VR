@@ -1,3 +1,18 @@
+## VR-229 early versus stable cinematic cadence (2026-09-25)
+
+On returned9da0a0b48, early InDialog587411343..587448000 has12 printed performance
+windows: median reported stereo tick rate58.0/s (range27.7..66.3), median tick15.95ms,
+median GPU per-tick span8.9ms (range6.4..13.9),137 untagged presents summed over those
+windows. Later587448000..587486000 has13 windows:70.7/s (69.3..71.7),13.9ms,
+GPU7.7ms (6.0..11.0),61 untagged. Headset72Hz,13.89ms budget.
+These are medians of printed windows, not percentiles of every frame, and intervals
+have different duration/content. No claim that GPU work is free or that the output
+change recovers any measured amount. Lower GPU medians and continued diagnostic
+recording during the stable period do not support GPU saturation or logging as a
+complete explanation. The simultaneous plateau in stale/expiry/duplicate counters
+and improved cadence supports addressing stereo interruptions/queue phase first.
+The test must still distinguish residual ordinary frame-time judder from eye faults.
+
 ## VR-229 returned scoped-eye recorder and bounded output (2026-09-25)
 
 Returned9da0a0b48: GPU frame-id probes verified disabled. Largest printed CPU recorder

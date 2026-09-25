@@ -1,3 +1,23 @@
+## VR-229 queued-render candidate packaged (2026-09-25)
+
+ZIP in primary checkout: build/test-packages/DishonoredVR-VR229-prison-judder-fix-6187b2fd4.zip,
+15894487bytes. Build v1.0.1-12-g6187b2fd4, optimized x86, legacy OFF,
+CPU recorder ON (output spread), GPU probes OFF. DLL SHA256
+1774ce5d05e837b4a7f34a5502b022e1e439665931264db973387e7951863dc6.
+ZIP SHA256b6ae714fa367ac529160b4586d9b2fd8a55faeca1fe268f47fea5fb3c2b50de4.
+Clean source identity, PE machine,9 exports, ZIP CRC/member hashes, build flags and
+lint verified. The support manifest's actual d3d9 hash matches the returned9da ZIP;
+its installer record still names the underlying release and is not the running DLL.
+No INI change: same config consumers as9da, including HandAnimMelee=0 in this tester's
+INI and forced pixel suppression. DLL/README/manifest/checksums only, no installer.
+
+Local installed hand/HUD candidate1ed638c01 hash remains
+b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569.
+No install or launch during this work. Remote question: smooth prison from beginning
+through fade and10seconds of gameplay, with head-turn fusion retained? Return support
+either way. Candidate sufficiency remains OPEN. Shared source in PR132 needs explicit
+integration when results are accepted; neither PR is authorized to merge.
+
 ## VR-229 scoped-eye return: separation resolved, transient judder remains (2026-09-25)
 
 Surface/route: whole-view cinematic judder, section1 stale/swapped/frozen-eye row.
