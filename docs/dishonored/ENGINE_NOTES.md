@@ -9508,3 +9508,16 @@ and event identities against a healthy gameplay interval. Camera failures requir
 measured image/camera provenance; missing/front-tag failures require a deterministic
 late-publication/reordering regression before altering repair. If it does not
 reproduce, that does not establish a fix because pairing behavior is unchanged.
+
+## VR-229: cinematic camera/upload alternatives (2026-09-25)
+
+The supplied aa3af7216 prison interval has13 camera-side SWAPPED and3 unknown
+classifications among74 printed pairs. Several have about3.3uu separation versus
+6.57uu IPD; one shows zero c5. All74 individually match bb/slot/out hashes.
+These do not prove a true eye swap or clear unseen copy errors. The existing
+c5 observer accepts every covering register upload and remembers the last value;
+a later auxiliary/zero upload can change the classifier without a failed camera
+write. New read-only per-present c5 census names the distinct values, vote counts
+and register ranges, alongside raw written camera and upload serial. No new
+engine fields, addresses or writes. See FLICKER_REFERENCE top entry for the full
+transport/runtime hypothesis matrix and interpretation of actual layer poses.

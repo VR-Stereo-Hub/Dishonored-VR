@@ -1,3 +1,4 @@
+#include "core/gfx/flicker_diagnostic.h"
 // core/framework/vs_const_hook.cpp - the SetVertexShaderConstantF and
 // SetRenderTarget detours (unity build; registered by present_tick.cpp).
 // c5 is the render-side camera position (the frame-map ABI), c0 the view-
@@ -29,6 +30,9 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
         const float* c5 = data + (5 - startReg) * 4;
         g_camPosC5[0] = c5[0]; g_camPosC5[1] = c5[1]; g_camPosC5[2] = c5[2];
         g_haveC5 = true;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        dvr::flicker::camera_upload(c5,startReg,count);
+#endif
         dvr::camera::note_render_pos(c5);   // the seam's render-side truth
         if (startReg != 5)
             DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 2,

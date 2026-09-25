@@ -3,6 +3,8 @@
 - [x] Confirm pause scope exclusion and add head-look-menu permission with epoch liveness.
 - [x] Corroborate prison stale-left delivery; distinguish active repairs from expirations.
 - [x] Add bounded expiration diagnostics after detailed ledger budget exhaustion.
+- [x] Expand ZIP-only diagnostics: recurring frame history, raw camera census, label-independent pixels and actual XR results.
+- [x] Verify long-session coverage, missing-left negative control and actual formatted recorder output.
 - [ ] Local paused-dialogue FOV acceptance.
 - [ ] Remote expiration attribution and production-model-tested eye pairing fix.
 

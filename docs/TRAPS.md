@@ -1409,3 +1409,12 @@ The build716 stationary pitch reproduction also shows the opposite limit: positi
 MaxParticles is only a request, not proof of live or drawn particles. Sustained upward
 views had positive requests despite reported missing rain. Track actual instance counts,
 render bounds and render time before choosing simulation versus visibility as the cause.
+
+## VR-229 diagnostic selection bias (2026-09-25)
+
+A lifetime detail budget can be exhausted during the menu before the failing
+scene. A pixel sampler triggered only by LEFT labels can miss exactly the
+interval where LEFT labels disappear. The remote flight recorder uses recurring
+rate limits and label-independent bursts, with all-frame populations and explicit
+missing-stage masks. Camera-side SWAPPED and low image difference are observations,
+not independent proof of swapped or mono imagery during moving/dark cinematics.

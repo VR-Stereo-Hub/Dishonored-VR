@@ -1988,6 +1988,11 @@ static void LoadConfig()
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
         if (!inst) dvr::perf::set_enabled(false);
         if (!gpu) dvr::perf::set_gpu_enabled(false);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        Log("flicker/armed: VR-229 diagnostic build; recurring method/XR history independent of RingLedger; "
+            "pixels 8 consecutive grabs/128 plus 8/window independent of labels and FrameId INI; no blocking read fallback; "
+            "normal eye pairing unchanged; no INI written; windows never expire for session length");
+#endif
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
@@ -3483,6 +3488,10 @@ static void EnsureConfig()
             GetPrivateProfileStringA("Log", "Cats", "", cats, sizeof(cats), ini);
             if (!GetEnvironmentVariableA("DVR_LOG", NULL, 0)) dvr::log::configure(lv, "");
             if (!GetEnvironmentVariableA("DVR_LOG_CATS", NULL, 0)) dvr::log::configure("", cats);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+            dvr::log::set_level(dvr::log::Cat::present,dvr::log::Level::Info);
+            DVR_LOG(dvr::log::Cat::present,dvr::log::Level::Info,"flicker/armed: test-only diagnostics automatically active; present log at Info; installed INI unchanged");
+#endif
         }
 }
 

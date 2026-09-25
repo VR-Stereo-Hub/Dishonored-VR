@@ -152,6 +152,9 @@ struct ArbTrace {
     int expiredEye = 0, expireReason = 0, expireFrontEye = 0;
     uint32_t expireFrontDraw = 0;
     uint32_t lateRec = 0;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    Tag raw = {}, front = {};
+#endif
 };
 
 // The arbitration's memory: the previous present's c5 and the disagreement streak.
@@ -185,6 +188,9 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
         tr->headBefore = InterlockedCompareExchange(&g_ringHead, 0, 0);
         if (tr->headBefore != tr->tailBefore) tr->newestDraw = g_ring[(tr->headBefore - 1) & (kRing - 1)].draw;
         tr->streakBefore = st.c5Streak;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        if(tr->headBefore != tr->tailBefore) tr->front=g_ring[tr->tailBefore & (kRing-1)];
+#endif
     }
     // The within-tick invariant (see g_c5Pair): what this present's c5
     // says about its pass, before the ring's claim is read. (Computed before the pop
@@ -242,6 +248,9 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
         tr->popResult = tagged ? POPR_TAG : (g_popClears != clearsBefore ? POPR_CLEAR : POPR_EMPTY);
         tr->clearRemoved = g_popClearRemoved - clearedBefore;
     }
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    if(tr && tagged) tr->raw=t;
+#endif
     ringEye = tagged ? t.eye : 0;   // VR-78: before the pairing may override it
     // F-late: an empty pop (not a depth clear) in a tagged stream whose c5 names an eye owes it.
     if (g_lateTagRepair && g_c5Pair && !popped && inv != 0 && st.inStream && g_popClears == clearsBefore) {

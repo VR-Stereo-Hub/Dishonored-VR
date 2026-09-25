@@ -1,3 +1,22 @@
+## VR-229: remote diagnostic coverage expanded (2026-09-25)
+
+User has a newer collaborator build locally: NO INSTALLATION and no game launch.
+Prepared a self-arming ZIP-only diagnostic build in build/worktrees/vr-227.
+The previous expiry-only trace missed consecutive frames after its lifetime cap.
+New recurring history joins raw tag/camera decisions, capture identities, delivered
+pose records and actual XR release/submission. Independent-label pixel bursts and
+camera-upload census cover mono/black images, half-IPD/zero camera samples, source
+writes, slot reuse and pose/cadence alternatives. Pairing behavior is unchanged.
+[Evidence, hypothesis matrix and next test](dishonored/FLICKER_REFERENCE.md).
+
+Host validation:1142 diagnostic pairing checks,1141 normal,133 actual recorder
+checks pass. Includes one-hour recording and missing-left negative control.
+No headset/game validation. Artifact identity will be recorded after clean build.
+Next: remote prison cinematic plus10seconds of gameplay at unchanged settings,
+quit and collect support ZIP. One question: did prison eye flicker reproduce?
+No reproduction is not a fix. Use first divergent frame to design a regression
+before implementing a repair; do not install on the maintainer's machine.
+
 ## VR-228/229: pause FOV candidate and prison flicker diagnosis (2026-09-24)
 
 Original VR-227 gameplay fix is locally reported good on the installed aa3af7216.

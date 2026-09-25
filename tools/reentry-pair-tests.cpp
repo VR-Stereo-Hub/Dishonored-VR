@@ -10,6 +10,7 @@
 // to be (no fault, no skew; the model resets), so the table cannot be fitted to a
 // hypothesis by the assertions.
 #include <windows.h>
+#include "core/gfx/flicker_diagnostic.h"
 #include "core/gfx/stereo_menu_hold.h"
 #include <math.h>
 #include <stdio.h>
@@ -180,7 +181,52 @@ static void print(const Scenario& s, const Result& r) {
            r.realigns, r.took, r.held, r.firstWrong, r.lastWrong, r.sustained ? "SUSTAINED" : "");
 }
 
+static void diagnostic_tests() {
+    dvr::flicker::Window w;
+    unsigned windows=0,lines=0,lastOpen=0;
+    for(unsigned ms=0;ms<3600000;ms+=10) {
+        if(w.open((double)ms,true)) {
+            if(windows) check(ms-lastOpen>=5000,"flight recorder enforces 5s bound");
+            lastOpen=ms;++windows;
+        }
+        if(w.take()) ++lines;
+    }
+    check(windows==720 && lines==720*16,"one-hour faults cannot exhaust detailed windows");
+    dvr::flicker::Window healthy;
+    unsigned heartbeat=0;
+    for(unsigned ms=0;ms<31000;ms+=10) { if(healthy.open(ms,false)) ++heartbeat;healthy.take(); }
+    check(heartbeat==4,"healthy control windows remain available");
+    unsigned samples=0;bool legacyLeftStarts=false;
+    for(uint32_t i=1;i<=1024;++i) {
+        const int brokenTag=(i%3)?+1:0; // no left labels at all
+        legacyLeftStarts|=brokenTag<0;
+        if(dvr::flicker::pixel_sample(i)) ++samples;
+    }
+    check(!legacyLeftStarts && samples==64,"negative control: left-triggered sampler blind, new sampler sees R/0");
+    check(dvr::flicker::pixel_sample(1)&&dvr::flicker::pixel_sample(8)&&
+          !dvr::flicker::pixel_sample(9)&&!dvr::flicker::pixel_sample(128)&&
+          dvr::flicker::pixel_sample(129),"pixel burst bounds and next cycle");
+    dvr::flicker::CameraUploads c;
+    float origin[3]={0,0,0},world[3]={3100,-7400,1100};
+    for(int i=0;i<100;++i) c.add(world,0,6);
+    c.add(origin,5,1);
+    check(c.uploads==101 && c.used==2 && c.values[0].votes==100 && c.values[1].votes==1,
+          "census distinguishes dominant world from final zero upload");
+    for(int i=1;i<=10;++i) {float p[3]={(float)i,0,0};c.add(p,5,1);}
+    check(c.used==6 && c.overflow==6 && c.uploads==111,"census bounds memory and reports lost unique uploads");
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    reset_model();g_lateTagRepair=false;
+    ArbState st;st.prevC5Ok=true;st.prevC5[0]=3.41f;
+    ArbView v;v.haveC5=v.basisOk=true;v.ipd=6.82f;v.br[0]=1;v.c5now[0]=-3.41f;
+    float pos[3]={3.41f,0,0};push_tag(-1,pos,42,0,77);
+    Tag tag={};ArbTrace tr;int raw=0,inv=0;float along=0,other=0;
+    pop_and_arbitrate(st,v,tag,raw,inv,along,other,&tr);
+    check(tag.eye==1 && tr.raw.eye==-1 && tr.raw.draw==77 && tr.front.rec==42,
+          "diagnostic retains raw provenance when arbitration overwrites label");
+#endif
+}
 int main() {
+    diagnostic_tests();
     dvr::stereo::MenuGapHold menuHold;
     check(!menuHold.hold(0,true,1000),"menu: no history cannot hold mono");
     check(!menuHold.hold(-1,true,1000),"menu: left image is never held");

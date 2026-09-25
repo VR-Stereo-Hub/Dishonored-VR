@@ -23,6 +23,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 
 option(DVR_WITH_LEGACY "Compile the retired experiments and one-off diagnostics in src/legacy" OFF)
+option(DVR_FLICKER_DIAGNOSTICS "Build the VR-229 remote flight recorder (test only)" OFF)
+if(DVR_FLICKER_DIAGNOSTICS)
+    add_compile_definitions(DVR_FLICKER_DIAGNOSTICS=1)
+endif()
 option(DVR_WITH_XRSIM  "Build the simulated OpenXR runtime (test tool, not shipped)" ON)
 
 add_subdirectory(third_party)

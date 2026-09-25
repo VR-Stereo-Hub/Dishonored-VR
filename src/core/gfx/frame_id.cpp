@@ -1,6 +1,7 @@
 // core/gfx/frame_id.cpp - see frame_id.h.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/frame_id.h"
+#include "core/gfx/flicker_diagnostic.h"
 #include "core/framework/diagnostic_ab.h"
 
 #include "core/framework/status.h"
@@ -38,13 +39,23 @@ struct Record {
     int      scTarget = -1;
     uint32_t scIndex = 0;
     uint8_t  mask = 0;      // stages whose thumbnail arrived
+    double   bbCostMs = 0;
     uint8_t  tried = 0;     // stages whose read was attempted
     uint32_t sum[kStages] = {};
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    float mean[kStages]={};uint32_t dark[kStages]={};
+#endif
     uint8_t  luma[kStages][kPixels];
 };
 Record   g_rec[kRecords];
 bool     g_enabled = true;
-bool collecting() { return g_enabled && !dvr::diag_ab::reduced(); }
+bool collecting() {
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    return true;
+#else
+    return g_enabled && !dvr::diag_ab::reduced();
+#endif
+}
 // 41.1 (session 9, headset run 07): sampled, not per present. The backbuffer
 // stage's GetRenderTargetData is a pipeline sync on the user's GPU: read every
 // present it cost 1.5 ms of GPU idle per present and the tick went 13.9 ->
@@ -54,7 +65,19 @@ uint32_t g_every = 8;                // [Perf] FrameIdEvery; `frameid every N`
 uint32_t g_countdown = 0;            // -1 grabs until the next sampled pair
 uint32_t g_sampleSerial = 0;         // the sampled -1 grab's serial (and +1 = its sibling)
 bool     g_sampleValid = false;
-inline bool sampled(uint32_t serial) { return g_sampleValid && (serial == g_sampleSerial || serial == g_sampleSerial + 1); }
+#ifdef DVR_FLICKER_DIAGNOSTICS
+uint32_t g_diagnosticBurstStart=0;
+#endif
+inline bool sampled(uint32_t serial) {
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    return dvr::flicker::pixel_sample(serial) || (g_diagnosticBurstStart && serial>=g_diagnosticBurstStart && serial-g_diagnosticBurstStart<8);
+#else
+    return g_sampleValid && (serial == g_sampleSerial || serial == g_sampleSerial + 1);
+#endif
+}
+#ifdef DVR_FLICKER_DIAGNOSTICS
+uint32_t g_diagnosticGrab = 0, g_diagnosticEvaluated = 0;
+#endif
 // One picture at 64x64: the run-17 one-picture dump pair reads 1.49, the
 // smallest true headset pairs 3.0, the simulator's 4.1. The same-eye floor
 // is printed for the reader but not used for the verdict: with a live head
@@ -176,6 +199,11 @@ int best_shift(const uint8_t* l, const uint8_t* r, float* diffAt) {
 void store(Record& r, Stage st, const uint8_t* rows, uint32_t pitch, int rAt) {
     to_luma(rows, pitch, rAt, r.luma[st]);
     r.sum[st] = fnv1a(r.luma[st], kPixels);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    uint32_t total=0,dark=0;
+    for(uint32_t i=0;i<kPixels;++i) { total+=r.luma[st][i];if(r.luma[st][i]<=2) ++dark; }
+    r.mean[st]=(float)total/kPixels;r.dark[st]=dark;
+#endif
     r.mask |= (uint8_t)(1u << st);
 }
 
@@ -220,7 +248,9 @@ void read9(uint32_t serial) {
     r->tried |= (uint8_t)(1u << kBb);
     D3DLOCKED_RECT lr;
     DWORD flags = D3DLOCK_READONLY | D3DLOCK_DONOTWAIT;
+#ifndef DVR_FLICKER_DIAGNOSTICS
     if (g_busyStreak[kBb] >= kBusyBlockAfter) { flags = D3DLOCK_READONLY; ++g_blocked[kBb]; }
+#endif
     HRESULT hr = g_sys9[k]->LockRect(&lr, nullptr, flags);
     if (hr == D3DERR_WASSTILLDRAWING) { ++g_busy[kBb]; ++g_busyStreak[kBb]; return; }
     if (FAILED(hr)) { ++g_missing[kBb]; return; }
@@ -291,7 +321,9 @@ void read11(ID3D11DeviceContext* ctx, Stage st, uint32_t serial) {
     if (!r) return;
     r->tried |= (uint8_t)(1u << st);
     UINT flags = D3D11_MAP_FLAG_DO_NOT_WAIT;
+#ifndef DVR_FLICKER_DIAGNOSTICS
     if (g_busyStreak[st] >= kBusyBlockAfter) { flags = 0; ++g_blocked[st]; }
+#endif
     D3D11_MAPPED_SUBRESOURCE m;
     const HRESULT hr = ctx->Map(g_staging[st][k], 0, D3D11_MAP_READ, flags, &m);
     if (hr == DXGI_ERROR_WAS_STILL_DRAWING) { ++g_busy[st]; ++g_busyStreak[st]; return; }
@@ -456,11 +488,18 @@ void set_every(uint32_t n) {
     if (n < 1) n = 1;
     if (n > 600) n = 600;
     g_every = n;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    DVR_INFO("flicker/pixels: diagnostic schedule is eight grabs/128 plus eight per flight window, independent of eye label; configured normal FrameIdEvery=%u",n);
+#else
     DVR_INFO("stereo: frameid samples one pair every %u tick(s) ([Perf] FrameIdEvery=%u for the next launch)", n, n);
+#endif
 }
 uint32_t every() { return g_every; }
 
 void set_enabled(bool on) {
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    on=true; // This DLL is explicitly a self-arming test package.
+#endif
     if (on == g_enabled) return;
     g_enabled = on;
     DVR_INFO("stereo: frameid %s (the four-stage thumbnail trace; [Perf] FrameId=%d for the next launch)", on ? "ON" : "off", on ? 1 : 0);
@@ -476,6 +515,9 @@ void note_c5(const float c5[3], bool ok, const float right[3], bool rightOk) {
 
 void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t serial, int tag) {
     if (!collecting()) return;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    g_diagnosticGrab=serial;
+#endif
     if (tag < 0) {
         if (g_countdown == 0) { g_sampleSerial = serial; g_sampleValid = true; g_countdown = g_every > 1 ? g_every : 1; }
         --g_countdown;
@@ -487,6 +529,15 @@ void stage_backbuffer(IDirect3DDevice9* dev, IDirect3DSurface9* bb, uint32_t ser
     r.c5Ok = g_pendingC5Ok; memcpy(r.c5, g_pendingC5, sizeof(r.c5));
     r.rightOk = g_pendingRightOk; memcpy(r.right, g_pendingRight, sizeof(r.right));
     r.slot = -1; r.scTarget = -1; r.scIndex = 0; r.mask = 0; r.tried = 0;
+    memset(r.sum,0,sizeof(r.sum));
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    memset(r.mean,0,sizeof(r.mean));memset(r.dark,0,sizeof(r.dark));
+    struct SampleCost {
+        Record& r; LARGE_INTEGER t={},f={};
+        SampleCost(Record& value):r(value) { QueryPerformanceFrequency(&f);QueryPerformanceCounter(&t); }
+        ~SampleCost() { LARGE_INTEGER n;QueryPerformanceCounter(&n);r.bbCostMs=f.QuadPart?1000.*(n.QuadPart-t.QuadPart)/f.QuadPart:0.; }
+    } sampleCost(r);
+#endif
     g_pendingC5Ok = false; g_pendingRightOk = false;
     if (g_bbDead || !dev || !bb || !ensure9(dev)) return;
     const uint32_t k = serial % kRing;
@@ -555,6 +606,26 @@ void begin_present() {
     // pair's reads land three deliveries after it).
     g_curValid = false;
     if (!collecting()) return;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    // Report every sampled image, including 0/0 and R/R, not just adjacent L/R pairs.
+    // Six grabs allow pipelined delivery and the three-delivery readback delay.
+    if(g_diagnosticGrab>6) {
+        const uint32_t end=g_diagnosticGrab-6;
+        if(end-g_diagnosticEvaluated>kRecords) g_diagnosticEvaluated=end-kRecords;
+        while(g_diagnosticEvaluated<end) {
+            const uint32_t id=++g_diagnosticEvaluated;
+            if(!sampled(id)) continue;
+            const Record* r=rec_get(id);
+            if(!r) { DVR_INFO("flicker/pixel: ser%u unavailable (record expired)",id); continue; }
+            DVR_INFO("flicker/pixel: ser%u tag%+d c5ok%d c5=(%.3f,%.3f,%.3f) basis%d=(%.4f,%.4f,%.4f) "
+                "slot%d target%d index%u mask%x tried%x bbCostMs%.3f hashes(bb,slot,out,sc)=%08x/%08x/%08x/%08x mean=%.2f/%.2f/%.2f/%.2f dark=%u/%u/%u/%u of4096; "
+                "mask bits identify valid hashes; sc is center patch, other stages full downscale; similarity alone is not identity",
+                id,r->tag,r->c5Ok,r->c5[0],r->c5[1],r->c5[2],r->rightOk,r->right[0],r->right[1],r->right[2],
+                r->slot,r->scTarget,r->scIndex,r->mask,r->tried,r->bbCostMs,r->sum[0],r->sum[1],r->sum[2],r->sum[3],
+                r->mean[0],r->mean[1],r->mean[2],r->mean[3],r->dark[0],r->dark[1],r->dark[2],r->dark[3]);
+        }
+    }
+#endif
     // Judge every serial old enough for all four reads to have been attempted
     // (the sc read for serial e happens at delivered serial e + kReadBack).
     // Sampled: the reads of a pair land at the sibling's delivery and the two
@@ -587,6 +658,9 @@ void begin_present() {
     }
 }
 
+#ifdef DVR_FLICKER_DIAGNOSTICS
+void diagnostic_burst() { g_diagnosticBurstStart=g_diagnosticGrab+1; }
+#endif
 void on_reset() { release9(); }
 
 void shutdown() { release9(); release11(); }

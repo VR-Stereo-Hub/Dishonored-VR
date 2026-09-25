@@ -39,6 +39,8 @@
 #include "core/gfx/blit_quad.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/flicker_diagnostic.h"
+#include "core/vr/pose_record.h"
 #include "core/gfx/frame_id.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
@@ -158,6 +160,9 @@ void ledger_open(const char* why) {
 void ledger_commit(LedgerRec& r) {
     r.id = ++g_ledCount;
     g_led[(r.id - 1) % kLedN] = r;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    return; // The recurring method + XR recorder replaces the lifetime-limited dump.
+#endif
     const double now = r.ms;
     if (InterlockedExchange(&g_ledgerArmReq, 0) && g_ledDumps < kLedMaxDumps) {
         ledger_open(g_ledgerArmWhy);
@@ -323,7 +328,11 @@ public:
 
     bool end_frame(const FrameDevices& d, FrameOutput& out) override {
         ++g_endFrames;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        const bool led = true;
+#else
         const bool led = InterlockedCompareExchange(&g_ledgerOn, 0, 0) != 0;
+#endif
         if (led) ledger_reconcile();
         if (g_hooks.poisoned && g_hooks.poisoned()) {
             ++g_exitPoisoned;
@@ -423,6 +432,34 @@ public:
             if (!led) return;
             lr.out = why; lr.delivered = deliv; lr.fresh = fr;
             lr.delivSerial = fr ? dvr::capture::delivered_serial() : 0u;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+            dvr::flicker::Method fm;
+            fm.present=lr.frame;fm.ms=lr.ms;fm.draw=arbTrace.raw.draw;fm.rec=arbTrace.raw.rec;
+            fm.pushMs=arbTrace.raw.pushMs;fm.ringEye=ringEye;fm.eye=lr.finalEye;fm.inv=inv;
+            fm.action=arbTrace.action;fm.expire=arbTrace.expireReason;fm.owed=arbTrace.expiredEye;
+            fm.frontEye=arbTrace.front.eye;fm.frontDraw=arbTrace.front.draw;
+            fm.head=arbTrace.headBefore;fm.tail=arbTrace.tailBefore;fm.c5serial=dvr::camera::render_pos_serial();
+            fm.c5ok=view.haveC5;fm.basisok=view.basisOk;fm.writtenok=arbTrace.raw.posOk;
+            memcpy(fm.c5,view.c5now,sizeof(fm.c5));memcpy(fm.right,view.br,sizeof(fm.right));
+            memcpy(fm.written,arbTrace.raw.pos,sizeof(fm.written));
+            fm.ipd=view.ipd;fm.along=along;fm.other=other;fm.removedN=arbTrace.removedN;
+            memcpy(fm.removed,arbTrace.removed,sizeof(fm.removed));
+            fm.out=why;fm.delivered=deliv;fm.fresh=fr;fm.grab=dvr::capture::serial();
+            fm.deliveredSerial=lr.delivSerial;fm.deliveredRec=fr?dvr::capture::delivered_rec():0;
+            fm.slot=fr?dvr::capture::delivered_slot():-1;
+            dvr::pose::Record pr={};fm.poseOk=fm.deliveredRec && dvr::pose::copy(fm.deliveredRec,&pr);
+            if(fm.poseOk) {
+                fm.trackOk=pr.track.ok;fm.camOk=pr.cam.ok;
+                fm.pair=pr.pairId;fm.gen=pr.track.gen;fm.poseEye=pr.eye;fm.writer=pr.cam.writer;
+                fm.poseAgeMs=fm.ms-pr.openedMs;fm.secondPassReuse=pr.secondPassReuse;
+                fm.trackPos[0]=pr.track.px;fm.trackPos[1]=pr.track.py;fm.trackPos[2]=pr.track.pz;
+                memcpy(fm.camPos,pr.cam.pos,sizeof(fm.camPos));
+                fm.camAngles[0]=pr.cam.yawDeg;fm.camAngles[1]=pr.cam.pitchDeg;fm.camAngles[2]=pr.cam.rollDeg;
+                fm.poseQ[0]=pr.track.qx;fm.poseQ[1]=pr.track.qy;fm.poseQ[2]=pr.track.qz;fm.poseQ[3]=pr.track.qw;
+            }
+            fm.methodMs=pair_now_ms()-fm.ms;
+            dvr::flicker::method(fm);
+#endif
             ledger_commit(lr);
         };
         if (tagged) {
