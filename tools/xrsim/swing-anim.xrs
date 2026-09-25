@@ -1,0 +1,90 @@
+# swing-anim.xrs - the sword hand-back by attack source (VR-220): does a TRIGGER attack
+# play the game's swing on the tracked hand, and does a PHYSICAL swing keep the hand on
+# the controller? And does a trigger attack's hand-back leave the swing gate open?
+#
+# Needs the same as swing-edge.xrs: a loaded level in GAMEPLAY (not a menu, not the
+# title's attract scene - look at an xrsim-shot first), [Mode] GamepadOnly=0, and a build
+# with the `anim melee` words. Run:  .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-anim.xrs
+#
+# How to read a failure: `anim/melee: attack source=TRIGGER|SWING` is the verdict, one line
+# per attack (or per combo clip), with the fire-to-entry time and the pulse state that
+# decided it. A TRIGGER attack must say `hand-back ON`; a SWING must say `hand-back off`
+# unless HandAnimMeleeSwing=1. `features.anim.meleeSource` is the same verdict in
+# status.json. A `swing: BLOCKED ... owns the body` right after a trigger attack is the
+# gate fault this change removes (the gate now reads the body-owning classifier only).
+#
+# The hand is only ever MOVED here, never placed: `hand r grip pose` teleports it, and a
+# teleport is a tracking jump, which the swing detector discards on purpose.
+
+# The sword has to be in the hand. With it sheathed the first pull draws it; with it drawn
+# this is one ordinary attack. Either way the sword is out afterwards.
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing on; swing mode edge; swing threshold 3.6; swing rearm 1.0; swing cooldown 300; swing rel on; swing filter median; swing sword on; swing output rt
+@wait 800
+@mod anim handback on; anim melee on; anim melee swing off
+@wait 1000
+@mark
+
+# 1. A trigger attack: the source is TRIGGER and the hand goes to the game's clip.
+trigger r pull 300
+@log anim/melee: attack source=TRIGGER -> hand-back ON
+@modassert features.anim.meleeSource eq trigger
+@modassert features.anim.handAnimMelee eq true
+@wait 1800
+@nolog swing: FIRE
+@mark
+
+# 2. A physical swing: the same 0.68 m in 200 ms peaks near 5 m/s. The source is SWING,
+#    the hand stays on the controller, and the game still honours the attack.
+hand r to grip -0.35 1.00 -0.45 0 0 0 900
+@wait 1500
+@mark
+hand r to grip 0.25 1.30 -0.40 0 0 0 200
+@log swing: FIRE #\d+ slash
+@log anim/melee: attack source=SWING \(swing #\d+\) -> hand-back off
+@log swing: HONOURED slash
+@modassert features.anim.meleeSource eq swing
+@wait 1800
+@mark
+
+# 3. A physical swing right after a trigger attack is NOT refused by the body gate: the
+#    trigger attack's hand-back is a hand pose, not the game owning the body.
+trigger r pull 300
+@log anim/melee: attack source=TRIGGER -> hand-back ON
+@wait 120
+hand r to grip -0.35 1.00 -0.45 0 0 0 200
+@wait 1200
+@nolog swing: BLOCKED .*owns the body
+@wait 1500
+@mark
+
+# 4. The lever for the other rule: with HandAnimMeleeSwing=1 a swing hands back too.
+#    The seam write lands up to a second after the line (1 Hz poll), and a Debug build
+#    can starve the hand of samples for a moment right after it: rest, then swing.
+@mod anim melee swing on
+@wait 2000
+hand r to grip -0.35 1.00 -0.45 0 0 0 600
+@wait 1500
+@mark
+hand r to grip 0.25 1.30 -0.40 0 0 0 200
+@log swing: FIRE #\d+ slash
+@log anim/melee: attack source=SWING \(swing #\d+\) -> hand-back ON \(HandAnimMeleeSwing=1\)
+@wait 1800
+@mod anim melee swing off
+@wait 1200
+@mark
+
+# 5. The master off: a trigger attack names its source and says why the hand stays.
+@mod anim melee off
+@wait 600
+@mark
+trigger r pull 300
+@log anim/melee: attack source=TRIGGER .*HandAnimMelee=0, the hand stays on the controller
+@modassert features.anim.handAnimMelee eq false
+@wait 1500
+@mod anim melee on
+@wait 300
+@mod anim melee status

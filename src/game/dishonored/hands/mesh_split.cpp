@@ -2930,12 +2930,12 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // out of the hand's local space into the draw's camera-relative world
         // so any other member of the same view can consume it. Published here,
         // AFTER the model scale, so that factor is carried exactly once.
-        D = dvr::anim::blend(D); // blend once; weapons inherit this same correction
+        D = dvr::anim::blend(D, hand); // blend once, PER HAND (VR-220); weapons inherit this same correction
         WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
-        D = dvr::anim::blend(D);
+        D = dvr::anim::blend(D, hand);
         g_mpPalmTargetOk[hand] = false;
     }
     for (int i = 0; i < 3; i++)

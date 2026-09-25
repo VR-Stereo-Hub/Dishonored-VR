@@ -37,6 +37,15 @@ turn afterwards moves the view only; a stick held across the pause menu never fi
 off` puts RX back on the pad line (`pad/rs: ... RX=<nonzero>`). `applied` 4, `dropped` 0,
 `notHonoured` 0, `projStaleSubmits` 0. Host: `tools\yawtest-host.ps1` case 8, a snap step counts
 as body yaw. Reading the log: `snapturn status` prints the lane and why it is blocked.
+VR-220 the sword hand-back by attack source: `tools\xrsim-run.ps1 -Path tools\xrsim\swing-anim.xrs`
+from GAMEPLAY with the sword out. A trigger pull prints `anim/melee: attack source=TRIGGER -> hand-back
+ON` and `features.anim.meleeSource` reads `trigger`; the swing-edge move prints `swing: FIRE`, then
+`anim/melee: attack source=SWING (swing #n) -> hand-back off` (fire dt about 15 ms, pulse open), then
+`swing: HONOURED slash`; a swing 120 ms after a trigger pull is not `BLOCKED ... owns the body` (it
+fires and classifies as a combo, fire dt about 266 ms); `anim melee swing on` makes the same swing
+`hand-back ON (HandAnimMeleeSwing=1)`; `anim melee off` makes a trigger pull print the refusal line.
+The moves are the swing-edge moves and share its trap: a 200 ms move can be cut short by a sample gap
+(VR-222), so step 4 rests the hand before it swings. Passed 2026-09-25 on Debug and RelWithDebInfo.
 
 VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
 trail's particle component is found on the pawn by its template, the native hide takes
@@ -114,6 +123,7 @@ pre-regression decision passes all nine.
 | Which camera field does the renderer honour? | log | `game-cmd.ps1 "camera eyetest 100"` in gameplay, standing still | `camera/eyetest: <field> ... HONOURED|DISCARDED|INCONCLUSIVE`, then `DONE` with the field for `[Camera] EyeField` (ENGINE_NOTES, the per-eye camera seam) |
 | Are the two eyes paired? (S2) | log | `tools\eye-check.ps1` leg 0 | `stereo: beat ... L/s=N R/s=N`, both flowing and within 80% |
 | Does a snap turn step the view AND the body together? (VR-219) | log + status | `snap-turn.xrs` from GAMEPLAY | per push `snap: FIRED` / `APPLIED` / `HONOURED`; after 4 x 30: `features.snapTurn.viewSinceMarkDeg` and `bodySinceMarkDeg` 119..121, `headSinceMarkDeg` within 1, `applied 4 dropped 0 notHonoured 0`; a held stick fires once; a 0.4 push does nothing; the pause menu blocks it; `snapturn off` returns RX to the game |
+| Does a trigger attack animate the hand while a swing keeps it? (VR-220) | log + status | `swing-anim.xrs` from GAMEPLAY | trigger pull: `anim/melee: ... source=TRIGGER -> hand-back ON`, `features.anim.meleeSource eq trigger`; swing: `swing: FIRE`, `source=SWING ... hand-back off`, `HONOURED`; a swing right after a trigger pull is not `BLOCKED ... owns the body`; `anim melee swing on` flips the swing verdict's hand-back; `anim melee off` prints the refusal |
 | Does head rotation move the camera? | capture | `headlook.xrs` | `img-diff` of left eye at yaw 0 vs 35 rises well above the ~0.4 noise floor |
 | Stereo depth present? | capture | `stereo.xrs` | left vs right `img-diff` >> 0.4 (BioShock's expectation; on Dishonored a true pair reads LOWER than the mono projection - see the row below) |
 | Is SequentialReentry drawing two eyes? (S2b) | log + capture | `xrsim-run.ps1 -Path tools\xrsim\reentry.xrs` from GAMEPLAY | `projectionViews eq 2`, `capNonBlackL/R >= 30`, then the log: `reentry: beat draws/s == 2nd/s`, `stereo: beat L/s == R/s == out/s / 2`, `reentry: pair - the +1 present's c5 sits (0 ipd*scale 0) uu from the -1 present's`; `stereo mono` restores the quad |
