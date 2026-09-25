@@ -16,6 +16,10 @@ capture and HUD ownership, documented in ARM_HAND_SPLIT.md and HUD_ANCHORS.md.
 Neither new candidate is headset-confirmed. Pure regression suites pass; no game
 or in-game simulator launched. Flight recorder cost/compile-out: PERFORMANCE.md.
 
+Local follow-up installed as v1.0.1-32-g1ed638c01 (DLL hash and full INI comparison
+in STATUS); flight recorder compiled out, FrameId explicitly0, swing handback0.
+The current on-disk log still belongs to the old run until a user launch.
+
 One next launch question: after the opening cinematic, does the right hand stay
 aligned with the controller? Pass supports the deferred reference capture; the
 same rotation means that first-frame identity was insufficient to explain it.

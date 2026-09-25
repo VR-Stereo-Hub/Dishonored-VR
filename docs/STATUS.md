@@ -19,10 +19,21 @@ recorder burst1.606ms; follow-up builds with CPU/GPU diagnostic compile flags OF
 and expects FrameId=0 in the local INI. Details: PERFORMANCE.md, ARM_HAND_SPLIT.md,
 HUD_ANCHORS.md, FLICKER_REFERENCE.md. New visual fixes remain candidates.
 
-Next: finish clean-source packaging/install verification, then ONE launch question:
-after opening cinematic, does the right hand remain aligned? A pass supports the
-capture fix; a repeat requires the matching reference lines. HUD/sword acceptance
-remain open and can use this same candidate. Do not merge without explicit permission.
+Installed candidate v1.0.1-32-g1ed638c01, optimized x86, DLL SHA256
+b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569.
+Primary ZIP: build/test-packages/DishonoredVR-hand-hud-followups-1ed638c01.zip,
+15907944bytes, SHA256954af6e4d6b89ce0294ecb012bed81cc19c911066b38b5e03a1305f030f4c441.
+Backup in primary build/playtest-candidates/vr188/install-20260925-130330 includes
+DLL, entire INI and all logs. Full target/backup INI diff has exactly two changes:
+Perf.FrameId1->0 and explicit Anim.HandAnimMeleeSwing=0 (was absent/default0).
+Other bytes preserved;1533CRLF,zero bareLF. Expected/installed whole INI SHA256
+15baadbfcfe11bf45075477ef9acb341359f129258de018234bf17689beac7b4 matches.
+No game launch; current log still c4f5fe5df until the next tester launch.
+
+Next ONE launch question: after opening cinematic, does the right hand remain
+aligned? A pass supports the capture fix; a repeat requires the matching reference
+lines. HUD/sword acceptance remain open and can use this same candidate. Remote
+9da0a0b48 ZIP stays unchanged. Do not merge without explicit permission.
 
 ## 2026-09-24: staging is the integration branch; VR-Main is the release (VR-218)
 
