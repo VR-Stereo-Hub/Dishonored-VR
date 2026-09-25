@@ -1,3 +1,19 @@
+## HUD ownership regression audit (2026-09-25)
+
+- [x] Verify latest local DLL/log and preserve run/INI before rotation.
+- [x] Diff v1.0.0 source and release profile against tested candidate.
+- [x] Reread native HUD/task/objective/Heart/rune/charm and Flash script ownership.
+- [x] Explain failed text-only priority and additional icon/awareness capture paths.
+- [x] Separate grenade projectile direction from gauge routing.
+- [x] Quantify rendering cost; exclude disabled flicker recorder as current cause.
+- [x] Prepare bounded read-only owner/render boundary capture.
+- [ ] Establish clip identity transport through the real render queue.
+- [ ] Replace proximity ownership; test first-frame overlaps and animation children.
+- [ ] Correct/verify marker depth using per-eye projection and engine target identity.
+- [ ] Keep cook gauge complete, correctly sized and on the accepted aim ray.
+- [ ] Same-save/view native versus pereye cost attribution, then targeted performance fix.
+- [ ] Headset acceptance; no merge authorization.
+
 ## Local hand/HUD follow-ups (2026-09-25)
 
 - [x] Match local stable-menu/intro report to c4f5fe5df rather than remote9da0a0b48.

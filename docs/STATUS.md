@@ -1,3 +1,26 @@
+## 2026-09-25: HUD acceptance failed; native ownership audit
+
+Verified local 1ed638c01 and archived all logs/INI. Other hand/swing/menu follow-ups
+reported satisfactory. HUD prompt/objective overlap, objective depth, cook-gauge
+placement/size and performance are NOT accepted. The latest precedence patch
+only protects task text; returned content is also claimed as task icon/continuity.
+Task/Heart/awareness bounds and gauge heuristic predate v1.0.0. Full release source
+and INI comparison, decompiled HUD/task/objective/Heart/charm/Flash reread completed.
+
+HUD_ANCHORS contains the evidence and replacement contract. ENGINE_NOTES records
+the read-only native identity derivation. PERFORMANCE holds cost attribution:
+recorder/pixels off, 73.7 ticks/s and 10.3 ms GPU near grenade, pereye culling now active
+on a newer DLL, no controlled release performance baseline. Do not claim a full
+performance cause or undo accepted hand/swing/visibility behavior without evidence.
+
+Prepared default-off finite OwnerTrace to establish native clip-to-render transport:
+16 renderer stack snapshots, once per route family; at most 4 native attempts per
+marker family, successful capture once. No GPU readback or engine writer. This
+is a structural rework prerequisite, NOT a HUD fix. Next single capture question
+is the reported prompt split during head pitch, then quit so the log can be read.
+Do not require another remote prison test or merge this draft. Implementation and
+headset acceptance of semantic ownership, marker depth and gauge routing remain open.
+
 ## 2026-09-25: local hand/HUD follow-ups and compatible build baseline
 
 Branch codex/vr-188-hand-hud-followups starts at staging474fc8a55. Carries the

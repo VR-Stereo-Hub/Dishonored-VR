@@ -18,7 +18,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <atomic>
 namespace dvr::hudclass {
+namespace { std::atomic<bool> g_ownerTrace{false}; }
+void set_owner_trace(bool on) {
+    g_ownerTrace.store(on, std::memory_order_relaxed);
+    if(on) DVR_INFO("hud/identity: ARMED finite read-only capture; at most 16 renderer stacks and 4 native attempts per family; no pixel readback, no budget reset on menus or loads");
+}
+bool owner_trace_enabled() { return g_ownerTrace.load(std::memory_order_relaxed); }
 namespace {
 
 typedef HRESULT (__stdcall *PFN_DrawPrimitiveUP)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT,
@@ -1095,6 +1102,40 @@ struct NativeIconScope {
     ~NativeIconScope(){restore();}
 };
 
+// Capture the missing renderer boundary once per route family, at most one
+// sample per Present and 16 per process. Route changes never rearm it.
+// This tests whether native clip Display still encloses the D3D draw.
+void owner_trace(const Probe& p, int element, int sink) {
+    if (!owner_trace_enabled() || !::dvr::log::enabled(DVR_CAT,::dvr::log::Level::Info)) return;
+    static bool seen[64]{};
+    static unsigned samples=0;
+    static uint32_t lastFrame=~0u;
+    if (samples>=16 || !p.ok || element<0 || element>=32) return;
+    const unsigned family=unsigned(element)*2+(sink<0?1:0);
+    const uint32_t frame=(uint32_t)dvr::frame::count();
+    if (seen[family] || lastFrame==frame) return;
+    seen[family]=true;lastFrame=frame;++samples;
+    const long long start=qpc_now();
+    void* stack[24]{};
+    const unsigned count=CaptureStackBackTrace(0,24,stack,nullptr);
+    char frames[640]{};size_t used=0;
+    for(unsigned i=0;i<count && used+24<sizeof(frames);++i) {
+        const int n=_snprintf(frames+used,sizeof(frames)-used," %p",stack[i]);
+        if(n<=0) break;
+        used+=(size_t)n;
+    }
+    DVR_INFO("hud/identity-render: sample=%u/16 tid=%lu P%u element=%d sink=%d key=%016llx verts=%u prims=%u "
+        "rect=%.5f/%.5f/%.5f/%.5f raw=%.7g/%.7g/%.7g/%.7g "
+        "X=%.7g/%.7g/%.7g/%.7g Y=%.7g/%.7g/%.7g/%.7g W=%.7g/%.7g/%.7g/%.7g stack=%s",
+        samples,GetCurrentThreadId(),frame,element,sink,p.drawKey,p.vertices,p.primitives,
+        p.bbox[0],p.bbox[1],p.bbox[2],p.bbox[3],p.raw[0],p.raw[1],p.raw[2],p.raw[3],
+        p.c0[0],p.c0[1],p.c0[2],p.c0[3],p.c1[0],p.c1[1],p.c1[2],p.c1[3],
+        p.c3[0],p.c3[1],p.c3[2],p.c3[3],frames);
+    LARGE_INTEGER freq;QueryPerformanceFrequency(&freq);
+    DVR_INFO("hud/identity-cost: sample=%u elapsedUs=%.3f; finite capture includes stack and first log",
+        samples,(qpc_now()-start)*1e6/(double)freq.QuadPart);
+}
+
 // ---- the hooks ------------------------------------------------------------
 // Every draw hook: note the thread, classify once, probe once (if asked),
 // record (the census), then route (the redirect) or forward.
@@ -1111,6 +1152,7 @@ struct NativeIconScope {
     if (hudNow) note_blend_tuple();                                                               \
     if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives, probe.nativePivot); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
+    if (hudNow) owner_trace(probe,element,sink); \
     NativeIconScope nativeIcon(self,probe,element); \
     const bool forceAlpha = sink >= 0 && alpha_force_wanted(sink);
 

@@ -1,3 +1,93 @@
+## HUD regression audit and ownership replacement gate (VR-185/186/166, 2026-09-25)
+
+**Acceptance failed.** Local DLL/banner 1ed638c01 verified before reading the run;
+logs and entire INI archived in primary build/hud-regression-20260925. Other
+hand/swing/menu follow-ups were reported satisfactory; do not undo them to repair
+HUD ownership. The narrow interaction precedence candidate is not a complete fix.
+
+### Release comparison
+
+Compared v1.0.0 with 1ed638c01, including source and released/installed INIs. Task,
+Heart/rune, awareness matchers, native marker scaling, widget grouping and grenade
+center recognition predate 1.0.0. Only the interaction-cache precedence changes
+in hud_layout/hud_route are new HUD routing code in this range. The installed
+native marker scale remains 0.330; the default window scale decreased 1.570->1.210,
+and window distance increased 1.390->1.500m. These changes do not explain a larger
+cook gauge by an increased size setting. Release comparison is not proof that
+all reported symptoms first appeared after that tag; no matching release playtest
+was found in the available local playtest archive.
+
+### Returned evidence and failed prediction
+
+- Prompt-sized content f36407587ddebf1f at 0.570/0.518/0.598/0.539 is classified as
+  both task text AND task icon. Button-sized a2d51b808466f10b also becomes task icon
+  and task continuity near 0.547/0.518/0.571/0.541. The prior patch protects only
+  kind 2 text, so the kind 1/icon and kind 3/bridge branches defeat it. These keys are
+  run-local content, not semantic proof of a particular string or universal IDs.
+- Awareness accepts up to 160x160 authored pixels with 96px offsets, ahead of prompt
+  and reticle grouping. During the grenade interval it claims changing HUD pieces
+  near 0.502/0.439/0.610/0.498. Later pieces join prompt. The trace is rate-limited;
+  it cannot identify every cook-ring child from those lines alone.
+- The grenade throw at 32935937 used the HAND ray. The reticle/aim gauge layer did
+  not remain active in that interval. HUD placement and projectile aim are separate
+  failures; do not change the accepted throw direction to repair the gauge.
+- Native sizing transforms about the latest published parent point, which is not
+  paired to a rendered eye. If both eyes use a shared pivot, scale 0.33 reduces
+  their disparity to 0.33 of the original, an apparent depth increase. This is a
+  mathematical failure mode, NOT a measurement of the reported Empress depth.
+  A native mono projection, authored target/offset, and camera phase also remain
+  alternatives. Do not substitute a guessed marker distance.
+
+### Decompiled sources reread
+
+DisGFxMoviePlayerHUD owns distinct native arrays for tasks, Heart collectibles,
+awareness and grenade danger markers, plus a movie-clip table. Its enum separates
+crosshair info, crosshair interactions, context/special interactions and grenade
+cooking. m_ActiveGauge distinguishes cooking from usable/choke/skip gauges.
+InteractionsWindow owns name/title and interaction text under one clip, converting
+button tags inside that text. CrosshairInfosText is another separately fading clip.
+GrenadeCooking owns a compound animated gauge: indicator, glow and stroke change
+independently and its explosion close expands to 180 percent. Individual draw
+centers and content hashes therefore are not stable widget identities.
+
+DishonoredObjective and DishonoredTask_Base carry distinct hidden, show-marker,
+optional/state and target-actor data. DisHeartTargetTracker, DisGadget_Heart,
+DisWhaleBoneCharm and DisTweaks_Heart distinguish collectible tracking from task
+objectives. DisTweaks_GFxMoviePlayerHUD supplies separate rune/bone-charm symbols,
+world/screen offsets, scale/alpha distance curves and focus/vanish settings. Blank
+class defaults are not the live tweak asset. Native projection bodies are not in
+these declaration exports. Flash task and collectible descriptions share sprite 160;
+a sprite, texture or 8-vertex/10-primitive filter quad is not a semantic owner.
+The root fake-marker functions are preview helpers, not runtime tracking.
+
+### Replacement contract and next executable step
+
+Preserve an explicit widget/instance owner from the native/Scaleform display tree
+through its queued render work. All child draws inherit it. Keep this ownership
+separate from placement: task/Heart markers use target projection and per-eye depth;
+interaction name/action/button share one prompt anchor; cooking uses the accepted
+hand aim ray with one authored angular-size policy. Preserve engine visibility,
+focus, offscreen clamp, rune/charm family and menu lifecycle. Do not expand another
+rectangle or globally give prompts precedence over real overlapping markers.
+
+The missing boundary is whether GFx clip Display encloses the intercepted D3D draw
+or whether rendering has already queued away the owner. OwnerTrace (default 0)
+records at most 16 renderer stacks, one per route family and at most one per Present,
+plus at most 4 guarded native attempts per task/Heart/awareness family. Successful
+native captures happen once, no process-lifetime reset on loads/menus. Read-only;
+no virtual calls, engine writes, GPU readbacks or full-frame census. It supplies
+native character vtable candidates and the actual renderer call path, not a fix.
+
+Next ONE launch question: at the reported overlapping interaction, does looking
+up while keeping the controller pointed reproduce the split? Quit afterward.
+A repeat associates the captured boundary with the failing run; a non-repeat
+still establishes the available render path but cannot accept a HUD fix. Read
+and verify the installed banner first. Do not require another remote prison run.
+After the boundary is known, implement owner transport and test first-frame overlap,
+name/button/text filters, animated gauge arcs/fades, multiple markers, load/menu
+identity reuse and stereo depth before a behavioral candidate is accepted.
+Performance is tracked only in PERFORMANCE.md; all HUD fixes remain OPEN.
+
 ## VR-186 follow-up: interaction text crossing objective bounds (2026-09-25)
 
 In verified local c4f5fe5df, draw key c07faf8d815a2b72 repeatedly switches from

@@ -1,3 +1,32 @@
+## Native HUD identity boundary audit (VR-186, 2026-09-25)
+
+The local decompiled HUD/task/objective/Heart/charm declarations and UI_HUD_SF
+ActionScript/XML were reread. Native task projection remains native: scripts
+supply ownership, visibility and target names, not its function body. Root preview
+fake-marker methods do not implement live markers. HUD_ANCHORS records the source
+comparison, grouping failures and the ownership transport replacement contract.
+
+Offline native-tool self-verification reproduced the published crossbow metadata,
+constructor, vtable and slot1B0 before querying DisGFxMoviePlayerHUD. The HUD metadata
+and constructor resolved, but the tool did NOT find its vtable in the constructor;
+do not treat a missing result as a usable virtual hook.
+
+Existing verified marker update00BBD430 reads interface at marker+18, type+1c,
+and data/handle+20 before calling00DA6820. The type8 DisplayObject test is also
+visible at00BBD50D..00BBD534.00DA6820 passes the handle to00DC4600; the latter returns
+handle+4 when resolved, otherwise invokes a resolver using handle+0c. The read-only
+probe only accepts type8 and an already non-null handle+4. It NEVER invokes that
+resolver, a GFx virtual slot, or a retained engine pointer. Every borrowed marker
+has already passed MarkerInputs with current IsLiveObject on its UObject owner;
+all pointer ranges are checked. Field constants are centralized in patterns.h.
+
+A guarded snapshot reads48 native character vtable candidates for subsequent
+offline analysis. This is not proof of the size of a particular vtable or the
+Display slot: adjacent entries are candidates, never callable identities. Compare
+the renderer stack to those candidates and disassemble callers before selecting
+a hook. A native caller/update scope cannot be assumed to survive deferred drawing.
+No new engine memory writer or behavioral patch is introduced by this probe.
+
 ## Headset recovery acceptance and under-cover scope (2026-09-22)
 
 Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally

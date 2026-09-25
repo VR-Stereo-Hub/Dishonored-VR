@@ -285,6 +285,12 @@ static const uint8_t kTaskParentProlog[9]={0x55,0x8b,0xec,0x81,0xec,0xe8,0,0,0};
 static const uint32_t kTaskMarkerOwner=0x08,kTaskMarkerParams=0x10;
 static const uint32_t kTaskMarkerWidth=0x14,kTaskMarkerHeight=0x18;
 
+// VR-186 read-only identity probe. BBD430 reads GFx value +18/+1c/+20;
+// DA6820 passes the handle to DC4600, resolving handle+4 when non-null.
+// No call into an unresolved handle or inferred virtual method is made.
+static const uint32_t kMarkerGfxInterface=0x18,kMarkerGfxType=0x1c,kMarkerGfxHandle=0x20;
+static const uint32_t kGfxResolvedCharacter=0x04;
+
 // Same base placement ABI, called only from the Heart marker update.
 static const uintptr_t kRuneParentCall=0x00bc5d75,kRuneParentReturn=0x00bc5d7a;
 static const uintptr_t kHeartMarkerVtable=0x011635d8;

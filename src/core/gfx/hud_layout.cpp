@@ -10,6 +10,7 @@
 
 #include "core/framework/status.h"
 #include "core/framework/frame_hooks.h"
+#include "core/gfx/hud_class.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/hud_route.h"
@@ -1250,6 +1251,7 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);
         if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
     }
+    dvr::hudclass::set_owner_trace(read_i(ini,"OwnerTrace",0)!=0);
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
