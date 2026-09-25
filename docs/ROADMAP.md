@@ -3,7 +3,7 @@
 - [x] Trace startup sharing rejection to synchronous capture and measure its cost.
 - [x] Align probe/slots on texture-backed interop and preferred format.
 - [x] Native pixel, partial-failure and reset verification.
-- [ ] Affected-PC shared capture and frame-rate acceptance.
+- [x] Affected-player reports the fix-only candidate resolves the slowdown (new timings not supplied).
 
 ## Support logs and history (VR-215)
 

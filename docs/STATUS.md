@@ -1,3 +1,10 @@
+## VR-260 affected-player pass (2026-09-25)
+
+The maintainer reports that the affected player confirmed the fix-only ZIP
+60bbd0afc resolves the startup slowdown. Acceptance is reported, not independently
+measured from a new support log. PR128 remains unmerged; no release or maintainer
+installation. See PERFORMANCE.md for the source/cost evidence and limits.
+
 ## VR-260 shared capture compatibility candidate (2026-09-25)
 
 Isolated branch codex/vr-260-shared-texture-capture starts at staging f5176aeae.

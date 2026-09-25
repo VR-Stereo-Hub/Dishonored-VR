@@ -1,3 +1,10 @@
+## VR-260 affected-player acceptance (2026-09-25)
+
+The affected player reports the fix-only60bbd0afc candidate resolves the severe
+performance issue. This is reported acceptance; no returned post-fix timings
+were supplied. The pre-fix attribution and native validation below remain the
+measured record. No merge or release is authorized by this result.
+
 ## VR-260: shared capture rejection and slow CPU fallback (2026-09-25)
 
 Measured in support-20260925-235231-155-28068: log banner 1.0.1,
