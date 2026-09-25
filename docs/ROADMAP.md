@@ -1,3 +1,11 @@
+## Prison cinematic acceptance candidate (VR-229, 2026-09-25)
+
+- [x] Correlate returned prison failures with center-eye interruptions and skew.
+- [x] Correct draw-progress baseline with failing old-policy control.
+- [x] Separate bounded CPU history from optional GPU pixel diagnostics.
+- [x] Benchmark actual recorder and preserve pairing regressions.
+- [ ] Affected-player stable prison cinematic through gameplay transition.
+
 ## Cinematic follow-ups (VR-228/229, 2026-09-24)
 
 - [x] Confirm pause scope exclusion and add head-look-menu permission with epoch liveness.

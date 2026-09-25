@@ -1,3 +1,70 @@
+## VR-229: prison return and draw-progress candidate (2026-09-25)
+
+Surface/route: whole-eye prison-cinematic flicker, section1 stale-eye row.
+Reported absent in the Empress scene; present throughout prison until the fade
+into gameplay. Current log in support-20260925-122834-249-41892 verifies diagnostic
+v1.0.1-6-g31450526c, optimized x86, legacy off,3025x3135,shared wait0. Older logs
+are separate runs. The current diagnostic banner and flicker/armed match the sent
+DLL; the install record can still describe the release beneath a manual DLL swap.
+
+Measured: Empress interval579323828..579392875 has no new recorded stale submits.
+The prison interval starts after loading around579404234 and ends579491453.
+Recorder populations rise to1190 stale-submit events,329 expired late confirmations
+and1515 duplicate deliveries; these stop increasing after the transition. Fifteen
+printed expirations during the wider prison window include14 unconfirmed camera
+steps and1 mismatched front eye. All481 printed XR tails in the post-load prison
+interval have no acquire/wait/release/end errors.797 sampled prison images have
+matching bb/slot/out hashes wherever all three stages are valid; no observed
+capture-copy corruption. This does not clear unobserved frames or prove pixel
+labels. FOV contraction is not the failure under investigation.
+
+First concrete sequence: P29783 pops explicit0/D28571 while c5 is at the left
+camera position; P29784 has an empty ring, a full right step and invents+1 with
+no record; P29785 is a center camera (about half an IPD from its neighbors),
+expires the owed right confirmation and pops the next left tag. P29786 renders
+the left position but pops right. The c5 census has39 world-position votes and7
+reflected-height votes at the left/center samples, so this is not merely one final
+zero constant. Center-eye single draws interrupt otherwise healthy alternating
+full-IPD images and disrupt the ring. Repeated late repairs already work; making
+cross-tick geometry more permissive would risk the old moving-camera failures.
+
+Source-confirmed gate defect: SceneDrawDecide compares current Present with the
+counter saved at the previous draw RETURN. Progress while the draw was executing
+is discarded. A tick can therefore become SINGLE despite active rendering.
+The prison log has556 reported one-single-tick recoveries (versus9 in the Empress
+interval); many SINGLE lines explicitly name the no-present guard. Attribution
+of every single tick to this baseline defect is still an inference: the old log
+has no entry/return counter pair. Gameplay also has singles without the sustained
+flicker, so single draws alone are not a universal flicker explanation.
+
+Candidate counts progress between draw ENTRIES, retaining the real-stall test,
+pulse bypass and all caller/state/session/camera-silent gates. No camera memory
+writer or pairing/tag-relabel rule changes. A cheap progressInsideDraw counter
+in the existing3s beat counts otherwise-valid double ticks the old guard would
+reject. The production helper regression makes the old return-baseline fail199
+of200 active-render schedules; the entry-baseline has0 false stalls, and repeated
+true stalls, resume and counter wrap pass. Pairing host1447 normal/1448 diagnostic
+checks pass, including existing late-tag, moving-camera and pipeline schedules.
+This is a targeted candidate, not remotely confirmed sufficiency.
+
+Diagnostic cost: recorder maximum0.523ms in returned windows;3024 printed pixel
+issue costs average0.003452ms,p95 0.005,max0.152. The pixel timer excludes delayed
+maps, other GPU stages and later synchronization, so it cannot establish total
+GPU overhead. The new candidate keeps bounded method/XR/mono history but disables
+ALL frame-id GPU pixel probes regardless of saved INI. Pixels now require a
+separate DVR_FLICKER_PIXEL_DIAGNOSTICS build opt-in. The actual recorder host with
+50 camera uploads/frame and real formatting/buffered file writes averages1.660us
+per present over100000 presents; max finish0.867ms includes rare window bursts.
+That is a local CPU bound, not a headset A/B. Details live in PERFORMANCE.md.
+
+Next, ONE remote acceptance question: at unchanged settings, does the prison
+cinematic now stay stable through the fade into gameplay? Play it once, continue
+10seconds after control returns, quit and send support. If fixed, confirm fresh
+balanced eyes and reduced interruptions. If not, use progressInsideDraw plus the
+retained history to test whether remaining failures survive elimination of the
+false gate. Do not demand a diagnostic matrix. Maintainer install and game launch
+remain prohibited. This candidate retains the previous VR-227/228 FOV fixes.
+
 ## VR-229: recurring diagnostic flight recorder (2026-09-25, test only)
 
 Surface and route: prison-cinematic inter-eye instability, section 1 stale/swapped
@@ -1395,7 +1462,7 @@ pose metadata without reopening the disproved historical theories.
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
-| Prison cinematic inter-eye flicker, ends in gameplay | Measured stale-left delivery; late repair active with unresolved confirmations | VR-229 open; recurring method/XR history, label-independent pixels and camera-upload census; see top entry |
+| Prison cinematic inter-eye flicker, ends in gameplay | Center-eye interruptions and tag skew; return-baseline ignores progress inside draw | VR-229 draw-entry progress candidate; lightweight history retained, GPU pixels off; remote acceptance pending |
 | Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |
 | Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |

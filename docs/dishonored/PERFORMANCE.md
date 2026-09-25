@@ -1,3 +1,34 @@
+## VR-229: diagnostic overhead and false draw stalls (2026-09-25)
+
+Current returned build v1.0.1-6-g31450526c,3025x3135,shared wait0. The recorder's
+largest measured finish/logging burst is0.523ms.3024 printed backbuffer sample
+issue calls average0.003452ms,p95 0.005,max0.152; this excludes later maps,
+D3D11 sampling and GPU synchronization. No matched off/on run exists. Therefore
+the old full pixel diagnostic is NOT established to have negligible total cost.
+
+New acceptance candidate keeps CPU history and mono/eye outcomes but forces
+frame-id collection OFF, even with Perf.FrameId=1 in the unchanged saved INI.
+All four GPU stages exit at the collection gate. Optional pixel investigation
+now requires -FlickerDiagnostics -FlickerPixels; both flags default OFF and build.ps1
+explicitly clears stale cached flags. Normal builds retain their saved FrameId
+policy. Pixel opt-in without the recorder is rejected. No installed INI edits.
+
+Actual recorder host benchmark:100000 synthetic presents,50 c5 uploads/present,
+production history/event/formatter code, buffered file logging, recurring windows.
+Mean1.660us/present; max finish0.867ms (rare historical-window printing). At144
+presents/s the measured mean is about0.024% of one core. Includes recording and
+format/file sink work, excludes game-side pose assembly and actual remote disk
+behavior. Returned recorder max and host cost support low CPU overhead; they do
+not prove an end-to-end FPS difference. Zero added pixel GPU work is enforced by
+the candidate collection policy, which is tested even with INI request=true.
+
+The source gate saved Present at draw return and ignored progress inside that
+draw. Candidate measures entry-to-entry instead; an old-policy negative control
+produces199 false stalls in200 ticks while the new policy produces0. Genuine
+stalls still refuse. Additional doubled draws may change total rendering cost;
+that is the intended removal of false mono interrupts, not logging overhead.
+Evidence, counterprediction and limitations: FLICKER_REFERENCE.md, VR-229 top entry.
+
 ## Post-merge intro and hub slowdown (2026-09-23, attribution open)
 
 Reported: intro and hub rates fall into the 50s after integrating PRs105-110;

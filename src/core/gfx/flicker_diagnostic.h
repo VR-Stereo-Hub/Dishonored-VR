@@ -2,6 +2,18 @@
 #pragma once
 #include <stdint.h>
 namespace dvr::flicker {
+// GPU readback is a separate opt-in from the lightweight history. Test DLLs
+// explicitly suppress the normal INI-driven FrameId too unless pixels are built in.
+constexpr bool pixel_collection_enabled(bool configured) {
+#if defined(DVR_FLICKER_PIXEL_DIAGNOSTICS)
+    return true;
+#elif defined(DVR_FLICKER_DIAGNOSTICS)
+    return false;
+#else
+    return configured;
+#endif
+}
+
 // Bounded recurring windows, never a lifetime budget. Production code and host tests
 // use this policy. Every event is counted even when its detailed window is suppressed.
 struct Window {

@@ -1153,3 +1153,14 @@ reports validity and cost. Ordinary builds explicitly reset the cached option;
 the diagnostic build command rejects automatic installation. No engine-memory
 writer or extra game resource reference is introduced. Details and the hypothesis
 matrix remain in FLICKER_REFERENCE, not in a second investigation document.
+
+## Draw progress and low-cost acceptance history (VR-229, 2026-09-25)
+
+The game-side second-draw liveness gate compares Present at consecutive draw
+entries, so progress inside the previous draw counts. It does not remove the
+stall guard or change tag arbitration. A beat counter identifies otherwise-valid
+stereo ticks that the former return-time baseline would have rejected.
+The test recorder and pixel probes have separate build flags. A recorder-only
+DLL disables all frame-id GPU sampling even if the saved INI requests it, making
+its performance cost primarily bounded CPU history and log bursts. Normal builds
+retain their existing saved FrameId policy. No installed settings are edited.

@@ -27,6 +27,13 @@ option(DVR_FLICKER_DIAGNOSTICS "Build the VR-229 remote flight recorder (test on
 if(DVR_FLICKER_DIAGNOSTICS)
     add_compile_definitions(DVR_FLICKER_DIAGNOSTICS=1)
 endif()
+option(DVR_FLICKER_PIXEL_DIAGNOSTICS "Add GPU pixel probes to the test flight recorder" OFF)
+if(DVR_FLICKER_PIXEL_DIAGNOSTICS)
+    if(NOT DVR_FLICKER_DIAGNOSTICS)
+        message(FATAL_ERROR "Pixel diagnostics require DVR_FLICKER_DIAGNOSTICS")
+    endif()
+    add_compile_definitions(DVR_FLICKER_PIXEL_DIAGNOSTICS=1)
+endif()
 option(DVR_WITH_XRSIM  "Build the simulated OpenXR runtime (test tool, not shipped)" ON)
 
 add_subdirectory(third_party)

@@ -11,13 +11,14 @@
 static uint64_t clockMs=0;
 static uint64_t TestNowMs() {return clockMs;}
 static std::vector<std::string> lines;
+static FILE* benchLog=nullptr;
 static dvr::vr::PairProbe probe;
 static uint32_t readTimeout=0,writeTimeout=0,bursts=0;
 namespace dvr::log {
 uint8_t g_levels[(int)Cat::COUNT]={};
 void write(Cat,Level,const char* fmt,...) {
     char text[8192];va_list args;va_start(args,fmt);vsnprintf(text,sizeof(text),fmt,args);va_end(args);
-    lines.emplace_back(text);
+    if(benchLog) {fputs(text,benchLog);fputc('\n',benchLog);} else lines.emplace_back(text);
 }
 }
 namespace dvr::capture {
@@ -66,5 +67,20 @@ int main(){
     check(bursts==2,"late failure window opens after startup windows without lifetime cap");
     for(auto& l:lines)check(l.size()<1024,"record fits production logger's 1024-byte buffer");
     printf("flicker diagnostic recorder: %d checks, %d failures, %zu log records\n",checks,failures,lines.size());
+    benchLog=fopen("recorder-benchmark.log","wb");check(benchLog!=nullptr,"benchmark log sink");
+    if(benchLog) {
+        LARGE_INTEGER freq={},start={},end={};QueryPerformanceFrequency(&freq);QueryPerformanceCounter(&start);
+        const unsigned n=100000;
+        for(unsigned i=0;i<n;++i) {
+            clockMs+=7;m.present=r.present=100+i;m.delivered=(i&1)?1:-1;m.expire=0;m.action=0;
+            m.fresh=true;m.out=0;r.acq=r.wait=r.release=r.end=0;r.layers=1;r.newLayer=true;
+            for(unsigned k=0;k<50;++k) {float pos[3]={(float)(i&1),2,3};camera_upload(pos,5,1);}
+            method(m);finish(r);
+        }
+        fflush(benchLog);QueryPerformanceCounter(&end);fclose(benchLog);benchLog=nullptr;
+        const double us=(double)(end.QuadPart-start.QuadPart)*1e6/(double)freq.QuadPart/n;
+        printf("recorder benchmark: 100000 presents, 50 camera uploads/present, actual formatting + buffered file writes: mean %.3f us/present; max finish %.3f ms\n",us,recorderMaxMs);
+        check(us<50.0,"CPU recorder average below 50us/present on this host (not a remote GPU measurement)");
+    }
     return failures?1:0;
 }

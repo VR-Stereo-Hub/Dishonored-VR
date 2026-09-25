@@ -1990,7 +1990,7 @@ static void LoadConfig()
         if (!gpu) dvr::perf::set_gpu_enabled(false);
 #ifdef DVR_FLICKER_DIAGNOSTICS
         Log("flicker/armed: VR-229 diagnostic build; recurring method/XR history independent of RingLedger; "
-            "pixels 8 consecutive grabs/128 plus 8/window independent of labels and FrameId INI; no blocking read fallback; "
+            "pixel probes require separate build opt-in (see flicker/pixels); no blocking read fallback; "
             "normal eye pairing unchanged; no INI written; windows never expire for session length");
 #endif
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
@@ -2012,7 +2012,7 @@ static void LoadConfig()
         g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 0, ini) != 0;
         Log("config: [Hands] PoseLag=%d PoseLagAb=%d - the head sample the hand is normalised against. 2 is the measured and headset-confirmed answer: bv/lag put the RENDERED camera at lag 2 (0.119 deg against 1.19 at lag 0 over 4085 moving frames) and a reversing A/B/A/B in a headset agreed. PoseLag=0 restores the old behaviour if you want to feel the difference.", g_mpPoseLag, (int)g_mpPoseLagAb);
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
-            inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
+            inst ? 1 : 0, gpu ? 1 : 0, dvr::frameid::enabled() ? 1 : 0);
 
     }
     Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",

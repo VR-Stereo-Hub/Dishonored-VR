@@ -1,3 +1,20 @@
+## VR-229: prison flicker repair candidate (2026-09-25)
+
+Returned diagnostic31450526c reproduces the prison failure and healthy Empress/
+gameplay controls. Whole-eye delivery, not square FOV. Source defect: present
+progress during the previous draw is ignored by its return-time baseline,
+provoking SINGLE draws. Candidate compares draw entries; all other gates and
+pairing safeguards stay. Production regression old-policy199 false stalls vs
+new0; normal/diagnostic pairing1447/1448 pass. Remote sufficiency is still open.
+
+CPU flight history remains enabled in the test DLL, with frame-id GPU probes
+forced off regardless of INI. Pixel issue timer alone did not measure total cost.
+Actual recorder host benchmark averages1.660us/frame with50 uploads and buffered
+file logging; full reasoning in PERFORMANCE.md and FLICKER_REFERENCE.md.
+No maintainer install or game launch. New codex/vr-229-prison-present-progress branch retains the tester baseline;
+PR126 was closed after collaborator integration, so a new draft review follows; prior VR-227/228 fixes retained, VR-260 remains separate. Next: one prison
+cinematic through fade and10seconds of gameplay, return support ZIP either way.
+
 ## VR-229: remote diagnostic coverage expanded (2026-09-25)
 
 User has a newer collaborator build locally: NO INSTALLATION and no game launch.

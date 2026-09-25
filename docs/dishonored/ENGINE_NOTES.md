@@ -1,3 +1,15 @@
+## VR-229 draw-entry progress baseline (2026-09-25)
+
+SceneDrawDecide's liveness comparison used g_frame saved at the prior viewport
+draw return. This loses any render-thread progress during that call. The candidate
+captures the counter at depth-zero draw entry and compares consecutive entries;
+no progress across entries still refuses. The existing gates and eye writers are
+unchanged. No new engine address or object field is used. progressInsideDraw in
+the existing beat counts otherwise-valid stereo ticks the old baseline rejects.
+Production helper regression covers inside-draw progress, repeated real stalls,
+resume and unsigned counter wrap. Prison sufficiency awaits headset acceptance.
+The measured identity chain and interpretation limits are in FLICKER_REFERENCE.
+
 ## Headset recovery acceptance and under-cover scope (2026-09-22)
 
 Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally

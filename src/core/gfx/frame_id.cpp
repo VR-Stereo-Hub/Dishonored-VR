@@ -51,7 +51,7 @@ Record   g_rec[kRecords];
 bool     g_enabled = true;
 bool collecting() {
 #ifdef DVR_FLICKER_DIAGNOSTICS
-    return true;
+    return dvr::flicker::pixel_collection_enabled(g_enabled);
 #else
     return g_enabled && !dvr::diag_ab::reduced();
 #endif
@@ -489,7 +489,7 @@ void set_every(uint32_t n) {
     if (n > 600) n = 600;
     g_every = n;
 #ifdef DVR_FLICKER_DIAGNOSTICS
-    DVR_INFO("flicker/pixels: diagnostic schedule is eight grabs/128 plus eight per flight window, independent of eye label; configured normal FrameIdEvery=%u",n);
+    DVR_INFO("flicker/pixels: enabled=%d (separate build opt-in; disabled means zero frame-id GPU copies/readbacks regardless of INI); configured FrameIdEvery=%u", (int)dvr::flicker::pixel_collection_enabled(g_enabled), n);
 #else
     DVR_INFO("stereo: frameid samples one pair every %u tick(s) ([Perf] FrameIdEvery=%u for the next launch)", n, n);
 #endif
@@ -498,13 +498,13 @@ uint32_t every() { return g_every; }
 
 void set_enabled(bool on) {
 #ifdef DVR_FLICKER_DIAGNOSTICS
-    on=true; // This DLL is explicitly a self-arming test package.
+    on=dvr::flicker::pixel_collection_enabled(on); // Separate pixel opt-in, even if the saved INI enables FrameId.
 #endif
     if (on == g_enabled) return;
     g_enabled = on;
     DVR_INFO("stereo: frameid %s (the four-stage thumbnail trace; [Perf] FrameId=%d for the next launch)", on ? "ON" : "off", on ? 1 : 0);
 }
-bool enabled() { return g_enabled; }
+bool enabled() { return dvr::flicker::pixel_collection_enabled(g_enabled); }
 
 void note_c5(const float c5[3], bool ok, const float right[3], bool rightOk) {
     g_pendingC5Ok = ok && c5 != nullptr;

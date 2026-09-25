@@ -12,6 +12,7 @@
 #include <windows.h>
 #include "core/gfx/flicker_diagnostic.h"
 #include "core/gfx/stereo_menu_hold.h"
+#include "core/gfx/draw_present_progress.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -226,6 +227,32 @@ static void diagnostic_tests() {
 #endif
 }
 int main() {
+    {
+        dvr::stereo::DrawPresentProgress progress;
+        uint32_t counter=0, oldReturn=0; unsigned oldFalseStalls=0, fixedFalseStalls=0;
+        progress.begin(counter); check(!progress.advanced,"startup with no present remains blocked");
+        counter=1;
+        for(unsigned tick=0;tick<200;++tick) {
+            progress.begin(counter);
+            // Actual rendering advanced by two presents INSIDE the prior draw.
+            if(tick && counter==oldReturn) {++oldFalseStalls;check(!progress.outsideAdvanced,"old guard would reject while entry detects progress");}
+            if(!progress.advanced) ++fixedFalseStalls;
+            counter+=2; oldReturn=counter;progress.complete(counter);
+            // No additional present in the outside/world-tick interval.
+        }
+        check(oldFalseStalls==199,"old return-baseline negative control rejects active rendering");
+        check(fixedFalseStalls==0,"entry baseline retains stereo when rendering progresses inside draw");
+        progress.begin(counter);check(progress.advanced,"last completed pair counted once");
+        for(unsigned i=0;i<100;++i) {progress.begin(counter);check(!progress.advanced,"genuine stall still refuses repeatedly");}
+        ++counter;progress.begin(counter);check(progress.advanced,"renderer resumes after stall");
+        progress.previousEntry=UINT32_MAX;progress.begin(0);check(progress.advanced,"present wrap is progress");
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        check(!dvr::flicker::pixel_collection_enabled(true),"lightweight recorder disables GPU probes even with FrameId INI on");
+#else
+        check(dvr::flicker::pixel_collection_enabled(true) && !dvr::flicker::pixel_collection_enabled(false),"normal build honors pixel INI");
+#endif
+    }
+
     diagnostic_tests();
     dvr::stereo::MenuGapHold menuHold;
     check(!menuHold.hold(0,true,1000),"menu: no history cannot hold mono");

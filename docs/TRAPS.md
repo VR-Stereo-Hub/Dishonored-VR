@@ -1,3 +1,13 @@
+## VR-229: draw-return is not a liveness baseline (2026-09-25)
+
+The render thread can advance Present while the game thread is inside a draw.
+Saving the counter at draw return discards that progress and can force a false
+single draw on the next tick. Compare consecutive entries; unchanged counters
+still refuse. Do not weaken eye classification to compensate for unnecessary
+center-eye interruptions. The prison candidate and its uncertainty are recorded
+in FLICKER_REFERENCE.md. Pixel issue timings alone do not bound GPU probe cost;
+the acceptance build retains CPU history with frame-id GPU sampling disabled.
+
 ## Successful repairs can exhaust the failure diagnostic (VR-229, 2026-09-24)
 
 The40-window ring ledger triggered on routine repaired/refused presents and spent

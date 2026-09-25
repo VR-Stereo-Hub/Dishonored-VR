@@ -1,3 +1,10 @@
+## Unreleased prison candidate (VR-229)
+
+- Count rendering progress during draw execution, avoiding false single-draw
+  interruptions. Prison-cinematic acceptance remains pending.
+- Separate lightweight test history from optional GPU pixel probes. The prison
+  acceptance package keeps history and disables pixel sampling.
+
 ## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic
