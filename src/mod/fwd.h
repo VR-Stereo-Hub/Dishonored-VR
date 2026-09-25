@@ -279,6 +279,8 @@ static float ProjectionFovGet();
 static void ProjectionFovSet(float fov);
 static bool CineFovEnabled();
 static void CineFovSet(bool on);
+static bool CineFovMatchEnabled();   // [Cine] MatchGameplayFov (2026-09-25)
+static void CineFovMatchSet(bool on);
 static void CineFovConfigure(const char* ini);
 static void CineFovBegin(bool scene);
 static void CineFovEnd();

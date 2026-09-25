@@ -148,9 +148,16 @@ Branch `claude/vr-79-occlusion-per-eye` off `VR-Main`, not merged.
   feel like native rather than like `off`? Log: `occlusion/pereye: allocated`
   once, then `beat swaps` climbing. Watch for anything wrong in the right eye
   only after a level load (the GC risk in ENGINE_NOTES).
-- HEADSET 2026-09-24: `pereye` fixed the one-eye culling with no visible perf cost. New report:
-  grass blinks out for a frame or two while walking; may predate VR-79 (VR-226,
-  FLICKER_REFERENCE routing row). Next: the same walk under `occlusion native`, then one eye at a time.
+- HEADSET 2026-09-24: `pereye` fixed the one-eye culling with no visible perf cost. Grass
+  blinking out for a frame or two while walking is NOT pereye: it happens under native too, in
+  both eyes (VR-226, open).
+- A second run on the build with the F10 switch for the three modes started in pereye but never
+  swapped: no `occlusion/pereye: allocated` line and no beat, so OcclusionPass2Begin found no
+  local player and returned without logging why. Suspect: the IsLiveObject check on the player
+  controller or local player against a live-set snapshot that predates the level load. pereye can
+  therefore silently not engage on a given run. Fix when this is picked up again: log the refusal
+  reason (throttled) and drop the snapshot liveness requirement for the controller the head
+  tracker already validates. The F10 switch stays, in the Advanced view (2026-09-25).
 ## VR-228/229: pause FOV candidate and prison flicker diagnosis (2026-09-24)
 
 Original VR-227 gameplay fix is locally reported good on the installed aa3af7216.

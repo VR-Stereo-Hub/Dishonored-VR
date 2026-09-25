@@ -8,7 +8,8 @@
 static const int kOvlB = dvr::ovl::Basic, kOvlA = dvr::ovl::Advanced, kOvlD = dvr::ovl::Debug;
 static bool OvlAt(int tier) { return dvr::ovl::show(tier); }
 static void OvlTip(const char* text) { dvr::ovl::tip(text); }
-static bool OvlSec(const char* name, int tier, const char* tipText) { return dvr::ovl::section(name, tier, tipText, !strcmp(name, "Hand size and position") || !strcmp(name, "Sleeve")); }
+// Every section starts collapsed (2026-09-25); ImGui keeps what the player opens for the session.
+static bool OvlSec(const char* name, int tier, const char* tipText) { return dvr::ovl::section(name, tier, tipText, false); }
 // Save the slider just submitted when it is released (VR-196: every Basic and Advanced control
 // saves on change, so SAVE AS DEFAULTS is never needed to keep a player's setting).
 static void OvlSaveOnRelease(const char* section, const char* key, float value, const char* fmt)
@@ -627,6 +628,11 @@ static void OvlTabComfort()
         if (dvr::ovl::checkbox("Suppress cinematic roll", &rollLock)) { CineRollSet(rollLock); OvlSaveBool("Cine", "LockRoll", rollLock); }
         bool fov = CineFovEnabled();
         if (dvr::ovl::checkbox("Suppress cinematic FOV zoom", &fov)) { CineFovSet(fov); OvlSaveBool("Cine", "LockFov", fov); }
+        bool match = CineFovMatchEnabled();
+        ImGui::BeginDisabled(!fov);
+        if (dvr::ovl::checkbox("Cutscenes use the gameplay FOV", &match)) { CineFovMatchSet(match); OvlSaveBool("Cine", "MatchGameplayFov", match); }
+        ImGui::EndDisabled();
+        OvlTip("Scenes are framed at the same field of view as play. Off frames them at the headset's own FOV instead.");
         bool specialHead = SpecialHeadEnabled();
         if (dvr::ovl::checkbox("Natural head look in lean / keyholes", &specialHead)) { SpecialHeadSet(specialHead); OvlSaveBool("Cine", "SpecialHeadLook", specialHead); }
         OvlTip("Keeps the game's peek position, and lets your head look around past the game's limits.");
@@ -776,7 +782,7 @@ static void OvlTabDisplay()
             ImGui::EndDisabled();
         }
     }
-    if (OvlSec("Object culling", kOvlB, "How the game skips objects it thinks you cannot see.")) {
+    if (OvlSec("Object culling", kOvlA, "How the game skips objects it thinks you cannot see.")) {
         int oc = OcclusionModeGet();
         if (dvr::ovl::radio_button("Per eye", &oc, 1)) OcclusionModeSet(1, "F10 Display");
         OvlTip("Each eye hides only what IT cannot see. Recommended.");

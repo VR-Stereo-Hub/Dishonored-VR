@@ -4,6 +4,11 @@
 namespace {
 std::atomic<bool> g_cineFov{false};
 std::atomic<float> g_projectionFov{103.0f}; // Explicit user-requested default; 0 restores headset-derived FOV.
+// 2026-09-25: authored scenes frame with the same [Screen] ProjectionFov as gameplay. Since
+// VR-227 a locked scene is held at the headset-derived FOV (108 on the dev rig) while
+// gameplay renders at ProjectionFov (103), so every cutscene is framed differently from the
+// play around it. [Cine] MatchGameplayFov=0 restores the headset-derived scene FOV.
+std::atomic<bool> g_cineMatch{true};
 bool g_cfGameplayScope=false; // Script/draw lane only; the render lane uses CfPublish.
 CtIdentity g_cfOwner[3];
 bool g_cfHaveOwner=false;
@@ -47,6 +52,13 @@ static void ProjectionFovSet(float fov) {
     Log("projectionfov: %.2f deg (0=headset-derived; scoped gameplay view, proportional zoom retained)",fov);
 }
 static bool CineFovEnabled() { return g_cineFov.load(); }
+static bool CineFovMatchEnabled() { return g_cineMatch.load(); }
+static void CineFovMatchSet(bool on) {
+    g_cineMatch.store(on); CfPublish(0);
+    Log("cine/fov: MatchGameplayFov=%d (live; %s)", on ? 1 : 0,
+        on ? "a locked scene frames at [Screen] ProjectionFov, the same as gameplay"
+           : "a locked scene frames at the headset-derived FOV (the VR-227 behaviour)");
+}
 static void CineFovSet(bool on) {
     g_cineFov.store(on); if (!on) CfPublish(0);
     Log("cine/fov: %s (live; final scene FOV, gameplay zoom unchanged)",on?"ON":"off");
@@ -54,6 +66,7 @@ static void CineFovSet(bool on) {
 static void CineFovConfigure(const char* ini) {
     CineFovSet(GetPrivateProfileIntA("Cine","LockFov",1,ini)!=0);
     ProjectionFovSet(IniFloat(ini,"Screen","ProjectionFov",103.0f));
+    CineFovMatchSet(GetPrivateProfileIntA("Cine","MatchGameplayFov",1,ini)!=0);
 }
 static float CineFovClaim() {
     if (!CineFovEnabled() && ProjectionFovGet()==0) return 0;
@@ -111,7 +124,8 @@ static void CineFovBegin(bool scene) {
     auto* cam=(uint8_t*)g_cfOwner[0].value.obj;
     float* field=(float*)(cam+g_cfOffset);
     const float drawTarget=gameplay && RangeReadable(field,4)
-        ? dvr::cine_fov::gameplay_target(*field,target,requested) : target;
+        ? dvr::cine_fov::gameplay_target(*field,target,requested)
+        : (CineFovMatchEnabled() && requested>0 ? requested : target);   // a scene frames like gameplay
     if (!RangeReadable(field,4) || !g_cfScope.begin(field,drawTarget,CfValidate())) {
         ++g_cfRefused; CfRefuse("scope write refused: identity, field or FOV"); return;
     }
