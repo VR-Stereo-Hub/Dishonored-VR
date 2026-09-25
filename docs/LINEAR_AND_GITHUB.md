@@ -29,6 +29,7 @@ never cite a ticket as their source of record.
 |---|---|
 | Team | **VR** - one team for every mod in the org |
 | Project | **Dishonored VR Mod** - one project per repository |
+| Branches | **`staging`** is the integration branch: every pull request lands here. **`VR-Main`** is the release branch: its tip is always the latest tag on the Releases page, and the only PR that touches it is the release PR (`staging` -> `VR-Main`) |
 | Milestone | **A version the user has decided to ship.** One right now: `Stable - 6DOF, motion controls and alpha parity`. Kept in sync with the repo's GitHub Releases page |
 | Cycles | **Not used.** Two developers working in evening sessions; milestones carry the schedule |
 | Estimates | **Not used.** If a ticket is too big to judge at a glance, split it |
@@ -48,6 +49,20 @@ engineering ladder (S0 to S3), and the milestone's description names what it clo
 views agree without either being a copy of the other: **the milestone is the destination, the
 roadmap is the route.**
 
+### Why two branches
+
+Until 2026-09-24 `VR-Main` was the only branch. A tester zip and then the 1.0.0 release came off
+the same tip as work that was still being judged, and the 1.0.1 hotfix was tagged from a stack of
+draft PRs that `VR-Main` did not contain. With two developers and several agents opening PRs, the
+question "what can a player install right now" has to be answerable from a branch name alone.
+
+So: **work integrates on `staging`; releases live on `VR-Main`.** A feature branch comes off
+`staging` and its PR targets `staging`. When the user names a version, one release PR carries
+`staging` into `VR-Main`, the tag goes on the `VR-Main` tip, and the two branches are equal again
+until the next PR lands on `staging`. A hotfix is an ordinary PR to `staging` followed by an
+immediate release PR; nothing ever lands on `VR-Main` by another route. `git log VR-Main` is the
+release history, and every commit on it is in some tag.
+
 ## Statuses
 
 Linear's categories are fixed (Backlog, Unstarted, Started, Completed, Canceled, Duplicate) and
@@ -59,8 +74,8 @@ every status belongs to exactly one. Ours:
 | **Todo** | unstarted | Scheduled for the current milestone. The next thing someone picks up |
 | **In Progress** | started | A branch exists. Linear sets this automatically when the PR opens |
 | **In Review** | started | The PR is ready to read, with its simulator results and its headset run already in the body |
-| **Done** | completed | Merged to `VR-Main` and its pass criteria measured. Not yet in anyone's hands |
-| **Released** | completed | Shipped in a tagged build on the GitHub Releases page |
+| **Done** | completed | Merged to `staging` and its pass criteria measured. Not yet in anyone's hands |
+| **Released** | completed | Carried into `VR-Main` by a release PR and shipped as a tagged build on the GitHub Releases page |
 | **Canceled** | canceled | Not doing it. The comment says why |
 | **Duplicate** | duplicate | System-managed by Linear |
 
@@ -75,9 +90,10 @@ rejected:
   work of judging it *is* the ticket.
 
 `Done` and `Released` are separate because they answer different questions. `Done` means the
-code is on `VR-Main`. `Released` means a person can install it. Between them sit the docs
-reconciliation, the packaging and the tag, and that gap is where a project starts believing it
-has shipped things it has not.
+code is on `staging`. `Released` means a person can install it: the release PR has carried
+`staging` into `VR-Main` and the tag is on that tip. Between them sit the docs reconciliation,
+the packaging and the tag, and that gap is where a project starts believing it has shipped
+things it has not.
 
 ## Priority
 
@@ -194,7 +210,9 @@ claude/vr-<n>-<short-slug>
 email address and is usually a real person's name. This repository is PUBLIC and a branch name
 is permanent - it survives in every closed pull request, and GitHub has no way to delete a pull
 request once it exists. Type the branch by hand instead: the prefix is always `claude`, never a
-username, a handle, an email local-part or any part of a person's name. Branch off `VR-Main`.
+username, a handle, an email local-part or any part of a person's name. Branch off `staging`
+(`git checkout -b claude/vr-<n>-<slug> origin/staging`), never off `VR-Main`: `VR-Main` is the
+last release, and a branch off it is missing everything that has landed since.
 
 Linear still links the PR from the `Fixes VR-<n>` line in the body, so nothing is lost.
 
@@ -220,11 +238,19 @@ double-fires against the PR and clutters the ticket. The PR body is the single l
 Fixes VR-42
 ```
 
-- `Fixes VR-<n>` when the PR's base is `VR-Main`. Merging it closes the ticket.
+- `Fixes VR-<n>` when the PR's base is `staging`. Merging it closes the ticket.
 - `Ref VR-<n>` when the PR's base is a working branch (a stacked PR). It links without closing,
-  so only the PR that actually reaches `VR-Main` marks the ticket Done.
+  so only the PR that actually reaches `staging` marks the ticket Done.
 - Several tickets on one PR: `Fixes VR-42, VR-43`.
 - To attach a PR to a ticket with no status effect at all, use `Ref`.
+- The release PR (`staging` -> `VR-Main`) carries **no** `Fixes` or `Ref` line. Its tickets are
+  already Done; a magic word there would fire a second transition against every one of them. It
+  lists the tickets by id in plain text instead, which is what the release notes are built from.
+
+**The PR's base is `staging`.** `gh pr create --base staging ...`; the repository's default
+branch stays `VR-Main` so the landing page and the issue-template links show released code, which
+means a PR opened without `--base` targets the wrong branch. Check the base before asking for
+review.
 
 The PR title is a conventional-commit subject, the same shape as a commit: `feat:`, `fix:`,
 `docs:`, `build:`, `tools:`, `chore:`, `refactor:`.
@@ -263,7 +289,10 @@ the ticket outlives the branch and someone will look for them in six months.
 
 ### 6. Merge
 
-Merge to `VR-Main`. Linear moves the ticket to **Done**. Delete the branch.
+Merge to `staging`, **with the user's explicit permission, every time**. A passing build, a
+finished feature or a kind word about the work is not permission; only the user saying to merge
+it is. Linear moves the ticket to **Done**. Delete the branch. `VR-Main` is not touched here: it
+moves only in the release ritual below.
 
 Then the session-end ritual from `CLAUDE.md`, unchanged: rewrite "Current state" and "Next
 steps" in `docs/STATUS.md`, append a dated session log entry, tick `docs/ROADMAP.md` boxes, add
@@ -341,20 +370,28 @@ When the user names the version:
 1. **Check the milestone.** Every ticket in it is `Done`. Anything that is not either moves to
    the next milestone or the release waits. Do not ship a milestone with open tickets in it and
    call it done.
-2. **Reconcile the documents.** `docs/STATUS.md` "Current state" describes HEAD.
+2. **Reconcile the documents** on `staging`. `docs/STATUS.md` "Current state" describes HEAD.
    `docs/RELEASE_NOTES.md` has exactly one section for this version and it stops saying
    `(unreleased)`. `docs/KNOWN_ISSUES.md` and `docs/ROADMAP.md` match the code.
-3. **Build the artifact.** `.\tools\package.ps1`. It refuses on a `-dirty` tree, because a log
-   from a dirty build cannot be traced to a commit.
-4. **Tag and publish.** A git tag for the version, then a GitHub release on the Releases page
-   with the zip AND `DishonoredVR-Setup-v<version>.exe` attached (both come out of
-   `package.ps1`, which checks that the exe embeds the zip's `d3d9.dll`). The release notes come
-   from the milestone's tickets; the same content goes into `docs/RELEASE_NOTES.md`.
-5. **Post the release update** on the Linear project.
-6. **Move every ticket in the milestone from `Done` to `Released`.**
-7. **Close the milestone.** The next one is the user's to create, if they want one.
+3. **Open the release PR.** Base `VR-Main`, head `staging`, title `release: v<version>`. The
+   body lists the tickets by id in plain text and carries no `Fixes`/`Ref` line. **The user
+   merges it** (a merge commit, so `VR-Main`'s history shows one entry per release). Nothing
+   else ever lands on `VR-Main`.
+4. **Build the artifact** from the `VR-Main` tip. `.\tools\package.ps1`. It refuses on a
+   `-dirty` tree, because a log from a dirty build cannot be traced to a commit.
+5. **Tag and publish.** A git tag for the version on the `VR-Main` tip, then a GitHub release on
+   the Releases page with the zip AND `DishonoredVR-Setup-v<version>.exe` attached (both come
+   out of `package.ps1`, which checks that the exe embeds the zip's `d3d9.dll`). The release
+   notes come from the milestone's tickets; the same content goes into `docs/RELEASE_NOTES.md`.
+6. **Post the release update** on the Linear project.
+7. **Move every ticket in the milestone from `Done` to `Released`.**
+8. **Close the milestone.** The next one is the user's to create, if they want one.
 
-Step 6 is the one that gets skipped and it is the one that makes `Released` worth having. A
+The invariant all of this protects: **`VR-Main`'s tip is always the latest release tag.** A
+hotfix does not break it: the fix is a PR to `staging` like any other, and the user then runs
+this ritual again for the patch version.
+
+Step 7 is the one that gets skipped and it is the one that makes `Released` worth having. A
 ticket sitting in `Done` after its version shipped is a lie about what a player can install.
 
 ## Working with agents
@@ -398,9 +435,12 @@ Write about them that way, in code, comments, commits, PRs and issues.
 - Branch: `claude/vr-<number>-<slug>`. Never Linear's copy-branch-name format - it carries the
   account holder's name into a public repository permanently.
   Copy it from the issue.
-- The FIRST line of the PR body is the link: `Fixes VR-123` when the PR targets the repo's
-  default branch, `Ref VR-123` when it targets a working branch, so that only the PR which
-  actually reaches the default branch closes the issue.
+- PRs target the repo's INTEGRATION branch (`staging` in every repo that has one; the repo's
+  `CLAUDE.md` names it), never its release branch. The release branch moves only by the release
+  PR the user merges.
+- The FIRST line of the PR body is the link: `Fixes VR-123` when the PR targets the
+  integration branch, `Ref VR-123` when it targets a working branch, so that only the PR which
+  actually reaches the integration branch closes the issue. The release PR carries neither.
 - Never put a magic word in a commit message. The PR body is the single link; a magic word
   in a commit fires independently and produces duplicate transitions.
 - PR title: a conventional-commit subject (feat: / fix: / docs: / build: / tools: / chore: /
@@ -496,28 +536,33 @@ The automation rows this project wants:
 |---|---|
 | On pull request opened | In Progress |
 | On review requested or activity | In Review |
-| On PR or commit merge | Done, **restricted to base `VR-Main`** |
-| Any other base branch | no action |
+| On PR or commit merge | Done, **restricted to base `staging`** |
+| Any other base branch (including `VR-Main`) | no action |
 
 The restriction is what makes stacked PRs behave: a PR merged into a working branch must not
-close its ticket, because the change has not reached `VR-Main` yet.
+close its ticket, because the change has not reached `staging` yet. It also keeps the release PR
+inert: merging `staging` into `VR-Main` must not move anything, because those tickets are already
+Done and go to Released by hand in the release ritual. (Until 2026-09-24 the row was restricted to
+`VR-Main`; it was changed when `staging` became the integration branch.)
 
 ## Quick reference
 
 ```
 1. Search Linear. Create from the template if it is not there.
    Project + milestone + priority + Type label, always.
-2. Branch: claude/vr-<n>-<slug>, off VR-Main. Type it; do NOT copy it from the ticket.
+2. Branch: claude/vr-<n>-<slug>, off staging. Type it; do NOT copy it from the ticket.
 3. Work. Simulator first. Headset last. ENGINE_NOTES in the same commit.
-4. PR body line 1: "Fixes VR-<n>" into VR-Main, "Ref VR-<n>" into a working branch.
-   Title: a conventional-commit subject.
+4. PR base: staging (gh pr create --base staging). Body line 1: "Fixes VR-<n>" into
+   staging, "Ref VR-<n>" into a working branch. Title: a conventional-commit subject.
 5. Fill the PR template. Evidence, levers and defaults, blast radius,
    what is deliberately not here, testing.
-6. Review, then merge to VR-Main. Linear marks it Done.
+6. Review, then merge to staging WITH THE USER'S YES. Linear marks it Done.
 7. STATUS, ROADMAP boxes, decision log, push. Batch project update if several closed.
-8. Release only when the user says so. Then Done -> Released, milestone closed.
+8. Release only when the user says so: release PR staging -> VR-Main (the user merges),
+   tag the VR-Main tip, publish. Then Done -> Released, milestone closed.
 
 Never invent a milestone or a release. Both are the user's call.
+VR-Main is the release. Nothing lands on it except the release PR.
 ```
 
 ## Related documents

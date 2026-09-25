@@ -32,6 +32,7 @@
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/swing.h"
 #include "game/dishonored/drop_assist.h"
+#include "game/dishonored/snap_turn.h"   // VR-219: pad_bridge (present lane) and head_track (script lane) both call it
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
 #include "core/framework/frame_hooks.h"
@@ -228,6 +229,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::head
 #include "game/dishonored/head_track.cpp"
+#include "game/dishonored/snap_turn.cpp"   // VR-219: snap turn; rides head_track's yaw book
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::melee
 #include "game/dishonored/melee.cpp"
@@ -265,6 +267,7 @@
 #include "game/dishonored/swing_trace.cpp"    // VR-165: raw present-rate series
 #include "game/dishonored/aim_source.cpp"     // VR-166: who shares the power-aim helper
 #include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
+#include "game/dishonored/stereo_occlusion.cpp"   // VR-79: per-eye occlusion culling
 #include "game/dishonored/trail_control.cpp"  // VR-171: the sword's swing trail; after anim_state and reflect
 #include "game/dishonored/lens_control.cpp"   // VR-137: after rain_control (shared helpers)
 #include "game/dishonored/cinematic_fov.cpp"

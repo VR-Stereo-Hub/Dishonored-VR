@@ -1,3 +1,31 @@
+## A launcher that restores its own ini backup wipes a startup migration (VR-220, 2026-09-25)
+
+`tools\xrsim-launch.ps1 -ViaSteam` writes `[VR] XrRuntimeJson` into the installed ini, launches,
+and restores its pre-launch copy the moment the runtime-name assertion passes. Anything the mod
+writes to the ini at config load, which runs earlier, is thrown away with it: the one-time
+`HandAnimMelee 0 -> 1` move logged on two sim launches in a row while the file kept reading 0 and
+never gained its revision key. The log was true; the file was overwritten a second later. Verify
+an ini migration with `tools\launch-game.ps1` (a plain Steam launch leaves the ini alone), read
+the file after the `config:` lines appear, then stop the process. The same holds for any test that
+expects a startup write to persist: `EdgeSpeedRev`, `HandAnimMeleeRev`, a first-touch F10 key.
+## Successful repairs can exhaust the failure diagnostic (VR-229, 2026-09-24)
+
+The40-window ring ledger triggered on routine repaired/refused presents and spent
+its last window before the prison cinematic. Aggregate late-tag expirations and
+stale-left submissions survived, but the failed confirmation reason did not.
+A bounded rate-limited failure lane must remain available independently of that
+window budget. Existing repair being enabled is not proof every episode is repaired.
+
+## A stable feedback loop can retain the wrong FOV (VR-227, 2026-09-24)
+
+Removing a contraction multiplier stops progressive collapse, but it does not
+restore a base field after a cinematic narrows the sensor. At target below natural,
+VR-213 passes lower readback through unchanged, keeping that value in all persistent
+FOV fields. A draw-only override restores the narrowed source afterward; its3s exit
+guard cannot manufacture recovery. A regression must feed the writer's own output
+back into the sensor after cinematic exit, not supply an independent unzoom ramp.
+See ENGINE_NOTES, VR-227. Candidate visual acceptance remains open.
+
 ## A cache that stops remembering must stop working, not work slowly (VR-165, 2026-09-22)
 
 `RflOffsetOf` memoised property offsets in a 96-entry table, and a full table still

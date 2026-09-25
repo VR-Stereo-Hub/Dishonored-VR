@@ -7,7 +7,7 @@
 //        [--percent <n>] [--vdxr-json <path>] [--delete-ini]      unattended; prints the steps
 //        [--mirror on|off] [--physical-crouch on|off] [--hide-rain-overlay on|off]
 //        [--overwrite-settings] [--dpad-modifier 0|1|2|4]
-//        [--dpad-flip on|off] [--pause-chord on|off]              omitted preferences stay
+//        [--dpad-flip on|off] [--pause-chord on|off] [--snap-turn on|off]  omitted preferences stay
 //   DishonoredVR-Launcher-v1.0.0.exe --render <state>|all <out.bmp>|<dir> [--scale <f>]
 //                                                   draw a screen headless (tools/installer-render.ps1)
 //   --elevated-apply ... --result <file>            what the window runs under UAC; not for hand use

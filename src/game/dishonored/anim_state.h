@@ -11,6 +11,10 @@ struct Snapshot {
     unsigned long long sequenceAt = 0, stateAddress[3] = {};
     int bodyMode = -1, picker = -1, dialogState = -1;
     bool valid = false, game = false, cameraAction = false, mantleSplit = false;
+    // VR-220: which hands the game owns during this hand-back. Bit 0 = left, bit 1 = right.
+    // A trigger sword attack owns the right hand only (the clip is right-handed); mantle,
+    // cinematics, the per-state rules and the shot own both. Latched through the release.
+    unsigned char handMask = 0;
 };
 void tick();
 void configure(const char* ini);
@@ -26,6 +30,10 @@ bool hand_anim_melee();   // [Anim] HandAnimMelee: sword swings play the game an
 bool hand_anim_fire();    // [Anim] HandAnimFire: shots (*Fire* clips) play the game animation on the hands
 void set_hand_anim_melee(bool on);
 void set_hand_anim_fire(bool on);
+bool hand_anim_melee_swing();        // [Anim] HandAnimMeleeSwing: physical swings hand back too (VR-220; default off)
+void set_hand_anim_melee_swing(bool on);
+bool hand_anim_melee_both();         // [Anim] HandAnimMeleeBothHands: the left hand follows the clip too (VR-220; default off)
+void set_hand_anim_melee_both(bool on);
 void set_cinematic(bool on);
 void set_enabled(bool on);
 bool arm_rule_enabled(int index);
@@ -42,5 +50,8 @@ bool active(); // immediate ownership, including release hysteresis
 bool native_draw(); // blend reached identity: native pose
 bool native_full_arms(); // native draw except explicit hidden-forearm mantle
 float weight(); // controller correction: 1 = controller, 0 = native
+float weight_for(int hand);   // VR-220: per hand; 1 for a hand the game does not own in this hand-back
+bool hand_owned(int hand);    // VR-220: the game owns this hand right now (active() and in the mask)
 hf::Xform blend(const hf::Xform& transform);
+hf::Xform blend(const hf::Xform& transform, int hand);   // VR-220: the per-hand form
 }

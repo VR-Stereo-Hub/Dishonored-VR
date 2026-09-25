@@ -39,6 +39,11 @@ static bool WriteDefaultIni(const char* ini)
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
         "LateTagRepair=1\n"
+        "; Occlusion (VR-79): native = the engine's culling as shipped, both eyes share one\n"
+        "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
+        "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
+        "; occlusion culling (correct, but pays for every hidden draw). Live: `occlusion <mode>`.\n"
+        "Occlusion=native\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
@@ -333,6 +338,23 @@ static bool WriteDefaultIni(const char* ini)
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
+        "; IndexTuning (VR-224): Index controller hand frames, hold trims, the empty left\n"
+        "; hand's pose and the force-sensor grip. -1 = on when the launcher's headset is\n"
+        "; Valve Index, Bigscreen Beyond or Vive Pro 2, 0 = off, 1 = on. Shim parts need Index\n"
+        "; controllers.\n"
+        "IndexTuning=-1\n"
+        "[Turning]\n"
+        "; SnapTurn=1 turns the view AND your body in fixed steps from the right stick;\n"
+        "; 0 = the game's smooth turn. Live: `snapturn on|off`, or F10 > Controls > Turning.\n"
+        "; A step fires once per push past SnapThreshold; the stick must fall under\n"
+        "; SnapRearm before the next. SnapRepeatMs>0 repeats a held push every N ms.\n"
+        "; Steps do not fire in menus, the power wheel, books, cinematics or keyholes,\n"
+        "; where the stick keeps its usual job.\n"
+        "SnapTurn=0\n"
+        "SnapAngle=45\n"
+        "SnapThreshold=0.6\n"
+        "SnapRearm=0.3\n"
+        "SnapRepeatMs=0\n"
         "[PosTrack]\n"
         "ZAccount=1\n"
         "ZAccountRoll=0\n"
@@ -1072,6 +1094,9 @@ static bool WriteDefaultIni(const char* ini)
         "[Cine]\n"
         "LockPitch=1\n"
         "LockFov=1\n"
+        "; MatchGameplayFov=1: a locked scene frames at [Screen] ProjectionFov like gameplay;\n"
+        "; 0 = the headset-derived FOV. F10 Advanced > Cinematics.\n"
+        "MatchGameplayFov=1\n"
         "StereoState=1\n"
         "PossessionStereo=1\n"
         "HideBorders=1\n"
@@ -1142,6 +1167,10 @@ static bool WriteDefaultIni(const char* ini)
         "CoverTol=0.3\n"
         "Straddle=2.0\n"
         "DepthBias=1\n"
+        "; BodyBoneOnly (VR-225): copy and cap only geometry rigid on the weapon's body\n"
+        "; bone, so the crossbow's limbs do not leave a stray piece when it fires or is\n"
+        "; empty. Live: `mirror body on|off`.\n"
+        "BodyBoneOnly=1\n"
         "\n"
         "; Drop takedowns from above. An attack pressed in the air before the game has\n"
         "; found the guard below would be an ordinary slash; Assist=1 holds it up to\n"
@@ -1159,7 +1188,16 @@ static bool WriteDefaultIni(const char* ini)
         "DropWatch=1\n"
         "MoveTrace=0\n"
         "MantleHandBack=1\n"
-        "HandAnimMelee=0\n"
+        "; HandAnimMelee: a TRIGGER sword attack plays the game's swing on the tracked hand\n"
+        "; and returns it to the controller. A physical swing (the motion sword) never does:\n"
+        "; your arm is the animation. HandAnimMeleeSwing=1 hands physical swings back too.\n"
+        "; HandAnimMeleeRev=1 marks an ini that has seen the 0 -> 1 default move; leave it.\n"
+        "HandAnimMelee=1\n"
+        "HandAnimMeleeRev=1\n"
+        "HandAnimMeleeSwing=0\n"
+        "; HandAnimMeleeBothHands=1 makes the left hand follow the clip too; 0 keeps it on the\n"
+        "; controller (the trigger clip is right-handed).\n"
+        "HandAnimMeleeBothHands=0\n"
         "HandAnimFire=0\n"
         "CinematicHandBack=1\n"
         "StateWatch=1\n"
@@ -1360,11 +1398,11 @@ static bool WriteDefaultIni(const char* ini)
         "Region.prompt=0.520,0.460,0.800,0.620\n"
         "; The window (shared by 'window' and 'world'): distance and width in metres; Height 0 =\n"
         "; the texture's aspect, else a centred crop; Up and Lateral offset it in its plane.\n"
-        "WindowDistance=1.390\n"
+        "WindowDistance=1.500\n"
         "WindowWidth=1.210\n"
         "WindowHeight=0.000\n"
         "WindowUp=-0.100\n"
-        "WindowLateral=0.000\n"
+        "WindowLateral=-0.020\n"
         "; The two hand panels (38.92's values): X/Y/Z an offset in the grip's own frame; Lift\n"
         "; along world up; Width in metres; Orient billboard (faces the head, never rolls: what\n"
         "; 38.92 did) or grip (a watch face on the back of the hand, Tilt degrees toward the\n"
@@ -1412,9 +1450,9 @@ static bool WriteDefaultIni(const char* ini)
         "WindowWheel=1\n"
         "WindowStore=0\n"
         "WindowMissionStats=1\n"
-        "Element.default.WinX=0.244\n"
-        "Element.default.WinY=-0.063\n"
-        "Element.default.WinScale=1.570\n"
+        "Element.default.WinX=0.184\n"
+        "Element.default.WinY=-0.183\n"
+        "Element.default.WinScale=1.210\n"
         "Element.vitals.WinX=-0.167\n"
         "Element.vitals.WinY=0.106\n"
         "Element.vitals.WinScale=1.150\n"
@@ -1534,12 +1572,12 @@ static bool WriteDefaultIni(const char* ini)
         "WheelPotions.Crop1=0.947\n"
         "WheelPotions.Crop2=0.948\n"
         "WheelPotions.Crop3=0.082\n"
-        "Element.wheelpotions.WinX=0.716\n"
-        "Element.wheelpotions.WinY=0.660\n"
-        "Element.wheelpotions.WinScale=0.780\n"
-        "Element.wheelshortcuts.WinX=-0.504\n"
-        "Element.wheelshortcuts.WinY=0.695\n"
-        "Element.wheelshortcuts.WinScale=0.730\n"
+        "Element.wheelpotions.WinX=0.566\n"
+        "Element.wheelpotions.WinY=0.547\n"
+        "Element.wheelpotions.WinScale=0.900\n"
+        "Element.wheelshortcuts.WinX=-0.474\n"
+        "Element.wheelshortcuts.WinY=0.545\n"
+        "Element.wheelshortcuts.WinScale=0.900\n"
         "", kConfigVersion);
     const int closed = fclose(f);
     return written > 0 && closed == 0;
@@ -1572,6 +1610,35 @@ static void LoadConfig()
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     Log("config: LoadConfig begin");
+    {   // VR-223: the headset the player told the launcher they have, so a log
+        // names the hardware without anyone having to ask. Read from the
+        // launcher's own file (always %LOCALAPPDATA%, never [Paths] DataDir),
+        // not the mod ini, which a version bump rewrites. The runtime's own
+        // system name is logged at session start; the two can disagree (a Quest
+        // on SteamVR reports through SteamVR), which is exactly why both print.
+        char local[MAX_PATH] = "", launcherIni[MAX_PATH] = "", model[64] = "";
+        const DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", local, sizeof(local));
+        if (n && n < sizeof(local)) {
+            _snprintf(launcherIni, MAX_PATH, "%s\\DishonoredVR\\launcher.ini", local);
+            launcherIni[MAX_PATH - 1] = 0;
+            GetPrivateProfileStringA("Headset", "Model", "", model, sizeof(model), launcherIni);
+        }
+        Log("config: headset (user reported in the launcher): %s",
+            model[0] ? model : "not recorded (launcher never run on this account, or older than VR-223)");
+        // VR-224: [Controllers] IndexTuning -1 auto | 0 off | 1 on. Auto follows the
+        // headset above: the tuning was measured on Index controllers, which both the
+        // Index and the Beyond ship with. The shim reads the verdict from
+        // DVR_INDEX_TUNING (it is loaded later, by the OpenXR loader, in this process).
+        const int it = GetPrivateProfileIntA("Controllers", "IndexTuning", -1, ini);
+        // Vive Pro 2 counts: its wands are not supported, so it is played on Index controllers.
+        const bool autoHs = !strcmp(model, "Valve Index") || !strcmp(model, "Bigscreen Beyond 1 / 2") ||
+                            !strcmp(model, "Vive Pro 2");
+        g_indexTuning = it == 1 || (it != 0 && autoHs);
+        SetEnvironmentVariableA("DVR_INDEX_TUNING", g_indexTuning ? "1" : "0");
+        Log("config: [Controllers] IndexTuning=%d -> %s (owner: %s)", it, g_indexTuning ? "ON" : "off",
+            it == 1 ? "ini, forced on" : it == 0 ? "ini, forced off"
+            : autoHs ? "launcher headset is an Index-controller headset" : "launcher headset is not Index, Beyond or Vive Pro 2");
+    }
 
     // create if missing, OR refresh if it predates this build's tuned defaults
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;
@@ -2623,8 +2690,10 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    OcclusionConfigure(ini);    // VR-79
     SwordTrailConfigure(ini);   // VR-171
     CamShakeConfigure(ini);   // VR-172
+    dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
@@ -3913,6 +3982,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
     SwordTrailSave(ini);   // VR-171
     CamShakeSave(ini);   // VR-172
+    dvr::snap::save(ini);   // VR-219
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }

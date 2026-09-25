@@ -108,4 +108,31 @@ std::wstring default_vdxr_json()
     return fs::join(pf, L"Virtual Desktop Streamer\\OpenXR\\virtualdesktop-openxr-32.json");
 }
 
+int headset_index(const std::string& name)
+{
+    if (name.empty()) return -1;
+    for (int i = 0; i < kHeadsetCount; ++i)
+        if (name == kHeadsets[i]) return i;
+    return kHeadsetOther;
+}
+
+bool headset_gets_index_tuning(const std::string& name)
+{
+    return name == "Valve Index" || name == "Bigscreen Beyond 1 / 2" || name == "Vive Pro 2";
+}
+
+std::string clean_headset_name(const std::string& typed)
+{
+    std::string out;
+    for (const unsigned char c : typed) {
+        if (c < 0x20 || c > 0x7E) continue;          // control bytes, non-ASCII
+        if (c == ' ' && (out.empty() || out.back() == ' ')) continue;
+        if (c == ';' && out.empty()) continue;       // an ini comment marker at the start
+        out.push_back((char)c);
+        if (out.size() >= kHeadsetNameMax) break;
+    }
+    while (!out.empty() && out.back() == ' ') out.pop_back();
+    return out;
+}
+
 } // namespace dvr::setup

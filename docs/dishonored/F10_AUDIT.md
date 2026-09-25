@@ -36,7 +36,7 @@ view selector, and the text-scale slider.
 |---|---|---|---|
 | **Hands** | Hand size; Hand position (L / R / powers steps); Sleeve | Wrist roundness; Game arms per action (the Animations list) | Hand-eye and identity fixes; legacy SkelControl drive (if kept) |
 | **Aim** | Reticle (on, hand, size, colour, distance); Reticle position (other items); Held object position | Head or controller aim per item; carried-object options | Ray source levers; control dot; anchors |
-| **Controls** | Controller layout (D-pad modifier, flip, pause chord); Motion sword (on, speed, cooldown, stealth stab) | Sword detector detail; stab shape | Sword readouts |
+| **Controls** | Controller layout (D-pad modifier, flip, pause chord); Turning (snap turn, step size); Motion sword (on, speed, cooldown, stealth stab) | Snap turn push, release and hold-repeat; Sword detector detail; stab shape | Snap turn counters and the no-stick step buttons; Sword readouts |
 | **Comfort** | Crouch (real crouch on, trigger height); Camera shake (remove shake); Gameplay FOV | Positional tracking; neck pivot; camera shake categories; rain and lens effects; cinematic head look options | Arm and facing levers; mirror weapons; stereo state guards |
 | **HUD** | HUD on/off; notes and journal on the hand | Weapon dial; wheel side panels; menu immersion; element anchors; window; hand panels | Alpha modes; native-marker tests; freshness tests; census |
 | **Display** | Resolution scale | Fullscreen, vsync; desktop mirror | Capture mode, EYES, 9Ex, profiles, benchmark, MARK |
@@ -61,6 +61,9 @@ The old **View**, **Blink**, **Animations** and **Advanced** tabs dissolve into 
 | Control | Code | Note |
 |---|---|---|
 | D-pad modifier, Flip D-pad, X + Y pause chord | B | the six help paragraphs become one description per control |
+| Snap turn: on/off, step size (degrees) | B | VR-219; its own Turning section, above the sword |
+| snap turn: stick push needed, release before the next step, repeat while held | A | |
+| snap turn counters, step left/right without the stick | D | the consumer alone, for an A/B with the controller at rest |
 | Motion sword: on/off, swing speed needed, swing cooldown | B | |
 | hide the sword's swing trail | D | a fix (VR-171) |
 | swing detector (sustain/edge) | D | edge is the tested answer |
@@ -138,7 +141,9 @@ The old **View**, **Blink**, **Animations** and **Advanced** tabs dissolve into 
 |---|---|---|
 | Enable selected game arms | M | the same switch as Hands > "Game arms during scripted actions"; kept once |
 | Animation view left/right + reset | D | |
-| Sword swing animation, Shooting animation | A | |
+| Sword swing animation (trigger attacks), Shooting animation | A | VR-220: the swing row is trigger-only |
+| ...also when you swing the controller (HandAnimMeleeSwing) | A | VR-220; shown under the swing row while it is on |
+| ...on both hands (HandAnimMeleeBothHands) | A | VR-220; the left hand stays on the controller by default |
 | Reset arm choices, Enable all actions, filter, the 40 per-action rows | A | ASK: A or D |
 
 ### Hands tab

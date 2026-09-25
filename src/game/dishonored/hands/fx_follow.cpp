@@ -381,6 +381,11 @@ static void FxFollowTickBody()
         for (int i = 0; i < g_waCompN; ++i)
             if (g_waComp[i].ok && g_waComp[i].isMember && g_waComp[i].hand >= 0 && g_waComp[i].hand <= 1) held[g_waComp[i].hand] = true;
         ReleaseSRWLockShared(&g_waCompLock);
+        // VR-224 Index tuning: the empty left hand (powers, Blink, the Heart) is re-posed in
+        // the palm draw, so its aim ray is lifted to match; the pistol and crossbow keep theirs.
+        // 23 deg measured in the headset on an Index rig: the Blink dot sat that far below the
+        // fingers. Paired with the shim's -21 deg hold pitch; off, both are zero.
+        dvr::vr::input_set_aim_pitch_extra(0, (g_indexTuning && !held[0]) ? 23.0f : 0.0f);
         for (int h = 0; h < 2; ++h)
             if (held[h] != g_mpItemInHand[h]) {
                 g_mpItemInHand[h] = held[h];

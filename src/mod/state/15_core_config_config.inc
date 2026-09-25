@@ -90,6 +90,13 @@ static const int kConfigVersion = 15; // bump to refresh users' ini with new def
 // supplies it when the key is absent, and the F10 control writes it the first
 // time it is touched. Bump this only when a user's existing VALUE would be
 // wrong for the new build, never merely to add a key.
+// NOT bumped for VR-220's HandAnimMelee 0 -> 1 either: that value IS wrong for the new
+// build, but it moves by its own one-time HandAnimMeleeRev migration (the EdgeSpeedRev
+// pattern), which costs one key instead of every tuned value.
+
+// VR-224: the Index controller tuning, resolved in LoadConfig from [Controllers]
+// IndexTuning and the launcher's headset. Read-only after the config load.
+static bool g_indexTuning = false;
 
 // Load config exactly once, lazily, from OUTSIDE the loader lock (first export
 // call). Safe to call repeatedly; only the first does work.

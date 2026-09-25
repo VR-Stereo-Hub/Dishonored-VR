@@ -1,3 +1,31 @@
+## Unreleased
+
+### Snap turn (VR-219, 2026-09-25, not yet judged in the headset)
+
+A push of the right stick can turn you by a fixed step (45 degrees by default) instead of
+smoothly. Your body turns with the view, the same as the smooth turn does, so your hands, the
+sword, the aim ray and the HUD stay where they were in front of you and a hit lands on what is
+now in front. Off by default. F10 > Controls > Turning: "Snap turn", "Step size (degrees)";
+Advanced: the push needed, the release before the next step, and a hold-repeat. New section
+`[Turning]`: `SnapTurn=0`, `SnapAngle=45`, `SnapThreshold=0.6`, `SnapRearm=0.3`,
+`SnapRepeatMs=0`. Live: `snapturn on|off|angle <deg>|threshold|rearm|repeat|fire|mark|status`.
+Steps do not fire in menus, the power wheel, books, cinematics or keyholes, where the stick
+keeps its usual job and turns smoothly.
+### The sword swings when you pull the trigger (VR-220, 2026-09-25, not yet judged in the headset)
+
+A sword attack on the trigger used to hit and make its sound with nothing moving in front of you:
+the hand stayed pinned to the controller. Now a trigger attack plays the game's swing on your
+hand and returns it to the controller when the attack ends. A physical swing (the motion sword)
+is unchanged: your arm is the animation, and the hand stays on the controller. `[Anim]
+HandAnimMelee` is on by default from this build; an existing ini is moved from 0 to 1 once (the
+log says `config: [Anim] HandAnimMelee 0 -> 1 (one-time ...)`), and a 0 you set afterwards stays.
+Only your right hand follows the clip; the left stays on the controller (`[Anim]
+HandAnimMeleeBothHands=1` makes both follow it). New: `[Anim] HandAnimMeleeSwing=0` hands
+physical swings back too when set to 1. F10 > Hands >
+Game arms during actions: "Sword swing animation on the tracked hand" and, under it, "...also
+when you swing the controller". Live: `anim melee on|off`, `anim melee swing on|off`. A physical
+swing right after a trigger attack is no longer refused by the body gate.
+
 ## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic

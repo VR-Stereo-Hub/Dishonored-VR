@@ -1,3 +1,238 @@
+## 2026-09-24: staging is the integration branch; VR-Main is the release (VR-218)
+
+The 1.0.1 hotfix chain (PRs #114-#117, tag `v1.0.1`) was fast-forwarded onto `VR-Main` on the
+user's instruction, so `VR-Main` is `f5176aeae` = `v1.0.1`. `staging` was created from that
+tip. Open PRs #74, #62, #2 and #118 now have base `staging`.
+
+From here: branch off `staging`, PR against `staging` (`gh pr create --base staging`; the
+default branch stays `VR-Main`), `Fixes VR-<n>` on the first line, merge into `staging` only
+with the user's explicit yes. `VR-Main` moves only by the release PR (`staging` -> `VR-Main`)
+the user merges, and its tip is always the latest release tag. Linear: Done = merged to
+`staging`, Released = carried into `VR-Main` and tagged. Rewritten: `CLAUDE.md`,
+`docs/LINEAR_AND_GITHUB.md`, `CONTRIBUTING.md`, `AGENTS.md`, the PR template, the decision log.
+
+**Owed by the user (UI-only):** the Linear automation row "On PR or commit merge -> Done"
+restricted to base `staging` (Settings > Team > Issue statuses and automations); optionally a
+branch protection rule on `VR-Main` so only the release PR can write it.
+
+Next: VR-219 (snap turn) and VR-220 (trigger-only sword animation), each on its own branch off
+`staging`.
+## 2026-09-25: snap turn (VR-219), simulator-proven, headset owed
+
+Branch `claude/vr-219-snap-turn` off `staging`. `[Turning] SnapTurn=0` (default off), `SnapAngle=45`,
+`SnapThreshold=0.6`, `SnapRearm=0.3`, `SnapRepeatMs=0`; word `snapturn`; F10 > Controls > Turning.
+The present lane detects the stick edge (`snap_turn.cpp`, after the F10 pointer block in
+`pad_bridge.cpp`) and eats RX only while the script camera writer is fresh; the script lane
+takes the step once in the head writer's fresh branch as BODY yaw (`rot[1] += headDeltaU + snapU;
+YawPublish(viewInU + snapU, headDeltaU)`), so the pawn turns with the view in both movement modes.
+
+**Simulator (Debug build, `tools\xrsim\snap-turn.xrs`, 86 steps, under `movement head` and
+`movement character`):** four pushes at 30 deg each printed FIRED / APPLIED / HONOURED; view and
+body since mark both 119.99 deg, head 0.00; a held stick fired once; a 0.4 push neither fired nor
+smooth-turned (view stayed at 59.996); a head turn afterwards moved the view (70) and not the body
+(90); a stick held into and out of the pause menu did not fire (the first cut fired on the resume:
+the detector now disarms while the lane is blocked); `snapturn off` put RX=29043 back on the pad
+line. 14 HONOURED, 0 NOT HONOURED, 0 NO CONSUMER over the session; four steps added 0 stale eye
+submits (132 -> 132), eyes 0/0. `tools\yawtest-host.ps1` bookkeeping: 8 of 8 PASS (case 8 is the
+snap step as body yaw). Logs: `build/playtest-candidates/vr219-snap-turn/sim-run2/`.
+
+**Headset owed:** one push = one crisp step; hands, sword, reticle and prompt stay in front and a
+hit lands on what is now in front; walking goes the new way; pause menu and wheel still navigate;
+keyhole and cinematics turn smoothly. The tester's installed build 711 and its ini were restored
+after the sim runs; install a Release build of the branch to judge it.
+
+**Deliberately not here:** the yaw OWNERSHIP half of `tools\yawtest-host.ps1` does not compile
+(its slice predates the live-object table; the bookkeeping half runs again after the slicer was
+pointed at `yaw_book.h`); a ticket is filed.
+## 2026-09-25: the sword animation follows the trigger, not the swing (VR-220), simulator-proven
+
+Branch `claude/vr-220-trigger-sword-anim` off `staging`. A trigger sword attack plays the game's
+swing on the tracked hand and hands it back; a physical swing keeps the arm. `melee.cpp` publishes
+each FIRE (tick, pulse close, count, real-trigger overlap; atomics, stores only); `anim_state.cpp`
+classifies each attack once (per state entry, or per combo clip more than 100 ms in): SWING if the
+state was entered with the pulse open or within 80 ms of its close (combo: within 600 ms of the
+fire), else TRIGGER; only TRIGGER sets the hand-back. `kGateBody` reads `cameraAction`, not `game`,
+so a trigger hand-back does not refuse the swing that follows. `[Anim] HandAnimMelee=1` (moved 0 -> 1
+once by `HandAnimMeleeRev`), `HandAnimMeleeSwing=0`; `anim melee on|off|swing on|off|status`; F10 >
+Hands > Game arms during actions. The hand-back owns the RIGHT hand only (the headset asked for
+the left to stay free): `Snapshot.handMask`, per-hand `blend(D, hand)`, per-hand SkelControl
+release; `HandAnimMeleeBothHands=0`. A first cut deadlocked the present thread on the first
+status write (`weight_for` under the shared lock); fixed, launch clean, `swing-anim.xrs` (56)
+and `snap-turn.xrs` (88) pass on the merged RelWithDebInfo build (sha256 A699EDD4...).
+
+**Simulator (`tools\xrsim\swing-anim.xrs`, 56 steps; Debug and RelWithDebInfo):** trigger pull ->
+`source=TRIGGER -> hand-back ON`, `features.anim.meleeSource=trigger`; swing-edge move -> `swing:
+FIRE`, `source=SWING ... hand-back off` (fire dt 15 ms, pulse open), `HONOURED`; a swing 120 ms after
+a trigger pull fired, was not `BLOCKED ... owns the body`, and classified as a combo (fire dt 266 ms,
+pulse closed 141 ms before); `anim melee swing on` -> the same swing `hand-back ON`; `anim melee off`
+-> the refusal line. `swing-edge.xrs` passes on both builds. `swing-gates.xrs` failed 4 of 4 runs on
+a different leg each time, always a hand move cut short by a sample gap, never the body gate: VR-222.
+Migration (plain Steam launch, the tester's archived ini): `HandAnimMelee 0 -> 1 (one-time ...)` and
+`HandAnimMeleeRev=1` written; a deliberate 0 with the key stayed 0. TRAPS: `-ViaSteam` restores the
+ini and wipes a startup write. Logs: `build/playtest-candidates/vr220-trigger-anim/`.
+
+**Headset owed:** a trigger slash animates and the hand returns (150 ms in, 250 + 150 ms out); a
+physical swing keeps the hand on the controller with the hit landing; combos; a swing right after a
+trigger slash; block; mantle; a cinematic; a drop takedown; the trail still hidden. The tester's
+installed build 711 and ini were restored after the runs.
+## Index controller tuning from the headset (VR-224, 2026-09-24)
+
+Branch `claude/vr-224-index-tuning`, stacked on VR-223's branch, not merged.
+
+- Two commits cherry-picked from a community fork (`index-controller-offsets`,
+  author kept): an Index frame correction, hold and sword trims in the SteamVR
+  shim, an empty-left-hand re-pose and aim lift in the mod, a force-sensor grip
+  binding. Every part is now behind `[Controllers] IndexTuning` (-1 auto, the
+  default: on for a launcher headset of Valve Index, Bigscreen Beyond 1 / 2 or Vive Pro 2).
+  Details and the table: docs/INSTALLER.md, VR-224 section.
+- Verified: Release build, lint, default-profile-host (golden and packaged ini
+  regenerated, +4 lines), offscreen render of the picker's Index note. Installed.
+- NOT verified: anything on an Index rig. This machine's headset is a Quest 3,
+  so here the tuning resolves off and nothing should change; the log line
+  `config: [Controllers] IndexTuning=-1 -> off` says so.
+
+## Launcher headset selection (VR-223, 2026-09-24)
+
+Branch `claude/vr-223-launcher-headset` off `staging`, not merged.
+
+- The launcher asks which headset the player has before anything else. With
+  none recorded it is a modal with no close control; Continue unlocks on a pick
+  (or a typed name for Something else). Change on Setup and Manage reopens it.
+- The list is the BioShock Remastered VR mod's Setup.bat question, same order.
+  Recorded only: no setting follows from it.
+- Stored in %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model. Printed in
+  the launcher log, in the mod log (`config: headset (user reported in the
+  launcher): ...`) and in the support bundle manifest. Why not the mod ini:
+  ARCHITECTURE decision log, 2026-09-24.
+- Verified: Release build clean, lint clean, support-collector-tests PASS,
+  offscreen renders of `headset-required`, `headset-other`, `headset-change`,
+  `manage`, `setup-found` checked by eye.
+- NOT verified: a real first run clicking through the picker, and the mod log
+  line in a live session. The install was refused because the game was running
+  (d3d9.dll locked); run `tools\install.ps1 -Release` once it is closed.
+- Next: per-headset controller defaults (BRVR's d-pad modifier and WMR layout
+  fixes) would be a separate ticket if wanted.
+## Crossbow stray piece on the mirrored side (VR-225, 2026-09-24)
+
+Branch `claude/vr-225-crossbow-mirror-caps` off `staging`, not merged.
+
+- Reported: firing the crossbow shows part of what looks like the empty model on
+  one side; it stays once the crossbow is empty.
+- Cause as reasoned, NOT measured: the VR-138 mirror reflects the reference pose
+  before skinning, so copied triangles and hole caps on the limbs keep the limbs'
+  own bones and swing about the wrong pivot when the limbs move. Full write-up:
+  WEAPON_MIRROR_PLAN.md section 6f.
+- Change: `[Mirror] BodyBoneOnly=1` copies and caps only geometry rigid on the
+  weapon's body bone; `mirror body off` restores the old copies for an A/B.
+- Verified: Release build, lint, golden ini. Installed (this build is off
+  staging, so it does not carry VR-223/VR-224).
+- HEADSET-CONFIRMED 2026-09-24: the piece is gone while firing and when empty.
+- Headset question: is the piece gone when firing and when empty, and is the
+  far side still filled? Log: `mirror/skin:` and the `on a moving bone` counts.
+## One eye hides objects from the other (VR-79, 2026-09-24)
+
+Branch `claude/vr-79-occlusion-per-eye` off `VR-Main`, not merged.
+
+- Reported again: covering an NPC's head with the sword in the left eye only
+  makes it vanish from the right; doors and mechanisms too.
+- Cause: `reentry` draws both eyes through one view state, so occlusion-query
+  results from one eye cull the other (ENGINE_NOTES "VR-79").
+- `[Stereo] Occlusion=native|pereye|off`, live `occlusion <mode>`, default native.
+  `off` (the engine's TOGGLEOCCLUSION switch) was HEADSET-CONFIRMED to fix it but
+  read laggier. `pereye` gives the right eye its own engine-allocated view state
+  for pass 2, so each eye culls only what it cannot see and culling still saves
+  its draws.
+- Verified: Release build, lint, golden ini. Installed with `Occlusion=pereye`
+  in this PC's ini. This build does NOT carry VR-225 (the crossbow fix).
+- Headset questions: does the sword/head test pass with `pereye`, and does it
+  feel like native rather than like `off`? Log: `occlusion/pereye: allocated`
+  once, then `beat swaps` climbing. Watch for anything wrong in the right eye
+  only after a level load (the GC risk in ENGINE_NOTES).
+- HEADSET 2026-09-24: `pereye` fixed the one-eye culling with no visible perf cost. Grass
+  blinking out for a frame or two while walking is NOT pereye: it happens under native too, in
+  both eyes (VR-226, open).
+- A second run on the build with the F10 switch for the three modes started in pereye but never
+  swapped: no `occlusion/pereye: allocated` line and no beat, so OcclusionPass2Begin found no
+  local player and returned without logging why. Suspect: the IsLiveObject check on the player
+  controller or local player against a live-set snapshot that predates the level load. pereye can
+  therefore silently not engage on a given run. Fix when this is picked up again: log the refusal
+  reason (throttled) and drop the snapshot liveness requirement for the controller the head
+  tracker already validates. The F10 switch stays, in the Advanced view (2026-09-25).
+## VR-228/229: pause FOV candidate and prison flicker diagnosis (2026-09-24)
+
+Original VR-227 gameplay fix is locally reported good on the installed aa3af7216.
+Both local and supplied remote log banners verify that build. Logs archived under
+primary `build/support-20260924-231346`, local logs in its `local` subdirectory.
+
+VR-228: pause in InDialog releases the108.1-degree scope and claims41.2. Candidate
+allows the existing verified head-look menu permission, with UI-epoch live-owner
+revalidation. VR-229: remote prison cinematic has stale-left submissions, repeated
+late repairs and unresolved confirmations while FOV remains108.07. All40 detailed
+windows were consumed before the scene; no proven flicker fix. Added rate-limited,
+read-only expiration reasons under RingLedger, with pairing decisions unchanged.
+Evidence and next steps: [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+
+Validation: cinematic30054, feedback1284707, ownership16, pairing416 pass.
+Per user request, ZIP only for now; installed game and INI remain untouched.
+Optimized x86 build `v1.0.1-4-g903891e7e`, legacy off; lint and9 exports pass.
+DLL SHA256 `b768aa622c9860b4a99a49fa79bcc101499f10289f185ba5f5b030da56a3a1b6`.
+Primary-checkout package: `build/test-packages/DishonoredVR-VR228-pause-FOV-VR229-diagnostics-903891e7e.zip`.
+ZIP CRC/extracted hash, x86 header, embedded build and new diagnostic string verified.
+DLL-only, no installer/INI. Separate local and remote single-question instructions.
+No game launched by this task.
+Next local question: does pause retain full-size world during low-FOV dialogue?
+Separate remote question: does prison eye flicker reproduce for the new diagnostic?
+Return its support ZIP; unchanged pairing means non-reproduction alone is not a fix.
+
+## VR-227: affected-player pass and local install (2026-09-24)
+
+The affected player reported that test build `v1.0.1-1-gaa3af7216` fixed the issue.
+This is reported acceptance; no new support log was supplied for independent review.
+At the user's request the exact ZIP DLL was installed locally, SHA256
+`2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+Previous DLL, INI, install record and available session logs archived in the primary
+checkout at `build/playtest-candidates/vr-227/20260924-220256`.
+Full installed INI byte comparison: zero changes, CRLF verified; LockFov=1 already.
+No game launched. Next: same painting-dialogue/full-view question for local verification;
+check the new log banner against the installed build before reading the result.
+
+## VR-227: cinematic square-view candidate (2026-09-24)
+
+Branch `codex/vr-227-cinematic-fov-test` starts at staging `f5176aeae`.
+The shared checkout changed concurrently, so the candidate is isolated in
+`build/worktrees/vr-227`; only the FOV patch was transferred. No occlusion change.
+
+Supplied support archive: current log and install record match1.0.1,
+`v1.0.0-8-gf5176aeae`,3012x3122. During dialogue the sensor reaches51.60;
+the persistent writer retains it. At cinematic exit the3s draw bridge expires
+and gameplay claims47.60. The two older logs are1.0.0, not1.0.1 retests.
+See [ENGINE_NOTES](dishonored/ENGINE_NOTES.md#vr-227-cinematic-persistent-fov-recovery-2026-09-24).
+
+Candidate: the existing Cine.LockFov option now also requests the full persistent
+FOV during validated cinematic states and bounded locomotion recovery. Existing
+live-object owner checks remain before writes. UI epochs, new ownership/load,
+failed validation and disabled/ineligible states discard recovery. Ordinary
+gameplay zoom cannot arm it. Diagnostic adds cinematicRecovery and master state.
+
+Host checks:1284707 feedback/recovery,16 ownership,30045 cinematic/handback pass.
+The negative control reproduces51.60 persistence and47.60 gameplay claim. Recovery
+is bounded at3s; an extremely slow/unresponsive native camera can outlast it.
+A synthetic1% blend per10ms did outlast the bound; this is not headset acceptance.
+No game launched. Optimized isolated build, lint and9 exports pass.
+Delivered test build `v1.0.1-1-gaa3af7216`, legacy off, from clean commit aa3af7216.
+DLL SHA256 `2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+ZIP: `build/test-packages/DishonoredVR-VR227-cinematic-square-test-aa3af7216.zip`
+in the primary checkout (DLL, README, manifest and checksum only). ZIP CRC, extracted
+DLL hash, x86 header, embedded build ID and new diagnostic string verified.
+Local installation deferred because another collaborator has an active build;
+no installed files/INI changed. User requested a remote test ZIP.
+
+Next single launch question: at unchanged highest resolution, does the view stay
+full through the painting dialogue and for10seconds after control returns?
+Full coverage supports the candidate; a square means the fix is insufficient.
+Return the support ZIP from that run either way; verify its test-build banner.
+If this passes, test the Empress scene and ordinary spyglass zoom separately.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication

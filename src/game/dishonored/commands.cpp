@@ -33,6 +33,8 @@
 //   vrinput on|off|status        the virtual gamepad
 //   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|filter raw|median|sword|output rt|rb|
 //         log|force|sim <peak> [humpMs] [reps]|save   the motion sword (game/dishonored/swing.h) - VR-37
+//   snapturn on|off|angle <deg>|threshold <v>|rearm <v>|repeat <ms>|fire [left|right]|mark|status
+//                                     snap turn (game/dishonored/snap_turn.h) - VR-219
 //   console <text>               run a game console command on the script lane
 //   fullscreen on|off            VR-158: live fullscreen, through the engine's own
 //                                resize (one device reset); windowed presents via DWM
@@ -81,12 +83,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "rainhide") && DvrOnOff(args, &b)) { RainHideSet(b); return true; }   // VR-136
     if (!strcmp(cmd, "swordtrail")) return SwordTrailCommand(args);   // VR-171
     if (!strcmp(cmd, "camshake")) return CamShakeCommand(args);   // VR-172
+    if (!strcmp(cmd, "snapturn")) return dvr::snap::command(args);   // VR-219: snap turn
     if (!strcmp(cmd, "raindistance")) { RainDistanceSet(atoi(args)); return true; }   // VR-136: uu, -1 native
     if (!strcmp(cmd, "lensdistance")) { LensDistanceSet(atoi(args)); return true; }   // VR-137: uu, 0 native
     if (!strcmp(cmd, "lenskeepsize") && DvrOnOff(args, &b)) { LensKeepSizeSet(b); return true; }   // VR-137
     if (!strcmp(cmd, "lensfollow") && DvrOnOff(args, &b)) { LensFollowSet(b); return true; }       // VR-137
     if (!strcmp(cmd, "rainstrength")) { LensRainPctSet(atoi(args)); return true; }                 // VR-137: %, 100 native
     if (!strcmp(cmd, "mirror")) return WmCommand(args);   // VR-138
+    if (!strcmp(cmd, "occlusion")) return OcclusionCommand(args);   // VR-79
     if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
     if (!strcmp(cmd, "uiguard") && DvrOnOff(args, &b)) { UiSurfaceSet(b); return true; }
     if (!strcmp(cmd, "monoanchor")) {
@@ -700,6 +704,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::drop::status(w);
     SwordTrailStatus(w);   // VR-171
     CamShakeStatus(w);   // VR-172
+    dvr::snap::status(w);   // VR-219
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);

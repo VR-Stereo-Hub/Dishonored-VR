@@ -91,6 +91,11 @@ bool simStab = false;               // `swing stab sim`: the simulated hand thru
 float headFwd[2] = { 0.0f, -1.0f }; // where the head faces, flattened; the last good one is kept
 bool speedLog = false;              // `swing log on`
 volatile LONG padPollsTotal = 0;
+// VR-220: the attack-source record for anim_state (script lane). GetTickCount64 because
+// the anim snapshot's entered[]/sequenceAt are that clock; hon.fireTick already is too.
+std::atomic<unsigned long long> pubFireTick{0}, pubPulseCloseTick{0};
+std::atomic<unsigned> pubFires{0};
+std::atomic<bool> pubRealTrig{false};
 
 struct Sim { bool on = false; double startMs = 0; float peak = 0, humpMs = 200; int reps = 1;
              unsigned fires0 = 0, blocked0 = 0; } sim;
@@ -181,7 +186,12 @@ uint32_t gates(double now) {
     if (InterlockedCompareExchange(&g_padBtnsPub, 0, 0) &
         (XINPUT_GAMEPAD_LEFT_SHOULDER | XINPUT_GAMEPAD_RIGHT_SHOULDER)) m |= kGateBumper;
     if (g_ovlVisible) m |= kGateOverlay;
-    if (body.valid && (body.game || !strcmp(body.state[0], "StatePlayerMasterMantle"))) m |= kGateBody;
+    // VR-220: the gate reads the BODY-owning classifier (mantle, cinematic, the master and
+    // upper rules), not the hand-back as a whole: a trigger attack's hand-back (the game's
+    // clip on the tracked hand) sets body.game too, and gating on it refused the physical
+    // swing that followed a trigger slash for the attack plus ReleaseMs. Under HandAnimMelee=0
+    // and HandAnimFire=0 the two read the same, so the existing sequences are unchanged.
+    if (body.valid && (body.cameraAction || !strcmp(body.state[0], "StatePlayerMasterMantle"))) m |= kGateBody;
     return m;
 }
 // The FIRST closed gate is the owner of a zero; say which, with its values.
@@ -205,7 +215,10 @@ void closed_text(uint32_t m, double now, char* out, size_t cap) {
     else _snprintf_s(out, cap, _TRUNCATE, "open");
 }
 
-void close_pulse() { pulse = Pulse{}; g_meleeUntil = 0.0; }
+void close_pulse() {
+    if (pulse.openMs != 0.0) pubPulseCloseTick.store(GetTickCount64());   // VR-220
+    pulse = Pulse{}; g_meleeUntil = 0.0;
+}
 
 void honour_begin(double now) {
     const dvr::anim::Snapshot s = dvr::anim::snapshot();
@@ -221,7 +234,7 @@ void honour_begin(double now) {
 // the unwelcome answer, and says INCONCLUSIVE where it cannot tell.
 void honour_poll(double now) {
     if (!hon.on) return;
-    if (realTrigger > 0.5f) hon.realTrig = true;
+    if (realTrigger > 0.5f) { hon.realTrig = true; pubRealTrig.store(true); }   // VR-220: anim sees the overlap too
     const dvr::anim::Snapshot s = dvr::anim::snapshot();
     const unsigned long long t = GetTickCount64();
     const unsigned age = (unsigned)(t - hon.fireTick);
@@ -385,6 +398,9 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
         pulse.polls0 = InterlockedCompareExchange(&padPollsTotal, 0, 0);
         pulse.minPolls = edgeMode ? st.pulseMinPolls : 0;
         g_meleeUntil = pulse.untilMs; g_meleeNext = now + g_meleeCoolMs;
+        // VR-220: publish the fire for anim_state's attack-source verdict (stores only).
+        pubFireTick.store(GetTickCount64()); pubPulseCloseTick.store(0);
+        pubFires.store(n.fires); pubRealTrig.store(realTrigger > 0.5f);
         // Timed because haptics were once a frame-spike suspect (30.24).
         const double h0 = MaimNowMs();
         if (g_meleeHaptic) MaimHaptic(1, 0.7f, 0.08f);
@@ -468,6 +484,10 @@ void note_real_trigger(float v) { realTrigger = v; }
 void note_pad_poll() { InterlockedIncrement(&padPollsTotal); }
 long pad_polls() { return InterlockedCompareExchange(&padPollsTotal, 0, 0); }
 bool output_rb() { return st.outputRb; }
+unsigned long long last_fire_tick() { return pubFireTick.load(); }            // VR-220
+unsigned long long last_pulse_close_tick() { return pubPulseCloseTick.load(); }
+unsigned fires() { return pubFires.load(); }
+bool last_fire_real_trigger() { return pubRealTrig.load(); }
 
 bool pulse_active() {
     if (pulse.openMs == 0.0) return false;
@@ -477,6 +497,7 @@ bool pulse_active() {
     // actually polled the pad, but never past half a second.
     if (pulse.minPolls > 0 && now < pulse.openMs + 500.0 &&
         InterlockedCompareExchange(&padPollsTotal, 0, 0) - pulse.polls0 < (LONG)pulse.minPolls) return true;
+    pubPulseCloseTick.store(GetTickCount64());   // VR-220: the press stopped here
     pulse.openMs = 0.0;
     return false;
 }

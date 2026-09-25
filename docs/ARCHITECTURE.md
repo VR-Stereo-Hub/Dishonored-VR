@@ -1140,3 +1140,75 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+## 2026-09-24: staging is the integration branch; VR-Main tracks releases (VR-218)
+
+Until this date VR-Main was the only branch. The 1.0.0 release and the tester zips before it
+were cut from the same tip as work still being judged, and the 1.0.1 hotfix was tagged from a
+stack of draft PRs that VR-Main did not contain, so "what can a player install" could not be
+read from a branch name. The hotfix chain was fast-forwarded onto VR-Main (its tip is the
+v1.0.1 commit), `staging` was created from that tip, and the four open PRs based on VR-Main
+were retargeted to staging.
+
+The rule from here: feature branches come off staging and their PRs target staging; merging
+into staging still needs the user's explicit yes per PR; VR-Main moves only by the release PR
+(staging -> VR-Main, merged by the user) and its tip is always the latest release tag. Linear
+Done now means merged to staging; Released means carried into VR-Main and tagged, and the
+Linear automation row that marks Done is restricted to base staging. The alternative, a
+release branch cut per version, was not taken: two long-lived branches whose difference is
+exactly "what has landed since the last release" is the smallest arrangement that answers the
+question, and a per-version branch would have to be found before it could be read.
+## 2026-09-25: a snap turn is body yaw written on the script lane (VR-219)
+
+The smooth turn is the game's own: the right stick reaches it as the pad's RX axis and the engine
+integrates it; the mod has never written yaw for a turn. A snap step is written where the head
+writer already writes the view rotation (the fresh branch of ApplyHeadToViewRotation), added to
+`rot[1]` with the head delta but handed to YawPublish as part of the INCOMING view, so the yaw
+book counts it as body yaw and the pawn, the hands, the aim ray and the HUD anchors turn with it
+in both facing modes. Two alternatives were not taken: a synthetic stick pulse (its size depends
+on the game's look sensitivity and on frame timing) and a pawn Rotation write (measured futile,
+4 of 186 survivors, head_track.cpp). The present lane detects the stick edge and eats RX only
+while the script writer is fresh (`g_scriptHeadOK`, age under 250 ms) and only after every
+block that takes the stick for navigation has zeroed it, so no second copy of the menu, wheel,
+book, lean and pointer predicates exists; wherever the writer is not writing, the stick stays
+the game's and turns smoothly. The retired fallback writer is refused, not extended. The step is
+taken exactly once in the fresh branch, so the 2 ms re-stamp and the second-eye replay cannot
+apply it twice; the next fresh dispatch reads the engine's incoming yaw against the write and
+logs HONOURED or NOT HONOURED, because a verified write is not an honoured one.
+## 2026-09-25: the attack source is the mod's knowledge, not the game's (VR-220)
+
+The game plays one swing clip for a sword attack whether the player pulled the trigger or swung
+the controller, because both reach it as the same trigger press; only the mod knows which. The
+sword hand-back (`HandAnimMelee`, the game's clip on the tracked hand, then back to the controller)
+therefore reads the motion sword's own fire record and applies to trigger attacks only: a swing's
+attack is the player's arm, and pinning a moving arm to the clip would yank it. The verdict is
+made once per attack and per combo clip from the fire-to-entry time and the pulse state, and every
+ambiguity resolves toward "swing" (no hand-back) because the cost of the other error is one
+un-animated trigger hit. Rejected: reading the game's own input routing (it does not distinguish),
+and gating the hand-back on the honour check's verdict (that arrives after the attack has started).
+The melee body gate moved from the whole hand-back to the body-owning classifier so a trigger
+hand-back does not refuse the swing that follows it. The shipped default moved 0 -> 1 through a
+one-time ini migration instead of a config version bump, which would have discarded every tuned
+F10 value on every tester's machine to change one key.
+### 2026-09-24: the reported headset lives in launcher.ini, not dishonored_vr.ini
+
+VR-223 records which headset the player has, for diagnostics. It is stored in
+the launcher's own %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model and
+the mod reads it from there for one startup log line. The mod's ini was the
+obvious home and is wrong twice: the launcher must ask before the mod (and so
+its ini) is installed, and LoadConfig rewrites that ini wholesale on a version
+bump, which would silently drop the answer. The path is fixed at
+%LOCALAPPDATA%, never [Paths] DataDir, because the launcher never reads the mod's
+DataDir. It changes no setting; per-headset defaults (as the BioShock
+Remastered VR mod applies them) would be a separate, deliberate change.
+
+### 2026-09-24: the Index tuning reaches the shim through the process environment
+
+VR-224 gates shim behaviour (Index frame correction, hold trims, the knuckles
+grip binding) on a decision the mod makes from its ini and the launcher's
+headset. The shim has no config of its own and is loaded by the OpenXR loader,
+in the game process, after LoadConfig has run; the mod already hands the loader
+XR_RUNTIME_JSON the same way. So LoadConfig resolves `[Controllers]
+IndexTuning` once and sets `DVR_INDEX_TUNING=0|1`; the shim reads it on first use
+and logs it. One decision, one owner, and the shim cannot disagree with the mod's
+log. An unset variable (an older proxy, the simulator) reads as off.

@@ -23,7 +23,9 @@ supersede older repository guidance.
 - Create or verify the Linear ticket before putting its number in code or a commit.
 - Commits, PRs, and merges have no trailers or generated-by attribution. Branch names
   contain no personal names; use codex/vr-<ticket>-<description> for Codex work.
-- Merge to VR-Main only with the user's explicit instruction to merge that work.
+- Branch off `staging` and open pull requests against `staging`. Merge to `staging` only with
+  the user's explicit instruction to merge that work. Never merge to `VR-Main`: it is the
+  release branch and only the release PR the user merges moves it.
 
 ## Performance research maintenance
 

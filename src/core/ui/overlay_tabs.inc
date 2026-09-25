@@ -8,7 +8,8 @@
 static const int kOvlB = dvr::ovl::Basic, kOvlA = dvr::ovl::Advanced, kOvlD = dvr::ovl::Debug;
 static bool OvlAt(int tier) { return dvr::ovl::show(tier); }
 static void OvlTip(const char* text) { dvr::ovl::tip(text); }
-static bool OvlSec(const char* name, int tier, const char* tipText) { return dvr::ovl::section(name, tier, tipText, !strcmp(name, "Hand size and position") || !strcmp(name, "Sleeve")); }
+// Every section starts collapsed (2026-09-25); ImGui keeps what the player opens for the session.
+static bool OvlSec(const char* name, int tier, const char* tipText) { return dvr::ovl::section(name, tier, tipText, false); }
 // Save the slider just submitted when it is released (VR-196: every Basic and Advanced control
 // saves on change, so SAVE AS DEFAULTS is never needed to keep a player's setting).
 static void OvlSaveOnRelease(const char* section, const char* key, float value, const char* fmt)
@@ -180,7 +181,18 @@ static void OvlTabHands()
         }
         bool melee = dvr::anim::hand_anim_melee();
         if (dvr::ovl::checkbox("Sword swing animation on the tracked hand", &melee)) dvr::anim::set_hand_anim_melee(melee);
-        OvlTip("The hand plays the game's swing clip, then returns to the controller.");
+        OvlTip("A TRIGGER sword attack plays the game's swing clip on the hand, then returns it to the controller. "
+               "A physical swing never does: your arm is the animation.");
+        if (melee) {   // VR-220
+            ImGui::Indent();
+            bool sw = dvr::anim::hand_anim_melee_swing();
+            if (dvr::ovl::checkbox("...also when you swing the controller", &sw)) dvr::anim::set_hand_anim_melee_swing(sw);
+            OvlTip("Off: only trigger attacks play the game's swing; a physical swing keeps your arm on the sword. On: both do.");
+            bool both = dvr::anim::hand_anim_melee_both();
+            if (dvr::ovl::checkbox("...on both hands", &both)) dvr::anim::set_hand_anim_melee_both(both);
+            OvlTip("Off: only the right hand follows the clip and the left stays on the controller. On: the left hand follows it too.");
+            ImGui::Unindent();
+        }
         bool fire = dvr::anim::hand_anim_fire();
         if (dvr::ovl::checkbox("Shooting animation on the tracked hand (pistol, crossbow)", &fire)) dvr::anim::set_hand_anim_fire(fire);
         OvlTip("The hand plays the game's recoil clip, then returns to the controller.");
@@ -512,6 +524,7 @@ static void OvlTabControls()
         OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
                "Clicking both sticks recenters.");
     }
+    dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
     dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
     dvr::drop::draw_ui();    // drop takedowns (its own section)
 }
@@ -615,6 +628,11 @@ static void OvlTabComfort()
         if (dvr::ovl::checkbox("Suppress cinematic roll", &rollLock)) { CineRollSet(rollLock); OvlSaveBool("Cine", "LockRoll", rollLock); }
         bool fov = CineFovEnabled();
         if (dvr::ovl::checkbox("Suppress cinematic FOV zoom", &fov)) { CineFovSet(fov); OvlSaveBool("Cine", "LockFov", fov); }
+        bool match = CineFovMatchEnabled();
+        ImGui::BeginDisabled(!fov);
+        if (dvr::ovl::checkbox("Cutscenes use the gameplay FOV", &match)) { CineFovMatchSet(match); OvlSaveBool("Cine", "MatchGameplayFov", match); }
+        ImGui::EndDisabled();
+        OvlTip("Scenes are framed at the same field of view as play. Off frames them at the headset's own FOV instead.");
         bool specialHead = SpecialHeadEnabled();
         if (dvr::ovl::checkbox("Natural head look in lean / keyholes", &specialHead)) { SpecialHeadSet(specialHead); OvlSaveBool("Cine", "SpecialHeadLook", specialHead); }
         OvlTip("Keeps the game's peek position, and lets your head look around past the game's limits.");
@@ -763,6 +781,17 @@ static void OvlTabDisplay()
             OvlTip("Updates the monitor less often when it is safe; the headset keeps both eyes.");
             ImGui::EndDisabled();
         }
+    }
+    if (OvlSec("Object culling", kOvlA, "How the game skips objects it thinks you cannot see.")) {
+        int oc = OcclusionModeGet();
+        if (dvr::ovl::radio_button("Per eye", &oc, 1)) OcclusionModeSet(1, "F10 Display");
+        OvlTip("Each eye hides only what IT cannot see. Recommended.");
+        ImGui::SameLine();
+        if (dvr::ovl::radio_button("Game default", &oc, 0)) OcclusionModeSet(0, "F10 Display");
+        OvlTip("As the game shipped: something hidden from one eye can vanish from both.");
+        ImGui::SameLine();
+        if (dvr::ovl::radio_button("Off", &oc, 2)) OcclusionModeSet(2, "F10 Display");
+        OvlTip("Nothing is ever hidden. Always correct, but slower.");
     }
     if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
         ImGui::BeginDisabled(busy);
