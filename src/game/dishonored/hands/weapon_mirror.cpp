@@ -51,6 +51,7 @@ float g_wmBias = 0.0f;       // [Mirror] DepthBias: push the copy back so a real
 LONG g_wmBiasDraws = 0;
 bool g_wmBack = false;   // [Mirror] BackFaces: redraw the weapon with its back faces (fills one-sided holes)
 bool g_wmCaps = true;        // [Mirror] Caps: close open holes (where the hand covered the model) with fans
+bool g_wmBodyOnly = true;    // [Mirror] BodyBoneOnly (VR-225): copy and cap only geometry rigid on the body bone
 LONG g_wmBackDrawn = 0, g_wmCapDrawn = 0;
 char g_wmAssets[256] = "Wpn_PlyGunElite,crossbow_01";
 char g_wmIni[MAX_PATH] = "";
@@ -70,8 +71,9 @@ static void WmReleaseAll(const char* why) {
 }
 static void WmSet(bool on) {
     g_wmOn = on;
-    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu, back faces %s, hole caps %s)",
-        on ? "ON" : "off", g_wmAssets, g_wmEps, g_wmFill, g_wmBack ? "ON" : "off", g_wmCaps ? "ON" : "off");
+    Log("mirror: %s (VR-138; assets %s, Eps %.2f uu, FillRadius %.2f uu, back faces %s, hole caps %s, body bone only %s)",
+        on ? "ON" : "off", g_wmAssets, g_wmEps, g_wmFill, g_wmBack ? "ON" : "off", g_wmCaps ? "ON" : "off",
+        g_wmBodyOnly ? "ON" : "off");
 }
 static bool WmEnabled() { return g_wmOn; }
 static void WmConfigure(const char* ini) {
@@ -84,6 +86,7 @@ static void WmConfigure(const char* ini) {
     if (!(g_wmFill > 0.0f && g_wmFill < 50.0f)) g_wmFill = 1.5f;
     g_wmBack = GetPrivateProfileIntA("Mirror", "BackFaces", 0, ini) != 0;
     g_wmCaps = GetPrivateProfileIntA("Mirror", "Caps", 1, ini) != 0;
+    g_wmBodyOnly = GetPrivateProfileIntA("Mirror", "BodyBoneOnly", 1, ini) != 0;
     GetPrivateProfileStringA("Mirror", "CoverTol", "0.3", v, sizeof(v), ini); g_wmCoverTol = (float)atof(v);
     GetPrivateProfileStringA("Mirror", "Straddle", "2.0", v, sizeof(v), ini); g_wmStraddle = (float)atof(v);
     if (!(g_wmStraddle >= 0.0f && g_wmStraddle < 20.0f)) g_wmStraddle = 2.0f;
@@ -143,7 +146,7 @@ static IDirect3DIndexBuffer9* WmMakeIb(IDirect3DDevice9* dev, const std::vector<
 // modelled as one layer) whose adjacent triangles lie INSIDE the loop, where a
 // cap would lay a second surface on the sheet and z-fight.
 static void WmBuildCaps(IDirect3DDevice9* dev, WmEntry* e, const std::vector<uint32_t>& idx, const std::vector<float>& pos,
-                        UINT minIndex, const float ext[3]) {
+                        UINT minIndex, const float ext[3], const std::vector<uint8_t>& body) {
     if (!g_wmCaps) return;
     const float weld = 0.02f;
     std::unordered_map<long long, uint32_t> weldMap; std::vector<uint32_t> wid(pos.size() / 3, 0xFFFFFFFFu), rep;
@@ -181,7 +184,7 @@ static void WmBuildCaps(IDirect3DDevice9* dev, WmEntry* e, const std::vector<uin
         }
     const float maxExt = (std::max)(ext[0], (std::max)(ext[1], ext[2]));
     std::vector<uint32_t> out; std::unordered_map<uint32_t, bool> done;
-    UINT loops = 0, capped = 0, tooLong = 0, tooWide = 0, sheet = 0, open = 0;
+    UINT loops = 0, capped = 0, tooLong = 0, tooWide = 0, sheet = 0, open = 0, moving = 0;
     for (auto& kv : next) {
         if (done.count(kv.first)) continue;
         std::vector<uint32_t> loop, thirds; uint32_t cur = kv.first; bool closed = false;
@@ -197,6 +200,15 @@ static void WmBuildCaps(IDirect3DDevice9* dev, WmEntry* e, const std::vector<uin
         if (!closed) { ++open; continue; }
         if (loop.size() < 3) continue;
         if (loop.size() > 96) { ++tooLong; continue; }
+        // VR-225: a fan over existing vertices is only a flat cap while those
+        // vertices keep their reference-pose layout. A loop touching a bone that
+        // moves on its own (the bow's limbs and string when it fires, a part the
+        // game collapses when it is empty) stretches its fan into a sheet.
+        if (!body.empty()) {
+            bool rigid = true;
+            for (uint32_t w : loop) if (!body[rawOf[w] - minIndex]) { rigid = false; break; }
+            if (!rigid) { ++moving; continue; }
+        }
         float c[3] = {}, n[3] = {}, dia = 0;
         for (uint32_t w : loop) for (int a = 0; a < 3; ++a) c[a] += pos[rep[w] * 3 + a] / (float)loop.size();
         for (size_t i = 0; i < loop.size(); ++i) {   // Newell normal and diameter
@@ -237,8 +249,8 @@ static void WmBuildCaps(IDirect3DDevice9* dev, WmEntry* e, const std::vector<uin
     }
     e->caps = WmMakeIb(dev, out); e->capPrims = e->caps ? (UINT)(out.size() / 3) : 0;
     Log("mirror/caps: '%s' boundary edges %u (welded at %.2f uu; %u branch points) | loops %u: capped %u (%u triangles), "
-        "refused: open chain %u, longer than 96 edges %u, wider than 45%% of the model %u, sheet outline %u%s",
-        e->asset, boundary, weld, branchy, loops, capped, e->capPrims, open, tooLong, tooWide, sheet,
+        "refused: open chain %u, longer than 96 edges %u, wider than 45%% of the model %u, sheet outline %u, on a moving bone %u%s",
+        e->asset, boundary, weld, branchy, loops, capped, e->capPrims, open, tooLong, tooWide, sheet, moving,
         boundary ? "" : " - the model is CLOSED: the missing areas are not holes in this mesh");
 }
 
@@ -266,11 +278,20 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
             posOff = el[i].Offset;
         }
     if (posOff < 0 || (UINT)posOff + 12 > e->stride) { refuse("no POSITION element"); return; }
+    // VR-225: the skin, so the copy and the caps can stay on the body bone.
+    MsElem wt = {}, bi = {};
+    for (UINT i = 0; i < en; ++i) {
+        if (el[i].Type == D3DDECLTYPE_UNUSED || el[i].Stream != 0) continue;
+        if (el[i].Usage == D3DDECLUSAGE_BLENDWEIGHT && !wt.have)  wt = { (int)el[i].Offset, (int)el[i].Type, 1 };
+        if (el[i].Usage == D3DDECLUSAGE_BLENDINDICES && !bi.have) bi = { (int)el[i].Offset, (int)el[i].Type, 1 };
+    }
+    const bool skinned = wt.have && bi.have && (UINT)wt.off + 4 <= e->stride && (UINT)bi.off + 4 <= e->stride;
 
     IDirect3DVertexBuffer9* vb = nullptr; IDirect3DIndexBuffer9* ib = nullptr; UINT off = 0, stride = 0;
     if (FAILED(dev->GetStreamSource(0, &vb, &off, &stride)) || !vb) { refuse("no stream 0"); return; }
     if (FAILED(dev->GetIndices(&ib)) || !ib) { vb->Release(); refuse("no index buffer"); return; }
     std::vector<uint32_t> idx; std::vector<float> pos;
+    std::vector<int> rbone;   // the one bone a vertex is rigid on (weight >= 0.99), -1 blended, -2 unreadable
     const char* why = nullptr;
     do {
         D3DVERTEXBUFFER_DESC vd; D3DINDEXBUFFER_DESC id;
@@ -292,6 +313,15 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
         if (FAILED(vb->Lock((UINT)vo, (UINT)vl, &data, (vd.Usage & D3DUSAGE_WRITEONLY) ? 0 : D3DLOCK_READONLY)) || !data) { why = "vertex buffer would not lock"; break; }
         pos.resize((size_t)numVerts * 3);
         for (UINT i = 0; i < numVerts; ++i) memcpy(&pos[i * 3], (const uint8_t*)data + (size_t)i * stride + posOff, 12);
+        if (skinned) {
+            rbone.assign(numVerts, -1);
+            for (UINT i = 0; i < numVerts; ++i) {
+                const uint8_t* v = (const uint8_t*)data + (size_t)i * stride;
+                float w4[4]; uint8_t b4[4];
+                if (!MsReadWeights(v, &wt, w4) || !MsReadIndices(v, &bi, b4)) { rbone[i] = -2; continue; }
+                for (int j = 0; j < 4; ++j) if (w4[j] >= 0.99f) { rbone[i] = b4[j]; break; }
+            }
+        }
         vb->Unlock();
     } while (false);
     ib->Release(); vb->Release();
@@ -310,7 +340,39 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     }
     const float ext[3] = { hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2] };
     const int barrel = ext[0] >= ext[1] && ext[0] >= ext[2] ? 0 : ext[1] >= ext[2] ? 1 : 2;
-    WmBuildCaps(dev, e, idx, pos, minIndex, ext);
+    // VR-225: the body bone. S reflects the reference pose BEFORE skinning, so a
+    // copied triangle is still skinned by its ORIGINAL bones: a left-limb triangle
+    // lands on the right side but swings about the left limb's pivot. While the
+    // weapon holds its reference pose nothing shows; when the bow fires, and for
+    // as long as it is empty, the limbs and string move and the copy lands as a
+    // displaced piece on the mirrored side (the same holds for a cap's fan). The
+    // body (the bone the most vertices are rigid on) does not move against the
+    // weapon, so with [Mirror] BodyBoneOnly only geometry rigid on it is copied
+    // or capped. Counterprediction in the log: 'moving bone' counts > 0 on the
+    // crossbow; if they are 0 the stray piece is not a skinning artefact.
+    std::vector<uint8_t> body;
+    {
+        std::unordered_map<int, UINT> census; UINT blended = 0, unread = 0;
+        for (UINT i = 0; i < numVerts && !rbone.empty(); ++i) if (used[i]) {
+            if (rbone[i] >= 0) ++census[rbone[i]]; else if (rbone[i] == -1) ++blended; else ++unread;
+        }
+        int bodyBone = -1; UINT bodyN = 0;
+        for (auto& kv : census) if (kv.second > bodyN) { bodyN = kv.second; bodyBone = kv.first; }
+        char list[256] = ""; size_t at = 0;
+        for (auto& kv : census)
+            if (at + 24 < sizeof(list)) at += _snprintf(list + at, sizeof(list) - at, "%s%d:%u", at ? " " : "", kv.first, kv.second);
+        if (!skinned)
+            Log("mirror/skin: '%s' no BLENDWEIGHT/BLENDINDICES in stream 0 - body-bone filter OFF for this weapon (copies and caps as before)", e->asset);
+        else
+            Log("mirror/skin: '%s' rigid vertices per bone {%s} | blended %u unreadable %u | body bone %d (%u of %u used) | filter %s",
+                e->asset, list, blended, unread, bodyBone, bodyN, nUsed,
+                g_wmBodyOnly ? "ON: only geometry rigid on the body bone is copied or capped" : "off ([Mirror] BodyBoneOnly=0)");
+        if (skinned && g_wmBodyOnly && bodyBone >= 0) {
+            body.assign(numVerts, 0);
+            for (UINT i = 0; i < numVerts; ++i) body[i] = rbone[i] == bodyBone;
+        }
+    }
+    WmBuildCaps(dev, e, idx, pos, minIndex, ext, body);
 
     // The plane: the ini override, else the SYMMETRY PLANE. Build464 refused
     // both weapons under the first rule (a cut face: 26 of 6330 pistol and 8 of
@@ -490,7 +552,7 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
         return false;
     };
     std::vector<uint32_t> kept; kept.reserve(idx.size());
-    UINT skipSide = 0, skipPlane = 0, skipCovered = 0, straddled = 0;
+    UINT skipSide = 0, skipPlane = 0, skipCovered = 0, straddled = 0, skipMoving = 0;
     uint32_t maxIdx = 0;
     for (size_t t = 0; t < nTri; ++t) {
         const float* p0 = &pos[(idx[t*3] - minIndex) * 3]; const float* p1 = &pos[(idx[t*3+1] - minIndex) * 3];
@@ -508,6 +570,7 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
             ++straddled;
         }
         if ((std::max)(d0, (std::max)(d1, d2)) <= g_wmEps) { ++skipPlane; continue; }
+        if (!body.empty() && !(body[idx[t*3] - minIndex] && body[idx[t*3+1] - minIndex] && body[idx[t*3+2] - minIndex])) { ++skipMoving; continue; }
         float rn[3] = { tn[t*3], tn[t*3+1], tn[t*3+2] }; rn[ax] = -rn[ax];   // the copy's outward facing
         float m[3];
         for (int i = 0; i < 3; ++i) m[i] = S[i*4]*tc[t*3] + S[i*4+1]*tc[t*3+1] + S[i*4+2]*tc[t*3+2] + S[i*4+3];
@@ -533,14 +596,14 @@ static void WmBuild(IDirect3DDevice9* dev, WmEntry* e, INT baseVertex, UINT minI
     const UINT keptPrims = (UINT)(kept.size() / 3);
     Log("mirror/build: '%s' verts %u used %u prims %u | bbox (%.1f %.1f %.1f)-(%.1f %.1f %.1f) | barrel axis %c | "
         "plane n=(%.0f %.0f %.0f) through %c=%.2f %s%s | sides %u/%u | faces min/max x %u/%u y %u/%u z %u/%u | kept %u of %u "
-        "(skipped: other side %u, on plane %u, already modelled %u; %u triangles on the other side) Eps %.2f Fill %.2f CoverTol %.2f | "
+        "(skipped: other side %u, on plane %u, already modelled %u, on a moving bone %u; %u triangles on the other side) Eps %.2f Fill %.2f CoverTol %.2f | "
         "normal maps on the copy light from the mirrored side (cosmetic, accepted)",
         e->asset, numVerts, nUsed, primCount, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2], "xyz"[barrel],
         e->n[0], e->n[1], e->n[2], "xyz"[e->n[0] != 0 ? 0 : e->n[1] != 0 ? 1 : 2],
         e->n[0] != 0 ? e->c[0] : e->n[1] != 0 ? e->c[1] : e->c[2],
         e->measured ? "MEASURED" : "from [Mirror] Plane_ (NOT measured)",
         e->measured ? "" : "", sideHi, sideLo, faceCnt[0][0], faceCnt[0][1], faceCnt[1][0], faceCnt[1][1], faceCnt[2][0], faceCnt[2][1],
-        keptPrims, primCount, skipSide, skipPlane, skipCovered, nOther, g_wmEps, g_wmFill, g_wmCoverTol);
+        keptPrims, primCount, skipSide, skipPlane, skipCovered, skipMoving, nOther, g_wmEps, g_wmFill, g_wmCoverTol);
     (void)maxIdx;
     if (!keptPrims) { refuseKeepCaps("nothing to fill (0 triangles kept) - the plane may be wrong"); return; }
     IDirect3DIndexBuffer9* ours = WmMakeIb(dev, kept);
@@ -667,6 +730,12 @@ static bool WmCommand(const char* args) {
         WmReleaseAll("caps toggled");
         return true;
     }
+    if (!strncmp(args, "body ", 5) && DvrOnOff(args + 5, &b)) {
+        g_wmBodyOnly = b; Log("mirror: body bone only %s (VR-225; rebuilding)", b ? "ON" : "off");
+        if (g_wmIni[0]) WritePrivateProfileStringA("Mirror", "BodyBoneOnly", b ? "1" : "0", g_wmIni);
+        WmReleaseAll("body-bone filter toggled");
+        return true;
+    }
     if (!strncmp(args, "plane ", 6)) {
         char asset[64], axis[4], sign[4] = "+"; float off = 0;
         if (sscanf(args + 6, "%63s %3s %f %3s", asset, axis, &off, sign) >= 3 && g_wmIni[0]) {
@@ -679,7 +748,7 @@ static bool WmCommand(const char* args) {
         } else Log("mirror: plane <asset> <x|y|z> <offset> [+|-]");
         return true;
     }
-    Log("mirror: %s | drawn %ld failed %ld refused %ld | %d built | assets %s | usage: mirror on|off|rebuild|plane <asset> <axis> <offset> [sign]",
+    Log("mirror: %s | drawn %ld failed %ld refused %ld | %d built | assets %s | usage: mirror on|off|rebuild|caps on|off|body on|off|back on|off|bias <n>|plane <asset> <axis> <offset> [sign]",
         g_wmOn ? "ON" : "off", g_wmDrawn, g_wmFailed, g_wmRefused, g_wmN, g_wmAssets);
     for (int i = 0; i < g_wmN; ++i)
         Log("mirror:   [%d] '%s' state %d kept %u drawn %ld failed %ld plane n=(%.0f %.0f %.0f) c=(%.2f %.2f %.2f) %s", i,
