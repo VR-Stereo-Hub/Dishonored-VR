@@ -1140,3 +1140,13 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+## Texture-backed capture interop (VR-260, 2026-09-25)
+
+The capture probe and slots use a one-level DEFAULT render-target texture,
+following the documented D3D9-to-D3D11 contract. The level-zero D3D9 surface is
+the StretchRect destination. A small owner keeps the D3D9 texture, surface and
+D3D11 texture together; capture releases SRVs before resetting that owner.
+The probe uses the same preferred A8/backbuffer fallback formats as the slots.
+This changes resource creation only; existing producer/consumer fences and eye
+delivery remain responsible for synchronization.

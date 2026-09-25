@@ -1,3 +1,11 @@
+## Unreleased candidate (VR-260)
+
+- Use texture-backed D3D9/D3D11 sharing and consistent probe formats to avoid
+  rejecting shared capture prematurely. Remote compatibility confirmation is
+  pending; this is not a published release.
+- Report the precise sharing failure rather than blaming OpenSharedResource
+  when no sharing handle was returned.
+
 ## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic

@@ -1,3 +1,16 @@
+## VR-260 shared capture compatibility candidate (2026-09-25)
+
+Isolated branch codex/vr-260-shared-texture-capture starts at staging f5176aeae.
+A separate performance support run falls from requested shared capture to sync
+at startup. Capture averages about150 ms, mostly LockRect. The candidate replaces
+the standalone shared surface with a texture-backed resource and aligns probe
+formats with live slots. Native pixel/failure/reset tests, optimized x86 build,
+lint and nine proxy exports pass; affected-PC
+acceptance remains pending. Measurements, exclusions and the one-launch test are
+in docs/dishonored/PERFORMANCE.md, VR-260. Do not install on the maintainer's game;
+their newer build and Claude's checkout remain untouched. The VR-229 prison
+flicker tester remains a separate pending investigation.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication
