@@ -63,7 +63,11 @@ Validation: production pairing1142 checks with diagnostics and1141 without; actu
 recorder133 checks (122 formatted records), including missing method, R/R, stale left,
 API/fence failure, no-frame consumption, fallback, suppressed-event populations and
 1024-byte logger limit. One-hour scheduler and missing-left negative control pass.
-Normal pairing decisions are unchanged. Optimized x86 compilation/packaging follow.
+Normal pairing decisions are unchanged. Normal and diagnostic optimized x86 builds,
+lint and9 exports pass. Clean diagnostic build `v1.0.1-6-g31450526c`; ZIP CRC,
+x86 header, embedded identity/diagnostic strings and extracted hash verified.
+DLL SHA256 `1522d2325f19b302a609490a34c26b4e4a31b539df3e31d3bb5f1e628bbb569d`.
+Package: `build/test-packages/DishonoredVR-VR229-prison-flicker-diagnostic-31450526c.zip` in the primary checkout.
 No game, in-game simulator or headset run performed. Diagnostics perturb timing;
 bounded sampling cannot promise to identify every possible fault in one run.
 

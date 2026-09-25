@@ -11,7 +11,13 @@ writes, slot reuse and pose/cadence alternatives. Pairing behavior is unchanged.
 
 Host validation:1142 diagnostic pairing checks,1141 normal,133 actual recorder
 checks pass. Includes one-hour recording and missing-left negative control.
-No headset/game validation. Artifact identity will be recorded after clean build.
+Normal and diagnostic optimized x86 builds pass, legacy off; lint and9 exports pass.
+No headset/game validation. Clean test build `v1.0.1-6-g31450526c`.
+DLL SHA256 `1522d2325f19b302a609490a34c26b4e4a31b539df3e31d3bb5f1e628bbb569d`.
+ZIP in primary checkout: `build/test-packages/DishonoredVR-VR229-prison-flicker-diagnostic-31450526c.zip`.
+ZIP is15,894,046 bytes; CRC, embedded build/diagnostic strings, x86 header and
+extracted DLL/checksum manifest verified. DLL-only, self-arming, no INI/installer.
+Installed copy remains untouched. Existing draft PR126 targets staging.
 Next: remote prison cinematic plus10seconds of gameplay at unchanged settings,
 quit and collect support ZIP. One question: did prison eye flicker reproduce?
 No reproduction is not a fix. Use first divergent frame to design a regression

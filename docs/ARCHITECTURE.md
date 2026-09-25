@@ -1140,3 +1140,16 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+## 2026-09-25: opt-in remote flicker flight recorder (VR-229)
+
+The remote diagnostic package is a separate compile option, default OFF. It arms
+its own bounded telemetry without changing a tester's INI or eye decisions. This
+avoids depending on a lifetime ledger budget or LEFT-triggered sampling while
+LEFT identity itself is under investigation. A fixed history joins the method
+record with the actual XR tail; independent pixel bursts and c5 census supply
+corroboration rather than treating a label as image truth. Every sample stage
+reports validity and cost. Ordinary builds explicitly reset the cached option;
+the diagnostic build command rejects automatic installation. No engine-memory
+writer or extra game resource reference is introduced. Details and the hypothesis
+matrix remain in FLICKER_REFERENCE, not in a second investigation document.
