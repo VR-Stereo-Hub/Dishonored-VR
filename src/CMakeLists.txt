@@ -54,6 +54,7 @@ set(DVR_REAL_SOURCES
     core/gfx/stereo.cpp        core/gfx/stereo.h
     core/gfx/capture.cpp       core/gfx/capture.h
     core/gfx/frame_id.cpp      core/gfx/frame_id.h
+    core/gfx/flicker_diagnostic.cpp core/gfx/flicker_diagnostic.h
 
     core/gfx/device_census.cpp core/gfx/device_census.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h

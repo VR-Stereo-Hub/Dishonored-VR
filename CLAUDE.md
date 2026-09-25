@@ -283,6 +283,27 @@ Extensive does not mean noisy. The rules that buy volume without cost:
   "what is deliberately not here". If a group of tickets closed, post one batch project
   update on Linear, not one per ticket.
 
+## Build and INI compatibility gate (required on every install)
+
+- Before installing any build, establish its expected INI configuration for this
+  machine from the intended build baseline, supported settings, defaults and
+  migrations. Verify that the target code interprets the retained values as intended.
+  An unchanged INI is NOT evidence of compatibility with a different DLL.
+- In particular, never pair an older test DLL with a newer build's INI without
+  checking changed setting semantics and unsupported keys. For example,
+  `HandAnimMelee=1` means all melee animations in older builds, but trigger-only
+  animations when the newer source-aware policy is present and swing handback is off.
+- Back up the current DLL, entire INI and logs together before installation.
+  Prepare the target build's expected INI, preserving compatible user preferences;
+  do not replace it wholesale with defaults or another tester's configuration.
+  Resolve mismatches before the install is considered ready for testing.
+- After installation, compare the ENTIRE installed INI against both its backup and
+  the expected target INI, verify CRLF byte-wise, and report every intentional
+  change and any unresolved incompatibility. Check resolved startup settings on
+  the next user-launched run as well as the matching build banner.
+- A rollback must restore a compatible DLL/INI pair, not blindly restore the DLL
+  while leaving configuration from a different build. Never launch the game yourself.
+
 ## Build / install / test
 
 ```powershell

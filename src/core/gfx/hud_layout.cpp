@@ -771,6 +771,9 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
             float taskPivot[4]{},offset[2]{};
             int kind=dvr::objectivemarkers::match_task_draw(
                 bbox,(float)dvr::capture::width(),(float)dvr::capture::height(),taskPivot,offset);
+            // VR-186: do not split an observed prompt when it crosses a task's
+            // broad text bound. Real marker icons and native parents still win.
+            if(g_groupInteractions && g_stableRoutes.prefer_interaction(drawKey,drawFrame,kind)) kind=0;
             if(kind==1) g_taskIconContinuity.route(drawKey,drawFrame,GetTickCount(),bbox,vertices,primitives,true);
             else if(!kind && dvr::objectivemarkers::task_visible() &&
                     g_taskIconContinuity.route(drawKey,drawFrame,GetTickCount(),bbox,vertices,primitives,false)) {
@@ -832,7 +835,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
                 // the native measured dot/grown reticle rather than adopting it.
                 !hudroute::centered_reticle(bbox,primitives) && !hudroute::centered_gauge(bbox) &&
                 g_interactionGroup.claim(bbox,drawFrame,(!heuristicMarkers || !icon) && (spatial==ElPrompt || e==ElPrompt))) {
-                e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e);why=WhyInteraction;
+                e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e,true);why=WhyInteraction;
             }
         }
     }

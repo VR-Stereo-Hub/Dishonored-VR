@@ -1,3 +1,37 @@
+## VR-229 local diagnostic cost and normal follow-up build (2026-09-25)
+
+Verified local build v1.0.1-8-gc4f5fe5df, recorder ON, GPU pixel collection OFF,
+17263437..18005296 (741.859seconds). 60335 log lines total; 11142 flicker lines,
+4476863bytes,99 windows. Approximate diagnostic output6KB/s is modest, but the
+largest measured recorder finish/log burst is1.606ms. This includes the history
+copy/format/log work and can include buffered file flush or scheduling; it excludes
+other per-draw collection and is not an end-to-end off/on benchmark. It therefore
+does not establish negligible frame-time impact.
+
+Cause of burstiness: opening a window prints12 historical frames plus the current
+frame in one Present, four lines each. Windows are bounded to one per5seconds;
+healthy heartbeat10seconds. The logger is buffered with a200ms flush cadence,
+not an unconditional per-line flush. Prior host recorder mean1.660us/present and
+max0.867ms were a different machine/workload and do not override the measured
+local1.606ms peak. No attribution of every perceived hitch to logging is possible.
+
+The local follow-up is an optimized normal build: DVR_FLICKER_DIAGNOSTICS=OFF,
+DVR_FLICKER_PIXEL_DIAGNOSTICS=OFF, DVR_WITH_LEGACY=OFF. Thus recorder history,
+camera-upload census, formatting and the extra XR snapshot work compile out.
+Its expected INI explicitly sets Perf.FrameId=0 because a normal build would
+otherwise re-enable GPU probes from the retained FrameId=1 (the remote diagnostic
+DLL had forcibly suppressed them). RingLedger's existing bounded reports remain;
+new late-expire/progress reports run at most once per3seconds. Hand deferral logs
+are capped at two per hand; capture/rebuild logs replace existing lines. HUD
+continuity adds no logging and one bounded cache lookup for task-text candidates.
+The scoped-axis publisher/read host benchmark on this checkout is0.082us/sample;
+no claim of measured headset FPS improvement. Remote9da0a0b48 ZIP remains unchanged.
+
+Next: judge the normal candidate visually, verify the matching log banner and
+FrameId disabled. Re-enable the full recorder only for an identified need; if
+further recording is necessary, spread historical output over presents before
+claiming a negligible tail cost. Keep all performance follow-ups in this file.
+
 ## VR-79: turning occlusion queries off costs draws (2026-09-24)
 
 Headset, same day: `off` fixed the one-eye culling and read laggier than native

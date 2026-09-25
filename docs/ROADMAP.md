@@ -1,3 +1,16 @@
+## Local hand/HUD follow-ups (2026-09-25)
+
+- [x] Match local stable-menu/intro report to c4f5fe5df rather than remote9da0a0b48.
+- [x] Trace sword animation regression to old DLL/new INI semantics; retain staging VR-220.
+- [x] Reject collapsed wrist-reference capture; preserve valid same-slot references.
+- [x] Keep observed interaction content above broad task-text proximity ownership.
+- [x] Production-helper regressions, normal optimized build, defaults and export checks.
+- [x] Measure recorder peak1.606ms; compile it out of the local follow-up.
+- [ ] Local hand alignment after scene exit on the follow-up build.
+- [ ] Interaction button/action/name remain together through head pitch.
+- [ ] Trigger animation and physical-swing suppression confirmed on the same build.
+- [ ] Remote scoped-eye cinematic acceptance (separate existing ZIP).
+
 ## Cinematic follow-ups (VR-228/229, 2026-09-24)
 
 - [x] Confirm pause scope exclusion and add head-look-menu permission with epoch liveness.

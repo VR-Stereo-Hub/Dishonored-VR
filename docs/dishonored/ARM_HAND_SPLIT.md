@@ -1,3 +1,31 @@
+## VR-188 follow-up: empty right-hand reference at scene exit (2026-09-25)
+
+Verified local c4f5fe5df run captures LEFT -5.6/+3.0/+8.1 at17292718, but RIGHT
+-0.0/-0.0/+0.0 at17416203, then preserves that right correction across rebuilds.
+The existing sleeve repair is active: fixed -4.9 anchor plane, right vote35,
+wrist30, no collapse of the vote onto the wrist. Thus the earlier sleeve-index
+fault is not reintroduced. Losing the wrist-to-vote correction can produce a
+similar orientation error, which is the candidate explanation for the reported
+post-cutscene hand rotation. The log rounds angles and does not include the full
+first palette; it cannot prove that every near-zero sample is a transition fault.
+
+Candidate WristReference uses the current vote frame until the distinct wrist
+and vote slots have an observable relative rotation, then retains it exactly as
+before. Matrix difference tolerance1e-5 rejects float noise, not a guessed grip
+angle. No hardcoded hand pose is introduced. Same-pair rebuilds keep a valid
+reference; held items cannot replace it; changed pairs cannot reuse it, including
+when a new vote read is missing. Steady-state work remains one matrix product.
+Two deferral messages per hand maximum; measured/kept lines occur only on capture
+or rebuild, replacing existing logs. No new engine-memory writer.
+
+Five production-helper tests cover identity-to-articulated capture (old latch
+negative control49degrees), rebuild preservation, held-item isolation, changed
+pair/missing sample, and float noise. Full frame_test passes. These are synthetic
+regressions; first articulated pose still defines calibration and visual acceptance
+is OPEN. Next: same opening-scene exit, check right-hand alignment and archive the
+matching new run. If rotation persists, inspect the captured offset and source
+pose eligibility instead of inventing a compensating angle.
+
 # The arm/hand split
 
 ## VR-188: the hand turned at one sleeve length; Sleeve presets (2026-09-22)

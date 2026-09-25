@@ -83,6 +83,9 @@ void stage_out(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResource
 void stage_swapchain(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* image, int target, uint32_t index);
 
 
+#ifdef DVR_FLICKER_DIAGNOSTICS
+void diagnostic_burst(); // next eight grabs; called only by the bounded flight window
+#endif
 void on_reset();     // the D3D9 ring goes (default pool) before the device resets
 void shutdown();
 void log_status();   // `frameid status`

@@ -358,14 +358,9 @@ static float    g_mpAnchorBind[MS_CLS_N][3];
 // the wrist finder named (g_msHandBone), rigidly. 0 = the old weight vote over the anchor patch.
 static bool     g_mpAnchorHandBone = true;
 static int      g_mpVoteSlot[MS_CLS_N] = { -1, -1, -1, -1, -1 };   // what the weight vote chose
-// X = R_hand^T * R_vote, measured once per source generation, so R_src = R_hand * X equals the
-// old frame at that instant: the saved grip and the trims keep their meaning, and the frame then
-// follows the hand bone rigidly.
-static dvr::hf::Mat3 g_mpSrcX[2]; static bool g_mpSrcXok[2] = { false, false }; static uint32_t g_mpSrcXGen[2] = { 0, 0 };
-// The (vote slot, hand bone) pair the offset was measured between. A rebuild
-// (a sleeve change, a level load) that keeps the pair keeps the offset instead
-// of re-measuring it at whatever pose the fingers are in at that moment.
-static int g_mpSrcXPair[2][2] = { { -1, -1 }, { -1, -1 } };
+// The empty-hand wrist/finger reference survives same-slot rebuilds, but a
+// collapsed transition palette cannot seed it. Held items never change it.
+static dvr::hf::WristReference g_mpWristReference[2];
 // The anchor's offset from the rigid wrist point, in the hand bone's own (bind) space, kept the
 // same way as X: re-measured while an item is held, frozen while the hand is empty.
 static float g_mpAnchorOff[MS_CLS_N][3]; static bool g_mpAnchorOffOk[MS_CLS_N] = { false, false, false, false, false };

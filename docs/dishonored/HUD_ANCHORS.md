@@ -1,3 +1,29 @@
+## VR-186 follow-up: interaction text crossing objective bounds (2026-09-25)
+
+In verified local c4f5fe5df, draw key c07faf8d815a2b72 repeatedly switches from
+interaction/window to task-text/native and back at rect0.538/0.493/0.597/0.516,
+including17667734..17667765. A native task text window returns before interaction
+grouping and cuts the widget group. This can separate neighboring pieces during
+head pitch even though the user keeps pointing at the same target. The log does
+not identify text content, so it does not establish which of the reported button,
+action label and character name this key represents.
+
+Candidate remembers an actual interaction-group observation in the existing
+fixed2048-entry content cache. For two presents it outranks only a task TEXT
+proximity match. Continuous valid interaction grouping refreshes the observation.
+Initial spatial hints alone do not qualify. Task icons and their continuity,
+runes and awareness retain priority. Missing keys, hash collisions, ambiguous
+shared sprites, load/menu resets and expired observations refuse the override.
+No allocation, new log or engine-memory write. This is content/proximity evidence,
+not semantic Scaleform identity; first-seen overlap or rebuilt text can still miss.
+
+503 hud-route checks pass, including the recorded rectangle claimed by the old
+text bound and the observed prompt retaining ownership afterward, plus icon,
+expiry, reset, collision and ambiguity exclusions. Headset acceptance OPEN:
+when requested after the hand test, keep pointing at the same interaction and
+pitch the head; button/action/name should remain one widget. A remaining split
+requires matching route evidence, not another broad rectangle expansion.
+
 ## The world window re-parks for each menu (VR-207, 2026-09-23)
 
 **Report:** on an Index through the SteamVR shim (build `525-g548c31693`), the pause menu

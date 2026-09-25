@@ -1,3 +1,268 @@
+## Local follow-ups on the staging baseline (2026-09-25)
+
+The local no-flicker report covers installed v1.0.1-8-gc4f5fe5df, DLL SHA256
+115f3827362e58b7a83a43dbc2d8d459256154859f5cb701565a63318c2bf518, matched to its
+log before analysis. It reports stable pause submenus and intro through prison.
+It does NOT accept scoped-eye candidate9da0a0b48; that separate remote ZIP is
+unchanged and still awaiting a report. Archive: primary checkout
+build/playtest-candidates/vr229/local-followups-20260925-124211 (both run logs,
+DLL, full INI). The previous local banner is v1.0.1-30-g868d09649.
+
+The follow-up branch starts at staging474fc8a55 and carries the source changes
+from31450526c,c4f5fe5df,9da0a0b48. This restores staging's source-aware sword
+policy rather than repeating an old-DLL/new-INI downgrade. Hand orientation and
+interaction pieces separating under head pitch are separate surfaces: reference
+capture and HUD ownership, documented in ARM_HAND_SPLIT.md and HUD_ANCHORS.md.
+Neither new candidate is headset-confirmed. Pure regression suites pass; no game
+or in-game simulator launched. Flight recorder cost/compile-out: PERFORMANCE.md.
+
+One next launch question: after the opening cinematic, does the right hand stay
+aligned with the controller? Pass supports the deferred reference capture; the
+same rotation means that first-frame identity was insufficient to explain it.
+Read the MEASURED/DEFERRED/KEPT reference lines against that exact build banner.
+Keep HUD and sword acceptance open until separately observed, without requiring
+additional diagnostic builds. No merge or release is authorized.
+
+## VR-229 scoped-eye replacement packaged (2026-09-25)
+
+Replacement ZIP: build/test-packages/DishonoredVR-VR229-scoped-eye-fix-9da0a0b48.zip in primary checkout,
+15894528 bytes. Build v1.0.1-10-g9da0a0b48, optimized x86, legacy OFF, CPU recorder ON,
+GPU pixel probes OFF. DLL SHA256 1150f68ce9e5bd7957e70dd07973f78cd9ff3fbe00f91c093121ca7ed0b4c3c4.
+ZIP CRC, all member checksums, extracted DLL bytes, embedded clean source identity,
+x86 PE and9 exports verified. Normal and recorder builds pass, lint clean.
+Source commit9da0a0b48 pushed to draft PR131, base staging; no merge/release.
+The prior c4f5fe5df candidate remains installed locally and is untested by the
+maintainer; this follow-up did not install or launch anything. Recommend the
+replacement instead of testing the rejected prior candidate. Remote acceptance
+and pause-submenu benefit remain OPEN. One prison head-turn/fade test, then support.
+
+## VR-229: reload-dependent return, scoped stereo-axis mismatch (2026-09-25)
+
+Surface/route: whole-eye instability and head-turn separation, section1 stale-eye
+and doubled-edge rows. Current support-20260925-130534 log is candidate
+v1.0.1-8-gc4f5fe5df; previous log is the earlier31450526c diagnostic and must not
+be combined into its counters. Report: loading an end-of-Empress autosave makes
+that scene unstable but the following prison stable; loading a pre-scene manual
+save reverses this. In the second prison run, large head turns separate the eyes
+until looking forward again. This is reported regression/non-acceptance, not a
+successful fix just because one run improved. No precise symptom timestamps.
+
+Timeline inferred from the two cinematic/load sequences:
+
+| Interval | First/last printed cumulative stale/expiry/duplicate | progressInsideDraw sum |
+|---|---|---|
+| Empress1 581159015..581226343 | 0/0/3 ->27/0/80 | 0 |
+| Prison1 581244812..581324562 | 27/2/81 ->42/7/101 | 408 |
+| Empress2 581502281..581571234 | 64/20/132 ->64/20/132 | 4 |
+| Prison2 581589812..581669562 | 94/30/188 ->260/79/418 | 383 |
+
+These are bounded printed-window endpoints, not exact interval totals or counts
+of perceived flickers. Corresponding XR samples308/336/196/420 have no recorded
+acquire/wait/release/end errors. Two fence-timeout events occur in the whole run;
+there is no evidence they explain the sustained scene/angle dependence. GPU pixel
+probes are verified OFF. No pixel-copy proof is available from this candidate.
+The progress fix is exercised but not sufficient; Empress1 fails without exercising
+it, while both prison runs exercise it. Do not attribute the entire regression to
+that guard or call the package good on the basis of fewer stale counters.
+
+Source defect: camera::apply_offsets uses g_viewScope.right for eye displacement,
+but g_lastBasisR stays on the native cached matrix row. Scoped rotator writes do
+not update that row. Reentry used last_basis for c5 arbitration, so cinematic or
+menu head look could rotate actual stereo separation away from its classifier.
+
+Identity-joined example: P67389 c5=(3170.682,-7428.086,-1147.668), P67390
+c5=(3169.362,-7434.485,-1148.346), IPD6.570. Cached right is
+(-0.6758,0.7340,0.0670); it yields along-3.851/other5.322, inv0.
+P67390's capture serial67390 is delivered on P67391 with record65616, pair32660,
+right eye, writer3; yaw/pitch/roll=-12.030/3.680/-5.938. Its quantized composed
+right vector differs by54.1degrees, yields along-6.569/other about0.001, inv+1.
+Both raw tag positions match their c5 within rounding in this example. Thus the
+basis mismatch is not inferred only from a mislabelled image. This particular
+window's tags remain correct despite the failed measurement; it demonstrates
+loss of recovery evidence, not a timestamped proof of the reported separation.
+Other windows contain delivered-eye/record disagreement and center-eye interruptions.
+
+Candidate: independently publish the exact stereo right axis after a successful
+eye write. Two bounded coherent atomic snapshot attempts on the render lane;
+unavailable snapshot declines geometry and leaves ring fallback. Read this axis
+for arbitration and frame-id geometry. Ordinary writes replace scope axes after
+exit; no retained engine identity, engine-memory writer or translation-axis change.
+All moving-camera thresholds, late-tag confirmation and ring handling remain.
+Latest-writer basis is still not a render-frame identity; fast queued rotations
+and other remaining center-eye interruptions are not claimed solved.
+
+Validation:225 yaw/pitch/roll late-tag schedules against production publisher and
+arbitration; old native-axis negative control2184 identity/repair failures, corrected
+schedules zero. Recorded rounded camera step passes old-unknown/new-right checks.
+Concurrent snapshots, initial unavailable and return-to-native pass. Full pairing
+1678 normal/1679 diagnostic checks; cinematic math and scope ownership pass.
+No headset/game or in-game simulator launched. Costs recorded in PERFORMANCE.md.
+Next: one replacement candidate, retaining the prior baseline and CPU history with
+GPU pixels off; prison with natural head turns through fade/gameplay. Stability is
+OPEN until affected-player confirmation; no promise that a unit test proves fusion.
+
+## VR-229 packaged acceptance build (2026-09-25)
+
+ZIP: build/test-packages/DishonoredVR-VR229-prison-fix-c4f5fe5df.zip in the primary
+checkout, 15893518 bytes. Build v1.0.1-8-gc4f5fe5df, optimized x86, legacy OFF,
+CPU recorder ON, GPU pixel probes OFF. DLL SHA256
+115f3827362e58b7a83a43dbc2d8d459256154859f5cb701565a63318c2bf518.
+Nine exports, ZIP CRC, extracted DLL hash, x86 PE, clean build identity and
+compile flags verified. Normal build also passes with both diagnostic flags OFF.
+Draft PR131 targets staging. The package retains the previous tester baseline;
+it does not bundle newer staging features. No local install or game launch.
+One acceptance run: prison cinematic through fade and10seconds of gameplay,
+then quit and send support. Source/host-confirmed gate defect; remote result open.
+
+## VR-229: prison return and draw-progress candidate (2026-09-25)
+
+Surface/route: whole-eye prison-cinematic flicker, section1 stale-eye row.
+Reported absent in the Empress scene; present throughout prison until the fade
+into gameplay. Current log in support-20260925-122834-249-41892 verifies diagnostic
+v1.0.1-6-g31450526c, optimized x86, legacy off,3025x3135,shared wait0. Older logs
+are separate runs. The current diagnostic banner and flicker/armed match the sent
+DLL; the install record can still describe the release beneath a manual DLL swap.
+
+Measured: Empress interval579323828..579392875 has no new recorded stale submits.
+The prison interval starts after loading around579404234 and ends579491453.
+Recorder populations rise to1190 stale-submit events,329 expired late confirmations
+and1515 duplicate deliveries; these stop increasing after the transition. Fifteen
+printed expirations during the wider prison window include14 unconfirmed camera
+steps and1 mismatched front eye. All481 printed XR tails in the post-load prison
+interval have no acquire/wait/release/end errors.797 sampled prison images have
+matching bb/slot/out hashes wherever all three stages are valid; no observed
+capture-copy corruption. This does not clear unobserved frames or prove pixel
+labels. FOV contraction is not the failure under investigation.
+
+First concrete sequence: P29783 pops explicit0/D28571 while c5 is at the left
+camera position; P29784 has an empty ring, a full right step and invents+1 with
+no record; P29785 is a center camera (about half an IPD from its neighbors),
+expires the owed right confirmation and pops the next left tag. P29786 renders
+the left position but pops right. The c5 census has39 world-position votes and7
+reflected-height votes at the left/center samples, so this is not merely one final
+zero constant. Center-eye single draws interrupt otherwise healthy alternating
+full-IPD images and disrupt the ring. Repeated late repairs already work; making
+cross-tick geometry more permissive would risk the old moving-camera failures.
+
+Source-confirmed gate defect: SceneDrawDecide compares current Present with the
+counter saved at the previous draw RETURN. Progress while the draw was executing
+is discarded. A tick can therefore become SINGLE despite active rendering.
+The prison log has556 reported one-single-tick recoveries (versus9 in the Empress
+interval); many SINGLE lines explicitly name the no-present guard. Attribution
+of every single tick to this baseline defect is still an inference: the old log
+has no entry/return counter pair. Gameplay also has singles without the sustained
+flicker, so single draws alone are not a universal flicker explanation.
+
+Candidate counts progress between draw ENTRIES, retaining the real-stall test,
+pulse bypass and all caller/state/session/camera-silent gates. No camera memory
+writer or pairing/tag-relabel rule changes. A cheap progressInsideDraw counter
+in the existing3s beat counts otherwise-valid double ticks the old guard would
+reject. The production helper regression makes the old return-baseline fail199
+of200 active-render schedules; the entry-baseline has0 false stalls, and repeated
+true stalls, resume and counter wrap pass. Pairing host1447 normal/1448 diagnostic
+checks pass, including existing late-tag, moving-camera and pipeline schedules.
+This is a targeted candidate, not remotely confirmed sufficiency.
+
+Diagnostic cost: recorder maximum0.523ms in returned windows;3024 printed pixel
+issue costs average0.003452ms,p95 0.005,max0.152. The pixel timer excludes delayed
+maps, other GPU stages and later synchronization, so it cannot establish total
+GPU overhead. The new candidate keeps bounded method/XR/mono history but disables
+ALL frame-id GPU pixel probes regardless of saved INI. Pixels now require a
+separate DVR_FLICKER_PIXEL_DIAGNOSTICS build opt-in. The actual recorder host with
+50 camera uploads/frame and real formatting/buffered file writes averages1.660us
+per present over100000 presents; max finish0.867ms includes rare window bursts.
+That is a local CPU bound, not a headset A/B. Details live in PERFORMANCE.md.
+
+Next, ONE remote acceptance question: at unchanged settings, does the prison
+cinematic now stay stable through the fade into gameplay? Play it once, continue
+10seconds after control returns, quit and send support. If fixed, confirm fresh
+balanced eyes and reduced interruptions. If not, use progressInsideDraw plus the
+retained history to test whether remaining failures survive elimination of the
+false gate. Do not demand a diagnostic matrix. Maintainer install and game launch
+remain prohibited. This candidate retains the previous VR-227/228 FOV fixes.
+
+## VR-229: recurring diagnostic flight recorder (2026-09-25, test only)
+
+Surface and route: prison-cinematic inter-eye instability, section 1 stale/swapped
+whole-eye row, with mono/black/camera-pass alternatives retained. No new playtest.
+The user's installed game is a newer collaborator build and MUST NOT be modified.
+Work and builds stay in the isolated staging-based cinematic branch/worktree.
+
+Deeper review of the supplied aa3af7216 current log,531075453..531164250:
+74 printed image pairs include13 camera-side SWAPPED classifications and3 unknown;
+one has zero c5. Several disagreeing separations are about3.3uu against6.57uu IPD.
+These are classifier observations, not independent proof of eye swaps: c5 is the
+last upload from any relevant register block, the basis is the camera writer's,
+and an authored camera can move across a tick. All74 printed pairs have matching
+bb/slot/out checksums for each individual image. This weighs against corruption
+between these sampled stages, but does not clear unobserved frames or runtime
+release/pose errors. Pixel similarity during dark scenes/fades is not mono proof.
+The previous29 image summaries and gate/fence counters already provide useful
+context; the missing detail is consecutive identity through the actual failure.
+
+The previous expiry-only diagnostic was insufficient. Its forty lifetime ledger
+windows can expire before the scene, and the image sampler starts on a LEFT label,
+which preferentially loses evidence when LEFT labels are absent. New CMake option
+DVR_FLICKER_DIAGNOSTICS defaults OFF. tools/build.ps1 -FlickerDiagnostics produces
+an explicitly self-arming diagnostic DLL, rejects -Install, and a subsequent normal
+build explicitly clears the cached flag. No INI is changed. Ordinary builds retain
+normal instrumentation and pairing. The existing VR-227/228 FOV changes remain.
+
+Evidence in the ordinary collected dishonored_vr.log:
+
+- flicker/frame and flicker/xr join by id and Present number. Fixed64-frame memory;
+  recurring windows include12 preceding and16 current/following records, at most
+  one window/5s on events and a healthy control every10s. No session-wide cap.
+  Every frame contributes event populations, including suppressed-detail frames.
+  Empty/zero/cleared ring, raw pop/front/draw/record, removal ids, c5 upload serial,
+  raw geometry, failed expiry reason, final label, capture/delivery serial and slot,
+  delivered pose record/pair/generation/validity and source quaternion are separate.
+- flicker/cameras: bounded six-value exact c5 upload census with vote counts and
+  register block ranges. Excess distinct uploads are counted explicitly. Distinguish
+  a final zero/non-world upload from the dominant camera; this is not a pass classifier.
+- Actual XR tail records all early returns, no-frame tag consumption, pair-held-open,
+  acquire/wait/release results, copy attempt, end result, layer/fallback choice,
+  per-eye released content serials and pose generations. Projection quaternions come
+  from the actual submitted layer, including a saved-layer fallback. Last-submit ages
+  are labelled as such; they do not pretend a held-open pair was submitted.
+- flicker/pixel samples8 consecutive grabs/128 regardless of labels, plus8 when a
+  flight window opens. Reports individual images even for R/R or0/0, at bb/slot/out/sc:
+  valid/tried masks, hashes, brightness/dark pixels, c5 and destination index. No
+  screenshots/assets are saved. sc is a center patch, other stages full downscales;
+  do not compare their hashes across stages. D3D9 readback can still cost GPU time;
+  sample cost and method/XR timings are measured. No forced blocking read fallback.
+
+Competing hypotheses and counterpredictions for the SAME run:
+
+| Suspect | Discriminator | What would argue against it |
+|---|---|---|
+| Late/missing tags or drain skew | raw ring/front, age, removed ids, expiry guard, capture serial | correct raw/current identity through a bad interval |
+| Cinematic source/eye write or c5 contamination | written position vs upload census, final c5 serial, half-IPD/zero sequence | stable full-IPD geometry with fresh consistent uploads |
+| Capture latency/slot reuse/fence failure | grabbed vs delivered serial/slot, both fence timeout counts, image stage hashes | distinct source images survive into matching delivered slots |
+| Mono/hold/black interruption | output reason, layer choice, per-stage darkness and actual successful end | uninterrupted distinct stereo content and layers |
+| Runtime release/pose/cadence | actual API results, per-eye serials/poses, submit age/phase and period | matching content and submitted pose with clean release/end |
+
+Validation: production pairing1142 checks with diagnostics and1141 without; actual
+recorder133 checks (122 formatted records), including missing method, R/R, stale left,
+API/fence failure, no-frame consumption, fallback, suppressed-event populations and
+1024-byte logger limit. One-hour scheduler and missing-left negative control pass.
+Normal pairing decisions are unchanged. Normal and diagnostic optimized x86 builds,
+lint and9 exports pass. Clean diagnostic build `v1.0.1-6-g31450526c`; ZIP CRC,
+x86 header, embedded identity/diagnostic strings and extracted hash verified.
+DLL SHA256 `1522d2325f19b302a609490a34c26b4e4a31b539df3e31d3bb5f1e628bbb569d`.
+Package: `build/test-packages/DishonoredVR-VR229-prison-flicker-diagnostic-31450526c.zip` in the primary checkout.
+No game, in-game simulator or headset run performed. Diagnostics perturb timing;
+bounded sampling cannot promise to identify every possible fault in one run.
+
+Next single question: does the prison cinematic reproduce the inter-eye flicker?
+Use unchanged settings, play through it and10seconds after control returns, quit,
+and immediately collect support logs with the existing launcher. Report whether
+it reproduced and approximate onset. Verify new build banner and flicker/armed,
+then join consecutive frames by id/serial, compare healthy gameplay and identify
+the first divergence. Before fixing labels, replay that divergence in the production
+pairing harness with a failing old-policy control. If no reproduction, retain OPEN;
+a diagnostic-only build is not evidence that the flicker is repaired.
+
 ## VR-228: paused cinematic FOV (2026-09-24, candidate)
 
 Verified local log v1.0.1-1-gaa3af7216,2750x2850, matching installed DLL SHA256

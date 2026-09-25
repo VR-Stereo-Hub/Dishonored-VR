@@ -10,12 +10,19 @@
 // to be (no fault, no skew; the model resets), so the table cannot be fitted to a
 // hypothesis by the assertions.
 #include <windows.h>
+#include "core/gfx/flicker_diagnostic.h"
 #include "core/gfx/stereo_menu_hold.h"
+#include "core/gfx/draw_present_progress.h"
+#include "game/dishonored/eye_basis.h"
+#include "game/dishonored/cinematic_math.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
+#include <atomic>
 
 #define DVR_CAT 0
 #define DVR_LOG_EVERY_MS(...) ((void)0)
@@ -180,7 +187,152 @@ static void print(const Scenario& s, const Result& r) {
            r.realigns, r.took, r.held, r.firstWrong, r.lastWrong, r.sustained ? "SUSTAINED" : "");
 }
 
+static void diagnostic_tests() {
+    dvr::flicker::Window w;
+    unsigned windows=0,lines=0,lastOpen=0;
+    for(unsigned ms=0;ms<3600000;ms+=10) {
+        if(w.open((double)ms,true)) {
+            if(windows) check(ms-lastOpen>=5000,"flight recorder enforces 5s bound");
+            lastOpen=ms;++windows;
+        }
+        if(w.take()) ++lines;
+    }
+    check(windows==720 && lines==720*16,"one-hour faults cannot exhaust detailed windows");
+    dvr::flicker::Window healthy;
+    unsigned heartbeat=0;
+    for(unsigned ms=0;ms<31000;ms+=10) { if(healthy.open(ms,false)) ++heartbeat;healthy.take(); }
+    check(heartbeat==4,"healthy control windows remain available");
+    unsigned samples=0;bool legacyLeftStarts=false;
+    for(uint32_t i=1;i<=1024;++i) {
+        const int brokenTag=(i%3)?+1:0; // no left labels at all
+        legacyLeftStarts|=brokenTag<0;
+        if(dvr::flicker::pixel_sample(i)) ++samples;
+    }
+    check(!legacyLeftStarts && samples==64,"negative control: left-triggered sampler blind, new sampler sees R/0");
+    check(dvr::flicker::pixel_sample(1)&&dvr::flicker::pixel_sample(8)&&
+          !dvr::flicker::pixel_sample(9)&&!dvr::flicker::pixel_sample(128)&&
+          dvr::flicker::pixel_sample(129),"pixel burst bounds and next cycle");
+    dvr::flicker::CameraUploads c;
+    float origin[3]={0,0,0},world[3]={3100,-7400,1100};
+    for(int i=0;i<100;++i) c.add(world,0,6);
+    c.add(origin,5,1);
+    check(c.uploads==101 && c.used==2 && c.values[0].votes==100 && c.values[1].votes==1,
+          "census distinguishes dominant world from final zero upload");
+    for(int i=1;i<=10;++i) {float p[3]={(float)i,0,0};c.add(p,5,1);}
+    check(c.used==6 && c.overflow==6 && c.uploads==111,"census bounds memory and reports lost unique uploads");
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    reset_model();g_lateTagRepair=false;
+    ArbState st;st.prevC5Ok=true;st.prevC5[0]=3.41f;
+    ArbView v;v.haveC5=v.basisOk=true;v.ipd=6.82f;v.br[0]=1;v.c5now[0]=-3.41f;
+    float pos[3]={3.41f,0,0};push_tag(-1,pos,42,0,77);
+    Tag tag={};ArbTrace tr;int raw=0,inv=0;float along=0,other=0;
+    pop_and_arbitrate(st,v,tag,raw,inv,along,other,&tr);
+    check(tag.eye==1 && tr.raw.eye==-1 && tr.raw.draw==77 && tr.front.rec==42,
+          "diagnostic retains raw provenance when arbitration overwrites label");
+#endif
+}
+// Same axis publisher as the camera writer plus the production arbitration.
+// Native rows stay fixed while cinematic/menu head look rotates the eye offsets.
+static void scoped_basis_regression() {
+    dvr::camera::EyeBasis published;
+    float untouched[3]={9,8,7};
+    check(!published.read(untouched) && untouched[0]==9,"no eye basis before a successful write");
+    const float native[3]={0,1,0};
+    int legacyFailures=0, schedules=0;
+    for(int yaw=-180;yaw<=180;yaw+=15) for(int pitch : {-60,0,60}) for(int roll : {-45,0,45}) {
+        const auto m=dvr::cine::rotation(pitch*0.0174532925199433,yaw*0.0174532925199433,roll*0.0174532925199433);
+        const float right[3]={(float)m.m[0][1],(float)m.m[1][1],(float)m.m[2][1]};
+        for(int legacy=0;legacy<2;++legacy) {
+            reset_model();g_lateTagRepair=true;ArbState state;ArbView view;
+            view.haveC5=true;view.ipd=kIpd;int errors=0;
+            for(int n=0;n<20;++n) {
+                const int eye=(n&1)?1:-1;const uint32_t id=n+1;
+                // On the sixth pair LEFT arrives after its image. The following
+                // RIGHT must confirm the debt, relabel LEFT and keep its own record.
+                if(n==11) push_tag(-1,nullptr,11,0,11);
+                if(n!=10) push_tag(eye,nullptr,id,0,id);
+                published.publish(native,legacy ? nullptr : right);
+                view.basisOk=published.read(view.br);
+                for(int i=0;i<3;++i)view.c5now[i]=-eye*0.5f*kIpd*right[i];
+                Tag tag={};int ring=0,inv=0;float along=0,other=0;ArbTrace trace;
+                const bool tagged=pop_and_arbitrate(state,view,tag,ring,inv,along,other,&trace);
+                if(n!=10 && (!tagged || tag.eye!=eye || tag.rec!=id))++errors;
+                if(n==11 && (!(trace.action&ACT_LATE) || trace.lateRec!=11))++errors;
+            }
+            if(legacy) legacyFailures+=errors;
+            else check(errors==0,"scoped head rotation retains eye/record identity and repairs a delayed tag");
+        }
+        ++schedules;
+    }
+    check(legacyFailures>0,"old native-basis control fails rotated cinematic schedules");
+    // Rounded, identity-joined measurements from returned P67389 -> P67390.
+    // Record65616 (delivered on P67391) carries the composed rotation of P67390.
+    const auto recorded=dvr::cine::rotation(3.680*0.0174532925199433,-12.030*0.0174532925199433,-5.938*0.0174532925199433);
+    const float recordedRight[3]={(float)recorded.m[0][1],(float)recorded.m[1][1],(float)recorded.m[2][1]};
+    const float cachedRight[3]={-0.6758f,0.7340f,0.0670f};
+    for(int legacy=0;legacy<2;++legacy) {
+        reset_model();ArbState state;state.prevC5Ok=true;
+        const float before[3]={3170.682f,-7428.086f,-1147.668f};memcpy(state.prevC5,before,sizeof(before));
+        ArbView view;view.haveC5=true;view.ipd=6.570f;
+        const float current[3]={3169.362f,-7434.485f,-1148.346f};memcpy(view.c5now,current,sizeof(current));
+        published.publish(cachedRight,legacy?nullptr:recordedRight);view.basisOk=published.read(view.br);
+        push_tag(+1,nullptr,65616,0,65616);Tag tag={};int ring=0,inv=0;float along=0,other=0;
+        pop_and_arbitrate(state,view,tag,ring,inv,along,other);
+        check(legacy ? inv==0 && other>5 : inv==1 && fabsf(along+view.ipd)<.01f && other<.01f,
+              "returned full-IPD step is ambiguous on native axis, confirmed on composed axis");
+    }
+    published.publish(native,nullptr);float after[3]={};
+    check(published.read(after) && after[0]==0 && after[1]==1 && after[2]==0,
+          "first normal write replaces scoped basis after exit or reload");
+    std::atomic<bool> done{false};
+    std::atomic<int> torn{0};
+    const float axisA[3]={1,2,3},axisB[3]={4,5,6};
+    published.publish(axisA,nullptr);
+    std::thread reader([&] {
+        do {
+            float v[3];
+            if(published.read(v) && !((v[0]==1 && v[1]==2 && v[2]==3) || (v[0]==4 && v[1]==5 && v[2]==6)))++torn;
+        } while(!done.load());
+    });
+    for(int n=0;n<100000;++n)published.publish(n&1?axisA:axisB,nullptr);
+    done.store(true);reader.join();
+    check(torn.load()==0,"concurrent eye-axis snapshots never mix publications");
+    const auto start=std::chrono::steady_clock::now();float sum=0;
+    for(int n=0;n<100000;++n) {published.publish(native,n&1?axisA:axisB);float v[3];if(published.read(v))sum+=v[0];}
+    const double us=std::chrono::duration<double,std::micro>(std::chrono::steady_clock::now()-start).count()/100000;
+    printf("eye basis publish+read: %.3f us/sample (host only), checksum %.0f\n",us,sum);
+    printf("scoped eye basis: %d rotated schedules, legacy identity/repair failures %d\n",schedules,legacyFailures);
+}
+
 int main() {
+    scoped_basis_regression();
+    {
+        dvr::stereo::DrawPresentProgress progress;
+        uint32_t counter=0, oldReturn=0; unsigned oldFalseStalls=0, fixedFalseStalls=0;
+        progress.begin(counter); check(!progress.advanced,"startup with no present remains blocked");
+        counter=1;
+        for(unsigned tick=0;tick<200;++tick) {
+            progress.begin(counter);
+            // Actual rendering advanced by two presents INSIDE the prior draw.
+            if(tick && counter==oldReturn) {++oldFalseStalls;check(!progress.outsideAdvanced,"old guard would reject while entry detects progress");}
+            if(!progress.advanced) ++fixedFalseStalls;
+            counter+=2; oldReturn=counter;progress.complete(counter);
+            // No additional present in the outside/world-tick interval.
+        }
+        check(oldFalseStalls==199,"old return-baseline negative control rejects active rendering");
+        check(fixedFalseStalls==0,"entry baseline retains stereo when rendering progresses inside draw");
+        progress.begin(counter);check(progress.advanced,"last completed pair counted once");
+        for(unsigned i=0;i<100;++i) {progress.begin(counter);check(!progress.advanced,"genuine stall still refuses repeatedly");}
+        ++counter;progress.begin(counter);check(progress.advanced,"renderer resumes after stall");
+        progress.previousEntry=UINT32_MAX;progress.begin(0);check(progress.advanced,"present wrap is progress");
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        check(!dvr::flicker::pixel_collection_enabled(true),"lightweight recorder disables GPU probes even with FrameId INI on");
+#else
+        check(dvr::flicker::pixel_collection_enabled(true) && !dvr::flicker::pixel_collection_enabled(false),"normal build honors pixel INI");
+#endif
+    }
+
+    diagnostic_tests();
     dvr::stereo::MenuGapHold menuHold;
     check(!menuHold.hold(0,true,1000),"menu: no history cannot hold mono");
     check(!menuHold.hold(-1,true,1000),"menu: left image is never held");

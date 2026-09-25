@@ -78,6 +78,47 @@ static inline Mat3 transpose3(const Mat3& a)
     return o;
 }
 
+// VR-188: never freeze an identity wrist/finger relationship from a collapsed
+// transition palette. Until the slots separate, use the current vote frame just
+// for that draw. The threshold is float matrix noise, not a measured hand angle.
+struct WristReference {
+    Mat3 offset = identity3();
+    bool valid = false;
+    int voteSlot = -1, wristSlot = -1;
+    unsigned generation = 0;
+    enum Event { None, Measured, Kept, Deferred };
+    bool matches(int vote, int wrist) const {
+        return valid && voteSlot == vote && wristSlot == wrist;
+    }
+    bool needs_vote(bool held, int vote, int wrist) const {
+        return held || !matches(vote, wrist);
+    }
+    Mat3 resolve(const Mat3& wrist, const Mat3* vote, bool held,
+                 int voteId, int wristId, unsigned gen, Event& event) {
+        event = None;
+        if (held) return vote ? *vote : wrist; // never overwrite empty-hand calibration
+        if (matches(voteId, wristId)) {
+            if (generation != gen) event = Kept;
+            generation = gen;
+            return mul3(wrist, offset);
+        }
+        // A different slot pair must not inherit the previous pair's offset.
+        valid = false;
+        if (!vote) return wrist;
+        const Mat3 candidate = mul3(transpose3(wrist), *vote);
+        bool distinct = false;
+        for (int i = 0; i < 9; ++i) {
+            const float delta = fabsf(candidate.m[i] - (i % 4 == 0 ? 1.0f : 0.0f));
+            if (!isfinite(delta)) return *vote;
+            if (delta > 1e-5f) distinct = true;
+        }
+        if (!distinct) { event = Deferred; return *vote; }
+        offset = candidate; valid = true; generation = gen;
+        voteSlot = voteId; wristSlot = wristId; event = Measured;
+        return mul3(wrist, offset);
+    }
+};
+
 static inline void mulv3(const Mat3& a, const float* x, float* o)
 {
     const float t0 = a.m[0]*x[0] + a.m[1]*x[1] + a.m[2]*x[2];

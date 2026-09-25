@@ -1,3 +1,29 @@
+## 2026-09-25: local hand/HUD follow-ups and compatible build baseline
+
+Branch codex/vr-188-hand-hud-followups starts at staging474fc8a55. Carries the
+VR-229 source candidates31450526c/c4f5fe5df/9da0a0b48 plus a deferred empty-hand
+wrist-reference capture (VR-188) and observed-interaction/task-text precedence
+(VR-186). Local stable intro/submenus were tested on c4f5fe5df, not remote9da0a0b48.
+The remote ZIP and draft PR131 remain awaiting their own report.
+
+Sword regression is explained by the old DLL/new INI pair: c4f5fe5df interprets
+HandAnimMelee=1 for all melee; the previous868d09649 log has source=SWING with
+hand-back off. Staging already contains the trigger-only policy (VR-220). No new
+sword policy change is needed. CLAUDE.md now requires expected target-build INI
+semantics, whole-file comparisons, CRLF, and compatible DLL/INI rollback pairs.
+
+Validation: optimized build, frame_test (five new wrist cases),503 HUD routes,
+1678 stereo pairing checks,30054 cinematic FOV/handback checks,138 animation catalog
+checks, golden/default profile, lint and9 exports pass. No game launched. Measured
+recorder burst1.606ms; follow-up builds with CPU/GPU diagnostic compile flags OFF
+and expects FrameId=0 in the local INI. Details: PERFORMANCE.md, ARM_HAND_SPLIT.md,
+HUD_ANCHORS.md, FLICKER_REFERENCE.md. New visual fixes remain candidates.
+
+Next: finish clean-source packaging/install verification, then ONE launch question:
+after opening cinematic, does the right hand remain aligned? A pass supports the
+capture fix; a repeat requires the matching reference lines. HUD/sword acceptance
+remain open and can use this same candidate. Do not merge without explicit permission.
+
 ## 2026-09-24: staging is the integration branch; VR-Main is the release (VR-218)
 
 The 1.0.1 hotfix chain (PRs #114-#117, tag `v1.0.1`) was fast-forwarded onto `VR-Main` on the
