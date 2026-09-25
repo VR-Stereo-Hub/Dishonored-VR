@@ -1,3 +1,15 @@
+## VR-227: affected-player pass and local install (2026-09-24)
+
+The affected player reported that test build `v1.0.1-1-gaa3af7216` fixed the issue.
+This is reported acceptance; no new support log was supplied for independent review.
+At the user's request the exact ZIP DLL was installed locally, SHA256
+`2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+Previous DLL, INI, install record and available session logs archived in the primary
+checkout at `build/playtest-candidates/vr-227/20260924-220256`.
+Full installed INI byte comparison: zero changes, CRLF verified; LockFov=1 already.
+No game launched. Next: same painting-dialogue/full-view question for local verification;
+check the new log banner against the installed build before reading the result.
+
 ## VR-227: cinematic square-view candidate (2026-09-24)
 
 Branch `codex/vr-227-cinematic-fov-test` starts at staging `f5176aeae`.

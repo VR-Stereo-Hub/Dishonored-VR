@@ -1,3 +1,10 @@
+## VR-227 affected-player result (2026-09-24)
+
+The affected player reported that candidate `v1.0.1-1-gaa3af7216` fixed the square-view
+issue. Reported headset acceptance, not a new independently reviewed log/capture.
+The identical DLL is now installed for local confirmation, with unchanged CRLF INI.
+See STATUS for backup and hash. Separate spyglass regression remains unverified.
+
 ## VR-227: instant square view at cinematic transitions (2026-09-24, candidate)
 
 1. Surface: reported whole headset view, instantaneous square contraction around
