@@ -1,3 +1,22 @@
+## VR-227: instant square view at cinematic transitions (2026-09-24, candidate)
+
+1. Surface: reported whole headset view, instantaneous square contraction around
+   opening dialogue/cinematics. Route beside section1 whole-view FOV contraction.
+2. Identity: supplied current log/install record1.0.1,v1.0.0-8-gf5176aeae,3012x3122.
+3. Measured: native source narrows108.06 to51.60; persistent writer retains51.60.
+   Draw-only cinematic lock claims108.06; after the3s exit guard gameplay claims47.60.
+4. Candidate: existing cinematic FOV lock also drives the persistent target during
+   validated scene ownership and bounded locomotion recovery. Ordinary gameplay
+   zoom remains unchanged. Owner/UI/load validation discards retained intent.
+5. Host result: old-policy negative control reproduces retained51.60 and claim47.60;
+   recovery checks and existing suites pass. Very slow synthetic recovery can exceed
+   the3s safety bound. No game launch or visual acceptance.
+6. Counterprediction: full coverage through the painting dialogue and10s afterward
+   supports sufficiency. A square during/after it requires the new build log; distinguish
+   persistent recovery from an unhonored scoped cache or projection-consumer mismatch.
+7. Status: test candidate, affected-player acceptance OPEN. Detailed evidence and
+   limitations: [ENGINE_NOTES](ENGINE_NOTES.md#vr-227-cinematic-persistent-fov-recovery-2026-09-24).
+
 ## VR-213: gameplay view contracts after load (2026-09-23, candidate)
 
 1. Symptom/surface: the whole gameplay projection contracts to a central square,
@@ -1251,6 +1270,7 @@ pose metadata without reopening the disproved historical theories.
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
+| Instant square contraction at dialogue, retained into gameplay in1.0.1 | Narrow cinematic sensor is retained by persistent writer;3s draw bridge expires | VR-227 candidate; affected-player acceptance open; see top entry |
 | Gameplay projection steadily contracts after load at target below natural FOV | Persistent ratio consumes its own interpolated readback | VR-213: source/host-confirmed; 1.0.1 candidate, headset open; see top entry |
 | Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
 | Grab/use prompt toggles at ~20 Hz and use does nothing (a game-state flicker: the focus target toggles) | Hand ray anchored on the last render sample; `interact/flicker:` counts focus changes per frame | VR-195 open candidate: game-camera anchor (`[Aim] HandRayGameAnchor`) |

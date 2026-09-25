@@ -9413,3 +9413,37 @@ owner helper is compiled with test objects in tools/fov-lever-owners-host.ps1:
 reflection and recovery. Existing cinematic FOV tests:30045 pass.
 No game/simulator launch. Actual load stability, spyglass and cinematic acceptance
 remain open. RenderWidth/RenderHeight and ProjectionFov are not changed.
+
+## VR-227: cinematic persistent FOV recovery (2026-09-24)
+
+Reported surface is sudden whole-view contraction at opening cinematic transitions,
+routed beside the FLICKER_REFERENCE whole-view FOV contraction row. Current support
+log banner and install record agree on1.0.1/v1.0.0-8-gf5176aeae,3012x3122.
+The older two archive logs are1.0.0 and must not be mixed into this run.
+At527465234 the sensor is104.96; by527468453 dialogue cache/sensor is51.60.
+The scoped draw writes108.06 and restores51.60; persistent dispatch writes51.60.
+At527489250 Walk begins with exitBridge=1. At527491875 the bounded bridge expires
+and the compositor claim becomes47.60, derived from gameplay_target(51.60,108.06,103).
+No framebuffer capture proves the reported pixel shape. This is a measured retained
+narrow source and source-confirmed feedback fixed point, not visual acceptance.
+
+VR-213 removed a multiplier below1 but leaves any lower sensor value a fixed point
+when target<natural. Its recovery test supplied an independently recovering sensor;
+it did not model base fields continually overwritten with the narrowed readback.
+The draw-only cinematic lock does not repair those persistent fields.
+
+Candidate reuses Cine.LockFov, the existing cinematic state classification and
+ExitBridge policy to drive the persistent writer to its current headset target
+through authored scenes and bounded Walk/Falling/Jump recovery. It writes only
+the already-owned kLevCtrl/kLevCam fields, skips kFovSensor as before, and keeps
+IsLiveObject plus FovLeverOwnersReady validation. UI epoch changes, owner failures
+and baseline recapture reset intent. Menus, invalid state, nonprojection or disabled
+LockFov cancel it. A plain gameplay zoom cannot prime recovery. No offsets added.
+
+Host negative control remains51.60 after3s and exposes47.60. Recovery tests cover
+natural75/110 and engine blends5/10/50/100percent per10ms, later zoom, cancel/reset,
+clock rollback, timeout and changing targets. A1percent-per10ms synthetic blend
+outlasts the existing3s bound; the bound is retained to avoid indefinitely suppressing
+zoom on an unresponsive camera. No claim is made that every native camera converges.
+Feedback1284707, ownership16 and cinematic30045 checks pass. Affected-player acceptance
+is pending; persistent and scoped claims alone cannot prove correct image geometry.

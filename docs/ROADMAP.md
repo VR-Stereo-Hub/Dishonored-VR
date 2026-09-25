@@ -1,3 +1,11 @@
+## Cinematic square-view recovery (VR-227, 2026-09-24)
+
+- [x] Match support build and isolate persistent cinematic narrow-FOV retention.
+- [x] Add bounded persistent recovery under the existing cinematic FOV lock.
+- [x] Host negative control, zoom/cancellation/timeout and ownership checks.
+- [ ] Affected-player painting dialogue and exit retain full coverage.
+- [ ] Separate Empress-scene and spyglass regression acceptance.
+
 ## Support logs and history (VR-215)
 
 - [x] Reproduce released launcher error 3 with a fresh temp parent.

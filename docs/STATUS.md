@@ -1,3 +1,33 @@
+## VR-227: cinematic square-view candidate (2026-09-24)
+
+Branch `codex/vr-227-cinematic-fov-test` starts at staging `f5176aeae`.
+The shared checkout changed concurrently, so the candidate is isolated in
+`build/worktrees/vr-227`; only the FOV patch was transferred. No occlusion change.
+
+Supplied support archive: current log and install record match1.0.1,
+`v1.0.0-8-gf5176aeae`,3012x3122. During dialogue the sensor reaches51.60;
+the persistent writer retains it. At cinematic exit the3s draw bridge expires
+and gameplay claims47.60. The two older logs are1.0.0, not1.0.1 retests.
+See [ENGINE_NOTES](dishonored/ENGINE_NOTES.md#vr-227-cinematic-persistent-fov-recovery-2026-09-24).
+
+Candidate: the existing Cine.LockFov option now also requests the full persistent
+FOV during validated cinematic states and bounded locomotion recovery. Existing
+live-object owner checks remain before writes. UI epochs, new ownership/load,
+failed validation and disabled/ineligible states discard recovery. Ordinary
+gameplay zoom cannot arm it. Diagnostic adds cinematicRecovery and master state.
+
+Host checks:1284707 feedback/recovery,16 ownership,30045 cinematic/handback pass.
+The negative control reproduces51.60 persistence and47.60 gameplay claim. Recovery
+is bounded at3s; an extremely slow/unresponsive native camera can outlast it.
+A synthetic1% blend per10ms did outlast the bound; this is not headset acceptance.
+No game launched. Optimized isolated build and ZIP validation follow.
+
+Next single launch question: at unchanged highest resolution, does the view stay
+full through the painting dialogue and for10seconds after control returns?
+Full coverage supports the candidate; a square means the fix is insufficient.
+Return the support ZIP from that run either way; verify its test-build banner.
+If this passes, test the Empress scene and ordinary spyglass zoom separately.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication
