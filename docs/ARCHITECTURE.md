@@ -1152,3 +1152,14 @@ bump, which would silently drop the answer. The path is fixed at
 %LOCALAPPDATA%, never [Paths] DataDir, because the launcher never reads the mod's
 DataDir. It changes no setting; per-headset defaults (as the BioShock
 Remastered VR mod applies them) would be a separate, deliberate change.
+
+### 2026-09-24: the Index tuning reaches the shim through the process environment
+
+VR-224 gates shim behaviour (Index frame correction, hold trims, the knuckles
+grip binding) on a decision the mod makes from its ini and the launcher's
+headset. The shim has no config of its own and is loaded by the OpenXR loader,
+in the game process, after LoadConfig has run; the mod already hands the loader
+XR_RUNTIME_JSON the same way. So LoadConfig resolves `[Controllers]
+IndexTuning` once and sets `DVR_INDEX_TUNING=0|1`; the shim reads it on first use
+and logs it. One decision, one owner, and the shim cannot disagree with the mod's
+log. An unset variable (an older proxy, the simulator) reads as off.

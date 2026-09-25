@@ -360,13 +360,15 @@ Afterwards the headset shows in the Headset section of Setup and in Current
 Settings on Manage, each with a Change button that reopens the picker with a
 Cancel.
 
-It is recorded only, for diagnostics. No ini key follows from it; the runtime
-pills are still what the mod acts on. The list and its order are the BioShock
+It is recorded for diagnostics, and for one setting: Valve Index and Bigscreen
+Beyond 1 / 2 turn on the mod's Index controller tuning (VR-224, below). No other
+pick changes anything; the runtime pills are still what the mod acts on. The list and its order are the BioShock
 Remastered VR mod's Setup.bat question (Quest 3/3S, Quest Pro, Quest 2, Quest
-1, Rift S/CV1, Index, Vive/Vive Pro, Vive Pro 2/XR Elite, Beyond, Pimax
+1, Rift S/CV1, Index, Vive/Vive Pro, Vive Pro 2, Vive XR Elite, Beyond, Pimax
 Crystal/Light, Pimax 5K/8K, Reverb G2/WMR, Varjo, Pico 4, Somnium VR1, PSVR2,
 Something else), so reports from the two mods group the same way. That mod also
-flips per-headset controller defaults from the answer; this one does not yet.
+flips per-headset controller defaults from the answer; this one does so only for
+the Index tuning.
 
 Where it lives: %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model, the
 label itself (a typed name is printable ASCII, 48 characters at most). It is
@@ -383,3 +385,33 @@ Where it shows up:
 
 Offscreen states: `headset-required`, `headset-other`, `headset-change`. Every
 other fake state has a headset set so the picker does not cover it.
+
+## Index controller tuning from the headset choice (VR-224)
+
+Ported from a community fork's `index-controller-offsets` branch (its two commits
+are kept with their author) and gated here. `[Controllers] IndexTuning` in
+dishonored_vr.ini: -1 (default) = on when launcher.ini [Headset] Model is
+`Valve Index`, `Bigscreen Beyond 1 / 2` or `Vive Pro 2` (played on Index
+controllers; Vive wands are not supported), 0 = off, 1 = on. The mod resolves it in
+LoadConfig and logs the verdict with its owner
+(`config: [Controllers] IndexTuning=-1 -> ON (owner: launcher headset is an
+Index-controller headset)`), then hands it to the SteamVR shim in the process
+environment as `DVR_INDEX_TUNING` (the shim is loaded later, by the OpenXR
+loader, and logs `input: Index tuning ON|off` in ovrshim.log).
+
+What it turns on:
+
+| Part | Where | Needs |
+|---|---|---|
+| Grip/aim rebuilt from the raw pose and SteamVR's `tip`, so an Index hand reports the Quest frames every weapon offset was tuned on | shim | a `knuckles` controller, SteamVR |
+| Hold trim: pitch -21, left yaw +11, wrist roll L -20 / R +30, about the grip point, grip and aim together | shim | same |
+| Right-hand sword trim: turn 30 right, tip back 8 (grip only) | shim | same |
+| Knuckles binding: grip from the force sensor, not trigger-mode pull | shim (bindings_knuckles.json, rewritten every connect) | same |
+| Empty left hand (powers, Blink, the Heart) rolled 60 about the forearm, turned, wrist up 25 | mod, palm draw | nothing else |
+| Its aim ray lifted 23 deg to match (the pistol and crossbow keep theirs) | mod | nothing else |
+
+Off, every one of these is exactly what shipped before: the shim reports
+handgrip/tip as bound, the binding is trigger-mode pull, and the left hand and
+its ray are untouched. The numbers were tuned in one headset on one Index rig and
+are not yet confirmed on a second; the trims trade a gripped hand reading slightly
+low for an open hand reading level (the fork's own note).

@@ -93,8 +93,8 @@ void headset_picker(ViewState& v, UiAction* action)
     ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x * 0.86f, 0), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) return;
     wrapped_faded(required
-        ? "Pick the headset you play on. It goes into your logs so a problem report says which hardware it came from. It changes no setting, and you can change it later."
-        : "Recorded in your logs for problem reports. It changes no setting.");
+        ? "Pick the headset you play on. It goes into your logs so a problem report says which hardware it came from, and Index, Beyond or Vive Pro 2 also turns on the Index controller tuning. You can change it later."
+        : "Recorded in your logs for problem reports. Index, Beyond or Vive Pro 2 also turns on the Index controller tuning.");
     bool focusOther = false;
     if (ImGui::BeginTable("##headsets", 2, ImGuiTableFlags_SizingStretchSame)) {
         for (int i = 0; i <= kHeadsetCount; ++i) {
@@ -118,6 +118,8 @@ void headset_picker(ViewState& v, UiAction* action)
     } else if (v.headsetPick >= 0 && v.headsetPick < kHeadsetCount) {
         pickedName = kHeadsets[v.headsetPick];
     }
+    if (headset_gets_index_tuning(pickedName))
+        wrapped_faded("Index controllers: the mod applies its Index controller tuning (hand frames, hold angles, force-sensor grip). [Controllers] IndexTuning=0 in dishonored_vr.ini turns it off.");
     ImGui::Spacing();
     if (button(required ? "Continue" : "Save", true, !pickedName.empty())) {
         v.headsetPending = pickedName;
@@ -142,7 +144,9 @@ void headset_row(ViewState& v)
     ImGui::TextUnformatted(v.headset.empty() ? "not recorded" : v.headset.c_str());
     ImGui::SameLine();
     if (button("Change##headset", false, !v.busy)) open_headset_picker(v);
-    dvr::ovl::tip("The headset you play on. Recorded in the launcher and game logs for problem reports; it changes no setting.");
+    dvr::ovl::tip(headset_gets_index_tuning(v.headset)
+        ? "The headset you play on. Recorded in the logs, and it turns on the mod's Index controller tuning ([Controllers] IndexTuning)."
+        : "The headset you play on. Recorded in the launcher and game logs for problem reports; it changes no setting.");
 }
 
 void headset_section(ViewState& v)

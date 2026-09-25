@@ -1,3 +1,19 @@
+## Index controller tuning from the headset (VR-224, 2026-09-24)
+
+Branch `claude/vr-224-index-tuning`, stacked on VR-223's branch, not merged.
+
+- Two commits cherry-picked from a community fork (`index-controller-offsets`,
+  author kept): an Index frame correction, hold and sword trims in the SteamVR
+  shim, an empty-left-hand re-pose and aim lift in the mod, a force-sensor grip
+  binding. Every part is now behind `[Controllers] IndexTuning` (-1 auto, the
+  default: on for a launcher headset of Valve Index, Bigscreen Beyond 1 / 2 or Vive Pro 2).
+  Details and the table: docs/INSTALLER.md, VR-224 section.
+- Verified: Release build, lint, default-profile-host (golden and packaged ini
+  regenerated, +4 lines), offscreen render of the picker's Index note. Installed.
+- NOT verified: anything on an Index rig. This machine's headset is a Quest 3,
+  so here the tuning resolves off and nothing should change; the log line
+  `config: [Controllers] IndexTuning=-1 -> off` says so.
+
 ## Launcher headset selection (VR-223, 2026-09-24)
 
 Branch `claude/vr-223-launcher-headset` off `staging`, not merged.

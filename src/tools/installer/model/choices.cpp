@@ -116,6 +116,11 @@ int headset_index(const std::string& name)
     return kHeadsetOther;
 }
 
+bool headset_gets_index_tuning(const std::string& name)
+{
+    return name == "Valve Index" || name == "Bigscreen Beyond 1 / 2" || name == "Vive Pro 2";
+}
+
 std::string clean_headset_name(const std::string& typed)
 {
     std::string out;

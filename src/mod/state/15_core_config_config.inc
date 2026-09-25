@@ -91,6 +91,10 @@ static const int kConfigVersion = 15; // bump to refresh users' ini with new def
 // time it is touched. Bump this only when a user's existing VALUE would be
 // wrong for the new build, never merely to add a key.
 
+// VR-224: the Index controller tuning, resolved in LoadConfig from [Controllers]
+// IndexTuning and the launcher's headset. Read-only after the config load.
+static bool g_indexTuning = false;
+
 // Load config exactly once, lazily, from OUTSIDE the loader lock (first export
 // call). Safe to call repeatedly; only the first does work.
 static bool g_configLoaded = false;

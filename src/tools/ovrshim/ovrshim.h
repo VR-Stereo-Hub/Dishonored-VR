@@ -104,6 +104,16 @@ struct ActionRec
     char          name[80] = {};
     XrActionType  type = XR_ACTION_TYPE_BOOLEAN_INPUT;
     uint64_t      vrHandle = 0; // VRActionHandle_t
+
+    // Index pose correction (see IndexPoseCorrection in ovrshim_input.cpp).
+    // handPose: 0 = not a hand pose, else a HandPose value, set from the name.
+    // The origin cache remembers whether the last bound device was an Index
+    // controller so the property read runs once per device change, not per frame.
+    int           handPose = 0;
+    uint64_t      lastOrigin = 0;       // VRInputValueHandle_t
+    bool          lastOriginIsIndex = false;
+    uint32_t      deviceIndex = 0;      // tracked device behind lastOrigin
+    M34           rawToTip = {};        // SteamVR's own "tip" transform, raw space
 };
 
 enum SpaceKind { SPACE_REF_LOCAL = 0, SPACE_REF_VIEW = 1, SPACE_ACTION = 2 };
@@ -122,10 +132,13 @@ struct VrApi
     VR_IVRCompositor_FnTable* comp = nullptr;
     VR_IVROverlay_FnTable*    ovl = nullptr;   // optional (dashboard check)
     VR_IVRInput_FnTable*      input = nullptr;
+    VR_IVRRenderModels_FnTable* rm = nullptr; // optional (Index pose correction)
     bool ok = false;
 };
 
 extern VrApi g_vr;
+
+bool Shim_RenderPose(uint32_t deviceIndex, M34* out);
 
 // ---------------------------------------------------------------- state
 struct ShimState
