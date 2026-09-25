@@ -151,6 +151,80 @@ Branch `claude/vr-79-occlusion-per-eye` off `VR-Main`, not merged.
 - HEADSET 2026-09-24: `pereye` fixed the one-eye culling with no visible perf cost. New report:
   grass blinks out for a frame or two while walking; may predate VR-79 (VR-226,
   FLICKER_REFERENCE routing row). Next: the same walk under `occlusion native`, then one eye at a time.
+## VR-228/229: pause FOV candidate and prison flicker diagnosis (2026-09-24)
+
+Original VR-227 gameplay fix is locally reported good on the installed aa3af7216.
+Both local and supplied remote log banners verify that build. Logs archived under
+primary `build/support-20260924-231346`, local logs in its `local` subdirectory.
+
+VR-228: pause in InDialog releases the108.1-degree scope and claims41.2. Candidate
+allows the existing verified head-look menu permission, with UI-epoch live-owner
+revalidation. VR-229: remote prison cinematic has stale-left submissions, repeated
+late repairs and unresolved confirmations while FOV remains108.07. All40 detailed
+windows were consumed before the scene; no proven flicker fix. Added rate-limited,
+read-only expiration reasons under RingLedger, with pairing decisions unchanged.
+Evidence and next steps: [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+
+Validation: cinematic30054, feedback1284707, ownership16, pairing416 pass.
+Per user request, ZIP only for now; installed game and INI remain untouched.
+Optimized x86 build `v1.0.1-4-g903891e7e`, legacy off; lint and9 exports pass.
+DLL SHA256 `b768aa622c9860b4a99a49fa79bcc101499f10289f185ba5f5b030da56a3a1b6`.
+Primary-checkout package: `build/test-packages/DishonoredVR-VR228-pause-FOV-VR229-diagnostics-903891e7e.zip`.
+ZIP CRC/extracted hash, x86 header, embedded build and new diagnostic string verified.
+DLL-only, no installer/INI. Separate local and remote single-question instructions.
+No game launched by this task.
+Next local question: does pause retain full-size world during low-FOV dialogue?
+Separate remote question: does prison eye flicker reproduce for the new diagnostic?
+Return its support ZIP; unchanged pairing means non-reproduction alone is not a fix.
+
+## VR-227: affected-player pass and local install (2026-09-24)
+
+The affected player reported that test build `v1.0.1-1-gaa3af7216` fixed the issue.
+This is reported acceptance; no new support log was supplied for independent review.
+At the user's request the exact ZIP DLL was installed locally, SHA256
+`2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+Previous DLL, INI, install record and available session logs archived in the primary
+checkout at `build/playtest-candidates/vr-227/20260924-220256`.
+Full installed INI byte comparison: zero changes, CRLF verified; LockFov=1 already.
+No game launched. Next: same painting-dialogue/full-view question for local verification;
+check the new log banner against the installed build before reading the result.
+
+## VR-227: cinematic square-view candidate (2026-09-24)
+
+Branch `codex/vr-227-cinematic-fov-test` starts at staging `f5176aeae`.
+The shared checkout changed concurrently, so the candidate is isolated in
+`build/worktrees/vr-227`; only the FOV patch was transferred. No occlusion change.
+
+Supplied support archive: current log and install record match1.0.1,
+`v1.0.0-8-gf5176aeae`,3012x3122. During dialogue the sensor reaches51.60;
+the persistent writer retains it. At cinematic exit the3s draw bridge expires
+and gameplay claims47.60. The two older logs are1.0.0, not1.0.1 retests.
+See [ENGINE_NOTES](dishonored/ENGINE_NOTES.md#vr-227-cinematic-persistent-fov-recovery-2026-09-24).
+
+Candidate: the existing Cine.LockFov option now also requests the full persistent
+FOV during validated cinematic states and bounded locomotion recovery. Existing
+live-object owner checks remain before writes. UI epochs, new ownership/load,
+failed validation and disabled/ineligible states discard recovery. Ordinary
+gameplay zoom cannot arm it. Diagnostic adds cinematicRecovery and master state.
+
+Host checks:1284707 feedback/recovery,16 ownership,30045 cinematic/handback pass.
+The negative control reproduces51.60 persistence and47.60 gameplay claim. Recovery
+is bounded at3s; an extremely slow/unresponsive native camera can outlast it.
+A synthetic1% blend per10ms did outlast the bound; this is not headset acceptance.
+No game launched. Optimized isolated build, lint and9 exports pass.
+Delivered test build `v1.0.1-1-gaa3af7216`, legacy off, from clean commit aa3af7216.
+DLL SHA256 `2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+ZIP: `build/test-packages/DishonoredVR-VR227-cinematic-square-test-aa3af7216.zip`
+in the primary checkout (DLL, README, manifest and checksum only). ZIP CRC, extracted
+DLL hash, x86 header, embedded build ID and new diagnostic string verified.
+Local installation deferred because another collaborator has an active build;
+no installed files/INI changed. User requested a remote test ZIP.
+
+Next single launch question: at unchanged highest resolution, does the view stay
+full through the painting dialogue and for10seconds after control returns?
+Full coverage supports the candidate; a square means the fix is insufficient.
+Return the support ZIP from that run either way; verify its test-build banner.
+If this passes, test the Empress scene and ordinary spyglass zoom separately.
 
 ## 1.0.1 release verification (2026-09-24)
 

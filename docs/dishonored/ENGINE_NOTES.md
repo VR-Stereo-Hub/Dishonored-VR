@@ -9474,3 +9474,97 @@ Open risk, not observed: if FSceneViewState keeps UObject references the GC reac
 only through the local player, the right eye's copy is not reported to the GC. A
 crash or a missing effect on the right eye alone after a level load would point
 here.
+## VR-227: cinematic persistent FOV recovery (2026-09-24)
+
+Reported surface is sudden whole-view contraction at opening cinematic transitions,
+routed beside the FLICKER_REFERENCE whole-view FOV contraction row. Current support
+log banner and install record agree on1.0.1/v1.0.0-8-gf5176aeae,3012x3122.
+The older two archive logs are1.0.0 and must not be mixed into this run.
+At527465234 the sensor is104.96; by527468453 dialogue cache/sensor is51.60.
+The scoped draw writes108.06 and restores51.60; persistent dispatch writes51.60.
+At527489250 Walk begins with exitBridge=1. At527491875 the bounded bridge expires
+and the compositor claim becomes47.60, derived from gameplay_target(51.60,108.06,103).
+No framebuffer capture proves the reported pixel shape. This is a measured retained
+narrow source and source-confirmed feedback fixed point, not visual acceptance.
+
+VR-213 removed a multiplier below1 but leaves any lower sensor value a fixed point
+when target<natural. Its recovery test supplied an independently recovering sensor;
+it did not model base fields continually overwritten with the narrowed readback.
+The draw-only cinematic lock does not repair those persistent fields.
+
+Candidate reuses Cine.LockFov, the existing cinematic state classification and
+ExitBridge policy to drive the persistent writer to its current headset target
+through authored scenes and bounded Walk/Falling/Jump recovery. It writes only
+the already-owned kLevCtrl/kLevCam fields, skips kFovSensor as before, and keeps
+IsLiveObject plus FovLeverOwnersReady validation. UI epoch changes, owner failures
+and baseline recapture reset intent. Menus, invalid state, nonprojection or disabled
+LockFov cancel it. A plain gameplay zoom cannot prime recovery. No offsets added.
+
+Host negative control remains51.60 after3s and exposes47.60. Recovery tests cover
+natural75/110 and engine blends5/10/50/100percent per10ms, later zoom, cancel/reset,
+clock rollback, timeout and changing targets. A1percent-per10ms synthetic blend
+outlasts the existing3s bound; the bound is retained to avoid indefinitely suppressing
+zoom on an unresponsive camera. No claim is made that every native camera converges.
+Feedback1284707, ownership16 and cinematic30045 checks pass. Affected-player acceptance
+is pending; persistent and scoped claims alone cannot prove correct image geometry.
+
+## VR-228: paused cinematic FOV (2026-09-24, candidate)
+
+Verified local log v1.0.1-1-gaa3af7216,2750x2850, matching installed DLL SHA256
+2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1.
+At123838421 and123841109 pause releases the FOV scope in InDialog and claims41.2
+instead of108.1 degrees; UI subsequently confirms Pause,blocked1,rides1.
+Gameplay FOV already permits UiSurfaceHeadLook, but cinematic eligibility always
+rejects menu=true. The narrow native cache remains visible behind the menu.
+
+Candidate gives the cinematic path the same explicit head-look menu permission.
+It does not allow a flat menu, main menu, exit, invalid state or absent projection.
+The native source is still restored after both eye draws. CfValidate additionally
+requires the current UI epoch, forcing BuildLiveSet and full live identity capture
+on menu transitions before writing; unchanged pointers alone are insufficient.
+No new offsets, FOV values or persistent menu writes are introduced.
+
+30054 cinematic/handback checks pass, including old gate negative control,
+41.2-degree paused-source scope/restore and permission refusal cases. Existing
+feedback1284707 and owner16 checks pass. Headset acceptance remains open.
+Single local test: open pause during the same low-FOV dialogue; does the background
+remain full size while paused? A box disproves sufficiency; do not conflate with
+prison eye starvation. Prior full-gameplay square repair is locally reported good.
+
+## VR-229: prison cinematic left-eye starvation (2026-09-24, measured/open)
+
+Surface: reported inter-eye flicker during prison cinematic, resolving in gameplay.
+Route: section1 frozen/swapped/behind eye after load, plus startup starvation;
+not FOV contraction or a weapon-only report. Supplied current log verifies
+v1.0.1-1-gaa3af7216,3025x3135,Quest/VD,SharedWait0,LateTagRepair1,SingleTagRepair1,
+RingLedger1. Older archive logs carry different banners and were not mixed in.
+
+Post-load cinematic interval531075453..531164250 keeps FOV108.07. At531084890,
+48 of149 stereo submissions have a stale left eye in3s; right stale count is0.
+At531092890 the10s ledger has341 owes,308 repairs,32 expirations;308 relabels
+succeed,0 refuse. At531152921:441 owes,429 repairs,11 expire,429 relabels,0 refuse.
+No acquisition/wait failures accompany the sampled stale-eye events. The ring
+accounting reconciles, and pass2 writes are not refused. By531171890 and531174890,
+gameplay has zero stale-eye submits. This corroborates the reported timing.
+
+The known repair is active, not missing. Unresolved late confirmations and duplicate
+right delivery remain. Counters cannot distinguish camera-invariant disagreement,
+a tag still absent on the following present, or a contradictory front tag. Do not
+assume each duplicate is a visible swap, or disable C5Pair without image identity.
+All40 detailed ledger windows were spent by531065796 before the prison interval;
+there are no per-present ledger records there. This prevents a justified label fix.
+
+New read-only reentry/late-expire diagnostic under existing RingLedger logs at most
+once per3s throughout the run, beyond the detailed-window budget. It records which
+confirmation guard failed, owed/measured/front eyes, draw identity when inspected,
+camera availability/step, queue depth and cumulative per-reason populations.
+The original guard order, short circuit, tag consumption, relabel and eye output
+are unchanged.416 production pairing-host checks pass, including12 new failure-
+classification assertions; this is diagnostic coverage, not a flicker repair.
+
+Next remote question: does the prison cinematic reproduce the eye flicker in this
+instrumented build? Return the support ZIP either way. Compare expiry populations
+and event identities against a healthy gameplay interval. Camera failures require
+measured image/camera provenance; missing/front-tag failures require a deterministic
+late-publication/reordering regression before altering repair. If it does not
+reproduce, that does not establish a fix because pairing behavior is unchanged.

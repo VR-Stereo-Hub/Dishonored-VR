@@ -1,7 +1,18 @@
 #pragma once
 #include <cmath>
+#include "cinematic_fov_policy.h"
 
 namespace dvr::fov_lever {
+// VR-227: the draw-only lock cannot repair persistent base fields. Reuse the
+// bounded exit policy without allowing ordinary zoom to prime recovery.
+struct CinematicRecovery {
+    dvr::cine_fov::ExitBridge bridge;
+    float update(bool eligible, bool cinematic, bool walking, float sensor,
+                 float requested, unsigned long long now) {
+        if (!eligible) { bridge = {}; return 0; }
+        return bridge.update(cinematic, walking, sensor, requested, now) ? requested : 0;
+    }
+};
 // The sensor is rendered output, including interpolated echoes of our writes.
 // A contraction ratio repeatedly applied to it has no positive fixed point.
 // Cap the scaling baseline at the requested target: below that baseline retain
