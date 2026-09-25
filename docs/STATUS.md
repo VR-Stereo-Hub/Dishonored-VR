@@ -129,6 +129,28 @@ Branch `claude/vr-225-crossbow-mirror-caps` off `staging`, not merged.
 - HEADSET-CONFIRMED 2026-09-24: the piece is gone while firing and when empty.
 - Headset question: is the piece gone when firing and when empty, and is the
   far side still filled? Log: `mirror/skin:` and the `on a moving bone` counts.
+## One eye hides objects from the other (VR-79, 2026-09-24)
+
+Branch `claude/vr-79-occlusion-per-eye` off `VR-Main`, not merged.
+
+- Reported again: covering an NPC's head with the sword in the left eye only
+  makes it vanish from the right; doors and mechanisms too.
+- Cause: `reentry` draws both eyes through one view state, so occlusion-query
+  results from one eye cull the other (ENGINE_NOTES "VR-79").
+- `[Stereo] Occlusion=native|pereye|off`, live `occlusion <mode>`, default native.
+  `off` (the engine's TOGGLEOCCLUSION switch) was HEADSET-CONFIRMED to fix it but
+  read laggier. `pereye` gives the right eye its own engine-allocated view state
+  for pass 2, so each eye culls only what it cannot see and culling still saves
+  its draws.
+- Verified: Release build, lint, golden ini. Installed with `Occlusion=pereye`
+  in this PC's ini. This build does NOT carry VR-225 (the crossbow fix).
+- Headset questions: does the sword/head test pass with `pereye`, and does it
+  feel like native rather than like `off`? Log: `occlusion/pereye: allocated`
+  once, then `beat swaps` climbing. Watch for anything wrong in the right eye
+  only after a level load (the GC risk in ENGINE_NOTES).
+- HEADSET 2026-09-24: `pereye` fixed the one-eye culling with no visible perf cost. New report:
+  grass blinks out for a frame or two while walking; may predate VR-79 (VR-226,
+  FLICKER_REFERENCE routing row). Next: the same walk under `occlusion native`, then one eye at a time.
 
 ## 1.0.1 release verification (2026-09-24)
 

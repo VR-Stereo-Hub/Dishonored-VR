@@ -403,7 +403,9 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     LARGE_INTEGER t0, t1;
     QueryPerformanceCounter(&t0);
     const auto cpuSecond = dvr::perf::cpu_scope_begin();
+    OcclusionPass2Begin();                 // VR-79: the right eye culls with its own view state
     const bool ok = SceneDrawCallGuarded((DvrViewportDrawFn)kViewportDraw, self, b);
+    OcclusionPass2End();
     dvr::perf::cpu_scope_end(9, cpuSecond);
     QueryPerformanceCounter(&t1);
     dvr::vr::set_draw_stage(NULL);

@@ -776,6 +776,17 @@ static void OvlTabDisplay()
             ImGui::EndDisabled();
         }
     }
+    if (OvlSec("Object culling", kOvlB, "How the game skips objects it thinks you cannot see.")) {
+        int oc = OcclusionModeGet();
+        if (dvr::ovl::radio_button("Per eye", &oc, 1)) OcclusionModeSet(1, "F10 Display");
+        OvlTip("Each eye hides only what IT cannot see. Recommended.");
+        ImGui::SameLine();
+        if (dvr::ovl::radio_button("Game default", &oc, 0)) OcclusionModeSet(0, "F10 Display");
+        OvlTip("As the game shipped: something hidden from one eye can vanish from both.");
+        ImGui::SameLine();
+        if (dvr::ovl::radio_button("Off", &oc, 2)) OcclusionModeSet(2, "F10 Display");
+        OvlTip("Nothing is ever hidden. Always correct, but slower.");
+    }
     if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
         ImGui::BeginDisabled(busy);
         bool liveFull = ResLiveFullscreen();

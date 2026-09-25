@@ -39,6 +39,11 @@ static bool WriteDefaultIni(const char* ini)
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
         "LateTagRepair=1\n"
+        "; Occlusion (VR-79): native = the engine's culling as shipped, both eyes share one\n"
+        "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
+        "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
+        "; occlusion culling (correct, but pays for every hidden draw). Live: `occlusion <mode>`.\n"
+        "Occlusion=native\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
@@ -2682,6 +2687,7 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    OcclusionConfigure(ini);    // VR-79
     SwordTrailConfigure(ini);   // VR-171
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn

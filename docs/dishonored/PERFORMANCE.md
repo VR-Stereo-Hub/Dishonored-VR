@@ -1,3 +1,25 @@
+## VR-79: turning occlusion queries off costs draws (2026-09-24)
+
+Headset, same day: `off` fixed the one-eye culling and read laggier than native
+(perceptual; no pairs/s were taken). The shipped candidate is `pereye`, which keeps
+culling per eye and should cost about what native does plus the second eye's own
+queries. The measurement below still applies, now as native vs pereye vs off.
+
+`[Stereo] Occlusion=off` (live `occlusion off`) sets UE3's
+GIgnoreAllOcclusionQueries so one eye's query results cannot cull the other
+eye's draw (ENGINE_NOTES "VR-79"). Every primitive inside the frustum and its
+cull distance is then drawn in both passes. The cost has NOT been measured.
+Expected to be largest in dense interiors and the city (many hidden rooms behind
+walls) and smallest outdoors in open areas. Earlier query-wait measurements
+(0.102 ms/pair) bound the wait for results, not the draws culling saves, so they
+cannot predict this.
+
+Measurement to run, one lever, same spot, same view: pairs/s and the frame line
+with `occlusion native`, then `occlusion pereye`, then `occlusion off`, then
+`occlusion native` again, in the Hound Pits hub interior and on a street. `querywait on` in the
+same run confirms the switch took (occlusion-path reads drop to about zero).
+`pereye` is the per-eye culling that follows from that.
+
 ## Post-merge intro and hub slowdown (2026-09-23, attribution open)
 
 Reported: intro and hub rates fall into the 50s after integrating PRs105-110;
