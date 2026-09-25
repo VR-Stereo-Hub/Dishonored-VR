@@ -1,3 +1,16 @@
+## VR-229 packaged acceptance build (2026-09-25)
+
+ZIP: build/test-packages/DishonoredVR-VR229-prison-fix-c4f5fe5df.zip in the primary
+checkout, 15893518 bytes. Build v1.0.1-8-gc4f5fe5df, optimized x86, legacy OFF,
+CPU recorder ON, GPU pixel probes OFF. DLL SHA256
+115f3827362e58b7a83a43dbc2d8d459256154859f5cb701565a63318c2bf518.
+Nine exports, ZIP CRC, extracted DLL hash, x86 PE, clean build identity and
+compile flags verified. Normal build also passes with both diagnostic flags OFF.
+Draft PR131 targets staging. The package retains the previous tester baseline;
+it does not bundle newer staging features. No local install or game launch.
+One acceptance run: prison cinematic through fade and10seconds of gameplay,
+then quit and send support. Source/host-confirmed gate defect; remote result open.
+
 ## VR-229: prison flicker repair candidate (2026-09-25)
 
 Returned diagnostic31450526c reproduces the prison failure and healthy Empress/
