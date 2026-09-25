@@ -13,6 +13,19 @@ recorder/pixels off, 73.7 ticks/s and 10.3 ms GPU near grenade, pereye culling n
 on a newer DLL, no controlled release performance baseline. Do not claim a full
 performance cause or undo accepted hand/swing/visibility behavior without evidence.
 
+Installed capture build v1.0.1-34-gea83dc5be with DLL SHA-256
+63fc60a7bc28e115f7cd2ce664b602655516f4cb45be37945c124b9c68de3fe7. Full installed
+INI matches the archived expected candidate; the only semantic change is
+[Hud] OwnerTrace=1. CRLF preserved. Previous DLL/INI/current and previous log are
+backed up under primary build/playtest-candidates/installs/20260925-172045-668268;
+all ten prior logs were already archived for the audit. Normal optimized x86 build,
+15 identity, 107 native HUD and 503 routing checks pass; lint clean. Flicker CPU
+recorder, GPU pixel probe and legacy code compile OFF. Game was not launched.
+
+Linear VR-186 was reopened. Automatic approval review blocked uploading the new
+HUD findings; explicit permission requested and still pending. New investigation
+commits remain local while that diagnostic disclosure is unresolved.
+
 Prepared default-off finite OwnerTrace to establish native clip-to-render transport:
 16 renderer stack snapshots, once per route family; at most 4 native attempts per
 marker family, successful capture once. No GPU readback or engine writer. This

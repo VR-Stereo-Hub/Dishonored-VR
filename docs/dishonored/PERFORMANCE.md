@@ -1,32 +1,32 @@
 ## Local HUD regression run: cost attribution and release diff (2026-09-25)
 
-Verified1ed638c01 DLL SHA256b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569,
-log32232546..32949437 (716.891s).2750x2850,144Hz,6.94ms budget. CPU flicker recorder,
+Verified 1ed638c01 DLL SHA256 b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569,
+log 32232546..32949437 (716.891 s). 2750x2850, 144 Hz, 6.94 ms budget. CPU flicker recorder,
 GPU pixel probes and legacy code OFF; resolved Perf.FrameId=0. This excludes the
 new recurring flicker recorder as this run's cause. It does not exclude all logging.
-51,324 lines versus prior c4f5fe5df60,335; different gameplay, not an A/B benchmark.
+51,324 lines versus prior c4f5fe5df 60,335; different gameplay, not an A/B benchmark.
 
-At32935281 near the grenade throw,73.7 stereo ticks/s,13.6ms/tick, zero untagged;
-P1 OUT7.1ms (idle1.3, rendering5.8), P2 OUT5.2ms (idle0, rendering5.2), GPU span10.3ms
-per tick, capture0.4ms, GPU idle1.3ms. GPU span alone exceeds the144Hz budget here.
-At32701187,57.7ticks/s with P1/P2 render work7.7/8.0ms and little render-thread idle.
-The separate startup26.3ticks/s window has17.3ms game-thread waiting and128untagged;
+At 32935281 near the grenade throw, 73.7 stereo ticks/s, 13.6 ms/tick, zero untagged;
+P1 OUT 7.1 ms (idle 1.3, rendering 5.8), P2 OUT 5.2 ms (idle 0, rendering 5.2), GPU span 10.3 ms
+per tick, capture 0.4 ms, GPU idle 1.3ms. GPU span alone exceeds the 144 Hz budget here.
+At 32701187, 57.7 ticks/s with P1/P2 render work 7.7/8.0ms and little render-thread idle.
+The separate startup 26.3 ticks/s window has 17.3 ms game-thread waiting and 128 untagged;
 do not label every slowdown as the same bottleneck or include loads in an FPS claim.
 
-HUD vertex probing at32935281:38,349probes/3s,33,631us total,0.9us/probe,64refused.
-Approximate11.2ms of probe CPU per second is below the multi-ms/tick deficit; it is
+HUD vertex probing at 32935281: 38,349 probes/3 s, 33,631 us total, 0.9 us/probe, 64 refused.
+Approximate 11.2 ms of probe CPU per second is below the multi-ms/tick deficit; it is
 not the whole HUD cost (routing locks, render-target switches, copies and GPU work
 are outside that interval). Native task/awareness broad matching can cause routing
 churn independently of its cost. The small new interaction-cache lookup has no
 allocation/logging. Wrist capture retains the existing held-item vote and steady
 matrix multiply; no new engine-object scan in that draw path. Scoped-axis prior
-host0.082us/sample is not a headset end-to-end measurement.
+host 0.082 us/sample is not a headset end-to-end measurement.
 
 Important baseline difference: installed Stereo.Occlusion=pereye now activates the
-post-release two-view-state implementation;1.0.0 and the prior c4f5fe5df remote-base
+post-release two-view-state implementation; 1.0.0 and the prior c4f5fe5df remote-base
 DLL lack that consumer. The unchanged key was NOT equivalent runtime behavior.
 Separate visibility can legitimately add draws. This remains a source suspect,
-not proof of the performance regression. Both runs use2750x2850/144Hz; no matching
+not proof of the performance regression. Both runs use 2750x2850/144 Hz; no matching
 v1.0.0 playtest log was found in the available local playtest archive. Compare native
 and pereye at the SAME save/view with paired timing windows before changing that
 accepted visibility fix. Preserve resolution, quality, HUD and the hand/swing fixes.
@@ -36,10 +36,10 @@ cross-thread position mutexes by carrying immutable owner records with render wo
 Do not add per-draw GFx queries, object-table scans or GPU readbacks. First prove
 the queue/display boundary with the finite OwnerTrace capture described in
 HUD_ANCHORS. Actual production-source host tests exercise disabled logging/capture,
-per-Present limit,16-stack lifetime budget, once-per-family native reads and four
-bounded failure attempts. Exhausted render gate measured about3-4ns/call on host;
+per-Present limit, 16-stack lifetime budget, once-per-family native reads and four
+bounded failure attempts. Exhausted render gate measured about 3-4 ns/call on host;
 not an in-game performance guarantee. Each actual capture reports elapsedUs;
-no claim that its isolated stack walk/log burst is free. Normal default remains0.
+no claim that its isolated stack walk/log burst is free. Normal default remains 0.
 
 ## VR-229 local diagnostic cost and normal follow-up build (2026-09-25)
 
