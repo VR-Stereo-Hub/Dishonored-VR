@@ -333,6 +333,11 @@ static bool WriteDefaultIni(const char* ini)
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
+        "; IndexTuning (VR-224): Index controller hand frames, hold trims, the empty left\n"
+        "; hand's pose and the force-sensor grip. -1 = on when the launcher's headset is\n"
+        "; Valve Index, Bigscreen Beyond or Vive Pro 2, 0 = off, 1 = on. Shim parts need Index\n"
+        "; controllers.\n"
+        "IndexTuning=-1\n"
         "[Turning]\n"
         "; SnapTurn=1 turns the view AND your body in fixed steps from the right stick;\n"
         "; 0 = the game's smooth turn. Live: `snapturn on|off`, or F10 > Controls > Turning.\n"
@@ -1593,6 +1598,35 @@ static void LoadConfig()
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     Log("config: LoadConfig begin");
+    {   // VR-223: the headset the player told the launcher they have, so a log
+        // names the hardware without anyone having to ask. Read from the
+        // launcher's own file (always %LOCALAPPDATA%, never [Paths] DataDir),
+        // not the mod ini, which a version bump rewrites. The runtime's own
+        // system name is logged at session start; the two can disagree (a Quest
+        // on SteamVR reports through SteamVR), which is exactly why both print.
+        char local[MAX_PATH] = "", launcherIni[MAX_PATH] = "", model[64] = "";
+        const DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", local, sizeof(local));
+        if (n && n < sizeof(local)) {
+            _snprintf(launcherIni, MAX_PATH, "%s\\DishonoredVR\\launcher.ini", local);
+            launcherIni[MAX_PATH - 1] = 0;
+            GetPrivateProfileStringA("Headset", "Model", "", model, sizeof(model), launcherIni);
+        }
+        Log("config: headset (user reported in the launcher): %s",
+            model[0] ? model : "not recorded (launcher never run on this account, or older than VR-223)");
+        // VR-224: [Controllers] IndexTuning -1 auto | 0 off | 1 on. Auto follows the
+        // headset above: the tuning was measured on Index controllers, which both the
+        // Index and the Beyond ship with. The shim reads the verdict from
+        // DVR_INDEX_TUNING (it is loaded later, by the OpenXR loader, in this process).
+        const int it = GetPrivateProfileIntA("Controllers", "IndexTuning", -1, ini);
+        // Vive Pro 2 counts: its wands are not supported, so it is played on Index controllers.
+        const bool autoHs = !strcmp(model, "Valve Index") || !strcmp(model, "Bigscreen Beyond 1 / 2") ||
+                            !strcmp(model, "Vive Pro 2");
+        g_indexTuning = it == 1 || (it != 0 && autoHs);
+        SetEnvironmentVariableA("DVR_INDEX_TUNING", g_indexTuning ? "1" : "0");
+        Log("config: [Controllers] IndexTuning=%d -> %s (owner: %s)", it, g_indexTuning ? "ON" : "off",
+            it == 1 ? "ini, forced on" : it == 0 ? "ini, forced off"
+            : autoHs ? "launcher headset is an Index-controller headset" : "launcher headset is not Index, Beyond or Vive Pro 2");
+    }
 
     // create if missing, OR refresh if it predates this build's tuned defaults
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;

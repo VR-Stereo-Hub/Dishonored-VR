@@ -75,6 +75,43 @@ ini and wipes a startup write. Logs: `build/playtest-candidates/vr220-trigger-an
 physical swing keeps the hand on the controller with the hit landing; combos; a swing right after a
 trigger slash; block; mantle; a cinematic; a drop takedown; the trail still hidden. The tester's
 installed build 711 and ini were restored after the runs.
+## Index controller tuning from the headset (VR-224, 2026-09-24)
+
+Branch `claude/vr-224-index-tuning`, stacked on VR-223's branch, not merged.
+
+- Two commits cherry-picked from a community fork (`index-controller-offsets`,
+  author kept): an Index frame correction, hold and sword trims in the SteamVR
+  shim, an empty-left-hand re-pose and aim lift in the mod, a force-sensor grip
+  binding. Every part is now behind `[Controllers] IndexTuning` (-1 auto, the
+  default: on for a launcher headset of Valve Index, Bigscreen Beyond 1 / 2 or Vive Pro 2).
+  Details and the table: docs/INSTALLER.md, VR-224 section.
+- Verified: Release build, lint, default-profile-host (golden and packaged ini
+  regenerated, +4 lines), offscreen render of the picker's Index note. Installed.
+- NOT verified: anything on an Index rig. This machine's headset is a Quest 3,
+  so here the tuning resolves off and nothing should change; the log line
+  `config: [Controllers] IndexTuning=-1 -> off` says so.
+
+## Launcher headset selection (VR-223, 2026-09-24)
+
+Branch `claude/vr-223-launcher-headset` off `staging`, not merged.
+
+- The launcher asks which headset the player has before anything else. With
+  none recorded it is a modal with no close control; Continue unlocks on a pick
+  (or a typed name for Something else). Change on Setup and Manage reopens it.
+- The list is the BioShock Remastered VR mod's Setup.bat question, same order.
+  Recorded only: no setting follows from it.
+- Stored in %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model. Printed in
+  the launcher log, in the mod log (`config: headset (user reported in the
+  launcher): ...`) and in the support bundle manifest. Why not the mod ini:
+  ARCHITECTURE decision log, 2026-09-24.
+- Verified: Release build clean, lint clean, support-collector-tests PASS,
+  offscreen renders of `headset-required`, `headset-other`, `headset-change`,
+  `manage`, `setup-found` checked by eye.
+- NOT verified: a real first run clicking through the picker, and the mod log
+  line in a live session. The install was refused because the game was running
+  (d3d9.dll locked); run `tools\install.ps1 -Release` once it is closed.
+- Next: per-headset controller defaults (BRVR's d-pad modifier and WMR layout
+  fixes) would be a separate ticket if wanted.
 
 ## 1.0.1 release verification (2026-09-24)
 

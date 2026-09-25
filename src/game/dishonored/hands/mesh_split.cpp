@@ -2912,7 +2912,45 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         const float* tT = MpTrimTFor(hand);
         const float* tR = MpTrimRFor(hand);
         const float trimUU[3] = { tT[0] * k, tT[1] * k, tT[2] * k };
-        const dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(tR[0], tR[1], tR[2]);
+        dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(tR[0], tR[1], tR[2]);
+        // VR-224 Index tuning: the EMPTY left hand - bare, the Heart, powers - rolls about the
+        // forearm; a held pistol or crossbow keeps its frame. E is built in the controller's
+        // grip frame, where the forearm (aim) axis is known exactly: aim +Z = (0, .866, .5),
+        // pointing back along the arm. Positive = counter-clockwise seen from behind the hand.
+        // O_C*E*G*trim = O_C*G*(G^T*E*G)*trim, so it rides in the trim slot.
+        static const float kEmptyLeftRollDeg = 60.0f;
+        if (g_indexTuning && hand == 0 && !g_mpItemInHand[0] && kEmptyLeftRollDeg != 0.0f) {
+            const float a = kEmptyLeftRollDeg * 0.01745329f, cs = cosf(a), sn = sinf(a), vc = 1.0f - cs;
+            const float nx = 0.0f, ny = 0.8660254f, nz = 0.5f;
+            dvr::hf::Mat3 E;
+            E.m[0] = cs + nx*nx*vc;    E.m[1] = nx*ny*vc - nz*sn; E.m[2] = nx*nz*vc + ny*sn;
+            E.m[3] = ny*nx*vc + nz*sn; E.m[4] = cs + ny*ny*vc;    E.m[5] = ny*nz*vc - nx*sn;
+            E.m[6] = nz*nx*vc - ny*sn; E.m[7] = nz*ny*vc + nx*sn; E.m[8] = cs + nz*nz*vc;
+            // Headset, Blink out, real hand in a handshake. Pass 1 read fingers UP, palm to the
+            // face; a 120 deg step (x->-y, y->-z, z->x in the aim frame) then read fingers LEFT,
+            // palm FORWARD, back of the hand to the face - 90 deg of yaw from what it predicted,
+            // so the aim frame is not the view frame the reading assumed. Pass 2 adds a 90 deg
+            // turn RIGHT about vertical, Ry(-90), which a yaw offset between the frames cannot
+            // change. Composed, in the aim frame (+X right, +Y up, -Z forward): x->-y, y->x,
+            // z->z. Carried into the grip frame by A = Rx(-60) (the aim axes in grip coords).
+            dvr::hf::Mat3 Raim; // columns are the images of x, y, z
+            Raim.m[0] = 0;  Raim.m[1] = 1;  Raim.m[2] = 0;
+            Raim.m[3] = -1; Raim.m[4] = 0;  Raim.m[5] = 0;
+            Raim.m[6] = 0;  Raim.m[7] = 0;  Raim.m[8] = 1;
+            // Pass 3: nearly a handshake, wrist bent down a little -> lift the fingers.
+            // Rx(+t) tips forward (-Z) toward up (+Y), applied after the pass-2 turn.
+            static const float kEmptyLeftWristUpDeg = 25.0f;   // 15 still read low
+            {
+                const float t = kEmptyLeftWristUpDeg * 0.01745329f, c = cosf(t), s = sinf(t);
+                dvr::hf::Mat3 Rx = dvr::hf::identity3();
+                Rx.m[4] = c; Rx.m[5] = -s; Rx.m[7] = s; Rx.m[8] = c;
+                Raim = dvr::hf::mul3(Rx, Raim);
+            }
+            dvr::hf::Mat3 A = dvr::hf::identity3();
+            A.m[4] = 0.5f; A.m[5] = 0.8660254f; A.m[7] = -0.8660254f; A.m[8] = 0.5f;   // Rx(-60)
+            E = dvr::hf::mul3(dvr::hf::mul3(dvr::hf::mul3(A, Raim), dvr::hf::transpose3(A)), E);
+            trimR = dvr::hf::mul3(dvr::hf::mul3(dvr::hf::mul3(dvr::hf::transpose3(Guse), E), Guse), trimR);
+        }
         const dvr::hf::Xform target = dvr::hf::palm_target(O_C, Guse, dcam,
                                                            trimR, trimUU);
         g_mpPalmTarget[hand] = target;

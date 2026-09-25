@@ -74,6 +74,34 @@ const char* quality_label(Quality q);
 const wchar_t* runtime_ini_value(Runtime r); // "native" | "steamvr" | "auto"
 bool runtime_from_ini(const std::wstring& runtimeValue, const std::wstring& json, Runtime* out);
 
+// VR-223: the headset the player says they have. Recorded for diagnostics only
+// (the launcher log, the mod's startup log, the support bundle); it changes no
+// setting. The list is the BioShock Remastered VR mod's Setup.bat question, in
+// its order, so reports from both mods group the same way, except that Vive Pro 2
+// and XR Elite are split (VR-224): the Pro 2 is played on Index controllers, the
+// XR Elite ships its own. "Something else"
+// takes a typed name. Persisted in launcher.ini [Headset] Model as the label
+// itself, so a name that is not in the list reads back as "Something else".
+inline constexpr const char* kHeadsets[] = {
+    "Meta Quest 3 / 3S", "Meta Quest Pro", "Meta Quest 2", "Meta Quest 1",
+    "Meta Rift S / Rift CV1", "Valve Index", "HTC Vive / Vive Pro", "Vive Pro 2", "Vive XR Elite",
+    "Bigscreen Beyond 1 / 2", "Pimax Crystal / Light", "Pimax 5K / 8K", "Reverb G2 / other WMR",
+    "Varjo Aero / XR-3", "Pico 4 / 4 Ultra", "Somnium VR1", "PSVR2",
+};
+constexpr int kHeadsetCount = (int)(sizeof(kHeadsets) / sizeof(kHeadsets[0]));
+constexpr int kHeadsetOther = kHeadsetCount;         // the "Something else" row
+constexpr size_t kHeadsetNameMax = 48;
+// The list index of a stored name: 0..kHeadsetCount-1, kHeadsetOther for a typed
+// name, -1 for none recorded.
+int headset_index(const std::string& name);
+// A typed name made safe for an ini value and a log line: printable ASCII,
+// spaces collapsed, trimmed, capped at kHeadsetNameMax. Empty when nothing is left.
+std::string clean_headset_name(const std::string& typed);
+// VR-224: the headsets played on Index controllers (Vive Pro 2: wands unsupported), for which the mod turns
+// on its Index controller tuning ([Controllers] IndexTuning=-1, the default).
+// The mod matches the same two labels in config.cpp; keep them in step.
+bool headset_gets_index_tuning(const std::string& name);
+
 std::wstring default_vdxr_json();            // %ProgramW6432%\Virtual Desktop Streamer\OpenXR\virtualdesktop-openxr-32.json
 
 } // namespace dvr::setup

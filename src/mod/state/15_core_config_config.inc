@@ -94,6 +94,10 @@ static const int kConfigVersion = 15; // bump to refresh users' ini with new def
 // build, but it moves by its own one-time HandAnimMeleeRev migration (the EdgeSpeedRev
 // pattern), which costs one key instead of every tuned value.
 
+// VR-224: the Index controller tuning, resolved in LoadConfig from [Controllers]
+// IndexTuning and the launcher's headset. Read-only after the config load.
+static bool g_indexTuning = false;
+
 // Load config exactly once, lazily, from OUTSIDE the loader lock (first export
 // call). Safe to call repeatedly; only the first does work.
 static bool g_configLoaded = false;
