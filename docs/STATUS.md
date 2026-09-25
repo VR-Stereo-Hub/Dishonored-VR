@@ -20,7 +20,14 @@ Host checks:1284707 feedback/recovery,16 ownership,30045 cinematic/handback pass
 The negative control reproduces51.60 persistence and47.60 gameplay claim. Recovery
 is bounded at3s; an extremely slow/unresponsive native camera can outlast it.
 A synthetic1% blend per10ms did outlast the bound; this is not headset acceptance.
-No game launched. Optimized isolated build and ZIP validation follow.
+No game launched. Optimized isolated build, lint and9 exports pass.
+Delivered test build `v1.0.1-1-gaa3af7216`, legacy off, from clean commit aa3af7216.
+DLL SHA256 `2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+ZIP: `build/test-packages/DishonoredVR-VR227-cinematic-square-test-aa3af7216.zip`
+in the primary checkout (DLL, README, manifest and checksum only). ZIP CRC, extracted
+DLL hash, x86 header, embedded build ID and new diagnostic string verified.
+Local installation deferred because another collaborator has an active build;
+no installed files/INI changed. User requested a remote test ZIP.
 
 Next single launch question: at unchanged highest resolution, does the view stay
 full through the painting dialogue and for10seconds after control returns?
