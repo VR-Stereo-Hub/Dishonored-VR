@@ -592,10 +592,11 @@ void status(dvr::status::Writer& w) {
     const Snapshot s=snapshot(); w.obj("anim"); w.kv("valid",s.valid); w.kv("gameOwnsBody",s.game); w.kv("handBack",enabled());
     w.kv("master",s.state[0]); w.kv("upper",s.state[1]); w.kv("left",s.state[2]); w.kv("sequence",s.sequence);
     w.kv("reason",s.reason); w.kv("bodyMode",s.bodyMode); w.kv("controllerWeight",(double)weight());
+    const float wl=weight_for(0), wr=weight_for(1);   // before the lock: weight() takes it exclusively, and SRW locks do not nest
     AcquireSRWLockShared(&lock);   // VR-220: the sword hand-back's levers and the last attack's source
     w.kv("handAnimMelee",handAnimMelee); w.kv("handAnimMeleeSwing",handAnimMeleeSwing); w.kv("handAnimMeleeBothHands",handAnimMeleeBoth);
     w.kv("meleeSource",meleeSource); w.kv("meleeFireDtMs",(int)meleeFireDt);
-    w.kv("handMask",(int)s.handMask); w.kv("weightLeft",(double)weight_for(0)); w.kv("weightRight",(double)weight_for(1));
+    w.kv("handMask",(int)s.handMask); w.kv("weightLeft",(double)wl); w.kv("weightRight",(double)wr);
     ReleaseSRWLockShared(&lock);
     w.end_obj();
 }
