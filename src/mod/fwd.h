@@ -30,6 +30,12 @@ static void CamShakeSave(const char* ini);
 static void CamShakeStatus(dvr::status::Writer& w);
 static void CamShakeDrawUi();
 static void RainConfigure(const char* ini);
+static void OcclusionConfigure(const char* ini);   // VR-79 (stereo_occlusion.cpp)
+static bool OcclusionCommand(const char* args);
+static void OcclusionPass2Begin();                 // VR-79: pass 2 draws on the right eye's own view state
+static void OcclusionPass2End();
+static int OcclusionModeGet();                      // 0 native, 1 pereye, 2 off (the F10 Display choice)
+static void OcclusionModeSet(int mode, const char* who);
 static void RainHideSet(bool on);
 static void RainRecoverySet(bool on);
 static bool RainHideEnabled();

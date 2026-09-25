@@ -9413,3 +9413,64 @@ owner helper is compiled with test objects in tools/fov-lever-owners-host.ps1:
 reflection and recovery. Existing cinematic FOV tests:30045 pass.
 No game/simulator launch. Actual load stability, spyglass and cinematic acceptance
 remain open. RenderWidth/RenderHeight and ProjectionFov are not changed.
+
+## VR-79: the engine's occlusion-query switch (2026-09-24)
+
+Offline, installed Steam executable, `disasm-rva.py` only. The exe carries the
+UTF-16 console word `TOGGLEOCCLUSION` and the reply `Occlusion queries are now
+%s` (with `disabled` / `enabled`). Each has one `.text` reference, in the same
+exec handler: after a flush-rendering call it computes `flag = (flag == 0)` on
+the dword at VA 0x0144DD54 and prints `disabled` when the new value is nonzero.
+That is UE3's GIgnoreAllOcclusionQueries. `xref` finds exactly two other readers,
+both in the scene renderer:
+
+- VA 0x008663E5, inside the view setup reached from InitViews: if this switch or
+  either of two neighbouring globals is set, the view's flag dword at +0xEA8 gets
+  `| 0x18`. In UE3 these are the two view bits that ignore existing occlusion
+  results and suppress new query submission, so nothing is occlusion-culled.
+- VA 0x0086C1CB, next to the four-pass loop the InitViews note above describes,
+  where the switch gates an argument to the pass call.
+
+No other code writes the switch, so one aligned write holds until something
+writes it again. patterns.h carries the switch and both readers' bytes; the mod
+verifies both before writing and refuses on a mismatch.
+
+Why it matters: `reentry` draws both eyes through one viewport and one view
+state, so occlusion results from one eye's pass cull the other eye's draw
+(an NPC's head covered by the sword in the left eye only vanishes from the right).
+Setting the switch removes occlusion culling for both passes. It does not make
+culling per eye; it trades the saved draws for correctness (PERFORMANCE.md).
+Acceptance is downstream, not the write: with `querywait on`, reads from the
+cached occlusion-result caller (RVA 0x005BF596 above) should fall to about zero
+while the switch is set, and rise again with `occlusion native`.
+
+Headset, same day: the switch fixes the symptom and reads laggier. So the shipped
+fix is per-eye view states instead, below; the switch stays as `occlusion off`.
+
+### Per-eye view states
+
+The query history lives in the view state. `ue3-natives.py class LocalPlayer`
+gives the constructor 0x006C3F00, a jump to the real one at 0x006C3640. For a
+non-template object it calls 0x008450A0 with no arguments and stores the result at
+LocalPlayer +0x88 (the call site is 0x006C36BC). The script dump declares
+`var private native const Pointer ViewState` right before
+`ActorVisibilityHistory` (the 8-byte struct the constructor builds at +0x8C, a
+state pointer and a critical section from the synchronize factory at
+0x1423494), so +0x88 is ViewState, and the mod also resolves it by name at
+runtime and refuses on disagreement. 0x008450A0 is UE3's AllocateViewState:
+appMalloc(0x310, 8), the FSceneViewState constructor at 0x00844070, return the
+pointer (cdecl, no arguments). It has four more callers, which fits scene
+captures allocating their own.
+
+`occlusion pereye` allocates one extra state with that function on the game
+thread and writes it into LocalPlayer.ViewState for pass 2's viewport draw only
+(scene_draw.cpp brackets the call), restoring the left eye's straight after, even
+after a fault. The view copies the pointer while it is built inside that call, so
+the render thread sees each eye's own state. Each eye issues and reads its own
+queries against its own depth buffer. The extra state is never freed (0x310 bytes
+for the session, like the local player's own).
+
+Open risk, not observed: if FSceneViewState keeps UObject references the GC reaches
+only through the local player, the right eye's copy is not reported to the GC. A
+crash or a missing effect on the right eye alone after a level load would point
+here.

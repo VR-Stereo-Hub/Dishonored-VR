@@ -414,6 +414,26 @@ static const uint32_t kHudRequiresAlphaBlend     = 1;   // excludes the opaque s
 // what is on screen. 1177/1205 in gameplay, 1126/1221 in the pause menu.
 static const float    kHudTailFractionSeen = 0.92f;
 
+// VR-79: UE3's GIgnoreAllOcclusionQueries, the dword the TOGGLEOCCLUSION console
+// command flips ("Occlusion queries are now %s"). Its only readers are the two
+// below; both are byte-verified before the mod writes it. ENGINE_NOTES "VR-79".
+static const uintptr_t kIgnoreAllOcclusionQueries = 0x0144DD54;
+static const uintptr_t kOcclReaderViewSetup = 0x008663E5;   // cmp [switch],0 -> view flags |= 0x18
+static const uint8_t kOcclReaderViewSetupBytes[] = {0x83,0x3D,0x54,0xDD,0x44,0x01,0x00,0x75,0x04};
+static const uintptr_t kOcclReaderDepthPass = 0x0086C1CB;   // cmp [switch],esi before the pass-loop call
+static const uint8_t kOcclReaderDepthPassBytes[] = {0x39,0x35,0x54,0xDD,0x44,0x01,0x75,0x0F};
+// VR-79 per-eye culling: UE3's AllocateViewState, cdecl, no arguments: appMalloc(0x310, 8)
+// then the FSceneViewState constructor, returns the new state. The LocalPlayer
+// constructor calls it and stores the result at +0x88 (LocalPlayer.ViewState; the
+// script property is resolved at runtime and must agree). ENGINE_NOTES "VR-79".
+static const uintptr_t kAllocateViewState = 0x008450A0;
+static const uint8_t kAllocateViewStatePrefix[] = {0x55,0x8B,0xEC,0x6A,0xFF,0x68,0x9B,0x06,0xF2,0x00,0x64,0xA1,0x00,0x00,0x00,0x00,
+                                                   0x50,0x51,0xA1,0xA8,0x49,0x3B,0x01,0x33,0xC5,0x50,0x8D,0x45,0xF4,0x64,0xA3,0x00,0x00,0x00,0x00,
+                                                   0x6A,0x08,0x68,0x10,0x03,0x00,0x00};
+static const uint32_t kLocalPlayerViewStateOff = 0x88;
+static const uintptr_t kLocalPlayerAllocSite = 0x006C36BC;   // call AllocateViewState; cmp [esi+74],0; mov [esi+88],eax
+static const uint8_t kLocalPlayerAllocSiteBytes[] = {0xE8,0xDF,0x19,0x18,0x00,0x83,0x7E,0x74,0x00,0x89,0x86,0x88,0x00,0x00,0x00};
+
 // Engine-labelled InitViews: two direct callers; thiscall, no stack arguments.
 // First six whole non-relative bytes are sufficient for the trampoline.
 static constexpr uintptr_t kSceneInitViews = 0x008662A0;

@@ -87,6 +87,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "lensfollow") && DvrOnOff(args, &b)) { LensFollowSet(b); return true; }       // VR-137
     if (!strcmp(cmd, "rainstrength")) { LensRainPctSet(atoi(args)); return true; }                 // VR-137: %, 100 native
     if (!strcmp(cmd, "mirror")) return WmCommand(args);   // VR-138
+    if (!strcmp(cmd, "occlusion")) return OcclusionCommand(args);   // VR-79
     if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
     if (!strcmp(cmd, "uiguard") && DvrOnOff(args, &b)) { UiSurfaceSet(b); return true; }
     if (!strcmp(cmd, "monoanchor")) {
