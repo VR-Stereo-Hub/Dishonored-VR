@@ -1,3 +1,29 @@
+## VR-229 returned scoped-eye recorder and bounded output (2026-09-25)
+
+Returned9da0a0b48: GPU frame-id probes verified disabled. Largest printed CPU recorder
+finish/log peak0.512ms. The stable later cinematic still records windows, so logging
+alone does not explain the early-only judder. No controlled end-to-end A/B exists.
+
+Local actual-recorder host run before output change:100000 presents,50 c5 uploads
+per present, real formatting/buffered file output; mean1.987us/present,max1.639ms.
+After change:mean2.125us,max1.556ms. These are separate host runs subject to scheduling
+and file flush noise, not proof of a meaningful peak-time improvement or regression.
+Do not claim negligible tail cost from either mean. The structural improvement is
+verified: opening a history window no longer prints12 prior frames plus the current
+frame in one call (52 data lines). It prints one frame per Present, four data lines,
+plus at most a window header. Same12-before/16-after evidence retained, maximum12
+frames of output lag in a64-frame history. Window reopening waits for pending output;
+very slow frame rates cannot overwrite the requested history. Abrupt exit may leave
+the last pending records unwritten.255 production-recorder checks pass.
+
+New render-progress fix adds only a game-thread boolean/counter and one value in the
+existing3s beat. Its purpose is to prevent an unnecessary center-eye draw during one
+queued render interval; it can add one extra double draw before a genuine stall is
+refused. That is rendering behavior, not diagnostic overhead. Camera/state/session
+guards remain. Remote candidate keeps CPU history so an unsuccessful run is still
+useful, with GPU probes suppressed regardless of saved FrameId. The maintainer's
+normal1ed638c01 build remains installed with the entire recorder compiled out.
+
 ## VR-229 scoped-axis follow-up (2026-09-25)
 
 Returned candidate c4f5fe5df verifies GPU frame-id pixels OFF. Recurring recorder

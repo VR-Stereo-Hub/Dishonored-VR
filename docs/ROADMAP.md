@@ -1,3 +1,13 @@
+## Prison judder follow-up (VR-229, 2026-09-25)
+
+- [x] Verify9da0a0b48 returned build and record partial head-turn-separation acceptance.
+- [x] Compare early/late cinematic counters; retain later-transition failures as open.
+- [x] Bound one queued render interval without weakening sustained-stall rejection.
+- [x] Production policy/pairing/cinematic regressions, including old-policy control.
+- [x] Spread existing history output across presents; same evidence, bounded formatting.
+- [ ] Affected-player prison stability from scene start through gameplay.
+- [ ] Local hand/HUD acceptance on separate installed1ed638c01 (PR132).
+
 ## Prison cinematic acceptance candidate (VR-229, 2026-09-25)
 
 - [x] Correlate returned prison failures with center-eye interruptions and skew.

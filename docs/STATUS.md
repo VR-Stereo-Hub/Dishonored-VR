@@ -1,3 +1,24 @@
+## VR-229: scoped-eye partial acceptance and queued-render candidate (2026-09-25)
+
+Returned support-20260925-150139 current banner9da0a0b48 matches the scoped-eye ZIP.
+Headset report accepts head-turn eye separation repair; prison judder remains early
+then resolves. Stale/expiry/duplicate counters rise to192/58/526 then flatten in the
+later dialogue; a later transition adds further events. See FLICKER_REFERENCE for
+identity, exact intervals, counterpredictions and limitations. Do not call fully fixed.
+
+Candidate tolerates one unchanged Present interval after observed progress, while a
+second quiet interval still refuses and fresh-camera/other gates remain. Production
+helper old200 singles/400 queued ticks vs new0; pairing1686 normal/1687 recorder,
+cinematic30054 pass. Recorder preserves the same window but emits at most one frame
+per Present;255 actual recorder checks pass. Host peak remains scheduler/IO-sensitive,
+so no negligible-tail-cost claim (PERFORMANCE.md).
+
+Next: finish clean optimized packaging on the returned tester baseline; one remote
+prison-through-fade stability question, support ZIP either way. Local hand/HUD build
+1ed638c01 is installed in a different worktree/PR132 and MUST remain untouched during
+this investigation. PR131 tracks this remote candidate; shared source with PR132 must
+be reconciled before any explicitly authorized merge. No game or simulator launched.
+
 ## VR-229 scoped-eye replacement packaged (2026-09-25)
 
 Replacement ZIP: build/test-packages/DishonoredVR-VR229-scoped-eye-fix-9da0a0b48.zip in primary checkout,
