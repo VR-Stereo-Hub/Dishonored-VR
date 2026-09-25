@@ -14,6 +14,16 @@ Handoff handoff;
 Handoff classifier;
 Handoff cameraClassifier;
 bool watch = true, handback = true, cinematicHandback = false, mantleHandback = false;
+// VR-283: takedowns (assassinations on the ground and from the air, chokes) and combat
+// fatalities draw the game-animated HANDS through the arm/hand split, forearms hidden, the
+// way mantle does. Hiding the arms by bone visibility froze the hands (the earlier attempt);
+// the split keeps the game's clip on the hands and drops only the arm triangles, at the
+// player's F10 sleeve length. Off = the game's full arms, as before.
+bool hideTakedownArms = true;
+bool takedown_state(const char* master, const char* upper) {
+    return !strcmp(master,"StatePlayerMasterAssassinate") || !strcmp(master,"StatePlayerMasterChoke") ||
+           !strcmp(upper,"StatePlayerGenericFatality");
+}
 // Game animation on the tracked hands with the arms hidden, like mantling: the
 // sword swing (StatePlayerMeleeAttack) and the shot (a *Fire* clip inside
 // StatePlayerAction, where run483 measured Pistol_Fire). New levers: default off.
@@ -181,6 +191,13 @@ Snapshot snapshot() {
     ReleaseSRWLockShared(&lock); return s;
 }
 bool mantle_enabled() { AcquireSRWLockShared(&lock); bool on=mantleHandback; ReleaseSRWLockShared(&lock); return on; }
+bool takedown_arms_hidden() { AcquireSRWLockShared(&lock); bool on=hideTakedownArms; ReleaseSRWLockShared(&lock); return on; }
+void set_takedown_arms_hidden(bool on) {   // VR-283
+    AcquireSRWLockExclusive(&lock); hideTakedownArms=on; ReleaseSRWLockExclusive(&lock);
+    Log("anim: HideTakedownArms=%d (live; %s)",on?1:0,
+        on?"takedowns and fatalities draw the game-animated hands only, forearms hidden at the F10 sleeve length"
+          :"takedowns and fatalities draw the game's full arms");
+}
 void set_mantle(bool on) {
     AcquireSRWLockExclusive(&lock); mantleHandback=on; ReleaseSRWLockExclusive(&lock);
     Log("anim: MantleHandBack=%d (live)",on?1:0);
@@ -462,6 +479,10 @@ void tick() {
     const bool handPose=swing || fire;
     const bool rules=resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
     const bool match=mantle || handPose || rules;
+    // VR-283: a takedown the rules hand back draws split hands, not full arms, while the
+    // toggle is on. Only when the rule would hand it back at all: an Arms.<lane>.<state>=0
+    // override (controller hands) still wins.
+    const bool takedownSplit=hideTakedownArms && rules && takedown_state(s.state[0],s.state[1]);
     classifier.update(s.valid,match,watch,now,releaseMs,0);
     // VR-220: which hands this hand-back owns. A trigger sword attack alone owns the right
     // hand (the clip is right-handed); anything else owns both. Held through the release
@@ -470,12 +491,13 @@ void tick() {
                         : classifier.game ? previous.handMask : 0;
     s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) :
         handPose ? !(swing ? resolve_arm_rule(1,s.state[1]) : resolve_arm_rule(fireLane,s.state[fireLane])) :
+        takedownSplit ? true :
         (!match && classifier.game && previous.mantleSplit));
     handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
     ownedMask.store((handback && s.valid && s.game) ? s.handMask : 0);   // VR-220: what hand_owned() answers
-    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
+    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
     published=s;
     ReleaseSRWLockExclusive(&lock);
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
@@ -513,6 +535,9 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
+    hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",1,ini)!=0;   // VR-283
+    Log("config: [Anim] HideTakedownArms=%d (%s)",hideTakedownArms,
+        hideTakedownArms?"takedowns and fatalities: game-animated hands, forearms hidden at the sleeve length":"takedowns and fatalities: full game arms");
     handAnimMelee=GetPrivateProfileIntA("Anim","HandAnimMelee",1,ini)!=0;
     // VR-220: the shipped default moves 0 -> 1 (a trigger attack now plays the game's swing
     // on the tracked hand). The old default is WRITTEN in every installed ini, so a compiled
@@ -559,6 +584,7 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Anim","HandBack",b?"1":"0",ini);
     WritePrivateProfileStringA("Anim","CinematicHandBack",c?"1":"0",ini);
     WritePrivateProfileStringA("Anim","MantleHandBack",mantle?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HideTakedownArms",takedown_arms_hidden()?"1":"0",ini);   // VR-283
     WritePrivateProfileStringA("Anim","HandAnimMelee",hm?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandAnimMeleeRev","1",ini);            // VR-220: a saved value is this machine's choice
     WritePrivateProfileStringA("Anim","HandAnimMeleeSwing",hs?"1":"0",ini);   // VR-220

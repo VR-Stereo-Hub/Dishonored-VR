@@ -174,6 +174,13 @@ static void OvlTabHands()
             dvr::anim::set_mantle(mantleHands);
             ConfigWriteKey("Anim", "MantleHandBack", mantleHands ? "1" : "0", "F10 Hands");
         }
+        bool takedownArms = dvr::anim::takedown_arms_hidden();
+        if (dvr::ovl::checkbox("Hide arms in takedowns (hands still animate)", &takedownArms)) {
+            dvr::anim::set_takedown_arms_hidden(takedownArms);
+            ConfigWriteKey("Anim", "HideTakedownArms", takedownArms ? "1" : "0", "F10 Hands");
+        }
+        OvlTip("Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
+               "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
         bool cineHands = dvr::anim::cinematic_enabled();
         if (dvr::ovl::checkbox("Game hands and arms in cinematics", &cineHands)) {
             dvr::anim::set_cinematic(cineHands);
