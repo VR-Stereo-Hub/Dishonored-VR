@@ -3258,7 +3258,9 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     default: return false;
     }
     if(nativeHands)DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-        "anim/draw: native animated hands only; forearms clipped, controller palette/depth overrides bypassed");
+        "anim/draw: native animated hands only (%s); forearms clipped at the sleeve cut %.2f / %.2f uu from the hand bone "
+        "(F10 Sleeve), controller palette/depth overrides bypassed",
+        dvr::anim::snapshot().reason, g_msCutRel[1], g_msCutRel[2]);
     const int start = g_msClsStart[lo];
     int count = 0;
     for (int c = lo; c <= hi; c++) count += g_msClsCount[c];
