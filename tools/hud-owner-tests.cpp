@@ -16,7 +16,9 @@ static std::atomic<bool> requested{true},hooked{true};
 static thread_local Owner sourceOwner,renderOwner;
 static thread_local bool replaying=false;
 static Owner mapped;
-static Owner Lookup(void* p) {return (uintptr_t)p==mapped.root ? mapped : Owner{};}
+static bool potionLookup=false;
+static Owner QuickPotionOwner(void* character);
+static Owner Lookup(void* p) {return potionLookup ? QuickPotionOwner(p) : (uintptr_t)p==mapped.root ? mapped : Owner{};}
 static void* displayOriginal=nullptr;static void* publishOriginal=nullptr;
 static uintptr_t executeReturn=0;
 using namespace dvr::hudlayout;
@@ -33,7 +35,7 @@ namespace dvr::menukeep {struct Identity {uint8_t* obj=nullptr;void* cls=nullptr
 static dvr::menukeep::Identity quickIdentity;static uint32_t wheelName=10;
 static void MkReadIdentity(uint8_t* p,dvr::menukeep::Identity* out){out->obj=p;out->cls=(void*)0x1234;out->name[0]=wheelName;out->name[1]=0;}
 static bool IsLiveObject(const void* p){return (p==hud && hudLive) || (p==targetStorage && targetLive) ||
-    (p==quickManager && managerLive) || (p==quickWheel && wheelLive);}
+    (p==managerBytes && managerLive) || (p==wheelBytes && wheelLive);}
 static bool RangeReadable(const void* p,size_t n) {
     MEMORY_BASIC_INFORMATION m{};const auto a=(uintptr_t)p;
     return a>=0x10000 && a+n>=a && VirtualQuery(p,&m,sizeof(m)) && m.State==MEM_COMMIT &&
@@ -122,6 +124,12 @@ int main() {
     memcpy(potionCharacter+kGfxSpriteMovie,&quickView,4);
     int quickMode=kGfxQuickPotionMode;memcpy(wheelBytes+quickModeField,&quickMode,4);
     MkReadIdentity(quickWheel,&quickIdentity);
+    // Exercise the production activation function, not a pre-armed reader.
+    // No base HUD clip ownership is present in this fixture at all.
+    quickView=0;quickManager=nullptr;quickWheel=nullptr;
+    check(RefreshQuickMovie(managerBytes)==kGfxQuickPotionMode && quickView==(uintptr_t)movieRootBytes,
+        "live potion activates independently of unrelated base-HUD clips");
+    check(quickManager==managerBytes && quickWheel==wheelBytes,"activation binds current live membership");
     const Owner potion=QuickPotionOwner(potionCharacter);
     check(quickCaptured.load()==1,"successful potion owner is counted");
     memset(movieRootBytes,0,4);
@@ -146,6 +154,19 @@ int main() {
     check(!QuickPotionOwner(potionCharacter),"other movie cannot inherit potion ownership");
     check(!SpriteMovie(nullptr) && !SpriteMovie((void*)1),"malformed borrowed sprite fails safely");
     quickView=0;check(!QuickPotionOwner(potionCharacter),"unvalidated sprite/movie relationship remains native");
+    quickMode=1;memcpy(wheelBytes+quickModeField,&quickMode,4);
+    check(RefreshQuickMovie(managerBytes)==1 && !quickView && !quickWheel && !quickManager,
+        "leaving potion mode clears all retained activation state");
+    quickMode=kGfxQuickPotionMode;memcpy(wheelBytes+quickModeField,&quickMode,4);
+    check(RefreshQuickMovie(managerBytes)==4 && quickView,"potion mode can reactivate");
+    wheelLive=false;
+    check(RefreshQuickMovie(managerBytes)==-1 && !quickView,"dead movie cannot activate");wheelLive=true;
+    managerLive=false;
+    check(RefreshQuickMovie(managerBytes)==-1 && !quickView,"dead manager cannot activate");managerLive=true;
+    memset(movieRootBytes,0,4);
+    check(RefreshQuickMovie(managerBytes)==4 && !quickView,"unsupported native view remains unarmed");
+    memcpy(movieRootBytes,&kGfxMovieRootVtable,4);
+    check(RefreshQuickMovie(managerBytes)==4 && quickView,"restored supported native view can activate");
     Owner a;a.root=0x2000;a.generation=7;a.element=3;
     check(!commands.put(0,a),"null command refused");check(!commands.put(4,Owner{}),"unidentified owner refused");
     check(commands.put(16,a),"identified command queued");
@@ -161,7 +182,16 @@ int main() {
     for(unsigned i=1;i<=8;++i)check(tinyQueue.put(i*32,a),"bounded collision probe admits available slot");
     check(!tinyQueue.put(9*32,a),"full table refuses without overwriting");
     for(unsigned i=1;i<=8;++i)check(tinyQueue.take(i*32,7).root==a.root,"collision deletion preserves later records");
-    displayOriginal=(void*)NativeDisplay;publishOriginal=(void*)NativePublish;mapped=a;
+    displayOriginal=(void*)NativeDisplay;publishOriginal=(void*)NativePublish;
+    // Activation -> native Display -> publication -> render replay with the
+    // real potion reader. This used to be tested only with manual pre-arming.
+    memcpy(potionCharacter+kGfxSpriteMovie,&quickView,4);
+    mapped=potion;potionLookup=true;phase=2;
+    Display(potionCharacter,nullptr,nullptr);
+    check(observed.root==(uintptr_t)potionCharacter && observed.element==ElDefault,
+        "activated potion reaches render replay with default-panel ownership");
+    check(!sourceOwner && !renderOwner && !replaying,"potion replay restores surrounding scope");
+    potionLookup=false;quickView=0;mapped=a;
     phase=0;Display((void*)a.root,nullptr,nullptr);
     check(observed.root==a.root && !sourceOwner,"top level synchronous owner scope restores");
     phase=1;Display((void*)a.root,nullptr,nullptr);check(!sourceOwner,"nested display restores empty outer scope");

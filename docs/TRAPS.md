@@ -1,3 +1,14 @@
+## 2026-09-25: test activation, not only an already enabled reader
+
+36a8d7f95's correct sprite+BC field still did not capture the potion. Its new
+all-HUD-clips-match guard rejected22 matching and9 different references, keeping
+quickReady0 during real mode4. The fixture manually armed quickView and omitted
+this poll condition. Remove the unrelated movie census requirement; authorize
+only exact current potion movie membership. Test production activation from an
+unarmed state through queued replay. Do not claim a placement test occurred when
+activation counters are zero. The nine different references remain unexplained;
+they need not be classified to validate a different movie's own Display receiver.
+
 ## 2026-09-25: resource identity is not movie-instance identity
 
 The quick-potion candidate b52c0c579 never activated: all28 movieLink samples were

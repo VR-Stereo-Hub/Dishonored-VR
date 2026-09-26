@@ -1,3 +1,32 @@
+## Potion ownership must not depend on another movie's clip census (2026-09-25)
+
+Matched returned36a8d7f95 proves +BC matches22 current HUD clips, while9 differ.
+At59102281..59114406 the game reports actual wheel mode4, quickReady0 and
+quickCaptured0. Base ownership remains active with required7 and overflow0.
+The all-clips-equal guard, introduced in36a8d7f95, therefore vetoed the entire
+potion route. This is a confirmed activation failure, not a position test.
+Why the nine retained HUD clip references differ is not established; do not
+label them imported, stale or valid alternate roots without further evidence.
+
+Remove the irrelevant global census dependency. RefreshQuickMovie reads current
+live manager.m_pPowerWheel, actual mode4 and the supported pMovie/view. The
+Display receiver must itself link to that EXACT current view via native+BC.
+QuickPotionOwner additionally revalidates live manager membership, wheel identity,
+mode/view and HUD generation on use. Other movies cannot pass this equality.
+The previous constructor/getter derivation remains valid; the requirement that
+ALL unrelated HUD clips agree was an unsupported additional assumption.
+
+Extract and exercise production RefreshQuickMovie in the host harness. Start
+unarmed, activate without any HUD clip census, check inactive/dead/unsupported
+transitions, then pass the actual resulting potion owner through Display,
+publication and render replay. Previous tests manually pre-armed quickView and
+therefore could not detect the poll's veto.97 checks and100000 transfers pass.
+
+Current UI log also establishes gameplay routing after the brief native wheel
+open/close interval: contextOther blocked0/rides0 and visual context-1 precede
+the persistent mode4 samples. No menu-context change is needed to explain this
+failure; leave accepted menu/close behavior alone in this correction.
+
 ## Correct GFxSprite movie ownership (2026-09-25)
 
 Retracted: the previous +90 sprite/movie hypothesis. Matching returned build

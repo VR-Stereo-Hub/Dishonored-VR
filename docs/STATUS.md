@@ -1,3 +1,22 @@
+## 2026-09-25: potion activation veto confirmed; direct owner correction
+
+Returned v1.0.1-46-g36a8d7f95 matches installed DLL/banner, archived with previous
+log/full INI at primary build/hud-regression-20260925/potion-root-return-235618.
+Reminder still peripheral. Actual mode4 persists with quickReady0/quickCaptured0;
+HUD movie census22matches/9different vetoes activation. This was another unarmed
+candidate, not evidence about panel position. The nine differences are unexplained.
+
+Remove unrelated all-HUD-clips census prerequisite. Production RefreshQuickMovie
+activates from live manager membership/mode4/supported movie view; current Display
+receiver must match that exact view and pass the existing identity/epoch checks.
+97 host checks/100000 transfers include unarmed activation through queued replay.
+No config, position, rain or menu changes. Build/install pending. See ENGINE_NOTES
+for measured failure and PERFORMANCE for unchanged capture topology/reduced census.
+
+Next one-launch question: is the independently appearing low-health D-pad/potion
+fully visible on the floating gameplay HUD? Read quickMode/quickReady/quickCaptured
+before drawing placement conclusions. No game launch, no merge, no external upload.
+
 ## 2026-09-25: correct failed potion movie link; audit remaining HUD families
 
 Returned v1.0.1-44-gb52c0c579 matched installed DLL/banner; archives in primary

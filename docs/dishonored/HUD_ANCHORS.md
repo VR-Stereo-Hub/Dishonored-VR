@@ -1,3 +1,19 @@
+## 2026-09-25: potion activation veto identified in returned log
+
+Returned36a8d7f95 still leaves the icon peripheral. It never captured the potion:
+actual mode4 persists for five summaries, but quickReady/quickCaptured remain0.
+The newly added all-HUD-clips-equal check sees22 matches and9 other references
+and vetoes the separate potion movie. Remove that dependency and its recurring
+census reads; retain exact live potion movie/Display membership verification.
+No panel positioning, size, INI or menu behavior changes. Production activation
+and full queue transport now have an integrated host regression, rather than
+only a fixture with quickView already manually enabled.
+
+Next one-launch acceptance: low-health D-pad/potion is fully visible on the
+floating gameplay panel without opening the wheel. If unchanged, distinguish
+quickReady0, ready-but-quickCaptured0 and captured-with-bad-position; none of
+those is equivalent. No visible-fix claim until headset confirmation.
+
 ## 2026-09-25: potion route did not activate; script coverage audit
 
 Returned b52c0c579 confirms the reminder remains peripheral; performance was

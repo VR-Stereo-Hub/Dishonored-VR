@@ -296,7 +296,7 @@ static const uint32_t kHudValueSize=0x10,kHudValueType=4,kHudValueHandle=8;
 static const uint32_t kHudQueueAllocationCommand=4;
 static const uint32_t kHudSpriteDisplaySlot=0x74;
 // Native HUD initialization B9584E..B95868 resolves pMovie -> GFxMovieView.
-// Verify the sprite's movie link against a current known HUD clip before use.
+// Match the current Display receiver directly to the live owning movie view.
 // MovieRoot constructor E064C0 installs this primary (GFxMovieView) vtable.
 // Sprite ctor DF5240 stores the root at +BC; getter B27BE0 returns it.
 // +90 belongs to the resource definition, not the movie instance.

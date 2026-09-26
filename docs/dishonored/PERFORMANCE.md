@@ -1,3 +1,16 @@
+## 2026-09-25: remove failed cross-movie activation census
+
+Matched36a8d7f95 DLL/banner and archived logs/full INI under primary
+build/hud-regression-20260925/potion-root-return-235618. Actual mode4 has zero
+quickCaptured throughout; active potion-capture cost is still unmeasured.
+
+Correction removes the per-poll base-HUD movie lookup and31 sprite comparisons.
+The existing direct potion-owner identity/mode/view checks remain, as does the
+single relaxed counter on successful outer ownership. No extra GPU resource,
+readback, engine call or log stream. Summary remains3s.97 host ownership checks
+and100000 transfers pass, including production activation through queue replay.
+Host costs16.65ns unowned wrapper/21.51ns queue roundtrip are not in-game timings.
+
 ## 2026-09-25: quick-potion return and ownership-link correction
 
 Verified b52c0c579 installed DLL/banner; current/previous logs and full INI archived

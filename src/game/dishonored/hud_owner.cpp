@@ -91,6 +91,20 @@ uintptr_t SpriteMovie(void* character) {
     __except(EXCEPTION_EXECUTE_HANDLER) {view=0;}
     return view;
 }
+int RefreshQuickMovie(uint8_t* manager) {
+    quickView=0;quickManager=nullptr;quickWheel=nullptr;
+    auto* wheel=quickWheelField ? CtObject(manager,quickWheelField) : nullptr;
+    int mode=-1;
+    if(wheel && quickModeField) CtRead(wheel,quickModeField,&mode,4);
+    if(mode==kGfxQuickPotionMode) {
+        const uintptr_t view=MovieView(wheel);
+        if(view) {
+            quickManager=manager;quickWheel=wheel;MkReadIdentity(wheel,&quickIdentity);
+            quickView=view;
+        }
+    }
+    return mode;
+}
 Owner QuickPotionOwner(void* character) {
     Owner result;
     if(!quickView || SpriteMovie(character)!=quickView || !SameHud()) return result;
@@ -277,23 +291,9 @@ void poll(uint8_t* manager) {
         const int index=roots[i].index;
         if(index==2) required|=1;if(index==6) required|=2;if(index==12) required|=4;
     }
-    // Prove the native sprite/movie relationship with current known HUD clips.
-    // Refuse the optional quick-potion route if this executable/layout disagrees.
-    const uintptr_t hudView=MovieView(hud);
-    unsigned movieLinked=0,movieMismatch=0;
-    for(unsigned i=0;hudView && i<rootCount;++i) if(roots[i].family==0 && roots[i].owner) {
-        if(SpriteMovie((void*)roots[i].character)==hudView) ++movieLinked;
-        else ++movieMismatch;
-    }
-    const bool movieLink=movieLinked>0 && movieMismatch==0;
-    int quickMode=-1;
-    auto* wheel=quickWheelField ? CtObject(manager,quickWheelField) : nullptr;
-    // Read mode independently of the relationship guard: a guard failure must
-    // never print a fabricated mode zero as though it came from the game.
-    if(wheel && quickModeField) CtRead(wheel,quickModeField,&quickMode,4);
-    if(movieLink && quickMode==kGfxQuickPotionMode) {
-        quickView=MovieView(wheel);quickManager=manager;quickWheel=wheel;MkReadIdentity(wheel,&quickIdentity);
-    }
+    // Only the current potion movie can authorize its Display receivers.
+    // Other movies' clips have no bearing on this ownership relationship.
+    const int quickMode=RefreshQuickMovie(manager);
     refreshed=GetTickCount();available.store(required==7);
     static double reportAfter=0;
     const bool report=now>=reportAfter && ::dvr::log::enabled(DVR_CAT,::dvr::log::Level::Info);
@@ -306,8 +306,8 @@ void poll(uint8_t* manager) {
     }
     const unsigned count=rootCount;const bool quickReady=quickView!=0;ReleaseSRWLockExclusive(&rootsLock);
     if(report) DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
-        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u clips/task/heart/aware/grenade=%u/%u/%u/%u/%u pivots=%u movieLink=%d movieLinked/mismatch=%u/%u hudView=%p quickMode=%d quickReady=%d quickCaptured=%u display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
-        count,(int)available.load(),required,ambiguous,families[0],families[1],families[2],families[3],families[4],withPivot,(int)movieLink,movieLinked,movieMismatch,(void*)hudView,quickMode,(int)quickReady,quickCaptured.load(),displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
+        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u clips/task/heart/aware/grenade=%u/%u/%u/%u/%u pivots=%u quickMode=%d quickReady=%d quickCaptured=%u display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
+        count,(int)available.load(),required,ambiguous,families[0],families[1],families[2],families[3],families[4],withPivot,quickMode,(int)quickReady,quickCaptured.load(),displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
 }
 void marker(void* native,float x,float y,int w,int h) {
     if(!active() || w<=0 || h<=0 || !std::isfinite(x) || !std::isfinite(y)) return;
