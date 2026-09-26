@@ -1,5 +1,16 @@
 ## 2026-09-25: remaining heal reminder and rain follow-up
 
+Installed v1.0.1-42-ge322911fb after successful optimized build and nine exports.
+DLL SHA256 c15e845fa185ee2260974afe0ed5cb4e1dfe62aa75230fc8e482f1bb2380d033.
+INI SHA256 1457d5db02ac98d6eb60e66443f6dc8a4f3ab6a4dbde613fa7f365dad08b3420.
+Full expected/backup comparison: only tutorial WinY0.000->0.200;1535 CRLF,
+zero bare LF. Current Lens13/KeepSize1 preferences retained. Previous pair/logs:
+primary build/playtest-candidates/installs/20260925-224920-433895.
+Candidate/PDB: primary build/playtest-candidates/hud-tutorial-e322911fb.
+Game was closed and previous hashes matched; no game launched or merge performed.
+Next single launch question: is the low-health reminder fully visible/readable?
+Rain clarification remains pending; no rain fix is claimed.
+
 User accepts marker sizing and lower sneak/vault alignment on fe3c3f876;
 low-health reminder remains peripheral and rain appearance is reported changed.
 Verified installed DLL and matching log, archived current/previous log and full
