@@ -11,7 +11,7 @@ using namespace dvr::hudowner;
 static unsigned checks=0;
 static void check(bool yes,const char* why) {++checks;if(!yes){printf("FAIL %s\n",why);exit(1);}}
 static CommandOwners<> commands;
-static std::atomic<uint32_t> generation{7},sent{0},received{0},overflow{0},displays{0};
+static std::atomic<uint32_t> generation{7},quickCaptured{0},sent{0},received{0},overflow{0},displays{0};
 static std::atomic<bool> requested{true},hooked{true};
 static thread_local Owner sourceOwner,renderOwner;
 static thread_local bool replaying=false;
@@ -24,7 +24,7 @@ struct Array {uint8_t** data;int count,capacity;};
 static uint8_t hudStorage[128]{},targetStorage[32]{};
 static uint8_t* hud=hudStorage;static bool targetLive=true,hudLive=true;
 static uint32_t fields[6]={0,8,16,28,40,52};
-static uint8_t managerBytes[32]{},wheelBytes[64]{},movieBytes[64]{},potionCharacter[256]{};
+static uint8_t managerBytes[32]{},wheelBytes[64]{},movieBytes[64]{},movieRootBytes[64]{},potionCharacter[256]{};
 static uint8_t* quickManager=managerBytes;static uint8_t* quickWheel=wheelBytes;
 static bool managerLive=true,wheelLive=true;
 static uint32_t quickWheelField=8,movieField=12,quickModeField=16;
@@ -113,11 +113,23 @@ int main() {
     check(elements[12]==ElReticle && elements[3]==ElVitals,"cooking and hand vitals retain separate semantic placement");
     memcpy(managerBytes+quickWheelField,&quickWheel,4);
     uint8_t* movie=movieBytes;memcpy(wheelBytes+movieField,&movie,4);
-    quickView=0x900000;memcpy(movieBytes+kGfxMovieView,&quickView,4);
+    quickView=(uintptr_t)movieRootBytes;memcpy(movieRootBytes,&kGfxMovieRootVtable,4);
+    memcpy(movieBytes+kGfxMovieView,&quickView,4);
+    // Regression: the resource definition field is independent of instance
+    // ownership. These literal offsets reproduce the disassembled layout.
+    check(kGfxSpriteMovie==0xBC,"sprite movie field agrees with native getter/constructor");
+    uintptr_t definition=0x900000;memcpy(potionCharacter+0x90,&definition,4);
     memcpy(potionCharacter+kGfxSpriteMovie,&quickView,4);
     int quickMode=kGfxQuickPotionMode;memcpy(wheelBytes+quickModeField,&quickMode,4);
     MkReadIdentity(quickWheel,&quickIdentity);
     const Owner potion=QuickPotionOwner(potionCharacter);
+    check(quickCaptured.load()==1,"successful potion owner is counted");
+    memset(movieRootBytes,0,4);
+    check(!MovieView(quickWheel),"foreign native movie implementation refused");
+    memcpy(movieRootBytes,&kGfxMovieRootVtable,4);
+    memset(potionCharacter+0xBC,0,4);memcpy(potionCharacter+0x90,&quickView,4);
+    check(!QuickPotionOwner(potionCharacter),"resource field cannot impersonate movie owner");
+    memcpy(potionCharacter+0xBC,&quickView,4);memcpy(potionCharacter+0x90,&definition,4);
     check(potion && potion.element==ElDefault && !potion.marker,"quick potion joins existing default panel as complete movie");
     quickMode=1;memcpy(wheelBytes+quickModeField,&quickMode,4);
     check(!QuickPotionOwner(potionCharacter),"ordinary weapon wheel cannot become gameplay HUD");

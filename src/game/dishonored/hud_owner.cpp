@@ -11,6 +11,7 @@ std::atomic<uint32_t> generation{1};
 CommandOwners<> commands;
 thread_local Owner sourceOwner,renderOwner;
 thread_local bool replaying=false;
+std::atomic<uint32_t> quickCaptured{0};
 std::atomic<uint32_t> sent{0},received{0},overflow{0},taggedDraws{0},unknownDraws{0},displays{0};
 SRWLOCK rootsLock=SRWLOCK_INIT;
 struct Root {uintptr_t character=0;int family=0,index=0;Owner owner;};
@@ -75,11 +76,16 @@ uintptr_t MovieView(uint8_t* object) {
     uint8_t* movie=nullptr;uintptr_t view=0;
     if(!movieField || !CtRead(object,movieField,&movie,4) || !movie ||
        !RangeReadable(movie+kGfxMovieView,4)) return 0;
-    memcpy(&view,movie+kGfxMovieView,4);return view;
+    memcpy(&view,movie+kGfxMovieView,4);
+    uintptr_t table=0;
+    if(!view || !RangeReadable((void*)view,4)) return 0;
+    memcpy(&table,(void*)view,4);
+    return table==kGfxMovieRootVtable ? view : 0;
 }
 uintptr_t SpriteMovie(void* character) {
-    // Borrowed from the native Display call, which itself reads this member.
-    // Guard a malformed read without VirtualQuery on every displayed child.
+    // The current Display receiver is a borrowed GFxSprite. Its +BC member
+    // is the movie root (constructor DF5240 and getter B27BE0), not +90's
+    // resource definition. No VirtualQuery on every displayed child.
     uintptr_t view=0;
     __try {if(character) memcpy(&view,(uint8_t*)character+kGfxSpriteMovie,4);}
     __except(EXCEPTION_EXECUTE_HANDLER) {view=0;}
@@ -97,7 +103,7 @@ Owner QuickPotionOwner(void* character) {
        identity.name[0]!=quickIdentity.name[0] || identity.name[1]!=quickIdentity.name[1] ||
        !CtRead(quickWheel,quickModeField,&mode,4) || mode!=kGfxQuickPotionMode || MovieView(quickWheel)!=quickView) return result;
     result.root=(uintptr_t)character;result.generation=generation.load(std::memory_order_relaxed);
-    result.element=ElDefault;return result;
+    result.element=ElDefault;quickCaptured.fetch_add(1,std::memory_order_relaxed);return result;
 }
 Owner Lookup(void* character) {
     Owner result;
@@ -274,12 +280,18 @@ void poll(uint8_t* manager) {
     // Prove the native sprite/movie relationship with current known HUD clips.
     // Refuse the optional quick-potion route if this executable/layout disagrees.
     const uintptr_t hudView=MovieView(hud);
-    bool movieLink=false;
-    for(unsigned i=0;hudView && i<rootCount;++i) if(roots[i].family==0 && roots[i].owner &&
-        SpriteMovie((void*)roots[i].character)==hudView) {movieLink=true;break;}
-    int quickMode=0;
+    unsigned movieLinked=0,movieMismatch=0;
+    for(unsigned i=0;hudView && i<rootCount;++i) if(roots[i].family==0 && roots[i].owner) {
+        if(SpriteMovie((void*)roots[i].character)==hudView) ++movieLinked;
+        else ++movieMismatch;
+    }
+    const bool movieLink=movieLinked>0 && movieMismatch==0;
+    int quickMode=-1;
     auto* wheel=quickWheelField ? CtObject(manager,quickWheelField) : nullptr;
-    if(movieLink && wheel && quickModeField && CtRead(wheel,quickModeField,&quickMode,4) && quickMode==kGfxQuickPotionMode) {
+    // Read mode independently of the relationship guard: a guard failure must
+    // never print a fabricated mode zero as though it came from the game.
+    if(wheel && quickModeField) CtRead(wheel,quickModeField,&quickMode,4);
+    if(movieLink && quickMode==kGfxQuickPotionMode) {
         quickView=MovieView(wheel);quickManager=manager;quickWheel=wheel;MkReadIdentity(wheel,&quickIdentity);
     }
     refreshed=GetTickCount();available.store(required==7);
@@ -294,8 +306,8 @@ void poll(uint8_t* manager) {
     }
     const unsigned count=rootCount;const bool quickReady=quickView!=0;ReleaseSRWLockExclusive(&rootsLock);
     if(report) DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
-        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u clips/task/heart/aware/grenade=%u/%u/%u/%u/%u pivots=%u movieLink=%d quickMode=%d quickReady=%d display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
-        count,(int)available.load(),required,ambiguous,families[0],families[1],families[2],families[3],families[4],withPivot,(int)movieLink,quickMode,(int)quickReady,displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
+        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u clips/task/heart/aware/grenade=%u/%u/%u/%u/%u pivots=%u movieLink=%d movieLinked/mismatch=%u/%u hudView=%p quickMode=%d quickReady=%d quickCaptured=%u display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
+        count,(int)available.load(),required,ambiguous,families[0],families[1],families[2],families[3],families[4],withPivot,(int)movieLink,movieLinked,movieMismatch,(void*)hudView,quickMode,(int)quickReady,quickCaptured.load(),displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
 }
 void marker(void* native,float x,float y,int w,int h) {
     if(!active() || w<=0 || h<=0 || !std::isfinite(x) || !std::isfinite(y)) return;

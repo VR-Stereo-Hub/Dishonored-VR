@@ -1,3 +1,37 @@
+## 2026-09-25: potion route did not activate; script coverage audit
+
+Returned b52c0c579 confirms the reminder remains peripheral; performance was
+reported acceptable. The route's native pointer hypothesis failed all28 live
+checks, so this was no placement test. Correct sprite movie member+BC from its
+constructor/getter; validate the GFxMovieRoot primary table and all supported HUD
+clip relationships. Keep mode4's entire displayed movie on the existing default
+panel. QuickPotionMenu.Open is independent of opening the weapon wheel: it copies
+ShortcutsHandler.SetPosition's authored lower-left safe-area location, animates
+its own D-pad/potion/ring, and closes through its own callback. Do not ask the
+player to open the wheel to trigger this reminder.
+
+Coverage from a renewed local UnrealScript/ActionScript review:
+
+| Owner/family | Current capture policy and remaining lead |
+|---|---|
+| Base HUD32 clips | Explicit semantic table covers reticle, talk/use, vitals, sneak, context/mantle/QTE, breath/interaction/cook gauges, pickup/messages, tutorials, notifications, damage/vignettes, keyhole/cinematic, subtitles, choice and skip |
+| Task and Heart markers | Separate native arrays for objective and rune/charm identity; existing native marker projection/scale, no rectangle regrouping |
+| Awareness and thrown-grenade markers | Separate native arrays; existing native/frame placement, distinct from hand grenade-cook gauge |
+| PowerWheel mode4 | Standalone quick-potion movie; corrected optional ownership joins default panel with inherited child/filter ownership |
+| Other PowerWheel modes | Selection/shortcut UI remains on accepted menu routing; ShortcutsHandler also supports shortcuts without the radial wheel |
+| Global movie | Save/checkpoint messages, message boxes, cursor and cinematic stripes. No typed clip array in declarations; selective roots need native getter/path derivation, not whole-movie gameplay capture |
+| HUD FX | Separate m_pHudFX/m_pFXMovieInfo; retain full-screen effect policy. Shipped UI_HUDFX_SF export contains no exportable movie in this package; do not infer absent runtime effects |
+| Journal/note/pause/store/stats and challenge menus | Separate manager-owned menu movies; existing menu routing retained |
+| DLC06/07 HUD | Inherit the base HUD layout; different assets/interactions need game validation, not a completeness claim |
+| DLC05 trials | Additional21-clip m_pDLC05MovieClips, item-count clips and m_DLC05Markers are outside the base32 table. Future selective extension needs native layout verification; never promote the whole HUD root and swallow its children |
+
+This audit identifies where remaining elements come from; it does not claim all
+DLC/global overlays are headset-verified. Broader capture is intentionally not
+introduced as part of the potion correction. Existing default placement, rain,
+marker settings and accepted menus remain unchanged. One launch question is
+whether the independently appearing low-health D-pad/potion is now fully visible
+on the same floating panel as the lower gameplay hints.
+
 ## 2026-09-25: retire tutorial trial; capture quick-potion movie
 
 The e322911fb tutorial panel did not move the reported icon. User clarification

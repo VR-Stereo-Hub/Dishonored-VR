@@ -1,3 +1,14 @@
+## 2026-09-25: resource identity is not movie-instance identity
+
+The quick-potion candidate b52c0c579 never activated: all28 movieLink samples were
+zero. A resource read in Display was incorrectly treated as a sprite's movie
+owner. Its safety guard prevented wrong capture, but fixtures repeated the same
+assumption. Derive the owner from the constructor and getter; model resource and
+instance as distinct in regression fixtures. Also read diagnostic mode outside
+an unrelated failed guard: the old quickMode=0 was fabricated by short-circuiting.
+See ENGINE_NOTES' corrected GFxSprite ownership derivation. No new placement
+conclusion can be drawn from the failed candidate.
+
 ## A low-health icon is not necessarily the HUD tutorial (2026-09-25)
 
 The game has both a low-health text tutorial and a standalone D-pad/potion

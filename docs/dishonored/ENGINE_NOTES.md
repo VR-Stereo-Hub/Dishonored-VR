@@ -1,4 +1,35 @@
-## Quick-potion reminder belongs to the wheel movie (2026-09-25)
+## Correct GFxSprite movie ownership (2026-09-25)
+
+Retracted: the previous +90 sprite/movie hypothesis. Matching returned build
+b52c0c579 reports movieLink=0 in all28 summaries; no potion capture was activated.
+quickMode=0 in that build was a short-circuit default, not a game measurement.
+
+Offline constructor/getter derivation on the installed executable:
+- GFxSprite primary vtable011FB5B8 slot+54 is B27BE0, a direct getter of +BC.
+- DF5240 stores constructor argument3 at sprite+BC. DF6DB0..DF6DEE obtains the
+  parent's movie via that getter and passes it as argument3 to the new sprite.
+- E12380 allocates a2818-byte movie root, calls E064C0, and passes the returned
+  root as argument3 when constructing its level sprite at E123D9.
+- E064C0 installs primary vtable011FBAB0. Its slot+44 is DF95C0, the variable
+  getter used by the UE3 movie bridge at B9584E..B95868. No this adjustment:
+  GFxMovieView and this root share the primary pointer.
+- DCB490 retains constructor argument1 at+90, a resource definition; DF17CF's
+  use of resource data there did not establish instance ownership.
+
+Use sprite+BC, require the native view's primary vtable, and cross-check ALL
+current supported base-HUD clip roots against the independently read HUD view.
+Native addresses/layout constants remain centralized in patterns.h. The current
+Display receiver is borrowed only for the call; live manager membership, wheel
+identity, current mode/view, and HUD/menu/load epoch still gate publication.
+No game-memory writes or new engine function calls.
+
+The independent mode read now prints -1 if unavailable. Existing3s summaries
+include linked/mismatched clip counts, HUD view and successful quickCaptured
+count so a refused linkage cannot masquerade as an absent quick-potion state.
+Host regression fixtures explicitly keep resource+90 and movie+BC different,
+reject a resource pointer impersonating the movie, and reject foreign view tables.
+
+## Quick-potion reminder belongs to the wheel movie (2026-09-25; linkage retracted above)
 
 Correction to the preceding low-health text association: the reported standalone
 D-pad/potion is QuickPotionMenu in UI_PowerWheel, using the shared-library

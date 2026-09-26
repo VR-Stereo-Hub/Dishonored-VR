@@ -1,3 +1,27 @@
+## 2026-09-25: quick-potion return and ownership-link correction
+
+Verified b52c0c579 installed DLL/banner; current/previous logs and full INI archived
+under primary build/hud-regression-20260925/quick-potion-return-233600. User reports
+acceptable performance.15 existing perf samples have median8.6ms, range7.5..817.8ms
+(the whole run includes transitions, so these are not controlled A/B timings).
+All28 semantic summaries report movieLink=0, quickReady=0; final transport overflow0.
+This supports only the inactive-extension baseline, not the cost of active capture.
+
+Correction changes one native field read and validates the actual view table.
+All current clip/movie relationship checks stay on the existing UI poll, max32
+comparisons, with no per-draw heap work. Mode is read regardless of linkage to
+avoid misleading counters. A successful outer potion owner adds one relaxed
+counter increment; inherited children do not repeat this ownership validation.
+The existing summary remains once per3s; no new log stream, capture sink, GPU
+readback or engine call is added. CPU ownership checks use existing live-object
+membership plus guarded native reads. Active potion rendering still adds normal
+commands to the already allocated default panel; real active cost remains for
+the next matched playtest, not established by the inactive log.
+
+Host checks:85 ownership/reader tests and100000 concurrent transfers pass;
+123 native-HUD and503 routing tests pass. Host replay-wrapper15.06ns and queue
+roundtrip23.12ns are microbenchmarks, not measured in-game frame savings.
+
 ## 2026-09-25: failed tutorial trial and returned performance report
 
 Returned e322911fb is reported slightly slower. Whole-run perf tick medians:

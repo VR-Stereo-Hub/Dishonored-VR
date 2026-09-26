@@ -1,3 +1,25 @@
+## 2026-09-25: correct failed potion movie link; audit remaining HUD families
+
+Returned v1.0.1-44-gb52c0c579 matched installed DLL/banner; archives in primary
+build/hud-regression-20260925/quick-potion-return-233600. Reminder still peripheral,
+performance reported acceptable. All28 movieLink samples0: prior route never
+activated. quickMode0 was a short-circuit default, not a measured mode.
+
+Derived actual native movie owner at sprite+BC from constructor and getter;
++90 is a resource definition. Validate primary view table and all supported HUD
+clips; independently read mode and count successful potion ownership. Keep existing
+mode4/default-panel policy, no extra sink, no INI/placement/rain/menu changes.
+85 reader/transport checks plus100000 transfers,123 native-HUD and503 route tests
+pass. Build/install pending. Full derivation in ENGINE_NOTES; script coverage
+inventory in HUD_ANCHORS; matched-run performance limitations in PERFORMANCE.
+
+Next: build/install matched DLL/INI, then one question: does the standalone
+low-health D-pad/potion join the visible floating lower-HUD panel without opening
+the wheel? Read movieLinked/mismatch, actual quickMode, quickReady and
+quickCaptured before making further placement changes. Broader audit identified
+separate global/FX and DLC05 trial families; these need selective native mapping,
+not blanket capture. No game launch or merge. External disclosure still pending.
+
 ## 2026-09-25: quick-potion ownership correction; tutorial trial rejected
 
 Installed v1.0.1-44-gb52c0c579; optimized build, lint and nine exports pass.
