@@ -69,6 +69,43 @@ static inline int run_all(ReportFn fn, void* ctx)
     // than against the maths. 0.05 deg is three orders below visible.
     const float ANG_EPS = 0.05f;
 
+    // VR-188: replay an identity transition followed by an articulated hand.
+    // The old first-sample latch stays identity and misses the later correction.
+    {
+        WristReference ref; WristReference::Event event;
+        Mat3 wrist=rot_axis_deg(1,31), vote=wrist;
+        Mat3 out=ref.resolve(wrist,&vote,false,35,30,1,event);
+        bool ok=!ref.valid && event==WristReference::Deferred && rotation_diff_deg(out,vote)<ANG_EPS;
+        const Mat3 correction=rot_axis_deg(2,-49);
+        vote=mul3(wrist,correction);
+        out=ref.resolve(wrist,&vote,false,35,30,1,event);
+        ok=ok && ref.valid && event==WristReference::Measured && rotation_diff_deg(out,vote)<ANG_EPS;
+        const float rejected=rotation_diff_deg(wrist,out);
+        rec(&r,"wrist_transition_reference",ok && rejected>48,
+            "collapsed first sample deferred; later articulated sample captured; old identity latch error %.2f deg",rejected);
+        wrist=rot_axis_deg(0,63); vote=mul3(wrist,rot_axis_deg(2,-20));
+        out=ref.resolve(wrist,&vote,false,35,30,2,event);
+        rec(&r,"wrist_reference_rebuild",event==WristReference::Kept &&
+            rotation_diff_deg(out,mul3(wrist,correction))<ANG_EPS,
+            "same-slot rebuild preserves calibration despite a changed finger pose");
+        out=ref.resolve(wrist,&vote,true,42,30,3,event);
+        ok=rotation_diff_deg(out,vote)<ANG_EPS && ref.matches(35,30);
+        out=ref.resolve(wrist,nullptr,false,35,30,3,event);
+        rec(&r,"wrist_held_reference",ok && rotation_diff_deg(out,mul3(wrist,correction))<ANG_EPS,
+            "held item uses its own draw, empty hand keeps its original reference");
+        vote=wrist;
+        out=ref.resolve(wrist,&vote,false,42,30,4,event);
+        ok=!ref.valid && event==WristReference::Deferred && rotation_diff_deg(out,vote)<ANG_EPS;
+        out=ref.resolve(wrist,nullptr,false,42,30,4,event);
+        rec(&r,"wrist_changed_pair",ok && !ref.valid && rotation_diff_deg(out,wrist)<ANG_EPS,
+            "changed pair and missing vote cannot reuse the old correction");
+        WristReference noisy;
+        vote=wrist; vote.m[0]+=1e-6f;
+        noisy.resolve(wrist,&vote,false,35,30,1,event);
+        rec(&r,"wrist_float_noise",!noisy.valid && event==WristReference::Deferred,
+            "float roundoff does not turn a collapsed palette into a reference");
+    }
+
     // ---- 1. the head-turn counterexample -----------------------------------
     // Stationary controller, turning head, in a common frame consistent with
     // the working position conversion (B = R_H * F). The controller's

@@ -1,3 +1,17 @@
+## Unreleased staging integration: accepted HUD/hand/capture fixes (2026-09-26)
+
+- Keep HUD widget pieces together using native clip ownership through queued draws;
+  restore marker size controls, lower hints and independent low-health potion capture.
+- Preserve wrist calibration across cinematic transitions and reduce periodic hand
+  discovery probing associated with walking catch-up.
+- Use texture-backed shared capture with matching probe formats; the affected player
+  reports the severe single-digit startup slowdown resolved.
+- Retain scoped cinematic eye classification and bounded queued-render progress grace.
+  Remote early prison judder remains awaiting its latest candidate result.
+- Test-only flight history/pixel instrumentation stays OFF in ordinary builds.
+
+No release/tag is declared by this staging integration.
+
 ## Unreleased
 
 ### Snap turn (VR-219, 2026-09-25, not yet judged in the headset)
@@ -25,6 +39,29 @@ physical swings back too when set to 1. F10 > Hands >
 Game arms during actions: "Sword swing animation on the tracked hand" and, under it, "...also
 when you swing the controller". Live: `anim melee on|off`, `anim melee swing on|off`. A physical
 swing right after a trigger attack is no longer refused by the body gate.
+
+## Unreleased test candidate: scoped cinematic/menu stereo axis (VR-229)
+
+Correct eye classification to use the composed head-look stereo axis during
+cinematic and menu camera scopes. The preceding prison candidate was not accepted:
+reload-dependent flicker and head-turn eye separation remained. This replacement
+passes logged-geometry and delayed-tag regressions but awaits headset confirmation.
+Retains CPU flight history with GPU pixel probes disabled in the tester package.
+
+## Unreleased prison candidate (VR-229)
+
+- Count rendering progress during draw execution, avoiding false single-draw
+  interruptions. Prison-cinematic acceptance remains pending.
+- Separate lightweight test history from optional GPU pixel probes. The prison
+  acceptance package keeps history and disables pixel sampling.
+
+## Unreleased candidate (VR-260)
+
+- Use texture-backed D3D9/D3D11 sharing and consistent probe formats to avoid
+  rejecting shared capture prematurely. Remote compatibility confirmation is
+  pending; this is not a published release.
+- Report the precise sharing failure rather than blaming OpenSharedResource
+  when no sharing handle was returned.
 
 ## 1.0.1
 

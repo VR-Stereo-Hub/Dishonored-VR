@@ -161,6 +161,9 @@ void pitchtest_stop(const char* why);
 void pitchtest_present_tick();     // present thread, after the draw
 bool pitchtest_active();
 void set_head_pitch_deg(float deg);   // present thread: the tracked head pitch
+// Stereo axis from the latest successful eye write, including scoped head look.
+// This is a bounded coherent snapshot, not a render-frame identity.
+bool last_eye_right(float out[3]);
 bool last_basis(float f[3], float r[3], float u[3]);   // the basis apply_offsets used last (yaw-only under projection)
 uint32_t ceiling_clips();             // presents where the 38.24 ceiling clipped the written position
 

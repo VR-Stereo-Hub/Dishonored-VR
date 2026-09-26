@@ -1,3 +1,34 @@
+## 2026-09-25: test activation, not only an already enabled reader
+
+36a8d7f95's correct sprite+BC field still did not capture the potion. Its new
+all-HUD-clips-match guard rejected22 matching and9 different references, keeping
+quickReady0 during real mode4. The fixture manually armed quickView and omitted
+this poll condition. Remove the unrelated movie census requirement; authorize
+only exact current potion movie membership. Test production activation from an
+unarmed state through queued replay. Do not claim a placement test occurred when
+activation counters are zero. The nine different references remain unexplained;
+they need not be classified to validate a different movie's own Display receiver.
+
+## 2026-09-25: resource identity is not movie-instance identity
+
+The quick-potion candidate b52c0c579 never activated: all28 movieLink samples were
+zero. A resource read in Display was incorrectly treated as a sprite's movie
+owner. Its safety guard prevented wrong capture, but fixtures repeated the same
+assumption. Derive the owner from the constructor and getter; model resource and
+instance as distinct in regression fixtures. Also read diagnostic mode outside
+an unrelated failed guard: the old quickMode=0 was fabricated by short-circuiting.
+See ENGINE_NOTES' corrected GFxSprite ownership derivation. No new placement
+conclusion can be drawn from the failed candidate.
+
+## A low-health icon is not necessarily the HUD tutorial (2026-09-25)
+
+The game has both a low-health text tutorial and a standalone D-pad/potion
+reminder. Localization proves only the text widget. The standalone reminder is
+QuickPotionMenu in the weapon-wheel movie, mode4, and does not belong to the
+HUD's32 native clip array. A private tutorial panel added GPU work without
+moving the reported icon. Ask which artwork is visible and trace its actual
+movie; do not treat shared gameplay meaning as shared rendering ownership.
+
 ## A launcher that restores its own ini backup wipes a startup migration (VR-220, 2026-09-25)
 
 `tools\xrsim-launch.ps1 -ViaSteam` writes `[VR] XrRuntimeJson` into the installed ini, launches,
@@ -8,6 +39,26 @@ never gained its revision key. The log was true; the file was overwritten a seco
 an ini migration with `tools\launch-game.ps1` (a plain Steam launch leaves the ini alone), read
 the file after the `config:` lines appear, then stop the process. The same holds for any test that
 expects a startup write to persist: `EdgeSpeedRev`, `HandAnimMeleeRev`, a first-touch F10 key.
+
+## Scoped rotation does not refresh cached camera rows (VR-229)
+
+Do not use native cached right vectors to classify eyes displaced along a scoped
+head-composed orientation. A full-IPD step becomes ambiguous at large head angles,
+so existing late-tag repair loses its required confirmation. Publish the actual eye
+axis independently of translation. A healthy ring can mask this bug; test a delayed
+tag at varied yaw/pitch/roll, not just a straight-ahead steady pair. Details and
+limits: dishonored/FLICKER_REFERENCE.md, latest VR-229 entry.
+
+## VR-229: draw-return is not a liveness baseline (2026-09-25)
+
+The render thread can advance Present while the game thread is inside a draw.
+Saving the counter at draw return discards that progress and can force a false
+single draw on the next tick. Compare consecutive entries; unchanged counters
+still refuse. Do not weaken eye classification to compensate for unnecessary
+center-eye interruptions. The prison candidate and its uncertainty are recorded
+in FLICKER_REFERENCE.md. Pixel issue timings alone do not bound GPU probe cost;
+the acceptance build retains CPU history with frame-id GPU sampling disabled.
+
 ## Successful repairs can exhaust the failure diagnostic (VR-229, 2026-09-24)
 
 The40-window ring ledger triggered on routine repaired/refused presents and spent
@@ -1419,3 +1470,12 @@ The build716 stationary pitch reproduction also shows the opposite limit: positi
 MaxParticles is only a request, not proof of live or drawn particles. Sustained upward
 views had positive requests despite reported missing rain. Track actual instance counts,
 render bounds and render time before choosing simulation versus visibility as the cause.
+
+## VR-229 diagnostic selection bias (2026-09-25)
+
+A lifetime detail budget can be exhausted during the menu before the failing
+scene. A pixel sampler triggered only by LEFT labels can miss exactly the
+interval where LEFT labels disappear. The remote flight recorder uses recurring
+rate limits and label-independent bursts, with all-frame populations and explicit
+missing-stage masks. Camera-side SWAPPED and low image difference are observations,
+not independent proof of swapped or mono imagery during moving/dark cinematics.

@@ -2765,41 +2765,28 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
             /* rwhy set */
         } else {
             R_src = sr.r;
-            // VR-183: the hand bone's frame, offset once to the old vote slot's (see g_mpSrcX).
+            // VR-188: keep the measured wrist correction across sleeve rebuilds,
+            // but defer capture while distinct slots have indistinguishable frames.
             if (g_mpAnchorHandBone && g_mpVoteSlot[cls] >= 0 && g_mpVoteSlot[cls] != g_mpDomSlot[cls]) {
+                auto& ref = g_mpWristReference[hand];
                 const bool held = g_mpItemInHand[hand];
-                const bool samePair = g_mpSrcXok[hand] && g_mpSrcXPair[hand][0] == g_mpVoteSlot[cls] &&
-                                      g_mpSrcXPair[hand][1] == g_mpDomSlot[cls];
-                if (!held && samePair && g_mpSrcXGen[hand] != g_mpSrcGen) {
-                    g_mpSrcXGen[hand] = g_mpSrcGen;
-                    float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
-                    Log("ms/palette/frame: %s hand - rebuilt with the same slots (vote %d, hand bone %d): the offset "
-                        "%+.1f %+.1f %+.1f deg is KEPT, not re-measured, so a sleeve change or a load cannot turn the hand",
-                        hand ? "RIGHT" : "LEFT", g_mpVoteSlot[cls], g_mpDomSlot[cls], ex, ey, ez);
+                dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
+                const dvr::hf::Mat3* vote = nullptr;
+                if (ref.needs_vote(held, g_mpVoteSlot[cls], g_mpDomSlot[cls]) &&
+                    MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy)) vote = &sv.r;
+                dvr::hf::WristReference::Event event;
+                R_src = ref.resolve(sr.r, vote, held, g_mpVoteSlot[cls], g_mpDomSlot[cls], g_mpSrcGen, event);
+                if (event == dvr::hf::WristReference::Measured || event == dvr::hf::WristReference::Kept) {
+                    float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(ref.offset, &ex, &ey, &ez);
+                    Log("ms/palette/frame: %s hand - wrist offset %+.1f %+.1f %+.1f deg %s (vote %d, hand bone %d, gen %u)",
+                        hand ? "RIGHT" : "LEFT", ex, ey, ez,
+                        event == dvr::hf::WristReference::Measured ? "MEASURED" : "KEPT",
+                        g_mpVoteSlot[cls], g_mpDomSlot[cls], g_mpSrcGen);
+                } else if (event == dvr::hf::WristReference::Deferred) {
+                    static unsigned deferredLogs[2] = {};
+                    if (deferredLogs[hand]++ < 2) Log("ms/palette/frame: %s wrist reference DEFERRED: vote %d and hand bone %d have identical rotations; using this draw's vote until observable",
+                        hand ? "RIGHT" : "LEFT", g_mpVoteSlot[cls], g_mpDomSlot[cls]);
                 }
-                // A HELD ITEM MUST NOT RE-MEASURE THE EMPTY HAND'S OFFSET. This used to re-measure
-                // g_mpSrcX on every draw while an item was held, from the item's grip pose, and the
-                // empty hand then kept that value: after a crossbow, the power hand came back turned
-                // the crossbow's way (headset, 2026-09-22). Held now takes the old vote slot's frame
-                // for this draw only; the latch belongs to the empty hand and is measured only there.
-                if (held) {
-                    dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
-                    if (MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy))
-                        R_src = sv.r;
-                } else if (!g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen) {
-                    dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
-                    if (MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy)) {
-                        const bool first = !g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen;
-                        g_mpSrcX[hand] = dvr::hf::mul3(dvr::hf::transpose3(sr.r), sv.r);
-                        g_mpSrcXok[hand] = true; g_mpSrcXGen[hand] = g_mpSrcGen;
-                        g_mpSrcXPair[hand][0] = g_mpVoteSlot[cls]; g_mpSrcXPair[hand][1] = g_mpDomSlot[cls];
-                        float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
-                        if (first) Log("ms/palette/frame: %s hand - the hand bone's frame differs from the old vote slot's by "
-                            "%+.1f %+.1f %+.1f deg; that offset is kept, so the calibration and trims look the same, and "
-                            "from here the palm follows the WRIST, not a finger", hand ? "RIGHT" : "LEFT", ex, ey, ez);
-                    }
-                }
-                if (!held && g_mpSrcXok[hand]) R_src = dvr::hf::mul3(sr.r, g_mpSrcX[hand]);
             }
             g_mpSrcR[hand] = R_src; g_mpSrcOk[hand] = true;
             g_mpSrcScale[hand] = sr.scale;

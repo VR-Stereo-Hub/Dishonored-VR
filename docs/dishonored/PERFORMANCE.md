@@ -1,3 +1,268 @@
+## 2026-09-26: walking discovery correction accepted locally
+
+Installed DLL hash and log banner match v1.0.1-50-g6bc58a449. Final local report
+accepts the run after the periodic walking catch-up correction. Archived current and
+previous log/full INI: primary build/hud-regression-20260925/walk-accepted-002458.
+Across64 printed collect-cost windows,269 collections have weighted mean6.349ms
+and maximum9.653ms, including fresh live table plus discovery. These windows include
+changing scene/state and are not a controlled whole-frame comparison. The new
+counter had no old-build equivalent; no exact speedup or zero-overhead claim.
+The750ms schedule remains; scan membership/range probing changed. Preserve the fix.
+CPU flight recorder/pixel/legacy flags are OFF in the accepted local build. Integration
+retains the opt-in recorder with one history frame formatted per Present. Normal
+build validation does not establish remote end-to-end diagnostic overhead.
+
+## 2026-09-26: periodic walking hitch, candidate discovery optimization
+
+Verified installed95ae3f7af DLL/banner. Archives: primary
+build/hud-regression-20260925/walk-judder-000731 (current/previous logs, full INI).
+Player confirms potion HUD now placed correctly; quickMode4/quickReady1 and
+quickCaptured192->1566 independently prove activation. New reported surface is
+whole-world translation during steady walking, brief hold/forward catch-up at
+roughly one-second intervals despite similar average FPS. Not HUD decoupling.
+
+In gameplay59682000..59737000, repeated printed frame gaps are mostly53..62ms
+waiting for the game thread, with adjacent stalls often750ms apart (also735/765ms
+clock quantization). Example59684328->59685078:56/57ms,52.8ms out/idle in each.
+The gap logger rate-limits after3 events/window, so printed intervals are censored.
+Ordinary ticks are around8..10ms; averages hide individual missing frames.
+Live-table summaries max1.24ms then1.11ms do not explain the50ms stalls. Some
+separate xrEndFrame stalls and streaming bursts also exist; not all gaps have
+one established cause. Flight recorder/pixel diagnostics remain compiled out.
+
+Source lead: hand SkelTick recollects components every750ms. FpCollect probes
+376 raw pointer slots per expanded object, calls RangeReadable for every slot,
+and LooksLikeObj on arbitrary scalar values. This exact periodicity and the
+expensive discovery path make it a strong candidate, not proven stack attribution.
+
+Candidate keeps the750ms schedule, search depth, candidate cap, equipment roots
+and menu/load recovery. Rebuild the live-object hash table at collection entry
+before retained-object restores or discovering new equipment. Check root and
+child membership via IsLiveObject before dereference. Validate the entire scan
+range once per object; when partially readable, retain the original per-slot
+boundary checks. Typical range queries drop376->1 per expanded object. No camera,
+movement, stereo or accepted HUD policy changes.
+
+Add one3s aggregate handmesh/collect-cost line (mean/max/last, including live-table
+refresh) to distinguish successful optimization from unchanged hitching. Six host
+checks extract the actual production scan and verify both range endpoints, retired
+and arbitrary pointer rejection, one-query complete ranges, and guarded partial
+page fallback. No in-game timing gain claimed before a matched acceptance run.
+
+Next single question: same-save straight walking, does the periodic hold/forward
+catch-up disappear? Compare collection cost and frame gaps; continued stalls with
+cheap discovery would reject this hypothesis and direct investigation to the
+remaining game-thread work. Never disable liveness checks to gain performance.
+
+## 2026-09-25: remove failed cross-movie activation census
+
+Matched36a8d7f95 DLL/banner and archived logs/full INI under primary
+build/hud-regression-20260925/potion-root-return-235618. Actual mode4 has zero
+quickCaptured throughout; active potion-capture cost is still unmeasured.
+
+Correction removes the per-poll base-HUD movie lookup and31 sprite comparisons.
+The existing direct potion-owner identity/mode/view checks remain, as does the
+single relaxed counter on successful outer ownership. No extra GPU resource,
+readback, engine call or log stream. Summary remains3s.97 host ownership checks
+and100000 transfers pass, including production activation through queue replay.
+Host costs16.65ns unowned wrapper/21.51ns queue roundtrip are not in-game timings.
+
+## 2026-09-25: quick-potion return and ownership-link correction
+
+Verified b52c0c579 installed DLL/banner; current/previous logs and full INI archived
+under primary build/hud-regression-20260925/quick-potion-return-233600. User reports
+acceptable performance.15 existing perf samples have median8.6ms, range7.5..817.8ms
+(the whole run includes transitions, so these are not controlled A/B timings).
+All28 semantic summaries report movieLink=0, quickReady=0; final transport overflow0.
+This supports only the inactive-extension baseline, not the cost of active capture.
+
+Correction changes one native field read and validates the actual view table.
+All current clip/movie relationship checks stay on the existing UI poll, max32
+comparisons, with no per-draw heap work. Mode is read regardless of linkage to
+avoid misleading counters. A successful outer potion owner adds one relaxed
+counter increment; inherited children do not repeat this ownership validation.
+The existing summary remains once per3s; no new log stream, capture sink, GPU
+readback or engine call is added. CPU ownership checks use existing live-object
+membership plus guarded native reads. Active potion rendering still adds normal
+commands to the already allocated default panel; real active cost remains for
+the next matched playtest, not established by the inactive log.
+
+Host checks:85 ownership/reader tests and100000 concurrent transfers pass;
+123 native-HUD and503 routing tests pass. Host replay-wrapper15.06ns and queue
+roundtrip23.12ns are microbenchmarks, not measured in-game frame savings.
+
+## 2026-09-25: failed tutorial trial and returned performance report
+
+Returned e322911fb is reported slightly slower. Whole-run perf tick medians:
+9.1ms/58 summaries versus fe3c3f8768.3ms/101 summaries. Different scenes, menus,
+durations and lens settings make this an uncontrolled comparison, not attribution
+of0.8ms to the change. The tutorial sink was allocated55995281 and released
+56005593, a10.312s interval; it did not remain copying for the rest of the run.
+Slots were1375x1425 (Scale0.50) against2750x2850 targets. The extra panel therefore
+had real GPU allocation/copy cost while visible, but did not capture the icon.
+Remove it. No flicker recorder, pixel probe or new high-frequency log was enabled.
+
+Replacement quick-potion capture reuses the existing default panel, introducing
+no additional sink, readback or per-draw logging. Native sprite/movie reads only
+run for unowned Display roots while a mode4 wheel view is available; children
+inherit scope. Live owner/membership checks run only after a matching movie link.
+Optional field resolution retries at most every5s if unavailable. The existing
+poll cross-checks the view against known HUD clips; existing3s summary gains three
+scalar fields. Host81 checks plus100000 concurrent transfers pass. Queue round
+trip21.07ns and unowned replay16.78ns are host microbenchmarks, not in-game timing.
+Headset frame-time recovery remains unconfirmed; no claim of restoring a measured
+FPS amount from the uncontrolled runs.
+
+## 2026-09-25: semantic tutorial placement cost
+
+No new diagnostic counters, stacks, readbacks or log cadence. Candidate adds one
+existing full-resolution capture panel while identified tutorial content draws.
+At2750x2850 RGBA8 one image is31,350,000 bytes; this is not a zero-GPU-cost change.
+The panel is retired after the existing two-present grace without draws; the
+capture subsystem releases inactive targets/slots and skips their copies. Thus
+occasional heal reminders do not add an idle copy for the rest of a level.
+129 native-HUD policy/math checks pass. No headset GPU timing claim is made.
+
+## Accepted ownership run and small follow-up cost (2026-09-25)
+
+Verified4c38bf526 run52040281..52879xxx reports improved HUD stability; not an FPS
+A/B measurement. Last ownership snapshot has66994508 queued,66993732 replayed,
+4113901 known HUD draws and869382 native fallbacks, cumulative, overflow0.
+The difference is outstanding or retired generation work, not proof of a drop.
+Unknown marker roots explain a portion of fallback, not every unknown draw.
+
+Follow-up changes only marker target validation and three clip-to-element routes.
+The same3s diagnostic now includes family-root counts and fresh pivots. Count
+computation is behind both the log-level and time gates, not done per draw or
+on every UI poll. No new GPU diagnostic, draw census, stack tracing or recorder.
+New70-check production-reader/transport suite retains100000 concurrent transfers;
+latest host queue round trip23.20ns, unowned wrapper18.39ns. Host timings exclude
+native marker shader transforms now becoming reachable; do not claim zero whole
+frame cost for restoring those existing transforms.
+
+## Semantic HUD transport candidate cost (2026-09-25)
+
+Optimized x86 host tests of production CommandOwners and extracted replay wrapper:
+1,000,000 iterations measured about 22.49 ns per put/take and 17.93 ns per unowned
+wrapper around a trivial native command. Earlier repeats were 21.26/15.14 ns.
+100,000 acknowledged cross-thread address reuses preserve payload identity. These
+are host microbenchmarks, not engine FPS, full hook cost or GPU measurements.
+
+Unowned command consumption has an empty-table atomic fast path. Probe misses use
+loads before compare/exchange; they do not execute eight locked CAS operations.
+The transport allocates a fixed table once, with no per-command allocation or log.
+Publication reads the borrowed native allocation record under SEH, avoiding a
+VirtualQuery per command. Root discovery/membership still range-checks pointers.
+Display performs bounded binary search under a shared lock, then live-membership
+validation only for a recognized root. The existing UI poll rebuilds at most 288
+root records; full GObjects refresh happens only on load/menu generation changes.
+Range checks, registry locking, source-publication hook cost and changed capture
+work are outside the tiny queue benchmark, so do not extrapolate a full FPS claim.
+
+New diagnostic output is one aggregate ownership line per three seconds while
+active, plus startup/refusal messages. Counters are fixed atomic increments. No
+stack captures are armed, no GPU readbacks are added, and flicker CPU recorder,
+pixel diagnostics and legacy code compile OFF. This bounds instrumentation work
+but does not settle the earlier overall performance report; same-save/view GPU
+and native-versus-pereye attribution remains open after functional acceptance.
+
+## Returned bounded owner capture cost (2026-09-25)
+
+Verified ea83dc5be run 48242328 onward. Exactly three renderer snapshots reported
+16.6, 22.8 and 17.4 us (56.8 us total) for stack capture, formatting and the first
+log write. The following cost line and the once-only native identity block are
+outside those timings; this is not an exhaustive logger benchmark. There were
+no recurring ownership snapshots after these three and no GPU readback. This
+capture cannot explain sustained multi-millisecond frame loss in this run.
+
+Before pause, 48339859 reports 132.7 stereo ticks/s, 7.5 ms/tick and 6.4 ms GPU
+span/tick at 144 Hz. This is a different scene from the prior grenade run, not a
+controlled performance improvement or release comparison. Opening pause includes
+147 ms frame gap, predominantly game-thread wait (142.7 ms); the later 52 ms gap
+is predominantly xrEndFrame (45.4 ms). Do not conflate them with the finite probe.
+
+The pause readiness repair adds one bounded atomic heartbeat per Present; no
+per-draw search, extra GPU work or recurring log. Disable OwnerTrace in its expected
+INI because the native/queue boundary is captured. Broader HUD/performance work
+remains open and still requires controlled attribution before changing culling.
+
+## Local HUD regression run: cost attribution and release diff (2026-09-25)
+
+Verified 1ed638c01 DLL SHA256 b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569,
+log 32232546..32949437 (716.891 s). 2750x2850, 144 Hz, 6.94 ms budget. CPU flicker recorder,
+GPU pixel probes and legacy code OFF; resolved Perf.FrameId=0. This excludes the
+new recurring flicker recorder as this run's cause. It does not exclude all logging.
+51,324 lines versus prior c4f5fe5df 60,335; different gameplay, not an A/B benchmark.
+
+At 32935281 near the grenade throw, 73.7 stereo ticks/s, 13.6 ms/tick, zero untagged;
+P1 OUT 7.1 ms (idle 1.3, rendering 5.8), P2 OUT 5.2 ms (idle 0, rendering 5.2), GPU span 10.3 ms
+per tick, capture 0.4 ms, GPU idle 1.3ms. GPU span alone exceeds the 144 Hz budget here.
+At 32701187, 57.7 ticks/s with P1/P2 render work 7.7/8.0ms and little render-thread idle.
+The separate startup 26.3 ticks/s window has 17.3 ms game-thread waiting and 128 untagged;
+do not label every slowdown as the same bottleneck or include loads in an FPS claim.
+
+HUD vertex probing at 32935281: 38,349 probes/3 s, 33,631 us total, 0.9 us/probe, 64 refused.
+Approximate 11.2 ms of probe CPU per second is below the multi-ms/tick deficit; it is
+not the whole HUD cost (routing locks, render-target switches, copies and GPU work
+are outside that interval). Native task/awareness broad matching can cause routing
+churn independently of its cost. The small new interaction-cache lookup has no
+allocation/logging. Wrist capture retains the existing held-item vote and steady
+matrix multiply; no new engine-object scan in that draw path. Scoped-axis prior
+host 0.082 us/sample is not a headset end-to-end measurement.
+
+Important baseline difference: installed Stereo.Occlusion=pereye now activates the
+post-release two-view-state implementation; 1.0.0 and the prior c4f5fe5df remote-base
+DLL lack that consumer. The unchanged key was NOT equivalent runtime behavior.
+Separate visibility can legitimately add draws. This remains a source suspect,
+not proof of the performance regression. Both runs use 2750x2850/144 Hz; no matching
+v1.0.0 playtest log was found in the available local playtest archive. Compare native
+and pereye at the SAME save/view with paired timing windows before changing that
+accepted visibility fix. Preserve resolution, quality, HUD and the hand/swing fixes.
+
+The proposed ownership replacement should remove per-draw broad searches and
+cross-thread position mutexes by carrying immutable owner records with render work.
+Do not add per-draw GFx queries, object-table scans or GPU readbacks. First prove
+the queue/display boundary with the finite OwnerTrace capture described in
+HUD_ANCHORS. Actual production-source host tests exercise disabled logging/capture,
+per-Present limit, 16-stack lifetime budget, once-per-family native reads and four
+bounded failure attempts. Exhausted render gate measured about 3-4 ns/call on host;
+not an in-game performance guarantee. Each actual capture reports elapsedUs;
+no claim that its isolated stack walk/log burst is free. Normal default remains 0.
+
+## VR-229 local diagnostic cost and normal follow-up build (2026-09-25)
+
+Verified local build v1.0.1-8-gc4f5fe5df, recorder ON, GPU pixel collection OFF,
+17263437..18005296 (741.859seconds). 60335 log lines total; 11142 flicker lines,
+4476863bytes,99 windows. Approximate diagnostic output6KB/s is modest, but the
+largest measured recorder finish/log burst is1.606ms. This includes the history
+copy/format/log work and can include buffered file flush or scheduling; it excludes
+other per-draw collection and is not an end-to-end off/on benchmark. It therefore
+does not establish negligible frame-time impact.
+
+Cause of burstiness: opening a window prints12 historical frames plus the current
+frame in one Present, four lines each. Windows are bounded to one per5seconds;
+healthy heartbeat10seconds. The logger is buffered with a200ms flush cadence,
+not an unconditional per-line flush. Prior host recorder mean1.660us/present and
+max0.867ms were a different machine/workload and do not override the measured
+local1.606ms peak. No attribution of every perceived hitch to logging is possible.
+
+The local follow-up is an optimized normal build: DVR_FLICKER_DIAGNOSTICS=OFF,
+DVR_FLICKER_PIXEL_DIAGNOSTICS=OFF, DVR_WITH_LEGACY=OFF. Thus recorder history,
+camera-upload census, formatting and the extra XR snapshot work compile out.
+Its expected INI explicitly sets Perf.FrameId=0 because a normal build would
+otherwise re-enable GPU probes from the retained FrameId=1 (the remote diagnostic
+DLL had forcibly suppressed them). RingLedger's existing bounded reports remain;
+new late-expire/progress reports run at most once per3seconds. Hand deferral logs
+are capped at two per hand; capture/rebuild logs replace existing lines. HUD
+continuity adds no logging and one bounded cache lookup for task-text candidates.
+The scoped-axis publisher/read host benchmark on this checkout is0.082us/sample;
+no claim of measured headset FPS improvement. Remote9da0a0b48 ZIP remains unchanged.
+
+Next: judge the normal candidate visually, verify the matching log banner and
+FrameId disabled. Re-enable the full recorder only for an identified need; if
+further recording is necessary, spread historical output over presents before
+claiming a negligible tail cost. Keep all performance follow-ups in this file.
+
 ## VR-79: turning occlusion queries off costs draws (2026-09-24)
 
 Headset, same day: `off` fixed the one-eye culling and read laggier than native
@@ -19,6 +284,149 @@ with `occlusion native`, then `occlusion pereye`, then `occlusion off`, then
 `occlusion native` again, in the Hound Pits hub interior and on a street. `querywait on` in the
 same run confirms the switch took (occlusion-path reads drop to about zero).
 `pereye` is the per-eye culling that follows from that.
+
+## VR-229 early versus stable cinematic cadence (2026-09-25)
+
+On returned9da0a0b48, early InDialog587411343..587448000 has12 printed performance
+windows: median reported stereo tick rate58.0/s (range27.7..66.3), median tick15.95ms,
+median GPU per-tick span8.9ms (range6.4..13.9),137 untagged presents summed over those
+windows. Later587448000..587486000 has13 windows:70.7/s (69.3..71.7),13.9ms,
+GPU7.7ms (6.0..11.0),61 untagged. Headset72Hz,13.89ms budget.
+These are medians of printed windows, not percentiles of every frame, and intervals
+have different duration/content. No claim that GPU work is free or that the output
+change recovers any measured amount. Lower GPU medians and continued diagnostic
+recording during the stable period do not support GPU saturation or logging as a
+complete explanation. The simultaneous plateau in stale/expiry/duplicate counters
+and improved cadence supports addressing stereo interruptions/queue phase first.
+The test must still distinguish residual ordinary frame-time judder from eye faults.
+
+## VR-229 returned scoped-eye recorder and bounded output (2026-09-25)
+
+Returned9da0a0b48: GPU frame-id probes verified disabled. Largest printed CPU recorder
+finish/log peak0.512ms. The stable later cinematic still records windows, so logging
+alone does not explain the early-only judder. No controlled end-to-end A/B exists.
+
+Local actual-recorder host run before output change:100000 presents,50 c5 uploads
+per present, real formatting/buffered file output; mean1.987us/present,max1.639ms.
+After change:mean2.125us,max1.556ms. These are separate host runs subject to scheduling
+and file flush noise, not proof of a meaningful peak-time improvement or regression.
+Do not claim negligible tail cost from either mean. The structural improvement is
+verified: opening a history window no longer prints12 prior frames plus the current
+frame in one call (52 data lines). It prints one frame per Present, four data lines,
+plus at most a window header. Same12-before/16-after evidence retained, maximum12
+frames of output lag in a64-frame history. Window reopening waits for pending output;
+very slow frame rates cannot overwrite the requested history. Abrupt exit may leave
+the last pending records unwritten.255 production-recorder checks pass.
+
+New render-progress fix adds only a game-thread boolean/counter and one value in the
+existing3s beat. Its purpose is to prevent an unnecessary center-eye draw during one
+queued render interval; it can add one extra double draw before a genuine stall is
+refused. That is rendering behavior, not diagnostic overhead. Camera/state/session
+guards remain. Remote candidate keeps CPU history so an unsuccessful run is still
+useful, with GPU probes suppressed regardless of saved FrameId. The maintainer's
+normal1ed638c01 build remains installed with the entire recorder compiled out.
+
+## VR-229 scoped-axis follow-up (2026-09-25)
+
+Returned candidate c4f5fe5df verifies GPU frame-id pixels OFF. Recurring recorder
+max observed0.586ms (previous diagnostic0.523ms); this is a rare window maximum,
+not an every-frame charge or a complete remote performance A/B. No new logging or
+GPU probes added for the scoped-axis correction. One script writer publishes three
+atomic floats and sequence; render reader makes at most two snapshot attempts,
+never waits/spins without bound. Local x86 host100000 publish+read iterations average
+0.091us/sample, checksum250000, concurrent no-torn-read stress passes. Host harness
+is not optimized game timing and does not prove total render cost on the tester's PC.
+The new candidate retains the earlier lightweight recorder; no claim of a measured
+headset performance improvement. Source/geometry evidence: FLICKER_REFERENCE top.
+
+## VR-229: diagnostic overhead and false draw stalls (2026-09-25)
+
+Current returned build v1.0.1-6-g31450526c,3025x3135,shared wait0. The recorder's
+largest measured finish/logging burst is0.523ms.3024 printed backbuffer sample
+issue calls average0.003452ms,p95 0.005,max0.152; this excludes later maps,
+D3D11 sampling and GPU synchronization. No matched off/on run exists. Therefore
+the old full pixel diagnostic is NOT established to have negligible total cost.
+
+New acceptance candidate keeps CPU history and mono/eye outcomes but forces
+frame-id collection OFF, even with Perf.FrameId=1 in the unchanged saved INI.
+All four GPU stages exit at the collection gate. Optional pixel investigation
+now requires -FlickerDiagnostics -FlickerPixels; both flags default OFF and build.ps1
+explicitly clears stale cached flags. Normal builds retain their saved FrameId
+policy. Pixel opt-in without the recorder is rejected. No installed INI edits.
+
+Actual recorder host benchmark:100000 synthetic presents,50 c5 uploads/present,
+production history/event/formatter code, buffered file logging, recurring windows.
+Mean1.660us/present; max finish0.867ms (rare historical-window printing). At144
+presents/s the measured mean is about0.024% of one core. Includes recording and
+format/file sink work, excludes game-side pose assembly and actual remote disk
+behavior. Returned recorder max and host cost support low CPU overhead; they do
+not prove an end-to-end FPS difference. Zero added pixel GPU work is enforced by
+the candidate collection policy, which is tested even with INI request=true.
+
+The source gate saved Present at draw return and ignored progress inside that
+draw. Candidate measures entry-to-entry instead; an old-policy negative control
+produces199 false stalls in200 ticks while the new policy produces0. Genuine
+stalls still refuse. Additional doubled draws may change total rendering cost;
+that is the intended removal of false mono interrupts, not logging overhead.
+Evidence, counterprediction and limitations: FLICKER_REFERENCE.md, VR-229 top entry.
+
+## VR-260 affected-player acceptance (2026-09-25)
+
+The affected player reports the fix-only60bbd0afc candidate resolves the severe
+performance issue. This is reported acceptance; no returned post-fix timings
+were supplied. The pre-fix attribution and native validation below remain the
+measured record. No merge or release is authorized by this result.
+
+## VR-260: shared capture rejection and slow CPU fallback (2026-09-25)
+
+Measured in support-20260925-235231-155-28068: log banner 1.0.1,
+v1.0.0-8-gf5176aeae, RelWithDebInfo, legacy off; the install record agrees.
+The current run uses VirtualDesktopXR 1.0.10, D3D9Ex and 2750x2850.
+Do not combine its measurements with the older SteamVR shim log in the bundle.
+The configured capture mode is shared, but the startup probe creates a standalone
+render target with success and a null sharing handle. The following 0x80070006
+is synthesized E_HANDLE; OpenSharedResource was never called. The probe rejects
+sharing, leaving mode=sync throughout the measured windows.
+
+Fourteen capture windows cover 254 grabs: weighted mean capture 149.927 ms,
+including 145.555 ms in LockRect; window mean capture ranges 131.806-167.005 ms.
+That is about 6.7 captures/s before other work, consistent with the reported
+single-digit frame rate. This happens already on the mono startup/menu path.
+D3D9 and the XR-selected D3D11 device have matching adapter LUIDs on the RTX5080.
+The desktop mirror is off; native-present and xrEndFrame timings are small.
+Focus is lost later, but the stall exists while FOCUSED. Neither a wrong adapter,
+legacy input work nor ordinary stereo draw cost explains this capture stall.
+The log's 3072 MB VRAM field is not evidence of actual RTX5080 capacity.
+
+Source-confirmed weaknesses: probe and slots use CreateRenderTarget, whereas
+Microsoft's D3D9/D3D11 interop contract specifies CreateTexture with pSharedHandle.
+The probe also uses X8 when the real slots would first try A8, so a rejected probe
+can prevent a supported format from being tried. Driver rejection of the old
+resource/format is the leading explanation, not a remotely confirmed root cause.
+Reference: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-opensharedresource
+
+Candidate uses one-level DEFAULT render-target textures and their level-zero
+surfaces, with the same A8-first format rule in probe and slots. It retains the
+D3D9 texture owner through capture and releases all views/surfaces/owners on reset
+or partial failure. Logs name the exact failing step and do not misattribute a
+missing handle to a D3D11 call. Existing fencing/delivery and fallback policy stay
+as before; VR-114 fence timeout handling is separate.
+
+Native x86 hardware test (no game): 162 independent D3D11 pixel checks after
+alternating D3D9 colors and X8-to-A8 StretchRect, at 64x64 and 2750x2850; three
+release/ResetEx/recreate cycles pass. Simulated success-with-null-handle rejects
+before OpenSharedResource, and failed-open/unsupported-format cleanup passes.
+Optimized x86 build (legacy OFF), repository lint and nine proxy exports pass.
+This proves the candidate bridge works locally, not that the remote driver now
+accepts it. Command: tools/shared-capture-native-host.ps1.
+
+Next test, one question: with this candidate and the same saved settings, is the
+startup/menu still limited to single-digit FPS? Collect support after about 30
+seconds. Acceptance requires the candidate banner, shared texture AVAILABLE,
+live shared slots and mode=shared with the huge readback cost gone. If sharing
+still fails, the named API/format/HRESULT directs the next fix. If sharing works
+but FPS stays low, attribute the remaining time from that new run. No game launch
+or install was performed on the maintainer's machine.
 
 ## Post-merge intro and hub slowdown (2026-09-23, attribution open)
 

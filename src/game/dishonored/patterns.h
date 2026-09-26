@@ -285,6 +285,31 @@ static const uint8_t kTaskParentProlog[9]={0x55,0x8b,0xec,0x81,0xec,0xe8,0,0,0};
 static const uint32_t kTaskMarkerOwner=0x08,kTaskMarkerParams=0x10;
 static const uint32_t kTaskMarkerWidth=0x14,kTaskMarkerHeight=0x18;
 
+// Semantic HUD display -> queue publication -> replay, derived in ENGINE_NOTES.
+static const uintptr_t kHudSpriteDisplay=0x00DF1780, kHudQueuePublish=0x00403B00;
+static const uintptr_t kHudQueueExecuteSite=0x005486A5, kHudQueueExecuteReturn=0x005486AC;
+static const uintptr_t kHudRenderQueue=0x01441B2C,kHudRenderThreadActive=0x014417E8;
+static const uint8_t kHudSpriteDisplayBytes[]={0x81,0xec,0xd4,0,0,0};
+static const uint8_t kHudQueuePublishBytes[]={0x56,0x8b,0xf1,0x33,0xc0};
+static const uint8_t kHudQueueExecuteBytes[]={0x8b,0x42,0x04,0x8b,0xf1,0xff,0xd0};
+static const uint32_t kHudValueSize=0x10,kHudValueType=4,kHudValueHandle=8;
+static const uint32_t kHudQueueAllocationCommand=4;
+static const uint32_t kHudSpriteDisplaySlot=0x74;
+// Native HUD initialization B9584E..B95868 resolves pMovie -> GFxMovieView.
+// Match the current Display receiver directly to the live owning movie view.
+// MovieRoot constructor E064C0 installs this primary (GFxMovieView) vtable.
+// Sprite ctor DF5240 stores the root at +BC; getter B27BE0 returns it.
+// +90 belongs to the resource definition, not the movie instance.
+static const uintptr_t kGfxMovieRootVtable=0x011FBAB0;
+static const uint32_t kGfxMovieView=0x34,kGfxSpriteMovie=0xBC;
+static const int kGfxQuickPotionMode=4; // BE42DC stores mode; BE4420..BE4483 opens quickPotion_mc.
+
+// VR-186 read-only identity probe. BBD430 reads GFx value +18/+1c/+20;
+// DA6820 passes the handle to DC4600, resolving handle+4 when non-null.
+// No call into an unresolved handle or inferred virtual method is made.
+static const uint32_t kMarkerGfxInterface=0x18,kMarkerGfxType=0x1c,kMarkerGfxHandle=0x20;
+static const uint32_t kGfxResolvedCharacter=0x04;
+
 // Same base placement ABI, called only from the Heart marker update.
 static const uintptr_t kRuneParentCall=0x00bc5d75,kRuneParentReturn=0x00bc5d7a;
 static const uintptr_t kHeartMarkerVtable=0x011635d8;

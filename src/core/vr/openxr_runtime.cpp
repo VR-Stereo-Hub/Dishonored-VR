@@ -18,6 +18,8 @@
 #include "core/vr/hud_stub.h"
 #include "core/vr/hud_anchor.h"   // 41.x (Dishonored, VR-117): the HUD anchors' placement math
 #include "core/gfx/frame_id.h"   // 41.1 (Dishonored): the frame-identity trace's stage sc
+#include "core/gfx/flicker_diagnostic.h"
+#include "core/framework/frame_hooks.h"
 #include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
 #include "core/vr/pose_record.h"
 #include "core/vr/image_orientation.h"
@@ -405,6 +407,13 @@ std::atomic<int> g_aerEyeSign{0};        // -1 left, +1 right, 0 = AER off
 int g_currentEye = 0;                    // eye slot the next captured frame belongs to
 XrPosef g_eyePose[2] = {};               // pose claimed for each eye's held image
 uint32_t g_eyeContentSerial[2] = {}; // identity of released eye contents
+#ifdef DVR_FLICKER_DIAGNOSTICS
+struct FlickerRelease {
+    XrSwapchain chain=XR_NULL_HANDLE;
+    uint32_t serial=0,present=0,index=0;
+};
+FlickerRelease g_flickerRelease[2];
+#endif
 bool g_eyeValid[2] = {false, false};     // eye slot holds a released image + pose
 
 // s50 (Infinite): rendered-pose eye tags - see the header comment. Default
@@ -2018,6 +2027,9 @@ void mirror_present(int eyeSign) {
 void reset_aer() {
     g_eyeValid[0] = g_eyeValid[1] = false;
     g_eyeContentSerial[0] = g_eyeContentSerial[1] = 0;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    g_flickerRelease[0]=FlickerRelease{};g_flickerRelease[1]=FlickerRelease{};
+#endif
     g_currentEye = 0;
     g_aerEyeSign.store(0, std::memory_order_relaxed);
 }
@@ -4002,6 +4014,29 @@ void capture_frame(ID3D11Texture2D* dst, ID3D11Texture2D* backbuffer) {
 }
 
 void on_present_end(ID3D11Texture2D* frame) {
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    struct FlightScope {
+        dvr::flicker::Runtime r;
+        LARGE_INTEGER start={},freq={};
+        FlightScope() {
+            QueryPerformanceFrequency(&freq);QueryPerformanceCounter(&start);
+            r.present=dvr::frame::count();r.frameOpen=g_frameOpen;r.shouldRender=g_frameState.shouldRender;
+        }
+        ~FlightScope() {
+            for(int e=0;e<2;++e) {
+                r.serial[e]=g_eyeContentSerial[e];r.gen[e]=g_eyePoseGen[e];
+                if(g_flickerRelease[e].chain==g_swapchains[e]) {
+                    r.releasedSerial[e]=g_flickerRelease[e].serial;
+                    r.releasedPresent[e]=g_flickerRelease[e].present;r.releasedIndex[e]=g_flickerRelease[e].index;
+                }
+            }
+            r.fov=g_lastClaimHfov;
+            LARGE_INTEGER now;QueryPerformanceCounter(&now);
+            r.durationMs=freq.QuadPart?1000.*(now.QuadPart-start.QuadPart)/freq.QuadPart:0.;
+            dvr::flicker::finish(r);
+        }
+    } flight;
+#endif
     PhaseScope psEnd(kPhPresentEnd); // records on every return path
     phase_heartbeat_maybe(GetTickCount64());
     if (!g_frameOpen) {
@@ -4011,6 +4046,9 @@ void on_present_end(ID3D11Texture2D* frame) {
         // keep draining the tag ring and keep the window pinned to one eye.
         int64_t tComp = phase_now();
         const int eatenEye = sr_pop_eye();
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        flight.r.outcome=1;flight.r.eye=eatenEye;
+#endif
         if (eatenEye != 0) g_srEatenNoFrame.fetch_add(1, std::memory_order_relaxed);
         mirror_present(eatenEye);
         composite_hud();
@@ -4179,6 +4217,9 @@ void on_present_end(ID3D11Texture2D* frame) {
     // convention AER validated in-headset (depth not inverted).
     int srSign = sr_pop_eye();
     bool srFrame = projectionMode && srSign != 0;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    flight.r.eye=srSign;flight.r.projection=projectionMode;
+#endif
     // HUD capture gate (session 19): the gameswf redirect runs only while
     // stereo gameplay frames flow (menus stop the eye tags -> gate drops).
     dvr::hud::set_gate(srFrame);
@@ -4326,6 +4367,9 @@ void on_present_end(ID3D11Texture2D* frame) {
             int64_t tAcq = phase_now();
             XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
             XrResult acqRes = xrAcquireSwapchainImage(g_swapchains[target], &ai, &index);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+            flight.r.target=target;flight.r.index=index;flight.r.acquired=true;flight.r.acq=(int)acqRes;
+#endif
             if (XR_FAILED(acqRes))
                 g_pmAcqFail.fetch_add(1, std::memory_order_relaxed);
             if (XR_SUCCEEDED(acqRes)) {
@@ -4334,7 +4378,11 @@ void on_present_end(ID3D11Texture2D* frame) {
                 bool imageReady;
                 {
                     PhaseMark mark(kPhAcquire); // XR_INFINITE_DURATION lives here
-                    imageReady = XR_SUCCEEDED(xrWaitSwapchainImage(g_swapchains[target], &wi));
+                    const XrResult waitResult=xrWaitSwapchainImage(g_swapchains[target], &wi);
+                    imageReady = XR_SUCCEEDED(waitResult);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+                    flight.r.waited=true;flight.r.wait=(int)waitResult;
+#endif
                 }
                 phase_record(kPhAcquire, tAcq);
                 if (!imageReady)
@@ -4363,6 +4411,16 @@ void on_present_end(ID3D11Texture2D* frame) {
                 }
                 XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                 const XrResult contentRelease = xrReleaseSwapchainImage(g_swapchains[target], &ri);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+                flight.r.released=true;flight.r.release=(int)contentRelease;flight.r.copied=imageReady;
+                // Observe successful releases even on the mono route. Runtime SR metadata
+                // alone does not track an untagged copy that overwrites a held left image.
+                if(XR_SUCCEEDED(contentRelease)) {
+                    auto& observed=g_flickerRelease[target];observed.chain=g_swapchains[target];
+                    observed.serial=imageReady?dvr::capture::delivered_serial():0;
+                    observed.present=flight.r.present;observed.index=index;
+                }
+#endif
                 if (srFrame || (aerActive && target == g_currentEye && imageSign == currentEyeSign))
                     g_eyeContentSerial[srFrame ? srEye : g_currentEye] =
                         imageReady && XR_SUCCEEDED(contentRelease) ? dvr::capture::delivered_serial() : 0;
@@ -4505,6 +4563,9 @@ void on_present_end(ID3D11Texture2D* frame) {
                 }
 
                 if (pairHold) {
+#ifdef DVR_FLICKER_DIAGNOSTICS
+                    flight.r.outcome=2;
+#endif
                     note_aim_visual(AimVisualResult::PairPending);
                     // Left eye captured; submission happens when the RIGHT
                     // present completes this XR frame. Both eye poses come
@@ -5241,6 +5302,19 @@ void on_present_end(ID3D11Texture2D* frame) {
             measured->views[0].subImage.swapchain == g_swapchains[0] &&
             measured->views[1].subImage.swapchain == g_swapchains[1];
     }
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    flight.r.outcome=3;flight.r.end=(int)r;flight.r.layers=layerCount;
+    flight.r.newLayer=builtNewLayer;flight.r.stereo=measuredStereo;
+    if(layerCount && layers[0]->type==XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
+        const auto* observed=reinterpret_cast<const XrCompositionLayerProjection*>(layers[0]);
+        for(uint32_t e=0;e<observed->viewCount && e<2;++e) {
+            const auto& q=observed->views[e].pose.orientation;
+            const auto& p=observed->views[e].pose.position;
+            flight.r.pos[e][0]=p.x;flight.r.pos[e][1]=p.y;flight.r.pos[e][2]=p.z;
+            flight.r.q[e][0]=q.x;flight.r.q[e][1]=q.y;flight.r.q[e][2]=q.z;flight.r.q[e][3]=q.w;
+        }
+    }
+#endif
     dvr::perf::desktop_ab_submit(measuredStereo, g_eyeContentSerial[0], g_eyeContentSerial[1]);
     dvr::diag_ab::submit(measuredStereo,g_eyeContentSerial[0],g_eyeContentSerial[1]);
     note_aim_visual(XR_FAILED(r) && visualResult == AimVisualResult::Submitted

@@ -165,6 +165,44 @@ bool AwarenessInputs(void* marker,int& w,int& h,const char*& reason) {
     if(!MarkerInputs(marker,w,h,reason,kAwarenessMarkerVtable)) return false;
     reason="validated-awareness";return true;
 }
+// Current borrowed marker only, after MarkerInputs validates its live UObject
+// owner. Addresses are observed, never retained and dereferenced later.
+void MarkerIdentityTrace(void* marker,unsigned family) {
+    if(!dvr::hudclass::owner_trace_enabled() || family>=3 ||
+       !::dvr::log::enabled(DVR_CAT,::dvr::log::Level::Info)) return;
+    static bool captured[3]{};
+    static unsigned attempts[3]{};
+    static uint32_t attemptedAt[3]{};
+    if(captured[family] || attempts[family]>=4) return;
+    const uint32_t now=GetTickCount();
+    if(attempts[family] && now-attemptedAt[family]<1000) return;
+    ++attempts[family];attemptedAt[family]=now;
+    Log("hud/identity-native-attempt: family=%u attempt=%u/4; absent identity line means guarded read or unresolved DisplayObject refused",family,attempts[family]);
+    auto* p=(uint8_t*)marker;
+    if(!RangeReadable(p,kMarkerGfxHandle+4)) return;
+    const uintptr_t iface=*(uintptr_t*)(p+kMarkerGfxInterface);
+    const uint32_t type=*(uint32_t*)(p+kMarkerGfxType);
+    if((type&0x8f)!=8) return; // GFx DisplayObject, verified in BBD4F6..BBD533.
+    auto* handle=*(uint8_t**)(p+kMarkerGfxHandle);
+    if(!handle || !RangeReadable(handle,kGfxResolvedCharacter+4)) return;
+    auto* character=*(uint8_t**)(handle+kGfxResolvedCharacter);
+    if(!character || !RangeReadable(character,4)) return;
+    const auto* table=*(const uintptr_t**)character;
+    if(!table || !RangeReadable(table,48*sizeof(uintptr_t))) return;
+    captured[family]=true;
+    Log("hud/identity-native: family=%u tid=%lu marker=%p interface=%p type=%x handle=%p character=%p vtable=%p; borrowed/live owner validated, no virtual call",
+        family,GetCurrentThreadId(),marker,(void*)iface,type,handle,character,table);
+    for(unsigned row=0;row<4;++row) {
+        char slots[256]{};size_t used=0;
+        for(unsigned col=0;col<12;++col) {
+            const int n=_snprintf(slots+used,sizeof(slots)-used," %08X",(unsigned)table[row*12+col]);
+            if(n<=0) break;
+            used+=(size_t)n;
+        }
+        Log("hud/identity-native-slots: family=%u firstSlot=%u%s",family,row*12,slots);
+    }
+}
+
 __declspec(noinline) void __fastcall TaskParentStub(void* marker,void*,float x,float y,uint32_t a,uint32_t b,float distance,uint32_t flags) {
     const float oldX=x,oldY=y;int w=0,h=0;
     const bool want=dvr::objectivemarkers::enabled() && dvr::vr::session_live() &&
@@ -172,7 +210,7 @@ __declspec(noinline) void __fastcall TaskParentStub(void* marker,void*,float x,f
     bool valid=false,moved=false;const char* reason="inactive";
     if(want && (uintptr_t)_ReturnAddress()==kTaskParentReturn) {
         valid=TaskInputs(marker,w,h,reason);
-        if(valid) moved=dvr::objectivemarkers::inset_position(x,y,w,h,flags,dvr::objectivemarkers::inset());
+        if(valid) {if(flags&1) MarkerIdentityTrace(marker,0);moved=dvr::objectivemarkers::inset_position(x,y,w,h,flags,dvr::objectivemarkers::inset());}
         else ++g_taskRefused;
     }
     // VR-185: publish where the engine put this marker (after the inset), so
@@ -181,6 +219,7 @@ __declspec(noinline) void __fastcall TaskParentStub(void* marker,void*,float x,f
     dvr::objectivemarkers::publish_task((uintptr_t)marker,x,y,w,h,valid?flags:0);
     ++g_taskCalls;if(moved)++g_taskMoved;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    if(valid && (flags&1)) dvr::hudowner::marker(marker,x,y,w,h);
     // Never pay for a line you do not print: the report takes the position mutex.
     static double nextCensusMs=0;
     const double censusNow=MaimNowMs();
@@ -202,7 +241,7 @@ __declspec(noinline) void __fastcall RuneParentStub(void* marker,void*,float x,f
     bool valid=false,moved=false;const char* reason="inactive";
     if(want && (uintptr_t)_ReturnAddress()==kRuneParentReturn) {
         valid=RuneInputs(marker,w,h,reason);
-        if(valid) moved=dvr::objectivemarkers::inset_position(x,y,w,h,flags,dvr::objectivemarkers::rune_inset());
+        if(valid) {if(flags&1) MarkerIdentityTrace(marker,1);moved=dvr::objectivemarkers::inset_position(x,y,w,h,flags,dvr::objectivemarkers::rune_inset());}
         else ++g_runeRefused;
     }
     if(dvr::objectivemarkers::rune_ownership()) {
@@ -211,6 +250,7 @@ __declspec(noinline) void __fastcall RuneParentStub(void* marker,void*,float x,f
     }
     ++g_runeCalls;if(moved)++g_runeMoved;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    if(valid && (flags&1)) dvr::hudowner::marker(marker,x,y,w,h);
     DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
         "hud/rune-parent: calls=%u moved=%u refused=%u want=%d ownerValid=%d guard=%s flags=%x dimensions=%dx%d xy=%.2f/%.2f -> %.2f/%.2f distance=%.2f inset=%.3f; native children retained, draw ownership not yet established",
         g_runeCalls,g_runeMoved,g_runeRefused,(int)want,(int)valid,reason,flags,w,h,oldX,oldY,x,y,distance,dvr::objectivemarkers::rune_inset());
@@ -228,12 +268,13 @@ __declspec(noinline) void __fastcall AwarenessParentStub(void* marker,void*,floa
     bool valid=false;const char* reason="inactive";
     if(want && (uintptr_t)_ReturnAddress()==kAwarenessParentReturn) {
         valid=AwarenessInputs(marker,w,h,reason);
-        if(valid) ++g_awareMine; else ++g_awareRefused;
+        if(valid) {if(flags&1) MarkerIdentityTrace(marker,2);++g_awareMine;} else ++g_awareRefused;
         // Hidden, inactive and refused instances withdraw their previous sample.
         dvr::objectivemarkers::publish_awareness((uintptr_t)marker,x,y,w,h,valid?flags:0);
     }
     ++g_awareCalls;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    if(valid && (flags&1)) dvr::hudowner::marker(marker,x,y,w,h);
     // VR-152: NEVER PAY FOR A LINE YOU DO NOT PRINT (CLAUDE.md). awareness_report
     // takes the position mutex, and it was being called on EVERY parent update -
     // 16667 of them in one run - purely to build arguments for a line that prints
