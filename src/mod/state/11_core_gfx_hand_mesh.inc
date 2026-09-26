@@ -123,6 +123,7 @@ static int      g_ovlPtrHand = 1;         // [Overlay] PointerHand: which contro
 // Text size, independent of the window size. <= 0 = not chosen yet: seeded from the eye
 // texture height once, then owned by the "UI text scale" slider ([Overlay] UiScale).
 static float    g_ovlUiScale = 0.0f;
+static ImGuiStyle g_ovlBaseStyle;   // the themed style before the per-resolution scale
 static volatile LONG g_skcReq = 0;   // 30.90 SkelControl probe request
 // 32.8 blink probe: declared up here because the overlay (which arms it) is
 // compiled long before the probe itself.

@@ -14,8 +14,8 @@
 namespace dvr::samplers {
 namespace {
 
-std::atomic<int>  g_aniso{0};
-std::atomic<bool> g_trilinear{false};
+std::atomic<int>  g_aniso{16};
+std::atomic<bool> g_trilinear{true};
 
 // Pixel samplers 0..15, the displacement-map sampler, vertex samplers 0..3.
 const int kStages = 21;

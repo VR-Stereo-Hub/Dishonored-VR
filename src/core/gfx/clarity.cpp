@@ -19,10 +19,10 @@
 namespace dvr::clarity {
 namespace {
 
-std::atomic<bool>  g_resolve{false};
+std::atomic<bool>  g_resolve{true};
 std::atomic<bool>  g_temporal{false};
 std::atomic<float> g_blend{0.15f};
-std::atomic<float> g_sharpen{0.0f};
+std::atomic<float> g_sharpen{0.30f};
 std::atomic<uint32_t> g_epoch{1};   // bumped by any lever change: histories restart
 
 Gpu      g_gpu;
@@ -33,6 +33,7 @@ View     g_prev[2];
 // The window the status line reports (reset each line).
 struct Window {
     uint64_t draws = 0, resolved = 0, temporal = 0, plain = 0, refused = 0;
+    double motionSum = 0; uint64_t motionN = 0;   // the motion weight the temporal pass used
     uint32_t resets[(int)Reset::Count] = {};
     uint32_t srcW = 0, srcH = 0, outW = 0, outH = 0;
 };
@@ -82,12 +83,14 @@ void status_tick() {
                     g_resolve.load() ? "ON but NOT RUNNING: the render is not above the runtime's recommended size"
                                      : "off");
     DVR_INFO("clarity: %.0f draws/s | resolve %s | temporal %s blend %.2f: %.0f/s blended; history kept %u, "
-             "restarted first %u size %u record %u turn %u move %u fov %u off %u | sharpen %.2f | plain copy %.0f/s, "
+             "restarted first %u size %u record %u turn %u move %u fov %u off %u | motion weight mean %.2f (0 = still, "
+             "full accumulation; 1 = moving, the new frame dominates) | sharpen %.2f | plain copy %.0f/s, "
              "refused %.0f/s | %.1f MB intermediates | GPU cost: the bridge line's Conversion stage",
              w.draws / s, resolveText, on_off(g_temporal.load()), g_blend.load(), w.temporal / s,
              w.resets[(int)Reset::None], w.resets[(int)Reset::First], w.resets[(int)Reset::Size],
              w.resets[(int)Reset::Record], w.resets[(int)Reset::Turn], w.resets[(int)Reset::Move],
-             w.resets[(int)Reset::Fov], w.resets[(int)Reset::Off], g_sharpen.load(), w.plain / s, w.refused / s,
+             w.resets[(int)Reset::Fov], w.resets[(int)Reset::Off], w.motionN ? w.motionSum / w.motionN : 0.0,
+             g_sharpen.load(), w.plain / s, w.refused / s,
              g_gpu.bytes() / (1024.0 * 1024.0));
     _snprintf_s(g_summary, sizeof(g_summary), _TRUNCATE, "resolve %s | temporal %.0f/s (kept %u, restarted %u) | sharpen %.2f",
                 resolveText, w.temporal / s, w.resets[(int)Reset::None],
@@ -185,9 +188,25 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                 p.temporal = true;
                 p.eye = e;
                 p.historyValid = why == Reset::None;
-                if (p.historyValid)
-                    p.prevFromCur = prev_from_cur(basis_from_rotator(g_prev[e].pitch, g_prev[e].yaw, g_prev[e].roll),
-                                                  basis_from_rotator(cur.pitch, cur.yaw, cur.roll));
+                if (p.historyValid) {
+                    const Basis pb = basis_from_rotator(g_prev[e].pitch, g_prev[e].yaw, g_prev[e].roll);
+                    const Basis cb = basis_from_rotator(cur.pitch, cur.yaw, cur.roll);
+                    p.prevFromCur = prev_from_cur(pb, cb);
+                    // The reprojection is rotation-only: walking parallax, and a fast
+                    // turn's resampling, are what smear. As the camera moves the history
+                    // counts for less (and its clip tightens), so a still or slowly
+                    // looking view keeps the full accumulation and a moving one stays sharp.
+                    float move = 0.0f;
+                    if (g_prev[e].posOk && cur.posOk) {
+                        const float dx = cur.pos[0] - g_prev[e].pos[0], dy = cur.pos[1] - g_prev[e].pos[1],
+                                    dz = cur.pos[2] - g_prev[e].pos[2];
+                        move = sqrtf(dx * dx + dy * dy + dz * dz);
+                    }
+                    const float m = motion_weight(move, basis_angle_deg(pb, cb));
+                    p.blend = p.blend + (0.6f - p.blend) * m;
+                    p.clipGamma = 1.0f - 0.35f * m;
+                    g_win.motionSum += m; ++g_win.motionN;
+                }
                 p.tanH = cur.tanH; p.tanV = cur.tanV;
             }
             g_prev[e] = cur;

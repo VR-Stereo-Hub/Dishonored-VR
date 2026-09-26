@@ -153,7 +153,8 @@ static bool WriteDefaultIni(const char* ini)
         "BboxMs=30000\n"
         "[Clarity]\n"
         "; Anti-aliasing and clarity on the eye image (core/gfx/clarity.h; the research is in\n"
-        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). All ship OFF; F10\n"
+        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). Resolve, Sharpen 0.30,\n"
+        "; 16x Anisotropy and TrilinearMips ship ON (headset-judged 2026-09-26); Temporal is off. F10\n"
         "; Advanced > Display > Clarity and anti-aliasing, and `clarity ...` on the seam, are live.\n"
         "; Resolve=1: when the resolution is above ~100%% (the runtime's recommended size), filter\n"
         "; the render down to that size here with a kernel that reads every rendered pixel, instead\n"
@@ -168,12 +169,12 @@ static bool WriteDefaultIni(const char* ini)
         "; filters anisotropically (the game's own MaxAnisotropy is 4); 0 = the game's own.\n"
         "; TrilinearMips=1: blend between mip levels on those textures instead of the game's\n"
         "; point mip filter (a visible seam that walks with the head on floors and walls).\n"
-        "Resolve=0\n"
+        "Resolve=1\n"
         "Temporal=0\n"
         "TemporalBlend=0.15\n"
-        "Sharpen=0.00\n"
-        "Anisotropy=0\n"
-        "TrilinearMips=0\n"
+        "Sharpen=0.30\n"
+        "Anisotropy=16\n"
+        "TrilinearMips=1\n"
         "[Pace]\n"
         "ImageOrientation=1\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
@@ -1816,12 +1817,12 @@ static void LoadConfig()
         }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
         {   // [Clarity]: anti-aliasing and clarity on the eye image, all off by default
-            dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 0) != 0.0f, "ini");
+            dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 1) != 0.0f, "ini");
             dvr::clarity::set_temporal(IniFloat(ini, "Clarity", "Temporal", 0) != 0.0f, "ini");
             dvr::clarity::set_blend(IniFloat(ini, "Clarity", "TemporalBlend", 0.15f), "ini");
-            dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.0f), "ini");
-            dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 0), "ini");
-            dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 0) != 0.0f, "ini");
+            dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.30f), "ini");
+            dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
+            dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
             Log("config: [Clarity] Resolve=%d Temporal=%d TemporalBlend=%.2f Sharpen=%.2f Anisotropy=%d TrilinearMips=%d%s",
                 (int)dvr::clarity::resolve_on(), (int)dvr::clarity::temporal_on(), dvr::clarity::blend(),
                 dvr::clarity::sharpen(), dvr::samplers::anisotropy(), (int)dvr::samplers::trilinear(),

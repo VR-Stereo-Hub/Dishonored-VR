@@ -238,7 +238,7 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
         ImGui::CreateContext();
         dvr::ovl::load_fonts();                  // VR-197: Segoe UI body, Constantia headings
         dvr::ovl::apply_theme();                 // VR-197: the Dishonored palette and metrics
-        ImGui::GetStyle().ScaleAllSizes(1.6f);   // readable at headset distance
+        g_ovlBaseStyle = ImGui::GetStyle();      // unscaled: rescaled per eye resolution below
         ImGuiIO& io = ImGui::GetIO();
         io.IniFilename = NULL;                   // no imgui.ini clutter
         // NO EVENT TRICKLING. It exists to spread a burst of real-hardware events over
@@ -256,18 +256,23 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     dvr::ovl::load_art(g_dev11);
     ImGuiIO& io = ImGui::GetIO();
     const float w = (float)targetW, h = (float)targetH;
-    // Match the reference typography to the default square panel. An explicit
-    // saved UiScale still wins; the player keeps control of text size.
-    if (g_ovlUiScale <= 0.0f) {
-        const float panelPixels = w * (649.0f/2750.0f);
-        float fs = panelPixels > 0 ? panelPixels / 649.0f : 1.0f;
-        if (fs < .8f) fs = .8f;
-        if (fs > 2.5f) fs = 2.5f;
-        g_ovlUiScale = fs;
-        Log("overlay: text scale %.2f from reference panel %.0f px ([Overlay] UiScale overrides)",
-            fs, panelPixels);
+    // THE PANEL IS SIZED IN THE EYE TEXTURE'S PIXELS, and a higher resolution packs more
+    // pixels into the same angle: at 300% the panel came out 1.73x smaller and, because it
+    // kept its old pixel position, pulled toward a corner. Everything scales by the width
+    // against the 2750 px reference, so the panel is the same size and place in the headset
+    // at any resolution. [Overlay] UiScale is relative to that reference (1.00 = as tuned).
+    const float resK = w > 0.0f ? w / 2750.0f : 1.0f;
+    if (g_ovlUiScale <= 0.0f) g_ovlUiScale = 1.0f;
+    static float styleK = 0.0f;
+    if (fabsf(resK - styleK) > 0.001f) {
+        ImGui::GetStyle() = g_ovlBaseStyle;
+        ImGui::GetStyle().ScaleAllSizes(1.6f * resK);   // readable at headset distance
+        if (styleK > 0.0f)
+            Log("overlay: eye texture %.0fx%.0f - panel metrics rescaled x%.3f (was x%.3f) to keep its size in the headset",
+                w, h, resK, styleK);
+        styleK = resK;
     }
-    ImGui::GetStyle().FontScaleMain = g_ovlUiScale;   // 1.92: replaces io.FontGlobalScale
+    ImGui::GetStyle().FontScaleMain = g_ovlUiScale * resK;   // 1.92: replaces io.FontGlobalScale
     io.MouseDrawCursor = true;                        // ImGui draws the cursor, both eyes
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -293,8 +298,12 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     // Reference composition: centered square against the eye texture. A resize
     // changes the layout without changing widget behavior or the stored settings.
     const ImVec2 ds = io.DisplaySize;
-    const ImGuiCond placeCond = InterlockedExchange(&g_ovlRecenter, 0) ? ImGuiCond_Always
-                                                                       : ImGuiCond_FirstUseEver;
+    ImGuiCond placeCond = InterlockedExchange(&g_ovlRecenter, 0) ? ImGuiCond_Always
+                                                                 : ImGuiCond_FirstUseEver;
+    // A resolution change carries the panel's current place and size across in proportion
+    // (a panel the player moved stays where they put it, relative to the view).
+    static ImVec2 lastDs(0, 0), lastPos(0, 0), lastSize(0, 0);
+    const bool rescaled = lastDs.x > 0.0f && (lastDs.x != ds.x || lastDs.y != ds.y) && placeCond != ImGuiCond_Always;
     // VR-206: square reference composition, centered and resizable. Settings scroll.
     const float shorter = ds.x < ds.y ? ds.x : ds.y;
     const float readableMin = (ImGui::CalcTextSize("RESET TO DEFAULTS").x + ImGui::GetStyle().FramePadding.x*2)*3
@@ -303,14 +312,21 @@ static void OverlayFrame(uint32_t targetW, uint32_t targetH)
     // Accepted build733 placement: 1027,1021 and 649x685 at 2750x2850.
     // Fractions preserve the headset composition at other eye resolutions.
     const float panelW=ds.x*(649.0f/2750.0f), panelH=ds.y*(685.0f/2850.0f);
-    ImGui::SetNextWindowPos(ImVec2(ds.x*(1027.0f/2750.0f),ds.y*(1021.0f/2850.0f)),placeCond);
-    ImGui::SetNextWindowSize(ImVec2(panelW>minSide?panelW:minSide,panelH>minSide?panelH:minSide),placeCond);
+    if (rescaled) {
+        const float kx = ds.x / lastDs.x, ky = ds.y / lastDs.y;
+        ImGui::SetNextWindowPos(ImVec2(lastPos.x * kx, lastPos.y * ky), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(lastSize.x * kx, lastSize.y * ky), ImGuiCond_Always);
+    } else {
+        ImGui::SetNextWindowPos(ImVec2(ds.x*(1027.0f/2750.0f),ds.y*(1021.0f/2850.0f)),placeCond);
+        ImGui::SetNextWindowSize(ImVec2(panelW>minSide?panelW:minSide,panelH>minSide?panelH:minSide),placeCond);
+    }
     ImGui::SetNextWindowSizeConstraints(ImVec2(minSide,minSide), ImVec2(ds.x*0.95f,ds.y*0.95f));
     // VR-197: no ImGui title bar; OvlTopRow draws the themed title and the close button, and
     // the window still moves by dragging any empty part of it.
     ImGui::Begin("Dishonored VR", &g_ovlVisible,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
     dvr::ovl::backdrop();
+    lastDs = ds; lastPos = ImGui::GetWindowPos(); lastSize = ImGui::GetWindowSize();
     OvlProbeWindowGeometry(ds.x, ds.y);
     if (g_ovlReticle && ds.x > 0.0f && ds.y > 0.0f) {   // the reticle hides behind this rectangle
         const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();

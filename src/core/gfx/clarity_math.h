@@ -138,6 +138,15 @@ inline Reset keep_history(const View& prev, const View& cur, float maxTurnDeg = 
     return Reset::None;
 }
 
+// How much of the temporal accumulation to give up for camera motion between two
+// frames of one eye: 0 still (a walk starts to count at ~1 uu, full at ~6 uu per
+// eye frame, about a brisk walk; a turn at 0.25..1.5 degrees per frame).
+inline float motion_weight(float moveUu, float turnDeg) {
+    float a = (moveUu - 1.0f) / 5.0f, b = (turnDeg - 0.25f) / 1.25f;
+    float m = a > b ? a : b;
+    return m < 0.0f ? 0.0f : (m > 1.0f ? 1.0f : m);
+}
+
 // ---- the resolve filter --------------------------------------------------------
 // Mitchell-Netravali with B = C = 1/3, support 2 in OUTPUT pixels. The shader
 // scales it by the downscale factor so every source pixel under an output
