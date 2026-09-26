@@ -20,6 +20,32 @@ with their queued commands before publication, recover them during replay, handl
 synchronous execution and filters/caching, and refuse reused/unknown identities.
 None of these new addresses is invoked or patched by the pause readiness fix.
 
+### Further offline ownership derivation
+
+The HUD constructor wrapper 0x00BB3000 tail-jumps to 0x00BB08C0, which writes
+primary vtable 0x0115CD90. This explains the earlier native-tool vtable miss;
+the wrapper itself contains no vtable assignment. The native registration scan,
+self-verified against the crossbow, exposes only OnPlayerChoiceConfirm for this
+HUD class; it does not expose the native draw/update bodies by name.
+
+The full _root.grenadeCooking_mc path is at 0x0114D310 (the substring search lands
+six bytes later). Its reference at 0x00B959C8 is in the movie-clip initializer.
+That initializer allocates 32 values of 16 bytes, stores the array at receiver
++0x200 and retrieves authored paths through a virtual +0x44 call. Cooking is
+array+0xC0, crosshair information +0x20, interaction families +0x60/+0x70/+0x80/+0x90,
+matching the exported enum. Reflect/validate the live owning object's field before
+using this receiver offset; this is a native data-layout derivation, not liveness.
+
+The child-list traversal 0x00DCBF20 calls each child's virtual +0x74 at 0x00DCC103,
+confirming the display role of the task character's +0x74 candidate. Filters and
+mask branches also exist and must inherit ownership. Queue storage publication
+0x00403B00 consumes a scoped allocation record: +0 points to queue, +4 to command,
++8 to the new write position, then publishes that position and signals the queue.
+A future side table must publish owner metadata BEFORE the engine publishes its
+command. It must also cover the direct/synchronous draw fallback, retire records
+on replay, and refuse queue-address reuse. These paths are offline evidence only;
+no ownership hook is included in the installed pause fix.
+
 ## Native HUD identity boundary audit (VR-186, 2026-09-25)
 
 The local decompiled HUD/task/objective/Heart/charm declarations and UI_HUD_SF

@@ -7,6 +7,16 @@ confirms configured pause=world but ui/ride refused healthy=0, failed=0. Capture
 was armed with empty HUD frames before entry. Readiness incorrectly depended on
 visible widgets rather than a proven operational pipeline.
 
+Installed v1.0.1-36-g0a4c7c254 (optimized x86), DLL SHA-256
+1744b77c562765d315ab3828b67941da8f9a5995305e18d74d52fb51d4323405. Expected full INI
+SHA-256 372a802192237a8944365f5319ee72c31d31272038f78093d0706db3dd8c81ee matches
+the installed file; only OwnerTrace 1->0 changed, CRLF preserved. Backup pair and
+logs: primary build/playtest-candidates/installs/20260925-210631-493709. Build,
+118 native-HUD checks, 107 ride-policy checks, lint and nine exports pass. Game
+not launched. Next single behavioral question: after the interaction HUD fades,
+does pause remain a world-positioned panel over the scene instead of the flat
+whole-frame fallback? This does not accept or fix prompt/objective ownership.
+
 Candidate keeps a previously exercised capture path ready through armed empty
 frames, with the same 500 ms inactive grace and resource/failure/reset gates.
 No new engine writes or recurring diagnostics. Native HUD host checks cover
