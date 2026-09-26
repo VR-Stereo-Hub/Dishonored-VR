@@ -32,7 +32,12 @@ static const char* volatile g_thWhy = "not asked yet";
 static int32_t g_thRot[3];                              // the engine reads it after we return
 
 static bool ThrowAimEnabled() { return g_thOn.load(); }
-static bool ThRefuse(const char* why) { g_thWhy = why; InterlockedIncrement(&g_thRefused); return false; }
+static bool ThRefuse(const char* why) {
+    g_thWhy = why; InterlockedIncrement(&g_thRefused);
+    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 20,
+        "throw/aim: a throw reached the routine but kept the head's aim: %s (the throw itself goes ahead)", why);
+    return false;
+}
 
 extern "C" void __cdecl ThrowAimHandler(uint8_t* frame)
 {
