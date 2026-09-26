@@ -100,7 +100,12 @@ static void CineFovBegin(bool scene) {
     // outlives the store state by a frame, and that one not-ready frame reset
     // the bridge, so the dialogue's narrow camera drew for ~0.5 s as a small box.
     // The tail still needs the feature on, a live projection and the same owner.
-    const bool tailOk=CineFovEnabled() && scene && projection && state.valid && CfValidate();
+    // Nor CfValidate: closing the store starts a new UI epoch, which fails it
+    // for the same camera. The tail asks only that the live controller still
+    // owns the live camera; the scope below re-acquires its identity as usual.
+    const bool sameCamera=IsLiveObject(g_peCtrl) && g_camObj && IsLiveObject(g_camObj) &&
+        CtObject(g_peCtrl,g_ctPcCamera)==g_camObj;
+    const bool tailOk=CineFovEnabled() && scene && projection && state.valid && sameCamera;
     const bool keep=g_cfBridge.update(authored,tailOk && walking,
         dvr::camera::rendered_fov_deg(),target,GetTickCount64());
     const float requested=ProjectionFovGet();
@@ -122,7 +127,7 @@ static void CineFovBegin(bool scene) {
     }
     if (!CfValidate()) {
         g_cfHaveOwner=false;
-        if (now<g_cfRetry) { CfRefuse("identity refresh retry pending"); return; }
+        if (now<g_cfRetry && !keep) { CfRefuse("identity refresh retry pending"); return; }
         g_cfRetry=now+1000;
         if (!BuildLiveSet()) { CfRefuse("live-object table refresh refused"); return; }
         auto* pc=IsLiveObject(g_peCtrl)?g_peCtrl:nullptr;
