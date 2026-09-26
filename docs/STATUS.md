@@ -10,8 +10,15 @@ memory probes on every raw slot. Candidate changes its traversal cost, not its
 schedule or discovery scope: fresh live set before restores, IsLiveObject before
 child access, one range query with original boundary fallback. Six extracted
 production scan checks pass. Bounded3s collect-cost distinguishes measured speed
-from a merely matching cadence. Build/install pending; see PERFORMANCE and
+from a merely matching cadence. Installed v1.0.1-50-g6bc58a449 after optimized
+build, lint and nine exports passed; see PERFORMANCE and
 FLICKER_REFERENCE. No game launch, no stereo/HUD change, no merge/external upload.
+DLL SHA256 42a68dc554ebef2cafd27546567a80baf2ae64dfc2e8dc2865b950b0894526db.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Entire installed/expected/backup INI matches;1535 CRLF, zero bare LF, no changes.
+Game closed and previous hashes verified. Prior accepted DLL/INI/logs backed up:
+primary build/playtest-candidates/installs/20260926-001413-008307. Candidate/PDB:
+primary build/playtest-candidates/walk-hitch-6bc58a449.
 Next one question: does the periodic hold/forward catch-up stop on straight walking?
 
 ## 2026-09-25: potion activation veto confirmed; direct owner correction
