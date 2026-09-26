@@ -26,6 +26,21 @@ Game arms during actions: "Sword swing animation on the tracked hand" and, under
 when you swing the controller". Live: `anim melee on|off`, `anim melee swing on|off`. A physical
 swing right after a trigger attack is no longer refused by the body gate.
 
+## Unreleased test candidate: scoped cinematic/menu stereo axis (VR-229)
+
+Correct eye classification to use the composed head-look stereo axis during
+cinematic and menu camera scopes. The preceding prison candidate was not accepted:
+reload-dependent flicker and head-turn eye separation remained. This replacement
+passes logged-geometry and delayed-tag regressions but awaits headset confirmation.
+Retains CPU flight history with GPU pixel probes disabled in the tester package.
+
+## Unreleased prison candidate (VR-229)
+
+- Count rendering progress during draw execution, avoiding false single-draw
+  interruptions. Prison-cinematic acceptance remains pending.
+- Separate lightweight test history from optional GPU pixel probes. The prison
+  acceptance package keeps history and disables pixel sampling.
+
 ## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic

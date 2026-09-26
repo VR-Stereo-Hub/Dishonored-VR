@@ -52,6 +52,81 @@ Read the MEASURED/DEFERRED/KEPT reference lines against that exact build banner.
 Keep HUD and sword acceptance open until separately observed, without requiring
 additional diagnostic builds. No merge or release is authorized.
 
+## VR-229 queued-render candidate packaged (2026-09-25)
+
+ZIP in primary checkout: build/test-packages/DishonoredVR-VR229-prison-judder-fix-6187b2fd4.zip,
+15894487bytes. Build v1.0.1-12-g6187b2fd4, optimized x86, legacy OFF,
+CPU recorder ON (output spread), GPU probes OFF. DLL SHA256
+1774ce5d05e837b4a7f34a5502b022e1e439665931264db973387e7951863dc6.
+ZIP SHA256b6ae714fa367ac529160b4586d9b2fd8a55faeca1fe268f47fea5fb3c2b50de4.
+Clean source identity, PE machine,9 exports, ZIP CRC/member hashes, build flags and
+lint verified. The support manifest's actual d3d9 hash matches the returned9da ZIP;
+its installer record still names the underlying release and is not the running DLL.
+No INI change: same config consumers as9da, including HandAnimMelee=0 in this tester's
+INI and forced pixel suppression. DLL/README/manifest/checksums only, no installer.
+
+Local installed hand/HUD candidate1ed638c01 hash remains
+b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569.
+No install or launch during this work. Remote question: smooth prison from beginning
+through fade and10seconds of gameplay, with head-turn fusion retained? Return support
+either way. Candidate sufficiency remains OPEN. Shared source in PR132 needs explicit
+integration when results are accepted; neither PR is authorized to merge.
+
+## VR-229 scoped-eye return: separation resolved, transient judder remains (2026-09-25)
+
+Surface/route: whole-view cinematic judder, section1 stale/swapped/frozen-eye row.
+Report: large-head-turn eye separation is gone; judder resolves partway through
+prison, estimated20-30seconds. Current support-20260925-150139 log verifies
+v1.0.1-10-g9da0a0b48, optimized x86, legacy OFF, CPU recorder ON, GPU probes OFF,
+3025x3135. Previous logs are different runs and are not combined. Headset-reported
+acceptance applies only to head-turn separation; overall cinematic stability is OPEN.
+
+Evidence: before the load, stale/expiry/duplicate populations remain0/0/0. After
+load around587403000 they rise; by587448265 they reach192/58/526, then remain there
+through587479359 during InDialog (entered587411343, exits587486359). This is a
+bounded printed endpoint, about37seconds after dialogue ownership, not an exact
+perceived recovery timestamp. The report's estimate cannot be aligned more tightly.
+Later transition587486390..587507093 rises again to233/73/761, then gameplay
+endpoints stay flat. The recovery is real in the event counters but not global
+acceptance of every later transition. The early/late prison samples contain224/168
+XR tails with0 acquire/wait/release/end errors. No GPU pixel-copy claim is possible.
+
+The previous axis correction is active: complete steps now repeatedly measure
+about6.57uu with milliscale perpendicular error. Early full-step late-left tags
+are successfully repaired (e.g.P29765/66), so a late tag alone is not a failure.
+Other sequences contain center-eye steps around3.3uu and conflicting order. At
+587404625 the progress guard injects SINGLE,587404640 reports a held untagged
+present and returns to DOUBLE,587404656 expires an owed right against a left
+front tag despite a confirmed6.578uu left step. This is a temporal association,
+not a pixel-level proof that every stale event comes from that gate.
+
+Later stable samples still include real0 tags (P35119) and half steps, but no new
+expiry/stale populations. Therefore SINGLE draws are NOT sufficient by themselves
+to explain perceived judder. Their interaction with queued tag phase is a candidate.
+Latest-writer basis remains a temporal approximation and is not claimed perfect.
+
+Source weakness: the entry-to-entry progress check still treats one game interval
+without a Present as a stall even with fresh camera uploads. Asynchronous rendering
+can lag for one interval then catch up. Candidate allows ONE unchanged interval
+only after actual observed progress; a second quiet interval refuses. It does not
+refresh its allowance from its own allowed draw, manufacture an eye label, relax
+camera geometry, or change ring repair. Camera/state/session/exit/poison guards
+remain. No new engine writer. Existing3s beat gains progressGrace; no per-frame log.
+
+Production-helper regression:400 queued-render ticks give old200 SINGLE decisions,
+candidate0; startup, repeated stall, reset, resume and wrap pass. Pairing1686 normal/
+1687 recorder checks and30054 cinematic tests pass. This proves the bounded policy,
+not remote visual sufficiency. Recorder output now spreads the SAME12-before/16-after
+window at one frame per Present;255 actual recorder checks retain all records and
+bound each call to4 data lines plus an optional header. Costs/limits: PERFORMANCE.md.
+
+Next: one ZIP on the tester's existing9da baseline; no local install because the
+maintainer is testing the separate hand/HUD candidate1ed638c01. Single remote
+question: does prison remain smooth from its beginning through fade/gameplay while
+head turns remain fused? Return support either way. A remaining judder requires
+checking progressGrace, residual0 tags and record/eye provenance, not assuming the
+new gate fixed it. No game launched and no merge authorized.
+
 ## VR-229 scoped-eye replacement packaged (2026-09-25)
 
 Replacement ZIP: build/test-packages/DishonoredVR-VR229-scoped-eye-fix-9da0a0b48.zip in primary checkout,
@@ -1607,7 +1682,7 @@ pose metadata without reopening the disproved historical theories.
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
-| Prison cinematic inter-eye flicker, ends in gameplay | Measured stale-left delivery; late repair active with unresolved confirmations | VR-229 open; detailed windows exhausted before scene, expiration diagnostic added; see top entry |
+| Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |
 | Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |
 | Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |

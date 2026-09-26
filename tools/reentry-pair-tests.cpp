@@ -309,7 +309,7 @@ int main() {
     {
         dvr::stereo::DrawPresentProgress progress;
         uint32_t counter=0, oldReturn=0; unsigned oldFalseStalls=0, fixedFalseStalls=0;
-        progress.begin(counter); check(!progress.advanced,"startup with no present remains blocked");
+        progress.begin(counter); check(!progress.allowed,"startup with no present remains blocked");
         counter=1;
         for(unsigned tick=0;tick<200;++tick) {
             progress.begin(counter);
@@ -322,7 +322,10 @@ int main() {
         check(oldFalseStalls==199,"old return-baseline negative control rejects active rendering");
         check(fixedFalseStalls==0,"entry baseline retains stereo when rendering progresses inside draw");
         progress.begin(counter);check(progress.advanced,"last completed pair counted once");
-        for(unsigned i=0;i<100;++i) {progress.begin(counter);check(!progress.advanced,"genuine stall still refuses repeatedly");}
+        for(unsigned i=0;i<100;++i) {
+            progress.begin(counter);
+            check(progress.allowed==(i==0),"one queued interval allowed, sustained stall refuses without rearming itself");
+        }
         ++counter;progress.begin(counter);check(progress.advanced,"renderer resumes after stall");
         progress.previousEntry=UINT32_MAX;progress.begin(0);check(progress.advanced,"present wrap is progress");
 #ifdef DVR_FLICKER_DIAGNOSTICS
@@ -330,6 +333,29 @@ int main() {
 #else
         check(dvr::flicker::pixel_collection_enabled(true) && !dvr::flicker::pixel_collection_enabled(false),"normal build honors pixel INI");
 #endif
+    }
+
+    // VR-229: asynchronous renderer pauses for one game interval, then catches
+    // up. The old entry-only policy inserts center-eye draws despite progress.
+    {
+        dvr::stereo::DrawPresentProgress progress;
+        unsigned oldSingles=0, newSingles=0, counter=1;
+        for(unsigned tick=0;tick<400;++tick) {
+            if(tick%2==0) counter+=4;
+            progress.begin(counter);
+            if(!progress.advanced) ++oldSingles;
+            if(!progress.allowed) ++newSingles;
+            progress.complete(counter);
+        }
+        check(oldSingles==200,"negative control inserts 200 singles into a progressing queued renderer");
+        check(newSingles==0,"bounded allowance keeps both eyes through one-interval scheduling gaps");
+        progress.begin(counter);check(!progress.allowed,"an extra quiet interval is refused immediately");
+        ++counter;progress.begin(counter);check(progress.allowed && progress.advanced,"actual progress resumes stereo");
+        progress.begin(counter);check(progress.allowed && !progress.advanced,"one new grace interval after actual progress");
+        progress.begin(counter);check(!progress.allowed,"grace cannot perpetuate itself");
+        progress={};progress.begin(0);check(!progress.allowed,"reset cannot borrow old stream progress");
+        progress.previousEntry=UINT32_MAX;progress.begin(0);check(progress.allowed,"counter wrap remains progress");
+        printf("queued render progress: old single draws %u, candidate %u over400 ticks; sustained stall bounded\n",oldSingles,newSingles);
     }
 
     diagnostic_tests();

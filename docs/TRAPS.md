@@ -39,6 +39,26 @@ never gained its revision key. The log was true; the file was overwritten a seco
 an ini migration with `tools\launch-game.ps1` (a plain Steam launch leaves the ini alone), read
 the file after the `config:` lines appear, then stop the process. The same holds for any test that
 expects a startup write to persist: `EdgeSpeedRev`, `HandAnimMeleeRev`, a first-touch F10 key.
+
+## Scoped rotation does not refresh cached camera rows (VR-229)
+
+Do not use native cached right vectors to classify eyes displaced along a scoped
+head-composed orientation. A full-IPD step becomes ambiguous at large head angles,
+so existing late-tag repair loses its required confirmation. Publish the actual eye
+axis independently of translation. A healthy ring can mask this bug; test a delayed
+tag at varied yaw/pitch/roll, not just a straight-ahead steady pair. Details and
+limits: dishonored/FLICKER_REFERENCE.md, latest VR-229 entry.
+
+## VR-229: draw-return is not a liveness baseline (2026-09-25)
+
+The render thread can advance Present while the game thread is inside a draw.
+Saving the counter at draw return discards that progress and can force a false
+single draw on the next tick. Compare consecutive entries; unchanged counters
+still refuse. Do not weaken eye classification to compensate for unnecessary
+center-eye interruptions. The prison candidate and its uncertainty are recorded
+in FLICKER_REFERENCE.md. Pixel issue timings alone do not bound GPU probe cost;
+the acceptance build retains CPU history with frame-id GPU sampling disabled.
+
 ## Successful repairs can exhaust the failure diagnostic (VR-229, 2026-09-24)
 
 The40-window ring ledger triggered on routine repaired/refused presents and spent
@@ -1450,3 +1470,12 @@ The build716 stationary pitch reproduction also shows the opposite limit: positi
 MaxParticles is only a request, not proof of live or drawn particles. Sustained upward
 views had positive requests despite reported missing rain. Track actual instance counts,
 render bounds and render time before choosing simulation versus visibility as the cause.
+
+## VR-229 diagnostic selection bias (2026-09-25)
+
+A lifetime detail budget can be exhausted during the menu before the failing
+scene. A pixel sampler triggered only by LEFT labels can miss exactly the
+interval where LEFT labels disappear. The remote flight recorder uses recurring
+rate limits and label-independent bursts, with all-frame populations and explicit
+missing-stage masks. Camera-side SWAPPED and low image difference are observations,
+not independent proof of swapped or mono imagery during moving/dark cinematics.

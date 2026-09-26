@@ -32,11 +32,33 @@
 - [ ] Trigger animation and physical-swing suppression confirmed on the same build.
 - [ ] Remote scoped-eye cinematic acceptance (separate existing ZIP).
 
+## Prison judder follow-up (VR-229, 2026-09-25)
+
+- [x] Verify9da0a0b48 returned build and record partial head-turn-separation acceptance.
+- [x] Compare early/late cinematic counters; retain later-transition failures as open.
+- [x] Bound one queued render interval without weakening sustained-stall rejection.
+- [x] Production policy/pairing/cinematic regressions, including old-policy control.
+- [x] Spread existing history output across presents; same evidence, bounded formatting.
+- [ ] Affected-player prison stability from scene start through gameplay.
+- [ ] Local hand/HUD acceptance on separate installed1ed638c01 (PR132).
+
+## Prison cinematic acceptance candidate (VR-229, 2026-09-25)
+
+- [x] Correlate returned prison failures with center-eye interruptions and skew.
+- [x] Correct draw-progress baseline with failing old-policy control.
+- [x] Separate bounded CPU history from optional GPU pixel diagnostics.
+- [x] Benchmark actual recorder and preserve pairing regressions.
+- [x] Reject c4f5fe5df as sufficient after reload/head-turn failure report.
+- [x] Reproduce scoped/native eye-axis mismatch with logged-step and late-tag controls.
+- [ ] Affected-player stable prison cinematic through gameplay transition.
+
 ## Cinematic follow-ups (VR-228/229, 2026-09-24)
 
 - [x] Confirm pause scope exclusion and add head-look-menu permission with epoch liveness.
 - [x] Corroborate prison stale-left delivery; distinguish active repairs from expirations.
 - [x] Add bounded expiration diagnostics after detailed ledger budget exhaustion.
+- [x] Expand ZIP-only diagnostics: recurring frame history, raw camera census, label-independent pixels and actual XR results.
+- [x] Verify long-session coverage, missing-left negative control and actual formatted recorder output.
 - [ ] Local paused-dialogue FOV acceptance.
 - [ ] Remote expiration attribution and production-model-tested eye pairing fix.
 

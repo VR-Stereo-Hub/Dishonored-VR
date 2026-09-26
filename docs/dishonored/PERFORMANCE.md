@@ -271,6 +271,91 @@ with `occlusion native`, then `occlusion pereye`, then `occlusion off`, then
 same run confirms the switch took (occlusion-path reads drop to about zero).
 `pereye` is the per-eye culling that follows from that.
 
+## VR-229 early versus stable cinematic cadence (2026-09-25)
+
+On returned9da0a0b48, early InDialog587411343..587448000 has12 printed performance
+windows: median reported stereo tick rate58.0/s (range27.7..66.3), median tick15.95ms,
+median GPU per-tick span8.9ms (range6.4..13.9),137 untagged presents summed over those
+windows. Later587448000..587486000 has13 windows:70.7/s (69.3..71.7),13.9ms,
+GPU7.7ms (6.0..11.0),61 untagged. Headset72Hz,13.89ms budget.
+These are medians of printed windows, not percentiles of every frame, and intervals
+have different duration/content. No claim that GPU work is free or that the output
+change recovers any measured amount. Lower GPU medians and continued diagnostic
+recording during the stable period do not support GPU saturation or logging as a
+complete explanation. The simultaneous plateau in stale/expiry/duplicate counters
+and improved cadence supports addressing stereo interruptions/queue phase first.
+The test must still distinguish residual ordinary frame-time judder from eye faults.
+
+## VR-229 returned scoped-eye recorder and bounded output (2026-09-25)
+
+Returned9da0a0b48: GPU frame-id probes verified disabled. Largest printed CPU recorder
+finish/log peak0.512ms. The stable later cinematic still records windows, so logging
+alone does not explain the early-only judder. No controlled end-to-end A/B exists.
+
+Local actual-recorder host run before output change:100000 presents,50 c5 uploads
+per present, real formatting/buffered file output; mean1.987us/present,max1.639ms.
+After change:mean2.125us,max1.556ms. These are separate host runs subject to scheduling
+and file flush noise, not proof of a meaningful peak-time improvement or regression.
+Do not claim negligible tail cost from either mean. The structural improvement is
+verified: opening a history window no longer prints12 prior frames plus the current
+frame in one call (52 data lines). It prints one frame per Present, four data lines,
+plus at most a window header. Same12-before/16-after evidence retained, maximum12
+frames of output lag in a64-frame history. Window reopening waits for pending output;
+very slow frame rates cannot overwrite the requested history. Abrupt exit may leave
+the last pending records unwritten.255 production-recorder checks pass.
+
+New render-progress fix adds only a game-thread boolean/counter and one value in the
+existing3s beat. Its purpose is to prevent an unnecessary center-eye draw during one
+queued render interval; it can add one extra double draw before a genuine stall is
+refused. That is rendering behavior, not diagnostic overhead. Camera/state/session
+guards remain. Remote candidate keeps CPU history so an unsuccessful run is still
+useful, with GPU probes suppressed regardless of saved FrameId. The maintainer's
+normal1ed638c01 build remains installed with the entire recorder compiled out.
+
+## VR-229 scoped-axis follow-up (2026-09-25)
+
+Returned candidate c4f5fe5df verifies GPU frame-id pixels OFF. Recurring recorder
+max observed0.586ms (previous diagnostic0.523ms); this is a rare window maximum,
+not an every-frame charge or a complete remote performance A/B. No new logging or
+GPU probes added for the scoped-axis correction. One script writer publishes three
+atomic floats and sequence; render reader makes at most two snapshot attempts,
+never waits/spins without bound. Local x86 host100000 publish+read iterations average
+0.091us/sample, checksum250000, concurrent no-torn-read stress passes. Host harness
+is not optimized game timing and does not prove total render cost on the tester's PC.
+The new candidate retains the earlier lightweight recorder; no claim of a measured
+headset performance improvement. Source/geometry evidence: FLICKER_REFERENCE top.
+
+## VR-229: diagnostic overhead and false draw stalls (2026-09-25)
+
+Current returned build v1.0.1-6-g31450526c,3025x3135,shared wait0. The recorder's
+largest measured finish/logging burst is0.523ms.3024 printed backbuffer sample
+issue calls average0.003452ms,p95 0.005,max0.152; this excludes later maps,
+D3D11 sampling and GPU synchronization. No matched off/on run exists. Therefore
+the old full pixel diagnostic is NOT established to have negligible total cost.
+
+New acceptance candidate keeps CPU history and mono/eye outcomes but forces
+frame-id collection OFF, even with Perf.FrameId=1 in the unchanged saved INI.
+All four GPU stages exit at the collection gate. Optional pixel investigation
+now requires -FlickerDiagnostics -FlickerPixels; both flags default OFF and build.ps1
+explicitly clears stale cached flags. Normal builds retain their saved FrameId
+policy. Pixel opt-in without the recorder is rejected. No installed INI edits.
+
+Actual recorder host benchmark:100000 synthetic presents,50 c5 uploads/present,
+production history/event/formatter code, buffered file logging, recurring windows.
+Mean1.660us/present; max finish0.867ms (rare historical-window printing). At144
+presents/s the measured mean is about0.024% of one core. Includes recording and
+format/file sink work, excludes game-side pose assembly and actual remote disk
+behavior. Returned recorder max and host cost support low CPU overhead; they do
+not prove an end-to-end FPS difference. Zero added pixel GPU work is enforced by
+the candidate collection policy, which is tested even with INI request=true.
+
+The source gate saved Present at draw return and ignored progress inside that
+draw. Candidate measures entry-to-entry instead; an old-policy negative control
+produces199 false stalls in200 ticks while the new policy produces0. Genuine
+stalls still refuse. Additional doubled draws may change total rendering cost;
+that is the intended removal of false mono interrupts, not logging overhead.
+Evidence, counterprediction and limitations: FLICKER_REFERENCE.md, VR-229 top entry.
+
 ## Post-merge intro and hub slowdown (2026-09-23, attribution open)
 
 Reported: intro and hub rates fall into the 50s after integrating PRs105-110;

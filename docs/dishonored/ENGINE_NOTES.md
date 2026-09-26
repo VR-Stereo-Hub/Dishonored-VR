@@ -250,6 +250,29 @@ the renderer stack to those candidates and disassemble callers before selecting
 a hook. A native caller/update scope cannot be assumed to survive deferred drawing.
 No new engine memory writer or behavioral patch is introduced by this probe.
 
+## Scoped camera stereo-axis publication (VR-229, 2026-09-25)
+
+A draw-scoped POV rotation changes the composed eye displacement axis without
+rewriting native cached matrix rows at kCamRight. Therefore those rows cannot
+classify the scoped stereo step. Returned P67389/90 demonstrates a full6.57uu
+step rejected as5.322uu perpendicular by the cached row, but about0.001uu on
+the composed record axis. Publish the exact successful-write eyeRight separately
+from positional axes; reentry consumes a coherent bounded snapshot. No new engine
+addresses or writes. Latest-writer axis remains a temporal approximation when the
+render lane is behind; see FLICKER_REFERENCE for the measured scope and caveats.
+
+## VR-229 draw-entry progress baseline (2026-09-25)
+
+SceneDrawDecide's liveness comparison used g_frame saved at the prior viewport
+draw return. This loses any render-thread progress during that call. The candidate
+captures the counter at depth-zero draw entry and compares consecutive entries;
+no progress across entries still refuses. The existing gates and eye writers are
+unchanged. No new engine address or object field is used. progressInsideDraw in
+the existing beat counts otherwise-valid stereo ticks the old baseline rejects.
+Production helper regression covers inside-draw progress, repeated real stalls,
+resume and unsigned counter wrap. Prison sufficiency awaits headset acceptance.
+The measured identity chain and interpretation limits are in FLICKER_REFERENCE.
+
 ## Headset recovery acceptance and under-cover scope (2026-09-22)
 
 Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally
@@ -9820,3 +9843,16 @@ and event identities against a healthy gameplay interval. Camera failures requir
 measured image/camera provenance; missing/front-tag failures require a deterministic
 late-publication/reordering regression before altering repair. If it does not
 reproduce, that does not establish a fix because pairing behavior is unchanged.
+
+## VR-229: cinematic camera/upload alternatives (2026-09-25)
+
+The supplied aa3af7216 prison interval has13 camera-side SWAPPED and3 unknown
+classifications among74 printed pairs. Several have about3.3uu separation versus
+6.57uu IPD; one shows zero c5. All74 individually match bb/slot/out hashes.
+These do not prove a true eye swap or clear unseen copy errors. The existing
+c5 observer accepts every covering register upload and remembers the last value;
+a later auxiliary/zero upload can change the classifier without a failed camera
+write. New read-only per-present c5 census names the distinct values, vote counts
+and register ranges, alongside raw written camera and upload serial. No new
+engine fields, addresses or writes. See FLICKER_REFERENCE top entry for the full
+transport/runtime hypothesis matrix and interpretation of actual layer poses.

@@ -16,6 +16,8 @@ Method pending;
 CameraUploads uploads;
 Window window;
 uint32_t count = 0, lastPrinted = 0, totals[8] = {};
+uint32_t printNext = 0, printEnd = 0;
+bool draining = false;
 double recorderMaxMs=0;
 dvr::vr::PairProbe previous;
 int previousEye = 0;
@@ -91,16 +93,26 @@ void finish(const Runtime& r) {
     if(m.fresh && m.delivered) previousEye=m.delivered;
     const uint32_t id=++count;history[(id-1)%64]=f;
     const double now=(double)GetTickCount64();
-    if(window.open(now,f.events!=0)) {
+    if(!draining && window.open(now,f.events!=0)) {
         dvr::frameid::diagnostic_burst();
         DVR_INFO("flicker/window: id%u event%x totals(stale,expiry,duplicate,hold-or-missing,api-or-fence,eaten,arbitration,fallback)="
             "%u/%u/%u/%u/%u/%u/%u/%u capture=%s wait%d fenceTimeouts%u/%u; 12 before + 16 after, max one window/5s; "
-            "recorderMaxMs%.3f healthy heartbeat/10s; counts cover suppressed frames too; ages are last submit, not this copy; pose is delivered record",
+            "recorderMaxMs%.3f history output one frame/present; healthy heartbeat/10s; counts cover suppressed frames too; ages are last submit, not this copy; pose is delivered record",
             id,f.events,totals[0],totals[1],totals[2],totals[3],totals[4],totals[5],totals[6],totals[7],
             dvr::capture::mode_name(),dvr::capture::shared_wait(),wt,rt,recorderMaxMs);
-        for(uint32_t n=id>12?id-12:1;n<id;++n) if(n>lastPrinted) print(n);
+        // Preserve the same 12-before/16-after records, but format only one
+        // per Present. The oldest pending record stays at most 12 frames old
+        // in the 64-frame history. Do not reopen while output is pending, even
+        // if a very low frame rate takes longer than the five-second interval.
+        printNext = id>12 ? id-12 : 1;
+        if(printNext<=lastPrinted) printNext=lastPrinted+1;
+        printEnd=id+15;draining=true;
     }
-    if(window.take()) print(id);
+    window.take();
+    if(draining && printNext<=id) {
+        print(printNext++);
+        if(printNext>printEnd) draining=false;
+    }
 }
 }
 #endif

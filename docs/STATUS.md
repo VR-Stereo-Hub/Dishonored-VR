@@ -474,6 +474,142 @@ Branch `claude/vr-79-occlusion-per-eye` off `VR-Main`, not merged.
   therefore silently not engage on a given run. Fix when this is picked up again: log the refusal
   reason (throttled) and drop the snapshot liveness requirement for the controller the head
   tracker already validates. The F10 switch stays, in the Advanced view (2026-09-25).
+
+## VR-229 queued-render candidate packaged (2026-09-25)
+
+ZIP in primary checkout: build/test-packages/DishonoredVR-VR229-prison-judder-fix-6187b2fd4.zip,
+15894487bytes. Build v1.0.1-12-g6187b2fd4, optimized x86, legacy OFF,
+CPU recorder ON (output spread), GPU probes OFF. DLL SHA256
+1774ce5d05e837b4a7f34a5502b022e1e439665931264db973387e7951863dc6.
+ZIP SHA256b6ae714fa367ac529160b4586d9b2fd8a55faeca1fe268f47fea5fb3c2b50de4.
+Clean source identity, PE machine,9 exports, ZIP CRC/member hashes, build flags and
+lint verified. The support manifest's actual d3d9 hash matches the returned9da ZIP;
+its installer record still names the underlying release and is not the running DLL.
+No INI change: same config consumers as9da, including HandAnimMelee=0 in this tester's
+INI and forced pixel suppression. DLL/README/manifest/checksums only, no installer.
+
+Local installed hand/HUD candidate1ed638c01 hash remains
+b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569.
+No install or launch during this work. Remote question: smooth prison from beginning
+through fade and10seconds of gameplay, with head-turn fusion retained? Return support
+either way. Candidate sufficiency remains OPEN. Shared source in PR132 needs explicit
+integration when results are accepted; neither PR is authorized to merge.
+
+## VR-229: scoped-eye partial acceptance and queued-render candidate (2026-09-25)
+
+Returned support-20260925-150139 current banner9da0a0b48 matches the scoped-eye ZIP.
+Headset report accepts head-turn eye separation repair; prison judder remains early
+then resolves. Stale/expiry/duplicate counters rise to192/58/526 then flatten in the
+later dialogue; a later transition adds further events. See FLICKER_REFERENCE for
+identity, exact intervals, counterpredictions and limitations. Do not call fully fixed.
+
+Candidate tolerates one unchanged Present interval after observed progress, while a
+second quiet interval still refuses and fresh-camera/other gates remain. Production
+helper old200 singles/400 queued ticks vs new0; pairing1686 normal/1687 recorder,
+cinematic30054 pass. Recorder preserves the same window but emits at most one frame
+per Present;255 actual recorder checks pass. Host peak remains scheduler/IO-sensitive,
+so no negligible-tail-cost claim (PERFORMANCE.md).
+
+Next: finish clean optimized packaging on the returned tester baseline; one remote
+prison-through-fade stability question, support ZIP either way. Local hand/HUD build
+1ed638c01 is installed in a different worktree/PR132 and MUST remain untouched during
+this investigation. PR131 tracks this remote candidate; shared source with PR132 must
+be reconciled before any explicitly authorized merge. No game or simulator launched.
+
+## VR-229 scoped-eye replacement packaged (2026-09-25)
+
+Replacement ZIP: build/test-packages/DishonoredVR-VR229-scoped-eye-fix-9da0a0b48.zip in primary checkout,
+15894528 bytes. Build v1.0.1-10-g9da0a0b48, optimized x86, legacy OFF, CPU recorder ON,
+GPU pixel probes OFF. DLL SHA256 1150f68ce9e5bd7957e70dd07973f78cd9ff3fbe00f91c093121ca7ed0b4c3c4.
+ZIP CRC, all member checksums, extracted DLL bytes, embedded clean source identity,
+x86 PE and9 exports verified. Normal and recorder builds pass, lint clean.
+Source commit9da0a0b48 pushed to draft PR131, base staging; no merge/release.
+The prior c4f5fe5df candidate remains installed locally and is untested by the
+maintainer; this follow-up did not install or launch anything. Recommend the
+replacement instead of testing the rejected prior candidate. Remote acceptance
+and pause-submenu benefit remain OPEN. One prison head-turn/fade test, then support.
+
+## VR-229: returned candidate rejected; scoped eye-axis repair (2026-09-25)
+
+Current state: support-20260925-130534 current log verifies v1.0.1-8-gc4f5fe5df.
+The tester reports reload-dependent Empress/prison alternation and new severe
+head-turn separation. The previous candidate is NOT accepted. Maintainer installed
+that exact DLL earlier at explicit request, but has not launched it; no installation
+or game launch during this investigation. Previous DLL/INI/logs remain backed up.
+
+Measured/source-confirmed: scoped camera writes offset eyes along the composed
+head-look right vector, while reentry reads cached native camera rows. Returned
+P67390 is a full6.57uu stereo step; the published axis differs by54.1degrees and
+reports5.322uu perpendicular motion. The actual record orientation reduces that
+to about0.001uu. Existing camera-confirmation guards cannot recover a late tag with
+the wrong basis. Correct the published stereo axis, preserving translation axes,
+camera writes and arbitration thresholds. Applies to cinematic/pitch/menu scopes.
+
+Validation:225 rotated late-tag schedules pass; old-axis control has2184 identity/
+repair failures. Actual rounded P67389/90 camera-step regression passes. Pairing
+1678 normal/1679 diagnostic checks pass, cinematic math/scope checks pass.
+Bounded atomic publication/read host cost0.091us/sample; no extra per-frame logging
+or GPU probes. Remote sufficiency remains OPEN. Full evidence and caveats in
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md); costs in PERFORMANCE.md.
+Next: finish optimized builds and package one replacement ZIP, no local install.
+One test question: does the formerly bad prison scene stay fused through normal
+head turns and its fade into gameplay? No additional diagnostic matrix requested.
+
+## VR-229 packaged acceptance build (2026-09-25)
+
+ZIP: build/test-packages/DishonoredVR-VR229-prison-fix-c4f5fe5df.zip in the primary
+checkout, 15893518 bytes. Build v1.0.1-8-gc4f5fe5df, optimized x86, legacy OFF,
+CPU recorder ON, GPU pixel probes OFF. DLL SHA256
+115f3827362e58b7a83a43dbc2d8d459256154859f5cb701565a63318c2bf518.
+Nine exports, ZIP CRC, extracted DLL hash, x86 PE, clean build identity and
+compile flags verified. Normal build also passes with both diagnostic flags OFF.
+Draft PR131 targets staging. The package retains the previous tester baseline;
+it does not bundle newer staging features. No local install or game launch.
+One acceptance run: prison cinematic through fade and10seconds of gameplay,
+then quit and send support. Source/host-confirmed gate defect; remote result open.
+
+## VR-229: prison flicker repair candidate (2026-09-25)
+
+Returned diagnostic31450526c reproduces the prison failure and healthy Empress/
+gameplay controls. Whole-eye delivery, not square FOV. Source defect: present
+progress during the previous draw is ignored by its return-time baseline,
+provoking SINGLE draws. Candidate compares draw entries; all other gates and
+pairing safeguards stay. Production regression old-policy199 false stalls vs
+new0; normal/diagnostic pairing1447/1448 pass. Remote sufficiency is still open.
+
+CPU flight history remains enabled in the test DLL, with frame-id GPU probes
+forced off regardless of INI. Pixel issue timer alone did not measure total cost.
+Actual recorder host benchmark averages1.660us/frame with50 uploads and buffered
+file logging; full reasoning in PERFORMANCE.md and FLICKER_REFERENCE.md.
+No maintainer install or game launch. New codex/vr-229-prison-present-progress branch retains the tester baseline;
+PR126 was closed after collaborator integration, so a new draft review follows; prior VR-227/228 fixes retained, VR-260 remains separate. Next: one prison
+cinematic through fade and10seconds of gameplay, return support ZIP either way.
+
+## VR-229: remote diagnostic coverage expanded (2026-09-25)
+
+User has a newer collaborator build locally: NO INSTALLATION and no game launch.
+Prepared a self-arming ZIP-only diagnostic build in build/worktrees/vr-227.
+The previous expiry-only trace missed consecutive frames after its lifetime cap.
+New recurring history joins raw tag/camera decisions, capture identities, delivered
+pose records and actual XR release/submission. Independent-label pixel bursts and
+camera-upload census cover mono/black images, half-IPD/zero camera samples, source
+writes, slot reuse and pose/cadence alternatives. Pairing behavior is unchanged.
+[Evidence, hypothesis matrix and next test](dishonored/FLICKER_REFERENCE.md).
+
+Host validation:1142 diagnostic pairing checks,1141 normal,133 actual recorder
+checks pass. Includes one-hour recording and missing-left negative control.
+Normal and diagnostic optimized x86 builds pass, legacy off; lint and9 exports pass.
+No headset/game validation. Clean test build `v1.0.1-6-g31450526c`.
+DLL SHA256 `1522d2325f19b302a609490a34c26b4e4a31b539df3e31d3bb5f1e628bbb569d`.
+ZIP in primary checkout: `build/test-packages/DishonoredVR-VR229-prison-flicker-diagnostic-31450526c.zip`.
+ZIP is15,894,046 bytes; CRC, embedded build/diagnostic strings, x86 header and
+extracted DLL/checksum manifest verified. DLL-only, self-arming, no INI/installer.
+Installed copy remains untouched. Existing draft PR126 targets staging.
+Next: remote prison cinematic plus10seconds of gameplay at unchanged settings,
+quit and collect support ZIP. One question: did prison eye flicker reproduce?
+No reproduction is not a fix. Use first divergent frame to design a regression
+before implementing a repair; do not install on the maintainer's machine.
+
 ## VR-228/229: pause FOV candidate and prison flicker diagnosis (2026-09-24)
 
 Original VR-227 gameplay fix is locally reported good on the installed aa3af7216.

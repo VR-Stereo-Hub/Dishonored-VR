@@ -1,3 +1,14 @@
+## Stereo axis for scoped cameras (VR-229, 2026-09-25)
+
+Reentry geometry reads camera::last_eye_right: the exact axis from the most recent
+successful eye-offset write. A cinematic/menu scope uses its composed right axis;
+ordinary camera writes publish the native right row. This small bounded atomic
+snapshot is independent of positional tracking's cached axes. A failed snapshot
+leaves ring fallback; no thresholds or camera memory writes change. It is coherent
+but not tagged to the queued render view, an explicit remaining temporal limit.
+The prior cached-native classifier fails rotated delayed-tag tests. Evidence and
+failed candidate acceptance: dishonored/FLICKER_REFERENCE.md.
+
 # Architecture
 
 ## Overview
@@ -1227,3 +1238,27 @@ Unknown draws retain native rendering. The existing menu context route is separa
 Default-off SemanticOwnership has an explicit local candidate enable and live A/B.
 This is an ownership repair candidate; target depth and headset performance are
 not established by transport host tests. See HUD_ANCHORS, ENGINE_NOTES and PERFORMANCE.
+
+## 2026-09-25: opt-in remote flicker flight recorder (VR-229)
+
+The remote diagnostic package is a separate compile option, default OFF. It arms
+its own bounded telemetry without changing a tester's INI or eye decisions. This
+avoids depending on a lifetime ledger budget or LEFT-triggered sampling while
+LEFT identity itself is under investigation. A fixed history joins the method
+record with the actual XR tail; independent pixel bursts and c5 census supply
+corroboration rather than treating a label as image truth. Every sample stage
+reports validity and cost. Ordinary builds explicitly reset the cached option;
+the diagnostic build command rejects automatic installation. No engine-memory
+writer or extra game resource reference is introduced. Details and the hypothesis
+matrix remain in FLICKER_REFERENCE, not in a second investigation document.
+
+## Draw progress and low-cost acceptance history (VR-229, 2026-09-25)
+
+The game-side second-draw liveness gate compares Present at consecutive draw
+entries, so progress inside the previous draw counts. It does not remove the
+stall guard or change tag arbitration. A beat counter identifies otherwise-valid
+stereo ticks that the former return-time baseline would have rejected.
+The test recorder and pixel probes have separate build flags. A recorder-only
+DLL disables all frame-id GPU sampling even if the saved INI requests it, making
+its performance cost primarily bounded CPU history and log bursts. Normal builds
+retain their existing saved FrameId policy. No installed settings are edited.
