@@ -490,6 +490,13 @@ static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
 // VR-95: on an unreadable jump, predict the toggle instead of holding the
 // previous eye. Ships OFF; `[Hands] PaletteEyePredictToggle`, F10 Hands.
 static bool     g_mpEyePredict = false;
+// [Hands] PoseFromView (hand/weapon head-turn flicker): a hand draw finds the view it
+// belongs to by its c5 in the pose records and uses THAT view's head sample and eye,
+// instead of a head sample a fixed two presents back and an eye guessed from a jump.
+static bool     g_mpPoseFromView = false;
+static LONG     g_mpPvMatch[3] = {0, 0, 0};   // matched views by eye: left, centre/single, right
+static LONG     g_mpPvNone = 0, g_mpPvNoRec = 0, g_mpPvAmbig = 0, g_mpPvEyeFixed = 0;
+static double   g_mpPvOffSum = 0.0; static LONG g_mpPvOffN = 0; static float g_mpPvOffMax = 0.0f;
 static bool     g_mpEyeMenuHalfStep = false;
 static int      g_mpEyePredictRun = 0;   // consecutive predictions, capped at 2
 static LONG     g_mpEyePredicted = 0;
@@ -629,6 +636,7 @@ struct MpPoseSnap {
     bool          ok[2];         // per hand: head AND that hand tracked
     bool          headOk;
     uint32_t      gen;           // bumped on every publication
+    float         head[3][4];    // the head sample the hands above were normalised against
 };
 static MpPoseSnap        g_mpPosePub;          // the published snapshot
 static CRITICAL_SECTION  g_mpPoseCs;

@@ -2072,8 +2072,90 @@ struct MpDrawCtx {
     int           basisParity;  // +1 or -1: does the mapping mirror?
     MpPoseSnap    pose;
     bool          poseOk;
+    bool          viewMatched;  // PoseFromView: this draw's view was found by its c5
+    int           viewEye;      // that view's eye: -1 left, +1 right, 0 single
 };
 
+
+// The hand in the head's frame: position and orientation, the maths MpDriveTick has always
+// used, in one place so the PoseFromView path cannot drift from it. POSITION: hand minus head
+// in XR metres, resolved into the head's own right/up/forward (frame-free scalars; the draw
+// turns them into a world vector with its own camera basis). ORIENTATION: F * transpose(R_head)
+// * R_controller through the same physical mapping (a pose conversion, not a similarity of a
+// head-relative rotation; `head_turn` in the self-test is the counterexample). HEAD and CTL are XR device-to-tracking 3x4s (columns right, up, back).
+static void MpHandInHead(const float (*HEAD)[4], const float (*CTL)[4], float ruf[3], dvr::hf::Mat3* inHead)
+{
+    float w[3];
+    for (int r = 0; r < 3; r++) w[r] = CTL[r][3] - HEAD[r][3];
+    const float rx = HEAD[0][0], ry = HEAD[1][0], rz = HEAD[2][0];
+    const float ux = HEAD[0][1], uy = HEAD[1][1], uz = HEAD[2][1];
+    const float fx = -HEAD[0][2], fy = -HEAD[1][2], fz = -HEAD[2][2];
+    ruf[0] = w[0]*rx + w[1]*ry + w[2]*rz;
+    ruf[1] = w[0]*ux + w[1]*uy + w[2]*uz;
+    ruf[2] = w[0]*fx + w[1]*fy + w[2]*fz;
+    dvr::hf::Mat3 R_H, R_C;
+    for (int rr = 0; rr < 3; rr++)
+        for (int c2 = 0; c2 < 3; c2++) { R_H.m[rr*3+c2] = HEAD[rr][c2]; R_C.m[rr*3+c2] = CTL[rr][c2]; }
+    *inHead = dvr::hf::controller_orient_in_head(R_H, R_C);
+}
+
+// HAND/WEAPON HEAD-TURN FLICKER. The hands are placed relative to the camera from the
+// controller's position in the HEAD's frame. That frame has to be the head sample the view
+// was rendered from, or during a turn the hand is rotated by the difference: the `hv:` line
+// measured 8-15% of frames normalised against another generation during fast turns, up to
+// 1.7 deg (about 1.5 cm at arm's length), on alternate views - a flicker on the hands and
+// weapons only, since the world has one camera per tick. The snapshot's "two presents back"
+// is a fixed stand-in for that sample, and under re-entry (two presents per tick, a render
+// thread up to a frame behind) the stand-in is right most of the time and not always.
+//
+// The view knows exactly: its pose record holds the head sample the camera write used, and
+// the camera position written for that view, which the draw's c5 reads to within 0.001 uu
+// (1178 of 1181 ledger pops, 2026-09-25). So the draw finds its record by c5 and re-derives
+// both hands against that record's head, with the same controller sample the snapshot used.
+// No match (walking travel after a write, a mono tick, a record aged out, a tie with another
+// head sample) leaves the snapshot exactly as it was: today's path.
+static void MpPoseFromView(MpDrawCtx* c)
+{
+    float c5[3];
+    if (!dvr::camera::render_pos(c5)) { InterlockedIncrement(&g_mpPvNone); return; }
+    dvr::pose::Record rec; float dist = 0, second = 0;
+    if (!dvr::pose::find_view(c5, 0.05f, 400.0, &rec, &dist, &second)) { InterlockedIncrement(&g_mpPvNone); return; }
+    if (second < 0.10f) { InterlockedIncrement(&g_mpPvAmbig); return; }   // another head sample sits as close
+    // HtSample publishes an identity at the origin when the runtime had no head pose; a real
+    // head is never exactly that, so it is refused rather than used.
+    if (!rec.track.ok || (rec.track.qw == 1.0f && rec.track.qx == 0.0f && rec.track.qy == 0.0f && rec.track.qz == 0.0f &&
+                          rec.track.px == 0.0f && rec.track.py == 0.0f && rec.track.pz == 0.0f)) { InterlockedIncrement(&g_mpPvNoRec); return; }
+    const dvr::vr::HeadPose hp = { rec.track.px, rec.track.py, rec.track.pz,
+                                   rec.track.qx, rec.track.qy, rec.track.qz, rec.track.qw };
+    float head[3][4];
+    DvrPoseTo3x4(hp, head);
+    // How far off the snapshot's head was, as an angle (telemetry, and the counterprediction:
+    // near zero at rest, growing with turn speed).
+    {
+        float tr = 0;
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) tr += c->pose.head[j][i] * head[j][i];
+        float cs = 0.5f * (tr - 1.0f); if (cs > 1) cs = 1; if (cs < -1) cs = -1;
+        const float deg = acosf(cs) * 57.29578f;
+        g_mpPvOffSum += deg; ++g_mpPvOffN; if (deg > g_mpPvOffMax) g_mpPvOffMax = deg;
+    }
+    for (int h = 0; h < 2; h++) {
+        if (!c->pose.ok[h] || !g_devPoseOk[3 + h]) continue;
+        MpHandInHead(head, g_devPose[3 + h], c->pose.ruf[h], &c->pose.inHead[h]);
+    }
+    memcpy(c->pose.head, head, sizeof(head));
+    c->viewMatched = true;
+    c->viewEye = rec.eye;
+    InterlockedIncrement(&g_mpPvMatch[rec.eye < 0 ? 0 : rec.eye > 0 ? 2 : 1]);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "hands/poseview: ON | draws re-anchored to their own view's head sample: left %ld single %ld right %ld | "
+        "unmatched %ld (no c5 or no record within 0.05 uu: today's path), tied %ld, no head sample %ld | the "
+        "snapshot's head was off by %.3f deg on average, %.3f at most | eyes the jump classifier would have got "
+        "wrong or left unknown: %ld. With the head still the offset must read about 0 and grow with turn speed; "
+        "unmatched climbing while walking is expected (the camera moves after the write).",
+        g_mpPvMatch[0], g_mpPvMatch[1], g_mpPvMatch[2], g_mpPvNone, g_mpPvAmbig, g_mpPvNoRec,
+        g_mpPvOffN ? g_mpPvOffSum / (double)g_mpPvOffN : 0.0, (double)g_mpPvOffMax, g_mpPvEyeFixed);
+    if (g_mpPvOffN >= 2000) { g_mpPvOffSum = 0; g_mpPvOffN = 0; g_mpPvOffMax = 0; }
+}
 
 // Read the draw's own constants and validate them. One call per original draw.
 static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
@@ -2207,6 +2289,8 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         LeaveCriticalSection(&g_mpPoseCs);
         c->poseOk = (c->pose.gen != 0);
     }
+    c->viewMatched = false; c->viewEye = 0;
+    if (g_mpPoseFromView && c->poseOk) MpPoseFromView(c);
     {   // a snapshot older than the previous draw's means publication and
         // consumption have crossed; it is not fatal, but it must be visible
         static uint32_t lastGen = 0;
@@ -2487,7 +2571,7 @@ static void MfMarker(void)
         char why[160]; int w = 0; why[0] = 0;
         if (t != -2 && t != 0 && r.eye != t)
             w += _snprintf(why + w, sizeof(why) - w, " eye %c but tag %c;", MfEyeChar(r.eye), MfEyeChar(t));
-        if (r.why != 'T')
+        if (r.why != 'T' && r.why != 'V')
             w += _snprintf(why + w, sizeof(why) - w, " decision %c;", r.why);
         if (r.refused[0] || r.refused[1])
             w += _snprintf(why + w, sizeof(why) - w, " refused %u/%u;", r.refused[0], r.refused[1]);
@@ -2574,6 +2658,27 @@ static void MpEyeForPresent(const MpDrawCtx* c)
 
     const float ipdUU = g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f)
                                   * g_mpDriveGain);
+    // PoseFromView: the eye of the view this draw was matched to IS the eye, read off the
+    // camera position the mod wrote for it, not inferred from how far the hand moved. The
+    // jump the classifier below reads carries the hand's own swing as the head turns (the
+    // viewmodel rides the camera), which is what pushes it out of its band on fast turns.
+    // Ahead of the first-observation branch: a matched view needs nothing to compare against.
+    if (g_mpPoseFromView && c->viewMatched && c->viewEye != 0) {
+        float dv = 0.0f; int legacy = 0;
+        if (g_mpEyeHavePrev) {
+            dv = c->projRight - g_mpEyePrevFirst;
+            const float av = fabsf(dv);
+            legacy = (av > .45f * ipdUU && av < 2.0f * ipdUU) ? ((dv < 0.0f) ? +1 : -1) : 0;
+        }
+        if (legacy != c->viewEye) InterlockedIncrement(&g_mpPvEyeFixed);
+        g_mpEyeState = c->viewEye;
+        g_mpEyeToggles++;
+        g_mpEyePredictRun = 0;
+        g_mpEyeHavePrev = true;
+        g_mpEyePrevFirst = c->projRight;
+        MfOpen(pres, c, 'V', dv, ipdUU);
+        return;
+    }
     if (!g_mpEyeHavePrev) {
         g_mpEyeHavePrev = true; g_mpEyePrevFirst = c->projRight;
         g_mpEyeState = 0;                        // nothing to compare against yet
@@ -3541,6 +3646,7 @@ static void MpDriveTick(void)
     MpPoseSnap snap;
     memset(&snap, 0, sizeof(snap));
     snap.headOk = g_devPoseOk[0];
+    memcpy(snap.head, HEAD, sizeof(snap.head));
     for (int h = 0; h < 2; h++) {
         snap.inHead[h] = dvr::hf::identity3();
         if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
@@ -3553,47 +3659,7 @@ static void MpDriveTick(void)
             }
             continue;
         }
-        // Hand minus head in XR world metres, resolved into the HEAD's own
-        // right/up/forward. Frame-free scalars: the draw turns them into a
-        // world vector with the basis from its own constants, so nothing here
-        // assumes anything about the game's axes.
-        float w[3];
-        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - HEAD[r][3];
-        const float rx = HEAD[0][0], ry = HEAD[1][0], rz = HEAD[2][0];
-        const float ux = HEAD[0][1], uy = HEAD[1][1], uz = HEAD[2][1];
-        const float fx = -HEAD[0][2], fy = -HEAD[1][2], fz = -HEAD[2][2];
-        snap.ruf[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
-        snap.ruf[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
-        snap.ruf[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
-
-        // THE ORIENTATION, through the SAME physical mapping as the position
-        // above. g_devPose holds XR device-to-tracking matrices whose columns
-        // are right, up and BACK; the position path negates the head's third
-        // column to get forward, and F = diag(1,1,-1) is that same conversion
-        // written as a matrix. What is published is
-        //
-        //     F * transpose(R_head) * R_controller
-        //
-        // which the draw completes by multiplying with its own camera basis B.
-        // It is a POSE conversion, mapping controller-local axes into another
-        // frame - NOT a similarity transform of a head-relative rotation. The
-        // similarity form rotates the hands with the head while the controller
-        // stands still, and `head_turn` in the self-test is that counterexample.
-        {
-            float hc[3][3], cc[3][3];
-            for (int rr = 0; rr < 3; rr++)
-                for (int c2 = 0; c2 < 3; c2++) {
-                    hc[rr][c2] = HEAD[rr][c2];
-                    cc[rr][c2] = g_devPose[3 + h][rr][c2];
-                }
-            dvr::hf::Mat3 R_H, R_C;
-            for (int rr = 0; rr < 3; rr++)
-                for (int c2 = 0; c2 < 3; c2++) {
-                    R_H.m[rr*3+c2] = hc[rr][c2];
-                    R_C.m[rr*3+c2] = cc[rr][c2];
-                }
-            snap.inHead[h] = dvr::hf::controller_orient_in_head(R_H, R_C);
-        }
+        MpHandInHead(HEAD, g_devPose[3 + h], snap.ruf[h], &snap.inHead[h]);   // see MpHandInHead
         snap.ok[h] = true;
         memcpy(g_mpCtlRUF[h], snap.ruf[h], sizeof(snap.ruf[h]));
         g_mpCtlRUFOk[h] = true;

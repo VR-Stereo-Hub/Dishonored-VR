@@ -1,3 +1,17 @@
+## Hand/weapon flicker on fast head yaw (2026-09-26)
+
+Branch `claude/hand-headturn-flicker` off `staging`, not merged, NOT installed (by request). No
+Linear ticket (the workspace is at its free-plan issue limit).
+
+- Audit and measurements: FLICKER_REFERENCE top entry. The hands were placed against a head
+  sample a fixed two presents back, which the `hv:` line measured on another generation in 8-15%
+  of fast-turn frames (up to 1.7 deg); the eye came from a hand-jump guess the yaw sweep disturbs.
+- Candidate `[Hands] PoseFromView` (default 0, F10 Advanced > Hands > Head-turn smoothing): a hand
+  draw finds its own view by c5 in the pose records and uses that view's head sample and eye;
+  no match leaves today's path. Host tests (negative control included), build and lint pass.
+- To test: install, tick the checkbox, turn quickly left/right; then untick. Log:
+  `hands/poseview:` (the snapshot offset must grow with turn speed).
+
 ## 2026-09-26: session accepted; staging integration and next-session baseline
 
 Current state: user accepts the final local run and explicitly authorizes all session

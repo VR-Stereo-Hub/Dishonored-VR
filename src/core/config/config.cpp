@@ -836,6 +836,11 @@ static bool WriteDefaultIni(const char* ini)
         "PaletteDepthRange=1\n"
         "PaletteEyeOffset=1\n"
         "PaletteEyePredictToggle=0\n"
+        "; PoseFromView: each hand draw uses the head sample and eye of the view it belongs to\n"
+        "; (found by its camera position) instead of a sample two presents back and an eye\n"
+        "; guessed from a jump. Aimed at the slight hand/weapon flicker on fast head turns.\n"
+        "; 0 = the previous path. F10 Advanced > Hands > Head-turn smoothing.\n"
+        "PoseFromView=0\n"
         "PaletteEyeAlternate=0\n"
         "PaletteEyeFromMeasured=0\n"
         "PaletteEyeHunt=0\n"
@@ -2584,6 +2589,10 @@ static void LoadConfig()
     g_mpEyeMenuHalfStep = IniFloat(ini,"Hands","PaletteEyeMenuHalfStep",0)!=0;
     Log("config: [Hands] PaletteEyeMenuHalfStep=%d - menu signed half-IPD jump candidate; no toggle prediction",(int)g_mpEyeMenuHalfStep);
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
+    g_mpPoseFromView  = IniFloat(ini, "Hands", "PoseFromView", 0) != 0.0f;
+    Log("config: [Hands] PoseFromView=%d - %s", (int)g_mpPoseFromView,
+        g_mpPoseFromView ? "hand draws use their own view's head sample and eye (found by c5 in the pose records)"
+                         : "hand draws use the head two presents back and the jump-classified eye (the previous path)");
     Log("config: [Hands] PaletteEyePredictToggle=%d - an unreadable eye jump %s. "
         "Holding was measured robbing the LEFT eye's hands of their own half-IPD "
         "during a head roll (VR-95); the prediction is capped at two in a row so a "
@@ -3760,6 +3769,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands","PaletteEyeMenuHalfStep",g_mpEyeMenuHalfStep ? "1" : "0",ini);
     WritePrivateProfileStringA("Hands", "PaletteEyePredictToggle", g_mpEyePredict ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
 #if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
