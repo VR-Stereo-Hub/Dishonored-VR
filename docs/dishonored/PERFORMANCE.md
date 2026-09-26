@@ -1,3 +1,20 @@
+## Accepted ownership run and small follow-up cost (2026-09-25)
+
+Verified4c38bf526 run52040281..52879xxx reports improved HUD stability; not an FPS
+A/B measurement. Last ownership snapshot has66994508 queued,66993732 replayed,
+4113901 known HUD draws and869382 native fallbacks, cumulative, overflow0.
+The difference is outstanding or retired generation work, not proof of a drop.
+Unknown marker roots explain a portion of fallback, not every unknown draw.
+
+Follow-up changes only marker target validation and three clip-to-element routes.
+The same3s diagnostic now includes family-root counts and fresh pivots. Count
+computation is behind both the log-level and time gates, not done per draw or
+on every UI poll. No new GPU diagnostic, draw census, stack tracing or recorder.
+New70-check production-reader/transport suite retains100000 concurrent transfers;
+latest host queue round trip23.20ns, unowned wrapper18.39ns. Host timings exclude
+native marker shader transforms now becoming reachable; do not claim zero whole
+frame cost for restoring those existing transforms.
+
 ## Semantic HUD transport candidate cost (2026-09-25)
 
 Optimized x86 host tests of production CommandOwners and extracted replay wrapper:

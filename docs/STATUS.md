@@ -1,3 +1,25 @@
+## 2026-09-25: semantic ownership accepted; marker and hint correction
+
+Matched installed4c38bf526 DLL/banner, archived current/previous logs and whole
+INI under primary build/hud-regression-20260925/semantic-return-221601. User reports
+cohesive HUD with no observed ungrouping/jitter. Remaining marker size and lower
+hint placement issues are scoped follow-ups, not failure of queue transport.
+
+Marker roots were rejected by owner==HUD. Native constructor/caller disassembly
+shows +8 is task/collectible/enemy identity. Fix independently validates that live
+target plus current HUD array membership and native family. Correct context,
+special/mantle and QTE clip routes to share sneak/player-state's default panel;
+retain info/talk/use on prompt. Heal-reminder placement improvement is expected,
+not yet measured. Accepted pause and ownership transport remain unchanged.
+
+70 production-reader/transport checks,100000 concurrent transfers,123 native-HUD,
+503 routing checks pass; normal optimized build and lint pass. Family/pivot
+counters fit in the existing3s summary and only compute when it prints.
+New build/install identity follows. Preserve all six latest user INI adjustments:
+task/rune inset0.260; default X0.274/Y-0.093/scale1.420; prompt scale1.320.
+One next launch question is existing size-slider response on a complete objective.
+No game launch, no merge; external diagnostic disclosure remains pending.
+
 ## 2026-09-25: native widget ownership implementation candidate
 
 User accepts world pause on 0a4c7c254; verified DLL/banner and three RIDING Pause

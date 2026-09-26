@@ -1,3 +1,13 @@
+## Semantic HUD cohesion accepted (2026-09-25)
+
+Surface: HUD widget ownership/decoupling, not cinematic eye delivery. Verified
+4c38bf526 DLL/banner before reading the latest local run. User reports no observed
+ungrouping or HUD jitter and much more consistent widgets. Semantic queue path
+is active with no overflow. This is reported headset acceptance of cohesion in
+that run; it does not accept the separate remote prison candidate or prove an
+FPS gain. Remaining size-control and lower hint placement findings, their fixes
+and test boundary are in HUD_ANCHORS and ENGINE_NOTES. No new flicker diagnostics.
+
 ## Local follow-ups on the staging baseline (2026-09-25)
 
 The local no-flicker report covers installed v1.0.1-8-gc4f5fe5df, DLL SHA256

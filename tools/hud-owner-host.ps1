@@ -4,9 +4,11 @@ $repo = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $repo "build\hud-owner-tests"
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $text=[IO.File]::ReadAllText((Join-Path $repo 'src/game/dishonored/hud_owner.cpp'))
-$snippets=@()
-foreach($name in @('Display','Publish','Execute','ExecuteStub')) {
-    $pattern='(?ms)^(?:void __fastcall|uint32_t __cdecl|__declspec\(naked\) void) '+$name+'\(.*?^\}'
+$elements=[regex]::Match($text,'(?ms)^const int elements\[32\]=\{.*?;')
+if(-not $elements.Success){throw 'Native clip table extraction failed'}
+$snippets=@($elements.Value)
+foreach($name in @('Character','Value','Display','Publish','Execute','ExecuteStub')) {
+    $pattern='(?ms)^(?:uintptr_t|const uint8_t\*|void __fastcall|uint32_t __cdecl|__declspec\(naked\) void) '+$name+'\(.*?^\}'
     $body=[regex]::Match($text,$pattern)
     if(-not $body.Success){throw "Dispatch extraction failed: $name"}
     $snippets+=$body.Value

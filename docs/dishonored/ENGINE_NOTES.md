@@ -1,3 +1,36 @@
+## Marker target identity and lower HUD placement correction (2026-09-25)
+
+Verified 4c38bf526 log: semantic hooks active, required clip mask7, roots31,
+zero queue overflow throughout; no native-icon/native-upright lines while task
+and Heart update callbacks are active. This rules out a missing size preference:
+NativeObjectiveScale remains0.330. The initial Value reader required marker+8
+== HUD, which excluded every marker from the semantic roots.
+
+Offline native constructors establish the actual relationship. BCE380 stores its
+first argument at marker+8, settings at+C and projection params at+10. BCE750 gets
+its first argument from the task descriptor's first member; BAD668..BAD679 compares
+marker+8 with that task identity, and BAD6C1 constructs a marker for it. BCEBD0
+receives the tracked collectible from B955DD. Thus +8 is a target UObject, not the
+containing DisGFxMoviePlayerHUD. HUD marker arrays use pointer-size4 strides.
+
+Correction keeps current live HUD array membership and verifies the target with
+IsLiveObject independently, plus the existing native family vtable. It does not
+replace liveness with class-name equality. SameHud identity/generation and the
+resolved character membership checks remain. No new engine-memory writes/hooks.
+Host regression extracts actual Value and Character readers: separate HUD/target,
+dead HUD/target, wrong native family, withdrawn/index-invalid member and unresolved
+handle. The old reader fails the separate-target positive case.
+
+The native clip initializer B9591A/B95936/B95952/B9596E maps indices6/7/8/9 to
+crosshair interaction window, context text, special icons and QTE respectively.
+Crosshair name/info and index6 remain on prompt. Indices7..9 must share the
+player-state/default canvas, not central prompt sizing. Flash special icon1 is
+mantle. Authored player-state and special-icon roots are around y663 and665.5 on
+the720px canvas; separate placement transforms destroyed that authored alignment.
+Context text uses a separate left-hand authored position. The heal-reminder
+identity is not directly named by this log; its correction through the context
+mapping remains a testable candidate, not a measured association with a draw key.
+
 ## Semantic HUD command transport candidate (2026-09-25)
 
 Implements the boundary derived below. All native addresses/field layouts are in

@@ -1,4 +1,6 @@
 #include "core/gfx/hud_owner_queue.h"
+#include "core/gfx/hud_layout.h"
+#include "game/dishonored/patterns.h"
 #include <windows.h>
 #include <cstdio>
 #include <cstdlib>
@@ -17,8 +19,20 @@ static Owner mapped;
 static Owner Lookup(void* p) {return (uintptr_t)p==mapped.root ? mapped : Owner{};}
 static void* displayOriginal=nullptr;static void* publishOriginal=nullptr;
 static uintptr_t executeReturn=0;
-static const uintptr_t kHudRenderQueue=0x1000;
-static const uint32_t kHudQueueAllocationCommand=4;
+using namespace dvr::hudlayout;
+struct Array {uint8_t** data;int count,capacity;};
+static uint8_t hudStorage[128]{},targetStorage[32]{};
+static uint8_t* hud=hudStorage;static bool targetLive=true,hudLive=true;
+static uint32_t fields[6]={0,8,16,28,40,52};
+static bool IsLiveObject(const void* p){return (p==hud && hudLive) || (p==targetStorage && targetLive);}
+static bool RangeReadable(const void* p,size_t n) {
+    MEMORY_BASIC_INFORMATION m{};const auto a=(uintptr_t)p;
+    return a>=0x10000 && a+n>=a && VirtualQuery(p,&m,sizeof(m)) && m.State==MEM_COMMIT &&
+        !(m.Protect&(PAGE_NOACCESS|PAGE_GUARD)) && a+n<=(uintptr_t)m.BaseAddress+m.RegionSize;
+}
+static bool CtRead(uint8_t* p,uint32_t off,void* out,size_t n) {
+    if(!IsLiveObject(p) || !RangeReadable(p+off,n))return false;memcpy(out,p+off,n);return true;
+}
 #include "hud_owner_dispatch.inc"
 static int phase=0;
 static Owner observed;
@@ -59,6 +73,32 @@ static bool ExecuteFault() {
     return false;
 }
 int main() {
+    // Real native member reader: a marker target differs from its containing HUD.
+    uint8_t markerBytes[64]{},handle[16]{},character[16]{},clips[512]{};
+    uint8_t* markerArray[1]={markerBytes};Array list{markerArray,1,1};
+    uint8_t* clipPointer=clips;memcpy(hud+fields[1],&clipPointer,4);
+    uint8_t* target=targetStorage;memcpy(markerBytes+kTaskMarkerOwner,&target,4);
+    uint8_t* hp=handle;uint8_t* cp=character;uint32_t managedDisplay=0x48;
+    memcpy(markerBytes+kMarkerGfxType,&managedDisplay,4);memcpy(markerBytes+kMarkerGfxHandle,&hp,4);
+    memcpy(handle+kGfxResolvedCharacter,&cp,4);
+    const uintptr_t tables[]={kTaskMarkerVtable,kHeartMarkerVtable,kAwarenessMarkerVtable};
+    for(int family=1;family<=3;++family) {
+        memcpy(hud+fields[family+1],&list,sizeof(list));memcpy(markerBytes,&tables[family-1],4);
+        check(Character(Value(family,0))==(uintptr_t)character,"live task/collectible/enemy target distinct from HUD is recognized");
+        targetLive=false;check(!Value(family,0),"dead target refused even while marker remains in HUD array");targetLive=true;
+        hudLive=false;check(!Value(family,0),"dead containing HUD refused");hudLive=true;
+        const uint32_t wrong=0;memcpy(markerBytes,&wrong,4);
+        check(!Value(family,0),"wrong native marker family refused");
+        check(!Value(family,1) && !Value(family,-1),"stale array index refused");
+    }
+    memcpy(markerBytes,&tables[0],4);markerArray[0]=nullptr;
+    check(!Value(1,0),"withdrawn marker cannot retain ownership");markerArray[0]=markerBytes;
+    memset(handle+kGfxResolvedCharacter,0,4);check(!Character(Value(1,0)),"unresolved GFx handles never invoke resolver");
+    memcpy(handle+kGfxResolvedCharacter,&cp,4);
+    check(Value(0,2)==clips+2*kHudValueSize && !Value(0,32) && !Value(0,-1),"clip table membership bounds");
+    check(elements[2]==ElPrompt && elements[6]==ElPrompt,"talk/name/action stay on the accepted central prompt");
+    check(elements[4]==ElDefault && elements[7]==elements[4] && elements[8]==elements[4] && elements[9]==elements[4],"context/mantle/QTE share sneak panel placement");
+    check(elements[12]==ElReticle && elements[3]==ElVitals,"cooking and hand vitals retain separate semantic placement");
     Owner a;a.root=0x2000;a.generation=7;a.element=3;
     check(!commands.put(0,a),"null command refused");check(!commands.put(4,Owner{}),"unidentified owner refused");
     check(commands.put(16,a),"identified command queued");

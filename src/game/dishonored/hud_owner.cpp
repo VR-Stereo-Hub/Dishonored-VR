@@ -26,8 +26,10 @@ uintptr_t executeReturn=kHudQueueExecuteReturn;
 bool refused=false;
 using namespace dvr::hudlayout;
 // Native movie-clip enum order, verified against the initializer and Flash roots.
+// Only crosshair info/use/talk share the central prompt. Context text, mantle
+// icons and QTE share the player-state/default panel at their authored positions.
 const int elements[32]={ElReticle,ElReticle,ElPrompt,ElVitals,ElDefault,ElVignette,
-    ElPrompt,ElPrompt,ElPrompt,ElPrompt,ElReticle,ElReticle,ElReticle,ElToast,ElToast,
+    ElPrompt,ElDefault,ElDefault,ElDefault,ElReticle,ElReticle,ElReticle,ElToast,ElToast,
     ElTutorial,ElTutorial,ElToast,ElToast,ElToast,ElVignette,ElVignette,ElVignette,
     ElVignette,ElVignette,ElDefault,ElDefault,ElDefault,ElDefault,ElSubtitles,ElDefault,ElSkipGauge};
 struct Array {uint8_t** data;int count,capacity;};
@@ -46,6 +48,7 @@ bool SameHud() {
 }
 const uint8_t* Value(int family,int index) {
     if(family==0) {
+        if(index<0 || index>=32) return nullptr;
         uint8_t* values=nullptr;
         return CtRead(hud,fields[1],&values,4) && values ? values+index*kHudValueSize : nullptr;
     }
@@ -56,7 +59,13 @@ const uint8_t* Value(int family,int index) {
     uint8_t* marker=a.data[index];
     if(!marker || !RangeReadable(marker,kMarkerGfxHandle+4)) return nullptr;
     uint8_t* owner=nullptr;memcpy(&owner,marker+kTaskMarkerOwner,4);
-    return owner==hud ? marker+kMarkerGfxInterface : nullptr;
+    // +8 is the task/collectible/enemy UObject, not the owning HUD. Native
+    // constructors BCE380/BCE750/BCEBD0 establish this relationship. The current
+    // live HUD array establishes membership; independently validate its target.
+    if(!IsLiveObject(owner)) return nullptr;
+    uintptr_t table=0;memcpy(&table,marker,4);
+    const uintptr_t expected=family==1?kTaskMarkerVtable:family==2?kHeartMarkerVtable:family==3?kAwarenessMarkerVtable:0;
+    return (!expected || table==expected) ? marker+kMarkerGfxInterface : nullptr;
 }
 Owner Lookup(void* character) {
     Owner result;
@@ -223,10 +232,19 @@ void poll(uint8_t* manager) {
         if(index==2) required|=1;if(index==6) required|=2;if(index==12) required|=4;
     }
     refreshed=GetTickCount();available.store(required==7);
+    static double reportAfter=0;
+    const bool report=now>=reportAfter && ::dvr::log::enabled(DVR_CAT,::dvr::log::Level::Info);
+    unsigned families[5]{},withPivot=0;
+    if(report) {
+        reportAfter=now+3000;
+        for(unsigned i=0;i<rootCount;++i) if(roots[i].owner) ++families[roots[i].family];
+        const DWORD tick=GetTickCount();
+        for(const auto& p:points) if(p.root && tick-p.time<100) ++withPivot;
+    }
     const unsigned count=rootCount;ReleaseSRWLockExclusive(&rootsLock);
-    DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
-        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
-        count,(int)available.load(),required,ambiguous,displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
+    if(report) DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
+        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u clips/task/heart/aware/grenade=%u/%u/%u/%u/%u pivots=%u display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
+        count,(int)available.load(),required,ambiguous,families[0],families[1],families[2],families[3],families[4],withPivot,displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
 }
 void marker(void* native,float x,float y,int w,int h) {
     if(!active() || w<=0 || h<=0 || !std::isfinite(x) || !std::isfinite(y)) return;

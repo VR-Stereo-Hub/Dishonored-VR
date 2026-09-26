@@ -1,3 +1,30 @@
+## Ownership accepted; sizing and lower-panel follow-up (2026-09-25)
+
+Verified installed4c38bf526 DLL and log52040281 before analysis. Headset report
+accepts substantially steadier, cohesive HUD through the tested scenes, with no
+observed ungrouping. Archive: primary build/hud-regression-20260925/semantic-return-221601.
+This acceptance covers widget cohesion, not all marker depth/performance claims.
+Remaining report: objective/Heart size control ineffective; mantle/vault hint
+vertically separates from sneak; low-health D-pad reminder displaced bottom-left.
+
+Confirmed marker cause is an incorrect owner==HUD check, not a new scaling value.
+The current HUD array contains markers whose +8 points at their task/collectible/
+enemy target. Correcting that relationship admits native roots so existing whole
+marker scale/upright policy can run with its copied parent pivot. Unknown draws
+still cannot be claimed by proximity, and no heuristic routing is reinstated.
+
+Correct native clip placement: index2/6 info/talk/use remains prompt; index4
+player-state and7/8/9 context/special/QTE share default. This retains native
+relative lower-panel positions and keeps central prompt preferences separate.
+It is expected to recover the displaced contextual reminder too; the log does
+not identify the heal text directly. All player INI changes are retained.
+
+One next launch question: with an objective visible, does the existing native
+objective size slider now visibly resize the complete marker? A pass accepts
+restored size-policy reachability. A failure requires family/pivot counts and
+native-icon lines from the matching log. Lower-panel alignment and low-health
+reminder visibility should also improve, but remain separate reported acceptance.
+
 ## Native widget ownership candidate and pause acceptance (2026-09-25)
 
 World-positioned pause is now reported accepted on verified 0a4c7c254. Three
