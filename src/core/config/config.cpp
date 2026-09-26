@@ -874,6 +874,9 @@ static bool WriteDefaultIni(const char* ini)
         "; RigidWrist=1 (VR-184): the wrist cut and cap stay rigid with the hand, so arm animation\n"
         "; cannot bend them; the fingers still animate. 0 = the game's own weights.\n"
         "RigidWrist=1\n"
+        "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
+        "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
+        "OpenEmptyRightHand=1\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -1352,8 +1355,8 @@ static bool WriteDefaultIni(const char* ini)
         "NoBlurJournal=1\n"
         "HeadLookWheel=1\n"
         "NoBlurWheel=1\n"
-        "HeadLookStore=0\n"
-        "NoBlurStore=0\n"
+        "HeadLookStore=1\n"
+        "NoBlurStore=1\n"
         "HeadLookMissionStats=0\n"
         "NoBlurMissionStats=0\n"
         "WeaponDial=1\n"
@@ -1413,7 +1416,7 @@ static bool WriteDefaultIni(const char* ini)
         "Element.note=window\n"
         "Element.journal=window\n"
         "Element.wheel=window\n"
-        "Element.store=window\n"
+        "Element.store=world\n"
         "Element.missionstats=window\n"
         "; Region.<name>=x0,y0,x1,y1 (normalised backbuffer, y down): the rectangle that claims\n"
         "; a draw whose centre lies inside. These three are the measured ones (the sewer level,\n"
@@ -1475,7 +1478,7 @@ static bool WriteDefaultIni(const char* ini)
         "WindowNote=1\n"
         "WindowJournal=1\n"
         "WindowWheel=1\n"
-        "WindowStore=0\n"
+        "WindowStore=1\n"
         "WindowMissionStats=1\n"
         "Element.default.WinX=0.184\n"
         "Element.default.WinY=-0.183\n"
@@ -1581,7 +1584,7 @@ static bool WriteDefaultIni(const char* ini)
         "Element.wheel.HandScale=1.000\n"
         "Element.store.WinX=0.000\n"
         "Element.store.WinY=0.000\n"
-        "Element.store.WinScale=1.000\n"
+        "Element.store.WinScale=1.500\n"
         "Element.store.HandX=0.000\n"
         "Element.store.HandY=0.000\n"
         "Element.store.HandScale=1.000\n"
@@ -2641,6 +2644,9 @@ static void LoadConfig()
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
     g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
+    g_ohOn = IniFloat(ini, "Hands", "OpenEmptyRightHand", 1) != 0.0f;       // the empty right hand opens like the left
+    Log("config: [Hands] OpenEmptyRightHand=%d (%s)", g_ohOn ? 1 : 0,
+        g_ohOn ? "an empty right hand takes the left hand's open pose, mirrored" : "the empty right hand keeps the game's fist");
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.

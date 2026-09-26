@@ -88,10 +88,25 @@ static void CineFovBegin(bool scene) {
     const float target=dvr::camera::fov_deg();
     const double now=MaimNowMs();
     const bool ready=dvr::cine_fov::eligible(CineFovEnabled(),scene,menu,projection,state.valid,target,menuFovAllowed);
-    const bool authored=ready && dvr::scene_state::cinematic(state.state[0]);
+    // The store is a scene too: opened from a conversation over the dialogue's
+    // narrow camera, and left with that camera still blending back. Counting it
+    // keeps the exit bridge primed, so leaving it holds the projection FOV until
+    // the game's own FOV has returned instead of drawing the small box.
+    const bool store=!strcmp(state.state[0],"StatePlayerMasterInStore");
+    const bool authored=ready && (dvr::scene_state::cinematic(state.state[0]) || store);
     const bool walking=!strcmp(state.state[0],"StatePlayerMasterWalk") ||
         !strcmp(state.state[0],"StatePlayerMasterFalling") || !strcmp(state.state[0],"StatePlayerMasterJump");
-    const bool keep=g_cfBridge.update(authored,ready && walking && CfValidate(),
+    // The exit tail must not require `ready`: leaving the store, the menu flag
+    // outlives the store state by a frame, and that one not-ready frame reset
+    // the bridge, so the dialogue's narrow camera drew for ~0.5 s as a small box.
+    // The tail still needs the feature on, a live projection and the same owner.
+    // Nor CfValidate: closing the store starts a new UI epoch, which fails it
+    // for the same camera. The tail asks only that the live controller still
+    // owns the live camera; the scope below re-acquires its identity as usual.
+    const bool sameCamera=IsLiveObject(g_peCtrl) && g_camObj && IsLiveObject(g_camObj) &&
+        CtObject(g_peCtrl,g_ctPcCamera)==g_camObj;
+    const bool tailOk=CineFovEnabled() && scene && projection && state.valid && sameCamera;
+    const bool keep=g_cfBridge.update(authored,tailOk && walking,
         dvr::camera::rendered_fov_deg(),target,GetTickCount64());
     const float requested=ProjectionFovGet();
     const bool gameplay=!keep && !dvr::scene_state::cinematic(state.state[0]) &&
@@ -112,7 +127,7 @@ static void CineFovBegin(bool scene) {
     }
     if (!CfValidate()) {
         g_cfHaveOwner=false;
-        if (now<g_cfRetry) { CfRefuse("identity refresh retry pending"); return; }
+        if (now<g_cfRetry && !keep) { CfRefuse("identity refresh retry pending"); return; }
         g_cfRetry=now+1000;
         if (!BuildLiveSet()) { CfRefuse("live-object table refresh refused"); return; }
         auto* pc=IsLiveObject(g_peCtrl)?g_peCtrl:nullptr;
@@ -123,7 +138,11 @@ static void CineFovBegin(bool scene) {
     }
     auto* cam=(uint8_t*)g_cfOwner[0].value.obj;
     float* field=(float*)(cam+g_cfOffset);
-    const float drawTarget=gameplay && RangeReadable(field,4)
+    // A store is opened from a conversation, and the game keeps the dialogue's
+    // narrow camera (about 32 deg) under it. Scaled as gameplay zoom that drew
+    // the world behind the floating store panel in a small box (42 deg claimed).
+    // The store is not a zoom: frame it like a scene.
+    const float drawTarget=gameplay && !store && RangeReadable(field,4)
         ? dvr::cine_fov::gameplay_target(*field,target,requested)
         : (CineFovMatchEnabled() && requested>0 ? requested : target);   // a scene frames like gameplay
     if (!RangeReadable(field,4) || !g_cfScope.begin(field,drawTarget,CfValidate())) {

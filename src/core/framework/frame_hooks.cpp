@@ -41,6 +41,8 @@ Callbacks         g_cb;
 PFN_CreateDevice  g_origCreateDevice = nullptr;
 PFN_Present       g_origPresent = nullptr;
 PFN_Reset         g_origReset = nullptr;
+typedef ULONG (__stdcall *PFN_DevRelease)(IDirect3DDevice9*);
+PFN_DevRelease    g_origDevRelease = nullptr;
 PFN_BeginScene    g_origBeginScene = nullptr;
 SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
@@ -351,6 +353,29 @@ HRESULT __stdcall hkSetSamplerState(IDirect3DDevice9* self, DWORD sampler, D3DSA
     return dvr::samplers::set_sampler_state(self, sampler, type, value, g_origSetSampler);
 }
 
+// The quit hang (shared capture): our DEFAULT-pool D3D9 objects - the shared
+// capture slots above all, whose other half is open on our D3D11 device - each
+// hold a reference on the game's device. Quitting from the menu presents no
+// frame after PreExit, so nothing released them, the game's final Release left
+// the device alive, and process termination stalled in the driver with one
+// thread waiting (measured: deferred capture, which shares nothing, exits
+// cleanly; shared hangs). Once the game has announced exit, the first Release
+// it makes on the device releases ours first - the same set hkReset releases,
+// on the thread tearing the device down, with rendering over.
+ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
+    static LONG done = 0;
+    if (InterlockedCompareExchange(&g_exiting, 0, 0) && !InterlockedExchange(&done, 1)) {
+        DVR_INFO("shutdown: the game released its device after PreExit - releasing the proxy's D3D9 objects first "
+                 "(shared capture, desktop pin, HUD sinks) so the device can be destroyed");
+        dvr::hudclass::on_reset(); dvr::hudcap::on_reset();
+        dvr::stereo::on_reset();
+        dvr::desktop_eye::on_reset();
+        dvr::capture::on_reset();
+        dvr::log::flush();
+    }
+    return g_origDevRelease(self);
+}
+
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
     dvr::native_profile::Scope timing(dvr::native_profile::TargetHook);
     ++g_actSrts;
@@ -385,6 +410,8 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         if (old && !g_origPresent) g_origPresent = (PFN_Present)old;
         old = PatchVtable(*outDev, 16, (void*)hkReset);
         if (old && !g_origReset) g_origReset = (PFN_Reset)old;
+        old = PatchVtable(*outDev, 2, (void*)hkDeviceRelease);      // Release (the exit teardown)
+        if (old && !g_origDevRelease) g_origDevRelease = (PFN_DevRelease)old;
         old = PatchVtable(*outDev, 94, (void*)hkSetVsConst);        // SetVertexShaderConstantF
         if (old && !g_origSetVsConst) g_origSetVsConst = (SetVsConstFn)old;
         old = PatchVtable(*outDev, 37, (void*)hkSetRenderTarget);   // SetRenderTarget

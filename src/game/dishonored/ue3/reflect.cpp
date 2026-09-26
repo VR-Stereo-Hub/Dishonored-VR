@@ -462,6 +462,11 @@ static void RflStateTick(void)
     }
     InterlockedExchange(&g_rflPrimaryKind,
         !found[1][0] ? 0 : !strncmp(found[1], "DishonoredWepSword", 18) ? 1 : 2);
+    {   // the left hand, for the open right hand (see g_rflSecondaryKind)
+        const LONG k = powerHeld == 1 ? 1 : powerHeld < 0 ? -1 : !found[2][0] ? 0 : 2;
+        if (InterlockedExchange(&g_rflSecondaryKind, k) != k)
+            Log("rfl/state: the left hand holds %s", k == 1 ? "a POWER" : k == 0 ? "nothing" : k == 2 ? found[2] : "UNKNOWN");
+    }
     { const LONG t = (LONG)GetTickCount(); InterlockedExchange(&g_rflPrimaryKindTick, t ? t : 1); }
 
     // THE EQUIPMENT REVISION, from validated identity. Computed HERE and nowhere

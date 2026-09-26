@@ -152,6 +152,9 @@ static void OvlTabHands()
         editing = ImGui::IsItemActive();
         if (ImGui::IsItemDeactivatedAfterEdit()) MsSleeveApply(-shownLen, g_msRoundDepth, "F10 Sleeve length");
         OvlTip("How far up the arm is kept. Applies when you let go of the slider (the cut is rebuilt).");
+        if (dvr::ovl::checkbox("Open right hand when it is empty", &g_ohOn))
+            ConfigWriteKey("Hands", "OpenEmptyRightHand", g_ohOn ? "1" : "0", "F10 Hands");
+        OvlTip("With the sword put away, the right hand relaxes open like the left instead of making a fist.");
         if (OvlAt(kOvlA)) {
             bool wristChanged = dvr::ovl::checkbox("Rounded wrist ends", &g_msRoundWrist);
             wristChanged |= dvr::ovl::slider_float("Wrist roundness", &g_msRoundDepth, .05f, .8f, "%.2f");

@@ -293,6 +293,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             dvr::frame::set_exiting();   // parks the present hook before any runtime call
             Sleep(150);                  // an in-flight present finishes
             dvr::vr::shutdown("PreExit");
+            dvr::capture::exit_release_d3d11();
             LogFlush();
         }
     }

@@ -19,6 +19,35 @@ Four branches, none merged, none installed. Test ONE AT A TIME, each installed o
 Also reported by a player: an HD texture pack plus a raised resolution freezes; most likely the
 32-bit address space (PERFORMANCE.md). No Linear tickets: the workspace is at its issue limit.
 
+## Open empty right hand, and the pose-tools survey (2026-09-26)
+
+Branch `claude/right-hand-open-pose` off `staging`, not merged, NOT installed (by request). No
+Linear ticket: the workspace is at its free-plan issue limit.
+
+- With nothing in the right hand (the sword holstered) its FINGER bones take the left hand's pose,
+  mirrored, in the mod's own palette copy; the right hand keeps its mesh (no mark), wrist, placement
+  and sleeve. Signal: `g_rflPrimaryKind` (item sockets) plus a new `g_rflSecondaryKind`; left hand
+  must hold nothing or a power; 250 ms settle. `[Hands] OpenEmptyRightHand=1`, F10 Hands > Sleeve.
+- Bones paired by mirrored centroids (the palette is not laid out symmetrically); one miss refuses.
+  Self-tests `open_hand_mirror` / `open_hand_can_fail` pass in `frame_test.exe`.
+- Headset questions: is the empty right hand open like the left, is there a pop when the sword is
+  drawn, and does the log show `hands/openright: N right finger bone(s) paired`?
+- The engine pose-tool survey and next steps: [HAND_POSE](dishonored/HAND_POSE.md).
+
+## FOV base kept across loads (2026-09-26)
+
+Branch `claude/fov-base-echo` off `staging`, not merged, not installed. No Linear ticket (the
+workspace is at its free-plan issue limit).
+
+- Fault: after a load, the lever re-read its natural base from the sensor, which held its own
+  108.07 output (`natural base 108.1 ... ratio 1.000` in this rig's logs). At ratio 1 a death,
+  store or objective narrowing is written into DefaultFOV and never widens back: the view stays
+  a small box. Reported by an affected player at portrait sizes, not at landscape ones.
+- Fix: the session's first base is kept; a re-read must not be our echo, at the target or
+  narrower. The capture line now prints the reading, our last write and the verdict.
+- To test: exit a store, die and reload, at the default portrait size. Log: `fovlever: natural
+  base 75.0 deg (read 108.07 ... KEPT the old base ...)` after each load.
+
 ## 2026-09-26: session accepted; staging integration and next-session baseline
 
 Current state: user accepts the final local run and explicitly authorizes all session
