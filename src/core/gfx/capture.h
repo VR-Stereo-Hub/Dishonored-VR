@@ -165,5 +165,12 @@ bool snapshot_pixels(IDirect3DDevice9* dev);
 // default-pool object this proxy creates must be released here - 38.63).
 void on_reset();
 void shutdown();
+// Game exit (PreExit), from the script thread with the present hook parked:
+// release OUR device's side of the shared slots and flush it. Quitting from the
+// menu presents no frame after PreExit, so the present-thread teardown never
+// ran and the cross-device shared textures lived into process termination (the
+// quit hang: one thread left in a driver wait). The D3D9 side stays: that
+// device is not ours to touch from this thread; process exit reclaims it.
+void exit_release_d3d11();
 
 } // namespace dvr::capture
