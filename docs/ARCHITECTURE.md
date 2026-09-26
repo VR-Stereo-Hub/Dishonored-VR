@@ -1262,3 +1262,13 @@ The test recorder and pixel probes have separate build flags. A recorder-only
 DLL disables all frame-id GPU sampling even if the saved INI requests it, making
 its performance cost primarily bounded CPU history and log bursts. Normal builds
 retain their existing saved FrameId policy. No installed settings are edited.
+
+## Texture-backed capture interop (VR-260, 2026-09-25)
+
+The capture probe and slots use a one-level DEFAULT render-target texture,
+following the documented D3D9-to-D3D11 contract. The level-zero D3D9 surface is
+the StretchRect destination. A small owner keeps the D3D9 texture, surface and
+D3D11 texture together; capture releases SRVs before resetting that owner.
+The probe uses the same preferred A8/backbuffer fallback formats as the slots.
+This changes resource creation only; existing producer/consumer fences and eye
+delivery remain responsible for synchronization.

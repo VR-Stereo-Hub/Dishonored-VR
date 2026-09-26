@@ -29,6 +29,7 @@
 // leaves the previous mode running - fail soft, like the stereo methods.
 #define DVR_CAT ::dvr::log::Cat::capture
 #include "core/gfx/capture.h"
+#include "core/gfx/shared_capture_texture.h"
 
 #include "core/framework/perf.h"
 #include "core/gfx/d3d9ex.h"
@@ -102,8 +103,9 @@ int      g_rtCur = 0;
 // shared: TWO D3D9 surfaces opened on D3D11, each with an event-query fence,
 // alternating like deferred: slot cur is blitted at present N, delivered at
 // N+1 (SharedWait=0) or at N after its fence (SharedWait=1).
-IDirect3DSurface9*        g_sharedRt[2] = {nullptr, nullptr};
-ID3D11Texture2D*          g_sharedTex[2] = {nullptr, nullptr};
+interop::Image           g_sharedImage[2];
+IDirect3DSurface9*        g_sharedRt[2] = {nullptr, nullptr}; // borrowed from g_sharedImage
+ID3D11Texture2D*          g_sharedTex[2] = {nullptr, nullptr}; // borrowed from g_sharedImage
 ID3D11ShaderResourceView* g_sharedSrv[2] = {nullptr, nullptr};
 IDirect3DQuery9*          g_fence[2] = {nullptr, nullptr};
 bool                      g_fenceIssued[2] = {false, false};
@@ -241,13 +243,8 @@ void sample_bbox() {
 }
 
 // ---- the shared-surface probe -------------------------------------------------
-// Can the GAME's D3D9 device hand the D3D11 side a surface without a CPU
-// round trip? D3D9 shares resources only under D3D9Ex (a plain IDirect3D9
-// device refuses a non-null pSharedHandle), and a 9Ex device refuses
-// D3DPOOL_MANAGED, which UE3's D3D9 RHI depends on - so the expected answer on
-// this game is REFUSED, and the probe is what makes that a measured fact
-// instead of a belief. Runs once at the first grab; every HRESULT is logged;
-// the verdict line names the path a cheaper capture can take.
+// Probe the same texture type and preferred/fallback formats used by live slots.
+// A standalone surface or a rejected X8 format must not veto an A8 texture.
 bool g_probed = false;
 bool g_sharedOk = false;
 
@@ -260,40 +257,33 @@ void probe_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
     DVR_INFO("capture/probe: the game's device %s IDirect3DDevice9Ex (%s)",
              isEx ? "IS" : "is NOT", isEx ? "shared surfaces are a D3D9Ex feature: possible"
                                           : "created through Direct3DCreate9; D3D9 shares only under 9Ex");
-    IDirect3DSurface9* rt = nullptr;
-    HANDLE shared = nullptr;
-    const HRESULT hr = dev->CreateRenderTarget(g_w, g_h, g_fmt, D3DMULTISAMPLE_NONE, 0, FALSE, &rt, &shared);
-    if (FAILED(hr) || !rt) {
-        DVR_INFO("capture/probe: CreateRenderTarget %ux%u fmt=%d with a shared handle -> 0x%08lx%s",
-                 g_w, g_h, (int)g_fmt, (unsigned long)hr,
-                 hr == D3DERR_INVALIDCALL ? " (D3DERR_INVALIDCALL: the runtime refuses pSharedHandle on this device)" : "");
-        DVR_INFO("capture/probe: shared surface REFUSED - the D3D9 device cannot share; the CPU "
-                 "readback stays, [Capture] Mode=deferred is the cheaper path (ROADMAP S1)");
+    interop::Image image;
+    const D3DFORMAT first = interop::preferred_format(g_fmt);
+    D3DFORMAT fmt = first;
+    auto result = interop::create(dev, dev11, g_w, g_h, fmt, image);
+    if (FAILED(result.hr)) {
+        DVR_WARN("capture/probe: shared texture %ux%u fmt=%d refused at %s (0x%08lx)",
+                 g_w, g_h, (int)fmt, result.step, (unsigned long)result.hr);
+        if (first != g_fmt) {
+            fmt = g_fmt;
+            result = interop::create(dev, dev11, g_w, g_h, fmt, image);
+            if (FAILED(result.hr))
+                DVR_WARN("capture/probe: fallback fmt=%d refused at %s (0x%08lx)",
+                         (int)fmt, result.step, (unsigned long)result.hr);
+        }
+    }
+    if (FAILED(result.hr)) {
+        DVR_WARN("capture/probe: shared texture REFUSED - CPU readback remains active; requested mode=%s",
+                 kModeNames[(int)g_modeWant]);
         return;
     }
-    DVR_INFO("capture/probe: CreateRenderTarget with a shared handle -> OK, handle=%p", shared);
-    ID3D11Texture2D* tex = nullptr;
-    const HRESULT hr2 = shared ? dev11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D), (void**)&tex)
-                               : E_HANDLE;
-    if (FAILED(hr2) || !tex) {
-        DVR_INFO("capture/probe: OpenSharedResource on the mod's D3D11 device -> 0x%08lx", (unsigned long)hr2);
-        DVR_INFO("capture/probe: shared surface REFUSED - D3D9 created it but D3D11 cannot open it; "
-                 "[Capture] Mode=deferred is the cheaper path");
-    } else {
-        D3D11_TEXTURE2D_DESC td = {};
-        tex->GetDesc(&td);
-        g_sharedOk = true;
-        DVR_INFO("capture/probe: shared surface AVAILABLE - D3D9 %ux%u opened as D3D11 %ux%u fmt=%d "
-                 "(no CPU round trip: [Capture] Mode=shared)",
-                 g_w, g_h, td.Width, td.Height, (int)td.Format);
-        if (g_modeWant != Mode::Shared)
-            DVR_WARN("capture/probe: the device can share but the capture mode is %s, so the readback (and its "
-                     "GPU copy) still runs - pick 'shared' on the F10 Display tab or 'capture mode shared' on the "
-                     "seam; the 9Ex device buys nothing until then",
-                     kModeNames[(int)g_modeWant]);
-        tex->Release();
-    }
-    rt->Release();
+    D3D11_TEXTURE2D_DESC td = {};
+    image.texture->GetDesc(&td);
+    g_sharedOk = true;
+    DVR_INFO("capture/probe: shared texture AVAILABLE - CreateTexture D3D9 %ux%u fmt=%d -> D3D11 %ux%u fmt=%d; no CPU round trip in Mode=shared",
+             g_w, g_h, (int)fmt, td.Width, td.Height, (int)td.Format);
+    if (g_modeWant != Mode::Shared)
+        DVR_WARN("capture/probe: device can share but requested capture mode=%s retains CPU readback", kModeNames[(int)g_modeWant]);
 }
 
 // ---- resources per mode -------------------------------------------------------
@@ -335,9 +325,10 @@ void release_shared() {
     for (int i = 0; i < 2; ++i) {
         if (g_readQuery[i]) { g_readQuery[i]->Release(); g_readQuery[i] = nullptr; }
         if (g_sharedSrv[i]) { g_sharedSrv[i]->Release(); g_sharedSrv[i] = nullptr; }
-        if (g_sharedTex[i]) { g_sharedTex[i]->Release(); g_sharedTex[i] = nullptr; }
+        g_sharedTex[i] = nullptr;
         if (g_fence[i]) { g_fence[i]->Release(); g_fence[i] = nullptr; }
-        if (g_sharedRt[i]) { g_sharedRt[i]->Release(); g_sharedRt[i] = nullptr; }
+        g_sharedRt[i] = nullptr;
+        g_sharedImage[i].reset();
         g_fenceIssued[i] = false; g_sharedValid[i] = false; g_readIssued[i] = false;
     }
     g_sharedCur = 0; g_sharedDelivered = -1;
@@ -364,20 +355,15 @@ bool ensure_deferred(IDirect3DDevice9* dev) {
 // path uses; StretchRect converts at equal size), opened on D3D11, its SRV,
 // its fence. Every refusal names the step and the HRESULT.
 bool ensure_shared_slot(IDirect3DDevice9* dev, ID3D11Device* dev11, int i, D3DFORMAT fmt) {
-    HANDLE shared = nullptr;
-    HRESULT hr = dev->CreateRenderTarget(g_w, g_h, fmt, D3DMULTISAMPLE_NONE, 0, FALSE, &g_sharedRt[i], &shared);
-    if (FAILED(hr) || !g_sharedRt[i] || !shared) {
-        DVR_ERROR("capture: shared render target %d %ux%u fmt=%d refused (0x%08lx; handle %p) - %s", i, g_w, g_h, (int)fmt,
-                  (unsigned long)hr, shared, hr == D3DERR_INVALIDCALL ? "the device does not share (not 9Ex? [Device] Ex=1)"
-                                                                      : "out of memory or an unshareable format");
+    const auto result = interop::create(dev, dev11, g_w, g_h, fmt, g_sharedImage[i]);
+    if (FAILED(result.hr)) {
+        DVR_ERROR("capture: shared texture slot %d %ux%u fmt=%d refused at %s (0x%08lx)",
+                  i, g_w, g_h, (int)fmt, result.step, (unsigned long)result.hr);
         return false;
     }
-    hr = dev11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D), (void**)&g_sharedTex[i]);
-    if (FAILED(hr) || !g_sharedTex[i]) {
-        DVR_ERROR("capture: OpenSharedResource on slot %d refused (0x%08lx) - D3D9 created it but D3D11 cannot open "
-                  "it (another adapter? the runtime names the D3D11 adapter)", i, (unsigned long)hr);
-        return false;
-    }
+    g_sharedRt[i] = g_sharedImage[i].surface;
+    g_sharedTex[i] = g_sharedImage[i].texture;
+    HRESULT hr = S_OK;
     hr = dev11->CreateShaderResourceView(g_sharedTex[i], nullptr, &g_sharedSrv[i]);
     if (FAILED(hr) || !g_sharedSrv[i]) {
         D3D11_TEXTURE2D_DESC td = {};
@@ -407,7 +393,7 @@ bool ensure_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
     // The format: the backbuffer's when it carries alpha (A8R8G8B8 opens as
     // B8G8R8A8), else A8R8G8B8 first (the same D3D11 format the upload path
     // uses) and the backbuffer's own as the fallback.
-    const D3DFORMAT first = (g_fmt == D3DFMT_X8R8G8B8) ? D3DFMT_A8R8G8B8 : g_fmt;
+    const D3DFORMAT first = interop::preferred_format(g_fmt);
     bool ok = ensure_shared_slot(dev, dev11, 0, first) && ensure_shared_slot(dev, dev11, 1, first);
     g_sharedFmt = first;
     if (!ok && first != g_fmt) {

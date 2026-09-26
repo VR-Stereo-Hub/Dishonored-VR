@@ -356,6 +356,64 @@ stalls still refuse. Additional doubled draws may change total rendering cost;
 that is the intended removal of false mono interrupts, not logging overhead.
 Evidence, counterprediction and limitations: FLICKER_REFERENCE.md, VR-229 top entry.
 
+## VR-260 affected-player acceptance (2026-09-25)
+
+The affected player reports the fix-only60bbd0afc candidate resolves the severe
+performance issue. This is reported acceptance; no returned post-fix timings
+were supplied. The pre-fix attribution and native validation below remain the
+measured record. No merge or release is authorized by this result.
+
+## VR-260: shared capture rejection and slow CPU fallback (2026-09-25)
+
+Measured in support-20260925-235231-155-28068: log banner 1.0.1,
+v1.0.0-8-gf5176aeae, RelWithDebInfo, legacy off; the install record agrees.
+The current run uses VirtualDesktopXR 1.0.10, D3D9Ex and 2750x2850.
+Do not combine its measurements with the older SteamVR shim log in the bundle.
+The configured capture mode is shared, but the startup probe creates a standalone
+render target with success and a null sharing handle. The following 0x80070006
+is synthesized E_HANDLE; OpenSharedResource was never called. The probe rejects
+sharing, leaving mode=sync throughout the measured windows.
+
+Fourteen capture windows cover 254 grabs: weighted mean capture 149.927 ms,
+including 145.555 ms in LockRect; window mean capture ranges 131.806-167.005 ms.
+That is about 6.7 captures/s before other work, consistent with the reported
+single-digit frame rate. This happens already on the mono startup/menu path.
+D3D9 and the XR-selected D3D11 device have matching adapter LUIDs on the RTX5080.
+The desktop mirror is off; native-present and xrEndFrame timings are small.
+Focus is lost later, but the stall exists while FOCUSED. Neither a wrong adapter,
+legacy input work nor ordinary stereo draw cost explains this capture stall.
+The log's 3072 MB VRAM field is not evidence of actual RTX5080 capacity.
+
+Source-confirmed weaknesses: probe and slots use CreateRenderTarget, whereas
+Microsoft's D3D9/D3D11 interop contract specifies CreateTexture with pSharedHandle.
+The probe also uses X8 when the real slots would first try A8, so a rejected probe
+can prevent a supported format from being tried. Driver rejection of the old
+resource/format is the leading explanation, not a remotely confirmed root cause.
+Reference: https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-opensharedresource
+
+Candidate uses one-level DEFAULT render-target textures and their level-zero
+surfaces, with the same A8-first format rule in probe and slots. It retains the
+D3D9 texture owner through capture and releases all views/surfaces/owners on reset
+or partial failure. Logs name the exact failing step and do not misattribute a
+missing handle to a D3D11 call. Existing fencing/delivery and fallback policy stay
+as before; VR-114 fence timeout handling is separate.
+
+Native x86 hardware test (no game): 162 independent D3D11 pixel checks after
+alternating D3D9 colors and X8-to-A8 StretchRect, at 64x64 and 2750x2850; three
+release/ResetEx/recreate cycles pass. Simulated success-with-null-handle rejects
+before OpenSharedResource, and failed-open/unsupported-format cleanup passes.
+Optimized x86 build (legacy OFF), repository lint and nine proxy exports pass.
+This proves the candidate bridge works locally, not that the remote driver now
+accepts it. Command: tools/shared-capture-native-host.ps1.
+
+Next test, one question: with this candidate and the same saved settings, is the
+startup/menu still limited to single-digit FPS? Collect support after about 30
+seconds. Acceptance requires the candidate banner, shared texture AVAILABLE,
+live shared slots and mode=shared with the huge readback cost gone. If sharing
+still fails, the named API/format/HRESULT directs the next fix. If sharing works
+but FPS stays low, attribute the remaining time from that new run. No game launch
+or install was performed on the maintainer's machine.
+
 ## Post-merge intro and hub slowdown (2026-09-23, attribution open)
 
 Reported: intro and hub rates fall into the 50s after integrating PRs105-110;

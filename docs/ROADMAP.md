@@ -70,6 +70,13 @@
 - [ ] Affected-player painting dialogue and exit retain full coverage.
 - [ ] Separate Empress-scene and spyglass regression acceptance.
 
+## Shared capture compatibility (VR-260)
+
+- [x] Trace startup sharing rejection to synchronous capture and measure its cost.
+- [x] Align probe/slots on texture-backed interop and preferred format.
+- [x] Native pixel, partial-failure and reset verification.
+- [x] Affected-player reports the fix-only candidate resolves the slowdown (new timings not supplied).
+
 ## Support logs and history (VR-215)
 
 - [x] Reproduce released launcher error 3 with a fresh temp parent.
