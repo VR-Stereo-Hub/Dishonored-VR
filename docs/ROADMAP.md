@@ -7,7 +7,10 @@
 - [x] Separate grenade projectile direction from gauge routing.
 - [x] Quantify rendering cost; exclude disabled flicker recorder as current cause.
 - [x] Prepare bounded read-only owner/render boundary capture.
-- [ ] Establish clip identity transport through the real render queue.
+- [x] Capture native task identity and establish deferred command creation/replay.
+- [x] Repair pause readiness incorrectly expiring when HUD widgets fade (host tested).
+- [ ] Headset acceptance of world-pause readiness.
+- [ ] Implement clip identity transport through the real render queue.
 - [ ] Replace proximity ownership; test first-frame overlaps and animation children.
 - [ ] Correct/verify marker depth using per-eye projection and engine target identity.
 - [ ] Keep cook gauge complete, correctly sized and on the accepted aim ray.

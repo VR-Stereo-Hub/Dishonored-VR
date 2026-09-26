@@ -1,4 +1,5 @@
 #include "core/gfx/hud_native_icon.h"
+#include "core/gfx/hud_capture_health.h"
 #include "core/gfx/hud_native_rune.h"
 #include <cstdio>
 #include <cstdlib>
@@ -20,7 +21,7 @@ bool& g_nativeObjectiveUpright=upright;float& g_nativeObjectiveScale=scale;
 using DWORD=uint32_t;static DWORD nowMs=5000;DWORD GetTickCount(){return nowMs;}
 #define SUCCEEDED(x) ((x)>=0)
 namespace dvr::hudcap {
-bool g_on=true,g_handoffReady=true,g_failed=false;DWORD g_lastRedirectMs=0;
+bool g_on=true,g_handoffReady=true,g_failed=false;CaptureHealth g_captureHealth;
 #include "hud_reference_health.inc"
 }
 namespace dvr::frame {
@@ -160,5 +161,30 @@ int main(){
  g_visualRiding=false;g_menuRiding=false;g_nativeGameplayReference=false;
  check(native_objective_scale(6)==scale && native_objective_upright(6),"turning reference off restores saved objective settings");
  check(native_objective_scale(-1)==1 && !native_objective_upright(-1),"unidentified draws never inherit objective transforms");
+ g_captureHealth.reset();
+ g_captureHealth.frame(true,true,false,false,nowMs);
+ check(!redirect_healthy(),"empty frames cannot establish an untested capture path");
+ g_captureHealth.frame(true,true,false,true,nowMs);
+ check(redirect_healthy(),"a real redirected frame establishes capture readiness");
+ for(int i=0;i<400;++i) { nowMs+=10;g_captureHealth.frame(true,true,false,false,nowMs); }
+ check(redirect_healthy(),"four seconds of faded HUD do not prevent world pause entry");
+ nowMs+=266;
+ check(redirect_healthy(),"recorded 250 ms pause owner poll gap retains readiness");
+ nowMs+=235;
+ check(!redirect_healthy(),"unarmed stale pipeline still expires after 500 ms");
+ g_captureHealth.frame(true,true,false,false,nowMs);
+ check(redirect_healthy(),"operational previously tested pipeline can resume with empty HUD");
+ g_captureHealth.frame(true,true,true,false,nowMs);
+ check(!redirect_healthy(),"hard failure clears proof before recovery");
+ g_captureHealth.frame(true,true,false,false,nowMs);
+ check(!redirect_healthy(),"empty frames cannot revalidate after failure");
+ g_captureHealth.frame(true,true,false,true,nowMs);
+ g_captureHealth.frame(true,false,false,false,nowMs);
+ check(!redirect_healthy(),"lost handoff invalidates proof");
+ g_captureHealth.reset();
+ g_captureHealth.frame(true,true,false,true,0xfffffff0u);nowMs=32;
+ check(redirect_healthy(),"readiness expiry is correct across clock wrap");
+ g_captureHealth.reset();
+ check(!redirect_healthy(),"device reset removes stale proof even inside grace");
  printf("%u native HUD checks passed\n",checks);
 }

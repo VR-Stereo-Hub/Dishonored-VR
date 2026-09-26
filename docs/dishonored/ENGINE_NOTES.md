@@ -1,3 +1,25 @@
+## Runtime HUD identity and deferred draw transport (2026-09-25)
+
+Returned ea83dc5be captured task marker type 0x48 (managed DisplayObject), resolved
+character vtable 0x011FB5B8, on thread 30664. Three D3D stacks were on thread 40664
+and pass through 0x0099E230/0x0099E280, 0x0099B780/bitmap draw execution and the UE3
+command consumer 0x005488AF. Local raw output is ignored in owner-return.
+
+Offline disassembly confirms 0x0099E230 reads a command payload and calls
+0x0099B780 with five arguments, then returns command size 0x1C. Its Execute entry
+is vtable+4 at 0x010B4998; the actual vtable starts at 0x010B4994. Producer sites
+0x009A16C6/0x009A170A construct that vtable and fields in queue storage; the same
+producer has a synchronous fallback at 0x009A1757. A second observed command
+Execute is 0x0099E280, with vtable 0x010B54D4 and constructor at 0x009804A0.
+These distinguish proven replay/creation boundaries from a guessed draw scope.
+
+Task character slot +0x74 points to 0x00DF1780, whose code traverses child data
+through 0x00DCBF20 and separate filter paths. It is a display-traversal candidate,
+not yet an installed semantic hook. A replacement must associate native owners
+with their queued commands before publication, recover them during replay, handle
+synchronous execution and filters/caching, and refuse reused/unknown identities.
+None of these new addresses is invoked or patched by the pause readiness fix.
+
 ## Native HUD identity boundary audit (VR-186, 2026-09-25)
 
 The local decompiled HUD/task/objective/Heart/charm declarations and UI_HUD_SF

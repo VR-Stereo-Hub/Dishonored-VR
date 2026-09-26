@@ -1,3 +1,23 @@
+## Returned bounded owner capture cost (2026-09-25)
+
+Verified ea83dc5be run 48242328 onward. Exactly three renderer snapshots reported
+16.6, 22.8 and 17.4 us (56.8 us total) for stack capture, formatting and the first
+log write. The following cost line and the once-only native identity block are
+outside those timings; this is not an exhaustive logger benchmark. There were
+no recurring ownership snapshots after these three and no GPU readback. This
+capture cannot explain sustained multi-millisecond frame loss in this run.
+
+Before pause, 48339859 reports 132.7 stereo ticks/s, 7.5 ms/tick and 6.4 ms GPU
+span/tick at 144 Hz. This is a different scene from the prior grenade run, not a
+controlled performance improvement or release comparison. Opening pause includes
+147 ms frame gap, predominantly game-thread wait (142.7 ms); the later 52 ms gap
+is predominantly xrEndFrame (45.4 ms). Do not conflate them with the finite probe.
+
+The pause readiness repair adds one bounded atomic heartbeat per Present; no
+per-draw search, extra GPU work or recurring log. Disable OwnerTrace in its expected
+INI because the native/queue boundary is captured. Broader HUD/performance work
+remains open and still requires controlled attribution before changing culling.
+
 ## Local HUD regression run: cost attribution and release diff (2026-09-25)
 
 Verified 1ed638c01 DLL SHA256 b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569,

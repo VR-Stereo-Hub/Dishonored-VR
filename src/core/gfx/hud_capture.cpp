@@ -1,6 +1,7 @@
 // core/gfx/hud_capture.cpp - see hud_capture.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/hud_capture_health.h"
 
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
@@ -72,7 +73,7 @@ uint32_t g_blitWaits = 0, g_blitTimeouts = 0, g_readWaits = 0, g_readTimeouts = 
 uint32_t g_restoreFails = 0;
 uint32_t g_presentNo = 0;
 unsigned long g_winStartMs = 0;
-unsigned long g_lastRedirectMs = 0;
+CaptureHealth g_captureHealth;
 const char* g_offReason = "the lever is off";
 
 long long qpc_now() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
@@ -275,7 +276,7 @@ void apply_wanted(const char* why) {
              g_on ? " - the HUD leaves the frame and the eye textures and appears on its anchors "
                     "(the window, the hand). The desktop window loses it too, by construction"
                   : " - the HUD is back in the frame from the next draw");
-    if (!g_on) for (Sink& s : g_sink) s.delivered = false;
+    if (!g_on) { g_captureHealth.reset(); for (Sink& s : g_sink) s.delivered = false; }
 }
 
 } // namespace
@@ -369,13 +370,13 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
     if (!g_winStartMs) g_winStartMs = GetTickCount();
     ++g_winPresents;
     ++g_presentNo;
+    uint32_t any = 0;
     if (g_armed) {
         ++g_winArmedPresents;
-        uint32_t any = 0;
         for (const Sink& s : g_sink) any += s.redirected;
         if (!any) { ++g_winEmptyArmed; if (g_presentNo & 1) ++g_winEmptyOdd; else ++g_winEmptyEven; }
-        else g_lastRedirectMs = GetTickCount();
     }
+    g_captureHealth.frame(g_on && g_armed,g_handoffReady,g_failed,any!=0,GetTickCount());
 
     // VR-160: hold this present? Only under a method that presents twice per tick, only while the
     // pair is still OPEN-TO-COME (the runtime holds one XR frame across both presents, so
@@ -591,26 +592,20 @@ ID3D11Texture2D* panel_texture(int sink) {
     return g_sink[sink].outTex;
 }
 
-static DWORD g_lastNativeReferenceMs=0;
 void note_native_reference(HRESULT result) {
-    if(SUCCEEDED(result) && dvr::hudlayout::native_gameplay_reference()) g_lastNativeReferenceMs=GetTickCount();
+    if(dvr::hudlayout::native_gameplay_reference())
+        g_captureHealth.native(SUCCEEDED(result),g_on,g_handoffReady,g_failed,GetTickCount());
 }
 bool redirect_healthy() {
-    // The recent-redirect window alone: g_armed is recomputed every present and
-    // drops on any untagged present (the ring drains, none/s=1 in the beat), and
-    // a health check that blinks with it cancelled the ride's open-gap stand-in
-    // on the first pause measured (2026-09-15, the sewers on the simulator).
-    if (!g_on || !g_handoffReady || g_failed) return false;
-    // A successful intentional gameplay bypass keeps the entry gate warm,
-    // without claiming a redirected draw or masking device/handoff failures.
-    // Menu visual ownership immediately resumes normal capture.
-    return (GetTickCount() - g_lastRedirectMs) < 500 ||
-           (g_lastNativeReferenceMs && GetTickCount() - g_lastNativeReferenceMs < 500);
+    // A widget fading out does not break its capture targets. Keep a previously
+    // proven path ready while armed, including the short menu-owner poll gap.
+    // Missing handoff, device failure and reset still refuse menu entry.
+    return g_captureHealth.healthy(g_on,g_handoffReady,g_failed,GetTickCount());
 }
 bool redirect_failed() { return g_failed; }
 
 void on_reset() {
-    g_lastNativeReferenceMs=0;
+    g_captureHealth.reset();
     g_handoffReady = false;
     for (Sink& s : g_sink) { release_slots(s); release_rt(s); s.redirected = 0; }
     g_rtFailed = false;
@@ -619,6 +614,7 @@ void on_reset() {
 }
 
 void shutdown() {
+    g_captureHealth.reset();
     g_armed = false;
     g_handoffReady = false;
     g_on = false;

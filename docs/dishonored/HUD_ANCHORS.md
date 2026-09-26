@@ -1,3 +1,27 @@
+## Returned ownership boundary and flat pause (2026-09-25)
+
+Verified ea83dc5be reproduced prompt-to-objective ownership changes. Native task
+identity was captured successfully once; three renderer stacks show queued draw
+execution on a different thread. Native widget Display cannot directly scope
+D3D draw ownership. ENGINE_NOTES records the verified queue/producer boundary.
+The semantic transport repair remains OPEN for interaction, objectives, Heart
+collectibles and the cooking gauge; no new rectangle precedence patch was added.
+
+Pause configuration resolved to world, MenuInWindow=1 and opt-in enabled. At
+48341968 entry was refused with healthy=0 and failed=0. The preceding capture
+window remained armed but had 417 empty frames of 454 armed frames. The redirect
+health predicate required a visible redirected draw within 500 ms; widgets fading
+out could therefore disable world-panel entry even with ready resources. The
+once-per-owner latch then kept the pause on the flat fallback.
+
+Candidate separates readiness from content: after an exercised capture frame,
+armed resource-ready empty frames renew readiness. An unarmed path still expires
+in 500 ms. No initial proof, a lost handoff, disable, device reset or latched failure
+refuses entry. Existing context opt-ins, anchor selection, input blocking and
+mid-menu latch policy remain unchanged. One behavioral test: after interaction
+HUD fades, opening pause should leave a world-positioned panel over the scene;
+remaining flat means entry still fails and the matching log must name its gate.
+
 ## HUD regression audit and ownership replacement gate (VR-185/186/166, 2026-09-25)
 
 **Acceptance failed.** Local DLL/banner 1ed638c01 verified before reading the run;

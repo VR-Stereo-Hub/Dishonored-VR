@@ -89,8 +89,8 @@ void note_marker(int sink,const float* rect);
 const dvr::hudmarker::Regions* marker_regions(int sink);
 
 // For the ride predicate (game/dishonored/ue3/ui_surface.cpp): the redirect
-// is up and drawing (a sink at the backbuffer's size, the repair pass
-// compiled, a redirected draw within the last 500 ms), and whether a D3D
+// has been exercised and remains armed with a ready handoff within 500 ms,
+// even while no widget is visible, and whether a D3D
 // failure has latched this session (the ride then falls back to the mono
 // screen rather than show a window with nothing on it).
 // Successful intentional gameplay bypass, distinct from redirected draws.

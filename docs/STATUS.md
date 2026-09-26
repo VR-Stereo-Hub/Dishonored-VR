@@ -1,3 +1,26 @@
+## 2026-09-25: ownership capture returned; pause readiness repair
+
+Verified returned ea83dc5be DLL/hash/banner and archived logs plus full INI under
+primary build/hud-regression-20260925/owner-return. Prompt still changes to the
+objective under head pitch. Pause was reported as the whole flat screen; log
+confirms configured pause=world but ui/ride refused healthy=0, failed=0. Capture
+was armed with empty HUD frames before entry. Readiness incorrectly depended on
+visible widgets rather than a proven operational pipeline.
+
+Candidate keeps a previously exercised capture path ready through armed empty
+frames, with the same 500 ms inactive grace and resource/failure/reset gates.
+No new engine writes or recurring diagnostics. Native HUD host checks cover
+faded widgets, the owner-poll gap, clock wrap, failure, lost handoff and reset.
+HUD ownership remains unfixed: the new capture proves native widget updates and
+rendered draws cross a deferred queue. Task character/vtable, queue execution and
+producer paths are now established offline; next implementation must transport
+owner identity through the queue, including filter composites and cached work.
+Do not substitute another rectangle or content hash as semantic ownership.
+
+Three timed renderer captures total 56.8 us in this run; see PERFORMANCE for
+measurement limits. No additional diagnostic launch is needed for this boundary.
+Linear findings permission is still pending. No merge is authorized.
+
 ## 2026-09-25: HUD acceptance failed; native ownership audit
 
 Verified local 1ed638c01 and archived all logs/INI. Other hand/swing/menu follow-ups
