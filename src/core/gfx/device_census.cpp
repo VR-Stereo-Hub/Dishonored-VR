@@ -1,6 +1,7 @@
 #include "core/framework/native_profile.h"
 // core/gfx/device_census.cpp - see device_census.h.
 #define DVR_CAT ::dvr::log::Cat::device
+#include "core/gfx/depth_probe.h"
 #include "core/gfx/device_census.h"
 
 #include "core/framework/status.h"
@@ -634,6 +635,7 @@ HRESULT __stdcall hkCreateTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT l
     if (SUCCEEDED(hr) && out && *out) {
         map_put(*out, (int)asked, kLcTexture); patch_lock_class(kLcTexture, *out);
         if (translated) dvr::d3d9ex::shadow_register_texture(self, *out, w, h, levels, fmt);
+        dvr::depthprobe::note_texture(*out, w, h, askedUsage, fmt);
     }
     return hr;
 }

@@ -1117,6 +1117,10 @@ static bool WriteDefaultIni(const char* ini)
         "; samples when a big excursion trips. It derives no frequency on purpose: two earlier\n"
         "; instruments each reported a rate that was really their own sampling rate.\n"
         "SwingTrace=1\n"
+        "; DepthProbe=1 (motion vectors, step 1): reads a 5x5 grid of the game's floating-point\n"
+        "; render targets 30 times, every 10 s from 30 s after start, and logs whether their alpha\n"
+        "; behaves like scene depth. Read-only; each read is a brief GPU sync. `depthprobe on|off|now`.\n"
+        "DepthProbe=0\n"
         "\n"
         "[Cine]\n"
         "LockPitch=1\n"
@@ -2749,6 +2753,7 @@ static void LoadConfig()
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
+    dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe

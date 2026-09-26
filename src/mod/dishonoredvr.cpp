@@ -55,6 +55,7 @@
 #include "game/dishonored/ui_ride_policy.h"
 #include "core/gfx/frame_id.h"
 #include "core/gfx/device_census.h"
+#include "core/gfx/depth_probe.h"
 #include "core/gfx/clarity.h"
 #include "core/gfx/sampler_force.h"
 

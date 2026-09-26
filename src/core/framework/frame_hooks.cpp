@@ -8,6 +8,7 @@
 #include "core/framework/query_wait_profile.h"
 #include "core/framework/scene_prepare_profile.h"
 #include "core/framework/bridge_profile.h"
+#include "core/gfx/depth_probe.h"
 #include "core/gfx/sampler_force.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/capture.h"
@@ -165,6 +166,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
     // present's record (its OUT = the render thread's time outside this hook).
     dvr::perf::set_device(self);
+    dvr::depthprobe::tick(self, dvr::capture::width(), dvr::capture::height());   // read-only; off by default
     // The desktop eye pin needs the game's device; the runtime layer calls into
     // it from its own eye-pin call sites, which already sit on the right side
     // of each eye's XR capture.
@@ -307,6 +309,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     dvr::stereo::on_reset();
     dvr::hudclass::on_reset(); dvr::hudcap::on_reset();   // VR-117: the sinks are DEFAULT-pool; the hkReset LAW
     dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
+    dvr::depthprobe::on_reset();      // it holds references on the game's float targets
     dvr::samplers::on_reset();        // a Reset returns every sampler state to its default
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
@@ -371,6 +374,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
         dvr::stereo::on_reset();
         dvr::desktop_eye::on_reset();
         dvr::capture::on_reset();
+        dvr::depthprobe::on_reset();
         dvr::log::flush();
     }
     return g_origDevRelease(self);
