@@ -153,7 +153,7 @@ static bool WriteDefaultIni(const char* ini)
         "BboxMs=30000\n"
         "[Clarity]\n"
         "; Anti-aliasing and clarity on the eye image (core/gfx/clarity.h; the research is in\n"
-        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). Sharpen 0.30, 16x\n"
+        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). Sharpen 0.40, 16x\n"
         "; Anisotropy and TrilinearMips ship ON; Resolve and Temporal are off (headset-judged 2026-09-26). F10\n"
         "; Advanced > Display > Clarity and anti-aliasing, and `clarity ...` on the seam, are live.\n"
         "; Resolve=1: when the resolution is above ~100%% (the runtime's recommended size), filter\n"
@@ -172,7 +172,7 @@ static bool WriteDefaultIni(const char* ini)
         "Resolve=0\n"
         "Temporal=0\n"
         "TemporalBlend=0.15\n"
-        "Sharpen=0.30\n"
+        "Sharpen=0.40\n"
         "Anisotropy=16\n"
         "TrilinearMips=1\n"
         "[Pace]\n"
@@ -1824,7 +1824,7 @@ static void LoadConfig()
             dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 0) != 0.0f, "ini");
             dvr::clarity::set_temporal(IniFloat(ini, "Clarity", "Temporal", 0) != 0.0f, "ini");
             dvr::clarity::set_blend(IniFloat(ini, "Clarity", "TemporalBlend", 0.15f), "ini");
-            dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.30f), "ini");
+            dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.40f), "ini");
             dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
             dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
             Log("config: [Clarity] Resolve=%d Temporal=%d TemporalBlend=%.2f Sharpen=%.2f Anisotropy=%d TrilinearMips=%d%s",

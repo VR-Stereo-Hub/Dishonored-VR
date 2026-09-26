@@ -11,7 +11,7 @@
 namespace dvr::depthprobe {
 namespace {
 
-const int kMax = 6;            // candidates kept (the scene colour plus its siblings)
+const int kMax = 24;           // candidates kept (the first build kept 6 and lost the eye-size RGBA16F pair)
 const int kGrid = 5;           // 5 x 5 samples, 10 % .. 90 % of each axis
 const int kRuns = 30;          // automatic probes per session (five minutes)
 const DWORD kEveryMs = 10000;
@@ -104,13 +104,14 @@ void probe_one(IDirect3DDevice9* dev, const Cand& c) {
     }
     D3DLOCKED_RECT lr = {};
     if (FAILED(s->sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) return;
-    float a[kGrid][kGrid], lum[kGrid][kGrid];
+    float a[kGrid][kGrid], lum[kGrid][kGrid], red[kGrid][kGrid];
     const int tb = texel_bytes(c.fmt);
     for (int j = 0; j < kGrid; ++j)
         for (int i = 0; i < kGrid; ++i) {
             float v[4];
             decode(c.fmt, (const uint8_t*)lr.pBits + j * lr.Pitch + i * tb, v);
             a[j][i] = v[3];
+            red[j][i] = v[0];   // a single-channel depth target keeps it here
             lum[j][i] = 0.2126f * v[0] + 0.7152f * v[1] + 0.0722f * v[2];
         }
     s->sys->UnlockRect();
@@ -135,16 +136,28 @@ void probe_one(IDirect3DDevice9* dev, const Cand& c) {
     DVR_INFO("depthprobe: target #%d %ux%u fmt=%d | alpha 5x5 rows top->bottom:%s | range %.4g..%.4g | %s",
              c.serial, c.w, c.h, (int)c.fmt, at, mn, mx, verdict);
     DVR_INFO("depthprobe: target #%d luminance 5x5:%s", c.serial, lt);
+    {
+        char rt[400] = ""; int nr = 0;
+        for (int j = 0; j < kGrid; ++j) {
+            nr += _snprintf_s(rt + nr, sizeof(rt) - nr, _TRUNCATE, "%s", j ? " /" : "");
+            for (int i = 0; i < kGrid; ++i) nr += _snprintf_s(rt + nr, sizeof(rt) - nr, _TRUNCATE, " %.4g", red[j][i]);
+        }
+        DVR_INFO("depthprobe: target #%d red channel 5x5 (a one-channel depth would live here):%s", c.serial, rt);
+    }
 }
 
 } // namespace
 
 void note_texture(IDirect3DTexture9* tex, UINT w, UINT h, DWORD usage, D3DFORMAT fmt) {
     if (!tex || !(usage & D3DUSAGE_RENDERTARGET) || !is_float(fmt) || w < 512 || h < 512) return;
-    int slot = 0;
-    for (int i = 0; i < kMax; ++i) {
-        if (!g_c[i].tex) { slot = i; break; }
-        if (g_c[i].serial < g_c[slot].serial) slot = i;   // replace the oldest
+    // A free slot; if none, replace the oldest NON-eye-size one (the largest targets are the
+    // scene's; a resolution change goes through Reset, which clears the list anyway).
+    int slot = -1;
+    for (int i = 0; i < kMax && slot < 0; ++i) if (!g_c[i].tex) slot = i;
+    if (slot < 0) {
+        for (int i = 0; i < kMax; ++i)
+            if (g_c[i].w * g_c[i].h < w * h && (slot < 0 || g_c[i].serial < g_c[slot].serial)) slot = i;
+        if (slot < 0) return;
     }
     if (g_c[slot].tex) g_c[slot].tex->Release();
     tex->AddRef();
@@ -166,8 +179,8 @@ void tick(IDirect3DDevice9* dev, UINT backW, UINT backH) {
     int probed = 0;
     for (const Cand& c : g_c) {
         if (!c.tex) continue;
-        // eye-size targets first; the rest only if nothing is eye-sized
-        if (backW && (c.w != backW || c.h != backH)) continue;
+        // eye-size and half-size targets (UE3 keeps half-resolution copies for its effects)
+        if (backW && !((c.w == backW && c.h == backH) || (c.w * 2 == backW && c.h * 2 == backH))) continue;
         probe_one(dev, c); ++probed;
     }
     if (!probed)
