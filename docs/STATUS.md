@@ -1,3 +1,11 @@
+## Motion vectors (2026-09-26) - branch `claude/motion-vectors`, not merged
+
+Step 1 (where depth is) and step 2 (depth shared to D3D11, 13/13 bit-identical) done on the
+simulator. Step 3 in progress: the live calibration found a flipped convention (sign test);
+the mirror test is built and installed but not run. Resume from
+docs/dishonored/PLAN-motion-vectors-dlss.md, "Step 3 in progress". The branch also carries
+sharpening 0.40 as the default and freeing clarity intermediates when off.
+
 ## Test handoff for the next session (2026-09-26)
 
 Four branches, none merged, none installed. Test ONE AT A TIME, each installed on its own

@@ -55,4 +55,7 @@ const char* summary();
 // The seam word: `clarity [status | resolve on|off | temporal on|off | blend <f> | sharpen <f>]`.
 bool command(const char* args);
 
+// Motion vectors step 3: measure the game's depth scale from camera motion ([Diagnostics] MotionCalib).
+void set_calib(bool on, const char* who);
+
 } // namespace dvr::clarity

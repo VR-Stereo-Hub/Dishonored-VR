@@ -1124,6 +1124,9 @@ static bool WriteDefaultIni(const char* ini)
         "; DepthShare=1 (motion vectors, step 2): copy that depth to the mod's D3D11 device every\n"
         "; present and prove every 5 s that D3D11 reads what the game wrote. `depthprobe share on|off`.\n"
         "DepthShare=0\n"
+        "; MotionCalib=1 (motion vectors, step 3; needs DepthShare=1): whenever the camera moves\n"
+        "; between two frames of one eye, measure which depth scale explains the change and log it.\n"
+        "MotionCalib=0\n"
         "\n"
         "[Cine]\n"
         "LockPitch=1\n"
@@ -2758,6 +2761,7 @@ static void LoadConfig()
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
     dvr::depthprobe::set_share(IniFloat(ini, "Diagnostics", "DepthShare", 0) != 0.0f, "ini [Diagnostics] DepthShare");
+    dvr::clarity::set_calib(IniFloat(ini, "Diagnostics", "MotionCalib", 0) != 0.0f, "ini [Diagnostics] MotionCalib");
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe

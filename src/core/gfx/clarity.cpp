@@ -4,6 +4,10 @@
 #include "core/gfx/clarity.h"
 #include "core/gfx/clarity_gpu.h"
 #include "core/gfx/clarity_math.h"
+#include "core/gfx/motion_gpu.h"
+#include "core/gfx/depth_probe.h"
+#include "core/gfx/capture.h"
+#include <d3d11.h>
 
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
@@ -101,7 +105,150 @@ void status_tick() {
     g_winMs = now;
 }
 
+// ---- motion vectors, step 3: the calibration run on the live game --------------------
+// Per eye: the previous colour and camera. When the camera moved between two frames of the same
+// eye, the error curve over candidate depth scales is measured (motion_gpu.h) and accumulated;
+// the log says which scale the game's depth units are, or that no scale explains the motion.
+std::atomic<bool> g_calibOn{false};
+dvr::motion::CalibGpu g_calib;
+bool g_calibTried = false, g_calibOk = false;
+struct EyeHist { ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv = nullptr; View view; };
+EyeHist g_eh[2];
+double g_calibSum[dvr::motion::kScales] = {};
+double g_calibFlipSum[dvr::motion::kScales] = {};   // the same pairs with the translation reversed (the sign test)
+double g_turnNormal = 0, g_turnMirror = 0; int g_turnRuns = 0;   // pure turns: rotation-only, normal vs mirrored
+int g_calibRuns = 0, g_calibBest[dvr::motion::kScales] = {}, g_calibNoDepth = 0, g_calibStill = 0;
+uint64_t g_calibMs = 0;
+
+void calib_frame(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src, uint32_t w, uint32_t h,
+                 int eyeSign, uint32_t recId) {
+    if (!g_calibOn.load() || !(eyeSign == -1 || eyeSign == 1) || !src) return;
+    if (!g_calibOk) {
+        if (g_calibTried) return;
+        g_calibTried = true;
+        char why[512] = "";
+        g_calibOk = g_calib.init(dev, why, sizeof(why));
+        if (!g_calibOk) { DVR_ERROR("motion/calib: unavailable (%s)", why); return; }
+    }
+    EyeHist& e = g_eh[eyeSign < 0 ? 0 : 1];
+    const View cur = view_for(recId, w, h);
+    ID3D11Resource* res = nullptr;
+    src->GetResource(&res);
+    if (!res || !cur.ok) { if (res) res->Release(); e.view = View{}; return; }
+    D3D11_TEXTURE2D_DESC sd = {};
+    ((ID3D11Texture2D*)res)->GetDesc(&sd);
+    if (e.tex) { D3D11_TEXTURE2D_DESC hd = {}; e.tex->GetDesc(&hd); if (hd.Width != sd.Width || hd.Height != sd.Height || hd.Format != sd.Format) {
+        e.srv->Release(); e.tex->Release(); e.srv = nullptr; e.tex = nullptr; e.view = View{}; } }
+    if (!e.tex) {
+        D3D11_TEXTURE2D_DESC td = sd;
+        td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE; td.CPUAccessFlags = 0; td.MiscFlags = 0;
+        td.MipLevels = 1; td.ArraySize = 1;
+        if (FAILED(dev->CreateTexture2D(&td, nullptr, &e.tex)) || FAILED(dev->CreateShaderResourceView(e.tex, nullptr, &e.srv))) {
+            if (e.tex) { e.tex->Release(); e.tex = nullptr; }
+            res->Release(); return;
+        }
+        e.view = View{};
+    }
+    if (e.view.ok && e.view.posOk && cur.posOk) {
+        const float dp[3] = {cur.pos[0] - e.view.pos[0], cur.pos[1] - e.view.pos[1], cur.pos[2] - e.view.pos[2]};
+        const float moved = sqrtf(dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2]);
+        const Basis tpb = basis_from_rotator(e.view.pitch, e.view.yaw, e.view.roll);
+        const Basis tcb = basis_from_rotator(cur.pitch, cur.yaw, cur.roll);
+        const float turned = basis_angle_deg(tpb, tcb);
+        if (moved < 0.3f && turned > 0.5f && turned < 20.0f) {   // the mirror test: a pure turn
+            UINT dw = 0, dh = 0;
+            ID3D11ShaderResourceView* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh);
+            if (depth && dw == w && dh == h) {
+                dvr::motion::CalibParams p;
+                p.prevFromCur = prev_from_cur(tpb, tcb);
+                p.tanH = cur.tanH; p.tanV = cur.tanV; p.w = w; p.h = h; p.farDepth = 1000.0f;
+                dvr::motion::CalibParams mp = p;
+                for (int i = 0; i < 3; ++i)
+                    for (int j = 0; j < 3; ++j) mp.prevFromCur.m[i][j] *= (i == 1 ? -1.0f : 1.0f) * (j == 1 ? -1.0f : 1.0f);
+                float a[dvr::motion::kScales], b[dvr::motion::kScales]; int na = 0, nb = 0; char w1[64], w2[64];
+                if (g_calib.run(dev, ctx, src, e.srv, depth, p, a, &na, w1, sizeof(w1)) &&
+                    g_calib.run(dev, ctx, src, e.srv, depth, mp, b, &nb, w2, sizeof(w2)) && na > 200 && nb > 200) {
+                    g_turnNormal += a[dvr::motion::kScales - 1]; g_turnMirror += b[dvr::motion::kScales - 1]; ++g_turnRuns;
+                    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 8,
+                        "motion/calib: MIRROR TEST eye %+d turned %.2f deg (moved %.2f uu) | rotation-only error: normal %.4f, "
+                        "right axis mirrored %.4f", eyeSign, turned, moved, a[dvr::motion::kScales - 1], b[dvr::motion::kScales - 1]);
+                }
+            }
+        }
+        if (moved < 2.0f || moved > 80.0f) ++g_calibStill;
+        else {
+            UINT dw = 0, dh = 0;
+            ID3D11ShaderResourceView* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh);
+            if (!depth || dw != w || dh != h) ++g_calibNoDepth;
+            else {
+                const Basis pb = basis_from_rotator(e.view.pitch, e.view.yaw, e.view.roll);
+                const Basis cb = basis_from_rotator(cur.pitch, cur.yaw, cur.roll);
+                dvr::motion::CalibParams p;
+                p.prevFromCur = prev_from_cur(pb, cb);
+                p.t[0] = dot3(pb.f, dp); p.t[1] = dot3(pb.r, dp); p.t[2] = dot3(pb.u, dp);
+                p.tanH = cur.tanH; p.tanV = cur.tanV; p.w = w; p.h = h; p.farDepth = 1000.0f;
+                float err[dvr::motion::kScales]; int n = 0; char why[256] = "";
+                if (g_calib.run(dev, ctx, src, e.srv, depth, p, err, &n, why, sizeof(why)) && n > 200) {
+                    int best = 0;
+                    for (int k = 1; k < dvr::motion::kScales; ++k) if (err[k] >= 0 && err[k] < err[best]) best = k;
+                    ++g_calibBest[best]; ++g_calibRuns;
+                    for (int k = 0; k < dvr::motion::kScales; ++k) g_calibSum[k] += err[k] >= 0 ? err[k] : 0;
+                    {   // the sign test: a reversed translation must score WORSE if the convention is right
+                        dvr::motion::CalibParams f = p;
+                        f.t[0] = -p.t[0]; f.t[1] = -p.t[1]; f.t[2] = -p.t[2];
+                        float fe[dvr::motion::kScales]; int fn = 0; char fw[64] = "";
+                        if (g_calib.run(dev, ctx, src, e.srv, depth, f, fe, &fn, fw, sizeof(fw)))
+                            for (int k = 0; k < dvr::motion::kScales; ++k) g_calibFlipSum[k] += fe[k] >= 0 ? fe[k] : 0;
+                    }
+                    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 12,
+                        "motion/calib: eye %+d moved %.1f uu | error 25:%.4f 100:%.4f 400:%.4f 1000:%.4f 1500:%.4f 2500:%.4f "
+                        "7000:%.4f rotation-only:%.4f | best %g uu per depth unit (%d samples)",
+                        eyeSign, moved, err[0], err[2], err[4], err[6], err[7], err[8], err[10], err[11],
+                        dvr::motion::kScaleValues[best], n);
+                }
+            }
+        }
+    }
+    ctx->CopyResource(e.tex, res);
+    res->Release();
+    e.view = cur;
+    const uint64_t now = GetTickCount64();
+    if (now - g_calibMs >= 5000 && g_turnRuns)
+        DVR_INFO("motion/calib: MIRROR TEST over %d pure turns - rotation-only error normal %.4f, mirrored %.4f (the lower "
+                 "one is the convention the image really has)", g_turnRuns, g_turnNormal / g_turnRuns, g_turnMirror / g_turnRuns);
+    if (now - g_calibMs >= 5000 && g_calibRuns) {
+        g_calibMs = now;
+        char t[600]; int m = 0;
+        for (int k = 0; k < dvr::motion::kScales; ++k)
+            m += _snprintf_s(t + m, sizeof(t) - m, _TRUNCATE, " %g:%.4f(%d)", dvr::motion::kScaleValues[k],
+                             g_calibSum[k] / g_calibRuns, g_calibBest[k]);
+        int best = 0;
+        for (int k = 1; k < dvr::motion::kScales; ++k) if (g_calibSum[k] < g_calibSum[best]) best = k;
+        {
+            char ft[400]; int fm = 0, fb = 0;
+            for (int k = 0; k < dvr::motion::kScales; ++k) {
+                fm += _snprintf_s(ft + fm, sizeof(ft) - fm, _TRUNCATE, " %g:%.4f", dvr::motion::kScaleValues[k], g_calibFlipSum[k] / g_calibRuns);
+                if (g_calibFlipSum[k] < g_calibFlipSum[fb]) fb = k;
+            }
+            DVR_INFO("motion/calib: SIGN TEST, the same pairs with the translation reversed:%s | best %g (a reversed "
+                     "translation that fits better than the real one means the camera convention is flipped)",
+                     ft, dvr::motion::kScaleValues[fb]);
+        }
+        DVR_INFO("motion/calib: %d moving frame pairs | mean error (times best) per uu-per-depth-unit:%s | "
+                 "BEST %g%s | skipped: still %d, no matching depth %d",
+                 g_calibRuns, t, dvr::motion::kScaleValues[best],
+                 best == dvr::motion::kScales - 1 ? " = ROTATION ONLY: the depth does not explain the motion (wrong eye/frame pairing, or not depth)" : "",
+                 g_calibStill, g_calibNoDepth);
+    }
+}
+
 } // namespace
+
+void set_calib(bool on, const char* who) {
+    g_calibOn.store(on);
+    DVR_INFO("motion/calib: %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+             on ? " - needs [Diagnostics] DepthShare=1; measures the depth scale whenever the camera moves" : "");
+}
 
 void set_resolve(bool on, const char* who) {
     if (g_resolve.exchange(on) != on) note_change("resolve", on_off(on), who);
@@ -153,6 +300,7 @@ void output_size(uint32_t w, uint32_t h, uint32_t* ow, uint32_t* oh) {
 bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
           uint32_t w, uint32_t h, ID3D11RenderTargetView* dst, uint32_t ow, uint32_t oh,
           int eyeSign, uint32_t recId) {
+    calib_frame(dev, ctx, src, w, h, eyeSign, recId);   // motion vectors step 3 (off by default)
     if (!any_on()) { if (g_initOk && g_gpu.bytes()) g_gpu.trim(false, false); return false; }
     if (!dev || !ctx || !src || !dst) return false;
     if (!g_initOk) {

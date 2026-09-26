@@ -111,3 +111,26 @@ from depth and the current camera, projected into the previous camera of the sam
 Host-test it against a synthetic scene with known depth and a known camera move, then feed the
 temporal pass. The depth scale (~100 uu per unit) must be calibrated first: a surface at a
 measured distance from the c5 camera.
+
+## Step 3 in progress (2026-09-26, simulator) - RESUME HERE
+
+Built: the depth ring keyed by the colour grab's serial (`depth_srv_for`), the calibration shader
+(`core/gfx/motion_gpu`, host test `tools/motion-gpu-host.ps1`: 6/6, a sharp minimum at the true
+scale, rotation-only 10x worse, flat with no translation) and the live instrument in
+`core/gfx/clarity.cpp` (`calib_frame`, `[Diagnostics] MotionCalib=1` with `DepthShare=1`).
+
+Measured on the simulator (head stepped 0.3 m sideways, about 150 moving frame pairs a run):
+- With the translation as computed, every candidate scale (25..7000 uu per depth unit) scores
+  WORSE than rotation-only, falling monotonically toward it: the predicted parallax hurts.
+- SIGN TEST: the same pairs with the translation reversed give an interior minimum at 200-400
+  uu per unit (0.0145 against rotation-only 0.0147). So a convention is flipped: either the
+  translation's direction, or the image is mirrored left-right against the camera's right axis
+  (a sideways move cannot tell the two apart).
+- NEXT (built, installed, NOT yet run): the MIRROR TEST - pure head turns scored rotation-only
+  with the normal convention and with the right axis mirrored; the lower error names the real
+  convention. Run: sim launch, `boot.ps1 -Attach`, Space x3 to gameplay, then
+  `xrsim-cmd "head rot 3 0 0"`, `"head rot -3 0 0"` repeated; read `MIRROR TEST` lines.
+  If mirrored wins, the clarity temporal pass has the same fault (its yaw reprojection) - that
+  may be the smear reported while moving before the motion weighting.
+- Then: fix the convention in `calib_frame` (and clarity's temporal), rerun; the curve must have
+  an interior minimum below rotation-only. Only then compute motion vectors for TAA.

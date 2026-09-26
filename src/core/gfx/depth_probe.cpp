@@ -1,6 +1,7 @@
 // core/gfx/depth_probe.cpp - see depth_probe.h.
 #define DVR_CAT ::dvr::log::Cat::device
 #include "core/gfx/depth_probe.h"
+#include "core/gfx/capture.h"
 #include "core/gfx/shared_capture_texture.h"
 #include "core/util/log.h"
 
@@ -215,19 +216,34 @@ void tick(IDirect3DDevice9* dev, UINT backW, UINT backH) {
 }
 
 // ---- step 2: the shared depth ----------------------------------------------------
+// A ring of three: each present's copy is keyed by the serial the colour grab of the SAME
+// present will carry (capture::serial() + 1), so step 3 can take the depth that belongs to
+// whichever grab the capture delivers (this present's, or the previous one's in shared mode).
 std::atomic<bool> g_share{false};
-dvr::capture::interop::Image g_depthImg;          // D3D9 owner + surface, D3D11 texture
-IDirect3DQuery9* g_depthFence = nullptr;
+const int kRing = 3;
+struct Slot {
+    dvr::capture::interop::Image img;              // D3D9 owner + surface, D3D11 texture
+    IDirect3DQuery9* fence = nullptr;
+    ID3D11ShaderResourceView* srv = nullptr;
+    uint32_t serial = 0;
+    bool fenced = false;
+};
+Slot g_ring[kRing];
+int g_ringNext = 0;
 ID3D11Texture2D* g_depthStage = nullptr;           // 5x5 staging for the check
 UINT g_depthW = 0, g_depthH = 0;
 bool g_shareFailed = false;
-uint64_t g_shareCopies = 0, g_shareChecks = 0, g_shareAgree = 0;
+uint64_t g_shareCopies = 0, g_shareChecks = 0, g_shareAgree = 0, g_shareMissed = 0;
 DWORD g_shareNextMs = 0;
 
 void share_release() {
     if (g_depthStage) { g_depthStage->Release(); g_depthStage = nullptr; }
-    if (g_depthFence) { g_depthFence->Release(); g_depthFence = nullptr; }
-    g_depthImg.reset();
+    for (Slot& r : g_ring) {
+        if (r.srv) r.srv->Release();
+        if (r.fence) r.fence->Release();
+        r.img.reset();
+        r.srv = nullptr; r.fence = nullptr; r.serial = 0; r.fenced = false;
+    }
     g_depthW = g_depthH = 0;
 }
 
@@ -260,24 +276,31 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
                          "depthshare: no eye-size RGBA16F target (%ux%u) seen yet - nothing to share", backW, backH);
         return;
     }
-    if (g_depthW != scene->w || g_depthH != scene->h || !g_depthImg.texture) {
+    if (g_depthW != scene->w || g_depthH != scene->h || !g_ring[0].img.texture) {
         share_release();
-        const auto r = dvr::capture::interop::create(dev, dev11, scene->w, scene->h, D3DFMT_A16B16G16R16F, g_depthImg);
-        HRESULT hq = FAILED(r.hr) ? r.hr : dev->CreateQuery(D3DQUERYTYPE_EVENT, &g_depthFence);
+        HRESULT hr = S_OK; const char* step = "";
+        for (Slot& r : g_ring) {
+            const auto cr = dvr::capture::interop::create(dev, dev11, scene->w, scene->h, D3DFMT_A16B16G16R16F, r.img);
+            if (FAILED(cr.hr)) { hr = cr.hr; step = cr.step; break; }
+            if (FAILED(hr = dev->CreateQuery(D3DQUERYTYPE_EVENT, &r.fence))) { step = "fence"; break; }
+            if (FAILED(hr = dev11->CreateShaderResourceView(r.img.texture, nullptr, &r.srv))) { step = "SRV"; break; }
+        }
         D3D11_TEXTURE2D_DESC sd = {};
         sd.Width = kGrid; sd.Height = kGrid; sd.MipLevels = 1; sd.ArraySize = 1;
         sd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; sd.SampleDesc.Count = 1;
         sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        if (SUCCEEDED(hq)) hq = dev11->CreateTexture2D(&sd, nullptr, &g_depthStage);
-        if (FAILED(r.hr) || FAILED(hq)) {
-            DVR_WARN("depthshare: REFUSED - shared %ux%u RGBA16F %s (0x%08lx); the depth stays on D3D9",
-                     scene->w, scene->h, FAILED(r.hr) ? r.step : "fence/staging", (unsigned long)(FAILED(r.hr) ? r.hr : hq));
+        if (SUCCEEDED(hr) && FAILED(hr = dev11->CreateTexture2D(&sd, nullptr, &g_depthStage))) step = "staging";
+        if (FAILED(hr)) {
+            DVR_WARN("depthshare: REFUSED - shared %ux%u RGBA16F ring, %s (0x%08lx); the depth stays on D3D9",
+                     scene->w, scene->h, step, (unsigned long)hr);
             share_release(); g_shareFailed = true; return;
         }
-        g_depthW = scene->w; g_depthH = scene->h;
-        DVR_INFO("depthshare: shared depth %ux%u RGBA16F live (target #%d); copied at every present, fenced", g_depthW,
-                 g_depthH, scene->serial);
+        g_depthW = scene->w; g_depthH = scene->h; g_ringNext = 0;
+        DVR_INFO("depthshare: shared depth %ux%u RGBA16F live (target #%d), a ring of %d keyed by the colour grab's "
+                 "serial; copied at every present, fenced", g_depthW, g_depthH, scene->serial, kRing);
     }
+    Slot& r = g_ring[g_ringNext];
+    g_ringNext = (g_ringNext + 1) % kRing;
     IDirect3DSurface9* src = nullptr;
     if (FAILED(scene->tex->GetSurfaceLevel(0, &src)) || !src) return;
     const DWORD t = GetTickCount();
@@ -285,24 +308,27 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     float d9[kGrid][kGrid] = {};
     bool have9 = false;
     if (check) have9 = read_grid_d3d9(dev, src, scene->w, scene->h, D3DFMT_A16B16G16R16F, d9);   // this present, D3D9
-    const HRESULT hc = dev->StretchRect(src, nullptr, g_depthImg.surface, nullptr, D3DTEXF_POINT);
+    const HRESULT hc = dev->StretchRect(src, nullptr, r.img.surface, nullptr, D3DTEXF_POINT);
     src->Release();
     if (FAILED(hc)) {
+        r.serial = 0;
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "depthshare: the copy was refused (0x%08lx)", (unsigned long)hc);
         return;
     }
     ++g_shareCopies;
-    g_depthFence->Issue(D3DISSUE_END);
+    r.serial = dvr::capture::serial() + 1;   // the grab later in this present takes this serial
+    r.fence->Issue(D3DISSUE_END);
+    r.fenced = true;
     if (!check) return;
     g_shareNextMs = t + 5000;
     // The check only: wait for this copy, then read the same 25 texels on D3D11.
     const DWORD t0 = GetTickCount();
-    while (g_depthFence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE && GetTickCount() - t0 < 50) Sleep(0);
+    while (r.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE && GetTickCount() - t0 < 50) Sleep(0);
     for (int j = 0; j < kGrid; ++j)
         for (int i = 0; i < kGrid; ++i) {
             const UINT x = (UINT)(scene->w * (0.1 + 0.2 * i)), y = (UINT)(scene->h * (0.1 + 0.2 * j));
             D3D11_BOX b = {x, y, 0, x + 1, y + 1, 1};
-            ctx11->CopySubresourceRegion(g_depthStage, 0, i, j, 0, g_depthImg.texture, 0, &b);
+            ctx11->CopySubresourceRegion(g_depthStage, 0, i, j, 0, r.img.texture, 0, &b);
         }
     D3D11_MAPPED_SUBRESOURCE m = {};
     if (FAILED(ctx11->Map(g_depthStage, 0, D3D11_MAP_READ, 0, &m))) return;
@@ -324,11 +350,29 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     }
     const bool agree = have9 && worst == 0.0f;
     if (agree) ++g_shareAgree;
-    DVR_INFO("depthshare: check %llu - D3D11 depth 5x5:%s | %s (worst diff %.4g) | copies %llu, agreed %llu of %llu",
+    DVR_INFO("depthshare: check %llu - D3D11 depth 5x5:%s | %s (worst diff %.4g) | copies %llu, agreed %llu of %llu, "
+             "step-3 lookups that found no depth for their grab %llu",
              (unsigned long long)g_shareChecks, t11,
              !have9 ? "D3D9 read refused, no comparison" : agree ? "IDENTICAL to the game's own target this present"
                                                                    : "DIFFERS from the game's target",
-             worst, (unsigned long long)g_shareCopies, (unsigned long long)g_shareAgree, (unsigned long long)g_shareChecks);
+             worst, (unsigned long long)g_shareCopies, (unsigned long long)g_shareAgree, (unsigned long long)g_shareChecks,
+             (unsigned long long)g_shareMissed);
+}
+
+ID3D11ShaderResourceView* depth_srv_for(uint32_t grabSerial, UINT* w, UINT* h) {
+    Slot* best = nullptr;
+    for (Slot& r : g_ring) if (r.srv && r.serial == grabSerial) best = &r;
+    if (!best) { ++g_shareMissed; return nullptr; }
+    if (best->fenced) {   // the copy must have executed before D3D11 reads the shared texture
+        const DWORD t0 = GetTickCount();
+        HRESULT q;
+        while ((q = best->fence->GetData(nullptr, 0, D3DGETDATA_FLUSH)) == S_FALSE && GetTickCount() - t0 < 20) Sleep(0);
+        if (q == S_FALSE) { ++g_shareMissed; return nullptr; }
+        best->fenced = false;
+    }
+    if (w) *w = g_depthW;
+    if (h) *h = g_depthH;
+    return best->srv;
 }
 
 void set_enabled(bool on, const char* who) {

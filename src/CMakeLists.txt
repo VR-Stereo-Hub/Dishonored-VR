@@ -61,6 +61,7 @@ set(DVR_REAL_SOURCES
     core/gfx/gpu_memory.cpp    core/gfx/gpu_memory.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
     core/gfx/depth_probe.cpp   core/gfx/depth_probe.h
+    core/gfx/motion_gpu.cpp    core/gfx/motion_gpu.h
     core/gfx/clarity.cpp       core/gfx/clarity.h
     core/gfx/clarity_gpu.cpp   core/gfx/clarity_gpu.h
     core/gfx/clarity_math.h
