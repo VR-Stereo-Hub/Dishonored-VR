@@ -15,7 +15,14 @@ not yet measured. Accepted pause and ownership transport remain unchanged.
 70 production-reader/transport checks,100000 concurrent transfers,123 native-HUD,
 503 routing checks pass; normal optimized build and lint pass. Family/pivot
 counters fit in the existing3s summary and only compute when it prints.
-New build/install identity follows. Preserve all six latest user INI adjustments:
+Installed v1.0.1-40-gfe3c3f876; DLL SHA256
+04819c3e7b2a2bb7da3b7912b268d486d51881c102cd27e5e0f42e210c617459.
+Installed/expected/backup INI match byte-for-byte; SHA256
+b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+1535 CRLF, no bare LF, zero INI changes. Previous DLL/INI/log pair archived in
+primary build/playtest-candidates/installs/20260925-222521-353610.
+Candidate/PDB: primary build/playtest-candidates/hud-placement-fe3c3f876.
+Optimized build and nine exports pass. All six latest user INI adjustments retained:
 task/rune inset0.260; default X0.274/Y-0.093/scale1.420; prompt scale1.320.
 One next launch question is existing size-slider response on a complete objective.
 No game launch, no merge; external diagnostic disclosure remains pending.
