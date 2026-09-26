@@ -313,6 +313,15 @@ void Gpu::shutdown() {
     bytes_ = 0;
 }
 
+void Gpu::trim(bool keepResolve, bool keepTemporal) {
+    if (!keepResolve) { release(tmpH_); release(lin_); }
+    if (!keepTemporal)
+        for (int e = 0; e < 2; ++e) {
+            release(hist_[e][0]); release(hist_[e][1]);
+            histHave_[e] = false; histRead_[e] = 0;
+        }
+}
+
 ID3D11ShaderResourceView* Gpu::history(int eye) const {
     const int e = eye & 1;
     return histHave_[e] ? hist_[e][histRead_[e]].srv : nullptr;

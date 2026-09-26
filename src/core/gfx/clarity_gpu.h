@@ -59,6 +59,9 @@ public:
              ID3D11RenderTargetView* dst, const PassParams& p, char* why, size_t cap);
     // The history the next temporal pass for `eye` reads (null before one ran).
     ID3D11ShaderResourceView* history(int eye) const;
+    // Free the intermediates a pass that is off no longer needs (the history alone is
+    // ~360 MB at 200%): off returns the memory, not just the frame time.
+    void trim(bool keepResolve, bool keepTemporal);
     uint64_t bytes() const { return bytes_; }   // intermediate memory held
 
 private:

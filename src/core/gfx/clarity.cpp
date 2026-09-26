@@ -153,7 +153,8 @@ void output_size(uint32_t w, uint32_t h, uint32_t* ow, uint32_t* oh) {
 bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
           uint32_t w, uint32_t h, ID3D11RenderTargetView* dst, uint32_t ow, uint32_t oh,
           int eyeSign, uint32_t recId) {
-    if (!any_on() || !dev || !ctx || !src || !dst) return false;
+    if (!any_on()) { if (g_initOk && g_gpu.bytes()) g_gpu.trim(false, false); return false; }
+    if (!dev || !ctx || !src || !dst) return false;
     if (!g_initOk) {
         if (g_initTried) return false;
         g_initTried = true;
@@ -178,6 +179,7 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
     p.sharpen = g_sharpen.load();
     p.blend = g_blend.load();
     p.clipGamma = 1.0f;
+    if (g_gpu.bytes()) g_gpu.trim(p.resolve, g_temporal.load());
     if (g_temporal.load()) {
         if (eyeSign == -1 || eyeSign == 1) {
             const int e = eyeSign < 0 ? 0 : 1;
