@@ -583,6 +583,19 @@ PFN_CreateDepthStencil   g_origCreateDs = nullptr;
 PFN_CreateOffscreenPlain g_origCreateOffscreen = nullptr;
 
 uint32_t g_creations = 0, g_failures = 0, g_managed = 0, g_managedAutoMip = 0;
+// The game's own MSAA ([SystemSettings] MaxMultisamples): a multisampled render
+// target or depth surface is the only evidence it engaged. 0 is the answer for
+// MaxMultisamples=1, and for an engine that ignores the setting on D3D9.
+uint32_t g_msRt = 0, g_msDs = 0, g_msMax = 0;
+void note_multisample(const char* what, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q, HRESULT hr) {
+    if (ms == D3DMULTISAMPLE_NONE) return;
+    if (what[0] == 'r') ++g_msRt; else ++g_msDs;
+    if ((uint32_t)ms > g_msMax) g_msMax = (uint32_t)ms;
+    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 12,
+                    "device/census: MULTISAMPLED %s %ux%u fmt=%d samples=%d quality=%lu -> 0x%08lx (the game's own MSAA "
+                    "from [SystemSettings] MaxMultisamples is live)", what, w, h, (int)fmt, (int)ms, (unsigned long)q,
+                    (unsigned long)hr);
+}
 uint64_t g_bytes = 0, g_managedBytes = 0;
 uint32_t g_managedByCall[kCallCount];
 
@@ -673,6 +686,7 @@ HRESULT __stdcall hkCreateIndexBuffer(IDirect3DDevice9* self, UINT len, DWORD us
 HRESULT __stdcall hkCreateRenderTarget(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q,
                                        BOOL lockable, IDirect3DSurface9** out, HANDLE* shared) {
     const HRESULT hr = g_origCreateRt(self, w, h, fmt, ms, q, lockable, out, shared);
+    note_multisample("render target", w, h, fmt, ms, q, hr);
     char ask[96]; _snprintf(ask, sizeof(ask), "rt %ux%u fmt=%d ms=%d lockable=%d shared=%d", w, h, (int)fmt, (int)ms, (int)lockable, shared ? 1 : 0);
     record(kRenderTarget, D3DPOOL_DEFAULT, D3DUSAGE_RENDERTARGET | (lockable ? D3DUSAGE_DYNAMIC : 0), fmt, texture_bytes(w, h, 1, 1, fmt, 1), hr, ask);
     return hr;
@@ -680,6 +694,7 @@ HRESULT __stdcall hkCreateRenderTarget(IDirect3DDevice9* self, UINT w, UINT h, D
 HRESULT __stdcall hkCreateDepthStencil(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q,
                                        BOOL discard, IDirect3DSurface9** out, HANDLE* shared) {
     const HRESULT hr = g_origCreateDs(self, w, h, fmt, ms, q, discard, out, shared);
+    note_multisample("depth surface", w, h, fmt, ms, q, hr);
     char ask[96]; _snprintf(ask, sizeof(ask), "ds %ux%u fmt=%d ms=%d discard=%d", w, h, (int)fmt, (int)ms, (int)discard);
     record(kDepthStencil, D3DPOOL_DEFAULT, D3DUSAGE_DEPTHSTENCIL, fmt, texture_bytes(w, h, 1, 1, fmt, 1), hr, ask);
     return hr;
@@ -775,6 +790,10 @@ void log_summary(const char* why) {
     EnterCriticalSection(&g_cs);
     DVR_INFO("device/census: %s - %u creations, %u failed, %.1f MB asked; %d distinct shapes; lock map overflow %u",
              why ? why : "?", g_creations, g_failures, g_bytes / 1048576.0, g_rowCount, g_mapOverflow);
+    DVR_INFO("device/census: multisampled surfaces: %u render targets, %u depth surfaces, most samples %u%s",
+             g_msRt, g_msDs, g_msMax,
+             (g_msRt + g_msDs) ? " - the game's MSAA is on" : " - none: the game's MSAA is off (MaxMultisamples=1, or the "
+                                                             "engine ignores it on D3D9)");
     // rows by bytes, descending (a small selection sort on 512 slots is fine here)
     int order[kRows]; int n = 0;
     for (int i = 0; i < kRows; ++i) if (g_rows[i].key) order[n++] = i;

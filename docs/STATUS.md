@@ -1,3 +1,24 @@
+## Test handoff for the next session (2026-09-26)
+
+Four branches, none merged, none installed. Test ONE AT A TIME, each installed on its own
+(build Release in its worktree, install, full INI check per CLAUDE.md), in this order:
+
+1. PR #135 `claude/fov-base-echo` (worktree build/worktrees/fov): at the default size, exit a
+   store and die/reload; the view must return to full width. Log: `fovlever: natural base 75.0
+   deg (read ... KEPT the old base ...)` after loads.
+2. PR #133 `claude/right-hand-open-pose` (build/worktrees/right-hand): sheathe weapons; the empty
+   right hand is open like the left. `[Hands] OpenEmptyRightHand=1`.
+3. PR #134 `claude/hand-headturn-flicker` (build/worktrees/hand-flicker): F10 Advanced > Hands >
+   Head-turn smoothing ON, fast left/right turns; then OFF. Log: `hands/poseview:`.
+4. The anti-aliasing PR `claude/antialiasing-clarity` (build/worktrees/aa): F10 Advanced >
+   Display > Clarity and anti-aliasing. Try: Texture filtering 16x + Smooth mip transitions;
+   Sharpening 0.3; Temporal AA on (judge with the panel closed); set resolution 200-300% with
+   Supersampling resolve on vs off. Logs: `clarity:`, `samplers (10 s)`, `xr: eye L/R fov`,
+   `device/census: multisampled`. Research and numbers: PERFORMANCE.md, Anti-aliasing and clarity.
+
+Also reported by a player: an HD texture pack plus a raised resolution freezes; most likely the
+32-bit address space (PERFORMANCE.md). No Linear tickets: the workspace is at its issue limit.
+
 ## 2026-09-26: session accepted; staging integration and next-session baseline
 
 Current state: user accepts the final local run and explicitly authorizes all session
