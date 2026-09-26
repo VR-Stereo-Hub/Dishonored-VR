@@ -872,6 +872,21 @@ void on_reset() {
     g_fmt = D3DFMT_UNKNOWN;
 }
 
+void exit_release_d3d11() {
+    int released = 0;
+    if (g_lastCtx) g_lastCtx->ClearState();
+    for (int i = 0; i < 2; ++i) {
+        if (g_readQuery[i]) { g_readQuery[i]->Release(); g_readQuery[i] = nullptr; }
+        if (g_sharedSrv[i]) { g_sharedSrv[i]->Release(); g_sharedSrv[i] = nullptr; }
+        if (g_sharedImage[i].texture) { g_sharedImage[i].texture->Release(); g_sharedImage[i].texture = nullptr; ++released; }
+        g_sharedTex[i] = nullptr;
+        g_sharedValid[i] = false; g_readIssued[i] = false;
+    }
+    if (g_lastCtx) g_lastCtx->Flush();
+    DVR_INFO("capture: exit - released %d shared texture(s) on the D3D11 side and flushed its context "
+             "(the D3D9 side is left to the game's own teardown)", released);
+}
+
 void shutdown() {
     on_reset();
     dvr::frameid::shutdown();
