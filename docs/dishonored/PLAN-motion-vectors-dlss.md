@@ -67,3 +67,27 @@ parameters in the exe). So the plan starts by proving where depth lives:
 
 Probe (1) is a single, small, measurable build. Nothing past it is worth building until it says
 where the depth is.
+
+## Result of step 1 (2026-09-26, simulator, build 15:34)
+
+**Scene depth is in the ALPHA of the eye-size A16B16G16R16F render target (D3DFMT 113), read at
+Present.** The game creates two such targets at 2750x2850 (probe candidates #6 and #7; identical
+reads, most likely the ping-pong pair of scene colour). The other float targets are not it:
+the half-size (1375x1425) RGBA16F targets read all zero at Present, the eye-size R16F and G16R16F
+targets read zero with a single bright texel.
+
+Evidence (5x5 grid, 10 %..90 % of each axis, alpha):
+- Main-menu scene: top row about 4400 (sky), middle 2..14, bottom row about 0.8.
+- In a room, head level: the top row CONSTANT across all five columns (0.2397, a ceiling: a
+  plane parallel to the view's horizontal axis has one depth per row), the outer columns constant
+  down the image (0.27 and 0.31, the side walls), the bottom row near-constant (0.67, the floor),
+  1.1..3.4 inside. That structure is what linear view depth of a box room looks like and nothing
+  else in a colour target does.
+- The falsifiable prediction: head pitched 60 deg down with nothing else changed, the centre falls
+  (1.17 -> 0.81, the floor along the line of sight) and the ceiling row stops being constant.
+  Both happened.
+
+Units: about 100 uu per unit (eye height over the floor at 60 deg down, ~80-90 uu, read 0.81).
+Calibrate in step 2 against a measured distance before anything reprojects with it.
+
+Next: step 2 shares this target's depth to D3D11 per eye image, at Present, beside the colour.
