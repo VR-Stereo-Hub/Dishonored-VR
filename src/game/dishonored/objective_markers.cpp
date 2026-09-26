@@ -219,6 +219,7 @@ __declspec(noinline) void __fastcall TaskParentStub(void* marker,void*,float x,f
     dvr::objectivemarkers::publish_task((uintptr_t)marker,x,y,w,h,valid?flags:0);
     ++g_taskCalls;if(moved)++g_taskMoved;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    if(valid && (flags&1)) dvr::hudowner::marker(marker,x,y,w,h);
     // Never pay for a line you do not print: the report takes the position mutex.
     static double nextCensusMs=0;
     const double censusNow=MaimNowMs();
@@ -249,6 +250,7 @@ __declspec(noinline) void __fastcall RuneParentStub(void* marker,void*,float x,f
     }
     ++g_runeCalls;if(moved)++g_runeMoved;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    if(valid && (flags&1)) dvr::hudowner::marker(marker,x,y,w,h);
     DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,1000,
         "hud/rune-parent: calls=%u moved=%u refused=%u want=%d ownerValid=%d guard=%s flags=%x dimensions=%dx%d xy=%.2f/%.2f -> %.2f/%.2f distance=%.2f inset=%.3f; native children retained, draw ownership not yet established",
         g_runeCalls,g_runeMoved,g_runeRefused,(int)want,(int)valid,reason,flags,w,h,oldX,oldY,x,y,distance,dvr::objectivemarkers::rune_inset());
@@ -272,6 +274,7 @@ __declspec(noinline) void __fastcall AwarenessParentStub(void* marker,void*,floa
     }
     ++g_awareCalls;
     ((TaskParentFn)kTaskParentUpdate)(marker,x,y,a,b,distance,flags);
+    if(valid && (flags&1)) dvr::hudowner::marker(marker,x,y,w,h);
     // VR-152: NEVER PAY FOR A LINE YOU DO NOT PRINT (CLAUDE.md). awareness_report
     // takes the position mutex, and it was being called on EVERY parent update -
     // 16667 of them in one run - purely to build arguments for a line that prints

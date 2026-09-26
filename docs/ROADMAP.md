@@ -9,8 +9,8 @@
 - [x] Prepare bounded read-only owner/render boundary capture.
 - [x] Capture native task identity and establish deferred command creation/replay.
 - [x] Repair pause readiness incorrectly expiring when HUD widgets fade (host tested).
-- [ ] Headset acceptance of world-pause readiness.
-- [ ] Implement clip identity transport through the real render queue.
+- [x] Headset acceptance of world-pause readiness.
+- [x] Implement clip identity transport through the real render queue (guarded candidate).
 - [ ] Replace proximity ownership; test first-frame overlaps and animation children.
 - [ ] Correct/verify marker depth using per-eye projection and engine target identity.
 - [ ] Keep cook gauge complete, correctly sized and on the accepted aim ray.

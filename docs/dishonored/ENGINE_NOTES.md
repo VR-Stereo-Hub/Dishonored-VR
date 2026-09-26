@@ -1,3 +1,42 @@
+## Semantic HUD command transport candidate (2026-09-25)
+
+Implements the boundary derived below. All native addresses/field layouts are in
+patterns.h. Sprite Display 00DF1780 is thiscall(self, context), ret4; six stolen
+bytes are one sub esp,D4 instruction. Publication 00403B00 is thiscall(allocation)
+with no stack arguments; five stolen bytes are push esi / mov esi,ecx / xor eax,eax.
+Both trampolines copy complete non-relative instructions. Consumer site 005486A5
+contains mov eax,[edx+4] / mov esi,ecx / call eax; seven bytes resume at 005486AC.
+The stub preserves ESI's original command assignment and forwards thiscall Execute's
+EAX byte count. It scopes a copied payload only around execution, restoring on SEH.
+Publication tags the command BEFORE the original publishes its write position.
+Only queue 01441B2C is tagged. 014417E8 is the native render-thread active flag;
+install refuses if it is already set. Fingerprint all three sites before patching,
+install consumer first, and only enable tagging after all three hooks succeed.
+
+HUD field locations come from reflection: manager.m_pHUD, HUD.m_pMovieClips and
+Task/Heart/Awareness/Grenade marker arrays. The native 32-clip enum maps interaction
+roots to prompt and cooking to reticle. Values are type-8 GFx DisplayObjects with
+already-resolved handle+4; no resolver or guessed virtual function is invoked.
+A root is supported only if its Display slot +74 points to the verified function.
+The root table is bounded at 288 and refreshed on the existing UI poll. Duplicate
+character memberships are ambiguous and refused. The three required info,
+interaction and cooking roots must exist before semantic routing activates.
+Live HUD identity, current array membership, load/menu generation and 250ms poll
+freshness are revalidated on each matched Display. A load/menu transition refreshes
+the live-object table. No UObject/native widget data is written.
+
+A fixed 16384-slot table probes at most eight slots, copies identity and marker
+pivot, and retires before executing the command. It never dereferences engine
+objects on the render thread. Duplicate/stale-generation/overflow metadata refuses
+ownership; an unowned publication at a reused address clears an older entry before
+publishing. Native synchronous drawing uses the Display TLS scope. Nested child,
+filter and mask work inherits that scope; cached work emitted outside it stays
+unidentified/native. This is implemented coverage, not headset proof that every
+Flash rendering path is enclosed. Roots are sorted for bounded logarithmic lookup.
+Defaults off with startup INI enable and live F10 A/B after hook installation.
+Host tests execute the extracted actual x86 publication/display/replay functions,
+including the assembly site stub, exceptions and concurrent address reuse.
+
 ## Runtime HUD identity and deferred draw transport (2026-09-25)
 
 Returned ea83dc5be captured task marker type 0x48 (managed DisplayObject), resolved

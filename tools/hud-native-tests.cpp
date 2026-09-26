@@ -1,5 +1,7 @@
 #include "core/gfx/hud_native_icon.h"
 #include "core/gfx/hud_capture_health.h"
+#include "core/gfx/hud_owner.h"
+namespace dvr::hudowner { bool semantic=false; Owner owner; bool active(){return semantic;} Owner current(){return owner;} }
 #include "core/gfx/hud_native_rune.h"
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +16,7 @@ bool upright=false,basisValid=true;float basisCo=1,basisSi=0,basisAspect=1;
 bool native_basis(float& c,float& s,float& a){c=basisCo;s=basisSi;a=basisAspect;return basisValid;}
 namespace dvr::hudlayout {
 constexpr int ElObjective=6;
+bool menu_riding(){return false;}
 bool g_nativeGameplayReference=false,g_visualRiding=false,g_menuRiding=false,g_nativeObjectives=true;
 bool& g_nativeObjectiveUpright=upright;float& g_nativeObjectiveScale=scale;
 #include "hud_native_policy.inc"
@@ -83,6 +86,16 @@ int main(){
   check(state[9][3]==1 && state[8][2]==1,"depth and homogeneous w unchanged");
  }
  check(!memcmp(state,shadow,sizeof(state)),"every shader row restored after native draw");
+ dvr::hudowner::semantic=true;writes=0;
+ {NativeIconScope scope(&dev,p,6);check(writes==0,"semantic unknown draw refuses native marker transform");}
+ dvr::hudowner::owner.root=1;dvr::hudowner::owner.generation=1;
+ {NativeIconScope scope(&dev,p,6);check(writes==0,"prompt cannot inherit marker scaling from overlapping bounds");}
+ dvr::hudowner::owner.marker=true;
+ {NativeIconScope scope(&dev,p,6);check(writes==0,"identified marker without its own pivot remains unscaled");}
+ dvr::hudowner::owner.pivotValid=true;
+ {NativeIconScope scope(&dev,p,6);check(writes==4,"identified marker with copied pivot may transform");}
+ check(!memcmp(state,shadow,sizeof(state)),"semantic native transform restores all rows");
+ dvr::hudowner::semantic=false;dvr::hudowner::owner={};
  failRow=7;{NativeIconScope scope(&dev,p,6);check(!memcmp(state,shadow,sizeof(state)),"partial write failure restores original transform");}
  writes=0;p.xcol[1]=6;{NativeIconScope scope(&dev,p,6);check(writes==0,"ambiguous transform rows refused before writes");}
  p=Probe{};p.transformed=true;{NativeIconScope scope(&dev,p,6);check(writes==0,"pretransformed vertices remain native unchanged");}

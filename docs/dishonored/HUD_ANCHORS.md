@@ -1,3 +1,34 @@
+## Native widget ownership candidate and pause acceptance (2026-09-25)
+
+World-positioned pause is now reported accepted on verified 0a4c7c254. Three
+recorded entries use RIDING Pause with the panel approximately 1.5m forward.
+The accepted capture-readiness repair is retained.
+
+[Hud] SemanticOwnership=1 enables the new native Display -> queue publication ->
+replay ownership transport. Default is 0; F10 HUD has a live comparison toggle
+once hooks were armed at startup. Configuration is independent of OwnerTrace.
+Gameplay routing bypasses every old rectangle/content/proximity association when
+this path is active. Crosshair information and all interaction roots share the
+prompt sink. Cooking and its children use the reticle sink and existing aim-ray
+angular-size policy. Task and Heart/rune/charm roots remain distinct native
+instances; awareness keeps its own family. Unknown or ambiguous work stays in the
+native image and cannot acquire another widget's anchor or native marker scale.
+Menus continue through the already accepted context-owned world-panel path.
+
+The copied marker parent pivot belongs to the command's source traversal, instead
+of reading whichever marker update is newest at D3D replay. This removes that
+transport race, but does NOT yet establish stereo target depth or eliminate a
+shared/mono native projection. Objective depth, full animated cook-gauge size,
+all cached/filter output and performance remain headset acceptance items. Do not
+claim the entire regression report fixed on the strength of the host checks.
+
+One next launch question: with the controller held on Emily in front of the
+Empress, does looking up keep name/button/action together and separate from the
+objective? A pass supports ownership at the reported overlap. A failure needs the
+matching log's hook/required-root/known/fallback counters before any new hypothesis.
+No new diagnostic-only launch is requested. OwnerTrace and CPU/GPU flicker probes
+remain off. Implementation contracts and guards: ENGINE_NOTES; cost: PERFORMANCE.
+
 ## Returned ownership boundary and flat pause (2026-09-25)
 
 Verified ea83dc5be reproduced prompt-to-objective ownership changes. Native task

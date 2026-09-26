@@ -1,3 +1,27 @@
+## 2026-09-25: native widget ownership implementation candidate
+
+User accepts world pause on 0a4c7c254; verified DLL/banner and three RIDING Pause
+entries. Logs/INI archived in primary build/hud-regression-20260925/pause-accepted.
+Implemented native HUD root identity through queued render commands on existing
+codex/vr-188-hand-hud-followups. No change to the primary collaborator checkout.
+
+The candidate replaces gameplay rectangle/hash association with validated native
+widget membership. Prompt children share prompt; cooking shares the aim reticle;
+task/Heart/awareness instances remain native. Unidentified work stays native.
+Queue lifecycle guards cover address reuse, generation, saturation and exceptions.
+SemanticOwnership defaults off; intended local candidate INI adds only that key=1
+against the accepted pause pair. OwnerTrace remains 0; recorder/pixels/legacy OFF.
+
+Validation: optimized x86 build; 49 ownership checks including actual assembly
+stub and 100000 cross-thread transfers; 123 native-HUD, 503 old-routing and 107
+menu-policy checks. Host timing limits in PERFORMANCE; native derivation and
+contracts in ENGINE_NOTES; behavior and remaining acceptance in HUD_ANCHORS.
+One launch question is Emily prompt cohesion while pitching the head with the
+controller held on her. Objective depth, full gauge behavior and in-game cost
+remain open; do not claim all original regressions resolved. No game launched.
+Build/install hash record follows after candidate preparation. No merge authorized.
+Prior Linear diagnostic-disclosure approval remains unresolved; keep new work local.
+
 ## 2026-09-25: ownership capture returned; pause readiness repair
 
 Verified returned ea83dc5be DLL/hash/banner and archived logs plus full INI under

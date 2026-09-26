@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include <atomic>
+#include "core/gfx/hud_owner.h"
 namespace dvr::hudclass {
 namespace { std::atomic<bool> g_ownerTrace{false}; }
 void set_owner_trace(bool on) {
@@ -1072,6 +1073,10 @@ bool native_basis(float& co,float& si,float& aspect) {
 struct NativeIconScope {
     IDirect3DDevice9* dev;int rows[4]{},count=0;float saved[4][4]{};
     NativeIconScope(IDirect3DDevice9* device,const Probe& p,int element):dev(device) {
+        if(dvr::hudowner::active() && !dvr::hudlayout::menu_riding()) {
+            const auto owner=dvr::hudowner::current();
+            if(!owner || !owner.marker || !owner.pivotValid) return;
+        }
         const float scale=dvr::hudlayout::native_objective_scale(element);
         const bool wanted=dvr::hudlayout::native_objective_upright(element);
         float co=1,si=0,aspect=1;
@@ -1095,7 +1100,7 @@ struct NativeIconScope {
             if(FAILED(dvr::frame::orig_set_vs_const(dev,rows[i],changed[i],1))) {restore();return;}
         }
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
-            "hud/native-icon: scale=%.3f rect=%.3f/%.3f/%.3f/%.3f; game target/color retained, heuristic identity",
+            "hud/native-icon: scale=%.3f rect=%.3f/%.3f/%.3f/%.3f; game target/color retained, routing owns identity",
             scale,p.bbox[0],p.bbox[1],p.bbox[2],p.bbox[3]);
     }
     void restore() {for(int i=0;i<count;++i) dvr::frame::orig_set_vs_const(dev,rows[i],saved[i],1);count=0;}

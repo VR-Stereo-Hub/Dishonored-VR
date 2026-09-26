@@ -1,3 +1,29 @@
+## Semantic HUD transport candidate cost (2026-09-25)
+
+Optimized x86 host tests of production CommandOwners and extracted replay wrapper:
+1,000,000 iterations measured about 22.49 ns per put/take and 17.93 ns per unowned
+wrapper around a trivial native command. Earlier repeats were 21.26/15.14 ns.
+100,000 acknowledged cross-thread address reuses preserve payload identity. These
+are host microbenchmarks, not engine FPS, full hook cost or GPU measurements.
+
+Unowned command consumption has an empty-table atomic fast path. Probe misses use
+loads before compare/exchange; they do not execute eight locked CAS operations.
+The transport allocates a fixed table once, with no per-command allocation or log.
+Publication reads the borrowed native allocation record under SEH, avoiding a
+VirtualQuery per command. Root discovery/membership still range-checks pointers.
+Display performs bounded binary search under a shared lock, then live-membership
+validation only for a recognized root. The existing UI poll rebuilds at most 288
+root records; full GObjects refresh happens only on load/menu generation changes.
+Range checks, registry locking, source-publication hook cost and changed capture
+work are outside the tiny queue benchmark, so do not extrapolate a full FPS claim.
+
+New diagnostic output is one aggregate ownership line per three seconds while
+active, plus startup/refusal messages. Counters are fixed atomic increments. No
+stack captures are armed, no GPU readbacks are added, and flicker CPU recorder,
+pixel diagnostics and legacy code compile OFF. This bounds instrumentation work
+but does not settle the earlier overall performance report; same-save/view GPU
+and native-versus-pereye attribution remains open after functional acceptance.
+
 ## Returned bounded owner capture cost (2026-09-25)
 
 Verified ea83dc5be run 48242328 onward. Exactly three renderer snapshots reported

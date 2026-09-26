@@ -205,6 +205,7 @@ static void UiSurfacePoll() {
     auto* world=CtObject(pc,g_usWorld);
     auto* game=CtObject(world,g_usGame);
     auto* manager=CtObject(game,g_usManager);
+    dvr::hudowner::poll(manager);
     bool known=manager && loadKnown;
     if(!known) DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,5000,
         "ui/surface: refusing unknown chain engine=%p player=%p pc=%p world=%p game=%p manager=%p overlay=%p loadKnown=%d",
