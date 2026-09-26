@@ -123,7 +123,12 @@ static void CineFovBegin(bool scene) {
     }
     auto* cam=(uint8_t*)g_cfOwner[0].value.obj;
     float* field=(float*)(cam+g_cfOffset);
-    const float drawTarget=gameplay && RangeReadable(field,4)
+    // A store is opened from a conversation, and the game keeps the dialogue's
+    // narrow camera (about 32 deg) under it. Scaled as gameplay zoom that drew
+    // the world behind the floating store panel in a small box (42 deg claimed).
+    // The store is not a zoom: frame it like a scene.
+    const bool store=!strcmp(state.state[0],"StatePlayerMasterInStore");
+    const float drawTarget=gameplay && !store && RangeReadable(field,4)
         ? dvr::cine_fov::gameplay_target(*field,target,requested)
         : (CineFovMatchEnabled() && requested>0 ? requested : target);   // a scene frames like gameplay
     if (!RangeReadable(field,4) || !g_cfScope.begin(field,drawTarget,CfValidate())) {
