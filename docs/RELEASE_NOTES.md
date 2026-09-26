@@ -1,3 +1,17 @@
+## Unreleased staging integration: accepted HUD/hand/capture fixes (2026-09-26)
+
+- Keep HUD widget pieces together using native clip ownership through queued draws;
+  restore marker size controls, lower hints and independent low-health potion capture.
+- Preserve wrist calibration across cinematic transitions and reduce periodic hand
+  discovery probing associated with walking catch-up.
+- Use texture-backed shared capture with matching probe formats; the affected player
+  reports the severe single-digit startup slowdown resolved.
+- Retain scoped cinematic eye classification and bounded queued-render progress grace.
+  Remote early prison judder remains awaiting its latest candidate result.
+- Test-only flight history/pixel instrumentation stays OFF in ordinary builds.
+
+No release/tag is declared by this staging integration.
+
 ## Unreleased
 
 ### Snap turn (VR-219, 2026-09-25, not yet judged in the headset)

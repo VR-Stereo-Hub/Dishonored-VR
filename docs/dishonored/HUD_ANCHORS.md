@@ -1,3 +1,12 @@
+## 2026-09-26: accepted semantic ownership baseline
+
+Local headset reports accept cohesive widget grouping, marker size controls, lower
+hint placement and finally the independent low-health D-pad/potion correction on
+95ae3f7af. Final6bc58a449 run retains this HUD behavior and accepts walking smoothness.
+Preserve the direct live movie owner route and original rain treatment. Earlier
+private tutorial panel, +90 link and cross-movie census gates below are failed
+hypotheses, not next actions. Global/FX and DLC05 coverage remains unverified.
+
 ## 2026-09-25: potion activation veto identified in returned log
 
 Returned36a8d7f95 still leaves the icon peripheral. It never captured the potion:

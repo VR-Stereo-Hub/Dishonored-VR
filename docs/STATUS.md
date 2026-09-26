@@ -1,3 +1,39 @@
+## 2026-09-26: session accepted; staging integration and next-session baseline
+
+Current state: user accepts the final local run and explicitly authorizes all session
+work into staging. PR132 consolidates PR131 cinematic progress/scoped-axis work and
+PR128 texture-backed shared capture, preserving their commits and branches. Existing
+staging features, including trigger-only sword animation, are retained. VR-Main is
+not a merge target. Historical candidate/pending instructions below are superseded.
+
+Accepted locally: hand alignment, cohesive semantic HUD ownership, marker sizing,
+lower hint alignment, standalone low-health potion placement, world pause/submenus,
+and removal of the reported periodic walking catch-up. Shared-capture slowdown fix
+has affected-player reported acceptance. Remote VR-229 early prison judder still
+awaits the separate6187b2fd4 package result; do not infer that verdict from local runs.
+
+Installed and retained: v1.0.1-50-g6bc58a449, optimized x86, recorder/pixels/legacy OFF.
+DLL SHA256 42a68dc554ebef2cafd27546567a80baf2ae64dfc2e8dc2865b950b0894526db.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7,
+1535 CRLF, zero bare LF. Installed manifest: primary build/playtest-candidates/installed.json.
+Latest banner matched; logs/full INI archived at primary
+build/hud-regression-20260925/walk-accepted-002458. No new installation or game launch.
+The integrated source additionally contains the latest queued-render correction
+and shared-capture fix; it is build/host validated, not the installed build50 binary.
+
+Validation: optimized x86 build;97 semantic-owner checks and100000 transfers;
+123 native HUD,503 routing,15 native identity,6 pointer-scan checks;
+1686 normal/1687 diagnostic pairing,255 recorder,30054 cinematic FOV,
+17 handoff,138 animation checks; native interop162 pixel checks/three resets;
+default writer/profile/golden byte comparison. Full results in local build/integration-*.
+Performance acceptance and nonzero scan costs are recorded in PERFORMANCE.md.
+
+Next steps: read this entry and docs/dishonored/NEXT_SESSION.md, then take the user's
+new task. Start a new codex branch/worktree from fetched origin/staging; do not switch
+Claude's primary local/test-282-283 checkout. Preserve current DLL/INI baseline,
+rain settings, trigger-only policy and HUD ownership. Do not reopen failed potion
+position/census guesses. No extra headset launch required for this handoff.
+
 ## 2026-09-26: potion accepted; periodic walking hitch candidate
 
 Matched95ae3f7af run and installed DLL; archived current/previous log and full INI

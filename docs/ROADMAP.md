@@ -13,11 +13,11 @@
 - [x] Implement clip identity transport through the real render queue (guarded candidate).
 - [x] Replace proximity ownership; local overlapping HUD cohesion accepted on4c38bf526.
 - [x] Accept marker size-control and lower context/special hint corrections.
-- [ ] Accept separate low-health tutorial placement; clarify changed rain surface.
-- [ ] Correct/verify marker depth using per-eye projection and engine target identity.
-- [ ] Keep cook gauge complete, correctly sized and on the accepted aim ray.
+- [x] Capture independent low-health potion movie; restore accepted rain settings.
+- [x] Correct marker target/depth and accept local HUD consistency.
+- [x] Retain semantic cook-gauge ownership; final local HUD report accepted.
 - [ ] Same-save/view native versus pereye cost attribution, then targeted performance fix.
-- [ ] Headset acceptance; no merge authorization.
+- [x] Final local headset acceptance and explicit session-wide staging merge authorization.
 
 ## Local hand/HUD follow-ups (2026-09-25)
 
@@ -27,9 +27,9 @@
 - [x] Keep observed interaction content above broad task-text proximity ownership.
 - [x] Production-helper regressions, normal optimized build, defaults and export checks.
 - [x] Measure recorder peak1.606ms; compile it out of the local follow-up.
-- [ ] Local hand alignment after scene exit on the follow-up build.
-- [ ] Interaction button/action/name remain together through head pitch.
-- [ ] Trigger animation and physical-swing suppression confirmed on the same build.
+- [x] Local hand alignment after scene exit accepted.
+- [x] Interaction button/action/name cohesion accepted.
+- [x] Trigger-only animation policy retained; local follow-up accepted.
 - [ ] Remote scoped-eye cinematic acceptance (separate existing ZIP).
 
 ## Prison judder follow-up (VR-229, 2026-09-25)
@@ -40,7 +40,7 @@
 - [x] Production policy/pairing/cinematic regressions, including old-policy control.
 - [x] Spread existing history output across presents; same evidence, bounded formatting.
 - [ ] Affected-player prison stability from scene start through gameplay.
-- [ ] Local hand/HUD acceptance on separate installed1ed638c01 (PR132).
+- [x] Local hand/HUD follow-up accepted through final installed6bc58a449 (PR132).
 
 ## Prison cinematic acceptance candidate (VR-229, 2026-09-25)
 

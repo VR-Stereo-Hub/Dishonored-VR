@@ -1,62 +1,36 @@
-## Installed for next test: F10 build736 (2026-09-23)
+# Next session: accepted September 26 baseline
 
-Build736-gab7023884 is installed with explicit approval. Full ini is byte-identical
-and CRLF verified; backups and the single Debug-navigation test are in STATUS top.
-No game launch or merge. Prior prepare-only entries below are historical.
+Read CLAUDE.md fully, only the three newest STATUS sections, and this handoff.
+The September 25-26 session is consolidated through PR132 into staging, including
+PR131 cinematic work and PR128 shared-capture compatibility. Finalized branches are
+retained. Start new work from fetched origin/staging in an isolated codex worktree.
+The primary checkout belongs to a concurrent collaborator; do not switch or reset it.
 
-## Current continuation: accepted F10 size and profile (2026-09-23)
+The user accepted the local HUD/hand/menu/walking fixes. Installed build remains
+v1.0.1-50-g6bc58a449; see STATUS for DLL/INI hashes, archive and installed manifest.
+Do not substitute the newly integrated build without the task requiring it. Full INI
+compatibility, whole-file diff and CRLF verification apply on every installation.
+Never launch the game; the user does that. One defined question per needed launch.
+No subagents. Credit commits to BioVRDev. No merge to staging without new explicit
+permission for new work, and never merge to VR-Main. Retain finalized branches.
 
-Build733 remains installed and its visual direction is headset accepted. The current
-follow-up fixes alignment/section gaps/tab navigation and adopts the accepted 649x685
-layout and 1.00 text. All saved values are archived in f10-tuned-2026-09-23.ini; shipped
-gameplay/display defaults match, retaining portable runtime discovery. See STATUS top.
-Prepare only; future installation still needs explicit approval. PR #109 stays unmerged.
+Preserve semantic HUD ownership through native Display/queue/replay. The low-health
+D-pad/potion is an independent mode4 power-wheel movie; its native sprite movie owner
+is at+BC, not+90. Do not restore the failed all-HUD-clip census prerequisite or private
+tutorial panel. The final direct-owner correction95ae3f7af is headset accepted.
+Rain remains LensDistance18/KeepSize0 and the accepted profile. Physical swings
+remain tracked while trigger attacks can animate (HandAnimMeleeSwing0).
 
-## Current continuation: F10 art refinement (VR-206, 2026-09-22)
+Walking fix6bc58a449 replaces repeated raw-slot probes with current live-object
+membership and a whole-range check plus guarded boundary fallback. Cadence and
+selection scope are unchanged. Final run accepted;269 measured collections average
+6.349ms, maximum9.653ms. This is not zero overhead or a controlled whole-frame A/B.
 
-Use the newest docs/STATUS.md entries. Branch f10-improvements / draft PR #109 sits on
-finalized, unmerged rain-fixes / PR #108. Revised menu art/layout is prepared for review.
-Build733 installed with explicit approval. No game launch; all ini settings preserved,
-with existing mixed line endings normalized to CRLF. See STATUS for the archive and test.
+Remaining scope: VR-229 remote early prison judder awaits the6187b2fd4 package
+verdict. Scoped eye separation was reported fixed. The latest queued-progress code
+is included in staging but was not in installed build50. Treat returned evidence by
+its banner/hash. Global/FX and DLC05 HUD families remain selectively unverified;
+do not blanket-capture them or claim universal HUD coverage. See HUD_ANCHORS,
+FLICKER_REFERENCE and PERFORMANCE for the failed hypotheses and evidence.
 
-Desktop rendering, layout bounds and native widget event checks cover normal, small,
-large-text, tooltip and scrolled views. Headset/controller acceptance remains open.
-The optional outdoor-rain-from-shelter feature is deferred as VR-205, separate from these
-UI changes. Do not resume older menu freshness work from the historical notes below.
-
-## Current continuation: menu freshness (2026-09-22)
-
-Use the top entry in docs/STATUS.md and FLICKER_REFERENCE.md for VR-178.
-Combined PR build650 accepted except menu cadence/mono and left-hand stepping.
-The separately gated menu freshness candidate needs its headset verdict before merge.
-Older handoff entries below are historical; do not roll back this combined build.
-
-## Selective cleanup for SteamVR continuation (2026-09-19)
-
-Latest user instruction supersedes the exact486-only handoff: remove ONLY failed
-physical choke and split/attached/model health-mana experiments. Keep possession,
-rain/lens, wheel blackout, crash/stability, weapon models/animations, reticle UI
-and defaults, and SteamVR diagnostics. Original combined vitals remains.
-
-Production code is c01058558 plus305f1d3dc reticle defaults and the two source
-diffs from e30554204 SteamVR diagnostics. Release profile preserves all unrelated
-current settings; only Choke section and VitalsMode/VitalsDebug are removed.
-Research/code remains in codex/archive-hud-choke-20260919 and tracked archive.
-Do not restore or revive the experiments. No branch history rewritten.
-
-Installed vr33-hands-working-512-g3f4d323e0 from clean source commit 3f4d323e0.
-Release build, lint, 908 HUD checks and 9 export checks passed. Installed DLL
-and INI hashes independently match installed.json; the entire accepted486 INI
-is byte-identical, with CRLF and explicit VDXR selection preserved. Prior DLL,
-INI and both logs archived under build/playtest-candidates/installs/
-20260919-125236-071385. Build512 has not been headset-tested.
-SteamVR inversion remains open; retained diagnostics do not claim it fixed.
-No game or simulator launch, no PR/merge. Continue on codex/hud-improvements.
-
-Next: verify current build/playtest-candidates/installed.json and log banner.
-Continue native SteamVR investigation from e30554204. Do not use the old
-exact486-only branch-split instructions: reticle work is explicitly retained.
-Do not change runtime or revive whole-image flips without a targeted test.
-Read only current STATUS and relevant ENGINE_NOTES/FLICKER_REFERENCE entries.
-The retained SteamVR audit compares head/eye orientations at one predicted time.
-All usual log archive, full INI comparison, CRLF, liveness and no-launch rules apply.
+New task: supplied by the user at the beginning of the next session.

@@ -1,3 +1,14 @@
+## 2026-09-26: local walking catch-up accepted; remote cinematic scope separate
+
+Surface: whole-world straight-walking hold/catch-up, not HUD grouping or eye fusion.
+Matched installed/log build6bc58a449; final user playtest accepts the correction.
+Candidate traversal optimization and bounded collect-cost measurements are in
+PERFORMANCE.md. Retain the nonzero measured scan cost and uncontrolled-run limits.
+PR132 consolidates PR131 and PR128 for explicitly authorized staging integration.
+Remote VR-229 early prison judder remains open pending6187b2fd4; local acceptance
+must not be substituted. Latest queued-interval grace is integrated source, not the
+installed build50. No game launch or replacement installation during integration.
+
 ## 2026-09-26: straight-walking periodic hitch, separate from HUD cohesion
 
 Surface/route: whole-world motion timing/cadence, not HUD ownership or a frozen

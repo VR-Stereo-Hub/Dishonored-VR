@@ -1,3 +1,17 @@
+## 2026-09-26: walking discovery correction accepted locally
+
+Installed DLL hash and log banner match v1.0.1-50-g6bc58a449. Final local report
+accepts the run after the periodic walking catch-up correction. Archived current and
+previous log/full INI: primary build/hud-regression-20260925/walk-accepted-002458.
+Across64 printed collect-cost windows,269 collections have weighted mean6.349ms
+and maximum9.653ms, including fresh live table plus discovery. These windows include
+changing scene/state and are not a controlled whole-frame comparison. The new
+counter had no old-build equivalent; no exact speedup or zero-overhead claim.
+The750ms schedule remains; scan membership/range probing changed. Preserve the fix.
+CPU flight recorder/pixel/legacy flags are OFF in the accepted local build. Integration
+retains the opt-in recorder with one history frame formatted per Present. Normal
+build validation does not establish remote end-to-end diagnostic overhead.
+
 ## 2026-09-26: periodic walking hitch, candidate discovery optimization
 
 Verified installed95ae3f7af DLL/banner. Archives: primary
