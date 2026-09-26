@@ -2170,3 +2170,210 @@ paced simulator's frame rate with the feature's GPU cost. Next: one walking/lean
 A/B with Temporal held on, vector option toggled, panel closed; judge trails and edge stability.
 Local archives (gitignored): `build/mv-session/mirror-normal-wins.log`,
 `translation-corrected.log`, `vector-missing-depth-gate.log`, and `final-vector-run/`.
+
+
+## 2026-09-26: full TAA audit (source 87a892cef, no runtime changes)
+
+Scope: the optional resolve -> temporal -> sharpen chain, per-eye history, pose/FOV
+provenance, capture/depth matching, shared-resource synchronization, controls, reset/failure
+recovery, memory and GPU cost. Both rotation-only TAA and experimental depth-vector TAA
+were examined. No game was launched and no installed DLL or INI was changed for this audit.
+This supplements, rather than invalidates, the earlier simulator geometry measurements.
+Those runs establish a useful correspondence improvement in that scene, not production readiness.
+
+### Evidence and reproducibility
+
+Run `tools/taa-audit-host.ps1`: x86 native host, production `clarity_gpu.cpp`, no game.
+It includes the existing 54 checks and 8 audit characterizations: 62 checks, zero failures.
+Several new checks deliberately PASS when a known limitation is reproduced. They are
+characterization tests, not assertions that the current output is desirable. Convert their
+expectations when fixing the respective defect. Local outputs: `build/taa-audit/results.txt` and `results-final.txt` in that directory.
+
+- Stationary isolated white pixel on black: first frame 1.000 gamma; after 40 frames,
+  0.729412 gamma / 0.491021 linear. Its position and the input never changed. The temporal
+  variance box excludes the current bright sample, so even perfectly corresponding history
+  gets clipped. This is a reproducible loss of fine bright detail with Temporal enabled,
+  independent of the new vector option. Default sharpening cannot restore lost energy.
+- Static slanted edge: coverage error 0.212219 both raw and after 40 identical frames.
+  No new sample positions means no static supersampling. Head micro-motion remains the
+  source of sample diversity; there is no deliberate projection jitter.
+- A one-pixel shift of a 0.2/0.8 checker pattern, with zero camera motion and valid depth:
+  the new dark pixel is 0.705882 and the new bright pixel is 0.384314. Mean gamma error
+  0.460784. Invalidating history returns the correct picture within 2/255. This isolates
+  unmodelled object/image motion: neighbourhood clipping does not mean 'show current frame'.
+- One missing-depth frame after both eyes had vectors: intermediate bytes drop from
+  1,228,800 to 819,200 at 160x160. Both vector textures are discarded, not just the
+  unavailable eye's input. Subsequent vector frames allocate them again.
+- Existing positive controls still pass: independent plane geometry predicts four pixels,
+  vector error about 0.001 pixel, translated TAA error 0.00085 versus rotation-only 0.09700;
+  turn direction, eye isolation, invalid/NaN depth, sky, output resizing, snap-turn/Blink
+  rejection, gamma round-trip, resolve and sharpen all pass their existing cases.
+
+### Prioritized findings
+
+**P1 - Thin stationary detail loses brightness.** `clarity_gpu.cpp:195-199`: the
+mu +/- sigma box does not include the current sample by construction. One bright sample
+among eight black neighbours gives a maximum near 0.425 in linear luminance, even when
+history is exactly the current image. The blend then converges below the input. Repair
+history validation so an exactly matching sample is preserved; evaluate centre-inclusive
+bounds or confidence-dependent clipping against BOTH thin-detail and moving-pattern tests.
+Simply widening all bounds trades this loss for more trails. Add saturated RGB and line
+patterns before accepting a change. This affects both TAA modes.
+
+**P1 - Depth reuse has no independent consumer-completion contract.**
+`depth_probe.cpp:307-326,368-384`: the producer cycles three slots and only waits for the
+D3D9 copy before exposing an SRV. It never fences the D3D11 read before reusing a slot.
+Normal shared-colour delivery can indirectly protect this through its two-slot read fence;
+that does not establish safety for every path. Deferred capture has no such shared-colour
+read fence, and `capture.cpp:427-440` proceeds after a 10 ms read timeout. A queued D3D11
+read can therefore overlap a later D3D9 overwrite on those paths. This is a source-level
+synchronization defect, NOT a corruption reproduced by this audit's standalone host.
+Give depth slots explicit read-done/read-wait ownership and refuse reuse on timeout. Also
+check the HRESULT of `Issue(D3DISSUE_END)` before publishing the slot. The broader colour
+capture timeout behavior deserves its own fix; a timeout is not evidence of completion.
+
+**P1 - The camera record is not guaranteed to carry the rendered eye's position.**
+`scene_draw.cpp:393-410`, `pose_record.cpp:172-185`, `clarity.cpp:61-78`:
+pass 2 writes the right eye's camera offset, but ordinary gameplay does not republish
+that position into the camera record. The three republish helpers are conditional cinematic/
+menu scopes. `pose::open` copies the last globally published camera; the eye tag separately
+carries the actual `wrotePos`. TAA uses the copied camera position, ignoring the tag position.
+A constant offset cancels during pure translation, which helps explain why that test can
+pass; head rotation changes the eye offset and exposes the distinction. Capture the actual
+per-eye view position alongside the rendered colour/depth, preserving the rotation sample's
+existing provenance. Do not silently replace the shared tracking record with live globals.
+Visual magnitude and the effect on the coarse scale calibration still need measurement.
+
+**P2 - Stale history can survive a reset or a long capture gap.**
+`reentry.cpp:517,659`, `clarity_math.h:116-145`: a non-fresh grab skips clarity after the
+first output; D3D9 reset clears capture but not clarity. The history guard checks dimensions,
+FOV and pose jumps, but has no scene epoch, delivered-frame age or camera identity. A same-size
+reset/cut near the same pose can accept pre-transition history. Untagged *fresh* images and
+explicit option changes do invalidate correctly. Add lifecycle invalidation and a bound on
+same-eye frame age; test same-pose textured cuts, not only the existing flat-white cut.
+
+**P2 - Speculative depth serials can select an older present.** `depth_probe.cpp:324,370`:
+every present assigns `capture::serial()+1`, but `capture.cpp:583-590` returns with capture
+off without incrementing it. If serial S is paused for several presents, slots 0/1/2 can all
+hold S+1. On resume, a fresh slot 0 still loses the lookup to the older slot 2 because lookup
+takes the last matching array entry. This is a deterministic consequence of the bookkeeping,
+not an observed gameplay incident. Assign a unique render/copy identity and commit its
+association after a successful grab, or explicitly invalidate superseded duplicate serials.
+
+**P2 - Missing depth/reset causes avoidable allocation churn.** `clarity_gpu.cpp:386`:
+`!useMotion` releases both vector targets. Clarity supplies depth only when history is valid,
+so ordinary history resets trigger this as well as real depth misses. Keep appropriately
+sized targets across transient fallbacks; free them on feature disable, resize or shutdown.
+Separate 'feature enabled' from 'this frame has usable depth'. The old test calling this
+release a success verifies behavior, not whether that behavior is efficient.
+
+**P2 - Failure latches do not recover through expected lifecycle paths.**
+`depth_probe.cpp:251-274,302`: allocation failure sets `g_shareFailed`; reset does not clear
+it, nor do Temporal/MotionVectors toggles. Only the diagnostic `set_share` clears it.
+`clarity_gpu.cpp:229,326-336` similarly keeps `failed_` through shutdown, although the outer
+clarity wrapper resets its init-attempt flags. Add bounded, explicit recovery on device/
+resource reset or a deliberate feature retry; do not retry allocations every frame under
+memory pressure. `LoadLibraryA` references in clarity/calibration initialization also lack
+matching `FreeLibrary` calls, a smaller repeated-lifecycle leak.
+
+**P2 - Projection is read live rather than paired to the image.** `clarity.cpp:66-72`
+reads the current global rendered HFOV while consuming a possibly deferred colour capture.
+The shaders use the same tanH/tanV for current unprojection and previous projection. The
+0.2% history reset threshold catches larger changes only when those sampled values change;
+it cannot prove either projection belongs to its image. Stamp projection/FOV and dimensions
+with each eye capture, and use separate previous/current projection parameters. No wrong-FOV
+frame was reproduced here; this is a provenance gap during FOV/zoom changes.
+
+**P2 quality limitation - Camera vectors are not object vectors or visibility tests.**
+`clarity_gpu.cpp:159-200`, `clarity.cpp:394`: current depth reconstructs static-world camera
+motion only. There is no previous depth, disocclusion test, moving-object velocity or reactive
+mask. Valid depth also disables the old camera-motion reduction of history globally, including
+unreliable pixels. The checker test demonstrates the remaining trail class. First add depth
+history and a disocclusion/confidence test, plus conservative colour-change responsiveness;
+then investigate object vectors. Depth rejection alone cannot solve a moving surface at
+unchanged depth. The mod's separately rendered hand overlay and F10 panel are already drawn
+AFTER TAA; native game weapons, particles and surviving scene HUD are the relevant risks.
+
+### Performance and quality improvements, ordered by payoff
+
+1. Fix resource ownership and per-eye view provenance before tuning blend or depth scale.
+   Keep the experimental option default off until these and transition tests pass.
+2. Fix stationary-detail attenuation and add per-pixel history confidence. Keep antialiasing
+   strength separate from rejection of unreliable history; a stronger global blend is not
+   a substitute for visibility information. A frame-time-aware blend is worth an A/B across
+   refresh rates, since the current fixed coefficient changes response time with Hz.
+3. Fuse camera reprojection into the temporal shader when no external vector consumer needs
+   a texture. Today only temporal consumes it in production. This can remove the vector pass
+   and both vector render targets. If materialized vectors are needed for future DLSS, retain
+   that path as a separate consumer requirement. At minimum use one transient vector target;
+   RG16F with a defined invalid encoding is another option, subject to precision tests.
+4. Add explicit GPU/CPU timing around depth copy and its fence wait. `frame_hooks.cpp:170`
+   starts depth work before `perf::kEntry` and before the conversion scope. Existing clarity
+   conversion timings therefore do not attribute the full interop cost. `depth_srv_for` can
+   poll with FLUSH for up to 20 ms, longer than a 90 Hz frame. Prefer a completed matching
+   slot or a controlled fallback; measure fence wait percentiles and fallback frequency.
+5. Depth edges currently use a nearest depth sample even when colour has been resolved over
+   a wider footprint. Compare nearest-foreground depth/dilation against silhouette reference
+   scenes; indiscriminate dilation can drag backgrounds. Previous-depth validation should be
+   in place before selecting a policy.
+6. Deliberate, stereo-consistent projection jitter could improve a motionless view, but this
+   is an engine/projection change with culling, reprojection and HUD consequences. The current
+   no-jitter choice is an intentional limitation, not a sign error. Do it after correctness
+   and visibility, with paired eye samples and explicit jitter subtraction.
+7. Profile gamma decoding and history sampling before simplifying them. The temporal shader
+   fetches the centre separately from its 3x3 neighbourhood; reusing the centre may save work
+   if the compiler has not done so. Nine bilinear Catmull-Rom history taps are justified by
+   moving-edge quality; reducing them needs a negative control, not just a lower instruction
+   count. The reciprocal-luminance blend can bias changing brightness and merits a coloured/
+   HDR-content test; this audit does not classify that deliberate weighting as a defect.
+
+### Measured pass cost and memory
+
+Hardware host: RTX 4070 Ti SUPER; production shaders and RGBA16F source depth. At
+2750x2850, one eye, median of 24 GPU timestamp samples after 12 warmups in each mode.
+The final rerun also verifies the stationary-detail test with default sharpening enabled:
+
+| Chain | First recorded run, ms | Final rerun, ms |
+|---|---:|---:|
+| Sharpen 0.4 only | 0.5161 | 0.5161 |
+| Rotation TAA + sharpen | 2.2897 | 1.6404 |
+| Vector TAA + sharpen | 2.8498 | 2.7822 |
+
+These are synthetic flat-image shader timings, not a headset frame-budget prediction.
+They exclude uploads, CPU readback, D3D9 depth copy/fences, the game and compositor. GPU
+clocks, cache behavior and workload affect the result. The extra vector path measured about
+0.56-1.14 ms per eye across these two runs; the variation rules out a precise cost claim.
+Shader fusion must be measured rather than assumed to save all of that difference.
+An initial exploratory run used RGBA32F test depth and is deliberately excluded from this table.
+
+Without resolve, four RGBA16F histories cost 239.2 MiB and two vector targets 119.6 MiB at
+2750x2850. The three shared RGBA16F depth slots cost another 179.4 MiB: **538.2 MiB total**
+for these nine textures, before colour capture, eye outputs, driver overhead or other game
+allocations. At twice that pixel count this is about 1.05 GiB. These are texture-storage
+estimates, not a claim that all bytes are committed to CPU address space. Still material in
+this 32-bit title. Resolve lowers output history/vector sizes, but retains full-size depth
+and adds its own intermediates. Track both clarity and depth allocations in one budget.
+
+### Remaining acceptance gates and sources
+
+No runtime fixes were installed in this audit. Next implementation tests should cover
+same-pose textured cuts, capture off/resume with duplicate depth serials, reset and allocation
+failure recovery, deferred/shared capture under delayed GPU completion, per-eye rendered
+view provenance during head turns, coloured detail, disocclusion and native moving objects.
+Then do a headset A/B for static detail, walking/leaning trails and frame-time percentiles.
+Avoid interpreting simulator pacing or vector-completion counters as image-quality evidence.
+Depth scale 200 remains a scene-specific coarse minimum: calibration candidates can reject
+different pixel populations near image borders, and the discovered pose-provenance issue
+must be resolved before deriving exact engine units or hardening the sky cutoff of 1000.
+
+Primary background references (recommendations above are engineering inferences applied to
+this code, not benchmark claims from these sources):
+
+- [Yang, Liu and Salvi, Eurographics 2020 TAA survey slides](https://www.leiy.cc/publications/TAA/TAA_EG2020_Talk.pdf):
+  sampling jitter, reprojection, validation and accumulation are separate components;
+  static-camera vectors do not describe animated objects. Supports the staged quality plan.
+- [Microsoft OpenSharedResource](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-opensharedresource):
+  D3D9/11 sharing restrictions and submitting updates across devices. Resource sharing does
+  not itself provide the per-slot ownership policy this depth ring needs.
+- [Microsoft D3D9 queries](https://learn.microsoft.com/en-us/windows/win32/direct3d9/queries):
+  issued/signaled query states; a polling timeout must not be mistaken for completion.

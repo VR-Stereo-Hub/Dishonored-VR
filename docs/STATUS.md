@@ -1,3 +1,17 @@
+## TAA audit (2026-09-26) - findings recorded, runtime unchanged
+
+Audited `87a892cef` on `claude/motion-vectors`. Full evidence, ranked findings and improvement
+plan are in [PERFORMANCE.md](dishonored/PERFORMANCE.md#2026-09-26-full-taa-audit-source-87a892cef-no-runtime-changes).
+`tools/taa-audit-host.ps1` runs 62 checks against production shaders, including 8 new
+characterizations. Confirmed stationary white detail falls to 49% linear brightness and
+colour clipping retains large trails on moving textured patterns. Source review found
+per-eye position provenance, depth reuse synchronization, reset/age invalidation, duplicate
+depth serial, transient allocation and failure-recovery gaps. Normal shared-colour fences
+indirectly protect depth reuse; deferred capture/timeouts are not covered by that contract.
+Synthetic GPU timings and the 538 MiB no-resolve texture budget are recorded with limits.
+No game launch, DLL install or INI edit for this audit. Existing diagnostics remain off.
+Implement correctness fixes before treating the previous simulator smoke as headset readiness.
+
 ## Motion vectors for TAA (2026-09-26) - built and simulator-verified, not merged
 
 Branch `claude/motion-vectors`, worktree `build/worktrees/mv`. The MIRROR TEST ruled out

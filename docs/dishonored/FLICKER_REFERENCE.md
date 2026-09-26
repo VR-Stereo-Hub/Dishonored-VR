@@ -1,3 +1,13 @@
+## 2026-09-26: TAA audit identifies history-quality and transport gaps
+
+Follow-up source/GPU audit of the experimental path: unchanged stationary bright detail
+loses about half its linear intensity, and moving textured patterns retain strong history.
+These are temporal accumulation issues, not proof of stereo eye swaps. Per-eye position
+provenance, reset/age guards and depth reuse also need correction before headset acceptance.
+Full ranked findings and reproducible host tests are in
+[PERFORMANCE.md](PERFORMANCE.md#2026-09-26-full-taa-audit-source-87a892cef-no-runtime-changes).
+No runtime code or installed settings changed for this audit.
+
 ## 2026-09-26: experimental TAA walking smear, motion vectors built
 
 Surface: temporal history in the eye colour image while walking/leaning, separate from
