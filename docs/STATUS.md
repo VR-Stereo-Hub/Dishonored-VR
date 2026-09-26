@@ -1,5 +1,17 @@
 ## 2026-09-25: quick-potion ownership correction; tutorial trial rejected
 
+Installed v1.0.1-44-gb52c0c579; optimized build, lint and nine exports pass.
+DLL SHA256 fc0ab766a28d82d4e1245473171d77e8209aa0de1f67a17efde561e6b3caae5e.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Full byte comparison with expected and backup confirms only tutorial WinY reset;
+1535 CRLF, zero bare LF. Rain18/KeepSize0 retained. This INI also matches the
+accepted fe3c3f876 placement profile exactly; relevant setting semantics unchanged.
+Previous pair and logs: primary build/playtest-candidates/installs/20260925-231630-153352.
+Candidate/PDB: primary build/playtest-candidates/hud-quick-potion-b52c0c579.
+Game was closed, expected prior DLL/INI hashes matched; never launched the game.
+Next single question: does the low-health D-pad/potion join the visible HUD panel?
+A failure requires checking movieLink/quickMode/quickReady before further changes.
+
 Verified returned e322911fb DLL/banner; current/previous logs and full INI archived
 under primary build/hud-regression-20260925/heal-return-230454. User clarifies the
 missing low-health item is only the D-pad/potion artwork, not tutorial text.
