@@ -1120,6 +1120,26 @@ spyglass/cinematic headset validation remains required. Details: ENGINE_NOTES,
 VR-213. Camera writes require fresh-table identity revalidation after UI/load
 transitions; unchanged pointer values do not bypass it.
 
+## 2026-09-26: the FOV lever's base is never re-read from its own output
+
+The lever re-reads its natural base from the camera sensor whenever the owners are
+revalidated after a load. By then the sensor holds the lever's own output, and the dev
+rig's logs show it taken as the base after loads (`natural base 108.1 deg, target 108.07
+... ratio 1.000`, five captures across four sessions). VR-213 made a base at or above the
+target a ratio of exactly 1, which is safe against contraction but has no restoring
+force: the lever copies whatever the game renders, including a narrowing the game makes
+for a moment (death, a store, an objective), into the controller's DefaultFOV, and the
+game restores that narrow default afterwards. The headset view stays a small box. An
+affected player reported exactly that after a store and after dying, at a portrait
+(taller than wide) render size, and not at four landscape sizes; a landscape target
+(about 110.9 deg) leaves an echo slightly under it, a ratio just above 1 that does pull
+back, which fits. Decision: the first base a session reads is kept, and a re-read
+replaces it only when it is neither within 0.5 deg of our last write, nor at the target,
+nor narrower than the kept base (a transient); a wider value (a changed game FOV option)
+is accepted. `fov_lever_policy.h` `rearm_natural`, host-tested with a negative control
+that reproduces the stuck 37.36 view from an echoed base. Known limit: a game FOV option
+lowered mid-session is ignored until restart.
+
 ## Launcher update boundary (VR-214, 2026-09-24)
 
 The launcher remains a single offline-capable x86 EXE with its mod payload.
