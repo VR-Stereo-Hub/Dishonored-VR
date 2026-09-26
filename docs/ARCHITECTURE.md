@@ -1212,3 +1212,18 @@ XR_RUNTIME_JSON the same way. So LoadConfig resolves `[Controllers]
 IndexTuning` once and sets `DVR_INDEX_TUNING=0|1`; the shim reads it on first use
 and logs it. One decision, one owner, and the shim cannot disagree with the mod's
 log. An unset variable (an older proxy, the simulator) reads as off.
+
+
+## 2026-09-25: copy HUD widget identity across native render commands
+
+Native Scaleform traversal and D3D drawing are on different threads. Scope alone
+cannot identify deferred child draws; rectangle overlap/content hashes already
+failed interaction-versus-objective ownership. The guarded candidate copies a
+validated widget identifier before native queue publication, scopes it during
+Execute, and retires it at consumption. Synchronous drawing uses the native
+Display scope directly. Queue metadata is fixed-size, generation-bound, refuses
+ambiguous/reused identities and never requires render-thread UObject access.
+Unknown draws retain native rendering. The existing menu context route is separate.
+Default-off SemanticOwnership has an explicit local candidate enable and live A/B.
+This is an ownership repair candidate; target depth and headset performance are
+not established by transport host tests. See HUD_ANCHORS, ENGINE_NOTES and PERFORMANCE.

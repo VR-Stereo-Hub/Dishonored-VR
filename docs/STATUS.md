@@ -19,7 +19,15 @@ contracts in ENGINE_NOTES; behavior and remaining acceptance in HUD_ANCHORS.
 One launch question is Emily prompt cohesion while pitching the head with the
 controller held on her. Objective depth, full gauge behavior and in-game cost
 remain open; do not claim all original regressions resolved. No game launched.
-Build/install hash record follows after candidate preparation. No merge authorized.
+Installed v1.0.1-38-g4c38bf526, DLL SHA256
+06c59fd845e0e5090378234696b2b03ea917fde9b554b34df6b56ce4d9c3db24.
+Expected and installed INI SHA256
+6c0e336882e1c1b4e4d2d9d55e142785f2f9c20206a70974053d8890c43e1877.
+Full byte comparison confirms the sole addition [Hud] SemanticOwnership=1;
+1535 CRLF, zero bare LF. Previous DLL/INI/current+previous log archived together
+under primary build/playtest-candidates/installs/20260925-215531-781812.
+Candidate and PDB: primary build/playtest-candidates/hud-semantic-4c38bf526.
+Game was closed; prior hashes still matched the accepted pause pair. No merge authorized.
 Prior Linear diagnostic-disclosure approval remains unresolved; keep new work local.
 
 ## 2026-09-25: ownership capture returned; pause readiness repair
