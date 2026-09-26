@@ -19,7 +19,7 @@
 namespace dvr::clarity {
 namespace {
 
-std::atomic<bool>  g_resolve{true};
+std::atomic<bool>  g_resolve{false};
 std::atomic<bool>  g_temporal{false};
 std::atomic<float> g_blend{0.15f};
 std::atomic<float> g_sharpen{0.30f};

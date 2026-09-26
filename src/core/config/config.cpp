@@ -153,8 +153,8 @@ static bool WriteDefaultIni(const char* ini)
         "BboxMs=30000\n"
         "[Clarity]\n"
         "; Anti-aliasing and clarity on the eye image (core/gfx/clarity.h; the research is in\n"
-        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). Resolve, Sharpen 0.30,\n"
-        "; 16x Anisotropy and TrilinearMips ship ON (headset-judged 2026-09-26); Temporal is off. F10\n"
+        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). Sharpen 0.30, 16x\n"
+        "; Anisotropy and TrilinearMips ship ON; Resolve and Temporal are off (headset-judged 2026-09-26). F10\n"
         "; Advanced > Display > Clarity and anti-aliasing, and `clarity ...` on the seam, are live.\n"
         "; Resolve=1: when the resolution is above ~100%% (the runtime's recommended size), filter\n"
         "; the render down to that size here with a kernel that reads every rendered pixel, instead\n"
@@ -169,7 +169,7 @@ static bool WriteDefaultIni(const char* ini)
         "; filters anisotropically (the game's own MaxAnisotropy is 4); 0 = the game's own.\n"
         "; TrilinearMips=1: blend between mip levels on those textures instead of the game's\n"
         "; point mip filter (a visible seam that walks with the head on floors and walls).\n"
-        "Resolve=1\n"
+        "Resolve=0\n"
         "Temporal=0\n"
         "TemporalBlend=0.15\n"
         "Sharpen=0.30\n"
@@ -1817,7 +1817,7 @@ static void LoadConfig()
         }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
         {   // [Clarity]: anti-aliasing and clarity on the eye image, all off by default
-            dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 1) != 0.0f, "ini");
+            dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 0) != 0.0f, "ini");
             dvr::clarity::set_temporal(IniFloat(ini, "Clarity", "Temporal", 0) != 0.0f, "ini");
             dvr::clarity::set_blend(IniFloat(ini, "Clarity", "TemporalBlend", 0.15f), "ini");
             dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.30f), "ini");

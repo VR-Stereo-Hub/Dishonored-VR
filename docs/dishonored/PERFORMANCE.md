@@ -2102,3 +2102,18 @@ stock textures: about 2 GB process private, largest free address block about 1.2
 `gpumem` line). An HD texture pack plus a larger render is consistent with a reported freeze
 when the resolution is raised: that is address space, not VRAM. The `gpumem` line's
 `largest free address range` is the number to ask for.
+
+### Headset verdict (2026-09-26, 200% at 144 Hz with SSW, VDXR)
+
+- Supersampling itself (200-300%) is the large visible gain. The resolve on top of it was
+  judged no better, or slightly softer in the distance, with both kernels (Mitchell, then
+  Catmull-Rom). VDXR's own downscale is evidently good enough that the host-measured
+  sparse-sampling aliasing does not show through the stream. Resolve now ships OFF.
+- Each resolve toggle changes the swapchain size and rebuilds it; VRAM rose ~450 MB over six
+  toggles in one session (3029 -> 3478 MB). A report of lasting lag after many toggles fits
+  that; not reproduced in the measured session (tick 14-16 ms throughout).
+- 16x anisotropy and trilinear mips run (about 40000 sampler binds a second raised) but the
+  visible gain over the game's 4x is small; kept on as nearly free.
+- Temporal: no visible effect at a new-frame weight of 0.50 (the slider's maximum, ~2 frames
+  of history); at 0.15 it smoothed shimmer but smeared while walking until the motion
+  weighting; with it, walking no longer smears. Still experimental, off by default.

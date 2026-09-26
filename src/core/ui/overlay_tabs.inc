@@ -774,7 +774,8 @@ static void OvlTabDisplay()
             ConfigWriteKey("Clarity", "Resolve", resolve ? "1" : "0", "F10 Display");
         }
         OvlTip("Above 100% resolution, the mod shrinks the picture to the headset's own size with a filter that uses "
-               "every rendered pixel. Without it the headset software skips most of the extra pixels. Does nothing at 100%.");
+               "every rendered pixel. Without it the headset software skips most of the extra pixels. Does nothing at 100%. "
+               "Each switch rebuilds the headset images; restart the game after switching it many times.");
         bool temporal = dvr::clarity::temporal_on();
         if (dvr::ovl::checkbox("Temporal anti-aliasing (experimental)", &temporal)) {
             dvr::clarity::set_temporal(temporal, "F10 Display");
