@@ -76,7 +76,7 @@ void status_tick() {
     const Window& w = g_win;
     char resolveText[96];
     if (w.resolved)
-        _snprintf_s(resolveText, sizeof(resolveText), _TRUNCATE, "%ux%u -> %ux%u (%.2fx per axis, Mitchell)",
+        _snprintf_s(resolveText, sizeof(resolveText), _TRUNCATE, "%ux%u -> %ux%u (%.2fx per axis, Catmull-Rom)",
                     w.srcW, w.srcH, w.outW, w.outH, w.outW ? (double)w.srcW / w.outW : 0.0);
     else
         _snprintf_s(resolveText, sizeof(resolveText), _TRUNCATE, "%s",

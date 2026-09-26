@@ -64,9 +64,13 @@ const char* kSrc =
     "    float3 c = t0.Load(int3(p, 0)).rgb;\n"
     "    return gFlags.x > 0.5 ? ToLinear(c) : c;\n"
     "}\n"
+    // The resolve kernel is the Mitchell-Netravali family, gPad.xy = B, C. The first build
+    // used B = C = 1/3 (smooth; judged soft in the headset next to the compositor's
+    // aliased-but-crisp single tap). The default is Catmull-Rom (B = 0, C = 0.5): the same
+    // every-pixel footprint with a sharper edge.
     "float Mitchell(float x) {\n"
     "    x = abs(x);\n"
-    "    const float B = 1.0 / 3.0, C = 1.0 / 3.0;\n"
+    "    const float B = gPad.x, C = gPad.y;\n"
     "    if (x < 1.0) return ((12.0 - 9.0 * B - 6.0 * C) * x * x * x + (-18.0 + 12.0 * B + 6.0 * C) * x * x + (6.0 - 2.0 * B)) / 6.0;\n"
     "    if (x < 2.0) return ((-B - 6.0 * C) * x * x * x + (6.0 * B + 30.0 * C) * x * x + (-12.0 * B - 48.0 * C) * x + (8.0 * B + 24.0 * C)) / 6.0;\n"
     "    return 0.0;\n"
@@ -357,6 +361,7 @@ bool Gpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceV
             cb[20 + j] = p.prevFromCur.m[2][j];
         }
         cb[15] = p.clipGamma; cb[19] = p.tanH; cb[23] = p.tanV;
+        cb[24] = p.kernelB; cb[25] = p.kernelC;
         ctx->UpdateSubresource(cb_, 0, nullptr, cb, 0, 0);
     };
     ID3D11ShaderResourceView* cur = src;

@@ -44,6 +44,7 @@ struct PassParams {
     float    blend = 0.15f;      // weight of the current frame
     float    clipGamma = 1.0f;   // variance clip width in standard deviations
     float    sharpen = 0.0f;     // 0 = none, up to 1
+    float    kernelB = 0.0f, kernelC = 0.5f;   // resolve kernel: Catmull-Rom (1/3, 1/3 = Mitchell)
 };
 
 class Gpu {
