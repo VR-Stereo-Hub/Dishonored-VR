@@ -88,7 +88,12 @@ static void CineFovBegin(bool scene) {
     const float target=dvr::camera::fov_deg();
     const double now=MaimNowMs();
     const bool ready=dvr::cine_fov::eligible(CineFovEnabled(),scene,menu,projection,state.valid,target,menuFovAllowed);
-    const bool authored=ready && dvr::scene_state::cinematic(state.state[0]);
+    // The store is a scene too: opened from a conversation over the dialogue's
+    // narrow camera, and left with that camera still blending back. Counting it
+    // keeps the exit bridge primed, so leaving it holds the projection FOV until
+    // the game's own FOV has returned instead of drawing the small box.
+    const bool store=!strcmp(state.state[0],"StatePlayerMasterInStore");
+    const bool authored=ready && (dvr::scene_state::cinematic(state.state[0]) || store);
     const bool walking=!strcmp(state.state[0],"StatePlayerMasterWalk") ||
         !strcmp(state.state[0],"StatePlayerMasterFalling") || !strcmp(state.state[0],"StatePlayerMasterJump");
     const bool keep=g_cfBridge.update(authored,ready && walking && CfValidate(),
@@ -127,7 +132,6 @@ static void CineFovBegin(bool scene) {
     // narrow camera (about 32 deg) under it. Scaled as gameplay zoom that drew
     // the world behind the floating store panel in a small box (42 deg claimed).
     // The store is not a zoom: frame it like a scene.
-    const bool store=!strcmp(state.state[0],"StatePlayerMasterInStore");
     const float drawTarget=gameplay && !store && RangeReadable(field,4)
         ? dvr::cine_fov::gameplay_target(*field,target,requested)
         : (CineFovMatchEnabled() && requested>0 ? requested : target);   // a scene frames like gameplay

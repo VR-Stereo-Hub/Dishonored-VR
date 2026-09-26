@@ -1558,7 +1558,7 @@ static bool WriteDefaultIni(const char* ini)
         "Element.wheel.HandScale=1.000\n"
         "Element.store.WinX=0.000\n"
         "Element.store.WinY=0.000\n"
-        "Element.store.WinScale=1.000\n"
+        "Element.store.WinScale=1.500\n"
         "Element.store.HandX=0.000\n"
         "Element.store.HandY=0.000\n"
         "Element.store.HandScale=1.000\n"
