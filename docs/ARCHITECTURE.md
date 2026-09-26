@@ -1303,3 +1303,16 @@ Active Temporal + MotionVectors owns the depth-copy demand separately from diagn
 Present also services resource release on disable. DepthScale 200 is the coarse measured
 simulator minimum and remains adjustable. Both temporal and vector levers default off.
 Measurements, rejected mirroring and the initial caller-gate failure: PERFORMANCE.md.
+
+
+### 2026-09-26: TAA audit follow-up supersedes materialized production vectors
+
+Clarity now fuses reconstruction into temporal; history alpha retains linear depth for
+previous-view visibility rejection. Optional vector outputs are host diagnostics, not a
+production allocation. Draw records append per-eye c5, scoped FOV, camera identity and
+level/UI epoch without changing the tracking Cam/Track publication. Consumption uses those
+captured values; history rejects capture gaps, lifecycle transitions and stale views.
+Every shared-depth slot owns a D3D11 read query ended after all clarity/calibration reads.
+Reuse is nonblocking and requires completion; pending serial duplicates are invalidated.
+D3D9 producer failure and colour capture fence timeouts refuse delivery. Depth-copy GPU
+brackets and CPU submission are now attributed in perf. Details and acceptance: PERFORMANCE.

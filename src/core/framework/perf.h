@@ -98,7 +98,7 @@ void frame_start_marker(const char* which);
 // render span; it must not be subtracted from that span or the CPU lock). Read back five presents later with GetData(0): never flushed,
 // never waited on. The device comes from hkPresent; the queries are released
 // on Reset (the hkReset LAW) and recreated lazily.
-enum GpuPoint { kGpuRtdA = 0, kGpuRtdB };
+enum GpuPoint { kGpuRtdA = 0, kGpuRtdB, kGpuDepthA, kGpuDepthB };
 void set_device(IDirect3DDevice9* dev);   // hkPresent, before kEntry
 void gpu_mark(GpuPoint p);                // the capture, around its readback copy
 void on_reset();                          // hkReset: every query goes

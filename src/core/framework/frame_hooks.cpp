@@ -166,12 +166,17 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
     // present's record (its OUT = the render thread's time outside this hook).
     dvr::perf::set_device(self);
+    dvr::bridge_profile::present();
+    dvr::perf::stamp(dvr::perf::kEntry);
+    dvr::perf::part_begin();    // VR-160: `perf parts on` names what the present path spends
+
     dvr::depthprobe::tick(self, dvr::capture::width(), dvr::capture::height());   // read-only; off by default
     if (dvr::depthprobe::share_tick_needed() && g_cb.d3d11) {   // diagnostics or active depth-vector TAA
         ID3D11DeviceContext* c11 = nullptr;
         if (ID3D11Device* d11 = g_cb.d3d11(&c11))
             dvr::depthprobe::share_tick(self, d11, c11, dvr::capture::width(), dvr::capture::height());
     }
+    dvr::perf::part_mark("hk.depthCopy");
     // The desktop eye pin needs the game's device; the runtime layer calls into
     // it from its own eye-pin call sites, which already sit on the right side
     // of each eye's XR capture.
@@ -181,9 +186,6 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool hooked = false;
         if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
     }
-    dvr::bridge_profile::present();
-    dvr::perf::stamp(dvr::perf::kEntry);
-    dvr::perf::part_begin();    // VR-160: `perf parts on` names what the present path spends
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     dvr::perf::part_mark("hk.abTick");
     if (g_cb.pre_tick) g_cb.pre_tick(self);

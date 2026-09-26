@@ -135,7 +135,7 @@ Measured on the simulator (head stepped 0.3 m sideways, about 150 moving frame p
 - Then: fix the convention in `calib_frame` (and clarity's temporal), rerun; the curve must have
   an interior minimum below rotation-only. Only then compute motion vectors for TAA.
 
-## Steps 3 and 4 built (2026-09-26) - RESUME HERE
+## Steps 3 and 4 built (2026-09-26) - earlier candidate, superseded below
 
 Mirror result: 56 pure turns, normal error 0.0082 vs mirrored 0.0468. Do NOT flip clarity's
 yaw. `Cam::pos` comes from `last_written_pos`, which returns c5 = negative world position;
@@ -174,3 +174,21 @@ can report GAMEPLAY before a save loads. This session needed Enter after the fir
 then another Space x3. Verify the latest state transitions actually reach loaded GAMEPLAY
 before collecting head-motion pairs. Keep commands together in one game-cmd invocation,
 or await their log acknowledgement: separate writes can overwrite the 1 Hz command seam.
+
+
+## TAA audit fixes (2026-09-26) - RESUME HERE
+
+Production TAA now reconstructs camera motion inside its temporal shader, without vector
+textures. Optional materialized vectors remain for host geometry tests/future consumers.
+History alpha stores depth for visibility rejection. Stationary detail is preserved, and
+large colour changes at stationary camera pixels reject stale history. Per-eye draw c5 and
+scoped FOV are stamped separately from tracking publication, with identity/scene-age guards.
+Depth sharing has independent read fences and duplicate-serial invalidation; capture refuses
+unsafe timeout delivery. Previous sections describe earlier candidates, not the current path.
+
+72 host TAA checks, 6 calibration checks, frame tests and simulator transition recovery pass.
+Tested/installed SHA256 `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`,
+Sep 26 17:47:48. Full original INI restored, diagnostics off. No merge. All research, failed
+threshold experiment, timing data and limitations are in PERFORMANCE.md, TAA audit fixes.
+Next: headset fine-detail/walking A/B. Jitter needs reliable projection-pass ownership before
+implementation; animated-object vectors and exact depth calibration remain open research.

@@ -6,7 +6,9 @@
 - [x] GPU regressions and simulator both-eye execution with diagnostics off.
 - [x] Restore the original installed CRLF INI with DepthShare/MotionCalib off.
 - [ ] Headset walking/leaning A/B; exact calibration refinement and cost measurement.
-- [ ] Moving-object vectors/disocclusion depth history and later DLSS prerequisites.
+- [x] Audit fixes: fused reprojection, depth-history rejection, per-eye provenance and safe slot reuse.
+- [x] Preserve stationary detail; host regression and simulator transition/recovery checks.
+- [ ] Moving-object vectors, safely classified projection jitter and later DLSS prerequisites.
 
 ## HUD ownership regression audit (2026-09-25)
 

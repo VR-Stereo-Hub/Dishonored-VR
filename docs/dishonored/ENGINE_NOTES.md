@@ -9881,3 +9881,14 @@ in the previous rotator basis. Simulator mirror test rejects mirrored yaw (0.008
 0.0468 mirrored); corrected parallax has a minimum 0.0226 at 200 uu/unit vs 0.0400 rotation-only.
 Exact build identities, complete curve, failed service-gate test and limitations are recorded
 in PERFORMANCE.md, "Motion-vector calibration and TAA candidate". No headset acceptance.
+
+
+### 2026-09-26: per-eye TAA camera metadata, no new engine-memory writes
+
+The camera tracking publication precedes the second-eye offset. Its Cam::pos must not be
+reinterpreted as that right-eye draw's position. Pose records now append the same explicit
+c5 value used by the eye tag, plus CineFovScopeTarget (camera sensor fallback), camera identity,
+and level/UI generation. Clarity negates that per-eye c5 once and uses captured projection.
+Cam/Track semantics and the engine writers are unchanged. Epoch/identity values only reject
+history; they are never liveness authorization for dereferencing or writing an engine object.
+GPU geometry and simulator recovery evidence: PERFORMANCE.md, TAA audit fixes.

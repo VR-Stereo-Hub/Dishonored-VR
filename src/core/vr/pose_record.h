@@ -79,6 +79,11 @@ struct Record {
     int      eye;             // -1 left, +1 right, 0 mono / untagged
     Track    track;           // a COPY of the published sample, not a re-read
     Cam      cam;             // a COPY of the camera it produced
+    float    eyePos[3];       // c5 from this draw, independent of the tracking publication
+    bool     eyePosOk;
+    uint64_t sceneEpoch;      // level-load/UI transition generation at draw
+    uintptr_t cameraIdentity; // invalidation metadata only; never dereferenced
+    float    hfovDeg;         // projection captured before this view is drawn
     double   openedMs;
     bool     secondPassReuse; // this view reused pass 1's camera, deliberately
 };
@@ -88,7 +93,7 @@ uint32_t next_pair();
 // Open a record for the view about to be drawn. GAME thread. It COPIES the
 // published camera pair rather than sampling anything itself, so the record
 // cannot disagree with the camera that was actually written.
-uint32_t open(int eye, uint32_t pairId, bool secondPassReuse);
+uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePos = nullptr, float hfovDeg = 0, uintptr_t cameraIdentity = 0, uint64_t sceneEpoch = 0);
 
 // COPY a record out. The ring can be overwritten while a reader works, so there
 // is no pointer accessor: this takes the lock, checks the id, and copies.

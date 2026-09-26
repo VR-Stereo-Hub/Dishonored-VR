@@ -502,6 +502,7 @@ public:
         }
 
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
+        if (!fresh) dvr::clarity::invalidate();
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) { commit(OUT_NOSRC, 0, fresh); return false; }
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
@@ -656,7 +657,7 @@ public:
         return true;
     }
 
-    void on_reset() override { menuGap_.clear(); single_ = SingleTagState{}; dvr::capture::on_reset(); }
+    void on_reset() override { menuGap_.clear(); single_ = SingleTagState{}; dvr::capture::on_reset(); dvr::clarity::shutdown(); }
 
     void shutdown() override {
         if (armed_) {

@@ -53,6 +53,8 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
           uint32_t w, uint32_t h, ID3D11RenderTargetView* dst, uint32_t ow, uint32_t oh,
           int eyeSign, uint32_t recId);
 
+// Present-thread lifecycle invalidation. Keeps allocations for short capture gaps.
+void invalidate();
 void shutdown();
 // One line for F10: what ran in the last few seconds.
 const char* summary();

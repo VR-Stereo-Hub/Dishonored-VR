@@ -38,6 +38,9 @@ bool command(const char* args);  // `depthprobe [on|off|now]`, `depthprobe share
 void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH);
 void set_share(bool on, const char* who);
 bool share_on();
+// Close every borrowed depth read, including diagnostic and failed clarity passes.
+void read_done(ID3D11DeviceContext* ctx);
+void retry(); // atomic request, serviced on the present thread after an explicit setting change
 // Present-thread service gate, including release after the last consumer switches off.
 bool share_tick_needed();
 // Step 3: the shared depth that belongs to the colour grab `grabSerial` (capture::delivered_serial()),

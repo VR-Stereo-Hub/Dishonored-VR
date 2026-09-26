@@ -466,11 +466,11 @@ int main() {
         }
         Src depth=upload_depth(d,W,H,std::vector<float>(W*H,1.0f));
         check("motion: depth test texture created", depth.srv!=nullptr);
-        PassParams p;p.temporal=true;p.blend=0.1f;p.clipGamma=10.0f;p.depthScale=100;
+        PassParams p;p.temporal=true;p.materializeVectors=true;p.blend=0.1f;p.clipGamma=10.0f;p.depthScale=100;
         p.translation[1]=5; // plane at x=100, camera +5 right -> +4 pixels at 160px/90deg
         float errors[3]={};
         for(int mode=0;mode<3;++mode){
-            gpu.trim(false,false);p.historyValid=false;p.sceneDepth=nullptr;
+            gpu.trim(false,false);p.historyValid=false;p.sceneDepth=mode==1?nullptr:depth.srv;
             check("motion: seed temporal history",run(d,gpu,prev,out,p));
             p.historyValid=true;p.sceneDepth=mode==1?nullptr:depth.srv;
             p.translation[1]=mode==2?-5.0f:5.0f;
@@ -537,7 +537,7 @@ int main() {
         check("motion: behind-camera projections reject history",behind.size()==W*H*4&&valid==0);
         depth.release();p.sceneDepth=nullptr;
         check("motion: missing depth falls back",run(d,gpu,cur,out,p));
-        check("motion: fallback frees both vector targets",!gpu.vectors(0)&&!gpu.vectors(1));
+        check("motion: transient fallback retains diagnostic vector storage",gpu.vectors(0)&&gpu.vectors(1));
         gpu.trim(false,false);
         check("motion: disabled temporal frees all intermediates",gpu.bytes()==0);
         out.release();

@@ -2377,3 +2377,137 @@ this code, not benchmark claims from these sources):
   not itself provide the per-slot ownership policy this depth ring needs.
 - [Microsoft D3D9 queries](https://learn.microsoft.com/en-us/windows/win32/direct3d9/queries):
   issued/signaled query states; a polling timeout must not be mistaken for completion.
+
+
+## 2026-09-26: TAA audit fixes implemented and simulator-tested
+
+This supersedes the open implementation defects in the preceding audit. Branch remains
+`claude/motion-vectors`, unmerged. The installed candidate is optimized x86, legacy off:
+SHA256 `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`,
+banner `v1.0.1-93-gf0ef210dd-dirty`, built Sep 26 2026 17:47:48.
+
+### Changes and disposition
+
+| Audit item | Implemented behavior |
+|---|---|
+| Stationary bright-detail loss | Variance bounds include the current centre sample. White and saturated RGB point tests preserve intensity and hue. |
+| Stale colour on changed surfaces | Near-zero camera displacement enables a conservative colour-change response. Actual subpixel motion retains accumulation. This is not animated-object velocity. |
+| Visibility/disocclusion | History alpha now holds the corresponding current depth. Fused TAA compares previous depth against the reconstructed previous-view depth before using colour history. Invalid/missing depth and sky/surface transitions reject reuse. |
+| Per-eye position | Draw records carry the same explicit c5 position passed to that eye's tag. Tracking publication remains separate; rotation provenance is unchanged. |
+| FOV association | Each draw record captures its scoped FOV (or camera sensor fallback). Current and previous projection tangents are separate shader inputs; large FOV changes still reset history. |
+| Reset/capture gap/scene changes | Missing grabs invalidate history; D3D9 reset shuts down clarity resources. Record age, camera identity, level-load/UI epoch and finite camera values guard reuse. No engine-memory writer was added. |
+| Depth overwrite hazard | Every shared-depth slot has its own D3D11 event query, ended/flushed after its last use. Busy/error slots are not reused. D3D9 producer query Issue failures do not publish a serial. |
+| Duplicate serials | Every new copy opportunity invalidates previous entries for the pending capture serial, even when no slot is available. Capture off/resume cannot choose an older duplicate. |
+| Transient vector allocations | Production TAA reconstructs directly in the temporal shader; it needs no vector texture or separate motion pass. Optional materialized vectors remain for independent geometry tests/future consumers and survive transient missing-depth frames. |
+| Failure recovery | Explicit setting epochs retry failed clarity initialization; depth allocation refusal recovers after reset/disable or an explicit lever change. Shader compiler DLL references use scoped ownership. |
+| Colour capture timeout | Existing D3D9 producer and D3D11 consumer fences now refuse the grab on timeout/error instead of proceeding with unsafe data. Pending read queries stay pending until completion. |
+| Refresh-rate response | The base temporal blend is normalized to elapsed same-eye time with the existing value interpreted at 90 Hz. |
+| Cost attribution | The Present CPU budget begins before depth work; `hk.depthCopy` labels submission. Asynchronous D3D9 timestamps report the copy bracket under `perf/depth`. Runtime depth availability and memory are reported without diagnostic readbacks. |
+
+History alpha reuses existing storage: no additional visibility texture, copy pass or
+synchronization boundary. Colour Catmull-Rom samples RGB only. Depth validation uses point
+samples to avoid blending unrelated surfaces' depths. Resolve still needs careful silhouette
+A/B: nearest-foreground dilation was evaluated conceptually but not enabled indiscriminately,
+since spreading foreground depth without object velocities can drag background history.
+
+### Reproducible evidence
+
+`tools/taa-audit-host.ps1`: **72 checks, zero failures**, including the original geometry,
+resolve, sharpen and moving-edge controls. The audit's reproduced-defect assertions were
+changed to desired-output regressions; the no-jitter static-edge case remains a limitation
+characterization. `tools/motion-gpu-host.ps1`: 6 checks, zero failures. `frame_test.exe`:
+146 PASS lines, zero FAIL, successful exit. Default writer/profile/golden byte parity,
+configuration persistence/failure tests, nine exports and lint all pass.
+
+- White stationary detail: old accumulated linear intensity 0.491021 -> **1.000000**.
+  Default sharpening enabled. Independent red/green/blue point channels also survive.
+- Changed stationary-camera checker: old mean gamma error 0.460784 -> **0.000000**.
+  Both old and current images have valid depth, so this tests colour response rather than
+  merely rejecting an unseeded depth history.
+- Disocclusion under camera translation: colour error **0.000981**, against **0.015416**
+  when the control supplies a matching previous depth. The camera moves, so quiet-camera
+  colour response cannot explain the successful rejection.
+- Micro-motion edge control retains the original improvement: coverage error **0.095**
+  versus raw **0.219**. An initial response threshold extending to 0.5 pixel motion raised
+  this error to 0.197 and FAILED the existing test. Restricting that response to effectively
+  stationary reprojection restores the antialiasing benefit. Do not broaden it blindly.
+- FOV regression checks a known non-identity current/previous projection mapping. Tests
+  also reject old frames, replaced cameras, same-camera scene epochs and nonfinite poses.
+- Depth fallback holds the same four history allocations: 819,200 bytes before and after
+  at 160x160, no production vectors. Shader shutdown/reinitialization is tested.
+
+At 2750x2850, four histories remain **239.2 MiB**, the depth ring **179.4 MiB**. The two
+119.6 MiB vector textures are gone: total **418.6 MiB**, down from **538.2 MiB** before other
+rendering resources/driver overhead. This removes about 22% of the audited texture storage.
+Do not confuse texture bytes with CPU virtual-address commitment.
+
+A recorded standalone GPU run on the RTX 4070 Ti SUPER: sharpen 0.4178 ms, rotation TAA + sharpen
+1.8749 ms, fused depth TAA + sharpen 2.2958 ms per eye at 2750x2850. Earlier fixed runs were
+0.50-0.53 / 2.18-2.24 / 2.75-2.79 ms. As before: flat synthetic image, 24 timestamp samples
+after 12 warmups, excludes D3D9 transport/game/compositor. Clocks and scheduling vary enough
+that this is NOT a proven headset speedup. The final rerun measured 0.5724 / 2.8129 /
+3.6577 ms, reinforcing that limit on comparisons. Fusion removes work/storage, while visibility and
+colour response add work; measure frame-time distributions on the target headset.
+
+### Simulator integration and installed state
+
+User-authorized simulator run used xrsim-launch ViaSteam/NoInstall/Release and boot Attach.
+The boot helper again reported gameplay before the loading screen's final key prompt.
+A simulator compositor capture identified the prompt; after Space, actual both-eye gameplay
+counters appeared. The native computer-use helper could not initialize; the repo's simulator
+capture/input harness completed the test. No screenshots are committed.
+
+Matching banner verified before interpreting the log. Tested repeated +/-3 degree turns,
+combined +/-3 cm translation and turns, capture off/shared, shared-slot reinit, deferred
+capture, return to shared, and MotionVectors off/on. After recovery: **450 completed fused
+TAA passes per eye per 5 s**, zero ongoing fallback, zero clarity refusals. Two depth
+unavailability events appeared across mode transitions and did not persist. No clarity/depth
+or capture error lines. This verifies execution/recovery, not a forced GPU-hang scenario or
+headset appearance. The new fences also cover deferred capture independently of colour.
+
+The new D3D9 timing bracket recorded 35,485 resolved samples, cumulative mean 0.463 ms and
+peak 10.167 ms, including menu/loading/gameplay and mode transitions. Do not interpret that
+mixed-run peak as a steady-state depth-copy percentile. Query results were never waited on.
+
+Simulator stopped. Entire installed INI restored byte-for-byte to the pre-install backup,
+CRLF verified: Temporal=0, DepthShare=0, MotionCalib=0; MotionVectors defaults off. Temporary
+MotionVectors/MotionDepthScale entries were removed by the exact restoration. Installed DLL
+remains the tested candidate. Archives: `build/taa-fixes/before-candidate/`, `simulator-run/`,
+`tests-final.txt`, `frame-tests-final.txt`, and build logs (all gitignored).
+
+### Investigated improvements not enabled as unverified fixes
+
+Deliberate projection jitter remains OFF/unimplemented. The old `IsMainScenePass` hook allows
+unknown render targets and expects aspect 1.4..2.4, while this eye render is 2750x2850. The
+render instrumentation also records many c0 uploads per view, not one uniquely identified
+projection. Reusing that hook could jitter only some geometry or non-scene passes. A correct
+implementation first needs complete world-pass/projection ownership, coherent eye sample
+phases, jitter subtraction in reprojection, and culling/HUD validation. The static-edge test
+correctly still shows no supersampling from identical frames. This was an investigation
+recommendation in the audit, not a safe local shader fix.
+
+Animated-object vectors, transparent/reactive material classification and exact engine depth
+units remain research. Colour response and depth rejection reduce their consequences but
+cannot reconstruct unobserved object motion, especially during simultaneous camera motion.
+The 200 uu/unit value and sky cutoff remain experimental. Next human acceptance question:
+with Temporal enabled and the panel closed, does the revised depth mode preserve fine detail
+and reduce walking/leaning trails versus rotation-only? Remaining trails need scene-specific
+evidence; they are not proof that the synchronization or sign convention regressed.
+
+
+Final review corrected the time-normalization ordering: apply camera-motion response first,
+then normalize to elapsed same-eye time, so low frame rates never lower the requested response.
+An additional regression verifies equivalent decay at 45 and 90 Hz (72 total GPU checks).
+The full transition run above used candidate SHA256
+`4d3f4096cbe24ccbfabc05b5da394c9d18ac35ea97f1efda1c0cf408183e705b`; the final installed
+SHA256 is `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`.
+The latter differs only in blend time normalization. Its incremental build retains the
+17:47:48 banner timestamp, so the archived DLL hash and fresh process/log identify the run.
+An initial final-build smoke stopped at the loading prompt (zero TAA counters); it is NOT
+counted as an integration pass. `final-smoke/` records that failed boot, not a TAA defect.
+
+Final repeat reached gameplay after the compositor capture showed the completed-loading
+prompt. Both-eye fused TAA completed L=449 / R=450 in the last report, fallback=0.
+Final DLL hash verified against the installed file before interpreting this fresh log.
+Evidence is in `build/taa-fixes/final-passed/`; simulator stopped and the full original
+INI restored again. No merge.

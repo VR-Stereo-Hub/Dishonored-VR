@@ -46,6 +46,7 @@ const char* kSrc =
     "    float4 gPad;\n"
     "    float4 gTranslation; // xyz = world delta in previous axes, w = depth scale\n"
     "    float4 gDepthSize; // source depth w/h, use motion, reserved\n"
+    "    float4 gPrevProjection; // previous tanH, tanV\n"
     "};\n"
     "Texture2D t0 : register(t0);\n"
     "Texture2D t1 : register(t1);\n"
@@ -148,54 +149,64 @@ const char* kSrc =
     "    const float m = max(a.x, max(a.y, a.z));\n"
     "    return m > 1.0 ? center + v / m : q;\n"
     "}\n"
-    // Temporal: the current eye image blended with the same eye's history,
-    // reprojected by depth vectors when supplied, rotation otherwise. Unmodelled
-    // object motion (moving hands, NPCs) falls outside the neighbourhood's colour
-    // spread and is clipped back to it: that pixel shows the current frame.
+    "// Reprojection is shared by TAA and the optional diagnostic vector output.\n"
+    "float ReadDepth(float2 uv) {\n"
+    "    float z = tMotion.Load(int3(clamp(int2(uv * gDepthSize.xy), int2(0,0), int2(gDepthSize.xy)-1),0)).a;\n"
+    "    return z > 0 && isfinite(z) ? z : 0;\n"
+    "}\n"
+    "float4 Reproject(float2 uv, float z) {\n"
+    "    float3 ray = float3(1, (uv.x*2-1)*gRowR.w, (1-uv.y*2)*gRowU.w);\n"
+    "    float3 q = float3(dot(gRowF.xyz,ray),dot(gRowR.xyz,ray),dot(gRowU.xyz,ray));\n"
+    "    if (gDepthSize.z > 0.5) {\n"
+    "        if (z <= 0) return 0;\n"
+    "        if (z < 1000) q += gTranslation.xyz / (z*gTranslation.w);\n"
+    "    }\n"
+    "    if (!(q.x > 1e-4) || !all(isfinite(q))) return 0;\n"
+    "    float2 puv = float2(0.5+0.5*q.y/(q.x*gPrevProjection.x),0.5-0.5*q.z/(q.x*gPrevProjection.y));\n"
+    "    if (any(puv < 0) || any(puv > 1)) return 0;\n"
+    "    return float4(puv,1,z*q.x);\n"
+    "}\n"
     "float4 ps_motion(VSOut i) : SV_Target {\n"
-    "    const float2 uv = i.pos.xy / gSize.zw;\n"
-    "    const float d = t0.Load(int3(min(int2(uv * gDepthSize.xy), int2(gDepthSize.xy) - 1), 0)).a;\n"
-    "    if (!(d > 0.0) || !isfinite(d)) return float4(0, 0, 0, 0);\n"
-    "    const float3 ray = float3(1.0, (uv.x * 2.0 - 1.0) * gRowR.w, (1.0 - uv.y * 2.0) * gRowU.w);\n"
-    "    float3 q = float3(dot(gRowF.xyz, ray), dot(gRowR.xyz, ray), dot(gRowU.xyz, ray));\n"
-    "    // Sky is at infinity: rotation survives, camera translation does not.\n"
-    "    if (d < 1000.0) q += gTranslation.xyz / (d * gTranslation.w);\n"
-    "    if (!(q.x > 1e-4) || !all(isfinite(q))) return float4(0, 0, 0, 0);\n"
-    "    const float2 puv = float2(0.5 + 0.5 * q.y / (q.x * gRowR.w), 0.5 - 0.5 * q.z / (q.x * gRowU.w));\n"
-    "    if (any(puv < 0.0) || any(puv > 1.0)) return float4(0, 0, 0, 0);\n"
-    "    return float4(puv - uv, 1.0, 0.0);\n"
+    "    float2 uv = i.pos.xy / gSize.zw;\n"
+    "    float4 r = Reproject(uv,ReadDepth(uv));\n"
+    "    return r.z > 0 ? float4(r.xy-uv,1,0) : 0;\n"
     "}\n"
     "float4 ps_temporal(VSOut i) : SV_Target {\n"
-    "    const int2 p = int2(i.pos.xy);\n"
-    "    const int2 last = int2(gSize.zw) - 1;\n"
-    "    const float3 c = Fetch(p);\n"
-    "    if (gFlags.y < 0.5) return float4(c, 1.0);\n"
-    "    float3 m1 = 0, m2 = 0;\n"
-    "    [unroll] for (int dy = -1; dy <= 1; ++dy)\n"
-    "    [unroll] for (int dx = -1; dx <= 1; ++dx) {\n"
-    "        const float3 s = RGBToYCoCg(Fetch(clamp(p + int2(dx, dy), int2(0, 0), last)));\n"
-    "        m1 += s; m2 += s * s;\n"
-    "    }\n"
-    "    const float2 uv = i.pos.xy / gSize.zw;\n"
-    "    const float tanH = gRowR.w, tanV = gRowU.w;\n"
-    "    const float3 d = float3(1.0, (uv.x * 2.0 - 1.0) * tanH, (1.0 - uv.y * 2.0) * tanV);\n"
-    "    const float3 q = float3(dot(gRowF.xyz, d), dot(gRowR.xyz, d), dot(gRowU.xyz, d));\n"
-    "    if (q.x <= 1e-4) return float4(c, 1.0);\n"
-    "float2 puv = float2(0.5 + 0.5 * q.y / (q.x * tanH), 0.5 - 0.5 * q.z / (q.x * tanV));\n"
+    "    int2 p = int2(i.pos.xy), last = int2(gSize.zw)-1;\n"
+    "    float2 uv = i.pos.xy / gSize.zw;\n"
+    "    float3 c = Fetch(p);\n"
+    "    // History alpha stores this pixel's depth; no extra depth-history allocation/pass.\n"
+    "    float z = gDepthSize.z > 0.5 ? ReadDepth(uv) : 0;\n"
+    "    float4 current = float4(c,z);\n"
+    "    if (gFlags.y < 0.5) return current;\n"
+    "    float4 r = Reproject(uv,z);\n"
+    "    if (r.z < 0.5) return current;\n"
+    "    float2 puv = r.xy;\n"
     "    if (gDepthSize.z > 0.5) {\n"
-    "        const float3 mv = tMotion.Load(int3(p, 0)).xyz;\n"
-    "        if (mv.z < 0.5) return float4(c, 1.0);\n"
-    "        puv = uv + mv.xy;\n"
+    "        float oldZ = t1.Load(int3(clamp(int2(puv*gSize.zw),int2(0,0),last),0)).a;\n"
+    "        if (!(oldZ > 0) || !isfinite(oldZ)) return current;\n"
+    "        bool sky = z >= 1000, oldSky = oldZ >= 1000;\n"
+    "        if (sky != oldSky || (!sky && abs(oldZ-r.w) > max(0.01,0.03*r.w))) return current;\n"
     "    }\n"
-    "    if (any(puv < 0.0) || any(puv > 1.0)) return float4(c, 1.0);\n"
-    "    float3 h = max(HistoryCatmullRom(puv, gSize.zw), 0.0);\n"
-    "    const float3 mu = m1 / 9.0;\n"
-    "    const float3 sigma = sqrt(max(m2 / 9.0 - mu * mu, 0.0));\n"
-    "    const float g = gRowF.w;\n"
-    "    h = YCoCgToRGB(ClipAABB(mu - g * sigma, mu + g * sigma, RGBToYCoCg(h)));\n"
-    "    const float wc = gFlags.w / (1.0 + Luma(c));\n"
-    "    const float wh = (1.0 - gFlags.w) / (1.0 + Luma(h));\n"
-    "    return float4((c * wc + h * wh) / (wc + wh), 1.0);\n"
+    "    float3 h = max(HistoryCatmullRom(puv,gSize.zw),0);\n"
+    "    float3 yc = RGBToYCoCg(c), m1 = 0, m2 = 0;\n"
+    "    [unroll] for (int dy=-1;dy<=1;++dy)\n"
+    "    [unroll] for (int dx=-1;dx<=1;++dx) {\n"
+    "        float3 sample = dx == 0 && dy == 0 ? yc : RGBToYCoCg(Fetch(clamp(p+int2(dx,dy),int2(0,0),last)));\n"
+    "        m1 += sample; m2 += sample*sample;\n"
+    "    }\n"
+    "    float3 mu = m1/9, sigma = sqrt(max(m2/9-mu*mu,0));\n"
+    "    // An unchanged centre is always inside the box, including single-pixel highlights.\n"
+    "    float3 lo = min(mu-gRowF.w*sigma,yc), hi = max(mu+gRowF.w*sigma,yc);\n"
+    "    float3 delta = abs(ToGamma(h)-ToGamma(c));\n"
+    "    float change = max(delta.x,max(delta.y,delta.z));\n"
+    "    float quiet = 1-smoothstep(0.0001,0.001,length((puv-uv)*gSize.zw));\n"
+    "    // Without camera motion, large changes are not new coverage samples.\n"
+    "    float reactive = quiet*smoothstep(0.08,0.25,change);\n"
+    "    h = max(YCoCgToRGB(ClipAABB(lo,hi,RGBToYCoCg(h))),0);\n"
+    "    float alpha = lerp(gFlags.w,1,reactive);\n"
+    "    float wc = alpha/(1+Luma(c)), wh = (1-alpha)/(1+Luma(h));\n"
+    "    return float4((c*wc+h*wh)/(wc+wh),z);\n"
     "}\n"
     "float4 ps_final(VSOut i) : SV_Target {\n"
     "    const int2 p = int2(i.pos.xy);\n"
@@ -227,7 +238,8 @@ template <class T> void rel(T*& p) { if (p) { p->Release(); p = nullptr; } }
 bool Gpu::init(ID3D11Device* dev, char* why, size_t cap) {
     if (ready_) return true;
     if (failed_ || !dev) { say(why, cap, failed_ ? "an earlier init failed" : "no device"); return false; }
-    HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
+    struct CompilerModule { HMODULE h; ~CompilerModule() { if (h) FreeLibrary(h); } } module{LoadLibraryA("d3dcompiler_47.dll")};
+    HMODULE compiler = module.h;
     PFN_D3DCompile compile = compiler ? (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile") : nullptr;
     if (!compile) { failed_ = true; say(why, cap, "d3dcompiler_47.dll missing"); return false; }
     struct Entry { const char* name; const char* target; void** out; bool vs; };
@@ -268,7 +280,7 @@ bool Gpu::init(ID3D11Device* dev, char* why, size_t cap) {
         }
     }
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 9 * 16;
+    bd.ByteWidth = 10 * 16;
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     dev->CreateBuffer(&bd, nullptr, &cb_);
@@ -331,7 +343,7 @@ void Gpu::shutdown() {
     }
     rel(depth_); rel(blend_); rel(raster_); rel(linear_); rel(cb_);
     rel(psFinal_); rel(psTemporal_); rel(psMotion_); rel(psResolveV_); rel(psResolveH_); rel(vs_);
-    ready_ = false;
+    ready_ = false; failed_ = false;
     bytes_ = 0;
 }
 
@@ -381,9 +393,9 @@ bool Gpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceV
     if (!resolve && (p.ow != p.w || p.oh != p.h)) { say(why, cap, "output size differs without a resolve"); return false; }
     const float sx = (float)p.w / (float)p.ow, sy = (float)p.h / (float)p.oh;
     if (resolve && (sx > 8.0f || sy > 8.0f)) { say(why, cap, "resolve step above 8x"); return false; }
-    float cb[36] = {};
+    float cb[40] = {};
     bool useMotion = p.temporal && p.sceneDepth && p.depthScale > 0 && isfinite(p.depthScale);
-    if (!useMotion) for (auto& v : vectors_) release(v);
+    if (!p.materializeVectors) for (auto& v : vectors_) release(v);
     auto upload = [&](float sw, float sh, float tw, float th, float srcGamma, float histValid) {
         cb[0] = sw; cb[1] = sh; cb[2] = tw; cb[3] = th;
         cb[4] = sx; cb[5] = sy; cb[6] = 2.0f * (sx > 1.0f ? sx : 1.0f); cb[7] = 2.0f * (sy > 1.0f ? sy : 1.0f);
@@ -397,6 +409,7 @@ bool Gpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceV
         cb[24] = p.kernelB; cb[25] = p.kernelC;
         for (int j = 0; j < 3; ++j) cb[28+j] = p.translation[j];
         cb[31] = p.depthScale; cb[32] = (float)p.w; cb[33] = (float)p.h; cb[34] = useMotion ? 1.0f : 0.0f;
+        cb[36] = p.prevTanH > 0 ? p.prevTanH : p.tanH; cb[37] = p.prevTanV > 0 ? p.prevTanV : p.tanV;
         ctx->UpdateSubresource(cb_, 0, nullptr, cb, 0, 0);
     };
     ID3D11ShaderResourceView* cur = src;
@@ -415,15 +428,15 @@ bool Gpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceV
             if (hist_[e][s].tex && (hist_[e][s].w != p.ow || hist_[e][s].h != p.oh)) histHave_[e] = false;
             if (!ensure(dev, hist_[e][s], p.ow, p.oh, why, cap)) { histHave_[e] = false; return false; }
         }
-        if (useMotion) {
+        if (useMotion && p.materializeVectors) {
             if (!ensure(dev, vectors_[e], p.ow, p.oh, why, cap)) { histHave_[e] = false; return false; }
             upload((float)p.w, (float)p.h, (float)p.ow, (float)p.oh, 0.0f, 0.0f);
-            pass(ctx, psMotion_, p.sceneDepth, nullptr, vectors_[e].rtv, p.ow, p.oh);
+            pass(ctx, psMotion_, nullptr, nullptr, vectors_[e].rtv, p.ow, p.oh, p.sceneDepth);
         }
         const int r = histRead_[e], w = 1 - r;
         const bool valid = p.historyValid && histHave_[e];
         upload((float)p.ow, (float)p.oh, (float)p.ow, (float)p.oh, curGamma, valid ? 1.0f : 0.0f);
-        pass(ctx, psTemporal_, cur, valid ? hist_[e][r].srv : nullptr, hist_[e][w].rtv, p.ow, p.oh, useMotion ? vectors_[e].srv : nullptr);
+        pass(ctx, psTemporal_, cur, valid ? hist_[e][r].srv : nullptr, hist_[e][w].rtv, p.ow, p.oh, useMotion ? p.sceneDepth : nullptr);
         histRead_[e] = w; histHave_[e] = true;
         cur = hist_[e][w].srv; curGamma = 0.0f;
     }

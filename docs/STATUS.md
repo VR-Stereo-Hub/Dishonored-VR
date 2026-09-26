@@ -1,3 +1,26 @@
+## TAA audit fixes (2026-09-26) - installed, simulator verified, not merged
+
+`claude/motion-vectors`: fused depth reprojection replaces production vector textures;
+previous depth lives in history alpha. Preserves stationary bright/coloured detail, rejects
+disocclusion and large colour changes at effectively stationary camera pixels. Per-eye c5,
+scoped FOV, camera identity and level/UI epoch travel with the image; resets/gaps invalidate.
+Depth slots have independent consumer fences and unique pending serials; capture timeouts
+fail closed. Retry paths and depth CPU/GPU attribution are implemented. No engine-memory
+writer added. Full changes/evidence/limits: [PERFORMANCE](dishonored/PERFORMANCE.md#2026-09-26-taa-audit-fixes-implemented-and-simulator-tested).
+
+72 TAA GPU checks, 6 calibration checks, 146 frame PASS lines, default parity/persistence,
+exports and lint pass. Simulator recovered through rotation/translation, capture off/shared,
+reinit, deferred/shared and motion off/on: 450 fused passes per eye per 5 s, no ongoing fallback.
+White detail keeps full intensity; texture storage down 119.6 MiB at 2750x2850. No headset
+quality/performance verdict yet. Deliberate jitter investigated but not enabled: existing
+projection-pass classification cannot safely support it; object vectors remain research.
+
+Installed SHA256 `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`,
+`v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48. Simulator stopped. Full original installed INI
+restored byte-for-byte, CRLF verified: Temporal/DepthShare/MotionCalib off, vectors default off.
+Next: headset A/B with Temporal on, depth mode toggled and F10 closed; judge fine detail and
+walking/leaning trails. Archives in `build/taa-fixes/`. Nothing merged.
+
 ## TAA audit (2026-09-26) - findings recorded, runtime unchanged
 
 Audited `87a892cef` on `claude/motion-vectors`. Full evidence, ranked findings and improvement

@@ -61,7 +61,8 @@ template <class T> void rel(T*& p) { if (p) { p->Release(); p = nullptr; } }
 bool CalibGpu::init(ID3D11Device* dev, char* why, size_t cap) {
     if (ready_) return true;
     if (failed_ || !dev) { say(why, cap, "no device or an earlier failure"); return false; }
-    HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
+    struct CompilerModule { HMODULE h; ~CompilerModule() { if (h) FreeLibrary(h); } } module{LoadLibraryA("d3dcompiler_47.dll")};
+    HMODULE compiler = module.h;
     PFN_D3DCompile compile = compiler ? (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile") : nullptr;
     if (!compile) { failed_ = true; say(why, cap, "d3dcompiler_47.dll missing"); return false; }
     ID3DBlob *vb = nullptr, *pb = nullptr, *err = nullptr;
@@ -105,7 +106,7 @@ bool CalibGpu::init(ID3D11Device* dev, char* why, size_t cap) {
 
 void CalibGpu::shutdown() {
     rel(stage_); rel(outRtv_); rel(out_); rel(depth_); rel(blend_); rel(raster_); rel(linear_); rel(cb_); rel(ps_); rel(vs_);
-    ready_ = false;
+    ready_ = false; failed_ = false;
 }
 
 bool CalibGpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* cur,

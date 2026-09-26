@@ -41,6 +41,8 @@ struct PassParams {
     bool     historyValid = false;   // false seeds the history with this frame
     Mat3     prevFromCur = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
     float    tanH = 1.0f, tanV = 1.0f;
+    float    prevTanH = 0, prevTanV = 0; // zero uses current projection (host callers)
+    bool     materializeVectors = false; // diagnostics/future consumers only; TAA is fused
     float    blend = 0.15f;      // weight of the current frame
     float    clipGamma = 1.0f;   // variance clip width in standard deviations
     float    sharpen = 0.0f;     // 0 = none, up to 1
@@ -62,10 +64,11 @@ public:
              ID3D11RenderTargetView* dst, const PassParams& p, char* why, size_t cap);
     // The history the next temporal pass for `eye` reads (null before one ran).
     ID3D11ShaderResourceView* history(int eye) const;
-    // xy = previous UV minus current UV, z = valid, w = 0; output resolution.
+    // Optional diagnostic output only: xy = previous UV minus current UV, z = valid.
+    // Production TAA computes this directly and stores depth in history alpha.
     ID3D11ShaderResourceView* vectors(int eye) const { return vectors_[eye & 1].srv; }
     // Free the intermediates a pass that is off no longer needs (the history alone is
-    // ~360 MB at 200%): off returns the memory, not just the frame time.
+    // four RGBA16F images at output resolution): off returns the memory, not just the frame time.
     void trim(bool keepResolve, bool keepTemporal);
     uint64_t bytes() const { return bytes_; }   // intermediate memory held
 

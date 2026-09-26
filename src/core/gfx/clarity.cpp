@@ -52,26 +52,27 @@ const char* on_off(bool b) { return b ? "on" : "off"; }
 
 void note_change(const char* what, const char* value, const char* who) {
     g_epoch.fetch_add(1);
+    dvr::depthprobe::retry();
     DVR_INFO("clarity: %s -> %s (live, %s); the eye histories restart", what, value, who ? who : "?");
 }
 
 // The view an eye image was rendered with: the camera rotation and position
 // the pose record carries (the rotator the engine consumed, in degrees) and the
 // projection the runtime will claim for it.
-View view_for(uint32_t recId, uint32_t w, uint32_t h) {
+View view_for(uint32_t recId, uint32_t w, uint32_t h, int eyeSign) {
     View v;
     dvr::pose::Record rec = {};
-    if (!recId || !dvr::pose::copy(recId, &rec) || !rec.cam.ok) return v;
-    float hfov = dvr::vr::rendered_hfov_deg();
-    if (!(hfov > 10.0f && hfov < 170.0f)) hfov = dvr::vr::suggested_hfov_deg();
+    if (!recId || !dvr::pose::copy(recId, &rec) || !rec.cam.ok || rec.eye != eyeSign) return v;
+    const float hfov = rec.hfovDeg;
     if (!(hfov > 10.0f && hfov < 170.0f) || !w || !h) return v;
     v.tanH = tanf(hfov * 0.5f * 3.14159265f / 180.0f);
     v.tanV = v.tanH * (float)h / (float)w;
     v.pitch = rec.cam.pitchDeg; v.yaw = rec.cam.yawDeg; v.roll = rec.cam.rollDeg;
-    v.posOk = rec.cam.posOk;
+    v.posOk = rec.eyePosOk;
+    v.timeMs = rec.openedMs; v.cameraIdentity = rec.cameraIdentity; v.sceneEpoch = rec.sceneEpoch;
     // last_written_pos publishes c5 = -world position (ENGINE_NOTES, 2026-09-03).
     // Keep the transport record unchanged; convert once at this consumer boundary.
-    world_from_c5(rec.cam.pos, v.pos);
+    world_from_c5(rec.eyePos, v.pos);
     v.w = w; v.h = h;
     v.ok = true;
     return v;
@@ -148,7 +149,7 @@ void calib_frame(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResour
         if (!g_calibOk) { DVR_ERROR("motion/calib: unavailable (%s)", why); return; }
     }
     EyeHist& e = g_eh[eyeSign < 0 ? 0 : 1];
-    const View cur = view_for(recId, w, h);
+    const View cur = view_for(recId, w, h, eyeSign);
     ID3D11Resource* res = nullptr;
     src->GetResource(&res);
     if (!res || !cur.ok) { if (res) res->Release(); e.view = View{}; return; }
@@ -329,12 +330,14 @@ void output_size(uint32_t w, uint32_t h, uint32_t* ow, uint32_t* oh) {
 bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
           uint32_t w, uint32_t h, ID3D11RenderTargetView* dst, uint32_t ow, uint32_t oh,
           int eyeSign, uint32_t recId) {
+    struct DepthReads { ID3D11DeviceContext* ctx; ~DepthReads() { dvr::depthprobe::read_done(ctx); } } reads{ctx};
     calib_frame(dev, ctx, src, w, h, eyeSign, recId);   // motion vectors step 3 (off by default)
     if (!any_on()) { if (g_initOk && g_gpu.bytes()) g_gpu.trim(false, false); return false; }
     if (!dev || !ctx || !src || !dst) return false;
+    if (!g_initOk && g_initTried && g_seenEpoch != g_epoch.load()) { g_gpu.shutdown(); g_initTried = false; }
     if (!g_initOk) {
         if (g_initTried) return false;
-        g_initTried = true;
+        g_initTried = true; g_seenEpoch = g_epoch.load();
         char why[512] = "";
         g_initOk = g_gpu.init(dev, why, sizeof(why));
         if (!g_initOk) {
@@ -360,13 +363,18 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
     if (g_temporal.load()) {
         if (eyeSign == -1 || eyeSign == 1) {
             const int e = eyeSign < 0 ? 0 : 1;
-            const View cur = view_for(recId, ow, oh);
+            const View cur = view_for(recId, ow, oh, eyeSign);
             const Reset why = keep_history(g_prev[e], cur);
             ++g_win.resets[(int)why];
             if (cur.ok) {
                 p.temporal = true;
                 p.eye = e;
                 p.historyValid = why == Reset::None;
+                if (g_motion.load() && cur.posOk) {
+                    UINT dw = 0, dh = 0;
+                    auto* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh);
+                    if (depth && dw == w && dh == h) { p.sceneDepth = depth; p.depthScale = g_depthScale.load(); }
+                }
                 if (p.historyValid) {
                     const Basis pb = basis_from_rotator(g_prev[e].pitch, g_prev[e].yaw, g_prev[e].roll);
                     const Basis cb = basis_from_rotator(cur.pitch, cur.yaw, cur.roll);
@@ -379,22 +387,14 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                                     dz = cur.pos[2] - g_prev[e].pos[2];
                         move = sqrtf(dx * dx + dy * dy + dz * dz);
                     }
-                    if (g_motion.load() && g_prev[e].posOk && cur.posOk) {
-                        UINT dw = 0, dh = 0;
-                        auto* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh);
-                        if (depth && dw == w && dh == h) {
-                            p.sceneDepth = depth;
-                            p.depthScale = g_depthScale.load();
-                            const float dp[3] = {cur.pos[0] - g_prev[e].pos[0], cur.pos[1] - g_prev[e].pos[1], cur.pos[2] - g_prev[e].pos[2]};
-                            p.translation[0] = dot3(pb.f, dp); p.translation[1] = dot3(pb.r, dp); p.translation[2] = dot3(pb.u, dp);
-                        }
-                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-                            "clarity/motion: eye %+d grab %u, %s, scale %.1f uu/unit, move %.2f uu",
-                            eyeSign, dvr::capture::delivered_serial(), p.sceneDepth ? "depth vectors" : "rotation-only fallback (no matching depth)",
-                            g_depthScale.load(), move);
+                    if (p.sceneDepth && g_prev[e].posOk) {
+                        const float dp[3] = {cur.pos[0]-g_prev[e].pos[0],cur.pos[1]-g_prev[e].pos[1],cur.pos[2]-g_prev[e].pos[2]};
+                        p.translation[0] = dot3(pb.f,dp); p.translation[1] = dot3(pb.r,dp); p.translation[2] = dot3(pb.u,dp);
                     }
+                    p.prevTanH = g_prev[e].tanH; p.prevTanV = g_prev[e].tanV;
                     const float m = p.sceneDepth ? 0.0f : motion_weight(move, basis_angle_deg(pb, cb));
                     p.blend = p.blend + (0.6f - p.blend) * m;
+                    p.blend = blend_for_interval(p.blend, cur.timeMs-g_prev[e].timeMs);
                     p.clipGamma = 1.0f - 0.35f * m;
                     g_win.motionSum += m; ++g_win.motionN;
                 }
@@ -433,6 +433,8 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
     status_tick();
     return true;
 }
+
+void invalidate() { g_prev[0] = View{}; g_prev[1] = View{}; }
 
 void shutdown() {
     g_gpu.shutdown();

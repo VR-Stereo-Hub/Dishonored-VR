@@ -169,7 +169,7 @@ uint32_t next_pair()
 }
 
 
-uint32_t open(int eye, uint32_t pairId, bool secondPassReuse)
+uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePos, float hfovDeg, uintptr_t cameraIdentity, uint64_t sceneEpoch)
 {
     ensure_cs();
     Lock lk;
@@ -181,6 +181,9 @@ uint32_t open(int eye, uint32_t pairId, bool secondPassReuse)
     r.eye = eye;
     r.track = g_camTrack;          // a COPY of what the camera write published
     r.cam = g_camCam;
+    r.eyePosOk = eyePos != nullptr;
+    for (int j = 0; j < 3; ++j) r.eyePos[j] = eyePos ? eyePos[j] : 0.0f;
+    r.hfovDeg = hfovDeg; r.cameraIdentity = cameraIdentity; r.sceneEpoch = sceneEpoch;
     r.openedMs = dvr::clock::now_ms();
     r.secondPassReuse = secondPassReuse;
     ++g_opened;

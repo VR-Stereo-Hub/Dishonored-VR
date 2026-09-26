@@ -1,3 +1,19 @@
+## 2026-09-26: audited TAA defects fixed, headset verdict pending
+
+Surface: accumulated scene colour, separate from stereo eye cadence and the later hand/F10
+overlay. Stationary white detail now retains full intensity (formerly 49% linear); saturated
+colours and the original moving-edge AA control pass. Added previous-depth visibility and
+quiet-camera colour response. Frame records carry each eye's position, scoped FOV and
+scene epoch; depth owns independent read fences. Fused reprojection removes vector storage.
+
+Matching simulator build `v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48, recovered after
+capture pause/reinit/deferred mode and vector off/on with 450 passes per eye per 5 s and
+no ongoing fallback. 72 GPU checks pass. This verifies recovery, not headset ghosting.
+One failed approach: broader colour response damaged legitimate micro-motion AA (0.197
+coverage error); restricting it to stationary pixels restored 0.095 versus raw 0.219.
+Full evidence and remaining jitter/object-motion limitations: PERFORMANCE.md, TAA audit fixes.
+Installed diagnostics remain off and the original INI is restored byte-for-byte.
+
 ## 2026-09-26: TAA audit identifies history-quality and transport gaps
 
 Follow-up source/GPU audit of the experimental path: unchanged stationary bright detail

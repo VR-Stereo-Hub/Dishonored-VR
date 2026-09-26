@@ -5,6 +5,7 @@
 #include "core/gfx/capture.h"
 #include "core/gfx/shared_capture_texture.h"
 #include "core/util/log.h"
+#include "core/framework/perf.h"
 
 #include <d3d11.h>
 
@@ -220,7 +221,8 @@ void tick(IDirect3DDevice9* dev, UINT backW, UINT backH) {
 // A ring of three: each present's copy is keyed by the serial the colour grab of the SAME
 // present will carry (capture::serial() + 1), so step 3 can take the depth that belongs to
 // whichever grab the capture delivers (this present's, or the previous one's in shared mode).
-std::atomic<bool> g_share{false};
+std::atomic<bool> g_share{false}, g_retry{false};
+void retry() { g_retry.store(true); }
 const int kRing = 3;
 struct Slot {
     dvr::capture::interop::Image img;              // D3D9 owner + surface, D3D11 texture
@@ -228,6 +230,8 @@ struct Slot {
     ID3D11ShaderResourceView* srv = nullptr;
     uint32_t serial = 0;
     bool fenced = false;
+    ID3D11Query* readFence = nullptr;
+    bool reading = false, borrowed = false;
 };
 Slot g_ring[kRing];
 int g_ringNext = 0;
@@ -242,6 +246,8 @@ void share_release() {
     for (Slot& r : g_ring) {
         if (r.srv) r.srv->Release();
         if (r.fence) r.fence->Release();
+        if (r.readFence) r.readFence->Release();
+        r.readFence = nullptr; r.reading = r.borrowed = false;
         r.img.reset();
         r.srv = nullptr; r.fence = nullptr; r.serial = 0; r.fenced = false;
     }
@@ -250,6 +256,7 @@ void share_release() {
 
 void on_reset() {
     share_release();
+    g_shareFailed = false;
     for (Cand& c : g_c) { if (c.tex) c.tex->Release(); c = Cand{}; }
     for (Scratch& s : g_s) {
         if (s.sys) s.sys->Release();
@@ -265,12 +272,13 @@ void set_share(bool on, const char* who) {
 }
 bool share_on() { return g_share.load(); }
 bool share_tick_needed() {
-    return g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on()) || g_depthW != 0;
+    return g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on()) || g_depthW != 0 || g_shareFailed;
 }
 
 void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH) {
+    if (g_retry.exchange(false)) g_shareFailed = false;
     const bool wanted = g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on());
-    if (!wanted) { if (g_depthW) share_release(); return; }
+    if (!wanted) { if (g_depthW) share_release(); g_shareFailed = false; return; }
     if (g_shareFailed || !dev || !dev11 || !ctx11 || !backW) return;
     // The scene target: the first-created eye-size RGBA16F (step 1: its alpha is depth).
     const Cand* scene = nullptr;
@@ -290,6 +298,8 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
             if (FAILED(cr.hr)) { hr = cr.hr; step = cr.step; break; }
             if (FAILED(hr = dev->CreateQuery(D3DQUERYTYPE_EVENT, &r.fence))) { step = "fence"; break; }
             if (FAILED(hr = dev11->CreateShaderResourceView(r.img.texture, nullptr, &r.srv))) { step = "SRV"; break; }
+            D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
+            if (FAILED(hr = dev11->CreateQuery(&qd, &r.readFence))) { step = "read fence"; break; }
         }
         D3D11_TEXTURE2D_DESC sd = {};
         sd.Width = kGrid; sd.Height = kGrid; sd.MipLevels = 1; sd.ArraySize = 1;
@@ -305,8 +315,29 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
         DVR_INFO("depthshare: shared depth %ux%u RGBA16F live (target #%d), a ring of %d keyed by the colour grab's "
                  "serial; copied at every present, fenced", g_depthW, g_depthH, scene->serial, kRing);
     }
-    Slot& r = g_ring[g_ringNext];
-    g_ringNext = (g_ringNext + 1) % kRing;
+    // A present which cannot copy must not expose a previous copy with the same
+    // speculative serial (capture off/refusal does not advance capture::serial).
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+        "depthshare: copies %llu, unavailable/busy %llu, ring %.1f MiB; nonblocking fences",
+        (unsigned long long)g_shareCopies, (unsigned long long)g_shareMissed,
+        (double)g_depthW*g_depthH*8*kRing/(1024*1024));
+    const uint32_t serial = dvr::capture::serial() + 1;
+    for (Slot& s : g_ring) if (s.serial == serial) s.serial = 0;
+    Slot* freeSlot = nullptr;
+    for (int i = 0; i < kRing; ++i) {
+        const int n = (g_ringNext + i) % kRing;
+        Slot& s = g_ring[n];
+        if (s.borrowed) continue;
+        if (s.reading) {
+            const HRESULT hr = ctx11->GetData(s.readFence, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
+            if (hr != S_OK) continue; // timeout/error is never permission to overwrite
+            s.reading = false;
+        }
+        freeSlot = &s; g_ringNext = (n + 1) % kRing; break;
+    }
+    if (!freeSlot) { ++g_shareMissed; return; }
+    Slot& r = *freeSlot;
+    r.serial = 0;
     IDirect3DSurface9* src = nullptr;
     if (FAILED(scene->tex->GetSurfaceLevel(0, &src)) || !src) return;
     const DWORD t = GetTickCount();
@@ -314,7 +345,9 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     float d9[kGrid][kGrid] = {};
     bool have9 = false;
     if (check) have9 = read_grid_d3d9(dev, src, scene->w, scene->h, D3DFMT_A16B16G16R16F, d9);   // this present, D3D9
+    dvr::perf::gpu_mark(dvr::perf::kGpuDepthA);
     const HRESULT hc = dev->StretchRect(src, nullptr, r.img.surface, nullptr, D3DTEXF_POINT);
+    dvr::perf::gpu_mark(dvr::perf::kGpuDepthB);
     src->Release();
     if (FAILED(hc)) {
         r.serial = 0;
@@ -322,14 +355,16 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
         return;
     }
     ++g_shareCopies;
-    r.serial = dvr::capture::serial() + 1;   // the grab later in this present takes this serial
-    r.fence->Issue(D3DISSUE_END);
+    if (FAILED(r.fence->Issue(D3DISSUE_END))) { ++g_shareMissed; return; }
+    r.serial = serial;
     r.fenced = true;
     if (!check) return;
     g_shareNextMs = t + 5000;
     // The check only: wait for this copy, then read the same 25 texels on D3D11.
     const DWORD t0 = GetTickCount();
     while (r.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE && GetTickCount() - t0 < 50) Sleep(0);
+    if (r.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_OK) return;
+    r.borrowed = true;
     for (int j = 0; j < kGrid; ++j)
         for (int i = 0; i < kGrid; ++i) {
             const UINT x = (UINT)(scene->w * (0.1 + 0.2 * i)), y = (UINT)(scene->h * (0.1 + 0.2 * j));
@@ -337,7 +372,7 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
             ctx11->CopySubresourceRegion(g_depthStage, 0, i, j, 0, r.img.texture, 0, &b);
         }
     D3D11_MAPPED_SUBRESOURCE m = {};
-    if (FAILED(ctx11->Map(g_depthStage, 0, D3D11_MAP_READ, 0, &m))) return;
+    if (FAILED(ctx11->Map(g_depthStage, 0, D3D11_MAP_READ, 0, &m))) { read_done(ctx11); return; }
     float d11[kGrid][kGrid];
     for (int j = 0; j < kGrid; ++j)
         for (int i = 0; i < kGrid; ++i) {
@@ -345,6 +380,7 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
             d11[j][i] = v[3];
         }
     ctx11->Unmap(g_depthStage, 0);
+    read_done(ctx11);
     ++g_shareChecks;
     float worst = 0.0f; char t11[400] = ""; int n = 0;
     for (int j = 0; j < kGrid; ++j) {
@@ -370,15 +406,24 @@ ID3D11ShaderResourceView* depth_srv_for(uint32_t grabSerial, UINT* w, UINT* h) {
     for (Slot& r : g_ring) if (r.srv && r.serial == grabSerial) best = &r;
     if (!best) { ++g_shareMissed; return nullptr; }
     if (best->fenced) {   // the copy must have executed before D3D11 reads the shared texture
-        const DWORD t0 = GetTickCount();
-        HRESULT q;
-        while ((q = best->fence->GetData(nullptr, 0, D3DGETDATA_FLUSH)) == S_FALSE && GetTickCount() - t0 < 20) Sleep(0);
+        // Submit once and poll once. Never stall a VR frame waiting for depth.
+        const HRESULT q = best->fence->GetData(nullptr, 0, D3DGETDATA_FLUSH);
         if (q != S_OK) { ++g_shareMissed; return nullptr; }
         best->fenced = false;
     }
     if (w) *w = g_depthW;
     if (h) *h = g_depthH;
+    best->borrowed = true;
     return best->srv;
+}
+
+void read_done(ID3D11DeviceContext* ctx) {
+    if (!ctx) return;
+    bool issued = false;
+    for (Slot& s : g_ring) if (s.borrowed) {
+        ctx->End(s.readFence); s.reading = true; s.borrowed = false; issued = true;
+    }
+    if (issued) ctx->Flush();
 }
 
 void set_enabled(bool on, const char* who) {
