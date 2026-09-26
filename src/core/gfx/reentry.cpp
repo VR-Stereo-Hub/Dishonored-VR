@@ -36,6 +36,7 @@
 
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
+#include "core/gfx/clarity.h"
 #include "core/gfx/blit_quad.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
@@ -504,21 +505,32 @@ public:
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) { commit(OUT_NOSRC, 0, fresh); return false; }
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
-        if (!ensure_target(d.dev11, w, h)) { commit(OUT_TARGET, 0, fresh); return false; }
+        // Clarity (core/gfx/clarity.h): with its resolve on and the render above the
+        // runtime's recommended size, the eye texture - and so the swapchain - is the
+        // resolved size. Everything drawn over the game image below uses that size.
+        uint32_t ow = w, oh = h;
+        dvr::clarity::output_size(w, h, &ow, &oh);
+        if (!ensure_target(d.dev11, ow, oh)) { commit(OUT_TARGET, 0, fresh); return false; }
         if (fresh || !drawnOnce_) {
             {
                 dvr::bridge_profile::Scope sample(d.dev11,d.ctx11,dvr::bridge_profile::Conversion,
                     fresh ? dvr::capture::delivered_tag() : 0);
-                blit_.draw(d.ctx11, src, rtv_, w, h);
+                // The game image only: our own hands and the F10 panel go on top of
+                // the result, untouched by the resolve, the temporal blend and the
+                // sharpening. All clarity levers off = the plain blit, as before.
+                if (!dvr::clarity::draw(d.dev11, d.ctx11, src, w, h, rtv_, ow, oh,
+                                        fresh ? dvr::capture::delivered_tag() : 0,
+                                        fresh ? dvr::capture::delivered_rec() : 0u))
+                    blit_.draw(d.ctx11, src, rtv_, ow, oh);
             }
             // 41.2 (VR-31): our own hands, over the game image and under the
             // F10 panel. The eye is the tag of the pixels JUST blitted, which
             // is NOT `eye` (the eye of the current D3D9 backbuffer) - one line
             // apart, and confusing them is the stale-eye fault in miniature.
             if (HandDrawFn hd = hand_draw())
-                hd(d.dev11, d.ctx11, rtv_, w, h,
+                hd(d.dev11, d.ctx11, rtv_, ow, oh,
                    fresh ? dvr::capture::delivered_tag() : 0);
-            if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
+            if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, ow, oh);
             // 41.1 (session 9): the frame-identity trace's stages slot and out,
             // inside the read fence (the slot thumbnail is a read of the slot).
             if (fresh) {
@@ -620,7 +632,7 @@ public:
         }
         out.tex = tex_;
         out.eyeSign = delivered;
-        out.w = w; out.h = h;
+        out.w = ow; out.h = oh;
         // The runtime pops exactly one tag per present in on_present_end,
         // right after this returns; a 0 pushes nothing (mono path).
         if (delivered != 0) {
@@ -659,6 +671,7 @@ public:
         }
         release_target();
         blit_.shutdown();
+        dvr::clarity::shutdown();
         drawnOnce_ = false;
         lastLeftOk_ = false;
         single_ = SingleTagState{};

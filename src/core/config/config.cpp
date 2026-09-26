@@ -151,6 +151,30 @@ static bool WriteDefaultIni(const char* ini)
         "Mode=shared\n"
         "SharedWait=0\n"
         "BboxMs=30000\n"
+        "[Clarity]\n"
+        "; Anti-aliasing and clarity on the eye image (core/gfx/clarity.h; the research is in\n"
+        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). Sharpen 0.30, 16x\n"
+        "; Anisotropy and TrilinearMips ship ON; Resolve and Temporal are off (headset-judged 2026-09-26). F10\n"
+        "; Advanced > Display > Clarity and anti-aliasing, and `clarity ...` on the seam, are live.\n"
+        "; Resolve=1: when the resolution is above ~100%% (the runtime's recommended size), filter\n"
+        "; the render down to that size here with a kernel that reads every rendered pixel, instead\n"
+        "; of handing the headset runtime an oversized image it samples with one bilinear tap per\n"
+        "; pixel. The swapchain becomes the recommended size. Does nothing at 100%%.\n"
+        "; Temporal=1 (experimental): blend each eye with its own previous frame, reprojected by\n"
+        "; the head rotation between the two, clipped where the rotation cannot explain the change\n"
+        "; (walking, moving hands). Aimed at shimmering edges. TemporalBlend is the new frame's\n"
+        "; weight (0.05..0.5; lower = smoother and softer).\n"
+        "; Sharpen=0..1: contrast-adaptive sharpening on the result (0 = off).\n"
+        "; Anisotropy=0|2|4|8|16: raise the anisotropic filtering of the textures the game already\n"
+        "; filters anisotropically (the game's own MaxAnisotropy is 4); 0 = the game's own.\n"
+        "; TrilinearMips=1: blend between mip levels on those textures instead of the game's\n"
+        "; point mip filter (a visible seam that walks with the head on floors and walls).\n"
+        "Resolve=0\n"
+        "Temporal=0\n"
+        "TemporalBlend=0.15\n"
+        "Sharpen=0.30\n"
+        "Anisotropy=16\n"
+        "TrilinearMips=1\n"
         "[Pace]\n"
         "ImageOrientation=1\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
@@ -1792,6 +1816,19 @@ static void LoadConfig()
             strcpy(cm, "sync");
         }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
+        {   // [Clarity]: anti-aliasing and clarity on the eye image, all off by default
+            dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 0) != 0.0f, "ini");
+            dvr::clarity::set_temporal(IniFloat(ini, "Clarity", "Temporal", 0) != 0.0f, "ini");
+            dvr::clarity::set_blend(IniFloat(ini, "Clarity", "TemporalBlend", 0.15f), "ini");
+            dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.30f), "ini");
+            dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
+            dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
+            Log("config: [Clarity] Resolve=%d Temporal=%d TemporalBlend=%.2f Sharpen=%.2f Anisotropy=%d TrilinearMips=%d%s",
+                (int)dvr::clarity::resolve_on(), (int)dvr::clarity::temporal_on(), dvr::clarity::blend(),
+                dvr::clarity::sharpen(), dvr::samplers::anisotropy(), (int)dvr::samplers::trilinear(),
+                (dvr::clarity::any_on() || dvr::samplers::anisotropy() || dvr::samplers::trilinear())
+                    ? "" : " - all off: the eye image and the game's texture filtering are exactly as before");
+        }
         dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
         {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
             // Each sample is a full-frame CPU readback on the present thread even
@@ -4108,6 +4145,17 @@ static void OverlaySaveDefaults()
     // 41.1 (session 8): the capture mode (off is live-only and is not saved)
     if (dvr::capture::mode() != dvr::capture::Mode::Off)
         WritePrivateProfileStringA("Capture", "Mode", dvr::capture::mode_name(), ini);
+    {   // [Clarity]
+        WritePrivateProfileStringA("Clarity", "Resolve", dvr::clarity::resolve_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "Temporal", dvr::clarity::temporal_on() ? "1" : "0", ini);
+        _snprintf(v, 64, "%.2f", dvr::clarity::blend());
+        WritePrivateProfileStringA("Clarity", "TemporalBlend", v, ini);
+        _snprintf(v, 64, "%.2f", dvr::clarity::sharpen());
+        WritePrivateProfileStringA("Clarity", "Sharpen", v, ini);
+        _snprintf(v, 64, "%d", dvr::samplers::anisotropy());
+        WritePrivateProfileStringA("Clarity", "Anisotropy", v, ini);
+        WritePrivateProfileStringA("Clarity", "TrilinearMips", dvr::samplers::trilinear() ? "1" : "0", ini);
+    }
     // 41.1 (session 8): the device levers as they were READ this run (the
     // seam word writes the ask for the next launch; a save must not undo it)
     {

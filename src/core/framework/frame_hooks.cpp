@@ -8,6 +8,7 @@
 #include "core/framework/query_wait_profile.h"
 #include "core/framework/scene_prepare_profile.h"
 #include "core/framework/bridge_profile.h"
+#include "core/gfx/sampler_force.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/d3d9ex.h"
@@ -306,6 +307,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     dvr::stereo::on_reset();
     dvr::hudclass::on_reset(); dvr::hudcap::on_reset();   // VR-117: the sinks are DEFAULT-pool; the hkReset LAW
     dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
+    dvr::samplers::on_reset();        // a Reset returns every sampler state to its default
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
         DVR_ERROR("device Reset FAILED 0x%08lx (%ux%u windowed=%d) - %s", (unsigned long)hr, pp ? pp->BackBufferWidth : 0,
@@ -342,6 +344,13 @@ HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT
     ++g_actDraws;
     if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
     return orig_draw_prim(self, type, startVertex, primCount);
+}
+
+// The texture-filter levers (core/gfx/sampler_force): off, every call passes
+// through with the game's own value.
+dvr::samplers::PFN_SetSamplerState g_origSetSampler = nullptr;
+HRESULT __stdcall hkSetSamplerState(IDirect3DDevice9* self, DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value) {
+    return dvr::samplers::set_sampler_state(self, sampler, type, value, g_origSetSampler);
 }
 
 // The quit hang (shared capture): our DEFAULT-pool D3D9 objects - the shared
@@ -413,8 +422,11 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         if (old && !g_origDrawIndexed) g_origDrawIndexed = (DrawIndexedFn)old;
         old = PatchVtable(*outDev, 81, (void*)hkDrawPrim);          // DrawPrimitive
         if (old && !g_origDrawPrim) g_origDrawPrim = (DrawPrimFn)old;
+        old = PatchVtable(*outDev, 69, (void*)hkSetSamplerState);   // SetSamplerState (texture-filter levers)
+        if (old && !g_origSetSampler) g_origSetSampler = (dvr::samplers::PFN_SetSamplerState)old;
         DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene/"
-                 "DrawIndexedPrimitive)");
+                 "DrawIndexedPrimitive/DrawPrimitive/SetSamplerState%s)",
+                 g_origSetSampler ? "" : " - SetSamplerState NOT hooked: the texture-filter levers are inert");
         // 41.1 (session 8): the creation census - what the game asks of this
         // device, the go/no-go for the D3D9Ex route (core/gfx/device_census).
         dvr::census::install(*outDev, self, adapter, type, flags, pp);

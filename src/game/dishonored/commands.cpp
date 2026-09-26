@@ -468,6 +468,25 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (DvrOnOff(args, &b)) ConfigWriteKey("Draws", "Census", b ? "1" : "0", "the seam");
         return dvr::hudclass::command(args);
     }
+    if (!strcmp(cmd, "clarity")) {   // anti-aliasing and clarity on the eye image (core/gfx/clarity.h)
+        const bool ok = dvr::clarity::command(args);
+        ConfigWriteKey("Clarity", "Resolve", dvr::clarity::resolve_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "Temporal", dvr::clarity::temporal_on() ? "1" : "0", "the seam");
+        char v[16];
+        _snprintf(v, sizeof(v), "%.2f", dvr::clarity::blend());
+        ConfigWriteKey("Clarity", "TemporalBlend", v, "the seam");
+        _snprintf(v, sizeof(v), "%.2f", dvr::clarity::sharpen());
+        ConfigWriteKey("Clarity", "Sharpen", v, "the seam");
+        return ok;
+    }
+    if (!strcmp(cmd, "aniso")) {     // the texture-filter levers (core/gfx/sampler_force.h)
+        const bool ok = dvr::samplers::command(args);
+        char v[16];
+        _snprintf(v, sizeof(v), "%d", dvr::samplers::anisotropy());
+        ConfigWriteKey("Clarity", "Anisotropy", v, "the seam");
+        ConfigWriteKey("Clarity", "TrilinearMips", dvr::samplers::trilinear() ? "1" : "0", "the seam");
+        return ok;
+    }
     if (!strcmp(cmd, "frameid")) {   // 41.1 (session 9): the frame-identity trace
         if (DvrOnOff(args, &b)) { dvr::frameid::set_enabled(b); return true; }
         { char sub[16] = "", v[16] = ""; if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "every")) { dvr::frameid::set_every((uint32_t)atoi(v)); return true; } }

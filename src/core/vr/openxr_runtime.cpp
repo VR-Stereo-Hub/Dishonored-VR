@@ -3381,6 +3381,23 @@ void on_present_begin() {
         XRLOG("xr: headset fov half-angles h=%.1f v=%.1f deg -> game hfov %.1f deg "
                 "(aspect %.3f)",
                 maxHalfH * 57.29578f, maxHalfV * 57.29578f, deg, aspect);
+        // Each eye's own angles, and how much of the symmetric render it can show:
+        // the rest is rendered and never seen, and an off-axis frustum would spend
+        // it on the part the lens does show (docs/dishonored/PERFORMANCE.md).
+        {
+            const float tH = tanf(halfH), tV = tanf(atanf(tanf(halfH) / aspect));
+            for (int e = 0; e < 2; ++e) {
+                const XrFovf& f = g_views[e].fov;
+                const float usedH = (tanf(-f.angleLeft) + tanf(f.angleRight)) / (2.0f * tH);
+                const float usedV = (tanf(f.angleUp) + tanf(-f.angleDown)) / (2.0f * tV);
+                XRLOG("xr: eye %c fov left %.1f right %.1f up %.1f down %.1f deg | uses %.1f%% x %.1f%% of the "
+                        "symmetric render's width x height; an off-axis frustum would give it %.2fx the pixels "
+                        "per degree across and %.2fx down at the same render size",
+                        e == 0 ? 'L' : 'R', f.angleLeft * 57.29578f, f.angleRight * 57.29578f,
+                        f.angleUp * 57.29578f, f.angleDown * 57.29578f, usedH * 100.0f, usedV * 100.0f,
+                        usedH > 0.01f ? 1.0f / usedH : 0.0f, usedV > 0.01f ? 1.0f / usedV : 0.0f);
+            }
+        }
     }
 
     // M5: one action sync per XR frame (with pair pacing that is once per eye

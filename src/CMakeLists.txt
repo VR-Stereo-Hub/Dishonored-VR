@@ -60,6 +60,10 @@ set(DVR_REAL_SOURCES
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/gpu_memory.cpp    core/gfx/gpu_memory.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/clarity.cpp       core/gfx/clarity.h
+    core/gfx/clarity_gpu.cpp   core/gfx/clarity_gpu.h
+    core/gfx/clarity_math.h
+    core/gfx/sampler_force.cpp core/gfx/sampler_force.h
     core/gfx/hud_class.cpp     core/gfx/hud_class.h
     core/gfx/hud_capture.cpp   core/gfx/hud_capture.h
     core/gfx/hud_layout.cpp    core/gfx/hud_layout.h

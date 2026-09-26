@@ -766,6 +766,55 @@ static void OvlTabDisplay()
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", ResLiveStatus());
     }
+    if (OvlSec("Clarity and anti-aliasing", kOvlA,
+               "Smoother edges and sharper textures. Each option switches live, so you can compare.")) {
+        bool temporal = dvr::clarity::temporal_on();
+        if (dvr::ovl::checkbox("Temporal anti-aliasing (experimental)", &temporal)) {
+            dvr::clarity::set_temporal(temporal, "F10 Display");
+            ConfigWriteKey("Clarity", "Temporal", temporal ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Blends each eye with its previous frame, lined up by your head's rotation. Aimed at shimmering, "
+               "crawling edges. Can soften the picture or leave faint trails on moving things. Close this panel to judge it.");
+        if (temporal) {
+            float blendV = dvr::clarity::blend();
+            if (dvr::ovl::slider_float("New frame weight", &blendV, 0.05f, 0.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+                dvr::clarity::set_blend(blendV, "F10 Display");
+            OvlSaveOnRelease("Clarity", "TemporalBlend", dvr::clarity::blend(), "%.2f");
+            OvlTip("Lower is smoother and softer, higher is sharper and shimmers more.");
+        }
+        float sharp = dvr::clarity::sharpen();
+        if (dvr::ovl::slider_float("Sharpening", &sharp, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+            dvr::clarity::set_sharpen(sharp, "F10 Display");
+        OvlSaveOnRelease("Clarity", "Sharpen", dvr::clarity::sharpen(), "%.2f");
+        OvlTip("Contrast-adaptive sharpening on the final picture. 0 is off.");
+        int aniso = dvr::samplers::anisotropy();
+        int anisoIdx = aniso >= 16 ? 3 : aniso >= 8 ? 2 : aniso >= 4 ? 1 : 0;
+        const char* anisoNames[] = {"Game (4x)", "4x", "8x", "16x"};
+        const int anisoVals[] = {0, 4, 8, 16};
+        if (dvr::ovl::slider_int("Texture filtering", &anisoIdx, 0, 3, anisoNames[anisoIdx], ImGuiSliderFlags_AlwaysClamp)) {
+            dvr::samplers::set_anisotropy(anisoVals[anisoIdx], "F10 Display");
+            char av[8]; _snprintf(av, sizeof(av), "%d", anisoVals[anisoIdx]);
+            ConfigWriteKey("Clarity", "Anisotropy", av, "F10 Display");
+        }
+        OvlTip("Anisotropic filtering on the game's textures: floors and walls seen at an angle stay detailed.");
+        bool tri = dvr::samplers::trilinear();
+        if (dvr::ovl::checkbox("Smooth mip transitions", &tri)) {
+            dvr::samplers::set_trilinear(tri, "F10 Display");
+            ConfigWriteKey("Clarity", "TrilinearMips", tri ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
+        ImGui::TextDisabled("%s", dvr::clarity::summary());
+    }
+    if (OvlSec("Clarity (debug)", kOvlD, "The supersampling resolve. Off by default: judged no better than the headset's own.")) {
+        bool resolve = dvr::clarity::resolve_on();
+        if (dvr::ovl::checkbox("Supersampling resolve", &resolve)) {
+            dvr::clarity::set_resolve(resolve, "F10 Display");
+            ConfigWriteKey("Clarity", "Resolve", resolve ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Above 100% resolution, the mod shrinks the picture to the headset's own size with a filter that uses "
+               "every rendered pixel. Without it the headset software skips most of the extra pixels. Does nothing at 100%. "
+               "Each switch rebuilds the headset images; restart the game after switching it many times.");
+    }
     if (OvlSec("Desktop window", kOvlB, "What the game window on your monitor shows.")) {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
         if (dvr::ovl::checkbox("Disable desktop mirror", &mirrorOff)) {

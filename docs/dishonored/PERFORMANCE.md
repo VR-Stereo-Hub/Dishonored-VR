@@ -2048,3 +2048,72 @@ cross-runtime benchmark evidence. Existing controlled throughput measurements
 above remain Quest/VDXR-specific. No new SteamVR throughput or headset startup
 measurement was performed. Native D3D9 GPU submission/pixel checks and all existing
 fallbacks pass. Retain the earlier Index startup report in DESKTOP_MIRROR.md.
+
+## Anti-aliasing and clarity (2026-09-26)
+
+Branch `claude/antialiasing-clarity`. Built and host-tested, not installed, not headset-run.
+
+**Why a lower FOV looks so much clearer.** A flat (rectilinear) render spends its pixels
+by the TANGENT of the angle, not the angle. Centre density = (width / 2) / tan(hfov / 2).
+At 2750 px: 108.07 deg gives 17.4 px/deg, 103 deg (the default claim) 19.1, 90 deg 24.0,
+75 deg 31.3. The Quest 3 panel is about 25 px/deg at the centre, so at the full FOV and
+100% the centre is rendered BELOW the panel and magnified 1.3-1.4x: every stair-step is
+enlarged. The 75 deg box is rendered at 1.25x the panel: supersampled. The periphery goes
+the other way (sec^2): at 54 deg off-axis a 108 deg render has 2.9x its centre density.
+
+**Why raising the resolution with the FOV at the same rate does not match it.** Matching
+the 75 deg box's centre at 108 deg needs tan(54)/tan(37.5) = 1.79x per axis, 3.2x the
+pixels, not 1.44x. The 200% cap reached 24.6 px/deg (about the panel, no supersampling);
+300% reaches 30 px/deg, with most of the added pixels spent where the lens is blurry.
+Three further losses: (1) an image larger than the runtime asked for is minified by the
+compositor with about one bilinear tap per output pixel, which reads roughly a third of the
+rendered pixels and aliases again (host-measured below); (2) the head never stops moving,
+so aliasing is seen as crawl, which spatial supersampling only reduces slowly; (3) the
+GPU cost of 300% (about 0.64 ms per megapixel per eye) drops the frame rate and the
+reprojection that follows shows as more shimmer.
+
+**Levers built (all default OFF, F10 Advanced > Display > Clarity and anti-aliasing,
+`clarity ...` and `aniso ...` on the seam, `[Clarity]` in the ini):**
+
+| Lever | What | Host evidence (`tools/clarity-gpu-host.ps1`, RTX 4070 Ti SUPER) |
+|---|---|---|
+| Resolve | Above ~100%, filter the render to the runtime's recommended size (Mitchell kernel scaled to the step, linear light); the swapchain becomes that size | Stripes at the render pitch, 1.73x step: pattern sd 0.004 vs 0.289 for one bilinear tap (the control); crawl at a quarter-pixel move 0.006 vs 0.247; mean preserved |
+| Temporal (experimental) | Each eye blended with its previous frame, reprojected by the rotation between the two rendered cameras (the pose record's rotator), history clipped to the current 3x3 YCoCg spread; head micro-motion is the jitter | Point-sampled slanted edge under half-pixel head jitter: coverage error 0.219 raw, 0.095 after 48 frames; a still view stays exact; a scene cut shows the new picture at once |
+| Sharpen | Contrast-adaptive sharpening (CAS weighting) | Flat areas untouched; edge corners pushed apart (0.2..0.8 -> 0.145..0.855) |
+| Anisotropy | Raises MAXANISOTROPY on samplers the game already makes anisotropic (game: 4x) | Counters in the `samplers (10 s)` line; not measurable off the game |
+| TrilinearMips | POINT mip filter -> LINEAR on those samplers (the texture groups' default is point mips) | As above |
+
+**Instruments added:** `xr: eye L/R fov ...` (each eye's own angles and how much of the
+symmetric render it uses: sizes the off-axis frustum idea below); `device/census:
+multisampled surfaces ...` (whether the game's own MSAA, `MaxMultisamples`, engaged);
+`clarity:` every 5 s (what ran, why a history restarted); `samplers (10 s)`.
+
+**Not built, ranked:** (1) off-axis per-eye frustum: free density if the eyes' angles are
+asymmetric; the new `xr: eye` line gives the gain, then it needs an engine projection change.
+(2) The game's own MSAA: try `[SystemSettings] MaxMultisamples=4` once; the census line says
+whether it engaged. (3) The game's AA mode: Options > Antialiasing, MLAA vs FXAA vs off, in
+one session (the mod rewrites MLAA at the next start). (4) Quad views / foveated inset: two
+extra scene passes at the ~5.6 ms per-pass CPU floor; not viable. (5) A non-linear
+projection: D3D9 rasterises straight lines; not viable. (6) VD: Godlike, highest bitrate,
+its own sharpening.
+
+**The 32-bit ceiling.** The game is large-address-aware (4 GB). This rig at 2750x2850 with
+stock textures: about 2 GB process private, largest free address block about 1.2 GB (the
+`gpumem` line). An HD texture pack plus a larger render is consistent with a reported freeze
+when the resolution is raised: that is address space, not VRAM. The `gpumem` line's
+`largest free address range` is the number to ask for.
+
+### Headset verdict (2026-09-26, 200% at 144 Hz with SSW, VDXR)
+
+- Supersampling itself (200-300%) is the large visible gain. The resolve on top of it was
+  judged no better, or slightly softer in the distance, with both kernels (Mitchell, then
+  Catmull-Rom). VDXR's own downscale is evidently good enough that the host-measured
+  sparse-sampling aliasing does not show through the stream. Resolve now ships OFF.
+- Each resolve toggle changes the swapchain size and rebuilds it; VRAM rose ~450 MB over six
+  toggles in one session (3029 -> 3478 MB). A report of lasting lag after many toggles fits
+  that; not reproduced in the measured session (tick 14-16 ms throughout).
+- 16x anisotropy and trilinear mips run (about 40000 sampler binds a second raised) but the
+  visible gain over the game's 4x is small; kept on as nearly free.
+- Temporal: no visible effect at a new-frame weight of 0.50 (the slider's maximum, ~2 frames
+  of history); at 0.15 it smoothed shimmer but smeared while walking until the motion
+  weighting; with it, walking no longer smears. Still experimental, off by default.
