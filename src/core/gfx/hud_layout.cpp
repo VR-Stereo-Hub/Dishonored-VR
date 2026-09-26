@@ -248,7 +248,13 @@ void save_read_rotation() {
 }
 
 inline bool measured(int e) { return hudroute::row_measured(g_rows[e]); }
-inline bool crop_eligible(int e) { return (e==ElObjective && g_routeObjectives) || (e != ElDefault && !kRows[e].vignette && kRows[e].context < 0 && measured(e)); }
+// Semantic tutorial roots need a private panel even without a legacy claiming
+// rectangle. Otherwise the low-health reminder inherits default's enlarged,
+// offset canvas and its own placement controls are silently ignored.
+inline bool semantic_tutorial(int e) {
+    return e==ElTutorial && !g_visualRiding && dvr::hudowner::active();
+}
+inline bool crop_eligible(int e) { return semantic_tutorial(e) || (e==ElObjective && g_routeObjectives) || (e != ElDefault && !kRows[e].vignette && kRows[e].context < 0 && measured(e)); }
 inline int  anchor_kind(int a) { return anchor_is_hand(a) ? 1 : 0; }
 
 void rebuild_rows() {
@@ -306,6 +312,7 @@ void refresh_status_line() {
     for (int e = 0; e < ElCount; ++e) {
         const char* why = "";
         if (g_el[e].anchor == AnchorOff) why = "(hidden)";
+        else if(semantic_tutorial(e)) why="(native widget: private panel)";
         else if(e==ElObjective && g_routeObjectives) why="(moving-shape candidate)";
         else if (kRows[e].context < 0 && e != ElDefault && !kRows[e].vignette && !measured(e)) why = "(no region: rides default)";
         w = _snprintf(p, n, "%s=%s%s ", kRows[e].name, kAnchorNames[g_el[e].anchor], why);
@@ -1029,7 +1036,12 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
     for (int e = 0; e < ElCount && n < max; ++e) {
         const int a = g_el[e].anchor;
         if (!anchor_visible(a) || !crop_eligible(e) || (g_nativeObjectives && e==ElObjective)) continue;
-        if (g_presentNo - g_lastRouted[e] > 2) continue;
+        if (g_presentNo - g_lastRouted[e] > 2) {
+            // This occasional reminder must not leave a full-resolution copy
+            // running for the rest of the level after it fades out.
+            if(semantic_tutorial(e) && g_elementSink[e]>=0) free_sink(g_elementSink[e]);
+            continue;
+        }
         const int s = g_elementSink[e];
         if (s < 0) continue;
         ID3D11Texture2D* tex = dvr::hudcap::sink_texture(s, ctx);

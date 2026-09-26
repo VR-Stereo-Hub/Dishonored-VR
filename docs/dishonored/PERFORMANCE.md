@@ -1,3 +1,13 @@
+## 2026-09-25: semantic tutorial placement cost
+
+No new diagnostic counters, stacks, readbacks or log cadence. Candidate adds one
+existing full-resolution capture panel while identified tutorial content draws.
+At2750x2850 RGBA8 one image is31,350,000 bytes; this is not a zero-GPU-cost change.
+The panel is retired after the existing two-present grace without draws; the
+capture subsystem releases inactive targets/slots and skips their copies. Thus
+occasional heal reminders do not add an idle copy for the rest of a level.
+129 native-HUD policy/math checks pass. No headset GPU timing claim is made.
+
 ## Accepted ownership run and small follow-up cost (2026-09-25)
 
 Verified4c38bf526 run52040281..52879xxx reports improved HUD stability; not an FPS

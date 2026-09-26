@@ -11,6 +11,10 @@ $layout=[IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_layout.cpp'))
 $policy=[regex]::Matches($layout,'(?m)^(bool native_gameplay_reference|bool native_objective_upright|float native_objective_scale)\(.*$')
 if($policy.Count -ne 3){throw 'Native reference policy extraction failed'}
 [IO.File]::WriteAllText((Join-Path $out 'hud_native_policy.inc'),(($policy | ForEach-Object {$_.Value}) -join "`n"))
+$tutorial=[regex]::Match($layout,'(?ms)^inline bool semantic_tutorial\(.*?^\}')
+$eligible=[regex]::Match($layout,'(?m)^inline bool crop_eligible\(.*$')
+if(-not $tutorial.Success -or -not $eligible.Success){throw 'Semantic panel extraction failed'}
+[IO.File]::WriteAllText((Join-Path $out 'hud_semantic_panel.inc'),$tutorial.Value+"`n"+$eligible.Value)
 $capture=[IO.File]::ReadAllText((Join-Path $repo 'src/core/gfx/hud_capture.cpp'))
 $health=[regex]::Match($capture,'(?ms)^void note_native_reference.*?(?=^bool redirect_failed)')
 if(-not $health.Success){throw 'Native reference health extraction failed'}

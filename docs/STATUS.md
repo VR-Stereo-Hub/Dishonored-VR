@@ -1,3 +1,27 @@
+## 2026-09-25: remaining heal reminder and rain follow-up
+
+User accepts marker sizing and lower sneak/vault alignment on fe3c3f876;
+low-health reminder remains peripheral and rain appearance is reported changed.
+Verified installed DLL and matching log, archived current/previous log and full
+INI in primary build/hud-regression-20260925/rain-heal-return-223356.
+
+Tutorial roots15/16 were identified but unmeasured, so still shared default's
+scale1.420 and offsets .274/-.093. Give identified tutorials a private full-image
+panel using their own existing controls; no rectangle-based ownership or clipping.
+Release that occasional sink after the existing two-present delivery grace to
+avoid continuing its copy after the reminder fades. Intended local placement is
+tutorial WinY0.200, WinX0 and scale1; the20cm lift is a comfort choice, not a native
+measurement. All accepted gameplay ownership, markers and menus stay unchanged.
+129 native-HUD checks including six semantic panel cases pass. No new logging.
+
+Rain remains OPEN, not claimed fixed. Rain/lens/scene-draw source is unchanged
+from accepted pre-ownership0a4c7c254. Startup Lens18/KeepSize0 changes during this
+run to13/1; preserve current preferences pending identification of close lens rain
+versus outdoor particles and last accepted rain baseline. Unknown semantic draws
+now stay native, so an indirect routing difference is not excluded by this diff.
+No speculative rain engine or rendering patch. A clarification is pending.
+Do not push diagnostic findings externally while disclosure approval is unresolved.
+
 ## 2026-09-25: semantic ownership accepted; marker and hint correction
 
 Matched installed4c38bf526 DLL/banner, archived current/previous logs and whole

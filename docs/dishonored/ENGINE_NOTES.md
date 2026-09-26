@@ -1,3 +1,15 @@
+## Low-health reminder ownership follow-up (2026-09-25)
+
+Default-player localization includes a low-health direct-elixir-binding tutorial
+as well as the wheel-button variant. Native BAD24C..BAD282 invokes
+SetTutorialMessage on movie-clip array index15 (array+F0). Flash TutorialMessage
+owns its text and image-substituted buttons together. This is separate from
+context/special interaction indices7..9 corrected in fe3c3f876. The returned run
+routes tutorial draws in four consecutive3s windows. No new offset/hook/write is
+needed: existing semantic tutorial identity can select a private panel even
+without a legacy claiming rectangle. Headset confirmation of the reported
+reminder remains necessary; source association is not a pixel capture.
+
 ## Marker target identity and lower HUD placement correction (2026-09-25)
 
 Verified 4c38bf526 log: semantic hooks active, required clip mask7, roots31,

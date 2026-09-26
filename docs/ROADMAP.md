@@ -12,7 +12,8 @@
 - [x] Headset acceptance of world-pause readiness.
 - [x] Implement clip identity transport through the real render queue (guarded candidate).
 - [x] Replace proximity ownership; local overlapping HUD cohesion accepted on4c38bf526.
-- [ ] Accept marker size-control and lower context/special hint corrections.
+- [x] Accept marker size-control and lower context/special hint corrections.
+- [ ] Accept separate low-health tutorial placement; clarify changed rain surface.
 - [ ] Correct/verify marker depth using per-eye projection and engine target identity.
 - [ ] Keep cook gauge complete, correctly sized and on the accepted aim ray.
 - [ ] Same-save/view native versus pereye cost attribution, then targeted performance fix.

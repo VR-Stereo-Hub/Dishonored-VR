@@ -1,3 +1,17 @@
+## 2026-09-25: isolate identified tutorial reminders from default placement
+
+Returned fe3c3f876 accepts marker size and lower state/special alignment. Low-health
+reminder remains peripheral. The semantic route still called crop_eligible, whose
+unmeasured rows fell into a shared panel positioned by default. Thus tutorial's
+own controls did not apply even after ownership was correctly identified.
+
+Candidate isolates only semantic tutorial roots into one full-image panel. No
+claiming rectangle or clipping is introduced. Existing tutorial controls apply;
+local trial raises WinY to0.200m with unit scale and zero horizontal offset.
+The panel retires after two presents without its draws, preserving capture delivery
+while avoiding a persistent idle copy. Legacy routing and riding menus are unchanged.
+Native host suite129 checks passes; headset readability remains to be tested.
+
 ## Ownership accepted; sizing and lower-panel follow-up (2026-09-25)
 
 Verified installed4c38bf526 DLL and log52040281 before analysis. Headset report

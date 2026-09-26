@@ -20,6 +20,11 @@ bool menu_riding(){return false;}
 bool g_nativeGameplayReference=false,g_visualRiding=false,g_menuRiding=false,g_nativeObjectives=true;
 bool& g_nativeObjectiveUpright=upright;float& g_nativeObjectiveScale=scale;
 #include "hud_native_policy.inc"
+constexpr int ElDefault=0,ElTutorial=8;
+bool g_routeObjectives=false;
+struct Row {bool vignette=false;int context=-1;} kRows[21];
+bool rowMeasured[21]{};bool measured(int e){return rowMeasured[e];}
+#include "hud_semantic_panel.inc"
 }
 using DWORD=uint32_t;static DWORD nowMs=5000;DWORD GetTickCount(){return nowMs;}
 #define SUCCEEDED(x) ((x)>=0)
@@ -36,6 +41,18 @@ struct Probe{bool ok=true,transformed=false;float bbox[4]={.7f,.4f,.74f,.44f};fl
 static unsigned checks=0;
 static void check(bool yes,const char* why){++checks;if(!yes){printf("FAIL %s\n",why);exit(1);}}
 int main(){
+ using namespace dvr::hudlayout;
+ check(!crop_eligible(ElTutorial),"legacy unmeasured tutorial keeps legacy path");
+ dvr::hudowner::semantic=true;
+ check(crop_eligible(ElTutorial),"identified tutorial gets private panel without a rectangle");
+ check(!crop_eligible(ElDefault),"sneak and vault keep accepted shared panel");
+ check(!crop_eligible(7),"toast placement remains unchanged");
+ g_visualRiding=true;
+ check(!crop_eligible(ElTutorial),"menu ride excludes gameplay tutorial isolation");
+ g_visualRiding=false;dvr::hudowner::semantic=false;
+ rowMeasured[ElTutorial]=true;
+ check(crop_eligible(ElTutorial),"explicit tutorial region still isolates in legacy mode");
+ rowMeasured[ElTutorial]=false;
  dvr::hudnative::RuneIconContinuity continuity;
  const float runeArt[4]={.48f,.48f,.52f,.52f},movedArt[4]={.7f,.48f,.74f,.52f};
  check(!continuity.route(7,10,100,runeArt,8,10,false),"unconfirmed icon cannot acquire continuity");
