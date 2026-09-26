@@ -10,10 +10,18 @@ Derived actual native movie owner at sprite+BC from constructor and getter;
 clips; independently read mode and count successful potion ownership. Keep existing
 mode4/default-panel policy, no extra sink, no INI/placement/rain/menu changes.
 85 reader/transport checks plus100000 transfers,123 native-HUD and503 route tests
-pass. Build/install pending. Full derivation in ENGINE_NOTES; script coverage
+pass. Installed v1.0.1-46-g36a8d7f95; optimized build, lint and nine exports pass.
+Full derivation in ENGINE_NOTES; script coverage
 inventory in HUD_ANCHORS; matched-run performance limitations in PERFORMANCE.
 
-Next: build/install matched DLL/INI, then one question: does the standalone
+DLL SHA256 42ca641b7d45f7e4d33d3d9b772dcfd43f22c6ee3b79d50d5f12affd45e2e234.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Entire installed/expected/backup INI byte-identical;1535 CRLF, zero bare LF,
+zero settings changes. Game closed and prior hashes matched before install.
+Prior pair/logs: primary build/playtest-candidates/installs/20260925-235039-235218.
+Candidate/PDB: primary build/playtest-candidates/hud-potion-root-36a8d7f95.
+
+Next single launch question: does the standalone
 low-health D-pad/potion join the visible floating lower-HUD panel without opening
 the wheel? Read movieLinked/mismatch, actual quickMode, quickReady and
 quickCaptured before making further placement changes. Broader audit identified
