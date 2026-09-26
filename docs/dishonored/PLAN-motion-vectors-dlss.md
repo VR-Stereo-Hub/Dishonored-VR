@@ -91,3 +91,23 @@ Units: about 100 uu per unit (eye height over the floor at 60 deg down, ~80-90 u
 Calibrate in step 2 against a measured distance before anything reprojects with it.
 
 Next: step 2 shares this target's depth to D3D11 per eye image, at Present, beside the colour.
+
+## Result of step 2 (2026-09-26, simulator, build 16:04)
+
+The scene target (the first-created eye-size RGBA16F) is copied every present by StretchRect
+into a D3D9 render-target texture opened on the mod's D3D11 device (`interop::create`, the same
+route as the colour capture), fenced by an event query. `[Diagnostics] DepthShare`, off by
+default; `depthprobe share on|off`.
+
+Verification: every 5 s the SAME present is read on D3D9 from the game's own target and on
+D3D11 from the shared copy, 25 texels each. 13 checks of 13 were bit-identical (worst difference
+0) across the main-menu scene, a load and gameplay in a room; about 5200 copies, no refusal.
+Simulator paced at 90 Hz, GPU per tick 7.9-8.0 ms with the copy on (a headset A/B still owes the
+copy's cost; it is one full-size RGBA16F blit per present, about 62 MB at 2750x2850).
+
+Next (step 3): pair each shared depth with its eye image and pose record (the colour capture's
+tag and record, delivered on the same present), and write the motion-vector pass: world point
+from depth and the current camera, projected into the previous camera of the same eye.
+Host-test it against a synthetic scene with known depth and a known camera move, then feed the
+temporal pass. The depth scale (~100 uu per unit) must be calibrated first: a surface at a
+measured distance from the c5 camera.

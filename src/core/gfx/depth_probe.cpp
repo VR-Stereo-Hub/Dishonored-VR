@@ -1,7 +1,10 @@
 // core/gfx/depth_probe.cpp - see depth_probe.h.
 #define DVR_CAT ::dvr::log::Cat::device
 #include "core/gfx/depth_probe.h"
+#include "core/gfx/shared_capture_texture.h"
 #include "core/util/log.h"
+
+#include <d3d11.h>
 
 #include <atomic>
 #include <math.h>
@@ -82,6 +85,28 @@ Scratch* scratch(IDirect3DDevice9* dev, D3DFORMAT f) {
         return &s;
     }
     return nullptr;
+}
+
+// Reads the 5x5 grid of `src` (D3D9) into alpha[][]; false if any step refused.
+bool read_grid_d3d9(IDirect3DDevice9* dev, IDirect3DSurface9* src, UINT w, UINT h, D3DFORMAT fmt, float alpha[kGrid][kGrid]) {
+    Scratch* s = scratch(dev, fmt);
+    if (!s) return false;
+    for (int j = 0; j < kGrid; ++j)
+        for (int i = 0; i < kGrid; ++i) {
+            const LONG x = (LONG)(w * (0.1 + 0.2 * i)), y = (LONG)(h * (0.1 + 0.2 * j));
+            RECT sr = {x, y, x + 1, y + 1}, dr = {i, j, i + 1, j + 1};
+            if (FAILED(dev->StretchRect(src, &sr, s->rt, &dr, D3DTEXF_POINT))) return false;
+        }
+    if (FAILED(dev->GetRenderTargetData(s->rt, s->sys))) return false;
+    D3DLOCKED_RECT lr = {};
+    if (FAILED(s->sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) return false;
+    for (int j = 0; j < kGrid; ++j)
+        for (int i = 0; i < kGrid; ++i) {
+            float v[4]; decode(fmt, (const uint8_t*)lr.pBits + j * lr.Pitch + i * texel_bytes(fmt), v);
+            alpha[j][i] = v[3];
+        }
+    s->sys->UnlockRect();
+    return true;
 }
 
 void probe_one(IDirect3DDevice9* dev, const Cand& c) {
@@ -189,13 +214,121 @@ void tick(IDirect3DDevice9* dev, UINT backW, UINT backH) {
              "(near wall, open street, looking down at your hands)", g_runs, now ? " (asked)" : "", probed, backW, backH);
 }
 
+// ---- step 2: the shared depth ----------------------------------------------------
+std::atomic<bool> g_share{false};
+dvr::capture::interop::Image g_depthImg;          // D3D9 owner + surface, D3D11 texture
+IDirect3DQuery9* g_depthFence = nullptr;
+ID3D11Texture2D* g_depthStage = nullptr;           // 5x5 staging for the check
+UINT g_depthW = 0, g_depthH = 0;
+bool g_shareFailed = false;
+uint64_t g_shareCopies = 0, g_shareChecks = 0, g_shareAgree = 0;
+DWORD g_shareNextMs = 0;
+
+void share_release() {
+    if (g_depthStage) { g_depthStage->Release(); g_depthStage = nullptr; }
+    if (g_depthFence) { g_depthFence->Release(); g_depthFence = nullptr; }
+    g_depthImg.reset();
+    g_depthW = g_depthH = 0;
+}
+
 void on_reset() {
+    share_release();
     for (Cand& c : g_c) { if (c.tex) c.tex->Release(); c = Cand{}; }
     for (Scratch& s : g_s) {
         if (s.sys) s.sys->Release();
         if (s.rt) s.rt->Release();
         s = Scratch{};
     }
+}
+
+void set_share(bool on, const char* who) {
+    g_share.store(on); g_shareFailed = false;
+    DVR_INFO("depthshare: %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+             on ? " - the scene target's depth is copied to D3D11 every present; checked every 5 s" : "");
+}
+bool share_on() { return g_share.load(); }
+
+void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH) {
+    if (!g_share.load() || g_shareFailed || !dev || !dev11 || !ctx11 || !backW) return;
+    // The scene target: the first-created eye-size RGBA16F (step 1: its alpha is depth).
+    const Cand* scene = nullptr;
+    for (const Cand& c : g_c)
+        if (c.tex && c.fmt == D3DFMT_A16B16G16R16F && c.w == backW && c.h == backH && (!scene || c.serial < scene->serial))
+            scene = &c;
+    if (!scene) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                         "depthshare: no eye-size RGBA16F target (%ux%u) seen yet - nothing to share", backW, backH);
+        return;
+    }
+    if (g_depthW != scene->w || g_depthH != scene->h || !g_depthImg.texture) {
+        share_release();
+        const auto r = dvr::capture::interop::create(dev, dev11, scene->w, scene->h, D3DFMT_A16B16G16R16F, g_depthImg);
+        HRESULT hq = FAILED(r.hr) ? r.hr : dev->CreateQuery(D3DQUERYTYPE_EVENT, &g_depthFence);
+        D3D11_TEXTURE2D_DESC sd = {};
+        sd.Width = kGrid; sd.Height = kGrid; sd.MipLevels = 1; sd.ArraySize = 1;
+        sd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; sd.SampleDesc.Count = 1;
+        sd.Usage = D3D11_USAGE_STAGING; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        if (SUCCEEDED(hq)) hq = dev11->CreateTexture2D(&sd, nullptr, &g_depthStage);
+        if (FAILED(r.hr) || FAILED(hq)) {
+            DVR_WARN("depthshare: REFUSED - shared %ux%u RGBA16F %s (0x%08lx); the depth stays on D3D9",
+                     scene->w, scene->h, FAILED(r.hr) ? r.step : "fence/staging", (unsigned long)(FAILED(r.hr) ? r.hr : hq));
+            share_release(); g_shareFailed = true; return;
+        }
+        g_depthW = scene->w; g_depthH = scene->h;
+        DVR_INFO("depthshare: shared depth %ux%u RGBA16F live (target #%d); copied at every present, fenced", g_depthW,
+                 g_depthH, scene->serial);
+    }
+    IDirect3DSurface9* src = nullptr;
+    if (FAILED(scene->tex->GetSurfaceLevel(0, &src)) || !src) return;
+    const DWORD t = GetTickCount();
+    const bool check = (int)(t - g_shareNextMs) >= 0;
+    float d9[kGrid][kGrid] = {};
+    bool have9 = false;
+    if (check) have9 = read_grid_d3d9(dev, src, scene->w, scene->h, D3DFMT_A16B16G16R16F, d9);   // this present, D3D9
+    const HRESULT hc = dev->StretchRect(src, nullptr, g_depthImg.surface, nullptr, D3DTEXF_POINT);
+    src->Release();
+    if (FAILED(hc)) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "depthshare: the copy was refused (0x%08lx)", (unsigned long)hc);
+        return;
+    }
+    ++g_shareCopies;
+    g_depthFence->Issue(D3DISSUE_END);
+    if (!check) return;
+    g_shareNextMs = t + 5000;
+    // The check only: wait for this copy, then read the same 25 texels on D3D11.
+    const DWORD t0 = GetTickCount();
+    while (g_depthFence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE && GetTickCount() - t0 < 50) Sleep(0);
+    for (int j = 0; j < kGrid; ++j)
+        for (int i = 0; i < kGrid; ++i) {
+            const UINT x = (UINT)(scene->w * (0.1 + 0.2 * i)), y = (UINT)(scene->h * (0.1 + 0.2 * j));
+            D3D11_BOX b = {x, y, 0, x + 1, y + 1, 1};
+            ctx11->CopySubresourceRegion(g_depthStage, 0, i, j, 0, g_depthImg.texture, 0, &b);
+        }
+    D3D11_MAPPED_SUBRESOURCE m = {};
+    if (FAILED(ctx11->Map(g_depthStage, 0, D3D11_MAP_READ, 0, &m))) return;
+    float d11[kGrid][kGrid];
+    for (int j = 0; j < kGrid; ++j)
+        for (int i = 0; i < kGrid; ++i) {
+            float v[4]; decode(D3DFMT_A16B16G16R16F, (const uint8_t*)m.pData + j * m.RowPitch + i * 8, v);
+            d11[j][i] = v[3];
+        }
+    ctx11->Unmap(g_depthStage, 0);
+    ++g_shareChecks;
+    float worst = 0.0f; char t11[400] = ""; int n = 0;
+    for (int j = 0; j < kGrid; ++j) {
+        n += _snprintf_s(t11 + n, sizeof(t11) - n, _TRUNCATE, "%s", j ? " /" : "");
+        for (int i = 0; i < kGrid; ++i) {
+            n += _snprintf_s(t11 + n, sizeof(t11) - n, _TRUNCATE, " %.4g", d11[j][i]);
+            if (have9) { const float dd = fabsf(d11[j][i] - d9[j][i]); if (dd > worst || dd != dd) worst = dd != dd ? INFINITY : dd; }
+        }
+    }
+    const bool agree = have9 && worst == 0.0f;
+    if (agree) ++g_shareAgree;
+    DVR_INFO("depthshare: check %llu - D3D11 depth 5x5:%s | %s (worst diff %.4g) | copies %llu, agreed %llu of %llu",
+             (unsigned long long)g_shareChecks, t11,
+             !have9 ? "D3D9 read refused, no comparison" : agree ? "IDENTICAL to the game's own target this present"
+                                                                   : "DIFFERS from the game's target",
+             worst, (unsigned long long)g_shareCopies, (unsigned long long)g_shareAgree, (unsigned long long)g_shareChecks);
 }
 
 void set_enabled(bool on, const char* who) {
@@ -207,6 +340,8 @@ void set_enabled(bool on, const char* who) {
 bool enabled() { return g_on.load(); }
 void request(const char* who) { g_now.store(true); DVR_INFO("depthprobe: one read asked (%s)", who ? who : "?"); }
 bool command(const char* args) {
+    if (args && !_stricmp(args, "share on")) { set_share(true, "the seam"); return true; }
+    if (args && !_stricmp(args, "share off")) { set_share(false, "the seam"); return true; }
     if (args && !_stricmp(args, "on")) set_enabled(true, "the seam");
     else if (args && !_stricmp(args, "off")) set_enabled(false, "the seam");
     else request("the seam");

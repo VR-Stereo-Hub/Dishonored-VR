@@ -167,6 +167,11 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // present's record (its OUT = the render thread's time outside this hook).
     dvr::perf::set_device(self);
     dvr::depthprobe::tick(self, dvr::capture::width(), dvr::capture::height());   // read-only; off by default
+    if (dvr::depthprobe::share_on() && g_cb.d3d11) {   // motion vectors step 2; off by default
+        ID3D11DeviceContext* c11 = nullptr;
+        if (ID3D11Device* d11 = g_cb.d3d11(&c11))
+            dvr::depthprobe::share_tick(self, d11, c11, dvr::capture::width(), dvr::capture::height());
+    }
     // The desktop eye pin needs the game's device; the runtime layer calls into
     // it from its own eye-pin call sites, which already sit on the right side
     // of each eye's XR capture.

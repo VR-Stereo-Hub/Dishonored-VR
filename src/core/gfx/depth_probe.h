@@ -12,6 +12,9 @@
 #include <windows.h>
 #include <d3d9.h>
 
+struct ID3D11Device;
+struct ID3D11DeviceContext;
+
 namespace dvr::depthprobe {
 
 // device_census's CreateTexture hook: every texture the game creates passes through.
@@ -23,6 +26,15 @@ void on_reset();
 void set_enabled(bool on, const char* who);
 bool enabled();
 void request(const char* who);   // one probe at the next present
-bool command(const char* args);  // `depthprobe [on|off|now]`
+bool command(const char* args);  // `depthprobe [on|off|now]`, `depthprobe share on|off`
+
+// Step 2: the depth SHARED to our D3D11 device. Each present the scene target (the eye-size
+// RGBA16F whose alpha is depth) is copied into a D3D9 texture opened on D3D11, fenced by an
+// event query. Every 5 s the same present is read both ways (D3D9 from the game's target,
+// D3D11 from the shared copy) and the two grids compared: the transport is proven when they
+// agree to the texel. Off by default; [Diagnostics] DepthShare.
+void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH);
+void set_share(bool on, const char* who);
+bool share_on();
 
 } // namespace dvr::depthprobe
