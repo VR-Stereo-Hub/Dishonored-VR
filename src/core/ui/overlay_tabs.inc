@@ -773,9 +773,16 @@ static void OvlTabDisplay()
             dvr::clarity::set_temporal(temporal, "F10 Display");
             ConfigWriteKey("Clarity", "Temporal", temporal ? "1" : "0", "F10 Display");
         }
-        OvlTip("Blends each eye with its previous frame, lined up by your head's rotation. Aimed at shimmering, "
+        OvlTip("Blends each eye with its previous frame. Aimed at shimmering, "
                "crawling edges. Can soften the picture or leave faint trails on moving things. Close this panel to judge it.");
         if (temporal) {
+            bool motion = dvr::clarity::motion_on();
+            if (dvr::ovl::checkbox("Depth motion vectors (experimental)", &motion)) {
+                dvr::clarity::set_motion(motion, "F10 Display");
+                ConfigWriteKey("Clarity", "MotionVectors", motion ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Also lines up the world while you walk or lean. Adds GPU and memory cost. "
+                   "Moving characters and hands can still leave trails. Close this panel to compare while moving.");
             float blendV = dvr::clarity::blend();
             if (dvr::ovl::slider_float("New frame weight", &blendV, 0.05f, 0.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
                 dvr::clarity::set_blend(blendV, "F10 Display");

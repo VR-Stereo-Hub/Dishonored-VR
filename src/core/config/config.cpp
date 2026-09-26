@@ -172,6 +172,10 @@ static bool WriteDefaultIni(const char* ini)
         "Resolve=0\n"
         "Temporal=0\n"
         "TemporalBlend=0.15\n"
+        "; MotionVectors=1: experimental depth reprojection for Temporal. Live: clarity motion on|off.\n"
+        "; MotionDepthScale: coarse simulator calibration in uu per depth unit; live: clarity depthscale.\n"
+        "MotionVectors=0\n"
+        "MotionDepthScale=200\n"
         "Sharpen=0.40\n"
         "Anisotropy=16\n"
         "TrilinearMips=1\n"
@@ -1829,6 +1833,8 @@ static void LoadConfig()
         {   // [Clarity]: anti-aliasing and clarity on the eye image, all off by default
             dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 0) != 0.0f, "ini");
             dvr::clarity::set_temporal(IniFloat(ini, "Clarity", "Temporal", 0) != 0.0f, "ini");
+            dvr::clarity::set_motion(IniFloat(ini, "Clarity", "MotionVectors", 0) != 0.0f, "ini");
+            dvr::clarity::set_depth_scale(IniFloat(ini, "Clarity", "MotionDepthScale", 200), "ini");
             dvr::clarity::set_blend(IniFloat(ini, "Clarity", "TemporalBlend", 0.15f), "ini");
             dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.40f), "ini");
             dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
@@ -4161,6 +4167,9 @@ static void OverlaySaveDefaults()
     {   // [Clarity]
         WritePrivateProfileStringA("Clarity", "Resolve", dvr::clarity::resolve_on() ? "1" : "0", ini);
         WritePrivateProfileStringA("Clarity", "Temporal", dvr::clarity::temporal_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "MotionVectors", dvr::clarity::motion_on() ? "1" : "0", ini);
+        _snprintf(v, 64, "%.1f", dvr::clarity::depth_scale());
+        WritePrivateProfileStringA("Clarity", "MotionDepthScale", v, ini);
         _snprintf(v, 64, "%.2f", dvr::clarity::blend());
         WritePrivateProfileStringA("Clarity", "TemporalBlend", v, ini);
         _snprintf(v, 64, "%.2f", dvr::clarity::sharpen());

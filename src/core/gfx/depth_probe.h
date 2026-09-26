@@ -38,9 +38,12 @@ bool command(const char* args);  // `depthprobe [on|off|now]`, `depthprobe share
 void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH);
 void set_share(bool on, const char* who);
 bool share_on();
+// Present-thread service gate, including release after the last consumer switches off.
+bool share_tick_needed();
 // Step 3: the shared depth that belongs to the colour grab `grabSerial` (capture::delivered_serial()),
 // its copy fenced complete; null when none is held (not shared, refused, or aged out of the ring).
-// The alpha channel is linear view depth in the game's units (about 100 uu each, calibrated in step 3).
+// Alpha is linear view depth. Step 3 coarse simulator minimum: 200 uu/unit.
+// Temporal + MotionVectors requests the copy independently of diagnostic readbacks.
 ID3D11ShaderResourceView* depth_srv_for(uint32_t grabSerial, UINT* w, UINT* h);
 
 } // namespace dvr::depthprobe

@@ -109,6 +109,11 @@ inline const char* reset_name(Reset r) {
     }
 }
 
+// The existing pose transport stores c5, which is NEGATIVE world position.
+inline void world_from_c5(const float c5[3], float world[3]) {
+    for (int i = 0; i < 3; ++i) world[i] = -c5[i];
+}
+
 struct View {
     bool     ok = false;
     float    pitch = 0, yaw = 0, roll = 0;   // degrees

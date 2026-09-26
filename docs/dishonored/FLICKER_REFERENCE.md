@@ -1,3 +1,24 @@
+## 2026-09-26: experimental TAA walking smear, motion vectors built
+
+Surface: temporal history in the eye colour image while walking/leaning, separate from
+section 1's stereo cadence/eye-swap routes. New routing row below. Branch
+`claude/motion-vectors`, not merged, headset verdict OPEN.
+
+MIRROR TEST on 56 simulator turns rejected a mirrored image axis: normal 0.0082 vs mirrored
+0.0468 error. The position record was c5 = negative world position; clarity now converts at
+its input boundary. Corrected translation's 70-pair curve has an interior minimum 0.0226 at
+200 uu/depth-unit vs rotation-only 0.0400. This is a coarse calibration, not exact units.
+
+Per-eye vectors feed TAA behind default-off MotionVectors, F10 beneath Temporal AA. The
+existing motion weighting remains only on the missing-depth rotation fallback. Moving-object
+vectors and depth-based disocclusion rejection remain absent; colour clipping is retained.
+Final simulator build 16:54:27, hash `5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`,
+completes both-eye vector TAA with both diagnostics off, including after live off/on. First
+normal-path test failed because of a diagnostic-only caller gate; corrected and retested.
+Full measurements/failed test/cost limits: PERFORMANCE.md "Motion-vector calibration and TAA
+candidate"; continuation: PLAN-motion-vectors-dlss.md. Next headset question: does enabling
+vectors under TAA reduce walking trails while keeping edges stable? No claim of headset fix.
+
 ## 2026-09-26: local walking catch-up accepted; remote cinematic scope separate
 
 Surface: whole-world straight-walking hold/catch-up, not HUD grouping or eye fusion.
@@ -1716,6 +1737,7 @@ pose metadata without reopening the disproved historical theories.
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both (a head behind the sword in the left eye gone from the right; doors, mechanisms) | Both reentry passes share one view state, so one eye's occlusion-query results cull the other eye | VR-79 2026-09-24: `occlusion off` (the engine's TOGGLEOCCLUSION switch) HEADSET-CONFIRMED to fix it but reads laggier. CANDIDATE `[Stereo] Occlusion=pereye`: the right eye gets its own engine view state, so each eye culls only what it cannot see (ENGINE_NOTES "VR-79"). Not yet headset-checked |
 | Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
+| Trails/smear while walking with experimental Temporal AA | Camera parallax in history reprojection; c5/world sign at the consumer | 2026-09-26: depth-vector candidate measured on simulator, normal yaw confirmed; default OFF, headset OPEN. See PERFORMANCE and PLAN-motion-vectors-dlss |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |

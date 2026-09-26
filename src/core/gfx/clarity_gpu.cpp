@@ -44,9 +44,12 @@ const char* kSrc =
     "    float4 gRowR;   // row 1, tanH\n"
     "    float4 gRowU;   // row 2, tanV\n"
     "    float4 gPad;\n"
+    "    float4 gTranslation; // xyz = world delta in previous axes, w = depth scale\n"
+    "    float4 gDepthSize; // source depth w/h, use motion, reserved\n"
     "};\n"
     "Texture2D t0 : register(t0);\n"
     "Texture2D t1 : register(t1);\n"
+    "Texture2D tMotion : register(t2);\n"
     "SamplerState sLinear : register(s0);\n"
     "float3 ToLinear(float3 c) {\n"
     "    c = saturate(c);\n"
@@ -146,9 +149,22 @@ const char* kSrc =
     "    return m > 1.0 ? center + v / m : q;\n"
     "}\n"
     // Temporal: the current eye image blended with the same eye's history,
-    // reprojected by rotation only. What the rotation cannot explain (walking
-    // parallax, moving hands, NPCs) falls outside the neighbourhood's colour
+    // reprojected by depth vectors when supplied, rotation otherwise. Unmodelled
+    // object motion (moving hands, NPCs) falls outside the neighbourhood's colour
     // spread and is clipped back to it: that pixel shows the current frame.
+    "float4 ps_motion(VSOut i) : SV_Target {\n"
+    "    const float2 uv = i.pos.xy / gSize.zw;\n"
+    "    const float d = t0.Load(int3(min(int2(uv * gDepthSize.xy), int2(gDepthSize.xy) - 1), 0)).a;\n"
+    "    if (!(d > 0.0) || !isfinite(d)) return float4(0, 0, 0, 0);\n"
+    "    const float3 ray = float3(1.0, (uv.x * 2.0 - 1.0) * gRowR.w, (1.0 - uv.y * 2.0) * gRowU.w);\n"
+    "    float3 q = float3(dot(gRowF.xyz, ray), dot(gRowR.xyz, ray), dot(gRowU.xyz, ray));\n"
+    "    // Sky is at infinity: rotation survives, camera translation does not.\n"
+    "    if (d < 1000.0) q += gTranslation.xyz / (d * gTranslation.w);\n"
+    "    if (!(q.x > 1e-4) || !all(isfinite(q))) return float4(0, 0, 0, 0);\n"
+    "    const float2 puv = float2(0.5 + 0.5 * q.y / (q.x * gRowR.w), 0.5 - 0.5 * q.z / (q.x * gRowU.w));\n"
+    "    if (any(puv < 0.0) || any(puv > 1.0)) return float4(0, 0, 0, 0);\n"
+    "    return float4(puv - uv, 1.0, 0.0);\n"
+    "}\n"
     "float4 ps_temporal(VSOut i) : SV_Target {\n"
     "    const int2 p = int2(i.pos.xy);\n"
     "    const int2 last = int2(gSize.zw) - 1;\n"
@@ -165,7 +181,12 @@ const char* kSrc =
     "    const float3 d = float3(1.0, (uv.x * 2.0 - 1.0) * tanH, (1.0 - uv.y * 2.0) * tanV);\n"
     "    const float3 q = float3(dot(gRowF.xyz, d), dot(gRowR.xyz, d), dot(gRowU.xyz, d));\n"
     "    if (q.x <= 1e-4) return float4(c, 1.0);\n"
-    "    const float2 puv = float2(0.5 + 0.5 * q.y / (q.x * tanH), 0.5 - 0.5 * q.z / (q.x * tanV));\n"
+    "float2 puv = float2(0.5 + 0.5 * q.y / (q.x * tanH), 0.5 - 0.5 * q.z / (q.x * tanV));\n"
+    "    if (gDepthSize.z > 0.5) {\n"
+    "        const float3 mv = tMotion.Load(int3(p, 0)).xyz;\n"
+    "        if (mv.z < 0.5) return float4(c, 1.0);\n"
+    "        puv = uv + mv.xy;\n"
+    "    }\n"
     "    if (any(puv < 0.0) || any(puv > 1.0)) return float4(c, 1.0);\n"
     "    float3 h = max(HistoryCatmullRom(puv, gSize.zw), 0.0);\n"
     "    const float3 mu = m1 / 9.0;\n"
@@ -215,6 +236,7 @@ bool Gpu::init(ID3D11Device* dev, char* why, size_t cap) {
         {"ps_resolve_h", "ps_4_0", (void**)&psResolveH_, false},
         {"ps_resolve_v", "ps_4_0", (void**)&psResolveV_, false},
         {"ps_temporal", "ps_4_0", (void**)&psTemporal_, false},
+        {"ps_motion", "ps_4_0", (void**)&psMotion_, false},
         {"ps_final", "ps_4_0", (void**)&psFinal_, false},
     };
     for (const Entry& e : entries) {
@@ -246,7 +268,7 @@ bool Gpu::init(ID3D11Device* dev, char* why, size_t cap) {
         }
     }
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 7 * 16;
+    bd.ByteWidth = 9 * 16;
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     dev->CreateBuffer(&bd, nullptr, &cb_);
@@ -304,11 +326,11 @@ bool Gpu::ensure(ID3D11Device* dev, Target& t, uint32_t w, uint32_t h, char* why
 void Gpu::shutdown() {
     release(tmpH_); release(lin_);
     for (int e = 0; e < 2; ++e) {
-        release(hist_[e][0]); release(hist_[e][1]);
+        release(hist_[e][0]); release(hist_[e][1]); release(vectors_[e]);
         histHave_[e] = false; histRead_[e] = 0;
     }
     rel(depth_); rel(blend_); rel(raster_); rel(linear_); rel(cb_);
-    rel(psFinal_); rel(psTemporal_); rel(psResolveV_); rel(psResolveH_); rel(vs_);
+    rel(psFinal_); rel(psTemporal_); rel(psMotion_); rel(psResolveV_); rel(psResolveH_); rel(vs_);
     ready_ = false;
     bytes_ = 0;
 }
@@ -317,7 +339,7 @@ void Gpu::trim(bool keepResolve, bool keepTemporal) {
     if (!keepResolve) { release(tmpH_); release(lin_); }
     if (!keepTemporal)
         for (int e = 0; e < 2; ++e) {
-            release(hist_[e][0]); release(hist_[e][1]);
+            release(hist_[e][0]); release(hist_[e][1]); release(vectors_[e]);
             histHave_[e] = false; histRead_[e] = 0;
         }
 }
@@ -328,7 +350,7 @@ ID3D11ShaderResourceView* Gpu::history(int eye) const {
 }
 
 void Gpu::pass(ID3D11DeviceContext* ctx, ID3D11PixelShader* ps, ID3D11ShaderResourceView* t0,
-               ID3D11ShaderResourceView* t1, ID3D11RenderTargetView* dst, uint32_t w, uint32_t h) {
+               ID3D11ShaderResourceView* t1, ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, ID3D11ShaderResourceView* motion) {
     D3D11_VIEWPORT vp = {0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f};
     ctx->RSSetViewports(1, &vp);
     ctx->RSSetState(raster_);
@@ -341,12 +363,12 @@ void Gpu::pass(ID3D11DeviceContext* ctx, ID3D11PixelShader* ps, ID3D11ShaderReso
     ctx->VSSetShader(vs_, nullptr, 0);
     ctx->PSSetShader(ps, nullptr, 0);
     ctx->PSSetConstantBuffers(0, 1, &cb_);
-    ID3D11ShaderResourceView* srvs[2] = {t0, t1};
-    ctx->PSSetShaderResources(0, 2, srvs);
+    ID3D11ShaderResourceView* srvs[3] = {t0, t1, motion};
+    ctx->PSSetShaderResources(0, 3, srvs);
     ctx->PSSetSamplers(0, 1, &linear_);
     ctx->Draw(3, 0);
-    ID3D11ShaderResourceView* none[2] = {nullptr, nullptr};
-    ctx->PSSetShaderResources(0, 2, none);   // a pass's input may be the next pass's target
+    ID3D11ShaderResourceView* none[3] = {nullptr, nullptr, nullptr};
+    ctx->PSSetShaderResources(0, 3, none);   // a pass's input may be the next pass's target
     ID3D11RenderTargetView* noRt = nullptr;
     ctx->OMSetRenderTargets(1, &noRt, nullptr);
 }
@@ -359,7 +381,9 @@ bool Gpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceV
     if (!resolve && (p.ow != p.w || p.oh != p.h)) { say(why, cap, "output size differs without a resolve"); return false; }
     const float sx = (float)p.w / (float)p.ow, sy = (float)p.h / (float)p.oh;
     if (resolve && (sx > 8.0f || sy > 8.0f)) { say(why, cap, "resolve step above 8x"); return false; }
-    float cb[28] = {};
+    float cb[36] = {};
+    bool useMotion = p.temporal && p.sceneDepth && p.depthScale > 0 && isfinite(p.depthScale);
+    if (!useMotion) for (auto& v : vectors_) release(v);
     auto upload = [&](float sw, float sh, float tw, float th, float srcGamma, float histValid) {
         cb[0] = sw; cb[1] = sh; cb[2] = tw; cb[3] = th;
         cb[4] = sx; cb[5] = sy; cb[6] = 2.0f * (sx > 1.0f ? sx : 1.0f); cb[7] = 2.0f * (sy > 1.0f ? sy : 1.0f);
@@ -371,6 +395,8 @@ bool Gpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceV
         }
         cb[15] = p.clipGamma; cb[19] = p.tanH; cb[23] = p.tanV;
         cb[24] = p.kernelB; cb[25] = p.kernelC;
+        for (int j = 0; j < 3; ++j) cb[28+j] = p.translation[j];
+        cb[31] = p.depthScale; cb[32] = (float)p.w; cb[33] = (float)p.h; cb[34] = useMotion ? 1.0f : 0.0f;
         ctx->UpdateSubresource(cb_, 0, nullptr, cb, 0, 0);
     };
     ID3D11ShaderResourceView* cur = src;
@@ -389,10 +415,15 @@ bool Gpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceV
             if (hist_[e][s].tex && (hist_[e][s].w != p.ow || hist_[e][s].h != p.oh)) histHave_[e] = false;
             if (!ensure(dev, hist_[e][s], p.ow, p.oh, why, cap)) { histHave_[e] = false; return false; }
         }
+        if (useMotion) {
+            if (!ensure(dev, vectors_[e], p.ow, p.oh, why, cap)) { histHave_[e] = false; return false; }
+            upload((float)p.w, (float)p.h, (float)p.ow, (float)p.oh, 0.0f, 0.0f);
+            pass(ctx, psMotion_, p.sceneDepth, nullptr, vectors_[e].rtv, p.ow, p.oh);
+        }
         const int r = histRead_[e], w = 1 - r;
         const bool valid = p.historyValid && histHave_[e];
         upload((float)p.ow, (float)p.oh, (float)p.ow, (float)p.oh, curGamma, valid ? 1.0f : 0.0f);
-        pass(ctx, psTemporal_, cur, valid ? hist_[e][r].srv : nullptr, hist_[e][w].rtv, p.ow, p.oh);
+        pass(ctx, psTemporal_, cur, valid ? hist_[e][r].srv : nullptr, hist_[e][w].rtv, p.ow, p.oh, useMotion ? vectors_[e].srv : nullptr);
         histRead_[e] = w; histHave_[e] = true;
         cur = hist_[e][w].srv; curGamma = 0.0f;
     }

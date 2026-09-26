@@ -1,10 +1,33 @@
-## Motion vectors (2026-09-26) - branch `claude/motion-vectors`, not merged
+## Motion vectors for TAA (2026-09-26) - built and simulator-verified, not merged
 
-Step 1 (where depth is) and step 2 (depth shared to D3D11, 13/13 bit-identical) done on the
-simulator. Step 3 in progress: the live calibration found a flipped convention (sign test);
-the mirror test is built and installed but not run. Resume from
-docs/dishonored/PLAN-motion-vectors-dlss.md, "Step 3 in progress". The branch also carries
-sharpening 0.40 as the default and freeing clarity intermediates when off.
+Branch `claude/motion-vectors`, worktree `build/worktrees/mv`. The MIRROR TEST ruled out
+horizontal mirroring: 56 pure turns, normal error 0.0082 vs mirrored 0.0468. The actual bug
+was treating the pose record's c5 (negative world position) as world position. Clarity now
+converts it once; rotation stays unchanged. Corrected translation: 70 moving pairs, interior
+minimum at 200 uu/depth-unit, error 0.0226 vs rotation-only 0.0400 (65/70 best votes).
+
+Per-eye GPU motion vectors now feed experimental TAA. `[Clarity] MotionVectors=0` by default;
+F10 Advanced > Display > Clarity and anti-aliasing > Temporal anti-aliasing exposes
+"Depth motion vectors (experimental)". Scale 200 is a coarse measured minimum, not an exact
+engine-unit derivation. Matching depth bypasses the old camera-motion weighting; missing depth
+uses the previous rotation fallback. Invalid depth rejects history, sky uses rotation only.
+
+Installed optimized x86 DLL SHA256:
+`5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`.
+Banner `v1.0.1-91-g35629a116-dirty`, built Sep 26 2026 16:54:27. Simulator gameplay, repeated
+translation + turns and off/on toggle completed vector TAA for both eyes (450/450 per typical
+5 s window, zero fallback), with DepthShare=0 and MotionCalib=0. Simulator closed; the full
+original installed INI restored byte-for-byte, CRLF verified (Temporal=0; new lever defaults off).
+54 clarity GPU checks, 6 calibration GPU checks, production-default parity, build, lint and
+9 exports pass. Existing compiler macro/deprecation warnings remain. Nothing merged.
+
+Next: one headset A/B question - with Temporal AA enabled and the F10 panel closed, does
+Depth motion vectors reduce walking/leaning trails while keeping edges stable, compared with
+it off? Improvement supports the camera-parallax correction; unchanged/worse trails leave
+scale, disocclusion and moving-object limitations open. Headset appearance and performance
+are not accepted by simulator results. Full research/failures: [PERFORMANCE](dishonored/PERFORMANCE.md),
+continuation and evidence: [motion-vector plan](dishonored/PLAN-motion-vectors-dlss.md).
+No new ticket number: the existing handoff records the Linear workspace issue limit.
 
 ## Test handoff for the next session (2026-09-26)
 

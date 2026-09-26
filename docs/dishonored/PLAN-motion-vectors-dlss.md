@@ -1,6 +1,6 @@
 # Motion vectors, then DLSS (plan, 2026-09-26)
 
-Branch `claude/motion-vectors` off `staging` (`fb73099aa`). Research and plan; nothing built yet.
+Branch `claude/motion-vectors` off `staging` (`fb73099aa`). Depth transport and optional camera-vector TAA are built; headset A/B is next.
 Why: the clarity work (`PERFORMANCE.md`, Anti-aliasing and clarity) showed that a temporal pass
 reprojected by head rotation alone smears while walking, and only stays sharp by giving the
 history up whenever the camera moves. Motion vectors fix that, and DLSS cannot run without them.
@@ -112,7 +112,7 @@ Host-test it against a synthetic scene with known depth and a known camera move,
 temporal pass. The depth scale (~100 uu per unit) must be calibrated first: a surface at a
 measured distance from the c5 camera.
 
-## Step 3 in progress (2026-09-26, simulator) - RESUME HERE
+## Step 3 prior handoff (2026-09-26, simulator) - completed below
 
 Built: the depth ring keyed by the colour grab's serial (`depth_srv_for`), the calibration shader
 (`core/gfx/motion_gpu`, host test `tools/motion-gpu-host.ps1`: 6/6, a sharp minimum at the true
@@ -134,3 +134,43 @@ Measured on the simulator (head stepped 0.3 m sideways, about 150 moving frame p
   may be the smear reported while moving before the motion weighting.
 - Then: fix the convention in `calib_frame` (and clarity's temporal), rerun; the curve must have
   an interior minimum below rotation-only. Only then compute motion vectors for TAA.
+
+## Steps 3 and 4 built (2026-09-26) - RESUME HERE
+
+Mirror result: 56 pure turns, normal error 0.0082 vs mirrored 0.0468. Do NOT flip clarity's
+yaw. `Cam::pos` comes from `last_written_pos`, which returns c5 = negative world position;
+its old header was wrong. Clarity now converts once in `view_for`, so both calibration and
+TAA use world coordinates without changing shared pose records or any engine-memory writer.
+
+Corrected translation: 70 moving pairs, minimum at 200 uu/depth-unit (0.0226), rotation-only
+0.0400, 65/70 votes for 200. This passes the reconstruction gate, but the scale is coarse.
+Complete error curve, source provenance, failed tests and GPU/memory limits: PERFORMANCE.md,
+"Motion-vector calibration and TAA candidate". Keep further research there.
+
+Built: per-eye RGBA16F motion textures at TAA output size, xy previous UV minus current UV,
+z validity. Depth and colour pair by capture serial. TAA consumes these vectors, retaining
+colour clipping. Missing depth retains rotation plus motion weighting; invalid depth rejects
+history; sky uses rotation. Active vector TAA requests depth independently of diagnostics.
+The first no-diagnostics test caught an old caller gate (all fallback); fixed and rerun.
+54 clarity GPU checks and 6 calibration GPU checks pass. The synthetic TAA test scores
+0.00085 with vectors, 0.09700 rotation-only, 0.13496 with deliberately wrong translation.
+
+Final installed DLL SHA256 `5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`,
+banner `v1.0.1-91-g35629a116-dirty`, built 16:54:27. Gameplay translation + turns complete
+~450 vector-TAA passes per eye per 5 seconds, zero fallback; off/on recreates the depth ring
+and resumes. DepthShare=0 and MotionCalib=0 throughout this final run. Simulator stopped;
+full original installed INI restored byte-for-byte, CRLF verified. No merge.
+
+Next headset question: with Temporal AA enabled, does enabling "Depth motion vectors
+(experimental)" reduce walking/leaning trails while keeping edges stable? Toggle at F10 >
+Advanced > Display > Clarity and anti-aliasing, then close the panel for the comparison.
+Better supports the camera-parallax fix; unchanged/worse means scale, disocclusion or
+object motion still limits it. Not yet headset-confirmed. Both levers default OFF.
+`MotionDepthScale=200` remains an experimental coarse calibration, adjustable through the
+seam; moving-object vectors, depth-history rejection and DLSS are not built.
+
+Simulator recipe: launcher and boot as above; the boot harness's old menu-closed fallback
+can report GAMEPLAY before a save loads. This session needed Enter after the first Space x3,
+then another Space x3. Verify the latest state transitions actually reach loaded GAMEPLAY
+before collecting head-motion pairs. Keep commands together in one game-cmd invocation,
+or await their log acknowledgement: separate writes can overwrite the 1 Hz command seam.

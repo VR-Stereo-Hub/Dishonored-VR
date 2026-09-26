@@ -472,7 +472,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         const bool ok = dvr::clarity::command(args);
         ConfigWriteKey("Clarity", "Resolve", dvr::clarity::resolve_on() ? "1" : "0", "the seam");
         ConfigWriteKey("Clarity", "Temporal", dvr::clarity::temporal_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "MotionVectors", dvr::clarity::motion_on() ? "1" : "0", "the seam");
         char v[16];
+        _snprintf(v, sizeof(v), "%.1f", dvr::clarity::depth_scale());
+        ConfigWriteKey("Clarity", "MotionDepthScale", v, "the seam");
         _snprintf(v, sizeof(v), "%.2f", dvr::clarity::blend());
         ConfigWriteKey("Clarity", "TemporalBlend", v, "the seam");
         _snprintf(v, sizeof(v), "%.2f", dvr::clarity::sharpen());

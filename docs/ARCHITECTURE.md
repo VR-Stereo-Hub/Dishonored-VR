@@ -1292,3 +1292,14 @@ D3D11 texture together; capture releases SRVs before resetting that owner.
 The probe uses the same preferred A8/backbuffer fallback formats as the slots.
 This changes resource creation only; existing producer/consumer fences and eye
 delivery remain responsible for synchronization.
+
+### 2026-09-26: optional camera motion vectors for clarity TAA
+
+Convert the existing c5 position record into world coordinates only in clarity's consumer;
+do not change pose transport semantics. Generate per-eye previous-minus-current UV vectors
+at TAA output resolution from serial-matched depth. Feed those to TAA, retaining the prior
+rotation/motion-weight fallback for absent depth and colour clipping for unmodelled objects.
+Active Temporal + MotionVectors owns the depth-copy demand separately from diagnostics;
+Present also services resource release on disable. DepthScale 200 is the coarse measured
+simulator minimum and remains adjustable. Both temporal and vector levers default off.
+Measurements, rejected mirroring and the initial caller-gate failure: PERFORMANCE.md.

@@ -1,6 +1,7 @@
 // core/gfx/depth_probe.cpp - see depth_probe.h.
 #define DVR_CAT ::dvr::log::Cat::device
 #include "core/gfx/depth_probe.h"
+#include "core/gfx/clarity.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/shared_capture_texture.h"
 #include "core/util/log.h"
@@ -263,9 +264,14 @@ void set_share(bool on, const char* who) {
              on ? " - the scene target's depth is copied to D3D11 every present; checked every 5 s" : "");
 }
 bool share_on() { return g_share.load(); }
+bool share_tick_needed() {
+    return g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on()) || g_depthW != 0;
+}
 
 void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH) {
-    if (!g_share.load() || g_shareFailed || !dev || !dev11 || !ctx11 || !backW) return;
+    const bool wanted = g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on());
+    if (!wanted) { if (g_depthW) share_release(); return; }
+    if (g_shareFailed || !dev || !dev11 || !ctx11 || !backW) return;
     // The scene target: the first-created eye-size RGBA16F (step 1: its alpha is depth).
     const Cand* scene = nullptr;
     for (const Cand& c : g_c)
@@ -304,7 +310,7 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
     IDirect3DSurface9* src = nullptr;
     if (FAILED(scene->tex->GetSurfaceLevel(0, &src)) || !src) return;
     const DWORD t = GetTickCount();
-    const bool check = (int)(t - g_shareNextMs) >= 0;
+    const bool check = g_share.load() && (int)(t - g_shareNextMs) >= 0;
     float d9[kGrid][kGrid] = {};
     bool have9 = false;
     if (check) have9 = read_grid_d3d9(dev, src, scene->w, scene->h, D3DFMT_A16B16G16R16F, d9);   // this present, D3D9
@@ -367,7 +373,7 @@ ID3D11ShaderResourceView* depth_srv_for(uint32_t grabSerial, UINT* w, UINT* h) {
         const DWORD t0 = GetTickCount();
         HRESULT q;
         while ((q = best->fence->GetData(nullptr, 0, D3DGETDATA_FLUSH)) == S_FALSE && GetTickCount() - t0 < 20) Sleep(0);
-        if (q == S_FALSE) { ++g_shareMissed; return nullptr; }
+        if (q != S_OK) { ++g_shareMissed; return nullptr; }
         best->fenced = false;
     }
     if (w) *w = g_depthW;

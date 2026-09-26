@@ -1,3 +1,13 @@
+## Motion vectors for temporal AA (2026-09-26, unmerged candidate)
+
+- [x] Run the simulator mirror test and identify the c5/world translation sign.
+- [x] Measure an interior depth-scale minimum below rotation-only.
+- [x] Generate per-eye vectors and use them in TAA behind a default-off live F10 toggle.
+- [x] GPU regressions and simulator both-eye execution with diagnostics off.
+- [x] Restore the original installed CRLF INI with DepthShare/MotionCalib off.
+- [ ] Headset walking/leaning A/B; exact calibration refinement and cost measurement.
+- [ ] Moving-object vectors/disocclusion depth history and later DLSS prerequisites.
+
 ## HUD ownership regression audit (2026-09-25)
 
 - [x] Verify latest local DLL/log and preserve run/INI before rotation.

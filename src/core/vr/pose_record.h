@@ -54,7 +54,7 @@ struct Track {
 // The game camera that sample produced, in UE world convention.
 struct Cam {
     float  yawDeg, pitchDeg, rollDeg;
-    float  pos[3];            // the eye position written, engine units
+    float  pos[3];            // last_written_pos: c5 convention, NEGATIVE world position (uu)
     bool   posOk;
     double writeMs;           // when the camera write happened
     int    writer;            // 1 script dispatch, 2 direct fallback, 3 cinematic draw, 0 none

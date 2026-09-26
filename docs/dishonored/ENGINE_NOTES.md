@@ -9866,3 +9866,18 @@ floor structure of a room (constant along rows/columns), a sky reading around 44
 centre value falling from 1.17 to 0.81 when the head pitched 60 deg down. Scale about 100 uu per
 unit, to be calibrated. No INTZ/RAWZ path exists in the exe; the depth-stencils are plain D32.
 Details and the next steps: PLAN-motion-vectors-dlss.md.
+
+## Pose-record position convention for motion reconstruction (2026-09-26)
+
+No new engine address or writer. `HtPublishCameraRecord` fills `Cam::pos` with
+`camera::last_written_pos`, whose implementation returns `c5Sign * g_eyeWriter.last`.
+This is c5 convention (negative world position on the verified POV fields), despite the old
+headers claiming world-position form. The 2026-09-03 section "The camera field holds the
+POSITION, c5 is its negation" remains the reference for the measured sign.
+
+Clarity converts c5 to world exactly once on reading the pose record; the shared transport
+continues unchanged. Standard reprojection then uses current-minus-previous WORLD position
+in the previous rotator basis. Simulator mirror test rejects mirrored yaw (0.0082 normal vs
+0.0468 mirrored); corrected parallax has a minimum 0.0226 at 200 uu/unit vs 0.0400 rotation-only.
+Exact build identities, complete curve, failed service-gate test and limitations are recorded
+in PERFORMANCE.md, "Motion-vector calibration and TAA candidate". No headset acceptance.

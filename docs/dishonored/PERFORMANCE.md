@@ -2117,3 +2117,56 @@ when the resolution is raised: that is address space, not VRAM. The `gpumem` lin
 - Temporal: no visible effect at a new-frame weight of 0.50 (the slider's maximum, ~2 frames
   of history); at 0.15 it smoothed shimmer but smeared while walking until the motion
   weighting; with it, walking no longer smears. Still experimental, off by default.
+
+### Motion-vector calibration and TAA candidate (2026-09-26)
+
+Branch `claude/motion-vectors`, not merged. Plan and depth transport evidence remain in
+PLAN-motion-vectors-dlss.md; engine coordinate provenance is in ENGINE_NOTES.
+
+- MIRROR TEST, installed DLL hash `143c21a3900b637dd1b84efe1148009a2bc1f24d2da5bbf4e7c4ce6ff8cd8016`,
+  banner built 16:16:52: 56 pure turns, normal luminance error 0.0082, mirrored 0.0468.
+  This rejects the horizontal-mirror hypothesis; clarity's rotation was already correct.
+- Corrected translation, installed candidate hash prefix `1f1536d781add944`, built 16:39:14:
+  70 moving frame pairs; error by scale 25:0.0593, 50:0.0406, 100:0.0278, 200:0.0226,
+  400:0.0254, 700:0.0327, 1000:0.0341, 1500:0.0355, 2500:0.0373, 4000:0.0383,
+  7000:0.0389, rotation-only:0.0400. 200 wins 65/70 pairs, 43.5% below rotation-only.
+  Coarse minimum only: 200 is the experimental default, not a proof of the exact depth unit.
+  Initial load transients are included in this aggregate; repeated controlled lateral steps
+  dominate it. No missing matching-depth lookup in that run.
+- Cause: `camera::last_written_pos` multiplies the written field by c5Sign, publishing
+  c5 = negative world position. Its header and pose-record comment incorrectly called it world
+  position. Convert only in clarity's `view_for`; do not change shared pose transport or yaw.
+- Built per-eye RGBA16F vectors: xy previous-minus-current UV, z validity, w reserved.
+  Current depth and colour must have the same capture serial and dimensions. Vectors run at
+  TAA output size, including when resolve is enabled. Invalid depth/behind/outside rejects
+  history; sky keeps rotation. No object vectors or disocclusion-depth history yet; colour
+  clipping remains, so moving NPCs/hands can still trail. Motion weighting is bypassed only
+  with matching depth; the rotation-only fallback retains it.
+- First normal-path smoke failed usefully: zero vector completions, all rotation fallback.
+  Present's caller still gated depth copying on Diagnostics.DepthShare. The service gate now
+  includes active Temporal + MotionVectors, and services release after the last consumer
+  switches off. Diagnostic readbacks remain gated by DepthShare. A success counter is updated
+  only after the GPU chain completes, not when its inputs are merely available.
+- Final installed hash `5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`,
+  banner built 16:54:27: both diagnostics off at startup, gameplay combined head translations
+  and rotations, about 450 successful vector-TAA passes per eye per 5 s, zero fallback.
+  Live off/on released/recreated the depth ring and resumed at 354/354 passes in the partial
+  window, zero fallback. This proves execution/transport, NOT headset quality or a GPU speedup.
+- Host GPU: 54 clarity checks pass. Independent plane geometry predicts 4 px, measured worst
+  vector error 0.0010 px. TAA error 0.00085 vs rotation-only 0.09700 and reversed-translation
+  control 0.13496. Eye isolation, output resizing, invalid/NaN depth, behind-camera rejection,
+  sky rotation and freeing resources pass. Existing 6 calibration GPU checks pass, including
+  independent ray-cast correspondence and a flat curve without translation.
+
+`[Clarity] MotionVectors=0` default; F10 under Temporal AA, `clarity motion on|off` live.
+`MotionDepthScale=200` is an experimental calibration parameter (`clarity depthscale 25..7000`).
+TAA itself remains off by default. No diagnostic needed for the feature. Full original
+installed INI restored byte-for-byte after the simulator test, including both diagnostics off.
+
+Cost is still OPEN for a headset: this adds the existing 3-slot full-size RGBA16F depth ring
+and two output-size RGBA16F vector textures plus a pass, roughly 5 * width * height * 8 bytes
+(~299 MiB at 2750x2850, no resolve), before D3D interop/driver duplication. Do not equate a
+paced simulator's frame rate with the feature's GPU cost. Next: one walking/leaning headset
+A/B with Temporal held on, vector option toggled, panel closed; judge trails and edge stability.
+Local archives (gitignored): `build/mv-session/mirror-normal-wins.log`,
+`translation-corrected.log`, `vector-missing-depth-gate.log`, and `final-vector-run/`.

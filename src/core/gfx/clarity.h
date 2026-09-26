@@ -8,8 +8,8 @@
 //             a kernel that reads every rendered pixel, instead of handing the
 //             compositor an oversized image it samples with one bilinear tap
 //   Temporal  blend each eye with its own previous frame, reprojected by the
-//             rotation between the two rendered cameras (the pose record); what
-//             the rotation cannot explain is clipped back to the current frame.
+//             camera motion from matching depth when MotionVectors is enabled,
+//             rotation otherwise; unmodelled motion is clipped to the current frame.
 //             Head micro-motion is the sub-pixel jitter. Experimental
 //   Sharpen   contrast-adaptive sharpening on the result (0 = off)
 //
@@ -29,6 +29,10 @@ void  set_resolve(bool on, const char* who);
 bool  resolve_on();
 void  set_temporal(bool on, const char* who);
 bool  temporal_on();
+void set_motion(bool on, const char* who);
+bool motion_on();
+void set_depth_scale(float scale, const char* who);
+float depth_scale();
 void  set_blend(float currentWeight, const char* who);   // 0.05..0.5, the new frame's weight
 float blend();
 void  set_sharpen(float amount, const char* who);        // 0..1

@@ -25,6 +25,8 @@ namespace {
 
 std::atomic<bool>  g_resolve{false};
 std::atomic<bool>  g_temporal{false};
+std::atomic<bool>  g_motion{false};
+std::atomic<float> g_depthScale{200.0f};
 std::atomic<float> g_blend{0.15f};
 std::atomic<float> g_sharpen{0.40f};
 std::atomic<uint32_t> g_epoch{1};   // bumped by any lever change: histories restart
@@ -37,6 +39,7 @@ View     g_prev[2];
 // The window the status line reports (reset each line).
 struct Window {
     uint64_t draws = 0, resolved = 0, temporal = 0, plain = 0, refused = 0;
+    uint64_t vectors[2] = {}, motionFallback = 0;
     double motionSum = 0; uint64_t motionN = 0;   // the motion weight the temporal pass used
     uint32_t resets[(int)Reset::Count] = {};
     uint32_t srcW = 0, srcH = 0, outW = 0, outH = 0;
@@ -66,7 +69,9 @@ View view_for(uint32_t recId, uint32_t w, uint32_t h) {
     v.tanV = v.tanH * (float)h / (float)w;
     v.pitch = rec.cam.pitchDeg; v.yaw = rec.cam.yawDeg; v.roll = rec.cam.rollDeg;
     v.posOk = rec.cam.posOk;
-    memcpy(v.pos, rec.cam.pos, sizeof(v.pos));
+    // last_written_pos publishes c5 = -world position (ENGINE_NOTES, 2026-09-03).
+    // Keep the transport record unchanged; convert once at this consumer boundary.
+    world_from_c5(rec.cam.pos, v.pos);
     v.w = w; v.h = h;
     v.ok = true;
     return v;
@@ -101,6 +106,8 @@ void status_tick() {
                 w.resets[(int)Reset::First] + w.resets[(int)Reset::Size] + w.resets[(int)Reset::Record] +
                     w.resets[(int)Reset::Turn] + w.resets[(int)Reset::Move] + w.resets[(int)Reset::Fov],
                 g_sharpen.load());
+    if (g_motion.load()) DVR_INFO("clarity/motion: completed depth-vector TAA L=%llu R=%llu, rotation fallback=%llu, scale %.1f uu/unit",
+        (unsigned long long)w.vectors[0], (unsigned long long)w.vectors[1], (unsigned long long)w.motionFallback, g_depthScale.load());
     g_win = Window{};
     g_winMs = now;
 }
@@ -122,7 +129,17 @@ uint64_t g_calibMs = 0;
 
 void calib_frame(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src, uint32_t w, uint32_t h,
                  int eyeSign, uint32_t recId) {
-    if (!g_calibOn.load() || !(eyeSign == -1 || eyeSign == 1) || !src) return;
+    if (!g_calibOn.load()) {
+        if (g_calibTried) {
+            g_calib.shutdown(); g_calibTried = g_calibOk = false;
+            for (auto& e : g_eh) { if (e.srv) e.srv->Release(); if (e.tex) e.tex->Release(); e = EyeHist{}; }
+        }
+        return;
+    }
+    if (!(eyeSign == -1 || eyeSign == 1) || !src) {
+        g_eh[0].view = View{}; g_eh[1].view = View{};
+        return;
+    }
     if (!g_calibOk) {
         if (g_calibTried) return;
         g_calibTried = true;
@@ -149,7 +166,7 @@ void calib_frame(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResour
         }
         e.view = View{};
     }
-    if (e.view.ok && e.view.posOk && cur.posOk) {
+    if (keep_history(e.view, cur) == Reset::None && e.view.posOk && cur.posOk) {
         const float dp[3] = {cur.pos[0] - e.view.pos[0], cur.pos[1] - e.view.pos[1], cur.pos[2] - e.view.pos[2]};
         const float moved = sqrtf(dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2]);
         const Basis tpb = basis_from_rotator(e.view.pitch, e.view.yaw, e.view.roll);
@@ -217,7 +234,6 @@ void calib_frame(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResour
         DVR_INFO("motion/calib: MIRROR TEST over %d pure turns - rotation-only error normal %.4f, mirrored %.4f (the lower "
                  "one is the convention the image really has)", g_turnRuns, g_turnNormal / g_turnRuns, g_turnMirror / g_turnRuns);
     if (now - g_calibMs >= 5000 && g_calibRuns) {
-        g_calibMs = now;
         char t[600]; int m = 0;
         for (int k = 0; k < dvr::motion::kScales; ++k)
             m += _snprintf_s(t + m, sizeof(t) - m, _TRUNCATE, " %g:%.4f(%d)", dvr::motion::kScaleValues[k],
@@ -240,6 +256,7 @@ void calib_frame(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResour
                  best == dvr::motion::kScales - 1 ? " = ROTATION ONLY: the depth does not explain the motion (wrong eye/frame pairing, or not depth)" : "",
                  g_calibStill, g_calibNoDepth);
     }
+    if (now - g_calibMs >= 5000) g_calibMs = now;
 }
 
 } // namespace
@@ -258,6 +275,18 @@ void set_temporal(bool on, const char* who) {
     if (g_temporal.exchange(on) != on) note_change("temporal", on_off(on), who);
 }
 bool temporal_on() { return g_temporal.load(); }
+void set_motion(bool on, const char* who) {
+    if (g_motion.exchange(on) != on) note_change("motion vectors", on_off(on), who);
+}
+bool motion_on() { return g_motion.load(); }
+void set_depth_scale(float v, const char* who) {
+    if (!isfinite(v) || v < 25 || v > 7000) return;
+    if (g_depthScale.exchange(v) != v) {
+        g_epoch.fetch_add(1);
+        DVR_INFO("clarity: depth scale %.1f uu/unit (%s); histories restart", v, who);
+    }
+}
+float depth_scale() { return g_depthScale.load(); }
 void set_blend(float v, const char* who) {
     if (!(v >= 0.05f)) v = 0.05f;
     if (v > 0.5f) v = 0.5f;
@@ -342,17 +371,29 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                     const Basis pb = basis_from_rotator(g_prev[e].pitch, g_prev[e].yaw, g_prev[e].roll);
                     const Basis cb = basis_from_rotator(cur.pitch, cur.yaw, cur.roll);
                     p.prevFromCur = prev_from_cur(pb, cb);
-                    // The reprojection is rotation-only: walking parallax, and a fast
-                    // turn's resampling, are what smear. As the camera moves the history
-                    // counts for less (and its clip tightens), so a still or slowly
-                    // looking view keeps the full accumulation and a moving one stays sharp.
+                    // Matching depth explains camera parallax. Without it, retain the
+                    // existing motion-weighted rotation-only fallback.
                     float move = 0.0f;
                     if (g_prev[e].posOk && cur.posOk) {
                         const float dx = cur.pos[0] - g_prev[e].pos[0], dy = cur.pos[1] - g_prev[e].pos[1],
                                     dz = cur.pos[2] - g_prev[e].pos[2];
                         move = sqrtf(dx * dx + dy * dy + dz * dz);
                     }
-                    const float m = motion_weight(move, basis_angle_deg(pb, cb));
+                    if (g_motion.load() && g_prev[e].posOk && cur.posOk) {
+                        UINT dw = 0, dh = 0;
+                        auto* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh);
+                        if (depth && dw == w && dh == h) {
+                            p.sceneDepth = depth;
+                            p.depthScale = g_depthScale.load();
+                            const float dp[3] = {cur.pos[0] - g_prev[e].pos[0], cur.pos[1] - g_prev[e].pos[1], cur.pos[2] - g_prev[e].pos[2]};
+                            p.translation[0] = dot3(pb.f, dp); p.translation[1] = dot3(pb.r, dp); p.translation[2] = dot3(pb.u, dp);
+                        }
+                        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+                            "clarity/motion: eye %+d grab %u, %s, scale %.1f uu/unit, move %.2f uu",
+                            eyeSign, dvr::capture::delivered_serial(), p.sceneDepth ? "depth vectors" : "rotation-only fallback (no matching depth)",
+                            g_depthScale.load(), move);
+                    }
+                    const float m = p.sceneDepth ? 0.0f : motion_weight(move, basis_angle_deg(pb, cb));
                     p.blend = p.blend + (0.6f - p.blend) * m;
                     p.clipGamma = 1.0f - 0.35f * m;
                     g_win.motionSum += m; ++g_win.motionN;
@@ -375,6 +416,8 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
     char why[256] = "";
     if (!g_gpu.run(dev, ctx, src, dst, p, why, sizeof(why))) {
         ++g_win.refused;
+        // No history was produced for this pose. Never pair an old texture with it.
+        if (p.temporal) g_prev[p.eye] = View{};
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000,
                          "clarity: pass refused (%s) at %ux%u -> %ux%u - this present takes the plain copy", why, w, h, ow, oh);
         status_tick();
@@ -382,13 +425,19 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
     }
     ++g_win.draws;
     if (p.resolve) { ++g_win.resolved; g_win.srcW = w; g_win.srcH = h; g_win.outW = ow; g_win.outH = oh; }
-    if (p.temporal && p.historyValid) ++g_win.temporal;
+    if (p.temporal && p.historyValid) {
+        ++g_win.temporal;
+        if (p.sceneDepth) ++g_win.vectors[p.eye];
+        else if (g_motion.load()) ++g_win.motionFallback;
+    }
     status_tick();
     return true;
 }
 
 void shutdown() {
     g_gpu.shutdown();
+    g_calib.shutdown(); g_calibTried = g_calibOk = false;
+    for (auto& e : g_eh) { if (e.srv) e.srv->Release(); if (e.tex) e.tex->Release(); e = EyeHist{}; }
     g_initTried = false; g_initOk = false;
     g_prev[0] = View{}; g_prev[1] = View{};
 }
@@ -406,6 +455,8 @@ bool command(const char* args) {
     bool b = false;
     if (n >= 2 && !_stricmp(sub, "resolve") && onoff(&b)) { set_resolve(b, "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "temporal") && onoff(&b)) { set_temporal(b, "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "motion") && onoff(&b)) { set_motion(b, "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "depthscale")) { set_depth_scale((float)atof(val), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "blend")) { set_blend((float)atof(val), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "sharpen")) { set_sharpen((float)atof(val), "the seam"); return true; }
     if (n >= 1 && !_stricmp(sub, "off")) {
@@ -413,7 +464,7 @@ bool command(const char* args) {
         return true;
     }
     DVR_INFO("clarity: resolve %s, temporal %s (blend %.2f), sharpen %.2f | %s | words: clarity resolve on|off, "
-             "temporal on|off, blend <0.05..0.5>, sharpen <0..1>, off",
+             "temporal on|off, motion on|off, depthscale <25..7000>, blend <0.05..0.5>, sharpen <0..1>, off",
              on_off(g_resolve.load()), on_off(g_temporal.load()), g_blend.load(), g_sharpen.load(), summary());
     return true;
 }
