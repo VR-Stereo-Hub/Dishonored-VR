@@ -18,6 +18,10 @@ Root roots[288]{};unsigned rootCount=0;
 struct Point {uintptr_t root=0;float x=0,y=0,w=0,h=0;DWORD time=0;};
 Point points[96]{};
 uint8_t* hud=nullptr;dvr::menukeep::Identity hudIdentity;
+uint8_t* quickManager=nullptr;uint8_t* quickWheel=nullptr;
+dvr::menukeep::Identity quickIdentity;
+uintptr_t quickView=0;
+uint32_t quickWheelField=0,movieField=0,quickModeField=0;double quickResolveAfter=0;
 uint32_t fields[6]{}; // manager HUD, clip table, four native marker arrays
 LONG load=-1;unsigned epoch=~0u;DWORD refreshed=0;double resolveAfter=0;
 dvr::hooks::Detour displayHook,publishHook,executeHook;
@@ -67,6 +71,34 @@ const uint8_t* Value(int family,int index) {
     const uintptr_t expected=family==1?kTaskMarkerVtable:family==2?kHeartMarkerVtable:family==3?kAwarenessMarkerVtable:0;
     return (!expected || table==expected) ? marker+kMarkerGfxInterface : nullptr;
 }
+uintptr_t MovieView(uint8_t* object) {
+    uint8_t* movie=nullptr;uintptr_t view=0;
+    if(!movieField || !CtRead(object,movieField,&movie,4) || !movie ||
+       !RangeReadable(movie+kGfxMovieView,4)) return 0;
+    memcpy(&view,movie+kGfxMovieView,4);return view;
+}
+uintptr_t SpriteMovie(void* character) {
+    // Borrowed from the native Display call, which itself reads this member.
+    // Guard a malformed read without VirtualQuery on every displayed child.
+    uintptr_t view=0;
+    __try {if(character) memcpy(&view,(uint8_t*)character+kGfxSpriteMovie,4);}
+    __except(EXCEPTION_EXECUTE_HANDLER) {view=0;}
+    return view;
+}
+Owner QuickPotionOwner(void* character) {
+    Owner result;
+    if(!quickView || SpriteMovie(character)!=quickView || !SameHud()) return result;
+    // A movie address is not liveness. Recheck the current manager member,
+    // live wheel identity, mode and movie view before tagging native work.
+    if(!quickManager || CtObject(quickManager,quickWheelField)!=quickWheel || !IsLiveObject(quickWheel)) return result;
+    dvr::menukeep::Identity identity;MkReadIdentity(quickWheel,&identity);
+    int mode=0;
+    if(identity.obj!=quickIdentity.obj || identity.cls!=quickIdentity.cls ||
+       identity.name[0]!=quickIdentity.name[0] || identity.name[1]!=quickIdentity.name[1] ||
+       !CtRead(quickWheel,quickModeField,&mode,4) || mode!=kGfxQuickPotionMode || MovieView(quickWheel)!=quickView) return result;
+    result.root=(uintptr_t)character;result.generation=generation.load(std::memory_order_relaxed);
+    result.element=ElDefault;return result;
+}
 Owner Lookup(void* character) {
     Owner result;
     if(!available.load(std::memory_order_relaxed)) return result;
@@ -93,6 +125,7 @@ Owner Lookup(void* character) {
             }
         }
     }
+    if(!result && !sourceOwner && GetTickCount()-refreshed<250) result=QuickPotionOwner(character);
     ReleaseSRWLockShared(&rootsLock);return result;
 }
 void __fastcall Display(void* self,void*,void* context) {
@@ -194,7 +227,14 @@ void poll(uint8_t* manager) {
             Log("hud/semantic: REFUSED unresolved HUD/clip/marker properties; retry in 5s");return;
         }
     }
+    if((!quickWheelField || !movieField || !quickModeField) && now>=quickResolveAfter) {
+        quickResolveAfter=now+5000;
+        if(!quickWheelField) FindPropOffsetChecked("DisGlobalUIManager","m_pPowerWheel",&quickWheelField);
+        if(!movieField) FindPropOffsetChecked("GFxMoviePlayer","pMovie",&movieField);
+        if(!quickModeField) FindPropOffsetChecked("DisGFxMoviePlayerPowerWheel","m_Mode",&quickModeField);
+    }
     AcquireSRWLockExclusive(&rootsLock);
+    quickView=0;quickManager=nullptr;quickWheel=nullptr;
     if(load!=g_mkLoadEvents || epoch!=UiSurfaceEpoch()) {
         available.store(false);rootCount=0;memset(points,0,sizeof(points));
         if(!BuildLiveSet()) {ReleaseSRWLockExclusive(&rootsLock);return;}
@@ -231,6 +271,17 @@ void poll(uint8_t* manager) {
         const int index=roots[i].index;
         if(index==2) required|=1;if(index==6) required|=2;if(index==12) required|=4;
     }
+    // Prove the native sprite/movie relationship with current known HUD clips.
+    // Refuse the optional quick-potion route if this executable/layout disagrees.
+    const uintptr_t hudView=MovieView(hud);
+    bool movieLink=false;
+    for(unsigned i=0;hudView && i<rootCount;++i) if(roots[i].family==0 && roots[i].owner &&
+        SpriteMovie((void*)roots[i].character)==hudView) {movieLink=true;break;}
+    int quickMode=0;
+    auto* wheel=quickWheelField ? CtObject(manager,quickWheelField) : nullptr;
+    if(movieLink && wheel && quickModeField && CtRead(wheel,quickModeField,&quickMode,4) && quickMode==kGfxQuickPotionMode) {
+        quickView=MovieView(wheel);quickManager=manager;quickWheel=wheel;MkReadIdentity(wheel,&quickIdentity);
+    }
     refreshed=GetTickCount();available.store(required==7);
     static double reportAfter=0;
     const bool report=now>=reportAfter && ::dvr::log::enabled(DVR_CAT,::dvr::log::Level::Info);
@@ -241,10 +292,10 @@ void poll(uint8_t* manager) {
         const DWORD tick=GetTickCount();
         for(const auto& p:points) if(p.root && tick-p.time<100) ++withPivot;
     }
-    const unsigned count=rootCount;ReleaseSRWLockExclusive(&rootsLock);
+    const unsigned count=rootCount;const bool quickReady=quickView!=0;ReleaseSRWLockExclusive(&rootsLock);
     if(report) DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
-        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u clips/task/heart/aware/grenade=%u/%u/%u/%u/%u pivots=%u display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
-        count,(int)available.load(),required,ambiguous,families[0],families[1],families[2],families[3],families[4],withPivot,displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
+        "hud/semantic: roots=%u active=%d required=%x ambiguous=%u clips/task/heart/aware/grenade=%u/%u/%u/%u/%u pivots=%u movieLink=%d quickMode=%d quickReady=%d display=%u queued=%u replayed=%u overflow=%u HUD-known=%u HUD-native-fallback=%u; cumulative, misses stay native",
+        count,(int)available.load(),required,ambiguous,families[0],families[1],families[2],families[3],families[4],withPivot,(int)movieLink,quickMode,(int)quickReady,displays.load(),sent.load(),received.load(),overflow.load(),taggedDraws.load(),unknownDraws.load());
 }
 void marker(void* native,float x,float y,int w,int h) {
     if(!active() || w<=0 || h<=0 || !std::isfinite(x) || !std::isfinite(y)) return;

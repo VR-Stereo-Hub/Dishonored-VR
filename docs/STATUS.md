@@ -1,3 +1,25 @@
+## 2026-09-25: quick-potion ownership correction; tutorial trial rejected
+
+Verified returned e322911fb DLL/banner; current/previous logs and full INI archived
+under primary build/hud-regression-20260925/heal-return-230454. User clarifies the
+missing low-health item is only the D-pad/potion artwork, not tutorial text.
+The previous identity assumption was wrong. Native/script audit now identifies
+QuickPotionMenu in the POWER-WHEEL movie, mode4. It is absent from the HUD32-clip
+array, so the semantic unknown/native fallback explains its uncaptured position.
+
+Remove the failed private tutorial panel and restore its WinY to0.000. Candidate
+routes only the validated mode4 wheel movie to the existing default HUD panel.
+Read-only reflected manager membership/mode/pMovie, live UObject identity and
+current native sprite/movie relationship authorize capture; normal wheel mode
+and all menu routing stay unchanged. No additional capture sink or engine writes.
+The optional relationship is cross-checked against current known HUD clips before
+use and fails native if unavailable. Existing3s summary records movieLink,
+quickMode and quickReady. Headset acceptance and live relationship guard pending.
+81 actual reader/transport checks,100000 concurrent transfers,123 native HUD and
+503 routing checks pass. Performance and failed hypothesis are documented below.
+Rain reset was explicitly requested: Lens18/KeepSize0 confirmed in returned log.
+Preserve that reset on install. No launch or merge; external disclosure pending.
+
 ## 2026-09-25: remaining heal reminder and rain follow-up
 
 Installed v1.0.1-42-ge322911fb after successful optimized build and nine exports.

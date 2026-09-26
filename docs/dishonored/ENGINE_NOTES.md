@@ -1,3 +1,34 @@
+## Quick-potion reminder belongs to the wheel movie (2026-09-25)
+
+Correction to the preceding low-health text association: the reported standalone
+D-pad/potion is QuickPotionMenu in UI_PowerWheel, using the shared-library
+QuickPotion_DPAD. Its Open takes the shortcut panel's lower-left position,
+selects shortcut index3, animates the potion/ring/right direction, and closes
+through OnClosed. TutorialMessage is a different widget. No extracted scripts
+or assets are committed.
+
+Native BE42DC stores the requested wheel mode. BE4406/BE4417/BE4420 subtract1,1,2,
+and mode4 reaches BE4453..BE4483: GetVariable(_root.quickPotion_mc) and Open.
+BE4867..BE4890 resolves that same clip and applies display information. The mode
+is read using reflected DisGFxMoviePlayerPowerWheel.m_Mode; manager.m_pPowerWheel
+and GFxMoviePlayer.pMovie also use reflection.
+
+Native HUD initialization B9584E..B95868 reads movie service+34 as the GFx view
+and invokes its variable getter. Sprite Display DF17CF reads sprite+90 and uses
+its resource state at+1c. Candidate accepts this sprite/movie relationship only
+when it equals the current known HUD clip's independently resolved movie view.
+The optional wheel route refuses if that live equality is absent. This guard is
+not yet confirmed in a headset run. All native layout constants are in patterns.h.
+
+A Display callback whose borrowed sprite links to the current mode4 wheel view
+gets default-panel ownership. Revalidate live manager membership, wheel object
+identity, current mode and pMovie/view, plus load/menu epoch via SameHud. No new
+virtual calls, retained GFx handles, engine writes, hooks or owning references.
+Children/filter commands inherit existing semantic transport. Ordinary wheel
+mode and unknown other movies retain existing routing. Host extraction tests
+exercise actual readers against dead/replaced owners, changed membership/view,
+wrong mode/movie, epoch boundaries and invalid native pointers.
+
 ## Low-health reminder ownership follow-up (2026-09-25)
 
 Default-player localization includes a low-health direct-elixir-binding tutorial

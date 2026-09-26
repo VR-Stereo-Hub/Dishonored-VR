@@ -295,6 +295,10 @@ static const uint8_t kHudQueueExecuteBytes[]={0x8b,0x42,0x04,0x8b,0xf1,0xff,0xd0
 static const uint32_t kHudValueSize=0x10,kHudValueType=4,kHudValueHandle=8;
 static const uint32_t kHudQueueAllocationCommand=4;
 static const uint32_t kHudSpriteDisplaySlot=0x74;
+// Native HUD initialization B9584E..B95868 and Sprite Display DF17CF.
+// Verify the sprite's movie link against a current known HUD clip before use.
+static const uint32_t kGfxMovieView=0x34,kGfxSpriteMovie=0x90;
+static const int kGfxQuickPotionMode=4; // BE42DC stores mode; BE4420..BE4483 opens quickPotion_mc.
 
 // VR-186 read-only identity probe. BBD430 reads GFx value +18/+1c/+20;
 // DA6820 passes the handle to DC4600, resolving handle+4 when non-null.

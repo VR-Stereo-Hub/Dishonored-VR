@@ -1,3 +1,25 @@
+## 2026-09-25: failed tutorial trial and returned performance report
+
+Returned e322911fb is reported slightly slower. Whole-run perf tick medians:
+9.1ms/58 summaries versus fe3c3f8768.3ms/101 summaries. Different scenes, menus,
+durations and lens settings make this an uncontrolled comparison, not attribution
+of0.8ms to the change. The tutorial sink was allocated55995281 and released
+56005593, a10.312s interval; it did not remain copying for the rest of the run.
+Slots were1375x1425 (Scale0.50) against2750x2850 targets. The extra panel therefore
+had real GPU allocation/copy cost while visible, but did not capture the icon.
+Remove it. No flicker recorder, pixel probe or new high-frequency log was enabled.
+
+Replacement quick-potion capture reuses the existing default panel, introducing
+no additional sink, readback or per-draw logging. Native sprite/movie reads only
+run for unowned Display roots while a mode4 wheel view is available; children
+inherit scope. Live owner/membership checks run only after a matching movie link.
+Optional field resolution retries at most every5s if unavailable. The existing
+poll cross-checks the view against known HUD clips; existing3s summary gains three
+scalar fields. Host81 checks plus100000 concurrent transfers pass. Queue round
+trip21.07ns and unowned replay16.78ns are host microbenchmarks, not in-game timing.
+Headset frame-time recovery remains unconfirmed; no claim of restoring a measured
+FPS amount from the uncontrolled runs.
+
 ## 2026-09-25: semantic tutorial placement cost
 
 No new diagnostic counters, stacks, readbacks or log cadence. Candidate adds one

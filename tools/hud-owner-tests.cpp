@@ -24,7 +24,16 @@ struct Array {uint8_t** data;int count,capacity;};
 static uint8_t hudStorage[128]{},targetStorage[32]{};
 static uint8_t* hud=hudStorage;static bool targetLive=true,hudLive=true;
 static uint32_t fields[6]={0,8,16,28,40,52};
-static bool IsLiveObject(const void* p){return (p==hud && hudLive) || (p==targetStorage && targetLive);}
+static uint8_t managerBytes[32]{},wheelBytes[64]{},movieBytes[64]{},potionCharacter[256]{};
+static uint8_t* quickManager=managerBytes;static uint8_t* quickWheel=wheelBytes;
+static bool managerLive=true,wheelLive=true;
+static uint32_t quickWheelField=8,movieField=12,quickModeField=16;
+static uintptr_t quickView=0;static bool sameHud=true;static bool SameHud(){return sameHud;}
+namespace dvr::menukeep {struct Identity {uint8_t* obj=nullptr;void* cls=nullptr;uint32_t name[2]{};};}
+static dvr::menukeep::Identity quickIdentity;static uint32_t wheelName=10;
+static void MkReadIdentity(uint8_t* p,dvr::menukeep::Identity* out){out->obj=p;out->cls=(void*)0x1234;out->name[0]=wheelName;out->name[1]=0;}
+static bool IsLiveObject(const void* p){return (p==hud && hudLive) || (p==targetStorage && targetLive) ||
+    (p==quickManager && managerLive) || (p==quickWheel && wheelLive);}
 static bool RangeReadable(const void* p,size_t n) {
     MEMORY_BASIC_INFORMATION m{};const auto a=(uintptr_t)p;
     return a>=0x10000 && a+n>=a && VirtualQuery(p,&m,sizeof(m)) && m.State==MEM_COMMIT &&
@@ -32,6 +41,9 @@ static bool RangeReadable(const void* p,size_t n) {
 }
 static bool CtRead(uint8_t* p,uint32_t off,void* out,size_t n) {
     if(!IsLiveObject(p) || !RangeReadable(p+off,n))return false;memcpy(out,p+off,n);return true;
+}
+static uint8_t* CtObject(uint8_t* p,uint32_t off) {
+    uint8_t* out=nullptr;return CtRead(p,off,&out,4) && IsLiveObject(out) ? out : nullptr;
 }
 #include "hud_owner_dispatch.inc"
 static int phase=0;
@@ -99,6 +111,29 @@ int main() {
     check(elements[2]==ElPrompt && elements[6]==ElPrompt,"talk/name/action stay on the accepted central prompt");
     check(elements[4]==ElDefault && elements[7]==elements[4] && elements[8]==elements[4] && elements[9]==elements[4],"context/mantle/QTE share sneak panel placement");
     check(elements[12]==ElReticle && elements[3]==ElVitals,"cooking and hand vitals retain separate semantic placement");
+    memcpy(managerBytes+quickWheelField,&quickWheel,4);
+    uint8_t* movie=movieBytes;memcpy(wheelBytes+movieField,&movie,4);
+    quickView=0x900000;memcpy(movieBytes+kGfxMovieView,&quickView,4);
+    memcpy(potionCharacter+kGfxSpriteMovie,&quickView,4);
+    int quickMode=kGfxQuickPotionMode;memcpy(wheelBytes+quickModeField,&quickMode,4);
+    MkReadIdentity(quickWheel,&quickIdentity);
+    const Owner potion=QuickPotionOwner(potionCharacter);
+    check(potion && potion.element==ElDefault && !potion.marker,"quick potion joins existing default panel as complete movie");
+    quickMode=1;memcpy(wheelBytes+quickModeField,&quickMode,4);
+    check(!QuickPotionOwner(potionCharacter),"ordinary weapon wheel cannot become gameplay HUD");
+    quickMode=kGfxQuickPotionMode;memcpy(wheelBytes+quickModeField,&quickMode,4);
+    sameHud=false;check(!QuickPotionOwner(potionCharacter),"menu/load epoch boundary refuses retained movie");sameHud=true;
+    wheelLive=false;check(!QuickPotionOwner(potionCharacter),"dead wheel refused");wheelLive=true;
+    managerLive=false;check(!QuickPotionOwner(potionCharacter),"dead manager refused");managerLive=true;
+    ++wheelName;check(!QuickPotionOwner(potionCharacter),"same wheel address with replaced identity refused");--wheelName;
+    memset(managerBytes+quickWheelField,0,4);check(!QuickPotionOwner(potionCharacter),"withdrawn manager membership refused");
+    memcpy(managerBytes+quickWheelField,&quickWheel,4);
+    uintptr_t other=0xA00000;memcpy(movieBytes+kGfxMovieView,&other,4);
+    check(!QuickPotionOwner(potionCharacter),"replaced movie view refused");memcpy(movieBytes+kGfxMovieView,&quickView,4);
+    memcpy(potionCharacter+kGfxSpriteMovie,&other,4);
+    check(!QuickPotionOwner(potionCharacter),"other movie cannot inherit potion ownership");
+    check(!SpriteMovie(nullptr) && !SpriteMovie((void*)1),"malformed borrowed sprite fails safely");
+    quickView=0;check(!QuickPotionOwner(potionCharacter),"unvalidated sprite/movie relationship remains native");
     Owner a;a.root=0x2000;a.generation=7;a.element=3;
     check(!commands.put(0,a),"null command refused");check(!commands.put(4,Owner{}),"unidentified owner refused");
     check(commands.put(16,a),"identified command queued");

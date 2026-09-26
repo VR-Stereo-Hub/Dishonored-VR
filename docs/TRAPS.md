@@ -1,3 +1,12 @@
+## A low-health icon is not necessarily the HUD tutorial (2026-09-25)
+
+The game has both a low-health text tutorial and a standalone D-pad/potion
+reminder. Localization proves only the text widget. The standalone reminder is
+QuickPotionMenu in the weapon-wheel movie, mode4, and does not belong to the
+HUD's32 native clip array. A private tutorial panel added GPU work without
+moving the reported icon. Ask which artwork is visible and trace its actual
+movie; do not treat shared gameplay meaning as shared rendering ownership.
+
 ## A launcher that restores its own ini backup wipes a startup migration (VR-220, 2026-09-25)
 
 `tools\xrsim-launch.ps1 -ViaSteam` writes `[VR] XrRuntimeJson` into the installed ini, launches,

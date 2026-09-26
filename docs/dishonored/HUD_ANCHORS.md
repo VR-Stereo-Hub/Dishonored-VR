@@ -1,3 +1,18 @@
+## 2026-09-25: retire tutorial trial; capture quick-potion movie
+
+The e322911fb tutorial panel did not move the reported icon. User clarification
+and Flash/native audit identify the standalone reminder as the weapon-wheel
+movie's QuickPotionMenu, mode4, rather than a tutorial text message. The old
+HUD-root table could not claim this different movie. Remove tutorial isolation
+and its trial vertical offset; retain accepted semantic HUD/marker/lower hints.
+
+Candidate tags the live mode4 wheel movie by verified native movie membership
+and sends all its children to the existing default panel. No new panel or
+rectangle/content-based association. Menus retain the existing ride path; wheel
+mode1 cannot take this gameplay route. Optional live movie-link guard refuses
+rather than guessing. Next launch: trigger low health and check whether the
+D-pad/potion joins the visible floating HUD instead of the extreme native corner.
+
 ## 2026-09-25: isolate identified tutorial reminders from default placement
 
 Returned fe3c3f876 accepts marker size and lower state/special alignment. Low-health

@@ -7,8 +7,8 @@ $text=[IO.File]::ReadAllText((Join-Path $repo 'src/game/dishonored/hud_owner.cpp
 $elements=[regex]::Match($text,'(?ms)^const int elements\[32\]=\{.*?;')
 if(-not $elements.Success){throw 'Native clip table extraction failed'}
 $snippets=@($elements.Value)
-foreach($name in @('Character','Value','Display','Publish','Execute','ExecuteStub')) {
-    $pattern='(?ms)^(?:uintptr_t|const uint8_t\*|void __fastcall|uint32_t __cdecl|__declspec\(naked\) void) '+$name+'\(.*?^\}'
+foreach($name in @('Character','Value','MovieView','SpriteMovie','QuickPotionOwner','Display','Publish','Execute','ExecuteStub')) {
+    $pattern='(?ms)^(?:Owner|uintptr_t|const uint8_t\*|void __fastcall|uint32_t __cdecl|__declspec\(naked\) void) '+$name+'\(.*?^\}'
     $body=[regex]::Match($text,$pattern)
     if(-not $body.Success){throw "Dispatch extraction failed: $name"}
     $snippets+=$body.Value
