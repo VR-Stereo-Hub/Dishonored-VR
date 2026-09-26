@@ -1,3 +1,19 @@
+## 2026-09-26: potion accepted; periodic walking hitch candidate
+
+Matched95ae3f7af run and installed DLL; archived current/previous log and full INI
+under primary build/hud-regression-20260925/walk-judder-000731. User confirms potion
+HUD placement; quickReady1/quickCaptured rising confirms activation. Preserve fix.
+
+New whole-world walking catch-up has actual53..62ms game-thread waits, often750ms
+apart despite8..10ms average ticks. FpCollect runs every750ms and performs repeated
+memory probes on every raw slot. Candidate changes its traversal cost, not its
+schedule or discovery scope: fresh live set before restores, IsLiveObject before
+child access, one range query with original boundary fallback. Six extracted
+production scan checks pass. Bounded3s collect-cost distinguishes measured speed
+from a merely matching cadence. Build/install pending; see PERFORMANCE and
+FLICKER_REFERENCE. No game launch, no stereo/HUD change, no merge/external upload.
+Next one question: does the periodic hold/forward catch-up stop on straight walking?
+
 ## 2026-09-25: potion activation veto confirmed; direct owner correction
 
 Returned v1.0.1-46-g36a8d7f95 matches installed DLL/banner, archived with previous

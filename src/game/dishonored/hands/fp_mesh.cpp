@@ -656,6 +656,25 @@ static bool FpOwnedByPlayer(uint8_t* comp, uint8_t* pawn, char* who, size_t whoN
 
 static void FpCollect()
 {
+    // The periodic walk used to VirtualQuery every word, then probe arbitrary
+    // scalar values as objects. Reject non-members with the current live set
+    // before touching them; new equipment created this level must be included.
+    const double collectStart=MaimNowMs();
+    struct Cost {
+        double start;
+        ~Cost() {
+            const double now=MaimNowMs(),elapsed=now-start;
+            static double sum=0,peak=0,next=0;static unsigned count=0;
+            sum+=elapsed;if(elapsed>peak) peak=elapsed;++count;
+            if(now>=next) {
+                DVR_LOG(DVR_CAT,::dvr::log::Level::Info,
+                    "handmesh/collect-cost: n=%u mean=%.3fms max=%.3fms last=%.3fms candidates=%d; includes fresh live table and discovery",
+                    count,sum/count,peak,elapsed,g_fpCandN);
+                next=now+3000;sum=peak=0;count=0;
+            }
+        }
+    } cost{collectStart};
+    if(!BuildLiveSet()) {g_fpCandN=0;g_fpSel=-1;return;}
     FpRestoreRotation();
     for (int i = 0; i < g_fpCandN && i < 24; i++) g_fpPrev[i] = g_fpCand[i];
     g_fpPrevN = g_fpCandN;
@@ -696,12 +715,15 @@ static void FpCollect()
     int visited = 0;
     while (head < tail && visited < 140) {
         uint8_t* o = q[head]; int d = qd[head]; head++; visited++;
+        if (d >= 3 || !IsLiveObject(o)) continue;
         const char* oc = ObjClassName(o);
-        if (d >= 3) continue;
+        // Same bounded range and boundary fallback as before, but normally
+        // one readability query per visited object instead of376 per object.
+        const bool rangeReady=RangeReadable(o+0x20,0x600-0x20);
         for (uint32_t off = 0x20; off + 4 <= 0x600; off += 4) {
-            if (!RangeReadable(o + off, 4)) break;
+            if (!rangeReady && !RangeReadable(o + off, 4)) break;
             uint8_t* c = *(uint8_t**)(o + off);
-            if (!LooksLikeObj(c)) continue;
+            if (!IsLiveObject(c)) continue;
             bool dup = false;
             for (int i = 0; i < seenN; i++) if (seen[i] == c) { dup = true; break; }
             if (dup) continue;

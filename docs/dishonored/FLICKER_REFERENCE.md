@@ -1,3 +1,18 @@
+## 2026-09-26: straight-walking periodic hitch, separate from HUD cohesion
+
+Surface/route: whole-world motion timing/cadence, not HUD ownership or a frozen
+single eye. Matched95ae3f7af accepted potion capture; user reports periodic small
+forward catch-up while walking. Log shows53..62ms game-thread waiting gaps often
+750ms apart, with steady average8..10ms ticks. This explains why average FPS can
+look stable, but does not identify a captured call stack or prove camera movement.
+
+FpCollect's750ms raw-object discovery is the source lead. Candidate reduces
+memory queries and rejects non-live values before inspection, preserves discovery
+and fresh IsLiveObject requirements, and adds3s bounded collection timing.
+Six extracted-production pointer-scan boundary checks pass. Actual improvement
+OPEN pending one same-save walking run. All evidence, competing upstream stalls
+and performance limits are maintained in PERFORMANCE.md. No stereo/HUD change.
+
 ## Semantic HUD cohesion accepted (2026-09-25)
 
 Surface: HUD widget ownership/decoupling, not cinematic eye delivery. Verified

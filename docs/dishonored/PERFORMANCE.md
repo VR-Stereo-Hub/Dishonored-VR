@@ -1,3 +1,45 @@
+## 2026-09-26: periodic walking hitch, candidate discovery optimization
+
+Verified installed95ae3f7af DLL/banner. Archives: primary
+build/hud-regression-20260925/walk-judder-000731 (current/previous logs, full INI).
+Player confirms potion HUD now placed correctly; quickMode4/quickReady1 and
+quickCaptured192->1566 independently prove activation. New reported surface is
+whole-world translation during steady walking, brief hold/forward catch-up at
+roughly one-second intervals despite similar average FPS. Not HUD decoupling.
+
+In gameplay59682000..59737000, repeated printed frame gaps are mostly53..62ms
+waiting for the game thread, with adjacent stalls often750ms apart (also735/765ms
+clock quantization). Example59684328->59685078:56/57ms,52.8ms out/idle in each.
+The gap logger rate-limits after3 events/window, so printed intervals are censored.
+Ordinary ticks are around8..10ms; averages hide individual missing frames.
+Live-table summaries max1.24ms then1.11ms do not explain the50ms stalls. Some
+separate xrEndFrame stalls and streaming bursts also exist; not all gaps have
+one established cause. Flight recorder/pixel diagnostics remain compiled out.
+
+Source lead: hand SkelTick recollects components every750ms. FpCollect probes
+376 raw pointer slots per expanded object, calls RangeReadable for every slot,
+and LooksLikeObj on arbitrary scalar values. This exact periodicity and the
+expensive discovery path make it a strong candidate, not proven stack attribution.
+
+Candidate keeps the750ms schedule, search depth, candidate cap, equipment roots
+and menu/load recovery. Rebuild the live-object hash table at collection entry
+before retained-object restores or discovering new equipment. Check root and
+child membership via IsLiveObject before dereference. Validate the entire scan
+range once per object; when partially readable, retain the original per-slot
+boundary checks. Typical range queries drop376->1 per expanded object. No camera,
+movement, stereo or accepted HUD policy changes.
+
+Add one3s aggregate handmesh/collect-cost line (mean/max/last, including live-table
+refresh) to distinguish successful optimization from unchanged hitching. Six host
+checks extract the actual production scan and verify both range endpoints, retired
+and arbitrary pointer rejection, one-query complete ranges, and guarded partial
+page fallback. No in-game timing gain claimed before a matched acceptance run.
+
+Next single question: same-save straight walking, does the periodic hold/forward
+catch-up disappear? Compare collection cost and frame gaps; continued stalls with
+cheap discovery would reject this hypothesis and direct investigation to the
+remaining game-thread work. Never disable liveness checks to gain performance.
+
 ## 2026-09-25: remove failed cross-movie activation census
 
 Matched36a8d7f95 DLL/banner and archived logs/full INI under primary
