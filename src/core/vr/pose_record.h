@@ -81,6 +81,11 @@ struct Record {
     Cam      cam;             // a COPY of the camera it produced
     double   openedMs;
     bool     secondPassReuse; // this view reused pass 1's camera, deliberately
+    // The camera position written for THIS view, in the c5 convention (the value the
+    // render thread's c5 reads for it). For pass 2 it is the right eye's own write, not
+    // the reused pass-1 camera, so a draw can find its view by its c5 alone.
+    float    viewPos[3];
+    bool     viewPosOk;
 };
 
 uint32_t next_pair();
@@ -88,7 +93,13 @@ uint32_t next_pair();
 // Open a record for the view about to be drawn. GAME thread. It COPIES the
 // published camera pair rather than sampling anything itself, so the record
 // cannot disagree with the camera that was actually written.
-uint32_t open(int eye, uint32_t pairId, bool secondPassReuse);
+uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* viewPos = nullptr);
+
+// The newest record opened in the last `maxAgeMs` whose viewPos lies within `tol` of `c5`
+// (engine units, c5 convention). RENDER thread. `second` gets the distance to the nearest
+// OTHER tick's record (FLT_MAX when none), so a caller can refuse a match that does not
+// single out one view. False when nothing is within tol.
+bool find_view(const float c5[3], float tol, double maxAgeMs, Record* out, float* dist, float* second);
 
 // COPY a record out. The ring can be overwritten while a reader works, so there
 // is no pointer accessor: this takes the lock, checks the id, and copies.

@@ -169,7 +169,7 @@ uint32_t next_pair()
 }
 
 
-uint32_t open(int eye, uint32_t pairId, bool secondPassReuse)
+uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* viewPos)
 {
     ensure_cs();
     Lock lk;
@@ -183,8 +183,43 @@ uint32_t open(int eye, uint32_t pairId, bool secondPassReuse)
     r.cam = g_camCam;
     r.openedMs = dvr::clock::now_ms();
     r.secondPassReuse = secondPassReuse;
+    r.viewPosOk = viewPos != nullptr;
+    for (int i = 0; i < 3; ++i) r.viewPos[i] = viewPos ? viewPos[i] : 0.0f;
     ++g_opened;
     return id;
+}
+
+bool find_view(const float c5[3], float tol, double maxAgeMs, Record* out, float* dist, float* second)
+{
+    if (!c5 || !out) return false;
+    ensure_cs();
+    Lock lk;
+    const double now = dvr::clock::now_ms();
+    int best = -1; float bestD = 3.4e38f; uint32_t bestId = 0;
+    for (uint32_t k = 0; k < kRing; ++k) {
+        const Record& r = g_ring[k];
+        if (!r.id || !r.viewPosOk || now - r.openedMs > maxAgeMs) continue;
+        const float d0 = c5[0] - r.viewPos[0], d1 = c5[1] - r.viewPos[1], d2 = c5[2] - r.viewPos[2];
+        const float d = sqrtf(d0 * d0 + d1 * d1 + d2 * d2);
+        // nearest; on an exact tie (the head held still) the NEWEST record
+        if (d < bestD || (d == bestD && r.id > bestId)) { bestD = d; best = (int)k; bestId = r.id; }
+    }
+    if (best < 0 || bestD > tol) return false;
+    const Record& b = g_ring[best];
+    float sec = 3.4e38f;
+    for (uint32_t k = 0; k < kRing; ++k) {
+        const Record& r = g_ring[k];
+        if (!r.id || !r.viewPosOk || (int)k == best || now - r.openedMs > maxAgeMs) continue;
+        if (r.pairId == b.pairId && r.eye == b.eye) continue;
+        if (r.track.gen == b.track.gen) continue;   // the same head sample cannot mislead
+        const float d0 = c5[0] - r.viewPos[0], d1 = c5[1] - r.viewPos[1], d2 = c5[2] - r.viewPos[2];
+        const float d = sqrtf(d0 * d0 + d1 * d1 + d2 * d2);
+        if (d < sec) sec = d;
+    }
+    *out = b;
+    if (dist) *dist = bestD;
+    if (second) *second = sec;
+    return true;
 }
 
 

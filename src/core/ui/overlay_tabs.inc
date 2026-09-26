@@ -233,6 +233,15 @@ static void OvlTabHands()
             ImGui::TreePop();
         }
     }
+    if (OvlSec("Head-turn smoothing", kOvlA, "Keeps the hands and weapons steady when you turn your head quickly.")) {
+        if (dvr::ovl::checkbox("Hands follow each eye's own view", &g_mpPoseFromView)) {
+            ConfigWriteKey("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", "F10 Hands");
+            Log("hands: PoseFromView -> %d (live)", (int)g_mpPoseFromView);
+        }
+        OvlTip("Places the hands and weapons from exactly the head position each eye's picture was drawn from. "
+               "Aimed at the slight flicker on fast head turns. Off is the previous behaviour.");
+        ImGui::TextDisabled("%ld left / %ld right views matched, %ld unmatched", g_mpPvMatch[0], g_mpPvMatch[2], g_mpPvNone);
+    }
     if (OvlSec("Hand fixes (debug)", kOvlD, "Fixes for hand and weapon placement. Leave them on.")) {
         dvr::ovl::checkbox("Correct weapon-specific lens", &g_waViewLens);
         OvlTip("Places weapons drawn with their own field of view correctly. Leave on.");

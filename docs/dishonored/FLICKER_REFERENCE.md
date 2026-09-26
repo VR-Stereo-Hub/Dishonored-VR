@@ -1,3 +1,67 @@
+## 2026-09-26: slight hand/weapon flicker on fast head yaw, world smooth (candidate `PoseFromView`)
+
+Branch `claude/hand-headturn-flicker` off staging `56eb1070c`. No Linear ticket: the workspace
+is at its free-plan issue limit. Built, NOT installed (by request), not headset-run.
+
+1. **Symptom identity.** Turning the head quickly left and right, the world stays smooth while
+   the hands and held weapons show a slight flicker. Long-standing. Both hands and weapons,
+   not one eye named. Distinct from VR-95 (a head ROLL, left eye only, a full IPD jump) and
+   from the Wheel entries (VR-126): this is ordinary gameplay, yaw.
+2. **Reproduction identity.** Reported against the current staging line; the measurements
+   below are from the dev rig's latest session log, build `v1.0.1-50-g6bc58a449` (VDXR,
+   Quest 3, 2750x2850, `stereo reentry`, `PoseLag=2`, `PaletteEyeOffset=1`,
+   `PaletteEyePredictToggle=0`).
+3. **Hypotheses and counterpredictions.** Two inputs place the hands per view, and both are
+   stand-ins for what the view was actually drawn from:
+   * **(a) the head sample.** The hand's camera-relative position is the controller in the HEAD's
+     frame, taken from the head history a fixed `PoseLag` (2) PRESENTS back. Under re-entry a
+     tick is two presents and the render thread trails the game thread by up to a frame, so
+     "two presents back" is the view's own sample most of the time and not always. Measured:
+     the `hv:` line reports frames whose hand normalisation used another head generation than
+     the camera write - 17 of 204 at 954 deg/s (worst 1.72 deg), 29 of 210 at 327 deg/s (1.09),
+     18 of 165 at 310 deg/s (1.68), 0 with the head still. 1.7 deg is about 1.5 cm at arm's
+     length, on some views only: a flicker on the hands and weapons, never the world (one
+     camera per tick). Counterprediction: with the view's own head sample the snapshot-offset
+     readout (below) is about 0 at rest and grows with turn speed, and the flicker goes.
+   * **(b) the eye.** `MpEyeForPresent` guesses the eye from the jump in the HAND's world
+     translation along the camera right axis. The viewmodel rides the camera, so a fast yaw
+     sweeps that projection by (hand distance x turn per present) on top of the eye step,
+     pushing one crossing under the 0.45 IPD band (held, possibly wrong) and the other over
+     2 IPD (unknown, no eye offset). Measured on the same log: 62931 toggled presents agree
+     with the stereo method, 2 disagree, 58 unknown; SAME 54 agree / 4 disagree / 192 unknown;
+     5 ambiguous. Rare (about 11 bad presents in the session), so (a) is the stronger suspect
+     for a continuous flicker and (b) for an occasional flick.
+   * **Eliminated as evidence:** `bv/lag` now reads `BEST -1` (lags 0/2/4 about 0.78-0.85 deg,
+     1/3 about 0.99): under re-entry the camera turns once per tick while it compares per
+     present, so it can no longer choose a lag. Its old lag-2 verdict predates re-entry and
+     does not carry over.
+4. **Change identity.** `[Hands] PoseFromView` (default 0; F10 Advanced > Hands > Head-turn
+   smoothing). Each pose record now also carries the camera position written for ITS view
+   (`viewPos`; pass 2 records the right eye's own write, not the reused pass-1 camera). A hand
+   draw looks its view up by the c5 the constant hook captured (`find_view`, 0.05 uu, 400 ms,
+   refused when a record with another head sample sits within 0.10 uu) and, when found:
+   re-derives both hands against that record's head sample (`MpHandInHead`, the identical maths
+   MpDriveTick uses, with the same controller sample) and takes the view's eye. No match (a
+   mono tick, walking travel after a write, a record aged out, an identity head) leaves the
+   snapshot and the jump classifier exactly as before. Weapons follow for free: they take the
+   hand's per-present, per-eye correction (`WaCommonFor`). Evidence that the join is exact:
+   the ring ledger's `w2c self` (a present's c5 against its own tag's written position) read
+   under 0.001 uu for 1178 of 1181 pops and under 0.05 for 1181.
+5. **Results.** Host: `palette-eye-host.ps1` gains four cases. The old path FAILS the fast-yaw
+   stream (negative control, `poseview_fast_yaw_breaks_the_jump_classifier`); matched views
+   alternate exactly; lever off is byte-for-byte the previous decision; unmatched falls back.
+   `frame_test.exe`, `rounded-wrist-host` (912), `trim-range-host` (37), lint and the
+   default-profile host pass. NOT run: the game, the simulator, the headset.
+   The log line to read: `hands/poseview: ON | draws re-anchored ... left L single S right R |
+   unmatched U ... | the snapshot's head was off by X deg on average, Y at most | eyes the jump
+   classifier would have got wrong or left unknown: E`. X must be about 0 at rest and grow with
+   turn speed; if it stays near 0 during fast turns, hypothesis (a) is dead and the flicker is
+   elsewhere. U climbing while walking is expected.
+6. **Status and remaining scope.** CANDIDATE, headset-untested. Question for the run: with the
+   checkbox on, are the hands and weapons as smooth as the world on fast left/right turns, and
+   does unticking it bring the flicker back? Not covered: walking with a turn (no exact join
+   after travel falls back), mono ticks, menus.
+
 ## 2026-09-26: local walking catch-up accepted; remote cinematic scope separate
 
 Surface: whole-world straight-walking hold/catch-up, not HUD grouping or eye fusion.
@@ -1716,6 +1780,7 @@ pose metadata without reopening the disproved historical theories.
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both (a head behind the sword in the left eye gone from the right; doors, mechanisms) | Both reentry passes share one view state, so one eye's occlusion-query results cull the other eye | VR-79 2026-09-24: `occlusion off` (the engine's TOGGLEOCCLUSION switch) HEADSET-CONFIRMED to fix it but reads laggier. CANDIDATE `[Stereo] Occlusion=pereye`: the right eye gets its own engine view state, so each eye culls only what it cannot see (ENGINE_NOTES "VR-79"). Not yet headset-checked |
 | Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
+| Slight hand/weapon flicker on FAST head yaw while the world stays smooth (gameplay) | Hands normalised against a head sample a fixed two presents back (measured 8-15% of fast-turn frames on another generation, up to 1.7 deg); rarer: the eye guessed from a hand jump the yaw sweep pushes out of band | CANDIDATE 2026-09-26 `[Hands] PoseFromView` (view found by c5; its own head sample and eye); host-tested, headset open. Top entry |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |

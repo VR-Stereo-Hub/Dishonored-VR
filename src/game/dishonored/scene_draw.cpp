@@ -358,9 +358,9 @@ static void SceneDrawDecisionLog(const SdDecision& d)
 // camera was computed from, so the comparison it fed was circular and its
 // near-zero answer meant nothing. The camera write publishes the sample and the
 // camera together, under a lock, and this copies that pair.
-static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, bool secondPassReuse)
+static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, bool secondPassReuse, const float* viewPos = nullptr)
 {
-    return dvr::pose::open(eye, pairId, secondPassReuse);
+    return dvr::pose::open(eye, pairId, secondPassReuse, viewPos);
 }
 
 
@@ -406,7 +406,7 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     if (wrote) LensFollowEye(+1);   // VR-137: the lens effects from THIS eye's camera
     const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
     dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
-                                       SdOpenPoseRecord(+1, g_sdPairId, true), acct2, ++g_sdDrawAttempt);
+                                       SdOpenPoseRecord(+1, g_sdPairId, true, wrote ? wrotePos : NULL), acct2, ++g_sdDrawAttempt);
     g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
@@ -489,7 +489,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
             const uint32_t acct1 = dvr::zacct::pin_for_tag(posOk ? pos : NULL);   // VR-78: the tick's last write
             dvr::stereo::reentry_push_tag_draw(-1, posOk ? pos : NULL,
-                                               SdOpenPoseRecord(-1, g_sdPairId, false), acct1, ++g_sdDrawAttempt);
+                                               SdOpenPoseRecord(-1, g_sdPairId, false, posOk ? pos : NULL), acct1, ++g_sdDrawAttempt);
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
             dvr::desktop_eye::note_single_draw(); // VR-76: actual ticks, not rate-limited log lines
             // A single GAMEPLAY draw while the method pops: one push per draw,
