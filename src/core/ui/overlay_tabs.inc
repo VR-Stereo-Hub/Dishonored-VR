@@ -767,15 +767,7 @@ static void OvlTabDisplay()
         ImGui::TextDisabled("%s", ResLiveStatus());
     }
     if (OvlSec("Clarity and anti-aliasing", kOvlA,
-               "Smoother edges and sharper textures. Each option is off by default and switches live, so you can compare.")) {
-        bool resolve = dvr::clarity::resolve_on();
-        if (dvr::ovl::checkbox("Supersampling resolve", &resolve)) {
-            dvr::clarity::set_resolve(resolve, "F10 Display");
-            ConfigWriteKey("Clarity", "Resolve", resolve ? "1" : "0", "F10 Display");
-        }
-        OvlTip("Above 100% resolution, the mod shrinks the picture to the headset's own size with a filter that uses "
-               "every rendered pixel. Without it the headset software skips most of the extra pixels. Does nothing at 100%. "
-               "Each switch rebuilds the headset images; restart the game after switching it many times.");
+               "Smoother edges and sharper textures. Each option switches live, so you can compare.")) {
         bool temporal = dvr::clarity::temporal_on();
         if (dvr::ovl::checkbox("Temporal anti-aliasing (experimental)", &temporal)) {
             dvr::clarity::set_temporal(temporal, "F10 Display");
@@ -812,6 +804,16 @@ static void OvlTabDisplay()
         }
         OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
         ImGui::TextDisabled("%s", dvr::clarity::summary());
+    }
+    if (OvlSec("Clarity (debug)", kOvlD, "The supersampling resolve. Off by default: judged no better than the headset's own.")) {
+        bool resolve = dvr::clarity::resolve_on();
+        if (dvr::ovl::checkbox("Supersampling resolve", &resolve)) {
+            dvr::clarity::set_resolve(resolve, "F10 Display");
+            ConfigWriteKey("Clarity", "Resolve", resolve ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Above 100% resolution, the mod shrinks the picture to the headset's own size with a filter that uses "
+               "every rendered pixel. Without it the headset software skips most of the extra pixels. Does nothing at 100%. "
+               "Each switch rebuilds the headset images; restart the game after switching it many times.");
     }
     if (OvlSec("Desktop window", kOvlB, "What the game window on your monitor shows.")) {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
