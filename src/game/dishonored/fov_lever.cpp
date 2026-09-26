@@ -17,6 +17,9 @@ static inline void FovLeverApply()
 {
     static dvr::fov_lever::CinematicRecovery recovery;
     static unsigned recoveryEpoch = 0;
+    // The base this session trusted and our last write survive a re-arm (the owners
+    // and g_fovNatural reset on loads): a recapture is judged against them.
+    static float keptNatural = 0.0f, lastWrite = 0.0f;
     const unsigned epoch = UiSurfaceEpoch();
     if (recoveryEpoch != epoch) { recovery = {}; recoveryEpoch = epoch; }
     if (UiSurfaceOwnsPresentation()) { recovery = {}; dvr::camera::set_eye_ceiling(0.0f,false); return; }   // VR-117: the lever follows the projection claim while a screen rides
@@ -44,11 +47,18 @@ static inline void FovLeverApply()
         if (g_fovNatural == 0.0f) {
             recovery = {}; // New owner, load or rearmed lever.
             if (!g_camObj || !RangeReadable(g_camObj + kFovSensor, 4)) return;
-            float nat = *(float*)(g_camObj + kFovSensor);
+            const float reading = *(float*)(g_camObj + kFovSensor);
+            dvr::fov_lever::Rearm why;
+            const float nat = dvr::fov_lever::rearm_natural(reading, keptNatural, lastWrite, deg, &why);
             if (!(nat > 30.0f && nat < 140.0f)) return;
             g_fovNatural = nat;
-            Log("fovlever: natural base %.1f deg, target %.2f, effective base %.2f (ratio %.3f; no contraction feedback)",
-                nat, deg, nat < deg ? nat : deg, deg / (nat < deg ? nat : deg));
+            keptNatural = nat;
+            Log("fovlever: natural base %.1f deg (read %.2f, last write %.2f: %s), target %.2f, effective base %.2f "
+                "(ratio %.3f; %s)",
+                nat, reading, lastWrite, dvr::fov_lever::rearm_name(why), deg, nat < deg ? nat : deg,
+                deg / (nat < deg ? nat : deg),
+                nat < deg ? "narrow values widen back each pass"
+                          : "RATIO 1: nothing pulls a narrowed view back - expected only when the game's own FOV is at or above the target");
         }
         // VR-213: readback includes our own interpolated output. Never apply
         // a ratio below one to it; that recursively narrows toward the clamp.
@@ -82,6 +92,7 @@ static inline void FovLeverApply()
                 if (kLevCam[i] == kFovSensor) continue;             // never directly write readback
                 LevWrite(g_camObj + kLevCam[i], t);
             }
+        lastWrite = t;
         InterlockedIncrement(&g_fovLeverWrites);
         static double nextLog = 0;
         const double now = MaimNowMs();

@@ -62,6 +62,13 @@
 - [ ] Local paused-dialogue FOV acceptance.
 - [ ] Remote expiration attribution and production-model-tested eye pairing fix.
 
+## FOV base kept across loads (2026-09-26)
+
+- [x] Trace the stuck small view to the base re-read from the lever's own output after loads.
+- [x] Keep the session's base; accept a re-read only when it is not our echo, the target or a transient.
+- [x] Host negative control (echoed base keeps a 37.36 narrowing) and recovery at 37.36 and 60.
+- [ ] Headset or affected player: exit a store and die at a portrait size; the full view returns.
+
 ## Cinematic square-view recovery (VR-227, 2026-09-24)
 
 - [x] Match support build and isolate persistent cinematic narrow-FOV retention.
