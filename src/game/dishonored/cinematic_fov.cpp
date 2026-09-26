@@ -96,7 +96,12 @@ static void CineFovBegin(bool scene) {
     const bool authored=ready && (dvr::scene_state::cinematic(state.state[0]) || store);
     const bool walking=!strcmp(state.state[0],"StatePlayerMasterWalk") ||
         !strcmp(state.state[0],"StatePlayerMasterFalling") || !strcmp(state.state[0],"StatePlayerMasterJump");
-    const bool keep=g_cfBridge.update(authored,ready && walking && CfValidate(),
+    // The exit tail must not require `ready`: leaving the store, the menu flag
+    // outlives the store state by a frame, and that one not-ready frame reset
+    // the bridge, so the dialogue's narrow camera drew for ~0.5 s as a small box.
+    // The tail still needs the feature on, a live projection and the same owner.
+    const bool tailOk=CineFovEnabled() && scene && projection && state.valid && CfValidate();
+    const bool keep=g_cfBridge.update(authored,tailOk && walking,
         dvr::camera::rendered_fov_deg(),target,GetTickCount64());
     const float requested=ProjectionFovGet();
     const bool gameplay=!keep && !dvr::scene_state::cinematic(state.state[0]) &&
