@@ -10,8 +10,16 @@ Remove unrelated all-HUD-clips census prerequisite. Production RefreshQuickMovie
 activates from live manager membership/mode4/supported movie view; current Display
 receiver must match that exact view and pass the existing identity/epoch checks.
 97 host checks/100000 transfers include unarmed activation through queued replay.
-No config, position, rain or menu changes. Build/install pending. See ENGINE_NOTES
+No config, position, rain or menu changes. Installed v1.0.1-48-g95ae3f7af
+on2026-09-26 after optimized build, lint and nine export checks passed. See ENGINE_NOTES
 for measured failure and PERFORMANCE for unchanged capture topology/reduced census.
+
+DLL SHA256 7e8cb4e1b0ff2c3bbb3db01fac02f5a13c00576ae15b1ab41f7e0ae4a1ff3377.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Complete installed/expected/backup INI byte-identical:1535 CRLF, zero bare LF.
+Prior DLL/INI/logs: primary build/playtest-candidates/installs/20260926-000214-196133.
+Candidate/PDB: primary build/playtest-candidates/hud-potion-activation-95ae3f7af.
+Game was closed; previous installed DLL/INI hashes matched before replacement.
 
 Next one-launch question: is the independently appearing low-health D-pad/potion
 fully visible on the floating gameplay HUD? Read quickMode/quickReady/quickCaptured
