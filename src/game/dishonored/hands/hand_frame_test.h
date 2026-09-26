@@ -629,6 +629,40 @@ static inline int run_all(ReportFn fn, void* ctx)
             "an identity S reads det %.1f, which the mirror test rejects", detI);
     }
 
+    // ---- 11b. the open right hand: the transfer reproduces a mirror-posed rig ----
+    {
+        // An arbitrary left wrist and finger (skinning matrices, reference space -> world),
+        // a world reflection Xw and the reference-pose reflection X. The right side posed as the
+        // exact mirror image, P_R = Xw * P_L * X, must come back from the transfer unchanged.
+        auto make = [](int axis, float deg, float tx, float ty, float tz, float* m) {
+            const Mat3 R = rot_axis_deg(axis, deg);
+            for (int i = 0; i < 3; i++) { for (int j = 0; j < 3; j++) m[i*4+j] = R.m[i*3+j]; }
+            m[3] = tx; m[7] = ty; m[11] = tz;
+        };
+        float wL[12], fL0[12], fL[12], rel[12];
+        make(2, 35.0f, 12.0f, -40.0f, 7.0f, wL);
+        make(0, -50.0f, 1.5f, 3.0f, -2.0f, rel);           // the finger's own curl against the wrist
+        mul_3x4(wL, rel, fL0);
+        make(1, 20.0f, 0.0f, 0.0f, 0.0f, rel);
+        mul_3x4(fL0, rel, fL);
+        const float nx[3] = { 1, 0, 0 }, c0[3] = { 0.3f, 0, 0 }, nw[3] = { 0.6f, 0.8f, 0 }, cw[3] = { 5, -2, 1 };
+        float X[12], Xw[12], t[12], wR[12], fR[12], invL[12], out[12];
+        reflection_3x4(nx, c0, X); reflection_3x4(nw, cw, Xw);
+        mul_3x4(Xw, wL, t); mul_3x4(t, X, wR);
+        mul_3x4(Xw, fL, t); mul_3x4(t, X, fR);
+        const bool inv = invert_3x4(wL, invL);
+        mirror_finger_3x4(wR, invL, fL, X, out);
+        float e = 0; for (int i = 0; i < 12; i++) e += fabsf(out[i] - fR[i]);
+        rec(&r, "open_hand_mirror", inv && e < 1e-3f,
+            "a mirror-posed rig: the transferred right finger matches its own matrix, error %.6f", e);
+        // The same transfer WITHOUT the reference reflection must miss by a lot.
+        const float I12[12] = { 1,0,0,0, 0,1,0,0, 0,0,1,0 };
+        mirror_finger_3x4(wR, invL, fL, I12, out);
+        float e2 = 0; for (int i = 0; i < 12; i++) e2 += fabsf(out[i] - fR[i]);
+        rec(&r, "open_hand_can_fail", e2 > 0.1f,
+            "leaving out the reflection misses by %.3f, which the test above would reject", e2);
+    }
+
     // ---- 12. the reported error metric -------------------------------------
     {
         const float a = rotation_angle_deg(rot_axis_deg(1, 90.0f));

@@ -371,6 +371,7 @@ static volatile bool g_mpItemInHand[2] = { false, false };
 // VR-184: [Hands] RigidWrist=1 (default) - in OUR vertex copy, a hand vertex's forearm-bone influences
 // are pointed at that side's hand bone, so arm and wrist-twist animation cannot bend the cut and cap.
 static bool g_msRigidWrist = true;
+static bool g_ohOn = true;   // [Hands] OpenEmptyRightHand: the empty right hand takes the left hand's open pose (mesh_split.cpp)
 static int  g_msIdxOff = -1, g_msIdxType = 0;       // the BLENDINDICES element, kept from the read
 
 // ---- BUILD A2: PLACEMENT THROUGH THE MEASURED CHAIN --------------------------

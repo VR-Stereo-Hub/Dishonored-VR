@@ -146,6 +146,11 @@ static volatile LONG g_rflPrimaryKind = 0;
 // DLC crossbow (DisDLC06WepCrossbow extends DisWepCrossbow) matches on "WepCrossbow".
 static volatile LONG g_rflSlotGun[3] = { 0, 0, 0 };
 static volatile LONG g_rflPrimaryKindTick = 0;
+// The LEFT hand, published with the right (same read, same g_rflPrimaryKindTick): 0 nothing
+// equipped, 1 a power (m_EquipUsageInfo[Secondary], the powers are not socketed), 2 another
+// item (the Heart, a gun, a grenade...), -1 unknown. The open right hand copies the left
+// hand's pose, which is only the relaxed open hand when it holds nothing or a power.
+static volatile LONG g_rflSecondaryKind = -1;
 
 // ---- THE EQUIPMENT REVISION -------------------------------------------------
 //
