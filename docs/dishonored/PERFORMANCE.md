@@ -2511,3 +2511,232 @@ prompt. Both-eye fused TAA completed L=449 / R=450 in the last report, fallback=
 Final DLL hash verified against the installed file before interpreting this fresh log.
 Evidence is in `build/taa-fixes/final-passed/`; simulator stopped and the full original
 INI restored again. No merge.
+
+## 2026-09-26: FSR implementation plan and depth-foundation handoff
+
+### Decision and evidence boundary
+
+The tester reports no perceptible benefit from the revised TAA. Preserve that negative
+quality result; the synthetic improvements and simulator execution do not establish a
+headset benefit. This planning session did not replay or independently verify the exact
+settings of that comparison. Stop tuning the custom TAA as the next task.
+
+Keep `claude/motion-vectors` unmerged as the depth/camera-motion foundation. Retain its TAA
+code/tests as a baseline and regression harness; do not rewrite its history or rename it.
+Create `codex/fsr-implementation` directly from the foundation's planning commit, in
+`C:\dev\Dishonored-VR\build\worktrees\fsr`. The user's requested stacked branch overrides
+the usual branch-from-staging rule. No merge to staging or VR-Main is authorized. A future
+review should make the dependency explicit; do not merge the parent just to simplify it.
+
+Goal: an optional temporal FSR upscaler with a visible quality benefit or a measured net
+frame-time benefit at acceptable headset quality. First target: FSR 2.2.1 with AMD's DX11
+backend patch, in-process on the existing x86 D3D11 device. This is a compatibility target,
+not a claim that it is the newest FSR. FSR 1 spatial scaling is not an equivalent substitute.
+Frame generation, DLSS, a Vulkan translation layer and a helper-process architecture are
+outside the first implementation. If the proposed backend cannot pass gate 1, record the
+specific failure before changing architecture; do not silently relabel a custom filter FSR.
+
+### Primary sources and compatibility gate
+
+AMD documents a DX11 backend patch against FSR 2.2.1 in its Unity integration. Reuse the
+backend, not Unity's renderer/plugin. That article establishes a DX11 route, not working
+Win32 support in this game. Preserve upstream licenses and pin both upstream revisions.
+
+- [AMD DX11 integration and patch links](https://gpuopen.com/learn/fsr2-for-unity-urp-dx11/)
+- [AMD DX11 backend patch](https://github.com/GPUOpen-Effects/FidelityFX-FSR2-Unity-URP/blob/main/src/patch/0001-fsr-2.2-dx11-backend.patch)
+- [Pinned-version integration reference](https://github.com/GPUOpen-Effects/FidelityFX-FSR2/blob/v2.2.1/README.md)
+- [Current SDK integration reference, compare deliberately rather than mixing versions](https://gpuopen.com/manuals/fidelityfx_sdk2/techniques/super-resolution-temporal/)
+
+The reference integration requires jittered scene rendering and matching depth/motion data;
+FSR replaces the existing temporal AA. Quality/Balanced/Performance use per-axis divisors
+1.5/1.7/2.0. These are not the mod's total-pixel percentages. Consult the pinned version for
+resource formats, depth conventions, jitter units, exposure, reset and mask contracts.
+
+### Existing foundation and constraints
+
+Runtime source baseline: `1d2ee24a5` (TAA audit fixes); preceding calibration `87a892cef`.
+- D3D9 scene colour alpha contains measured view-depth-like data. Shared RGBA16F depth
+  slots are keyed to colour grab serials, with separate producer/consumer fences.
+- c5 records negative world position; `clarity::view_for` converts once. Normal image axes
+  won the mirror test. Never flip the yaw convention again without new contrary evidence.
+- Scale 200 uu/depth-unit is an empirical minimum, not an exact derivation. Sky cutoff is
+  also experimental. FSR needs a proved depth conversion, not this number used as truth.
+- Pose records carry eye, position, rendered FOV, camera identity and level/UI epoch.
+- Production TAA now fuses reprojection. Explicit vector output remains a diagnostic path;
+  FSR will need a dedicated vector texture and correct resource lifetime again.
+- Animated-object vectors, reliable reactive masks and deliberate projection jitter are
+  missing. Camera vectors alone are a static-world prototype, not a complete integration.
+- Captured colour is currently gamma-encoded with game post effects. Prove the selected
+  input's colour space and scene/HUD ownership; do not assume it is pre-tonemap HDR.
+- `IsMainScenePass` is not a safe jitter classifier: unknown targets pass, landscape aspect
+  assumptions conflict with portrait eye buffers, and many c0 uploads occur per view.
+- Keep D3D9 rendering, the D3D11 shared-device path, OpenXR pacing, per-eye publication and
+  later hand/HUD composition intact. No additional frame queue or CPU texture readback.
+
+### Gate 0: reproducible baseline and branch setup
+
+Read CLAUDE.md, newest three STATUS sections, NEXT_SESSION, this section, and the latest
+FLICKER_REFERENCE entries. Read HANDOFF-GINGASVR Traps/Dead ends before runtime edits.
+Inspect current installed DLL/INI/log rather than relying on old handoff settings. Archive
+DLL, entire INI and rotated logs before any installation or authorized relaunch. Verify log
+banner and installed hash before interpreting a playtest. No game launch in this plan task.
+
+Current DLL hash: `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`.
+Banner recorded by the previous run: `v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48.
+Read-only installed INI check during this handoff: Temporal=0, TemporalBlend=0.12,
+Sharpen=0.40, MotionVectors=1, DepthShare=0, MotionCalib=0. These differ from the prior
+restore because preferences were changed afterwards. Preserve them; this task changes no
+installed files. Diagnostics remain off. MotionVectors=1 alone does not enable TAA.
+
+Linear search for FSR returned no match. Prior work records the workspace issue limit;
+no new ticket exists and no ticket number is invented. Recheck ticket availability when
+implementation begins. Credit commits to BioVRDev, no trailers, no subagents.
+
+### Gate 1: prove the x86 DX11 backend outside the game
+
+1. Pin FSR 2.2.1 and an exact revision/hash of the AMD DX11 patch. Audit its license and
+   dependencies; vendor only required source/headers/shaders with license notices and a
+   reproducible patch/build record. Do not bring Unity into the runtime.
+2. Build the host API and DX11 backend for Win32. Audit pointer/size casts, alignment,
+   hardcoded x64 assumptions, allocation sizes and compiler flags. Build-time tools may
+   be 64-bit, but every library loaded by the game must be x86. Identify the actual shader
+   model and UAV/format/feature-level requirements from the patched sources; do not assume
+   stock SDK shader binaries are valid for DX11. Use supported FP32 shaders first.
+3. Add an isolated x86 D3D11 host test with two independent FSR contexts, deterministic
+   synthetic colour/depth/motion/jitter, reference images and reset/resize tests. Check
+   debug-layer errors, finite output, correct two-eye isolation, shader creation and leaks.
+4. Measure context/intermediate allocation sizes at actual eye output dimensions. Prove
+   shader/resource creation on this GPU, not only a successful static-library compile.
+
+Exit: reproducible Win32 build and a real two-context GPU dispatch with correct synthetic
+output. If unsupported, document the failing API/assumption and an alternative design's
+cost; do not spend a headset run debugging backend build support.
+
+### Gate 2: separate render size from headset output size
+
+Design a small `core/gfx/fsr` owner and testable GPU adapter. The game renders at the input
+size; reconstructed output and OpenXR swapchain remain at a fixed selected display size.
+Wire explicit input/output dimensions through capture, clarity/output_size and eye submission
+without changing FOV, world scale or HUD placement. Avoid reducing both sizes together.
+
+First implement a bypass at the same dimensions and verify it reaches the submitted eye
+image. Then allow Quality input at output/1.5 on each axis. For output 2750x2850 the input
+is approximately 1833x1900, about 44.4% of output pixels. Existing F10 resolution has a 50%
+total-pixel floor and a fixed 2750x2850 reference, so it cannot express this directly as-is.
+Use an explicit FSR mode contract; log actual dimensions and rounding/alignment decisions.
+Do not promise savings from reducing a buffer that the engine is not actually rendering.
+
+Exit: a held output size, verified smaller scene render/depth sizes, unchanged stereo/FOV,
+and one safely reversible resolution transaction. Preserve and restore the user's previous
+resolution on disable; invalid configurations fail to the plain blit with a logged reason.
+
+### Gate 3: prove stereo-consistent projection jitter
+
+Identify all relevant world projection uploads by observed pass/target identity at both
+input sizes. Record coverage for opaque, transparent and native weapon passes, plus negative
+controls for shadow maps, reflection captures, menus and HUD. Derive a clip-space translation
+from the real projection layout. Do not implement head-rotation jitter as a shortcut.
+
+Store applied jitter with each image's pose/serial. Advance phase by successfully rendered
+stereo pairs; both eyes of a pair use a coherent phase. Do not advance on a repeated capture
+or compositor-only submission. Account for phase gaps and resets. Jitter affects colour and
+depth together; it must not move the physical pose submitted to OpenXR. Validate culling
+edges, viewmodel alignment, overlays, portrait aspect and post-load replacement cameras.
+Any engine-object writer needs IsLiveObject against a current table and revalidation after
+menus. All addresses/offsets belong in patterns.h with derivation in ENGINE_NOTES.
+
+Exit: synthetic projection tests and simulator images demonstrate intended subpixel shifts
+only on the intended scene, with accurate recorded offsets. Block temporal quality claims
+if world-pass coverage cannot be proved. Never enable an unverified broad c0 patch.
+
+### Gate 4: supply inputs with explicit units and provenance
+
+Introduce a per-eye input bundle: colour/depth SRVs, render/display sizes, eye/serial/epoch,
+current and previous projection/view, applied jitter, elapsed same-eye time and reset reason.
+Use matching capture/depth serials only. Dispatch once per new eye image, not per xrEndFrame.
+
+- Derive the engine alpha-to-view-depth relation and exact projection near/far conventions
+  from measured geometry and matrix evidence. Convert to the selected FSR device-depth
+  convention, with tested near/far/infinite/sky handling. Never feed raw alpha linear depth
+  into a normalized device-depth input. Validate multiple distances, FOVs and resolutions.
+- Materialize camera motion at render resolution (prefer RG16F if the backend accepts it).
+  Existing xy is previous UV minus current UV. Prove the pinned SDK's scale, sign, Y axis
+  and jitter cancellation with known one-pixel translations and rotations; set flags from
+  that proof. Include distinct previous/current projections. No double removal of jitter.
+- Use separate eye contexts and histories. Reuse the audited fence/serial/reset contracts
+  for all added consumers; depth read_done must occur after the FSR input reads are queued.
+  Do not let the earlier clarity RAII scope release a slot before FSR reads it.
+- Audit colour placement and format. Prefer a coherent scene input before HUD and unsuitable
+  post effects; if using current post-tonemap colour, implement/test the correct LDR path
+  and document the remaining limitation. Supply exposure according to that chosen path.
+- Moving-object vectors need reliable draw identity plus previous transforms/bones. Treat
+  this as a separate measured feature. Until available, label the candidate camera-only.
+  Masks can reduce history trust; they do not manufacture missing object motion. Automatic
+  reactive generation needs its required opaque/composited inputs, which are not yet proved.
+  Test particles, glass, water, animated NPCs, hands and rapid camera motion explicitly.
+
+Exit: deterministic depth/motion/jitter/exposure tests, two-eye isolation and disocclusion
+controls pass. A static-world prototype may proceed for diagnosis with limitations logged;
+full moving-scene quality acceptance cannot be inferred from those results.
+
+### Gate 5: lifecycle, F10 and safe fallback
+
+FSR replaces custom TAA while active; do not accumulate twice. Avoid stacking FSR sharpening
+with the existing sharpening pass by accident. Proposed controls (not implemented): FSR
+Off/Quality/Balanced/Performance and one sharpening slider, default Off. Start with Quality;
+expose lower modes only after validation. Keep the original TAA available for comparison and
+restore its stored preference on disable. Clarify output resolution versus FSR input scale.
+
+Free inactive TAA histories rather than retaining two temporal pipelines. Account separately
+for colour/depth transport, vectors, two FSR contexts, output and transient storage. Measure
+process virtual address space as well as GPU bytes; this is a 32-bit game. Avoid holding old
+and new full allocations concurrently on resize. Recreate contexts only when required.
+
+Handle missing/stale depth, refused shader creation, device loss/reset, resolution/FOV change,
+mono menus, load/teleport/cut, capture mode changes and eye gaps. A failure returns a complete
+current image by the existing blit, resets the affected history, logs the reason and allows
+an explicit retry. Never submit an uninitialized/stale FSR output. Ensure D3D11 bindings are
+restored/unbound before the later overlay passes. Do not block the render thread waiting for
+GPU query results in the steady state.
+
+### Gate 6: validation and acceptance
+
+Retain the existing 72 TAA GPU checks, 6 calibration checks and frame regressions. Add FSR
+host controls for stationary slanted edges under deliberate jitter, fine coloured points,
+camera translation, moving foreground/disocclusion, invalid depth, sky, transparent changes,
+independent eyes, frame intervals and resets. Compare against a high-resolution reference
+and equal-resolution raw/bilinear controls. A passing dispatch counter is not a quality test.
+
+Simulator: prove actual gameplay first (boot Attach can report success while still at a
+loading prompt), then rotations/translations, menus/load, FOV/resize, live FSR modes,
+capture off/shared/deferred, reset and disable/re-enable. Verify dimensions, jitter phases,
+per-eye dispatch counts, stale-depth rejection and deterministic recovery from each change.
+No game-derived captures committed. Game launches follow the user's current permission;
+previous simulator permission was for motion-vector work, not blanket future permission.
+
+Performance: keep output size, scene, refresh rate and quality controls fixed. Compare
+native with TAA off, old TAA, reduced-input plain scaling, and FSR Quality. Warm up and gather
+CPU/GPU frame-time distributions, including tail percentiles and dropped/reprojected frames,
+plus separate depth/input preparation and FSR GPU brackets for both eyes. Include allocation
+and resize peaks. Prior low-resolution experiments gained little in a CPU/fixed-cost-heavy
+scene, so do not promise FPS from pixel count alone or compare synthetic shader times to
+whole-game frame times. Try at least a pixel-heavy scene and the known fixed-cost scene.
+
+Headset: one question per launch, expected outcomes stated beforehand. First ask whether
+Quality at the same output size visibly improves edge stability over equal-input plain
+scaling without objectionable trails. Improvement supports reconstruction; unchanged output
+requires checking live activation and input/output provenance before retuning. Separate
+later questions cover native-quality tradeoff, moving-object trails and comfort/performance.
+No perceptible improvement is a valid negative result, as it was for custom TAA.
+
+Done only when the Win32 integration passes host and simulator regressions, toggles/loads
+recover, memory fits, and the tester accepts a visible quality or net performance tradeoff.
+Keep it default off and unmerged until then. Record failures and evidence here as work proceeds.
+
+### First implementation session deliverable
+
+Complete gate 1 first: pinned backend, reproducible x86 build, two-context synthetic dispatch,
+resource budget and an explicit compatibility verdict. Then proceed to dimensions and jitter
+ownership. Do not spend the session tweaking custom TAA weight, installing an x64 SDK DLL,
+or assuming the engine projection classifier is already suitable. NEXT_SESSION contains the
+copyable Claude starting brief; this section is the sole maintained implementation plan.

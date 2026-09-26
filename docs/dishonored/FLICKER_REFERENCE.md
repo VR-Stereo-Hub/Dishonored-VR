@@ -1,3 +1,17 @@
+## 2026-09-26: no perceptible TAA benefit reported; FSR planned
+
+Surface: scene edge/detail quality under temporal filtering, not evidence of stereo eye
+swaps or a new cadence regression. The tester reports no perceptible benefit from revised
+TAA. This planning session did not independently verify the exact live A/B configuration.
+Do not call the earlier synthetic improvements a headset-accepted fix. Preserve the measured
+camera-sign/depth-transport results; missing deliberate jitter/object vectors remain limits.
+
+Custom-TAA tuning is parked. The branch remains the unmerged depth foundation for the new
+FSR child branch. The implementation plan and all future performance/quality evidence live in
+[PERFORMANCE](PERFORMANCE.md#2026-09-26-fsr-implementation-plan-and-depth-foundation-handoff).
+This supersedes the pending-headset-verdict wording in historical entries below. No new
+runtime changes, game launch or installed settings changes were made for this handoff.
+
 ## 2026-09-26: audited TAA defects fixed, headset verdict pending
 
 Surface: accumulated scene colour, separate from stereo eye cadence and the later hand/F10

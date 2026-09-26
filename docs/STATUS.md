@@ -1,3 +1,28 @@
+## FSR continuation prepared (2026-09-26) - depth foundation stays unmerged
+
+The tester reports no perceptible benefit from the revised custom TAA. This is a negative
+headset quality report, not a retraction of the measured synthetic or transport fixes; the
+exact A/B activation/settings were not independently verified in this planning session.
+The next task is FSR, not further custom-TAA tuning.
+
+Keep `claude/motion-vectors` as the unmerged depth foundation. Runtime baseline is
+`1d2ee24a5`. Child branch `codex/fsr-implementation` starts at this documentation handoff,
+in `C:\dev\Dishonored-VR\build\worktrees\fsr`. No merges authorized. No runtime changes,
+launches, installs or installed INI edits in this session. No new Linear ticket (FSR search
+empty; prior workspace issue limit recorded). Commits credited to BioVRDev.
+
+The maintained plan is [PERFORMANCE: FSR implementation](dishonored/PERFORMANCE.md#2026-09-26-fsr-implementation-plan-and-depth-foundation-handoff).
+[Next session and Claude prompt](dishonored/NEXT_SESSION.md) replace the stale staging brief.
+First target: FSR 2.2.1 plus AMD's DX11 backend, with an x86 two-eye host proof before game
+integration. Main gates: distinct input/output resolution, safe projection jitter, exact
+depth conversion, vector/mask provenance, lifecycle, memory and measured headset acceptance.
+FSR and any visual/performance benefit are not implemented or established yet.
+
+Read-only installed check: DLL SHA256
+`f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`;
+Temporal=0, TemporalBlend=0.12, Sharpen=0.40, MotionVectors=1, DepthShare=0, MotionCalib=0.
+These are current preferences, superseding the earlier restore notes. Preserve them.
+
 ## TAA audit fixes (2026-09-26) - installed, simulator verified, not merged
 
 `claude/motion-vectors`: fused depth reprojection replaces production vector textures;

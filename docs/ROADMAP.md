@@ -1,3 +1,19 @@
+## FSR implementation (2026-09-26, planned stacked branch)
+
+- [x] Record no perceptible TAA benefit; retain the unmerged depth foundation.
+- [x] Prepare child branch/worktree and Claude continuation brief.
+- [x] Write the gated implementation plan in PERFORMANCE.md (FSR implementation section).
+- [ ] Prove pinned AMD FSR 2.2.1 DX11 backend builds and dispatches in x86.
+- [ ] Separate reduced scene input from fixed headset output; verify actual dimensions.
+- [ ] Prove complete scene projection ownership and stereo-consistent jitter.
+- [ ] Supply validated depth, vectors, colour/exposure and moving-content handling.
+- [ ] Implement default-off F10 controls, resets/fallback and memory accounting.
+- [ ] Pass host/simulator regressions and headset quality/performance acceptance.
+
+Branch `codex/fsr-implementation` derives from `claude/motion-vectors` by user request.
+Neither branch is authorized to merge. FSR is not yet implemented. Historical TAA acceptance
+items below are superseded by the negative quality report and this continuation decision.
+
 ## Motion vectors for temporal AA (2026-09-26, unmerged candidate)
 
 - [x] Run the simulator mirror test and identify the c5/world translation sign.

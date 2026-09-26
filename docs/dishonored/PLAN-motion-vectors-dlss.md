@@ -1,3 +1,9 @@
+> Current direction (2026-09-26): the tester reports no perceptible custom-TAA benefit.
+> Keep this branch unmerged as the depth foundation. The next child branch implements FSR;
+> DLSS is not the next task. See PERFORMANCE.md, "FSR implementation plan and depth-foundation
+> handoff", and NEXT_SESSION.md. The original plan and measurements below are historical.
+
+
 # Motion vectors, then DLSS (plan, 2026-09-26)
 
 Branch `claude/motion-vectors` off `staging` (`fb73099aa`). Depth transport and optional camera-vector TAA are built; headset A/B is next.
