@@ -1,3 +1,18 @@
+## Open empty right hand, and the pose-tools survey (2026-09-26)
+
+Branch `claude/right-hand-open-pose` off `staging`, not merged, NOT installed (by request). No
+Linear ticket: the workspace is at its free-plan issue limit.
+
+- With nothing in the right hand (the sword holstered) its FINGER bones take the left hand's pose,
+  mirrored, in the mod's own palette copy; the right hand keeps its mesh (no mark), wrist, placement
+  and sleeve. Signal: `g_rflPrimaryKind` (item sockets) plus a new `g_rflSecondaryKind`; left hand
+  must hold nothing or a power; 250 ms settle. `[Hands] OpenEmptyRightHand=1`, F10 Hands > Sleeve.
+- Bones paired by mirrored centroids (the palette is not laid out symmetrically); one miss refuses.
+  Self-tests `open_hand_mirror` / `open_hand_can_fail` pass in `frame_test.exe`.
+- Headset questions: is the empty right hand open like the left, is there a pop when the sword is
+  drawn, and does the log show `hands/openright: N right finger bone(s) paired`?
+- The engine pose-tool survey and next steps: [HAND_POSE](dishonored/HAND_POSE.md).
+
 ## FOV base kept across loads (2026-09-26)
 
 Branch `claude/fov-base-echo` off `staging`, not merged, not installed. No Linear ticket (the

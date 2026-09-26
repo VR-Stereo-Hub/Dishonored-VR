@@ -3142,6 +3142,131 @@ static void MpBuild(float* out, const float* src, UINT count,
         dvr::hf::compose_3x4(*D, src + b * 4, out + b * 4);
 }
 
+// ---- THE OPEN RIGHT HAND ------------------------------------------------------------------
+// With nothing in the right hand (the sword holstered, or no item) the game curls it into a
+// loose fist while the left hand hangs open. The mod already draws the hands from its own copy
+// of the game's bone palette, so the right hand's FINGER bones can take the left hand's finger
+// pose, mirrored, while the right wrist, the arm and the mark-free right-hand mesh stay the
+// game's own. Mirroring the whole left hand would carry the Outsider's mark; this does not.
+//
+// The pose is transferred RELATIVE TO THE WRIST, in the reference-pose space both hands were
+// modelled in (the classes mirror across X: centroids +52.8 / -52.8):
+//     Rel_L   = inv(P[wrist_L]) * P[finger_L]         the left finger's motion against its wrist
+//     P'[f_R] = P[wrist_R] * X * Rel_L * X            the same motion, reflected, on the right
+// X is the reflection across the plane between the two wrists. At the reference pose Rel = I
+// and the right finger simply rides its wrist, so a wrong pairing cannot fling a finger far.
+// The pairing is MEASURED: each right finger bone (ahead of the wrist along the limb, the
+// forearm test the rigid wrist uses) takes the left finger bone whose centroid lands on its
+// mirror image, both ways, within 1.5 uu. One unmatched finger refuses the whole pose (logged).
+static int   g_ohPair[MS_MAX_BONES];        // right bone -> left bone, -1 none
+static int   g_ohN = 0;                     // pairs in use; 0 = refused or not built
+static float g_ohMidX = 0.0f;
+static const char* g_ohWhy = "not built yet";
+static unsigned g_ohHash = 0;
+static ULONGLONG g_ohEmptySince = 0;
+static LONG  g_ohApplied = 0;
+
+// Rebuilt from the split's own bone census; cheap (48 x 48), so it simply runs per draw and
+// only LOGS when the answer changes (a new mesh, a sleeve rebuild that moved nothing reads the same).
+static void OhBuildPairs()
+{
+    const int hl = g_msHandBone[1], hr = g_msHandBone[2];
+    int n = 0; const char* why = NULL; unsigned hash = 2166136261u;
+    for (int b = 0; b < MS_MAX_BONES; b++) g_ohPair[b] = -1;
+    if (hl < 0 || hr < 0 || g_msBones <= 0) why = "the split has not found both wrists";
+    else {
+        const float* cl = g_msBoneCen[hl]; const float* cr = g_msBoneCen[hr];
+        if (!(cl[0] * cr[0] < 0) || fabsf(cl[1] - cr[1]) > 1.5f || fabsf(cl[2] - cr[2]) > 1.5f)
+            why = "the two wrists are not mirror images across X";
+        else {
+            g_ohMidX = 0.5f * (cl[0] + cr[0]);
+            auto finger = [&](int b, int side, int wrist) {
+                if (b == wrist || g_msBoneSide[b] != side || g_msBoneW[b] <= 0) return false;
+                float along = 0;
+                for (int a = 0; a < 3; a++) along += (g_msBoneCen[b][a] - g_msBoneCen[wrist][a]) * g_msAxis[side][a];
+                return along >= -2.0f;   // the rigid wrist's forearm test: behind the wrist is arm
+            };
+            auto nearest = [&](const float* p, int side, int wrist, float* d2) {
+                int best = -1; float bd = 1e30f;
+                for (int b = 0; b < g_msBones && b < MS_MAX_BONES; b++) {
+                    if (!finger(b, side, wrist)) continue;
+                    const float dx = g_msBoneCen[b][0] - p[0], dy = g_msBoneCen[b][1] - p[1], dz = g_msBoneCen[b][2] - p[2];
+                    const float d = dx * dx + dy * dy + dz * dz;
+                    if (d < bd) { bd = d; best = b; }
+                }
+                *d2 = bd; return best;
+            };
+            for (int r = 0; r < g_msBones && r < MS_MAX_BONES && !why; r++) {
+                if (!finger(r, 2, hr)) continue;
+                const float m[3] = { 2.0f * g_ohMidX - g_msBoneCen[r][0], g_msBoneCen[r][1], g_msBoneCen[r][2] };
+                float d2 = 0; const int l = nearest(m, 1, hl, &d2);
+                float back2 = 0; int rb = -1;
+                if (l >= 0) {
+                    const float ml[3] = { 2.0f * g_ohMidX - g_msBoneCen[l][0], g_msBoneCen[l][1], g_msBoneCen[l][2] };
+                    rb = nearest(ml, 2, hr, &back2);
+                }
+                if (l < 0 || d2 > 1.5f * 1.5f || rb != r) { why = "a right finger bone has no mirror twin on the left"; break; }
+                g_ohPair[r] = l; n++;
+                hash = (hash ^ (unsigned)(r * 131 + l)) * 16777619u;
+            }
+        }
+    }
+    if (why) n = 0;
+    g_ohN = n; g_ohWhy = why ? why : "paired";
+    hash ^= (unsigned)n * 2654435761u ^ (unsigned)(why != NULL);
+    if (hash != g_ohHash) {
+        g_ohHash = hash;
+        char line[640]; int at = 0;
+        for (int r = 0; r < MS_MAX_BONES && at < (int)sizeof(line) - 16; r++)
+            if (g_ohPair[r] >= 0) at += _snprintf(line + at, sizeof(line) - at, " %d<-%d", r, g_ohPair[r]);
+        line[at < (int)sizeof(line) ? at : (int)sizeof(line) - 1] = 0;
+        if (n) Log("hands/openright: %d right finger bone(s) paired with their left twins (right<-left):%s | wrists %d / %d, "
+                   "mirror plane x=%.2f", n, line, hr, hl, g_ohMidX);
+        else Log("hands/openright: REFUSED - %s (wrists %d / %d). The right hand keeps the game's own pose.", g_ohWhy, hl, hr);
+    }
+}
+
+// True while the right hand should take the open pose. Render lane.
+static bool OhActive()
+{
+    if (!g_ohOn) { g_ohEmptySince = 0; return false; }
+    const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
+    const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
+    const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
+    const LONG left = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0);
+    const bool empty = age <= 1000u && right == 0 && (left == 0 || left == 1);
+    const ULONGLONG now = GetTickCount64();
+    if (!empty) { g_ohEmptySince = 0; return false; }
+    if (!g_ohEmptySince) g_ohEmptySince = now;
+    // A short settle: the socket turns "holstered" partway through the holster clip, and a
+    // swap passes through empty for a few frames. Drawing the sword leaves at once.
+    return now - g_ohEmptySince >= 250;
+}
+
+// buf: the palette about to be uploaded for the RIGHT hand (already placed); src: the game's own.
+static void OhApply(float* buf, const float* src, UINT regs)
+{
+    OhBuildPairs();
+    const int hl = g_msHandBone[1], hr = g_msHandBone[2];
+    if (!g_ohN || (UINT)(hl * 3 + 3) > regs || (UINT)(hr * 3 + 3) > regs) return;
+    float X[12], invL[12], out[12];
+    const float n[3] = { 1, 0, 0 }, c[3] = { g_ohMidX, 0, 0 };
+    dvr::hf::reflection_3x4(n, c, X);
+    if (!dvr::hf::invert_3x4(src + hl * 12, invL)) return;
+    for (int r = 0; r < MS_MAX_BONES; r++) {
+        const int l = g_ohPair[r];
+        if (l < 0 || (UINT)(r * 3 + 3) > regs || (UINT)(l * 3 + 3) > regs) continue;
+        // the left finger against its wrist, reflected, on the (placed) right wrist
+        dvr::hf::mirror_finger_3x4(buf + hr * 12, invL, src + l * 12, X, out);
+        memcpy(buf + r * 12, out, sizeof(float) * 12);
+    }
+    InterlockedIncrement(&g_ohApplied);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+        "hands/openright: right hand OPEN (nothing in it, left hand %s) - %d finger bone(s) posed from the left, "
+        "%ld draw(s) so far", InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0) == 1 ? "on a power" : "empty",
+        g_ohN, g_ohApplied);
+}
+
 
 // Emit the classes this mode wants, through OUR index buffer. Returns false if
 // it drew nothing, and the caller then does whatever it would have done - which
@@ -3413,6 +3538,8 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 if (useT) {
                     static float buf[4 * 256];
                     MpBuild(buf, g_mpCache, g_mpCacheN, &T);
+                    if (rng[r].cls == MS_CLS_HAND_B && OhActive())
+                        OhApply(buf, g_mpCache, g_mpCacheN);   // the empty right hand opens like the left
                     dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
                 } else {
                     dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
