@@ -778,77 +778,23 @@ static void OvlTabDisplay()
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", ResLiveStatus());
     }
-    if (OvlSec("Clarity and anti-aliasing", kOvlA,
-               "Smoother edges and sharper textures. Each option switches live, so you can compare.")) {
-        bool temporal = dvr::clarity::temporal_on();
-        if (dvr::ovl::checkbox("Temporal anti-aliasing (experimental)", &temporal)) {
-            dvr::clarity::set_temporal(temporal, "F10 Display");
-            ConfigWriteKey("Clarity", "Temporal", temporal ? "1" : "0", "F10 Display");
+    // 2026-09-27 review: the DLSS choices a player needs are Basic; tuning is Advanced; the fixes
+    // and the superseded temporal AA are Debug. The supersampling resolve's toggle is gone (judged no
+    // better in the headset; [Clarity] Resolve and `clarity resolve` remain). F10_AUDIT.md lists it.
+    if (OvlSec("DLSS and DLAA", kOvlB,
+               "NVIDIA's AI anti-aliasing and upscaling (RTX cards). Each choice switches live, so you can compare.")) {
+        bool dlss = dvr::dlss::mode() != dvr::dlss::ModeOff;
+        if (dvr::ovl::checkbox("NVIDIA DLSS", &dlss)) {
+            dvr::dlss::set_mode(dlss ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "F10 Display");
+            ConfigWriteKey("Clarity", "DLAA", dlss ? "1" : "0", "F10 Display");
         }
-        OvlTip("Blends each eye with its previous frame. Aimed at shimmering, "
-               "crawling edges. Can soften the picture or leave faint trails on moving things. Close this panel to judge it.");
-        if (temporal) {
-            bool motion = dvr::clarity::motion_on();
-            if (dvr::ovl::checkbox("Depth motion vectors (experimental)", &motion)) {
-                dvr::clarity::set_motion(motion, "F10 Display");
-                ConfigWriteKey("Clarity", "MotionVectors", motion ? "1" : "0", "F10 Display");
-            }
-            OvlTip("Also lines up the world while you walk or lean. Adds GPU and memory cost. "
-                   "Moving characters and hands can still leave trails. Close this panel to compare while moving.");
-            float blendV = dvr::clarity::blend();
-            if (dvr::ovl::slider_float("New frame weight", &blendV, 0.05f, 0.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
-                dvr::clarity::set_blend(blendV, "F10 Display");
-            OvlSaveOnRelease("Clarity", "TemporalBlend", dvr::clarity::blend(), "%.2f");
-            OvlTip("Lower is smoother and softer, higher is sharper and shimmers more.");
-        }
-        float sharp = dvr::clarity::sharpen();
-        if (dvr::ovl::slider_float("Sharpening", &sharp, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
-            dvr::clarity::set_sharpen(sharp, "F10 Display");
-        OvlSaveOnRelease("Clarity", "Sharpen", dvr::clarity::sharpen(), "%.2f");
-        OvlTip("Contrast-adaptive sharpening on the final picture. 0 is off.");
-        int aniso = dvr::samplers::anisotropy();
-        int anisoIdx = aniso >= 16 ? 3 : aniso >= 8 ? 2 : aniso >= 4 ? 1 : 0;
-        const char* anisoNames[] = {"Game (4x)", "4x", "8x", "16x"};
-        const int anisoVals[] = {0, 4, 8, 16};
-        if (dvr::ovl::slider_int("Texture filtering", &anisoIdx, 0, 3, anisoNames[anisoIdx], ImGuiSliderFlags_AlwaysClamp)) {
-            dvr::samplers::set_anisotropy(anisoVals[anisoIdx], "F10 Display");
-            char av[8]; _snprintf(av, sizeof(av), "%d", anisoVals[anisoIdx]);
-            ConfigWriteKey("Clarity", "Anisotropy", av, "F10 Display");
-        }
-        OvlTip("Anisotropic filtering on the game's textures: floors and walls seen at an angle stay detailed.");
-        bool tri = dvr::samplers::trilinear();
-        if (dvr::ovl::checkbox("Smooth mip transitions", &tri)) {
-            dvr::samplers::set_trilinear(tri, "F10 Display");
-            ConfigWriteKey("Clarity", "TrilinearMips", tri ? "1" : "0", "F10 Display");
-        }
-        OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
-        bool dlaa = dvr::dlss::mode() != dvr::dlss::ModeOff;
-        if (dvr::ovl::checkbox("NVIDIA DLAA (experimental)", &dlaa)) {
-            dvr::dlss::set_mode(dlaa ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "F10 Display");
-            ConfigWriteKey("Clarity", "DLAA", dlaa ? "1" : "0", "F10 Display");
-        }
-        OvlTip("NVIDIA's AI anti-aliasing on each eye, at the same resolution. Needs an RTX card. "
-               "Replaces the temporal anti-aliasing above while it runs. Takes a second or two to start. "
-               "Moving characters and hands can still smear. Close this panel to judge it.");
-        if (dlaa) {
-            bool m = dvr::dlss::mask_on();
-            if (dvr::ovl::checkbox("DLAA: reduce smearing", &m)) {
-                dvr::dlss::set_mask(m, "F10 Display");
-                ConfigWriteKey("Clarity", "DlssMask", m ? "1" : "0", "F10 Display");
-            }
-            OvlTip("Where the game's motion cannot be followed (your arms and weapon while walking, moving characters), "
-                   "DLAA uses the new frame instead of dragging the old one. Those spots get a little less smoothing.");
-            float lo = dvr::dlss::mask_lo();
-            if (m && dvr::ovl::slider_float("Smear sensitivity", &lo, 0.005f, 0.10f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
-                dvr::dlss::set_mask_range(lo, lo + 0.09f, "F10 Display");
-            if (m) {
-                OvlSaveOnRelease("Clarity", "DlssMaskLo", dvr::dlss::mask_lo(), "%.3f");
-                OvlSaveOnRelease("Clarity", "DlssMaskHi", dvr::dlss::mask_hi(), "%.3f");
-                OvlTip("Lower catches more smearing but also smooths less.");
-            }
+        OvlTip("On: DLSS anti-aliases each eye (the mode below says at what render size). Needs an RTX card and "
+               "takes a second or two to start. While it is on, the game's own anti-aliasing (MLAA) is switched off "
+               "from the next launch. Moving characters and hands can still smear. Close this panel to judge it.");
+        if (dlss) {
             {   // The mode, listed in render-size order (Ultra Quality is saved as 5, dlss.h).
                 static const char* const kModeTip[dvr::dlss::QCount] = {
-                    "Full resolution: the sharpest and the most expensive.",
+                    "Full resolution (DLAA): the sharpest and the most expensive.",
                     "Renders at 67% of the output per axis (45% of the pixels) and rebuilds the rest.",
                     "Renders at 58% per axis (34% of the pixels).",
                     "Renders at 50% per axis (25% of the pixels).",
@@ -868,9 +814,9 @@ static void OvlTabDisplay()
                     }
                     ImGui::EndCombo();
                 }
-                OvlTip("How small the game renders before DLSS rebuilds the full picture. Smaller is softer; in this "
-                       "game it saves little frame rate (the game's cost barely follows its resolution). The game "
-                       "resizes when you change it.");
+                OvlTip("How small the game renders before DLSS rebuilds the full picture (the Resolution section "
+                       "sets the output). DLAA renders at full size. Smaller is softer and cheaper for the GPU, but "
+                       "DLSS itself costs time, so the fast model gains the most. The game resizes when you change it.");
             }
             {   // The model: DlssModel + DlssPreset as one choice.
                 const int cur = dvr::dlss::model_choice();
@@ -890,36 +836,90 @@ static void OvlTabDisplay()
                 }
                 OvlTip(cur >= 0 ? dvr::dlss::kModelChoices[cur].tip : "A raw NVIDIA preset number from the ini (DlssPreset).");
             }
+            ImGui::TextDisabled("DLSS: %s", dvr::dlss::summary());
+        }
+        float sharp = dvr::clarity::sharpen();
+        if (dvr::ovl::slider_float("Sharpening", &sharp, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+            dvr::clarity::set_sharpen(sharp, "F10 Display");
+        OvlSaveOnRelease("Clarity", "Sharpen", dvr::clarity::sharpen(), "%.2f");
+        OvlTip("Contrast-adaptive sharpening on the final picture. 0 is off.");
+    }
+    if (OvlSec("Clarity and anti-aliasing", kOvlA,
+               "Texture filtering and DLSS tuning. Each option switches live, so you can compare.")) {
+        int aniso = dvr::samplers::anisotropy();
+        int anisoIdx = aniso >= 16 ? 3 : aniso >= 8 ? 2 : aniso >= 4 ? 1 : 0;
+        const char* anisoNames[] = {"Game (4x)", "4x", "8x", "16x"};
+        const int anisoVals[] = {0, 4, 8, 16};
+        if (dvr::ovl::slider_int("Texture filtering", &anisoIdx, 0, 3, anisoNames[anisoIdx], ImGuiSliderFlags_AlwaysClamp)) {
+            dvr::samplers::set_anisotropy(anisoVals[anisoIdx], "F10 Display");
+            char av[8]; _snprintf(av, sizeof(av), "%d", anisoVals[anisoIdx]);
+            ConfigWriteKey("Clarity", "Anisotropy", av, "F10 Display");
+        }
+        OvlTip("Anisotropic filtering on the game's textures: floors and walls seen at an angle stay detailed. "
+               "Higher costs a little GPU time per pixel.");
+        bool tri = dvr::samplers::trilinear();
+        if (dvr::ovl::checkbox("Smooth mip transitions", &tri)) {
+            dvr::samplers::set_trilinear(tri, "F10 Display");
+            ConfigWriteKey("Clarity", "TrilinearMips", tri ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
+        if (dvr::dlss::mode() != dvr::dlss::ModeOff) {
+            bool m = dvr::dlss::mask_on();
+            if (dvr::ovl::checkbox("DLSS: reduce smearing", &m)) {
+                dvr::dlss::set_mask(m, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssMask", m ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Where the game's motion cannot be followed (your arms and weapon while walking, moving characters), "
+                   "DLSS uses the new frame instead of dragging the old one. Those spots get a little less smoothing.");
+            float lo = dvr::dlss::mask_lo();
+            if (m && dvr::ovl::slider_float("Smear sensitivity", &lo, 0.005f, 0.10f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+                dvr::dlss::set_mask_range(lo, lo + 0.09f, "F10 Display");
+            if (m) {
+                OvlSaveOnRelease("Clarity", "DlssMaskLo", dvr::dlss::mask_lo(), "%.3f");
+                OvlSaveOnRelease("Clarity", "DlssMaskHi", dvr::dlss::mask_hi(), "%.3f");
+                OvlTip("Lower catches more smearing but also smooths less.");
+            }
             bool jit = dvr::dlss::jitter::enabled();
-            if (dvr::ovl::checkbox("DLSS jitter (experimental)", &jit)) {
+            if (dvr::ovl::checkbox("DLSS jitter", &jit)) {
                 dvr::dlss::jitter::set_enabled(jit, "F10 Display");
                 ConfigWriteKey("Clarity", "DlssJitter", jit ? "1" : "0", "F10 Display");
             }
             OvlTip("Shifts the game's picture by a tiny, known amount every frame so DLSS can rebuild finer detail. "
                    "Mainly sharpens the smaller DLSS modes. Close this panel to judge it.");
-            if (jit) {
-                bool wide = dvr::dlss::jitter::wide();
-                if (dvr::ovl::checkbox("Jitter: include all eye-size passes", &wide)) {
-                    dvr::dlss::jitter::set_wide(wide, "F10 Display");
-                    ConfigWriteKey("Clarity", "DlssJitterWide", wide ? "1" : "0", "F10 Display");
-                }
-                OvlTip("On: every 3D pass drawn at the eye's size moves with the jitter. Off: only the passes on the "
-                       "scene's depth buffer. Black speckles in one eye mean a pass is out of step - compare the two.");
-                ImGui::TextDisabled("Jitter: %s", dvr::dlss::jitter::summary());
-            }
-            ImGui::TextDisabled("DLSS: %s", dvr::dlss::summary());
         }
         ImGui::TextDisabled("%s", dvr::clarity::summary());
     }
-    if (OvlSec("Clarity (debug)", kOvlD, "The supersampling resolve. Off by default: judged no better than the headset's own.")) {
-        bool resolve = dvr::clarity::resolve_on();
-        if (dvr::ovl::checkbox("Supersampling resolve", &resolve)) {
-            dvr::clarity::set_resolve(resolve, "F10 Display");
-            ConfigWriteKey("Clarity", "Resolve", resolve ? "1" : "0", "F10 Display");
+    if (OvlSec("Clarity (debug)", kOvlD, "Temporal anti-aliasing (superseded by DLSS) and the DLSS jitter fix.")) {
+        bool temporal = dvr::clarity::temporal_on();
+        if (dvr::ovl::checkbox("Temporal anti-aliasing (experimental)", &temporal)) {
+            dvr::clarity::set_temporal(temporal, "F10 Display");
+            ConfigWriteKey("Clarity", "Temporal", temporal ? "1" : "0", "F10 Display");
         }
-        OvlTip("Above 100% resolution, the mod shrinks the picture to the headset's own size with a filter that uses "
-               "every rendered pixel. Without it the headset software skips most of the extra pixels. Does nothing at 100%. "
-               "Each switch rebuilds the headset images; restart the game after switching it many times.");
+        OvlTip("Blends each eye with its previous frame. Superseded by DLSS on RTX cards. Can soften the picture or "
+               "leave faint trails on moving things.");
+        if (temporal) {
+            bool motion = dvr::clarity::motion_on();
+            if (dvr::ovl::checkbox("Depth motion vectors (experimental)", &motion)) {
+                dvr::clarity::set_motion(motion, "F10 Display");
+                ConfigWriteKey("Clarity", "MotionVectors", motion ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Also lines up the world while you walk or lean. Adds GPU and memory cost.");
+            float blendV = dvr::clarity::blend();
+            if (dvr::ovl::slider_float("New frame weight", &blendV, 0.05f, 0.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+                dvr::clarity::set_blend(blendV, "F10 Display");
+            OvlSaveOnRelease("Clarity", "TemporalBlend", dvr::clarity::blend(), "%.2f");
+            OvlTip("Lower is smoother and softer, higher is sharper and shimmers more.");
+        }
+        if (dvr::dlss::jitter::enabled()) {
+            bool wide = dvr::dlss::jitter::wide();
+            if (dvr::ovl::checkbox("Jitter: include all eye-size passes", &wide)) {
+                dvr::dlss::jitter::set_wide(wide, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssJitterWide", wide ? "1" : "0", "F10 Display");
+            }
+            OvlTip("On (the fix): every 3D pass drawn at the eye's size moves with the jitter. Off: only the passes on "
+                   "the scene's depth buffer. Black speckles in one eye mean a pass is out of step.");
+            ImGui::TextDisabled("Jitter: %s", dvr::dlss::jitter::summary());
+        }
     }
     if (OvlSec("Desktop window", kOvlB, "What the game window on your monitor shows.")) {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
@@ -1075,26 +1075,12 @@ static void OvlTabDisplay()
         bool bridgeProfile = dvr::bridge_profile::enabled();
         if (dvr::ovl::checkbox("Bridge GPU timing", &bridgeProfile)) dvr::bridge_profile::set_enabled(bridgeProfile);
         OvlTip("Logs the GPU cost of copying frames to the headset.");
-        bool diagnosticAb = dvr::diag_ab::enabled();
-        if (dvr::ovl::checkbox("Diagnostic overhead A/B/A (about 110 s)", &diagnosticAb)) {
-            if (diagnosticAb) dvr::perf::ab_command("off");
-            dvr::diag_ab::set_enabled(diagnosticAb);
-        }
-        OvlTip("Measures what the mod's own logging costs. Collection now: see below.");
-        ImGui::TextDisabled("Collection: %s", dvr::diag_ab::reduced() ? "reduced for test" : "normal");
         if (dvr::ovl::button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
             dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
-        OvlTip("Measures the desktop mirror's cost: 100 s (120 s with pair pacing). Opening a menu aborts it.");
-        bool reducedTrial = dvr::perf::desktop_ab_reduced();
-        bool pacingTrial = dvr::perf::desktop_ab_pacing();
-        ImGui::BeginDisabled(dvr::perf::desktop_ab_enabled());
-        if (dvr::ovl::checkbox("Benchmark pair pacing (mirror stays off)", &pacingTrial)) dvr::perf::desktop_ab_set_pacing(pacingTrial);
-        OvlTip("Compares unpaced / paced / unpaced instead.");
-        ImGui::BeginDisabled(pacingTrial);
-        if (dvr::ovl::checkbox("Benchmark Reduced instead of Off", &reducedTrial)) dvr::perf::desktop_ab_set_reduced(reducedTrial);
-        OvlTip("The middle phase uses the reduced mirror instead of none.");
-        ImGui::EndDisabled();
-        ImGui::EndDisabled();
+        OvlTip("Measures the desktop mirror's cost: 100 s. Opening a menu aborts it.");
+        // Removed 2026-09-27: the benchmark's pair-pacing and Reduced variants and the diagnostic
+        // overhead A/B/A - each measured with no useful gain (PERFORMANCE.md "Results and routes");
+        // their ini keys and seam words remain.
     }
 }
 
