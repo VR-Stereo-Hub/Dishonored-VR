@@ -861,6 +861,23 @@ static void OvlTabDisplay()
             }
             OvlTip("The older, lighter NVIDIA model: about half a millisecond per eye instead of two. "
                    "Slightly less sharp and more prone to ghosting than the default.");
+            bool jit = dvr::dlss::jitter::enabled();
+            if (dvr::ovl::checkbox("DLSS jitter (experimental)", &jit)) {
+                dvr::dlss::jitter::set_enabled(jit, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssJitter", jit ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Shifts the game's picture by a tiny, known amount every frame so DLSS can rebuild finer detail. "
+                   "Mainly sharpens the smaller DLSS modes. Close this panel to judge it.");
+            if (jit) {
+                bool wide = dvr::dlss::jitter::wide();
+                if (dvr::ovl::checkbox("Jitter: include all eye-size passes", &wide)) {
+                    dvr::dlss::jitter::set_wide(wide, "F10 Display");
+                    ConfigWriteKey("Clarity", "DlssJitterWide", wide ? "1" : "0", "F10 Display");
+                }
+                OvlTip("On: every 3D pass drawn at the eye's size moves with the jitter. Off: only the passes on the "
+                       "scene's depth buffer. Black speckles in one eye mean a pass is out of step - compare the two.");
+                ImGui::TextDisabled("Jitter: %s", dvr::dlss::jitter::summary());
+            }
             ImGui::TextDisabled("DLSS: %s", dvr::dlss::summary());
         }
         ImGui::TextDisabled("%s", dvr::clarity::summary());

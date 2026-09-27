@@ -13,6 +13,7 @@
 
 #include "core/gfx/dlss_client.h"
 #include "core/gfx/dlss_gpu.h"
+#include "core/gfx/dlss_jitter.h"
 
 using dvr::dlss::Client;
 using dvr::dlss::EyeInputs;
@@ -96,6 +97,50 @@ int main(int argc, char** argv) {
         printf("FAIL  no D3D11 device\n"); return 1;
     }
     printf("dlss host tests: 32-bit client (sizeof(void*)=%u), D3D11 feature level 0x%X\n", (unsigned)sizeof(void*), (unsigned)fl);
+
+    // 0. The D3D9 side of the jitter, on the CPU: a camera-relative row-vector view-projection of
+    //    the game's measured layout (clip = [P - C, 1] * M, clip.w = view depth; PERFORMANCE.md,
+    //    "vector accuracy in pixels"), 103 degrees, a 2750x2850 viewport, patched by the hook's
+    //    own shift_rows as three partial uploads. Every point, at 20 uu and at 20000 uu, must land
+    //    at minus the sample offset in pixels (x right, y down): a pure screen shift of the sign
+    //    dlss_jitter.h defines. Fails on a wrong sign, a depth-dependent shift or a lost row.
+    {
+        const uint32_t VW = 2750, VH = 2850;
+        const float t = tanf(51.5f * 3.14159265f / 180.0f), p00 = 1.0f / t, p11 = p00 * VW / VH;
+        // A yawed, pitched camera: forward f, right r, up u (UE world: X forward, Y right, Z up).
+        const float yaw = 0.7f, pit = -0.2f;
+        const float f[3] = {cosf(pit) * cosf(yaw), cosf(pit) * sinf(yaw), sinf(pit)};
+        const float r[3] = {-sinf(yaw), cosf(yaw), 0};
+        const float u[3] = {f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]};
+        float M[16] = {};
+        for (int j = 0; j < 3; ++j) { M[j * 4 + 0] = p00 * r[j]; M[j * 4 + 1] = p11 * u[j]; M[j * 4 + 2] = 0.1f * f[j]; M[j * 4 + 3] = f[j]; }
+        M[14] = 10.0f;   // reversed-Z style constant depth term; w row stays 0 (camera-relative)
+        auto project = [&](const float* m, const float* P, float* px, float* py) {
+            float c[4];
+            for (int i = 0; i < 4; ++i) c[i] = P[0] * m[i] + P[1] * m[4 + i] + P[2] * m[8 + i] + m[12 + i];
+            *px = (c[0] / c[3] * 0.5f + 0.5f) * VW; *py = (0.5f - c[1] / c[3] * 0.5f) * VH;
+        };
+        float worst = 0; int pts = 0;
+        for (uint32_t k = 1; k <= 8; ++k) {
+            float sx, sy, ax, ay;
+            dvr::dlss::jitter::phase_offset(k, 8, &sx, &sy);
+            dvr::dlss::jitter::ndc_shift(sx, sy, VW, VH, &ax, &ay);
+            float J[16]; memcpy(J, M, sizeof(J));
+            dvr::dlss::jitter::shift_rows(J, 0, 0, 1, ax, ay);           // c0 alone
+            dvr::dlss::jitter::shift_rows(J + 4, 1, 1, 3, ax, ay);       // c1..c2 as their own upload
+            dvr::dlss::jitter::shift_rows(J + 12, 3, 3, 4, ax, ay);      // c3
+            for (float d : {20.0f, 300.0f, 20000.0f})
+                for (float a : {-0.6f, 0.0f, 0.5f}) {
+                    const float P[3] = {d * (f[0] + a * r[0] + 0.3f * a * u[0]), d * (f[1] + a * r[1] + 0.3f * a * u[1]),
+                                        d * (f[2] + a * r[2] + 0.3f * a * u[2])};
+                    float x0, y0, x1, y1;
+                    project(M, P, &x0, &y0); project(J, P, &x1, &y1);
+                    const float ex = (x1 - x0) - (-sx), ey = (y1 - y0) - (-sy);
+                    worst = fmaxf(worst, sqrtf(ex * ex + ey * ey)); ++pts;
+                }
+        }
+        check(worst < 1e-3f, "jitter matrix patch = screen shift of -offset", "%d points, 8 phases, 3 depths: worst error %.2e px", pts, worst);
+    }
 
     Client c;
     dvr::dlss::StartParams sp; sp.hostExe = exe; sp.dataDir = data; sp.log = logfn;
@@ -282,6 +327,61 @@ int main(int argc, char** argv) {
         }
         check(ok && err < 0.08f, "Super Resolution 512 -> 768", "%s, error vs the enlarged input %.4f (limit 0.08)", ok ? "built" : why, err);
         c.build(0, W, H, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));   // back to DLAA for what follows
+    }
+
+    // 3d. Projection jitter sign (dlss_jitter.h). A still scene with detail finer than the render
+    //     grid (a slanted edge, a steep edge, stripes at 1.47 render px) is point-sampled at
+    //     512x512 with the production Halton offsets and rebuilt to 768x768. Each run reports the
+    //     offset to DLSS with one of the four sign pairs; the error is against the scene itself,
+    //     4x4 supersampled at the output. The production pair (kReportX/Y) must be the best of the
+    //     four and better than no jitter at all. Fails if DLSS reads the offset with another sign,
+    //     ignores it, or jitter does not add detail.
+    {
+        const uint32_t OW = 768, OH = 768, N = 18;   // Quality: 8 * 1.5^2 phases
+        auto g = [&](float u, float v) {              // the continuous scene, render-pixel units
+            float s = (u * 0.94f + v * 0.34f) > W * 0.55f ? 0.9f : 0.15f;
+            if ((u * 0.28f - v * 0.96f) > -H * 0.30f) s = 1.05f - s;
+            if (u > 60 && u < 200 && v > 300 && v < 440) s = 0.5f + 0.4f * sinf((u * 0.9f + v * 0.44f) * 6.2831853f / 1.47f);
+            return s;
+        };
+        std::vector<float> ref((size_t)OW * OH);
+        for (uint32_t y = 0; y < OH; ++y)
+            for (uint32_t x = 0; x < OW; ++x) {
+                float a = 0;
+                for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i)
+                    a += g((x + (i + 0.5f) / 4) * W / OW, (y + (j + 0.5f) / 4) * H / OH);
+                ref[(size_t)y * OW + x] = a / 16;
+            }
+        bool ok = c.build(0, W, H, OW, OH, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+        auto run_jit = [&](bool jit, float rx, float ry) {
+            std::vector<uint32_t> px((size_t)W * H);
+            double err = 0; int n = 0;
+            for (uint32_t f = 0; f < 64 && ok; ++f) {
+                float sx = 0, sy = 0;
+                if (jit) dvr::dlss::jitter::phase_offset(f, N, &sx, &sy);
+                for (uint32_t y = 0; y < H; ++y)
+                    for (uint32_t x = 0; x < W; ++x) {
+                        const float v = g(x + 0.5f + sx, y + 0.5f + sy);
+                        const uint32_t cc = (uint32_t)(fminf(fmaxf(v, 0.0f), 1.0f) * 255.0f + 0.5f);
+                        px[(size_t)y * W + x] = 0xFF000000u | (cc << 16) | (cc << 8) | cc;
+                    }
+                upload(color[0], px.data(), W * 4);
+                EyeInputs in; in.color = color[0].t; in.depth = depth.t; in.motion = motion.t; in.reset = f == 0;
+                in.jitterX = rx * sx; in.jitterY = ry * sy;
+                ok = c.evaluate(ctx, 0, in, why, sizeof(why));
+                if (f >= 56) { err += mae(readback(c.output_texture(0), OW, OH), ref, OW, OH, 16); ++n; }
+            }
+            return n ? (float)(err / n) : 1.0f;
+        };
+        const float none = run_jit(false, 0, 0), unreported = run_jit(true, 0, 0);
+        const float pp = run_jit(true, 1, 1), mm = run_jit(true, -1, -1), pm = run_jit(true, 1, -1), mp = run_jit(true, -1, 1);
+        const float prod = run_jit(true, dvr::dlss::jitter::kReportX, dvr::dlss::jitter::kReportY);
+        const float best = fminf(fminf(pp, mm), fminf(pm, mp));
+        check(ok && prod <= best * 1.0001f && prod < none, "projection jitter sign (Super Resolution)",
+              "error: production (%+.0f,%+.0f) %.4f | +x+y %.4f, -x-y %.4f, +x-y %.4f, -x+y %.4f | no jitter %.4f, "
+              "jittered but reported 0 %.4f%s", dvr::dlss::jitter::kReportX, dvr::dlss::jitter::kReportY, prod, pp, mm, pm, mp,
+              none, unreported, ok ? "" : why);
+        c.build(0, W, H, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
     }
 
     // 4. Cost at the real eye size (2750 x 2850 is this machine's F10 100% reference).

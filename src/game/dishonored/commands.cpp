@@ -497,6 +497,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             _snprintf(v, sizeof(v), "%u", doh); ConfigWriteKey("Clarity", "DlssOutputHeight", v, "the seam");
         }
         ConfigWriteKey("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", "the seam");
         _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_lo());
         ConfigWriteKey("Clarity", "DlssMaskLo", v, "the seam");
         _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_hi());

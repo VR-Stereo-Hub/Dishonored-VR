@@ -68,6 +68,7 @@ set(DVR_REAL_SOURCES
     core/gfx/dlss.cpp          core/gfx/dlss.h
     core/gfx/dlss_client.cpp   core/gfx/dlss_client.h
     core/gfx/dlss_gpu.cpp      core/gfx/dlss_gpu.h
+    core/gfx/dlss_jitter.cpp   core/gfx/dlss_jitter.h
     core/gfx/dlss_ipc.h
     core/gfx/sampler_force.cpp core/gfx/sampler_force.h
     core/gfx/hud_class.cpp     core/gfx/hud_class.h

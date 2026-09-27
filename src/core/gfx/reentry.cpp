@@ -37,6 +37,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
 #include "core/gfx/clarity.h"
+#include "core/gfx/dlss_jitter.h"
 #include "core/gfx/blit_quad.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
@@ -504,6 +505,10 @@ public:
         }
 
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
+        // DLSS projection jitter: the offset this image was drawn with goes into its record (the
+        // one set_pending_rec just gave the slot), and the next image's offset is chosen here,
+        // before any of its draws. Untagged presents carry no record and do not advance the phase.
+        dvr::dlss::jitter::on_present(tagged ? t.rec : 0u, dvr::capture::width(), dvr::capture::height());
         if (!fresh) dvr::clarity::invalidate();
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) { commit(OUT_NOSRC, 0, fresh); return false; }

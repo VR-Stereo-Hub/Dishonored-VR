@@ -1,3 +1,12 @@
+## Projection jitter for DLSS (2026-09-27) - headset-confirmed, default off
+
+Branch `claude/dlss-dlaa` (`feat: DLSS projection jitter...`). Sub-pixel Halton jitter on the world
+passes, recorded per image in its pose record, passed to DLSS with the sign the host test proved
+(15/15), kept out of the vectors. The first two builds speckled the left eye (a pass drawn outside the
+scene depth stayed unshifted); the wide rule fixed it on the headset, per-eye census L 6 / R 1 extra
+eye-size uploads per image, 0 unshifted. Still owed: does SR look sharper with it. Installed
+`ef73f28f...`; INI = the maintainer's own (`DlssJitter=1`). Detail: PERFORMANCE, "Projection jitter".
+
 ## Handoff: projection jitter next (2026-09-26, end of session)
 
 Branch `claude/dlss-dlaa` at `afb72687a` + this handoff, pushed, nothing merged. DLAA is

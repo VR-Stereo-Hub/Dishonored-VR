@@ -84,6 +84,8 @@ struct Record {
     float    renderPos[3];    // c5 the draw was RENDERED with, read at its present (c5 convention).
     float    renderVp[16];    // the world view-projection (c0..c3 as uploaded) in effect at that present
     bool     renderVpOk;
+    float    jitter[2];       // DLSS projection jitter the image was drawn with: sample offset, render px (dlss_jitter.h)
+    uint32_t jitterDraws;     // c0..c3 uploads that carried it; 0 = not jittered (jitter[] is then 0)
     bool     renderPosOk;     // Differs from eyePos while walking: the engine moves the pawn after
                               // the tick's write, and pass 1 (left) records that earlier write.
     uint64_t sceneEpoch;      // level-load/UI transition generation at draw
@@ -109,6 +111,8 @@ bool copy(uint32_t id, Record* out);
 // PRESENT thread: stamp the c5 this record's image was rendered with. False for an id that
 // is gone (the ring moved on) - the record keeps renderPosOk false.
 bool note_render_pos(uint32_t id, const float c5[3]);
+// PRESENT thread: the projection jitter this record's image was drawn with (dlss_jitter.cpp).
+bool note_render_jitter(uint32_t id, float sx, float sy, uint32_t draws);
 
 
 // ---- RENDER: what the draw actually consumed --------------------------------

@@ -184,6 +184,7 @@ uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePo
     r.eyePosOk = eyePos != nullptr;
     for (int j = 0; j < 3; ++j) r.eyePos[j] = eyePos ? eyePos[j] : 0.0f;
     r.renderPosOk = false; r.renderVpOk = false;
+    r.jitter[0] = r.jitter[1] = 0.0f; r.jitterDraws = 0;
     for (int j = 0; j < 3; ++j) r.renderPos[j] = 0.0f;
     r.hfovDeg = hfovDeg; r.cameraIdentity = cameraIdentity; r.sceneEpoch = sceneEpoch;
     r.openedMs = dvr::clock::now_ms();
@@ -205,6 +206,19 @@ bool note_render_pos(uint32_t id, const float c5[3])
     // The world view-projection the same pass drew with (tied to the c5 upload, vs_const_hook).
     r.renderVpOk = g_vpHave;
     if (g_vpHave) memcpy(r.renderVp, g_vp, sizeof(r.renderVp));
+    return true;
+}
+
+
+bool note_render_jitter(uint32_t id, float sx, float sy, uint32_t draws)
+{
+    if (!id) return false;
+    ensure_cs();
+    Lock lk;
+    Record& r = g_ring[id & (kRing - 1)];
+    if (r.id != id) return false;
+    r.jitter[0] = draws ? sx : 0.0f; r.jitter[1] = draws ? sy : 0.0f;
+    r.jitterDraws = draws;
     return true;
 }
 

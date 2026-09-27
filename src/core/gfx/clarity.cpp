@@ -436,7 +436,14 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                 }
                 {   // the matrices the game drew this and the previous image of the eye with
                     dvr::pose::Record rc = {};
-                    const bool have = dvr::pose::copy(recId, &rc) && rc.renderVpOk && rc.renderPosOk;
+                    const bool copied = dvr::pose::copy(recId, &rc);
+                    const bool have = copied && rc.renderVpOk && rc.renderPosOk;
+                    // The projection jitter each image was drawn with travels in its record.
+                    if (copied) { gp.jitter[0] = rc.jitter[0]; gp.jitter[1] = rc.jitter[1]; }
+                    if (copied && g_dlssPrevRecOk[e]) {
+                        gp.prevJitter[0] = g_dlssPrevRec[e].jitter[0]; gp.prevJitter[1] = g_dlssPrevRec[e].jitter[1];
+                        gp.jitterKnown = true;
+                    }
                     if (g_useVp.load() && gp.historyValid && have && g_dlssPrevRecOk[e]) {
                         gp.useVp = true;
                         memcpy(gp.vpCur, rc.renderVp, sizeof(gp.vpCur));

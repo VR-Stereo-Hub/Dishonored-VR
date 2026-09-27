@@ -62,6 +62,11 @@ struct GuideParams {
     bool useVp = false;
     float vpCur[16] = {}, vpPrev[16] = {};
     float camDelta[3] = {};               // current minus previous camera position, world (uu)
+    // The projection jitter each image was drawn with (pose record, dlss_jitter.h): sample offset
+    // in render pixels. The vectors above never contain it; DLSS gets it separately, and the flow
+    // check expects the image to have moved by (jitter - prevJitter) on top of the vectors.
+    float jitter[2] = {}, prevJitter[2] = {};
+    bool jitterKnown = false;             // both images' records were read
 };
 
 // The in-game audit of the vectors (sparse grid, read back without stalling): mean luminance
@@ -86,7 +91,13 @@ struct FlowStats {
     // Per audited image: |its mean error| (a whole-image shift = the pose the image was rendered
     // with differs from the recorded one) and the mean distance of its points from that mean
     // (per-pixel scatter = depth, projection or matching noise).
+    // With projection jitter the image also moves by the recorded jitter change: every error
+    // above is AFTER subtracting it (so it stays the vectors' error). What the uncorrected image
+    // did is kept here: the whole-image shift before the subtraction, and the jitter gain = the
+    // mean shift along the expected jitter change over its length (1 = the image moved by exactly
+    // the recorded offset, 0 = it did not move, -1 = the opposite way).
     uint64_t frames = 0; double frameShift = 0, frameScatter = 0;
+    uint64_t jitFrames = 0; double jitShiftRaw = 0, jitExpect = 0, jitDot = 0, jitNorm = 0;
     // Per depth band (the audit's bins): true/predicted gain along the predicted direction and
     // mean error. A gain that drifts with depth means the depth is not linear in scene alpha.
     double bandMt[8] = {}, bandMm[8] = {}, bandErr[8] = {}; uint64_t bandN[8] = {};
@@ -112,7 +123,9 @@ public:
     void forget(int eye);   // the eye's history no longer belongs to the next image
     // Queues a sparse audit of this eye image (needs run() and mask() first) and folds in the
     // oldest finished one, never waiting for the GPU.
-    void audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color);
+    // expX/Y: where the image moved by jitter alone (current minus previous sample offset, render px).
+    void audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
+               float expX = 0, float expY = 0);
     AuditBin bins[kAuditBins];
     FlowStats flow;
     float bodyDepth = 0.3f;   // the arms/weapon band the flow check keeps apart
@@ -149,6 +162,7 @@ private:
     ID3D11RenderTargetView* flowRtv_[2] = {};
     ID3D11Texture2D* flowStage_[2][2] = {};
     bool auditPending_[2] = {};
+    float auditExp_[2][2] = {};
     int auditNext_ = 0;
     uint32_t w_ = 0, h_ = 0;
     uint64_t prevBytes_ = 0;

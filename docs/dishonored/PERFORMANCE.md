@@ -3030,3 +3030,38 @@ Simulator, cap lifted, one command per window (per eye):
   within 0.2 s of a live resize confirmation, before and after this change (3 and 5 in the two
   previous runs), none in steady play. A one-present transient of the live resize path, not the
   overlap; recorded as an open item.
+
+
+## 2026-09-27: Projection jitter for DLSS - built, host-proved, headset-confirmed (default off)
+
+`core/gfx/dlss_jitter.{h,cpp}`, `[Clarity] DlssJitter=0` / `DlssJitterWide=1`, `dlss jitter on|off`,
+`dlss jitter wide on|off`, F10 "DLSS jitter (experimental)" and "Jitter: include all eye-size passes".
+
+- **What:** every perspective c0..c3 upload of the world passes gets a clip shift `clip.x += ax *
+  clip.w`, `clip.y += ay * clip.w` (a pure sub-pixel screen shift at every depth), Halton(2,3),
+  8 * ratio^2 phases (DLAA 8, Quality 18, Performance 32). Both eyes of a stereo pair (pose pairId)
+  share the phase; it advances after the pair. The offset is fixed at each present and stored in that
+  image's pose record (`jitter`, `jitterDraws`); DLSS gets it from the record, so image and offset
+  cannot come apart. The recorded view-projection is the game's own (the hook records before it
+  patches), so the vectors exclude the jitter.
+- **Which draws:** world passes are identified by OBSERVATION, not `IsMainScenePass`: the depth
+  surface bound at the c5-tied view-projection (new `SetDepthStencilSurface` hook, identity only),
+  confirmed when its viewport equals the captured eye image. Shifted: every perspective upload on that
+  depth surface, plus (wide rule) every perspective upload into an eye-size colour target whatever
+  depth is bound. Not shifted: shadow maps and captures (800x800 here), affine 2D/post/HUD uploads.
+- **Sign, host test** (`tools/dlss-host-tests.cpp`, 15/15): Super Resolution 512 -> 768, still
+  scene finer than the render grid, 18 phases, error vs the 4x4-supersampled scene: reporting the
+  NEGATED sample offset -x-y 0.0043; -x+y 0.0119, +x+y 0.0198, +x-y 0.0231; no jitter 0.0220;
+  jittered but reported 0 0.0173. And on the CPU, the hook's row patch on the measured matrix layout
+  moves 72 points at 20-20000 uu by exactly minus the offset (worst 2e-4 px).
+- **Simulator (colour-target key, first build):** LIVE, 3,800 uploads/s shifted, 161 images/s
+  jittered, 80 pairs/s, frame rate unchanged (~80/s per eye DLAA fast). FAILED: flow-check jitter
+  gain 0.48-0.59 (1 expected), scatter 1.1 px against 0.26 off, and the left eye lost lit surfaces.
+  The flow check now subtracts the recorded jitter change and reports the jitter gain
+  (`dlss/flow jitter`).
+- **The fix, in two steps (FLICKER_REFERENCE 2026-09-27):** keying on the depth surface caught
+  1,750 uploads/s drawn into another colour target on the scene depth; the headset still showed black
+  speckles in the left eye; the wide rule caught the rest. Per-eye census on the headset: L 39 scene-
+  depth + 6.0 wide uploads per image, R 37 + 1.0, UNSHIFTED 0; speckles gone.
+- **Not yet measured:** whether Quality/Performance SR are visibly sharper with jitter (the reason
+  it exists); the flow-check jitter gain on the final build; shimmer on thin geometry.

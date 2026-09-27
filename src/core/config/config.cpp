@@ -178,7 +178,7 @@ static bool WriteDefaultIni(const char* ini)
         "MotionDepthScale=250\n"
         "; DLAA=1 (experimental, NVIDIA RTX only): NVIDIA DLAA on each eye through the x64 helper in\n"
         "; Binaries\\Win32\\dvr_dlss (core/gfx/dlss.h). Replaces Temporal while it runs; Sharpen still\n"
-        "; applies. Camera-only motion vectors, no jitter yet. Live: dlss on|off. DlssPreset: 0 = model K.\n"
+        "; applies. Camera-only motion vectors. Live: dlss on|off. DlssPreset: 0 = model K.\n"
         "DLAA=0\n"
         "DlssPreset=0\n"
         "; DlssQuality: 0 DLAA (native), 1 Quality, 2 Balanced, 3 Performance, 4 Ultra Performance. Above 0 the\n"
@@ -197,6 +197,13 @@ static bool WriteDefaultIni(const char* ini)
         "DlssMask=0\n"
         "DlssMaskLo=0.03\n"
         "DlssMaskHi=0.12\n"
+        "; DlssJitter=1 (A/B, off): moves every world draw by a known sub-pixel offset per stereo pair so DLSS\n"
+        "; can rebuild finer detail (sharper Super Resolution). Only while DLSS runs and the world pass is\n"
+        "; confirmed; the log says LIVE or REFUSED and why. Live: dlss jitter on|off.\n"
+        "DlssJitter=0\n"
+        "; DlssJitterWide=1: the jitter also shifts every perspective draw into an eye-size image, whatever\n"
+        "; depth buffer is bound (0 = only draws on the scene depth). Live: dlss jitter wide on|off.\n"
+        "DlssJitterWide=1\n"
         "; DlssBodyDepth: nearer than this (scene depth units) is the player's own arms and weapon; their\n"
         "; DLAA vectors keep head rotation and drop walking parallax (0 = off). Live: dlss body <z>.\n"
         "DlssBodyDepth=0.30\n"
@@ -1868,11 +1875,13 @@ static void LoadConfig()
             dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
+            dvr::dlss::jitter::set_enabled(IniFloat(ini, "Clarity", "DlssJitter", 0) != 0.0f, "ini");
+            dvr::dlss::jitter::set_wide(IniFloat(ini, "Clarity", "DlssJitterWide", 1) != 0.0f, "ini");
             dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
             dvr::dlss::set_mask_range(IniFloat(ini, "Clarity", "DlssMaskLo", 0.03f), IniFloat(ini, "Clarity", "DlssMaskHi", 0.12f), "ini");
             dvr::dlss::set_mode(IniFloat(ini, "Clarity", "DLAA", 0) != 0.0f ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "ini");
-            Log("config: [Clarity] DLAA=%d DlssPreset=%d DlssMask=%d %.2f..%.2f%s", dvr::dlss::mode(), dvr::dlss::preset(),
-                (int)dvr::dlss::mask_on(), dvr::dlss::mask_lo(), dvr::dlss::mask_hi(),
+            Log("config: [Clarity] DLAA=%d DlssPreset=%d DlssMask=%d %.2f..%.2f DlssJitter=%d%s", dvr::dlss::mode(), dvr::dlss::preset(),
+                (int)dvr::dlss::mask_on(), dvr::dlss::mask_lo(), dvr::dlss::mask_hi(), (int)dvr::dlss::jitter::enabled(),
                 dvr::dlss::mode() ? " - DLAA starts its helper with the first eye image" : "");
             Log("config: [Clarity] Resolve=%d Temporal=%d TemporalBlend=%.2f Sharpen=%.2f Anisotropy=%d TrilinearMips=%d%s",
                 (int)dvr::clarity::resolve_on(), (int)dvr::clarity::temporal_on(), dvr::clarity::blend(),
@@ -4224,6 +4233,8 @@ static void OverlaySaveDefaults()
             _snprintf(v, 64, "%u", doh); WritePrivateProfileStringA("Clarity", "DlssOutputHeight", v, ini);
         }
         WritePrivateProfileStringA("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", ini);
         _snprintf(v, 64, "%.3f", dvr::dlss::mask_lo());
         WritePrivateProfileStringA("Clarity", "DlssMaskLo", v, ini);
         _snprintf(v, 64, "%.3f", dvr::dlss::mask_hi());

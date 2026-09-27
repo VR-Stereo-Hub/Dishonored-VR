@@ -7,6 +7,7 @@
 #include "core/gfx/dlss.h"
 #include "core/gfx/dlss_client.h"
 #include "core/gfx/dlss_gpu.h"
+#include "core/gfx/dlss_jitter.h"
 #include "core/gfx/clarity.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/depth_probe.h"
@@ -115,12 +116,12 @@ void status_tick() {
     const double cr = st.frames[1] ? st.cpuMsSum[1] / (st.frames[1] + st.refused[1]) : 0;
     DVR_INFO("dlss: %s %ux%u -> %ux%u: %.0f/s L %.0f/s R, fallback %.0f/s, history resets %llu | helper GPU evaluate L %.2f R %.2f ms "
              "(-1 = not sampled), present-thread cost L %.2f R %.2f ms max %.2f | refused L %llu R %llu | %.1f MiB shared + %.1f MiB guides "
-             "| camera-only vectors, no jitter (phase 1)",
+             "| camera-only vectors, projection jitter %s",
              (g_wantW == g_wantOw && g_wantH == g_wantOh) ? "DLAA" : kQualityName[g_quality.load()], g_wantW, g_wantH, g_wantOw, g_wantOh,
              g_win.eyes[0] / s, g_win.eyes[1] / s, g_win.fallback / s, (unsigned long long)g_win.resets, gl, gr, cl, cr,
              st.cpuMsMax[0] > st.cpuMsMax[1] ? st.cpuMsMax[0] : st.cpuMsMax[1],
              (unsigned long long)st.refused[0], (unsigned long long)st.refused[1],
-             g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0));
+             g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0), jitter::summary());
     {   // The vector audit (dlss_gpu.h): per depth band, how much of the frame-to-frame change the
         // camera vectors explain. vec well below zero = explained; vec near zero = not (it smears).
         char t[512]; int m = 0;
@@ -146,6 +147,12 @@ void status_tick() {
                      f.pabs / f.n, f.tabs / f.n, (unsigned long long)f.armsN, f.armsN ? f.armsAbs / f.armsN : 0.0,
                      f.frames ? f.frameShift / f.frames : 0.0, f.frames ? f.frameScatter / f.frames : 0.0,
                      (unsigned long long)f.frames);
+        if (f.n || f.jitFrames)
+            DVR_INFO("dlss/flow jitter: %llu images with a jitter change | expected shift %.3f px, uncorrected whole-image shift "
+                     "%.3f px, jitter gain %.2f (1 = the image moved by exactly the recorded offset: jitter applied, sign and "
+                     "record right; 0 = it did not move; -1 = the other way) | the errors above are after subtracting it",
+                     (unsigned long long)f.jitFrames, f.jitFrames ? f.jitExpect / f.jitFrames : 0.0,
+                     f.jitFrames ? f.jitShiftRaw / f.jitFrames : 0.0, f.jitNorm > 0 ? f.jitDot / f.jitNorm : 0.0);
         if (f.n) {
             char t[400]; int m = 0;
             for (int b = 0; b < kAuditBins; ++b)
@@ -303,6 +310,9 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     in.color = color; in.depth = g_guides.depth(); in.motion = g_guides.motion();
     in.afterCopy = [](ID3D11DeviceContext* c) { dvr::capture::read_done(c); };
     in.reset = reset;
+    // The offset this image was drawn with, as DLSS reads it (the sign the host test proved).
+    in.jitterX = jitter::kReportX * gp.jitter[0];
+    in.jitterY = jitter::kReportY * gp.jitter[1];
     if (reset) ++g_win.resets;
     // The mask, the audit and the previous-image copy they read cost GPU time on every eye image,
     // so they run only when the mask or the audit is on.
@@ -310,7 +320,9 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     if (wantMask || wantAudit) {
         const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why));
         if (masked && wantMask) { in.bias = g_guides.bias(); ++g_win.masked; }
-        if (wantAudit) g_guides.audit(dev, ctx, eye, src);
+        if (wantAudit)
+            g_guides.audit(dev, ctx, eye, src, gp.jitterKnown ? gp.jitter[0] - gp.prevJitter[0] : 0.0f,
+                           gp.jitterKnown ? gp.jitter[1] - gp.prevJitter[1] : 0.0f);
         g_guides.keep(dev, ctx, eye, color);
     } else {
         g_guides.forget(eye);
@@ -392,16 +404,23 @@ bool command(const char* args) {
     if (n >= 2 && !_stricmp(sub, "vp")) { dvr::clarity::set_use_vp(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "body")) { dvr::clarity::set_body_depth((float)atof(val), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "pos")) { dvr::clarity::set_pos_source(!_stricmp(val, "render") ? 1 : 0, "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "jitter")) {
+        char w3[16] = "";
+        if (!_stricmp(val, "wide") && sscanf(args, "%*s %*s %15s", w3) == 1) {
+            jitter::set_wide(!_stricmp(w3, "on") || !strcmp(w3, "1"), "the seam"); return true;
+        }
+        jitter::set_enabled(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true;
+    }
     if (n >= 2 && !_stricmp(sub, "mask")) { set_mask(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "maskrange")) {
         float lo = 0, hi = 0;
         if (sscanf(args, "%*s %f %f", &lo, &hi) == 2) { set_mask_range(lo, hi, "the seam"); return true; }
     }
     DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, model transformer|fast, preset <0..15>, quality <0..4|name>, output <w> <h>, "
-             "audit on|off, mask on|off, "
-             "maskrange <lo> <hi> | mask %s %.3f..%.3f",
+             "audit on|off, mask on|off, jitter on|off, jitter wide on|off, "
+             "maskrange <lo> <hi> | mask %s %.3f..%.3f | jitter %s",
              g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary(), g_mask.load() ? "on" : "off",
-             g_maskLo.load(), g_maskHi.load());
+             g_maskLo.load(), g_maskHi.load(), jitter::summary());
     return true;
 }
 

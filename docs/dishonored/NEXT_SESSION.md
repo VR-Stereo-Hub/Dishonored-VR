@@ -1,5 +1,9 @@
 # Next session: projection jitter for DLSS (and later FSR 3.1)
 
+**DONE 2026-09-27** - jitter built, host-proved, headset-confirmed after the left-eye speckle fix
+(PERFORMANCE "Projection jitter", FLICKER_REFERENCE 2026-09-27). Next: headset verdict on SR sharpness
+with jitter, then FSR 3.1 in-process. The brief below is kept as the record.
+
 Read CLAUDE.md, only the newest three sections of docs/STATUS.md, and this brief. The full
 record is docs/dishonored/PERFORMANCE.md from "## 2026-09-26: DLAA through an x64 NGX helper"
 to the end (grep the headings, read windows; the file is large). The older FSR plan section

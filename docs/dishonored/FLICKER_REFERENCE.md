@@ -1,3 +1,39 @@
+## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
+
+1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures
+   flicker on and off in the LEFT eye only; the image stays mostly visible. Surface: the eye image
+   after DLSS. Jitter off: gone. New lever (`core/gfx/dlss_jitter.h`), branch `claude/dlss-dlaa`.
+2. **Reproduction:** simulator build `v1.0.1-102-g391eb416b-dirty` 22:50 (jitter keyed on the colour
+   target): left-eye compositor mean luma 7.6-11.6 with jitter on against 13.9 off and a steady
+   16.9 right eye; large lit areas (street, lit windows) black in the left eye, changing frame to
+   frame; restored 4 s after jitter off. Headset build `v1.0.1-103-g0d4b1ee62-dirty` 23:00 (keyed on
+   the depth surface): the speckles above. Logs `build/dlss-install/jitter-sim1/`, `pre-wide-*/`.
+3. **Measurements:** first build: flow check jitter gain 0.48-0.59 (1 expected), per-image scatter
+   1.1 px against 0.26 px with jitter off; 3,800 uploads/s shifted, ~385 perspective uploads/s into
+   another 2750x2850 target NOT shifted. Depth-keyed build: 6,800/s shifted (1,750/s into another
+   colour target on the scene depth - the class the first build missed), still ~570/s perspective
+   uploads/s into a 2750x2850 target with another or no depth surface unshifted, and a c5-tied world
+   pass seen 4 times with NO depth surface bound.
+4. **Hypotheses:**
+   - DLSS history corruption: predicts the darkness lingers after jitter off. It cleared with the
+     jitter (luma back to baseline in 4 s, the first off shot still partly dark). RETRACTED as the
+     primary cause.
+   - One depth-writing or depth-testing pass carries a different shift from the rest (depth-equal
+     style failures speckle sloped surfaces and move with the phase): predicts the unshifted eye-size
+     uploads belong to the left eye's pass. The colour-target key missed 1,750/s such uploads; the
+     depth key caught them and the fault persisted, so what remains is the ~570/s with another or no
+     depth. LEADING, not yet measured per eye.
+5. **Change (build 00:37, `ef73f28f`):** the wide rule (`DlssJitterWide=1` default, `dlss jitter
+   wide on|off`, F10 "Jitter: include all eye-size passes") also shifts every perspective draw into an
+   eye-size colour target whatever depth is bound; a per-eye census line (`dlss/jitter per eye`) splits
+   shifted/unshifted uploads per image by eye. Prediction: speckles gone with wide on, back with it
+   off; the census shows the unshifted eye-size uploads in L only with wide off and 0 with wide on.
+6. **Result (headset, build 00:37):** speckles gone with the wide rule on; the per-eye census read L
+   6.0 wide-rule uploads per image against R 1.0 (scene depth 39 / 37), UNSHIFTED 0 with the rule on;
+   switched off live, UNSHIFTED appeared (L 1.3, R 0.2 per image in the mixed window). CONFIRMED: the
+   left eye's re-entry pass draws a few eye-size perspective passes with another or no depth surface,
+   and they must carry the shift. Jitter still ships default OFF.
+
 ## 2026-09-26: DLAA smear unchanged after the arms fix - vector accuracy measured in pixels, fixed
 
 1. **Symptom:** the second headset run (build 20:12, `DlssBodyDepth` 0.30 active) reported the

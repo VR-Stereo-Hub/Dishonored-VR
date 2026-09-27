@@ -357,7 +357,8 @@ bool GuideGpu::keep(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11
 
 void GuideGpu::forget(int eye) { if (eye == 0 || eye == 1) prevOk_[eye] = false; }
 
-void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color) {
+void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
+                     float expX, float expY) {
     (void)dev;
     if (!ready_ || !color || (eye != 0 && eye != 1)) return;
     // Fold in whichever staging copy the GPU has finished, without waiting.
@@ -380,13 +381,14 @@ void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D1
         if (ctx->Map(flowStage_[0][s], 0, D3D11_MAP_READ, 0, &ma) == S_OK) {
             if (ctx->Map(flowStage_[1][s], 0, D3D11_MAP_READ, 0, &mb) == S_OK) {
                 double fx = 0, fy = 0; uint64_t fn = 0;
+                const float jx = auditExp_[s][0], jy = auditExp_[s][1];   // the jitter's own shift
                 for (int pass = 0; pass < 2; ++pass)
                 for (int y = 0; y < kAuditGrid; ++y) {
                     const float* ra = (const float*)((const uint8_t*)ma.pData + (size_t)y * ma.RowPitch);
                     const float* rb = (const float*)((const uint8_t*)mb.pData + (size_t)y * mb.RowPitch);
                     for (int x = 0; x < kAuditGrid; ++x) {
                         const float* a = ra + x * 4; const float* b = rb + x * 4;
-                        const float ex = a[0], ey = a[1], mx = a[2], my = a[3], z = b[1];
+                        const float ex = a[0] - jx, ey = a[1] - jy, mx = a[2], my = a[3], z = b[1];
                         const bool arms = z >= 0 && z < bodyDepth;
                         if (pass == 1) {   // scatter around this image's mean shift
                             if (b[0] >= 0.5f && !arms && fn >= 50) {
@@ -411,7 +413,15 @@ void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D1
                         }
                     }
                 }
-                if (fn >= 50) { ++flow.frames; flow.frameShift += sqrt((fx / fn) * (fx / fn) + (fy / fn) * (fy / fn)); }
+                if (fn >= 50) {
+                    const double cx = fx / fn, cy = fy / fn;   // after the jitter subtraction
+                    ++flow.frames; flow.frameShift += sqrt(cx * cx + cy * cy);
+                    const double rx = cx + jx, ry = cy + jy, en = (double)jx * jx + (double)jy * jy;
+                    if (en > 1e-6) {
+                        ++flow.jitFrames; flow.jitShiftRaw += sqrt(rx * rx + ry * ry); flow.jitExpect += sqrt(en);
+                        flow.jitDot += rx * jx + ry * jy; flow.jitNorm += en;
+                    }
+                }
                 ctx->Unmap(flowStage_[1][s], 0);
             }
             ctx->Unmap(flowStage_[0][s], 0);
@@ -444,6 +454,7 @@ void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D1
     ctx->OMSetRenderTargets(2, noRt2, nullptr);
     ctx->CopyResource(flowStage_[0][s], flowTex_[0]);
     ctx->CopyResource(flowStage_[1][s], flowTex_[1]);
+    auditExp_[s][0] = expX; auditExp_[s][1] = expY;
     auditPending_[s] = true;
 }
 
