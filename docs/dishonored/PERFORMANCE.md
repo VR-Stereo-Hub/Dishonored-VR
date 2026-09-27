@@ -3391,3 +3391,69 @@ to be pixel-bound - and MLAA as before when it is off. Decided at launch, throug
 write the preset already used (a live switch would need the engine's settings apply called mid-session,
 not reverse-engineered). The log's `gameopts/defaults: startup policy` line names the value and why.
 Not yet measured: its rate gain with DLSS on (the MLAA cost was never isolated).
+
+## 2026-09-27: AMD FSR 3.1 (FSR 4 where offered) through the DLSS helper - host and simulator verified
+
+Branch `claude/fsr-upscaler` off staging. No Linear ticket: the workspace refused new issues (free limit).
+
+### Route and why
+
+The x64 helper already receives each eye's colour, depth (1 / (1 + z)), camera vectors (previous minus
+current UV), the anti-smear mask and the projection jitter by shared handle and fence. FSR runs in the
+same helper through AMD's FidelityFX API: `amd_fidelityfx_dx12.dll` (SDK v1.1.4, FileVersion 1.0.1.41314,
+AMD-signed, MIT; `tools/fetch-ffx.ps1` pins commit and SHA256), or SDK 2.x's
+`amd_fidelityfx_loader_dx12.dll` when it is placed beside the helper (FSR 4 on RDNA4). This supersedes the
+earlier plan of an in-process 32-bit D3D12 port (the patched x86 SDK build above, never dispatched).
+
+- IPC v3: the Hello carries the backend (DLSS or FSR) and an FSR version choice; the reply names the provider
+  in use and every version the runtime offers; each frame adds frame time, vertical FOV and metres per depth
+  unit for FSR's depth reconstruction (DLSS ignores them). Flags: non-linear colour (the game's gamma LDR),
+  inverted + infinite depth, auto exposure. The anti-smear mask is passed as FSR's reactive mask.
+- Levers: `[Clarity] Upscaler=0|1` (missing = DLSS; not in the default ini), `FsrVersion=0` (0 = the
+  runtime's default), seam `dlss backend dlss|fsr`, `dlss fsrversion <n>`; F10 Basic "Upscaling and
+  anti-aliasing (DLSS, FSR)" gains an Upscaler choice; the mode list is shared (DLAA reads "Native AA" under
+  FSR) and the DLSS model list shows only for DLSS. The game's MLAA-off rule covers FSR too.
+
+### Host test (`tools/dlss-host-test.ps1 -Fsr`, RTX 4070 Ti SUPER, no game): 13/13; full suite 30/30
+
+- The runtime: FSR 3.1.4 (it also offers 2.3.3); start 300-430 ms.
+- Per eye isolated, reset, 512 -> 768 upscale: all pass (errors 0.005-0.014).
+- Motion vectors, production sign `kFsrMvSign = +1`: error 0.0007 against 0.0404 flipped and 0.0449 zero.
+- Projection jitter, production `kFsrReportX/Y = -1, -1` (the same as DLSS): 0.0080, the best of the four
+  pairs (+x+y 0.0196, +x-y 0.0206, -x+y 0.0120), against 0.0163 without jitter.
+- GPU per eye at a 2750x2850 output: native AA 1.70-1.80 ms, Quality (1832x1900) 1.23 ms, Performance
+  (1374x1424) 0.93-0.98 ms. DLSS on the same machine: K ~2.0-2.2 ms, the fast CNN ~0.9 ms (table above).
+
+### Simulator (240 Hz, cap lifted, the same save; game-thread-bound, so rates are not headset predictions)
+
+`dlss backend fsr` live from DLAA: helper restarted as FSR 3.1.4 in 472 ms, both eyes rebuilt, native AA
+65 images/s per eye with no fallback and no refusals; Quality 110/s; Performance 126/s; upscaler off 155
+pairs/s. Images clean at every mode (captures, mean luma 27.5 / 27.0 / 26.8). Helper GPU under load 4.3-5.6
+ms (native), 2.2-2.8 (Quality), 1.8-2.0 (Performance) per eye - inflated by sharing the GPU with the game, as
+DLAA's were. One untagged present held by the existing HoldUntagged guard 9 s after the switch (one
+duplicate right eye), the one-present class already open under DLSS; the other stale-eye lines fell within
+two seconds of a helper restart or resize.
+
+### What the headset has to answer (plan `tools/perf-plans/fsr-1.txt`)
+
+From plan 1 (~6.1 ms per pair pixel-proportional, ~2.5 ms fixed, CPU floor ~7.6-8.0 ms), FSR Quality should
+land near the CPU floor (6.1 x 0.45 + 2.5 + 2 x 1.2 = ~7.7 ms of GPU per pair) and Performance below it:
+predicted ~125-130 pairs/s against ~115 native at 2750x2850, if the cross-process contention stays near the
+isolated cost. A loss like DLSS SR's earlier one (heavy presets, 3-4 ms per eye) would say the contention
+dominates. FSR 4 needs an RDNA4 GPU and SDK 2.x's DLLs beside the helper (not fetched here).
+
+### FSR 4: FidelityFX SDK 2.3.0 (same day)
+
+The helper now ships SDK v2.3.0 (commit `60f4ea81`): `amd_fidelityfx_loader_dx12.dll` 2.3.0.2740 and
+`amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740, both AMD-signed, hash-pinned in `tools/fetch-ffx.ps1`. The
+upscaler provider offers FSR 4.1.1 on the GPUs that run it (RDNA 4) and FSR 3.1 elsewhere; the helper
+passes the API-version descriptor 2.x expects (`FFX_UPSCALER_VERSION` 4.1.1) and picks the HIGHEST version
+number offered by default (`[Clarity] FsrVersion=0`); F10 Advanced "FSR version" lists what the runtime
+offers. Upscale descriptor layouts are unchanged from 1.1.4 (compared); the 2.x loader header fills its
+function table only under `_WINDOWS`, which the helper build now defines (without it FSR would have had no
+entry points).
+
+- Host suite on SDK 2.3.0: 30/30. On this RTX 4070 Ti SUPER the runtime offers FSR 3.1.5 and 2.3.4, NOT
+  FSR 4 (AMD restricts it to RDNA 4), so FSR 4 itself is untested here: an RX 9000 rig should log
+  `[ffx] offers 1: 4.1.1` and `using 4.1.1` in `<data>\dlss\dlss_host.log`. Costs unchanged (native AA
+  1.86 ms, Quality 1.20, Performance 0.96 per eye at 2750x2850).

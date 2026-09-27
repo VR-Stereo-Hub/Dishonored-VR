@@ -177,13 +177,22 @@ bool Client::start(ID3D11Device* dev, const StartParams& sp, char* why, size_t c
     if (pipe == INVALID_HANDLE_VALUE) { put(why, cap, "no pipe from the helper in %u ms", sp.timeoutMs); stop(); return false; }
     pipe_ = pipe;
 
-    Hello hello = {kMagic, kVersion, pid, luid.LowPart, luid.HighPart};
+    Hello hello = {kMagic, kVersion, pid, luid.LowPart, luid.HighPart, sp.backend, sp.fsrVersion};
+    backend_ = sp.backend;
+    runtime_[0] = offered_[0] = 0;
     HelloAck ack = {};
     if (!send(&hello, sizeof(hello), sp.timeoutMs) || !recv(&ack, sizeof(ack), sp.timeoutMs)) {
         put(why, cap, "handshake with the helper failed (it may have exited; see its dlss_host.log)"); stop(); return false;
     }
     if (ack.magic != kMagic || ack.version != kVersion) { put(why, cap, "helper speaks IPC v%u, the proxy v%u", ack.version, kVersion); stop(); return false; }
     strcpy_s(adapter_, ack.adapter);
+    strcpy_s(runtime_, ack.runtime);
+    strcpy_s(offered_, ack.offered);
+    if (!ack.ok && sp.backend == BackendFsr) {
+        put(why, cap, "FSR refused on %s - no FidelityFX API DLL beside the helper, or it offers no upscaler on this "
+            "GPU (see its dlss_host.log)", ack.adapter);
+        stop(); return false;
+    }
     if (!ack.ok) {
         if (ack.driverMin[0])
             put(why, cap, "NGX refused on %s (0x%08X, DLSS available %d, needs driver %u.%u or newer)", ack.adapter,
@@ -194,7 +203,11 @@ bool Client::start(ID3D11Device* dev, const StartParams& sp, char* why, size_t c
         stop(); return false;
     }
     running_ = true;
-    say(0, "dlss: helper ready on %s in %.0f ms (NGX 0x%08X, DLSS available)", ack.adapter, now_ms() - t0, ack.ngxResult);
+    if (sp.backend == BackendFsr)
+        say(0, "dlss: helper ready on %s in %.0f ms - AMD %s through the FidelityFX API (the runtime offers: %s)", ack.adapter,
+            now_ms() - t0, ack.runtime, ack.offered);
+    else
+        say(0, "dlss: helper ready on %s in %.0f ms (NGX 0x%08X, DLSS available)", ack.adapter, now_ms() - t0, ack.ngxResult);
     return true;
 }
 
@@ -285,7 +298,9 @@ bool Client::build(int e, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI
     if (!ack.ok) { put(why, cap, "the helper refused eye %d: %s (NGX 0x%08X)", e, ack.detail, ack.ngxResult); release_eye(e); return false; }
     eye->ready = true;
     say(0, "dlss: eye %d ready, %ux%u -> %ux%u (%s), colour format %d, %.1f MiB shared", e, w, h, ow, oh,
-        (w == ow && h == oh) ? "DLAA" : "DLSS Super Resolution", (int)colorFormat, (double)bytes_ / (1024.0 * 1024.0));
+        backend_ == BackendFsr ? ((w == ow && h == oh) ? "FSR native AA" : "FSR upscale")
+                               : ((w == ow && h == oh) ? "DLAA" : "DLSS Super Resolution"),
+        (int)colorFormat, (double)bytes_ / (1024.0 * 1024.0));
     return true;
 }
 
@@ -309,9 +324,10 @@ bool Client::evaluate(ID3D11DeviceContext* ctx, int e, const EyeInputs& in, char
     Frame f = {};
     f.eye = (uint32_t)e; f.value = v; f.reset = (in.reset || v == 1) ? 1u : 0u;
     f.jitterX = in.jitterX; f.jitterY = in.jitterY;
-    f.mvScaleX = (float)eye->w; f.mvScaleY = (float)eye->h;
+    f.mvScaleX = in.mvSign * (float)eye->w; f.mvScaleY = in.mvSign * (float)eye->h;
     f.sharpness = in.sharpness;
     f.useBias = in.bias ? 1u : 0u;
+    f.frameTimeMs = in.frameTimeMs; f.fovY = in.fovY; f.metersPerUnit = in.metersPerUnit;
     const uint8_t tag = TagFrame;
     FrameAck ack = {};
     if (!send(&tag, 1, kFrameMs) || !send(&f, sizeof(f), kFrameMs) || !recv(&ack, sizeof(ack), kFrameMs)) {
@@ -332,7 +348,7 @@ bool Client::evaluate(ID3D11DeviceContext* ctx, int e, const EyeInputs& in, char
     stats.cpuMsSum[e] += ms;
     if (ms > stats.cpuMsMax[e]) stats.cpuMsMax[e] = ms;
     if (ack.gpuMs >= 0) { stats.gpuMsSum[e] += ack.gpuMs; ++stats.gpuN[e]; }
-    if (!ack.ok) { ++stats.refused[e]; put(why, cap, "NGX refused the evaluate (0x%08X)", ack.ngxResult); return false; }
+    if (!ack.ok) { ++stats.refused[e]; put(why, cap, "%s refused the evaluate (0x%08X)", backend_ == BackendFsr ? "FSR" : "NGX", ack.ngxResult); return false; }
     ++stats.frames[e];
     return true;
 }

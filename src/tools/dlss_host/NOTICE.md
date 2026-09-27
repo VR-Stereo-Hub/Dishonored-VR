@@ -1,6 +1,6 @@
 # Dishonored VR DLSS helper - notices
 
-`dvr_dlss_host64.exe` is the 64-bit helper that runs NVIDIA DLAA for the Dishonored VR mod.
+`dvr_dlss_host64.exe` is the 64-bit helper that runs NVIDIA DLSS/DLAA or AMD FSR for the Dishonored VR mod.
 The game and the mod are 32-bit; NVIDIA's DLSS runtime exists only as 64-bit, so the mod
 starts this helper and shares each eye image with it.
 
@@ -13,6 +13,15 @@ is included here as `NVIDIA-DLSS-LICENSE.txt`.
 This software contains source code provided by NVIDIA Corporation.
 
 This mod is not sponsored or endorsed by NVIDIA. DLSS needs an NVIDIA RTX GPU.
+
+## AMD FidelityFX (FSR)
+
+`amd_fidelityfx_loader_dx12.dll` (2.3.0.2740) and `amd_fidelityfx_upscaler_dx12.dll` (4.1.1.2740:
+FSR 4 on the AMD GPUs that support it, FSR 3.1 on the others) are AMD's signed prebuilt FidelityFX
+API DLLs from the FidelityFX SDK (https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, tag
+v2.3.0), MIT-licensed; the license is included here as `AMD-FIDELITYFX-LICENSE.md`.
+
+This mod is not sponsored or endorsed by AMD. FSR runs on any D3D12 GPU.
 
 ## Design credit
 

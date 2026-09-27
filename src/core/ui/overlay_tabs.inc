@@ -781,20 +781,40 @@ static void OvlTabDisplay()
     // 2026-09-27 review: the DLSS choices a player needs are Basic; tuning is Advanced; the fixes
     // and the superseded temporal AA are Debug. The supersampling resolve's toggle is gone (judged no
     // better in the headset; [Clarity] Resolve and `clarity resolve` remain). F10_AUDIT.md lists it.
-    if (OvlSec("DLSS and DLAA", kOvlB,
-               "NVIDIA's AI anti-aliasing and upscaling (RTX cards). Each choice switches live, so you can compare.")) {
+    if (OvlSec("Upscaling and anti-aliasing (DLSS, FSR)", kOvlB,
+               "NVIDIA DLSS or AMD FSR: anti-aliasing at full size, or rendering smaller and rebuilding the picture. "
+               "Each choice switches live, so you can compare.")) {
         bool dlss = dvr::dlss::mode() != dvr::dlss::ModeOff;
-        if (dvr::ovl::checkbox("NVIDIA DLSS", &dlss)) {
+        const bool fsr = dvr::dlss::backend() == dvr::dlss::BackendFsr;
+        if (dvr::ovl::checkbox("Upscaling / anti-aliasing on", &dlss)) {
             dvr::dlss::set_mode(dlss ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "F10 Display");
             ConfigWriteKey("Clarity", "DLAA", dlss ? "1" : "0", "F10 Display");
         }
-        OvlTip("On: DLSS anti-aliases each eye (the mode below says at what render size). Needs an RTX card and "
-               "takes a second or two to start. While it is on, the game's own anti-aliasing (MLAA) is switched off "
-               "from the next launch. Moving characters and hands can still smear. Close this panel to judge it.");
+        OvlTip("On: the upscaler below anti-aliases each eye (the mode says at what render size). Takes a second or "
+               "two to start. While it is on, the game's own anti-aliasing (MLAA) is switched off from the next launch. "
+               "Moving characters and hands can still smear. Close this panel to judge it.");
+        {
+            static const char* const kUpscalers[2] = {"NVIDIA DLSS", "AMD FSR"};
+            const int cur = fsr ? 1 : 0;
+            if (ImGui::BeginCombo("Upscaler", kUpscalers[cur])) {
+                for (int i = 0; i < 2; ++i) {
+                    if (ImGui::Selectable(kUpscalers[i], i == cur)) {
+                        dvr::dlss::set_backend(i, "F10 Display");
+                        ConfigWriteKey("Clarity", "Upscaler", i ? "1" : "0", "F10 Display");
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", i ? "AMD FSR: runs on any recent GPU (AMD, NVIDIA or Intel). FSR 4 on the "
+                                                    "AMD cards that support it, FSR 3.1 elsewhere."
+                                                  : "NVIDIA DLSS: needs an NVIDIA RTX card. The sharpest and most stable.");
+                }
+                ImGui::EndCombo();
+            }
+            OvlTip("Which technology rebuilds the picture. Switching restarts it (a second or two).");
+        }
         if (dlss) {
             {   // The mode, listed in render-size order (Ultra Quality is saved as 5, dlss.h).
                 static const char* const kModeTip[dvr::dlss::QCount] = {
-                    "Full resolution (DLAA): the sharpest and the most expensive.",
+                    "Full resolution (DLAA / FSR Native AA): the sharpest and the most expensive.",
                     "Renders at 67% of the output per axis (45% of the pixels) and rebuilds the rest.",
                     "Renders at 58% per axis (34% of the pixels).",
                     "Renders at 50% per axis (25% of the pixels).",
@@ -802,7 +822,7 @@ static void OvlTabDisplay()
                     "Renders at 77% per axis (59% of the pixels): nearly DLAA, a little cheaper.",
                 };
                 const int q = dvr::dlss::quality();
-                if (ImGui::BeginCombo("DLSS mode", dvr::dlss::quality_name(q))) {
+                if (ImGui::BeginCombo("Mode", dvr::dlss::quality_name(q))) {
                     for (int k = 0; k < dvr::dlss::QCount; ++k) {
                         const int m = dvr::dlss::kQualityOrder[k];
                         if (ImGui::Selectable(dvr::dlss::quality_name(m), m == q)) {
@@ -818,7 +838,7 @@ static void OvlTabDisplay()
                        "sets the output). DLAA renders at full size. Smaller is softer and cheaper for the GPU, but "
                        "DLSS itself costs time, so the fast model gains the most. The game resizes when you change it.");
             }
-            {   // The model: DlssModel + DlssPreset as one choice.
+            if (!fsr) {   // The model: DlssModel + DlssPreset as one choice (DLSS only).
                 const int cur = dvr::dlss::model_choice();
                 char custom[40]; _snprintf(custom, sizeof(custom), "Custom preset %d", dvr::dlss::preset());
                 if (ImGui::BeginCombo("DLSS model", cur >= 0 ? dvr::dlss::kModelChoices[cur].name : custom)) {
@@ -836,7 +856,8 @@ static void OvlTabDisplay()
                 }
                 OvlTip(cur >= 0 ? dvr::dlss::kModelChoices[cur].tip : "A raw NVIDIA preset number from the ini (DlssPreset).");
             }
-            ImGui::TextDisabled("DLSS: %s", dvr::dlss::summary());
+            if (fsr && dvr::dlss::runtime_name()[0]) ImGui::TextDisabled("FSR runtime: %s", dvr::dlss::runtime_name());
+            ImGui::TextDisabled("%s: %s", dvr::dlss::backend_name(), dvr::dlss::summary());
         }
         float sharp = dvr::clarity::sharpen();
         if (dvr::ovl::slider_float("Sharpening", &sharp, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
@@ -865,12 +886,13 @@ static void OvlTabDisplay()
         OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
         if (dvr::dlss::mode() != dvr::dlss::ModeOff) {
             bool m = dvr::dlss::mask_on();
-            if (dvr::ovl::checkbox("DLSS: reduce smearing", &m)) {
+            if (dvr::ovl::checkbox("Reduce smearing", &m)) {
                 dvr::dlss::set_mask(m, "F10 Display");
                 ConfigWriteKey("Clarity", "DlssMask", m ? "1" : "0", "F10 Display");
             }
             OvlTip("Where the game's motion cannot be followed (your arms and weapon while walking, moving characters), "
-                   "DLSS uses the new frame instead of dragging the old one. Those spots get a little less smoothing.");
+                   "the upscaler uses the new frame instead of dragging the old one (FSR: its reactive mask). Those "
+                   "spots get a little less smoothing.");
             float lo = dvr::dlss::mask_lo();
             if (m && dvr::ovl::slider_float("Smear sensitivity", &lo, 0.005f, 0.10f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
                 dvr::dlss::set_mask_range(lo, lo + 0.09f, "F10 Display");
@@ -880,12 +902,32 @@ static void OvlTabDisplay()
                 OvlTip("Lower catches more smearing but also smooths less.");
             }
             bool jit = dvr::dlss::jitter::enabled();
-            if (dvr::ovl::checkbox("DLSS jitter", &jit)) {
+            if (dvr::ovl::checkbox("Projection jitter", &jit)) {
                 dvr::dlss::jitter::set_enabled(jit, "F10 Display");
                 ConfigWriteKey("Clarity", "DlssJitter", jit ? "1" : "0", "F10 Display");
             }
-            OvlTip("Shifts the game's picture by a tiny, known amount every frame so DLSS can rebuild finer detail. "
-                   "Mainly sharpens the smaller DLSS modes. Close this panel to judge it.");
+            OvlTip("Shifts the game's picture by a tiny, known amount every frame so the upscaler can rebuild finer "
+                   "detail. Mainly sharpens the smaller modes; FSR relies on it more than DLSS. Close this panel to judge it.");
+        }
+        if (dvr::dlss::backend() == dvr::dlss::BackendFsr && dvr::dlss::offered_versions()[0]) {
+            // The versions the AMD runtime offers on this GPU, newest first by default (FSR 4 on RDNA 4).
+            char list[128]; strcpy_s(list, dvr::dlss::offered_versions());
+            const char* items[9] = {"Newest available"}; int n = 1;
+            char* ctx = nullptr;
+            for (char* t = strtok_s(list, ", ", &ctx); t && n < 9; t = strtok_s(nullptr, ", ", &ctx)) items[n++] = t;
+            int cur = dvr::dlss::fsr_version();
+            if (cur < 0 || cur >= n) cur = 0;
+            if (ImGui::BeginCombo("FSR version", items[cur])) {
+                for (int i = 0; i < n; ++i) {
+                    if (ImGui::Selectable(items[i], i == cur)) {
+                        dvr::dlss::set_fsr_version(i, "F10 Display");
+                        OvlSaveInt("Clarity", "FsrVersion", i);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            OvlTip("Which FSR the AMD runtime runs. Newest is FSR 4 on the AMD cards that support it (RX 9000), FSR 3.1 "
+                   "on every other GPU. Switching restarts FSR.");
         }
         ImGui::TextDisabled("%s", dvr::clarity::summary());
     }

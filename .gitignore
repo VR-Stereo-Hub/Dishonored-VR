@@ -45,3 +45,5 @@ docs/bsvr-reference/
 
 # NVIDIA NGX SDK (tools/fetch-ngx.ps1): NVIDIA license, never committed
 third_party/ngx/
+# AMD FidelityFX SDK (tools/fetch-ffx.ps1): MIT, fetched, never committed
+third_party/ffx/

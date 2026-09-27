@@ -29,6 +29,8 @@ struct StartParams {
     const wchar_t* dataDir = nullptr;   // the helper's log and NGX's cache/logs
     LogFn log = nullptr;
     uint32_t timeoutMs = 20000;         // launch + NGX init
+    uint32_t backend = 0;               // dlss_ipc::Backend: 0 DLSS (NGX), 1 FSR (FidelityFX API)
+    uint32_t fsrVersion = 0;            // FSR: 0 = the runtime's default, else 1-based in its list
 };
 
 struct EyeInputs {
@@ -37,8 +39,11 @@ struct EyeInputs {
     ID3D11Texture2D* motion = nullptr;  // render size, R16G16_FLOAT, previous UV minus current UV
     ID3D11Texture2D* bias = nullptr;    // optional, render size, R8_UNORM: 1 = take the current colour
     bool reset = false;
-    float jitterX = 0, jitterY = 0;     // render pixels
+    float jitterX = 0, jitterY = 0;     // render pixels, already in the backend's sign (dlss_jitter.h)
+    float mvSign = 1;                   // the motion texture's sign as the backend reads it
     float sharpness = 0;
+    // For FSR's depth reconstruction (DLSS ignores them): see dlss_ipc.h Frame.
+    float frameTimeMs = 0, fovY = 0, metersPerUnit = 0;
     // Called on the context right after the inputs are copied, before the DLSS wait is queued:
     // the capture and depth slots can be released there, so the game's next frame never waits
     // for this image's DLSS (the overlap).
@@ -72,6 +77,9 @@ public:
     bool running() const;
     void stop();
     const char* adapter() const { return adapter_; }
+    const char* runtime() const { return runtime_; }    // FSR: the provider in use ("FSR 3.1.3")
+    const char* offered() const { return offered_; }    // FSR: every version the runtime offers
+    uint32_t backend() const { return backend_; }
     uint64_t bytes() const { return bytes_; }     // shared texture memory held (both eyes)
     Stats stats;
 
@@ -92,6 +100,9 @@ private:
     Eye* eyes_[2] = {};
     LogFn log_ = nullptr;
     char adapter_[128] = "";
+    char runtime_[64] = "";
+    char offered_[128] = "";
+    uint32_t backend_ = 0;
     uint64_t bytes_ = 0;
     bool running_ = false;
 };

@@ -24,7 +24,12 @@
 namespace dvr::dlss_ipc {
 
 const uint32_t kMagic   = 0x53534C44u;   // 'DLSS'
-const uint32_t kVersion = 2u;   // v2: the Bias slot (the "bias current colour" mask)
+const uint32_t kVersion = 3u;   // v2: the Bias slot; v3: the backend (DLSS or FSR) and the camera for FSR
+
+// The upscaler the helper runs. DLSS: NVIDIA NGX (nvngx_dlss.dll, RTX only). FSR: AMD FidelityFX
+// through its API DLL (amd_fidelityfx_loader_dx12.dll from SDK 2.x when present - FSR 4 on RDNA4 -
+// else amd_fidelityfx_dx12.dll from SDK 1.1.x, FSR 3.1), any D3D12 GPU. Same textures, same fences.
+enum Backend : uint32_t { BackendDlss = 0, BackendFsr = 1 };
 
 // The pipe: \\.\pipe\dvr-dlss.<game pid>. The helper creates it, the game connects.
 #define DVR_DLSS_PIPE_FMT L"\\\\.\\pipe\\dvr-dlss.%lu"
@@ -36,6 +41,8 @@ enum Tag : uint8_t { TagBuild = 'B', TagFrame = 'F', TagQuit = 'Q' };
 struct Hello {            // game -> helper, once
     uint32_t magic, version, pid;
     uint32_t luidLow; int32_t luidHigh;   // the game's D3D11 adapter; the helper must match it
+    uint32_t backend;        // Backend
+    uint32_t fsrVersion;     // FSR: 0 = the newest the runtime offers, else a 1-based index into its list
 };
 struct HelloAck {         // helper -> game
     uint32_t magic, version;
@@ -44,6 +51,8 @@ struct HelloAck {         // helper -> game
     int32_t  dlssAvailable;  // NVSDK_NGX_Parameter_SuperSampling_Available
     uint32_t driverMin[2];   // minimum driver NGX reported (major, minor), 0 when none needed
     char     adapter[128];   // the helper's adapter description, UTF-8
+    char     runtime[64];    // FSR: the provider's version name ("FSR 3.1.3"); DLSS: empty
+    char     offered[128];   // FSR: every version the runtime offers, newest first, comma separated
 };
 struct Build {            // game -> helper, per eye, on every size/format change
     uint32_t eye;            // 0 left, 1 right
@@ -70,6 +79,11 @@ struct Frame {            // game -> helper, per eye image
     float    mvScaleX, mvScaleY;  // the motion texture is in UV: scale = render size
     float    sharpness;      // 0 = none (the DLSS 2.x sharpening parameter, deprecated in 3.x+)
     uint32_t useBias;        // 1: the Bias slot holds this image's mask (R8, 1 = take the current colour)
+    // v3, for FSR (DLSS ignores them): the camera its depth reconstruction needs. Depth is written
+    // 1 / (1 + z), z in depth units, so near = 1 unit with an infinite far plane.
+    float    frameTimeMs;    // since this eye's previous image
+    float    fovY;           // vertical field of view of the render, radians
+    float    metersPerUnit;  // one depth unit in metres
 };
 struct FrameAck {         // helper -> game, after Signal(out, value)
     uint32_t eye;
@@ -80,11 +94,11 @@ struct FrameAck {         // helper -> game, after Signal(out, value)
 };
 #pragma pack(pop)
 
-static_assert(sizeof(Hello) == 20, "Hello layout");
-static_assert(sizeof(HelloAck) == 156, "HelloAck layout");
+static_assert(sizeof(Hello) == 28, "Hello layout");
+static_assert(sizeof(HelloAck) == 348, "HelloAck layout");
 static_assert(sizeof(Build) == 96, "Build layout");
 static_assert(sizeof(BuildAck) == 140, "BuildAck layout");
-static_assert(sizeof(Frame) == 40, "Frame layout");
+static_assert(sizeof(Frame) == 52, "Frame layout");
 static_assert(sizeof(FrameAck) == 24, "FrameAck layout");
 
 } // namespace dvr::dlss_ipc

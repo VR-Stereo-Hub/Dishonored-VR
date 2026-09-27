@@ -1877,6 +1877,9 @@ static void LoadConfig()
             dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
             dvr::dlss::set_preset((int)IniFloat(ini, "Clarity", "DlssPreset", 0), "ini");
             dvr::dlss::set_quality((int)IniFloat(ini, "Clarity", "DlssQuality", 0), "ini");
+            // FSR (2026-09-27): not in the default ini on purpose; a missing key is DLSS.
+            dvr::dlss::set_backend((int)IniFloat(ini, "Clarity", "Upscaler", 0), "ini");
+            dvr::dlss::set_fsr_version((int)IniFloat(ini, "Clarity", "FsrVersion", 0), "ini");
             dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
@@ -4253,6 +4256,7 @@ static void OverlaySaveDefaults()
         _snprintf(v, 64, "%d", dvr::dlss::quality());
         WritePrivateProfileStringA("Clarity", "DlssQuality", v, ini);
         WritePrivateProfileStringA("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "Upscaler", dvr::dlss::backend() ? "1" : "0", ini);
         {
             uint32_t dow = 0, doh = 0; dvr::dlss::output(&dow, &doh);
             _snprintf(v, 64, "%u", dow); WritePrivateProfileStringA("Clarity", "DlssOutputWidth", v, ini);

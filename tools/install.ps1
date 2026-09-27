@@ -76,6 +76,25 @@ if ((Test-Path $dlssHost) -and (Test-Path $dlssDll)) {
     Copy-Item $dlssDll (Join-Path $dlssDir "nvngx_dlss.dll") -Force
     Copy-Item (Join-Path $repo "third_party\ngx\LICENSE.txt") (Join-Path $dlssDir "NVIDIA-DLSS-LICENSE.txt") -Force
     Copy-Item (Join-Path $repo "src\tools\dlss_host\NOTICE.md") (Join-Path $dlssDir "NOTICE.md") -Force
+    # FSR: AMD's FidelityFX API loader and upscaler (SDK 2.3.0: FSR 4.1.1 on RDNA 4, FSR 3.1 elsewhere),
+    # pinned in tools\fetch-ffx.ps1, and their MIT license. The SDK 1.1.4 DLL an older install left is removed.
+    $ffxPins = @{
+        "amd_fidelityfx_loader_dx12.dll"   = "E2D85AA05A9BD9ED8B38935FDF5199372CCA6F74C12015143BB6F945EE1608AA"
+        "amd_fidelityfx_upscaler_dx12.dll" = "D0DCCCC74A43C44BA435B7A369B456E0970D8A4464E4BD683119B374F2C9FB46"
+    }
+    $ffxAll = $true
+    foreach ($n in $ffxPins.Keys) { if (-not (Test-Path (Join-Path $repo "build\dlss_host\$n"))) { $ffxAll = $false } }
+    if ($ffxAll) {
+        foreach ($n in $ffxPins.Keys) {
+            $f = Join-Path $repo "build\dlss_host\$n"
+            $got = (Get-FileHash $f -Algorithm SHA256).Hash
+            if ($got -ne $ffxPins[$n]) { throw "$n sha256 $got is not the pinned $($ffxPins[$n]) - refusing to install" }
+            Copy-Item $f (Join-Path $dlssDir $n) -Force
+        }
+        Remove-Item -ErrorAction SilentlyContinue (Join-Path $dlssDir "amd_fidelityfx_dx12.dll")
+        Copy-Item (Join-Path $repo "third_party\ffx\LICENSE.md") (Join-Path $dlssDir "AMD-FIDELITYFX-LICENSE.md") -Force
+        Remove-Item -ErrorAction SilentlyContinue (Join-Path $dlssDir "AMD-FIDELITYFX-LICENSE.txt")
+    }
     $dlssInstalled = $true
 } else {
     Write-Host "DLSS helper not built (tools\fetch-ngx.ps1 then tools\build-dlss-host.ps1) - DLAA stays unavailable"
@@ -108,5 +127,5 @@ if (-not $Release) {
     Write-Host ""
 }
 if (Test-Path $shim) { Write-Host "  dvr_steamvr32.dll + openvr_api.dll (SteamVR shim, sha256 verified)" }
-if ($dlssInstalled) { Write-Host "  dvr_dlss\dvr_dlss_host64.exe + nvngx_dlss.dll 310.7.0.0 (DLAA helper, sha256 verified)  sha256 $((Get-FileHash $dlssHost -Algorithm SHA256).Hash.Substring(0,16))" }
+if ($dlssInstalled) { Write-Host "  dvr_dlss\dvr_dlss_host64.exe + nvngx_dlss.dll 310.7.0.0 + FidelityFX loader 2.3.0 / upscaler 4.1.1 (DLSS/FSR helper, sha256 verified)  sha256 $((Get-FileHash $dlssHost -Algorithm SHA256).Hash.Substring(0,16))" }
 Write-Host "Log: $(Join-Path $GamePath 'dishonored_vr.log')   harness files: $(Get-DvrDataDir)"
