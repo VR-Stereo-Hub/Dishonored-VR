@@ -13,6 +13,17 @@ lever and camera writer: ~155 -> ~172 ticks/s in the simulator, FOV and eyes unc
 (this replaces the extra-pair build; that one is on `claude/extra-pairs-per-tick`, PR #140). Levers
 `[Perf] PeFast`, `PeHeavyMs`, `PeHeavyInDraw`; `pe` seam words. Detail: PERFORMANCE route 2.
 
+## DLSS model list, Ultra Quality, and the frame-rate ceiling (2026-09-27)
+
+Branch `claude/dlss-presets-and-cpu-bound` off staging (after #138 merged). F10: DLSS model list (K, J,
+M, L, NVIDIA per mode, fast CNN) with per-entry tooltips; DLSS mode list with Ultra Quality (1.3x,
+`DlssQuality=5`, created as MaxQuality because the runtime refuses NGX's UltraQuality value). Host
+17/17. Installed `0ec0fffb...`, not headset-checked. Deep dive (PERFORMANCE, "Why DLSS cannot raise
+the frame rate here"): the GAME thread (~7 ms/tick on this Ryzen 5 5600X) is the ceiling, the render
+thread (~5.4 ms/pair) second, the GPU (<=5.2) third, so DLSS can only buy output resolution. Ranked
+routes: extra head-tracked pairs per world tick, our ProcessEvent hook, one engine view for both eyes,
+driver threaded optimization, a 5800X3D.
+
 ## Projection jitter for DLSS (2026-09-27) - headset-confirmed, default off
 
 Branch `claude/dlss-dlaa` (`feat: DLSS projection jitter...`). Sub-pixel Halton jitter on the world

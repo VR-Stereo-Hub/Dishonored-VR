@@ -34,8 +34,9 @@ std::atomic<int> g_quality{QDlaa};
 std::atomic<int> g_model{0};
 std::atomic<bool> g_audit{false};
 std::atomic<uint32_t> g_outW{0}, g_outH{0};
-const float kRatio[QCount] = {1.0f, 1.5f, 1.7241f, 2.0f, 3.0f};
-const char* const kQualityName[QCount] = {"DLAA", "Quality", "Balanced", "Performance", "Ultra Performance"};
+const float kRatio[QCount] = {1.0f, 1.5f, 1.7241f, 2.0f, 3.0f, 1.3f};
+const char* const kQualityName[QCount] = {"DLAA", "Quality", "Balanced", "Performance", "Ultra Performance", "Ultra Quality"};
+const char* const kQualityWord[QCount] = {"dlaa", "quality", "balanced", "performance", "ultraperformance", "ultraquality"};
 std::atomic<bool> g_mask{false};
 std::atomic<float> g_maskLo{0.03f}, g_maskHi{0.12f};
 std::atomic<int> g_state{Idle};
@@ -84,7 +85,9 @@ void work(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt, int
                  "image; the custom temporal AA stands down",
                  (w == ow && h == oh) ? "DLAA" : "DLSS Super Resolution", g_client.adapter(), w, h, ow, oh,
                  (double)ow / w, 100.0 * w * h / ((double)ow * oh), (int)fmt, preset,
-                 preset == 11 ? " = transformer K" : (preset == 5 || preset == 6) ? " = fast CNN" : " (raw DlssPreset)",
+                 preset == 11 ? " = transformer K" : (preset == 5 || preset == 6) ? " = fast CNN"
+                 : preset == 10 ? " = transformer J" : preset == 12 ? " = transformer 2 L" : preset == 13 ? " = transformer 2 M"
+                 : preset == kPresetPerMode ? " = NVIDIA per mode K/M/L" : " (raw DlssPreset)",
                  g_client.bytes() / (1024.0 * 1024.0));
         g_state.store(Ready);
     } else {
@@ -183,8 +186,50 @@ void set_mode(int m, const char* who) {
 }
 int mode() { return g_mode.load(); }
 
+const ModelChoice kModelChoices[] = {
+    {"Transformer K (default)", 0, 0,
+     "NVIDIA's best all-round model: sharp, stable, little ghosting. About 2 ms per eye at 2750x2850, "
+     "the same in every mode."},
+    {"Transformer J", 0, 10,
+     "A sibling of K: slightly less ghosting behind moving things, slightly more flicker on fine "
+     "detail. Same cost as K. NVIDIA recommends K over J."},
+    {"Transformer 2 M", 0, 13,
+     "The newer (DLSS 4.5) model NVIDIA uses for Performance: the least ghosting and cleaner fine "
+     "patterns, best when the render is small. Heavy at high resolution: about 3 ms per eye in "
+     "Performance, 4 in Quality, 8 in DLAA."},
+    {"Transformer 2 L", 0, 12,
+     "The newer model NVIDIA uses for Ultra Performance: rebuilds the most from a very small render. "
+     "The heaviest: about 3 ms per eye in Performance, 5 in Quality, 10 in DLAA."},
+    {"NVIDIA recommended per mode", 0, kPresetPerMode,
+     "What NVIDIA picks for each mode: K for DLAA, Ultra Quality, Quality and Balanced; M for "
+     "Performance; L for Ultra Performance."},
+    {"Fast (older CNN)", 1, 0,
+     "The older, lighter models (E for the smaller modes, F for DLAA): under 1 ms per eye, a little "
+     "softer, more ghosting and shimmer. Pick it when frame rate matters more than detail."},
+};
+const int kModelChoiceCount = (int)(sizeof(kModelChoices) / sizeof(kModelChoices[0]));
+
+int model_choice() {
+    const int m = g_model.load(), p = g_preset.load();
+    for (int i = 0; i < kModelChoiceCount; ++i) {
+        // With a raw preset set, the model switch does not matter (the preset overrides it).
+        if (p ? kModelChoices[i].preset == p : (kModelChoices[i].preset == 0 && kModelChoices[i].model == m)) return i;
+    }
+    return -1;
+}
+void set_model_choice(int i, const char* who) {
+    if (i < 0 || i >= kModelChoiceCount) return;
+    const bool changed = g_model.load() != kModelChoices[i].model || g_preset.load() != kModelChoices[i].preset;
+    g_model.store(kModelChoices[i].model);
+    g_preset.store(kModelChoices[i].preset);
+    if (!changed) return;
+    DVR_INFO("dlss: model -> %s (DlssModel=%d DlssPreset=%d, %s); the features rebuild", kModelChoices[i].name,
+             kModelChoices[i].model, kModelChoices[i].preset, who ? who : "?");
+    g_retry.store(true);
+}
+
 void set_preset(int p, const char* who) {
-    if (p < 0 || p > 15) p = 0;
+    if (p < 0 || p > kPresetPerMode) p = 0;
     if (g_preset.exchange(p) == p) return;
     DVR_INFO("dlss: preset -> %d%s (%s); the features rebuild", p, p ? "" : " (the helper's model K)", who ? who : "?");
     g_retry.store(true);
@@ -377,11 +422,16 @@ bool command(const char* args) {
     if (n >= 1 && !_stricmp(sub, "off")) { set_mode(ModeOff, "the seam"); return true; }
     if (n >= 1 && !_stricmp(sub, "retry")) { g_retry.store(true); DVR_INFO("dlss: retry requested (the seam)"); return true; }
     if (n >= 2 && !_stricmp(sub, "preset")) { set_preset(atoi(val), "the seam"); return true; }
-    if (n >= 2 && !_stricmp(sub, "model")) { set_model(!_stricmp(val, "fast") || !strcmp(val, "1") ? 1 : 0, "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "model")) {
+        const char* names[] = {"k", "j", "m", "l", "permode", "fast"};
+        for (int i = 0; i < kModelChoiceCount && i < 6; ++i)
+            if (!_stricmp(val, names[i])) { set_model_choice(i, "the seam"); return true; }
+        set_model(!strcmp(val, "1") ? 1 : 0, "the seam"); return true;
+    }
     if (n >= 2 && !_stricmp(sub, "audit")) { set_audit(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "quality")) {
         int q = atoi(val);
-        for (int k = 0; k < QCount; ++k) if (!_strnicmp(val, kQualityName[k], 4)) q = k;
+        for (int k = 0; k < QCount; ++k) if (!_stricmp(val, kQualityWord[k])) q = k;
         set_quality(q, "the seam"); return true;
     }
     if (n >= 2 && !_stricmp(sub, "output")) {
@@ -416,7 +466,7 @@ bool command(const char* args) {
         float lo = 0, hi = 0;
         if (sscanf(args, "%*s %f %f", &lo, &hi) == 2) { set_mask_range(lo, hi, "the seam"); return true; }
     }
-    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, model transformer|fast, preset <0..15>, quality <0..4|name>, output <w> <h>, "
+    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, model k|j|m|l|permode|fast, preset <0..16>, quality <0..5|dlaa|ultraquality|quality|balanced|performance|ultraperformance>, output <w> <h>, "
              "audit on|off, mask on|off, jitter on|off, jitter wide on|off, "
              "maskrange <lo> <hi> | mask %s %.3f..%.3f | jitter %s",
              g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary(), g_mask.load() ? "on" : "off",
