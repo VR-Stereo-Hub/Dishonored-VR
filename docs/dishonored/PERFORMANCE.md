@@ -3099,3 +3099,19 @@ frame per game tick". Branch `claude/extra-pairs-per-tick`.
 - **Not yet known:** the headset feel - head motion at up to ~180 renders per eye per second while
   animation, physics and AI step at ~85-95 ticks/s; whether DLSS on top now pays (the GPU becomes a
   limit); the render thread (~5.4 ms per pair) is the next ceiling.
+
+### 2026-09-27: headset verdict on route 1 - no gain, weapon and hands judder (NOT recommended)
+
+Headset run (VDXR 144 Hz, build `v1.0.1-106-g10f9cd0ab`, the maintainer's INI: DLAA on, DLSS Quality
+SR, fast model, jitter on, `ExtraPairs=1`): **120-126 pairs/s - no gain over the same settings without
+it** - world ticks ~60/s, 57-68 extra pairs/s, rotation honoured (commanded vs rendered step 0.005-0.012
+deg), one pushed-eye-twice in ~60 s. Reported: no performance gain, the weapon and the hands much more
+jittery, everything generally less smooth.
+- Why no gain: every extra image also goes through DLSS (~1.2-2 ms per eye in the helper), so two pairs
+  per tick doubled DLSS's work; the simulator measurement that showed +18 % ran with DLSS OFF.
+- Why the judder: the tick rate halves (two pairs per tick); the weapon and the game's hands move only
+  per tick, so they step at ~60 Hz under a ~120 Hz view. Inherent to the approach.
+- Why little head benefit: the later pose differed from the tick's by ~0.02 deg per extra pair on
+  average (the pose it can reach is only one period ahead).
+Verdict: route 1 stays default OFF and is not recommended; the branch is kept as the record.
+
