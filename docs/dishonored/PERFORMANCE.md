@@ -3207,3 +3207,521 @@ the render size at 70 % and 130 %.
   Threaded Optimization. VR-125's lightweight headset trace had the render thread blocked 27 % of the
   time, 91 % of that ended by the NVIDIA D3D9 worker thread, which itself polls; whether the driver's
   worker is the render thread's hidden wait is the question the CSwitch/ReadyThread data in DvrGpu answers.
+
+## 2026-09-27: UE3 engine levers - sharing work, submission, and evidence limits
+
+Documentation research only, based on `81bef09dd` on `claude/uncap-deep-dive`, with work tracked by
+[VR-125](https://linear.app/vr-stereo-hub/issue/VR-125). No build, installation, configuration change,
+game launch, simulator launch, or runtime experiment belongs to this section. The historical
+`UE3_PERFORMANCE_RESEARCH.md` is a redirect to this record, not an additional source of experiments.
+
+**Conclusion:** prioritize the existing conservative-culling route and verified reductions in visible
+sections. Treat a two-view family as an architectural experiment, not an automatic halving of work.
+Shadow-depth reuse is conditional on discovering a significant duplicated, compatible pass. Never
+reuse a left-eye occluded verdict to hide a right-eye object. These rankings combine the
+[prior measurements](#results-and-routes), [culling boundary](#latest-boundary-initviews-and-frustum-culling),
+[Epic's render-thread guidance][el-rt], and the [existing visibility correctness evidence][el-local-occlusion].
+
+Labels throughout: **D** = documented public engine/API fact; **L** = existing local evidence;
+**I** = inference from those facts; **S** = speculative implementation requiring verification.
+UDK documentation is evidence about an engine lineage, not proof that build 9099 contains a feature.
+Symbols marked *candidate* are search targets, not verified Dishonored functions, layouts or hook ABIs.
+No UE4/5 parallel-rendering controls or UEVR implementation are evidence here.
+
+Savings below are **stage-cost budgets per stereo pair**, not measured gains or additive frame-time
+reductions. Unknown means no responsible numerical estimate exists. In the
+[uncap baseline](#2026-09-27-the-uncap-deep-dive---where-the-headset-frame-goes-and-the-plan-that-tests-it),
+144 pairs/s requires 6.944 ms versus roughly 8.0 ms observed. Saving 1.06 ms on just one near-balanced
+stage need not achieve that rate; CPU/GPU spans overlap and GPU spans can contain idle gaps.
+
+| Lever, in investigation order | Engine mechanism | Source | Expected saving per pair | Live-testable? | Risk |
+|---|---|---|---|---|---|
+| 1. Shared conservative culling candidates | One broad-phase walk, separate eye relevance/history | [Visibility][el-vis], [local boundary][el-local-cull] | I: 0 to about 0.54 ms RT if half the measured 1.082 ms were removable; actual lower or negative | Future guarded proxy experiment | Missing primitives; larger union increases draws |
+| 2. Detail/LOD/decal workload reduction | Fewer visible elements, vertices and passes | [Render thread][el-rt], [config map][el-map] | Unknown; establish RT/GPU reduction together | Existing options for detail; other commands conditional | Quality, missing gameplay cues, profile overrides |
+| 3. One family containing two eye views | Amortize family-level setup and eligible resources | [Split-screen guidance][el-rt] | Unknown; no evidence for 50% saving | Future native integration | Output routing, view state, UI, memory, changed quality defaults |
+| 4. Compatible shadow-depth reuse | Render light-space depth once, project separately | [Shadowing][el-shadow], [GDC stereo][el-stereo-talk] | 0 unless duplicated eligible depth exists; at most its second-eye cost before overhead | Future pass-specific proxy experiment | Cascades, atlas overwrites, missing casters |
+| 5. Reduce genuine duplicate state/submission | D3D9 state/constant batching | [API profiling][el-api], [AMD counters][el-amd] | Unknown; zero if engine/runtime already remove redundancy | Future bounded census, then guarded intervention | State blocks, mod writes, resource identity |
+| 6. Independent capture scheduling | Fixed-camera capture update once per world tick | [Render to texture][el-capture] | 0 in measured reflection duplication scenario: reflection already occurred only on left | Future conditional experiment | Reflections/portals can be eye-dependent |
+| 7. Dynamic buffer lifetime correction | DISCARD/NOOVERWRITE, no busy-resource overwrite | [D3D9 optimization][el-dynamic] | Unknown; low prior rank because sampled uploads/locks were small | Future resource-lifetime probe | Corruption if lock flags are rewritten blindly |
+| 8. More CPU overlap | Existing GT/RT pipeline; possible pure culling jobs | [Performance][el-perf], [D3D threading][el-threading] | No new documented ini win; speculative jobs below serial culling cost | Existing timing; jobs require code | Synchronization and engine thread ownership |
+
+### 1. Ranked sharing opportunities and two-view-family feasibility
+
+1. **Conservative primitive candidate gathering, preserving per-eye tests.**
+   **D:** UE3 orders distance, frustum, precomputed visibility and hardware-query culling; queries
+   are consumed later. **L:** `InitViews` and `ProcessViewFrustumCulling` are established boundaries,
+   with `ParsingOctree` and ordinary/reflection branches identified. **I:** share a broad-phase
+   superset, not the final visibility/relevance mask. This refines the existing route rather than
+   proposing another right-eye skip. Sources: [UDN visibility][el-vis], [local derivation][el-local-cull].
+
+   **S, proxy test:** instrument candidate counts first, then construct the conservative union of
+   both eye frusta for a single world generation. A center-eye frustum with an arbitrary FOV margin
+   is not a proof of coverage. Keep separate `FViewInfo`-like outputs, distance/LOD choices,
+   `GetViewRelevance`-like decisions, hidden/show-only sets and eye histories. Reuse only immutable
+   candidate identity/bounds snapshots; update moving/spawned primitives and reject stale generations.
+   These symbol names describe the intended boundary, not verified export names.
+
+   **One future launch question:** does shared gathering reduce RT preparation without losing any
+   primitive admitted by either original eye? Run a bounded comparison against both original result
+   sets before relying on reuse. Zero missing candidates plus lower preparation cost supports it;
+   any omission rejects correctness; an oversized union or extra draws that erase the saving rejects
+   performance. The 0.54 ms estimate is half the older simulator culling measurement, an optimistic
+   symmetric-work ceiling, not a headset forecast. It excludes per-eye relevance and scheduling overhead.
+
+2. **One `FSceneViewFamily`, two views, one family submission.**
+   **D:** UE3 supports split-screen and Epic explicitly warns that its visibility/submission costs
+   grow with both views. **I:** the intended native arrangement is two `FSceneView` inputs represented
+   as two `FViewInfo` entries in one `FSceneRenderer`, rather than two independent viewport draws.
+   This is a plausible use of the multi-view architecture, not proof of automatic shared culling or
+   shadow atlases. Public material retrieved here does not establish those internal loop boundaries
+   for build 9099. [Epic render-thread guide][el-rt]
+
+   **S, proxy test:** locate the family construction/submission under `UGameViewportClient::Draw`
+   and `FViewport::Draw`; candidate names include `BeginRenderingViewFamily` and `RenderViewFamily`.
+   First count family submissions, views and eye states without mutation. A prototype should create
+   two render views for the same player, with separate persistent `FSceneViewState` histories.
+   Do not create a second gameplay player just to obtain another view: that also changes gameplay,
+   HUD and potentially quality policy. Epic documents split-screen quality reductions, so equal
+   effective quality is a required control. [VFX split-screen][el-vfx-split], [local view state][el-local-occlusion]
+
+   Keep full per-eye resolution: a side-by-side target would be 5500x2850 for this workload,
+   not two half-width eyes in the old backbuffer. Check device caps, intermediate target dimensions,
+   clears/scissors, aspect and post-process UVs. Crop/copy each rect into its own capture slot and
+   preserve eye-specific pose records. Overlapping both view rectangles would overwrite an eye.
+   A shared family might avoid setup while still doing two full depth/base/light/post-process passes.
+
+   **One future launch question:** does a two-view family remove measurable family work at identical
+   scene quality and per-eye pixels? Prediction: one family submission with two correctly tagged outputs;
+   any claimed saving must coincide with fewer identified setup/pass executions. Two views with unchanged
+   culling/shadow counts falsify automatic sharing. Reduced pixels, split-screen detail fallback, a
+   second pawn, or broken HUD invalidate the comparison. This is a larger project than the culling probe.
+
+3. **Shadow subject depths, with a strict eligibility key.**
+   **D:** per-object shadows render from the light and then project onto receivers. Movable spot/point
+   whole-scene shadows use one/six maps; directional cascades are centered on the viewer. Modulated
+   shadows change how the result combines with scene color. [Epic shadowing reference][el-shadow]
+   **D:** NVIDIA's stereo talk separates mono light-space shadow maps from stereo scene surfaces.
+   [GDC 2011, slides 56-59][el-stereo-talk]
+
+   **I:** per-object/projected and fixed-light whole-scene depth are stronger reuse candidates than
+   directional cascades. Light-environment shadow *depth* may qualify; the environment's lighting
+   update is a separate GT operation. Cached preshadows might already avoid the work. Screen-space
+   attenuation, shadow filtering/projection, normal/modulated blending and receivers still need the
+   corresponding eye. A viewer-dependent resolution decision can also make two otherwise identical
+   shadows incompatible. [Shadow counters][el-stats], [light environments][el-level]
+
+   **S, proxy test:** candidate native seams are `FProjectedShadowInfo`, `InitDynamicShadows`,
+   `RenderShadowDepths`, `RenderProjections`, and `RenderModulatedShadows`; exact presence/ABI is
+   unverified. Census by pair, light, subject generation, light matrix, caster set, resolution,
+   atlas region and pass type. Only after duplication is established, retain eligible depth until
+   both eyes consume it, bypass that second producer and keep both projections. Intervening atlas
+   clears/reuse must fail eligibility. Cascades need a newly derived union receiver volume and caster
+   coverage, not the left-eye cascade matrix. Do not infer a pass from target size alone.
+
+   **One future launch question:** does one identified duplicate shadow-depth class account for useful
+   RT/GPU cost? Prediction: its producer count approximately halves while both eye projection counts
+   remain unchanged. No duplicate population means zero benefit and no implementation. Changed shadows
+   reject the key. If eligible depth is below timing noise, park it. The failed dynamic-shadow INI run
+   already lowers its priority; this is not authorization to repeat that toggle. [Prior result][el-routes]
+
+4. **Fixed-camera scene captures, not arbitrary reflections.**
+   **D:** `SceneCaptureCubeMapComponent` schedules six capture passes;
+   `SceneCaptureReflectComponent`/`FSceneCaptureProbeReflect` derive a reflected current view.
+   `FrameRate` controls capture cadence. [UDN render-to-texture][el-capture]
+   **I:** fixed-camera textures can be common inputs to both eyes in one tick; mirror/portal captures
+   can require eye-specific rendering. `bIsSceneCapture` is a classification candidate, not a universal
+   skip flag. The already measured left-only reflection is not twice-per-pair duplication.
+   [Local reflection classification][el-local-cull]
+
+   **S, proxy test and prediction:** count capture producer identity, camera transform and update tick
+   near a candidate `FSceneRenderer::RenderSceneCaptures` boundary. One future question: does any
+   fixed-camera producer execute twice with identical inputs per tick? If yes, a same-tick reuse trial
+   should remove exactly one producer and leave sampling in both eyes intact. If no, close this route
+   for that scene. Lower cadence is a separate quality tradeoff, not sharing. Never reinterpret the
+   0.1995 ms reflection-preparation measurement as the entire capture's GPU cost. [Prior boundary][el-local-cull]
+
+5. **Light interactions and static draw-list metadata, only where actually rebuilt.**
+   **D:** light/object interactions can multiply passes; UE3 exposes static draw lists for eligible
+   decals and distinguishes unbatched dynamic relevance. [Level optimization][el-level],
+   [SystemSettings][el-sys]
+   **I:** scene-owned light/primitive relationships, immutable mesh/material classification and
+   material-based ordering may be shared or already persistent. `FStaticMeshDrawList` and
+   `FVisibleLightInfo` are candidate names. Eye visibility, projected attenuation, view-dependent
+   constants, specular response and translucent depth order are not invariant.
+
+   **S, proxy test and prediction:** one future question: is repeated immutable classification/sorting
+   a material cost, distinct from issuing the same geometry for another eye? Count rebuilds and measure
+   exclusive time around the verified engine boundary. Already persistent lists mean zero new saving.
+   A prototype cache must reduce rebuilds while preserving submitted eye-specific state and counts;
+   unchanged rebuild time falsifies the route. Do not globally reorder intercepted D3D9 draws.
+
+6. **Particles: share simulation data, not view-facing geometry by assumption.**
+   **D:** Epic separates particle GT simulation from RT geometry packing and GPU overdraw.
+   [UE3 VFX overview][el-vfx]
+   **L/I:** this mod already ticks the world once, so another simulation-sharing optimization is
+   expected to save zero. Camera-facing vertices, sorting, LOD selection and draw packets may still
+   differ. [Existing world-tick finding][el-local-cpu]
+   **S, proxy test and prediction:** one future question: does an identified particle update run twice
+   per world tick, or only its render packing? Pair-tag update/packing counts, with
+   `stat particles`/`ParticleTickStats` as optional corroboration. One update rejects duplicated
+   simulation; two packing passes do not prove a bug. Reusing only verified view-independent particle
+   data should reduce packing CPU with unchanged eye-facing/sorting behavior. [VFX counters][el-vfx-concepts]
+
+7. **Occlusion: reject cross-eye negative reuse; conservative positives are possible but low priority.**
+   **D:** UE3 reads hardware queries from earlier rendering, and they use that view's depth buffer.
+   [Visibility][el-vis]
+   **L:** sharing view state already hid objects visible to the other eye; the proxy has a separate-eye
+   view-state route. [VR-79 derivation][el-local-occlusion]
+   **I:** left occluded does not imply right occluded. Left visible can conservatively force right
+   drawing, at the price of overdraw; it cannot safely suppress right drawing. Right history must
+   remain eye-owned, including after menus and loads. An OR of properly owned visibility results is
+   conservative only when unknown/stale entries default visible and identity is current.
+
+   **S, test only after a positive cost case exists:** one future question: can conservative positive
+   sharing remove meaningful query *issue/management* cost without increasing total pair cost?
+   Count issued queries, additional visible elements and GPU span; retain independent negative results.
+   Fewer queries but more expensive rendering rejects the optimization. Immediate first-eye query
+   readback would introduce a dependency, not free information. This is not the failed query-wait-helper
+   experiment. Do not change global query disable or latency merely to revisit it. [D3D9 queries][el-queries]
+
+**What historical UE3 stereo actually establishes.** **D:** Epic documents
+`AllowNvidiaStereo3d=True`, fullscreen operation and title-specific driver profiles for 3D Vision
+Direct. It does not document an engine two-view-family switch or shared-culling implementation.
+[UE3 3D Vision Direct][el-3dv]
+NVIDIA's Automatic guide describes driver stereoization of an application's rendering and resource
+classification, including normally mono square shadow/projected-light surfaces. This is a different
+mechanism from invoking the game viewport twice. [3D Vision Automatic guide][el-3dv-auto]
+The GDC talk describes both scene-level and draw-level eye duplication, with eye-dependent targets
+duplicated and eligible shadow maps common. [Stereo talk][el-stereo-talk]
+**I:** that path can amortize CPU scene submission while still drawing geometry twice on the GPU;
+it does not establish Dishonored's compiled path or modern driver compatibility. The public sources
+do not identify verified native stereo classes/flags beyond `AllowNvidiaStereo3d`; do not import
+`IStereoRendering`, `EStereoscopicPass`, instanced stereo or UE4 RHI-thread settings as UE3 facts.
+Epic also announced TriOviz integration, but the announcement supplies no reusable internal API or
+sharing contract. [Epic integration announcement][el-trioviz]
+
+### 2. Ranked threading, buffering and D3D9 submission options
+
+1. **Keep the existing GT/RT overlap; do not invent a render-thread-count INI.** **D:** Epic identifies
+   separate game and render threads; `OneFrameThreadLag` is a boolean allowing one-frame lag.
+   `TOGGLERENDERINGTHREAD` starts/stops the rendering thread, not a worker-count control.
+   [Performance guide][el-perf], [SystemSettings][el-sys], [console reference][el-console]
+   **I:** `GRenderingThread` is an internal thread-handle candidate, not a player setting. A deeper
+   engine queue would require verifying and changing frame synchronization, render-command lifetimes
+   and all frame-indexed resources. `FFrameEndSync`/`FRenderCommandFence` are candidate search names,
+   not verified build-9099 patch points. D3D9Ex maximum latency and the capture ring control different
+   boundaries; neither extends UE3's GT/RT contract. [Existing uncap plan][el-uncap]
+
+   **Prediction/test:** one future question, if a trace first shows GT/RT barrier starvation: does a
+   verified queue-depth change reduce empty intervals, or only increase image age? Compare command
+   enqueue/dequeue age and queue gaps with image-owned poses. If critical-path busy time stays constant
+   and another wait grows, there is no throughput win. No numerical gain is supportable. Preserve the
+   existing capture-depth experiment as the first buffering test; do not duplicate it here.
+
+2. **Parallelize pure CPU preparation only after isolating it.** **D:** making D3D9 thread-safe adds
+   synchronization; it is not D3D11 deferred-context command recording. [Microsoft threading][el-threading]
+   **S:** immutable bounds batches could run on workers and merge on RT, while engine mutations,
+   queries and D3D calls stay on their owning thread. Prediction: a future one-question trial should
+   lower exclusive culling wall time by more than dispatch/join cost, with identical conservative
+   candidates. Extra worker CPU without lower RT time rejects it. Calling two viewport draws
+   concurrently would require a much broader reentrancy audit and is not proposed as a safe experiment.
+   No retrieved primary source proves an enable-parallel-InitViews switch in this shipping build.
+
+3. **Attribute driver waits before changing submission.** **D:** D3D9 buffering can charge earlier
+   work to later API calls; API duration alone is not GPU execution time. [API profiling][el-api]
+   **I:** worker wakeups fit several causes: command-buffer consumption, resource hazards, GPU queue
+   pressure or driver-internal synchronization. They identify a dependency, not its reason. Use the
+   already built uncap trace and correlate blocked call/site, worker execution, kernel submission and
+   GPU queue gaps. One future question: are waits associated with an idle GPU or an already busy queue?
+   Idle gaps correlated with late submission support starvation; sustained GPU activity supports
+   backpressure. This is interpretation of the existing experiment, not another max-latency sweep.
+   [Existing trace plan][el-uncap]
+
+   NVIDIA's control-panel documentation describes Threaded Optimization broadly, without proving the
+   behavior of the current D3D9 driver for this title. The restart-per-setting experiment is already
+   queued in the uncap section; do not claim it removes all worker waits.
+   [NVIDIA setting reference][el-driver]
+   `D3DCREATE_DISABLE_PSGP_THREADING` concerns software vertex processing, not that driver's command
+   worker. Do not confuse it with Threaded Optimization. [D3DCREATE][el-create]
+
+4. **Audit the D3D9 RHI's effective state cache, not its presumed implementation.** **D:** runtime
+   state filtering/buffering complicates interpretation of redundant calls; AMD's D3D9 counters
+   distinguish draws per shader/constant/state change. [API profiling][el-api], [AMD guide][el-amd]
+   NVIDIA's D3D9-era programming guide recommends larger batches to reduce driver-call overhead;
+   this is mechanism guidance, not a performance forecast for a current GPU. [NVIDIA guide][el-nv-guide]
+   **S:** count exact repeated `SetVertexShaderConstantF`/`SetPixelShaderConstantF` ranges and
+   texture/shader/target bindings after all proxy modifications. The stock RHI may already cache some
+   state, while proxy-restored state forces real updates. No source retrieved proves its exact cache
+   coverage in Dishonored. Avoid a new global cache until the already preserved lazy-snapshot route
+   and this redundancy census show remaining cost. [Preserved routes][el-other]
+
+   **Prediction/test:** one future question: does removing a proven redundant API subset lower
+   RT/driver cost while preserving downstream state? Require byte-identical effective values and
+   invalidation on state-block Apply, Reset, release/reuse and every proxy-originated mutation.
+   Count-elimination with unchanged cost falsifies a worthwhile gain. Reused COM pointers alone are
+   not cache identity. Never suppress per-eye matrix/weapon corrections as apparently repeated input.
+
+5. **Fix proven lock hazards, not all locks.** **D:** `D3DUSAGE_DYNAMIC` buffers can use DISCARD to
+   obtain fresh backing storage and NOOVERWRITE to append without touching in-flight data. DISCARD
+   invalidates the whole buffer; NOOVERWRITE is a promise, not automatic synchronization. A lock of
+   busy static storage can serialize CPU/GPU. [Microsoft dynamic buffers][el-dynamic]
+   **S, test:** census usage/pool, range, bytes, flags, lifetime and consuming draws by eye. One future
+   question: does one identified buffer hazard explain a significant stall population? A corrected
+   append/ring pattern should remove that population without changed geometry. Small lock time, or
+   unchanged stalls, rejects it. Never substitute flags in the proxy without preserving data/offset
+   semantics. No documented Dishonored INI safely rewrites this policy. [AMD stall interpretation][el-amd]
+
+6. **Resource upload/streaming overlap is conditional; no generic async-submit toggle.** **D:**
+   resource thrashing can harm performance, and appropriate dynamic/default-pool usage matters.
+   [Microsoft resource management][el-resources]
+   **I/test:** follow the existing managed-resource route only if uploaded bytes, residency events
+   and wait times co-vary. One future question: does a proven redundant same-content upload recur
+   before either eye consumes it? Coalescing it must reduce bytes and stalls with current mip content;
+   otherwise reject. Preserve already-bound texture semantics and reset behavior. More buffering
+   consumes scarce 32-bit address space and may not reduce GPU work. [Local resource caveats][el-other]
+
+### 3. Ranked configuration candidates, exact names and activation uncertainty
+
+**L:** the repository maps desktop `[SystemSettings]` to `DishonoredEngine.ini`; it does not establish
+a `DishonoredSystemSettings.ini` for this installation. Player graphics options are profile-backed
+and INI mirrors can disagree with their consumers. `gameopts` checks profile versus renderer; the
+verified native listener path is the application route. [GAME_CONFIG_MAP][el-map]
+**D:** UDK exposes `FSystemSettings` and `scale set`; this documents an interface, not successful
+Dishonored application. [UDN SystemSettings][el-sys]
+
+The following is a candidate inventory, not an INI patch. **M** = mapped locally; **U** = public UDK
+name only; **?** = exact spelling/location not established. "Not tried" means no controlled performance
+test found in the required record at the base commit. **Live?** means try the existing command/apply
+route only after checking it, not that a silent reply proves success. All future INI fallback tests
+require a restart, full-file backup/diff and byte-safe CRLF preservation; none ran here.
+
+| Rank | Exact key/control and evidence | Status | Activation and falsifiable prediction |
+|---|---|---|---|
+| 1 | `DetailMode` M; `StaticLODDistanceFactorMultiplier`, `SkeletalLODDistanceFactorMultiplier` M. [Map][el-map] | Controlled low-detail/LOD trial not tried; preset high already applied | Detail through native profile listener, verify rendered counts. LOD `scale` route unproven, restart fallback. Fewer sections/vertices and lower RT/GPU supports it; unchanged work rejects applicability. Do not guess enum values or multiplier direction from another game. |
+| 2 | `DynamicDecals`, `StaticDecals`, `UnbatchedDecals`, `DecalCullDistanceScale` M. `bAllowDynamicDecals` is not the mapped name. [Map][el-map] | Not tried | Live `scale` candidate, restart fallback. Predict fewer decal draws/receivers in a decal-heavy view. No affected draws means no test of the cost hypothesis. Blood/interaction cues are a quality risk. |
+| 3 | `ParticleLODBias` U; emitter authored medium-detail behavior. [Settings][el-sys], [VFX split-screen][el-vfx-split] | Not tried; local key availability unverified | `scale` candidate; respawn/reload may be needed to exercise a different authored LOD. Predict reduced packing/geometry or effect draws. Fewer particles alone may leave one draw per emitter unchanged. |
+| 4 | `FoliageDrawRadiusMultiplier`, `SpeedTreeLeaves`, `SpeedTreeFronds` U; instanced foliage is a content path, not a global switch. [Settings][el-sys], [Foliage][el-foliage] | Not tried; local availability unverified | Live application unproven; restart fallback. Predict affected vegetation draw/instance counts fall. No matching content means zero benefit. Do not substitute new foliage content or hide the existing grass correctness problem. |
+| 5 | `LightEnvironmentShadows` M; `MaxShadowResolution`, `ShadowTexelsPerPixel` U. `ShadowFilterQuality` is documented as a light property, not proven global config. [Map][el-map], [Settings][el-sys], [Shadowing][el-shadow] | Individual controls not tried; global `DynamicShadows` already failed | Only after eligible pass attribution. `scale` for recognized keys is conditional; light properties require verified native application, potentially reattachment. Predict depth dimensions/pass work changes. Unchanged shadow work rejects application; smaller maps with unchanged tick rejects throughput value. |
+| 6 | `bAllowWholeSceneDominantShadows` ? | Exact build-9099 control not established, not tried | No live/restart recipe justified. First identify a consumer and dominant whole-scene pass. A recognized value without changed pass population is insufficient. Do not add a guessed key. |
+| 7 | `bAllowLightShafts` M; `MotionBlur`, `DepthOfField`, `AmbientOcclusion` M. [Map][el-map] | Shafts targeted off in accepted preset; other effects already off in inspected settings | Zero expected saving if consumer is off. Shafts must use profile/listener verification. Revisit only with evidence of an active pass, not another blanket effects-off sweep. |
+| 8 | `AllowRadialBlur` U; requested spelling `bAllowRadialBlur` unverified. [Settings][el-sys] | Not tried; actual scene activation unknown | Live `scale` candidate only if recognized; restart fallback. Test an event that actually activates radial blur. Predict that pass disappears; steady scenes without it should show zero gain. |
+| 9 | `SceneCaptureStreamingMultiplier` U. [Settings][el-sys] | Not tried | Streaming-distance scalar, not capture cadence or resolution. No direct draw-cost saving predicted. Separate from component `FrameRate`; runtime change/restart support unverified. Reject as a capture-sharing lever. |
+| 10 | `bAllowOcclusionQueries` ?, `OcclusionQuery...Slop`/buffered-frame variants ?; `TOGGLEOCCLUSION` locally verified. [Local occlusion][el-local-occlusion] | Global disable already tested; per-eye state already implemented | Do not add guessed slop or buffered-frame keys. There is no proven safe negative cross-eye reuse. Any future identified history-tolerance control must reduce management cost without missing right-eye objects or raising net draw cost. |
+| 11 | `PoolSize=160` L, streaming pool, not VRAM capacity. [Map][el-map], [resource guide][el-resources] | Pool adjustment not tried; streaming already cleared for a separate stand-up stall | Restart unless this build's runtime allocator application is proved. Predict residency/upload reduction only if thrashing exists. No streaming churn means no expected steady-state saving; larger pool may worsen address-space pressure. |
+
+For every ranked row, the future launch asks **one** question about that row's downstream workload.
+An unrecognized command is a capability result, not a negative performance result. A restart test
+uses one candidate versus restored controls, never an omnibus low-quality preset. This prevents
+profile overwrite, cached component state and unchanged content from masquerading as benchmark results.
+
+### 4. Ranked no-code profiling commands and retail-build status
+
+**Retail answer:** the F1 console and some native commands are established locally; there is no
+evidence in the inspected record that every requested stat group, `profilegpu` or `freezerendering`
+is enabled in Dishonored retail. A UDK command listing cannot prove that. The existing proxy console
+dispatch is also not proof of arbitrary command acceptance. [Config map][el-map],
+[proxy console source at the research base][el-console-source]
+
+The commands below require no new profiling code if the retail handlers exist. Future automation
+should use the existing engine-console route where exposed, or the bound console; the tester only
+launches and reports observations. The agent checks replies/logs and restores toggles. Do not promise
+a new command seam that this branch does not implement.
+
+1. **`stat unit`, then `stat scenerendering` / `stat initviews`.** **D:** frame/GT/RT/GPU summary and
+   visibility work are documented. [Profiling basics][el-basics], [render-thread guide][el-rt]
+   **Availability:** unverified in retail. **One future question:** does this retail build expose
+   useful native timing/counts? A changing overlay or recorded data establishes availability; blank
+   replies do not. Align values with tagged pairs because two draws can make engine frame counters
+   ambiguous. Zero saving expected: this is instrumentation, with an off-control for overhead.
+
+2. **`stat shadowrendering`.** **D:** separates whole-scene/per-object depths and projectors, including
+   cached preshadows. [Stat descriptions][el-stats]
+   **Availability:** unverified. **Prediction/test:** one question, are eligible depth producers a
+   meaningful part of this scene? Nonzero depth cost justifies classification; mostly projection or
+   cache hits weakens depth reuse. Native aggregates alone cannot prove which eye owns the work.
+
+3. **`stat game`, `stat threading`, `stat sceneupdate`, `stat particles`.** **D:** UE3 documents these
+   groups; scene updates expose add/remove/update work, and particle counters separate ticking from
+   rendering. [Stats][el-stats], [VFX concepts][el-vfx-concepts]
+   **Availability:** unverified. **Prediction/test:** select one group per question. Repeated scene
+   additions or particle updates at eye cadence support duplicate work; once-per-tick activity rejects
+   that explanation. High thread idle is a dependency symptom, not independently recoverable time.
+
+4. **`show` controls / `viewmode lightcomplexity`.** **D:** the console reference documents
+   `SHOW DECAL`, `SHOW PARTICLES`, `SHOW UNLITTRANSLUCENCY` and lighting visualization.
+   [Console reference][el-console]
+   **Availability:** unverified individually. **Prediction/test:** one chosen class-off ABA should
+   visibly remove that class and reduce its draw population if active. This bounds removal cost,
+   not the saving available without quality loss. Do not repeat `SHOW DYNAMICSHADOWS` as another
+   generic shadow-off trial; do not benchmark wireframe as ordinary occlusion behavior.
+
+5. **`stat d3d9rhi` and `profilegpu`.** **D:** Epic's console inventory explicitly lists the
+   `D3D9RHI` stat group, with Present time, draws, triangles and lines. **Evidence gap:**
+   `profilegpu` was not established in the retrieved UE3
+   console/stat pages. Retail support for both remains unverified. Do not substitute a modern
+   `stat rhi` recipe. [Console inventory][el-console], [stats inventory][el-stats]
+   **Prediction/test:** one capability question at a time. A functioning handler and meaningful
+   counts/timestamps enables deeper attribution; no handler closes that no-code route. Even a working
+   one-frame GPU profiler may see one eye and perturb synchronization. Use the existing uncap ETW
+   instrument when native profiling is absent, without repeating its heavy failed predecessor.
+
+6. **`freezerendering`.** **D:** documented as freezing/resuming rendered scene state.
+   [Console reference][el-console]
+   **Availability:** unverified. **Prediction/test:** one brief diagnostic question: does the selected
+   visible set remain frozen as the view changes? If yes, it can expose culling behavior; if inert,
+   the capability is absent or intercepted. It is not a performance mode, and altered culling/history
+   makes its frame rate unsuitable as a release forecast. Restore immediately; avoid using frozen
+   headset imagery as a normal movement test.
+
+### 5. Ranked traps matching the measurements
+
+1. **Visible section count plus per-light/per-view submission.** **D:** Epic's guidance identifies
+   visibility and draw submission as major RT work; light/object interactions can multiply passes.
+   [Render thread][el-rt], [level optimization][el-level]
+   **I:** fixed draw/vertex work fits resolution-insensitive cost better than a pure fullscreen-fill
+   explanation. **Prediction:** the detail/decal tests should reduce both relevant counts and RT or
+   GPU cost. Same counts or unchanged cost rejects that class as the leading cause. The older 1.1 ms
+   culling attribution is a component, not the whole present-day headset budget. [Prior boundary][el-local-cull]
+
+2. **State/constant churn and late driver backpressure.** **D:** buffering obscures the location of
+   actual work; primitive-per-constant-change counters are useful batching evidence.
+   [API profiling][el-api], [AMD guide][el-amd]
+   **I/prediction:** high same-value uploads plus a successful narrowly scoped elimination should lower
+   CPU/driver work without changing GPU draw counts. Long calls without redundancies instead direct
+   investigation toward hazards or queue pressure. Worker wakeups alone cannot choose between them.
+
+3. **Render-target transitions, resolves, depth hazards and per-eye post-processing.** **D:** stereo
+   generally needs separate view-dependent intermediate images; NVIDIA's guide describes different
+   treatment for view-independent targets. [3D Vision guide][el-3dv-auto]
+   **I:** duplicated small passes and transition/submission overhead can be insensitive to main-eye
+   pixel count, while their shading remains pixel-dependent. **S/test:** one future question: does
+   removing one verified optional active pass reduce target transitions and critical-path cost?
+   Preserve every consumer and eye's output. Lower target-switch count alone is not a gain, as the
+   prior shadow trial demonstrates. Do not merge targets based solely on identical dimensions.
+
+4. **Occlusion population/history errors, not the already bounded helper wait.** **D:** D3D9 query
+   polling can synchronize or force submission depending on how it is used. [Query API][el-queries]
+   **L:** incorrect eye history and the cost of disabling occlusion are already recorded.
+   [VR-79][el-local-occlusion]
+   **Prediction/test:** independent histories should preserve per-eye visibility; additional query
+   management only becomes a performance target if its measured population is material. A slow
+   capture EVENT fence is not an OCCLUSION-query result. Keep issue cost, readiness, read cost and
+   additional draws separate. Do not reopen the measured 0.102 ms helper as a multi-millisecond fix.
+
+5. **Busy dynamic resources or residency churn.** **D:** AMD identifies buffer stalls as a possible
+   symptom of incorrect dynamic lock use; Microsoft documents resource-management pressure.
+   [AMD][el-amd], [resource management][el-resources]
+   **Prediction/test:** the lock/upload proposal needs stalls that track a specific lifetime/range or
+   residency event. If they are rare, this is a tail issue and cannot explain stable pair cost.
+   A small pool number, low aggregate CPU percentage or one expensive Lock sample is insufficient.
+
+6. **Engine-version and profiler overreach.** **D:** the 2011 Samaritan talk describes new DX11
+   rendering, not a retroactive D3D9 deferred-context capability. July 2011 notes add FXAA/MLAA;
+   November's multithreaded integration improvement is specifically under the Scaleform 4 upgrade.
+   [Samaritan GDC][el-samaritan], [July changelist][el-july], [November changelist][el-november]
+   **I/prediction:** none proves a dormant toggle in build 9099 or justifies a HUD rewrite. A claimed
+   capability must have a recognized consumer and changed downstream work before benchmarking.
+   Use short traced intervals with untraced controls, as already required by the uncap plan.
+
+### Source coverage and unresolved native details
+
+Primary sources above include Epic's public UE3 performance, rendering, shadowing, visibility,
+console, SystemSettings and VFX archives; public 2011 UDK changelists; the NVIDIA/Epic GDC renderer
+talk; NVIDIA stereo and D3D9-era guidance; AMD's D3D9 counters; and Microsoft API contracts. Epic's
+render-thread guide includes shipped Gears/UT examples and split-screen detail policy. The retrieved
+passage from the [Bulletstorm developer postmortem, October 2011][el-postmortem] discusses UE3
+adoption; no renderer-sharing algorithm or transferable timing was recovered from it. The full PDF
+was not retrievable, so it is not used to rule out other material in that issue. The
+[SIGGRAPH 2011 course index][el-siggraph] contains useful renderer work on other engines, not proof
+that those techniques exist as Dishonored controls. No cross-game benchmark is used as a forecast.
+
+The licensee-style `RenderingOverview` / `ThreadedRendering` pages were not retrievable as public UE3
+documentation during this research. No authoritative public source retrieved establishes build-9099
+shadow-sharing loops, exact `FSceneRenderer`/`FViewInfo` layout, `bIsSceneCapture` placement, native
+stereo class names, D3D9 RHI cache coverage, or a queue-depth-above-one control. These remain explicit
+verification gaps, not facts borrowed from UE4 or unlicensed engine-source mirrors. Public symbol
+suggestions above are navigation aids only. Existing verified local boundaries remain authoritative.
+[Local culling derivation][el-local-cull], [local view-state derivation][el-local-occlusion]
+
+Future UObject writers must use `IsLiveObject` with a current-level table and revalidate retained
+identities after menus. Render-thread structures that are not UObjects additionally require their
+own verified owner/lifetime contract; `IsLiveObject` cannot make an arbitrary renderer pointer valid.
+No proposed cache may retain borrowed call arguments across their lifetime. [Project rules][el-rules],
+[existing borrowed-renderer contract][el-local-cull]
+
+### Already tried, do not repeat
+
+| Prior route | Binding result and cross-reference |
+|---|---|
+| Dynamic shadows via INI | No useful throughput change in the applied restart comparison. Do not repeat unchanged or relabel it as a new lighting test. [Results and routes](#results-and-routes) |
+| Maximum frame latency 1/2/3 | Applied/read back without benefit. It is not a new engine pipeline-depth control. [Results and routes](#results-and-routes) |
+| Nonblocking desktop Present | Accepted calls, zero busy skips, no gain. Desktop omission is already a separate accepted policy. [Results and routes](#results-and-routes) |
+| Query-wait helper | About 0.102 ms/pair in the measured headset population; not the missing multi-millisecond cost. [Results and routes](#results-and-routes) |
+| DLSS SR for frame rate | Reconstructing fewer pixels did not overcome fixed rendering and helper cost. [DLSS SR record](#2026-09-26-dlss-super-resolution-phase-2---built-host-and-simulator-verified) |
+| Extra stereo pairs per tick | Headset route rejected. Do not resubmit this as parallel rendering. [Route 2 / headset correction](#2026-09-27-in-the-headset-the-gpu-is-the-limit-not-the-game-thread-corrects-the-routes-above) |
+| Culling, capture depth, driver tracing | Already preserved, measured or planned. This section refines eligibility and evidence, not a second independent research queue. [Culling boundary](#latest-boundary-initviews-and-frustum-culling), [other routes](#other-routes-worth-preserving), [uncap plan][el-uncap] |
+| Global occlusion disable | Correctness benefit with more draws and worse reported responsiveness. Preserve independent eye history; no blind left-eye reuse. [VR-79][el-local-occlusion] |
+
+### Open questions that only runtime evidence can settle
+
+1. At the current headset workload, how much of the older culling boundary is candidate gathering
+   versus irreducible per-eye work, and can its union avoid all missing primitives?
+2. Does a two-view family in this executable amortize any significant work at identical per-eye
+   pixels, effective quality, view history and UI behavior?
+3. Which light-space shadow producers, if any, duplicate identical inputs within a pair, and can
+   their atlas contents survive until both consumers without new copies or stalls?
+4. Which mapped detail/LOD/decal controls change actual submitted sections or geometry in the slow
+   scene, and are those reductions visually acceptable?
+5. Which requested profiling commands survive retail compilation and return meaningful data for
+   two scene draws per game tick?
+6. Do present-day driver waits accompany empty GPU intervals, busy resources, residency changes or
+   continuous GPU work? Does the existing uncap depth experiment remove gaps or move waiting?
+7. Are any view-independent captures, immutable classifications or particle-data builds actually
+   duplicated? A zero duplicate count is an answer, not a reason to add a cache.
+
+No launch is requested or armed by this research. Before any later playtest, define its single
+question and both outcomes, verify the installed build banner, and archive the current/previous logs.
+Success means preserved stereo correctness plus a repeatable pair-cost improvement, not a changed
+INI, an accepted API call or higher utilization. [Session rules][el-rules]
+
+[el-rt]: https://docs.unrealengine.com/udk/Three/RenderThreadProfilingHome.html
+[el-vis]: https://docs.unrealengine.com/udk/Three/VisibilityCulling.html
+[el-shadow]: https://docs.unrealengine.com/udk/Three/ShadowingReference.html
+[el-sys]: https://docs.unrealengine.com/udk/Three/SystemSettings.html
+[el-level]: https://docs.unrealengine.com/udk/Three/LevelOptimization.html
+[el-perf]: https://docs.unrealengine.com/udk/Three/PerformanceHome.html
+[el-capture]: https://docs.unrealengine.com/udk/Three/RenderToTexture.html
+[el-stats]: https://docs.unrealengine.com/udk/Three/StatsDescriptions.html
+[el-console]: https://docs.unrealengine.com/udk/Three/ConsoleCommands.html
+[el-basics]: https://docs.unrealengine.com/udk/Three/ProfilingBasics.html
+[el-vfx]: https://docs.unrealengine.com/udk/Three/VFXOptimization.html
+[el-vfx-concepts]: https://docs.unrealengine.com/udk/Three/VFXOptimizationConcepts.html
+[el-vfx-split]: https://docs.unrealengine.com/udk/Three/VFXOptimizationSplitScreen.html
+[el-foliage]: https://docs.unrealengine.com/udk/Three/Foliage.html
+[el-3dv]: https://docs.unrealengine.com/udk/Three/ThreeDVision.html
+[el-3dv-auto]: https://developer.download.nvidia.com/whitepapers/2010/3DV_BestPracticesGuide.pdf
+[el-stereo-talk]: https://www.nvidia.com/content/PDF/GDC2011/Stereoscopy.pdf
+[el-trioviz]: https://www.unrealengine.com/blog/darkworks-sdk-brings-3d-capabilities-to-unreal-engine-3
+[el-api]: https://learn.microsoft.com/en-us/windows/win32/direct3d9/accurately-profiling-direct3d-api-calls
+[el-dynamic]: https://learn.microsoft.com/en-us/windows/win32/direct3d9/performance-optimizations
+[el-amd]: https://drivers.amd.com/developer/gpuperfstudiohelp-v1.2.pdf
+[el-nv-guide]: https://download.nvidia.com/developer/GPU_Programming_Guide/GPU_Programming_Guide.pdf
+[el-threading]: https://learn.microsoft.com/en-us/windows/win32/direct3d11/overviews-direct3d-11-render-multi-thread-differences
+[el-create]: https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dcreate
+[el-queries]: https://learn.microsoft.com/en-us/windows/win32/direct3d9/queries
+[el-resources]: https://learn.microsoft.com/en-us/windows/win32/dxtecharts/resource-management-best-practices
+[el-driver]: https://www.nvidia.com/content/Control-Panel-Help/vLatest/en-us/mergedProjects/nv3d/Manage_3D_Settings_%28reference%29.htm
+[el-samaritan]: https://www.nvidia.com/content/pdf/gdc2011/epic.pdf
+[el-july]: https://www.unrealengine.com/blog/epic-games-releases-july-2011-unreal-development-kit-beta
+[el-november]: https://www.unrealengine.com/blog/epic-games-releases-november-2011-unreal-development-kit-beta
+[el-postmortem]: https://media.gdcvault.com/GD_Mag_Archives/GDM_October_2011.pdf
+[el-siggraph]: https://advances.realtimerendering.com/s2011/
+[el-map]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/docs/dishonored/GAME_CONFIG_MAP.md
+[el-rules]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/CLAUDE.md
+[el-local-cull]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/docs/dishonored/ENGINE_NOTES.md#frustum-culling-and-reflection-selector-2026-09-15
+[el-local-occlusion]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/docs/dishonored/ENGINE_NOTES.md#vr-79-the-engines-occlusion-query-switch-2026-09-24
+[el-local-cpu]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/docs/dishonored/PERFORMANCE.md#representative-cpu-evidence
+[el-routes]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/docs/dishonored/PERFORMANCE.md#results-and-routes
+[el-other]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/docs/dishonored/PERFORMANCE.md#other-routes-worth-preserving
+[el-uncap]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/docs/dishonored/PERFORMANCE.md#2026-09-27-the-uncap-deep-dive---where-the-headset-frame-goes-and-the-plan-that-tests-it
+[el-console-source]: https://github.com/VR-Stereo-Hub/Dishonored-VR/blob/81bef09dd/src/game/dishonored/console.cpp
