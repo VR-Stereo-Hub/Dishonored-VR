@@ -3288,3 +3288,13 @@ pair, above all per-pixel cost: the game's AA pass (MLAA is the VR preset) and b
 16x anisotropic override (the game's own default is 4x), the render size itself, and DLSS SR with the
 fast model, now that the headset is pixel-bound (re-test; its earlier headset loss used the heavy M/L
 presets). Sharing view-independent passes between the eyes targets F (~2.5 ms per pair) and the CPU floor.
+
+### Follow-up: the game's MLAA is switched off while DLSS/DLAA is on (2026-09-27)
+
+The VR preset (`[GameOptions] DefaultsAtStartup`, game_opts.cpp) wrote Antialiasing = MLAA at every launch.
+It now writes OFF (profile id 122 = 0, `AntialiasingMode_Off` in ArkProfileSettings) when `[Clarity] DLAA`
+is on - DLAA or Super Resolution already anti-alias, and MLAA is a full-screen pass in a headset shown above
+to be pixel-bound - and MLAA as before when it is off. Decided at launch, through the same pre-apply profile
+write the preset already used (a live switch would need the engine's settings apply called mid-session,
+not reverse-engineered). The log's `gameopts/defaults: startup policy` line names the value and why.
+Not yet measured: its rate gain with DLSS on (the MLAA cost was never isolated).
