@@ -20,7 +20,16 @@ plans; both apply unchanged to DLSS SR.
 Installed build 19:33 with the helper in `<game>\dvr_dlss\`. INI unchanged from before the
 session (DLAA off). Simulator: DLAA 69/s per eye, stereo 90 -> 69/s. No headset verdict yet.
 
-## Latest (smear fix)
+## Latest (vector accuracy)
+
+Second headset run: smear unchanged after the arms fix. The vectors were then measured in
+pixels (`dlss/flow`) and fixed: game matrices (`dlss vp on`) and depth scale 250. Next headset
+question: is the smear while walking and turning now gone or clearly reduced? A/B live:
+`dlss vp off` + `clarity depthscale 200` restores the previous vectors. If it persists with
+the vectors this accurate, the remaining suspects are NPCs/hands (no own vectors) and DLSS's
+own accumulation with zero jitter; read the run's `dlss/flow` lines first.
+
+## Earlier (arms fix)
 
 The first headset run judged DLAA very good with a slight smear while moving. The arms'
 vectors were the cause in the simulator and are fixed (`DlssBodyDepth=0.30`). Next headset

@@ -183,7 +183,7 @@ uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePo
     r.cam = g_camCam;
     r.eyePosOk = eyePos != nullptr;
     for (int j = 0; j < 3; ++j) r.eyePos[j] = eyePos ? eyePos[j] : 0.0f;
-    r.renderPosOk = false;
+    r.renderPosOk = false; r.renderVpOk = false;
     for (int j = 0; j < 3; ++j) r.renderPos[j] = 0.0f;
     r.hfovDeg = hfovDeg; r.cameraIdentity = cameraIdentity; r.sceneEpoch = sceneEpoch;
     r.openedMs = dvr::clock::now_ms();
@@ -202,6 +202,9 @@ bool note_render_pos(uint32_t id, const float c5[3])
     if (r.id != id) return false;
     for (int j = 0; j < 3; ++j) r.renderPos[j] = c5[j];
     r.renderPosOk = true;
+    // The world view-projection the same pass drew with (tied to the c5 upload, vs_const_hook).
+    r.renderVpOk = g_vpHave;
+    if (g_vpHave) memcpy(r.renderVp, g_vp, sizeof(r.renderVp));
     return true;
 }
 

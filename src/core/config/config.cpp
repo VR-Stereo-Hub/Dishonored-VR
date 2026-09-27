@@ -173,9 +173,9 @@ static bool WriteDefaultIni(const char* ini)
         "Temporal=0\n"
         "TemporalBlend=0.15\n"
         "; MotionVectors=1: experimental depth reprojection for Temporal. Live: clarity motion on|off.\n"
-        "; MotionDepthScale: coarse simulator calibration in uu per depth unit; live: clarity depthscale.\n"
+        "; MotionDepthScale: uu per depth unit, fitted through the game's own matrices; live: clarity depthscale.\n"
         "MotionVectors=0\n"
-        "MotionDepthScale=200\n"
+        "MotionDepthScale=250\n"
         "; DLAA=1 (experimental, NVIDIA RTX only): NVIDIA DLAA on each eye through the x64 helper in\n"
         "; Binaries\\Win32\\dvr_dlss (core/gfx/dlss.h). Replaces Temporal while it runs; Sharpen still\n"
         "; applies. Camera-only motion vectors, no jitter yet. Live: dlss on|off. DlssPreset: 0 = model K.\n"
@@ -1848,7 +1848,7 @@ static void LoadConfig()
             dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 0) != 0.0f, "ini");
             dvr::clarity::set_temporal(IniFloat(ini, "Clarity", "Temporal", 0) != 0.0f, "ini");
             dvr::clarity::set_motion(IniFloat(ini, "Clarity", "MotionVectors", 0) != 0.0f, "ini");
-            dvr::clarity::set_depth_scale(IniFloat(ini, "Clarity", "MotionDepthScale", 200), "ini");
+            dvr::clarity::set_depth_scale(IniFloat(ini, "Clarity", "MotionDepthScale", 250), "ini");
             dvr::clarity::set_blend(IniFloat(ini, "Clarity", "TemporalBlend", 0.15f), "ini");
             dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.40f), "ini");
             dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");

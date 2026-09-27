@@ -120,6 +120,27 @@ void status_tick() {
                      "by depth band in depth units, mean anti-smear mask; a band whose vec is near its zero is where the "
                      "vectors are wrong:%s | mask %s %.2f..%.2f", t, g_mask.load() ? "ON" : "off", g_maskLo.load(), g_maskHi.load());
         for (auto& b : g_guides.bins) b = AuditBin{};
+        const FlowStats& f = g_guides.flow;
+        if (f.n)
+            DVR_INFO("dlss/flow: %llu textured points (%llu rejected as flat/ambiguous) | vector error mean %.2f px, bias x %+.2f "
+                     "y %+.2f px, over 1 px %.0f%% | true/predicted gain x %.2f y %.2f (1 = right; 0.5 or 2 = a frame off) | "
+                     "mean predicted motion %.2f px, true %.2f px | arms band: %llu points, error %.2f px | per image: whole-image "
+                     "shift %.2f px, scatter around it %.2f px (%llu images; shift = pose, scatter = depth/projection/noise)",
+                     (unsigned long long)f.n, (unsigned long long)f.rejected, f.eabs / f.n, f.ex / f.n, f.ey / f.n,
+                     100.0 * f.big / f.n, f.mm[0] > 0 ? f.mt[0] / f.mm[0] : 0.0, f.mm[1] > 0 ? f.mt[1] / f.mm[1] : 0.0,
+                     f.pabs / f.n, f.tabs / f.n, (unsigned long long)f.armsN, f.armsN ? f.armsAbs / f.armsN : 0.0,
+                     f.frames ? f.frameShift / f.frames : 0.0, f.frames ? f.frameScatter / f.frames : 0.0,
+                     (unsigned long long)f.frames);
+        if (f.n) {
+            char t[400]; int m = 0;
+            for (int b = 0; b < kAuditBins; ++b)
+                if (f.bandN[b] > 200)
+                    m += _snprintf_s(t + m, sizeof(t) - m, _TRUNCATE, " %s: gain %.2f err %.2f px (%llu)", kAuditBinNames[b],
+                                     f.bandMm[b] > 0 ? f.bandMt[b] / f.bandMm[b] : 0.0, f.bandErr[b] / f.bandN[b],
+                                     (unsigned long long)f.bandN[b]);
+            DVR_INFO("dlss/flow bands: true/predicted gain and error per depth band (depth units):%s", t);
+        }
+        g_guides.flow = FlowStats{};
     }
     _snprintf_s(g_summary, _TRUNCATE, "DLAA L %.0f/s R %.0f/s, GPU %.2f/%.2f ms per eye, fallback %.0f/s",
                 g_win.eyes[0] / s, g_win.eyes[1] / s, gl, gr, g_win.fallback / s);
@@ -197,6 +218,7 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     if (state != Ready) { ++g_win.fallback; return nullptr; }
 
     char why[256] = "";
+    g_guides.bodyDepth = gp.bodyDepth;
     if (!g_guides.run(dev, ctx, gp, why, sizeof(why))) {
         if (!g_guideFailed) DVR_ERROR("dlss: the guide pass failed (%s) - DLAA is inert, the normal path runs", why);
         g_guideFailed = true;
@@ -266,6 +288,7 @@ bool command(const char* args) {
         float f = 1, r = 1, u = 1;
         if (sscanf(args, "%*s %f %f %f", &f, &r, &u) == 3) { dvr::clarity::set_translation_axes(f, r, u, "the seam"); return true; }
     }
+    if (n >= 2 && !_stricmp(sub, "vp")) { dvr::clarity::set_use_vp(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "body")) { dvr::clarity::set_body_depth((float)atof(val), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "pos")) { dvr::clarity::set_pos_source(!_stricmp(val, "render") ? 1 : 0, "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "mask")) { set_mask(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }

@@ -28,13 +28,16 @@ namespace {
 std::atomic<bool>  g_resolve{false};
 std::atomic<bool>  g_temporal{false};
 std::atomic<bool>  g_motion{false};
-std::atomic<float> g_depthScale{200.0f};
+std::atomic<float> g_depthScale{250.0f};   // flow-check fit through the render matrices (PERFORMANCE.md)
 std::atomic<float> g_blend{0.15f};
 std::atomic<float> g_sharpen{0.40f};
 std::atomic<uint32_t> g_epoch{1};
 std::atomic<int>   g_posSource{1};
 std::atomic<float> g_tAxis[3] = {1.0f, 1.0f, 1.0f};
-std::atomic<float> g_bodyDepth{0.3f};   // 1: the rendered c5 (measured better while walking), 0: the written position   // bumped by any lever change: histories restart
+std::atomic<float> g_bodyDepth{0.3f};
+std::atomic<bool>  g_useVp{true};
+dvr::pose::Record  g_dlssPrevRec[2];
+bool               g_dlssPrevRecOk[2] = {};   // 1: the rendered c5 (measured better while walking), 0: the written position   // bumped by any lever change: histories restart
 
 Gpu      g_gpu;
 bool     g_initTried = false, g_initOk = false;
@@ -317,6 +320,12 @@ void set_body_depth(float z, const char* who) {
              z, who ? who : "?", z > 0 ? "" : " (OFF: every pixel gets the walking parallax)");
 }
 float body_depth() { return g_bodyDepth.load(); }
+void set_use_vp(bool on, const char* who) {
+    g_useVp.store(on);
+    DVR_INFO("clarity: DLSS vectors from %s (%s)", on ? "the game's own view-projection matrices" : "the rotator/FOV reconstruction",
+             who ? who : "?");
+}
+bool use_vp() { return g_useVp.load(); }
 void set_translation_axes(float f, float r, float u, const char* who) {
     g_tAxis[0].store(f); g_tAxis[1].store(r); g_tAxis[2].store(u);
     DVR_INFO("clarity: DLSS guide translation axes x%.2f forward, x%.2f right, x%.2f up (%s, diagnostic)", f, r, u, who ? who : "?");
@@ -414,6 +423,19 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                 if (auto* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh)) {
                     gp.sceneDepth = depth; gp.depthW = dw; gp.depthH = dh; gp.depthScale = g_depthScale.load();
                     gp.bodyDepth = g_bodyDepth.load();
+                }
+                {   // the matrices the game drew this and the previous image of the eye with
+                    dvr::pose::Record rc = {};
+                    const bool have = dvr::pose::copy(recId, &rc) && rc.renderVpOk && rc.renderPosOk;
+                    if (g_useVp.load() && gp.historyValid && have && g_dlssPrevRecOk[e]) {
+                        gp.useVp = true;
+                        memcpy(gp.vpCur, rc.renderVp, sizeof(gp.vpCur));
+                        memcpy(gp.vpPrev, g_dlssPrevRec[e].renderVp, sizeof(gp.vpPrev));
+                        // c5 is the NEGATED world position: current minus previous camera = prev c5 - cur c5.
+                        for (int j = 0; j < 3; ++j) gp.camDelta[j] = g_dlssPrevRec[e].renderPos[j] - rc.renderPos[j];
+                    }
+                    g_dlssPrevRecOk[e] = have;
+                    if (have) g_dlssPrevRec[e] = rc;
                 }
                 dlaa = dvr::dlss::run(dev, ctx, src, w, h, e, gp, !gp.historyValid);
             }

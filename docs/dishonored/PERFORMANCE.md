@@ -2895,3 +2895,26 @@ All numbers below: stick walking in the simulator, 12 s per condition, vec/zero 
   the mask cannot see sub-pixel errors, so it ships OFF as an A/B (`dlss mask on|off`).
 - Left: NPCs and controller-moved hands have no own vectors; the remaining far-band residual
   sits near the frame noise floor. Headset verdict on the fix pending.
+
+
+### 2026-09-26 (later still): vector accuracy in pixels - matrices and the real depth scale
+
+The second headset run reported the smear unchanged; its audit showed error spread across all
+depth bands, not the arms. New `dlss/flow` block-search check (FLICKER_REFERENCE top entry has
+the method). Simulator, 12 s per condition:
+
+| Condition | walk | strafe | smooth stick turn |
+|---|---|---|---|
+| rotator/FOV vectors, scale 200 | 1.68 px, gain 0.90 | 1.28 px, 0.84 | 1.38 px, shift 1.04 |
+| game matrices, scale 200 | 1.68 px, 0.90 | 1.28 px, 0.84 | 0.56 px, shift 0.13 |
+| game matrices, scale 300 | 1.44 px, 1.07 | 0.99 px, 1.10 | - |
+| game matrices, scale 250 (shipped) | 0.66 px, 0.98 | 0.64 px, 0.98 | 0.43 px, 1.00 |
+| standing still (instrument floor) | 0.28-0.41 px | | |
+
+- The captured world view-projection is camera-relative and row-vector: `clip = [P - C, 1] * M`,
+  with w the linear view depth in uu (checked: forward yaw -81.5 vs record -81.46, 103 degrees
+  FOV, square pixels). It is stored per record at the present with the rendered c5.
+- Depth is linear in scene alpha (gain flat across bands); 250 uu per depth unit replaces the
+  coarse 200 from the rotator-model calibration. `MotionDepthScale` default 250 (the custom TAA
+  shares it).
+- `dlss vp on|off` A/Bs matrix vs rotator vectors live; `dlss taxis` is a diagnostic only.

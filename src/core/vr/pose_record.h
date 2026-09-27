@@ -82,6 +82,8 @@ struct Record {
     float    eyePos[3];       // the position the camera seam WROTE for this draw (c5 convention)
     bool     eyePosOk;
     float    renderPos[3];    // c5 the draw was RENDERED with, read at its present (c5 convention).
+    float    renderVp[16];    // the world view-projection (c0..c3 as uploaded) in effect at that present
+    bool     renderVpOk;
     bool     renderPosOk;     // Differs from eyePos while walking: the engine moves the pawn after
                               // the tick's write, and pass 1 (left) records that earlier write.
     uint64_t sceneEpoch;      // level-load/UI transition generation at draw

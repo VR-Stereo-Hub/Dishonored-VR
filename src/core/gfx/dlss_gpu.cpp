@@ -33,7 +33,10 @@ const char* kSrc =
     "    float4 gSize;   // w, h, depth w, depth h\n"
     "    float4 gFlags;  // prev tanH, prev tanV, use depth, history valid\n"
     "    float4 gMask;   // lo, hi, previous colour valid, audit grid\n"
-    "    float4 gBody;   // body depth (depth units; nearer = arms/weapon: rotation only)\n"
+    "    float4 gBody;   // body depth (depth units; nearer = arms/weapon: rotation only), use VP\n"
+    "    float4 gCa, gCb, gCw;   // current clip x, y, w as linear forms of the camera-relative point (xyz) + constant (w)\n"
+    "    float4 gPa, gPb, gPw;   // the previous image's\n"
+    "    float4 gD;              // current minus previous camera, world uu\n"
     "};\n"
     "Texture2D tDepth : register(t0);\n"
     "struct PSOut { float depth : SV_Target0; float2 mv : SV_Target1; };\n"
@@ -49,6 +52,25 @@ const char* kSrc =
     "    o.depth = scene ? 1.0 / (1.0 + z) : 0.0;\n"
     "    o.mv = 0;\n"
     "    if (gFlags.w < 0.5) return o;\n"
+    "    if (gBody.y > 0.5) {\n"
+    "        // Solve the camera-relative point from this pixel's NDC and its view depth w, through\n"
+    "        // the matrix the game drew with, then project it through the previous image's.\n"
+    "        float nx = uv.x * 2 - 1, ny = 1 - uv.y * 2;\n"
+    "        float w = scene ? z * gT.w : 1.0e6;\n"
+    "        float3 r0 = gCa.xyz - nx * gCw.xyz, r1 = gCb.xyz - ny * gCw.xyz, r2 = gCw.xyz;\n"
+    "        float3 rhs = float3(nx * gCw.w - gCa.w, ny * gCw.w - gCb.w, w - gCw.w);\n"
+    "        float det = dot(r0, cross(r1, r2));\n"
+    "        if (abs(det) < 1e-12) return o;\n"
+    "        float3 P = float3(dot(rhs, float3(cross(r1, r2).x, cross(r2, r0).x, cross(r0, r1).x)),\n"
+    "                          dot(rhs, float3(cross(r1, r2).y, cross(r2, r0).y, cross(r0, r1).y)),\n"
+    "                          dot(rhs, float3(cross(r1, r2).z, cross(r2, r0).z, cross(r0, r1).z))) / det;\n"
+    "        if (scene && z >= gBody.x) P += gD.xyz;\n"
+    "        float pw = dot(gPw.xyz, P) + gPw.w;\n"
+    "        if (!(pw > 1e-3) || !all(isfinite(P))) return o;\n"
+    "        float px = (dot(gPa.xyz, P) + gPa.w) / pw, py = (dot(gPb.xyz, P) + gPb.w) / pw;\n"
+    "        o.mv = float2(0.5 + 0.5 * px, 0.5 - 0.5 * py) - uv;\n"
+    "        return o;\n"
+    "    }\n"
     "    float3 ray = float3(1, (uv.x*2-1)*gRowR.w, (1-uv.y*2)*gRowU.w);\n"
     "    float3 q = float3(dot(gRowF.xyz,ray), dot(gRowR.xyz,ray), dot(gRowU.xyz,ray));\n"
     "    if (scene && z >= gBody.x) q += gT.xyz / (z*gT.w);\n"
@@ -93,6 +115,37 @@ const char* kSrc =
     "    float zeroErr = abs(lc - Luma(tPrev.Load(int3(p, 0)).rgb));\n"
     "    float vecErr = (any(puv < 0) || any(puv > 1)) ? -1.0 : abs(lc - Luma(tPrev.SampleLevel(sLinear, puv, 0).rgb));\n"
     "    return float4(vecErr, zeroErr, z, tBias.Load(int3(p, 0)).r);\n"
+    "}\n"
+    "float LumaCur(int2 q) { return Luma(tCur.Load(int3(clamp(q, int2(0,0), int2(gSize.xy)-1), 0)).rgb); }\n"
+    "float LumaPrev(float2 px) { return Luma(tPrev.SampleLevel(sLinear, px / gSize.xy, 0).rgb); }\n"
+    "struct FlowOut { float4 a : SV_Target0; float4 b : SV_Target1; };\n"
+    "FlowOut ps_flow(VSOut i) {\n"
+    "    FlowOut o; o.a = 0; o.b = 0;\n"
+    "    int2 p = int2((floor(i.pos.xy) + 0.5) / gMask.w * gSize.xy);\n"
+    "    float2 mv = tMv.Load(int3(p, 0)).xy * gSize.xy;\n"
+    "    float2 pred = float2(p) + 0.5 + mv;\n"
+    "    float d = tGd.Load(int3(p, 0)).r;\n"
+    "    o.b.y = d > 0 ? 1.0 / d - 1.0 : -1.0;\n"
+    "    if (gMask.z < 0.5 || any(pred < 8) || any(pred > gSize.xy - 8)) return o;\n"
+    "    float c[25]; float cmin = 1, cmax = 0;\n"
+    "    [unroll] for (int k = 0; k < 25; ++k) { c[k] = LumaCur(p + int2(k % 5 - 2, k / 5 - 2)); cmin = min(cmin, c[k]); cmax = max(cmax, c[k]); }\n"
+    "    float sad[81]; float best = 1e9, total = 0; int bi = 40;\n"
+    "    [loop] for (int s = 0; s < 81; ++s) {\n"
+    "        float2 off = float2(s % 9 - 4, s / 9 - 4);\n"
+    "        float acc = 0;\n"
+    "        [unroll] for (int k = 0; k < 25; ++k) acc += abs(c[k] - LumaPrev(pred + off + float2(k % 5 - 2, k / 5 - 2)));\n"
+    "        sad[s] = acc / 25; total += sad[s];\n"
+    "        if (sad[s] < best) { best = sad[s]; bi = s; }\n"
+    "    }\n"
+    "    int bx = bi % 9, by = bi / 9;\n"
+    "    float2 e = float2(bx - 4, by - 4);\n"
+    "    if (bx > 0 && bx < 8) { float l = sad[bi-1], r = sad[bi+1], den = l - 2*best + r; if (den > 1e-6) e.x += 0.5 * (l - r) / den; }\n"
+    "    if (by > 0 && by < 8) { float u = sad[bi-9], w = sad[bi+9], den = u - 2*best + w; if (den > 1e-6) e.y += 0.5 * (u - w) / den; }\n"
+    "    float mean = total / 81;\n"
+    "    bool conf = cmax - cmin > 0.06 && best < 0.5 * mean && bx > 0 && bx < 8 && by > 0 && by < 8;\n"
+    "    o.a = float4(e, mv);\n"
+    "    o.b.x = conf ? 1 : 0; o.b.z = best; o.b.w = mean;\n"
+    "    return o;\n"
     "}\n";
 
 void say(char* why, size_t cap, const char* fmt, ...) {
@@ -103,7 +156,7 @@ void say(char* why, size_t cap, const char* fmt, ...) {
 }
 template <class T> void rel(T*& p) { if (p) { p->Release(); p = nullptr; } }
 
-float g_cb[32] = {};
+float g_cb[60] = {};
 
 } // namespace
 
@@ -127,7 +180,8 @@ bool GuideGpu::init(ID3D11Device* dev, char* why, size_t cap) {
         return true;
     };
     if (!build("vsmain", "vs_4_0", (void**)&vs_, true) || !build("psmain", "ps_4_0", (void**)&ps_, false) ||
-        !build("ps_mask", "ps_4_0", (void**)&psMask_, false) || !build("ps_audit", "ps_4_0", (void**)&psAudit_, false)) {
+        !build("ps_mask", "ps_4_0", (void**)&psMask_, false) || !build("ps_audit", "ps_4_0", (void**)&psAudit_, false) ||
+        !build("ps_flow", "ps_5_0", (void**)&psFlow_, false)) {
         shutdown(); return false;
     }
     D3D11_BUFFER_DESC bd = {};
@@ -156,7 +210,14 @@ bool GuideGpu::init(ID3D11Device* dev, char* why, size_t cap) {
     if (auditTex_) dev->CreateRenderTargetView(auditTex_, nullptr, &auditRtv_);
     td.Usage = D3D11_USAGE_STAGING; td.BindFlags = 0; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     for (auto& s : auditStage_) dev->CreateTexture2D(&td, nullptr, &s);
-    ready_ = cb_ && raster_ && blend_ && ds_ && linear_ && auditRtv_ && auditStage_[0] && auditStage_[1];
+    for (int t = 0; t < 2; ++t) for (auto& s : flowStage_[t]) dev->CreateTexture2D(&td, nullptr, &s);
+    td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_RENDER_TARGET; td.CPUAccessFlags = 0;
+    for (int t = 0; t < 2; ++t) {
+        dev->CreateTexture2D(&td, nullptr, &flowTex_[t]);
+        if (flowTex_[t]) dev->CreateRenderTargetView(flowTex_[t], nullptr, &flowRtv_[t]);
+    }
+    ready_ = cb_ && raster_ && blend_ && ds_ && linear_ && auditRtv_ && auditStage_[0] && auditStage_[1] &&
+             flowRtv_[0] && flowRtv_[1] && flowStage_[0][0] && flowStage_[0][1] && flowStage_[1][0] && flowStage_[1][1];
     if (!ready_) { say(why, cap, "state objects failed"); shutdown(); }
     return ready_;
 }
@@ -220,6 +281,18 @@ bool GuideGpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, const GuideParam
     cb[20] = p.prevTanH > 0 ? p.prevTanH : p.tanH; cb[21] = p.prevTanV > 0 ? p.prevTanV : p.tanV;
     cb[22] = useDepth ? 1.0f : 0.0f; cb[23] = p.historyValid ? 1.0f : 0.0f;
     cb[28] = p.bodyDepth > 0 ? p.bodyDepth : 0.0f;
+    cb[29] = p.useVp ? 1.0f : 0.0f;
+    if (p.useVp) {
+        // Row-vector matrices: clip_i = sum_j P_j * M[j][i] + M[3][i]; the linear form of clip_i
+        // is column i. x, y and w (columns 0, 1, 3), current then previous.
+        const float* ms[2] = {p.vpCur, p.vpPrev};
+        for (int k = 0; k < 2; ++k) {
+            const int cols[3] = {0, 1, 3};
+            for (int f = 0; f < 3; ++f)
+                for (int j = 0; j < 4; ++j) cb[32 + k * 12 + f * 4 + j] = ms[k][j * 4 + cols[f]];
+        }
+        for (int j = 0; j < 3; ++j) cb[56 + j] = p.camDelta[j];
+    }
     ctx->UpdateSubresource(cb_, 0, nullptr, cb, 0, 0);
     full_screen(ctx, raster_, blend_, ds_, vs_, ps_, cb_, p.w, p.h);
     ID3D11RenderTargetView* rtvs[2] = {depthRtv_, motionRtv_};
@@ -303,6 +376,46 @@ void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D1
             }
         }
         ctx->Unmap(auditStage_[s], 0);
+        D3D11_MAPPED_SUBRESOURCE ma = {}, mb = {};
+        if (ctx->Map(flowStage_[0][s], 0, D3D11_MAP_READ, 0, &ma) == S_OK) {
+            if (ctx->Map(flowStage_[1][s], 0, D3D11_MAP_READ, 0, &mb) == S_OK) {
+                double fx = 0, fy = 0; uint64_t fn = 0;
+                for (int pass = 0; pass < 2; ++pass)
+                for (int y = 0; y < kAuditGrid; ++y) {
+                    const float* ra = (const float*)((const uint8_t*)ma.pData + (size_t)y * ma.RowPitch);
+                    const float* rb = (const float*)((const uint8_t*)mb.pData + (size_t)y * mb.RowPitch);
+                    for (int x = 0; x < kAuditGrid; ++x) {
+                        const float* a = ra + x * 4; const float* b = rb + x * 4;
+                        const float ex = a[0], ey = a[1], mx = a[2], my = a[3], z = b[1];
+                        const bool arms = z >= 0 && z < bodyDepth;
+                        if (pass == 1) {   // scatter around this image's mean shift
+                            if (b[0] >= 0.5f && !arms && fn >= 50) {
+                                const double dx = ex - fx / fn, dy = ey - fy / fn;
+                                flow.frameScatter += sqrt(dx * dx + dy * dy) / fn;
+                            }
+                            continue;
+                        }
+                        if (b[0] < 0.5f) { ++flow.rejected; continue; }
+                        const float eabs = sqrtf(ex * ex + ey * ey);
+                        if (arms) { ++flow.armsN; flow.armsAbs += eabs; continue; }
+                        fx += ex; fy += ey; ++fn;
+                        const float tx = mx + ex, ty = my + ey;
+                        ++flow.n; flow.ex += ex; flow.ey += ey; flow.eabs += eabs;
+                        flow.mt[0] += mx * tx; flow.mm[0] += mx * mx; flow.mt[1] += my * ty; flow.mm[1] += my * my;
+                        flow.pabs += sqrtf(mx * mx + my * my); flow.tabs += sqrtf(tx * tx + ty * ty);
+                        if (eabs > 1.0f) ++flow.big;
+                        {
+                            const int bb = z < 0 ? 7 : z < 0.1f ? 0 : z < 0.3f ? 1 : z < 1 ? 2 : z < 2 ? 3 : z < 10 ? 4 : z < 50 ? 5 : z < 1000 ? 6 : 7;
+                            flow.bandMt[bb] += mx * tx + my * ty; flow.bandMm[bb] += mx * mx + my * my;
+                            flow.bandErr[bb] += eabs; ++flow.bandN[bb];
+                        }
+                    }
+                }
+                if (fn >= 50) { ++flow.frames; flow.frameShift += sqrt((fx / fn) * (fx / fn) + (fy / fn) * (fy / fn)); }
+                ctx->Unmap(flowStage_[1][s], 0);
+            }
+            ctx->Unmap(flowStage_[0][s], 0);
+        }
         auditPending_[s] = false;
     }
     if (!prevOk_[eye] || !prevSrv_[eye]) return;
@@ -320,6 +433,17 @@ void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D1
     ID3D11RenderTargetView* noRt = nullptr;
     ctx->OMSetRenderTargets(1, &noRt, nullptr);
     ctx->CopyResource(auditStage_[s], auditTex_);
+    // The flow check on the same points (MRT: err + predicted vector, confidence + depth).
+    full_screen(ctx, raster_, blend_, ds_, vs_, psFlow_, cb_, kAuditGrid, kAuditGrid);
+    ctx->OMSetRenderTargets(2, flowRtv_, nullptr);
+    ctx->PSSetShaderResources(0, 5, srvs);
+    ctx->PSSetSamplers(0, 1, &linear_);
+    ctx->Draw(3, 0);
+    ctx->PSSetShaderResources(0, 5, none);
+    ID3D11RenderTargetView* noRt2[2] = {nullptr, nullptr};
+    ctx->OMSetRenderTargets(2, noRt2, nullptr);
+    ctx->CopyResource(flowStage_[0][s], flowTex_[0]);
+    ctx->CopyResource(flowStage_[1][s], flowTex_[1]);
     auditPending_[s] = true;
 }
 
@@ -331,6 +455,9 @@ void GuideGpu::shutdown() {
     for (int e = 0; e < 2; ++e) { rel(prevSrv_[e]); rel(prev_[e]); prevOk_[e] = false; }
     prevBytes_ = 0;
     rel(auditRtv_); rel(auditTex_);
+    for (int t = 0; t < 2; ++t) { rel(flowRtv_[t]); rel(flowTex_[t]); rel(flowStage_[t][0]); rel(flowStage_[t][1]); }
+    rel(psFlow_);
+    flow = FlowStats{};
     for (int s = 0; s < 2; ++s) { rel(auditStage_[s]); auditPending_[s] = false; }
     rel(linear_); rel(ds_); rel(blend_); rel(raster_); rel(cb_);
     rel(psAudit_); rel(psMask_); rel(ps_); rel(vs_);

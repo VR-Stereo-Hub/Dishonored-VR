@@ -1,3 +1,12 @@
+## DLAA vectors now pixel-accurate in the simulator (2026-09-26, latest)
+
+Second headset run: smear unchanged after the arms fix. New `dlss/flow` check measured vector
+error in pixels: walking 1.68 px, turning 1.38 px. Two causes fixed: the vectors now reproject
+through the game's own captured view-projection matrices (turn 1.38 -> 0.43 px, per-image pose
+drift 1.04 -> 0.07 px), and the real depth scale is 250 uu/unit, not 200 (walk 1.68 -> 0.66 px,
+strafe 1.28 -> 0.64 px, gain 0.98-1.01 in every depth band). Instrument floor 0.28-0.41 px.
+Installed build 20:44; INI unchanged (`aa471020...`, user's DLAA=1). Headset check pending.
+
 ## DLAA walking smear (2026-09-26, later) - arms vectors fixed in the simulator
 
 Headset: DLAA judged very good (better with SSW), slight smear when moving. New `dlss/audit`

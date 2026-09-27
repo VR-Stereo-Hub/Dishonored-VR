@@ -1,3 +1,31 @@
+## 2026-09-26: DLAA smear unchanged after the arms fix - vector accuracy measured in pixels, fixed
+
+1. **Symptom:** the second headset run (build 20:12, `DlssBodyDepth` 0.30 active) reported the
+   moving smear exactly as before. Same surface as the entry below.
+2. **Reproduction:** that run's log (`build/dlss-install/headset2/`): the arms band was a small
+   share of samples; every band's vector error was still about half its no-motion error. The
+   simulator runs below use build 20:26-20:44, `dvr-xrsim` 90 Hz, 2750x2850.
+3. **Instrument:** `dlss/flow` - at 4096 points per eye image, a 9x9 block search (5x5 patches,
+   sub-pixel) around the vector's predicted source finds the true source. It reports mean error
+   in pixels, true/predicted gain per axis and per depth band, and splits each image's error
+   into its whole-image shift (pose) and the scatter around it (depth/projection/noise).
+   Floor standing still: 0.28-0.41 px.
+4. **Hypotheses and results:**
+   - The game's motion blur: `[SystemSettings] MotionBlur=False` on this install. RETRACTED.
+   - The rotator/FOV reconstruction differs from the matrix the game drew with: smooth stick
+     turn 1.38 px error, whole-image shift 1.04 px. Reprojecting through the captured world
+     view-projection (c0..c3 at the c5 upload: camera-relative, row vector, forward yaw and
+     FOV match the record) gave 0.56 px, shift 0.13. CONFIRMED: the per-image pose drift.
+   - Depth scale: through the matrices, gain was flat across depth bands (depth is linear in
+     scene alpha) at 0.83-0.94 for 200 and 1.03-1.18 for 300. 250: walk 0.66 px (from 1.68),
+     strafe 0.64 (from 1.28), turn 0.43, gain 0.98-1.01 in every band. CONFIRMED: 200 was the
+     coarse rotator-model minimum, 250 the matrix-model fit.
+5. **Change:** `dlss vp on` (default) uses the recorded matrices of this and the previous
+   image of the eye plus the c5 change; `MotionDepthScale` default 250. Host test 12/12.
+   Headset verdict open.
+6. **Status:** measured and fixed in the simulator; the vectors now sit near the instrument
+   floor. Remaining without own vectors: NPCs, controller-moved hands.
+
 ## 2026-09-26: DLAA smear while walking - the arms had the world's vectors (measured, fix in simulator)
 
 1. **Symptom:** with DLAA on (branch `claude/dlss-dlaa`), the headset showed a slight smear

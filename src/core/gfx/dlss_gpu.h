@@ -54,8 +54,14 @@ struct GuideParams {
     float tanH = 1, tanV = 1, prevTanH = 0, prevTanV = 0;
     ID3D11ShaderResourceView* sceneDepth = nullptr;   // alpha = linear depth; null = rotation only, depth 0
     uint32_t depthW = 0, depthH = 0;
-    float depthScale = 200.0f;            // uu per depth unit (the coarse measured minimum)
+    float depthScale = 250.0f;            // uu per depth unit (the flow-check fit)
     float bodyDepth = 0.3f;               // depth units: nearer is the player's own arms/weapon (0 = off)
+    // The game's own world view-projections (c0..c3 at the c5 upload, camera-relative, row
+    // vector: clip = [P - C, 1] * M), current and previous image of this eye. When set, the
+    // vectors reproject through them instead of the rotator/FOV reconstruction above.
+    bool useVp = false;
+    float vpCur[16] = {}, vpPrev[16] = {};
+    float camDelta[3] = {};               // current minus previous camera position, world (uu)
 };
 
 // The in-game audit of the vectors (sparse grid, read back without stalling): mean luminance
@@ -63,6 +69,28 @@ struct GuideParams {
 // with no movement, binned by scene depth. A bin whose vector error is not well below its
 // zero-motion error is where the vectors are wrong. `masked` is the mean bias mask there.
 struct AuditBin { double vecErr = 0, zeroErr = 0, masked = 0; uint64_t n = 0; };
+
+// The flow check: at each audit point, a 9x9-pixel block search (5x5 luminance patches, sub-pixel
+// by parabola) around where the vector says the pixel came from finds where it really came
+// from. err = found minus predicted, in render pixels. gain = true motion over predicted motion
+// per axis (least squares): 1 = right, 0.5 or 2 = the vectors are timed a frame off, and a
+// steady bias is an offset. Only confident, textured points count; arms (nearer than the body
+// depth) are kept apart.
+struct FlowStats {
+    uint64_t n = 0, rejected = 0;
+    double ex = 0, ey = 0, eabs = 0;          // sums of err x, err y, |err|
+    double mt[2] = {}, mm[2] = {};            // sum of predicted*true and predicted^2 per axis
+    double pabs = 0, tabs = 0;                // sums of |predicted| and |true|
+    uint64_t big = 0;                         // points with |err| > 1 px
+    uint64_t armsN = 0; double armsAbs = 0;   // the body band, kept apart
+    // Per audited image: |its mean error| (a whole-image shift = the pose the image was rendered
+    // with differs from the recorded one) and the mean distance of its points from that mean
+    // (per-pixel scatter = depth, projection or matching noise).
+    uint64_t frames = 0; double frameShift = 0, frameScatter = 0;
+    // Per depth band (the audit's bins): true/predicted gain along the predicted direction and
+    // mean error. A gain that drifts with depth means the depth is not linear in scene alpha.
+    double bandMt[8] = {}, bandMm[8] = {}, bandErr[8] = {}; uint64_t bandN[8] = {};
+};
 const int kAuditBins = 8;   // depth units
 const char* const kAuditBinNames[kAuditBins] = {"<0.1", "0.1-0.3", "0.3-1", "1-2", "2-10", "10-50", "50-1000", "sky"};
 
@@ -86,6 +114,8 @@ public:
     // oldest finished one, never waiting for the GPU.
     void audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color);
     AuditBin bins[kAuditBins];
+    FlowStats flow;
+    float bodyDepth = 0.3f;   // the arms/weapon band the flow check keeps apart
     uint64_t bytes() const;
 private:
     bool ensure(ID3D11Device* dev, uint32_t w, uint32_t h, char* why, size_t cap);
@@ -114,6 +144,10 @@ private:
     ID3D11Texture2D* auditTex_ = nullptr;
     ID3D11RenderTargetView* auditRtv_ = nullptr;
     ID3D11Texture2D* auditStage_[2] = {};
+    ID3D11PixelShader* psFlow_ = nullptr;
+    ID3D11Texture2D* flowTex_[2] = {};
+    ID3D11RenderTargetView* flowRtv_[2] = {};
+    ID3D11Texture2D* flowStage_[2][2] = {};
     bool auditPending_[2] = {};
     int auditNext_ = 0;
     uint32_t w_ = 0, h_ = 0;

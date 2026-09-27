@@ -71,6 +71,10 @@ void set_translation_axes(float f, float r, float u, const char* who);
 // DLSS guides: nearer than this (depth units) is the player's own arms/weapon, whose vectors
 // keep rotation and drop walking parallax. 0 = off. `dlss body <z>`, [Clarity] DlssBodyDepth.
 void set_body_depth(float z, const char* who);
+// DLSS vectors from the game's own view-projection matrices (1, default) or the rotator/FOV
+// reconstruction (0). `dlss vp on|off`.
+void set_use_vp(bool on, const char* who);
+bool use_vp();
 float body_depth();
 
 // Motion vectors step 3: measure the game's depth scale from camera motion ([Diagnostics] MotionCalib).
