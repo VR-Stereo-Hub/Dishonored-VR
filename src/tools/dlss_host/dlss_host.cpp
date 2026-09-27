@@ -318,7 +318,9 @@ bool DoBuild(const Build& b, BuildAck& ack) {
 
     const bool dlaa = b.outWidth == b.width && b.outHeight == b.height;
     // The quality mode follows the per-axis ratio the proxy chose (dlss.h): 1.5 Quality,
-    // 1.72 Balanced, 2 Performance, 3 Ultra Performance.
+    // 1.72 Balanced, 2 Performance, 3 Ultra Performance. Ultra Quality (1.3) is created as
+    // MaxQuality with the larger render: the 310.7 runtime refuses NGX's own UltraQuality value
+    // (CreateFeature 0xBAD00010 UnsupportedParameter, tools/dlss-host-tests.cpp).
     const float ratio = b.width ? (float)b.outWidth / (float)b.width : 1.0f;
     const NVSDK_NGX_PerfQuality_Value pq = dlaa ? NVSDK_NGX_PerfQuality_Value_DLAA
         : ratio < 1.6f ? NVSDK_NGX_PerfQuality_Value_MaxQuality
@@ -328,8 +330,11 @@ bool DoBuild(const Build& b, BuildAck& ack) {
     // must not change what the log claims). Default K for every mode: NVIDIA's own M/L for
     // Performance/Ultra Performance cost 2.8-9.7 ms per eye at a 2750x2850 output here against
     // K's 2.0-2.2 (tools/dlss-host-test.ps1 -Cost). A nonzero proxy preset overrides all.
-    const int pk = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_K;
-    const int pm = pk, pl = pk;
+    // 16 (the proxy's "NVIDIA recommended per mode"): K, M for Performance, L for Ultra Performance.
+    const bool perMode = b.preset == 16;
+    const int pk = (b.preset > 0 && !perMode) ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+    const int pm = perMode ? (int)NVSDK_NGX_DLSS_Hint_Render_Preset_M : pk;
+    const int pl = perMode ? (int)NVSDK_NGX_DLSS_Hint_Render_Preset_L : pk;
     ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, pk);
     ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, pk);
     ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, pk);

@@ -846,21 +846,50 @@ static void OvlTabDisplay()
                 OvlSaveOnRelease("Clarity", "DlssMaskHi", dvr::dlss::mask_hi(), "%.3f");
                 OvlTip("Lower catches more smearing but also smooths less.");
             }
-            int q = dvr::dlss::quality();
-            if (dvr::ovl::slider_int("DLSS mode", &q, 0, dvr::dlss::QCount - 1, dvr::dlss::quality_name(q), ImGuiSliderFlags_AlwaysClamp)) {
-                dvr::dlss::set_quality(q, "F10 Display");
-                char v[8]; _snprintf(v, sizeof(v), "%d", q);
-                ConfigWriteKey("Clarity", "DlssQuality", v, "F10 Display");
+            {   // The mode, listed in render-size order (Ultra Quality is saved as 5, dlss.h).
+                static const char* const kModeTip[dvr::dlss::QCount] = {
+                    "Full resolution: the sharpest and the most expensive.",
+                    "Renders at 67% of the output per axis (45% of the pixels) and rebuilds the rest.",
+                    "Renders at 58% per axis (34% of the pixels).",
+                    "Renders at 50% per axis (25% of the pixels).",
+                    "Renders at 33% per axis (11% of the pixels): the softest.",
+                    "Renders at 77% per axis (59% of the pixels): nearly DLAA, a little cheaper.",
+                };
+                const int q = dvr::dlss::quality();
+                if (ImGui::BeginCombo("DLSS mode", dvr::dlss::quality_name(q))) {
+                    for (int k = 0; k < dvr::dlss::QCount; ++k) {
+                        const int m = dvr::dlss::kQualityOrder[k];
+                        if (ImGui::Selectable(dvr::dlss::quality_name(m), m == q)) {
+                            dvr::dlss::set_quality(m, "F10 Display");
+                            char v[8]; _snprintf(v, sizeof(v), "%d", m);
+                            ConfigWriteKey("Clarity", "DlssQuality", v, "F10 Display");
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kModeTip[m]);
+                    }
+                    ImGui::EndCombo();
+                }
+                OvlTip("How small the game renders before DLSS rebuilds the full picture. Smaller is softer; in this "
+                       "game it saves little frame rate (the game's cost barely follows its resolution). The game "
+                       "resizes when you change it.");
             }
-            OvlTip("DLAA renders at full resolution. Quality, Balanced and Performance render smaller and rebuild the "
-                   "full picture: faster, a little softer. The game resizes when you change it.");
-            bool fast = dvr::dlss::model() == 1;
-            if (dvr::ovl::checkbox("DLSS fast model", &fast)) {
-                dvr::dlss::set_model(fast ? 1 : 0, "F10 Display");
-                ConfigWriteKey("Clarity", "DlssModel", fast ? "1" : "0", "F10 Display");
+            {   // The model: DlssModel + DlssPreset as one choice.
+                const int cur = dvr::dlss::model_choice();
+                char custom[40]; _snprintf(custom, sizeof(custom), "Custom preset %d", dvr::dlss::preset());
+                if (ImGui::BeginCombo("DLSS model", cur >= 0 ? dvr::dlss::kModelChoices[cur].name : custom)) {
+                    for (int i = 0; i < dvr::dlss::kModelChoiceCount; ++i) {
+                        if (ImGui::Selectable(dvr::dlss::kModelChoices[i].name, i == cur)) {
+                            dvr::dlss::set_model_choice(i, "F10 Display");
+                            char v[8];
+                            ConfigWriteKey("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", "F10 Display");
+                            _snprintf(v, sizeof(v), "%d", dvr::dlss::preset());
+                            ConfigWriteKey("Clarity", "DlssPreset", v, "F10 Display");
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", dvr::dlss::kModelChoices[i].tip);
+                    }
+                    ImGui::EndCombo();
+                }
+                OvlTip(cur >= 0 ? dvr::dlss::kModelChoices[cur].tip : "A raw NVIDIA preset number from the ini (DlssPreset).");
             }
-            OvlTip("The older, lighter NVIDIA model: about half a millisecond per eye instead of two. "
-                   "Slightly less sharp and more prone to ghosting than the default.");
             bool jit = dvr::dlss::jitter::enabled();
             if (dvr::ovl::checkbox("DLSS jitter (experimental)", &jit)) {
                 dvr::dlss::jitter::set_enabled(jit, "F10 Display");
