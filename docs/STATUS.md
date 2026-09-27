@@ -1,3 +1,14 @@
+## DLAA walking smear (2026-09-26, later) - arms vectors fixed in the simulator
+
+Headset: DLAA judged very good (better with SSW), slight smear when moving. New `dlss/audit`
+per depth band found the cause: the first-person arms (0.1-0.3 depth units) got the world's
+walking parallax, 3.2x worse than no vectors, while every farther band improved. Fix:
+`[Clarity] DlssBodyDepth=0.30` - nearer pixels keep head rotation, drop translation; arms band
+now equals no motion, farther bands unchanged. Written-vs-rendered position and a forward-axis
+sign error were both measured and retracted. Anti-smear bias mask built, ships off (A/B).
+Host test 12/12. Installed build carries the fix; INI restored byte-for-byte (user's DLAA=1
+kept, `aa471020...`). Headset check pending. Detail: FLICKER_REFERENCE top entry, PERFORMANCE.
+
 ## DLAA through an x64 NGX helper (2026-09-26) - built, host and simulator verified, not merged
 
 Branch `claude/dlss-dlaa` (renamed from `codex/fsr-implementation`; stacked on the unmerged

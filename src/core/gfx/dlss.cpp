@@ -7,6 +7,7 @@
 #include "core/gfx/dlss.h"
 #include "core/gfx/dlss_client.h"
 #include "core/gfx/dlss_gpu.h"
+#include "core/gfx/clarity.h"
 
 #include "core/util/log.h"
 #include "core/util/paths.h"
@@ -26,6 +27,8 @@ enum State { Idle = 0, Working, Ready, Failed };
 
 std::atomic<int> g_mode{ModeOff};
 std::atomic<int> g_preset{0};
+std::atomic<bool> g_mask{false};
+std::atomic<float> g_maskLo{0.03f}, g_maskHi{0.12f};
 std::atomic<int> g_state{Idle};
 std::atomic<bool> g_retry{false};
 Client g_client;
@@ -40,7 +43,7 @@ ID3D11Device* g_dev = nullptr;
 bool g_helperStarted = false;
 bool g_guideFailed = false;
 
-struct Window { uint64_t eyes[2] = {}, fallback = 0, resets = 0; };
+struct Window { uint64_t eyes[2] = {}, fallback = 0, resets = 0, masked = 0; };
 Window g_win;
 uint64_t g_winMs = 0;
 
@@ -103,6 +106,21 @@ void status_tick() {
              st.cpuMsMax[0] > st.cpuMsMax[1] ? st.cpuMsMax[0] : st.cpuMsMax[1],
              (unsigned long long)st.refused[0], (unsigned long long)st.refused[1],
              g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0));
+    {   // The vector audit (dlss_gpu.h): per depth band, how much of the frame-to-frame change the
+        // camera vectors explain. vec well below zero = explained; vec near zero = not (it smears).
+        char t[512]; int m = 0;
+        for (int b = 0; b < kAuditBins; ++b) {
+            const AuditBin& a = g_guides.bins[b];
+            if (!a.n) continue;
+            m += _snprintf_s(t + m, sizeof(t) - m, _TRUNCATE, " %s: vec %.4f zero %.4f mask %.2f (%llu)", kAuditBinNames[b],
+                             a.vecErr / a.n, a.zeroErr / a.n, a.masked / a.n, (unsigned long long)a.n);
+        }
+        if (m)
+            DVR_INFO("dlss/audit: luminance error, previous image moved by the camera vectors (vec) vs not moved (zero), "
+                     "by depth band in depth units, mean anti-smear mask; a band whose vec is near its zero is where the "
+                     "vectors are wrong:%s | mask %s %.2f..%.2f", t, g_mask.load() ? "ON" : "off", g_maskLo.load(), g_maskHi.load());
+        for (auto& b : g_guides.bins) b = AuditBin{};
+    }
     _snprintf_s(g_summary, _TRUNCATE, "DLAA L %.0f/s R %.0f/s, GPU %.2f/%.2f ms per eye, fallback %.0f/s",
                 g_win.eyes[0] / s, g_win.eyes[1] / s, gl, gr, g_win.fallback / s);
     g_win = Window{};
@@ -128,6 +146,20 @@ void set_preset(int p, const char* who) {
     g_retry.store(true);
 }
 int preset() { return g_preset.load(); }
+
+void set_mask(bool on, const char* who) {
+    if (g_mask.exchange(on) == on) return;
+    DVR_INFO("dlss: anti-smear mask %s (live, %s)", on ? "ON" : "off", who ? who : "?");
+}
+bool mask_on() { return g_mask.load(); }
+void set_mask_range(float lo, float hi, const char* who) {
+    if (!(lo >= 0.0f && lo < 1.0f)) lo = 0.03f;
+    if (!(hi > lo && hi <= 1.0f)) hi = lo + 0.09f;
+    g_maskLo.store(lo); g_maskHi.store(hi);
+    DVR_INFO("dlss: anti-smear mask range %.3f..%.3f (%s)", lo, hi, who ? who : "?");
+}
+float mask_lo() { return g_maskLo.load(); }
+float mask_hi() { return g_maskHi.load(); }
 
 bool active() { return g_mode.load() != ModeOff && g_state.load() == Ready; }
 
@@ -175,6 +207,11 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     in.color = color; in.depth = g_guides.depth(); in.motion = g_guides.motion();
     in.reset = reset;
     if (reset) ++g_win.resets;
+    // The mask is computed whether or not DLSS gets it, so the audit can say what it would do.
+    const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why));
+    if (masked && g_mask.load()) { in.bias = g_guides.bias(); ++g_win.masked; }
+    g_guides.audit(dev, ctx, eye, src);
+    g_guides.keep(dev, ctx, eye, color);
     if (!g_client.evaluate(ctx, eye, in, why, sizeof(why))) {
         ++g_win.fallback;
         if (!g_client.running()) {
@@ -225,8 +262,21 @@ bool command(const char* args) {
     if (n >= 1 && !_stricmp(sub, "off")) { set_mode(ModeOff, "the seam"); return true; }
     if (n >= 1 && !_stricmp(sub, "retry")) { g_retry.store(true); DVR_INFO("dlss: retry requested (the seam)"); return true; }
     if (n >= 2 && !_stricmp(sub, "preset")) { set_preset(atoi(val), "the seam"); return true; }
-    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, preset <0..15>",
-             g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary());
+    if (n >= 2 && !_stricmp(sub, "taxis")) {
+        float f = 1, r = 1, u = 1;
+        if (sscanf(args, "%*s %f %f %f", &f, &r, &u) == 3) { dvr::clarity::set_translation_axes(f, r, u, "the seam"); return true; }
+    }
+    if (n >= 2 && !_stricmp(sub, "body")) { dvr::clarity::set_body_depth((float)atof(val), "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "pos")) { dvr::clarity::set_pos_source(!_stricmp(val, "render") ? 1 : 0, "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "mask")) { set_mask(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "maskrange")) {
+        float lo = 0, hi = 0;
+        if (sscanf(args, "%*s %f %f", &lo, &hi) == 2) { set_mask_range(lo, hi, "the seam"); return true; }
+    }
+    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, preset <0..15>, mask on|off, "
+             "maskrange <lo> <hi> | mask %s %.3f..%.3f",
+             g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary(), g_mask.load() ? "on" : "off",
+             g_maskLo.load(), g_maskHi.load());
     return true;
 }
 

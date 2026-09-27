@@ -20,7 +20,15 @@ plans; both apply unchanged to DLSS SR.
 Installed build 19:33 with the helper in `<game>\dvr_dlss\`. INI unchanged from before the
 session (DLAA off). Simulator: DLAA 69/s per eye, stereo 90 -> 69/s. No headset verdict yet.
 
-## Headset question (one launch)
+## Latest (smear fix)
+
+The first headset run judged DLAA very good with a slight smear while moving. The arms'
+vectors were the cause in the simulator and are fixed (`DlssBodyDepth=0.30`). Next headset
+question: is the smear while walking gone or reduced, and does anything smear during head
+turns (the simulator cannot judge turns: its hands follow the head)? A/B live: `dlss body 0`
+vs `dlss body 0.3`; the mask: `dlss mask on|off`.
+
+## Headset question (first launch, answered: very good, slight smear when moving)
 
 F10 > Advanced > Display > Clarity and anti-aliasing > "NVIDIA DLAA (experimental)", toggled
 live with the panel closed between looks. Question: does DLAA visibly reduce edge shimmer and

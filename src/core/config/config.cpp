@@ -181,6 +181,15 @@ static bool WriteDefaultIni(const char* ini)
         "; applies. Camera-only motion vectors, no jitter yet. Live: dlss on|off. DlssPreset: 0 = model K.\n"
         "DLAA=0\n"
         "DlssPreset=0\n"
+        "; DlssMask=1 (A/B, off): pixels the camera vectors cannot explain (arms, weapon, NPCs) take\n"
+        "; the current image instead of smearing; DlssMaskLo/Hi: where it starts and saturates. Live:\n"
+        "; dlss mask on|off, dlss maskrange <lo> <hi>.\n"
+        "DlssMask=0\n"
+        "DlssMaskLo=0.03\n"
+        "DlssMaskHi=0.12\n"
+        "; DlssBodyDepth: nearer than this (scene depth units) is the player's own arms and weapon; their\n"
+        "; DLAA vectors keep head rotation and drop walking parallax (0 = off). Live: dlss body <z>.\n"
+        "DlssBodyDepth=0.30\n"
         "Sharpen=0.40\n"
         "Anisotropy=16\n"
         "TrilinearMips=1\n"
@@ -1845,8 +1854,12 @@ static void LoadConfig()
             dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
             dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
             dvr::dlss::set_preset((int)IniFloat(ini, "Clarity", "DlssPreset", 0), "ini");
+            dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
+            dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
+            dvr::dlss::set_mask_range(IniFloat(ini, "Clarity", "DlssMaskLo", 0.03f), IniFloat(ini, "Clarity", "DlssMaskHi", 0.12f), "ini");
             dvr::dlss::set_mode(IniFloat(ini, "Clarity", "DLAA", 0) != 0.0f ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "ini");
-            Log("config: [Clarity] DLAA=%d DlssPreset=%d%s", dvr::dlss::mode(), dvr::dlss::preset(),
+            Log("config: [Clarity] DLAA=%d DlssPreset=%d DlssMask=%d %.2f..%.2f%s", dvr::dlss::mode(), dvr::dlss::preset(),
+                (int)dvr::dlss::mask_on(), dvr::dlss::mask_lo(), dvr::dlss::mask_hi(),
                 dvr::dlss::mode() ? " - DLAA starts its helper with the first eye image" : "");
             Log("config: [Clarity] Resolve=%d Temporal=%d TemporalBlend=%.2f Sharpen=%.2f Anisotropy=%d TrilinearMips=%d%s",
                 (int)dvr::clarity::resolve_on(), (int)dvr::clarity::temporal_on(), dvr::clarity::blend(),
@@ -4189,6 +4202,13 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Clarity", "DLAA", dvr::dlss::mode() ? "1" : "0", ini);
         _snprintf(v, 64, "%d", dvr::dlss::preset());
         WritePrivateProfileStringA("Clarity", "DlssPreset", v, ini);
+        WritePrivateProfileStringA("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", ini);
+        _snprintf(v, 64, "%.3f", dvr::dlss::mask_lo());
+        WritePrivateProfileStringA("Clarity", "DlssMaskLo", v, ini);
+        _snprintf(v, 64, "%.3f", dvr::dlss::mask_hi());
+        WritePrivateProfileStringA("Clarity", "DlssMaskHi", v, ini);
+        _snprintf(v, 64, "%.2f", dvr::clarity::body_depth());
+        WritePrivateProfileStringA("Clarity", "DlssBodyDepth", v, ini);
     }
     // 41.1 (session 8): the device levers as they were READ this run (the
     // seam word writes the ask for the next launch; a save must not undo it)

@@ -18,7 +18,7 @@ $env:LIB = "$root\lib\x86;$libv\ucrt\x86;$libv\um\x86"
 Push-Location $out
 try {
     & "$root\bin\Hostx64\x86\cl.exe" /nologo /EHsc /W4 /std:c++17 /I (Join-Path $repo "src") /Fe:dlss-host-tests.exe `
-        (Join-Path $PSScriptRoot "dlss-host-tests.cpp") (Join-Path $repo "src\core\gfx\dlss_client.cpp") /link d3d11.lib dxgi.lib
+        (Join-Path $PSScriptRoot "dlss-host-tests.cpp") (Join-Path $repo "src\core\gfx\dlss_client.cpp") (Join-Path $repo "src\core\gfx\dlss_gpu.cpp") /link d3d11.lib dxgi.lib
     if ($LASTEXITCODE -ne 0) { throw "dlss host test compilation failed." }
     $data = Join-Path $out "data"
     .\dlss-host-tests.exe (Join-Path $repo "build\dlss_host\dvr_dlss_host64.exe") $data

@@ -183,11 +183,26 @@ uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePo
     r.cam = g_camCam;
     r.eyePosOk = eyePos != nullptr;
     for (int j = 0; j < 3; ++j) r.eyePos[j] = eyePos ? eyePos[j] : 0.0f;
+    r.renderPosOk = false;
+    for (int j = 0; j < 3; ++j) r.renderPos[j] = 0.0f;
     r.hfovDeg = hfovDeg; r.cameraIdentity = cameraIdentity; r.sceneEpoch = sceneEpoch;
     r.openedMs = dvr::clock::now_ms();
     r.secondPassReuse = secondPassReuse;
     ++g_opened;
     return id;
+}
+
+
+bool note_render_pos(uint32_t id, const float c5[3])
+{
+    if (!id || !c5) return false;
+    ensure_cs();
+    Lock lk;
+    Record& r = g_ring[id & (kRing - 1)];
+    if (r.id != id) return false;
+    for (int j = 0; j < 3; ++j) r.renderPos[j] = c5[j];
+    r.renderPosOk = true;
+    return true;
 }
 
 

@@ -488,6 +488,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         char v[16];
         _snprintf(v, sizeof(v), "%d", dvr::dlss::preset());
         ConfigWriteKey("Clarity", "DlssPreset", v, "the seam");
+        ConfigWriteKey("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", "the seam");
+        _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_lo());
+        ConfigWriteKey("Clarity", "DlssMaskLo", v, "the seam");
+        _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_hi());
+        ConfigWriteKey("Clarity", "DlssMaskHi", v, "the seam");
+        _snprintf(v, sizeof(v), "%.2f", dvr::clarity::body_depth());
+        ConfigWriteKey("Clarity", "DlssBodyDepth", v, "the seam");
         return ok;
     }
     if (!strcmp(cmd, "aniso")) {     // the texture-filter levers (core/gfx/sampler_force.h)

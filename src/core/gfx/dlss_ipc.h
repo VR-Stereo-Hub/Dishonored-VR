@@ -24,12 +24,12 @@
 namespace dvr::dlss_ipc {
 
 const uint32_t kMagic   = 0x53534C44u;   // 'DLSS'
-const uint32_t kVersion = 1u;
+const uint32_t kVersion = 2u;   // v2: the Bias slot (the "bias current colour" mask)
 
 // The pipe: \\.\pipe\dvr-dlss.<game pid>. The helper creates it, the game connects.
 #define DVR_DLSS_PIPE_FMT L"\\\\.\\pipe\\dvr-dlss.%lu"
 
-enum Slot : uint32_t { Color = 0, Output, Depth, Motion, SlotCount };
+enum Slot : uint32_t { Color = 0, Output, Depth, Motion, Bias, SlotCount };
 enum Tag : uint8_t { TagBuild = 'B', TagFrame = 'F', TagQuit = 'Q' };
 
 #pragma pack(push, 1)
@@ -69,6 +69,7 @@ struct Frame {            // game -> helper, per eye image
     float    jitterX, jitterY;    // render pixels; 0 while the projection is not jittered
     float    mvScaleX, mvScaleY;  // the motion texture is in UV: scale = render size
     float    sharpness;      // 0 = none (the DLSS 2.x sharpening parameter, deprecated in 3.x+)
+    uint32_t useBias;        // 1: the Bias slot holds this image's mask (R8, 1 = take the current colour)
 };
 struct FrameAck {         // helper -> game, after Signal(out, value)
     uint32_t eye;
@@ -81,9 +82,9 @@ struct FrameAck {         // helper -> game, after Signal(out, value)
 
 static_assert(sizeof(Hello) == 20, "Hello layout");
 static_assert(sizeof(HelloAck) == 156, "HelloAck layout");
-static_assert(sizeof(Build) == 88, "Build layout");
+static_assert(sizeof(Build) == 96, "Build layout");
 static_assert(sizeof(BuildAck) == 140, "BuildAck layout");
-static_assert(sizeof(Frame) == 36, "Frame layout");
+static_assert(sizeof(Frame) == 40, "Frame layout");
 static_assert(sizeof(FrameAck) == 24, "FrameAck layout");
 
 } // namespace dvr::dlss_ipc

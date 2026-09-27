@@ -308,7 +308,7 @@ bool DoBuild(const Build& b, BuildAck& ack) {
     ReleaseEye(e);
     e = Eye{};
     e.b = b;
-    static const char* kNames[SlotCount] = {"Color", "Output", "Depth", "Motion"};
+    static const char* kNames[SlotCount] = {"Color", "Output", "Depth", "Motion", "Bias"};
     bool ok = true;
     for (uint32_t s = 0; s < SlotCount; ++s)
         ok = OpenHandle(b.tex[s], __uuidof(ID3D12Resource), (void**)&e.tex[s], kNames[s], ack.detail, sizeof(ack.detail)) && ok;
@@ -373,6 +373,7 @@ bool DoFrame(const Frame& f, FrameAck& ack) {
     Transition(e.tex[Color], D3D12_RESOURCE_STATE_COMMON, read);
     Transition(e.tex[Depth], D3D12_RESOURCE_STATE_COMMON, read);
     Transition(e.tex[Motion], D3D12_RESOURCE_STATE_COMMON, read);
+    if (f.useBias) Transition(e.tex[Bias], D3D12_RESOURCE_STATE_COMMON, read);
     Transition(e.tex[Output], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     NVSDK_NGX_D3D12_DLSS_Eval_Params ep = {};
     ep.Feature.pInColor = e.tex[Color];
@@ -380,6 +381,8 @@ bool DoFrame(const Frame& f, FrameAck& ack) {
     ep.Feature.InSharpness = f.sharpness;
     ep.pInDepth = e.tex[Depth];
     ep.pInMotionVectors = e.tex[Motion];
+    // Where the proxy's vectors do not explain the image, take the current colour (dlss_gpu.h).
+    ep.pInBiasCurrentColorMask = f.useBias ? e.tex[Bias] : nullptr;
     ep.InJitterOffsetX = f.jitterX;
     ep.InJitterOffsetY = f.jitterY;
     ep.InRenderSubrectDimensions.Width = e.b.width;
@@ -394,6 +397,7 @@ bool DoFrame(const Frame& f, FrameAck& ack) {
     Transition(e.tex[Color], read, D3D12_RESOURCE_STATE_COMMON);
     Transition(e.tex[Depth], read, D3D12_RESOURCE_STATE_COMMON);
     Transition(e.tex[Motion], read, D3D12_RESOURCE_STATE_COMMON);
+    if (f.useBias) Transition(e.tex[Bias], read, D3D12_RESOURCE_STATE_COMMON);
     Transition(e.tex[Output], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
     if (timed) {
         g.list->EndQuery(g.stamps, D3D12_QUERY_TYPE_TIMESTAMP, g.slot * 2 + 1);

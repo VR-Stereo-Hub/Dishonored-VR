@@ -61,6 +61,18 @@ const char* summary();
 // The seam word: `clarity [status | resolve on|off | temporal on|off | blend <f> | sharpen <f>]`.
 bool command(const char* args);
 
+// Which camera position the vectors use: the pose record's WRITTEN position (0) or the c5 the
+// image was RENDERED with (1). `dlss pos record|render`.
+void set_pos_source(int src, const char* who);
+int  pos_source();
+// Diagnostic: multipliers on the DLSS guide translation per previous-camera axis (forward,
+// right, up), 1 1 1 = as derived. `dlss taxis <f> <r> <u>`. Not saved.
+void set_translation_axes(float f, float r, float u, const char* who);
+// DLSS guides: nearer than this (depth units) is the player's own arms/weapon, whose vectors
+// keep rotation and drop walking parallax. 0 = off. `dlss body <z>`, [Clarity] DlssBodyDepth.
+void set_body_depth(float z, const char* who);
+float body_depth();
+
 // Motion vectors step 3: measure the game's depth scale from camera motion ([Diagnostics] MotionCalib).
 void set_calib(bool on, const char* who);
 

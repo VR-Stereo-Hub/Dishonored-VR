@@ -2870,3 +2870,28 @@ Build `v1.0.1-95-ga4fb67869-dirty` (19:14 and 19:33). Gameplay reached (log stat
    ratio, the helper's feature already accepts ow > w.
 3. Projection jitter (FSR plan gate 3 applies unchanged) - benefits DLSS and FSR alike.
 4. Phase 3 FSR 3.1: in-process 32-bit D3D12, the three patches above, same guides and lifecycle.
+
+
+### 2026-09-26 (later): the walking smear, measured and fixed in the simulator
+
+Headset report on the first DLAA build: very good image, better still with SSW, slight smear
+while moving. The pipeline was healthy in that run (72 DLAA images/s per eye, 0 refused).
+
+New instrument `dlss/audit` (dlss_gpu.h): every eye image, a 64x64 grid compares the current
+image against the previous one moved by the guide vectors ("vec") and not moved ("zero"),
+binned by depth, read back two frames late without stalling. Standing still both read ~0.0046.
+All numbers below: stick walking in the simulator, 12 s per condition, vec/zero ratio.
+
+| Condition | 0.1-0.3 (arms) | 0.3-1 | 1-2 | 2-10 |
+|---|---|---|---|---|
+| as shipped (all pixels walking parallax) | 3.2 | 0.78 | 0.65 | 0.76 |
+| forward translation negated | - | 1.77 (whole <2 band) | | 1.20 |
+| arms excluded (DlssBodyDepth 0.30) | 1.00 | 0.78 | 0.64 | 0.75 |
+| depth scale 100 / 400 / 800 (arms excluded) | 1.0 | 1.21 / 0.78 / 0.89 | 1.10 / 0.69 / 0.82 | 1.03 / 0.77 / 0.84 |
+
+- Written vs rendered camera: identical in the simulator (0.00 uu against a 2.2-2.7 uu step).
+- Fix: the arms keep rotation, drop translation. Scale 200 kept (broad minimum 200-400).
+- Anti-smear bias mask built and host-tested; DLSS already rejects large unexplained motion and
+  the mask cannot see sub-pixel errors, so it ships OFF as an A/B (`dlss mask on|off`).
+- Left: NPCs and controller-moved hands have no own vectors; the remaining far-band residual
+  sits near the frame noise floor. Headset verdict on the fix pending.

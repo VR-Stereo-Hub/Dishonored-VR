@@ -1,3 +1,39 @@
+## 2026-09-26: DLAA smear while walking - the arms had the world's vectors (measured, fix in simulator)
+
+1. **Symptom:** with DLAA on (branch `claude/dlss-dlaa`), the headset showed a slight smear
+   while moving; the image otherwise judged very good, and better with SSW. Surface: the eye
+   image after DLAA. Distinct from the custom-TAA walking smear below (different
+   accumulator, same class: history moved by wrong vectors).
+2. **Reproduction:** headset run on build `v1.0.1-95-ga4fb67869-dirty` 19:33 (DLAA active 72/s
+   per eye at 144 Hz with SSW, 0 refused, 0 resets). Simulator: `dvr-xrsim` 90 Hz, 2750x2850,
+   stick walking forward/back alternating 1 s for 12 s per condition; audit line
+   `dlss/audit` (dlss_gpu.h). Logs in `build/dlss-install/smear-logs/` (local).
+3. **Hypotheses and counterpredictions:**
+   - Written vs rendered camera position (the left record takes the tick's earlier write):
+     predicts a nonzero offset/step error. MEASURED 0.00 uu offset and 0.00 step error against
+     a 2.2-2.7 uu true step. RETRACTED in the simulator.
+   - Forward-axis sign (the old sign test only moved the head sideways): predicts flipping the
+     forward component helps. MEASURED worse everywhere (near 1.77x, far 1.20x). RETRACTED.
+   - Depth scale: predicts some scale fixes the near band. With the arms excluded, 200-400 is
+     a broad minimum; no scale changes the arms band. NOT the cause.
+   - Body-attached geometry: predicts the nearest band alone is worse with vectors than with
+     none, and fine with translation removed. MEASURED: 0.1-0.3 depth units vec 0.0208 vs no
+     motion 0.0065 (3.2x worse); every farther band improved (0.65-0.78). CONFIRMED.
+   - DLSS keeping large unexplained motion (a mask would help): host test shows DLSS already
+     rejects a 3 px/frame unexplained texture by itself (0.0048 with or without the mask), and
+     a 1 px vector error triples its error (0.0055 -> 0.0155) where no mask can see it. The
+     bias mask was built and ships OFF as an A/B.
+4. **Change:** pixels nearer than `[Clarity] DlssBodyDepth` (0.30 depth units) keep the head
+   rotation and drop the walking parallax (`dlss body <z>`). Rendered c5 now travels in the
+   pose record (`renderPos`) and is the default source (`dlss pos record|render`); identical
+   in the simulator, kept as the render truth.
+5. **Results:** arms band while walking 0.0296 (off) -> 0.0086 (0.30), equal to no motion;
+   farther bands unchanged. Host test 12/12. Not yet headset-tested. NOT expected to fix:
+   NPCs, hands moved by the controllers, and smooth stick turning of the arms (no object
+   vectors). In the simulator the hands follow the head, so the arms band reads worse there
+   during head turns - a simulator artifact; in the headset the hands stay in the room.
+6. **Status:** measured and fixed in the simulator; headset verdict open.
+
 ## 2026-09-26: no perceptible TAA benefit reported; FSR planned
 
 Surface: scene edge/detail quality under temporal filtering, not evidence of stereo eye

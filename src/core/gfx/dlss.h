@@ -30,6 +30,16 @@ int  mode();
 // NVSDK_NGX_DLSS_Hint_Render_Preset: 0 = the helper's pick (K, the 310.x transformer).
 void set_preset(int preset, const char* who);
 int  preset();
+// The anti-smear mask (dlss_gpu.h, "bias"): pixels the camera vectors do not explain take the
+// current colour. Off by default: the host test found DLSS already rejects large unexplained
+// motion by itself and the mask cannot see the sub-pixel errors that do smear; kept as a live
+// A/B (`dlss mask on|off`) for the headset.
+// lo/hi: the colour excess (0..1) where the mask starts and saturates.
+void set_mask(bool on, const char* who);
+bool mask_on();
+void set_mask_range(float lo, float hi, const char* who);
+float mask_lo();
+float mask_hi();
 
 // Present thread. The reconstructed eye image (w x h, RGBA8, gamma-encoded like the capture),
 // or null: the helper is not ready or refused, and the caller keeps its normal path.
@@ -43,6 +53,6 @@ bool active();
 void idle();
 void shutdown();                 // stops the helper; the next run() starts it again
 const char* summary();           // one line for F10
-bool command(const char* args);  // `dlss [status | on | off | retry | preset <n>]`
+bool command(const char* args);  // `dlss [status | on | off | retry | preset <n> | mask on|off | maskrange <lo> <hi>]`
 
 } // namespace dvr::dlss

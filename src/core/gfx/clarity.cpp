@@ -31,7 +31,10 @@ std::atomic<bool>  g_motion{false};
 std::atomic<float> g_depthScale{200.0f};
 std::atomic<float> g_blend{0.15f};
 std::atomic<float> g_sharpen{0.40f};
-std::atomic<uint32_t> g_epoch{1};   // bumped by any lever change: histories restart
+std::atomic<uint32_t> g_epoch{1};
+std::atomic<int>   g_posSource{1};
+std::atomic<float> g_tAxis[3] = {1.0f, 1.0f, 1.0f};
+std::atomic<float> g_bodyDepth{0.3f};   // 1: the rendered c5 (measured better while walking), 0: the written position   // bumped by any lever change: histories restart
 
 Gpu      g_gpu;
 bool     g_initTried = false, g_initOk = false;
@@ -75,7 +78,38 @@ View view_for(uint32_t recId, uint32_t w, uint32_t h, int eyeSign) {
     v.timeMs = rec.openedMs; v.cameraIdentity = rec.cameraIdentity; v.sceneEpoch = rec.sceneEpoch;
     // last_written_pos publishes c5 = -world position (ENGINE_NOTES, 2026-09-03).
     // Keep the transport record unchanged; convert once at this consumer boundary.
-    world_from_c5(rec.eyePos, v.pos);
+    if (g_posSource.load() == 1 && rec.renderPosOk) world_from_c5(rec.renderPos, v.pos);
+    else world_from_c5(rec.eyePos, v.pos);
+    v.posOk = g_posSource.load() == 1 ? (rec.renderPosOk || rec.eyePosOk) : rec.eyePosOk;
+    {   // How far the written position is from the rendered one, per eye, and how different
+        // their frame-to-frame steps are: the part of the camera translation the record gets wrong.
+        static float lastW[2][3], lastR[2][3]; static bool have[2];
+        static double sumOff[2], sumStep[2], sumTrue[2]; static uint32_t n[2]; static uint64_t ms;
+        const int e = eyeSign < 0 ? 0 : 1;
+        if (rec.renderPosOk && rec.eyePosOk) {
+            float off = 0, dstep = 0, tstep = 0;
+            for (int j = 0; j < 3; ++j) {
+                const float d = rec.renderPos[j] - rec.eyePos[j]; off += d * d;
+                if (have[e]) {
+                    const float sw = rec.eyePos[j] - lastW[e][j], sr = rec.renderPos[j] - lastR[e][j];
+                    dstep += (sw - sr) * (sw - sr); tstep += sr * sr;
+                }
+                lastW[e][j] = rec.eyePos[j]; lastR[e][j] = rec.renderPos[j];
+            }
+            if (have[e]) { sumOff[e] += sqrtf(off); sumStep[e] += sqrtf(dstep); sumTrue[e] += sqrtf(tstep); ++n[e]; }
+            have[e] = true;
+        } else have[e] = false;
+        const uint64_t now = GetTickCount64();
+        if (now - ms >= 5000 && (n[0] || n[1])) {
+            DVR_INFO("clarity/pos: written vs rendered camera (uu), per eye L|R: mean offset %.2f|%.2f, mean step error %.2f|%.2f "
+                     "against a mean rendered step of %.2f|%.2f (%u|%u pairs); vectors use the %s position",
+                     n[0] ? sumOff[0] / n[0] : 0.0, n[1] ? sumOff[1] / n[1] : 0.0, n[0] ? sumStep[0] / n[0] : 0.0,
+                     n[1] ? sumStep[1] / n[1] : 0.0, n[0] ? sumTrue[0] / n[0] : 0.0, n[1] ? sumTrue[1] / n[1] : 0.0,
+                     n[0], n[1], g_posSource.load() == 1 ? "RENDERED" : "written");
+            for (int k = 0; k < 2; ++k) { sumOff[k] = sumStep[k] = sumTrue[k] = 0; n[k] = 0; }
+            ms = now;
+        }
+    }
     v.w = w; v.h = h;
     v.ok = true;
     return v;
@@ -271,6 +305,23 @@ void set_calib(bool on, const char* who) {
              on ? " - needs [Diagnostics] DepthShare=1; measures the depth scale whenever the camera moves" : "");
 }
 
+void set_pos_source(int src, const char* who) {
+    src = src ? 1 : 0;
+    if (g_posSource.exchange(src) != src) note_change("vector camera position", src ? "rendered c5" : "written", who);
+}
+int pos_source() { return g_posSource.load(); }
+void set_body_depth(float z, const char* who) {
+    if (!(z >= 0.0f && z <= 5.0f)) z = 0.3f;
+    g_bodyDepth.store(z);
+    DVR_INFO("clarity: DLSS body depth %.3f depth units (%s): nearer pixels are the arms/weapon - rotation only%s",
+             z, who ? who : "?", z > 0 ? "" : " (OFF: every pixel gets the walking parallax)");
+}
+float body_depth() { return g_bodyDepth.load(); }
+void set_translation_axes(float f, float r, float u, const char* who) {
+    g_tAxis[0].store(f); g_tAxis[1].store(r); g_tAxis[2].store(u);
+    DVR_INFO("clarity: DLSS guide translation axes x%.2f forward, x%.2f right, x%.2f up (%s, diagnostic)", f, r, u, who ? who : "?");
+}
+
 void set_resolve(bool on, const char* who) {
     if (g_resolve.exchange(on) != on) note_change("resolve", on_off(on), who);
 }
@@ -355,12 +406,14 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                     gp.prevTanH = g_dlssPrev[e].tanH; gp.prevTanV = g_dlssPrev[e].tanV;
                     if (cur.posOk && g_dlssPrev[e].posOk) {
                         const float dp[3] = {cur.pos[0]-g_dlssPrev[e].pos[0],cur.pos[1]-g_dlssPrev[e].pos[1],cur.pos[2]-g_dlssPrev[e].pos[2]};
-                        gp.translation[0] = dot3(pb.f,dp); gp.translation[1] = dot3(pb.r,dp); gp.translation[2] = dot3(pb.u,dp);
+                        gp.translation[0] = dot3(pb.f,dp) * g_tAxis[0].load(); gp.translation[1] = dot3(pb.r,dp) * g_tAxis[1].load();
+                        gp.translation[2] = dot3(pb.u,dp) * g_tAxis[2].load();
                     }
                 }
                 UINT dw = 0, dh = 0;
                 if (auto* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh)) {
                     gp.sceneDepth = depth; gp.depthW = dw; gp.depthH = dh; gp.depthScale = g_depthScale.load();
+                    gp.bodyDepth = g_bodyDepth.load();
                 }
                 dlaa = dvr::dlss::run(dev, ctx, src, w, h, e, gp, !gp.historyValid);
             }

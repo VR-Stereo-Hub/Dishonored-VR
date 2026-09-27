@@ -35,6 +35,7 @@ struct EyeInputs {
     ID3D11Texture2D* color = nullptr;   // render size, B8G8R8A8/R8G8B8A8 family (gamma LDR)
     ID3D11Texture2D* depth = nullptr;   // render size, R32_FLOAT, reversed (1 near, 0 far/sky)
     ID3D11Texture2D* motion = nullptr;  // render size, R16G16_FLOAT, previous UV minus current UV
+    ID3D11Texture2D* bias = nullptr;    // optional, render size, R8_UNORM: 1 = take the current colour
     bool reset = false;
     float jitterX = 0, jitterY = 0;     // render pixels
     float sharpness = 0;

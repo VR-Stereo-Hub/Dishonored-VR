@@ -241,7 +241,7 @@ bool Client::build(int e, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI
         if (SUCCEEDED(hr)) hr = r->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &eye->shared[slot]);
         rel(r);
         if (FAILED(hr)) { put(why, cap, "CreateSharedHandle(texture %d) 0x%08lX", slot, (unsigned long)hr); return false; }
-        const uint64_t bpp = (f == DXGI_FORMAT_R32_FLOAT || f == DXGI_FORMAT_R16G16_FLOAT || f == DXGI_FORMAT_B8G8R8A8_UNORM ||
+        const uint64_t bpp = f == DXGI_FORMAT_R8_UNORM ? 1 : (f == DXGI_FORMAT_R32_FLOAT || f == DXGI_FORMAT_R16G16_FLOAT || f == DXGI_FORMAT_B8G8R8A8_UNORM ||
                               f == DXGI_FORMAT_R8G8B8A8_UNORM) ? 4 : 8;
         eye->bytes += (uint64_t)tw * th * bpp;
         bytes_ += (uint64_t)tw * th * bpp;
@@ -252,7 +252,8 @@ bool Client::build(int e, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI
     bool ok = make(Color, w, h, colorFormat, D3D11_BIND_SHADER_RESOURCE) &&
               make(Output, ow, oh, outFmt, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS) &&
               make(Depth, w, h, DXGI_FORMAT_R32_FLOAT, D3D11_BIND_SHADER_RESOURCE) &&
-              make(Motion, w, h, DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE);
+              make(Motion, w, h, DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE) &&
+              make(Bias, w, h, DXGI_FORMAT_R8_UNORM, D3D11_BIND_SHADER_RESOURCE);
     if (ok && FAILED(dev_->CreateShaderResourceView(eye->tex[Output], nullptr, &eye->outSrv))) { put(why, cap, "output SRV"); ok = false; }
     if (ok) {
         HRESULT hr = d5->CreateFence(0, D3D11_FENCE_FLAG_SHARED, __uuidof(ID3D11Fence), (void**)&eye->in);
@@ -299,6 +300,7 @@ bool Client::evaluate(ID3D11DeviceContext* ctx, int e, const EyeInputs& in, char
     ctx->CopyResource(eye->tex[Color], in.color);
     ctx->CopyResource(eye->tex[Depth], in.depth);
     ctx->CopyResource(eye->tex[Motion], in.motion);
+    if (in.bias) ctx->CopyResource(eye->tex[Bias], in.bias);
     const uint64_t v = ++eye->value;
     HRESULT hr = c4->Signal(eye->in, v);
     ctx->Flush();   // the helper's queue waits on this value: it must reach the GPU now
@@ -308,6 +310,7 @@ bool Client::evaluate(ID3D11DeviceContext* ctx, int e, const EyeInputs& in, char
     f.jitterX = in.jitterX; f.jitterY = in.jitterY;
     f.mvScaleX = (float)eye->w; f.mvScaleY = (float)eye->h;
     f.sharpness = in.sharpness;
+    f.useBias = in.bias ? 1u : 0u;
     const uint8_t tag = TagFrame;
     FrameAck ack = {};
     if (!send(&tag, 1, kFrameMs) || !send(&f, sizeof(f), kFrameMs) || !recv(&ack, sizeof(ack), kFrameMs)) {

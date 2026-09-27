@@ -818,7 +818,24 @@ static void OvlTabDisplay()
         OvlTip("NVIDIA's AI anti-aliasing on each eye, at the same resolution. Needs an RTX card. "
                "Replaces the temporal anti-aliasing above while it runs. Takes a second or two to start. "
                "Moving characters and hands can still smear. Close this panel to judge it.");
-        if (dlaa) ImGui::TextDisabled("DLAA: %s", dvr::dlss::summary());
+        if (dlaa) {
+            bool m = dvr::dlss::mask_on();
+            if (dvr::ovl::checkbox("DLAA: reduce smearing", &m)) {
+                dvr::dlss::set_mask(m, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssMask", m ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Where the game's motion cannot be followed (your arms and weapon while walking, moving characters), "
+                   "DLAA uses the new frame instead of dragging the old one. Those spots get a little less smoothing.");
+            float lo = dvr::dlss::mask_lo();
+            if (m && dvr::ovl::slider_float("Smear sensitivity", &lo, 0.005f, 0.10f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+                dvr::dlss::set_mask_range(lo, lo + 0.09f, "F10 Display");
+            if (m) {
+                OvlSaveOnRelease("Clarity", "DlssMaskLo", dvr::dlss::mask_lo(), "%.3f");
+                OvlSaveOnRelease("Clarity", "DlssMaskHi", dvr::dlss::mask_hi(), "%.3f");
+                OvlTip("Lower catches more smearing but also smooths less.");
+            }
+            ImGui::TextDisabled("DLAA: %s", dvr::dlss::summary());
+        }
         ImGui::TextDisabled("%s", dvr::clarity::summary());
     }
     if (OvlSec("Clarity (debug)", kOvlD, "The supersampling resolve. Off by default: judged no better than the headset's own.")) {

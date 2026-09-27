@@ -11,9 +11,21 @@
 //           uses (clarity_gpu's Reproject): rotation for every pixel, plus translation
 //           parallax where depth is known and not sky. Not clipped to the screen: a pixel
 //           whose previous position was off screen gets its true vector, and DLSS decides.
-//           Camera motion only - moving objects, hands and particles carry the camera's
-//           vector, not their own (dlss.h, limits).
-// tools/dlss-host-tests.cpp proved the sign: DLSS reads previous-minus-current.
+//           Camera motion only - moving objects and particles carry the camera's vector.
+//           EXCEPT the body: pixels nearer than bodyDepth are the first-person arms and
+//           weapon, which walk with the player. They keep the rotation (the hands stay put in
+//           the room while the head turns) and drop the translation parallax. Measured in the
+//           simulator while walking: that band's vector error was 3.2x its no-motion error with
+//           the parallax, every farther band improved (PERFORMANCE.md, the smear audit).
+//   bias    R8_UNORM, DLSS's "bias current colour" mask: 1 where this eye's previous image,
+//           moved by the vectors above, lands OUTSIDE the colour range of the current 3x3
+//           neighbourhood - the vectors do not explain what is there (the game's arms and
+//           weapon while walking, NPCs, parallax the coarse depth scale gets wrong). DLSS then
+//           takes those pixels from the current image instead of smearing its history over
+//           them. Anything the vectors do explain, including a sub-pixel shimmering edge,
+//           stays inside the box and keeps its full accumulation.
+// tools/dlss-host-tests.cpp proved the vector sign (DLSS reads previous-minus-current) and
+// that a raised mask removes a trail DLSS otherwise keeps.
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
@@ -30,6 +42,7 @@ struct ID3D11PixelShader;
 struct ID3D11RasterizerState;
 struct ID3D11BlendState;
 struct ID3D11DepthStencilState;
+struct ID3D11SamplerState;
 
 namespace dvr::dlss {
 
@@ -42,7 +55,16 @@ struct GuideParams {
     ID3D11ShaderResourceView* sceneDepth = nullptr;   // alpha = linear depth; null = rotation only, depth 0
     uint32_t depthW = 0, depthH = 0;
     float depthScale = 200.0f;            // uu per depth unit (the coarse measured minimum)
+    float bodyDepth = 0.3f;               // depth units: nearer is the player's own arms/weapon (0 = off)
 };
+
+// The in-game audit of the vectors (sparse grid, read back without stalling): mean luminance
+// error between the current image and the previous one moved by the vectors, against the same
+// with no movement, binned by scene depth. A bin whose vector error is not well below its
+// zero-motion error is where the vectors are wrong. `masked` is the mean bias mask there.
+struct AuditBin { double vecErr = 0, zeroErr = 0, masked = 0; uint64_t n = 0; };
+const int kAuditBins = 8;   // depth units
+const char* const kAuditBinNames[kAuditBins] = {"<0.1", "0.1-0.3", "0.3-1", "1-2", "2-10", "10-50", "50-1000", "sky"};
 
 class GuideGpu {
 public:
@@ -51,21 +73,51 @@ public:
     bool run(ID3D11Device* dev, ID3D11DeviceContext* ctx, const GuideParams& p, char* why, size_t cap);
     ID3D11Texture2D* depth() const { return depth_; }
     ID3D11Texture2D* motion() const { return motion_; }
-    uint64_t bytes() const { return (uint64_t)w_ * h_ * 8; }
+    // The bias mask for this eye image, from run()'s vectors and this eye's previous colour.
+    // historyValid false (or no previous colour yet) writes zero. lo/hi: the colour excess
+    // outside the 3x3 range (0..1, gamma) where the mask starts and saturates.
+    bool mask(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
+              bool historyValid, float lo, float hi, char* why, size_t cap);
+    ID3D11Texture2D* bias() const { return bias_; }
+    // Keeps this eye image as the eye's previous colour (after mask() and the audit read it).
+    bool keep(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* color);
+    void forget(int eye);   // the eye's history no longer belongs to the next image
+    // Queues a sparse audit of this eye image (needs run() and mask() first) and folds in the
+    // oldest finished one, never waiting for the GPU.
+    void audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color);
+    AuditBin bins[kAuditBins];
+    uint64_t bytes() const;
 private:
     bool ensure(ID3D11Device* dev, uint32_t w, uint32_t h, char* why, size_t cap);
     bool ready_ = false;
     ID3D11VertexShader* vs_ = nullptr;
     ID3D11PixelShader* ps_ = nullptr;
+    ID3D11PixelShader* psMask_ = nullptr;
+    ID3D11PixelShader* psAudit_ = nullptr;
     ID3D11Buffer* cb_ = nullptr;
     ID3D11RasterizerState* raster_ = nullptr;
     ID3D11BlendState* blend_ = nullptr;
     ID3D11DepthStencilState* ds_ = nullptr;
+    ID3D11SamplerState* linear_ = nullptr;
     ID3D11Texture2D* depth_ = nullptr;
     ID3D11Texture2D* motion_ = nullptr;
+    ID3D11Texture2D* bias_ = nullptr;
     ID3D11RenderTargetView* depthRtv_ = nullptr;
     ID3D11RenderTargetView* motionRtv_ = nullptr;
+    ID3D11RenderTargetView* biasRtv_ = nullptr;
+    ID3D11ShaderResourceView* depthSrv_ = nullptr;
+    ID3D11ShaderResourceView* motionSrv_ = nullptr;
+    ID3D11ShaderResourceView* biasSrv_ = nullptr;
+    ID3D11Texture2D* prev_[2] = {};
+    ID3D11ShaderResourceView* prevSrv_[2] = {};
+    bool prevOk_[2] = {};
+    ID3D11Texture2D* auditTex_ = nullptr;
+    ID3D11RenderTargetView* auditRtv_ = nullptr;
+    ID3D11Texture2D* auditStage_[2] = {};
+    bool auditPending_[2] = {};
+    int auditNext_ = 0;
     uint32_t w_ = 0, h_ = 0;
+    uint64_t prevBytes_ = 0;
 };
 
 } // namespace dvr::dlss

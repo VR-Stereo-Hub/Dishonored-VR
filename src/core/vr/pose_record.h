@@ -79,8 +79,11 @@ struct Record {
     int      eye;             // -1 left, +1 right, 0 mono / untagged
     Track    track;           // a COPY of the published sample, not a re-read
     Cam      cam;             // a COPY of the camera it produced
-    float    eyePos[3];       // c5 from this draw, independent of the tracking publication
+    float    eyePos[3];       // the position the camera seam WROTE for this draw (c5 convention)
     bool     eyePosOk;
+    float    renderPos[3];    // c5 the draw was RENDERED with, read at its present (c5 convention).
+    bool     renderPosOk;     // Differs from eyePos while walking: the engine moves the pawn after
+                              // the tick's write, and pass 1 (left) records that earlier write.
     uint64_t sceneEpoch;      // level-load/UI transition generation at draw
     uintptr_t cameraIdentity; // invalidation metadata only; never dereferenced
     float    hfovDeg;         // projection captured before this view is drawn
@@ -100,6 +103,10 @@ uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePo
 // False for an id nobody set (missing) or one since overwritten (expired) -
 // counted apart, because they mean different things.
 bool copy(uint32_t id, Record* out);
+
+// PRESENT thread: stamp the c5 this record's image was rendered with. False for an id that
+// is gone (the ring moved on) - the record keeps renderPosOk false.
+bool note_render_pos(uint32_t id, const float c5[3]);
 
 
 // ---- RENDER: what the draw actually consumed --------------------------------

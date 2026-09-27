@@ -495,6 +495,8 @@ public:
         // the pixels land in. An untagged present carries 0, which the audit
         // reports as MISSING rather than silently joining to nothing.
         dvr::capture::set_pending_rec(tagged ? t.rec : 0u);
+        // The camera this image was really rendered from travels with its record (DLSS vectors).
+        if (tagged && haveC5) dvr::pose::note_render_pos(t.rec, c5now);
         {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
             float br[3]={};
             const bool basisOk = dvr::camera::last_eye_right(br);
