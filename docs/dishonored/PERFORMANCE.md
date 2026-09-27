@@ -3000,3 +3000,33 @@ Simulator, cap lifted (`refresh 240`), same room, per eye:
 - Open: pipelining DLSS so its GPU work overlaps the game's (the fork overlaps left-eye DLSS with
   the right-eye scene) is the remaining lever for DLAA's cost; FSR 3.1 in-process avoids the
   second process but not the cross-API scheduling.
+
+
+### 2026-09-26 (later): the overlap - capture and depth released before the DLSS wait
+
+The perf line showed the present thread waiting ~2.6 ms per eye image on the capture ("lock"):
+`read_wait` holds a capture slot until the D3D11 reads of it are done, and the read fence was
+ended after all the present's D3D11 work, i.e. behind the DLSS wait. The slot is read only by the
+DLSS input copy (and the optional mask/audit before it); the shared depth only by the guide
+pass. Both are now released there (`EyeInputs::afterCopy`, `depthprobe::read_done` after the
+guides; `capture::read_done` is once per delivery so the present's own later call is a no-op).
+
+Simulator, cap lifted, one command per window (per eye):
+
+| Mode | before | after | capture lock after |
+|---|---|---|---|
+| DLAA fast | ~80/s | 86/s | 0.6 ms |
+| DLAA K | ~67/s | ~70/s | 2.6 ms |
+| Quality SR fast | ~120/s | 131/s | 0.3 ms |
+| Performance SR K | ~108/s | 115/s | 0.6 ms |
+| native (same run) | 148-153 earlier | 133/s | 0 |
+
+- DLAA with K is GPU-bound: with the helper on the GPU the game's render rose 2.7 -> 4.4 ms per
+  eye and DLSS 2.2 -> ~5 ms. The cross-process scheduling cost, not the CPU wait, limits it. One
+  batched DLSS submission per frame (both eyes) is the remaining lever; it needs a per-eye
+  texture and deferred swapchain copies in the runtime layer - not attempted (flicker history).
+- Quality SR with the fast model ran at native's rate in the same run (131 vs 133).
+- Stale-eye check: every "pushed eye -1 TWICE" (and the one STALE L EYE) in these runs falls
+  within 0.2 s of a live resize confirmation, before and after this change (3 and 5 in the two
+  previous runs), none in steady play. A one-present transient of the live resize path, not the
+  overlap; recorded as an open item.

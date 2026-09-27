@@ -852,6 +852,11 @@ void read_done(ID3D11DeviceContext* ctx) {
     if (g_mode != Mode::Shared || g_sharedDelivered < 0 || !ctx) return;
     const int slot = g_sharedDelivered;
     if (!g_readQuery[slot]) return;
+    // Once per delivery: DLSS releases the slot right after copying it (dlss.cpp), and the
+    // present's own call afterwards must not move the fence behind the DLSS wait again.
+    static uint32_t endedFor = 0;
+    if (g_readIssued[slot] && endedFor == g_deliveredSerial) return;
+    endedFor = g_deliveredSerial;
     ctx->End(g_readQuery[slot]);
     ctx->Flush();   // the read goes to the GPU now, not at the runtime's next flush
     g_readIssued[slot] = true;

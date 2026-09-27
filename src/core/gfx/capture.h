@@ -152,7 +152,7 @@ uint32_t fence_timeouts();   // deliveries whose fence had not signalled at the 
 // never see the next present's frame (the other eye's image) land under it.
 // read_waits counts the blits that found the read still pending: the count
 // of frames that COULD have swapped an eye before this fence existed.
-void     read_done(ID3D11DeviceContext* ctx);
+void     read_done(ID3D11DeviceContext* ctx);   // once per delivery; DLSS calls it early, after its input copy
 uint32_t read_waits();
 uint32_t read_timeouts();
 

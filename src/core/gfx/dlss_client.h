@@ -39,6 +39,10 @@ struct EyeInputs {
     bool reset = false;
     float jitterX = 0, jitterY = 0;     // render pixels
     float sharpness = 0;
+    // Called on the context right after the inputs are copied, before the DLSS wait is queued:
+    // the capture and depth slots can be released there, so the game's next frame never waits
+    // for this image's DLSS (the overlap).
+    void (*afterCopy)(ID3D11DeviceContext* ctx) = nullptr;
 };
 
 struct Stats {

@@ -8,6 +8,8 @@
 #include "core/gfx/dlss_client.h"
 #include "core/gfx/dlss_gpu.h"
 #include "core/gfx/clarity.h"
+#include "core/gfx/capture.h"
+#include "core/gfx/depth_probe.h"
 
 #include "core/util/log.h"
 #include "core/util/paths.h"
@@ -292,8 +294,14 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
         ++g_win.fallback;
         return nullptr;
     }
+    // The overlap: the scene depth is read only by the guide pass and the capture slot only by
+    // the input copy (and the optional mask/audit before it). Releasing them there instead of
+    // after the DLSS wait lets the game's next frame reuse them while DLSS still runs; before,
+    // the CPU waited ~2.6 ms per eye image on the capture slot for the previous DLSS.
+    dvr::depthprobe::read_done(ctx);
     EyeInputs in;
     in.color = color; in.depth = g_guides.depth(); in.motion = g_guides.motion();
+    in.afterCopy = [](ID3D11DeviceContext* c) { dvr::capture::read_done(c); };
     in.reset = reset;
     if (reset) ++g_win.resets;
     // The mask, the audit and the previous-image copy they read cost GPU time on every eye image,

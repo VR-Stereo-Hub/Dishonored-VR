@@ -301,6 +301,7 @@ bool Client::evaluate(ID3D11DeviceContext* ctx, int e, const EyeInputs& in, char
     ctx->CopyResource(eye->tex[Depth], in.depth);
     ctx->CopyResource(eye->tex[Motion], in.motion);
     if (in.bias) ctx->CopyResource(eye->tex[Bias], in.bias);
+    if (in.afterCopy) in.afterCopy(ctx);
     const uint64_t v = ++eye->value;
     HRESULT hr = c4->Signal(eye->in, v);
     ctx->Flush();   // the helper's queue waits on this value: it must reach the GPU now

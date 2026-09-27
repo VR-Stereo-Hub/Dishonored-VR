@@ -1,3 +1,11 @@
+## DLSS overlap (2026-09-26, latest)
+
+The capture slot and scene depth are now released right after DLSS copies its inputs, not after
+the DLSS wait: the present thread no longer waits ~2.6 ms per eye for the previous DLSS in the
+fast-model modes. Simulator uncapped: DLAA fast 80 -> 86/s, Quality SR fast 120 -> 131/s (native
+133 in the same run), DLAA K ~70 (GPU-bound by the two-process contention). Each live resize
+produces one stale eye (pre-existing, recorded). INI restored (`1945f088...`), launch file realigned.
+
 ## DLSS SR measured: no frame-rate gain in this game (2026-09-26, latest)
 
 Headset: SR Quality/Performance ~90/s per eye vs 130-140 native. Measured why: the game's GPU
