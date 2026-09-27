@@ -1,3 +1,10 @@
+## Handoff: the uncap deep dive (2026-09-27, end of session)
+
+Headset truth: ~25 % CPU, ~80 % GPU, ~120-137 pairs/s with SSW off and no DLSS - nothing saturated, so
+serialisation limits the rate. Route 1 (extra pairs) rejected in the headset; route 2 (script lane,
+PR #141) installed but gives no headset gain (not game-thread-bound there). Next session's brief and
+prompt: [NEXT_SESSION](dishonored/NEXT_SESSION.md), branch `claude/uncap-deep-dive`.
+
 ## Script-lane cost (route 2, 2026-09-27) - simulator-measured, default on
 
 Branch `claude/pe-hook-dispatch` off staging. The ProcessEvent hook cost ~500 ms of the game thread
