@@ -1893,6 +1893,9 @@ static void LoadConfig()
                     ? "" : " - all off: the eye image and the game's texture filtering are exactly as before");
         }
         dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
+        // Uncap deep dive (2026-09-27): not in the default ini on purpose (a missing key is the
+        // 41.1 two-slot ring); `capture depth <n>` is the live A/B.
+        dvr::capture::set_shared_depth((int)IniFloat(ini, "Capture", "SharedDepth", 1), "ini");
         {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
             // Each sample is a full-frame CPU readback on the present thread even
             // in shared mode (capture.h says why), so this is a frame-time knob,
@@ -2172,6 +2175,11 @@ static void LoadConfig()
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
         const bool diagnosticAb=GetPrivateProfileIntA("Perf","DiagnosticAb",0,ini)!=0;
         dvr::perf::ab_set_enabled(!diagnosticAb && GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        {   // Uncap deep dive (2026-09-27): a plan file of seam-command segments (perf_ab.cpp)
+            char plan[MAX_PATH] = "";
+            GetPrivateProfileStringA("Perf", "AbPlan", "", plan, sizeof(plan), ini);
+            if (!diagnosticAb && plan[0]) dvr::perf::ab_load_plan(plan);
+        }
         dvr::diag_ab::set_enabled(diagnosticAb);
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
         dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
@@ -3674,6 +3682,14 @@ static void EnsureConfig()
             dvr::log::set_level(dvr::log::Cat::present,dvr::log::Level::Info);
             DVR_LOG(dvr::log::Cat::present,dvr::log::Level::Info,"flicker/armed: test-only diagnostics automatically active; present log at Info; installed INI unchanged");
 #endif
+            // The ETW markers (core/util/etw.h): free unless a trace session enables the provider,
+            // so they register here, outside the loader lock, whatever the ini says. [Perf] Etw=0
+            // is a kill switch only.
+            dvr::etw::init();
+            const bool etwKilled = GetPrivateProfileIntA("Perf", "Etw", 1, ini) == 0;
+            dvr::etw::set_killed(etwKilled);
+            Log("etw: provider DishonoredVR {6b3c1f4e-2d6a-4f7c-9a51-0d2e8c7b4a19} registered%s - phase markers cost "
+                "nothing until a trace session (tools/perf-gpu-trace.ps1) enables it", etwKilled ? " but KILLED by [Perf] Etw=0" : "");
         }
 }
 

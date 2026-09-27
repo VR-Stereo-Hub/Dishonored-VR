@@ -416,7 +416,9 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     QueryPerformanceCounter(&t0);
     const auto cpuSecond = dvr::perf::cpu_scope_begin();
     OcclusionPass2Begin();                 // VR-79: the right eye culls with its own view state
+    dvr::etw::begin(dvr::etw::kSceneDraw, +1);
     const bool ok = SceneDrawCallGuarded((DvrViewportDrawFn)kViewportDraw, self, b);
+    dvr::etw::end(dvr::etw::kSceneDraw, +1);
     OcclusionPass2End();
     dvr::perf::cpu_scope_end(9, cpuSecond);
     QueryPerformanceCounter(&t1);
@@ -509,7 +511,9 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
 
     }
     const auto cpuFirst = depth == 0 ? dvr::perf::cpu_scope_begin() : dvr::perf::CpuToken{};
+    if (depth == 0) dvr::etw::begin(dvr::etw::kSceneDraw, g_sdEyeNow);
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
+    if (depth == 0) dvr::etw::end(dvr::etw::kSceneDraw, g_sdEyeNow);
     if (depth == 0) dvr::perf::cpu_scope_end(8, cpuFirst);
     if (depth == 0) {
         QueryPerformanceCounter(&t1);
