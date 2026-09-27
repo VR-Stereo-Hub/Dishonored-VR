@@ -8,6 +8,7 @@
 #include "core/framework/perf.h"
 #include "core/framework/status.h"
 #include "core/util/log.h"
+#include "core/util/etw.h"
 #include "core/util/paths.h"
 #include "core/util/diag.h"
 
@@ -170,6 +171,12 @@ void dispatch_line(const char* line)
     for (char* q = p; *q; q++) if (*q >= 'A' && *q <= 'Z') *q += 32;
     g_lines++;
     DVR_INFO("> %s %s", p, args);
+    {   // the command on the trace clock too, so a lever switch is visible beside the GPU packets
+        char etwText[160];
+        _snprintf(etwText, sizeof(etwText), "%s %s", p, args);
+        etwText[sizeof(etwText) - 1] = 0;
+        dvr::etw::mark(etwText, (int64_t)g_lines);
+    }
     if (g_game && g_game(p, args)) return;
     if (core_command(p, args)) return;
     g_unknown++;

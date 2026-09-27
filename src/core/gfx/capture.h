@@ -127,6 +127,12 @@ int      delivered_slot();
 // counted: there is no cross-API GPU fence in D3D9, so this IS the fence.
 void     set_shared_wait(bool on);
 bool     shared_wait();
+// Uncap deep dive (2026-09-27): the shared ring's delivery depth, 1..3 presents between
+// a slot's blit and its delivery ([Capture] SharedDepth=1, `capture depth <n>`; ignored
+// under SharedWait=1). Depth 1 is the 41.1 two-slot ring. A deeper ring lets the render
+// thread run further ahead of the GPU instead of waiting on the capture fence.
+void     set_shared_depth(int depth, const char* who);
+int      shared_depth();
 
 // 41.1 (Dishonored): the content-bbox cadence, and why it is a lever at all.
 //

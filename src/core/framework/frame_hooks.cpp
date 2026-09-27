@@ -20,6 +20,7 @@
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
 #include "core/util/crash.h"
+#include "core/util/etw.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
 
@@ -168,6 +169,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     }
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
     // present's record (its OUT = the render thread's time outside this hook).
+    dvr::etw::Scope etwPresent(dvr::etw::kPresent, (int64_t)g_count + 1);
     dvr::perf::set_device(self);
     dvr::bridge_profile::present();
     dvr::perf::stamp(dvr::perf::kEntry);
@@ -206,7 +208,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // Present-head: the runtime layer brings the session up, pumps events,
     // waits for the frame (this is what paces the game to the headset),
     // begins it and locates the head and the views.
+    dvr::etw::begin(dvr::etw::kXrBegin);
     dvr::vr::on_present_begin();
+    dvr::etw::end(dvr::etw::kXrBegin);
     dvr::perf::part_mark("hk.xrBegin(wait)");
     dvr::perf::stamp(dvr::perf::kAfterBegin);
     track_session();
@@ -250,7 +254,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         dvr::render_profile::tick(benchmarkGameplay);
     }
 
+    dvr::etw::begin(dvr::etw::kGameTick);
     if (g_cb.game_tick) g_cb.game_tick(self);
+    dvr::etw::end(dvr::etw::kGameTick);
     dvr::perf::stamp(dvr::perf::kAfterTick);
 
     // Present-tail: the method produces the eye texture; the runtime shows it.
@@ -260,7 +266,9 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::stereo::FrameOutput out;
     dvr::desktop_eye::begin_present(g_count);
     const uint32_t priorCapture = dvr::capture::delivered_serial();
+    dvr::etw::begin(dvr::etw::kMethod);
     dvr::stereo::end_frame(devs, out);
+    dvr::etw::end(dvr::etw::kMethod, out.eyeSign);
     dvr::perf::part_mark("hk.method(capture+fence)");
     dvr::perf::stamp(dvr::perf::kAfterEnd);
     {
@@ -274,10 +282,14 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
     // method and the runtime on purpose: they belong to no stereo method.
     dvr::perf::part_mark("hk.sceneQueryProfiles");
+    dvr::etw::begin(dvr::etw::kHud);
     dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
+    dvr::etw::end(dvr::etw::kHud);
     dvr::perf::part_mark("hk.hudRedirectEnd");
     if (out.tex) ++g_submits;
+    dvr::etw::begin(dvr::etw::kXrEnd, out.eyeSign);
     dvr::vr::on_present_end(out.tex);
+    dvr::etw::end(dvr::etw::kXrEnd, out.eyeSign);
     dvr::perf::part_mark("hk.xrEnd");
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
     dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
@@ -289,8 +301,10 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         dvr::vr::session_live();
     const bool desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
         !strcmp(dvr::stereo::active_name(), "reentry");
+    dvr::etw::begin(dvr::etw::kDeskPresent);
     const HRESULT hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
         desktopStereoReady, desktopXrReady, dvr::vr::session_running());
+    dvr::etw::end(dvr::etw::kDeskPresent);
     dvr::perf::stamp(dvr::perf::kAfterGamePresent);
     // 41.1 (session 8): the codes only a 9Ex device returns (the game never
     // handles them); the first of each is named so a TDR reads as a TDR.
@@ -411,6 +425,7 @@ HRESULT __stdcall hkSetDepthStencil(IDirect3DDevice9* self, IDirect3DSurface9* d
 
 HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
     ++g_actBegins;
+    if (g_actBegins == 1) dvr::etw::frame_start(g_count);
     dvr::perf::frame_start_marker("BeginScene");
     return g_origBeginScene(self);
 }

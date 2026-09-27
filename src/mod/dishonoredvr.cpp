@@ -22,6 +22,7 @@
 #include "core/util/paths.h"
 #include "core/util/diag.h"
 #include "core/util/crash.h"
+#include "core/util/etw.h"
 #include "core/hooks/vtable.h"
 #include "core/hooks/iat.h"
 #include "core/hooks/detour.h"

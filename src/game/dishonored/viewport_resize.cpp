@@ -11,6 +11,9 @@ std::atomic<unsigned long long> g_resLiveStamp{0};
 // vsync change take: present_tick.cpp's DvrBeforeReset runs UncapPresent,
 // which reads g_forceNoVSync at that moment.
 std::atomic<int> g_resLiveFull{1};
+// Uncap deep dive: `res live` asks for a size for THIS session only - the resize below then
+// advertises the mode in memory and writes neither ini nor the launch file.
+std::atomic<bool> g_resLiveSession{false};
 void ResLiveRefuse(const char* why) {
     g_resLiveState.store(-1);
     Log("res/live: REFUSED: %s; current render remains authoritative",why);
@@ -201,7 +204,12 @@ static void ResLiveApply(void* viewport) {
     // Persist/advertise before resize, so the engine can validate the new mode.
     const bool wantFull=g_resLiveFull.load()!=0;
     g_resVirtual=true;
-    ResRequest(w,h,wantFull,"F10 live total-pixel scale");
+    if (g_resLiveSession.exchange(false)) {
+        g_resWantW=w; g_resWantH=h; g_resWantFull=wantFull;   // the advertised mode, in memory only
+        Log("res/live: session-only %ux%u - nothing written to dishonored_vr.ini, the game's ini or the launch file",w,h);
+    } else {
+        ResRequest(w,h,wantFull,"F10 live total-pixel scale");
+    }
     if (!IsLiveObject(owner) || *(void**)(owner+kGameViewportNativeViewport)!=viewport ||
         *(uintptr_t*)view!=kWindowsFViewportVtable || *(HWND*)(native+kWindowsViewportHwnd)!=g_gameWnd) {
         ResLiveRefuse("viewport ownership changed before call"); return;

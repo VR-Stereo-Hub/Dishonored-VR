@@ -212,6 +212,26 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
     if (!strcmp(cmd, "arms")) return ArmsCommand(args);   // VR-31: the per-bone visibility lever
+    if (!strcmp(cmd, "res") && !strncmp(args, "live ", 5)) {
+        // Uncap deep dive (2026-09-27): a LIVE render size for the A/B plan's scaling test,
+        // through the engine resize the F10 control and DLSS SR already use (ResLiveQueue:
+        // byte-verified, refuses with a reason). Nothing is written to either ini, so the
+        // next launch renders the configured size again. `res live pct <25..200>` is a percent
+        // per axis of the configured [Screen] RenderWidth/Height; `res live <W>x<H>` is exact.
+        unsigned w = 0, h = 0, pct = 0;
+        static uint32_t baseW = 0, baseH = 0;   // the configured size, before any live change moved g_resWant
+        if (!baseW && g_resWantW && g_resWantH) { baseW = g_resWantW; baseH = g_resWantH; }
+        if (sscanf(args + 5, "pct %u", &pct) == 1 && pct >= 25 && pct <= 200 && baseW && baseH) {
+            w = (baseW * pct / 100 + 1) & ~1u; h = (baseH * pct / 100 + 1) & ~1u;
+        } else if (sscanf(args + 5, "%ux%u", &w, &h) != 2) {
+            Log("res live: pct <25..200> (of the configured %ux%u) | <W>x<H> - nothing written to the ini", baseW, baseH);
+            return true;
+        }
+        Log("res live: asking %ux%u for this session only (configured %ux%u stays in the ini)", w, h, baseW, baseH);
+        g_resLiveSession.store(true);
+        ResLiveQueue(w, h);
+        return true;
+    }
     if (!strcmp(cmd, "res")) return ResCommand(args);   // 41.1: the render-resolution picker
     if (!strcmp(cmd, "neck")) {
         // 41.1: `neck off|add|cancel [below] [behind]` - the pitch pivot lever (head_track.cpp NeckSet)
@@ -346,6 +366,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::set_shared_wait(b);
             return true;
         }
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "depth")) {   // uncap deep dive
+            dvr::capture::set_shared_depth(atoi(m), "the seam");
+            return true;
+        }
         if (!strcmp(args, "reinit")) { dvr::capture::request_reinit(); return true; }   // 41.1 (session 9)
         // 41.1: the content-bbox cadence. Each sample is a full-frame CPU
         // readback on the present thread even in shared mode - see capture.h.
@@ -360,7 +384,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
             "(%u grabs) delivered serial %lu of %lu tag=%d slot=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
             "readTimeouts=%u reinits=%u bboxEvery=%ums(%u samples, each a full-frame CPU readback) "
-            "(capture mode sync|deferred|shared|off, capture sharedwait on|off, capture bbox off|<ms>, capture reinit)",
+            "(capture mode sync|deferred|shared|off, capture sharedwait on|off, capture depth 1|2|3, capture bbox off|<ms>, "
+            "capture reinit)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,

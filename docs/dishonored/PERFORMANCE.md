@@ -3110,3 +3110,134 @@ raise the headset's rate on this PC; route 2 stays as CPU headroom. Next lever: 
 (our sharpen pass ~0.4 ms per eye, the streamer's encode, render size). Late in the same run the
 runtime's period went to 13.89 ms (72 Hz) - Virtual Desktop halving the rate on its own.
 
+
+## 2026-09-27: The uncap deep dive - where the headset frame goes, and the plan that tests it
+
+Branch `claude/uncap-deep-dive` (stacked on route 2). Goal: find the serialisation that holds the
+headset at ~120-137 pairs/s with the PC at ~25 % CPU and ~80 % GPU.
+
+### What the latest headset log already says (offline, no new run)
+
+Source: the maintainer's route-2 headset log of 2026-09-27 (build `v1.0.1-106-gb0e953df2`, VDXR 144 Hz,
+2750x2850, SSW off, DLSS off, Sharpen 0.40, capture shared depth 1). Only the 35 windows of steady play at
+144 Hz (the first ~290 s of that run sat at 13.89 ms / 72 Hz, Virtual Desktop halving the rate, and a
+heavier area at ~70 pairs/s; both excluded). Medians, p10-p90 in brackets. The perf line's P1/P2 are the
+presents that DELIVER the left/right image (delivery is one present late), so P1 is physically the
+right-eye present and its `out` renders the next tick's left eye.
+
+| Per stereo pair | median | p10-p90 |
+|---|---|---|
+| tick | 8.0 ms (124 pairs/s) | 7.5-8.6 |
+| render thread, engine rendering (R, both eyes) | 4.6 ms | |
+| render thread, waiting on the capture blit fence (P1 lock + P2 lock) | 1.3 ms | 0.6-2.4 |
+| render thread, waiting on the game thread (P1 out idle) | 0.6 ms | 0.5-1.1 |
+| render thread, our present path excluding the fence | ~1.0 ms | |
+| D3D9 GPU span (render start to present entry, both eyes) | 6.9 ms | 6.6-7.7 |
+| D3D9 GPU idle between presents | 0.1 ms | 0.1-0.3 |
+| our D3D11 GPU work (conversion + sharpen 0.09, eye copy 0.05, per eye) | ~0.3 ms | |
+| xrWaitFrame | 0.1 ms | (UNDER-SUBMITTING 0.81-0.94x: the runtime never throttles) |
+
+- The capture's own window line: `blit fence waits` in 256-680 of ~750 grabs per 3 s, the D3D11 read fence
+  never. So the render thread waits on the GPU finishing the PREVIOUS eye's blit, i.e. the GPU is more than
+  one eye behind at that moment, on most ticks.
+- All three stages sit near the same cost: GPU ~6.9 ms of D3D9 span plus ~0.3 ms of ours plus Virtual
+  Desktop's share; render thread ~7.4 ms busy; game thread ~7.4 ms (the render thread waits 0.6 ms for it).
+  A three-stage pipeline whose stages are this balanced, with at most one eye of buffering between the render
+  thread and the GPU (the capture fence) and one frame between the game and render threads
+  (OneFrameThreadLag), loses throughput to each stage's variance; nothing is saturated because each stage
+  waits for a neighbour part of the time. That is the "25 % CPU, 80 % GPU" picture.
+- Our D3D11 side is not the cost: ~0.3 ms of GPU per pair (`perf/bridge`), so the sharpen pass is not the
+  0.4 ms per eye the earlier handoff guessed. Not a lever worth a segment.
+- OPEN, and what the GPU timeline must answer: the D3D9 span (6.9 ms) is wall time on the GPU and can hide
+  gaps. Two readings predict different things. (a) The GPU is truly busy for the whole span (game + ours +
+  Virtual Desktop): the fence wait is only the throttle, and removing it moves the wait elsewhere with no
+  rate change. (b) The GPU starves inside the span because the next eye's commands reach the kernel late
+  (they sit in the D3D9 driver's buffer until something flushes it; with the desktop Present skipped, the
+  flushes are ours - the capture fence poll and `submit_without_present`): then letting the render thread
+  run further ahead raises the rate toward the GPU's own cost.
+
+### Instruments built for it (this branch)
+
+- `core/util/etw.{h,cpp}`: a TraceLogging provider `DishonoredVR` {6b3c1f4e-2d6a-4f7c-9a51-0d2e8c7b4a19}
+  with begin/end events for the present, the xrWaitFrame, the game tick, the method, both capture waits,
+  the HUD and its fence, xrEndFrame, the desktop Present or its flush, the frame-start marker, each
+  game-thread scene draw (eye in `a`), and every seam command as a mark. Free unless a trace session enables
+  the provider (one flag test per call); `[Perf] Etw=0` is a kill switch only.
+- `tools/wpr/dvr-gpu.wprp` (`DvrGpu`: CSwitch + ReadyThread, DxgKrnl Base+Profiler+LongHaul with the
+  context rundown, the proxy's markers; `DvrGpuStacks` adds 1 kHz samples with stacks) and
+  `tools/perf-gpu-trace.ps1` (elevated; never launches anything): `-Smoke` proves the recorder; armed, it
+  waits for the game, arms an A/B plan through the seam (`-Plan`), traces a few seconds inside chosen plan
+  segments, and samples GPU clocks/power/throttle reasons (nvidia-smi, 4 Hz) and per-process GPU engine load
+  (1 Hz) for the whole run, all stamped on the log's clock.
+- The A/B plan reads a FILE now: `perf ab plan <file>` / `[Perf] AbPlan=<file>`, one segment per line,
+  `label | apply seam words | restore seam words`, a row without apply words is a baseline; the built-in
+  plan is unchanged. `tools/perf-plans/uncap-1.txt` is the first plan.
+- Two levers, default off:
+  - `[Capture] SharedDepth=1` / `capture depth 1|2|3`: the shared capture ring's delivery depth. Depth 1
+    is the 41.1 two-slot ring (unchanged). Depth N keeps N+1 slots and delivers the slot blitted N
+    presents ago, so the render thread can run up to N eyes ahead of the GPU instead of waiting on the
+    previous eye's blit. Cost: one present (~4 ms) more latency per step, the pose record riding the image
+    (VR-65) so the runtime still submits the pose each image was rendered with. Not in the default ini.
+  - `res live pct <25..200>` / `res live <W>x<H>`: a session-only render size through the engine resize
+    the F10 control and DLSS SR already use; nothing is written to either ini.
+
+### Plan 1 and its predictions (recorded before the run)
+
+`tools/perf-plans/uncap-1.txt`: 15 segments of 20 s (3 s warm-up discarded), seven baselines A-G between
+depth 2, `pe heavydraw off`, a serial control (`capture sharedwait on`: the render thread waits for THIS
+eye's blit, which must lower the rate or the plan cannot see a wait at all), depth 2 + heavydraw off, and
+the render size at 70 % and 130 %.
+
+| Segment | If (a) the GPU is the ceiling | If (b) our wait starves the GPU |
+|---|---|---|
+| depth 2 | fence waits ~0, rate within the baseline floor, the GPU timeline shows the 3D queue never empty | fence waits ~0 and pairs/s up toward 1 / (GPU span + ours), up to the 144 cap |
+| heavydraw off | no change | no change unless the game thread is the next limit (render idle 0.6 ms falls) |
+| serial control | rate DOWN (both) | rate DOWN (both) |
+| res 70 % | rate up by roughly the pixel share of the GPU span | small change (a starved GPU does not care about pixels) |
+| res 130 % | rate down | rate down less than the pixel ratio |
+
+- Trace overhead is controlled by construction this time: VR-125's combined GeneralProfile+GPU capture cost
+  ~25 % of the rate and its memory-ring GPU collector kept only events after the game had exited. DvrGpu is
+  file-mode, has no stacks or sampling, and records 5 s windows inside 20 s plan segments, so every traced
+  segment has untraced perf windows of the same configuration beside it.
+- WPR needs admin; `tools/perf-trace-task-setup.ps1` (run once, elevated) registers four on-demand tasks
+  under `\DishonoredVR\` that run a fixed script from an admin-only folder, so the recorder then runs
+  without elevation and without a prompt. `-Remove` undoes it.
+- Driver lever queued for after plan 1 (needs a restart per setting, so not in the plan): NVIDIA
+  Threaded Optimization. VR-125's lightweight headset trace had the render thread blocked 27 % of the
+  time, 91 % of that ended by the NVIDIA D3D9 worker thread, which itself polls; whether the driver's
+  worker is the render thread's hidden wait is the question the CSwitch/ReadyThread data in DvrGpu answers.
+
+### Plan 1 in the SIMULATOR (2026-09-27, shakedown; the headset question is still open)
+
+Build `81bef09dd` + the fixes below, RelWithDebInfo, simulator at 240 Hz (cap lifted), 2750x2850, the same
+save, standing still, untraced. Noise floor from 7 baselines: p50 5.91-6.34 ms (6.9 %), p99 9.28-11.47 ms.
+
+| Segment | p50 pair | pairs/s | verdict |
+|---|---|---|---|
+| baselines A-D | 5.91-6.10 ms | 164-169 | - |
+| depth 2 | 5.95 ms | 168 | no change |
+| heavydraw off | 6.09 ms | 164 | no change |
+| serial control (SharedWait=1) | 8.88 ms | 113 | **+45 %: the plan sees a wait** |
+| depth 2 + heavydraw off | 6.14 ms | 163 | no change |
+| res 70 % (1926x1996) | 6.13 ms | 163 | no change |
+
+- The simulator does not exercise the headset's question: its capture fence already waits in 0-4 of ~950
+  grabs per window at depth 1 (headset: 256-680 of ~750), and a 70 % render size did not move the rate,
+  so here the game thread, not the GPU, is the limit (as recorded for route 2). Depth 2 worked
+  mechanically (ring 2 -> 3 -> 2 rebuilt live, 0 fence waits, no stale eye), and the serial control
+  proves the instrument can see a render-thread wait. The headset run is where depth 2 decides (a) vs (b).
+- FAULT FOUND AND FIXED: the live resize persisted what it applied. `res live` reached `ResRequest`,
+  which writes `[Screen] RenderWidth/Height`, `DishonoredEngine.ini [SystemSettings] ResX/ResY` and the
+  launch file, and moved the base the percentage is taken from, so `res live pct 100` "restored" 70 %
+  and the last three rows measured 70 % and 91 %, not 100 % and 130 % (discarded). `pe heavydraw`
+  persisted `[Perf] PeHeavyInDraw` through `ConfigWriteKey`. Now: `ConfigWriteKey` writes nothing while an
+  A/B plan row runs, `res live` advertises the mode in memory only and takes its percentage from the size
+  configured at the first call. All three files were restored byte-for-byte from the pre-run backup.
+- FAULT FOUND AND FIXED: the trace tasks ran with an interactive logon, and each start flashed a console
+  that took the focus from the game, which pauses on focus loss - it stalled the first two plan attempts.
+  The tasks now run as S4U (background session, no window).
+- FAULT FOUND AND FIXED: the DvrGpu traces held the kernel events and the proxy's markers (~4,800
+  phase events/s) but NO DxgKrnl events, by name or by GUID. Cause: the provider lacked
+  `NonPagedMemory="true"`, which WPR's own GPU profile sets (`wpr -exportprofile GPU`): DxgKrnl logs from
+  interrupt-level code and a paged session silently receives none of it.
