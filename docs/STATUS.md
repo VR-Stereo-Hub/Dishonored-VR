@@ -1,3 +1,14 @@
+## DLSS Super Resolution (2026-09-26, latest) - built, simulator verified, not merged
+
+DLAA headset verdict after the vector fixes: smear gone (mask off), aliasing removed, very
+sharp, big cost that SSW makes playable. Phase 2 built: `[Clarity] DlssQuality` 1-4 renders the
+game at the output / 1.5-3x and DLSS rebuilds the output; F10 "DLSS mode" slider, `dlss quality
+<n>`. The resize rides the live path and persists, SR off or DLSS failing restores the output.
+Simulator: Quality 1832x1900 -> 2750x2850 at 90/s per eye (cap) vs DLAA 64/s. Host 13/13.
+No headset result yet; no jitter yet (SR softer than DLAA until then). Installed build 21:00;
+INI restored byte-for-byte (`b5731eba...`, user's DLAA=1 and mask settings kept, DlssQuality
+absent = 0 = DLAA). Detail: PERFORMANCE, DLSS Super Resolution.
+
 ## DLAA vectors now pixel-accurate in the simulator (2026-09-26, latest)
 
 Second headset run: smear unchanged after the arms fix. New `dlss/flow` check measured vector

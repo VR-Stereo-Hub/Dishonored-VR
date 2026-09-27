@@ -7,7 +7,14 @@
 // clarity's resolve and sharpen; the custom temporal AA does not also run. Hands and the F10
 // panel are drawn on top afterwards, untouched.
 //
-// Phase 1 limits, stated where they matter: DLAA only (render == output); no projection jitter
+// Super Resolution (phase 2): DlssQuality > 0 renders the game at the output size divided by the
+// mode's per-axis ratio and reconstructs the output. The OUTPUT is the headset resolution the
+// player chose ([Clarity] DlssOutputWidth/Height, set from the F10 resolution while SR is on);
+// the game's own render size ([Screen] RenderWidth/Height) becomes the reduced one, driven by
+// the game side (viewport_resize.cpp) through the proven live-resize path. Turning SR off, or
+// DLSS failing, resizes back to the output.
+//
+// Phase 1 limits, stated where they matter: no projection jitter
 // (the image still moves a little every frame with the head, which is what reconstruction has
 // to work with); camera-only motion vectors (moving characters, hands, particles carry the
 // camera's vector); the depth is an ordering, not the engine's device depth. Needs an NVIDIA
@@ -27,6 +34,21 @@ struct GuideParams;
 enum Mode { ModeOff = 0, ModeDlaa = 1 };
 void set_mode(int mode, const char* who);
 int  mode();
+// Quality: 0 DLAA (render = output), 1 Quality (1.5x per axis), 2 Balanced (1.72x),
+// 3 Performance (2x), 4 Ultra Performance (3x).
+enum Quality { QDlaa = 0, QQuality, QBalanced, QPerformance, QUltra, QCount };
+void set_quality(int q, const char* who);
+int  quality();
+float ratio();                        // per axis, 1 for DLAA
+const char* quality_name(int q);
+// The SR output (the headset resolution). 0x0 = none recorded.
+void set_output(uint32_t w, uint32_t h, const char* who);
+bool output(uint32_t* w, uint32_t* h);
+// The render size SR uses for an output (even, same aspect within a pixel).
+void render_for(uint32_t ow, uint32_t oh, uint32_t* w, uint32_t* h);
+// True, with the output size, when an eye image of w x h is SR's reduced render.
+bool sr_output_for(uint32_t w, uint32_t h, uint32_t* ow, uint32_t* oh);
+bool failed();                        // the helper is unavailable (the game side restores the output size)
 // NVSDK_NGX_DLSS_Hint_Render_Preset: 0 = the helper's pick (K, the 310.x transformer).
 void set_preset(int preset, const char* who);
 int  preset();
@@ -44,8 +66,9 @@ float mask_hi();
 // Present thread. The reconstructed eye image (w x h, RGBA8, gamma-encoded like the capture),
 // or null: the helper is not ready or refused, and the caller keeps its normal path.
 // `reset`: this eye's history does not belong to this image (cut, load, record gap).
+// ow x oh: the output (equal to w x h for DLAA). The result is ow x oh.
 ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
-                              uint32_t w, uint32_t h, int eye, const GuideParams& g, bool reset);
+                              uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, int eye, const GuideParams& g, bool reset);
 // True while DLAA owns the eye image (the custom temporal AA and its depth request stand down).
 bool active();
 // Present thread, every draw while the mode is off: releases the helper and every shared

@@ -761,8 +761,20 @@ static void OvlTabDisplay()
         const uint32_t height = (uint32_t)(2850.0f * axisScale + 0.5f);
         ImGui::Text("Preview: %ux%u | now %ux%u", width, height, dvr::capture::width(), dvr::capture::height());
         ImGui::BeginDisabled(busy);
-        if (dvr::ovl::button("Set resolution")) ResLiveQueue(width, height);
-        OvlTip("Applies now and saves. Expect a brief pause while the game resizes.");
+        const bool srOn = dvr::dlss::mode() != dvr::dlss::ModeOff && dvr::dlss::quality() != dvr::dlss::QDlaa;
+        if (dvr::ovl::button("Set resolution")) {
+            if (srOn) {   // DLSS Super Resolution: this is the headset output; the game renders it smaller
+                dvr::dlss::set_output(width, height, "F10 resolution");
+                char v[16];
+                _snprintf(v, sizeof(v), "%u", width); ConfigWriteKey("Clarity", "DlssOutputWidth", v, "F10 Display");
+                _snprintf(v, sizeof(v), "%u", height); ConfigWriteKey("Clarity", "DlssOutputHeight", v, "F10 Display");
+            } else {
+                ResLiveQueue(width, height);
+            }
+        }
+        OvlTip(srOn ? "With DLSS Super Resolution on, this is the headset output; the game renders it smaller. "
+                      "Applies now and saves."
+                    : "Applies now and saves. Expect a brief pause while the game resizes.");
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", ResLiveStatus());
     }
@@ -834,7 +846,15 @@ static void OvlTabDisplay()
                 OvlSaveOnRelease("Clarity", "DlssMaskHi", dvr::dlss::mask_hi(), "%.3f");
                 OvlTip("Lower catches more smearing but also smooths less.");
             }
-            ImGui::TextDisabled("DLAA: %s", dvr::dlss::summary());
+            int q = dvr::dlss::quality();
+            if (dvr::ovl::slider_int("DLSS mode", &q, 0, dvr::dlss::QCount - 1, dvr::dlss::quality_name(q), ImGuiSliderFlags_AlwaysClamp)) {
+                dvr::dlss::set_quality(q, "F10 Display");
+                char v[8]; _snprintf(v, sizeof(v), "%d", q);
+                ConfigWriteKey("Clarity", "DlssQuality", v, "F10 Display");
+            }
+            OvlTip("DLAA renders at full resolution. Quality, Balanced and Performance render smaller and rebuild the "
+                   "full picture: faster, a little softer. The game resizes when you change it.");
+            ImGui::TextDisabled("DLSS: %s", dvr::dlss::summary());
         }
         ImGui::TextDisabled("%s", dvr::clarity::summary());
     }

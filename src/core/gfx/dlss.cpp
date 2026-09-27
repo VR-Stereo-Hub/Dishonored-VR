@@ -27,6 +27,10 @@ enum State { Idle = 0, Working, Ready, Failed };
 
 std::atomic<int> g_mode{ModeOff};
 std::atomic<int> g_preset{0};
+std::atomic<int> g_quality{QDlaa};
+std::atomic<uint32_t> g_outW{0}, g_outH{0};
+const float kRatio[QCount] = {1.0f, 1.5f, 1.7241f, 2.0f, 3.0f};
+const char* const kQualityName[QCount] = {"DLAA", "Quality", "Balanced", "Performance", "Ultra Performance"};
 std::atomic<bool> g_mask{false};
 std::atomic<float> g_maskLo{0.03f}, g_maskHi{0.12f};
 std::atomic<int> g_state{Idle};
@@ -37,7 +41,7 @@ std::thread g_worker;
 char g_why[512] = "";          // the last refusal, for the log and F10
 char g_summary[256] = "off";
 // What the present thread last asked for (read by the worker once it is joined-for).
-uint32_t g_wantW = 0, g_wantH = 0;
+uint32_t g_wantW = 0, g_wantH = 0, g_wantOw = 0, g_wantOh = 0;
 DXGI_FORMAT g_wantFmt = DXGI_FORMAT_UNKNOWN;
 ID3D11Device* g_dev = nullptr;
 bool g_helperStarted = false;
@@ -56,7 +60,7 @@ void client_log(int level, const char* line) {
 void join_worker() { if (g_worker.joinable()) g_worker.join(); }
 
 // Worker: start the helper if needed, then build both eyes at the wanted size.
-void work(uint32_t w, uint32_t h, DXGI_FORMAT fmt, int preset) {
+void work(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt, int preset) {
     char why[512] = "";
     bool ok = true;
     if (!g_client.running()) {
@@ -68,11 +72,14 @@ void work(uint32_t w, uint32_t h, DXGI_FORMAT fmt, int preset) {
         ok = g_client.start(g_dev, sp, why, sizeof(why));
         if (ok) g_helperStarted = true;
     }
-    for (int e = 0; ok && e < 2; ++e) ok = g_client.build(e, w, h, w, h, fmt, preset, why, sizeof(why));
+    for (int e = 0; ok && e < 2; ++e) ok = g_client.build(e, w, h, ow, oh, fmt, preset, why, sizeof(why));
     if (ok) {
-        DVR_INFO("dlss: DLAA ready on %s for both eyes at %ux%u (colour format %d, preset %d%s), %.1f MiB shared "
-                 "with the helper - DLAA now owns the eye image; the custom temporal AA stands down",
-                 g_client.adapter(), w, h, (int)fmt, preset, preset ? "" : " = the helper's model K", g_client.bytes() / (1024.0 * 1024.0));
+        DVR_INFO("dlss: %s ready on %s for both eyes, %ux%u -> %ux%u (%.2fx per axis, %.0f%% of the output's pixels "
+                 "rendered; colour format %d, preset %d%s), %.1f MiB shared with the helper - DLSS now owns the eye "
+                 "image; the custom temporal AA stands down",
+                 (w == ow && h == oh) ? "DLAA" : "DLSS Super Resolution", g_client.adapter(), w, h, ow, oh,
+                 (double)ow / w, 100.0 * w * h / ((double)ow * oh), (int)fmt, preset,
+                 preset ? "" : " = the helper's pick per mode", g_client.bytes() / (1024.0 * 1024.0));
         g_state.store(Ready);
     } else {
         strcpy_s(g_why, why);
@@ -82,12 +89,12 @@ void work(uint32_t w, uint32_t h, DXGI_FORMAT fmt, int preset) {
     }
 }
 
-void kick(uint32_t w, uint32_t h, DXGI_FORMAT fmt) {
+void kick(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt) {
     join_worker();
-    g_wantW = w; g_wantH = h; g_wantFmt = fmt;
+    g_wantW = w; g_wantH = h; g_wantOw = ow; g_wantOh = oh; g_wantFmt = fmt;
     g_state.store(Working);
     const int preset = g_preset.load();
-    g_worker = std::thread([w, h, fmt, preset] { work(w, h, fmt, preset); });
+    g_worker = std::thread([w, h, ow, oh, fmt, preset] { work(w, h, ow, oh, fmt, preset); });
 }
 
 void status_tick() {
@@ -99,9 +106,10 @@ void status_tick() {
     const double gl = st.gpuN[0] ? st.gpuMsSum[0] / st.gpuN[0] : -1, gr = st.gpuN[1] ? st.gpuMsSum[1] / st.gpuN[1] : -1;
     const double cl = st.frames[0] ? st.cpuMsSum[0] / (st.frames[0] + st.refused[0]) : 0;
     const double cr = st.frames[1] ? st.cpuMsSum[1] / (st.frames[1] + st.refused[1]) : 0;
-    DVR_INFO("dlss: DLAA %.0f/s L %.0f/s R, fallback %.0f/s, history resets %llu | helper GPU evaluate L %.2f R %.2f ms "
+    DVR_INFO("dlss: %s %ux%u -> %ux%u: %.0f/s L %.0f/s R, fallback %.0f/s, history resets %llu | helper GPU evaluate L %.2f R %.2f ms "
              "(-1 = not sampled), present-thread cost L %.2f R %.2f ms max %.2f | refused L %llu R %llu | %.1f MiB shared + %.1f MiB guides "
              "| camera-only vectors, no jitter (phase 1)",
+             (g_wantW == g_wantOw && g_wantH == g_wantOh) ? "DLAA" : kQualityName[g_quality.load()], g_wantW, g_wantH, g_wantOw, g_wantOh,
              g_win.eyes[0] / s, g_win.eyes[1] / s, g_win.fallback / s, (unsigned long long)g_win.resets, gl, gr, cl, cr,
              st.cpuMsMax[0] > st.cpuMsMax[1] ? st.cpuMsMax[0] : st.cpuMsMax[1],
              (unsigned long long)st.refused[0], (unsigned long long)st.refused[1],
@@ -142,8 +150,9 @@ void status_tick() {
         }
         g_guides.flow = FlowStats{};
     }
-    _snprintf_s(g_summary, _TRUNCATE, "DLAA L %.0f/s R %.0f/s, GPU %.2f/%.2f ms per eye, fallback %.0f/s",
-                g_win.eyes[0] / s, g_win.eyes[1] / s, gl, gr, g_win.fallback / s);
+    _snprintf_s(g_summary, _TRUNCATE, "%s %ux%u -> %ux%u, L %.0f/s R %.0f/s, GPU %.2f/%.2f ms per eye, fallback %.0f/s",
+                (g_wantW == g_wantOw && g_wantH == g_wantOh) ? "DLAA" : kQualityName[g_quality.load()], g_wantW, g_wantH,
+                g_wantOw, g_wantOh, g_win.eyes[0] / s, g_win.eyes[1] / s, gl, gr, g_win.fallback / s);
     g_win = Window{};
     st = Stats{};
     g_winMs = now;
@@ -168,6 +177,45 @@ void set_preset(int p, const char* who) {
 }
 int preset() { return g_preset.load(); }
 
+void set_quality(int q, const char* who) {
+    if (q < 0 || q >= QCount) q = QDlaa;
+    const int was = g_quality.exchange(q);
+    if (was == q) return;
+    DVR_INFO("dlss: quality %s -> %s (%.2fx per axis, %s); the game resizes to match", kQualityName[was], kQualityName[q],
+             kRatio[q], who ? who : "?");
+}
+int quality() { return g_quality.load(); }
+float ratio() { return kRatio[g_quality.load()]; }
+const char* quality_name(int q) { return (q >= 0 && q < QCount) ? kQualityName[q] : "?"; }
+void set_output(uint32_t w, uint32_t h, const char* who) {
+    if (w && h && (w < 640 || h < 480 || w > 16384 || h > 16384)) return;
+    if (g_outW.load() == w && g_outH.load() == h) return;
+    g_outW.store(w); g_outH.store(h);
+    DVR_INFO("dlss: Super Resolution output %ux%u (%s)%s", w, h, who ? who : "?", w ? "" : " - none recorded");
+}
+bool output(uint32_t* w, uint32_t* h) {
+    *w = g_outW.load(); *h = g_outH.load();
+    return *w && *h;
+}
+void render_for(uint32_t ow, uint32_t oh, uint32_t* w, uint32_t* h) {
+    const float r = kRatio[g_quality.load()];
+    uint32_t rw = (uint32_t)(ow / r + 0.5f) & ~1u, rh = (uint32_t)(oh / r + 0.5f) & ~1u;
+    if (rw < 640) rw = 640;
+    if (rh < 480) rh = 480;
+    *w = rw; *h = rh;
+}
+bool sr_output_for(uint32_t w, uint32_t h, uint32_t* ow, uint32_t* oh) {
+    if (g_mode.load() == ModeOff || g_quality.load() == QDlaa || g_state.load() == Failed) return false;
+    uint32_t tw = g_outW.load(), th = g_outH.load();
+    if (!tw || !th) return false;
+    uint32_t rw = 0, rh = 0;
+    render_for(tw, th, &rw, &rh);
+    if (w + 2 < rw || w > rw + 2 || h + 2 < rh || h > rh + 2) return false;
+    *ow = tw; *oh = th;
+    return true;
+}
+bool failed() { return g_state.load() == Failed; }
+
 void set_mask(bool on, const char* who) {
     if (g_mask.exchange(on) == on) return;
     DVR_INFO("dlss: anti-smear mask %s (live, %s)", on ? "ON" : "off", who ? who : "?");
@@ -185,7 +233,7 @@ float mask_hi() { return g_maskHi.load(); }
 bool active() { return g_mode.load() != ModeOff && g_state.load() == Ready; }
 
 ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
-                              uint32_t w, uint32_t h, int eye, const GuideParams& gp, bool reset) {
+                              uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, int eye, const GuideParams& gp, bool reset) {
     if (g_mode.load() == ModeOff) {
         if (g_state.load() != Idle && g_state.load() != Working) shutdown();
         return nullptr;
@@ -207,11 +255,11 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     if (state == Working) { ++g_win.fallback; return nullptr; }
     const bool retry = g_retry.exchange(false);
     if (state == Idle || (retry && state != Working) ||
-        (state == Ready && !g_client.built(eye, w, h, w, h, cd.Format))) {
+        (state == Ready && !g_client.built(eye, w, h, ow, oh, cd.Format))) {
         if (state == Ready && !retry)
-            DVR_INFO("dlss: eye image %ux%u format %d differs from the built %ux%u format %d - rebuilding both eyes",
-                     w, h, (int)cd.Format, g_wantW, g_wantH, (int)g_wantFmt);
-        kick(w, h, cd.Format);
+            DVR_INFO("dlss: eye image %ux%u -> %ux%u format %d differs from the built %ux%u -> %ux%u format %d - rebuilding "
+                     "both eyes", w, h, ow, oh, (int)cd.Format, g_wantW, g_wantH, g_wantOw, g_wantOh, (int)g_wantFmt);
+        kick(w, h, ow, oh, cd.Format);
         ++g_win.fallback;
         return nullptr;
     }
@@ -284,6 +332,15 @@ bool command(const char* args) {
     if (n >= 1 && !_stricmp(sub, "off")) { set_mode(ModeOff, "the seam"); return true; }
     if (n >= 1 && !_stricmp(sub, "retry")) { g_retry.store(true); DVR_INFO("dlss: retry requested (the seam)"); return true; }
     if (n >= 2 && !_stricmp(sub, "preset")) { set_preset(atoi(val), "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "quality")) {
+        int q = atoi(val);
+        for (int k = 0; k < QCount; ++k) if (!_strnicmp(val, kQualityName[k], 4)) q = k;
+        set_quality(q, "the seam"); return true;
+    }
+    if (n >= 2 && !_stricmp(sub, "output")) {
+        unsigned ow = 0, oh = 0;
+        if (sscanf(args, "%*s %u %u", &ow, &oh) == 2) { set_output(ow, oh, "the seam"); return true; }
+    }
     if (n >= 2 && !_stricmp(sub, "taxis")) {
         float f = 1, r = 1, u = 1;
         if (sscanf(args, "%*s %f %f %f", &f, &r, &u) == 3) { dvr::clarity::set_translation_axes(f, r, u, "the seam"); return true; }
@@ -296,7 +353,7 @@ bool command(const char* args) {
         float lo = 0, hi = 0;
         if (sscanf(args, "%*s %f %f", &lo, &hi) == 2) { set_mask_range(lo, hi, "the seam"); return true; }
     }
-    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, preset <0..15>, mask on|off, "
+    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, preset <0..15>, quality <0..4|name>, output <w> <h>, mask on|off, "
              "maskrange <lo> <hi> | mask %s %.3f..%.3f",
              g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary(), g_mask.load() ? "on" : "off",
              g_maskLo.load(), g_maskHi.load());

@@ -260,6 +260,30 @@ int main(int argc, char** argv) {
         upload(color[0], sA.data(), W * 4);
     }
 
+    // 3c. Super Resolution: 512 -> 768 (Quality, 1.5x). The feature must build, the output must be
+    //     768x768 and must be the input scene enlarged (compared against a nearest-neighbour
+    //     enlargement of the input). Fails if NGX refuses the ratio or the output is not the scene.
+    {
+        const uint32_t OW = 768, OH = 768;
+        bool ok = c.build(0, W, H, OW, OH, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+        float err = 1;
+        if (ok) {
+            upload(color[0], sA.data(), W * 4);
+            for (int i = 0; i < 16 && ok; ++i) {
+                EyeInputs in; in.color = color[0].t; in.depth = depth.t; in.motion = motion.t; in.reset = i == 0;
+                ok = c.evaluate(ctx, 0, in, why, sizeof(why));
+            }
+            D3D11_TEXTURE2D_DESC od = {}; c.output_texture(0)->GetDesc(&od);
+            auto out = readback(c.output_texture(0), OW, OH);
+            std::vector<float> big((size_t)OW * OH);
+            for (uint32_t y = 0; y < OH; ++y) for (uint32_t x = 0; x < OW; ++x) big[y * OW + x] = lA[(y * H / OH) * W + (x * W / OW)];
+            err = mae(out, big, OW, OH, 12);
+            ok = ok && od.Width == OW && od.Height == OH;
+        }
+        check(ok && err < 0.08f, "Super Resolution 512 -> 768", "%s, error vs the enlarged input %.4f (limit 0.08)", ok ? "built" : why, err);
+        c.build(0, W, H, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));   // back to DLAA for what follows
+    }
+
     // 4. Cost at the real eye size (2750 x 2850 is this machine's F10 100% reference).
     {
         const uint32_t EW = 2752, EH = 2848;

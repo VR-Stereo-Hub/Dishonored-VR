@@ -181,6 +181,13 @@ static bool WriteDefaultIni(const char* ini)
         "; applies. Camera-only motion vectors, no jitter yet. Live: dlss on|off. DlssPreset: 0 = model K.\n"
         "DLAA=0\n"
         "DlssPreset=0\n"
+        "; DlssQuality: 0 DLAA (native), 1 Quality, 2 Balanced, 3 Performance, 4 Ultra Performance. Above 0 the\n"
+        "; game renders smaller and DLSS rebuilds DlssOutputWidth x DlssOutputHeight (the headset resolution,\n"
+        "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
+        "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
+        "DlssQuality=0\n"
+        "DlssOutputWidth=0\n"
+        "DlssOutputHeight=0\n"
         "; DlssMask=1 (A/B, off): pixels the camera vectors cannot explain (arms, weapon, NPCs) take\n"
         "; the current image instead of smearing; DlssMaskLo/Hi: where it starts and saturates. Live:\n"
         "; dlss mask on|off, dlss maskrange <lo> <hi>.\n"
@@ -1854,6 +1861,8 @@ static void LoadConfig()
             dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
             dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
             dvr::dlss::set_preset((int)IniFloat(ini, "Clarity", "DlssPreset", 0), "ini");
+            dvr::dlss::set_quality((int)IniFloat(ini, "Clarity", "DlssQuality", 0), "ini");
+            dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
             dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
             dvr::dlss::set_mask_range(IniFloat(ini, "Clarity", "DlssMaskLo", 0.03f), IniFloat(ini, "Clarity", "DlssMaskHi", 0.12f), "ini");
@@ -4202,6 +4211,13 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Clarity", "DLAA", dvr::dlss::mode() ? "1" : "0", ini);
         _snprintf(v, 64, "%d", dvr::dlss::preset());
         WritePrivateProfileStringA("Clarity", "DlssPreset", v, ini);
+        _snprintf(v, 64, "%d", dvr::dlss::quality());
+        WritePrivateProfileStringA("Clarity", "DlssQuality", v, ini);
+        {
+            uint32_t dow = 0, doh = 0; dvr::dlss::output(&dow, &doh);
+            _snprintf(v, 64, "%u", dow); WritePrivateProfileStringA("Clarity", "DlssOutputWidth", v, ini);
+            _snprintf(v, 64, "%u", doh); WritePrivateProfileStringA("Clarity", "DlssOutputHeight", v, ini);
+        }
         WritePrivateProfileStringA("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", ini);
         _snprintf(v, 64, "%.3f", dvr::dlss::mask_lo());
         WritePrivateProfileStringA("Clarity", "DlssMaskLo", v, ini);

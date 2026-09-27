@@ -20,7 +20,16 @@ plans; both apply unchanged to DLSS SR.
 Installed build 19:33 with the helper in `<game>\dvr_dlss\`. INI unchanged from before the
 session (DLAA off). Simulator: DLAA 69/s per eye, stereo 90 -> 69/s. No headset verdict yet.
 
-## Latest (vector accuracy)
+## Latest (DLSS Super Resolution)
+
+DLAA accepted in the headset (smear gone, sharp; big cost, fine with SSW). SR built: F10 >
+Advanced > Display > Clarity > "DLSS mode" (Quality/Balanced/Performance/Ultra Performance), or
+`dlss quality <n>`. Headset question: does Quality look close to DLAA and run clearly faster?
+Expected log: `dlss/res: Super Resolution - ... asking 1832x1900`, `res/live: CONFIRMED`,
+`dlss: DLSS Super Resolution ready`, then `dlss: Quality ... fallback 0/s`. Next build item:
+projection jitter (FSR plan gate 3), the main quality lever left for SR.
+
+## Earlier (vector accuracy)
 
 Second headset run: smear unchanged after the arms fix. The vectors were then measured in
 pixels (`dlss/flow`) and fixed: game matrices (`dlss vp on`) and depth scale 250. Next headset

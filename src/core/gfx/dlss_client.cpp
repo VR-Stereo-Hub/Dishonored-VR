@@ -285,7 +285,7 @@ bool Client::build(int e, uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI
     if (!ack.ok) { put(why, cap, "the helper refused eye %d: %s (NGX 0x%08X)", e, ack.detail, ack.ngxResult); release_eye(e); return false; }
     eye->ready = true;
     say(0, "dlss: eye %d ready, %ux%u -> %ux%u (%s), colour format %d, %.1f MiB shared", e, w, h, ow, oh,
-        (w == ow && h == oh) ? "DLAA" : "DLSS SR", (int)colorFormat, (double)bytes_ / (1024.0 * 1024.0));
+        (w == ow && h == oh) ? "DLAA" : "DLSS Super Resolution", (int)colorFormat, (double)bytes_ / (1024.0 * 1024.0));
     return true;
 }
 

@@ -373,6 +373,16 @@ bool any_on() { return g_resolve.load() || g_temporal.load() || g_sharpen.load()
 
 void output_size(uint32_t w, uint32_t h, uint32_t* ow, uint32_t* oh) {
     *ow = w; *oh = h;
+    // DLSS Super Resolution: this eye image is the reduced render of a larger output.
+    if (dvr::dlss::sr_output_for(w, h, ow, oh)) {
+        static uint32_t saidW = 0, saidH = 0;
+        if (saidW != *ow || saidH != *oh) {
+            saidW = *ow; saidH = *oh;
+            DVR_INFO("clarity: DLSS Super Resolution - the game renders %ux%u, the eye texture and swapchain are the "
+                     "%ux%u output (%.2fx per axis)", w, h, *ow, *oh, (double)*ow / w);
+        }
+        return;
+    }
     if (!g_resolve.load()) return;
     uint32_t rw = 0, rh = 0;
     if (!dvr::vr::recommended_eye_size(&rw, &rh)) return;
@@ -437,7 +447,7 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                     g_dlssPrevRecOk[e] = have;
                     if (have) g_dlssPrevRec[e] = rc;
                 }
-                dlaa = dvr::dlss::run(dev, ctx, src, w, h, e, gp, !gp.historyValid);
+                dlaa = dvr::dlss::run(dev, ctx, src, w, h, ow, oh, e, gp, !gp.historyValid);
             }
             g_dlssPrev[e] = cur;
         } else {
@@ -458,8 +468,10 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
         if (g_initOk) {
             PassParams p;
             p.srcGamma = true;
-            p.w = w; p.h = h; p.ow = ow; p.oh = oh;
-            p.resolve = g_resolve.load() && (ow < w || oh < h);
+            // The DLSS image is already the output size under Super Resolution.
+            const bool sr = ow > w || oh > h;
+            p.w = sr ? ow : w; p.h = sr ? oh : h; p.ow = ow; p.oh = oh;
+            p.resolve = g_resolve.load() && (ow < p.w || oh < p.h);
             p.sharpen = g_sharpen.load();
             if (g_gpu.bytes()) g_gpu.trim(p.resolve, false);
             g_prev[0] = View{}; g_prev[1] = View{};

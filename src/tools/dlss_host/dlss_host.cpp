@@ -317,23 +317,33 @@ bool DoBuild(const Build& b, BuildAck& ack) {
     if (!ok) { Log("[eye%u] build refused: %s", b.eye, ack.detail); ReleaseEye(e); return false; }
 
     const bool dlaa = b.outWidth == b.width && b.outHeight == b.height;
-    // The mod's preset is DLAA's model K unless the proxy asks for another (the 310.x
-    // transformer; the fork sets every hint explicitly so an NVIDIA App override or a
-    // swapped runtime cannot change what the log claims).
-    const int preset = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_K;
-    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, preset);
-    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, preset);
-    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, preset);
-    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, preset);
-    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, preset);
-    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality, preset);
+    // The quality mode follows the per-axis ratio the proxy chose (dlss.h): 1.5 Quality,
+    // 1.72 Balanced, 2 Performance, 3 Ultra Performance.
+    const float ratio = b.width ? (float)b.outWidth / (float)b.width : 1.0f;
+    const NVSDK_NGX_PerfQuality_Value pq = dlaa ? NVSDK_NGX_PerfQuality_Value_DLAA
+        : ratio < 1.6f ? NVSDK_NGX_PerfQuality_Value_MaxQuality
+        : ratio < 1.85f ? NVSDK_NGX_PerfQuality_Value_Balanced
+        : ratio < 2.5f ? NVSDK_NGX_PerfQuality_Value_MaxPerf : NVSDK_NGX_PerfQuality_Value_UltraPerformance;
+    // Presets set explicitly (the fork's lesson: an NVIDIA App override or a swapped runtime
+    // must not change what the log claims): the 310.x mapping K for DLAA/Quality/Balanced, M for
+    // Performance, L for Ultra Performance; a nonzero proxy preset overrides all of them.
+    const int pk = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_K;
+    const int pm = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_M;
+    const int pl = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_L;
+    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, pk);
+    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, pk);
+    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, pk);
+    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, pm);
+    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, pl);
+    ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality, pk);
+    const int preset = pq == NVSDK_NGX_PerfQuality_Value_MaxPerf ? pm : pq == NVSDK_NGX_PerfQuality_Value_UltraPerformance ? pl : pk;
 
     NVSDK_NGX_DLSS_Create_Params cp = {};
     cp.Feature.InWidth = b.width;
     cp.Feature.InHeight = b.height;
     cp.Feature.InTargetWidth = b.outWidth;
     cp.Feature.InTargetHeight = b.outHeight;
-    cp.Feature.InPerfQualityValue = dlaa ? NVSDK_NGX_PerfQuality_Value_DLAA : NVSDK_NGX_PerfQuality_Value_MaxQuality;
+    cp.Feature.InPerfQualityValue = pq;
     int flags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes;   // vectors at render size
     if (b.depthInverted) flags |= NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
     if (b.autoExposure) flags |= NVSDK_NGX_DLSS_Feature_Flags_AutoExposure;
@@ -351,8 +361,8 @@ bool DoBuild(const Build& b, BuildAck& ack) {
         ReleaseEye(e);
         return false;
     }
-    Log("[eye%u] feature ready: %ux%u -> %ux%u %s, preset %d, flags 0x%X (MVLowRes%s%s), colour fmt %u, output fmt %u",
-        b.eye, b.width, b.height, b.outWidth, b.outHeight, dlaa ? "DLAA" : "DLSS SR", preset, flags,
+    Log("[eye%u] feature ready: %ux%u -> %ux%u %s (%.2fx, perf quality %d), preset %d, flags 0x%X (MVLowRes%s%s), colour fmt %u, output fmt %u",
+        b.eye, b.width, b.height, b.outWidth, b.outHeight, dlaa ? "DLAA" : "DLSS SR", ratio, (int)pq, preset, flags,
         b.depthInverted ? " DepthInverted" : "", b.autoExposure ? " AutoExposure" : "", b.colorFormat, b.outputFormat);
     ack.ok = 1;
     return true;

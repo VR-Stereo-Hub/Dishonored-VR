@@ -2918,3 +2918,37 @@ the method). Simulator, 12 s per condition:
   coarse 200 from the rotator-model calibration. `MotionDepthScale` default 250 (the custom TAA
   shares it).
 - `dlss vp on|off` A/Bs matrix vs rotator vectors live; `dlss taxis` is a diagnostic only.
+
+
+## 2026-09-26: DLSS Super Resolution (phase 2) - built, host and simulator verified
+
+Headset verdict on DLAA after the vector fixes: the smear gone as far as the tester can tell
+(mask off), aliasing removed, very sharp; a large frame-rate cost that SSW makes playable.
+
+Design: `[Clarity] DlssQuality` 0 DLAA, 1 Quality (1.5x per axis), 2 Balanced (1.72x),
+3 Performance (2x), 4 Ultra Performance (3x). The OUTPUT is the headset resolution
+(`DlssOutputWidth/Height`, taken from the current resolution when SR first turns on, set by the
+F10 resolution while SR is on). The game side (`DlssResTick`, viewport_resize.cpp) keeps the
+render size at output / ratio through the guarded live resize, which persists it as `[Screen]
+RenderWidth/Height`, so a later launch boots reduced. SR off, or DLSS failing, resizes back to
+the output and clears it. One ask per target per 15 s. clarity's output size is the SR output
+whenever the eye image is the reduced render, so the eye texture and swapchain stay full size.
+The helper picks the NGX quality mode from the ratio and the 310.x presets (K for DLAA/Quality/
+Balanced, M Performance, L Ultra Performance).
+
+Host test 13/13, new: Super Resolution 512 -> 768 builds, output 768x768, error against the
+enlarged input 0.0117.
+
+Simulator (same scene, 2750x2850 output, sim capped at 90/s per eye):
+
+| Mode | Render | Per eye | DLSS GPU per eye |
+|---|---|---|---|
+| DLAA | 2750x2850 | 64-65/s | 4.2-5.3 ms |
+| Quality | 1832x1900 (44% of the pixels) | 90/s (the cap) | 3.5-3.9 ms |
+| Performance | 1374x1424 (25%) | 85/s | 4.4-4.5 ms |
+
+Live transitions: DLAA -> Quality resize confirmed in 0.5 s, both eyes ready 2.6 s later; Quality
+-> Performance and Performance -> DLAA likewise; DLAA restored 2750x2850 and cleared the output.
+Mean luma and coverage match across the three modes. No headset result yet. Limit: no projection
+jitter, so SR reconstructs from head micro-motion only - expect it softer than DLAA until jitter.
+Next: headset check of Quality, then projection jitter (FSR plan gate 3), then FSR 3.1.
