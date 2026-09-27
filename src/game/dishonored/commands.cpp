@@ -391,9 +391,12 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         return true;
     }
     if (!strcmp(cmd, "reentry")) {
-        if (SceneDrawCommand(args)) return true;
+        if (SceneDrawCommand(args)) {
+            if (args && !strncmp(args, "extra", 5)) ConfigWriteKey("Stereo", "ExtraPairs", SceneExtraWanted() ? "1" : "0", "the seam");
+            return true;
+        }
         if (SceneProbeCommand(args)) return true;
-        Log("reentry: pulse [n] | skip2 [n] | rearm [n] | c5pair on|off | latetag on|off | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
+        Log("reentry: pulse [n] | skip2 [n] | rearm [n] | extra on|off | c5pair on|off | latetag on|off | reset | hook on|off | status | census on|off|report | stack event <name>|caller <hex>|present|off | probe <hex> [len] | findstart <hex>");
 
         return true;
     }

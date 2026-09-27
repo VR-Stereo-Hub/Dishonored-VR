@@ -64,6 +64,7 @@
 #include <intrin.h>
 #include "core/framework/perf.h"
 #include "core/gfx/draw_present_progress.h"
+#include "game/dishonored/cinematic_math.h"
 
 typedef void (__fastcall* DvrViewportDrawFn)(void* self, void* edx, int bShouldPresent);
 
@@ -120,6 +121,31 @@ static uint64_t       g_sdBeatMs = 0;
 static uint32_t       g_sdBeatDraws = 0, g_sdBeatSecond = 0, g_sdBeatPresents = 0;
 static uint8_t        g_sdSaved[7];
 static char           g_sdRefuse[160] = "";
+// 41.3: the extra pair per tick (SceneDrawExtraPair below).
+static volatile LONG g_sdExtra = 0;
+static uint32_t g_sdExtraPairs = 0, g_sdBeatExtra = 0, g_sdExtraCallUs = 0;
+static uint32_t g_sdExtraSkip[6] = {};   // no layout, no tick sample, no next pose, stale, compose, scope
+static const char* const kSdExtraSkipName[6] = {"layout", "tick-sample", "next-pose", "stale", "compose", "scope"};
+static double g_sdExtraRotDeltaSum = 0, g_sdExtraEulerErrMax = 0;
+// `reentry extra bias <deg>`: a DIAGNOSTIC constant yaw added to the extra pair's rotation (0 in
+// normal use, never saved). With the head still, the honoured line must then read a rendered step
+// of exactly this many degrees - the check that tells a wrong-way rotation from a mirrored
+// instrument, which a moving head cannot.
+static volatile LONG g_sdExtraBiasCentiDeg = 0, g_sdExtraBiasPitchCd = 0, g_sdExtraBiasRollCd = 0;
+// The rotation the extra passes draw with, for the head writer INSIDE those draws: the engine
+// dispatches ProcessViewRotation during the viewport draw, and without this the writer took an
+// extra pass for a new tick, folded a yaw delta against the written camera (the first run: every
+// yaw change rendered mirrored, a +5 deg bias rendered -5.0) and advanced the tick's head/body
+// bookkeeping mid-tick. Set on the draw thread for passes 3 and 4 only.
+static volatile LONG g_sdExtraStampTid = 0;
+static int32_t g_sdExtraStamp[3] = {};
+static bool SceneExtraStamp(int32_t* rot, bool withRoll)
+{
+    if ((DWORD)InterlockedCompareExchange(&g_sdExtraStampTid, 0, 0) != GetCurrentThreadId()) return false;
+    rot[0] = g_sdExtraStamp[0]; rot[1] = g_sdExtraStamp[1];
+    if (withRoll) rot[2] = g_sdExtraStamp[2];
+    return true;
+}
 
 // Byte-verify the root's prologue and the call site; false = a different exe
 // build, and the reason is the refusal the seam prints.
@@ -210,6 +236,19 @@ static void SceneDrawBeat()
         g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdProgressInside, g_sdProgressGrace, g_sdSumOutsideUs / 1000.0 / n,
         g_sdCall1MaxUs >= 5000 ? " (call1 large: the game thread blocks INSIDE its own draw - render-command "
                                  "back-pressure)" : "");
+    if (SceneExtraWanted() || g_sdBeatExtra) {
+        char sk[160]; int m = 0;
+        for (int i = 0; i < 6; ++i)
+            if (g_sdExtraSkip[i]) m += _snprintf_s(sk + m, sizeof(sk) - m, _TRUNCATE, " %s=%lu", kSdExtraSkipName[i], (unsigned long)g_sdExtraSkip[i]);
+        Log("reentry: extra pair %s | extra/s=%.0f of %.0f doubled ticks/s (lifetime %lu), both passes %.2f ms | head change "
+            "per extra pair %.2f deg (yaw+pitch, the later pose against the tick's) | angle check max %.4f rad (must stay "
+            "under 0.01: the quaternion conversion reproduces the tick sample) | refused:%s",
+            SceneExtraWanted() ? "ON" : "off", g_sdBeatExtra / s, g_sdBeatSecond / s, (unsigned long)g_sdExtraPairs,
+            g_sdExtraCallUs / 1000.0, g_sdBeatExtra ? g_sdExtraRotDeltaSum * 57.29578 / g_sdBeatExtra : 0.0,
+            g_sdExtraEulerErrMax, m ? sk : " none");
+        memset(g_sdExtraSkip, 0, sizeof(g_sdExtraSkip));
+        g_sdBeatExtra = 0; g_sdExtraRotDeltaSum = 0; g_sdExtraEulerErrMax = 0;
+    }
     g_sdBeatMs = now;
     // 41.2: THE STAND-DOWN IS GONE, and the reason is worth keeping.
     //
@@ -444,6 +483,132 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
             wrote ? "into the camera field" : "NOT WRITTEN (no camera/field)", wrotePos[0], wrotePos[1], wrotePos[2]);
 }
 
+// ---- 41.3: THE EXTRA PAIR PER TICK (PERFORMANCE.md, "routes past the CPU ceiling") --------
+//
+// On a PC where the GAME thread is the ceiling (its tick, not the render thread or the GPU,
+// decides the pair rate), a second stereo pair can be drawn from the same world tick: passes 3
+// and 4 re-enter the same root with the camera rotated by the head's change to a pose located
+// ONE display period later (openxr_runtime set_next_pose) and moved by the matching position
+// change. Head motion and parallax get real renders at the higher rate; animation, physics and
+// AI still step at the tick rate. The rotation goes in through camera::begin_view_scope (the
+// cinematic path's draw-only overlay: validated before every engine write, restored exactly
+// after), and each image gets its own pose record with the newer sample, so the layer submits it
+// with the orientation it was drawn from (ImageOrientation). Default OFF, `reentry extra on|off`,
+// [Stereo] ExtraPairs, F10. Every refusal is counted by reason on the beat line; a fault
+// poisons exactly like pass 2.
+
+static bool SceneExtraWanted() { return InterlockedCompareExchange(&g_sdExtra, 0, 0) != 0; }
+static void SceneExtraSet(bool on, const char* who)
+{
+    if ((InterlockedExchange(&g_sdExtra, on ? 1 : 0) != 0) == on) return;
+    dvr::vr::set_next_pose(on);
+    dvr::stereo::set_reentry_tags_per_tick(on ? 4 : 2);
+    Log("reentry: extra pair per tick %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+        on ? " - each doubled tick draws a second stereo pair from a head pose one display period later; the beat "
+             "line counts extra/s and every refusal by reason" : "");
+}
+
+static bool SdExtraValidate(uint8_t* cam) { return cam && cam == g_camObj && CamAlive() && IsLiveObject(cam); }
+
+static void SceneDrawExtraPair(void* self, int b, const SdDecision& d)
+{
+    if (!d.doubleIt || d.pulse || g_sdPoisoned || !SceneExtraWanted()) return;
+    uint8_t* cam = g_camObj;
+    uint32_t rotOff = 0;
+    if (!CineCameraRotOffset(&rotOff) || !SdExtraValidate(cam) || !RangeReadable(cam + rotOff, 12)) { ++g_sdExtraSkip[0]; return; }
+    if (!g_htTickUsedOk) { ++g_sdExtraSkip[1]; return; }
+    const HtSample s1 = g_htTickUsed;
+    dvr::vr::HeadPose p2;
+    if (!dvr::vr::peek_head_pose_next(p2)) { ++g_sdExtraSkip[2]; return; }
+    if (MaimNowMs() - s1.locateMs > 100.0) { ++g_sdExtraSkip[3]; return; }
+    float y1, p1, r1, y2, pt2, r2;
+    if (!HtEulerFromQuat(s1.qx, s1.qy, s1.qz, s1.qw, &y1, &p1, &r1) ||
+        !HtEulerFromQuat(p2.qx, p2.qy, p2.qz, p2.qw, &y2, &pt2, &r2)) { ++g_sdExtraSkip[4]; return; }
+    {   // The instrument that can fail: this conversion must reproduce the tick sample's own angles.
+        const double e = fmax(fabs(remainder((double)y1 - s1.yaw, 6.2831853)),
+                              fmax(fabs((double)p1 - s1.pitch), fabs(remainder((double)r1 - s1.roll, 6.2831853))));
+        if (e > g_sdExtraEulerErrMax) g_sdExtraEulerErrMax = e;
+        if (e > 0.01) { ++g_sdExtraSkip[4]; return; }
+    }
+    int32_t authored[3], rot[3];
+    memcpy(authored, cam + rotOff, 12);
+    dvr::cine::Matrix basis;
+    const auto ref = dvr::cine::rotation(p1 * g_flipPitch, y1 * g_flipYaw, r1 * g_flipRoll);
+    const auto head = dvr::cine::rotation(pt2 * g_flipPitch, y2 * g_flipYaw, r2 * g_flipRoll);
+    if (!dvr::cine::compose(authored, ref, head, rot, &basis)) { ++g_sdExtraSkip[4]; return; }
+    {
+        const LONG by = InterlockedCompareExchange(&g_sdExtraBiasCentiDeg, 0, 0);
+        const LONG bp = InterlockedCompareExchange(&g_sdExtraBiasPitchCd, 0, 0);
+        const LONG br = InterlockedCompareExchange(&g_sdExtraBiasRollCd, 0, 0);
+        if (by || bp || br) {
+            rot[0] += (int32_t)lround(bp / 100.0 * 65536.0 / 360.0);
+            rot[1] += (int32_t)lround(by / 100.0 * 65536.0 / 360.0);
+            rot[2] += (int32_t)lround(br / 100.0 * 65536.0 / 360.0);
+            basis = dvr::cine::rotation(rot[0] * 6.2831853 / 65536, rot[1] * 6.2831853 / 65536, rot[2] * 6.2831853 / 65536);
+        }
+    }
+    const float right[3] = {(float)basis.m[0][1], (float)basis.m[1][1], (float)basis.m[2][1]};
+    // The position: the tick's offset plus the head's own travel to the later pose, in the same
+    // yaw frame TrackHead builds the offset in (only while the positional lane rides the camera).
+    float pos[3] = {s1.position[0], s1.position[1], s1.position[2]};
+    if (g_posTrack && dvr::stereo::wants_projection()) {
+        const float dx = p2.px - s1.px, dy = p2.py - s1.py, dz = p2.pz - s1.pz;
+        const float cy = cosf(s1.yaw), sy = sinf(s1.yaw);
+        pos[0] += (dx * cy + dz * sy) * g_posScaleUU;
+        pos[1] += dy * g_posScaleUU;
+        pos[2] += (dx * sy - dz * cy) * g_posScaleUU;
+    }
+    if (!dvr::camera::begin_view_scope(cam, rotOff, rot, right, -1, SdExtraValidate, false, pos)) { ++g_sdExtraSkip[5]; return; }
+    HtSample s2 = s1;
+    s2.qx = p2.qx; s2.qy = p2.qy; s2.qz = p2.qz; s2.qw = p2.qw;
+    s2.px = p2.px; s2.py = p2.py; s2.pz = p2.pz;
+    s2.yaw = y2; s2.pitch = pt2; s2.roll = r2;
+    memcpy(s2.position, pos, sizeof(pos));
+    g_sdExtraRotDeltaSum += fabs(remainder((double)y2 - y1, 6.2831853)) + fabs((double)pt2 - p1);
+    LARGE_INTEGER t0, t1;
+    QueryPerformanceCounter(&t0);
+    const uint32_t pair = dvr::pose::next_pair();
+    memcpy(g_sdExtraStamp, rot, sizeof(g_sdExtraStamp));
+    InterlockedExchange(&g_sdExtraStampTid, (LONG)GetCurrentThreadId());
+    bool ok = true;
+    for (int eye = -1; eye <= 1 && ok; eye += 2) {
+        float wrote[3] = {0, 0, 0};
+        bool posOk = true;
+        if (eye > 0) {   // pass 4: the right eye, same rotation, through pass 2's machinery
+            dvr::camera::set_second_pass(true);
+            posOk = dvr::camera::apply_offsets(cam);
+        }
+        posOk = posOk && dvr::camera::last_written_pos(wrote);
+        HtPublishCameraRecord(4, s2, rot[1] * 360.0f / 65536, rot[0] * 360.0f / 65536, rot[2] * 360.0f / 65536);
+        dvr::stereo::reentry_push_tag_draw(eye, posOk ? wrote : NULL, SdOpenPoseRecord(eye, pair, false, posOk ? wrote : NULL),
+                                           dvr::zacct::pin_for_tag(posOk ? wrote : NULL), ++g_sdDrawAttempt);
+        g_sdEyeNow = eye;
+        LensFollowEye(eye);
+        dvr::vr::set_draw_stage(eye < 0 ? "extraDrawL" : "extraDrawR");
+        if (eye > 0) OcclusionPass2Begin();   // VR-79: the right eye keeps its own view state
+        ok = SceneDrawCallGuarded((DvrViewportDrawFn)kViewportDraw, self, b);
+        if (eye > 0) { OcclusionPass2End(); dvr::camera::set_second_pass(false); }
+        dvr::vr::set_draw_stage(NULL);
+    }
+    g_sdEyeNow = 0;
+    InterlockedExchange(&g_sdExtraStampTid, 0);
+    dvr::camera::end_view_scope();
+    QueryPerformanceCounter(&t1);
+    g_sdExtraCallUs = (uint32_t)((t1.QuadPart - t0.QuadPart) * 1000000 / (g_qpcFreq ? g_qpcFreq : 1));
+    if (!ok) {
+        InterlockedExchange(&g_sdPoisoned, 1);
+        InterlockedExchange(&g_sdArmed, 0);
+        SceneExtraSet(false, "a fault in the extra pair");
+        dvr::frame::set_disabled(true);
+        DVR_LOG(dvr::log::Cat::present, dvr::log::Level::Error,
+                "reentry: EXTRA PAIR draw FAULTED code=0x%08x at 0x%08x - POISONED for the session and the extra pair "
+                "switched off; the VR path stands down (reentry reset to retry by hand)", g_sdLastExcCode, g_sdLastExcAddr);
+        LogFlush();
+        return;
+    }
+    ++g_sdExtraPairs; ++g_sdBeatExtra;
+}
+
 // The stub the patched call site reaches: ecx = the viewport, one stack arg.
 static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPresent)
 {
@@ -514,6 +679,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         g_sdSumCall1Us += g_sdCall1Us;
         const uint32_t call2Before = g_sdSecondDraws;
         SceneDrawMaybeSecond(self, bShouldPresent, g_sdTick);
+        if (g_sdSecondDraws != call2Before) SceneDrawExtraPair(self, bShouldPresent, g_sdTick);
         CineFovEnd();
         CinePitchEnd();
         CineHeadEnd();
@@ -832,6 +998,20 @@ static bool SceneDrawCommand(const char* args)
         Log("reentry/rearm: the next %d gameplay tick(s) draw SINGLE (no tag, no pass 2), then the doubling resumes - "
             "the capture is untouched; expect `gates -> SINGLE draw (rearm by request)` then `DOUBLE draw after %d single "
             "tick(s)` (rearm #%lu)", k, k, (unsigned long)g_sdRearms);
+        return true;
+    }
+    if (n >= 1 && !strcmp(sub, "extra")) {   // 41.3: the extra pair per tick
+        float deg = 0, pdeg = 0, rdeg = 0;
+        if (!strcmp(a1, "bias") && sscanf(args, "%*s %*s %f %f %f", &deg, &pdeg, &rdeg) >= 1) {
+            InterlockedExchange(&g_sdExtraBiasCentiDeg, (LONG)lround(deg * 100));
+            InterlockedExchange(&g_sdExtraBiasPitchCd, (LONG)lround(pdeg * 100));
+            InterlockedExchange(&g_sdExtraBiasRollCd, (LONG)lround(rdeg * 100));
+            Log("reentry: extra pair DIAGNOSTIC bias yaw %.2f pitch %.2f roll %.2f deg (not saved; 0 = normal)", deg, pdeg, rdeg);
+            return true;
+        }
+        bool on;
+        if (DvrOnOff(a1, &on)) { SceneExtraSet(on, "the seam"); return true; }
+        Log("reentry: extra on|off (now %s, %lu extra pairs so far)", SceneExtraWanted() ? "on" : "off", (unsigned long)g_sdExtraPairs);
         return true;
     }
     if (n >= 1 && !strcmp(sub, "reset")) {

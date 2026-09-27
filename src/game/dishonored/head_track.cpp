@@ -966,6 +966,9 @@ static void ApplyHeadToViewRotation(void* parms)
         DVR_HEAD_REFUSE("head: cinematic draw owns physical rotation; native controller/stick left active");
         return;
     }
+    // 41.3: inside the extra pair's draws the view is the extra pair's rotation, stamped the same
+    // way, and nothing advances (scene_draw.cpp, SceneExtraStamp).
+    if (SceneExtraStamp(rot, g_rotRoll || dvr::stereo::wants_projection())) return;
     // A render re-entry can take longer than the modifier chain's 2 ms window.
     // Reuse the first view regardless of wall time; do not advance head/body
     // bookkeeping or move the pawn between the two eyes.
@@ -1221,9 +1224,30 @@ static bool HtConsumeSample(HtSample* out)
 }
 
 
+// 41.3: the sample the tick's gameplay camera write used (writers 1 and 2), for the extra pair
+// per tick (scene_draw.cpp), which rotates the camera by the head's change from THIS sample.
+static HtSample g_htTickUsed{};
+static bool     g_htTickUsedOk = false;
+
+// The head angles from an OpenXR quaternion by TrackHead's own formulas (forward = -Z column,
+// yaw atan2(fx, -fz), pitch asin(fy), roll negated so right ear down is positive).
+static bool HtEulerFromQuat(float x, float y, float z, float w, float* yaw, float* pitch, float* roll)
+{
+    const float n = x * x + y * y + z * z + w * w;
+    if (!(n > 0.98f && n < 1.02f)) return false;
+    const float m02 = 2 * (x * z + y * w), m12 = 2 * (y * z - x * w), m22 = 1 - 2 * (x * x + y * y);
+    const float m10 = 2 * (x * y + z * w), m11 = 1 - 2 * (x * x + z * z);
+    const float fx = -m02, fy = -m12, fz = -m22;
+    *yaw = atan2f(fx, -fz);
+    *pitch = asinf(fy < -1.f ? -1.f : fy > 1.f ? 1.f : fy);
+    *roll = -atan2f(m10, m11);
+    return std::isfinite(*yaw) && std::isfinite(*pitch) && std::isfinite(*roll);
+}
+
 static void HtPublishCameraRecord(int writer, const HtSample& used,
                                   float yawDeg, float pitchDeg, float rollDeg)
 {
+    if ((writer == 1 || writer == 2) && used.ok && used.poseOk) { g_htTickUsed = used; g_htTickUsedOk = true; }
     // THE SAMPLE IS HANDED IN, NOT RE-READ. The previous version called
     // peek_head_pose here, after the camera had already been computed, and so
     // recorded a second read of a stream that had moved on. That is the

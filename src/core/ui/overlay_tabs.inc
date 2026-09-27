@@ -957,6 +957,16 @@ static void OvlTabDisplay()
             dvr::vr::set_screen(g_screenDist, g_screenWidth);
         OvlSaveOnRelease("Screen", "WidthMeters", g_screenWidth, "%.2f");
     }
+    if (OvlSec("Frame rate (experimental)", kOvlA, "Ways past the game's own frame-rate ceiling.")) {
+        bool extra = SceneExtraWanted();
+        if (dvr::ovl::checkbox("Extra frame per game tick", &extra)) {
+            SceneExtraSet(extra, "F10 Display");
+            ConfigWriteKey("Stereo", "ExtraPairs", extra ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Draws a second picture for both eyes from each game update, with your newest head position. "
+               "Looking around gets smoother where the game itself cannot update fast enough; characters and "
+               "objects still move at the game's own rate. Off is the normal path.");
+    }
     if (OvlSec("Stereo and capture (debug)", kOvlD, "How the game's frame becomes the headset image.")) {
         const bool monoWanted = !_stricmp(dvr::stereo::wanted_name(), "mono");
         bool armed = dvr::stereo::armed();

@@ -11,7 +11,7 @@
 
 // The tag ring: game thread pushes (per draw), present thread pops (per
 // present). Power-of-two, SPSC, self-healing on a skew.
-constexpr uint32_t kRing = 8;
+constexpr uint32_t kRing = 16;   // 41.3: 16, not 8 - the extra pair pushes four tags per tick and the game thread runs a tick ahead
 // VR-65: the tag carries the RECORD the draw was rendered with, so the pose
 // travels with the image instead of being chosen by timing at submission.
 // VR-80: draw is the game side's draw attempt id and pushMs the push time (ledger only).
@@ -22,6 +22,11 @@ uint32_t      g_ringDropped = 0, g_ringCleared = 0, g_tagMismatch = 0, g_tagOk =
 uint32_t      g_tagNoFrame = 0;   // 41.1 (session 8): tagged presents whose grab delivered no frame (no tag pushed)
 
 uint32_t g_tagResynced = 0;
+// 41.3: the depth past which the ring counts as skewed. Two pairs of tags can sit in it
+// legitimately (the game thread a tick ahead), so 6 for one pair per tick; the extra pair per
+// tick pushes four tags per tick and needs 12 - at 6, every tick ahead cleared the ring and the
+// pairing slipped by a pair (simulator 2026-09-27: tick records on extra images and back).
+LONG g_ringSkewDepth = 6;
 // 41.1 (session 9): the within-tick invariant. Between pass 1 and pass 2 the
 // world does not tick, so the ONLY thing that moves the camera is the writer's
 // eye: c5(pass 2) - c5(pass 1) = -ipd*scale along the camera's right row (the
@@ -84,7 +89,7 @@ bool pop_tag(Tag& out, const float* c5, PopKind kind = POP_NORMAL) {
     const LONG tail = g_ringTail;
     const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0);
     if (tail == head) { ++g_popEmpty; return false; }
-    if (head - tail > 6) {
+    if (head - tail > g_ringSkewDepth) {
         InterlockedExchange(&g_ringTail, head);
         ++g_ringCleared;
         ++g_popClears; g_popClearRemoved += (uint32_t)(head - tail);

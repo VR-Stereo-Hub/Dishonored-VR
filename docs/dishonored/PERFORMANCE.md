@@ -3065,3 +3065,37 @@ Simulator, cap lifted, one command per window (per eye):
   depth + 6.0 wide uploads per image, R 37 + 1.0, UNSHIFTED 0; speckles gone.
 - **Not yet measured:** whether Quality/Performance SR are visibly sharper with jitter (the reason
   it exists); the flow-check jitter gain on the final build; shimmer on thin geometry.
+
+
+## 2026-09-27: Route 1 built - an extra stereo pair per world tick (simulator-verified, default off)
+
+`[Stereo] ExtraPairs=0`, `reentry extra on|off`, F10 Advanced > Frame rate (experimental) > "Extra
+frame per game tick". Branch `claude/extra-pairs-per-tick`.
+
+- **Mechanism:** after pass 2 of a doubled tick, passes 3 and 4 re-enter the viewport draw root with
+  the camera rotated by the head's change from the tick's sample to a pose the runtime locates ONE
+  display period later (`openxr_runtime set_next_pose`, a second `xrLocateSpace` at the same
+  `xrWaitFrame`, only while the lever is on), and moved by the head's travel in the yaw frame
+  `TrackHead` uses. The rotation goes in through `camera::begin_view_scope` (CameraCache.POV
+  rotation + the eye field, validated before each write, restored after). Each image gets its own
+  pose record carrying the newer sample, so `ImageOrientation` submits it with the pose it was drawn
+  from. The in-draw `ProcessViewRotation` dispatch stamps the extra rotation and advances no head or
+  body bookkeeping (as it already did for pass 2). The eye-tag ring grew to 16 and its skew depth
+  follows tags per tick (6 normally, 12 with the extra pair).
+- **Simulator result** (`dvr-xrsim`, cap lifted, 2750x2850, DLSS off, same spot, runs
+  `build/dlss-install/extra-sim1..8`): **138-152 pairs/s without, 167-191 with (about +18 %)**,
+  world ticks 83-96/s, 84-97 extra pairs/s, zero refusals, no faults. Honoured check: with a
+  deterministic +5 deg bias on yaw, pitch and roll the rendered view-projection moved 5.01 / 5.00 /
+  5.00 deg (rendered minus commanded 0.00-0.01); under a head sweep commanded and rendered steps
+  agreed to 0.001 deg. No `pushed eye TWICE` and no ring skew in the final run, toggles included.
+- **What went wrong on the way (kept, each cost a run):** (1) the first build read "rendered yaw
+  step = minus commanded", then (2) "every axis at the tick's rotation" - both were the RECORDS being
+  one stereo pair away from their images, not the engine. The ring's skew limit (depth 6) cleared the
+  ring every time the game thread ran a tick ahead with four tags per tick, and the c5 pairing cannot
+  tell a tick pair from its extra pair (same position). A per-image dump showed tick records carrying
+  the extra rotation exactly (+5.00/+4.99) and vice versa. (3) Writing the controller's
+  Actor.Rotation or other camera rotation fields was tried and is not needed; CameraCache.POV
+  rotation is what the re-entered draw reads.
+- **Not yet known:** the headset feel - head motion at up to ~180 renders per eye per second while
+  animation, physics and AI step at ~85-95 ticks/s; whether DLSS on top now pays (the GPU becomes a
+  limit); the render thread (~5.4 ms per pair) is the next ceiling.

@@ -40,8 +40,16 @@ static void CineTraceSet(bool on) {
     g_cineTrace.store(on);
     Log("cine/trace: %s (live); no engine writes", on ? "ON" : "off");
 }
+// 41.3: the reflected CameraCache.POV rotation offset on the camera object, for the extra pair
+// per tick (scene_draw.cpp). False until the layout has been resolved by name.
+static bool CineCameraRotOffset(uint32_t* off) {
+    if (!g_ctLayout) return false;
+    *off = g_ctCache + g_ctPov + g_ctRot;
+    return true;
+}
 static void CineTraceTick() {
-    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled() && !CinePitchEnabled() && !CineRollEnabled()) || g_ctResolved || !RflNamesReady()) return;
+    if ((!g_cineTrace.load() && !g_cineHead.load() && !CineFovEnabled() && !CinePitchEnabled() && !CineRollEnabled() &&
+         !SceneExtraWanted()) || g_ctResolved || !RflNamesReady()) return;
     const double now = MaimNowMs();
     if (now < g_ctResolveAfter || !IsLiveObject(g_camObj) || !CamStillValid()) return;
     g_ctResolveAfter = now + 5000;

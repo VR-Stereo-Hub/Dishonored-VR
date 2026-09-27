@@ -221,6 +221,7 @@ void set_reentry_hooks(const ReentryHooks& h);
 // realigns the ring. Off = the ring's order alone (the pre-41.1 behaviour).
 void set_reentry_c5_pair(bool on);
 bool reentry_c5_pair();
+void set_reentry_tags_per_tick(int n);   // 41.3: 2 normally, 4 with the extra pair per tick
 // VR-80 candidate F-late ([Stereo] LateTagRepair, default off; `reentry latetag on|off`, F10): a tag
 // that reaches the ring just after the present that showed its image is removed as a repair at the
 // next present, when that present's c5 confirms, instead of costing a wrong eye and a drain.

@@ -1,3 +1,11 @@
+## Extra stereo pair per world tick (2026-09-27) - simulator-verified, default off
+
+Branch `claude/extra-pairs-per-tick` off staging. PERFORMANCE route 1 built: each doubled tick draws a
+second pair from a head pose one display period later. Simulator: 138-152 -> 167-191 pairs/s (~+18 %),
+world ticks ~85-95/s, rotation honoured on all axes (+5 deg bias rendered +5.00-5.01), no ring
+faults. Two instrument artefacts on the way (records a pair away: ring skew depth) are in TRAPS.
+Installed; INI unchanged (lever off). Owed: headset feel, and DLSS on top. F10 Advanced > Frame rate.
+
 ## Projection jitter for DLSS (2026-09-27) - headset-confirmed, default off
 
 Branch `claude/dlss-dlaa` (`feat: DLSS projection jitter...`). Sub-pixel Halton jitter on the world

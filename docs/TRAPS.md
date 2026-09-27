@@ -1,3 +1,15 @@
+## A per-record comparison cannot see a record one stereo pair away (2026-09-27)
+
+Building the extra pair per tick, the honoured check compared each image's commanded rotation with
+the view-projection recorded for it and read first "rendered = minus commanded", then "the engine
+ignores the rotation". Both were the RECORDS sitting one stereo pair away from their images: the
+tag ring's skew limit cleared it whenever the game thread ran a tick ahead with four tags per tick,
+and the c5 pairing cannot tell a tick pair from its extra pair (same camera position). The
+averages looked like engine behaviour. What exposed it: a deterministic bias (+5 deg on one axis,
+head still) and a per-image dump of commanded vs rendered with the NEIGHBOUR's rendered value beside
+it - the tick records carried the extra rotation exactly. Rule: before concluding an engine ignores
+or inverts a write, dump single samples with their neighbours under a constant, known input.
+
 ## 2026-09-25: test activation, not only an already enabled reader
 
 36a8d7f95's correct sprite+BC field still did not capture the potion. Its new

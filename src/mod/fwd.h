@@ -296,6 +296,10 @@ static bool CineHeadDispatchFresh();
 static bool CineHeadEnabled();
 static void CineHeadSet(bool on);
 static void CineHeadBegin(bool sceneDraw, bool doubleDraw);
+static bool CineCameraRotOffset(uint32_t* off);   // 41.3: the reflected POV rotation offset
+static bool SceneExtraWanted();                   // 41.3: the extra pair per tick is on
+static void SceneExtraSet(bool on, const char* who);
+static bool SceneExtraStamp(int32_t* rot, bool withRoll);   // 41.3: the head writer inside the extra draws
 static void CineHeadPublish();
 static void CineHeadEnd();
 static bool CineBordersEnabled();

@@ -110,6 +110,12 @@ bool get_head_pose(HeadPose& out);
 // submitted-vs-consumed audit; a second caller would corrupt that instrument.
 bool peek_head_pose(HeadPose& out);
 
+// 41.3 (Dishonored): the extra stereo pair per world tick (scene_draw.cpp). While on, the same
+// xrWaitFrame also locates the head ONE display period after the pose above - the slot the
+// tick's second pair will reach - and publishes it here. Off = no extra locate, false here.
+void set_next_pose(bool on);
+bool peek_head_pose_next(HeadPose& out);
+
 // --- M6: controller poses for decoupled aim ---------------------------------
 // Latest predicted GRIP pose of a hand (0 = left, 1 = right), located at the
 // SAME predicted display time as the head pose above, so an aim ray built from

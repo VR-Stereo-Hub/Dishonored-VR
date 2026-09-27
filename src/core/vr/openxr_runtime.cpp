@@ -255,6 +255,10 @@ uint32_t g_framesSubmitted = 0;
 std::mutex g_poseMutex;
 HeadPose g_headPose{};
 bool g_poseValid = false;
+// 41.3 (Dishonored): the pose one display period later, for the extra pair per tick.
+std::atomic<bool> g_nextPoseOn{false};
+HeadPose g_headPoseNext{};
+bool g_poseNextValid = false;
 XrView g_views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
 // The previous locate's views = the generation the CURRENTLY-presented game
 // content was rendered from (see the copy in on_present_begin).
@@ -3232,6 +3236,19 @@ void on_present_begin() {
                           sl.pose.orientation.z, sl.pose.orientation.w};
         }
     }
+    // 41.3 (Dishonored): the extra pair's pose, one period later, same frame state.
+    if (g_nextPoseOn.load(std::memory_order_relaxed)) {
+        XrSpaceLocation sn{XR_TYPE_SPACE_LOCATION};
+        const bool nextOk = poseOk &&
+            XR_SUCCEEDED(xrLocateSpace(g_viewSpace, g_space, locateTime + g_frameState.predictedDisplayPeriod, &sn)) &&
+            (sn.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
+            (sn.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
+        std::lock_guard<std::mutex> lock(g_poseMutex);
+        g_poseNextValid = nextOk;
+        if (nextOk)
+            g_headPoseNext = {sn.pose.position.x, sn.pose.position.y, sn.pose.position.z,
+                              sn.pose.orientation.x, sn.pose.orientation.y, sn.pose.orientation.z, sn.pose.orientation.w};
+    }
 
     // The backbuffer this present carries was rendered by the game from the
     // PREVIOUS locate's head sample (lockstep: locate N feeds the tick that
@@ -5714,6 +5731,18 @@ bool peek_head_pose(HeadPose& out) {
     return true;
 }
 
+void set_next_pose(bool on) {
+    if (g_nextPoseOn.exchange(on, std::memory_order_relaxed) == on) return;
+    std::lock_guard<std::mutex> lock(g_poseMutex);
+    g_poseNextValid = false;
+}
+bool peek_head_pose_next(HeadPose& out) {
+    std::lock_guard<std::mutex> lock(g_poseMutex);
+    if (!g_poseNextValid || !g_poseValid) return false;
+    out = g_headPoseNext;
+    return true;
+}
+
 bool get_hand_pose(int hand, bool aimPose, HeadPose& out) {
     float p[3], q[4];
     if (!input_get_hand_pose(hand, aimPose, p, q)) return false;
@@ -6827,6 +6856,8 @@ uint32_t pace_timeouts() { return 0; }
 void draw_debug_ui() {}
 bool get_head_pose(HeadPose&) { return false; }
 bool peek_head_pose(HeadPose&) { return false; }
+void set_next_pose(bool) {}
+bool peek_head_pose_next(HeadPose&) { return false; }
 bool get_hand_pose(int, bool, HeadPose&) { return false; }
 void set_sim_hand_pose(int, bool, bool, const float[3], const float[4]) {}
 void clear_sim_hand_poses() {}

@@ -39,6 +39,10 @@ static bool WriteDefaultIni(const char* ini)
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
         "LateTagRepair=1\n"
+        "; ExtraPairs=1 (41.3, A/B, off): each world tick draws a SECOND stereo pair from a head pose one\n"
+        "; display period later. Head motion runs at the higher rate where the game's own tick is the\n"
+        "; limit; animation still steps at the tick rate. Live: reentry extra on|off.\n"
+        "ExtraPairs=0\n"
         "; Occlusion (VR-79): native = the engine's culling as shipped, both eyes share one\n"
         "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
@@ -1810,6 +1814,7 @@ static void LoadConfig()
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
         dvr::stereo::set_reentry_single_tag(GetPrivateProfileIntA("Stereo", "SingleTagRepair", 1, ini) != 0);
         dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 1, ini) != 0);   // Confirmed profile default; F10 retains the A/B.
+        SceneExtraSet(GetPrivateProfileIntA("Stereo", "ExtraPairs", 0, ini) != 0, "ini");   // 41.3, default off
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 3, ini));
     }
 

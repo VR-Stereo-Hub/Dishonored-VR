@@ -9892,3 +9892,16 @@ and level/UI generation. Clarity negates that per-eye c5 once and uses captured 
 Cam/Track semantics and the engine writers are unchanged. Epoch/identity values only reject
 history; they are never liveness authorization for dereferencing or writing an engine object.
 GPU geometry and simulator recovery evidence: PERFORMANCE.md, TAA audit fixes.
+
+
+## Re-entered draws: the view rotation, the in-draw dispatch and the tag ring (2026-09-27)
+
+Measured building the extra stereo pair per tick (scene_draw.cpp, PERFORMANCE.md route 1):
+- A re-entered viewport draw reads its view ROTATION from CameraCache.POV.Rotation (reflected
+  `Camera.CameraCache` +0x32C, `TCameraCache.POV` +0x4, `TPOV.Rotation` +0xC = camera+0x33C, beside the
+  measured eye field +0x330). A +5 deg write on yaw, pitch and roll through `camera::begin_view_scope`
+  rendered +5.01 / +5.00 / +5.00 deg in the recorded view-projection (simulator, 2026-09-27).
+- `ProcessViewRotation` is dispatched INSIDE the viewport draw; `ApplyHeadToViewRotation` must re-stamp
+  (pass 2) or stamp the extra rotation (passes 3 and 4) without advancing head or body bookkeeping.
+- Four draws per tick need the tag ring's skew depth at 12 (6 clears it whenever the game thread is a
+  tick ahead), and the c5 pairing alone cannot separate a tick pair from its extra pair.

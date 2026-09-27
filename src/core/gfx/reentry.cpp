@@ -59,6 +59,64 @@ namespace {
 
 ReentryHooks g_hooks;
 
+// 41.3: THE EXTRA PAIR'S HONOURED CHECK. A camera write is not a draw that used it. Per eye, the
+// yaw step between consecutive images as COMMANDED (the records' camera yaw: the tick's write,
+// then the extra pair's rotated one) against the step as RENDERED (the forward axis of the
+// view-projection each image was drawn with, camera-relative row vector: column 3 is the view
+// forward). Rendered == commanded: the rotation reached the draw. Rendered ~0 while commanded
+// moves: the engine drew from something else and the extra pair repeats the tick's picture.
+struct ExtraCheck { dvr::pose::Record last[2]; bool have[2]; uint32_t n; double cmd, rnd, err, sCmd, sRnd, absOff, absPitch, absRoll; uint64_t ms; };
+ExtraCheck g_ex = {};
+double vp_yaw_deg(const float* m) { return atan2((double)m[7], (double)m[3]) * 57.29578; }
+// Pitch and roll from the same matrix: forward = column 3, right = column 0, up = column 1 (each a
+// scaled world axis), UE rotator convention (roll = atan2(-right.z, up.z), as cinematic_math.h).
+double vp_pitch_deg(const float* m) { return atan2((double)m[11], hypot((double)m[3], (double)m[7])) * 57.29578; }
+double vp_roll_deg(const float* m) {
+    const double rn = sqrt((double)m[0] * m[0] + (double)m[4] * m[4] + (double)m[8] * m[8]);
+    const double un = sqrt((double)m[1] * m[1] + (double)m[5] * m[5] + (double)m[9] * m[9]);
+    return (rn > 0 && un > 0) ? atan2(-(double)m[8] / rn, (double)m[9] / un) * 57.29578 : 0.0;
+}
+double wrap_deg(double d) { while (d > 180) d -= 360; while (d < -180) d += 360; return d; }
+void extra_honoured(uint32_t rec) {
+    dvr::pose::Record r = {};
+    if (!rec || !dvr::pose::copy(rec, &r) || (r.eye != -1 && r.eye != 1) || !r.renderVpOk || !r.cam.ok) return;
+    const int e = r.eye < 0 ? 0 : 1;
+    {   // Per image, six per 30 s: the raw numbers behind the averages below.
+        static uint32_t dumped = 0; static uint64_t dumpMs = 0;
+        const uint64_t t = GetTickCount64();
+        if (t - dumpMs > 30000) { dumpMs = t; dumped = 0; }   // six per 30 s: the raw evidence, not a stream
+        if (dumped < 6) {
+            ++dumped;
+            DVR_INFO("reentry/extra image: rec %u pair %u eye %+d writer %d | commanded yaw %.3f pitch %.3f | rendered yaw %.3f "
+                     "pitch %.3f | previous same-eye rec %u writer %d rendered yaw %.3f", r.id, r.pairId, r.eye, r.cam.writer,
+                     r.cam.yawDeg, r.cam.pitchDeg, vp_yaw_deg(r.renderVp), vp_pitch_deg(r.renderVp),
+                     g_ex.have[e] ? g_ex.last[e].id : 0, g_ex.have[e] ? g_ex.last[e].cam.writer : -1,
+                     g_ex.have[e] ? vp_yaw_deg(g_ex.last[e].renderVp) : 0.0);
+        }
+    }
+    if (g_ex.have[e] && r.cam.writer == 4 && g_ex.last[e].cam.writer != 4) {
+        const double cmd = wrap_deg(r.cam.yawDeg - g_ex.last[e].cam.yawDeg);
+        const double rnd = wrap_deg(vp_yaw_deg(r.renderVp) - vp_yaw_deg(g_ex.last[e].renderVp));
+        ++g_ex.n; g_ex.cmd += fabs(cmd); g_ex.rnd += fabs(rnd); g_ex.err += fabs(rnd - cmd);
+        g_ex.sCmd += cmd; g_ex.sRnd += rnd;   // signed means: a constant bias shows its sign here
+        g_ex.absOff += wrap_deg(vp_yaw_deg(r.renderVp) - r.cam.yawDeg);   // absolute: rendered minus commanded
+        g_ex.absPitch += wrap_deg(vp_pitch_deg(r.renderVp) - r.cam.pitchDeg);
+        g_ex.absRoll += wrap_deg(vp_roll_deg(r.renderVp) - r.cam.rollDeg);
+    }
+    g_ex.last[e] = r; g_ex.have[e] = true;
+    const uint64_t now = GetTickCount64();
+    if (!g_ex.ms) g_ex.ms = now;
+    if (now - g_ex.ms < 3000) return;
+    if (g_ex.n)
+        DVR_INFO("reentry/extra honoured: %u extra images | yaw step tick->extra per eye: commanded %.3f deg, rendered %.3f "
+                 "deg, |rendered - commanded| %.3f deg (equal = the rotation reached the draw; rendered near 0 while "
+                 "commanded moves = the engine ignored it) | signed mean step commanded %+.3f rendered %+.3f | absolute "
+                 "rendered minus commanded: yaw %+.3f pitch %+.3f roll %+.3f deg", g_ex.n, g_ex.cmd / g_ex.n, g_ex.rnd / g_ex.n,
+                 g_ex.err / g_ex.n, g_ex.sCmd / g_ex.n, g_ex.sRnd / g_ex.n, g_ex.absOff / g_ex.n, g_ex.absPitch / g_ex.n,
+                 g_ex.absRoll / g_ex.n);
+    g_ex.n = 0; g_ex.cmd = g_ex.rnd = g_ex.err = g_ex.sCmd = g_ex.sRnd = g_ex.absOff = g_ex.absPitch = g_ex.absRoll = 0; g_ex.ms = now;
+}
+
 // The tag ring, pop/peek and the c5 pairing live in reentry_pair.inc so the VR-80 host
 // model compiles the same code (tools/reentry-pair-host.ps1).
 #include "core/gfx/reentry_pair.inc"
@@ -498,6 +556,7 @@ public:
         dvr::capture::set_pending_rec(tagged ? t.rec : 0u);
         // The camera this image was really rendered from travels with its record (DLSS vectors).
         if (tagged && haveC5) dvr::pose::note_render_pos(t.rec, c5now);
+        if (tagged) extra_honoured(t.rec);
         {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
             float br[3]={};
             const bool basisOk = dvr::camera::last_eye_right(br);
@@ -795,6 +854,12 @@ void set_reentry_c5_pair(bool on) {
              on ? 1 : 0);
 }
 bool reentry_c5_pair() { return g_c5Pair; }
+// 41.3: tags per tick (2 normally, 4 with the extra pair) sets the ring's skew depth.
+void set_reentry_tags_per_tick(int n) {
+    const LONG depth = n >= 4 ? 12 : 6;
+    if (InterlockedExchange(&g_ringSkewDepth, depth) != depth)
+        DVR_INFO("reentry: %d tags per tick - the tag ring counts a depth over %ld as skewed", n, depth);
+}
 
 void set_reentry_single_tag(bool on) {
     g_singleTagRepair = on;
