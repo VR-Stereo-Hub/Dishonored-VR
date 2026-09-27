@@ -36,6 +36,7 @@
 #include "game/dishonored/snap_turn.h"   // VR-219: pad_bridge (present lane) and head_track (script lane) both call it
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
+#include "core/input/controller_binds.h"   // bind remapping: pad_bridge, ui_surface, config, F10, the seam
 #include "core/framework/frame_hooks.h"
 #include "core/framework/perf.h"
 #include "core/framework/native_profile.h"

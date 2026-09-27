@@ -1,9 +1,13 @@
-## Handoff: controller bind remapping next (2026-09-27, end of session)
+## Controller bind remapping (2026-09-27) - host-verified, PR open, not merged
 
-Staging has #143 (the uncap verdict: the headset is GPU-bound; DLSS in F10 Basic; MLAA off with DLSS).
-FSR 4.1.1 / 3.1.5 beside DLSS is merged to staging (#144); the remap branch is rebased onto it. Next session adds controller bind
-remapping on branch `claude/controller-remap`: brief and copyable prompt in
-[NEXT_SESSION](dishonored/NEXT_SESSION.md).
+Branch `claude/controller-remap` (on staging after #144). Each game action can be moved to any
+controller input: F10 > Controls > Button mapping (per-action list, "Press to set" from the
+controllers, conflict warning, Swap sticks, Reset), `[ControllerBinds]`, seam `binds`. The layer
+remaps the physical snapshot into a logical one, so slide assist, physical crouch, the sword, carry
+and throw, the wheel gates and the health hold all follow their action. No section = the shipped
+layout, passed through untouched (host test over all 16384 input combinations; 32948 checks). Not
+run in the game, simulator or headset. Reference: [CONTROLLER_BINDS](dishonored/CONTROLLER_BINDS.md);
+what is owed: [NEXT_SESSION](dishonored/NEXT_SESSION.md).
 
 ## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, merged to staging (#144)
 

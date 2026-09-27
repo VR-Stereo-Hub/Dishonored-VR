@@ -729,6 +729,8 @@ static void HealthElixirTick(bool held);
 static void MeleeTick();
 static bool MeleeActive();
 static void UpdateVirtualPad();
+static void BindsLog(const char* who);
+static void BindsSet(const dvr::binds::Layout& l, const char* who);   // config.cpp: live + the ini, only the keys that moved   // pad_bridge.cpp: the live controller bind layout, one line per action
 static DWORD WINAPI hkXInputGetState(DWORD user, XINPUT_STATE* st);
 static DWORD WINAPI hkXInputSetState(DWORD user, XINPUT_VIBRATION* vib);
 static void InstallPadHook();

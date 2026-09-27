@@ -215,6 +215,7 @@ static void UiSurfacePoll() {
     bool blocked=false,wheelClosing=false,wheelObserved=false;
     dvr::vr::InputSnapshot wheelInput;
     dvr::vr::input_snapshot(&wheelInput); // locked snapshot, not pad-thread globals
+    wheelInput = dvr::binds::apply(wheelInput, dvr::binds::layout()); // gripL = the power wheel's bound source
     for(int i=0;manager && i<10;++i) {
         if(!g_usMenus[i]) continue;
         uint8_t* obj=nullptr;

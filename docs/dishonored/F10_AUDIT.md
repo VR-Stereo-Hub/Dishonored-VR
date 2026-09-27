@@ -36,7 +36,7 @@ view selector, and the text-scale slider.
 |---|---|---|---|
 | **Hands** | Hand size; Hand position (L / R / powers steps); Sleeve | Wrist roundness; Game arms per action (the Animations list) | Hand-eye and identity fixes; legacy SkelControl drive (if kept) |
 | **Aim** | Reticle (on, hand, size, colour, distance); Reticle position (other items); Held object position | Head or controller aim per item; carried-object options | Ray source levers; control dot; anchors |
-| **Controls** | Controller layout (D-pad modifier, flip, pause chord); Turning (snap turn, step size); Motion sword (on, speed, cooldown, stealth stab) | Snap turn push, release and hold-repeat; Sword detector detail; stab shape | Snap turn counters and the no-stick step buttons; Sword readouts |
+| **Controls** | Controller layout (D-pad modifier, flip, pause chord); Button mapping (a source per action, press to set, swap sticks, reset); Turning (snap turn, step size); Motion sword (on, speed, cooldown, stealth stab) | Snap turn push, release and hold-repeat; Sword detector detail; stab shape | Snap turn counters and the no-stick step buttons; Sword readouts |
 | **Comfort** | Crouch (real crouch on, trigger height); Camera shake (remove shake); Gameplay FOV | Positional tracking; neck pivot; camera shake categories; rain and lens effects; cinematic head look options | Arm and facing levers; mirror weapons; stereo state guards |
 | **HUD** | HUD on/off; notes and journal on the hand | Weapon dial; wheel side panels; menu immersion; element anchors; window; hand panels | Alpha modes; native-marker tests; freshness tests; census |
 | **Display** | Resolution scale | Fullscreen, vsync; desktop mirror | Capture mode, EYES, 9Ex, profiles, benchmark, MARK |

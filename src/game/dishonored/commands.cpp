@@ -475,6 +475,18 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::vr::input_attached() ? "attached" : "not attached", (int)(g_padHaptics && g_xrHaptics));
         return true;
     }
+    if (!strcmp(cmd, "binds")) {   // controller bind remapping: binds status|reset|swap on|off|<Action> <Source>
+        auto l = dvr::binds::layout();
+        char act[48] = "", src[48] = "";
+        sscanf_s(args, "%47s %47s", act, (unsigned)sizeof(act), src, (unsigned)sizeof(src));
+        int a = 0; dvr::binds::Source s;
+        if (!act[0] || !_stricmp(act, "status")) BindsLog("asked");
+        else if (!_stricmp(act, "reset")) BindsSet(dvr::binds::Layout{}, "the seam");
+        else if (!_stricmp(act, "swap") && DvrOnOff(src, &b)) { l.swapSticks = b; BindsSet(l, "the seam"); }
+        else if (dvr::binds::parse_action(act, &a) && dvr::binds::parse_source(src, &s)) { l.src[a] = s; BindsSet(l, "the seam"); }
+        else Log("input/binds: use binds status | reset | swap on|off | <Action> <Source> (asked '%s')", args);
+        return true;
+    }
     if (!strcmp(cmd, "console")) {
         strncpy(g_dvrConsoleReq, args, sizeof(g_dvrConsoleReq) - 1);
         g_dvrConsoleReq[sizeof(g_dvrConsoleReq) - 1] = 0;

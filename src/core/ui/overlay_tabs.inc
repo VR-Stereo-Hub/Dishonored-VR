@@ -500,6 +500,114 @@ static void OvlTabAim()
     }
 }
 
+// ---- Button mapping (controller_binds.h) ----------------------------------------------------
+// Press-to-bind reads the PHYSICAL snapshot: wait until every source is up (the click that
+// started it is still down), then take the first source pressed. The pad bridge sends the game
+// no buttons while this runs, so the press being captured does not also jump or fire.
+static int    s_bindCapture = -1;       // action being captured, -1 none
+static bool   s_bindArmed = false;      // every source seen up since the capture began
+static double s_bindDeadline = 0.0;
+static dvr::vr::InputSnapshot s_bindPrev{};
+static void OvlBindsCaptureTick(dvr::binds::Layout& l, bool& changed)
+{
+    if (s_bindCapture < 0) return;
+    dvr::vr::InputSnapshot now{};
+#if DVR_WITH_OPENXR
+    dvr::vr::input_snapshot(&now);
+#endif
+    const double t = ImGui::GetTime();
+    if (!now.active || t > s_bindDeadline) {
+        Log("input/binds: press-to-bind for %s %s - nothing changed", dvr::binds::info(s_bindCapture).key,
+            now.active ? "timed out after 6 s" : "stopped (controllers not active)");
+        s_bindCapture = -1; dvr::binds::captureUntilMs = 0; return;
+    }
+    if (!s_bindArmed) { if (!dvr::binds::any_down(now)) s_bindArmed = true; s_bindPrev = now; return; }
+    const dvr::binds::Source src = dvr::binds::first_press(s_bindPrev, now);
+    s_bindPrev = now;
+    if (src == dvr::binds::None) return;
+    Log("input/binds: %s = %s (was %s) by press-to-bind", dvr::binds::info(s_bindCapture).key,
+        dvr::binds::source_key(src), dvr::binds::source_key(l.src[s_bindCapture]));
+    l.src[s_bindCapture] = src; changed = true;
+    s_bindCapture = -1;
+    // captureUntilMs stays until the captured press is released (above), so its tail does not reach the game.
+}
+static void OvlBindsSection()
+{
+    // Release the pad once the captured press has been let go.
+    if (s_bindCapture < 0 && dvr::binds::capture_active(GetTickCount64())) {
+        dvr::vr::InputSnapshot now{};
+#if DVR_WITH_OPENXR
+        dvr::vr::input_snapshot(&now);
+#endif
+        if (!now.active || !dvr::binds::any_down(now)) dvr::binds::captureUntilMs = 0;
+    }
+    if (!OvlSec("Button mapping", kOvlB, "Choose which controller button does each game action.")) {
+        if (s_bindCapture >= 0) { s_bindCapture = -1; dvr::binds::captureUntilMs = 0; }
+        return;
+    }
+    auto l = dvr::binds::layout();
+    bool changed = false;
+    OvlBindsCaptureTick(l, changed);
+    const char* labels[dvr::binds::SourceCount];
+    for (int s = 0; s < dvr::binds::SourceCount; ++s) labels[s] = dvr::binds::source_label(s);
+    // Three aligned columns: the action, its source, the capture button.
+    if (ImGui::BeginTable("##binds", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoClip)) {
+        ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("source", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 9.0f);
+        ImGui::TableSetupColumn("set", ImGuiTableColumnFlags_WidthFixed);
+        for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+            const auto& in = dvr::binds::info(a);
+            ImGui::PushID(a);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(in.label);
+            OvlTip(in.tip);
+            ImGui::TableSetColumnIndex(1);
+            int cur = l.src[a];
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::Combo("##src", &cur, labels, dvr::binds::SourceCount)) { l.src[a] = (dvr::binds::Source)cur; changed = true; }
+            OvlTip(in.tip);
+            ImGui::TableSetColumnIndex(2);
+            if (s_bindCapture == a) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1, .8f, .3f, 1), s_bindArmed ? "press a button... (%.0f s)" : "let go first...",
+                    s_bindDeadline - ImGui::GetTime());
+            } else if (ImGui::Button("Press to set")) {
+                s_bindCapture = a; s_bindArmed = false; s_bindDeadline = ImGui::GetTime() + 6.0;
+                dvr::binds::captureUntilMs = GetTickCount64() + 6500;
+                Log("input/binds: press-to-bind for %s started (6 s)", in.key);
+            }
+            const unsigned c = dvr::binds::conflicts(l, a);
+            if (c) {
+                char with[128] = ""; int n = 0;
+                for (int b = 0; b < dvr::binds::ActionCount; ++b)
+                    if (c & (1u << b)) n += _snprintf_s(with + n, sizeof(with) - n, _TRUNCATE, "%s%s", n ? ", " : "", dvr::binds::info(b).label);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);   // NoClip: the warning runs across the row
+                ImGui::TextColored(ImVec4(1, .5f, .2f, 1), "  also on %s: %s", labels[l.src[a]], with);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (dvr::ovl::checkbox("Swap sticks (move on the right)", &l.swapSticks)) changed = true;
+    OvlTip("Move with the right stick and turn with the left. The D-pad and lean follow the swap.");
+    if (dvr::controller::config().modifier == dvr::controller::R3)
+        ImGui::TextDisabled("The R3 D-pad modifier always uses the right stick click.");
+    ImGui::BeginDisabled(l.is_default());
+    if (ImGui::SmallButton("Reset to default layout")) {
+        l = dvr::binds::Layout{}; changed = true;
+        s_bindCapture = -1; dvr::binds::captureUntilMs = 0;
+    }
+    ImGui::EndDisabled();
+    OvlTip("A jump, B stealth, X interact, Y lean, left stick click sprint, right stick click health, "
+           "menu pause, left grip power wheel, right grip choke, left trigger power, right trigger attack.");
+    ImGui::TextDisabled("Clicking both sticks (recenter / this panel) and the thumbrests are not remapped. "
+                        "On SteamVR, its own controller bindings apply first.");
+    if (changed) BindsSet(l, "F10 Controls");
+}
+
 // ---- Controls -------------------------------------------------------------------------------
 static void OvlTabControls()
 {
@@ -534,6 +642,7 @@ static void OvlTabControls()
         OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
                "Clicking both sticks recenters.");
     }
+    OvlBindsSection();
     dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
     dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
     dvr::drop::draw_ui();    // drop takedowns (its own section)

@@ -2062,6 +2062,22 @@ static void LoadConfig()
     const auto controller=dvr::controller::config();
     Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
         controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));
+    {   // Bind remapping: an absent key keeps its action on the shipped source (controller_binds.h).
+        dvr::binds::Layout l;
+        for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+            char v[48] = "";
+            GetPrivateProfileStringA("ControllerBinds", dvr::binds::info(a).key, "", v, sizeof(v), ini);
+            if (!v[0]) continue;
+            dvr::binds::Source s;
+            if (dvr::binds::parse_source(v, &s)) l.src[a] = s;
+            else Log("config: WARN [ControllerBinds] %s=%s is not a source (A B X Y LeftStickClick RightStickClick "
+                     "Menu LeftGrip RightGrip LeftTrigger RightTrigger None) - kept on %s", dvr::binds::info(a).key, v,
+                     dvr::binds::source_key(l.src[a]));
+        }
+        l.swapSticks = GetPrivateProfileIntA("ControllerBinds", "SwapSticks", 0, ini) != 0;
+        dvr::binds::configure(l);
+        BindsLog("config");
+    }
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
     g_padDeadzone = IniFloat(ini, "Controllers", "Deadzone", 0.12f);
@@ -3716,6 +3732,28 @@ static void ConfigWriteKey(const char* section, const char* key, const char* val
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     WritePrivateProfileStringA(section, key, value, ini);
     Log("config: [%s] %s=%s written by %s (live now, and the next launch's default)", section, key, value, who);
+}
+// Controller binds: live at once, and into [ControllerBinds] key by key. Back to the shipped
+// layout DELETES the section, so an untouched ini and a reset one read the same (absent = shipped).
+static void BindsSet(const dvr::binds::Layout& l, const char* who)
+{
+    const auto was = dvr::binds::layout();
+    dvr::binds::configure(l);
+    if (l.is_default()) {
+        if (!dvr::perf::ab_dispatching()) {
+            char ini[MAX_PATH];
+            _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+            WritePrivateProfileStringA("ControllerBinds", NULL, NULL, ini);
+        }
+        Log("config: [ControllerBinds] removed by %s - the shipped layout", who);
+    } else {
+        for (int a = 0; a < dvr::binds::ActionCount; ++a)
+            if (l.src[a] != was.src[a] || was.is_default())
+                ConfigWriteKey("ControllerBinds", dvr::binds::info(a).key, dvr::binds::source_key(l.src[a]), who);
+        if (l.swapSticks != was.swapSticks || was.is_default())
+            ConfigWriteKey("ControllerBinds", "SwapSticks", l.swapSticks ? "1" : "0", who);
+    }
+    BindsLog(who);
 }
 static void DeviceSetEx(bool on, const char* who)
 {
