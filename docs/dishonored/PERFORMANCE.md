@@ -3097,3 +3097,16 @@ Branch `claude/pe-hook-dispatch`. `game/dishonored/ue3/pe_fast.h`; levers `[Perf
 - **Left on the table:** ~390 ms/s of per-event work remains (the mid ticks and SkcRotApply). Each is a
   candidate for its own cadence after checking what it races; the per-statement split (`pe fn on`)
   names them. Not headset-tested.
+
+### 2026-09-27: in the HEADSET the GPU is the limit, not the game thread (corrects the routes above)
+
+The maintainer's route-1 headset run (VDXR 144 Hz, 2750x2850, DLSS off, no SSW, route 1 toggled four
+times each way): 122-124 pairs/s with the extra pair, 120-127 without - no difference. With it off,
+per pair: 7.3-8.1 ms total, **D3D9 GPU span 6.7-6.9 ms**, the present thread waiting 1.1-1.9 ms on the
+capture fence (the GPU), and the runtime reporting UNDER-SUBMITTING 0.89x. The simulator's game-thread
+ceiling (~7 ms/tick, GPU ~5.2 ms per pair) does not carry to the headset, where Virtual Desktop's
+encode and the compositor share the card and the GPU becomes the limit. So routes 1 and 2 (CPU) cannot
+raise the headset's rate on this PC; route 2 stays as CPU headroom. Next lever: GPU time per pair
+(our sharpen pass ~0.4 ms per eye, the streamer's encode, render size). Late in the same run the
+runtime's period went to 13.89 ms (72 Hz) - Virtual Desktop halving the rate on its own.
+
