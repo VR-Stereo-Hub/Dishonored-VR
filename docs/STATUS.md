@@ -1,3 +1,16 @@
+## Uncap deep dive answered; DLSS in F10 Basic (2026-09-27, merged to staging)
+
+The headset is GPU-bound at 2750x2850: a GPU timeline (new `tools/perf-gpu-timeline.py` on a DvrGpu WPR
+capture) shows the game's D3D9 queue occupied 97 % of the time, nvidia-smi 94 % at full clocks; ~6.1 ms of
+the ~8.6 ms per pair follows the pixel count (render size 70 %: +13 %, 130 %: -30 %). Nothing of ours
+serialises it: capture depth 2 (new lever, default off) and the script-lane cadence changed nothing. So a
+faster GPU or fewer/cheaper pixels raise the rate; the CPU side (~7.6-8.0 ms per pair) is next.
+Shipped with it: the game's MLAA is written Off at launch whenever `[Clarity] DLAA` is on; F10 Basic has a
+"DLSS and DLAA" section (switch, mode incl. Ultra Quality, model, sharpening); failed-experiment toggles
+removed (F10_AUDIT). Also carries route 2 (#141) and the DLSS model list / Ultra Quality (#139).
+Next: FSR 3.1 on its own branch (plan: PERFORMANCE "FSR implementation plan"). Detail: PERFORMANCE.md
+"The uncap deep dive" and "Plan 1 in the HEADSET".
+
 ## Handoff: the uncap deep dive (2026-09-27, end of session)
 
 Headset truth: ~25 % CPU, ~80 % GPU, ~120-137 pairs/s with SSW off and no DLSS - nothing saturated, so
