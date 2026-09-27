@@ -1,4 +1,11 @@
-## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
+## Handoff: controller bind remapping next (2026-09-27, end of session)
+
+Staging has #143 (the uncap verdict: the headset is GPU-bound; DLSS in F10 Basic; MLAA off with DLSS).
+FSR 4.1.1 / 3.1.5 beside DLSS is merged to staging (#144); the remap branch is rebased onto it. Next session adds controller bind
+remapping on branch `claude/controller-remap`: brief and copyable prompt in
+[NEXT_SESSION](dishonored/NEXT_SESSION.md).
+
+## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, merged to staging (#144)
 
 Branch `claude/fsr-upscaler`. FSR runs in the existing x64 helper through AMD's FidelityFX API, SDK 2.3.0:
 FSR 4.1.1 on RDNA 4 GPUs (untested here: this PC is NVIDIA), FSR 3.1.5 elsewhere. F10 Basic: Upscaler = NVIDIA DLSS | AMD
