@@ -3441,3 +3441,19 @@ land near the CPU floor (6.1 x 0.45 + 2.5 + 2 x 1.2 = ~7.7 ms of GPU per pair) a
 predicted ~125-130 pairs/s against ~115 native at 2750x2850, if the cross-process contention stays near the
 isolated cost. A loss like DLSS SR's earlier one (heavy presets, 3-4 ms per eye) would say the contention
 dominates. FSR 4 needs an RDNA4 GPU and SDK 2.x's DLLs beside the helper (not fetched here).
+
+### FSR 4: FidelityFX SDK 2.3.0 (same day)
+
+The helper now ships SDK v2.3.0 (commit `60f4ea81`): `amd_fidelityfx_loader_dx12.dll` 2.3.0.2740 and
+`amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740, both AMD-signed, hash-pinned in `tools/fetch-ffx.ps1`. The
+upscaler provider offers FSR 4.1.1 on the GPUs that run it (RDNA 4) and FSR 3.1 elsewhere; the helper
+passes the API-version descriptor 2.x expects (`FFX_UPSCALER_VERSION` 4.1.1) and picks the HIGHEST version
+number offered by default (`[Clarity] FsrVersion=0`); F10 Advanced "FSR version" lists what the runtime
+offers. Upscale descriptor layouts are unchanged from 1.1.4 (compared); the 2.x loader header fills its
+function table only under `_WINDOWS`, which the helper build now defines (without it FSR would have had no
+entry points).
+
+- Host suite on SDK 2.3.0: 30/30. On this RTX 4070 Ti SUPER the runtime offers FSR 3.1.5 and 2.3.4, NOT
+  FSR 4 (AMD restricts it to RDNA 4), so FSR 4 itself is untested here: an RX 9000 rig should log
+  `[ffx] offers 1: 4.1.1` and `using 4.1.1` in `<data>\dlss\dlss_host.log`. Costs unchanged (native AA
+  1.86 ms, Quality 1.20, Performance 0.96 per eye at 2750x2850).

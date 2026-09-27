@@ -17,10 +17,11 @@
 // headers it compiles against).
 //
 // FSR (2026-09-27): the same helper runs AMD FSR through the FidelityFX API when the proxy asks for
-// it in its Hello (dlss_ipc.h Backend): SDK 2.x's amd_fidelityfx_loader_dx12.dll when it sits beside
-// this exe (FSR 4 on RDNA4 GPUs, FSR 3.1 elsewhere), else SDK 1.1.4's amd_fidelityfx_dx12.dll
-// (FSR 3.1). Both are AMD's signed prebuilt DLLs, MIT (third_party/ffx/LICENSE.txt). One upscale
-// context per eye on the same shared textures and fences as DLSS.
+// it in its Hello (dlss_ipc.h Backend): SDK 2.3.0's amd_fidelityfx_loader_dx12.dll, which loads
+// amd_fidelityfx_upscaler_dx12.dll (FSR 4.1.1 on the AMD GPUs that run it - RDNA 4 - and FSR 3.1
+// everywhere else); SDK 1.1.x's amd_fidelityfx_dx12.dll (FSR 3.1) is still accepted. AMD's signed
+// prebuilt DLLs, MIT (third_party/ffx/LICENSE.md). One upscale context per eye on the same shared
+// textures and fences as DLSS.
 //
 // Command line: dvr_dlss_host64.exe <game pid> --luid <high> <low> --data <dir>
 // Log: <dir>\dlss_host.log (previous run: dlss_host.prev.log).
@@ -40,10 +41,11 @@
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_helpers.h>
 
-#include <ffx_api/ffx_api.h>
-#include <ffx_api/ffx_upscale.h>
-#include <ffx_api/ffx_api_loader.h>
-#include <ffx_api/dx12/ffx_api_dx12.h>
+// FidelityFX SDK 2.3.0 (tools/fetch-ffx.ps1): Kits/FidelityFX/api/include and upscalers/include.
+#include <ffx_api.h>
+#include <ffx_upscale.h>
+#include <ffx_api_loader.h>
+#include <dx12/ffx_api_dx12.h>
 
 #include "core/gfx/dlss_ipc.h"
 
@@ -274,6 +276,7 @@ void SafeReleaseFeature(NVSDK_NGX_Handle* h) {
 // ---------------------------------------------------------------------------------------
 struct Ffx {
     bool up = false;
+    bool sdk2 = false;          // the 2.x loader: it takes the API-version descriptor
     HMODULE mod = nullptr;
     ffxFunctions fn = {};
     uint64_t versionId = 0;     // 0 = let the runtime choose (its default)
@@ -298,7 +301,11 @@ bool InitFfx(uint32_t want) {
         _snwprintf_s(path, _TRUNCATE, L"%s%s", dir, name);
         if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) continue;
         ffx.mod = LoadLibraryW(path);
-        if (ffx.mod) { WideCharToMultiByte(CP_UTF8, 0, name, -1, ffx.dll, sizeof(ffx.dll), nullptr, nullptr); break; }
+        if (ffx.mod) {
+            WideCharToMultiByte(CP_UTF8, 0, name, -1, ffx.dll, sizeof(ffx.dll), nullptr, nullptr);
+            ffx.sdk2 = name == kDlls[0];
+            break;
+        }
         Log("[ffx] %ls exists but did not load (%lu)", path, GetLastError());
     }
     if (!ffx.mod) { Log("[ffx] no FidelityFX API DLL beside %ls (amd_fidelityfx_loader_dx12.dll or amd_fidelityfx_dx12.dll)", dir); return false; }
@@ -326,10 +333,19 @@ bool InitFfx(uint32_t want) {
         if (n > 0) at += (size_t)n;
         Log("[ffx] offers %llu: %s (id 0x%llX)", (unsigned long long)(i + 1), names[i] ? names[i] : "?", (unsigned long long)ids[i]);
     }
-    const uint64_t pick = (want >= 1 && want <= count) ? want - 1 : 0;
+    // Default: the highest version number offered (FSR 4.x on an RDNA 4 GPU), whatever order the
+    // runtime lists them in; the proxy's FsrVersion picks one by its 1-based position instead.
+    auto rank = [](const char* n) -> uint64_t {
+        unsigned a = 0, b = 0, c = 0;
+        if (!n || sscanf_s(n, "%u.%u.%u", &a, &b, &c) < 1) return 0;
+        return ((uint64_t)a << 40) | ((uint64_t)b << 20) | c;
+    };
+    uint64_t pick = 0;
+    if (want >= 1 && want <= count) pick = want - 1;
+    else for (uint64_t i = 1; i < count && i < kMax; ++i) if (rank(names[i]) > rank(names[pick])) pick = i;
     ffx.versionId = ids[pick];
     strcpy_s(ffx.chosen, names[pick] ? names[pick] : "?");
-    Log("[ffx] %s: using %s (%s)", ffx.dll, ffx.chosen, want ? "asked by the proxy" : "the runtime's first, its default");
+    Log("[ffx] %s: using %s (%s)", ffx.dll, ffx.chosen, want ? "asked by the proxy" : "the highest version offered");
     ffx.up = true;
     return true;
 }
@@ -393,9 +409,15 @@ bool BuildFsr(Eye& e, const Build& b, BuildAck& ack) {
     ov.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
     ov.versionId = ffx.versionId;
     if (ffx.versionId) be.header.pNext = &ov.header;
+    // The API version this helper was built against (SDK 2.x): lets the runtime serve FSR 4 with the
+    // struct layout it expects. An SDK 1.1 runtime does not know the descriptor, so it is left out there.
+    ffxCreateContextDescUpscaleVersion ver = {};
+    ver.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE_VERSION;
+    ver.version = FFX_UPSCALER_VERSION;
+    ver.header.pNext = &be.header;
     ffxCreateContextDescUpscale cd = {};
     cd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
-    cd.header.pNext = &be.header;
+    cd.header.pNext = ffx.sdk2 ? &ver.header : &be.header;
     cd.maxRenderSize = {b.width, b.height};
     cd.maxUpscaleSize = {b.outWidth, b.outHeight};
     // The proxy's colour is the game's gamma-encoded LDR image; its depth is 1 / (1 + z): inverted,

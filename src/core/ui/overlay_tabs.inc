@@ -909,6 +909,26 @@ static void OvlTabDisplay()
             OvlTip("Shifts the game's picture by a tiny, known amount every frame so the upscaler can rebuild finer "
                    "detail. Mainly sharpens the smaller modes; FSR relies on it more than DLSS. Close this panel to judge it.");
         }
+        if (dvr::dlss::backend() == dvr::dlss::BackendFsr && dvr::dlss::offered_versions()[0]) {
+            // The versions the AMD runtime offers on this GPU, newest first by default (FSR 4 on RDNA 4).
+            char list[128]; strcpy_s(list, dvr::dlss::offered_versions());
+            const char* items[9] = {"Newest available"}; int n = 1;
+            char* ctx = nullptr;
+            for (char* t = strtok_s(list, ", ", &ctx); t && n < 9; t = strtok_s(nullptr, ", ", &ctx)) items[n++] = t;
+            int cur = dvr::dlss::fsr_version();
+            if (cur < 0 || cur >= n) cur = 0;
+            if (ImGui::BeginCombo("FSR version", items[cur])) {
+                for (int i = 0; i < n; ++i) {
+                    if (ImGui::Selectable(items[i], i == cur)) {
+                        dvr::dlss::set_fsr_version(i, "F10 Display");
+                        OvlSaveInt("Clarity", "FsrVersion", i);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            OvlTip("Which FSR the AMD runtime runs. Newest is FSR 4 on the AMD cards that support it (RX 9000), FSR 3.1 "
+                   "on every other GPU. Switching restarts FSR.");
+        }
         ImGui::TextDisabled("%s", dvr::clarity::summary());
     }
     if (OvlSec("Clarity (debug)", kOvlD, "Temporal anti-aliasing (superseded by DLSS) and the DLSS jitter fix.")) {

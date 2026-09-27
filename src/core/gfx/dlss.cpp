@@ -35,6 +35,7 @@ std::atomic<int> g_backend{BackendDlss};
 std::atomic<int> g_fsrVersion{0};
 std::atomic<bool> g_restart{false};   // the backend changed: the present thread stops the helper
 char g_runtime[64] = "";
+char g_offered[128] = "";
 uint64_t g_lastEyeQpc[2] = {};
 std::atomic<int> g_preset{0};
 std::atomic<int> g_quality{QDlaa};
@@ -87,7 +88,7 @@ void work(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt, int
         sp.backend = (uint32_t)g_backend.load();
         sp.fsrVersion = (uint32_t)g_fsrVersion.load();
         ok = g_client.start(g_dev, sp, why, sizeof(why));
-        if (ok) { g_helperStarted = true; strcpy_s(g_runtime, g_client.runtime()); }
+        if (ok) { g_helperStarted = true; strcpy_s(g_runtime, g_client.runtime()); strcpy_s(g_offered, g_client.offered()); }
     }
     for (int e = 0; ok && e < 2; ++e) ok = g_client.build(e, w, h, ow, oh, fmt, preset, why, sizeof(why));
     if (ok && g_backend.load() == BackendFsr) {
@@ -225,6 +226,7 @@ void set_fsr_version(int v, const char* who) {
 }
 int fsr_version() { return g_fsrVersion.load(); }
 const char* runtime_name() { return g_backend.load() == BackendFsr ? g_runtime : ""; }
+const char* offered_versions() { return g_backend.load() == BackendFsr ? g_offered : ""; }
 
 const ModelChoice kModelChoices[] = {
     {"Transformer K (default)", 0, 0,

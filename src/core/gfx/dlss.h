@@ -44,6 +44,7 @@ const char* backend_name();           // "DLSS" or "FSR"
 void set_fsr_version(int v, const char* who);   // 0 = the runtime's default, else 1-based in its list
 int  fsr_version();
 const char* runtime_name();           // FSR: the provider in use, once the helper is up; "" otherwise
+const char* offered_versions();       // FSR: every version the runtime offers ("3.1.5, 2.3.4"); "" until the helper is up
 // Quality: 0 DLAA (render = output), 1 Quality (1.5x per axis), 2 Balanced (1.72x),
 // 3 Performance (2x), 4 Ultra Performance (3x), 5 Ultra Quality (1.3x). Ultra Quality is 5, not
 // inserted after DLAA, so every saved DlssQuality keeps its meaning; the F10 list shows the modes

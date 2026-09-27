@@ -16,11 +16,10 @@ This mod is not sponsored or endorsed by NVIDIA. DLSS needs an NVIDIA RTX GPU.
 
 ## AMD FidelityFX (FSR)
 
-`amd_fidelityfx_dx12.dll` (version 1.0.1.41314, FSR 3.1) is AMD's signed prebuilt FidelityFX API
-DLL from the FidelityFX SDK (https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, tag
-v1.1.4), MIT-licensed; the license is included here as `AMD-FIDELITYFX-LICENSE.txt`. The helper
-also uses `amd_fidelityfx_loader_dx12.dll` from FidelityFX SDK 2.x when it is placed beside it,
-which provides FSR 4 on GPUs that support it.
+`amd_fidelityfx_loader_dx12.dll` (2.3.0.2740) and `amd_fidelityfx_upscaler_dx12.dll` (4.1.1.2740:
+FSR 4 on the AMD GPUs that support it, FSR 3.1 on the others) are AMD's signed prebuilt FidelityFX
+API DLLs from the FidelityFX SDK (https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK, tag
+v2.3.0), MIT-licensed; the license is included here as `AMD-FIDELITYFX-LICENSE.md`.
 
 This mod is not sponsored or endorsed by AMD. FSR runs on any D3D12 GPU.
 
