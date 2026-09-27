@@ -37,6 +37,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
 #include "core/gfx/clarity.h"
+#include "core/gfx/dlss_jitter.h"
 #include "core/gfx/blit_quad.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
@@ -495,6 +496,8 @@ public:
         // the pixels land in. An untagged present carries 0, which the audit
         // reports as MISSING rather than silently joining to nothing.
         dvr::capture::set_pending_rec(tagged ? t.rec : 0u);
+        // The camera this image was really rendered from travels with its record (DLSS vectors).
+        if (tagged && haveC5) dvr::pose::note_render_pos(t.rec, c5now);
         {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
             float br[3]={};
             const bool basisOk = dvr::camera::last_eye_right(br);
@@ -502,6 +505,11 @@ public:
         }
 
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
+        // DLSS projection jitter: the offset this image was drawn with goes into its record (the
+        // one set_pending_rec just gave the slot), and the next image's offset is chosen here,
+        // before any of its draws. Untagged presents carry no record and do not advance the phase.
+        dvr::dlss::jitter::on_present(tagged ? t.rec : 0u, dvr::capture::width(), dvr::capture::height());
+        if (!fresh) dvr::clarity::invalidate();
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) { commit(OUT_NOSRC, 0, fresh); return false; }
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
@@ -656,7 +664,7 @@ public:
         return true;
     }
 
-    void on_reset() override { menuGap_.clear(); single_ = SingleTagState{}; dvr::capture::on_reset(); }
+    void on_reset() override { menuGap_.clear(); single_ = SingleTagState{}; dvr::capture::on_reset(); dvr::clarity::shutdown(); }
 
     void shutdown() override {
         if (armed_) {

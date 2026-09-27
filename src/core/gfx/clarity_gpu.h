@@ -7,7 +7,7 @@
 //   resolve   the render (w x h) filtered down to (ow x oh) with a Mitchell
 //             kernel scaled to the step, two separable passes
 //   temporal  blended with the same eye's previous output, reprojected by the
-//             rotation between the two rendered cameras, the history clipped
+//             depth motion vectors when supplied, rotation otherwise; history clipped
 //             to the current 3x3 neighbourhood's colour spread (YCoCg)
 //   final     contrast-adaptive sharpening (0 = none), then back to the
 //             gamma-encoded values the swapchain expects
@@ -41,9 +41,14 @@ struct PassParams {
     bool     historyValid = false;   // false seeds the history with this frame
     Mat3     prevFromCur = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
     float    tanH = 1.0f, tanV = 1.0f;
+    float    prevTanH = 0, prevTanV = 0; // zero uses current projection (host callers)
+    bool     materializeVectors = false; // diagnostics/future consumers only; TAA is fused
     float    blend = 0.15f;      // weight of the current frame
     float    clipGamma = 1.0f;   // variance clip width in standard deviations
     float    sharpen = 0.0f;     // 0 = none, up to 1
+    ID3D11ShaderResourceView* sceneDepth = nullptr; // matching grab, alpha = linear view depth
+    float translation[3] = {}; // current minus previous WORLD position, previous camera axes
+    float depthScale = 200.0f; // coarse simulator minimum, uu per depth unit
     float    kernelB = 0.0f, kernelC = 0.5f;   // resolve kernel: Catmull-Rom (1/3, 1/3 = Mitchell)
 };
 
@@ -59,6 +64,12 @@ public:
              ID3D11RenderTargetView* dst, const PassParams& p, char* why, size_t cap);
     // The history the next temporal pass for `eye` reads (null before one ran).
     ID3D11ShaderResourceView* history(int eye) const;
+    // Optional diagnostic output only: xy = previous UV minus current UV, z = valid.
+    // Production TAA computes this directly and stores depth in history alpha.
+    ID3D11ShaderResourceView* vectors(int eye) const { return vectors_[eye & 1].srv; }
+    // Free the intermediates a pass that is off no longer needs (the history alone is
+    // four RGBA16F images at output resolution): off returns the memory, not just the frame time.
+    void trim(bool keepResolve, bool keepTemporal);
     uint64_t bytes() const { return bytes_; }   // intermediate memory held
 
 private:
@@ -71,13 +82,15 @@ private:
     bool ensure(ID3D11Device* dev, Target& t, uint32_t w, uint32_t h, char* why, size_t cap);
     void release(Target& t);
     void pass(ID3D11DeviceContext* ctx, ID3D11PixelShader* ps, ID3D11ShaderResourceView* t0,
-              ID3D11ShaderResourceView* t1, ID3D11RenderTargetView* dst, uint32_t w, uint32_t h);
+              ID3D11ShaderResourceView* t1, ID3D11RenderTargetView* dst, uint32_t w, uint32_t h,
+              ID3D11ShaderResourceView* motion = nullptr);
 
     bool ready_ = false, failed_ = false;
     ID3D11VertexShader* vs_ = nullptr;
     ID3D11PixelShader* psResolveH_ = nullptr;
     ID3D11PixelShader* psResolveV_ = nullptr;
     ID3D11PixelShader* psTemporal_ = nullptr;
+    ID3D11PixelShader* psMotion_ = nullptr;
     ID3D11PixelShader* psFinal_ = nullptr;
     ID3D11Buffer* cb_ = nullptr;
     ID3D11SamplerState* linear_ = nullptr;
@@ -86,6 +99,7 @@ private:
     ID3D11DepthStencilState* depth_ = nullptr;
     Target tmpH_, lin_;
     Target hist_[2][2];
+    Target vectors_[2];
     int histRead_[2] = {0, 0};
     bool histHave_[2] = {false, false};
     uint64_t bytes_ = 0;

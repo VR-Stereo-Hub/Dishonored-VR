@@ -71,7 +71,7 @@ bool     g_markerTidSaid = false;
 // Set i serves record i % kGpuRing. Each set: disjoint (BEGIN at the marker,
 // END before the game's Present), freq (END before the game's Present), and
 // the four timestamps. `issued` says which GetData calls are legal.
-enum { kQDisjoint = 0, kQFreq, kQBegin, kQEntry, kQRtdA, kQRtdB, kQPresent, kQCount };
+enum { kQDisjoint = 0, kQFreq, kQBegin, kQEntry, kQRtdA, kQRtdB, kQPresent, kQDepthA, kQDepthB, kQCount };
 constexpr int kGpuRing = 8;
 constexpr int kGpuReadBack = 5;   // read record N-5: past D3D9's default 3-frame queue
 struct GpuSet {
@@ -105,7 +105,8 @@ bool gpu_ensure() {
     if (!g_dev || !g_gpuEnabled || g_gpuNa) return false;
     static const D3DQUERYTYPE kTypes[kQCount] = {
         D3DQUERYTYPE_TIMESTAMPDISJOINT, D3DQUERYTYPE_TIMESTAMPFREQ, D3DQUERYTYPE_TIMESTAMP,
-        D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP};
+        D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP,
+        D3DQUERYTYPE_TIMESTAMP, D3DQUERYTYPE_TIMESTAMP};
     for (int i = 0; i < kGpuRing; ++i) {
         for (int k = 0; k < kQCount; ++k) {
             const HRESULT hr = g_dev->CreateQuery(kTypes[k], &g_gpu[i].q[k]);
@@ -173,6 +174,14 @@ void gpu_resolve(Rec* ring, int headIdx) {
     r.gpuFreq = freq; r.gpuBegin = v[kQBegin]; r.gpuEntry = v[kQEntry]; r.gpuPresent = v[kQPresent];
     r.gpuRtdA = s.issued[kQRtdA] ? v[kQRtdA] : 0; r.gpuRtdB = s.issued[kQRtdB] ? v[kQRtdB] : 0;
     auto toUs = [freq](uint64_t a, uint64_t b) -> uint32_t { return b > a ? (uint32_t)((b - a) * 1000000 / freq) : 0u; };
+    if (s.issued[kQDepthA] && s.issued[kQDepthB]) {
+        static uint64_t sum = 0; static uint32_t samples = 0, peak = 0;
+        const uint32_t us = toUs(v[kQDepthA],v[kQDepthB]);
+        sum += us; ++samples; if (us > peak) peak = us;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "perf/depth: D3D9 copy mean %.3f ms, peak %.3f ms (%u resolved samples, no query waits)",
+            (double)sum / samples / 1000.0, peak / 1000.0, samples);
+    }
     r.gpuSpanUs = toUs(r.gpuBegin, r.gpuEntry);
     r.gpuDmaUs = (r.gpuRtdA && r.gpuRtdB) ? toUs(r.gpuRtdA, r.gpuRtdB) : 0;
     r.gpuIdleUs = (g_lastPresentTs && g_lastPresentRec + 1 == recNo) ? toUs(g_lastPresentTs, r.gpuBegin) : 0;
@@ -762,7 +771,8 @@ void set_device(IDirect3DDevice9* dev) {
 
 void gpu_mark(GpuPoint p) {
     if (!g_enabled || !g_open) return;
-    gpu_issue(p == kGpuRtdA ? kQRtdA : kQRtdB, D3DISSUE_END);
+    const int q = p == kGpuRtdA ? kQRtdA : p == kGpuRtdB ? kQRtdB : p == kGpuDepthA ? kQDepthA : kQDepthB;
+    gpu_issue(q, D3DISSUE_END);
 }
 
 void on_reset() {

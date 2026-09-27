@@ -8,8 +8,8 @@
 //             a kernel that reads every rendered pixel, instead of handing the
 //             compositor an oversized image it samples with one bilinear tap
 //   Temporal  blend each eye with its own previous frame, reprojected by the
-//             rotation between the two rendered cameras (the pose record); what
-//             the rotation cannot explain is clipped back to the current frame.
+//             camera motion from matching depth when MotionVectors is enabled,
+//             rotation otherwise; unmodelled motion is clipped to the current frame.
 //             Head micro-motion is the sub-pixel jitter. Experimental
 //   Sharpen   contrast-adaptive sharpening on the result (0 = off)
 //
@@ -29,6 +29,10 @@ void  set_resolve(bool on, const char* who);
 bool  resolve_on();
 void  set_temporal(bool on, const char* who);
 bool  temporal_on();
+void set_motion(bool on, const char* who);
+bool motion_on();
+void set_depth_scale(float scale, const char* who);
+float depth_scale();
 void  set_blend(float currentWeight, const char* who);   // 0.05..0.5, the new frame's weight
 float blend();
 void  set_sharpen(float amount, const char* who);        // 0..1
@@ -49,10 +53,31 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
           uint32_t w, uint32_t h, ID3D11RenderTargetView* dst, uint32_t ow, uint32_t oh,
           int eyeSign, uint32_t recId);
 
+// Present-thread lifecycle invalidation. Keeps allocations for short capture gaps.
+void invalidate();
 void shutdown();
 // One line for F10: what ran in the last few seconds.
 const char* summary();
 // The seam word: `clarity [status | resolve on|off | temporal on|off | blend <f> | sharpen <f>]`.
 bool command(const char* args);
+
+// Which camera position the vectors use: the pose record's WRITTEN position (0) or the c5 the
+// image was RENDERED with (1). `dlss pos record|render`.
+void set_pos_source(int src, const char* who);
+int  pos_source();
+// Diagnostic: multipliers on the DLSS guide translation per previous-camera axis (forward,
+// right, up), 1 1 1 = as derived. `dlss taxis <f> <r> <u>`. Not saved.
+void set_translation_axes(float f, float r, float u, const char* who);
+// DLSS guides: nearer than this (depth units) is the player's own arms/weapon, whose vectors
+// keep rotation and drop walking parallax. 0 = off. `dlss body <z>`, [Clarity] DlssBodyDepth.
+void set_body_depth(float z, const char* who);
+// DLSS vectors from the game's own view-projection matrices (1, default) or the rotator/FOV
+// reconstruction (0). `dlss vp on|off`.
+void set_use_vp(bool on, const char* who);
+bool use_vp();
+float body_depth();
+
+// Motion vectors step 3: measure the game's depth scale from camera motion ([Diagnostics] MotionCalib).
+void set_calib(bool on, const char* who);
 
 } // namespace dvr::clarity

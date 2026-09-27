@@ -472,11 +472,39 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         const bool ok = dvr::clarity::command(args);
         ConfigWriteKey("Clarity", "Resolve", dvr::clarity::resolve_on() ? "1" : "0", "the seam");
         ConfigWriteKey("Clarity", "Temporal", dvr::clarity::temporal_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "MotionVectors", dvr::clarity::motion_on() ? "1" : "0", "the seam");
         char v[16];
+        _snprintf(v, sizeof(v), "%.1f", dvr::clarity::depth_scale());
+        ConfigWriteKey("Clarity", "MotionDepthScale", v, "the seam");
         _snprintf(v, sizeof(v), "%.2f", dvr::clarity::blend());
         ConfigWriteKey("Clarity", "TemporalBlend", v, "the seam");
         _snprintf(v, sizeof(v), "%.2f", dvr::clarity::sharpen());
         ConfigWriteKey("Clarity", "Sharpen", v, "the seam");
+        return ok;
+    }
+    if (!strcmp(cmd, "dlss")) {      // NVIDIA DLAA through the x64 helper (core/gfx/dlss.h)
+        const bool ok = dvr::dlss::command(args);
+        ConfigWriteKey("Clarity", "DLAA", dvr::dlss::mode() ? "1" : "0", "the seam");
+        char v[16];
+        _snprintf(v, sizeof(v), "%d", dvr::dlss::preset());
+        ConfigWriteKey("Clarity", "DlssPreset", v, "the seam");
+        _snprintf(v, sizeof(v), "%d", dvr::dlss::quality());
+        ConfigWriteKey("Clarity", "DlssQuality", v, "the seam");
+        ConfigWriteKey("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", "the seam");
+        {
+            uint32_t dow = 0, doh = 0; dvr::dlss::output(&dow, &doh);
+            _snprintf(v, sizeof(v), "%u", dow); ConfigWriteKey("Clarity", "DlssOutputWidth", v, "the seam");
+            _snprintf(v, sizeof(v), "%u", doh); ConfigWriteKey("Clarity", "DlssOutputHeight", v, "the seam");
+        }
+        ConfigWriteKey("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", "the seam");
+        _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_lo());
+        ConfigWriteKey("Clarity", "DlssMaskLo", v, "the seam");
+        _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_hi());
+        ConfigWriteKey("Clarity", "DlssMaskHi", v, "the seam");
+        _snprintf(v, sizeof(v), "%.2f", dvr::clarity::body_depth());
+        ConfigWriteKey("Clarity", "DlssBodyDepth", v, "the seam");
         return ok;
     }
     if (!strcmp(cmd, "aniso")) {     // the texture-filter levers (core/gfx/sampler_force.h)
@@ -487,6 +515,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         ConfigWriteKey("Clarity", "TrilinearMips", dvr::samplers::trilinear() ? "1" : "0", "the seam");
         return ok;
     }
+    if (!strcmp(cmd, "depthprobe")) return dvr::depthprobe::command(args);   // motion vectors, step 1
     if (!strcmp(cmd, "frameid")) {   // 41.1 (session 9): the frame-identity trace
         if (DvrOnOff(args, &b)) { dvr::frameid::set_enabled(b); return true; }
         { char sub[16] = "", v[16] = ""; if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "every")) { dvr::frameid::set_every((uint32_t)atoi(v)); return true; } }

@@ -11,7 +11,7 @@
 //                 larger image) leaves most of that pattern standing, and it crawls
 //                 when the pattern moves by a quarter pixel
 //   temporal      a still view converges to itself (no drift, no blur); a slanted edge
-//                 point-sampled under small head rotations ends much nearer the true
+//                 point-sampled under resolvedOut head rotations ends much nearer the true
 //                 pixel coverage than any single raw frame; a changed scene is not
 //                 smeared (the history is clipped to the current neighbourhood)
 //   sharpen       flat areas are untouched, edge contrast rises, nothing leaves 0..1
@@ -139,6 +139,43 @@ static bool run(Dev& d, Gpu& gpu, const Img& in, Dst& out, PassParams p) {
     if (!ok) printf("     run refused: %s\n", why);
     s.release();
     return ok;
+}
+
+
+static Src upload_depth(Dev& d, uint32_t w, uint32_t h, const std::vector<float>& depths) {
+    std::vector<float> px((size_t)w*h*4, 0);
+    for (size_t i=0;i<depths.size();++i) px[i*4+3]=depths[i];
+    D3D11_TEXTURE2D_DESC td={}; td.Width=w;td.Height=h;td.MipLevels=td.ArraySize=1;
+    td.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;td.SampleDesc.Count=1;
+    td.Usage=D3D11_USAGE_DEFAULT;td.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    D3D11_SUBRESOURCE_DATA sd={px.data(),w*16,0}; Src r;
+    d.dev->CreateTexture2D(&td,&sd,&r.tex);
+    if(r.tex)d.dev->CreateShaderResourceView(r.tex,nullptr,&r.srv);
+    return r;
+}
+static float half_float(uint16_t h) {
+    const int e=(h>>10)&31, m=h&1023;
+    const float v=e ? ldexpf(1.0f+m/1024.0f,e-15) : ldexpf((float)m,-24);
+    return h&0x8000 ? -v : v;
+}
+static std::vector<float> read_vectors(Dev& d, ID3D11ShaderResourceView* srv) {
+    if(!srv)return {};
+    ID3D11Resource* res=nullptr;srv->GetResource(&res);
+    D3D11_TEXTURE2D_DESC td={};((ID3D11Texture2D*)res)->GetDesc(&td);
+    td.Usage=D3D11_USAGE_STAGING;td.BindFlags=td.MiscFlags=0;td.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D* stage=nullptr;
+    if(FAILED(d.dev->CreateTexture2D(&td,nullptr,&stage))){res->Release();return {};}
+    d.ctx->CopyResource(stage,res);res->Release();
+    D3D11_MAPPED_SUBRESOURCE m={};std::vector<float> out;
+    if(SUCCEEDED(d.ctx->Map(stage,0,D3D11_MAP_READ,0,&m))){
+        out.resize((size_t)td.Width*td.Height*4);
+        for(UINT y=0;y<td.Height;++y){
+            const auto* row=(const uint16_t*)((const uint8_t*)m.pData+y*m.RowPitch);
+            for(UINT x=0;x<td.Width*4;++x)out[((size_t)y*td.Width*4)+x]=half_float(row[x]);
+        }
+        d.ctx->Unmap(stage,0);
+    }
+    stage->Release();return out;
 }
 
 // ---- the compositor model: ONE bilinear tap per output pixel at its centre ------
@@ -412,6 +449,97 @@ int main() {
         for (float v : o.g) lo = fminf(lo, v);
         _snprintf_s(t, sizeof(t), _TRUNCATE, "(darkest pixel %.3f after the cut)", lo);
         check("temporal: a cut to a new picture shows the new picture at once (clip)", lo >= 0.99f, t);
+        out.release();
+    }
+
+
+    // ---- depth motion: independent plane geometry and real temporal consumption ----
+    {
+        float c5[3]={-12,34,-56}, world[3]={}; world_from_c5(c5,world);
+        check("motion: pose c5 converts to world position",world[0]==12&&world[1]==-34&&world[2]==56);
+        const UINT W=160,H=160;
+        Dst out=make_dst(d,W,H);
+        Img prev=make(W,H),cur=make(W,H);
+        for(UINT y=0;y<H;++y)for(UINT x=0;x<W;++x){
+            prev.at(x,y)=0.5f+0.25f*sinf(x*0.18f);
+            cur.at(x,y)=0.5f+0.25f*sinf((x+4)*0.18f);
+        }
+        Src depth=upload_depth(d,W,H,std::vector<float>(W*H,1.0f));
+        check("motion: depth test texture created", depth.srv!=nullptr);
+        PassParams p;p.temporal=true;p.materializeVectors=true;p.blend=0.1f;p.clipGamma=10.0f;p.depthScale=100;
+        p.translation[1]=5; // plane at x=100, camera +5 right -> +4 pixels at 160px/90deg
+        float errors[3]={};
+        for(int mode=0;mode<3;++mode){
+            gpu.trim(false,false);p.historyValid=false;p.sceneDepth=mode==1?nullptr:depth.srv;
+            check("motion: seed temporal history",run(d,gpu,prev,out,p));
+            p.historyValid=true;p.sceneDepth=mode==1?nullptr:depth.srv;
+            p.translation[1]=mode==2?-5.0f:5.0f;
+            check("motion: run translated temporal frame",run(d,gpu,cur,out,p));
+            Img result=read(d,out);
+            for(UINT y=8;y<H-8;++y)for(UINT x=8;x<W-8;++x)errors[mode]+=fabsf(result.at(x,y)-cur.at(x,y));
+            errors[mode]/=(W-16)*(H-16);
+            if(mode==0){
+                auto mv=read_vectors(d,gpu.vectors(0));float worst=0;int n=0;
+                if(mv.size()==W*H*4)for(UINT y=8;y<H-8;++y)for(UINT x=8;x<W-8;++x){
+                    size_t k=((size_t)y*W+x)*4;
+                    worst=fmaxf(worst,fabsf(mv[k]*W-4));worst=fmaxf(worst,fabsf(mv[k+1]*H));
+                    if(mv[k+2]>0.5f)++n;
+                }
+                char detail[100];sprintf_s(detail,"(%d valid pixels, worst %.4f px)",n,worst);
+                check("motion: plane projects exactly four pixels right",n==(W-16)*(H-16)&&worst<0.05f,detail);
+            }
+        }
+        char detail[160];sprintf_s(detail,"(depth %.5f, rotation-only %.5f, reversed %.5f)",errors[0],errors[1],errors[2]);
+        check("motion: TAA follows translated surfaces",errors[0]<0.01f&&errors[0]*5<errors[1],detail);
+        check("motion NEGATIVE CONTROL: reversed translation damages history",errors[2]>errors[0]*5,detail);
+        // Both eyes retain distinct vectors; resolution conversion preserves UV units.
+        p.sceneDepth=depth.srv;p.eye=0;p.translation[1]=5;
+        check("motion: left eye production pass",run(d,gpu,cur,out,p));
+        auto left=read_vectors(d,gpu.vectors(0));
+        p.eye=1;p.translation[1]=-5;
+        check("motion: right eye production pass",run(d,gpu,cur,out,p));
+        auto right=read_vectors(d,gpu.vectors(1));auto leftAfter=read_vectors(d,gpu.vectors(0));
+        const size_t center=((H/2)*W+W/2)*4;
+        check("motion: eye vectors are isolated",left==leftAfter&&right.size()==left.size()&&!left.empty()&&left[center]>0&&right[center]<0);
+        Dst resolvedOut=make_dst(d,W/2,H/2);p.resolve=true;p.translation[1]=5;
+        check("motion: resolved-size vector pass",run(d,gpu,cur,resolvedOut,p));
+        auto scaled=read_vectors(d,gpu.vectors(1));
+        check("motion: resolve keeps displacement in UV units",scaled.size()==(W/2)*(H/2)*4&&fabsf(scaled[((H/4)*(W/2)+W/4)*4]-0.025f)<0.0001f);
+        resolvedOut.release();p.resolve=false;p.eye=0;
+        depth.release();std::vector<float> invalid(W*H,0);
+        invalid[H/2*W+W/2]=NAN;
+        depth=upload_depth(d,W,H,invalid);p.sceneDepth=depth.srv;
+        check("motion: invalid-depth pass",run(d,gpu,cur,out,p));
+        auto invalidMv=read_vectors(d,gpu.vectors(0));int valid=0;
+        for(size_t k=2;k<invalidMv.size();k+=4)if(invalidMv[k]>0.5f)++valid;
+        check("motion: zero and NaN depth reject history",invalidMv.size()==W*H*4&&valid==0);
+        Img rejected=read(d,out);float rejectedError=0;
+        for(size_t k=0;k<cur.g.size();++k)rejectedError=fmaxf(rejectedError,fabsf(rejected.g[k]-cur.g[k]));
+        check("motion: invalid depth returns current colour",rejectedError<2.01f/255);
+        depth.release();depth=upload_depth(d,W,H,std::vector<float>(W*H,4400));p.sceneDepth=depth.srv;
+        p.translation[1]=500;
+        check("motion: sky pass",run(d,gpu,cur,out,p));
+        auto sky=read_vectors(d,gpu.vectors(0));
+        check("motion: sky ignores translation",sky.size()==W*H*4&&fabsf(sky[center])<0.0001f&&sky[center+2]>0.5f);
+        p.prevFromCur=prev_from_cur(basis_from_rotator(0,0,0),basis_from_rotator(2,3,1));
+        check("motion: sky with combined rotation",run(d,gpu,cur,out,p));
+        auto rotated=read_vectors(d,gpu.vectors(0));float pu=0,pv=0;
+        const float u=(W/2+0.5f)/W,v=(H/2+0.5f)/H;
+        reproject_uv(p.prevFromCur,p.tanH,p.tanV,u,v,&pu,&pv);
+        check("motion: rotation direction survives depth vectors",rotated.size()==W*H*4&&
+            fabsf((rotated[center]-(pu-u))*W)<0.05f&&fabsf((rotated[center+1]-(pv-v))*H)<0.05f);
+        depth.release();depth=upload_depth(d,W,H,std::vector<float>(W*H,1));p.sceneDepth=depth.srv;
+        p.prevFromCur=prev_from_cur(basis_from_rotator(0,0,0),basis_from_rotator(0,0,0));
+        p.translation[0]=-200;p.translation[1]=0;
+        check("motion: behind-camera pass",run(d,gpu,cur,out,p));
+        auto behind=read_vectors(d,gpu.vectors(0));valid=0;
+        for(size_t k=2;k<behind.size();k+=4)if(behind[k]>0.5f)++valid;
+        check("motion: behind-camera projections reject history",behind.size()==W*H*4&&valid==0);
+        depth.release();p.sceneDepth=nullptr;
+        check("motion: missing depth falls back",run(d,gpu,cur,out,p));
+        check("motion: transient fallback retains diagnostic vector storage",gpu.vectors(0)&&gpu.vectors(1));
+        gpu.trim(false,false);
+        check("motion: disabled temporal frees all intermediates",gpu.bytes()==0);
         out.release();
     }
 

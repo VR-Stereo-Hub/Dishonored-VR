@@ -128,9 +128,9 @@ bool second_pass_for_current_thread();
 // alternating between two camera positions" stops being argued from counters
 // that cannot see it. Ticks from eyetest_present_tick.
 void eye_trace_tick();
-// The camera POSITION the writer produced last (world uu, position form,
-// whatever the field's sign), so a present can prove which write it carries
-// against its c5. False before the first write.
+// The writer's position converted to c5 convention (NEGATIVE world uu), so
+// a present can compare it directly against its c5. False before the first write.
+// World reconstruction must negate it, as render_pos_world does.
 bool last_written_pos(float out[3]);
 // Counts c5 uploads (note_render_pos calls): a serial that does not move
 // between two root calls means no scene was drawn (a loading screen).

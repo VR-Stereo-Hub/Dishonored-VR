@@ -550,6 +550,7 @@ static void DvrGameTick(IDirect3DDevice9* self)
         dvr::perf::part_mark("gt.cameraSeam");
         DvrFovHandoff();   // 41.1: the lever follows the frame aspect under a projection layer
         ResVerdictTick();  // 41.1: the render size against the picker's ask, once per size
+        DlssResTick();     // DLSS Super Resolution's render size (viewport_resize.cpp)
         SceneProbePresentTick();
         SwingTracePresentTick();   // VR-165: one sample per present, no derived rate
         if (!g_padHookTried) { g_padHookTried = true; InstallPadHook(); }

@@ -424,8 +424,9 @@ bool ensure_shared(IDirect3DDevice9* dev, ID3D11Device* dev11) {
 // read sees the new frame - the other eye's image - land under it. Bounded
 // like the blit fence; counted, because the count is the number of frames
 // that could have swapped an eye before this fence existed.
-void read_wait(int i, uint64_t* lockUs) {
-    if (!g_readIssued[i] || !g_readQuery[i] || !g_lastCtx) return;
+bool read_wait(int i, uint64_t* lockUs) {
+    if (!g_readIssued[i]) return true;
+    if (!g_readQuery[i] || !g_lastCtx) return false;
     const long long t0 = qpc_now();
     HRESULT hr = g_lastCtx->GetData(g_readQuery[i], nullptr, 0, 0);
     if (hr == S_FALSE) {
@@ -437,14 +438,17 @@ void read_wait(int i, uint64_t* lockUs) {
         if (hr == S_FALSE) ++g_readTimeouts;
     }
     *lockUs += qpc_us(t0, qpc_now());
+    if (hr != S_OK) return false;
     g_readIssued[i] = false;
+    return true;
 }
 
 // Wait for a slot's blit with a bound: S_OK at once is the common case (a
 // whole present passed); otherwise spin on GetData with FLUSH for up to
-// 10 ms, then deliver anyway and count the timeout.
-void fence_wait(int i, uint64_t* lockUs) {
-    if (!g_fenceIssued[i] || !g_fence[i]) return;
+// 10 ms, then refuse this delivery and count the timeout.
+bool fence_wait(int i, uint64_t* lockUs) {
+    if (!g_fenceIssued[i]) return true;
+    if (!g_fence[i]) return false;
     const long long t0 = qpc_now();
     HRESULT hr = g_fence[i]->GetData(nullptr, 0, D3DGETDATA_FLUSH);
     if (hr == S_FALSE) {
@@ -456,7 +460,9 @@ void fence_wait(int i, uint64_t* lockUs) {
         if (hr == S_FALSE) ++g_fenceTimeouts;
     }
     *lockUs += qpc_us(t0, qpc_now());
+    if (hr != S_OK) return false;
     g_fenceIssued[i] = false;
+    return true;
 }
 
 // GetRenderTargetData(src -> dst): the rtd phase. The call returns at once;
@@ -658,19 +664,20 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         if (!ensure_shared(dev, dev11)) { g_mode = g_modeWant = Mode::Sync; bb->Release(); return false; }
         g_lastCtx = ctx;
         const int cur = g_sharedCur, prev = g_sharedCur ^ 1;
-        read_wait(cur, &lockUs);   // the D3D11 side must be done reading this slot
+        if (!read_wait(cur, &lockUs)) { bb->Release(); cost_tick(); return false; }   // the D3D11 side must be done reading this slot
         const long long t0 = qpc_now();
         dvr::perf::gpu_mark(dvr::perf::kGpuRtdA);   // shared: the blit alone
         const HRESULT hr = dev->StretchRect(bb, nullptr, g_sharedRt[cur], nullptr, D3DTEXF_NONE);
         dvr::perf::gpu_mark(dvr::perf::kGpuRtdB);
-        g_fence[cur]->Issue(D3DISSUE_END);
-        g_fenceIssued[cur] = true;
+        const HRESULT fenceHr = g_fence[cur]->Issue(D3DISSUE_END);
+        g_fenceIssued[cur] = SUCCEEDED(fenceHr);
         blitUs = qpc_us(t0, qpc_now());
         bb->Release();
-        if (FAILED(hr)) {
+        if (FAILED(hr) || FAILED(fenceHr)) {
+            g_sharedValid[cur] = false;
             DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Error,
                          "capture: StretchRect backbuffer -> shared slot %d failed (0x%08lx; D3D9 fmt %d -> %d) - the "
-                         "headset gets nothing in shared mode; `capture mode sync`", cur, (unsigned long)hr, (int)g_fmt,
+                         "headset gets nothing in shared mode; `capture mode sync`", cur, (unsigned long)(FAILED(hr) ? hr : fenceHr), (int)g_fmt,
                          (int)g_sharedFmt);
             return false;
         }
@@ -683,7 +690,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
         // srv() right after this returns).
         const int slot = g_sharedWait ? cur : prev;
         if (!g_sharedValid[slot]) { cost_tick(); return false; }   // the mode's first present
-        fence_wait(slot, &lockUs);
+        if (!fence_wait(slot, &lockUs)) { cost_tick(); return false; }
         g_sharedDelivered = slot;
         g_deliveredTag = g_sharedTag[slot]; g_deliveredSerial = g_sharedSerial[slot];
         g_deliveredRec = g_sharedRec[slot];
@@ -845,6 +852,11 @@ void read_done(ID3D11DeviceContext* ctx) {
     if (g_mode != Mode::Shared || g_sharedDelivered < 0 || !ctx) return;
     const int slot = g_sharedDelivered;
     if (!g_readQuery[slot]) return;
+    // Once per delivery: DLSS releases the slot right after copying it (dlss.cpp), and the
+    // present's own call afterwards must not move the fence behind the DLSS wait again.
+    static uint32_t endedFor = 0;
+    if (g_readIssued[slot] && endedFor == g_deliveredSerial) return;
+    endedFor = g_deliveredSerial;
     ctx->End(g_readQuery[slot]);
     ctx->Flush();   // the read goes to the GPU now, not at the runtime's next flush
     g_readIssued[slot] = true;

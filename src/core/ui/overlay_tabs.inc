@@ -761,8 +761,20 @@ static void OvlTabDisplay()
         const uint32_t height = (uint32_t)(2850.0f * axisScale + 0.5f);
         ImGui::Text("Preview: %ux%u | now %ux%u", width, height, dvr::capture::width(), dvr::capture::height());
         ImGui::BeginDisabled(busy);
-        if (dvr::ovl::button("Set resolution")) ResLiveQueue(width, height);
-        OvlTip("Applies now and saves. Expect a brief pause while the game resizes.");
+        const bool srOn = dvr::dlss::mode() != dvr::dlss::ModeOff && dvr::dlss::quality() != dvr::dlss::QDlaa;
+        if (dvr::ovl::button("Set resolution")) {
+            if (srOn) {   // DLSS Super Resolution: this is the headset output; the game renders it smaller
+                dvr::dlss::set_output(width, height, "F10 resolution");
+                char v[16];
+                _snprintf(v, sizeof(v), "%u", width); ConfigWriteKey("Clarity", "DlssOutputWidth", v, "F10 Display");
+                _snprintf(v, sizeof(v), "%u", height); ConfigWriteKey("Clarity", "DlssOutputHeight", v, "F10 Display");
+            } else {
+                ResLiveQueue(width, height);
+            }
+        }
+        OvlTip(srOn ? "With DLSS Super Resolution on, this is the headset output; the game renders it smaller. "
+                      "Applies now and saves."
+                    : "Applies now and saves. Expect a brief pause while the game resizes.");
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", ResLiveStatus());
     }
@@ -773,9 +785,16 @@ static void OvlTabDisplay()
             dvr::clarity::set_temporal(temporal, "F10 Display");
             ConfigWriteKey("Clarity", "Temporal", temporal ? "1" : "0", "F10 Display");
         }
-        OvlTip("Blends each eye with its previous frame, lined up by your head's rotation. Aimed at shimmering, "
+        OvlTip("Blends each eye with its previous frame. Aimed at shimmering, "
                "crawling edges. Can soften the picture or leave faint trails on moving things. Close this panel to judge it.");
         if (temporal) {
+            bool motion = dvr::clarity::motion_on();
+            if (dvr::ovl::checkbox("Depth motion vectors (experimental)", &motion)) {
+                dvr::clarity::set_motion(motion, "F10 Display");
+                ConfigWriteKey("Clarity", "MotionVectors", motion ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Also lines up the world while you walk or lean. Adds GPU and memory cost. "
+                   "Moving characters and hands can still leave trails. Close this panel to compare while moving.");
             float blendV = dvr::clarity::blend();
             if (dvr::ovl::slider_float("New frame weight", &blendV, 0.05f, 0.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
                 dvr::clarity::set_blend(blendV, "F10 Display");
@@ -803,6 +822,64 @@ static void OvlTabDisplay()
             ConfigWriteKey("Clarity", "TrilinearMips", tri ? "1" : "0", "F10 Display");
         }
         OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
+        bool dlaa = dvr::dlss::mode() != dvr::dlss::ModeOff;
+        if (dvr::ovl::checkbox("NVIDIA DLAA (experimental)", &dlaa)) {
+            dvr::dlss::set_mode(dlaa ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "F10 Display");
+            ConfigWriteKey("Clarity", "DLAA", dlaa ? "1" : "0", "F10 Display");
+        }
+        OvlTip("NVIDIA's AI anti-aliasing on each eye, at the same resolution. Needs an RTX card. "
+               "Replaces the temporal anti-aliasing above while it runs. Takes a second or two to start. "
+               "Moving characters and hands can still smear. Close this panel to judge it.");
+        if (dlaa) {
+            bool m = dvr::dlss::mask_on();
+            if (dvr::ovl::checkbox("DLAA: reduce smearing", &m)) {
+                dvr::dlss::set_mask(m, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssMask", m ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Where the game's motion cannot be followed (your arms and weapon while walking, moving characters), "
+                   "DLAA uses the new frame instead of dragging the old one. Those spots get a little less smoothing.");
+            float lo = dvr::dlss::mask_lo();
+            if (m && dvr::ovl::slider_float("Smear sensitivity", &lo, 0.005f, 0.10f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+                dvr::dlss::set_mask_range(lo, lo + 0.09f, "F10 Display");
+            if (m) {
+                OvlSaveOnRelease("Clarity", "DlssMaskLo", dvr::dlss::mask_lo(), "%.3f");
+                OvlSaveOnRelease("Clarity", "DlssMaskHi", dvr::dlss::mask_hi(), "%.3f");
+                OvlTip("Lower catches more smearing but also smooths less.");
+            }
+            int q = dvr::dlss::quality();
+            if (dvr::ovl::slider_int("DLSS mode", &q, 0, dvr::dlss::QCount - 1, dvr::dlss::quality_name(q), ImGuiSliderFlags_AlwaysClamp)) {
+                dvr::dlss::set_quality(q, "F10 Display");
+                char v[8]; _snprintf(v, sizeof(v), "%d", q);
+                ConfigWriteKey("Clarity", "DlssQuality", v, "F10 Display");
+            }
+            OvlTip("DLAA renders at full resolution. Quality, Balanced and Performance render smaller and rebuild the "
+                   "full picture: faster, a little softer. The game resizes when you change it.");
+            bool fast = dvr::dlss::model() == 1;
+            if (dvr::ovl::checkbox("DLSS fast model", &fast)) {
+                dvr::dlss::set_model(fast ? 1 : 0, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssModel", fast ? "1" : "0", "F10 Display");
+            }
+            OvlTip("The older, lighter NVIDIA model: about half a millisecond per eye instead of two. "
+                   "Slightly less sharp and more prone to ghosting than the default.");
+            bool jit = dvr::dlss::jitter::enabled();
+            if (dvr::ovl::checkbox("DLSS jitter (experimental)", &jit)) {
+                dvr::dlss::jitter::set_enabled(jit, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssJitter", jit ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Shifts the game's picture by a tiny, known amount every frame so DLSS can rebuild finer detail. "
+                   "Mainly sharpens the smaller DLSS modes. Close this panel to judge it.");
+            if (jit) {
+                bool wide = dvr::dlss::jitter::wide();
+                if (dvr::ovl::checkbox("Jitter: include all eye-size passes", &wide)) {
+                    dvr::dlss::jitter::set_wide(wide, "F10 Display");
+                    ConfigWriteKey("Clarity", "DlssJitterWide", wide ? "1" : "0", "F10 Display");
+                }
+                OvlTip("On: every 3D pass drawn at the eye's size moves with the jitter. Off: only the passes on the "
+                       "scene's depth buffer. Black speckles in one eye mean a pass is out of step - compare the two.");
+                ImGui::TextDisabled("Jitter: %s", dvr::dlss::jitter::summary());
+            }
+            ImGui::TextDisabled("DLSS: %s", dvr::dlss::summary());
+        }
         ImGui::TextDisabled("%s", dvr::clarity::summary());
     }
     if (OvlSec("Clarity (debug)", kOvlD, "The supersampling resolve. Off by default: judged no better than the headset's own.")) {

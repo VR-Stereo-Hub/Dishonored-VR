@@ -92,6 +92,7 @@ static void ResLivePoll();
 static int ResLiveState();
 static const char* ResLiveStatus();
 static void ResVerdictTick();
+static void DlssResTick();
 static void ResStatusLine();
 static bool ResCommand(const char* args);
 static void ResHookD3D9(IDirect3D9* d3d);

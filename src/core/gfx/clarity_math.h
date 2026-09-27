@@ -109,11 +109,19 @@ inline const char* reset_name(Reset r) {
     }
 }
 
+// The existing pose transport stores c5, which is NEGATIVE world position.
+inline void world_from_c5(const float c5[3], float world[3]) {
+    for (int i = 0; i < 3; ++i) world[i] = -c5[i];
+}
+
 struct View {
     bool     ok = false;
     float    pitch = 0, yaw = 0, roll = 0;   // degrees
     float    pos[3] = {0, 0, 0};             // engine units
     bool     posOk = false;
+    uint64_t sceneEpoch = 0;
+    uintptr_t cameraIdentity = 0;
+    double   timeMs = 0;       // record creation time, not delivery time
     float    tanH = 0, tanV = 0;
     uint32_t w = 0, h = 0;
 };
@@ -123,8 +131,13 @@ struct View {
 // second (about 7 deg) and a sprint (about 5 uu per frame).
 inline Reset keep_history(const View& prev, const View& cur, float maxTurnDeg = 20.0f,
                           float maxMoveUu = 60.0f) {
-    if (!cur.ok) return Reset::Record;
+    if (!cur.ok || !isfinite(cur.pitch) || !isfinite(cur.yaw) || !isfinite(cur.roll) ||
+        !isfinite(cur.tanH) || !isfinite(cur.tanV) || cur.tanH <= 0 || cur.tanV <= 0)
+        return Reset::Record;
+    if (cur.posOk && (!isfinite(cur.pos[0]) || !isfinite(cur.pos[1]) || !isfinite(cur.pos[2]))) return Reset::Record;
+    if (prev.timeMs && cur.timeMs && (cur.timeMs <= prev.timeMs || cur.timeMs - prev.timeMs > 100.0)) return Reset::Record;
     if (!prev.ok) return Reset::First;
+    if (prev.cameraIdentity != cur.cameraIdentity || prev.sceneEpoch != cur.sceneEpoch) return Reset::Record;
     if (prev.w != cur.w || prev.h != cur.h) return Reset::Size;
     if (fabsf(prev.tanH - cur.tanH) > 0.002f * cur.tanH || fabsf(prev.tanV - cur.tanV) > 0.002f * cur.tanV)
         return Reset::Fov;
@@ -145,6 +158,12 @@ inline float motion_weight(float moveUu, float turnDeg) {
     float a = (moveUu - 1.0f) / 5.0f, b = (turnDeg - 0.25f) / 1.25f;
     float m = a > b ? a : b;
     return m < 0.0f ? 0.0f : (m > 1.0f ? 1.0f : m);
+}
+
+// Apply time normalization after motion response so low frame rates never reduce
+// the requested current-frame weight. Invalid timing keeps the caller's coefficient.
+inline float blend_for_interval(float alpha90, double ms) {
+    return ms > 0 && ms <= 100 ? 1.0f-powf(1.0f-alpha90,(float)(ms*0.09)) : alpha90;
 }
 
 // ---- the resolve filter --------------------------------------------------------

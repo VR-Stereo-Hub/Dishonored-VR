@@ -9856,3 +9856,39 @@ write. New read-only per-present c5 census names the distinct values, vote count
 and register ranges, alongside raw written camera and upload serial. No new
 engine fields, addresses or writes. See FLICKER_REFERENCE top entry for the full
 transport/runtime hypothesis matrix and interpretation of actual layer poses.
+
+## Scene depth: the alpha of the eye-size RGBA16F target (2026-09-26, motion vectors step 1)
+
+The D3D9 renderer keeps linear scene depth in the alpha channel of its eye-size
+A16B16G16R16F render-target texture (two exist at the eye size, created early; both read the
+same at Present). Measured with `core/gfx/depth_probe` on the simulator: the ceiling, wall and
+floor structure of a room (constant along rows/columns), a sky reading around 4400, and the
+centre value falling from 1.17 to 0.81 when the head pitched 60 deg down. Scale about 100 uu per
+unit, to be calibrated. No INTZ/RAWZ path exists in the exe; the depth-stencils are plain D32.
+Details and the next steps: PLAN-motion-vectors-dlss.md.
+
+## Pose-record position convention for motion reconstruction (2026-09-26)
+
+No new engine address or writer. `HtPublishCameraRecord` fills `Cam::pos` with
+`camera::last_written_pos`, whose implementation returns `c5Sign * g_eyeWriter.last`.
+This is c5 convention (negative world position on the verified POV fields), despite the old
+headers claiming world-position form. The 2026-09-03 section "The camera field holds the
+POSITION, c5 is its negation" remains the reference for the measured sign.
+
+Clarity converts c5 to world exactly once on reading the pose record; the shared transport
+continues unchanged. Standard reprojection then uses current-minus-previous WORLD position
+in the previous rotator basis. Simulator mirror test rejects mirrored yaw (0.0082 normal vs
+0.0468 mirrored); corrected parallax has a minimum 0.0226 at 200 uu/unit vs 0.0400 rotation-only.
+Exact build identities, complete curve, failed service-gate test and limitations are recorded
+in PERFORMANCE.md, "Motion-vector calibration and TAA candidate". No headset acceptance.
+
+
+### 2026-09-26: per-eye TAA camera metadata, no new engine-memory writes
+
+The camera tracking publication precedes the second-eye offset. Its Cam::pos must not be
+reinterpreted as that right-eye draw's position. Pose records now append the same explicit
+c5 value used by the eye tag, plus CineFovScopeTarget (camera sensor fallback), camera identity,
+and level/UI generation. Clarity negates that per-eye c5 once and uses captured projection.
+Cam/Track semantics and the engine writers are unchanged. Epoch/identity values only reject
+history; they are never liveness authorization for dereferencing or writing an engine object.
+GPU geometry and simulator recovery evidence: PERFORMANCE.md, TAA audit fixes.

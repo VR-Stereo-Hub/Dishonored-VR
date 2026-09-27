@@ -1,4 +1,5 @@
 #include "core/gfx/flicker_diagnostic.h"
+#include "core/gfx/dlss_jitter.h"
 // core/framework/vs_const_hook.cpp - the SetVertexShaderConstantF and
 // SetRenderTarget detours (unity build; registered by present_tick.cpp).
 // c5 is the render-side camera position (the frame-map ABI), c0 the view-
@@ -76,6 +77,11 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
     if (data && startReg <= 5 && startReg + count > 5 && g_vpRowSeen == 0xF) {
         dvr::pose::note_render_vp(g_vpRows, g_camPosC5, true);
         dvr::hudclass::note_world_view(g_vpRows);
+        // DLSS projection jitter (dlss_jitter.h): the target bound NOW is one the world pass
+        // draws into; its viewport is what the jitter is scaled to and confirmed against.
+        D3DVIEWPORT9 vp;
+        if (dvr::dlss::jitter::enabled() && SUCCEEDED(self->GetViewport(&vp)))
+            dvr::dlss::jitter::note_world_pass(vp.Width, vp.Height);
     }
 
     // ---- 30.70: live rig census + the stepped identifier -------------------
@@ -485,12 +491,13 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
         dvr::camera::position_offset_uu(pos);
         wantPos = pos[0] != 0.0f || pos[1] != 0.0f || pos[2] != 0.0f;
     }
+    float buf[4 * 240];
+    const float* out = data;
     if ((wantHead || wantPos) && data && count >= 4 && count <= 240 &&
         startReg == 0) {
         const float* m = data;
         bool affine = IsAffineRowMajor(m) || IsAffineColMajor(m);
         if (!affine && !IsMirrored(m) && IsMainScenePass() && Finite16(m)) {
-            float buf[4 * 240];
             memcpy(buf, data, sizeof(float) * 4 * count);
             if (wantHead) {
                 // first 4 registers = the view-projection; M = A * VP
@@ -504,12 +511,29 @@ static HRESULT __stdcall hkSetVSConstF(IDirect3DDevice9* self, UINT startReg,
                 memcpy(buf, M, sizeof(float) * 16);
             }
             if (wantPos)    { LeanVP(buf); dvr::camera::note_vp_applied(); }
-            if (Finite16(buf)) {              // never forward a poisoned matrix
-                return dvr::frame::orig_set_vs_const(self, startReg, buf, count);
-            }
+            if (Finite16(buf)) out = buf;     // never forward a poisoned matrix
         }
     }
-    return dvr::frame::orig_set_vs_const(self, startReg, data, count);
+    // --- DLSS projection jitter (core/gfx/dlss_jitter.h). Any upload that touches c0..c3,
+    // judged on the ASSEMBLED matrix (g_vpRows, updated above from this upload - partial and
+    // wide blocks count, as for c5). Only on a confirmed world target and a perspective
+    // matrix; shadow maps, reflection targets and affine (2D, post-process, HUD) uploads pass
+    // through. No mirror test: anything drawn in perspective INTO the eye image needs the same
+    // screen shift, and the det sign of a camera-relative, possibly reversed-Z matrix is not
+    // a safe classifier. Per row r of the
+    // row-vector matrix: column 0 += ax * column 3, column 1 += ay * column 3, i.e. clip.x +=
+    // ax * clip.w - a pure sub-pixel screen shift at every depth. After the lean, so it shifts
+    // the final clip position. g_vpRows keeps the game's matrix: the recorded view-projection
+    // (and so the DLSS vectors) never contains the jitter.
+    if (data && startReg < 4 && count <= 240 && g_vpRowSeen == 0xF) {
+        const bool persp = !IsAffineRowMajor(g_vpRows) && !IsAffineColMajor(g_vpRows) && Finite16(g_vpRows);
+        float ax = 0, ay = 0;
+        if (dvr::dlss::jitter::shift_for_upload(persp, &ax, &ay)) {
+            if (out != buf) { memcpy(buf, data, sizeof(float) * 4 * count); out = buf; }
+            dvr::dlss::jitter::shift_rows(buf, startReg, startReg, startReg + count < 4 ? startReg + count : 4, ax, ay);
+        }
+    }
+    return dvr::frame::orig_set_vs_const(self, startReg, out, count);
 }
 
 
@@ -519,6 +543,7 @@ static HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx,
     if (idx == 0 && rt) {
         D3DSURFACE_DESC d;
         if (SUCCEEDED(rt->GetDesc(&d))) { g_curRTw = d.Width; g_curRTh = d.Height; }
+        dvr::dlss::jitter::note_render_target(rt, g_curRTw, g_curRTh);
     }
     return dvr::frame::orig_set_render_target(self, idx, rt);
 }

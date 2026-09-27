@@ -1,3 +1,164 @@
+## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
+
+1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures
+   flicker on and off in the LEFT eye only; the image stays mostly visible. Surface: the eye image
+   after DLSS. Jitter off: gone. New lever (`core/gfx/dlss_jitter.h`), branch `claude/dlss-dlaa`.
+2. **Reproduction:** simulator build `v1.0.1-102-g391eb416b-dirty` 22:50 (jitter keyed on the colour
+   target): left-eye compositor mean luma 7.6-11.6 with jitter on against 13.9 off and a steady
+   16.9 right eye; large lit areas (street, lit windows) black in the left eye, changing frame to
+   frame; restored 4 s after jitter off. Headset build `v1.0.1-103-g0d4b1ee62-dirty` 23:00 (keyed on
+   the depth surface): the speckles above. Logs `build/dlss-install/jitter-sim1/`, `pre-wide-*/`.
+3. **Measurements:** first build: flow check jitter gain 0.48-0.59 (1 expected), per-image scatter
+   1.1 px against 0.26 px with jitter off; 3,800 uploads/s shifted, ~385 perspective uploads/s into
+   another 2750x2850 target NOT shifted. Depth-keyed build: 6,800/s shifted (1,750/s into another
+   colour target on the scene depth - the class the first build missed), still ~570/s perspective
+   uploads/s into a 2750x2850 target with another or no depth surface unshifted, and a c5-tied world
+   pass seen 4 times with NO depth surface bound.
+4. **Hypotheses:**
+   - DLSS history corruption: predicts the darkness lingers after jitter off. It cleared with the
+     jitter (luma back to baseline in 4 s, the first off shot still partly dark). RETRACTED as the
+     primary cause.
+   - One depth-writing or depth-testing pass carries a different shift from the rest (depth-equal
+     style failures speckle sloped surfaces and move with the phase): predicts the unshifted eye-size
+     uploads belong to the left eye's pass. The colour-target key missed 1,750/s such uploads; the
+     depth key caught them and the fault persisted, so what remains is the ~570/s with another or no
+     depth. LEADING, not yet measured per eye.
+5. **Change (build 00:37, `ef73f28f`):** the wide rule (`DlssJitterWide=1` default, `dlss jitter
+   wide on|off`, F10 "Jitter: include all eye-size passes") also shifts every perspective draw into an
+   eye-size colour target whatever depth is bound; a per-eye census line (`dlss/jitter per eye`) splits
+   shifted/unshifted uploads per image by eye. Prediction: speckles gone with wide on, back with it
+   off; the census shows the unshifted eye-size uploads in L only with wide off and 0 with wide on.
+6. **Result (headset, build 00:37):** speckles gone with the wide rule on; the per-eye census read L
+   6.0 wide-rule uploads per image against R 1.0 (scene depth 39 / 37), UNSHIFTED 0 with the rule on;
+   switched off live, UNSHIFTED appeared (L 1.3, R 0.2 per image in the mixed window). CONFIRMED: the
+   left eye's re-entry pass draws a few eye-size perspective passes with another or no depth surface,
+   and they must carry the shift. Jitter still ships default OFF.
+
+## 2026-09-26: DLAA smear unchanged after the arms fix - vector accuracy measured in pixels, fixed
+
+1. **Symptom:** the second headset run (build 20:12, `DlssBodyDepth` 0.30 active) reported the
+   moving smear exactly as before. Same surface as the entry below.
+2. **Reproduction:** that run's log (`build/dlss-install/headset2/`): the arms band was a small
+   share of samples; every band's vector error was still about half its no-motion error. The
+   simulator runs below use build 20:26-20:44, `dvr-xrsim` 90 Hz, 2750x2850.
+3. **Instrument:** `dlss/flow` - at 4096 points per eye image, a 9x9 block search (5x5 patches,
+   sub-pixel) around the vector's predicted source finds the true source. It reports mean error
+   in pixels, true/predicted gain per axis and per depth band, and splits each image's error
+   into its whole-image shift (pose) and the scatter around it (depth/projection/noise).
+   Floor standing still: 0.28-0.41 px.
+4. **Hypotheses and results:**
+   - The game's motion blur: `[SystemSettings] MotionBlur=False` on this install. RETRACTED.
+   - The rotator/FOV reconstruction differs from the matrix the game drew with: smooth stick
+     turn 1.38 px error, whole-image shift 1.04 px. Reprojecting through the captured world
+     view-projection (c0..c3 at the c5 upload: camera-relative, row vector, forward yaw and
+     FOV match the record) gave 0.56 px, shift 0.13. CONFIRMED: the per-image pose drift.
+   - Depth scale: through the matrices, gain was flat across depth bands (depth is linear in
+     scene alpha) at 0.83-0.94 for 200 and 1.03-1.18 for 300. 250: walk 0.66 px (from 1.68),
+     strafe 0.64 (from 1.28), turn 0.43, gain 0.98-1.01 in every band. CONFIRMED: 200 was the
+     coarse rotator-model minimum, 250 the matrix-model fit.
+5. **Change:** `dlss vp on` (default) uses the recorded matrices of this and the previous
+   image of the eye plus the c5 change; `MotionDepthScale` default 250. Host test 12/12.
+   Headset verdict open.
+6. **Status:** measured and fixed in the simulator; the vectors now sit near the instrument
+   floor. Remaining without own vectors: NPCs, controller-moved hands.
+
+## 2026-09-26: DLAA smear while walking - the arms had the world's vectors (measured, fix in simulator)
+
+1. **Symptom:** with DLAA on (branch `claude/dlss-dlaa`), the headset showed a slight smear
+   while moving; the image otherwise judged very good, and better with SSW. Surface: the eye
+   image after DLAA. Distinct from the custom-TAA walking smear below (different
+   accumulator, same class: history moved by wrong vectors).
+2. **Reproduction:** headset run on build `v1.0.1-95-ga4fb67869-dirty` 19:33 (DLAA active 72/s
+   per eye at 144 Hz with SSW, 0 refused, 0 resets). Simulator: `dvr-xrsim` 90 Hz, 2750x2850,
+   stick walking forward/back alternating 1 s for 12 s per condition; audit line
+   `dlss/audit` (dlss_gpu.h). Logs in `build/dlss-install/smear-logs/` (local).
+3. **Hypotheses and counterpredictions:**
+   - Written vs rendered camera position (the left record takes the tick's earlier write):
+     predicts a nonzero offset/step error. MEASURED 0.00 uu offset and 0.00 step error against
+     a 2.2-2.7 uu true step. RETRACTED in the simulator.
+   - Forward-axis sign (the old sign test only moved the head sideways): predicts flipping the
+     forward component helps. MEASURED worse everywhere (near 1.77x, far 1.20x). RETRACTED.
+   - Depth scale: predicts some scale fixes the near band. With the arms excluded, 200-400 is
+     a broad minimum; no scale changes the arms band. NOT the cause.
+   - Body-attached geometry: predicts the nearest band alone is worse with vectors than with
+     none, and fine with translation removed. MEASURED: 0.1-0.3 depth units vec 0.0208 vs no
+     motion 0.0065 (3.2x worse); every farther band improved (0.65-0.78). CONFIRMED.
+   - DLSS keeping large unexplained motion (a mask would help): host test shows DLSS already
+     rejects a 3 px/frame unexplained texture by itself (0.0048 with or without the mask), and
+     a 1 px vector error triples its error (0.0055 -> 0.0155) where no mask can see it. The
+     bias mask was built and ships OFF as an A/B.
+4. **Change:** pixels nearer than `[Clarity] DlssBodyDepth` (0.30 depth units) keep the head
+   rotation and drop the walking parallax (`dlss body <z>`). Rendered c5 now travels in the
+   pose record (`renderPos`) and is the default source (`dlss pos record|render`); identical
+   in the simulator, kept as the render truth.
+5. **Results:** arms band while walking 0.0296 (off) -> 0.0086 (0.30), equal to no motion;
+   farther bands unchanged. Host test 12/12. Not yet headset-tested. NOT expected to fix:
+   NPCs, hands moved by the controllers, and smooth stick turning of the arms (no object
+   vectors). In the simulator the hands follow the head, so the arms band reads worse there
+   during head turns - a simulator artifact; in the headset the hands stay in the room.
+6. **Status:** measured and fixed in the simulator; headset verdict open.
+
+## 2026-09-26: no perceptible TAA benefit reported; FSR planned
+
+Surface: scene edge/detail quality under temporal filtering, not evidence of stereo eye
+swaps or a new cadence regression. The tester reports no perceptible benefit from revised
+TAA. This planning session did not independently verify the exact live A/B configuration.
+Do not call the earlier synthetic improvements a headset-accepted fix. Preserve the measured
+camera-sign/depth-transport results; missing deliberate jitter/object vectors remain limits.
+
+Custom-TAA tuning is parked. The branch remains the unmerged depth foundation for the new
+FSR child branch. The implementation plan and all future performance/quality evidence live in
+[PERFORMANCE](PERFORMANCE.md#2026-09-26-fsr-implementation-plan-and-depth-foundation-handoff).
+This supersedes the pending-headset-verdict wording in historical entries below. No new
+runtime changes, game launch or installed settings changes were made for this handoff.
+
+## 2026-09-26: audited TAA defects fixed, headset verdict pending
+
+Surface: accumulated scene colour, separate from stereo eye cadence and the later hand/F10
+overlay. Stationary white detail now retains full intensity (formerly 49% linear); saturated
+colours and the original moving-edge AA control pass. Added previous-depth visibility and
+quiet-camera colour response. Frame records carry each eye's position, scoped FOV and
+scene epoch; depth owns independent read fences. Fused reprojection removes vector storage.
+
+Matching simulator build `v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48, recovered after
+capture pause/reinit/deferred mode and vector off/on with 450 passes per eye per 5 s and
+no ongoing fallback. 72 GPU checks pass. This verifies recovery, not headset ghosting.
+One failed approach: broader colour response damaged legitimate micro-motion AA (0.197
+coverage error); restricting it to stationary pixels restored 0.095 versus raw 0.219.
+Full evidence and remaining jitter/object-motion limitations: PERFORMANCE.md, TAA audit fixes.
+Installed diagnostics remain off and the original INI is restored byte-for-byte.
+
+## 2026-09-26: TAA audit identifies history-quality and transport gaps
+
+Follow-up source/GPU audit of the experimental path: unchanged stationary bright detail
+loses about half its linear intensity, and moving textured patterns retain strong history.
+These are temporal accumulation issues, not proof of stereo eye swaps. Per-eye position
+provenance, reset/age guards and depth reuse also need correction before headset acceptance.
+Full ranked findings and reproducible host tests are in
+[PERFORMANCE.md](PERFORMANCE.md#2026-09-26-full-taa-audit-source-87a892cef-no-runtime-changes).
+No runtime code or installed settings changed for this audit.
+
+## 2026-09-26: experimental TAA walking smear, motion vectors built
+
+Surface: temporal history in the eye colour image while walking/leaning, separate from
+section 1's stereo cadence/eye-swap routes. New routing row below. Branch
+`claude/motion-vectors`, not merged, headset verdict OPEN.
+
+MIRROR TEST on 56 simulator turns rejected a mirrored image axis: normal 0.0082 vs mirrored
+0.0468 error. The position record was c5 = negative world position; clarity now converts at
+its input boundary. Corrected translation's 70-pair curve has an interior minimum 0.0226 at
+200 uu/depth-unit vs rotation-only 0.0400. This is a coarse calibration, not exact units.
+
+Per-eye vectors feed TAA behind default-off MotionVectors, F10 beneath Temporal AA. The
+existing motion weighting remains only on the missing-depth rotation fallback. Moving-object
+vectors and depth-based disocclusion rejection remain absent; colour clipping is retained.
+Final simulator build 16:54:27, hash `5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`,
+completes both-eye vector TAA with both diagnostics off, including after live off/on. First
+normal-path test failed because of a diagnostic-only caller gate; corrected and retested.
+Full measurements/failed test/cost limits: PERFORMANCE.md "Motion-vector calibration and TAA
+candidate"; continuation: PLAN-motion-vectors-dlss.md. Next headset question: does enabling
+vectors under TAA reduce walking trails while keeping edges stable? No claim of headset fix.
+
 ## 2026-09-26: local walking catch-up accepted; remote cinematic scope separate
 
 Surface: whole-world straight-walking hold/catch-up, not HUD grouping or eye fusion.
@@ -1716,6 +1877,7 @@ pose metadata without reopening the disproved historical theories.
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
 | Object occluded in one eye vanishes from both (a head behind the sword in the left eye gone from the right; doors, mechanisms) | Both reentry passes share one view state, so one eye's occlusion-query results cull the other eye | VR-79 2026-09-24: `occlusion off` (the engine's TOGGLEOCCLUSION switch) HEADSET-CONFIRMED to fix it but reads laggier. CANDIDATE `[Stereo] Occlusion=pereye`: the right eye gets its own engine view state, so each eye culls only what it cannot see (ENGINE_NOTES "VR-79"). Not yet headset-checked |
 | Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
+| Trails/smear while walking with experimental Temporal AA | Camera parallax in history reprojection; c5/world sign at the consumer | 2026-09-26: depth-vector candidate measured on simulator, normal yaw confirmed; default OFF, headset OPEN. See PERFORMANCE and PLAN-motion-vectors-dlss |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |

@@ -8,6 +8,8 @@
 #include "core/framework/query_wait_profile.h"
 #include "core/framework/scene_prepare_profile.h"
 #include "core/framework/bridge_profile.h"
+#include "core/gfx/depth_probe.h"
+#include "core/gfx/dlss_jitter.h"
 #include "core/gfx/sampler_force.h"
 #include "core/gfx/desktop_eye.h"
 #include "core/gfx/capture.h"
@@ -36,6 +38,7 @@ typedef HRESULT (__stdcall *PFN_Present)(IDirect3DDevice9*, const RECT*, const R
                                          const RGNDATA*);
 typedef HRESULT (__stdcall *PFN_Reset)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
 typedef HRESULT (__stdcall *PFN_BeginScene)(IDirect3DDevice9*);
+typedef HRESULT (__stdcall *PFN_SetDepthStencil)(IDirect3DDevice9*, IDirect3DSurface9*);
 
 Callbacks         g_cb;
 PFN_CreateDevice  g_origCreateDevice = nullptr;
@@ -44,6 +47,7 @@ PFN_Reset         g_origReset = nullptr;
 typedef ULONG (__stdcall *PFN_DevRelease)(IDirect3DDevice9*);
 PFN_DevRelease    g_origDevRelease = nullptr;
 PFN_BeginScene    g_origBeginScene = nullptr;
+PFN_SetDepthStencil g_origSetDs = nullptr;
 SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
 DrawIndexedFn     g_origDrawIndexed = nullptr;
@@ -165,6 +169,17 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     // 41.1 (session 8): the tick budget's stamps. kEntry closes the previous
     // present's record (its OUT = the render thread's time outside this hook).
     dvr::perf::set_device(self);
+    dvr::bridge_profile::present();
+    dvr::perf::stamp(dvr::perf::kEntry);
+    dvr::perf::part_begin();    // VR-160: `perf parts on` names what the present path spends
+
+    dvr::depthprobe::tick(self, dvr::capture::width(), dvr::capture::height());   // read-only; off by default
+    if (dvr::depthprobe::share_tick_needed() && g_cb.d3d11) {   // diagnostics or active depth-vector TAA
+        ID3D11DeviceContext* c11 = nullptr;
+        if (ID3D11Device* d11 = g_cb.d3d11(&c11))
+            dvr::depthprobe::share_tick(self, d11, c11, dvr::capture::width(), dvr::capture::height());
+    }
+    dvr::perf::part_mark("hk.depthCopy");
     // The desktop eye pin needs the game's device; the runtime layer calls into
     // it from its own eye-pin call sites, which already sit on the right side
     // of each eye's XR capture.
@@ -174,9 +189,6 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool hooked = false;
         if (!hooked) { hooked = true; dvr::vr::set_mirror_hook(&dvr::desktop_eye::on_present); }
     }
-    dvr::bridge_profile::present();
-    dvr::perf::stamp(dvr::perf::kEntry);
-    dvr::perf::part_begin();    // VR-160: `perf parts on` names what the present path spends
     dvr::perf::ab_tick(self);   // VR-67: the performance A/B walks its plan from here
     dvr::perf::part_mark("hk.abTick");
     if (g_cb.pre_tick) g_cb.pre_tick(self);
@@ -307,6 +319,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     dvr::stereo::on_reset();
     dvr::hudclass::on_reset(); dvr::hudcap::on_reset();   // VR-117: the sinks are DEFAULT-pool; the hkReset LAW
     dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
+    dvr::depthprobe::on_reset();      // it holds references on the game's float targets
     dvr::samplers::on_reset();        // a Reset returns every sampler state to its default
     const HRESULT hr = g_origReset(self, pp);
     if (FAILED(hr))
@@ -371,6 +384,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
         dvr::stereo::on_reset();
         dvr::desktop_eye::on_reset();
         dvr::capture::on_reset();
+        dvr::depthprobe::on_reset();
         dvr::log::flush();
     }
     return g_origDevRelease(self);
@@ -388,6 +402,13 @@ HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3D
 // 41.1 (session 8): the frame-start marker. UE3's D3D9 RHI issues BeginScene
 // from the thread that draws; the first one after the game's Present is where
 // the render thread stopped waiting and started executing the frame.
+// DLSS projection jitter (core/gfx/dlss_jitter.h): the bound depth-stencil surface is how the
+// world passes are told apart. Pointer value only - never dereferenced, never AddRef'd.
+HRESULT __stdcall hkSetDepthStencil(IDirect3DDevice9* self, IDirect3DSurface9* ds) {
+    dvr::dlss::jitter::note_depth_stencil(ds);
+    return g_origSetDs(self, ds);
+}
+
 HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
     ++g_actBegins;
     dvr::perf::frame_start_marker("BeginScene");
@@ -418,13 +439,15 @@ HRESULT __stdcall hkCreateDevice(IDirect3D9* self, UINT adapter, D3DDEVTYPE type
         if (old && !g_origSetRt) g_origSetRt = (SetRenderTargetFn)old;
         old = PatchVtable(*outDev, 41, (void*)hkBeginScene);        // BeginScene (the perf marker)
         if (old && !g_origBeginScene) g_origBeginScene = (PFN_BeginScene)old;
+        old = PatchVtable(*outDev, 39, (void*)hkSetDepthStencil);   // SetDepthStencilSurface (DLSS jitter)
+        if (old && !g_origSetDs) g_origSetDs = (PFN_SetDepthStencil)old;
         old = PatchVtable(*outDev, 82, (void*)hkDrawIndexed);       // DrawIndexedPrimitive
         if (old && !g_origDrawIndexed) g_origDrawIndexed = (DrawIndexedFn)old;
         old = PatchVtable(*outDev, 81, (void*)hkDrawPrim);          // DrawPrimitive
         if (old && !g_origDrawPrim) g_origDrawPrim = (DrawPrimFn)old;
         old = PatchVtable(*outDev, 69, (void*)hkSetSamplerState);   // SetSamplerState (texture-filter levers)
         if (old && !g_origSetSampler) g_origSetSampler = (dvr::samplers::PFN_SetSamplerState)old;
-        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/BeginScene/"
+        DVR_INFO("device hooks installed (Present/Reset/SetVSConstF/SetRenderTarget/SetDepthStencilSurface/BeginScene/"
                  "DrawIndexedPrimitive/DrawPrimitive/SetSamplerState%s)",
                  g_origSetSampler ? "" : " - SetSamplerState NOT hooked: the texture-filter levers are inert");
         // 41.1 (session 8): the creation census - what the game asks of this
