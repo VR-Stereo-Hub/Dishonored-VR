@@ -1,3 +1,11 @@
+## Handoff: projection jitter next (2026-09-26, end of session)
+
+Branch `claude/dlss-dlaa` at `afb72687a` + this handoff, pushed, nothing merged. DLAA is
+headset-accepted; DLSS SR works but cannot buy frame rate in this game (fixed-cost bound);
+the overlap is in. Next session implements deliberate projection jitter for DLSS - brief and
+copyable prompt in [NEXT_SESSION](dishonored/NEXT_SESSION.md). Installed DLL `c1a9268c...`,
+INI `2e2183b7...` = the maintainer's own current settings (DLAA, fast model, mask on, 100%).
+
 ## DLSS overlap (2026-09-26, latest)
 
 The capture slot and scene depth are now released right after DLSS copies its inputs, not after
