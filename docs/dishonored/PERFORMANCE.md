@@ -3065,3 +3065,97 @@ Simulator, cap lifted, one command per window (per eye):
   depth + 6.0 wide uploads per image, R 37 + 1.0, UNSHIFTED 0; speckles gone.
 - **Not yet measured:** whether Quality/Performance SR are visibly sharper with jitter (the reason
   it exists); the flow-check jitter gain on the final build; shimmer on thin geometry.
+
+
+## 2026-09-27: Why DLSS cannot raise the frame rate here, and the routes past the CPU ceiling
+
+### The measurement (already on disk, no new launch)
+
+Simulator, cap lifted (`refresh 240`), 2750x2850 per eye, `stereo reentry`, build
+`v1.0.1-100-g1a497d4cd-dirty`, log `build/dlss-install/overlap-logs/` (local). This PC: Ryzen 5 5600X
+(6 cores / 12 threads, 32 MB L3, DDR4-3600 CL16 at XMP), RTX 4070 Ti SUPER, High performance power
+plan, hardware GPU scheduling on. Per stereo pair, from the `perf: tick` split:
+
+| | Performance SR (1374x1424, 25 % of the pixels) | Native 2750x2850 |
+|---|---|---|
+| Pair time | 8.6-8.9 ms (113-117/s) | **6.5-7.6 ms (132-154/s)** |
+| Render thread executing the engine's frame (`R`, both eyes) | 4.3-4.5 ms | 4.1-4.5 ms |
+| Render thread idle before the left eye (`idle`: nothing queued, waiting for the GAME thread) | 0.3-0.6 ms | **1.4-2.1 ms** |
+| Our present path (`in`, both eyes) | 3.8-3.9 ms (1.3 + 0.8 ms of it the capture fence behind DLSS) | 1.1 ms |
+| D3D9 GPU span per eye (an upper bound on GPU busy) | 2.3 ms | 2.6 ms |
+
+- **The game thread is the ceiling.** At native the render thread finishes its two views and then
+  waits 1.4-2.1 ms for the next tick: the game thread needs about 6.5-7.5 ms per tick (world tick,
+  script, our script lane, and the two viewport draws re-entry makes it issue). That is 133-154
+  ticks/s, and one tick is one stereo pair.
+- **The render thread is the second limit**, about 5.4 ms per pair busy (engine 4.3 + ours 1.1).
+- **The GPU is the third**, at most 5.2 ms per pair. Cutting pixels moves only this one: a quarter of
+  the pixels saved 0.7 ms per eye of GPU span (2.6 -> 1.9, the earlier SR entry) while the pair time
+  stayed on the game thread's floor, and DLSS then added its own present-thread wait and GPU
+  contention with the helper process. So every DLSS mode is a net cost here, and more modes or presets
+  cannot change that. This agrees with the 2026-09-15 finding that a quarter of the pixels gained ~6 %.
+- **Consequence for how DLSS should be used on this PC:** not to render less, but to output MORE at the
+  same cost. Quality SR with the fast model already ran at native's rate (131 vs 133/s in one run), so
+  a 150 % output rendered at 100 % should look sharper than native 100 % for about the same frame rate.
+  PREDICTION, not measured: `dlss on`, `dlss quality 1`, `dlss output 4126 4276`, compared against
+  native 100 % in the same spot.
+
+### Routes past the ceiling, ranked by payoff for THIS machine
+
+1. **Decoupled rendering: more head-tracked pairs per world tick (the out-of-the-box one).** The
+   re-entry already patches UGameEngine::Tick's single viewport-draw call site and calls the draw root
+   twice per tick with the camera field rewritten between the passes (`scene_draw.cpp`). Calling it
+   four times (L, R, L, R), with the second pair's camera taken from a NEWER head pose, renders a fresh
+   stereo pair without running another world tick. Head motion and parallax are real renders at the
+   higher rate (not reprojection); animation, physics and AI move at the tick rate - the split every
+   fixed-timestep engine makes between simulation and rendering (Gaffer on Games, "Fix Your
+   Timestep"), here without the interpolation. Predicted ceiling with one extra pair per tick: game
+   thread ~7 ms + ~1 ms for the two extra draws per two pairs (~270 pairs/s), render thread ~5.4 ms per
+   pair (~185/s), GPU <= 5.2 ms per pair (~190/s): **about +25-30 % over today's ~145/s, and past that
+   point DLSS becomes useful** because the GPU turns into the limit. Costs and risks: the second pair
+   needs a pose located for its own display time on the game thread; one XR frame per pair (the
+   runtime layer's pair pacing already works per pair); the HUD PostRender runs per draw; moving
+   objects step at the tick rate (visible only when the tick rate falls well under the refresh);
+   VR-79's stereo-visibility rule must hold for the extra views; re-entry's fail-soft gates apply
+   unchanged. First step: measure the game thread's per-draw cost (the existing cpu scopes, lanes 8/9)
+   and prototype an extra-pair lever default OFF behind a live A/B.
+2. **Our own game-thread cost (bounded by the 1.4-2.1 ms idle).** The ProcessEvent hook runs about
+   40 `strstr`/`strcmp` and a `RealName` per dispatch before its first early return (VR-160 suspect 7),
+   plus periodic GObjects walks on the script lane. A dispatch table keyed on the UFunction pointer
+   makes the hook near free. Measure first: a cycles scope around the hook, then the A/B.
+3. **One engine view for both eyes (render-thread halving).** NVIDIA 3D Vision's automatic mode issued
+   every draw twice with a clip-space shift in the vertex shader; vorpX's Geometry 3D does the same for
+   DX9. Here it would mean one InitViews, one culling pass (1.08 of 1.32 ms of preparation per pair is
+   culling, the 2026-09-15 boundary), one draw-list build and no second viewport draw on the game
+   thread, with only the D3D9 calls doubled - the clip-space shift is the same row patch the jitter
+   already applies. Largest engineering item: per-eye render targets, view-dependent passes
+   (reflections, screen-space post, occlusion) and the HUD all need eye copies.
+4. **Driver-side submission.** The vr125 CPU capture showed the render thread blocked 27 % of the time,
+   mostly woken by an NVIDIA driver worker. An A/B of the driver's Threaded Optimization for
+   Dishonored.exe (NVIDIA Control Panel, per program) costs no code and one run. A stock DXVK used only
+   as the D3D9 translation layer (its submission thread offloads CPU-bound DX9 games, GTA IV being the
+   well-known case) is a different thing from the removed side-by-side fork, but CLAUDE.md forbids
+   bringing a Vulkan layer back and the shared capture, depth probe and HUD capture would all need
+   re-proving; it needs the maintainer's explicit decision, and a flat A/B (`disable_vr.txt`) would size
+   it first.
+5. **Hardware.** A Ryzen 7 5800X3D drops into the same AM4 board; 3D V-Cache is the standard answer for
+   cache-sensitive CPU-bound games. The most dependable single uplift, unmeasured for this game.
+6. **Runtime.** At a steady 120 Hz the CPU has headroom (8.33 ms per pair against ~7 ms); at 144 Hz it
+   does not. SSW/ASW at half rate (already in use) buys supersampling headroom.
+
+Not useful here: alternate-eye rendering (one world tick per displayed image, so the game thread stays
+the limit and the eyes desync); more DLSS modes for speed. Already checked on this PC: RAM at XMP,
+High performance plan, HAGS on.
+
+### Next measurements (one launch each, asked for individually)
+
+(a) cpu scopes on, native, standing: the game thread's per-draw cost against its whole tick - decides
+route 1's prediction. (b) Threaded Optimization off / on / off - route 4 at zero code cost.
+(c) DLSS Quality at a 150 % output against native 100 % - the supersampling use above.
+
+Sources: [Gaffer on Games, Fix Your Timestep](https://gafferongames.com/post/fix_your_timestep/);
+[NVIDIA 3D Vision Automatic background](https://archive.docs.nvidia.com/gameworks/content/technologies/desktop/nv3dva_background.htm);
+[vorpX features](https://www.vorpx.com/features/); [UEVR documentation](https://docs.uevr.io/)
+(synchronized sequential is this mod's re-entry, with its stated cost); [DXVK on PCGamingWiki](https://www.pcgamingwiki.com/wiki/DXVK);
+[GTA IV optimization guide](https://gillian-guide.github.io/optimization/); DLSS 4.5 presets:
+[NVIDIA](https://www.nvidia.com/en-us/geforce/news/dlss-4-5-dynamic-multi-frame-gen-6x-2nd-gen-transformer-super-res/).
