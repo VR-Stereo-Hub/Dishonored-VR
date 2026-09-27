@@ -3241,3 +3241,50 @@ save, standing still, untraced. Noise floor from 7 baselines: p50 5.91-6.34 ms (
   phase events/s) but NO DxgKrnl events, by name or by GUID. Cause: the provider lacked
   `NonPagedMemory="true"`, which WPR's own GPU profile sets (`wpr -exportprofile GPU`): DxgKrnl logs from
   interrupt-level code and a paged session silently receives none of it.
+
+### Plan 1 in the HEADSET (2026-09-27): no hidden serialisation - the GPU is full
+
+Build `28078EF3` (the branch at `2407a4c9e`), VDXR 144 Hz, 2750x2850, SSW off, DLSS off, standing still,
+the maintainer's own INI (unchanged, verified). Plan 1, 5 s DvrGpu traces inside five segments. Baseline A
+was discarded (the plan started during the load); six baselines agree within 2 % (p50 8.56-8.73 ms).
+
+| Segment | p50 pair | pairs/s | verdict |
+|---|---|---|---|
+| baselines B-G | 8.56-8.73 ms | 115-117 | - |
+| depth 2 | 8.66 ms | 115.5 | NO CHANGE |
+| heavydraw off | 8.84 ms | 113.2 | no gain |
+| depth 2 + heavydraw off | 8.80 ms | 113.6 | NO CHANGE |
+| serial control | 11.31 ms | 88.4 | -31 %: the plan sees a render-thread wait |
+| res 70 % (1926x1996) | 7.64 ms | 130.9 | **+13 %** |
+| res 130 % (3576x3706) | 12.29 ms | 81.4 | **-30 %** |
+
+GPU timeline (`tools/perf-gpu-timeline.py`, baseline D, 5.8 s, 656 pairs, 112.5 pairs/s under trace):
+
+- **The game's D3D9 queue had work pending 96.8 % of the window; the 3D engine was occupied by some
+  process 97.6 %; idle 0.22 ms per pair.** The game's queue occupancy is 8.61 ms per pair of 8.89. Its
+  gaps total 0.28 ms per pair, 72 % of them while the render thread was inside the engine's own
+  rendering, none in our capture fence. The only GPU-side sync waits of the game's process (one per pair)
+  are on a small secondary queue (our D3D11/XR copy, released by Virtual Desktop), not on the D3D9 queue.
+- nvidia-smi over the run: utilisation 94 % median, graphics clock 2745 MHz (full boost), no throttle
+  reason active 93 % of samples, 204 W of 285 W. Virtual Desktop: 3D ~10 %, video encode ~56 % (a separate
+  engine). **The Task Manager "80 %" understated a saturated GPU.**
+- depth 2 (trace seg02): queue occupancy 97.2 %, 8.54 ms per pair, the same. Removing the capture wait
+  only let the render thread queue further ahead of a GPU that was already full - reading (a).
+- res 70 % (trace seg10): the game's queue occupancy fell to 5.52 ms per pair and the 3D engine went 25 %
+  idle, so at 70 % the limit moves to the CPU side (~7.6-8.0 ms per pair). Solving
+  `occupancy = F + P * pixels` from 100 % (8.6) and 49 % of the pixels (5.5): **F ~2.5 ms per pair is
+  resolution-independent, P ~6.1 ms per pair is proportional to pixels at 2750x2850**; it predicts
+  12.8 ms at 130 % against 12.3 measured.
+- This corrects the simulator-era reading that "the GPU cost barely follows resolution": in the headset,
+  with Virtual Desktop on the card, ~70 % of the GPU time per pair follows the pixel count. The
+  simulator is game-thread-bound and cannot show it (plan 1 in the simulator: 70 % did nothing).
+- Trace overhead: the traced baseline D window ran 112.5 pairs/s against the plan's 115.2 for the whole
+  segment (~2-3 %).
+
+**Verdict.** The headset at 2750x2850 is GPU-bound on the game's own rendering, with the three CPU
+stages close behind (~7.6 ms per pair at 70 %). Nothing of ours serialises it; capture depth and the
+script-lane cadence stay default off / as they were. The routes that can raise the rate are GPU cost per
+pair, above all per-pixel cost: the game's AA pass (MLAA is the VR preset) and bloom/light shafts, our
+16x anisotropic override (the game's own default is 4x), the render size itself, and DLSS SR with the
+fast model, now that the headset is pixel-bound (re-test; its earlier headset loss used the heavy M/L
+presets). Sharing view-independent passes between the eyes targets F (~2.5 ms per pair) and the CPU floor.
