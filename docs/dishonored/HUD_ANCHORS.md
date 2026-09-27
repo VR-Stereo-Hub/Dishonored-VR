@@ -1,3 +1,32 @@
+## 2026-09-27: the HUD at headset resolution while upscaling (`[Hud] UpscaleSharp`, default off)
+
+Observation: with DLSS Super Resolution on, HUD elements look soft. Measured in the dev rig's own
+logs: at DLSS Quality the sinks were `1832x1900` (the reduced render) with `916x950` hand-off
+slots, against `2750x2850` / `1375x1425` at native. The redirect sizes its targets from the
+backbuffer, and under SR the backbuffer IS the reduced render, so the HUD lost a third of its
+resolution per axis before it ever reached the panel.
+
+Change: with `[Hud] UpscaleSharp=1` (F10 Display > upscaler section, "Sharp HUD while upscaling";
+seam `hud sharp on|off`) and the frame being an upscaler's reduced render
+(`dvr::dlss::sr_output_for`), the sink targets are created at the upscaler's OUTPUT size and each
+redirected draw gets the game's viewport scaled by output/render. Every HUD vertex shader places
+its vertices through a 4x4 transform into clip space (VR-118, section on the transform map), so
+the same geometry rasterizes at more pixels. The game's depth-stencil is smaller than the target,
+so the sinks bind a shared D24S8 of their own around each redirected draw (Scaleform masks use
+stencil) through the unhooked setter, and it is cleared every present. A size change (the lever,
+a mode, a resize) rebuilds every sink once. Off, DLAA, or no upscaler: the old path exactly.
+
+Log: `hud/sharp: sink 0's target is 2750x2850, the upscaler's output, for a 1832x1900 render
+(x1.50 per axis ...)`; `hud:` status prints `sharp=1 (targets ABOVE the ...)`.
+
+Expected limits: bitmap content (icons, the glyph cache Scaleform rasterizes text into) keeps its
+own texture resolution, so edges and vector shapes gain the most. The scissor rectangle is reset to
+the whole target by SetRenderTarget, as it always was in the redirect.
+
+Status: built, lint and golden ini clean. NOT run in the game, the simulator or the headset.
+Question for the headset: at DLSS Quality, is the HUD with the box ticked as sharp as at DLAA, and
+does anything (a masked bar, a menu, the wheel) draw wrong or clipped with it on?
+
 ## 2026-09-26: accepted semantic ownership baseline
 
 Local headset reports accept cohesive widget grouping, marker size controls, lower

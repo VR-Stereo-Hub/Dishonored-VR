@@ -49,6 +49,8 @@ typedef ULONG (__stdcall *PFN_DevRelease)(IDirect3DDevice9*);
 PFN_DevRelease    g_origDevRelease = nullptr;
 PFN_BeginScene    g_origBeginScene = nullptr;
 PFN_SetDepthStencil g_origSetDs = nullptr;
+IDirect3DSurface9* g_gameDs = nullptr;   // the game's last SetDepthStencilSurface, pointer value only
+bool g_gameDsKnown = false;
 SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
 DrawIndexedFn     g_origDrawIndexed = nullptr;
@@ -325,6 +327,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     if (g_cb.before_reset) g_cb.before_reset(pp);
+    g_gameDs = nullptr; g_gameDsKnown = false;   // Reset rebinds the auto depth-stencil
     DVR_INFO("device Reset (%ux%u windowed=%d)", pp ? pp->BackBufferWidth : 0,
              pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1);
     // Every default-pool resource this proxy creates must be released here
@@ -419,6 +422,7 @@ HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3D
 // DLSS projection jitter (core/gfx/dlss_jitter.h): the bound depth-stencil surface is how the
 // world passes are told apart. Pointer value only - never dereferenced, never AddRef'd.
 HRESULT __stdcall hkSetDepthStencil(IDirect3DDevice9* self, IDirect3DSurface9* ds) {
+    g_gameDs = ds; g_gameDsKnown = true;
     dvr::dlss::jitter::note_depth_stencil(ds);
     return g_origSetDs(self, ds);
 }
@@ -528,6 +532,10 @@ const float* vs_const_shadow_row(int row) {
 }
 int vs_const_shadow_rows() { return kVsConstShadowRows; }
 
+IDirect3DSurface9* game_depth_stencil(bool* known) { if (known) *known = g_gameDsKnown; return g_gameDs; }
+HRESULT orig_set_depth_stencil(IDirect3DDevice9* dev, IDirect3DSurface9* ds) {
+    return g_origSetDs ? g_origSetDs(dev, ds) : E_FAIL;
+}
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt) {
     dvr::native_profile::Scope timing(dvr::native_profile::NativeTarget);
     return g_origSetRt ? g_origSetRt(dev, idx, rt) : E_FAIL;

@@ -1,3 +1,10 @@
+## Sharp HUD while upscaling (2026-09-27) - built, not run, PR open
+
+Branch `claude/hud-upscale-sharp`. Under DLSS/FSR Super Resolution the HUD was drawn at the reduced
+render size (measured: 1832x1900 at Quality vs 2750x2850 native). `[Hud] UpscaleSharp` (default 0,
+F10 Display "Sharp HUD while upscaling", `hud sharp on|off`) draws it at the upscaler's output
+size. Detail and the headset question: HUD_ANCHORS top entry.
+
 ## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
 
 Branch `claude/fsr-upscaler`. FSR runs in the existing x64 helper through AMD's FidelityFX API, SDK 2.3.0:
