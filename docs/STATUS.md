@@ -1,3 +1,13 @@
+## DLSS SR measured: no frame-rate gain in this game (2026-09-26, latest)
+
+Headset: SR Quality/Performance ~90/s per eye vs 130-140 native. Measured why: the game's GPU
+cost barely follows pixels (1/4 of the pixels saved 0.7 ms per eye), so SR cannot buy frames
+here; NVIDIA's Performance preset M costs 2.8 ms per eye at a 2750x2850 output, and the helper
+process contends with the game on the GPU. Now: preset K by default, a fast CNN model option
+(E/F, ~0.9 ms per eye isolated), diagnostics off the per-frame path, `dlss output` bug fixed.
+Simulator uncapped: native 148-153/s, Performance fast 124-132, DLAA fast ~80, DLAA K ~67.
+User INI restored (`1945f088...`, their Performance SR settings), launch file realigned.
+
 ## DLSS Super Resolution (2026-09-26, latest) - built, simulator verified, not merged
 
 DLAA headset verdict after the vector fixes: smear gone (mask off), aliasing removed, very

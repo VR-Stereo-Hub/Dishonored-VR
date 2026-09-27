@@ -28,6 +28,8 @@ enum State { Idle = 0, Working, Ready, Failed };
 std::atomic<int> g_mode{ModeOff};
 std::atomic<int> g_preset{0};
 std::atomic<int> g_quality{QDlaa};
+std::atomic<int> g_model{0};
+std::atomic<bool> g_audit{false};
 std::atomic<uint32_t> g_outW{0}, g_outH{0};
 const float kRatio[QCount] = {1.0f, 1.5f, 1.7241f, 2.0f, 3.0f};
 const char* const kQualityName[QCount] = {"DLAA", "Quality", "Balanced", "Performance", "Ultra Performance"};
@@ -79,7 +81,8 @@ void work(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt, int
                  "image; the custom temporal AA stands down",
                  (w == ow && h == oh) ? "DLAA" : "DLSS Super Resolution", g_client.adapter(), w, h, ow, oh,
                  (double)ow / w, 100.0 * w * h / ((double)ow * oh), (int)fmt, preset,
-                 preset ? "" : " = the helper's pick per mode", g_client.bytes() / (1024.0 * 1024.0));
+                 preset == 11 ? " = transformer K" : (preset == 5 || preset == 6) ? " = fast CNN" : " (raw DlssPreset)",
+                 g_client.bytes() / (1024.0 * 1024.0));
         g_state.store(Ready);
     } else {
         strcpy_s(g_why, why);
@@ -93,7 +96,9 @@ void kick(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt) {
     join_worker();
     g_wantW = w; g_wantH = h; g_wantOw = ow; g_wantOh = oh; g_wantFmt = fmt;
     g_state.store(Working);
-    const int preset = g_preset.load();
+    // The raw preset wins; otherwise the model: K (11), or the CNN E (5) for SR / F (6) for DLAA.
+    int preset = g_preset.load();
+    if (!preset) preset = g_model.load() == 1 ? ((w == ow && h == oh) ? 6 : 5) : 11;
     g_worker = std::thread([w, h, ow, oh, fmt, preset] { work(w, h, ow, oh, fmt, preset); });
 }
 
@@ -176,6 +181,20 @@ void set_preset(int p, const char* who) {
     g_retry.store(true);
 }
 int preset() { return g_preset.load(); }
+
+void set_model(int m, const char* who) {
+    m = m == 1 ? 1 : 0;
+    if (g_model.exchange(m) == m) return;
+    DVR_INFO("dlss: model -> %s (%s); the features rebuild", m ? "fast (CNN presets E/F)" : "transformer (preset K)", who ? who : "?");
+    g_retry.store(true);
+}
+int model() { return g_model.load(); }
+void set_audit(bool on, const char* who) {
+    if (g_audit.exchange(on) == on) return;
+    DVR_INFO("dlss: vector audit and flow check %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+             on ? " - costs GPU time every eye image; for diagnosis only" : "");
+}
+bool audit_on() { return g_audit.load(); }
 
 void set_quality(int q, const char* who) {
     if (q < 0 || q >= QCount) q = QDlaa;
@@ -277,11 +296,17 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     in.color = color; in.depth = g_guides.depth(); in.motion = g_guides.motion();
     in.reset = reset;
     if (reset) ++g_win.resets;
-    // The mask is computed whether or not DLSS gets it, so the audit can say what it would do.
-    const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why));
-    if (masked && g_mask.load()) { in.bias = g_guides.bias(); ++g_win.masked; }
-    g_guides.audit(dev, ctx, eye, src);
-    g_guides.keep(dev, ctx, eye, color);
+    // The mask, the audit and the previous-image copy they read cost GPU time on every eye image,
+    // so they run only when the mask or the audit is on.
+    const bool wantMask = g_mask.load(), wantAudit = g_audit.load();
+    if (wantMask || wantAudit) {
+        const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why));
+        if (masked && wantMask) { in.bias = g_guides.bias(); ++g_win.masked; }
+        if (wantAudit) g_guides.audit(dev, ctx, eye, src);
+        g_guides.keep(dev, ctx, eye, color);
+    } else {
+        g_guides.forget(eye);
+    }
     if (!g_client.evaluate(ctx, eye, in, why, sizeof(why))) {
         ++g_win.fallback;
         if (!g_client.running()) {
@@ -332,14 +357,25 @@ bool command(const char* args) {
     if (n >= 1 && !_stricmp(sub, "off")) { set_mode(ModeOff, "the seam"); return true; }
     if (n >= 1 && !_stricmp(sub, "retry")) { g_retry.store(true); DVR_INFO("dlss: retry requested (the seam)"); return true; }
     if (n >= 2 && !_stricmp(sub, "preset")) { set_preset(atoi(val), "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "model")) { set_model(!_stricmp(val, "fast") || !strcmp(val, "1") ? 1 : 0, "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "audit")) { set_audit(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "quality")) {
         int q = atoi(val);
         for (int k = 0; k < QCount; ++k) if (!_strnicmp(val, kQualityName[k], 4)) q = k;
         set_quality(q, "the seam"); return true;
     }
     if (n >= 2 && !_stricmp(sub, "output")) {
+        // Only while Super Resolution runs: with SR off, a recorded output is what the game side
+        // RESTORES, so setting one here resized the game natively to it (found in the simulator).
         unsigned ow = 0, oh = 0;
-        if (sscanf(args, "%*s %u %u", &ow, &oh) == 2) { set_output(ow, oh, "the seam"); return true; }
+        if (sscanf(args, "%*s %u %u", &ow, &oh) == 2) {
+            if (g_mode.load() == ModeOff || g_quality.load() == QDlaa) {
+                DVR_WARN("dlss: output %ux%u refused - Super Resolution is not on (dlss on, dlss quality 1..4 first); "
+                         "with SR off the resolution control sets the render size directly", ow, oh);
+                return true;
+            }
+            set_output(ow, oh, "the seam"); return true;
+        }
     }
     if (n >= 2 && !_stricmp(sub, "taxis")) {
         float f = 1, r = 1, u = 1;
@@ -353,7 +389,8 @@ bool command(const char* args) {
         float lo = 0, hi = 0;
         if (sscanf(args, "%*s %f %f", &lo, &hi) == 2) { set_mask_range(lo, hi, "the seam"); return true; }
     }
-    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, preset <0..15>, quality <0..4|name>, output <w> <h>, mask on|off, "
+    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, model transformer|fast, preset <0..15>, quality <0..4|name>, output <w> <h>, "
+             "audit on|off, mask on|off, "
              "maskrange <lo> <hi> | mask %s %.3f..%.3f",
              g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary(), g_mask.load() ? "on" : "off",
              g_maskLo.load(), g_maskHi.load());

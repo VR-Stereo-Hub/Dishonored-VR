@@ -490,6 +490,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         ConfigWriteKey("Clarity", "DlssPreset", v, "the seam");
         _snprintf(v, sizeof(v), "%d", dvr::dlss::quality());
         ConfigWriteKey("Clarity", "DlssQuality", v, "the seam");
+        ConfigWriteKey("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", "the seam");
         {
             uint32_t dow = 0, doh = 0; dvr::dlss::output(&dow, &doh);
             _snprintf(v, sizeof(v), "%u", dow); ConfigWriteKey("Clarity", "DlssOutputWidth", v, "the seam");

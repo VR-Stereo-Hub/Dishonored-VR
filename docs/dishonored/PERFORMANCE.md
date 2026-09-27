@@ -2952,3 +2952,51 @@ Live transitions: DLAA -> Quality resize confirmed in 0.5 s, both eyes ready 2.6
 Mean luma and coverage match across the three modes. No headset result yet. Limit: no projection
 jitter, so SR reconstructs from head micro-motion only - expect it softer than DLAA until jitter.
 Next: headset check of Quality, then projection jitter (FSR plan gate 3), then FSR 3.1.
+
+
+### 2026-09-26 (later): Super Resolution does not raise the frame rate here - measured
+
+Headset: Quality and Performance both ran ~85-93 images/s per eye against 130-140 native at
+144 Hz. The log confirmed the reduced render sizes (1832x1900, 1374x1424) and ~3-3.8 ms of DLSS
+GPU per eye with NVIDIA's per-mode presets (M for Performance).
+
+Cost per evaluate at a 2750x2850 output, isolated (`tools/dlss-host-test.ps1 -Cost`), ms per eye:
+
+| Preset | Performance in | Quality in | DLAA |
+|---|---|---|---|
+| M (NVIDIA's Performance default) | 2.80 | 4.17 | 7.98 |
+| L (Ultra Performance default) | 3.26 | 5.08 | 9.71 |
+| K (transformer) | 1.99 | 1.96 | 2.23 |
+| J | 1.93 | 1.90 | 2.03 |
+| E / F (CNN, marked deprecated, still run) | 0.94 / 0.82 | 0.94 / 0.86 | 0.92 / 0.91 |
+
+Simulator, cap lifted (`refresh 240`), same room, per eye:
+
+| Mode | frames/s | frame (both eyes) | game GPU render per eye |
+|---|---|---|---|
+| native 2750x2850 | 148-153 | 6.5-6.8 ms | 2.6 ms |
+| native 3368x3490 (150%) | ~129 | 7.7 ms | 3.1 ms |
+| Performance, fast (CNN) | 124-132 | 8.0 ms | 1.9 ms |
+| Quality, fast | 119-124 | 8.4 ms | 2.1 ms |
+| Performance, K | ~108 | - | - |
+| Quality, K | ~96 | 10.4 ms | 2.8 ms |
+| DLAA, fast | ~80 | 12.6 ms | 4.1 ms |
+| DLAA, K | ~67 | 14.9 ms | 4.3 ms |
+
+- The game's GPU cost barely follows the pixel count: a quarter of the pixels saved 0.7 ms per
+  eye (2.6 -> 1.9), the same fixed-cost floor recorded earlier. Super Resolution therefore
+  cannot buy frame rate in this game on this GPU; every DLSS mode is a net cost.
+- The DLSS helper's work contends with the game on the GPU: under DLAA the game's own render
+  rose 2.6 -> 4.1-4.3 ms per eye, and the helper's timestamps read 2-5 ms against 0.9-2.2 ms
+  isolated. The cross-process (D3D9/D3D11/D3D12 in two processes) scheduling is a large part of
+  the cost, beyond the model itself.
+- Changes: preset K for every mode by default (M/L were the most expensive); `DlssModel=1`
+  (F10 "DLSS fast model", `dlss model fast`) selects the CNN presets E (SR) / F (DLAA); the mask,
+  audit, flow check and previous-image copy run only when the mask or `dlss audit on` asks.
+- FOUND AND FIXED: `dlss output` with SR off set an output the game side then "restored" by a
+  native resize; refused now unless SR is on.
+- Simulator caveat: several mode changes were lost when seam commands were written back to back
+  (command.txt holds one command); the table uses only windows whose mode the log confirmed.
+- Open: pipelining DLSS so its GPU work overlaps the game's (the fork overlaps left-eye DLSS with
+  the right-eye scene) is the remaining lever for DLAA's cost; FSR 3.1 in-process avoids the
+  second process but not the cross-API scheduling.

@@ -186,6 +186,9 @@ static bool WriteDefaultIni(const char* ini)
         "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
         "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
         "DlssQuality=0\n"
+        "; DlssModel: 0 transformer (preset K, best image, ~2 ms per eye at 2750x2850), 1 fast (CNN presets\n"
+        "; E/F, ~0.9 ms per eye). DlssPreset nonzero overrides it with a raw NVIDIA preset number.\n"
+        "DlssModel=0\n"
         "DlssOutputWidth=0\n"
         "DlssOutputHeight=0\n"
         "; DlssMask=1 (A/B, off): pixels the camera vectors cannot explain (arms, weapon, NPCs) take\n"
@@ -1862,6 +1865,7 @@ static void LoadConfig()
             dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
             dvr::dlss::set_preset((int)IniFloat(ini, "Clarity", "DlssPreset", 0), "ini");
             dvr::dlss::set_quality((int)IniFloat(ini, "Clarity", "DlssQuality", 0), "ini");
+            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
             dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
@@ -4213,6 +4217,7 @@ static void OverlaySaveDefaults()
         WritePrivateProfileStringA("Clarity", "DlssPreset", v, ini);
         _snprintf(v, 64, "%d", dvr::dlss::quality());
         WritePrivateProfileStringA("Clarity", "DlssQuality", v, ini);
+        WritePrivateProfileStringA("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", ini);
         {
             uint32_t dow = 0, doh = 0; dvr::dlss::output(&dow, &doh);
             _snprintf(v, 64, "%u", dow); WritePrivateProfileStringA("Clarity", "DlssOutputWidth", v, ini);

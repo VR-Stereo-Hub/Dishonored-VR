@@ -49,7 +49,16 @@ void render_for(uint32_t ow, uint32_t oh, uint32_t* w, uint32_t* h);
 // True, with the output size, when an eye image of w x h is SR's reduced render.
 bool sr_output_for(uint32_t w, uint32_t h, uint32_t* ow, uint32_t* oh);
 bool failed();                        // the helper is unavailable (the game side restores the output size)
-// NVSDK_NGX_DLSS_Hint_Render_Preset: 0 = the helper's pick (K, the 310.x transformer).
+// The model: 0 transformer (preset K, best image, ~2 ms per eye at 2750x2850 output), 1 fast
+// (the CNN presets E for Super Resolution and F for DLAA, ~0.9 ms per eye). DlssPreset, when
+// nonzero, overrides both with one raw NVSDK_NGX_DLSS_Hint_Render_Preset value.
+void set_model(int m, const char* who);
+int  model();
+// Diagnostics off the per-frame path unless asked for: the vector audit and flow check
+// (`dlss audit on`), which also keep a copy of every eye image.
+void set_audit(bool on, const char* who);
+bool audit_on();
+// NVSDK_NGX_DLSS_Hint_Render_Preset: 0 = from the model above.
 void set_preset(int preset, const char* who);
 int  preset();
 // The anti-smear mask (dlss_gpu.h, "bias"): pixels the camera vectors do not explain take the

@@ -325,11 +325,11 @@ bool DoBuild(const Build& b, BuildAck& ack) {
         : ratio < 1.85f ? NVSDK_NGX_PerfQuality_Value_Balanced
         : ratio < 2.5f ? NVSDK_NGX_PerfQuality_Value_MaxPerf : NVSDK_NGX_PerfQuality_Value_UltraPerformance;
     // Presets set explicitly (the fork's lesson: an NVIDIA App override or a swapped runtime
-    // must not change what the log claims): the 310.x mapping K for DLAA/Quality/Balanced, M for
-    // Performance, L for Ultra Performance; a nonzero proxy preset overrides all of them.
+    // must not change what the log claims). Default K for every mode: NVIDIA's own M/L for
+    // Performance/Ultra Performance cost 2.8-9.7 ms per eye at a 2750x2850 output here against
+    // K's 2.0-2.2 (tools/dlss-host-test.ps1 -Cost). A nonzero proxy preset overrides all.
     const int pk = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_K;
-    const int pm = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_M;
-    const int pl = b.preset > 0 ? b.preset : (int)NVSDK_NGX_DLSS_Hint_Render_Preset_L;
+    const int pm = pk, pl = pk;
     ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, pk);
     ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, pk);
     ngx.params->Set(NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, pk);

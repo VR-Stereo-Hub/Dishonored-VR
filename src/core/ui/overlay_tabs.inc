@@ -854,6 +854,13 @@ static void OvlTabDisplay()
             }
             OvlTip("DLAA renders at full resolution. Quality, Balanced and Performance render smaller and rebuild the "
                    "full picture: faster, a little softer. The game resizes when you change it.");
+            bool fast = dvr::dlss::model() == 1;
+            if (dvr::ovl::checkbox("DLSS fast model", &fast)) {
+                dvr::dlss::set_model(fast ? 1 : 0, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssModel", fast ? "1" : "0", "F10 Display");
+            }
+            OvlTip("The older, lighter NVIDIA model: about half a millisecond per eye instead of two. "
+                   "Slightly less sharp and more prone to ghosting than the default.");
             ImGui::TextDisabled("DLSS: %s", dvr::dlss::summary());
         }
         ImGui::TextDisabled("%s", dvr::clarity::summary());

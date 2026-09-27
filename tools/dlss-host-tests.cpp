@@ -309,6 +309,35 @@ int main(int argc, char** argv) {
         bc.t->Release(); bd.t->Release(); bm.t->Release();
     }
 
+    // 4b. Cost per preset and mode at this machine's output (recorded, not asserted): the GPU time
+    //     of one evaluate at 2750x2850 output, per NGX render preset, for Performance (1374x1424
+    //     in) and Quality (1832x1900 in). The number that decides whether SR can beat native.
+    if (argc > 3 && !strcmp(argv[3], "--cost")) {
+        const uint32_t OW = 2750, OH = 2850;
+        const struct { uint32_t w, h; const char* name; } modes[] = {{1374, 1424, "Performance"}, {1832, 1900, "Quality"}, {2750, 2850, "DLAA"}};
+        const int presets[] = {0, 5, 6, 10, 11, 12, 13};
+        for (const auto& md : modes) {
+            Tex bc = make(md.w, md.h, DXGI_FORMAT_B8G8R8A8_UNORM), bd = make(md.w, md.h, DXGI_FORMAT_R32_FLOAT), bm = make(md.w, md.h, DXGI_FORMAT_R16G16_FLOAT);
+            auto sc = scene(md.w, md.h, 0, 0); upload(bc, sc.data(), md.w * 4);
+            std::vector<float> z((size_t)md.w * md.h, 0.5f); upload(bd, z.data(), md.w * 4);
+            std::vector<uint16_t> m((size_t)md.w * md.h * 2, 0); upload(bm, m.data(), md.w * 4);
+            for (int pr : presets) {
+                if (!c.build(0, md.w, md.h, OW, OH, DXGI_FORMAT_B8G8R8A8_UNORM, pr, why, sizeof(why))) {
+                    printf("INFO  cost %-11s preset %2d: build refused (%s)\n", md.name, pr, why); continue;
+                }
+                c.stats = dvr::dlss::Stats{};
+                bool ok = true;
+                for (int i = 0; i < 60 && ok; ++i) {
+                    EyeInputs in; in.color = bc.t; in.depth = bd.t; in.motion = bm.t; in.reset = i == 0;
+                    ok = c.evaluate(ctx, 0, in, why, sizeof(why));
+                }
+                printf("INFO  cost %-11s preset %2d: %ux%u -> %ux%u GPU evaluate %.2f ms (%llu samples)%s\n", md.name, pr, md.w, md.h, OW, OH,
+                       c.stats.gpuN[0] ? c.stats.gpuMsSum[0] / c.stats.gpuN[0] : -1.0, (unsigned long long)c.stats.gpuN[0], ok ? "" : " FAILED");
+            }
+            bc.t->Release(); bd.t->Release(); bm.t->Release();
+        }
+    }
+
     // 5. Helper loss: kill it; the next evaluate must fail fast and stop the client, never hang.
     {
         DWORD ids[1024], n = 0;
