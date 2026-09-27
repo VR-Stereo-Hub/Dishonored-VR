@@ -331,3 +331,13 @@ Display tab, after the DLAA, DLSS Super Resolution, model list and Ultra Quality
 | Jitter: include all eye-size passes | D | the speckle fix; leave on |
 | Supersampling resolve | REMOVED | judged no better in the headset (PERFORMANCE "Headset verdict"); `[Clarity] Resolve`, `clarity resolve` remain |
 | Diagnostic overhead A/B/A (Performance, debug) | REMOVED | no useful gain measured; `[Perf] DiagnosticAb` remains |
+
+## Follow-up: AMD FSR (2026-09-27)
+
+| Control | Tier | Note |
+|---|---|---|
+| Upscaler (NVIDIA DLSS / AMD FSR; `[Clarity] Upscaler`) | B | in "Upscaling and anti-aliasing (DLSS, FSR)", the renamed Basic section |
+| Upscaling / anti-aliasing on (was "NVIDIA DLSS") | B | same key, `[Clarity] DLAA` |
+| Mode | B | "DLAA" reads "Native AA" under FSR |
+| DLSS model | B | shown only for DLSS |
+| Reduce smearing, projection jitter | A | renamed from "DLSS: ..."; FSR uses them too |

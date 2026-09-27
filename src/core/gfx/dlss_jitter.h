@@ -67,6 +67,10 @@ inline void shift_rows(float* block, uint32_t start, uint32_t first, uint32_t la
 // by tools/dlss-host-tests.cpp ("projection jitter sign"), 512 -> 768 Quality, 18 phases: error
 // -x-y 0.0043, -x+y 0.0119, +x+y 0.0198, +x-y 0.0231, no jitter 0.0220.
 const float kReportX = -1.0f, kReportY = -1.0f;
+// FSR through the FidelityFX API reads the offset and the motion vectors in its own convention;
+// these are what tools/dlss-host-tests.cpp proved for it (the same tests as DLSS, FSR backend).
+const float kFsrReportX = -1.0f, kFsrReportY = -1.0f;
+const float kFsrMvSign = 1.0f;
 
 // ---- the mod side (dlss_jitter.cpp) -----------------------------------------
 void set_enabled(bool on, const char* who);

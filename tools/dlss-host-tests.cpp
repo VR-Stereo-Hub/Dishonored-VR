@@ -87,6 +87,176 @@ static std::vector<float> lum_of(const std::vector<uint32_t>& px) {
     return l;
 }
 
+// FSR (FidelityFX API) through the same helper: the checks that proved DLSS's conventions, run on
+// the FSR backend. Needs amd_fidelityfx_dx12.dll (tools\fetch-ffx.ps1) beside the helper.
+static void fsr_suite(const wchar_t* exe, const wchar_t* data, LARGE_INTEGER f0) {
+    printf("\n-- FSR backend --\n");
+    Client c;
+    dvr::dlss::StartParams sp; sp.hostExe = exe; sp.dataDir = data; sp.log = logfn; sp.backend = 1;
+    char why[512] = "";
+    LARGE_INTEGER t0, t1; QueryPerformanceCounter(&t0);
+    const bool started = c.start(dev, sp, why, sizeof(why));
+    QueryPerformanceCounter(&t1);
+    check(started, "FSR helper start + FidelityFX API", "%s, runtime %s, offers [%s] (%.0f ms) %s", started ? c.adapter() : "",
+          c.runtime(), c.offered(), (t1.QuadPart - t0.QuadPart) * 1000.0 / f0.QuadPart, why);
+    if (!started) return;
+    auto fsrIn = [](EyeInputs& in) { in.frameTimeMs = 11.1f; in.fovY = 1.6f; in.metersPerUnit = 2.3f; in.mvSign = dvr::dlss::jitter::kFsrMvSign; };
+    const uint32_t W = 512, H = 512;
+    bool b0 = c.build(0, W, H, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+    bool b1 = b0 && c.build(1, W, H, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+    check(b0 && b1, "two FSR native-AA contexts (one per eye)", "%ux%u, %s", W, H, why);
+    if (!(b0 && b1)) { c.stop(); return; }
+    Tex color[2] = {make(W, H, DXGI_FORMAT_B8G8R8A8_UNORM), make(W, H, DXGI_FORMAT_B8G8R8A8_UNORM)};
+    Tex depth = make(W, H, DXGI_FORMAT_R32_FLOAT), motion = make(W, H, DXGI_FORMAT_R16G16_FLOAT);
+    std::vector<float> dz((size_t)W * H, 0.5f);
+    upload(depth, dz.data(), W * 4);
+    std::vector<uint16_t> mv0((size_t)W * H * 2, 0);
+    upload(motion, mv0.data(), W * 4);
+    auto sA = scene(W, H, 0, 0), sB = scene(W, H, 1, 0);
+    upload(color[0], sA.data(), W * 4); upload(color[1], sB.data(), W * 4);
+    bool allOk = true;
+    for (int i = 0; i < 24; ++i)
+        for (int e = 0; e < 2; ++e) {
+            EyeInputs in; in.color = color[e].t; in.depth = depth.t; in.motion = motion.t; in.reset = i == 0; fsrIn(in);
+            if (!c.evaluate(ctx, e, in, why, sizeof(why))) { allOk = false; printf("      evaluate: %s\n", why); }
+        }
+    check(allOk, "FSR: 48 evaluates, alternating eyes", "%llu/%llu frames, %llu refused", (unsigned long long)c.stats.frames[0],
+          (unsigned long long)c.stats.frames[1], (unsigned long long)(c.stats.refused[0] + c.stats.refused[1]));
+    auto o0 = readback(c.output_texture(0), W, H), o1 = readback(c.output_texture(1), W, H);
+    auto lA = lum_of(sA), lB = lum_of(sB);
+    const float e00 = mae(o0, lA, W, H, 8), e01 = mae(o0, lB, W, H, 8), e11 = mae(o1, lB, W, H, 8), e10 = mae(o1, lA, W, H, 8);
+    bool finite = true; for (float v : o0) finite = finite && isfinite(v); for (float v : o1) finite = finite && isfinite(v);
+    check(finite && mean(o0) > 0.05f && mean(o1) > 0.05f, "FSR: outputs finite and not black", "mean L %.3f R %.3f (inputs %.3f %.3f)",
+          mean(o0), mean(o1), mean(lA), mean(lB));
+    check(e00 < 0.06f && e11 < 0.06f, "FSR: each eye reproduces its image", "|L-A| %.4f |R-B| %.4f (limit 0.06)", e00, e11);
+    check(e00 * 4 < e01 && e11 * 4 < e10, "FSR: eyes isolated", "|L-B| %.4f vs |L-A| %.4f, |R-A| %.4f vs |R-B| %.4f", e01, e00, e10, e11);
+
+    // Motion vectors: the scene moves +1 px/frame in x; the texture holds prev-cur UV (-1/W). With the
+    // production sign (kFsrMvSign) FSR must track the current image better than with the texture
+    // flipped. Fails if FSR reads the vectors the other way or ignores them.
+    auto half = [](float v) -> uint16_t {
+        uint32_t b; memcpy(&b, &v, 4);
+        const uint32_t s = (b >> 16) & 0x8000; int e = (int)((b >> 23) & 0xFF) - 127 + 15; uint32_t m = (b >> 13) & 0x3FF;
+        if (v == 0) return 0;
+        if (e <= 0) return (uint16_t)s;
+        return (uint16_t)(s | (e << 10) | m);
+    };
+    auto run_motion = [&](float mvx) {
+        std::vector<uint16_t> mv((size_t)W * H * 2);
+        const uint16_t hx = half(mvx);
+        for (size_t i = 0; i < (size_t)W * H; ++i) { mv[i * 2] = hx; mv[i * 2 + 1] = 0; }
+        upload(motion, mv.data(), W * 4);
+        float err = 0;
+        for (int i = 0; i < 20; ++i) {
+            auto s = scene(W, H, 0, (float)i);
+            upload(color[0], s.data(), W * 4);
+            EyeInputs in; in.color = color[0].t; in.depth = depth.t; in.motion = motion.t; in.reset = i == 0; fsrIn(in);
+            c.evaluate(ctx, 0, in, why, sizeof(why));
+            if (i == 19) err = mae(readback(c.output_texture(0), W, H), lum_of(s), W, H, 24);
+        }
+        return err;
+    };
+    const float good = run_motion(-1.0f / W), bad = run_motion(+1.0f / W), still = run_motion(0.0f);
+    check(good < bad && good <= still * 1.05f, "FSR: motion vector sign (kFsrMvSign)", "error true %.4f, flipped %.4f, zero %.4f (sign %+.0f)",
+          good, bad, still, dvr::dlss::jitter::kFsrMvSign);
+    upload(motion, mv0.data(), W * 4);
+    {
+        upload(color[1], sA.data(), W * 4);
+        EyeInputs in; in.color = color[1].t; in.depth = depth.t; in.motion = motion.t; in.reset = true; fsrIn(in);
+        c.evaluate(ctx, 1, in, why, sizeof(why));
+        const float er = mae(readback(c.output_texture(1), W, H), lA, W, H, 8);
+        check(er < 0.08f, "FSR: reset takes the new image at once", "|R-A| after cut %.4f (limit 0.08)", er);
+    }
+    {   // Upscaling 512 -> 768 (Quality).
+        const uint32_t OW = 768, OH = 768;
+        bool ok = c.build(0, W, H, OW, OH, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+        float err = 1;
+        if (ok) {
+            upload(color[0], sA.data(), W * 4);
+            for (int i = 0; i < 16 && ok; ++i) {
+                EyeInputs in; in.color = color[0].t; in.depth = depth.t; in.motion = motion.t; in.reset = i == 0; fsrIn(in);
+                ok = c.evaluate(ctx, 0, in, why, sizeof(why));
+            }
+            auto out = readback(c.output_texture(0), OW, OH);
+            std::vector<float> big((size_t)OW * OH);
+            for (uint32_t y = 0; y < OH; ++y) for (uint32_t x = 0; x < OW; ++x) big[y * OW + x] = lA[(y * H / OH) * W + (x * W / OW)];
+            err = mae(out, big, OW, OH, 12);
+        }
+        check(ok && err < 0.08f, "FSR: upscale 512 -> 768", "%s, error vs the enlarged input %.4f (limit 0.08)", ok ? "built" : why, err);
+    }
+    {   // Projection jitter sign, as for DLSS.
+        const uint32_t OW = 768, OH = 768, N = 18;
+        auto g = [&](float u, float v) {
+            float s = (u * 0.94f + v * 0.34f) > W * 0.55f ? 0.9f : 0.15f;
+            if ((u * 0.28f - v * 0.96f) > -H * 0.30f) s = 1.05f - s;
+            if (u > 60 && u < 200 && v > 300 && v < 440) s = 0.5f + 0.4f * sinf((u * 0.9f + v * 0.44f) * 6.2831853f / 1.47f);
+            return s;
+        };
+        std::vector<float> ref((size_t)OW * OH);
+        for (uint32_t y = 0; y < OH; ++y)
+            for (uint32_t x = 0; x < OW; ++x) {
+                float a = 0;
+                for (int j = 0; j < 4; ++j) for (int i = 0; i < 4; ++i)
+                    a += g((x + (i + 0.5f) / 4) * W / OW, (y + (j + 0.5f) / 4) * H / OH);
+                ref[(size_t)y * OW + x] = a / 16;
+            }
+        bool ok = c.build(0, W, H, OW, OH, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+        auto run_jit = [&](bool jit, float rx, float ry) {
+            std::vector<uint32_t> px((size_t)W * H);
+            double err = 0; int n = 0;
+            for (uint32_t f = 0; f < 64 && ok; ++f) {
+                float sx = 0, sy = 0;
+                if (jit) dvr::dlss::jitter::phase_offset(f, N, &sx, &sy);
+                for (uint32_t y = 0; y < H; ++y)
+                    for (uint32_t x = 0; x < W; ++x) {
+                        const float v = g(x + 0.5f + sx, y + 0.5f + sy);
+                        const uint32_t cc = (uint32_t)(fminf(fmaxf(v, 0.0f), 1.0f) * 255.0f + 0.5f);
+                        px[(size_t)y * W + x] = 0xFF000000u | (cc << 16) | (cc << 8) | cc;
+                    }
+                upload(color[0], px.data(), W * 4);
+                EyeInputs in; in.color = color[0].t; in.depth = depth.t; in.motion = motion.t; in.reset = f == 0; fsrIn(in);
+                in.jitterX = rx * sx; in.jitterY = ry * sy;
+                ok = c.evaluate(ctx, 0, in, why, sizeof(why));
+                if (f >= 56) { err += mae(readback(c.output_texture(0), OW, OH), ref, OW, OH, 16); ++n; }
+            }
+            return n ? (float)(err / n) : 1.0f;
+        };
+        const float none = run_jit(false, 0, 0), unreported = run_jit(true, 0, 0);
+        const float pp = run_jit(true, 1, 1), mm = run_jit(true, -1, -1), pm = run_jit(true, 1, -1), mp = run_jit(true, -1, 1);
+        const float prod = run_jit(true, dvr::dlss::jitter::kFsrReportX, dvr::dlss::jitter::kFsrReportY);
+        const float best = fminf(fminf(pp, mm), fminf(pm, mp));
+        check(ok && prod <= best * 1.0001f && prod < none, "FSR: projection jitter sign (kFsrReportX/Y)",
+              "error: production (%+.0f,%+.0f) %.4f | +x+y %.4f, -x-y %.4f, +x-y %.4f, -x+y %.4f | no jitter %.4f, "
+              "jittered but reported 0 %.4f%s", dvr::dlss::jitter::kFsrReportX, dvr::dlss::jitter::kFsrReportY, prod, pp, mm, pm, mp,
+              none, unreported, ok ? "" : why);
+    }
+    {   // Cost at this machine's output (recorded): native AA at eye size, and Quality / Performance
+        // into 2750x2850 - the numbers that decide whether FSR can raise the headset's rate.
+        const uint32_t OW = 2750, OH = 2850;
+        const struct { uint32_t w, h; const char* name; } modes[] = {{2750, 2850, "Native AA"}, {1832, 1900, "Quality"}, {1374, 1424, "Performance"}};
+        for (const auto& md : modes) {
+            Tex bc = make(md.w, md.h, DXGI_FORMAT_B8G8R8A8_UNORM), bd = make(md.w, md.h, DXGI_FORMAT_R32_FLOAT), bm = make(md.w, md.h, DXGI_FORMAT_R16G16_FLOAT);
+            auto sc = scene(md.w, md.h, 0, 0); upload(bc, sc.data(), md.w * 4);
+            std::vector<float> z((size_t)md.w * md.h, 0.5f); upload(bd, z.data(), md.w * 4);
+            std::vector<uint16_t> m((size_t)md.w * md.h * 2, 0); upload(bm, m.data(), md.w * 4);
+            bool ok = c.build(0, md.w, md.h, OW, OH, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+            c.stats = dvr::dlss::Stats{};
+            for (int i = 0; i < 60 && ok; ++i) {
+                EyeInputs in; in.color = bc.t; in.depth = bd.t; in.motion = bm.t; in.reset = i == 0; fsrIn(in);
+                ok = c.evaluate(ctx, 0, in, why, sizeof(why));
+            }
+            check(ok, md.name[0] == 'N' ? "FSR cost: native AA at 2750x2850" : md.name[0] == 'Q' ? "FSR cost: Quality -> 2750x2850"
+                                                                                                   : "FSR cost: Performance -> 2750x2850",
+                  "%ux%u -> %ux%u GPU dispatch %.2f ms per eye (%llu samples), present-thread CPU avg %.3f ms%s", md.w, md.h, OW, OH,
+                  c.stats.gpuN[0] ? c.stats.gpuMsSum[0] / c.stats.gpuN[0] : -1.0, (unsigned long long)c.stats.gpuN[0],
+                  c.stats.cpuMsSum[0] / 60, ok ? "" : why);
+            bc.t->Release(); bd.t->Release(); bm.t->Release();
+        }
+    }
+    color[0].t->Release(); color[1].t->Release(); depth.t->Release(); motion.t->Release();
+    c.stop();
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) { printf("usage: dlss-host-tests <helper exe> <data dir>\n"); return 2; }
     wchar_t exe[MAX_PATH], data[MAX_PATH];
@@ -97,6 +267,16 @@ int main(int argc, char** argv) {
         printf("FAIL  no D3D11 device\n"); return 1;
     }
     printf("dlss host tests: 32-bit client (sizeof(void*)=%u), D3D11 feature level 0x%X\n", (unsigned)sizeof(void*), (unsigned)fl);
+    {   // --fsr: the FSR backend's suite only
+        bool fsrOnly = false;
+        for (int i = 3; i < argc; ++i) fsrOnly = fsrOnly || !strcmp(argv[i], "--fsr");
+        if (fsrOnly) {
+            LARGE_INTEGER fq; QueryPerformanceFrequency(&fq);
+            fsr_suite(exe, data, fq);
+            printf("\n%d passed, %d failed\n", g_pass, g_fail);
+            return g_fail ? 1 : 0;
+        }
+    }
 
     // 0. The D3D9 side of the jitter, on the CPU: a camera-relative row-vector view-projection of
     //    the game's measured layout (clip = [P - C, 1] * M, clip.w = view depth; PERFORMANCE.md,
@@ -488,6 +668,7 @@ int main(int argc, char** argv) {
               r ? "succeeded" : "failed", ms, (int)c.running(), why);
     }
     c.stop();
+    fsr_suite(exe, data, f0);
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

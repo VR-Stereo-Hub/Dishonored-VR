@@ -2,7 +2,7 @@
 # client (the proxy's own dlss_client.cpp) and runs tools\dlss-host-tests.cpp. Needs an
 # NVIDIA RTX GPU and tools\fetch-ngx.ps1. Never launches the game.
 # NOTE: keep this file pure ASCII (PowerShell 5.1 misreads BOM-less UTF-8).
-param([switch]$Cost)   # -Cost: also time every NGX preset at 2750x2850 output (slow)
+param([switch]$Cost, [switch]$Fsr)   # -Cost: also time every NGX preset at 2750x2850 output (slow); -Fsr: the FSR suite only
 $ErrorActionPreference = "Stop"
 if (Get-Process Dishonored -ErrorAction SilentlyContinue) { throw "Close the game before native GPU checks." }
 $repo = Split-Path -Parent $PSScriptRoot
@@ -22,7 +22,8 @@ try {
         (Join-Path $PSScriptRoot "dlss-host-tests.cpp") (Join-Path $repo "src\core\gfx\dlss_client.cpp") (Join-Path $repo "src\core\gfx\dlss_gpu.cpp") /link d3d11.lib dxgi.lib
     if ($LASTEXITCODE -ne 0) { throw "dlss host test compilation failed." }
     $data = Join-Path $out "data"
-    if ($Cost) { .\dlss-host-tests.exe (Join-Path $repo "build\dlss_host\dvr_dlss_host64.exe") $data --cost }
+    if ($Fsr) { .\dlss-host-tests.exe (Join-Path $repo "build\dlss_host\dvr_dlss_host64.exe") $data --fsr }
+    elseif ($Cost) { .\dlss-host-tests.exe (Join-Path $repo "build\dlss_host\dvr_dlss_host64.exe") $data --cost }
     else { .\dlss-host-tests.exe (Join-Path $repo "build\dlss_host\dvr_dlss_host64.exe") $data }
     $rc = $LASTEXITCODE
     Write-Host "helper log: $data\dlss_host.log"

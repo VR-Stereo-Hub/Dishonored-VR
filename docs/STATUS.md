@@ -1,3 +1,11 @@
+## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
+
+Branch `claude/fsr-upscaler`. FSR 3.1.4 runs in the existing x64 helper through AMD's FidelityFX API
+(FSR 4 when SDK 2.x's loader DLL sits beside it on an RDNA4 GPU). F10 Basic: Upscaler = NVIDIA DLSS | AMD
+FSR; `[Clarity] Upscaler`, `dlss backend fsr`. Host 30/30 (FSR 13/13, signs proved), FSR per eye at 2750x2850
+native 1.7-1.8 ms / Quality 1.23 / Performance 0.93-0.98. Simulator: all modes live, images clean. Headset
+still owed: `tools/perf-plans/fsr-1.txt` (FSR vs DLSS vs off in one run). Detail: PERFORMANCE "AMD FSR 3.1".
+
 ## Uncap deep dive answered; DLSS in F10 Basic (2026-09-27, merged to staging)
 
 The headset is GPU-bound at 2750x2850: a GPU timeline (new `tools/perf-gpu-timeline.py` on a DvrGpu WPR

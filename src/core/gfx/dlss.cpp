@@ -14,10 +14,12 @@
 
 #include "core/util/log.h"
 #include "core/util/paths.h"
+#include "game/dishonored/camera.h"
 
 #include <windows.h>
 #include <d3d11.h>
 #include <atomic>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +31,11 @@ namespace {
 enum State { Idle = 0, Working, Ready, Failed };
 
 std::atomic<int> g_mode{ModeOff};
+std::atomic<int> g_backend{BackendDlss};
+std::atomic<int> g_fsrVersion{0};
+std::atomic<bool> g_restart{false};   // the backend changed: the present thread stops the helper
+char g_runtime[64] = "";
+uint64_t g_lastEyeQpc[2] = {};
 std::atomic<int> g_preset{0};
 std::atomic<int> g_quality{QDlaa};
 std::atomic<int> g_model{0};
@@ -36,6 +43,8 @@ std::atomic<bool> g_audit{false};
 std::atomic<uint32_t> g_outW{0}, g_outH{0};
 const float kRatio[QCount] = {1.0f, 1.5f, 1.7241f, 2.0f, 3.0f, 1.3f};
 const char* const kQualityName[QCount] = {"DLAA", "Quality", "Balanced", "Performance", "Ultra Performance", "Ultra Quality"};
+// FSR's name for the full-resolution mode; the others are the same words.
+const char* mode_name(int q) { return (q == QDlaa && g_backend.load() == BackendFsr) ? "Native AA" : kQualityName[q]; }
 const char* const kQualityWord[QCount] = {"dlaa", "quality", "balanced", "performance", "ultraperformance", "ultraquality"};
 std::atomic<bool> g_mask{false};
 std::atomic<float> g_maskLo{0.03f}, g_maskHi{0.12f};
@@ -75,11 +84,20 @@ void work(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt, int
         _snwprintf_s(data, _TRUNCATE, L"%hs\\dlss", dvr::paths::data_dir());
         StartParams sp;
         sp.hostExe = exe; sp.dataDir = data; sp.log = client_log;
+        sp.backend = (uint32_t)g_backend.load();
+        sp.fsrVersion = (uint32_t)g_fsrVersion.load();
         ok = g_client.start(g_dev, sp, why, sizeof(why));
-        if (ok) g_helperStarted = true;
+        if (ok) { g_helperStarted = true; strcpy_s(g_runtime, g_client.runtime()); }
     }
     for (int e = 0; ok && e < 2; ++e) ok = g_client.build(e, w, h, ow, oh, fmt, preset, why, sizeof(why));
-    if (ok) {
+    if (ok && g_backend.load() == BackendFsr) {
+        DVR_INFO("dlss: AMD %s %s ready on %s for both eyes, %ux%u -> %ux%u (%.2fx per axis, %.0f%% of the output's pixels "
+                 "rendered; colour format %d), %.1f MiB shared with the helper - FSR now owns the eye image; the custom "
+                 "temporal AA stands down", g_client.runtime(), (w == ow && h == oh) ? "native AA" : "upscaling",
+                 g_client.adapter(), w, h, ow, oh, (double)ow / w, 100.0 * w * h / ((double)ow * oh), (int)fmt,
+                 g_client.bytes() / (1024.0 * 1024.0));
+        g_state.store(Ready);
+    } else if (ok) {
         DVR_INFO("dlss: %s ready on %s for both eyes, %ux%u -> %ux%u (%.2fx per axis, %.0f%% of the output's pixels "
                  "rendered; colour format %d, preset %d%s), %.1f MiB shared with the helper - DLSS now owns the eye "
                  "image; the custom temporal AA stands down",
@@ -92,7 +110,7 @@ void work(uint32_t w, uint32_t h, uint32_t ow, uint32_t oh, DXGI_FORMAT fmt, int
         g_state.store(Ready);
     } else {
         strcpy_s(g_why, why);
-        DVR_WARN("dlss: DLAA unavailable (%s) - the normal path runs; `dlss retry` or toggling it tries again", why);
+        DVR_WARN("dlss: %s unavailable (%s) - the normal path runs; `dlss retry` or toggling it tries again", backend_name(), why);
         if (!g_client.running()) g_helperStarted = false;
         g_state.store(Failed);
     }
@@ -120,8 +138,9 @@ void status_tick() {
     DVR_INFO("dlss: %s %ux%u -> %ux%u: %.0f/s L %.0f/s R, fallback %.0f/s, history resets %llu | helper GPU evaluate L %.2f R %.2f ms "
              "(-1 = not sampled), present-thread cost L %.2f R %.2f ms max %.2f | refused L %llu R %llu | %.1f MiB shared + %.1f MiB guides "
              "| camera-only vectors, projection jitter %s",
-             (g_wantW == g_wantOw && g_wantH == g_wantOh) ? "DLAA" : kQualityName[g_quality.load()], g_wantW, g_wantH, g_wantOw, g_wantOh,
-             g_win.eyes[0] / s, g_win.eyes[1] / s, g_win.fallback / s, (unsigned long long)g_win.resets, gl, gr, cl, cr,
+             g_backend.load() == BackendFsr ? g_runtime
+                 : (g_wantW == g_wantOw && g_wantH == g_wantOh) ? "DLAA" : kQualityName[g_quality.load()],
+             g_wantW, g_wantH, g_wantOw, g_wantOh, g_win.eyes[0] / s, g_win.eyes[1] / s, g_win.fallback / s, (unsigned long long)g_win.resets, gl, gr, cl, cr,
              st.cpuMsMax[0] > st.cpuMsMax[1] ? st.cpuMsMax[0] : st.cpuMsMax[1],
              (unsigned long long)st.refused[0], (unsigned long long)st.refused[1],
              g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0), jitter::summary());
@@ -167,8 +186,9 @@ void status_tick() {
         }
         g_guides.flow = FlowStats{};
     }
-    _snprintf_s(g_summary, _TRUNCATE, "%s %ux%u -> %ux%u, L %.0f/s R %.0f/s, GPU %.2f/%.2f ms per eye, fallback %.0f/s",
-                (g_wantW == g_wantOw && g_wantH == g_wantOh) ? "DLAA" : kQualityName[g_quality.load()], g_wantW, g_wantH,
+    _snprintf_s(g_summary, _TRUNCATE, "%s %s %ux%u -> %ux%u, L %.0f/s R %.0f/s, GPU %.2f/%.2f ms per eye, fallback %.0f/s",
+                g_backend.load() == BackendFsr ? g_runtime : "DLSS",
+                (g_wantW == g_wantOw && g_wantH == g_wantOh) ? mode_name(QDlaa) : kQualityName[g_quality.load()], g_wantW, g_wantH,
                 g_wantOw, g_wantOh, g_win.eyes[0] / s, g_win.eyes[1] / s, gl, gr, g_win.fallback / s);
     g_win = Window{};
     st = Stats{};
@@ -185,6 +205,26 @@ void set_mode(int m, const char* who) {
     if (m) g_retry.store(true);
 }
 int mode() { return g_mode.load(); }
+
+void set_backend(int b, const char* who) {
+    b = b == BackendFsr ? BackendFsr : BackendDlss;
+    const int was = g_backend.exchange(b);
+    if (was == b) return;
+    DVR_INFO("dlss: upscaler %s -> %s (%s)%s", was == BackendFsr ? "FSR" : "DLSS", b == BackendFsr ? "FSR" : "DLSS",
+             who ? who : "?", g_mode.load() ? " - the helper restarts on the other backend" : "");
+    g_restart.store(true);
+}
+int backend() { return g_backend.load(); }
+const char* backend_name() { return g_backend.load() == BackendFsr ? "FSR" : "DLSS"; }
+void set_fsr_version(int v, const char* who) {
+    if (v < 0 || v > 16) v = 0;
+    if (g_fsrVersion.exchange(v) == v) return;
+    DVR_INFO("dlss: FSR version -> %d (%s; 0 = the runtime's default)%s", v, who ? who : "?",
+             g_backend.load() == BackendFsr ? " - the helper restarts" : "");
+    if (g_backend.load() == BackendFsr) g_restart.store(true);
+}
+int fsr_version() { return g_fsrVersion.load(); }
+const char* runtime_name() { return g_backend.load() == BackendFsr ? g_runtime : ""; }
 
 const ModelChoice kModelChoices[] = {
     {"Transformer K (default)", 0, 0,
@@ -259,7 +299,7 @@ void set_quality(int q, const char* who) {
 }
 int quality() { return g_quality.load(); }
 float ratio() { return kRatio[g_quality.load()]; }
-const char* quality_name(int q) { return (q >= 0 && q < QCount) ? kQualityName[q] : "?"; }
+const char* quality_name(int q) { return (q >= 0 && q < QCount) ? mode_name(q) : "?"; }
 void set_output(uint32_t w, uint32_t h, const char* who) {
     if (w && h && (w < 640 || h < 480 || w > 16384 || h > 16384)) return;
     if (g_outW.load() == w && g_outH.load() == h) return;
@@ -312,6 +352,10 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
         return nullptr;
     }
     if (!dev || !ctx || !src || (eye != 0 && eye != 1)) return nullptr;
+    if (g_restart.exchange(false) && g_state.load() != Idle) {
+        DVR_INFO("dlss: stopping the helper to restart it as %s", backend_name());
+        shutdown();
+    }
     status_tick();
     ID3D11Resource* res = nullptr;
     src->GetResource(&res);
@@ -355,9 +399,22 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     in.color = color; in.depth = g_guides.depth(); in.motion = g_guides.motion();
     in.afterCopy = [](ID3D11DeviceContext* c) { dvr::capture::read_done(c); };
     in.reset = reset;
-    // The offset this image was drawn with, as DLSS reads it (the sign the host test proved).
-    in.jitterX = jitter::kReportX * gp.jitter[0];
-    in.jitterY = jitter::kReportY * gp.jitter[1];
+    // The offset this image was drawn with, as the backend reads it (the sign the host test proved).
+    const bool fsr = g_backend.load() == BackendFsr;
+    in.jitterX = (fsr ? jitter::kFsrReportX : jitter::kReportX) * gp.jitter[0];
+    in.jitterY = (fsr ? jitter::kFsrReportY : jitter::kReportY) * gp.jitter[1];
+    in.mvSign = fsr ? jitter::kFsrMvSign : 1.0f;
+    {   // FSR's depth reconstruction: the time since this eye's last image, the render's vertical FOV
+        // and one depth unit in metres (gp.depthScale uu per unit, world_scale uu per metre).
+        LARGE_INTEGER t, f; QueryPerformanceCounter(&t); QueryPerformanceFrequency(&f);
+        const uint64_t prev = g_lastEyeQpc[eye];
+        g_lastEyeQpc[eye] = (uint64_t)t.QuadPart;
+        in.frameTimeMs = prev ? (float)((double)((uint64_t)t.QuadPart - prev) * 1000.0 / (double)f.QuadPart) : 0.0f;
+        if (in.frameTimeMs > 100.0f) in.frameTimeMs = 100.0f;
+        in.fovY = gp.tanV > 0.0f ? 2.0f * atanf(gp.tanV) : 0.0f;
+        const float uuPerM = dvr::camera::world_scale();
+        in.metersPerUnit = uuPerM > 1.0f ? gp.depthScale / uuPerM : 0.0f;
+    }
     if (reset) ++g_win.resets;
     // The mask, the audit and the previous-image copy they read cost GPU time on every eye image,
     // so they run only when the mask or the audit is on.
@@ -408,7 +465,7 @@ void shutdown() {
 const char* summary() {
     if (g_mode.load() == ModeOff) return "off";
     switch (g_state.load()) {
-    case Working: return "starting the DLSS helper...";
+    case Working: return g_backend.load() == BackendFsr ? "starting the FSR helper..." : "starting the DLSS helper...";
     case Failed: return g_why;
     case Idle: return "waiting for the first eye image";
     default: return g_summary;
@@ -421,6 +478,8 @@ bool command(const char* args) {
     if (n >= 1 && (!_stricmp(sub, "on") || !_stricmp(sub, "dlaa"))) { set_mode(ModeDlaa, "the seam"); return true; }
     if (n >= 1 && !_stricmp(sub, "off")) { set_mode(ModeOff, "the seam"); return true; }
     if (n >= 1 && !_stricmp(sub, "retry")) { g_retry.store(true); DVR_INFO("dlss: retry requested (the seam)"); return true; }
+    if (n >= 2 && !_stricmp(sub, "backend")) { set_backend(!_stricmp(val, "fsr") || !strcmp(val, "1") ? BackendFsr : BackendDlss, "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "fsrversion")) { set_fsr_version(atoi(val), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "preset")) { set_preset(atoi(val), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "model")) {
         const char* names[] = {"k", "j", "m", "l", "permode", "fast"};
@@ -466,7 +525,7 @@ bool command(const char* args) {
         float lo = 0, hi = 0;
         if (sscanf(args, "%*s %f %f", &lo, &hi) == 2) { set_mask_range(lo, hi, "the seam"); return true; }
     }
-    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, model k|j|m|l|permode|fast, preset <0..16>, quality <0..5|dlaa|ultraquality|quality|balanced|performance|ultraperformance>, output <w> <h>, "
+    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, backend dlss|fsr, fsrversion <0..n>, model k|j|m|l|permode|fast, preset <0..16>, quality <0..5|dlaa|ultraquality|quality|balanced|performance|ultraperformance>, output <w> <h>, "
              "audit on|off, mask on|off, jitter on|off, jitter wide on|off, "
              "maskrange <lo> <hi> | mask %s %.3f..%.3f | jitter %s",
              g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary(), g_mask.load() ? "on" : "off",

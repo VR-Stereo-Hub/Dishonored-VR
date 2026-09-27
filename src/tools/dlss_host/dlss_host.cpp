@@ -16,6 +16,12 @@
 // This software contains source code provided by NVIDIA Corporation (the NGX SDK helper
 // headers it compiles against).
 //
+// FSR (2026-09-27): the same helper runs AMD FSR through the FidelityFX API when the proxy asks for
+// it in its Hello (dlss_ipc.h Backend): SDK 2.x's amd_fidelityfx_loader_dx12.dll when it sits beside
+// this exe (FSR 4 on RDNA4 GPUs, FSR 3.1 elsewhere), else SDK 1.1.4's amd_fidelityfx_dx12.dll
+// (FSR 3.1). Both are AMD's signed prebuilt DLLs, MIT (third_party/ffx/LICENSE.txt). One upscale
+// context per eye on the same shared textures and fences as DLSS.
+//
 // Command line: dvr_dlss_host64.exe <game pid> --luid <high> <low> --data <dir>
 // Log: <dir>\dlss_host.log (previous run: dlss_host.prev.log).
 #define WIN32_LEAN_AND_MEAN
@@ -33,6 +39,11 @@
 
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_helpers.h>
+
+#include <ffx_api/ffx_api.h>
+#include <ffx_api/ffx_upscale.h>
+#include <ffx_api/ffx_api_loader.h>
+#include <ffx_api/dx12/ffx_api_dx12.h>
 
 #include "core/gfx/dlss_ipc.h"
 
@@ -259,13 +270,81 @@ void SafeReleaseFeature(NVSDK_NGX_Handle* h) {
 }
 
 // ---------------------------------------------------------------------------------------
+// FSR through the FidelityFX API
+// ---------------------------------------------------------------------------------------
+struct Ffx {
+    bool up = false;
+    HMODULE mod = nullptr;
+    ffxFunctions fn = {};
+    uint64_t versionId = 0;     // 0 = let the runtime choose (its default)
+    char dll[64] = "";
+    char chosen[64] = "";
+    char offered[128] = "";
+} ffx;
+
+void FfxMessage(uint32_t type, const wchar_t* message) {
+    char m[512] = "";
+    WideCharToMultiByte(CP_UTF8, 0, message ? message : L"", -1, m, sizeof(m), nullptr, nullptr);
+    Log("[ffx] runtime %s: %s", type == FFX_API_MESSAGE_TYPE_ERROR ? "ERROR" : "warning", m);
+}
+
+bool InitFfx(uint32_t want) {
+    wchar_t dir[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, dir, MAX_PATH);
+    if (wchar_t* sl = wcsrchr(dir, L'\\')) *(sl + 1) = 0;
+    static const wchar_t* const kDlls[] = {L"amd_fidelityfx_loader_dx12.dll", L"amd_fidelityfx_dx12.dll"};
+    for (const wchar_t* name : kDlls) {
+        wchar_t path[MAX_PATH];
+        _snwprintf_s(path, _TRUNCATE, L"%s%s", dir, name);
+        if (GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES) continue;
+        ffx.mod = LoadLibraryW(path);
+        if (ffx.mod) { WideCharToMultiByte(CP_UTF8, 0, name, -1, ffx.dll, sizeof(ffx.dll), nullptr, nullptr); break; }
+        Log("[ffx] %ls exists but did not load (%lu)", path, GetLastError());
+    }
+    if (!ffx.mod) { Log("[ffx] no FidelityFX API DLL beside %ls (amd_fidelityfx_loader_dx12.dll or amd_fidelityfx_dx12.dll)", dir); return false; }
+    ffxLoadFunctions(&ffx.fn, ffx.mod);
+    if (!ffx.fn.CreateContext || !ffx.fn.DestroyContext || !ffx.fn.Query || !ffx.fn.Dispatch) {
+        Log("[ffx] %s lacks the FidelityFX API exports", ffx.dll); return false;
+    }
+    // Every upscaler version this runtime offers on this device. SDK 2.x lists FSR 4 first on a GPU
+    // that runs it; SDK 1.1.4 offers FSR 3.1.x.
+    const uint64_t kMax = 16;
+    uint64_t count = kMax, ids[kMax] = {};
+    const char* names[kMax] = {};
+    ffxQueryDescGetVersions q = {};
+    q.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    q.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+    q.device = g.dev;
+    q.outputCount = &count;
+    q.versionIds = ids;
+    q.versionNames = names;
+    const ffxReturnCode_t rc = ffx.fn.Query(nullptr, &q.header);
+    if (rc != FFX_API_RETURN_OK || !count) { Log("[ffx] %s offers no upscaler on this device (query %u, %llu versions)", ffx.dll, rc, (unsigned long long)count); return false; }
+    size_t at = 0;
+    for (uint64_t i = 0; i < count && i < kMax; ++i) {
+        const int n = _snprintf_s(ffx.offered + at, sizeof(ffx.offered) - at, _TRUNCATE, "%s%s", i ? ", " : "", names[i] ? names[i] : "?");
+        if (n > 0) at += (size_t)n;
+        Log("[ffx] offers %llu: %s (id 0x%llX)", (unsigned long long)(i + 1), names[i] ? names[i] : "?", (unsigned long long)ids[i]);
+    }
+    const uint64_t pick = (want >= 1 && want <= count) ? want - 1 : 0;
+    ffx.versionId = ids[pick];
+    strcpy_s(ffx.chosen, names[pick] ? names[pick] : "?");
+    Log("[ffx] %s: using %s (%s)", ffx.dll, ffx.chosen, want ? "asked by the proxy" : "the runtime's first, its default");
+    ffx.up = true;
+    return true;
+}
+
+// ---------------------------------------------------------------------------------------
 // One eye: its shared resources, fences and DLSS feature
 // ---------------------------------------------------------------------------------------
+uint32_t g_backend = BackendDlss;
+
 struct Eye {
     ID3D12Resource* tex[SlotCount] = {};
     ID3D12Fence* in = nullptr;
     ID3D12Fence* out = nullptr;
     NVSDK_NGX_Handle* feature = nullptr;
+    ffxContext fsr = nullptr;
     Build b = {};
     uint64_t frames = 0, failures = 0;
     double gpuSum = 0; uint64_t gpuN = 0;
@@ -277,6 +356,11 @@ void ReleaseEye(Eye& e) {
         WaitValue(g.next, 5000);
         SafeReleaseFeature(e.feature);
         e.feature = nullptr;
+    }
+    if (e.fsr) {
+        WaitValue(g.next, 5000);
+        ffx.fn.DestroyContext(&e.fsr, nullptr);
+        e.fsr = nullptr;
     }
     for (auto& t : e.tex) Release(t);
     Release(e.in); Release(e.out);
@@ -301,6 +385,47 @@ void Transition(ID3D12Resource* r, D3D12_RESOURCE_STATES from, D3D12_RESOURCE_ST
     g.list->ResourceBarrier(1, &b);
 }
 
+bool BuildFsr(Eye& e, const Build& b, BuildAck& ack) {
+    ffxCreateBackendDX12Desc be = {};
+    be.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_DX12;
+    be.device = g.dev;
+    ffxOverrideVersion ov = {};
+    ov.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+    ov.versionId = ffx.versionId;
+    if (ffx.versionId) be.header.pNext = &ov.header;
+    ffxCreateContextDescUpscale cd = {};
+    cd.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+    cd.header.pNext = &be.header;
+    cd.maxRenderSize = {b.width, b.height};
+    cd.maxUpscaleSize = {b.outWidth, b.outHeight};
+    // The proxy's colour is the game's gamma-encoded LDR image; its depth is 1 / (1 + z): inverted,
+    // infinite far (dlss_ipc.h Frame).
+    uint32_t flags = FFX_UPSCALE_ENABLE_NON_LINEAR_COLORSPACE | FFX_UPSCALE_ENABLE_DEPTH_INFINITE;
+    if (b.depthInverted) flags |= FFX_UPSCALE_ENABLE_DEPTH_INVERTED;
+    if (b.autoExposure) flags |= FFX_UPSCALE_ENABLE_AUTO_EXPOSURE;
+    cd.flags = flags;
+    cd.fpMessage = FfxMessage;
+    const ffxReturnCode_t rc = ffx.fn.CreateContext(&e.fsr, &cd.header, nullptr);
+    ack.ngxResult = rc;
+    if (rc != FFX_API_RETURN_OK || !e.fsr) {
+        _snprintf_s(ack.detail, _TRUNCATE, "FSR CreateContext returned %u", rc);
+        Log("[eye%u] %s", b.eye, ack.detail);
+        e.fsr = nullptr;
+        ReleaseEye(e);
+        return false;
+    }
+    ffxQueryGetProviderVersion pv = {};
+    pv.header.type = FFX_API_QUERY_DESC_TYPE_GET_PROVIDER_VERSION;
+    ffx.fn.Query(&e.fsr, &pv.header);
+    const float ratio = b.width ? (float)b.outWidth / (float)b.width : 1.0f;
+    Log("[eye%u] FSR context ready: %ux%u -> %ux%u %s (%.2fx per axis), provider %s, flags 0x%X, colour fmt %u, output fmt %u",
+        b.eye, b.width, b.height, b.outWidth, b.outHeight, ratio == 1.0f ? "native AA" : "upscale", ratio,
+        pv.versionName ? pv.versionName : ffx.chosen, flags, b.colorFormat, b.outputFormat);
+    if (pv.versionName) strcpy_s(ffx.chosen, pv.versionName);
+    ack.ok = 1;
+    return true;
+}
+
 bool DoBuild(const Build& b, BuildAck& ack) {
     ack.eye = b.eye;
     if (b.eye > 1) { strcpy_s(ack.detail, "invalid eye"); return false; }
@@ -315,6 +440,7 @@ bool DoBuild(const Build& b, BuildAck& ack) {
     ok = OpenHandle(b.fenceIn, __uuidof(ID3D12Fence), (void**)&e.in, "fence in", ack.detail, sizeof(ack.detail)) && ok;
     ok = OpenHandle(b.fenceOut, __uuidof(ID3D12Fence), (void**)&e.out, "fence out", ack.detail, sizeof(ack.detail)) && ok;
     if (!ok) { Log("[eye%u] build refused: %s", b.eye, ack.detail); ReleaseEye(e); return false; }
+    if (g_backend == BackendFsr) return BuildFsr(e, b, ack);
 
     const bool dlaa = b.outWidth == b.width && b.outHeight == b.height;
     // The quality mode follows the per-axis ratio the proxy chose (dlss.h): 1.5 Quality,
@@ -373,8 +499,72 @@ bool DoBuild(const Build& b, BuildAck& ack) {
     return true;
 }
 
+bool DoFrameFsr(const Frame& f, FrameAck& ack) {
+    Eye& e = eyes[f.eye];
+    g.queue->Wait(e.in, f.value);
+    if (!Begin()) { g.queue->Signal(e.out, f.value); ack.ok = 0; return false; }
+    const bool timed = g.stamps && g.freq;
+    if (timed) g.list->EndQuery(g.stamps, D3D12_QUERY_TYPE_TIMESTAMP, g.slot * 2);
+    const D3D12_RESOURCE_STATES read = D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    Transition(e.tex[Color], D3D12_RESOURCE_STATE_COMMON, read);
+    Transition(e.tex[Depth], D3D12_RESOURCE_STATE_COMMON, read);
+    Transition(e.tex[Motion], D3D12_RESOURCE_STATE_COMMON, read);
+    if (f.useBias) Transition(e.tex[Bias], D3D12_RESOURCE_STATE_COMMON, read);
+    Transition(e.tex[Output], D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    ffxDispatchDescUpscale d = {};
+    d.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
+    d.commandList = g.list;
+    d.color = ffxApiGetResourceDX12(e.tex[Color], FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+    d.depth = ffxApiGetResourceDX12(e.tex[Depth], FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+    d.motionVectors = ffxApiGetResourceDX12(e.tex[Motion], FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+    // The proxy's anti-smear mask is FSR's reactive mask in meaning: 1 = trust the current colour.
+    if (f.useBias) d.reactive = ffxApiGetResourceDX12(e.tex[Bias], FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+    d.output = ffxApiGetResourceDX12(e.tex[Output], FFX_API_RESOURCE_STATE_UNORDERED_ACCESS);
+    d.jitterOffset = {f.jitterX, f.jitterY};
+    d.motionVectorScale = {f.mvScaleX, f.mvScaleY};
+    d.renderSize = {e.b.width, e.b.height};
+    d.upscaleSize = {e.b.outWidth, e.b.outHeight};
+    d.enableSharpening = f.sharpness > 0.0f;
+    d.sharpness = f.sharpness;
+    d.frameTimeDelta = f.frameTimeMs > 0.0f ? f.frameTimeMs : 8.0f;
+    d.preExposure = 1.0f;
+    d.reset = f.reset != 0;
+    d.cameraNear = 1.0f;          // depth units; 1 / (1 + z) is 1 at the eye
+    d.cameraFar = 1.0e6f;         // infinite (FFX_UPSCALE_ENABLE_DEPTH_INFINITE)
+    d.cameraFovAngleVertical = f.fovY > 0.1f ? f.fovY : 1.9f;
+    d.viewSpaceToMetersFactor = f.metersPerUnit > 0.0f ? f.metersPerUnit : 1.0f;
+    const ffxReturnCode_t rc = ffx.fn.Dispatch(&e.fsr, &d.header);
+    Transition(e.tex[Color], read, D3D12_RESOURCE_STATE_COMMON);
+    Transition(e.tex[Depth], read, D3D12_RESOURCE_STATE_COMMON);
+    Transition(e.tex[Motion], read, D3D12_RESOURCE_STATE_COMMON);
+    if (f.useBias) Transition(e.tex[Bias], read, D3D12_RESOURCE_STATE_COMMON);
+    Transition(e.tex[Output], D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COMMON);
+    if (timed) {
+        g.list->EndQuery(g.stamps, D3D12_QUERY_TYPE_TIMESTAMP, g.slot * 2 + 1);
+        g.list->ResolveQueryData(g.stamps, D3D12_QUERY_TYPE_TIMESTAMP, g.slot * 2, 2, g.readback, g.slot * 16);
+        g.slotTimed[g.slot] = true;
+    }
+    End();
+    g.queue->Signal(e.out, f.value);   // always: the proxy waits on it
+    ack.ngxResult = rc;
+    ack.ok = rc == FFX_API_RETURN_OK ? 1 : 0;
+    ack.gpuMs = g.lastGpuMs;
+    ++e.frames;
+    if (g.lastGpuMs >= 0) { e.gpuSum += g.lastGpuMs; ++e.gpuN; }
+    if (!ack.ok) {
+        ++e.failures;
+        if (e.failures <= 5 || e.failures % 300 == 0)
+            Log("[eye%u] FSR dispatch returned %u, %llu refusals", f.eye, rc, (unsigned long long)e.failures);
+    }
+    if (e.frames % 900 == 0)
+        Log("[eye%u] %llu frames, %llu refused, FSR GPU avg %.3f ms", f.eye, (unsigned long long)e.frames,
+            (unsigned long long)e.failures, e.gpuN ? e.gpuSum / e.gpuN : -1.0);
+    return ack.ok != 0;
+}
+
 bool DoFrame(const Frame& f, FrameAck& ack) {
     ack.eye = f.eye; ack.value = f.value; ack.gpuMs = -1.0f;
+    if (f.eye <= 1 && g_backend == BackendFsr && eyes[f.eye].fsr) return DoFrameFsr(f, ack);
     if (f.eye > 1 || !eyes[f.eye].feature) { ack.ok = 0; return false; }
     Eye& e = eyes[f.eye];
     // The proxy's copies into the inputs are ordered before this evaluate on the GPU.
@@ -479,8 +669,12 @@ int Serve(DWORD pid, LUID luid, const wchar_t* dataDir) {
 
     HelloAck ha = {};
     ha.magic = kMagic; ha.version = kVersion;
-    const bool up = InitGpu(luid) && InitNgx(dataDir);
+    g_backend = hello.backend == BackendFsr ? BackendFsr : BackendDlss;
+    Log("[host] backend %s", g_backend == BackendFsr ? "FSR (FidelityFX API)" : "DLSS (NGX)");
+    const bool up = InitGpu(luid) && (g_backend == BackendFsr ? InitFfx(hello.fsrVersion) : InitNgx(dataDir));
     ha.ok = up ? 1 : 0;
+    strcpy_s(ha.runtime, ffx.chosen);
+    strcpy_s(ha.offered, ffx.offered);
     ha.ngxResult = (uint32_t)ngx.result;
     ha.dlssAvailable = ngx.available;
     ha.driverMin[0] = (uint32_t)ngx.minDriver[0]; ha.driverMin[1] = (uint32_t)ngx.minDriver[1];
@@ -518,6 +712,7 @@ void Shutdown() {
     for (auto& e : eyes) ReleaseEye(e);
     if (ngx.params) { NVSDK_NGX_D3D12_DestroyParameters(ngx.params); ngx.params = nullptr; }
     if (ngx.inited && g.dev) { NVSDK_NGX_D3D12_Shutdown1(g.dev); ngx.inited = false; }
+    if (ffx.mod) { FreeLibrary(ffx.mod); ffx.mod = nullptr; ffx.up = false; }
     Release(g.readback); Release(g.stamps); Release(g.list);
     for (auto& a : g.alloc) Release(a);
     Release(g.fence); Release(g.queue); Release(g.dev);

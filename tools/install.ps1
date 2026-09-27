@@ -76,6 +76,15 @@ if ((Test-Path $dlssHost) -and (Test-Path $dlssDll)) {
     Copy-Item $dlssDll (Join-Path $dlssDir "nvngx_dlss.dll") -Force
     Copy-Item (Join-Path $repo "third_party\ngx\LICENSE.txt") (Join-Path $dlssDir "NVIDIA-DLSS-LICENSE.txt") -Force
     Copy-Item (Join-Path $repo "src\tools\dlss_host\NOTICE.md") (Join-Path $dlssDir "NOTICE.md") -Force
+    # FSR: AMD's FidelityFX API DLL (SDK 1.1.4, FSR 3.1), pinned in tools\fetch-ffx.ps1, and its MIT license.
+    $ffxDll = Join-Path $repo "build\dlss_host\amd_fidelityfx_dx12.dll"
+    if (Test-Path $ffxDll) {
+        $ffxPin = "12A5081257EC95B0B53AD51B4A87FB3C03F97FE0BBB59F9496968F8D50EF93A6"
+        $ffxGot = (Get-FileHash $ffxDll -Algorithm SHA256).Hash
+        if ($ffxGot -ne $ffxPin) { throw "amd_fidelityfx_dx12.dll sha256 $ffxGot is not the pinned $ffxPin - refusing to install" }
+        Copy-Item $ffxDll (Join-Path $dlssDir "amd_fidelityfx_dx12.dll") -Force
+        Copy-Item (Join-Path $repo "third_party\ffx\LICENSE.txt") (Join-Path $dlssDir "AMD-FIDELITYFX-LICENSE.txt") -Force
+    }
     $dlssInstalled = $true
 } else {
     Write-Host "DLSS helper not built (tools\fetch-ngx.ps1 then tools\build-dlss-host.ps1) - DLAA stays unavailable"
@@ -108,5 +117,5 @@ if (-not $Release) {
     Write-Host ""
 }
 if (Test-Path $shim) { Write-Host "  dvr_steamvr32.dll + openvr_api.dll (SteamVR shim, sha256 verified)" }
-if ($dlssInstalled) { Write-Host "  dvr_dlss\dvr_dlss_host64.exe + nvngx_dlss.dll 310.7.0.0 (DLAA helper, sha256 verified)  sha256 $((Get-FileHash $dlssHost -Algorithm SHA256).Hash.Substring(0,16))" }
+if ($dlssInstalled) { Write-Host "  dvr_dlss\dvr_dlss_host64.exe + nvngx_dlss.dll 310.7.0.0 + amd_fidelityfx_dx12.dll 1.0.1 (DLSS/FSR helper, sha256 verified)  sha256 $((Get-FileHash $dlssHost -Algorithm SHA256).Hash.Substring(0,16))" }
 Write-Host "Log: $(Join-Path $GamePath 'dishonored_vr.log')   harness files: $(Get-DvrDataDir)"
