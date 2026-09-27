@@ -11,6 +11,9 @@ std::atomic<unsigned long long> g_resLiveStamp{0};
 // vsync change take: present_tick.cpp's DvrBeforeReset runs UncapPresent,
 // which reads g_forceNoVSync at that moment.
 std::atomic<int> g_resLiveFull{1};
+// Uncap deep dive: `res live` asks for a size for THIS session only - the resize below then
+// advertises the mode in memory and writes neither ini nor the launch file.
+std::atomic<bool> g_resLiveSession{false};
 void ResLiveRefuse(const char* why) {
     g_resLiveState.store(-1);
     Log("res/live: REFUSED: %s; current render remains authoritative",why);
@@ -201,7 +204,12 @@ static void ResLiveApply(void* viewport) {
     // Persist/advertise before resize, so the engine can validate the new mode.
     const bool wantFull=g_resLiveFull.load()!=0;
     g_resVirtual=true;
-    ResRequest(w,h,wantFull,"F10 live total-pixel scale");
+    if (g_resLiveSession.exchange(false)) {
+        g_resWantW=w; g_resWantH=h; g_resWantFull=wantFull;   // the advertised mode, in memory only
+        Log("res/live: session-only %ux%u - nothing written to dishonored_vr.ini, the game's ini or the launch file",w,h);
+    } else {
+        ResRequest(w,h,wantFull,"F10 live total-pixel scale");
+    }
     if (!IsLiveObject(owner) || *(void**)(owner+kGameViewportNativeViewport)!=viewport ||
         *(uintptr_t*)view!=kWindowsFViewportVtable || *(HWND*)(native+kWindowsViewportHwnd)!=g_gameWnd) {
         ResLiveRefuse("viewport ownership changed before call"); return;
@@ -219,4 +227,50 @@ static void ResLiveApply(void* viewport) {
     g_resLiveState.store(4);
     Log("res/live: engine returned; awaiting capture %ux%u (return alone is not acceptance; "
         "the device is %s after the call)",w,h,g_gameWindowed?"windowed":"fullscreen");
+}
+
+// DLSS Super Resolution (core/gfx/dlss.h): keep the game's render size at the output divided by
+// the mode's ratio while SR runs, and at the output again when it stops or DLSS fails. Every
+// resize rides the guarded live path above (ResLiveQueue); ResLiveApply persists the size it
+// applies as [Screen] RenderWidth/Height, so a later launch boots at the reduced size directly.
+// One ask per target per 15 s: a refused or unconfirmed resize is not retried in a loop.
+static void DlssResTick() {
+    const uint32_t cw = dvr::capture::width(), ch = dvr::capture::height();
+    if (!cw || !ch) return;
+    const int st = ResLiveState();
+    if (st == 1 || st == 2 || st == 4) return;
+    uint32_t ow = 0, oh = 0;
+    const bool haveOut = dvr::dlss::output(&ow, &oh);
+    const bool want = dvr::dlss::mode() != dvr::dlss::ModeOff && dvr::dlss::quality() != dvr::dlss::QDlaa && !dvr::dlss::failed();
+    uint32_t tw = 0, th = 0;
+    if (want) {
+        if (!haveOut) {   // the resolution the player had becomes the output
+            ow = g_resWantW ? g_resWantW : cw; oh = g_resWantH ? g_resWantH : ch;
+            dvr::dlss::set_output(ow, oh, "Super Resolution turned on: the current resolution is the output");
+            char v[16];
+            _snprintf(v, sizeof(v), "%u", ow); ConfigWriteKey("Clarity", "DlssOutputWidth", v, "DLSS SR");
+            _snprintf(v, sizeof(v), "%u", oh); ConfigWriteKey("Clarity", "DlssOutputHeight", v, "DLSS SR");
+        }
+        dvr::dlss::render_for(ow, oh, &tw, &th);
+    } else if (haveOut) {
+        tw = ow; th = oh;
+    } else {
+        return;
+    }
+    if (cw == tw && ch == th) {
+        if (!want && haveOut) {   // back at the output: SR is fully undone
+            dvr::dlss::set_output(0, 0, "Super Resolution off and the output restored");
+            ConfigWriteKey("Clarity", "DlssOutputWidth", "0", "DLSS SR");
+            ConfigWriteKey("Clarity", "DlssOutputHeight", "0", "DLSS SR");
+        }
+        return;
+    }
+    static uint64_t lastTarget = 0, lastAsk = 0;
+    const uint64_t target = ((uint64_t)tw << 32) | th, now = GetTickCount64();
+    if (target == lastTarget && now - lastAsk < 15000) return;
+    lastTarget = target; lastAsk = now;
+    Log("dlss/res: %s - the game renders %ux%u, asking %ux%u (output %ux%u, %s %.2fx per axis)",
+        want ? "Super Resolution" : (dvr::dlss::failed() ? "DLSS unavailable, restoring the output" : "Super Resolution off, restoring the output"),
+        cw, ch, tw, th, ow, oh, dvr::dlss::quality_name(dvr::dlss::quality()), dvr::dlss::ratio());
+    ResLiveQueue(tw, th);
 }

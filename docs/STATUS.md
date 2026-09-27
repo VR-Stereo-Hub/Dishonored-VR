@@ -1,3 +1,282 @@
+## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
+
+Branch `claude/fsr-upscaler`. FSR runs in the existing x64 helper through AMD's FidelityFX API, SDK 2.3.0:
+FSR 4.1.1 on RDNA 4 GPUs (untested here: this PC is NVIDIA), FSR 3.1.5 elsewhere. F10 Basic: Upscaler = NVIDIA DLSS | AMD
+FSR; `[Clarity] Upscaler`, `dlss backend fsr`. Host 30/30 (FSR 13/13, signs proved), FSR per eye at 2750x2850
+native 1.7-1.8 ms / Quality 1.23 / Performance 0.93-0.98. Simulator: all modes live, images clean. Headset
+still owed: `tools/perf-plans/fsr-1.txt` (FSR vs DLSS vs off in one run). Detail: PERFORMANCE "AMD FSR 3.1".
+
+## Uncap deep dive answered; DLSS in F10 Basic (2026-09-27, merged to staging)
+
+The headset is GPU-bound at 2750x2850: a GPU timeline (new `tools/perf-gpu-timeline.py` on a DvrGpu WPR
+capture) shows the game's D3D9 queue occupied 97 % of the time, nvidia-smi 94 % at full clocks; ~6.1 ms of
+the ~8.6 ms per pair follows the pixel count (render size 70 %: +13 %, 130 %: -30 %). Nothing of ours
+serialises it: capture depth 2 (new lever, default off) and the script-lane cadence changed nothing. So a
+faster GPU or fewer/cheaper pixels raise the rate; the CPU side (~7.6-8.0 ms per pair) is next.
+Shipped with it: the game's MLAA is written Off at launch whenever `[Clarity] DLAA` is on; F10 Basic has a
+"DLSS and DLAA" section (switch, mode incl. Ultra Quality, model, sharpening); failed-experiment toggles
+removed (F10_AUDIT). Also carries route 2 (#141) and the DLSS model list / Ultra Quality (#139).
+Next: FSR 3.1 on its own branch (plan: PERFORMANCE "FSR implementation plan"). Detail: PERFORMANCE.md
+"The uncap deep dive" and "Plan 1 in the HEADSET".
+
+## Handoff: the uncap deep dive (2026-09-27, end of session)
+
+Headset truth: ~25 % CPU, ~80 % GPU, ~120-137 pairs/s with SSW off and no DLSS - nothing saturated, so
+serialisation limits the rate. Route 1 (extra pairs) rejected in the headset; route 2 (script lane,
+PR #141) installed but gives no headset gain (not game-thread-bound there). Next session's brief and
+prompt: [NEXT_SESSION](dishonored/NEXT_SESSION.md), branch `claude/uncap-deep-dive`.
+
+## Script-lane cost (route 2, 2026-09-27) - simulator-measured, default on
+
+Branch `claude/pe-hook-dispatch` off staging. The ProcessEvent hook cost ~500 ms of the game thread
+per second (7,000 events/s x 75 us). Region + name caches and a draw-anchored cadence for the FOV
+lever and camera writer: ~155 -> ~172 ticks/s in the simulator, FOV and eyes unchanged. Installed
+(this replaces the extra-pair build; that one is on `claude/extra-pairs-per-tick`, PR #140). Levers
+`[Perf] PeFast`, `PeHeavyMs`, `PeHeavyInDraw`; `pe` seam words. Detail: PERFORMANCE route 2.
+
+## DLSS model list, Ultra Quality, and the frame-rate ceiling (2026-09-27)
+
+Branch `claude/dlss-presets-and-cpu-bound` off staging (after #138 merged). F10: DLSS model list (K, J,
+M, L, NVIDIA per mode, fast CNN) with per-entry tooltips; DLSS mode list with Ultra Quality (1.3x,
+`DlssQuality=5`, created as MaxQuality because the runtime refuses NGX's UltraQuality value). Host
+17/17. Installed `0ec0fffb...`, not headset-checked. Deep dive (PERFORMANCE, "Why DLSS cannot raise
+the frame rate here"): the GAME thread (~7 ms/tick on this Ryzen 5 5600X) is the ceiling, the render
+thread (~5.4 ms/pair) second, the GPU (<=5.2) third, so DLSS can only buy output resolution. Ranked
+routes: extra head-tracked pairs per world tick, our ProcessEvent hook, one engine view for both eyes,
+driver threaded optimization, a 5800X3D.
+
+## Projection jitter for DLSS (2026-09-27) - headset-confirmed, default off
+
+Branch `claude/dlss-dlaa` (`feat: DLSS projection jitter...`). Sub-pixel Halton jitter on the world
+passes, recorded per image in its pose record, passed to DLSS with the sign the host test proved
+(15/15), kept out of the vectors. The first two builds speckled the left eye (a pass drawn outside the
+scene depth stayed unshifted); the wide rule fixed it on the headset, per-eye census L 6 / R 1 extra
+eye-size uploads per image, 0 unshifted. Still owed: does SR look sharper with it. Installed
+`ef73f28f...`; INI = the maintainer's own (`DlssJitter=1`). Detail: PERFORMANCE, "Projection jitter".
+
+## Handoff: projection jitter next (2026-09-26, end of session)
+
+Branch `claude/dlss-dlaa` at `afb72687a` + this handoff, pushed, nothing merged. DLAA is
+headset-accepted; DLSS SR works but cannot buy frame rate in this game (fixed-cost bound);
+the overlap is in. Next session implements deliberate projection jitter for DLSS - brief and
+copyable prompt in [NEXT_SESSION](dishonored/NEXT_SESSION.md). Installed DLL `c1a9268c...`,
+INI `2e2183b7...` = the maintainer's own current settings (DLAA, fast model, mask on, 100%).
+
+## DLSS overlap (2026-09-26, latest)
+
+The capture slot and scene depth are now released right after DLSS copies its inputs, not after
+the DLSS wait: the present thread no longer waits ~2.6 ms per eye for the previous DLSS in the
+fast-model modes. Simulator uncapped: DLAA fast 80 -> 86/s, Quality SR fast 120 -> 131/s (native
+133 in the same run), DLAA K ~70 (GPU-bound by the two-process contention). Each live resize
+produces one stale eye (pre-existing, recorded). INI restored (`1945f088...`), launch file realigned.
+
+## DLSS SR measured: no frame-rate gain in this game (2026-09-26, latest)
+
+Headset: SR Quality/Performance ~90/s per eye vs 130-140 native. Measured why: the game's GPU
+cost barely follows pixels (1/4 of the pixels saved 0.7 ms per eye), so SR cannot buy frames
+here; NVIDIA's Performance preset M costs 2.8 ms per eye at a 2750x2850 output, and the helper
+process contends with the game on the GPU. Now: preset K by default, a fast CNN model option
+(E/F, ~0.9 ms per eye isolated), diagnostics off the per-frame path, `dlss output` bug fixed.
+Simulator uncapped: native 148-153/s, Performance fast 124-132, DLAA fast ~80, DLAA K ~67.
+User INI restored (`1945f088...`, their Performance SR settings), launch file realigned.
+
+## DLSS Super Resolution (2026-09-26, latest) - built, simulator verified, not merged
+
+DLAA headset verdict after the vector fixes: smear gone (mask off), aliasing removed, very
+sharp, big cost that SSW makes playable. Phase 2 built: `[Clarity] DlssQuality` 1-4 renders the
+game at the output / 1.5-3x and DLSS rebuilds the output; F10 "DLSS mode" slider, `dlss quality
+<n>`. The resize rides the live path and persists, SR off or DLSS failing restores the output.
+Simulator: Quality 1832x1900 -> 2750x2850 at 90/s per eye (cap) vs DLAA 64/s. Host 13/13.
+No headset result yet; no jitter yet (SR softer than DLAA until then). Installed build 21:00;
+INI restored byte-for-byte (`b5731eba...`, user's DLAA=1 and mask settings kept, DlssQuality
+absent = 0 = DLAA). Detail: PERFORMANCE, DLSS Super Resolution.
+
+## DLAA vectors now pixel-accurate in the simulator (2026-09-26, latest)
+
+Second headset run: smear unchanged after the arms fix. New `dlss/flow` check measured vector
+error in pixels: walking 1.68 px, turning 1.38 px. Two causes fixed: the vectors now reproject
+through the game's own captured view-projection matrices (turn 1.38 -> 0.43 px, per-image pose
+drift 1.04 -> 0.07 px), and the real depth scale is 250 uu/unit, not 200 (walk 1.68 -> 0.66 px,
+strafe 1.28 -> 0.64 px, gain 0.98-1.01 in every depth band). Instrument floor 0.28-0.41 px.
+Installed build 20:44; INI unchanged (`aa471020...`, user's DLAA=1). Headset check pending.
+
+## DLAA walking smear (2026-09-26, later) - arms vectors fixed in the simulator
+
+Headset: DLAA judged very good (better with SSW), slight smear when moving. New `dlss/audit`
+per depth band found the cause: the first-person arms (0.1-0.3 depth units) got the world's
+walking parallax, 3.2x worse than no vectors, while every farther band improved. Fix:
+`[Clarity] DlssBodyDepth=0.30` - nearer pixels keep head rotation, drop translation; arms band
+now equals no motion, farther bands unchanged. Written-vs-rendered position and a forward-axis
+sign error were both measured and retracted. Anti-smear bias mask built, ships off (A/B).
+Host test 12/12. Installed build carries the fix; INI restored byte-for-byte (user's DLAA=1
+kept, `aa471020...`). Headset check pending. Detail: FLICKER_REFERENCE top entry, PERFORMANCE.
+
+## DLAA through an x64 NGX helper (2026-09-26) - built, host and simulator verified, not merged
+
+Branch `claude/dlss-dlaa` (renamed from `codex/fsr-implementation`; stacked on the unmerged
+`claude/motion-vectors`). Order set by the maintainer: DLAA, then DLSS SR, then FSR 3.1; the
+FSR 2.2.1 plan is superseded. NVIDIA NGX is x64-only, so a 64-bit helper
+(`src/tools/dlss_host`, one process, one DLSS feature per eye, pinned to the proxy's adapter
+LUID) runs DLAA on textures and fences the proxy shares by NT handle. Guides: reversed
+scene-alpha depth and camera-only previous-minus-current vectors; no jitter yet.
+`[Clarity] DLAA=0` default; `dlss on|off|retry`; F10 Advanced > Display > Clarity.
+
+Host test 10/10 (eyes isolated, vector sign proved, reset, helper-kill fail-fast, 2.0 ms/eye
+at 2752x2848 isolated). Simulator: 69 DLAA images/s per eye, 0 refused, present-thread cost
+0.4 ms; stereo 90/s -> 69/s (GPU cost; 5.4 ms/eye under contention). Helper kill mid-game
+recovers; `dlss off` leak found and fixed; boot from ini works. No headset verdict.
+FSR 3.1 upscaler + DX12 back end compile as Win32 with three patches (not yet dispatched).
+No Linear ticket: the workspace issue limit refused creation again.
+
+Installed: d3d9.dll SHA256 `e1f8961e8f4c1a85...` (build 19:33), `dvr_dlss\` helper
+`c50fb4bcb852d64f...` + nvngx_dlss.dll 310.7.0.0. Installed INI restored byte-for-byte to its
+pre-session copy (`0ab5861a...`, CRLF verified): DLAA absent = off, Temporal=0, MotionVectors=1,
+DepthShare=0, MotionCalib=0. Backups: `build/dlss-install/pre-191713/`. Full record:
+[PERFORMANCE: DLAA](dishonored/PERFORMANCE.md#2026-09-26-dlaa-through-an-x64-ngx-helper-phase-1---built-host-and-simulator-verified).
+
+## FSR continuation prepared (2026-09-26) - depth foundation stays unmerged
+
+The tester reports no perceptible benefit from the revised custom TAA. This is a negative
+headset quality report, not a retraction of the measured synthetic or transport fixes; the
+exact A/B activation/settings were not independently verified in this planning session.
+The next task is FSR, not further custom-TAA tuning.
+
+Keep `claude/motion-vectors` as the unmerged depth foundation. Runtime baseline is
+`1d2ee24a5`. Child branch `codex/fsr-implementation` starts at this documentation handoff,
+in `C:\dev\Dishonored-VR\build\worktrees\fsr`. No merges authorized. No runtime changes,
+launches, installs or installed INI edits in this session. No new Linear ticket (FSR search
+empty; prior workspace issue limit recorded). Commits credited to BioVRDev.
+
+The maintained plan is [PERFORMANCE: FSR implementation](dishonored/PERFORMANCE.md#2026-09-26-fsr-implementation-plan-and-depth-foundation-handoff).
+[Next session and Claude prompt](dishonored/NEXT_SESSION.md) replace the stale staging brief.
+First target: FSR 2.2.1 plus AMD's DX11 backend, with an x86 two-eye host proof before game
+integration. Main gates: distinct input/output resolution, safe projection jitter, exact
+depth conversion, vector/mask provenance, lifecycle, memory and measured headset acceptance.
+FSR and any visual/performance benefit are not implemented or established yet.
+
+Read-only installed check: DLL SHA256
+`f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`;
+Temporal=0, TemporalBlend=0.12, Sharpen=0.40, MotionVectors=1, DepthShare=0, MotionCalib=0.
+These are current preferences, superseding the earlier restore notes. Preserve them.
+
+## TAA audit fixes (2026-09-26) - installed, simulator verified, not merged
+
+`claude/motion-vectors`: fused depth reprojection replaces production vector textures;
+previous depth lives in history alpha. Preserves stationary bright/coloured detail, rejects
+disocclusion and large colour changes at effectively stationary camera pixels. Per-eye c5,
+scoped FOV, camera identity and level/UI epoch travel with the image; resets/gaps invalidate.
+Depth slots have independent consumer fences and unique pending serials; capture timeouts
+fail closed. Retry paths and depth CPU/GPU attribution are implemented. No engine-memory
+writer added. Full changes/evidence/limits: [PERFORMANCE](dishonored/PERFORMANCE.md#2026-09-26-taa-audit-fixes-implemented-and-simulator-tested).
+
+72 TAA GPU checks, 6 calibration checks, 146 frame PASS lines, default parity/persistence,
+exports and lint pass. Simulator recovered through rotation/translation, capture off/shared,
+reinit, deferred/shared and motion off/on: 450 fused passes per eye per 5 s, no ongoing fallback.
+White detail keeps full intensity; texture storage down 119.6 MiB at 2750x2850. No headset
+quality/performance verdict yet. Deliberate jitter investigated but not enabled: existing
+projection-pass classification cannot safely support it; object vectors remain research.
+
+Installed SHA256 `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`,
+`v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48. Simulator stopped. Full original installed INI
+restored byte-for-byte, CRLF verified: Temporal/DepthShare/MotionCalib off, vectors default off.
+Next: headset A/B with Temporal on, depth mode toggled and F10 closed; judge fine detail and
+walking/leaning trails. Archives in `build/taa-fixes/`. Nothing merged.
+
+## TAA audit (2026-09-26) - findings recorded, runtime unchanged
+
+Audited `87a892cef` on `claude/motion-vectors`. Full evidence, ranked findings and improvement
+plan are in [PERFORMANCE.md](dishonored/PERFORMANCE.md#2026-09-26-full-taa-audit-source-87a892cef-no-runtime-changes).
+`tools/taa-audit-host.ps1` runs 62 checks against production shaders, including 8 new
+characterizations. Confirmed stationary white detail falls to 49% linear brightness and
+colour clipping retains large trails on moving textured patterns. Source review found
+per-eye position provenance, depth reuse synchronization, reset/age invalidation, duplicate
+depth serial, transient allocation and failure-recovery gaps. Normal shared-colour fences
+indirectly protect depth reuse; deferred capture/timeouts are not covered by that contract.
+Synthetic GPU timings and the 538 MiB no-resolve texture budget are recorded with limits.
+No game launch, DLL install or INI edit for this audit. Existing diagnostics remain off.
+Implement correctness fixes before treating the previous simulator smoke as headset readiness.
+
+## Motion vectors for TAA (2026-09-26) - built and simulator-verified, not merged
+
+Branch `claude/motion-vectors`, worktree `build/worktrees/mv`. The MIRROR TEST ruled out
+horizontal mirroring: 56 pure turns, normal error 0.0082 vs mirrored 0.0468. The actual bug
+was treating the pose record's c5 (negative world position) as world position. Clarity now
+converts it once; rotation stays unchanged. Corrected translation: 70 moving pairs, interior
+minimum at 200 uu/depth-unit, error 0.0226 vs rotation-only 0.0400 (65/70 best votes).
+
+Per-eye GPU motion vectors now feed experimental TAA. `[Clarity] MotionVectors=0` by default;
+F10 Advanced > Display > Clarity and anti-aliasing > Temporal anti-aliasing exposes
+"Depth motion vectors (experimental)". Scale 200 is a coarse measured minimum, not an exact
+engine-unit derivation. Matching depth bypasses the old camera-motion weighting; missing depth
+uses the previous rotation fallback. Invalid depth rejects history, sky uses rotation only.
+
+Installed optimized x86 DLL SHA256:
+`5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`.
+Banner `v1.0.1-91-g35629a116-dirty`, built Sep 26 2026 16:54:27. Simulator gameplay, repeated
+translation + turns and off/on toggle completed vector TAA for both eyes (450/450 per typical
+5 s window, zero fallback), with DepthShare=0 and MotionCalib=0. Simulator closed; the full
+original installed INI restored byte-for-byte, CRLF verified (Temporal=0; new lever defaults off).
+54 clarity GPU checks, 6 calibration GPU checks, production-default parity, build, lint and
+9 exports pass. Existing compiler macro/deprecation warnings remain. Nothing merged.
+
+Next: one headset A/B question - with Temporal AA enabled and the F10 panel closed, does
+Depth motion vectors reduce walking/leaning trails while keeping edges stable, compared with
+it off? Improvement supports the camera-parallax correction; unchanged/worse trails leave
+scale, disocclusion and moving-object limitations open. Headset appearance and performance
+are not accepted by simulator results. Full research/failures: [PERFORMANCE](dishonored/PERFORMANCE.md),
+continuation and evidence: [motion-vector plan](dishonored/PLAN-motion-vectors-dlss.md).
+No new ticket number: the existing handoff records the Linear workspace issue limit.
+
+## Test handoff for the next session (2026-09-26)
+
+Four branches, none merged, none installed. Test ONE AT A TIME, each installed on its own
+(build Release in its worktree, install, full INI check per CLAUDE.md), in this order:
+
+1. PR #135 `claude/fov-base-echo` (worktree build/worktrees/fov): at the default size, exit a
+   store and die/reload; the view must return to full width. Log: `fovlever: natural base 75.0
+   deg (read ... KEPT the old base ...)` after loads.
+2. PR #133 `claude/right-hand-open-pose` (build/worktrees/right-hand): sheathe weapons; the empty
+   right hand is open like the left. `[Hands] OpenEmptyRightHand=1`.
+3. PR #134 `claude/hand-headturn-flicker` (build/worktrees/hand-flicker): F10 Advanced > Hands >
+   Head-turn smoothing ON, fast left/right turns; then OFF. Log: `hands/poseview:`.
+4. The anti-aliasing PR `claude/antialiasing-clarity` (build/worktrees/aa): F10 Advanced >
+   Display > Clarity and anti-aliasing. Try: Texture filtering 16x + Smooth mip transitions;
+   Sharpening 0.3; Temporal AA on (judge with the panel closed); set resolution 200-300% with
+   Supersampling resolve on vs off. Logs: `clarity:`, `samplers (10 s)`, `xr: eye L/R fov`,
+   `device/census: multisampled`. Research and numbers: PERFORMANCE.md, Anti-aliasing and clarity.
+
+Also reported by a player: an HD texture pack plus a raised resolution freezes; most likely the
+32-bit address space (PERFORMANCE.md). No Linear tickets: the workspace is at its issue limit.
+
+## Open empty right hand, and the pose-tools survey (2026-09-26)
+
+Branch `claude/right-hand-open-pose` off `staging`, not merged, NOT installed (by request). No
+Linear ticket: the workspace is at its free-plan issue limit.
+
+- With nothing in the right hand (the sword holstered) its FINGER bones take the left hand's pose,
+  mirrored, in the mod's own palette copy; the right hand keeps its mesh (no mark), wrist, placement
+  and sleeve. Signal: `g_rflPrimaryKind` (item sockets) plus a new `g_rflSecondaryKind`; left hand
+  must hold nothing or a power; 250 ms settle. `[Hands] OpenEmptyRightHand=1`, F10 Hands > Sleeve.
+- Bones paired by mirrored centroids (the palette is not laid out symmetrically); one miss refuses.
+  Self-tests `open_hand_mirror` / `open_hand_can_fail` pass in `frame_test.exe`.
+- Headset questions: is the empty right hand open like the left, is there a pop when the sword is
+  drawn, and does the log show `hands/openright: N right finger bone(s) paired`?
+- The engine pose-tool survey and next steps: [HAND_POSE](dishonored/HAND_POSE.md).
+
+## FOV base kept across loads (2026-09-26)
+
+Branch `claude/fov-base-echo` off `staging`, not merged, not installed. No Linear ticket (the
+workspace is at its free-plan issue limit).
+
+- Fault: after a load, the lever re-read its natural base from the sensor, which held its own
+  108.07 output (`natural base 108.1 ... ratio 1.000` in this rig's logs). At ratio 1 a death,
+  store or objective narrowing is written into DefaultFOV and never widens back: the view stays
+  a small box. Reported by an affected player at portrait sizes, not at landscape ones.
+- Fix: the session's first base is kept; a re-read must not be our echo, at the target or
+  narrower. The capture line now prints the reading, our last write and the verdict.
+- To test: exit a store, die and reload, at the default portrait size. Log: `fovlever: natural
+  base 75.0 deg (read 108.07 ... KEPT the old base ...)` after each load.
+
 ## Hand/weapon flicker on fast head yaw (2026-09-26)
 
 Branch `claude/hand-headturn-flicker` off `staging`, not merged, NOT installed (by request). No

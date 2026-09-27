@@ -9,6 +9,7 @@
 #include "core/gfx/hud_layout.h"
 #include "core/gfx/stereo.h"
 #include "core/util/log.h"
+#include "core/util/etw.h"
 #include "core/vr/hud_stub.h"
 #include "core/vr/openxr_runtime.h"
 #include "game/dishonored/patterns.h"
@@ -236,6 +237,7 @@ void blit_wait(Sink& s, int k) {
     if (!s.blitIssued[k] || !s.blitFence[k]) return;
     HRESULT hr = s.blitFence[k]->GetData(nullptr, 0, D3DGETDATA_FLUSH);
     if (hr == S_FALSE) {
+        dvr::etw::Scope etwWait(dvr::etw::kHudFence, k);
         ++g_blitWaits;
         const long long t0 = qpc_now();
         while (hr == S_FALSE && !past_us(t0, 10000)) {

@@ -68,7 +68,7 @@ const RowDef kRows[ElCount] = {
     { "note",          4, {0, 0, 0, 0},                       false, AnchorWindow, "a readable note (by context)" },
     { "journal",       5, {0, 0, 0, 0},                       false, AnchorWindow, "the journal (by context)" },
     { "wheel",         6, {0, 0, 0, 0},                       false, AnchorWindow, "the power wheel: the weapon scroll and the grip-hold loadout (by context)" },
-    { "store",         7, {0, 0, 0, 0},                       false, AnchorWindow, "the store (by context)" },
+    { "store",         7, {0, 0, 0, 0},                       false, AnchorWorld,  "the store (by context)" },
     { "missionstats",  8, {0, 0, 0, 0},                       false, AnchorWindow, "the mission stats (by context)" },
     { "wheelshortcuts",-1, {0,0,0,0},false,AnchorWindow,"wheel D-pad shortcuts, from the same captured image" },
     { "wheelpotions",  -1, {0,0,0,0},false,AnchorWindow,"wheel health and mana controls, from the same captured image" },

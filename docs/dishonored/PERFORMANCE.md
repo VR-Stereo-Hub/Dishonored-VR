@@ -2048,3 +2048,1412 @@ cross-runtime benchmark evidence. Existing controlled throughput measurements
 above remain Quest/VDXR-specific. No new SteamVR throughput or headset startup
 measurement was performed. Native D3D9 GPU submission/pixel checks and all existing
 fallbacks pass. Retain the earlier Index startup report in DESKTOP_MIRROR.md.
+
+## Anti-aliasing and clarity (2026-09-26)
+
+Branch `claude/antialiasing-clarity`. Built and host-tested, not installed, not headset-run.
+
+**Why a lower FOV looks so much clearer.** A flat (rectilinear) render spends its pixels
+by the TANGENT of the angle, not the angle. Centre density = (width / 2) / tan(hfov / 2).
+At 2750 px: 108.07 deg gives 17.4 px/deg, 103 deg (the default claim) 19.1, 90 deg 24.0,
+75 deg 31.3. The Quest 3 panel is about 25 px/deg at the centre, so at the full FOV and
+100% the centre is rendered BELOW the panel and magnified 1.3-1.4x: every stair-step is
+enlarged. The 75 deg box is rendered at 1.25x the panel: supersampled. The periphery goes
+the other way (sec^2): at 54 deg off-axis a 108 deg render has 2.9x its centre density.
+
+**Why raising the resolution with the FOV at the same rate does not match it.** Matching
+the 75 deg box's centre at 108 deg needs tan(54)/tan(37.5) = 1.79x per axis, 3.2x the
+pixels, not 1.44x. The 200% cap reached 24.6 px/deg (about the panel, no supersampling);
+300% reaches 30 px/deg, with most of the added pixels spent where the lens is blurry.
+Three further losses: (1) an image larger than the runtime asked for is minified by the
+compositor with about one bilinear tap per output pixel, which reads roughly a third of the
+rendered pixels and aliases again (host-measured below); (2) the head never stops moving,
+so aliasing is seen as crawl, which spatial supersampling only reduces slowly; (3) the
+GPU cost of 300% (about 0.64 ms per megapixel per eye) drops the frame rate and the
+reprojection that follows shows as more shimmer.
+
+**Levers built (all default OFF, F10 Advanced > Display > Clarity and anti-aliasing,
+`clarity ...` and `aniso ...` on the seam, `[Clarity]` in the ini):**
+
+| Lever | What | Host evidence (`tools/clarity-gpu-host.ps1`, RTX 4070 Ti SUPER) |
+|---|---|---|
+| Resolve | Above ~100%, filter the render to the runtime's recommended size (Mitchell kernel scaled to the step, linear light); the swapchain becomes that size | Stripes at the render pitch, 1.73x step: pattern sd 0.004 vs 0.289 for one bilinear tap (the control); crawl at a quarter-pixel move 0.006 vs 0.247; mean preserved |
+| Temporal (experimental) | Each eye blended with its previous frame, reprojected by the rotation between the two rendered cameras (the pose record's rotator), history clipped to the current 3x3 YCoCg spread; head micro-motion is the jitter | Point-sampled slanted edge under half-pixel head jitter: coverage error 0.219 raw, 0.095 after 48 frames; a still view stays exact; a scene cut shows the new picture at once |
+| Sharpen | Contrast-adaptive sharpening (CAS weighting) | Flat areas untouched; edge corners pushed apart (0.2..0.8 -> 0.145..0.855) |
+| Anisotropy | Raises MAXANISOTROPY on samplers the game already makes anisotropic (game: 4x) | Counters in the `samplers (10 s)` line; not measurable off the game |
+| TrilinearMips | POINT mip filter -> LINEAR on those samplers (the texture groups' default is point mips) | As above |
+
+**Instruments added:** `xr: eye L/R fov ...` (each eye's own angles and how much of the
+symmetric render it uses: sizes the off-axis frustum idea below); `device/census:
+multisampled surfaces ...` (whether the game's own MSAA, `MaxMultisamples`, engaged);
+`clarity:` every 5 s (what ran, why a history restarted); `samplers (10 s)`.
+
+**Not built, ranked:** (1) off-axis per-eye frustum: free density if the eyes' angles are
+asymmetric; the new `xr: eye` line gives the gain, then it needs an engine projection change.
+(2) The game's own MSAA: try `[SystemSettings] MaxMultisamples=4` once; the census line says
+whether it engaged. (3) The game's AA mode: Options > Antialiasing, MLAA vs FXAA vs off, in
+one session (the mod rewrites MLAA at the next start). (4) Quad views / foveated inset: two
+extra scene passes at the ~5.6 ms per-pass CPU floor; not viable. (5) A non-linear
+projection: D3D9 rasterises straight lines; not viable. (6) VD: Godlike, highest bitrate,
+its own sharpening.
+
+**The 32-bit ceiling.** The game is large-address-aware (4 GB). This rig at 2750x2850 with
+stock textures: about 2 GB process private, largest free address block about 1.2 GB (the
+`gpumem` line). An HD texture pack plus a larger render is consistent with a reported freeze
+when the resolution is raised: that is address space, not VRAM. The `gpumem` line's
+`largest free address range` is the number to ask for.
+
+### Headset verdict (2026-09-26, 200% at 144 Hz with SSW, VDXR)
+
+- Supersampling itself (200-300%) is the large visible gain. The resolve on top of it was
+  judged no better, or slightly softer in the distance, with both kernels (Mitchell, then
+  Catmull-Rom). VDXR's own downscale is evidently good enough that the host-measured
+  sparse-sampling aliasing does not show through the stream. Resolve now ships OFF.
+- Each resolve toggle changes the swapchain size and rebuilds it; VRAM rose ~450 MB over six
+  toggles in one session (3029 -> 3478 MB). A report of lasting lag after many toggles fits
+  that; not reproduced in the measured session (tick 14-16 ms throughout).
+- 16x anisotropy and trilinear mips run (about 40000 sampler binds a second raised) but the
+  visible gain over the game's 4x is small; kept on as nearly free.
+- Temporal: no visible effect at a new-frame weight of 0.50 (the slider's maximum, ~2 frames
+  of history); at 0.15 it smoothed shimmer but smeared while walking until the motion
+  weighting; with it, walking no longer smears. Still experimental, off by default.
+
+### Motion-vector calibration and TAA candidate (2026-09-26)
+
+Branch `claude/motion-vectors`, not merged. Plan and depth transport evidence remain in
+PLAN-motion-vectors-dlss.md; engine coordinate provenance is in ENGINE_NOTES.
+
+- MIRROR TEST, installed DLL hash `143c21a3900b637dd1b84efe1148009a2bc1f24d2da5bbf4e7c4ce6ff8cd8016`,
+  banner built 16:16:52: 56 pure turns, normal luminance error 0.0082, mirrored 0.0468.
+  This rejects the horizontal-mirror hypothesis; clarity's rotation was already correct.
+- Corrected translation, installed candidate hash prefix `1f1536d781add944`, built 16:39:14:
+  70 moving frame pairs; error by scale 25:0.0593, 50:0.0406, 100:0.0278, 200:0.0226,
+  400:0.0254, 700:0.0327, 1000:0.0341, 1500:0.0355, 2500:0.0373, 4000:0.0383,
+  7000:0.0389, rotation-only:0.0400. 200 wins 65/70 pairs, 43.5% below rotation-only.
+  Coarse minimum only: 200 is the experimental default, not a proof of the exact depth unit.
+  Initial load transients are included in this aggregate; repeated controlled lateral steps
+  dominate it. No missing matching-depth lookup in that run.
+- Cause: `camera::last_written_pos` multiplies the written field by c5Sign, publishing
+  c5 = negative world position. Its header and pose-record comment incorrectly called it world
+  position. Convert only in clarity's `view_for`; do not change shared pose transport or yaw.
+- Built per-eye RGBA16F vectors: xy previous-minus-current UV, z validity, w reserved.
+  Current depth and colour must have the same capture serial and dimensions. Vectors run at
+  TAA output size, including when resolve is enabled. Invalid depth/behind/outside rejects
+  history; sky keeps rotation. No object vectors or disocclusion-depth history yet; colour
+  clipping remains, so moving NPCs/hands can still trail. Motion weighting is bypassed only
+  with matching depth; the rotation-only fallback retains it.
+- First normal-path smoke failed usefully: zero vector completions, all rotation fallback.
+  Present's caller still gated depth copying on Diagnostics.DepthShare. The service gate now
+  includes active Temporal + MotionVectors, and services release after the last consumer
+  switches off. Diagnostic readbacks remain gated by DepthShare. A success counter is updated
+  only after the GPU chain completes, not when its inputs are merely available.
+- Final installed hash `5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`,
+  banner built 16:54:27: both diagnostics off at startup, gameplay combined head translations
+  and rotations, about 450 successful vector-TAA passes per eye per 5 s, zero fallback.
+  Live off/on released/recreated the depth ring and resumed at 354/354 passes in the partial
+  window, zero fallback. This proves execution/transport, NOT headset quality or a GPU speedup.
+- Host GPU: 54 clarity checks pass. Independent plane geometry predicts 4 px, measured worst
+  vector error 0.0010 px. TAA error 0.00085 vs rotation-only 0.09700 and reversed-translation
+  control 0.13496. Eye isolation, output resizing, invalid/NaN depth, behind-camera rejection,
+  sky rotation and freeing resources pass. Existing 6 calibration GPU checks pass, including
+  independent ray-cast correspondence and a flat curve without translation.
+
+`[Clarity] MotionVectors=0` default; F10 under Temporal AA, `clarity motion on|off` live.
+`MotionDepthScale=200` is an experimental calibration parameter (`clarity depthscale 25..7000`).
+TAA itself remains off by default. No diagnostic needed for the feature. Full original
+installed INI restored byte-for-byte after the simulator test, including both diagnostics off.
+
+Cost is still OPEN for a headset: this adds the existing 3-slot full-size RGBA16F depth ring
+and two output-size RGBA16F vector textures plus a pass, roughly 5 * width * height * 8 bytes
+(~299 MiB at 2750x2850, no resolve), before D3D interop/driver duplication. Do not equate a
+paced simulator's frame rate with the feature's GPU cost. Next: one walking/leaning headset
+A/B with Temporal held on, vector option toggled, panel closed; judge trails and edge stability.
+Local archives (gitignored): `build/mv-session/mirror-normal-wins.log`,
+`translation-corrected.log`, `vector-missing-depth-gate.log`, and `final-vector-run/`.
+
+
+## 2026-09-26: full TAA audit (source 87a892cef, no runtime changes)
+
+Scope: the optional resolve -> temporal -> sharpen chain, per-eye history, pose/FOV
+provenance, capture/depth matching, shared-resource synchronization, controls, reset/failure
+recovery, memory and GPU cost. Both rotation-only TAA and experimental depth-vector TAA
+were examined. No game was launched and no installed DLL or INI was changed for this audit.
+This supplements, rather than invalidates, the earlier simulator geometry measurements.
+Those runs establish a useful correspondence improvement in that scene, not production readiness.
+
+### Evidence and reproducibility
+
+Run `tools/taa-audit-host.ps1`: x86 native host, production `clarity_gpu.cpp`, no game.
+It includes the existing 54 checks and 8 audit characterizations: 62 checks, zero failures.
+Several new checks deliberately PASS when a known limitation is reproduced. They are
+characterization tests, not assertions that the current output is desirable. Convert their
+expectations when fixing the respective defect. Local outputs: `build/taa-audit/results.txt` and `results-final.txt` in that directory.
+
+- Stationary isolated white pixel on black: first frame 1.000 gamma; after 40 frames,
+  0.729412 gamma / 0.491021 linear. Its position and the input never changed. The temporal
+  variance box excludes the current bright sample, so even perfectly corresponding history
+  gets clipped. This is a reproducible loss of fine bright detail with Temporal enabled,
+  independent of the new vector option. Default sharpening cannot restore lost energy.
+- Static slanted edge: coverage error 0.212219 both raw and after 40 identical frames.
+  No new sample positions means no static supersampling. Head micro-motion remains the
+  source of sample diversity; there is no deliberate projection jitter.
+- A one-pixel shift of a 0.2/0.8 checker pattern, with zero camera motion and valid depth:
+  the new dark pixel is 0.705882 and the new bright pixel is 0.384314. Mean gamma error
+  0.460784. Invalidating history returns the correct picture within 2/255. This isolates
+  unmodelled object/image motion: neighbourhood clipping does not mean 'show current frame'.
+- One missing-depth frame after both eyes had vectors: intermediate bytes drop from
+  1,228,800 to 819,200 at 160x160. Both vector textures are discarded, not just the
+  unavailable eye's input. Subsequent vector frames allocate them again.
+- Existing positive controls still pass: independent plane geometry predicts four pixels,
+  vector error about 0.001 pixel, translated TAA error 0.00085 versus rotation-only 0.09700;
+  turn direction, eye isolation, invalid/NaN depth, sky, output resizing, snap-turn/Blink
+  rejection, gamma round-trip, resolve and sharpen all pass their existing cases.
+
+### Prioritized findings
+
+**P1 - Thin stationary detail loses brightness.** `clarity_gpu.cpp:195-199`: the
+mu +/- sigma box does not include the current sample by construction. One bright sample
+among eight black neighbours gives a maximum near 0.425 in linear luminance, even when
+history is exactly the current image. The blend then converges below the input. Repair
+history validation so an exactly matching sample is preserved; evaluate centre-inclusive
+bounds or confidence-dependent clipping against BOTH thin-detail and moving-pattern tests.
+Simply widening all bounds trades this loss for more trails. Add saturated RGB and line
+patterns before accepting a change. This affects both TAA modes.
+
+**P1 - Depth reuse has no independent consumer-completion contract.**
+`depth_probe.cpp:307-326,368-384`: the producer cycles three slots and only waits for the
+D3D9 copy before exposing an SRV. It never fences the D3D11 read before reusing a slot.
+Normal shared-colour delivery can indirectly protect this through its two-slot read fence;
+that does not establish safety for every path. Deferred capture has no such shared-colour
+read fence, and `capture.cpp:427-440` proceeds after a 10 ms read timeout. A queued D3D11
+read can therefore overlap a later D3D9 overwrite on those paths. This is a source-level
+synchronization defect, NOT a corruption reproduced by this audit's standalone host.
+Give depth slots explicit read-done/read-wait ownership and refuse reuse on timeout. Also
+check the HRESULT of `Issue(D3DISSUE_END)` before publishing the slot. The broader colour
+capture timeout behavior deserves its own fix; a timeout is not evidence of completion.
+
+**P1 - The camera record is not guaranteed to carry the rendered eye's position.**
+`scene_draw.cpp:393-410`, `pose_record.cpp:172-185`, `clarity.cpp:61-78`:
+pass 2 writes the right eye's camera offset, but ordinary gameplay does not republish
+that position into the camera record. The three republish helpers are conditional cinematic/
+menu scopes. `pose::open` copies the last globally published camera; the eye tag separately
+carries the actual `wrotePos`. TAA uses the copied camera position, ignoring the tag position.
+A constant offset cancels during pure translation, which helps explain why that test can
+pass; head rotation changes the eye offset and exposes the distinction. Capture the actual
+per-eye view position alongside the rendered colour/depth, preserving the rotation sample's
+existing provenance. Do not silently replace the shared tracking record with live globals.
+Visual magnitude and the effect on the coarse scale calibration still need measurement.
+
+**P2 - Stale history can survive a reset or a long capture gap.**
+`reentry.cpp:517,659`, `clarity_math.h:116-145`: a non-fresh grab skips clarity after the
+first output; D3D9 reset clears capture but not clarity. The history guard checks dimensions,
+FOV and pose jumps, but has no scene epoch, delivered-frame age or camera identity. A same-size
+reset/cut near the same pose can accept pre-transition history. Untagged *fresh* images and
+explicit option changes do invalidate correctly. Add lifecycle invalidation and a bound on
+same-eye frame age; test same-pose textured cuts, not only the existing flat-white cut.
+
+**P2 - Speculative depth serials can select an older present.** `depth_probe.cpp:324,370`:
+every present assigns `capture::serial()+1`, but `capture.cpp:583-590` returns with capture
+off without incrementing it. If serial S is paused for several presents, slots 0/1/2 can all
+hold S+1. On resume, a fresh slot 0 still loses the lookup to the older slot 2 because lookup
+takes the last matching array entry. This is a deterministic consequence of the bookkeeping,
+not an observed gameplay incident. Assign a unique render/copy identity and commit its
+association after a successful grab, or explicitly invalidate superseded duplicate serials.
+
+**P2 - Missing depth/reset causes avoidable allocation churn.** `clarity_gpu.cpp:386`:
+`!useMotion` releases both vector targets. Clarity supplies depth only when history is valid,
+so ordinary history resets trigger this as well as real depth misses. Keep appropriately
+sized targets across transient fallbacks; free them on feature disable, resize or shutdown.
+Separate 'feature enabled' from 'this frame has usable depth'. The old test calling this
+release a success verifies behavior, not whether that behavior is efficient.
+
+**P2 - Failure latches do not recover through expected lifecycle paths.**
+`depth_probe.cpp:251-274,302`: allocation failure sets `g_shareFailed`; reset does not clear
+it, nor do Temporal/MotionVectors toggles. Only the diagnostic `set_share` clears it.
+`clarity_gpu.cpp:229,326-336` similarly keeps `failed_` through shutdown, although the outer
+clarity wrapper resets its init-attempt flags. Add bounded, explicit recovery on device/
+resource reset or a deliberate feature retry; do not retry allocations every frame under
+memory pressure. `LoadLibraryA` references in clarity/calibration initialization also lack
+matching `FreeLibrary` calls, a smaller repeated-lifecycle leak.
+
+**P2 - Projection is read live rather than paired to the image.** `clarity.cpp:66-72`
+reads the current global rendered HFOV while consuming a possibly deferred colour capture.
+The shaders use the same tanH/tanV for current unprojection and previous projection. The
+0.2% history reset threshold catches larger changes only when those sampled values change;
+it cannot prove either projection belongs to its image. Stamp projection/FOV and dimensions
+with each eye capture, and use separate previous/current projection parameters. No wrong-FOV
+frame was reproduced here; this is a provenance gap during FOV/zoom changes.
+
+**P2 quality limitation - Camera vectors are not object vectors or visibility tests.**
+`clarity_gpu.cpp:159-200`, `clarity.cpp:394`: current depth reconstructs static-world camera
+motion only. There is no previous depth, disocclusion test, moving-object velocity or reactive
+mask. Valid depth also disables the old camera-motion reduction of history globally, including
+unreliable pixels. The checker test demonstrates the remaining trail class. First add depth
+history and a disocclusion/confidence test, plus conservative colour-change responsiveness;
+then investigate object vectors. Depth rejection alone cannot solve a moving surface at
+unchanged depth. The mod's separately rendered hand overlay and F10 panel are already drawn
+AFTER TAA; native game weapons, particles and surviving scene HUD are the relevant risks.
+
+### Performance and quality improvements, ordered by payoff
+
+1. Fix resource ownership and per-eye view provenance before tuning blend or depth scale.
+   Keep the experimental option default off until these and transition tests pass.
+2. Fix stationary-detail attenuation and add per-pixel history confidence. Keep antialiasing
+   strength separate from rejection of unreliable history; a stronger global blend is not
+   a substitute for visibility information. A frame-time-aware blend is worth an A/B across
+   refresh rates, since the current fixed coefficient changes response time with Hz.
+3. Fuse camera reprojection into the temporal shader when no external vector consumer needs
+   a texture. Today only temporal consumes it in production. This can remove the vector pass
+   and both vector render targets. If materialized vectors are needed for future DLSS, retain
+   that path as a separate consumer requirement. At minimum use one transient vector target;
+   RG16F with a defined invalid encoding is another option, subject to precision tests.
+4. Add explicit GPU/CPU timing around depth copy and its fence wait. `frame_hooks.cpp:170`
+   starts depth work before `perf::kEntry` and before the conversion scope. Existing clarity
+   conversion timings therefore do not attribute the full interop cost. `depth_srv_for` can
+   poll with FLUSH for up to 20 ms, longer than a 90 Hz frame. Prefer a completed matching
+   slot or a controlled fallback; measure fence wait percentiles and fallback frequency.
+5. Depth edges currently use a nearest depth sample even when colour has been resolved over
+   a wider footprint. Compare nearest-foreground depth/dilation against silhouette reference
+   scenes; indiscriminate dilation can drag backgrounds. Previous-depth validation should be
+   in place before selecting a policy.
+6. Deliberate, stereo-consistent projection jitter could improve a motionless view, but this
+   is an engine/projection change with culling, reprojection and HUD consequences. The current
+   no-jitter choice is an intentional limitation, not a sign error. Do it after correctness
+   and visibility, with paired eye samples and explicit jitter subtraction.
+7. Profile gamma decoding and history sampling before simplifying them. The temporal shader
+   fetches the centre separately from its 3x3 neighbourhood; reusing the centre may save work
+   if the compiler has not done so. Nine bilinear Catmull-Rom history taps are justified by
+   moving-edge quality; reducing them needs a negative control, not just a lower instruction
+   count. The reciprocal-luminance blend can bias changing brightness and merits a coloured/
+   HDR-content test; this audit does not classify that deliberate weighting as a defect.
+
+### Measured pass cost and memory
+
+Hardware host: RTX 4070 Ti SUPER; production shaders and RGBA16F source depth. At
+2750x2850, one eye, median of 24 GPU timestamp samples after 12 warmups in each mode.
+The final rerun also verifies the stationary-detail test with default sharpening enabled:
+
+| Chain | First recorded run, ms | Final rerun, ms |
+|---|---:|---:|
+| Sharpen 0.4 only | 0.5161 | 0.5161 |
+| Rotation TAA + sharpen | 2.2897 | 1.6404 |
+| Vector TAA + sharpen | 2.8498 | 2.7822 |
+
+These are synthetic flat-image shader timings, not a headset frame-budget prediction.
+They exclude uploads, CPU readback, D3D9 depth copy/fences, the game and compositor. GPU
+clocks, cache behavior and workload affect the result. The extra vector path measured about
+0.56-1.14 ms per eye across these two runs; the variation rules out a precise cost claim.
+Shader fusion must be measured rather than assumed to save all of that difference.
+An initial exploratory run used RGBA32F test depth and is deliberately excluded from this table.
+
+Without resolve, four RGBA16F histories cost 239.2 MiB and two vector targets 119.6 MiB at
+2750x2850. The three shared RGBA16F depth slots cost another 179.4 MiB: **538.2 MiB total**
+for these nine textures, before colour capture, eye outputs, driver overhead or other game
+allocations. At twice that pixel count this is about 1.05 GiB. These are texture-storage
+estimates, not a claim that all bytes are committed to CPU address space. Still material in
+this 32-bit title. Resolve lowers output history/vector sizes, but retains full-size depth
+and adds its own intermediates. Track both clarity and depth allocations in one budget.
+
+### Remaining acceptance gates and sources
+
+No runtime fixes were installed in this audit. Next implementation tests should cover
+same-pose textured cuts, capture off/resume with duplicate depth serials, reset and allocation
+failure recovery, deferred/shared capture under delayed GPU completion, per-eye rendered
+view provenance during head turns, coloured detail, disocclusion and native moving objects.
+Then do a headset A/B for static detail, walking/leaning trails and frame-time percentiles.
+Avoid interpreting simulator pacing or vector-completion counters as image-quality evidence.
+Depth scale 200 remains a scene-specific coarse minimum: calibration candidates can reject
+different pixel populations near image borders, and the discovered pose-provenance issue
+must be resolved before deriving exact engine units or hardening the sky cutoff of 1000.
+
+Primary background references (recommendations above are engineering inferences applied to
+this code, not benchmark claims from these sources):
+
+- [Yang, Liu and Salvi, Eurographics 2020 TAA survey slides](https://www.leiy.cc/publications/TAA/TAA_EG2020_Talk.pdf):
+  sampling jitter, reprojection, validation and accumulation are separate components;
+  static-camera vectors do not describe animated objects. Supports the staged quality plan.
+- [Microsoft OpenSharedResource](https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11device-opensharedresource):
+  D3D9/11 sharing restrictions and submitting updates across devices. Resource sharing does
+  not itself provide the per-slot ownership policy this depth ring needs.
+- [Microsoft D3D9 queries](https://learn.microsoft.com/en-us/windows/win32/direct3d9/queries):
+  issued/signaled query states; a polling timeout must not be mistaken for completion.
+
+
+## 2026-09-26: TAA audit fixes implemented and simulator-tested
+
+This supersedes the open implementation defects in the preceding audit. Branch remains
+`claude/motion-vectors`, unmerged. The installed candidate is optimized x86, legacy off:
+SHA256 `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`,
+banner `v1.0.1-93-gf0ef210dd-dirty`, built Sep 26 2026 17:47:48.
+
+### Changes and disposition
+
+| Audit item | Implemented behavior |
+|---|---|
+| Stationary bright-detail loss | Variance bounds include the current centre sample. White and saturated RGB point tests preserve intensity and hue. |
+| Stale colour on changed surfaces | Near-zero camera displacement enables a conservative colour-change response. Actual subpixel motion retains accumulation. This is not animated-object velocity. |
+| Visibility/disocclusion | History alpha now holds the corresponding current depth. Fused TAA compares previous depth against the reconstructed previous-view depth before using colour history. Invalid/missing depth and sky/surface transitions reject reuse. |
+| Per-eye position | Draw records carry the same explicit c5 position passed to that eye's tag. Tracking publication remains separate; rotation provenance is unchanged. |
+| FOV association | Each draw record captures its scoped FOV (or camera sensor fallback). Current and previous projection tangents are separate shader inputs; large FOV changes still reset history. |
+| Reset/capture gap/scene changes | Missing grabs invalidate history; D3D9 reset shuts down clarity resources. Record age, camera identity, level-load/UI epoch and finite camera values guard reuse. No engine-memory writer was added. |
+| Depth overwrite hazard | Every shared-depth slot has its own D3D11 event query, ended/flushed after its last use. Busy/error slots are not reused. D3D9 producer query Issue failures do not publish a serial. |
+| Duplicate serials | Every new copy opportunity invalidates previous entries for the pending capture serial, even when no slot is available. Capture off/resume cannot choose an older duplicate. |
+| Transient vector allocations | Production TAA reconstructs directly in the temporal shader; it needs no vector texture or separate motion pass. Optional materialized vectors remain for independent geometry tests/future consumers and survive transient missing-depth frames. |
+| Failure recovery | Explicit setting epochs retry failed clarity initialization; depth allocation refusal recovers after reset/disable or an explicit lever change. Shader compiler DLL references use scoped ownership. |
+| Colour capture timeout | Existing D3D9 producer and D3D11 consumer fences now refuse the grab on timeout/error instead of proceeding with unsafe data. Pending read queries stay pending until completion. |
+| Refresh-rate response | The base temporal blend is normalized to elapsed same-eye time with the existing value interpreted at 90 Hz. |
+| Cost attribution | The Present CPU budget begins before depth work; `hk.depthCopy` labels submission. Asynchronous D3D9 timestamps report the copy bracket under `perf/depth`. Runtime depth availability and memory are reported without diagnostic readbacks. |
+
+History alpha reuses existing storage: no additional visibility texture, copy pass or
+synchronization boundary. Colour Catmull-Rom samples RGB only. Depth validation uses point
+samples to avoid blending unrelated surfaces' depths. Resolve still needs careful silhouette
+A/B: nearest-foreground dilation was evaluated conceptually but not enabled indiscriminately,
+since spreading foreground depth without object velocities can drag background history.
+
+### Reproducible evidence
+
+`tools/taa-audit-host.ps1`: **72 checks, zero failures**, including the original geometry,
+resolve, sharpen and moving-edge controls. The audit's reproduced-defect assertions were
+changed to desired-output regressions; the no-jitter static-edge case remains a limitation
+characterization. `tools/motion-gpu-host.ps1`: 6 checks, zero failures. `frame_test.exe`:
+146 PASS lines, zero FAIL, successful exit. Default writer/profile/golden byte parity,
+configuration persistence/failure tests, nine exports and lint all pass.
+
+- White stationary detail: old accumulated linear intensity 0.491021 -> **1.000000**.
+  Default sharpening enabled. Independent red/green/blue point channels also survive.
+- Changed stationary-camera checker: old mean gamma error 0.460784 -> **0.000000**.
+  Both old and current images have valid depth, so this tests colour response rather than
+  merely rejecting an unseeded depth history.
+- Disocclusion under camera translation: colour error **0.000981**, against **0.015416**
+  when the control supplies a matching previous depth. The camera moves, so quiet-camera
+  colour response cannot explain the successful rejection.
+- Micro-motion edge control retains the original improvement: coverage error **0.095**
+  versus raw **0.219**. An initial response threshold extending to 0.5 pixel motion raised
+  this error to 0.197 and FAILED the existing test. Restricting that response to effectively
+  stationary reprojection restores the antialiasing benefit. Do not broaden it blindly.
+- FOV regression checks a known non-identity current/previous projection mapping. Tests
+  also reject old frames, replaced cameras, same-camera scene epochs and nonfinite poses.
+- Depth fallback holds the same four history allocations: 819,200 bytes before and after
+  at 160x160, no production vectors. Shader shutdown/reinitialization is tested.
+
+At 2750x2850, four histories remain **239.2 MiB**, the depth ring **179.4 MiB**. The two
+119.6 MiB vector textures are gone: total **418.6 MiB**, down from **538.2 MiB** before other
+rendering resources/driver overhead. This removes about 22% of the audited texture storage.
+Do not confuse texture bytes with CPU virtual-address commitment.
+
+A recorded standalone GPU run on the RTX 4070 Ti SUPER: sharpen 0.4178 ms, rotation TAA + sharpen
+1.8749 ms, fused depth TAA + sharpen 2.2958 ms per eye at 2750x2850. Earlier fixed runs were
+0.50-0.53 / 2.18-2.24 / 2.75-2.79 ms. As before: flat synthetic image, 24 timestamp samples
+after 12 warmups, excludes D3D9 transport/game/compositor. Clocks and scheduling vary enough
+that this is NOT a proven headset speedup. The final rerun measured 0.5724 / 2.8129 /
+3.6577 ms, reinforcing that limit on comparisons. Fusion removes work/storage, while visibility and
+colour response add work; measure frame-time distributions on the target headset.
+
+### Simulator integration and installed state
+
+User-authorized simulator run used xrsim-launch ViaSteam/NoInstall/Release and boot Attach.
+The boot helper again reported gameplay before the loading screen's final key prompt.
+A simulator compositor capture identified the prompt; after Space, actual both-eye gameplay
+counters appeared. The native computer-use helper could not initialize; the repo's simulator
+capture/input harness completed the test. No screenshots are committed.
+
+Matching banner verified before interpreting the log. Tested repeated +/-3 degree turns,
+combined +/-3 cm translation and turns, capture off/shared, shared-slot reinit, deferred
+capture, return to shared, and MotionVectors off/on. After recovery: **450 completed fused
+TAA passes per eye per 5 s**, zero ongoing fallback, zero clarity refusals. Two depth
+unavailability events appeared across mode transitions and did not persist. No clarity/depth
+or capture error lines. This verifies execution/recovery, not a forced GPU-hang scenario or
+headset appearance. The new fences also cover deferred capture independently of colour.
+
+The new D3D9 timing bracket recorded 35,485 resolved samples, cumulative mean 0.463 ms and
+peak 10.167 ms, including menu/loading/gameplay and mode transitions. Do not interpret that
+mixed-run peak as a steady-state depth-copy percentile. Query results were never waited on.
+
+Simulator stopped. Entire installed INI restored byte-for-byte to the pre-install backup,
+CRLF verified: Temporal=0, DepthShare=0, MotionCalib=0; MotionVectors defaults off. Temporary
+MotionVectors/MotionDepthScale entries were removed by the exact restoration. Installed DLL
+remains the tested candidate. Archives: `build/taa-fixes/before-candidate/`, `simulator-run/`,
+`tests-final.txt`, `frame-tests-final.txt`, and build logs (all gitignored).
+
+### Investigated improvements not enabled as unverified fixes
+
+Deliberate projection jitter remains OFF/unimplemented. The old `IsMainScenePass` hook allows
+unknown render targets and expects aspect 1.4..2.4, while this eye render is 2750x2850. The
+render instrumentation also records many c0 uploads per view, not one uniquely identified
+projection. Reusing that hook could jitter only some geometry or non-scene passes. A correct
+implementation first needs complete world-pass/projection ownership, coherent eye sample
+phases, jitter subtraction in reprojection, and culling/HUD validation. The static-edge test
+correctly still shows no supersampling from identical frames. This was an investigation
+recommendation in the audit, not a safe local shader fix.
+
+Animated-object vectors, transparent/reactive material classification and exact engine depth
+units remain research. Colour response and depth rejection reduce their consequences but
+cannot reconstruct unobserved object motion, especially during simultaneous camera motion.
+The 200 uu/unit value and sky cutoff remain experimental. Next human acceptance question:
+with Temporal enabled and the panel closed, does the revised depth mode preserve fine detail
+and reduce walking/leaning trails versus rotation-only? Remaining trails need scene-specific
+evidence; they are not proof that the synchronization or sign convention regressed.
+
+
+Final review corrected the time-normalization ordering: apply camera-motion response first,
+then normalize to elapsed same-eye time, so low frame rates never lower the requested response.
+An additional regression verifies equivalent decay at 45 and 90 Hz (72 total GPU checks).
+The full transition run above used candidate SHA256
+`4d3f4096cbe24ccbfabc05b5da394c9d18ac35ea97f1efda1c0cf408183e705b`; the final installed
+SHA256 is `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`.
+The latter differs only in blend time normalization. Its incremental build retains the
+17:47:48 banner timestamp, so the archived DLL hash and fresh process/log identify the run.
+An initial final-build smoke stopped at the loading prompt (zero TAA counters); it is NOT
+counted as an integration pass. `final-smoke/` records that failed boot, not a TAA defect.
+
+Final repeat reached gameplay after the compositor capture showed the completed-loading
+prompt. Both-eye fused TAA completed L=449 / R=450 in the last report, fallback=0.
+Final DLL hash verified against the installed file before interpreting this fresh log.
+Evidence is in `build/taa-fixes/final-passed/`; simulator stopped and the full original
+INI restored again. No merge.
+
+## 2026-09-26: FSR implementation plan and depth-foundation handoff
+
+### Decision and evidence boundary
+
+The tester reports no perceptible benefit from the revised TAA. Preserve that negative
+quality result; the synthetic improvements and simulator execution do not establish a
+headset benefit. This planning session did not replay or independently verify the exact
+settings of that comparison. Stop tuning the custom TAA as the next task.
+
+Keep `claude/motion-vectors` unmerged as the depth/camera-motion foundation. Retain its TAA
+code/tests as a baseline and regression harness; do not rewrite its history or rename it.
+Create `codex/fsr-implementation` directly from the foundation's planning commit, in
+`C:\dev\Dishonored-VR\build\worktrees\fsr`. The user's requested stacked branch overrides
+the usual branch-from-staging rule. No merge to staging or VR-Main is authorized. A future
+review should make the dependency explicit; do not merge the parent just to simplify it.
+
+Goal: an optional temporal FSR upscaler with a visible quality benefit or a measured net
+frame-time benefit at acceptable headset quality. First target: FSR 2.2.1 with AMD's DX11
+backend patch, in-process on the existing x86 D3D11 device. This is a compatibility target,
+not a claim that it is the newest FSR. FSR 1 spatial scaling is not an equivalent substitute.
+Frame generation, DLSS, a Vulkan translation layer and a helper-process architecture are
+outside the first implementation. If the proposed backend cannot pass gate 1, record the
+specific failure before changing architecture; do not silently relabel a custom filter FSR.
+
+### Primary sources and compatibility gate
+
+AMD documents a DX11 backend patch against FSR 2.2.1 in its Unity integration. Reuse the
+backend, not Unity's renderer/plugin. That article establishes a DX11 route, not working
+Win32 support in this game. Preserve upstream licenses and pin both upstream revisions.
+
+- [AMD DX11 integration and patch links](https://gpuopen.com/learn/fsr2-for-unity-urp-dx11/)
+- [AMD DX11 backend patch](https://github.com/GPUOpen-Effects/FidelityFX-FSR2-Unity-URP/blob/main/src/patch/0001-fsr-2.2-dx11-backend.patch)
+- [Pinned-version integration reference](https://github.com/GPUOpen-Effects/FidelityFX-FSR2/blob/v2.2.1/README.md)
+- [Current SDK integration reference, compare deliberately rather than mixing versions](https://gpuopen.com/manuals/fidelityfx_sdk2/techniques/super-resolution-temporal/)
+
+The reference integration requires jittered scene rendering and matching depth/motion data;
+FSR replaces the existing temporal AA. Quality/Balanced/Performance use per-axis divisors
+1.5/1.7/2.0. These are not the mod's total-pixel percentages. Consult the pinned version for
+resource formats, depth conventions, jitter units, exposure, reset and mask contracts.
+
+### Existing foundation and constraints
+
+Runtime source baseline: `1d2ee24a5` (TAA audit fixes); preceding calibration `87a892cef`.
+- D3D9 scene colour alpha contains measured view-depth-like data. Shared RGBA16F depth
+  slots are keyed to colour grab serials, with separate producer/consumer fences.
+- c5 records negative world position; `clarity::view_for` converts once. Normal image axes
+  won the mirror test. Never flip the yaw convention again without new contrary evidence.
+- Scale 200 uu/depth-unit is an empirical minimum, not an exact derivation. Sky cutoff is
+  also experimental. FSR needs a proved depth conversion, not this number used as truth.
+- Pose records carry eye, position, rendered FOV, camera identity and level/UI epoch.
+- Production TAA now fuses reprojection. Explicit vector output remains a diagnostic path;
+  FSR will need a dedicated vector texture and correct resource lifetime again.
+- Animated-object vectors, reliable reactive masks and deliberate projection jitter are
+  missing. Camera vectors alone are a static-world prototype, not a complete integration.
+- Captured colour is currently gamma-encoded with game post effects. Prove the selected
+  input's colour space and scene/HUD ownership; do not assume it is pre-tonemap HDR.
+- `IsMainScenePass` is not a safe jitter classifier: unknown targets pass, landscape aspect
+  assumptions conflict with portrait eye buffers, and many c0 uploads occur per view.
+- Keep D3D9 rendering, the D3D11 shared-device path, OpenXR pacing, per-eye publication and
+  later hand/HUD composition intact. No additional frame queue or CPU texture readback.
+
+### Gate 0: reproducible baseline and branch setup
+
+Read CLAUDE.md, newest three STATUS sections, NEXT_SESSION, this section, and the latest
+FLICKER_REFERENCE entries. Read HANDOFF-GINGASVR Traps/Dead ends before runtime edits.
+Inspect current installed DLL/INI/log rather than relying on old handoff settings. Archive
+DLL, entire INI and rotated logs before any installation or authorized relaunch. Verify log
+banner and installed hash before interpreting a playtest. No game launch in this plan task.
+
+Current DLL hash: `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`.
+Banner recorded by the previous run: `v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48.
+Read-only installed INI check during this handoff: Temporal=0, TemporalBlend=0.12,
+Sharpen=0.40, MotionVectors=1, DepthShare=0, MotionCalib=0. These differ from the prior
+restore because preferences were changed afterwards. Preserve them; this task changes no
+installed files. Diagnostics remain off. MotionVectors=1 alone does not enable TAA.
+
+Linear search for FSR returned no match. Prior work records the workspace issue limit;
+no new ticket exists and no ticket number is invented. Recheck ticket availability when
+implementation begins. Credit commits to BioVRDev, no trailers, no subagents.
+
+### Gate 1: prove the x86 DX11 backend outside the game
+
+1. Pin FSR 2.2.1 and an exact revision/hash of the AMD DX11 patch. Audit its license and
+   dependencies; vendor only required source/headers/shaders with license notices and a
+   reproducible patch/build record. Do not bring Unity into the runtime.
+2. Build the host API and DX11 backend for Win32. Audit pointer/size casts, alignment,
+   hardcoded x64 assumptions, allocation sizes and compiler flags. Build-time tools may
+   be 64-bit, but every library loaded by the game must be x86. Identify the actual shader
+   model and UAV/format/feature-level requirements from the patched sources; do not assume
+   stock SDK shader binaries are valid for DX11. Use supported FP32 shaders first.
+3. Add an isolated x86 D3D11 host test with two independent FSR contexts, deterministic
+   synthetic colour/depth/motion/jitter, reference images and reset/resize tests. Check
+   debug-layer errors, finite output, correct two-eye isolation, shader creation and leaks.
+4. Measure context/intermediate allocation sizes at actual eye output dimensions. Prove
+   shader/resource creation on this GPU, not only a successful static-library compile.
+
+Exit: reproducible Win32 build and a real two-context GPU dispatch with correct synthetic
+output. If unsupported, document the failing API/assumption and an alternative design's
+cost; do not spend a headset run debugging backend build support.
+
+### Gate 2: separate render size from headset output size
+
+Design a small `core/gfx/fsr` owner and testable GPU adapter. The game renders at the input
+size; reconstructed output and OpenXR swapchain remain at a fixed selected display size.
+Wire explicit input/output dimensions through capture, clarity/output_size and eye submission
+without changing FOV, world scale or HUD placement. Avoid reducing both sizes together.
+
+First implement a bypass at the same dimensions and verify it reaches the submitted eye
+image. Then allow Quality input at output/1.5 on each axis. For output 2750x2850 the input
+is approximately 1833x1900, about 44.4% of output pixels. Existing F10 resolution has a 50%
+total-pixel floor and a fixed 2750x2850 reference, so it cannot express this directly as-is.
+Use an explicit FSR mode contract; log actual dimensions and rounding/alignment decisions.
+Do not promise savings from reducing a buffer that the engine is not actually rendering.
+
+Exit: a held output size, verified smaller scene render/depth sizes, unchanged stereo/FOV,
+and one safely reversible resolution transaction. Preserve and restore the user's previous
+resolution on disable; invalid configurations fail to the plain blit with a logged reason.
+
+### Gate 3: prove stereo-consistent projection jitter
+
+Identify all relevant world projection uploads by observed pass/target identity at both
+input sizes. Record coverage for opaque, transparent and native weapon passes, plus negative
+controls for shadow maps, reflection captures, menus and HUD. Derive a clip-space translation
+from the real projection layout. Do not implement head-rotation jitter as a shortcut.
+
+Store applied jitter with each image's pose/serial. Advance phase by successfully rendered
+stereo pairs; both eyes of a pair use a coherent phase. Do not advance on a repeated capture
+or compositor-only submission. Account for phase gaps and resets. Jitter affects colour and
+depth together; it must not move the physical pose submitted to OpenXR. Validate culling
+edges, viewmodel alignment, overlays, portrait aspect and post-load replacement cameras.
+Any engine-object writer needs IsLiveObject against a current table and revalidation after
+menus. All addresses/offsets belong in patterns.h with derivation in ENGINE_NOTES.
+
+Exit: synthetic projection tests and simulator images demonstrate intended subpixel shifts
+only on the intended scene, with accurate recorded offsets. Block temporal quality claims
+if world-pass coverage cannot be proved. Never enable an unverified broad c0 patch.
+
+### Gate 4: supply inputs with explicit units and provenance
+
+Introduce a per-eye input bundle: colour/depth SRVs, render/display sizes, eye/serial/epoch,
+current and previous projection/view, applied jitter, elapsed same-eye time and reset reason.
+Use matching capture/depth serials only. Dispatch once per new eye image, not per xrEndFrame.
+
+- Derive the engine alpha-to-view-depth relation and exact projection near/far conventions
+  from measured geometry and matrix evidence. Convert to the selected FSR device-depth
+  convention, with tested near/far/infinite/sky handling. Never feed raw alpha linear depth
+  into a normalized device-depth input. Validate multiple distances, FOVs and resolutions.
+- Materialize camera motion at render resolution (prefer RG16F if the backend accepts it).
+  Existing xy is previous UV minus current UV. Prove the pinned SDK's scale, sign, Y axis
+  and jitter cancellation with known one-pixel translations and rotations; set flags from
+  that proof. Include distinct previous/current projections. No double removal of jitter.
+- Use separate eye contexts and histories. Reuse the audited fence/serial/reset contracts
+  for all added consumers; depth read_done must occur after the FSR input reads are queued.
+  Do not let the earlier clarity RAII scope release a slot before FSR reads it.
+- Audit colour placement and format. Prefer a coherent scene input before HUD and unsuitable
+  post effects; if using current post-tonemap colour, implement/test the correct LDR path
+  and document the remaining limitation. Supply exposure according to that chosen path.
+- Moving-object vectors need reliable draw identity plus previous transforms/bones. Treat
+  this as a separate measured feature. Until available, label the candidate camera-only.
+  Masks can reduce history trust; they do not manufacture missing object motion. Automatic
+  reactive generation needs its required opaque/composited inputs, which are not yet proved.
+  Test particles, glass, water, animated NPCs, hands and rapid camera motion explicitly.
+
+Exit: deterministic depth/motion/jitter/exposure tests, two-eye isolation and disocclusion
+controls pass. A static-world prototype may proceed for diagnosis with limitations logged;
+full moving-scene quality acceptance cannot be inferred from those results.
+
+### Gate 5: lifecycle, F10 and safe fallback
+
+FSR replaces custom TAA while active; do not accumulate twice. Avoid stacking FSR sharpening
+with the existing sharpening pass by accident. Proposed controls (not implemented): FSR
+Off/Quality/Balanced/Performance and one sharpening slider, default Off. Start with Quality;
+expose lower modes only after validation. Keep the original TAA available for comparison and
+restore its stored preference on disable. Clarify output resolution versus FSR input scale.
+
+Free inactive TAA histories rather than retaining two temporal pipelines. Account separately
+for colour/depth transport, vectors, two FSR contexts, output and transient storage. Measure
+process virtual address space as well as GPU bytes; this is a 32-bit game. Avoid holding old
+and new full allocations concurrently on resize. Recreate contexts only when required.
+
+Handle missing/stale depth, refused shader creation, device loss/reset, resolution/FOV change,
+mono menus, load/teleport/cut, capture mode changes and eye gaps. A failure returns a complete
+current image by the existing blit, resets the affected history, logs the reason and allows
+an explicit retry. Never submit an uninitialized/stale FSR output. Ensure D3D11 bindings are
+restored/unbound before the later overlay passes. Do not block the render thread waiting for
+GPU query results in the steady state.
+
+### Gate 6: validation and acceptance
+
+Retain the existing 72 TAA GPU checks, 6 calibration checks and frame regressions. Add FSR
+host controls for stationary slanted edges under deliberate jitter, fine coloured points,
+camera translation, moving foreground/disocclusion, invalid depth, sky, transparent changes,
+independent eyes, frame intervals and resets. Compare against a high-resolution reference
+and equal-resolution raw/bilinear controls. A passing dispatch counter is not a quality test.
+
+Simulator: prove actual gameplay first (boot Attach can report success while still at a
+loading prompt), then rotations/translations, menus/load, FOV/resize, live FSR modes,
+capture off/shared/deferred, reset and disable/re-enable. Verify dimensions, jitter phases,
+per-eye dispatch counts, stale-depth rejection and deterministic recovery from each change.
+No game-derived captures committed. Game launches follow the user's current permission;
+previous simulator permission was for motion-vector work, not blanket future permission.
+
+Performance: keep output size, scene, refresh rate and quality controls fixed. Compare
+native with TAA off, old TAA, reduced-input plain scaling, and FSR Quality. Warm up and gather
+CPU/GPU frame-time distributions, including tail percentiles and dropped/reprojected frames,
+plus separate depth/input preparation and FSR GPU brackets for both eyes. Include allocation
+and resize peaks. Prior low-resolution experiments gained little in a CPU/fixed-cost-heavy
+scene, so do not promise FPS from pixel count alone or compare synthetic shader times to
+whole-game frame times. Try at least a pixel-heavy scene and the known fixed-cost scene.
+
+Headset: one question per launch, expected outcomes stated beforehand. First ask whether
+Quality at the same output size visibly improves edge stability over equal-input plain
+scaling without objectionable trails. Improvement supports reconstruction; unchanged output
+requires checking live activation and input/output provenance before retuning. Separate
+later questions cover native-quality tradeoff, moving-object trails and comfort/performance.
+No perceptible improvement is a valid negative result, as it was for custom TAA.
+
+Done only when the Win32 integration passes host and simulator regressions, toggles/loads
+recover, memory fits, and the tester accepts a visible quality or net performance tradeoff.
+Keep it default off and unmerged until then. Record failures and evidence here as work proceeds.
+
+### First implementation session deliverable
+
+Complete gate 1 first: pinned backend, reproducible x86 build, two-context synthetic dispatch,
+resource budget and an explicit compatibility verdict. Then proceed to dimensions and jitter
+ownership. Do not spend the session tweaking custom TAA weight, installing an x64 SDK DLL,
+or assuming the engine projection classifier is already suitable. NEXT_SESSION contains the
+copyable Claude starting brief; this section is the sole maintained implementation plan.
+
+
+## 2026-09-26: DLAA through an x64 NGX helper (phase 1) - built, host and simulator verified
+
+### Decision: DLSS first, then FSR 3.1; FSR 2.2.1 dropped
+
+The maintainer redirected the FSR plan above in three steps in one session: FSR 3.1 instead of
+FSR 2.2.1; then DLSS if FSR 3.1 needed a 32-to-64-bit bridge; then, after research into a
+community BioShock VR fork that ships DLSS in a 32-bit VR mod, DLAA first, then DLSS Super
+Resolution, then FSR 3.1. The FSR 2.2.1 gate 1 above is superseded and was not run. Branch
+renamed from `codex/fsr-implementation` to `claude/dlss-dlaa` (the old remote name had no PR
+and was deleted). Still stacked on the unmerged `claude/motion-vectors`.
+
+### FSR 3.1: the 32-bit build question, answered at compile level
+
+FidelityFX SDK v1.1.4 (MIT, `c6efa6bf`) ships FSR 3.1's upscaler with DX12 and Vulkan back ends
+only, prebuilt as x64 DLLs. Its CMake names a Win32 platform (`FFX_PLATFORM_NAME x86`) but
+forces x64 in `toolchain.cmake`. Three local patches built `ffx_fsr3upscaler_x86.lib`,
+`ffx_fsr3_x86.lib` and `ffx_backend_dx12_x86.lib` with VS 2022 Win32, zero pointer-truncation
+warnings (C4244/C4267/C4311/C4312):
+
+1. `toolchain.cmake`: generator platform x64 -> Win32.
+2. PIX removed (no Win32 WinPixEventRuntime): `ENABLE_PIX_CAPTURES` undefined, `pixlib` unlinked,
+   `libs/pix` not added, two now-unused parameters voided (warnings are errors there).
+3. The frame-interpolation swapchain excluded from the DX12 back end: it includes AntiLag 2,
+   whose struct-size static assert is 64-bit only, and frame generation is out of scope anyway.
+Shaders are compiled by the SDK's own x64 tool; the permutation headers are bytecode, the same for x86.
+
+`C:\Windows\SysWOW64\D3D12.dll` exists, so a 32-bit D3D12 device is available in-process.
+NOT proven: a GPU dispatch. The route is FSR 3.1 in-process on a 32-bit D3D12 device sharing
+textures with the proxy's D3D11 device (same process, same adapter) - no helper process.
+Scratch build in `C:\dev\fsr-src` (not in the repo). This is phase 3.
+
+### Why the DLSS route is a helper process
+
+`nvngx_dlss.dll` is x64-only and closed, so it cannot load into Dishonored. The community
+BioShock VR DLSS/DLAA fork (MIT, built on the trilogy mod v0.8.2) solves this with 64-bit
+helper exes that open textures and fences the 32-bit game shares by NT handle. That fork ships
+zero projection jitter and camera-only vectors (its own panel says so). Its helper is a 3,400-line
+generalised DLSS5-Feeder derivative with ReShade/RenoDX lanes; this mod uses a rewrite of the
+same route instead, credited in `src/tools/dlss_host/NOTICE.md`.
+
+### What was built
+
+- `src/tools/dlss_host/dlss_host.cpp` (x64, `tools/build-dlss-host.ps1`): ONE helper process,
+  a D3D12 device on the proxy's adapter LUID (passed on the command line; it refuses any other
+  adapter, because shared textures cannot cross adapters - see the dual-LUID history), NGX via
+  `Init_with_ProjectID` (custom engine, own UUID), one DLSS feature per eye, preset K for DLAA
+  set explicitly, flags MVLowRes | DepthInverted | AutoExposure. Explicit COMMON <-> read/UAV
+  barriers on the shared textures, a three-allocator ring, sampled GPU timestamps, SEH around
+  NGX create/evaluate.
+- `src/core/gfx/dlss_ipc.h`: the wire contract. Every shared texture and both fences per eye
+  are created by the PROXY on D3D11 and duplicated into the helper. The helper never opens the
+  game process.
+- `src/core/gfx/dlss_client.{h,cpp}` (x86, no mod dependencies): launch in a kill-on-close job,
+  pipe handshake, per-eye build, and per eye image: copy colour/depth/motion, Signal(in, n),
+  Frame, FrameAck, GPU Wait(out, n). The ack means the helper has QUEUED Signal(out, n), so the
+  present thread never CPU-waits for the GPU work. A dead helper fails the next evaluate at once.
+- `src/core/gfx/dlss_gpu.{h,cpp}`: guides from existing data. Depth R32F reversed, 1/(1+z) of the
+  shared scene-alpha depth, 0 for sky/no depth - an ordering, not device depth. Motion RG16F,
+  previous UV minus current UV from the same reprojection as the fused TAA, unclipped.
+- `src/core/gfx/dlss.{h,cpp}`: settings, a worker thread for start/build (the present thread
+  never blocks on NGX init), state Idle/Working/Ready/Failed, fail-soft to the normal path,
+  `idle()` releases everything when switched off, a 5 s status line.
+- `clarity::draw`: with DLAA on, a tagged eye image goes through DLAA and then clarity's
+  resolve/sharpen; the custom temporal blend does not also run. `depth_probe` requests the
+  depth copy while DLAA is on.
+- Levers: `[Clarity] DLAA=0` (default), `DlssPreset=0`; seam `dlss on|off|retry|preset <n>`;
+  F10 Advanced > Display > Clarity and anti-aliasing > "NVIDIA DLAA (experimental)".
+- Packaging: `tools/fetch-ngx.ps1` pins NVIDIA DLSS SDK v310.7.0 (`a291cc7d`), the same runtime
+  the fork tested: `nvngx_dlss.dll` 310.7.0.0, SHA256 `BE6E434A...F6EE6E`. `install.ps1` refuses
+  any other hash and installs `<game>\dvr_dlss\` (helper, runtime, NVIDIA license, NOTICE).
+
+### Host test (`tools/dlss-host-test.ps1`, 10/10, RTX 4070 Ti SUPER, no game)
+
+32-bit client, real x64 helper. Each check can fail:
+
+| Check | Result |
+|---|---|
+| start + NGX init | ready in 1.6-1.7 s |
+| two DLAA features | 512x512 each |
+| eyes isolated (different scene per eye) | own image error 0.0055, other eye's 0.736 |
+| motion vector sign, scene moving +1 px/frame | true sign 0.0055, flipped 0.0123, zero 0.0155 |
+| reset on a hard cut | 0.0106 after one frame |
+| eye size 2752x2848 | GPU evaluate 2.01-2.09 ms per eye, isolated |
+| helper killed | evaluate fails in 1 ms, no hang |
+
+The sign test is what fixed the vector convention: DLSS reads previous-minus-current, the same
+field the fused TAA already computes.
+
+### Simulator (two launches, this session)
+
+Build `v1.0.1-95-ga4fb67869-dirty` (19:14 and 19:33). Gameplay reached (log state, both eyes
+90/s) before every measurement.
+
+- `dlss on` live: helper ready in 2.1 s, both features at 2750x2850 within 0.2 s, then
+  **69 DLAA images/s per eye, 0 refused, 0 fallback**. Present-thread cost 0.4 ms per eye.
+- **Cost: stereo 90/s -> 69/s.** The helper's evaluate timestamps read 5.1-5.6 ms per eye in the
+  game against 2.0 ms isolated: the D3D12 queue shares the GPU with the game's own rendering,
+  so wall time between its timestamps includes time-slicing. Treat 2 ms/eye as the kernel cost
+  and 5.4 ms as what it occupies under contention. Either way, DLAA at 7.8 MP per eye costs frame
+  rate. It is a quality lever; the performance lever is DLSS SR (phase 2).
+- Eye images: compositor captures with DLAA on/off gave mean luma 8.2/8.8 vs 8.3/8.9 and
+  non-black 31.7/35.1 % vs 31.7/35.0 % (not committed, game-derived).
+- Helper killed mid-game: detected in 46 ms, stereo continued (85-90/s), `dlss retry` back in 1.9 s.
+- FOUND AND FIXED: `dlss off` left the helper and 299 MiB running because nothing called into
+  DLSS while off. `idle()` now releases it; verified: stopped in 125 ms, 90/s restored.
+- `[Clarity] DLAA=1` at boot: DLAA came up by itself through menu -> load -> gameplay.
+- Game exit kills the helper (kill-on-close job): no orphan either time.
+
+### Limits (phase 1) and what is not established
+
+- No headset result. Whether DLAA is visibly better than the plain path here is NOT known.
+- No projection jitter. The head's own motion moves the image a little every frame; that is
+  all DLSS has for new sample positions.
+- Camera-only vectors: NPCs, hands, weapons, particles, water carry the camera's vector.
+- Depth is an ordering from scene alpha with the coarse 200 uu/unit scale.
+- Colour is the post-tonemap gamma capture (LDR, AutoExposure); HUD/Scaleform in the scene
+  image goes through DLAA too.
+- Sharpen (0.40 installed) still applies after DLAA: one sharpening pass, no DLSS sharpening.
+- NVIDIA RTX only; anything else logs the NGX refusal and runs the normal path.
+
+### Next
+
+1. Headset: one question - does DLAA (F10 toggle, panel closed) visibly reduce edge shimmer
+   compared with off, without objectionable smearing on moving NPCs or hands?
+2. Phase 2 DLSS SR: render/output size split (FSR plan gate 2 applies unchanged), preset by
+   ratio, the helper's feature already accepts ow > w.
+3. Projection jitter (FSR plan gate 3 applies unchanged) - benefits DLSS and FSR alike.
+4. Phase 3 FSR 3.1: in-process 32-bit D3D12, the three patches above, same guides and lifecycle.
+
+
+### 2026-09-26 (later): the walking smear, measured and fixed in the simulator
+
+Headset report on the first DLAA build: very good image, better still with SSW, slight smear
+while moving. The pipeline was healthy in that run (72 DLAA images/s per eye, 0 refused).
+
+New instrument `dlss/audit` (dlss_gpu.h): every eye image, a 64x64 grid compares the current
+image against the previous one moved by the guide vectors ("vec") and not moved ("zero"),
+binned by depth, read back two frames late without stalling. Standing still both read ~0.0046.
+All numbers below: stick walking in the simulator, 12 s per condition, vec/zero ratio.
+
+| Condition | 0.1-0.3 (arms) | 0.3-1 | 1-2 | 2-10 |
+|---|---|---|---|---|
+| as shipped (all pixels walking parallax) | 3.2 | 0.78 | 0.65 | 0.76 |
+| forward translation negated | - | 1.77 (whole <2 band) | | 1.20 |
+| arms excluded (DlssBodyDepth 0.30) | 1.00 | 0.78 | 0.64 | 0.75 |
+| depth scale 100 / 400 / 800 (arms excluded) | 1.0 | 1.21 / 0.78 / 0.89 | 1.10 / 0.69 / 0.82 | 1.03 / 0.77 / 0.84 |
+
+- Written vs rendered camera: identical in the simulator (0.00 uu against a 2.2-2.7 uu step).
+- Fix: the arms keep rotation, drop translation. Scale 200 kept (broad minimum 200-400).
+- Anti-smear bias mask built and host-tested; DLSS already rejects large unexplained motion and
+  the mask cannot see sub-pixel errors, so it ships OFF as an A/B (`dlss mask on|off`).
+- Left: NPCs and controller-moved hands have no own vectors; the remaining far-band residual
+  sits near the frame noise floor. Headset verdict on the fix pending.
+
+
+### 2026-09-26 (later still): vector accuracy in pixels - matrices and the real depth scale
+
+The second headset run reported the smear unchanged; its audit showed error spread across all
+depth bands, not the arms. New `dlss/flow` block-search check (FLICKER_REFERENCE top entry has
+the method). Simulator, 12 s per condition:
+
+| Condition | walk | strafe | smooth stick turn |
+|---|---|---|---|
+| rotator/FOV vectors, scale 200 | 1.68 px, gain 0.90 | 1.28 px, 0.84 | 1.38 px, shift 1.04 |
+| game matrices, scale 200 | 1.68 px, 0.90 | 1.28 px, 0.84 | 0.56 px, shift 0.13 |
+| game matrices, scale 300 | 1.44 px, 1.07 | 0.99 px, 1.10 | - |
+| game matrices, scale 250 (shipped) | 0.66 px, 0.98 | 0.64 px, 0.98 | 0.43 px, 1.00 |
+| standing still (instrument floor) | 0.28-0.41 px | | |
+
+- The captured world view-projection is camera-relative and row-vector: `clip = [P - C, 1] * M`,
+  with w the linear view depth in uu (checked: forward yaw -81.5 vs record -81.46, 103 degrees
+  FOV, square pixels). It is stored per record at the present with the rendered c5.
+- Depth is linear in scene alpha (gain flat across bands); 250 uu per depth unit replaces the
+  coarse 200 from the rotator-model calibration. `MotionDepthScale` default 250 (the custom TAA
+  shares it).
+- `dlss vp on|off` A/Bs matrix vs rotator vectors live; `dlss taxis` is a diagnostic only.
+
+
+## 2026-09-26: DLSS Super Resolution (phase 2) - built, host and simulator verified
+
+Headset verdict on DLAA after the vector fixes: the smear gone as far as the tester can tell
+(mask off), aliasing removed, very sharp; a large frame-rate cost that SSW makes playable.
+
+Design: `[Clarity] DlssQuality` 0 DLAA, 1 Quality (1.5x per axis), 2 Balanced (1.72x),
+3 Performance (2x), 4 Ultra Performance (3x). The OUTPUT is the headset resolution
+(`DlssOutputWidth/Height`, taken from the current resolution when SR first turns on, set by the
+F10 resolution while SR is on). The game side (`DlssResTick`, viewport_resize.cpp) keeps the
+render size at output / ratio through the guarded live resize, which persists it as `[Screen]
+RenderWidth/Height`, so a later launch boots reduced. SR off, or DLSS failing, resizes back to
+the output and clears it. One ask per target per 15 s. clarity's output size is the SR output
+whenever the eye image is the reduced render, so the eye texture and swapchain stay full size.
+The helper picks the NGX quality mode from the ratio and the 310.x presets (K for DLAA/Quality/
+Balanced, M Performance, L Ultra Performance).
+
+Host test 13/13, new: Super Resolution 512 -> 768 builds, output 768x768, error against the
+enlarged input 0.0117.
+
+Simulator (same scene, 2750x2850 output, sim capped at 90/s per eye):
+
+| Mode | Render | Per eye | DLSS GPU per eye |
+|---|---|---|---|
+| DLAA | 2750x2850 | 64-65/s | 4.2-5.3 ms |
+| Quality | 1832x1900 (44% of the pixels) | 90/s (the cap) | 3.5-3.9 ms |
+| Performance | 1374x1424 (25%) | 85/s | 4.4-4.5 ms |
+
+Live transitions: DLAA -> Quality resize confirmed in 0.5 s, both eyes ready 2.6 s later; Quality
+-> Performance and Performance -> DLAA likewise; DLAA restored 2750x2850 and cleared the output.
+Mean luma and coverage match across the three modes. No headset result yet. Limit: no projection
+jitter, so SR reconstructs from head micro-motion only - expect it softer than DLAA until jitter.
+Next: headset check of Quality, then projection jitter (FSR plan gate 3), then FSR 3.1.
+
+
+### 2026-09-26 (later): Super Resolution does not raise the frame rate here - measured
+
+Headset: Quality and Performance both ran ~85-93 images/s per eye against 130-140 native at
+144 Hz. The log confirmed the reduced render sizes (1832x1900, 1374x1424) and ~3-3.8 ms of DLSS
+GPU per eye with NVIDIA's per-mode presets (M for Performance).
+
+Cost per evaluate at a 2750x2850 output, isolated (`tools/dlss-host-test.ps1 -Cost`), ms per eye:
+
+| Preset | Performance in | Quality in | DLAA |
+|---|---|---|---|
+| M (NVIDIA's Performance default) | 2.80 | 4.17 | 7.98 |
+| L (Ultra Performance default) | 3.26 | 5.08 | 9.71 |
+| K (transformer) | 1.99 | 1.96 | 2.23 |
+| J | 1.93 | 1.90 | 2.03 |
+| E / F (CNN, marked deprecated, still run) | 0.94 / 0.82 | 0.94 / 0.86 | 0.92 / 0.91 |
+
+Simulator, cap lifted (`refresh 240`), same room, per eye:
+
+| Mode | frames/s | frame (both eyes) | game GPU render per eye |
+|---|---|---|---|
+| native 2750x2850 | 148-153 | 6.5-6.8 ms | 2.6 ms |
+| native 3368x3490 (150%) | ~129 | 7.7 ms | 3.1 ms |
+| Performance, fast (CNN) | 124-132 | 8.0 ms | 1.9 ms |
+| Quality, fast | 119-124 | 8.4 ms | 2.1 ms |
+| Performance, K | ~108 | - | - |
+| Quality, K | ~96 | 10.4 ms | 2.8 ms |
+| DLAA, fast | ~80 | 12.6 ms | 4.1 ms |
+| DLAA, K | ~67 | 14.9 ms | 4.3 ms |
+
+- The game's GPU cost barely follows the pixel count: a quarter of the pixels saved 0.7 ms per
+  eye (2.6 -> 1.9), the same fixed-cost floor recorded earlier. Super Resolution therefore
+  cannot buy frame rate in this game on this GPU; every DLSS mode is a net cost.
+- The DLSS helper's work contends with the game on the GPU: under DLAA the game's own render
+  rose 2.6 -> 4.1-4.3 ms per eye, and the helper's timestamps read 2-5 ms against 0.9-2.2 ms
+  isolated. The cross-process (D3D9/D3D11/D3D12 in two processes) scheduling is a large part of
+  the cost, beyond the model itself.
+- Changes: preset K for every mode by default (M/L were the most expensive); `DlssModel=1`
+  (F10 "DLSS fast model", `dlss model fast`) selects the CNN presets E (SR) / F (DLAA); the mask,
+  audit, flow check and previous-image copy run only when the mask or `dlss audit on` asks.
+- FOUND AND FIXED: `dlss output` with SR off set an output the game side then "restored" by a
+  native resize; refused now unless SR is on.
+- Simulator caveat: several mode changes were lost when seam commands were written back to back
+  (command.txt holds one command); the table uses only windows whose mode the log confirmed.
+- Open: pipelining DLSS so its GPU work overlaps the game's (the fork overlaps left-eye DLSS with
+  the right-eye scene) is the remaining lever for DLAA's cost; FSR 3.1 in-process avoids the
+  second process but not the cross-API scheduling.
+
+
+### 2026-09-26 (later): the overlap - capture and depth released before the DLSS wait
+
+The perf line showed the present thread waiting ~2.6 ms per eye image on the capture ("lock"):
+`read_wait` holds a capture slot until the D3D11 reads of it are done, and the read fence was
+ended after all the present's D3D11 work, i.e. behind the DLSS wait. The slot is read only by the
+DLSS input copy (and the optional mask/audit before it); the shared depth only by the guide
+pass. Both are now released there (`EyeInputs::afterCopy`, `depthprobe::read_done` after the
+guides; `capture::read_done` is once per delivery so the present's own later call is a no-op).
+
+Simulator, cap lifted, one command per window (per eye):
+
+| Mode | before | after | capture lock after |
+|---|---|---|---|
+| DLAA fast | ~80/s | 86/s | 0.6 ms |
+| DLAA K | ~67/s | ~70/s | 2.6 ms |
+| Quality SR fast | ~120/s | 131/s | 0.3 ms |
+| Performance SR K | ~108/s | 115/s | 0.6 ms |
+| native (same run) | 148-153 earlier | 133/s | 0 |
+
+- DLAA with K is GPU-bound: with the helper on the GPU the game's render rose 2.7 -> 4.4 ms per
+  eye and DLSS 2.2 -> ~5 ms. The cross-process scheduling cost, not the CPU wait, limits it. One
+  batched DLSS submission per frame (both eyes) is the remaining lever; it needs a per-eye
+  texture and deferred swapchain copies in the runtime layer - not attempted (flicker history).
+- Quality SR with the fast model ran at native's rate in the same run (131 vs 133).
+- Stale-eye check: every "pushed eye -1 TWICE" (and the one STALE L EYE) in these runs falls
+  within 0.2 s of a live resize confirmation, before and after this change (3 and 5 in the two
+  previous runs), none in steady play. A one-present transient of the live resize path, not the
+  overlap; recorded as an open item.
+
+
+## 2026-09-27: Projection jitter for DLSS - built, host-proved, headset-confirmed (default off)
+
+`core/gfx/dlss_jitter.{h,cpp}`, `[Clarity] DlssJitter=0` / `DlssJitterWide=1`, `dlss jitter on|off`,
+`dlss jitter wide on|off`, F10 "DLSS jitter (experimental)" and "Jitter: include all eye-size passes".
+
+- **What:** every perspective c0..c3 upload of the world passes gets a clip shift `clip.x += ax *
+  clip.w`, `clip.y += ay * clip.w` (a pure sub-pixel screen shift at every depth), Halton(2,3),
+  8 * ratio^2 phases (DLAA 8, Quality 18, Performance 32). Both eyes of a stereo pair (pose pairId)
+  share the phase; it advances after the pair. The offset is fixed at each present and stored in that
+  image's pose record (`jitter`, `jitterDraws`); DLSS gets it from the record, so image and offset
+  cannot come apart. The recorded view-projection is the game's own (the hook records before it
+  patches), so the vectors exclude the jitter.
+- **Which draws:** world passes are identified by OBSERVATION, not `IsMainScenePass`: the depth
+  surface bound at the c5-tied view-projection (new `SetDepthStencilSurface` hook, identity only),
+  confirmed when its viewport equals the captured eye image. Shifted: every perspective upload on that
+  depth surface, plus (wide rule) every perspective upload into an eye-size colour target whatever
+  depth is bound. Not shifted: shadow maps and captures (800x800 here), affine 2D/post/HUD uploads.
+- **Sign, host test** (`tools/dlss-host-tests.cpp`, 15/15): Super Resolution 512 -> 768, still
+  scene finer than the render grid, 18 phases, error vs the 4x4-supersampled scene: reporting the
+  NEGATED sample offset -x-y 0.0043; -x+y 0.0119, +x+y 0.0198, +x-y 0.0231; no jitter 0.0220;
+  jittered but reported 0 0.0173. And on the CPU, the hook's row patch on the measured matrix layout
+  moves 72 points at 20-20000 uu by exactly minus the offset (worst 2e-4 px).
+- **Simulator (colour-target key, first build):** LIVE, 3,800 uploads/s shifted, 161 images/s
+  jittered, 80 pairs/s, frame rate unchanged (~80/s per eye DLAA fast). FAILED: flow-check jitter
+  gain 0.48-0.59 (1 expected), scatter 1.1 px against 0.26 off, and the left eye lost lit surfaces.
+  The flow check now subtracts the recorded jitter change and reports the jitter gain
+  (`dlss/flow jitter`).
+- **The fix, in two steps (FLICKER_REFERENCE 2026-09-27):** keying on the depth surface caught
+  1,750 uploads/s drawn into another colour target on the scene depth; the headset still showed black
+  speckles in the left eye; the wide rule caught the rest. Per-eye census on the headset: L 39 scene-
+  depth + 6.0 wide uploads per image, R 37 + 1.0, UNSHIFTED 0; speckles gone.
+- **Not yet measured:** whether Quality/Performance SR are visibly sharper with jitter (the reason
+  it exists); the flow-check jitter gain on the final build; shimmer on thin geometry.
+
+
+## 2026-09-27: Why DLSS cannot raise the frame rate here, and the routes past the CPU ceiling
+
+### The measurement (already on disk, no new launch)
+
+Simulator, cap lifted (`refresh 240`), 2750x2850 per eye, `stereo reentry`, build
+`v1.0.1-100-g1a497d4cd-dirty`, log `build/dlss-install/overlap-logs/` (local). This PC: Ryzen 5 5600X
+(6 cores / 12 threads, 32 MB L3, DDR4-3600 CL16 at XMP), RTX 4070 Ti SUPER, High performance power
+plan, hardware GPU scheduling on. Per stereo pair, from the `perf: tick` split:
+
+| | Performance SR (1374x1424, 25 % of the pixels) | Native 2750x2850 |
+|---|---|---|
+| Pair time | 8.6-8.9 ms (113-117/s) | **6.5-7.6 ms (132-154/s)** |
+| Render thread executing the engine's frame (`R`, both eyes) | 4.3-4.5 ms | 4.1-4.5 ms |
+| Render thread idle before the left eye (`idle`: nothing queued, waiting for the GAME thread) | 0.3-0.6 ms | **1.4-2.1 ms** |
+| Our present path (`in`, both eyes) | 3.8-3.9 ms (1.3 + 0.8 ms of it the capture fence behind DLSS) | 1.1 ms |
+| D3D9 GPU span per eye (an upper bound on GPU busy) | 2.3 ms | 2.6 ms |
+
+- **The game thread is the ceiling.** At native the render thread finishes its two views and then
+  waits 1.4-2.1 ms for the next tick: the game thread needs about 6.5-7.5 ms per tick (world tick,
+  script, our script lane, and the two viewport draws re-entry makes it issue). That is 133-154
+  ticks/s, and one tick is one stereo pair.
+- **The render thread is the second limit**, about 5.4 ms per pair busy (engine 4.3 + ours 1.1).
+- **The GPU is the third**, at most 5.2 ms per pair. Cutting pixels moves only this one: a quarter of
+  the pixels saved 0.7 ms per eye of GPU span (2.6 -> 1.9, the earlier SR entry) while the pair time
+  stayed on the game thread's floor, and DLSS then added its own present-thread wait and GPU
+  contention with the helper process. So every DLSS mode is a net cost here, and more modes or presets
+  cannot change that. This agrees with the 2026-09-15 finding that a quarter of the pixels gained ~6 %.
+- **Consequence for how DLSS should be used on this PC:** not to render less, but to output MORE at the
+  same cost. Quality SR with the fast model already ran at native's rate (131 vs 133/s in one run), so
+  a 150 % output rendered at 100 % should look sharper than native 100 % for about the same frame rate.
+  PREDICTION, not measured: `dlss on`, `dlss quality 1`, `dlss output 4126 4276`, compared against
+  native 100 % in the same spot.
+
+### Routes past the ceiling, ranked by payoff for THIS machine
+
+1. **Decoupled rendering: more head-tracked pairs per world tick (the out-of-the-box one).** The
+   re-entry already patches UGameEngine::Tick's single viewport-draw call site and calls the draw root
+   twice per tick with the camera field rewritten between the passes (`scene_draw.cpp`). Calling it
+   four times (L, R, L, R), with the second pair's camera taken from a NEWER head pose, renders a fresh
+   stereo pair without running another world tick. Head motion and parallax are real renders at the
+   higher rate (not reprojection); animation, physics and AI move at the tick rate - the split every
+   fixed-timestep engine makes between simulation and rendering (Gaffer on Games, "Fix Your
+   Timestep"), here without the interpolation. Predicted ceiling with one extra pair per tick: game
+   thread ~7 ms + ~1 ms for the two extra draws per two pairs (~270 pairs/s), render thread ~5.4 ms per
+   pair (~185/s), GPU <= 5.2 ms per pair (~190/s): **about +25-30 % over today's ~145/s, and past that
+   point DLSS becomes useful** because the GPU turns into the limit. Costs and risks: the second pair
+   needs a pose located for its own display time on the game thread; one XR frame per pair (the
+   runtime layer's pair pacing already works per pair); the HUD PostRender runs per draw; moving
+   objects step at the tick rate (visible only when the tick rate falls well under the refresh);
+   VR-79's stereo-visibility rule must hold for the extra views; re-entry's fail-soft gates apply
+   unchanged. First step: measure the game thread's per-draw cost (the existing cpu scopes, lanes 8/9)
+   and prototype an extra-pair lever default OFF behind a live A/B.
+2. **Our own game-thread cost (bounded by the 1.4-2.1 ms idle).** The ProcessEvent hook runs about
+   40 `strstr`/`strcmp` and a `RealName` per dispatch before its first early return (VR-160 suspect 7),
+   plus periodic GObjects walks on the script lane. A dispatch table keyed on the UFunction pointer
+   makes the hook near free. Measure first: a cycles scope around the hook, then the A/B.
+3. **One engine view for both eyes (render-thread halving).** NVIDIA 3D Vision's automatic mode issued
+   every draw twice with a clip-space shift in the vertex shader; vorpX's Geometry 3D does the same for
+   DX9. Here it would mean one InitViews, one culling pass (1.08 of 1.32 ms of preparation per pair is
+   culling, the 2026-09-15 boundary), one draw-list build and no second viewport draw on the game
+   thread, with only the D3D9 calls doubled - the clip-space shift is the same row patch the jitter
+   already applies. Largest engineering item: per-eye render targets, view-dependent passes
+   (reflections, screen-space post, occlusion) and the HUD all need eye copies.
+4. **Driver-side submission.** The vr125 CPU capture showed the render thread blocked 27 % of the time,
+   mostly woken by an NVIDIA driver worker. An A/B of the driver's Threaded Optimization for
+   Dishonored.exe (NVIDIA Control Panel, per program) costs no code and one run. A stock DXVK used only
+   as the D3D9 translation layer (its submission thread offloads CPU-bound DX9 games, GTA IV being the
+   well-known case) is a different thing from the removed side-by-side fork, but CLAUDE.md forbids
+   bringing a Vulkan layer back and the shared capture, depth probe and HUD capture would all need
+   re-proving; it needs the maintainer's explicit decision, and a flat A/B (`disable_vr.txt`) would size
+   it first.
+5. **Hardware.** A Ryzen 7 5800X3D drops into the same AM4 board; 3D V-Cache is the standard answer for
+   cache-sensitive CPU-bound games. The most dependable single uplift, unmeasured for this game.
+6. **Runtime.** At a steady 120 Hz the CPU has headroom (8.33 ms per pair against ~7 ms); at 144 Hz it
+   does not. SSW/ASW at half rate (already in use) buys supersampling headroom.
+
+Not useful here: alternate-eye rendering (one world tick per displayed image, so the game thread stays
+the limit and the eyes desync); more DLSS modes for speed. Already checked on this PC: RAM at XMP,
+High performance plan, HAGS on.
+
+### Next measurements (one launch each, asked for individually)
+
+(a) cpu scopes on, native, standing: the game thread's per-draw cost against its whole tick - decides
+route 1's prediction. (b) Threaded Optimization off / on / off - route 4 at zero code cost.
+(c) DLSS Quality at a 150 % output against native 100 % - the supersampling use above.
+
+Sources: [Gaffer on Games, Fix Your Timestep](https://gafferongames.com/post/fix_your_timestep/);
+[NVIDIA 3D Vision Automatic background](https://archive.docs.nvidia.com/gameworks/content/technologies/desktop/nv3dva_background.htm);
+[vorpX features](https://www.vorpx.com/features/); [UEVR documentation](https://docs.uevr.io/)
+(synchronized sequential is this mod's re-entry, with its stated cost); [DXVK on PCGamingWiki](https://www.pcgamingwiki.com/wiki/DXVK);
+[GTA IV optimization guide](https://gillian-guide.github.io/optimization/); DLSS 4.5 presets:
+[NVIDIA](https://www.nvidia.com/en-us/geforce/news/dlss-4-5-dynamic-multi-frame-gen-6x-2nd-gen-transformer-super-res/).
+
+## 2026-09-27: Route 2 built - the script lane's own cost (simulator-measured, default on)
+
+Branch `claude/pe-hook-dispatch`. `game/dishonored/ue3/pe_fast.h`; levers `[Perf] PeFast=1`,
+`PeHeavyMs=2`, `PeHeavyInDraw=1`; seam `pe fast on|off`, `pe heavy <ms>`, `pe heavydraw on|off`,
+`pe fn on|off` (diagnostic).
+
+- **The measurement that sized it** (`pe/cost`, new, every 5 s; simulator, 2750x2850, cap lifted, DLSS
+  off, this PC's Ryzen 5 5600X): the ProcessEvent hook ran **~7,000 script events/s at ~75 us each =
+  ~500 ms of the game thread per second** - about half of each ~6.4 ms tick, on the thread that is
+  the frame-rate ceiling. By statement (`pe/cost-fn`): FovLeverApply 185 ms/s, CarryHoldTick 46,
+  SkcRotApply 42, CamShakeTick 36, camera::apply_offsets 26, FxFollowTick 22, UiPeLatch 10, the rest
+  under 7 each. VirtualQuery (RangeReadable) ran ~15,000 times a second.
+- **Fast path (PeFast):** a region cache for the hook's own readability checks (cleared every second)
+  and an FName-index -> traits cache for the event-name tests (the same strstr/strcmp tests, resolved
+  once per index). VirtualQuery 15,000/s -> ~150/s; saves ~20 ms/s. Menu events still register
+  (Dis_OpenPauseMenu / OnResumeGameClicked measured with it on).
+- **Heavy-writer cadence (PeHeavyMs):** FovLeverApply (FOV lever + eye clamp) and apply_offsets wrote
+  their fields on every event so ours is the last value before the draw. With the re-entry draw hook
+  installed they now run at most every 2 ms during the tick, ALWAYS once at the viewport-draw entry
+  (after the tick's last event, before pass 1 reads the camera) and ALWAYS for events inside the draw;
+  without the hook every event runs them as before. SkcRotApply, CamShakeTick and CarryHoldTick are
+  deliberately NOT throttled (they race the animation/physics tick itself, not the draw).
+- **Result:** old cadence 151-162 ticks/s (hook ~495 ms/s) against **throttled 162-177 ticks/s, mostly
+  170-175 (hook ~395 ms/s)**, about +10 %, repeated off/on twice. FOV readback held at the lever's
+  108.07 deg target throughout, stereo eye check 33,063 agree / 0 disagree, walking fine. Throttling the
+  in-draw events too (`pe heavydraw off`) cut the hook to ~320 ms/s with the same FOV and eyes but no
+  further rate gain - the render thread is now the limit (idle 0.3 ms) - so it stays off by default.
+- **Left on the table:** ~390 ms/s of per-event work remains (the mid ticks and SkcRotApply). Each is a
+  candidate for its own cadence after checking what it races; the per-statement split (`pe fn on`)
+  names them. Not headset-tested.
+
+### 2026-09-27: in the HEADSET the GPU is the limit, not the game thread (corrects the routes above)
+
+The maintainer's route-1 headset run (VDXR 144 Hz, 2750x2850, DLSS off, no SSW, route 1 toggled four
+times each way): 122-124 pairs/s with the extra pair, 120-127 without - no difference. With it off,
+per pair: 7.3-8.1 ms total, **D3D9 GPU span 6.7-6.9 ms**, the present thread waiting 1.1-1.9 ms on the
+capture fence (the GPU), and the runtime reporting UNDER-SUBMITTING 0.89x. The simulator's game-thread
+ceiling (~7 ms/tick, GPU ~5.2 ms per pair) does not carry to the headset, where Virtual Desktop's
+encode and the compositor share the card and the GPU becomes the limit. So routes 1 and 2 (CPU) cannot
+raise the headset's rate on this PC; route 2 stays as CPU headroom. Next lever: GPU time per pair
+(our sharpen pass ~0.4 ms per eye, the streamer's encode, render size). Late in the same run the
+runtime's period went to 13.89 ms (72 Hz) - Virtual Desktop halving the rate on its own.
+
+
+## 2026-09-27: The uncap deep dive - where the headset frame goes, and the plan that tests it
+
+Branch `claude/uncap-deep-dive` (stacked on route 2). Goal: find the serialisation that holds the
+headset at ~120-137 pairs/s with the PC at ~25 % CPU and ~80 % GPU.
+
+### What the latest headset log already says (offline, no new run)
+
+Source: the maintainer's route-2 headset log of 2026-09-27 (build `v1.0.1-106-gb0e953df2`, VDXR 144 Hz,
+2750x2850, SSW off, DLSS off, Sharpen 0.40, capture shared depth 1). Only the 35 windows of steady play at
+144 Hz (the first ~290 s of that run sat at 13.89 ms / 72 Hz, Virtual Desktop halving the rate, and a
+heavier area at ~70 pairs/s; both excluded). Medians, p10-p90 in brackets. The perf line's P1/P2 are the
+presents that DELIVER the left/right image (delivery is one present late), so P1 is physically the
+right-eye present and its `out` renders the next tick's left eye.
+
+| Per stereo pair | median | p10-p90 |
+|---|---|---|
+| tick | 8.0 ms (124 pairs/s) | 7.5-8.6 |
+| render thread, engine rendering (R, both eyes) | 4.6 ms | |
+| render thread, waiting on the capture blit fence (P1 lock + P2 lock) | 1.3 ms | 0.6-2.4 |
+| render thread, waiting on the game thread (P1 out idle) | 0.6 ms | 0.5-1.1 |
+| render thread, our present path excluding the fence | ~1.0 ms | |
+| D3D9 GPU span (render start to present entry, both eyes) | 6.9 ms | 6.6-7.7 |
+| D3D9 GPU idle between presents | 0.1 ms | 0.1-0.3 |
+| our D3D11 GPU work (conversion + sharpen 0.09, eye copy 0.05, per eye) | ~0.3 ms | |
+| xrWaitFrame | 0.1 ms | (UNDER-SUBMITTING 0.81-0.94x: the runtime never throttles) |
+
+- The capture's own window line: `blit fence waits` in 256-680 of ~750 grabs per 3 s, the D3D11 read fence
+  never. So the render thread waits on the GPU finishing the PREVIOUS eye's blit, i.e. the GPU is more than
+  one eye behind at that moment, on most ticks.
+- All three stages sit near the same cost: GPU ~6.9 ms of D3D9 span plus ~0.3 ms of ours plus Virtual
+  Desktop's share; render thread ~7.4 ms busy; game thread ~7.4 ms (the render thread waits 0.6 ms for it).
+  A three-stage pipeline whose stages are this balanced, with at most one eye of buffering between the render
+  thread and the GPU (the capture fence) and one frame between the game and render threads
+  (OneFrameThreadLag), loses throughput to each stage's variance; nothing is saturated because each stage
+  waits for a neighbour part of the time. That is the "25 % CPU, 80 % GPU" picture.
+- Our D3D11 side is not the cost: ~0.3 ms of GPU per pair (`perf/bridge`), so the sharpen pass is not the
+  0.4 ms per eye the earlier handoff guessed. Not a lever worth a segment.
+- OPEN, and what the GPU timeline must answer: the D3D9 span (6.9 ms) is wall time on the GPU and can hide
+  gaps. Two readings predict different things. (a) The GPU is truly busy for the whole span (game + ours +
+  Virtual Desktop): the fence wait is only the throttle, and removing it moves the wait elsewhere with no
+  rate change. (b) The GPU starves inside the span because the next eye's commands reach the kernel late
+  (they sit in the D3D9 driver's buffer until something flushes it; with the desktop Present skipped, the
+  flushes are ours - the capture fence poll and `submit_without_present`): then letting the render thread
+  run further ahead raises the rate toward the GPU's own cost.
+
+### Instruments built for it (this branch)
+
+- `core/util/etw.{h,cpp}`: a TraceLogging provider `DishonoredVR` {6b3c1f4e-2d6a-4f7c-9a51-0d2e8c7b4a19}
+  with begin/end events for the present, the xrWaitFrame, the game tick, the method, both capture waits,
+  the HUD and its fence, xrEndFrame, the desktop Present or its flush, the frame-start marker, each
+  game-thread scene draw (eye in `a`), and every seam command as a mark. Free unless a trace session enables
+  the provider (one flag test per call); `[Perf] Etw=0` is a kill switch only.
+- `tools/wpr/dvr-gpu.wprp` (`DvrGpu`: CSwitch + ReadyThread, DxgKrnl Base+Profiler+LongHaul with the
+  context rundown, the proxy's markers; `DvrGpuStacks` adds 1 kHz samples with stacks) and
+  `tools/perf-gpu-trace.ps1` (elevated; never launches anything): `-Smoke` proves the recorder; armed, it
+  waits for the game, arms an A/B plan through the seam (`-Plan`), traces a few seconds inside chosen plan
+  segments, and samples GPU clocks/power/throttle reasons (nvidia-smi, 4 Hz) and per-process GPU engine load
+  (1 Hz) for the whole run, all stamped on the log's clock.
+- The A/B plan reads a FILE now: `perf ab plan <file>` / `[Perf] AbPlan=<file>`, one segment per line,
+  `label | apply seam words | restore seam words`, a row without apply words is a baseline; the built-in
+  plan is unchanged. `tools/perf-plans/uncap-1.txt` is the first plan.
+- Two levers, default off:
+  - `[Capture] SharedDepth=1` / `capture depth 1|2|3`: the shared capture ring's delivery depth. Depth 1
+    is the 41.1 two-slot ring (unchanged). Depth N keeps N+1 slots and delivers the slot blitted N
+    presents ago, so the render thread can run up to N eyes ahead of the GPU instead of waiting on the
+    previous eye's blit. Cost: one present (~4 ms) more latency per step, the pose record riding the image
+    (VR-65) so the runtime still submits the pose each image was rendered with. Not in the default ini.
+  - `res live pct <25..200>` / `res live <W>x<H>`: a session-only render size through the engine resize
+    the F10 control and DLSS SR already use; nothing is written to either ini.
+
+### Plan 1 and its predictions (recorded before the run)
+
+`tools/perf-plans/uncap-1.txt`: 15 segments of 20 s (3 s warm-up discarded), seven baselines A-G between
+depth 2, `pe heavydraw off`, a serial control (`capture sharedwait on`: the render thread waits for THIS
+eye's blit, which must lower the rate or the plan cannot see a wait at all), depth 2 + heavydraw off, and
+the render size at 70 % and 130 %.
+
+| Segment | If (a) the GPU is the ceiling | If (b) our wait starves the GPU |
+|---|---|---|
+| depth 2 | fence waits ~0, rate within the baseline floor, the GPU timeline shows the 3D queue never empty | fence waits ~0 and pairs/s up toward 1 / (GPU span + ours), up to the 144 cap |
+| heavydraw off | no change | no change unless the game thread is the next limit (render idle 0.6 ms falls) |
+| serial control | rate DOWN (both) | rate DOWN (both) |
+| res 70 % | rate up by roughly the pixel share of the GPU span | small change (a starved GPU does not care about pixels) |
+| res 130 % | rate down | rate down less than the pixel ratio |
+
+- Trace overhead is controlled by construction this time: VR-125's combined GeneralProfile+GPU capture cost
+  ~25 % of the rate and its memory-ring GPU collector kept only events after the game had exited. DvrGpu is
+  file-mode, has no stacks or sampling, and records 5 s windows inside 20 s plan segments, so every traced
+  segment has untraced perf windows of the same configuration beside it.
+- WPR needs admin; `tools/perf-trace-task-setup.ps1` (run once, elevated) registers four on-demand tasks
+  under `\DishonoredVR\` that run a fixed script from an admin-only folder, so the recorder then runs
+  without elevation and without a prompt. `-Remove` undoes it.
+- Driver lever queued for after plan 1 (needs a restart per setting, so not in the plan): NVIDIA
+  Threaded Optimization. VR-125's lightweight headset trace had the render thread blocked 27 % of the
+  time, 91 % of that ended by the NVIDIA D3D9 worker thread, which itself polls; whether the driver's
+  worker is the render thread's hidden wait is the question the CSwitch/ReadyThread data in DvrGpu answers.
+
+### Plan 1 in the SIMULATOR (2026-09-27, shakedown; the headset question is still open)
+
+Build `81bef09dd` + the fixes below, RelWithDebInfo, simulator at 240 Hz (cap lifted), 2750x2850, the same
+save, standing still, untraced. Noise floor from 7 baselines: p50 5.91-6.34 ms (6.9 %), p99 9.28-11.47 ms.
+
+| Segment | p50 pair | pairs/s | verdict |
+|---|---|---|---|
+| baselines A-D | 5.91-6.10 ms | 164-169 | - |
+| depth 2 | 5.95 ms | 168 | no change |
+| heavydraw off | 6.09 ms | 164 | no change |
+| serial control (SharedWait=1) | 8.88 ms | 113 | **+45 %: the plan sees a wait** |
+| depth 2 + heavydraw off | 6.14 ms | 163 | no change |
+| res 70 % (1926x1996) | 6.13 ms | 163 | no change |
+
+- The simulator does not exercise the headset's question: its capture fence already waits in 0-4 of ~950
+  grabs per window at depth 1 (headset: 256-680 of ~750), and a 70 % render size did not move the rate,
+  so here the game thread, not the GPU, is the limit (as recorded for route 2). Depth 2 worked
+  mechanically (ring 2 -> 3 -> 2 rebuilt live, 0 fence waits, no stale eye), and the serial control
+  proves the instrument can see a render-thread wait. The headset run is where depth 2 decides (a) vs (b).
+- FAULT FOUND AND FIXED: the live resize persisted what it applied. `res live` reached `ResRequest`,
+  which writes `[Screen] RenderWidth/Height`, `DishonoredEngine.ini [SystemSettings] ResX/ResY` and the
+  launch file, and moved the base the percentage is taken from, so `res live pct 100` "restored" 70 %
+  and the last three rows measured 70 % and 91 %, not 100 % and 130 % (discarded). `pe heavydraw`
+  persisted `[Perf] PeHeavyInDraw` through `ConfigWriteKey`. Now: `ConfigWriteKey` writes nothing while an
+  A/B plan row runs, `res live` advertises the mode in memory only and takes its percentage from the size
+  configured at the first call. All three files were restored byte-for-byte from the pre-run backup.
+- FAULT FOUND AND FIXED: the trace tasks ran with an interactive logon, and each start flashed a console
+  that took the focus from the game, which pauses on focus loss - it stalled the first two plan attempts.
+  The tasks now run as S4U (background session, no window).
+- FAULT FOUND AND FIXED: the DvrGpu traces held the kernel events and the proxy's markers (~4,800
+  phase events/s) but NO DxgKrnl events, by name or by GUID. Cause: the provider lacked
+  `NonPagedMemory="true"`, which WPR's own GPU profile sets (`wpr -exportprofile GPU`): DxgKrnl logs from
+  interrupt-level code and a paged session silently receives none of it.
+
+### Plan 1 in the HEADSET (2026-09-27): no hidden serialisation - the GPU is full
+
+Build `28078EF3` (the branch at `2407a4c9e`), VDXR 144 Hz, 2750x2850, SSW off, DLSS off, standing still,
+the maintainer's own INI (unchanged, verified). Plan 1, 5 s DvrGpu traces inside five segments. Baseline A
+was discarded (the plan started during the load); six baselines agree within 2 % (p50 8.56-8.73 ms).
+
+| Segment | p50 pair | pairs/s | verdict |
+|---|---|---|---|
+| baselines B-G | 8.56-8.73 ms | 115-117 | - |
+| depth 2 | 8.66 ms | 115.5 | NO CHANGE |
+| heavydraw off | 8.84 ms | 113.2 | no gain |
+| depth 2 + heavydraw off | 8.80 ms | 113.6 | NO CHANGE |
+| serial control | 11.31 ms | 88.4 | -31 %: the plan sees a render-thread wait |
+| res 70 % (1926x1996) | 7.64 ms | 130.9 | **+13 %** |
+| res 130 % (3576x3706) | 12.29 ms | 81.4 | **-30 %** |
+
+GPU timeline (`tools/perf-gpu-timeline.py`, baseline D, 5.8 s, 656 pairs, 112.5 pairs/s under trace):
+
+- **The game's D3D9 queue had work pending 96.8 % of the window; the 3D engine was occupied by some
+  process 97.6 %; idle 0.22 ms per pair.** The game's queue occupancy is 8.61 ms per pair of 8.89. Its
+  gaps total 0.28 ms per pair, 72 % of them while the render thread was inside the engine's own
+  rendering, none in our capture fence. The only GPU-side sync waits of the game's process (one per pair)
+  are on a small secondary queue (our D3D11/XR copy, released by Virtual Desktop), not on the D3D9 queue.
+- nvidia-smi over the run: utilisation 94 % median, graphics clock 2745 MHz (full boost), no throttle
+  reason active 93 % of samples, 204 W of 285 W. Virtual Desktop: 3D ~10 %, video encode ~56 % (a separate
+  engine). **The Task Manager "80 %" understated a saturated GPU.**
+- depth 2 (trace seg02): queue occupancy 97.2 %, 8.54 ms per pair, the same. Removing the capture wait
+  only let the render thread queue further ahead of a GPU that was already full - reading (a).
+- res 70 % (trace seg10): the game's queue occupancy fell to 5.52 ms per pair and the 3D engine went 25 %
+  idle, so at 70 % the limit moves to the CPU side (~7.6-8.0 ms per pair). Solving
+  `occupancy = F + P * pixels` from 100 % (8.6) and 49 % of the pixels (5.5): **F ~2.5 ms per pair is
+  resolution-independent, P ~6.1 ms per pair is proportional to pixels at 2750x2850**; it predicts
+  12.8 ms at 130 % against 12.3 measured.
+- This corrects the simulator-era reading that "the GPU cost barely follows resolution": in the headset,
+  with Virtual Desktop on the card, ~70 % of the GPU time per pair follows the pixel count. The
+  simulator is game-thread-bound and cannot show it (plan 1 in the simulator: 70 % did nothing).
+- Trace overhead: the traced baseline D window ran 112.5 pairs/s against the plan's 115.2 for the whole
+  segment (~2-3 %).
+
+**Verdict.** The headset at 2750x2850 is GPU-bound on the game's own rendering, with the three CPU
+stages close behind (~7.6 ms per pair at 70 %). Nothing of ours serialises it; capture depth and the
+script-lane cadence stay default off / as they were. The routes that can raise the rate are GPU cost per
+pair, above all per-pixel cost: the game's AA pass (MLAA is the VR preset) and bloom/light shafts, our
+16x anisotropic override (the game's own default is 4x), the render size itself, and DLSS SR with the
+fast model, now that the headset is pixel-bound (re-test; its earlier headset loss used the heavy M/L
+presets). Sharing view-independent passes between the eyes targets F (~2.5 ms per pair) and the CPU floor.
+
+### Follow-up: the game's MLAA is switched off while DLSS/DLAA is on (2026-09-27)
+
+The VR preset (`[GameOptions] DefaultsAtStartup`, game_opts.cpp) wrote Antialiasing = MLAA at every launch.
+It now writes OFF (profile id 122 = 0, `AntialiasingMode_Off` in ArkProfileSettings) when `[Clarity] DLAA`
+is on - DLAA or Super Resolution already anti-alias, and MLAA is a full-screen pass in a headset shown above
+to be pixel-bound - and MLAA as before when it is off. Decided at launch, through the same pre-apply profile
+write the preset already used (a live switch would need the engine's settings apply called mid-session,
+not reverse-engineered). The log's `gameopts/defaults: startup policy` line names the value and why.
+Not yet measured: its rate gain with DLSS on (the MLAA cost was never isolated).
+
+## 2026-09-27: AMD FSR 3.1 (FSR 4 where offered) through the DLSS helper - host and simulator verified
+
+Branch `claude/fsr-upscaler` off staging. No Linear ticket: the workspace refused new issues (free limit).
+
+### Route and why
+
+The x64 helper already receives each eye's colour, depth (1 / (1 + z)), camera vectors (previous minus
+current UV), the anti-smear mask and the projection jitter by shared handle and fence. FSR runs in the
+same helper through AMD's FidelityFX API: `amd_fidelityfx_dx12.dll` (SDK v1.1.4, FileVersion 1.0.1.41314,
+AMD-signed, MIT; `tools/fetch-ffx.ps1` pins commit and SHA256), or SDK 2.x's
+`amd_fidelityfx_loader_dx12.dll` when it is placed beside the helper (FSR 4 on RDNA4). This supersedes the
+earlier plan of an in-process 32-bit D3D12 port (the patched x86 SDK build above, never dispatched).
+
+- IPC v3: the Hello carries the backend (DLSS or FSR) and an FSR version choice; the reply names the provider
+  in use and every version the runtime offers; each frame adds frame time, vertical FOV and metres per depth
+  unit for FSR's depth reconstruction (DLSS ignores them). Flags: non-linear colour (the game's gamma LDR),
+  inverted + infinite depth, auto exposure. The anti-smear mask is passed as FSR's reactive mask.
+- Levers: `[Clarity] Upscaler=0|1` (missing = DLSS; not in the default ini), `FsrVersion=0` (0 = the
+  runtime's default), seam `dlss backend dlss|fsr`, `dlss fsrversion <n>`; F10 Basic "Upscaling and
+  anti-aliasing (DLSS, FSR)" gains an Upscaler choice; the mode list is shared (DLAA reads "Native AA" under
+  FSR) and the DLSS model list shows only for DLSS. The game's MLAA-off rule covers FSR too.
+
+### Host test (`tools/dlss-host-test.ps1 -Fsr`, RTX 4070 Ti SUPER, no game): 13/13; full suite 30/30
+
+- The runtime: FSR 3.1.4 (it also offers 2.3.3); start 300-430 ms.
+- Per eye isolated, reset, 512 -> 768 upscale: all pass (errors 0.005-0.014).
+- Motion vectors, production sign `kFsrMvSign = +1`: error 0.0007 against 0.0404 flipped and 0.0449 zero.
+- Projection jitter, production `kFsrReportX/Y = -1, -1` (the same as DLSS): 0.0080, the best of the four
+  pairs (+x+y 0.0196, +x-y 0.0206, -x+y 0.0120), against 0.0163 without jitter.
+- GPU per eye at a 2750x2850 output: native AA 1.70-1.80 ms, Quality (1832x1900) 1.23 ms, Performance
+  (1374x1424) 0.93-0.98 ms. DLSS on the same machine: K ~2.0-2.2 ms, the fast CNN ~0.9 ms (table above).
+
+### Simulator (240 Hz, cap lifted, the same save; game-thread-bound, so rates are not headset predictions)
+
+`dlss backend fsr` live from DLAA: helper restarted as FSR 3.1.4 in 472 ms, both eyes rebuilt, native AA
+65 images/s per eye with no fallback and no refusals; Quality 110/s; Performance 126/s; upscaler off 155
+pairs/s. Images clean at every mode (captures, mean luma 27.5 / 27.0 / 26.8). Helper GPU under load 4.3-5.6
+ms (native), 2.2-2.8 (Quality), 1.8-2.0 (Performance) per eye - inflated by sharing the GPU with the game, as
+DLAA's were. One untagged present held by the existing HoldUntagged guard 9 s after the switch (one
+duplicate right eye), the one-present class already open under DLSS; the other stale-eye lines fell within
+two seconds of a helper restart or resize.
+
+### What the headset has to answer (plan `tools/perf-plans/fsr-1.txt`)
+
+From plan 1 (~6.1 ms per pair pixel-proportional, ~2.5 ms fixed, CPU floor ~7.6-8.0 ms), FSR Quality should
+land near the CPU floor (6.1 x 0.45 + 2.5 + 2 x 1.2 = ~7.7 ms of GPU per pair) and Performance below it:
+predicted ~125-130 pairs/s against ~115 native at 2750x2850, if the cross-process contention stays near the
+isolated cost. A loss like DLSS SR's earlier one (heavy presets, 3-4 ms per eye) would say the contention
+dominates. FSR 4 needs an RDNA4 GPU and SDK 2.x's DLLs beside the helper (not fetched here).
+
+### FSR 4: FidelityFX SDK 2.3.0 (same day)
+
+The helper now ships SDK v2.3.0 (commit `60f4ea81`): `amd_fidelityfx_loader_dx12.dll` 2.3.0.2740 and
+`amd_fidelityfx_upscaler_dx12.dll` 4.1.1.2740, both AMD-signed, hash-pinned in `tools/fetch-ffx.ps1`. The
+upscaler provider offers FSR 4.1.1 on the GPUs that run it (RDNA 4) and FSR 3.1 elsewhere; the helper
+passes the API-version descriptor 2.x expects (`FFX_UPSCALER_VERSION` 4.1.1) and picks the HIGHEST version
+number offered by default (`[Clarity] FsrVersion=0`); F10 Advanced "FSR version" lists what the runtime
+offers. Upscale descriptor layouts are unchanged from 1.1.4 (compared); the 2.x loader header fills its
+function table only under `_WINDOWS`, which the helper build now defines (without it FSR would have had no
+entry points).
+
+- Host suite on SDK 2.3.0: 30/30. On this RTX 4070 Ti SUPER the runtime offers FSR 3.1.5 and 2.3.4, NOT
+  FSR 4 (AMD restricts it to RDNA 4), so FSR 4 itself is untested here: an RX 9000 rig should log
+  `[ffx] offers 1: 4.1.1` and `using 4.1.1` in `<data>\dlss\dlss_host.log`. Costs unchanged (native AA
+  1.86 ms, Quality 1.20, Performance 0.96 per eye at 2750x2850).

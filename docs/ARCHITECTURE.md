@@ -1120,6 +1120,26 @@ spyglass/cinematic headset validation remains required. Details: ENGINE_NOTES,
 VR-213. Camera writes require fresh-table identity revalidation after UI/load
 transitions; unchanged pointer values do not bypass it.
 
+## 2026-09-26: the FOV lever's base is never re-read from its own output
+
+The lever re-reads its natural base from the camera sensor whenever the owners are
+revalidated after a load. By then the sensor holds the lever's own output, and the dev
+rig's logs show it taken as the base after loads (`natural base 108.1 deg, target 108.07
+... ratio 1.000`, five captures across four sessions). VR-213 made a base at or above the
+target a ratio of exactly 1, which is safe against contraction but has no restoring
+force: the lever copies whatever the game renders, including a narrowing the game makes
+for a moment (death, a store, an objective), into the controller's DefaultFOV, and the
+game restores that narrow default afterwards. The headset view stays a small box. An
+affected player reported exactly that after a store and after dying, at a portrait
+(taller than wide) render size, and not at four landscape sizes; a landscape target
+(about 110.9 deg) leaves an echo slightly under it, a ratio just above 1 that does pull
+back, which fits. Decision: the first base a session reads is kept, and a re-read
+replaces it only when it is neither within 0.5 deg of our last write, nor at the target,
+nor narrower than the kept base (a transient); a wider value (a changed game FOV option)
+is accepted. `fov_lever_policy.h` `rearm_natural`, host-tested with a negative control
+that reproduces the stuck 37.36 view from an echoed base. Known limit: a game FOV option
+lowered mid-session is ignored until restart.
+
 ## Launcher update boundary (VR-214, 2026-09-24)
 
 The launcher remains a single offline-capable x86 EXE with its mod payload.
@@ -1272,3 +1292,42 @@ D3D11 texture together; capture releases SRVs before resetting that owner.
 The probe uses the same preferred A8/backbuffer fallback formats as the slots.
 This changes resource creation only; existing producer/consumer fences and eye
 delivery remain responsible for synchronization.
+
+### 2026-09-26: optional camera motion vectors for clarity TAA
+
+Convert the existing c5 position record into world coordinates only in clarity's consumer;
+do not change pose transport semantics. Generate per-eye previous-minus-current UV vectors
+at TAA output resolution from serial-matched depth. Feed those to TAA, retaining the prior
+rotation/motion-weight fallback for absent depth and colour clipping for unmodelled objects.
+Active Temporal + MotionVectors owns the depth-copy demand separately from diagnostics;
+Present also services resource release on disable. DepthScale 200 is the coarse measured
+simulator minimum and remains adjustable. Both temporal and vector levers default off.
+Measurements, rejected mirroring and the initial caller-gate failure: PERFORMANCE.md.
+
+
+### 2026-09-26: TAA audit follow-up supersedes materialized production vectors
+
+Clarity now fuses reconstruction into temporal; history alpha retains linear depth for
+previous-view visibility rejection. Optional vector outputs are host diagnostics, not a
+production allocation. Draw records append per-eye c5, scoped FOV, camera identity and
+level/UI epoch without changing the tracking Cam/Track publication. Consumption uses those
+captured values; history rejects capture gaps, lifecycle transitions and stale views.
+Every shared-depth slot owns a D3D11 read query ended after all clarity/calibration reads.
+Reuse is nonblocking and requires completion; pending serial duplicates are invalidated.
+D3D9 producer failure and colour capture fence timeouts refuse delivery. Depth-copy GPU
+brackets and CPU submission are now attributed in perf. Details and acceptance: PERFORMANCE.
+
+
+### 2026-09-26: DLSS runs in a 64-bit helper; the proxy creates every shared object
+
+NGX has no 32-bit build, so DLAA/DLSS run in `dvr_dlss_host64.exe`, started by the proxy
+in a kill-on-close job. One helper for both eyes (one NGX feature each keeps the histories
+apart) instead of the community fork's helper per eye: one D3D12 device, one NGX init, one
+pipe. The proxy creates the textures and fences on its D3D11 device and duplicates the
+handles INTO the helper, so the helper needs no access to the game process. The helper
+takes the proxy's adapter LUID on its command line and refuses any other adapter. The
+per-frame ack follows the helper's queued Signal, so the proxy waits on the GPU, not the
+CPU; a dead helper fails the next pipe call immediately and the normal path runs. Start
+and build run on a worker thread; the present thread uses the client only in Ready.
+FSR 3.1 (phase 3) is planned in-process on a 32-bit D3D12 device instead, because its
+source builds for Win32. Details: PERFORMANCE.md, DLAA through an x64 NGX helper.

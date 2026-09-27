@@ -103,5 +103,67 @@ int main() {
         check(recovery.update(true,false,true,52,108,8000)==0,"clock rollback cancels repair");
         check(recovery.update(true,true,false,52,111,9000)==111,"cinematic resolution change follows current target");
     }
+    // ---- the re-armed base (a load, a death, a store exit) ------------------------
+    //
+    // Model of the game side: the lever writes its value into the controller's
+    // DefaultFOV as well as the live fields, a transient (store/death camera) forces
+    // the rendered FOV narrow for a while, and when it ends the game restores the
+    // live FOV FROM DefaultFOV and interpolates. Returns the settled rendered FOV.
+    auto afterTransient = [](float natural, float requested, float narrow) {
+        float sensor = requested, def = requested;
+        for (int i = 0; i < 300; ++i) {          // the transient owns the view
+            sensor = narrow;
+            def = target(sensor, natural, requested);
+        }
+        sensor = def;                            // the game restores its default
+        for (int i = 0; i < 5000; ++i) {
+            const float t = target(sensor, natural, requested);
+            def = t;
+            sensor += 0.1f * (t - sensor);
+        }
+        return sensor;
+    };
+    {
+        using dvr::fov_lever::rearm_natural;
+        using dvr::fov_lever::Rearm;
+        const float req = 108.0666f;
+        // Negative control: the recapture the logs show (our own 108.07 read back as
+        // the natural base) leaves the lever at ratio 1 and a 37.36 transient sticks.
+        check(std::fabs(afterTransient(req, req, 37.36f) - 37.36f) < 0.01f,
+              "negative control: an echoed base keeps the store/death narrowing (the reported small box)");
+        check(std::fabs(afterTransient(75.0f, req, 37.36f) - req) < 0.01f,
+              "the real base widens a store/death narrowing back to the target");
+        check(std::fabs(afterTransient(75.0f, req, 60.0f) - req) < 0.01f, "a 60 degree transient also recovers");
+        Rearm why;
+        check(near(rearm_natural(75.0f, 0, 0, req, &why), 75.0f) && why == Rearm::Fresh, "first capture is taken as read");
+        check(near(rearm_natural(108.07f, 75.0f, req, req, &why), 75.0f) && why == Rearm::KeptEcho,
+              "our own output read back after a load is not a base");
+        check(near(rearm_natural(108.3f, 75.0f, 90.0f, req, &why), 75.0f) && why == Rearm::KeptAtTarget,
+              "a reading at the target cannot be told from our output");
+        check(near(rearm_natural(37.4f, 75.0f, 53.8f, req, &why), 75.0f) && why == Rearm::KeptNarrower,
+              "a narrowing captured on a load (37.4) is not a base");
+        check(near(rearm_natural(60.0f, 75.0f, 86.5f, req, &why), 75.0f) && why == Rearm::KeptNarrower,
+              "a narrowing captured on a load (60) is not a base");
+        check(near(rearm_natural(85.0f, 75.0f, req, req, &why), 85.0f) && why == Rearm::Accepted,
+              "a wider game FOV option is accepted");
+        check(near(rearm_natural(75.2f, 75.0f, req, req, &why), 75.2f) && why == Rearm::Accepted,
+              "the same base read again is accepted");
+        check(rearm_natural(20.0f, 75.0f, req, req, &why) == 0 && why == Rearm::Invalid, "out of range refuses");
+        check(rearm_natural(std::numeric_limits<float>::quiet_NaN(), 75.0f, req, req, &why) == 0, "NaN refuses");
+        // Landscape target (a 110.9 claim): our 110.9 echo is kept out the same way.
+        check(near(rearm_natural(110.9f, 75.0f, 110.9f, 110.9f, &why), 75.0f) && why == Rearm::KeptEcho,
+              "landscape echo is kept out too");
+        // End to end: every load re-reads the sensor; the base must stay 75 through
+        // any number of loads, transients included, and the view must come back.
+        float kept = 0, last = 0, view = 75.0f;
+        for (int load = 0; load < 6; ++load) {
+            const float nat = rearm_natural(view, kept, last, req, &why);
+            check(near(nat, 75.0f), "the base survives every load");
+            kept = nat;
+            for (int i = 0; i < 2000; ++i) { last = target(view, kept, req); view += 0.1f * (last - view); }
+            check(near(view, req), "the view settles at the target after the load");
+            view = (load % 2) ? 37.36f : 60.0f;    // the next load happens during a narrowing
+        }
+    }
     std::printf("FOV feedback: %u checks passed; old writer collapses, fixed writer remains stable.\n",checks);
 }

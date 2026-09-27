@@ -54,7 +54,7 @@ struct Track {
 // The game camera that sample produced, in UE world convention.
 struct Cam {
     float  yawDeg, pitchDeg, rollDeg;
-    float  pos[3];            // the eye position written, engine units
+    float  pos[3];            // last_written_pos: c5 convention, NEGATIVE world position (uu)
     bool   posOk;
     double writeMs;           // when the camera write happened
     int    writer;            // 1 script dispatch, 2 direct fallback, 3 cinematic draw, 0 none
@@ -79,13 +79,20 @@ struct Record {
     int      eye;             // -1 left, +1 right, 0 mono / untagged
     Track    track;           // a COPY of the published sample, not a re-read
     Cam      cam;             // a COPY of the camera it produced
+    float    eyePos[3];       // the position the camera seam WROTE for this draw (c5 convention)
+    bool     eyePosOk;
+    float    renderPos[3];    // c5 the draw was RENDERED with, read at its present (c5 convention).
+    float    renderVp[16];    // the world view-projection (c0..c3 as uploaded) in effect at that present
+    bool     renderVpOk;
+    float    jitter[2];       // DLSS projection jitter the image was drawn with: sample offset, render px (dlss_jitter.h)
+    uint32_t jitterDraws;     // c0..c3 uploads that carried it; 0 = not jittered (jitter[] is then 0)
+    bool     renderPosOk;     // Differs from eyePos while walking: the engine moves the pawn after
+                              // the tick's write, and pass 1 (left) records that earlier write.
+    uint64_t sceneEpoch;      // level-load/UI transition generation at draw
+    uintptr_t cameraIdentity; // invalidation metadata only; never dereferenced
+    float    hfovDeg;         // projection captured before this view is drawn
     double   openedMs;
     bool     secondPassReuse; // this view reused pass 1's camera, deliberately
-    // The camera position written for THIS view, in the c5 convention (the value the
-    // render thread's c5 reads for it). For pass 2 it is the right eye's own write, not
-    // the reused pass-1 camera, so a draw can find its view by its c5 alone.
-    float    viewPos[3];
-    bool     viewPosOk;
 };
 
 uint32_t next_pair();
@@ -93,9 +100,9 @@ uint32_t next_pair();
 // Open a record for the view about to be drawn. GAME thread. It COPIES the
 // published camera pair rather than sampling anything itself, so the record
 // cannot disagree with the camera that was actually written.
-uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* viewPos = nullptr);
+uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePos = nullptr, float hfovDeg = 0, uintptr_t cameraIdentity = 0, uint64_t sceneEpoch = 0);
 
-// The newest record opened in the last `maxAgeMs` whose viewPos lies within `tol` of `c5`
+// The newest record opened in the last `maxAgeMs` whose eyePos (the camera seam's write for that view) lies within `tol` of `c5`
 // (engine units, c5 convention). RENDER thread. `second` gets the distance to the nearest
 // OTHER tick's record (FLT_MAX when none), so a caller can refuse a match that does not
 // single out one view. False when nothing is within tol.
@@ -106,6 +113,12 @@ bool find_view(const float c5[3], float tol, double maxAgeMs, Record* out, float
 // False for an id nobody set (missing) or one since overwritten (expired) -
 // counted apart, because they mean different things.
 bool copy(uint32_t id, Record* out);
+
+// PRESENT thread: stamp the c5 this record's image was rendered with. False for an id that
+// is gone (the ring moved on) - the record keeps renderPosOk false.
+bool note_render_pos(uint32_t id, const float c5[3]);
+// PRESENT thread: the projection jitter this record's image was drawn with (dlss_jitter.cpp).
+bool note_render_jitter(uint32_t id, float sx, float sy, uint32_t draws);
 
 
 // ---- RENDER: what the draw actually consumed --------------------------------

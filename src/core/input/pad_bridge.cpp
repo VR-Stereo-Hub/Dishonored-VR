@@ -498,6 +498,18 @@ static void UpdateVirtualPad()
             "pad/axes: lean=%d menu=%d context=%d right=(%.3f %.3f) deliveredL=(%d %d) deliveredR=(%d %d)",
             int(emulation.lean),int(nativeMenu),UiSurfaceContext(),in.lk[0],in.lk[1],
             xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
+    {   // Trigger edges as the GAME receives them (the xbtn line carries buttons only). A grenade
+        // cooks while the left trigger is held and leaves on its release: a cook that never ends
+        // is either a release that never arrived here or one the game did not act on.
+        static bool ltWas=false, rtWas=false;
+        const bool lt=xs.Gamepad.bLeftTrigger>50, rt=xs.Gamepad.bRightTrigger>50;
+        if(lt!=ltWas || rt!=rtWas) {
+            Log("pad/triggers: LT %s RT %s | delivered %d/%d raw %.2f/%.2f carrySwap=%d menu=%d ui=%d",
+                lt?"DOWN":"up",rt?"DOWN":"up",(int)xs.Gamepad.bLeftTrigger,(int)xs.Gamepad.bRightTrigger,
+                in.trigL,in.trigR,(int)CarryThrowTriggersSwapped(),(int)(g_menuOpen||g_inMenu),(int)UiSurfaceBlocks());
+            ltWas=lt; rtWas=rt;
+        }
+    }
     const unsigned controlState=unsigned(emulation.buttons) | (emulation.modifier ? 0x10000u : 0u);
     static unsigned lastControlState=~0u;
     if(controlState!=lastControlState){lastControlState=controlState;

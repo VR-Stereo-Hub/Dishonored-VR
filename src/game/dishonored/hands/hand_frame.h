@@ -525,6 +525,49 @@ static inline void reflection_3x4(const float* n, const float* c, float* S)
     }
 }
 
+// out = a * b for two 3x4 affine matrices (row-major, translation in .w). out must not alias.
+static inline void mul_3x4(const float* a, const float* b, float* out)
+{
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 4; j++) {
+            float v = a[i*4+0]*b[0*4+j] + a[i*4+1]*b[1*4+j] + a[i*4+2]*b[2*4+j];
+            if (j == 3) v += a[i*4+3];
+            out[i*4+j] = v;
+        }
+}
+// out = inverse of a 3x4 affine matrix (any invertible 3x3 part). False when singular.
+static inline bool invert_3x4(const float* m, float* o)
+{
+    const float a = m[0], b = m[1], c = m[2], d = m[4], e = m[5], f = m[6], g = m[8], h = m[9], i = m[10];
+    const float A = e*i - f*h, B = f*g - d*i, C = d*h - e*g;
+    const float det = a*A + b*B + c*C;
+    if (!(det > 1e-8f || det < -1e-8f)) return false;
+    const float id = 1.0f / det;
+    const float r[9] = { A*id, (c*h - b*i)*id, (b*f - c*e)*id,
+                         B*id, (a*i - c*g)*id, (c*d - a*f)*id,
+                         C*id, (b*g - a*h)*id, (a*e - b*d)*id };
+    for (int row = 0; row < 3; row++) {
+        o[row*4+0] = r[row*3+0]; o[row*4+1] = r[row*3+1]; o[row*4+2] = r[row*3+2];
+        o[row*4+3] = -(r[row*3+0]*m[3] + r[row*3+1]*m[7] + r[row*3+2]*m[11]);
+    }
+    return true;
+}
+// The open right hand: a left finger's pose against its wrist, reflected by X (the
+// reference-pose mirror between the hands), put on the right wrist:
+//     out = wristR * X * inv(wristL) * fingerL * X
+// For a rig posed as an exact mirror image (P_R = Xw * P_L * X for any world reflection Xw)
+// this returns the right finger's own matrix; at the reference pose the finger rides its wrist.
+// invWristL is passed in, it is shared by every finger. out must not alias an input.
+static inline void mirror_finger_3x4(const float* wristR, const float* invWristL, const float* fingerL,
+                                     const float* X, float* out)
+{
+    float rel[12], t1[12], t2[12];
+    mul_3x4(invWristL, fingerL, rel);
+    mul_3x4(X, rel, t1);
+    mul_3x4(t1, X, t2);
+    mul_3x4(wristR, t2, out);
+}
+
 // VR-138: out = P * S for a palette of 3x4 bone rows (count registers, three
 // per bone). S acts on the vertex BEFORE skinning: every bone takes the same
 // S on the right, so the weighted blend reflects the reference-pose mesh.

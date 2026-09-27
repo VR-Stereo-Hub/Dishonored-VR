@@ -127,6 +127,12 @@ int      delivered_slot();
 // counted: there is no cross-API GPU fence in D3D9, so this IS the fence.
 void     set_shared_wait(bool on);
 bool     shared_wait();
+// Uncap deep dive (2026-09-27): the shared ring's delivery depth, 1..3 presents between
+// a slot's blit and its delivery ([Capture] SharedDepth=1, `capture depth <n>`; ignored
+// under SharedWait=1). Depth 1 is the 41.1 two-slot ring. A deeper ring lets the render
+// thread run further ahead of the GPU instead of waiting on the capture fence.
+void     set_shared_depth(int depth, const char* who);
+int      shared_depth();
 
 // 41.1 (Dishonored): the content-bbox cadence, and why it is a lever at all.
 //
@@ -152,7 +158,7 @@ uint32_t fence_timeouts();   // deliveries whose fence had not signalled at the 
 // never see the next present's frame (the other eye's image) land under it.
 // read_waits counts the blits that found the read still pending: the count
 // of frames that COULD have swapped an eye before this fence existed.
-void     read_done(ID3D11DeviceContext* ctx);
+void     read_done(ID3D11DeviceContext* ctx);   // once per delivery; DLSS calls it early, after its input copy
 uint32_t read_waits();
 uint32_t read_timeouts();
 
@@ -165,5 +171,12 @@ bool snapshot_pixels(IDirect3DDevice9* dev);
 // default-pool object this proxy creates must be released here - 38.63).
 void on_reset();
 void shutdown();
+// Game exit (PreExit), from the script thread with the present hook parked:
+// release OUR device's side of the shared slots and flush it. Quitting from the
+// menu presents no frame after PreExit, so the present-thread teardown never
+// ran and the cross-device shared textures lived into process termination (the
+// quit hang: one thread left in a driver wait). The D3D9 side stays: that
+// device is not ours to touch from this thread; process exit reclaims it.
+void exit_release_d3d11();
 
 } // namespace dvr::capture

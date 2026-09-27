@@ -177,7 +177,7 @@ The old **View**, **Blink**, **Animations** and **Advanced** tabs dissolve into 
 |---|---|---|
 | Resolution scale, Set resolution | B | |
 | fullscreen (live), vsync (live) + readout | A | |
-| Desktop benchmark, pair pacing, Reduced trial | D | |
+| Desktop benchmark | D | pair pacing and Reduced trial REMOVED 2026-09-27 (no gain measured) |
 | Disable desktop mirror, keep frozen across gaps, Reduce desktop presentation | A | ASK: the last is a "candidate": A or D |
 | Sample render-thread CPU costs | D | |
 | stereo armed | D | |
@@ -314,3 +314,30 @@ headset A/B. Reset and all-tier headset verification remain open.
 VR-199 headset follow-up: hiding box and lens together also removed visible sky rain and
 splashes. The required scope is the close overlay only. The next candidate targets only
 the measured `Over_camera_rain_01` lens component; sky/ground preservation is pending.
+
+## Follow-up: the DLSS/DLAA review (2026-09-27)
+
+Display tab, after the DLAA, DLSS Super Resolution, model list and Ultra Quality work:
+
+| Control | Tier | Note |
+|---|---|---|
+| NVIDIA DLSS (was "NVIDIA DLAA (experimental)"; `[Clarity] DLAA`) | B | new Basic section "DLSS and DLAA" |
+| DLSS mode (DLAA, Ultra Quality, Quality, Balanced, Performance, Ultra Performance) | B | was only visible in Advanced with DLAA ticked |
+| DLSS model (transformer / fast CNN / presets) | B | same |
+| Sharpening | B | moved from Advanced |
+| Texture filtering, smooth mip transitions | A | |
+| DLSS: reduce smearing, smear sensitivity, DLSS jitter | A | |
+| Temporal anti-aliasing, depth motion vectors, new frame weight | D | superseded by DLSS on RTX |
+| Jitter: include all eye-size passes | D | the speckle fix; leave on |
+| Supersampling resolve | REMOVED | judged no better in the headset (PERFORMANCE "Headset verdict"); `[Clarity] Resolve`, `clarity resolve` remain |
+| Diagnostic overhead A/B/A (Performance, debug) | REMOVED | no useful gain measured; `[Perf] DiagnosticAb` remains |
+
+## Follow-up: AMD FSR (2026-09-27)
+
+| Control | Tier | Note |
+|---|---|---|
+| Upscaler (NVIDIA DLSS / AMD FSR; `[Clarity] Upscaler`) | B | in "Upscaling and anti-aliasing (DLSS, FSR)", the renamed Basic section |
+| Upscaling / anti-aliasing on (was "NVIDIA DLSS") | B | same key, `[Clarity] DLAA` |
+| Mode | B | "DLAA" reads "Native AA" under FSR |
+| DLSS model | B | shown only for DLSS |
+| Reduce smearing, projection jitter | A | renamed from "DLSS: ..."; FSR uses them too |
