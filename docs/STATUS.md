@@ -1,3 +1,26 @@
+## DLAA through an x64 NGX helper (2026-09-26) - built, host and simulator verified, not merged
+
+Branch `claude/dlss-dlaa` (renamed from `codex/fsr-implementation`; stacked on the unmerged
+`claude/motion-vectors`). Order set by the maintainer: DLAA, then DLSS SR, then FSR 3.1; the
+FSR 2.2.1 plan is superseded. NVIDIA NGX is x64-only, so a 64-bit helper
+(`src/tools/dlss_host`, one process, one DLSS feature per eye, pinned to the proxy's adapter
+LUID) runs DLAA on textures and fences the proxy shares by NT handle. Guides: reversed
+scene-alpha depth and camera-only previous-minus-current vectors; no jitter yet.
+`[Clarity] DLAA=0` default; `dlss on|off|retry`; F10 Advanced > Display > Clarity.
+
+Host test 10/10 (eyes isolated, vector sign proved, reset, helper-kill fail-fast, 2.0 ms/eye
+at 2752x2848 isolated). Simulator: 69 DLAA images/s per eye, 0 refused, present-thread cost
+0.4 ms; stereo 90/s -> 69/s (GPU cost; 5.4 ms/eye under contention). Helper kill mid-game
+recovers; `dlss off` leak found and fixed; boot from ini works. No headset verdict.
+FSR 3.1 upscaler + DX12 back end compile as Win32 with three patches (not yet dispatched).
+No Linear ticket: the workspace issue limit refused creation again.
+
+Installed: d3d9.dll SHA256 `e1f8961e8f4c1a85...` (build 19:33), `dvr_dlss\` helper
+`c50fb4bcb852d64f...` + nvngx_dlss.dll 310.7.0.0. Installed INI restored byte-for-byte to its
+pre-session copy (`0ab5861a...`, CRLF verified): DLAA absent = off, Temporal=0, MotionVectors=1,
+DepthShare=0, MotionCalib=0. Backups: `build/dlss-install/pre-191713/`. Full record:
+[PERFORMANCE: DLAA](dishonored/PERFORMANCE.md#2026-09-26-dlaa-through-an-x64-ngx-helper-phase-1---built-host-and-simulator-verified).
+
 ## FSR continuation prepared (2026-09-26) - depth foundation stays unmerged
 
 The tester reports no perceptible benefit from the revised custom TAA. This is a negative

@@ -2740,3 +2740,133 @@ resource budget and an explicit compatibility verdict. Then proceed to dimension
 ownership. Do not spend the session tweaking custom TAA weight, installing an x64 SDK DLL,
 or assuming the engine projection classifier is already suitable. NEXT_SESSION contains the
 copyable Claude starting brief; this section is the sole maintained implementation plan.
+
+
+## 2026-09-26: DLAA through an x64 NGX helper (phase 1) - built, host and simulator verified
+
+### Decision: DLSS first, then FSR 3.1; FSR 2.2.1 dropped
+
+The maintainer redirected the FSR plan above in three steps in one session: FSR 3.1 instead of
+FSR 2.2.1; then DLSS if FSR 3.1 needed a 32-to-64-bit bridge; then, after research into a
+community BioShock VR fork that ships DLSS in a 32-bit VR mod, DLAA first, then DLSS Super
+Resolution, then FSR 3.1. The FSR 2.2.1 gate 1 above is superseded and was not run. Branch
+renamed from `codex/fsr-implementation` to `claude/dlss-dlaa` (the old remote name had no PR
+and was deleted). Still stacked on the unmerged `claude/motion-vectors`.
+
+### FSR 3.1: the 32-bit build question, answered at compile level
+
+FidelityFX SDK v1.1.4 (MIT, `c6efa6bf`) ships FSR 3.1's upscaler with DX12 and Vulkan back ends
+only, prebuilt as x64 DLLs. Its CMake names a Win32 platform (`FFX_PLATFORM_NAME x86`) but
+forces x64 in `toolchain.cmake`. Three local patches built `ffx_fsr3upscaler_x86.lib`,
+`ffx_fsr3_x86.lib` and `ffx_backend_dx12_x86.lib` with VS 2022 Win32, zero pointer-truncation
+warnings (C4244/C4267/C4311/C4312):
+
+1. `toolchain.cmake`: generator platform x64 -> Win32.
+2. PIX removed (no Win32 WinPixEventRuntime): `ENABLE_PIX_CAPTURES` undefined, `pixlib` unlinked,
+   `libs/pix` not added, two now-unused parameters voided (warnings are errors there).
+3. The frame-interpolation swapchain excluded from the DX12 back end: it includes AntiLag 2,
+   whose struct-size static assert is 64-bit only, and frame generation is out of scope anyway.
+Shaders are compiled by the SDK's own x64 tool; the permutation headers are bytecode, the same for x86.
+
+`C:\Windows\SysWOW64\D3D12.dll` exists, so a 32-bit D3D12 device is available in-process.
+NOT proven: a GPU dispatch. The route is FSR 3.1 in-process on a 32-bit D3D12 device sharing
+textures with the proxy's D3D11 device (same process, same adapter) - no helper process.
+Scratch build in `C:\dev\fsr-src` (not in the repo). This is phase 3.
+
+### Why the DLSS route is a helper process
+
+`nvngx_dlss.dll` is x64-only and closed, so it cannot load into Dishonored. The community
+BioShock VR DLSS/DLAA fork (MIT, built on the trilogy mod v0.8.2) solves this with 64-bit
+helper exes that open textures and fences the 32-bit game shares by NT handle. That fork ships
+zero projection jitter and camera-only vectors (its own panel says so). Its helper is a 3,400-line
+generalised DLSS5-Feeder derivative with ReShade/RenoDX lanes; this mod uses a rewrite of the
+same route instead, credited in `src/tools/dlss_host/NOTICE.md`.
+
+### What was built
+
+- `src/tools/dlss_host/dlss_host.cpp` (x64, `tools/build-dlss-host.ps1`): ONE helper process,
+  a D3D12 device on the proxy's adapter LUID (passed on the command line; it refuses any other
+  adapter, because shared textures cannot cross adapters - see the dual-LUID history), NGX via
+  `Init_with_ProjectID` (custom engine, own UUID), one DLSS feature per eye, preset K for DLAA
+  set explicitly, flags MVLowRes | DepthInverted | AutoExposure. Explicit COMMON <-> read/UAV
+  barriers on the shared textures, a three-allocator ring, sampled GPU timestamps, SEH around
+  NGX create/evaluate.
+- `src/core/gfx/dlss_ipc.h`: the wire contract. Every shared texture and both fences per eye
+  are created by the PROXY on D3D11 and duplicated into the helper. The helper never opens the
+  game process.
+- `src/core/gfx/dlss_client.{h,cpp}` (x86, no mod dependencies): launch in a kill-on-close job,
+  pipe handshake, per-eye build, and per eye image: copy colour/depth/motion, Signal(in, n),
+  Frame, FrameAck, GPU Wait(out, n). The ack means the helper has QUEUED Signal(out, n), so the
+  present thread never CPU-waits for the GPU work. A dead helper fails the next evaluate at once.
+- `src/core/gfx/dlss_gpu.{h,cpp}`: guides from existing data. Depth R32F reversed, 1/(1+z) of the
+  shared scene-alpha depth, 0 for sky/no depth - an ordering, not device depth. Motion RG16F,
+  previous UV minus current UV from the same reprojection as the fused TAA, unclipped.
+- `src/core/gfx/dlss.{h,cpp}`: settings, a worker thread for start/build (the present thread
+  never blocks on NGX init), state Idle/Working/Ready/Failed, fail-soft to the normal path,
+  `idle()` releases everything when switched off, a 5 s status line.
+- `clarity::draw`: with DLAA on, a tagged eye image goes through DLAA and then clarity's
+  resolve/sharpen; the custom temporal blend does not also run. `depth_probe` requests the
+  depth copy while DLAA is on.
+- Levers: `[Clarity] DLAA=0` (default), `DlssPreset=0`; seam `dlss on|off|retry|preset <n>`;
+  F10 Advanced > Display > Clarity and anti-aliasing > "NVIDIA DLAA (experimental)".
+- Packaging: `tools/fetch-ngx.ps1` pins NVIDIA DLSS SDK v310.7.0 (`a291cc7d`), the same runtime
+  the fork tested: `nvngx_dlss.dll` 310.7.0.0, SHA256 `BE6E434A...F6EE6E`. `install.ps1` refuses
+  any other hash and installs `<game>\dvr_dlss\` (helper, runtime, NVIDIA license, NOTICE).
+
+### Host test (`tools/dlss-host-test.ps1`, 10/10, RTX 4070 Ti SUPER, no game)
+
+32-bit client, real x64 helper. Each check can fail:
+
+| Check | Result |
+|---|---|
+| start + NGX init | ready in 1.6-1.7 s |
+| two DLAA features | 512x512 each |
+| eyes isolated (different scene per eye) | own image error 0.0055, other eye's 0.736 |
+| motion vector sign, scene moving +1 px/frame | true sign 0.0055, flipped 0.0123, zero 0.0155 |
+| reset on a hard cut | 0.0106 after one frame |
+| eye size 2752x2848 | GPU evaluate 2.01-2.09 ms per eye, isolated |
+| helper killed | evaluate fails in 1 ms, no hang |
+
+The sign test is what fixed the vector convention: DLSS reads previous-minus-current, the same
+field the fused TAA already computes.
+
+### Simulator (two launches, this session)
+
+Build `v1.0.1-95-ga4fb67869-dirty` (19:14 and 19:33). Gameplay reached (log state, both eyes
+90/s) before every measurement.
+
+- `dlss on` live: helper ready in 2.1 s, both features at 2750x2850 within 0.2 s, then
+  **69 DLAA images/s per eye, 0 refused, 0 fallback**. Present-thread cost 0.4 ms per eye.
+- **Cost: stereo 90/s -> 69/s.** The helper's evaluate timestamps read 5.1-5.6 ms per eye in the
+  game against 2.0 ms isolated: the D3D12 queue shares the GPU with the game's own rendering,
+  so wall time between its timestamps includes time-slicing. Treat 2 ms/eye as the kernel cost
+  and 5.4 ms as what it occupies under contention. Either way, DLAA at 7.8 MP per eye costs frame
+  rate. It is a quality lever; the performance lever is DLSS SR (phase 2).
+- Eye images: compositor captures with DLAA on/off gave mean luma 8.2/8.8 vs 8.3/8.9 and
+  non-black 31.7/35.1 % vs 31.7/35.0 % (not committed, game-derived).
+- Helper killed mid-game: detected in 46 ms, stereo continued (85-90/s), `dlss retry` back in 1.9 s.
+- FOUND AND FIXED: `dlss off` left the helper and 299 MiB running because nothing called into
+  DLSS while off. `idle()` now releases it; verified: stopped in 125 ms, 90/s restored.
+- `[Clarity] DLAA=1` at boot: DLAA came up by itself through menu -> load -> gameplay.
+- Game exit kills the helper (kill-on-close job): no orphan either time.
+
+### Limits (phase 1) and what is not established
+
+- No headset result. Whether DLAA is visibly better than the plain path here is NOT known.
+- No projection jitter. The head's own motion moves the image a little every frame; that is
+  all DLSS has for new sample positions.
+- Camera-only vectors: NPCs, hands, weapons, particles, water carry the camera's vector.
+- Depth is an ordering from scene alpha with the coarse 200 uu/unit scale.
+- Colour is the post-tonemap gamma capture (LDR, AutoExposure); HUD/Scaleform in the scene
+  image goes through DLAA too.
+- Sharpen (0.40 installed) still applies after DLAA: one sharpening pass, no DLSS sharpening.
+- NVIDIA RTX only; anything else logs the NGX refusal and runs the normal path.
+
+### Next
+
+1. Headset: one question - does DLAA (F10 toggle, panel closed) visibly reduce edge shimmer
+   compared with off, without objectionable smearing on moving NPCs or hands?
+2. Phase 2 DLSS SR: render/output size split (FSR plan gate 2 applies unchanged), preset by
+   ratio, the helper's feature already accepts ow > w.
+3. Projection jitter (FSR plan gate 3 applies unchanged) - benefits DLSS and FSR alike.
+4. Phase 3 FSR 3.1: in-process 32-bit D3D12, the three patches above, same guides and lifecycle.

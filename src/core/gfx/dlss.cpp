@@ -1,0 +1,233 @@
+// core/gfx/dlss.cpp - see dlss.h. The present thread calls run(); starting the helper and
+// building its features block for hundreds of milliseconds, so that happens on a worker
+// thread that touches only the device and the pipe. The state machine below never lets the
+// worker and the present thread use the client at the same time: the present thread uses it
+// only in Ready, the worker only outside it.
+#define DVR_CAT ::dvr::log::Cat::perf
+#include "core/gfx/dlss.h"
+#include "core/gfx/dlss_client.h"
+#include "core/gfx/dlss_gpu.h"
+
+#include "core/util/log.h"
+#include "core/util/paths.h"
+
+#include <windows.h>
+#include <d3d11.h>
+#include <atomic>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <thread>
+
+namespace dvr::dlss {
+namespace {
+
+enum State { Idle = 0, Working, Ready, Failed };
+
+std::atomic<int> g_mode{ModeOff};
+std::atomic<int> g_preset{0};
+std::atomic<int> g_state{Idle};
+std::atomic<bool> g_retry{false};
+Client g_client;
+GuideGpu g_guides;
+std::thread g_worker;
+char g_why[512] = "";          // the last refusal, for the log and F10
+char g_summary[256] = "off";
+// What the present thread last asked for (read by the worker once it is joined-for).
+uint32_t g_wantW = 0, g_wantH = 0;
+DXGI_FORMAT g_wantFmt = DXGI_FORMAT_UNKNOWN;
+ID3D11Device* g_dev = nullptr;
+bool g_helperStarted = false;
+bool g_guideFailed = false;
+
+struct Window { uint64_t eyes[2] = {}, fallback = 0, resets = 0; };
+Window g_win;
+uint64_t g_winMs = 0;
+
+void client_log(int level, const char* line) {
+    if (level >= 2) DVR_ERROR("%s", line);
+    else if (level == 1) DVR_WARN("%s", line);
+    else DVR_INFO("%s", line);
+}
+
+void join_worker() { if (g_worker.joinable()) g_worker.join(); }
+
+// Worker: start the helper if needed, then build both eyes at the wanted size.
+void work(uint32_t w, uint32_t h, DXGI_FORMAT fmt, int preset) {
+    char why[512] = "";
+    bool ok = true;
+    if (!g_client.running()) {
+        wchar_t exe[MAX_PATH], data[MAX_PATH];
+        _snwprintf_s(exe, _TRUNCATE, L"%hs\\dvr_dlss\\dvr_dlss_host64.exe", dvr::paths::game_dir());
+        _snwprintf_s(data, _TRUNCATE, L"%hs\\dlss", dvr::paths::data_dir());
+        StartParams sp;
+        sp.hostExe = exe; sp.dataDir = data; sp.log = client_log;
+        ok = g_client.start(g_dev, sp, why, sizeof(why));
+        if (ok) g_helperStarted = true;
+    }
+    for (int e = 0; ok && e < 2; ++e) ok = g_client.build(e, w, h, w, h, fmt, preset, why, sizeof(why));
+    if (ok) {
+        DVR_INFO("dlss: DLAA ready on %s for both eyes at %ux%u (colour format %d, preset %d%s), %.1f MiB shared "
+                 "with the helper - DLAA now owns the eye image; the custom temporal AA stands down",
+                 g_client.adapter(), w, h, (int)fmt, preset, preset ? "" : " = the helper's model K", g_client.bytes() / (1024.0 * 1024.0));
+        g_state.store(Ready);
+    } else {
+        strcpy_s(g_why, why);
+        DVR_WARN("dlss: DLAA unavailable (%s) - the normal path runs; `dlss retry` or toggling it tries again", why);
+        if (!g_client.running()) g_helperStarted = false;
+        g_state.store(Failed);
+    }
+}
+
+void kick(uint32_t w, uint32_t h, DXGI_FORMAT fmt) {
+    join_worker();
+    g_wantW = w; g_wantH = h; g_wantFmt = fmt;
+    g_state.store(Working);
+    const int preset = g_preset.load();
+    g_worker = std::thread([w, h, fmt, preset] { work(w, h, fmt, preset); });
+}
+
+void status_tick() {
+    const uint64_t now = GetTickCount64();
+    if (!g_winMs) { g_winMs = now; return; }
+    if (now - g_winMs < 5000) return;
+    const double s = (now - g_winMs) / 1000.0;
+    Stats& st = g_client.stats;
+    const double gl = st.gpuN[0] ? st.gpuMsSum[0] / st.gpuN[0] : -1, gr = st.gpuN[1] ? st.gpuMsSum[1] / st.gpuN[1] : -1;
+    const double cl = st.frames[0] ? st.cpuMsSum[0] / (st.frames[0] + st.refused[0]) : 0;
+    const double cr = st.frames[1] ? st.cpuMsSum[1] / (st.frames[1] + st.refused[1]) : 0;
+    DVR_INFO("dlss: DLAA %.0f/s L %.0f/s R, fallback %.0f/s, history resets %llu | helper GPU evaluate L %.2f R %.2f ms "
+             "(-1 = not sampled), present-thread cost L %.2f R %.2f ms max %.2f | refused L %llu R %llu | %.1f MiB shared + %.1f MiB guides "
+             "| camera-only vectors, no jitter (phase 1)",
+             g_win.eyes[0] / s, g_win.eyes[1] / s, g_win.fallback / s, (unsigned long long)g_win.resets, gl, gr, cl, cr,
+             st.cpuMsMax[0] > st.cpuMsMax[1] ? st.cpuMsMax[0] : st.cpuMsMax[1],
+             (unsigned long long)st.refused[0], (unsigned long long)st.refused[1],
+             g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0));
+    _snprintf_s(g_summary, _TRUNCATE, "DLAA L %.0f/s R %.0f/s, GPU %.2f/%.2f ms per eye, fallback %.0f/s",
+                g_win.eyes[0] / s, g_win.eyes[1] / s, gl, gr, g_win.fallback / s);
+    g_win = Window{};
+    st = Stats{};
+    g_winMs = now;
+}
+
+} // namespace
+
+void set_mode(int m, const char* who) {
+    m = m == ModeDlaa ? ModeDlaa : ModeOff;
+    const int was = g_mode.exchange(m);
+    if (was == m) return;
+    DVR_INFO("dlss: mode %s -> %s (live, %s)", was ? "DLAA" : "off", m ? "DLAA" : "off", who ? who : "?");
+    if (m) g_retry.store(true);
+}
+int mode() { return g_mode.load(); }
+
+void set_preset(int p, const char* who) {
+    if (p < 0 || p > 15) p = 0;
+    if (g_preset.exchange(p) == p) return;
+    DVR_INFO("dlss: preset -> %d%s (%s); the features rebuild", p, p ? "" : " (the helper's model K)", who ? who : "?");
+    g_retry.store(true);
+}
+int preset() { return g_preset.load(); }
+
+bool active() { return g_mode.load() != ModeOff && g_state.load() == Ready; }
+
+ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
+                              uint32_t w, uint32_t h, int eye, const GuideParams& gp, bool reset) {
+    if (g_mode.load() == ModeOff) {
+        if (g_state.load() != Idle && g_state.load() != Working) shutdown();
+        return nullptr;
+    }
+    if (!dev || !ctx || !src || (eye != 0 && eye != 1)) return nullptr;
+    status_tick();
+    ID3D11Resource* res = nullptr;
+    src->GetResource(&res);
+    ID3D11Texture2D* color = nullptr;
+    if (res) { res->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&color); res->Release(); }
+    if (!color) { ++g_win.fallback; return nullptr; }
+    D3D11_TEXTURE2D_DESC cd = {};
+    color->GetDesc(&cd);
+    struct Hold { ID3D11Texture2D* t; ~Hold() { t->Release(); } } hold{color};
+
+    if (g_dev && g_dev != dev) { DVR_WARN("dlss: the D3D11 device changed - restarting the helper"); shutdown(); }
+    g_dev = dev;
+    const int state = g_state.load();
+    if (state == Working) { ++g_win.fallback; return nullptr; }
+    const bool retry = g_retry.exchange(false);
+    if (state == Idle || (retry && state != Working) ||
+        (state == Ready && !g_client.built(eye, w, h, w, h, cd.Format))) {
+        if (state == Ready && !retry)
+            DVR_INFO("dlss: eye image %ux%u format %d differs from the built %ux%u format %d - rebuilding both eyes",
+                     w, h, (int)cd.Format, g_wantW, g_wantH, (int)g_wantFmt);
+        kick(w, h, cd.Format);
+        ++g_win.fallback;
+        return nullptr;
+    }
+    if (state != Ready) { ++g_win.fallback; return nullptr; }
+
+    char why[256] = "";
+    if (!g_guides.run(dev, ctx, gp, why, sizeof(why))) {
+        if (!g_guideFailed) DVR_ERROR("dlss: the guide pass failed (%s) - DLAA is inert, the normal path runs", why);
+        g_guideFailed = true;
+        ++g_win.fallback;
+        return nullptr;
+    }
+    EyeInputs in;
+    in.color = color; in.depth = g_guides.depth(); in.motion = g_guides.motion();
+    in.reset = reset;
+    if (reset) ++g_win.resets;
+    if (!g_client.evaluate(ctx, eye, in, why, sizeof(why))) {
+        ++g_win.fallback;
+        if (!g_client.running()) {
+            strcpy_s(g_why, why);
+            g_state.store(Failed);
+            DVR_ERROR("dlss: the helper is gone (%s) - the normal path runs; `dlss retry` restarts it", why);
+        } else {
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "dlss: eye %d evaluate refused (%s) - this image takes the normal path", eye, why);
+        }
+        return nullptr;
+    }
+    ++g_win.eyes[eye];
+    return g_client.output(eye);
+}
+
+void idle() {
+    if (g_state.load() == Idle) return;
+    DVR_INFO("dlss: off - stopping the helper and releasing %.1f MiB shared + %.1f MiB guides",
+             g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0));
+    shutdown();
+}
+
+void shutdown() {
+    join_worker();
+    if (g_client.running() || g_helperStarted) g_client.stop();
+    g_helperStarted = false;
+    g_guides.shutdown();
+    g_guideFailed = false;
+    g_dev = nullptr;
+    g_state.store(Idle);
+    strcpy_s(g_summary, "off");
+}
+
+const char* summary() {
+    if (g_mode.load() == ModeOff) return "off";
+    switch (g_state.load()) {
+    case Working: return "starting the DLSS helper...";
+    case Failed: return g_why;
+    case Idle: return "waiting for the first eye image";
+    default: return g_summary;
+    }
+}
+
+bool command(const char* args) {
+    char sub[24] = "", val[24] = "";
+    const int n = args ? sscanf(args, "%23s %23s", sub, val) : 0;
+    if (n >= 1 && (!_stricmp(sub, "on") || !_stricmp(sub, "dlaa"))) { set_mode(ModeDlaa, "the seam"); return true; }
+    if (n >= 1 && !_stricmp(sub, "off")) { set_mode(ModeOff, "the seam"); return true; }
+    if (n >= 1 && !_stricmp(sub, "retry")) { g_retry.store(true); DVR_INFO("dlss: retry requested (the seam)"); return true; }
+    if (n >= 2 && !_stricmp(sub, "preset")) { set_preset(atoi(val), "the seam"); return true; }
+    DVR_INFO("dlss: mode %s, preset %d, state %d (0 idle 1 working 2 ready 3 failed) | %s | words: dlss on|off, retry, preset <0..15>",
+             g_mode.load() ? "DLAA" : "off", g_preset.load(), g_state.load(), summary());
+    return true;
+}
+
+} // namespace dvr::dlss

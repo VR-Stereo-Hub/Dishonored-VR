@@ -482,6 +482,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         ConfigWriteKey("Clarity", "Sharpen", v, "the seam");
         return ok;
     }
+    if (!strcmp(cmd, "dlss")) {      // NVIDIA DLAA through the x64 helper (core/gfx/dlss.h)
+        const bool ok = dvr::dlss::command(args);
+        ConfigWriteKey("Clarity", "DLAA", dvr::dlss::mode() ? "1" : "0", "the seam");
+        char v[16];
+        _snprintf(v, sizeof(v), "%d", dvr::dlss::preset());
+        ConfigWriteKey("Clarity", "DlssPreset", v, "the seam");
+        return ok;
+    }
     if (!strcmp(cmd, "aniso")) {     // the texture-filter levers (core/gfx/sampler_force.h)
         const bool ok = dvr::samplers::command(args);
         char v[16];

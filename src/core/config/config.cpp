@@ -176,6 +176,11 @@ static bool WriteDefaultIni(const char* ini)
         "; MotionDepthScale: coarse simulator calibration in uu per depth unit; live: clarity depthscale.\n"
         "MotionVectors=0\n"
         "MotionDepthScale=200\n"
+        "; DLAA=1 (experimental, NVIDIA RTX only): NVIDIA DLAA on each eye through the x64 helper in\n"
+        "; Binaries\\Win32\\dvr_dlss (core/gfx/dlss.h). Replaces Temporal while it runs; Sharpen still\n"
+        "; applies. Camera-only motion vectors, no jitter yet. Live: dlss on|off. DlssPreset: 0 = model K.\n"
+        "DLAA=0\n"
+        "DlssPreset=0\n"
         "Sharpen=0.40\n"
         "Anisotropy=16\n"
         "TrilinearMips=1\n"
@@ -1839,6 +1844,10 @@ static void LoadConfig()
             dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.40f), "ini");
             dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
             dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
+            dvr::dlss::set_preset((int)IniFloat(ini, "Clarity", "DlssPreset", 0), "ini");
+            dvr::dlss::set_mode(IniFloat(ini, "Clarity", "DLAA", 0) != 0.0f ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "ini");
+            Log("config: [Clarity] DLAA=%d DlssPreset=%d%s", dvr::dlss::mode(), dvr::dlss::preset(),
+                dvr::dlss::mode() ? " - DLAA starts its helper with the first eye image" : "");
             Log("config: [Clarity] Resolve=%d Temporal=%d TemporalBlend=%.2f Sharpen=%.2f Anisotropy=%d TrilinearMips=%d%s",
                 (int)dvr::clarity::resolve_on(), (int)dvr::clarity::temporal_on(), dvr::clarity::blend(),
                 dvr::clarity::sharpen(), dvr::samplers::anisotropy(), (int)dvr::samplers::trilinear(),
@@ -4177,6 +4186,9 @@ static void OverlaySaveDefaults()
         _snprintf(v, 64, "%d", dvr::samplers::anisotropy());
         WritePrivateProfileStringA("Clarity", "Anisotropy", v, ini);
         WritePrivateProfileStringA("Clarity", "TrilinearMips", dvr::samplers::trilinear() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DLAA", dvr::dlss::mode() ? "1" : "0", ini);
+        _snprintf(v, 64, "%d", dvr::dlss::preset());
+        WritePrivateProfileStringA("Clarity", "DlssPreset", v, ini);
     }
     // 41.1 (session 8): the device levers as they were READ this run (the
     // seam word writes the ask for the next launch; a save must not undo it)

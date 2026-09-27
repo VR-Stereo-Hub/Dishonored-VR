@@ -57,6 +57,7 @@
 #include "core/gfx/device_census.h"
 #include "core/gfx/depth_probe.h"
 #include "core/gfx/clarity.h"
+#include "core/gfx/dlss.h"
 #include "core/gfx/sampler_force.h"
 
 #include "core/gfx/d3d9ex.h"

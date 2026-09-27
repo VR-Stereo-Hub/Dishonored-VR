@@ -7,6 +7,8 @@
 #include "core/gfx/motion_gpu.h"
 #include "core/gfx/depth_probe.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/dlss.h"
+#include "core/gfx/dlss_gpu.h"
 #include <d3d11.h>
 
 #include "core/util/log.h"
@@ -35,10 +37,11 @@ Gpu      g_gpu;
 bool     g_initTried = false, g_initOk = false;
 uint32_t g_seenEpoch = 0;
 View     g_prev[2];
+View     g_dlssPrev[2];   // DLAA's own eye histories (dlss.h); the custom TAA's stay in g_prev
 
 // The window the status line reports (reset each line).
 struct Window {
-    uint64_t draws = 0, resolved = 0, temporal = 0, plain = 0, refused = 0;
+    uint64_t draws = 0, resolved = 0, temporal = 0, plain = 0, refused = 0, dlaa = 0;
     uint64_t vectors[2] = {}, motionFallback = 0;
     double motionSum = 0; uint64_t motionN = 0;   // the motion weight the temporal pass used
     uint32_t resets[(int)Reset::Count] = {};
@@ -332,6 +335,65 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
           int eyeSign, uint32_t recId) {
     struct DepthReads { ID3D11DeviceContext* ctx; ~DepthReads() { dvr::depthprobe::read_done(ctx); } } reads{ctx};
     calib_frame(dev, ctx, src, w, h, eyeSign, recId);   // motion vectors step 3 (off by default)
+    // DLAA (dlss.h) replaces the capture as this draw's source when it runs. Its guides use the
+    // same view the custom TAA reprojects with; the custom TAA then does not also accumulate.
+    ID3D11ShaderResourceView* dlaa = nullptr;
+    if (dvr::dlss::mode() != dvr::dlss::ModeOff && dev && ctx && src && dst) {
+        if (eyeSign == -1 || eyeSign == 1) {
+            const int e = eyeSign < 0 ? 0 : 1;
+            const View cur = view_for(recId, w, h, eyeSign);
+            const Reset why = keep_history(g_dlssPrev[e], cur);
+            if (cur.ok) {
+                dvr::dlss::GuideParams gp;
+                gp.w = w; gp.h = h;
+                gp.tanH = cur.tanH; gp.tanV = cur.tanV;
+                gp.historyValid = why == Reset::None;
+                if (gp.historyValid) {
+                    const Basis pb = basis_from_rotator(g_dlssPrev[e].pitch, g_dlssPrev[e].yaw, g_dlssPrev[e].roll);
+                    const Basis cb = basis_from_rotator(cur.pitch, cur.yaw, cur.roll);
+                    gp.prevFromCur = prev_from_cur(pb, cb);
+                    gp.prevTanH = g_dlssPrev[e].tanH; gp.prevTanV = g_dlssPrev[e].tanV;
+                    if (cur.posOk && g_dlssPrev[e].posOk) {
+                        const float dp[3] = {cur.pos[0]-g_dlssPrev[e].pos[0],cur.pos[1]-g_dlssPrev[e].pos[1],cur.pos[2]-g_dlssPrev[e].pos[2]};
+                        gp.translation[0] = dot3(pb.f,dp); gp.translation[1] = dot3(pb.r,dp); gp.translation[2] = dot3(pb.u,dp);
+                    }
+                }
+                UINT dw = 0, dh = 0;
+                if (auto* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh)) {
+                    gp.sceneDepth = depth; gp.depthW = dw; gp.depthH = dh; gp.depthScale = g_depthScale.load();
+                }
+                dlaa = dvr::dlss::run(dev, ctx, src, w, h, e, gp, !gp.historyValid);
+            }
+            g_dlssPrev[e] = cur;
+        } else {
+            g_dlssPrev[0] = View{}; g_dlssPrev[1] = View{};
+        }
+    } else if (dvr::dlss::mode() == dvr::dlss::ModeOff) {
+        dvr::dlss::idle();
+    }
+    if (dlaa) {
+        // The reconstructed image through the rest of the chain: resolve and sharpen as set,
+        // never the custom temporal blend on top of DLAA's own accumulation.
+        if (!g_initOk && !g_initTried) {
+            g_initTried = true; g_seenEpoch = g_epoch.load();
+            char why[512] = "";
+            g_initOk = g_gpu.init(dev, why, sizeof(why));
+            if (!g_initOk) DVR_ERROR("clarity: the passes are unavailable (%s) - DLAA output is blitted plainly", why);
+        }
+        if (g_initOk) {
+            PassParams p;
+            p.srcGamma = true;
+            p.w = w; p.h = h; p.ow = ow; p.oh = oh;
+            p.resolve = g_resolve.load() && (ow < w || oh < h);
+            p.sharpen = g_sharpen.load();
+            if (g_gpu.bytes()) g_gpu.trim(p.resolve, false);
+            g_prev[0] = View{}; g_prev[1] = View{};
+            char why[256] = "";
+            if (g_gpu.run(dev, ctx, dlaa, dst, p, why, sizeof(why))) { ++g_win.draws; ++g_win.dlaa; status_tick(); return true; }
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "clarity: pass refused on the DLAA image (%s)", why);
+        }
+        // Passes unavailable: the capture takes the caller's plain blit, as with every lever off.
+    }
     if (!any_on()) { if (g_initOk && g_gpu.bytes()) g_gpu.trim(false, false); return false; }
     if (!dev || !ctx || !src || !dst) return false;
     if (!g_initOk && g_initTried && g_seenEpoch != g_epoch.load()) { g_gpu.shutdown(); g_initTried = false; }
@@ -434,9 +496,11 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
     return true;
 }
 
-void invalidate() { g_prev[0] = View{}; g_prev[1] = View{}; }
+void invalidate() { g_prev[0] = View{}; g_prev[1] = View{}; g_dlssPrev[0] = View{}; g_dlssPrev[1] = View{}; }
 
 void shutdown() {
+    dvr::dlss::shutdown();
+    g_dlssPrev[0] = View{}; g_dlssPrev[1] = View{};
     g_gpu.shutdown();
     g_calib.shutdown(); g_calibTried = g_calibOk = false;
     for (auto& e : g_eh) { if (e.srv) e.srv->Release(); if (e.tex) e.tex->Release(); e = EyeHist{}; }

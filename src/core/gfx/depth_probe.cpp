@@ -2,6 +2,7 @@
 #define DVR_CAT ::dvr::log::Cat::device
 #include "core/gfx/depth_probe.h"
 #include "core/gfx/clarity.h"
+#include "core/gfx/dlss.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/shared_capture_texture.h"
 #include "core/util/log.h"
@@ -272,12 +273,12 @@ void set_share(bool on, const char* who) {
 }
 bool share_on() { return g_share.load(); }
 bool share_tick_needed() {
-    return g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on()) || g_depthW != 0 || g_shareFailed;
+    return g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on()) || dvr::dlss::mode() != 0 || g_depthW != 0 || g_shareFailed;
 }
 
 void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx11, UINT backW, UINT backH) {
     if (g_retry.exchange(false)) g_shareFailed = false;
-    const bool wanted = g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on());
+    const bool wanted = g_share.load() || (dvr::clarity::temporal_on() && dvr::clarity::motion_on()) || dvr::dlss::mode() != 0;
     if (!wanted) { if (g_depthW) share_release(); g_shareFailed = false; return; }
     if (g_shareFailed || !dev || !dev11 || !ctx11 || !backW) return;
     // The scene target: the first-created eye-size RGBA16F (step 1: its alpha is depth).

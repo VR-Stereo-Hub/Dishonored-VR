@@ -1316,3 +1316,18 @@ Every shared-depth slot owns a D3D11 read query ended after all clarity/calibrat
 Reuse is nonblocking and requires completion; pending serial duplicates are invalidated.
 D3D9 producer failure and colour capture fence timeouts refuse delivery. Depth-copy GPU
 brackets and CPU submission are now attributed in perf. Details and acceptance: PERFORMANCE.
+
+
+### 2026-09-26: DLSS runs in a 64-bit helper; the proxy creates every shared object
+
+NGX has no 32-bit build, so DLAA/DLSS run in `dvr_dlss_host64.exe`, started by the proxy
+in a kill-on-close job. One helper for both eyes (one NGX feature each keeps the histories
+apart) instead of the community fork's helper per eye: one D3D12 device, one NGX init, one
+pipe. The proxy creates the textures and fences on its D3D11 device and duplicates the
+handles INTO the helper, so the helper needs no access to the game process. The helper
+takes the proxy's adapter LUID on its command line and refuses any other adapter. The
+per-frame ack follows the helper's queued Signal, so the proxy waits on the GPU, not the
+CPU; a dead helper fails the next pipe call immediately and the normal path runs. Start
+and build run on a worker thread; the present thread uses the client only in Ready.
+FSR 3.1 (phase 3) is planned in-process on a 32-bit D3D12 device instead, because its
+source builds for Win32. Details: PERFORMANCE.md, DLAA through an x64 NGX helper.

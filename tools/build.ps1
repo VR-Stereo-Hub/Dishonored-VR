@@ -60,6 +60,13 @@ try {
     $preset = if ($Release) { "release" } else { "debug" }
     & $cmake --build --preset $preset
     if ($LASTEXITCODE -ne 0) { throw "Build failed." }
+    # The one 64-bit piece: the DLAA helper (NVIDIA's NGX is x64 only). Built when the SDK is
+    # present (tools\fetch-ngx.ps1); without it DLAA is simply unavailable.
+    if (Test-Path (Join-Path $repo "third_party\ngx\include\nvsdk_ngx.h")) {
+        & (Join-Path $PSScriptRoot "build-dlss-host.ps1")
+    } else {
+        Write-Host "build: NGX SDK not fetched (tools\fetch-ngx.ps1) - the DLAA helper is not built"
+    }
     $cfg = if ($Release) { "RelWithDebInfo" } else { "Debug" }
     $versionText = Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw
     if ($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read launcher version' }

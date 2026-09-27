@@ -60,6 +60,26 @@ if (Test-Path $shim) {
 } else {
     Write-Host "dvr_steamvr32.dll not built (DVR_WITH_OVRSHIM=OFF?) - SteamVR rigs need it"
 }
+# DLAA (core/gfx/dlss.h): the x64 NGX helper and NVIDIA's runtime in <game>\dvr_dlss\, with
+# NVIDIA's license beside them. Optional: without it [Clarity] DLAA=1 logs why and the normal
+# path runs. The runtime is hash-checked against the pin in tools\fetch-ngx.ps1.
+$dlssHost = Join-Path $repo "build\dlss_host\dvr_dlss_host64.exe"
+$dlssDll = Join-Path $repo "build\dlss_host\nvngx_dlss.dll"
+$dlssInstalled = $false
+if ((Test-Path $dlssHost) -and (Test-Path $dlssDll)) {
+    $pin = "BE6E434A94CA32499515EB62CA0E6C274526055D568D0426E4C652DCDFB6EE6E"
+    $got = (Get-FileHash $dlssDll -Algorithm SHA256).Hash
+    if ($got -ne $pin) { throw "nvngx_dlss.dll sha256 $got is not the pinned $pin - refusing to install" }
+    $dlssDir = Join-Path $GamePath "dvr_dlss"
+    New-Item -ItemType Directory -Force -Path $dlssDir | Out-Null
+    Copy-Item $dlssHost (Join-Path $dlssDir "dvr_dlss_host64.exe") -Force
+    Copy-Item $dlssDll (Join-Path $dlssDir "nvngx_dlss.dll") -Force
+    Copy-Item (Join-Path $repo "third_party\ngx\LICENSE.txt") (Join-Path $dlssDir "NVIDIA-DLSS-LICENSE.txt") -Force
+    Copy-Item (Join-Path $repo "src\tools\dlss_host\NOTICE.md") (Join-Path $dlssDir "NOTICE.md") -Force
+    $dlssInstalled = $true
+} else {
+    Write-Host "DLSS helper not built (tools\fetch-ngx.ps1 then tools\build-dlss-host.ps1) - DLAA stays unavailable"
+}
 # The DXVK fork is gone (41.0). An older install's dxvk_d3d9.dll is loaded by
 # nothing any more, but leaving it beside the exe invites confusion.
 $oldFork = Join-Path $GamePath "dxvk_d3d9.dll"
@@ -88,4 +108,5 @@ if (-not $Release) {
     Write-Host ""
 }
 if (Test-Path $shim) { Write-Host "  dvr_steamvr32.dll + openvr_api.dll (SteamVR shim, sha256 verified)" }
+if ($dlssInstalled) { Write-Host "  dvr_dlss\dvr_dlss_host64.exe + nvngx_dlss.dll 310.7.0.0 (DLAA helper, sha256 verified)  sha256 $((Get-FileHash $dlssHost -Algorithm SHA256).Hash.Substring(0,16))" }
 Write-Host "Log: $(Join-Path $GamePath 'dishonored_vr.log')   harness files: $(Get-DvrDataDir)"

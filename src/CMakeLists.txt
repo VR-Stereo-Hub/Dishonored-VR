@@ -65,6 +65,10 @@ set(DVR_REAL_SOURCES
     core/gfx/clarity.cpp       core/gfx/clarity.h
     core/gfx/clarity_gpu.cpp   core/gfx/clarity_gpu.h
     core/gfx/clarity_math.h
+    core/gfx/dlss.cpp          core/gfx/dlss.h
+    core/gfx/dlss_client.cpp   core/gfx/dlss_client.h
+    core/gfx/dlss_gpu.cpp      core/gfx/dlss_gpu.h
+    core/gfx/dlss_ipc.h
     core/gfx/sampler_force.cpp core/gfx/sampler_force.h
     core/gfx/hud_class.cpp     core/gfx/hud_class.h
     core/gfx/hud_capture.cpp   core/gfx/hud_capture.h

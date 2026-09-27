@@ -810,6 +810,15 @@ static void OvlTabDisplay()
             ConfigWriteKey("Clarity", "TrilinearMips", tri ? "1" : "0", "F10 Display");
         }
         OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
+        bool dlaa = dvr::dlss::mode() != dvr::dlss::ModeOff;
+        if (dvr::ovl::checkbox("NVIDIA DLAA (experimental)", &dlaa)) {
+            dvr::dlss::set_mode(dlaa ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "F10 Display");
+            ConfigWriteKey("Clarity", "DLAA", dlaa ? "1" : "0", "F10 Display");
+        }
+        OvlTip("NVIDIA's AI anti-aliasing on each eye, at the same resolution. Needs an RTX card. "
+               "Replaces the temporal anti-aliasing above while it runs. Takes a second or two to start. "
+               "Moving characters and hands can still smear. Close this panel to judge it.");
+        if (dlaa) ImGui::TextDisabled("DLAA: %s", dvr::dlss::summary());
         ImGui::TextDisabled("%s", dvr::clarity::summary());
     }
     if (OvlSec("Clarity (debug)", kOvlD, "The supersampling resolve. Off by default: judged no better than the headset's own.")) {
