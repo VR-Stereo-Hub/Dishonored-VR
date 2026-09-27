@@ -3,12 +3,14 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 
+#include "game/dishonored/ue3/pe_fast.h"
+
 // Called for every ProcessEvent. Must stay cheap: once a class is known it is
 // a single pointer compare, and unknown classes are string-checked once each.
 static void PeLatch(void* obj)
 {
     if (!obj || ((uintptr_t)obj & 3)) return;
-    if (!RangeReadable(obj, kClassOff + 4)) return;
+    if (!PeReadable(obj, kClassOff + 4)) return;
     void* cls = *(void**)((uint8_t*)obj + kClassOff);
     if (!cls) return;
     if (cls == g_clsCtrl) { g_peCtrl = (uint8_t*)obj; return; }
@@ -54,6 +56,33 @@ static uint32_t DvrPostRenderCount()
     return (uint32_t)InterlockedCompareExchange(&g_pePostRender, 0, 0);
 }
 
+static const char* const kPeSubName[] = {"StandUpProbeTick", "UiSurfaceTick", "MenuEffectsTick", "InterlockedIncrement", "PeLatch", "PawnCollisionTick", "UiPeLatch", "ObjectiveMarkersApply", "CineBordersApply", "SceneDrawApply", "DrawCallersApply", "block@11", "block@12", "block@13", "IntroSkipApply", "DvrConsoleApply", "GameOptsApply", "dvr::anim::tick", "PossessionStateTick", "RainTick", "TrailTick", "LensTick", "CineTraceTick", "CamModTick", "CamShakeTick", "AimSourceTick", "InteractAimTick", "CarryThrowAimTick", "CarryHoldTick", "FxFollowTick", "FovLeverApply", "block@31", "ArmFollowTick", "PrTick", "AimSeamTick", "PropWatchTick", "AimSeamDrive", "BqTick", "HmTick", "dvr::camera::eyetest_script_tick", "dvr::camera::apply_offsets", "BlinkTestApply", "SkcRotApply", "BoneWigApply", "SbApply"};
+static const int kPeSubCount = 45;
+static LONGLONG g_peSubTicks[45] = {};
+static LONGLONG g_peSubT0 = 0;
+// Per statement of the hook's per-event ticks: the time since the previous PeSub (route 2, pe/cost-fn).
+static volatile LONG g_peFnOn = 0;   // `pe fn on|off`, [Perf] PeCostFn: the per-statement split (off = free)
+static inline void PeSub(int i)
+{
+    if (!g_peFnOn || g_peCostDepth != 1) return;
+    LARGE_INTEGER t; QueryPerformanceCounter(&t);
+    if (g_peSubT0) g_peSubTicks[i] += t.QuadPart - g_peSubT0;
+    g_peSubT0 = t.QuadPart;
+}
+static void PeSubReport(double s)
+{
+    if (!InterlockedCompareExchange(&g_peFnOn, 0, 0)) return;
+    const double f = g_qpcFreq ? (double)g_qpcFreq : 1.0;
+    int order[45]; for (int i = 0; i < kPeSubCount; ++i) order[i] = i;
+    for (int i = 0; i < kPeSubCount; ++i) for (int j = i + 1; j < kPeSubCount; ++j)
+        if (g_peSubTicks[order[j]] > g_peSubTicks[order[i]]) { int t = order[i]; order[i] = order[j]; order[j] = t; }
+    char t[600]; int m = 0;
+    for (int k = 0; k < 14 && k < kPeSubCount; ++k)
+        m += _snprintf_s(t + m, sizeof(t) - m, _TRUNCATE, " %s %.1f", kPeSubName[order[k]], g_peSubTicks[order[k]] * 1000.0 / f / s);
+    Log("pe/cost-fn: ms of the game thread per second, the 14 costliest per-event statements:%s", t);
+    for (auto& v : g_peSubTicks) v = 0;
+}
+
 extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
 {
     // OUR OWN CALLS ARE NOT THE GAME'S EVENTS. A ProcessEvent call the mod
@@ -86,11 +115,17 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // times itself; it reads g_pePawn from the PREVIOUS dispatch, which at
     // thousands of events a second is not a distinction worth a reorder.
     // Outside the capture window the scope is one bool test.
+    PeCostScope peCost;   // route 2: the hook's own cost, by section (pe_fast.h)
+    { LARGE_INTEGER t0; QueryPerformanceCounter(&t0); g_peSubT0 = t0.QuadPart; }
     StandUpProbeTick();
+    PeSub(0);
     SupLaneScope suLane;
     UiSurfaceTick(); // bounded read-only UI discovery, independent of motion hands
+    PeSub(1);
     MenuEffectsTick(); // game lane only; independently selected menu UI blend
+    PeSub(2);
     InterlockedIncrement(&g_peCalls);
+    PeSub(3);
 
     // 41.1: the ProcessEvent CALLER's return address, for the scene probe.
     // The hand-built stub (InstallProcessEventHook) pushed, above this frame's
@@ -98,16 +133,24 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // the dword after those is what the game's `call ProcessEvent` pushed.
     // Layout from &obj: [this a1 a2 a3][EDI ESI EBP ESP EBX EDX ECX EAX][EFLAGS][ret]
     const uint32_t peCallerRet = ((const uint32_t*)&obj)[13];
-    const uint32_t peNameIdx = (a1 && !((uintptr_t)a1 & 3) && RangeReadable(a1, kNameOff + 4))
+    const uint32_t peNameIdx = (a1 && !((uintptr_t)a1 & 3) && PeReadable(a1, kNameOff + 8))
                                    ? *(uint32_t*)((uint8_t*)a1 + kNameOff) : 0xffffffffu;
 
     PeLatch(obj);   // the engine tells us who the real actors are
+    PeSub(4);
     PawnCollisionTick(); // load liveness must not wait for a pawn event or head/hand drive
+    PeSub(5);
     UiPeLatch(obj); // VR-62: a movie player created after the scan, watched too
+    PeSub(6);
     ObjectiveMarkersApply(); // task-only native parent placement, opt-in
+    PeSub(7);
     CineBordersApply(); // VR-43: one verified stripe-query call site, game thread
+    PeSub(8);
     SceneDrawApply();   // 41.1: the re-entry's call-site patch/restore, on the thread that runs the site
+    PeSub(9);
     DrawCallersApply(); // VR-80: the root's other callers, counted (diagnostic, off by default)
+    PeSub(10);
+    PeMark(kPeFront);
     // 32.8: while the blink window is open, note which script events fire ON a
     // candidate. Pointer compares only - no class-name lookup on this path.
     if (g_bpGo && obj) {
@@ -133,6 +176,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             break;
         }
     }
+    PeSub(11);
     // VR-57 Phase B: record named dispatches that could be the fire path asking
     // for an aim. Top level, its own lever, no dependence on any other feature.
     // The name test is a cheap substring over a name already resolved for other
@@ -151,6 +195,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             ++g_fwN; ++g_fwRecorded;
         }
     }
+    PeSub(12);
 
     // VR-57 Phase 1: the bolt probe. TOP LEVEL on purpose. Its first home was
     // inside the MotionAim arming window (`now < g_maimArmedUntil`), which is only
@@ -169,26 +214,46 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                      !strncmp(shCn, "DisGrenade", 10)))
             AimShotSee((uint8_t*)obj, shCn, MaimNowMs());
     }
+    PeSub(13);
     IntroSkipApply();  // 38.69: jump past the broken boat arrival, once
+    PeSub(14);
     DvrConsoleApply(); // the seam's `console <text>` runs here, on the script lane
+    PeSub(15);
     GameOptsApply();   // VR-157: the seam's `gameopts` read, same lane, read-only
+    PeSub(16);
     dvr::anim::tick(); // VR-88: sample before any hand override writes
+    PeSub(17);
     // VR-165: was that climb asked for? Uses the snapshot anim::tick just refreshed.
     { const dvr::anim::Snapshot swSnap = dvr::anim::snapshot();
       SwingClimbWatch(swSnap.state[0]); }
     PossessionStateTick(); // VR-135: read-only; the presentation verdict reads its result
+    PeSub(18);
     RainTick();            // VR-136: rain box measurement; the native hide only when [Rain] Hide=1
+    PeSub(19);
     TrailTick();           // VR-171: the sword's swing trail, found on the pawn and hidden with the native SetHidden
+    PeSub(20);
     LensTick();            // VR-137: camera lens effects measured; moved only when [Lens] Distance > 0
+    PeSub(21);
     CineTraceTick(); // VR-70: read-only camera trace layout
+    PeSub(22);
     CamModTick();    // VR-165: read-only; needs the trace's resolved camera cache
+    PeSub(23);
     CamShakeTick();  // VR-172: holds the game's shake handles; before apply_offsets, so the capture reads the game's own position
+    PeSub(24);
     AimSourceTick(); // VR-166: read-only; drains the power-aim helper probe
+    PeSub(25);
     InteractAimTick(); // VR-166: logs what the engine focused and who aimed it
+    PeSub(26);
     CarryThrowAimTick(); // VR-181: where a thrown carried object actually went
+    PeSub(27);
     CarryHoldTick();     // VR-181: where the carried object is held, and who set it
+    PeSub(28);
     FxFollowTick();      // VR-182: effects attached to the hands follow the drawn hands
-    FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
+    PeSub(29);
+    PeMark(kPeMid);
+    const bool peHeavy = PeHeavyDue();   // route 2: the heavy writers' cadence (pe_fast.h)
+    if (peHeavy) FovLeverApply();   // 30.50: outrun the engine's per-tick FOV recompute
+    PeSub(30);
     // 41.0: the per-eye camera seam, same lane and cadence as the lever. The
     // lever only revalidates the camera object while it is armed, so the seam
     // keeps its own liveness check while it has something to write (the first
@@ -199,28 +264,44 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
         if (g_camObj && !CamAlive()) g_camObj = NULL;
         if (!g_camObj && (InterlockedIncrement(&camReval) & 31) == 0) FindLiveCamera();
     }
+    PeSub(31);
     ArmFollowTick();                              // VR-30: the arm-follow probe (read-only, finds its own camera)
+    PeSub(32);
     PrTick();                                     // VR-33: the pose/socket report - SCRIPT LANE, where the objects are coherent
+    PeSub(33);
     AimSeamTick();                                // VR-57: where the shot's direction comes from (read-only)
+    PeSub(34);
     PropWatchTick();                              // VR-85: which property follows the focused interactable (read-only)
+    PeSub(35);
     AimSeamDrive();                               // VR-57: drive that cache from the controller ray ([Aim] DriveFromHand)
+    PeSub(36);
 #if DVR_WITH_LEGACY
     BqTick();                                     // VR-33 step 1b: the bone queries, consumed on this lane only
+    PeSub(37);
 #endif
 #if DVR_WITH_LEGACY
     HmTick();                                     // VR-33 phase 1: the bounded hand-move experiment
+    PeSub(38);
 #endif
     dvr::camera::eyetest_script_tick(g_camObj);   // the write-point instrument
-    dvr::camera::apply_offsets(g_camObj);         // the eye offset (aer/reentry) + the lean on the camera lane
+    PeSub(39);
+    if (peHeavy) dvr::camera::apply_offsets(g_camObj);   // the eye offset (aer/reentry) + the lean on the camera lane
+    PeSub(40);
     BlinkTestApply();  // 32.14: same lane, same reason
+    PeSub(41);
     SkcRotApply();     // 32.1: same trick for the hand rotators
+    PeSub(42);
     BoneWigApply();    // 30.62: which bone bank does the renderer read
+    PeSub(43);
     if (g_sbWritePoint == 0) SbApply("script");   // 30.83 oracle, tick-time lane
+    PeSub(44);
 
     // 41.1: the scene probe (census / one-shot stack scrape); pointer compares
     // unless a word armed it.
     SceneProbeOnDispatch(peCallerRet, peNameIdx,
                          g_idxViewRot != 0xffffffffu && peNameIdx == g_idxViewRot, &obj, obj);
+    PeMark(kPeCam);
+    peCost.sec = kPeNames;
 
     // fast path: the view-rotation event, every frame
     // 38.77: the HAND DRIVE lives on this lane and used to sit behind the
@@ -229,9 +310,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // silently stopped driving the hands too ("hands weren't working").
     // The event match no longer depends on the flag; only the head write does.
     if (g_idxViewRot != 0xffffffffu) {
-        uint8_t* f = (uint8_t*)a1;
-        if (f && !((uintptr_t)f & 3) && RangeReadable(f, kNameOff + 8) &&
-            *(uint32_t*)(f + kNameOff) == g_idxViewRot) {
+        if (peNameIdx == g_idxViewRot) {
+            PeMark(kPeNames); peCost.sec = kPeTail;
             InterlockedIncrement(&g_pvrHits);   // 30.37b: head-write telemetry
             // 38.85 THE PITCH COIN FLIP, finally. ProcessViewRotation is
             // dispatched by SEVERAL objects each frame: the PlayerController
@@ -284,8 +364,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             preExitIdx = FindNameIdx("PreExit");
             retryIn = 3000;
         }
-        if (preExitIdx != 0xffffffffu && f && !((uintptr_t)f & 3) &&
-            RangeReadable(f, kNameOff + 8) && *(uint32_t*)(f + kNameOff) == preExitIdx) {
+        (void)f;
+        if (preExitIdx != 0xffffffffu && peNameIdx == preExitIdx) {
             InterlockedExchange(&g_gameExiting, 1);
             Log("shutdown: game PreExit - VR paths standing down, closing the OpenXR session");
             if (dvr::zacct::enabled()) dvr::zacct::flush("game exit");   // VR-78: a partial sweep still reports
@@ -310,8 +390,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             postRenderIdx = FindNameIdx("PostRender");
             prRetryIn = 3000;
         }
-        if (postRenderIdx != 0xffffffffu && f && !((uintptr_t)f & 3) &&
-            RangeReadable(f, kNameOff + 8) && *(uint32_t*)(f + kNameOff) == postRenderIdx)
+        (void)f;
+        if (postRenderIdx != 0xffffffffu && peNameIdx == postRenderIdx)
             InterlockedIncrement(&g_pePostRender);
     }
     // 41.1: the script-EVENT tracking below (menu open/close, the cinematic
@@ -322,10 +402,12 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     // title screen). The tracking runs for every dispatch now; only the
     // motion-aim pieces inside stay gated.
     if (obj) {
-        uint8_t* f = (uint8_t*)a1;
-        if (f && !((uintptr_t)f & 3) && RangeReadable(f, kNameOff + 8)) {
-            uint32_t nidx = *(uint32_t*)(f + kNameOff);
-            const char* nm = RealName(nidx);
+        if (peNameIdx != 0xffffffffu) {
+            // Route 2: the name and its traits once per FName index (pe_fast.h); every test below
+            // is the same string test as before, answered from the cache.
+            const uint32_t nidx = peNameIdx;
+            const char* nm = NULL;
+            const uint32_t tr = PeNameTraits(nidx, &nm);
             double now = MaimNowMs();
 
             // a fire input opens the window
@@ -335,7 +417,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // lag spikes every time I swing". Left-hand fire still arms via
             // UseSecondaryItem/Fire here plus the trigger edge in
             // MotionAimTick.
-            if (g_maimEnabled && nm && (strstr(nm, "UseSecondaryItem") || strstr(nm, "Fire"))) {
+            if (g_maimEnabled && (tr & kPtFireArm)) {
                 g_maimArmedUntil = now + 1500.0;
                 g_maimArmMs = now;
             }
@@ -346,16 +428,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
             // mode has no cursor test (32.9), so these events are the only
             // signal; the class name is checked so the same verbs on another
             // movie player (the HUD, the gamma screen) do not flap the flag.
-            if (nm && (!strcmp(nm, "Start") || !strcmp(nm, "OnFocusGained") ||
-                       !strcmp(nm, "BackToStartScreen") || !strcmp(nm, "Req_CanContinueGame") ||
-                       !strcmp(nm, "UnregisterControllerDelegates") || !strcmp(nm, "OnFocusLost"))) {
+            if (tr & kPtMainVerb) {
                 const char* cn = (!((uintptr_t)obj & 3) && RangeReadable(obj, kClassOff + 4))
                                      ? ObjClassName((uint8_t*)obj) : NULL;
                 if (cn && strstr(cn, "MoviePlayerMainMenu")) {
                     // Its own flag, not g_menuOpen: the stale-flag ghost test
                     // (head_track.cpp) clears g_menuOpen while dispatches flow,
                     // and the attract camera behind the main menu dispatches.
-                    const bool leaving = !strcmp(nm, "UnregisterControllerDelegates") || !strcmp(nm, "OnFocusLost");
+                    const bool leaving = (tr & kPtMainLeave) != 0;
                     if (leaving && g_mainMenu) {
                         g_mainMenu = false;
                         Log("menu: main menu gone (%s)", nm);
@@ -370,18 +450,14 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 }
             }
             // menu / dialog activity - mute melee injection (30.26)
-            if (nm && (strstr(nm, "PauseMenu") || strstr(nm, "PauseGame") ||
-                       strstr(nm, "CanLoadGame") || strstr(nm, "CanSaveGame") ||
-                       strstr(nm, "SaveSlotInfos") || strstr(nm, "LoadGameClicked") ||
-                       strstr(nm, "MessageBox") || strstr(nm, "BackToWindows") ||
-                       strstr(nm, "Wheel_Open")))
+            if (tr & kPtUiActivity)
                 g_uiEventMs = now;
             // 30.30: authoritative menu open/close for SBS mono fallback.
             // Close checks run FIRST: "OnResumeGameClicked" contains neither
             // open keyword, but keep the order defensive anyway.
             // VR-93: a menu that kept the weapon records must drop them if a
             // save may be loaded from it (hands/menu_keep.h).
-            if (nm && strstr(nm, "LoadGameClicked")) InterlockedIncrement(&g_mkLoadEvents);
+            if (tr & kPtLoadClicked) InterlockedIncrement(&g_mkLoadEvents);
             if (nm) {
                 // 34.0: OnLoadGameClicked was on the CLOSE list on the theory
                 // that it meant "load confirmed, menu going away". The log
@@ -391,8 +467,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // OPEN list; if the flag lingers into the actual load, the
                 // auto-start close and the stale-flag ghost test already
                 // clean it up.
-                if (strstr(nm, "MenuClosed") || strstr(nm, "ResumeGameClicked") ||
-                    strstr(nm, "NewGameClicked")) {
+                if (tr & kPtMenuClose) {
                     if (g_menuOpen) { g_menuOpen = false; Log("menu: closed (%s)", nm); }
                     // (38.70: the NewGameClicked arm lived here and never
                     // fired - the skip now triggers on the intro boat's
@@ -410,21 +485,17 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // and LoadGameClicked, both still here. CanSaveGame stays too -
                 // it has not been observed on the death screen and removing it
                 // without evidence would be trading one guess for another.
-                } else if (strstr(nm, "OpenPauseMenu") || strstr(nm, "MessageBox") ||
-                           strstr(nm, "CanSaveGame") ||
-                           strstr(nm, "SaveSlotInfos") || strstr(nm, "BackToWindows") ||
-                           strstr(nm, "LoadGameClicked")) {
+                } else if (tr & kPtMenuOpen) {
                     if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }
-                } else if (strstr(nm, "CloseJournal")) {
+                } else if (tr & kPtCloseJournal) {
                     // 34.2: the journal/powers screen measured. It announces
                     // itself as Dis_ToggleJournal and leaves as CloseJournal
                     // (both straight from the 34.1 vocab log). Close first -
                     // "CloseJournal" must not fall into the open branch.
                     if (g_menuOpen) { g_menuOpen = false; Log("menu: closed (%s)", nm); }
-                } else if (strstr(nm, "ToggleJournal")) {
+                } else if (tr & kPtToggleJournal) {
                     if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }
-                } else if (strstr(nm, "Shop") || strstr(nm, "Upgrade") ||
-                           strstr(nm, "PurchasesList")) {
+                } else if (tr & kPtShop) {
                     // 34.5: Req_PurchasesList is the shop's BUY screen - the
                     // 34.4 evt-vocab log finally named it (it fires the
                     // moment the shop opens; Req_UpgradesList was only the
@@ -435,8 +506,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                     // other shop/upgrade event means the screen is up. If the
                     // close name never fires, the stale-flag ghost test clears
                     // the flag ~1.5 s after gameplay dispatches resume.
-                    if (strstr(nm, "Close") || strstr(nm, "Exit") ||
-                        strstr(nm, "Leave")) {
+                    if (tr & kPtShopClose) {
                         if (g_menuOpen) { g_menuOpen = false; Log("menu: closed (%s)", nm); }
                     } else {
                         if (!g_menuOpen) { g_menuOpen = true; Log("menu: open (%s)", nm); }
@@ -463,7 +533,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // key off it.
                 // (38.47-38.53: the conversation window that parked the wrist
                 // HUD lived here; the wrist HUD went with the fork in 41.0)
-                if (!strcmp(nm, "OnToggleCinematicMode")) {   // 38.65
+                if (tr & kPtCineToggle) {   // 38.65
                     g_cineNow = !g_cineNow;
                     g_cineCtrl = (uint8_t*)obj;              // VR-73: read THIS object's locks
                     if (g_cineNow) {
@@ -497,7 +567,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // process shutdown, never on quit-to-menu). Stand every VR
                 // path down NOW so teardown can't call through freed memory
                 // (the measured exit crash: EIP dededede after PreExit).
-                if (!strcmp(nm, "PreExit") &&
+                if ((tr & kPtPreExit) &&
                     !InterlockedCompareExchange(&g_gameExiting, 0, 0)) {
                     InterlockedExchange(&g_gameExiting, 1);
                     dvr::frame::set_exiting();
@@ -534,20 +604,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // disk flush). That burst was the microstutter. The boat is
                 // handled by the intro skip; turn [Overlay] DevTools=1 on
                 // to get them back for the real seat-in fix.
-                if (g_ovlDev &&
-                   (!strcmp(nm, "PawnEnteredVolume")  ||
-                    !strcmp(nm, "PawnLeavingVolume")  ||
-                    !strcmp(nm, "ChooseAndTriggerDeathEvent") ||
-                    !strcmp(nm, "PlayDying")          ||
-                    !strcmp(nm, "NotifyKilled")       ||
-                    !strcmp(nm, "PreventDeath")       ||
-                    !strcmp(nm, "BaseChange")         ||
-                    !strcmp(nm, "Destroyed")          ||
-                    !strcmp(nm, "OnToggleHidden")     ||
-                    !strcmp(nm, "OnNPCMarkForVanish") ||
-                    !strcmp(nm, "Dis_ExitKeyhole")    ||
-                    !strcmp(nm, "OnObjectiveAction")  ||
-                    !strcmp(nm, "OnToggleCinematicMode"))) {
+                if (g_ovlDev && (tr & kPtBoatF)) {
                     char loc[64]; strcpy(loc, "loc=?");
                     uint8_t* ob = (uint8_t*)obj;
                     if (g_actorLocFound && RangeReadable(ob + g_actorLocOff, 12)) {
@@ -562,8 +619,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                         nm, ocn ? ocn : "?", inm ? inm : "?", (void*)ob, loc,
                         (ob == g_pePawn) ? "  <== THE PLAYER PAWN" : "");
                     // the volume events carry the pawn that moved as arg 0
-                    if (!strcmp(nm, "PawnEnteredVolume") ||
-                        !strcmp(nm, "PawnLeavingVolume")) {
+                    if (tr & kPtVolume) {
                         uint8_t* ap = (a2 && !((uintptr_t)a2 & 3) &&
                                        RangeReadable(a2, 4)) ? *(uint8_t**)a2 : NULL;
                         if (ap && !((uintptr_t)ap & 3) &&
@@ -584,7 +640,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                         }
                     }
                 }
-                if (strstr(nm, "Versus")) {
+                if (tr & kPtVersus) {
                     g_lastVersusMs = MaimNowMs();   // 38.51: see dialog gate
                     static double vLastMs = 0.0;
                     static int    vSupp   = 0;
@@ -599,9 +655,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 // OnParticleSystemFinished ("Finish" matched it, 65 hits, the
                 // suppression counter hid whatever else fired). Keep only the
                 // specific family, particle noise excluded.
-                if ((strstr(nm, "Assassin") || strstr(nm, "Takedown") ||
-                     strstr(nm, "Execut")   || strstr(nm, "Fatal")    ||
-                     strstr(nm, "Kill")) && !strstr(nm, "Particle")) {
+                if (tr & kPtFinisher) {
                     static double fLastMs = 0.0;
                     static int    fSupp   = 0;
                     double fNow = MaimNowMs();
@@ -637,11 +691,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
                 {
                     static int32_t seenIdx[512];
                     static int     seenIdxN = 0;
-                    bool prefixOk =
-                        (nm[0]=='D' && nm[1]=='i' && nm[2]=='s' && nm[3]=='_') ||
-                        (nm[0]=='O' && nm[1]=='n') ||
-                        (nm[0]=='R' && nm[1]=='e' && nm[2]=='q' && nm[3]=='_');
-                    if (prefixOk) {
+                    const bool prefixOk = (tr & kPtVocab) != 0;
+                    if (prefixOk && PeVocabUnlogged(nidx)) {
                         bool seen = false;
                         for (int si = 0; si < seenIdxN; si++)
                             if (seenIdx[si] == (int32_t)nidx) { seen = true; break; }

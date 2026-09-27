@@ -390,6 +390,37 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             "| device shadowsurfaces on|off | device shadowfullcopy on|off");
         return true;
     }
+    if (!strcmp(cmd, "pe")) {   // route 2: the script lane's fast path A/B (ue3/pe_fast.h)
+        char sub[16] = "", val[16] = "";
+        const int n = args ? sscanf(args, "%15s %15s", sub, val) : 0;
+        bool on;
+        if (n >= 2 && !strcmp(sub, "fast") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peFast, on ? 1 : 0);
+            ConfigWriteKey("Perf", "PeFast", on ? "1" : "0", "the seam");
+            Log("pe: script-lane fast path %s (live) - the pe/cost line reports the difference", on ? "ON" : "off");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "fn") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peFnOn, on ? 1 : 0);
+            Log("pe: per-statement cost split %s (pe/cost-fn every 5 s; diagnostic, not saved)", on ? "ON" : "off");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "heavydraw") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peHeavyInDraw, on ? 1 : 0);
+            ConfigWriteKey("Perf", "PeHeavyInDraw", on ? "1" : "0", "the seam");
+            Log("pe: heavy writers inside the draw %s", on ? "EVERY event (safe default)" : "throttled like the tick");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "heavy")) {
+            PeHeavySet(atoi(val));
+            char v[8]; _snprintf(v, sizeof(v), "%ld", InterlockedCompareExchange(&g_peHeavyUs, 0, 0) / 1000);
+            ConfigWriteKey("Perf", "PeHeavyMs", v, "the seam");
+            return true;
+        }
+        Log("pe: fast on|off, heavy <ms> (now fast %s, heavy %ld ms) - the ProcessEvent hook's caches and cadence",
+            InterlockedCompareExchange(&g_peFast, 0, 0) ? "on" : "off", InterlockedCompareExchange(&g_peHeavyUs, 0, 0) / 1000);
+        return true;
+    }
     if (!strcmp(cmd, "reentry")) {
         if (SceneDrawCommand(args)) return true;
         if (SceneProbeCommand(args)) return true;

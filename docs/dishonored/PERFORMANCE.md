@@ -3065,3 +3065,35 @@ Simulator, cap lifted, one command per window (per eye):
   depth + 6.0 wide uploads per image, R 37 + 1.0, UNSHIFTED 0; speckles gone.
 - **Not yet measured:** whether Quality/Performance SR are visibly sharper with jitter (the reason
   it exists); the flow-check jitter gain on the final build; shimmer on thin geometry.
+
+
+## 2026-09-27: Route 2 built - the script lane's own cost (simulator-measured, default on)
+
+Branch `claude/pe-hook-dispatch`. `game/dishonored/ue3/pe_fast.h`; levers `[Perf] PeFast=1`,
+`PeHeavyMs=2`, `PeHeavyInDraw=1`; seam `pe fast on|off`, `pe heavy <ms>`, `pe heavydraw on|off`,
+`pe fn on|off` (diagnostic).
+
+- **The measurement that sized it** (`pe/cost`, new, every 5 s; simulator, 2750x2850, cap lifted, DLSS
+  off, this PC's Ryzen 5 5600X): the ProcessEvent hook ran **~7,000 script events/s at ~75 us each =
+  ~500 ms of the game thread per second** - about half of each ~6.4 ms tick, on the thread that is
+  the frame-rate ceiling. By statement (`pe/cost-fn`): FovLeverApply 185 ms/s, CarryHoldTick 46,
+  SkcRotApply 42, CamShakeTick 36, camera::apply_offsets 26, FxFollowTick 22, UiPeLatch 10, the rest
+  under 7 each. VirtualQuery (RangeReadable) ran ~15,000 times a second.
+- **Fast path (PeFast):** a region cache for the hook's own readability checks (cleared every second)
+  and an FName-index -> traits cache for the event-name tests (the same strstr/strcmp tests, resolved
+  once per index). VirtualQuery 15,000/s -> ~150/s; saves ~20 ms/s. Menu events still register
+  (Dis_OpenPauseMenu / OnResumeGameClicked measured with it on).
+- **Heavy-writer cadence (PeHeavyMs):** FovLeverApply (FOV lever + eye clamp) and apply_offsets wrote
+  their fields on every event so ours is the last value before the draw. With the re-entry draw hook
+  installed they now run at most every 2 ms during the tick, ALWAYS once at the viewport-draw entry
+  (after the tick's last event, before pass 1 reads the camera) and ALWAYS for events inside the draw;
+  without the hook every event runs them as before. SkcRotApply, CamShakeTick and CarryHoldTick are
+  deliberately NOT throttled (they race the animation/physics tick itself, not the draw).
+- **Result:** old cadence 151-162 ticks/s (hook ~495 ms/s) against **throttled 162-177 ticks/s, mostly
+  170-175 (hook ~395 ms/s)**, about +10 %, repeated off/on twice. FOV readback held at the lever's
+  108.07 deg target throughout, stereo eye check 33,063 agree / 0 disagree, walking fine. Throttling the
+  in-draw events too (`pe heavydraw off`) cut the hook to ~320 ms/s with the same FOV and eyes but no
+  further rate gain - the render thread is now the limit (idle 0.3 ms) - so it stays off by default.
+- **Left on the table:** ~390 ms/s of per-event work remains (the mid ticks and SkcRotApply). Each is a
+  candidate for its own cadence after checking what it races; the per-statement split (`pe fn on`)
+  names them. Not headset-tested.

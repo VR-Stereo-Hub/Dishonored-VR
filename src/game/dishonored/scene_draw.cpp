@@ -452,6 +452,10 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     const LONG depth = InterlockedIncrement(&g_sdDepth) - 1;
     LARGE_INTEGER t0 = {}, t1 = {};
     if (depth == 0) {
+        // Route 2: the heavy script-lane writers run at most every PeHeavyMs during the tick, so
+        // they run HERE once more, after the tick's last script event and before pass 1 reads
+        // the camera (pe_fast.h). No-op while unthrottled.
+        if (callerRet == kViewportDrawGameplayRet) PeHeavyAtDraw();
         g_sdPresentProgress.begin(g_frame);
         g_sdDrawTid = GetCurrentThreadId();
         if (callerRet==kViewportDrawGameplayRet) ResLiveApply(self);

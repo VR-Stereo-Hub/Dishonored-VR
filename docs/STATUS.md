@@ -1,3 +1,11 @@
+## Script-lane cost (route 2, 2026-09-27) - simulator-measured, default on
+
+Branch `claude/pe-hook-dispatch` off staging. The ProcessEvent hook cost ~500 ms of the game thread
+per second (7,000 events/s x 75 us). Region + name caches and a draw-anchored cadence for the FOV
+lever and camera writer: ~155 -> ~172 ticks/s in the simulator, FOV and eyes unchanged. Installed
+(this replaces the extra-pair build; that one is on `claude/extra-pairs-per-tick`, PR #140). Levers
+`[Perf] PeFast`, `PeHeavyMs`, `PeHeavyInDraw`; `pe` seam words. Detail: PERFORMANCE route 2.
+
 ## Projection jitter for DLSS (2026-09-27) - headset-confirmed, default off
 
 Branch `claude/dlss-dlaa` (`feat: DLSS projection jitter...`). Sub-pixel Halton jitter on the world
