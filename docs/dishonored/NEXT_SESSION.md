@@ -1,129 +1,90 @@
-# Next session: projection jitter for DLSS (and later FSR 3.1)
+# Next session: make the game stop limiting itself (the "uncap" deep dive)
 
-**DONE 2026-09-27** - jitter built, host-proved, headset-confirmed after the left-eye speckle fix
-(PERFORMANCE "Projection jitter", FLICKER_REFERENCE 2026-09-27). Next: headset verdict on SR sharpness
-with jitter, then FSR 3.1 in-process. The brief below is kept as the record.
+Read CLAUDE.md, the newest four sections of docs/STATUS.md, this brief, and in
+docs/dishonored/PERFORMANCE.md (grep the headings, read windows; the file is large): "Why DLSS
+cannot raise the frame rate here", both "Route 1" / "Route 2" entries, "in the HEADSET the GPU is
+the limit", plus the older "Results and routes", "Representative CPU evidence" and the VR-160
+section (rig B) for what was already tried and failed. Session protocol applies: new work on its own
+branch, measure before theorising, every lever default OFF with a live A/B, no merges.
 
-Read CLAUDE.md, only the newest three sections of docs/STATUS.md, and this brief. The full
-record is docs/dishonored/PERFORMANCE.md from "## 2026-09-26: DLAA through an x64 NGX helper"
-to the end (grep the headings, read windows; the file is large). The older FSR plan section
-"2026-09-26: FSR implementation plan" holds gate 3 (jitter) requirements that still apply.
-Read the newest FLICKER_REFERENCE entries (the two DLAA smear entries at the top) before any
-render change.
+## The goal, in the maintainer's words turned into a requirement
 
-## Workspace and boundaries
+The game must use the hardware as hard as it can, so a faster CPU/GPU actually turns into a higher
+frame rate or a higher resolution. Today it does not: in the headset the machine sits at about
+**25 % CPU and 80 % GPU** (Task Manager, headset run 2026-09-27, no SSW, no DLSS, 100 % = 2750x2850,
+VDXR at 144 Hz) while the rate stays at **~120-137 pairs/s** and the runtime reports
+UNDER-SUBMITTING 0.89x. Nothing is saturated, so the rate is set by SERIALISATION - one critical
+path where the CPU waits for the GPU and the GPU waits for the CPU - not by any one resource.
 
-- Worktree `C:\dev\Dishonored-VR\build\worktrees\fsr` (directory name kept), branch
-  `claude/dlss-dlaa`, stacked on the unmerged `claude/motion-vectors`. Latest commit
-  `afb72687a`. No merges authorized; do not rebase onto staging or touch the main checkout.
-- Order agreed with the maintainer: DLAA (done, headset-accepted) -> DLSS SR (done, measured)
-  -> projection jitter (this session) -> FSR 3.1 in-process.
-- Commits credited to BioVRDev, no trailers, 2-10 per branch, no personal names anywhere
-  (credit upstream projects by URL only). No Linear ticket exists (workspace issue limit).
-- The maintainer launches the game for headset tests. Self-launching the simulator was
-  permitted "for now" in the last session; ask again before launching in this one.
-- NGX SDK: `tools\fetch-ngx.ps1` (pinned v310.7.0, gitignored, already fetched in this
-  worktree). `tools\build.ps1 -Release` also builds the x64 helper; `tools\install.ps1 -Release`
-  installs it to `<game>\dvr_dlss\`. `tools\dlss-host-test.ps1` = 13 host checks
-  (`-Cost` adds the per-preset timing table).
+## What is already measured (do not re-derive)
 
-## Installed state at handoff (read it again before installing anything)
+- Headset, per stereo pair (log `build/dlss-install/pre-pe2-*` / the maintainer's logs, perf lines):
+  7.3-8.1 ms total; D3D9 GPU span 6.7-6.9 ms; present thread waiting on the capture fence ("cap
+  lock") 1.1-1.9 ms on the LEFT present; render thread R 1.3-2.7 ms per present; P1 idle 0.1-1.7 ms.
+  Treat the D3D9 span as an UPPER bound on GPU busy (it contains gaps).
+- Simulator (no Virtual Desktop encoder/compositor): the game thread looked like the ceiling at
+  ~7 ms/tick; the mod's ProcessEvent hook cost ~500 ms/s of it (route 2, branch
+  `claude/pe-hook-dispatch`, PR #141, cut to ~395 ms/s: ~155 -> ~172 ticks/s in the simulator,
+  no headset gain because the headset is not game-thread-bound). This branch is stacked on it, so
+  `pe/cost` (and `pe fn on`) are available.
+- Route 1 (extra stereo pair per tick, PR #140): no headset gain, halves the tick rate, weapon and
+  hands judder. Rejected; do not revisit.
+- A quarter of the pixels saved only ~0.7 ms of GPU per eye: the GPU cost barely follows
+  resolution, so the "80 % GPU" is not pixel-bound shading.
+- Already tried and failed on some rig (check whether the reason still applies before retrying):
+  nonblocking desktop Present, max-frame-latency 1/2/3 sweep, the query-wait helper, pair pacing as a
+  default, dynamic shadows via ini. Desktop mirror OFF was a real win and is the default.
 
-- `d3d9.dll` SHA256 `c1a9268cd4abf5bcbfe6f9cd4f63afc027844762193584c28c4d9e1af398fb6a`
-  (build 21:32, commit afb72687a + docs), helper `16cd5a5f...`, nvngx_dlss.dll 310.7.0.0.
-- INI SHA256 `2e2183b71ebf498be529d720c0ad3c14836b1d108646b59900f2ad93f37efc05` - the
-  maintainer's own settings since the last session: `DLAA=1`, `DlssModel=1` (fast), `DlssMask=1`
-  (0.025..0.115), `DlssQuality=0`, `RenderWidth/Height=2750x2850`, Temporal=0, MotionVectors=1,
-  DepthShare=0, MotionCalib=0. Launch file `-ResX=2750 -ResY=2850`. Preserve them.
-- Back up DLL + whole INI + logs before every install (`build/dlss-install/pre-*`), restore the
-  INI byte-for-byte after any simulator run (seam words and live resizes write it), check CRLF,
-  and check `dishonored_vr_launch.txt` still matches `[Screen] RenderWidth/Height`.
+## The questions, in order
 
-## What exists (the pieces jitter plugs into)
+1. **Where does the GPU sit idle 20 % of the time?** Take a real GPU timeline of a headset-equivalent
+   run: PIX timing capture or GPUView/WPR (Windows Performance Recorder, GPU + CPU + DWM providers)
+   around 5 s of steady play, short capture, with an overhead control. Name every gap on the game's 3D
+   queue and what the CPU was doing in it (our present path, the capture copy, the fence wait,
+   xrWaitFrame, the D3D9 driver, Virtual Desktop). `tools/perf-gpu-sample.ps1` gives per-engine busy
+   share per second beside the log - use it for every A/B.
+2. **Which waits are ours and can be moved off the critical path?** Candidates to MEASURE, not
+   assume: the capture fence wait on the left present (the image is consumed a present later - can
+   it be deferred so the game renders the next eye while the copy finishes?), D3D9 -> D3D11 shared
+   surface sync per present, the HUD capture, clarity/sharpen passes on the present thread, the
+   runtime's xrWaitFrame/xrEndFrame placement (the present thread owns every runtime call), the
+   game's own Present to the desktop window per eye.
+3. **Can the pipeline be deeper?** The game renders one frame ahead (OneFrameThreadLag); the render
+   thread then waits on our present. Look at a double-buffered capture/submit where the present thread
+   never waits for the GPU: capture slot N+1 while N is copied, submit N one present later with its
+   own pose record (the pose travels with the image - VR-65 - so latency can be accounted for).
+4. **Driver/runtime levers with zero code:** NVIDIA Low Latency Mode / Max Frame Rate / Threaded
+   Optimization per program, Virtual Desktop codec/bitrate/"prioritise" settings, VDXR vs SteamVR,
+   HAGS, and Windows Game Mode, each as an A/B with the numbers.
+5. **Scaling test that proves "uses the hardware":** at 100 %, 150 % and 200 % render size, and with
+   the GPU clocks capped, does the rate move the way a GPU-bound or CPU-bound game would? A game that
+   uses the hardware fully shows the rate falling with resolution and rising with a faster card.
 
-- `src/core/gfx/dlss.cpp` (lifecycle, SR resolution transaction with the game side),
-  `dlss_client.cpp` (x86 transport; `EyeInputs::jitterX/Y` already travel to the helper as
-  render pixels, currently 0), `dlss_gpu.cpp` (guides: reversed depth, vectors through the
-  game's own matrices, optional mask, `dlss audit on` = vector audit + flow check),
-  `src/tools/dlss_host/dlss_host.cpp` (x64 NGX helper; passes InJitterOffsetX/Y).
-- Vectors: `clarity.cpp` DLSS branch passes `vpCur/vpPrev` (the world view-projection captured
-  at the c5 upload, stored per pose record at present by `pose::note_render_pos`) plus the c5
-  change; the shader solves the pixel's camera-relative point and reprojects. Matrix layout
-  MEASURED: camera-relative, row vector, `clip = [P - C, 1] * M`, clip.w = linear view depth
-  in uu; depth units * 250 = uu (`MotionDepthScale`, flow-check fit). Arms nearer than
-  `DlssBodyDepth` 0.30 get no translation.
-- The flow check (`dlss audit on`, log `dlss/flow`) reports per image the whole-image shift
-  and the scatter around it: it is the ready-made instrument for jitter (a jitter the vectors
-  do not know about shows up as whole-image shift equal to the jitter).
+## Rules for this work
 
-## The task: deliberate sub-pixel projection jitter
+- Measure first; one lever per A/B, off/on/off; report the median and the tail per window.
+- Every new lever default OFF with a live A/B toggle (seam word + ini key; F10 if player-facing).
+- Launch the simulator only when the question cannot be answered offline, close it as soon as the
+  question is answered, back up and restore the INI byte-for-byte around every run; headset runs are
+  the maintainer's - hand over exact steps and what to read.
+- Record every result, including failed predictions, in PERFORMANCE.md in the same commit.
+- Commits: BioVRDev identity, conventional, no trailers, 2-10 per branch; no personal names anywhere.
+- Never merge; PRs against `staging` only when a lever has a measured result.
 
-Why: Super Resolution (and DLAA) reconstruct detail from sub-pixel sample positions; today only
-head micro-motion supplies them, so SR is softer than it should be. DLSS expects the scene
-rendered with a per-frame sub-pixel offset of the projection and that offset reported as
-`InJitterOffsetX/Y` in render pixels.
+## Installed state at handoff
 
-Where: `src/core/framework/vs_const_hook.cpp`. The world view-projection is c0..c3 at the c5
-upload (VR-65 comment there). An existing c0 patch (LeanVP, the positional lean on the vp lane)
-already rewrites that matrix, gated by `IsMainScenePass()` in `vs_const.cpp`. **That classifier
-is NOT safe for jitter**: it assumes a wide landscape target (aspect 1.4-2.4) while the eye
-render is ~2750x2850 (aspect ~0.96), treats an unknown target as the scene, and c0..c3 is
-re-uploaded per pass and per object (hundreds per view: shadows, reflections, UI). Identify the
-world passes by observed target identity (the eye-size render target the capture reads, and
-the scene RGBA16F depth target) and make a pass MOVE before trusting it (CLAUDE.md rules).
-
-How (row-vector layout): NDC x shifts by `2*jx/W` when column 0 gains `(2*jx/W) * column 3`
-(clip.x += k * clip.w); y likewise with `-2*jy/H` on column 1 (check the sign). Apply the same
-offset to every draw of the world passes of one eye image, colour AND depth together, never to
-shadow maps, reflections, HUD/Scaleform or our own passes. Record the applied offset with the
-image (pose record, next to `renderVp`), so the pair (image, jitter) cannot come apart.
-Remove it from the vectors: the stored VP includes the jitter, so either store the unjittered
-matrix for the vectors or pass DLSS vectors that exclude it - decide by the flow check.
-
-Sequence: Halton(2,3), 8-16 phases scaled to render pixels (DLSS guide: phase count ~ 8 *
-ratio^2 for SR). Both eyes of one stereo pair use the same phase; advance per rendered pair,
-not per present; reset on history resets. Jitter must not move the pose submitted to OpenXR.
-
-Levers: default OFF with a live A/B (`dlss jitter on|off`, `[Clarity] DlssJitter=0`); refuse
-and log when the world-pass identification is not confirmed.
-
-Verification, in order:
-1. Host test: extend `tools/dlss-host-tests.cpp` - render a slanted-edge scene shifted by a
-   known sub-pixel jitter per frame, pass the jitter, assert DLSS SR output edge error drops
-   against zero jitter, and that a flipped sign is worse (the sign convention, like the vector
-   sign test).
-2. Simulator with `dlss audit on`: with jitter on and the jitter NOT removed from the vectors,
-   `dlss/flow` whole-image shift should equal the applied jitter's magnitude; removed, it
-   should return to ~0.07-0.13 px. Also confirm shadow maps/HUD did not move (capture a shot,
-   compare HUD positions).
-3. Frame rate unchanged within noise; no new "pushed eye TWICE" outside resizes.
-4. Headset question (one launch): does Quality SR with jitter look sharper than without, with
-   no shimmer or crawling on edges and HUD?
-
-## Measurements to carry (simulator, uncapped, per eye)
-
-Native 2750x2850 133-153/s (varies by run). DLAA K ~70, DLAA fast 86, Quality SR fast 131,
-Performance SR K 115. The game's GPU cost barely follows pixels (a quarter of the pixels saved
-0.7 ms per eye), so SR does not buy frame rate here; jitter is a quality change. DLSS preset
-costs per eye at 2750x2850 output: K ~2.0-2.2 ms, CNN E/F ~0.9, M 2.8-8, L 3.3-9.7.
-
-## Open items (not this task)
-
-- One stale eye per live resize ("pushed eye -1 TWICE" within 0.2 s of `res/live: CONFIRMED`),
-  pre-existing; offered as a separate task.
-- DLAA K is bound by GPU contention between the game and the helper process; one batched DLSS
-  submission per frame (both eyes) would need a per-eye texture and deferred swapchain copies.
-- FSR 3.1: the upscaler + DX12 back end build as Win32 static libs with three patches
-  (PERFORMANCE, "FSR 3.1: the 32-bit build question"); scratch build in `C:\dev\fsr-src`.
+Route 2 build `fcbc0c59` (`claude/pe-hook-dispatch`), the maintainer's own INI (DLSS/DLAA off,
+2750x2850, SSW off in Virtual Desktop). Backups under `build/dlss-install/pre-*`.
 
 ## Copyable starting prompt
 
-Continue in C:\dev\Dishonored-VR\build\worktrees\fsr on branch claude/dlss-dlaa. Read
-CLAUDE.md, the newest three sections of docs/STATUS.md, docs/dishonored/NEXT_SESSION.md, and
-the DLSS sections at the end of docs/dishonored/PERFORMANCE.md. Implement deliberate sub-pixel
-projection jitter for DLSS as the brief describes: identify the world passes safely (not
-IsMainScenePass), jitter colour and depth together per stereo pair with a Halton sequence,
-record the offset with each image, keep it out of the motion vectors, pass it to DLSS, default
-off with a live toggle. Prove the sign in the host test and the removal with the flow check
-before asking for a headset run. Build and install yourself; back up and restore the INI
-around simulator runs; ask before launching anything. Do not merge.
+Continue in C:\dev\Dishonored-VR\build\worktrees\fsr on branch claude/uncap-deep-dive (stacked on
+claude/pe-hook-dispatch). Read CLAUDE.md, the newest four sections of docs/STATUS.md,
+docs/dishonored/NEXT_SESSION.md and the PERFORMANCE.md sections it names. Goal: make Dishonored VR
+use the hardware as hard as it can - in the headset the PC sits at ~25 % CPU and ~80 % GPU while the
+rate stays at ~120-137 pairs/s, so find and remove the serialisation that limits it. Start by getting
+a real GPU/CPU timeline of the frame (PIX or WPR/GPUView) and name every gap on the game's 3D queue
+and who owns it, then A/B the waits that are ours, deepen the pipeline where it is safe, and test the
+driver/runtime levers. Measure before changing anything; every lever default off with a live toggle;
+record every result in PERFORMANCE.md. Build and install yourself; ask before launching anything;
+close the game as soon as a question is answered; restore the INI after simulator runs. Do not merge.

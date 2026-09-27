@@ -68,6 +68,7 @@ enum AbLever {
     kAbNone = 0,
     kAbFrameId,        // [Perf] FrameId - the 64x64 GetRenderTargetData readback
     kAbFrameLatency,   // IDirect3DDevice9Ex::SetMaximumFrameLatency
+    kAbSeam,           // uncap deep dive: a plan file row - seam commands to apply and to restore
 };
 
 struct AbSeg {
@@ -91,7 +92,121 @@ static const AbSeg kAbPlan[] = {
     { "max frame latency 2",   kAbFrameLatency, 2, false },
     { "baseline last",         kAbNone,         0, true  },
 };
-static const int kAbSegN = (int)(sizeof(kAbPlan) / sizeof(kAbPlan[0]));
+static const int kAbBuiltinN = (int)(sizeof(kAbPlan) / sizeof(kAbPlan[0]));
+static uint32_t g_abSegMs = 20000;
+static uint32_t g_abWarmMs = 2000;      // discarded at the head of every segment
+
+// ---- the plan FILE (uncap deep dive, 2026-09-27) -----------------------------
+//
+// `perf ab plan <file>` (or `[Perf] AbPlan=<file>` at launch) replaces the built-in plan with
+// rows read from a text file in the data dir, one segment per line:
+//
+//     label | apply commands | restore commands
+//
+// Commands are seam words, several separated by ';'. A row with no apply commands is a
+// BASELINE. The restore of a row runs when its segment ends, before the next segment
+// applies anything, so every alternative is measured from the baseline. `seg <ms>` and
+// `warm <ms>` lines set the segment and warm-up lengths. `#` starts a comment.
+// Example: `depth 2 | capture depth 2 | capture depth 1`.
+//
+// Everything below the plan reads rows through these accessors, so the built-in plan
+// and a file plan are measured, verdicted and summarised identically.
+#define DVR_AB_MAX_ROWS 32
+struct AbRow {
+    char label[48];
+    char apply[200];
+    char restore[200];
+    bool baseline;
+};
+static AbRow g_abRows[DVR_AB_MAX_ROWS];
+static int   g_abRowN = 0;          // 0 = the built-in plan
+static char  g_abPlanName[MAX_PATH] = "";
+
+static int         AbSegN()               { return g_abRowN ? g_abRowN : kAbBuiltinN; }
+static const char* AbLabel(int i)         { return g_abRowN ? g_abRows[i].label : kAbPlan[i].label; }
+static bool        AbIsBaseline(int i)    { return g_abRowN ? g_abRows[i].baseline : kAbPlan[i].baseline; }
+static AbLever     AbLeverOf(int i)       { return g_abRowN ? (g_abRows[i].baseline ? kAbNone : kAbSeam) : kAbPlan[i].lever; }
+static int         AbValueOf(int i)       { return g_abRowN ? 0 : kAbPlan[i].value; }
+
+static void AbTrim(char* t)
+{
+    char* a = t;
+    while (*a == ' ' || *a == '\t') ++a;
+    if (a != t) memmove(t, a, strlen(a) + 1);
+    size_t n = strlen(t);
+    while (n && (t[n - 1] == ' ' || t[n - 1] == '\t' || t[n - 1] == '\r' || t[n - 1] == '\n')) t[--n] = 0;
+}
+
+// Each ';'-separated command through the seam's own dispatcher, on this (present) thread.
+static volatile LONG g_abDispatching = 0;
+static void AbRunCommands(const char* list, const char* why)
+{
+    if (!list || !list[0]) return;
+    struct Guard { Guard() { InterlockedExchange(&g_abDispatching, 1); } ~Guard() { InterlockedExchange(&g_abDispatching, 0); } } guard;
+    char buf[200];
+    strncpy(buf, list, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
+    char* ctx = NULL;
+    for (char* c = strtok_s(buf, ";", &ctx); c; c = strtok_s(NULL, ";", &ctx)) {
+        AbTrim(c);
+        if (!c[0]) continue;
+        DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info, "perf/ab: %s -> `%s`", why, c);
+        dvr::command::dispatch_line(c);
+    }
+}
+
+static bool AbLoadPlan(const char* name)
+{
+    char path[MAX_PATH];
+    if (strchr(name, ':') || name[0] == '\\' || name[0] == '/') { strncpy(path, name, MAX_PATH - 1); path[MAX_PATH - 1] = 0; }
+    else dvr::paths::in_data_dir(path, name);
+    FILE* f = fopen(path, "r");
+    if (!f) {
+        DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn,
+                "perf/ab: plan file %s could not be opened - the built-in plan stays", path);
+        return false;
+    }
+    int n = 0;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        AbTrim(line);
+        if (!line[0] || line[0] == '#') continue;
+        unsigned v = 0;
+        if (sscanf(line, "seg %u", &v) == 1) { if (v >= 5000 && v <= 120000) g_abSegMs = v; continue; }
+        if (sscanf(line, "warm %u", &v) == 1) { if (v <= 10000) g_abWarmMs = v; continue; }
+        if (n >= DVR_AB_MAX_ROWS) break;
+        AbRow& r = g_abRows[n];
+        memset(&r, 0, sizeof(r));
+        char* bar1 = strchr(line, '|');
+        char* bar2 = bar1 ? strchr(bar1 + 1, '|') : NULL;
+        if (bar1) *bar1 = 0;
+        if (bar2) *bar2 = 0;
+        strncpy(r.label, line, sizeof(r.label) - 1); AbTrim(r.label);
+        if (bar1) { strncpy(r.apply, bar1 + 1, sizeof(r.apply) - 1); AbTrim(r.apply); }
+        if (bar2) { strncpy(r.restore, bar2 + 1, sizeof(r.restore) - 1); AbTrim(r.restore); }
+        r.baseline = r.apply[0] == 0;
+        if (!r.label[0]) strcpy(r.label, r.baseline ? "baseline" : "(unnamed)");
+        ++n;
+    }
+    fclose(f);
+    int baselines = 0;
+    for (int i = 0; i < n; ++i) baselines += g_abRows[i].baseline ? 1 : 0;
+    if (n < 2 || baselines < 2) {
+        DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn,
+                "perf/ab: plan %s has %d row(s) and %d baseline(s) - a plan needs at least two baselines for a noise "
+                "floor; the built-in plan stays", path, n, baselines);
+        g_abRowN = 0;
+        return false;
+    }
+    g_abRowN = n;
+    strncpy(g_abPlanName, path, MAX_PATH - 1); g_abPlanName[MAX_PATH - 1] = 0;
+    DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
+            "perf/ab: plan LOADED from %s - %d segments (%d baselines) of %u ms, %u ms warm-up each:",
+            path, n, baselines, g_abSegMs, g_abWarmMs);
+    for (int i = 0; i < n; ++i)
+        DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info, "perf/ab:   %2d %-24s apply `%s` restore `%s`",
+                i + 1, g_abRows[i].label, g_abRows[i].apply, g_abRows[i].restore);
+    return true;
+}
 
 #define DVR_AB_MAX_SAMPLES 16384u
 
@@ -109,14 +224,12 @@ struct AbResult {
 
 static bool     g_abOn = false;
 static bool     g_abDone = false;
-static uint32_t g_abSegMs = 20000;
-static uint32_t g_abWarmMs = 2000;      // discarded at the head of every segment
 static int      g_abSeg = -1;
 static uint64_t g_abSegStartMs = 0;
 static double   g_abPrev = 0.0;
 static float*   g_abSamples = NULL;
 static uint32_t g_abN = 0;
-static AbResult g_abRes[kAbSegN];
+static AbResult g_abRes[DVR_AB_MAX_ROWS];
 static int      g_abFrameIdWas = -1;    // restored when the plan ends
 static int      g_abLatencyWas = -1;
 static uint32_t g_abSevere = 0;         // intervals >= 5 s in this segment
@@ -156,6 +269,19 @@ static void AbApply(AbLever lever, int value)
     }
 }
 
+static void AbApplySeg(int i)
+{
+    if (g_abRowN) { AbRunCommands(g_abRows[i].apply, "apply"); return; }
+    AbApply(kAbPlan[i].lever, kAbPlan[i].value);
+}
+
+// A file row's own restore, run when its segment ends (the built-in levers restore through
+// AbRestoreBaseline below, which re-applies the values captured when the plan started).
+static void AbRestoreSeg(int i)
+{
+    if (g_abRowN && i >= 0 && i < g_abRowN && !g_abRows[i].baseline) AbRunCommands(g_abRows[i].restore, "restore");
+}
+
 // The baseline: whatever the run was configured with. Captured once so the
 // plan restores it, and re-applied at the head of every baseline segment.
 static void AbRestoreBaseline()
@@ -186,7 +312,7 @@ static float AbPct(const float* sorted, uint32_t n, float p)
 
 static void AbCloseSegment()
 {
-    if (g_abSeg < 0 || g_abSeg >= kAbSegN) return;
+    if (g_abSeg < 0 || g_abSeg >= AbSegN()) return;
     AbResult r; memset(&r, 0, sizeof(r));
     r.severe = g_abSevere;
     if (g_abSkipSeg) {
@@ -198,7 +324,7 @@ static void AbCloseSegment()
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn,
                 "perf/ab: segment %d of %d (%s) DISCARDED - gameplay was lost inside it (a menu, a load or a "
                 "cutscene). Its %u samples are not comparable with the others and are thrown away.",
-                g_abSeg + 1, kAbSegN, kAbPlan[g_abSeg].label, g_abN);
+                g_abSeg + 1, AbSegN(), AbLabel(g_abSeg), g_abN);
         g_abRes[g_abSeg] = r;
         return;
     }
@@ -229,7 +355,7 @@ static void AbCloseSegment()
                 "perf/ab: segment %d of %d DONE (%s): %u PAIRS | p50 %.2f ms (%.1f pairs/s) p95 %.2f p99 %.2f "
                 "p99.9 %.2f max %.2f | mean %.2f | over fixed thresholds: 40ms=%u 50ms=%u 75ms=%u 100ms=%u | "
                 "over twice the median %u (%.2f%%) | severe (>=5 s, excluded from the quantiles) %u",
-                g_abSeg + 1, kAbSegN, kAbPlan[g_abSeg].label, r.n, r.p50,
+                g_abSeg + 1, AbSegN(), AbLabel(g_abSeg), r.n, r.p50,
                 r.p50 > 0.0f ? 1000.0f / r.p50 : 0.0f, r.p95, r.p99, r.p999, r.max, r.mean,
                 r.over40, r.over50, r.over75, r.over100,
                 r.overTwiceMedian, 100.0f * (float)r.overTwiceMedian / (float)r.n, r.severe);
@@ -237,7 +363,7 @@ static void AbCloseSegment()
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn,
                 "perf/ab: segment %d of %d (%s) collected only %u pairs after the %u ms warm-up - too few to "
                 "quote a distribution, this segment is DISCARDED (were you in a menu or a load?)",
-                g_abSeg + 1, kAbSegN, kAbPlan[g_abSeg].label, g_abN, g_abWarmMs);
+                g_abSeg + 1, AbSegN(), AbLabel(g_abSeg), g_abN, g_abWarmMs);
     }
     g_abRes[g_abSeg] = r;
 }
@@ -250,8 +376,8 @@ static void AbSummary()
     float bMin = 0.0f, bMax = 0.0f; int bN = 0; float bRef = 0.0f;
     float t99Min = 0.0f, t99Max = 0.0f, t99Ref = 0.0f;          // the TAIL floor
     uint32_t hMin = 0, hMax = 0; double hRef = 0.0;             // the fixed-threshold hitch floor
-    for (int i = 0; i < kAbSegN; ++i) {
-        if (!kAbPlan[i].baseline || !g_abRes[i].valid) continue;
+    for (int i = 0; i < AbSegN(); ++i) {
+        if (!AbIsBaseline(i) || !g_abRes[i].valid) continue;
         const AbResult& b = g_abRes[i];
         if (!bN || b.p50 < bMin) bMin = b.p50;
         if (!bN || b.p50 > bMax) bMax = b.p50;
@@ -282,17 +408,17 @@ static void AbSummary()
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Warn,
                 "perf/ab: only ONE baseline segment survived, so there is no noise floor at all and no verdict "
                 "below can be trusted. Re-run.");
-    for (int i = 0; i < kAbSegN; ++i) {
+    for (int i = 0; i < AbSegN(); ++i) {
         const AbResult& r = g_abRes[i];
         if (r.skipped) {
             DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
                     "perf/ab:   %-22s SKIPPED - its value already equals the baseline, so it would have measured "
-                    "the baseline a second time", kAbPlan[i].label);
+                    "the baseline a second time", AbLabel(i));
             continue;
         }
         if (!r.valid) {
             DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
-                    "perf/ab:   %-22s DISCARDED (too few pairs, or gameplay was lost inside it)", kAbPlan[i].label);
+                    "perf/ab:   %-22s DISCARDED (too few pairs, or gameplay was lost inside it)", AbLabel(i));
             continue;
         }
         const float dP50 = bRef > 0.0f ? 100.0f * (r.p50 - bRef) / bRef : 0.0f;
@@ -301,7 +427,7 @@ static void AbSummary()
         const bool tailInside = bN >= 2 && tailFloorPct > 0.0f && (dP99 < 0.0f ? -dP99 : dP99) <= tailFloorPct;
         const bool hitchInside = bN >= 2 && r.over50 >= hMin && r.over50 <= hMax;
         const char* verdict;
-        if (kAbPlan[i].baseline)                verdict = "(baseline)";
+        if (AbIsBaseline(i))                verdict = "(baseline)";
         else if (bN < 2)                        verdict = "NO VERDICT - no noise floor";
         else if (medInside && tailInside && hitchInside)
                                                 verdict = "NO CHANGE - median, tail and hitch count all inside the floor";
@@ -312,7 +438,7 @@ static void AbSummary()
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
                 "perf/ab:   %-22s p50 %.2f (%+.1f%% vs base p50) p95 %.2f p99 %.2f (%+.1f%% vs base p99) "
                 "p99.9 %.2f max %.2f | 50ms+ %u (base %.1f) 100ms+ %u | severe %u | %s",
-                kAbPlan[i].label, r.p50, dP50, r.p95, r.p99, dP99, r.p999, r.max,
+                AbLabel(i), r.p50, dP50, r.p95, r.p99, dP99, r.p999, r.max,
                 r.over50, hRef, r.over100, r.severe, verdict);
     }
     DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
@@ -342,7 +468,7 @@ void ab_tick(IDirect3DDevice9* dev)
             DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
                     "perf/ab: armed, WAITING FOR GAMEPLAY - the plan starts at the first present after the game "
                     "is in play, not in the menu. %d segments of %u ms; just play normally when you get in.",
-                    kAbSegN, g_abSegMs);
+                    AbSegN(), g_abSegMs);
         }
         return;
     }
@@ -384,17 +510,20 @@ void ab_tick(IDirect3DDevice9* dev)
                 "perf/ab: PLAN STARTED - %d segments of %u ms (%u ms discarded at the head of each). Baseline as "
                 "found: frameid %s, max frame latency %d. PLAY NORMALLY AND DO NOT PAUSE; a menu or a load inside "
                 "a segment discards it. Nothing about what is rendered changes.",
-                kAbSegN, g_abSegMs, g_abWarmMs, g_abFrameIdWas ? "ON" : "off", g_abLatencyWas);
+                AbSegN(), g_abSegMs, g_abWarmMs, g_abFrameIdWas ? "ON" : "off", g_abLatencyWas);
+        if (!AbIsBaseline(0)) AbApplySeg(0);
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
-                "perf/ab: segment 1 of %d: %s", kAbSegN, kAbPlan[0].label);
+                "perf/ab: segment 1 of %d: %s", AbSegN(), AbLabel(0));
+        dvr::etw::mark("ab seg 1", 1);
         return;
     }
 
     // segment boundary
     if (nowMs - g_abSegStartMs >= (uint64_t)g_abSegMs) {
         AbCloseSegment();
+        AbRestoreSeg(g_abSeg);
         ++g_abSeg;
-        if (g_abSeg >= kAbSegN) {
+        if (g_abSeg >= AbSegN()) {
             AbRestoreBaseline();
             AbSummary();
             g_abDone = true;
@@ -412,19 +541,25 @@ void ab_tick(IDirect3DDevice9* dev)
         AbRestoreBaseline();                                     // one lever at a time, always from baseline
         // A segment whose value already IS the baseline measures the baseline
         // twice and reads as "the lever did nothing". Skip it and say so.
-        g_abSkipSeg = (kAbPlan[g_abSeg].lever == kAbFrameLatency && kAbPlan[g_abSeg].value == g_abLatencyWas)
-                   || (kAbPlan[g_abSeg].lever == kAbFrameId && (kAbPlan[g_abSeg].value != 0) == (g_abFrameIdWas != 0));
+        g_abSkipSeg = (AbLeverOf(g_abSeg) == kAbFrameLatency && AbValueOf(g_abSeg) == g_abLatencyWas)
+                   || (AbLeverOf(g_abSeg) == kAbFrameId && (AbValueOf(g_abSeg) != 0) == (g_abFrameIdWas != 0));
         if (g_abSkipSeg) {
             DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
                     "perf/ab: segment %d of %d SKIPPED (%s) - that value already equals the baseline, so the "
                     "segment would measure the baseline a second time and its spread would be read as the lever "
                     "doing nothing",
-                    g_abSeg + 1, kAbSegN, kAbPlan[g_abSeg].label);
+                    g_abSeg + 1, AbSegN(), AbLabel(g_abSeg));
             return;
         }
-        AbApply(kAbPlan[g_abSeg].lever, kAbPlan[g_abSeg].value);
+        AbApplySeg(g_abSeg);
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
-                "perf/ab: segment %d of %d: %s", g_abSeg + 1, kAbSegN, kAbPlan[g_abSeg].label);
+                "perf/ab: segment %d of %d: %s", g_abSeg + 1, AbSegN(), AbLabel(g_abSeg));
+        {
+            char etwText[96];
+            _snprintf(etwText, sizeof(etwText), "ab seg %d %s", g_abSeg + 1, AbLabel(g_abSeg));
+            etwText[sizeof(etwText) - 1] = 0;
+            dvr::etw::mark(etwText, g_abSeg + 1);
+        }
         return;
     }
 
@@ -462,24 +597,38 @@ bool ab_command(const char* args)
         else DVR_INFO("perf/ab: seg <5000..120000 ms> (now %u)", g_abSegMs);
         return true;
     }
+    if (n >= 2 && !strcmp(a, "plan")) {
+        if (g_abOn && g_abSeg >= 0) { AbRestoreSeg(g_abSeg); AbRestoreBaseline(); }
+        if (AbLoadPlan(b)) { g_abOn = true; g_abDone = false; g_abSeg = -1; g_abWaitLogged = false;
+                             DVR_INFO("perf/ab: armed with %s - the plan starts at the next gameplay present", b); }
+        return true;
+    }
+    if (n >= 1 && !strcmp(a, "builtin")) { g_abRowN = 0; DVR_INFO("perf/ab: the built-in plan (%d segments)", kAbBuiltinN); return true; }
     if (n >= 1 && (!strcmp(a, "on") || !strcmp(a, "restart"))) {
         g_abOn = true; g_abDone = false; g_abSeg = -1;
         DVR_INFO("perf/ab: armed - the plan starts at the next present");
         return true;
     }
     if (n >= 1 && !strcmp(a, "off")) {
+        if (g_abOn && g_abSeg >= 0) AbRestoreSeg(g_abSeg);
         if (g_abOn) AbRestoreBaseline();
         g_abOn = false; g_abSeg = -1;
         DVR_INFO("perf/ab: off, baseline restored");
         return true;
     }
-    DVR_INFO("perf/ab: %s%s | %d segments of %u ms | perf ab on|off|restart|seg <ms>",
-             g_abOn ? "RUNNING" : (g_abDone ? "complete" : "off"),
-             g_abOn && g_abSeg >= 0 && g_abSeg < kAbSegN ? "" : "", kAbSegN, g_abSegMs);
+    DVR_INFO("perf/ab: %s | %d segments of %u ms (%s) | perf ab on|off|restart|seg <ms>|plan <file>|builtin",
+             g_abOn ? "RUNNING" : (g_abDone ? "complete" : "off"), AbSegN(), g_abSegMs,
+             g_abRowN ? g_abPlanName : "built-in plan");
     return true;
 }
 
+bool ab_dispatching() { return InterlockedCompareExchange(&g_abDispatching, 0, 0) != 0; }
 void ab_set_enabled(bool on) { g_abOn = on; g_abDone = false; g_abSeg = -1; g_abWaitLogged = false; }
+// [Perf] AbPlan=<file>: load a plan file and arm it (the plan still waits for gameplay).
+void ab_load_plan(const char* name) {
+    if (!name || !name[0]) return;
+    if (AbLoadPlan(name)) { g_abOn = true; g_abDone = false; g_abSeg = -1; g_abWaitLogged = false; }
+}
 
 // From the present path, where the gameplay verdict is already computed.
 void ab_set_gameplay(bool inPlay) { g_abGameplay = inPlay; dvr::native_profile::tick(inPlay); dvr::bridge_profile::set_gameplay(inPlay); dvr::diag_ab::tick(inPlay); }

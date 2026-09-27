@@ -416,7 +416,9 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     QueryPerformanceCounter(&t0);
     const auto cpuSecond = dvr::perf::cpu_scope_begin();
     OcclusionPass2Begin();                 // VR-79: the right eye culls with its own view state
+    dvr::etw::begin(dvr::etw::kSceneDraw, +1);
     const bool ok = SceneDrawCallGuarded((DvrViewportDrawFn)kViewportDraw, self, b);
+    dvr::etw::end(dvr::etw::kSceneDraw, +1);
     OcclusionPass2End();
     dvr::perf::cpu_scope_end(9, cpuSecond);
     QueryPerformanceCounter(&t1);
@@ -452,6 +454,10 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     const LONG depth = InterlockedIncrement(&g_sdDepth) - 1;
     LARGE_INTEGER t0 = {}, t1 = {};
     if (depth == 0) {
+        // Route 2: the heavy script-lane writers run at most every PeHeavyMs during the tick, so
+        // they run HERE once more, after the tick's last script event and before pass 1 reads
+        // the camera (pe_fast.h). No-op while unthrottled.
+        if (callerRet == kViewportDrawGameplayRet) PeHeavyAtDraw();
         g_sdPresentProgress.begin(g_frame);
         g_sdDrawTid = GetCurrentThreadId();
         if (callerRet==kViewportDrawGameplayRet) ResLiveApply(self);
@@ -505,7 +511,9 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
 
     }
     const auto cpuFirst = depth == 0 ? dvr::perf::cpu_scope_begin() : dvr::perf::CpuToken{};
+    if (depth == 0) dvr::etw::begin(dvr::etw::kSceneDraw, g_sdEyeNow);
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
+    if (depth == 0) dvr::etw::end(dvr::etw::kSceneDraw, g_sdEyeNow);
     if (depth == 0) dvr::perf::cpu_scope_end(8, cpuFirst);
     if (depth == 0) {
         QueryPerformanceCounter(&t1);

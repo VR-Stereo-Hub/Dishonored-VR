@@ -167,6 +167,11 @@ static LONG CALLBACK WalkVEH(EXCEPTION_POINTERS* xp);
 static const char* NameFromIndex(uint32_t idx);
 static bool PrintableName(const char* s);
 static const char* RealName(uint32_t idx);
+static void PeFastSet(bool on);   // route 2: ue3/pe_fast.h, the ProcessEvent hook's caches
+static void PeHeavySet(int ms);   // route 2: the heavy writers' cadence outside the draw
+static void PeHeavyInDrawSet(bool every);   // route 2: the heavy writers inside the draw
+static void PeHeavyAtDraw();      // route 2: the heavy writers at the viewport-draw entry
+static bool PeReadable(const void* p, size_t n);   // route 2: region-cached readability, game thread
 static void HexDumpObject(const char* label, uint8_t* o, size_t bytes);
 static void RunUE3Probe();
 static const char* ObjClassName(uint8_t* o);

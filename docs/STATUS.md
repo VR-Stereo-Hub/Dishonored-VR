@@ -1,3 +1,42 @@
+## Uncap deep dive answered; DLSS in F10 Basic (2026-09-27, merged to staging)
+
+The headset is GPU-bound at 2750x2850: a GPU timeline (new `tools/perf-gpu-timeline.py` on a DvrGpu WPR
+capture) shows the game's D3D9 queue occupied 97 % of the time, nvidia-smi 94 % at full clocks; ~6.1 ms of
+the ~8.6 ms per pair follows the pixel count (render size 70 %: +13 %, 130 %: -30 %). Nothing of ours
+serialises it: capture depth 2 (new lever, default off) and the script-lane cadence changed nothing. So a
+faster GPU or fewer/cheaper pixels raise the rate; the CPU side (~7.6-8.0 ms per pair) is next.
+Shipped with it: the game's MLAA is written Off at launch whenever `[Clarity] DLAA` is on; F10 Basic has a
+"DLSS and DLAA" section (switch, mode incl. Ultra Quality, model, sharpening); failed-experiment toggles
+removed (F10_AUDIT). Also carries route 2 (#141) and the DLSS model list / Ultra Quality (#139).
+Next: FSR 3.1 on its own branch (plan: PERFORMANCE "FSR implementation plan"). Detail: PERFORMANCE.md
+"The uncap deep dive" and "Plan 1 in the HEADSET".
+
+## Handoff: the uncap deep dive (2026-09-27, end of session)
+
+Headset truth: ~25 % CPU, ~80 % GPU, ~120-137 pairs/s with SSW off and no DLSS - nothing saturated, so
+serialisation limits the rate. Route 1 (extra pairs) rejected in the headset; route 2 (script lane,
+PR #141) installed but gives no headset gain (not game-thread-bound there). Next session's brief and
+prompt: [NEXT_SESSION](dishonored/NEXT_SESSION.md), branch `claude/uncap-deep-dive`.
+
+## Script-lane cost (route 2, 2026-09-27) - simulator-measured, default on
+
+Branch `claude/pe-hook-dispatch` off staging. The ProcessEvent hook cost ~500 ms of the game thread
+per second (7,000 events/s x 75 us). Region + name caches and a draw-anchored cadence for the FOV
+lever and camera writer: ~155 -> ~172 ticks/s in the simulator, FOV and eyes unchanged. Installed
+(this replaces the extra-pair build; that one is on `claude/extra-pairs-per-tick`, PR #140). Levers
+`[Perf] PeFast`, `PeHeavyMs`, `PeHeavyInDraw`; `pe` seam words. Detail: PERFORMANCE route 2.
+
+## DLSS model list, Ultra Quality, and the frame-rate ceiling (2026-09-27)
+
+Branch `claude/dlss-presets-and-cpu-bound` off staging (after #138 merged). F10: DLSS model list (K, J,
+M, L, NVIDIA per mode, fast CNN) with per-entry tooltips; DLSS mode list with Ultra Quality (1.3x,
+`DlssQuality=5`, created as MaxQuality because the runtime refuses NGX's UltraQuality value). Host
+17/17. Installed `0ec0fffb...`, not headset-checked. Deep dive (PERFORMANCE, "Why DLSS cannot raise
+the frame rate here"): the GAME thread (~7 ms/tick on this Ryzen 5 5600X) is the ceiling, the render
+thread (~5.4 ms/pair) second, the GPU (<=5.2) third, so DLSS can only buy output resolution. Ranked
+routes: extra head-tracked pairs per world tick, our ProcessEvent hook, one engine view for both eyes,
+driver threaded optimization, a 5800X3D.
+
 ## Projection jitter for DLSS (2026-09-27) - headset-confirmed, default off
 
 Branch `claude/dlss-dlaa` (`feat: DLSS projection jitter...`). Sub-pixel Halton jitter on the world

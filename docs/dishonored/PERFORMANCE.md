@@ -3065,3 +3065,329 @@ Simulator, cap lifted, one command per window (per eye):
   depth + 6.0 wide uploads per image, R 37 + 1.0, UNSHIFTED 0; speckles gone.
 - **Not yet measured:** whether Quality/Performance SR are visibly sharper with jitter (the reason
   it exists); the flow-check jitter gain on the final build; shimmer on thin geometry.
+
+
+## 2026-09-27: Why DLSS cannot raise the frame rate here, and the routes past the CPU ceiling
+
+### The measurement (already on disk, no new launch)
+
+Simulator, cap lifted (`refresh 240`), 2750x2850 per eye, `stereo reentry`, build
+`v1.0.1-100-g1a497d4cd-dirty`, log `build/dlss-install/overlap-logs/` (local). This PC: Ryzen 5 5600X
+(6 cores / 12 threads, 32 MB L3, DDR4-3600 CL16 at XMP), RTX 4070 Ti SUPER, High performance power
+plan, hardware GPU scheduling on. Per stereo pair, from the `perf: tick` split:
+
+| | Performance SR (1374x1424, 25 % of the pixels) | Native 2750x2850 |
+|---|---|---|
+| Pair time | 8.6-8.9 ms (113-117/s) | **6.5-7.6 ms (132-154/s)** |
+| Render thread executing the engine's frame (`R`, both eyes) | 4.3-4.5 ms | 4.1-4.5 ms |
+| Render thread idle before the left eye (`idle`: nothing queued, waiting for the GAME thread) | 0.3-0.6 ms | **1.4-2.1 ms** |
+| Our present path (`in`, both eyes) | 3.8-3.9 ms (1.3 + 0.8 ms of it the capture fence behind DLSS) | 1.1 ms |
+| D3D9 GPU span per eye (an upper bound on GPU busy) | 2.3 ms | 2.6 ms |
+
+- **The game thread is the ceiling.** At native the render thread finishes its two views and then
+  waits 1.4-2.1 ms for the next tick: the game thread needs about 6.5-7.5 ms per tick (world tick,
+  script, our script lane, and the two viewport draws re-entry makes it issue). That is 133-154
+  ticks/s, and one tick is one stereo pair.
+- **The render thread is the second limit**, about 5.4 ms per pair busy (engine 4.3 + ours 1.1).
+- **The GPU is the third**, at most 5.2 ms per pair. Cutting pixels moves only this one: a quarter of
+  the pixels saved 0.7 ms per eye of GPU span (2.6 -> 1.9, the earlier SR entry) while the pair time
+  stayed on the game thread's floor, and DLSS then added its own present-thread wait and GPU
+  contention with the helper process. So every DLSS mode is a net cost here, and more modes or presets
+  cannot change that. This agrees with the 2026-09-15 finding that a quarter of the pixels gained ~6 %.
+- **Consequence for how DLSS should be used on this PC:** not to render less, but to output MORE at the
+  same cost. Quality SR with the fast model already ran at native's rate (131 vs 133/s in one run), so
+  a 150 % output rendered at 100 % should look sharper than native 100 % for about the same frame rate.
+  PREDICTION, not measured: `dlss on`, `dlss quality 1`, `dlss output 4126 4276`, compared against
+  native 100 % in the same spot.
+
+### Routes past the ceiling, ranked by payoff for THIS machine
+
+1. **Decoupled rendering: more head-tracked pairs per world tick (the out-of-the-box one).** The
+   re-entry already patches UGameEngine::Tick's single viewport-draw call site and calls the draw root
+   twice per tick with the camera field rewritten between the passes (`scene_draw.cpp`). Calling it
+   four times (L, R, L, R), with the second pair's camera taken from a NEWER head pose, renders a fresh
+   stereo pair without running another world tick. Head motion and parallax are real renders at the
+   higher rate (not reprojection); animation, physics and AI move at the tick rate - the split every
+   fixed-timestep engine makes between simulation and rendering (Gaffer on Games, "Fix Your
+   Timestep"), here without the interpolation. Predicted ceiling with one extra pair per tick: game
+   thread ~7 ms + ~1 ms for the two extra draws per two pairs (~270 pairs/s), render thread ~5.4 ms per
+   pair (~185/s), GPU <= 5.2 ms per pair (~190/s): **about +25-30 % over today's ~145/s, and past that
+   point DLSS becomes useful** because the GPU turns into the limit. Costs and risks: the second pair
+   needs a pose located for its own display time on the game thread; one XR frame per pair (the
+   runtime layer's pair pacing already works per pair); the HUD PostRender runs per draw; moving
+   objects step at the tick rate (visible only when the tick rate falls well under the refresh);
+   VR-79's stereo-visibility rule must hold for the extra views; re-entry's fail-soft gates apply
+   unchanged. First step: measure the game thread's per-draw cost (the existing cpu scopes, lanes 8/9)
+   and prototype an extra-pair lever default OFF behind a live A/B.
+2. **Our own game-thread cost (bounded by the 1.4-2.1 ms idle).** The ProcessEvent hook runs about
+   40 `strstr`/`strcmp` and a `RealName` per dispatch before its first early return (VR-160 suspect 7),
+   plus periodic GObjects walks on the script lane. A dispatch table keyed on the UFunction pointer
+   makes the hook near free. Measure first: a cycles scope around the hook, then the A/B.
+3. **One engine view for both eyes (render-thread halving).** NVIDIA 3D Vision's automatic mode issued
+   every draw twice with a clip-space shift in the vertex shader; vorpX's Geometry 3D does the same for
+   DX9. Here it would mean one InitViews, one culling pass (1.08 of 1.32 ms of preparation per pair is
+   culling, the 2026-09-15 boundary), one draw-list build and no second viewport draw on the game
+   thread, with only the D3D9 calls doubled - the clip-space shift is the same row patch the jitter
+   already applies. Largest engineering item: per-eye render targets, view-dependent passes
+   (reflections, screen-space post, occlusion) and the HUD all need eye copies.
+4. **Driver-side submission.** The vr125 CPU capture showed the render thread blocked 27 % of the time,
+   mostly woken by an NVIDIA driver worker. An A/B of the driver's Threaded Optimization for
+   Dishonored.exe (NVIDIA Control Panel, per program) costs no code and one run. A stock DXVK used only
+   as the D3D9 translation layer (its submission thread offloads CPU-bound DX9 games, GTA IV being the
+   well-known case) is a different thing from the removed side-by-side fork, but CLAUDE.md forbids
+   bringing a Vulkan layer back and the shared capture, depth probe and HUD capture would all need
+   re-proving; it needs the maintainer's explicit decision, and a flat A/B (`disable_vr.txt`) would size
+   it first.
+5. **Hardware.** A Ryzen 7 5800X3D drops into the same AM4 board; 3D V-Cache is the standard answer for
+   cache-sensitive CPU-bound games. The most dependable single uplift, unmeasured for this game.
+6. **Runtime.** At a steady 120 Hz the CPU has headroom (8.33 ms per pair against ~7 ms); at 144 Hz it
+   does not. SSW/ASW at half rate (already in use) buys supersampling headroom.
+
+Not useful here: alternate-eye rendering (one world tick per displayed image, so the game thread stays
+the limit and the eyes desync); more DLSS modes for speed. Already checked on this PC: RAM at XMP,
+High performance plan, HAGS on.
+
+### Next measurements (one launch each, asked for individually)
+
+(a) cpu scopes on, native, standing: the game thread's per-draw cost against its whole tick - decides
+route 1's prediction. (b) Threaded Optimization off / on / off - route 4 at zero code cost.
+(c) DLSS Quality at a 150 % output against native 100 % - the supersampling use above.
+
+Sources: [Gaffer on Games, Fix Your Timestep](https://gafferongames.com/post/fix_your_timestep/);
+[NVIDIA 3D Vision Automatic background](https://archive.docs.nvidia.com/gameworks/content/technologies/desktop/nv3dva_background.htm);
+[vorpX features](https://www.vorpx.com/features/); [UEVR documentation](https://docs.uevr.io/)
+(synchronized sequential is this mod's re-entry, with its stated cost); [DXVK on PCGamingWiki](https://www.pcgamingwiki.com/wiki/DXVK);
+[GTA IV optimization guide](https://gillian-guide.github.io/optimization/); DLSS 4.5 presets:
+[NVIDIA](https://www.nvidia.com/en-us/geforce/news/dlss-4-5-dynamic-multi-frame-gen-6x-2nd-gen-transformer-super-res/).
+
+## 2026-09-27: Route 2 built - the script lane's own cost (simulator-measured, default on)
+
+Branch `claude/pe-hook-dispatch`. `game/dishonored/ue3/pe_fast.h`; levers `[Perf] PeFast=1`,
+`PeHeavyMs=2`, `PeHeavyInDraw=1`; seam `pe fast on|off`, `pe heavy <ms>`, `pe heavydraw on|off`,
+`pe fn on|off` (diagnostic).
+
+- **The measurement that sized it** (`pe/cost`, new, every 5 s; simulator, 2750x2850, cap lifted, DLSS
+  off, this PC's Ryzen 5 5600X): the ProcessEvent hook ran **~7,000 script events/s at ~75 us each =
+  ~500 ms of the game thread per second** - about half of each ~6.4 ms tick, on the thread that is
+  the frame-rate ceiling. By statement (`pe/cost-fn`): FovLeverApply 185 ms/s, CarryHoldTick 46,
+  SkcRotApply 42, CamShakeTick 36, camera::apply_offsets 26, FxFollowTick 22, UiPeLatch 10, the rest
+  under 7 each. VirtualQuery (RangeReadable) ran ~15,000 times a second.
+- **Fast path (PeFast):** a region cache for the hook's own readability checks (cleared every second)
+  and an FName-index -> traits cache for the event-name tests (the same strstr/strcmp tests, resolved
+  once per index). VirtualQuery 15,000/s -> ~150/s; saves ~20 ms/s. Menu events still register
+  (Dis_OpenPauseMenu / OnResumeGameClicked measured with it on).
+- **Heavy-writer cadence (PeHeavyMs):** FovLeverApply (FOV lever + eye clamp) and apply_offsets wrote
+  their fields on every event so ours is the last value before the draw. With the re-entry draw hook
+  installed they now run at most every 2 ms during the tick, ALWAYS once at the viewport-draw entry
+  (after the tick's last event, before pass 1 reads the camera) and ALWAYS for events inside the draw;
+  without the hook every event runs them as before. SkcRotApply, CamShakeTick and CarryHoldTick are
+  deliberately NOT throttled (they race the animation/physics tick itself, not the draw).
+- **Result:** old cadence 151-162 ticks/s (hook ~495 ms/s) against **throttled 162-177 ticks/s, mostly
+  170-175 (hook ~395 ms/s)**, about +10 %, repeated off/on twice. FOV readback held at the lever's
+  108.07 deg target throughout, stereo eye check 33,063 agree / 0 disagree, walking fine. Throttling the
+  in-draw events too (`pe heavydraw off`) cut the hook to ~320 ms/s with the same FOV and eyes but no
+  further rate gain - the render thread is now the limit (idle 0.3 ms) - so it stays off by default.
+- **Left on the table:** ~390 ms/s of per-event work remains (the mid ticks and SkcRotApply). Each is a
+  candidate for its own cadence after checking what it races; the per-statement split (`pe fn on`)
+  names them. Not headset-tested.
+
+### 2026-09-27: in the HEADSET the GPU is the limit, not the game thread (corrects the routes above)
+
+The maintainer's route-1 headset run (VDXR 144 Hz, 2750x2850, DLSS off, no SSW, route 1 toggled four
+times each way): 122-124 pairs/s with the extra pair, 120-127 without - no difference. With it off,
+per pair: 7.3-8.1 ms total, **D3D9 GPU span 6.7-6.9 ms**, the present thread waiting 1.1-1.9 ms on the
+capture fence (the GPU), and the runtime reporting UNDER-SUBMITTING 0.89x. The simulator's game-thread
+ceiling (~7 ms/tick, GPU ~5.2 ms per pair) does not carry to the headset, where Virtual Desktop's
+encode and the compositor share the card and the GPU becomes the limit. So routes 1 and 2 (CPU) cannot
+raise the headset's rate on this PC; route 2 stays as CPU headroom. Next lever: GPU time per pair
+(our sharpen pass ~0.4 ms per eye, the streamer's encode, render size). Late in the same run the
+runtime's period went to 13.89 ms (72 Hz) - Virtual Desktop halving the rate on its own.
+
+
+## 2026-09-27: The uncap deep dive - where the headset frame goes, and the plan that tests it
+
+Branch `claude/uncap-deep-dive` (stacked on route 2). Goal: find the serialisation that holds the
+headset at ~120-137 pairs/s with the PC at ~25 % CPU and ~80 % GPU.
+
+### What the latest headset log already says (offline, no new run)
+
+Source: the maintainer's route-2 headset log of 2026-09-27 (build `v1.0.1-106-gb0e953df2`, VDXR 144 Hz,
+2750x2850, SSW off, DLSS off, Sharpen 0.40, capture shared depth 1). Only the 35 windows of steady play at
+144 Hz (the first ~290 s of that run sat at 13.89 ms / 72 Hz, Virtual Desktop halving the rate, and a
+heavier area at ~70 pairs/s; both excluded). Medians, p10-p90 in brackets. The perf line's P1/P2 are the
+presents that DELIVER the left/right image (delivery is one present late), so P1 is physically the
+right-eye present and its `out` renders the next tick's left eye.
+
+| Per stereo pair | median | p10-p90 |
+|---|---|---|
+| tick | 8.0 ms (124 pairs/s) | 7.5-8.6 |
+| render thread, engine rendering (R, both eyes) | 4.6 ms | |
+| render thread, waiting on the capture blit fence (P1 lock + P2 lock) | 1.3 ms | 0.6-2.4 |
+| render thread, waiting on the game thread (P1 out idle) | 0.6 ms | 0.5-1.1 |
+| render thread, our present path excluding the fence | ~1.0 ms | |
+| D3D9 GPU span (render start to present entry, both eyes) | 6.9 ms | 6.6-7.7 |
+| D3D9 GPU idle between presents | 0.1 ms | 0.1-0.3 |
+| our D3D11 GPU work (conversion + sharpen 0.09, eye copy 0.05, per eye) | ~0.3 ms | |
+| xrWaitFrame | 0.1 ms | (UNDER-SUBMITTING 0.81-0.94x: the runtime never throttles) |
+
+- The capture's own window line: `blit fence waits` in 256-680 of ~750 grabs per 3 s, the D3D11 read fence
+  never. So the render thread waits on the GPU finishing the PREVIOUS eye's blit, i.e. the GPU is more than
+  one eye behind at that moment, on most ticks.
+- All three stages sit near the same cost: GPU ~6.9 ms of D3D9 span plus ~0.3 ms of ours plus Virtual
+  Desktop's share; render thread ~7.4 ms busy; game thread ~7.4 ms (the render thread waits 0.6 ms for it).
+  A three-stage pipeline whose stages are this balanced, with at most one eye of buffering between the render
+  thread and the GPU (the capture fence) and one frame between the game and render threads
+  (OneFrameThreadLag), loses throughput to each stage's variance; nothing is saturated because each stage
+  waits for a neighbour part of the time. That is the "25 % CPU, 80 % GPU" picture.
+- Our D3D11 side is not the cost: ~0.3 ms of GPU per pair (`perf/bridge`), so the sharpen pass is not the
+  0.4 ms per eye the earlier handoff guessed. Not a lever worth a segment.
+- OPEN, and what the GPU timeline must answer: the D3D9 span (6.9 ms) is wall time on the GPU and can hide
+  gaps. Two readings predict different things. (a) The GPU is truly busy for the whole span (game + ours +
+  Virtual Desktop): the fence wait is only the throttle, and removing it moves the wait elsewhere with no
+  rate change. (b) The GPU starves inside the span because the next eye's commands reach the kernel late
+  (they sit in the D3D9 driver's buffer until something flushes it; with the desktop Present skipped, the
+  flushes are ours - the capture fence poll and `submit_without_present`): then letting the render thread
+  run further ahead raises the rate toward the GPU's own cost.
+
+### Instruments built for it (this branch)
+
+- `core/util/etw.{h,cpp}`: a TraceLogging provider `DishonoredVR` {6b3c1f4e-2d6a-4f7c-9a51-0d2e8c7b4a19}
+  with begin/end events for the present, the xrWaitFrame, the game tick, the method, both capture waits,
+  the HUD and its fence, xrEndFrame, the desktop Present or its flush, the frame-start marker, each
+  game-thread scene draw (eye in `a`), and every seam command as a mark. Free unless a trace session enables
+  the provider (one flag test per call); `[Perf] Etw=0` is a kill switch only.
+- `tools/wpr/dvr-gpu.wprp` (`DvrGpu`: CSwitch + ReadyThread, DxgKrnl Base+Profiler+LongHaul with the
+  context rundown, the proxy's markers; `DvrGpuStacks` adds 1 kHz samples with stacks) and
+  `tools/perf-gpu-trace.ps1` (elevated; never launches anything): `-Smoke` proves the recorder; armed, it
+  waits for the game, arms an A/B plan through the seam (`-Plan`), traces a few seconds inside chosen plan
+  segments, and samples GPU clocks/power/throttle reasons (nvidia-smi, 4 Hz) and per-process GPU engine load
+  (1 Hz) for the whole run, all stamped on the log's clock.
+- The A/B plan reads a FILE now: `perf ab plan <file>` / `[Perf] AbPlan=<file>`, one segment per line,
+  `label | apply seam words | restore seam words`, a row without apply words is a baseline; the built-in
+  plan is unchanged. `tools/perf-plans/uncap-1.txt` is the first plan.
+- Two levers, default off:
+  - `[Capture] SharedDepth=1` / `capture depth 1|2|3`: the shared capture ring's delivery depth. Depth 1
+    is the 41.1 two-slot ring (unchanged). Depth N keeps N+1 slots and delivers the slot blitted N
+    presents ago, so the render thread can run up to N eyes ahead of the GPU instead of waiting on the
+    previous eye's blit. Cost: one present (~4 ms) more latency per step, the pose record riding the image
+    (VR-65) so the runtime still submits the pose each image was rendered with. Not in the default ini.
+  - `res live pct <25..200>` / `res live <W>x<H>`: a session-only render size through the engine resize
+    the F10 control and DLSS SR already use; nothing is written to either ini.
+
+### Plan 1 and its predictions (recorded before the run)
+
+`tools/perf-plans/uncap-1.txt`: 15 segments of 20 s (3 s warm-up discarded), seven baselines A-G between
+depth 2, `pe heavydraw off`, a serial control (`capture sharedwait on`: the render thread waits for THIS
+eye's blit, which must lower the rate or the plan cannot see a wait at all), depth 2 + heavydraw off, and
+the render size at 70 % and 130 %.
+
+| Segment | If (a) the GPU is the ceiling | If (b) our wait starves the GPU |
+|---|---|---|
+| depth 2 | fence waits ~0, rate within the baseline floor, the GPU timeline shows the 3D queue never empty | fence waits ~0 and pairs/s up toward 1 / (GPU span + ours), up to the 144 cap |
+| heavydraw off | no change | no change unless the game thread is the next limit (render idle 0.6 ms falls) |
+| serial control | rate DOWN (both) | rate DOWN (both) |
+| res 70 % | rate up by roughly the pixel share of the GPU span | small change (a starved GPU does not care about pixels) |
+| res 130 % | rate down | rate down less than the pixel ratio |
+
+- Trace overhead is controlled by construction this time: VR-125's combined GeneralProfile+GPU capture cost
+  ~25 % of the rate and its memory-ring GPU collector kept only events after the game had exited. DvrGpu is
+  file-mode, has no stacks or sampling, and records 5 s windows inside 20 s plan segments, so every traced
+  segment has untraced perf windows of the same configuration beside it.
+- WPR needs admin; `tools/perf-trace-task-setup.ps1` (run once, elevated) registers four on-demand tasks
+  under `\DishonoredVR\` that run a fixed script from an admin-only folder, so the recorder then runs
+  without elevation and without a prompt. `-Remove` undoes it.
+- Driver lever queued for after plan 1 (needs a restart per setting, so not in the plan): NVIDIA
+  Threaded Optimization. VR-125's lightweight headset trace had the render thread blocked 27 % of the
+  time, 91 % of that ended by the NVIDIA D3D9 worker thread, which itself polls; whether the driver's
+  worker is the render thread's hidden wait is the question the CSwitch/ReadyThread data in DvrGpu answers.
+
+### Plan 1 in the SIMULATOR (2026-09-27, shakedown; the headset question is still open)
+
+Build `81bef09dd` + the fixes below, RelWithDebInfo, simulator at 240 Hz (cap lifted), 2750x2850, the same
+save, standing still, untraced. Noise floor from 7 baselines: p50 5.91-6.34 ms (6.9 %), p99 9.28-11.47 ms.
+
+| Segment | p50 pair | pairs/s | verdict |
+|---|---|---|---|
+| baselines A-D | 5.91-6.10 ms | 164-169 | - |
+| depth 2 | 5.95 ms | 168 | no change |
+| heavydraw off | 6.09 ms | 164 | no change |
+| serial control (SharedWait=1) | 8.88 ms | 113 | **+45 %: the plan sees a wait** |
+| depth 2 + heavydraw off | 6.14 ms | 163 | no change |
+| res 70 % (1926x1996) | 6.13 ms | 163 | no change |
+
+- The simulator does not exercise the headset's question: its capture fence already waits in 0-4 of ~950
+  grabs per window at depth 1 (headset: 256-680 of ~750), and a 70 % render size did not move the rate,
+  so here the game thread, not the GPU, is the limit (as recorded for route 2). Depth 2 worked
+  mechanically (ring 2 -> 3 -> 2 rebuilt live, 0 fence waits, no stale eye), and the serial control
+  proves the instrument can see a render-thread wait. The headset run is where depth 2 decides (a) vs (b).
+- FAULT FOUND AND FIXED: the live resize persisted what it applied. `res live` reached `ResRequest`,
+  which writes `[Screen] RenderWidth/Height`, `DishonoredEngine.ini [SystemSettings] ResX/ResY` and the
+  launch file, and moved the base the percentage is taken from, so `res live pct 100` "restored" 70 %
+  and the last three rows measured 70 % and 91 %, not 100 % and 130 % (discarded). `pe heavydraw`
+  persisted `[Perf] PeHeavyInDraw` through `ConfigWriteKey`. Now: `ConfigWriteKey` writes nothing while an
+  A/B plan row runs, `res live` advertises the mode in memory only and takes its percentage from the size
+  configured at the first call. All three files were restored byte-for-byte from the pre-run backup.
+- FAULT FOUND AND FIXED: the trace tasks ran with an interactive logon, and each start flashed a console
+  that took the focus from the game, which pauses on focus loss - it stalled the first two plan attempts.
+  The tasks now run as S4U (background session, no window).
+- FAULT FOUND AND FIXED: the DvrGpu traces held the kernel events and the proxy's markers (~4,800
+  phase events/s) but NO DxgKrnl events, by name or by GUID. Cause: the provider lacked
+  `NonPagedMemory="true"`, which WPR's own GPU profile sets (`wpr -exportprofile GPU`): DxgKrnl logs from
+  interrupt-level code and a paged session silently receives none of it.
+
+### Plan 1 in the HEADSET (2026-09-27): no hidden serialisation - the GPU is full
+
+Build `28078EF3` (the branch at `2407a4c9e`), VDXR 144 Hz, 2750x2850, SSW off, DLSS off, standing still,
+the maintainer's own INI (unchanged, verified). Plan 1, 5 s DvrGpu traces inside five segments. Baseline A
+was discarded (the plan started during the load); six baselines agree within 2 % (p50 8.56-8.73 ms).
+
+| Segment | p50 pair | pairs/s | verdict |
+|---|---|---|---|
+| baselines B-G | 8.56-8.73 ms | 115-117 | - |
+| depth 2 | 8.66 ms | 115.5 | NO CHANGE |
+| heavydraw off | 8.84 ms | 113.2 | no gain |
+| depth 2 + heavydraw off | 8.80 ms | 113.6 | NO CHANGE |
+| serial control | 11.31 ms | 88.4 | -31 %: the plan sees a render-thread wait |
+| res 70 % (1926x1996) | 7.64 ms | 130.9 | **+13 %** |
+| res 130 % (3576x3706) | 12.29 ms | 81.4 | **-30 %** |
+
+GPU timeline (`tools/perf-gpu-timeline.py`, baseline D, 5.8 s, 656 pairs, 112.5 pairs/s under trace):
+
+- **The game's D3D9 queue had work pending 96.8 % of the window; the 3D engine was occupied by some
+  process 97.6 %; idle 0.22 ms per pair.** The game's queue occupancy is 8.61 ms per pair of 8.89. Its
+  gaps total 0.28 ms per pair, 72 % of them while the render thread was inside the engine's own
+  rendering, none in our capture fence. The only GPU-side sync waits of the game's process (one per pair)
+  are on a small secondary queue (our D3D11/XR copy, released by Virtual Desktop), not on the D3D9 queue.
+- nvidia-smi over the run: utilisation 94 % median, graphics clock 2745 MHz (full boost), no throttle
+  reason active 93 % of samples, 204 W of 285 W. Virtual Desktop: 3D ~10 %, video encode ~56 % (a separate
+  engine). **The Task Manager "80 %" understated a saturated GPU.**
+- depth 2 (trace seg02): queue occupancy 97.2 %, 8.54 ms per pair, the same. Removing the capture wait
+  only let the render thread queue further ahead of a GPU that was already full - reading (a).
+- res 70 % (trace seg10): the game's queue occupancy fell to 5.52 ms per pair and the 3D engine went 25 %
+  idle, so at 70 % the limit moves to the CPU side (~7.6-8.0 ms per pair). Solving
+  `occupancy = F + P * pixels` from 100 % (8.6) and 49 % of the pixels (5.5): **F ~2.5 ms per pair is
+  resolution-independent, P ~6.1 ms per pair is proportional to pixels at 2750x2850**; it predicts
+  12.8 ms at 130 % against 12.3 measured.
+- This corrects the simulator-era reading that "the GPU cost barely follows resolution": in the headset,
+  with Virtual Desktop on the card, ~70 % of the GPU time per pair follows the pixel count. The
+  simulator is game-thread-bound and cannot show it (plan 1 in the simulator: 70 % did nothing).
+- Trace overhead: the traced baseline D window ran 112.5 pairs/s against the plan's 115.2 for the whole
+  segment (~2-3 %).
+
+**Verdict.** The headset at 2750x2850 is GPU-bound on the game's own rendering, with the three CPU
+stages close behind (~7.6 ms per pair at 70 %). Nothing of ours serialises it; capture depth and the
+script-lane cadence stay default off / as they were. The routes that can raise the rate are GPU cost per
+pair, above all per-pixel cost: the game's AA pass (MLAA is the VR preset) and bloom/light shafts, our
+16x anisotropic override (the game's own default is 4x), the render size itself, and DLSS SR with the
+fast model, now that the headset is pixel-bound (re-test; its earlier headset loss used the heavy M/L
+presets). Sharing view-independent passes between the eyes targets F (~2.5 ms per pair) and the CPU floor.
+
+### Follow-up: the game's MLAA is switched off while DLSS/DLAA is on (2026-09-27)
+
+The VR preset (`[GameOptions] DefaultsAtStartup`, game_opts.cpp) wrote Antialiasing = MLAA at every launch.
+It now writes OFF (profile id 122 = 0, `AntialiasingMode_Off` in ArkProfileSettings) when `[Clarity] DLAA`
+is on - DLAA or Super Resolution already anti-alias, and MLAA is a full-screen pass in a headset shown above
+to be pixel-bound - and MLAA as before when it is off. Decided at launch, through the same pre-apply profile
+write the preset already used (a live switch would need the engine's settings apply called mid-session,
+not reverse-engineered). The log's `gameopts/defaults: startup policy` line names the value and why.
+Not yet measured: its rate gain with DLSS on (the MLAA cost was never isolated).

@@ -181,13 +181,15 @@ static bool WriteDefaultIni(const char* ini)
         "; applies. Camera-only motion vectors. Live: dlss on|off. DlssPreset: 0 = model K.\n"
         "DLAA=0\n"
         "DlssPreset=0\n"
-        "; DlssQuality: 0 DLAA (native), 1 Quality, 2 Balanced, 3 Performance, 4 Ultra Performance. Above 0 the\n"
+        "; DlssQuality: 0 DLAA (native), 1 Quality, 2 Balanced, 3 Performance, 4 Ultra Performance, 5 Ultra\n"
+        "; Quality (1.3x). Above 0 the\n"
         "; game renders smaller and DLSS rebuilds DlssOutputWidth x DlssOutputHeight (the headset resolution,\n"
         "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
         "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
         "DlssQuality=0\n"
         "; DlssModel: 0 transformer (preset K, best image, ~2 ms per eye at 2750x2850), 1 fast (CNN presets\n"
-        "; E/F, ~0.9 ms per eye). DlssPreset nonzero overrides it with a raw NVIDIA preset number.\n"
+        "; E/F, ~0.9 ms per eye). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
+        "; 16 NVIDIA's pick per mode (K, M for Performance, L for Ultra Performance). F10: the DLSS model list.\n"
         "DlssModel=0\n"
         "DlssOutputWidth=0\n"
         "DlssOutputHeight=0\n"
@@ -1810,6 +1812,9 @@ static void LoadConfig()
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
         dvr::stereo::set_reentry_single_tag(GetPrivateProfileIntA("Stereo", "SingleTagRepair", 1, ini) != 0);
         dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 1, ini) != 0);   // Confirmed profile default; F10 retains the A/B.
+        PeFastSet(GetPrivateProfileIntA("Perf", "PeFast", 1, ini) != 0);   // route 2: the script lane's caches
+        PeHeavySet(GetPrivateProfileIntA("Perf", "PeHeavyMs", 2, ini));      // route 2: 0 = every event
+        PeHeavyInDrawSet(GetPrivateProfileIntA("Perf", "PeHeavyInDraw", 1, ini) != 0);
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 3, ini));
     }
 
@@ -1890,6 +1895,9 @@ static void LoadConfig()
                     ? "" : " - all off: the eye image and the game's texture filtering are exactly as before");
         }
         dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
+        // Uncap deep dive (2026-09-27): not in the default ini on purpose (a missing key is the
+        // 41.1 two-slot ring); `capture depth <n>` is the live A/B.
+        dvr::capture::set_shared_depth((int)IniFloat(ini, "Capture", "SharedDepth", 1), "ini");
         {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
             // Each sample is a full-frame CPU readback on the present thread even
             // in shared mode (capture.h says why), so this is a frame-time knob,
@@ -2169,6 +2177,11 @@ static void LoadConfig()
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
         const bool diagnosticAb=GetPrivateProfileIntA("Perf","DiagnosticAb",0,ini)!=0;
         dvr::perf::ab_set_enabled(!diagnosticAb && GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        {   // Uncap deep dive (2026-09-27): a plan file of seam-command segments (perf_ab.cpp)
+            char plan[MAX_PATH] = "";
+            GetPrivateProfileStringA("Perf", "AbPlan", "", plan, sizeof(plan), ini);
+            if (!diagnosticAb && plan[0]) dvr::perf::ab_load_plan(plan);
+        }
         dvr::diag_ab::set_enabled(diagnosticAb);
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
         dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
@@ -3671,6 +3684,14 @@ static void EnsureConfig()
             dvr::log::set_level(dvr::log::Cat::present,dvr::log::Level::Info);
             DVR_LOG(dvr::log::Cat::present,dvr::log::Level::Info,"flicker/armed: test-only diagnostics automatically active; present log at Info; installed INI unchanged");
 #endif
+            // The ETW markers (core/util/etw.h): free unless a trace session enables the provider,
+            // so they register here, outside the loader lock, whatever the ini says. [Perf] Etw=0
+            // is a kill switch only.
+            dvr::etw::init();
+            const bool etwKilled = GetPrivateProfileIntA("Perf", "Etw", 1, ini) == 0;
+            dvr::etw::set_killed(etwKilled);
+            Log("etw: provider DishonoredVR {6b3c1f4e-2d6a-4f7c-9a51-0d2e8c7b4a19} registered%s - phase markers cost "
+                "nothing until a trace session (tools/perf-gpu-trace.ps1) enables it", etwKilled ? " but KILLED by [Perf] Etw=0" : "");
         }
 }
 
@@ -3683,6 +3704,11 @@ static void EnsureConfig()
 // the next launch without an ini edit.
 static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who)
 {
+    if (dvr::perf::ab_dispatching()) {   // an A/B plan's lever is for this session only
+        Log("config: [%s] %s=%s NOT written (%s, inside an A/B plan: live now, the ini keeps its value)",
+            section, key, value, who);
+        return;
+    }
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     WritePrivateProfileStringA(section, key, value, ini);

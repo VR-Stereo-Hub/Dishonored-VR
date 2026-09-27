@@ -72,6 +72,8 @@ void cpu_scope_end(int lane, const CpuToken& begin); // 8 first draw, 9 second d
 void ab_tick(IDirect3DDevice9* dev);   // present thread, at kEntry
 bool ab_command(const char* args);
 void ab_set_enabled(bool on);
+bool ab_dispatching();                // true while a plan row's seam words run (no ini writes)
+void ab_load_plan(const char* name);   // [Perf] AbPlan=<file>: a plan of seam-command segments
 void ab_set_gameplay(bool inPlay);   // the plan only runs in gameplay
 void desktop_ab_set_enabled(bool on); // default off, bounded Full/Off/Full trial
 bool desktop_ab_enabled();

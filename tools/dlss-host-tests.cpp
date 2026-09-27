@@ -329,6 +329,39 @@ int main(int argc, char** argv) {
         c.build(0, W, H, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));   // back to DLAA for what follows
     }
 
+    // 3c2. Ultra Quality (1.3x, 512 -> 666, NGX's UltraQuality mode) and each F10 model entry's preset
+    //      (J 10, L 12, M 13, the per-mode 16) at Quality: each must build and reproduce the scene.
+    //      Fails if NGX refuses the mode or a preset, or the output is not the scene.
+    {
+        auto sr = [&](uint32_t OW, uint32_t OH, int preset, float* err) {
+            bool ok = c.build(0, W, H, OW, OH, DXGI_FORMAT_B8G8R8A8_UNORM, preset, why, sizeof(why));
+            *err = 1;
+            if (!ok) return false;
+            upload(color[0], sA.data(), W * 4);
+            for (int i = 0; i < 16 && ok; ++i) {
+                EyeInputs in; in.color = color[0].t; in.depth = depth.t; in.motion = motion.t; in.reset = i == 0;
+                ok = c.evaluate(ctx, 0, in, why, sizeof(why));
+            }
+            auto out = readback(c.output_texture(0), OW, OH);
+            std::vector<float> big((size_t)OW * OH);
+            for (uint32_t y = 0; y < OH; ++y) for (uint32_t x = 0; x < OW; ++x) big[y * OW + x] = lA[(y * H / OH) * W + (x * W / OW)];
+            *err = mae(out, big, OW, OH, 12);
+            return ok;
+        };
+        float e = 1;
+        bool ok = sr(666, 666, 0, &e);
+        check(ok && e < 0.08f, "Ultra Quality 512 -> 666", "%s, error vs the enlarged input %.4f (limit 0.08)", ok ? "built" : why, e);
+        const int presets[] = {10, 12, 13, 16};
+        char t[200] = ""; int m = 0; bool all = true;
+        for (int p : presets) {
+            const bool pok = sr(768, 768, p, &e) && e < 0.08f;
+            all = all && pok;
+            m += _snprintf_s(t + m, sizeof(t) - m, _TRUNCATE, " %d:%s %.4f", p, pok ? "ok" : "FAIL", e);
+        }
+        check(all, "F10 model presets build (Quality)", "%s", t);
+        c.build(0, W, H, W, H, DXGI_FORMAT_B8G8R8A8_UNORM, 0, why, sizeof(why));
+    }
+
     // 3d. Projection jitter sign (dlss_jitter.h). A still scene with detail finer than the render
     //     grid (a slanted edge, a steep edge, stripes at 1.47 render px) is point-sampled at
     //     512x512 with the production Halton offsets and rebuilt to 768x768. Each run reports the

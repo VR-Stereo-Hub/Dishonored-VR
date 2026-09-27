@@ -37,6 +37,7 @@ set(DVR_REAL_SOURCES
     core/util/mem.cpp        core/util/mem.h
     core/util/ini.cpp        core/util/ini.h
     core/util/paths.cpp      core/util/paths.h
+    core/util/etw.cpp        core/util/etw.h
     core/util/diag.h
     core/hooks/vtable.cpp    core/hooks/vtable.h
     core/hooks/iat.cpp       core/hooks/iat.h

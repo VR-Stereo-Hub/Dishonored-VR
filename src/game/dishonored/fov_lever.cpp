@@ -7,7 +7,7 @@
 
 static inline void LevWrite(uint8_t* p, float t)
 {
-    if (!RangeReadable(p, 4)) return;
+    if (!PeReadable(p, 4)) return;   // route 2: region-cached (game thread, live engine objects)
     float* f = (float*)p;
     if (*f > 5.0f && *f < 175.0f) *f = t;
 }

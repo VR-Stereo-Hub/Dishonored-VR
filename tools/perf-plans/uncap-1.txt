@@ -1,0 +1,19 @@
+# Uncap deep dive, plan 1 (2026-09-27): the waits that are ours, the game thread, and the scaling test.
+# One segment per line: label | apply (seam words, ';' between) | restore. No apply = a baseline.
+# `perf ab plan uncap-1.txt` (or tools\perf-gpu-trace.ps1 -Plan tools\perf-plans\uncap-1.txt) arms it;
+# it starts at the first gameplay present. Stand still in one place for the whole plan (~5 min).
+seg 20000
+warm 3000
+baseline A
+depth 2 | capture depth 2 | capture depth 1
+baseline B
+heavydraw off | pe heavydraw off | pe heavydraw on
+baseline C
+serial control | capture sharedwait on | capture sharedwait off
+baseline D
+depth 2 + heavydraw off | capture depth 2; pe heavydraw off | capture depth 1; pe heavydraw on
+baseline E
+res 70 pct | res live pct 70 | res live pct 100
+baseline F
+res 130 pct | res live pct 130 | res live pct 100
+baseline G

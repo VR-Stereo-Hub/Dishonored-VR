@@ -35,8 +35,11 @@ enum Mode { ModeOff = 0, ModeDlaa = 1 };
 void set_mode(int mode, const char* who);
 int  mode();
 // Quality: 0 DLAA (render = output), 1 Quality (1.5x per axis), 2 Balanced (1.72x),
-// 3 Performance (2x), 4 Ultra Performance (3x).
-enum Quality { QDlaa = 0, QQuality, QBalanced, QPerformance, QUltra, QCount };
+// 3 Performance (2x), 4 Ultra Performance (3x), 5 Ultra Quality (1.3x). Ultra Quality is 5, not
+// inserted after DLAA, so every saved DlssQuality keeps its meaning; the F10 list shows the modes
+// in ratio order (kQualityOrder).
+enum Quality { QDlaa = 0, QQuality, QBalanced, QPerformance, QUltra, QUltraQuality, QCount };
+const int kQualityOrder[QCount] = {QDlaa, QUltraQuality, QQuality, QBalanced, QPerformance, QUltra};
 void set_quality(int q, const char* who);
 int  quality();
 float ratio();                        // per axis, 1 for DLAA
@@ -54,6 +57,15 @@ bool failed();                        // the helper is unavailable (the game sid
 // nonzero, overrides both with one raw NVSDK_NGX_DLSS_Hint_Render_Preset value.
 void set_model(int m, const char* who);
 int  model();
+// The model list F10 offers: each entry is a (model, preset) pair written to DlssModel/DlssPreset.
+// Preset 16 = NVIDIA's recommended preset per mode (K for DLAA/Ultra Quality/Quality/Balanced, M for
+// Performance, L for Ultra Performance), set explicitly so a runtime update cannot change it.
+struct ModelChoice { const char* name; int model; int preset; const char* tip; };
+const int kPresetPerMode = 16;
+extern const ModelChoice kModelChoices[];
+extern const int kModelChoiceCount;
+int  model_choice();                  // index into kModelChoices for the current setting, -1 = a custom raw preset
+void set_model_choice(int i, const char* who);
 // Diagnostics off the per-frame path unless asked for: the vector audit and flow check
 // (`dlss audit on`), which also keep a copy of every eye image.
 void set_audit(bool on, const char* who);

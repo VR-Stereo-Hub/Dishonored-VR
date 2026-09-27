@@ -212,6 +212,26 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
     if (!strcmp(cmd, "arms")) return ArmsCommand(args);   // VR-31: the per-bone visibility lever
+    if (!strcmp(cmd, "res") && !strncmp(args, "live ", 5)) {
+        // Uncap deep dive (2026-09-27): a LIVE render size for the A/B plan's scaling test,
+        // through the engine resize the F10 control and DLSS SR already use (ResLiveQueue:
+        // byte-verified, refuses with a reason). Nothing is written to either ini, so the
+        // next launch renders the configured size again. `res live pct <25..200>` is a percent
+        // per axis of the configured [Screen] RenderWidth/Height; `res live <W>x<H>` is exact.
+        unsigned w = 0, h = 0, pct = 0;
+        static uint32_t baseW = 0, baseH = 0;   // the configured size, before any live change moved g_resWant
+        if (!baseW && g_resWantW && g_resWantH) { baseW = g_resWantW; baseH = g_resWantH; }
+        if (sscanf(args + 5, "pct %u", &pct) == 1 && pct >= 25 && pct <= 200 && baseW && baseH) {
+            w = (baseW * pct / 100 + 1) & ~1u; h = (baseH * pct / 100 + 1) & ~1u;
+        } else if (sscanf(args + 5, "%ux%u", &w, &h) != 2) {
+            Log("res live: pct <25..200> (of the configured %ux%u) | <W>x<H> - nothing written to the ini", baseW, baseH);
+            return true;
+        }
+        Log("res live: asking %ux%u for this session only (configured %ux%u stays in the ini)", w, h, baseW, baseH);
+        g_resLiveSession.store(true);
+        ResLiveQueue(w, h);
+        return true;
+    }
     if (!strcmp(cmd, "res")) return ResCommand(args);   // 41.1: the render-resolution picker
     if (!strcmp(cmd, "neck")) {
         // 41.1: `neck off|add|cancel [below] [behind]` - the pitch pivot lever (head_track.cpp NeckSet)
@@ -346,6 +366,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::set_shared_wait(b);
             return true;
         }
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "depth")) {   // uncap deep dive
+            dvr::capture::set_shared_depth(atoi(m), "the seam");
+            return true;
+        }
         if (!strcmp(args, "reinit")) { dvr::capture::request_reinit(); return true; }   // 41.1 (session 9)
         // 41.1: the content-bbox cadence. Each sample is a full-frame CPU
         // readback on the present thread even in shared mode - see capture.h.
@@ -360,7 +384,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
             "(%u grabs) delivered serial %lu of %lu tag=%d slot=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
             "readTimeouts=%u reinits=%u bboxEvery=%ums(%u samples, each a full-frame CPU readback) "
-            "(capture mode sync|deferred|shared|off, capture sharedwait on|off, capture bbox off|<ms>, capture reinit)",
+            "(capture mode sync|deferred|shared|off, capture sharedwait on|off, capture depth 1|2|3, capture bbox off|<ms>, "
+            "capture reinit)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
@@ -388,6 +413,37 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         }
         Log("device: usage - device census|status|upload | device ex on|off | device managed none|default|dynamic|shadow "
             "| device shadowsurfaces on|off | device shadowfullcopy on|off");
+        return true;
+    }
+    if (!strcmp(cmd, "pe")) {   // route 2: the script lane's fast path A/B (ue3/pe_fast.h)
+        char sub[16] = "", val[16] = "";
+        const int n = args ? sscanf(args, "%15s %15s", sub, val) : 0;
+        bool on;
+        if (n >= 2 && !strcmp(sub, "fast") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peFast, on ? 1 : 0);
+            ConfigWriteKey("Perf", "PeFast", on ? "1" : "0", "the seam");
+            Log("pe: script-lane fast path %s (live) - the pe/cost line reports the difference", on ? "ON" : "off");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "fn") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peFnOn, on ? 1 : 0);
+            Log("pe: per-statement cost split %s (pe/cost-fn every 5 s; diagnostic, not saved)", on ? "ON" : "off");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "heavydraw") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peHeavyInDraw, on ? 1 : 0);
+            ConfigWriteKey("Perf", "PeHeavyInDraw", on ? "1" : "0", "the seam");
+            Log("pe: heavy writers inside the draw %s", on ? "EVERY event (safe default)" : "throttled like the tick");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "heavy")) {
+            PeHeavySet(atoi(val));
+            char v[8]; _snprintf(v, sizeof(v), "%ld", InterlockedCompareExchange(&g_peHeavyUs, 0, 0) / 1000);
+            ConfigWriteKey("Perf", "PeHeavyMs", v, "the seam");
+            return true;
+        }
+        Log("pe: fast on|off, heavy <ms> (now fast %s, heavy %ld ms) - the ProcessEvent hook's caches and cadence",
+            InterlockedCompareExchange(&g_peFast, 0, 0) ? "on" : "off", InterlockedCompareExchange(&g_peHeavyUs, 0, 0) / 1000);
         return true;
     }
     if (!strcmp(cmd, "reentry")) {
