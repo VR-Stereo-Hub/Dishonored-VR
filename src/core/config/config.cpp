@@ -2547,7 +2547,7 @@ static void LoadConfig()
             (int)g_crawlTuckCamera, camKey < 0 ? "absent from the ini, the built-in default" : "from the ini",
             g_crawlTuckCamera ? "RELEASED too (the pre-VR-122 behaviour)" : "left alone");
     }
-    g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 1) != 0.0f; // 38.22
+    g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 0) != 0.0f; // 38.22; default off since 2026-09-27
     // First-fault evidence is enabled in the explicitly requested tested profile.
     // Set Diagnostics/GcFaultDump=0 to disable full-memory capture.
     dvr::crash::configure_read_fault_dump(
