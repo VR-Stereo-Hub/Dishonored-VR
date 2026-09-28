@@ -70,7 +70,7 @@ bool     g_rtFailed = false;
 // output/render rasterizes the same HUD at more pixels. A larger target cannot use the game's
 // smaller depth-stencil, so the sinks share one of their own (Scaleform masks use stencil),
 // cleared every present. Off, or no upscaler, is the old path exactly.
-bool     g_sharpWanted = false;
+bool     g_sharpWanted = true;
 bool     g_scaled = false;                // the targets are larger than the frame right now
 uint32_t g_frameW = 0, g_frameH = 0;      // the backbuffer the game draws the HUD for
 IDirect3DSurface9* g_ds = nullptr;        // the sinks' own depth-stencil while scaled

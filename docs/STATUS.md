@@ -1,3 +1,12 @@
+## 2026-09-27: sharp HUD and markers default on, Advanced controls
+
+After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1
+in runtime initialization, missing-key loading and the production default profile.
+Explicit saved values remain honored. Both live controls now appear in Advanced
+Display under Clarity and anti-aliasing. Optimized build, lint and production
+default writer/package/golden byte parity pass. This is the requested staging
+follow-up to merged PR149; no animation behavior changes.
+
 ## 2026-09-27: sharp markers headset-confirmed
 
 The corrected v1.0.1-143-g128c99b5c candidate produces clear native markers in
