@@ -1,3 +1,25 @@
+## 2026-09-28: palm-pivot candidate158 installed; culling A/B armed
+
+Installed optimized legacy-off local testmix v1.0.1-158-g8b7eb9480, animation source
+bb439dcd1 plus retained culling6132b2ed8 and prior menu/FSR/marker integration. DLL
+SHA256107b3ddf8a0c3eb5cdb5d3e04b130983042bdb2a755c4bfb538c56981884f709.
+Backup DLL, entire saved INI, all logs and helpers: main build/playtest-candidates/
+animation-hand-origin/palm-pivot-20260927-221739. Full INI delta: Clarity.DLAA0->1
+for the reported reproduction; add Perf.QueryWaitProfile1. HandOriginTrace1, pereye,
+sharp HUD/markers1 and150ms handback retained. Entire expected-byte and CRLF checks
+pass; installed DLL equals built and retained upscaler helpers are byte-identical.
+3914 origin checks,25 production-route checks, catalog/handoff tests, query diagnostic
+ABI/results test, standalone frame suite, nine exports, optimized build and lint pass.
+No game launched. Existing log remains run155: next reader must verify banner158.
+
+One launch question: with DLAA and Per eye active, reproduce the black enemy in the
+uncovered eye, change F10 Advanced Display > Object culling to Off, close F10 and
+repeat the sword occlusion from the same position. Does normal shading return?
+Recovery implicates query-controlled rendering; persistence directs investigation to
+lighting/depth/jitter/reconstruction. Confirm the query-read change in the log before
+interpreting the test. Animation traces continue automatically. Palm/entry correction
+has host coverage but no headset acceptance. Neither PR151 nor152 may be merged yet.
+
 ## 2026-09-28: run155 exposes palm interpolation and premature entry capture
 
 Verified banner155 and installed DLL SHA2562f3571a63cb9ceac64c4e7e0bfadfc1b3191afbc82887d2f3867e022f3b7b4e2.
