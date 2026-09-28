@@ -1,3 +1,38 @@
+## 2026-09-28: AlternateEye (VR-39) built with the delta clamp - host-verified, headset pending
+
+Branch `claude/vr-39-aer-stereo` off staging (1.0.2 plus the takedown-arms default). `stereo aer`
+is no longer a stub: F10 Advanced > Display > Stereo rendering chooses "Both eyes every frame"
+(reentry, unchanged default) or "Alternate eyes (AER)", and "Delta clamp" (default off) makes both
+eyes of a pair one instant. Port of BioShock Remastered VR's AER: game-thread eye alternation, one
+tag per draw through reentry's ring, two ticks per XR frame, one world advance per pair. The clamp
+scales the game's own time-dilation fields by name (Bend Time's transient GameInfo world/player
+dilation by default, WorldInfo.TimeDilation as the fallback), banks the right tick's time and pays
+it back on the left, and stands itself down if the engine does not honour the lever.
+`aer clamp on|off`, `aer lever bendtime|timedilation`. No new address or offset.
+
+Verified: Release build, lint, golden and default-profile byte identity, 16 clamp arithmetic
+checks including a negative control (tools/delta-clamp-host.ps1), occlusion owner 19, frame_test.
+The first host run of the clamp caught a real defect (predicting the left tick from the last tick
+overshot to the 4x cap under jitter); the predictor is now smoothed. Not verified: anything in the
+game. Headset questions in order: does AER hold fusion with no swim; pairs/s against reentry on
+the same spot; with the clamp, does the `aer/clamp: beat` line show clamped R/L well under 0.5
+and INTEREYE near 0, and is audio or physics disturbed. See PERFORMANCE.md and ENGINE_NOTES VR-39.
+
+Adversarial audit before commit, fixed: (1) switching away from AER restores the hooked call
+site on the game thread, and no stub runs after that, so a clamped value could stay in the field
+(a world stuck at 1% or doubled) - the restore path now releases the clamp first; (2) a quicksave
+mid-pair could store a clamped WorldInfo.TimeDilation (not transient, no SaveGame flags in the
+game) - the default lever moved to Bend Time's transient fields; (3) a field the game rewrites
+every tick read as a new base each tick and would have dropped every bank (the world at half
+speed) - the game's own value coming back now keeps the pair; (4) a script restoring a value the
+clamp wrote would have become the base - recognised and refused; (5) a UI edge on the same world
+forgot the clamp's last write; (6) a poisoned reentry would have left AER's alternation armed and
+c5 pairing off for the session; (7) the left-tick predictor overshot under jitter (host test).
+Open, unmeasured, named for the headset: audio pitch following the dilation per tick, PhysX
+under alternating 1%/double steps, the carried-object centre eye (VR-181) and the palette eye
+classifier (VR-95) under one eye per tick, TAA/DLSS history refreshing at half rate per eye, and
+the perf line's P1/P2 split (it assumes two presents per tick; under AER they are two ticks).
+
 ## Controller bind remapping (2026-09-27) - host-verified, PR open, not merged
 
 Branch `claude/controller-remap` (on staging after #144). Each game action can be moved to any

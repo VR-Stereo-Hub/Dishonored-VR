@@ -3466,3 +3466,23 @@ entry points).
   FSR 4 (AMD restricts it to RDNA 4), so FSR 4 itself is untested here: an RX 9000 rig should log
   `[ffx] offers 1: 4.1.1` and `using 4.1.1` in `<data>\dlss\dlss_host.log`. Costs unchanged (native AA
   1.86 ms, Quality 1.20, Performance 0.96 per eye at 2750x2850).
+
+## 2026-09-28: AlternateEye (VR-39) - an A/B, not yet measured
+
+Built, host-verified, not yet run. `stereo aer` (F10 Advanced > Display > Stereo rendering)
+draws ONE scene per game tick, alternating the eye, and pairs two ticks into one XR frame. The
+prediction to test against reentry on the same save, spot and settings:
+
+- Reentry: per displayed pair, one game tick and two scene renders. The headset traces measured
+  the GPU about 97 % occupied under reentry (the uncap deep dive above), so if the GPU is the
+  limit, AER renders the same two scenes per pair and should NOT raise pairs/s.
+- AER without the clamp: per pair, two game ticks and two scene renders, with the engine's
+  game-thread, render-thread and GPU stages overlapping as designed. If serialisation between
+  those stages is the limit (the BioShock result: BRVR's AER ran 10-20 fps above the trilogy's
+  re-entry on the same PC), pairs/s rises.
+- AER with the clamp: the same work as without, plus the dilation writes (negligible).
+- Falsifier: `stereo: beat` out/s and the `aer: beat` pairs/s at the same spot, reentry then aer
+  then reentry again. A gain that does not return when reentry returns is not real.
+- Read with it: `aer/clamp: beat` INTEREYE (the world's slide between the eyes of a pair),
+  ghosting on walking NPCs with the clamp off and on, and judder (each eye refreshes at half the
+  tick rate).

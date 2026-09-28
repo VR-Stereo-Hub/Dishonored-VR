@@ -36,6 +36,13 @@ static void OcclusionPass2Begin();                 // VR-79: pass 2 draws on the
 static void OcclusionPass2End();
 static int OcclusionModeGet();                      // 0 native, 1 pereye, 2 off (the F10 Display choice)
 static void OcclusionModeSet(int mode, const char* who);
+static void DeltaClampConfigure(const char* ini);   // VR-39 (delta_clamp.cpp): AER's one world advance per eye pair
+static bool DeltaClampEnabled();
+static void DeltaClampSet(bool on, const char* who);
+static void DeltaClampAfterDraw(int eyeDrawn, int nextEye, uint8_t* cam);   // game thread, scene_draw's stub
+static void DeltaClampRelease(const char* why);   // game thread: the game's own dilation back
+static void DeltaClampStatus(dvr::status::Writer& w);
+static bool DeltaClampCommand(const char* sub, const char* v);   // `aer lever bendtime|timedilation`
 static void RainHideSet(bool on);
 static void RainRecoverySet(bool on);
 static bool RainHideEnabled();
@@ -71,6 +78,7 @@ static void SceneDrawApply();
 static void DrawCallersApply();          // VR-80: the draw root's other callers, counted
 static void DrawCallersSet(bool on);
 static void SceneDrawSetArmed(bool on);
+static void SceneDrawSetAlternate(bool on);   // VR-39: `stereo aer` (scene_draw.cpp)
 static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();
 static void SceneDrawGates(uint32_t out[8]);   // 41.1: the pass-2 skip counters for the stale-eye line

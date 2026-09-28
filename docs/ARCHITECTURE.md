@@ -1363,3 +1363,22 @@ unknown readiness omits the overlay with a diagnostic, never reuses stale pixels
 Pure D3D9 device state is restored from original setters and shadows; no engine
 D3D object is retained with AddRef in a draw detour. No engine-memory writer.
 The new lever defaults off, and without reduced upscaling draws remain native.
+
+- **2026-09-28 - AlternateEye built on reentry's present side, not as a separate pipeline (VR-39).**
+  The runtime layer carries BioShock's own AER path (`g_aerEnabled`, one fresh eye per submit), but
+  Dishonored's proven stereo is the tagged SR path: an eye tag per present from the game side's
+  ring, the pair held open across two presents, each eye submitted with its own rendered pose.
+  AER reuses all of it. The game side draws once per tick and alternates the eye by strict
+  alternation on the game thread (BRVR's producer index); a right tick is pass 2's setup with no
+  pass 1 before it, so the right eye keeps its own occlusion view state (VR-79) and the pass-2
+  thread latch for in-draw writes. The runtime pairs two consecutive ticks into one XR frame
+  (BRVR's XR_SubmitPair). c5 arbitration and the late- and single-tag repairs are held off while
+  AER runs: all three encode reentry's within-tick invariant, which two ticks do not satisfy; the
+  ring's order is the claim, as BRVR's FIFO is. BRVR's per-pair head latch is not ported because
+  the runtime already submits each eye with its own rendered pose.
+  The delta clamp (BRVR's one world advance per pair) uses the game's own time-dilation fields,
+  resolved by name, instead of a hook: Bend Time's transient GameInfo world/player dilation by
+  default, WorldInfo.TimeDilation as a fallback. The fallback is not transient and Dishonored's
+  scripts declare no SaveGame flags, so a save taken mid-pair may keep a clamped value; that is
+  why the transient pair is the default. A lever the engine does not honour (measured on
+  WorldInfo.DeltaSeconds) stands itself down. Both levers default off.

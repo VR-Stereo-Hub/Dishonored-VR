@@ -9933,3 +9933,31 @@ Telemetry is cumulative: attempts count every pereye pass2; swapped counts succe
 installs; restored counts successful restores. Begin logs before the matching End, so
 restored may trail swaps by one. Refusals identify the guard. These counters establish
 scope coverage, not that downstream queries or reconstructed pixels are correct.
+
+## VR-39: AlternateEye and the delta clamp's levers (2026-09-28)
+
+No new address, IAT slot or offset: every field below is resolved by NAME at runtime
+(FindPropOffsetChecked) and every write validates its owner's identity (IsLiveObject against a
+live set rebuilt on a load/UI edge, GObjects slot, class and FName).
+
+- The decompiled class dump (local, not committed) declares `WorldInfo.TimeDilation`,
+  `DemoPlayTimeDilation`, `DeltaSeconds` and `RealtimeDeltaSeconds`; `GameInfo.SetGameSpeed`
+  writes `WorldInfo.TimeDilation` (the Slomo cheat's route). TimeDilation is NOT transient.
+- Engine `GameInfo` carries Arkane's `m_fCurrentWorldTimeDilation`, `m_fCurrentPlayerTimeDilation`,
+  `m_fCurrentPlayerTimeDilation_Input` and the `m_fPrevious*` pair, all `transient`.
+  `DishonoredGameInfo` adds the Bend Time channels (`m_BendTimeInfo[EBendTimeChannel]`, each with
+  current/target/velocity world, player and player-input dilation) and `DisTweaks_BendTime`
+  carries its warmup/cooldown times. The inference, not yet measured: Bend Time's native tick
+  blends the channels into the GameInfo `m_fCurrent*` fields, and the world tick scales the
+  world's and the player's time by them, which is how Corvo moves at speed while the world slows.
+- Dishonored's scripts declare no `SaveGame` property flag anywhere (zero matches across the
+  dump), so its saves do not select properties by that flag; whether `TimeDilation` is saved is
+  unknown. The clamp therefore defaults to the transient Bend Time fields.
+- Acceptance instrument: `WorldInfo.DeltaSeconds` read after each tick. UE3 clamps the dilated
+  delta to a small floor, so a frozen right tick is expected to read near that floor, not 0.
+  The `aer/clamp: beat` line prints both eyes' ranges; the clamp stands itself down when clamped
+  right ticks advance more than half as far as left ones, or world/real time leaves 0.6..1.5,
+  for two beats while every base reads 1.
+- Unmeasured risks to read first in the headset log: whether audio pitch follows either lever
+  per tick (a warble would say it does), and whether PhysX tolerates alternating 1% and double
+  steps (jittering ragdolls or carried bodies would say it does not).

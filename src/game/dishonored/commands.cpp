@@ -92,6 +92,15 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "rainstrength")) { LensRainPctSet(atoi(args)); return true; }                 // VR-137: %, 100 native
     if (!strcmp(cmd, "mirror")) return WmCommand(args);   // VR-138
     if (!strcmp(cmd, "occlusion")) return OcclusionCommand(args);   // VR-79
+    if (!strcmp(cmd, "aer")) {   // VR-39: `stereo aer` selects the method; this word drives its clamp
+        char sub[16] = "", v[16] = "";
+        sscanf(args, "%15s %15s", sub, v);
+        if (!strcmp(sub, "clamp") && DvrOnOff(v, &b)) { DeltaClampSet(b, "the seam"); return true; }
+        if (DeltaClampCommand(sub, v)) return true;
+        Log("aer: clamp on|off | lever bendtime|timedilation (clamp now %s; the method is `stereo aer`, active '%s') - "
+            "the delta clamp: one world advance per eye pair", DeltaClampEnabled() ? "on" : "off", dvr::stereo::active_name());
+        return true;
+    }
     if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
     if (!strcmp(cmd, "uiguard") && DvrOnOff(args, &b)) { UiSurfaceSet(b); return true; }
     if (!strcmp(cmd, "monoanchor")) {
@@ -277,9 +286,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         float uu = 0.0f;
         if (sscanf(args, "%31s", sub) == 1 && !strcmp(sub, "eyetest")) {
             if (strstr(args, "stop")) { dvr::camera::eyetest_stop("seam"); return true; }
-            if (!strcmp(dvr::stereo::active_name(), "reentry")) {
-                Log("camera/eyetest: refused while the reentry method is active (two presents per tick with "
-                    "different eyes would destroy the verdict) - `stereo mono` first");
+            if (dvr::stereo::reentry_family_active()) {
+                Log("camera/eyetest: refused while the %s method is active (presents with different eyes would "
+                    "destroy the verdict) - `stereo mono` first", dvr::stereo::active_name());
                 return true;
             }
             sscanf(args, "%*s %f %15s", &uu, fld);

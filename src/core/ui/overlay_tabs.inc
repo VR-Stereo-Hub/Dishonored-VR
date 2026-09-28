@@ -1135,6 +1135,32 @@ static void OvlTabDisplay()
         if (dvr::ovl::radio_button("Off", &oc, 2)) OcclusionModeSet(2, "F10 Display");
         OvlTip("Nothing is ever hidden. Always correct, but slower.");
     }
+    if (OvlSec("Stereo rendering (experimental)", kOvlA, "How the two eyes are rendered. Try both and compare.")) {
+        // VR-39: reentry (both eyes every tick) against AER (one eye per tick, alternating).
+        const char* wanted = dvr::stereo::wanted_name();
+        const bool isAer = !_stricmp(wanted, "aer");
+        if (!isAer && _stricmp(wanted, "reentry")) {
+            ImGui::TextDisabled("Stereo is on the flat screen (%s). Debug > Stereo and capture selects it.", wanted);
+        } else {
+            int sm = isAer ? 1 : 0;
+            if (dvr::ovl::radio_button("Both eyes every frame", &sm, 0) && isAer) {
+                if (dvr::stereo::choose("reentry")) ConfigWriteKey("Stereo", "Method", "reentry", "F10 Display");
+            }
+            OvlTip("The shipped method: each game frame draws the left eye, then the right.");
+            ImGui::SameLine();
+            if (dvr::ovl::radio_button("Alternate eyes (AER)", &sm, 1) && !isAer) {
+                if (dvr::stereo::choose("aer")) ConfigWriteKey("Stereo", "Method", "aer", "F10 Display");
+            }
+            OvlTip("Each game frame draws ONE eye, alternating. Can run faster; each eye updates half as often.");
+            bool clamp = DeltaClampEnabled();
+            ImGui::BeginDisabled(!isAer);
+            if (dvr::ovl::checkbox("Delta clamp (both eyes show the same moment)", &clamp)) DeltaClampSet(clamp, "F10 Display");
+            OvlTip("Freezes the world on the right-eye frame and catches up on the left, like slowed time. "
+                   "Stops moving things doubling between the eyes. AER only.");
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("Active: %s", dvr::stereo::active_name());
+        }
+    }
     if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
         ImGui::BeginDisabled(busy);
         bool liveFull = ResLiveFullscreen();

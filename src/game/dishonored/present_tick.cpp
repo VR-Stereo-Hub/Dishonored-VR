@@ -938,6 +938,7 @@ static void DvrInstallFrameHooks()
     rh.draws     = SceneDrawDraws;
     rh.gates     = SceneDrawGates;
     rh.present_tag = SceneDrawPresentTag;   // VR-78: the accounting probe's join
+    rh.set_alternate = SceneDrawSetAlternate;   // VR-39: `stereo aer`, one draw per tick
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
     // VR-117: the HUD anchors. The census borrows two game counters; the
