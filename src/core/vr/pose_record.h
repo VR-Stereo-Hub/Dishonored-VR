@@ -102,6 +102,12 @@ uint32_t next_pair();
 // cannot disagree with the camera that was actually written.
 uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePos = nullptr, float hfovDeg = 0, uintptr_t cameraIdentity = 0, uint64_t sceneEpoch = 0);
 
+// The newest record opened in the last `maxAgeMs` whose eyePos (the camera seam's write for that view) lies within `tol` of `c5`
+// (engine units, c5 convention). RENDER thread. `second` gets the distance to the nearest
+// OTHER tick's record (FLT_MAX when none), so a caller can refuse a match that does not
+// single out one view. False when nothing is within tol.
+bool find_view(const float c5[3], float tol, double maxAgeMs, Record* out, float* dist, float* second);
+
 // COPY a record out. The ring can be overwritten while a reader works, so there
 // is no pointer accessor: this takes the lock, checks the id, and copies.
 // False for an id nobody set (missing) or one since overwritten (expired) -
