@@ -59,7 +59,7 @@ static void MpFlickNote(const char*) {}
 #include "palette_eye_body.inc"
 #define DVR_LOG_EVERY_MS(...) ((void)0)
 namespace dvr::stereo { struct Output{int eyeSign=0;};static Output last_output(){return {};}}
-struct MfRec {uint32_t present=0,poseGen=0;int menuContext=-1;int8_t eye=0;char why='T';float d=0,ipdUU=0;uint8_t refused[2]{},waMiss=0;};
+struct MfRec {uint32_t present=0,poseGen=0;int menuContext=-1,menuSubscreen=-1;int8_t eye=0;char why='T';float d=0,ipdUU=0;uint8_t refused[2]{},waMiss=0;};
 static constexpr int kMfRing=1024;
 static MfRec g_mfRing[kMfRing];
 static uint32_t g_mfTagCount[kMfRing];static int8_t g_mfTagSign[kMfRing];

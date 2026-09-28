@@ -1,3 +1,14 @@
+## 2026-09-27: read-only pause submenu identity
+
+Local class declarations expose DisGFxMoviePlayerMenuBase.m_bIsInSaveMenu and
+m_bIsInLoadMenu. Resolve each boolean offset and bitmask by name. Pause Options
+has named OnOptionsClicked/OnLeaveOptions callbacks; video/gamma/mapping and
+Save/Load list callbacks refine the diagnostic label. These are observed engine
+dispatches, not calls made by the mod. Missing callbacks leave root ambiguous.
+No fixed engine address or field offset is added. The retained movie is captured
+with ChCapture after BuildLiveSet and checked with ChSlot before callback use.
+A pointer match alone is insufficient. No diagnostic authorizes a memory write.
+
 ## Potion ownership must not depend on another movie's clip census (2026-09-25)
 
 Matched returned36a8d7f95 proves +BC matches22 current HUD clips, while9 differ.

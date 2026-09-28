@@ -1,3 +1,45 @@
+## 2026-09-27: pause submenu hand jitter, diagnostic candidate
+
+1. Surface: headset hands jitter in pause child screens while the root pause menu
+   is reported smooth. Journal is also affected. Route to hand/weapon correction
+   and pose cadence, keeping whole-world mono interruptions separate.
+2. Identity: supplied archived run `build/logs/run-testmix-1913/dishonored_vr.log`
+   identifies v1.0.1-127-g470944905. The currently installed testmix DLL is a later
+   build, v1.0.1-129-gec7b00c07; its SHA256 matches the testmix build artifact.
+   The archived run is explicitly older evidence, not a playtest of that DLL.
+3. Earlier fixes: VR-126's scoped menu head look and bounded mono-gap hold;
+   VR-128's PaletteEyeMenuHalfStep applies to contexts 3..8 already; pause scene
+   freshness entered with dc3ffee45, and e970b58a3 extends observed-upload evidence
+   to riding menus. Options/Save/Load share Pause context 3 with the root.
+   In the supplied Journal windows, pause/scene reports menuEnabled=1,
+   menuUploadAge=1.3/2.9 ms and menuRecent=1 despite pause-only age=-1.
+   A missing Journal freshness extension is therefore rejected for this run.
+   Listed pause and Journal windows contain zero sampled menu/hands-mismatch
+   lines. Rate-limited samples do not establish that every draw agreed.
+4. Change: read-only menu/subscreen observes reflected Save/Load flags and named
+   native UI callbacks. Root without callback coverage is explicitly ambiguous.
+   Options, video, gamma, controller mapping and tutorials carry distinct callback
+   labels. Journal has its own context label; its internal tab is not yet resolved.
+   Retained movie identity is checked against its object slot. Entry discovery
+   refreshes the live table. No engine-memory or render behavior change.
+   Hand records retain the submenu at draw time, not at delayed completion;
+   agree/mismatch/refusal and new/repeated pose counts are per context/submenu/eye.
+5. Prediction: if submenu jitter comes from repeated hand poses or eye correction,
+   the Options population will show more repeated poses, mismatches or refusals
+   than root during the same motion. If these stay comparable, that hypothesis
+   fails and the next instrument must join corrected hand geometry to image pose
+   and scene scheduling. If callbacks are absent, root-or-unobserved is not root
+   proof: inspect native callback dispatch or GFx current-frame state before a fix.
+6. Validation: palette-eye host passes, 72 menu freshness checks pass, 1686
+   reentry pairing checks pass. No game or simulator launched. No headset fix
+   claimed. The existing root fixes remain intact; widening context 3 cannot
+   repair a difference inside context 3. Behavioral fix is pending this evidence.
+
+Next single launch: compare the root pause menu with Options using the same slow
+head turn and controller movement, then return to root. Determine whether the
+jitter begins and ends with Options. Read menu/subscreen, menu/hands,
+menu/hands-mismatch and pause/scene; never use gameplay hv in paused windows.
+
 ## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
 
 1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures
@@ -1853,6 +1895,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 read-only diagnostic candidate; cause and fix open; see top entry |
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
 | Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |
 | Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |

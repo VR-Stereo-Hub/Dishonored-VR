@@ -24,6 +24,22 @@ uint32_t g_usMode,g_usTransition,g_usMovie,g_usStarted,g_usStartedMask,g_usScree
 uint32_t g_usClosing=0,g_usClosingMask=0;
 uint32_t g_usHints=0,g_usHintsMask=0,g_usNote=0,g_usNoteMask=0,g_usWheel=0,g_usWheelMask=0;
 uint32_t g_usMenus[10]={};
+std::atomic<int> g_usSubscreen{-1};
+std::atomic<uintptr_t> g_usPauseObserved{0};
+std::atomic<int> g_usPauseEvent{-1};
+CtIdentity g_usPauseIdentity;
+uint32_t g_usSave=0,g_usSaveMask=0,g_usLoad=0,g_usLoadMask=0;
+const char* UsSubName(int n) {
+    switch(n) {case 0:return "root-or-unobserved";case 1:return "options";
+    case 2:return "save";case 3:return "load";case 4:return "tutorials";
+    case 5:return "video-settings";case 6:return "gamma";case 7:return "controller-mapping";
+    case 8:return "journal";default:return "unavailable";}
+}
+void UsSubPublish(int n,const char* source) {
+    if(g_usSubscreen.exchange(n)!=n)
+        Log("menu/subscreen: id=%d name=%s source=%s context=%d epoch=%u present=%u; read-only, root is not proven without callback coverage",
+            n,UsSubName(n),source,g_usActiveContext.load(),g_usContextEpoch.load(),(unsigned)dvr::frame::count());
+}
 const char* g_usProps[]={"m_pMainMenu","m_pPauseMenu","m_pNote","m_pJournal","m_pPowerWheel","m_pStore","m_pMissionStats","m_pChallengeMenu","m_pBrief","m_pResultsMenu"};
 const dvr::mono::Context g_usKinds[]={dvr::mono::MainMenu,dvr::mono::Pause,dvr::mono::Note,dvr::mono::Journal,dvr::mono::Wheel,dvr::mono::Store,dvr::mono::MissionStats,dvr::mono::Other,dvr::mono::Other,dvr::mono::Other};
 dvr::mono::LoadingLease g_usLoading;
@@ -33,6 +49,10 @@ void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int
     // flip the picture), only for the contexts that opted in, only while the
     // redirect is up and drawing. The input class (UiSurfaceBlocks) does not
     // change: a riding menu still parks the head-mouse and the pad shaping.
+    if(context!=dvr::mono::Pause) {
+        g_usPauseObserved.store(0);g_usPauseEvent.store(-1);
+        UsSubPublish(context==dvr::mono::Journal?8:-1,"UI owner");
+    }
     const bool windowOn=dvr::hudcap::enabled() &&
         dvr::hudlayout::screen_can_ride((int)context);   // VR-120: the screen's own row and anchor
     const bool want=dvr::ui_ride::rides(g_usEnabled.load(),blocked,context,dvr::hudlayout::menu_context_mask(),
@@ -142,10 +162,34 @@ bool UsResolve() {
         bool found=FindPropOffsetChecked("DisGlobalUIManager",g_usProps[i],&g_usMenus[i]);
         if(i<7) ok=found && ok; // DLC holder is optional.
     }
+    if(!g_usSaveMask) FindBoolProp("DisGFxMoviePlayerMenuBase","m_bIsInSaveMenu",&g_usSave,&g_usSaveMask);
+    if(!g_usLoadMask) FindBoolProp("DisGFxMoviePlayerMenuBase","m_bIsInLoadMenu",&g_usLoad,&g_usLoadMask);
     g_usResolved=ok;
     Log("ui/surface: reflected root/movie layout %s; read-only, retry missing fields in 5 s",ok?"ready":"unavailable");
     return ok;
 }
+}
+static int UiSurfaceSubscreen() { return g_usSubscreen.load(); }
+static void UiSurfaceEvent(void* obj,uint32_t name) {
+    // The engine currently dispatches this object. Never dereference a retained
+    // movie pointer or use this observation to authorize a memory write.
+    if(!obj || (uintptr_t)obj!=g_usPauseObserved.load() || name==0xffffffffu) return;
+    if(!TryAcquireSRWLockShared(&g_usLock))return;
+    struct SharedUnlock {~SharedUnlock(){ReleaseSRWLockShared(&g_usLock);}} unlock;
+    if((uintptr_t)obj!=g_usPauseObserved.load() || g_usActiveContext.load()!=3 ||
+       !ChSlot(g_usPauseIdentity) || g_usPauseIdentity.value.obj!=obj)return;
+    const char* fn=RealName(name);if(!fn) return;
+    int sub=-1;
+    if(!strcmp(fn,"OnOptionsClicked")) sub=1;
+    else if(!strcmp(fn,"OnSaveGameClicked")) sub=2;
+    else if(!strcmp(fn,"OnLoadGameClicked")) sub=3;
+    else if(!strcmp(fn,"OnTutorialsClicked")) sub=4;
+    else if(!strcmp(fn,"Req_VideoSettingsScreen")) sub=5;
+    else if(!strcmp(fn,"OpenGammaImage")) sub=6;
+    else if(!strcmp(fn,"Req_GamepadMappingScreen")) sub=7;
+    else if(!strcmp(fn,"CloseGammaImage")) sub=1;
+    else if(!strcmp(fn,"OnLeaveOptions") || !strcmp(fn,"OnSaveGameListClosed") || !strcmp(fn,"OnLoadGameListClosed")) sub=0;
+    if(sub>=0) {g_usPauseEvent.store(sub);UsSubPublish(sub,fn);}
 }
 static bool UiSurfaceEnabled() { return g_usEnabled.load(); }
 static unsigned UiSurfaceEpoch() { return g_usContextEpoch.load(); }
@@ -213,6 +257,7 @@ static void UiSurfacePoll() {
     int screen=-1;
     dvr::mono::Context context=dvr::mono::Other;
     bool blocked=false,wheelClosing=false,wheelObserved=false;
+    int pauseSub=-1;bool pauseFlags=false;
     dvr::vr::InputSnapshot wheelInput;
     dvr::vr::input_snapshot(&wheelInput); // locked snapshot, not pad-thread globals
     for(int i=0;manager && i<10;++i) {
@@ -259,12 +304,32 @@ static void UiSurfacePoll() {
             if(value==0) continue;
             if(value>3) { known=false; continue; }
         }
+        if(i==1) {
+            if(!ChSlot(g_usPauseIdentity) || g_usPauseIdentity.value.obj!=obj || !g_usPauseObserved.load()) {
+                BuildLiveSet();
+                g_usPauseEvent.store(-1);
+                if(!IsLiveObject(obj) || !ChCapture(obj,&g_usPauseIdentity)) {
+                    g_usPauseObserved.store(0);UsSubPublish(-1,"movie identity unavailable");
+                    blocked=true;context=g_usKinds[i];break;
+                }
+            }
+            g_usPauseObserved.store((uintptr_t)obj);
+            uint32_t save=0,load=0;
+            const bool valid=g_usSaveMask && g_usLoadMask &&
+                CtRead(obj,g_usSave,&save,4) && CtRead(obj,g_usLoad,&load,4);
+            int sub=g_usPauseEvent.load();
+            if(valid && (save&g_usSaveMask)) sub=2;
+            else if(valid && (load&g_usLoadMask)) sub=3;
+            else if(sub==2 || sub==3 || sub<0) sub=valid?0:-1;
+            pauseSub=sub;pauseFlags=valid;
+        }
         blocked=true; context=g_usKinds[i]; break;
     }
     if(!wheelObserved) g_usWheelRelease.update(false,GetTickCount64());
     if(!known && !blocked) { blocked=true; context=dvr::mono::Other; }
     if(!blocked && g_cineNow) context=dvr::mono::Cinematic;
     UsPublish(context,blocked,known,screen,presenting?1:0,mode,wheelClosing);
+    if(context==dvr::mono::Pause) UsSubPublish(pauseSub,pauseFlags?"reflected save/load plus observed callback":"callback; flags unavailable");
 }
 static void UiSurfaceTick() {
     if((!g_usEnabled.load() && !dvr::vr::mono_anchor_enabled()) || !TryAcquireSRWLockExclusive(&g_usLock)) return;

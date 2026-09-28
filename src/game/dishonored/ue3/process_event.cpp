@@ -136,6 +136,7 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     const uint32_t peNameIdx = (a1 && !((uintptr_t)a1 & 3) && PeReadable(a1, kNameOff + 8))
                                    ? *(uint32_t*)((uint8_t*)a1 + kNameOff) : 0xffffffffu;
 
+    UiSurfaceEvent(obj,peNameIdx); // read-only submenu callback evidence
     PeLatch(obj);   // the engine tells us who the real actors are
     PeSub(4);
     PawnCollisionTick(); // load liveness must not wait for a pawn event or head/hand drive
