@@ -19,7 +19,7 @@ bool watch = true, handback = true, cinematicHandback = false, mantleHandback = 
 // way mantle does. Hiding the arms by bone visibility froze the hands (the earlier attempt);
 // the split keeps the game's clip on the hands and drops only the arm triangles, at the
 // player's F10 sleeve length. Off = the game's full arms, as before.
-bool hideTakedownArms = true;
+bool hideTakedownArms = false;
 bool takedown_state(const char* master, const char* upper) {
     return !strcmp(master,"StatePlayerMasterAssassinate") || !strcmp(master,"StatePlayerMasterChoke") ||
            !strcmp(upper,"StatePlayerGenericFatality");
@@ -535,7 +535,7 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
-    hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",1,ini)!=0;   // VR-283
+    hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",0,ini)!=0;   // VR-283
     Log("config: [Anim] HideTakedownArms=%d (%s)",hideTakedownArms,
         hideTakedownArms?"takedowns and fatalities: game-animated hands, forearms hidden at the sleeve length":"takedowns and fatalities: full game arms");
     handAnimMelee=GetPrivateProfileIntA("Anim","HandAnimMelee",1,ini)!=0;
