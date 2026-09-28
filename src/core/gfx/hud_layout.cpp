@@ -706,7 +706,9 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
             nativePivot[0]=nativePivot[2]=owner.pivot[0];
             nativePivot[1]=nativePivot[3]=owner.pivot[1];
         }
-        if((owner.marker && (g_nativeObjectives || e==ElDetection)) || g_el[e].anchor==AnchorFrame) {
+        const bool marker=owner.marker && (g_nativeObjectives || e==ElDetection);
+        if(marker || g_el[e].anchor==AnchorFrame) {
+            if(nativeMarker)*nativeMarker=marker;
             ++g_routeFrame;return -1;
         }
         const int anchor=g_el[e].anchor;const bool crop=crop_eligible(e);

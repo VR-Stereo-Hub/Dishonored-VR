@@ -1,3 +1,13 @@
+## 2026-09-27: run137 sharp markers bypassed by semantic routing
+
+The verified run reproduced unchanged objective readability. The overlay allocated
+at Ultra Quality but semantic HUD routing did not hand native-marker identity to
+it. Fix propagates that identity in the existing early return.74 production-branch
+checks pass; the old-code negative control fails. No marker scale change.
+See HUD_ANCHORS top entry for log identity, timestamps and next single A/B test.
+Build/install the local combined candidate with MarkersSharp=1 retained; confirm
+a reduced upscaler is active before judging the toggle. No headset fix yet.
+
 ## 2026-09-27: installed submenu diagnostic and marker candidate
 
 Local test branch local/test-134-145-146, source b91ec4fef, installed optimized

@@ -1,3 +1,37 @@
+## 2026-09-27: run137 marker no-op traced to semantic routing
+
+Verified log banner v1.0.1-137-gb91ec4fef against installed DLL SHA256
+837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803.
+DLL, INI, log and previous log archived in the main repo under
+build/playtest-candidates/menu-submenu-markers/run137 before another launch.
+Reported result: objective markers remain unchanged and difficult to read.
+
+At34275171 the overlay allocates2114x2192 ->2750x2850 targets; at34277281
+DLSS confirms that reduced render/output pair. The marker lever is toggled on
+and off during this interval, but there are no overlay composition records.
+SemanticOwnership=1 is active. Its early native-marker return never assigns the
+new nativeMarker output, while the later heuristic routing paths do. Consequently
+the active semantic marker population never enters SharpMarkerScope. This is a
+source-confirmed integration omission, not proof that output resolution cannot
+improve these markers. Later no-upscaler refusals follow DLSS being turned off
+at34396812 and do not explain the earlier reduced-resolution interval.
+
+Fix: propagate owner.marker under the existing native-objective/awareness policy
+before that early return. Ordinary AnchorFrame widgets and unidentified owners
+remain outside the overlay. No marker size or rendering safety guard changes.
+A host test executes the actual semantic branch:74 checks pass across marker,
+non-marker, objective/awareness/prompt, native toggles and frame/panel anchors.
+Removing the assignment reproduces the failing handoff in the old-code negative
+control. The prior tests had exercised transport and fallback routing, not this
+earlier semantic branch; they were insufficient to establish in-game coverage.
+
+Prediction: with reduced upscaling active and MarkersSharp enabled, identified
+objective draws now produce hud/markers-sharp composition counts or a specific
+native-draw guard refusal. Neither implies visual acceptance. One next launch
+compares a stationary objective marker with the live toggle: sharper without
+position change supports the candidate; unchanged with composites requires pixel/
+font/size investigation; refused draws require the logged guard to be addressed.
+
 ## 2026-09-27: native marker overlay after upscaling, candidate
 
 Depends on PR #146 (claude/hud-upscale-sharp). Its redirected HUD path cannot
