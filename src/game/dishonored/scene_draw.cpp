@@ -303,9 +303,9 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
             UiSurfaceEpoch(),(uint32_t)g_mkLoadEvents,UiSurfaceHeadLook(),MaimNowMs());
         const bool recent=pauseRecent || menuRecent;
         DVR_LOG_EVERY_MS(dvr::log::Cat::present,dvr::log::Level::Info,1000,
-            "pause/scene: between-draw camera silent context=%d prior-draw-upload-age=%.1f ms recent=%d; "
+            "pause/scene: between-draw camera silent context=%d sub=%d prior-draw-upload-age=%.1f ms recent=%d; "
             "menuEnabled=%d menuUploadAge=%.1f menuRecent=%d; other gates retained",
-            UiSurfaceContext(),g_sdPauseScene.uploaded<0 ? -1.0 : MaimNowMs()-g_sdPauseScene.uploaded,(int)recent,
+            UiSurfaceContext(),UiSurfaceSubscreen(),g_sdPauseScene.uploaded<0 ? -1.0 : MaimNowMs()-g_sdPauseScene.uploaded,(int)recent,
             (int)dvr::hudlayout::menu_scene_freshness(),g_sdMenuScene.uploaded<0 ? -1.0 : MaimNowMs()-g_sdMenuScene.uploaded,(int)menuRecent);
         if(!recent) {++g_sdSkipSilent;d.why="camera silent (no c5 upload since the previous draw)";return d;}
     }

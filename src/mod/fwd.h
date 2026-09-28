@@ -771,6 +771,8 @@ static void HeadMovementSet(bool on);
 static bool UiSurfaceEnabled();
 static unsigned UiSurfaceEpoch();
 static int UiSurfaceContext();
+static int UiSurfaceSubscreen();
+static void UiSurfaceEvent(void* obj, uint32_t name);
 static bool UiSurfaceHeadLook();
 static void MenuHeadBegin(bool scene,bool doubleDraw);
 static void MenuHeadPublish();

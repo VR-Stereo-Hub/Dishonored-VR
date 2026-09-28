@@ -2382,6 +2382,7 @@ struct MfRec {
     float    d, projRight, ipdUU;
     float    tR[2];          // placed target on the right axis, uu (last draw of the present)
     uint32_t poseGen;
+    int menuSubscreen; // captured with this draw, never sampled from a later present
     int menuContext; // observed UI context, diagnostic only
     int8_t   eye;            // g_mpEyeState after the decision: -1 L, +1 R, 0 unknown
     char     why;            // T toggled, S same eye kept, A ambiguous, F first sample
@@ -2413,6 +2414,7 @@ static void MfOpen(uint32_t pres, const MpDrawCtx* c, char why, float d, float i
     r->d = d; r->projRight = c->projRight; r->ipdUU = ipdUU;
     r->poseGen = c->pose.gen;
     r->menuContext=UiSurfaceContext();
+    r->menuSubscreen=UiSurfaceSubscreen();
     r->eye = (int8_t)g_mpEyeState; r->why = why;
 }
 
@@ -2461,30 +2463,34 @@ static void MfNoteTag(void)
         if(r.present<wanted) break;
     }
     if(!hand) return;
-    dvr::desktop_eye::Record rec;
+    dvr::desktop_eye::Record rec{};
     const bool known=dvr::desktop_eye::record_for(wanted+1,rec) && rec.draw!=0 && hand->eye!=0;
     const int cls=hand->why=='T'?0:hand->why=='S'?1:2;
     if(!known) ++g_mpEyeMethodNone[cls];
     else if(rec.draw==hand->eye) ++g_mpEyeMethodAgree[cls];
     else ++g_mpEyeMethodDisagree[cls];
     if(hand->menuContext>=3 && hand->menuContext<=8) {
-        struct Totals {uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0;};
-        static Totals totals[9][3];
-        auto& t=totals[hand->menuContext][known ? (rec.draw<0 ? 0 : 1) : 2];
+        struct Totals {uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0,lastPose=0,repeatPose=0,newPose=0;};
+        static Totals totals[9][10][3];
+        const int subBucket=hand->menuSubscreen>=0 && hand->menuSubscreen<=8 ? hand->menuSubscreen+1 : 0;
+        auto& t=totals[hand->menuContext][subBucket][known ? (rec.draw<0 ? 0 : 1) : 2];
         if(!known) ++t.unknown;else if(rec.draw==hand->eye) ++t.agree;else ++t.mismatch;
         t.refused+=hand->refused[0]+hand->refused[1];t.miss+=hand->waMiss;
+        if(hand->poseGen && t.lastPose==hand->poseGen)++t.repeatPose;
+        else if(hand->poseGen)++t.newPose;
+        t.lastPose=hand->poseGen;
         if(known && rec.draw!=hand->eye) {
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
-                "menu/hands-mismatch: context=%d completedPresent=%u handEye=%d drawEye=%d decision=%c jump=%.3f ipd=%.3f pose=%u placed=%u/%u refused=%u/%u weaponHit=%u weaponMiss=%u; completed draw identity, diagnostic only",
-                hand->menuContext,wanted+1,(int)hand->eye,rec.draw,hand->why,hand->d,hand->ipdUU,hand->poseGen,
+                "menu/hands-mismatch: context=%d sub=%d completedPresent=%u handEye=%d drawEye=%d decision=%c jump=%.3f ipd=%.3f pose=%u placed=%u/%u refused=%u/%u weaponHit=%u weaponMiss=%u; completed draw identity, diagnostic only",
+                hand->menuContext,hand->menuSubscreen,wanted+1,(int)hand->eye,rec.draw,hand->why,hand->d,hand->ipdUU,hand->poseGen,
                 hand->placed[0],hand->placed[1],hand->refused[0],hand->refused[1],hand->waHit,hand->waMiss);
         }
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-            "menu/hands: context=%d completedPresent=%u handEye=%d drawEye=%d known=%d decision=%c "
-            "jump=%.3f ipd=%.3f pose=%u agree=%u mismatch=%u unknown=%u refused=%u weaponMiss=%u; "
-            "totals ONLY for this context and draw-eye bucket (0=unknown); misses include unassociated weapon candidates",
-            hand->menuContext,wanted+1,(int)hand->eye,rec.draw,known,hand->why,hand->d,hand->ipdUU,
-            hand->poseGen,t.agree,t.mismatch,t.unknown,t.refused,t.miss);
+            "menu/hands: context=%d sub=%d completedPresent=%u handEye=%d drawEye=%d known=%d decision=%c "
+            "jump=%.3f ipd=%.3f pose=%u agree=%u mismatch=%u unknown=%u refused=%u weaponMiss=%u newPose=%u repeatPose=%u; "
+            "totals ONLY for this context/subscreen and draw-eye bucket (0=unknown); misses include unassociated weapon candidates",
+            hand->menuContext,hand->menuSubscreen,wanted+1,(int)hand->eye,rec.draw,known,hand->why,hand->d,hand->ipdUU,
+            hand->poseGen,t.agree,t.mismatch,t.unknown,t.refused,t.miss,t.newPose,t.repeatPose);
     }
 }
 
