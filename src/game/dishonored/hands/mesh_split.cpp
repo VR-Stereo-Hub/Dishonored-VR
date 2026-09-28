@@ -3339,13 +3339,27 @@ static bool OhActive()
     const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
     const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
     const LONG left = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0);
-    const bool empty = age <= 1000u && right == 0 && (left == 0 || left == 1);
     const ULONGLONG now = GetTickCount64();
-    if (!empty) { g_ohEmptySince = 0; return false; }
+    // The inventory read runs on the script lane's per-frame camera event, which the game stops
+    // while it is paused: about a second into the pause menu (or any other menu) the read went
+    // stale and the right hand curled back into the fist. Nothing can be equipped or holstered
+    // while a menu is up, so a stale read INSIDE a menu keeps the verdict the menu opened with.
+    // Outside a menu a stale read is still "unknown", never "empty".
+    const bool inMenu = g_menuOpen || g_inMenu;
+    static bool s_ohOpenAtMenu = false;
+    if (age > 1000u && inMenu) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "hands/openright: inventory read %u ms old inside a menu (the game is paused, so the script lane "
+            "does not read it) - keeping the %s the menu opened with", age, s_ohOpenAtMenu ? "OPEN hand" : "game's pose");
+        return s_ohOpenAtMenu;
+    }
+    const bool empty = age <= 1000u && right == 0 && (left == 0 || left == 1);
+    if (!empty) { g_ohEmptySince = 0; s_ohOpenAtMenu = false; return false; }
     if (!g_ohEmptySince) g_ohEmptySince = now;
     // A short settle: the socket turns "holstered" partway through the holster clip, and a
     // swap passes through empty for a few frames. Drawing the sword leaves at once.
-    return now - g_ohEmptySince >= 250;
+    s_ohOpenAtMenu = now - g_ohEmptySince >= 250;
+    return s_ohOpenAtMenu;
 }
 
 // buf: the palette about to be uploaded for the RIGHT hand (already placed); src: the game's own.
