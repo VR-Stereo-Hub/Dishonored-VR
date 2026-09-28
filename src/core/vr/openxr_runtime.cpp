@@ -2196,6 +2196,7 @@ void teardown_session(const char* why) {
     if (g_space != XR_NULL_HANDLE) { xrDestroySpace(g_space); g_space = XR_NULL_HANDLE; }
     if (g_session != XR_NULL_HANDLE) { xrDestroySession(g_session); g_session = XR_NULL_HANDLE; }
     dvr::bridge_profile::reset();
+    dvr::afw::shutdown();   // VR-39: its D3D11 objects belong to this device
     if (g_context) { g_context->Release(); g_context = nullptr; }
     if (g_device) { g_device->Release(); g_device = nullptr; }
     g_sessionBegun = false;
@@ -4612,11 +4613,13 @@ void on_present_end(ID3D11Texture2D* frame) {
                                                      {vp.position.x, vp.position.y, vp.position.z}};
                                         }
                                         const bool vpOk = rec.renderVpOk && rec.renderPosOk;
+                                        const float rotator[3] = {rec.cam.pitchDeg, rec.cam.yawDeg, rec.cam.rollDeg};
                                         dvr::afw::note_capture(g_device, g_context, srEye, backbuffer,
                                                                dvr::capture::delivered_serial(), pose,
                                                                rec.cam.bodyOk, rec.cam.bodyYawDeg, tg,
                                                                vpOk ? rec.renderVp : nullptr,
-                                                               vpOk ? rec.renderPos : nullptr);
+                                                               vpOk ? rec.renderPos : nullptr,
+                                                               rec.cam.ok ? rotator : nullptr);
                                     }
                                     g_eyePoseGen[srEye] = rec.track.gen;
                                     g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag
@@ -4800,7 +4803,8 @@ void on_present_end(ID3D11Texture2D* frame) {
                                     ID3D11Texture2D* hdst = g_images[held][hIdx].texture;
                                     dvr::afw::Pose tp{};
                                     const char* why = nullptr;
-                                    heldWarped = dvr::afw::warp_held(g_device, g_context, held, fresh, hdst, g_swapW,
+                                    heldWarped = dvr::afw::warp_held(g_device, g_context, held, fresh,
+                                                                     dvr::capture::delivered_serial(), hdst, g_swapW,
                                                                      g_swapH, tanClaimH, tanClaimV, &tp, &why);
                                     if (heldWarped) {
                                         projViews[held].pose.orientation = {tp.q[0], tp.q[1], tp.q[2], tp.q[3]};

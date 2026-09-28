@@ -1407,3 +1407,11 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   (walking included), gated each present by two checks against the XR pose model. Prior art: PureDark's
   AFW (alternate eye plus previous frame), Oculus Stereo Shading Reprojection. Each eye's depth is copied
   at its own capture: the shared ring is a transport, not storage.
+
+- **2026-09-28 - AFW seeds each per-pixel search from a depth-tested mesh of the source (VR-39).**
+  A fixed-point search settles on whichever surface its seed leads to, so fixed seed depths miss thin or
+  near geometry and cannot rank occluders. Each source is first carried into the held eye's view as a
+  grid mesh with a depth buffer (the z-buffer names the nearest surface at every texel). The search then
+  only refines it, and both sources are ranked in the held eye's own depth. The fresh eye decides
+  staleness: a held point it sees through has moved. Grid step 2 at half resolution is the measured
+  trade-off (about 1.5 ms at 2750x2850 on an RTX 4070 Ti SUPER; step 4 misses a one-pixel edge ring).

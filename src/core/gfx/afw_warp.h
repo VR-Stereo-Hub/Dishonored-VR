@@ -16,9 +16,11 @@
 //                   world an old hand or a turn uncovered in the held image
 //   the held eye    its own last image, carried by the head change and the body yaw since it: the
 //                   world, from this eye's own viewpoint (true stereo, its own shading)
-// Each is a short fixed-point search back through that image's depth (a near seed for the hands, a
-// far one for the world). The rebuilt eye is submitted with the fresh generation's pose, so both
-// eyes of the frame claim one head pose and the compositor's own late warp treats them alike.
+// Each source is first carried into the held eye's view as a coarse depth-tested mesh (so the nearest
+// surface at every texel is known, thin and near objects included), then refined per pixel through
+// its depth; the two are compared in the held eye's own depth. A held point the fresh eye sees
+// through (it moved) is stale and gives way. The rebuilt eye is submitted with the fresh generation's
+// pose, so both eyes of the frame claim one head pose and the compositor's late warp treats them alike.
 //
 // Depth is the scene target's alpha (linear view depth, depth units; core/gfx/depth_probe.h), copied
 // per eye at its capture (the shared ring moves on each present), scaled to metres by [Clarity]
@@ -52,6 +54,9 @@ bool stereo();
 // and the body yaw alone (walking lags a tick).
 void set_matrices(bool on, const char* who);
 bool matrices();
+// The last rebuild's matrix verdict: 0 unused, 1 used, 2 no matrices, 3-6 refused by the basis,
+// turn, eye or camera check, 7 switched off (diagnostics and the host test).
+int matrix_verdict();
 // Tints the held eye by source; `afw debug on|off`.
 void set_debug(bool on, const char* who);
 bool debug();
@@ -65,23 +70,27 @@ void set_world_scale(float uuPerM);
 // RENDER (present) thread, at the capture of a fresh eye: keep a copy of its image and its depth, and
 // what it needs to be used one present later. `targets` are both eyes' view poses of the SAME locate
 // generation as this image - the pose the OTHER (held) eye is rebuilt at this present. `vp16`/`c5`
-// are the pose record's rendered camera-relative view-projection and c5 (nullptr when the record
-// has none).
+// are the pose record's rendered camera-relative view-projection and c5, `rotator` its camera
+// (pitch, yaw, roll in degrees); nullptr when the record has none.
 void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* frame,
                   uint32_t grabSerial, const Pose& pose, bool bodyOk, float bodyYawDeg,
-                  const Pose targets[2], const float* vp16, const float* c5);
+                  const Pose targets[2], const float* vp16, const float* c5, const float* rotator);
 
 // RENDER thread, before the frame's layer is built: rebuild the held eye into `dst` (that eye's
-// acquired swapchain image, w x h). `fresh` is the eye captured this present; tanH/V the symmetric
-// fov the layer claims. True = drawn; `outPose` is the pose to submit it with. False (with the
-// reason) = nothing drawn: the caller keeps the rotation-only path.
-bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh, ID3D11Texture2D* dst,
-               uint32_t w, uint32_t h, float tanH, float tanV, Pose* outPose, const char** why);
+// acquired swapchain image, w x h). `fresh` is the eye captured this present and `freshSerial` the
+// grab serial the capture delivered this present (a record from an earlier present is refused);
+// tanH/V the symmetric fov the layer claims. True = drawn; `outPose` is the pose to submit it with.
+// False (with the reason) = nothing drawn: the caller keeps the rotation-only path.
+bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh, uint32_t freshSerial,
+               ID3D11Texture2D* dst, uint32_t w, uint32_t h, float tanH, float tanV, Pose* outPose,
+               const char** why);
 
-// Is there a held image for `held` (and a fresh one for the other eye) to warp? Checked BEFORE the
-// caller acquires the held swapchain image, so an acquired image is never released unwritten.
+// Is there a fresh image in the other eye to rebuild `held` from (the held eye's own image is
+// optional)? Checked BEFORE the caller acquires the held swapchain image, so an acquired image is
+// never released unwritten.
 bool has_held(int held);
-// The fallback after an acquire: the held image copied as it is (rotation-only, its own pose).
+// The fallback after an acquire: the held image copied as it is (rotation-only, its own pose), or
+// the fresh one when the held eye has none.
 bool copy_held(ID3D11DeviceContext* ctx, int held, ID3D11Texture2D* dst);
 
 void shutdown();

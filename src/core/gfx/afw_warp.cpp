@@ -3,6 +3,7 @@
 #include "core/gfx/afw_warp.h"
 
 #include "core/gfx/clarity.h"
+#include "core/gfx/clarity_math.h"
 #include "core/gfx/depth_probe.h"
 #include "core/util/log.h"
 
@@ -21,26 +22,28 @@ namespace {
 typedef HRESULT (WINAPI *PFN_D3DCompile)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR,
                                          LPCSTR, UINT, UINT, ID3DBlob**, ID3DBlob**);
 
-// Rows are float4 with w unused. s/f rows map the held/fresh image's view space to tracking space
-// (R, not transposed); d rows map tracking space into the target view (R_dst^T); y is the world's
-// rotation in tracking space since the held image (Ry, about the head centre yc).
+// Three passes per rebuild.
 //
-// Per target pixel, in order (the first that holds wins):
-//   1 STEREO NEAR  the fresh eye (this instant) solved from a near seed: a consistent sample nearer
-//                  than the body threshold is the hands/weapon as they are NOW -> no temporal ghost
-//   2 TEMPORAL     the held eye's own last image, world hypothesis: a consistent sample at or beyond
-//                  the body threshold is the world from this eye's own viewpoint (true stereo,
-//                  view-dependent shading intact). The world moves by the GAME's own matrices when
-//                  both images carry them (mD.w > 0: head, stick yaw AND walking, the camera-relative
-//                  view-projection each image was drawn with, as the DLSS vectors use it), else by
-//                  the head change and the body yaw alone (walking lags a tick)
-//   3 STEREO FAR   the fresh eye from a far seed: the world where the held image has only an old
-//                  hand (the region a moving hand or a turn uncovered)
-//   4 last resort  whichever of 2/3 did not land on a near sample
-// Without a fresh depth (prm3.x = 0) the temporal body/world split of the first version runs. It
-// cannot see behind the old hand: where a turn uncovers the world the hand hid, the world search lands
-// on the hand again and a copy of it trails (the host test measures ~26% of the hand at 5 deg; the
-// fresh eye's colour cannot fill it without its depth - the fresh eye's own hand sits there).
+// 1-2 SEED MAPS (vsmesh/psmesh), one per source image: a coarse grid over the source's depth is
+//     carried into the TARGET view (the held eye at the fresh generation) and rasterised with a depth
+//     test, so every target texel learns which source point is NEAREST there - thin and near objects
+//     included, which no fixed seed depth can promise. Triangles that span a depth break (a stretched
+//     sheet across a disocclusion) are flagged by how little source they cover per target texel.
+// 3   COMPOSE (psmain), full size: each source's seed is refined by a few fixed-point steps through
+//     its depth, and the two candidates are compared in TARGET-view depth:
+//       fresh, nearer than the body threshold -> the hands/weapon NOW (both eyes, one instant)
+//       held, consistent, not stale, not behind a nearer fresh surface -> the world from this eye's
+//            own viewpoint (true stereo, its own shading)
+//       fresh -> the rest (what moved, what the held image could not see)
+//     "Stale": the held point carried into the fresh view lies in FRONT of what the fresh eye sees
+//     there - the fresh eye sees through it, so it moved (an old hand, a weapon, an NPC edge).
+//
+// Rows are float4 with w unused. s/f rows map the held/fresh image's view space to tracking space
+// (R); d rows map tracking space into the target view (R^T); y is the world's yaw since the held
+// image about yc. The held eye's world moves by the game's own matrices when both images carry them
+// (prm2.w = uu per depth unit > 0): hI/hC invert the held image's clip rows (x, y, w as linear
+// forms of the camera-relative point), tA/tB/tW project into the target, mD = held camera minus
+// target camera (uu). Otherwise by the XR poses and the body yaw (walking then lags a tick).
 const char* kSrc =
     "struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };\n"
     "VSOut vsmain(uint id : SV_VertexID) {\n"
@@ -51,6 +54,8 @@ const char* kSrc =
     "Texture2D heldDepth : register(t1);\n"
     "Texture2D freshTex : register(t2);\n"
     "Texture2D freshDepth : register(t3);\n"
+    "Texture2D seedF : register(t4);\n"
+    "Texture2D seedH : register(t5);\n"
     "SamplerState linSamp : register(s0);\n"
     "SamplerState pointSamp : register(s1);\n"
     "cbuffer P : register(b0) {\n"
@@ -59,65 +64,68 @@ const char* kSrc =
     "    float4 d0, d1, d2, dp;\n"      // target: R^T rows, position
     "    float4 y0, y1, y2, yc;\n"      // world yaw rows, centre
     "    float4 prm;\n"                  // tanH, tanV, metres per depth unit, body threshold (units)
-    "    float4 prm2;\n"                 // target w, h, tolerance (target texels), near seed (units)
-    "    float4 prm3;\n"                 // stereo on, temporal on, debug tint, second near seed (units)
-    "    float4 hA, hB, hW;\n"           // held image: clip x, y, w as linear forms of the camera-relative point
-    "    float4 tA, tB, tW;\n"           // the target (the fresh image's matrix at the held eye's camera)
-    "    float4 mD;\n"                   // held camera minus target camera (uu), uu per depth unit (0 = matrices off)
+    "    float4 prm2;\n"                 // target w, h, tolerance (target texels), uu per unit (0 = matrices off)
+    "    float4 prm3;\n"                 // stereo on, temporal on, debug tint, stale tolerance (relative)
+    "    float4 hI0, hI1, hI2, hC;\n"    // held clip rows inverted; their constants (A.w, B.w, W.w)
+    "    float4 tA, tB, tW;\n"           // target clip rows
+    "    float4 mD;\n"                   // held camera minus target camera (uu)
+    "    float4 prm4;\n"                 // one grid step in uv: fresh x, y, held x, y
+    "};\n"
+    "cbuffer M : register(b1) {\n"
+    "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
+    "    float4 mp2;\n"                  // cells per row, seed map w, h, stretch area threshold
     "};\n"
     "float3 viewDir(float2 uv) { float2 n = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0); return float3(n.x * prm.x, n.y * prm.y, -1.0); }\n"
-    "float2 toUV(float3 L) { float iz = 1.0 / max(-L.z, 1e-4); float2 n = float2(L.x * iz / prm.x, L.y * iz / prm.y);\n"
-    "    return float2(n.x * 0.5 + 0.5, 0.5 - n.y * 0.5); }\n"
+    "float2 ndcUV(float2 n) { return float2(n.x * 0.5 + 0.5, 0.5 - n.y * 0.5); }\n"
     "float3 mr(float4 a, float4 b, float4 c, float3 v) { return float3(dot(a.xyz, v), dot(b.xyz, v), dot(c.xyz, v)); }\n"
     "float3 mc(float4 a, float4 b, float4 c, float3 v) { return a.xyz * v.x + b.xyz * v.y + c.xyz * v.z; }\n"
     "float zH(float2 uv) { float z = heldDepth.SampleLevel(pointSamp, uv, 0).r; return z > 0.0 ? z : 60000.0; }\n"
     "float zF(float2 uv) { float z = freshDepth.SampleLevel(pointSamp, uv, 0).r; return z > 0.0 ? z : 60000.0; }\n"
-    "float2 fwdH(float2 s, float z, bool world) {\n"
+    // A target-view point (metres) to (ndc x, ndc y, depth units); behind the eye -> far off-screen.
+    "float3 toT(float3 L) { float zt = -L.z; if (!(zt > 1e-5)) return float3(9, 9, -1);\n"
+    "    return float3(L.x / (zt * prm.x), L.y / (zt * prm.y), zt / prm.z); }\n"
+    "float3 mapF(float2 s, float z) { return toT(mr(d0, d1, d2, mr(f0, f1, f2, viewDir(s) * (z * prm.z)) + fp.xyz - dp.xyz)); }\n"
+    "float3 mapHx(float2 s, float z, bool world) {\n"
     "    float3 W = mr(s0, s1, s2, viewDir(s) * (z * prm.z)) + sp.xyz;\n"
     "    if (world) W = mr(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
-    "    return toUV(mr(d0, d1, d2, W - dp.xyz));\n"
+    "    return toT(mr(d0, d1, d2, W - dp.xyz));\n"
     "}\n"
-    "float2 fwdF(float2 s, float z) { return toUV(mr(d0, d1, d2, mr(f0, f1, f2, viewDir(s) * (z * prm.z)) + fp.xyz - dp.xyz)); }\n"
-    // The game-matrix world: a held pixel's camera-relative point from its NDC and view depth (the
-    // DLSS guide's solve), moved to the target camera, projected through the target's matrix.
-    "float3 relFrom(float4 A, float4 B, float4 Wr, float2 uv, float w) {\n"
-    "    float nx = uv.x * 2.0 - 1.0, ny = 1.0 - uv.y * 2.0;\n"
-    "    float3 r0 = A.xyz - nx * Wr.xyz, r1 = B.xyz - ny * Wr.xyz, r2 = Wr.xyz;\n"
-    "    float3 rhs = float3(nx * Wr.w - A.w, ny * Wr.w - B.w, w - Wr.w);\n"
-    "    float3 c0 = cross(r1, r2), c1 = cross(r2, r0), c2 = cross(r0, r1);\n"
-    "    float det = dot(r0, c0);\n"
-    "    return (rhs.x * c0 + rhs.y * c1 + rhs.z * c2) / (abs(det) > 1e-20 ? det : 1e-20);\n"
+    "float3 mapH(float2 s, float z) {\n"
+    "    if (prm2.w > 0.0) {\n"
+    "        float2 n = float2(s.x * 2.0 - 1.0, 1.0 - s.y * 2.0); float w = z * prm2.w;\n"
+    "        float3 P = mr(hI0, hI1, hI2, float3(n.x * w - hC.x, n.y * w - hC.y, w - hC.z)) + mD.xyz;\n"
+    "        float cw = dot(tW.xyz, P) + tW.w; if (!(cw > 1e-3)) return float3(9, 9, -1);\n"
+    "        return float3((dot(tA.xyz, P) + tA.w) / cw, (dot(tB.xyz, P) + tB.w) / cw, cw / prm2.w);\n"
+    "    }\n"
+    "    return mapHx(s, z, true);\n"
     "}\n"
-    "float2 projM(float4 A, float4 B, float4 Wr, float3 P) {\n"
-    "    float w = max(dot(Wr.xyz, P) + Wr.w, 1e-3);\n"
-    "    return float2(0.5 + 0.5 * (dot(A.xyz, P) + A.w) / w, 0.5 - 0.5 * (dot(B.xyz, P) + B.w) / w);\n"
+    // Refine a seed: fixed-point steps through the source's depth. Out: source uv, target depth, error (target texels).
+    "float2 refineF(float2 t, float2 s, out float zt, out float err) {\n"
+    "    float3 m;\n"
+    "    [unroll] for (int i = 0; i < 3; ++i) { m = mapF(s, zF(s)); s = saturate(s + (t - ndcUV(m.xy))); }\n"
+    "    m = mapF(s, zF(s)); zt = m.z; err = m.z > 0 ? length((ndcUV(m.xy) - t) * prm2.xy) : 1e9; return s;\n"
     "}\n"
-    "float2 fwdHw(float2 s, float z, bool world) {\n"
-    "    if (world && mD.w > 0.0) return projM(tA, tB, tW, relFrom(hA, hB, hW, s, z * mD.w) + mD.xyz);\n"
-    "    return fwdH(s, z, world);\n"
+    "float2 refineH(float2 t, float2 s, out float zt, out float err) {\n"
+    "    float3 m;\n"
+    "    [unroll] for (int i = 0; i < 3; ++i) { m = mapH(s, zH(s)); s = saturate(s + (t - ndcUV(m.xy))); }\n"
+    "    m = mapH(s, zH(s)); zt = m.z; err = m.z > 0 ? length((ndcUV(m.xy) - t) * prm2.xy) : 1e9; return s;\n"
     "}\n"
-    // Seeds: the target ray at a depth (units), carried back into a source image. A fixed-point search
-    // settles on ONE surface that maps to the target pixel; where a near and a far surface both do (an
-    // edge that moved), the seed picks which. So each source is searched from more than one depth and
-    // the NEAREST consistent answer wins - the z-buffer rule.
-    "float2 seedHw(float2 t, bool world, float zu) {\n"
-    "    if (world && mD.w > 0.0) return projM(hA, hB, hW, relFrom(tA, tB, tW, t, zu * mD.w) - mD.xyz);\n"
-    "    float3 W = mc(d0, d1, d2, viewDir(t) * (zu * prm.z)) + dp.xyz;\n"
-    "    if (world) W = mc(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
-    "    return toUV(mc(s0, s1, s2, W - sp.xyz));\n"
+    // The body hypothesis (no fresh depth only): the held image's near content fixed in tracking space.
+    "float2 solveHb(float2 t, out float zt, out float err) {\n"
+    "    float2 s = t; float3 m;\n"
+    "    [unroll] for (int i = 0; i < 4; ++i) { m = mapHx(s, zH(s), false); s = saturate(s + (t - ndcUV(m.xy))); }\n"
+    "    m = mapHx(s, zH(s), false); zt = m.z; err = m.z > 0 ? length((ndcUV(m.xy) - t) * prm2.xy) : 1e9; return s;\n"
     "}\n"
-    "float2 seedF(float2 t, float zu) { float3 W = mc(d0, d1, d2, viewDir(t) * (zu * prm.z)) + dp.xyz; return toUV(mc(f0, f1, f2, W - fp.xyz)); }\n"
-    "float2 solveH(float2 t, bool world, float zSeed, out float z, out float err) {\n"
-    "    float2 s = saturate(seedHw(t, world, zSeed));\n"
-    "    [unroll] for (int i = 0; i < 4; ++i) { z = zH(s); s = saturate(s + (t - fwdHw(s, z, world))); }\n"
-    "    z = zH(s); err = length((fwdHw(s, z, world) - t) * prm2.xy); return s;\n"
-    "}\n"
-    "float2 solveF(float2 t, float zSeed, out float z, out float err) {\n"
-    "    float2 s = saturate(seedF(t, zSeed));\n"
-    "    [unroll] for (int i = 0; i < 5; ++i) { z = zF(s); s = saturate(s + (t - fwdF(s, z))); }\n"
-    "    z = zF(s); err = length((fwdF(s, z) - t) * prm2.xy); return s;\n"
-    "}\n"
-    // Debug tint: green stereo near (hands now), none temporal, blue stereo far, red last resort,
+    // An edge rescue: a seed from a sheet (a grid cell across a depth break) sits between the two sides,
+    // and a search from it that lands FARTHER than the seed said slid off the near side: the nearest of
+    // its four grid neighbours is the near side, searched as a second candidate.
+    "float2 nearF(float2 s) { float2 b = s; float bz = zF(s); float2 o = prm4.xy;\n"
+    "    float2 c[4] = { s + float2(o.x, 0), s - float2(o.x, 0), s + float2(0, o.y), s - float2(0, o.y) };\n"
+    "    [unroll] for (int k = 0; k < 4; ++k) { float z = zF(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
+    "float2 nearH(float2 s) { float2 b = s; float bz = zH(s); float2 o = prm4.zw;\n"
+    "    float2 c[4] = { s + float2(o.x, 0), s - float2(o.x, 0), s + float2(0, o.y), s - float2(0, o.y) };\n"
+    "    [unroll] for (int k = 0; k < 4; ++k) { float z = zH(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
+    // Debug tint: green fresh near (hands now), none held world, blue fresh world, red last resort,
     // yellow the temporal body hypothesis (no fresh depth).
     "float4 shade(Texture2D tex, float2 uv, int cls) {\n"
     "    float3 c = tex.SampleLevel(linSamp, uv, 0).rgb;\n"
@@ -128,40 +136,78 @@ const char* kSrc =
     "    }\n"
     "    return float4(c, 1.0);\n"
     "}\n"
+    // A true disocclusion (no source shows this point): extend the BACKGROUND, never the near object -
+    // the farthest covered seed along the row (the stereo and turn baselines are horizontal), either map.
+    "float4 fill(float2 t, bool st, bool tp) {\n"
+    "    float best = -1.0; float2 bs = t; bool fromF = st;\n"
+    "    [unroll] for (int k = 0; k < 6; ++k) {\n"
+    "        float off = (float)(4 << k) / prm2.x;\n"
+    "        [unroll] for (int sd = -1; sd <= 1; sd += 2) {\n"
+    "            float2 p = float2(t.x + sd * off, t.y);\n"
+    "            if (st) { float4 a = seedF.SampleLevel(pointSamp, p, 0); if (a.a > 0 && a.z > best) { best = a.z; bs = a.xy; fromF = true; } }\n"
+    "            if (tp) { float4 b = seedH.SampleLevel(pointSamp, p, 0); if (b.a > 0 && b.z > best) { best = b.z; bs = b.xy; fromF = false; } }\n"
+    "        }\n"
+    "    }\n"
+    "    return fromF ? shade(freshTex, bs, 3) : shade(heldTex, bs, 3);\n"
+    "}\n"
     "float4 psmain(VSOut i) : SV_Target {\n"
     "    float2 t = i.uv;\n"
     "    float tol = prm2.z, body = prm.w;\n"
     "    bool st = prm3.x > 0.5, tp = prm3.y > 0.5;\n"
-    "    if (st) {\n"
-    "        float zn, en; float2 sn = solveF(t, prm2.w, zn, en);\n"
-    "        if (en < tol && zn < body) return shade(freshTex, sn, 0);\n"
-    "        sn = solveF(t, prm3.w, zn, en);\n"
-    "        if (en < tol && zn < body) return shade(freshTex, sn, 0);\n"
-    "    }\n"
-    // The world: the fresh eye from a far and a mid seed, the held eye from a far seed and from the
-    // fresh eye's depth. Each keeps its nearest consistent world answer; then the nearer of the two
-    // sources wins (within 4% they agree and the held eye's own view is kept).
-    "    if (tp && st) {\n"
-    "        float mid = 1.5 * body, big = 60000.0;\n"
-    "        float zf, ef, z2, e2; float2 sf = solveF(t, big, zf, ef), s2 = solveF(t, mid, z2, e2);\n"
-    "        bool fOk = ef < tol && zf >= body, f2 = e2 < tol && z2 >= body;\n"
-    "        if (f2 && (!fOk || z2 < zf)) { sf = s2; zf = z2; fOk = true; }\n"
-    "        float zw, ew, z3, e3; float2 sw = solveH(t, true, big, zw, ew), s3 = solveH(t, true, fOk ? zf : mid, z3, e3);\n"
-    "        bool hOk = ew < tol && zw >= body, h3 = e3 < tol && z3 >= body;\n"
-    "        if (h3 && (!hOk || z3 < zw)) { sw = s3; zw = z3; hOk = true; }\n"
-    "        if (hOk && (!fOk || zw <= zf * 1.04)) return shade(heldTex, sw, 1);\n"
-    "        if (fOk) return shade(freshTex, sf, 2);\n"
-    "        return zw >= body ? shade(heldTex, sw, 3) : shade(freshTex, sf, 3);\n"
+    "    float tF = 1e9, eF = 1e9, tH = 1e9, eH = 1e9;\n"
+    "    float2 sF = t, sH = t;\n"
+    "    float4 kF = 0, kH = 0;\n"
+    "    if (st) { kF = seedF.SampleLevel(pointSamp, t, 0); sF = refineF(t, kF.a > 0 ? kF.xy : t, tF, eF);\n"
+    "        if (kF.a > 0 && (kF.a < 0.75 || tF > kF.z / max(1.0 - kF.z, 1e-4) * 1.05 + 0.01)) { float ta, ea; float2 sa = refineF(t, nearF(kF.xy), ta, ea);\n"
+    "            if (ea < prm2.z && (!(eF < prm2.z) || ta < tF)) { sF = sa; tF = ta; eF = ea; } } }\n"
+    "    if (tp) { kH = seedH.SampleLevel(pointSamp, t, 0); sH = refineH(t, kH.a > 0 ? kH.xy : t, tH, eH);\n"
+    "        if (kH.a > 0 && (kH.a < 0.75 || tH > kH.z / max(1.0 - kH.z, 1e-4) * 1.05 + 0.01)) { float ta, ea; float2 sa = refineH(t, nearH(kH.xy), ta, ea);\n"
+    "            if (ea < prm2.z && (!(eH < prm2.z) || ta < tH)) { sH = sa; tH = ta; eH = ea; } } }\n"
+    "    bool okF = eF < tol, okH = eH < tol;\n"
+    "    if (okF && tF < body) return shade(freshTex, sF, 0);\n"
+    "    if (st && tp) {\n"
+    // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
+    "        bool stale = false;\n"
+    "        if (okH) {\n"
+    "            float3 Wt = mc(d0, d1, d2, viewDir(t) * (tH * prm.z)) + dp.xyz;\n"
+    "            float3 m = toT(mc(f0, f1, f2, Wt - fp.xyz));\n"
+    "            float2 uf = ndcUV(m.xy);\n"
+    "            if (m.z > 0 && all(uf > 0.0) && all(uf < 1.0)) stale = zF(uf) > m.z * (1.0 + prm3.w) + 0.01;\n"
+    "        }\n"
+    "        if (okH && tH >= body && !stale && !(okF && tF < tH * (1.0 - prm3.w))) return shade(heldTex, sH, 1);\n"
+    "        if (okF) return shade(freshTex, sF, 2);\n"
+    "        if (okH && !stale) return shade(heldTex, sH, 3);\n"
+    "        return fill(t, st, tp);\n"
     "    }\n"
     "    if (tp) {\n"
-    "        float zb, eb, zw, ew;\n"
-    "        float2 sb = solveH(t, false, 60000.0, zb, eb);\n"
+    "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
     "        if (zb < body && eb < tol) return shade(heldTex, sb, 4);\n"
-    "        float2 sw = solveH(t, true, 60000.0, zw, ew);\n"
-    "        return shade(heldTex, sw, 1);\n"
+    "        return shade(heldTex, sH, okH ? 1 : 3);\n"
     "    }\n"
-    "    float zf, ef; float2 sf = solveF(t, 60000.0, zf, ef);\n"
-    "    return shade(freshTex, sf, ef < tol ? 2 : 3);\n"
+    "    return okF ? shade(freshTex, sF, 2) : fill(t, true, false);\n"
+    "}\n"
+    // The seed maps: a grid over the source's depth, carried into the target and depth-tested.
+    "struct MOut { float4 pos : SV_Position; float3 src : TEXCOORD0; };\n"
+    "MOut vsmesh(uint id : SV_VertexID) {\n"
+    "    uint cell = id / 6, k = id % 6;\n"
+    "    uint gw = (uint)mp2.x;\n"
+    "    uint2 c = uint2(cell % gw, cell / gw);\n"
+    "    uint2 off = k == 0 ? uint2(0, 0) : k == 1 ? uint2(1, 0) : k == 2 ? uint2(0, 1) : k == 3 ? uint2(1, 0) : k == 4 ? uint2(1, 1) : uint2(0, 1);\n"
+    "    float2 px = min(float2(c + off) * mp.y, mp.zw - 1.0) + 0.5;\n"
+    "    float2 s = px / mp.zw;\n"
+    "    float3 m = mp.x < 0.5 ? mapF(s, zF(s)) : mapH(s, zH(s));\n"
+    "    MOut o;\n"
+    "    o.pos = (m.z > 0 && all(abs(m.xy) < 8.0)) ? float4(m.xy, m.z / (m.z + 1.0), 1.0) : float4(0, 0, -1, 1);\n"
+    "    o.src = float3(s, m.z);\n"
+    "    return o;\n"
+    "}\n"
+    "float4 psmesh(MOut i) : SV_Target {\n"
+    // Source texels per seed-map texel: a surface keeps about one grid's worth; a sheet across a depth
+    // break covers almost no source per target texel.
+    "    float2 ax = ddx(i.src.xy) * mp.zw, ay = ddy(i.src.xy) * mp.zw;\n"
+    "    float area = abs(ax.x * ay.y - ax.y * ay.x);\n"
+    "    float nominal = (mp.z / mp2.y) * (mp.w / mp2.z);\n"
+    "    return float4(i.src.xy, i.src.z / (i.src.z + 1.0), area < nominal * mp2.w ? 0.5 : 1.0);\n"
     "}\n"
     // The depth snapshot: the scene target's alpha (linear view depth) into the eye's own R16F.
     "float psdepth(VSOut i) : SV_Target { return heldTex.Load(int3(i.pos.xy, 0)).a; }\n";
@@ -180,6 +226,8 @@ struct Held {
     float vp[16] = {};                       // the camera-relative world view-projection it was drawn with
     float c5[3] = {};                        // its rendered c5 (the NEGATIVE camera position, uu)
     bool vpOk = false;
+    float rot[3] = {};                       // the camera rotator it was drawn with (pitch, yaw, roll, degrees)
+    bool rotOk = false;
     // Its own depth, taken from the shared ring at capture (the ring moves on; this does not).
     ID3D11Texture2D* dtex = nullptr;
     ID3D11ShaderResourceView* dsrv = nullptr;
@@ -189,31 +237,50 @@ struct Held {
 };
 Held g_held[2];
 uint64_t g_seq = 0;
+// Bumped by any thread that changes what a held image means (warp toggled, method left); the
+// render thread drops both records when it sees a new value. Records are never touched off-thread.
+std::atomic<uint32_t> g_epoch{0};
+uint32_t g_epochSeen = 0;
 
 std::atomic<bool> g_on{false}, g_stereo{true}, g_debug{false}, g_matrices{true};
 std::atomic<float> g_bodyDepth{0.40f};
 std::atomic<float> g_worldScale{100.0f};
+std::atomic<int> g_matrixVerdict{0};
 bool g_ready = false, g_failed = false;
 ID3D11VertexShader* g_vs = nullptr;
+ID3D11VertexShader* g_vsMesh = nullptr;
 ID3D11PixelShader* g_ps = nullptr;
+ID3D11PixelShader* g_psMesh = nullptr;
 ID3D11PixelShader* g_psDepth = nullptr;
 ID3D11Buffer* g_cb = nullptr;
+ID3D11Buffer* g_cbMesh = nullptr;
 ID3D11SamplerState* g_lin = nullptr;
 ID3D11SamplerState* g_point = nullptr;
 ID3D11RasterizerState* g_rs = nullptr;
 ID3D11BlendState* g_bs = nullptr;
 ID3D11DepthStencilState* g_ds = nullptr;
+ID3D11DepthStencilState* g_dsTest = nullptr;
+
+// The seed maps (the target size divided by kSeedDiv per axis) and their shared depth buffer.
+struct SeedMap { ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv = nullptr; ID3D11RenderTargetView* rtv = nullptr; };
+SeedMap g_seed[2];                           // 0 fresh, 1 held
+ID3D11Texture2D* g_seedDepth = nullptr;
+ID3D11DepthStencilView* g_seedDsv = nullptr;
+uint32_t g_seedW = 0, g_seedH = 0;
+const uint32_t kGridStep = 2;                // source texels per grid cell
+const uint32_t kSeedDiv = 2;                 // target texels per seed texel, per axis
+const float kStretchArea = 1.0f / 9.0f;      // a triangle keeping under 1/9 of its source area per texel is a sheet
 
 // Counters for the beat (render thread only).
 uint32_t g_warpsFull = 0, g_warpsTemporal = 0, g_warpsStereo = 0;
-uint32_t g_noHeld = 0, g_notFresh = 0, g_noDepth = 0, g_noRtv = 0, g_notReady = 0;
+uint32_t g_noHeld = 0, g_notFresh = 0, g_noDepth = 0, g_noRtv = 0, g_notReady = 0, g_noSeed = 0;
 uint32_t g_snaps = 0, g_snapLate = 0, g_snapMiss = 0;
-uint32_t g_mtxUsed = 0, g_mtxNoVp = 0, g_mtxTurnRefused = 0, g_mtxEyeRefused = 0;
-float g_mtxTurnMax = 0, g_mtxEyeMax = 0;
+uint32_t g_mtxUsed = 0, g_mtxNoVp = 0, g_mtxBasis = 0, g_mtxTurn = 0, g_mtxEye = 0, g_mtxCam = 0;
+float g_mtxBasisMax = 0, g_mtxTurnMax = 0, g_mtxEyeMax = 0, g_mtxCamMax = 0;
 double g_yawAbs = 0; float g_yawMax = 0;
 uint64_t g_beatMs = 0;
 
-// GPU time of the warp draw: a small ring of timestamp sets, read without waiting.
+// GPU time of the rebuild (both seed maps and the compose): a small ring of timestamp sets.
 struct Ts { ID3D11Query* dis = nullptr; ID3D11Query* a = nullptr; ID3D11Query* b = nullptr; bool pending = false; };
 const int kTs = 6;
 Ts g_ts[kTs];
@@ -242,8 +309,10 @@ struct Saved {
     ID3D11DepthStencilState* ds = nullptr; UINT sref = 0;
     ID3D11InputLayout* il = nullptr; D3D11_PRIMITIVE_TOPOLOGY topo = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
     ID3D11VertexShader* vs = nullptr; ID3D11PixelShader* ps = nullptr;
-    ID3D11Buffer* cb = nullptr;
-    ID3D11ShaderResourceView* srv[4] = {};
+    ID3D11Buffer* vcb[2] = {}; ID3D11Buffer* pcb[2] = {};
+    ID3D11ShaderResourceView* vsrv[4] = {};
+    ID3D11ShaderResourceView* srv[6] = {};
+    ID3D11SamplerState* vsamp[2] = {};
     ID3D11SamplerState* samp[2] = {};
     void save(ID3D11DeviceContext* c) {
         c->OMGetRenderTargets(1, &rtv, &dsv);
@@ -255,8 +324,11 @@ struct Saved {
         c->IAGetPrimitiveTopology(&topo);
         c->VSGetShader(&vs, nullptr, nullptr);
         c->PSGetShader(&ps, nullptr, nullptr);
-        c->PSGetConstantBuffers(0, 1, &cb);
-        c->PSGetShaderResources(0, 4, srv);
+        c->VSGetConstantBuffers(0, 2, vcb);
+        c->PSGetConstantBuffers(0, 2, pcb);
+        c->VSGetShaderResources(0, 4, vsrv);
+        c->PSGetShaderResources(0, 6, srv);
+        c->VSGetSamplers(0, 2, vsamp);
         c->PSGetSamplers(0, 2, samp);
     }
     void restore(ID3D11DeviceContext* c) {
@@ -269,14 +341,30 @@ struct Saved {
         c->IASetPrimitiveTopology(topo);
         c->VSSetShader(vs, nullptr, 0);
         c->PSSetShader(ps, nullptr, 0);
-        c->PSSetConstantBuffers(0, 1, &cb);
-        c->PSSetShaderResources(0, 4, srv);
+        c->VSSetConstantBuffers(0, 2, vcb);
+        c->PSSetConstantBuffers(0, 2, pcb);
+        c->VSSetShaderResources(0, 4, vsrv);
+        c->PSSetShaderResources(0, 6, srv);
+        c->VSSetSamplers(0, 2, vsamp);
         c->PSSetSamplers(0, 2, samp);
-        rel(rtv); rel(dsv); rel(rs); rel(bs); rel(ds); rel(il); rel(vs); rel(ps); rel(cb);
+        rel(rtv); rel(dsv); rel(rs); rel(bs); rel(ds); rel(il); rel(vs); rel(ps);
+        for (auto*& b : vcb) rel(b);
+        for (auto*& b : pcb) rel(b);
+        for (auto*& s : vsrv) rel(s);
         for (auto*& s : srv) rel(s);
+        for (auto*& s : vsamp) rel(s);
         for (auto*& s : samp) rel(s);
     }
 };
+
+bool compile_one(PFN_D3DCompile compile, const char* entry, const char* target, ID3DBlob** out) {
+    ID3DBlob* err = nullptr;
+    if (SUCCEEDED(compile(kSrc, strlen(kSrc), nullptr, nullptr, nullptr, entry, target, 0, 0, out, &err))) { rel(err); return true; }
+    DVR_ERROR("afw/warp: shader %s failed: %s - the held eye stays rotation-only", entry,
+              err ? (const char*)err->GetBufferPointer() : "?");
+    rel(err);
+    return false;
+}
 
 bool init(ID3D11Device* dev) {
     if (g_ready) return true;
@@ -284,44 +372,49 @@ bool init(ID3D11Device* dev) {
     HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
     PFN_D3DCompile compile = compiler ? (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile") : nullptr;
     if (!compile) { g_failed = true; DVR_ERROR("afw/warp: d3dcompiler_47.dll missing - the held eye stays rotation-only"); return false; }
-    ID3DBlob *vsb = nullptr, *psb = nullptr, *pdb = nullptr, *err = nullptr;
-    if (FAILED(compile(kSrc, strlen(kSrc), nullptr, nullptr, nullptr, "vsmain", "vs_4_0", 0, 0, &vsb, &err)) ||
-        FAILED(compile(kSrc, strlen(kSrc), nullptr, nullptr, nullptr, "psmain", "ps_4_0", 0, 0, &psb, &err)) ||
-        FAILED(compile(kSrc, strlen(kSrc), nullptr, nullptr, nullptr, "psdepth", "ps_4_0", 0, 0, &pdb, &err))) {
+    ID3DBlob *vsb = nullptr, *vmb = nullptr, *psb = nullptr, *pmb = nullptr, *pdb = nullptr;
+    if (!compile_one(compile, "vsmain", "vs_4_0", &vsb) || !compile_one(compile, "vsmesh", "vs_4_0", &vmb) ||
+        !compile_one(compile, "psmain", "ps_4_0", &psb) || !compile_one(compile, "psmesh", "ps_4_0", &pmb) ||
+        !compile_one(compile, "psdepth", "ps_4_0", &pdb)) {
         g_failed = true;
-        DVR_ERROR("afw/warp: shader compile failed: %s - the held eye stays rotation-only",
-                  err ? (const char*)err->GetBufferPointer() : "?");
-        rel(err); rel(vsb); rel(psb); rel(pdb);
+        rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb);
         return false;
     }
+    const char* step = "shaders";
     HRESULT hr = dev->CreateVertexShader(vsb->GetBufferPointer(), vsb->GetBufferSize(), nullptr, &g_vs);
+    if (SUCCEEDED(hr)) hr = dev->CreateVertexShader(vmb->GetBufferPointer(), vmb->GetBufferSize(), nullptr, &g_vsMesh);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), nullptr, &g_ps);
+    if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pmb->GetBufferPointer(), pmb->GetBufferSize(), nullptr, &g_psMesh);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdb->GetBufferPointer(), pdb->GetBufferSize(), nullptr, &g_psDepth);
-    rel(vsb); rel(psb); rel(pdb);
+    rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb);
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 26 * 16;   // twenty-six float4s: s f d y (4 each), prm prm2 prm3, hA hB hW tA tB tW mD
+    bd.ByteWidth = 28 * 16;   // twenty-eight float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&bd, nullptr, &g_cb);
+    if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
+    bd.ByteWidth = 2 * 16;
+    if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&bd, nullptr, &g_cbMesh);
     D3D11_SAMPLER_DESC sd = {};
     sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
     sd.MaxLOD = D3D11_FLOAT32_MAX;
-    if (SUCCEEDED(hr)) hr = dev->CreateSamplerState(&sd, &g_lin);
+    if (SUCCEEDED(hr)) { step = "samplers"; hr = dev->CreateSamplerState(&sd, &g_lin); }
     sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
     if (SUCCEEDED(hr)) hr = dev->CreateSamplerState(&sd, &g_point);
     D3D11_RASTERIZER_DESC rd = {};
     rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
-    if (SUCCEEDED(hr)) hr = dev->CreateRasterizerState(&rd, &g_rs);
+    if (SUCCEEDED(hr)) { step = "raster"; hr = dev->CreateRasterizerState(&rd, &g_rs); }
     D3D11_BLEND_DESC bl = {};
     bl.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
-    if (SUCCEEDED(hr)) hr = dev->CreateBlendState(&bl, &g_bs);
+    if (SUCCEEDED(hr)) { step = "blend"; hr = dev->CreateBlendState(&bl, &g_bs); }
     D3D11_DEPTH_STENCIL_DESC dd = {};
     dd.DepthEnable = FALSE;
-    if (SUCCEEDED(hr)) hr = dev->CreateDepthStencilState(&dd, &g_ds);
+    if (SUCCEEDED(hr)) { step = "depth state"; hr = dev->CreateDepthStencilState(&dd, &g_ds); }
+    dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc = D3D11_COMPARISON_LESS;
+    if (SUCCEEDED(hr)) hr = dev->CreateDepthStencilState(&dd, &g_dsTest);
     if (FAILED(hr)) {
         g_failed = true;
-        DVR_ERROR("afw/warp: D3D11 objects failed (0x%08lx) - the held eye stays rotation-only", (unsigned long)hr);
+        DVR_ERROR("afw/warp: D3D11 objects failed at %s (0x%08lx) - the held eye stays rotation-only", step, (unsigned long)hr);
         return false;
     }
     // GPU timing is an instrument, never a condition: a refusal only blanks the ms on the beat.
@@ -331,10 +424,40 @@ bool init(ID3D11Device* dev) {
         if (FAILED(dev->CreateQuery(&qd, &s.dis)) || FAILED(dev->CreateQuery(&qt, &s.a)) || FAILED(dev->CreateQuery(&qt, &s.b)))
             g_tsOk = false;
     g_ready = true;
-    DVR_INFO("afw/warp: ready - the held eye is rebuilt each present: the hands/weapon (nearer than %.2f depth units) "
-             "from the FRESH eye at this instant, the world from the held eye's own last image carried by the head "
-             "change and the body yaw, the uncovered world from the fresh eye (GPU timing %s)",
-             g_bodyDepth.load(), g_tsOk ? "on" : "unavailable");
+    DVR_INFO("afw/warp: ready - the held eye is rebuilt each present from both images: depth-tested seed maps (a %u-texel "
+             "grid of each image carried into the held eye's view), then per pixel the hands/weapon (nearer than %.2f depth "
+             "units) from the FRESH eye, the world from the held eye's own image unless the fresh eye sees through it "
+             "(stale), the rest from the fresh eye (GPU timing %s)", kGridStep, g_bodyDepth.load(), g_tsOk ? "on" : "unavailable");
+    return true;
+}
+
+// Seed maps sized for a target of w x h.
+bool ensure_seeds(ID3D11Device* dev, uint32_t w, uint32_t h) {
+    const uint32_t sw = (w + kSeedDiv - 1) / kSeedDiv, sh = (h + kSeedDiv - 1) / kSeedDiv;
+    if (g_seedDsv && g_seedW == sw && g_seedH == sh) return true;
+    for (SeedMap& m : g_seed) { rel(m.rtv); rel(m.srv); rel(m.tex); }
+    rel(g_seedDsv); rel(g_seedDepth); g_seedW = g_seedH = 0;
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = sw; td.Height = sh; td.MipLevels = 1; td.ArraySize = 1; td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT;
+    td.Format = DXGI_FORMAT_R16G16B16A16_UNORM; td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    HRESULT hr = S_OK; const char* step = "seed map";
+    for (SeedMap& m : g_seed) {
+        if (SUCCEEDED(hr)) hr = dev->CreateTexture2D(&td, nullptr, &m.tex);
+        if (SUCCEEDED(hr)) hr = dev->CreateShaderResourceView(m.tex, nullptr, &m.srv);
+        if (SUCCEEDED(hr)) hr = dev->CreateRenderTargetView(m.tex, nullptr, &m.rtv);
+    }
+    td.Format = DXGI_FORMAT_D32_FLOAT; td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+    if (SUCCEEDED(hr)) { step = "seed depth"; hr = dev->CreateTexture2D(&td, nullptr, &g_seedDepth); }
+    if (SUCCEEDED(hr)) hr = dev->CreateDepthStencilView(g_seedDepth, nullptr, &g_seedDsv);
+    if (FAILED(hr)) {
+        for (SeedMap& m : g_seed) { rel(m.rtv); rel(m.srv); rel(m.tex); }
+        rel(g_seedDsv); rel(g_seedDepth);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "afw/warp: seed maps %ux%u refused at %s (0x%08lx)", sw, sh, step,
+                         (unsigned long)hr);
+        return false;
+    }
+    g_seedW = sw; g_seedH = sh;
+    DVR_INFO("afw/warp: seed maps %ux%u (RGBA16 UNORM x2 + D32) for a %ux%u target", sw, sh, w, h);
     return true;
 }
 
@@ -350,20 +473,22 @@ void rows(const Pose& p, float out[3][4], bool transpose) {
     }
 }
 
-void setup_draw(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* rtv, uint32_t w, uint32_t h, ID3D11PixelShader* ps) {
+void setup_draw(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv, uint32_t w, uint32_t h,
+                ID3D11VertexShader* vs, ID3D11PixelShader* ps) {
     D3D11_VIEWPORT vp = {0, 0, (float)w, (float)h, 0, 1};
-    ctx->OMSetRenderTargets(1, &rtv, nullptr);
+    ctx->OMSetRenderTargets(1, &rtv, dsv);
     ctx->RSSetViewports(1, &vp);
     ctx->RSSetState(g_rs);
     const float bf[4] = {0, 0, 0, 0};
     ctx->OMSetBlendState(g_bs, bf, 0xffffffff);
-    ctx->OMSetDepthStencilState(g_ds, 0);
+    ctx->OMSetDepthStencilState(dsv ? g_dsTest : g_ds, 0);
     ctx->IASetInputLayout(nullptr);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ctx->VSSetShader(g_vs, nullptr, 0);
+    ctx->VSSetShader(vs, nullptr, 0);
     ctx->PSSetShader(ps, nullptr, 0);
     ID3D11SamplerState* samps[2] = {g_lin, g_point};
     ctx->PSSetSamplers(0, 2, samps);
+    ctx->VSSetSamplers(0, 2, samps);
 }
 
 // Take this eye's depth out of the shared ring into its own R16F while the ring still holds it.
@@ -377,30 +502,34 @@ bool snapshot_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, Held& h) {
         td.Width = dw; td.Height = dh; td.MipLevels = 1; td.ArraySize = 1; td.Format = DXGI_FORMAT_R16_FLOAT;
         td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT;
         td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-        if (FAILED(dev->CreateTexture2D(&td, nullptr, &h.dtex)) || FAILED(dev->CreateShaderResourceView(h.dtex, nullptr, &h.dsrv)) ||
-            FAILED(dev->CreateRenderTargetView(h.dtex, nullptr, &h.drtv))) {
+        const char* step = "texture";
+        HRESULT hr = dev->CreateTexture2D(&td, nullptr, &h.dtex);
+        if (SUCCEEDED(hr)) { step = "view"; hr = dev->CreateShaderResourceView(h.dtex, nullptr, &h.dsrv); }
+        if (SUCCEEDED(hr)) { step = "target"; hr = dev->CreateRenderTargetView(h.dtex, nullptr, &h.drtv); }
+        if (FAILED(hr)) {
             rel(h.drtv); rel(h.dsrv); rel(h.dtex); h.dw = h.dh = 0;
             dvr::depthprobe::read_done(ctx);
-            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "afw/warp: the per-eye depth copy %ux%u R16F was refused", dw, dh);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "afw/warp: the per-eye depth copy %ux%u R16F was refused at %s "
+                             "(0x%08lx)", dw, dh, step, (unsigned long)hr);
             return false;
         }
         h.dw = dw; h.dh = dh;
         DVR_INFO("afw/warp: per-eye depth copy %ux%u R16F (the ring moves on each present; this stays with its image)", dw, dh);
     }
     Saved sv; sv.save(ctx);
-    setup_draw(ctx, h.drtv, dw, dh, g_psDepth);
-    ID3D11ShaderResourceView* srvs[4] = {src, nullptr, nullptr, nullptr};
-    ctx->PSSetShaderResources(0, 4, srvs);
+    setup_draw(ctx, h.drtv, nullptr, dw, dh, g_vs, g_psDepth);
+    ID3D11ShaderResourceView* srvs[6] = {src, nullptr, nullptr, nullptr, nullptr, nullptr};
+    ctx->PSSetShaderResources(0, 6, srvs);
     ctx->Draw(3, 0);
-    ID3D11ShaderResourceView* none[4] = {};
-    ctx->PSSetShaderResources(0, 4, none);
+    ID3D11ShaderResourceView* none[6] = {};
+    ctx->PSSetShaderResources(0, 6, none);
     sv.restore(ctx);
     dvr::depthprobe::read_done(ctx);
     h.depthOk = true;
     return true;
 }
 
-// ---- the game's matrices on the CPU: the same solve the shader runs, for the per-present checks ----
+// ---- the game's matrices on the CPU ----------------------------------------------------------------
 struct Lin { double A[4], B[4], W[4]; };
 Lin lin_of(const float* vp) {   // row-vector: clip_i = sum_j P_j * M[j][i] + M[3][i]; columns 0, 1, 3
     Lin l;
@@ -411,14 +540,20 @@ void cross3(const double a[3], const double b[3], double o[3]) {
     o[0] = a[1] * b[2] - a[2] * b[1]; o[1] = a[2] * b[0] - a[0] * b[2]; o[2] = a[0] * b[1] - a[1] * b[0];
 }
 double dot3(const double a[3], const double b[3]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-bool rel_from(const Lin& l, double nx, double ny, double w, double P[3]) {
-    double r0[3], r1[3], r2[3], c0[3], c1[3], c2[3];
-    for (int k = 0; k < 3; ++k) { r0[k] = l.A[k] - nx * l.W[k]; r1[k] = l.B[k] - ny * l.W[k]; r2[k] = l.W[k]; }
-    const double rhs[3] = {nx * l.W[3] - l.A[3], ny * l.W[3] - l.B[3], w - l.W[3]};
-    cross3(r1, r2, c0); cross3(r2, r0, c1); cross3(r0, r1, c2);
-    const double det = dot3(r0, c0);
+// The inverse of the clip rows [A; B; W] (xyz), as rows: P = I (nx w - A.w, ny w - B.w, w - W.w).
+bool inverse_rows(const Lin& l, double I[3][3]) {
+    double c0[3], c1[3], c2[3];
+    cross3(l.B, l.W, c0); cross3(l.W, l.A, c1); cross3(l.A, l.B, c2);
+    const double det = dot3(l.A, c0);
     if (!(fabs(det) > 1e-20)) return false;
-    for (int k = 0; k < 3; ++k) P[k] = (rhs[0] * c0[k] + rhs[1] * c1[k] + rhs[2] * c2[k]) / det;
+    for (int k = 0; k < 3; ++k) { I[k][0] = c0[k] / det; I[k][1] = c1[k] / det; I[k][2] = c2[k] / det; }
+    return true;
+}
+bool rel_from(const Lin& l, double nx, double ny, double w, double P[3]) {
+    double I[3][3];
+    if (!inverse_rows(l, I)) return false;
+    const double r[3] = {nx * w - l.A[3], ny * w - l.B[3], w - l.W[3]};
+    for (int k = 0; k < 3; ++k) P[k] = I[k][0] * r[0] + I[k][1] * r[1] + I[k][2] * r[2];
     return true;
 }
 bool proj(const Lin& l, const double P[3], double* nx, double* ny) {
@@ -436,6 +571,115 @@ double angle_deg(double ax, double ay, double bx, double by, double tanH, double
     const double a[3] = {ax * tanH, ay * tanV, -1}, b[3] = {bx * tanH, by * tanV, -1};
     const double c = dot3(a, b) / sqrt(dot3(a, a) * dot3(b, b));
     return acos(c > 1 ? 1 : c < -1 ? -1 : c) * 57.29577951;
+}
+double axis_angle(const double a[3], const float b[3]) {
+    const double bd[3] = {b[0], b[1], b[2]};
+    const double c = dot3(a, bd) / sqrt(dot3(a, a) * dot3(bd, bd));
+    return acos(c > 1 ? 1 : c < -1 ? -1 : c) * 57.29577951;
+}
+// A matrix's world axes: w is the forward depth; x and y are right and up (Gram-Schmidt against forward).
+bool axes_of(const Lin& l, double fwd[3], double right[3], double up[3]) {
+    for (int k = 0; k < 3; ++k) { fwd[k] = l.W[k]; right[k] = l.A[k]; up[k] = l.B[k]; }
+    const double fl = sqrt(dot3(fwd, fwd));
+    if (!(fl > 1e-9)) return false;
+    for (int k = 0; k < 3; ++k) fwd[k] /= fl;
+    const double ra = dot3(right, fwd), ua = dot3(up, fwd);
+    for (int k = 0; k < 3; ++k) { right[k] -= ra * fwd[k]; up[k] -= ua * fwd[k]; }
+    const double rl = sqrt(dot3(right, right)), ul = sqrt(dot3(up, up));
+    if (!(rl > 1e-9) || !(ul > 1e-9)) return false;
+    for (int k = 0; k < 3; ++k) { right[k] /= rl; up[k] /= ul; }
+    return true;
+}
+
+// The held image's world carried to the target by the GAME's matrices: the camera-relative
+// view-projection each image was drawn with and its rendered camera, the pair the DLSS vectors use.
+// The target camera is the fresh camera moved by the XR offset between the fresh eye and the held eye.
+// Four checks, each able to refuse (prm2.w stays 0: the XR pose + body yaw world):
+//   basis   each matrix's axes against the camera ROTATOR recorded with the image (an independent
+//           source): a mirrored or swapped axis shows here even when both matrices share it
+//   turn    far directions through the matrices against the XR poses and the body yaw
+//   eye     the same instant at half a metre: the target camera's offset against the XR eye poses
+//   camera  the camera displacement the c5 pair implies, less what the XR head motion explains:
+//           what is left is the body's walking, bounded per present; a flipped c5 leaves about twice
+//           the eye separation there
+enum Verdict { kUnused = 0, kUsed = 1, kNoVp = 2, kBasis = 3, kTurn = 4, kEye = 5, kCamera = 6, kOff = 7 };
+int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg, float tanH, float tanV,
+                 float* hI, float* hC, float* tA, float* tB, float* tW, float* mD) {
+    if (!g_matrices.load()) return kOff;
+    if (!src.vpOk || !fr.vpOk || !src.rotOk || !fr.rotOk) { ++g_mtxNoVp; return kNoVp; }
+    const Lin lh = lin_of(src.vp), lt = lin_of(fr.vp);
+    const float scale = g_worldScale.load();
+    double fwd[3], right[3], up[3], hf[3], hr[3], hu[3];
+    double I[3][3];
+    if (!axes_of(lt, fwd, right, up) || !axes_of(lh, hf, hr, hu) || !inverse_rows(lh, I)) { ++g_mtxNoVp; return kNoVp; }
+    // Check 1, the basis: each matrix against its own rotator.
+    double basisWorst = 0;
+    for (int k = 0; k < 2; ++k) {
+        const Held& e = k ? src : fr;
+        const double* f = k ? hf : fwd; const double* r = k ? hr : right; const double* u = k ? hu : up;
+        const dvr::clarity::Basis b = dvr::clarity::basis_from_rotator(e.rot[0], e.rot[1], e.rot[2]);
+        basisWorst = fmax(basisWorst, fmax(axis_angle(f, b.f), fmax(axis_angle(r, b.r), axis_angle(u, b.u))));
+    }
+    if (basisWorst > g_mtxBasisMax) g_mtxBasisMax = (float)basisWorst;
+    if (basisWorst > 1.0) { ++g_mtxBasis; return kBasis; }
+    // The eye offset: tracking (fresh eye -> held eye) into the fresh XR view, then into the game world.
+    auto to_world = [&](const double tr[3], double out[3]) {
+        double ev[3]; rot(fr.pose, tr, ev, true);
+        for (int k = 0; k < 3; ++k) out[k] = scale * (-ev[2] * fwd[k] + ev[0] * right[k] + ev[1] * up[k]);
+    };
+    const double de[3] = {tgt.p[0] - fr.pose.p[0], tgt.p[1] - fr.pose.p[1], tgt.p[2] - fr.pose.p[2]};
+    double O[3]; to_world(de, O);
+    // Check 2, the turn: far directions through both models.
+    const double pts[5][2] = {{0, 0}, {0.5, 0}, {-0.5, 0}, {0, 0.5}, {0, -0.5}};
+    const float a = yawDeg / 57.29578f, ca = cosf(a), sa = sinf(a);
+    double turnWorst = 0, eyeWorst = 0;
+    for (const auto& pt : pts) {
+        const double v[3] = {pt[0] * tanH, pt[1] * tanV, -1};
+        double dT[3]; rot(tgt, v, dT, false);
+        const double dW[3] = {ca * dT[0] - sa * dT[2], dT[1], sa * dT[0] + ca * dT[2]};   // Ry^T
+        double dS[3]; rot(src.pose, dW, dS, true);
+        if (!(dS[2] < -1e-6)) { turnWorst = 180; break; }
+        double P[3], mx, my;
+        if (!rel_from(lt, pt[0], pt[1], 1.0e7, P) || !proj(lh, P, &mx, &my)) { turnWorst = 180; break; }
+        turnWorst = fmax(turnWorst, angle_deg(dS[0] / -dS[2] / tanH, dS[1] / -dS[2] / tanV, mx, my, tanH, tanV));
+    }
+    if (turnWorst > g_mtxTurnMax) g_mtxTurnMax = (float)turnWorst;
+    if (turnWorst > 0.5) { ++g_mtxTurn; return kTurn; }
+    // Check 3, the eye: the same instant, half a metre out, the target seen from the fresh eye.
+    for (const auto& pt : pts) {
+        const double v[3] = {pt[0] * tanH * 0.5, pt[1] * tanV * 0.5, -0.5};
+        double wt[3]; rot(tgt, v, wt, false);
+        const double rl[3] = {wt[0] + tgt.p[0] - fr.pose.p[0], wt[1] + tgt.p[1] - fr.pose.p[1], wt[2] + tgt.p[2] - fr.pose.p[2]};
+        double lf[3]; rot(fr.pose, rl, lf, true);
+        if (!(lf[2] < -1e-6)) { eyeWorst = 180; break; }
+        double P[3], mx, my;
+        if (!rel_from(lt, pt[0], pt[1], 0.5 * scale, P)) { eyeWorst = 180; break; }
+        for (int k = 0; k < 3; ++k) P[k] += O[k];
+        if (!proj(lt, P, &mx, &my)) { eyeWorst = 180; break; }
+        eyeWorst = fmax(eyeWorst, angle_deg(lf[0] / -lf[2] / tanH, lf[1] / -lf[2] / tanV, mx, my, tanH, tanV));
+    }
+    if (eyeWorst > g_mtxEyeMax) g_mtxEyeMax = (float)eyeWorst;
+    if (eyeWorst > 0.5) { ++g_mtxEye; return kEye; }
+    // Check 4, the camera: D = held camera - target camera, against the XR head motion held -> target.
+    double D[3];
+    for (int k = 0; k < 3; ++k) D[k] = (-src.c5[k]) - ((-fr.c5[k]) + O[k]);
+    const double dh[3] = {src.pose.p[0] - tgt.p[0], src.pose.p[1] - tgt.p[1], src.pose.p[2] - tgt.p[2]};
+    double Dx[3]; to_world(dh, Dx);
+    const double res[3] = {D[0] - Dx[0], D[1] - Dx[1], D[2] - Dx[2]};
+    const double camResid = sqrt(dot3(res, res));
+    const double camLimit = 0.6 * scale * 0.063 + 2.0;   // well under the ~2 x eye separation a flipped c5 leaves
+    if (camResid > g_mtxCamMax) g_mtxCamMax = (float)camResid;
+    if (camResid > camLimit) { ++g_mtxCam; return kCamera; }
+    for (int k = 0; k < 3; ++k) {
+        for (int j = 0; j < 3; ++j) hI[k * 4 + j] = (float)I[k][j];
+        hI[k * 4 + 3] = 0;
+    }
+    hC[0] = (float)lh.A[3]; hC[1] = (float)lh.B[3]; hC[2] = (float)lh.W[3]; hC[3] = 0;
+    for (int j = 0; j < 4; ++j) { tA[j] = (float)lt.A[j]; tB[j] = (float)lt.B[j]; tW[j] = (float)lt.W[j]; }
+    for (int k = 0; k < 3; ++k) mD[k] = (float)D[k];
+    mD[3] = 0;
+    ++g_mtxUsed;
+    return kUsed;
 }
 
 void poll_timestamps(ID3D11DeviceContext* ctx) {
@@ -461,37 +705,45 @@ void beat() {
     if (now - g_beatMs < 3000) return;
     g_beatMs = now;
     const uint32_t warps = g_warpsFull + g_warpsTemporal + g_warpsStereo;
-    if (warps + g_noHeld + g_notFresh + g_noDepth + g_noRtv + g_notReady) {
+    if (warps + g_noHeld + g_notFresh + g_noDepth + g_noRtv + g_notReady + g_noSeed) {
         char gpu[64] = "n/a";
         if (g_gpuN) _snprintf_s(gpu, sizeof(gpu), _TRUNCATE, "%.3f ms mean, %.3f max", g_gpuSum / g_gpuN, g_gpuMax);
         DVR_INFO("afw/warp: beat %u held-eye rebuilds - full %u (hands from the fresh eye, world from the held eye), "
-                 "temporal only %u (no fresh depth: the hands carried by the body hypothesis, they can ghost), stereo only "
-                 "%u (no held depth) | mean |yaw| %.3f deg, max %.3f | NOT rebuilt (each falls back to the rotation-only "
-                 "held eye, a visible pop): no held image %u, fresh eye not captured this present %u, no depth %u, no "
-                 "render target %u, not ready %u | depth copies %u (%u taken late at the warp, %u missed: the ring had "
-                 "moved on or its copy was not finished) | world by the GAME matrices %u (walking carried), by the "
-                 "XR pose + body yaw %u: no matrices %u, refused %u by the turn check (worst %.2f deg) and %u by the "
-                 "eye check (worst %.2f deg; each check compares the two models where they must agree) | GPU %s | "
-                 "body < %.2f units, %.3f m per unit%s",
+                 "temporal only %u (no fresh depth: the hands carried by the body hypothesis, they can ghost), fresh only "
+                 "%u (no held image or depth) | mean |yaw| %.3f deg, max %.3f | NOT rebuilt (each falls back to the "
+                 "rotation-only held eye, a visible pop): no fresh image %u, fresh eye not captured this present %u, no depth "
+                 "%u, no render target %u, no seed maps %u, not ready %u | depth copies %u (%u taken late at the warp, %u "
+                 "missed: the ring had moved on or its copy was not finished) | world by the GAME matrices %u (walking "
+                 "carried), by the XR pose + body yaw otherwise: no matrices %u, refused by basis %u (worst %.2f deg), turn "
+                 "%u (%.2f deg), eye %u (%.2f deg), camera %u (worst residual %.1f uu) - each check compares two sources that "
+                 "must agree | GPU %s | body < %.2f units, %.3f m per unit%s",
                  warps, g_warpsFull, g_warpsTemporal, g_warpsStereo, warps ? g_yawAbs / warps : 0.0, g_yawMax,
-                 g_noHeld, g_notFresh, g_noDepth, g_noRtv, g_notReady, g_snaps, g_snapLate, g_snapMiss,
-                 g_mtxUsed, g_mtxNoVp + g_mtxTurnRefused + g_mtxEyeRefused, g_mtxNoVp, g_mtxTurnRefused, g_mtxTurnMax,
-                 g_mtxEyeRefused, g_mtxEyeMax, gpu,
-                 g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
-                 g_stereo.load() ? "" : " | stereo source OFF (afw stereo off)");
+                 g_noHeld, g_notFresh, g_noDepth, g_noRtv, g_noSeed, g_notReady, g_snaps, g_snapLate, g_snapMiss,
+                 g_mtxUsed, g_mtxNoVp, g_mtxBasis, g_mtxBasisMax, g_mtxTurn, g_mtxTurnMax, g_mtxEye, g_mtxEyeMax,
+                 g_mtxCam, g_mtxCamMax, gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
+                 g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
     g_warpsFull = g_warpsTemporal = g_warpsStereo = 0;
-    g_noHeld = g_notFresh = g_noDepth = g_noRtv = g_notReady = 0;
+    g_noHeld = g_notFresh = g_noDepth = g_noRtv = g_notReady = g_noSeed = 0;
     g_snaps = g_snapLate = g_snapMiss = 0;
-    g_mtxUsed = g_mtxNoVp = g_mtxTurnRefused = g_mtxEyeRefused = 0;
-    g_mtxTurnMax = g_mtxEyeMax = 0;
+    g_mtxUsed = g_mtxNoVp = g_mtxBasis = g_mtxTurn = g_mtxEye = g_mtxCam = 0;
+    g_mtxBasisMax = g_mtxTurnMax = g_mtxEyeMax = g_mtxCamMax = 0;
     g_yawAbs = 0; g_yawMax = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0;
+}
+
+// RENDER thread: drop both records when the meaning of a held image changed since they were taken.
+void sync_epoch() {
+    const uint32_t e = g_epoch.load();
+    if (e == g_epochSeen) return;
+    g_epochSeen = e;
+    for (Held& h : g_held) { h.valid = false; h.depthOk = false; }
 }
 
 } // namespace
 
 void set_enabled(bool on, const char* who) {
+    g_epoch.fetch_add(1);   // the records stop meaning anything either way
     if (g_on.exchange(on) == on) return;
     DVR_INFO("afw/warp: %s (%s)%s", on ? "ON" : "off", who ? who : "?",
              on ? "" : " - the held eye is the compositor's rotation-only reprojection (plus the body-yaw pose)");
@@ -499,25 +751,26 @@ void set_enabled(bool on, const char* who) {
 bool enabled() { return g_on.load(); }
 void set_stereo(bool on, const char* who) {
     g_stereo.store(on);
-    DVR_INFO("afw/warp: stereo source %s (%s)%s", on ? "ON" : "OFF", who ? who : "?",
-             on ? " - the hands come from the fresh eye at this instant" : " - the first version: the held eye alone, "
-             "hands by the body hypothesis (a moving hand ghosts)");
+    DVR_INFO("afw/warp: fresh-eye source %s (%s)%s", on ? "ON" : "OFF", who ? who : "?",
+             on ? " - the hands come from the fresh eye at this instant" : " - the held eye alone, hands by the body "
+             "hypothesis (a moving hand ghosts, a turn leaves a trail)");
 }
 bool stereo() { return g_stereo.load(); }
 void set_debug(bool on, const char* who) {
     g_debug.store(on);
     DVR_INFO("afw/warp: debug tint %s (%s)%s", on ? "ON" : "off", who ? who : "?",
              on ? " - in the HELD eye only: green = hands from the fresh eye, untinted = the held eye's own world, "
-                  "blue = world from the fresh eye (uncovered), red = last resort, yellow = temporal body hypothesis" : "");
+                  "blue = world from the fresh eye (moved or uncovered), red = last resort, yellow = temporal body hypothesis" : "");
 }
 bool debug() { return g_debug.load(); }
 void set_matrices(bool on, const char* who) {
     g_matrices.store(on);
     DVR_INFO("afw/warp: world by the game's matrices %s (%s)%s", on ? "ON" : "OFF", who ? who : "?",
-             on ? " - head, stick yaw and walking, checked each present against the XR pose model"
+             on ? " - head, stick yaw and walking, checked each present (basis, turn, eye, camera)"
                 : " - the XR pose and the body yaw alone: the held eye's world lags a tick of walking");
 }
 bool matrices() { return g_matrices.load(); }
+int matrix_verdict() { return g_matrixVerdict.load(); }
 void set_body_depth(float units, const char* who) {
     if (!(units > 0.0f && units < 5.0f)) { DVR_WARN("afw/warp: body depth %.3f refused (0..5 units)", units); return; }
     g_bodyDepth.store(units);
@@ -528,23 +781,31 @@ void set_world_scale(float uuPerM) { if (uuPerM >= 1.0f && uuPerM <= 400.0f) g_w
 
 void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* frame,
                   uint32_t grabSerial, const Pose& pose, bool bodyOk, float bodyYawDeg, const Pose targets[2],
-                  const float* vp16, const float* c5) {
+                  const float* vp16, const float* c5, const float* rotator) {
     if (!g_on.load() || eye < 0 || eye > 1 || !dev || !ctx || !frame) return;
+    sync_epoch();
     if (!init(dev)) return;
     Held& h = g_held[eye];
+    h.valid = false;   // until this capture is whole
     D3D11_TEXTURE2D_DESC fd;
     frame->GetDesc(&fd);
     if (!h.tex || h.w != fd.Width || h.h != fd.Height || h.fmt != (uint32_t)fd.Format) {
-        rel(h.srv); rel(h.tex); h.valid = false;
+        rel(h.srv); rel(h.tex);
         D3D11_TEXTURE2D_DESC td = fd;
         td.MipLevels = 1; td.ArraySize = 1; td.SampleDesc.Count = 1; td.SampleDesc.Quality = 0;
         td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE; td.CPUAccessFlags = 0; td.MiscFlags = 0;
-        if (FAILED(dev->CreateTexture2D(&td, nullptr, &h.tex))) { h.tex = nullptr; return; }
+        HRESULT hr = dev->CreateTexture2D(&td, nullptr, &h.tex);
         D3D11_SHADER_RESOURCE_VIEW_DESC sv = {};
         sv.Format = typed(fd.Format);
         sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
         sv.Texture2D.MipLevels = 1;
-        if (FAILED(dev->CreateShaderResourceView(h.tex, &sv, &h.srv))) { rel(h.tex); return; }
+        if (SUCCEEDED(hr)) hr = dev->CreateShaderResourceView(h.tex, &sv, &h.srv);
+        if (FAILED(hr)) {
+            rel(h.srv); rel(h.tex);
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "afw/warp: eye %c image copy %ux%u fmt %u refused (0x%08lx)",
+                             eye ? 'R' : 'L', fd.Width, fd.Height, (unsigned)fd.Format, (unsigned long)hr);
+            return;
+        }
         h.w = fd.Width; h.h = fd.Height; h.fmt = (uint32_t)fd.Format;
         DVR_INFO("afw/warp: eye %c image copy %ux%u fmt %u", eye ? 'R' : 'L', h.w, h.h, h.fmt);
     }
@@ -553,108 +814,37 @@ void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Te
     h.targets[0] = targets[0]; h.targets[1] = targets[1];
     h.vpOk = vp16 && c5;
     if (h.vpOk) { memcpy(h.vp, vp16, sizeof(h.vp)); memcpy(h.c5, c5, sizeof(h.c5)); }
-    h.valid = true;
+    h.rotOk = rotator != nullptr;
+    if (h.rotOk) memcpy(h.rot, rotator, sizeof(h.rot));
     h.seq = ++g_seq;
     h.depthOk = false;
+    h.valid = true;
     if (snapshot_depth(dev, ctx, h)) ++g_snaps;   // a miss is retried at the warp, this same present
 }
 
-namespace {
-// The held image's world carried to the target by the GAME's matrices: the camera-relative view-projection
-// each image was drawn with and its rendered camera, the pair the DLSS vectors were verified with. The target
-// camera is the fresh camera moved by the XR offset between the fresh eye and the held eye (the fresh eye's
-// view axes, the world scale). Two checks where the two models must agree, each able to refuse:
-//   turn  the far world (direction only, so walking cannot enter): the matrices against the XR poses and
-//         the body yaw - a rotation or axis mistake shows here
-//   eye   the same instant at half a metre: the target camera's offset against the XR eye poses - a wrong
-//         sign, axis or scale of the eye offset shows here
-// A refusal leaves mD.w = 0: the shader's XR pose + body yaw world.
-void matrix_world(const Held& src, const Held& fr, const Pose& tgt, int held, float yawDeg, float tanH, float tanV,
-                  float* hA, float* hB, float* hW, float* tA, float* tB, float* tW, float* mD) {
-    mD[3] = 0;
-    if (!g_matrices.load()) return;
-    if (!src.vpOk || !fr.vpOk) { ++g_mtxNoVp; return; }
-    const Lin lh = lin_of(src.vp), lt = lin_of(fr.vp);
-    const float scale = g_worldScale.load();
-    // The fresh camera's world axes from its matrix: w is the forward depth; x and y are right and up
-    // (Gram-Schmidt against forward, which also drops a projection jitter).
-    double fwd[3] = {lt.W[0], lt.W[1], lt.W[2]}, right[3] = {lt.A[0], lt.A[1], lt.A[2]}, up[3] = {lt.B[0], lt.B[1], lt.B[2]};
-    const double fl = sqrt(dot3(fwd, fwd));
-    if (!(fl > 1e-9)) { ++g_mtxNoVp; return; }
-    for (double& v : fwd) v /= fl;
-    const double ra = dot3(right, fwd), ua = dot3(up, fwd);
-    for (int k = 0; k < 3; ++k) { right[k] -= ra * fwd[k]; up[k] -= ua * fwd[k]; }
-    const double rl = sqrt(dot3(right, right)), ul = sqrt(dot3(up, up));
-    if (!(rl > 1e-9) || !(ul > 1e-9)) { ++g_mtxNoVp; return; }
-    for (int k = 0; k < 3; ++k) { right[k] /= rl; up[k] /= ul; }
-    // The eye offset: tracking (fresh eye -> held eye) into the fresh XR view, then into the game world.
-    const double de[3] = {tgt.p[0] - fr.pose.p[0], tgt.p[1] - fr.pose.p[1], tgt.p[2] - fr.pose.p[2]};
-    double ev[3]; rot(fr.pose, de, ev, true);
-    double O[3];
-    for (int k = 0; k < 3; ++k) O[k] = scale * (-ev[2] * fwd[k] + ev[0] * right[k] + ev[1] * up[k]);
-    // Check 1, the turn: far directions through both models.
-    const double pts[5][2] = {{0, 0}, {0.5, 0}, {-0.5, 0}, {0, 0.5}, {0, -0.5}};
-    const float a = yawDeg / 57.29578f, ca = cosf(a), sa = sinf(a);
-    double turnWorst = 0, eyeWorst = 0;
-    for (const auto& pt : pts) {
-        const double v[3] = {pt[0] * tanH, pt[1] * tanV, -1};
-        double dT[3]; rot(tgt, v, dT, false);
-        const double dW[3] = {ca * dT[0] - sa * dT[2], dT[1], sa * dT[0] + ca * dT[2]};   // Ry^T
-        double dS[3]; rot(src.pose, dW, dS, true);
-        if (!(dS[2] < -1e-6)) { turnWorst = 180; break; }
-        double P[3], mx, my;
-        if (!rel_from(lt, pt[0], pt[1], 1.0e7, P) || !proj(lh, P, &mx, &my)) { turnWorst = 180; break; }
-        const double t = angle_deg(dS[0] / -dS[2] / tanH, dS[1] / -dS[2] / tanV, mx, my, tanH, tanV);
-        if (t > turnWorst) turnWorst = t;
-    }
-    // Check 2, the eye: the same instant, half a metre out, the target seen from the fresh eye.
-    if (turnWorst <= 0.5)
-        for (const auto& pt : pts) {
-            const double v[3] = {pt[0] * tanH * 0.5, pt[1] * tanV * 0.5, -0.5};
-            double wt[3]; rot(tgt, v, wt, false);
-            const double rel[3] = {wt[0] + tgt.p[0] - fr.pose.p[0], wt[1] + tgt.p[1] - fr.pose.p[1], wt[2] + tgt.p[2] - fr.pose.p[2]};
-            double lf[3]; rot(fr.pose, rel, lf, true);
-            if (!(lf[2] < -1e-6)) { eyeWorst = 180; break; }
-            double P[3], mx, my;
-            if (!rel_from(lt, pt[0], pt[1], 0.5 * scale, P)) { eyeWorst = 180; break; }
-            for (int k = 0; k < 3; ++k) P[k] += O[k];
-            if (!proj(lt, P, &mx, &my)) { eyeWorst = 180; break; }
-            const double e = angle_deg(lf[0] / -lf[2] / tanH, lf[1] / -lf[2] / tanV, mx, my, tanH, tanV);
-            if (e > eyeWorst) eyeWorst = e;
-        }
-    if (turnWorst > g_mtxTurnMax) g_mtxTurnMax = (float)turnWorst;
-    if (turnWorst > 0.5) { ++g_mtxTurnRefused; return; }
-    if (eyeWorst > g_mtxEyeMax) g_mtxEyeMax = (float)eyeWorst;
-    if (eyeWorst > 0.5) { ++g_mtxEyeRefused; return; }
-    for (int j = 0; j < 4; ++j) {
-        hA[j] = (float)lh.A[j]; hB[j] = (float)lh.B[j]; hW[j] = (float)lh.W[j];
-        tA[j] = (float)lt.A[j]; tB[j] = (float)lt.B[j]; tW[j] = (float)lt.W[j];
-    }
-    // held camera minus target camera: C = -c5; target = fresh camera + O.
-    for (int k = 0; k < 3; ++k) mD[k] = (float)((-src.c5[k]) - ((-fr.c5[k]) + O[k]));
-    mD[3] = dvr::clarity::depth_scale();
-    ++g_mtxUsed;
-    (void)held;
-}
-} // namespace
-
-bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh, ID3D11Texture2D* dst,
-               uint32_t w, uint32_t h, float tanH, float tanV, Pose* outPose, const char** why) {
+bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh, uint32_t freshSerial,
+               ID3D11Texture2D* dst, uint32_t w, uint32_t h, float tanH, float tanV, Pose* outPose, const char** why) {
     beat();
     if (why) *why = nullptr;
     if (!g_on.load()) { if (why) *why = "off"; return false; }
+    sync_epoch();
     if (!init(dev)) { ++g_notReady; if (why) *why = "not ready"; return false; }
     if (held < 0 || held > 1 || fresh != 1 - held || !dst || !ctx) { if (why) *why = "bad call"; return false; }
     poll_timestamps(ctx);
     Held& src = g_held[held];
     Held& fr = g_held[fresh];
-    if (!src.valid || !fr.valid || !src.srv || !fr.srv) { ++g_noHeld; if (why) *why = "no held image"; return false; }
-    if (fr.seq != g_seq) { ++g_notFresh; if (why) *why = "the fresh eye was not captured this present"; return false; }
+    if (!fr.valid || !fr.srv) { ++g_noHeld; if (why) *why = "no fresh image"; return false; }
+    // Fresh means THIS present's capture: the newest record AND the serial the capture delivered now.
+    if (fr.seq != g_seq || fr.serial != freshSerial) {
+        ++g_notFresh; if (why) *why = "the fresh eye was not captured this present"; return false;
+    }
+    const bool haveH = src.valid && src.srv && src.seq < fr.seq;
     for (Held* e : {&fr, &src})
-        if (!e->depthOk) { if (snapshot_depth(dev, ctx, *e)) { ++g_snaps; ++g_snapLate; } else ++g_snapMiss; }
+        if ((e == &fr || haveH) && !e->depthOk) { if (snapshot_depth(dev, ctx, *e)) { ++g_snaps; ++g_snapLate; } else ++g_snapMiss; }
     const bool useS = g_stereo.load() && fr.depthOk && fr.dsrv;
-    const bool useT = src.depthOk && src.dsrv;
+    const bool useT = haveH && src.depthOk && src.dsrv;
     if (!useS && !useT) { ++g_noDepth; if (why) *why = "no depth for either image"; return false; }
+    if (!ensure_seeds(dev, w, h)) { ++g_noSeed; if (why) *why = "no seed maps"; return false; }
     D3D11_TEXTURE2D_DESC dd;
     dst->GetDesc(&dd);
     D3D11_RENDER_TARGET_VIEW_DESC rv = {};
@@ -666,54 +856,80 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     }
     // The target: the held eye's view pose of the FRESH image's locate generation.
     const Pose& tgt = fr.targets[held];
-    float d = (src.bodyOk && fr.bodyOk) ? fr.bodyYaw - src.bodyYaw : 0.0f;
+    float d = (haveH && src.bodyOk && fr.bodyOk) ? fr.bodyYaw - src.bodyYaw : 0.0f;
     while (d > 180.0f) d -= 360.0f;
     while (d < -180.0f) d += 360.0f;
     struct CB {
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
-        float hA[4], hB[4], hW[4], tA[4], tB[4], tW[4], mD[4];
+        float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4];
     } cb;
-    static_assert(sizeof(CB) == 26 * 16, "afw cbuffer layout");
-    rows(src.pose, cb.s, false);
-    cb.sp[0] = src.pose.p[0]; cb.sp[1] = src.pose.p[1]; cb.sp[2] = src.pose.p[2]; cb.sp[3] = 0;
+    static_assert(sizeof(CB) == 28 * 16, "afw cbuffer layout");
+    memset(&cb, 0, sizeof(cb));
+    const Pose& hp = haveH ? src.pose : fr.pose;
+    rows(hp, cb.s, false);
+    cb.sp[0] = hp.p[0]; cb.sp[1] = hp.p[1]; cb.sp[2] = hp.p[2];
     rows(fr.pose, cb.f, false);
-    cb.fp[0] = fr.pose.p[0]; cb.fp[1] = fr.pose.p[1]; cb.fp[2] = fr.pose.p[2]; cb.fp[3] = 0;
+    cb.fp[0] = fr.pose.p[0]; cb.fp[1] = fr.pose.p[1]; cb.fp[2] = fr.pose.p[2];
     rows(tgt, cb.d, true);
-    cb.dp[0] = tgt.p[0]; cb.dp[1] = tgt.p[1]; cb.dp[2] = tgt.p[2]; cb.dp[3] = 0;
+    cb.dp[0] = tgt.p[0]; cb.dp[1] = tgt.p[1]; cb.dp[2] = tgt.p[2];
     // UE yaw turns right positive; about XR +Y a positive angle turns LEFT. The world content the body
     // turned away from lies to the left of the fresh view: Ry(+d) (the runtime's pose fallback agrees).
     const float a = d / 57.29578f, ca = cosf(a), sa = sinf(a);
     const float yr[3][4] = {{ca, 0, sa, 0}, {0, 1, 0, 0}, {-sa, 0, ca, 0}};
     memcpy(cb.y, yr, sizeof(yr));
-    cb.yc[0] = 0.5f * (fr.targets[0].p[0] + fr.targets[1].p[0]);
-    cb.yc[1] = 0.5f * (fr.targets[0].p[1] + fr.targets[1].p[1]);
-    cb.yc[2] = 0.5f * (fr.targets[0].p[2] + fr.targets[1].p[2]);
-    cb.yc[3] = 0;
+    for (int k = 0; k < 3; ++k) cb.yc[k] = 0.5f * (fr.targets[0].p[k] + fr.targets[1].p[k]);
     const float body = g_bodyDepth.load();
     cb.prm[0] = tanH; cb.prm[1] = tanV;
     cb.prm[2] = dvr::clarity::depth_scale() / g_worldScale.load();
     cb.prm[3] = body;
-    // Two near seeds for the fresh eye's search: the hands at arm's length and the weapon held close.
-    // A single far seed would settle on the background beside a near object and never see it.
-    cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f; cb.prm2[3] = 0.5f * body;
+    cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f; cb.prm2[3] = 0;
     cb.prm3[0] = useS ? 1.0f : 0.0f; cb.prm3[1] = useT ? 1.0f : 0.0f; cb.prm3[2] = g_debug.load() ? 1.0f : 0.0f;
-    cb.prm3[3] = 0.2f * body;
-    memset(cb.hA, 0, sizeof(float) * 28);
-    if (useT) matrix_world(src, fr, tgt, held, d, tanH, tanV, &cb.hA[0], &cb.hB[0], &cb.hW[0], &cb.tA[0], &cb.tB[0], &cb.tW[0], cb.mD);
+    cb.prm3[3] = 0.03f;
+    if (fr.dw && fr.dh) { cb.prm4[0] = (float)kGridStep / fr.dw; cb.prm4[1] = (float)kGridStep / fr.dh; }
+    if (haveH && src.dw && src.dh) { cb.prm4[2] = (float)kGridStep / src.dw; cb.prm4[3] = (float)kGridStep / src.dh; }
+    int verdict = kUnused;
+    if (useT) {
+        verdict = matrix_world(src, fr, tgt, d, tanH, tanV, &cb.hI[0][0], cb.hC, cb.tA, cb.tB, cb.tW, cb.mD);
+        if (verdict == kUsed) cb.prm2[3] = dvr::clarity::depth_scale();
+    }
+    g_matrixVerdict.store(verdict);
     ctx->UpdateSubresource(g_cb, 0, nullptr, &cb, 0, 0);
 
     Ts* ts = nullptr;
     if (g_tsOk) for (Ts& s : g_ts) if (!s.pending) { ts = &s; break; }
     Saved sv; sv.save(ctx);
     if (ts) { ctx->Begin(ts->dis); ctx->End(ts->a); }
-    setup_draw(ctx, rtv, w, h, g_ps);
-    ctx->PSSetConstantBuffers(0, 1, &g_cb);
-    ID3D11ShaderResourceView* srvs[4] = {src.srv, useT ? src.dsrv : nullptr, fr.srv, useS ? fr.dsrv : nullptr};
-    ctx->PSSetShaderResources(0, 4, srvs);
+    ID3D11ShaderResourceView* none[6] = {};
+    ctx->PSSetShaderResources(0, 6, none);   // nothing of ours may stay bound while it becomes a target
+    // The seed maps.
+    for (int k = 0; k < 2; ++k) {
+        const Held& e = k ? src : fr;
+        const float clearSeed[4] = {0, 0, 0, 0};
+        ctx->ClearRenderTargetView(g_seed[k].rtv, clearSeed);
+        if (!(k ? useT : useS)) continue;
+        ctx->ClearDepthStencilView(g_seedDsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
+        const uint32_t gw = (e.dw - 1 + kGridStep - 1) / kGridStep, gh = (e.dh - 1 + kGridStep - 1) / kGridStep;
+        const float mcb[8] = {(float)k, (float)kGridStep, (float)e.dw, (float)e.dh, (float)gw, (float)g_seedW, (float)g_seedH, kStretchArea};
+        ctx->UpdateSubresource(g_cbMesh, 0, nullptr, mcb, 0, 0);
+        setup_draw(ctx, g_seed[k].rtv, g_seedDsv, g_seedW, g_seedH, g_vsMesh, g_psMesh);
+        ID3D11Buffer* cbs[2] = {g_cb, g_cbMesh};
+        ctx->VSSetConstantBuffers(0, 2, cbs);
+        ctx->PSSetConstantBuffers(0, 2, cbs);
+        ID3D11ShaderResourceView* vsrv[4] = {nullptr, useT ? src.dsrv : nullptr, nullptr, useS ? fr.dsrv : nullptr};
+        ctx->VSSetShaderResources(0, 4, vsrv);
+        ctx->Draw(6 * gw * gh, 0);
+        ctx->VSSetShaderResources(0, 4, none);
+    }
+    // The compose.
+    setup_draw(ctx, rtv, nullptr, w, h, g_vs, g_ps);
+    ID3D11Buffer* cbs[2] = {g_cb, g_cbMesh};
+    ctx->PSSetConstantBuffers(0, 2, cbs);
+    ID3D11ShaderResourceView* srvs[6] = {haveH ? src.srv : fr.srv, useT ? src.dsrv : nullptr, fr.srv, useS ? fr.dsrv : nullptr,
+                                         g_seed[0].srv, g_seed[1].srv};
+    ctx->PSSetShaderResources(0, 6, srvs);
     ctx->Draw(3, 0);
-    ID3D11ShaderResourceView* none[4] = {};
-    ctx->PSSetShaderResources(0, 4, none);
+    ctx->PSSetShaderResources(0, 6, none);
     if (ts) { ctx->End(ts->b); ctx->End(ts->dis); ts->pending = true; }
     sv.restore(ctx);
     rtv->Release();
@@ -726,23 +942,29 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
 }
 
 bool has_held(int held) {
-    return g_on.load() && held >= 0 && held <= 1 && g_held[held].valid && g_held[1 - held].valid && g_held[held].tex;
+    // The fresh image is what a rebuild needs; the held one is optional (without it: the fresh eye alone).
+    return g_on.load() && held >= 0 && held <= 1 && g_held[1 - held].valid && g_held[1 - held].tex;
 }
 
 bool copy_held(ID3D11DeviceContext* ctx, int held, ID3D11Texture2D* dst) {
-    if (!ctx || !dst || held < 0 || held > 1 || !g_held[held].tex) return false;
+    if (!ctx || !dst || held < 0 || held > 1) return false;
+    const Held& src = g_held[held].valid && g_held[held].tex ? g_held[held] : g_held[1 - held];
+    if (!src.valid || !src.tex) return false;
     D3D11_TEXTURE2D_DESC a, b;
-    g_held[held].tex->GetDesc(&a); dst->GetDesc(&b);
+    src.tex->GetDesc(&a); dst->GetDesc(&b);
     if (a.Width != b.Width || a.Height != b.Height) return false;
-    ctx->CopyResource(dst, g_held[held].tex);
+    ctx->CopyResource(dst, src.tex);
     return true;
 }
 
 void shutdown() {
     for (Held& h : g_held) { rel(h.srv); rel(h.tex); rel(h.drtv); rel(h.dsrv); rel(h.dtex); h = Held{}; }
     for (Ts& s : g_ts) { rel(s.dis); rel(s.a); rel(s.b); s.pending = false; }
-    rel(g_vs); rel(g_ps); rel(g_psDepth); rel(g_cb); rel(g_lin); rel(g_point); rel(g_rs); rel(g_bs); rel(g_ds);
-    g_ready = false; g_tsOk = false;
+    for (SeedMap& m : g_seed) { rel(m.rtv); rel(m.srv); rel(m.tex); }
+    rel(g_seedDsv); rel(g_seedDepth); g_seedW = g_seedH = 0;
+    rel(g_vs); rel(g_vsMesh); rel(g_ps); rel(g_psMesh); rel(g_psDepth); rel(g_cb); rel(g_cbMesh);
+    rel(g_lin); rel(g_point); rel(g_rs); rel(g_bs); rel(g_ds); rel(g_dsTest);
+    g_ready = false; g_failed = false; g_tsOk = false; g_seq = 0;
 }
 
 } // namespace dvr::afw

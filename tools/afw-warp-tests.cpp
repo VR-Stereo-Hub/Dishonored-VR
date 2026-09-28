@@ -1,21 +1,23 @@
-// Host tests for AFW's held-eye rebuild (VR-39): the production shader and draw in
+// Host tests for AFW's held-eye rebuild (VR-39): the production shaders and draws in
 // src/core/gfx/afw_warp.cpp against a ray-traced synthetic scene. Never touches the game.
 // Build and run: tools\afw-warp-host.ps1
 //
-// The scene: a far wall and a near pillar fixed in the WORLD (they turn and slide against the tracking
-// space when the body yaws or walks) and a "hand" quad fixed in TRACKING space (it moves only when the
-// controller does). Each image also carries the game-style camera-relative view-projection and c5 it
-// was "drawn" with, so the held eye's world can move by matrices as it does in the game. Every image is
-// ray-traced from its eye pose at its instant, and every pixel's colour names the surface point it
-// shows (red/green = the point's coordinates on that surface, blue = 1 on the hand), with the linear
-// view depth in alpha as the game's scene target carries it. The held eye's image is traced at the
-// OLD instant, the fresh eye's at the NEW one, and the truth is the held eye traced at the NEW instant.
-// Each case compares the rebuilt eye against that truth pixel by pixel:
+// The scene: a far wall, a near pillar and an optional thin bar fixed in the WORLD (they turn and slide
+// against the tracking space when the body yaws or walks) and a "hand" quad fixed in TRACKING space (it
+// moves only when the controller does). Each image also carries the game-style camera-relative
+// view-projection (UE axes), c5 and camera rotator it was "drawn" with, so the held eye's world can move
+// by matrices and the matrix checks run as in the game. Every image is ray-traced from its eye pose at
+// its instant; every pixel's colour names the surface point it shows (red/green = the point's
+// coordinates on that surface, blue = 1 on the hand), with the linear view depth in alpha as the game's
+// scene target carries it. The held eye's image is traced at the OLD instant, the fresh eye's at the NEW
+// one, and the truth is the held eye traced at the NEW instant. Each case compares pixel by pixel:
 //   ghost    the rebuild shows the hand where the truth does not (the reported fault)
 //   missing  the truth shows the hand where the rebuild does not
+//   wrong    a world pixel showing another world surface, where some source image did show the right one
+//   unseen   a world pixel no source image shows (cannot be rebuilt; scored only for a ghost)
 //   error    on agreeing pixels, how far the shown point is from the true one, in target pixels
-// The negative controls run the same motion with the fresh-eye source off (the first version) and
-// must FAIL the ghost bound, so the instrument can see the fault it claims to fix.
+// The negative controls run the same motion with a source or a lever off and must show the fault, so
+// the instrument can see what it claims to fix.
 #include "core/gfx/afw_warp.h"
 
 #include <windows.h>
@@ -34,13 +36,13 @@ namespace dvr::log {
 uint8_t g_levels[(int)Cat::COUNT] = {};
 void write(Cat, Level, const char*, ...) {}
 }
-static ID3D11ShaderResourceView* g_depthBySerial[8] = {};
-static UINT g_depthN = 0;
+static ID3D11ShaderResourceView* g_depthBySerial[16] = {};
+static UINT g_depthW = 0, g_depthH = 0;
 namespace dvr::clarity { float depth_scale() { return 250.0f; } }
 namespace dvr::depthprobe {
 ID3D11ShaderResourceView* depth_srv_for(uint32_t serial, UINT* w, UINT* h) {
-    if (serial >= 8 || !g_depthBySerial[serial]) return nullptr;
-    if (w) *w = g_depthN; if (h) *h = g_depthN; return g_depthBySerial[serial];
+    if (serial >= 16 || !g_depthBySerial[serial]) return nullptr;
+    if (w) *w = g_depthW; if (h) *h = g_depthH; return g_depthBySerial[serial];
 }
 void read_done(ID3D11DeviceContext*) {}
 }
@@ -60,9 +62,15 @@ static V3 sub(V3 a, V3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
 static V3 mul(V3 a, double k) { return {a.x * k, a.y * k, a.z * k}; }
 // The shader's yaw rows {{c,0,s},{0,1,0},{-s,0,c}}; an XR head yaw h about +Y has the same matrix.
 static V3 ry(V3 p, double rad) { const double c = cos(rad), s = sin(rad); return {c * p.x + s * p.z, p.y, -s * p.x + c * p.z}; }
+// The scene's world (x right, y up, -z forward) into UE axes (X forward, Y right, Z up).
+static V3 ue(V3 v) { return {-v.z, v.x, v.y}; }
 
 // tracking = Ry(body)(world - bodyPos): the body turns by bodyYawDeg and stands at bodyPos (world).
-struct State { double bodyYawDeg, handX, headYawDeg; V3 headPos; double handZ = kHandZ; V3 bodyPos = {0, 0, 0}; };
+struct State {
+    double bodyYawDeg, handX, headYawDeg; V3 headPos;
+    double handZ = kHandZ; V3 bodyPos = {0, 0, 0}; double handW = kHandW;
+    double barZ = 0, barX0 = 0, barX1 = 0;   // a thin world bar (barZ 0 = none)
+};
 struct Eye { V3 pos; double yawRad; };
 static Eye eyeOf(const State& s, int eye) {   // eye 0 left, 1 right
     const double h = s.headYawDeg / 57.29577951;
@@ -80,10 +88,10 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
     if (d.z < 0) {   // the hand, fixed in tracking space
         const double t = (s.handZ - e.pos.z) / d.z;
         const V3 p = add(e.pos, mul(d, t));
-        const double lu = (p.x - (s.handX - kHandW / 2)) / kHandW, lv = (p.y - (kHandY - kHandH / 2)) / kHandH;
+        const double lu = (p.x - (s.handX - s.handW / 2)) / s.handW, lv = (p.y - (kHandY - kHandH / 2)) / kHandH;
         if (t > 0 && lu >= 0 && lu <= 1 && lv >= 0 && lv <= 1) { best = t; c[0] = (float)lu; c[1] = (float)lv; c[2] = 1; }
     }
-    {   // the wall and the pillar, fixed in the world
+    {   // the wall, the pillar and the bar, fixed in the world
         const double b = s.bodyYawDeg / 57.29577951;
         const V3 ow = add(ry(e.pos, -b), s.bodyPos), dw = ry(d, -b);
         if (dw.z < 0) {
@@ -95,75 +103,103 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
             if (tp > 0 && tp < best && q.x >= kPillarX0 && q.x <= kPillarX1 && q.y >= -1.5 && q.y <= 1.5) {
                 best = tp; c[0] = (float)((q.x - kPillarX0) / (kPillarX1 - kPillarX0)); c[1] = (float)(2 + (q.y + 1.5) / 3); c[2] = 0;
             }
+            if (s.barZ < 0) {
+                const double tb = (s.barZ - ow.z) / dw.z;
+                const V3 r = add(ow, mul(dw, tb));
+                if (tb > 0 && tb < best && r.x >= s.barX0 && r.x <= s.barX1 && r.y >= -1.5 && r.y <= 1.5) {
+                    best = tb; c[0] = (float)((r.x - s.barX0) / (s.barX1 - s.barX0)); c[1] = (float)(4 + (r.y + 1.5) / 3); c[2] = 0;
+                }
+            }
         }
     }
     const V3 local = ry(mul(d, best), -e.yawRad);   // back into the eye's view: depth = -z
     c[3] = (float)(-local.z / kMPerUnit);
     memcpy(out, c, sizeof(c));
 }
-// The game-style matrix: row-vector, camera-relative, uu; clip x = right.P / tan, y = up.P / tan, w = forward.P.
-struct Mtx { float vp[16]; float c5[3]; };
-static Mtx matrixOf(const State& s, const Eye& e, bool broken) {
+static int surfOf(const float* q) { return q[2] > 0.5f ? 2 : q[1] >= 3.5f ? 3 : q[1] >= 1.5f ? 1 : 0; }   // 0 wall 1 pillar 2 hand 3 bar
+
+// The game-style record: row-vector, camera-relative, uu, UE axes; clip x = right.P / tan, y = up.P / tan,
+// w = forward.P; c5 = -camera; the rotator from the forward axis (no roll in these scenes).
+struct Rec { float vp[16]; float c5[3]; float rot[3]; };
+static Rec recordOf(const State& s, const Eye& e, bool mirrored, bool flipC5) {
     const double b = s.bodyYawDeg / 57.29577951;
-    const V3 right = ry(ry({1, 0, 0}, e.yawRad), -b), up = ry(ry({0, 1, 0}, e.yawRad), -b), fwd = ry(ry({0, 0, -1}, e.yawRad), -b);
-    const V3 C = mul(add(ry(e.pos, -b), s.bodyPos), kScale);
-    Mtx m = {};
-    const double sx = broken ? -1.0 : 1.0;   // a mirrored axis: the convention check must refuse it
+    const V3 right = ue(ry(ry({1, 0, 0}, e.yawRad), -b)), up = ue(ry(ry({0, 1, 0}, e.yawRad), -b)), fwd = ue(ry(ry({0, 0, -1}, e.yawRad), -b));
+    const V3 C = mul(ue(add(ry(e.pos, -b), s.bodyPos)), kScale);
+    Rec m = {};
+    const double sx = mirrored ? -1.0 : 1.0;   // a mirrored axis: the basis check must refuse it
     const double r3[3] = {right.x, right.y, right.z}, u3[3] = {up.x, up.y, up.z}, f3[3] = {fwd.x, fwd.y, fwd.z};
     for (int j = 0; j < 3; ++j) { m.vp[j * 4 + 0] = (float)(sx * r3[j] / kTan); m.vp[j * 4 + 1] = (float)(u3[j] / kTan); m.vp[j * 4 + 3] = (float)f3[j]; }
-    m.c5[0] = (float)-C.x; m.c5[1] = (float)-C.y; m.c5[2] = (float)-C.z;
+    const double cs = flipC5 ? 1.0 : -1.0;     // a flipped c5: the camera check must refuse it
+    m.c5[0] = (float)(cs * C.x); m.c5[1] = (float)(cs * C.y); m.c5[2] = (float)(cs * C.z);
+    m.rot[0] = (float)(asin(fwd.z) * 57.29577951); m.rot[1] = (float)(atan2(fwd.y, fwd.x) * 57.29577951); m.rot[2] = 0;
     return m;
 }
-static std::vector<float> image(const State& s, const Eye& e) {
-    std::vector<float> px(N * N * 4);
-    for (int y = 0; y < N; ++y)
-        for (int x = 0; x < N; ++x) trace(s, e, (x + 0.5) / N, (y + 0.5) / N, &px[(y * N + x) * 4]);
+static std::vector<float> image(const State& s, const Eye& e, int w, int h) {
+    std::vector<float> px((size_t)w * h * 4);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) trace(s, e, (x + 0.5) / w, (y + 0.5) / h, &px[((size_t)y * w + x) * 4]);
     return px;
 }
 
 // ---- the GPU side -------------------------------------------------------------------------------
 struct Gpu { ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr; ID3D11Texture2D* dst = nullptr; ID3D11Texture2D* stage = nullptr; };
-static ID3D11Texture2D* tex(ID3D11Device* dev, UINT bind, D3D11_USAGE use, UINT cpu, const void* init) {
+static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_USAGE use, UINT cpu, const void* init) {
     D3D11_TEXTURE2D_DESC td = {};
-    td.Width = td.Height = N; td.MipLevels = td.ArraySize = 1; td.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    td.Width = w; td.Height = h; td.MipLevels = td.ArraySize = 1; td.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
     td.SampleDesc.Count = 1; td.Usage = use; td.BindFlags = bind; td.CPUAccessFlags = cpu;
-    D3D11_SUBRESOURCE_DATA sd = {init, N * 16, 0};
+    D3D11_SUBRESOURCE_DATA sd = {init, (UINT)w * 16, 0};
     ID3D11Texture2D* t = nullptr;
     dev->CreateTexture2D(&td, init ? &sd : nullptr, &t);
     return t;
 }
 
-struct Result { bool ok; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
-struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, broken = false; };
+struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
+struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false; };
 
-static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
-    const bool stereo = o.stereo, heldDepth = o.heldDepth, freshDepth = o.freshDepth;
-    Result r = {};
+// Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
+// the fresh serial; the caller warps.
+struct Scene { ID3D11Texture2D *ht = nullptr, *ft = nullptr; ID3D11ShaderResourceView *hs = nullptr, *fs = nullptr; uint32_t sf = 0; };
+static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int w, int h,
+                     const std::vector<float>& hImg, const std::vector<float>& fImg) {
+    Scene sc;
     const Eye held0 = eyeOf(s0, 0), right0 = eyeOf(s0, 1), held1 = eyeOf(s1, 0), fresh1 = eyeOf(s1, 1);
-    auto hImg = image(s0, held0), fImg = image(s1, fresh1), truth = image(s1, held1);
-    ID3D11Texture2D* ht = tex(g.dev, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, hImg.data());
-    ID3D11Texture2D* ft = tex(g.dev, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, fImg.data());
-    ID3D11ShaderResourceView *hs = nullptr, *fs = nullptr;
-    g.dev->CreateShaderResourceView(ht, nullptr, &hs);
-    g.dev->CreateShaderResourceView(ft, nullptr, &fs);
+    sc.ht = tex(g.dev, w, h, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, hImg.data());
+    sc.ft = tex(g.dev, w, h, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, fImg.data());
+    g.dev->CreateShaderResourceView(sc.ht, nullptr, &sc.hs);
+    g.dev->CreateShaderResourceView(sc.ft, nullptr, &sc.fs);
     for (auto*& p : g_depthBySerial) p = nullptr;
     static uint32_t serial = 0;
-    const uint32_t sh = (serial = (serial + 2) % 6) + 1, sf = sh + 1;
-    if (heldDepth) g_depthBySerial[sh] = hs;
-    if (freshDepth) g_depthBySerial[sf] = fs;
-    g_depthN = N;
-    dvr::afw::set_enabled(true, "test");
-    dvr::afw::set_stereo(stereo, "test");
+    const uint32_t sh = (serial = (serial + 2) % 12) + 1;
+    sc.sf = sh + 1;
+    if (o.heldDepth) g_depthBySerial[sh] = sc.hs;
+    if (o.freshDepth) g_depthBySerial[sc.sf] = sc.fs;
+    g_depthW = w; g_depthH = h;
+    dvr::afw::set_enabled(true, "test");   // also drops the previous case's records
+    dvr::afw::set_stereo(o.stereo, "test");
     dvr::afw::set_body_depth(0.40f, "test");
     dvr::afw::set_world_scale((float)kScale);
     dvr::afw::set_matrices(o.matrices, "test");
-    const Mtx mh = matrixOf(s0, held0, o.broken), mf = matrixOf(s1, fresh1, o.broken);
+    const Rec mh = recordOf(s0, held0, o.mirrored, o.flipC5), mf = recordOf(s1, fresh1, o.mirrored, o.flipC5);
     const dvr::afw::Pose tg0[2] = {poseOf(held0), poseOf(right0)}, tg1[2] = {poseOf(held1), poseOf(fresh1)};
-    dvr::afw::note_capture(g.dev, g.ctx, 0, ht, sh, poseOf(held0), true, (float)s0.bodyYawDeg, tg0, mh.vp, mh.c5);   // last present's image
-    dvr::afw::note_capture(g.dev, g.ctx, 1, ft, sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5);  // this present's
+    if (!o.noHeld)
+        dvr::afw::note_capture(g.dev, g.ctx, 0, sc.ht, sh, poseOf(held0), true, (float)s0.bodyYawDeg, tg0, mh.vp, mh.c5, mh.rot);
+    dvr::afw::note_capture(g.dev, g.ctx, 1, sc.ft, sc.sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5, mf.rot);
+    return sc;
+}
+static void release(Scene& sc) {
+    if (sc.hs) sc.hs->Release(); if (sc.fs) sc.fs->Release(); if (sc.ht) sc.ht->Release(); if (sc.ft) sc.ft->Release();
+    sc = Scene{};
+}
+
+static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
+    Result r = {};
+    const Eye held0 = eyeOf(s0, 0), held1 = eyeOf(s1, 0), fresh1 = eyeOf(s1, 1);
+    auto hImg = image(s0, held0, N, N), fImg = image(s1, fresh1, N, N), truth = image(s1, held1, N, N);
+    Scene sc = capture(g, s0, s1, o, N, N, hImg, fImg);
     dvr::afw::Pose out{};
     const char* why = nullptr;
-    r.ok = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, g.dst, N, N, (float)kTan, (float)kTan, &out, &why);
+    r.ok = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, (float)kTan, (float)kTan, &out, &why);
+    r.verdict = dvr::afw::matrix_verdict();
     std::vector<float> px(N * N * 4);
     if (r.ok) {
         g.ctx->CopyResource(g.stage, g.dst);
@@ -176,13 +212,11 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
     } else {
         printf("  warp refused: %s\n", why ? why : "?");
     }
-    hs->Release(); fs->Release(); ht->Release(); ft->Release();
+    release(sc);
     if (!r.ok) return r;
     // Compare, skipping the 2-pixel band around every true outline (sampling there is a blend).
     std::vector<double> errs;
-    auto surf = [&](const std::vector<float>& p, int x, int y) {   // 2 hand, 1 pillar, 0 wall
-        const float* q = &p[(y * N + x) * 4]; return q[2] > 0.5f ? 2 : q[1] >= 1.5f ? 1 : 0;
-    };
+    auto surf = [&](const std::vector<float>& p, int x, int y) { return surfOf(&p[(y * N + x) * 4]); };
     for (int y = 2; y < N - 2; ++y)
         for (int x = 2; x < N - 2; ++x) {
             const int ts = surf(truth, x, y);
@@ -194,12 +228,13 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
             const bool th = ts == 2, oh = ov[2] > 0.5f;
             // Surface units to target pixels: each surface's span over its distance.
             const double k = N / (2 * kTan);
-            const double sx = ts == 2 ? kHandW / (-s1.handZ) * k : ts == 1 ? (kPillarX1 - kPillarX0) / -kPillarZ * k : 40.0 / 8.0 * k;
-            const double sy = ts == 2 ? kHandH / (-s1.handZ) * k : ts == 1 ? 3.0 / -kPillarZ * k : sx;
+            const double sx = ts == 2 ? s1.handW / (-s1.handZ) * k : ts == 1 ? (kPillarX1 - kPillarX0) / -kPillarZ * k
+                            : ts == 3 ? (s1.barX1 - s1.barX0) / -s1.barZ * k : 40.0 / 8.0 * k;
+            const double sy = ts == 2 ? kHandH / (-s1.handZ) * k : ts == 1 ? 3.0 / -kPillarZ * k : ts == 3 ? 3.0 / -s1.barZ * k : sx;
             if (th) ++r.handTruth;
             if (oh && !th) { ++r.ghost; continue; }
             if (!oh && th) { ++r.missing; continue; }
-            if (!th) {   // a world point neither source image shows cannot be rebuilt: counted apart, scored only for a ghost
+            if (!th) {   // a world point no source image shows cannot be rebuilt: counted apart, scored only for a ghost
                 const double d = t[3] * kMPerUnit, u = (x + 0.5) / N, v = (y + 0.5) / N;
                 const V3 P1 = add(ry({(u * 2 - 1) * kTan * d, (1 - v * 2) * kTan * d, -d}, held1.yawRad), held1.pos);
                 const V3 Pw = add(ry(P1, -s1.bodyYawDeg / 57.29577951), s1.bodyPos);
@@ -210,14 +245,14 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
                     const int X = (int)(((L.x / -L.z / kTan) * 0.5 + 0.5) * N), Y = (int)((0.5 - (L.y / -L.z / kTan) * 0.5) * N);
                     if (X < 0 || Y < 0 || X >= N || Y >= N) return false;
                     const float* q = &img[(Y * N + X) * 4];
-                    if ((q[2] > 0.5f ? 2 : q[1] >= 1.5f ? 1 : 0) != ts) return false;
+                    if (surfOf(q) != ts) return false;
                     return hypot((q[0] - t[0]) * sx, (q[1] - t[1]) * sy) < 3.0;
                 };
-                if (!seen(hImg, s0, held0) && !seen(fImg, s1, fresh1)) { ++r.unseen; continue; }
+                if ((o.noHeld || !seen(hImg, s0, held0)) && !seen(fImg, s1, fresh1)) { ++r.unseen; continue; }
             }
-            if (ov[2] > 0.02f && ov[2] < 0.98f) continue;                 // a blend across the hand outline
-            if (!th && ov[1] > 1.1f && ov[1] < 1.9f) continue;           // a blend across the pillar outline
-            if (!th && (ov[1] >= 1.5f ? 1 : 0) != ts) { ++r.wrong; continue; }
+            if (ov[2] > 0.02f && ov[2] < 0.98f) continue;                                          // a blend across the hand outline
+            if (!th && ((ov[1] > 0.6f && ov[1] < 1.9f) || (ov[1] > 3.1f && ov[1] < 3.9f))) continue;  // a blend across a world outline
+            if (!th && surfOf(ov) != ts) { ++r.wrong; continue; }
             ++r.agree;
             errs.push_back(hypot((ov[0] - t[0]) * sx, (ov[1] - t[1]) * sy));
         }
@@ -229,17 +264,22 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
 }
 
 static int g_fail = 0, g_pass = 0;
-static void report(const char* name, const Result& r, bool ok) {
-    printf("%-58s %s  hand %5d ghost %4d (%.2f%%) missing %4d (%.2f%%) wrong world %4d (unseen %4d) | err p50 %.2f p95 %.2f px\n",
-           name, ok ? "PASS" : "FAIL", r.handTruth, r.ghost, r.handTruth ? 100.0 * r.ghost / r.handTruth : 0.0, r.missing,
-           r.handTruth ? 100.0 * r.missing / r.handTruth : 0.0, r.wrong, r.unseen, r.errP50, r.errP95);
+static void check(const char* name, bool ok, const char* detail) {
+    printf("%-58s %s  %s\n", name, ok ? "PASS" : "FAIL", detail);
     ok ? ++g_pass : ++g_fail;
 }
-// The bounds: ghost and missing under 1% of the hand, the wrong world surface under 0.1% of the image,
-// the median error under a pixel and 95% under two.
-static bool clean(const Result& r) {
-    return r.ok && r.handTruth > 500 && r.ghost < r.handTruth / 100 && r.missing < r.handTruth / 100 &&
-           r.wrong < N * N / 1000 && r.errP50 < 1.0 && r.errP95 < 2.0;
+static void report(const char* name, const Result& r, bool ok) {
+    char d[256];
+    snprintf(d, sizeof(d), "hand %5d ghost %4d (%.2f%%) missing %4d (%.2f%%) wrong world %4d (unseen %4d) | err p50 %.2f p95 %.2f px | mtx %d",
+             r.handTruth, r.ghost, r.handTruth ? 100.0 * r.ghost / r.handTruth : 0.0, r.missing,
+             r.handTruth ? 100.0 * r.missing / r.handTruth : 0.0, r.wrong, r.unseen, r.errP50, r.errP95, r.verdict);
+    check(name, ok, d);
+}
+// The bounds: ghost and missing under 1% of the hand (with a real hand to measure), the wrong world
+// surface under 0.1% of the image, the median error under a pixel and 95% under two.
+static bool clean(const Result& r, int minHand = 500) {
+    return r.ok && r.handTruth >= minHand && r.ghost * 100 <= r.handTruth && r.missing * 100 <= r.handTruth &&
+           r.wrong < N * N / 1000 && r.agree > N * N / 2 && r.errP50 < 1.0 && r.errP95 < 2.0;
 }
 
 int main() {
@@ -249,8 +289,8 @@ int main() {
         FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, fl, 2, D3D11_SDK_VERSION, &g.dev, nullptr, &g.ctx))) {
         printf("no D3D11 device\n"); return 2;
     }
-    g.dst = tex(g.dev, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0, nullptr);
-    g.stage = tex(g.dev, 0, D3D11_USAGE_STAGING, D3D11_CPU_ACCESS_READ, nullptr);
+    g.dst = tex(g.dev, N, N, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0, nullptr);
+    g.stage = tex(g.dev, N, N, 0, D3D11_USAGE_STAGING, D3D11_CPU_ACCESS_READ, nullptr);
     if (!g.dst || !g.stage) { printf("resource creation failed\n"); return 2; }
 
     const State still = {0, 0.0, 0, {0, 0, 0}};
@@ -263,39 +303,91 @@ int main() {
     State close1 = close0; close1.bodyYawDeg = 5; close1.handX = 0.02;
     State walk = still;   walk.bodyPos = {0.04, 0, -0.03};        // one tick of walking: 4 cm right, 3 cm on
     State walkTurn = walk; walkTurn.bodyYawDeg = 4; walkTurn.headYawDeg = 2;
+    State bar = still;    bar.barZ = -0.20; bar.barX0 = -0.01; bar.barX1 = 0.01;   // a thin world bar in front of the hand
+    State thin = still;   thin.handZ = -0.75; thin.handW = 0.02;  // a 2 cm object at 0.75 m
+    State far0 = still;   far0.handZ = -1.10;                     // a weapon beyond the body threshold
+    State far1 = far0;    far1.handX = 0.06;
     Opt noStereo; noStereo.stereo = false;
     Opt noMtx; noMtx.matrices = false;
-    Opt broken; broken.broken = true;
+    Opt mirrored; mirrored.mirrored = true;
+    Opt flip; flip.flipC5 = true;
+    Opt noHeld; noHeld.noHeld = true;
 
-    { Result r = run(g, still, still);   report("still: the other eye's stereo only", r, clean(r)); }
-    { Result r = run(g, still, turn);    report("stick turn 5 deg: no hand ghost, world turned", r, clean(r)); }
+    { Result r = run(g, still, still);   report("still: the other eye's stereo only", r, clean(r) && r.verdict == 1); }
+    { Result r = run(g, still, turn);    report("stick turn 5 deg: no hand ghost, world turned", r, clean(r) && r.verdict == 1); }
     { Result r = run(g, still, moved);   report("hand moved 6 cm: the hand where it is NOW", r, clean(r)); }
-    { Result r = run(g, still, head);    report("head turn 3 deg + 1.5 cm: no drift", r, clean(r)); }
-    { Result r = run(g, still, all);     report("turn + hand move + head turn together", r, clean(r)); }
+    { Result r = run(g, still, head);    report("head turn 3 deg + 1.5 cm: no drift", r, clean(r) && r.verdict == 1); }
+    { Result r = run(g, still, all);     report("turn + hand move + head turn together", r, clean(r) && r.verdict == 1); }
     { Result r = run(g, still, fast);    report("fast turn 15 deg in one tick", r, clean(r)); }
     { Result r = run(g, close0, close1); report("weapon close (0.2 m), turn + move", r, clean(r)); }
-    { Result r = run(g, still, walk);           report("walking one tick: the pillar's parallax carried", r, clean(r)); }
-    { Result r = run(g, still, walkTurn);       report("walking + turning + head turn", r, clean(r)); }
+    { Result r = run(g, still, walk);    report("walking one tick: the pillar's parallax carried", r, clean(r) && r.verdict == 1); }
+    { Result r = run(g, still, walkTurn); report("walking + turning + head turn", r, clean(r) && r.verdict == 1); }
+    // The review's counterexamples.
+    { Result r = run(g, bar, bar);       report("a thin bar in front of the hand hides it", r, clean(r, 300)); }
+    { Result r = run(g, thin, thin);     report("a 2 cm object at 0.75 m is kept", r, clean(r, 100)); }
+    { Result r = run(g, far0, far1);     report("a weapon at 1.1 m moved 6 cm: no ghost", r, clean(r, 100)); }
+    { Result r = run(g, still, moved, noHeld);
+      report("no held image: the fresh eye alone", r, r.ok && r.ghost * 100 <= r.handTruth && r.missing * 100 <= r.handTruth); }
+    { Result r = run(g, still, walk, mirrored);
+      report("a mirrored matrix, walking: refused by the basis check", r, r.ok && r.verdict == 3); }
+    { Result r = run(g, still, walk, flip);
+      report("a flipped c5, walking: refused by the camera check", r, r.ok && r.verdict == 6); }
+    {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.
+        const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);
+        auto hImg = image(still, h0, N, N), fImg = image(turn, f1, N, N);
+        Scene sc = capture(g, still, turn, Opt(), N, N, hImg, fImg);
+        dvr::afw::Pose out{}; const char* why = nullptr;
+        const bool now = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, 1, 1, &out, &why);
+        const bool later = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf + 2, g.dst, N, N, 1, 1, &out, &why);
+        dvr::afw::set_enabled(false, "test"); dvr::afw::set_enabled(true, "test");
+        const bool toggled = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, 1, 1, &out, &why);
+        char d[128]; snprintf(d, sizeof(d), "this present %d, a later present with no capture %d, after a toggle %d", now, later, toggled);
+        check("freshness: only this present's capture is rebuilt from", now && !later && !toggled, d);
+        release(sc);
+    }
+    // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
     { Result r = run(g, still, walk, noMtx);
       report("control: no matrices, walking -> the pillar lags", r, r.ok && r.errP95 > 3.0); }
-    { Result r = run(g, still, turn, broken);
-      report("a mirrored matrix is refused: the XR model turns it", r, clean(r)); }
-    // NEGATIVE CONTROLS: the first version (held eye alone) under the same motion must show the fault.
     { Result r = run(g, still, moved, noStereo);
       report("control: held eye alone, hand moved -> ghost", r, r.ok && r.ghost > r.handTruth / 5); }
     { Result r = run(g, still, all, noStereo);
       report("control: held eye alone, everything -> ghost", r, r.ok && r.ghost > r.handTruth / 10); }
-    // Fallbacks: one depth missing still rebuilds.
-    // The temporal-only rebuild (the A/B and the no-fresh-depth fallback) keeps the hand and turns the
-    // world, but cannot see behind the old hand: its trailing copy is measured, not hidden.
+    // Fallbacks. The temporal-only rebuild (the A/B and the no-fresh-depth fallback) keeps the hand and
+    // turns the world, but cannot see behind the old hand: its trailing copy is measured, not hidden.
     { Result r = run(g, still, turn, noStereo);
       report("held eye alone, turn: hand kept, world turned (trail known)", r,
-             r.ok && r.missing < r.handTruth / 100 && r.errP50 < 1.0 && r.ghost < r.handTruth * 3 / 10); }
-    { Result r = run(g, still, moved, [] { Opt o; o.heldDepth = false; return o; }());
-      report("no held depth: the fresh eye alone, hand moved", r, r.ok && r.ghost < r.handTruth / 100 && r.missing < r.handTruth / 50); }
-    { Result r = run(g, still, turn, [] { Opt o; o.freshDepth = false; return o; }());
+             r.ok && r.missing * 100 <= r.handTruth && r.errP50 < 1.0 && r.ghost < r.handTruth * 3 / 10); }
+    { Opt o; o.heldDepth = false; Result r = run(g, still, moved, o);
+      report("no held depth: the fresh eye alone, hand moved", r, r.ok && r.ghost * 100 <= r.handTruth && r.missing * 50 <= r.handTruth); }
+    { Opt o; o.freshDepth = false; Result r = run(g, still, turn, o);
       report("no fresh depth: the temporal split, turn (trail known)", r,
-             r.ok && r.missing < r.handTruth / 100 && r.errP50 < 1.0 && r.ghost < r.handTruth * 3 / 10); }
+             r.ok && r.missing * 100 <= r.handTruth && r.errP50 < 1.0 && r.ghost < r.handTruth * 3 / 10); }
+
+    {   // The cost at the headset's eye size: the whole rebuild (seed maps + compose), GPU timestamps.
+        const int W = 2750, H = 2850;
+        const Eye h0 = eyeOf(still, 0), f1 = eyeOf(all, 1);
+        auto hImg = image(still, h0, W, H), fImg = image(all, f1, W, H);
+        ID3D11Texture2D* big = tex(g.dev, W, H, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0, nullptr);
+        Scene sc = capture(g, still, all, Opt(), W, H, hImg, fImg);
+        D3D11_QUERY_DESC qd = {D3D11_QUERY_TIMESTAMP_DISJOINT, 0}, qt = {D3D11_QUERY_TIMESTAMP, 0};
+        ID3D11Query *dj = nullptr, *qa = nullptr, *qb = nullptr;
+        g.dev->CreateQuery(&qd, &dj); g.dev->CreateQuery(&qt, &qa); g.dev->CreateQuery(&qt, &qb);
+        double sum = 0; int n = 0; bool ok = big && dj && qa && qb;
+        for (int i = 0; ok && i < 40; ++i) {
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            g.ctx->Begin(dj); g.ctx->End(qa);
+            ok = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, big, W, H, 1, 1, &out, &why);
+            g.ctx->End(qb); g.ctx->End(dj);
+            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT d = {}; UINT64 a = 0, b = 0;
+            while (g.ctx->GetData(dj, &d, sizeof(d), 0) == S_FALSE) {}
+            g.ctx->GetData(qa, &a, sizeof(a), 0); g.ctx->GetData(qb, &b, sizeof(b), 0);
+            if (i >= 5 && !d.Disjoint && d.Frequency) { sum += (double)(b - a) * 1000.0 / (double)d.Frequency; ++n; }
+        }
+        char dsc[128]; snprintf(dsc, sizeof(dsc), "%.3f ms mean over %d rebuilds (seed maps + compose, excluding the depth copies)", n ? sum / n : -1.0, n);
+        check("cost: one rebuild at 2750x2850 (informational)", ok && n > 0, dsc);
+        release(sc);
+        if (dj) dj->Release(); if (qa) qa->Release(); if (qb) qb->Release(); if (big) big->Release();
+    }
     printf("afw warp: %d PASS, %d FAIL\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

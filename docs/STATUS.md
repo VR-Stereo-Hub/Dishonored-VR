@@ -1,3 +1,37 @@
+## 2026-09-28 (AFW review): an adversarial review of 145c03b5d, and the rebuild reworked
+
+An adversarial review of the two-source rebuild found six faults, each reproduced on the host:
+- The first near candidate won even when a nearer surface existed (a thin world bar in front of the hand
+  was replaced by the hand).
+- Fixed seed depths could miss thin near geometry entirely (a 2 cm object at 0.75 m vanished).
+- The freshness guard accepted a record from an earlier present, and a toggle did not drop the records.
+- Candidates were ranked by depths from two different cameras, with a 4% band favouring the held eye.
+- The per-pixel matrix inverse cost about 20%. The pass measured 3.05 ms on this machine's RTX 4070 Ti
+  SUPER.
+- The matrix checks could not see a mirrored axis or a flipped c5 when both records shared the fault.
+
+Also found: a weapon beyond the body threshold still ghosted; a missing held record refused the
+fresh-only route; `afw::shutdown` had no caller.
+
+Rework, in `core/gfx/afw_warp`:
+- **Seed maps.** Each source is carried into the held eye's view as a depth-tested mesh (grid step 2,
+  half resolution), so every texel knows its nearest surface. It is then refined per pixel, with an edge
+  rescue.
+- **One depth space.** Candidates are compared in the held eye's own view depth.
+- **Stale test.** A held point that the fresh eye sees through is dropped, whatever its distance.
+- **Disocclusions** extend the background, never the near object.
+- **Freshness.** The fresh record must carry this present's delivered serial; an epoch drops the records
+  on a toggle.
+- **Matrix inverse** is computed on the CPU.
+- **Two independent matrix checks.** A basis check against each image's camera rotator, and a camera
+  check (the c5 displacement less the XR head motion, bounded).
+- **Fresh-only route.** It no longer needs a held record.
+- **Teardown.** `afw::shutdown` now runs at the runtime's device teardown.
+
+Host test (`tools/afw-warp-host.ps1`): 23/23, including every review counterexample and a freshness
+test. The cost is measured at 2750x2850 on this machine: about 1.5 ms per rebuild, seed maps plus
+compose. Grid step 4 measured 1.0 ms but missed a one-pixel ring of the hand and is recorded, not used.
+
 ## 2026-09-28 (AFW run 4): the held eye rebuilt from both eyes - host-verified, headset pending
 
 Run 4 on `v1.0.1-162-g71e98fcae` (reported): the hands still ghosted while stick turning, and the

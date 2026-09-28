@@ -1,3 +1,29 @@
+## 2026-09-28: AFW rebuild - adversarial review findings, fixed (host-verified)
+
+Surface: the held eye under `stereo afw`. Build `145c03b5d` (the two-source rebuild), not yet
+headset-run. An external review reproduced on the host:
+- a thin bar in front of the hand replaced by the hand (the first near candidate won);
+- a 2 cm object at 0.75 m lost entirely (fixed seed depths skip thin geometry);
+- a moved weapon at 1.1 m ghosting at 42% of its area (beyond the body threshold, no stale test);
+- stale records accepted (the freshness guard compared record order, not the present);
+- mixed-camera depth ranking;
+- matrix checks blind to shared faults.
+
+RETRACTED: the claim that the 16/16 suite established the rebuild's correctness. Its scenes had no
+thin or near world occluders and no stale-record case.
+
+Fix: depth-tested seed maps (a mesh of each source in the held eye's view), refine per pixel, compare in
+target depth, a stale test by the fresh eye's depth, background-only disocclusion fill, serial+epoch
+freshness, and basis and camera checks from independent sources.
+
+Host: 23/23 with the review cases. Prediction for the headset:
+- no hand or weapon ghost on turns or hand motion;
+- `afw/warp: beat` shows `full` rebuilds, 0 NOT rebuilt, matrices used with no refusals;
+- a GPU figure near 1.5 ms.
+
+A basis refusal on every present would mean the rotator convention differs from the matrix in the game
+(read the worst-degree figure).
+
 ## 2026-09-28: AFW run 4 - hands still ghost on turns, uneven motion - rebuilt from both eyes (host-verified)
 
 Surface: the held eye under `stereo afw`, the hands and weapon (a trailing copy on stick turns) and the

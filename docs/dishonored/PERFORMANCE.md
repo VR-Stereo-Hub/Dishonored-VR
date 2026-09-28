@@ -3536,3 +3536,23 @@ full-screen pass over the eye with up to six short searches per pixel in two R16
 line now carries its GPU time (`afw/warp: beat ... GPU x ms mean, y max`), to be read against the 6.94 ms
 slot. Not built: submitting depth to the runtime (`XR_KHR_composition_layer_depth` is OFFERED by
 VirtualDesktopXR) so its own reprojection could be positional; a slot filler for presents the game misses.
+
+## 2026-09-28: AFW rebuild cost - review measurement and the seeded rework
+
+The adversarial review measured the fixed-seed rebuild (145c03b5d) at 3.05 ms mean per present (4.13 ms
+in an earlier batch) on this machine's RTX 4070 Ti SUPER, at 2750x2850. That is 34 dependent depth
+fetches per world pixel. Moving the matrix inverse out of the shader alone saved about 20%.
+
+The seeded rework, measured by the host test's cost case (GPU timestamps, 35 rebuilds at 2750x2850,
+excluding the per-eye depth copies):
+
+| Grid step | Seed maps | Mean per rebuild | Suite |
+|---|---|---|---|
+| 2 | half | 1.48-1.52 ms | 23/23 |
+| 4 | half | 0.97-1.02 ms | misses a one-pixel hand ring |
+| 4 | full | 1.32-1.65 ms | misses a one-pixel hand ring |
+| 3 | full | 1.84 ms | misses a one-pixel hand ring |
+| 2 | full | 2.47 ms | 23/23 |
+
+Step 2 at half resolution is used. One reading of 2.43 ms at the same setting was taken while the GPU
+clock was low, so read the in-game `afw/warp: beat ... GPU` figure for the real cost.
