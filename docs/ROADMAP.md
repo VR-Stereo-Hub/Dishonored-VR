@@ -626,3 +626,5 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] Bounded sampled scopes and production host checks.
 - [ ] Headset log attribution, then choose a measured optimization.
 - [ ] Integration branch validation after independent wins are established.
+
+- [x] VR-79 reload regression: event-controller owner resolution and live guarded restore; production-module tests. Headset culling under DLAA/DLSS remains pending.

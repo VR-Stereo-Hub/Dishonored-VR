@@ -9892,3 +9892,33 @@ and level/UI generation. Clarity negates that per-eye c5 once and uses captured 
 Cam/Track semantics and the engine writers are unchanged. Epoch/identity values only reject
 history; they are never liveness authorization for dereferencing or writing an engine object.
 GPU geometry and simulator recovery evidence: PERFORMANCE.md, TAA audit fixes.
+
+## 2026-09-28: per-eye culling loses the live controller after reload
+
+VR-79 reopened with explicit approval. Verified run150 has Occlusion=pereye and DLAA
+active; swap heartbeat stops after save load despite continued stereo. The event
+controller changes while the scan controller remains stale. Culling used the latter.
+Branch codex/vr-79-culling-owner uses the event controller and validates controller and
+LocalPlayer live identities, object slots and reflected relationship. Load/menu edges
+rebuild the live table; allocation and restore revalidate before engine writes. No new
+addresses or changes to Game default/Off modes. Attempt/swap/restore counters expose
+silent failure. This shared path precedes DLSS/DLAA/FSR; an additional jitter-specific
+cause remains open until a matching headset test. See FLICKER_REFERENCE and ENGINE_NOTES.
+19 tests of the actual module pass, including stale but live scan owner, reload, pointer
+reuse, failed refresh, engine replacement and allocation callbacks. Headset pending.
+
+The current writer follows the ProcessEvent controller, resolving Player and validating
+LocalPlayer.ViewState against the already-derived offset. ChCapture/ChSlot validate
+IsLiveObject plus current GObjects slot and class/FName identity. Edge-triggered full
+refresh precedes new-level ownership; a changed LocalPlayer reference refreshes too.
+Unresolved owners retry at most once per second. Steady draws revalidate slots without
+copying GObjects. The allocator may invoke engine callbacks, so identity, current
+controller relationship and expected ViewState are checked again before swapping.
+Restore validates the saved LocalPlayer identity and expected right state, refreshing
+again if a load or UI epoch changed during the draw. A changed or freed object is never
+restored through readability alone. No additional engine offsets are introduced.
+
+Telemetry is cumulative: attempts count every pereye pass2; swapped counts successful
+installs; restored counts successful restores. Begin logs before the matching End, so
+restored may trail swaps by one. Refusals identify the guard. These counters establish
+scope coverage, not that downstream queries or reconstructed pixels are correct.

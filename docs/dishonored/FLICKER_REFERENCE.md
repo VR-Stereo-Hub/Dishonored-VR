@@ -1,3 +1,64 @@
+## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
+
+Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
+enemy silhouette in the eye that can still see the enemy, while the sword covers it in the
+other eye, cleared when F10 Advanced Display > Object culling moved from Per eye to Off
+(headset report). The log shows the switch 0 -> 1 at 41501109 and the only occlusion-query
+reader (callerRVA 005c131f, type 9, about 39k calls per 3 s per eye label) dropping to zero,
+with event queries (005bf54a) unchanged. So the silhouette depends on occlusion results, and
+the owner repair is not the cause: swaps continued with zero restore refusals.
+
+Not yet explained: why a separate right-eye view state still leaves a black (drawn but
+unlit or depth-only) enemy instead of a correct one. Open hypotheses, none measured: state
+the swap does not cover (LocalPlayer.ActorVisibilityHistory at +0x8C stays shared), a
+depth pass that is not occlusion-gated while the base pass is, or temporal history under
+DLAA. FSR is untested.
+
+Release decision for 1.0.2 (maintainer's call): the default becomes pereye, with a one-time
+migration of inis still on native ([Stereo] OcclusionMigrated=1 marks it done so a later
+deliberate native stays). Game default and Off stay in F10. The silhouette remains a known
+issue under pereye; Off is the confirmed-clean workaround at a draw cost. VR-79 stays open.
+## 2026-09-28: run155 owner repair holds; residual black enemy silhouette
+
+Verified build155 and matching DLL; run archived under main build/playtest-candidates/
+animation-hand-origin/run155-reported. Final logged pereye counters:19749 attempts and
+swaps,19748 restores (Begin logs before the matching End),zero restore refusals after
+two loads. Owner repair remains active. Headset report improves disappearance but some
+enemies become black silhouettes in the eye that can still see them when the sword
+covers the other eye. Do not mark VR-79 accepted. The existing log has no pixel/pass
+capture proving lighting loss, and does not isolate DLAA as the cause.
+
+No additional culling code change in this follow-up. Prepare DLAA on and retain pereye;
+arm existing [Perf] QueryWaitProfile=1. At the same location, reproduce the silhouette,
+then F10 Advanced Display > Object culling > Off. One question: does shading recover?
+Query counters must confirm the culling-path reads fall. Recovery implicates query-
+controlled rendering; persistence points toward lighting/depth/jitter/reconstruction.
+DLAA was disabled late in run155, without a reported result for that interval. The
+animation palm/entry correction proceeds independently in PR151. No game launched.
+
+## 2026-09-28: VR-79 culling regression during DLAA after save load (candidate)
+
+Surface: movable heads/gates disappear when a sword occludes one eye. This routes to
+the section 1 VR-79 query-history row, not the texture-speckle jitter row. Verified
+build150 SHA25653f1b33cf91bc522cff4c8ee373cf19b36c1a05c334a0e0d5e2c2e5edf0fd7ca
+was using pereye and DLAA. Its swap heartbeat ends at38188343; a save load replaces the
+event controller by38197984, which reports disagreement with the scan controller.
+Stereo continues afterward. The old resolver reads g_pcObj, the stale scan controller.
+
+Candidate resolves through g_peCtrl, validates live GObjects identities and the current
+Player relationship, refreshes on load/UI epoch/owner changes and validates restoration.
+A heartbeat counts every attempted pass2, including refusal, alongside swaps/restores.
+Prediction: after reload, attempts continue with corresponding swaps/restores on the
+new owner. An object visible past the sword to either eye should remain in that eye.
+If disappearance persists with swaps/restores healthy, this owner failure is insufficient
+and query/depth behavior under jitter needs separate measurement. No DLSS/DLAA/FSR
+jitter behavior is changed, and FSR has not been reproduced. Current F10 Per eye already
+selects the engine scope used by all three. No additional upscaler toggle is required.
+
+19 production-module host checks pass; optimized build and headset validation recorded
+in STATUS. Prior per-eye fixes are preserved, not retracted. Archive: main-repo
+build/playtest-candidates/animation-hand-origin/run150-reported. No headset acceptance.
+
 ## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
 
 1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures

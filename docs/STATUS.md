@@ -1,3 +1,78 @@
+## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
+
+Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
+enemy silhouette in the eye that can still see the enemy, while the sword covers it in the
+other eye, cleared when F10 Advanced Display > Object culling moved from Per eye to Off
+(headset report). The log shows the switch 0 -> 1 at 41501109 and the only occlusion-query
+reader (callerRVA 005c131f, type 9, about 39k calls per 3 s per eye label) dropping to zero,
+with event queries (005bf54a) unchanged. So the silhouette depends on occlusion results, and
+the owner repair is not the cause: swaps continued with zero restore refusals.
+
+Not yet explained: why a separate right-eye view state still leaves a black (drawn but
+unlit or depth-only) enemy instead of a correct one. Open hypotheses, none measured: state
+the swap does not cover (LocalPlayer.ActorVisibilityHistory at +0x8C stays shared), a
+depth pass that is not occlusion-gated while the base pass is, or temporal history under
+DLAA. FSR is untested.
+
+Release decision for 1.0.2 (maintainer's call): the default becomes pereye, with a one-time
+migration of inis still on native ([Stereo] OcclusionMigrated=1 marks it done so a later
+deliberate native stays). Game default and Off stay in F10. The silhouette remains a known
+issue under pereye; Off is the confirmed-clean workaround at a draw cost. VR-79 stays open.
+## 2026-09-28: run155 owner repair holds; residual black enemy silhouette
+
+Verified build155 and matching DLL; run archived under main build/playtest-candidates/
+animation-hand-origin/run155-reported. Final logged pereye counters:19749 attempts and
+swaps,19748 restores (Begin logs before the matching End),zero restore refusals after
+two loads. Owner repair remains active. Headset report improves disappearance but some
+enemies become black silhouettes in the eye that can still see them when the sword
+covers the other eye. Do not mark VR-79 accepted. The existing log has no pixel/pass
+capture proving lighting loss, and does not isolate DLAA as the cause.
+
+No additional culling code change in this follow-up. Prepare DLAA on and retain pereye;
+arm existing [Perf] QueryWaitProfile=1. At the same location, reproduce the silhouette,
+then F10 Advanced Display > Object culling > Off. One question: does shading recover?
+Query counters must confirm the culling-path reads fall. Recovery implicates query-
+controlled rendering; persistence points toward lighting/depth/jitter/reconstruction.
+DLAA was disabled late in run155, without a reported result for that interval. The
+animation palm/entry correction proceeds independently in PR151. No game launched.
+
+## 2026-09-28: return/trajectory and culling candidate installed
+
+Installed optimized legacy-off testmix v1.0.1-155-g15bbfa492. It contains animation
+source33ede5d4c (PR151) and culling source6132b2ed8 (PR152), retaining prior menu/FSR
+integration. DLL SHA2562f3571a63cb9ceac64c4e7e0bfadfc1b3191afbc82887d2f3867e022f3b7b4e2.
+Backup of DLL, full INI, log rotations and helpers: main-repo
+build/playtest-candidates/animation-hand-origin/return-culling-20260927-215623.
+Entire INI delta adds only [Anim] HandOriginTrace=1. HandOrigin1, sharp HUD/markers1,
+DLAA1/DlssQuality0, Occlusion=pereye, HandBackBlendMs150 preserved. Expected full-byte
+comparison, CRLF and installed DLL identity pass; existing DLSS/FSR helpers unchanged.
+Install script's missing-build-helper message does not describe those retained helpers.
+
+Combined optimized build, 24 origin-route checks, 3901 origin math checks, animation
+catalog/return suite, 19 actual occlusion-module checks, standalone frame suite, nine
+exports, default-profile byte parity and lint pass. No game launched. Current log is
+still run150: check for banner155 and resolved trace/per-eye settings on next launch.
+One perceptual question: does a drop takedown now return smoothly to the held right
+hand? Keep the hand comfortably steady through the end; a smooth return supports the
+mask-lifetime fix, a jump leaves an additional pose/pass discontinuity to identify.
+Additional actions can collect trajectories without a separate per-animation question.
+Overhead entry, aerial sword oscillation and DLAA culling acceptance remain open.
+PR151 and PR152 are drafts; neither merge is authorized.
+
+## 2026-09-28: per-eye culling loses the live controller after reload
+
+VR-79 reopened with explicit approval. Verified run150 has Occlusion=pereye and DLAA
+active; swap heartbeat stops after save load despite continued stereo. The event
+controller changes while the scan controller remains stale. Culling used the latter.
+Branch codex/vr-79-culling-owner uses the event controller and validates controller and
+LocalPlayer live identities, object slots and reflected relationship. Load/menu edges
+rebuild the live table; allocation and restore revalidate before engine writes. No new
+addresses or changes to Game default/Off modes. Attempt/swap/restore counters expose
+silent failure. This shared path precedes DLSS/DLAA/FSR; an additional jitter-specific
+cause remains open until a matching headset test. See FLICKER_REFERENCE and ENGINE_NOTES.
+19 tests of the actual module pass, including stale but live scan owner, reload, pointer
+reuse, failed refresh, engine replacement and allocation callbacks. Headset pending.
+
 ## 2026-09-27: sharp HUD and markers default on, Advanced controls
 
 After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1

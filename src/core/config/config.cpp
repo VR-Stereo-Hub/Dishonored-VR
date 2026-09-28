@@ -43,7 +43,7 @@ static bool WriteDefaultIni(const char* ini)
         "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
         "; occlusion culling (correct, but pays for every hidden draw). Live: `occlusion <mode>`.\n"
-        "Occlusion=native\n"
+        "Occlusion=pereye\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
