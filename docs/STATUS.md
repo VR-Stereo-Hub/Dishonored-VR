@@ -1,3 +1,14 @@
+## 2026-09-27: sharp markers headset-confirmed
+
+The corrected v1.0.1-143-g128c99b5c candidate produces clear native markers in
+headset. Installed SHA256 matches 9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb.
+The verified log allocates 2114x2192 -> 2750x2850 targets and records matching
+captured/delivered eyes with successful serial-overlay composition for both eyes.
+Run archive: main-repo build/playtest-candidates/menu-submenu-markers/run143-confirmed.
+The user authorized merging the marker work to staging. This accepts the observed
+objective clarity result; it does not establish coverage of every masked marker
+family or an FSR headset result. Animation entry placement is separate new work.
+
 ## 2026-09-27: corrected semantic marker candidate installed
 
 Installed optimized local testmix build `v1.0.1-143-g128c99b5c`, containing
