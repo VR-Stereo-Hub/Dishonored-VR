@@ -9941,4 +9941,3 @@ Separate culling report: heads/gates disappear behind a sword under DLAA. Instal
 mode was pereye. Successful swap heartbeat stops after the save load while stereo and
 DLAA continue; event and scan controllers disagree. The culling resolver uses the scan
 controller. Investigate this shared engine path before adding an upscaler-specific fix.
-
