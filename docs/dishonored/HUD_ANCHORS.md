@@ -31,7 +31,9 @@ Validation: actual production D3D11 WARP shader checks transparent, black,
 additive and alpha-over pixels against known background colours, plus existing
 circle/crop/hue cases. 123 native HUD and 503 HUD routing checks pass. Generated
 default writer, packaged profile and golden INI are byte-identical. No headset
-acceptance or native D3D9/11 interop run is claimed. No game/simulator launched.
+acceptance is claimed. A separate graphics-only production transport test on
+native D3D9Ex/D3D11 passes serial separation, reversed delivery, toggle-off drain,
+no-upscale refusal and resource release before Reset. No game/simulator launched.
 Memory at 2750x2850: six RGBA8 images plus one D24S8 surface are about 209 MiB,
 excluding driver overhead. This opt-in candidate needs performance measurement.
 
