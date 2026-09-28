@@ -1,3 +1,21 @@
+## 2026-09-27: Sharp native marker overlay candidate
+
+Current state: default-off [Hud] MarkersSharp overlay on claude/hud-markers-sharp,
+based on claude/hud-upscale-sharp and dependent on PR #146. Native draws carry
+colour-capture serial identity through delayed delivery and compose after DLSS/
+FSR at output resolution. See HUD_ANCHORS's 2026-09-27 entry and ARCHITECTURE's
+new depth/occlusion decision. Unsupported masking/blend states remain native.
+
+Validation: optimized build, nine exports, lint; production WARP composition,
+123 native HUD, 503 HUD routing and default writer/profile parity checks pass.
+Real marker coverage and native D3D9/11 transport still require headset testing.
+No game or simulator launched. Resource/performance research stays in PERFORMANCE.
+
+Next: local testmix integration keeps MarkersSharp off for the separate submenu
+comparison. A later single-question launch will enable it for stationary marker
+clarity/position, inspecting hud/markers-sharp eye/serial counts and refusal values.
+No PR merge. Linear creation is unavailable due to the reported free-plan limit.
+
 ## Sharp HUD while upscaling (2026-09-27) - built, not run, PR open
 
 Branch `claude/hud-upscale-sharp`. Under DLSS/FSR Super Resolution the HUD was drawn at the reduced
