@@ -1281,6 +1281,8 @@ static bool WriteDefaultIni(const char* ini)
         "StateWatch=1\n"
         "HandBack=1\n"
         "ReleaseMs=250\n"
+        "; Start native action motion at the tracked right hand. Experimental, live in Advanced Hands.\n"
+        "HandOrigin=0\n"
         "HandBackBlendMs=150\n"
         "; Arms.<lane>.<state> and Action.<lane>.<state> are the per-state handback rules\n"
         "; (VR-88). 1 hands the state back to the game's own animation, 0 keeps the VR\n"

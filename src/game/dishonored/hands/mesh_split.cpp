@@ -1,3 +1,4 @@
+#include "game/dishonored/hands/animation_origin.h"
 #include "core/ui/ovl_ui.h"
 #include "rounded_wrist.h"
 #include "sleeve_presets.h"
@@ -2689,6 +2690,63 @@ static void MpDrawCompare(const MpDrawCtx* c)
 }
 
 
+// Render lane only. No retained UObject or engine writes. One entry translation
+// is shared by both eyes, the body and weapon attachment's common correction.
+static dvr::anim::OriginTranslation g_animOrigin;
+static dvr::anim::Snapshot g_animOriginState;
+static bool MpAnimRoute()
+{
+    static uint64_t frame=~uint64_t(0);
+    static bool cached=false, priorOn=false;
+    static unsigned source=0;
+    const bool on=dvr::anim::hand_origin_enabled();
+    const auto current=dvr::frame::count();
+    if(frame==current && source==g_mpSrcGen && priorOn==on)return cached && !g_animOrigin.refused;
+    frame=current; source=g_mpSrcGen; priorOn=on;
+    if(!on) {g_animOrigin.sync(g_animOrigin.episode,source,false);cached=false;return false;}
+    g_animOriginState=dvr::anim::snapshot();
+    const auto& s=g_animOriginState;
+    const bool valid=dvr::anim::enabled() &&
+        s.valid && dvr::anim::fresh(s.stamp,GetTickCount64()) && s.game && (s.handMask&2) &&
+        !g_menuOpen && !g_inMenu && !g_mainMenu && !UiSurfaceBlocks();
+    const bool wasReady=g_animOrigin.ready;
+    g_animOrigin.sync(s.originEpisode,g_mpSrcGen,valid);
+    if(wasReady && !g_animOrigin.ready)
+        Log("anim/origin: released episode=%llu (ownership, menu, freshness or source changed)",s.originEpisode);
+    if(valid && !g_animOrigin.ready && !g_animOrigin.refused &&
+       (GetTickCount64()<s.originAt || GetTickCount64()-s.originAt>150)) {
+        g_animOrigin.refused=true;
+        Log("anim/origin: REFUSED episode=%llu: no valid right-hand draw within 150 ms of entry; native origin retained",s.originEpisode);
+    }
+    cached=valid; return valid && !g_animOrigin.refused;
+}
+static bool MpAnimReady() { return MpAnimRoute() && g_animOrigin.ready; }
+static dvr::hf::Xform MpAnimBlend(const MpDrawCtx* c,int hand,const float* palm,const dvr::hf::Xform& tracked)
+{
+    const float w=dvr::anim::weight_for(hand);
+    if(!MpAnimRoute())return dvr::anim::blend_transform(tracked,w);
+    if(hand==1 && !g_animOrigin.ready && g_mpEyeState!=0 && c->poseOk && c->pose.ok[1] &&
+       g_animOrigin.capture(c->R_L,tracked,palm)) {
+        float moved[3]; dvr::hf::apply_point(tracked,palm,moved);
+        Log("anim/origin: CAPTURE episode=%llu source=%u eye=%d pose=%u worldDelta=(%.3f %.3f %.3f) uu rightLocal native=(%.3f %.3f %.3f) tracked=(%.3f %.3f %.3f); fixed translation, authored rotation",
+            g_animOriginState.originEpisode,g_mpSrcGen,g_mpEyeState,c->pose.gen,
+            g_animOrigin.world[0],g_animOrigin.world[1],g_animOrigin.world[2],
+            palm[0],palm[1],palm[2],moved[0],moved[1],moved[2]);
+    }
+    return g_animOrigin.blend(c->R_L,tracked,w);
+}
+static bool MpAnimNative(const MpDrawCtx* c,int hand,dvr::hf::Xform* out)
+{
+    if(!c || !c->ok || !MpAnimReady() || dvr::anim::weight_for(hand)>0.0001f)return false;
+    *out=g_animOrigin.local(c->R_L);
+    WaPublishCommon(hand,c,*out);
+    DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
+        "anim/origin: APPLY episode=%llu eye=%d hand=%d localDelta=(%.3f %.3f %.3f) uu frame=%llu",
+        g_animOriginState.originEpisode,g_mpEyeState,hand,out->t[0],out->t[1],out->t[2],
+        (unsigned long long)dvr::frame::count());
+    return true;
+}
+
 // Place one hand through an already-acquired draw context. Reads no device
 // state of its own, so both hands of a draw are guaranteed to use identical
 // constants rather than merely expected to.
@@ -2699,6 +2757,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
     const char* dummy = NULL; if (!why) why = &dummy;
     if (!c || !c->ok)                { *why = c ? c->why : "no context"; return false; }
     if (hand < 0 || hand > 1)        { *why = "bad hand"; return false; }
+    if (MpAnimNative(c,hand,outD)) return true;
     if (!c->poseOk || !c->pose.ok[hand]) {
         *why = (g_mpTickRan == 0)
              ? "the pose tick has NEVER RUN - the palette backend is off, or "
@@ -2955,12 +3014,12 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // out of the hand's local space into the draw's camera-relative world
         // so any other member of the same view can consume it. Published here,
         // AFTER the model scale, so that factor is carried exactly once.
-        D = dvr::anim::blend(D, hand); // blend once, PER HAND (VR-220); weapons inherit this same correction
+        D = MpAnimBlend(c,hand,qLocal,D); // blend once, PER HAND (VR-220); weapons inherit this same correction
         WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
-        D = dvr::anim::blend(D, hand);
+        D = MpAnimBlend(c,hand,qLocal,D);
         g_mpPalmTargetOk[hand] = false;
     }
     for (int i = 0; i < 3; i++)
@@ -3334,7 +3393,8 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
 {
     const bool nativePose=dvr::anim::native_draw();
     g_msPassThrough = dvr::anim::native_full_arms();
-    if (g_msPassThrough) return false;
+    const bool originRoute=MpAnimRoute();
+    if (g_msPassThrough && !originRoute) return false;
     const bool nativeHands=nativePose && !g_msPassThrough;
     if (g_msMode == MS_MODE_OFF && !nativeHands) return false;
     MsContract con;
@@ -3361,6 +3421,41 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             return false;
         }
     }
+    if(g_msPassThrough && originRoute) {
+        PcRefreshLayout(dev);
+        MpDrawCtx ctx; dvr::hf::Xform delta;
+        if(!g_mpWorld || !g_mpOn || !g_mpPalN || g_mpCacheN!=g_mpPalN ||
+           g_pcLayBones!=6 || g_pcLayBonesN<(int)g_mpPalN ||
+           !MpAcquireCtx(dev,&ctx)) {
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
+                "anim/origin: native body REFUSED palette=%u/%u layout=c%d x%d world=%d backend=%d",
+                g_mpCacheN,g_mpPalN,g_pcLayBones,g_pcLayBonesN,int(g_mpWorld),int(g_mpOn));
+            return false;
+        }
+        MpDrawCompare(&ctx);
+        // A zero-duration handback still has to capture its FIRST native draw.
+        if(!MpAnimReady()) {
+            float q[3];const char* why="right anchor unavailable";
+            if(!MpAnchorPos(MS_CLS_HAND_B,g_mpCache,g_mpCacheN,q) ||
+               !MpWorldTarget(&ctx,1,MS_CLS_HAND_B,q,&delta,&why) || !MpAnimReady()) {
+                DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,"anim/origin: full-body capture refused: %s",why);
+                return false;
+            }
+        }
+        if(!MpAnimNative(&ctx,1,&delta))return false;
+        WaPublishCommon(0,&ctx,delta);
+        float source[4*256],patched[4*256];
+        if(FAILED(dev->GetVertexShaderConstantF(6,source,g_mpCacheN)))return false;
+        MpBuild(patched,source,g_mpCacheN,&delta);
+        if(FAILED(dvr::frame::orig_set_vs_const(dev,6,patched,g_mpCacheN))) {
+            dvr::frame::orig_set_vs_const(dev,6,source,g_mpCacheN);return false;
+        }
+        const HRESULT hr=dvr::frame::orig_draw_indexed(dev,type,baseVertex,minIndex,numVertices,startIndex,primCount);
+        const HRESULT restore=dvr::frame::orig_set_vs_const(dev,6,source,g_mpCacheN);
+        if(FAILED(restore))Log("anim/origin: ERROR restoring native body palette hr=%08lx",(unsigned long)restore);
+        if(FAILED(hr))Log("anim/origin: native body draw failed hr=%08lx",(unsigned long)hr);
+        return true;
+    }
     int lo, hi;
     switch (nativeHands ? MS_MODE_HANDS : g_msMode) {
     case MS_MODE_HANDS: lo = MS_CLS_HAND_A; hi = MS_CLS_HAND_B; break;
@@ -3371,7 +3466,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     }
     if(nativeHands)DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
         "anim/draw: native animated hands only (%s); forearms clipped at the sleeve cut %.2f / %.2f uu from the hand bone "
-        "(F10 Sleeve), controller palette/depth overrides bypassed",
+        "(F10 Sleeve), controller tracking bypassed; entry origin applied only when captured",
         dvr::anim::snapshot().reason, g_msCutRel[1], g_msCutRel[2]);
     const int start = g_msClsStart[lo];
     int count = 0;
@@ -3404,7 +3499,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // The palette must be the COMPLETE verified interval for this split, not
     // merely three registers of something. g_mpCacheN is 0 until every
     // register in the interval is valid, so this is a state test.
-    bool perClass = !nativePose && g_mpOn && g_msMode == MS_MODE_HANDS &&
+    bool perClass = (!nativePose || originRoute) && g_mpOn && g_msMode == MS_MODE_HANDS &&
                     g_mpPalN > 0 && g_mpCacheN == g_mpPalN;
     if (perClass) {
         for (int c = MS_CLS_HAND_A; c <= MS_CLS_HAND_B; c++)
@@ -3414,6 +3509,8 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 rng[nrng].count = g_msClsCount[c];
                 nrng++;
             }
+        // Capture right before the left consumes the common origin on entry.
+        if(originRoute && nrng==2) std::swap(rng[0],rng[1]);
         if (!nrng) perClass = false;
     }
     if (!nativePose && g_mpOn && g_msMode == MS_MODE_HANDS && !perClass)
@@ -3479,7 +3576,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // eye question has to be asked in; asking it per hand compared a draw with
     // itself.
     MpDrawCtx ctx; ctx.ok = false; ctx.why = "not acquired";
-    if (!nativePose && g_mpWorld) {
+    if ((!nativePose || originRoute) && g_mpWorld) {
         g_mpDrawsEntered++;
         if (MpAcquireCtx(dev, &ctx)) {
             g_mpDrawsSampled++;
@@ -3538,7 +3635,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 if (useT) {
                     static float buf[4 * 256];
                     MpBuild(buf, g_mpCache, g_mpCacheN, &T);
-                    if (rng[r].cls == MS_CLS_HAND_B && OhActive())
+                    if (!nativePose && rng[r].cls == MS_CLS_HAND_B && OhActive())
                         OhApply(buf, g_mpCache, g_mpCacheN);   // the empty right hand opens like the left
                     dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
                 } else {

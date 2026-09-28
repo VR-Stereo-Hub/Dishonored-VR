@@ -1,3 +1,54 @@
+## 2026-09-27: animation entry at the tracked right hand (candidate)
+
+Observation: scripted arm animations begin at the native gamepad placement instead
+of the tracked hand. Drop takedowns can expose the shoulder ends ahead of the view.
+The prior run is verified as v1.0.1-143-g128c99b5c with installed DLL SHA256
+9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb. Its archive is
+build/playtest-candidates/menu-submenu-markers/run143-confirmed in the main repo.
+It contains GenericFatality while Falling/Walk and MasterAssassinate ownership;
+this does not identify an exact clip as the reported drop takedown.
+
+Source cause: anim::blend drove the hand correction to identity. Once both hands
+were native, DcDrawIndexed bypassed routing, MsDraw drew native geometry and WaDraw
+bypassed attachment correction. The rendered entry therefore reverted to native
+placement by design. No measured fixed centimetre adjustment exists.
+
+Candidate [Anim] HandOrigin=0, live `anim origin on|off`, Advanced Hands > Game arms
+during actions > Start animations at the right hand. On entry to existing selected
+handback ownership, capture the right palm's target-minus-native displacement from
+the verified body draw. Store it as an engine-world VECTOR. The same vector is
+converted through each draw's local rotation for both hands and held weapons, and
+survives native drawing. It is not recomputed from the moving controller during
+the clip. Original authored rotation, animation motion, native full-arm geometry,
+depth range, and existing selected-action policy are preserved. Split native hands
+keep their existing sleeve cut. One-hand trigger attacks leave the other hand tracked.
+
+The render-only token increments on entry, selected master action change, ownership
+mask change or unavailable/recreated pawn state. No UObject is retained by this
+feature and it writes no engine memory. Menu, stale snapshot, disabled option and
+body source rebuild discard the origin; the same episode cannot relatch after
+invalidation. Missing/unknown-eye/right-tracking entry samples refuse after the
+existing 150 ms freshness window rather than capture midway through the clip.
+Counters identify CAPTURE, APPLY, REFUSED and release, including episode, eye,
+source generation and measured translation. Device palette state is restored.
+
+Limits: this translates presentation, not the target actor or collision. An offset
+can shift a contact point away from an enemy. Secondary unrecognized body passes
+and unavailable weapon bridges retain native drawing; coverage must be checked
+in headset. It does not solve pose retargeting/IK or reproduce both independent
+controller positions with one rigid body. No camera or action trigger edits.
+
+Validation: 3901 production math/lifecycle checks, 21 extracted production routing
+checks, 138 animation catalog plus 22 handoff checks, existing palette-eye checks,
+production default writer/profile byte parity, optimized build and lint pass.
+No game or simulator launch. Headset acceptance remains open.
+
+Next one-question launch: hold the right hand in a comfortable low position and
+perform one drop takedown. Does the animation start there rather than snap forward
+to the native gamepad origin? Success supports entry alignment; a native-position
+start requires checking capture/refusal and draw coverage. A displaced weapon,
+doubled geometry, bad target contact or failed tracking return rejects the candidate.
+
 ## The sword hand-back is for trigger attacks (VR-220, 2026-09-25)
 
 `HandAnimMelee` matched every `StatePlayerMeleeAttack`; it now matches an attack whose source is

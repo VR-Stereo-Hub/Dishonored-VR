@@ -464,7 +464,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
     // patching the palette without it - the one step of the main path they did
     // not copy.
     D3DVIEWPORT9 savedVp; bool changedVp = false;
-    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp)) && savedVp.MaxZ < .5f) {
+    if (!dvr::anim::native_draw() && g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp)) && savedVp.MaxZ < .5f) {
         D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
         changedVp = SUCCEEDED(dev->SetViewport(&full));
     }
@@ -475,7 +475,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
         : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
     if (hr) *hr = drawHr;
     // VR-138: the sibling passes take the mirror too, so depth and colour agree.
-    if (SUCCEEDED(drawHr) && indexed)
+    if (!dvr::anim::native_draw() && SUCCEEDED(drawHr) && indexed)
         WmDraw(dev, w, source, (UINT)start, (UINT)cnt, delta, type, baseVertex, minIndex,
                numVertices, startIndex, primCount);
     if (changedVp && FAILED(dev->SetViewport(&savedVp)))
@@ -498,7 +498,7 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
                        UINT startVertex, UINT primCount, HRESULT* hr)
 {
     if (hr) *hr = D3D_OK;
-    if (dvr::anim::native_draw() || !g_waOn || !dev || !g_waMeshN) return false;
+    if ((dvr::anim::native_draw() && !MpAnimReady()) || !g_waOn || !dev || !g_waMeshN) return false;
     InterlockedIncrement(&g_waPrimSeen);
 
     IDirect3DVertexBuffer9* vbo = NULL; UINT offset = 0, stride = 0;
@@ -965,7 +965,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                 }
                                 dvr::hf::Xform L2 = {c2.R_L,
                                     {c2.t[0], c2.t[1], c2.t[2]}}, iL2;
-                                if (g_waViewLens && !known->useNative) {
+                                if (!dvr::anim::native_draw() && g_waViewLens && !known->useNative) {
                                     const WaComp *self=nullptr,*ref=nullptr;
                                     for(int q=0;q<v2->componentCount;++q) {
                                         const auto& k=v2->components[q];
@@ -1036,7 +1036,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
                                 dvr::wf::instance_name(instVerdict), known->asset);
                             return false;
                         }
-                        if (g_waDropUncorrected) {
+                        if (g_waDropUncorrected && !dvr::anim::native_draw()) {
                             InterlockedIncrement(&g_waIdDropped);
                             DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
                                 "wa/id: DROPPING an uncorrectable pass of '%s' - "
@@ -1187,7 +1187,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
             dvr::hf::Xform candidateCorrection=v->D;
             dvr::hf::Xform lens, inverseLens; float lensRatio=1;
             const float viewDistance=sqrtf(draw.t[0]*draw.t[0]+draw.t[1]*draw.t[1]+draw.t[2]*draw.t[2]);
-            if (g_waViewLens && !instStrongVeto && viewDistance<=g_waViewModelUU &&
+            if (!dvr::anim::native_draw() && g_waViewLens && !instStrongVeto && viewDistance<=g_waViewModelUU &&
                 dvr::wf::view_lens(draw,c.predicted,v->forward,&lens,&inverseLens,&lensRatio)) {
                 c.hasLens=true; c.unproject=inverseLens;
                 // Remove the extra lens before applying the SAME hand delta.
@@ -1510,7 +1510,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         InterlockedIncrement(&g_waNoSource); return false;
     }
     D3DVIEWPORT9 savedVp; bool changedVp = false;
-    if (g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp)) && savedVp.MaxZ < .5f) {
+    if (!dvr::anim::native_draw() && g_mpDepth && SUCCEEDED(dev->GetViewport(&savedVp)) && savedVp.MaxZ < .5f) {
         D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
         changedVp = SUCCEEDED(dev->SetViewport(&full));
     }
@@ -1520,7 +1520,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     if (hr) *hr = drawHr;
     if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
     // VR-138: the mirrored copy, inside the same patched palette and depth range.
-    if (SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,
+    if (!dvr::anim::native_draw() && SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,
                                   minIndex, numVertices, startIndex, primCount);
     if (changedVp && FAILED(dev->SetViewport(&savedVp))) InterlockedIncrement(&g_waRestoreFail);
     if (FAILED(dvr::frame::orig_set_vs_const(dev, w->boneReg, source, w->regs))) {
@@ -1543,12 +1543,12 @@ static bool WaDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex,
                    UINT primCount, HRESULT* hr)
 {
-    if (dvr::anim::native_draw()) return false;
+    if (dvr::anim::native_draw() && !MpAnimReady()) return false;
     bool onWeapon = false;
     if (WaDrawInner(dev, type, baseVertex, minIndex, numVertices, startIndex,
                     primCount, hr, &onWeapon))
         return true;
-    if (!g_waSuppressUnplaced || !onWeapon) return false;
+    if (dvr::anim::native_draw() || !g_waSuppressUnplaced || !onWeapon) return false;
     InterlockedIncrement(&g_waSuppressed);
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
         "wa: SUPPRESSED a weapon draw this build did not place - %ld so far. It "

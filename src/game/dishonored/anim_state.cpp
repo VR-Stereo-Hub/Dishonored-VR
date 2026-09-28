@@ -20,6 +20,8 @@ bool watch = true, handback = true, cinematicHandback = false, mantleHandback = 
 // the split keeps the game's clip on the hands and drops only the arm triangles, at the
 // player's F10 sleeve length. Off = the game's full arms, as before.
 bool hideTakedownArms = true;
+std::atomic<bool> handOrigin{false};
+unsigned long long originCounter=0;
 bool takedown_state(const char* master, const char* upper) {
     return !strcmp(master,"StatePlayerMasterAssassinate") || !strcmp(master,"StatePlayerMasterChoke") ||
            !strcmp(upper,"StatePlayerGenericFatality");
@@ -349,6 +351,11 @@ float weight_for(int hand) {
     AcquireSRWLockShared(&lock); const unsigned char m=frameMask; ReleaseSRWLockShared(&lock);
     return (hand>=0 && hand<2 && (m & (1u<<hand))) ? w : 1.0f;
 }
+bool hand_origin_enabled(){return handOrigin.load();}
+void set_hand_origin(bool on){
+    handOrigin.store(on);
+    Log("anim/origin: HandOrigin=%d (next animation entry; right-hand translation, native rotation)",int(on));
+}
 bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.game; }
 // Cheap on purpose: SkcRotApply asks per control on every ProcessEvent dispatch. The mask
 // is published by tick() as (handback && valid && game) ? handMask : 0, the same test active() makes.
@@ -498,6 +505,12 @@ void tick() {
     s.game=s.valid && classifier.game;
     ownedMask.store((handback && s.valid && s.game) ? s.handMask : 0);   // VR-220: what hand_owned() answers
     if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
+    // A render token, never an engine pointer. Re-entry after unavailable state
+    // gets a new token even if an allocator reuses the same pawn address.
+    if(s.valid && s.game && (!previous.game || !previous.valid || pawnChanged ||
+       s.handMask!=previous.handMask || ((mantle || resolve_arm_rule(0,s.state[0])) && s.entered[0]!=previous.entered[0]))) {
+        s.originEpisode=++originCounter; s.originAt=now;
+    }
     published=s;
     ReleaseSRWLockExclusive(&lock);
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
@@ -535,6 +548,8 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
+    handOrigin.store(GetPrivateProfileIntA("Anim","HandOrigin",0,ini)!=0);
+    Log("config: [Anim] HandOrigin=%d (right-hand animation entry translation)",int(handOrigin.load()));
     hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",1,ini)!=0;   // VR-283
     Log("config: [Anim] HideTakedownArms=%d (%s)",hideTakedownArms,
         hideTakedownArms?"takedowns and fatalities: game-animated hands, forearms hidden at the sleeve length":"takedowns and fatalities: full game arms");
@@ -582,6 +597,7 @@ void save(const char* ini) {
     char v[16];
     WritePrivateProfileStringA("Anim","StateWatch",w?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HandBack",b?"1":"0",ini);
+    WritePrivateProfileStringA("Anim","HandOrigin",hand_origin_enabled()?"1":"0",ini);
     WritePrivateProfileStringA("Anim","CinematicHandBack",c?"1":"0",ini);
     WritePrivateProfileStringA("Anim","MantleHandBack",mantle?"1":"0",ini);
     WritePrivateProfileStringA("Anim","HideTakedownArms",takedown_arms_hidden()?"1":"0",ini);   // VR-283
@@ -596,6 +612,7 @@ void save(const char* ini) {
 bool command(const char* args) {
     char sub[24]={}, value[24]={}, extra[24]={}; sscanf(args,"%23s %23s %23s",sub,value,extra);
     if (!strcmp(sub,"handback") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_enabled(!strcmp(value,"on"));
+    else if (!strcmp(sub,"origin") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_hand_origin(!strcmp(value,"on"));
     else if (!strcmp(sub,"watch") && (!strcmp(value,"on") || !strcmp(value,"off"))) {
         AcquireSRWLockExclusive(&lock); watch=!strcmp(value,"on"); published.valid=false; handoff=Handoff{}; ReleaseSRWLockExclusive(&lock);
     } else if (!strcmp(sub,"melee")) {   // VR-220: the sword hand-back and its source rule
@@ -611,11 +628,11 @@ bool command(const char* args) {
             handAnimMeleeSwing?" and for a physical swing":"; a physical swing keeps your arm");
         ReleaseSRWLockShared(&lock);
         return true;
-    } else if (*sub && strcmp(sub,"status")) Log("anim: status | watch on|off | handback on|off | melee on|off | melee swing on|off | melee both on|off | melee status");
+    } else if (*sub && strcmp(sub,"status")) Log("anim: status | origin on|off | watch on|off | handback on|off | melee on|off | melee swing on|off | melee both on|off | melee status");
     report(snapshot()); return true;
 }
 void status(dvr::status::Writer& w) {
-    const Snapshot s=snapshot(); w.obj("anim"); w.kv("valid",s.valid); w.kv("gameOwnsBody",s.game); w.kv("handBack",enabled());
+    const Snapshot s=snapshot(); w.obj("anim"); w.kv("valid",s.valid); w.kv("gameOwnsBody",s.game); w.kv("handBack",enabled()); w.kv("handOrigin",hand_origin_enabled());
     w.kv("master",s.state[0]); w.kv("upper",s.state[1]); w.kv("left",s.state[2]); w.kv("sequence",s.sequence);
     w.kv("reason",s.reason); w.kv("bodyMode",s.bodyMode); w.kv("controllerWeight",(double)weight());
     const float wl=weight_for(0), wr=weight_for(1);   // before the lock: weight() takes it exclusively, and SRW locks do not nest

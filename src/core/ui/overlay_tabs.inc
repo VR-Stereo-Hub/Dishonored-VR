@@ -172,6 +172,14 @@ static void OvlTabHands()
         bool enabled = dvr::anim::enabled();
         if (dvr::ovl::checkbox("Use game arms for the selected actions", &enabled)) dvr::anim::set_enabled(enabled);
         OvlTip("Master switch. Off keeps your tracked hands for everything.");
+        bool origin = dvr::anim::hand_origin_enabled();
+        if (dvr::ovl::checkbox("Start animations at the right hand", &origin)) {
+            dvr::anim::set_hand_origin(origin);
+            ConfigWriteKey("Anim", "HandOrigin", origin ? "1" : "0", "F10 Hands");
+        }
+        OvlTip("Experimental. Moves the next selected animation's starting position to your right hand, "
+               "then preserves the game's motion. Both arms and held weapons share the offset. "
+               "It can move contact points away from a target. Default off.");
         bool mantleHands = dvr::anim::mantle_enabled();
         if (dvr::ovl::checkbox("Game hands while mantling", &mantleHands)) {
             dvr::anim::set_mantle(mantleHands);

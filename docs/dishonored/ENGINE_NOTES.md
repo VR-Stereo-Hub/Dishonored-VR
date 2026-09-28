@@ -9892,3 +9892,17 @@ and level/UI generation. Clarity negates that per-eye c5 once and uses captured 
 Cam/Track semantics and the engine writers are unchanged. Epoch/identity values only reject
 history; they are never liveness authorization for dereferencing or writing an engine object.
 GPU geometry and simulator recovery evidence: PERFORMANCE.md, TAA audit fixes.
+
+## 2026-09-27: render-only animation entry origin
+
+Existing handback's identity destination is the native gamepad pose, not the last
+tracked hand placement. A candidate uses the existing MpAnchorPos/MpWorldTarget
+chain to measure a right-hand displacement once, then preserves it as a world
+vector. For body local rotation R, native palm q and tracked correction D:
+worldDelta = R * (D(q) - q). A later draw applies transpose(Rdraw) * worldDelta
+to every palette translation, so neither eye origin nor camera translation is
+stored. The full-arm path uses its qualified original geometry and restores the
+actual device constants; attachment members use the established common-correction
+bridge and instance checks. No new offsets or engine-memory writes. Native depth
+and lens policies stay native. See ANIM-HANDOFF-PLAN top entry for state lifetimes,
+verified baseline, test coverage and the pending headset question.

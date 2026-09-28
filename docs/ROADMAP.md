@@ -1,10 +1,17 @@
+## Animation entry from tracked right hand (2026-09-27)
+
+- [x] Trace native handback placement and implement default-off entry translation.
+- [x] Verify math, ownership lifecycle and production route adapters on the host.
+- [ ] Confirm drop-takedown entry, attachment alignment and exit in headset.
+
 ## Native markers after upscaling (2026-09-27)
 
 - [x] Determine depth eligibility before choosing the overlay occlusion policy.
 - [x] Add default-off native marker overlay, live controls and serial-owned delivery.
 - [x] Verify production GPU over blending and existing native routing regressions.
 - [x] Verify native graphics transport serials, delayed delivery, toggle drain and reset.
-- [ ] Verify actual marker draw-state coverage, eye placement and clarity in headset.
+- [x] Confirm native objective clarity and matching-eye composition in headset.
+- [ ] Verify every remaining masked marker family and FSR headset coverage.
 - [ ] Measure native transport overhead and resource cost with the lever enabled.
 
 ## FSR implementation (2026-09-26, planned stacked branch)

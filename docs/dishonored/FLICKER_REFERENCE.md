@@ -1,3 +1,14 @@
+## 2026-09-27: scripted arms start at native origin (placement candidate)
+
+This is a reported fixed animation-entry placement error, not a measured stereo
+cadence defect. Surface: native player arms during drop takedowns, with shoulder
+ends visible ahead of the camera. The verified run143 contains native action
+ownership; previous identity handback explains returning to gamepad placement.
+Candidate HandOrigin captures one right-palm translation, shares it across eyes
+and weapon passes, and invalidates on ownership/menu/source changes. Existing eye
+classification and native lens/depth policies remain. Host tests pass; headset
+result is pending. ANIM-HANDOFF-PLAN records the full evidence, risks and test.
+
 ## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
 
 1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures

@@ -1,3 +1,18 @@
+## 2026-09-27: sharp defaults merged; animation origin candidate
+
+PR149 (including146) and PR150 merged to staging with explicit user authorization.
+Sharp HUD and native markers now default on; both checkboxes are Advanced Display.
+The accepted marker run is archived as run143-confirmed. Branches are retained.
+
+New branch codex/animation-hand-origin derives from staging67e1a4660. A default-off
+HandOrigin option captures the tracked right hand's positional offset at selected
+animation entry and carries authored arm/weapon motion from there. No action,
+camera or engine-memory writes. Details, limits and one-question drop-takedown
+check are in docs/dishonored/ANIM-HANDOFF-PLAN.md. Host checks pass; headset pending.
+Linear creation was attempted and rejected by the workspace issue cap; no invented
+identifier. Integrate the candidate into the existing local testmix for installation
+so its already-tested FSR/menu work and compatible preferences remain present.
+
 ## 2026-09-27: sharp HUD and markers default on, Advanced controls
 
 After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1
