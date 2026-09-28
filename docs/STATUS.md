@@ -1,3 +1,12 @@
+## 2026-09-27: submenu callbacks verified, jitter did not clearly reproduce
+
+Run137 matches the installed candidate. Options and Load callback transitions
+are observed; sampled hand buckets show no mismatches, refusals or repeated pose
+generations. Tentative headset smoothness does not establish a fix because this
+branch changed diagnostics only. FLICKER_REFERENCE records populations and limits.
+No additional menu test is requested now. Objective clarity has a separate proven
+semantic-routing omission being corrected in PR #149.
+
 ## 2026-09-27: installed submenu diagnostic and marker candidate
 
 Local test branch local/test-134-145-146, source b91ec4fef, installed optimized

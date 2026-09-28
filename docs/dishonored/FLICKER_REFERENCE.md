@@ -1,3 +1,25 @@
+## 2026-09-27: run137 submenu result, non-reproduction
+
+Verified banner v1.0.1-137-gb91ec4fef and installed DLL SHA256
+837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803.
+Main-repo archive: build/playtest-candidates/menu-submenu-markers/run137.
+The tester tentatively reported smooth motion. No behavioral hand change was
+installed, so this is a non-reproduction, not a confirmed fix.
+
+Options callbacks were observed at34500031 and34530015; OnLeaveOptions returned
+the diagnostic to root. Load entry/exit callbacks also appeared. This establishes
+Options/Load callback coverage for this run; Journal still has only context-level
+identity. There are zero menu/hands-mismatch samples in the run. At the last
+sampled eye bucket, Options has1057 agreements, zero mismatches/refusals/repeated
+poses; Load1320, Journal906 and root1875 likewise. These are different populations,
+not a normalized cross-menu rate comparison. WeaponMiss counts include generic
+unassociated candidates and do not establish missing visible weapon correction.
+
+Keep the hand-jitter fix open without changing the already-enabled root fixes.
+If it recurs, preserve the new labelled run and compare draw/pose geometry rather
+than adding a context3 gate. The immediate next launch concerns objective-marker
+clarity, whose separate semantic-routing omission was found in this same log.
+
 ## 2026-09-27: pause submenu hand jitter, diagnostic candidate
 
 Installed candidate: `v1.0.1-137-gb91ec4fef`, local source b91ec4fef.
@@ -1902,7 +1924,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
-| Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 read-only diagnostic candidate; cause and fix open; see top entry |
+| Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 callback coverage observed, tentative smooth run; cause and fix open; see top entry |
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
 | Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |
 | Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |
