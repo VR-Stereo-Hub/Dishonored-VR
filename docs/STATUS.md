@@ -1,3 +1,22 @@
+## 2026-09-27: Pause submenu hand diagnostic
+
+Current state: read-only submenu/hand instrument on claude/menu-submenu-hands,
+branched from staging. No behavioral fix yet: the supplied Journal log already
+has MenuSceneFreshness active, and context 3 covers root and Options/Save/Load.
+See FLICKER_REFERENCE's 2026-09-27 entry for prior fixes, rejected hypothesis,
+draw-owned diagnostic populations and the next discriminating test.
+
+Validation: optimized build, nine exports, lint, palette-eye, 72 menu freshness
+and 1686 reentry pairing checks pass. No game or simulator launched.
+
+Next: integrate the diagnostic into local/test-134-145-146, preserving #134/#145/
+#146/#147 and installed INI semantics. First launch compares root -> Options ->
+root with the same slow head/hand movement. MarkersSharp remains off. Inspect
+menu/subscreen callback coverage before assigning the Options interval. If
+identity remains root-or-unobserved, instrument native GFx dispatch before a fix.
+No staging or release merge. Linear creation is unavailable due to the reported
+free-plan limit; no new ticket number is invented.
+
 ## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
 
 Branch `claude/fsr-upscaler`. FSR runs in the existing x64 helper through AMD's FidelityFX API, SDK 2.3.0:
