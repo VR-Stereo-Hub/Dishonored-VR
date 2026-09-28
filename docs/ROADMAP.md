@@ -1,3 +1,9 @@
+## Pause submenu hand investigation (2026-09-27)
+
+- [x] Trace earlier pause fixes and reject absent Journal freshness from supplied evidence.
+- [x] Add draw-owned submenu and pose/correction diagnostics.
+- [ ] Confirm callback coverage and correlate root/Options behavior in headset.
+- [ ] Implement and verify the evidence-supported behavioral correction.
 ## Native markers after upscaling (2026-09-27)
 
 - [x] Determine depth eligibility before choosing the overlay occlusion policy.

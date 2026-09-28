@@ -1,3 +1,11 @@
+## 2026-09-27: submenu callbacks verified, jitter did not clearly reproduce
+
+Run137 matches the installed candidate. Options and Load callback transitions
+are observed; sampled hand buckets show no mismatches, refusals or repeated pose
+generations. Tentative headset smoothness does not establish a fix because this
+branch changed diagnostics only. FLICKER_REFERENCE records populations and limits.
+No additional menu test is requested now. Objective clarity has a separate proven
+semantic-routing omission being corrected in PR #149.
 ## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
 
 Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
@@ -152,6 +160,24 @@ was not reproduced. Preserve MarkersSharp=0 for this launch; marker A/B is later
 Before reading results, require the new banner above; the current log remains
 v1.0.1-127-g470944905 from before installation.
 
+## 2026-09-27: Pause submenu hand diagnostic
+
+Current state: read-only submenu/hand instrument on claude/menu-submenu-hands,
+branched from staging. No behavioral fix yet: the supplied Journal log already
+has MenuSceneFreshness active, and context 3 covers root and Options/Save/Load.
+See FLICKER_REFERENCE's 2026-09-27 entry for prior fixes, rejected hypothesis,
+draw-owned diagnostic populations and the next discriminating test.
+
+Validation: optimized build, nine exports, lint, palette-eye, 72 menu freshness
+and 1686 reentry pairing checks pass. No game or simulator launched.
+
+Next: integrate the diagnostic into local/test-134-145-146, preserving #134/#145/
+#146/#147 and installed INI semantics. First launch compares root -> Options ->
+root with the same slow head/hand movement. MarkersSharp remains off. Inspect
+menu/subscreen callback coverage before assigning the Options interval. If
+identity remains root-or-unobserved, instrument native GFx dispatch before a fix.
+No staging or release merge. Linear creation is unavailable due to the reported
+free-plan limit; no new ticket number is invented.
 ## 2026-09-27: Sharp native marker overlay candidate
 
 Current state: default-off [Hud] MarkersSharp overlay on claude/hud-markers-sharp,
