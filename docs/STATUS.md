@@ -1,3 +1,23 @@
+## 2026-09-27: animation-origin candidate installed for drop takedown
+
+Installed optimized legacy-off local testmix `v1.0.1-150-g9199dd698`, carrying
+feature source3b8c0f908 plus prior tested menu/FSR integration. DLL SHA256:
+`53f1b33cf91bc522cff4c8ee373cf19b36c1a05c334a0e0d5e2c2e5edf0fd7ca`.
+Pre-install DLL, full INI, all available log rotations and upscaler helpers:
+main-repo `build/playtest-candidates/animation-hand-origin/20260927-212147`.
+Entire installed INI delta: add only [Anim] HandOrigin=1. Both sharpness options
+remain1; the latest saved DLAA=1/DlssQuality=0 is retained. Expected bytes and CRLF
+verified. Installed DLL equals built DLL; existing upscaler helpers byte-identical.
+Existing setting semantics compared to installed128c99b5c before replacement.
+
+Combined build, nine exports, standalone hand/weapon frame suite,3901 origin checks,
+21 extracted production-route checks, default profile byte parity and lint pass.
+No game launched. Current log is still the accepted143 run; require banner150
+before interpreting the next playtest. Draft PR151 targets staging; no animation
+merge authorized. Next question: does one drop takedown start at the comfortably
+held low right hand rather than jump forward to the native gamepad placement?
+Check anim/origin CAPTURE/APPLY/refusal and matching episode/eye records afterward.
+
 ## 2026-09-27: sharp defaults merged; animation origin candidate
 
 PR149 (including146) and PR150 merged to staging with explicit user authorization.

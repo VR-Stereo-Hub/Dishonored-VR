@@ -1350,3 +1350,16 @@ unknown readiness omits the overlay with a diagnostic, never reuses stale pixels
 Pure D3D9 device state is restored from original setters and shadows; no engine
 D3D object is retained with AddRef in a draw detour. No engine-memory writer.
 The new lever defaults off, and without reduced upscaling draws remain native.
+
+## 2026-09-27: retain a positional animation-entry origin
+
+The HandOrigin candidate carries one measured world-vector displacement from the
+tracked right palm to the native entry palm. A vector survives camera-relative
+rebasing and either eye without storing an eye translation. It is converted back
+through each body's/member's draw-local rotation, so arms and held weapons share
+one translation while the authored clip keeps its rotation and relative movement.
+Do not freeze a full controller correction: its rotation/scale and camera-relative
+pivot would rotate authored interactions and retain an eye origin. Do not move the
+camera or target actor to repair a presentation symptom. Menu or stale ownership
+invalidates the captured episode; resumed pointer equality supplies no authority.
+The candidate is default off and requires headset judgment of contact alignment.
