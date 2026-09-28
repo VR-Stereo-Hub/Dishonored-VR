@@ -1,3 +1,17 @@
+## 2026-09-27: corrected semantic marker candidate installed
+
+Installed optimized local testmix build `v1.0.1-143-g128c99b5c`, containing
+marker fix 93b4a9101 and verified submenu observations 28f6b0060.
+DLL SHA256 `9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb`.
+Backup: main-repo `build/playtest-candidates/menu-submenu-markers/marker-route-fix-20260927-203958`.
+Whole INI diff changes only DLAA=0 to 1; MarkersSharp=1 and saved Ultra Quality
+(DlssQuality=5) retained. Expected bytes and CRLF verified. Existing upscaler
+helpers unchanged. Nine exports, optimized build, lint and 74 production-routing
+checks pass. No game launch. Headset marker coverage/readability remains pending.
+Next test: stationary objective, compare F10 sharp markers off/on under the armed
+Ultra Quality setting. Clearer text supports the fix; unchanged text requires
+checking composition/refusal logs; movement or duplication is a regression.
+
 ## 2026-09-27: run137 sharp markers bypassed by semantic routing
 
 The verified run reproduced unchanged objective readability. The overlay allocated
