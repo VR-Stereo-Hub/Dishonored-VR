@@ -12,3 +12,11 @@
 #define IDR_TROUBLESHOOTING  107
 #define IDR_CONTROLLER_GUIDE 109
 #define IDR_KNOWN_ISSUES     108
+// dvr_dlss\ (DLAA/DLSS/FSR helper), embedded only when DVR_SETUP_DLSS is defined
+#define IDR_DLSS_HOST        111
+#define IDR_DLSS_NGX         112
+#define IDR_FFX_LOADER       113
+#define IDR_FFX_UPSCALER     114
+#define IDR_DLSS_NGX_LICENSE 115
+#define IDR_FFX_LICENSE      116
+#define IDR_DLSS_NOTICE      117

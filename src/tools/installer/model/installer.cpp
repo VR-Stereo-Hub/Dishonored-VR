@@ -103,6 +103,42 @@ bool write_payload_file(Report* r, const std::wstring& dir, const wchar_t* name,
     return true;
 }
 
+// DLAA/DLSS/FSR: the x64 helper and the NVIDIA and AMD runtimes in <game>\dvr_dlss\,
+// the same files tools\install.ps1 puts there. A launcher built without them says so
+// and installs the mod alone; the mod then logs that the helper is missing.
+bool install_dlss_helper(Report* r, const std::wstring& gameDir)
+{
+#ifdef DVR_SETUP_DLSS
+    static const struct { int id; const wchar_t* name; } kFiles[] = {
+        {IDR_DLSS_HOST, L"dvr_dlss_host64.exe"},
+        {IDR_DLSS_NGX, L"nvngx_dlss.dll"},
+        {IDR_FFX_LOADER, L"amd_fidelityfx_loader_dx12.dll"},
+        {IDR_FFX_UPSCALER, L"amd_fidelityfx_upscaler_dx12.dll"},
+        {IDR_DLSS_NGX_LICENSE, L"NVIDIA-DLSS-LICENSE.txt"},
+        {IDR_FFX_LICENSE, L"AMD-FIDELITYFX-LICENSE.md"},
+        {IDR_DLSS_NOTICE, L"NOTICE.md"},
+    };
+    const std::wstring dir = fs::join(gameDir, L"dvr_dlss");
+    DWORD err = 0;
+    if (!fs::make_dir(dir, &err)) { r->fail("Could not create the dvr_dlss folder", err); return false; }
+    for (const auto& f : kFiles) {
+        const resources::Blob b = resources::rcdata(f.id);
+        if (!b.ok()) { r->add(StepStatus::Failed, "This installer is missing part of the DLSS/FSR helper", "Download it again."); return false; }
+        if (!fs::write_file_atomic(fs::join(dir, f.name), b.data, b.size, &err)) {
+            r->fail(fs::format("Could not write dvr_dlss\\%s", n(f.name).c_str()), err);
+            return false;
+        }
+    }
+    fs::delete_file(fs::join(dir, L"amd_fidelityfx_dx12.dll"), &err);   // FidelityFX SDK 1.1.x, replaced by the loader
+    r->add(StepStatus::Ok, "Installed the DLSS/FSR helper", "dvr_dlss: DLAA, DLSS and FSR in F10 > Display");
+    return true;
+#else
+    (void)gameDir;
+    r->add(StepStatus::Skipped, "No DLSS/FSR helper in this build", "DLAA, DLSS and FSR stay unavailable in F10.");
+    return true;
+#endif
+}
+
 bool remove_if_present(Report* r, const std::wstring& dir, const wchar_t* name, const char* why)
 {
     const std::wstring p = fs::join(dir, name);
@@ -373,6 +409,7 @@ Report do_install(const Env& env, const Detection& det, const Choices& choices)
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
+    if (!install_dlss_helper(&r, det.gameDir)) return r;
     remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0; the game renders natively now.");
     remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
 
@@ -404,6 +441,7 @@ static Report update_impl(const Env& env, const Detection& det, bool overwriteSe
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
+    if (!install_dlss_helper(&r, det.gameDir)) return r;
     remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0.");
     remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
     if (overwriteSettings) {
