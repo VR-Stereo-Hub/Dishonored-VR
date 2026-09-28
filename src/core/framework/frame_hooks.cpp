@@ -16,6 +16,7 @@
 #include "core/gfx/d3d9ex.h"
 #include "core/gfx/device_census.h"
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/markers_sharp.h"
 #include "core/gfx/hud_class.h"
 #include "core/gfx/stereo.h"
 #include "core/hooks/vtable.h"
@@ -49,6 +50,8 @@ typedef ULONG (__stdcall *PFN_DevRelease)(IDirect3DDevice9*);
 PFN_DevRelease    g_origDevRelease = nullptr;
 PFN_BeginScene    g_origBeginScene = nullptr;
 PFN_SetDepthStencil g_origSetDs = nullptr;
+IDirect3DSurface9* g_gameDs = nullptr;   // the game's last SetDepthStencilSurface, pointer value only
+bool g_gameDsKnown = false;
 SetVsConstFn      g_origSetVsConst = nullptr;
 SetRenderTargetFn g_origSetRt = nullptr;
 DrawIndexedFn     g_origDrawIndexed = nullptr;
@@ -162,7 +165,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool torn = false;
         if (!torn) {
             torn = true;
-            dvr::hudclass::shutdown(); dvr::hudcap::shutdown();   // VR-117: before the method and the runtime
+            dvr::hudclass::shutdown(); dvr::hudcap::shutdown(); dvr::markersharp::reset();   // VR-117: before the method and the runtime
             dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit");
         }
         return g_origPresent(self, src, dst, wnd, dirty);
@@ -268,6 +271,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     const uint32_t priorCapture = dvr::capture::delivered_serial();
     dvr::etw::begin(dvr::etw::kMethod);
     dvr::stereo::end_frame(devs, out);
+    dvr::markersharp::prepare(self,devs.dev11,devs.ctx11,dvr::capture::width(),dvr::capture::height());
     dvr::etw::end(dvr::etw::kMethod, out.eyeSign);
     dvr::perf::part_mark("hk.method(capture+fence)");
     dvr::perf::stamp(dvr::perf::kAfterEnd);
@@ -325,13 +329,14 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
     if (g_cb.before_reset) g_cb.before_reset(pp);
+    g_gameDs = nullptr; g_gameDsKnown = false;   // Reset rebinds the auto depth-stencil
     DVR_INFO("device Reset (%ux%u windowed=%d)", pp ? pp->BackBufferWidth : 0,
              pp ? pp->BackBufferHeight : 0, pp ? (int)pp->Windowed : -1);
     // Every default-pool resource this proxy creates must be released here
     // (38.63: a forgotten one made the game's Reset fail forever).
     dvr::perf::on_reset();
     dvr::stereo::on_reset();
-    dvr::hudclass::on_reset(); dvr::hudcap::on_reset();   // VR-117: the sinks are DEFAULT-pool; the hkReset LAW
+    dvr::hudclass::on_reset(); dvr::hudcap::on_reset(); dvr::markersharp::reset();   // VR-117: the sinks are DEFAULT-pool; the hkReset LAW
     dvr::desktop_eye::on_reset();     // DEFAULT-pool surface; the hkReset LAW
     dvr::depthprobe::on_reset();      // it holds references on the game's float targets
     dvr::samplers::on_reset();        // a Reset returns every sampler state to its default
@@ -394,7 +399,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
     if (InterlockedCompareExchange(&g_exiting, 0, 0) && !InterlockedExchange(&done, 1)) {
         DVR_INFO("shutdown: the game released its device after PreExit - releasing the proxy's D3D9 objects first "
                  "(shared capture, desktop pin, HUD sinks) so the device can be destroyed");
-        dvr::hudclass::on_reset(); dvr::hudcap::on_reset();
+        dvr::hudclass::on_reset(); dvr::hudcap::on_reset(); dvr::markersharp::reset();
         dvr::stereo::on_reset();
         dvr::desktop_eye::on_reset();
         dvr::capture::on_reset();
@@ -419,6 +424,7 @@ HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3D
 // DLSS projection jitter (core/gfx/dlss_jitter.h): the bound depth-stencil surface is how the
 // world passes are told apart. Pointer value only - never dereferenced, never AddRef'd.
 HRESULT __stdcall hkSetDepthStencil(IDirect3DDevice9* self, IDirect3DSurface9* ds) {
+    g_gameDs = ds; g_gameDsKnown = true;
     dvr::dlss::jitter::note_depth_stencil(ds);
     return g_origSetDs(self, ds);
 }
@@ -528,6 +534,10 @@ const float* vs_const_shadow_row(int row) {
 }
 int vs_const_shadow_rows() { return kVsConstShadowRows; }
 
+IDirect3DSurface9* game_depth_stencil(bool* known) { if (known) *known = g_gameDsKnown; return g_gameDs; }
+HRESULT orig_set_depth_stencil(IDirect3DDevice9* dev, IDirect3DSurface9* ds) {
+    return g_origSetDs ? g_origSetDs(dev, ds) : E_FAIL;
+}
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt) {
     dvr::native_profile::Scope timing(dvr::native_profile::NativeTarget);
     return g_origSetRt ? g_origSetRt(dev, idx, rt) : E_FAIL;

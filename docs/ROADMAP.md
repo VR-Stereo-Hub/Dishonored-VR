@@ -4,6 +4,14 @@
 - [x] Add draw-owned submenu and pose/correction diagnostics.
 - [ ] Confirm callback coverage and correlate root/Options behavior in headset.
 - [ ] Implement and verify the evidence-supported behavioral correction.
+## Native markers after upscaling (2026-09-27)
+
+- [x] Determine depth eligibility before choosing the overlay occlusion policy.
+- [x] Add default-off native marker overlay, live controls and serial-owned delivery.
+- [x] Verify production GPU over blending and existing native routing regressions.
+- [x] Verify native graphics transport serials, delayed delivery, toggle drain and reset.
+- [ ] Verify actual marker draw-state coverage, eye placement and clarity in headset.
+- [ ] Measure native transport overhead and resource cost with the lever enabled.
 
 ## FSR implementation (2026-09-26, planned stacked branch)
 
@@ -624,3 +632,5 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] Bounded sampled scopes and production host checks.
 - [ ] Headset log attribution, then choose a measured optimization.
 - [ ] Integration branch validation after independent wins are established.
+
+- [x] VR-79 reload regression: event-controller owner resolution and live guarded restore; production-module tests. Headset culling under DLAA/DLSS remains pending.

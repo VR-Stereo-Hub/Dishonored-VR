@@ -6,6 +6,124 @@ generations. Tentative headset smoothness does not establish a fix because this
 branch changed diagnostics only. FLICKER_REFERENCE records populations and limits.
 No additional menu test is requested now. Objective clarity has a separate proven
 semantic-routing omission being corrected in PR #149.
+## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
+
+Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
+enemy silhouette in the eye that can still see the enemy, while the sword covers it in the
+other eye, cleared when F10 Advanced Display > Object culling moved from Per eye to Off
+(headset report). The log shows the switch 0 -> 1 at 41501109 and the only occlusion-query
+reader (callerRVA 005c131f, type 9, about 39k calls per 3 s per eye label) dropping to zero,
+with event queries (005bf54a) unchanged. So the silhouette depends on occlusion results, and
+the owner repair is not the cause: swaps continued with zero restore refusals.
+
+Not yet explained: why a separate right-eye view state still leaves a black (drawn but
+unlit or depth-only) enemy instead of a correct one. Open hypotheses, none measured: state
+the swap does not cover (LocalPlayer.ActorVisibilityHistory at +0x8C stays shared), a
+depth pass that is not occlusion-gated while the base pass is, or temporal history under
+DLAA. FSR is untested.
+
+Release decision for 1.0.2 (maintainer's call): the default becomes pereye, with a one-time
+migration of inis still on native ([Stereo] OcclusionMigrated=1 marks it done so a later
+deliberate native stays). Game default and Off stay in F10. The silhouette remains a known
+issue under pereye; Off is the confirmed-clean workaround at a draw cost. VR-79 stays open.
+## 2026-09-28: run155 owner repair holds; residual black enemy silhouette
+
+Verified build155 and matching DLL; run archived under main build/playtest-candidates/
+animation-hand-origin/run155-reported. Final logged pereye counters:19749 attempts and
+swaps,19748 restores (Begin logs before the matching End),zero restore refusals after
+two loads. Owner repair remains active. Headset report improves disappearance but some
+enemies become black silhouettes in the eye that can still see them when the sword
+covers the other eye. Do not mark VR-79 accepted. The existing log has no pixel/pass
+capture proving lighting loss, and does not isolate DLAA as the cause.
+
+No additional culling code change in this follow-up. Prepare DLAA on and retain pereye;
+arm existing [Perf] QueryWaitProfile=1. At the same location, reproduce the silhouette,
+then F10 Advanced Display > Object culling > Off. One question: does shading recover?
+Query counters must confirm the culling-path reads fall. Recovery implicates query-
+controlled rendering; persistence points toward lighting/depth/jitter/reconstruction.
+DLAA was disabled late in run155, without a reported result for that interval. The
+animation palm/entry correction proceeds independently in PR151. No game launched.
+
+## 2026-09-28: return/trajectory and culling candidate installed
+
+Installed optimized legacy-off testmix v1.0.1-155-g15bbfa492. It contains animation
+source33ede5d4c (PR151) and culling source6132b2ed8 (PR152), retaining prior menu/FSR
+integration. DLL SHA2562f3571a63cb9ceac64c4e7e0bfadfc1b3191afbc82887d2f3867e022f3b7b4e2.
+Backup of DLL, full INI, log rotations and helpers: main-repo
+build/playtest-candidates/animation-hand-origin/return-culling-20260927-215623.
+Entire INI delta adds only [Anim] HandOriginTrace=1. HandOrigin1, sharp HUD/markers1,
+DLAA1/DlssQuality0, Occlusion=pereye, HandBackBlendMs150 preserved. Expected full-byte
+comparison, CRLF and installed DLL identity pass; existing DLSS/FSR helpers unchanged.
+Install script's missing-build-helper message does not describe those retained helpers.
+
+Combined optimized build, 24 origin-route checks, 3901 origin math checks, animation
+catalog/return suite, 19 actual occlusion-module checks, standalone frame suite, nine
+exports, default-profile byte parity and lint pass. No game launched. Current log is
+still run150: check for banner155 and resolved trace/per-eye settings on next launch.
+One perceptual question: does a drop takedown now return smoothly to the held right
+hand? Keep the hand comfortably steady through the end; a smooth return supports the
+mask-lifetime fix, a jump leaves an additional pose/pass discontinuity to identify.
+Additional actions can collect trajectories without a separate per-animation question.
+Overhead entry, aerial sword oscillation and DLAA culling acceptance remain open.
+PR151 and PR152 are drafts; neither merge is authorized.
+
+## 2026-09-28: per-eye culling loses the live controller after reload
+
+VR-79 reopened with explicit approval. Verified run150 has Occlusion=pereye and DLAA
+active; swap heartbeat stops after save load despite continued stereo. The event
+controller changes while the scan controller remains stale. Culling used the latter.
+Branch codex/vr-79-culling-owner uses the event controller and validates controller and
+LocalPlayer live identities, object slots and reflected relationship. Load/menu edges
+rebuild the live table; allocation and restore revalidate before engine writes. No new
+addresses or changes to Game default/Off modes. Attempt/swap/restore counters expose
+silent failure. This shared path precedes DLSS/DLAA/FSR; an additional jitter-specific
+cause remains open until a matching headset test. See FLICKER_REFERENCE and ENGINE_NOTES.
+19 tests of the actual module pass, including stale but live scan owner, reload, pointer
+reuse, failed refresh, engine replacement and allocation callbacks. Headset pending.
+
+## 2026-09-27: sharp HUD and markers default on, Advanced controls
+
+After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1
+in runtime initialization, missing-key loading and the production default profile.
+Explicit saved values remain honored. Both live controls now appear in Advanced
+Display under Clarity and anti-aliasing. Optimized build, lint and production
+default writer/package/golden byte parity pass. This is the requested staging
+follow-up to merged PR149; no animation behavior changes.
+
+## 2026-09-27: sharp markers headset-confirmed
+
+The corrected v1.0.1-143-g128c99b5c candidate produces clear native markers in
+headset. Installed SHA256 matches 9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb.
+The verified log allocates 2114x2192 -> 2750x2850 targets and records matching
+captured/delivered eyes with successful serial-overlay composition for both eyes.
+Run archive: main-repo build/playtest-candidates/menu-submenu-markers/run143-confirmed.
+The user authorized merging the marker work to staging. This accepts the observed
+objective clarity result; it does not establish coverage of every masked marker
+family or an FSR headset result. Animation entry placement is separate new work.
+
+## 2026-09-27: corrected semantic marker candidate installed
+
+Installed optimized local testmix build `v1.0.1-143-g128c99b5c`, containing
+marker fix 93b4a9101 and verified submenu observations 28f6b0060.
+DLL SHA256 `9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb`.
+Backup: main-repo `build/playtest-candidates/menu-submenu-markers/marker-route-fix-20260927-203958`.
+Whole INI diff changes only DLAA=0 to 1; MarkersSharp=1 and saved Ultra Quality
+(DlssQuality=5) retained. Expected bytes and CRLF verified. Existing upscaler
+helpers unchanged. Nine exports, optimized build, lint and 74 production-routing
+checks pass. No game launch. Headset marker coverage/readability remains pending.
+Next test: stationary objective, compare F10 sharp markers off/on under the armed
+Ultra Quality setting. Clearer text supports the fix; unchanged text requires
+checking composition/refusal logs; movement or duplication is a regression.
+
+## 2026-09-27: run137 sharp markers bypassed by semantic routing
+
+The verified run reproduced unchanged objective readability. The overlay allocated
+at Ultra Quality but semantic HUD routing did not hand native-marker identity to
+it. Fix propagates that identity in the existing early return.74 production-branch
+checks pass; the old-code negative control fails. No marker scale change.
+See HUD_ANCHORS top entry for log identity, timestamps and next single A/B test.
+Build/install the local combined candidate with MarkersSharp=1 retained; confirm
+a reduced upscaler is active before judging the toggle. No headset fix yet.
 
 ## 2026-09-27: installed submenu diagnostic and marker candidate
 
@@ -60,6 +178,30 @@ menu/subscreen callback coverage before assigning the Options interval. If
 identity remains root-or-unobserved, instrument native GFx dispatch before a fix.
 No staging or release merge. Linear creation is unavailable due to the reported
 free-plan limit; no new ticket number is invented.
+## 2026-09-27: Sharp native marker overlay candidate
+
+Current state: default-off [Hud] MarkersSharp overlay on claude/hud-markers-sharp,
+based on claude/hud-upscale-sharp and dependent on PR #146. Native draws carry
+colour-capture serial identity through delayed delivery and compose after DLSS/
+FSR at output resolution. See HUD_ANCHORS's 2026-09-27 entry and ARCHITECTURE's
+new depth/occlusion decision. Unsupported masking/blend states remain native.
+
+Validation: optimized build, nine exports, lint; production WARP composition,
+123 native HUD, 503 HUD routing and default writer/profile parity checks pass.
+Real marker coverage and native D3D9/11 transport still require headset testing.
+No game or simulator launched. Resource/performance research stays in PERFORMANCE.
+
+Next: local testmix integration keeps MarkersSharp off for the separate submenu
+comparison. A later single-question launch will enable it for stationary marker
+clarity/position, inspecting hud/markers-sharp eye/serial counts and refusal values.
+No PR merge. Linear creation is unavailable due to the reported free-plan limit.
+
+## Sharp HUD while upscaling (2026-09-27) - built, not run, PR open
+
+Branch `claude/hud-upscale-sharp`. Under DLSS/FSR Super Resolution the HUD was drawn at the reduced
+render size (measured: 1832x1900 at Quality vs 2750x2850 native). `[Hud] UpscaleSharp` (default 0,
+F10 Display "Sharp HUD while upscaling", `hud sharp on|off`) draws it at the upscaler's output
+size. Detail and the headset question: HUD_ANCHORS top entry.
 
 ## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
 
@@ -339,6 +481,20 @@ workspace is at its free-plan issue limit).
   narrower. The capture line now prints the reading, our last write and the verdict.
 - To test: exit a store, die and reload, at the default portrait size. Log: `fovlever: natural
   base 75.0 deg (read 108.07 ... KEPT the old base ...)` after each load.
+
+## Hand/weapon flicker on fast head yaw (2026-09-26)
+
+Branch `claude/hand-headturn-flicker` off `staging`, not merged, NOT installed (by request). No
+Linear ticket (the workspace is at its free-plan issue limit).
+
+- Audit and measurements: FLICKER_REFERENCE top entry. The hands were placed against a head
+  sample a fixed two presents back, which the `hv:` line measured on another generation in 8-15%
+  of fast-turn frames (up to 1.7 deg); the eye came from a hand-jump guess the yaw sweep disturbs.
+- Candidate `[Hands] PoseFromView` (default 0, F10 Advanced > Hands > Head-turn smoothing): a hand
+  draw finds its own view by c5 in the pose records and uses that view's head sample and eye;
+  no match leaves today's path. Host tests (negative control included), build and lint pass.
+- To test: install, tick the checkbox, turn quickly left/right; then untick. Log:
+  `hands/poseview:` (the snapshot offset must grow with turn speed).
 
 ## 2026-09-26: session accepted; staging integration and next-session baseline
 

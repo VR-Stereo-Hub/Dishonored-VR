@@ -66,5 +66,26 @@ int main() {
    ctx->Unmap(cpu,0);
  }
  puts("left/right side crops and identity restoration PASS");
+ // Native marker composition must preserve black strokes, additive highlights,
+ // alpha coverage and the destination when the target contains no marker.
+ check(blit.composite_ready(),"premultiplied compositor ready");
+ for(int mode=0;mode<4;++mode) {
+   const unsigned color=mode==0?0u:mode==1?0x80000000u:mode==2?0x00000040u:0x80000040u;
+   for(auto& pixel:pixels)pixel=color;
+   ctx->UpdateSubresource(src,0,nullptr,pixels.data(),size*4,0);
+   const float background[4]={.2f,.4f,.6f,1.f};ctx->ClearRenderTargetView(rtv,background);
+   dvr::gfx::AlphaParams a;a.mode=1;blit.draw(ctx,srv,rtv,size,size,&a,true);
+   ctx->CopyResource(cpu,dst);D3D11_MAPPED_SUBRESOURCE m{};
+   check(SUCCEEDED(ctx->Map(cpu,0,D3D11_MAP_READ,0,&m)),"marker readback");
+   const auto* p=(const unsigned char*)m.pData;
+   const float alpha=(color>>24)/255.f;
+   for(int channel=0;channel<3;++channel) {
+     const float srcValue=((color>>(8*channel))&255)/255.f;
+     const int expected=(int)((srcValue+background[channel]*(1-alpha))*255+.5f);
+     check(std::abs((int)p[channel]-expected)<=1,"native RGB blend retained after composition");
+   }
+   check(p[3]==255,"opaque world alpha retained");ctx->Unmap(cpu,0);
+   printf("marker composition mode=%d PASS\n",mode);
+ }
  blit.shutdown();rtv->Release();srv->Release();cpu->Release();dst->Release();src->Release();ctx->Release();dev->Release();
 }

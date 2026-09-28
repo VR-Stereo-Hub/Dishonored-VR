@@ -49,7 +49,8 @@ public:
     // opaque copy. Falls back to the opaque shader when the variant did not
     // compile.
     void draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
-              ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, const AlphaParams* alpha = nullptr);
+              ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, const AlphaParams* alpha = nullptr, bool composite = false);
+    bool composite_ready() const { return over_ && alpha_ready(); }
     bool alpha_ready() const { return psAlpha_ != nullptr && cb_ != nullptr; }
 private:
     bool ready_ = false;
@@ -61,6 +62,7 @@ private:
     ID3D11SamplerState*      sampler_ = nullptr;
     ID3D11RasterizerState*   raster_ = nullptr;
     ID3D11BlendState*        blend_ = nullptr;
+    ID3D11BlendState*        over_ = nullptr;
     ID3D11DepthStencilState* depth_ = nullptr;
 };
 

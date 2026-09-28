@@ -73,6 +73,12 @@ bool hook_d3d9(IDirect3D9* d3d);
 // redirect, and the census decides on the game's own state.
 HRESULT orig_set_vs_const(IDirect3DDevice9* dev, UINT startReg, const float* data, UINT count);
 HRESULT orig_set_render_target(IDirect3DDevice9* dev, DWORD idx, IDirect3DSurface9* rt);
+// The depth-stencil the GAME last bound (pointer value only, never AddRef'd), and the unhooked
+// setter so a module can swap its own in and put the game's back without the jitter keying
+// (dlss_jitter.h) mistaking it for the game's. `known` is false until the game binds one after
+// device creation or a Reset (the implicit auto depth-stencil).
+IDirect3DSurface9* game_depth_stencil(bool* known);
+HRESULT orig_set_depth_stencil(IDirect3DDevice9* dev, IDirect3DSurface9* ds);
 HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                           UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
 HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,

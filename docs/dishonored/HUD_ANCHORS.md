@@ -1,3 +1,144 @@
+## 2026-09-27: sharp HUD and markers default on, Advanced controls
+
+After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1
+in runtime initialization, missing-key loading and the production default profile.
+Explicit saved values remain honored. Both live controls now appear in Advanced
+Display under Clarity and anti-aliasing. Optimized build, lint and production
+default writer/package/golden byte parity pass. This is the requested staging
+follow-up to merged PR149; no animation behavior changes.
+
+## 2026-09-27: sharp markers headset-confirmed
+
+The corrected v1.0.1-143-g128c99b5c candidate produces clear native markers in
+headset. Installed SHA256 matches 9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb.
+The verified log allocates 2114x2192 -> 2750x2850 targets and records matching
+captured/delivered eyes with successful serial-overlay composition for both eyes.
+Run archive: main-repo build/playtest-candidates/menu-submenu-markers/run143-confirmed.
+The user authorized merging the marker work to staging. This accepts the observed
+objective clarity result; it does not establish coverage of every masked marker
+family or an FSR headset result. Animation entry placement is separate new work.
+
+## 2026-09-27: corrected semantic marker candidate installed
+
+Installed optimized local testmix build `v1.0.1-143-g128c99b5c`, containing
+marker fix 93b4a9101 and verified submenu observations 28f6b0060.
+DLL SHA256 `9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb`.
+Backup: main-repo `build/playtest-candidates/menu-submenu-markers/marker-route-fix-20260927-203958`.
+Whole INI diff changes only DLAA=0 to 1; MarkersSharp=1 and saved Ultra Quality
+(DlssQuality=5) retained. Expected bytes and CRLF verified. Existing upscaler
+helpers unchanged. Nine exports, optimized build, lint and 74 production-routing
+checks pass. No game launch. Headset marker coverage/readability remains pending.
+Next test: stationary objective, compare F10 sharp markers off/on under the armed
+Ultra Quality setting. Clearer text supports the fix; unchanged text requires
+checking composition/refusal logs; movement or duplication is a regression.
+
+## 2026-09-27: run137 marker no-op traced to semantic routing
+
+Verified log banner v1.0.1-137-gb91ec4fef against installed DLL SHA256
+837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803.
+DLL, INI, log and previous log archived in the main repo under
+build/playtest-candidates/menu-submenu-markers/run137 before another launch.
+Reported result: objective markers remain unchanged and difficult to read.
+
+At34275171 the overlay allocates2114x2192 ->2750x2850 targets; at34277281
+DLSS confirms that reduced render/output pair. The marker lever is toggled on
+and off during this interval, but there are no overlay composition records.
+SemanticOwnership=1 is active. Its early native-marker return never assigns the
+new nativeMarker output, while the later heuristic routing paths do. Consequently
+the active semantic marker population never enters SharpMarkerScope. This is a
+source-confirmed integration omission, not proof that output resolution cannot
+improve these markers. Later no-upscaler refusals follow DLSS being turned off
+at34396812 and do not explain the earlier reduced-resolution interval.
+
+Fix: propagate owner.marker under the existing native-objective/awareness policy
+before that early return. Ordinary AnchorFrame widgets and unidentified owners
+remain outside the overlay. No marker size or rendering safety guard changes.
+A host test executes the actual semantic branch:74 checks pass across marker,
+non-marker, objective/awareness/prompt, native toggles and frame/panel anchors.
+Removing the assignment reproduces the failing handoff in the old-code negative
+control. The prior tests had exercised transport and fallback routing, not this
+earlier semantic branch; they were insufficient to establish in-game coverage.
+
+Prediction: with reduced upscaling active and MarkersSharp enabled, identified
+objective draws now produce hud/markers-sharp composition counts or a specific
+native-draw guard refusal. Neither implies visual acceptance. One next launch
+compares a stationary objective marker with the live toggle: sharper without
+position change supports the candidate; unchanged with composites requires pixel/
+font/size investigation; refused draws require the logged guard to be addressed.
+
+## 2026-09-27: native marker overlay after upscaling, candidate
+
+Depends on PR #146 (claude/hud-upscale-sharp). Its redirected HUD path cannot
+sharpen native markers left in the scene. New [Hud] MarkersSharp=0 defaults off;
+F10 Display places its checkbox beside Sharp HUD while upscaling, and
+`hud markers sharp on|off` switches it live.
+
+The existing native routing decision explicitly identifies rune, task/objective
+and awareness draws. Eligible draws rasterize into an output-size transparent
+target using a scaled viewport and private D24S8. Colour blend and native screen
+position are retained; separate alpha records destination attenuation. The
+original draw is redirected, so those pixels never enter DLSS/FSR reconstruction.
+The target is sealed at the actual colour capture serial allocation, carries its
+resolved eye, and composites over that serial's reconstructed image before mod
+hands/F10. Six shared slots fence D3D9 writes and D3D11 reads independently.
+Delayed delivery uses the delivered serial, never the current present's eye.
+Empty presents clear instead of reusing a prior marker. Reset releases all
+DEFAULT-pool objects. A toggle off drains already-redirected in-flight images.
+
+Depth decision: hud_class requires ZENABLE=false before native routing, so this
+path cannot contain scene-depth-tested draws. Stencil/scissor, sRGB writes,
+partial colour masks, transformed vertices, state blocks and unsupported blends
+refuse to the original draw with a reason and values. Supported RGB equations:
+ADD with ONE or SRCALPHA source and ONE or INVSRCALPHA destination. No guessed
+scene occlusion or masking replacement. Refused families can remain blurry;
+headset/log coverage must establish which guards the real marker population uses.
+GPU fence refusal after redirection can omit that image's markers; it logs the
+failure and never substitutes a different image's overlay.
+
+Validation: actual production D3D11 WARP shader checks transparent, black,
+additive and alpha-over pixels against known background colours, plus existing
+circle/crop/hue cases. 123 native HUD and 503 HUD routing checks pass. Generated
+default writer, packaged profile and golden INI are byte-identical. No headset
+acceptance is claimed. A separate graphics-only production transport test on
+native D3D9Ex/D3D11 passes serial separation, reversed delivery, toggle-off drain,
+no-upscale refusal and resource release before Reset. No game/simulator launched.
+Memory at 2750x2850: six RGBA8 images plus one D24S8 surface are about 209 MiB,
+excluding driver overhead. This opt-in candidate needs performance measurement.
+
+After the separate submenu diagnostic launch, the marker question is whether
+one stationary objective marker gains crisp edges with this checkbox enabled,
+without moving or doubling between eyes. hud/markers-sharp logs owner, serial,
+captured/delivered eye, per-eye draw/composite totals and refusal reasons.
+
+## 2026-09-27: the HUD at headset resolution while upscaling (`[Hud] UpscaleSharp`, default off)
+
+Observation: with DLSS Super Resolution on, HUD elements look soft. Measured in the dev rig's own
+logs: at DLSS Quality the sinks were `1832x1900` (the reduced render) with `916x950` hand-off
+slots, against `2750x2850` / `1375x1425` at native. The redirect sizes its targets from the
+backbuffer, and under SR the backbuffer IS the reduced render, so the HUD lost a third of its
+resolution per axis before it ever reached the panel.
+
+Change: with `[Hud] UpscaleSharp=1` (F10 Display > upscaler section, "Sharp HUD while upscaling";
+seam `hud sharp on|off`) and the frame being an upscaler's reduced render
+(`dvr::dlss::sr_output_for`), the sink targets are created at the upscaler's OUTPUT size and each
+redirected draw gets the game's viewport scaled by output/render. Every HUD vertex shader places
+its vertices through a 4x4 transform into clip space (VR-118, section on the transform map), so
+the same geometry rasterizes at more pixels. The game's depth-stencil is smaller than the target,
+so the sinks bind a shared D24S8 of their own around each redirected draw (Scaleform masks use
+stencil) through the unhooked setter, and it is cleared every present. A size change (the lever,
+a mode, a resize) rebuilds every sink once. Off, DLAA, or no upscaler: the old path exactly.
+
+Log: `hud/sharp: sink 0's target is 2750x2850, the upscaler's output, for a 1832x1900 render
+(x1.50 per axis ...)`; `hud:` status prints `sharp=1 (targets ABOVE the ...)`.
+
+Expected limits: bitmap content (icons, the glyph cache Scaleform rasterizes text into) keeps its
+own texture resolution, so edges and vector shapes gain the most. The scissor rectangle is reset to
+the whole target by SetRenderTarget, as it always was in the redirect.
+
+Status: built, lint and golden ini clean. NOT run in the game, the simulator or the headset.
+Question for the headset: at DLSS Quality, is the HUD with the box ticked as sharp as at DLAA, and
+does anything (a masked bar, a menu, the wheel) draw wrong or clipped with it on?
+
 ## 2026-09-26: accepted semantic ownership baseline
 
 Local headset reports accept cohesive widget grouping, marker size controls, lower
