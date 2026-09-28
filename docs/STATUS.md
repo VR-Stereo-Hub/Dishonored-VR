@@ -1,3 +1,26 @@
+## 2026-09-28: return/trajectory and culling candidate installed
+
+Installed optimized legacy-off testmix v1.0.1-155-g15bbfa492. It contains animation
+source33ede5d4c (PR151) and culling source6132b2ed8 (PR152), retaining prior menu/FSR
+integration. DLL SHA2562f3571a63cb9ceac64c4e7e0bfadfc1b3191afbc82887d2f3867e022f3b7b4e2.
+Backup of DLL, full INI, log rotations and helpers: main-repo
+build/playtest-candidates/animation-hand-origin/return-culling-20260927-215623.
+Entire INI delta adds only [Anim] HandOriginTrace=1. HandOrigin1, sharp HUD/markers1,
+DLAA1/DlssQuality0, Occlusion=pereye, HandBackBlendMs150 preserved. Expected full-byte
+comparison, CRLF and installed DLL identity pass; existing DLSS/FSR helpers unchanged.
+Install script's missing-build-helper message does not describe those retained helpers.
+
+Combined optimized build, 24 origin-route checks, 3901 origin math checks, animation
+catalog/return suite, 19 actual occlusion-module checks, standalone frame suite, nine
+exports, default-profile byte parity and lint pass. No game launched. Current log is
+still run150: check for banner155 and resolved trace/per-eye settings on next launch.
+One perceptual question: does a drop takedown now return smoothly to the held right
+hand? Keep the hand comfortably steady through the end; a smooth return supports the
+mask-lifetime fix, a jump leaves an additional pose/pass discontinuity to identify.
+Additional actions can collect trajectories without a separate per-animation question.
+Overhead entry, aerial sword oscillation and DLAA culling acceptance remain open.
+PR151 and PR152 are drafts; neither merge is authorized.
+
 ## 2026-09-28: per-eye culling loses the live controller after reload
 
 VR-79 reopened with explicit approval. Verified run150 has Occlusion=pereye and DLAA
