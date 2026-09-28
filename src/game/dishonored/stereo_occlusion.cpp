@@ -8,8 +8,9 @@
 // head with the sword in the left eye and it is gone from the right.
 //
 // [Stereo] Occlusion (live `occlusion native|pereye|off`):
-//   native  the engine as shipped (the default; one history for both eyes).
-//   pereye  the RIGHT eye gets its own view state. The mod allocates a second
+//   native  the engine as shipped (one history for both eyes; the default
+//           until 1.0.2).
+//   pereye  (the default since 1.0.2) the RIGHT eye gets its own view state. The mod allocates a second
 //           one with the engine's own allocator (the same call the LocalPlayer
 //           constructor makes) and puts it in LocalPlayer.ViewState for pass 2
 //           only, restoring the left eye's straight after. Each eye then tests
@@ -119,9 +120,20 @@ static bool OcclParseMode(const char* s, int* out)
 static void OcclusionConfigure(const char* ini)
 {
     char v[32] = "";
-    GetPrivateProfileStringA("Stereo", "Occlusion", "native", v, sizeof(v), ini);
-    int m = OCCL_NATIVE;
-    if (!OcclParseMode(v, &m)) Log("occlusion: [Stereo] Occlusion='%s' unknown (native|pereye|off) - native", v);
+    GetPrivateProfileStringA("Stereo", "Occlusion", "pereye", v, sizeof(v), ini);
+    int m = OCCL_PEREYE;
+    if (!OcclParseMode(v, &m)) Log("occlusion: [Stereo] Occlusion='%s' unknown (native|pereye|off) - pereye", v);
+    // 1.0.2: every earlier ini was written with native, the old default, so
+    // the new default reaches existing players once. The marker keeps a
+    // later deliberate choice of native from being migrated again.
+    if (!GetPrivateProfileIntA("Stereo", "OcclusionMigrated", 0, ini)) {
+        if (m == OCCL_NATIVE) {
+            m = OCCL_PEREYE;
+            WritePrivateProfileStringA("Stereo", "Occlusion", "pereye", ini);
+            Log("occlusion: [Stereo] Occlusion migrated native -> pereye (1.0.2 default, once; F10 or the seam can set native again)");
+        }
+        WritePrivateProfileStringA("Stereo", "OcclusionMigrated", "1", ini);
+    }
     OcclusionApply(m, "[Stereo] Occlusion");
 }
 

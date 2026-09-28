@@ -1,3 +1,23 @@
+## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
+
+Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
+enemy silhouette in the eye that can still see the enemy, while the sword covers it in the
+other eye, cleared when F10 Advanced Display > Object culling moved from Per eye to Off
+(headset report). The log shows the switch 0 -> 1 at 41501109 and the only occlusion-query
+reader (callerRVA 005c131f, type 9, about 39k calls per 3 s per eye label) dropping to zero,
+with event queries (005bf54a) unchanged. So the silhouette depends on occlusion results, and
+the owner repair is not the cause: swaps continued with zero restore refusals.
+
+Not yet explained: why a separate right-eye view state still leaves a black (drawn but
+unlit or depth-only) enemy instead of a correct one. Open hypotheses, none measured: state
+the swap does not cover (LocalPlayer.ActorVisibilityHistory at +0x8C stays shared), a
+depth pass that is not occlusion-gated while the base pass is, or temporal history under
+DLAA. FSR is untested.
+
+Release decision for 1.0.2 (maintainer's call): the default becomes pereye, with a one-time
+migration of inis still on native ([Stereo] OcclusionMigrated=1 marks it done so a later
+deliberate native stays). Game default and Off stay in F10. The silhouette remains a known
+issue under pereye; Off is the confirmed-clean workaround at a draw cost. VR-79 stays open.
 ## 2026-09-28: run155 owner repair holds; residual black enemy silhouette
 
 Verified build155 and matching DLL; run archived under main build/playtest-candidates/
