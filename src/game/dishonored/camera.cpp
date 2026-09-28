@@ -4,6 +4,7 @@
 
 #include "core/framework/status.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/afw_warp.h"   // VR-39: the warp takes the world scale
 #include "core/gfx/stereo.h"
 #include "core/util/log.h"
 #include "core/util/mem.h"
@@ -371,7 +372,7 @@ void set_eye(int sign) { g_eye = sign < 0 ? -1 : sign > 0 ? 1 : 0; }
 int  eye() { return g_eye; }
 void  set_ipd_m(float m) { if (m > 0.03f && m < 0.09f) g_ipdM = m; }
 float ipd_m() { return g_ipdM; }
-void  set_world_scale(float uuPerM) { if (uuPerM >= 1.0f && uuPerM <= 400.0f) g_scale = uuPerM; }
+void  set_world_scale(float uuPerM) { if (uuPerM >= 1.0f && uuPerM <= 400.0f) { g_scale = uuPerM; dvr::afw::set_world_scale(uuPerM); } }
 float world_scale() { return g_scale; }
 float eye_offset_uu() { return (float)g_eye * 0.5f * g_ipdM * g_scale; }
 

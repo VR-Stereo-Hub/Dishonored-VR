@@ -1389,3 +1389,11 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   poses. The fault was the stored pose: the numeric lag suits reentry (both eyes from one head
   sample) but not two ticks, so AER/AFW now submit the exact located generation of each image's
   head sample, from a short history. Reentry keeps the lag it was tuned with.
+
+- **2026-09-28 - AFW's held eye is re-rendered by a depth warp with a body/world split (VR-39).** The
+  compositor's reprojection is rotation-only and knows nothing of the game's own yaw; a whole-image
+  pose correction fixes the world and ghosts the hands. The held eye is therefore re-rendered each
+  present from its image and the shared depth: world pixels follow head change plus body yaw, pixels
+  nearer than a body threshold follow head change only. It reuses the depth ring and the depth-scale
+  calibration built for TAA; the runtime only acquires the held image, calls the warp, and falls back
+  to the rotation-only path when there is nothing to warp.

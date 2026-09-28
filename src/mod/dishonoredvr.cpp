@@ -48,6 +48,7 @@
 #include "core/gfx/desktop_eye.h"
 #include "core/vr/pose_record.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/afw_warp.h"   // VR-39: `afw warp|body` on the seam
 #include "core/gfx/gpu_memory.h"
 #include "core/vr/hud_stub.h"
 #include "core/ui/ovl_ui.h"

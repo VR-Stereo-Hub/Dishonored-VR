@@ -96,8 +96,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         char sub[16] = "", v[8] = "";
         sscanf(args, "%15s %7s", sub, v);
         if (!strcmp(sub, "yaw") && DvrOnOff(v, &b)) { dvr::vr::set_held_body_yaw(b); return true; }
-        Log("afw: yaw on|off (now %s; the method is `stereo afw`, active '%s') - rotate the held eye by the stick/snap "
-            "yaw since its image", dvr::vr::held_body_yaw() ? "on" : "off", dvr::stereo::active_name());
+        if (!strcmp(sub, "warp") && DvrOnOff(v, &b)) { dvr::afw::set_enabled(b, "the seam"); return true; }
+        if (!strcmp(sub, "body") && v[0]) { dvr::afw::set_body_depth((float)atof(v), "the seam"); return true; }
+        Log("afw: warp on|off (now %s) | body <depth units> (now %.2f) | yaw on|off (now %s, the rotation-only fallback) - "
+            "the method is `stereo afw`, active '%s'", dvr::afw::enabled() ? "on" : "off", dvr::afw::body_depth(),
+            dvr::vr::held_body_yaw() ? "on" : "off", dvr::stereo::active_name());
         return true;
     }
     if (!strcmp(cmd, "aer")) {   // VR-39: `stereo aer` selects the method; this word drives its clamp

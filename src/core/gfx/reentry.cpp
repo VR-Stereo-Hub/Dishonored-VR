@@ -40,6 +40,8 @@
 #include "core/gfx/clarity.h"
 #include "core/gfx/dlss_jitter.h"
 #include "core/gfx/blit_quad.h"
+#include "core/gfx/afw_warp.h"
+#include "core/gfx/depth_probe.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/flicker_diagnostic.h"
@@ -277,7 +279,13 @@ public:
                 // generation its own head sample came from (the numeric lag landed the right eye one
                 // locate stale in position: the hands/weapon scale swing on fast head turns).
                 dvr::vr::set_exact_eye_pose(true);
-                if (warp_) { savedPairPacing_ = dvr::vr::sr_pair_pacing(); dvr::vr::set_sr_pair_pacing(false); dvr::vr::set_held_body_yaw(true); }
+                if (warp_) {
+                    savedPairPacing_ = dvr::vr::sr_pair_pacing(); dvr::vr::set_sr_pair_pacing(false);
+                    dvr::vr::set_held_body_yaw(true);
+                    // The held eye's warp needs each image's depth: the shared depth ring runs while AFW does.
+                    savedDepthShare_ = dvr::depthprobe::share_on(); dvr::depthprobe::set_share(true, "afw");
+                    dvr::afw::set_enabled(true, "afw armed");
+                }
             }
             if (g_hooks.set_armed) g_hooks.set_armed(true);
             if (warp_)
@@ -803,12 +811,16 @@ private:
         if (g_hooks.set_alternate) g_hooks.set_alternate(0);
         g_c5Pair = savedC5_; g_lateTagRepair = savedLate_; g_singleTagRepair = savedSingle_;
         dvr::vr::set_exact_eye_pose(false);
-        if (warp_) { dvr::vr::set_sr_pair_pacing(savedPairPacing_); dvr::vr::set_held_body_yaw(false); }
+        if (warp_) {
+            dvr::vr::set_sr_pair_pacing(savedPairPacing_); dvr::vr::set_held_body_yaw(false);
+            dvr::afw::set_enabled(false, "afw disarmed");
+            if (!savedDepthShare_) dvr::depthprobe::set_share(false, "afw disarmed");
+        }
     }
 
     const bool              alternate_;
     const bool              warp_;
-    bool savedC5_ = true, savedLate_ = false, savedSingle_ = false, savedPairPacing_ = true;
+    bool savedC5_ = true, savedLate_ = false, savedSingle_ = false, savedPairPacing_ = true, savedDepthShare_ = false;
     mutable char            note_[240] = "";
     dvr::gfx::BlitQuad      blit_;
     ID3D11Texture2D*        tex_ = nullptr;

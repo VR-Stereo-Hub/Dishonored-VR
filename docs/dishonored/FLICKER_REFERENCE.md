@@ -1,3 +1,13 @@
+## 2026-09-28: AFW hands/weapon ghost on stick turns and drift on head turns - depth warp (host-verified)
+
+Surface: the hands and weapon only, under `stereo afw`: a trailing ghost while stick turning (after the
+whole-image yaw fix), and a drift against head turns that settles. Build `v1.0.1-161-gca40321fc`, run 3.
+Cause: both are the held eye's near content - the yaw fix rotates body-attached content that should
+not rotate, and rotation-only reprojection ignores the eye's translation. Fix: the per-pixel depth warp
+(`core/gfx/afw_warp`), world and body pixels moved by different rules. Host GPU test 7/7 including the
+negative control. Prediction: no ghost while stick turning, no drift on head turns; `afw warp off` brings
+both back; the `afw/warp: beat` line shows warps with no fallbacks. Walking parallax still lags a tick.
+
 ## 2026-09-28: AFW held-eye artifacts - stick-turn "zoom" (fix built) and weapon drift (open)
 
 Surface: the whole view during stick/snap turns under `stereo afw` (reads as zooming); and near

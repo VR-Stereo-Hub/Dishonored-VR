@@ -23,6 +23,7 @@
 #include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
 #include "core/vr/pose_record.h"
 #include "core/vr/image_orientation.h"
+#include "core/gfx/afw_warp.h"   // VR-39: the AFW held-eye warp
 #include "core/framework/perf.h"
 
 // The runtime layer logs under the openxr category at Info; every per-frame
@@ -4600,6 +4601,20 @@ void on_present_end(ID3D11Texture2D* frame) {
                                     g_eyePose[srEye] = h.v[srEye].pose;
                                     g_eyeBodyOk[srEye] = rec.cam.bodyOk;
                                     g_eyeBodyYaw[srEye] = rec.cam.bodyYawDeg;
+                                    if (dvr::afw::enabled()) {   // VR-39: keep this image for next present's warp
+                                        const XrPosef& ep = g_eyePose[srEye];
+                                        const dvr::afw::Pose pose = {{ep.orientation.x, ep.orientation.y, ep.orientation.z, ep.orientation.w},
+                                                                     {ep.position.x, ep.position.y, ep.position.z}};
+                                        dvr::afw::Pose tg[2];
+                                        for (int e = 0; e < 2; ++e) {
+                                            const XrPosef& vp = h.v[e].pose;
+                                            tg[e] = {{vp.orientation.x, vp.orientation.y, vp.orientation.z, vp.orientation.w},
+                                                     {vp.position.x, vp.position.y, vp.position.z}};
+                                        }
+                                        dvr::afw::note_capture(g_device, g_context, srEye, backbuffer,
+                                                               dvr::capture::delivered_serial(), pose,
+                                                               rec.cam.bodyOk, rec.cam.bodyYawDeg, tg);
+                                    }
                                     g_eyePoseGen[srEye] = rec.track.gen;
                                     g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag
                                     hit=true;
@@ -4765,8 +4780,41 @@ void on_present_end(ID3D11Texture2D* frame) {
                         }
                         projViews[eye].fov = {-halfH, halfH, halfV, -halfV};
                     }
-                    // VR-39 (AFW): rotate the HELD eye by the body yaw since its image (see the state).
-                    if (stereo && srFrame && g_heldBodyYaw.load(std::memory_order_relaxed) &&
+                    // VR-39 (AFW): re-render the HELD eye from its own image and depth at the fresh eye's
+                    // head pose (core/gfx/afw_warp.h). The image is acquired only when there is a held image,
+                    // and an acquired image is always written: warped, or the held image copied as it is.
+                    bool heldWarped = false;
+                    if (stereo && srFrame && dvr::afw::enabled() &&
+                        !g_srPairPacing.load(std::memory_order_relaxed)) {
+                        const int fresh = srSign < 0 ? 0 : 1, held = 1 - fresh;
+                        if (dvr::afw::has_held(held)) {
+                            uint32_t hIdx = 0;
+                            XrSwapchainImageAcquireInfo hai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+                            if (XR_SUCCEEDED(xrAcquireSwapchainImage(g_swapchains[held], &hai, &hIdx))) {
+                                XrSwapchainImageWaitInfo hwi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                                hwi.timeout = XR_INFINITE_DURATION;
+                                if (XR_SUCCEEDED(xrWaitSwapchainImage(g_swapchains[held], &hwi))) {
+                                    ID3D11Texture2D* hdst = g_images[held][hIdx].texture;
+                                    dvr::afw::Pose tp{};
+                                    const char* why = nullptr;
+                                    heldWarped = dvr::afw::warp_held(g_device, g_context, held, fresh, hdst, g_swapW,
+                                                                     g_swapH, tanClaimH, tanClaimV, &tp, &why);
+                                    if (heldWarped) {
+                                        projViews[held].pose.orientation = {tp.q[0], tp.q[1], tp.q[2], tp.q[3]};
+                                        projViews[held].pose.position = {tp.p[0], tp.p[1], tp.p[2]};
+                                    } else if (!dvr::afw::copy_held(g_context, held, hdst)) {
+                                        XRLOG("xr: afw held eye - warp refused (%s) and the plain copy failed too; the "
+                                              "released image may be stale", why ? why : "?");
+                                    }
+                                }
+                                XrSwapchainImageReleaseInfo hri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                                xrReleaseSwapchainImage(g_swapchains[held], &hri);
+                            }
+                        }
+                    }
+                    // VR-39 (AFW): rotate the HELD eye by the body yaw since its image (see the state). The
+                    // fallback when the warp did not run.
+                    if (!heldWarped && stereo && srFrame && g_heldBodyYaw.load(std::memory_order_relaxed) &&
                         !g_srPairPacing.load(std::memory_order_relaxed)) {
                         const int fresh = srSign < 0 ? 0 : 1, held = 1 - fresh;
                         if (g_eyeBodyOk[fresh] && g_eyeBodyOk[held]) {

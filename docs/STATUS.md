@@ -1,3 +1,24 @@
+## 2026-09-28 (AFW run 3): the held-eye depth warp - host-verified, headset pending
+
+Run 3 on `v1.0.1-161-gca40321fc` (reported): stick turning corrected the world, but the hands and
+weapon left a ghost while turning, and head turns still moved them against the head before they
+settled. Both are near content in the held eye: the whole-image yaw rotation is right for the world
+and wrong for the hands (they turn WITH the body), and rotation-only reprojection cannot move a near
+object for the eye's own translation when the head moves or turns (it settles when the head stops).
+
+Built: `core/gfx/afw_warp` re-renders the held eye every present from its own image and depth, as seen
+from the FRESH eye's head pose. Per pixel it solves two hypotheses back into the source through depth
+(a short fixed-point search): world (head change plus the body yaw since the image) and body (head
+change only; nearer than 0.40 depth units, the hands and weapon), and the nearer consistent one wins.
+The warped eye is submitted with the fresh generation's pose, so both eyes claim one head pose. The
+depth ring runs while AFW does. Fallbacks: no held image or depth -> the rotation-only held eye with
+the body-yaw pose; an acquired swapchain image is always written. `afw warp on|off`, `afw body <units>`.
+GPU host test `tools/afw-warp-host.ps1` (the production shader, synthetic scene): 7 of 7 - identity,
+the world under a 5 deg turn (0.55 px worst), the sign, the hand staying, the NEGATIVE CONTROL (without
+the body test the hand moves: the ghost), hand parallax for a 2 cm head move (0.4907 vs 0.4900), the far
+wall still. Not carried yet: walking (the body's translation) - the held eye's world lags a tick of
+walking parallax, as before.
+
 ## 2026-09-28 (AFW run 2): AFW reaches the headset rate; stick-turn and weapon findings
 
 Run 2 on `v1.0.1-160-g90136b7cf` (archived at build/playtest-candidates/vr-39-aer/run2-afw):
