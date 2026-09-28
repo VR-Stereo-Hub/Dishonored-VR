@@ -71,6 +71,28 @@ Copy-Item "$repo\tools\collect-support.ps1" "$stage\collect-support.ps1"
 Copy-Item "$repo\release\Collect VR Support.cmd" "$stage\Collect VR Support.cmd"
 Copy-Item "$repo\release\Switch VR Runtime.cmd" "$stage\Switch VR Runtime.cmd"
 
+# DLAA/DLSS/FSR: the x64 helper and the NVIDIA and AMD runtimes in dvr_dlss\, the same
+# files install.ps1 and the launcher put there. A release without them ships DLSS/FSR
+# as unavailable, so packaging refuses. Pins: tools\fetch-ngx.ps1 and fetch-ffx.ps1.
+$dlssSrc = "$repo\build\dlss_host"
+$dlssPins = @{
+    "nvngx_dlss.dll"                   = "BE6E434A94CA32499515EB62CA0E6C274526055D568D0426E4C652DCDFB6EE6E"
+    "amd_fidelityfx_loader_dx12.dll"   = "E2D85AA05A9BD9ED8B38935FDF5199372CCA6F74C12015143BB6F945EE1608AA"
+    "amd_fidelityfx_upscaler_dx12.dll" = "D0DCCCC74A43C44BA435B7A369B456E0970D8A4464E4BD683119B374F2C9FB46"
+}
+if (-not (Test-Path "$dlssSrc\dvr_dlss_host64.exe")) { throw "missing $dlssSrc\dvr_dlss_host64.exe (tools\fetch-ngx.ps1, fetch-ffx.ps1, build-dlss-host.ps1)" }
+New-Item -ItemType Directory -Path "$stage\dvr_dlss" -Force | Out-Null
+Copy-Item "$dlssSrc\dvr_dlss_host64.exe" "$stage\dvr_dlss\"
+foreach ($n in $dlssPins.Keys) {
+    if (-not (Test-Path "$dlssSrc\$n")) { throw "missing $dlssSrc\$n" }
+    $got = (Get-FileHash "$dlssSrc\$n" -Algorithm SHA256).Hash
+    if ($got -ne $dlssPins[$n]) { throw "$n sha256 $got is not the pinned $($dlssPins[$n]) - refusing to package" }
+    Copy-Item "$dlssSrc\$n" "$stage\dvr_dlss\"
+}
+Copy-Item "$repo\third_party\ngx\LICENSE.txt" "$stage\dvr_dlss\NVIDIA-DLSS-LICENSE.txt"
+Copy-Item "$repo\third_party\ffx\LICENSE.md" "$stage\dvr_dlss\AMD-FIDELITYFX-LICENSE.md"
+Copy-Item "$repo\src\tools\dlss_host\NOTICE.md" "$stage\dvr_dlss\NOTICE.md"
+
 $zip = "$OutDir\dishonored-vr-v$version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path "$stage\*" -DestinationPath $zip
@@ -91,6 +113,11 @@ if (Test-DvrLegacyDll $staged) { throw "REFUSING to package: the installer's emb
 $dllHash = (Get-FileHash "$bin\d3d9.dll" -Algorithm SHA256).Hash.ToLower()
 $stagedHash = (Get-FileHash $staged -Algorithm SHA256).Hash.ToLower()
 if ($dllHash -ne $stagedHash) { throw "REFUSING to package: the installer embeds d3d9.dll $stagedHash but the zip carries $dllHash - rebuild" }
+foreach ($n in @("dvr_dlss_host64.exe") + @($dlssPins.Keys)) {
+    $sp = "$repo\build\installer-payload\RelWithDebInfo\$n"
+    if (-not (Test-Path $sp)) { throw "REFUSING to package: the installer does not embed $n (reconfigure after build-dlss-host.ps1)" }
+    if ((Get-FileHash $sp).Hash -ne (Get-FileHash "$dlssSrc\$n").Hash) { throw "REFUSING to package: the installer embeds a different $n than the zip" }
+}
 $setupOut = "$OutDir\DishonoredVR-Launcher-v$version.exe"
 Copy-Item $setup $setupOut -Force
 "packaged: $setupOut"
