@@ -641,6 +641,14 @@ HandAimSample input_hand_aim_sample(int hand) {
     return s;
 }
 
+// VR-224 (Index tuning): an extra pitch on a hand's AIM pose, about its own X axis (positive
+// tips the ray up). Set by the game side per held item - the empty left hand (powers,
+// Blink, the Heart) needs its ray lifted while the pistol and crossbow keep theirs.
+std::atomic<float> g_aimPitchExtraDeg[2] = {};
+void input_set_aim_pitch_extra(int hand, float deg) {
+    if (hand >= 0 && hand <= 1) g_aimPitchExtraDeg[hand].store(deg, std::memory_order_relaxed);
+}
+
 bool input_get_hand_pose(int hand, bool aimPose, float* pos3, float* quat4) {
     if (hand < 0 || hand > 1 || !pos3 || !quat4) return false;
     const bool sim = g_simHandsActive.load(std::memory_order_relaxed);
@@ -649,6 +657,15 @@ bool input_get_hand_pose(int hand, bool aimPose, float* pos3, float* quat4) {
     if (!s.valid.load(std::memory_order_relaxed)) return false;
     pos3[0] = s.px; pos3[1] = s.py; pos3[2] = s.pz;
     quat4[0] = s.qx; quat4[1] = s.qy; quat4[2] = s.qz; quat4[3] = s.qw;
+    const float extra = aimPose ? g_aimPitchExtraDeg[hand].load(std::memory_order_relaxed) : 0.0f;
+    if (extra != 0.0f) {   // q * qx(extra): rotate in the pose's own frame
+        const float h = extra * 0.5f * 0.01745329f, sx = sinf(h), cw = cosf(h);
+        const float x = s.qx, y = s.qy, z = s.qz, w = s.qw;
+        quat4[0] = w * sx + x * cw;
+        quat4[1] = y * cw + z * sx;
+        quat4[2] = z * cw - y * sx;
+        quat4[3] = w * cw - x * sx;
+    }
     return true;
 }
 

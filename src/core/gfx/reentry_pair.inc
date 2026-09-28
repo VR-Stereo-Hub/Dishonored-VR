@@ -60,6 +60,8 @@ uint32_t g_popNormal = 0, g_popRepair = 0, g_popClearRemoved = 0, g_popClears = 
 // arm from triggering it alone on a moving player.
 bool     g_lateTagRepair = false;
 uint32_t g_lateOwed = 0, g_lateRepaired = 0, g_lateExpired = 0;
+// VR-229: separate failed confirmations without changing any pairing decision.
+uint32_t g_lateExpireReason[5] = {}; // unused, disabled, camera, empty, wrong front
 
 double pair_now_ms() {
     static LARGE_INTEGER f = {};
@@ -147,7 +149,12 @@ struct ArbTrace {
     int      removedN = 0;            // repair removals (can exceed the six recorded)
     int      drainStop = 0;           // 1 next is the other eye, 2 empty, 3 a pop failed or cleared, 4 a late-tag repair
     int      lateEye = 0;             // F-late: the removed late tag's eye and record (the previous present's image)
+    int expiredEye = 0, expireReason = 0, expireFrontEye = 0;
+    uint32_t expireFrontDraw = 0;
     uint32_t lateRec = 0;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    Tag raw = {}, front = {};
+#endif
 };
 
 // The arbitration's memory: the previous present's c5 and the disagreement streak.
@@ -181,6 +188,9 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
         tr->headBefore = InterlockedCompareExchange(&g_ringHead, 0, 0);
         if (tr->headBefore != tr->tailBefore) tr->newestDraw = g_ring[(tr->headBefore - 1) & (kRing - 1)].draw;
         tr->streakBefore = st.c5Streak;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        if(tr->headBefore != tr->tailBefore) tr->front=g_ring[tr->tailBefore & (kRing-1)];
+#endif
     }
     // The within-tick invariant (see g_c5Pair): what this present's c5
     // says about its pass, before the ring's claim is read. (Computed before the pop
@@ -202,8 +212,11 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
     }
     // F-late: settle a tag owed by the previous present before this one pops.
     if (st.owedEye != 0) {
-        Tag front;
-        if (g_lateTagRepair && g_c5Pair && inv == -st.owedEye && peek_tag_full(front) && front.eye == st.owedEye) {
+        Tag front = {};
+        const bool repairEnabled = g_lateTagRepair && g_c5Pair;
+        const bool cameraConfirms = repairEnabled && inv == -st.owedEye;
+        const bool haveFront = cameraConfirms && peek_tag_full(front);
+        if (haveFront && front.eye == st.owedEye) {
             Tag late;
             if (pop_tag(late, nullptr, POP_REPAIR)) {
                 ++g_lateRepaired;
@@ -220,6 +233,12 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
             }
         } else {
             ++g_lateExpired;   // not confirmed by this present's c5, or the front tag is not the owed eye
+            const int reason = !repairEnabled ? 1 : !cameraConfirms ? 2 : !haveFront ? 3 : 4;
+            ++g_lateExpireReason[reason];
+            if (tr) {
+                tr->expiredEye = st.owedEye; tr->expireReason = reason;
+                tr->expireFrontEye = front.eye; tr->expireFrontDraw = front.draw;
+            }
         }
         st.owedEye = 0;
     }
@@ -229,6 +248,9 @@ bool pop_and_arbitrate(ArbState& st, const ArbView& v, Tag& t, int& ringEye, int
         tr->popResult = tagged ? POPR_TAG : (g_popClears != clearsBefore ? POPR_CLEAR : POPR_EMPTY);
         tr->clearRemoved = g_popClearRemoved - clearedBefore;
     }
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    if(tr && tagged) tr->raw=t;
+#endif
     ringEye = tagged ? t.eye : 0;   // VR-78: before the pairing may override it
     // F-late: an empty pop (not a depth clear) in a tagged stream whose c5 names an eye owes it.
     if (g_lateTagRepair && g_c5Pair && !popped && inv != 0 && st.inStream && g_popClears == clearsBefore) {

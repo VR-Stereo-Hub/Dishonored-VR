@@ -477,6 +477,24 @@ void dispatch(App& a, UiAction action)
             v.notice = "Could not save the update preference: " + fs::narrow(fs::win_error_text(err));
         break;
     }
+    case UiAction::SaveHeadset: {
+        // VR-223: recorded for diagnostics only. Kept in memory even when the
+        // write fails, so the picker does not trap the player behind a
+        // read-only profile; the notice and the log say it was not saved.
+        const std::string was = v.headset;
+        v.headset = v.headsetPending;
+        v.headsetPicking = false;
+        DWORD err = 0;
+        if (!profile::set(launcher_preferences(), L"Headset", L"Model", fs::widen(v.headset), &err)) {
+            v.notice = "Could not save the headset choice: " + fs::narrow(fs::win_error_text(err));
+            DVR_WARN("launcher: headset: reported '%s' but launcher.ini refused it: %s", v.headset.c_str(), v.notice.c_str());
+        } else if (was.empty()) {
+            DVR_INFO("launcher: headset: user reported '%s' (first run, list entry %d of %d)", v.headset.c_str(), headset_index(v.headset) + 1, kHeadsetOther + 1);
+        } else if (was != v.headset) {
+            DVR_INFO("launcher: headset: user changed '%s' -> '%s'", was.c_str(), v.headset.c_str());
+        }
+        break;
+    }
     case UiAction::ShowAbout: v.guideReturn = v.screen; v.screen = Screen::About; break;
     case UiAction::OpenKofi: process::open_unelevated(L"https://ko-fi.com/pizzzaparker"); break;
     case UiAction::CreditPizza: process::open_unelevated(L"https://github.com/BioVRDev"); break;
@@ -523,6 +541,10 @@ int run_gui(HINSTANCE hinst, const Env& env)
     a.view.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 1) != 0;
     a.view.screen = a.view.det.modInstalled ? Screen::Manage : Screen::Setup;
     a.view.logPath = dvr::log::path();
+    a.view.headset = fs::narrow(profile::get(launcher_preferences(), L"Headset", L"Model"));
+    if (a.view.headset.empty()) DVR_INFO("launcher: headset: none recorded - asking before anything else (VR-223)");
+    else DVR_INFO("launcher: headset: user reported '%s'%s", a.view.headset.c_str(),
+                  headset_index(a.view.headset) == kHeadsetOther ? " (typed, not a list entry)" : "");
     if (!create_window(a, hinst)) {
         MessageBoxW(nullptr, L"Direct3D 11 could not be started, so the launcher cannot draw its window.\nThe mod itself would not run either; check the graphics driver.", L"Dishonored VR Launcher", MB_ICONERROR);
         return 1;

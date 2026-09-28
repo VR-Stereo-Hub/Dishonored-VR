@@ -1,5 +1,6 @@
 # Compile the production VR-80 reentry ring and c5 pairing (core/gfx/reentry_pair.inc) with a simulated
 # game thread and render thread, judged against each draw's true identity.
+param([switch]$FlickerDiagnostics)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $out = Join-Path $repo 'build\reentry-pair-test'
@@ -16,7 +17,9 @@ Push-Location $out
 try {
     $env:INCLUDE = "$vc\include;$sdk\ucrt;$sdk\shared;$sdk\um"
     $env:LIB = "$vc\lib\x86;$lib\ucrt\x86;$lib\um\x86"
-    & "$vc\bin\Hostx64\x86\cl.exe" /nologo /std:c++20 /EHsc /W3 /I (Join-Path $repo 'src') `
+    $diagArgs = @()
+    if ($FlickerDiagnostics) { $diagArgs += '/DDVR_FLICKER_DIAGNOSTICS=1' }
+    & "$vc\bin\Hostx64\x86\cl.exe" @diagArgs /nologo /std:c++20 /EHsc /W3 /I (Join-Path $repo 'src') `
         /Fe:reentry_pair_test.exe (Join-Path $PSScriptRoot 'reentry-pair-tests.cpp')
     if ($LASTEXITCODE -ne 0) { throw 'reentry-pair test compilation failed.' }
     & .\reentry_pair_test.exe

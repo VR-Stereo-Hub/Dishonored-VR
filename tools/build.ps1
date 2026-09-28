@@ -6,11 +6,15 @@
 param(
     [switch]$Release,
     [switch]$Install,
+    [switch]$FlickerDiagnostics, # VR-229 test ZIP only; never installed automatically
+    [switch]$FlickerPixels, # separate GPU-probe opt-in; requires -FlickerDiagnostics
     [switch]$Legacy,      # also compile src/legacy (retired experiments)
     [string]$GamePath = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ($FlickerDiagnostics -and $Install) { throw "FlickerDiagnostics is ZIP-only; build without -Install." }
+if ($FlickerPixels -and -not $FlickerDiagnostics) { throw "FlickerPixels requires -FlickerDiagnostics." }
 $repo = Split-Path -Parent $PSScriptRoot
 
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -29,17 +33,21 @@ try {
     # that build was installed for a headset session and froze the game for a
     # quarter second per pull. Read what the cache holds, and reconfigure whenever
     # it is not what was asked for.
+    $diagnosticFlag = if ($FlickerDiagnostics) { "ON" } else { "OFF" }
+    $pixelFlag = if ($FlickerPixels) { "ON" } else { "OFF" }
     $legacyFlag = if ($Legacy) { "ON" } else { "OFF" }
     if (-not (Test-Path "build\CMakeCache.txt")) {
-        & $cmake --preset win32 "-DDVR_WITH_LEGACY=$legacyFlag"
+        & $cmake --preset win32 "-DDVR_WITH_LEGACY=$legacyFlag" "-DDVR_FLICKER_DIAGNOSTICS=$diagnosticFlag" "-DDVR_FLICKER_PIXEL_DIAGNOSTICS=$pixelFlag"
         if ($LASTEXITCODE -ne 0) { throw "CMake configure failed." }
     } else {
         $cached = (Select-String -Path "build\CMakeCache.txt" -Pattern '^DVR_WITH_LEGACY:BOOL=(\w+)' |
                    Select-Object -First 1)
         $cachedFlag = if ($cached) { $cached.Matches[0].Groups[1].Value.ToUpper() } else { "" }
-        if ($cachedFlag -ne $legacyFlag) {
+        $cachedDiagnostic = Select-String -Path "build\CMakeCache.txt" -Pattern "^DVR_FLICKER_DIAGNOSTICS:BOOL=$diagnosticFlag$"
+        $cachedPixels = Select-String -Path "build\CMakeCache.txt" -Pattern "^DVR_FLICKER_PIXEL_DIAGNOSTICS:BOOL=$pixelFlag$"
+        if ($cachedFlag -ne $legacyFlag -or -not $cachedDiagnostic -or -not $cachedPixels) {
             Write-Host "build: the CMake cache holds DVR_WITH_LEGACY=$cachedFlag and this build asks for $legacyFlag - reconfiguring" -ForegroundColor Yellow
-            & $cmake -S . -B build "-DDVR_WITH_LEGACY=$legacyFlag"
+            & $cmake -S . -B build "-DDVR_WITH_LEGACY=$legacyFlag" "-DDVR_FLICKER_DIAGNOSTICS=$diagnosticFlag" "-DDVR_FLICKER_PIXEL_DIAGNOSTICS=$pixelFlag"
             if ($LASTEXITCODE -ne 0) { throw "CMake reconfigure failed." }
         }
     }
@@ -52,6 +60,13 @@ try {
     $preset = if ($Release) { "release" } else { "debug" }
     & $cmake --build --preset $preset
     if ($LASTEXITCODE -ne 0) { throw "Build failed." }
+    # The one 64-bit piece: the DLAA helper (NVIDIA's NGX is x64 only). Built when the SDK is
+    # present (tools\fetch-ngx.ps1); without it DLAA is simply unavailable.
+    if (Test-Path (Join-Path $repo "third_party\ngx\include\nvsdk_ngx.h")) {
+        & (Join-Path $PSScriptRoot "build-dlss-host.ps1")
+    } else {
+        Write-Host "build: NGX SDK not fetched (tools\fetch-ngx.ps1) - the DLAA helper is not built"
+    }
     $cfg = if ($Release) { "RelWithDebInfo" } else { "Debug" }
     $versionText = Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw
     if ($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read launcher version' }

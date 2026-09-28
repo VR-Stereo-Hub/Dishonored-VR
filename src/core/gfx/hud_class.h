@@ -59,6 +59,9 @@ void shutdown();
 // SetRenderTarget is frame_hooks'; it reports RT0 here. Pointer value only.
 void on_set_render_target(DWORD idx, IDirect3DSurface9* rt);
 // Render-thread world VP observed at the camera-position upload, never live HMD.
+// VR-186: finite read-only ownership capture; no pixel readback.
+void set_owner_trace(bool on);
+bool owner_trace_enabled();
 void note_world_view(const float* vp);
 
 // The game side lends two counters: the engine's viewport-draw count (one per

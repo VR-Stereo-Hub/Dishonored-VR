@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The uncap deep dive's GPU + CPU timeline (tools/perf-gpu-trace.ps1 records it,
+  tools/perf-gpu-timeline.py reads it). Short captures only: a few seconds per window.
+
+  DvrGpu        light: thread switches and readying (no stacks, no sampling), DxgKrnl
+                Base+Profiler+LongHaul (every queue packet, DMA packet and history buffer,
+                the context/device rundown that maps a context to its process and engine),
+                and the proxy's own phase markers (provider DishonoredVR).
+  DvrGpuStacks  the same plus 1 kHz CPU samples with stacks, for WHAT a busy render
+                thread was doing. Heavier; compare its tick rate against an untraced window.
+-->
+<WindowsPerformanceRecorder Version="1.0">
+ <Profiles>
+  <SystemCollector Id="DvrSys" Name="DVR GPU kernel"><BufferSize Value="1024"/><Buffers Value="256"/></SystemCollector>
+  <EventCollector Id="DvrEvt" Name="DVR GPU events"><BufferSize Value="1024"/><Buffers Value="256"/></EventCollector>
+
+  <SystemProvider Id="DvrSched">
+   <Keywords>
+    <Keyword Value="ProcessThread"/><Keyword Value="Loader"/><Keyword Value="CSwitch"/><Keyword Value="ReadyThread"/>
+   </Keywords>
+  </SystemProvider>
+  <SystemProvider Id="DvrSchedStacks">
+   <Keywords>
+    <Keyword Value="ProcessThread"/><Keyword Value="Loader"/><Keyword Value="CSwitch"/><Keyword Value="ReadyThread"/>
+    <Keyword Value="SampledProfile"/>
+   </Keywords>
+   <Stacks><Stack Value="SampledProfile"/><Stack Value="CSwitch"/></Stacks>
+  </SystemProvider>
+
+  <!-- Microsoft-Windows-DxgKrnl. NonPagedMemory is REQUIRED: DxgKrnl logs from interrupt-level code, and
+       without it WPR accepts the provider and records nothing from it (WPR's own GPU profile sets it). -->
+  <EventProvider Id="DvrDxg" Name="802ec45a-1e99-4b83-9920-87c98277ba9d" NonPagedMemory="true" Level="5">
+   <Keywords><Keyword Value="0x803"/></Keywords>
+   <CaptureStateOnStart><Keyword Value="0x803"/></CaptureStateOnStart>
+  </EventProvider>
+  <EventProvider Id="DvrMarks" Name="6b3c1f4e-2d6a-4f7c-9a51-0d2e8c7b4a19" Level="5"/>
+
+  <Profile Id="DvrGpu.Verbose.File" Name="DvrGpu" Description="DVR GPU queues + thread switches + proxy phases" LoggingMode="File" DetailLevel="Verbose">
+   <Collectors>
+    <SystemCollectorId Value="DvrSys"><SystemProviderId Value="DvrSched"/></SystemCollectorId>
+    <EventCollectorId Value="DvrEvt">
+     <EventProviders><EventProviderId Value="DvrDxg"/><EventProviderId Value="DvrMarks"/></EventProviders>
+    </EventCollectorId>
+   </Collectors>
+  </Profile>
+
+  <Profile Id="DvrGpuStacks.Verbose.File" Name="DvrGpuStacks" Description="DvrGpu plus 1 kHz CPU samples with stacks" LoggingMode="File" DetailLevel="Verbose">
+   <Collectors>
+    <SystemCollectorId Value="DvrSys"><SystemProviderId Value="DvrSchedStacks"/></SystemCollectorId>
+    <EventCollectorId Value="DvrEvt">
+     <EventProviders><EventProviderId Value="DvrDxg"/><EventProviderId Value="DvrMarks"/></EventProviders>
+    </EventCollectorId>
+   </Collectors>
+  </Profile>
+ </Profiles>
+</WindowsPerformanceRecorder>

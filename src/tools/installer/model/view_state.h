@@ -14,7 +14,8 @@ enum class UiAction {
     None, Install, Browse, SelectGame, Rescan, Launch, Close, CheckUpdates, DownloadUpdate,
     Update, ChangeSettings, CancelChange, ToggleDisable, CollectSupport,
     Uninstall, ConfirmUninstall, CancelUninstall, ApplyBaseline,
-    ShowAbout, OpenKofi, CreditPizza, CreditVoid, CreditGingas, SaveUpdatePreference, OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut
+    ShowAbout, OpenKofi, CreditPizza, CreditVoid, CreditGingas, SaveUpdatePreference, OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut,
+    SaveHeadset
 };
 
 struct ViewState {
@@ -38,6 +39,15 @@ struct ViewState {
     std::vector<updates::Release> releases;
     std::string updateMessage;
     std::string logPath;
+    // VR-223: the headset the player reported (launcher.ini [Headset] Model), ""
+    // when none is recorded yet. While it is empty the picker is a modal that
+    // cannot be dismissed. `headsetPick` / `headsetOther` are the picker's draft;
+    // SaveHeadset moves the draft into `headset` and writes it.
+    std::string headset;
+    int headsetPick = -1;
+    char headsetOther[64] = {};
+    bool headsetPicking = false;  // the picker is open (required, or to change a recorded one)
+    std::string headsetPending;   // what SaveHeadset records
 };
 
 } // namespace dvr::setup

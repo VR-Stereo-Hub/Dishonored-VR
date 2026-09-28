@@ -56,6 +56,18 @@ foreach($candidate in $candidates) {
 }
 if(-not $stage){throw ('Could not create a support output folder: '+($outputErrors -join '; '))}
 $report = [ordered]@{ createdUtc=[DateTime]::UtcNow.ToString('o'); gameDir=$GameDir; dataDir=$DataDir; maxZipBytes=$MaxZipBytes; files=@(); omitted=@(); errors=@($outputErrors); dumpsIncluded=$false }
+# VR-223: the headset the player reported in the launcher (recorded only).
+$report.headset='not recorded'
+try {
+    $launcherIni=Join-Path $env:LOCALAPPDATA 'DishonoredVR\launcher.ini'
+    if([IO.File]::Exists($launcherIni)) {
+        $section=''
+        foreach($line in [IO.File]::ReadAllLines($launcherIni)) {
+            if($line -match '^\s*\[([^]]+)\]'){$section=$Matches[1]}
+            elseif($section -eq 'Headset' -and $line -match '^\s*Model\s*=\s*(.+?)\s*$'){$report.headset=$Matches[1]}
+        }
+    }
+} catch {$report.errors+=('headset : '+$_.Exception.Message)}
 $queue=New-Object 'System.Collections.Generic.List[object]'
 $seen=@{}
 function Copy-Evidence([string]$source,[string]$name,[int]$priority=0,[bool]$excerpt=$false) {

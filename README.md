@@ -262,7 +262,7 @@ the same places.
 | Input | Action |
 |---|---|
 | Left stick | Move. Click to toggle sprint. |
-| Right stick | Turn. Hold the click for 0.4 s to drink a health elixir. |
+| Right stick | Turn, smoothly or in fixed steps (Snap turn in F10 > Controls > Turning). Hold the click for 0.4 s to drink a health elixir. |
 | Left trigger | Use the equipped power or gadget. |
 | Right trigger | Sword attack. |
 | Left grip (hold) | Open the weapon and power wheel. Move your left hand toward a wedge and let go to equip it. The sticks don't select. |

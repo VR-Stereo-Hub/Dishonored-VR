@@ -651,6 +651,12 @@ static bool g_goStartupPolicyRead = false;
 static bool g_goDefaultsAtStartup = true;
 static dvr::hooks::Detour g_goDefaultsHook;
 static uintptr_t g_goDefaultsResume = kGoApplySettings + sizeof(kGoApplySettingsPrefix);
+// The game's own anti-aliasing follows DLSS: with [Clarity] DLAA on (DLAA or Super Resolution) the
+// preset writes Antialiasing OFF, because DLSS already anti-aliases and the game's MLAA pass is a
+// full-screen per-pixel cost in a headset that is pixel-bound (PERFORMANCE.md, uncap plan 1); with
+// DLSS off it writes MLAA as before. Decided at launch: a DLSS switch in F10 reaches the game's AA
+// at the next launch.
+static bool g_goDlssOn = false;
 
 static bool GoWriteStartupDefaults(uint8_t* obj)
 {
@@ -658,7 +664,7 @@ static bool GoWriteStartupDefaults(uint8_t* obj)
     // default -1 = unset, ArkProfileSettings DefaultSettings[50]/[51]). 30 was chosen in the
     // headset (2026-09-22); the menu slider should read 30 after a launch.
     const int ids[] = {105,108,109,99,81,83,120,121,122,123,78,79};
-    const uint32_t values[] = {0,0,0,0,0,0,1,0,1,0,30,30}; // float +0 for head bob
+    const uint32_t values[] = {0,0,0,0,0,0,1,0,g_goDlssOn ? 0u : 1u,0,30,30}; // float +0 for head bob; 122 = AA
     const int kN = (int)(sizeof(ids) / sizeof(ids[0]));
     uint32_t* slots[sizeof(ids) / sizeof(ids[0])] = {};
     int entries=0, ascending=0, inRange=0;
@@ -729,8 +735,13 @@ static void __cdecl GoBeforeSettingsApply(uint8_t* obj, int mode)
         _snprintf(ini,sizeof(ini),"%s\\dishonored_vr.ini",g_dir);
         ini[sizeof(ini)-1]=0;
         g_goDefaultsAtStartup=GetPrivateProfileIntA("GameOptions","DefaultsAtStartup",1,ini)!=0;
+        char dlaa[16]="";
+        GetPrivateProfileStringA("Clarity","DLAA","0",dlaa,sizeof(dlaa),ini);
+        g_goDlssOn=atof(dlaa)!=0.0;
         g_goStartupPolicyRead=true;
-        Log("gameopts/defaults: startup policy=%d",(int)g_goDefaultsAtStartup);
+        Log("gameopts/defaults: startup policy=%d | the game's Antialiasing (id 122) -> %s because [Clarity] DLAA=%s "
+            "(DLSS on: the game's MLAA pass is switched off; takes effect with the preset, at launch)",
+            (int)g_goDefaultsAtStartup,g_goDlssOn ? "OFF (0)" : "MLAA (1)",dlaa);
     }
     if (!g_goDefaultsAtStartup) { g_goStartupDone=true; return; }
     if (GoWriteStartupDefaults(obj)) {

@@ -1,4 +1,7 @@
 #include "core/gfx/hud_native_icon.h"
+#include "core/gfx/hud_capture_health.h"
+#include "core/gfx/hud_owner.h"
+namespace dvr::hudowner { bool semantic=false; Owner owner; bool active(){return semantic;} Owner current(){return owner;} }
 #include "core/gfx/hud_native_rune.h"
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +16,7 @@ bool upright=false,basisValid=true;float basisCo=1,basisSi=0,basisAspect=1;
 bool native_basis(float& c,float& s,float& a){c=basisCo;s=basisSi;a=basisAspect;return basisValid;}
 namespace dvr::hudlayout {
 constexpr int ElObjective=6;
+bool menu_riding(){return false;}
 bool g_nativeGameplayReference=false,g_visualRiding=false,g_menuRiding=false,g_nativeObjectives=true;
 bool& g_nativeObjectiveUpright=upright;float& g_nativeObjectiveScale=scale;
 #include "hud_native_policy.inc"
@@ -20,7 +24,7 @@ bool& g_nativeObjectiveUpright=upright;float& g_nativeObjectiveScale=scale;
 using DWORD=uint32_t;static DWORD nowMs=5000;DWORD GetTickCount(){return nowMs;}
 #define SUCCEEDED(x) ((x)>=0)
 namespace dvr::hudcap {
-bool g_on=true,g_handoffReady=true,g_failed=false;DWORD g_lastRedirectMs=0;
+bool g_on=true,g_handoffReady=true,g_failed=false;CaptureHealth g_captureHealth;
 #include "hud_reference_health.inc"
 }
 namespace dvr::frame {
@@ -82,6 +86,16 @@ int main(){
   check(state[9][3]==1 && state[8][2]==1,"depth and homogeneous w unchanged");
  }
  check(!memcmp(state,shadow,sizeof(state)),"every shader row restored after native draw");
+ dvr::hudowner::semantic=true;writes=0;
+ {NativeIconScope scope(&dev,p,6);check(writes==0,"semantic unknown draw refuses native marker transform");}
+ dvr::hudowner::owner.root=1;dvr::hudowner::owner.generation=1;
+ {NativeIconScope scope(&dev,p,6);check(writes==0,"prompt cannot inherit marker scaling from overlapping bounds");}
+ dvr::hudowner::owner.marker=true;
+ {NativeIconScope scope(&dev,p,6);check(writes==0,"identified marker without its own pivot remains unscaled");}
+ dvr::hudowner::owner.pivotValid=true;
+ {NativeIconScope scope(&dev,p,6);check(writes==4,"identified marker with copied pivot may transform");}
+ check(!memcmp(state,shadow,sizeof(state)),"semantic native transform restores all rows");
+ dvr::hudowner::semantic=false;dvr::hudowner::owner={};
  failRow=7;{NativeIconScope scope(&dev,p,6);check(!memcmp(state,shadow,sizeof(state)),"partial write failure restores original transform");}
  writes=0;p.xcol[1]=6;{NativeIconScope scope(&dev,p,6);check(writes==0,"ambiguous transform rows refused before writes");}
  p=Probe{};p.transformed=true;{NativeIconScope scope(&dev,p,6);check(writes==0,"pretransformed vertices remain native unchanged");}
@@ -160,5 +174,30 @@ int main(){
  g_visualRiding=false;g_menuRiding=false;g_nativeGameplayReference=false;
  check(native_objective_scale(6)==scale && native_objective_upright(6),"turning reference off restores saved objective settings");
  check(native_objective_scale(-1)==1 && !native_objective_upright(-1),"unidentified draws never inherit objective transforms");
+ g_captureHealth.reset();
+ g_captureHealth.frame(true,true,false,false,nowMs);
+ check(!redirect_healthy(),"empty frames cannot establish an untested capture path");
+ g_captureHealth.frame(true,true,false,true,nowMs);
+ check(redirect_healthy(),"a real redirected frame establishes capture readiness");
+ for(int i=0;i<400;++i) { nowMs+=10;g_captureHealth.frame(true,true,false,false,nowMs); }
+ check(redirect_healthy(),"four seconds of faded HUD do not prevent world pause entry");
+ nowMs+=266;
+ check(redirect_healthy(),"recorded 250 ms pause owner poll gap retains readiness");
+ nowMs+=235;
+ check(!redirect_healthy(),"unarmed stale pipeline still expires after 500 ms");
+ g_captureHealth.frame(true,true,false,false,nowMs);
+ check(redirect_healthy(),"operational previously tested pipeline can resume with empty HUD");
+ g_captureHealth.frame(true,true,true,false,nowMs);
+ check(!redirect_healthy(),"hard failure clears proof before recovery");
+ g_captureHealth.frame(true,true,false,false,nowMs);
+ check(!redirect_healthy(),"empty frames cannot revalidate after failure");
+ g_captureHealth.frame(true,true,false,true,nowMs);
+ g_captureHealth.frame(true,false,false,false,nowMs);
+ check(!redirect_healthy(),"lost handoff invalidates proof");
+ g_captureHealth.reset();
+ g_captureHealth.frame(true,true,false,true,0xfffffff0u);nowMs=32;
+ check(redirect_healthy(),"readiness expiry is correct across clock wrap");
+ g_captureHealth.reset();
+ check(!redirect_healthy(),"device reset removes stale proof even inside grace");
  printf("%u native HUD checks passed\n",checks);
 }

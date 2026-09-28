@@ -106,8 +106,8 @@ static void UpdateVirtualPad()
     // backend; everything gameplay-side that only the OpenVR path used to run
     // (physical crouch pulses, the overlay pointer, the fire tracer, motion
     // aim) now runs for every controller.
-    dvr::vr::InputSnapshot in;
-    dvr::vr::input_snapshot(&in);
+    dvr::vr::InputSnapshot raw;
+    dvr::vr::input_snapshot(&raw);
     if (dvr::vr::take_recenter_chord()) {
         g_posHaveRef = false;
         g_crouchRefOk = false;
@@ -120,6 +120,20 @@ static void UpdateVirtualPad()
         Log("overlay: %s (both stick clicks, tapped)", g_ovlVisible ? "OPEN" : "closed");
     }
     const auto controller=dvr::controller::config();
+    // Bind remapping (controller_binds.h): from here on `in` is LOGICAL - `in.a` is Jump's
+    // source, `in.gripL` the power wheel's - so every system below follows a remap. The shipped
+    // layout returns `raw` unchanged. With a custom layout the F10 pointer's trigger is muted
+    // while the panel is up (the default layout's pointer mute is the output block further down).
+    // The R3 D-pad modifier is a physical gesture: it always reads the right stick click.
+    const auto binds=dvr::binds::layout();
+    const dvr::binds::Source bindMuted=(!binds.is_default() && g_ovlVisible && g_ovlPtrEnable)
+        ? (g_ovlPtrHand ? dvr::binds::RightTrigger : dvr::binds::LeftTrigger) : dvr::binds::None;
+    dvr::vr::InputSnapshot in=dvr::binds::apply(raw,binds,bindMuted);
+    if (controller.modifier==dvr::controller::R3) in.clkR=raw.clkR;
+    if (g_ovlVisible && dvr::binds::capture_active(GetTickCount64())) {   // F10 press-to-bind owns the press
+        in.a=in.b=in.x=in.y=in.clkL=in.clkR=in.menu=false;
+        in.gripL=in.gripR=in.trigL=in.trigR=0.0f;
+    }
     const bool leanGameplay=in.active && !g_ovlVisible && !UiSurfaceBlocks() &&
         !g_menuOpen && !g_inMenu && !CineActive() && in.gripL<.7f;
     const auto emulation=g_controllerComposer.step(in,controller,GetTickCount64(),leanGameplay);
@@ -311,10 +325,10 @@ static void UpdateVirtualPad()
                 rsNow - rsLogMs > 1000.0) {
                 rsLogMs = rsNow;
                 Log("pad/rs: raw=(%.2f,%.2f) -> RX=%d RY=%d "
-                    "(menu=%d/%d cine=%d wheel=%d)",
+                    "(menu=%d/%d cine=%d wheel=%d snap=%d; with snap=1 the RX the game sees is zeroed later, at the snap block)",
                     tx, ty, (int)xs.Gamepad.sThumbRX, (int)xs.Gamepad.sThumbRY,
                     (int)g_menuOpen, (int)g_inMenu,
-                    (int)CineActive(), (int)g_wheelHeld);
+                    (int)CineActive(), (int)g_wheelHeld, (int)dvr::snap::enabled());
             }
         }
         // Stage 7.2: projectile-spawn tracer - on a shot, find the bolt/
@@ -498,6 +512,18 @@ static void UpdateVirtualPad()
             "pad/axes: lean=%d menu=%d context=%d right=(%.3f %.3f) deliveredL=(%d %d) deliveredR=(%d %d)",
             int(emulation.lean),int(nativeMenu),UiSurfaceContext(),in.lk[0],in.lk[1],
             xs.Gamepad.sThumbLX,xs.Gamepad.sThumbLY,xs.Gamepad.sThumbRX,xs.Gamepad.sThumbRY);
+    {   // Trigger edges as the GAME receives them (the xbtn line carries buttons only). A grenade
+        // cooks while the left trigger is held and leaves on its release: a cook that never ends
+        // is either a release that never arrived here or one the game did not act on.
+        static bool ltWas=false, rtWas=false;
+        const bool lt=xs.Gamepad.bLeftTrigger>50, rt=xs.Gamepad.bRightTrigger>50;
+        if(lt!=ltWas || rt!=rtWas) {
+            Log("pad/triggers: LT %s RT %s | delivered %d/%d raw %.2f/%.2f carrySwap=%d menu=%d ui=%d",
+                lt?"DOWN":"up",rt?"DOWN":"up",(int)xs.Gamepad.bLeftTrigger,(int)xs.Gamepad.bRightTrigger,
+                in.trigL,in.trigR,(int)CarryThrowTriggersSwapped(),(int)(g_menuOpen||g_inMenu),(int)UiSurfaceBlocks());
+            ltWas=lt; rtWas=rt;
+        }
+    }
     const unsigned controlState=unsigned(emulation.buttons) | (emulation.modifier ? 0x10000u : 0u);
     static unsigned lastControlState=~0u;
     if(controlState!=lastControlState){lastControlState=controlState;
@@ -527,6 +553,13 @@ static void UpdateVirtualPad()
             "(raw trigger %.2f)", g_ovlPtrHand ? "right" : "left",
             g_ovlPtrHand ? " and right stick" : "", g_ovlPtrHand ? in.trigR : in.trigL);
     }
+    // Snap turn (VR-219): LAST, after every context that took the right stick for
+    // navigation (menu, wheel, reading, pause, lean, the D-pad flip, the F10 pointer) has
+    // zeroed RX, so a nonzero RX here IS "the stick would turn the view" with no second
+    // copy of those predicates. The module eats it only while the script camera writer
+    // is fresh; anywhere else the game's own smooth turn stays live (fail soft).
+    if (dvr::snap::present_tick(active ? in.lk[0] : 0.0f, xs.Gamepad.sThumbRX != 0, active, MaimNowMs()))
+        xs.Gamepad.sThumbRX = 0;
     // 38.25 crawlbox: mirror the delivered (post-shaping) movement stick for
     // the crouch/raw diag line. SHORT writes are atomic enough for a log.
     g_dbgOutLx = active ? xs.Gamepad.sThumbLX : 0;
@@ -588,6 +621,36 @@ static void UpdateVirtualPad()
         // (auto-focus grab removed at user request - it was annoying and did
         // not fix the load-in stuck-tracking issue anyway.)
     }
+}
+
+
+// The live bind layout, so a tester's log says which button did what. Called at load, on
+// every F10 or seam change, and on `binds status`. One line, plus a Warn per shared source.
+static void BindsLog(const char* who)
+{
+    const auto l = dvr::binds::layout();
+    char line[768]; int n = 0;
+    for (int a = 0; a < dvr::binds::ActionCount && n < (int)sizeof(line) - 40; ++a) {
+        const bool moved = l.src[a] != dvr::binds::info(a).def;
+        n += _snprintf_s(line + n, sizeof(line) - n, _TRUNCATE, "%s%s=%s%s", a ? " " : "",
+            dvr::binds::info(a).key, dvr::binds::source_key(l.src[a]), moved ? "*" : "");
+    }
+    Log("input/binds (%s): %s SwapSticks=%d | %s", who, line, (int)l.swapSticks,
+        l.is_default() ? "the shipped layout, the snapshot passes through untouched"
+                       : "CUSTOM (* = moved from the shipped source); every gameplay system reads the action, not the button");
+    for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+        const unsigned c = dvr::binds::conflicts(l, a);
+        for (int b = a + 1; b < dvr::binds::ActionCount; ++b)
+            if (c & (1u << b))
+                Log("input/binds: WARN %s and %s share %s - one press does both", dvr::binds::info(a).key,
+                    dvr::binds::info(b).key, dvr::binds::source_key(l.src[a]));
+    }
+    const auto controller = dvr::controller::config();
+    if (controller.modifier == dvr::controller::R3)
+        for (int a = 0; a < dvr::binds::ActionCount; ++a)
+            if (l.src[a] == dvr::binds::RightStickClick && a != dvr::binds::Health)
+                Log("input/binds: WARN %s is on the right stick click, which the R3 D-pad modifier also uses",
+                    dvr::binds::info(a).key);
 }
 
 

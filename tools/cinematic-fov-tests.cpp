@@ -18,6 +18,18 @@ int main() {
     check(!eligible(true,true,false,true,true,0),"missing target refuses");
     check(!eligible(true,true,false,true,true,200),"invalid target refuses");
     check(!eligible(true,true,false,true,true,std::numeric_limits<float>::quiet_NaN()),"NaN refuses");
+    // VR-228: pausing an authored narrow scene must retain the draw lock
+    // when the verified menu explicitly permits stereo head look.
+    check(!eligible(true,true,true,true,true,108),"old menu gate reproduces scope release");
+    check(eligible(true,true,true,true,true,108,true),"riding head-look menu retains cinematic scope");
+    check(!eligible(false,true,true,true,true,108,true),"menu permission cannot enable disabled lock");
+    check(!eligible(true,true,true,false,true,108,true),"menu permission cannot enable mono projection");
+    check(!eligible(true,true,true,true,false,108,true),"menu permission cannot revive invalid state");
+    check(!eligible(true,false,true,true,true,108,true),"menu permission cannot invent a scene draw");
+    check(!eligible(true,true,true,true,true,0,true),"menu permission still requires valid target");
+    Scope paused; float nativePause=41.2f;
+    check(paused.begin(&nativePause,108,true) && nativePause==108,"narrow paused camera widened for draw");
+    check(paused.end(true) && std::fabs(nativePause-41.2f)<0.001f,"paused native camera restored after draw");
     Scope s; float f=65;
     check(s.begin(&f,108,true) && f==108,"zoom is replaced for the draw");
     check(!s.begin(&f,110,true),"nested scope refuses");

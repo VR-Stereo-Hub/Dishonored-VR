@@ -1,3 +1,825 @@
+## 2026-09-27: run137 submenu result, non-reproduction
+
+Verified banner v1.0.1-137-gb91ec4fef and installed DLL SHA256
+837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803.
+Main-repo archive: build/playtest-candidates/menu-submenu-markers/run137.
+The tester tentatively reported smooth motion. No behavioral hand change was
+installed, so this is a non-reproduction, not a confirmed fix.
+
+Options callbacks were observed at34500031 and34530015; OnLeaveOptions returned
+the diagnostic to root. Load entry/exit callbacks also appeared. This establishes
+Options/Load callback coverage for this run; Journal still has only context-level
+identity. There are zero menu/hands-mismatch samples in the run. At the last
+sampled eye bucket, Options has1057 agreements, zero mismatches/refusals/repeated
+poses; Load1320, Journal906 and root1875 likewise. These are different populations,
+not a normalized cross-menu rate comparison. WeaponMiss counts include generic
+unassociated candidates and do not establish missing visible weapon correction.
+
+Keep the hand-jitter fix open without changing the already-enabled root fixes.
+If it recurs, preserve the new labelled run and compare draw/pose geometry rather
+than adding a context3 gate. The immediate next launch concerns objective-marker
+clarity, whose separate semantic-routing omission was found in this same log.
+
+## 2026-09-27: pause submenu hand jitter, diagnostic candidate
+
+Installed candidate: `v1.0.1-137-gb91ec4fef`, local source b91ec4fef.
+DLL SHA256 `837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803`.
+Only INI addition is MarkersSharp=0, verified against the entire prior INI with
+CRLF retained. No new headset result. Install archive and test are in STATUS.
+
+1. Surface: headset hands jitter in pause child screens while the root pause menu
+   is reported smooth. Journal is also affected. Route to hand/weapon correction
+   and pose cadence, keeping whole-world mono interruptions separate.
+2. Identity: supplied archived run `build/logs/run-testmix-1913/dishonored_vr.log`
+   identifies v1.0.1-127-g470944905. The currently installed testmix DLL is a later
+   build, v1.0.1-129-gec7b00c07; its SHA256 matches the testmix build artifact.
+   The archived run is explicitly older evidence, not a playtest of that DLL.
+3. Earlier fixes: VR-126's scoped menu head look and bounded mono-gap hold;
+   VR-128's PaletteEyeMenuHalfStep applies to contexts 3..8 already; pause scene
+   freshness entered with dc3ffee45, and e970b58a3 extends observed-upload evidence
+   to riding menus. Options/Save/Load share Pause context 3 with the root.
+   In the supplied Journal windows, pause/scene reports menuEnabled=1,
+   menuUploadAge=1.3/2.9 ms and menuRecent=1 despite pause-only age=-1.
+   A missing Journal freshness extension is therefore rejected for this run.
+   Listed pause and Journal windows contain zero sampled menu/hands-mismatch
+   lines. Rate-limited samples do not establish that every draw agreed.
+4. Change: read-only menu/subscreen observes reflected Save/Load flags and named
+   native UI callbacks. Root without callback coverage is explicitly ambiguous.
+   Options, video, gamma, controller mapping and tutorials carry distinct callback
+   labels. Journal has its own context label; its internal tab is not yet resolved.
+   Missing reflected flags retry every5s without changing the UI ownership gate;
+   transitions log the newly published context.
+   Retained movie identity is checked against its object slot. Entry discovery
+   refreshes the live table. No engine-memory or render behavior change.
+   Hand records retain the submenu at draw time, not at delayed completion;
+   agree/mismatch/refusal and new/repeated pose counts are per context/submenu/eye.
+5. Prediction: if submenu jitter comes from repeated hand poses or eye correction,
+   the Options population will show more repeated poses, mismatches or refusals
+   than root during the same motion. If these stay comparable, that hypothesis
+   fails and the next instrument must join corrected hand geometry to image pose
+   and scene scheduling. If callbacks are absent, root-or-unobserved is not root
+   proof: inspect native callback dispatch or GFx current-frame state before a fix.
+6. Validation: palette-eye host passes, 72 menu freshness checks pass, 1686
+   reentry pairing checks pass. No game or simulator launched. No headset fix
+   claimed. The existing root fixes remain intact; widening context 3 cannot
+   repair a difference inside context 3. Behavioral fix is pending this evidence.
+
+Next single launch: compare the root pause menu with Options using the same slow
+head turn and controller movement, then return to root. Determine whether the
+jitter begins and ends with Options. Read menu/subscreen, menu/hands,
+menu/hands-mismatch and pause/scene; never use gameplay hv in paused windows.
+## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
+
+Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
+enemy silhouette in the eye that can still see the enemy, while the sword covers it in the
+other eye, cleared when F10 Advanced Display > Object culling moved from Per eye to Off
+(headset report). The log shows the switch 0 -> 1 at 41501109 and the only occlusion-query
+reader (callerRVA 005c131f, type 9, about 39k calls per 3 s per eye label) dropping to zero,
+with event queries (005bf54a) unchanged. So the silhouette depends on occlusion results, and
+the owner repair is not the cause: swaps continued with zero restore refusals.
+
+Not yet explained: why a separate right-eye view state still leaves a black (drawn but
+unlit or depth-only) enemy instead of a correct one. Open hypotheses, none measured: state
+the swap does not cover (LocalPlayer.ActorVisibilityHistory at +0x8C stays shared), a
+depth pass that is not occlusion-gated while the base pass is, or temporal history under
+DLAA. FSR is untested.
+
+Release decision for 1.0.2 (maintainer's call): the default becomes pereye, with a one-time
+migration of inis still on native ([Stereo] OcclusionMigrated=1 marks it done so a later
+deliberate native stays). Game default and Off stay in F10. The silhouette remains a known
+issue under pereye; Off is the confirmed-clean workaround at a draw cost. VR-79 stays open.
+## 2026-09-28: run155 owner repair holds; residual black enemy silhouette
+
+Verified build155 and matching DLL; run archived under main build/playtest-candidates/
+animation-hand-origin/run155-reported. Final logged pereye counters:19749 attempts and
+swaps,19748 restores (Begin logs before the matching End),zero restore refusals after
+two loads. Owner repair remains active. Headset report improves disappearance but some
+enemies become black silhouettes in the eye that can still see them when the sword
+covers the other eye. Do not mark VR-79 accepted. The existing log has no pixel/pass
+capture proving lighting loss, and does not isolate DLAA as the cause.
+
+No additional culling code change in this follow-up. Prepare DLAA on and retain pereye;
+arm existing [Perf] QueryWaitProfile=1. At the same location, reproduce the silhouette,
+then F10 Advanced Display > Object culling > Off. One question: does shading recover?
+Query counters must confirm the culling-path reads fall. Recovery implicates query-
+controlled rendering; persistence points toward lighting/depth/jitter/reconstruction.
+DLAA was disabled late in run155, without a reported result for that interval. The
+animation palm/entry correction proceeds independently in PR151. No game launched.
+
+## 2026-09-28: VR-79 culling regression during DLAA after save load (candidate)
+
+Surface: movable heads/gates disappear when a sword occludes one eye. This routes to
+the section 1 VR-79 query-history row, not the texture-speckle jitter row. Verified
+build150 SHA25653f1b33cf91bc522cff4c8ee373cf19b36c1a05c334a0e0d5e2c2e5edf0fd7ca
+was using pereye and DLAA. Its swap heartbeat ends at38188343; a save load replaces the
+event controller by38197984, which reports disagreement with the scan controller.
+Stereo continues afterward. The old resolver reads g_pcObj, the stale scan controller.
+
+Candidate resolves through g_peCtrl, validates live GObjects identities and the current
+Player relationship, refreshes on load/UI epoch/owner changes and validates restoration.
+A heartbeat counts every attempted pass2, including refusal, alongside swaps/restores.
+Prediction: after reload, attempts continue with corresponding swaps/restores on the
+new owner. An object visible past the sword to either eye should remain in that eye.
+If disappearance persists with swaps/restores healthy, this owner failure is insufficient
+and query/depth behavior under jitter needs separate measurement. No DLSS/DLAA/FSR
+jitter behavior is changed, and FSR has not been reproduced. Current F10 Per eye already
+selects the engine scope used by all three. No additional upscaler toggle is required.
+
+19 production-module host checks pass; optimized build and headset validation recorded
+in STATUS. Prior per-eye fixes are preserved, not retracted. Archive: main-repo
+build/playtest-candidates/animation-hand-origin/run150-reported. No headset acceptance.
+
+## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
+
+1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures
+   flicker on and off in the LEFT eye only; the image stays mostly visible. Surface: the eye image
+   after DLSS. Jitter off: gone. New lever (`core/gfx/dlss_jitter.h`), branch `claude/dlss-dlaa`.
+2. **Reproduction:** simulator build `v1.0.1-102-g391eb416b-dirty` 22:50 (jitter keyed on the colour
+   target): left-eye compositor mean luma 7.6-11.6 with jitter on against 13.9 off and a steady
+   16.9 right eye; large lit areas (street, lit windows) black in the left eye, changing frame to
+   frame; restored 4 s after jitter off. Headset build `v1.0.1-103-g0d4b1ee62-dirty` 23:00 (keyed on
+   the depth surface): the speckles above. Logs `build/dlss-install/jitter-sim1/`, `pre-wide-*/`.
+3. **Measurements:** first build: flow check jitter gain 0.48-0.59 (1 expected), per-image scatter
+   1.1 px against 0.26 px with jitter off; 3,800 uploads/s shifted, ~385 perspective uploads/s into
+   another 2750x2850 target NOT shifted. Depth-keyed build: 6,800/s shifted (1,750/s into another
+   colour target on the scene depth - the class the first build missed), still ~570/s perspective
+   uploads/s into a 2750x2850 target with another or no depth surface unshifted, and a c5-tied world
+   pass seen 4 times with NO depth surface bound.
+4. **Hypotheses:**
+   - DLSS history corruption: predicts the darkness lingers after jitter off. It cleared with the
+     jitter (luma back to baseline in 4 s, the first off shot still partly dark). RETRACTED as the
+     primary cause.
+   - One depth-writing or depth-testing pass carries a different shift from the rest (depth-equal
+     style failures speckle sloped surfaces and move with the phase): predicts the unshifted eye-size
+     uploads belong to the left eye's pass. The colour-target key missed 1,750/s such uploads; the
+     depth key caught them and the fault persisted, so what remains is the ~570/s with another or no
+     depth. LEADING, not yet measured per eye.
+5. **Change (build 00:37, `ef73f28f`):** the wide rule (`DlssJitterWide=1` default, `dlss jitter
+   wide on|off`, F10 "Jitter: include all eye-size passes") also shifts every perspective draw into an
+   eye-size colour target whatever depth is bound; a per-eye census line (`dlss/jitter per eye`) splits
+   shifted/unshifted uploads per image by eye. Prediction: speckles gone with wide on, back with it
+   off; the census shows the unshifted eye-size uploads in L only with wide off and 0 with wide on.
+6. **Result (headset, build 00:37):** speckles gone with the wide rule on; the per-eye census read L
+   6.0 wide-rule uploads per image against R 1.0 (scene depth 39 / 37), UNSHIFTED 0 with the rule on;
+   switched off live, UNSHIFTED appeared (L 1.3, R 0.2 per image in the mixed window). CONFIRMED: the
+   left eye's re-entry pass draws a few eye-size perspective passes with another or no depth surface,
+   and they must carry the shift. Jitter still ships default OFF.
+
+## 2026-09-26: DLAA smear unchanged after the arms fix - vector accuracy measured in pixels, fixed
+
+1. **Symptom:** the second headset run (build 20:12, `DlssBodyDepth` 0.30 active) reported the
+   moving smear exactly as before. Same surface as the entry below.
+2. **Reproduction:** that run's log (`build/dlss-install/headset2/`): the arms band was a small
+   share of samples; every band's vector error was still about half its no-motion error. The
+   simulator runs below use build 20:26-20:44, `dvr-xrsim` 90 Hz, 2750x2850.
+3. **Instrument:** `dlss/flow` - at 4096 points per eye image, a 9x9 block search (5x5 patches,
+   sub-pixel) around the vector's predicted source finds the true source. It reports mean error
+   in pixels, true/predicted gain per axis and per depth band, and splits each image's error
+   into its whole-image shift (pose) and the scatter around it (depth/projection/noise).
+   Floor standing still: 0.28-0.41 px.
+4. **Hypotheses and results:**
+   - The game's motion blur: `[SystemSettings] MotionBlur=False` on this install. RETRACTED.
+   - The rotator/FOV reconstruction differs from the matrix the game drew with: smooth stick
+     turn 1.38 px error, whole-image shift 1.04 px. Reprojecting through the captured world
+     view-projection (c0..c3 at the c5 upload: camera-relative, row vector, forward yaw and
+     FOV match the record) gave 0.56 px, shift 0.13. CONFIRMED: the per-image pose drift.
+   - Depth scale: through the matrices, gain was flat across depth bands (depth is linear in
+     scene alpha) at 0.83-0.94 for 200 and 1.03-1.18 for 300. 250: walk 0.66 px (from 1.68),
+     strafe 0.64 (from 1.28), turn 0.43, gain 0.98-1.01 in every band. CONFIRMED: 200 was the
+     coarse rotator-model minimum, 250 the matrix-model fit.
+5. **Change:** `dlss vp on` (default) uses the recorded matrices of this and the previous
+   image of the eye plus the c5 change; `MotionDepthScale` default 250. Host test 12/12.
+   Headset verdict open.
+6. **Status:** measured and fixed in the simulator; the vectors now sit near the instrument
+   floor. Remaining without own vectors: NPCs, controller-moved hands.
+
+## 2026-09-26: DLAA smear while walking - the arms had the world's vectors (measured, fix in simulator)
+
+1. **Symptom:** with DLAA on (branch `claude/dlss-dlaa`), the headset showed a slight smear
+   while moving; the image otherwise judged very good, and better with SSW. Surface: the eye
+   image after DLAA. Distinct from the custom-TAA walking smear below (different
+   accumulator, same class: history moved by wrong vectors).
+2. **Reproduction:** headset run on build `v1.0.1-95-ga4fb67869-dirty` 19:33 (DLAA active 72/s
+   per eye at 144 Hz with SSW, 0 refused, 0 resets). Simulator: `dvr-xrsim` 90 Hz, 2750x2850,
+   stick walking forward/back alternating 1 s for 12 s per condition; audit line
+   `dlss/audit` (dlss_gpu.h). Logs in `build/dlss-install/smear-logs/` (local).
+3. **Hypotheses and counterpredictions:**
+   - Written vs rendered camera position (the left record takes the tick's earlier write):
+     predicts a nonzero offset/step error. MEASURED 0.00 uu offset and 0.00 step error against
+     a 2.2-2.7 uu true step. RETRACTED in the simulator.
+   - Forward-axis sign (the old sign test only moved the head sideways): predicts flipping the
+     forward component helps. MEASURED worse everywhere (near 1.77x, far 1.20x). RETRACTED.
+   - Depth scale: predicts some scale fixes the near band. With the arms excluded, 200-400 is
+     a broad minimum; no scale changes the arms band. NOT the cause.
+   - Body-attached geometry: predicts the nearest band alone is worse with vectors than with
+     none, and fine with translation removed. MEASURED: 0.1-0.3 depth units vec 0.0208 vs no
+     motion 0.0065 (3.2x worse); every farther band improved (0.65-0.78). CONFIRMED.
+   - DLSS keeping large unexplained motion (a mask would help): host test shows DLSS already
+     rejects a 3 px/frame unexplained texture by itself (0.0048 with or without the mask), and
+     a 1 px vector error triples its error (0.0055 -> 0.0155) where no mask can see it. The
+     bias mask was built and ships OFF as an A/B.
+4. **Change:** pixels nearer than `[Clarity] DlssBodyDepth` (0.30 depth units) keep the head
+   rotation and drop the walking parallax (`dlss body <z>`). Rendered c5 now travels in the
+   pose record (`renderPos`) and is the default source (`dlss pos record|render`); identical
+   in the simulator, kept as the render truth.
+5. **Results:** arms band while walking 0.0296 (off) -> 0.0086 (0.30), equal to no motion;
+   farther bands unchanged. Host test 12/12. Not yet headset-tested. NOT expected to fix:
+   NPCs, hands moved by the controllers, and smooth stick turning of the arms (no object
+   vectors). In the simulator the hands follow the head, so the arms band reads worse there
+   during head turns - a simulator artifact; in the headset the hands stay in the room.
+6. **Status:** measured and fixed in the simulator; headset verdict open.
+
+## 2026-09-26: no perceptible TAA benefit reported; FSR planned
+
+Surface: scene edge/detail quality under temporal filtering, not evidence of stereo eye
+swaps or a new cadence regression. The tester reports no perceptible benefit from revised
+TAA. This planning session did not independently verify the exact live A/B configuration.
+Do not call the earlier synthetic improvements a headset-accepted fix. Preserve the measured
+camera-sign/depth-transport results; missing deliberate jitter/object vectors remain limits.
+
+Custom-TAA tuning is parked. The branch remains the unmerged depth foundation for the new
+FSR child branch. The implementation plan and all future performance/quality evidence live in
+[PERFORMANCE](PERFORMANCE.md#2026-09-26-fsr-implementation-plan-and-depth-foundation-handoff).
+This supersedes the pending-headset-verdict wording in historical entries below. No new
+runtime changes, game launch or installed settings changes were made for this handoff.
+
+## 2026-09-26: audited TAA defects fixed, headset verdict pending
+
+Surface: accumulated scene colour, separate from stereo eye cadence and the later hand/F10
+overlay. Stationary white detail now retains full intensity (formerly 49% linear); saturated
+colours and the original moving-edge AA control pass. Added previous-depth visibility and
+quiet-camera colour response. Frame records carry each eye's position, scoped FOV and
+scene epoch; depth owns independent read fences. Fused reprojection removes vector storage.
+
+Matching simulator build `v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48, recovered after
+capture pause/reinit/deferred mode and vector off/on with 450 passes per eye per 5 s and
+no ongoing fallback. 72 GPU checks pass. This verifies recovery, not headset ghosting.
+One failed approach: broader colour response damaged legitimate micro-motion AA (0.197
+coverage error); restricting it to stationary pixels restored 0.095 versus raw 0.219.
+Full evidence and remaining jitter/object-motion limitations: PERFORMANCE.md, TAA audit fixes.
+Installed diagnostics remain off and the original INI is restored byte-for-byte.
+
+## 2026-09-26: TAA audit identifies history-quality and transport gaps
+
+Follow-up source/GPU audit of the experimental path: unchanged stationary bright detail
+loses about half its linear intensity, and moving textured patterns retain strong history.
+These are temporal accumulation issues, not proof of stereo eye swaps. Per-eye position
+provenance, reset/age guards and depth reuse also need correction before headset acceptance.
+Full ranked findings and reproducible host tests are in
+[PERFORMANCE.md](PERFORMANCE.md#2026-09-26-full-taa-audit-source-87a892cef-no-runtime-changes).
+No runtime code or installed settings changed for this audit.
+
+## 2026-09-26: experimental TAA walking smear, motion vectors built
+
+Surface: temporal history in the eye colour image while walking/leaning, separate from
+section 1's stereo cadence/eye-swap routes. New routing row below. Branch
+`claude/motion-vectors`, not merged, headset verdict OPEN.
+
+MIRROR TEST on 56 simulator turns rejected a mirrored image axis: normal 0.0082 vs mirrored
+0.0468 error. The position record was c5 = negative world position; clarity now converts at
+its input boundary. Corrected translation's 70-pair curve has an interior minimum 0.0226 at
+200 uu/depth-unit vs rotation-only 0.0400. This is a coarse calibration, not exact units.
+
+Per-eye vectors feed TAA behind default-off MotionVectors, F10 beneath Temporal AA. The
+existing motion weighting remains only on the missing-depth rotation fallback. Moving-object
+vectors and depth-based disocclusion rejection remain absent; colour clipping is retained.
+Final simulator build 16:54:27, hash `5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`,
+completes both-eye vector TAA with both diagnostics off, including after live off/on. First
+normal-path test failed because of a diagnostic-only caller gate; corrected and retested.
+Full measurements/failed test/cost limits: PERFORMANCE.md "Motion-vector calibration and TAA
+candidate"; continuation: PLAN-motion-vectors-dlss.md. Next headset question: does enabling
+vectors under TAA reduce walking trails while keeping edges stable? No claim of headset fix.
+## 2026-09-26: slight hand/weapon flicker on fast head yaw, world smooth (candidate `PoseFromView`)
+
+Branch `claude/hand-headturn-flicker` off staging `56eb1070c`. No Linear ticket: the workspace
+is at its free-plan issue limit. Built, NOT installed (by request), not headset-run.
+
+1. **Symptom identity.** Turning the head quickly left and right, the world stays smooth while
+   the hands and held weapons show a slight flicker. Long-standing. Both hands and weapons,
+   not one eye named. Distinct from VR-95 (a head ROLL, left eye only, a full IPD jump) and
+   from the Wheel entries (VR-126): this is ordinary gameplay, yaw.
+2. **Reproduction identity.** Reported against the current staging line; the measurements
+   below are from the dev rig's latest session log, build `v1.0.1-50-g6bc58a449` (VDXR,
+   Quest 3, 2750x2850, `stereo reentry`, `PoseLag=2`, `PaletteEyeOffset=1`,
+   `PaletteEyePredictToggle=0`).
+3. **Hypotheses and counterpredictions.** Two inputs place the hands per view, and both are
+   stand-ins for what the view was actually drawn from:
+   * **(a) the head sample.** The hand's camera-relative position is the controller in the HEAD's
+     frame, taken from the head history a fixed `PoseLag` (2) PRESENTS back. Under re-entry a
+     tick is two presents and the render thread trails the game thread by up to a frame, so
+     "two presents back" is the view's own sample most of the time and not always. Measured:
+     the `hv:` line reports frames whose hand normalisation used another head generation than
+     the camera write - 17 of 204 at 954 deg/s (worst 1.72 deg), 29 of 210 at 327 deg/s (1.09),
+     18 of 165 at 310 deg/s (1.68), 0 with the head still. 1.7 deg is about 1.5 cm at arm's
+     length, on some views only: a flicker on the hands and weapons, never the world (one
+     camera per tick). Counterprediction: with the view's own head sample the snapshot-offset
+     readout (below) is about 0 at rest and grows with turn speed, and the flicker goes.
+   * **(b) the eye.** `MpEyeForPresent` guesses the eye from the jump in the HAND's world
+     translation along the camera right axis. The viewmodel rides the camera, so a fast yaw
+     sweeps that projection by (hand distance x turn per present) on top of the eye step,
+     pushing one crossing under the 0.45 IPD band (held, possibly wrong) and the other over
+     2 IPD (unknown, no eye offset). Measured on the same log: 62931 toggled presents agree
+     with the stereo method, 2 disagree, 58 unknown; SAME 54 agree / 4 disagree / 192 unknown;
+     5 ambiguous. Rare (about 11 bad presents in the session), so (a) is the stronger suspect
+     for a continuous flicker and (b) for an occasional flick.
+   * **Eliminated as evidence:** `bv/lag` now reads `BEST -1` (lags 0/2/4 about 0.78-0.85 deg,
+     1/3 about 0.99): under re-entry the camera turns once per tick while it compares per
+     present, so it can no longer choose a lag. Its old lag-2 verdict predates re-entry and
+     does not carry over.
+4. **Change identity.** `[Hands] PoseFromView` (default 0; F10 Advanced > Hands > Head-turn
+   smoothing). Each pose record now also carries the camera position written for ITS view
+   (`eyePos`, the field staging's ledger work added for the same write; pass 2 records the right eye's own write, not the reused pass-1 camera). A hand
+   draw looks its view up by the c5 the constant hook captured (`find_view`, 0.05 uu, 400 ms,
+   refused when a record with another head sample sits within 0.10 uu) and, when found:
+   re-derives both hands against that record's head sample (`MpHandInHead`, the identical maths
+   MpDriveTick uses, with the same controller sample) and takes the view's eye. No match (a
+   mono tick, walking travel after a write, a record aged out, an identity head) leaves the
+   snapshot and the jump classifier exactly as before. Weapons follow for free: they take the
+   hand's per-present, per-eye correction (`WaCommonFor`). Evidence that the join is exact:
+   the ring ledger's `w2c self` (a present's c5 against its own tag's written position) read
+   under 0.001 uu for 1178 of 1181 pops and under 0.05 for 1181.
+5. **Results.** Host: `palette-eye-host.ps1` gains four cases. The old path FAILS the fast-yaw
+   stream (negative control, `poseview_fast_yaw_breaks_the_jump_classifier`); matched views
+   alternate exactly; lever off is byte-for-byte the previous decision; unmatched falls back.
+   `frame_test.exe`, `rounded-wrist-host` (912), `trim-range-host` (37), lint and the
+   default-profile host pass. NOT run: the game, the simulator, the headset.
+   The log line to read: `hands/poseview: ON | draws re-anchored ... left L single S right R |
+   unmatched U ... | the snapshot's head was off by X deg on average, Y at most | eyes the jump
+   classifier would have got wrong or left unknown: E`. X must be about 0 at rest and grow with
+   turn speed; if it stays near 0 during fast turns, hypothesis (a) is dead and the flicker is
+   elsewhere. U climbing while walking is expected.
+6. **Status and remaining scope.** CANDIDATE, headset-untested. Question for the run: with the
+   checkbox on, are the hands and weapons as smooth as the world on fast left/right turns, and
+   does unticking it bring the flicker back? Not covered: walking with a turn (no exact join
+   after travel falls back), mono ticks, menus.
+
+## 2026-09-26: local walking catch-up accepted; remote cinematic scope separate
+
+Surface: whole-world straight-walking hold/catch-up, not HUD grouping or eye fusion.
+Matched installed/log build6bc58a449; final user playtest accepts the correction.
+Candidate traversal optimization and bounded collect-cost measurements are in
+PERFORMANCE.md. Retain the nonzero measured scan cost and uncontrolled-run limits.
+PR132 consolidates PR131 and PR128 for explicitly authorized staging integration.
+Remote VR-229 early prison judder remains open pending6187b2fd4; local acceptance
+must not be substituted. Latest queued-interval grace is integrated source, not the
+installed build50. No game launch or replacement installation during integration.
+
+## 2026-09-26: straight-walking periodic hitch, separate from HUD cohesion
+
+Surface/route: whole-world motion timing/cadence, not HUD ownership or a frozen
+single eye. Matched95ae3f7af accepted potion capture; user reports periodic small
+forward catch-up while walking. Log shows53..62ms game-thread waiting gaps often
+750ms apart, with steady average8..10ms ticks. This explains why average FPS can
+look stable, but does not identify a captured call stack or prove camera movement.
+
+FpCollect's750ms raw-object discovery is the source lead. Candidate reduces
+memory queries and rejects non-live values before inspection, preserves discovery
+and fresh IsLiveObject requirements, and adds3s bounded collection timing.
+Six extracted-production pointer-scan boundary checks pass. Actual improvement
+OPEN pending one same-save walking run. All evidence, competing upstream stalls
+and performance limits are maintained in PERFORMANCE.md. No stereo/HUD change.
+
+## Semantic HUD cohesion accepted (2026-09-25)
+
+Surface: HUD widget ownership/decoupling, not cinematic eye delivery. Verified
+4c38bf526 DLL/banner before reading the latest local run. User reports no observed
+ungrouping or HUD jitter and much more consistent widgets. Semantic queue path
+is active with no overflow. This is reported headset acceptance of cohesion in
+that run; it does not accept the separate remote prison candidate or prove an
+FPS gain. Remaining size-control and lower hint placement findings, their fixes
+and test boundary are in HUD_ANCHORS and ENGINE_NOTES. No new flicker diagnostics.
+
+## Local follow-ups on the staging baseline (2026-09-25)
+
+The local no-flicker report covers installed v1.0.1-8-gc4f5fe5df, DLL SHA256
+115f3827362e58b7a83a43dbc2d8d459256154859f5cb701565a63318c2bf518, matched to its
+log before analysis. It reports stable pause submenus and intro through prison.
+It does NOT accept scoped-eye candidate9da0a0b48; that separate remote ZIP is
+unchanged and still awaiting a report. Archive: primary checkout
+build/playtest-candidates/vr229/local-followups-20260925-124211 (both run logs,
+DLL, full INI). The previous local banner is v1.0.1-30-g868d09649.
+
+The follow-up branch starts at staging474fc8a55 and carries the source changes
+from31450526c,c4f5fe5df,9da0a0b48. This restores staging's source-aware sword
+policy rather than repeating an old-DLL/new-INI downgrade. Hand orientation and
+interaction pieces separating under head pitch are separate surfaces: reference
+capture and HUD ownership, documented in ARM_HAND_SPLIT.md and HUD_ANCHORS.md.
+Neither new candidate is headset-confirmed. Pure regression suites pass; no game
+or in-game simulator launched. Flight recorder cost/compile-out: PERFORMANCE.md.
+
+Local follow-up installed as v1.0.1-32-g1ed638c01 (DLL hash and full INI comparison
+in STATUS); flight recorder compiled out, FrameId explicitly0, swing handback0.
+The current on-disk log still belongs to the old run until a user launch.
+
+One next launch question: after the opening cinematic, does the right hand stay
+aligned with the controller? Pass supports the deferred reference capture; the
+same rotation means that first-frame identity was insufficient to explain it.
+Read the MEASURED/DEFERRED/KEPT reference lines against that exact build banner.
+Keep HUD and sword acceptance open until separately observed, without requiring
+additional diagnostic builds. No merge or release is authorized.
+
+## VR-229 queued-render candidate packaged (2026-09-25)
+
+ZIP in primary checkout: build/test-packages/DishonoredVR-VR229-prison-judder-fix-6187b2fd4.zip,
+15894487bytes. Build v1.0.1-12-g6187b2fd4, optimized x86, legacy OFF,
+CPU recorder ON (output spread), GPU probes OFF. DLL SHA256
+1774ce5d05e837b4a7f34a5502b022e1e439665931264db973387e7951863dc6.
+ZIP SHA256b6ae714fa367ac529160b4586d9b2fd8a55faeca1fe268f47fea5fb3c2b50de4.
+Clean source identity, PE machine,9 exports, ZIP CRC/member hashes, build flags and
+lint verified. The support manifest's actual d3d9 hash matches the returned9da ZIP;
+its installer record still names the underlying release and is not the running DLL.
+No INI change: same config consumers as9da, including HandAnimMelee=0 in this tester's
+INI and forced pixel suppression. DLL/README/manifest/checksums only, no installer.
+
+Local installed hand/HUD candidate1ed638c01 hash remains
+b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569.
+No install or launch during this work. Remote question: smooth prison from beginning
+through fade and10seconds of gameplay, with head-turn fusion retained? Return support
+either way. Candidate sufficiency remains OPEN. Shared source in PR132 needs explicit
+integration when results are accepted; neither PR is authorized to merge.
+
+## VR-229 scoped-eye return: separation resolved, transient judder remains (2026-09-25)
+
+Surface/route: whole-view cinematic judder, section1 stale/swapped/frozen-eye row.
+Report: large-head-turn eye separation is gone; judder resolves partway through
+prison, estimated20-30seconds. Current support-20260925-150139 log verifies
+v1.0.1-10-g9da0a0b48, optimized x86, legacy OFF, CPU recorder ON, GPU probes OFF,
+3025x3135. Previous logs are different runs and are not combined. Headset-reported
+acceptance applies only to head-turn separation; overall cinematic stability is OPEN.
+
+Evidence: before the load, stale/expiry/duplicate populations remain0/0/0. After
+load around587403000 they rise; by587448265 they reach192/58/526, then remain there
+through587479359 during InDialog (entered587411343, exits587486359). This is a
+bounded printed endpoint, about37seconds after dialogue ownership, not an exact
+perceived recovery timestamp. The report's estimate cannot be aligned more tightly.
+Later transition587486390..587507093 rises again to233/73/761, then gameplay
+endpoints stay flat. The recovery is real in the event counters but not global
+acceptance of every later transition. The early/late prison samples contain224/168
+XR tails with0 acquire/wait/release/end errors. No GPU pixel-copy claim is possible.
+
+The previous axis correction is active: complete steps now repeatedly measure
+about6.57uu with milliscale perpendicular error. Early full-step late-left tags
+are successfully repaired (e.g.P29765/66), so a late tag alone is not a failure.
+Other sequences contain center-eye steps around3.3uu and conflicting order. At
+587404625 the progress guard injects SINGLE,587404640 reports a held untagged
+present and returns to DOUBLE,587404656 expires an owed right against a left
+front tag despite a confirmed6.578uu left step. This is a temporal association,
+not a pixel-level proof that every stale event comes from that gate.
+
+Later stable samples still include real0 tags (P35119) and half steps, but no new
+expiry/stale populations. Therefore SINGLE draws are NOT sufficient by themselves
+to explain perceived judder. Their interaction with queued tag phase is a candidate.
+Latest-writer basis remains a temporal approximation and is not claimed perfect.
+
+Source weakness: the entry-to-entry progress check still treats one game interval
+without a Present as a stall even with fresh camera uploads. Asynchronous rendering
+can lag for one interval then catch up. Candidate allows ONE unchanged interval
+only after actual observed progress; a second quiet interval refuses. It does not
+refresh its allowance from its own allowed draw, manufacture an eye label, relax
+camera geometry, or change ring repair. Camera/state/session/exit/poison guards
+remain. No new engine writer. Existing3s beat gains progressGrace; no per-frame log.
+
+Production-helper regression:400 queued-render ticks give old200 SINGLE decisions,
+candidate0; startup, repeated stall, reset, resume and wrap pass. Pairing1686 normal/
+1687 recorder checks and30054 cinematic tests pass. This proves the bounded policy,
+not remote visual sufficiency. Recorder output now spreads the SAME12-before/16-after
+window at one frame per Present;255 actual recorder checks retain all records and
+bound each call to4 data lines plus an optional header. Costs/limits: PERFORMANCE.md.
+
+Next: one ZIP on the tester's existing9da baseline; no local install because the
+maintainer is testing the separate hand/HUD candidate1ed638c01. Single remote
+question: does prison remain smooth from its beginning through fade/gameplay while
+head turns remain fused? Return support either way. A remaining judder requires
+checking progressGrace, residual0 tags and record/eye provenance, not assuming the
+new gate fixed it. No game launched and no merge authorized.
+
+## VR-229 scoped-eye replacement packaged (2026-09-25)
+
+Replacement ZIP: build/test-packages/DishonoredVR-VR229-scoped-eye-fix-9da0a0b48.zip in primary checkout,
+15894528 bytes. Build v1.0.1-10-g9da0a0b48, optimized x86, legacy OFF, CPU recorder ON,
+GPU pixel probes OFF. DLL SHA256 1150f68ce9e5bd7957e70dd07973f78cd9ff3fbe00f91c093121ca7ed0b4c3c4.
+ZIP CRC, all member checksums, extracted DLL bytes, embedded clean source identity,
+x86 PE and9 exports verified. Normal and recorder builds pass, lint clean.
+Source commit9da0a0b48 pushed to draft PR131, base staging; no merge/release.
+The prior c4f5fe5df candidate remains installed locally and is untested by the
+maintainer; this follow-up did not install or launch anything. Recommend the
+replacement instead of testing the rejected prior candidate. Remote acceptance
+and pause-submenu benefit remain OPEN. One prison head-turn/fade test, then support.
+
+## VR-229: reload-dependent return, scoped stereo-axis mismatch (2026-09-25)
+
+Surface/route: whole-eye instability and head-turn separation, section1 stale-eye
+and doubled-edge rows. Current support-20260925-130534 log is candidate
+v1.0.1-8-gc4f5fe5df; previous log is the earlier31450526c diagnostic and must not
+be combined into its counters. Report: loading an end-of-Empress autosave makes
+that scene unstable but the following prison stable; loading a pre-scene manual
+save reverses this. In the second prison run, large head turns separate the eyes
+until looking forward again. This is reported regression/non-acceptance, not a
+successful fix just because one run improved. No precise symptom timestamps.
+
+Timeline inferred from the two cinematic/load sequences:
+
+| Interval | First/last printed cumulative stale/expiry/duplicate | progressInsideDraw sum |
+|---|---|---|
+| Empress1 581159015..581226343 | 0/0/3 ->27/0/80 | 0 |
+| Prison1 581244812..581324562 | 27/2/81 ->42/7/101 | 408 |
+| Empress2 581502281..581571234 | 64/20/132 ->64/20/132 | 4 |
+| Prison2 581589812..581669562 | 94/30/188 ->260/79/418 | 383 |
+
+These are bounded printed-window endpoints, not exact interval totals or counts
+of perceived flickers. Corresponding XR samples308/336/196/420 have no recorded
+acquire/wait/release/end errors. Two fence-timeout events occur in the whole run;
+there is no evidence they explain the sustained scene/angle dependence. GPU pixel
+probes are verified OFF. No pixel-copy proof is available from this candidate.
+The progress fix is exercised but not sufficient; Empress1 fails without exercising
+it, while both prison runs exercise it. Do not attribute the entire regression to
+that guard or call the package good on the basis of fewer stale counters.
+
+Source defect: camera::apply_offsets uses g_viewScope.right for eye displacement,
+but g_lastBasisR stays on the native cached matrix row. Scoped rotator writes do
+not update that row. Reentry used last_basis for c5 arbitration, so cinematic or
+menu head look could rotate actual stereo separation away from its classifier.
+
+Identity-joined example: P67389 c5=(3170.682,-7428.086,-1147.668), P67390
+c5=(3169.362,-7434.485,-1148.346), IPD6.570. Cached right is
+(-0.6758,0.7340,0.0670); it yields along-3.851/other5.322, inv0.
+P67390's capture serial67390 is delivered on P67391 with record65616, pair32660,
+right eye, writer3; yaw/pitch/roll=-12.030/3.680/-5.938. Its quantized composed
+right vector differs by54.1degrees, yields along-6.569/other about0.001, inv+1.
+Both raw tag positions match their c5 within rounding in this example. Thus the
+basis mismatch is not inferred only from a mislabelled image. This particular
+window's tags remain correct despite the failed measurement; it demonstrates
+loss of recovery evidence, not a timestamped proof of the reported separation.
+Other windows contain delivered-eye/record disagreement and center-eye interruptions.
+
+Candidate: independently publish the exact stereo right axis after a successful
+eye write. Two bounded coherent atomic snapshot attempts on the render lane;
+unavailable snapshot declines geometry and leaves ring fallback. Read this axis
+for arbitration and frame-id geometry. Ordinary writes replace scope axes after
+exit; no retained engine identity, engine-memory writer or translation-axis change.
+All moving-camera thresholds, late-tag confirmation and ring handling remain.
+Latest-writer basis is still not a render-frame identity; fast queued rotations
+and other remaining center-eye interruptions are not claimed solved.
+
+Validation:225 yaw/pitch/roll late-tag schedules against production publisher and
+arbitration; old native-axis negative control2184 identity/repair failures, corrected
+schedules zero. Recorded rounded camera step passes old-unknown/new-right checks.
+Concurrent snapshots, initial unavailable and return-to-native pass. Full pairing
+1678 normal/1679 diagnostic checks; cinematic math and scope ownership pass.
+No headset/game or in-game simulator launched. Costs recorded in PERFORMANCE.md.
+Next: one replacement candidate, retaining the prior baseline and CPU history with
+GPU pixels off; prison with natural head turns through fade/gameplay. Stability is
+OPEN until affected-player confirmation; no promise that a unit test proves fusion.
+
+## VR-229 packaged acceptance build (2026-09-25)
+
+ZIP: build/test-packages/DishonoredVR-VR229-prison-fix-c4f5fe5df.zip in the primary
+checkout, 15893518 bytes. Build v1.0.1-8-gc4f5fe5df, optimized x86, legacy OFF,
+CPU recorder ON, GPU pixel probes OFF. DLL SHA256
+115f3827362e58b7a83a43dbc2d8d459256154859f5cb701565a63318c2bf518.
+Nine exports, ZIP CRC, extracted DLL hash, x86 PE, clean build identity and
+compile flags verified. Normal build also passes with both diagnostic flags OFF.
+Draft PR131 targets staging. The package retains the previous tester baseline;
+it does not bundle newer staging features. No local install or game launch.
+One acceptance run: prison cinematic through fade and10seconds of gameplay,
+then quit and send support. Source/host-confirmed gate defect; remote result open.
+
+## VR-229: prison return and draw-progress candidate (2026-09-25)
+
+Surface/route: whole-eye prison-cinematic flicker, section1 stale-eye row.
+Reported absent in the Empress scene; present throughout prison until the fade
+into gameplay. Current log in support-20260925-122834-249-41892 verifies diagnostic
+v1.0.1-6-g31450526c, optimized x86, legacy off,3025x3135,shared wait0. Older logs
+are separate runs. The current diagnostic banner and flicker/armed match the sent
+DLL; the install record can still describe the release beneath a manual DLL swap.
+
+Measured: Empress interval579323828..579392875 has no new recorded stale submits.
+The prison interval starts after loading around579404234 and ends579491453.
+Recorder populations rise to1190 stale-submit events,329 expired late confirmations
+and1515 duplicate deliveries; these stop increasing after the transition. Fifteen
+printed expirations during the wider prison window include14 unconfirmed camera
+steps and1 mismatched front eye. All481 printed XR tails in the post-load prison
+interval have no acquire/wait/release/end errors.797 sampled prison images have
+matching bb/slot/out hashes wherever all three stages are valid; no observed
+capture-copy corruption. This does not clear unobserved frames or prove pixel
+labels. FOV contraction is not the failure under investigation.
+
+First concrete sequence: P29783 pops explicit0/D28571 while c5 is at the left
+camera position; P29784 has an empty ring, a full right step and invents+1 with
+no record; P29785 is a center camera (about half an IPD from its neighbors),
+expires the owed right confirmation and pops the next left tag. P29786 renders
+the left position but pops right. The c5 census has39 world-position votes and7
+reflected-height votes at the left/center samples, so this is not merely one final
+zero constant. Center-eye single draws interrupt otherwise healthy alternating
+full-IPD images and disrupt the ring. Repeated late repairs already work; making
+cross-tick geometry more permissive would risk the old moving-camera failures.
+
+Source-confirmed gate defect: SceneDrawDecide compares current Present with the
+counter saved at the previous draw RETURN. Progress while the draw was executing
+is discarded. A tick can therefore become SINGLE despite active rendering.
+The prison log has556 reported one-single-tick recoveries (versus9 in the Empress
+interval); many SINGLE lines explicitly name the no-present guard. Attribution
+of every single tick to this baseline defect is still an inference: the old log
+has no entry/return counter pair. Gameplay also has singles without the sustained
+flicker, so single draws alone are not a universal flicker explanation.
+
+Candidate counts progress between draw ENTRIES, retaining the real-stall test,
+pulse bypass and all caller/state/session/camera-silent gates. No camera memory
+writer or pairing/tag-relabel rule changes. A cheap progressInsideDraw counter
+in the existing3s beat counts otherwise-valid double ticks the old guard would
+reject. The production helper regression makes the old return-baseline fail199
+of200 active-render schedules; the entry-baseline has0 false stalls, and repeated
+true stalls, resume and counter wrap pass. Pairing host1447 normal/1448 diagnostic
+checks pass, including existing late-tag, moving-camera and pipeline schedules.
+This is a targeted candidate, not remotely confirmed sufficiency.
+
+Diagnostic cost: recorder maximum0.523ms in returned windows;3024 printed pixel
+issue costs average0.003452ms,p95 0.005,max0.152. The pixel timer excludes delayed
+maps, other GPU stages and later synchronization, so it cannot establish total
+GPU overhead. The new candidate keeps bounded method/XR/mono history but disables
+ALL frame-id GPU pixel probes regardless of saved INI. Pixels now require a
+separate DVR_FLICKER_PIXEL_DIAGNOSTICS build opt-in. The actual recorder host with
+50 camera uploads/frame and real formatting/buffered file writes averages1.660us
+per present over100000 presents; max finish0.867ms includes rare window bursts.
+That is a local CPU bound, not a headset A/B. Details live in PERFORMANCE.md.
+
+Next, ONE remote acceptance question: at unchanged settings, does the prison
+cinematic now stay stable through the fade into gameplay? Play it once, continue
+10seconds after control returns, quit and send support. If fixed, confirm fresh
+balanced eyes and reduced interruptions. If not, use progressInsideDraw plus the
+retained history to test whether remaining failures survive elimination of the
+false gate. Do not demand a diagnostic matrix. Maintainer install and game launch
+remain prohibited. This candidate retains the previous VR-227/228 FOV fixes.
+
+## VR-229: recurring diagnostic flight recorder (2026-09-25, test only)
+
+Surface and route: prison-cinematic inter-eye instability, section 1 stale/swapped
+whole-eye row, with mono/black/camera-pass alternatives retained. No new playtest.
+The user's installed game is a newer collaborator build and MUST NOT be modified.
+Work and builds stay in the isolated staging-based cinematic branch/worktree.
+
+Deeper review of the supplied aa3af7216 current log,531075453..531164250:
+74 printed image pairs include13 camera-side SWAPPED classifications and3 unknown;
+one has zero c5. Several disagreeing separations are about3.3uu against6.57uu IPD.
+These are classifier observations, not independent proof of eye swaps: c5 is the
+last upload from any relevant register block, the basis is the camera writer's,
+and an authored camera can move across a tick. All74 printed pairs have matching
+bb/slot/out checksums for each individual image. This weighs against corruption
+between these sampled stages, but does not clear unobserved frames or runtime
+release/pose errors. Pixel similarity during dark scenes/fades is not mono proof.
+The previous29 image summaries and gate/fence counters already provide useful
+context; the missing detail is consecutive identity through the actual failure.
+
+The previous expiry-only diagnostic was insufficient. Its forty lifetime ledger
+windows can expire before the scene, and the image sampler starts on a LEFT label,
+which preferentially loses evidence when LEFT labels are absent. New CMake option
+DVR_FLICKER_DIAGNOSTICS defaults OFF. tools/build.ps1 -FlickerDiagnostics produces
+an explicitly self-arming diagnostic DLL, rejects -Install, and a subsequent normal
+build explicitly clears the cached flag. No INI is changed. Ordinary builds retain
+normal instrumentation and pairing. The existing VR-227/228 FOV changes remain.
+
+Evidence in the ordinary collected dishonored_vr.log:
+
+- flicker/frame and flicker/xr join by id and Present number. Fixed64-frame memory;
+  recurring windows include12 preceding and16 current/following records, at most
+  one window/5s on events and a healthy control every10s. No session-wide cap.
+  Every frame contributes event populations, including suppressed-detail frames.
+  Empty/zero/cleared ring, raw pop/front/draw/record, removal ids, c5 upload serial,
+  raw geometry, failed expiry reason, final label, capture/delivery serial and slot,
+  delivered pose record/pair/generation/validity and source quaternion are separate.
+- flicker/cameras: bounded six-value exact c5 upload census with vote counts and
+  register block ranges. Excess distinct uploads are counted explicitly. Distinguish
+  a final zero/non-world upload from the dominant camera; this is not a pass classifier.
+- Actual XR tail records all early returns, no-frame tag consumption, pair-held-open,
+  acquire/wait/release results, copy attempt, end result, layer/fallback choice,
+  per-eye released content serials and pose generations. Projection quaternions come
+  from the actual submitted layer, including a saved-layer fallback. Last-submit ages
+  are labelled as such; they do not pretend a held-open pair was submitted.
+- flicker/pixel samples8 consecutive grabs/128 regardless of labels, plus8 when a
+  flight window opens. Reports individual images even for R/R or0/0, at bb/slot/out/sc:
+  valid/tried masks, hashes, brightness/dark pixels, c5 and destination index. No
+  screenshots/assets are saved. sc is a center patch, other stages full downscales;
+  do not compare their hashes across stages. D3D9 readback can still cost GPU time;
+  sample cost and method/XR timings are measured. No forced blocking read fallback.
+
+Competing hypotheses and counterpredictions for the SAME run:
+
+| Suspect | Discriminator | What would argue against it |
+|---|---|---|
+| Late/missing tags or drain skew | raw ring/front, age, removed ids, expiry guard, capture serial | correct raw/current identity through a bad interval |
+| Cinematic source/eye write or c5 contamination | written position vs upload census, final c5 serial, half-IPD/zero sequence | stable full-IPD geometry with fresh consistent uploads |
+| Capture latency/slot reuse/fence failure | grabbed vs delivered serial/slot, both fence timeout counts, image stage hashes | distinct source images survive into matching delivered slots |
+| Mono/hold/black interruption | output reason, layer choice, per-stage darkness and actual successful end | uninterrupted distinct stereo content and layers |
+| Runtime release/pose/cadence | actual API results, per-eye serials/poses, submit age/phase and period | matching content and submitted pose with clean release/end |
+
+Validation: production pairing1142 checks with diagnostics and1141 without; actual
+recorder133 checks (122 formatted records), including missing method, R/R, stale left,
+API/fence failure, no-frame consumption, fallback, suppressed-event populations and
+1024-byte logger limit. One-hour scheduler and missing-left negative control pass.
+Normal pairing decisions are unchanged. Normal and diagnostic optimized x86 builds,
+lint and9 exports pass. Clean diagnostic build `v1.0.1-6-g31450526c`; ZIP CRC,
+x86 header, embedded identity/diagnostic strings and extracted hash verified.
+DLL SHA256 `1522d2325f19b302a609490a34c26b4e4a31b539df3e31d3bb5f1e628bbb569d`.
+Package: `build/test-packages/DishonoredVR-VR229-prison-flicker-diagnostic-31450526c.zip` in the primary checkout.
+No game, in-game simulator or headset run performed. Diagnostics perturb timing;
+bounded sampling cannot promise to identify every possible fault in one run.
+
+Next single question: does the prison cinematic reproduce the inter-eye flicker?
+Use unchanged settings, play through it and10seconds after control returns, quit,
+and immediately collect support logs with the existing launcher. Report whether
+it reproduced and approximate onset. Verify new build banner and flicker/armed,
+then join consecutive frames by id/serial, compare healthy gameplay and identify
+the first divergence. Before fixing labels, replay that divergence in the production
+pairing harness with a failing old-policy control. If no reproduction, retain OPEN;
+a diagnostic-only build is not evidence that the flicker is repaired.
+
+## VR-228: paused cinematic FOV (2026-09-24, candidate)
+
+Verified local log v1.0.1-1-gaa3af7216,2750x2850, matching installed DLL SHA256
+2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1.
+At123838421 and123841109 pause releases the FOV scope in InDialog and claims41.2
+instead of108.1 degrees; UI subsequently confirms Pause,blocked1,rides1.
+Gameplay FOV already permits UiSurfaceHeadLook, but cinematic eligibility always
+rejects menu=true. The narrow native cache remains visible behind the menu.
+
+Candidate gives the cinematic path the same explicit head-look menu permission.
+It does not allow a flat menu, main menu, exit, invalid state or absent projection.
+The native source is still restored after both eye draws. CfValidate additionally
+requires the current UI epoch, forcing BuildLiveSet and full live identity capture
+on menu transitions before writing; unchanged pointers alone are insufficient.
+No new offsets, FOV values or persistent menu writes are introduced.
+
+30054 cinematic/handback checks pass, including old gate negative control,
+41.2-degree paused-source scope/restore and permission refusal cases. Existing
+feedback1284707 and owner16 checks pass. Headset acceptance remains open.
+Single local test: open pause during the same low-FOV dialogue; does the background
+remain full size while paused? A box disproves sufficiency; do not conflate with
+prison eye starvation. Prior full-gameplay square repair is locally reported good.
+
+## VR-229: prison cinematic left-eye starvation (2026-09-24, measured/open)
+
+Surface: reported inter-eye flicker during prison cinematic, resolving in gameplay.
+Route: section1 frozen/swapped/behind eye after load, plus startup starvation;
+not FOV contraction or a weapon-only report. Supplied current log verifies
+v1.0.1-1-gaa3af7216,3025x3135,Quest/VD,SharedWait0,LateTagRepair1,SingleTagRepair1,
+RingLedger1. Older archive logs carry different banners and were not mixed in.
+
+Post-load cinematic interval531075453..531164250 keeps FOV108.07. At531084890,
+48 of149 stereo submissions have a stale left eye in3s; right stale count is0.
+At531092890 the10s ledger has341 owes,308 repairs,32 expirations;308 relabels
+succeed,0 refuse. At531152921:441 owes,429 repairs,11 expire,429 relabels,0 refuse.
+No acquisition/wait failures accompany the sampled stale-eye events. The ring
+accounting reconciles, and pass2 writes are not refused. By531171890 and531174890,
+gameplay has zero stale-eye submits. This corroborates the reported timing.
+
+The known repair is active, not missing. Unresolved late confirmations and duplicate
+right delivery remain. Counters cannot distinguish camera-invariant disagreement,
+a tag still absent on the following present, or a contradictory front tag. Do not
+assume each duplicate is a visible swap, or disable C5Pair without image identity.
+All40 detailed ledger windows were spent by531065796 before the prison interval;
+there are no per-present ledger records there. This prevents a justified label fix.
+
+New read-only reentry/late-expire diagnostic under existing RingLedger logs at most
+once per3s throughout the run, beyond the detailed-window budget. It records which
+confirmation guard failed, owed/measured/front eyes, draw identity when inspected,
+camera availability/step, queue depth and cumulative per-reason populations.
+The original guard order, short circuit, tag consumption, relabel and eye output
+are unchanged.416 production pairing-host checks pass, including12 new failure-
+classification assertions; this is diagnostic coverage, not a flicker repair.
+
+Next remote question: does the prison cinematic reproduce the eye flicker in this
+instrumented build? Return the support ZIP either way. Compare expiry populations
+and event identities against a healthy gameplay interval. Camera failures require
+measured image/camera provenance; missing/front-tag failures require a deterministic
+late-publication/reordering regression before altering repair. If it does not
+reproduce, that does not establish a fix because pairing behavior is unchanged.
+
+## VR-227 affected-player result (2026-09-24)
+
+The affected player reported that candidate `v1.0.1-1-gaa3af7216` fixed the square-view
+issue. Reported headset acceptance, not a new independently reviewed log/capture.
+The identical DLL is now installed for local confirmation, with unchanged CRLF INI.
+See STATUS for backup and hash. Separate spyglass regression remains unverified.
+
+## VR-227: instant square view at cinematic transitions (2026-09-24, candidate)
+
+1. Surface: reported whole headset view, instantaneous square contraction around
+   opening dialogue/cinematics. Route beside section1 whole-view FOV contraction.
+2. Identity: supplied current log/install record1.0.1,v1.0.0-8-gf5176aeae,3012x3122.
+3. Measured: native source narrows108.06 to51.60; persistent writer retains51.60.
+   Draw-only cinematic lock claims108.06; after the3s exit guard gameplay claims47.60.
+4. Candidate: existing cinematic FOV lock also drives the persistent target during
+   validated scene ownership and bounded locomotion recovery. Ordinary gameplay
+   zoom remains unchanged. Owner/UI/load validation discards retained intent.
+5. Host result: old-policy negative control reproduces retained51.60 and claim47.60;
+   recovery checks and existing suites pass. Very slow synthetic recovery can exceed
+   the3s safety bound. No game launch or visual acceptance.
+6. Counterprediction: full coverage through the painting dialogue and10s afterward
+   supports sufficiency. A square during/after it requires the new build log; distinguish
+   persistent recovery from an unhonored scoped cache or projection-consumer mismatch.
+7. Status: test candidate, affected-player acceptance OPEN. Detailed evidence and
+   limitations: [ENGINE_NOTES](ENGINE_NOTES.md#vr-227-cinematic-persistent-fov-recovery-2026-09-24).
+
 ## VR-213: gameplay view contracts after load (2026-09-23, candidate)
 
 1. Symptom/surface: the whole gameplay projection contracts to a central square,
@@ -1225,6 +2047,9 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 callback coverage observed, tentative smooth run; cause and fix open; see top entry |
+| Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
+| Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |
 | Journal/wheel choppy at high FPS, sometimes mono | Camera-silent gate discards during-draw uploads outside pause; compare second-draw and mono delivery rates | VR-178 bounded menu freshness candidate; host-verified, headset open; see top entry |
 | Hands/weapons flicker on head turns during Wheel; separate yaw-induced menu/cinematic translation | Scoped single-draw gap plus shared hand eye/pose inputs; translation-basis mismatch is a separate cause | VR-126 code/host corrections; headset pending, latest entry above |
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
@@ -1245,12 +2070,16 @@ pose metadata without reopening the disproved historical theories.
 | About a second of weapon flicker after resuming from a pause, swaps fine | The menu ran the level-load transition: identity dropped and relearned, plus a UI rescan hold | VR-93, section 3.13. Relearning fixed behind `AttachKeepOnMenu`, the hold behind `UiKeepOnMenu`; both headset-confirmed for pauses, both ship OFF. Books are not covered |
 | Sustained flicker after closing a note, worst crouched; the scene jumps right in the right eye and left in the left (an eye swap), or later left eye only | **A late tag**: a present shows a draw's image before that draw's tag reaches the ring, the ring runs one tag behind until a drain, and under `SharedWait=0` the unlabelled image is held out of its eye. Ledger signature `EMPTY REFUSE` then `TOOK` | **VR-80 fixed, headset-confirmed** behind `[Stereo] LateTagRepair` (the repair plus the capture-slot relabel). Section 3.15, "The solution". Why the push-to-present margin collapses after a crouched close is open (VR-99), as is an occasional single frame. Section 3.14 is the separate zero-`c5` case (VR-97) |
 | Occasional single-draw bursts and held frames during gameplay | Present-progress guard and game/render scheduling | VR-77 open; VR-76 fixes its mirror consequence, not its generation |
-| Object occluded in one eye vanishes from both | Stereo culling coverage | VR-79 open; adjacent visibility issue, not proven to share flicker cause |
+| Object occluded in one eye vanishes from both (a head behind the sword in the left eye gone from the right; doors, mechanisms) | Both reentry passes share one view state, so one eye's occlusion-query results cull the other eye | VR-79 2026-09-24: `occlusion off` (the engine's TOGGLEOCCLUSION switch) HEADSET-CONFIRMED to fix it but reads laggier. CANDIDATE `[Stereo] Occlusion=pereye`: the right eye gets its own engine view state, so each eye culls only what it cannot see (ENGINE_NOTES "VR-79"). Not yet headset-checked |
+| Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
+| Trails/smear while walking with experimental Temporal AA | Camera parallax in history reprojection; c5/world sign at the consumer | 2026-09-26: depth-vector candidate measured on simulator, normal yaw confirmed; default OFF, headset OPEN. See PERFORMANCE and PLAN-motion-vectors-dlss |
+| Slight hand/weapon flicker on FAST head yaw while the world stays smooth (gameplay) | Hands normalised against a head sample a fixed two presents back (measured 8-15% of fast-turn frames on another generation, up to 1.7 deg); rarer: the eye guessed from a hand jump the yaw sweep pushes out of band | CANDIDATE 2026-09-26 `[Hands] PoseFromView` (view found by c5; its own head sample and eye); host-tested, headset open. Top entry |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
+| Instant square contraction at dialogue, retained into gameplay in1.0.1 | Narrow cinematic sensor is retained by persistent writer;3s draw bridge expires | VR-227 candidate; affected-player acceptance open; see top entry |
 | Gameplay projection steadily contracts after load at target below natural FOV | Persistent ratio consumes its own interpolated readback | VR-213: source/host-confirmed; 1.0.1 candidate, headset open; see top entry |
 | Whole headset view repeatedly expands/contracts while F10 Display is open, noticed after live resolution Set | Legacy FOV control wrote zero every UI frame due to missing braces; raced the automatic FOV target, releasing the gameplay scope | VR-50 code cause and negative control confirmed; build359 installed, headset result pending; see latest entry |
 | Grab/use prompt toggles at ~20 Hz and use does nothing (a game-state flicker: the focus target toggles) | Hand ray anchored on the last render sample; `interact/flicker:` counts focus changes per frame | VR-195 open candidate: game-camera anchor (`[Aim] HandRayGameAnchor`) |

@@ -42,6 +42,35 @@ set(DVR_SETUP_STATIC_PAYLOAD
     "${PROJECT_SOURCE_DIR}/docs/KNOWN_ISSUES.md|KNOWN_ISSUES.md"
     "${PROJECT_SOURCE_DIR}/docs/RELEASE_NOTES.md|RELEASE_NOTES.md"
 )
+# DLAA/DLSS/FSR: the x64 helper and the NVIDIA and AMD runtimes it loads, from
+# tools\build-dlss-host.ps1 (after fetch-ngx.ps1 and fetch-ffx.ps1, which pin their
+# hashes; package.ps1 checks the pins again). Embedded when present, so the launcher
+# installs <game>\dvr_dlss\ the way install.ps1 does. Without them it installs the
+# mod alone and [Clarity] DLAA logs that the helper is missing.
+set(DVR_DLSS_HOST_DIR "${PROJECT_SOURCE_DIR}/build/dlss_host")
+set(DVR_SETUP_DLSS_FILES
+    "${DVR_DLSS_HOST_DIR}/dvr_dlss_host64.exe|dvr_dlss_host64.exe"
+    "${DVR_DLSS_HOST_DIR}/nvngx_dlss.dll|nvngx_dlss.dll"
+    "${DVR_DLSS_HOST_DIR}/amd_fidelityfx_loader_dx12.dll|amd_fidelityfx_loader_dx12.dll"
+    "${DVR_DLSS_HOST_DIR}/amd_fidelityfx_upscaler_dx12.dll|amd_fidelityfx_upscaler_dx12.dll"
+    "${PROJECT_SOURCE_DIR}/third_party/ngx/LICENSE.txt|NVIDIA-DLSS-LICENSE.txt"
+    "${PROJECT_SOURCE_DIR}/third_party/ffx/LICENSE.md|AMD-FIDELITYFX-LICENSE.md"
+    "${PROJECT_SOURCE_DIR}/src/tools/dlss_host/NOTICE.md|NOTICE.md"
+)
+set(DVR_SETUP_DLSS ON)
+foreach(_entry IN LISTS DVR_SETUP_DLSS_FILES)
+    string(REPLACE "|" ";" _pair "${_entry}")
+    list(GET _pair 0 _src)
+    if(NOT EXISTS "${_src}")
+        set(DVR_SETUP_DLSS OFF)
+    endif()
+endforeach()
+if(DVR_SETUP_DLSS)
+    list(APPEND DVR_SETUP_STATIC_PAYLOAD ${DVR_SETUP_DLSS_FILES})
+    message(STATUS "launcher: embeds the DLSS/FSR helper from ${DVR_DLSS_HOST_DIR}")
+else()
+    message(STATUS "launcher: no DLSS/FSR helper in ${DVR_DLSS_HOST_DIR} - the launcher will not install it")
+endif()
 set(_stage_cmds "")
 set(_stage_outs "")
 set(_stage_deps "")
@@ -121,3 +150,6 @@ target_link_libraries(dvr_setup PRIVATE
 target_link_options(dvr_setup PRIVATE /DELAYLOAD:d3dcompiler_47.dll)
 target_compile_options(dvr_setup PRIVATE /W3 /permissive- /EHsc)
 target_compile_definitions(dvr_setup PRIVATE DVR_BUILD_CONFIG="$<CONFIG>" UNICODE _UNICODE)
+if(DVR_SETUP_DLSS)
+    target_compile_definitions(dvr_setup PRIVATE DVR_SETUP_DLSS=1)
+endif()

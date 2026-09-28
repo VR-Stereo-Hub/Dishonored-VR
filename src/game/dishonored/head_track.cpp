@@ -585,6 +585,23 @@ bool YawSelfTest()
                              pawnWritten, b.viewOut, YawBookBody(&b), U90);
         if (!YawCase("full-view input is not subtracted twice", ok, d)) fails++;
     }
+    // 8. VR-219: a snap turn step enters as part of the INCOMING view (like a stick
+    //    turn), never as head contribution, so the body moves by the step and the
+    //    head contribution is untouched. Then a head turn on top still leaves the body.
+    {
+        YawBook b = {0, 0, false};
+        YawBookFresh(&b, 0, U90 / 3);                    // some head contribution first
+        const int64_t head0 = b.headContrib;
+        const int32_t body0 = YawBookBody(&b);
+        YawBookFresh(&b, b.viewOut + 8192, 0);           // the production write: viewInU + snapU, headDeltaU 0
+        const bool stepOk = (YawBookBody(&b) - body0 == 8192) && (b.headContrib == head0);
+        YawBookFresh(&b, b.viewOut, U90 / 5);            // a head turn afterwards
+        const bool ok = stepOk && (YawBookBody(&b) - body0 == 8192) && (b.headContrib == head0 + U90 / 5);
+        char d[160]; sprintf(d, "dbody %+d (want +8192) headContrib %lld -> %lld (want %lld then %lld)",
+                             YawBookBody(&b) - body0, (long long)head0, (long long)b.headContrib,
+                             (long long)head0, (long long)(head0 + U90 / 5));
+        if (!YawCase("a snap step counts as body yaw, not head yaw", ok, d)) fails++;
+    }
 
     Log("yawtest: ==== %s (%d failure%s) ====",
         fails ? "FAILED" : "all passed", fails, fails == 1 ? "" : "s");
@@ -679,6 +696,7 @@ static void RotInjectTick()
         Log("viewinject: script camera writes went stale (save-load?) - the "
             "direct fallback is taking the camera back");
     }
+    dvr::snap::fallback_owns_camera();   // VR-219: snap turn is refused on this retired writer, and says so
     // Menus drive their own camera work - stay clear. But "menu" here is only a
     // guess from cursor visibility, and after a load the cursor reads visible
     // until real mouse movement arrives. That is exactly the "doesn't work till
@@ -941,6 +959,7 @@ static void ApplyHeadToViewRotation(void* parms)
         if (!UiSurfaceBlocks()) CineHeadNoteDispatch();
         HeadUiHoldTrack(havePrev, prevYaw);   // VR-167: before the re-stamp below
         YawCinematicSuspend();
+        dvr::snap::drop_pending("a menu or a cinematic camera owns the view");   // VR-219: never carried across
         // Keep the resume reference current, but do not feed HMD deltas into
         // the native dialogue constraints: the final camera owns them once.
         prevYaw=g_hmdYaw; prevPitch=g_hmdPitch; havePrev=true; frHave=false;
@@ -1011,6 +1030,7 @@ static void ApplyHeadToViewRotation(void* parms)
         const int32_t inNow[3] = { rot[0], rot[1], rot[2] }, prevW[3] = { frP, frY, frR };
         const bool deltaOk = RangeReadable(parms, rotOff + 24);
         CamShakeOnViewRot(inNow, prevW, frWriteMs > 0.0, deltaOk ? rot + 3 : nullptr, 0);
+        dvr::snap::note_incoming(rot[1], frWriteMs > 0.0, frY);   // VR-219: did the engine hand the last step back?
     }
 
     // YAW stays relative: it has to compose with stick turning, which also
@@ -1021,7 +1041,12 @@ static void ApplyHeadToViewRotation(void* parms)
     // replays the same absolutes, so neither can advance it a second time.
     const int32_t headDeltaU = menuDelta + (int32_t)(dy * kUEPerRad * (float)g_flipYaw);
     const int32_t viewInU    = rot[1];
-    rot[1] += headDeltaU;
+    // VR-219: a snap turn step is a BODY delta, so it goes into the view with the head
+    // delta but is booked as if the engine's stick had turned us (YawPublish below gets
+    // viewInU + snapU as the incoming view, not as head contribution). Taken exactly once,
+    // here in the fresh branch, for the same reason the head delta is.
+    const int32_t snapU = dvr::snap::take_pending(viewInU, headDeltaU);
+    rot[1] += headDeltaU + snapU;
 
     // PITCH is ABSOLUTE. Your head's pitch simply IS the view pitch - there is
     // no body pitch to compose with - so accumulating deltas was wrong: any
@@ -1050,7 +1075,8 @@ static void ApplyHeadToViewRotation(void* parms)
     // VR-30: the body heading this view implies. Identity comes from the
     // event stream and is validated as a possession pair; the contribution is
     // our own bookkeeping, never a reference read back out of the engine.
-    YawPublish(viewInU, headDeltaU);
+    YawPublish(viewInU + snapU, headDeltaU);   // VR-219: the snap is body yaw, not head yaw
+    dvr::snap::note_written(rot[1], g_yawBodyTarget);
     // the head values THIS camera write was computed from - matched pair
     g_injHmdYawSnap = g_hmdYaw; g_injHmdPitchSnap = g_hmdPitch;
     g_injSnapOk = true;

@@ -1,3 +1,1256 @@
+## Controller bind remapping (2026-09-27) - host-verified, PR open, not merged
+
+Branch `claude/controller-remap` (on staging after #144). Each game action can be moved to any
+controller input: F10 > Controls > Button mapping (per-action list, "Press to set" from the
+controllers, conflict warning, Swap sticks, Reset), `[ControllerBinds]`, seam `binds`. The layer
+remaps the physical snapshot into a logical one, so slide assist, physical crouch, the sword, carry
+and throw, the wheel gates and the health hold all follow their action. No section = the shipped
+layout, passed through untouched (host test over all 16384 input combinations; 32948 checks). Not
+run in the game, simulator or headset. Reference: [CONTROLLER_BINDS](dishonored/CONTROLLER_BINDS.md);
+what is owed: [NEXT_SESSION](dishonored/NEXT_SESSION.md).
+
+## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, merged to staging (#144)
+## 2026-09-27: submenu callbacks verified, jitter did not clearly reproduce
+
+Run137 matches the installed candidate. Options and Load callback transitions
+are observed; sampled hand buckets show no mismatches, refusals or repeated pose
+generations. Tentative headset smoothness does not establish a fix because this
+branch changed diagnostics only. FLICKER_REFERENCE records populations and limits.
+No additional menu test is requested now. Objective clarity has a separate proven
+semantic-routing omission being corrected in PR #149.
+## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
+
+Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
+enemy silhouette in the eye that can still see the enemy, while the sword covers it in the
+other eye, cleared when F10 Advanced Display > Object culling moved from Per eye to Off
+(headset report). The log shows the switch 0 -> 1 at 41501109 and the only occlusion-query
+reader (callerRVA 005c131f, type 9, about 39k calls per 3 s per eye label) dropping to zero,
+with event queries (005bf54a) unchanged. So the silhouette depends on occlusion results, and
+the owner repair is not the cause: swaps continued with zero restore refusals.
+
+Not yet explained: why a separate right-eye view state still leaves a black (drawn but
+unlit or depth-only) enemy instead of a correct one. Open hypotheses, none measured: state
+the swap does not cover (LocalPlayer.ActorVisibilityHistory at +0x8C stays shared), a
+depth pass that is not occlusion-gated while the base pass is, or temporal history under
+DLAA. FSR is untested.
+
+Release decision for 1.0.2 (maintainer's call): the default becomes pereye, with a one-time
+migration of inis still on native ([Stereo] OcclusionMigrated=1 marks it done so a later
+deliberate native stays). Game default and Off stay in F10. The silhouette remains a known
+issue under pereye; Off is the confirmed-clean workaround at a draw cost. VR-79 stays open.
+## 2026-09-28: run155 owner repair holds; residual black enemy silhouette
+
+Verified build155 and matching DLL; run archived under main build/playtest-candidates/
+animation-hand-origin/run155-reported. Final logged pereye counters:19749 attempts and
+swaps,19748 restores (Begin logs before the matching End),zero restore refusals after
+two loads. Owner repair remains active. Headset report improves disappearance but some
+enemies become black silhouettes in the eye that can still see them when the sword
+covers the other eye. Do not mark VR-79 accepted. The existing log has no pixel/pass
+capture proving lighting loss, and does not isolate DLAA as the cause.
+
+No additional culling code change in this follow-up. Prepare DLAA on and retain pereye;
+arm existing [Perf] QueryWaitProfile=1. At the same location, reproduce the silhouette,
+then F10 Advanced Display > Object culling > Off. One question: does shading recover?
+Query counters must confirm the culling-path reads fall. Recovery implicates query-
+controlled rendering; persistence points toward lighting/depth/jitter/reconstruction.
+DLAA was disabled late in run155, without a reported result for that interval. The
+animation palm/entry correction proceeds independently in PR151. No game launched.
+
+## 2026-09-28: return/trajectory and culling candidate installed
+
+Installed optimized legacy-off testmix v1.0.1-155-g15bbfa492. It contains animation
+source33ede5d4c (PR151) and culling source6132b2ed8 (PR152), retaining prior menu/FSR
+integration. DLL SHA2562f3571a63cb9ceac64c4e7e0bfadfc1b3191afbc82887d2f3867e022f3b7b4e2.
+Backup of DLL, full INI, log rotations and helpers: main-repo
+build/playtest-candidates/animation-hand-origin/return-culling-20260927-215623.
+Entire INI delta adds only [Anim] HandOriginTrace=1. HandOrigin1, sharp HUD/markers1,
+DLAA1/DlssQuality0, Occlusion=pereye, HandBackBlendMs150 preserved. Expected full-byte
+comparison, CRLF and installed DLL identity pass; existing DLSS/FSR helpers unchanged.
+Install script's missing-build-helper message does not describe those retained helpers.
+
+Combined optimized build, 24 origin-route checks, 3901 origin math checks, animation
+catalog/return suite, 19 actual occlusion-module checks, standalone frame suite, nine
+exports, default-profile byte parity and lint pass. No game launched. Current log is
+still run150: check for banner155 and resolved trace/per-eye settings on next launch.
+One perceptual question: does a drop takedown now return smoothly to the held right
+hand? Keep the hand comfortably steady through the end; a smooth return supports the
+mask-lifetime fix, a jump leaves an additional pose/pass discontinuity to identify.
+Additional actions can collect trajectories without a separate per-animation question.
+Overhead entry, aerial sword oscillation and DLAA culling acceptance remain open.
+PR151 and PR152 are drafts; neither merge is authorized.
+
+## 2026-09-28: per-eye culling loses the live controller after reload
+
+VR-79 reopened with explicit approval. Verified run150 has Occlusion=pereye and DLAA
+active; swap heartbeat stops after save load despite continued stereo. The event
+controller changes while the scan controller remains stale. Culling used the latter.
+Branch codex/vr-79-culling-owner uses the event controller and validates controller and
+LocalPlayer live identities, object slots and reflected relationship. Load/menu edges
+rebuild the live table; allocation and restore revalidate before engine writes. No new
+addresses or changes to Game default/Off modes. Attempt/swap/restore counters expose
+silent failure. This shared path precedes DLSS/DLAA/FSR; an additional jitter-specific
+cause remains open until a matching headset test. See FLICKER_REFERENCE and ENGINE_NOTES.
+19 tests of the actual module pass, including stale but live scan owner, reload, pointer
+reuse, failed refresh, engine replacement and allocation callbacks. Headset pending.
+
+## 2026-09-27: sharp HUD and markers default on, Advanced controls
+
+After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1
+in runtime initialization, missing-key loading and the production default profile.
+Explicit saved values remain honored. Both live controls now appear in Advanced
+Display under Clarity and anti-aliasing. Optimized build, lint and production
+default writer/package/golden byte parity pass. This is the requested staging
+follow-up to merged PR149; no animation behavior changes.
+
+## 2026-09-27: sharp markers headset-confirmed
+
+The corrected v1.0.1-143-g128c99b5c candidate produces clear native markers in
+headset. Installed SHA256 matches 9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb.
+The verified log allocates 2114x2192 -> 2750x2850 targets and records matching
+captured/delivered eyes with successful serial-overlay composition for both eyes.
+Run archive: main-repo build/playtest-candidates/menu-submenu-markers/run143-confirmed.
+The user authorized merging the marker work to staging. This accepts the observed
+objective clarity result; it does not establish coverage of every masked marker
+family or an FSR headset result. Animation entry placement is separate new work.
+
+## 2026-09-27: corrected semantic marker candidate installed
+
+Installed optimized local testmix build `v1.0.1-143-g128c99b5c`, containing
+marker fix 93b4a9101 and verified submenu observations 28f6b0060.
+DLL SHA256 `9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb`.
+Backup: main-repo `build/playtest-candidates/menu-submenu-markers/marker-route-fix-20260927-203958`.
+Whole INI diff changes only DLAA=0 to 1; MarkersSharp=1 and saved Ultra Quality
+(DlssQuality=5) retained. Expected bytes and CRLF verified. Existing upscaler
+helpers unchanged. Nine exports, optimized build, lint and 74 production-routing
+checks pass. No game launch. Headset marker coverage/readability remains pending.
+Next test: stationary objective, compare F10 sharp markers off/on under the armed
+Ultra Quality setting. Clearer text supports the fix; unchanged text requires
+checking composition/refusal logs; movement or duplication is a regression.
+
+## 2026-09-27: run137 sharp markers bypassed by semantic routing
+
+The verified run reproduced unchanged objective readability. The overlay allocated
+at Ultra Quality but semantic HUD routing did not hand native-marker identity to
+it. Fix propagates that identity in the existing early return.74 production-branch
+checks pass; the old-code negative control fails. No marker scale change.
+See HUD_ANCHORS top entry for log identity, timestamps and next single A/B test.
+Build/install the local combined candidate with MarkersSharp=1 retained; confirm
+a reduced upscaler is active before judging the toggle. No headset fix yet.
+
+## 2026-09-27: installed submenu diagnostic and marker candidate
+
+Local test branch local/test-134-145-146, source b91ec4fef, installed optimized
+banner `v1.0.1-137-gb91ec4fef`. DLL SHA256
+`837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803`.
+INI SHA256 `0edadea07f63617c14012748ffa5d33be26c65af8c4afeaae8881c3b3192ca9d`.
+Backup of previous DLL, entire INI, all available logs and upscaler helpers:
+`build/playtest-candidates/menu-submenu-markers/20260927-195340` in the main repo.
+Full INI comparison: add only [Hud] MarkersSharp=0; every prior byte retained.
+CRLF verified without lone CR/LF. Existing DLSS/FSR helpers are byte-identical;
+the new checkout did not rebuild them. Config semantics compared against the
+installed ec7b00c07 baseline: no existing key interpretation changed.
+
+PR #148 is the read-only submenu investigation, with behavioral fix still open.
+PR #149 is the default-off marker candidate depending on #146. Both are drafts
+against staging. Only the authorized local test branch was merged. No PR merge.
+Commits use the explicitly authorized GitHub account identity, without trailers.
+
+Combined optimized build, nine exports, lint, merged PoseFromView palette tests
+and default profile byte parity pass. Production native graphics-only marker
+transport also passes serial separation, reversed delivery, toggle-off draining,
+no-upscale refusal and DEFAULT-resource cleanup across Reset. WARP blend and
+native HUD/routing checks pass. No game or simulator was launched.
+
+Next ONE launch question: does hand jitter appear in Options and disappear on
+return to the root pause menu during the same slow head and controller motion?
+Spend about10 seconds on root,10 in Options, then10 back on root. Diagnostic-only
+hand behavior is unchanged, so a reproduced difference is expected. Inspect
+menu/subscreen callback coverage, menu/hands (sub and newPose/repeatPose),
+menu/hands-mismatch and pause/scene; do not use gameplay hv. If no difference
+reproduces, no fix is established. If both screens jitter, the healthy comparator
+was not reproduced. Preserve MarkersSharp=0 for this launch; marker A/B is later.
+Before reading results, require the new banner above; the current log remains
+v1.0.1-127-g470944905 from before installation.
+
+## 2026-09-27: Pause submenu hand diagnostic
+
+Current state: read-only submenu/hand instrument on claude/menu-submenu-hands,
+branched from staging. No behavioral fix yet: the supplied Journal log already
+has MenuSceneFreshness active, and context 3 covers root and Options/Save/Load.
+See FLICKER_REFERENCE's 2026-09-27 entry for prior fixes, rejected hypothesis,
+draw-owned diagnostic populations and the next discriminating test.
+
+Validation: optimized build, nine exports, lint, palette-eye, 72 menu freshness
+and 1686 reentry pairing checks pass. No game or simulator launched.
+
+Next: integrate the diagnostic into local/test-134-145-146, preserving #134/#145/
+#146/#147 and installed INI semantics. First launch compares root -> Options ->
+root with the same slow head/hand movement. MarkersSharp remains off. Inspect
+menu/subscreen callback coverage before assigning the Options interval. If
+identity remains root-or-unobserved, instrument native GFx dispatch before a fix.
+No staging or release merge. Linear creation is unavailable due to the reported
+free-plan limit; no new ticket number is invented.
+## 2026-09-27: Sharp native marker overlay candidate
+
+Current state: default-off [Hud] MarkersSharp overlay on claude/hud-markers-sharp,
+based on claude/hud-upscale-sharp and dependent on PR #146. Native draws carry
+colour-capture serial identity through delayed delivery and compose after DLSS/
+FSR at output resolution. See HUD_ANCHORS's 2026-09-27 entry and ARCHITECTURE's
+new depth/occlusion decision. Unsupported masking/blend states remain native.
+
+Validation: optimized build, nine exports, lint; production WARP composition,
+123 native HUD, 503 HUD routing and default writer/profile parity checks pass.
+Real marker coverage and native D3D9/11 transport still require headset testing.
+No game or simulator launched. Resource/performance research stays in PERFORMANCE.
+
+Next: local testmix integration keeps MarkersSharp off for the separate submenu
+comparison. A later single-question launch will enable it for stationary marker
+clarity/position, inspecting hud/markers-sharp eye/serial counts and refusal values.
+No PR merge. Linear creation is unavailable due to the reported free-plan limit.
+
+## Sharp HUD while upscaling (2026-09-27) - built, not run, PR open
+
+Branch `claude/hud-upscale-sharp`. Under DLSS/FSR Super Resolution the HUD was drawn at the reduced
+render size (measured: 1832x1900 at Quality vs 2750x2850 native). `[Hud] UpscaleSharp` (default 0,
+F10 Display "Sharp HUD while upscaling", `hud sharp on|off`) draws it at the upscaler's output
+size. Detail and the headset question: HUD_ANCHORS top entry.
+
+## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
+
+Branch `claude/fsr-upscaler`. FSR runs in the existing x64 helper through AMD's FidelityFX API, SDK 2.3.0:
+FSR 4.1.1 on RDNA 4 GPUs (untested here: this PC is NVIDIA), FSR 3.1.5 elsewhere. F10 Basic: Upscaler = NVIDIA DLSS | AMD
+FSR; `[Clarity] Upscaler`, `dlss backend fsr`. Host 30/30 (FSR 13/13, signs proved), FSR per eye at 2750x2850
+native 1.7-1.8 ms / Quality 1.23 / Performance 0.93-0.98. Simulator: all modes live, images clean. Headset
+still owed: `tools/perf-plans/fsr-1.txt` (FSR vs DLSS vs off in one run). Detail: PERFORMANCE "AMD FSR 3.1".
+
+## Uncap deep dive answered; DLSS in F10 Basic (2026-09-27, merged to staging)
+
+The headset is GPU-bound at 2750x2850: a GPU timeline (new `tools/perf-gpu-timeline.py` on a DvrGpu WPR
+capture) shows the game's D3D9 queue occupied 97 % of the time, nvidia-smi 94 % at full clocks; ~6.1 ms of
+the ~8.6 ms per pair follows the pixel count (render size 70 %: +13 %, 130 %: -30 %). Nothing of ours
+serialises it: capture depth 2 (new lever, default off) and the script-lane cadence changed nothing. So a
+faster GPU or fewer/cheaper pixels raise the rate; the CPU side (~7.6-8.0 ms per pair) is next.
+Shipped with it: the game's MLAA is written Off at launch whenever `[Clarity] DLAA` is on; F10 Basic has a
+"DLSS and DLAA" section (switch, mode incl. Ultra Quality, model, sharpening); failed-experiment toggles
+removed (F10_AUDIT). Also carries route 2 (#141) and the DLSS model list / Ultra Quality (#139).
+Next: FSR 3.1 on its own branch (plan: PERFORMANCE "FSR implementation plan"). Detail: PERFORMANCE.md
+"The uncap deep dive" and "Plan 1 in the HEADSET".
+
+## Handoff: the uncap deep dive (2026-09-27, end of session)
+
+Headset truth: ~25 % CPU, ~80 % GPU, ~120-137 pairs/s with SSW off and no DLSS - nothing saturated, so
+serialisation limits the rate. Route 1 (extra pairs) rejected in the headset; route 2 (script lane,
+PR #141) installed but gives no headset gain (not game-thread-bound there). Next session's brief and
+prompt: [NEXT_SESSION](dishonored/NEXT_SESSION.md), branch `claude/uncap-deep-dive`.
+
+## Script-lane cost (route 2, 2026-09-27) - simulator-measured, default on
+
+Branch `claude/pe-hook-dispatch` off staging. The ProcessEvent hook cost ~500 ms of the game thread
+per second (7,000 events/s x 75 us). Region + name caches and a draw-anchored cadence for the FOV
+lever and camera writer: ~155 -> ~172 ticks/s in the simulator, FOV and eyes unchanged. Installed
+(this replaces the extra-pair build; that one is on `claude/extra-pairs-per-tick`, PR #140). Levers
+`[Perf] PeFast`, `PeHeavyMs`, `PeHeavyInDraw`; `pe` seam words. Detail: PERFORMANCE route 2.
+
+## DLSS model list, Ultra Quality, and the frame-rate ceiling (2026-09-27)
+
+Branch `claude/dlss-presets-and-cpu-bound` off staging (after #138 merged). F10: DLSS model list (K, J,
+M, L, NVIDIA per mode, fast CNN) with per-entry tooltips; DLSS mode list with Ultra Quality (1.3x,
+`DlssQuality=5`, created as MaxQuality because the runtime refuses NGX's UltraQuality value). Host
+17/17. Installed `0ec0fffb...`, not headset-checked. Deep dive (PERFORMANCE, "Why DLSS cannot raise
+the frame rate here"): the GAME thread (~7 ms/tick on this Ryzen 5 5600X) is the ceiling, the render
+thread (~5.4 ms/pair) second, the GPU (<=5.2) third, so DLSS can only buy output resolution. Ranked
+routes: extra head-tracked pairs per world tick, our ProcessEvent hook, one engine view for both eyes,
+driver threaded optimization, a 5800X3D.
+
+## Projection jitter for DLSS (2026-09-27) - headset-confirmed, default off
+
+Branch `claude/dlss-dlaa` (`feat: DLSS projection jitter...`). Sub-pixel Halton jitter on the world
+passes, recorded per image in its pose record, passed to DLSS with the sign the host test proved
+(15/15), kept out of the vectors. The first two builds speckled the left eye (a pass drawn outside the
+scene depth stayed unshifted); the wide rule fixed it on the headset, per-eye census L 6 / R 1 extra
+eye-size uploads per image, 0 unshifted. Still owed: does SR look sharper with it. Installed
+`ef73f28f...`; INI = the maintainer's own (`DlssJitter=1`). Detail: PERFORMANCE, "Projection jitter".
+
+## Handoff: projection jitter next (2026-09-26, end of session)
+
+Branch `claude/dlss-dlaa` at `afb72687a` + this handoff, pushed, nothing merged. DLAA is
+headset-accepted; DLSS SR works but cannot buy frame rate in this game (fixed-cost bound);
+the overlap is in. Next session implements deliberate projection jitter for DLSS - brief and
+copyable prompt in [NEXT_SESSION](dishonored/NEXT_SESSION.md). Installed DLL `c1a9268c...`,
+INI `2e2183b7...` = the maintainer's own current settings (DLAA, fast model, mask on, 100%).
+
+## DLSS overlap (2026-09-26, latest)
+
+The capture slot and scene depth are now released right after DLSS copies its inputs, not after
+the DLSS wait: the present thread no longer waits ~2.6 ms per eye for the previous DLSS in the
+fast-model modes. Simulator uncapped: DLAA fast 80 -> 86/s, Quality SR fast 120 -> 131/s (native
+133 in the same run), DLAA K ~70 (GPU-bound by the two-process contention). Each live resize
+produces one stale eye (pre-existing, recorded). INI restored (`1945f088...`), launch file realigned.
+
+## DLSS SR measured: no frame-rate gain in this game (2026-09-26, latest)
+
+Headset: SR Quality/Performance ~90/s per eye vs 130-140 native. Measured why: the game's GPU
+cost barely follows pixels (1/4 of the pixels saved 0.7 ms per eye), so SR cannot buy frames
+here; NVIDIA's Performance preset M costs 2.8 ms per eye at a 2750x2850 output, and the helper
+process contends with the game on the GPU. Now: preset K by default, a fast CNN model option
+(E/F, ~0.9 ms per eye isolated), diagnostics off the per-frame path, `dlss output` bug fixed.
+Simulator uncapped: native 148-153/s, Performance fast 124-132, DLAA fast ~80, DLAA K ~67.
+User INI restored (`1945f088...`, their Performance SR settings), launch file realigned.
+
+## DLSS Super Resolution (2026-09-26, latest) - built, simulator verified, not merged
+
+DLAA headset verdict after the vector fixes: smear gone (mask off), aliasing removed, very
+sharp, big cost that SSW makes playable. Phase 2 built: `[Clarity] DlssQuality` 1-4 renders the
+game at the output / 1.5-3x and DLSS rebuilds the output; F10 "DLSS mode" slider, `dlss quality
+<n>`. The resize rides the live path and persists, SR off or DLSS failing restores the output.
+Simulator: Quality 1832x1900 -> 2750x2850 at 90/s per eye (cap) vs DLAA 64/s. Host 13/13.
+No headset result yet; no jitter yet (SR softer than DLAA until then). Installed build 21:00;
+INI restored byte-for-byte (`b5731eba...`, user's DLAA=1 and mask settings kept, DlssQuality
+absent = 0 = DLAA). Detail: PERFORMANCE, DLSS Super Resolution.
+
+## DLAA vectors now pixel-accurate in the simulator (2026-09-26, latest)
+
+Second headset run: smear unchanged after the arms fix. New `dlss/flow` check measured vector
+error in pixels: walking 1.68 px, turning 1.38 px. Two causes fixed: the vectors now reproject
+through the game's own captured view-projection matrices (turn 1.38 -> 0.43 px, per-image pose
+drift 1.04 -> 0.07 px), and the real depth scale is 250 uu/unit, not 200 (walk 1.68 -> 0.66 px,
+strafe 1.28 -> 0.64 px, gain 0.98-1.01 in every depth band). Instrument floor 0.28-0.41 px.
+Installed build 20:44; INI unchanged (`aa471020...`, user's DLAA=1). Headset check pending.
+
+## DLAA walking smear (2026-09-26, later) - arms vectors fixed in the simulator
+
+Headset: DLAA judged very good (better with SSW), slight smear when moving. New `dlss/audit`
+per depth band found the cause: the first-person arms (0.1-0.3 depth units) got the world's
+walking parallax, 3.2x worse than no vectors, while every farther band improved. Fix:
+`[Clarity] DlssBodyDepth=0.30` - nearer pixels keep head rotation, drop translation; arms band
+now equals no motion, farther bands unchanged. Written-vs-rendered position and a forward-axis
+sign error were both measured and retracted. Anti-smear bias mask built, ships off (A/B).
+Host test 12/12. Installed build carries the fix; INI restored byte-for-byte (user's DLAA=1
+kept, `aa471020...`). Headset check pending. Detail: FLICKER_REFERENCE top entry, PERFORMANCE.
+
+## DLAA through an x64 NGX helper (2026-09-26) - built, host and simulator verified, not merged
+
+Branch `claude/dlss-dlaa` (renamed from `codex/fsr-implementation`; stacked on the unmerged
+`claude/motion-vectors`). Order set by the maintainer: DLAA, then DLSS SR, then FSR 3.1; the
+FSR 2.2.1 plan is superseded. NVIDIA NGX is x64-only, so a 64-bit helper
+(`src/tools/dlss_host`, one process, one DLSS feature per eye, pinned to the proxy's adapter
+LUID) runs DLAA on textures and fences the proxy shares by NT handle. Guides: reversed
+scene-alpha depth and camera-only previous-minus-current vectors; no jitter yet.
+`[Clarity] DLAA=0` default; `dlss on|off|retry`; F10 Advanced > Display > Clarity.
+
+Host test 10/10 (eyes isolated, vector sign proved, reset, helper-kill fail-fast, 2.0 ms/eye
+at 2752x2848 isolated). Simulator: 69 DLAA images/s per eye, 0 refused, present-thread cost
+0.4 ms; stereo 90/s -> 69/s (GPU cost; 5.4 ms/eye under contention). Helper kill mid-game
+recovers; `dlss off` leak found and fixed; boot from ini works. No headset verdict.
+FSR 3.1 upscaler + DX12 back end compile as Win32 with three patches (not yet dispatched).
+No Linear ticket: the workspace issue limit refused creation again.
+
+Installed: d3d9.dll SHA256 `e1f8961e8f4c1a85...` (build 19:33), `dvr_dlss\` helper
+`c50fb4bcb852d64f...` + nvngx_dlss.dll 310.7.0.0. Installed INI restored byte-for-byte to its
+pre-session copy (`0ab5861a...`, CRLF verified): DLAA absent = off, Temporal=0, MotionVectors=1,
+DepthShare=0, MotionCalib=0. Backups: `build/dlss-install/pre-191713/`. Full record:
+[PERFORMANCE: DLAA](dishonored/PERFORMANCE.md#2026-09-26-dlaa-through-an-x64-ngx-helper-phase-1---built-host-and-simulator-verified).
+
+## FSR continuation prepared (2026-09-26) - depth foundation stays unmerged
+
+The tester reports no perceptible benefit from the revised custom TAA. This is a negative
+headset quality report, not a retraction of the measured synthetic or transport fixes; the
+exact A/B activation/settings were not independently verified in this planning session.
+The next task is FSR, not further custom-TAA tuning.
+
+Keep `claude/motion-vectors` as the unmerged depth foundation. Runtime baseline is
+`1d2ee24a5`. Child branch `codex/fsr-implementation` starts at this documentation handoff,
+in `C:\dev\Dishonored-VR\build\worktrees\fsr`. No merges authorized. No runtime changes,
+launches, installs or installed INI edits in this session. No new Linear ticket (FSR search
+empty; prior workspace issue limit recorded). Commits credited to BioVRDev.
+
+The maintained plan is [PERFORMANCE: FSR implementation](dishonored/PERFORMANCE.md#2026-09-26-fsr-implementation-plan-and-depth-foundation-handoff).
+[Next session and Claude prompt](dishonored/NEXT_SESSION.md) replace the stale staging brief.
+First target: FSR 2.2.1 plus AMD's DX11 backend, with an x86 two-eye host proof before game
+integration. Main gates: distinct input/output resolution, safe projection jitter, exact
+depth conversion, vector/mask provenance, lifecycle, memory and measured headset acceptance.
+FSR and any visual/performance benefit are not implemented or established yet.
+
+Read-only installed check: DLL SHA256
+`f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`;
+Temporal=0, TemporalBlend=0.12, Sharpen=0.40, MotionVectors=1, DepthShare=0, MotionCalib=0.
+These are current preferences, superseding the earlier restore notes. Preserve them.
+
+## TAA audit fixes (2026-09-26) - installed, simulator verified, not merged
+
+`claude/motion-vectors`: fused depth reprojection replaces production vector textures;
+previous depth lives in history alpha. Preserves stationary bright/coloured detail, rejects
+disocclusion and large colour changes at effectively stationary camera pixels. Per-eye c5,
+scoped FOV, camera identity and level/UI epoch travel with the image; resets/gaps invalidate.
+Depth slots have independent consumer fences and unique pending serials; capture timeouts
+fail closed. Retry paths and depth CPU/GPU attribution are implemented. No engine-memory
+writer added. Full changes/evidence/limits: [PERFORMANCE](dishonored/PERFORMANCE.md#2026-09-26-taa-audit-fixes-implemented-and-simulator-tested).
+
+72 TAA GPU checks, 6 calibration checks, 146 frame PASS lines, default parity/persistence,
+exports and lint pass. Simulator recovered through rotation/translation, capture off/shared,
+reinit, deferred/shared and motion off/on: 450 fused passes per eye per 5 s, no ongoing fallback.
+White detail keeps full intensity; texture storage down 119.6 MiB at 2750x2850. No headset
+quality/performance verdict yet. Deliberate jitter investigated but not enabled: existing
+projection-pass classification cannot safely support it; object vectors remain research.
+
+Installed SHA256 `f25fc06e5a6d2f07d241cd071d84c4ea87b9f21b4e25372a8d289d8fed75d32b`,
+`v1.0.1-93-gf0ef210dd-dirty`, Sep 26 17:47:48. Simulator stopped. Full original installed INI
+restored byte-for-byte, CRLF verified: Temporal/DepthShare/MotionCalib off, vectors default off.
+Next: headset A/B with Temporal on, depth mode toggled and F10 closed; judge fine detail and
+walking/leaning trails. Archives in `build/taa-fixes/`. Nothing merged.
+
+## TAA audit (2026-09-26) - findings recorded, runtime unchanged
+
+Audited `87a892cef` on `claude/motion-vectors`. Full evidence, ranked findings and improvement
+plan are in [PERFORMANCE.md](dishonored/PERFORMANCE.md#2026-09-26-full-taa-audit-source-87a892cef-no-runtime-changes).
+`tools/taa-audit-host.ps1` runs 62 checks against production shaders, including 8 new
+characterizations. Confirmed stationary white detail falls to 49% linear brightness and
+colour clipping retains large trails on moving textured patterns. Source review found
+per-eye position provenance, depth reuse synchronization, reset/age invalidation, duplicate
+depth serial, transient allocation and failure-recovery gaps. Normal shared-colour fences
+indirectly protect depth reuse; deferred capture/timeouts are not covered by that contract.
+Synthetic GPU timings and the 538 MiB no-resolve texture budget are recorded with limits.
+No game launch, DLL install or INI edit for this audit. Existing diagnostics remain off.
+Implement correctness fixes before treating the previous simulator smoke as headset readiness.
+
+## Motion vectors for TAA (2026-09-26) - built and simulator-verified, not merged
+
+Branch `claude/motion-vectors`, worktree `build/worktrees/mv`. The MIRROR TEST ruled out
+horizontal mirroring: 56 pure turns, normal error 0.0082 vs mirrored 0.0468. The actual bug
+was treating the pose record's c5 (negative world position) as world position. Clarity now
+converts it once; rotation stays unchanged. Corrected translation: 70 moving pairs, interior
+minimum at 200 uu/depth-unit, error 0.0226 vs rotation-only 0.0400 (65/70 best votes).
+
+Per-eye GPU motion vectors now feed experimental TAA. `[Clarity] MotionVectors=0` by default;
+F10 Advanced > Display > Clarity and anti-aliasing > Temporal anti-aliasing exposes
+"Depth motion vectors (experimental)". Scale 200 is a coarse measured minimum, not an exact
+engine-unit derivation. Matching depth bypasses the old camera-motion weighting; missing depth
+uses the previous rotation fallback. Invalid depth rejects history, sky uses rotation only.
+
+Installed optimized x86 DLL SHA256:
+`5469cd53f7b674c9247a9047f11be736d4db2d36355358929349448194ceb661`.
+Banner `v1.0.1-91-g35629a116-dirty`, built Sep 26 2026 16:54:27. Simulator gameplay, repeated
+translation + turns and off/on toggle completed vector TAA for both eyes (450/450 per typical
+5 s window, zero fallback), with DepthShare=0 and MotionCalib=0. Simulator closed; the full
+original installed INI restored byte-for-byte, CRLF verified (Temporal=0; new lever defaults off).
+54 clarity GPU checks, 6 calibration GPU checks, production-default parity, build, lint and
+9 exports pass. Existing compiler macro/deprecation warnings remain. Nothing merged.
+
+Next: one headset A/B question - with Temporal AA enabled and the F10 panel closed, does
+Depth motion vectors reduce walking/leaning trails while keeping edges stable, compared with
+it off? Improvement supports the camera-parallax correction; unchanged/worse trails leave
+scale, disocclusion and moving-object limitations open. Headset appearance and performance
+are not accepted by simulator results. Full research/failures: [PERFORMANCE](dishonored/PERFORMANCE.md),
+continuation and evidence: [motion-vector plan](dishonored/PLAN-motion-vectors-dlss.md).
+No new ticket number: the existing handoff records the Linear workspace issue limit.
+
+## Test handoff for the next session (2026-09-26)
+
+Four branches, none merged, none installed. Test ONE AT A TIME, each installed on its own
+(build Release in its worktree, install, full INI check per CLAUDE.md), in this order:
+
+1. PR #135 `claude/fov-base-echo` (worktree build/worktrees/fov): at the default size, exit a
+   store and die/reload; the view must return to full width. Log: `fovlever: natural base 75.0
+   deg (read ... KEPT the old base ...)` after loads.
+2. PR #133 `claude/right-hand-open-pose` (build/worktrees/right-hand): sheathe weapons; the empty
+   right hand is open like the left. `[Hands] OpenEmptyRightHand=1`.
+3. PR #134 `claude/hand-headturn-flicker` (build/worktrees/hand-flicker): F10 Advanced > Hands >
+   Head-turn smoothing ON, fast left/right turns; then OFF. Log: `hands/poseview:`.
+4. The anti-aliasing PR `claude/antialiasing-clarity` (build/worktrees/aa): F10 Advanced >
+   Display > Clarity and anti-aliasing. Try: Texture filtering 16x + Smooth mip transitions;
+   Sharpening 0.3; Temporal AA on (judge with the panel closed); set resolution 200-300% with
+   Supersampling resolve on vs off. Logs: `clarity:`, `samplers (10 s)`, `xr: eye L/R fov`,
+   `device/census: multisampled`. Research and numbers: PERFORMANCE.md, Anti-aliasing and clarity.
+
+Also reported by a player: an HD texture pack plus a raised resolution freezes; most likely the
+32-bit address space (PERFORMANCE.md). No Linear tickets: the workspace is at its issue limit.
+
+## Open empty right hand, and the pose-tools survey (2026-09-26)
+
+Branch `claude/right-hand-open-pose` off `staging`, not merged, NOT installed (by request). No
+Linear ticket: the workspace is at its free-plan issue limit.
+
+- With nothing in the right hand (the sword holstered) its FINGER bones take the left hand's pose,
+  mirrored, in the mod's own palette copy; the right hand keeps its mesh (no mark), wrist, placement
+  and sleeve. Signal: `g_rflPrimaryKind` (item sockets) plus a new `g_rflSecondaryKind`; left hand
+  must hold nothing or a power; 250 ms settle. `[Hands] OpenEmptyRightHand=1`, F10 Hands > Sleeve.
+- Bones paired by mirrored centroids (the palette is not laid out symmetrically); one miss refuses.
+  Self-tests `open_hand_mirror` / `open_hand_can_fail` pass in `frame_test.exe`.
+- Headset questions: is the empty right hand open like the left, is there a pop when the sword is
+  drawn, and does the log show `hands/openright: N right finger bone(s) paired`?
+- The engine pose-tool survey and next steps: [HAND_POSE](dishonored/HAND_POSE.md).
+
+## FOV base kept across loads (2026-09-26)
+
+Branch `claude/fov-base-echo` off `staging`, not merged, not installed. No Linear ticket (the
+workspace is at its free-plan issue limit).
+
+- Fault: after a load, the lever re-read its natural base from the sensor, which held its own
+  108.07 output (`natural base 108.1 ... ratio 1.000` in this rig's logs). At ratio 1 a death,
+  store or objective narrowing is written into DefaultFOV and never widens back: the view stays
+  a small box. Reported by an affected player at portrait sizes, not at landscape ones.
+- Fix: the session's first base is kept; a re-read must not be our echo, at the target or
+  narrower. The capture line now prints the reading, our last write and the verdict.
+- To test: exit a store, die and reload, at the default portrait size. Log: `fovlever: natural
+  base 75.0 deg (read 108.07 ... KEPT the old base ...)` after each load.
+
+## Hand/weapon flicker on fast head yaw (2026-09-26)
+
+Branch `claude/hand-headturn-flicker` off `staging`, not merged, NOT installed (by request). No
+Linear ticket (the workspace is at its free-plan issue limit).
+
+- Audit and measurements: FLICKER_REFERENCE top entry. The hands were placed against a head
+  sample a fixed two presents back, which the `hv:` line measured on another generation in 8-15%
+  of fast-turn frames (up to 1.7 deg); the eye came from a hand-jump guess the yaw sweep disturbs.
+- Candidate `[Hands] PoseFromView` (default 0, F10 Advanced > Hands > Head-turn smoothing): a hand
+  draw finds its own view by c5 in the pose records and uses that view's head sample and eye;
+  no match leaves today's path. Host tests (negative control included), build and lint pass.
+- To test: install, tick the checkbox, turn quickly left/right; then untick. Log:
+  `hands/poseview:` (the snapshot offset must grow with turn speed).
+
+## 2026-09-26: session accepted; staging integration and next-session baseline
+
+Current state: user accepts the final local run and explicitly authorizes all session
+work into staging. PR132 consolidates PR131 cinematic progress/scoped-axis work and
+PR128 texture-backed shared capture, preserving their commits and branches. Existing
+staging features, including trigger-only sword animation, are retained. VR-Main is
+not a merge target. Historical candidate/pending instructions below are superseded.
+
+Accepted locally: hand alignment, cohesive semantic HUD ownership, marker sizing,
+lower hint alignment, standalone low-health potion placement, world pause/submenus,
+and removal of the reported periodic walking catch-up. Shared-capture slowdown fix
+has affected-player reported acceptance. Remote VR-229 early prison judder still
+awaits the separate6187b2fd4 package result; do not infer that verdict from local runs.
+
+Installed and retained: v1.0.1-50-g6bc58a449, optimized x86, recorder/pixels/legacy OFF.
+DLL SHA256 42a68dc554ebef2cafd27546567a80baf2ae64dfc2e8dc2865b950b0894526db.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7,
+1535 CRLF, zero bare LF. Installed manifest: primary build/playtest-candidates/installed.json.
+Latest banner matched; logs/full INI archived at primary
+build/hud-regression-20260925/walk-accepted-002458. No new installation or game launch.
+The integrated source additionally contains the latest queued-render correction
+and shared-capture fix; it is build/host validated, not the installed build50 binary.
+
+Validation: optimized x86 build;97 semantic-owner checks and100000 transfers;
+123 native HUD,503 routing,15 native identity,6 pointer-scan checks;
+1686 normal/1687 diagnostic pairing,255 recorder,30054 cinematic FOV,
+17 handoff,138 animation checks; native interop162 pixel checks/three resets;
+default writer/profile/golden byte comparison. Full results in local build/integration-*.
+Performance acceptance and nonzero scan costs are recorded in PERFORMANCE.md.
+
+Next steps: read this entry and docs/dishonored/NEXT_SESSION.md, then take the user's
+new task. Start a new codex branch/worktree from fetched origin/staging; do not switch
+Claude's primary local/test-282-283 checkout. Preserve current DLL/INI baseline,
+rain settings, trigger-only policy and HUD ownership. Do not reopen failed potion
+position/census guesses. No extra headset launch required for this handoff.
+
+## 2026-09-26: potion accepted; periodic walking hitch candidate
+
+Matched95ae3f7af run and installed DLL; archived current/previous log and full INI
+under primary build/hud-regression-20260925/walk-judder-000731. User confirms potion
+HUD placement; quickReady1/quickCaptured rising confirms activation. Preserve fix.
+
+New whole-world walking catch-up has actual53..62ms game-thread waits, often750ms
+apart despite8..10ms average ticks. FpCollect runs every750ms and performs repeated
+memory probes on every raw slot. Candidate changes its traversal cost, not its
+schedule or discovery scope: fresh live set before restores, IsLiveObject before
+child access, one range query with original boundary fallback. Six extracted
+production scan checks pass. Bounded3s collect-cost distinguishes measured speed
+from a merely matching cadence. Installed v1.0.1-50-g6bc58a449 after optimized
+build, lint and nine exports passed; see PERFORMANCE and
+FLICKER_REFERENCE. No game launch, no stereo/HUD change, no merge/external upload.
+DLL SHA256 42a68dc554ebef2cafd27546567a80baf2ae64dfc2e8dc2865b950b0894526db.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Entire installed/expected/backup INI matches;1535 CRLF, zero bare LF, no changes.
+Game closed and previous hashes verified. Prior accepted DLL/INI/logs backed up:
+primary build/playtest-candidates/installs/20260926-001413-008307. Candidate/PDB:
+primary build/playtest-candidates/walk-hitch-6bc58a449.
+Next one question: does the periodic hold/forward catch-up stop on straight walking?
+
+## 2026-09-25: potion activation veto confirmed; direct owner correction
+
+Returned v1.0.1-46-g36a8d7f95 matches installed DLL/banner, archived with previous
+log/full INI at primary build/hud-regression-20260925/potion-root-return-235618.
+Reminder still peripheral. Actual mode4 persists with quickReady0/quickCaptured0;
+HUD movie census22matches/9different vetoes activation. This was another unarmed
+candidate, not evidence about panel position. The nine differences are unexplained.
+
+Remove unrelated all-HUD-clips census prerequisite. Production RefreshQuickMovie
+activates from live manager membership/mode4/supported movie view; current Display
+receiver must match that exact view and pass the existing identity/epoch checks.
+97 host checks/100000 transfers include unarmed activation through queued replay.
+No config, position, rain or menu changes. Installed v1.0.1-48-g95ae3f7af
+on2026-09-26 after optimized build, lint and nine export checks passed. See ENGINE_NOTES
+for measured failure and PERFORMANCE for unchanged capture topology/reduced census.
+
+DLL SHA256 7e8cb4e1b0ff2c3bbb3db01fac02f5a13c00576ae15b1ab41f7e0ae4a1ff3377.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Complete installed/expected/backup INI byte-identical:1535 CRLF, zero bare LF.
+Prior DLL/INI/logs: primary build/playtest-candidates/installs/20260926-000214-196133.
+Candidate/PDB: primary build/playtest-candidates/hud-potion-activation-95ae3f7af.
+Game was closed; previous installed DLL/INI hashes matched before replacement.
+
+Next one-launch question: is the independently appearing low-health D-pad/potion
+fully visible on the floating gameplay HUD? Read quickMode/quickReady/quickCaptured
+before drawing placement conclusions. No game launch, no merge, no external upload.
+
+## 2026-09-25: correct failed potion movie link; audit remaining HUD families
+
+Returned v1.0.1-44-gb52c0c579 matched installed DLL/banner; archives in primary
+build/hud-regression-20260925/quick-potion-return-233600. Reminder still peripheral,
+performance reported acceptable. All28 movieLink samples0: prior route never
+activated. quickMode0 was a short-circuit default, not a measured mode.
+
+Derived actual native movie owner at sprite+BC from constructor and getter;
++90 is a resource definition. Validate primary view table and all supported HUD
+clips; independently read mode and count successful potion ownership. Keep existing
+mode4/default-panel policy, no extra sink, no INI/placement/rain/menu changes.
+85 reader/transport checks plus100000 transfers,123 native-HUD and503 route tests
+pass. Installed v1.0.1-46-g36a8d7f95; optimized build, lint and nine exports pass.
+Full derivation in ENGINE_NOTES; script coverage
+inventory in HUD_ANCHORS; matched-run performance limitations in PERFORMANCE.
+
+DLL SHA256 42ca641b7d45f7e4d33d3d9b772dcfd43f22c6ee3b79d50d5f12affd45e2e234.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Entire installed/expected/backup INI byte-identical;1535 CRLF, zero bare LF,
+zero settings changes. Game closed and prior hashes matched before install.
+Prior pair/logs: primary build/playtest-candidates/installs/20260925-235039-235218.
+Candidate/PDB: primary build/playtest-candidates/hud-potion-root-36a8d7f95.
+
+Next single launch question: does the standalone
+low-health D-pad/potion join the visible floating lower-HUD panel without opening
+the wheel? Read movieLinked/mismatch, actual quickMode, quickReady and
+quickCaptured before making further placement changes. Broader audit identified
+separate global/FX and DLC05 trial families; these need selective native mapping,
+not blanket capture. No game launch or merge. External disclosure still pending.
+
+## 2026-09-25: quick-potion ownership correction; tutorial trial rejected
+
+Installed v1.0.1-44-gb52c0c579; optimized build, lint and nine exports pass.
+DLL SHA256 fc0ab766a28d82d4e1245473171d77e8209aa0de1f67a17efde561e6b3caae5e.
+INI SHA256 b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+Full byte comparison with expected and backup confirms only tutorial WinY reset;
+1535 CRLF, zero bare LF. Rain18/KeepSize0 retained. This INI also matches the
+accepted fe3c3f876 placement profile exactly; relevant setting semantics unchanged.
+Previous pair and logs: primary build/playtest-candidates/installs/20260925-231630-153352.
+Candidate/PDB: primary build/playtest-candidates/hud-quick-potion-b52c0c579.
+Game was closed, expected prior DLL/INI hashes matched; never launched the game.
+Next single question: does the low-health D-pad/potion join the visible HUD panel?
+A failure requires checking movieLink/quickMode/quickReady before further changes.
+
+Verified returned e322911fb DLL/banner; current/previous logs and full INI archived
+under primary build/hud-regression-20260925/heal-return-230454. User clarifies the
+missing low-health item is only the D-pad/potion artwork, not tutorial text.
+The previous identity assumption was wrong. Native/script audit now identifies
+QuickPotionMenu in the POWER-WHEEL movie, mode4. It is absent from the HUD32-clip
+array, so the semantic unknown/native fallback explains its uncaptured position.
+
+Remove the failed private tutorial panel and restore its WinY to0.000. Candidate
+routes only the validated mode4 wheel movie to the existing default HUD panel.
+Read-only reflected manager membership/mode/pMovie, live UObject identity and
+current native sprite/movie relationship authorize capture; normal wheel mode
+and all menu routing stay unchanged. No additional capture sink or engine writes.
+The optional relationship is cross-checked against current known HUD clips before
+use and fails native if unavailable. Existing3s summary records movieLink,
+quickMode and quickReady. Headset acceptance and live relationship guard pending.
+81 actual reader/transport checks,100000 concurrent transfers,123 native HUD and
+503 routing checks pass. Performance and failed hypothesis are documented below.
+Rain reset was explicitly requested: Lens18/KeepSize0 confirmed in returned log.
+Preserve that reset on install. No launch or merge; external disclosure pending.
+
+## 2026-09-25: remaining heal reminder and rain follow-up
+
+Installed v1.0.1-42-ge322911fb after successful optimized build and nine exports.
+DLL SHA256 c15e845fa185ee2260974afe0ed5cb4e1dfe62aa75230fc8e482f1bb2380d033.
+INI SHA256 1457d5db02ac98d6eb60e66443f6dc8a4f3ab6a4dbde613fa7f365dad08b3420.
+Full expected/backup comparison: only tutorial WinY0.000->0.200;1535 CRLF,
+zero bare LF. Current Lens13/KeepSize1 preferences retained. Previous pair/logs:
+primary build/playtest-candidates/installs/20260925-224920-433895.
+Candidate/PDB: primary build/playtest-candidates/hud-tutorial-e322911fb.
+Game was closed and previous hashes matched; no game launched or merge performed.
+Next single launch question: is the low-health reminder fully visible/readable?
+Rain clarification remains pending; no rain fix is claimed.
+
+User accepts marker sizing and lower sneak/vault alignment on fe3c3f876;
+low-health reminder remains peripheral and rain appearance is reported changed.
+Verified installed DLL and matching log, archived current/previous log and full
+INI in primary build/hud-regression-20260925/rain-heal-return-223356.
+
+Tutorial roots15/16 were identified but unmeasured, so still shared default's
+scale1.420 and offsets .274/-.093. Give identified tutorials a private full-image
+panel using their own existing controls; no rectangle-based ownership or clipping.
+Release that occasional sink after the existing two-present delivery grace to
+avoid continuing its copy after the reminder fades. Intended local placement is
+tutorial WinY0.200, WinX0 and scale1; the20cm lift is a comfort choice, not a native
+measurement. All accepted gameplay ownership, markers and menus stay unchanged.
+129 native-HUD checks including six semantic panel cases pass. No new logging.
+
+Rain remains OPEN, not claimed fixed. Rain/lens/scene-draw source is unchanged
+from accepted pre-ownership0a4c7c254. Startup Lens18/KeepSize0 changes during this
+run to13/1; preserve current preferences pending identification of close lens rain
+versus outdoor particles and last accepted rain baseline. Unknown semantic draws
+now stay native, so an indirect routing difference is not excluded by this diff.
+No speculative rain engine or rendering patch. A clarification is pending.
+Do not push diagnostic findings externally while disclosure approval is unresolved.
+
+## 2026-09-25: semantic ownership accepted; marker and hint correction
+
+Matched installed4c38bf526 DLL/banner, archived current/previous logs and whole
+INI under primary build/hud-regression-20260925/semantic-return-221601. User reports
+cohesive HUD with no observed ungrouping/jitter. Remaining marker size and lower
+hint placement issues are scoped follow-ups, not failure of queue transport.
+
+Marker roots were rejected by owner==HUD. Native constructor/caller disassembly
+shows +8 is task/collectible/enemy identity. Fix independently validates that live
+target plus current HUD array membership and native family. Correct context,
+special/mantle and QTE clip routes to share sneak/player-state's default panel;
+retain info/talk/use on prompt. Heal-reminder placement improvement is expected,
+not yet measured. Accepted pause and ownership transport remain unchanged.
+
+70 production-reader/transport checks,100000 concurrent transfers,123 native-HUD,
+503 routing checks pass; normal optimized build and lint pass. Family/pivot
+counters fit in the existing3s summary and only compute when it prints.
+Installed v1.0.1-40-gfe3c3f876; DLL SHA256
+04819c3e7b2a2bb7da3b7912b268d486d51881c102cd27e5e0f42e210c617459.
+Installed/expected/backup INI match byte-for-byte; SHA256
+b430fbfe625c409c127516191efee476febb62774800477e7e8979c4e9a970a7.
+1535 CRLF, no bare LF, zero INI changes. Previous DLL/INI/log pair archived in
+primary build/playtest-candidates/installs/20260925-222521-353610.
+Candidate/PDB: primary build/playtest-candidates/hud-placement-fe3c3f876.
+Optimized build and nine exports pass. All six latest user INI adjustments retained:
+task/rune inset0.260; default X0.274/Y-0.093/scale1.420; prompt scale1.320.
+One next launch question is existing size-slider response on a complete objective.
+No game launch, no merge; external diagnostic disclosure remains pending.
+
+## 2026-09-25: native widget ownership implementation candidate
+
+User accepts world pause on 0a4c7c254; verified DLL/banner and three RIDING Pause
+entries. Logs/INI archived in primary build/hud-regression-20260925/pause-accepted.
+Implemented native HUD root identity through queued render commands on existing
+codex/vr-188-hand-hud-followups. No change to the primary collaborator checkout.
+
+The candidate replaces gameplay rectangle/hash association with validated native
+widget membership. Prompt children share prompt; cooking shares the aim reticle;
+task/Heart/awareness instances remain native. Unidentified work stays native.
+Queue lifecycle guards cover address reuse, generation, saturation and exceptions.
+SemanticOwnership defaults off; intended local candidate INI adds only that key=1
+against the accepted pause pair. OwnerTrace remains 0; recorder/pixels/legacy OFF.
+
+Validation: optimized x86 build; 49 ownership checks including actual assembly
+stub and 100000 cross-thread transfers; 123 native-HUD, 503 old-routing and 107
+menu-policy checks. Host timing limits in PERFORMANCE; native derivation and
+contracts in ENGINE_NOTES; behavior and remaining acceptance in HUD_ANCHORS.
+One launch question is Emily prompt cohesion while pitching the head with the
+controller held on her. Objective depth, full gauge behavior and in-game cost
+remain open; do not claim all original regressions resolved. No game launched.
+Installed v1.0.1-38-g4c38bf526, DLL SHA256
+06c59fd845e0e5090378234696b2b03ea917fde9b554b34df6b56ce4d9c3db24.
+Expected and installed INI SHA256
+6c0e336882e1c1b4e4d2d9d55e142785f2f9c20206a70974053d8890c43e1877.
+Full byte comparison confirms the sole addition [Hud] SemanticOwnership=1;
+1535 CRLF, zero bare LF. Previous DLL/INI/current+previous log archived together
+under primary build/playtest-candidates/installs/20260925-215531-781812.
+Candidate and PDB: primary build/playtest-candidates/hud-semantic-4c38bf526.
+Game was closed; prior hashes still matched the accepted pause pair. No merge authorized.
+Prior Linear diagnostic-disclosure approval remains unresolved; keep new work local.
+
+## 2026-09-25: ownership capture returned; pause readiness repair
+
+Verified returned ea83dc5be DLL/hash/banner and archived logs plus full INI under
+primary build/hud-regression-20260925/owner-return. Prompt still changes to the
+objective under head pitch. Pause was reported as the whole flat screen; log
+confirms configured pause=world but ui/ride refused healthy=0, failed=0. Capture
+was armed with empty HUD frames before entry. Readiness incorrectly depended on
+visible widgets rather than a proven operational pipeline.
+
+Installed v1.0.1-36-g0a4c7c254 (optimized x86), DLL SHA-256
+1744b77c562765d315ab3828b67941da8f9a5995305e18d74d52fb51d4323405. Expected full INI
+SHA-256 372a802192237a8944365f5319ee72c31d31272038f78093d0706db3dd8c81ee matches
+the installed file; only OwnerTrace 1->0 changed, CRLF preserved. Backup pair and
+logs: primary build/playtest-candidates/installs/20260925-210631-493709. Build,
+118 native-HUD checks, 107 ride-policy checks, lint and nine exports pass. Game
+not launched. Next single behavioral question: after the interaction HUD fades,
+does pause remain a world-positioned panel over the scene instead of the flat
+whole-frame fallback? This does not accept or fix prompt/objective ownership.
+
+Candidate keeps a previously exercised capture path ready through armed empty
+frames, with the same 500 ms inactive grace and resource/failure/reset gates.
+No new engine writes or recurring diagnostics. Native HUD host checks cover
+faded widgets, the owner-poll gap, clock wrap, failure, lost handoff and reset.
+HUD ownership remains unfixed: the new capture proves native widget updates and
+rendered draws cross a deferred queue. Task character/vtable, queue execution and
+producer paths are now established offline; next implementation must transport
+owner identity through the queue, including filter composites and cached work.
+Do not substitute another rectangle or content hash as semantic ownership.
+
+Three timed renderer captures total 56.8 us in this run; see PERFORMANCE for
+measurement limits. No additional diagnostic launch is needed for this boundary.
+Linear findings permission is still pending. No merge is authorized.
+
+## 2026-09-25: HUD acceptance failed; native ownership audit
+
+Verified local 1ed638c01 and archived all logs/INI. Other hand/swing/menu follow-ups
+reported satisfactory. HUD prompt/objective overlap, objective depth, cook-gauge
+placement/size and performance are NOT accepted. The latest precedence patch
+only protects task text; returned content is also claimed as task icon/continuity.
+Task/Heart/awareness bounds and gauge heuristic predate v1.0.0. Full release source
+and INI comparison, decompiled HUD/task/objective/Heart/charm/Flash reread completed.
+
+HUD_ANCHORS contains the evidence and replacement contract. ENGINE_NOTES records
+the read-only native identity derivation. PERFORMANCE holds cost attribution:
+recorder/pixels off, 73.7 ticks/s and 10.3 ms GPU near grenade, pereye culling now active
+on a newer DLL, no controlled release performance baseline. Do not claim a full
+performance cause or undo accepted hand/swing/visibility behavior without evidence.
+
+Installed capture build v1.0.1-34-gea83dc5be with DLL SHA-256
+63fc60a7bc28e115f7cd2ce664b602655516f4cb45be37945c124b9c68de3fe7. Full installed
+INI matches the archived expected candidate; the only semantic change is
+[Hud] OwnerTrace=1. CRLF preserved. Previous DLL/INI/current and previous log are
+backed up under primary build/playtest-candidates/installs/20260925-172045-668268;
+all ten prior logs were already archived for the audit. Normal optimized x86 build,
+15 identity, 107 native HUD and 503 routing checks pass; lint clean. Flicker CPU
+recorder, GPU pixel probe and legacy code compile OFF. Game was not launched.
+
+Linear VR-186 was reopened. Automatic approval review blocked uploading the new
+HUD findings; explicit permission requested and still pending. New investigation
+commits remain local while that diagnostic disclosure is unresolved.
+
+Prepared default-off finite OwnerTrace to establish native clip-to-render transport:
+16 renderer stack snapshots, once per route family; at most 4 native attempts per
+marker family, successful capture once. No GPU readback or engine writer. This
+is a structural rework prerequisite, NOT a HUD fix. Next single capture question
+is the reported prompt split during head pitch, then quit so the log can be read.
+Do not require another remote prison test or merge this draft. Implementation and
+headset acceptance of semantic ownership, marker depth and gauge routing remain open.
+
+## 2026-09-25: local hand/HUD follow-ups and compatible build baseline
+
+Branch codex/vr-188-hand-hud-followups starts at staging474fc8a55. Carries the
+VR-229 source candidates31450526c/c4f5fe5df/9da0a0b48 plus a deferred empty-hand
+wrist-reference capture (VR-188) and observed-interaction/task-text precedence
+(VR-186). Local stable intro/submenus were tested on c4f5fe5df, not remote9da0a0b48.
+The remote ZIP and draft PR131 remain awaiting their own report.
+
+Sword regression is explained by the old DLL/new INI pair: c4f5fe5df interprets
+HandAnimMelee=1 for all melee; the previous868d09649 log has source=SWING with
+hand-back off. Staging already contains the trigger-only policy (VR-220). No new
+sword policy change is needed. CLAUDE.md now requires expected target-build INI
+semantics, whole-file comparisons, CRLF, and compatible DLL/INI rollback pairs.
+
+Validation: optimized build, frame_test (five new wrist cases),503 HUD routes,
+1678 stereo pairing checks,30054 cinematic FOV/handback checks,138 animation catalog
+checks, golden/default profile, lint and9 exports pass. No game launched. Measured
+recorder burst1.606ms; follow-up builds with CPU/GPU diagnostic compile flags OFF
+and expects FrameId=0 in the local INI. Details: PERFORMANCE.md, ARM_HAND_SPLIT.md,
+HUD_ANCHORS.md, FLICKER_REFERENCE.md. New visual fixes remain candidates.
+
+Installed candidate v1.0.1-32-g1ed638c01, optimized x86, DLL SHA256
+b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569.
+Primary ZIP: build/test-packages/DishonoredVR-hand-hud-followups-1ed638c01.zip,
+15907944bytes, SHA256954af6e4d6b89ce0294ecb012bed81cc19c911066b38b5e03a1305f030f4c441.
+Backup in primary build/playtest-candidates/vr188/install-20260925-130330 includes
+DLL, entire INI and all logs. Full target/backup INI diff has exactly two changes:
+Perf.FrameId1->0 and explicit Anim.HandAnimMeleeSwing=0 (was absent/default0).
+Other bytes preserved;1533CRLF,zero bareLF. Expected/installed whole INI SHA256
+15baadbfcfe11bf45075477ef9acb341359f129258de018234bf17689beac7b4 matches.
+No game launch; current log still c4f5fe5df until the next tester launch.
+
+Next ONE launch question: after opening cinematic, does the right hand remain
+aligned? A pass supports the capture fix; a repeat requires the matching reference
+lines. HUD/sword acceptance remain open and can use this same candidate. Remote
+9da0a0b48 ZIP stays unchanged. Do not merge without explicit permission.
+
+## 2026-09-24: staging is the integration branch; VR-Main is the release (VR-218)
+
+The 1.0.1 hotfix chain (PRs #114-#117, tag `v1.0.1`) was fast-forwarded onto `VR-Main` on the
+user's instruction, so `VR-Main` is `f5176aeae` = `v1.0.1`. `staging` was created from that
+tip. Open PRs #74, #62, #2 and #118 now have base `staging`.
+
+From here: branch off `staging`, PR against `staging` (`gh pr create --base staging`; the
+default branch stays `VR-Main`), `Fixes VR-<n>` on the first line, merge into `staging` only
+with the user's explicit yes. `VR-Main` moves only by the release PR (`staging` -> `VR-Main`)
+the user merges, and its tip is always the latest release tag. Linear: Done = merged to
+`staging`, Released = carried into `VR-Main` and tagged. Rewritten: `CLAUDE.md`,
+`docs/LINEAR_AND_GITHUB.md`, `CONTRIBUTING.md`, `AGENTS.md`, the PR template, the decision log.
+
+**Owed by the user (UI-only):** the Linear automation row "On PR or commit merge -> Done"
+restricted to base `staging` (Settings > Team > Issue statuses and automations); optionally a
+branch protection rule on `VR-Main` so only the release PR can write it.
+
+Next: VR-219 (snap turn) and VR-220 (trigger-only sword animation), each on its own branch off
+`staging`.
+## 2026-09-25: snap turn (VR-219), simulator-proven, headset owed
+
+Branch `claude/vr-219-snap-turn` off `staging`. `[Turning] SnapTurn=0` (default off), `SnapAngle=45`,
+`SnapThreshold=0.6`, `SnapRearm=0.3`, `SnapRepeatMs=0`; word `snapturn`; F10 > Controls > Turning.
+The present lane detects the stick edge (`snap_turn.cpp`, after the F10 pointer block in
+`pad_bridge.cpp`) and eats RX only while the script camera writer is fresh; the script lane
+takes the step once in the head writer's fresh branch as BODY yaw (`rot[1] += headDeltaU + snapU;
+YawPublish(viewInU + snapU, headDeltaU)`), so the pawn turns with the view in both movement modes.
+
+**Simulator (Debug build, `tools\xrsim\snap-turn.xrs`, 86 steps, under `movement head` and
+`movement character`):** four pushes at 30 deg each printed FIRED / APPLIED / HONOURED; view and
+body since mark both 119.99 deg, head 0.00; a held stick fired once; a 0.4 push neither fired nor
+smooth-turned (view stayed at 59.996); a head turn afterwards moved the view (70) and not the body
+(90); a stick held into and out of the pause menu did not fire (the first cut fired on the resume:
+the detector now disarms while the lane is blocked); `snapturn off` put RX=29043 back on the pad
+line. 14 HONOURED, 0 NOT HONOURED, 0 NO CONSUMER over the session; four steps added 0 stale eye
+submits (132 -> 132), eyes 0/0. `tools\yawtest-host.ps1` bookkeeping: 8 of 8 PASS (case 8 is the
+snap step as body yaw). Logs: `build/playtest-candidates/vr219-snap-turn/sim-run2/`.
+
+**Headset owed:** one push = one crisp step; hands, sword, reticle and prompt stay in front and a
+hit lands on what is now in front; walking goes the new way; pause menu and wheel still navigate;
+keyhole and cinematics turn smoothly. The tester's installed build 711 and its ini were restored
+after the sim runs; install a Release build of the branch to judge it.
+
+**Deliberately not here:** the yaw OWNERSHIP half of `tools\yawtest-host.ps1` does not compile
+(its slice predates the live-object table; the bookkeeping half runs again after the slicer was
+pointed at `yaw_book.h`); a ticket is filed.
+## 2026-09-25: the sword animation follows the trigger, not the swing (VR-220), simulator-proven
+
+Branch `claude/vr-220-trigger-sword-anim` off `staging`. A trigger sword attack plays the game's
+swing on the tracked hand and hands it back; a physical swing keeps the arm. `melee.cpp` publishes
+each FIRE (tick, pulse close, count, real-trigger overlap; atomics, stores only); `anim_state.cpp`
+classifies each attack once (per state entry, or per combo clip more than 100 ms in): SWING if the
+state was entered with the pulse open or within 80 ms of its close (combo: within 600 ms of the
+fire), else TRIGGER; only TRIGGER sets the hand-back. `kGateBody` reads `cameraAction`, not `game`,
+so a trigger hand-back does not refuse the swing that follows. `[Anim] HandAnimMelee=1` (moved 0 -> 1
+once by `HandAnimMeleeRev`), `HandAnimMeleeSwing=0`; `anim melee on|off|swing on|off|status`; F10 >
+Hands > Game arms during actions. The hand-back owns the RIGHT hand only (the headset asked for
+the left to stay free): `Snapshot.handMask`, per-hand `blend(D, hand)`, per-hand SkelControl
+release; `HandAnimMeleeBothHands=0`. A first cut deadlocked the present thread on the first
+status write (`weight_for` under the shared lock); fixed, launch clean, `swing-anim.xrs` (56)
+and `snap-turn.xrs` (88) pass on the merged RelWithDebInfo build (sha256 A699EDD4...).
+
+**Simulator (`tools\xrsim\swing-anim.xrs`, 56 steps; Debug and RelWithDebInfo):** trigger pull ->
+`source=TRIGGER -> hand-back ON`, `features.anim.meleeSource=trigger`; swing-edge move -> `swing:
+FIRE`, `source=SWING ... hand-back off` (fire dt 15 ms, pulse open), `HONOURED`; a swing 120 ms after
+a trigger pull fired, was not `BLOCKED ... owns the body`, and classified as a combo (fire dt 266 ms,
+pulse closed 141 ms before); `anim melee swing on` -> the same swing `hand-back ON`; `anim melee off`
+-> the refusal line. `swing-edge.xrs` passes on both builds. `swing-gates.xrs` failed 4 of 4 runs on
+a different leg each time, always a hand move cut short by a sample gap, never the body gate: VR-222.
+Migration (plain Steam launch, the tester's archived ini): `HandAnimMelee 0 -> 1 (one-time ...)` and
+`HandAnimMeleeRev=1` written; a deliberate 0 with the key stayed 0. TRAPS: `-ViaSteam` restores the
+ini and wipes a startup write. Logs: `build/playtest-candidates/vr220-trigger-anim/`.
+
+**Headset owed:** a trigger slash animates and the hand returns (150 ms in, 250 + 150 ms out); a
+physical swing keeps the hand on the controller with the hit landing; combos; a swing right after a
+trigger slash; block; mantle; a cinematic; a drop takedown; the trail still hidden. The tester's
+installed build 711 and ini were restored after the runs.
+## Index controller tuning from the headset (VR-224, 2026-09-24)
+
+Branch `claude/vr-224-index-tuning`, stacked on VR-223's branch, not merged.
+
+- Two commits cherry-picked from a community fork (`index-controller-offsets`,
+  author kept): an Index frame correction, hold and sword trims in the SteamVR
+  shim, an empty-left-hand re-pose and aim lift in the mod, a force-sensor grip
+  binding. Every part is now behind `[Controllers] IndexTuning` (-1 auto, the
+  default: on for a launcher headset of Valve Index, Bigscreen Beyond 1 / 2 or Vive Pro 2).
+  Details and the table: docs/INSTALLER.md, VR-224 section.
+- Verified: Release build, lint, default-profile-host (golden and packaged ini
+  regenerated, +4 lines), offscreen render of the picker's Index note. Installed.
+- NOT verified: anything on an Index rig. This machine's headset is a Quest 3,
+  so here the tuning resolves off and nothing should change; the log line
+  `config: [Controllers] IndexTuning=-1 -> off` says so.
+
+## Launcher headset selection (VR-223, 2026-09-24)
+
+Branch `claude/vr-223-launcher-headset` off `staging`, not merged.
+
+- The launcher asks which headset the player has before anything else. With
+  none recorded it is a modal with no close control; Continue unlocks on a pick
+  (or a typed name for Something else). Change on Setup and Manage reopens it.
+- The list is the BioShock Remastered VR mod's Setup.bat question, same order.
+  Recorded only: no setting follows from it.
+- Stored in %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model. Printed in
+  the launcher log, in the mod log (`config: headset (user reported in the
+  launcher): ...`) and in the support bundle manifest. Why not the mod ini:
+  ARCHITECTURE decision log, 2026-09-24.
+- Verified: Release build clean, lint clean, support-collector-tests PASS,
+  offscreen renders of `headset-required`, `headset-other`, `headset-change`,
+  `manage`, `setup-found` checked by eye.
+- NOT verified: a real first run clicking through the picker, and the mod log
+  line in a live session. The install was refused because the game was running
+  (d3d9.dll locked); run `tools\install.ps1 -Release` once it is closed.
+- Next: per-headset controller defaults (BRVR's d-pad modifier and WMR layout
+  fixes) would be a separate ticket if wanted.
+## Crossbow stray piece on the mirrored side (VR-225, 2026-09-24)
+
+Branch `claude/vr-225-crossbow-mirror-caps` off `staging`, not merged.
+
+- Reported: firing the crossbow shows part of what looks like the empty model on
+  one side; it stays once the crossbow is empty.
+- Cause as reasoned, NOT measured: the VR-138 mirror reflects the reference pose
+  before skinning, so copied triangles and hole caps on the limbs keep the limbs'
+  own bones and swing about the wrong pivot when the limbs move. Full write-up:
+  WEAPON_MIRROR_PLAN.md section 6f.
+- Change: `[Mirror] BodyBoneOnly=1` copies and caps only geometry rigid on the
+  weapon's body bone; `mirror body off` restores the old copies for an A/B.
+- Verified: Release build, lint, golden ini. Installed (this build is off
+  staging, so it does not carry VR-223/VR-224).
+- HEADSET-CONFIRMED 2026-09-24: the piece is gone while firing and when empty.
+- Headset question: is the piece gone when firing and when empty, and is the
+  far side still filled? Log: `mirror/skin:` and the `on a moving bone` counts.
+## One eye hides objects from the other (VR-79, 2026-09-24)
+
+Branch `claude/vr-79-occlusion-per-eye` off `VR-Main`, not merged.
+
+- Reported again: covering an NPC's head with the sword in the left eye only
+  makes it vanish from the right; doors and mechanisms too.
+- Cause: `reentry` draws both eyes through one view state, so occlusion-query
+  results from one eye cull the other (ENGINE_NOTES "VR-79").
+- `[Stereo] Occlusion=native|pereye|off`, live `occlusion <mode>`, default native.
+  `off` (the engine's TOGGLEOCCLUSION switch) was HEADSET-CONFIRMED to fix it but
+  read laggier. `pereye` gives the right eye its own engine-allocated view state
+  for pass 2, so each eye culls only what it cannot see and culling still saves
+  its draws.
+- Verified: Release build, lint, golden ini. Installed with `Occlusion=pereye`
+  in this PC's ini. This build does NOT carry VR-225 (the crossbow fix).
+- Headset questions: does the sword/head test pass with `pereye`, and does it
+  feel like native rather than like `off`? Log: `occlusion/pereye: allocated`
+  once, then `beat swaps` climbing. Watch for anything wrong in the right eye
+  only after a level load (the GC risk in ENGINE_NOTES).
+- HEADSET 2026-09-24: `pereye` fixed the one-eye culling with no visible perf cost. Grass
+  blinking out for a frame or two while walking is NOT pereye: it happens under native too, in
+  both eyes (VR-226, open).
+- A second run on the build with the F10 switch for the three modes started in pereye but never
+  swapped: no `occlusion/pereye: allocated` line and no beat, so OcclusionPass2Begin found no
+  local player and returned without logging why. Suspect: the IsLiveObject check on the player
+  controller or local player against a live-set snapshot that predates the level load. pereye can
+  therefore silently not engage on a given run. Fix when this is picked up again: log the refusal
+  reason (throttled) and drop the snapshot liveness requirement for the controller the head
+  tracker already validates. The F10 switch stays, in the Advanced view (2026-09-25).
+
+## VR-229 queued-render candidate packaged (2026-09-25)
+
+ZIP in primary checkout: build/test-packages/DishonoredVR-VR229-prison-judder-fix-6187b2fd4.zip,
+15894487bytes. Build v1.0.1-12-g6187b2fd4, optimized x86, legacy OFF,
+CPU recorder ON (output spread), GPU probes OFF. DLL SHA256
+1774ce5d05e837b4a7f34a5502b022e1e439665931264db973387e7951863dc6.
+ZIP SHA256b6ae714fa367ac529160b4586d9b2fd8a55faeca1fe268f47fea5fb3c2b50de4.
+Clean source identity, PE machine,9 exports, ZIP CRC/member hashes, build flags and
+lint verified. The support manifest's actual d3d9 hash matches the returned9da ZIP;
+its installer record still names the underlying release and is not the running DLL.
+No INI change: same config consumers as9da, including HandAnimMelee=0 in this tester's
+INI and forced pixel suppression. DLL/README/manifest/checksums only, no installer.
+
+Local installed hand/HUD candidate1ed638c01 hash remains
+b6fda98f04b9d8433ff0b6fde35ec821f7acdb94d870d048b9c918dd99dbb569.
+No install or launch during this work. Remote question: smooth prison from beginning
+through fade and10seconds of gameplay, with head-turn fusion retained? Return support
+either way. Candidate sufficiency remains OPEN. Shared source in PR132 needs explicit
+integration when results are accepted; neither PR is authorized to merge.
+
+## VR-229: scoped-eye partial acceptance and queued-render candidate (2026-09-25)
+
+Returned support-20260925-150139 current banner9da0a0b48 matches the scoped-eye ZIP.
+Headset report accepts head-turn eye separation repair; prison judder remains early
+then resolves. Stale/expiry/duplicate counters rise to192/58/526 then flatten in the
+later dialogue; a later transition adds further events. See FLICKER_REFERENCE for
+identity, exact intervals, counterpredictions and limitations. Do not call fully fixed.
+
+Candidate tolerates one unchanged Present interval after observed progress, while a
+second quiet interval still refuses and fresh-camera/other gates remain. Production
+helper old200 singles/400 queued ticks vs new0; pairing1686 normal/1687 recorder,
+cinematic30054 pass. Recorder preserves the same window but emits at most one frame
+per Present;255 actual recorder checks pass. Host peak remains scheduler/IO-sensitive,
+so no negligible-tail-cost claim (PERFORMANCE.md).
+
+Next: finish clean optimized packaging on the returned tester baseline; one remote
+prison-through-fade stability question, support ZIP either way. Local hand/HUD build
+1ed638c01 is installed in a different worktree/PR132 and MUST remain untouched during
+this investigation. PR131 tracks this remote candidate; shared source with PR132 must
+be reconciled before any explicitly authorized merge. No game or simulator launched.
+
+## VR-229 scoped-eye replacement packaged (2026-09-25)
+
+Replacement ZIP: build/test-packages/DishonoredVR-VR229-scoped-eye-fix-9da0a0b48.zip in primary checkout,
+15894528 bytes. Build v1.0.1-10-g9da0a0b48, optimized x86, legacy OFF, CPU recorder ON,
+GPU pixel probes OFF. DLL SHA256 1150f68ce9e5bd7957e70dd07973f78cd9ff3fbe00f91c093121ca7ed0b4c3c4.
+ZIP CRC, all member checksums, extracted DLL bytes, embedded clean source identity,
+x86 PE and9 exports verified. Normal and recorder builds pass, lint clean.
+Source commit9da0a0b48 pushed to draft PR131, base staging; no merge/release.
+The prior c4f5fe5df candidate remains installed locally and is untested by the
+maintainer; this follow-up did not install or launch anything. Recommend the
+replacement instead of testing the rejected prior candidate. Remote acceptance
+and pause-submenu benefit remain OPEN. One prison head-turn/fade test, then support.
+
+## VR-229: returned candidate rejected; scoped eye-axis repair (2026-09-25)
+
+Current state: support-20260925-130534 current log verifies v1.0.1-8-gc4f5fe5df.
+The tester reports reload-dependent Empress/prison alternation and new severe
+head-turn separation. The previous candidate is NOT accepted. Maintainer installed
+that exact DLL earlier at explicit request, but has not launched it; no installation
+or game launch during this investigation. Previous DLL/INI/logs remain backed up.
+
+Measured/source-confirmed: scoped camera writes offset eyes along the composed
+head-look right vector, while reentry reads cached native camera rows. Returned
+P67390 is a full6.57uu stereo step; the published axis differs by54.1degrees and
+reports5.322uu perpendicular motion. The actual record orientation reduces that
+to about0.001uu. Existing camera-confirmation guards cannot recover a late tag with
+the wrong basis. Correct the published stereo axis, preserving translation axes,
+camera writes and arbitration thresholds. Applies to cinematic/pitch/menu scopes.
+
+Validation:225 rotated late-tag schedules pass; old-axis control has2184 identity/
+repair failures. Actual rounded P67389/90 camera-step regression passes. Pairing
+1678 normal/1679 diagnostic checks pass, cinematic math/scope checks pass.
+Bounded atomic publication/read host cost0.091us/sample; no extra per-frame logging
+or GPU probes. Remote sufficiency remains OPEN. Full evidence and caveats in
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md); costs in PERFORMANCE.md.
+Next: finish optimized builds and package one replacement ZIP, no local install.
+One test question: does the formerly bad prison scene stay fused through normal
+head turns and its fade into gameplay? No additional diagnostic matrix requested.
+
+## VR-229 packaged acceptance build (2026-09-25)
+
+ZIP: build/test-packages/DishonoredVR-VR229-prison-fix-c4f5fe5df.zip in the primary
+checkout, 15893518 bytes. Build v1.0.1-8-gc4f5fe5df, optimized x86, legacy OFF,
+CPU recorder ON, GPU pixel probes OFF. DLL SHA256
+115f3827362e58b7a83a43dbc2d8d459256154859f5cb701565a63318c2bf518.
+Nine exports, ZIP CRC, extracted DLL hash, x86 PE, clean build identity and
+compile flags verified. Normal build also passes with both diagnostic flags OFF.
+Draft PR131 targets staging. The package retains the previous tester baseline;
+it does not bundle newer staging features. No local install or game launch.
+One acceptance run: prison cinematic through fade and10seconds of gameplay,
+then quit and send support. Source/host-confirmed gate defect; remote result open.
+
+## VR-229: prison flicker repair candidate (2026-09-25)
+
+Returned diagnostic31450526c reproduces the prison failure and healthy Empress/
+gameplay controls. Whole-eye delivery, not square FOV. Source defect: present
+progress during the previous draw is ignored by its return-time baseline,
+provoking SINGLE draws. Candidate compares draw entries; all other gates and
+pairing safeguards stay. Production regression old-policy199 false stalls vs
+new0; normal/diagnostic pairing1447/1448 pass. Remote sufficiency is still open.
+
+CPU flight history remains enabled in the test DLL, with frame-id GPU probes
+forced off regardless of INI. Pixel issue timer alone did not measure total cost.
+Actual recorder host benchmark averages1.660us/frame with50 uploads and buffered
+file logging; full reasoning in PERFORMANCE.md and FLICKER_REFERENCE.md.
+No maintainer install or game launch. New codex/vr-229-prison-present-progress branch retains the tester baseline;
+PR126 was closed after collaborator integration, so a new draft review follows; prior VR-227/228 fixes retained, VR-260 remains separate. Next: one prison
+cinematic through fade and10seconds of gameplay, return support ZIP either way.
+
+## VR-229: remote diagnostic coverage expanded (2026-09-25)
+
+User has a newer collaborator build locally: NO INSTALLATION and no game launch.
+Prepared a self-arming ZIP-only diagnostic build in build/worktrees/vr-227.
+The previous expiry-only trace missed consecutive frames after its lifetime cap.
+New recurring history joins raw tag/camera decisions, capture identities, delivered
+pose records and actual XR release/submission. Independent-label pixel bursts and
+camera-upload census cover mono/black images, half-IPD/zero camera samples, source
+writes, slot reuse and pose/cadence alternatives. Pairing behavior is unchanged.
+[Evidence, hypothesis matrix and next test](dishonored/FLICKER_REFERENCE.md).
+
+Host validation:1142 diagnostic pairing checks,1141 normal,133 actual recorder
+checks pass. Includes one-hour recording and missing-left negative control.
+Normal and diagnostic optimized x86 builds pass, legacy off; lint and9 exports pass.
+No headset/game validation. Clean test build `v1.0.1-6-g31450526c`.
+DLL SHA256 `1522d2325f19b302a609490a34c26b4e4a31b539df3e31d3bb5f1e628bbb569d`.
+ZIP in primary checkout: `build/test-packages/DishonoredVR-VR229-prison-flicker-diagnostic-31450526c.zip`.
+ZIP is15,894,046 bytes; CRC, embedded build/diagnostic strings, x86 header and
+extracted DLL/checksum manifest verified. DLL-only, self-arming, no INI/installer.
+Installed copy remains untouched. Existing draft PR126 targets staging.
+Next: remote prison cinematic plus10seconds of gameplay at unchanged settings,
+quit and collect support ZIP. One question: did prison eye flicker reproduce?
+No reproduction is not a fix. Use first divergent frame to design a regression
+before implementing a repair; do not install on the maintainer's machine.
+
+## VR-228/229: pause FOV candidate and prison flicker diagnosis (2026-09-24)
+
+Original VR-227 gameplay fix is locally reported good on the installed aa3af7216.
+Both local and supplied remote log banners verify that build. Logs archived under
+primary `build/support-20260924-231346`, local logs in its `local` subdirectory.
+
+VR-228: pause in InDialog releases the108.1-degree scope and claims41.2. Candidate
+allows the existing verified head-look menu permission, with UI-epoch live-owner
+revalidation. VR-229: remote prison cinematic has stale-left submissions, repeated
+late repairs and unresolved confirmations while FOV remains108.07. All40 detailed
+windows were consumed before the scene; no proven flicker fix. Added rate-limited,
+read-only expiration reasons under RingLedger, with pairing decisions unchanged.
+Evidence and next steps: [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+
+Validation: cinematic30054, feedback1284707, ownership16, pairing416 pass.
+Per user request, ZIP only for now; installed game and INI remain untouched.
+Optimized x86 build `v1.0.1-4-g903891e7e`, legacy off; lint and9 exports pass.
+DLL SHA256 `b768aa622c9860b4a99a49fa79bcc101499f10289f185ba5f5b030da56a3a1b6`.
+Primary-checkout package: `build/test-packages/DishonoredVR-VR228-pause-FOV-VR229-diagnostics-903891e7e.zip`.
+ZIP CRC/extracted hash, x86 header, embedded build and new diagnostic string verified.
+DLL-only, no installer/INI. Separate local and remote single-question instructions.
+No game launched by this task.
+Next local question: does pause retain full-size world during low-FOV dialogue?
+Separate remote question: does prison eye flicker reproduce for the new diagnostic?
+Return its support ZIP; unchanged pairing means non-reproduction alone is not a fix.
+
+## VR-227: affected-player pass and local install (2026-09-24)
+
+The affected player reported that test build `v1.0.1-1-gaa3af7216` fixed the issue.
+This is reported acceptance; no new support log was supplied for independent review.
+At the user's request the exact ZIP DLL was installed locally, SHA256
+`2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+Previous DLL, INI, install record and available session logs archived in the primary
+checkout at `build/playtest-candidates/vr-227/20260924-220256`.
+Full installed INI byte comparison: zero changes, CRLF verified; LockFov=1 already.
+No game launched. Next: same painting-dialogue/full-view question for local verification;
+check the new log banner against the installed build before reading the result.
+
+## VR-227: cinematic square-view candidate (2026-09-24)
+
+Branch `codex/vr-227-cinematic-fov-test` starts at staging `f5176aeae`.
+The shared checkout changed concurrently, so the candidate is isolated in
+`build/worktrees/vr-227`; only the FOV patch was transferred. No occlusion change.
+
+Supplied support archive: current log and install record match1.0.1,
+`v1.0.0-8-gf5176aeae`,3012x3122. During dialogue the sensor reaches51.60;
+the persistent writer retains it. At cinematic exit the3s draw bridge expires
+and gameplay claims47.60. The two older logs are1.0.0, not1.0.1 retests.
+See [ENGINE_NOTES](dishonored/ENGINE_NOTES.md#vr-227-cinematic-persistent-fov-recovery-2026-09-24).
+
+Candidate: the existing Cine.LockFov option now also requests the full persistent
+FOV during validated cinematic states and bounded locomotion recovery. Existing
+live-object owner checks remain before writes. UI epochs, new ownership/load,
+failed validation and disabled/ineligible states discard recovery. Ordinary
+gameplay zoom cannot arm it. Diagnostic adds cinematicRecovery and master state.
+
+Host checks:1284707 feedback/recovery,16 ownership,30045 cinematic/handback pass.
+The negative control reproduces51.60 persistence and47.60 gameplay claim. Recovery
+is bounded at3s; an extremely slow/unresponsive native camera can outlast it.
+A synthetic1% blend per10ms did outlast the bound; this is not headset acceptance.
+No game launched. Optimized isolated build, lint and9 exports pass.
+Delivered test build `v1.0.1-1-gaa3af7216`, legacy off, from clean commit aa3af7216.
+DLL SHA256 `2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1`.
+ZIP: `build/test-packages/DishonoredVR-VR227-cinematic-square-test-aa3af7216.zip`
+in the primary checkout (DLL, README, manifest and checksum only). ZIP CRC, extracted
+DLL hash, x86 header, embedded build ID and new diagnostic string verified.
+Local installation deferred because another collaborator has an active build;
+no installed files/INI changed. User requested a remote test ZIP.
+
+Next single launch question: at unchanged highest resolution, does the view stay
+full through the painting dialogue and for10seconds after control returns?
+Full coverage supports the candidate; a square means the fix is insufficient.
+Return the support ZIP from that run either way; verify its test-build banner.
+If this passes, test the Empress scene and ordinary spyglass zoom separately.
+
+## VR-260 affected-player pass (2026-09-25)
+
+The maintainer reports that the affected player confirmed the fix-only ZIP
+60bbd0afc resolves the startup slowdown. Acceptance is reported, not independently
+measured from a new support log. PR128 remains unmerged; no release or maintainer
+installation. See PERFORMANCE.md for the source/cost evidence and limits.
+
+## VR-260 shared capture compatibility candidate (2026-09-25)
+
+Isolated branch codex/vr-260-shared-texture-capture starts at staging f5176aeae.
+A separate performance support run falls from requested shared capture to sync
+at startup. Capture averages about150 ms, mostly LockRect. The candidate replaces
+the standalone shared surface with a texture-backed resource and aligns probe
+formats with live slots. Native pixel/failure/reset tests, optimized x86 build,
+lint and nine proxy exports pass; affected-PC
+acceptance remains pending. Measurements, exclusions and the one-launch test are
+in docs/dishonored/PERFORMANCE.md, VR-260. Do not install on the maintainer's game;
+their newer build and Claude's checkout remain untouched. The VR-229 prison
+flicker tester remains a separate pending investigation.
+
 ## 1.0.1 release verification (2026-09-24)
 
 All hotfix changes are stacked on codex/vr-216-steamvr-mirror-default. Publication

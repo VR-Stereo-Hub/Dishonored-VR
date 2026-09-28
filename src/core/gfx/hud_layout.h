@@ -136,7 +136,7 @@ bool menu_no_blur(int context);
 // The sink a draw goes to. bbox = the draw's normalised backbuffer rectangle
 // (x0,y0,x1,y1), or null when the region probe could not read it. Returns -1
 // when the element stays in the frame (AnchorFrame), else a sink index.
-int  sink_for(const float* bbox, int* elementOut, uint64_t drawKey = 0, unsigned vertices = 0, unsigned primitives = 0, float* nativePivot = nullptr);
+int  sink_for(const float* bbox, int* elementOut, uint64_t drawKey = 0, unsigned vertices = 0, unsigned primitives = 0, float* nativePivot = nullptr, bool* nativeMarker = nullptr);
 // Sinks: in use, and a label for the log ("window/crop", "handL/all").
 bool sink_in_use(int sink);
 bool sink_hidden(int sink);                     // an "off" element's sink: redirected, cleared, never delivered

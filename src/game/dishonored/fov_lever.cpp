@@ -3,10 +3,11 @@
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
 
 #include "game/dishonored/fov_lever_policy.h"
+#include "game/dishonored/stereo_state_policy.h"
 
 static inline void LevWrite(uint8_t* p, float t)
 {
-    if (!RangeReadable(p, 4)) return;
+    if (!PeReadable(p, 4)) return;   // route 2: region-cached (game thread, live engine objects)
     float* f = (float*)p;
     if (*f > 5.0f && *f < 175.0f) *f = t;
 }
@@ -14,9 +15,17 @@ static inline void LevWrite(uint8_t* p, float t)
 
 static inline void FovLeverApply()
 {
-    if (UiSurfaceOwnsPresentation()) { dvr::camera::set_eye_ceiling(0.0f,false); return; }   // VR-117: the lever follows the projection claim while a screen rides
+    static dvr::fov_lever::CinematicRecovery recovery;
+    static unsigned recoveryEpoch = 0;
+    // The base this session trusted and our last write survive a re-arm (the owners
+    // and g_fovNatural reset on loads): a recapture is judged against them.
+    static float keptNatural = 0.0f, lastWrite = 0.0f;
+    const unsigned epoch = UiSurfaceEpoch();
+    if (recoveryEpoch != epoch) { recovery = {}; recoveryEpoch = epoch; }
+    if (UiSurfaceOwnsPresentation()) { recovery = {}; dvr::camera::set_eye_ceiling(0.0f,false); return; }   // VR-117: the lever follows the projection claim while a screen rides
     float deg = dvr::camera::fov_deg();   // 41.0: the seam's target (= [Screen] FovLever unless a method moved it)
     if (!(deg >= 40.0f && deg <= 160.0f)) {
+        recovery = {};
         if (g_fovNatural != 0.0f) {          // lever just turned off - re-arm
             g_fovNatural = 0.0f;
             memset(g_levLast, 0, sizeof(g_levLast));
@@ -26,6 +35,7 @@ static inline void FovLeverApply()
     }
     // VR-213: refresh live identities after loads/menu epochs before any write.
     if (!FovLeverOwnersReady()) {
+        recovery = {};
         dvr::camera::set_eye_ceiling(0.0f, false);
         return;
     }
@@ -35,12 +45,20 @@ static inline void FovLeverApply()
         // capture the engine's natural base once, from the field that tracked the
         // rendered FOV during the zoom test
         if (g_fovNatural == 0.0f) {
+            recovery = {}; // New owner, load or rearmed lever.
             if (!g_camObj || !RangeReadable(g_camObj + kFovSensor, 4)) return;
-            float nat = *(float*)(g_camObj + kFovSensor);
+            const float reading = *(float*)(g_camObj + kFovSensor);
+            dvr::fov_lever::Rearm why;
+            const float nat = dvr::fov_lever::rearm_natural(reading, keptNatural, lastWrite, deg, &why);
             if (!(nat > 30.0f && nat < 140.0f)) return;
             g_fovNatural = nat;
-            Log("fovlever: natural base %.1f deg, target %.2f, effective base %.2f (ratio %.3f; no contraction feedback)",
-                nat, deg, nat < deg ? nat : deg, deg / (nat < deg ? nat : deg));
+            keptNatural = nat;
+            Log("fovlever: natural base %.1f deg (read %.2f, last write %.2f: %s), target %.2f, effective base %.2f "
+                "(ratio %.3f; %s)",
+                nat, reading, lastWrite, dvr::fov_lever::rearm_name(why), deg, nat < deg ? nat : deg,
+                deg / (nat < deg ? nat : deg),
+                nat < deg ? "narrow values widen back each pass"
+                          : "RATIO 1: nothing pulls a narrowed view back - expected only when the game's own FOV is at or above the target");
         }
         // VR-213: readback includes our own interpolated output. Never apply
         // a ratio below one to it; that recursively narrows toward the clamp.
@@ -50,7 +68,18 @@ static inline void FovLeverApply()
             if (s > 10.0f && s < 175.0f) { sensor = s; dvr::camera::note_rendered_fov(s); }
         }
         float t = dvr::fov_lever::target(sensor, g_fovNatural, deg);
-        if (t == 0.0f) return;
+        if (t == 0.0f) { recovery = {}; return; }
+        const auto state = dvr::anim::snapshot();
+        const bool walking = !strcmp(state.state[0], "StatePlayerMasterWalk") ||
+            !strcmp(state.state[0], "StatePlayerMasterFalling") ||
+            !strcmp(state.state[0], "StatePlayerMasterJump");
+        const bool cinematicEligible = CineFovEnabled() && state.valid &&
+            !UiSurfaceBlocks() && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_gameExiting &&
+            dvr::stereo::wants_projection() && dvr::vr::session_live() &&
+            !dvr::vr::cinematic_active() && !dvr::camera::eyetest_active() && !dvr::camera::postest_active();
+        const float cinematicTarget = recovery.update(cinematicEligible,
+            dvr::scene_state::cinematic(state.state[0]), walking, sensor, deg, GetTickCount64());
+        if (cinematicTarget > 0) t = cinematicTarget;
         // A dispatch inside an active cinematic draw must preserve that draw's FOV.
         const float scoped=CineFovScopeTarget();
         if (scoped>0) t=scoped;
@@ -63,13 +92,14 @@ static inline void FovLeverApply()
                 if (kLevCam[i] == kFovSensor) continue;             // never directly write readback
                 LevWrite(g_camObj + kLevCam[i], t);
             }
+        lastWrite = t;
         InterlockedIncrement(&g_fovLeverWrites);
         static double nextLog = 0;
         const double now = MaimNowMs();
         if (now >= nextLog) {
             nextLog = now + 1000;
-            Log("fovlever: feedback sensor=%.2f natural=%.2f target=%.2f write=%.2f scoped=%d",
-                sensor, g_fovNatural, deg, t, scoped > 0);
+            Log("fovlever: feedback sensor=%.2f natural=%.2f target=%.2f write=%.2f scoped=%d cinematicRecovery=%d master=%s",
+                sensor, g_fovNatural, deg, t, scoped > 0, cinematicTarget > 0, state.state[0]);
         }
     }
 

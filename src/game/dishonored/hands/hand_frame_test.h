@@ -69,6 +69,43 @@ static inline int run_all(ReportFn fn, void* ctx)
     // than against the maths. 0.05 deg is three orders below visible.
     const float ANG_EPS = 0.05f;
 
+    // VR-188: replay an identity transition followed by an articulated hand.
+    // The old first-sample latch stays identity and misses the later correction.
+    {
+        WristReference ref; WristReference::Event event;
+        Mat3 wrist=rot_axis_deg(1,31), vote=wrist;
+        Mat3 out=ref.resolve(wrist,&vote,false,35,30,1,event);
+        bool ok=!ref.valid && event==WristReference::Deferred && rotation_diff_deg(out,vote)<ANG_EPS;
+        const Mat3 correction=rot_axis_deg(2,-49);
+        vote=mul3(wrist,correction);
+        out=ref.resolve(wrist,&vote,false,35,30,1,event);
+        ok=ok && ref.valid && event==WristReference::Measured && rotation_diff_deg(out,vote)<ANG_EPS;
+        const float rejected=rotation_diff_deg(wrist,out);
+        rec(&r,"wrist_transition_reference",ok && rejected>48,
+            "collapsed first sample deferred; later articulated sample captured; old identity latch error %.2f deg",rejected);
+        wrist=rot_axis_deg(0,63); vote=mul3(wrist,rot_axis_deg(2,-20));
+        out=ref.resolve(wrist,&vote,false,35,30,2,event);
+        rec(&r,"wrist_reference_rebuild",event==WristReference::Kept &&
+            rotation_diff_deg(out,mul3(wrist,correction))<ANG_EPS,
+            "same-slot rebuild preserves calibration despite a changed finger pose");
+        out=ref.resolve(wrist,&vote,true,42,30,3,event);
+        ok=rotation_diff_deg(out,vote)<ANG_EPS && ref.matches(35,30);
+        out=ref.resolve(wrist,nullptr,false,35,30,3,event);
+        rec(&r,"wrist_held_reference",ok && rotation_diff_deg(out,mul3(wrist,correction))<ANG_EPS,
+            "held item uses its own draw, empty hand keeps its original reference");
+        vote=wrist;
+        out=ref.resolve(wrist,&vote,false,42,30,4,event);
+        ok=!ref.valid && event==WristReference::Deferred && rotation_diff_deg(out,vote)<ANG_EPS;
+        out=ref.resolve(wrist,nullptr,false,42,30,4,event);
+        rec(&r,"wrist_changed_pair",ok && !ref.valid && rotation_diff_deg(out,wrist)<ANG_EPS,
+            "changed pair and missing vote cannot reuse the old correction");
+        WristReference noisy;
+        vote=wrist; vote.m[0]+=1e-6f;
+        noisy.resolve(wrist,&vote,false,35,30,1,event);
+        rec(&r,"wrist_float_noise",!noisy.valid && event==WristReference::Deferred,
+            "float roundoff does not turn a collapsed palette into a reference");
+    }
+
     // ---- 1. the head-turn counterexample -----------------------------------
     // Stationary controller, turning head, in a common frame consistent with
     // the working position conversion (B = R_H * F). The controller's
@@ -590,6 +627,40 @@ static inline int run_all(ReportFn fn, void* ctx)
         const float detI = I12[0]*(I12[5]*I12[10]-I12[6]*I12[9]);
         rec(&r, "mirror_can_fail", fabsf(detI + 1.0f) > 0.5f,
             "an identity S reads det %.1f, which the mirror test rejects", detI);
+    }
+
+    // ---- 11b. the open right hand: the transfer reproduces a mirror-posed rig ----
+    {
+        // An arbitrary left wrist and finger (skinning matrices, reference space -> world),
+        // a world reflection Xw and the reference-pose reflection X. The right side posed as the
+        // exact mirror image, P_R = Xw * P_L * X, must come back from the transfer unchanged.
+        auto make = [](int axis, float deg, float tx, float ty, float tz, float* m) {
+            const Mat3 R = rot_axis_deg(axis, deg);
+            for (int i = 0; i < 3; i++) { for (int j = 0; j < 3; j++) m[i*4+j] = R.m[i*3+j]; }
+            m[3] = tx; m[7] = ty; m[11] = tz;
+        };
+        float wL[12], fL0[12], fL[12], rel[12];
+        make(2, 35.0f, 12.0f, -40.0f, 7.0f, wL);
+        make(0, -50.0f, 1.5f, 3.0f, -2.0f, rel);           // the finger's own curl against the wrist
+        mul_3x4(wL, rel, fL0);
+        make(1, 20.0f, 0.0f, 0.0f, 0.0f, rel);
+        mul_3x4(fL0, rel, fL);
+        const float nx[3] = { 1, 0, 0 }, c0[3] = { 0.3f, 0, 0 }, nw[3] = { 0.6f, 0.8f, 0 }, cw[3] = { 5, -2, 1 };
+        float X[12], Xw[12], t[12], wR[12], fR[12], invL[12], out[12];
+        reflection_3x4(nx, c0, X); reflection_3x4(nw, cw, Xw);
+        mul_3x4(Xw, wL, t); mul_3x4(t, X, wR);
+        mul_3x4(Xw, fL, t); mul_3x4(t, X, fR);
+        const bool inv = invert_3x4(wL, invL);
+        mirror_finger_3x4(wR, invL, fL, X, out);
+        float e = 0; for (int i = 0; i < 12; i++) e += fabsf(out[i] - fR[i]);
+        rec(&r, "open_hand_mirror", inv && e < 1e-3f,
+            "a mirror-posed rig: the transferred right finger matches its own matrix, error %.6f", e);
+        // The same transfer WITHOUT the reference reflection must miss by a lot.
+        const float I12[12] = { 1,0,0,0, 0,1,0,0, 0,0,1,0 };
+        mirror_finger_3x4(wR, invL, fL, I12, out);
+        float e2 = 0; for (int i = 0; i < 12; i++) e2 += fabsf(out[i] - fR[i]);
+        rec(&r, "open_hand_can_fail", e2 > 0.1f,
+            "leaving out the reflection misses by %.3f, which the test above would reject", e2);
     }
 
     // ---- 12. the reported error metric -------------------------------------

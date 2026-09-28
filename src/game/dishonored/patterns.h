@@ -285,6 +285,31 @@ static const uint8_t kTaskParentProlog[9]={0x55,0x8b,0xec,0x81,0xec,0xe8,0,0,0};
 static const uint32_t kTaskMarkerOwner=0x08,kTaskMarkerParams=0x10;
 static const uint32_t kTaskMarkerWidth=0x14,kTaskMarkerHeight=0x18;
 
+// Semantic HUD display -> queue publication -> replay, derived in ENGINE_NOTES.
+static const uintptr_t kHudSpriteDisplay=0x00DF1780, kHudQueuePublish=0x00403B00;
+static const uintptr_t kHudQueueExecuteSite=0x005486A5, kHudQueueExecuteReturn=0x005486AC;
+static const uintptr_t kHudRenderQueue=0x01441B2C,kHudRenderThreadActive=0x014417E8;
+static const uint8_t kHudSpriteDisplayBytes[]={0x81,0xec,0xd4,0,0,0};
+static const uint8_t kHudQueuePublishBytes[]={0x56,0x8b,0xf1,0x33,0xc0};
+static const uint8_t kHudQueueExecuteBytes[]={0x8b,0x42,0x04,0x8b,0xf1,0xff,0xd0};
+static const uint32_t kHudValueSize=0x10,kHudValueType=4,kHudValueHandle=8;
+static const uint32_t kHudQueueAllocationCommand=4;
+static const uint32_t kHudSpriteDisplaySlot=0x74;
+// Native HUD initialization B9584E..B95868 resolves pMovie -> GFxMovieView.
+// Match the current Display receiver directly to the live owning movie view.
+// MovieRoot constructor E064C0 installs this primary (GFxMovieView) vtable.
+// Sprite ctor DF5240 stores the root at +BC; getter B27BE0 returns it.
+// +90 belongs to the resource definition, not the movie instance.
+static const uintptr_t kGfxMovieRootVtable=0x011FBAB0;
+static const uint32_t kGfxMovieView=0x34,kGfxSpriteMovie=0xBC;
+static const int kGfxQuickPotionMode=4; // BE42DC stores mode; BE4420..BE4483 opens quickPotion_mc.
+
+// VR-186 read-only identity probe. BBD430 reads GFx value +18/+1c/+20;
+// DA6820 passes the handle to DC4600, resolving handle+4 when non-null.
+// No call into an unresolved handle or inferred virtual method is made.
+static const uint32_t kMarkerGfxInterface=0x18,kMarkerGfxType=0x1c,kMarkerGfxHandle=0x20;
+static const uint32_t kGfxResolvedCharacter=0x04;
+
 // Same base placement ABI, called only from the Heart marker update.
 static const uintptr_t kRuneParentCall=0x00bc5d75,kRuneParentReturn=0x00bc5d7a;
 static const uintptr_t kHeartMarkerVtable=0x011635d8;
@@ -413,6 +438,26 @@ static const uint32_t kHudRequiresAlphaBlend     = 1;   // excludes the opaque s
 // Diagnostic only: nothing gates on it, because a bucket's ordinal moves with
 // what is on screen. 1177/1205 in gameplay, 1126/1221 in the pause menu.
 static const float    kHudTailFractionSeen = 0.92f;
+
+// VR-79: UE3's GIgnoreAllOcclusionQueries, the dword the TOGGLEOCCLUSION console
+// command flips ("Occlusion queries are now %s"). Its only readers are the two
+// below; both are byte-verified before the mod writes it. ENGINE_NOTES "VR-79".
+static const uintptr_t kIgnoreAllOcclusionQueries = 0x0144DD54;
+static const uintptr_t kOcclReaderViewSetup = 0x008663E5;   // cmp [switch],0 -> view flags |= 0x18
+static const uint8_t kOcclReaderViewSetupBytes[] = {0x83,0x3D,0x54,0xDD,0x44,0x01,0x00,0x75,0x04};
+static const uintptr_t kOcclReaderDepthPass = 0x0086C1CB;   // cmp [switch],esi before the pass-loop call
+static const uint8_t kOcclReaderDepthPassBytes[] = {0x39,0x35,0x54,0xDD,0x44,0x01,0x75,0x0F};
+// VR-79 per-eye culling: UE3's AllocateViewState, cdecl, no arguments: appMalloc(0x310, 8)
+// then the FSceneViewState constructor, returns the new state. The LocalPlayer
+// constructor calls it and stores the result at +0x88 (LocalPlayer.ViewState; the
+// script property is resolved at runtime and must agree). ENGINE_NOTES "VR-79".
+static const uintptr_t kAllocateViewState = 0x008450A0;
+static const uint8_t kAllocateViewStatePrefix[] = {0x55,0x8B,0xEC,0x6A,0xFF,0x68,0x9B,0x06,0xF2,0x00,0x64,0xA1,0x00,0x00,0x00,0x00,
+                                                   0x50,0x51,0xA1,0xA8,0x49,0x3B,0x01,0x33,0xC5,0x50,0x8D,0x45,0xF4,0x64,0xA3,0x00,0x00,0x00,0x00,
+                                                   0x6A,0x08,0x68,0x10,0x03,0x00,0x00};
+static const uint32_t kLocalPlayerViewStateOff = 0x88;
+static const uintptr_t kLocalPlayerAllocSite = 0x006C36BC;   // call AllocateViewState; cmp [esi+74],0; mov [esi+88],eax
+static const uint8_t kLocalPlayerAllocSiteBytes[] = {0xE8,0xDF,0x19,0x18,0x00,0x83,0x7E,0x74,0x00,0x89,0x86,0x88,0x00,0x00,0x00};
 
 // Engine-labelled InitViews: two direct callers; thiscall, no stack arguments.
 // First six whole non-relative bytes are sufficient for the trampoline.

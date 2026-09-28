@@ -14,12 +14,14 @@ enum class Runtime { Vdxr = 0, SteamVr = 1, Auto = 2 };
 
 // [Screen] RenderWidth/RenderHeight as a share of the tested 2750x2850 pixel
 // count, both axes scaled together, the F10 Display picker's own arithmetic.
-enum class Quality { Performance = 0, Balanced = 1, Quality = 2, Custom = 3 };
+enum class Quality { Performance = 0, Balanced = 1, Quality = 2, Ultra = 3, Custom = 4 };
 
 struct Size { uint32_t w = 0, h = 0; bool operator==(const Size& o) const { return w == o.w && h == o.h; } };
 
 constexpr uint32_t kBaseWidth = 2750, kBaseHeight = 2850;   // 100 %, Balanced per-eye resolution
 constexpr float kPerformancePercent = 75.0f, kBalancedPercent = 100.0f, kQualityPercent = 120.0f;
+constexpr float kUltraPercent = 150.0f;       // VR-282: 3368x3491, a step above Quality
+constexpr float kMaxPercent = 300.0f;         // VR-282: the sliders' ceiling (4763x4936), as in F10
 
 // Optional front-page preferences. -1 preserves the existing/shipped key.
 // Values use INI semantics, including DesktopMirrorOff's inverted meaning.
@@ -31,7 +33,7 @@ struct Preference {
     int fallback;
     bool inverted;
 };
-enum PreferenceId { Mirror, Crouch, Rain, Modifier, DpadFlip, PauseChord, PreferenceCount };
+enum PreferenceId { Mirror, Crouch, Rain, Modifier, DpadFlip, PauseChord, SnapTurn, PreferenceCount };
 inline constexpr Preference kPreferences[] = {
     { L"VR", L"DesktopMirrorOff", L"--mirror", "Desktop mirror", 1, true },
     { L"Tracking", L"PhysicalCrouch", L"--physical-crouch", "Physical crouching", 1, false },
@@ -39,10 +41,11 @@ inline constexpr Preference kPreferences[] = {
     { L"Controllers", L"DpadModifier", L"--dpad-modifier", "D-pad modifier", 1, false },
     { L"Controllers", L"DpadFlip", L"--dpad-flip", "Use right stick for D-pad", 0, false },
     { L"Controllers", L"PauseChord", L"--pause-chord", "X + Y pause shortcut", 1, false },
+    { L"Turning", L"SnapTurn", L"--snap-turn", "Snap turning", 0, false },   // VR-219; off = the game's smooth turn
 };
 
 struct Choices {
-    int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1 };
+    int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
     bool overwriteSettings = true; // recommended defaults, backed up before replacement
     Runtime runtime = Runtime::Auto;
     Quality quality = Quality::Balanced;
@@ -72,6 +75,34 @@ const char* quality_label(Quality q);
 // The ini's own words for a runtime choice.
 const wchar_t* runtime_ini_value(Runtime r); // "native" | "steamvr" | "auto"
 bool runtime_from_ini(const std::wstring& runtimeValue, const std::wstring& json, Runtime* out);
+
+// VR-223: the headset the player says they have. Recorded for diagnostics only
+// (the launcher log, the mod's startup log, the support bundle); it changes no
+// setting. The list is the BioShock Remastered VR mod's Setup.bat question, in
+// its order, so reports from both mods group the same way, except that Vive Pro 2
+// and XR Elite are split (VR-224): the Pro 2 is played on Index controllers, the
+// XR Elite ships its own. "Something else"
+// takes a typed name. Persisted in launcher.ini [Headset] Model as the label
+// itself, so a name that is not in the list reads back as "Something else".
+inline constexpr const char* kHeadsets[] = {
+    "Meta Quest 3 / 3S", "Meta Quest Pro", "Meta Quest 2", "Meta Quest 1",
+    "Meta Rift S / Rift CV1", "Valve Index", "HTC Vive / Vive Pro", "Vive Pro 2", "Vive XR Elite",
+    "Bigscreen Beyond 1 / 2", "Pimax Crystal / Light", "Pimax 5K / 8K", "Reverb G2 / other WMR",
+    "Varjo Aero / XR-3", "Pico 4 / 4 Ultra", "Somnium VR1", "PSVR2",
+};
+constexpr int kHeadsetCount = (int)(sizeof(kHeadsets) / sizeof(kHeadsets[0]));
+constexpr int kHeadsetOther = kHeadsetCount;         // the "Something else" row
+constexpr size_t kHeadsetNameMax = 48;
+// The list index of a stored name: 0..kHeadsetCount-1, kHeadsetOther for a typed
+// name, -1 for none recorded.
+int headset_index(const std::string& name);
+// A typed name made safe for an ini value and a log line: printable ASCII,
+// spaces collapsed, trimmed, capped at kHeadsetNameMax. Empty when nothing is left.
+std::string clean_headset_name(const std::string& typed);
+// VR-224: the headsets played on Index controllers (Vive Pro 2: wands unsupported), for which the mod turns
+// on its Index controller tuning ([Controllers] IndexTuning=-1, the default).
+// The mod matches the same two labels in config.cpp; keep them in step.
+bool headset_gets_index_tuning(const std::string& name);
 
 std::wstring default_vdxr_json();            // %ProgramW6432%\Virtual Desktop Streamer\OpenXR\virtualdesktop-openxr-32.json
 

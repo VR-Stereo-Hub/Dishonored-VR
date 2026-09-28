@@ -358,14 +358,9 @@ static float    g_mpAnchorBind[MS_CLS_N][3];
 // the wrist finder named (g_msHandBone), rigidly. 0 = the old weight vote over the anchor patch.
 static bool     g_mpAnchorHandBone = true;
 static int      g_mpVoteSlot[MS_CLS_N] = { -1, -1, -1, -1, -1 };   // what the weight vote chose
-// X = R_hand^T * R_vote, measured once per source generation, so R_src = R_hand * X equals the
-// old frame at that instant: the saved grip and the trims keep their meaning, and the frame then
-// follows the hand bone rigidly.
-static dvr::hf::Mat3 g_mpSrcX[2]; static bool g_mpSrcXok[2] = { false, false }; static uint32_t g_mpSrcXGen[2] = { 0, 0 };
-// The (vote slot, hand bone) pair the offset was measured between. A rebuild
-// (a sleeve change, a level load) that keeps the pair keeps the offset instead
-// of re-measuring it at whatever pose the fingers are in at that moment.
-static int g_mpSrcXPair[2][2] = { { -1, -1 }, { -1, -1 } };
+// The empty-hand wrist/finger reference survives same-slot rebuilds, but a
+// collapsed transition palette cannot seed it. Held items never change it.
+static dvr::hf::WristReference g_mpWristReference[2];
 // The anchor's offset from the rigid wrist point, in the hand bone's own (bind) space, kept the
 // same way as X: re-measured while an item is held, frozen while the hand is empty.
 static float g_mpAnchorOff[MS_CLS_N][3]; static bool g_mpAnchorOffOk[MS_CLS_N] = { false, false, false, false, false };
@@ -376,6 +371,7 @@ static volatile bool g_mpItemInHand[2] = { false, false };
 // VR-184: [Hands] RigidWrist=1 (default) - in OUR vertex copy, a hand vertex's forearm-bone influences
 // are pointed at that side's hand bone, so arm and wrist-twist animation cannot bend the cut and cap.
 static bool g_msRigidWrist = true;
+static bool g_ohOn = true;   // [Hands] OpenEmptyRightHand: the empty right hand takes the left hand's open pose (mesh_split.cpp)
 static int  g_msIdxOff = -1, g_msIdxType = 0;       // the BLENDINDICES element, kept from the read
 
 // ---- BUILD A2: PLACEMENT THROUGH THE MEASURED CHAIN --------------------------
@@ -495,6 +491,13 @@ static LONG     g_mpEyeToggles = 0, g_mpEyeSame = 0, g_mpEyeAmbiguous = 0;
 // VR-95: on an unreadable jump, predict the toggle instead of holding the
 // previous eye. Ships OFF; `[Hands] PaletteEyePredictToggle`, F10 Hands.
 static bool     g_mpEyePredict = false;
+// [Hands] PoseFromView (hand/weapon head-turn flicker): a hand draw finds the view it
+// belongs to by its c5 in the pose records and uses THAT view's head sample and eye,
+// instead of a head sample a fixed two presents back and an eye guessed from a jump.
+static bool     g_mpPoseFromView = false;
+static LONG     g_mpPvMatch[3] = {0, 0, 0};   // matched views by eye: left, centre/single, right
+static LONG     g_mpPvNone = 0, g_mpPvNoRec = 0, g_mpPvAmbig = 0, g_mpPvEyeFixed = 0;
+static double   g_mpPvOffSum = 0.0; static LONG g_mpPvOffN = 0; static float g_mpPvOffMax = 0.0f;
 static bool     g_mpEyeMenuHalfStep = false;
 static int      g_mpEyePredictRun = 0;   // consecutive predictions, capped at 2
 static LONG     g_mpEyePredicted = 0;
@@ -634,6 +637,7 @@ struct MpPoseSnap {
     bool          ok[2];         // per hand: head AND that hand tracked
     bool          headOk;
     uint32_t      gen;           // bumped on every publication
+    float         head[3][4];    // the head sample the hands above were normalised against
 };
 static MpPoseSnap        g_mpPosePub;          // the published snapshot
 static CRITICAL_SECTION  g_mpPoseCs;

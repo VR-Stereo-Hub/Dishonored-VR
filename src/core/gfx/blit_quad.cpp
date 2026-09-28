@@ -129,6 +129,11 @@ bool BlitQuad::init(ID3D11Device* dev) {
     D3D11_BLEND_DESC bd = {};
     bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     dev->CreateBlendState(&bd, &blend_);
+    bd.RenderTarget[0].BlendEnable = TRUE;
+    bd.RenderTarget[0].SrcBlend = bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    bd.RenderTarget[0].DestBlend = bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+    bd.RenderTarget[0].BlendOp = bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    dev->CreateBlendState(&bd, &over_);
     D3D11_DEPTH_STENCIL_DESC dd = {};
     dd.DepthEnable = FALSE;
     dev->CreateDepthStencilState(&dd, &depth_);
@@ -140,6 +145,7 @@ bool BlitQuad::init(ID3D11Device* dev) {
 
 void BlitQuad::shutdown() {
     if (depth_) { depth_->Release(); depth_ = nullptr; }
+    if (over_) { over_->Release(); over_ = nullptr; }
     if (blend_) { blend_->Release(); blend_ = nullptr; }
     if (raster_) { raster_->Release(); raster_ = nullptr; }
     if (sampler_) { sampler_->Release(); sampler_ = nullptr; }
@@ -151,8 +157,9 @@ void BlitQuad::shutdown() {
 }
 
 void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
-                    ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, const AlphaParams* alpha) {
+                    ID3D11RenderTargetView* dst, uint32_t w, uint32_t h, const AlphaParams* alpha, bool composite) {
     if (!ready_ || !ctx || !src || !dst) return;
+    if (composite && (!over_ || !alpha || !alpha_ready())) return;
     const bool alphaRepair = alpha && psAlpha_ && cb_;
     if (alphaRepair) {
         const float k[20] = { (float)alpha->mode, alpha->gain, alpha->floorA, alpha->gamma,
@@ -168,7 +175,7 @@ void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
     ctx->RSSetState(raster_);
     ctx->OMSetRenderTargets(1, &dst, nullptr);
     const float blendFactor[4] = {0, 0, 0, 0};
-    ctx->OMSetBlendState(blend_, blendFactor, 0xffffffff);
+    ctx->OMSetBlendState(composite ? over_ : blend_, blendFactor, 0xffffffff);
     ctx->OMSetDepthStencilState(depth_, 0);
     ctx->IASetInputLayout(nullptr);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

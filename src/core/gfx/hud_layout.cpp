@@ -10,6 +10,8 @@
 
 #include "core/framework/status.h"
 #include "core/framework/frame_hooks.h"
+#include "core/gfx/hud_class.h"
+#include "core/gfx/hud_owner.h"
 #include "core/gfx/hud_capture.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/hud_route.h"
@@ -66,7 +68,7 @@ const RowDef kRows[ElCount] = {
     { "note",          4, {0, 0, 0, 0},                       false, AnchorWindow, "a readable note (by context)" },
     { "journal",       5, {0, 0, 0, 0},                       false, AnchorWindow, "the journal (by context)" },
     { "wheel",         6, {0, 0, 0, 0},                       false, AnchorWindow, "the power wheel: the weapon scroll and the grip-hold loadout (by context)" },
-    { "store",         7, {0, 0, 0, 0},                       false, AnchorWindow, "the store (by context)" },
+    { "store",         7, {0, 0, 0, 0},                       false, AnchorWorld,  "the store (by context)" },
     { "missionstats",  8, {0, 0, 0, 0},                       false, AnchorWindow, "the mission stats (by context)" },
     { "wheelshortcuts",-1, {0,0,0,0},false,AnchorWindow,"wheel D-pad shortcuts, from the same captured image" },
     { "wheelpotions",  -1, {0,0,0,0},false,AnchorWindow,"wheel health and mana controls, from the same captured image" },
@@ -682,13 +684,38 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 
 // ---- routing --------------------------------------------------------------
 
-int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives, float* nativePivot) {
+int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives, float* nativePivot, bool* nativeMarker) {
+    if(nativeMarker)*nativeMarker=false;
     if(native_gameplay_reference()) {
         if(elementOut) *elementOut=-1;
         ++g_routeFrame;++g_whyCounts[WhyReference];
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
             "hud/native-reference: gameplay draw left in game image; capture/alpha/objective transforms bypassed frame=%u",(unsigned)dvr::frame::count());
         return -1;
+    }
+    // An identified native widget owns every child and filter composite.
+    // Unknown work remains native, never assigned to a nearby marker/prompt.
+    if(!g_visualRiding && dvr::hudowner::active()) {
+        const auto owner=dvr::hudowner::current();
+        dvr::hudowner::note_route((bool)owner);
+        const int e=owner ? owner.element : -1;
+        if(elementOut) *elementOut=e;
+        if(e<0 || e>=ElCount) {++g_routeFrame;return -1;}
+        ++g_routeCounts[e];++g_seen[e];g_lastRouted[e]=g_presentNo;
+        if(nativePivot && owner.pivotValid) {
+            nativePivot[0]=nativePivot[2]=owner.pivot[0];
+            nativePivot[1]=nativePivot[3]=owner.pivot[1];
+        }
+        const bool marker=owner.marker && (g_nativeObjectives || e==ElDetection);
+        if(marker || g_el[e].anchor==AnchorFrame) {
+            if(nativeMarker)*nativeMarker=marker;
+            ++g_routeFrame;return -1;
+        }
+        const int anchor=g_el[e].anchor;const bool crop=crop_eligible(e);
+        int sink=crop ? g_elementSink[e] : g_sinkOf[anchor][0];
+        if(sink<0) sink=acquire_sink(anchor,crop,crop?e:-1);
+        if(sink<0) {++g_routeOverflow;if(elementOut)*elementOut=-1;}
+        return sink;
     }
     if(nativePivot && bbox) memcpy(nativePivot,bbox,4*sizeof(float));
     hudroute::Identity id;
@@ -729,6 +756,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
                 bridges,drawKey,drawFrame);
         }
         if(runeDraw || runeBridge) {
+            if(nativeMarker)*nativeMarker=true;
             if(nativePivot)memcpy(nativePivot,runePivot,sizeof(runePivot));
             if(elementOut)*elementOut=ElObjective;
             ++g_routeFrame;++g_routeCounts[ElObjective];++g_seen[ElObjective];
@@ -755,6 +783,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
            dvr::objectivemarkers::match_awareness_draw(
                bbox,(float)dvr::capture::width(),(float)dvr::capture::height(),awarePivot)) {
             if(nativePivot)memcpy(nativePivot,awarePivot,sizeof(awarePivot));
+            if(nativeMarker)*nativeMarker=true;
             if(elementOut)*elementOut=ElDetection;
             ++g_routeFrame;++g_routeCounts[ElDetection];++g_seen[ElDetection];
             g_groups.cut();note_why(drawKey,bbox,ElDetection,-1,WhyAwareness);
@@ -771,6 +800,9 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
             float taskPivot[4]{},offset[2]{};
             int kind=dvr::objectivemarkers::match_task_draw(
                 bbox,(float)dvr::capture::width(),(float)dvr::capture::height(),taskPivot,offset);
+            // VR-186: do not split an observed prompt when it crosses a task's
+            // broad text bound. Real marker icons and native parents still win.
+            if(g_groupInteractions && g_stableRoutes.prefer_interaction(drawKey,drawFrame,kind)) kind=0;
             if(kind==1) g_taskIconContinuity.route(drawKey,drawFrame,GetTickCount(),bbox,vertices,primitives,true);
             else if(!kind && dvr::objectivemarkers::task_visible() &&
                     g_taskIconContinuity.route(drawKey,drawFrame,GetTickCount(),bbox,vertices,primitives,false)) {
@@ -788,6 +820,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
                     offset[0],offset[1],drawKey,vertices,primitives,
                     g_nativeObjectives?"the game image":kAnchorNames[g_el[ElObjective].anchor]);
                 if(g_nativeObjectives) {
+                    if(nativeMarker)*nativeMarker=true;
                     if(elementOut)*elementOut=ElObjective;
                     ++g_routeFrame;++g_routeCounts[ElObjective];++g_seen[ElObjective];
                     g_lastRouted[ElObjective]=g_presentNo;
@@ -832,7 +865,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
                 // the native measured dot/grown reticle rather than adopting it.
                 !hudroute::centered_reticle(bbox,primitives) && !hudroute::centered_gauge(bbox) &&
                 g_interactionGroup.claim(bbox,drawFrame,(!heuristicMarkers || !icon) && (spatial==ElPrompt || e==ElPrompt))) {
-                e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e);why=WhyInteraction;
+                e=ElPrompt;g_stableRoutes.adopt(drawKey,drawFrame,e,true);why=WhyInteraction;
             }
         }
     }
@@ -875,7 +908,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     int anchor = g_el[e].anchor;
     const bool nativeObjective=g_nativeObjectives && e==ElObjective && id.context<0;
     if(!lifted) note_why(drawKey,bbox,e,nativeObjective ? -1 : anchor,why);
-    if(nativeObjective) {++g_routeFrame;return -1;}
+    if(nativeObjective) {if(nativeMarker)*nativeMarker=true;++g_routeFrame;return -1;}
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
     // This topology includes observed objective artwork, but is not semantic
     // identity. Record misses without stealing unrelated prompts from panels.
@@ -1247,6 +1280,8 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"NoBlur%s",kMenuContextNames[i]);
         if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
     }
+    dvr::hudclass::set_owner_trace(read_i(ini,"OwnerTrace",0)!=0);
+    dvr::hudowner::configure(read_i(ini,"SemanticOwnership",0)!=0);
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
@@ -1363,6 +1398,7 @@ void save(const char* ini) {
     write_i("NativeAwarenessMarkers",dvr::objectivemarkers::awareness_enabled());
     write_i("NativeMarkerChildren",g_nativeMarkerChildren);
     write_i("NativeGameplayReference",g_nativeGameplayReference);
+    write_i("SemanticOwnership",dvr::hudowner::enabled());
     write_i("WheelSidePanels",g_wheelParts);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
@@ -1938,6 +1974,12 @@ void draw_ui() {
             dvr::objectivemarkers::configure_runes(runeTask, runeInset / 100.f);
             write_i("NativeRuneMarkers", runeTask); write_f("RuneMarkerEdgeInset", runeInset / 100.f);
         }
+        bool semantic=dvr::hudowner::enabled();
+        if(dvr::ovl::checkbox("Native widget ownership (test)",&semantic)) {
+            dvr::hudowner::configure(semantic);write_i("SemanticOwnership",semantic);
+            dvr::hudcap::invalidate_content();forget_draw_owners();
+        }
+        ov::tip("Keeps each widget together through rendering. Enable before starting the game; then toggle here to compare.");
         bool nativeTask = dvr::objectivemarkers::enabled();
         float edgeInset = dvr::objectivemarkers::inset() * 100.f;
         const bool taskChange = dvr::ovl::checkbox("Native objective arrow boundary (test)", &nativeTask);

@@ -1,3 +1,14 @@
+## Stereo axis for scoped cameras (VR-229, 2026-09-25)
+
+Reentry geometry reads camera::last_eye_right: the exact axis from the most recent
+successful eye-offset write. A cinematic/menu scope uses its composed right axis;
+ordinary camera writes publish the native right row. This small bounded atomic
+snapshot is independent of positional tracking's cached axes. A failed snapshot
+leaves ring fallback; no thresholds or camera memory writes change. It is coherent
+but not tagged to the queued render view, an explicit remaining temporal limit.
+The prior cached-native classifier fails rotated delayed-tag tests. Evidence and
+failed candidate acceptance: dishonored/FLICKER_REFERENCE.md.
+
 # Architecture
 
 ## Overview
@@ -1109,6 +1120,26 @@ spyglass/cinematic headset validation remains required. Details: ENGINE_NOTES,
 VR-213. Camera writes require fresh-table identity revalidation after UI/load
 transitions; unchanged pointer values do not bypass it.
 
+## 2026-09-26: the FOV lever's base is never re-read from its own output
+
+The lever re-reads its natural base from the camera sensor whenever the owners are
+revalidated after a load. By then the sensor holds the lever's own output, and the dev
+rig's logs show it taken as the base after loads (`natural base 108.1 deg, target 108.07
+... ratio 1.000`, five captures across four sessions). VR-213 made a base at or above the
+target a ratio of exactly 1, which is safe against contraction but has no restoring
+force: the lever copies whatever the game renders, including a narrowing the game makes
+for a moment (death, a store, an objective), into the controller's DefaultFOV, and the
+game restores that narrow default afterwards. The headset view stays a small box. An
+affected player reported exactly that after a store and after dying, at a portrait
+(taller than wide) render size, and not at four landscape sizes; a landscape target
+(about 110.9 deg) leaves an echo slightly under it, a ratio just above 1 that does pull
+back, which fits. Decision: the first base a session reads is kept, and a re-read
+replaces it only when it is neither within 0.5 deg of our last write, nor at the target,
+nor narrower than the kept base (a transient); a wider value (a changed game FOV option)
+is accepted. `fov_lever_policy.h` `rearm_natural`, host-tested with a negative control
+that reproduces the stuck 37.36 view from an echoed base. Known limit: a game FOV option
+lowered mid-session is ignored until restart.
+
 ## Launcher update boundary (VR-214, 2026-09-24)
 
 The launcher remains a single offline-capable x86 EXE with its mod payload.
@@ -1140,3 +1171,195 @@ bounded RAM, predictable disk use and a provable size check. Current oversized
 logs retain build context and recent failure evidence; the manifest makes every
 excerpt or omission explicit. Collection remains local and does not include game
 assets or implicit process dumps.
+
+## 2026-09-24: staging is the integration branch; VR-Main tracks releases (VR-218)
+
+Until this date VR-Main was the only branch. The 1.0.0 release and the tester zips before it
+were cut from the same tip as work still being judged, and the 1.0.1 hotfix was tagged from a
+stack of draft PRs that VR-Main did not contain, so "what can a player install" could not be
+read from a branch name. The hotfix chain was fast-forwarded onto VR-Main (its tip is the
+v1.0.1 commit), `staging` was created from that tip, and the four open PRs based on VR-Main
+were retargeted to staging.
+
+The rule from here: feature branches come off staging and their PRs target staging; merging
+into staging still needs the user's explicit yes per PR; VR-Main moves only by the release PR
+(staging -> VR-Main, merged by the user) and its tip is always the latest release tag. Linear
+Done now means merged to staging; Released means carried into VR-Main and tagged, and the
+Linear automation row that marks Done is restricted to base staging. The alternative, a
+release branch cut per version, was not taken: two long-lived branches whose difference is
+exactly "what has landed since the last release" is the smallest arrangement that answers the
+question, and a per-version branch would have to be found before it could be read.
+## 2026-09-25: a snap turn is body yaw written on the script lane (VR-219)
+
+The smooth turn is the game's own: the right stick reaches it as the pad's RX axis and the engine
+integrates it; the mod has never written yaw for a turn. A snap step is written where the head
+writer already writes the view rotation (the fresh branch of ApplyHeadToViewRotation), added to
+`rot[1]` with the head delta but handed to YawPublish as part of the INCOMING view, so the yaw
+book counts it as body yaw and the pawn, the hands, the aim ray and the HUD anchors turn with it
+in both facing modes. Two alternatives were not taken: a synthetic stick pulse (its size depends
+on the game's look sensitivity and on frame timing) and a pawn Rotation write (measured futile,
+4 of 186 survivors, head_track.cpp). The present lane detects the stick edge and eats RX only
+while the script writer is fresh (`g_scriptHeadOK`, age under 250 ms) and only after every
+block that takes the stick for navigation has zeroed it, so no second copy of the menu, wheel,
+book, lean and pointer predicates exists; wherever the writer is not writing, the stick stays
+the game's and turns smoothly. The retired fallback writer is refused, not extended. The step is
+taken exactly once in the fresh branch, so the 2 ms re-stamp and the second-eye replay cannot
+apply it twice; the next fresh dispatch reads the engine's incoming yaw against the write and
+logs HONOURED or NOT HONOURED, because a verified write is not an honoured one.
+## 2026-09-25: the attack source is the mod's knowledge, not the game's (VR-220)
+
+The game plays one swing clip for a sword attack whether the player pulled the trigger or swung
+the controller, because both reach it as the same trigger press; only the mod knows which. The
+sword hand-back (`HandAnimMelee`, the game's clip on the tracked hand, then back to the controller)
+therefore reads the motion sword's own fire record and applies to trigger attacks only: a swing's
+attack is the player's arm, and pinning a moving arm to the clip would yank it. The verdict is
+made once per attack and per combo clip from the fire-to-entry time and the pulse state, and every
+ambiguity resolves toward "swing" (no hand-back) because the cost of the other error is one
+un-animated trigger hit. Rejected: reading the game's own input routing (it does not distinguish),
+and gating the hand-back on the honour check's verdict (that arrives after the attack has started).
+The melee body gate moved from the whole hand-back to the body-owning classifier so a trigger
+hand-back does not refuse the swing that follows it. The shipped default moved 0 -> 1 through a
+one-time ini migration instead of a config version bump, which would have discarded every tuned
+F10 value on every tester's machine to change one key.
+### 2026-09-24: the reported headset lives in launcher.ini, not dishonored_vr.ini
+
+VR-223 records which headset the player has, for diagnostics. It is stored in
+the launcher's own %LOCALAPPDATA%/DishonoredVR/launcher.ini [Headset] Model and
+the mod reads it from there for one startup log line. The mod's ini was the
+obvious home and is wrong twice: the launcher must ask before the mod (and so
+its ini) is installed, and LoadConfig rewrites that ini wholesale on a version
+bump, which would silently drop the answer. The path is fixed at
+%LOCALAPPDATA%, never [Paths] DataDir, because the launcher never reads the mod's
+DataDir. It changes no setting; per-headset defaults (as the BioShock
+Remastered VR mod applies them) would be a separate, deliberate change.
+
+### 2026-09-24: the Index tuning reaches the shim through the process environment
+
+VR-224 gates shim behaviour (Index frame correction, hold trims, the knuckles
+grip binding) on a decision the mod makes from its ini and the launcher's
+headset. The shim has no config of its own and is loaded by the OpenXR loader,
+in the game process, after LoadConfig has run; the mod already hands the loader
+XR_RUNTIME_JSON the same way. So LoadConfig resolves `[Controllers]
+IndexTuning` once and sets `DVR_INDEX_TUNING=0|1`; the shim reads it on first use
+and logs it. One decision, one owner, and the shim cannot disagree with the mod's
+log. An unset variable (an older proxy, the simulator) reads as off.
+
+
+## 2026-09-25: copy HUD widget identity across native render commands
+
+Native Scaleform traversal and D3D drawing are on different threads. Scope alone
+cannot identify deferred child draws; rectangle overlap/content hashes already
+failed interaction-versus-objective ownership. The guarded candidate copies a
+validated widget identifier before native queue publication, scopes it during
+Execute, and retires it at consumption. Synchronous drawing uses the native
+Display scope directly. Queue metadata is fixed-size, generation-bound, refuses
+ambiguous/reused identities and never requires render-thread UObject access.
+Unknown draws retain native rendering. The existing menu context route is separate.
+Default-off SemanticOwnership has an explicit local candidate enable and live A/B.
+This is an ownership repair candidate; target depth and headset performance are
+not established by transport host tests. See HUD_ANCHORS, ENGINE_NOTES and PERFORMANCE.
+
+## 2026-09-25: opt-in remote flicker flight recorder (VR-229)
+
+The remote diagnostic package is a separate compile option, default OFF. It arms
+its own bounded telemetry without changing a tester's INI or eye decisions. This
+avoids depending on a lifetime ledger budget or LEFT-triggered sampling while
+LEFT identity itself is under investigation. A fixed history joins the method
+record with the actual XR tail; independent pixel bursts and c5 census supply
+corroboration rather than treating a label as image truth. Every sample stage
+reports validity and cost. Ordinary builds explicitly reset the cached option;
+the diagnostic build command rejects automatic installation. No engine-memory
+writer or extra game resource reference is introduced. Details and the hypothesis
+matrix remain in FLICKER_REFERENCE, not in a second investigation document.
+
+## Draw progress and low-cost acceptance history (VR-229, 2026-09-25)
+
+The game-side second-draw liveness gate compares Present at consecutive draw
+entries, so progress inside the previous draw counts. It does not remove the
+stall guard or change tag arbitration. A beat counter identifies otherwise-valid
+stereo ticks that the former return-time baseline would have rejected.
+The test recorder and pixel probes have separate build flags. A recorder-only
+DLL disables all frame-id GPU sampling even if the saved INI requests it, making
+its performance cost primarily bounded CPU history and log bursts. Normal builds
+retain their existing saved FrameId policy. No installed settings are edited.
+
+## Texture-backed capture interop (VR-260, 2026-09-25)
+
+The capture probe and slots use a one-level DEFAULT render-target texture,
+following the documented D3D9-to-D3D11 contract. The level-zero D3D9 surface is
+the StretchRect destination. A small owner keeps the D3D9 texture, surface and
+D3D11 texture together; capture releases SRVs before resetting that owner.
+The probe uses the same preferred A8/backbuffer fallback formats as the slots.
+This changes resource creation only; existing producer/consumer fences and eye
+delivery remain responsible for synchronization.
+
+### 2026-09-26: optional camera motion vectors for clarity TAA
+
+Convert the existing c5 position record into world coordinates only in clarity's consumer;
+do not change pose transport semantics. Generate per-eye previous-minus-current UV vectors
+at TAA output resolution from serial-matched depth. Feed those to TAA, retaining the prior
+rotation/motion-weight fallback for absent depth and colour clipping for unmodelled objects.
+Active Temporal + MotionVectors owns the depth-copy demand separately from diagnostics;
+Present also services resource release on disable. DepthScale 200 is the coarse measured
+simulator minimum and remains adjustable. Both temporal and vector levers default off.
+Measurements, rejected mirroring and the initial caller-gate failure: PERFORMANCE.md.
+
+
+### 2026-09-26: TAA audit follow-up supersedes materialized production vectors
+
+Clarity now fuses reconstruction into temporal; history alpha retains linear depth for
+previous-view visibility rejection. Optional vector outputs are host diagnostics, not a
+production allocation. Draw records append per-eye c5, scoped FOV, camera identity and
+level/UI epoch without changing the tracking Cam/Track publication. Consumption uses those
+captured values; history rejects capture gaps, lifecycle transitions and stale views.
+Every shared-depth slot owns a D3D11 read query ended after all clarity/calibration reads.
+Reuse is nonblocking and requires completion; pending serial duplicates are invalidated.
+D3D9 producer failure and colour capture fence timeouts refuse delivery. Depth-copy GPU
+brackets and CPU submission are now attributed in perf. Details and acceptance: PERFORMANCE.
+
+
+### 2026-09-26: DLSS runs in a 64-bit helper; the proxy creates every shared object
+
+NGX has no 32-bit build, so DLAA/DLSS run in `dvr_dlss_host64.exe`, started by the proxy
+in a kill-on-close job. One helper for both eyes (one NGX feature each keeps the histories
+apart) instead of the community fork's helper per eye: one D3D12 device, one NGX init, one
+pipe. The proxy creates the textures and fences on its D3D11 device and duplicates the
+handles INTO the helper, so the helper needs no access to the game process. The helper
+takes the proxy's adapter LUID on its command line and refuses any other adapter. The
+per-frame ack follows the helper's queued Signal, so the proxy waits on the GPU, not the
+CPU; a dead helper fails the next pipe call immediately and the normal path runs. Start
+and build run on a worker thread; the present thread uses the client only in Ready.
+FSR 3.1 (phase 3) is planned in-process on a 32-bit D3D12 device instead, because its
+source builds for Win32. Details: PERFORMANCE.md, DLAA through an x64 NGX helper.
+
+### 2026-09-27: controller binds remap the snapshot, not the XInput bits
+
+Bind remapping (`core/input/controller_binds.h`) maps the runtime layer's physical
+`InputSnapshot` to a logical one of the same type before the pad bridge reads it, instead of
+permuting XInput bits after composition. Reason: several mod systems key on what they believe is a
+physical input (slide assist and physical crouch on B, the sword and carry/throw on the triggers,
+the wheel gates on the left grip, the health hold on the right stick click). Remapping the snapshot
+moves all of them with their action for free; remapping the output would leave each firing on the
+old button. The shipped layout returns the snapshot unchanged, so the default path is the old code
+path. The runtime layer stays physical (the recenter / panel chord is resolved there), and the F10
+pointer and the thumbrest D-pad modifier stay physical on purpose. The game's own
+`DishonoredInput.ini` is not the route: the game rewrites it at exit and the mod's systems would
+not know the mapping. Details: `docs/dishonored/CONTROLLER_BINDS.md`.
+## 2026-09-27: native markers bypass temporal reconstruction
+
+Decision: compose classified native markers after DLSS/FSR, at output resolution,
+using their own original per-eye clip coordinates and colour blend. hud_class
+admits only ZENABLE=false HUD draws, and native marker routing happens inside
+that classification. Scene-depth occlusion is therefore not sampled by these
+intercepted draws; visibility already decided by the engine is preserved. Do not
+fabricate scene depth at output resolution. Masking and unsupported render states
+refuse to the original path. See HUD_ANCHORS for exact guards and open coverage.
+
+Use the colour capture serial as image identity. Seal at its actual allocation;
+compose by delivered_serial after reconstruction in reentry. A current-present
+eye or the shared HUD sink's once-per-pair output would give the wrong screen
+position to a delayed eye. Fenced shared resources retain several capture images;
+unknown readiness omits the overlay with a diagnostic, never reuses stale pixels.
+Pure D3D9 device state is restored from original setters and shadows; no engine
+D3D object is retained with AddRef in a draw detour. No engine-memory writer.
+The new lever defaults off, and without reduced upscaling draws remain native.

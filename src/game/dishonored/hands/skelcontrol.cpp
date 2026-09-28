@@ -443,7 +443,10 @@ static bool AnimReleaseControls()
         if (g_skcHandOf[i]<0) continue;
         uint32_t* bits=(uint32_t*)(o+kSkcBools);
         float* scale=(float*)(o+kSkcScaleProp);
-        if (now) {
+        // VR-220: release only the hands this hand-back owns. A trigger sword attack owns
+        // the right hand; the left keeps its control and stays on the controller.
+        const bool own=now && dvr::anim::hand_owned(g_skcHandOf[i]);
+        if (own) {
             if (!s.held) { s.obj=o; s.bits=*bits; s.scale=*scale; s.held=true; s.id=current; s.index=g_skcObjIdx[i]; }
             *bits &= ~mask; *scale=1.0f;
         } else if (s.held) {
@@ -646,6 +649,7 @@ static void ApplyHandToMeshInner()
                     *(float*)(o + kSkcStr) = g_skcCamStrength;
                 continue;
             }
+            if (dvr::anim::hand_owned(hand)) continue;   // VR-220: the game's clip owns this hand's bones for now
             float v[3] = { g_skcTrans[0], g_skcTrans[1], g_skcTrans[2] };
             if (g_skcLive) {
                 // hand offset from the head, in head axes - the same quantity
@@ -1243,7 +1247,9 @@ static void ApplyHandToMesh()
     // Blink latch. Neither is what the tester hit (the tuck was), so neither
     // is moved here; they are named so the next reader does not have to
     // re-derive the shape.
-    if (AnimReleaseControls()) { BoneVisTick(); return; }
+    // VR-220: the whole drive stands down only when the game owns BOTH hands; a right-hand
+    // hand-back keeps the left hand driven (the loop in Inner skips the owned hand).
+    if (AnimReleaseControls() && dvr::anim::hand_owned(0) && dvr::anim::hand_owned(1)) { BoneVisTick(); return; }
     AutoHandStartTick();
     // 38.30: ArmsHideTick MUST run above every early return. In 38.29 it sat
     // inside ApplyHandToMeshInner, below the g_armsHidden skip - so the first
@@ -1408,12 +1414,13 @@ static inline void SkcRotApply()
         if (!SkcAlive(g_skcCamIdx)) { g_skcStale = 1; GraftEmergencyRestore(); return; }
         *(float*)(g_skcPlayer[g_skcCamIdx] + kSkcStr) = g_skcCamStrength;
     }
-    if (animationOwnsHands || !g_skcDoRot) return;
+    if ((animationOwnsHands && dvr::anim::hand_owned(0) && dvr::anim::hand_owned(1)) || !g_skcDoRot) return;
     for (int q = 0; q < g_skcPlayerN; q++) {
         if (!SkcAlive(q)) { g_skcStale = 1; GraftEmergencyRestore(); return; }
         uint8_t* o = g_skcPlayer[q];
         int hand = (q < 8) ? g_skcHandOf[q] : -1;
         if (hand < 0) continue;
+        if (animationOwnsHands && dvr::anim::hand_owned(hand)) continue;   // VR-220: per hand
         if (g_skcRotPin) {
             int32_t* rot = (int32_t*)(o + kSkcRot);
             rot[0] = 0; rot[1] = 0; rot[2] = 0;

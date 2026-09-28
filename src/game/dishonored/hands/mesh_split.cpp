@@ -2072,8 +2072,90 @@ struct MpDrawCtx {
     int           basisParity;  // +1 or -1: does the mapping mirror?
     MpPoseSnap    pose;
     bool          poseOk;
+    bool          viewMatched;  // PoseFromView: this draw's view was found by its c5
+    int           viewEye;      // that view's eye: -1 left, +1 right, 0 single
 };
 
+
+// The hand in the head's frame: position and orientation, the maths MpDriveTick has always
+// used, in one place so the PoseFromView path cannot drift from it. POSITION: hand minus head
+// in XR metres, resolved into the head's own right/up/forward (frame-free scalars; the draw
+// turns them into a world vector with its own camera basis). ORIENTATION: F * transpose(R_head)
+// * R_controller through the same physical mapping (a pose conversion, not a similarity of a
+// head-relative rotation; `head_turn` in the self-test is the counterexample). HEAD and CTL are XR device-to-tracking 3x4s (columns right, up, back).
+static void MpHandInHead(const float (*HEAD)[4], const float (*CTL)[4], float ruf[3], dvr::hf::Mat3* inHead)
+{
+    float w[3];
+    for (int r = 0; r < 3; r++) w[r] = CTL[r][3] - HEAD[r][3];
+    const float rx = HEAD[0][0], ry = HEAD[1][0], rz = HEAD[2][0];
+    const float ux = HEAD[0][1], uy = HEAD[1][1], uz = HEAD[2][1];
+    const float fx = -HEAD[0][2], fy = -HEAD[1][2], fz = -HEAD[2][2];
+    ruf[0] = w[0]*rx + w[1]*ry + w[2]*rz;
+    ruf[1] = w[0]*ux + w[1]*uy + w[2]*uz;
+    ruf[2] = w[0]*fx + w[1]*fy + w[2]*fz;
+    dvr::hf::Mat3 R_H, R_C;
+    for (int rr = 0; rr < 3; rr++)
+        for (int c2 = 0; c2 < 3; c2++) { R_H.m[rr*3+c2] = HEAD[rr][c2]; R_C.m[rr*3+c2] = CTL[rr][c2]; }
+    *inHead = dvr::hf::controller_orient_in_head(R_H, R_C);
+}
+
+// HAND/WEAPON HEAD-TURN FLICKER. The hands are placed relative to the camera from the
+// controller's position in the HEAD's frame. That frame has to be the head sample the view
+// was rendered from, or during a turn the hand is rotated by the difference: the `hv:` line
+// measured 8-15% of frames normalised against another generation during fast turns, up to
+// 1.7 deg (about 1.5 cm at arm's length), on alternate views - a flicker on the hands and
+// weapons only, since the world has one camera per tick. The snapshot's "two presents back"
+// is a fixed stand-in for that sample, and under re-entry (two presents per tick, a render
+// thread up to a frame behind) the stand-in is right most of the time and not always.
+//
+// The view knows exactly: its pose record holds the head sample the camera write used, and
+// the camera position written for that view, which the draw's c5 reads to within 0.001 uu
+// (1178 of 1181 ledger pops, 2026-09-25). So the draw finds its record by c5 and re-derives
+// both hands against that record's head, with the same controller sample the snapshot used.
+// No match (walking travel after a write, a mono tick, a record aged out, a tie with another
+// head sample) leaves the snapshot exactly as it was: today's path.
+static void MpPoseFromView(MpDrawCtx* c)
+{
+    float c5[3];
+    if (!dvr::camera::render_pos(c5)) { InterlockedIncrement(&g_mpPvNone); return; }
+    dvr::pose::Record rec; float dist = 0, second = 0;
+    if (!dvr::pose::find_view(c5, 0.05f, 400.0, &rec, &dist, &second)) { InterlockedIncrement(&g_mpPvNone); return; }
+    if (second < 0.10f) { InterlockedIncrement(&g_mpPvAmbig); return; }   // another head sample sits as close
+    // HtSample publishes an identity at the origin when the runtime had no head pose; a real
+    // head is never exactly that, so it is refused rather than used.
+    if (!rec.track.ok || (rec.track.qw == 1.0f && rec.track.qx == 0.0f && rec.track.qy == 0.0f && rec.track.qz == 0.0f &&
+                          rec.track.px == 0.0f && rec.track.py == 0.0f && rec.track.pz == 0.0f)) { InterlockedIncrement(&g_mpPvNoRec); return; }
+    const dvr::vr::HeadPose hp = { rec.track.px, rec.track.py, rec.track.pz,
+                                   rec.track.qx, rec.track.qy, rec.track.qz, rec.track.qw };
+    float head[3][4];
+    DvrPoseTo3x4(hp, head);
+    // How far off the snapshot's head was, as an angle (telemetry, and the counterprediction:
+    // near zero at rest, growing with turn speed).
+    {
+        float tr = 0;
+        for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) tr += c->pose.head[j][i] * head[j][i];
+        float cs = 0.5f * (tr - 1.0f); if (cs > 1) cs = 1; if (cs < -1) cs = -1;
+        const float deg = acosf(cs) * 57.29578f;
+        g_mpPvOffSum += deg; ++g_mpPvOffN; if (deg > g_mpPvOffMax) g_mpPvOffMax = deg;
+    }
+    for (int h = 0; h < 2; h++) {
+        if (!c->pose.ok[h] || !g_devPoseOk[3 + h]) continue;
+        MpHandInHead(head, g_devPose[3 + h], c->pose.ruf[h], &c->pose.inHead[h]);
+    }
+    memcpy(c->pose.head, head, sizeof(head));
+    c->viewMatched = true;
+    c->viewEye = rec.eye;
+    InterlockedIncrement(&g_mpPvMatch[rec.eye < 0 ? 0 : rec.eye > 0 ? 2 : 1]);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "hands/poseview: ON | draws re-anchored to their own view's head sample: left %ld single %ld right %ld | "
+        "unmatched %ld (no c5 or no record within 0.05 uu: today's path), tied %ld, no head sample %ld | the "
+        "snapshot's head was off by %.3f deg on average, %.3f at most | eyes the jump classifier would have got "
+        "wrong or left unknown: %ld. With the head still the offset must read about 0 and grow with turn speed; "
+        "unmatched climbing while walking is expected (the camera moves after the write).",
+        g_mpPvMatch[0], g_mpPvMatch[1], g_mpPvMatch[2], g_mpPvNone, g_mpPvAmbig, g_mpPvNoRec,
+        g_mpPvOffN ? g_mpPvOffSum / (double)g_mpPvOffN : 0.0, (double)g_mpPvOffMax, g_mpPvEyeFixed);
+    if (g_mpPvOffN >= 2000) { g_mpPvOffSum = 0; g_mpPvOffN = 0; g_mpPvOffMax = 0; }
+}
 
 // Read the draw's own constants and validate them. One call per original draw.
 static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
@@ -2207,6 +2289,8 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         LeaveCriticalSection(&g_mpPoseCs);
         c->poseOk = (c->pose.gen != 0);
     }
+    c->viewMatched = false; c->viewEye = 0;
+    if (g_mpPoseFromView && c->poseOk) MpPoseFromView(c);
     {   // a snapshot older than the previous draw's means publication and
         // consumption have crossed; it is not fatal, but it must be visible
         static uint32_t lastGen = 0;
@@ -2298,6 +2382,7 @@ struct MfRec {
     float    d, projRight, ipdUU;
     float    tR[2];          // placed target on the right axis, uu (last draw of the present)
     uint32_t poseGen;
+    int menuSubscreen; // captured with this draw, never sampled from a later present
     int menuContext; // observed UI context, diagnostic only
     int8_t   eye;            // g_mpEyeState after the decision: -1 L, +1 R, 0 unknown
     char     why;            // T toggled, S same eye kept, A ambiguous, F first sample
@@ -2329,6 +2414,7 @@ static void MfOpen(uint32_t pres, const MpDrawCtx* c, char why, float d, float i
     r->d = d; r->projRight = c->projRight; r->ipdUU = ipdUU;
     r->poseGen = c->pose.gen;
     r->menuContext=UiSurfaceContext();
+    r->menuSubscreen=UiSurfaceSubscreen();
     r->eye = (int8_t)g_mpEyeState; r->why = why;
 }
 
@@ -2377,30 +2463,34 @@ static void MfNoteTag(void)
         if(r.present<wanted) break;
     }
     if(!hand) return;
-    dvr::desktop_eye::Record rec;
+    dvr::desktop_eye::Record rec{};
     const bool known=dvr::desktop_eye::record_for(wanted+1,rec) && rec.draw!=0 && hand->eye!=0;
     const int cls=hand->why=='T'?0:hand->why=='S'?1:2;
     if(!known) ++g_mpEyeMethodNone[cls];
     else if(rec.draw==hand->eye) ++g_mpEyeMethodAgree[cls];
     else ++g_mpEyeMethodDisagree[cls];
     if(hand->menuContext>=3 && hand->menuContext<=8) {
-        struct Totals {uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0;};
-        static Totals totals[9][3];
-        auto& t=totals[hand->menuContext][known ? (rec.draw<0 ? 0 : 1) : 2];
+        struct Totals {uint32_t agree=0,mismatch=0,unknown=0,refused=0,miss=0,lastPose=0,repeatPose=0,newPose=0;};
+        static Totals totals[9][10][3];
+        const int subBucket=hand->menuSubscreen>=0 && hand->menuSubscreen<=8 ? hand->menuSubscreen+1 : 0;
+        auto& t=totals[hand->menuContext][subBucket][known ? (rec.draw<0 ? 0 : 1) : 2];
         if(!known) ++t.unknown;else if(rec.draw==hand->eye) ++t.agree;else ++t.mismatch;
         t.refused+=hand->refused[0]+hand->refused[1];t.miss+=hand->waMiss;
+        if(hand->poseGen && t.lastPose==hand->poseGen)++t.repeatPose;
+        else if(hand->poseGen)++t.newPose;
+        t.lastPose=hand->poseGen;
         if(known && rec.draw!=hand->eye) {
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
-                "menu/hands-mismatch: context=%d completedPresent=%u handEye=%d drawEye=%d decision=%c jump=%.3f ipd=%.3f pose=%u placed=%u/%u refused=%u/%u weaponHit=%u weaponMiss=%u; completed draw identity, diagnostic only",
-                hand->menuContext,wanted+1,(int)hand->eye,rec.draw,hand->why,hand->d,hand->ipdUU,hand->poseGen,
+                "menu/hands-mismatch: context=%d sub=%d completedPresent=%u handEye=%d drawEye=%d decision=%c jump=%.3f ipd=%.3f pose=%u placed=%u/%u refused=%u/%u weaponHit=%u weaponMiss=%u; completed draw identity, diagnostic only",
+                hand->menuContext,hand->menuSubscreen,wanted+1,(int)hand->eye,rec.draw,hand->why,hand->d,hand->ipdUU,hand->poseGen,
                 hand->placed[0],hand->placed[1],hand->refused[0],hand->refused[1],hand->waHit,hand->waMiss);
         }
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-            "menu/hands: context=%d completedPresent=%u handEye=%d drawEye=%d known=%d decision=%c "
-            "jump=%.3f ipd=%.3f pose=%u agree=%u mismatch=%u unknown=%u refused=%u weaponMiss=%u; "
-            "totals ONLY for this context and draw-eye bucket (0=unknown); misses include unassociated weapon candidates",
-            hand->menuContext,wanted+1,(int)hand->eye,rec.draw,known,hand->why,hand->d,hand->ipdUU,
-            hand->poseGen,t.agree,t.mismatch,t.unknown,t.refused,t.miss);
+            "menu/hands: context=%d sub=%d completedPresent=%u handEye=%d drawEye=%d known=%d decision=%c "
+            "jump=%.3f ipd=%.3f pose=%u agree=%u mismatch=%u unknown=%u refused=%u weaponMiss=%u newPose=%u repeatPose=%u; "
+            "totals ONLY for this context/subscreen and draw-eye bucket (0=unknown); misses include unassociated weapon candidates",
+            hand->menuContext,hand->menuSubscreen,wanted+1,(int)hand->eye,rec.draw,known,hand->why,hand->d,hand->ipdUU,
+            hand->poseGen,t.agree,t.mismatch,t.unknown,t.refused,t.miss,t.newPose,t.repeatPose);
     }
 }
 
@@ -2487,7 +2577,7 @@ static void MfMarker(void)
         char why[160]; int w = 0; why[0] = 0;
         if (t != -2 && t != 0 && r.eye != t)
             w += _snprintf(why + w, sizeof(why) - w, " eye %c but tag %c;", MfEyeChar(r.eye), MfEyeChar(t));
-        if (r.why != 'T')
+        if (r.why != 'T' && r.why != 'V')
             w += _snprintf(why + w, sizeof(why) - w, " decision %c;", r.why);
         if (r.refused[0] || r.refused[1])
             w += _snprintf(why + w, sizeof(why) - w, " refused %u/%u;", r.refused[0], r.refused[1]);
@@ -2574,6 +2664,27 @@ static void MpEyeForPresent(const MpDrawCtx* c)
 
     const float ipdUU = g_ipdM * ((g_skcWorldScale > 1.0f ? g_skcWorldScale : 100.0f)
                                   * g_mpDriveGain);
+    // PoseFromView: the eye of the view this draw was matched to IS the eye, read off the
+    // camera position the mod wrote for it, not inferred from how far the hand moved. The
+    // jump the classifier below reads carries the hand's own swing as the head turns (the
+    // viewmodel rides the camera), which is what pushes it out of its band on fast turns.
+    // Ahead of the first-observation branch: a matched view needs nothing to compare against.
+    if (g_mpPoseFromView && c->viewMatched && c->viewEye != 0) {
+        float dv = 0.0f; int legacy = 0;
+        if (g_mpEyeHavePrev) {
+            dv = c->projRight - g_mpEyePrevFirst;
+            const float av = fabsf(dv);
+            legacy = (av > .45f * ipdUU && av < 2.0f * ipdUU) ? ((dv < 0.0f) ? +1 : -1) : 0;
+        }
+        if (legacy != c->viewEye) InterlockedIncrement(&g_mpPvEyeFixed);
+        g_mpEyeState = c->viewEye;
+        g_mpEyeToggles++;
+        g_mpEyePredictRun = 0;
+        g_mpEyeHavePrev = true;
+        g_mpEyePrevFirst = c->projRight;
+        MfOpen(pres, c, 'V', dv, ipdUU);
+        return;
+    }
     if (!g_mpEyeHavePrev) {
         g_mpEyeHavePrev = true; g_mpEyePrevFirst = c->projRight;
         g_mpEyeState = 0;                        // nothing to compare against yet
@@ -2765,41 +2876,28 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
             /* rwhy set */
         } else {
             R_src = sr.r;
-            // VR-183: the hand bone's frame, offset once to the old vote slot's (see g_mpSrcX).
+            // VR-188: keep the measured wrist correction across sleeve rebuilds,
+            // but defer capture while distinct slots have indistinguishable frames.
             if (g_mpAnchorHandBone && g_mpVoteSlot[cls] >= 0 && g_mpVoteSlot[cls] != g_mpDomSlot[cls]) {
+                auto& ref = g_mpWristReference[hand];
                 const bool held = g_mpItemInHand[hand];
-                const bool samePair = g_mpSrcXok[hand] && g_mpSrcXPair[hand][0] == g_mpVoteSlot[cls] &&
-                                      g_mpSrcXPair[hand][1] == g_mpDomSlot[cls];
-                if (!held && samePair && g_mpSrcXGen[hand] != g_mpSrcGen) {
-                    g_mpSrcXGen[hand] = g_mpSrcGen;
-                    float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
-                    Log("ms/palette/frame: %s hand - rebuilt with the same slots (vote %d, hand bone %d): the offset "
-                        "%+.1f %+.1f %+.1f deg is KEPT, not re-measured, so a sleeve change or a load cannot turn the hand",
-                        hand ? "RIGHT" : "LEFT", g_mpVoteSlot[cls], g_mpDomSlot[cls], ex, ey, ez);
+                dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
+                const dvr::hf::Mat3* vote = nullptr;
+                if (ref.needs_vote(held, g_mpVoteSlot[cls], g_mpDomSlot[cls]) &&
+                    MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy)) vote = &sv.r;
+                dvr::hf::WristReference::Event event;
+                R_src = ref.resolve(sr.r, vote, held, g_mpVoteSlot[cls], g_mpDomSlot[cls], g_mpSrcGen, event);
+                if (event == dvr::hf::WristReference::Measured || event == dvr::hf::WristReference::Kept) {
+                    float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(ref.offset, &ex, &ey, &ez);
+                    Log("ms/palette/frame: %s hand - wrist offset %+.1f %+.1f %+.1f deg %s (vote %d, hand bone %d, gen %u)",
+                        hand ? "RIGHT" : "LEFT", ex, ey, ez,
+                        event == dvr::hf::WristReference::Measured ? "MEASURED" : "KEPT",
+                        g_mpVoteSlot[cls], g_mpDomSlot[cls], g_mpSrcGen);
+                } else if (event == dvr::hf::WristReference::Deferred) {
+                    static unsigned deferredLogs[2] = {};
+                    if (deferredLogs[hand]++ < 2) Log("ms/palette/frame: %s wrist reference DEFERRED: vote %d and hand bone %d have identical rotations; using this draw's vote until observable",
+                        hand ? "RIGHT" : "LEFT", g_mpVoteSlot[cls], g_mpDomSlot[cls]);
                 }
-                // A HELD ITEM MUST NOT RE-MEASURE THE EMPTY HAND'S OFFSET. This used to re-measure
-                // g_mpSrcX on every draw while an item was held, from the item's grip pose, and the
-                // empty hand then kept that value: after a crossbow, the power hand came back turned
-                // the crossbow's way (headset, 2026-09-22). Held now takes the old vote slot's frame
-                // for this draw only; the latch belongs to the empty hand and is measured only there.
-                if (held) {
-                    dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
-                    if (MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy))
-                        R_src = sv.r;
-                } else if (!g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen) {
-                    dvr::hf::ScaledRot sv; const char* vwhy = nullptr;
-                    if (MpSlotFrame(g_mpVoteSlot[cls], g_mpCache, g_mpCacheN, &sv, &vwhy)) {
-                        const bool first = !g_mpSrcXok[hand] || g_mpSrcXGen[hand] != g_mpSrcGen;
-                        g_mpSrcX[hand] = dvr::hf::mul3(dvr::hf::transpose3(sr.r), sv.r);
-                        g_mpSrcXok[hand] = true; g_mpSrcXGen[hand] = g_mpSrcGen;
-                        g_mpSrcXPair[hand][0] = g_mpVoteSlot[cls]; g_mpSrcXPair[hand][1] = g_mpDomSlot[cls];
-                        float ex, ey, ez; dvr::hf::mat_to_euler_xyz_deg(g_mpSrcX[hand], &ex, &ey, &ez);
-                        if (first) Log("ms/palette/frame: %s hand - the hand bone's frame differs from the old vote slot's by "
-                            "%+.1f %+.1f %+.1f deg; that offset is kept, so the calibration and trims look the same, and "
-                            "from here the palm follows the WRIST, not a finger", hand ? "RIGHT" : "LEFT", ex, ey, ez);
-                    }
-                }
-                if (!held && g_mpSrcXok[hand]) R_src = dvr::hf::mul3(sr.r, g_mpSrcX[hand]);
             }
             g_mpSrcR[hand] = R_src; g_mpSrcOk[hand] = true;
             g_mpSrcScale[hand] = sr.scale;
@@ -2912,7 +3010,45 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         const float* tT = MpTrimTFor(hand);
         const float* tR = MpTrimRFor(hand);
         const float trimUU[3] = { tT[0] * k, tT[1] * k, tT[2] * k };
-        const dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(tR[0], tR[1], tR[2]);
+        dvr::hf::Mat3 trimR = dvr::hf::euler_xyz_deg_to_mat(tR[0], tR[1], tR[2]);
+        // VR-224 Index tuning: the EMPTY left hand - bare, the Heart, powers - rolls about the
+        // forearm; a held pistol or crossbow keeps its frame. E is built in the controller's
+        // grip frame, where the forearm (aim) axis is known exactly: aim +Z = (0, .866, .5),
+        // pointing back along the arm. Positive = counter-clockwise seen from behind the hand.
+        // O_C*E*G*trim = O_C*G*(G^T*E*G)*trim, so it rides in the trim slot.
+        static const float kEmptyLeftRollDeg = 60.0f;
+        if (g_indexTuning && hand == 0 && !g_mpItemInHand[0] && kEmptyLeftRollDeg != 0.0f) {
+            const float a = kEmptyLeftRollDeg * 0.01745329f, cs = cosf(a), sn = sinf(a), vc = 1.0f - cs;
+            const float nx = 0.0f, ny = 0.8660254f, nz = 0.5f;
+            dvr::hf::Mat3 E;
+            E.m[0] = cs + nx*nx*vc;    E.m[1] = nx*ny*vc - nz*sn; E.m[2] = nx*nz*vc + ny*sn;
+            E.m[3] = ny*nx*vc + nz*sn; E.m[4] = cs + ny*ny*vc;    E.m[5] = ny*nz*vc - nx*sn;
+            E.m[6] = nz*nx*vc - ny*sn; E.m[7] = nz*ny*vc + nx*sn; E.m[8] = cs + nz*nz*vc;
+            // Headset, Blink out, real hand in a handshake. Pass 1 read fingers UP, palm to the
+            // face; a 120 deg step (x->-y, y->-z, z->x in the aim frame) then read fingers LEFT,
+            // palm FORWARD, back of the hand to the face - 90 deg of yaw from what it predicted,
+            // so the aim frame is not the view frame the reading assumed. Pass 2 adds a 90 deg
+            // turn RIGHT about vertical, Ry(-90), which a yaw offset between the frames cannot
+            // change. Composed, in the aim frame (+X right, +Y up, -Z forward): x->-y, y->x,
+            // z->z. Carried into the grip frame by A = Rx(-60) (the aim axes in grip coords).
+            dvr::hf::Mat3 Raim; // columns are the images of x, y, z
+            Raim.m[0] = 0;  Raim.m[1] = 1;  Raim.m[2] = 0;
+            Raim.m[3] = -1; Raim.m[4] = 0;  Raim.m[5] = 0;
+            Raim.m[6] = 0;  Raim.m[7] = 0;  Raim.m[8] = 1;
+            // Pass 3: nearly a handshake, wrist bent down a little -> lift the fingers.
+            // Rx(+t) tips forward (-Z) toward up (+Y), applied after the pass-2 turn.
+            static const float kEmptyLeftWristUpDeg = 25.0f;   // 15 still read low
+            {
+                const float t = kEmptyLeftWristUpDeg * 0.01745329f, c = cosf(t), s = sinf(t);
+                dvr::hf::Mat3 Rx = dvr::hf::identity3();
+                Rx.m[4] = c; Rx.m[5] = -s; Rx.m[7] = s; Rx.m[8] = c;
+                Raim = dvr::hf::mul3(Rx, Raim);
+            }
+            dvr::hf::Mat3 A = dvr::hf::identity3();
+            A.m[4] = 0.5f; A.m[5] = 0.8660254f; A.m[7] = -0.8660254f; A.m[8] = 0.5f;   // Rx(-60)
+            E = dvr::hf::mul3(dvr::hf::mul3(dvr::hf::mul3(A, Raim), dvr::hf::transpose3(A)), E);
+            trimR = dvr::hf::mul3(dvr::hf::mul3(dvr::hf::mul3(dvr::hf::transpose3(Guse), E), Guse), trimR);
+        }
         const dvr::hf::Xform target = dvr::hf::palm_target(O_C, Guse, dcam,
                                                            trimR, trimUU);
         g_mpPalmTarget[hand] = target;
@@ -2930,12 +3066,12 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // out of the hand's local space into the draw's camera-relative world
         // so any other member of the same view can consume it. Published here,
         // AFTER the model scale, so that factor is carried exactly once.
-        D = dvr::anim::blend(D); // blend once; weapons inherit this same correction
+        D = dvr::anim::blend(D, hand); // blend once, PER HAND (VR-220); weapons inherit this same correction
         WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
                                  false);
-        D = dvr::anim::blend(D);
+        D = dvr::anim::blend(D, hand);
         g_mpPalmTargetOk[hand] = false;
     }
     for (int i = 0; i < 3; i++)
@@ -3117,6 +3253,145 @@ static void MpBuild(float* out, const float* src, UINT count,
         dvr::hf::compose_3x4(*D, src + b * 4, out + b * 4);
 }
 
+// ---- THE OPEN RIGHT HAND ------------------------------------------------------------------
+// With nothing in the right hand (the sword holstered, or no item) the game curls it into a
+// loose fist while the left hand hangs open. The mod already draws the hands from its own copy
+// of the game's bone palette, so the right hand's FINGER bones can take the left hand's finger
+// pose, mirrored, while the right wrist, the arm and the mark-free right-hand mesh stay the
+// game's own. Mirroring the whole left hand would carry the Outsider's mark; this does not.
+//
+// The pose is transferred RELATIVE TO THE WRIST, in the reference-pose space both hands were
+// modelled in (the classes mirror across X: centroids +52.8 / -52.8):
+//     Rel_L   = inv(P[wrist_L]) * P[finger_L]         the left finger's motion against its wrist
+//     P'[f_R] = P[wrist_R] * X * Rel_L * X            the same motion, reflected, on the right
+// X is the reflection across the plane between the two wrists. At the reference pose Rel = I
+// and the right finger simply rides its wrist, so a wrong pairing cannot fling a finger far.
+// The pairing is MEASURED: each right finger bone (ahead of the wrist along the limb, the
+// forearm test the rigid wrist uses) takes the left finger bone whose centroid lands on its
+// mirror image, both ways, within 1.5 uu. One unmatched finger refuses the whole pose (logged).
+static int   g_ohPair[MS_MAX_BONES];        // right bone -> left bone, -1 none
+static int   g_ohN = 0;                     // pairs in use; 0 = refused or not built
+static float g_ohMidX = 0.0f;
+static const char* g_ohWhy = "not built yet";
+static unsigned g_ohHash = 0;
+static ULONGLONG g_ohEmptySince = 0;
+static LONG  g_ohApplied = 0;
+
+// Rebuilt from the split's own bone census; cheap (48 x 48), so it simply runs per draw and
+// only LOGS when the answer changes (a new mesh, a sleeve rebuild that moved nothing reads the same).
+static void OhBuildPairs()
+{
+    const int hl = g_msHandBone[1], hr = g_msHandBone[2];
+    int n = 0; const char* why = NULL; unsigned hash = 2166136261u;
+    for (int b = 0; b < MS_MAX_BONES; b++) g_ohPair[b] = -1;
+    if (hl < 0 || hr < 0 || g_msBones <= 0) why = "the split has not found both wrists";
+    else {
+        const float* cl = g_msBoneCen[hl]; const float* cr = g_msBoneCen[hr];
+        if (!(cl[0] * cr[0] < 0) || fabsf(cl[1] - cr[1]) > 1.5f || fabsf(cl[2] - cr[2]) > 1.5f)
+            why = "the two wrists are not mirror images across X";
+        else {
+            g_ohMidX = 0.5f * (cl[0] + cr[0]);
+            auto finger = [&](int b, int side, int wrist) {
+                if (b == wrist || g_msBoneSide[b] != side || g_msBoneW[b] <= 0) return false;
+                float along = 0;
+                for (int a = 0; a < 3; a++) along += (g_msBoneCen[b][a] - g_msBoneCen[wrist][a]) * g_msAxis[side][a];
+                return along >= -2.0f;   // the rigid wrist's forearm test: behind the wrist is arm
+            };
+            auto nearest = [&](const float* p, int side, int wrist, float* d2) {
+                int best = -1; float bd = 1e30f;
+                for (int b = 0; b < g_msBones && b < MS_MAX_BONES; b++) {
+                    if (!finger(b, side, wrist)) continue;
+                    const float dx = g_msBoneCen[b][0] - p[0], dy = g_msBoneCen[b][1] - p[1], dz = g_msBoneCen[b][2] - p[2];
+                    const float d = dx * dx + dy * dy + dz * dz;
+                    if (d < bd) { bd = d; best = b; }
+                }
+                *d2 = bd; return best;
+            };
+            for (int r = 0; r < g_msBones && r < MS_MAX_BONES && !why; r++) {
+                if (!finger(r, 2, hr)) continue;
+                const float m[3] = { 2.0f * g_ohMidX - g_msBoneCen[r][0], g_msBoneCen[r][1], g_msBoneCen[r][2] };
+                float d2 = 0; const int l = nearest(m, 1, hl, &d2);
+                float back2 = 0; int rb = -1;
+                if (l >= 0) {
+                    const float ml[3] = { 2.0f * g_ohMidX - g_msBoneCen[l][0], g_msBoneCen[l][1], g_msBoneCen[l][2] };
+                    rb = nearest(ml, 2, hr, &back2);
+                }
+                if (l < 0 || d2 > 1.5f * 1.5f || rb != r) { why = "a right finger bone has no mirror twin on the left"; break; }
+                g_ohPair[r] = l; n++;
+                hash = (hash ^ (unsigned)(r * 131 + l)) * 16777619u;
+            }
+        }
+    }
+    if (why) n = 0;
+    g_ohN = n; g_ohWhy = why ? why : "paired";
+    hash ^= (unsigned)n * 2654435761u ^ (unsigned)(why != NULL);
+    if (hash != g_ohHash) {
+        g_ohHash = hash;
+        char line[640]; int at = 0;
+        for (int r = 0; r < MS_MAX_BONES && at < (int)sizeof(line) - 16; r++)
+            if (g_ohPair[r] >= 0) at += _snprintf(line + at, sizeof(line) - at, " %d<-%d", r, g_ohPair[r]);
+        line[at < (int)sizeof(line) ? at : (int)sizeof(line) - 1] = 0;
+        if (n) Log("hands/openright: %d right finger bone(s) paired with their left twins (right<-left):%s | wrists %d / %d, "
+                   "mirror plane x=%.2f", n, line, hr, hl, g_ohMidX);
+        else Log("hands/openright: REFUSED - %s (wrists %d / %d). The right hand keeps the game's own pose.", g_ohWhy, hl, hr);
+    }
+}
+
+// True while the right hand should take the open pose. Render lane.
+static bool OhActive()
+{
+    if (!g_ohOn) { g_ohEmptySince = 0; return false; }
+    const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
+    const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
+    const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
+    const LONG left = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0);
+    const ULONGLONG now = GetTickCount64();
+    // The inventory read runs on the script lane's per-frame camera event, which the game stops
+    // while it is paused: about a second into the pause menu (or any other menu) the read went
+    // stale and the right hand curled back into the fist. Nothing can be equipped or holstered
+    // while a menu is up, so a stale read INSIDE a menu keeps the verdict the menu opened with.
+    // Outside a menu a stale read is still "unknown", never "empty".
+    const bool inMenu = g_menuOpen || g_inMenu;
+    static bool s_ohOpenAtMenu = false;
+    if (age > 1000u && inMenu) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+            "hands/openright: inventory read %u ms old inside a menu (the game is paused, so the script lane "
+            "does not read it) - keeping the %s the menu opened with", age, s_ohOpenAtMenu ? "OPEN hand" : "game's pose");
+        return s_ohOpenAtMenu;
+    }
+    const bool empty = age <= 1000u && right == 0 && (left == 0 || left == 1);
+    if (!empty) { g_ohEmptySince = 0; s_ohOpenAtMenu = false; return false; }
+    if (!g_ohEmptySince) g_ohEmptySince = now;
+    // A short settle: the socket turns "holstered" partway through the holster clip, and a
+    // swap passes through empty for a few frames. Drawing the sword leaves at once.
+    s_ohOpenAtMenu = now - g_ohEmptySince >= 250;
+    return s_ohOpenAtMenu;
+}
+
+// buf: the palette about to be uploaded for the RIGHT hand (already placed); src: the game's own.
+static void OhApply(float* buf, const float* src, UINT regs)
+{
+    OhBuildPairs();
+    const int hl = g_msHandBone[1], hr = g_msHandBone[2];
+    if (!g_ohN || (UINT)(hl * 3 + 3) > regs || (UINT)(hr * 3 + 3) > regs) return;
+    float X[12], invL[12], out[12];
+    const float n[3] = { 1, 0, 0 }, c[3] = { g_ohMidX, 0, 0 };
+    dvr::hf::reflection_3x4(n, c, X);
+    if (!dvr::hf::invert_3x4(src + hl * 12, invL)) return;
+    for (int r = 0; r < MS_MAX_BONES; r++) {
+        const int l = g_ohPair[r];
+        if (l < 0 || (UINT)(r * 3 + 3) > regs || (UINT)(l * 3 + 3) > regs) continue;
+        // the left finger against its wrist, reflected, on the (placed) right wrist
+        dvr::hf::mirror_finger_3x4(buf + hr * 12, invL, src + l * 12, X, out);
+        memcpy(buf + r * 12, out, sizeof(float) * 12);
+    }
+    InterlockedIncrement(&g_ohApplied);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
+        "hands/openright: right hand OPEN (nothing in it, left hand %s) - %d finger bone(s) posed from the left, "
+        "%ld draw(s) so far", InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0) == 1 ? "on a power" : "empty",
+        g_ohN, g_ohApplied);
+}
+
 
 // Emit the classes this mode wants, through OUR index buffer. Returns false if
 // it drew nothing, and the caller then does whatever it would have done - which
@@ -3220,7 +3495,9 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     default: return false;
     }
     if(nativeHands)DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
-        "anim/draw: native animated hands only; forearms clipped, controller palette/depth overrides bypassed");
+        "anim/draw: native animated hands only (%s); forearms clipped at the sleeve cut %.2f / %.2f uu from the hand bone "
+        "(F10 Sleeve), controller palette/depth overrides bypassed",
+        dvr::anim::snapshot().reason, g_msCutRel[1], g_msCutRel[2]);
     const int start = g_msClsStart[lo];
     int count = 0;
     for (int c = lo; c <= hi; c++) count += g_msClsCount[c];
@@ -3386,6 +3663,8 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 if (useT) {
                     static float buf[4 * 256];
                     MpBuild(buf, g_mpCache, g_mpCacheN, &T);
+                    if (rng[r].cls == MS_CLS_HAND_B && OhActive())
+                        OhApply(buf, g_mpCache, g_mpCacheN);   // the empty right hand opens like the left
                     dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
                 } else {
                     dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);
@@ -3514,6 +3793,7 @@ static void MpDriveTick(void)
     MpPoseSnap snap;
     memset(&snap, 0, sizeof(snap));
     snap.headOk = g_devPoseOk[0];
+    memcpy(snap.head, HEAD, sizeof(snap.head));
     for (int h = 0; h < 2; h++) {
         snap.inHead[h] = dvr::hf::identity3();
         if (!g_devPoseOk[0] || !g_devPoseOk[3 + h]) {
@@ -3526,47 +3806,7 @@ static void MpDriveTick(void)
             }
             continue;
         }
-        // Hand minus head in XR world metres, resolved into the HEAD's own
-        // right/up/forward. Frame-free scalars: the draw turns them into a
-        // world vector with the basis from its own constants, so nothing here
-        // assumes anything about the game's axes.
-        float w[3];
-        for (int r = 0; r < 3; r++) w[r] = g_devPose[3 + h][r][3] - HEAD[r][3];
-        const float rx = HEAD[0][0], ry = HEAD[1][0], rz = HEAD[2][0];
-        const float ux = HEAD[0][1], uy = HEAD[1][1], uz = HEAD[2][1];
-        const float fx = -HEAD[0][2], fy = -HEAD[1][2], fz = -HEAD[2][2];
-        snap.ruf[h][0] = w[0]*rx + w[1]*ry + w[2]*rz;
-        snap.ruf[h][1] = w[0]*ux + w[1]*uy + w[2]*uz;
-        snap.ruf[h][2] = w[0]*fx + w[1]*fy + w[2]*fz;
-
-        // THE ORIENTATION, through the SAME physical mapping as the position
-        // above. g_devPose holds XR device-to-tracking matrices whose columns
-        // are right, up and BACK; the position path negates the head's third
-        // column to get forward, and F = diag(1,1,-1) is that same conversion
-        // written as a matrix. What is published is
-        //
-        //     F * transpose(R_head) * R_controller
-        //
-        // which the draw completes by multiplying with its own camera basis B.
-        // It is a POSE conversion, mapping controller-local axes into another
-        // frame - NOT a similarity transform of a head-relative rotation. The
-        // similarity form rotates the hands with the head while the controller
-        // stands still, and `head_turn` in the self-test is that counterexample.
-        {
-            float hc[3][3], cc[3][3];
-            for (int rr = 0; rr < 3; rr++)
-                for (int c2 = 0; c2 < 3; c2++) {
-                    hc[rr][c2] = HEAD[rr][c2];
-                    cc[rr][c2] = g_devPose[3 + h][rr][c2];
-                }
-            dvr::hf::Mat3 R_H, R_C;
-            for (int rr = 0; rr < 3; rr++)
-                for (int c2 = 0; c2 < 3; c2++) {
-                    R_H.m[rr*3+c2] = hc[rr][c2];
-                    R_C.m[rr*3+c2] = cc[rr][c2];
-                }
-            snap.inHead[h] = dvr::hf::controller_orient_in_head(R_H, R_C);
-        }
+        MpHandInHead(HEAD, g_devPose[3 + h], snap.ruf[h], &snap.inHead[h]);   // see MpHandInHead
         snap.ok[h] = true;
         memcpy(g_mpCtlRUF[h], snap.ruf[h], sizeof(snap.ruf[h]));
         g_mpCtlRUFOk[h] = true;

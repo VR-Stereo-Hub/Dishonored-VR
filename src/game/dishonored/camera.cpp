@@ -12,6 +12,7 @@
 #include "game/dishonored/anim_state.h"
 
 #include "game/dishonored/positional_math.h"
+#include "game/dishonored/eye_basis.h"
 #include <atomic>
 #include <windows.h>
 #include <math.h>
@@ -249,6 +250,7 @@ struct Pitchtest {
 } g_pitch;
 float    g_lastBasisF[3] = {1, 0, 0}, g_lastBasisR[3] = {0, 1, 0}, g_lastBasisU[3] = {0, 0, 1};
 bool     g_lastBasisOk = false;
+EyeBasis g_lastEyeBasis;
 uint32_t g_ceilClips = 0;                // presents where the 38.24 ceiling clipped the written position
 float    g_ceilClipMaxUu = 0.0f;
 float    g_headPitchDeg = 0.0f;          // the tracked head pitch, published per present
@@ -807,6 +809,10 @@ bool apply_offsets(uint8_t* camObj) {
         zcommit(ok, ok ? "" : "field unreadable or not a location");
     }
     if (ok) {
+        // Cached native camera rows do not follow a scoped rotator write.
+        // Publish exactly the axis that produced this eye offset, including
+        // scopes with no positional tracking. Do not alter the position axes.
+        g_lastEyeBasis.publish(r, scoped() ? eyeRight : nullptr);
         if (g_pt.active && g_pt.lane == PosLane::Camera && g_pt.writing && haveBasis) {
             memcpy(g_pt.f, f, sizeof(f)); memcpy(g_pt.r, r, sizeof(r)); memcpy(g_pt.u, u, sizeof(u));
             g_pt.basisOk = true;
@@ -921,6 +927,7 @@ bool postest_active() { return g_pt.active; }
 
 // ---- the pitchtest ----------------------------------------------------------------------
 void set_head_pitch_deg(float deg) { g_headPitchDeg = deg; }
+bool last_eye_right(float out[3]) { return g_lastEyeBasis.read(out); }
 bool last_basis(float f[3], float r[3], float u[3]) {
     if (!g_lastBasisOk) return false;
     if (f) memcpy(f, g_lastBasisF, sizeof(g_lastBasisF));

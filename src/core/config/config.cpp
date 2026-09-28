@@ -39,6 +39,11 @@ static bool WriteDefaultIni(const char* ini)
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
         "LateTagRepair=1\n"
+        "; Occlusion (VR-79): native = the engine's culling as shipped, both eyes share one\n"
+        "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
+        "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
+        "; occlusion culling (correct, but pays for every hidden draw). Live: `occlusion <mode>`.\n"
+        "Occlusion=pereye\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
@@ -146,6 +151,67 @@ static bool WriteDefaultIni(const char* ini)
         "Mode=shared\n"
         "SharedWait=0\n"
         "BboxMs=30000\n"
+        "[Clarity]\n"
+        "; Anti-aliasing and clarity on the eye image (core/gfx/clarity.h; the research is in\n"
+        "; docs/dishonored/PERFORMANCE.md, Anti-aliasing and clarity). Sharpen 0.40, 16x\n"
+        "; Anisotropy and TrilinearMips ship ON; Resolve and Temporal are off (headset-judged 2026-09-26). F10\n"
+        "; Advanced > Display > Clarity and anti-aliasing, and `clarity ...` on the seam, are live.\n"
+        "; Resolve=1: when the resolution is above ~100%% (the runtime's recommended size), filter\n"
+        "; the render down to that size here with a kernel that reads every rendered pixel, instead\n"
+        "; of handing the headset runtime an oversized image it samples with one bilinear tap per\n"
+        "; pixel. The swapchain becomes the recommended size. Does nothing at 100%%.\n"
+        "; Temporal=1 (experimental): blend each eye with its own previous frame, reprojected by\n"
+        "; the head rotation between the two, clipped where the rotation cannot explain the change\n"
+        "; (walking, moving hands). Aimed at shimmering edges. TemporalBlend is the new frame's\n"
+        "; weight (0.05..0.5; lower = smoother and softer).\n"
+        "; Sharpen=0..1: contrast-adaptive sharpening on the result (0 = off).\n"
+        "; Anisotropy=0|2|4|8|16: raise the anisotropic filtering of the textures the game already\n"
+        "; filters anisotropically (the game's own MaxAnisotropy is 4); 0 = the game's own.\n"
+        "; TrilinearMips=1: blend between mip levels on those textures instead of the game's\n"
+        "; point mip filter (a visible seam that walks with the head on floors and walls).\n"
+        "Resolve=0\n"
+        "Temporal=0\n"
+        "TemporalBlend=0.15\n"
+        "; MotionVectors=1: experimental depth reprojection for Temporal. Live: clarity motion on|off.\n"
+        "; MotionDepthScale: uu per depth unit, fitted through the game's own matrices; live: clarity depthscale.\n"
+        "MotionVectors=0\n"
+        "MotionDepthScale=250\n"
+        "; DLAA=1 (experimental, NVIDIA RTX only): NVIDIA DLAA on each eye through the x64 helper in\n"
+        "; Binaries\\Win32\\dvr_dlss (core/gfx/dlss.h). Replaces Temporal while it runs; Sharpen still\n"
+        "; applies. Camera-only motion vectors. Live: dlss on|off. DlssPreset: 0 = model K.\n"
+        "DLAA=0\n"
+        "DlssPreset=0\n"
+        "; DlssQuality: 0 DLAA (native), 1 Quality, 2 Balanced, 3 Performance, 4 Ultra Performance, 5 Ultra\n"
+        "; Quality (1.3x). Above 0 the\n"
+        "; game renders smaller and DLSS rebuilds DlssOutputWidth x DlssOutputHeight (the headset resolution,\n"
+        "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
+        "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
+        "DlssQuality=0\n"
+        "; DlssModel: 0 transformer (preset K, best image, ~2 ms per eye at 2750x2850), 1 fast (CNN presets\n"
+        "; E/F, ~0.9 ms per eye). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
+        "; 16 NVIDIA's pick per mode (K, M for Performance, L for Ultra Performance). F10: the DLSS model list.\n"
+        "DlssModel=0\n"
+        "DlssOutputWidth=0\n"
+        "DlssOutputHeight=0\n"
+        "; DlssMask=1 (A/B, off): pixels the camera vectors cannot explain (arms, weapon, NPCs) take\n"
+        "; the current image instead of smearing; DlssMaskLo/Hi: where it starts and saturates. Live:\n"
+        "; dlss mask on|off, dlss maskrange <lo> <hi>.\n"
+        "DlssMask=0\n"
+        "DlssMaskLo=0.03\n"
+        "DlssMaskHi=0.12\n"
+        "; DlssJitter=1 (A/B, off): moves every world draw by a known sub-pixel offset per stereo pair so DLSS\n"
+        "; can rebuild finer detail (sharper Super Resolution). Only while DLSS runs and the world pass is\n"
+        "; confirmed; the log says LIVE or REFUSED and why. Live: dlss jitter on|off.\n"
+        "DlssJitter=0\n"
+        "; DlssJitterWide=1: the jitter also shifts every perspective draw into an eye-size image, whatever\n"
+        "; depth buffer is bound (0 = only draws on the scene depth). Live: dlss jitter wide on|off.\n"
+        "DlssJitterWide=1\n"
+        "; DlssBodyDepth: nearer than this (scene depth units) is the player's own arms and weapon; their\n"
+        "; DLAA vectors keep head rotation and drop walking parallax (0 = off). Live: dlss body <z>.\n"
+        "DlssBodyDepth=0.30\n"
+        "Sharpen=0.40\n"
+        "Anisotropy=16\n"
+        "TrilinearMips=1\n"
         "[Pace]\n"
         "ImageOrientation=1\n"
         "; The pair pacing levers of the projection layer (stereo reentry), all live on\n"
@@ -333,6 +399,23 @@ static bool WriteDefaultIni(const char* ini)
         "Enabled=1\n"
         "Deadzone=0.12\n"
         "Haptics=1\n"
+        "; IndexTuning (VR-224): Index controller hand frames, hold trims, the empty left\n"
+        "; hand's pose and the force-sensor grip. -1 = on when the launcher's headset is\n"
+        "; Valve Index, Bigscreen Beyond or Vive Pro 2, 0 = off, 1 = on. Shim parts need Index\n"
+        "; controllers.\n"
+        "IndexTuning=-1\n"
+        "[Turning]\n"
+        "; SnapTurn=1 turns the view AND your body in fixed steps from the right stick;\n"
+        "; 0 = the game's smooth turn. Live: `snapturn on|off`, or F10 > Controls > Turning.\n"
+        "; A step fires once per push past SnapThreshold; the stick must fall under\n"
+        "; SnapRearm before the next. SnapRepeatMs>0 repeats a held push every N ms.\n"
+        "; Steps do not fire in menus, the power wheel, books, cinematics or keyholes,\n"
+        "; where the stick keeps its usual job.\n"
+        "SnapTurn=0\n"
+        "SnapAngle=45\n"
+        "SnapThreshold=0.6\n"
+        "SnapRearm=0.3\n"
+        "SnapRepeatMs=0\n"
         "[PosTrack]\n"
         "ZAccount=1\n"
         "ZAccountRoll=0\n"
@@ -814,6 +897,11 @@ static bool WriteDefaultIni(const char* ini)
         "PaletteDepthRange=1\n"
         "PaletteEyeOffset=1\n"
         "PaletteEyePredictToggle=0\n"
+        "; PoseFromView: each hand draw uses the head sample and eye of the view it belongs to\n"
+        "; (found by its camera position) instead of a sample two presents back and an eye\n"
+        "; guessed from a jump. Aimed at the slight hand/weapon flicker on fast head turns.\n"
+        "; 0 = the previous path. F10 Advanced > Hands > Head-turn smoothing.\n"
+        "PoseFromView=0\n"
         "PaletteEyeAlternate=0\n"
         "PaletteEyeFromMeasured=0\n"
         "PaletteEyeHunt=0\n"
@@ -829,6 +917,9 @@ static bool WriteDefaultIni(const char* ini)
         "; RigidWrist=1 (VR-184): the wrist cut and cap stay rigid with the hand, so arm animation\n"
         "; cannot bend them; the fingers still animate. 0 = the game's own weights.\n"
         "RigidWrist=1\n"
+        "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
+        "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
+        "OpenEmptyRightHand=1\n"
         "WeaponId=0\n"
         "WeaponIdMs=1500\n"
         "PaletteFrameTol=0.0200\n"
@@ -1068,10 +1159,23 @@ static bool WriteDefaultIni(const char* ini)
         "; samples when a big excursion trips. It derives no frequency on purpose: two earlier\n"
         "; instruments each reported a rate that was really their own sampling rate.\n"
         "SwingTrace=1\n"
+        "; DepthProbe=1 (motion vectors, step 1): reads a 5x5 grid of the game's floating-point\n"
+        "; render targets 30 times, every 10 s from 30 s after start, and logs whether their alpha\n"
+        "; behaves like scene depth. Read-only; each read is a brief GPU sync. `depthprobe on|off|now`.\n"
+        "DepthProbe=0\n"
+        "; DepthShare=1 (motion vectors, step 2): copy that depth to the mod's D3D11 device every\n"
+        "; present and prove every 5 s that D3D11 reads what the game wrote. `depthprobe share on|off`.\n"
+        "DepthShare=0\n"
+        "; MotionCalib=1 (motion vectors, step 3; needs DepthShare=1): whenever the camera moves\n"
+        "; between two frames of one eye, measure which depth scale explains the change and log it.\n"
+        "MotionCalib=0\n"
         "\n"
         "[Cine]\n"
         "LockPitch=1\n"
         "LockFov=1\n"
+        "; MatchGameplayFov=1: a locked scene frames at [Screen] ProjectionFov like gameplay;\n"
+        "; 0 = the headset-derived FOV. F10 Advanced > Cinematics.\n"
+        "MatchGameplayFov=1\n"
         "StereoState=1\n"
         "PossessionStereo=1\n"
         "HideBorders=1\n"
@@ -1142,6 +1246,10 @@ static bool WriteDefaultIni(const char* ini)
         "CoverTol=0.3\n"
         "Straddle=2.0\n"
         "DepthBias=1\n"
+        "; BodyBoneOnly (VR-225): copy and cap only geometry rigid on the weapon's body\n"
+        "; bone, so the crossbow's limbs do not leave a stray piece when it fires or is\n"
+        "; empty. Live: `mirror body on|off`.\n"
+        "BodyBoneOnly=1\n"
         "\n"
         "; Drop takedowns from above. An attack pressed in the air before the game has\n"
         "; found the guard below would be an ordinary slash; Assist=1 holds it up to\n"
@@ -1159,7 +1267,20 @@ static bool WriteDefaultIni(const char* ini)
         "DropWatch=1\n"
         "MoveTrace=0\n"
         "MantleHandBack=1\n"
-        "HandAnimMelee=0\n"
+        "; HideTakedownArms (VR-283): takedowns (ground and aerial), chokes and combat kills\n"
+        "; show the game-animated hands without forearms, cut at the F10 Sleeve length, like\n"
+        "; mantling. 0 = the game's full arms. F10 Advanced > Hands > Game arms during actions.\n"
+        "HideTakedownArms=1\n"
+        "; HandAnimMelee: a TRIGGER sword attack plays the game's swing on the tracked hand\n"
+        "; and returns it to the controller. A physical swing (the motion sword) never does:\n"
+        "; your arm is the animation. HandAnimMeleeSwing=1 hands physical swings back too.\n"
+        "; HandAnimMeleeRev=1 marks an ini that has seen the 0 -> 1 default move; leave it.\n"
+        "HandAnimMelee=1\n"
+        "HandAnimMeleeRev=1\n"
+        "HandAnimMeleeSwing=0\n"
+        "; HandAnimMeleeBothHands=1 makes the left hand follow the clip too; 0 keeps it on the\n"
+        "; controller (the trigger clip is right-handed).\n"
+        "HandAnimMeleeBothHands=0\n"
         "HandAnimFire=0\n"
         "CinematicHandBack=1\n"
         "StateWatch=1\n"
@@ -1287,8 +1408,8 @@ static bool WriteDefaultIni(const char* ini)
         "NoBlurJournal=1\n"
         "HeadLookWheel=1\n"
         "NoBlurWheel=1\n"
-        "HeadLookStore=0\n"
-        "NoBlurStore=0\n"
+        "HeadLookStore=1\n"
+        "NoBlurStore=1\n"
         "HeadLookMissionStats=0\n"
         "NoBlurMissionStats=0\n"
         "WeaponDial=1\n"
@@ -1307,6 +1428,9 @@ static bool WriteDefaultIni(const char* ini)
         "; main menu, cutscenes on the mono screen and the power wheel leave it in the frame.\n"
         "; `hud on|off|status` live, and the F10 HUD tab.\n"
         "Panel=1\n"
+        "; Render HUD and native markers at output resolution while upscaling. Advanced Display.\n"
+        "UpscaleSharp=1\n"
+        "MarkersSharp=1\n"
         "; SlotScale: each sink's texture is the render's size times this. The window subtends\n"
         "; about 50 degrees, so half is already more than the headset resolves.\n"
         "SlotScale=0.50\n"
@@ -1348,7 +1472,7 @@ static bool WriteDefaultIni(const char* ini)
         "Element.note=window\n"
         "Element.journal=window\n"
         "Element.wheel=window\n"
-        "Element.store=window\n"
+        "Element.store=world\n"
         "Element.missionstats=window\n"
         "; Region.<name>=x0,y0,x1,y1 (normalised backbuffer, y down): the rectangle that claims\n"
         "; a draw whose centre lies inside. These three are the measured ones (the sewer level,\n"
@@ -1360,11 +1484,11 @@ static bool WriteDefaultIni(const char* ini)
         "Region.prompt=0.520,0.460,0.800,0.620\n"
         "; The window (shared by 'window' and 'world'): distance and width in metres; Height 0 =\n"
         "; the texture's aspect, else a centred crop; Up and Lateral offset it in its plane.\n"
-        "WindowDistance=1.390\n"
+        "WindowDistance=1.500\n"
         "WindowWidth=1.210\n"
         "WindowHeight=0.000\n"
         "WindowUp=-0.100\n"
-        "WindowLateral=0.000\n"
+        "WindowLateral=-0.020\n"
         "; The two hand panels (38.92's values): X/Y/Z an offset in the grip's own frame; Lift\n"
         "; along world up; Width in metres; Orient billboard (faces the head, never rolls: what\n"
         "; 38.92 did) or grip (a watch face on the back of the hand, Tilt degrees toward the\n"
@@ -1410,11 +1534,11 @@ static bool WriteDefaultIni(const char* ini)
         "WindowNote=1\n"
         "WindowJournal=1\n"
         "WindowWheel=1\n"
-        "WindowStore=0\n"
+        "WindowStore=1\n"
         "WindowMissionStats=1\n"
-        "Element.default.WinX=0.244\n"
-        "Element.default.WinY=-0.063\n"
-        "Element.default.WinScale=1.570\n"
+        "Element.default.WinX=0.184\n"
+        "Element.default.WinY=-0.183\n"
+        "Element.default.WinScale=1.210\n"
         "Element.vitals.WinX=-0.167\n"
         "Element.vitals.WinY=0.106\n"
         "Element.vitals.WinScale=1.150\n"
@@ -1516,7 +1640,7 @@ static bool WriteDefaultIni(const char* ini)
         "Element.wheel.HandScale=1.000\n"
         "Element.store.WinX=0.000\n"
         "Element.store.WinY=0.000\n"
-        "Element.store.WinScale=1.000\n"
+        "Element.store.WinScale=1.500\n"
         "Element.store.HandX=0.000\n"
         "Element.store.HandY=0.000\n"
         "Element.store.HandScale=1.000\n"
@@ -1534,12 +1658,12 @@ static bool WriteDefaultIni(const char* ini)
         "WheelPotions.Crop1=0.947\n"
         "WheelPotions.Crop2=0.948\n"
         "WheelPotions.Crop3=0.082\n"
-        "Element.wheelpotions.WinX=0.716\n"
-        "Element.wheelpotions.WinY=0.660\n"
-        "Element.wheelpotions.WinScale=0.780\n"
-        "Element.wheelshortcuts.WinX=-0.504\n"
-        "Element.wheelshortcuts.WinY=0.695\n"
-        "Element.wheelshortcuts.WinScale=0.730\n"
+        "Element.wheelpotions.WinX=0.566\n"
+        "Element.wheelpotions.WinY=0.547\n"
+        "Element.wheelpotions.WinScale=0.900\n"
+        "Element.wheelshortcuts.WinX=-0.474\n"
+        "Element.wheelshortcuts.WinY=0.545\n"
+        "Element.wheelshortcuts.WinScale=0.900\n"
         "", kConfigVersion);
     const int closed = fclose(f);
     return written > 0 && closed == 0;
@@ -1572,6 +1696,35 @@ static void LoadConfig()
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     Log("config: LoadConfig begin");
+    {   // VR-223: the headset the player told the launcher they have, so a log
+        // names the hardware without anyone having to ask. Read from the
+        // launcher's own file (always %LOCALAPPDATA%, never [Paths] DataDir),
+        // not the mod ini, which a version bump rewrites. The runtime's own
+        // system name is logged at session start; the two can disagree (a Quest
+        // on SteamVR reports through SteamVR), which is exactly why both print.
+        char local[MAX_PATH] = "", launcherIni[MAX_PATH] = "", model[64] = "";
+        const DWORD n = GetEnvironmentVariableA("LOCALAPPDATA", local, sizeof(local));
+        if (n && n < sizeof(local)) {
+            _snprintf(launcherIni, MAX_PATH, "%s\\DishonoredVR\\launcher.ini", local);
+            launcherIni[MAX_PATH - 1] = 0;
+            GetPrivateProfileStringA("Headset", "Model", "", model, sizeof(model), launcherIni);
+        }
+        Log("config: headset (user reported in the launcher): %s",
+            model[0] ? model : "not recorded (launcher never run on this account, or older than VR-223)");
+        // VR-224: [Controllers] IndexTuning -1 auto | 0 off | 1 on. Auto follows the
+        // headset above: the tuning was measured on Index controllers, which both the
+        // Index and the Beyond ship with. The shim reads the verdict from
+        // DVR_INDEX_TUNING (it is loaded later, by the OpenXR loader, in this process).
+        const int it = GetPrivateProfileIntA("Controllers", "IndexTuning", -1, ini);
+        // Vive Pro 2 counts: its wands are not supported, so it is played on Index controllers.
+        const bool autoHs = !strcmp(model, "Valve Index") || !strcmp(model, "Bigscreen Beyond 1 / 2") ||
+                            !strcmp(model, "Vive Pro 2");
+        g_indexTuning = it == 1 || (it != 0 && autoHs);
+        SetEnvironmentVariableA("DVR_INDEX_TUNING", g_indexTuning ? "1" : "0");
+        Log("config: [Controllers] IndexTuning=%d -> %s (owner: %s)", it, g_indexTuning ? "ON" : "off",
+            it == 1 ? "ini, forced on" : it == 0 ? "ini, forced off"
+            : autoHs ? "launcher headset is an Index-controller headset" : "launcher headset is not Index, Beyond or Vive Pro 2");
+    }
 
     // create if missing, OR refresh if it predates this build's tuned defaults
     bool missing = GetFileAttributesA(ini) == INVALID_FILE_ATTRIBUTES;
@@ -1667,6 +1820,9 @@ static void LoadConfig()
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
         dvr::stereo::set_reentry_single_tag(GetPrivateProfileIntA("Stereo", "SingleTagRepair", 1, ini) != 0);
         dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 1, ini) != 0);   // Confirmed profile default; F10 retains the A/B.
+        PeFastSet(GetPrivateProfileIntA("Perf", "PeFast", 1, ini) != 0);   // route 2: the script lane's caches
+        PeHeavySet(GetPrivateProfileIntA("Perf", "PeHeavyMs", 2, ini));      // route 2: 0 = every event
+        PeHeavyInDrawSet(GetPrivateProfileIntA("Perf", "PeHeavyInDraw", 1, ini) != 0);
         dvr::stereo::set_hold_untagged(GetPrivateProfileIntA("Stereo", "HoldUntagged", 3, ini));
     }
 
@@ -1718,7 +1874,41 @@ static void LoadConfig()
             strcpy(cm, "sync");
         }
         if (!dvr::capture::set_mode(cm)) dvr::capture::set_mode("sync");
+        {   // [Clarity]: anti-aliasing and clarity on the eye image, all off by default
+            dvr::clarity::set_resolve(IniFloat(ini, "Clarity", "Resolve", 0) != 0.0f, "ini");
+            dvr::clarity::set_temporal(IniFloat(ini, "Clarity", "Temporal", 0) != 0.0f, "ini");
+            dvr::clarity::set_motion(IniFloat(ini, "Clarity", "MotionVectors", 0) != 0.0f, "ini");
+            dvr::clarity::set_depth_scale(IniFloat(ini, "Clarity", "MotionDepthScale", 250), "ini");
+            dvr::clarity::set_blend(IniFloat(ini, "Clarity", "TemporalBlend", 0.15f), "ini");
+            dvr::clarity::set_sharpen(IniFloat(ini, "Clarity", "Sharpen", 0.40f), "ini");
+            dvr::samplers::set_anisotropy((int)IniFloat(ini, "Clarity", "Anisotropy", 16), "ini");
+            dvr::samplers::set_trilinear(IniFloat(ini, "Clarity", "TrilinearMips", 1) != 0.0f, "ini");
+            dvr::dlss::set_preset((int)IniFloat(ini, "Clarity", "DlssPreset", 0), "ini");
+            dvr::dlss::set_quality((int)IniFloat(ini, "Clarity", "DlssQuality", 0), "ini");
+            // FSR (2026-09-27): not in the default ini on purpose; a missing key is DLSS.
+            dvr::dlss::set_backend((int)IniFloat(ini, "Clarity", "Upscaler", 0), "ini");
+            dvr::dlss::set_fsr_version((int)IniFloat(ini, "Clarity", "FsrVersion", 0), "ini");
+            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
+            dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
+            dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
+            dvr::dlss::jitter::set_enabled(IniFloat(ini, "Clarity", "DlssJitter", 0) != 0.0f, "ini");
+            dvr::dlss::jitter::set_wide(IniFloat(ini, "Clarity", "DlssJitterWide", 1) != 0.0f, "ini");
+            dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
+            dvr::dlss::set_mask_range(IniFloat(ini, "Clarity", "DlssMaskLo", 0.03f), IniFloat(ini, "Clarity", "DlssMaskHi", 0.12f), "ini");
+            dvr::dlss::set_mode(IniFloat(ini, "Clarity", "DLAA", 0) != 0.0f ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "ini");
+            Log("config: [Clarity] DLAA=%d DlssPreset=%d DlssMask=%d %.2f..%.2f DlssJitter=%d%s", dvr::dlss::mode(), dvr::dlss::preset(),
+                (int)dvr::dlss::mask_on(), dvr::dlss::mask_lo(), dvr::dlss::mask_hi(), (int)dvr::dlss::jitter::enabled(),
+                dvr::dlss::mode() ? " - DLAA starts its helper with the first eye image" : "");
+            Log("config: [Clarity] Resolve=%d Temporal=%d TemporalBlend=%.2f Sharpen=%.2f Anisotropy=%d TrilinearMips=%d%s",
+                (int)dvr::clarity::resolve_on(), (int)dvr::clarity::temporal_on(), dvr::clarity::blend(),
+                dvr::clarity::sharpen(), dvr::samplers::anisotropy(), (int)dvr::samplers::trilinear(),
+                (dvr::clarity::any_on() || dvr::samplers::anisotropy() || dvr::samplers::trilinear())
+                    ? "" : " - all off: the eye image and the game's texture filtering are exactly as before");
+        }
         dvr::capture::set_shared_wait(IniFloat(ini, "Capture", "SharedWait", 0) != 0.0f);
+        // Uncap deep dive (2026-09-27): not in the default ini on purpose (a missing key is the
+        // 41.1 two-slot ring); `capture depth <n>` is the live A/B.
+        dvr::capture::set_shared_depth((int)IniFloat(ini, "Capture", "SharedDepth", 1), "ini");
         {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
             // Each sample is a full-frame CPU readback on the present thread even
             // in shared mode (capture.h says why), so this is a frame-time knob,
@@ -1880,6 +2070,22 @@ static void LoadConfig()
     const auto controller=dvr::controller::config();
     Log("controls: modifier=%d dpad=%s X+Y=%d; Y=native, menu tap=START, modifier/hold+menu=BACK",
         controller.modifier,controller.flip ? "right" : "left",int(controller.pauseChord));
+    {   // Bind remapping: an absent key keeps its action on the shipped source (controller_binds.h).
+        dvr::binds::Layout l;
+        for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+            char v[48] = "";
+            GetPrivateProfileStringA("ControllerBinds", dvr::binds::info(a).key, "", v, sizeof(v), ini);
+            if (!v[0]) continue;
+            dvr::binds::Source s;
+            if (dvr::binds::parse_source(v, &s)) l.src[a] = s;
+            else Log("config: WARN [ControllerBinds] %s=%s is not a source (A B X Y LeftStickClick RightStickClick "
+                     "Menu LeftGrip RightGrip LeftTrigger RightTrigger None) - kept on %s", dvr::binds::info(a).key, v,
+                     dvr::binds::source_key(l.src[a]));
+        }
+        l.swapSticks = GetPrivateProfileIntA("ControllerBinds", "SwapSticks", 0, ini) != 0;
+        dvr::binds::configure(l);
+        BindsLog("config");
+    }
     g_padEnabled  = IniFloat(ini, "Controllers", "Enabled", 1) != 0.0f;
     g_padHaptics  = IniFloat(ini, "Controllers", "Haptics", 1) != 0.0f;
     g_padDeadzone = IniFloat(ini, "Controllers", "Deadzone", 0.12f);
@@ -1988,11 +2194,21 @@ static void LoadConfig()
         const bool gpu = IniFloat(ini, "Perf", "GpuQueries", 1) != 0.0f;
         if (!inst) dvr::perf::set_enabled(false);
         if (!gpu) dvr::perf::set_gpu_enabled(false);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        Log("flicker/armed: VR-229 diagnostic build; recurring method/XR history independent of RingLedger; "
+            "pixel probes require separate build opt-in (see flicker/pixels); no blocking read fallback; "
+            "normal eye pairing unchanged; no INI written; windows never expire for session length");
+#endif
         const bool fid = IniFloat(ini, "Perf", "FrameId", 1) != 0.0f;   // 41.1 (session 9): the frame-identity trace
         dvr::frameid::set_enabled(fid);
         dvr::frameid::set_every((uint32_t)IniFloat(ini, "Perf", "FrameIdEvery", 8));
         const bool diagnosticAb=GetPrivateProfileIntA("Perf","DiagnosticAb",0,ini)!=0;
         dvr::perf::ab_set_enabled(!diagnosticAb && GetPrivateProfileIntA("Perf", "Ab", 0, ini) != 0);
+        {   // Uncap deep dive (2026-09-27): a plan file of seam-command segments (perf_ab.cpp)
+            char plan[MAX_PATH] = "";
+            GetPrivateProfileStringA("Perf", "AbPlan", "", plan, sizeof(plan), ini);
+            if (!diagnosticAb && plan[0]) dvr::perf::ab_load_plan(plan);
+        }
         dvr::diag_ab::set_enabled(diagnosticAb);
         const int desktopTrial = GetPrivateProfileIntA("Perf", "DesktopAb", 0, ini);
         dvr::perf::desktop_ab_set_reduced(desktopTrial == 2);
@@ -2007,7 +2223,7 @@ static void LoadConfig()
         g_mpPoseLagAb = GetPrivateProfileIntA("Hands", "PoseLagAb", 0, ini) != 0;
         Log("config: [Hands] PoseLag=%d PoseLagAb=%d - the head sample the hand is normalised against. 2 is the measured and headset-confirmed answer: bv/lag put the RENDERED camera at lag 2 (0.119 deg against 1.19 at lag 0 over 4085 moving frames) and a reversing A/B/A/B in a headset agreed. PoseLag=0 restores the old behaviour if you want to feel the difference.", g_mpPoseLag, (int)g_mpPoseLagAb);
         Log("config: [Perf] Instruments=%d GpuQueries=%d FrameId=%d (the tick line, the gpu line and the frameid line every 3 s)",
-            inst ? 1 : 0, gpu ? 1 : 0, fid ? 1 : 0);
+            inst ? 1 : 0, gpu ? 1 : 0, dvr::frameid::enabled() ? 1 : 0);
 
     }
     Log("config: per-frame diagnostics vsscan=%d shownear=%d (both off = more fps)",
@@ -2371,7 +2587,7 @@ static void LoadConfig()
             (int)g_crawlTuckCamera, camKey < 0 ? "absent from the ini, the built-in default" : "from the ini",
             g_crawlTuckCamera ? "RELEASED too (the pre-VR-122 behaviour)" : "left alone");
     }
-    g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 1) != 0.0f; // 38.22
+    g_slideAssist    = IniFloat(ini, "Input", "SlideAssist", 0) != 0.0f; // 38.22; default off since 2026-09-27
     // First-fault evidence is enabled in the explicitly requested tested profile.
     // Set Diagnostics/GcFaultDump=0 to disable full-memory capture.
     dvr::crash::configure_read_fault_dump(
@@ -2508,6 +2724,10 @@ static void LoadConfig()
     g_mpEyeMenuHalfStep = IniFloat(ini,"Hands","PaletteEyeMenuHalfStep",0)!=0;
     Log("config: [Hands] PaletteEyeMenuHalfStep=%d - menu signed half-IPD jump candidate; no toggle prediction",(int)g_mpEyeMenuHalfStep);
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
+    g_mpPoseFromView  = IniFloat(ini, "Hands", "PoseFromView", 0) != 0.0f;
+    Log("config: [Hands] PoseFromView=%d - %s", (int)g_mpPoseFromView,
+        g_mpPoseFromView ? "hand draws use their own view's head sample and eye (found by c5 in the pose records)"
+                         : "hand draws use the head two presents back and the jump-classified eye (the previous path)");
     Log("config: [Hands] PaletteEyePredictToggle=%d - an unreadable eye jump %s. "
         "Holding was measured robbing the LEFT eye's hands of their own half-IPD "
         "during a head roll (VR-95); the prediction is capped at two in a row so a "
@@ -2529,6 +2749,9 @@ static void LoadConfig()
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
     g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
+    g_ohOn = IniFloat(ini, "Hands", "OpenEmptyRightHand", 1) != 0.0f;       // the empty right hand opens like the left
+    Log("config: [Hands] OpenEmptyRightHand=%d (%s)", g_ohOn ? 1 : 0,
+        g_ohOn ? "an empty right hand takes the left hand's open pose, mirrored" : "the empty right hand keeps the game's fist");
     // VR-33: attachment matches owned component transforms independently of
     // the optional hide sweep. Installed test configuration enables it;
     // a fresh configuration leaves this render lever off.
@@ -2612,7 +2835,9 @@ static void LoadConfig()
         dvr::hudlayout::configure(ini);
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
         dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
-        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);   // VR-160: ON since the headset verdict (no HUD flicker reported); 0 restores every present
+        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);
+        dvr::hudcap::set_markers_sharp(IniFloat(ini,"Hud","MarkersSharp",1)!=0,"ini");
+        dvr::hudcap::set_upscale_sharp(IniFloat(ini, "Hud", "UpscaleSharp", 1) != 0.0f, "the ini");
         dvr::hudclass::set_regions_enabled(IniFloat(ini, "Hud", "Regions", 0) != 0.0f);
         dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }
@@ -2623,11 +2848,16 @@ static void LoadConfig()
     StereoStateConfigure(ini);
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
+    OcclusionConfigure(ini);    // VR-79
     SwordTrailConfigure(ini);   // VR-171
     CamShakeConfigure(ini);   // VR-172
+    dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
+    dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
+    dvr::depthprobe::set_share(IniFloat(ini, "Diagnostics", "DepthShare", 0) != 0.0f, "ini [Diagnostics] DepthShare");
+    dvr::clarity::set_calib(IniFloat(ini, "Diagnostics", "MotionCalib", 0) != 0.0f, "ini [Diagnostics] MotionCalib");
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
@@ -3483,6 +3713,18 @@ static void EnsureConfig()
             GetPrivateProfileStringA("Log", "Cats", "", cats, sizeof(cats), ini);
             if (!GetEnvironmentVariableA("DVR_LOG", NULL, 0)) dvr::log::configure(lv, "");
             if (!GetEnvironmentVariableA("DVR_LOG_CATS", NULL, 0)) dvr::log::configure("", cats);
+#ifdef DVR_FLICKER_DIAGNOSTICS
+            dvr::log::set_level(dvr::log::Cat::present,dvr::log::Level::Info);
+            DVR_LOG(dvr::log::Cat::present,dvr::log::Level::Info,"flicker/armed: test-only diagnostics automatically active; present log at Info; installed INI unchanged");
+#endif
+            // The ETW markers (core/util/etw.h): free unless a trace session enables the provider,
+            // so they register here, outside the loader lock, whatever the ini says. [Perf] Etw=0
+            // is a kill switch only.
+            dvr::etw::init();
+            const bool etwKilled = GetPrivateProfileIntA("Perf", "Etw", 1, ini) == 0;
+            dvr::etw::set_killed(etwKilled);
+            Log("etw: provider DishonoredVR {6b3c1f4e-2d6a-4f7c-9a51-0d2e8c7b4a19} registered%s - phase markers cost "
+                "nothing until a trace session (tools/perf-gpu-trace.ps1) enables it", etwKilled ? " but KILLED by [Perf] Etw=0" : "");
         }
 }
 
@@ -3495,10 +3737,37 @@ static void EnsureConfig()
 // the next launch without an ini edit.
 static void ConfigWriteKey(const char* section, const char* key, const char* value, const char* who)
 {
+    if (dvr::perf::ab_dispatching()) {   // an A/B plan's lever is for this session only
+        Log("config: [%s] %s=%s NOT written (%s, inside an A/B plan: live now, the ini keeps its value)",
+            section, key, value, who);
+        return;
+    }
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     WritePrivateProfileStringA(section, key, value, ini);
     Log("config: [%s] %s=%s written by %s (live now, and the next launch's default)", section, key, value, who);
+}
+// Controller binds: live at once, and into [ControllerBinds] key by key. Back to the shipped
+// layout DELETES the section, so an untouched ini and a reset one read the same (absent = shipped).
+static void BindsSet(const dvr::binds::Layout& l, const char* who)
+{
+    const auto was = dvr::binds::layout();
+    dvr::binds::configure(l);
+    if (l.is_default()) {
+        if (!dvr::perf::ab_dispatching()) {
+            char ini[MAX_PATH];
+            _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
+            WritePrivateProfileStringA("ControllerBinds", NULL, NULL, ini);
+        }
+        Log("config: [ControllerBinds] removed by %s - the shipped layout", who);
+    } else {
+        for (int a = 0; a < dvr::binds::ActionCount; ++a)
+            if (l.src[a] != was.src[a] || was.is_default())
+                ConfigWriteKey("ControllerBinds", dvr::binds::info(a).key, dvr::binds::source_key(l.src[a]), who);
+        if (l.swapSticks != was.swapSticks || was.is_default())
+            ConfigWriteKey("ControllerBinds", "SwapSticks", l.swapSticks ? "1" : "0", who);
+    }
+    BindsLog(who);
 }
 static void DeviceSetEx(bool on, const char* who)
 {
@@ -3678,6 +3947,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands","PaletteEyeMenuHalfStep",g_mpEyeMenuHalfStep ? "1" : "0",ini);
     WritePrivateProfileStringA("Hands", "PaletteEyePredictToggle", g_mpEyePredict ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
 #if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);
@@ -3913,6 +4183,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
     SwordTrailSave(ini);   // VR-171
     CamShakeSave(ini);   // VR-172
+    dvr::snap::save(ini);   // VR-219
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);
     { char v[16]; _snprintf(v,sizeof(v),"%d",RainDistance()); WritePrivateProfileStringA("Rain","Distance",v,ini);
       _snprintf(v,sizeof(v),"%d",LensDistance()); WritePrivateProfileStringA("Lens","Distance",v,ini); }
@@ -4019,6 +4290,41 @@ static void OverlaySaveDefaults()
     // 41.1 (session 8): the capture mode (off is live-only and is not saved)
     if (dvr::capture::mode() != dvr::capture::Mode::Off)
         WritePrivateProfileStringA("Capture", "Mode", dvr::capture::mode_name(), ini);
+    {   // [Clarity]
+        WritePrivateProfileStringA("Clarity", "Resolve", dvr::clarity::resolve_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "Temporal", dvr::clarity::temporal_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "MotionVectors", dvr::clarity::motion_on() ? "1" : "0", ini);
+        _snprintf(v, 64, "%.1f", dvr::clarity::depth_scale());
+        WritePrivateProfileStringA("Clarity", "MotionDepthScale", v, ini);
+        _snprintf(v, 64, "%.2f", dvr::clarity::blend());
+        WritePrivateProfileStringA("Clarity", "TemporalBlend", v, ini);
+        _snprintf(v, 64, "%.2f", dvr::clarity::sharpen());
+        WritePrivateProfileStringA("Clarity", "Sharpen", v, ini);
+        _snprintf(v, 64, "%d", dvr::samplers::anisotropy());
+        WritePrivateProfileStringA("Clarity", "Anisotropy", v, ini);
+        WritePrivateProfileStringA("Clarity", "TrilinearMips", dvr::samplers::trilinear() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DLAA", dvr::dlss::mode() ? "1" : "0", ini);
+        _snprintf(v, 64, "%d", dvr::dlss::preset());
+        WritePrivateProfileStringA("Clarity", "DlssPreset", v, ini);
+        _snprintf(v, 64, "%d", dvr::dlss::quality());
+        WritePrivateProfileStringA("Clarity", "DlssQuality", v, ini);
+        WritePrivateProfileStringA("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "Upscaler", dvr::dlss::backend() ? "1" : "0", ini);
+        {
+            uint32_t dow = 0, doh = 0; dvr::dlss::output(&dow, &doh);
+            _snprintf(v, 64, "%u", dow); WritePrivateProfileStringA("Clarity", "DlssOutputWidth", v, ini);
+            _snprintf(v, 64, "%u", doh); WritePrivateProfileStringA("Clarity", "DlssOutputHeight", v, ini);
+        }
+        WritePrivateProfileStringA("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", ini);
+        _snprintf(v, 64, "%.3f", dvr::dlss::mask_lo());
+        WritePrivateProfileStringA("Clarity", "DlssMaskLo", v, ini);
+        _snprintf(v, 64, "%.3f", dvr::dlss::mask_hi());
+        WritePrivateProfileStringA("Clarity", "DlssMaskHi", v, ini);
+        _snprintf(v, 64, "%.2f", dvr::clarity::body_depth());
+        WritePrivateProfileStringA("Clarity", "DlssBodyDepth", v, ini);
+    }
     // 41.1 (session 8): the device levers as they were READ this run (the
     // seam word writes the ask for the next launch; a save must not undo it)
     {

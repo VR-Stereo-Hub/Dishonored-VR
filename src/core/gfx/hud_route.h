@@ -21,12 +21,25 @@ namespace dvr::hudroute {
 // it cannot change an observed draw's owner while the same content moves.
 // This is not semantic Scaleform identity: animated/rebuilt geometry can miss.
 struct StableRoutes {
-    struct Entry { uint64_t key=0; uint32_t frame=0; int owner=0; bool ambiguous=false; uint32_t ambiguousFrame=0; float x=0,y=0; } entries[2048]{};
+    struct Entry { uint64_t key=0; uint32_t frame=0; int owner=0; bool ambiguous=false; uint32_t ambiguousFrame=0; float x=0,y=0; bool interaction=false; uint32_t interactionFrame=0; } entries[2048]{};
     void clear() { for(auto& e:entries) e=Entry{}; }
-    void adopt(uint64_t key,uint32_t frame,int owner) {
+    void adopt(uint64_t key,uint32_t frame,int owner,bool interaction=false) {
         if(!key) return;
         Entry& e=entries[(key^(key>>32))%2048];
-        if(e.key==key && e.frame==frame && !e.ambiguous) e.owner=owner;
+        if(e.key==key && e.frame==frame && !e.ambiguous) {
+            if(e.owner!=owner) e.interaction=false;
+            e.owner=owner;
+            if(interaction) {e.interaction=true;e.interactionFrame=frame;}
+        }
+    }
+    // A previous interaction-group observation outranks the broad task TEXT
+    // window for at most two presents. Initial row hints are not observations.
+    // Icons, missing identities, collisions and ambiguous shared sprites refuse.
+    bool prefer_interaction(uint64_t key,uint32_t frame,int taskKind) const {
+        if(!key || taskKind!=2) return false;
+        const Entry& e=entries[(key^(key>>32))%2048];
+        return e.key==key && e.frame==frame && !e.ambiguous && e.interaction &&
+               frame-e.interactionFrame<=2;
     }
     int resolve(uint64_t key,uint32_t frame,int initial,const float* rect=nullptr) {
         if(!key) return initial;
@@ -38,7 +51,7 @@ struct StableRoutes {
         // Repeated identical sprites can share every byte and resource. Two
         // positions in one present prove this key is not a unique element.
         if(e.frame==frame && rect && (e.x!=0 || e.y!=0) &&
-           ((e.x-x)*(e.x-x)+(e.y-y)*(e.y-y))>.000004f) {e.ambiguous=true;e.ambiguousFrame=frame;}
+           ((e.x-x)*(e.x-x)+(e.y-y)*(e.y-y))>.000004f) {e.ambiguous=true;e.ambiguousFrame=frame;e.interaction=false;}
         e.x=x;e.y=y;e.frame=frame;return e.ambiguous ? initial : e.owner;
     }
 };

@@ -1,3 +1,430 @@
+## 2026-09-27: sharp HUD and markers default on, Advanced controls
+
+After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1
+in runtime initialization, missing-key loading and the production default profile.
+Explicit saved values remain honored. Both live controls now appear in Advanced
+Display under Clarity and anti-aliasing. Optimized build, lint and production
+default writer/package/golden byte parity pass. This is the requested staging
+follow-up to merged PR149; no animation behavior changes.
+
+## 2026-09-27: sharp markers headset-confirmed
+
+The corrected v1.0.1-143-g128c99b5c candidate produces clear native markers in
+headset. Installed SHA256 matches 9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb.
+The verified log allocates 2114x2192 -> 2750x2850 targets and records matching
+captured/delivered eyes with successful serial-overlay composition for both eyes.
+Run archive: main-repo build/playtest-candidates/menu-submenu-markers/run143-confirmed.
+The user authorized merging the marker work to staging. This accepts the observed
+objective clarity result; it does not establish coverage of every masked marker
+family or an FSR headset result. Animation entry placement is separate new work.
+
+## 2026-09-27: corrected semantic marker candidate installed
+
+Installed optimized local testmix build `v1.0.1-143-g128c99b5c`, containing
+marker fix 93b4a9101 and verified submenu observations 28f6b0060.
+DLL SHA256 `9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb`.
+Backup: main-repo `build/playtest-candidates/menu-submenu-markers/marker-route-fix-20260927-203958`.
+Whole INI diff changes only DLAA=0 to 1; MarkersSharp=1 and saved Ultra Quality
+(DlssQuality=5) retained. Expected bytes and CRLF verified. Existing upscaler
+helpers unchanged. Nine exports, optimized build, lint and 74 production-routing
+checks pass. No game launch. Headset marker coverage/readability remains pending.
+Next test: stationary objective, compare F10 sharp markers off/on under the armed
+Ultra Quality setting. Clearer text supports the fix; unchanged text requires
+checking composition/refusal logs; movement or duplication is a regression.
+
+## 2026-09-27: run137 marker no-op traced to semantic routing
+
+Verified log banner v1.0.1-137-gb91ec4fef against installed DLL SHA256
+837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803.
+DLL, INI, log and previous log archived in the main repo under
+build/playtest-candidates/menu-submenu-markers/run137 before another launch.
+Reported result: objective markers remain unchanged and difficult to read.
+
+At34275171 the overlay allocates2114x2192 ->2750x2850 targets; at34277281
+DLSS confirms that reduced render/output pair. The marker lever is toggled on
+and off during this interval, but there are no overlay composition records.
+SemanticOwnership=1 is active. Its early native-marker return never assigns the
+new nativeMarker output, while the later heuristic routing paths do. Consequently
+the active semantic marker population never enters SharpMarkerScope. This is a
+source-confirmed integration omission, not proof that output resolution cannot
+improve these markers. Later no-upscaler refusals follow DLSS being turned off
+at34396812 and do not explain the earlier reduced-resolution interval.
+
+Fix: propagate owner.marker under the existing native-objective/awareness policy
+before that early return. Ordinary AnchorFrame widgets and unidentified owners
+remain outside the overlay. No marker size or rendering safety guard changes.
+A host test executes the actual semantic branch:74 checks pass across marker,
+non-marker, objective/awareness/prompt, native toggles and frame/panel anchors.
+Removing the assignment reproduces the failing handoff in the old-code negative
+control. The prior tests had exercised transport and fallback routing, not this
+earlier semantic branch; they were insufficient to establish in-game coverage.
+
+Prediction: with reduced upscaling active and MarkersSharp enabled, identified
+objective draws now produce hud/markers-sharp composition counts or a specific
+native-draw guard refusal. Neither implies visual acceptance. One next launch
+compares a stationary objective marker with the live toggle: sharper without
+position change supports the candidate; unchanged with composites requires pixel/
+font/size investigation; refused draws require the logged guard to be addressed.
+
+## 2026-09-27: native marker overlay after upscaling, candidate
+
+Depends on PR #146 (claude/hud-upscale-sharp). Its redirected HUD path cannot
+sharpen native markers left in the scene. New [Hud] MarkersSharp=0 defaults off;
+F10 Display places its checkbox beside Sharp HUD while upscaling, and
+`hud markers sharp on|off` switches it live.
+
+The existing native routing decision explicitly identifies rune, task/objective
+and awareness draws. Eligible draws rasterize into an output-size transparent
+target using a scaled viewport and private D24S8. Colour blend and native screen
+position are retained; separate alpha records destination attenuation. The
+original draw is redirected, so those pixels never enter DLSS/FSR reconstruction.
+The target is sealed at the actual colour capture serial allocation, carries its
+resolved eye, and composites over that serial's reconstructed image before mod
+hands/F10. Six shared slots fence D3D9 writes and D3D11 reads independently.
+Delayed delivery uses the delivered serial, never the current present's eye.
+Empty presents clear instead of reusing a prior marker. Reset releases all
+DEFAULT-pool objects. A toggle off drains already-redirected in-flight images.
+
+Depth decision: hud_class requires ZENABLE=false before native routing, so this
+path cannot contain scene-depth-tested draws. Stencil/scissor, sRGB writes,
+partial colour masks, transformed vertices, state blocks and unsupported blends
+refuse to the original draw with a reason and values. Supported RGB equations:
+ADD with ONE or SRCALPHA source and ONE or INVSRCALPHA destination. No guessed
+scene occlusion or masking replacement. Refused families can remain blurry;
+headset/log coverage must establish which guards the real marker population uses.
+GPU fence refusal after redirection can omit that image's markers; it logs the
+failure and never substitutes a different image's overlay.
+
+Validation: actual production D3D11 WARP shader checks transparent, black,
+additive and alpha-over pixels against known background colours, plus existing
+circle/crop/hue cases. 123 native HUD and 503 HUD routing checks pass. Generated
+default writer, packaged profile and golden INI are byte-identical. No headset
+acceptance is claimed. A separate graphics-only production transport test on
+native D3D9Ex/D3D11 passes serial separation, reversed delivery, toggle-off drain,
+no-upscale refusal and resource release before Reset. No game/simulator launched.
+Memory at 2750x2850: six RGBA8 images plus one D24S8 surface are about 209 MiB,
+excluding driver overhead. This opt-in candidate needs performance measurement.
+
+After the separate submenu diagnostic launch, the marker question is whether
+one stationary objective marker gains crisp edges with this checkbox enabled,
+without moving or doubling between eyes. hud/markers-sharp logs owner, serial,
+captured/delivered eye, per-eye draw/composite totals and refusal reasons.
+
+## 2026-09-27: the HUD at headset resolution while upscaling (`[Hud] UpscaleSharp`, default off)
+
+Observation: with DLSS Super Resolution on, HUD elements look soft. Measured in the dev rig's own
+logs: at DLSS Quality the sinks were `1832x1900` (the reduced render) with `916x950` hand-off
+slots, against `2750x2850` / `1375x1425` at native. The redirect sizes its targets from the
+backbuffer, and under SR the backbuffer IS the reduced render, so the HUD lost a third of its
+resolution per axis before it ever reached the panel.
+
+Change: with `[Hud] UpscaleSharp=1` (F10 Display > upscaler section, "Sharp HUD while upscaling";
+seam `hud sharp on|off`) and the frame being an upscaler's reduced render
+(`dvr::dlss::sr_output_for`), the sink targets are created at the upscaler's OUTPUT size and each
+redirected draw gets the game's viewport scaled by output/render. Every HUD vertex shader places
+its vertices through a 4x4 transform into clip space (VR-118, section on the transform map), so
+the same geometry rasterizes at more pixels. The game's depth-stencil is smaller than the target,
+so the sinks bind a shared D24S8 of their own around each redirected draw (Scaleform masks use
+stencil) through the unhooked setter, and it is cleared every present. A size change (the lever,
+a mode, a resize) rebuilds every sink once. Off, DLAA, or no upscaler: the old path exactly.
+
+Log: `hud/sharp: sink 0's target is 2750x2850, the upscaler's output, for a 1832x1900 render
+(x1.50 per axis ...)`; `hud:` status prints `sharp=1 (targets ABOVE the ...)`.
+
+Expected limits: bitmap content (icons, the glyph cache Scaleform rasterizes text into) keeps its
+own texture resolution, so edges and vector shapes gain the most. The scissor rectangle is reset to
+the whole target by SetRenderTarget, as it always was in the redirect.
+
+Status: built, lint and golden ini clean. NOT run in the game, the simulator or the headset.
+Question for the headset: at DLSS Quality, is the HUD with the box ticked as sharp as at DLAA, and
+does anything (a masked bar, a menu, the wheel) draw wrong or clipped with it on?
+
+## 2026-09-26: accepted semantic ownership baseline
+
+Local headset reports accept cohesive widget grouping, marker size controls, lower
+hint placement and finally the independent low-health D-pad/potion correction on
+95ae3f7af. Final6bc58a449 run retains this HUD behavior and accepts walking smoothness.
+Preserve the direct live movie owner route and original rain treatment. Earlier
+private tutorial panel, +90 link and cross-movie census gates below are failed
+hypotheses, not next actions. Global/FX and DLC05 coverage remains unverified.
+
+## 2026-09-25: potion activation veto identified in returned log
+
+Returned36a8d7f95 still leaves the icon peripheral. It never captured the potion:
+actual mode4 persists for five summaries, but quickReady/quickCaptured remain0.
+The newly added all-HUD-clips-equal check sees22 matches and9 other references
+and vetoes the separate potion movie. Remove that dependency and its recurring
+census reads; retain exact live potion movie/Display membership verification.
+No panel positioning, size, INI or menu behavior changes. Production activation
+and full queue transport now have an integrated host regression, rather than
+only a fixture with quickView already manually enabled.
+
+Next one-launch acceptance: low-health D-pad/potion is fully visible on the
+floating gameplay panel without opening the wheel. If unchanged, distinguish
+quickReady0, ready-but-quickCaptured0 and captured-with-bad-position; none of
+those is equivalent. No visible-fix claim until headset confirmation.
+
+## 2026-09-25: potion route did not activate; script coverage audit
+
+Returned b52c0c579 confirms the reminder remains peripheral; performance was
+reported acceptable. The route's native pointer hypothesis failed all28 live
+checks, so this was no placement test. Correct sprite movie member+BC from its
+constructor/getter; validate the GFxMovieRoot primary table and all supported HUD
+clip relationships. Keep mode4's entire displayed movie on the existing default
+panel. QuickPotionMenu.Open is independent of opening the weapon wheel: it copies
+ShortcutsHandler.SetPosition's authored lower-left safe-area location, animates
+its own D-pad/potion/ring, and closes through its own callback. Do not ask the
+player to open the wheel to trigger this reminder.
+
+Coverage from a renewed local UnrealScript/ActionScript review:
+
+| Owner/family | Current capture policy and remaining lead |
+|---|---|
+| Base HUD32 clips | Explicit semantic table covers reticle, talk/use, vitals, sneak, context/mantle/QTE, breath/interaction/cook gauges, pickup/messages, tutorials, notifications, damage/vignettes, keyhole/cinematic, subtitles, choice and skip |
+| Task and Heart markers | Separate native arrays for objective and rune/charm identity; existing native marker projection/scale, no rectangle regrouping |
+| Awareness and thrown-grenade markers | Separate native arrays; existing native/frame placement, distinct from hand grenade-cook gauge |
+| PowerWheel mode4 | Standalone quick-potion movie; corrected optional ownership joins default panel with inherited child/filter ownership |
+| Other PowerWheel modes | Selection/shortcut UI remains on accepted menu routing; ShortcutsHandler also supports shortcuts without the radial wheel |
+| Global movie | Save/checkpoint messages, message boxes, cursor and cinematic stripes. No typed clip array in declarations; selective roots need native getter/path derivation, not whole-movie gameplay capture |
+| HUD FX | Separate m_pHudFX/m_pFXMovieInfo; retain full-screen effect policy. Shipped UI_HUDFX_SF export contains no exportable movie in this package; do not infer absent runtime effects |
+| Journal/note/pause/store/stats and challenge menus | Separate manager-owned menu movies; existing menu routing retained |
+| DLC06/07 HUD | Inherit the base HUD layout; different assets/interactions need game validation, not a completeness claim |
+| DLC05 trials | Additional21-clip m_pDLC05MovieClips, item-count clips and m_DLC05Markers are outside the base32 table. Future selective extension needs native layout verification; never promote the whole HUD root and swallow its children |
+
+This audit identifies where remaining elements come from; it does not claim all
+DLC/global overlays are headset-verified. Broader capture is intentionally not
+introduced as part of the potion correction. Existing default placement, rain,
+marker settings and accepted menus remain unchanged. One launch question is
+whether the independently appearing low-health D-pad/potion is now fully visible
+on the same floating panel as the lower gameplay hints.
+
+## 2026-09-25: retire tutorial trial; capture quick-potion movie
+
+The e322911fb tutorial panel did not move the reported icon. User clarification
+and Flash/native audit identify the standalone reminder as the weapon-wheel
+movie's QuickPotionMenu, mode4, rather than a tutorial text message. The old
+HUD-root table could not claim this different movie. Remove tutorial isolation
+and its trial vertical offset; retain accepted semantic HUD/marker/lower hints.
+
+Candidate tags the live mode4 wheel movie by verified native movie membership
+and sends all its children to the existing default panel. No new panel or
+rectangle/content-based association. Menus retain the existing ride path; wheel
+mode1 cannot take this gameplay route. Optional live movie-link guard refuses
+rather than guessing. Next launch: trigger low health and check whether the
+D-pad/potion joins the visible floating HUD instead of the extreme native corner.
+
+## 2026-09-25: isolate identified tutorial reminders from default placement
+
+Returned fe3c3f876 accepts marker size and lower state/special alignment. Low-health
+reminder remains peripheral. The semantic route still called crop_eligible, whose
+unmeasured rows fell into a shared panel positioned by default. Thus tutorial's
+own controls did not apply even after ownership was correctly identified.
+
+Candidate isolates only semantic tutorial roots into one full-image panel. No
+claiming rectangle or clipping is introduced. Existing tutorial controls apply;
+local trial raises WinY to0.200m with unit scale and zero horizontal offset.
+The panel retires after two presents without its draws, preserving capture delivery
+while avoiding a persistent idle copy. Legacy routing and riding menus are unchanged.
+Native host suite129 checks passes; headset readability remains to be tested.
+
+## Ownership accepted; sizing and lower-panel follow-up (2026-09-25)
+
+Verified installed4c38bf526 DLL and log52040281 before analysis. Headset report
+accepts substantially steadier, cohesive HUD through the tested scenes, with no
+observed ungrouping. Archive: primary build/hud-regression-20260925/semantic-return-221601.
+This acceptance covers widget cohesion, not all marker depth/performance claims.
+Remaining report: objective/Heart size control ineffective; mantle/vault hint
+vertically separates from sneak; low-health D-pad reminder displaced bottom-left.
+
+Confirmed marker cause is an incorrect owner==HUD check, not a new scaling value.
+The current HUD array contains markers whose +8 points at their task/collectible/
+enemy target. Correcting that relationship admits native roots so existing whole
+marker scale/upright policy can run with its copied parent pivot. Unknown draws
+still cannot be claimed by proximity, and no heuristic routing is reinstated.
+
+Correct native clip placement: index2/6 info/talk/use remains prompt; index4
+player-state and7/8/9 context/special/QTE share default. This retains native
+relative lower-panel positions and keeps central prompt preferences separate.
+It is expected to recover the displaced contextual reminder too; the log does
+not identify the heal text directly. All player INI changes are retained.
+
+One next launch question: with an objective visible, does the existing native
+objective size slider now visibly resize the complete marker? A pass accepts
+restored size-policy reachability. A failure requires family/pivot counts and
+native-icon lines from the matching log. Lower-panel alignment and low-health
+reminder visibility should also improve, but remain separate reported acceptance.
+
+## Native widget ownership candidate and pause acceptance (2026-09-25)
+
+World-positioned pause is now reported accepted on verified 0a4c7c254. Three
+recorded entries use RIDING Pause with the panel approximately 1.5m forward.
+The accepted capture-readiness repair is retained.
+
+[Hud] SemanticOwnership=1 enables the new native Display -> queue publication ->
+replay ownership transport. Default is 0; F10 HUD has a live comparison toggle
+once hooks were armed at startup. Configuration is independent of OwnerTrace.
+Gameplay routing bypasses every old rectangle/content/proximity association when
+this path is active. Crosshair information and all interaction roots share the
+prompt sink. Cooking and its children use the reticle sink and existing aim-ray
+angular-size policy. Task and Heart/rune/charm roots remain distinct native
+instances; awareness keeps its own family. Unknown or ambiguous work stays in the
+native image and cannot acquire another widget's anchor or native marker scale.
+Menus continue through the already accepted context-owned world-panel path.
+
+The copied marker parent pivot belongs to the command's source traversal, instead
+of reading whichever marker update is newest at D3D replay. This removes that
+transport race, but does NOT yet establish stereo target depth or eliminate a
+shared/mono native projection. Objective depth, full animated cook-gauge size,
+all cached/filter output and performance remain headset acceptance items. Do not
+claim the entire regression report fixed on the strength of the host checks.
+
+One next launch question: with the controller held on Emily in front of the
+Empress, does looking up keep name/button/action together and separate from the
+objective? A pass supports ownership at the reported overlap. A failure needs the
+matching log's hook/required-root/known/fallback counters before any new hypothesis.
+No new diagnostic-only launch is requested. OwnerTrace and CPU/GPU flicker probes
+remain off. Implementation contracts and guards: ENGINE_NOTES; cost: PERFORMANCE.
+
+## Returned ownership boundary and flat pause (2026-09-25)
+
+Verified ea83dc5be reproduced prompt-to-objective ownership changes. Native task
+identity was captured successfully once; three renderer stacks show queued draw
+execution on a different thread. Native widget Display cannot directly scope
+D3D draw ownership. ENGINE_NOTES records the verified queue/producer boundary.
+The semantic transport repair remains OPEN for interaction, objectives, Heart
+collectibles and the cooking gauge; no new rectangle precedence patch was added.
+
+Pause configuration resolved to world, MenuInWindow=1 and opt-in enabled. At
+48341968 entry was refused with healthy=0 and failed=0. The preceding capture
+window remained armed but had 417 empty frames of 454 armed frames. The redirect
+health predicate required a visible redirected draw within 500 ms; widgets fading
+out could therefore disable world-panel entry even with ready resources. The
+once-per-owner latch then kept the pause on the flat fallback.
+
+Candidate separates readiness from content: after an exercised capture frame,
+armed resource-ready empty frames renew readiness. An unarmed path still expires
+in 500 ms. No initial proof, a lost handoff, disable, device reset or latched failure
+refuses entry. Existing context opt-ins, anchor selection, input blocking and
+mid-menu latch policy remain unchanged. One behavioral test: after interaction
+HUD fades, opening pause should leave a world-positioned panel over the scene;
+remaining flat means entry still fails and the matching log must name its gate.
+
+## HUD regression audit and ownership replacement gate (VR-185/186/166, 2026-09-25)
+
+**Acceptance failed.** Local DLL/banner 1ed638c01 verified before reading the run;
+logs and entire INI archived in primary build/hud-regression-20260925. Other
+hand/swing/menu follow-ups were reported satisfactory; do not undo them to repair
+HUD ownership. The narrow interaction precedence candidate is not a complete fix.
+
+### Release comparison
+
+Compared v1.0.0 with 1ed638c01, including source and released/installed INIs. Task,
+Heart/rune, awareness matchers, native marker scaling, widget grouping and grenade
+center recognition predate 1.0.0. Only the interaction-cache precedence changes
+in hud_layout/hud_route are new HUD routing code in this range. The installed
+native marker scale remains 0.330; the default window scale decreased 1.570->1.210,
+and window distance increased 1.390->1.500m. These changes do not explain a larger
+cook gauge by an increased size setting. Release comparison is not proof that
+all reported symptoms first appeared after that tag; no matching release playtest
+was found in the available local playtest archive.
+
+### Returned evidence and failed prediction
+
+- Prompt-sized content f36407587ddebf1f at 0.570/0.518/0.598/0.539 is classified as
+  both task text AND task icon. Button-sized a2d51b808466f10b also becomes task icon
+  and task continuity near 0.547/0.518/0.571/0.541. The prior patch protects only
+  kind 2 text, so the kind 1/icon and kind 3/bridge branches defeat it. These keys are
+  run-local content, not semantic proof of a particular string or universal IDs.
+- Awareness accepts up to 160x160 authored pixels with 96px offsets, ahead of prompt
+  and reticle grouping. During the grenade interval it claims changing HUD pieces
+  near 0.502/0.439/0.610/0.498. Later pieces join prompt. The trace is rate-limited;
+  it cannot identify every cook-ring child from those lines alone.
+- The grenade throw at 32935937 used the HAND ray. The reticle/aim gauge layer did
+  not remain active in that interval. HUD placement and projectile aim are separate
+  failures; do not change the accepted throw direction to repair the gauge.
+- Native sizing transforms about the latest published parent point, which is not
+  paired to a rendered eye. If both eyes use a shared pivot, scale 0.33 reduces
+  their disparity to 0.33 of the original, an apparent depth increase. This is a
+  mathematical failure mode, NOT a measurement of the reported Empress depth.
+  A native mono projection, authored target/offset, and camera phase also remain
+  alternatives. Do not substitute a guessed marker distance.
+
+### Decompiled sources reread
+
+DisGFxMoviePlayerHUD owns distinct native arrays for tasks, Heart collectibles,
+awareness and grenade danger markers, plus a movie-clip table. Its enum separates
+crosshair info, crosshair interactions, context/special interactions and grenade
+cooking. m_ActiveGauge distinguishes cooking from usable/choke/skip gauges.
+InteractionsWindow owns name/title and interaction text under one clip, converting
+button tags inside that text. CrosshairInfosText is another separately fading clip.
+GrenadeCooking owns a compound animated gauge: indicator, glow and stroke change
+independently and its explosion close expands to 180 percent. Individual draw
+centers and content hashes therefore are not stable widget identities.
+
+DishonoredObjective and DishonoredTask_Base carry distinct hidden, show-marker,
+optional/state and target-actor data. DisHeartTargetTracker, DisGadget_Heart,
+DisWhaleBoneCharm and DisTweaks_Heart distinguish collectible tracking from task
+objectives. DisTweaks_GFxMoviePlayerHUD supplies separate rune/bone-charm symbols,
+world/screen offsets, scale/alpha distance curves and focus/vanish settings. Blank
+class defaults are not the live tweak asset. Native projection bodies are not in
+these declaration exports. Flash task and collectible descriptions share sprite 160;
+a sprite, texture or 8-vertex/10-primitive filter quad is not a semantic owner.
+The root fake-marker functions are preview helpers, not runtime tracking.
+
+### Replacement contract and next executable step
+
+Preserve an explicit widget/instance owner from the native/Scaleform display tree
+through its queued render work. All child draws inherit it. Keep this ownership
+separate from placement: task/Heart markers use target projection and per-eye depth;
+interaction name/action/button share one prompt anchor; cooking uses the accepted
+hand aim ray with one authored angular-size policy. Preserve engine visibility,
+focus, offscreen clamp, rune/charm family and menu lifecycle. Do not expand another
+rectangle or globally give prompts precedence over real overlapping markers.
+
+The missing boundary is whether GFx clip Display encloses the intercepted D3D draw
+or whether rendering has already queued away the owner. OwnerTrace (default 0)
+records at most 16 renderer stacks, one per route family and at most one per Present,
+plus at most 4 guarded native attempts per task/Heart/awareness family. Successful
+native captures happen once, no process-lifetime reset on loads/menus. Read-only;
+no virtual calls, engine writes, GPU readbacks or full-frame census. It supplies
+native character vtable candidates and the actual renderer call path, not a fix.
+
+Next ONE launch question: at the reported overlapping interaction, does looking
+up while keeping the controller pointed reproduce the split? Quit afterward.
+A repeat associates the captured boundary with the failing run; a non-repeat
+still establishes the available render path but cannot accept a HUD fix. Read
+and verify the installed banner first. Do not require another remote prison run.
+After the boundary is known, implement owner transport and test first-frame overlap,
+name/button/text filters, animated gauge arcs/fades, multiple markers, load/menu
+identity reuse and stereo depth before a behavioral candidate is accepted.
+Performance is tracked only in PERFORMANCE.md; all HUD fixes remain OPEN.
+
+## VR-186 follow-up: interaction text crossing objective bounds (2026-09-25)
+
+In verified local c4f5fe5df, draw key c07faf8d815a2b72 repeatedly switches from
+interaction/window to task-text/native and back at rect0.538/0.493/0.597/0.516,
+including17667734..17667765. A native task text window returns before interaction
+grouping and cuts the widget group. This can separate neighboring pieces during
+head pitch even though the user keeps pointing at the same target. The log does
+not identify text content, so it does not establish which of the reported button,
+action label and character name this key represents.
+
+Candidate remembers an actual interaction-group observation in the existing
+fixed2048-entry content cache. For two presents it outranks only a task TEXT
+proximity match. Continuous valid interaction grouping refreshes the observation.
+Initial spatial hints alone do not qualify. Task icons and their continuity,
+runes and awareness retain priority. Missing keys, hash collisions, ambiguous
+shared sprites, load/menu resets and expired observations refuse the override.
+No allocation, new log or engine-memory write. This is content/proximity evidence,
+not semantic Scaleform identity; first-seen overlap or rebuilt text can still miss.
+
+503 hud-route checks pass, including the recorded rectangle claimed by the old
+text bound and the observed prompt retaining ownership afterward, plus icon,
+expiry, reset, collision and ambiguity exclusions. Headset acceptance OPEN:
+when requested after the hand test, keep pointing at the same interaction and
+pitch the head; button/action/name should remain one widget. A remaining split
+requires matching route evidence, not another broad rectangle expansion.
+
 ## The world window re-parks for each menu (VR-207, 2026-09-23)
 
 **Report:** on an Index through the SteamVR shim (build `525-g548c31693`), the pause menu

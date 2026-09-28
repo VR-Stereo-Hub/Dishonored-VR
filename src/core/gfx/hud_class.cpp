@@ -6,6 +6,8 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/markers_sharp.h"
+#include "core/gfx/dlss.h"
 #include "core/gfx/hud_layout.h"
 #include "core/gfx/hud_native_icon.h"
 #include "core/hooks/vtable.h"
@@ -18,7 +20,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <atomic>
+#include "core/gfx/hud_owner.h"
 namespace dvr::hudclass {
+namespace { std::atomic<bool> g_ownerTrace{false}; }
+void set_owner_trace(bool on) {
+    g_ownerTrace.store(on, std::memory_order_relaxed);
+    if(on) DVR_INFO("hud/identity: ARMED finite read-only capture; at most 16 renderer stacks and 4 native attempts per family; no pixel readback, no budget reset on menus or loads");
+}
+bool owner_trace_enabled() { return g_ownerTrace.load(std::memory_order_relaxed); }
 namespace {
 
 typedef HRESULT (__stdcall *PFN_DrawPrimitiveUP)(IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT,
@@ -87,6 +97,7 @@ D3DVIEWPORT9        g_vp = {};
 bool                g_vpKnown = false;
 DWORD               g_zEnable = D3DZB_TRUE;
 DWORD               g_zWrite = TRUE;
+DWORD g_markerStencil=FALSE,g_markerScissor=FALSE,g_markerColorMask=15,g_markerSrgb=FALSE;
 DWORD               g_alphaBlend = FALSE;
 // VR-119: the blend equation as the game left it (D3D9's defaults until set),
 // so the coverage equation forced on a redirected draw can be put back exactly.
@@ -1065,6 +1076,10 @@ bool native_basis(float& co,float& si,float& aspect) {
 struct NativeIconScope {
     IDirect3DDevice9* dev;int rows[4]{},count=0;float saved[4][4]{};
     NativeIconScope(IDirect3DDevice9* device,const Probe& p,int element):dev(device) {
+        if(dvr::hudowner::active() && !dvr::hudlayout::menu_riding()) {
+            const auto owner=dvr::hudowner::current();
+            if(!owner || !owner.marker || !owner.pivotValid) return;
+        }
         const float scale=dvr::hudlayout::native_objective_scale(element);
         const bool wanted=dvr::hudlayout::native_objective_upright(element);
         float co=1,si=0,aspect=1;
@@ -1088,11 +1103,91 @@ struct NativeIconScope {
             if(FAILED(dvr::frame::orig_set_vs_const(dev,rows[i],changed[i],1))) {restore();return;}
         }
         DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,2000,
-            "hud/native-icon: scale=%.3f rect=%.3f/%.3f/%.3f/%.3f; game target/color retained, heuristic identity",
+            "hud/native-icon: scale=%.3f rect=%.3f/%.3f/%.3f/%.3f; game target/color retained, routing owns identity",
             scale,p.bbox[0],p.bbox[1],p.bbox[2],p.bbox[3]);
     }
     void restore() {for(int i=0;i<count;++i) dvr::frame::orig_set_vs_const(dev,rows[i],saved[i],1);count=0;}
     ~NativeIconScope(){restore();}
+};
+
+// Capture the missing renderer boundary once per route family, at most one
+// sample per Present and 16 per process. Route changes never rearm it.
+// This tests whether native clip Display still encloses the D3D draw.
+void owner_trace(const Probe& p, int element, int sink) {
+    if (!owner_trace_enabled() || !::dvr::log::enabled(DVR_CAT,::dvr::log::Level::Info)) return;
+    static bool seen[64]{};
+    static unsigned samples=0;
+    static uint32_t lastFrame=~0u;
+    if (samples>=16 || !p.ok || element<0 || element>=32) return;
+    const unsigned family=unsigned(element)*2+(sink<0?1:0);
+    const uint32_t frame=(uint32_t)dvr::frame::count();
+    if (seen[family] || lastFrame==frame) return;
+    seen[family]=true;lastFrame=frame;++samples;
+    const long long start=qpc_now();
+    void* stack[24]{};
+    const unsigned count=CaptureStackBackTrace(0,24,stack,nullptr);
+    char frames[640]{};size_t used=0;
+    for(unsigned i=0;i<count && used+24<sizeof(frames);++i) {
+        const int n=_snprintf(frames+used,sizeof(frames)-used," %p",stack[i]);
+        if(n<=0) break;
+        used+=(size_t)n;
+    }
+    DVR_INFO("hud/identity-render: sample=%u/16 tid=%lu P%u element=%d sink=%d key=%016llx verts=%u prims=%u "
+        "rect=%.5f/%.5f/%.5f/%.5f raw=%.7g/%.7g/%.7g/%.7g "
+        "X=%.7g/%.7g/%.7g/%.7g Y=%.7g/%.7g/%.7g/%.7g W=%.7g/%.7g/%.7g/%.7g stack=%s",
+        samples,GetCurrentThreadId(),frame,element,sink,p.drawKey,p.vertices,p.primitives,
+        p.bbox[0],p.bbox[1],p.bbox[2],p.bbox[3],p.raw[0],p.raw[1],p.raw[2],p.raw[3],
+        p.c0[0],p.c0[1],p.c0[2],p.c0[3],p.c1[0],p.c1[1],p.c1[2],p.c1[3],
+        p.c3[0],p.c3[1],p.c3[2],p.c3[3],frames);
+    LARGE_INTEGER freq;QueryPerformanceFrequency(&freq);
+    DVR_INFO("hud/identity-cost: sample=%u elapsedUs=%.3f; finite capture includes stack and first log",
+        samples,(qpc_now()-start)*1e6/(double)freq.QuadPart);
+}
+
+// This scope owns only a semantically native marker draw. Its RGB blend is
+// unchanged; separate alpha records destination attenuation for later over.
+struct SharpMarkerScope {
+    IDirect3DDevice9* dev;IDirect3DSurface9* rt;D3DVIEWPORT9 vp;bool active=false;
+    SharpMarkerScope(IDirect3DDevice9* d,bool native,const Probe& p):dev(d),rt(g_rt0?g_rt0:g_bbPtr),vp(g_vp) {
+        if(!native || !dvr::markersharp::enabled())return;
+        uint32_t w=0,h=0;
+        if(dvr::dlss::mode()==dvr::dlss::ModeOff || !dvr::dlss::sr_output_for(vp.Width,vp.Height,&w,&h) || w<=vp.Width || h<=vp.Height)return;
+        const bool blend=g_blendOp==D3DBLENDOP_ADD && (g_srcBlend==D3DBLEND_ONE || g_srcBlend==D3DBLEND_SRCALPHA) &&
+            (g_dstBlend==D3DBLEND_ONE || g_dstBlend==D3DBLEND_INVSRCALPHA);
+        if(!p.ok || p.transformed || g_zEnable!=D3DZB_FALSE || g_markerStencil || g_markerScissor ||
+           g_markerSrgb || g_markerColorMask!=15 || g_stateBlocksCreated || !blend) {
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
+                "hud/markers-sharp: REFUSED owner=native-draw probe=%d transformed=%d z=%lu stencil=%lu scissor=%lu srgb=%lu mask=%lu blocks=%u blend=%lu/%lu/%lu; original draw retained",
+                (int)p.ok,(int)p.transformed,g_zEnable,g_markerStencil,g_markerScissor,g_markerSrgb,g_markerColorMask,g_stateBlocksCreated,g_srcBlend,g_dstBlend,g_blendOp);
+            return;
+        }
+        if(!dvr::markersharp::begin(dev,rt,vp))return;
+        D3DVIEWPORT9 big=vp;big.Width=w;big.Height=h;
+        HRESULT hr=g_origSetVp(dev,&big);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_SEPARATEALPHABLENDENABLE,TRUE);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_SRCBLENDALPHA,g_dstBlend==D3DBLEND_ONE?D3DBLEND_ZERO:D3DBLEND_ONE);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_DESTBLENDALPHA,g_dstBlend);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_BLENDOPALPHA,D3DBLENDOP_ADD);
+        active=true;
+        if(FAILED(hr)) {
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,"hud/markers-sharp: REFUSED owner=native-draw state setup hr=%08lx",(unsigned long)hr);
+            restore();
+        }
+    }
+    void restore() {
+        if(!active)return;
+        bool ok=SUCCEEDED(g_origSetRs(dev,D3DRS_SEPARATEALPHABLENDENABLE,g_sepAlpha));
+        ok=SUCCEEDED(g_origSetRs(dev,D3DRS_SRCBLENDALPHA,g_srcBlendA)) && ok;
+        ok=SUCCEEDED(g_origSetRs(dev,D3DRS_DESTBLENDALPHA,g_dstBlendA)) && ok;
+        ok=SUCCEEDED(g_origSetRs(dev,D3DRS_BLENDOPALPHA,g_blendOpA)) && ok;
+        dvr::markersharp::end(dev,rt,vp);
+        ok=SUCCEEDED(g_origSetVp(dev,&vp)) && ok;active=false;
+        if(!ok) {
+            DVR_ERROR("hud/markers-sharp: REFUSED owner=native-draw restore alpha/viewport failed; disarming overlay");
+            dvr::markersharp::set_enabled(false,"state restore failure");
+        }
+    }
+    ~SharpMarkerScope(){restore();}
 };
 
 // ---- the hooks ------------------------------------------------------------
@@ -1107,11 +1202,13 @@ struct NativeIconScope {
         probe_draw(ENTRY, PRIMTYPE, PRIMS, VERTS, STRIDE, FIRST, COUNT, probe);                   \
         if (probe.ok) pbb = probe.bbox;                                                           \
     }                                                                                             \
-    int sink = -1;                                                                                \
+    int sink = -1; bool nativeMarker=false;                                                                                \
     if (hudNow) note_blend_tuple();                                                               \
-    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives, probe.nativePivot); \
+    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives, probe.nativePivot, &nativeMarker); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
+    if (hudNow) owner_trace(probe,element,sink); \
     NativeIconScope nativeIcon(self,probe,element); \
+    SharpMarkerScope sharpMarker(self,nativeMarker,probe); \
     const bool forceAlpha = sink >= 0 && alpha_force_wanted(sink);
 
 HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
@@ -1211,6 +1308,10 @@ HRESULT __stdcall hkSetViewport(IDirect3DDevice9* self, const D3DVIEWPORT9* vp) 
 HRESULT __stdcall hkSetRenderState(IDirect3DDevice9* self, D3DRENDERSTATETYPE state, DWORD value) {
     dvr::native_profile::Scope timing(dvr::native_profile::SetRenderStateInclusive);
     if (shadowing()) {
+        if(state==D3DRS_STENCILENABLE)g_markerStencil=value;
+        else if(state==D3DRS_SCISSORTESTENABLE)g_markerScissor=value;
+        else if(state==D3DRS_COLORWRITEENABLE)g_markerColorMask=value;
+        else if(state==D3DRS_SRGBWRITEENABLE)g_markerSrgb=value;
         if (state == D3DRS_ZENABLE) g_zEnable = value;
         else if (state == D3DRS_ZWRITEENABLE) g_zWrite = value;
         else if (state == D3DRS_ALPHABLENDENABLE) g_alphaBlend = value;
@@ -1485,6 +1586,7 @@ void present_tick(IDirect3DDevice9* dev) {
 }
 
 void on_reset() {
+    g_markerStencil=g_markerScissor=g_markerSrgb=FALSE;g_markerColorMask=15;
     dvr::hudlayout::forget_draw_owners();
     g_stateBlocksCreated = 0;
     g_lastDrawTid = 0;

@@ -33,6 +33,8 @@
 //   vrinput on|off|status        the virtual gamepad
 //   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|filter raw|median|sword|output rt|rb|
 //         log|force|sim <peak> [humpMs] [reps]|save   the motion sword (game/dishonored/swing.h) - VR-37
+//   snapturn on|off|angle <deg>|threshold <v>|rearm <v>|repeat <ms>|fire [left|right]|mark|status
+//                                     snap turn (game/dishonored/snap_turn.h) - VR-219
 //   console <text>               run a game console command on the script lane
 //   fullscreen on|off            VR-158: live fullscreen, through the engine's own
 //                                resize (one device reset); windowed presents via DWM
@@ -73,6 +75,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "cineroll") && DvrOnOff(args, &b)) { CineRollSet(b); return true; }
     if (!strcmp(cmd, "cinepitch") && DvrOnOff(args, &b)) { CinePitchSet(b); return true; }
     if (!strcmp(cmd, "mantlehands") && DvrOnOff(args, &b)) { dvr::anim::set_mantle(b); return true; }
+    if (!strcmp(cmd, "takedownarms") && DvrOnOff(args, &b)) { dvr::anim::set_takedown_arms_hidden(b); return true; }   // VR-283: on = arms hidden
     if (!strcmp(cmd, "cinehands") && DvrOnOff(args, &b)) { dvr::anim::set_cinematic(b); return true; }
     if (!strcmp(cmd, "cinefov") && DvrOnOff(args, &b)) { CineFovSet(b); return true; }
     if (!strcmp(cmd, "cinestereo") && DvrOnOff(args, &b)) { StereoStateSet(b); return true; }
@@ -81,12 +84,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "rainhide") && DvrOnOff(args, &b)) { RainHideSet(b); return true; }   // VR-136
     if (!strcmp(cmd, "swordtrail")) return SwordTrailCommand(args);   // VR-171
     if (!strcmp(cmd, "camshake")) return CamShakeCommand(args);   // VR-172
+    if (!strcmp(cmd, "snapturn")) return dvr::snap::command(args);   // VR-219: snap turn
     if (!strcmp(cmd, "raindistance")) { RainDistanceSet(atoi(args)); return true; }   // VR-136: uu, -1 native
     if (!strcmp(cmd, "lensdistance")) { LensDistanceSet(atoi(args)); return true; }   // VR-137: uu, 0 native
     if (!strcmp(cmd, "lenskeepsize") && DvrOnOff(args, &b)) { LensKeepSizeSet(b); return true; }   // VR-137
     if (!strcmp(cmd, "lensfollow") && DvrOnOff(args, &b)) { LensFollowSet(b); return true; }       // VR-137
     if (!strcmp(cmd, "rainstrength")) { LensRainPctSet(atoi(args)); return true; }                 // VR-137: %, 100 native
     if (!strcmp(cmd, "mirror")) return WmCommand(args);   // VR-138
+    if (!strcmp(cmd, "occlusion")) return OcclusionCommand(args);   // VR-79
     if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
     if (!strcmp(cmd, "uiguard") && DvrOnOff(args, &b)) { UiSurfaceSet(b); return true; }
     if (!strcmp(cmd, "monoanchor")) {
@@ -207,6 +212,26 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     }
     if (!strcmp(cmd, "overlay") && DvrOnOff(args, &b)) { g_ovlVisible = b; return true; }
     if (!strcmp(cmd, "arms")) return ArmsCommand(args);   // VR-31: the per-bone visibility lever
+    if (!strcmp(cmd, "res") && !strncmp(args, "live ", 5)) {
+        // Uncap deep dive (2026-09-27): a LIVE render size for the A/B plan's scaling test,
+        // through the engine resize the F10 control and DLSS SR already use (ResLiveQueue:
+        // byte-verified, refuses with a reason). Nothing is written to either ini, so the
+        // next launch renders the configured size again. `res live pct <25..200>` is a percent
+        // per axis of the configured [Screen] RenderWidth/Height; `res live <W>x<H>` is exact.
+        unsigned w = 0, h = 0, pct = 0;
+        static uint32_t baseW = 0, baseH = 0;   // the configured size, before any live change moved g_resWant
+        if (!baseW && g_resWantW && g_resWantH) { baseW = g_resWantW; baseH = g_resWantH; }
+        if (sscanf(args + 5, "pct %u", &pct) == 1 && pct >= 25 && pct <= 200 && baseW && baseH) {
+            w = (baseW * pct / 100 + 1) & ~1u; h = (baseH * pct / 100 + 1) & ~1u;
+        } else if (sscanf(args + 5, "%ux%u", &w, &h) != 2) {
+            Log("res live: pct <25..200> (of the configured %ux%u) | <W>x<H> - nothing written to the ini", baseW, baseH);
+            return true;
+        }
+        Log("res live: asking %ux%u for this session only (configured %ux%u stays in the ini)", w, h, baseW, baseH);
+        g_resLiveSession.store(true);
+        ResLiveQueue(w, h);
+        return true;
+    }
     if (!strcmp(cmd, "res")) return ResCommand(args);   // 41.1: the render-resolution picker
     if (!strcmp(cmd, "neck")) {
         // 41.1: `neck off|add|cancel [below] [behind]` - the pitch pivot lever (head_track.cpp NeckSet)
@@ -341,6 +366,10 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::set_shared_wait(b);
             return true;
         }
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "depth")) {   // uncap deep dive
+            dvr::capture::set_shared_depth(atoi(m), "the seam");
+            return true;
+        }
         if (!strcmp(args, "reinit")) { dvr::capture::request_reinit(); return true; }   // 41.1 (session 9)
         // 41.1: the content-bbox cadence. Each sample is a full-frame CPU
         // readback on the present thread even in shared mode - see capture.h.
@@ -355,7 +384,8 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("capture: mode=%s probe=%s cost/present rtd=%u lock=%u copy=%u upload=%u blit=%u total=%u us "
             "(%u grabs) delivered serial %lu of %lu tag=%d slot=%d sharedWait=%d fenceWaits=%u timeouts=%u readWaits=%u "
             "readTimeouts=%u reinits=%u bboxEvery=%ums(%u samples, each a full-frame CPU readback) "
-            "(capture mode sync|deferred|shared|off, capture sharedwait on|off, capture bbox off|<ms>, capture reinit)",
+            "(capture mode sync|deferred|shared|off, capture sharedwait on|off, capture depth 1|2|3, capture bbox off|<ms>, "
+            "capture reinit)",
             dvr::capture::mode_name(),
             !dvr::capture::probed() ? "not yet" : dvr::capture::shared_available() ? "shared AVAILABLE" : "shared REFUSED",
             c.rtdUs, c.lockUs, c.copyUs, c.uploadUs, c.blitUs, c.totalUs, c.grabsInWindow,
@@ -385,6 +415,37 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             "| device shadowsurfaces on|off | device shadowfullcopy on|off");
         return true;
     }
+    if (!strcmp(cmd, "pe")) {   // route 2: the script lane's fast path A/B (ue3/pe_fast.h)
+        char sub[16] = "", val[16] = "";
+        const int n = args ? sscanf(args, "%15s %15s", sub, val) : 0;
+        bool on;
+        if (n >= 2 && !strcmp(sub, "fast") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peFast, on ? 1 : 0);
+            ConfigWriteKey("Perf", "PeFast", on ? "1" : "0", "the seam");
+            Log("pe: script-lane fast path %s (live) - the pe/cost line reports the difference", on ? "ON" : "off");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "fn") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peFnOn, on ? 1 : 0);
+            Log("pe: per-statement cost split %s (pe/cost-fn every 5 s; diagnostic, not saved)", on ? "ON" : "off");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "heavydraw") && DvrOnOff(val, &on)) {
+            InterlockedExchange(&g_peHeavyInDraw, on ? 1 : 0);
+            ConfigWriteKey("Perf", "PeHeavyInDraw", on ? "1" : "0", "the seam");
+            Log("pe: heavy writers inside the draw %s", on ? "EVERY event (safe default)" : "throttled like the tick");
+            return true;
+        }
+        if (n >= 2 && !strcmp(sub, "heavy")) {
+            PeHeavySet(atoi(val));
+            char v[8]; _snprintf(v, sizeof(v), "%ld", InterlockedCompareExchange(&g_peHeavyUs, 0, 0) / 1000);
+            ConfigWriteKey("Perf", "PeHeavyMs", v, "the seam");
+            return true;
+        }
+        Log("pe: fast on|off, heavy <ms> (now fast %s, heavy %ld ms) - the ProcessEvent hook's caches and cadence",
+            InterlockedCompareExchange(&g_peFast, 0, 0) ? "on" : "off", InterlockedCompareExchange(&g_peHeavyUs, 0, 0) / 1000);
+        return true;
+    }
     if (!strcmp(cmd, "reentry")) {
         if (SceneDrawCommand(args)) return true;
         if (SceneProbeCommand(args)) return true;
@@ -412,6 +473,18 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         Log("input: pad %s active=%d polls=%ld actions=%s haptics=%d (vrinput on|off|status)",
             g_padEnabled ? "enabled" : "disabled", (int)g_padActive, (long)g_padPolls,
             dvr::vr::input_attached() ? "attached" : "not attached", (int)(g_padHaptics && g_xrHaptics));
+        return true;
+    }
+    if (!strcmp(cmd, "binds")) {   // controller bind remapping: binds status|reset|swap on|off|<Action> <Source>
+        auto l = dvr::binds::layout();
+        char act[48] = "", src[48] = "";
+        sscanf_s(args, "%47s %47s", act, (unsigned)sizeof(act), src, (unsigned)sizeof(src));
+        int a = 0; dvr::binds::Source s;
+        if (!act[0] || !_stricmp(act, "status")) BindsLog("asked");
+        else if (!_stricmp(act, "reset")) BindsSet(dvr::binds::Layout{}, "the seam");
+        else if (!_stricmp(act, "swap") && DvrOnOff(src, &b)) { l.swapSticks = b; BindsSet(l, "the seam"); }
+        else if (dvr::binds::parse_action(act, &a) && dvr::binds::parse_source(src, &s)) { l.src[a] = s; BindsSet(l, "the seam"); }
+        else Log("input/binds: use binds status | reset | swap on|off | <Action> <Source> (asked '%s')", args);
         return true;
     }
     if (!strcmp(cmd, "console")) {
@@ -463,6 +536,54 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (DvrOnOff(args, &b)) ConfigWriteKey("Draws", "Census", b ? "1" : "0", "the seam");
         return dvr::hudclass::command(args);
     }
+    if (!strcmp(cmd, "clarity")) {   // anti-aliasing and clarity on the eye image (core/gfx/clarity.h)
+        const bool ok = dvr::clarity::command(args);
+        ConfigWriteKey("Clarity", "Resolve", dvr::clarity::resolve_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "Temporal", dvr::clarity::temporal_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "MotionVectors", dvr::clarity::motion_on() ? "1" : "0", "the seam");
+        char v[16];
+        _snprintf(v, sizeof(v), "%.1f", dvr::clarity::depth_scale());
+        ConfigWriteKey("Clarity", "MotionDepthScale", v, "the seam");
+        _snprintf(v, sizeof(v), "%.2f", dvr::clarity::blend());
+        ConfigWriteKey("Clarity", "TemporalBlend", v, "the seam");
+        _snprintf(v, sizeof(v), "%.2f", dvr::clarity::sharpen());
+        ConfigWriteKey("Clarity", "Sharpen", v, "the seam");
+        return ok;
+    }
+    if (!strcmp(cmd, "dlss")) {      // NVIDIA DLAA through the x64 helper (core/gfx/dlss.h)
+        const bool ok = dvr::dlss::command(args);
+        ConfigWriteKey("Clarity", "DLAA", dvr::dlss::mode() ? "1" : "0", "the seam");
+        char v[16];
+        _snprintf(v, sizeof(v), "%d", dvr::dlss::preset());
+        ConfigWriteKey("Clarity", "DlssPreset", v, "the seam");
+        _snprintf(v, sizeof(v), "%d", dvr::dlss::quality());
+        ConfigWriteKey("Clarity", "DlssQuality", v, "the seam");
+        ConfigWriteKey("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", "the seam");
+        {
+            uint32_t dow = 0, doh = 0; dvr::dlss::output(&dow, &doh);
+            _snprintf(v, sizeof(v), "%u", dow); ConfigWriteKey("Clarity", "DlssOutputWidth", v, "the seam");
+            _snprintf(v, sizeof(v), "%u", doh); ConfigWriteKey("Clarity", "DlssOutputHeight", v, "the seam");
+        }
+        ConfigWriteKey("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", "the seam");
+        ConfigWriteKey("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", "the seam");
+        _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_lo());
+        ConfigWriteKey("Clarity", "DlssMaskLo", v, "the seam");
+        _snprintf(v, sizeof(v), "%.3f", dvr::dlss::mask_hi());
+        ConfigWriteKey("Clarity", "DlssMaskHi", v, "the seam");
+        _snprintf(v, sizeof(v), "%.2f", dvr::clarity::body_depth());
+        ConfigWriteKey("Clarity", "DlssBodyDepth", v, "the seam");
+        return ok;
+    }
+    if (!strcmp(cmd, "aniso")) {     // the texture-filter levers (core/gfx/sampler_force.h)
+        const bool ok = dvr::samplers::command(args);
+        char v[16];
+        _snprintf(v, sizeof(v), "%d", dvr::samplers::anisotropy());
+        ConfigWriteKey("Clarity", "Anisotropy", v, "the seam");
+        ConfigWriteKey("Clarity", "TrilinearMips", dvr::samplers::trilinear() ? "1" : "0", "the seam");
+        return ok;
+    }
+    if (!strcmp(cmd, "depthprobe")) return dvr::depthprobe::command(args);   // motion vectors, step 1
     if (!strcmp(cmd, "frameid")) {   // 41.1 (session 9): the frame-identity trace
         if (DvrOnOff(args, &b)) { dvr::frameid::set_enabled(b); return true; }
         { char sub[16] = "", v[16] = ""; if (sscanf(args, "%15s %15s", sub, v) == 2 && !strcmp(sub, "every")) { dvr::frameid::set_every((uint32_t)atoi(v)); return true; } }
@@ -700,6 +821,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::drop::status(w);
     SwordTrailStatus(w);   // VR-171
     CamShakeStatus(w);   // VR-172
+    dvr::snap::status(w);   // VR-219
     w.end_obj();
     w.kv("menuOpen", (bool)g_menuOpen); w.kv("inMenu", (bool)g_inMenu); w.kv("mainMenu", (bool)g_mainMenu);
     w.kv("cine", (bool)g_cineNow);

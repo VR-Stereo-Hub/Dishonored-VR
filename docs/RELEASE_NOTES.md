@@ -1,3 +1,111 @@
+## 1.0.2 (2026-09-28)
+
+Player-facing summary. The engineering detail for each item is in the sections below.
+
+### Image quality
+- DLAA, DLSS and AMD FSR 4 / FSR 3.1 are available in F10 (NVIDIA or AMD), off by default.
+  They are anti-aliasing: the headset is limited by the GPU drawing the scene twice, so an
+  upscaler smooths edges but does not add frames.
+- The HUD and objective markers are drawn after upscaling, so they stay sharp with DLSS/FSR.
+- Sharper textures at an angle, smoothed mip lines on floors, a light sharpening option, an
+  experimental TAA and a supersampling option (Debug tier).
+- New Ultra quality tier in the launcher; resolution goes up to 300%.
+
+### Fixes
+- Objects and faces no longer vanish from one eye when the sword blocks them in the other
+  eye: each eye now culls on its own (F10 Advanced > Display > Object culling, Per eye is the
+  new default; existing settings move to it once). Known issue: an enemy can briefly show as
+  a dark silhouette in that case; Object culling Off clears it at some GPU cost.
+- Per-eye culling keeps working after a save load.
+- A freeze that could stop the game from starting was fixed.
+- The game closes properly on quit, with no process left running in Steam.
+- The game no longer slows down on PCs where the shared image capture used to fail.
+- Stereo is less likely to flicker right after a load.
+- The view no longer gets stuck in a small box after dying or leaving a menu.
+- Cutscenes and conversations keep the right field of view.
+- The crossbow no longer shows a stray piece of the empty bow when shooting.
+- The F10 menu keeps its size when the resolution changes.
+
+### Hands and controls
+- Controller buttons can be remapped from F10, the ini or the command seam.
+- Hands stay attached on fast head turns.
+- The empty right hand is open like the left, including while a menu pauses the game.
+- Arms are hidden during takedowns and assassinations; the hands still animate.
+- The sword swing animation plays only for trigger attacks, not physical swings.
+- Snap turning, off by default, in F10 and the launcher.
+- Valve Index, Bigscreen Beyond and Vive Pro 2 get controller tuning; the launcher asks which
+  headset you have.
+
+### HUD and menus
+- Shops float in the world like the pause menu, 50% larger, with working stick input and no
+  shrink on exit.
+- HUD pieces (hints, potions, tutorial reminders, markers) land in the right places and sizes.
+- F10 sections start collapsed and the new HUD layout is the default.
+## Unreleased staging integration: accepted HUD/hand/capture fixes (2026-09-26)
+
+- Keep HUD widget pieces together using native clip ownership through queued draws;
+  restore marker size controls, lower hints and independent low-health potion capture.
+- Preserve wrist calibration across cinematic transitions and reduce periodic hand
+  discovery probing associated with walking catch-up.
+- Use texture-backed shared capture with matching probe formats; the affected player
+  reports the severe single-digit startup slowdown resolved.
+- Retain scoped cinematic eye classification and bounded queued-render progress grace.
+  Remote early prison judder remains awaiting its latest candidate result.
+- Test-only flight history/pixel instrumentation stays OFF in ordinary builds.
+
+No release/tag is declared by this staging integration.
+
+## Unreleased
+
+### Snap turn (VR-219, 2026-09-25, not yet judged in the headset)
+
+A push of the right stick can turn you by a fixed step (45 degrees by default) instead of
+smoothly. Your body turns with the view, the same as the smooth turn does, so your hands, the
+sword, the aim ray and the HUD stay where they were in front of you and a hit lands on what is
+now in front. Off by default. F10 > Controls > Turning: "Snap turn", "Step size (degrees)";
+Advanced: the push needed, the release before the next step, and a hold-repeat. New section
+`[Turning]`: `SnapTurn=0`, `SnapAngle=45`, `SnapThreshold=0.6`, `SnapRearm=0.3`,
+`SnapRepeatMs=0`. Live: `snapturn on|off|angle <deg>|threshold|rearm|repeat|fire|mark|status`.
+Steps do not fire in menus, the power wheel, books, cinematics or keyholes, where the stick
+keeps its usual job and turns smoothly.
+### The sword swings when you pull the trigger (VR-220, 2026-09-25, not yet judged in the headset)
+
+A sword attack on the trigger used to hit and make its sound with nothing moving in front of you:
+the hand stayed pinned to the controller. Now a trigger attack plays the game's swing on your
+hand and returns it to the controller when the attack ends. A physical swing (the motion sword)
+is unchanged: your arm is the animation, and the hand stays on the controller. `[Anim]
+HandAnimMelee` is on by default from this build; an existing ini is moved from 0 to 1 once (the
+log says `config: [Anim] HandAnimMelee 0 -> 1 (one-time ...)`), and a 0 you set afterwards stays.
+Only your right hand follows the clip; the left stays on the controller (`[Anim]
+HandAnimMeleeBothHands=1` makes both follow it). New: `[Anim] HandAnimMeleeSwing=0` hands
+physical swings back too when set to 1. F10 > Hands >
+Game arms during actions: "Sword swing animation on the tracked hand" and, under it, "...also
+when you swing the controller". Live: `anim melee on|off`, `anim melee swing on|off`. A physical
+swing right after a trigger attack is no longer refused by the body gate.
+
+## Unreleased test candidate: scoped cinematic/menu stereo axis (VR-229)
+
+Correct eye classification to use the composed head-look stereo axis during
+cinematic and menu camera scopes. The preceding prison candidate was not accepted:
+reload-dependent flicker and head-turn eye separation remained. This replacement
+passes logged-geometry and delayed-tag regressions but awaits headset confirmation.
+Retains CPU flight history with GPU pixel probes disabled in the tester package.
+
+## Unreleased prison candidate (VR-229)
+
+- Count rendering progress during draw execution, avoiding false single-draw
+  interruptions. Prison-cinematic acceptance remains pending.
+- Separate lightweight test history from optional GPU pixel probes. The prison
+  acceptance package keeps history and disables pixel sampling.
+
+## Unreleased candidate (VR-260)
+
+- Use texture-backed D3D9/D3D11 sharing and consistent probe formats to avoid
+  rejecting shared capture prematurely. Remote compatibility confirmation is
+  pending; this is not a published release.
+- Report the precise sharing failure rather than blaming OpenSharedResource
+  when no sharing handle was returned.
+
 ## 1.0.1
 
 - Fix progressive narrowing to a small central gameplay window when automatic

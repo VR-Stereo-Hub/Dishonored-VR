@@ -72,6 +72,8 @@ void cpu_scope_end(int lane, const CpuToken& begin); // 8 first draw, 9 second d
 void ab_tick(IDirect3DDevice9* dev);   // present thread, at kEntry
 bool ab_command(const char* args);
 void ab_set_enabled(bool on);
+bool ab_dispatching();                // true while a plan row's seam words run (no ini writes)
+void ab_load_plan(const char* name);   // [Perf] AbPlan=<file>: a plan of seam-command segments
 void ab_set_gameplay(bool inPlay);   // the plan only runs in gameplay
 void desktop_ab_set_enabled(bool on); // default off, bounded Full/Off/Full trial
 bool desktop_ab_enabled();
@@ -98,7 +100,7 @@ void frame_start_marker(const char* which);
 // render span; it must not be subtracted from that span or the CPU lock). Read back five presents later with GetData(0): never flushed,
 // never waited on. The device comes from hkPresent; the queries are released
 // on Reset (the hkReset LAW) and recreated lazily.
-enum GpuPoint { kGpuRtdA = 0, kGpuRtdB };
+enum GpuPoint { kGpuRtdA = 0, kGpuRtdB, kGpuDepthA, kGpuDepthB };
 void set_device(IDirect3DDevice9* dev);   // hkPresent, before kEntry
 void gpu_mark(GpuPoint p);                // the capture, around its readback copy
 void on_reset();                          // hkReset: every query goes

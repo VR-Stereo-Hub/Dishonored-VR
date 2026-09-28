@@ -1,0 +1,16 @@
+# FSR vs DLSS vs no upscaler in the headset (2026-09-27). One segment per line: label | apply | restore.
+# The baseline is the INSTALLED config (the maintainer's: DLSS DLAA). Each switch restarts the helper or
+# resizes the game, so the warm-up is 6 s. Stand still for the whole plan (~5 min).
+seg 20000
+warm 6000
+baseline A
+upscaler off | dlss off | dlss on
+baseline B
+fsr native aa | dlss backend fsr | dlss backend dlss
+baseline C
+fsr quality | dlss backend fsr; dlss quality quality | dlss quality dlaa; dlss backend dlss
+baseline D
+fsr performance | dlss backend fsr; dlss quality performance | dlss quality dlaa; dlss backend dlss
+baseline E
+dlss quality | dlss quality quality | dlss quality dlaa
+baseline F

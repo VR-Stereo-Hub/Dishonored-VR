@@ -22,6 +22,7 @@
 #include "core/util/paths.h"
 #include "core/util/diag.h"
 #include "core/util/crash.h"
+#include "core/util/etw.h"
 #include "core/hooks/vtable.h"
 #include "core/hooks/iat.h"
 #include "core/hooks/detour.h"
@@ -32,8 +33,10 @@
 #include "game/dishonored/anim_state.h"
 #include "game/dishonored/swing.h"
 #include "game/dishonored/drop_assist.h"
+#include "game/dishonored/snap_turn.h"   // VR-219: pad_bridge (present lane) and head_track (script lane) both call it
 #include "core/vr/openxr_runtime.h"
 #include "core/vr/openxr_input.h"
+#include "core/input/controller_binds.h"   // bind remapping: pad_bridge, ui_surface, config, F10, the seam
 #include "core/framework/frame_hooks.h"
 #include "core/framework/perf.h"
 #include "core/framework/native_profile.h"
@@ -54,6 +57,11 @@
 #include "game/dishonored/ui_ride_policy.h"
 #include "core/gfx/frame_id.h"
 #include "core/gfx/device_census.h"
+#include "core/gfx/depth_probe.h"
+#include "core/gfx/clarity.h"
+#include "core/gfx/dlss.h"
+#include "core/gfx/dlss_jitter.h"
+#include "core/gfx/sampler_force.h"
 
 #include "core/gfx/d3d9ex.h"
 #include "game/dishonored/camera.h"
@@ -228,6 +236,7 @@
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::head
 #include "game/dishonored/head_track.cpp"
+#include "game/dishonored/snap_turn.cpp"   // VR-219: snap turn; rides head_track's yaw book
 #undef DVR_CAT
 #define DVR_CAT ::dvr::log::Cat::melee
 #include "game/dishonored/melee.cpp"
@@ -265,12 +274,14 @@
 #include "game/dishonored/swing_trace.cpp"    // VR-165: raw present-rate series
 #include "game/dishonored/aim_source.cpp"     // VR-166: who shares the power-aim helper
 #include "game/dishonored/rain_control.cpp"   // VR-136: after the trace's camera-cache layout
+#include "game/dishonored/stereo_occlusion.cpp"   // VR-79: per-eye occlusion culling
 #include "game/dishonored/trail_control.cpp"  // VR-171: the sword's swing trail; after anim_state and reflect
 #include "game/dishonored/lens_control.cpp"   // VR-137: after rain_control (shared helpers)
 #include "game/dishonored/cinematic_fov.cpp"
 #include "game/dishonored/cinematic_pitch.cpp"
 #include "game/dishonored/menu_immersion.cpp"
 #include "game/dishonored/cinematic_letterbox.cpp"
+#include "game/dishonored/hud_owner.cpp"
 #include "game/dishonored/objective_markers.cpp"
 #include "game/dishonored/ue3/prop_watch.cpp"
 #if DVR_WITH_LEGACY

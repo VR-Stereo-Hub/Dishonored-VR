@@ -361,8 +361,8 @@ static bool  g_ecCeilOn     = false;
 // forward stick = hold the sprint bit and deliver the crouch a beat later,
 // so the game reads sprint+crouch = slide. In flat play that exact input
 // already produces a slide, so there are no false positives by definition.
-// [Input] SlideAssist=0 disables.
-static int    g_slideAssist = 1;
+// [Input] SlideAssist=1 enables. Default OFF since 2026-09-27 (maintainer's call).
+static int    g_slideAssist = 0;
 
 // 38.28 -------------------------------------------------------------------
 // THE CROUCH SAGA'S ACTUAL ROOT CAUSE, measured in dishonored_vr_3825crawl:

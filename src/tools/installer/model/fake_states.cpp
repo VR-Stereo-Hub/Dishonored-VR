@@ -1,6 +1,7 @@
 // tools/installer/model/fake_states.cpp - see fake_states.h. Representative, not
 // live: paths and numbers are invented so the layout can be judged.
 #include "model/fake_states.h"
+#include <stdio.h>
 
 namespace dvr::setup {
 
@@ -63,7 +64,7 @@ Report install_report(bool baselinePending, bool failed)
 
 std::vector<std::string> fake_state_names()
 {
-    return { "update-popup", "about-updates", "update-offline", "update-warning", "gog-home", "win64", "about", "guide", "guide-zoom", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
+    return { "update-popup", "about-updates", "update-offline", "update-warning", "gog-home", "win64", "about", "guide", "guide-zoom", "headset-required", "headset-other", "headset-change", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
              "done", "done-waiting", "done-failed", "manage", "manage-disabled", "manage-update", "manage-uninstall", "busy" };
 }
 
@@ -71,6 +72,16 @@ bool fake_state(const std::string& name, ViewState* v)
 {
     *v = ViewState();
     v->logPath = "C:\\Users\\player\\AppData\\Local\\DishonoredVR\\dishonored_vr_launcher.log";
+    v->headset = "Meta Quest 3 / 3S";   // every other state is past the VR-223 picker
+    if (name == "headset-required" || name == "headset-other") {
+        v->det = base_detection(); v->choices = v->det.suggested; v->headset.clear(); v->headsetPicking = true;
+        if (name == "headset-other") { v->headsetPick = kHeadsetOther; snprintf(v->headsetOther, sizeof(v->headsetOther), "%s", "HTC Vive Focus Vision"); }
+        return true;
+    }
+    if (name == "headset-change") {
+        v->det = installed_detection(); v->screen = Screen::Manage;
+        v->headset = "Valve Index"; v->headsetPick = headset_index(v->headset); v->headsetPicking = true; return true;
+    }
     if (name == "about") { v->det = base_detection(); v->screen = Screen::About; return true; }
     if (name == "guide" || name == "guide-zoom") {
         v->det = base_detection(); v->choices = v->det.suggested;

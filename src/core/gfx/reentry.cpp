@@ -30,15 +30,20 @@
 // would destroy its verdict); `stereo mono` restores the call site.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/stereo.h"
+#include "core/gfx/markers_sharp.h"
 #include "core/gfx/stereo_menu_hold.h"
 #include "core/gfx/hud_layout.h"
 #include "core/gfx/desktop_eye.h"
 
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
+#include "core/gfx/clarity.h"
+#include "core/gfx/dlss_jitter.h"
 #include "core/gfx/blit_quad.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
+#include "core/gfx/flicker_diagnostic.h"
+#include "core/vr/pose_record.h"
 #include "core/gfx/frame_id.h"
 #include "core/util/log.h"
 #include "core/vr/openxr_runtime.h"
@@ -158,6 +163,9 @@ void ledger_open(const char* why) {
 void ledger_commit(LedgerRec& r) {
     r.id = ++g_ledCount;
     g_led[(r.id - 1) % kLedN] = r;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+    return; // The recurring method + XR recorder replaces the lifetime-limited dump.
+#endif
     const double now = r.ms;
     if (InterlockedExchange(&g_ledgerArmReq, 0) && g_ledDumps < kLedMaxDumps) {
         ledger_open(g_ledgerArmWhy);
@@ -323,7 +331,11 @@ public:
 
     bool end_frame(const FrameDevices& d, FrameOutput& out) override {
         ++g_endFrames;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+        const bool led = true;
+#else
         const bool led = InterlockedCompareExchange(&g_ledgerOn, 0, 0) != 0;
+#endif
         if (led) ledger_reconcile();
         if (g_hooks.poisoned && g_hooks.poisoned()) {
             ++g_exitPoisoned;
@@ -344,12 +356,25 @@ public:
         ArbView view;
         view.haveC5 = haveC5;
         if (haveC5) memcpy(view.c5now, c5now, sizeof(view.c5now));
-        {   float vbf[3], vbu[3]; view.basisOk = dvr::camera::last_basis(vbf, view.br, vbu); }
+        view.basisOk = dvr::camera::last_eye_right(view.br);
         view.ipd = dvr::camera::ipd_m() * dvr::camera::world_scale();
         int ringEye = 0, inv = 0;
         float along = 0.0f, other = 0.0f;
         ArbTrace arbTrace;
         bool tagged = pop_and_arbitrate(arb_, view, t, ringEye, inv, along, other, &arbTrace);
+        // VR-229: this lane remains available after the forty detailed ledger
+        // windows have been spent. Rate-limited, read-only, existing RingLedger switch.
+        if (led && arbTrace.expireReason) {
+            static const char* reasons[] = {"none", "disabled", "camera-unconfirmed", "tag-not-arrived", "front-eye-mismatch"};
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                "reentry/late-expire: reason=%s owed=%+d measured=%+d c5=%d basis=%d along=%+.3f other=%.3f ipd=%.3f "
+                "front=%+d D%u (front inspected only after camera confirmation) popEye=%+d final=%+d depth=%ld "
+                "totals disabled=%u camera=%u empty=%u front=%u; diagnosis only, labels unchanged",
+                reasons[arbTrace.expireReason], arbTrace.expiredEye, inv, view.haveC5, view.basisOk, along, other, view.ipd,
+                arbTrace.expireFrontEye, arbTrace.expireFrontDraw, ringEye, tagged ? t.eye : 0,
+                (long)(arbTrace.headBefore-arbTrace.tailBefore), g_lateExpireReason[1], g_lateExpireReason[2],
+                g_lateExpireReason[3], g_lateExpireReason[4]);
+        }
         if (arbTrace.action & ACT_LATE) {
             // F-late: the removed tag was the previous present's image, still waiting in the capture
             // slot untagged; label it so it reaches its eye instead of being held.
@@ -410,6 +435,34 @@ public:
             if (!led) return;
             lr.out = why; lr.delivered = deliv; lr.fresh = fr;
             lr.delivSerial = fr ? dvr::capture::delivered_serial() : 0u;
+#ifdef DVR_FLICKER_DIAGNOSTICS
+            dvr::flicker::Method fm;
+            fm.present=lr.frame;fm.ms=lr.ms;fm.draw=arbTrace.raw.draw;fm.rec=arbTrace.raw.rec;
+            fm.pushMs=arbTrace.raw.pushMs;fm.ringEye=ringEye;fm.eye=lr.finalEye;fm.inv=inv;
+            fm.action=arbTrace.action;fm.expire=arbTrace.expireReason;fm.owed=arbTrace.expiredEye;
+            fm.frontEye=arbTrace.front.eye;fm.frontDraw=arbTrace.front.draw;
+            fm.head=arbTrace.headBefore;fm.tail=arbTrace.tailBefore;fm.c5serial=dvr::camera::render_pos_serial();
+            fm.c5ok=view.haveC5;fm.basisok=view.basisOk;fm.writtenok=arbTrace.raw.posOk;
+            memcpy(fm.c5,view.c5now,sizeof(fm.c5));memcpy(fm.right,view.br,sizeof(fm.right));
+            memcpy(fm.written,arbTrace.raw.pos,sizeof(fm.written));
+            fm.ipd=view.ipd;fm.along=along;fm.other=other;fm.removedN=arbTrace.removedN;
+            memcpy(fm.removed,arbTrace.removed,sizeof(fm.removed));
+            fm.out=why;fm.delivered=deliv;fm.fresh=fr;fm.grab=dvr::capture::serial();
+            fm.deliveredSerial=lr.delivSerial;fm.deliveredRec=fr?dvr::capture::delivered_rec():0;
+            fm.slot=fr?dvr::capture::delivered_slot():-1;
+            dvr::pose::Record pr={};fm.poseOk=fm.deliveredRec && dvr::pose::copy(fm.deliveredRec,&pr);
+            if(fm.poseOk) {
+                fm.trackOk=pr.track.ok;fm.camOk=pr.cam.ok;
+                fm.pair=pr.pairId;fm.gen=pr.track.gen;fm.poseEye=pr.eye;fm.writer=pr.cam.writer;
+                fm.poseAgeMs=fm.ms-pr.openedMs;fm.secondPassReuse=pr.secondPassReuse;
+                fm.trackPos[0]=pr.track.px;fm.trackPos[1]=pr.track.py;fm.trackPos[2]=pr.track.pz;
+                memcpy(fm.camPos,pr.cam.pos,sizeof(fm.camPos));
+                fm.camAngles[0]=pr.cam.yawDeg;fm.camAngles[1]=pr.cam.pitchDeg;fm.camAngles[2]=pr.cam.rollDeg;
+                fm.poseQ[0]=pr.track.qx;fm.poseQ[1]=pr.track.qy;fm.poseQ[2]=pr.track.qz;fm.poseQ[3]=pr.track.qw;
+            }
+            fm.methodMs=pair_now_ms()-fm.ms;
+            dvr::flicker::method(fm);
+#endif
             ledger_commit(lr);
         };
         if (tagged) {
@@ -444,31 +497,50 @@ public:
         // the pixels land in. An untagged present carries 0, which the audit
         // reports as MISSING rather than silently joining to nothing.
         dvr::capture::set_pending_rec(tagged ? t.rec : 0u);
+        // The camera this image was really rendered from travels with its record (DLSS vectors).
+        if (tagged && haveC5) dvr::pose::note_render_pos(t.rec, c5now);
         {   // 41.1 (session 9): the camera of the draw the grab will take, and its right row
-            float bf[3], br[3], bu[3];
-            const bool basisOk = dvr::camera::last_basis(bf, br, bu);
+            float br[3]={};
+            const bool basisOk = dvr::camera::last_eye_right(br);
             dvr::frameid::note_c5(c5now, haveC5, br, basisOk);
         }
 
         const bool fresh = dvr::capture::grab(d.dev9, d.dev11, d.ctx11);
+        // DLSS projection jitter: the offset this image was drawn with goes into its record (the
+        // one set_pending_rec just gave the slot), and the next image's offset is chosen here,
+        // before any of its draws. Untagged presents carry no record and do not advance the phase.
+        dvr::dlss::jitter::on_present(tagged ? t.rec : 0u, dvr::capture::width(), dvr::capture::height());
+        if (!fresh) dvr::clarity::invalidate();
         ID3D11ShaderResourceView* src = dvr::capture::srv();
         if (!src) { commit(OUT_NOSRC, 0, fresh); return false; }
         const uint32_t w = dvr::capture::width(), h = dvr::capture::height();
-        if (!ensure_target(d.dev11, w, h)) { commit(OUT_TARGET, 0, fresh); return false; }
+        // Clarity (core/gfx/clarity.h): with its resolve on and the render above the
+        // runtime's recommended size, the eye texture - and so the swapchain - is the
+        // resolved size. Everything drawn over the game image below uses that size.
+        uint32_t ow = w, oh = h;
+        dvr::clarity::output_size(w, h, &ow, &oh);
+        if (!ensure_target(d.dev11, ow, oh)) { commit(OUT_TARGET, 0, fresh); return false; }
         if (fresh || !drawnOnce_) {
             {
                 dvr::bridge_profile::Scope sample(d.dev11,d.ctx11,dvr::bridge_profile::Conversion,
                     fresh ? dvr::capture::delivered_tag() : 0);
-                blit_.draw(d.ctx11, src, rtv_, w, h);
+                // The game image only: our own hands and the F10 panel go on top of
+                // the result, untouched by the resolve, the temporal blend and the
+                // sharpening. All clarity levers off = the plain blit, as before.
+                if (!dvr::clarity::draw(d.dev11, d.ctx11, src, w, h, rtv_, ow, oh,
+                                        fresh ? dvr::capture::delivered_tag() : 0,
+                                        fresh ? dvr::capture::delivered_rec() : 0u))
+                    blit_.draw(d.ctx11, src, rtv_, ow, oh);
             }
             // 41.2 (VR-31): our own hands, over the game image and under the
             // F10 panel. The eye is the tag of the pixels JUST blitted, which
             // is NOT `eye` (the eye of the current D3D9 backbuffer) - one line
             // apart, and confusing them is the stale-eye fault in miniature.
+            if (fresh) dvr::markersharp::composite(d.ctx11,rtv_,ow,oh,dvr::capture::delivered_serial(),dvr::capture::delivered_tag());
             if (HandDrawFn hd = hand_draw())
-                hd(d.dev11, d.ctx11, rtv_, w, h,
+                hd(d.dev11, d.ctx11, rtv_, ow, oh,
                    fresh ? dvr::capture::delivered_tag() : 0);
-            if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, w, h);
+            if (OverlayDrawFn ov = overlay_draw()) ov(d.ctx11, rtv_, ow, oh);
             // 41.1 (session 9): the frame-identity trace's stages slot and out,
             // inside the read fence (the slot thumbnail is a read of the slot).
             if (fresh) {
@@ -570,7 +642,7 @@ public:
         }
         out.tex = tex_;
         out.eyeSign = delivered;
-        out.w = w; out.h = h;
+        out.w = ow; out.h = oh;
         // The runtime pops exactly one tag per present in on_present_end,
         // right after this returns; a 0 pushes nothing (mono path).
         if (delivered != 0) {
@@ -594,7 +666,7 @@ public:
         return true;
     }
 
-    void on_reset() override { menuGap_.clear(); single_ = SingleTagState{}; dvr::capture::on_reset(); }
+    void on_reset() override { menuGap_.clear(); single_ = SingleTagState{}; dvr::capture::on_reset(); dvr::clarity::shutdown(); }
 
     void shutdown() override {
         if (armed_) {
@@ -609,6 +681,7 @@ public:
         }
         release_target();
         blit_.shutdown();
+        dvr::clarity::shutdown();
         drawnOnce_ = false;
         lastLeftOk_ = false;
         single_ = SingleTagState{};

@@ -128,9 +128,9 @@ bool second_pass_for_current_thread();
 // alternating between two camera positions" stops being argued from counters
 // that cannot see it. Ticks from eyetest_present_tick.
 void eye_trace_tick();
-// The camera POSITION the writer produced last (world uu, position form,
-// whatever the field's sign), so a present can prove which write it carries
-// against its c5. False before the first write.
+// The writer's position converted to c5 convention (NEGATIVE world uu), so
+// a present can compare it directly against its c5. False before the first write.
+// World reconstruction must negate it, as render_pos_world does.
 bool last_written_pos(float out[3]);
 // Counts c5 uploads (note_render_pos calls): a serial that does not move
 // between two root calls means no scene was drawn (a loading screen).
@@ -161,6 +161,9 @@ void pitchtest_stop(const char* why);
 void pitchtest_present_tick();     // present thread, after the draw
 bool pitchtest_active();
 void set_head_pitch_deg(float deg);   // present thread: the tracked head pitch
+// Stereo axis from the latest successful eye write, including scoped head look.
+// This is a bounded coherent snapshot, not a render-frame identity.
+bool last_eye_right(float out[3]);
 bool last_basis(float f[3], float r[3], float u[3]);   // the basis apply_offsets used last (yaw-only under projection)
 uint32_t ceiling_clips();             // presents where the 38.24 ceiling clipped the written position
 

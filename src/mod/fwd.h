@@ -30,6 +30,12 @@ static void CamShakeSave(const char* ini);
 static void CamShakeStatus(dvr::status::Writer& w);
 static void CamShakeDrawUi();
 static void RainConfigure(const char* ini);
+static void OcclusionConfigure(const char* ini);   // VR-79 (stereo_occlusion.cpp)
+static bool OcclusionCommand(const char* args);
+static void OcclusionPass2Begin();                 // VR-79: pass 2 draws on the right eye's own view state
+static void OcclusionPass2End();
+static int OcclusionModeGet();                      // 0 native, 1 pereye, 2 off (the F10 Display choice)
+static void OcclusionModeSet(int mode, const char* who);
 static void RainHideSet(bool on);
 static void RainRecoverySet(bool on);
 static bool RainHideEnabled();
@@ -86,6 +92,7 @@ static void ResLivePoll();
 static int ResLiveState();
 static const char* ResLiveStatus();
 static void ResVerdictTick();
+static void DlssResTick();
 static void ResStatusLine();
 static bool ResCommand(const char* args);
 static void ResHookD3D9(IDirect3D9* d3d);
@@ -160,6 +167,11 @@ static LONG CALLBACK WalkVEH(EXCEPTION_POINTERS* xp);
 static const char* NameFromIndex(uint32_t idx);
 static bool PrintableName(const char* s);
 static const char* RealName(uint32_t idx);
+static void PeFastSet(bool on);   // route 2: ue3/pe_fast.h, the ProcessEvent hook's caches
+static void PeHeavySet(int ms);   // route 2: the heavy writers' cadence outside the draw
+static void PeHeavyInDrawSet(bool every);   // route 2: the heavy writers inside the draw
+static void PeHeavyAtDraw();      // route 2: the heavy writers at the viewport-draw entry
+static bool PeReadable(const void* p, size_t n);   // route 2: region-cached readability, game thread
 static void HexDumpObject(const char* label, uint8_t* o, size_t bytes);
 static void RunUE3Probe();
 static const char* ObjClassName(uint8_t* o);
@@ -273,6 +285,8 @@ static float ProjectionFovGet();
 static void ProjectionFovSet(float fov);
 static bool CineFovEnabled();
 static void CineFovSet(bool on);
+static bool CineFovMatchEnabled();   // [Cine] MatchGameplayFov (2026-09-25)
+static void CineFovMatchSet(bool on);
 static void CineFovConfigure(const char* ini);
 static void CineFovBegin(bool scene);
 static void CineFovEnd();
@@ -715,6 +729,8 @@ static void HealthElixirTick(bool held);
 static void MeleeTick();
 static bool MeleeActive();
 static void UpdateVirtualPad();
+static void BindsLog(const char* who);
+static void BindsSet(const dvr::binds::Layout& l, const char* who);   // config.cpp: live + the ini, only the keys that moved   // pad_bridge.cpp: the live controller bind layout, one line per action
 static DWORD WINAPI hkXInputGetState(DWORD user, XINPUT_STATE* st);
 static DWORD WINAPI hkXInputSetState(DWORD user, XINPUT_VIBRATION* vib);
 static void InstallPadHook();
@@ -755,6 +771,8 @@ static void HeadMovementSet(bool on);
 static bool UiSurfaceEnabled();
 static unsigned UiSurfaceEpoch();
 static int UiSurfaceContext();
+static int UiSurfaceSubscreen();
+static void UiSurfaceEvent(void* obj, uint32_t name);
 static bool UiSurfaceHeadLook();
 static void MenuHeadBegin(bool scene,bool doubleDraw);
 static void MenuHeadPublish();

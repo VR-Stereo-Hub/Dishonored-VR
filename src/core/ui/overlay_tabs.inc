@@ -8,7 +8,8 @@
 static const int kOvlB = dvr::ovl::Basic, kOvlA = dvr::ovl::Advanced, kOvlD = dvr::ovl::Debug;
 static bool OvlAt(int tier) { return dvr::ovl::show(tier); }
 static void OvlTip(const char* text) { dvr::ovl::tip(text); }
-static bool OvlSec(const char* name, int tier, const char* tipText) { return dvr::ovl::section(name, tier, tipText, !strcmp(name, "Hand size and position") || !strcmp(name, "Sleeve")); }
+// Every section starts collapsed (2026-09-25); ImGui keeps what the player opens for the session.
+static bool OvlSec(const char* name, int tier, const char* tipText) { return dvr::ovl::section(name, tier, tipText, false); }
 // Save the slider just submitted when it is released (VR-196: every Basic and Advanced control
 // saves on change, so SAVE AS DEFAULTS is never needed to keep a player's setting).
 static void OvlSaveOnRelease(const char* section, const char* key, float value, const char* fmt)
@@ -151,6 +152,9 @@ static void OvlTabHands()
         editing = ImGui::IsItemActive();
         if (ImGui::IsItemDeactivatedAfterEdit()) MsSleeveApply(-shownLen, g_msRoundDepth, "F10 Sleeve length");
         OvlTip("How far up the arm is kept. Applies when you let go of the slider (the cut is rebuilt).");
+        if (dvr::ovl::checkbox("Open right hand when it is empty", &g_ohOn))
+            ConfigWriteKey("Hands", "OpenEmptyRightHand", g_ohOn ? "1" : "0", "F10 Hands");
+        OvlTip("With the sword put away, the right hand relaxes open like the left instead of making a fist.");
         if (OvlAt(kOvlA)) {
             bool wristChanged = dvr::ovl::checkbox("Rounded wrist ends", &g_msRoundWrist);
             wristChanged |= dvr::ovl::slider_float("Wrist roundness", &g_msRoundDepth, .05f, .8f, "%.2f");
@@ -173,6 +177,13 @@ static void OvlTabHands()
             dvr::anim::set_mantle(mantleHands);
             ConfigWriteKey("Anim", "MantleHandBack", mantleHands ? "1" : "0", "F10 Hands");
         }
+        bool takedownArms = dvr::anim::takedown_arms_hidden();
+        if (dvr::ovl::checkbox("Hide arms in takedowns (hands still animate)", &takedownArms)) {
+            dvr::anim::set_takedown_arms_hidden(takedownArms);
+            ConfigWriteKey("Anim", "HideTakedownArms", takedownArms ? "1" : "0", "F10 Hands");
+        }
+        OvlTip("Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
+               "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
         bool cineHands = dvr::anim::cinematic_enabled();
         if (dvr::ovl::checkbox("Game hands and arms in cinematics", &cineHands)) {
             dvr::anim::set_cinematic(cineHands);
@@ -180,7 +191,18 @@ static void OvlTabHands()
         }
         bool melee = dvr::anim::hand_anim_melee();
         if (dvr::ovl::checkbox("Sword swing animation on the tracked hand", &melee)) dvr::anim::set_hand_anim_melee(melee);
-        OvlTip("The hand plays the game's swing clip, then returns to the controller.");
+        OvlTip("A TRIGGER sword attack plays the game's swing clip on the hand, then returns it to the controller. "
+               "A physical swing never does: your arm is the animation.");
+        if (melee) {   // VR-220
+            ImGui::Indent();
+            bool sw = dvr::anim::hand_anim_melee_swing();
+            if (dvr::ovl::checkbox("...also when you swing the controller", &sw)) dvr::anim::set_hand_anim_melee_swing(sw);
+            OvlTip("Off: only trigger attacks play the game's swing; a physical swing keeps your arm on the sword. On: both do.");
+            bool both = dvr::anim::hand_anim_melee_both();
+            if (dvr::ovl::checkbox("...on both hands", &both)) dvr::anim::set_hand_anim_melee_both(both);
+            OvlTip("Off: only the right hand follows the clip and the left stays on the controller. On: the left hand follows it too.");
+            ImGui::Unindent();
+        }
         bool fire = dvr::anim::hand_anim_fire();
         if (dvr::ovl::checkbox("Shooting animation on the tracked hand (pistol, crossbow)", &fire)) dvr::anim::set_hand_anim_fire(fire);
         OvlTip("The hand plays the game's recoil clip, then returns to the controller.");
@@ -213,6 +235,15 @@ static void OvlTabHands()
             }
             ImGui::TreePop();
         }
+    }
+    if (OvlSec("Head-turn smoothing", kOvlA, "Keeps the hands and weapons steady when you turn your head quickly.")) {
+        if (dvr::ovl::checkbox("Hands follow each eye's own view", &g_mpPoseFromView)) {
+            ConfigWriteKey("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", "F10 Hands");
+            Log("hands: PoseFromView -> %d (live)", (int)g_mpPoseFromView);
+        }
+        OvlTip("Places the hands and weapons from exactly the head position each eye's picture was drawn from. "
+               "Aimed at the slight flicker on fast head turns. Off is the previous behaviour.");
+        ImGui::TextDisabled("%ld left / %ld right views matched, %ld unmatched", g_mpPvMatch[0], g_mpPvMatch[2], g_mpPvNone);
     }
     if (OvlSec("Hand fixes (debug)", kOvlD, "Fixes for hand and weapon placement. Leave them on.")) {
         dvr::ovl::checkbox("Correct weapon-specific lens", &g_waViewLens);
@@ -478,6 +509,114 @@ static void OvlTabAim()
     }
 }
 
+// ---- Button mapping (controller_binds.h) ----------------------------------------------------
+// Press-to-bind reads the PHYSICAL snapshot: wait until every source is up (the click that
+// started it is still down), then take the first source pressed. The pad bridge sends the game
+// no buttons while this runs, so the press being captured does not also jump or fire.
+static int    s_bindCapture = -1;       // action being captured, -1 none
+static bool   s_bindArmed = false;      // every source seen up since the capture began
+static double s_bindDeadline = 0.0;
+static dvr::vr::InputSnapshot s_bindPrev{};
+static void OvlBindsCaptureTick(dvr::binds::Layout& l, bool& changed)
+{
+    if (s_bindCapture < 0) return;
+    dvr::vr::InputSnapshot now{};
+#if DVR_WITH_OPENXR
+    dvr::vr::input_snapshot(&now);
+#endif
+    const double t = ImGui::GetTime();
+    if (!now.active || t > s_bindDeadline) {
+        Log("input/binds: press-to-bind for %s %s - nothing changed", dvr::binds::info(s_bindCapture).key,
+            now.active ? "timed out after 6 s" : "stopped (controllers not active)");
+        s_bindCapture = -1; dvr::binds::captureUntilMs = 0; return;
+    }
+    if (!s_bindArmed) { if (!dvr::binds::any_down(now)) s_bindArmed = true; s_bindPrev = now; return; }
+    const dvr::binds::Source src = dvr::binds::first_press(s_bindPrev, now);
+    s_bindPrev = now;
+    if (src == dvr::binds::None) return;
+    Log("input/binds: %s = %s (was %s) by press-to-bind", dvr::binds::info(s_bindCapture).key,
+        dvr::binds::source_key(src), dvr::binds::source_key(l.src[s_bindCapture]));
+    l.src[s_bindCapture] = src; changed = true;
+    s_bindCapture = -1;
+    // captureUntilMs stays until the captured press is released (above), so its tail does not reach the game.
+}
+static void OvlBindsSection()
+{
+    // Release the pad once the captured press has been let go.
+    if (s_bindCapture < 0 && dvr::binds::capture_active(GetTickCount64())) {
+        dvr::vr::InputSnapshot now{};
+#if DVR_WITH_OPENXR
+        dvr::vr::input_snapshot(&now);
+#endif
+        if (!now.active || !dvr::binds::any_down(now)) dvr::binds::captureUntilMs = 0;
+    }
+    if (!OvlSec("Button mapping", kOvlB, "Choose which controller button does each game action.")) {
+        if (s_bindCapture >= 0) { s_bindCapture = -1; dvr::binds::captureUntilMs = 0; }
+        return;
+    }
+    auto l = dvr::binds::layout();
+    bool changed = false;
+    OvlBindsCaptureTick(l, changed);
+    const char* labels[dvr::binds::SourceCount];
+    for (int s = 0; s < dvr::binds::SourceCount; ++s) labels[s] = dvr::binds::source_label(s);
+    // Three aligned columns: the action, its source, the capture button.
+    if (ImGui::BeginTable("##binds", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoClip)) {
+        ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("source", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 9.0f);
+        ImGui::TableSetupColumn("set", ImGuiTableColumnFlags_WidthFixed);
+        for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+            const auto& in = dvr::binds::info(a);
+            ImGui::PushID(a);
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextUnformatted(in.label);
+            OvlTip(in.tip);
+            ImGui::TableSetColumnIndex(1);
+            int cur = l.src[a];
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::Combo("##src", &cur, labels, dvr::binds::SourceCount)) { l.src[a] = (dvr::binds::Source)cur; changed = true; }
+            OvlTip(in.tip);
+            ImGui::TableSetColumnIndex(2);
+            if (s_bindCapture == a) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextColored(ImVec4(1, .8f, .3f, 1), s_bindArmed ? "press a button... (%.0f s)" : "let go first...",
+                    s_bindDeadline - ImGui::GetTime());
+            } else if (ImGui::Button("Press to set")) {
+                s_bindCapture = a; s_bindArmed = false; s_bindDeadline = ImGui::GetTime() + 6.0;
+                dvr::binds::captureUntilMs = GetTickCount64() + 6500;
+                Log("input/binds: press-to-bind for %s started (6 s)", in.key);
+            }
+            const unsigned c = dvr::binds::conflicts(l, a);
+            if (c) {
+                char with[128] = ""; int n = 0;
+                for (int b = 0; b < dvr::binds::ActionCount; ++b)
+                    if (c & (1u << b)) n += _snprintf_s(with + n, sizeof(with) - n, _TRUNCATE, "%s%s", n ? ", " : "", dvr::binds::info(b).label);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);   // NoClip: the warning runs across the row
+                ImGui::TextColored(ImVec4(1, .5f, .2f, 1), "  also on %s: %s", labels[l.src[a]], with);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (dvr::ovl::checkbox("Swap sticks (move on the right)", &l.swapSticks)) changed = true;
+    OvlTip("Move with the right stick and turn with the left. The D-pad and lean follow the swap.");
+    if (dvr::controller::config().modifier == dvr::controller::R3)
+        ImGui::TextDisabled("The R3 D-pad modifier always uses the right stick click.");
+    ImGui::BeginDisabled(l.is_default());
+    if (ImGui::SmallButton("Reset to default layout")) {
+        l = dvr::binds::Layout{}; changed = true;
+        s_bindCapture = -1; dvr::binds::captureUntilMs = 0;
+    }
+    ImGui::EndDisabled();
+    OvlTip("A jump, B stealth, X interact, Y lean, left stick click sprint, right stick click health, "
+           "menu pause, left grip power wheel, right grip choke, left trigger power, right trigger attack.");
+    ImGui::TextDisabled("Clicking both sticks (recenter / this panel) and the thumbrests are not remapped. "
+                        "On SteamVR, its own controller bindings apply first.");
+    if (changed) BindsSet(l, "F10 Controls");
+}
+
 // ---- Controls -------------------------------------------------------------------------------
 static void OvlTabControls()
 {
@@ -512,6 +651,8 @@ static void OvlTabControls()
         OvlTip("Hold Y and use the right stick to lean. Both grips keep their normal actions. "
                "Clicking both sticks recenters.");
     }
+    OvlBindsSection();
+    dvr::snap::draw_ui();    // VR-219: snap turn (its own section)
     dvr::swing::draw_ui();   // VR-37: the motion sword (its own section)
     dvr::drop::draw_ui();    // drop takedowns (its own section)
 }
@@ -615,6 +756,11 @@ static void OvlTabComfort()
         if (dvr::ovl::checkbox("Suppress cinematic roll", &rollLock)) { CineRollSet(rollLock); OvlSaveBool("Cine", "LockRoll", rollLock); }
         bool fov = CineFovEnabled();
         if (dvr::ovl::checkbox("Suppress cinematic FOV zoom", &fov)) { CineFovSet(fov); OvlSaveBool("Cine", "LockFov", fov); }
+        bool match = CineFovMatchEnabled();
+        ImGui::BeginDisabled(!fov);
+        if (dvr::ovl::checkbox("Cutscenes use the gameplay FOV", &match)) { CineFovMatchSet(match); OvlSaveBool("Cine", "MatchGameplayFov", match); }
+        ImGui::EndDisabled();
+        OvlTip("Scenes are framed at the same field of view as play. Off frames them at the headset's own FOV instead.");
         bool specialHead = SpecialHeadEnabled();
         if (dvr::ovl::checkbox("Natural head look in lean / keyholes", &specialHead)) { SpecialHeadSet(specialHead); OvlSaveBool("Cine", "SpecialHeadLook", specialHead); }
         OvlTip("Keeps the game's peek position, and lets your head look around past the game's limits.");
@@ -726,17 +872,231 @@ static void OvlTabDisplay()
         if (pixelPercent < 0)
             pixelPercent = g_resWantW && g_resWantH
                 ? 100.0f * ((float)g_resWantW / 2750.0f) * ((float)g_resWantH / 2850.0f) : 120.0f;
-        dvr::ovl::slider_float("Total pixels (%)", &pixelPercent, 50.0f, 200.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);
+        dvr::ovl::slider_float("Total pixels (%)", &pixelPercent, 50.0f, 300.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp);   // VR-282: 300% = 4763x4936
         OvlTip("100% = 2750x2850. Higher is sharper and slower. Both axes scale together. Press Set to apply.");
         const float axisScale = sqrtf(pixelPercent * 0.01f);
         const uint32_t width = (uint32_t)(2750.0f * axisScale + 0.5f);
         const uint32_t height = (uint32_t)(2850.0f * axisScale + 0.5f);
         ImGui::Text("Preview: %ux%u | now %ux%u", width, height, dvr::capture::width(), dvr::capture::height());
         ImGui::BeginDisabled(busy);
-        if (dvr::ovl::button("Set resolution")) ResLiveQueue(width, height);
-        OvlTip("Applies now and saves. Expect a brief pause while the game resizes.");
+        const bool srOn = dvr::dlss::mode() != dvr::dlss::ModeOff && dvr::dlss::quality() != dvr::dlss::QDlaa;
+        if (dvr::ovl::button("Set resolution")) {
+            if (srOn) {   // DLSS Super Resolution: this is the headset output; the game renders it smaller
+                dvr::dlss::set_output(width, height, "F10 resolution");
+                char v[16];
+                _snprintf(v, sizeof(v), "%u", width); ConfigWriteKey("Clarity", "DlssOutputWidth", v, "F10 Display");
+                _snprintf(v, sizeof(v), "%u", height); ConfigWriteKey("Clarity", "DlssOutputHeight", v, "F10 Display");
+            } else {
+                ResLiveQueue(width, height);
+            }
+        }
+        OvlTip(srOn ? "With DLSS Super Resolution on, this is the headset output; the game renders it smaller. "
+                      "Applies now and saves."
+                    : "Applies now and saves. Expect a brief pause while the game resizes.");
         ImGui::EndDisabled();
         ImGui::TextDisabled("%s", ResLiveStatus());
+    }
+    // 2026-09-27 review: the DLSS choices a player needs are Basic; tuning is Advanced; the fixes
+    // and the superseded temporal AA are Debug. The supersampling resolve's toggle is gone (judged no
+    // better in the headset; [Clarity] Resolve and `clarity resolve` remain). F10_AUDIT.md lists it.
+    if (OvlSec("Upscaling and anti-aliasing (DLSS, FSR)", kOvlB,
+               "NVIDIA DLSS or AMD FSR: anti-aliasing at full size, or rendering smaller and rebuilding the picture. "
+               "Each choice switches live, so you can compare.")) {
+        bool dlss = dvr::dlss::mode() != dvr::dlss::ModeOff;
+        const bool fsr = dvr::dlss::backend() == dvr::dlss::BackendFsr;
+        if (dvr::ovl::checkbox("Upscaling / anti-aliasing on", &dlss)) {
+            dvr::dlss::set_mode(dlss ? dvr::dlss::ModeDlaa : dvr::dlss::ModeOff, "F10 Display");
+            ConfigWriteKey("Clarity", "DLAA", dlss ? "1" : "0", "F10 Display");
+        }
+        OvlTip("On: the upscaler below anti-aliases each eye (the mode says at what render size). Takes a second or "
+               "two to start. While it is on, the game's own anti-aliasing (MLAA) is switched off from the next launch. "
+               "Moving characters and hands can still smear. Close this panel to judge it.");
+        {
+            static const char* const kUpscalers[2] = {"NVIDIA DLSS", "AMD FSR"};
+            const int cur = fsr ? 1 : 0;
+            if (ImGui::BeginCombo("Upscaler", kUpscalers[cur])) {
+                for (int i = 0; i < 2; ++i) {
+                    if (ImGui::Selectable(kUpscalers[i], i == cur)) {
+                        dvr::dlss::set_backend(i, "F10 Display");
+                        ConfigWriteKey("Clarity", "Upscaler", i ? "1" : "0", "F10 Display");
+                    }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", i ? "AMD FSR: runs on any recent GPU (AMD, NVIDIA or Intel). FSR 4 on the "
+                                                    "AMD cards that support it, FSR 3.1 elsewhere."
+                                                  : "NVIDIA DLSS: needs an NVIDIA RTX card. The sharpest and most stable.");
+                }
+                ImGui::EndCombo();
+            }
+            OvlTip("Which technology rebuilds the picture. Switching restarts it (a second or two).");
+        }
+        if (dlss) {
+            {   // The mode, listed in render-size order (Ultra Quality is saved as 5, dlss.h).
+                static const char* const kModeTip[dvr::dlss::QCount] = {
+                    "Full resolution (DLAA / FSR Native AA): the sharpest and the most expensive.",
+                    "Renders at 67% of the output per axis (45% of the pixels) and rebuilds the rest.",
+                    "Renders at 58% per axis (34% of the pixels).",
+                    "Renders at 50% per axis (25% of the pixels).",
+                    "Renders at 33% per axis (11% of the pixels): the softest.",
+                    "Renders at 77% per axis (59% of the pixels): nearly DLAA, a little cheaper.",
+                };
+                const int q = dvr::dlss::quality();
+                if (ImGui::BeginCombo("Mode", dvr::dlss::quality_name(q))) {
+                    for (int k = 0; k < dvr::dlss::QCount; ++k) {
+                        const int m = dvr::dlss::kQualityOrder[k];
+                        if (ImGui::Selectable(dvr::dlss::quality_name(m), m == q)) {
+                            dvr::dlss::set_quality(m, "F10 Display");
+                            char v[8]; _snprintf(v, sizeof(v), "%d", m);
+                            ConfigWriteKey("Clarity", "DlssQuality", v, "F10 Display");
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kModeTip[m]);
+                    }
+                    ImGui::EndCombo();
+                }
+                OvlTip("How small the game renders before DLSS rebuilds the full picture (the Resolution section "
+                       "sets the output). DLAA renders at full size. Smaller is softer and cheaper for the GPU, but "
+                       "DLSS itself costs time, so the fast model gains the most. The game resizes when you change it.");
+            }
+            if (!fsr) {   // The model: DlssModel + DlssPreset as one choice (DLSS only).
+                const int cur = dvr::dlss::model_choice();
+                char custom[40]; _snprintf(custom, sizeof(custom), "Custom preset %d", dvr::dlss::preset());
+                if (ImGui::BeginCombo("DLSS model", cur >= 0 ? dvr::dlss::kModelChoices[cur].name : custom)) {
+                    for (int i = 0; i < dvr::dlss::kModelChoiceCount; ++i) {
+                        if (ImGui::Selectable(dvr::dlss::kModelChoices[i].name, i == cur)) {
+                            dvr::dlss::set_model_choice(i, "F10 Display");
+                            char v[8];
+                            ConfigWriteKey("Clarity", "DlssModel", dvr::dlss::model() ? "1" : "0", "F10 Display");
+                            _snprintf(v, sizeof(v), "%d", dvr::dlss::preset());
+                            ConfigWriteKey("Clarity", "DlssPreset", v, "F10 Display");
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", dvr::dlss::kModelChoices[i].tip);
+                    }
+                    ImGui::EndCombo();
+                }
+                OvlTip(cur >= 0 ? dvr::dlss::kModelChoices[cur].tip : "A raw NVIDIA preset number from the ini (DlssPreset).");
+            }
+            if (fsr && dvr::dlss::runtime_name()[0]) ImGui::TextDisabled("FSR runtime: %s", dvr::dlss::runtime_name());
+            ImGui::TextDisabled("%s: %s", dvr::dlss::backend_name(), dvr::dlss::summary());
+        }
+        float sharp = dvr::clarity::sharpen();
+        if (dvr::ovl::slider_float("Sharpening", &sharp, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+            dvr::clarity::set_sharpen(sharp, "F10 Display");
+        OvlSaveOnRelease("Clarity", "Sharpen", dvr::clarity::sharpen(), "%.2f");
+        OvlTip("Contrast-adaptive sharpening on the final picture. 0 is off.");
+    }
+    if (OvlSec("Clarity and anti-aliasing", kOvlA,
+               "Texture filtering and DLSS tuning. Each option switches live, so you can compare.")) {
+        {   // [Hud] UpscaleSharp (hud_capture.h)
+            bool sharp = dvr::hudcap::upscale_sharp();
+            if (dvr::ovl::checkbox("Sharp HUD while upscaling", &sharp)) {
+                dvr::hudcap::set_upscale_sharp(sharp, "F10 Display");
+                ConfigWriteKey("Hud", "UpscaleSharp", sharp ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Draws the redirected HUD and menus at the headset resolution instead of the smaller render size, "
+                   "so they stay as sharp as without upscaling. Only matters in a mode below DLAA. Live.");
+        }
+        {
+            bool sharp=dvr::hudcap::markers_sharp();
+            if(dvr::ovl::checkbox("Sharp native markers while upscaling",&sharp)) {
+                dvr::hudcap::set_markers_sharp(sharp,"F10 Display");
+                ConfigWriteKey("Hud","MarkersSharp",sharp?"1":"0","F10 Display");
+            }
+            OvlTip("Draws native objective, rune and awareness markers at output resolution after reconstruction. On by default. Live.");
+        }
+        int aniso = dvr::samplers::anisotropy();
+        int anisoIdx = aniso >= 16 ? 3 : aniso >= 8 ? 2 : aniso >= 4 ? 1 : 0;
+        const char* anisoNames[] = {"Game (4x)", "4x", "8x", "16x"};
+        const int anisoVals[] = {0, 4, 8, 16};
+        if (dvr::ovl::slider_int("Texture filtering", &anisoIdx, 0, 3, anisoNames[anisoIdx], ImGuiSliderFlags_AlwaysClamp)) {
+            dvr::samplers::set_anisotropy(anisoVals[anisoIdx], "F10 Display");
+            char av[8]; _snprintf(av, sizeof(av), "%d", anisoVals[anisoIdx]);
+            ConfigWriteKey("Clarity", "Anisotropy", av, "F10 Display");
+        }
+        OvlTip("Anisotropic filtering on the game's textures: floors and walls seen at an angle stay detailed. "
+               "Higher costs a little GPU time per pixel.");
+        bool tri = dvr::samplers::trilinear();
+        if (dvr::ovl::checkbox("Smooth mip transitions", &tri)) {
+            dvr::samplers::set_trilinear(tri, "F10 Display");
+            ConfigWriteKey("Clarity", "TrilinearMips", tri ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
+        if (dvr::dlss::mode() != dvr::dlss::ModeOff) {
+            bool m = dvr::dlss::mask_on();
+            if (dvr::ovl::checkbox("Reduce smearing", &m)) {
+                dvr::dlss::set_mask(m, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssMask", m ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Where the game's motion cannot be followed (your arms and weapon while walking, moving characters), "
+                   "the upscaler uses the new frame instead of dragging the old one (FSR: its reactive mask). Those "
+                   "spots get a little less smoothing.");
+            float lo = dvr::dlss::mask_lo();
+            if (m && dvr::ovl::slider_float("Smear sensitivity", &lo, 0.005f, 0.10f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+                dvr::dlss::set_mask_range(lo, lo + 0.09f, "F10 Display");
+            if (m) {
+                OvlSaveOnRelease("Clarity", "DlssMaskLo", dvr::dlss::mask_lo(), "%.3f");
+                OvlSaveOnRelease("Clarity", "DlssMaskHi", dvr::dlss::mask_hi(), "%.3f");
+                OvlTip("Lower catches more smearing but also smooths less.");
+            }
+            bool jit = dvr::dlss::jitter::enabled();
+            if (dvr::ovl::checkbox("Projection jitter", &jit)) {
+                dvr::dlss::jitter::set_enabled(jit, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssJitter", jit ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Shifts the game's picture by a tiny, known amount every frame so the upscaler can rebuild finer "
+                   "detail. Mainly sharpens the smaller modes; FSR relies on it more than DLSS. Close this panel to judge it.");
+        }
+        if (dvr::dlss::backend() == dvr::dlss::BackendFsr && dvr::dlss::offered_versions()[0]) {
+            // The versions the AMD runtime offers on this GPU, newest first by default (FSR 4 on RDNA 4).
+            char list[128]; strcpy_s(list, dvr::dlss::offered_versions());
+            const char* items[9] = {"Newest available"}; int n = 1;
+            char* ctx = nullptr;
+            for (char* t = strtok_s(list, ", ", &ctx); t && n < 9; t = strtok_s(nullptr, ", ", &ctx)) items[n++] = t;
+            int cur = dvr::dlss::fsr_version();
+            if (cur < 0 || cur >= n) cur = 0;
+            if (ImGui::BeginCombo("FSR version", items[cur])) {
+                for (int i = 0; i < n; ++i) {
+                    if (ImGui::Selectable(items[i], i == cur)) {
+                        dvr::dlss::set_fsr_version(i, "F10 Display");
+                        OvlSaveInt("Clarity", "FsrVersion", i);
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            OvlTip("Which FSR the AMD runtime runs. Newest is FSR 4 on the AMD cards that support it (RX 9000), FSR 3.1 "
+                   "on every other GPU. Switching restarts FSR.");
+        }
+        ImGui::TextDisabled("%s", dvr::clarity::summary());
+    }
+    if (OvlSec("Clarity (debug)", kOvlD, "Temporal anti-aliasing (superseded by DLSS) and the DLSS jitter fix.")) {
+        bool temporal = dvr::clarity::temporal_on();
+        if (dvr::ovl::checkbox("Temporal anti-aliasing (experimental)", &temporal)) {
+            dvr::clarity::set_temporal(temporal, "F10 Display");
+            ConfigWriteKey("Clarity", "Temporal", temporal ? "1" : "0", "F10 Display");
+        }
+        OvlTip("Blends each eye with its previous frame. Superseded by DLSS on RTX cards. Can soften the picture or "
+               "leave faint trails on moving things.");
+        if (temporal) {
+            bool motion = dvr::clarity::motion_on();
+            if (dvr::ovl::checkbox("Depth motion vectors (experimental)", &motion)) {
+                dvr::clarity::set_motion(motion, "F10 Display");
+                ConfigWriteKey("Clarity", "MotionVectors", motion ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Also lines up the world while you walk or lean. Adds GPU and memory cost.");
+            float blendV = dvr::clarity::blend();
+            if (dvr::ovl::slider_float("New frame weight", &blendV, 0.05f, 0.5f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+                dvr::clarity::set_blend(blendV, "F10 Display");
+            OvlSaveOnRelease("Clarity", "TemporalBlend", dvr::clarity::blend(), "%.2f");
+            OvlTip("Lower is smoother and softer, higher is sharper and shimmers more.");
+        }
+        if (dvr::dlss::jitter::enabled()) {
+            bool wide = dvr::dlss::jitter::wide();
+            if (dvr::ovl::checkbox("Jitter: include all eye-size passes", &wide)) {
+                dvr::dlss::jitter::set_wide(wide, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssJitterWide", wide ? "1" : "0", "F10 Display");
+            }
+            OvlTip("On (the fix): every 3D pass drawn at the eye's size moves with the jitter. Off: only the passes on "
+                   "the scene's depth buffer. Black speckles in one eye mean a pass is out of step.");
+            ImGui::TextDisabled("Jitter: %s", dvr::dlss::jitter::summary());
+        }
     }
     if (OvlSec("Desktop window", kOvlB, "What the game window on your monitor shows.")) {
         bool mirrorOff = dvr::desktop_eye::mirror_off();
@@ -763,6 +1123,17 @@ static void OvlTabDisplay()
             OvlTip("Updates the monitor less often when it is safe; the headset keeps both eyes.");
             ImGui::EndDisabled();
         }
+    }
+    if (OvlSec("Object culling", kOvlA, "How the game skips objects it thinks you cannot see.")) {
+        int oc = OcclusionModeGet();
+        if (dvr::ovl::radio_button("Per eye", &oc, 1)) OcclusionModeSet(1, "F10 Display");
+        OvlTip("Each eye hides only what IT cannot see. Recommended.");
+        ImGui::SameLine();
+        if (dvr::ovl::radio_button("Game default", &oc, 0)) OcclusionModeSet(0, "F10 Display");
+        OvlTip("As the game shipped: something hidden from one eye can vanish from both.");
+        ImGui::SameLine();
+        if (dvr::ovl::radio_button("Off", &oc, 2)) OcclusionModeSet(2, "F10 Display");
+        OvlTip("Nothing is ever hidden. Always correct, but slower.");
     }
     if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
         ImGui::BeginDisabled(busy);
@@ -881,26 +1252,12 @@ static void OvlTabDisplay()
         bool bridgeProfile = dvr::bridge_profile::enabled();
         if (dvr::ovl::checkbox("Bridge GPU timing", &bridgeProfile)) dvr::bridge_profile::set_enabled(bridgeProfile);
         OvlTip("Logs the GPU cost of copying frames to the headset.");
-        bool diagnosticAb = dvr::diag_ab::enabled();
-        if (dvr::ovl::checkbox("Diagnostic overhead A/B/A (about 110 s)", &diagnosticAb)) {
-            if (diagnosticAb) dvr::perf::ab_command("off");
-            dvr::diag_ab::set_enabled(diagnosticAb);
-        }
-        OvlTip("Measures what the mod's own logging costs. Collection now: see below.");
-        ImGui::TextDisabled("Collection: %s", dvr::diag_ab::reduced() ? "reduced for test" : "normal");
         if (dvr::ovl::button(dvr::perf::desktop_ab_enabled() ? "Stop desktop benchmark" : "Start desktop benchmark"))
             dvr::perf::desktop_ab_set_enabled(!dvr::perf::desktop_ab_enabled());
-        OvlTip("Measures the desktop mirror's cost: 100 s (120 s with pair pacing). Opening a menu aborts it.");
-        bool reducedTrial = dvr::perf::desktop_ab_reduced();
-        bool pacingTrial = dvr::perf::desktop_ab_pacing();
-        ImGui::BeginDisabled(dvr::perf::desktop_ab_enabled());
-        if (dvr::ovl::checkbox("Benchmark pair pacing (mirror stays off)", &pacingTrial)) dvr::perf::desktop_ab_set_pacing(pacingTrial);
-        OvlTip("Compares unpaced / paced / unpaced instead.");
-        ImGui::BeginDisabled(pacingTrial);
-        if (dvr::ovl::checkbox("Benchmark Reduced instead of Off", &reducedTrial)) dvr::perf::desktop_ab_set_reduced(reducedTrial);
-        OvlTip("The middle phase uses the reduced mirror instead of none.");
-        ImGui::EndDisabled();
-        ImGui::EndDisabled();
+        OvlTip("Measures the desktop mirror's cost: 100 s. Opening a menu aborts it.");
+        // Removed 2026-09-27: the benchmark's pair-pacing and Reduced variants and the diagnostic
+        // overhead A/B/A - each measured with no useful gain (PERFORMANCE.md "Results and routes");
+        // their ini keys and seam words remain.
     }
 }
 

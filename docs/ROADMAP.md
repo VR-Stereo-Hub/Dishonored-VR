@@ -1,3 +1,132 @@
+## Pause submenu hand investigation (2026-09-27)
+
+- [x] Trace earlier pause fixes and reject absent Journal freshness from supplied evidence.
+- [x] Add draw-owned submenu and pose/correction diagnostics.
+- [ ] Confirm callback coverage and correlate root/Options behavior in headset.
+- [ ] Implement and verify the evidence-supported behavioral correction.
+## Native markers after upscaling (2026-09-27)
+
+- [x] Determine depth eligibility before choosing the overlay occlusion policy.
+- [x] Add default-off native marker overlay, live controls and serial-owned delivery.
+- [x] Verify production GPU over blending and existing native routing regressions.
+- [x] Verify native graphics transport serials, delayed delivery, toggle drain and reset.
+- [ ] Verify actual marker draw-state coverage, eye placement and clarity in headset.
+- [ ] Measure native transport overhead and resource cost with the lever enabled.
+
+## FSR implementation (2026-09-26, planned stacked branch)
+
+- [x] Record no perceptible TAA benefit; retain the unmerged depth foundation.
+- [x] Prepare child branch/worktree and Claude continuation brief.
+- [x] Write the gated implementation plan in PERFORMANCE.md (FSR implementation section).
+- [ ] Prove pinned AMD FSR 2.2.1 DX11 backend builds and dispatches in x86.
+- [ ] Separate reduced scene input from fixed headset output; verify actual dimensions.
+- [ ] Prove complete scene projection ownership and stereo-consistent jitter.
+- [ ] Supply validated depth, vectors, colour/exposure and moving-content handling.
+- [ ] Implement default-off F10 controls, resets/fallback and memory accounting.
+- [ ] Pass host/simulator regressions and headset quality/performance acceptance.
+
+Branch `codex/fsr-implementation` derives from `claude/motion-vectors` by user request.
+Neither branch is authorized to merge. FSR is not yet implemented. Historical TAA acceptance
+items below are superseded by the negative quality report and this continuation decision.
+
+## Motion vectors for temporal AA (2026-09-26, unmerged candidate)
+
+- [x] Run the simulator mirror test and identify the c5/world translation sign.
+- [x] Measure an interior depth-scale minimum below rotation-only.
+- [x] Generate per-eye vectors and use them in TAA behind a default-off live F10 toggle.
+- [x] GPU regressions and simulator both-eye execution with diagnostics off.
+- [x] Restore the original installed CRLF INI with DepthShare/MotionCalib off.
+- [ ] Headset walking/leaning A/B; exact calibration refinement and cost measurement.
+- [x] Audit fixes: fused reprojection, depth-history rejection, per-eye provenance and safe slot reuse.
+- [x] Preserve stationary detail; host regression and simulator transition/recovery checks.
+- [ ] Moving-object vectors, safely classified projection jitter and later DLSS prerequisites.
+
+## HUD ownership regression audit (2026-09-25)
+
+- [x] Verify latest local DLL/log and preserve run/INI before rotation.
+- [x] Diff v1.0.0 source and release profile against tested candidate.
+- [x] Reread native HUD/task/objective/Heart/rune/charm and Flash script ownership.
+- [x] Explain failed text-only priority and additional icon/awareness capture paths.
+- [x] Separate grenade projectile direction from gauge routing.
+- [x] Quantify rendering cost; exclude disabled flicker recorder as current cause.
+- [x] Prepare bounded read-only owner/render boundary capture.
+- [x] Capture native task identity and establish deferred command creation/replay.
+- [x] Repair pause readiness incorrectly expiring when HUD widgets fade (host tested).
+- [x] Headset acceptance of world-pause readiness.
+- [x] Implement clip identity transport through the real render queue (guarded candidate).
+- [x] Replace proximity ownership; local overlapping HUD cohesion accepted on4c38bf526.
+- [x] Accept marker size-control and lower context/special hint corrections.
+- [x] Capture independent low-health potion movie; restore accepted rain settings.
+- [x] Correct marker target/depth and accept local HUD consistency.
+- [x] Retain semantic cook-gauge ownership; final local HUD report accepted.
+- [ ] Same-save/view native versus pereye cost attribution, then targeted performance fix.
+- [x] Final local headset acceptance and explicit session-wide staging merge authorization.
+
+## Local hand/HUD follow-ups (2026-09-25)
+
+- [x] Match local stable-menu/intro report to c4f5fe5df rather than remote9da0a0b48.
+- [x] Trace sword animation regression to old DLL/new INI semantics; retain staging VR-220.
+- [x] Reject collapsed wrist-reference capture; preserve valid same-slot references.
+- [x] Keep observed interaction content above broad task-text proximity ownership.
+- [x] Production-helper regressions, normal optimized build, defaults and export checks.
+- [x] Measure recorder peak1.606ms; compile it out of the local follow-up.
+- [x] Local hand alignment after scene exit accepted.
+- [x] Interaction button/action/name cohesion accepted.
+- [x] Trigger-only animation policy retained; local follow-up accepted.
+- [ ] Remote scoped-eye cinematic acceptance (separate existing ZIP).
+
+## Prison judder follow-up (VR-229, 2026-09-25)
+
+- [x] Verify9da0a0b48 returned build and record partial head-turn-separation acceptance.
+- [x] Compare early/late cinematic counters; retain later-transition failures as open.
+- [x] Bound one queued render interval without weakening sustained-stall rejection.
+- [x] Production policy/pairing/cinematic regressions, including old-policy control.
+- [x] Spread existing history output across presents; same evidence, bounded formatting.
+- [ ] Affected-player prison stability from scene start through gameplay.
+- [x] Local hand/HUD follow-up accepted through final installed6bc58a449 (PR132).
+
+## Prison cinematic acceptance candidate (VR-229, 2026-09-25)
+
+- [x] Correlate returned prison failures with center-eye interruptions and skew.
+- [x] Correct draw-progress baseline with failing old-policy control.
+- [x] Separate bounded CPU history from optional GPU pixel diagnostics.
+- [x] Benchmark actual recorder and preserve pairing regressions.
+- [x] Reject c4f5fe5df as sufficient after reload/head-turn failure report.
+- [x] Reproduce scoped/native eye-axis mismatch with logged-step and late-tag controls.
+- [ ] Affected-player stable prison cinematic through gameplay transition.
+
+## Cinematic follow-ups (VR-228/229, 2026-09-24)
+
+- [x] Confirm pause scope exclusion and add head-look-menu permission with epoch liveness.
+- [x] Corroborate prison stale-left delivery; distinguish active repairs from expirations.
+- [x] Add bounded expiration diagnostics after detailed ledger budget exhaustion.
+- [x] Expand ZIP-only diagnostics: recurring frame history, raw camera census, label-independent pixels and actual XR results.
+- [x] Verify long-session coverage, missing-left negative control and actual formatted recorder output.
+- [ ] Local paused-dialogue FOV acceptance.
+- [ ] Remote expiration attribution and production-model-tested eye pairing fix.
+
+## FOV base kept across loads (2026-09-26)
+
+- [x] Trace the stuck small view to the base re-read from the lever's own output after loads.
+- [x] Keep the session's base; accept a re-read only when it is not our echo, the target or a transient.
+- [x] Host negative control (echoed base keeps a 37.36 narrowing) and recovery at 37.36 and 60.
+- [ ] Headset or affected player: exit a store and die at a portrait size; the full view returns.
+
+## Cinematic square-view recovery (VR-227, 2026-09-24)
+
+- [x] Match support build and isolate persistent cinematic narrow-FOV retention.
+- [x] Add bounded persistent recovery under the existing cinematic FOV lock.
+- [x] Host negative control, zoom/cancellation/timeout and ownership checks.
+- [ ] Affected-player painting dialogue and exit retain full coverage.
+- [ ] Separate Empress-scene and spyglass regression acceptance.
+
+## Shared capture compatibility (VR-260)
+
+- [x] Trace startup sharing rejection to synchronous capture and measure its cost.
+- [x] Align probe/slots on texture-backed interop and preferred format.
+- [x] Native pixel, partial-failure and reset verification.
+- [x] Affected-player reports the fix-only candidate resolves the slowdown (new timings not supplied).
+
 ## Support logs and history (VR-215)
 
 - [x] Reproduce released launcher error 3 with a fresh temp parent.
@@ -503,3 +632,5 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] Bounded sampled scopes and production host checks.
 - [ ] Headset log attribution, then choose a measured optimization.
 - [ ] Integration branch validation after independent wins are established.
+
+- [x] VR-79 reload regression: event-controller owner resolution and live guarded restore; production-module tests. Headset culling under DLAA/DLSS remains pending.

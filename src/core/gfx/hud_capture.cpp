@@ -1,13 +1,17 @@
 // core/gfx/hud_capture.cpp - see hud_capture.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/markers_sharp.h"
+#include "core/gfx/hud_capture_health.h"
 
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
+#include "core/gfx/dlss.h"
 #include "core/gfx/blit_quad.h"
 #include "core/gfx/hud_layout.h"
 #include "core/gfx/stereo.h"
 #include "core/util/log.h"
+#include "core/util/etw.h"
 #include "core/vr/hud_stub.h"
 #include "core/vr/openxr_runtime.h"
 #include "game/dishonored/patterns.h"
@@ -58,8 +62,20 @@ struct Sink {
     uint32_t winRedirected = 0, winDelivered = 0, winEmpty = 0;
 };
 Sink g_sink[dvr::hudlayout::kMaxSinks];
-uint32_t g_rtW = 0, g_rtH = 0;      // the private targets' size (= the backbuffer's)
+uint32_t g_rtW = 0, g_rtH = 0;      // the private targets' size (= the backbuffer's, or the upscaler's output)
 bool     g_rtFailed = false;
+// [Hud] UpscaleSharp: while an upscaler renders the game below the headset size, draw the HUD at
+// the upscaler's OUTPUT size instead of the reduced render's. The HUD's vertex shaders place
+// every vertex through a 4x4 transform into clip space (VR-118), so a viewport scaled by
+// output/render rasterizes the same HUD at more pixels. A larger target cannot use the game's
+// smaller depth-stencil, so the sinks share one of their own (Scaleform masks use stencil),
+// cleared every present. Off, or no upscaler, is the old path exactly.
+bool     g_sharpWanted = true;
+bool     g_scaled = false;                // the targets are larger than the frame right now
+uint32_t g_frameW = 0, g_frameH = 0;      // the backbuffer the game draws the HUD for
+IDirect3DSurface9* g_ds = nullptr;        // the sinks' own depth-stencil while scaled
+IDirect3DSurface9* g_gameDsSaved = nullptr;   // pointer value only, between begin and end
+uint32_t g_sharpDsFails = 0;
 int      g_inRedirect = -1;         // the sink bound right now, -1 = none
 
 ID3D11DeviceContext* g_lastCtx = nullptr;
@@ -72,7 +88,7 @@ uint32_t g_blitWaits = 0, g_blitTimeouts = 0, g_readWaits = 0, g_readTimeouts = 
 uint32_t g_restoreFails = 0;
 uint32_t g_presentNo = 0;
 unsigned long g_winStartMs = 0;
-unsigned long g_lastRedirectMs = 0;
+CaptureHealth g_captureHealth;
 const char* g_offReason = "the lever is off";
 
 long long qpc_now() { LARGE_INTEGER t; QueryPerformanceCounter(&t); return t.QuadPart; }
@@ -116,6 +132,25 @@ void release_slots(Sink& s) {
 void release_rt(Sink& s) {
     if (s.rt) { s.rt->Release(); s.rt = nullptr; }
 }
+void release_ds() { if (g_ds) { g_ds->Release(); g_ds = nullptr; } }
+
+// The size the private targets should have this present: the backbuffer's, or with UpscaleSharp
+// on and the frame being an upscaler's reduced render, the upscaler's output.
+bool wanted_size(IDirect3DDevice9* dev, uint32_t* w, uint32_t* h, uint32_t* fw, uint32_t* fh, bool* scaled) {
+    IDirect3DSurface9* bb = nullptr;
+    if (FAILED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb) return false;
+    D3DSURFACE_DESC d = {};
+    const HRESULT dh = bb->GetDesc(&d);
+    bb->Release();                       // released inside the call, always
+    if (FAILED(dh) || !d.Width || !d.Height) return false;
+    *fw = d.Width; *fh = d.Height; *w = d.Width; *h = d.Height; *scaled = false;
+    uint32_t ow = 0, oh = 0;
+    if (g_sharpWanted && g_sharpDsFails < 3 && dvr::dlss::mode() != dvr::dlss::ModeOff &&
+        dvr::dlss::sr_output_for(d.Width, d.Height, &ow, &oh) && ow > d.Width && oh > d.Height) {
+        *w = ow; *h = oh; *scaled = true;
+    }
+    return true;
+}
 
 // The clear rule from the archaeology: an element that stops being drawn has to
 // be black by the next copy, or it stays on the panel for minutes. ColorFill is
@@ -148,27 +183,44 @@ void clear_rt(IDirect3DDevice9* dev, Sink& s) {
 bool ensure_rt(IDirect3DDevice9* dev, int i) {
     Sink& s = g_sink[i];
     if (s.rt || g_rtFailed || !dev) return s.rt != nullptr;
-    IDirect3DSurface9* bb = nullptr;
-    if (FAILED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb) return false;
-    D3DSURFACE_DESC d = {};
-    const HRESULT dh = bb->GetDesc(&d);
-    bb->Release();                       // released inside the call, always
-    if (FAILED(dh) || !d.Width || !d.Height) return false;
-    const HRESULT hr = dev->CreateRenderTarget(d.Width, d.Height, D3DFMT_A8R8G8B8,
-                                               d.MultiSampleType, d.MultiSampleQuality,
-                                               FALSE, &s.rt, nullptr);
+    uint32_t w = 0, h = 0, fw = 0, fh = 0; bool scaled = false;
+    if (!wanted_size(dev, &w, &h, &fw, &fh, &scaled)) return false;
+    D3DMULTISAMPLE_TYPE ms = D3DMULTISAMPLE_NONE; DWORD mq = 0;
+    if (!scaled) {
+        IDirect3DSurface9* bb = nullptr;
+        if (SUCCEEDED(dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb) {
+            D3DSURFACE_DESC d = {};
+            if (SUCCEEDED(bb->GetDesc(&d))) { ms = d.MultiSampleType; mq = d.MultiSampleQuality; }
+            bb->Release();               // released inside the call, always
+        }
+    } else if (!g_ds) {
+        const HRESULT dr = dev->CreateDepthStencilSurface(w, h, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, TRUE, &g_ds, nullptr);
+        if (FAILED(dr) || !g_ds) {
+            g_ds = nullptr;
+            ++g_sharpDsFails;
+            DVR_WARN("hud/sharp: the %ux%u D24S8 depth-stencil was refused (0x%08lx, %u of 3) - the HUD stays at the "
+                     "render's %ux%u this time", w, h, (unsigned long)dr, g_sharpDsFails, fw, fh);
+            w = fw; h = fh; scaled = false;
+        }
+    }
+    const HRESULT hr = dev->CreateRenderTarget(w, h, D3DFMT_A8R8G8B8, ms, mq, FALSE, &s.rt, nullptr);
     if (FAILED(hr) || !s.rt) {
         g_rtFailed = true; g_failed = true;
         s.rt = nullptr;
-        DVR_ERROR("hud: sink %d's render target %ux%u A8R8G8B8 (ms=%d/%u) was refused (0x%08lx) - the "
+        DVR_ERROR("hud: sink %d's render target %ux%u A8R8G8B8 (ms=%d/%lu) was refused (0x%08lx) - the "
                   "redirect is off for this run and the HUD stays in the frame",
-                  i, d.Width, d.Height, (int)d.MultiSampleType, d.MultiSampleQuality, (unsigned long)hr);
+                  i, w, h, (int)ms, (unsigned long)mq, (unsigned long)hr);
         return false;
     }
-    g_rtW = d.Width; g_rtH = d.Height;
+    g_rtW = w; g_rtH = h; g_frameW = fw; g_frameH = fh; g_scaled = scaled;
     clear_rt(dev, s);
-    DVR_INFO("hud: sink %d's target is %ux%u A8R8G8B8 (the backbuffer's size and multisample type, "
-             "so its depth-stencil stays legal)", i, g_rtW, g_rtH);
+    if (scaled)
+        DVR_INFO("hud/sharp: sink %d's target is %ux%u, the upscaler's output, for a %ux%u render (x%.2f per axis; "
+                 "its own D24S8 depth-stencil) - the HUD is drawn at headset resolution", i, w, h, fw, fh, (double)w / fw);
+    else
+        DVR_INFO("hud: sink %d's target is %ux%u A8R8G8B8 (the backbuffer's size and multisample type, "
+                 "so its depth-stencil stays legal)%s", i, g_rtW, g_rtH,
+                 g_sharpWanted ? "; UpscaleSharp is on but no upscaler is reducing the render" : "");
     return true;
 }
 
@@ -235,6 +287,7 @@ void blit_wait(Sink& s, int k) {
     if (!s.blitIssued[k] || !s.blitFence[k]) return;
     HRESULT hr = s.blitFence[k]->GetData(nullptr, 0, D3DGETDATA_FLUSH);
     if (hr == S_FALSE) {
+        dvr::etw::Scope etwWait(dvr::etw::kHudFence, k);
         ++g_blitWaits;
         const long long t0 = qpc_now();
         while (hr == S_FALSE && !past_us(t0, 10000)) {
@@ -275,7 +328,7 @@ void apply_wanted(const char* why) {
              g_on ? " - the HUD leaves the frame and the eye textures and appears on its anchors "
                     "(the window, the hand). The desktop window loses it too, by construction"
                   : " - the HUD is back in the frame from the next draw");
-    if (!g_on) for (Sink& s : g_sink) s.delivered = false;
+    if (!g_on) { g_captureHealth.reset(); for (Sink& s : g_sink) s.delivered = false; }
 }
 
 } // namespace
@@ -302,6 +355,18 @@ void set_slot_scale(float s) {
 }
 float slot_scale() { return g_slotScale; }
 
+void set_upscale_sharp(bool on, const char* who) {
+    if (on == g_sharpWanted) return;
+    g_sharpWanted = on;
+    g_sharpDsFails = 0;
+    DVR_INFO("hud/sharp: UpscaleSharp %s by %s - %s", on ? "ON" : "off", who,
+             on ? "while DLSS/FSR renders below the headset size the HUD is drawn at the output size (rebuilds on the next present)"
+                : "the HUD is drawn at the render's size, the old path");
+}
+bool upscale_sharp() { return g_sharpWanted; }
+void set_markers_sharp(bool on,const char* owner){dvr::markersharp::set_enabled(on,owner);}
+bool markers_sharp(){return dvr::markersharp::enabled();}
+
 void set_game_gate(bool arm, bool menuOverride) { g_gameGate = arm; g_menuOverride = menuOverride; }
 bool armed() { return g_armed; }
 void invalidate_content() {
@@ -320,7 +385,24 @@ bool begin(IDirect3DDevice9* dev, const D3DVIEWPORT9& vp, int sink) {
     if (FAILED(dvr::frame::orig_set_render_target(dev, 0, s.rt))) return false;
     // SetRenderTarget resets the viewport to the whole target; the game's own
     // viewport goes back. The device is PURE, so it comes from the shadow.
-    dev->SetViewport(&vp);
+    if (g_scaled && g_ds && g_frameW && g_frameH) {
+        bool known = false;
+        g_gameDsSaved = dvr::frame::game_depth_stencil(&known);
+        if (!known) {   // the implicit auto depth-stencil: ask, use the pointer, release here
+            IDirect3DSurface9* ds = nullptr;
+            if (SUCCEEDED(dev->GetDepthStencilSurface(&ds)) && ds) { g_gameDsSaved = ds; ds->Release(); }
+        }
+        dvr::frame::orig_set_depth_stencil(dev, g_ds);
+        const float sx = (float)g_rtW / g_frameW, sy = (float)g_rtH / g_frameH;
+        D3DVIEWPORT9 big = vp;
+        big.X = (DWORD)(vp.X * sx + 0.5f); big.Y = (DWORD)(vp.Y * sy + 0.5f);
+        big.Width = (DWORD)(vp.Width * sx + 0.5f); big.Height = (DWORD)(vp.Height * sy + 0.5f);
+        if (big.X + big.Width > g_rtW) big.Width = g_rtW - big.X;
+        if (big.Y + big.Height > g_rtH) big.Height = g_rtH - big.Y;
+        dev->SetViewport(&big);
+    } else {
+        dev->SetViewport(&vp);
+    }
     g_inRedirect = sink;
     ++s.redirected;
     return true;
@@ -352,6 +434,8 @@ void end(IDirect3DDevice9* dev, IDirect3DSurface9* gameRt, const D3DVIEWPORT9& v
         g_wanted = false;
         apply_wanted("a restore failed");
     }
+    if (g_scaled && g_ds) dvr::frame::orig_set_depth_stencil(dev, g_gameDsSaved);
+    g_gameDsSaved = nullptr;
     dev->SetViewport(&vp);
 }
 
@@ -369,13 +453,13 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
     if (!g_winStartMs) g_winStartMs = GetTickCount();
     ++g_winPresents;
     ++g_presentNo;
+    uint32_t any = 0;
     if (g_armed) {
         ++g_winArmedPresents;
-        uint32_t any = 0;
         for (const Sink& s : g_sink) any += s.redirected;
         if (!any) { ++g_winEmptyArmed; if (g_presentNo & 1) ++g_winEmptyOdd; else ++g_winEmptyEven; }
-        else g_lastRedirectMs = GetTickCount();
     }
+    g_captureHealth.frame(g_on && g_armed,g_handoffReady,g_failed,any!=0,GetTickCount());
 
     // VR-160: hold this present? Only under a method that presents twice per tick, only while the
     // pair is still OPEN-TO-COME (the runtime holds one XR frame across both presents, so
@@ -389,6 +473,36 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
     if (g_on && dev9 && dev11 && ctx11 && !g_failed) {
         g_lastCtx = ctx11;
         blitOk = g_blit.init(dev11);
+        {   // UpscaleSharp: a size change (the lever, an upscaler mode, a resize) rebuilds every sink
+            uint32_t w = 0, h = 0, fw = 0, fh = 0; bool scaled = false;
+            bool anyRt = false;
+            for (const Sink& t : g_sink) anyRt |= t.rt != nullptr;
+            if (anyRt && wanted_size(dev9, &w, &h, &fw, &fh, &scaled) &&
+                (w != g_rtW || h != g_rtH || fw != g_frameW || fh != g_frameH || scaled != g_scaled)) {
+                DVR_INFO("hud/sharp: the HUD targets go from %ux%u (frame %ux%u) to %ux%u (frame %ux%u)%s - one rebuild",
+                         g_rtW, g_rtH, g_frameW, g_frameH, w, h, fw, fh,
+                         scaled ? ", the upscaler's output" : "");
+                for (Sink& t : g_sink) { if (t.ready) release_slots(t); release_rt(t); }
+                release_ds();
+                g_scaled = false;
+            }
+            if (g_scaled && g_ds) {   // the shared depth-stencil starts every present empty
+                IDirect3DSurface9 *rt = nullptr, *ds = nullptr;
+                for (Sink& t : g_sink) if (t.rt) { rt = t.rt; break; }
+                if (rt) {
+                    IDirect3DSurface9* prevRt = nullptr;
+                    if (FAILED(dev9->GetRenderTarget(0, &prevRt))) prevRt = nullptr;
+                    if (FAILED(dev9->GetDepthStencilSurface(&ds))) ds = nullptr;
+                    if (SUCCEEDED(dvr::frame::orig_set_render_target(dev9, 0, rt)) &&
+                        SUCCEEDED(dvr::frame::orig_set_depth_stencil(dev9, g_ds)))
+                        dev9->Clear(0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
+                    dvr::frame::orig_set_depth_stencil(dev9, ds);
+                    if (prevRt) dvr::frame::orig_set_render_target(dev9, 0, prevRt);
+                    if (prevRt) prevRt->Release();
+                    if (ds) ds->Release();
+                }
+            }
+        }
         for (int i = 0; i < dvr::hudlayout::kMaxSinks; ++i) {
             Sink& s = g_sink[i];
             const bool hadDelivered = s.delivered, hadPart0 = s.partDelivered[0], hadPart1 = s.partDelivered[1];
@@ -591,45 +705,43 @@ ID3D11Texture2D* panel_texture(int sink) {
     return g_sink[sink].outTex;
 }
 
-static DWORD g_lastNativeReferenceMs=0;
 void note_native_reference(HRESULT result) {
-    if(SUCCEEDED(result) && dvr::hudlayout::native_gameplay_reference()) g_lastNativeReferenceMs=GetTickCount();
+    if(dvr::hudlayout::native_gameplay_reference())
+        g_captureHealth.native(SUCCEEDED(result),g_on,g_handoffReady,g_failed,GetTickCount());
 }
 bool redirect_healthy() {
-    // The recent-redirect window alone: g_armed is recomputed every present and
-    // drops on any untagged present (the ring drains, none/s=1 in the beat), and
-    // a health check that blinks with it cancelled the ride's open-gap stand-in
-    // on the first pause measured (2026-09-15, the sewers on the simulator).
-    if (!g_on || !g_handoffReady || g_failed) return false;
-    // A successful intentional gameplay bypass keeps the entry gate warm,
-    // without claiming a redirected draw or masking device/handoff failures.
-    // Menu visual ownership immediately resumes normal capture.
-    return (GetTickCount() - g_lastRedirectMs) < 500 ||
-           (g_lastNativeReferenceMs && GetTickCount() - g_lastNativeReferenceMs < 500);
+    // A widget fading out does not break its capture targets. Keep a previously
+    // proven path ready while armed, including the short menu-owner poll gap.
+    // Missing handoff, device failure and reset still refuse menu entry.
+    return g_captureHealth.healthy(g_on,g_handoffReady,g_failed,GetTickCount());
 }
 bool redirect_failed() { return g_failed; }
 
 void on_reset() {
-    g_lastNativeReferenceMs=0;
+    g_captureHealth.reset();
     g_handoffReady = false;
     for (Sink& s : g_sink) { release_slots(s); release_rt(s); s.redirected = 0; }
+    release_ds(); g_scaled = false;
     g_rtFailed = false;
     g_inRedirect = -1;
     g_armed = false;
 }
 
 void shutdown() {
+    g_captureHealth.reset();
     g_armed = false;
     g_handoffReady = false;
     g_on = false;
     g_wanted = false;
     g_blit.shutdown();
     for (Sink& s : g_sink) { release_slots(s); release_rt(s); }
+    release_ds(); g_scaled = false;
 }
 
 void log_status() {
-    DVR_INFO("hud: redirect=%s scale=%.2f rt=%ux%u slot=%ux%u | gate: projection=%d tag=%d menu=%d game=%d handoff=%d "
+    DVR_INFO("hud: sharp=%d (targets %s the %ux%u frame) | redirect=%s scale=%.2f rt=%ux%u slot=%ux%u | gate: projection=%d tag=%d menu=%d game=%d handoff=%d "
              "failed=%d -> %s | fingerprint measured=%d | %s",
+             (int)g_sharpWanted, g_scaled ? "ABOVE" : "at", g_frameW, g_frameH,
              g_on ? "on" : "off", g_slotScale, g_rtW, g_rtH, g_sink[0].slotW, g_sink[0].slotH,
              (int)dvr::hud::projection_mode(), (int)dvr::hud::gate(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady, (int)g_failed,
              g_armed ? "ARMED" : "idle", (int)kHudFingerprintMeasured, g_offReason);
@@ -647,6 +759,9 @@ void status(dvr::status::Writer& w) {
     w.kv("failed", g_failed);
     w.kv("healthy", redirect_healthy());
     w.kv("scale", (double)g_slotScale);
+    w.kv("upscaleSharp", g_sharpWanted);
+    w.kv("markersSharp", markers_sharp());
+    w.kv("sharpScaled", g_scaled);
     w.kv("slotW", (int)g_sink[0].slotW);
     w.kv("slotH", (int)g_sink[0].slotH);
     w.kv("blitTimeouts", (unsigned long)g_blitTimeouts);
@@ -657,9 +772,13 @@ void status(dvr::status::Writer& w) {
 }
 
 bool command(const char* args) {
+    if(!strcmp(args,"markers sharp on")){set_markers_sharp(true,"seam");return true;}
+    if(!strcmp(args,"markers sharp off")){set_markers_sharp(false,"seam");return true;}
     if (!strcmp(args, "on"))  { g_failed = false; set_enabled(true);  return true; }
     if (!strcmp(args, "off")) { set_enabled(false); return true; }
     if (!strcmp(args, "pair on"))  { set_once_per_pair(true);  return true; }
+    if (!strcmp(args, "sharp on"))  { set_upscale_sharp(true, "the seam");  return true; }
+    if (!strcmp(args, "sharp off")) { set_upscale_sharp(false, "the seam"); return true; }
     if (!strcmp(args, "pair off")) { set_once_per_pair(false); return true; }
     if (!strncmp(args, "scale", 5)) {
         const char* a = args + 5;

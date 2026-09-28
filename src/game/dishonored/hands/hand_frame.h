@@ -78,6 +78,47 @@ static inline Mat3 transpose3(const Mat3& a)
     return o;
 }
 
+// VR-188: never freeze an identity wrist/finger relationship from a collapsed
+// transition palette. Until the slots separate, use the current vote frame just
+// for that draw. The threshold is float matrix noise, not a measured hand angle.
+struct WristReference {
+    Mat3 offset = identity3();
+    bool valid = false;
+    int voteSlot = -1, wristSlot = -1;
+    unsigned generation = 0;
+    enum Event { None, Measured, Kept, Deferred };
+    bool matches(int vote, int wrist) const {
+        return valid && voteSlot == vote && wristSlot == wrist;
+    }
+    bool needs_vote(bool held, int vote, int wrist) const {
+        return held || !matches(vote, wrist);
+    }
+    Mat3 resolve(const Mat3& wrist, const Mat3* vote, bool held,
+                 int voteId, int wristId, unsigned gen, Event& event) {
+        event = None;
+        if (held) return vote ? *vote : wrist; // never overwrite empty-hand calibration
+        if (matches(voteId, wristId)) {
+            if (generation != gen) event = Kept;
+            generation = gen;
+            return mul3(wrist, offset);
+        }
+        // A different slot pair must not inherit the previous pair's offset.
+        valid = false;
+        if (!vote) return wrist;
+        const Mat3 candidate = mul3(transpose3(wrist), *vote);
+        bool distinct = false;
+        for (int i = 0; i < 9; ++i) {
+            const float delta = fabsf(candidate.m[i] - (i % 4 == 0 ? 1.0f : 0.0f));
+            if (!isfinite(delta)) return *vote;
+            if (delta > 1e-5f) distinct = true;
+        }
+        if (!distinct) { event = Deferred; return *vote; }
+        offset = candidate; valid = true; generation = gen;
+        voteSlot = voteId; wristSlot = wristId; event = Measured;
+        return mul3(wrist, offset);
+    }
+};
+
 static inline void mulv3(const Mat3& a, const float* x, float* o)
 {
     const float t0 = a.m[0]*x[0] + a.m[1]*x[1] + a.m[2]*x[2];
@@ -482,6 +523,49 @@ static inline void reflection_3x4(const float* n, const float* c, float* S)
         for (int j = 0; j < 3; j++) S[i*4+j] = (i == j ? 1.0f : 0.0f) - 2.0f*n[i]*n[j];
         S[i*4+3] = 2.0f*nc*n[i];
     }
+}
+
+// out = a * b for two 3x4 affine matrices (row-major, translation in .w). out must not alias.
+static inline void mul_3x4(const float* a, const float* b, float* out)
+{
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 4; j++) {
+            float v = a[i*4+0]*b[0*4+j] + a[i*4+1]*b[1*4+j] + a[i*4+2]*b[2*4+j];
+            if (j == 3) v += a[i*4+3];
+            out[i*4+j] = v;
+        }
+}
+// out = inverse of a 3x4 affine matrix (any invertible 3x3 part). False when singular.
+static inline bool invert_3x4(const float* m, float* o)
+{
+    const float a = m[0], b = m[1], c = m[2], d = m[4], e = m[5], f = m[6], g = m[8], h = m[9], i = m[10];
+    const float A = e*i - f*h, B = f*g - d*i, C = d*h - e*g;
+    const float det = a*A + b*B + c*C;
+    if (!(det > 1e-8f || det < -1e-8f)) return false;
+    const float id = 1.0f / det;
+    const float r[9] = { A*id, (c*h - b*i)*id, (b*f - c*e)*id,
+                         B*id, (a*i - c*g)*id, (c*d - a*f)*id,
+                         C*id, (b*g - a*h)*id, (a*e - b*d)*id };
+    for (int row = 0; row < 3; row++) {
+        o[row*4+0] = r[row*3+0]; o[row*4+1] = r[row*3+1]; o[row*4+2] = r[row*3+2];
+        o[row*4+3] = -(r[row*3+0]*m[3] + r[row*3+1]*m[7] + r[row*3+2]*m[11]);
+    }
+    return true;
+}
+// The open right hand: a left finger's pose against its wrist, reflected by X (the
+// reference-pose mirror between the hands), put on the right wrist:
+//     out = wristR * X * inv(wristL) * fingerL * X
+// For a rig posed as an exact mirror image (P_R = Xw * P_L * X for any world reflection Xw)
+// this returns the right finger's own matrix; at the reference pose the finger rides its wrist.
+// invWristL is passed in, it is shared by every finger. out must not alias an input.
+static inline void mirror_finger_3x4(const float* wristR, const float* invWristL, const float* fingerL,
+                                     const float* X, float* out)
+{
+    float rel[12], t1[12], t2[12];
+    mul_3x4(invWristL, fingerL, rel);
+    mul_3x4(X, rel, t1);
+    mul_3x4(t1, X, t2);
+    mul_3x4(wristR, t2, out);
 }
 
 // VR-138: out = P * S for a palette of 3x4 bone rows (count registers, three

@@ -1,3 +1,15 @@
+## The sword hand-back is for trigger attacks (VR-220, 2026-09-25)
+
+`HandAnimMelee` matched every `StatePlayerMeleeAttack`; it now matches an attack whose source is
+the trigger, read from the motion sword's fire record (`swing.h`: `last_fire_tick`,
+`last_pulse_close_tick`, `fires`, `last_fire_real_trigger`). A physical swing keeps the tracked
+hand; `HandAnimMeleeSwing=1` restores the old behaviour. The verdict is latched per attack and
+per combo clip and logged as `anim/melee: attack source=...`. The melee body gate reads
+`cameraAction` instead of `game` so a trigger hand-back does not close the swing gate. Default
+`HandAnimMelee` is 1 from this change, moved by a one-time `HandAnimMeleeRev` migration.
+Simulator: `tools\xrsim\swing-anim.xrs`. Headset: owed. Detail: PHYSICAL_SWING.md, "The
+animation belongs to the trigger, not the swing".
+
 ## Mantle-only pose/visibility correction and upright wheel (2026-09-17)
 
 Build437 rollback accepted: normal movement restored. Dark Vision test with

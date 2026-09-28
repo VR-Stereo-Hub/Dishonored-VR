@@ -256,6 +256,8 @@ static bool VrConnect()
     g_vr.input = (VR_IVRInput_FnTable*)getIf(buf, &err);
     _snprintf_s(buf, 128, _TRUNCATE, "FnTable:%s", vr::IVROverlay_Version);
     g_vr.ovl = (VR_IVROverlay_FnTable*)getIf(buf, &err);   // optional
+    _snprintf_s(buf, 128, _TRUNCATE, "FnTable:%s", vr::IVRRenderModels_Version);
+    g_vr.rm = (VR_IVRRenderModels_FnTable*)getIf(buf, &err); // optional (Index poses)
 
     if (!g_vr.sys || !g_vr.comp || !g_vr.input)
     {
@@ -291,6 +293,7 @@ static void VrDisconnect(const char* why)
     g_vr.comp = nullptr;
     g_vr.input = nullptr;
     g_vr.ovl = nullptr;
+    g_vr.rm = nullptr;
     g_vr.ok = false;
     // Force a fresh geometry cache (and eye-target rebuild) on reconnect -
     // the next SteamVR may drive a different headset.
@@ -818,6 +821,17 @@ OVRSHIM_FN(shim_ReleaseSwapchainImage)(
 
 // ---------------------------------------------------------------- frame loop
 static vr::TrackedDevicePose_t g_renderPoses[vr::k_unMaxTrackedDeviceCount];
+
+// Raw device pose from the last WaitGetPoses, the same prediction the IVRInput
+// "ForNextFrame" pose reads use. Present thread only, like its writer.
+bool Shim_RenderPose(uint32_t deviceIndex, M34* out)
+{
+    if (deviceIndex >= vr::k_unMaxTrackedDeviceCount) return false;
+    const vr::TrackedDevicePose_t& p = g_renderPoses[deviceIndex];
+    if (!p.bPoseIsValid) return false;
+    *out = M34_FromVr(p.mDeviceToAbsoluteTracking);
+    return true;
+}
 
 OVRSHIM_FN(shim_WaitFrame)(XrSession, const XrFrameWaitInfo*, XrFrameState* fs)
 {

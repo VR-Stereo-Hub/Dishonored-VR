@@ -1,3 +1,289 @@
+## 2026-09-27: read-only pause submenu identity
+
+Local class declarations expose DisGFxMoviePlayerMenuBase.m_bIsInSaveMenu and
+m_bIsInLoadMenu. Resolve each boolean offset and bitmask by name. Pause Options
+has named OnOptionsClicked/OnLeaveOptions callbacks; video/gamma/mapping and
+Save/Load list callbacks refine the diagnostic label. These are observed engine
+dispatches, not calls made by the mod. Missing callbacks leave root ambiguous.
+No fixed engine address or field offset is added. The retained movie is captured
+with ChCapture after BuildLiveSet and checked with ChSlot before callback use.
+A pointer match alone is insufficient. No diagnostic authorizes a memory write.
+
+## Potion ownership must not depend on another movie's clip census (2026-09-25)
+
+Matched returned36a8d7f95 proves +BC matches22 current HUD clips, while9 differ.
+At59102281..59114406 the game reports actual wheel mode4, quickReady0 and
+quickCaptured0. Base ownership remains active with required7 and overflow0.
+The all-clips-equal guard, introduced in36a8d7f95, therefore vetoed the entire
+potion route. This is a confirmed activation failure, not a position test.
+Why the nine retained HUD clip references differ is not established; do not
+label them imported, stale or valid alternate roots without further evidence.
+
+Remove the irrelevant global census dependency. RefreshQuickMovie reads current
+live manager.m_pPowerWheel, actual mode4 and the supported pMovie/view. The
+Display receiver must itself link to that EXACT current view via native+BC.
+QuickPotionOwner additionally revalidates live manager membership, wheel identity,
+mode/view and HUD generation on use. Other movies cannot pass this equality.
+The previous constructor/getter derivation remains valid; the requirement that
+ALL unrelated HUD clips agree was an unsupported additional assumption.
+
+Extract and exercise production RefreshQuickMovie in the host harness. Start
+unarmed, activate without any HUD clip census, check inactive/dead/unsupported
+transitions, then pass the actual resulting potion owner through Display,
+publication and render replay. Previous tests manually pre-armed quickView and
+therefore could not detect the poll's veto.97 checks and100000 transfers pass.
+
+Current UI log also establishes gameplay routing after the brief native wheel
+open/close interval: contextOther blocked0/rides0 and visual context-1 precede
+the persistent mode4 samples. No menu-context change is needed to explain this
+failure; leave accepted menu/close behavior alone in this correction.
+
+## Correct GFxSprite movie ownership (2026-09-25)
+
+Retracted: the previous +90 sprite/movie hypothesis. Matching returned build
+b52c0c579 reports movieLink=0 in all28 summaries; no potion capture was activated.
+quickMode=0 in that build was a short-circuit default, not a game measurement.
+
+Offline constructor/getter derivation on the installed executable:
+- GFxSprite primary vtable011FB5B8 slot+54 is B27BE0, a direct getter of +BC.
+- DF5240 stores constructor argument3 at sprite+BC. DF6DB0..DF6DEE obtains the
+  parent's movie via that getter and passes it as argument3 to the new sprite.
+- E12380 allocates a2818-byte movie root, calls E064C0, and passes the returned
+  root as argument3 when constructing its level sprite at E123D9.
+- E064C0 installs primary vtable011FBAB0. Its slot+44 is DF95C0, the variable
+  getter used by the UE3 movie bridge at B9584E..B95868. No this adjustment:
+  GFxMovieView and this root share the primary pointer.
+- DCB490 retains constructor argument1 at+90, a resource definition; DF17CF's
+  use of resource data there did not establish instance ownership.
+
+Use sprite+BC, require the native view's primary vtable, and cross-check ALL
+current supported base-HUD clip roots against the independently read HUD view.
+Native addresses/layout constants remain centralized in patterns.h. The current
+Display receiver is borrowed only for the call; live manager membership, wheel
+identity, current mode/view, and HUD/menu/load epoch still gate publication.
+No game-memory writes or new engine function calls.
+
+The independent mode read now prints -1 if unavailable. Existing3s summaries
+include linked/mismatched clip counts, HUD view and successful quickCaptured
+count so a refused linkage cannot masquerade as an absent quick-potion state.
+Host regression fixtures explicitly keep resource+90 and movie+BC different,
+reject a resource pointer impersonating the movie, and reject foreign view tables.
+
+## Quick-potion reminder belongs to the wheel movie (2026-09-25; linkage retracted above)
+
+Correction to the preceding low-health text association: the reported standalone
+D-pad/potion is QuickPotionMenu in UI_PowerWheel, using the shared-library
+QuickPotion_DPAD. Its Open takes the shortcut panel's lower-left position,
+selects shortcut index3, animates the potion/ring/right direction, and closes
+through OnClosed. TutorialMessage is a different widget. No extracted scripts
+or assets are committed.
+
+Native BE42DC stores the requested wheel mode. BE4406/BE4417/BE4420 subtract1,1,2,
+and mode4 reaches BE4453..BE4483: GetVariable(_root.quickPotion_mc) and Open.
+BE4867..BE4890 resolves that same clip and applies display information. The mode
+is read using reflected DisGFxMoviePlayerPowerWheel.m_Mode; manager.m_pPowerWheel
+and GFxMoviePlayer.pMovie also use reflection.
+
+Native HUD initialization B9584E..B95868 reads movie service+34 as the GFx view
+and invokes its variable getter. Sprite Display DF17CF reads sprite+90 and uses
+its resource state at+1c. Candidate accepts this sprite/movie relationship only
+when it equals the current known HUD clip's independently resolved movie view.
+The optional wheel route refuses if that live equality is absent. This guard is
+not yet confirmed in a headset run. All native layout constants are in patterns.h.
+
+A Display callback whose borrowed sprite links to the current mode4 wheel view
+gets default-panel ownership. Revalidate live manager membership, wheel object
+identity, current mode and pMovie/view, plus load/menu epoch via SameHud. No new
+virtual calls, retained GFx handles, engine writes, hooks or owning references.
+Children/filter commands inherit existing semantic transport. Ordinary wheel
+mode and unknown other movies retain existing routing. Host extraction tests
+exercise actual readers against dead/replaced owners, changed membership/view,
+wrong mode/movie, epoch boundaries and invalid native pointers.
+
+## Low-health reminder ownership follow-up (2026-09-25)
+
+Default-player localization includes a low-health direct-elixir-binding tutorial
+as well as the wheel-button variant. Native BAD24C..BAD282 invokes
+SetTutorialMessage on movie-clip array index15 (array+F0). Flash TutorialMessage
+owns its text and image-substituted buttons together. This is separate from
+context/special interaction indices7..9 corrected in fe3c3f876. The returned run
+routes tutorial draws in four consecutive3s windows. No new offset/hook/write is
+needed: existing semantic tutorial identity can select a private panel even
+without a legacy claiming rectangle. Headset confirmation of the reported
+reminder remains necessary; source association is not a pixel capture.
+
+## Marker target identity and lower HUD placement correction (2026-09-25)
+
+Verified 4c38bf526 log: semantic hooks active, required clip mask7, roots31,
+zero queue overflow throughout; no native-icon/native-upright lines while task
+and Heart update callbacks are active. This rules out a missing size preference:
+NativeObjectiveScale remains0.330. The initial Value reader required marker+8
+== HUD, which excluded every marker from the semantic roots.
+
+Offline native constructors establish the actual relationship. BCE380 stores its
+first argument at marker+8, settings at+C and projection params at+10. BCE750 gets
+its first argument from the task descriptor's first member; BAD668..BAD679 compares
+marker+8 with that task identity, and BAD6C1 constructs a marker for it. BCEBD0
+receives the tracked collectible from B955DD. Thus +8 is a target UObject, not the
+containing DisGFxMoviePlayerHUD. HUD marker arrays use pointer-size4 strides.
+
+Correction keeps current live HUD array membership and verifies the target with
+IsLiveObject independently, plus the existing native family vtable. It does not
+replace liveness with class-name equality. SameHud identity/generation and the
+resolved character membership checks remain. No new engine-memory writes/hooks.
+Host regression extracts actual Value and Character readers: separate HUD/target,
+dead HUD/target, wrong native family, withdrawn/index-invalid member and unresolved
+handle. The old reader fails the separate-target positive case.
+
+The native clip initializer B9591A/B95936/B95952/B9596E maps indices6/7/8/9 to
+crosshair interaction window, context text, special icons and QTE respectively.
+Crosshair name/info and index6 remain on prompt. Indices7..9 must share the
+player-state/default canvas, not central prompt sizing. Flash special icon1 is
+mantle. Authored player-state and special-icon roots are around y663 and665.5 on
+the720px canvas; separate placement transforms destroyed that authored alignment.
+Context text uses a separate left-hand authored position. The heal-reminder
+identity is not directly named by this log; its correction through the context
+mapping remains a testable candidate, not a measured association with a draw key.
+
+## Semantic HUD command transport candidate (2026-09-25)
+
+Implements the boundary derived below. All native addresses/field layouts are in
+patterns.h. Sprite Display 00DF1780 is thiscall(self, context), ret4; six stolen
+bytes are one sub esp,D4 instruction. Publication 00403B00 is thiscall(allocation)
+with no stack arguments; five stolen bytes are push esi / mov esi,ecx / xor eax,eax.
+Both trampolines copy complete non-relative instructions. Consumer site 005486A5
+contains mov eax,[edx+4] / mov esi,ecx / call eax; seven bytes resume at 005486AC.
+The stub preserves ESI's original command assignment and forwards thiscall Execute's
+EAX byte count. It scopes a copied payload only around execution, restoring on SEH.
+Publication tags the command BEFORE the original publishes its write position.
+Only queue 01441B2C is tagged. 014417E8 is the native render-thread active flag;
+install refuses if it is already set. Fingerprint all three sites before patching,
+install consumer first, and only enable tagging after all three hooks succeed.
+
+HUD field locations come from reflection: manager.m_pHUD, HUD.m_pMovieClips and
+Task/Heart/Awareness/Grenade marker arrays. The native 32-clip enum maps interaction
+roots to prompt and cooking to reticle. Values are type-8 GFx DisplayObjects with
+already-resolved handle+4; no resolver or guessed virtual function is invoked.
+A root is supported only if its Display slot +74 points to the verified function.
+The root table is bounded at 288 and refreshed on the existing UI poll. Duplicate
+character memberships are ambiguous and refused. The three required info,
+interaction and cooking roots must exist before semantic routing activates.
+Live HUD identity, current array membership, load/menu generation and 250ms poll
+freshness are revalidated on each matched Display. A load/menu transition refreshes
+the live-object table. No UObject/native widget data is written.
+
+A fixed 16384-slot table probes at most eight slots, copies identity and marker
+pivot, and retires before executing the command. It never dereferences engine
+objects on the render thread. Duplicate/stale-generation/overflow metadata refuses
+ownership; an unowned publication at a reused address clears an older entry before
+publishing. Native synchronous drawing uses the Display TLS scope. Nested child,
+filter and mask work inherits that scope; cached work emitted outside it stays
+unidentified/native. This is implemented coverage, not headset proof that every
+Flash rendering path is enclosed. Roots are sorted for bounded logarithmic lookup.
+Defaults off with startup INI enable and live F10 A/B after hook installation.
+Host tests execute the extracted actual x86 publication/display/replay functions,
+including the assembly site stub, exceptions and concurrent address reuse.
+
+## Runtime HUD identity and deferred draw transport (2026-09-25)
+
+Returned ea83dc5be captured task marker type 0x48 (managed DisplayObject), resolved
+character vtable 0x011FB5B8, on thread 30664. Three D3D stacks were on thread 40664
+and pass through 0x0099E230/0x0099E280, 0x0099B780/bitmap draw execution and the UE3
+command consumer 0x005488AF. Local raw output is ignored in owner-return.
+
+Offline disassembly confirms 0x0099E230 reads a command payload and calls
+0x0099B780 with five arguments, then returns command size 0x1C. Its Execute entry
+is vtable+4 at 0x010B4998; the actual vtable starts at 0x010B4994. Producer sites
+0x009A16C6/0x009A170A construct that vtable and fields in queue storage; the same
+producer has a synchronous fallback at 0x009A1757. A second observed command
+Execute is 0x0099E280, with vtable 0x010B54D4 and constructor at 0x009804A0.
+These distinguish proven replay/creation boundaries from a guessed draw scope.
+
+Task character slot +0x74 points to 0x00DF1780, whose code traverses child data
+through 0x00DCBF20 and separate filter paths. It is a display-traversal candidate,
+not yet an installed semantic hook. A replacement must associate native owners
+with their queued commands before publication, recover them during replay, handle
+synchronous execution and filters/caching, and refuse reused/unknown identities.
+None of these new addresses is invoked or patched by the pause readiness fix.
+
+### Further offline ownership derivation
+
+The HUD constructor wrapper 0x00BB3000 tail-jumps to 0x00BB08C0, which writes
+primary vtable 0x0115CD90. This explains the earlier native-tool vtable miss;
+the wrapper itself contains no vtable assignment. The native registration scan,
+self-verified against the crossbow, exposes only OnPlayerChoiceConfirm for this
+HUD class; it does not expose the native draw/update bodies by name.
+
+The full _root.grenadeCooking_mc path is at 0x0114D310 (the substring search lands
+six bytes later). Its reference at 0x00B959C8 is in the movie-clip initializer.
+That initializer allocates 32 values of 16 bytes, stores the array at receiver
++0x200 and retrieves authored paths through a virtual +0x44 call. Cooking is
+array+0xC0, crosshair information +0x20, interaction families +0x60/+0x70/+0x80/+0x90,
+matching the exported enum. Reflect/validate the live owning object's field before
+using this receiver offset; this is a native data-layout derivation, not liveness.
+
+The child-list traversal 0x00DCBF20 calls each child's virtual +0x74 at 0x00DCC103,
+confirming the display role of the task character's +0x74 candidate. Filters and
+mask branches also exist and must inherit ownership. Queue storage publication
+0x00403B00 consumes a scoped allocation record: +0 points to queue, +4 to command,
++8 to the new write position, then publishes that position and signals the queue.
+A future side table must publish owner metadata BEFORE the engine publishes its
+command. It must also cover the direct/synchronous draw fallback, retire records
+on replay, and refuse queue-address reuse. These paths are offline evidence only;
+no ownership hook is included in the installed pause fix.
+
+## Native HUD identity boundary audit (VR-186, 2026-09-25)
+
+The local decompiled HUD/task/objective/Heart/charm declarations and UI_HUD_SF
+ActionScript/XML were reread. Native task projection remains native: scripts
+supply ownership, visibility and target names, not its function body. Root preview
+fake-marker methods do not implement live markers. HUD_ANCHORS records the source
+comparison, grouping failures and the ownership transport replacement contract.
+
+Offline native-tool self-verification reproduced the published crossbow metadata,
+constructor, vtable and slot 1B0 before querying DisGFxMoviePlayerHUD. The HUD metadata
+and constructor resolved, but the tool did NOT find its vtable in the constructor;
+do not treat a missing result as a usable virtual hook.
+
+Existing verified marker update 00BBD430 reads interface at marker+18, type+1c,
+and data/handle+20 before calling 00DA6820. The type 8 DisplayObject test is also
+visible at 00BBD50D..00BBD534. 00DA6820 passes the handle to 00DC4600; the latter returns
+handle+4 when resolved, otherwise invokes a resolver using handle+0c. The read-only
+probe only accepts type 8 and an already non-null handle+4. It NEVER invokes that
+resolver, a GFx virtual slot, or a retained engine pointer. Every borrowed marker
+has already passed MarkerInputs with current IsLiveObject on its UObject owner;
+all pointer ranges are checked. Field constants are centralized in patterns.h.
+
+A guarded snapshot reads 48 native character vtable candidates for subsequent
+offline analysis. This is not proof of the size of a particular vtable or the
+Display slot: adjacent entries are candidates, never callable identities. Compare
+the renderer stack to those candidates and disassemble callers before selecting
+a hook. A native caller/update scope cannot be assumed to survive deferred drawing.
+No new engine memory writer or behavioral patch is introduced by this probe.
+
+## Scoped camera stereo-axis publication (VR-229, 2026-09-25)
+
+A draw-scoped POV rotation changes the composed eye displacement axis without
+rewriting native cached matrix rows at kCamRight. Therefore those rows cannot
+classify the scoped stereo step. Returned P67389/90 demonstrates a full6.57uu
+step rejected as5.322uu perpendicular by the cached row, but about0.001uu on
+the composed record axis. Publish the exact successful-write eyeRight separately
+from positional axes; reentry consumes a coherent bounded snapshot. No new engine
+addresses or writes. Latest-writer axis remains a temporal approximation when the
+render lane is behind; see FLICKER_REFERENCE for the measured scope and caveats.
+
+## VR-229 draw-entry progress baseline (2026-09-25)
+
+SceneDrawDecide's liveness comparison used g_frame saved at the prior viewport
+draw return. This loses any render-thread progress during that call. The candidate
+captures the counter at depth-zero draw entry and compares consecutive entries;
+no progress across entries still refuses. The existing gates and eye writers are
+unchanged. No new engine address or object field is used. progressInsideDraw in
+the existing beat counts otherwise-valid stereo ticks the old baseline rejects.
+Production helper regression covers inside-draw progress, repeated real stalls,
+resume and unsigned counter wrap. Prison sufficiency awaits headset acceptance.
+The measured identity chain and interpretation limits are in FLICKER_REFERENCE.
+
 ## Headset recovery acceptance and under-cover scope (2026-09-22)
 
 Build725-gbaecc7491 banner and installed DLL SHA-256 match. Headset report provisionally
@@ -9413,3 +9699,237 @@ owner helper is compiled with test objects in tools/fov-lever-owners-host.ps1:
 reflection and recovery. Existing cinematic FOV tests:30045 pass.
 No game/simulator launch. Actual load stability, spyglass and cinematic acceptance
 remain open. RenderWidth/RenderHeight and ProjectionFov are not changed.
+
+## VR-79: the engine's occlusion-query switch (2026-09-24)
+
+Offline, installed Steam executable, `disasm-rva.py` only. The exe carries the
+UTF-16 console word `TOGGLEOCCLUSION` and the reply `Occlusion queries are now
+%s` (with `disabled` / `enabled`). Each has one `.text` reference, in the same
+exec handler: after a flush-rendering call it computes `flag = (flag == 0)` on
+the dword at VA 0x0144DD54 and prints `disabled` when the new value is nonzero.
+That is UE3's GIgnoreAllOcclusionQueries. `xref` finds exactly two other readers,
+both in the scene renderer:
+
+- VA 0x008663E5, inside the view setup reached from InitViews: if this switch or
+  either of two neighbouring globals is set, the view's flag dword at +0xEA8 gets
+  `| 0x18`. In UE3 these are the two view bits that ignore existing occlusion
+  results and suppress new query submission, so nothing is occlusion-culled.
+- VA 0x0086C1CB, next to the four-pass loop the InitViews note above describes,
+  where the switch gates an argument to the pass call.
+
+No other code writes the switch, so one aligned write holds until something
+writes it again. patterns.h carries the switch and both readers' bytes; the mod
+verifies both before writing and refuses on a mismatch.
+
+Why it matters: `reentry` draws both eyes through one viewport and one view
+state, so occlusion results from one eye's pass cull the other eye's draw
+(an NPC's head covered by the sword in the left eye only vanishes from the right).
+Setting the switch removes occlusion culling for both passes. It does not make
+culling per eye; it trades the saved draws for correctness (PERFORMANCE.md).
+Acceptance is downstream, not the write: with `querywait on`, reads from the
+cached occlusion-result caller (RVA 0x005BF596 above) should fall to about zero
+while the switch is set, and rise again with `occlusion native`.
+
+Headset, same day: the switch fixes the symptom and reads laggier. So the shipped
+fix is per-eye view states instead, below; the switch stays as `occlusion off`.
+
+### Per-eye view states
+
+The query history lives in the view state. `ue3-natives.py class LocalPlayer`
+gives the constructor 0x006C3F00, a jump to the real one at 0x006C3640. For a
+non-template object it calls 0x008450A0 with no arguments and stores the result at
+LocalPlayer +0x88 (the call site is 0x006C36BC). The script dump declares
+`var private native const Pointer ViewState` right before
+`ActorVisibilityHistory` (the 8-byte struct the constructor builds at +0x8C, a
+state pointer and a critical section from the synchronize factory at
+0x1423494), so +0x88 is ViewState, and the mod also resolves it by name at
+runtime and refuses on disagreement. 0x008450A0 is UE3's AllocateViewState:
+appMalloc(0x310, 8), the FSceneViewState constructor at 0x00844070, return the
+pointer (cdecl, no arguments). It has four more callers, which fits scene
+captures allocating their own.
+
+`occlusion pereye` allocates one extra state with that function on the game
+thread and writes it into LocalPlayer.ViewState for pass 2's viewport draw only
+(scene_draw.cpp brackets the call), restoring the left eye's straight after, even
+after a fault. The view copies the pointer while it is built inside that call, so
+the render thread sees each eye's own state. Each eye issues and reads its own
+queries against its own depth buffer. The extra state is never freed (0x310 bytes
+for the session, like the local player's own).
+
+Open risk, not observed: if FSceneViewState keeps UObject references the GC reaches
+only through the local player, the right eye's copy is not reported to the GC. A
+crash or a missing effect on the right eye alone after a level load would point
+here.
+## VR-227: cinematic persistent FOV recovery (2026-09-24)
+
+Reported surface is sudden whole-view contraction at opening cinematic transitions,
+routed beside the FLICKER_REFERENCE whole-view FOV contraction row. Current support
+log banner and install record agree on1.0.1/v1.0.0-8-gf5176aeae,3012x3122.
+The older two archive logs are1.0.0 and must not be mixed into this run.
+At527465234 the sensor is104.96; by527468453 dialogue cache/sensor is51.60.
+The scoped draw writes108.06 and restores51.60; persistent dispatch writes51.60.
+At527489250 Walk begins with exitBridge=1. At527491875 the bounded bridge expires
+and the compositor claim becomes47.60, derived from gameplay_target(51.60,108.06,103).
+No framebuffer capture proves the reported pixel shape. This is a measured retained
+narrow source and source-confirmed feedback fixed point, not visual acceptance.
+
+VR-213 removed a multiplier below1 but leaves any lower sensor value a fixed point
+when target<natural. Its recovery test supplied an independently recovering sensor;
+it did not model base fields continually overwritten with the narrowed readback.
+The draw-only cinematic lock does not repair those persistent fields.
+
+Candidate reuses Cine.LockFov, the existing cinematic state classification and
+ExitBridge policy to drive the persistent writer to its current headset target
+through authored scenes and bounded Walk/Falling/Jump recovery. It writes only
+the already-owned kLevCtrl/kLevCam fields, skips kFovSensor as before, and keeps
+IsLiveObject plus FovLeverOwnersReady validation. UI epoch changes, owner failures
+and baseline recapture reset intent. Menus, invalid state, nonprojection or disabled
+LockFov cancel it. A plain gameplay zoom cannot prime recovery. No offsets added.
+
+Host negative control remains51.60 after3s and exposes47.60. Recovery tests cover
+natural75/110 and engine blends5/10/50/100percent per10ms, later zoom, cancel/reset,
+clock rollback, timeout and changing targets. A1percent-per10ms synthetic blend
+outlasts the existing3s bound; the bound is retained to avoid indefinitely suppressing
+zoom on an unresponsive camera. No claim is made that every native camera converges.
+Feedback1284707, ownership16 and cinematic30045 checks pass. Affected-player acceptance
+is pending; persistent and scoped claims alone cannot prove correct image geometry.
+
+## VR-228: paused cinematic FOV (2026-09-24, candidate)
+
+Verified local log v1.0.1-1-gaa3af7216,2750x2850, matching installed DLL SHA256
+2f11878281c86d5b86feaaee730c9bd54d57f3b1ee48756d52795980891217c1.
+At123838421 and123841109 pause releases the FOV scope in InDialog and claims41.2
+instead of108.1 degrees; UI subsequently confirms Pause,blocked1,rides1.
+Gameplay FOV already permits UiSurfaceHeadLook, but cinematic eligibility always
+rejects menu=true. The narrow native cache remains visible behind the menu.
+
+Candidate gives the cinematic path the same explicit head-look menu permission.
+It does not allow a flat menu, main menu, exit, invalid state or absent projection.
+The native source is still restored after both eye draws. CfValidate additionally
+requires the current UI epoch, forcing BuildLiveSet and full live identity capture
+on menu transitions before writing; unchanged pointers alone are insufficient.
+No new offsets, FOV values or persistent menu writes are introduced.
+
+30054 cinematic/handback checks pass, including old gate negative control,
+41.2-degree paused-source scope/restore and permission refusal cases. Existing
+feedback1284707 and owner16 checks pass. Headset acceptance remains open.
+Single local test: open pause during the same low-FOV dialogue; does the background
+remain full size while paused? A box disproves sufficiency; do not conflate with
+prison eye starvation. Prior full-gameplay square repair is locally reported good.
+
+## VR-229: prison cinematic left-eye starvation (2026-09-24, measured/open)
+
+Surface: reported inter-eye flicker during prison cinematic, resolving in gameplay.
+Route: section1 frozen/swapped/behind eye after load, plus startup starvation;
+not FOV contraction or a weapon-only report. Supplied current log verifies
+v1.0.1-1-gaa3af7216,3025x3135,Quest/VD,SharedWait0,LateTagRepair1,SingleTagRepair1,
+RingLedger1. Older archive logs carry different banners and were not mixed in.
+
+Post-load cinematic interval531075453..531164250 keeps FOV108.07. At531084890,
+48 of149 stereo submissions have a stale left eye in3s; right stale count is0.
+At531092890 the10s ledger has341 owes,308 repairs,32 expirations;308 relabels
+succeed,0 refuse. At531152921:441 owes,429 repairs,11 expire,429 relabels,0 refuse.
+No acquisition/wait failures accompany the sampled stale-eye events. The ring
+accounting reconciles, and pass2 writes are not refused. By531171890 and531174890,
+gameplay has zero stale-eye submits. This corroborates the reported timing.
+
+The known repair is active, not missing. Unresolved late confirmations and duplicate
+right delivery remain. Counters cannot distinguish camera-invariant disagreement,
+a tag still absent on the following present, or a contradictory front tag. Do not
+assume each duplicate is a visible swap, or disable C5Pair without image identity.
+All40 detailed ledger windows were spent by531065796 before the prison interval;
+there are no per-present ledger records there. This prevents a justified label fix.
+
+New read-only reentry/late-expire diagnostic under existing RingLedger logs at most
+once per3s throughout the run, beyond the detailed-window budget. It records which
+confirmation guard failed, owed/measured/front eyes, draw identity when inspected,
+camera availability/step, queue depth and cumulative per-reason populations.
+The original guard order, short circuit, tag consumption, relabel and eye output
+are unchanged.416 production pairing-host checks pass, including12 new failure-
+classification assertions; this is diagnostic coverage, not a flicker repair.
+
+Next remote question: does the prison cinematic reproduce the eye flicker in this
+instrumented build? Return the support ZIP either way. Compare expiry populations
+and event identities against a healthy gameplay interval. Camera failures require
+measured image/camera provenance; missing/front-tag failures require a deterministic
+late-publication/reordering regression before altering repair. If it does not
+reproduce, that does not establish a fix because pairing behavior is unchanged.
+
+## VR-229: cinematic camera/upload alternatives (2026-09-25)
+
+The supplied aa3af7216 prison interval has13 camera-side SWAPPED and3 unknown
+classifications among74 printed pairs. Several have about3.3uu separation versus
+6.57uu IPD; one shows zero c5. All74 individually match bb/slot/out hashes.
+These do not prove a true eye swap or clear unseen copy errors. The existing
+c5 observer accepts every covering register upload and remembers the last value;
+a later auxiliary/zero upload can change the classifier without a failed camera
+write. New read-only per-present c5 census names the distinct values, vote counts
+and register ranges, alongside raw written camera and upload serial. No new
+engine fields, addresses or writes. See FLICKER_REFERENCE top entry for the full
+transport/runtime hypothesis matrix and interpretation of actual layer poses.
+
+## Scene depth: the alpha of the eye-size RGBA16F target (2026-09-26, motion vectors step 1)
+
+The D3D9 renderer keeps linear scene depth in the alpha channel of its eye-size
+A16B16G16R16F render-target texture (two exist at the eye size, created early; both read the
+same at Present). Measured with `core/gfx/depth_probe` on the simulator: the ceiling, wall and
+floor structure of a room (constant along rows/columns), a sky reading around 4400, and the
+centre value falling from 1.17 to 0.81 when the head pitched 60 deg down. Scale about 100 uu per
+unit, to be calibrated. No INTZ/RAWZ path exists in the exe; the depth-stencils are plain D32.
+Details and the next steps: PLAN-motion-vectors-dlss.md.
+
+## Pose-record position convention for motion reconstruction (2026-09-26)
+
+No new engine address or writer. `HtPublishCameraRecord` fills `Cam::pos` with
+`camera::last_written_pos`, whose implementation returns `c5Sign * g_eyeWriter.last`.
+This is c5 convention (negative world position on the verified POV fields), despite the old
+headers claiming world-position form. The 2026-09-03 section "The camera field holds the
+POSITION, c5 is its negation" remains the reference for the measured sign.
+
+Clarity converts c5 to world exactly once on reading the pose record; the shared transport
+continues unchanged. Standard reprojection then uses current-minus-previous WORLD position
+in the previous rotator basis. Simulator mirror test rejects mirrored yaw (0.0082 normal vs
+0.0468 mirrored); corrected parallax has a minimum 0.0226 at 200 uu/unit vs 0.0400 rotation-only.
+Exact build identities, complete curve, failed service-gate test and limitations are recorded
+in PERFORMANCE.md, "Motion-vector calibration and TAA candidate". No headset acceptance.
+
+
+### 2026-09-26: per-eye TAA camera metadata, no new engine-memory writes
+
+The camera tracking publication precedes the second-eye offset. Its Cam::pos must not be
+reinterpreted as that right-eye draw's position. Pose records now append the same explicit
+c5 value used by the eye tag, plus CineFovScopeTarget (camera sensor fallback), camera identity,
+and level/UI generation. Clarity negates that per-eye c5 once and uses captured projection.
+Cam/Track semantics and the engine writers are unchanged. Epoch/identity values only reject
+history; they are never liveness authorization for dereferencing or writing an engine object.
+GPU geometry and simulator recovery evidence: PERFORMANCE.md, TAA audit fixes.
+
+## 2026-09-28: per-eye culling loses the live controller after reload
+
+VR-79 reopened with explicit approval. Verified run150 has Occlusion=pereye and DLAA
+active; swap heartbeat stops after save load despite continued stereo. The event
+controller changes while the scan controller remains stale. Culling used the latter.
+Branch codex/vr-79-culling-owner uses the event controller and validates controller and
+LocalPlayer live identities, object slots and reflected relationship. Load/menu edges
+rebuild the live table; allocation and restore revalidate before engine writes. No new
+addresses or changes to Game default/Off modes. Attempt/swap/restore counters expose
+silent failure. This shared path precedes DLSS/DLAA/FSR; an additional jitter-specific
+cause remains open until a matching headset test. See FLICKER_REFERENCE and ENGINE_NOTES.
+19 tests of the actual module pass, including stale but live scan owner, reload, pointer
+reuse, failed refresh, engine replacement and allocation callbacks. Headset pending.
+
+The current writer follows the ProcessEvent controller, resolving Player and validating
+LocalPlayer.ViewState against the already-derived offset. ChCapture/ChSlot validate
+IsLiveObject plus current GObjects slot and class/FName identity. Edge-triggered full
+refresh precedes new-level ownership; a changed LocalPlayer reference refreshes too.
+Unresolved owners retry at most once per second. Steady draws revalidate slots without
+copying GObjects. The allocator may invoke engine callbacks, so identity, current
+controller relationship and expected ViewState are checked again before swapping.
+Restore validates the saved LocalPlayer identity and expected right state, refreshing
+again if a load or UI epoch changed during the draw. A changed or freed object is never
+restored through readability alone. No additional engine offsets are introduced.
+
+Telemetry is cumulative: attempts count every pereye pass2; swapped counts successful
+installs; restored counts successful restores. Begin logs before the matching End, so
+restored may trail swaps by one. Refusals identify the guard. These counters establish
+scope coverage, not that downstream queries or reconstructed pixels are correct.

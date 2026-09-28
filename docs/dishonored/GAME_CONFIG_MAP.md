@@ -269,7 +269,8 @@ The mod now defaults `[GameOptions] DefaultsAtStartup=1` even when the section
 is absent (including existing packaged INIs). F10 Advanced exposes **Apply VR
 defaults at startup** and persists the selection for the next launch. Enabled:
 restore kill cam off, head bob0, camera-relative climbing off, crosshair off,
-auto aim/aim friction off, model detail high, light shafts off, MLAA, rat shadows
+auto aim/aim friction off, model detail high, light shafts off, MLAA (OFF when
+[Clarity] DLAA is on: DLSS/DLAA anti-aliases itself, decided at launch), rat shadows
 off. Deliberate options changes afterward survive for that session. Disabled:
 leave the profile preferences alone. No options-screen visit is required by
 the implementation. Fullscreen and vsync retain their existing mod paths.

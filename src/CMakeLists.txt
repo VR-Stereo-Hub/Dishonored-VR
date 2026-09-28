@@ -37,6 +37,7 @@ set(DVR_REAL_SOURCES
     core/util/mem.cpp        core/util/mem.h
     core/util/ini.cpp        core/util/ini.h
     core/util/paths.cpp      core/util/paths.h
+    core/util/etw.cpp        core/util/etw.h
     core/util/diag.h
     core/hooks/vtable.cpp    core/hooks/vtable.h
     core/hooks/iat.cpp       core/hooks/iat.h
@@ -54,12 +55,25 @@ set(DVR_REAL_SOURCES
     core/gfx/stereo.cpp        core/gfx/stereo.h
     core/gfx/capture.cpp       core/gfx/capture.h
     core/gfx/frame_id.cpp      core/gfx/frame_id.h
+    core/gfx/flicker_diagnostic.cpp core/gfx/flicker_diagnostic.h
 
     core/gfx/device_census.cpp core/gfx/device_census.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/gpu_memory.cpp    core/gfx/gpu_memory.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/depth_probe.cpp   core/gfx/depth_probe.h
+    core/gfx/motion_gpu.cpp    core/gfx/motion_gpu.h
+    core/gfx/clarity.cpp       core/gfx/clarity.h
+    core/gfx/clarity_gpu.cpp   core/gfx/clarity_gpu.h
+    core/gfx/clarity_math.h
+    core/gfx/dlss.cpp          core/gfx/dlss.h
+    core/gfx/dlss_client.cpp   core/gfx/dlss_client.h
+    core/gfx/dlss_gpu.cpp      core/gfx/dlss_gpu.h
+    core/gfx/dlss_jitter.cpp   core/gfx/dlss_jitter.h
+    core/gfx/dlss_ipc.h
+    core/gfx/sampler_force.cpp core/gfx/sampler_force.h
     core/gfx/hud_class.cpp     core/gfx/hud_class.h
+    core/gfx/markers_sharp.cpp core/gfx/markers_sharp.h
     core/gfx/hud_capture.cpp   core/gfx/hud_capture.h
     core/gfx/hud_layout.cpp    core/gfx/hud_layout.h
     core/vr/hud_anchor.h

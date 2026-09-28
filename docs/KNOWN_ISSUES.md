@@ -5,6 +5,10 @@
   on every runtime. Actual GOG Galaxy launch acceptance remains outstanding
   despite passing discovery and launch-command tests (VR-214).
 
+- Snap turn (F10 > Controls > Turning, off by default) steps the view and the body only
+  while the mod's own camera writer owns the view. In a keyhole, a lean, a cinematic, a
+  book or a menu the right stick turns smoothly as before (VR-219).
+
 - A spring razor placed very close to you can be invisible. It still triggers and can be
   picked up; ones placed farther away draw normally (VR-169). Razor placement itself now
   follows the weapon ray.

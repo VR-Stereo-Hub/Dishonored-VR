@@ -57,6 +57,14 @@ void set_once_per_pair(bool on);
 void  set_slot_scale(float s);
 float slot_scale();
 
+// [Hud] UpscaleSharp / `hud sharp on|off` / F10 Display: while DLSS or FSR renders the game below
+// the headset size, the HUD is drawn at the upscaler's OUTPUT size (a scaled viewport and the
+// sinks' own depth-stencil), so it is as sharp as at native resolution. Default off.
+void set_upscale_sharp(bool on, const char* who);
+bool upscale_sharp();
+void set_markers_sharp(bool on,const char* owner);
+bool markers_sharp();
+
 // The game side's half of the gate, published once per tick: `arm` = the
 // scene verdict (the world is drawing) and no power wheel held; `menuOverride`
 // = an in-game screen is riding the window, so the redirect must run although
@@ -89,8 +97,8 @@ void note_marker(int sink,const float* rect);
 const dvr::hudmarker::Regions* marker_regions(int sink);
 
 // For the ride predicate (game/dishonored/ue3/ui_surface.cpp): the redirect
-// is up and drawing (a sink at the backbuffer's size, the repair pass
-// compiled, a redirected draw within the last 500 ms), and whether a D3D
+// has been exercised and remains armed with a ready handoff within 500 ms,
+// even while no widget is visible, and whether a D3D
 // failure has latched this session (the ride then falls back to the mono
 // screen rather than show a window with nothing on it).
 // Successful intentional gameplay bypass, distinct from redirected draws.

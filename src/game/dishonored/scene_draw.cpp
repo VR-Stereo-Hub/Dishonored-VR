@@ -63,6 +63,7 @@
 
 #include <intrin.h>
 #include "core/framework/perf.h"
+#include "core/gfx/draw_present_progress.h"
 
 typedef void (__fastcall* DvrViewportDrawFn)(void* self, void* edx, int bShouldPresent);
 
@@ -108,7 +109,8 @@ static LARGE_INTEGER  g_sdRetPrev = {};         // the previous tick's last pass
 static uint32_t       g_sdCall1Us = 0, g_sdCall1MaxUs = 0;
 static uint64_t       g_sdSumPeriodUs = 0, g_sdSumCall1Us = 0, g_sdSumCall2Us = 0, g_sdSumOutsideUs = 0;
 static uint32_t       g_sdMinPeriodUs = UINT32_MAX, g_sdMaxPeriodUs = 0, g_sdBeatTicks = 0;
-static uint32_t       g_sdLastDrawPresent = 0;
+static dvr::stereo::DrawPresentProgress g_sdPresentProgress;
+static uint32_t g_sdProgressInside = 0, g_sdProgressGrace = 0;
 #include "core/gfx/pause_scene_freshness.h"
 static dvr::stereo::PauseSceneFreshness g_sdPauseScene;
 static dvr::stereo::MenuSceneFreshness g_sdMenuScene;
@@ -193,6 +195,7 @@ static void SceneDrawBeat()
         "silent=%lu stall=%lu session=%lu test=%lu exit=%lu drawTid=%lu presentTid=%lu%s%s"
         " | p2write refused=%lu of %lu (lifetime %lu; a refused write = pass 2 drew from pass 1's camera) cam=%p"
         " | game: period %.1f ms (min %.1f max %.1f) call1=%.1f ms (max %.1f) call2=%.2f (max %.2f) "
+        "progressInsideDraw=%u progressGrace=%u (inside-draw progress / one queued interval, this beat) | "
         "outside=%.1f (the world tick + the render-thread sync, unsplit here; the perf line's idle says whether "
         "the render thread waits for this thread)%s",
         g_sdBeatDraws / s, g_sdBeatSecond / s, (presents - g_sdBeatPresents) / s, g_sdCall2Us, g_sdCall2MaxUs,
@@ -204,7 +207,7 @@ static void SceneDrawBeat()
         (unsigned long)g_sdBeatP2Refused, (unsigned long)g_sdBeatSecond, (unsigned long)g_sdP2WriteRefused, (void*)g_camObj,
         g_sdSumPeriodUs / 1000.0 / n, g_sdMinPeriodUs == UINT32_MAX ? 0.0 : g_sdMinPeriodUs / 1000.0,
         g_sdMaxPeriodUs / 1000.0, g_sdSumCall1Us / 1000.0 / n, g_sdCall1MaxUs / 1000.0,
-        g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdSumOutsideUs / 1000.0 / n,
+        g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdProgressInside, g_sdProgressGrace, g_sdSumOutsideUs / 1000.0 / n,
         g_sdCall1MaxUs >= 5000 ? " (call1 large: the game thread blocks INSIDE its own draw - render-command "
                                  "back-pressure)" : "");
     g_sdBeatMs = now;
@@ -225,6 +228,7 @@ static void SceneDrawBeat()
     // disarms a healthy renderer whenever a session drops would have been a
     // booby trap, so it is removed rather than tuned.
     g_sdBeatDraws = g_sdBeatSecond = 0;
+    g_sdProgressInside = 0; g_sdProgressGrace = 0;
     g_sdBeatP2Refused = 0;
     g_sdBeatPresents = presents;
     g_sdCall2MaxUs = 0;
@@ -299,15 +303,20 @@ static SdDecision SceneDrawDecide(uint32_t callerRet)
             UiSurfaceEpoch(),(uint32_t)g_mkLoadEvents,UiSurfaceHeadLook(),MaimNowMs());
         const bool recent=pauseRecent || menuRecent;
         DVR_LOG_EVERY_MS(dvr::log::Cat::present,dvr::log::Level::Info,1000,
-            "pause/scene: between-draw camera silent context=%d prior-draw-upload-age=%.1f ms recent=%d; "
+            "pause/scene: between-draw camera silent context=%d sub=%d prior-draw-upload-age=%.1f ms recent=%d; "
             "menuEnabled=%d menuUploadAge=%.1f menuRecent=%d; other gates retained",
-            UiSurfaceContext(),g_sdPauseScene.uploaded<0 ? -1.0 : MaimNowMs()-g_sdPauseScene.uploaded,(int)recent,
+            UiSurfaceContext(),UiSurfaceSubscreen(),g_sdPauseScene.uploaded<0 ? -1.0 : MaimNowMs()-g_sdPauseScene.uploaded,(int)recent,
             (int)dvr::hudlayout::menu_scene_freshness(),g_sdMenuScene.uploaded<0 ? -1.0 : MaimNowMs()-g_sdMenuScene.uploaded,(int)menuRecent);
         if(!recent) {++g_sdSkipSilent;d.why="camera silent (no c5 upload since the previous draw)";return d;}
     }
-    // Present-stall guard (liveness only): at least one present since the
-    // previous tick's draw; pulses bypass it so the A/B works while paused.
-    if (g_frame == g_sdLastDrawPresent && !d.pulse) { ++g_sdSkipStall; d.why = "no present since the previous draw"; return d; }
+    // Present-stall guard (liveness only): count from draw ENTRY, tolerating
+    // one unchanged interval after observed progress. UE3 can queue a game tick
+    // before its renderer reaches Present; injecting a center-eye draw there
+    // disrupts an otherwise valid stereo stream. A second quiet interval still
+    // refuses, and the fresh-camera/state/session guards above remain required.
+    if (!g_sdPresentProgress.allowed && !d.pulse) { ++g_sdSkipStall; d.why = "no present across two draw intervals (or none observed yet)"; return d; }
+    if (!g_sdPresentProgress.advanced && !d.pulse) ++g_sdProgressGrace;
+    if (!g_sdPresentProgress.outsideAdvanced && g_sdPresentProgress.advanced && !d.pulse) ++g_sdProgressInside;
     d.doubleIt = true;
     d.why = "all gates pass";
     return d;
@@ -349,9 +358,12 @@ static void SceneDrawDecisionLog(const SdDecision& d)
 // camera was computed from, so the comparison it fed was circular and its
 // near-zero answer meant nothing. The camera write publishes the sample and the
 // camera together, under a lock, and this copies that pair.
-static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, bool secondPassReuse)
+static uint32_t SdOpenPoseRecord(int eye, uint32_t pairId, bool secondPassReuse, const float* pos = nullptr)
 {
-    return dvr::pose::open(eye, pairId, secondPassReuse);
+    const float scoped = CineFovScopeTarget();
+    const float hfov = scoped > 0 ? scoped : dvr::camera::rendered_fov_deg();
+    const uint64_t epoch = ((uint64_t)(uint32_t)g_mkLoadEvents << 32) | UiSurfaceEpoch();
+    return dvr::pose::open(eye, pairId, secondPassReuse, pos, hfov, (uintptr_t)g_camObj, epoch);
 }
 
 
@@ -397,13 +409,17 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
     if (wrote) LensFollowEye(+1);   // VR-137: the lens effects from THIS eye's camera
     const uint32_t acct2 = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);   // VR-78: this write, by id
     dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
-                                       SdOpenPoseRecord(+1, g_sdPairId, true), acct2, ++g_sdDrawAttempt);
+                                       SdOpenPoseRecord(+1, g_sdPairId, true, wrote ? wrotePos : NULL), acct2, ++g_sdDrawAttempt);
     g_sdEyeNow = +1;                       // pass 2 is the RIGHT eye
     dvr::vr::set_draw_stage("secondDraw");
     LARGE_INTEGER t0, t1;
     QueryPerformanceCounter(&t0);
     const auto cpuSecond = dvr::perf::cpu_scope_begin();
+    OcclusionPass2Begin();                 // VR-79: the right eye culls with its own view state
+    dvr::etw::begin(dvr::etw::kSceneDraw, +1);
     const bool ok = SceneDrawCallGuarded((DvrViewportDrawFn)kViewportDraw, self, b);
+    dvr::etw::end(dvr::etw::kSceneDraw, +1);
+    OcclusionPass2End();
     dvr::perf::cpu_scope_end(9, cpuSecond);
     QueryPerformanceCounter(&t1);
     dvr::vr::set_draw_stage(NULL);
@@ -438,6 +454,11 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     const LONG depth = InterlockedIncrement(&g_sdDepth) - 1;
     LARGE_INTEGER t0 = {}, t1 = {};
     if (depth == 0) {
+        // Route 2: the heavy script-lane writers run at most every PeHeavyMs during the tick, so
+        // they run HERE once more, after the tick's last script event and before pass 1 reads
+        // the camera (pe_fast.h). No-op while unthrottled.
+        if (callerRet == kViewportDrawGameplayRet) PeHeavyAtDraw();
+        g_sdPresentProgress.begin(g_frame);
         g_sdDrawTid = GetCurrentThreadId();
         if (callerRet==kViewportDrawGameplayRet) ResLiveApply(self);
         ++g_sdDraws; ++g_sdBeatDraws;
@@ -477,7 +498,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
             const uint32_t acct1 = dvr::zacct::pin_for_tag(posOk ? pos : NULL);   // VR-78: the tick's last write
             dvr::stereo::reentry_push_tag_draw(-1, posOk ? pos : NULL,
-                                               SdOpenPoseRecord(-1, g_sdPairId, false), acct1, ++g_sdDrawAttempt);
+                                               SdOpenPoseRecord(-1, g_sdPairId, false, posOk ? pos : NULL), acct1, ++g_sdDrawAttempt);
         } else if (g_sdTick.gameplay && InterlockedCompareExchange(&g_sdArmed, 0, 0) && !g_sdPoisoned) {
             dvr::desktop_eye::note_single_draw(); // VR-76: actual ticks, not rate-limited log lines
             // A single GAMEPLAY draw while the method pops: one push per draw,
@@ -490,7 +511,9 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
 
     }
     const auto cpuFirst = depth == 0 ? dvr::perf::cpu_scope_begin() : dvr::perf::CpuToken{};
+    if (depth == 0) dvr::etw::begin(dvr::etw::kSceneDraw, g_sdEyeNow);
     ((DvrViewportDrawFn)kViewportDraw)(self, NULL, bShouldPresent);
+    if (depth == 0) dvr::etw::end(dvr::etw::kSceneDraw, g_sdEyeNow);
     if (depth == 0) dvr::perf::cpu_scope_end(8, cpuFirst);
     if (depth == 0) {
         QueryPerformanceCounter(&t1);
@@ -505,7 +528,7 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         MenuHeadEnd();
         if (g_sdSecondDraws != call2Before) g_sdSumCall2Us += g_sdCall2Us;
         QueryPerformanceCounter(&g_sdRetPrev);
-        g_sdLastDrawPresent = g_frame;
+        g_sdPresentProgress.complete(g_frame);
         g_sdLastDrawC5Serial = dvr::camera::render_pos_serial();
         if(callerRet==kViewportDrawGameplayRet && g_sdTick.gameplay && UiSurfaceContext()==3)
             g_sdPauseScene.complete(g_sdDrawEntryC5,g_sdLastDrawC5Serial,MaimNowMs());

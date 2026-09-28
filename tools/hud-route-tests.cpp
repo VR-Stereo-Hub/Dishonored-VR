@@ -260,6 +260,39 @@ int main() {
         const float sqIcon[4]={.25f-20/1280.f,.5f-20/1280.f,.25f+20/1280.f,.5f+20/1280.f};
         check(sq.match(sqIcon,1001,2000,2000,pivot)==dvr::hudnative::TaskPositions::kIcon,"the fit is honoured on a square target");
     }
+    // VR-186: replay the recorded prompt/task-text ownership transition.
+    {
+        dvr::hudroute::StableRoutes cache;
+        dvr::hudnative::TaskPositions task;
+        const uint64_t key=0xc07faf8d815a2b72ull;
+        const float before[4]={.538f,.470f,.597f,.494f};
+        const float overlap[4]={.538f,.493f,.597f,.516f};
+        task.update(1,720,390,1280,720,1,1000);
+        float matchedPivot[4]{};
+        const int kind=task.match(overlap,1010,1920,1080,matchedPivot);
+        check(kind==2,"negative control: recorded prompt rectangle is claimed by broad task text window");
+        cache.resolve(key,1,Prompt,before);
+        check(!cache.prefer_interaction(key,1,kind),"a row hint alone cannot override a native text candidate");
+        cache.adopt(key,1,Prompt,true);
+        cache.resolve(key,2,Default,overlap);
+        check(cache.prefer_interaction(key,2,kind),"observed prompt stays on its panel while crossing task text window");
+        check(!cache.prefer_interaction(key,2,1) && !cache.prefer_interaction(key,2,3),"native task icons and continuity always win");
+        cache.resolve(key,4,Default,overlap);
+        check(!cache.prefer_interaction(key,4,kind),"unrefreshed observation expires after two presents");
+        cache.adopt(key,4,Prompt,true);
+        const float elsewhere[4]={.1f,.1f,.2f,.12f};
+        cache.resolve(key,4,Default,elsewhere);
+        check(!cache.prefer_interaction(key,4,kind),"same-content draws in different places refuse identity");
+        cache.resolve(key,7,Default,overlap);
+        check(!cache.prefer_interaction(key,7,kind),"clearing ambiguity does not resurrect old interaction evidence");
+        cache.adopt(key,7,Prompt,true);
+        cache.clear();cache.resolve(key,8,Prompt,overlap);
+        check(!cache.prefer_interaction(key,8,kind),"load or menu reset discards observed ownership");
+        cache.adopt(key,8,Prompt,true);
+        cache.resolve(key+2048,8,Default,elsewhere);
+        check(!cache.prefer_interaction(key,8,kind),"cache collisions discard old ownership");
+        check(!cache.prefer_interaction(0,8,kind),"missing draw key never overrides native text");
+    }
     std::printf("%u hud-route checks passed\n", checks);
     return 0;
 }
