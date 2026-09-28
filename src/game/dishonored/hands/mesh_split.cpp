@@ -2756,12 +2756,12 @@ static void MpAnimTrace(const MpDrawCtx* c,int hand,const float* palm,
     }
     const float gain=(g_skcWorldScale>1?g_skcWorldScale:100)*g_mpDriveGain;
     float raw[3]{};for(int a=0;a<3;++a)raw[a]=c->pose.ruf[hand][a]*gain;
-    Log("anim/trace: ep=%llu age=%llu frame=%llu eye=%d hand=%d route=%s source=%u pose=%u valid=%d weight=%.3f game=%d mask=%u body=%d "
+    Log("anim/trace: ep=%llu age=%llu frame=%llu eye=%d hand=%d route=%s source=%u pose=%u valid=%d weight=%.3f game=%d mask=%u body=%d locked=%d "
         "controllerRawRUF=(%.2f %.2f %.2f) nativeRUF=(%.2f %.2f %.2f) animatedRUF=(%.2f %.2f %.2f) submittedRUF=(%.2f %.2f %.2f) "
         "calibratedValid=%d calibratedRUF=(%.2f %.2f %.2f) delta=(%.2f %.2f %.2f) "
         "master=%s upper=%s history=%s historyAge=%llu (history is not current clip; RUF uu camera-relative)",
         s.originEpisode,now>=s.originAt?now-s.originAt:0,(unsigned long long)dvr::frame::count(),g_mpEyeState,hand,route,
-        g_mpSrcGen,c->pose.gen,int(c->poseOk && c->pose.ok[hand]),dvr::anim::weight_for(hand),int(s.game),unsigned(s.handMask),s.bodyMode,
+        g_mpSrcGen,c->pose.gen,int(c->poseOk && c->pose.ok[hand]),dvr::anim::weight_for(hand),int(s.game),unsigned(s.handMask),s.bodyMode,int(g_animOrigin.locked),
         raw[0],raw[1],raw[2],ruf[0][0],ruf[0][1],ruf[0][2],ruf[1][0],ruf[1][1],ruf[1][2],ruf[2][0],ruf[2][1],ruf[2][2],
         int(tracked!=nullptr),ruf[3][0],ruf[3][1],ruf[3][2],g_animOrigin.world[0],g_animOrigin.world[1],g_animOrigin.world[2],
         s.state[0],s.state[1],s.sequence,now>=s.sequenceAt?now-s.sequenceAt:0);
@@ -2770,21 +2770,27 @@ static dvr::hf::Xform MpAnimBlend(const MpDrawCtx* c,int hand,const float* palm,
 {
     const float w=dvr::anim::weight_for(hand);
     if(!MpAnimRoute())return dvr::anim::blend_transform(tracked,w);
-    if(hand==1 && !g_animOrigin.ready && g_mpEyeState!=0 && c->poseOk && c->pose.ok[1] &&
-       g_animOrigin.capture(c->R_L,tracked,palm)) {
+    const bool hadOrigin=g_animOrigin.ready;
+    if(hand==1 && c->poseOk && c->pose.ok[1] &&
+       g_animOrigin.sample(c->R_L,tracked,palm,w,g_mpEyeState,dvr::frame::count(),g_animOriginState.game) &&
+       (!hadOrigin || g_animOrigin.locked)) {
         float moved[3]; dvr::hf::apply_point(tracked,palm,moved);
-        Log("anim/origin: CAPTURE episode=%llu source=%u eye=%d pose=%u worldDelta=(%.3f %.3f %.3f) uu rightLocal native=(%.3f %.3f %.3f) tracked=(%.3f %.3f %.3f); fixed translation, authored rotation",
-            g_animOriginState.originEpisode,g_mpSrcGen,g_mpEyeState,c->pose.gen,
+        Log("anim/origin: %s episode=%llu source=%u eye=%d pose=%u worldDelta=(%.3f %.3f %.3f) uu rightLocal native=(%.3f %.3f %.3f) tracked=(%.3f %.3f %.3f); palm entry blend then fixed translation, authored rotation",
+            g_animOrigin.locked?"LOCK":"CAPTURE",g_animOriginState.originEpisode,g_mpSrcGen,g_mpEyeState,c->pose.gen,
             g_animOrigin.world[0],g_animOrigin.world[1],g_animOrigin.world[2],
             palm[0],palm[1],palm[2],moved[0],moved[1],moved[2]);
     }
-    const auto result=g_animOrigin.blend(c->R_L,tracked,w);
+    const auto result=g_animOrigin.blend(c->R_L,tracked,w,palm);
     MpAnimTrace(c,hand,palm,result,&tracked,"split-blend");
     return result;
 }
 static bool MpAnimNative(const MpDrawCtx* c,int hand,dvr::hf::Xform* out)
 {
     if(!c || !c->ok || !MpAnimReady() || dvr::anim::weight_for(hand)>0.0001f)return false;
+    if(!g_animOrigin.locked && hand==1) {
+        if(!g_animOriginState.game)g_animOrigin.locked=true;
+        else if(g_mpEyeState==g_animOrigin.entryEye)return false; // compute tracked target and lock the final entry sample
+    }
     *out=g_animOrigin.local(c->R_L);
     WaPublishCommon(hand,c,*out);
     DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
@@ -3481,7 +3487,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         }
         MpDrawCompare(&ctx);
         // A zero-duration handback still has to capture its FIRST native draw.
-        if(!MpAnimReady()) {
+        if(!MpAnimReady() || !g_animOrigin.locked) {
             float q[3];const char* why="right anchor unavailable";
             if(!MpAnchorPos(MS_CLS_HAND_B,g_mpCache,g_mpCacheN,q) ||
                !MpWorldTarget(&ctx,1,MS_CLS_HAND_B,q,&delta,&why) || !MpAnimReady()) {

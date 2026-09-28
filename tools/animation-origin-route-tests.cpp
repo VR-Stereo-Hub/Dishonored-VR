@@ -40,6 +40,8 @@ int main(){
  next();weights[0]=weights[1]=0;g_mpEyeState=1;
  check(MpAnimNative(&c,1,&out),"native path remains aligned in other eye");
  check(fabsf(out.t[0]-17)<.001f && publishes[1]==1,"weapon gets native common correction");
+ next();g_mpEyeState=-1;MpAnimBlend(&c,1,q,tracked);
+ check(g_animOrigin.locked,"authoring eye locks at native endpoint");
  tracked.t[0]=99;MpAnimBlend(&c,1,q,tracked);check(fabsf(g_animOrigin.world[0]-17)<.001f,"controller changes do not retarget animation");
  next();state.game=false;weights[0]=weights[1]=.5f;
  check(MpAnimReady(),"classifier release preserves origin through return blend");

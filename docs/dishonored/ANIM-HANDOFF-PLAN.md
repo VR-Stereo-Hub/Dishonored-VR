@@ -1,3 +1,40 @@
+## 2026-09-28: run155 exposes palm interpolation and premature entry capture
+
+Verified banner155 and installed DLL SHA2562f3571a63cb9ceac64c4e7e0bfadfc1b3191afbc82887d2f3867e022f3b7b4e2.
+Archived current DLL/full INI/log rotations to main build/playtest-candidates/
+animation-hand-origin/run155-reported, with trajectory-summary.json. There are2310
+hand trace samples,21 captures and165 right-hand samples inside a blend. Their submitted
+palm deviates from the linear path between animated and calibrated targets by median
+8.875uu, maximum98.068uu (episode14 at78ms). Cause: independently interpolating matrix
+translation and rotation swings a distant palm around the model origin. This is an
+implementation defect; the original tests checked the formula instead of the palm path.
+
+The new formula interpolates the two palm points, slerps rotation/scale as before and
+solves translation to place that palm. Regression negative control reproduces the old
+arc. Another measured problem: episode5 captures an idle native palm near up=-47.85uu
+with +47.9uu world-Z correction; the incoming action moves its palm upward, carrying
+that offset into an above-head pose. Entry is now provisional through the existing
+HandBackBlendMs: the right palm follows its tracked target as rotation transfers, then
+the first fully native sample locks the shared world translation. One eye and one draw
+per frame author the entry; other passes consume it. Controller movement after locking
+cannot drag the clip. Return blending never recaptures. No guessed per-clip height or
+new duration is introduced. This intentionally omits authored palm travel during entry;
+contact alignment and perceived timing still need headset judgment.
+
+3914 math/lifecycle checks and25 extracted production-route checks pass, with rising
+native entry, distant pivot, duplicate passes, other-eye refusal, lock and return cases.
+Optimized build and query-wait diagnostic tests pass. No game launched. Keep trace on.
+
+Culling: last heartbeat records19749 attempts/swaps,19748 restores (begin prints before
+its matching end),zero restore refusals after two loads. The owner repair stays active.
+Reported remaining surface is a black enemy silhouette in the eye still able to see it,
+not a missing head. The current log cannot distinguish a missing lighting pass from
+reconstruction. DLAA was switched off late in this run; no result for that interval was
+reported. Next single question: with DLAA on, does the black silhouette clear when F10
+Advanced Display > Object culling changes from Per eye to Off? Arm QueryWaitProfile to
+verify downstream query-read changes. If it clears, investigate query-controlled passes;
+if it persists, inspect lighting/depth/jitter/reconstruction. Culling remains unaccepted.
+
 ## 2026-09-28: animation return correction and trajectory capture
 
 The verified 150 run reports improved entry alignment but abrupt return, an elevated

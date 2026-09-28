@@ -635,3 +635,5 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [ ] Integration branch validation after independent wins are established.
 
 - [x] Animation return retains its mask/origin through the controller blend; bounded per-eye hand/weapon trajectory diagnostic built. Headset smoothness and remaining entry/pass discrepancies pending (ANIM-HANDOFF-PLAN).
+
+- [x] Run155 palm-path defect reproduced and fixed; provisional entry rebases the incoming palette before locking. Headset alignment and residual black-enemy culling check pending.

@@ -24,8 +24,9 @@ int main(){
   hf::Xform changed=tracked;changed.t[0]+=100;
   check(!o.capture(body,changed,next),"live controller cannot drag running clip");
   for(int k=0;k<=10;++k){
-   const float w=k/10.f;auto out=o.blend(body,tracked,w);auto old=anim::blend_transform(tracked,w);auto local=o.local(body);
-   for(int i=0;i<3;++i)check(near(out.t[i],old.t[i]+local.t[i]*(1-w)),"fade to entry origin and back");
+   const float w=k/10.f;auto out=o.blend(body,tracked,w,q);auto old=anim::blend_transform(tracked,w);auto local=o.local(body);
+   float position[3],native[3],target[3];point(out,q,position);point(local,q,native);point(tracked,q,target);
+   for(int i=0;i<3;++i)check(near(position[i],native[i]*(1-w)+target[i]*w),"palm follows endpoint segment, never model-origin arc");
    for(int i=0;i<9;++i)check(near(out.r.m[i],old.r.m[i]),"authored rotation policy unchanged");
   }
   // A different local frame (left arm or weapon) must see the SAME world vector.
@@ -38,6 +39,33 @@ int main(){
   o.sync(2,3,false);check(!o.ready && o.refused,"menu/lost ownership invalidates");o.sync(2,3,true);check(!o.capture(body,tracked,q),"resume cannot reuse old identity");
   o.sync(3,3,true);check(o.capture(body,tracked,q),"new episode after menu rearms");
  }
+ // Regression: a far-from-origin palm with a rotating correction used to
+ // describe an arc even when both endpoints were the same point.
+ const float farPalm[3]={-33,-150,42};
+ hf::Xform rotate={hf::euler_xyz_deg_to_mat(120,-45,90),{20,-40,10}};
+ anim::OriginTranslation pivot;pivot.sync(8,1,true);pivot.capture(hf::identity3(),rotate,farPalm);
+ auto old=anim::blend_transform(rotate,.5f);auto offset=pivot.local(hf::identity3());
+ for(int i=0;i<3;++i)old.t[i]+=.5f*offset.t[i];
+ float wrong[3],desired[3],correct[3];point(old,farPalm,wrong);point(rotate,farPalm,desired);
+ point(pivot.blend(hf::identity3(),rotate,.5f,farPalm),farPalm,correct);
+ float error=0;for(int i=0;i<3;++i){error+=(wrong[i]-desired[i])*(wrong[i]-desired[i]);check(near(correct[i],desired[i]),"rotation pivots at palm");}
+ check(error>100,"old interpolation fails far-palm negative control");
+ anim::OriginTranslation entry;entry.sync(9,1,true);
+ hf::Xform track={hf::identity3(),{0,0,0}};float idle[3]={0,-150,40},raised[3]={0,-70,40};
+ check(entry.sample(hf::identity3(),track,idle,1,-1,1,true),"initial idle sample provisional");
+ track.t[1]=-80;
+ check(entry.sample(hf::identity3(),track,raised,.5f,-1,2,true),"native rise rebased during entry");
+ point(entry.blend(hf::identity3(),track,.5f,raised),raised,correct);
+ check(near(correct[1],idle[1]),"raised authored entry remains at tracked palm");
+ auto other=track;other.t[1]=999;
+ check(!entry.sample(hf::identity3(),other,raised,.5f,1,3,true),"other eye cannot reanchor");
+ check(!entry.sample(hf::identity3(),other,raised,.5f,-1,2,true),"duplicate pass cannot reanchor");
+ check(entry.sample(hf::identity3(),track,raised,0,-1,4,true) && entry.locked,"native entry locks once");
+ check(!entry.sample(hf::identity3(),other,raised,0,-1,5,true),"running animation cannot chase controller");
+ raised[1]+=10;point(entry.local(hf::identity3()),raised,correct);
+ check(near(correct[1],idle[1]+10),"post-entry authored movement retained");
+ entry.sync(10,1,true);entry.sample(hf::identity3(),track,idle,.5f,-1,6,true);
+ check(!entry.sample(hf::identity3(),other,idle,.75f,-1,7,false) && entry.locked,"return never changes entry origin");
  anim::OriginTranslation invalid;invalid.sync(1,1,true);hf::Xform bad={hf::identity3(),{0,0,0}};bad.t[1]=std::numeric_limits<float>::quiet_NaN();check(!invalid.capture(hf::identity3(),bad,q),"non-finite source rejected");
  printf("animation origin: %d checks PASS\n",checks);return 0;
 }

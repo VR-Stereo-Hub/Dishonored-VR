@@ -1363,3 +1363,14 @@ pivot would rotate authored interactions and retain an eye origin. Do not move t
 camera or target actor to repair a presentation symptom. Menu or stale ownership
 invalidates the captured episode; resumed pointer equality supplies no authority.
 The candidate is default off and requires headset judgment of contact alignment.
+
+## 2026-09-28: preserve the palm path during animation handoff
+
+Interpolate palm endpoints, then solve the correction translation after slerping its
+rotation. Matrix-translation interpolation rotates a palm far from the component origin
+around that origin and can overshoot both endpoints. During HandOrigin entry, reference
+the incoming palette through the existing configured blend, then freeze at native
+ownership; state entry alone can still carry the preceding idle palette. A single eye
+and once-per-frame sample prevent sibling draws from repeatedly reanchoring. The origin
+remains fixed throughout authored motion and the return. The first handoff interval
+prioritizes tracked palm continuity over the clip's initial translational movement.
