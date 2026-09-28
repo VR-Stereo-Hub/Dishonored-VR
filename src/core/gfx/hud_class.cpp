@@ -6,6 +6,8 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/markers_sharp.h"
+#include "core/gfx/dlss.h"
 #include "core/gfx/hud_layout.h"
 #include "core/gfx/hud_native_icon.h"
 #include "core/hooks/vtable.h"
@@ -95,6 +97,7 @@ D3DVIEWPORT9        g_vp = {};
 bool                g_vpKnown = false;
 DWORD               g_zEnable = D3DZB_TRUE;
 DWORD               g_zWrite = TRUE;
+DWORD g_markerStencil=FALSE,g_markerScissor=FALSE,g_markerColorMask=15,g_markerSrgb=FALSE;
 DWORD               g_alphaBlend = FALSE;
 // VR-119: the blend equation as the game left it (D3D9's defaults until set),
 // so the coverage equation forced on a redirected draw can be put back exactly.
@@ -1141,6 +1144,52 @@ void owner_trace(const Probe& p, int element, int sink) {
         samples,(qpc_now()-start)*1e6/(double)freq.QuadPart);
 }
 
+// This scope owns only a semantically native marker draw. Its RGB blend is
+// unchanged; separate alpha records destination attenuation for later over.
+struct SharpMarkerScope {
+    IDirect3DDevice9* dev;IDirect3DSurface9* rt;D3DVIEWPORT9 vp;bool active=false;
+    SharpMarkerScope(IDirect3DDevice9* d,bool native,const Probe& p):dev(d),rt(g_rt0?g_rt0:g_bbPtr),vp(g_vp) {
+        if(!native || !dvr::markersharp::enabled())return;
+        uint32_t w=0,h=0;
+        if(dvr::dlss::mode()==dvr::dlss::ModeOff || !dvr::dlss::sr_output_for(vp.Width,vp.Height,&w,&h) || w<=vp.Width || h<=vp.Height)return;
+        const bool blend=g_blendOp==D3DBLENDOP_ADD && (g_srcBlend==D3DBLEND_ONE || g_srcBlend==D3DBLEND_SRCALPHA) &&
+            (g_dstBlend==D3DBLEND_ONE || g_dstBlend==D3DBLEND_INVSRCALPHA);
+        if(!p.ok || p.transformed || g_zEnable!=D3DZB_FALSE || g_markerStencil || g_markerScissor ||
+           g_markerSrgb || g_markerColorMask!=15 || g_stateBlocksCreated || !blend) {
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
+                "hud/markers-sharp: REFUSED owner=native-draw probe=%d transformed=%d z=%lu stencil=%lu scissor=%lu srgb=%lu mask=%lu blocks=%u blend=%lu/%lu/%lu; original draw retained",
+                (int)p.ok,(int)p.transformed,g_zEnable,g_markerStencil,g_markerScissor,g_markerSrgb,g_markerColorMask,g_stateBlocksCreated,g_srcBlend,g_dstBlend,g_blendOp);
+            return;
+        }
+        if(!dvr::markersharp::begin(dev,rt,vp))return;
+        D3DVIEWPORT9 big=vp;big.Width=w;big.Height=h;
+        HRESULT hr=g_origSetVp(dev,&big);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_SEPARATEALPHABLENDENABLE,TRUE);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_SRCBLENDALPHA,g_dstBlend==D3DBLEND_ONE?D3DBLEND_ZERO:D3DBLEND_ONE);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_DESTBLENDALPHA,g_dstBlend);
+        if(SUCCEEDED(hr))hr=g_origSetRs(dev,D3DRS_BLENDOPALPHA,D3DBLENDOP_ADD);
+        active=true;
+        if(FAILED(hr)) {
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,"hud/markers-sharp: REFUSED owner=native-draw state setup hr=%08lx",(unsigned long)hr);
+            restore();
+        }
+    }
+    void restore() {
+        if(!active)return;
+        bool ok=SUCCEEDED(g_origSetRs(dev,D3DRS_SEPARATEALPHABLENDENABLE,g_sepAlpha));
+        ok=SUCCEEDED(g_origSetRs(dev,D3DRS_SRCBLENDALPHA,g_srcBlendA)) && ok;
+        ok=SUCCEEDED(g_origSetRs(dev,D3DRS_DESTBLENDALPHA,g_dstBlendA)) && ok;
+        ok=SUCCEEDED(g_origSetRs(dev,D3DRS_BLENDOPALPHA,g_blendOpA)) && ok;
+        dvr::markersharp::end(dev,rt,vp);
+        ok=SUCCEEDED(g_origSetVp(dev,&vp)) && ok;active=false;
+        if(!ok) {
+            DVR_ERROR("hud/markers-sharp: REFUSED owner=native-draw restore alpha/viewport failed; disarming overlay");
+            dvr::markersharp::set_enabled(false,"state restore failure");
+        }
+    }
+    ~SharpMarkerScope(){restore();}
+};
+
 // ---- the hooks ------------------------------------------------------------
 // Every draw hook: note the thread, classify once, probe once (if asked),
 // record (the census), then route (the redirect) or forward.
@@ -1153,12 +1202,13 @@ void owner_trace(const Probe& p, int element, int sink) {
         probe_draw(ENTRY, PRIMTYPE, PRIMS, VERTS, STRIDE, FIRST, COUNT, probe);                   \
         if (probe.ok) pbb = probe.bbox;                                                           \
     }                                                                                             \
-    int sink = -1;                                                                                \
+    int sink = -1; bool nativeMarker=false;                                                                                \
     if (hudNow) note_blend_tuple();                                                               \
-    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives, probe.nativePivot); \
+    if (hudNow && dvr::hudcap::armed()) sink = dvr::hudlayout::sink_for(g_regions ? pbb : nullptr, &element, probe.drawKey, probe.vertices, probe.primitives, probe.nativePivot, &nativeMarker); \
     if (g_track && record(ENTRY, PRIMS, hudNow && g_regions ? &probe : nullptr, element)) return D3D_OK;      \
     if (hudNow) owner_trace(probe,element,sink); \
     NativeIconScope nativeIcon(self,probe,element); \
+    SharpMarkerScope sharpMarker(self,nativeMarker,probe); \
     const bool forceAlpha = sink >= 0 && alpha_force_wanted(sink);
 
 HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
@@ -1258,6 +1308,10 @@ HRESULT __stdcall hkSetViewport(IDirect3DDevice9* self, const D3DVIEWPORT9* vp) 
 HRESULT __stdcall hkSetRenderState(IDirect3DDevice9* self, D3DRENDERSTATETYPE state, DWORD value) {
     dvr::native_profile::Scope timing(dvr::native_profile::SetRenderStateInclusive);
     if (shadowing()) {
+        if(state==D3DRS_STENCILENABLE)g_markerStencil=value;
+        else if(state==D3DRS_SCISSORTESTENABLE)g_markerScissor=value;
+        else if(state==D3DRS_COLORWRITEENABLE)g_markerColorMask=value;
+        else if(state==D3DRS_SRGBWRITEENABLE)g_markerSrgb=value;
         if (state == D3DRS_ZENABLE) g_zEnable = value;
         else if (state == D3DRS_ZWRITEENABLE) g_zWrite = value;
         else if (state == D3DRS_ALPHABLENDENABLE) g_alphaBlend = value;
@@ -1532,6 +1586,7 @@ void present_tick(IDirect3DDevice9* dev) {
 }
 
 void on_reset() {
+    g_markerStencil=g_markerScissor=g_markerSrgb=FALSE;g_markerColorMask=15;
     dvr::hudlayout::forget_draw_owners();
     g_stateBlocksCreated = 0;
     g_lastDrawTid = 0;

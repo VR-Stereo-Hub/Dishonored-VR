@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstdio>
 
-struct MpDrawCtx { float projRight; };
+struct MpDrawCtx { float projRight; bool viewMatched; int viewEye; };
 static uint32_t testPresent;
 namespace dvr::frame { uint32_t count() { return testPresent; } }
 static int g_mpEyeState;
@@ -18,6 +18,7 @@ static float g_ipdM = 0.0631f, g_skcWorldScale = 100.0f, g_mpDriveGain = 1.0f;
 static volatile long g_sdDoublingNow;
 static bool g_mpEyeAlternate = false;
 static bool g_mpEyePredict = false;
+static bool g_mpPoseFromView = false; static long g_mpPvEyeFixed = 0;   // hand/weapon head-turn flicker
 static bool g_mpEyeMenuHalfStep=false;static int testMenuContext=-1;
 static int UiSurfaceContext(){return testMenuContext;}
 static int  g_mpEyePredictRun = 0;
@@ -81,6 +82,11 @@ static void reset() {
 static void draw(uint32_t present, float right, long scriptDoubling) {
     testPresent = present; g_sdDoublingNow = scriptDoubling;
     MpDrawCtx c{right}; MpEyeForPresent(&c);
+}
+// A draw whose view was matched by its c5 (PoseFromView): the eye comes with it.
+static void drawView(uint32_t present, float right, int eye) {
+    testPresent = present; g_sdDoublingNow = 1;
+    MpDrawCtx c{right, true, eye}; MpEyeForPresent(&c);
 }
 int main() {
     // Replay observed385 menu left-eye jumps below the old 0.45-IPD band.
@@ -181,6 +187,47 @@ int main() {
         check("vr95_flat_stream_stops_predicting_after_two",
               g_mpEyePredicted - before == 2 && g_mpEyeSame >= 8);
     }
+    // ---- hand/weapon head-turn flicker: the eye from the matched view ----------------
+    //
+    // The hand rides the camera, so a fast yaw sweeps its projection on the right axis by
+    // the same amount every present on top of the eye step (about 4.8 uu for a hand 50 cm
+    // ahead at a quick turn). That pushes one crossing under the band and the other over
+    // 2 IPD, so the jump classifier holds or gives up. THE OLD PATH MUST FAIL HERE.
+    auto yawStream = [](float sweep, int presents, bool matched) {
+        reset();
+        float pr = 0.0f;
+        for (int i = 0; i < presents; ++i) {
+            pr += (i % 2 == 0 ? -6.31f : +6.31f) + sweep;
+            const int eye = (i % 2 == 0) ? +1 : -1;   // the camera the view was drawn with
+            if (matched) drawView((uint32_t)(i + 1), pr, eye); else draw((uint32_t)(i + 1), pr, 1);
+            eyeRow[i] = g_mpEyeState;
+        }
+    };
+    g_mpEyePredict = false; g_mpPoseFromView = false; yawStream(-4.8f, 20, false);
+    {
+        bool wrong = false;
+        for (int i = 1; i < 20; ++i) if (eyeRow[i] != ((i % 2 == 0) ? +1 : -1)) wrong = true;
+        check("poseview_fast_yaw_breaks_the_jump_classifier", wrong && (g_mpEyeSame > 0 || g_mpEyeAmbiguous > 0));
+    }
+    g_mpPoseFromView = true; g_mpPvEyeFixed = 0; yawStream(-4.8f, 20, true);
+    {
+        bool exact = true;
+        for (int i = 0; i < 20; ++i) if (eyeRow[i] != ((i % 2 == 0) ? +1 : -1)) exact = false;
+        check("poseview_matched_views_alternate_exactly",
+              exact && g_mpEyeSame == 0 && g_mpEyeAmbiguous == 0 && g_mpPvEyeFixed > 0);
+    }
+    // Lever off: a matched view must not change the old decision.
+    g_mpPoseFromView = false; yawStream(-4.8f, 20, true);
+    {
+        int offRow[20]; for (int i = 0; i < 20; ++i) offRow[i] = eyeRow[i];
+        yawStream(-4.8f, 20, false);
+        bool same = true; for (int i = 0; i < 20; ++i) if (offRow[i] != eyeRow[i]) same = false;
+        check("poseview_off_is_the_previous_path", same);
+    }
+    // Lever on, nothing matched: the jump classifier decides, exactly as before.
+    g_mpPoseFromView = true; yawStream(0.0f, 20, false);
+    check("poseview_unmatched_falls_back", noDoublet(20) && g_mpEyeSame == 0);
+    g_mpPoseFromView = false;
     std::printf("palette-eye: %d failures\n", failed);
     return failed ? 1 : 0;
 }

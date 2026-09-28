@@ -30,6 +30,7 @@
 // would destroy its verdict); `stereo mono` restores the call site.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/stereo.h"
+#include "core/gfx/markers_sharp.h"
 #include "core/gfx/stereo_menu_hold.h"
 #include "core/gfx/hud_layout.h"
 #include "core/gfx/desktop_eye.h"
@@ -535,6 +536,7 @@ public:
             // F10 panel. The eye is the tag of the pixels JUST blitted, which
             // is NOT `eye` (the eye of the current D3D9 backbuffer) - one line
             // apart, and confusing them is the stale-eye fault in miniature.
+            if (fresh) dvr::markersharp::composite(d.ctx11,rtv_,ow,oh,dvr::capture::delivered_serial(),dvr::capture::delivered_tag());
             if (HandDrawFn hd = hand_draw())
                 hd(d.dev11, d.ctx11, rtv_, ow, oh,
                    fresh ? dvr::capture::delivered_tag() : 0);

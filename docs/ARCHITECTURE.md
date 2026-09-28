@@ -1345,3 +1345,21 @@ path. The runtime layer stays physical (the recenter / panel chord is resolved t
 pointer and the thumbrest D-pad modifier stay physical on purpose. The game's own
 `DishonoredInput.ini` is not the route: the game rewrites it at exit and the mod's systems would
 not know the mapping. Details: `docs/dishonored/CONTROLLER_BINDS.md`.
+## 2026-09-27: native markers bypass temporal reconstruction
+
+Decision: compose classified native markers after DLSS/FSR, at output resolution,
+using their own original per-eye clip coordinates and colour blend. hud_class
+admits only ZENABLE=false HUD draws, and native marker routing happens inside
+that classification. Scene-depth occlusion is therefore not sampled by these
+intercepted draws; visibility already decided by the engine is preserved. Do not
+fabricate scene depth at output resolution. Masking and unsupported render states
+refuse to the original path. See HUD_ANCHORS for exact guards and open coverage.
+
+Use the colour capture serial as image identity. Seal at its actual allocation;
+compose by delivered_serial after reconstruction in reentry. A current-present
+eye or the shared HUD sink's once-per-pair output would give the wrong screen
+position to a delayed eye. Fenced shared resources retain several capture images;
+unknown readiness omits the overlay with a diagnostic, never reuses stale pixels.
+Pure D3D9 device state is restored from original setters and shadows; no engine
+D3D object is retained with AddRef in a draw detour. No engine-memory writer.
+The new lever defaults off, and without reduced upscaling draws remain native.

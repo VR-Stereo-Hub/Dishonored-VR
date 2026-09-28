@@ -57,6 +57,14 @@ void set_once_per_pair(bool on);
 void  set_slot_scale(float s);
 float slot_scale();
 
+// [Hud] UpscaleSharp / `hud sharp on|off` / F10 Display: while DLSS or FSR renders the game below
+// the headset size, the HUD is drawn at the upscaler's OUTPUT size (a scaled viewport and the
+// sinks' own depth-stencil), so it is as sharp as at native resolution. Default off.
+void set_upscale_sharp(bool on, const char* who);
+bool upscale_sharp();
+void set_markers_sharp(bool on,const char* owner);
+bool markers_sharp();
+
 // The game side's half of the gate, published once per tick: `arm` = the
 // scene verdict (the world is drawing) and no power wheel held; `menuOverride`
 // = an in-game screen is riding the window, so the redirect must run although

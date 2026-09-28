@@ -43,7 +43,7 @@ static bool WriteDefaultIni(const char* ini)
         "; history and an object hidden from one eye can vanish from both; pereye = the right\n"
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
         "; occlusion culling (correct, but pays for every hidden draw). Live: `occlusion <mode>`.\n"
-        "Occlusion=native\n"
+        "Occlusion=pereye\n"
         "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
@@ -897,6 +897,11 @@ static bool WriteDefaultIni(const char* ini)
         "PaletteDepthRange=1\n"
         "PaletteEyeOffset=1\n"
         "PaletteEyePredictToggle=0\n"
+        "; PoseFromView: each hand draw uses the head sample and eye of the view it belongs to\n"
+        "; (found by its camera position) instead of a sample two presents back and an eye\n"
+        "; guessed from a jump. Aimed at the slight hand/weapon flicker on fast head turns.\n"
+        "; 0 = the previous path. F10 Advanced > Hands > Head-turn smoothing.\n"
+        "PoseFromView=0\n"
         "PaletteEyeAlternate=0\n"
         "PaletteEyeFromMeasured=0\n"
         "PaletteEyeHunt=0\n"
@@ -1423,6 +1428,9 @@ static bool WriteDefaultIni(const char* ini)
         "; main menu, cutscenes on the mono screen and the power wheel leave it in the frame.\n"
         "; `hud on|off|status` live, and the F10 HUD tab.\n"
         "Panel=1\n"
+        "; Render HUD and native markers at output resolution while upscaling. Advanced Display.\n"
+        "UpscaleSharp=1\n"
+        "MarkersSharp=1\n"
         "; SlotScale: each sink's texture is the render's size times this. The window subtends\n"
         "; about 50 degrees, so half is already more than the headset resolves.\n"
         "SlotScale=0.50\n"
@@ -2716,6 +2724,10 @@ static void LoadConfig()
     g_mpEyeMenuHalfStep = IniFloat(ini,"Hands","PaletteEyeMenuHalfStep",0)!=0;
     Log("config: [Hands] PaletteEyeMenuHalfStep=%d - menu signed half-IPD jump candidate; no toggle prediction",(int)g_mpEyeMenuHalfStep);
     g_mpEyePredict    = IniFloat(ini, "Hands", "PaletteEyePredictToggle", 0) != 0.0f;
+    g_mpPoseFromView  = IniFloat(ini, "Hands", "PoseFromView", 0) != 0.0f;
+    Log("config: [Hands] PoseFromView=%d - %s", (int)g_mpPoseFromView,
+        g_mpPoseFromView ? "hand draws use their own view's head sample and eye (found by c5 in the pose records)"
+                         : "hand draws use the head two presents back and the jump-classified eye (the previous path)");
     Log("config: [Hands] PaletteEyePredictToggle=%d - an unreadable eye jump %s. "
         "Holding was measured robbing the LEFT eye's hands of their own half-IPD "
         "during a head roll (VR-95); the prediction is capped at two in a row so a "
@@ -2823,7 +2835,9 @@ static void LoadConfig()
         dvr::hudlayout::configure(ini);
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
         dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
-        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);   // VR-160: ON since the headset verdict (no HUD flicker reported); 0 restores every present
+        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);
+        dvr::hudcap::set_markers_sharp(IniFloat(ini,"Hud","MarkersSharp",1)!=0,"ini");
+        dvr::hudcap::set_upscale_sharp(IniFloat(ini, "Hud", "UpscaleSharp", 1) != 0.0f, "the ini");
         dvr::hudclass::set_regions_enabled(IniFloat(ini, "Hud", "Regions", 0) != 0.0f);
         dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }
@@ -3933,6 +3947,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Hands", "PaletteEyeOffset", g_mpEyeOffset ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands","PaletteEyeMenuHalfStep",g_mpEyeMenuHalfStep ? "1" : "0",ini);
     WritePrivateProfileStringA("Hands", "PaletteEyePredictToggle", g_mpEyePredict ? "1" : "0", ini);
+    WritePrivateProfileStringA("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "PaletteEyeHunt", g_mpEyeHunt ? "1" : "0", ini);
 #if DVR_WITH_LEGACY
     WritePrivateProfileStringA("Hands", "PaletteCapture", g_pcOn ? "1" : "0", ini);

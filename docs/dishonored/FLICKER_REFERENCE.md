@@ -1,3 +1,64 @@
+## 2026-09-28: run158 A/B isolates the silhouette to occlusion; pereye becomes the default
+
+Verified build158 (v1.0.1-158-g8b7eb9480, SHA256 107b3ddf...f709) with DLAA on. The black
+enemy silhouette in the eye that can still see the enemy, while the sword covers it in the
+other eye, cleared when F10 Advanced Display > Object culling moved from Per eye to Off
+(headset report). The log shows the switch 0 -> 1 at 41501109 and the only occlusion-query
+reader (callerRVA 005c131f, type 9, about 39k calls per 3 s per eye label) dropping to zero,
+with event queries (005bf54a) unchanged. So the silhouette depends on occlusion results, and
+the owner repair is not the cause: swaps continued with zero restore refusals.
+
+Not yet explained: why a separate right-eye view state still leaves a black (drawn but
+unlit or depth-only) enemy instead of a correct one. Open hypotheses, none measured: state
+the swap does not cover (LocalPlayer.ActorVisibilityHistory at +0x8C stays shared), a
+depth pass that is not occlusion-gated while the base pass is, or temporal history under
+DLAA. FSR is untested.
+
+Release decision for 1.0.2 (maintainer's call): the default becomes pereye, with a one-time
+migration of inis still on native ([Stereo] OcclusionMigrated=1 marks it done so a later
+deliberate native stays). Game default and Off stay in F10. The silhouette remains a known
+issue under pereye; Off is the confirmed-clean workaround at a draw cost. VR-79 stays open.
+## 2026-09-28: run155 owner repair holds; residual black enemy silhouette
+
+Verified build155 and matching DLL; run archived under main build/playtest-candidates/
+animation-hand-origin/run155-reported. Final logged pereye counters:19749 attempts and
+swaps,19748 restores (Begin logs before the matching End),zero restore refusals after
+two loads. Owner repair remains active. Headset report improves disappearance but some
+enemies become black silhouettes in the eye that can still see them when the sword
+covers the other eye. Do not mark VR-79 accepted. The existing log has no pixel/pass
+capture proving lighting loss, and does not isolate DLAA as the cause.
+
+No additional culling code change in this follow-up. Prepare DLAA on and retain pereye;
+arm existing [Perf] QueryWaitProfile=1. At the same location, reproduce the silhouette,
+then F10 Advanced Display > Object culling > Off. One question: does shading recover?
+Query counters must confirm the culling-path reads fall. Recovery implicates query-
+controlled rendering; persistence points toward lighting/depth/jitter/reconstruction.
+DLAA was disabled late in run155, without a reported result for that interval. The
+animation palm/entry correction proceeds independently in PR151. No game launched.
+
+## 2026-09-28: VR-79 culling regression during DLAA after save load (candidate)
+
+Surface: movable heads/gates disappear when a sword occludes one eye. This routes to
+the section 1 VR-79 query-history row, not the texture-speckle jitter row. Verified
+build150 SHA25653f1b33cf91bc522cff4c8ee373cf19b36c1a05c334a0e0d5e2c2e5edf0fd7ca
+was using pereye and DLAA. Its swap heartbeat ends at38188343; a save load replaces the
+event controller by38197984, which reports disagreement with the scan controller.
+Stereo continues afterward. The old resolver reads g_pcObj, the stale scan controller.
+
+Candidate resolves through g_peCtrl, validates live GObjects identities and the current
+Player relationship, refreshes on load/UI epoch/owner changes and validates restoration.
+A heartbeat counts every attempted pass2, including refusal, alongside swaps/restores.
+Prediction: after reload, attempts continue with corresponding swaps/restores on the
+new owner. An object visible past the sword to either eye should remain in that eye.
+If disappearance persists with swaps/restores healthy, this owner failure is insufficient
+and query/depth behavior under jitter needs separate measurement. No DLSS/DLAA/FSR
+jitter behavior is changed, and FSR has not been reproduced. Current F10 Per eye already
+selects the engine scope used by all three. No additional upscaler toggle is required.
+
+19 production-module host checks pass; optimized build and headset validation recorded
+in STATUS. Prior per-eye fixes are preserved, not retracted. Archive: main-repo
+build/playtest-candidates/animation-hand-origin/run150-reported. No headset acceptance.
+
 ## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
 
 1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures
@@ -158,6 +219,69 @@ normal-path test failed because of a diagnostic-only caller gate; corrected and 
 Full measurements/failed test/cost limits: PERFORMANCE.md "Motion-vector calibration and TAA
 candidate"; continuation: PLAN-motion-vectors-dlss.md. Next headset question: does enabling
 vectors under TAA reduce walking trails while keeping edges stable? No claim of headset fix.
+## 2026-09-26: slight hand/weapon flicker on fast head yaw, world smooth (candidate `PoseFromView`)
+
+Branch `claude/hand-headturn-flicker` off staging `56eb1070c`. No Linear ticket: the workspace
+is at its free-plan issue limit. Built, NOT installed (by request), not headset-run.
+
+1. **Symptom identity.** Turning the head quickly left and right, the world stays smooth while
+   the hands and held weapons show a slight flicker. Long-standing. Both hands and weapons,
+   not one eye named. Distinct from VR-95 (a head ROLL, left eye only, a full IPD jump) and
+   from the Wheel entries (VR-126): this is ordinary gameplay, yaw.
+2. **Reproduction identity.** Reported against the current staging line; the measurements
+   below are from the dev rig's latest session log, build `v1.0.1-50-g6bc58a449` (VDXR,
+   Quest 3, 2750x2850, `stereo reentry`, `PoseLag=2`, `PaletteEyeOffset=1`,
+   `PaletteEyePredictToggle=0`).
+3. **Hypotheses and counterpredictions.** Two inputs place the hands per view, and both are
+   stand-ins for what the view was actually drawn from:
+   * **(a) the head sample.** The hand's camera-relative position is the controller in the HEAD's
+     frame, taken from the head history a fixed `PoseLag` (2) PRESENTS back. Under re-entry a
+     tick is two presents and the render thread trails the game thread by up to a frame, so
+     "two presents back" is the view's own sample most of the time and not always. Measured:
+     the `hv:` line reports frames whose hand normalisation used another head generation than
+     the camera write - 17 of 204 at 954 deg/s (worst 1.72 deg), 29 of 210 at 327 deg/s (1.09),
+     18 of 165 at 310 deg/s (1.68), 0 with the head still. 1.7 deg is about 1.5 cm at arm's
+     length, on some views only: a flicker on the hands and weapons, never the world (one
+     camera per tick). Counterprediction: with the view's own head sample the snapshot-offset
+     readout (below) is about 0 at rest and grows with turn speed, and the flicker goes.
+   * **(b) the eye.** `MpEyeForPresent` guesses the eye from the jump in the HAND's world
+     translation along the camera right axis. The viewmodel rides the camera, so a fast yaw
+     sweeps that projection by (hand distance x turn per present) on top of the eye step,
+     pushing one crossing under the 0.45 IPD band (held, possibly wrong) and the other over
+     2 IPD (unknown, no eye offset). Measured on the same log: 62931 toggled presents agree
+     with the stereo method, 2 disagree, 58 unknown; SAME 54 agree / 4 disagree / 192 unknown;
+     5 ambiguous. Rare (about 11 bad presents in the session), so (a) is the stronger suspect
+     for a continuous flicker and (b) for an occasional flick.
+   * **Eliminated as evidence:** `bv/lag` now reads `BEST -1` (lags 0/2/4 about 0.78-0.85 deg,
+     1/3 about 0.99): under re-entry the camera turns once per tick while it compares per
+     present, so it can no longer choose a lag. Its old lag-2 verdict predates re-entry and
+     does not carry over.
+4. **Change identity.** `[Hands] PoseFromView` (default 0; F10 Advanced > Hands > Head-turn
+   smoothing). Each pose record now also carries the camera position written for ITS view
+   (`eyePos`, the field staging's ledger work added for the same write; pass 2 records the right eye's own write, not the reused pass-1 camera). A hand
+   draw looks its view up by the c5 the constant hook captured (`find_view`, 0.05 uu, 400 ms,
+   refused when a record with another head sample sits within 0.10 uu) and, when found:
+   re-derives both hands against that record's head sample (`MpHandInHead`, the identical maths
+   MpDriveTick uses, with the same controller sample) and takes the view's eye. No match (a
+   mono tick, walking travel after a write, a record aged out, an identity head) leaves the
+   snapshot and the jump classifier exactly as before. Weapons follow for free: they take the
+   hand's per-present, per-eye correction (`WaCommonFor`). Evidence that the join is exact:
+   the ring ledger's `w2c self` (a present's c5 against its own tag's written position) read
+   under 0.001 uu for 1178 of 1181 pops and under 0.05 for 1181.
+5. **Results.** Host: `palette-eye-host.ps1` gains four cases. The old path FAILS the fast-yaw
+   stream (negative control, `poseview_fast_yaw_breaks_the_jump_classifier`); matched views
+   alternate exactly; lever off is byte-for-byte the previous decision; unmatched falls back.
+   `frame_test.exe`, `rounded-wrist-host` (912), `trim-range-host` (37), lint and the
+   default-profile host pass. NOT run: the game, the simulator, the headset.
+   The log line to read: `hands/poseview: ON | draws re-anchored ... left L single S right R |
+   unmatched U ... | the snapshot's head was off by X deg on average, Y at most | eyes the jump
+   classifier would have got wrong or left unknown: E`. X must be about 0 at rest and grow with
+   turn speed; if it stays near 0 during fast turns, hypothesis (a) is dead and the flicker is
+   elsewhere. U climbing while walking is expected.
+6. **Status and remaining scope.** CANDIDATE, headset-untested. Question for the run: with the
+   checkbox on, are the hands and weapons as smooth as the world on fast left/right turns, and
+   does unticking it bring the flicker back? Not covered: walking with a turn (no exact join
+   after travel falls back), mono ticks, menus.
 
 ## 2026-09-26: local walking catch-up accepted; remote cinematic scope separate
 
@@ -1878,6 +2002,7 @@ pose metadata without reopening the disproved historical theories.
 | Object occluded in one eye vanishes from both (a head behind the sword in the left eye gone from the right; doors, mechanisms) | Both reentry passes share one view state, so one eye's occlusion-query results cull the other eye | VR-79 2026-09-24: `occlusion off` (the engine's TOGGLEOCCLUSION switch) HEADSET-CONFIRMED to fix it but reads laggier. CANDIDATE `[Stereo] Occlusion=pereye`: the right eye gets its own engine view state, so each eye culls only what it cannot see (ENGINE_NOTES "VR-79"). Not yet headset-checked |
 | Grass (and some other objects) invisible for one or two frames while walking in a straight line | OPEN. NOT the VR-79 per-eye view state: it also blinks with the engine's own culling (native), in BOTH eyes (headset 2026-09-24). Remaining suspect: older than VR-79, likely the early report of grass and objects vanishing up close | VR-226. Eliminated: pereye (reproduces under native). Next: whether `occlusion off` stops it (occlusion) or not (distance/near culling, streaming) |
 | Trails/smear while walking with experimental Temporal AA | Camera parallax in history reprojection; c5/world sign at the consumer | 2026-09-26: depth-vector candidate measured on simulator, normal yaw confirmed; default OFF, headset OPEN. See PERFORMANCE and PLAN-motion-vectors-dlss |
+| Slight hand/weapon flicker on FAST head yaw while the world stays smooth (gameplay) | Hands normalised against a head sample a fixed two presents back (measured 8-15% of fast-turn frames on another generation, up to 1.7 deg); rarer: the eye guessed from a hand jump the yaw sweep pushes out of band | CANDIDATE 2026-09-26 `[Hands] PoseFromView` (view found by c5; its own head sample and eye); host-tested, headset open. Top entry |
 | Doubled edges only on head turns | Cadence or pose-generation mismatch | Historical 90 Hz cadence result and later lag-2 fixes; diagnose separately |
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |

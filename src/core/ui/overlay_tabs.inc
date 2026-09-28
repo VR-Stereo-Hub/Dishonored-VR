@@ -236,6 +236,15 @@ static void OvlTabHands()
             ImGui::TreePop();
         }
     }
+    if (OvlSec("Head-turn smoothing", kOvlA, "Keeps the hands and weapons steady when you turn your head quickly.")) {
+        if (dvr::ovl::checkbox("Hands follow each eye's own view", &g_mpPoseFromView)) {
+            ConfigWriteKey("Hands", "PoseFromView", g_mpPoseFromView ? "1" : "0", "F10 Hands");
+            Log("hands: PoseFromView -> %d (live)", (int)g_mpPoseFromView);
+        }
+        OvlTip("Places the hands and weapons from exactly the head position each eye's picture was drawn from. "
+               "Aimed at the slight flicker on fast head turns. Off is the previous behaviour.");
+        ImGui::TextDisabled("%ld left / %ld right views matched, %ld unmatched", g_mpPvMatch[0], g_mpPvMatch[2], g_mpPvNone);
+    }
     if (OvlSec("Hand fixes (debug)", kOvlD, "Fixes for hand and weapon placement. Leave them on.")) {
         dvr::ovl::checkbox("Correct weapon-specific lens", &g_waViewLens);
         OvlTip("Places weapons drawn with their own field of view correctly. Leave on.");
@@ -976,6 +985,23 @@ static void OvlTabDisplay()
     }
     if (OvlSec("Clarity and anti-aliasing", kOvlA,
                "Texture filtering and DLSS tuning. Each option switches live, so you can compare.")) {
+        {   // [Hud] UpscaleSharp (hud_capture.h)
+            bool sharp = dvr::hudcap::upscale_sharp();
+            if (dvr::ovl::checkbox("Sharp HUD while upscaling", &sharp)) {
+                dvr::hudcap::set_upscale_sharp(sharp, "F10 Display");
+                ConfigWriteKey("Hud", "UpscaleSharp", sharp ? "1" : "0", "F10 Display");
+            }
+            OvlTip("Draws the redirected HUD and menus at the headset resolution instead of the smaller render size, "
+                   "so they stay as sharp as without upscaling. Only matters in a mode below DLAA. Live.");
+        }
+        {
+            bool sharp=dvr::hudcap::markers_sharp();
+            if(dvr::ovl::checkbox("Sharp native markers while upscaling",&sharp)) {
+                dvr::hudcap::set_markers_sharp(sharp,"F10 Display");
+                ConfigWriteKey("Hud","MarkersSharp",sharp?"1":"0","F10 Display");
+            }
+            OvlTip("Draws native objective, rune and awareness markers at output resolution after reconstruction. On by default. Live.");
+        }
         int aniso = dvr::samplers::anisotropy();
         int anisoIdx = aniso >= 16 ? 3 : aniso >= 8 ? 2 : aniso >= 4 ? 1 : 0;
         const char* anisoNames[] = {"Game (4x)", "4x", "8x", "16x"};

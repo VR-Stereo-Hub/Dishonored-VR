@@ -29,6 +29,7 @@
 // leaves the previous mode running - fail soft, like the stereo methods.
 #define DVR_CAT ::dvr::log::Cat::capture
 #include "core/gfx/capture.h"
+#include "core/gfx/markers_sharp.h"
 #include "core/gfx/shared_capture_texture.h"
 
 #include "core/framework/perf.h"
@@ -638,6 +639,7 @@ bool grab(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext* ctx) 
     ++g_serial;
     const uint32_t thisSerial = g_serial;
     const int thisTag = g_pendingTag;
+    dvr::markersharp::seal(thisSerial,thisTag);
     g_pendingTag = 0;
     const uint32_t thisRec = g_pendingRec;
     g_pendingRec = 0;
