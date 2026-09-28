@@ -1,3 +1,22 @@
+## 2026-09-28: AFW run 4 - hands still ghost on turns, uneven motion - rebuilt from both eyes (host-verified)
+
+Surface: the held eye under `stereo afw`, the hands and weapon (a trailing copy on stick turns) and the
+whole image (an uneven feel at a high frame rate). Build `v1.0.1-162-g71e98fcae`, run 4, 144 Hz.
+Measured: long stretches with 60-70% of warps falling back to the rotation-only held eye (`afw/warp: beat
+... no depth for its grab 240-287`), the shared depth ring's `unavailable/busy` climbing with it. Cause 1:
+the held image's depth was looked up one present late in a 3-deep ring, and a slot still being read made
+the ring overwrite the next one needed. Cause 2 (the ghost even when the warp ran): a held-eye-only rebuild
+cannot see behind the old hand - where a turn uncovers the world the hand hid, the world search lands on
+the hand again. RETRACTED: the run-3 entry's 7/7 host test as evidence for the ghost; its flat synthetic
+scene had no occlusion, so it could not fail on this (an instrument that could not fail its hypothesis).
+Fix: per-eye depth copied at capture; the held eye rebuilt from both images (hands from the fresh eye at
+this instant, world from the held eye by the game's matrices, uncovered world from the fresh eye, nearest
+surface wins). Ray-traced host test 16/16 with negative controls that reproduce both faults.
+Prediction: `afw/warp: beat` shows `full` rebuilds with 0 NOT rebuilt and `world by the GAME matrices` for
+almost all; no hand ghost on turns; `afw stereo off` brings the trail back; `afw debug on` tints the hands
+green in the held eye. Not carried: an NPC that moved between the images keeps a tick of lag in the held
+eye's world; translucent effects over the hands take the hand's depth.
+
 ## 2026-09-28: AFW hands/weapon ghost on stick turns and drift on head turns - depth warp (host-verified)
 
 Surface: the hands and weapon only, under `stereo afw`: a trailing ghost while stick turning (after the

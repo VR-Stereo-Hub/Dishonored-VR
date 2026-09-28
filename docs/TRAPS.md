@@ -1,3 +1,11 @@
+## A shared ring is a transport, not storage (VR-39 AFW, 2026-09-28)
+
+The AFW warp looked up its held image's depth in the 3-deep shared depth ring one present after the
+capture. Under GPU load a slot still being read by D3D11 is skipped, the ring overwrites the next one, and
+the lookup misses: 60-70% of warps fell back in long stretches of a headset run and nothing looked wrong
+on the depth-share line itself. Anything that needs a ring entry LATER copies it out while it is current
+(the warp now copies each eye's depth at its own capture).
+
 ## 2026-09-25: test activation, not only an already enabled reader
 
 36a8d7f95's correct sprite+BC field still did not capture the potion. Its new

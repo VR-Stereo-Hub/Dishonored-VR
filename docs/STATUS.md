@@ -1,3 +1,32 @@
+## 2026-09-28 (AFW run 4): the held eye rebuilt from both eyes - host-verified, headset pending
+
+Run 4 on `v1.0.1-162-g71e98fcae` (reported): the hands still ghosted while stick turning, and the
+picture felt uneven although the frame rate stayed high. Measured in its log: for long stretches 60-70%
+of held-eye warps fell back to the rotation-only image (`not warped: no depth for its grab 240-287` of
+~400 per 3 s): the held image's depth was looked up in the 3-deep shared ring one present after its
+capture, and a slot still being read by D3D11 made the ring overwrite the one the next warp needed. Each
+fallback swaps to a differently posed image for one frame. Also measured: 113-126 presents/s on the
+144 Hz headset (`UNDER-SUBMITTING 0.78-0.87x`) and 155 frame gaps, some in xrEndFrame (30-90 ms).
+
+Research (PERFORMANCE.md, same date): PureDark's AFW (UEVR, RE Engine) rebuilds the held eye from the
+OTHER eye's current frame plus the eye's previous frame; Oculus Stereo Shading Reprojection reprojects one
+eye into the other with depth and fills the holes. A new ray-traced host test showed why run 4 still
+ghosted even when every warp ran: the held-eye-only rebuild cannot see behind the old hand, so a turn
+leaves a trailing copy (26% of the hand at 5 deg) - the first test's flat scene could not show it.
+
+Built (`core/gfx/afw_warp`): each eye's depth is copied at its own capture (R16F, per eye), so the warp
+never depends on the ring again; the held eye is rebuilt per pixel from BOTH images - the hands/weapon
+from the fresh eye (this instant; searched from two near seeds), the world from the held eye's own image,
+the uncovered world from the fresh eye, nearest consistent surface winning (z-buffer rule). The held eye's
+world moves by the game's own camera-relative view-projection matrices (the DLSS vector route), so walking
+is carried; two per-present checks against the XR pose model (far directions, and the eye offset at 0.5 m)
+refuse the matrices and fall back to the XR pose + body yaw model. GPU timestamp of the pass on the beat.
+Seam words: `afw stereo|matrices|debug on|off` (debug tints the held eye by source).
+Host test `tools/afw-warp-host.ps1`: 16/16 on the production shader - no hand ghost or loss in any motion
+case (turn 5 and 15 deg, hand moved 6 cm, head turn and shift, weapon at 0.2 m, walking), walking parallax
+p95 0.01 px against 6.2 px without matrices, a mirrored matrix refused; the controls reproduce the old
+faults (40% ghost with a moving hand, 26% trail on a turn).
+
 ## 2026-09-28 (AFW run 3): the held-eye depth warp - host-verified, headset pending
 
 Run 3 on `v1.0.1-161-gca40321fc` (reported): stick turning corrected the world, but the hands and

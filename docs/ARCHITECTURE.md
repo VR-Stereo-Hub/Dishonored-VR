@@ -1397,3 +1397,13 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   nearer than a body threshold follow head change only. It reuses the depth ring and the depth-scale
   calibration built for TAA; the runtime only acquires the held image, calls the warp, and falls back
   to the rotation-only path when there is nothing to warp.
+
+- **2026-09-28 - AFW rebuilds the held eye from BOTH images, nearest surface wins (VR-39).** A held-eye-only
+  depth warp cannot see behind content that moved (the hands, and anything a turn uncovers behind them),
+  so it leaves a trail; the other eye's current image has that content at this instant. The hands come
+  from the fresh eye, the world from the held eye's own image (its own viewpoint and shading), the
+  uncovered world from the fresh eye, each found by a fixed-point search from more than one seed depth
+  with the nearest consistent answer kept. The world moves by the game's own view-projection matrices
+  (walking included), gated each present by two checks against the XR pose model. Prior art: PureDark's
+  AFW (alternate eye plus previous frame), Oculus Stereo Shading Reprojection. Each eye's depth is copied
+  at its own capture: the shared ring is a transport, not storage.

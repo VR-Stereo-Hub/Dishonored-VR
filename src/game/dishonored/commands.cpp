@@ -98,8 +98,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (!strcmp(sub, "yaw") && DvrOnOff(v, &b)) { dvr::vr::set_held_body_yaw(b); return true; }
         if (!strcmp(sub, "warp") && DvrOnOff(v, &b)) { dvr::afw::set_enabled(b, "the seam"); return true; }
         if (!strcmp(sub, "body") && v[0]) { dvr::afw::set_body_depth((float)atof(v), "the seam"); return true; }
-        Log("afw: warp on|off (now %s) | body <depth units> (now %.2f) | yaw on|off (now %s, the rotation-only fallback) - "
-            "the method is `stereo afw`, active '%s'", dvr::afw::enabled() ? "on" : "off", dvr::afw::body_depth(),
+        if (!strcmp(sub, "stereo") && DvrOnOff(v, &b)) { dvr::afw::set_stereo(b, "the seam"); return true; }
+        if (!strcmp(sub, "debug") && DvrOnOff(v, &b)) { dvr::afw::set_debug(b, "the seam"); return true; }
+        if (!strcmp(sub, "matrices") && DvrOnOff(v, &b)) { dvr::afw::set_matrices(b, "the seam"); return true; }
+        Log("afw: warp on|off (now %s) | stereo on|off (now %s, the hands from the fresh eye) | matrices on|off (now "
+            "%s, walking in the held eye's world) | debug on|off (now %s, tint the held eye by source) | body <depth "
+            "units> (now %.2f) | yaw on|off (now %s, the rotation-only fallback) - the method is `stereo afw`, active "
+            "'%s'", dvr::afw::enabled() ? "on" : "off", dvr::afw::stereo() ? "on" : "off",
+            dvr::afw::matrices() ? "on" : "off", dvr::afw::debug() ? "on" : "off", dvr::afw::body_depth(),
             dvr::vr::held_body_yaw() ? "on" : "off", dvr::stereo::active_name());
         return true;
     }

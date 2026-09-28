@@ -4611,9 +4611,12 @@ void on_present_end(ID3D11Texture2D* frame) {
                                             tg[e] = {{vp.orientation.x, vp.orientation.y, vp.orientation.z, vp.orientation.w},
                                                      {vp.position.x, vp.position.y, vp.position.z}};
                                         }
+                                        const bool vpOk = rec.renderVpOk && rec.renderPosOk;
                                         dvr::afw::note_capture(g_device, g_context, srEye, backbuffer,
                                                                dvr::capture::delivered_serial(), pose,
-                                                               rec.cam.bodyOk, rec.cam.bodyYawDeg, tg);
+                                                               rec.cam.bodyOk, rec.cam.bodyYawDeg, tg,
+                                                               vpOk ? rec.renderVp : nullptr,
+                                                               vpOk ? rec.renderPos : nullptr);
                                     }
                                     g_eyePoseGen[srEye] = rec.track.gen;
                                     g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag
