@@ -219,13 +219,22 @@ What each column can and cannot say:
   belongs to the head"), which is the same arrangement the sibling mod had. The
   difference is where the head's pitch is written: into the rotator the engine keeps.
 
-**The control leg did not run, and that is recorded rather than hidden.** It needs a
-pistol shot with the game's kick allowed (2.84 degrees of pitch the head did not write,
-VR-172), and this save has no pistol in the left hand. Two substitutes were tried and
-neither is a control: the right stick's yaw is taken by snap turn before the engine sees
-it, and the player died before the pitch-clamp leg. The instrument's ability to show
-engine-added pitch therefore rests on the VR-172 run of 2026-09-21 and on the three
-bullets above, not on a leg of this run.
+**The control leg, and what it does and does not prove.** It is a pistol shot with the
+game's kick allowed. On the first run it could not happen: the newest save holds no
+pistol in the left hand, the leg read flat, and a flat control is indistinguishable from
+a blind instrument. The whole sequence was run again on the sewer save (2026-09-29, same
+build), where the pistol is: legs 1 to 5 read 0.000 in all three columns on 2180 game
+ticks, 703 of them in an attack, and the shot put **2.928 degrees** into the camera
+against the controller. So the capture sees pitch the game adds, where the game adds it.
+What the shot did NOT do is move the controller's rotation or the value handed back:
+the kick is a camera influence and lives in the camera alone. The two columns that carry
+the verdict were therefore never seen to diverge by a control, and their evidence is the
+second bullet above: they are raw engine values, they read the head's pitch at +25 and
+-25, and they follow a sweep tick by tick.
+
+On the first save the camera moved up to 0.49 degrees inside attack rows and on the sewer
+save not at all. The player was crouched on the first and standing on the second; which
+of the two differences owns it was not measured.
 
 **The headset agrees.** The logs of the 2026-09-25 headset session (build
 `v1.0.1-9-g1e948fac4`) carry the 3 s `headtrack:` heartbeat, which prints the incoming

@@ -75,6 +75,11 @@ def read(path, limit):
         states.setdefault(r["state"], []).append(r)
     print("  states seen: " + ", ".join("%s (%d)" % (k, len(v)) for k, v in sorted(states.items(), key=lambda kv: -len(kv[1]))))
     attack = [r for r in rows if "MeleeAttack" in r["state"] or "Fatality" in r["state"] or "Assassinate" in r["state"]]
+    # What the game adds on top of the controller's rotation (a weapon's kick, an attack's
+    # own camera motion) lives in the camera and nowhere else. The control leg reads here.
+    added = [wrap_deg(int(r["povP"]) - int(r["ctrlP"])) for r in rows]
+    print("  camera minus controller, all rows: %.3f deg peak to peak (the game's own added pitch; the control leg's pistol kick shows HERE)"
+          % (max(added) - min(added)))
     verdict = None
     for label, sel in (("ALL ROWS", rows), ("ATTACK ROWS", attack)):
         print(" %s (%d)" % (label, len(sel)))

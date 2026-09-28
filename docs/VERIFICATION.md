@@ -54,7 +54,11 @@ three `swing sim` attacks each; the reader prints `VERDICT: TRACKS` per capture 
 engine hands back and the controller's own rotation stay within 1 degree of the head's through the
 attack rows, `DIVERGES` otherwise, and `NONE` when the capture saw no attack. The level leg cannot
 fail and the reader says so. Leg 6 is the control and needs a pistol in the left hand: without one
-it fails, and the run has no control. Passed legs 1 to 5 on 2026-09-29; leg 6 did not run.
+it fails, and the run has no control. The kick shows in the reader's `camera minus controller`
+line, not in the verdict's two columns. Passed 2026-09-29 on the sewer save, leg 6 reading 2.928
+degrees. Reaching that save: the walk-in's Continue loads the NEWEST save, so from a menu use
+`game-key.ps1 -Key down` (the arrow keys are there since VR-173) to walk the load list, and look at
+a capture of the list before pressing Return.
 
 VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
 trail's particle component is found on the pawn by its template, the native hide takes
