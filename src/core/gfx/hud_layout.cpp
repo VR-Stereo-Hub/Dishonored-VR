@@ -684,7 +684,8 @@ void wheel_input(bool held, bool permitted, float& x, float& y, bool& handSelect
 
 // ---- routing --------------------------------------------------------------
 
-int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives, float* nativePivot) {
+int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vertices, unsigned primitives, float* nativePivot, bool* nativeMarker) {
+    if(nativeMarker)*nativeMarker=false;
     if(native_gameplay_reference()) {
         if(elementOut) *elementOut=-1;
         ++g_routeFrame;++g_whyCounts[WhyReference];
@@ -753,6 +754,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
                 bridges,drawKey,drawFrame);
         }
         if(runeDraw || runeBridge) {
+            if(nativeMarker)*nativeMarker=true;
             if(nativePivot)memcpy(nativePivot,runePivot,sizeof(runePivot));
             if(elementOut)*elementOut=ElObjective;
             ++g_routeFrame;++g_routeCounts[ElObjective];++g_seen[ElObjective];
@@ -779,6 +781,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
            dvr::objectivemarkers::match_awareness_draw(
                bbox,(float)dvr::capture::width(),(float)dvr::capture::height(),awarePivot)) {
             if(nativePivot)memcpy(nativePivot,awarePivot,sizeof(awarePivot));
+            if(nativeMarker)*nativeMarker=true;
             if(elementOut)*elementOut=ElDetection;
             ++g_routeFrame;++g_routeCounts[ElDetection];++g_seen[ElDetection];
             g_groups.cut();note_why(drawKey,bbox,ElDetection,-1,WhyAwareness);
@@ -815,6 +818,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
                     offset[0],offset[1],drawKey,vertices,primitives,
                     g_nativeObjectives?"the game image":kAnchorNames[g_el[ElObjective].anchor]);
                 if(g_nativeObjectives) {
+                    if(nativeMarker)*nativeMarker=true;
                     if(elementOut)*elementOut=ElObjective;
                     ++g_routeFrame;++g_routeCounts[ElObjective];++g_seen[ElObjective];
                     g_lastRouted[ElObjective]=g_presentNo;
@@ -902,7 +906,7 @@ int sink_for(const float* bbox, int* elementOut, uint64_t drawKey, unsigned vert
     int anchor = g_el[e].anchor;
     const bool nativeObjective=g_nativeObjectives && e==ElObjective && id.context<0;
     if(!lifted) note_why(drawKey,bbox,e,nativeObjective ? -1 : anchor,why);
-    if(nativeObjective) {++g_routeFrame;return -1;}
+    if(nativeObjective) {if(nativeMarker)*nativeMarker=true;++g_routeFrame;return -1;}
     if (anchor == AnchorFrame) { ++g_routeFrame; return -1; }
     // This topology includes observed objective artwork, but is not semantic
     // identity. Record misses without stealing unrelated prompts from panels.

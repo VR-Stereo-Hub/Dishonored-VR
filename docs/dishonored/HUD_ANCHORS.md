@@ -1,3 +1,45 @@
+## 2026-09-27: native marker overlay after upscaling, candidate
+
+Depends on PR #146 (claude/hud-upscale-sharp). Its redirected HUD path cannot
+sharpen native markers left in the scene. New [Hud] MarkersSharp=0 defaults off;
+F10 Display places its checkbox beside Sharp HUD while upscaling, and
+`hud markers sharp on|off` switches it live.
+
+The existing native routing decision explicitly identifies rune, task/objective
+and awareness draws. Eligible draws rasterize into an output-size transparent
+target using a scaled viewport and private D24S8. Colour blend and native screen
+position are retained; separate alpha records destination attenuation. The
+original draw is redirected, so those pixels never enter DLSS/FSR reconstruction.
+The target is sealed at the actual colour capture serial allocation, carries its
+resolved eye, and composites over that serial's reconstructed image before mod
+hands/F10. Six shared slots fence D3D9 writes and D3D11 reads independently.
+Delayed delivery uses the delivered serial, never the current present's eye.
+Empty presents clear instead of reusing a prior marker. Reset releases all
+DEFAULT-pool objects. A toggle off drains already-redirected in-flight images.
+
+Depth decision: hud_class requires ZENABLE=false before native routing, so this
+path cannot contain scene-depth-tested draws. Stencil/scissor, sRGB writes,
+partial colour masks, transformed vertices, state blocks and unsupported blends
+refuse to the original draw with a reason and values. Supported RGB equations:
+ADD with ONE or SRCALPHA source and ONE or INVSRCALPHA destination. No guessed
+scene occlusion or masking replacement. Refused families can remain blurry;
+headset/log coverage must establish which guards the real marker population uses.
+GPU fence refusal after redirection can omit that image's markers; it logs the
+failure and never substitutes a different image's overlay.
+
+Validation: actual production D3D11 WARP shader checks transparent, black,
+additive and alpha-over pixels against known background colours, plus existing
+circle/crop/hue cases. 123 native HUD and 503 HUD routing checks pass. Generated
+default writer, packaged profile and golden INI are byte-identical. No headset
+acceptance or native D3D9/11 interop run is claimed. No game/simulator launched.
+Memory at 2750x2850: six RGBA8 images plus one D24S8 surface are about 209 MiB,
+excluding driver overhead. This opt-in candidate needs performance measurement.
+
+After the separate submenu diagnostic launch, the marker question is whether
+one stationary objective marker gains crisp edges with this checkbox enabled,
+without moving or doubling between eyes. hud/markers-sharp logs owner, serial,
+captured/delivered eye, per-eye draw/composite totals and refusal reasons.
+
 ## 2026-09-27: the HUD at headset resolution while upscaling (`[Hud] UpscaleSharp`, default off)
 
 Observation: with DLSS Super Resolution on, HUD elements look soft. Measured in the dev rig's own

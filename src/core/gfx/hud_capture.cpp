@@ -1,6 +1,7 @@
 // core/gfx/hud_capture.cpp - see hud_capture.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/markers_sharp.h"
 #include "core/gfx/hud_capture_health.h"
 
 #include "core/framework/frame_hooks.h"
@@ -363,6 +364,8 @@ void set_upscale_sharp(bool on, const char* who) {
                 : "the HUD is drawn at the render's size, the old path");
 }
 bool upscale_sharp() { return g_sharpWanted; }
+void set_markers_sharp(bool on,const char* owner){dvr::markersharp::set_enabled(on,owner);}
+bool markers_sharp(){return dvr::markersharp::enabled();}
 
 void set_game_gate(bool arm, bool menuOverride) { g_gameGate = arm; g_menuOverride = menuOverride; }
 bool armed() { return g_armed; }
@@ -757,6 +760,7 @@ void status(dvr::status::Writer& w) {
     w.kv("healthy", redirect_healthy());
     w.kv("scale", (double)g_slotScale);
     w.kv("upscaleSharp", g_sharpWanted);
+    w.kv("markersSharp", markers_sharp());
     w.kv("sharpScaled", g_scaled);
     w.kv("slotW", (int)g_sink[0].slotW);
     w.kv("slotH", (int)g_sink[0].slotH);
@@ -768,6 +772,8 @@ void status(dvr::status::Writer& w) {
 }
 
 bool command(const char* args) {
+    if(!strcmp(args,"markers sharp on")){set_markers_sharp(true,"seam");return true;}
+    if(!strcmp(args,"markers sharp off")){set_markers_sharp(false,"seam");return true;}
     if (!strcmp(args, "on"))  { g_failed = false; set_enabled(true);  return true; }
     if (!strcmp(args, "off")) { set_enabled(false); return true; }
     if (!strcmp(args, "pair on"))  { set_once_per_pair(true);  return true; }

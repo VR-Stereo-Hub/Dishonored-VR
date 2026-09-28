@@ -844,8 +844,16 @@ static void OvlTabDisplay()
                     dvr::hudcap::set_upscale_sharp(sharp, "F10 Display");
                     ConfigWriteKey("Hud", "UpscaleSharp", sharp ? "1" : "0", "F10 Display");
                 }
-                OvlTip("Draws the HUD, menus and markers at the headset resolution instead of the smaller render size, "
+                OvlTip("Draws the redirected HUD and menus at the headset resolution instead of the smaller render size, "
                        "so they stay as sharp as without upscaling. Only matters in a mode below DLAA. Live.");
+            }
+            {
+                bool sharp=dvr::hudcap::markers_sharp();
+                if(dvr::ovl::checkbox("Sharp native markers while upscaling",&sharp)) {
+                    dvr::hudcap::set_markers_sharp(sharp,"F10 Display");
+                    ConfigWriteKey("Hud","MarkersSharp",sharp?"1":"0","F10 Display");
+                }
+                OvlTip("Draws native objective, rune and awareness markers at output resolution after reconstruction. Default off. Live.");
             }
             if (!fsr) {   // The model: DlssModel + DlssPreset as one choice (DLSS only).
                 const int cur = dvr::dlss::model_choice();

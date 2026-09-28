@@ -62,6 +62,8 @@ float slot_scale();
 // sinks' own depth-stencil), so it is as sharp as at native resolution. Default off.
 void set_upscale_sharp(bool on, const char* who);
 bool upscale_sharp();
+void set_markers_sharp(bool on,const char* owner);
+bool markers_sharp();
 
 // The game side's half of the gate, published once per tick: `arm` = the
 // scene verdict (the world is drawing) and no power wheel held; `menuOverride`
