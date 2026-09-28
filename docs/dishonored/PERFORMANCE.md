@@ -3486,3 +3486,15 @@ prediction to test against reentry on the same save, spot and settings:
 - Read with it: `aer/clamp: beat` INTEREYE (the world's slide between the eyes of a pair),
   ghosting on walking NPCs with the clamp off and on, and judder (each eye refreshes at half the
   tick rate).
+
+## 2026-09-28: AER measured (run 1) and AFW built
+
+- Reentry 106-116 pairs/s against AER 99-115 at the same spot, 144 Hz, 2688x2880. AER's pair costs
+  two world ticks (4.4-4.9 ms each); the render thread's idle per present rose from 0.4-0.6 to
+  0.9-1.3 ms. The game thread is the limit under AER; the GPU side has about 1 ms per present of
+  slack, so a higher resolution under AER costs little until that slack is spent.
+- AFW sends every tick as its own XR frame (fresh eye plus the other eye's last image, reprojected by
+  the compositor). Prediction: displayed frames per second rise toward the tick rate (about
+  200/s available on this PC, capped at 144 by the headset) because one tick, not two, makes a
+  frame; GPU work per displayed frame halves. Falsifier: `stereo: beat` out/s and the pair/frame
+  rate at the same spot, reentry then afw then reentry.

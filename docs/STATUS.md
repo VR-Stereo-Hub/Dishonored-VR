@@ -1,3 +1,31 @@
+## 2026-09-28 (later): AER run 1 measured; AFW built; the per-eye pose fixed
+
+Headset run 1 on build `v1.0.1-159-g167065275` (log archived at build/playtest-candidates/
+vr-39-aer/run1). Same spot, reentry then AER:
+
+- Reentry: 106-116 pairs/s, one tick 8.6-9.7 ms, render thread idle 0.4-0.6 ms per present.
+- AER: 99-115 pairs/s (about 10% fewer), one tick 4.4-4.9 ms so a pair is 9-10 ms, render
+  thread idle 0.9-1.3 ms per present. The game thread is the limit under AER: each pair needs
+  two world ticks. Not an implementation fault; the GPU side has about 1 ms per present of slack
+  (resolution headroom under AER), the game thread has none.
+- The delta clamp stood itself down after two beats: with the bendtime lever, clamped right ticks
+  advanced the world as far as left ones (R/L 1.010 and 1.024; world/real 1.000). Bend Time's
+  GameInfo fields do not scale WorldInfo.DeltaSeconds. The timedilation lever was not tried.
+- Hands and weapons grew and shrank on fast head turns under AER (reported). Cause, from the
+  image-orientation log: each eye's ORIENTATION comes from its image's record, but its POSITION
+  from the numeric lag. Under reentry record gen = lag gen + 1 for both eyes (the same view data);
+  under AER the right eye read record 9970 against lag 9968: position one locate stale, an error
+  that flips sign with turn direction and reads as depth on near objects. Fix: `exact eye pose` -
+  an 8-deep history of located view sets, and AER/AFW submit each tagged image with the view pose
+  of the generation its head sample came from (orientation and position). Reentry is unchanged.
+
+AFW (`stereo afw`, F10 "Alternate frame warping"): the same one-eye-per-tick game side, but every
+present is its own XR frame - the fresh eye plus the other eye's last image at its rendered pose,
+reprojected by the compositor. It is the runtime's existing held-eye path (pair pacing off while
+AFW runs, restored after). One tick per headset frame instead of two, so on this PC's 4.4-4.9 ms
+ticks it can reach 144 Hz where reentry reached about 110; each eye refreshes at half the rate and
+moving objects are a tick apart between the eyes. The delta clamp never runs under AFW.
+
 ## 2026-09-28: AlternateEye (VR-39) built with the delta clamp - host-verified, headset pending
 
 Branch `claude/vr-39-aer-stereo` off staging (1.0.2 plus the takedown-arms default). `stereo aer`

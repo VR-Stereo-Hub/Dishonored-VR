@@ -1,3 +1,16 @@
+## 2026-09-28: hands and weapon grow and shrink on fast head turns under AER (VR-39, fixed, headset pending)
+
+Surface: the mod's hands and the held weapon, both eyes, only under `stereo aer`, only while turning
+the head quickly; direction-dependent. Routes to the pose-attribution class, not a draw fault.
+Build `v1.0.1-159-g167065275`, run archived at build/playtest-candidates/vr-39-aer/run1.
+Measured: under AER the right eye's image record read locate gen 9970 while the numeric lag
+selected 9968 (reentry: gen = lag + 1 for both eyes, the same data). Orientation is taken from the
+record (ImageOrientation=1) but position from the lag, so the right eye was submitted one locate
+stale in position: a disparity error that flips sign with turn direction and reads as depth on
+near objects. Fix: AER/AFW submit each image with its own generation's view pose (8-deep history).
+Prediction: the swing disappears; the `xr: exact-eye-pose` line shows hits, no misses. Reentry is
+untouched. Headset confirmation pending.
+
 ## 2026-09-27: run137 submenu result, non-reproduction
 
 Verified banner v1.0.1-137-gb91ec4fef and installed DLL SHA256

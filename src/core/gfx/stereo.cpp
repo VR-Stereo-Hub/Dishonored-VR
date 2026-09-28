@@ -60,7 +60,7 @@ void register_method(IStereo* m) {
     g_methods[g_methodCount++] = m;
     if (!g_active && m->implemented()) g_active = m;
     DVR_INFO("stereo: method '%s' registered%s%s", m->name(),
-             m->implemented() ? "" : " (design stub - not implemented)",
+             m->implemented() ? "" : " (not available yet - a game-side method registers its hooks later; select() re-checks)",
              g_active == m ? " - default" : "");
 }
 
@@ -70,11 +70,12 @@ void register_all() {
     register_method(create_mono_screen());
     register_method(create_aer());
     register_method(create_reentry());
+    register_method(create_alternate_warp());   // VR-39: `stereo afw`
 }
 
 bool select(const char* name) {
     if (!name || !name[0]) {
-        DVR_WARN("stereo: select needs a name (mono|aer|reentry); staying on '%s'", active_name());
+        DVR_WARN("stereo: select needs a name (mono|aer|afw|reentry); staying on '%s'", active_name());
         return false;
     }
     IStereo* found = nullptr;

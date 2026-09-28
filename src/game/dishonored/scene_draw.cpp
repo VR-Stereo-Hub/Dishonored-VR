@@ -129,7 +129,7 @@ static char           g_sdRefuse[160] = "";
 // submitted pair is two consecutive ticks - the delta clamp (delta_clamp.cpp) makes them one
 // instant. A tick that fails the gates restarts the alternation on the left, so a pair can
 // never open on a right image.
-static volatile LONG  g_sdAlternate = 0;       // the aer method's arm (present thread writes)
+static volatile LONG  g_sdAlternate = 0;       // 0 off, 1 aer, 2 afw (present thread writes)
 static int            g_sdAerNext = -1;        // the eye the next stereo tick draws (game thread)
 static uint32_t       g_sdAerL = 0, g_sdAerR = 0, g_sdAerBroken = 0, g_sdAerRefused = 0;
 static uint32_t       g_sdBeatAerL = 0, g_sdBeatAerR = 0, g_sdBeatAerBroken = 0;
@@ -503,12 +503,15 @@ static void SceneDrawAerRightEnd()
 
 // The aer method arms and disarms the alternation (present thread); the game thread reads it
 // once per tick. Off restarts the next arm on the left.
-static void SceneDrawSetAlternate(bool on)
+static void SceneDrawSetAlternate(int mode)
 {
-    if ((InterlockedExchange(&g_sdAlternate, on ? 1 : 0) != 0) == on) return;
-    Log("aer: alternation %s - %s", on ? "ON" : "off",
-        on ? "one draw per gameplay tick, the eye alternating left/right; the runtime pairs two ticks into one XR frame"
-           : "two draws per tick again (reentry) or none (mono)");
+    if (mode < 0 || mode > 2) mode = 0;
+    if (InterlockedExchange(&g_sdAlternate, mode) == mode) return;
+    Log("aer: alternation %s - %s", mode == 2 ? "ON (afw)" : mode ? "ON (aer)" : "off",
+        mode == 2 ? "one draw per gameplay tick, the eye alternating left/right; every present is its own XR frame "
+                    "with the other eye's last image reprojected (the delta clamp never runs under afw)"
+        : mode ? "one draw per gameplay tick, the eye alternating left/right; the runtime pairs two ticks into one XR frame"
+               : "two draws per tick again (reentry) or none (mono)");
 }
 
 // The stub the patched call site reaches: ecx = the viewport, one stack arg.
@@ -625,7 +628,9 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         // VR-39: the delta clamp sets the NEXT tick's world time from the eye it will draw
         // (and measures the one that just ran); off or outside AER it only hands the game's
         // own time dilation back.
-        DeltaClampAfterDraw(aerEye, alt ? g_sdAerNext : 0, g_camObj);
+        // Under afw every tick is shown on its own: freezing right ticks would halve the motion rate.
+        const bool clampMode = alt && InterlockedCompareExchange(&g_sdAlternate, 0, 0) == 1;
+        DeltaClampAfterDraw(clampMode ? aerEye : 0, clampMode ? g_sdAerNext : 0, g_camObj);
     }
     if (depth == 0) InterlockedExchange(&g_sdInDrawTid, 0);
     InterlockedDecrement(&g_sdDepth);

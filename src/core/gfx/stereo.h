@@ -191,6 +191,7 @@ IStereo* create_mono_screen();
 IStereo* create_aer();
 IStereo* create_reentry();
 IStereo* create_alternate_eye();   // reentry.cpp: the aer instance create_aer() hands out
+IStereo* create_alternate_warp();  // reentry.cpp: `afw`, alternate frame warping (VR-39)
 // The scene-draw family (reentry or aer): every present carries an eye tag
 // from the game side's ring. For consumers that keyed on the name "reentry".
 bool reentry_family_active();
@@ -217,9 +218,10 @@ struct ReentryHooks {
     // position and its upload serial. Present thread; null = nobody listens.
     void (*present_tag)(int ringEye, int finalEye, bool tagged, uint32_t acct, bool haveC5,
                         const float c5[3], uint32_t c5Serial) = nullptr;
-    // VR-39: AlternateEye. On = one draw per tick, the eye alternating (the aer
-    // method); off = two draws per tick (reentry). Present thread; null = no AER.
-    void (*set_alternate)(bool on) = nullptr;
+    // VR-39: AlternateEye. 0 = two draws per tick (reentry); 1 = one draw per tick,
+    // the eye alternating, two ticks per XR frame (aer); 2 = the same draws, every
+    // present its own XR frame (afw: the delta clamp never runs). Present thread.
+    void (*set_alternate)(int mode) = nullptr;
 };
 void set_reentry_hooks(const ReentryHooks& h);
 // 41.1 (session 9): the within-tick invariant as the pairing's check ([Stereo]

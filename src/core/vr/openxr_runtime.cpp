@@ -422,6 +422,18 @@ bool g_eyeValid[2] = {false, false};     // eye slot holds a released image + po
 // apply_eye_offset baked into the render.
 std::atomic<bool> g_eyeTagRendered{false};
 std::atomic<bool> g_imageOrientation{false}; // VR-116, default-off A/B
+// 41.x (Dishonored, VR-39): the EXACT eye pose. Under AlternateEye / AFW the two eyes are
+// rendered on different ticks, so the numeric lag that suits reentry lands the right eye one
+// locate stale in POSITION (measured: record gen 9970 against lag gen 9968 on right-eye
+// images, where reentry reads gen = lag + 1 for both eyes). With this on, a tagged image whose
+// record names its locate generation is submitted with THAT generation's view pose, orientation
+// and position, from a short history. Off (default) = the shipped lag + image-orientation path.
+std::atomic<bool> g_exactEyePose{false};
+struct ViewGen { uint32_t label = 0; bool valid = false; XrView v[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}}; };
+constexpr int kViewHist = 8;
+ViewGen g_viewHist[kViewHist];
+uint32_t g_viewHistAt = 0;
+std::atomic<uint32_t> g_exactHit{0}, g_exactMiss{0}, g_exactNoRec{0};
 std::atomic<float> g_eyeTagIpdMm{63.0f};
 
 // Rebuild one eye's layer tag as the PARALLEL camera the game rendered:
@@ -3267,6 +3279,11 @@ void on_present_begin() {
     g_viewsValid =
         XR_SUCCEEDED(xrLocateViews(g_session, &vli, &vs, 2, &viewCount, g_views)) &&
         viewCount == 2 && (vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT);
+    {   // VR-39: the exact-pose history. This set is labelled g_viewsGen; a head sample read
+        // after this locate carries locate_gen() == label + 1 (the lag audit's gen = lag + 1).
+        ViewGen& h = g_viewHist[g_viewHistAt++ % kViewHist];
+        h.label = g_viewsGen; h.valid = g_viewsValid; h.v[0] = g_views[0]; h.v[1] = g_views[1];
+    }
     // VR-146: compare independent head/eye locates before changing images.
     // Bounded to six minutes, one sample per three seconds, native SteamVR only.
     if (strncmp(g_runtimeName, "SteamVR/OpenXR", 14) == 0) {
@@ -4551,6 +4568,36 @@ void on_present_end(ID3D11Texture2D* frame) {
                                   appliedCount[srEye],refusedCount[srEye],lagUsed);
                         }
                     }
+                    if (g_exactEyePose.load(std::memory_order_relaxed)) {
+                        // VR-39: the view set this image's head sample came from, whole pose.
+                        dvr::pose::Record rec={};
+                        const int eye=srEye==0?-1:1;
+                        const bool copied=dvr::pose::copy(dvr::capture::delivered_rec(),&rec) &&
+                                          rec.eye==eye && rec.track.ok && rec.track.gen;
+                        bool hit=false;
+                        if (copied) {
+                            for (const ViewGen& h : g_viewHist) {
+                                if (h.valid && h.label + 1 == rec.track.gen) {
+                                    g_eyePose[srEye] = h.v[srEye].pose;
+                                    g_eyePoseGen[srEye] = rec.track.gen;
+                                    g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag
+                                    hit=true;
+                                    break;
+                                }
+                            }
+                        }
+                        (copied ? (hit ? g_exactHit : g_exactMiss) : g_exactNoRec).fetch_add(1, std::memory_order_relaxed);
+                        static uint64_t nextExactLog=0;
+                        const auto nowExact=GetTickCount64();
+                        if (nowExact>=nextExactLog) {
+                            nextExactLog=nowExact+3000;
+                            XRLOG("xr: exact-eye-pose eye=%d rec gen=%u lag gen=%u -> %s | hits %u misses %u (the "
+                                  "generation left the %d-deep history: the lag pose stands) no-record %u",
+                                  eye, copied?rec.track.gen:0u, genId, hit?"the rendered generation's view pose":
+                                  copied?"MISS, lag pose kept":"no record, lag pose kept",
+                                  g_exactHit.load(), g_exactMiss.load(), kViewHist, g_exactNoRec.load());
+                        }
+                    }
                     g_eyeValid[srEye] = true;
                     g_pmCap[srEye].fetch_add(1, std::memory_order_relaxed);
                     g_pmLastCapMs[srEye].store(GetTickCount64(),
@@ -5832,6 +5879,7 @@ void arm_view_log(int frames) {
 void set_sr_pair_pacing(bool on) {
     g_srPairPacing.store(on, std::memory_order_relaxed);
 }
+bool sr_pair_pacing() { return g_srPairPacing.load(std::memory_order_relaxed); }
 
 void set_pair_strict(bool on) {
     const bool was = g_pairStrict.exchange(on, std::memory_order_relaxed);
@@ -5902,6 +5950,12 @@ void set_image_orientation(bool on) {
     XRLOG("xr: image-linked orientation %s; invalid/missing eye records retain numeric lag",on?"ON":"off");
 }
 bool image_orientation_enabled() { return g_imageOrientation.load(std::memory_order_relaxed); }
+void set_exact_eye_pose(bool on) {
+    if (g_exactEyePose.exchange(on, std::memory_order_relaxed) == on) return;
+    XRLOG("xr: exact eye pose %s (VR-39) - %s", on ? "ON" : "off",
+          on ? "each tagged image is submitted with the view pose of the locate generation its head sample came from"
+             : "the numeric pose lag and image orientation (the reentry path)");
+}
 
 
 float get_pose_gen_delta_deg() {
@@ -6847,6 +6901,7 @@ void set_edge_snapshot(bool) {}
 bool get_edge_snapshot(EdgeViewSnapshot&) { return false; }
 void set_enabled(bool) {}
 void set_sr_pair_pacing(bool) {}
+bool sr_pair_pacing() { return true; }
 void set_pair_strict(bool) {}
 bool pair_strict() { return false; }
 void handle_pace_command(const char*) {}
@@ -6860,6 +6915,7 @@ void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }
 void set_image_orientation(bool) {}
+void set_exact_eye_pose(bool) {}
 bool image_orientation_enabled() { return false; }
 void set_pace_ahead(int) {}
 int pace_ahead() { return 0; }

@@ -78,7 +78,7 @@ static void SceneDrawApply();
 static void DrawCallersApply();          // VR-80: the draw root's other callers, counted
 static void DrawCallersSet(bool on);
 static void SceneDrawSetArmed(bool on);
-static void SceneDrawSetAlternate(bool on);   // VR-39: `stereo aer` (scene_draw.cpp)
+static void SceneDrawSetAlternate(int mode);   // VR-39: 0 reentry, 1 aer, 2 afw (scene_draw.cpp)
 static bool SceneDrawPoisoned();
 static uint32_t SceneDrawDraws();
 static void SceneDrawGates(uint32_t out[8]);   // 41.1: the pass-2 skip counters for the stale-eye line

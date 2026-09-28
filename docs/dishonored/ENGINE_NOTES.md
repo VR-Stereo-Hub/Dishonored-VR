@@ -9961,3 +9961,12 @@ live set rebuilt on a load/UI edge, GObjects slot, class and FName).
 - Unmeasured risks to read first in the headset log: whether audio pitch follows either lever
   per tick (a warble would say it does), and whether PhysX tolerates alternating 1% and double
   steps (jittering ragdolls or carried bodies would say it does not).
+
+### VR-39 addendum: locate generations and the exact eye pose (2026-09-28)
+
+The head sample a camera write uses carries `locate_gen()` read after the locate, which is the
+located view set's label + 1 (the rotation assigns g_viewsGen before incrementing g_locateGen).
+The image-orientation log confirms it on reentry: `gen = legacyGen + 1` with 0.000 deg difference.
+`exact eye pose` keeps the last 8 located view sets by label and matches `label + 1 == record gen`.
+Bend Time's GameInfo `m_fCurrentWorldTimeDilation` / `m_fCurrentPlayerTimeDilation` writes did not
+move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta lever.

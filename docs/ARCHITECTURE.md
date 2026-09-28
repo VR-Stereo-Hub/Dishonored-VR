@@ -1382,3 +1382,10 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   scripts declare no SaveGame flags, so a save taken mid-pair may keep a clamped value; that is
   why the transient pair is the default. A lever the engine does not honour (measured on
   WorldInfo.DeltaSeconds) stands itself down. Both levers default off.
+
+- **2026-09-28 - AFW is the runtime's held-eye path, and every alternate-eye image carries its own
+  generation's pose (VR-39).** AFW needed no new compositor code: with pair pacing off, each tagged
+  present already submits a stereo frame from both eyes' last released images with their stored
+  poses. The fault was the stored pose: the numeric lag suits reentry (both eyes from one head
+  sample) but not two ticks, so AER/AFW now submit the exact located generation of each image's
+  head sample, from a short history. Reentry keeps the lag it was tuned with.

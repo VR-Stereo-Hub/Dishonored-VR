@@ -1138,20 +1138,24 @@ static void OvlTabDisplay()
     if (OvlSec("Stereo rendering (experimental)", kOvlA, "How the two eyes are rendered. Try both and compare.")) {
         // VR-39: reentry (both eyes every tick) against AER (one eye per tick, alternating).
         const char* wanted = dvr::stereo::wanted_name();
-        const bool isAer = !_stricmp(wanted, "aer");
-        if (!isAer && _stricmp(wanted, "reentry")) {
+        const bool isAer = !_stricmp(wanted, "aer"), isAfw = !_stricmp(wanted, "afw");
+        if (!isAer && !isAfw && _stricmp(wanted, "reentry")) {
             ImGui::TextDisabled("Stereo is on the flat screen (%s). Debug > Stereo and capture selects it.", wanted);
         } else {
-            int sm = isAer ? 1 : 0;
-            if (dvr::ovl::radio_button("Both eyes every frame", &sm, 0) && isAer) {
-                if (dvr::stereo::choose("reentry")) ConfigWriteKey("Stereo", "Method", "reentry", "F10 Display");
-            }
+            const int cur = isAfw ? 2 : isAer ? 1 : 0;
+            int sm = cur;
+            static const char* kNames[3] = {"reentry", "aer", "afw"};
+            const bool c0 = dvr::ovl::radio_button("Both eyes every frame", &sm, 0);
             OvlTip("The shipped method: each game frame draws the left eye, then the right.");
             ImGui::SameLine();
-            if (dvr::ovl::radio_button("Alternate eyes (AER)", &sm, 1) && !isAer) {
-                if (dvr::stereo::choose("aer")) ConfigWriteKey("Stereo", "Method", "aer", "F10 Display");
-            }
-            OvlTip("Each game frame draws ONE eye, alternating. Can run faster; each eye updates half as often.");
+            const bool c1 = dvr::ovl::radio_button("Alternate eyes (AER)", &sm, 1);
+            OvlTip("Each game frame draws ONE eye, alternating; two game frames make one headset frame.");
+            ImGui::SameLine();
+            const bool c2 = dvr::ovl::radio_button("Alternate frame warping (AFW)", &sm, 2);
+            OvlTip("Each game frame draws ONE eye and is sent to the headset on its own; the other eye is "
+                   "the previous frame, warped to your head. Aims for the headset's full rate.");
+            if ((c0 || c1 || c2) && sm != cur && dvr::stereo::choose(kNames[sm]))
+                ConfigWriteKey("Stereo", "Method", kNames[sm], "F10 Display");
             bool clamp = DeltaClampEnabled();
             ImGui::BeginDisabled(!isAer);
             if (dvr::ovl::checkbox("Delta clamp (both eyes show the same moment)", &clamp)) DeltaClampSet(clamp, "F10 Display");
