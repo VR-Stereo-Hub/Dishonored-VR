@@ -434,6 +434,17 @@ constexpr int kViewHist = 8;
 ViewGen g_viewHist[kViewHist];
 uint32_t g_viewHistAt = 0;
 std::atomic<uint32_t> g_exactHit{0}, g_exactMiss{0}, g_exactNoRec{0};
+// VR-39 (AFW): the held eye's stick/snap yaw. The compositor reprojects a held image for HEAD
+// motion only; yaw the GAME added since it was rendered (a stick or snap turn) leaves that eye's
+// whole view rotated against the fresh one - a disparity shift the eyes read as the world moving in
+// depth. With this on (AFW turns it on, `afw yaw on|off`), the held eye is submitted rotated by the
+// body yaw between its image and the fresh one. Rotation about the eye is depth-independent, so
+// this is exact for a pure turn.
+std::atomic<bool> g_heldBodyYaw{false};
+float g_eyeBodyYaw[2] = {};
+bool  g_eyeBodyOk[2] = {};
+std::atomic<uint32_t> g_heldYawApplied{0}, g_heldYawSkipped{0};
+float g_heldYawAbsSum = 0, g_heldYawMax = 0;
 std::atomic<float> g_eyeTagIpdMm{63.0f};
 
 // Rebuild one eye's layer tag as the PARALLEL camera the game rendered:
@@ -2038,6 +2049,7 @@ void mirror_present(int eyeSign) {
 
 void reset_aer() {
     g_eyeValid[0] = g_eyeValid[1] = false;
+    g_eyeBodyOk[0] = g_eyeBodyOk[1] = false;   // VR-39: a held body heading dies with its image
     g_eyeContentSerial[0] = g_eyeContentSerial[1] = 0;
 #ifdef DVR_FLICKER_DIAGNOSTICS
     g_flickerRelease[0]=FlickerRelease{};g_flickerRelease[1]=FlickerRelease{};
@@ -2698,6 +2710,13 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
         // 41.1 (Dishonored): the runtime's clock, for the pair phase instrument.
         if (strcmp(e.extensionName, XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME) == 0)
             hasQpcTime = true;
+    }
+    {   // VR-39: can this runtime take a depth layer (positional reprojection of AFW's held eye)?
+        bool hasDepthLayer = false;
+        for (const auto& e : exts)
+            if (strcmp(e.extensionName, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME) == 0) hasDepthLayer = true;
+        XRLOG("xr: [%s] %s %s (not enabled by this build; recorded for AFW's positional reprojection plan)",
+              label, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME, hasDepthLayer ? "OFFERED" : "not offered");
     }
     if (!hasD3D11) {
         XRLOG("xr: [%s] runtime lacks XR_KHR_D3D11_enable", label);
@@ -4579,6 +4598,8 @@ void on_present_end(ID3D11Texture2D* frame) {
                             for (const ViewGen& h : g_viewHist) {
                                 if (h.valid && h.label + 1 == rec.track.gen) {
                                     g_eyePose[srEye] = h.v[srEye].pose;
+                                    g_eyeBodyOk[srEye] = rec.cam.bodyOk;
+                                    g_eyeBodyYaw[srEye] = rec.cam.bodyYawDeg;
                                     g_eyePoseGen[srEye] = rec.track.gen;
                                     g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag
                                     hit=true;
@@ -4743,6 +4764,46 @@ void on_present_end(ID3D11Texture2D* frame) {
                             projViews[eye].subImage = sub;
                         }
                         projViews[eye].fov = {-halfH, halfH, halfV, -halfV};
+                    }
+                    // VR-39 (AFW): rotate the HELD eye by the body yaw since its image (see the state).
+                    if (stereo && srFrame && g_heldBodyYaw.load(std::memory_order_relaxed) &&
+                        !g_srPairPacing.load(std::memory_order_relaxed)) {
+                        const int fresh = srSign < 0 ? 0 : 1, held = 1 - fresh;
+                        if (g_eyeBodyOk[fresh] && g_eyeBodyOk[held]) {
+                            float d = g_eyeBodyYaw[fresh] - g_eyeBodyYaw[held];
+                            while (d > 180.0f) d -= 360.0f;
+                            while (d < -180.0f) d += 360.0f;
+                            // UE yaw is turn-right positive; an XR rotation about +Y is turn-LEFT
+                            // positive. Content the body has turned away from lies to the LEFT of the
+                            // fresh view, so the held image is shown rotated left by d: Ry(+d).
+                            const float h = d * 0.5f / 57.29578f, sy = sinf(h), cy = cosf(h);
+                            XrPosef& pz = projViews[held].pose;
+                            const XrQuaternionf q = pz.orientation;
+                            pz.orientation = {cy * q.x + sy * q.z, cy * q.y + sy * q.w,
+                                              cy * q.z - sy * q.x, cy * q.w - sy * q.y};
+                            const XrVector3f c = projViews[fresh].pose.position;
+                            const float dx = pz.position.x - c.x, dz = pz.position.z - c.z;
+                            const float cs = cosf(2 * h), sn = sinf(2 * h);
+                            pz.position.x = c.x + cs * dx + sn * dz;
+                            pz.position.z = c.z - sn * dx + cs * dz;
+                            g_heldYawApplied.fetch_add(1, std::memory_order_relaxed);
+                            g_heldYawAbsSum += fabsf(d);
+                            if (fabsf(d) > g_heldYawMax) g_heldYawMax = fabsf(d);
+                        } else {
+                            g_heldYawSkipped.fetch_add(1, std::memory_order_relaxed);
+                        }
+                        static uint64_t nextYawLog = 0;
+                        const uint64_t nowYaw = GetTickCount64();
+                        if (nowYaw >= nextYawLog) {
+                            nextYawLog = nowYaw + 3000;
+                            const uint32_t n = g_heldYawApplied.load();
+                            XRLOG("xr: afw held-eye yaw - %u submits rotated (mean |d| %.3f deg, max %.3f: the stick/snap "
+                                  "yaw between the held image and the fresh one; near 0 while only the head turns), "
+                                  "%u skipped (a record without a body heading: an authored camera)",
+                                  n, n ? g_heldYawAbsSum / n : 0.0f, g_heldYawMax, g_heldYawSkipped.load());
+                            g_heldYawApplied.store(0); g_heldYawSkipped.store(0);
+                            g_heldYawAbsSum = 0; g_heldYawMax = 0;
+                        }
                     }
                     // s51: bank the edge-telemetry snapshot (armed only; the
                     // game-thread sampler copies it out - see the header).
@@ -5950,6 +6011,11 @@ void set_image_orientation(bool on) {
     XRLOG("xr: image-linked orientation %s; invalid/missing eye records retain numeric lag",on?"ON":"off");
 }
 bool image_orientation_enabled() { return g_imageOrientation.load(std::memory_order_relaxed); }
+void set_held_body_yaw(bool on) {
+    if (g_heldBodyYaw.exchange(on, std::memory_order_relaxed) == on) return;
+    XRLOG("xr: afw held-eye yaw correction %s (VR-39)", on ? "ON" : "off");
+}
+bool held_body_yaw() { return g_heldBodyYaw.load(std::memory_order_relaxed); }
 void set_exact_eye_pose(bool on) {
     if (g_exactEyePose.exchange(on, std::memory_order_relaxed) == on) return;
     XRLOG("xr: exact eye pose %s (VR-39) - %s", on ? "ON" : "off",
@@ -6916,6 +6982,8 @@ void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }
 void set_image_orientation(bool) {}
 void set_exact_eye_pose(bool) {}
+void set_held_body_yaw(bool) {}
+bool held_body_yaw() { return false; }
 bool image_orientation_enabled() { return false; }
 void set_pace_ahead(int) {}
 int pace_ahead() { return 0; }

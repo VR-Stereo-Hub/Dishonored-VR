@@ -59,6 +59,11 @@ struct Cam {
     double writeMs;           // when the camera write happened
     int    writer;            // 1 script dispatch, 2 direct fallback, 3 cinematic draw, 0 none
     bool   ok;
+    // VR-39 (AFW): the BODY yaw this view implies - the camera yaw minus the head's
+    // contribution, UE degrees, turn-right positive, up to a constant. Two records'
+    // difference is the stick/snap turn between them. False for authored cameras.
+    float  bodyYawDeg = 0;
+    bool   bodyOk = false;
 };
 
 // Published together, as one unit, at each camera construction. Both writer

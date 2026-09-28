@@ -1,3 +1,15 @@
+## 2026-09-28: AFW held-eye artifacts - stick-turn "zoom" (fix built) and weapon drift (open)
+
+Surface: the whole view during stick/snap turns under `stereo afw` (reads as zooming); and near
+weapons/hands drifting opposite to head motion, subtly. Build `v1.0.1-160-g90136b7cf`, run 2.
+Measured: the fresh eye's pose is exact (posesub 0.000 deg, hv gap +0), so neither is pose
+attribution. Both are the held eye. Stick turn: the held image lacks the last tick's game yaw, which
+the compositor cannot know; fix = rotate the held eye's submitted pose by the body-yaw difference
+between the two images' records (exact for rotation). Prediction: the zoom feel disappears; the
+`xr: afw held-eye yaw` line shows mean |d| near 0 while only the head turns and near the per-tick
+stick yaw while stick turning; `afw yaw off` brings the zoom back. Weapon drift: eye translation
+parallax that rotation-only reprojection cannot fix. OPEN; next step is a depth warp of the held eye.
+
 ## 2026-09-28: hands and weapon grow and shrink on fast head turns under AER (VR-39, fixed, headset pending)
 
 Surface: the mod's hands and the held weapon, both eyes, only under `stereo aer`, only while turning

@@ -1,3 +1,26 @@
+## 2026-09-28 (AFW run 2): AFW reaches the headset rate; stick-turn and weapon findings
+
+Run 2 on `v1.0.1-160-g90136b7cf` (archived at build/playtest-candidates/vr-39-aer/run2-afw):
+`stereo: beat method=afw out/s=144 L/s=72 R/s=72` - every headset frame at 144 Hz, against about
+110 pairs/s under reentry. Reported: DLAA preset K without SSW at about 120 fps where it had been
+50-70. The exact eye pose held: `posesub` 0.000 deg difference, `exact-eye-pose` hits with no misses,
+and the hands normalised against the camera's own locate (`hv` gap +0).
+
+Two reported artifacts, both on the HELD eye (the other eye's previous image, which the compositor
+reprojects for head motion only):
+- Stick turning felt like zooming. The held image was rendered before the game added the last
+  tick's stick yaw, so its whole view is rotated by that yaw against the fresh eye: a horizontal
+  disparity shift across the scene, read as the world moving in depth. Fix built: the camera record
+  carries the body yaw (camera yaw minus the head's), and AFW submits the held eye rotated by the body
+  yaw between its image and the fresh one (`afw yaw on|off`, on under AFW). A pure turn about the eye is
+  corrected exactly at any depth. Headset pending.
+- Weapons drift opposite to head motion, subtly. Not a pose mismatch (the logs above). The eyes
+  TRANSLATE when the head moves or turns (they sit off the neck's axis), and rotation-only
+  reprojection cannot correct the held eye's parallax, largest on near objects. Not fixed. The route:
+  warp the held eye with its own depth into the current camera (the depth ring and camera
+  reconstruction built for TAA already exist), or submit a depth layer if the runtime offers
+  XR_KHR_composition_layer_depth (now logged at startup). The same warp would also carry walking.
+
 ## 2026-09-28 (later): AER run 1 measured; AFW built; the per-eye pose fixed
 
 Headset run 1 on build `v1.0.1-159-g167065275` (log archived at build/playtest-candidates/

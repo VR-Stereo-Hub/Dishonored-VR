@@ -92,6 +92,14 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "rainstrength")) { LensRainPctSet(atoi(args)); return true; }                 // VR-137: %, 100 native
     if (!strcmp(cmd, "mirror")) return WmCommand(args);   // VR-138
     if (!strcmp(cmd, "occlusion")) return OcclusionCommand(args);   // VR-79
+    if (!strcmp(cmd, "afw")) {   // VR-39: the held eye's stick/snap yaw correction, live A/B
+        char sub[16] = "", v[8] = "";
+        sscanf(args, "%15s %7s", sub, v);
+        if (!strcmp(sub, "yaw") && DvrOnOff(v, &b)) { dvr::vr::set_held_body_yaw(b); return true; }
+        Log("afw: yaw on|off (now %s; the method is `stereo afw`, active '%s') - rotate the held eye by the stick/snap "
+            "yaw since its image", dvr::vr::held_body_yaw() ? "on" : "off", dvr::stereo::active_name());
+        return true;
+    }
     if (!strcmp(cmd, "aer")) {   // VR-39: `stereo aer` selects the method; this word drives its clamp
         char sub[16] = "", v[16] = "";
         sscanf(args, "%15s %15s", sub, v);

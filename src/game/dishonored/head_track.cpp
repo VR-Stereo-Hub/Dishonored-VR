@@ -1242,6 +1242,12 @@ static void HtPublishCameraRecord(int writer, const HtSample& used,
     c.writeMs = MaimNowMs();
     c.writer = writer;
     c.ok = true;
+    // VR-39 (AFW): the view yaw is the body heading plus the head's yaw (flipped by
+    // [HeadInject] FlipYaw), accumulated relative - so this is the body heading up to a
+    // constant, and a difference between two records is the stick or snap turn between them.
+    // Authored (writer 3) cameras carry no body heading.
+    c.bodyOk = used.ok && writer != 3 && std::isfinite(used.yaw);
+    c.bodyYawDeg = c.bodyOk ? yawDeg - (float)g_flipYaw * used.yaw * 57.29578f : 0.0f;
     dvr::pose::publish_camera(t, c);
 }
 

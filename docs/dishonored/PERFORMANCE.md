@@ -3498,3 +3498,11 @@ prediction to test against reentry on the same save, spot and settings:
   200/s available on this PC, capped at 144 by the headset) because one tick, not two, makes a
   frame; GPU work per displayed frame halves. Falsifier: `stereo: beat` out/s and the pair/frame
   rate at the same spot, reentry then afw then reentry.
+
+## 2026-09-28: AFW headset run 2 - the headset rate reached
+
+`stereo: beat method=afw out/s=144 L/s=72 R/s=72` at 144 Hz (reentry about 110 pairs/s at the same
+settings). Reported: DLAA preset K without SSW at about 120 fps against 50-70 before. The
+prediction held: one game tick and one scene render per headset frame. Each eye refreshes at half
+the display rate; moving objects are a tick apart between the eyes; the held eye's parallax is not
+corrected yet (FLICKER_REFERENCE, 2026-09-28 AFW entry).

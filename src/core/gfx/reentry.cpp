@@ -277,7 +277,7 @@ public:
                 // generation its own head sample came from (the numeric lag landed the right eye one
                 // locate stale in position: the hands/weapon scale swing on fast head turns).
                 dvr::vr::set_exact_eye_pose(true);
-                if (warp_) { savedPairPacing_ = dvr::vr::sr_pair_pacing(); dvr::vr::set_sr_pair_pacing(false); }
+                if (warp_) { savedPairPacing_ = dvr::vr::sr_pair_pacing(); dvr::vr::set_sr_pair_pacing(false); dvr::vr::set_held_body_yaw(true); }
             }
             if (g_hooks.set_armed) g_hooks.set_armed(true);
             if (warp_)
@@ -803,7 +803,7 @@ private:
         if (g_hooks.set_alternate) g_hooks.set_alternate(0);
         g_c5Pair = savedC5_; g_lateTagRepair = savedLate_; g_singleTagRepair = savedSingle_;
         dvr::vr::set_exact_eye_pose(false);
-        if (warp_) dvr::vr::set_sr_pair_pacing(savedPairPacing_);
+        if (warp_) { dvr::vr::set_sr_pair_pacing(savedPairPacing_); dvr::vr::set_held_body_yaw(false); }
     }
 
     const bool              alternate_;
