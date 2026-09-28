@@ -1,3 +1,12 @@
+## 2026-09-27: sharp-marker overlay resource budget, unmeasured candidate
+
+MarkersSharp defaults off. Six output-sized RGBA8 shared images and one D24S8
+surface cost about 209 MiB at2750x2850 before driver overhead. It adds a per-image
+D3D11 over pass and a flush after reads; fences refuse rather than spin. No
+performance gain or headset cadence result is claimed. Measure against lever off
+after native-marker coverage is confirmed. Architecture and HUD_ANCHORS describe
+ownership and guard limitations; keep future performance results in this file.
+
 ## 2026-09-26: walking discovery correction accepted locally
 
 Installed DLL hash and log banner match v1.0.1-50-g6bc58a449. Final local report

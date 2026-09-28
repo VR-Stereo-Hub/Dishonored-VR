@@ -73,6 +73,7 @@ set(DVR_REAL_SOURCES
     core/gfx/dlss_ipc.h
     core/gfx/sampler_force.cpp core/gfx/sampler_force.h
     core/gfx/hud_class.cpp     core/gfx/hud_class.h
+    core/gfx/markers_sharp.cpp core/gfx/markers_sharp.h
     core/gfx/hud_capture.cpp   core/gfx/hud_capture.h
     core/gfx/hud_layout.cpp    core/gfx/hud_layout.h
     core/vr/hud_anchor.h

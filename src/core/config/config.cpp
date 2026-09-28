@@ -1425,6 +1425,7 @@ static bool WriteDefaultIni(const char* ini)
         "Panel=1\n"
         "; SlotScale: each sink's texture is the render's size times this. The window subtends\n"
         "; about 50 degrees, so half is already more than the headset resolves.\n"
+        "MarkersSharp=0\n"
         "SlotScale=0.50\n"
         "; Regions=1 reads each HUD draw's screen rectangle from its vertices (through the vertex\n"
         "; shader's own transform, VR-118) and routes it to an ELEMENT by the Region.<name> table\n"
@@ -2807,7 +2808,9 @@ static void LoadConfig()
         dvr::hudlayout::configure(ini);
         dvr::hudcap::set_slot_scale(IniFloat(ini, "Hud", "SlotScale", 0.50f));
         dvr::hudcap::set_enabled(IniFloat(ini, "Hud", "Panel", 1) != 0.0f);
-        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);   // VR-160: ON since the headset verdict (no HUD flicker reported); 0 restores every present
+        dvr::hudcap::set_once_per_pair(IniFloat(ini, "Hud", "OncePerPair", 1) != 0.0f);
+        dvr::hudcap::set_markers_sharp(IniFloat(ini,"Hud","MarkersSharp",0)!=0,"ini");
+        dvr::hudcap::set_upscale_sharp(IniFloat(ini, "Hud", "UpscaleSharp", 0) != 0.0f, "the ini");   // VR-160: ON since the headset verdict (no HUD flicker reported); 0 restores every present
         dvr::hudclass::set_regions_enabled(IniFloat(ini, "Hud", "Regions", 0) != 0.0f);
         dvr::hudclass::set_census_enabled(IniFloat(ini, "Draws", "Census", 0) != 0.0f);
     }

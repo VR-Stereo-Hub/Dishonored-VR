@@ -1,3 +1,12 @@
+## Native markers after upscaling (2026-09-27)
+
+- [x] Determine depth eligibility before choosing the overlay occlusion policy.
+- [x] Add default-off native marker overlay, live controls and serial-owned delivery.
+- [x] Verify production GPU over blending and existing native routing regressions.
+- [x] Verify native graphics transport serials, delayed delivery, toggle drain and reset.
+- [ ] Verify actual marker draw-state coverage, eye placement and clarity in headset.
+- [ ] Measure native transport overhead and resource cost with the lever enabled.
+
 ## FSR implementation (2026-09-26, planned stacked branch)
 
 - [x] Record no perceptible TAA benefit; retain the unmerged depth foundation.

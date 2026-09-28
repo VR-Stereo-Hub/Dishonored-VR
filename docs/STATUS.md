@@ -1,3 +1,98 @@
+## 2026-09-27: sharp markers headset-confirmed
+
+The corrected v1.0.1-143-g128c99b5c candidate produces clear native markers in
+headset. Installed SHA256 matches 9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb.
+The verified log allocates 2114x2192 -> 2750x2850 targets and records matching
+captured/delivered eyes with successful serial-overlay composition for both eyes.
+Run archive: main-repo build/playtest-candidates/menu-submenu-markers/run143-confirmed.
+The user authorized merging the marker work to staging. This accepts the observed
+objective clarity result; it does not establish coverage of every masked marker
+family or an FSR headset result. Animation entry placement is separate new work.
+
+## 2026-09-27: corrected semantic marker candidate installed
+
+Installed optimized local testmix build `v1.0.1-143-g128c99b5c`, containing
+marker fix 93b4a9101 and verified submenu observations 28f6b0060.
+DLL SHA256 `9ae5cf0ee996cc8ddace8bbe31e608f4f1bbcd2eecc4397da35c94f6c4d77beb`.
+Backup: main-repo `build/playtest-candidates/menu-submenu-markers/marker-route-fix-20260927-203958`.
+Whole INI diff changes only DLAA=0 to 1; MarkersSharp=1 and saved Ultra Quality
+(DlssQuality=5) retained. Expected bytes and CRLF verified. Existing upscaler
+helpers unchanged. Nine exports, optimized build, lint and 74 production-routing
+checks pass. No game launch. Headset marker coverage/readability remains pending.
+Next test: stationary objective, compare F10 sharp markers off/on under the armed
+Ultra Quality setting. Clearer text supports the fix; unchanged text requires
+checking composition/refusal logs; movement or duplication is a regression.
+
+## 2026-09-27: run137 sharp markers bypassed by semantic routing
+
+The verified run reproduced unchanged objective readability. The overlay allocated
+at Ultra Quality but semantic HUD routing did not hand native-marker identity to
+it. Fix propagates that identity in the existing early return.74 production-branch
+checks pass; the old-code negative control fails. No marker scale change.
+See HUD_ANCHORS top entry for log identity, timestamps and next single A/B test.
+Build/install the local combined candidate with MarkersSharp=1 retained; confirm
+a reduced upscaler is active before judging the toggle. No headset fix yet.
+
+## 2026-09-27: installed submenu diagnostic and marker candidate
+
+Local test branch local/test-134-145-146, source b91ec4fef, installed optimized
+banner `v1.0.1-137-gb91ec4fef`. DLL SHA256
+`837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803`.
+INI SHA256 `0edadea07f63617c14012748ffa5d33be26c65af8c4afeaae8881c3b3192ca9d`.
+Backup of previous DLL, entire INI, all available logs and upscaler helpers:
+`build/playtest-candidates/menu-submenu-markers/20260927-195340` in the main repo.
+Full INI comparison: add only [Hud] MarkersSharp=0; every prior byte retained.
+CRLF verified without lone CR/LF. Existing DLSS/FSR helpers are byte-identical;
+the new checkout did not rebuild them. Config semantics compared against the
+installed ec7b00c07 baseline: no existing key interpretation changed.
+
+PR #148 is the read-only submenu investigation, with behavioral fix still open.
+PR #149 is the default-off marker candidate depending on #146. Both are drafts
+against staging. Only the authorized local test branch was merged. No PR merge.
+Commits use the explicitly authorized GitHub account identity, without trailers.
+
+Combined optimized build, nine exports, lint, merged PoseFromView palette tests
+and default profile byte parity pass. Production native graphics-only marker
+transport also passes serial separation, reversed delivery, toggle-off draining,
+no-upscale refusal and DEFAULT-resource cleanup across Reset. WARP blend and
+native HUD/routing checks pass. No game or simulator was launched.
+
+Next ONE launch question: does hand jitter appear in Options and disappear on
+return to the root pause menu during the same slow head and controller motion?
+Spend about10 seconds on root,10 in Options, then10 back on root. Diagnostic-only
+hand behavior is unchanged, so a reproduced difference is expected. Inspect
+menu/subscreen callback coverage, menu/hands (sub and newPose/repeatPose),
+menu/hands-mismatch and pause/scene; do not use gameplay hv. If no difference
+reproduces, no fix is established. If both screens jitter, the healthy comparator
+was not reproduced. Preserve MarkersSharp=0 for this launch; marker A/B is later.
+Before reading results, require the new banner above; the current log remains
+v1.0.1-127-g470944905 from before installation.
+
+## 2026-09-27: Sharp native marker overlay candidate
+
+Current state: default-off [Hud] MarkersSharp overlay on claude/hud-markers-sharp,
+based on claude/hud-upscale-sharp and dependent on PR #146. Native draws carry
+colour-capture serial identity through delayed delivery and compose after DLSS/
+FSR at output resolution. See HUD_ANCHORS's 2026-09-27 entry and ARCHITECTURE's
+new depth/occlusion decision. Unsupported masking/blend states remain native.
+
+Validation: optimized build, nine exports, lint; production WARP composition,
+123 native HUD, 503 HUD routing and default writer/profile parity checks pass.
+Real marker coverage and native D3D9/11 transport still require headset testing.
+No game or simulator launched. Resource/performance research stays in PERFORMANCE.
+
+Next: local testmix integration keeps MarkersSharp off for the separate submenu
+comparison. A later single-question launch will enable it for stationary marker
+clarity/position, inspecting hud/markers-sharp eye/serial counts and refusal values.
+No PR merge. Linear creation is unavailable due to the reported free-plan limit.
+
+## Sharp HUD while upscaling (2026-09-27) - built, not run, PR open
+
+Branch `claude/hud-upscale-sharp`. Under DLSS/FSR Super Resolution the HUD was drawn at the reduced
+render size (measured: 1832x1900 at Quality vs 2750x2850 native). `[Hud] UpscaleSharp` (default 0,
+F10 Display "Sharp HUD while upscaling", `hud sharp on|off`) draws it at the upscaler's output
+size. Detail and the headset question: HUD_ANCHORS top entry.
+
 ## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, PR open, not merged
 
 Branch `claude/fsr-upscaler`. FSR runs in the existing x64 helper through AMD's FidelityFX API, SDK 2.3.0:
