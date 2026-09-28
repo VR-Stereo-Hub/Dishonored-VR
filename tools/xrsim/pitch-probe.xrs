@@ -1,0 +1,97 @@
+# pitch-probe.xrs - VR-173 prerequisite 1: does the ENGINE's own view pitch follow the
+# head through a sword attack?
+#
+# Why it matters: the game aims a sword hit from its own view. The sibling BioShock mod
+# wrote the rendered pitch from the head and discarded the engine's value, so the engine's
+# pitch froze near straight down and melee landed on the floor while the picture looked
+# right. If that fault exists here, anything that times or aims an attack from the
+# physical blade inherits it.
+#
+# Needs: a loaded level in GAMEPLAY on the dev PC's sewer save, [Mode] GamepadOnly=0, the
+# sword in the right hand (the first step draws it), and for leg 6 the pistol in the left
+# hand with at least one shot.
+# Run:   .\tools\xrsim-run.ps1 -Path .\tools\xrsim\pitch-probe.xrs -Dir <sim dir>
+# Read:  python tools\pitch-probe-read.py <data dir>\dumps\camshake-p1-*.csv
+#
+# THE INSTRUMENT is the one VR-172 built: `camshake capture <s> <tag>` writes one row per
+# game tick from the fresh branch of the head write, BEFORE the write: the pitch the
+# engine handed in, the pitch the mod wrote on the previous tick, the controller's own
+# rotation, the camera's, and the animation state. No new code runs for this measurement.
+#
+# WHY THE HEAD IS PITCHED. With the head level the head's pitch is 0, and an engine pitch
+# frozen at 0 would agree with it perfectly. Legs 2 and 3 pitch the head 25 degrees up and
+# down, where a frozen pitch reads as a 25 degree error. Leg 1 is the level reference.
+#
+# WHY LEG 6 IS HERE. An instrument that cannot print the unwelcome answer is not evidence.
+# A pistol shot with the game's own kick allowed puts 2.84 degrees of pitch into the
+# controller that the head did not write (VR-172); the same columns must show it.
+#
+# The attacks are `swing sim`: the simulator's display clock leaps about 135 ms across a
+# game-thread hitch and cuts a simulated hand move short (TRAPS, VR-170).
+
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing on; swing mode edge; swing threshold 3.0; swing rearm 1.0; swing cooldown 300; swing sword on; swing output rt; camshake on; camshake release all
+@wait 1500
+
+# 1. Level head, the shipped configuration.
+head rot 0 0 0
+@wait 1500
+@mark
+@mod camshake capture 5 p1-level; swing sim 5 200 3
+@log swing: sim window finished: 3 fire 8s
+@log camshake: CAPTURE 'p1-level' 10s
+
+# 2. Head pitched 25 degrees UP.
+head rot 0 25 0
+@wait 1500
+@mark
+@mod camshake capture 5 p1-up25; swing sim 5 200 3
+@log swing: sim window finished: 3 fire 8s
+@log camshake: CAPTURE 'p1-up25' 10s
+
+# 3. Head pitched 25 degrees DOWN.
+head rot 0 -25 0
+@wait 1500
+@mark
+@mod camshake capture 5 p1-down25; swing sim 5 200 3
+@log swing: sim window finished: 3 fire 8s
+@log camshake: CAPTURE 'p1-down25' 10s
+
+# 4. The head MOVING through the attack: 25 down to 25 up over 1.2 s, the length of the
+#    three swings. Retention is judged against the previous tick's write, so a moving
+#    head does not count as an error; a lagging engine value would.
+@mark
+@mod camshake capture 5 p1-sweep; swing sim 5 200 3
+head to 0 1.60 0 0 25 0 1200
+@log swing: sim window finished: 3 fire 8s
+@log camshake: CAPTURE 'p1-sweep' 10s
+
+# 5. The game's own camera motion allowed (the master switch off), head 25 down: does an
+#    attack add pitch of its own through an influence the mod normally holds at zero?
+head rot 0 -25 0
+@mod camshake off
+@wait 2000
+@mark
+@mod camshake capture 5 p1-down25-gameshake; swing sim 5 200 3
+@log swing: sim window finished: 3 fire 8s
+@log camshake: CAPTURE 'p1-down25-gameshake' 10s
+
+# 6. The control. The kick allowed, one pistol shot: the capture MUST show engine-added
+#    pitch. If this leg reads flat the instrument cannot see a divergence and legs 1 to 5
+#    prove nothing.
+head rot 0 0 0
+@mod camshake on; camshake allow fire on
+@wait 2000
+@mark
+@mod camshake capture 4 p1-control-kick
+@wait 800
+trigger l pull 200
+@log camshake: CAPTURE 'p1-control-kick' .* controller rotation: pitch [1-9]\.\d\d\d yaw 8s
+
+# Leave it as shipped.
+@mod camshake allow walk off; camshake allow fire off; camshake allow landing off; camshake allow hits off; camshake allow generic off; camshake allow smoother on; camshake on; camshake status
+head rot 0 0 0
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200

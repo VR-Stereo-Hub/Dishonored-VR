@@ -1,3 +1,28 @@
+## VR-173: the engine keeps the head's pitch, the controller's rotation included (2026-09-29)
+
+**What the player gets from knowing this.** The game aims a sword hit from its own view.
+If the engine's pitch did not follow the headset, a swing would land where the engine
+believed the player was looking, not where they were. It follows.
+
+Measured on the simulator, build `v1.0.1-158-g5997c5952`, RelWithDebInfo, with the head
+held 25 degrees up, 25 degrees down and swept between them through three sword attacks
+each (`tools/xrsim/pitch-probe.xrs`, rows from `camshake capture`):
+
+* The pitch the engine hands the view-rotation event is the pitch the mod wrote on the
+  previous tick, to the unit, on every one of 2250 game ticks, 507 of them inside
+  `StatePlayerMeleeAttack`.
+* The player controller's own `Actor.Rotation` pitch (read by name, engine memory, not
+  the event's parameters) holds the same value on every tick.
+* The camera's point-of-view pitch leaves it only inside attack rows, by at most 0.49
+  degrees: the attack animation's own camera motion.
+
+So the write in the fresh branch of `ApplyHeadToViewRotation` lands in a rotator the
+engine keeps, although the right stick's pitch axis is zeroed in gameplay
+(`pad_bridge.cpp`). The sibling BioShock mod had the same two ingredients and a frozen
+engine pitch; the difference is the write point. No address or offset is added: every
+field was already resolved by name. Detail and the table:
+`PLAN-contact-sword.md` section 7.1.
+
 ## 2026-09-27: read-only pause submenu identity
 
 Local class declarations expose DisGFxMoviePlayerMenuBase.m_bIsInSaveMenu and

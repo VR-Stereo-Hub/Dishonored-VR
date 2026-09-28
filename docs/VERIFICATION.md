@@ -47,6 +47,15 @@ fires and classifies as a combo, fire dt about 266 ms); `anim melee swing on` ma
 The moves are the swing-edge moves and share its trap: a 200 ms move can be cut short by a sample gap
 (VR-222), so step 4 rests the hand before it swings. Passed 2026-09-25 on Debug and RelWithDebInfo.
 
+VR-173 the engine's pitch through a sword attack: `tools\xrsim-run.ps1 -Path tools\xrsim\pitch-probe.xrs`
+from GAMEPLAY with the sword out, then `python tools\pitch-probe-read.py <data dir>\dumps\camshake-p1-*.csv`.
+Five legs (head level, 25 up, 25 down, swept, and down with the game's own camera motion allowed),
+three `swing sim` attacks each; the reader prints `VERDICT: TRACKS` per capture when the pitch the
+engine hands back and the controller's own rotation stay within 1 degree of the head's through the
+attack rows, `DIVERGES` otherwise, and `NONE` when the capture saw no attack. The level leg cannot
+fail and the reader says so. Leg 6 is the control and needs a pistol in the left hand: without one
+it fails, and the run has no control. Passed legs 1 to 5 on 2026-09-29; leg 6 did not run.
+
 VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
 trail's particle component is found on the pawn by its template, the native hide takes
 `HiddenGame 0 -> 1`, three more attacks do not show it again, the lever shows and re-hides

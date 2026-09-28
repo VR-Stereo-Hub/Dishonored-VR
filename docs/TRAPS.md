@@ -1,3 +1,25 @@
+## "Continue" loads the NEWEST save, and it is no longer the safe one (VR-173, 2026-09-29)
+
+Every simulator sequence says it needs "the dev PC's sewer save". The walk-in (Return
+three times) takes the menu's Continue, which is whichever save is newest, and after the
+2026-09-25 headset session that is a hall with something hostile in it. Twice in a row
+the player, left alone, stood up out of its crouch about 90 to 125 s after the load and
+was dead within ten seconds (`master=StatePlayerMasterDead`, `[game] state: NO_PAWN`).
+The first time it read as the simulator's `refresh 240` having done it, because that was
+the last thing sent; the second run sent no refresh and died the same way.
+
+* **A sequence that needs a particular save has to reach that save, not the newest one.**
+  Look at a capture AND at how long the level has been up before believing a number.
+* **A dead player still dispatches the view-rotation event.** A capture started after the
+  death returned 152 rows and a summary line. The `state` column is what says so.
+* **A control leg that needs an item is only a control where the item is.** The pitch
+  probe's control is a pistol shot; this save holds no pistol, the leg read flat, and a
+  flat control is indistinguishable from a blind instrument. The run's verdict says the
+  control did not run instead of counting it.
+* **The right stick is not a way to add engine yaw.** Snap turn takes the push before
+  the engine sees it and writes the step itself, so the engine hands back exactly what
+  the mod wrote.
+
 ## 2026-09-25: test activation, not only an already enabled reader
 
 36a8d7f95's correct sprite+BC field still did not capture the potion. Its new

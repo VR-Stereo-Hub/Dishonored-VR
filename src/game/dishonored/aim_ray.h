@@ -75,8 +75,10 @@ struct Ray {
     const char* why = "no sample";
 };
 // Consumers: fixed-distance crosshair endpoint and beam points, by shared DATA.
-// Future consumers: projectile, Blink and powers. None is connected in VR-57.
-// Game-space conversion and a measured barrel axis do not exist here yet.
+// Engine consumers since VR-57: the crossbow and pistol, Blink, interaction, throws and
+// the powers. The ray stays in XR LOCAL metres here; the conversion to game world units
+// is dvr::fireaim::solve (fire_aim_math.h), and the measured barrel axis is
+// ModelRaySnapshot above.
 inline Ray from_pose(int hand, bool valid, const float pos[3], const float quat[4],
                      uint32_t gen, uint64_t sampleMs, uint64_t now) {
     Ray r; r.hand = hand; r.gen = gen; r.sampleMs = sampleMs;

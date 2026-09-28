@@ -1,7 +1,9 @@
 # The contact-timed sword: research and a next-session brief (VR-173)
 
-Status: **RESEARCH, not started.** Written 2026-09-21 alongside VR-170. Nothing here
-is built. Section 5 is a brief to paste into a fresh session.
+Status: **RESEARCH, in progress since 2026-09-29.** Written 2026-09-21 alongside VR-170.
+Sections 1 to 5 are the plan as written and are left as they were. Section 6 holds what
+turned out to be different by the time the work started, section 7 the verdicts, one per
+prerequisite, in the order they were measured. Prerequisite 1 has its verdict.
 
 ## 1. What the player would get
 
@@ -143,3 +145,96 @@ pressed with the target already at blade range.
 > and the TRAPS entry on the simulator's display clock leaping after a hitch: use
 > `swing sim` for anything with no speed margin). End with a go or no-go and the
 > feature ticket it implies.
+
+## 6. What was different when the work started (2026-09-29)
+
+Read from the code on `staging` at `5997c5952`, before anything was measured. Each line
+corrects a statement in sections 2 to 4 and says where the fact lives.
+
+| Section says | What the code says |
+|---|---|
+| 4.3: the bridge from XR-local metres to world units does not exist | It exists for RAYS: `HandRayWorld` (`interact_aim.cpp`) over `dvr::fireaim::solve` (`fire_aim_math.h`), anchored on the game camera, used by interaction, throws, powers, Blink and the crossbow, headset-confirmed (VR-166, VR-181). The comment in `aim_ray.h` is stale. What is missing is the same transform for a POINT, and for the RIGHT hand: the published aim ray is the left hand's (`aim_ray.cpp` forces hand 0) |
+| 4.3: pieces include `handToWorldScale` | Confirmed, and it matters: the hands and the held weapon are drawn at hand travel `[Hands] WorldScaleUU` x `PaletteDriveGain` = 100 uu per metre, the camera at `[PosTrack] Scale` = 108. A blade point goes through the same two steps the aim ray's origin does, or it lands 8 % off the drawn blade |
+| 4.2: the VR-57 machinery is keyed on the equipped item | Its comments say so; the code latches ONE bolt axis for the session and shares it across every weapon. The equipped-item field in it is unused |
+| 4.2: run the sword through that machinery | Three of its gates refuse the sword before any axis is fitted: 2481 vertices against a cap of 1024, more than one bone against a rigid single-bone rule, and a candidate test that accepts the regular bolt only. `tools/bolt-axis-tests.cpp` asserts the sword stays refused as an AIM-RAY candidate, and it must. The blade therefore gets its own measurement and its own publication slot |
+| 4.5 and the open questions: the honoured-check's 15 to 31 ms | That is the measured LATENCY of an honoured attack (simulator 15 to 16 ms; headset 15 to 109 ms, median 31). The window in code is `[Melee] HonourMs`, 600 ms |
+| 4.4: `g_peReentry` guards the outbound call | It guards two callers only. A script-lane module that calls the engine needs its own `inside` guard and a once-per-frame gate (TRAPS, VR-182: build 668 overflowed the stack without one). `FxFollowTick` is the pattern |
+| 4.4: find the function by name | `Actor.Trace` is ambiguous by name: a name match on the outer collides with other classes' `Trace`. The function object is found once by class and name, and its parameters by their outer POINTER |
+
+Sword work merged after the plan was written, and what it means for prerequisite 5:
+
+* **VR-220, the attack source.** An attack is classified as a physical swing when the
+  game enters the attack while the pulse is open or within 80 ms of its close. The rule
+  is relative to the PULSE, so a contact press classifies exactly as an edge press does.
+* **VR-203 and VR-111, the drop takedown.** An airborne attack press is held up to
+  420 ms until the game reports a target under the player. A drop kill needs its press
+  BEFORE the landing; a blade cannot reach the target in time. In the air the game's
+  own drop decision has to stand in for blade contact.
+* **The motion sword's gate for a body the game owns** reads the camera-action
+  classifier, not the hand-back as a whole. Unchanged by this work.
+* **The stab and the plunge** run only under `edge` (`melee.cpp`, `stab_armed` is asked
+  only when the detector is `edge`). A third detector has to enable them on purpose.
+
+One design risk the plan did not name, recorded here so the go or no-go weighs it. `edge`
+presses attack at the START of a swing, so the game's wind-up runs while the arm is still
+travelling. Contact presses when the blade ARRIVES, so the wind-up runs after it and the
+hit lands once the arm has passed. The press-to-hit latency has to be measured before a
+threshold is chosen.
+
+## 7. Verdicts
+
+### 7.1 Prerequisite 1, engine pitch against head pitch: THE FAULT IS ABSENT (2026-09-29)
+
+**Verdict: the engine's view pitch follows the head through a sword attack, to the unit.
+The sibling mod's pitch servo has no work here and is not ported.**
+
+Build `v1.0.1-158-g5997c5952`, RelWithDebInfo, legacy off, the simulator (`dvr-xrsim`,
+2064x2208 per eye, `stereo reentry`, 90 pairs a second), RTX 4060, the dev PC's newest
+save. No new code ran: the instrument is VR-172's `camshake capture`, which records one
+row per game tick from the fresh branch of the head write, before the write.
+`tools/xrsim/pitch-probe.xrs` is the sequence, `tools/pitch-probe-read.py` reads the rows.
+
+| Leg | Head pitch | Game ticks (in an attack) | Engine handed back minus last written | Controller's own rotation minus last written | Camera minus last written |
+|---|---|---|---|---|---|
+| level | 0 | 450 (141) | 0.000 | 0.000 | 0.000 |
+| up | +25.0 | 450 (143) | 0.000 | 0.000 | 0.000 |
+| down | -25.0 | 450 (75) | 0.000 | 0.000 | p90 0.319, max 0.483 |
+| swept -25 to +25 in 1.2 s | moving | 450 (74) | 0.000 | 0.000 | p90 0.308, max 0.472 |
+| down, the game's own camera motion allowed | -25.0 | 450 (74) | 0.000 | 0.000 | p90 0.313, max 0.489 |
+
+Degrees, the attack rows' worst value unless marked. Every leg drove three attacks with
+`swing sim 5 200 3`, and every one fired three times.
+
+What each column can and cannot say:
+
+* **The level leg is not evidence.** A pitch frozen at zero agrees with a level head. It
+  is the reference only, and the reader says so on its own line.
+* **The controller column is the one that settles it.** It is read from the player
+  controller's own `Actor.Rotation`, engine memory, not from the event's parameters. In
+  the sibling mod that value sat at -88.9 degrees while the picture followed the head.
+  Here it reads the head's +25 and -25 and follows the sweep tick by tick.
+* **The camera column moves only in attack rows**, by under half a degree: that is the
+  attack animation's own camera motion, and it is what shows the rows are live readings.
+* The mod zeroes the right stick's pitch axis in gameplay (`pad_bridge.cpp`, "pitch
+  belongs to the head"), which is the same arrangement the sibling mod had. The
+  difference is where the head's pitch is written: into the rotator the engine keeps.
+
+**The control leg did not run, and that is recorded rather than hidden.** It needs a
+pistol shot with the game's kick allowed (2.84 degrees of pitch the head did not write,
+VR-172), and this save has no pistol in the left hand. Two substitutes were tried and
+neither is a control: the right stick's yaw is taken by snap turn before the engine sees
+it, and the player died before the pitch-clamp leg. The instrument's ability to show
+engine-added pitch therefore rests on the VR-172 run of 2026-09-21 and on the three
+bullets above, not on a leg of this run.
+
+**The headset agrees.** The logs of the 2026-09-25 headset session (build
+`v1.0.1-9-g1e948fac4`) carry the 3 s `headtrack:` heartbeat, which prints the incoming
+pitch beside the written one: 1012 samples, 95 swings. Incoming against written, median
+0.06 degrees, p90 0.39; within 1.5 s of a swing, 66 samples, median 0.11, max 1.65. 18
+samples were over 5 degrees and NONE was near a swing: 14 follow a menu, a load, a
+cutscene, a keyhole or the power wheel by under 3 s, and the other 4 sit on the tick the
+master state returns to walking. They are the first write after the game owned the view,
+not an engine that stopped following.
+
+Not measured: a takedown or a drop kill (the game owns the camera there, and the mod
+stands down), and a real opponent (the simulator's attacks hit nothing).
