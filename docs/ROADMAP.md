@@ -633,3 +633,5 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 - [x] Bounded sampled scopes and production host checks.
 - [ ] Headset log attribution, then choose a measured optimization.
 - [ ] Integration branch validation after independent wins are established.
+
+- [x] Animation return retains its mask/origin through the controller blend; bounded per-eye hand/weapon trajectory diagnostic built. Headset smoothness and remaining entry/pass discrepancies pending (ANIM-HANDOFF-PLAN).

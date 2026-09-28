@@ -4,6 +4,7 @@
 #include <cstdlib>
 using namespace dvr;
 static unsigned long long now=1000,renderFrame=1;
+static float g_skcWorldScale=100,g_mpDriveGain=1;
 static unsigned g_mpSrcGen=7;static int g_mpEyeState=-1;
 static bool g_menuOpen=false,g_inMenu=false,g_mainMenu=false,blocked=false,leverOn=true;
 static anim::Snapshot state;static float weights[2]={1,1};
@@ -14,11 +15,12 @@ namespace dvr::anim {
  Snapshot snapshot(){return ::state;}
  bool enabled(){return true;}
  bool hand_origin_enabled(){return leverOn;}
+ bool hand_origin_trace(){return false;}
  float weight_for(int h){return weights[h];}
 }
 #define Log(...) ((void)0)
 #define DVR_LOG_EVERY_MS(...) ((void)0)
-struct MpDrawCtx {bool ok=true,poseOk=true;hf::Mat3 R_L=hf::identity3();struct {bool ok[2]={true,true};unsigned gen=3;}pose;};
+struct MpDrawCtx {bool ok=true,poseOk=true;float t[3]{},r[3]{1,0,0},u[3]{0,1,0},f[3]{0,0,1};hf::Mat3 R_L=hf::identity3();struct {bool ok[2]={true,true};unsigned gen=3;float ruf[2][3]{};}pose;};
 static hf::Xform published[2];static int publishes[2]{};
 void WaPublishCommon(int h,const MpDrawCtx*,const hf::Xform& x){published[h]=x;++publishes[h];}
 #include "animation_origin_route.inc"
@@ -39,6 +41,13 @@ int main(){
  check(MpAnimNative(&c,1,&out),"native path remains aligned in other eye");
  check(fabsf(out.t[0]-17)<.001f && publishes[1]==1,"weapon gets native common correction");
  tracked.t[0]=99;MpAnimBlend(&c,1,q,tracked);check(fabsf(g_animOrigin.world[0]-17)<.001f,"controller changes do not retarget animation");
+ next();state.game=false;weights[0]=weights[1]=.5f;
+ check(MpAnimReady(),"classifier release preserves origin through return blend");
+ auto returning=MpAnimBlend(&c,1,q,tracked);
+ check(fabsf(returning.t[0]-58)<.001f,"return blends origin into current controller target");
+ next();state.handMask=0;weights[0]=weights[1]=1;
+ check(!MpAnimReady(),"finished return releases origin");
+ entry(6);MpAnimBlend(&c,1,q,tracked);
  next();g_menuOpen=true;check(!MpAnimReady(),"menu clears entry");next();g_menuOpen=false;check(!MpAnimRoute(),"same action after menu stays refused");
  entry(2);MpAnimBlend(&c,1,q,tracked);check(MpAnimReady(),"new action rearms");
  ++g_mpSrcGen;check(!MpAnimReady(),"source rebuild clears in same frame");

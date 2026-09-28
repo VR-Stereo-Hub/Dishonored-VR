@@ -30,6 +30,12 @@ inline int AnimPolicyTests() {
     check("instant-entry",h.value(630,0)==0);
     h.update(true,false,true,640,0,0);
     check("instant-exit",!h.game && h.value(640,0)==1);
+    check("return-mask-start",render_hand_mask(true,true,0,3,false,0)==3);
+    check("return-mask-midpoint",render_hand_mask(true,true,0,2,false,.5f)==2);
+    check("return-mask-finished",render_hand_mask(true,true,0,3,false,1)==0);
+    check("entry-mask-immediate",render_hand_mask(true,true,2,0,true,1)==2);
+    check("return-mask-disabled",render_hand_mask(true,false,0,3,false,.5f)==0);
+    check("return-mask-invalid",render_hand_mask(false,true,0,3,false,.5f)==0);
     dvr::hf::Xform t={dvr::hf::euler_xyz_deg_to_mat(0,0,180),{20,-10,4}};
     const auto zero=blend_transform(t,0),half=blend_transform(t,0.5f),one=blend_transform(t,1);
     check("identity-endpoint",zero.r.m[0]==1 && zero.t[0]==0);

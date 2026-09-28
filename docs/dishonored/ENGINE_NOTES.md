@@ -9906,3 +9906,39 @@ actual device constants; attachment members use the established common-correctio
 bridge and instance checks. No new offsets or engine-memory writes. Native depth
 and lens policies stay native. See ANIM-HANDOFF-PLAN top entry for state lifetimes,
 verified baseline, test coverage and the pending headset question.
+
+## 2026-09-28: animation return correction and trajectory capture
+
+The verified 150 run reports improved entry alignment but abrupt return, an elevated
+overhead finisher and brief aerial sword oscillation. DLL/banner matched the prior
+install. Archive: main build/playtest-candidates/animation-hand-origin/run150-reported.
+The run contains 24 entry captures and 11 native-body refusals. DropLeft and DropRight
+entries coincide with non-unit LocalToWorld refusals, uncorrectable weapon passes and
+weapon-to-body distances above the existing 200 uu guard. No guard is widened.
+
+Source-confirmed return defect: classifier release cleared handMask while Handoff was
+still blending toward the controller. weight_for then returned 1 immediately and the
+origin route discarded its translation. Retain ownership, split policy and origin until
+the return reaches 1; gameplay/action classification remains separate. Keep released
+SkelControls through this visual return so a second writer cannot jump the source pose.
+
+[Anim] HandOriginTrace=1 enables bounded 50 ms samples per eye/hand: controller raw RUF,
+native palm, translated animation palm, submitted palm and calibrated target when
+available, with frame, source, pose, state, body mode and history age. History is not
+claimed to be the current clip. Actual corrected weapon submissions carry palette-root
+positions, correction and HRESULT; context refusals now report column norm and layout.
+These are draw-input measurements, not framebuffer proof. No clip-height correction or
+attachment-bound expansion is justified yet. Existing 150 ms blend timing is retained.
+
+Validation: optimized build, 3901 origin math checks, 24 extracted production-route
+checks (including classifier release), 138 catalog checks plus handoff/return policy,
+palette-eye and standalone frame suites, lint and diff check pass. No game launch.
+Next perceptual question is whether a drop takedown returns smoothly to the held hand;
+other animations can be played in the same run to collect trajectories automatically.
+PR151 remains a draft without merge authorization.
+
+Separate culling report: heads/gates disappear behind a sword under DLAA. Installed
+mode was pereye. Successful swap heartbeat stops after the save load while stereo and
+DLAA continue; event and scan controllers disagree. The culling resolver uses the scan
+controller. Investigate this shared engine path before adding an upscaler-specific fix.
+

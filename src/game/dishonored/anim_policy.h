@@ -39,6 +39,13 @@ struct Handoff {
         if (next != target) { from = value(now,blendMs); target = next; blendAt = now; }
     }
 };
+// Classification can end before the visual return does. Keep the same hands
+// owned until their correction reaches the controller endpoint.
+inline unsigned char render_hand_mask(bool valid,bool enabled,unsigned char matched,
+                                      unsigned char previous,bool game,float weight) {
+    if(!valid || !enabled)return 0;
+    return matched ? matched : (game || weight<1.0f) ? previous : 0;
+}
 // Slerp the proper rotation from identity and linearly interpolate uniform
 // scale/translation. Refuse shear/reflection instead of collapsing a limb.
 inline hf::Xform blend_transform(const hf::Xform& input, float weight) {

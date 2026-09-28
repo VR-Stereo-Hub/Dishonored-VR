@@ -49,9 +49,10 @@ float view_right_cm();
 void set_view_right_cm(float cm);
 float view_right_metres(); // zero outside native handback, blended with its ownership
 
+bool hand_origin_trace(); // read-only bounded trajectory diagnostic, default off
 bool hand_origin_enabled();
 void set_hand_origin(bool on);
-bool active(); // immediate ownership, including release hysteresis
+bool active(); // immediate ownership, release hysteresis and visual return blend
 bool native_draw(); // blend reached identity: native pose
 bool native_full_arms(); // native draw except explicit hidden-forearm mantle
 float weight(); // controller correction: 1 = controller, 0 = native

@@ -433,6 +433,26 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
 // Apply a known delta to whatever palette this shader declares. Shared by the
 // buffer-identity path and the non-indexed path: both already know WHICH mesh
 // they are looking at and need only the register and the delta.
+// Read-only trajectory companion: identify the actual corrected weapon pass,
+// not merely the correction offered by the hand. Root positions are mesh-local.
+static void WaAnimTrace(const WaMesh* w,const float* source,const dvr::hf::Xform& delta,
+                        bool auxiliary,bool indexed,HRESULT result)
+{
+    if(!dvr::anim::hand_origin_trace() || !MpAnimReady() || !w || w->hand<0 || w->hand>1)return;
+    static uint64_t next[2][2][2]{};
+    auto& due=next[g_mpEyeState>0?1:0][w->hand][auxiliary?1:0];
+    const auto now=GetTickCount64();if(now<due)return;due=now+50;
+    const float root[3]={source[3],source[7],source[11]};float moved[3];
+    dvr::hf::apply_point(delta,root,moved);
+    Log("anim/weapon: ep=%llu frame=%llu eye=%d hand=%d asset=%s route=%s indexed=%d hr=%08X weight=%.3f "
+        "rootLocal=(%.3f %.3f %.3f) renderedLocal=(%.3f %.3f %.3f) delta=(%.3f %.3f %.3f) "
+        "totals placed=%ld dropped=%ld suppressed=%ld noView=%ld offRig=%ld stale=%ld (cumulative, not per action)",
+        g_animOrigin.episode,(unsigned long long)dvr::frame::count(),g_mpEyeState,w->hand,w->asset,
+        auxiliary?"auxiliary":"main",int(indexed),unsigned(result),dvr::anim::weight_for(w->hand),
+        root[0],root[1],root[2],moved[0],moved[1],moved[2],delta.t[0],delta.t[1],delta.t[2],
+        g_waSucceeded,g_waIdDropped,g_waSuppressed,g_waNoCommon,g_waOffRig,g_waStaleComp);
+}
+
 static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
                            const dvr::hf::Xform& delta, bool indexed,
                            D3DPRIMITIVETYPE type, INT baseVertex, UINT minIndex,
@@ -474,6 +494,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
                                         numVertices, startIndex, primCount)
         : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
     if (hr) *hr = drawHr;
+    WaAnimTrace(w,source,delta,true,indexed,drawHr);
     // VR-138: the sibling passes take the mirror too, so depth and colour agree.
     if (!dvr::anim::native_draw() && SUCCEEDED(drawHr) && indexed)
         WmDraw(dev, w, source, (UINT)start, (UINT)cnt, delta, type, baseVertex, minIndex,
@@ -1518,6 +1539,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
+    WaAnimTrace(w,source,delta,false,true,drawHr);
     if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
     // VR-138: the mirrored copy, inside the same patched palette and depth range.
     if (!dvr::anim::native_draw() && SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,

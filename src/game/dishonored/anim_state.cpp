@@ -38,6 +38,7 @@ bool handAnimMeleeSwing = false;
 // the left stays on the controller (free to point, Blink, hold an item). 1 = both hands.
 bool handAnimMeleeBoth = false;
 unsigned char frameMask = 0;         // the mask the frame's weight was cached with
+std::atomic<bool> handOriginTrace{false};
 std::atomic<unsigned char> ownedMask{0};   // hands the game owns right now (tick() publishes it; hand_owned reads it)
 unsigned long long meleeKey = 0;     // the attack classified: max(entered[1], a combo clip's sequenceAt)
 bool meleeTrigger = false;           // its verdict, latched: true = TRIGGER, false = SWING
@@ -352,13 +353,14 @@ float weight_for(int hand) {
     return (hand>=0 && hand<2 && (m & (1u<<hand))) ? w : 1.0f;
 }
 bool hand_origin_enabled(){return handOrigin.load();}
+bool hand_origin_trace(){return handOriginTrace.load();}
 void set_hand_origin(bool on){
     handOrigin.store(on);
     Log("anim/origin: HandOrigin=%d (next animation entry; right-hand translation, native rotation)",int(on));
 }
-bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.game; }
+bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.handMask!=0; }
 // Cheap on purpose: SkcRotApply asks per control on every ProcessEvent dispatch. The mask
-// is published by tick() as (handback && valid && game) ? handMask : 0, the same test active() makes.
+// is retained by tick() through the visual return, the same ownership active() reports.
 bool hand_owned(int hand) { return hand>=0 && hand<2 && (ownedMask.load() & (1u<<hand)); }
 // The whole-draw native path (the split draws the game's own pose, the weapons fall back to
 // their native draw) is for a hand-back that owns BOTH hands. A right-hand-only hand-back keeps
@@ -494,17 +496,18 @@ void tick() {
     // VR-220: which hands this hand-back owns. A trigger sword attack alone owns the right
     // hand (the clip is right-handed); anything else owns both. Held through the release
     // hysteresis so the blend out finishes on the same hands it blended in on.
-    s.handMask=!s.valid ? 0 : match ? ((swing && !mantle && !fire && !rules && !handAnimMeleeBoth) ? 2 : 3)
-                        : classifier.game ? previous.handMask : 0;
+    handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
+    const unsigned char matchedMask=match ? ((swing && !mantle && !fire && !rules && !handAnimMeleeBoth) ? 2 : 3) : 0;
+    s.handMask=render_hand_mask(s.valid,watch && handback,matchedMask,previous.handMask,
+                               classifier.game,handoff.value(now,blendMs));
     s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) :
         handPose ? !(swing ? resolve_arm_rule(1,s.state[1]) : resolve_arm_rule(fireLane,s.state[fireLane])) :
         takedownSplit ? true :
-        (!match && classifier.game && previous.mantleSplit));
-    handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
+        (!match && s.handMask && previous.mantleSplit));
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
-    ownedMask.store((handback && s.valid && s.game) ? s.handMask : 0);   // VR-220: what hand_owned() answers
-    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
+    ownedMask.store(s.handMask);   // VR-220: what hand_owned() answers
+    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":s.handMask?"returning to tracked hands":"no selected active action");
     // A render token, never an engine pointer. Re-entry after unavailable state
     // gets a new token even if an allocator reuses the same pawn address.
     if(s.valid && s.game && (!previous.game || !previous.valid || pawnChanged ||
@@ -548,6 +551,8 @@ void configure(const char* ini) {
     Log("config: [Anim] CinematicHandBack=%d",cinematicHandback);
     mantleHandback=GetPrivateProfileIntA("Anim","MantleHandBack",1,ini)!=0;
     Log("config: [Anim] MantleHandBack=%d",mantleHandback);
+    handOriginTrace.store(GetPrivateProfileIntA("Anim","HandOriginTrace",0,ini)!=0);
+    Log("config: [Anim] HandOriginTrace=%d (bounded per-eye hand trajectories)",int(handOriginTrace.load()));
     handOrigin.store(GetPrivateProfileIntA("Anim","HandOrigin",0,ini)!=0);
     Log("config: [Anim] HandOrigin=%d (right-hand animation entry translation)",int(handOrigin.load()));
     hideTakedownArms=GetPrivateProfileIntA("Anim","HideTakedownArms",1,ini)!=0;   // VR-283
@@ -612,6 +617,9 @@ void save(const char* ini) {
 bool command(const char* args) {
     char sub[24]={}, value[24]={}, extra[24]={}; sscanf(args,"%23s %23s %23s",sub,value,extra);
     if (!strcmp(sub,"handback") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_enabled(!strcmp(value,"on"));
+    else if (!strcmp(sub,"trace") && (!strcmp(value,"on") || !strcmp(value,"off"))) {
+        handOriginTrace.store(!strcmp(value,"on")); Log("anim/trace: enabled=%d",int(handOriginTrace.load()));
+    }
     else if (!strcmp(sub,"origin") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_hand_origin(!strcmp(value,"on"));
     else if (!strcmp(sub,"watch") && (!strcmp(value,"on") || !strcmp(value,"off"))) {
         AcquireSRWLockExclusive(&lock); watch=!strcmp(value,"on"); published.valid=false; handoff=Handoff{}; ReleaseSRWLockExclusive(&lock);
@@ -628,7 +636,7 @@ bool command(const char* args) {
             handAnimMeleeSwing?" and for a physical swing":"; a physical swing keeps your arm");
         ReleaseSRWLockShared(&lock);
         return true;
-    } else if (*sub && strcmp(sub,"status")) Log("anim: status | origin on|off | watch on|off | handback on|off | melee on|off | melee swing on|off | melee both on|off | melee status");
+    } else if (*sub && strcmp(sub,"status")) Log("anim: status | trace on|off | origin on|off | watch on|off | handback on|off | melee on|off | melee swing on|off | melee both on|off | melee status");
     report(snapshot()); return true;
 }
 void status(dvr::status::Writer& w) {

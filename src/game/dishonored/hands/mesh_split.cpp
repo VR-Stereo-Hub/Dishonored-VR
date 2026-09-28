@@ -2141,7 +2141,15 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
     for (int j = 0; j < 3; j++) {
         const float n = sqrtf(c->col[j][0]*c->col[j][0] + c->col[j][1]*c->col[j][1] +
                               c->col[j][2]*c->col[j][2]);
-        if (fabsf(n - 1.0f) > 0.02f) { c->why = "LocalToWorld column is not unit"; return false; }
+        if (fabsf(n - 1.0f) > 0.02f) {
+            c->why = "LocalToWorld column is not unit";
+            if(dvr::anim::hand_origin_trace() && dvr::anim::active())
+                DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,250,
+                    "anim/trace: CONTEXT REFUSED frame=%llu eye=%d column=%d norm=%.6f palette=%u layout=c%d x%d L2W=c%d VP=c%d target=%p size=%ux%u",
+                    (unsigned long long)dvr::frame::count(),g_mpEyeState,j,n,g_mpCacheN,g_pcLayBones,g_pcLayBonesN,
+                    g_pcLayL2W,g_pcLayVp,c->target,c->viewport.Width,c->viewport.Height);
+            return false;
+        }
     }
     for (int j = 0; j < 3; j++)
         for (int kk = j + 1; kk < 3; kk++) {
@@ -2707,7 +2715,7 @@ static bool MpAnimRoute()
     g_animOriginState=dvr::anim::snapshot();
     const auto& s=g_animOriginState;
     const bool valid=dvr::anim::enabled() &&
-        s.valid && dvr::anim::fresh(s.stamp,GetTickCount64()) && s.game && (s.handMask&2) &&
+        s.valid && dvr::anim::fresh(s.stamp,GetTickCount64()) && (s.handMask&2) &&
         !g_menuOpen && !g_inMenu && !g_mainMenu && !UiSurfaceBlocks();
     const bool wasReady=g_animOrigin.ready;
     g_animOrigin.sync(s.originEpisode,g_mpSrcGen,valid);
@@ -2721,6 +2729,43 @@ static bool MpAnimRoute()
     cached=valid; return valid && !g_animOrigin.refused;
 }
 static bool MpAnimReady() { return MpAnimRoute() && g_animOrigin.ready; }
+// Samples are camera-relative right/up/forward in game units. The controller
+// is raw pose RUF scaled by the same gain as placement; calibratedTarget also
+// includes grip/model trim when the tracked correction was actually computed.
+static void MpAnimTrace(const MpDrawCtx* c,int hand,const float* palm,
+                        const dvr::hf::Xform& rendered,const dvr::hf::Xform* tracked,
+                        const char* route)
+{
+    if(!dvr::anim::hand_origin_trace() || !c || !c->ok || hand<0 || hand>1 ||
+       !g_animOrigin.ready || !g_mpEyeState)return;
+    struct Slot {uint64_t episode=0,next=0;};
+    static Slot slots[2][2];
+    auto& slot=slots[g_mpEyeState>0?1:0][hand];const auto now=GetTickCount64();
+    if(slot.episode==g_animOrigin.episode && now<slot.next)return;
+    slot.episode=g_animOrigin.episode;slot.next=now+50;
+    const auto& s=g_animOriginState;
+    float local[4][3];memcpy(local[0],palm,sizeof(local[0]));
+    dvr::hf::apply_point(g_animOrigin.local(c->R_L),palm,local[1]);
+    dvr::hf::apply_point(rendered,palm,local[2]);
+    if(tracked)dvr::hf::apply_point(*tracked,palm,local[3]);
+    else memcpy(local[3],palm,sizeof(local[3]));
+    float ruf[4][3]{};const float* axes[3]={c->r,c->u,c->f};
+    for(int p=0;p<4;++p)for(int a=0;a<3;++a)for(int i=0;i<3;++i) {
+        float v=c->t[i];for(int j=0;j<3;++j)v+=c->R_L.m[i*3+j]*local[p][j];
+        ruf[p][a]+=axes[a][i]*v;
+    }
+    const float gain=(g_skcWorldScale>1?g_skcWorldScale:100)*g_mpDriveGain;
+    float raw[3]{};for(int a=0;a<3;++a)raw[a]=c->pose.ruf[hand][a]*gain;
+    Log("anim/trace: ep=%llu age=%llu frame=%llu eye=%d hand=%d route=%s source=%u pose=%u valid=%d weight=%.3f game=%d mask=%u body=%d "
+        "controllerRawRUF=(%.2f %.2f %.2f) nativeRUF=(%.2f %.2f %.2f) animatedRUF=(%.2f %.2f %.2f) submittedRUF=(%.2f %.2f %.2f) "
+        "calibratedValid=%d calibratedRUF=(%.2f %.2f %.2f) delta=(%.2f %.2f %.2f) "
+        "master=%s upper=%s history=%s historyAge=%llu (history is not current clip; RUF uu camera-relative)",
+        s.originEpisode,now>=s.originAt?now-s.originAt:0,(unsigned long long)dvr::frame::count(),g_mpEyeState,hand,route,
+        g_mpSrcGen,c->pose.gen,int(c->poseOk && c->pose.ok[hand]),dvr::anim::weight_for(hand),int(s.game),unsigned(s.handMask),s.bodyMode,
+        raw[0],raw[1],raw[2],ruf[0][0],ruf[0][1],ruf[0][2],ruf[1][0],ruf[1][1],ruf[1][2],ruf[2][0],ruf[2][1],ruf[2][2],
+        int(tracked!=nullptr),ruf[3][0],ruf[3][1],ruf[3][2],g_animOrigin.world[0],g_animOrigin.world[1],g_animOrigin.world[2],
+        s.state[0],s.state[1],s.sequence,now>=s.sequenceAt?now-s.sequenceAt:0);
+}
 static dvr::hf::Xform MpAnimBlend(const MpDrawCtx* c,int hand,const float* palm,const dvr::hf::Xform& tracked)
 {
     const float w=dvr::anim::weight_for(hand);
@@ -2733,7 +2778,9 @@ static dvr::hf::Xform MpAnimBlend(const MpDrawCtx* c,int hand,const float* palm,
             g_animOrigin.world[0],g_animOrigin.world[1],g_animOrigin.world[2],
             palm[0],palm[1],palm[2],moved[0],moved[1],moved[2]);
     }
-    return g_animOrigin.blend(c->R_L,tracked,w);
+    const auto result=g_animOrigin.blend(c->R_L,tracked,w);
+    MpAnimTrace(c,hand,palm,result,&tracked,"split-blend");
+    return result;
 }
 static bool MpAnimNative(const MpDrawCtx* c,int hand,dvr::hf::Xform* out)
 {
@@ -2757,7 +2804,7 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
     const char* dummy = NULL; if (!why) why = &dummy;
     if (!c || !c->ok)                { *why = c ? c->why : "no context"; return false; }
     if (hand < 0 || hand > 1)        { *why = "bad hand"; return false; }
-    if (MpAnimNative(c,hand,outD)) return true;
+    if (MpAnimNative(c,hand,outD)) { MpAnimTrace(c,hand,qLocal,*outD,nullptr,"split-native"); return true; }
     if (!c->poseOk || !c->pose.ok[hand]) {
         *why = (g_mpTickRan == 0)
              ? "the pose tick has NEVER RUN - the palette backend is off, or "
@@ -3423,13 +3470,13 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     }
     if(g_msPassThrough && originRoute) {
         PcRefreshLayout(dev);
-        MpDrawCtx ctx; dvr::hf::Xform delta;
+        MpDrawCtx ctx{}; dvr::hf::Xform delta;
         if(!g_mpWorld || !g_mpOn || !g_mpPalN || g_mpCacheN!=g_mpPalN ||
            g_pcLayBones!=6 || g_pcLayBonesN<(int)g_mpPalN ||
            !MpAcquireCtx(dev,&ctx)) {
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,1000,
-                "anim/origin: native body REFUSED palette=%u/%u layout=c%d x%d world=%d backend=%d",
-                g_mpCacheN,g_mpPalN,g_pcLayBones,g_pcLayBonesN,int(g_mpWorld),int(g_mpOn));
+                "anim/origin: native body REFUSED palette=%u/%u layout=c%d x%d world=%d backend=%d reason=%s",
+                g_mpCacheN,g_mpPalN,g_pcLayBones,g_pcLayBonesN,int(g_mpWorld),int(g_mpOn),ctx.why ? ctx.why : "palette/layout guard");
             return false;
         }
         MpDrawCompare(&ctx);
@@ -3444,6 +3491,11 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
         }
         if(!MpAnimNative(&ctx,1,&delta))return false;
         WaPublishCommon(0,&ctx,delta);
+        if(dvr::anim::hand_origin_trace())for(int hand=0;hand<2;++hand) {
+            float q[3];
+            if(MpAnchorPos(hand?MS_CLS_HAND_B:MS_CLS_HAND_A,g_mpCache,g_mpCacheN,q))
+                MpAnimTrace(&ctx,hand,q,delta,nullptr,"full-native");
+        }
         float source[4*256],patched[4*256];
         if(FAILED(dev->GetVertexShaderConstantF(6,source,g_mpCacheN)))return false;
         MpBuild(patched,source,g_mpCacheN,&delta);
