@@ -12,7 +12,7 @@
 #include <cstring>
 namespace dvr::markersharp {
 namespace {
-std::atomic<bool> wanted{false};
+std::atomic<bool> wanted{true};
 struct Slot {
     dvr::capture::interop::Image image;
     IDirect3DQuery9* fence=nullptr;
@@ -40,7 +40,7 @@ void refuse(const char* why,HRESULT hr=E_FAIL) {
 bool enabled(){return wanted.load();}
 void set_enabled(bool on,const char* owner) {
     wanted.store(on);
-    DVR_INFO("hud/markers-sharp: MarkersSharp=%d owner=%s; native marker overlay after reconstruction, default off",(int)on,owner?owner:"?");
+    DVR_INFO("hud/markers-sharp: MarkersSharp=%d owner=%s; native marker overlay after reconstruction, default on",(int)on,owner?owner:"?");
 }
 void reset() {
     current=-1;inDraw=false;savedDs=nullptr;
