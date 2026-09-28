@@ -73,6 +73,18 @@ when it is empty". 0 restores the game's fist.
 - The left hand's CURRENT pose is copied, so whatever the left does when empty (an idle breath,
   a flex) the right repeats, mirrored.
 
+### 2026-09-27 fix: the open hand in the pause menu
+
+Reported: in the pause menu the right hand went back to the game's fist. Measured in the dev rig's
+log (build `v1.0.1-127-g470944905`): the open pose applied in gameplay (`hands/openright: right
+hand OPEN ...`), and in the pause menu the hands kept drawing while the heartbeat reported
+`SkelControl ... wrote NOTHING in 3s`: the script lane's per-frame camera event does not fire while
+the game is paused, so the inventory read that feeds `g_rflPrimaryKindTick` stops, and one second
+later the freshness rule refused the pose. Fix: a stale read INSIDE a menu (`g_menuOpen` or
+`g_inMenu`) keeps the verdict the menu opened with (nothing can be equipped or holstered there);
+outside a menu a stale read is still unknown, never empty. Log: `hands/openright: inventory read
+N ms old inside a menu ... keeping the OPEN hand`. Not yet checked in the headset.
+
 ## 3. The engine's pose tools, surveyed for this and later features
 
 From the decompiled scripts (declarations only; offsets and behaviour are derived at runtime).
