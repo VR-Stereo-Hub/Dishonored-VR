@@ -1,3 +1,17 @@
+## 2026-09-28: per-eye culling loses the live controller after reload
+
+VR-79 reopened with explicit approval. Verified run150 has Occlusion=pereye and DLAA
+active; swap heartbeat stops after save load despite continued stereo. The event
+controller changes while the scan controller remains stale. Culling used the latter.
+Branch codex/vr-79-culling-owner uses the event controller and validates controller and
+LocalPlayer live identities, object slots and reflected relationship. Load/menu edges
+rebuild the live table; allocation and restore revalidate before engine writes. No new
+addresses or changes to Game default/Off modes. Attempt/swap/restore counters expose
+silent failure. This shared path precedes DLSS/DLAA/FSR; an additional jitter-specific
+cause remains open until a matching headset test. See FLICKER_REFERENCE and ENGINE_NOTES.
+19 tests of the actual module pass, including stale but live scan owner, reload, pointer
+reuse, failed refresh, engine replacement and allocation callbacks. Headset pending.
+
 ## 2026-09-27: sharp HUD and markers default on, Advanced controls
 
 After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1

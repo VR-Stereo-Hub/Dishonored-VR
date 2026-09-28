@@ -1,3 +1,26 @@
+## 2026-09-28: VR-79 culling regression during DLAA after save load (candidate)
+
+Surface: movable heads/gates disappear when a sword occludes one eye. This routes to
+the section 1 VR-79 query-history row, not the texture-speckle jitter row. Verified
+build150 SHA25653f1b33cf91bc522cff4c8ee373cf19b36c1a05c334a0e0d5e2c2e5edf0fd7ca
+was using pereye and DLAA. Its swap heartbeat ends at38188343; a save load replaces the
+event controller by38197984, which reports disagreement with the scan controller.
+Stereo continues afterward. The old resolver reads g_pcObj, the stale scan controller.
+
+Candidate resolves through g_peCtrl, validates live GObjects identities and the current
+Player relationship, refreshes on load/UI epoch/owner changes and validates restoration.
+A heartbeat counts every attempted pass2, including refusal, alongside swaps/restores.
+Prediction: after reload, attempts continue with corresponding swaps/restores on the
+new owner. An object visible past the sword to either eye should remain in that eye.
+If disappearance persists with swaps/restores healthy, this owner failure is insufficient
+and query/depth behavior under jitter needs separate measurement. No DLSS/DLAA/FSR
+jitter behavior is changed, and FSR has not been reproduced. Current F10 Per eye already
+selects the engine scope used by all three. No additional upscaler toggle is required.
+
+19 production-module host checks pass; optimized build and headset validation recorded
+in STATUS. Prior per-eye fixes are preserved, not retracted. Archive: main-repo
+build/playtest-candidates/animation-hand-origin/run150-reported. No headset acceptance.
+
 ## 2026-09-27: DLSS projection jitter - black speckles flickering on textures, left eye only (FIXED, headset-confirmed)
 
 1. **Symptom:** with `[Clarity] DlssJitter=1` (DLAA, fast model), black spots over many textures
