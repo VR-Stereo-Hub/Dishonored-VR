@@ -1,3 +1,15 @@
+## Controller bind remapping (2026-09-27) - host-verified, PR open, not merged
+
+Branch `claude/controller-remap` (on staging after #144). Each game action can be moved to any
+controller input: F10 > Controls > Button mapping (per-action list, "Press to set" from the
+controllers, conflict warning, Swap sticks, Reset), `[ControllerBinds]`, seam `binds`. The layer
+remaps the physical snapshot into a logical one, so slide assist, physical crouch, the sword, carry
+and throw, the wheel gates and the health hold all follow their action. No section = the shipped
+layout, passed through untouched (host test over all 16384 input combinations; 32948 checks). Not
+run in the game, simulator or headset. Reference: [CONTROLLER_BINDS](dishonored/CONTROLLER_BINDS.md);
+what is owed: [NEXT_SESSION](dishonored/NEXT_SESSION.md).
+
+## AMD FSR beside DLSS (2026-09-27) - host and simulator verified, merged to staging (#144)
 ## 2026-09-27: submenu callbacks verified, jitter did not clearly reproduce
 
 Run137 matches the installed candidate. Options and Load callback transitions

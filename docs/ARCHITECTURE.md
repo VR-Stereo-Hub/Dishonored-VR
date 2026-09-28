@@ -1332,6 +1332,19 @@ and build run on a worker thread; the present thread uses the client only in Rea
 FSR 3.1 (phase 3) is planned in-process on a 32-bit D3D12 device instead, because its
 source builds for Win32. Details: PERFORMANCE.md, DLAA through an x64 NGX helper.
 
+### 2026-09-27: controller binds remap the snapshot, not the XInput bits
+
+Bind remapping (`core/input/controller_binds.h`) maps the runtime layer's physical
+`InputSnapshot` to a logical one of the same type before the pad bridge reads it, instead of
+permuting XInput bits after composition. Reason: several mod systems key on what they believe is a
+physical input (slide assist and physical crouch on B, the sword and carry/throw on the triggers,
+the wheel gates on the left grip, the health hold on the right stick click). Remapping the snapshot
+moves all of them with their action for free; remapping the output would leave each firing on the
+old button. The shipped layout returns the snapshot unchanged, so the default path is the old code
+path. The runtime layer stays physical (the recenter / panel chord is resolved there), and the F10
+pointer and the thumbrest D-pad modifier stay physical on purpose. The game's own
+`DishonoredInput.ini` is not the route: the game rewrites it at exit and the mod's systems would
+not know the mapping. Details: `docs/dishonored/CONTROLLER_BINDS.md`.
 ## 2026-09-27: native markers bypass temporal reconstruction
 
 Decision: compose classified native markers after DLSS/FSR, at output resolution,
