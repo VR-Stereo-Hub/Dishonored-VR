@@ -1,3 +1,38 @@
+## 2026-09-27: installed submenu diagnostic and marker candidate
+
+Local test branch local/test-134-145-146, source b91ec4fef, installed optimized
+banner `v1.0.1-137-gb91ec4fef`. DLL SHA256
+`837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803`.
+INI SHA256 `0edadea07f63617c14012748ffa5d33be26c65af8c4afeaae8881c3b3192ca9d`.
+Backup of previous DLL, entire INI, all available logs and upscaler helpers:
+`build/playtest-candidates/menu-submenu-markers/20260927-195340` in the main repo.
+Full INI comparison: add only [Hud] MarkersSharp=0; every prior byte retained.
+CRLF verified without lone CR/LF. Existing DLSS/FSR helpers are byte-identical;
+the new checkout did not rebuild them. Config semantics compared against the
+installed ec7b00c07 baseline: no existing key interpretation changed.
+
+PR #148 is the read-only submenu investigation, with behavioral fix still open.
+PR #149 is the default-off marker candidate depending on #146. Both are drafts
+against staging. Only the authorized local test branch was merged. No PR merge.
+Commits use the explicitly authorized GitHub account identity, without trailers.
+
+Combined optimized build, nine exports, lint, merged PoseFromView palette tests
+and default profile byte parity pass. Production native graphics-only marker
+transport also passes serial separation, reversed delivery, toggle-off draining,
+no-upscale refusal and DEFAULT-resource cleanup across Reset. WARP blend and
+native HUD/routing checks pass. No game or simulator was launched.
+
+Next ONE launch question: does hand jitter appear in Options and disappear on
+return to the root pause menu during the same slow head and controller motion?
+Spend about10 seconds on root,10 in Options, then10 back on root. Diagnostic-only
+hand behavior is unchanged, so a reproduced difference is expected. Inspect
+menu/subscreen callback coverage, menu/hands (sub and newPose/repeatPose),
+menu/hands-mismatch and pause/scene; do not use gameplay hv. If no difference
+reproduces, no fix is established. If both screens jitter, the healthy comparator
+was not reproduced. Preserve MarkersSharp=0 for this launch; marker A/B is later.
+Before reading results, require the new banner above; the current log remains
+v1.0.1-127-g470944905 from before installation.
+
 ## 2026-09-27: Pause submenu hand diagnostic
 
 Current state: read-only submenu/hand instrument on claude/menu-submenu-hands,

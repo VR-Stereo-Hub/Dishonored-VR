@@ -1,5 +1,10 @@
 ## 2026-09-27: pause submenu hand jitter, diagnostic candidate
 
+Installed candidate: `v1.0.1-137-gb91ec4fef`, local source b91ec4fef.
+DLL SHA256 `837879c93dd671e90e1d42d467c3843dc8f769aa0cbfd4709a06a99cf4312803`.
+Only INI addition is MarkersSharp=0, verified against the entire prior INI with
+CRLF retained. No new headset result. Install archive and test are in STATUS.
+
 1. Surface: headset hands jitter in pause child screens while the root pause menu
    is reported smooth. Journal is also affected. Route to hand/weapon correction
    and pose cadence, keeping whole-world mono interruptions separate.
