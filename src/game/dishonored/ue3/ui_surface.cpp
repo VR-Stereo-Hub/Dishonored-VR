@@ -49,10 +49,6 @@ void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int
     // flip the picture), only for the contexts that opted in, only while the
     // redirect is up and drawing. The input class (UiSurfaceBlocks) does not
     // change: a riding menu still parks the head-mouse and the pad shaping.
-    if(context!=dvr::mono::Pause) {
-        g_usPauseObserved.store(0);g_usPauseEvent.store(-1);
-        UsSubPublish(context==dvr::mono::Journal?8:-1,"UI owner");
-    }
     const bool windowOn=dvr::hudcap::enabled() &&
         dvr::hudlayout::screen_can_ride((int)context);   // VR-120: the screen's own row and anchor
     const bool want=dvr::ui_ride::rides(g_usEnabled.load(),blocked,context,dvr::hudlayout::menu_context_mask(),
@@ -60,6 +56,11 @@ void UsPublish(dvr::mono::Context context,bool blocked,bool known,int screen,int
     const bool rides=g_usRideLatch.update(context,blocked,want,dvr::hudcap::redirect_failed());
     const int inputContext=known && blocked ? (int)context : -1;
     if(g_usActiveContext.exchange(inputContext)!=inputContext) g_usContextEpoch.fetch_add(1);
+    if(context!=dvr::mono::Pause) {
+        g_usPauseObserved.store(0);g_usPauseEvent.store(-1);
+        UsSubPublish(context==dvr::mono::Journal?8:-1,"UI owner");
+    }
+
     g_usWheelActive.store(known && blocked && context == dvr::mono::Wheel);
     g_usBlocked.store(blocked);
     g_usRides.store(rides);
@@ -135,9 +136,9 @@ bool UsMoviePresent(uint8_t* overlay,void* movie,bool& presenting) {
     return currentVt==vt;
 }
 bool UsResolve() {
-    if(g_usResolved) return true;
+    if(g_usResolved && g_usSaveMask && g_usLoadMask) return true;
     const double now=MaimNowMs();
-    if(now<g_usResolveAt || !RflNamesReady()) return false;
+    if(now<g_usResolveAt || !RflNamesReady()) return g_usResolved;
     g_usResolveAt=now+5000;
     struct Field { const char* cls; const char* prop; uint32_t* out; };
     const Field fields[]={
@@ -164,6 +165,9 @@ bool UsResolve() {
     }
     if(!g_usSaveMask) FindBoolProp("DisGFxMoviePlayerMenuBase","m_bIsInSaveMenu",&g_usSave,&g_usSaveMask);
     if(!g_usLoadMask) FindBoolProp("DisGFxMoviePlayerMenuBase","m_bIsInLoadMenu",&g_usLoad,&g_usLoadMask);
+    if(!g_usSaveMask || !g_usLoadMask)
+        Log("menu/subscreen: reflected flags unavailable saveMask=%u loadMask=%u; retry in5s, callback-only labels",
+            g_usSaveMask,g_usLoadMask);
     g_usResolved=ok;
     Log("ui/surface: reflected root/movie layout %s; read-only, retry missing fields in 5 s",ok?"ready":"unavailable");
     return ok;

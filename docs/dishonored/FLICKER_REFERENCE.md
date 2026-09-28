@@ -20,6 +20,8 @@
    native UI callbacks. Root without callback coverage is explicitly ambiguous.
    Options, video, gamma, controller mapping and tutorials carry distinct callback
    labels. Journal has its own context label; its internal tab is not yet resolved.
+   Missing reflected flags retry every5s without changing the UI ownership gate;
+   transitions log the newly published context.
    Retained movie identity is checked against its object slot. Entry discovery
    refreshes the live table. No engine-memory or render behavior change.
    Hand records retain the submenu at draw time, not at delayed completion;
