@@ -1,3 +1,31 @@
+## The contact sword's first headset run, and the fix that is NOT yet verified (VR-173, 2026-09-29, later)
+
+First headset session on build `v1.0.1-167-g830b5bd13`, `Detector=contact` switched in F10. No
+difference from `edge` was felt, and the log says why: 31 of 40 attacks under `contact` were the
+hand's fallback, 30 of them because the drawn sword was not where the measured blade was. The
+blade had been measured once, standing, and kept as a constant; crouched the game holds the sword
+in a reverse grip and blocking it raises it to the parry, up to 1.16 m from that constant. While
+the blade WAS followed the detector did what it should: fast swings in the air attacked nothing,
+and twice the blade reached a guard (`DishonoredNPCPawn`) and the game attacked, one of them a kill.
+
+Current state: the fix is committed and host-tested (114 checks) and has NOT run in the simulator
+or the headset. It follows the blade as each draw has it (both end vertices, every frame) and,
+when the blade cannot decide for a reason that passes (the game re-posing the sword, a clip on
+the hand, no sword draw that frame), nobody decides and nothing attacks; the hand takes over only
+when the blade was never measured or the engine cannot be asked, and in the air.
+INSTALLED on the dev PC: still `v1.0.1-167-g830b5bd13` (sha256 3C9B89B9...), which does NOT have
+the fix. The ini carries the player's F10 changes (`Detector=contact`, `ContactSpeed=2.10`).
+
+Next steps:
+1. Simulator: add a stance change to `tools/xrsim/swing-contact.xrs` (the sewer save loads
+   crouched, so standing up is the grip change) and run it and `swing-edge.xrs` on the fix.
+   Back up the CURRENT ini first: the launch helper restores the ini from its backup, and the
+   old backup does not have the player's F10 changes.
+2. Install the fix, then the headset run again. Read `swing: contact beat`: samples by the
+   blade, by the hand, by nobody and why, and the tip's worst speed in the palm frame.
+3. Not addressed by any of this: the attack still lands where the player LOOKS. Steering the
+   hit onto what the blade reached is separate work and needs its own research.
+
 ## The contact-timed sword (VR-173, 2026-09-29) - researched, built default off, simulator-proven, PR open, not merged
 
 Branch `claude/vr-173-contact-sword` off staging `5997c5952`. The research question is answered

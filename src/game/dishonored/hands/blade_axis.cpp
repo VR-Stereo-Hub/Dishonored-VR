@@ -69,6 +69,7 @@ struct BlGeom {
     char why[160] = "not read yet";
     int  bones = 0;                                 // distinct dominant bones
     int  tipVertex = -1;                            // index into verts, set by the fit that latched
+    int  lowVertex = -1;                            // the blade's other end, set with it
 };
 static BlGeom g_blGeom;
 static dvr::blade::Latch  g_blLatch;
@@ -86,6 +87,8 @@ struct BlStats {
     dvr::blade::Segment lastSeg;
     float attackMaxDeg = 0, attackMaxM = 0; LONG attackSamples = 0;   // constant against live, in an attack
     float idleMaxM = 0; LONG idleSamples = 0;                          // and at rest: the noise floor
+    LONG liveRefused = 0;                           // live segments the bounds refused
+    float gripMaxMps = 0; LONG gripOver = 0;        // the tip's speed in the palm frame: its worst, and draws over 1 m/s
     char  lastWhy[200] = "no sword draw has reached the measurement";
 } g_blS;
 
@@ -99,7 +102,7 @@ static void BlPublish(const dvr::hands::BladeSnapshot& s) {
 }
 static void BlDrop(const char* why) {
     const bool had = g_blLatch.have;
-    g_blLatch.forget(); g_blGeom.tipVertex = -1;
+    g_blLatch.forget(); g_blGeom.tipVertex = -1; g_blGeom.lowVertex = -1;
     dvr::hands::BladeSnapshot s; s.why = "measuring"; s.revision = ++g_blRevision;
     BlPublish(s);
     if (had) Log("blade: the latched blade is DROPPED - %s. It is measured again from the next sword draws at rest.", why);
@@ -306,7 +309,7 @@ static void BlMeasure(IDirect3DDevice9* dev, WaMesh* w, const float* palette, UI
         // LIVE: the tip vertex alone, through this draw's palette.
         dvr::hands::BladeSnapshot s;
         AcquireSRWLockShared(&g_blLock); s = g_blPub; ReleaseSRWLockShared(&g_blLock);
-        float local[3];
+        float local[3], localLow[3];
         if (g.tipVertex >= 0 && g.tipVertex < (int)g.verts.size() && dvr::blade::skin(g.verts[g.tipVertex], palette, regs, local)) {
             palm_of(local, s.liveTipPalm);
             s.liveOk = true; s.liveMs = now;
@@ -317,6 +320,37 @@ static void BlMeasure(IDirect3DDevice9* dev, WaMesh* w, const float* palette, UI
             const float n = dvr::blade::len3(d);
             if (n > 1e-4f) for (int i = 0; i < 3; ++i) live.dir[i] = d[i] / n;
             const dvr::blade::Apart a = dvr::blade::apart(live, g_blLatch.kept);
+            // BOTH ENDS, for the segment that is traced. The same two vertices the latch
+            // chose, through THIS draw's palette, put through the same bounds a candidate
+            // has to pass: a blade that comes out folded, short or off the palm is refused
+            // and named, never traced.
+            s.liveWhy = "measured";
+            float lowPalm[3];
+            if (g.lowVertex >= 0 && g.lowVertex < (int)g.verts.size() && dvr::blade::skin(g.verts[g.lowVertex], palette, regs, localLow)) {
+                palm_of(localLow, lowPalm);
+                const dvr::blade::Segment seg = dvr::blade::segment(lowPalm, s.liveTipPalm, g_blBounds);
+                if (seg.ok) {
+                    for (int i = 0; i < 3; ++i) { s.liveBasePalm[i] = seg.base[i]; s.liveTipPalm[i] = seg.tip[i]; }
+                } else {
+                    s.liveOk = false; s.liveWhy = dvr::blade::refuse_text(seg.refuse);
+                    InterlockedIncrement(&g_blS.liveRefused);
+                }
+            } else { s.liveOk = false; s.liveWhy = "the blade's other end could not be skinned"; }
+            // How fast the game is moving the sword IN the hand.
+            {
+                static float prevTip[3] = {}; static int64_t prevQpc = 0; static bool havePrev = false;
+                LARGE_INTEGER q; QueryPerformanceCounter(&q);
+                const double dt = havePrev && g_qpcFreq ? (double)(q.QuadPart - prevQpc) / (double)g_qpcFreq : 0.0;
+                s.liveGripMps = 0.0f;
+                if (s.liveOk && dt > 0.002 && dt < 0.1) {
+                    const float e[3] = { s.liveTipPalm[0]-prevTip[0], s.liveTipPalm[1]-prevTip[1], s.liveTipPalm[2]-prevTip[2] };
+                    s.liveGripMps = dvr::blade::len3(e) / (float)dt;
+                    if (s.liveGripMps > g_blS.gripMaxMps) g_blS.gripMaxMps = s.liveGripMps;
+                    if (s.liveGripMps > 1.0f) InterlockedIncrement(&g_blS.gripOver);
+                }
+                havePrev = s.liveOk; prevQpc = q.QuadPart;
+                for (int i = 0; i < 3; ++i) prevTip[i] = s.liveTipPalm[i];
+            }
             if (attacking) {
                 ++g_blS.attackSamples;
                 if (a.deg > g_blS.attackMaxDeg) g_blS.attackMaxDeg = a.deg;
@@ -325,7 +359,7 @@ static void BlMeasure(IDirect3DDevice9* dev, WaMesh* w, const float* palette, UI
                 ++g_blS.idleSamples;
                 if (a.tipM > g_blS.idleMaxM) g_blS.idleMaxM = a.tipM;
             }
-        } else { s.liveOk = false; InterlockedIncrement(&g_blS.liveFailed); }
+        } else { s.liveOk = false; s.liveWhy = "the blade's tip could not be skinned"; InterlockedIncrement(&g_blS.liveFailed); }
         // WHERE THE RENDERER PUT IT, in the game's world: the latched points carried the
         // way this draw went (palm frame -> the hand draw's space) and back across the
         // coordinate bridge the weapon path identifies its draws with. No headset pose is
@@ -343,7 +377,11 @@ static void BlMeasure(IDirect3DDevice9* dev, WaMesh* w, const float* palette, UI
                 if (dvr::wf::bridge(nr, wc->L_hand, &br) && dvr::wf::inverse(br, &ibr)) {
                     const dvr::hf::Xform toWorld = dvr::hf::xform_mul(ibr, wc->palm);
                     float b[3], t[3];
-                    for (int i = 0; i < 3; ++i) { b[i] = s.basePalm[i] * wc->unitsPerMeter; t[i] = s.tipPalm[i] * wc->unitsPerMeter; }
+                    // the blade this draw HAS, as the XR route now carries it; the constant
+                    // when this draw's own could not be measured
+                    const float* bp = s.liveOk ? s.liveBasePalm : s.basePalm;
+                    const float* tp = s.liveOk ? s.liveTipPalm : s.tipPalm;
+                    for (int i = 0; i < 3; ++i) { b[i] = bp[i] * wc->unitsPerMeter; t[i] = tp[i] * wc->unitsPerMeter; }
                     dvr::hf::apply_point(toWorld, b, s.drawnBaseWorld[e]);
                     dvr::hf::apply_point(toWorld, t, s.drawnTipWorld[e]);
                     bool fin = true;
@@ -403,12 +441,13 @@ static void BlMeasure(IDirect3DDevice9* dev, WaMesh* w, const float* palette, UI
     if (!latched) return;
     InterlockedIncrement(&g_blS.latches);
     g.tipVertex = seg.tipIsHigh > 0 ? ax.highIndex : ax.lowIndex;
+    g.lowVertex = seg.tipIsHigh > 0 ? ax.lowIndex : ax.highIndex;
     g_blKeyItem = item; g_blKeyScale = g_mpModelScale; g_blKeyCal = haveCal ? cal.revision : 0;
     const dvr::blade::Segment& k = g_blLatch.kept;
     dvr::hands::BladeSnapshot s;
     s.ok = true; s.lengthM = k.lengthM; s.reachM = k.reachM; s.ratio = ax.fit.ratio; s.revision = ++g_blRevision;
-    for (int i = 0; i < 3; ++i) { s.basePalm[i] = k.base[i]; s.tipPalm[i] = k.tip[i]; s.liveTipPalm[i] = k.tip[i]; }
-    s.liveOk = true; s.liveMs = now; s.why = "latched";
+    for (int i = 0; i < 3; ++i) { s.basePalm[i] = k.base[i]; s.tipPalm[i] = k.tip[i]; s.liveTipPalm[i] = k.tip[i]; s.liveBasePalm[i] = k.base[i]; }
+    s.liveOk = true; s.liveMs = now; s.why = "latched"; s.liveWhy = "measured";
     BlPublish(s);
     BlWhy("latched");
     Log("blade: LATCHED '%s' for item %p - base (%.3f %.3f %.3f) tip (%.3f %.3f %.3f) m in the palm frame: %.3f m of blade "

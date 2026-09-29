@@ -164,6 +164,12 @@ struct Sample {
     bool     contactValid = false;
     bool     contact = false;
     float    contactAgeMs = 0.0f;
+    // The adapter's verdict that the blade cannot decide RIGHT NOW for a reason that
+    // passes (the game is re-posing the sword, a clip is on the hand): nobody decides,
+    // for as long as it lasts. Without it the hand took over after the grace, and in the
+    // first headset run 30 of 31 attacks under kContact were the hand's: every swing made
+    // crouched or blocking was an kEdge swing.
+    bool     contactHold = false;
 };
 
 struct Verdict {
@@ -401,12 +407,16 @@ private:
         const float a = tring_[0], b = tring_[1], e = tring_[2];
         v.tipSpeed = c.median ? (a > b ? (b > e ? b : a > e ? e : a) : (a > e ? a : b > e ? e : b)) : tipRaw;
 
-        const bool known = tipOk && s.contactValid && s.contactAgeMs >= 0.0f && s.contactAgeMs <= c.contactMaxAgeMs;
+        const bool known = !s.contactHold && tipOk && s.contactValid && s.contactAgeMs >= 0.0f &&
+                           s.contactAgeMs <= c.contactMaxAgeMs;
         if (known != known_) { cut_hump(v); known_ = known; if (!known) lostMs_ = s.tMs; }
         if (known) everKnown_ = true;
+        // A hold restarts the grace: when it ends the blade is expected back, and the
+        // hand must not take the first sample after it.
+        if (s.contactHold) lostMs_ = s.tMs;
         v.known = known;
         if (!known) {
-            if (everKnown_ && s.tMs - lostMs_ < (double)c.contactGraceMs) {
+            if (s.contactHold || (everKnown_ && s.tMs - lostMs_ < (double)c.contactGraceMs)) {
                 // The latch and the hump go on, on the hand's speed, so the swing that is
                 // under way is spent by the time the hand may decide.
                 v.hold = true;

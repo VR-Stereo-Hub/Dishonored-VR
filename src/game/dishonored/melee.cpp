@@ -66,6 +66,12 @@ namespace {
 // below is what moves it next, from a log instead of a feeling.
 constexpr float kShippedEdgeSpeed = 3.0f;
 constexpr float kOldShippedEdgeSpeed = 3.6f;
+// How fast the blade's tip may move IN THE PALM FRAME and still be the player's movement.
+// At rest and in physical swings on the simulator it reads 0; the sneak grip and the parry
+// move the tip about a metre in half a second. 1 m/s is a bound between the two, and the
+// worst value seen while the blade decided is on the contact beat so it can be corrected
+// from a log.
+constexpr float kGripMaxMps = 1.0f;
 
 struct Settings : Config {
     float pulseMs       = 120.0f;   // [Melee] PulseMs: the edge detector's attack press
@@ -110,6 +116,8 @@ enum ContactOwner { kCoNone = 0, kCoBlade, kCoHand };
 struct Contact {
     int owner = kCoNone; char why[200] = "the detector is not contact";
     unsigned bladeSamples = 0, handSamples = 0, heldSamples = 0, touching = 0, flips = 0;
+    unsigned heldBy[4] = {};         // held samples by reason: 0 the grace, 1 re-posed, 2 a clip on the hand, 3 the blade's draw
+    float gripPeak = 0;              // the worst palm-frame tip speed seen while the blade decided
     unsigned fires[4] = {};          // by dvr::swing::Owner
     unsigned bySegment[3] = {};      // fires owned by the contact: found on the blade, on the tip's path, on the path ahead
     float lastTip = 0, lastHand = 0, peakTip[2] = {}; double bucketMs = 0;
@@ -418,7 +426,7 @@ void note_hump(const Verdict& v, const Sample& s, const char* src) {
             v.humpFired == kFiredStab ? "STAB" : v.humpFired ? "ATTACK"
                 : v.humpBlock == kBlockGate ? "no attack: a gate was closed" : v.humpBlock == kBlockRearm ? "no attack: not re-armed"
                 : v.humpBlock == kBlockCooldown ? "no attack: cooldown"
-                : v.humpBlock == kBlockHold ? "no attack: the blade's answer had only just gone missing (contact)"
+                : v.humpBlock == kBlockHold ? "no attack: the blade could not decide just then (contact)"
                 : v.humpPeak >= st.edgeSpeed ? "no attack: fast enough, the travel guard held it" : "no attack: under the threshold",
             st.edgeSpeed, st.edgeTravelM,
             nearMiss ? " - a NEAR MISS: if this was meant as a swing, the threshold is too high for this player" : "");
@@ -522,7 +530,7 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
         else if (v.block == kBlockRearm)
             _snprintf_s(why, sizeof(why), _TRUNCATE, "not re-armed (the hand never slowed below %.2f m/s since the last attack)", effective_rearm(st));
         else if (v.block == kBlockHold)
-            _snprintf_s(why, sizeof(why), _TRUNCATE, "the blade's answer went missing less than %.0f ms ago, so nobody decides yet (%s)", st.contactGraceMs, co.why);
+            _snprintf_s(why, sizeof(why), _TRUNCATE, "the blade cannot decide just now, and nothing attacks meanwhile (%s)", co.why);
         else _snprintf_s(why, sizeof(why), _TRUNCATE, "cooldown (%.0f of %.0f ms left)", v.cooldownLeftMs, st.cooldownMs);
         _snprintf_s(n.lastBlock, sizeof(n.lastBlock), _TRUNCATE, "%s", why);
         Log("swing: BLOCKED %.2f m/s (%s, detector=%s%s): %s", v.speed, src, detector_name(),
@@ -547,13 +555,15 @@ void beat(double now) {
         detector_name(), peak10s(), st.detector == kSustain ? st.sustainSpeed : co.owner == kCoBlade ? st.contactSpeed : st.edgeSpeed,
         n.samples, n.dups, why, n.fires, n.blocked, n.honoured, n.notHonoured, n.inconclusive, n.still);
     if (st.detector == kContact)
-        Log("swing: contact beat owner=%s (%s) | samples decided by the blade %u, by the hand %u, by nobody %u (the answer was "
-            "missing for less than the %.0f ms grace), owner changes %u | the blade was "
+        Log("swing: contact beat owner=%s (%s) | samples decided by the blade %u, by the hand %u, by nobody %u (the %.0f ms grace "
+            "%u, the sword re-posed by the game %u, a clip on the hand %u, no blade that frame %u), owner changes %u | the tip's "
+            "worst speed in the palm frame while the blade decided %.2f m/s (over %.1f is taken for the game's doing) | the blade was "
             "reaching a target (targets=%s) on %u of the blade's samples | tip peak10s=%.2f m/s (needs %.2f) | attacks: by contact "
             "%u (on the blade %u, on the tip's path %u, ahead %u), in the air %u, by the hand's fallback %u - under contact "
             "'by contact' stays 0 while the blade reaches nothing, and that is the detector working, not failing",
             co.owner == kCoBlade ? "BLADE" : co.owner == kCoHand ? "HAND (edge rules)" : "none yet", co.why, co.bladeSamples,
-            co.handSamples, co.heldSamples, st.contactGraceMs, co.flips, targets_name(), co.touching, peak_tip10s(), st.contactSpeed, co.fires[kOwnerContact],
+            co.handSamples, co.heldSamples, st.contactGraceMs, co.heldBy[0], co.heldBy[1], co.heldBy[2], co.heldBy[3], co.flips,
+            co.gripPeak, kGripMaxMps, targets_name(), co.touching, peak_tip10s(), st.contactSpeed, co.fires[kOwnerContact],
             co.bySegment[0], co.bySegment[1], co.bySegment[2], co.fires[kOwnerAir], co.fires[kOwnerFallback]);
     if (now - cen.printedAt >= 60000.0 && cen.humps != cen.printedHumps) {
         cen.printedAt = now; cen.printedHumps = cen.humps;
@@ -624,20 +634,46 @@ namespace {
 // VR-173: fill the blade's half of a live sample, and say who will own the decision and
 // why. The answer was traced on the script lane for an EARLIER hand sample (at most a
 // game tick back, measured); its age is taken from that sample's own stamp.
+// WHY the blade cannot decide comes in two kinds, and they are treated differently:
+//   it PASSES    the game is re-posing the sword, a clip is on the hand, the sword was not
+//                drawn this frame. Nobody decides, for as long as it lasts (hold).
+//   it is BROKEN the blade was never measured, the engine cannot be asked, the script lane
+//                has stopped answering. The hand decides by edge rules (after the grace), so
+//                the sword that ships is what is left.
+// In the air the hand decides on purpose: the drop takedown is edge's.
 void blade_sample(Sample& s, uint32_t gen, double now) {
     char why[200] = "";
     const dvr::hands::BladeFrame bf = dvr::hands::blade_frame();
     const dvr::hands::BladeTouch t = dvr::hands::blade_touch();
     const uint64_t tick = GetTickCount64();
     co.segment = -1;
+    int held = -1;
+    const bool upperOk = !body.valid || !strcmp(body.state[1], "StatePlayerUpperIdle") ||
+                         !strcmp(body.state[1], "StatePlayerMeleeAttack") || !strcmp(body.state[1], "StatePlayerBlock");
     if (dvr::drop::airborne_now())
         _snprintf_s(why, sizeof(why), _TRUNCATE, "the player is in the air: a drop takedown needs its press before the landing, which a blade cannot reach in time");
-    else if (!bf.ok) _snprintf_s(why, sizeof(why), _TRUNCATE, "no blade to follow: %s", bf.why);
-    else if (bf.handGen != gen) _snprintf_s(why, sizeof(why), _TRUNCATE, "the blade published is for hand sample %u and this one is %u", bf.handGen, gen);
+    else if (!bf.latched) _snprintf_s(why, sizeof(why), _TRUNCATE, "no blade to follow: %s", bf.why);
+    else if (dvr::anim::active() || dvr::anim::weight() < 1.0f) {
+        held = 2; _snprintf_s(why, sizeof(why), _TRUNCATE, "the game is playing its own clip on the sword hand");
+    }
+    else if (!upperOk) {
+        held = 1; _snprintf_s(why, sizeof(why), _TRUNCATE, "the game is moving the sword (upper=%s)", body.state[1]);
+    }
+    else if (!bf.ok) { held = 3; _snprintf_s(why, sizeof(why), _TRUNCATE, "no blade this frame: %s", bf.why); }
+    else if (bf.handGen != gen) {
+        held = 3; _snprintf_s(why, sizeof(why), _TRUNCATE, "the blade published is for hand sample %u and this one is %u", bf.handGen, gen);
+    }
+    else if (bf.gripMps > kGripMaxMps) {
+        held = 1; _snprintf_s(why, sizeof(why), _TRUNCATE, "the game is re-posing the sword in the hand (its tip moves %.2f m/s in the palm frame, over %.1f)", bf.gripMps, kGripMaxMps);
+    }
     else {
+        if (bf.gripMps > co.gripPeak) co.gripPeak = bf.gripMps;
         s.tipValid = true;
         s.tip[0] = bf.tipRawXr[0]; s.tip[1] = bf.tipRawXr[1]; s.tip[2] = bf.tipRawXr[2];
-        if (!t.ok) _snprintf_s(why, sizeof(why), _TRUNCATE, "the engine has no answer for the blade: %s", t.why);
+        if (!t.ok) {
+            if (!t.broken) held = 3;
+            _snprintf_s(why, sizeof(why), _TRUNCATE, "the engine has no answer for the blade: %s", t.why);
+        }
         else {
             co.ageMs = tick >= t.sampleMs ? (unsigned)(tick - t.sampleMs) : 0u;
             co.genLag = gen - t.handGen;
@@ -649,6 +685,8 @@ void blade_sample(Sample& s, uint32_t gen, double now) {
         }
     }
     if (*why) s.contactValid = false;
+    s.contactHold = held >= 0;
+    if (held >= 0 && held < 4) ++co.heldBy[held];
     co.touch = t;
     _snprintf_s(co.why, sizeof(co.why), _TRUNCATE, "%s", *why ? why : "the blade is followed and the engine answers for it");
 }
@@ -656,7 +694,9 @@ void contact_note(const Verdict& v, const Sample& s, double now) {
     if (!v.sampled) return;
     // A held sample has no owner: the one before it stands until the hand really takes over.
     const int owner = v.known ? kCoBlade : v.hold ? co.owner : kCoHand;
-    if (v.known) { ++co.bladeSamples; if (s.contact) ++co.touching; } else if (v.hold) ++co.heldSamples; else ++co.handSamples;
+    if (v.known) { ++co.bladeSamples; if (s.contact) ++co.touching; }
+    else if (v.hold) { ++co.heldSamples; if (!s.contactHold) ++co.heldBy[0]; }
+    else ++co.handSamples;
     co.lastTip = v.tipSpeed; co.lastHand = v.handSpeed;
     if (now - co.bucketMs > 5000.0) { co.bucketMs = now; co.peakTip[1] = co.peakTip[0]; co.peakTip[0] = 0.0f; }
     if (v.known && v.tipSpeed > co.peakTip[0]) co.peakTip[0] = v.tipSpeed;
@@ -1068,6 +1108,9 @@ void status(dvr::status::Writer& w) {
     w.kv("airSpeed", (double)st.contactAirSpeed); w.kv("maxAgeMs", (double)st.contactMaxAgeMs);
     w.kv("bladeSamples", (unsigned long)co.bladeSamples); w.kv("handSamples", (unsigned long)co.handSamples);
     w.kv("heldSamples", (unsigned long)co.heldSamples); w.kv("graceMs", (double)st.contactGraceMs);
+    w.kv("heldByGrace", (unsigned long)co.heldBy[0]); w.kv("heldByRepose", (unsigned long)co.heldBy[1]);
+    w.kv("heldByClip", (unsigned long)co.heldBy[2]); w.kv("heldByNoBlade", (unsigned long)co.heldBy[3]);
+    w.kv("gripPeakMps", (double)co.gripPeak);
     w.kv("ownerChanges", (unsigned long)co.flips); w.kv("touchingSamples", (unsigned long)co.touching);
     w.kv("firesByContact", (unsigned long)co.fires[kOwnerContact]); w.kv("firesInAir", (unsigned long)co.fires[kOwnerAir]);
     w.kv("firesByFallback", (unsigned long)co.fires[kOwnerFallback]);

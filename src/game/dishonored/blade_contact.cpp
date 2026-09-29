@@ -579,14 +579,13 @@ static void BtTick()
         _snprintf_s(g_btS.why, sizeof(g_btS.why), _TRUNCATE, "%s", why);
         AcquireSRWLockExclusive(&g_bcLock); g_bcPub = c; ReleaseSRWLockExclusive(&g_bcLock);
     };
-    if (!BtResolve()) { refuse(g_btL.why); return; }
+    if (!BtResolve()) { c.broken = true; refuse(g_btL.why); return; }
     float baseW[3], tipW[3]; const char* why = "";
     if (!BladeWorld(bf, baseW, tipW, nullptr, &why)) { refuse(why); return; }
-    if (!bf.liveOk || bf.liveApartM > kBtLiveAgreeM || GetTickCount64() - bf.liveMs > 100) {
-        ++g_btS.apart;
-        refuse("the drawn sword is not where the hand's blade is (the game is animating the hand, or the sword is not drawn)");
-        return;
-    }
+    // The blade frame IS the drawn sword's blade since the first headset run: it is built
+    // from this draw's own two end vertices, so there is nothing for it to disagree with.
+    // How far it stands from the standing constant is counted, and no longer refuses.
+    if (bf.liveApartM > kBtLiveAgreeM) ++g_btS.apart;
     uint8_t* pawn = PawnForCollision();
     BtHit h;
     if (!BtTrace(pawn, baseW, tipW, &h, &why)) { refuse(why); return; }
@@ -659,8 +658,8 @@ static void BtReport()
     const unsigned n = g_btS.usN < 256 ? g_btS.usN : 256, m = g_btS.lagN < 256 ? g_btS.lagN : 256;
     Log("blade/trace: %s, %s | %u blade(s) traced: nothing %u, a character %u, the world %u, another actor %u, unverified %u | the "
         "tip's path since the last sample traced %u time(s) and found something the blade had not %u time(s); the path ahead "
-        "(lead %.0f ms, 0 = never asked) %u and %u | refused %u "
-        "(%u because the drawn sword had left the hand's blade) | cost per call: median %.0f p95 %.0f max %.0f us over the last %u | "
+        "(lead %.0f ms, 0 = never asked) %u and %u | refused %u | "
+        "%u traced with the sword re-posed in the hand (a sneak grip, a block: more than 2 cm from the standing blade) | cost per call: median %.0f p95 %.0f max %.0f us over the last %u | "
         "blade published to answer: median %.1f p95 %.1f max %.1f ms over the last %u | engine calls %ld, unanswered %ld | %s. Every "
         "count is 0 while the trace is off or the blade is not latched",
         g_btOn.load() ? "ON" : dvr::hands::blade_demanded() ? "ON for the motion sword (Detector=contact)" : "off",

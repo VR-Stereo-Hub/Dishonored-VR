@@ -67,6 +67,16 @@ struct BladeSnapshot {
     bool  liveOk = false;
     float liveTipPalm[3] = {};
     uint64_t liveMs = 0;         // GetTickCount64 of that draw: a SAMPLE, unlike the constant
+    // THE BLADE AS THE LAST DRAW HAD IT, both ends. The game re-poses the sword in the hand:
+    // crouched it is held in a reverse grip, blocking it is raised to the parry, and the
+    // first headset run (2026-09-29) spent every crouched and every blocking second with a
+    // blade 1.16 m from where the standing constant said it was. So what is traced is THIS
+    // segment, and the latched constant says only which two vertices of the mesh are the
+    // blade's ends. liveGripMps is how fast the tip is moving IN THE PALM FRAME: zero while
+    // the player moves the sword, not zero while the game does.
+    float liveBasePalm[3] = {};
+    float liveGripMps = 0;
+    const char* liveWhy = "no sword draw has been measured";
     uint32_t revision = 0;       // bumped whenever the constant is replaced or dropped
     const char* why = "the blade measurement is off";
     // WHERE THE RENDERER PUT IT (prerequisite 3's second route). The latched base and tip
@@ -84,6 +94,8 @@ BladeSnapshot blade_snapshot(int hand);
 // applied, and the head pose of the same present.
 struct BladeFrame {
     bool  ok = false;
+    bool  latched = false;       // the blade has been measured at all; false = nothing to follow yet
+    float gripMps = 0;           // BladeSnapshot::liveGripMps of the draw this frame was built from
     const char* why = "not published";
     float baseXr[3] = {}, tipXr[3] = {}, liveTipXr[3] = {};
     // The tip where the PLAYER's hand carries it, before the scale about the head: tracking
@@ -120,6 +132,7 @@ struct BladeHit {
 };
 struct BladeTouch {
     bool  ok = false;            // the blade was traced for the hand sample below
+    bool  broken = false;        // the engine cannot be asked at all (the line check did not verify): not a passing state
     const char* why = "the blade trace is off";
     BladeHit blade, sweep, ahead;
     float bladeUU = 0, sweepUU = 0, aheadUU = 0;   // the length of each segment

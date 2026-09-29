@@ -341,8 +341,13 @@ void tick(bool gameplay, bool projectionWanted) {
         dvr::hands::BladeFrame bf;
         const int h = 1;   // the sword hand
         const auto blade = dvr::hands::blade_snapshot(h);
+        bf.latched = blade.ok;
+        bf.gripMps = blade.liveGripMps;
+        const uint64_t tickNow = GetTickCount64();
         if (!blade.ok) bf.why = blade.why;
         else if (!gameplay) bf.why = "not a gameplay view";
+        else if (!blade.liveOk) bf.why = blade.liveWhy;
+        else if (tickNow - blade.liveMs > 100) bf.why = "the sword has not been drawn for 100 ms";
         else {
             const auto cal = dvr::hands::trim_snapshot(h);
             dvr::vr::HandAimSample hs;
@@ -355,8 +360,9 @@ void tick(bool gameplay, bool projectionWanted) {
             if (!cal.ok) bf.why = cal.why;
             else if (!hs.generation || !hs.stampMs) bf.why = "no hand sample";
             else if (!dvr::vr::peek_head_pose(head)) bf.why = "no head pose";
-            else if (!dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.basePalm, bf.baseXr) ||
-                     !dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.tipPalm, bf.tipXr))
+            // the blade as the last draw had it, not the standing constant
+            else if (!dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.liveBasePalm, bf.baseXr) ||
+                     !dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.liveTipPalm, bf.tipXr))
                 bf.why = "the palm transport refused";
             else {
                 for (int i = 0; i < 3; ++i) bf.tipRawXr[i] = bf.tipXr[i];

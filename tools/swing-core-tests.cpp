@@ -425,6 +425,23 @@ int main() {
       check(fires == 1 && owner == kOwnerFallback && holds > 15 && holds < 30,
             "contact: three swings, the answer lost at 300 ms: the first touches nothing, the second falls in the 250 ms nobody decides, the third is the hand's"); }
 
+    // A hold lasts as long as the adapter says, and the hand never takes it over.
+    { Core k; int fires = 0, holds = 0, fallbacks = 0; const double dt = 1000.0 / 90.0; float x = 0;
+      for (double at = 0; at <= 1999; at += dt) { Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x; s.hand[1] = 1.2f;
+          s.tip[0] = x; s.tip[1] = 1.2f; s.tip[2] = -0.62f; s.tipValid = true; s.contactValid = true; s.contactAgeMs = 11.0f;
+          s.contact = true; s.contactHold = at >= 100.0;
+          const Verdict v = k.feed(s, con); if (v.fired) ++fires; if (v.hold) ++holds; if (v.fallback) ++fallbacks;
+          x += (at < 200.0 ? 0.0f : humps(6.0f, 200)(at)) * (float)(dt * 0.001); }
+      check(fires == 0 && fallbacks == 0 && holds > 160,
+            "contact: while the adapter holds (the game is re-posing the sword) five 6 m/s swings in two seconds attack nothing, and the hand never takes over"); }
+    { Core k; int fires = 0, owner = -1; const double dt = 1000.0 / 90.0; float x = 0;
+      for (double at = 0; at <= 1199; at += dt) { Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x; s.hand[1] = 1.2f;
+          s.tip[0] = x; s.tip[1] = 1.2f; s.tip[2] = -0.62f; s.tipValid = true; s.contactValid = true; s.contactAgeMs = 11.0f;
+          s.contact = at >= 800.0; s.contactHold = at >= 100.0 && at < 700.0;
+          const Verdict v = k.feed(s, con); if (v.fired) { ++fires; owner = v.owner; }
+          x += humps(6.0f, 200)(at) * (float)(dt * 0.001); }
+      check(fires == 1 && owner == kOwnerContact, "contact: when the hold ends the blade decides again, and the next cut that reaches something is the contact's"); }
+
     // The air swing lever.
     { Config c = con; c.contactAirSpeed = 8.0f;
       const Blade fast = blade(c, 399, humps(10.0f, 200), nullptr, nullptr);
