@@ -16,7 +16,7 @@ $env:INCLUDE = "$root\include;$sdk\ucrt;$sdk\shared;$sdk\um"
 $env:LIB = "$root\lib\x86;$libv\ucrt\x86;$libv\um\x86"
 Push-Location $out
 try {
-    & "$root\bin\Hostx64\x86\cl.exe" /nologo /EHsc /W4 /std:c++20 /I. /I (Join-Path $repo "src") /Fe:blade-tests.exe (Join-Path $PSScriptRoot "blade-tests.cpp")
+    & "$root\bin\Hostx64\x86\cl.exe" /nologo /EHsc /W4 /std:c++20 /I. /I (Join-Path $repo "src") /I (Join-Path $repo "third_party\OpenXR-SDK\include") /Fe:blade-tests.exe (Join-Path $PSScriptRoot "blade-tests.cpp")
     if ($LASTEXITCODE -ne 0) { throw "blade maths compilation failed." }
     .\blade-tests.exe
     if ($LASTEXITCODE -ne 0) { throw "blade maths tests failed." }

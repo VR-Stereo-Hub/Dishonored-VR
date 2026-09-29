@@ -73,6 +73,14 @@ run's verdict must read `the deliberate error was CAUGHT`. Look at the `_check_`
 believing a FAIL (TRAPS). `blade status` prints the latched base and tip and the constant against the
 live tip; the log's `blade: '<asset>' is N vertices on M bone(s)` line is the mesh's census. Passed
 2026-09-29: six of six eye and pose combinations within 1.6 cm along and 0.3 cm across.
+The blade in the WORLD: `blade on`, `blade world on`, pose the head and the hand, `blade world reset`,
+hold 3 s, `blade world status`. The line gives, per eye's draw, how far the XR route's tip and base
+are from where the renderer drew them, in uu, with the sample count (`0 over 0` means nothing was
+compared). Healthy is 0.25 uu; the floor is the half unit between the two eyes' draws (ENGINE_NOTES).
+`blade world skew 5` must read 5 % of the tip's distance from the head and `blade world anchor render`
+tens of uu: if either reads 0.25 the comparison is not comparing. Both are deliberate errors, never
+saved; `blade world skew 0` and `blade world anchor game` put them back. Host: `tools\blade-host.ps1`
+(542 checks with the bridge: a point bit-equal to the ray solver's origin at 60 head poses).
 
 VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
 trail's particle component is found on the pawn by its template, the native hide takes

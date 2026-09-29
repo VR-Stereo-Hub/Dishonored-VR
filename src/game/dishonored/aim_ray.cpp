@@ -23,6 +23,7 @@ Config g_config;
 Ray g_ray;
 std::mutex g_fireMutex;
 FireFrame g_fireFrame;
+dvr::hands::BladeFrame g_bladeFrame;   // VR-173, under g_fireMutex
 std::atomic<bool> g_fireRequested{false};
 std::atomic<bool> g_blinkRequested{false};
 std::atomic<bool> g_interactRequested{false};   // VR-166
@@ -56,6 +57,11 @@ void log_status() {
              s.dotFrames, s.beamFrames, s.layerLimit);
 }
 } // namespace
+} // namespace dvr::aim
+namespace dvr::hands {
+BladeFrame blade_frame() { std::lock_guard<std::mutex> lock(dvr::aim::g_fireMutex); return dvr::aim::g_bladeFrame; }
+} // namespace dvr::hands
+namespace dvr::aim {
 Config config() { return g_config; }
 bool model_ray_requested() { return g_modelRequested.load(); }
 FireFrame fire_frame() { std::lock_guard<std::mutex> lock(g_fireMutex); return g_fireFrame; }
@@ -326,6 +332,54 @@ void tick(bool gameplay, bool projectionWanted) {
                      carrying ? "carrying an object" : "carry ended");
         }
         if (!carrying && (dvr::anim::active() || dvr::anim::weight() < 1.0f)) out = {};
+    }
+    // VR-173: THE BLADE AS THE HEADSET SHOWS IT, for the script lane. One publication per
+    // present, under the fire frame's lock, from the latched palm-frame constant, the sword
+    // hand's grip pose and the head pose of this present. Costs one atomic read while the
+    // blade measurement is off.
+    {
+        dvr::hands::BladeFrame bf;
+        const int h = 1;   // the sword hand
+        const auto blade = dvr::hands::blade_snapshot(h);
+        if (!blade.ok) bf.why = blade.why;
+        else if (!gameplay) bf.why = "not a gameplay view";
+        else {
+            const auto cal = dvr::hands::trim_snapshot(h);
+            dvr::vr::HandAimSample hs;
+#if DVR_WITH_OPENXR
+            hs = dvr::vr::input_hand_aim_sample(h);
+#endif
+            dvr::vr::HeadPose head;
+            dvr::hf::Mat3 rc, g;
+            for (int i = 0; i < 9; ++i) { rc.m[i] = cal.R_C[i]; g.m[i] = cal.G[i]; }
+            if (!cal.ok) bf.why = cal.why;
+            else if (!hs.generation || !hs.stampMs) bf.why = "no hand sample";
+            else if (!dvr::vr::peek_head_pose(head)) bf.why = "no head pose";
+            else if (!dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.basePalm, bf.baseXr) ||
+                     !dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.tipPalm, bf.tipXr))
+                bf.why = "the palm transport refused";
+            else {
+                dvr::blade::scale_about_head(cal.headPos, cal.handToWorldScale, bf.baseXr);
+                dvr::blade::scale_about_head(cal.headPos, cal.handToWorldScale, bf.tipXr);
+                bf.liveOk = blade.liveOk &&
+                    dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.liveTipPalm, bf.liveTipXr);
+                if (bf.liveOk) {
+                    dvr::blade::scale_about_head(cal.headPos, cal.handToWorldScale, bf.liveTipXr);
+                    const float e[3] = { blade.liveTipPalm[0]-blade.tipPalm[0], blade.liveTipPalm[1]-blade.tipPalm[1],
+                                         blade.liveTipPalm[2]-blade.tipPalm[2] };
+                    bf.liveApartM = dvr::blade::len3(e);
+                    bf.liveMs = blade.liveMs;
+                }
+                // The head the hand was scaled about and the head the world frames are built
+                // from are one pose: the grip's own present.
+                for (int i = 0; i < 3; ++i) bf.headPos[i] = cal.headPos[i];
+                bf.headQuat[0] = head.qx; bf.headQuat[1] = head.qy; bf.headQuat[2] = head.qz; bf.headQuat[3] = head.qw;
+                bf.handGen = hs.generation; bf.sampleMs = hs.stampMs; bf.revision = blade.revision;
+                bf.ok = true; bf.why = "ready";
+            }
+        }
+        std::lock_guard<std::mutex> lock(g_fireMutex);
+        g_bladeFrame = bf;
     }
     // VR-173: THE BLADE MARKER, an instrument ([Blade] Marker, off). Two points at the
     // measured blade's base and tip, carried from the palm frame through the same

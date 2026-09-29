@@ -310,6 +310,32 @@ static void BlMeasure(IDirect3DDevice9* dev, WaMesh* w, const float* palette, UI
                 if (a.tipM > g_blS.idleMaxM) g_blS.idleMaxM = a.tipM;
             }
         } else { s.liveOk = false; InterlockedIncrement(&g_blS.liveFailed); }
+        // WHERE THE RENDERER PUT IT, in the game's world: the latched points carried the
+        // way this draw went (palm frame -> the hand draw's space) and back across the
+        // coordinate bridge the weapon path identifies its draws with. No headset pose is
+        // in it. The bridge's anchor is the arm mesh's own component transform from the
+        // script lane's snapshot, which is the known answer the XR route is judged by.
+        {
+            const int e = wc->eye > 0 ? 1 : 0;
+            s.drawnOk[e] = false;
+            const WaComp* ref = nullptr;
+            for (int i = 0; i < wc->componentCount && i < WA_MAX_COMP; ++i)
+                if (wc->components[i].ok && wc->components[i].isRef) { ref = &wc->components[i]; break; }
+            dvr::hf::Xform br, ibr;
+            if (ref) {
+                const dvr::hf::Xform nr = { ref->R, { ref->t[0], ref->t[1], ref->t[2] } };
+                if (dvr::wf::bridge(nr, wc->L_hand, &br) && dvr::wf::inverse(br, &ibr)) {
+                    const dvr::hf::Xform toWorld = dvr::hf::xform_mul(ibr, wc->palm);
+                    float b[3], t[3];
+                    for (int i = 0; i < 3; ++i) { b[i] = s.basePalm[i] * wc->unitsPerMeter; t[i] = s.tipPalm[i] * wc->unitsPerMeter; }
+                    dvr::hf::apply_point(toWorld, b, s.drawnBaseWorld[e]);
+                    dvr::hf::apply_point(toWorld, t, s.drawnTipWorld[e]);
+                    bool fin = true;
+                    for (int i = 0; i < 3; ++i) fin = fin && MpFinite(s.drawnBaseWorld[e][i]) && MpFinite(s.drawnTipWorld[e][i]);
+                    s.drawnOk[e] = fin; s.drawnMs[e] = now;
+                }
+            }
+        }
         BlPublish(s);
         return;
     }
@@ -449,8 +475,10 @@ static bool BlCommand(const char* args) {
         char ini[MAX_PATH]; _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir); ini[MAX_PATH-1] = 0;
         BlSave(ini); Log("blade: [Blade] written to %s", ini); return true;
     }
+    if (!strcmp(a, "world") || !strcmp(a, "trace")) return BladeContactCommand(a, b, c);   // blade_contact.cpp
     if (*a && strcmp(a, "status"))
-        Log("blade: status | on|off | forget | marker on|off | marker offset <m> | attack reset | save");
+        Log("blade: status | on|off | forget | marker on|off | marker offset <m> | attack reset | save | "
+            "world on|off|status|reset (the XR-to-world bridge, checked against the draw)");
     BlReport();
     return true;
 }

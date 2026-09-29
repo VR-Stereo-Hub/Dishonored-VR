@@ -3,6 +3,7 @@
 // Run: tools\blade-host.ps1. Never launches the game.
 #include "game/dishonored/blade_math.h"
 #include "game/dishonored/hands/weapon_frame.h"
+#include "game/dishonored/fire_aim_math.h"
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -215,6 +216,48 @@ int main() {
         float same[3] = {0.3f, 1.2f, -0.5f};
         scale_about_head(head, 1.0f, same);
         check(same[0] == 0.3f && same[2] == -0.5f, "a scale of one moves nothing");
+    }
+
+    // ---- prerequisite 3: a point takes the arithmetic a ray's origin takes ------------
+    {
+        using namespace dvr::fireaim;
+        int n = 0;
+        for (int yawD = -170; yawD < 180; yawD += 53) for (int pitchD = -60; pitchD <= 60; pitchD += 30)
+        for (int rollD = -20; rollD <= 20; rollD += 20) {
+            // the head: yaw about Y, pitch about X, ROLL about Z, as a quaternion
+            const float y = yawD * 0.0174532925f * 0.5f, p = pitchD * 0.0174532925f * 0.5f, r = rollD * 0.0174532925f * 0.5f;
+            const float qy[4] = {0, std::sin(y), 0, std::cos(y)}, qx[4] = {std::sin(p), 0, 0, std::cos(p)}, qz[4] = {0, 0, std::sin(r), std::cos(r)};
+            auto mulq = [](const float* a, const float* b, float* o) {
+                o[0] = a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1];
+                o[1] = a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0];
+                o[2] = a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3];
+                o[3] = a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2];
+            };
+            float t[4], q[4]; mulq(qy, qx, t); mulq(t, qz, q);
+            dvr::aim::FireFrame f; f.ray.ok = true; f.ray.gen = 7; f.ray.sampleMs = 1000; f.headValid = true; f.distanceM = 8;
+            for (int i = 0; i < 4; ++i) f.headQuat[i] = q[i];
+            const float head[3] = {0.1f, 1.6f, -0.2f}, point[3] = {0.35f, 1.25f, -0.75f};
+            for (int i = 0; i < 3; ++i) { f.headPos[i] = head[i]; f.ray.originXr[i] = point[i]; }
+            f.ray.dirXr[0] = 0.2f; f.ray.dirXr[1] = -0.3f; f.ray.dirXr[2] = -0.9f;
+            const float viewYaw = 1.3f, viewPitch = pitchD * 0.0174532925f * 0.5f;
+            const float camera[3] = {-2670.0f, -26290.0f, 386.0f};
+            Solution sol; Frames fr;
+            if (!solve(f, 1010, viewYaw, viewPitch, camera, 108, camera, sol)) continue;   // straight up or down refuses
+            ++n;
+            check(frames(q, viewYaw, viewPitch, fr), "the frames build wherever the ray solver accepts");
+            float w[3]; point_to_world(fr, head, point, camera, 108, w);
+            check(w[0] == sol.origin[0] && w[1] == sol.origin[1] && w[2] == sol.origin[2], "a point is the ray's origin, bit for bit");
+            float back[3]; point_to_xr(fr, head, w, camera, 108, back);
+            check(near_f(back[0], point[0], 2e-4f) && near_f(back[1], point[1], 2e-4f) && near_f(back[2], point[2], 2e-4f), "and comes back to where it started");
+            // distances survive: 1 m of XR is `scale` uu of world, in any direction, rolled or not
+            const float other[3] = {point[0] + 0.3f, point[1] - 0.4f, point[2] + 0.5f};
+            float w2[3]; point_to_world(fr, head, other, camera, 108, w2);
+            const float e[3] = {w2[0]-w[0], w2[1]-w[1], w2[2]-w[2]}, x[3] = {0.3f, -0.4f, 0.5f};
+            check(near_f(len3(e), 108.0f * len3(x), 0.02f), "a length in metres is that many times the scale in uu, head rolled or not");
+        }
+        check(n >= 60, "the bridge was exercised at many head poses, rolled ones included");
+        Frames fr; const float up[4] = {0.7071068f, 0, 0, 0.7071068f};
+        check(!frames(up, 0, 0, fr), "a head looking straight up has no horizon and refuses");
     }
 
     // ---- the acceptance check can fail ----------------------------------------------

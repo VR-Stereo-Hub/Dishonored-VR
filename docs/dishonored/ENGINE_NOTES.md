@@ -1,3 +1,26 @@
+## VR-173: a hand-frame point in the world, and the half unit between the eyes (2026-09-29)
+
+**What the player gets from knowing this.** Anything that asks the engine what the held
+sword touches has to hand it the blade in the engine's own units. It can.
+
+* `dvr::fireaim::point_to_world` (`fire_aim_math.h`) carries an XR-local point into game
+  world units: the point's offset from the head, read in the head's own right, up and
+  forward (horizon from the world's up, so a rolled head does not roll it), rebuilt along
+  the view's yaw and pitch, scaled, and added to the game camera's world position. It is
+  the ray solver's own origin arithmetic, now a function.
+* Measured against where the renderer drew the same point (the hand draw's palm target,
+  back across the weapon path's coordinate bridge): 0.24 to 0.27 uu at seven poses.
+* **The two eyes' draws put a held item 0.50 uu apart.** The hand is placed per eye at
+  hand travel (100 uu per metre) about a camera whose eyes are apart at the camera's
+  scale (108): 6.8 x (1 - 100/108). With `[Hands] WorldScaleUU` equal to `[PosTrack]
+  Scale` it would be zero. Not a fault found by a player; recorded because it is the
+  floor of every comparison between a draw and a world point.
+* The last render sample (`render_pos_world`) is not an anchor for anything that must
+  hold still: over 357 samples it put the blade a mean 28 uu and at worst 1491 uu from
+  the draw. The game camera anchor is what every hand ray and the blade use.
+
+No address or offset is added. Detail: `PLAN-contact-sword.md` section 7.3.
+
 ## VR-173: the player's sword, as its draw describes it (2026-09-29)
 
 **What the player gets from knowing this.** A sword that hits because the blade reached

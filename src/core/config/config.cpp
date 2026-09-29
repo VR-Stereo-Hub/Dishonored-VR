@@ -1234,10 +1234,13 @@ static bool WriteDefaultIni(const char* ini)
         "; palm and a tip, which follow the hand. Nothing uses it yet; it is what a blade\n"
         "; that hits because it REACHED something would be built on. Marker=1 shows the\n"
         "; measured base and tip as two dots, to judge against the drawn blade.\n"
-        "; Live: `blade on|off`, `blade marker on|off`, `blade status`.\n"
+        "; World=1 carries the blade into the game's world units and checks it against\n"
+        "; where the renderer drew it (an instrument; it needs Measure=1).\n"
+        "; Live: `blade on|off`, `blade marker on|off`, `blade world on|off`, `blade status`.\n"
         "[Blade]\n"
         "Measure=0\n"
         "Marker=0\n"
+        "World=0\n"
         "\n"
         "[Lens]\n"
         "Distance=18\n"
@@ -2861,6 +2864,7 @@ static void LoadConfig()
     OcclusionConfigure(ini);    // VR-79
     SwordTrailConfigure(ini);   // VR-171
     BlConfigure(ini);   // VR-173
+    BladeContactConfigure(ini);
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
@@ -4194,6 +4198,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
     SwordTrailSave(ini);   // VR-171
     BlSave(ini);   // VR-173
+    BladeContactSave(ini);
     CamShakeSave(ini);   // VR-172
     dvr::snap::save(ini);   // VR-219
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);

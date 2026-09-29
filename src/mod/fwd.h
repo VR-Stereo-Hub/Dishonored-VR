@@ -25,6 +25,11 @@ static void BlConfigure(const char* ini);   // VR-173 (hands/blade_axis.cpp)
 static void BlSave(const char* ini);
 static bool BlCommand(const char* args);
 static void BlStatus(dvr::status::Writer& w);
+static void BladeContactTick();         // VR-173 (blade_contact.cpp), script lane
+static bool BladeContactCommand(const char* a, const char* b, const char* c);
+static void BladeContactConfigure(const char* ini);
+static void BladeContactSave(const char* ini);
+static void BladeContactStatus(dvr::status::Writer& w);
 static void CamShakeTick();             // VR-172 (cam_shake.cpp)
 static void CamShakeOnViewRot(const int32_t* in, const int32_t* prevWrite, bool havePrev, const int32_t* deltaRot, int32_t headYawU);
 static void CamShakeNoteSkipped();

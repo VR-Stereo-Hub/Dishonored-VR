@@ -294,6 +294,7 @@
 #include "game/dishonored/interact_aim.cpp"   // VR-166: interaction aimed by hand
 #include "game/dishonored/throw_aim.cpp"      // VR-166: grenades aimed by hand
 #include "game/dishonored/hands/fx_follow.cpp" // VR-182: after weapon_attach (its snapshot) and throw_aim (rotator maths)
+#include "game/dishonored/blade_contact.cpp"   // VR-173: after interact_aim (the camera anchor) and weapon_attach (the blade)
 #include "game/dishonored/power_aim.cpp"      // VR-44: Windblast, Possession, Swarm by hand
 #include "game/dishonored/ue3/ui_state.cpp"
 #include "game/dishonored/ue3/ui_surface.cpp"

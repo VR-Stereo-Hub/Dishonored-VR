@@ -824,6 +824,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::drop::status(w);
     SwordTrailStatus(w);   // VR-171
     BlStatus(w);   // VR-173
+    BladeContactStatus(w);
     CamShakeStatus(w);   // VR-172
     dvr::snap::status(w);   // VR-219
     w.end_obj();

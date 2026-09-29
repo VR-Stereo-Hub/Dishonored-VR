@@ -69,8 +69,32 @@ struct BladeSnapshot {
     uint64_t liveMs = 0;         // GetTickCount64 of that draw: a SAMPLE, unlike the constant
     uint32_t revision = 0;       // bumped whenever the constant is replaced or dropped
     const char* why = "the blade measurement is off";
+    // WHERE THE RENDERER PUT IT (prerequisite 3's second route). The latched base and tip
+    // carried the way the DRAW went: palm frame -> the hand draw's own space -> the
+    // coordinate bridge back to the game's world. Nothing in it comes from the headset's
+    // pose, so it is the known answer the XR-to-world bridge is judged against. One value
+    // per eye, because each eye's draw places the hand for its own camera.
+    bool  drawnOk[2] = {false, false};          // [0] the left eye's draw, [1] the right's
+    float drawnBaseWorld[2][3] = {}, drawnTipWorld[2][3] = {};
+    uint64_t drawnMs[2] = {0, 0};
 };
 BladeSnapshot blade_snapshot(int hand);
+// The blade as the headset shows it, published once per present beside the fire frame, for
+// the script lane: XR LOCAL metres with the hand-travel scale about the head already
+// applied, and the head pose of the same present.
+struct BladeFrame {
+    bool  ok = false;
+    const char* why = "not published";
+    float baseXr[3] = {}, tipXr[3] = {}, liveTipXr[3] = {};
+    bool  liveOk = false;
+    float liveApartM = 0;        // latched tip against the live one, palm frame, metres
+    uint64_t liveMs = 0;
+    float headPos[3] = {}, headQuat[4] = {0, 0, 0, 1};
+    uint32_t handGen = 0;        // the sword hand's own sample generation
+    uint64_t sampleMs = 0;       // that sample's stamp (GetTickCount64)
+    uint32_t revision = 0;       // the blade's
+};
+BladeFrame blade_frame();
 // The acceptance marker's lever and its deliberate offset (metres, across the blade): the
 // offset exists so the check that reads the marker against the drawn blade can be shown
 // to FAIL. Present lane.

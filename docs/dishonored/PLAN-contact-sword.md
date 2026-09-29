@@ -3,7 +3,7 @@
 Status: **RESEARCH, in progress since 2026-09-29.** Written 2026-09-21 alongside VR-170.
 Sections 1 to 5 are the plan as written and are left as they were. Section 6 holds what
 turned out to be different by the time the work started, section 7 the verdicts, one per
-prerequisite, in the order they were measured. Prerequisites 1 and 2 have their verdicts.
+prerequisite, in the order they were measured. Prerequisites 1 to 3 have their verdicts.
 
 ## 1. What the player would get
 
@@ -336,3 +336,74 @@ in the plan in case the draw-time fit could not take a folding, multi-bone mesh.
 Not measured: the sword mid-fold (the latch waits for rest and a two-sided reach bound
 refuses a short sword, both host-tested, neither seen in the game); any sword but this
 one; and the headset, where the marker is judged by eye.
+
+### 7.3 Prerequisite 3, XR-local metres to world units: THE BRIDGE HOLDS, to a quarter of a centimetre (2026-09-29)
+
+**Verdict: a point of the held blade carried from the headset's space into the game's
+world lands where the renderer drew it, within 0.27 uu (2.7 mm) at seven poses. The
+bridge is the one the hand rays already use; nothing new was invented.**
+
+Build `v1.0.1-162-g64540b6a1` plus this commit's code, RelWithDebInfo, legacy off, the
+simulator, the sewer save. `[Blade] World`, default 0, live through `blade world`.
+
+**What was built.** `dvr::fireaim::point_to_world` (`fire_aim_math.h`), factored OUT of
+the ray solver, which now calls it: a blade point takes exactly the arithmetic every
+hand-aimed ray's origin takes. The host test pins the two bit for bit at 60 head poses,
+rolled ones included, and pins the way back (`point_to_xr`). The present lane publishes
+the blade as the headset shows it once a present (`dvr::hands::blade_frame`); the script
+lane carries it (`blade_contact.cpp`).
+
+**The known answer.** Two routes to one world point, sharing the palm-frame blade and
+nothing else:
+
+* the XR route: grip pose, palm-frame blade, XR local metres, `point_to_world` with the
+  game camera as the anchor and the view's yaw and pitch as the frame;
+* the draw route: the same palm-frame blade carried the way the DRAW went (the hand
+  draw's own palm target) and back across the coordinate bridge the weapon path
+  identifies its draws with, whose anchor is the arm mesh's own component transform.
+  No headset pose is in it.
+
+The tolerance was written before the run: 3.0 uu mean, 5.0 uu worst.
+
+| Pose | Left eye's draw, tip / base | Right eye's draw, tip / base | Samples |
+|---|---|---|---|
+| 1 head level, blade across the view | 0.25 / 0.25 | 0.25 / 0.25 | 197 |
+| 2 head 20 down, blade low | 0.25 / 0.25 | 0.25 / 0.25 | 357 |
+| 3 head turned 25, up 10, ROLLED 20 | 0.26 / 0.26 | 0.25 / 0.25 | 311 |
+| 4 head turned -40, down 30, ROLLED -20 | 0.27 / 0.26 | 0.24 / 0.25 | 318 |
+| 5 hand near, 0.35 m ahead | 0.25 / 0.25 | 0.25 / 0.25 | 361 |
+| 6 hand far, 0.95 m ahead | 0.26 / 0.26 | 0.24 / 0.24 | 296 |
+| 7 head MOVED 0.25 m right and 0.15 m back, turned and pitched | 0.25 / 0.27 | 0.25 / 0.24 | 294 |
+
+Mean disagreement in uu (1 uu = 1 cm); the worst sample equals the mean to two places
+in every row. The blade is 62.0 uu long in the world at every pose.
+
+**Where the quarter centimetre comes from.** The two eyes' draws put the blade 0.5 uu
+apart, in opposite directions from the XR route, which sits between them. The eyes are
+6.8 uu apart at the camera's 108 uu per metre, the hand is placed at hand travel's 100,
+and 6.8 x (1 - 100/108) is 0.50. It is a property of how the hands are drawn, it is
+already in what the player sees, and it is a twelfth of the tolerance.
+
+**The check can fail, and says by how much.** Same pose as row 2, one lever at a time,
+each a deliberate error that is never saved:
+
+| Leg | Tip, left / right | Predicted |
+|---|---|---|
+| as shipped | 0.25 / 0.25 uu | |
+| the XR route's scale off by +5 % | 5.17 / 5.12 | 5.14 (the tip is 102.8 uu from the head) |
+| off by -10 % | 10.26 / 10.31 | 10.28 |
+| anchored on the last render sample | mean 28.4, worst 1491 | not a number: that sample is whichever scene draw uploaded last, a shadow pass included. It is why the hand rays left it (VR-181) |
+| as shipped again | 0.25 / 0.25 | |
+
+**What agreement does NOT prove.** Both routes start from one grip pose, one hand
+calibration and one hand-travel scale, so a fault in any of those moves both and shows
+in neither. That is prerequisite 2's acceptance (the marker against the drawn blade, in
+the image) and not this one's. And the view's yaw and pitch are the last head WRITE
+while the head pose is this present's: every pose above is a held pose, so the skew a
+turning head adds between the two is not in these numbers. It is bounded by head rate
+times one game tick, and belongs to the detector's latency measurement.
+
+**World scale.** Changing `[PosTrack] Scale` cannot break the bridge: the hand-frame
+point is scaled about the head by hand travel over the camera's scale and then carried
+at the camera's scale, so the camera's scale cancels and the blade is carried at hand
+travel, as it is drawn.

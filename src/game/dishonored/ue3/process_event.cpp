@@ -56,9 +56,9 @@ static uint32_t DvrPostRenderCount()
     return (uint32_t)InterlockedCompareExchange(&g_pePostRender, 0, 0);
 }
 
-static const char* const kPeSubName[] = {"StandUpProbeTick", "UiSurfaceTick", "MenuEffectsTick", "InterlockedIncrement", "PeLatch", "PawnCollisionTick", "UiPeLatch", "ObjectiveMarkersApply", "CineBordersApply", "SceneDrawApply", "DrawCallersApply", "block@11", "block@12", "block@13", "IntroSkipApply", "DvrConsoleApply", "GameOptsApply", "dvr::anim::tick", "PossessionStateTick", "RainTick", "TrailTick", "LensTick", "CineTraceTick", "CamModTick", "CamShakeTick", "AimSourceTick", "InteractAimTick", "CarryThrowAimTick", "CarryHoldTick", "FxFollowTick", "FovLeverApply", "block@31", "ArmFollowTick", "PrTick", "AimSeamTick", "PropWatchTick", "AimSeamDrive", "BqTick", "HmTick", "dvr::camera::eyetest_script_tick", "dvr::camera::apply_offsets", "BlinkTestApply", "SkcRotApply", "BoneWigApply", "SbApply"};
-static const int kPeSubCount = 45;
-static LONGLONG g_peSubTicks[45] = {};
+static const char* const kPeSubName[] = {"StandUpProbeTick", "UiSurfaceTick", "MenuEffectsTick", "InterlockedIncrement", "PeLatch", "PawnCollisionTick", "UiPeLatch", "ObjectiveMarkersApply", "CineBordersApply", "SceneDrawApply", "DrawCallersApply", "block@11", "block@12", "block@13", "IntroSkipApply", "DvrConsoleApply", "GameOptsApply", "dvr::anim::tick", "PossessionStateTick", "RainTick", "TrailTick", "LensTick", "CineTraceTick", "CamModTick", "CamShakeTick", "AimSourceTick", "InteractAimTick", "CarryThrowAimTick", "CarryHoldTick", "FxFollowTick", "FovLeverApply", "block@31", "ArmFollowTick", "PrTick", "AimSeamTick", "PropWatchTick", "AimSeamDrive", "BqTick", "HmTick", "dvr::camera::eyetest_script_tick", "dvr::camera::apply_offsets", "BlinkTestApply", "SkcRotApply", "BoneWigApply", "SbApply", "BladeContactTick"};
+static const int kPeSubCount = 46;
+static LONGLONG g_peSubTicks[46] = {};
 static LONGLONG g_peSubT0 = 0;
 // Per statement of the hook's per-event ticks: the time since the previous PeSub (route 2, pe/cost-fn).
 static volatile LONG g_peFnOn = 0;   // `pe fn on|off`, [Perf] PeCostFn: the per-statement split (off = free)
@@ -73,7 +73,7 @@ static void PeSubReport(double s)
 {
     if (!InterlockedCompareExchange(&g_peFnOn, 0, 0)) return;
     const double f = g_qpcFreq ? (double)g_qpcFreq : 1.0;
-    int order[45]; for (int i = 0; i < kPeSubCount; ++i) order[i] = i;
+    int order[46]; for (int i = 0; i < kPeSubCount; ++i) order[i] = i;
     for (int i = 0; i < kPeSubCount; ++i) for (int j = i + 1; j < kPeSubCount; ++j)
         if (g_peSubTicks[order[j]] > g_peSubTicks[order[i]]) { int t = order[i]; order[i] = order[j]; order[j] = t; }
     char t[600]; int m = 0;
@@ -296,6 +296,8 @@ extern "C" void __cdecl PeHandler(void* obj, void* a1, void* a2, void* a3)
     PeSub(43);
     if (g_sbWritePoint == 0) SbApply("script");   // 30.83 oracle, tick-time lane
     PeSub(44);
+    BladeContactTick();   // VR-173: the held blade in the world; off unless [Blade] World or Trace
+    PeSub(45);
 
     // 41.1: the scene probe (census / one-shot stack scrape); pointer compares
     // unless a word armed it.
