@@ -1904,6 +1904,7 @@ static void LoadConfig()
             dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
+            dvr::dlss::set_object_motion(IniFloat(ini, "Clarity", "DlssObjectMotion", 0) != 0.0f, "ini");   // VR-39
             dvr::dlss::jitter::set_enabled(IniFloat(ini, "Clarity", "DlssJitter", 0) != 0.0f, "ini");
             dvr::dlss::jitter::set_wide(IniFloat(ini, "Clarity", "DlssJitterWide", 1) != 0.0f, "ini");
             dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
@@ -4332,6 +4333,7 @@ static void OverlaySaveDefaults()
             _snprintf(v, 64, "%u", doh); WritePrivateProfileStringA("Clarity", "DlssOutputHeight", v, ini);
         }
         WritePrivateProfileStringA("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DlssObjectMotion", dvr::dlss::object_motion() ? "1" : "0", ini);   // VR-39
         WritePrivateProfileStringA("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", ini);
         WritePrivateProfileStringA("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", ini);
         _snprintf(v, 64, "%.3f", dvr::dlss::mask_lo());

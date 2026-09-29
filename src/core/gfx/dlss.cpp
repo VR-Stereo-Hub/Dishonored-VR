@@ -49,6 +49,9 @@ const char* mode_name(int q) { return (q == QDlaa && g_backend.load() == Backend
 const char* const kQualityWord[QCount] = {"dlaa", "quality", "balanced", "performance", "ultraperformance", "ultraquality"};
 std::atomic<bool> g_mask{false};
 std::atomic<bool> g_fgBias{true};   // `dlss fgbias on|off`: the hands and weapon always trust the current colour
+std::atomic<bool> g_objMotion{false};   // `dlss objmotion on|off`, [Clarity] DlssObjectMotion: vectors for what moves on its own
+uint64_t g_objRuns = 0, g_objRefused = 0;
+char g_objWhy[128] = "";
 std::atomic<float> g_maskLo{0.03f}, g_maskHi{0.12f};
 std::atomic<int> g_state{Idle};
 std::atomic<bool> g_retry{false};
@@ -344,6 +347,14 @@ void set_fg_bias(bool on, const char* who) {
     DVR_INFO("dlss: the hands and weapon always trust the current colour %s (live, %s)", on ? "ON" : "off", who ? who : "?");
 }
 bool fg_bias() { return g_fgBias.load(); }
+void set_object_motion(bool on, const char* who) {
+    if (g_objMotion.exchange(on) == on) return;
+    DVR_INFO("dlss: object motion %s (live, %s) - %s", on ? "ON" : "off", who ? who : "?",
+             on ? "each eye image is block-matched against the eye's previous one; moving characters and anything riding "
+                  "with the camera get their own vectors, the static world keeps the camera's"
+                : "the camera's vectors only (moving characters and vehicles smear)");
+}
+bool object_motion() { return g_objMotion.load(); }
 void set_mask_range(float lo, float hi, const char* who) {
     if (!(lo >= 0.0f && lo < 1.0f)) lo = 0.03f;
     if (!(hi > lo && hi <= 1.0f)) hi = lo + 0.09f;
@@ -431,7 +442,20 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     // VR-39: the hands and weapon always "trust the current colour" (their vectors are the camera's only).
     const bool wantFg = g_fgBias.load() && gp.preFg && gp.sceneDepth;
     if (wantFg) ++g_win.fgMasked;
-    if (wantMask || wantAudit || wantFg) {
+    const bool wantObj = g_objMotion.load();
+    if (wantObj && gp.historyValid) {   // before the mask and the audit: they read the corrected vectors
+        GuideGpu::ObjParams op;
+        char ow[128] = "";
+        if (g_guides.objmotion(dev, ctx, eye, src, gp.jitterKnown ? gp.jitter[0] - gp.prevJitter[0] : 0.0f,
+                               gp.jitterKnown ? gp.jitter[1] - gp.prevJitter[1] : 0.0f, op, ow, sizeof(ow)))
+            ++g_objRuns;
+        else { ++g_objRefused; strcpy_s(g_objWhy, ow); }
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+                         "dlss: object motion - %llu eye images corrected, %llu without (last: %s; the first image of each eye "
+                         "after a reset has no previous one)", (unsigned long long)g_objRuns, (unsigned long long)g_objRefused,
+                         g_objWhy[0] ? g_objWhy : "none");
+    }
+    if (wantMask || wantAudit || wantFg || wantObj) {
         const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why),
                                           wantMask, wantFg ? gp.sceneDepth : nullptr, wantFg ? gp.preFg : nullptr);
         if (masked && (wantMask || wantFg)) { in.bias = g_guides.bias(); ++g_win.masked; }
@@ -535,6 +559,7 @@ bool command(const char* args) {
         jitter::set_enabled(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true;
     }
     if (n >= 2 && !_stricmp(sub, "mask")) { set_mask(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "objmotion")) { set_object_motion(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "fgbias")) { set_fg_bias(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "maskrange")) {
         float lo = 0, hi = 0;

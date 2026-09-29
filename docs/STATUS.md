@@ -1,3 +1,11 @@
+## 2026-09-29: DLSS object motion - built, host-verified, headset pending
+
+Branch `claude/vr-39-dlss-object-motion` (on #159). Each eye image is block-matched against its previous
+one, so moving characters and anything the player rides get their own motion vectors.
+- The F10 box is "Follow moving characters and vehicles" (default off).
+- Host 10/10: a character 0.14 px, a boat 0.00 px, the static world unchanged.
+- Cost 0.25 ms per eye image.
+
 ## 2026-09-28 (AFW run 8): foreground mask, running, DLSS hands, and the depth layer for SSW - host-verified, headset pending
 
 Branch `claude/vr-39-afw-polish` (after #158 merged). From the run-8 report:
