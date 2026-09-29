@@ -90,8 +90,11 @@ static inline void FovLeverApply()
         // FOV (run 12: with the camera moved to 103 the arms stayed at their lens, AFW reprojected them at 103, and the
         // hands oscillated).
         const float armsLens = ArmsLensFovGet();
+        // No lens of their own: with the hands switch on the camera is at the world's FOV but the arms did not follow it (run 12,
+        // replayed: 12.46% of the hand band wrong at 103, 2.10% at the headset-derived 108.07), so assume the headset-derived one.
+        const float armsFallback = (HandsWorldFovGet() && dvr::vr::suggested_hfov_deg() > 5.0f) ? dvr::vr::suggested_hfov_deg() : sensor;
         dvr::afw::set_fg_fov(cinematicTarget <= 0 && scoped <= 0 && fabsf(sensor - lastWrite) < 0.5f
-                                 ? (armsLens > 5.0f ? armsLens : sensor) : 0.0f);
+                                 ? (armsLens > 5.0f ? armsLens : armsFallback) : 0.0f);
         if (t < 20.0f)  t = 20.0f;
         if (t > 160.0f) t = 160.0f;
         if (IsLiveObject(g_peCtrl))
