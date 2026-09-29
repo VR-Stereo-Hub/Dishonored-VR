@@ -399,7 +399,7 @@ const char* eye_field() { return g_field >= 0 ? kFields[g_field].name : "none"; 
 // ---- fov --------------------------------------------------------------------------------
 void  set_fov_deg(float deg) { g_fovDeg = deg; }
 float fov_deg() { return g_fovDeg; }
-void  note_rendered_fov(float deg) { g_renderedFov = deg; dvr::afw::set_fg_fov(deg); }   // VR-39: the foreground's projection
+void  note_rendered_fov(float deg) { g_renderedFov = deg; }
 float rendered_fov_deg() { return g_renderedFov; }
 
 // ---- the EYE TRACE -----------------------------------------------------------

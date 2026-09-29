@@ -71,6 +71,7 @@ const char* kSrc =
     "    float4 mD;\n"                   // held camera minus target camera (uu)
     "    float4 prm4;\n"                 // one grid step in uv: fresh x, y, held x, y
     "    float4 prm5;\n"                 // the foreground's tanH, tanV, its depth limit (units; 0 = one projection)
+    "    float4 prm6;\n"                 // own hands on, their colour agreement limit (0..1)
     "};\n"
     "cbuffer M : register(b1) {\n"
     "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
@@ -140,7 +141,7 @@ const char* kSrc =
     "    float3 c = tex.SampleLevel(linSamp, uv, 0).rgb;\n"
     "    if (prm3.z > 0.5) {\n"
     "        float3 k = cls == 0 ? float3(0.5, 1.0, 0.5) : cls == 2 ? float3(0.5, 0.6, 1.0) : cls == 3 ? float3(1.0, 0.4, 0.4)\n"
-    "                 : cls == 4 ? float3(1.0, 1.0, 0.4) : cls == 5 ? float3(1.0, 0.4, 1.0) : cls == 6 ? float3(0.4, 1.0, 1.0)\n"
+    "                 : cls == 4 ? float3(1.0, 1.0, 0.4) : cls == 5 ? float3(1.0, 0.4, 1.0) : cls == 6 ? float3(0.4, 1.0, 1.0) : cls == 7 ? float3(1.0, 0.7, 0.3)\n"
     "                 : float3(1.0, 1.0, 1.0);\n"
     "        c *= k;\n"
     "    }\n"
@@ -177,18 +178,44 @@ const char* kSrc =
     "        if (kH.a > 0 && (kH.a < 0.75 || tH > kH.z / max(1.0 - kH.z, 1e-4) * 1.05 + 0.01)) { float ta, ea; float2 sa = refineH(t, nearH(kH.xy), ta, ea);\n"
     "            if (ea < prm2.z && (!(eH < prm2.z) || ta < tH)) { sH = sa; tH = ta; eH = ea; } } }\n"
     "    bool okF = eF < tol, okH = eH < tol;\n"
+    // The hands and weapon from the held eye's OWN image where they have not moved: its own shading (a
+    // blade's highlight is view-dependent, and the other eye's every other frame reads as a shimmer). Held
+    // as fixed in tracking space (the body hypothesis), accepted only where the fresh eye puts the same
+    // surface at the same depth now AND the colours agree; anything moving takes the fresh eye as before.
+    "    if (st && tp && prm6.x > 0.5 && okF && tF < body) {\n"
+    "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
+    "        if (eb < tol && zb < body && abs(zb - tF) < 0.03 * tF + 0.005) {\n"
+    "            float3 ch = heldTex.SampleLevel(linSamp, sb, 0).rgb, cf = freshTex.SampleLevel(linSamp, sF, 0).rgb;\n"
+    "            float3 dc = abs(ch - cf);\n"
+    "            if (max(dc.r, max(dc.g, dc.b)) < prm6.y) return shade(heldTex, sb, 7);\n"
+    "        }\n"
+    "    }\n"
     "    if (okF && tF < body) return shade(freshTex, sF, 0);\n"
     "    if (st && tp) {\n"
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
-    "        if (okH) {\n"
+    "        if (eH < prm5.w) {\n"
     "            float2 tn = tanFor(tH);\n"
     "            float3 Wt = mc(d0, d1, d2, viewDirT(t, tn) * (tH * prm.z)) + dp.xyz;\n"
     "            float3 m = toTT(mc(f0, f1, f2, Wt - fp.xyz), tn);\n"
     "            float2 uf = ndcUV(m.xy);\n"
-    "            if (m.z > 0 && all(uf > 0.0) && all(uf < 1.0)) stale = zF(uf) > m.z * (1.0 + prm3.w) + 0.01;\n"
+    // The NEAREST fresh depth around the projected point, 1-2 depth texels along the baseline and 1 across:
+    // at a silhouette the projection lands a texel past the edge and the fresh eye sees the sky there, which
+    // is parallax, not motion (run 7: the silhouette fringe). A moved object leaves the whole neighbourhood behind it.
+    "            if (m.z > 0 && all(uf > 0.0) && all(uf < 1.0)) {\n"
+    "                float2 o = prm4.xy * 0.5;\n"
+    "                float zn = min(min(zF(uf), min(zF(uf + float2(o.x, 0)), zF(uf - float2(o.x, 0)))),\n"
+    "                               min(min(zF(uf + float2(2.0 * o.x, 0)), zF(uf - float2(2.0 * o.x, 0))),\n"
+    "                                   min(zF(uf + float2(0, o.y)), zF(uf - float2(0, o.y)))));\n"
+    "                stale = zn > m.z * (1.0 + prm3.w) + 0.01;\n"
+    "            }\n"
     "        }\n"
     "        if (okH && tH >= body && !stale && !(okF && tF < tH * (1.0 - prm3.w))) return shade(heldTex, sH, 1);\n"
+    // A silhouette: the held eye's own sample just misses (the edge texel's depth is coarse, most of all
+    // under an upscaler) while the fresh eye, 6 cm aside, sees PAST the edge to something farther. That
+    // farther surface is parallax, not the answer: keep the held eye's nearer near-miss (run 7: a 1-texel
+    // light fringe on roofs and trees against the sky was this).
+    "        if (!okH && !stale && tH >= body && eH < prm5.w && okF && tF > tH * (1.0 + prm3.w)) return shade(heldTex, sH, 6);\n"
     "        if (okF) return shade(freshTex, sF, 2);\n"
     "        if (okH && !stale) return shade(heldTex, sH, 3);\n"
     // Neither is consistent to 1.5 texels. A thin structure (a grate slat 2-3 texels wide) often leaves
@@ -267,7 +294,9 @@ std::atomic<bool> g_on{false}, g_stereo{true}, g_debug{false}, g_matrices{true},
 std::atomic<float> g_fgFov{0.0f};      // the game camera FOV (deg): the foreground's projection; 0 = not read yet
 std::atomic<float> g_fgDepth{0.30f};   // units: nearer pixels are the foreground (run-6 capture: arms/weapon <= 0.2, world >= 0.6)
 uint32_t g_fgUsed = 0;
-std::atomic<float> g_nearMiss{6.0f};   // `afw nearmiss <texels>`; 0 = the fill for every miss (the run-6 behaviour)
+std::atomic<float> g_nearMiss{6.0f};
+std::atomic<float> g_ownHands{0.0f};   // `afw ownhands <0..1>`: the colour agreement for the held eye's own hands; 0 = off (default: a slowly moving
+                                       // weapon can pass the colour test - the host test caught 25 px of lag - and on the run-7 captures it gained 1.64% -> 1.60%)   // `afw nearmiss <texels>`; 0 = the fill for every miss (the run-6 behaviour)
 std::atomic<float> g_bodyDepth{0.40f};
 std::atomic<float> g_worldScale{100.0f};
 std::atomic<int> g_matrixVerdict{0};
@@ -414,7 +443,7 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdb->GetBufferPointer(), pdb->GetBufferSize(), nullptr, &g_psDepth);
     rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb);
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 29 * 16;   // twenty-nine float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5
+    bd.ByteWidth = 30 * 16;   // thirty float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
@@ -836,6 +865,13 @@ void set_near_miss(float texels, const char* who) {
     DVR_INFO("afw/warp: near-miss %.1f texels (%s)%s", texels, who ? who : "?", texels > 0 ? "" : " - every miss goes to the fill");
 }
 float near_miss() { return g_nearMiss.load(); }
+void set_own_hands(float limit, const char* who) {
+    if (!(limit >= 0.0f && limit <= 1.0f)) { DVR_WARN("afw/warp: own hands %.3f refused (0..1)", limit); return; }
+    g_ownHands.store(limit);
+    DVR_INFO("afw/warp: own hands %s (%s)%s", limit > 0 ? "ON" : "off", who ? who : "?", limit > 0 ?
+             " - a still hand and weapon keep the held eye's own shading" : " - the hands always come from the fresh eye");
+}
+float own_hands() { return g_ownHands.load(); }
 void set_fg_depth(float units, const char* who) {
     if (!(units >= 0.0f && units < 2.0f)) { DVR_WARN("afw/warp: foreground depth %.3f refused (0..2 units)", units); return; }
     g_fgDepth.store(units);
@@ -1052,9 +1088,9 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     struct CB {
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
-        float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4];
+        float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
     } cb;
-    static_assert(sizeof(CB) == 29 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 30 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     const Pose& hp = haveH ? src.pose : fr.pose;
     rows(hp, cb.s, false);
@@ -1074,7 +1110,10 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     g_lastClaimDeg = 2.0f * atanf(tanH) * 57.29578f;
     cb.prm[2] = dvr::clarity::depth_scale() / g_worldScale.load();
     cb.prm[3] = body;
-    cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f; cb.prm2[3] = 0;
+    // The consistency tolerance, in target texels, widened by the depth's own texel size: under an upscaler
+    // the depth is at the render size (1.3-3x coarser), and a sample can only be as consistent as its depth.
+    const float depthTexel = fr.dw ? fmaxf(1.0f, (float)w / (float)fr.dw) : 1.0f;
+    cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f * depthTexel; cb.prm2[3] = 0;
     cb.prm3[0] = useS ? 1.0f : 0.0f; cb.prm3[1] = useT ? 1.0f : 0.0f; cb.prm3[2] = g_debug.load() ? 1.0f : 0.0f;
     cb.prm3[3] = 0.03f;
     if (fr.dw && fr.dh) { cb.prm4[0] = (float)kGridStep / fr.dw; cb.prm4[1] = (float)kGridStep / fr.dh; }
@@ -1088,7 +1127,8 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
             ++g_fgUsed;
         }
     }
-    cb.prm5[3] = g_nearMiss.load();   // texels: the nearer candidate within this beats the fill
+    cb.prm5[3] = g_nearMiss.load();
+    cb.prm6[0] = g_ownHands.load() > 0.0f ? 1.0f : 0.0f; cb.prm6[1] = g_ownHands.load();   // texels: the nearer candidate within this beats the fill
     int verdict = kUnused;
     if (useT) {
         verdict = matrix_world(src, fr, tgt, d, tanH, tanV, &cb.hI[0][0], cb.hC, cb.tA, cb.tB, cb.tW, cb.mD);

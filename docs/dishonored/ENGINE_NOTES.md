@@ -9993,3 +9993,9 @@ move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta
   tangents for them, not the claim's.
 - The depth in the scene target's alpha is linear view depth for both passes, as far as the
   measurement can tell: the ratio is flat over 0.28-0.46 m.
+
+### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
+
+In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->
+52 -> 23.4 deg while `cine/fov` keeps the drawn scene at `[Screen] ProjectionFov` (103). The sensor only
+names the foreground's projection in plain gameplay, when it reads back the FOV lever's own write.

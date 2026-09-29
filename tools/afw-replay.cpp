@@ -29,7 +29,7 @@ uint8_t g_levels[(int)Cat::COUNT] = {};
 void write(Cat, Level, const char*, ...) {}
 }
 static std::map<uint32_t, ID3D11ShaderResourceView*> g_depth;
-static float g_fgArg = 0; static bool g_fgOn = true; static float g_nearMissArg = 6.0f;
+static float g_fgArg = 0; static bool g_fgOn = true; static float g_nearMissArg = 6.0f; static float g_ownArg = 0.0f;
 static UINT g_dw = 0, g_dh = 0;
 namespace dvr::clarity { float depth_scale() { return 250.0f; } }
 namespace dvr::depthprobe {
@@ -94,6 +94,7 @@ int main(int argc, char** argv) {
     g_fgArg = argc > 6 ? strtof(argv[6], nullptr) : 0.0f;   // deg; 0 = the world's projection for everything
     g_fgOn = g_fgArg > 0.0f;
     g_nearMissArg = argc > 7 ? strtof(argv[7], nullptr) : 6.0f;
+    g_ownArg = argc > 8 ? strtof(argv[8], nullptr) : 0.0f;
     CreateDirectoryA(out.c_str(), nullptr);
     Gpu g;
     const D3D_FEATURE_LEVEL fl[] = {D3D_FEATURE_LEVEL_11_0};
@@ -116,11 +117,12 @@ int main(int argc, char** argv) {
             printf("p%02d: files missing\n", p); continue;
         }
         if (atoi(mn["fresh"].c_str()) != held) { printf("p%02d: the next present's fresh eye is not this held eye\n", p); continue; }
-        g_dw = w; g_dh = h;
+        UINT dw = w, dh = h; sscanf_s(m["freshDepth"].c_str(), "ok %ux%u", &dw, &dh);   // render size under DLSS SR
+        g_dw = dw; g_dh = dh;
         for (auto& kv : g_depth) kv.second->Release();
         g_depth.clear();
         const uint32_t sh = (uint32_t)strtoul(m["heldrec.serial"].c_str(), nullptr, 10), sf = (uint32_t)strtoul(m["fresh.serial"].c_str(), nullptr, 10);
-        g_depth[sh] = depth_srv(g, hd, w, h); g_depth[sf] = depth_srv(g, fd, w, h);
+        g_depth[sh] = depth_srv(g, hd, dw, dh); g_depth[sf] = depth_srv(g, fd, dw, dh);
         ID3D11Texture2D* ht = tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, hc.data(), w * 4);
         ID3D11Texture2D* ft = tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, fc.data(), w * 4);
         ID3D11Texture2D* dst = tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0, nullptr, 0);
@@ -133,6 +135,7 @@ int main(int argc, char** argv) {
         dvr::afw::set_fg_fov(m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : g_fgArg);
         dvr::afw::set_fg(g_fgOn, "replay");
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
+        dvr::afw::set_own_hands(g_ownArg, "replay");
         for (int k = 0; k < 2; ++k) {
             const char* who = k == 0 ? "heldrec" : "fresh";
             auto key = [&](const char* s) { return m[std::string(who) + "." + s]; };
@@ -166,7 +169,7 @@ int main(int argc, char** argv) {
             for (UINT y = 1; y + 1 < h; ++y)
                 for (UINT x = 1; x + 1 < w; ++x) {
                     const size_t i = (size_t)y * w + x;
-                    if (h2f(nd[i]) < 0.3f) continue;
+                    if (h2f(nd[(size_t)(y * dh / h) * dw + x * dw / w]) < 0.3f) continue;
                     const float la = 0.299f * px[i * 4] + 0.587f * px[i * 4 + 1] + 0.114f * px[i * 4 + 2];
                     float mx = 0;
                     for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) mx = fmaxf(mx, lnat[i + dy * (long)w + dx]);
@@ -176,7 +179,7 @@ int main(int argc, char** argv) {
                 const float la = 0.299f * px[i * 4] + 0.587f * px[i * 4 + 1] + 0.114f * px[i * 4 + 2];
                 const float lb = 0.299f * next[i * 4] + 0.587f * next[i * 4 + 1] + 0.114f * next[i * 4 + 2];
                 const bool bad = fabsf(la - lb) > 40.0f;
-                const float z = h2f(nd[i]);
+                const float z = h2f(nd[(size_t)((i / w) * dh / h) * dw + (i % w) * dw / w]);
                 if (z > 0 && z < 0.3f) { ++nearN; nearBad += bad; } else { ++worldN; worldBad += bad; }
             }
             printf("p%02d held eye %d: verdict %d | near band %ld px, %.2f%% differ | world %.3f%% differ | bright dots %ld\n", p, held,

@@ -1,3 +1,55 @@
+## 2026-09-28: AFW run 7 - a 1-texel light outline, sword shading, the merchant FOV, a crash (fixed except the sword, replay-verified)
+
+Surface: the held eye under `stereo afw`, build `v1.0.1-166-g737af7773`.
+- Reported: the hand jitter is gone. Left over:
+  - a flickering 1-texel light outline around some objects;
+  - a subtle shading shimmer on the sword;
+  - a large fault in a merchant conversation;
+  - a crash after a resolution change.
+- Two captures, both with DLSS Ultra Quality: depth at the render size (2114x2192) under the output
+  (2750x2850).
+
+**MEASURED - the outline.**
+- The dots sit on depth edges: roofs and trees against the sky.
+- They come from the fresh-eye world source (tint blue) and the fill.
+- Cause: the stale test projected the held eye's silhouette texel into the fresh view. There it landed
+  a texel past the edge, where the fresh eye sees sky, so the test called it "moved". The fresh eye then
+  supplied sky, which is parallax.
+- Fix, three parts:
+  - the stale test takes the nearest fresh depth of 1-2 texels along the baseline and 1 across;
+  - the consistency tolerance scales with the depth texel (x1.3 under Ultra Quality);
+  - a held near-miss beats a farther fresh surface.
+- Edge dots per frame 2786 -> 2159 (fresh-world 676 -> 390, fill 414 -> 0). Run-6 captures also
+  improved: dots 990 -> 791 and 3363 -> 3166.
+- The remaining edge dots are mostly held-eye, i.e. native frame-to-frame change of the upscaled edges.
+
+**MEASURED - replay caveat.** The replay score compares against the NEXT native frame, one tick later.
+With the head moving 0.05-0.15 deg per tick it reads 2-15% "world differ", which is real motion, not
+error. Only still frames are comparable. Measured on a capture: rebuild offsets equal the pose deltas.
+
+**MEASURED - the merchant.**
+- In a conversation the game zooms its camera to 23.4 deg (sensor), while `cine/fov` keeps the scene at
+  `ProjectionFov` 103.
+- The foreground FOV followed the sensor, so every texel nearer than 0.30 units (the counter, the
+  merchant) was reprojected with 23-degree tangents.
+- Fix: the foreground FOV is fed only while the FOV lever owns plain gameplay: no cinematic recovery, no
+  scope, and the sensor reads back the lever's own write. Otherwise 0 (the world's FOV throughout).
+
+**MEASURED - the crash.**
+- `ObjClassName` <- `LooksLikeObj` <- `FpAssetName` <- `FpCollect` <- `ApplyHandToMesh` <- the
+  ProcessEvent hook, right after a device Reset to 3012x3122.
+- It read 0xBF800030 after `RangeReadable` had passed: the range check and the read are two moments,
+  and the reset unmapped the page in between.
+- Fix: those reads are SEH-guarded (`ObjClassNameIndex`, `FpRead32`).
+- Not AFW.
+
+**OPEN - the sword shading.** The held eye takes the hands and weapon from the fresh eye, whose
+view-dependent highlights differ. An "own hands" option was built and tested:
+- It keeps the held eye's own hands where the fresh eye agrees on depth and colour.
+- It gained only 1.64% -> 1.60% hand mismatch at a safe colour limit (1.30% at a loose one).
+- The host test caught it showing a 2 cm-moved weapon 25 px late.
+- It ships OFF: `afw ownhands`, and an F10 checkbox as experimental.
+
 ## 2026-09-28: AFW run 6 captures - the hand jitter is a foreground FOV mismatch; the grate dots are the fill (fixed, replay-verified)
 
 Surface: the held eye under `stereo afw`. Build `v1.0.1-165-g75642ec7d`, 144 Hz. Two captures of 16

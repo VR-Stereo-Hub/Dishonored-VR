@@ -68,7 +68,7 @@ static inline void FovLeverApply()
             if (s > 10.0f && s < 175.0f) { sensor = s; dvr::camera::note_rendered_fov(s); }
         }
         float t = dvr::fov_lever::target(sensor, g_fovNatural, deg);
-        if (t == 0.0f) { recovery = {}; return; }
+        if (t == 0.0f) { recovery = {}; dvr::afw::set_fg_fov(0.0f); return; }   // lever off: the arms' FOV is unknown
         const auto state = dvr::anim::snapshot();
         const bool walking = !strcmp(state.state[0], "StatePlayerMasterWalk") ||
             !strcmp(state.state[0], "StatePlayerMasterFalling") ||
@@ -83,6 +83,10 @@ static inline void FovLeverApply()
         // A dispatch inside an active cinematic draw must preserve that draw's FOV.
         const float scoped=CineFovScopeTarget();
         if (scoped>0) t=scoped;
+        // VR-39: the arms and weapon are drawn with this camera FOV only in plain gameplay, when the sensor
+        // reads back our own write. A scripted zoom (a conversation reads 23 deg while the scene is drawn at
+        // ProjectionFov) or a scope says nothing about them; 0 = the rebuild uses the world's FOV throughout.
+        dvr::afw::set_fg_fov(cinematicTarget <= 0 && scoped <= 0 && fabsf(sensor - lastWrite) < 0.5f ? sensor : 0.0f);
         if (t < 20.0f)  t = 20.0f;
         if (t > 160.0f) t = 160.0f;
         if (IsLiveObject(g_peCtrl))

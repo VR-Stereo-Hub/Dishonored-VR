@@ -1172,6 +1172,10 @@ static void OvlTabDisplay()
                 bool nm = dvr::afw::near_miss() > 0.0f;
                 if (dvr::ovl::checkbox("AFW: keep thin structures (grates, railings)", &nm)) dvr::afw::set_near_miss(nm ? 6.0f : 0.0f, "F10");
                 OvlTip("Off lets thin structures fall back to the background fill, which shows up as bright dots on grates.");
+                bool own = dvr::afw::own_hands() > 0.0f;
+                if (dvr::ovl::checkbox("AFW: still hands keep their own shading (experimental)", &own)) dvr::afw::set_own_hands(own ? 0.3f : 0.0f, "F10");
+                OvlTip("A still hand or weapon keeps each eye's own lighting instead of the other eye's. Can show a slowly "
+                       "moving weapon one frame late.");
                 // VR-39: the diagnostic capture - close this panel after pressing and hold the pose to be captured.
                 if (dvr::ovl::button("Capture AFW frames for diagnosis")) dvr::afw::request_dump(16, 5000, dvr::paths::dumps_dir(), "F10");
                 OvlTip("Starts 5 seconds after you press it: close this panel and hold still (hands in view). Saves 16 "

@@ -1,3 +1,12 @@
+## A range check is not a read guard (hands scan, 2026-09-28)
+
+**What happened:** `RangeReadable` (VirtualQuery) said a page was committed, and the read that followed
+faulted. A device Reset on the present thread unmapped a driver mapping in between, and the game died in
+`ObjClassName` during the hand-mesh scan, right after a resolution change.
+
+**The rule:** any read of an arbitrary engine pointer that can race a reset is SEH-guarded, not only
+range-checked. Guarded so far: `ObjClassNameIndex` and `FpRead32`.
+
 ## A shared ring is a transport, not storage (VR-39 AFW, 2026-09-28)
 
 The AFW warp looked up its held image's depth in the 3-deep shared depth ring one present after the

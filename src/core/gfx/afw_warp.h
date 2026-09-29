@@ -70,6 +70,10 @@ void set_fg_depth(float units, const char* who);
 // A pixel whose nearer candidate misses by less than this (texels) takes it instead of the fill; `afw nearmiss`.
 void set_near_miss(float texels, const char* who);
 float near_miss();
+// Still hands and weapon from the held eye's own image (its own shading) when the fresh eye agrees on their
+// depth and colour within `limit` (0..1; 0 = off); `afw ownhands <limit>`.
+void set_own_hands(float limit, const char* who);
+float own_hands();
 // Tints the held eye by source; `afw debug on|off`.
 void set_debug(bool on, const char* who);
 bool debug();

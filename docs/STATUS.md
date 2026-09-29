@@ -1,3 +1,18 @@
+## 2026-09-28 (AFW run 7): outline, merchant FOV and crash fixed; sword shading left as an option
+
+Run 7 on `v1.0.1-166-g737af7773`: the hand jitter is gone. Fixed from two captures and the log:
+- **The 1-texel light outline.** The stale test misfired at silhouettes. Edge dots per frame
+  2786 -> 2159, the fill's share went to 0.
+- **The merchant conversation.** The camera FOV sensor reads 23 deg there. The foreground FOV is now
+  fed only in plain gameplay.
+- **A crash after a resolution change.** A reset raced a range-checked read in the hand-mesh scan; the
+  reads are now SEH-guarded.
+
+**Left:** the sword's subtle shading shimmer (the other eye's highlights). An "own hands" option exists,
+off by default: it gained little and can lag a slowly moving weapon.
+
+**Host test:** 28/28. The replay tool now handles upscaled captures (depth at the render size).
+
 ## 2026-09-28 (AFW run 6): cause of the hand jitter found and fixed; grate dots fixed (replay-verified)
 
 **Two captures from run 6, analysed offline:**
