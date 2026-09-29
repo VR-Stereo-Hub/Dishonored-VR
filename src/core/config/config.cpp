@@ -2882,6 +2882,7 @@ static void LoadConfig()
     CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
+    HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
@@ -3855,6 +3856,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen", "FovLever", v, ini);
     _snprintf(v,64,"%.2f",ProjectionFovGet());
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
+    WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);

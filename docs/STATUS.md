@@ -1,3 +1,10 @@
+## 2026-09-29: hands and weapon at the world FOV - built, headset pending
+
+Branch `claude/vr-39-hands-world-fov` (off staging).
+- The camera's FOV target follows `[Screen] ProjectionFov`, so the arms and weapon draw at 103 like the
+  world, instead of the headset-derived 108.
+- `[Screen] HandsAtWorldFov` (default 1), F10 Comfort. See ENGINE_NOTES.
+- To check first under the 1.0.2 stereo method (reentry): that hands, aiming and cinematics still work.
 ## 2026-09-29: DLSS object motion - built, host-verified, headset pending
 
 Branch `claude/vr-39-dlss-object-motion` (on #159). Each eye image is block-matched against its previous
