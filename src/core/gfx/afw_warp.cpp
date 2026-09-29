@@ -241,6 +241,10 @@ const char* kSrc =
     "    if (tp) {\n"
     "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
     "        if ((prm6.z > 0.5 ? zH(sb) < 0.0 : zb < body) && eb < tol) return shade(heldTex, sb, 4, zb);\n"
+    // A true disocclusion in a one-source rebuild (a synthesized slot, or no fresh depth): the search's last guess is a
+    // stretched streak of whatever was nearest - trails behind every edge that moves. Extend the background instead,
+    // unless it is a near-miss (a thin structure).
+    "        if (!okH && !(eH < prm5.w)) return fill(t, false, true);\n"
     "        return shade(heldTex, sH, okH ? 1 : 3, tH);\n"
     "    }\n"
     "    return okF ? shade(freshTex, sF, 2, tF) : (eF < prm5.w && !bF) ? shade(freshTex, sF, 6, tF) : fill(t, true, false);\n"
@@ -745,7 +749,10 @@ int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg,
     // The rotator is the camera the seam WROTE, about 20 ms before the image; the rendered view carries a later
     // head yaw (run 6: forward and right 1.0 deg apart, up 0.03 - a pure yaw lag while turning). This check is for
     // conventions (a mirrored or swapped axis is 90-180 deg); the turn, eye and camera checks hold the numbers.
-    if (basisWorst > 10.0) {
+    // 75 deg, not 10: the check exists for conventions (a mirrored or swapped axis is 90-180 deg). The rotator is written
+    // 20-30 ms before the image, and in a fast stick turn (run 11: 500-600 deg/s) that lag alone reads 10-23 deg - a
+    // snap turn more - and each refusal dropped the held eye's world to the XR model for a present: trails while turning.
+    if (basisWorst > 75.0) {
         ++g_mtxBasis;
         // Name the disagreement: which record, which axis, the rotator against the angles the matrix implies
         // (UE: yaw from forward x/y, pitch from forward z, roll from right z), and whose camera it was.
@@ -785,7 +792,10 @@ int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg,
     // 5 deg, not 0.5: the recorded body yaw lags the rendered view by up to 3 deg in a fast stick turn (run 7),
     // and each refusal drops the held eye to the XR model for one present - a jump while turning. Axis and
     // convention mistakes (90-180 deg) are the basis check's.
-    if (turnWorst > 5.0) { ++g_mtxTurn; return kTurn; }
+    // The body yaw it compares against is recorded with the rotator, 20-30 ms before the image: in a turn it lags by about
+    // twice the per-present yaw (run 11: 5.7-8.1 deg refusals at 4.8-5.7 deg per present). The limit grows with the turn.
+    const double turnLimit = 5.0 + 2.0 * fabs((double)yawDeg);
+    if (turnWorst > turnLimit) { ++g_mtxTurn; return kTurn; }
     // Check 3, the eye: the same instant, half a metre out, the target seen from the fresh eye.
     for (const auto& pt : pts) {
         const double v[3] = {pt[0] * tanH * 0.5, pt[1] * tanV * 0.5, -0.5};
