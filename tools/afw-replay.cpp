@@ -90,6 +90,7 @@ static void vec(const std::string& s, float* out, int n) {
     const char* p = s.c_str(); for (int i = 0; i < n; ++i) { out[i] = strtof(p, (char**)&p); }
 }
 
+static int g_maskArg = 1;
 int main(int argc, char** argv) {
     if (argc < 3) { printf("usage: afw-replay <capture dir> <out dir> [debug 0|1] [stereo 0|1] [matrices 0|1]\n"); return 2; }
     setvbuf(stdout, nullptr, _IONBF, 0);
@@ -99,6 +100,7 @@ int main(int argc, char** argv) {
     g_fgOn = g_fgArg > 0.0f;
     g_nearMissArg = argc > 7 ? strtof(argv[7], nullptr) : 6.0f;
     g_ownArg = argc > 8 ? strtof(argv[8], nullptr) : 0.0f;
+    g_maskArg = argc > 9 ? atoi(argv[9]) : 1;   // 0: replay with the foreground mask off (the depth limit)
     CreateDirectoryA(out.c_str(), nullptr);
     Gpu g;
     const D3D_FEATURE_LEVEL fl[] = {D3D_FEATURE_LEVEL_11_0};
@@ -139,7 +141,7 @@ int main(int argc, char** argv) {
         dvr::afw::set_fg_fov(m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : g_fgArg);
         dvr::afw::set_fg(g_fgOn, "replay");
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
-        dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1";   // the dumped depths carry the mask in their sign
+        dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
         for (int k = 0; k < 2; ++k) {
             const char* who = k == 0 ? "heldrec" : "fresh";

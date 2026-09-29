@@ -468,14 +468,30 @@ void set_prefg_wanted(unsigned owner, bool on) {
     }
 }
 
-void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp) {
-    // The foreground pass draws with a crushed depth range (MaxZ 0.001; the hands code keys on the same).
-    if (!vp || vp->MaxZ >= 0.5f || !g_preWanted.load() || !g_sceneSurf || !dev) return;
+// The foreground pass draws with a crushed depth range (MaxZ 0.001; the hands code keys on the same). Run 9 (build
+// v1.0.1-173): the crushed viewport is SET while another target is still bound (about 48 crushed viewports a frame,
+// none with the scene target at that moment, 870720 refusals, 0 copies), so the viewport only ARMS the snapshot and
+// the copy is taken at the first draw under it that renders into the scene target.
+bool g_crushArmed = false;
+uint64_t g_lastPreCopyMs = 0;
+bool g_preRtLogged = false;
+void try_pre_copy(IDirect3DDevice9* dev) {
+    if (!g_preWanted.load() || !g_sceneSurf || !dev) return;
     const uint32_t key = dvr::capture::serial() + 1;   // this frame's grab, as the depth ring keys it
-    if (key == g_preKey) return;                       // once per frame: the first foreground viewport
+    if (key == g_preKey) return;                       // once per frame: the first foreground draw
     IDirect3DSurface9* rt = nullptr;
     if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) return;
     const bool scene = rt == g_sceneSurf;
+    if (!scene && !g_preRtLogged && g_preNotScene > 2000 && g_preCopies == 0) {
+        // Name the target the foreground actually draws into, once, if it never is the scene target.
+        g_preRtLogged = true;
+        D3DSURFACE_DESC a = {}, b = {};
+        rt->GetDesc(&a); g_sceneSurf->GetDesc(&b);
+        DVR_WARN("depthshare: the foreground pass's draws render into %ux%u fmt %d usage 0x%lx, never the scene target "
+                 "%ux%u fmt %d (%llu refusals, 0 copies) - the AFW foreground mask is unavailable, the depth limit is used",
+                 a.Width, a.Height, (int)a.Format, (unsigned long)a.Usage, b.Width, b.Height, (int)b.Format,
+                 (unsigned long long)g_preNotScene);
+    }
     rt->Release();
     if (!scene) { ++g_preNotScene; return; }
     g_preKey = key;
@@ -496,7 +512,15 @@ void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp) {
     if (FAILED(slot->fence->Issue(D3DISSUE_END))) { ++g_preFailed; return; }
     slot->serial = key; slot->fenced = true;
     ++g_preCopies;
+    g_lastPreCopyMs = GetTickCount64();
 }
+
+void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp) {
+    if (!vp) return;
+    g_crushArmed = vp->MaxZ < 0.5f;
+    if (g_crushArmed) try_pre_copy(dev);
+}
+void note_draw(IDirect3DDevice9* dev) { if (g_crushArmed) try_pre_copy(dev); }
 
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground) {
     if (sawForeground) *sawForeground = false;
@@ -511,7 +535,10 @@ ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground
     best->borrowed = true;
     return best->srv;
 }
-bool prefg_ready() { return g_sceneSurf != nullptr; }
+// The mask is trusted only while the detector is producing copies: a frame with no copy then means no foreground
+// pass (no arms in view). A detector that never copies (run 9) must not turn every frame into "no arms" - the
+// rebuild then drew the hands at the world's FOV; it falls back to the depth limit instead.
+bool prefg_ready() { return g_sceneSurf != nullptr && g_lastPreCopyMs && GetTickCount64() - g_lastPreCopyMs < 2000; }
 
 void read_done(ID3D11DeviceContext* ctx) {
     if (!ctx) return;

@@ -1,3 +1,14 @@
+## 2026-09-29: "no snapshot" read as "no foreground" (AFW run 9)
+
+The foreground mask treated a frame without a pre-foreground copy as a frame without arms. The detector
+had never produced a single copy (it checked the render target at SetViewport, before the game bound
+the scene target), so every frame read as "no arms". The hands were rebuilt at the world's FOV: a
+headset run lost to a symptom already solved twice.
+
+Rule: an absence is evidence only from a detector that has recently shown it can see the thing. Gate on
+the detector's own recent success (`prefg_ready`: a copy within 2 s), and fall back to the previous
+method otherwise.
+
 ## A range check is not a read guard (hands scan, 2026-09-28)
 
 **What happened:** `RangeReadable` (VirtualQuery) said a page was committed, and the read that followed
