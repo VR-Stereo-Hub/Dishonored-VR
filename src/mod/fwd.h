@@ -291,6 +291,7 @@ static void CinePitchEnd();
 static bool ProjectionFovScopeActive();
 static float ProjectionFovGet();
 static bool HandsWorldFovGet();
+static float ArmsLensFovGet();
 static void HandsWorldFovSet(bool on, const char* who);
 static void ProjectionFovSet(float fov);
 static bool CineFovEnabled();
