@@ -1,3 +1,17 @@
+## 2026-09-29 (run 13 follow-up): the arms' lens read from the pawn, the switch moved - built, headset pending
+
+Branch `claude/vr-39-hands-world-fov`; installed from `local/test-vr39-msw-objmotion`.
+- Run 13 confirmed (build 198 log): re-entry 232-267 presents/s again, one `armslens:` line (the search
+  gave up). No general flicker reported under AFW in the same run.
+- The arms' component is now the pawn's `Mesh` (Pawn.Mesh by name, 0x3dc fallback). No GObjects search is
+  left in arm follow (ArmFovTick's slice search went too).
+- The held weapons' lenses are read from the hands' view-model list and written with the arms.
+- `[Screen] HandsLensForce` (default 0): switch a lens that is off on, at the world's FOV. The test for
+  `m_bUseFOV=0`.
+- F10: the Field of view section moved to Display (first section); the switch, the force test and a
+  status line are also at the top of Hands > Hand size and position.
+- Next log: the `armslens: the player mesh ... m_bUseFOV=` line decides the next step (BRIEF section 2).
+
 ## 2026-09-29: hands and weapon at the world FOV - built, headset pending
 
 Branch `claude/vr-39-hands-world-fov` (off staging).

@@ -1,3 +1,16 @@
+## 2026-09-29: AFW run 13 - a general flicker in build 195, not reported in build 198 (NOT REPRODUCED, cause not isolated)
+
+Surface: the whole AFW image (hands no longer flickering), build v1.0.1-195.
+- MEASURED (logs): build 195 ran at about 180 presents/s under re-entry where build 191 ran 233-250. The
+  only source change was the arms-lens GObjects search on the ProcessEvent path.
+- Build 198 (the search bounded, it gave up after one sweep): 232-267 presents/s under re-entry; under
+  AFW, `afw/warp` beats show 381-432 full rebuilds per 3 s, 0 refusals by basis/turn/eye/camera. No
+  general flicker reported in that run.
+- Not isolated: no capture was taken in build 195, so the three suspects in
+  `BRIEF-run13-perf-flicker.md` section 3 (the wider basis/turn limits, the one-source fill, the 103/108
+  foreground FOV) were not A/B'd. The lost frame rate is the leading explanation, not a proven one.
+- If it returns: capture ("Capture AFW frames"), replay with `-Tint`, then A/B per the brief.
+
 ## 2026-09-28: AFW run 7 - a 1-texel light outline, sword shading, the merchant FOV, a crash (fixed except the sword, replay-verified)
 
 Surface: the held eye under `stereo afw`, build `v1.0.1-166-g737af7773`.
