@@ -10031,6 +10031,24 @@ move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta
   it.
 - UNVERIFIED which of the two lenses the 108.07 measurement was; the next log answers it.
 
+**Run 13 (build 195/198, 2026-09-29).**
+- The component was never found: a full GObjects sweep for a `PlayerSkeletalComponent` instance matched
+  nothing (`armslens: no DishonoredPlayerSkeletalComponent instance found`). Most likely cause: the search
+  skipped objects whose FName number is 0 as class defaults, and the instance is named `pMesh` with number
+  0 (a component created from its template keeps the template's name). Not proven.
+- The search itself cost the game thread about a quarter of its frame rate (re-entry 233-250 -> 180
+  presents/s) until it was bounded.
+- The component is now read from the pawn: `Pawn.Mesh` (resolved by name, 0x3dc from the Stage 26 dump as
+  the fallback), class-checked for `PlayerSkeletalComponent`. No search.
+- The held weapons are `DishonoredItemSkeletalComponent`, a subclass, so they carry the same
+  `m_bUseFOV` / `m_FOV`. They are read from the hands' view-model list (FpCollect) and logged
+  (`armslens: weapon view model ...`); a lens that is on is written with the arms.
+- `[Screen] HandsLensForce` (default 0) sets `m_bUseFOV` too when it is off. It tests whether the native
+  projection honours `m_FOV` for a component the game never gave a lens. Handed back on release.
+- Nothing in the script corpus sets `m_bUseFOV` or `m_FOV` (no defaultproperties, no writes), so the
+  likely reading is `m_bUseFOV=0`. If so, the arms' 108.07 comes from somewhere other than this lens and
+  the camera FOV, and the force test and `propwatch` on the pawn are the next instruments.
+
 ### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
 
 In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->

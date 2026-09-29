@@ -51,6 +51,7 @@ static void ArmFollowResolve()
     // VR-30: the viewmodel's own lens (the yaw counter has to be scaled by it)
     g_afFovOff = FindPropOffset("DishonoredPlayerSkeletalComponent", "m_FOV");
     FindBoolProp("DishonoredPlayerSkeletalComponent", "m_bUseFOV", &g_afUseFovOff, &g_afUseFovMask);
+    ArmsLensResolve();   // VR-39: Pawn.Mesh, where the arms' lens is read from
     g_afActorRotOff = FindPropOffset("Actor", "Rotation");   // VR-30: the body-yaw hold
     g_afInfWeightOff = FindPropOffset("DishonoredCameraInfluence", "m_Weight");
     g_afInfTargetOff = FindPropOffset("DishonoredCameraInfluence", "m_TargetWeight");
@@ -89,47 +90,13 @@ static void ArmFollowResolve()
 // stable across probes). Re-validated the same way the look-at node is.
 static void ArmFovTick()
 {
-    // THE LAG SPIKES WERE THIS. The search below is a full GObjects walk - up
-    // to 4M objects with a RangeReadable each - and when it found nothing it
-    // ran again every 5 s, which is a visible hitch every 5 s forever. Two
-    // fixes: it only runs when the lever that needs it is actually on, and the
-    // walk is now INCREMENTAL, a bounded slice per call with a cursor, so a
-    // failed search costs a slice rather than the whole table.
+    // THE LAG SPIKES WERE THIS: a GObjects walk for the component, first whole, then in slices, that never
+    // stopped when it found nothing. It only runs when the lever that needs it is on, and (VR-39) there is no
+    // walk at all now.
     if (g_afCounterYaw < 0.0f) return;
     if (!g_afFovOff && !g_afUseFovOff) return;               // nothing resolved to read
-    const uint32_t now = (uint32_t)GetTickCount64();
-    // liveness: slot identity plus the class pointer, as SkcAlive does
-    if (g_afVmComp) {
-        void**   objs = *(void***)kGObjHdr;
-        uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
-        if (!objs || g_afVmIdx >= num || (uint8_t*)objs[g_afVmIdx] != g_afVmComp ||
-            *(void**)(g_afVmComp + kClassOff) != g_afVmCls)
-            g_afVmComp = NULL;
-    }
-    if (!g_afVmComp) {
-        if (!RangeReadable((void*)kGObjHdr, 12)) return;
-        void**   objs = *(void***)kGObjHdr;
-        uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
-        if (!objs || onum < 1000 || onum > 4000000) return;
-        // A bounded slice per call. 4096 objects is microseconds; the cursor
-        // wraps and tries again rather than stalling the frame for a whole
-        // sweep. Never GObjects order as identity - the cursor is only where
-        // to resume looking (31.4).
-        if (g_afVmScan < 1 || g_afVmScan >= onum) g_afVmScan = 1;
-        const uint32_t end = (g_afVmScan + 4096 < onum) ? g_afVmScan + 4096 : onum;
-        for (uint32_t i = g_afVmScan; i < end; i++) {
-            uint8_t* o = (uint8_t*)objs[i];
-            if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x200)) continue;
-            const uint32_t nnum = *(uint32_t*)(o + kNameOff + 4);
-            if (nnum == 0) continue;                          // want an instance, not the CDO
-            const char* cn = ObjClassName(o);
-            if (!cn || !strstr(cn, "PlayerSkeletalComponent")) continue;
-            g_afVmComp = o; g_afVmIdx = i; g_afVmCls = *(void**)(o + kClassOff);
-            break;
-        }
-        g_afVmScan = (end >= onum) ? 1 : end;
-        if (!g_afVmComp) return;
-    }
+    // VR-39: the component is the pawn's Mesh (ArmsLensFind); the GObjects slice search that was here is gone.
+    if (!ArmsLensFind(true)) return;
     // read the lens
     bool useFov = false;
     if (g_afUseFovOff && g_afUseFovMask && RangeReadable(g_afVmComp + g_afUseFovOff, 4))
@@ -485,113 +452,228 @@ static const unsigned kAfChangeLines = 8;   // change lines per field; the count
 // VR-39: THE ARMS' OWN LENS. The player mesh is a DishonoredPlayerSkeletalComponent with its own m_bUseFOV / m_FOV:
 // with m_bUseFOV set it is projected with m_FOV, whatever the camera's FOV. Run 12 measured that the camera's target
 // moving 103 <-> 108 left the hands exactly as they were, so the hands-at-world-FOV switch must write m_FOV itself.
-// Found by the same bounded GObjects slice ArmFovTick uses (whether or not the counter-yaw lever is on); written every
-// dispatch while armed (the game may recompute it per tick, as it does the camera FOV); every change of what the
-// game holds is logged. g_armsLensFov is what the arms are drawn with (0 = unknown) - AFW reprojects them with it.
+// Written every dispatch while armed (the game may recompute it per tick, as it does the camera FOV); every change of
+// what the game holds is logged. g_armsLensFov is what the arms are drawn with (0 = unknown) - AFW reprojects them with it.
+//
+// Run 13: the GObjects search for the component never matched (its instance is named pMesh with FName number 0, and
+// the search skipped number-0 objects as class defaults) and cost the game thread half its frame rate. There is no
+// search now: the component is the pawn's own Mesh property (Pawn.Mesh, resolved by name; 0x3dc per ENGINE_NOTES as
+// the fallback), re-read from the pawn so a new pawn or mesh is picked up without looking anywhere else.
+//
+// The held weapons are DishonoredItemSkeletalComponents - a subclass, so they carry the same lens. They are read from
+// the hands' view-model candidate list (FpCollect), never searched for, and written on the slow path after a liveness
+// check (a view model is destroyed with its item).
+//
+// [Screen] HandsLensForce (default 0, F10 beside the switch, `armslens force on|off`): when a lens is OFF (m_bUseFOV=0)
+// also set the bit, so the component is projected with m_FOV = the world's FOV. The experiment for the case the log
+// shows m_bUseFOV=0 and the hands still do not follow the camera. Handed back (bit cleared) when released.
 static float g_armsLensGame = 0.0f;     // the last value the game held (never our own write)
 static float g_armsLensWritten = 0.0f;  // our write (0 = none active)
 static std::atomic<float> g_armsLensFov{0.0f};
-static int g_armsLensUse = -1;          // m_bUseFOV as last read (-1 unknown)
+static std::atomic<int> g_armsLensUse{-1};   // m_bUseFOV as the game holds it (-1 unknown)
+static bool g_armsLensForcedBit = false;     // we set m_bUseFOV on the arms (hand it back on release)
 static uint32_t g_armsLensWrites = 0, g_armsLensRewrites = 0;
+static uint32_t g_armsMeshOff = 0;           // Pawn.Mesh
+static const char* g_armsMeshRoute = "unresolved";
+static std::atomic<bool> g_armsLensForce{false};
 static float ArmsLensFovGet() { return g_armsLensFov.load(); }
-static bool ArmsLensFind()
+static bool ArmsLensForceGet() { return g_armsLensForce.load(); }
+static void ArmsLensForceSet(bool on, const char* who)
 {
-    if (!g_afFovOff) return false;
-    if (g_afVmComp) {
-        void**   objs = *(void***)kGObjHdr;
-        uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
-        if (!objs || g_afVmIdx >= num || (uint8_t*)objs[g_afVmIdx] != g_afVmComp ||
-            *(void**)(g_afVmComp + kClassOff) != g_afVmCls)
-            g_afVmComp = NULL;
-    }
-    if (g_afVmComp) return true;
-    if (!RangeReadable((void*)kGObjHdr, 12)) return false;
-    void**   objs = *(void***)kGObjHdr;
-    uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
-    if (!objs || onum < 1000 || onum > 4000000) return false;
-    if (g_afVmScan < 1 || g_afVmScan >= onum) g_afVmScan = 1;
-    const uint32_t end = (g_afVmScan + 4096 < onum) ? g_afVmScan + 4096 : onum;
-    for (uint32_t i = g_afVmScan; i < end; i++) {
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x200)) continue;
-        const uint32_t nnum = *(uint32_t*)(o + kNameOff + 4);
-        if (nnum == 0) continue;
-        const char* cn = ObjClassName(o);
-        if (!cn || !strstr(cn, "PlayerSkeletalComponent")) continue;
-        g_afVmComp = o; g_afVmIdx = i; g_afVmCls = *(void**)(o + kClassOff);
-        break;
-    }
-    g_afVmScan = (end >= onum) ? 1 : end;
-    return g_afVmComp != NULL;
+    if (g_armsLensForce.exchange(on) != on)
+        Log("armslens: force %s (%s) - %s", on ? "ON" : "off", who ? who : "?",
+            on ? "a lens that is off (m_bUseFOV=0) is switched on at the world's FOV while the hands switch is on"
+               : "only a lens the game itself turned on is written");
 }
-// Run 13: this search ran on every 128th ProcessEvent dispatch - hundreds of 4096-object slices a second, each with a
-// class-name lookup - never found the component (none of its instances matched), so it never stopped: the game thread
-// lost about half its frame rate (reentry 233-250 presents/s -> 180 in the same place, the only change between the
-// builds). Now: only while the switch is on, one slice per second at most, and after one full sweep without a match
-// it stops and says so.
-static uint32_t g_armsLensSweepStart = 0;
-static bool g_armsLensGaveUp = false;
-static uint64_t g_armsLensNextSliceMs = 0;
+static void ArmsLensResolve()
+{
+    g_armsMeshOff = FindPropOffset("Pawn", "Mesh");
+    g_armsMeshRoute = g_armsMeshOff ? "Pawn.Mesh by name" : "0x3dc (ENGINE_NOTES fallback: Pawn.Mesh did not resolve)";
+    if (!g_armsMeshOff) g_armsMeshOff = g_fpMeshOff;   // 0x3dc, the Stage 26 field dump
+    DVR_INFO("armslens: resolve - Pawn.Mesh +0x%x (%s); lens m_FOV %s+0x%x, m_bUseFOV %s+0x%x mask 0x%x%s",
+             g_armsMeshOff, g_armsMeshRoute, g_afFovOff ? "" : "NOT FOUND ", g_afFovOff,
+             g_afUseFovOff ? "" : "NOT FOUND ", g_afUseFovOff, g_afUseFovMask,
+             g_afFovOff ? "" : "  <-- the lens cannot be read or written; the hands switch moves the camera only");
+}
+// Is c a player/item skeletal component (the lens owners)? Slow path only: a class-name read.
+static bool ArmsLensIsLensOwner(uint8_t* c, const char** clsOut)
+{
+    if (!c || ((uintptr_t)c & 3) || !LooksLikeObj(c)) return false;
+    const char* cn = ObjClassName(c);
+    if (clsOut) *clsOut = cn;
+    return cn && (strstr(cn, "PlayerSkeletalComponent") || strstr(cn, "ItemSkeletalComponent"));
+}
+// The arms: the pawn's Mesh. Validated on the slow path only (VirtualQuery and a class-name read); the per-dispatch
+// path uses what the last slow pass validated, as the arm-follow writers do.
+static bool ArmsLensFind(bool slow)
+{
+    if (!slow) return g_afVmComp != NULL;
+    if (!g_afFovOff || !g_armsMeshOff) return false;
+    uint8_t* pawn = FpPawn();
+    if (!pawn || !RangeReadable(pawn + g_armsMeshOff, 4)) { g_afVmComp = NULL; return false; }
+    uint8_t* m = *(uint8_t**)(pawn + g_armsMeshOff);
+    if (m && m == g_afVmComp && RangeReadable(m, kClassOff + 4) && *(void**)(m + kClassOff) == g_afVmCls) return true;
+    g_afVmComp = NULL;
+    if (!m) return false;
+    const char* cn = NULL;
+    static void* saidRefused = NULL;
+    if (!ArmsLensIsLensOwner(m, &cn) || !RangeReadable(m + g_afFovOff, 4)) {
+        if (saidRefused != (void*)m) {
+            saidRefused = (void*)m;
+            Log("armslens: pawn %p +0x%x holds %p, class '%s' - not a DishonoredPlayerSkeletalComponent, lens not read",
+                (void*)pawn, g_armsMeshOff, (void*)m, cn ? cn : "?");
+        }
+        return false;
+    }
+    g_afVmComp = m; g_afVmCls = *(void**)(m + kClassOff); g_afVmIdx = 0;
+    static void* saidFound = NULL;
+    if (saidFound != (void*)m) {
+        saidFound = (void*)m;
+        int use = -1;
+        if (g_afUseFovOff && g_afUseFovMask && RangeReadable(m + g_afUseFovOff, 4))
+            use = (*(uint32_t*)(m + g_afUseFovOff) & g_afUseFovMask) ? 1 : 0;
+        Log("armslens: the player mesh '%s' @ %p via pawn %p +0x%x (%s) - m_bUseFOV=%d m_FOV=%.2f; the camera renders "
+            "%.2f, the world is drawn at %.2f. m_bUseFOV=0 means the mesh has no lens of its own: then only the camera's "
+            "FOV (or the force lever) can move it", cn ? cn : "?", (void*)m, (void*)pawn, g_armsMeshOff, g_armsMeshRoute,
+            use, *(float*)(m + g_afFovOff), dvr::camera::rendered_fov_deg(), ProjectionFovGet());
+    }
+    return true;
+}
+
+// The held weapons' lenses. Slow path only; each entry is revalidated before every read or write.
+struct ArmsItemLens { uint8_t* obj; void* cls; float game; float written; int use; bool forced; char name[40]; };
+static ArmsItemLens g_armsItems[8];
+static int g_armsItemN = 0;
+static uint32_t g_armsItemLines = 0;
+static bool ArmsItemAlive(const ArmsItemLens& e)
+{
+    return e.obj && LooksLikeObj(e.obj) && *(void**)(e.obj + kClassOff) == e.cls && RangeReadable(e.obj + g_afFovOff, 4);
+}
+static void ArmsItemsTick(bool want, float world)
+{
+    if (!g_afFovOff) return;
+    // Adopt new view models from the hands' candidate list (read-only; FpCollect owns it).
+    for (int i = 0; i < g_fpCandN && i < (int)(sizeof(g_fpCand) / sizeof(g_fpCand[0])); i++) {
+        uint8_t* o = g_fpCand[i].obj;
+        if (!o || !strstr(g_fpCand[i].cls, "ItemSkeletalComponent")) continue;
+        bool have = false;
+        for (int k = 0; k < g_armsItemN; k++) if (g_armsItems[k].obj == o) { have = true; break; }
+        if (have || g_armsItemN >= 8) continue;
+        const char* cn = NULL;
+        if (!ArmsLensIsLensOwner(o, &cn) || !RangeReadable(o + g_afFovOff, 4)) continue;
+        ArmsItemLens& e = g_armsItems[g_armsItemN++];
+        memset(&e, 0, sizeof(e));
+        e.obj = o; e.cls = *(void**)(o + kClassOff); e.use = -2; e.game = *(float*)(o + g_afFovOff);
+        strncpy(e.name, g_fpCand[i].asset[0] ? g_fpCand[i].asset : g_fpCand[i].name, sizeof(e.name) - 1);
+    }
+    for (int k = 0; k < g_armsItemN; k++) {
+        ArmsItemLens& e = g_armsItems[k];
+        if (!ArmsItemAlive(e)) { g_armsItems[k--] = g_armsItems[--g_armsItemN]; continue; }   // gone with its item: forget it
+        float* fov = (float*)(e.obj + g_afFovOff);
+        uint32_t* bits = (g_afUseFovOff && g_afUseFovMask && RangeReadable(e.obj + g_afUseFovOff, 4))
+                             ? (uint32_t*)(e.obj + g_afUseFovOff) : NULL;
+        int use = bits ? ((*bits & g_afUseFovMask) ? 1 : 0) : -1;
+        if (e.forced && use == 1) use = 0;        // the game's value is what we report
+        if (*fov != e.written) e.game = *fov;
+        if (use != e.use && g_armsItemLines < 32) {
+            ++g_armsItemLines;
+            Log("armslens: weapon view model '%s' @ %p - m_bUseFOV=%d m_FOV=%.2f (%s)", e.name, (void*)e.obj, use, e.game,
+                use == 1 ? "its own lens: written with the arms" : "no lens of its own: drawn with the camera's FOV");
+        }
+        e.use = use;
+        const bool mine = want && world > 5.0f && (use == 1 || (ArmsLensForceGet() && bits));
+        if (mine) {
+            if (use != 1 && bits && !e.forced) { *bits |= g_afUseFovMask; e.forced = true; }
+            if (*fov != world) *fov = world;
+            e.written = world;
+        } else if (e.written != 0.0f || e.forced) {
+            if (*fov == e.written && e.game > 5.0f) *fov = e.game;
+            if (e.forced && bits) *bits &= ~g_afUseFovMask;
+            e.written = 0.0f; e.forced = false;
+        }
+    }
+}
+
+// For the F10 panel: what the switch can actually move, in a sentence.
+static void ArmsLensStatus(char* buf, size_t n)
+{
+    int items = 0, itemsOn = 0;
+    for (int k = 0; k < g_armsItemN; k++) { ++items; if (g_armsItems[k].use == 1 || g_armsItems[k].forced) ++itemsOn; }
+    const int use = g_armsLensUse.load();
+    const float lens = g_armsLensFov.load();
+    if (!g_afFovOff)
+        _snprintf(buf, n, "Arms lens: not resolved (the switch moves the camera only)");
+    else if (use < 0)
+        _snprintf(buf, n, "Arms lens: not found yet (needs a player in the world)");
+    else if (lens > 5.0f)
+        _snprintf(buf, n, "Arms drawn at %.1f deg%s; weapons with a lens %d of %d", lens,
+                  g_armsLensForcedBit ? " (forced)" : "", itemsOn, items);
+    else
+        _snprintf(buf, n, "Arms: no lens of their own (m_bUseFOV=0), drawn with the camera; weapons with a lens %d of %d",
+                  itemsOn, items);
+    buf[n - 1] = 0;
+}
+
 static void ArmsLensTick(bool slow)
 {
-    if (!g_afVmComp) {
-        if (!slow || !HandsWorldFovGet() || g_armsLensGaveUp) { g_armsLensFov.store(0.0f); return; }
-        const uint64_t t = GetTickCount64();
-        if (t < g_armsLensNextSliceMs) return;
-        g_armsLensNextSliceMs = t + 1000;
-        if (!g_armsLensSweepStart) g_armsLensSweepStart = g_afVmScan ? g_afVmScan : 1;
-        const uint32_t before = g_afVmScan;
-        if (!ArmsLensFind()) {
-            if (g_afVmScan <= before && before != 0) {   // wrapped: one full sweep without a match
-                g_armsLensGaveUp = true;
-                Log("armslens: no DishonoredPlayerSkeletalComponent instance found in a full GObjects sweep - the arms' "
-                    "own lens cannot be written; the hands switch moves the camera only (search stopped)");
-            }
-            g_armsLensFov.store(0.0f);
-            return;
-        }
-    } else if (slow && !ArmsLensFind()) { g_armsLensFov.store(0.0f); return; }
+    const bool armed = HandsWorldFovGet() || g_armsLensWritten != 0.0f || g_armsLensForcedBit;
+    if (!slow && !armed) return;   // nothing to write per dispatch; the slow path reads and logs the lens
+    if (!ArmsLensFind(slow)) {
+        if (slow && g_armsLensForcedBit) { g_armsLensForcedBit = false; g_armsLensWritten = 0.0f; }   // mesh gone with our bit
+        g_armsLensFov.store(0.0f);
+        return;
+    }
     uint8_t* c = g_afVmComp;
-    if (!c || !g_afFovOff || !RangeReadable(c + g_afFovOff, 4)) return;
+    if (!c || !g_afFovOff) return;
     float* fov = (float*)(c + g_afFovOff);
-    int use = -1;
-    if (g_afUseFovOff && g_afUseFovMask && RangeReadable(c + g_afUseFovOff, 4))
-        use = (*(uint32_t*)(c + g_afUseFovOff) & g_afUseFovMask) ? 1 : 0;
+    uint32_t* bits = (g_afUseFovOff && g_afUseFovMask) ? (uint32_t*)(c + g_afUseFovOff) : NULL;
+    int use = bits ? ((*bits & g_afUseFovMask) ? 1 : 0) : -1;
+    if (g_armsLensForcedBit && use == 1) use = 0;   // the bit is ours: the game's own value is 0
     const float now = *fov;
-    if (!(now > 5.0f && now < 175.0f)) return;
     if (now != g_armsLensWritten) {   // the game's own value (it recomputed, or we are not writing)
         if (g_armsLensWritten != 0.0f) ++g_armsLensRewrites;
-        if (fabsf(now - g_armsLensGame) > 0.05f || use != g_armsLensUse) {
+        if (fabsf(now - g_armsLensGame) > 0.05f || use != g_armsLensUse.load()) {
             Log("armslens: the player mesh's lens - m_bUseFOV=%d m_FOV=%.2f (was %.2f); the camera renders %.2f, the world is "
                 "drawn at %.2f", use, now, g_armsLensGame, dvr::camera::rendered_fov_deg(), ProjectionFovGet());
         }
         g_armsLensGame = now;
     }
-    g_armsLensUse = use;
+    g_armsLensUse.store(use);
     const float world = ProjectionFovGet();
-    const bool want = HandsWorldFovGet() && use == 1 && world >= 60.0f && world <= 120.0f && !dvr::vr::cinematic_active();
+    const bool gate = HandsWorldFovGet() && world >= 60.0f && world <= 120.0f && !dvr::vr::cinematic_active();
+    const bool force = ArmsLensForceGet() && bits != NULL;
+    const bool want = gate && (use == 1 || force);
     if (want) {
+        if (use != 1 && !g_armsLensForcedBit) {
+            *bits |= g_afUseFovMask; g_armsLensForcedBit = true;
+            Log("armslens: FORCING m_bUseFOV 0 -> 1 on the player mesh (the lens was off; [Screen] HandsLensForce)");
+        }
         if (*fov != world) { *fov = world; ++g_armsLensWrites; }
         if (g_armsLensWritten == 0.0f)
-            Log("armslens: WRITING m_FOV %.2f -> %.2f (the hands and weapon at the world's FOV)", g_armsLensGame, world);
+            Log("armslens: WRITING m_FOV %.2f -> %.2f (the hands at the world's FOV)", g_armsLensGame, world);
         g_armsLensWritten = world;
         g_armsLensFov.store(world);
     } else {
-        if (g_armsLensWritten != 0.0f) {
+        if (g_armsLensWritten != 0.0f || g_armsLensForcedBit) {
             if (*fov == g_armsLensWritten && g_armsLensGame > 5.0f) *fov = g_armsLensGame;   // hand back the game's value
-            Log("armslens: released - m_FOV back to the game's %.2f (%u writes, %u times the game rewrote it)",
-                g_armsLensGame, g_armsLensWrites, g_armsLensRewrites);
-            g_armsLensWritten = 0.0f;
+            if (g_armsLensForcedBit && bits) *bits &= ~g_afUseFovMask;
+            Log("armslens: released - m_FOV back to the game's %.2f%s (%u writes, %u times the game rewrote it)",
+                g_armsLensGame, g_armsLensForcedBit ? ", m_bUseFOV back to 0" : "", g_armsLensWrites, g_armsLensRewrites);
+            g_armsLensWritten = 0.0f; g_armsLensForcedBit = false;
         }
         g_armsLensFov.store(use == 1 ? *fov : 0.0f);
     }
     if (slow) {
-        static uint64_t next = 0;
+        static uint64_t nextItems = 0;
         const uint64_t t = GetTickCount64();
+        if (t >= nextItems) { nextItems = t + (armed ? 250 : 1000); ArmsItemsTick(gate, world); }
+        static uint64_t next = 0;
         if (t >= next) {
             next = t + 10000;
-            Log("armslens: beat - m_bUseFOV=%d m_FOV %.2f (%s), %u writes, the game rewrote it %u times",
-                use, *fov, g_armsLensWritten != 0.0f ? "ours: the world's FOV" : "the game's", g_armsLensWrites, g_armsLensRewrites);
+            char st[160]; ArmsLensStatus(st, sizeof(st));
+            Log("armslens: beat - m_bUseFOV=%d%s m_FOV %.2f (%s), %u writes, the game rewrote it %u times | %s",
+                use, g_armsLensForcedBit ? " (forced 1)" : "", *fov,
+                g_armsLensWritten != 0.0f ? "ours: the world's FOV" : "the game's", g_armsLensWrites, g_armsLensRewrites, st);
         }
     }
 }

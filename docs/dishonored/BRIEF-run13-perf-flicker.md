@@ -3,7 +3,7 @@
 For a new session. Evidence is saved locally (game output, never committed) in
 `build\playtest-candidates\vr-39-aer\run13-evidence\`: the logs of builds 189, 191 and 195, and the ini.
 
-## 1. The frame-rate drop - FIXED in `claude/vr-39-hands-world-fov` (needs the headset to confirm)
+## 1. The frame-rate drop - FIXED, confirmed by the build 198 log (re-entry 232-267 presents/s)
 
 **Measured.**
 - Same place, same settings (re-entry, DLAA off, the 1.0.2 rendering defaults):
@@ -33,7 +33,7 @@ For a new session. Evidence is saved locally (game output, never committed) in
 stop condition. The arm-follow lens code (`ArmFovTick`) had the same shape, but it only runs with the
 counter-yaw lever on.
 
-## 2. The hands at the world's FOV - does not work yet
+## 2. The hands at the world's FOV - does not work yet (lens now read from the pawn, headset pending)
 
 **Measured.**
 - Moving the camera's FOV target to 103 (build 191) did not change the hands (reported, and the lever
@@ -43,7 +43,11 @@ counter-yaw lever on.
 
 **Why build 195's lens write did nothing:** the component was never found (above).
 
-**Next.**
+**Done (after run 13):** the component is the pawn's `Mesh` (Pawn.Mesh by name, 0x3dc fallback); the
+weapons' lenses come from the hands' view-model list; `[Screen] HandsLensForce` switches an off lens on.
+The next log's `armslens: the player mesh ... m_bUseFOV=` line picks the branch below.
+
+**Next (original list).**
 - Find the arms' lens differently. Either:
   - drop the `nnum == 0` filter;
   - take the component from the pawn (the player mesh is the pawn's `Mesh`; `hands/fp_mesh.cpp` already
@@ -56,10 +60,10 @@ counter-yaw lever on.
 **Safety net already in place.** AFW is fed the headset-derived FOV for the arms while their lens is
 unknown and the switch is on, so the oscillation cannot return.
 
-**F10:** the switch is Comfort > Field of view > "Hands and weapon at the gameplay FOV" (reported as hard
-to find: move it to Display, next to the FOV slider, or make its effect visible).
+**F10:** moved. Display > Field of view (the first section), and again at the top of Hands > Hand size
+and position, each with the force test and a status line saying what the arms are drawn at.
 
-## 3. AFW's general flicker (build 195)
+## 3. AFW's general flicker (build 195) - not reported in build 198; see FLICKER_REFERENCE run 13
 
 **Reported:** the hands no longer flicker, but there is a general flicker.
 
