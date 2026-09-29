@@ -1,3 +1,15 @@
+## 2026-09-29: AFW run 10 - the foreground pass's slot 0 is not the scene target (MEASURED; mask retried via MRT)
+
+Measured with build v1.0.1-178:
+
+    depthshare: the foreground pass's draws render into 2750x2850 fmt 21 usage 0x1, never the scene target 2750x2850 fmt 113
+
+- The fallback worked as designed: `foreground MASK on 0 rebuilds ... mask unknown 228: those fall back to the depth limit`.
+- The arms' depth still reaches the scene target's alpha (the depth band sees it at <= 0.2 units), so the
+  scene target is bound in another render-target slot during the pass.
+- The detector now checks slots 1-3. One line reports the slot, or the warning repeats with "slots 1-3
+  hold no scene target either".
+
 ## 2026-09-29: AFW run 9 - small hands inside a larger ghost, again: the foreground mask was empty (FIXED, replay-verified)
 
 Surface: the held eye's hands and weapon under `stereo afw`, build `v1.0.1-173-g64163aa6c` (#159 + #161 + #162).
