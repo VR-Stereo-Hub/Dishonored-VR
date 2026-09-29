@@ -374,6 +374,7 @@ HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, I
                                 UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
     dvr::native_profile::Scope timing(dvr::native_profile::IndexedHook);
     ++g_actDraws;
+    dvr::depthprobe::note_draw(self);   // VR-39: the foreground mask's snapshot, before the pass's first draw
     if (g_cb.draw_indexed)
         return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
                                  startIndex, primCount);
@@ -384,6 +385,7 @@ HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT
                              UINT primCount) {
     dvr::native_profile::Scope timing(dvr::native_profile::PrimitiveHook);
     ++g_actDraws;
+    dvr::depthprobe::note_draw(self);
     if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
     return orig_draw_prim(self, type, startVertex, primCount);
 }
