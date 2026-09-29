@@ -139,6 +139,9 @@ void note_hands(int eye, const HandPose hands[2]);
 void set_synth_hands(bool on);
 bool synth_hands();
 void set_synth_extrapolate(bool on);
+// The synthesized slot's seed grid step in source texels (2..16; `vrpace msw grid <n>`).
+void set_synth_grid(int step);
+int synth_grid();
 // An eye's own last image copied as it is into dst, and the pose it was rendered from (MSW's fallback).
 bool copy_own(ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, Pose* pose);
 bool synth_extrapolate();

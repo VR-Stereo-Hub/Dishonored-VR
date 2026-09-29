@@ -3617,6 +3617,7 @@ static void LoadConfig()
             // VR-39: the mod's own spacewarp under AFW. Default off.
             dvr::vr::set_mod_spacewarp(GetPrivateProfileIntA("VR", "ModSpacewarp", 0, ini) != 0);
             dvr::afw::set_synth_hands(GetPrivateProfileIntA("VR", "ModSpacewarpHands", 0, ini) != 0);
+            dvr::vr::set_msw_half_rate(GetPrivateProfileIntA("VR", "ModSpacewarpHalfRate", 1, ini) != 0);
             dvr::afw::set_synth_extrapolate(GetPrivateProfileIntA("VR", "ModSpacewarpExtrapolate", 1, ini) != 0);
             // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
             // tests were wasted shipping a changed compiled default to a machine
@@ -4407,6 +4408,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("VR", "SubmitDepth", dvr::vr::submit_depth() ? "1" : "0", ini);   // VR-39
     WritePrivateProfileStringA("VR", "ModSpacewarp", dvr::vr::mod_spacewarp() ? "1" : "0", ini);   // VR-39
     WritePrivateProfileStringA("VR", "ModSpacewarpHands", dvr::afw::synth_hands() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpHalfRate", dvr::vr::msw_half_rate() ? "1" : "0", ini);
     WritePrivateProfileStringA("VR", "ModSpacewarpExtrapolate", dvr::afw::synth_extrapolate() ? "1" : "0", ini);
     // Sync OFF saves as 0 whatever the target was, so a SAVE AS DEFAULTS taken
     // after an A/B that ended on `off` does not resurrect the rate next launch.

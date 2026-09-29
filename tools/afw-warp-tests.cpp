@@ -608,6 +608,79 @@ int main() {
         snprintf(d, sizeof(d), "hands on: hand %.3f, world free of hand %.3f | control, off: hand %.3f, world free of hand %.3f", hf, wf, hc, wc);
         check("msw: the hands follow their controllers into a synthesized slot", a && b && hf > 0.97 && wf > 0.99 && hc < 0.7, d);
     }
+    {   // MSW turning (run 10: the turn rode the submitted pose and turned the hands with the world). A stick turn of
+        // 2 deg per 10 ms: the left image at 0 ms (yaw 0), the right at 10 ms (yaw 2), the slot at 20 ms (yaw 4). The
+        // world must be where the scene at the slot has it AND the hands must stay put (tracking space), in the
+        // image as submitted at the image's own orientation. Both world models: the game's matrices and the XR one.
+        // The control: the extrapolation off leaves the world 4 deg behind. About 7% of the world is unseen by the
+        // 20 ms old image (4 deg of new view at the edge, the strip behind the pillar): 0.9 is the bar.
+        auto turnCase = [&](bool extrap, bool mtx, double* worldOk, double* handOk) -> bool {
+            State t0 = still, t1 = still, t2 = still;
+            t1.bodyYawDeg = 2.0; t2.bodyYawDeg = 4.0;
+            dvr::afw::set_enabled(true, "test"); dvr::afw::set_stereo(true, "test");
+            dvr::afw::set_body_depth(0.40f, "test"); dvr::afw::set_world_scale((float)kScale);
+            dvr::afw::set_matrices(mtx, "test"); dvr::afw::set_fg(false, "test"); dvr::afw::set_fg_fov(0);
+            dvr::afw::set_fg_mask(true, "test"); dvr::afw::set_synth_hands(false);
+            dvr::afw::set_synth_extrapolate(extrap);
+            g_signForeground = true; dvr::depthprobe::g_prefgReady = true;
+            const Eye e0 = eyeOf(t0, 0), e1 = eyeOf(t1, 1), e2 = eyeOf(t2, 0);
+            auto i0 = image(t0, e0, N, N), i1 = image(t1, e1, N, N), truth = image(t2, e2, N, N);
+            ID3D11Texture2D* x0 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i0.data());
+            ID3D11Texture2D* x1 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i1.data());
+            ID3D11ShaderResourceView *v0 = nullptr, *v1 = nullptr;
+            g.dev->CreateShaderResourceView(x0, nullptr, &v0); g.dev->CreateShaderResourceView(x1, nullptr, &v1);
+            for (auto*& q : g_depthBySerial) q = nullptr;
+            g_depthBySerial[7] = v0; g_depthBySerial[8] = v1; g_depthW = N; g_depthH = N;
+            const Rec m0 = recordOf(t0, e0, false, false), m1 = recordOf(t1, e1, false, false);
+            const dvr::afw::Pose tg0[2] = {poseOf(eyeOf(t0, 0)), poseOf(eyeOf(t0, 1))}, tg1[2] = {poseOf(eyeOf(t1, 0)), poseOf(eyeOf(t1, 1))};
+            dvr::afw::CaptureMeta c0, c1; c0.captureMs = 3000.0; c1.captureMs = 3010.0;
+            dvr::afw::note_capture(g.dev, g.ctx, 0, x0, 7, poseOf(e0), true, (float)t0.bodyYawDeg, tg0, m0.vp, m0.c5, m0.rot, &c0);
+            dvr::afw::note_capture(g.dev, g.ctx, 1, x1, 8, poseOf(e1), true, (float)t1.bodyYawDeg, tg1, m1.vp, m1.c5, m1.rot, &c1);
+            const float tp[3] = {(float)e2.pos.x, (float)e2.pos.y, (float)e2.pos.z};
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            const bool ok = dvr::afw::synth_eye(g.dev, g.ctx, 0, g.dst, N, N, (float)kTan, (float)kTan, tp, 3020.0, &out, &why);
+            std::vector<float> px(N * N * 4);
+            if (ok) {
+                g.ctx->CopyResource(g.stage, g.dst);
+                D3D11_MAPPED_SUBRESOURCE m;
+                if (SUCCEEDED(g.ctx->Map(g.stage, 0, D3D11_MAP_READ, 0, &m))) {
+                    for (int y = 0; y < N; ++y) memcpy(&px[y * N * 4], (const uint8_t*)m.pData + y * m.RowPitch, N * 16);
+                    g.ctx->Unmap(g.stage, 0);
+                }
+            } else printf("  synth refused: %s\n", why ? why : "?");
+            v0->Release(); v1->Release(); x0->Release(); x1->Release();
+            g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
+            dvr::afw::set_synth_extrapolate(true); dvr::afw::set_matrices(true, "test");
+            if (!ok) return false;
+            int wn = 0, wg = 0, hn = 0, hg = 0;
+            const double k = N / (2 * kTan);
+            for (int y = 3; y < N - 3; ++y)
+                for (int x = 3; x < N - 3; ++x) {
+                    const int ts = surfOf(&truth[(y * N + x) * 4]);
+                    bool edge = false;
+                    for (int dy = -3; dy <= 3 && !edge; ++dy)
+                        for (int dx = -3; dx <= 3; ++dx) if (surfOf(&truth[((y + dy) * N + x + dx) * 4]) != ts) { edge = true; break; }
+                    if (edge) continue;
+                    const float* o = &px[(y * N + x) * 4];
+                    const float* t = &truth[(y * N + x) * 4];
+                    if (ts == 2) { ++hn; hg += (o[2] > 0.5f && fabs(o[0] - t[0]) * kHandW / -kHandZ * k < 1.5); continue; }
+                    ++wn;
+                    if (surfOf(o) != ts || o[2] > 0.02f) continue;
+                    const double sx = ts == 1 ? (kPillarX1 - kPillarX0) / -kPillarZ * k : 40.0 / 8.0 * k;
+                    const double sy = ts == 1 ? 3.0 / -kPillarZ * k : sx;
+                    wg += hypot((o[0] - t[0]) * sx, (o[1] - t[1]) * sy) < 1.5;
+                }
+            *worldOk = wn ? (double)wg / wn : 0; *handOk = hn ? (double)hg / hn : 0;
+            return true;
+        };
+        double wm, hm, wx, hx, wc, hc;
+        const bool a = turnCase(true, true, &wm, &hm), b = turnCase(true, false, &wx, &hx), c = turnCase(false, true, &wc, &hc);
+        char d[240];
+        snprintf(d, sizeof(d), "matrices: world %.3f hands %.3f | XR model: world %.3f hands %.3f | control, no extrapolation: world %.3f hands %.3f",
+                 wm, hm, wx, hx, wc, hc);
+        check("msw: a stick turn turns the world in the image, the hands stay", a && b && c && wm > 0.9 && hm > 0.97 && wx > 0.9 &&
+              hx > 0.97 && wc < 0.5, d);
+    }
     {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.
         const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);
         auto hImg = image(still, h0, N, N), fImg = image(turn, f1, N, N);
@@ -708,6 +781,36 @@ int main() {
         }
         char dsc[128]; snprintf(dsc, sizeof(dsc), "%.3f ms mean over %d rebuilds (seed maps + compose, excluding the depth copies)", n ? sum / n : -1.0, n);
         check("cost: one rebuild at 2750x2850 (informational)", ok && n > 0, dsc);
+        // A synthesized eye (MSW), 20 back to back between one pair of timestamps (single spaced passes read the
+        // GPU's idle clock), per seed grid step; and the full rebuild measured the same way for comparison.
+        auto timed = [&](auto fn) {
+            double s = 0; int m = 0;
+            for (int it = 0; it < 6; ++it) {
+                g.ctx->Begin(dj); g.ctx->End(qa);
+                for (int r = 0; r < 20; ++r) fn();
+                g.ctx->End(qb); g.ctx->End(dj);
+                D3D11_QUERY_DATA_TIMESTAMP_DISJOINT d = {}; UINT64 a = 0, b = 0;
+                while (g.ctx->GetData(dj, &d, sizeof(d), 0) == S_FALSE) {}
+                g.ctx->GetData(qa, &a, sizeof(a), 0); g.ctx->GetData(qb, &b, sizeof(b), 0);
+                if (it >= 2 && !d.Disjoint && d.Frequency) { s += (double)(b - a) * 1000.0 / (double)d.Frequency / 20.0; ++m; }
+            }
+            return m ? s / m : -1.0;
+        };
+        const Eye t0 = eyeOf(all, 0);
+        const float tp[3] = {(float)t0.pos.x, (float)t0.pos.y, (float)t0.pos.z};
+        double c[4] = {};
+        const int grids[4] = {2, 4, 8, 16};
+        for (int k = 0; k < 4; ++k) {
+            dvr::afw::set_synth_grid(grids[k]);
+            c[k] = timed([&] { dvr::afw::Pose o{}; const char* w = nullptr;
+                               dvr::afw::synth_eye(g.dev, g.ctx, 0, big, W, H, 1, 1, tp, 1.0, &o, &w); });
+        }
+        dvr::afw::set_synth_grid(4);
+        const double full = timed([&] { dvr::afw::Pose o{}; const char* w = nullptr;
+                                        dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, big, W, H, 1, 1, &o, &w); });
+        snprintf(dsc, sizeof(dsc), "synthesized eye: grid 2 %.3f ms, 4 %.3f, 8 %.3f, 16 %.3f | full rebuild %.3f ms (back to back)",
+                 c[0], c[1], c[2], c[3], full);
+        check("cost: a synthesized eye at 2750x2850 (informational)", c[1] > 0, dsc);
         release(sc);
         if (dj) dj->Release(); if (qa) qa->Release(); if (qb) qb->Release(); if (big) big->Release();
     }

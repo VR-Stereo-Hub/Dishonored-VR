@@ -1187,6 +1187,11 @@ static void OvlTabDisplay()
                     OverlaySaveDefaults();
                 }
                 if (msw) {
+                    bool hr = dvr::vr::msw_half_rate();
+                    if (dvr::ovl::checkbox("Spacewarp: lock the game to half rate (like Virtual Desktop SSW)", &hr)) {
+                        dvr::vr::set_msw_half_rate(hr);
+                        OverlaySaveDefaults();
+                    }
                     bool mh = dvr::afw::synth_hands();
                     if (dvr::ovl::checkbox("Spacewarp: hands follow the controllers in filled frames", &mh)) {
                         dvr::afw::set_synth_hands(mh);

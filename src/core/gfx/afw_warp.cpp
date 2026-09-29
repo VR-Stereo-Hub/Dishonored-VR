@@ -74,7 +74,8 @@ const char* kSrc =
     "    float4 prm6;\n"                 // own hands on, their colour agreement limit (0..1)
     "    float4 hRa0, hRa1, hRa2, hOa, hNa;\n"   // MSW: hand a's rotation since the image (rows), its grip then, now
     "    float4 hRb0, hRb1, hRb2, hOb, hNb;\n"   // hand b's (hOx.w > 0.5: that hand is tracked)
-    "    float4 prm7;\n"                 // MSW: the hands follow their controllers
+    "    float4 prm7;\n"                 // MSW: the hands follow their controllers, the world turns in the image (matrices), the foreground ignores the world yaw
+    "    float4 mY0, mY1, mY2;\n"        // MSW: the extrapolated body turn, as a rotation of the camera-relative point (UE world axes)
     "};\n"
     "cbuffer M : register(b1) {\n"
     "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
@@ -113,13 +114,14 @@ const char* kSrc =
     "    float2 tn = tanFor(z); bool fgp = isFg(z); z = abs(z);\n"
     "    float3 W = mr(s0, s1, s2, viewDirT(s, tn) * (z * prm.z)) + sp.xyz;\n"
     "    if (prm7.x > 0.5 && fgp) W = handMove(W);\n"
-    "    else if (world) W = mr(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
+    "    else if (world && !(prm7.z > 0.5 && fgp)) W = mr(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
     "    return toTT(mr(d0, d1, d2, W - dp.xyz), tn);\n"
     "}\n"
     "float3 mapH(float2 s, float z) {\n"
     "    if (prm2.w > 0.0 && !isFg(z)) {\n"
     "        float2 n = float2(s.x * 2.0 - 1.0, 1.0 - s.y * 2.0); float w = abs(z) * prm2.w;\n"
     "        float3 P = mr(hI0, hI1, hI2, float3(n.x * w - hC.x, n.y * w - hC.y, w - hC.z)) + mD.xyz;\n"
+    "        if (prm7.y > 0.5) P = mr(mY0, mY1, mY2, P);\n"
     "        float cw = dot(tW.xyz, P) + tW.w; if (!(cw > 1e-3)) return float3(9, 9, -1);\n"
     "        return float3((dot(tA.xyz, P) + tA.w) / cw, (dot(tB.xyz, P) + tB.w) / cw, cw / prm2.w);\n"
     "    }\n"
@@ -509,7 +511,7 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pxd->GetBufferPointer(), pxd->GetBufferSize(), nullptr, &g_psXrDepth);
     rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 41 * 16;   // s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, the hands (10), prm7
+    bd.ByteWidth = 44 * 16;   // s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, the hands (10), prm7, mY (3)
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
@@ -1223,9 +1225,9 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
-        float hand[2][5][4]; float prm7[4];
+        float hand[2][5][4]; float prm7[4]; float mY[3][4];
     } cb;
-    static_assert(sizeof(CB) == 41 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 44 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     const Pose& hp = haveH ? src.pose : fr.pose;
     rows(hp, cb.s, false);
@@ -1344,6 +1346,12 @@ float g_synthStepMax = 0, g_synthYawMax = 0;
 const char* g_synthWhy = "";
 
 // The body's motion between the two newest images: walking (uu per ms, UE world) and turning (deg per ms).
+const double kTurnSignMtx = -1.0, kTurnSignXr = 1.0;   // host-verified (the turn case)
+// The synthesized slot's seed grid (source texels per cell). A slot moves the image by millimetres to a few
+// centimetres, so the fixed-point search converges from a coarse seed; the grid pass is most of the cost.
+std::atomic<int> g_synthGrid{4};
+void set_synth_grid(int step) { if (step >= 2 && step <= 16) g_synthGrid.store(step); }
+int synth_grid() { return g_synthGrid.load(); }
 bool body_motion(double v[3], double* yawPerMs, double* dtMs) {
     Held& a = g_held[0];
     Held& b = g_held[1];
@@ -1431,9 +1439,9 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
-        float hand[2][5][4]; float prm7[4];
+        float hand[2][5][4]; float prm7[4]; float mY[3][4];
     } cb;
-    static_assert(sizeof(CB) == 41 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 44 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     rows(own.pose, cb.s, false);
     cb.sp[0] = own.pose.p[0]; cb.sp[1] = own.pose.p[1]; cb.sp[2] = own.pose.p[2];
@@ -1441,15 +1449,23 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     cb.fp[0] = own.pose.p[0]; cb.fp[1] = own.pose.p[1]; cb.fp[2] = own.pose.p[2];
     rows(tgt, cb.d, true);
     cb.dp[0] = tgt.p[0]; cb.dp[1] = tgt.p[1]; cb.dp[2] = tgt.p[2];
-    const float yr[3][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}};   // the turn rides the submitted pose
-    memcpy(cb.y, yr, sizeof(yr));
+    // The extrapolated body turn goes into the IMAGE, the world only: the foreground (the hands, fixed in
+    // tracking space) must not turn with it. Run 10: the turn was applied to the submitted pose, which turned the
+    // hands too - smooth world, jittery hands while turning. Without the matrices, the XR model's yaw rows carry it.
+    {
+        const float a = (float)(kTurnSignXr * turn / 57.29578), ca = cosf(a), sa = sinf(a);
+        const float yr[3][4] = {{ca, 0, sa, 0}, {0, 1, 0, 0}, {-sa, 0, ca, 0}};
+        memcpy(cb.y, yr, sizeof(yr));
+        cb.yc[0] = tgt.p[0]; cb.yc[1] = tgt.p[1]; cb.yc[2] = tgt.p[2];
+    }
+    cb.prm7[2] = 1.0f;   // the foreground ignores the world yaw
     cb.prm[0] = tanH; cb.prm[1] = tanV;
     cb.prm[2] = dvr::clarity::depth_scale() / g_worldScale.load();
     cb.prm[3] = g_bodyDepth.load();
     const float depthTexel = own.dw ? fmaxf(1.0f, (float)w / (float)own.dw) : 1.0f;
     cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f * depthTexel; cb.prm2[3] = 0;
     cb.prm3[0] = 0.0f; cb.prm3[1] = 1.0f; cb.prm3[2] = g_debug.load() ? 1.0f : 0.0f; cb.prm3[3] = 0.03f;
-    if (own.dw && own.dh) { cb.prm4[2] = (float)kGridStep / own.dw; cb.prm4[3] = (float)kGridStep / own.dh; }
+    if (own.dw && own.dh) { cb.prm4[2] = (float)g_synthGrid.load() / own.dw; cb.prm4[3] = (float)g_synthGrid.load() / own.dh; }
     {
         const float fg = g_fgFov.load();
         if (g_fgOn.load() && fg > 10.0f && fg < 175.0f) {
@@ -1491,6 +1507,12 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
             for (int j = 0; j < 4; ++j) { cb.tA[j] = (float)l.A[j]; cb.tB[j] = (float)l.B[j]; cb.tW[j] = (float)l.W[j]; }
             for (int k = 0; k < 3; ++k) cb.mD[k] = (float)D[k];
             cb.prm2[3] = dvr::clarity::depth_scale();
+            if (turn != 0.0) {   // the camera turned by `turn` about UE up: the relative point turns the other way
+                const float a = (float)(kTurnSignMtx * turn / 57.29578), ca = cosf(a), sa = sinf(a);
+                const float m[3][4] = {{ca, -sa, 0, 0}, {sa, ca, 0, 0}, {0, 0, 1, 0}};
+                memcpy(cb.mY, m, sizeof(m));
+                cb.prm7[1] = 1.0f;
+            }
             ++g_synthMtx;
         }
     }
@@ -1504,8 +1526,9 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     ctx->ClearRenderTargetView(g_seed[0].rtv, clearSeed);
     ctx->ClearRenderTargetView(g_seed[1].rtv, clearSeed);
     ctx->ClearDepthStencilView(g_seedDsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
-    const uint32_t gw = (own.dw - 1 + kGridStep - 1) / kGridStep, gh = (own.dh - 1 + kGridStep - 1) / kGridStep;
-    const float mcb[8] = {1.0f, (float)kGridStep, (float)own.dw, (float)own.dh, (float)gw, (float)g_seedW, (float)g_seedH, kStretchArea};
+    const uint32_t gs = (uint32_t)g_synthGrid.load();
+    const uint32_t gw = (own.dw - 1 + gs - 1) / gs, gh = (own.dh - 1 + gs - 1) / gs;
+    const float mcb[8] = {1.0f, (float)gs, (float)own.dw, (float)own.dh, (float)gw, (float)g_seedW, (float)g_seedH, kStretchArea};
     ctx->UpdateSubresource(g_cbMesh, 0, nullptr, mcb, 0, 0);
     setup_draw(ctx, g_seed[1].rtv, g_seedDsv, g_seedW, g_seedH, g_vsMesh, g_psMesh);
     ID3D11Buffer* cbs[2] = {g_cb, g_cbMesh};
@@ -1530,16 +1553,8 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     sv.restore(ctx);
     rtv->Release();
 
-    // The submitted pose: the image's orientation turned by the extrapolated body yaw (as the held-eye fallback
-    // turns a held image: Ry(+d)), at the slot's eye position.
-    Pose out = tgt;
-    if (turn != 0.0) {
-        const float hh = (float)(turn * 0.5 / 57.29578), sy = sinf(hh), cy = cosf(hh);
-        const float* q = tgt.q;
-        out.q[0] = cy * q[0] + sy * q[2]; out.q[1] = cy * q[1] + sy * q[3];
-        out.q[2] = cy * q[2] - sy * q[0]; out.q[3] = cy * q[3] - sy * q[1];
-    }
-    if (outPose) *outPose = out;
+    // The submitted pose: the image's own orientation at the slot's eye position (the turn is in the image).
+    if (outPose) *outPose = tgt;
     ++g_synths;
     if (step > g_synthStepMax) g_synthStepMax = (float)step;
     if (fabs(turn) > g_synthYawMax) g_synthYawMax = (float)fabs(turn);
