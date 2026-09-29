@@ -1,3 +1,10 @@
+## 2026-09-29 (run 14): the arms' FOV measured; AFW's hands correction is a fixed gain - built, headset pending
+
+- `fgproj:` measured the arms at the world's FOV (103), so the hands-at-world-FOV switch works.
+- The hands' flicker under AFW came from AFW's foreground number. It is now the world's FOV widened by
+  `[Stereo] AfwForegroundGain=0.911` (F10 "AFW hands correction"). Measured by replay; needs the headset.
+- `HandsLensForce` and the lens writes are gone (measured to change nothing drawn); `armslens:` logs only.
+
 ## 2026-09-29 (run 13 follow-up): the arms' lens read from the pawn, the switch moved - built, headset pending
 
 Branch `claude/vr-39-hands-world-fov`; installed from `local/test-vr39-msw-objmotion`.

@@ -670,15 +670,12 @@ static void OvlHandsFovControls(const char* who)
     }
     OvlTip("On: your arms and weapon are drawn with the same field of view as the world, at their true size and "
            "place. Off: the older look, where they were drawn slightly smaller and nearer the centre.");
-    bool force = ArmsLensForceGet();
-    ImGui::BeginDisabled(!handsWorld);
-    if (dvr::ovl::checkbox("Force the hands' own lens (test)", &force)) {
-        ArmsLensForceSet(force, who);
-        ConfigWriteKey("Screen", "HandsLensForce", force ? "1" : "0", who);
-    }
-    ImGui::EndDisabled();
-    OvlTip("A test. If the line below says the arms have no lens of their own, this gives them one at the gameplay "
-           "FOV. Compare the hands' size with it on and off.");
+    float gain = AfwFgGainGet();
+    if (dvr::ovl::slider_float("AFW hands correction", &gain, 0.85f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+        AfwFgGainSet(gain, who);
+    OvlTip("Only for the AFW stereo method. How AFW rebuilds the hands and weapon for the held eye. 0.911 is measured; "
+           "1.000 treats them like the world. Wrong values make the hands flicker in size. Saved when you let go.");
+    OvlSaveOnRelease("Stereo", "AfwForegroundGain", AfwFgGainGet(), "%.3f");
     char st[160]; ArmsLensStatus(st, sizeof(st));
     ImGui::TextDisabled("%s", st);
 }

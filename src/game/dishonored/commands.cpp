@@ -493,14 +493,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         else Log("fireaim: %s; use fireaim on|off",FireAimEnabled()?"ON":"off");
         return true;
     }
-    if (!strcmp(cmd, "armslens")) {   // VR-39: armslens [force on|off]
-        bool on;
+    if (!strcmp(cmd, "armslens")) {   // VR-39: armslens [gain <x>]
         const char* a = args ? args : "";
         while (*a == ' ') ++a;
-        if (!strncmp(a, "force", 5)) { a += 5; while (*a == ' ') ++a; if (DvrOnOff(a, &on)) ArmsLensForceSet(on, "command seam"); }
+        if (!strncmp(a, "gain", 4)) { const float g = (float)atof(a + 4); if (g > 0.0f) AfwFgGainSet(g, "command seam"); }
         char st[160]; ArmsLensStatus(st, sizeof(st));
-        Log("armslens: hands switch %s, force %s | %s (armslens force on|off)", HandsWorldFovGet() ? "ON" : "off",
-            ArmsLensForceGet() ? "ON" : "off", st);
+        Log("armslens: hands switch %s, AFW foreground gain %.3f | %s (armslens gain <0.80-1.00>)",
+            HandsWorldFovGet() ? "ON" : "off", AfwFgGainGet(), st);
         return true;
     }
     if (!strcmp(cmd, "propwatch")) {
