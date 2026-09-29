@@ -1,3 +1,31 @@
+## VR-173: the player's sword, as its draw describes it (2026-09-29)
+
+**What the player gets from knowing this.** A sword that hits because the blade reached
+something needs the blade's place in the hand. It is read from the sword's own draw.
+
+Measured at draw time on the simulator (`hands/blade_axis.cpp`, `[Blade] Measure=1`),
+the sword at rest in the right hand:
+
+* `Wpn_PlySword01` is ONE indexed draw: 2481 vertices, 2074 triangles, stride 36, with
+  position, blend weights and blend indices on stream 0. Every vertex is used.
+* It is skinned to **12 bones**. Along the fitted long axis, from the axis centre, in the
+  mesh's own units: one bone owns the grip and pommel (876 vertices, -25.9 to 0.3), one
+  the pommel's other half (287, -25.9 to -2.2), six sit within 8 uu of the guard (the
+  folding mechanism, 100 to 237 vertices each), three hold a ring of the blade at 29 to
+  32 (30 to 37 each), and one the blade's last 18 uu (84 vertices, 40.3 to 58.2).
+* Long axis 84.1 uu, variance ratio 25.2 to 1.
+* The blend indices ARE bone indices into the draw's palette (three registers a bone):
+  skinning every vertex through the palette of its own draw put the fitted tip on the
+  drawn tip within 1.6 cm in both eyes, which a wrong indexing could not.
+* The sword is rigid against the palm while the arm is tracked (constant against live:
+  0.03 degrees over 278 draws through three physical swings) and is NOT while the game
+  plays an attack clip on the hand (1.45 m).
+
+No address or offset: the draw is identified by the weapon path that already places it,
+and the item by the equipped-item read that already exists. The numbers above are
+measurements of the asset; none is a constant in the code. Detail:
+`PLAN-contact-sword.md` section 7.2.
+
 ## VR-173: the engine keeps the head's pitch, the controller's rotation included (2026-09-29)
 
 **What the player gets from knowing this.** The game aims a sword hit from its own view.

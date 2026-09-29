@@ -55,6 +55,26 @@ ModelRaySnapshot model_ray_snapshot(int hand);
 // against is stored with it and a mismatch discards it.
 void preload_model_ray(int hand, const float* originPalm, const float* dirPalm);
 void forget_model_ray(const char* why);
+// VR-173: THE HELD SWORD'S BLADE, measured from its own drawn mesh (hands/blade_axis.cpp,
+// the maths in blade_math.h). Palm frame, metres, like the model ray, so it follows the
+// tracked hand and the hand trim. `base` and `tip` are the latched constant; `liveTip` is
+// the tip as the LAST measured draw had it, which differs from the constant only while
+// the game animates the sword against the hand. Ships OFF ([Blade] Measure).
+struct BladeSnapshot {
+    bool  ok = false;            // a latched blade exists
+    float basePalm[3] = {}, tipPalm[3] = {};
+    float lengthM = 0, reachM = 0, ratio = 0;
+    bool  liveOk = false;
+    float liveTipPalm[3] = {};
+    uint64_t liveMs = 0;         // GetTickCount64 of that draw: a SAMPLE, unlike the constant
+    uint32_t revision = 0;       // bumped whenever the constant is replaced or dropped
+    const char* why = "the blade measurement is off";
+};
+BladeSnapshot blade_snapshot(int hand);
+// The acceptance marker's lever and its deliberate offset (metres, across the blade): the
+// offset exists so the check that reads the marker against the drawn blade can be shown
+// to FAIL. Present lane.
+bool blade_marker(float* offsetM);
 // VR-189: what the aiming hand holds. 0 = unknown, 1 = a pistol or a crossbow (any
 // ammunition, any upgrade, the DLC crossbow), 2 = anything else. Present lane.
 int aim_item_kind(int hand);

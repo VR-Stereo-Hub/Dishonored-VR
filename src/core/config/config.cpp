@@ -1229,6 +1229,16 @@ static bool WriteDefaultIni(const char* ini)
         "Trace=1\n"
         "Template=Sword_Trail\n"
         "\n"
+        "; The held sword's blade (VR-173, research). Measure=1 reads the sword's own drawn\n"
+        "; mesh once and fits its long axis while the body is at rest: a base near the\n"
+        "; palm and a tip, which follow the hand. Nothing uses it yet; it is what a blade\n"
+        "; that hits because it REACHED something would be built on. Marker=1 shows the\n"
+        "; measured base and tip as two dots, to judge against the drawn blade.\n"
+        "; Live: `blade on|off`, `blade marker on|off`, `blade status`.\n"
+        "[Blade]\n"
+        "Measure=0\n"
+        "Marker=0\n"
+        "\n"
         "[Lens]\n"
         "Distance=18\n"
         "KeepSize=0\n"
@@ -2850,6 +2860,7 @@ static void LoadConfig()
     RainConfigure(ini);
     OcclusionConfigure(ini);    // VR-79
     SwordTrailConfigure(ini);   // VR-171
+    BlConfigure(ini);   // VR-173
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
     LensConfigure(ini);
@@ -4182,6 +4193,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Cine","PossessionStereo",PossessionStereoEnabled() ? "1" : "0",ini);
     WritePrivateProfileStringA("Rain","Hide",RainHideEnabled() ? "1" : "0",ini);
     SwordTrailSave(ini);   // VR-171
+    BlSave(ini);   // VR-173
     CamShakeSave(ini);   // VR-172
     dvr::snap::save(ini);   // VR-219
     WritePrivateProfileStringA("Rain","Trace",RainTraceEnabled() ? "1" : "0",ini);

@@ -79,11 +79,14 @@ head rot 0 -25 0
 @log swing: sim window finished: 3 fire 8s
 @log camshake: CAPTURE 'p1-down25-gameshake' 10s
 
-# 6. The control. The kick allowed, one pistol shot: the capture MUST show engine-added
-#    pitch. If this leg reads flat the instrument cannot see a divergence and legs 1 to 5
-#    prove nothing.
+# 6. The control. The game's own camera motion allowed, one pistol shot: the capture MUST
+#    show engine-added pitch (2.84 to 2.93 degrees, in the camera against the controller).
+#    If this leg reads flat the instrument cannot see a divergence and legs 1 to 5 prove
+#    nothing. It uses the MASTER switch and not `camshake allow fire on`: `allow` is written
+#    to the ini, and a sequence that leaves the machine's own preferences changed has
+#    altered the thing it was testing on (it did, once: TRAPS).
 head rot 0 0 0
-@mod camshake on; camshake allow fire on
+@mod camshake off
 @wait 2000
 @mark
 @mod camshake capture 4 p1-control-kick
@@ -91,7 +94,9 @@ head rot 0 0 0
 trigger l pull 200
 @log camshake: CAPTURE 'p1-control-kick' .* controller rotation: pitch [1-9]\.\d\d\d yaw 8s
 
-# Leave it as shipped.
-@mod camshake allow walk off; camshake allow fire off; camshake allow landing off; camshake allow hits off; camshake allow generic off; camshake allow smoother on; camshake on; camshake status
+# Leave it as it was FOUND. The master switch is written to the ini too, so this line is
+# what puts [CameraShake] Suppress back to 1, the shipped value; a machine that had it at 0
+# has to be set back by hand, and a sequence that stops before this line leaves it at 0.
+@mod camshake on; camshake status
 head rot 0 0 0
 hand r to grip 0.25 1.30 -0.40 0 0 0 1200

@@ -60,6 +60,20 @@ degrees. Reaching that save: the walk-in's Continue loads the NEWEST save, so fr
 `game-key.ps1 -Key down` (the arrow keys are there since VR-173) to walk the load list, and look at
 a capture of the list before pressing Return.
 
+VR-173 the held sword's blade: `tools\blade-host.ps1` compiles the pure maths (120 checks: skinning
+through a palette, the long axis of a posed two-bone sword with the tip at an index the subsample
+steps over, a folded sword refusing, the tip as the end farther from the palm, reach as a distance,
+the latch needing a count AND 300 ms, the palm transport bit-equal to the aim ray's, a 10 cm error
+reading as 10 cm). In the game: `tools\xrsim-run.ps1 -Path tools\xrsim\blade-marker.xrs`, then
+`python tools\blade-marker-check.py <sim dir>\capture poseA` (and `poseB`, `poseC`), each followed
+by the same with `--marker poseA_offset --expect-fail`. Read `PASS`/`FAIL` per eye with the two
+distances in centimetres, `the dot landed N px from its predicted pixel` (over 3 px means the check's
+projection is not the runtime's and nothing else on the line counts), and the VERDICT. The offset
+run's verdict must read `the deliberate error was CAUGHT`. Look at the `_check_` overlays before
+believing a FAIL (TRAPS). `blade status` prints the latched base and tip and the constant against the
+live tip; the log's `blade: '<asset>' is N vertices on M bone(s)` line is the mesh's census. Passed
+2026-09-29: six of six eye and pose combinations within 1.6 cm along and 0.3 cm across.
+
 VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
 trail's particle component is found on the pawn by its template, the native hide takes
 `HiddenGame 0 -> 1`, three more attacks do not show it again, the lever shows and re-hides

@@ -1,3 +1,41 @@
+## "Leave it as shipped" is not "leave it as found" (VR-173, 2026-09-29)
+
+The pitch probe ended, as `camshake.xrs` does, with a line that sets every camera-shake
+category back to its shipped value. `camshake allow` and `camshake on|off` are WRITTEN TO
+THE INI by the seam (`ConfigWriteKey`), and the dev PC's own ini had three categories
+allowed. One run of the sequence changed `[CameraShake] Fire`, `Landing` and `Generic`
+from 1 to 0 on the machine it was testing on, and nothing said so: it was found by
+comparing the whole ini with the backup after the run, which is the only reason the
+backup exists.
+
+* **Before a seam word goes into a sequence, find out whether it persists.** `swing ...`,
+  `blade ...` and `crosshair dot` do not (`swing save` is the word that does);
+  `camshake on|off|allow` do.
+* **A sequence restores what it FOUND, or it changes only what does not persist.** The
+  probe's control leg now uses the master switch and puts it back; it no longer touches
+  a category.
+* **Compare the entire ini with its backup after every simulator session**, not only
+  after an install.
+
+## An instrument that reads a picture can be wrong three ways before it is right (VR-173, 2026-09-29)
+
+`tools/blade-marker-check.py` decides whether the measured blade sits on the drawn one
+by finding where the blade's silhouette ends in a difference of two captures. Its first
+three versions reported the blade 33 cm too long, 16 cm too long in one eye and 19 cm too
+short in another, while the overlay showed the measured tip on the drawn tip every time.
+The causes were a scene that moves between two captures taken seconds apart, image noise
+past the tip, and a guard walking behind the blade.
+
+* **Write the overlay before believing the number.** The check saves
+  `<pose>_marker_check_<eye>.png` (green = measured, red = where it thinks the blade
+  ends) for exactly this.
+* **Tuning an instrument until it passes is how an instrument stops being able to
+  fail.** What kept this one honest is a capture that MUST fail: the marker moved 10 cm
+  across the blade on purpose. Every version had to keep failing it, and did.
+* **The stab and plunge sequences assume the player is STANDING.** They toggle the
+  crouch; started crouched, every assertion after the first inverts (12 and 8 failed
+  steps) and nothing in the output names the stance. Read `crouch: pawn is` first.
+
 ## "Continue" loads the NEWEST save, and it is no longer the safe one (VR-173, 2026-09-29)
 
 Every simulator sequence says it needs "the dev PC's sewer save". The walk-in (Return

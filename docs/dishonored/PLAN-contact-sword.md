@@ -3,7 +3,7 @@
 Status: **RESEARCH, in progress since 2026-09-29.** Written 2026-09-21 alongside VR-170.
 Sections 1 to 5 are the plan as written and are left as they were. Section 6 holds what
 turned out to be different by the time the work started, section 7 the verdicts, one per
-prerequisite, in the order they were measured. Prerequisite 1 has its verdict.
+prerequisite, in the order they were measured. Prerequisites 1 and 2 have their verdicts.
 
 ## 1. What the player would get
 
@@ -247,3 +247,92 @@ not an engine that stopped following.
 
 Not measured: a takedown or a drop kill (the game owns the camera there, and the mod
 stands down), and a real opponent (the simulator's attacks hit nothing).
+
+### 7.2 Prerequisite 2, the blade's axis and tip: MEASURED, and it sits on the drawn blade (2026-09-29)
+
+**Verdict: the held sword's blade is known in the palm frame, from its own drawn mesh,
+and the measured base and tip lie on the drawn blade in both eyes at three poses. While
+the arm is tracked it is a constant of the hand. While the game plays an attack clip on
+the hand it is not, and the detector must not use it then.**
+
+Build `v1.0.1-160-g723bb2d91` plus this commit's code, RelWithDebInfo, legacy off, the
+simulator, the sewer save. `[Blade] Measure` and `[Blade] Marker`, both default 0, live
+through the `blade` word. Code: `blade_math.h` (pure, `tools\blade-host.ps1`, 120
+checks), `hands/blade_axis.cpp` (the reader, beside the bolt's).
+
+**The route.** Not the bolt reader: section 6 says why. A separate measurement on the
+same draw, which keeps every vertex's four bone weights and skins the mesh through the
+palette OF THE DRAW BEING MEASURED, so the sword is read as it is drawn. The long axis
+comes from an even subsample of 827 vertices, the two ENDS from all 2481, because a tip
+is one vertex and a subsample can step over it (the host test puts the tip at such an
+index). The tip is the end farther from the palm; the base is the point of the blade
+line nearest the palm, held inside the sword, so a trace never starts at the pommel
+behind the hand.
+
+**What the sword is**, as the draw had it at rest:
+
+| | |
+|---|---|
+| asset | `Wpn_PlySword01`, 2481 vertices, 2074 triangles, one draw |
+| bones | 12. Two carry the grip and pommel (876 and 287 vertices), six the folding mechanism within 8 uu of the guard, three a ring of the blade two thirds along, one the blade's last 18 uu (84). ENGINE_NOTES has the line per bone |
+| long axis | 84.1 uu pommel to tip in the mesh's own units, variance ratio 25.2 to 1 |
+| in the hand | base (0.003, 0.003, -0.003), tip (-0.275, -0.233, -0.504) m, palm frame |
+| blade ahead of the palm | 0.620 m of hand travel, which is 62.0 uu in the world and 0.574 m as the headset shows it (hand travel 100 uu per metre, camera 108) |
+| blade line to the palm | 0.005 m: the line through the blade passes through the hand that holds it |
+| model scale | 0.85 (`[Hands] ModelScale`), part of the latch's key |
+
+It latched on the first run, after 55 agreeing draws over 312 ms with the body at rest.
+The 16 to 1 the bolt reader demands would have passed this mesh (25.2), and refuses the
+host test's synthetic sword (10.7): the ratio is logged and is not what decides.
+
+**Acceptance: `tools\xrsim\blade-marker.xrs`, read by `tools\blade-marker-check.py`.**
+The tolerance was written before the run: 3.0 cm along the blade, 2.0 cm across, at the
+tip's own range. The check projects the marker into each eye's pixels from the capture's
+JSON, confirms the projection against the image (the dot must land where it was
+predicted), and compares the measured tip with where the drawn blade's own silhouette
+ends (sword drawn minus sword sheathed).
+
+| Pose | Eye | Drawn blade's end from the measured tip | Dot from its predicted pixel | The same pose, marker moved 10 cm on purpose |
+|---|---|---|---|---|
+| A, blade across the view, head level | left | -1.4 cm along, +0.1 across | 0.0 px | 8.7 cm across: FAIL, as it must |
+| | right | -1.6, +0.0 | 1.4 px | 8.7: FAIL |
+| B, blade low, head 20 down | left | -0.8, +0.3 | 0.9 px | 10.3: FAIL |
+| | right | +0.1, -0.1 | 0.1 px | 8.9: FAIL |
+| C, head turned 25, up 10, ROLLED 12 | left | -0.9, +0.1 | 0.2 px | 4.4: FAIL |
+| | right | -0.4, +0.2 | 0.1 px | 4.3: FAIL |
+
+One pixel is 0.13 to 0.18 cm at the tip in these poses. Pose C's offset reads 4.4 cm
+and not 10 because most of that offset lay along the line of sight there; it is still
+twice the tolerance.
+
+**The check itself was wrong twice before it was right, and both are kept in the tool's
+comments.** Its first version took the furthest difference in a corridor for the blade's
+end and reported the blade 33 cm too long: something had moved in the scene between the
+two captures. Its second followed the run outward with no floor and walked 16 cm past the
+tip on image noise in one eye. Its third measured the floor against the run's last few
+bins and ended 19 cm short where a guard walked behind the blade. In all three the
+overlay picture showed the measured tip on the drawn tip. The measurement did not change
+between versions; the instrument did.
+
+**Constant, or live?** Both are published. Measured on the same run:
+
+| While | Latched constant against the live tip | Samples |
+|---|---|---|
+| the body is at rest | 0.0000 m | 799 |
+| three physical swings (`swing sim`, the arm stays on the tracked hand) | 0.03 degrees, 0.0000 m | 278 |
+| two trigger attacks (the game's clip plays on the hand) | 178.9 degrees, 1.449 m | 229 |
+| the hand-back's release after them, upper state already idle | 0.959 m | 909 |
+
+So for the attacks the contact sword is about, the physical ones, the blade is rigid in
+the palm and the constant is the blade. During a trigger attack the game owns the hand
+and the sword goes with it; the palm-frame constant then describes a sword that is not
+there. That gives prerequisite 5 a gate it can measure instead of assume: **trace only
+while the live tip agrees with the constant**, and the animation state's word for "at
+rest" is not enough (the release reads idle for 0.96 m of disagreement).
+
+**The fallback route (sockets and bones on the script lane) was not built.** It existed
+in the plan in case the draw-time fit could not take a folding, multi-bone mesh. It can.
+
+Not measured: the sword mid-fold (the latch waits for rest and a two-sided reach bound
+refuses a short sword, both host-tested, neither seen in the game); any sword but this
+one; and the headset, where the marker is judged by eye.

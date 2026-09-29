@@ -427,6 +427,7 @@ static void WaCensusNote(IDirect3DDevice9* dev, const MpDrawCtx* ctx,
 
 
 #include "game/dishonored/hands/bolt_model_ray.cpp"
+#include "game/dishonored/hands/blade_axis.cpp"   // VR-173: the held sword's blade, measured beside the bolt
 
 // ---- recognition by buffer identity -----------------------------------------
 
@@ -484,6 +485,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
         InterlockedIncrement(&g_waSucceeded);
         InterlockedIncrement(&w->placed);
         BrMeasure(dev, w, source, (UINT)cnt, delta);
+        BlMeasure(dev, w, source, (UINT)cnt, delta);   // VR-173
     }
     if (FAILED(dvr::frame::orig_set_vs_const(dev, (UINT)start, source, (UINT)cnt))) {
         InterlockedIncrement(&g_waRestoreFail);
@@ -1518,7 +1520,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
     const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
-    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
+    if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); BlMeasure(dev,w,source,w->regs,delta); }
     // VR-138: the mirrored copy, inside the same patched palette and depth range.
     if (SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,
                                   minIndex, numVertices, startIndex, primCount);

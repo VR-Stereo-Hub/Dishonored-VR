@@ -1,0 +1,90 @@
+# blade-marker.xrs - VR-173 prerequisite 2: is the MEASURED blade where the DRAWN blade is?
+#
+# The mod measures the held sword's blade from its own drawn mesh (`blade on`) and can show
+# the result as two dots (`blade marker on`): the larger at the tip, the smaller at the
+# base by the palm. This takes the captures tools\blade-marker-check.py reads, at three
+# poses: the blade across the view, the blade low with the head pitched down, and a head
+# that is turned, pitched AND ROLLED (a transport that ignores roll agrees with everything
+# at a level head).
+#
+# Needs: a loaded level in GAMEPLAY on the dev PC's sewer save, [Mode] GamepadOnly=0.
+# Run:   .\tools\xrsim-run.ps1 -Path .\tools\xrsim\blade-marker.xrs -Dir <sim dir>
+# Read:  python tools\blade-marker-check.py <sim dir>\capture poseA
+#        python tools\blade-marker-check.py <sim dir>\capture poseA --marker poseA_offset --expect-fail
+#        (and the same for poseB and poseC)
+#
+# Per pose, four captures: the sword drawn with no marker, the marker on, the marker moved
+# 10 cm across the blade ON PURPOSE, and (after all three poses) the sword sheathed. The
+# offset capture has to FAIL the check, or the check cannot see a marker that is off the
+# blade and the passes mean nothing.
+#
+# The hand is PLACED here (`grip pos`, `grip rot`), which the motion sword reads as a
+# tracking jump and discards. `swing off` is sent anyway, so a pose change can never
+# become an attack in the middle of a capture. Neither `swing off`, `crosshair dot off`
+# nor the `blade` words are written to the ini.
+#
+# Guards walk under this ledge. A guard behind the blade fattens its silhouette, and the
+# check follows the blade as one narrow run to stay on it; a pose whose blade crosses
+# something that moves is still the worst case, so look at the <pose>_marker_check_*.png
+# overlays (green = measured, red = where the drawn blade ends) before believing a FAIL.
+
+hand r grip pos 0.25 1.30 -0.40; hand r grip rot 0 0 0; head rot 0 0 0
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mod swing off; crosshair dot off; blade marker off; blade marker offset 0; blade on
+@log blade: (LATCHED|measure=1 .* LATCHED) 20s
+
+# A. The blade across the view, head level.
+head rot 0 0 0; hand r grip pos -0.35 1.45 -0.80; hand r grip rot 90 0 0
+@wait 2500
+@shot poseA_drawn
+@mod blade marker on
+@log blade/marker: drawn 5s
+@shot poseA_marker
+@mod blade marker offset 0.10
+@shot poseA_offset
+@mod blade marker offset 0; blade marker off
+
+# B. The blade low, the head pitched 20 degrees down.
+head rot 0 -20 0; hand r grip pos -0.25 1.20 -0.75; hand r grip rot 70 25 0
+@wait 2500
+@shot poseB_drawn
+@mod blade marker on
+@log blade/marker: drawn 5s
+@shot poseB_marker
+@mod blade marker offset 0.10
+@shot poseB_offset
+@mod blade marker offset 0; blade marker off
+
+# C. The head turned 25, pitched 10 up and ROLLED 12; the hand rolled too.
+head rot 25 10 12; hand r grip pos -0.45 1.60 -0.70; hand r grip rot 110 -20 30
+@wait 2500
+@shot poseC_drawn
+@mod blade marker on
+@log blade/marker: drawn 5s
+@shot poseC_marker
+@mod blade marker offset 0.10
+@shot poseC_offset
+@mod blade marker offset 0; blade marker off
+
+# The same three poses with the sword SHEATHED (hold Use): what the view looks like
+# without it, which is what makes the silhouette.
+btn x press 1500
+@wait 4000
+head rot 0 0 0; hand r grip pos -0.35 1.45 -0.80; hand r grip rot 90 0 0
+@wait 2500
+@shot poseA_bare
+head rot 0 -20 0; hand r grip pos -0.25 1.20 -0.75; hand r grip rot 70 25 0
+@wait 2500
+@shot poseB_bare
+head rot 25 10 12; hand r grip pos -0.45 1.60 -0.70; hand r grip rot 110 -20 30
+@wait 2500
+@shot poseC_bare
+
+# Leave it as it was found: the sword drawn, the hand where the other sequences start,
+# the measurement and its marker off, the motion sword and the aim dot back on.
+head rot 0 0 0; hand r grip pos 0.25 1.30 -0.40; hand r grip rot 0 0 0
+trigger r pull 300
+@wait 2500
+@mod blade marker off; blade off; swing on; crosshair dot on

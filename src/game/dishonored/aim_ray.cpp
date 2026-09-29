@@ -2,6 +2,7 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "game/dishonored/aim_ray.h"
 #include "game/dishonored/hands/bolt_axis.h"
+#include "game/dishonored/blade_math.h"         // VR-173: the blade marker's transport
 #include "game/dishonored/hands/hand_frame.h"   // VR-57: follow_trim_ray
 #include "core/vr/openxr_runtime.h"
 #include "core/gfx/hud_layout.h"   // VR-166: centred gauges ride the dot
@@ -325,6 +326,73 @@ void tick(bool gameplay, bool projectionWanted) {
                      carrying ? "carrying an object" : "carry ended");
         }
         if (!carrying && (dvr::anim::active() || dvr::anim::weight() < 1.0f)) out = {};
+    }
+    // VR-173: THE BLADE MARKER, an instrument ([Blade] Marker, off). Two points at the
+    // measured blade's base and tip, carried from the palm frame through the same
+    // transport and the same scale about the head the model ray's origin takes above. They
+    // are appended AFTER the hand-back blanking on purpose: the marker is judged against
+    // the drawn sword, and an attack is one of the things it has to be judged in.
+    {
+        float offsetM = 0;
+        const bool want = dvr::hands::blade_marker(&offsetM);
+        static const char* whyWas = "";
+        const char* why = "off";
+        if (want) {
+            const int h = 1;   // the sword hand
+            const auto blade = dvr::hands::blade_snapshot(h);
+            const auto cal = dvr::hands::trim_snapshot(h);
+            dvr::vr::HandAimSample hs;
+#if DVR_WITH_OPENXR
+            hs = dvr::vr::input_hand_aim_sample(h);
+#endif
+            if (!blade.ok) why = blade.why;
+            else if (!cal.ok) why = cal.why;
+            else if (!gameplay || !projectionWanted) why = "not a gameplay view with a projection";
+            else if (!hs.generation || !hs.stampMs) why = "no hand sample";
+            else {
+                dvr::hf::Mat3 rc, g;
+                for (int i = 0; i < 9; ++i) { rc.m[i] = cal.R_C[i]; g.m[i] = cal.G[i]; }
+                // the deliberate error: across the blade, in the palm frame
+                float dir[3] = { blade.tipPalm[0]-blade.basePalm[0], blade.tipPalm[1]-blade.basePalm[1],
+                                 blade.tipPalm[2]-blade.basePalm[2] };
+                const float ax[3] = { std::fabs(dir[0]) < std::fabs(dir[1]) ? 1.0f : 0.0f,
+                                      std::fabs(dir[0]) < std::fabs(dir[1]) ? 0.0f : 1.0f, 0.0f };
+                float across[3] = { dir[1]*ax[2]-dir[2]*ax[1], dir[2]*ax[0]-dir[0]*ax[2], dir[0]*ax[1]-dir[1]*ax[0] };
+                const float an = dvr::blade::len3(across);
+                for (int i = 0; i < 3; ++i) across[i] = an > 1e-5f ? across[i] / an * offsetM : 0.0f;
+                const float* palm[3] = { blade.tipPalm, blade.basePalm, blade.liveTipPalm };
+                const float size[3] = { 0.9f, 0.6f, 0.4f };
+                const int n = blade.liveOk ? 3 : 2;
+                bool all = true;
+                dvr::vr::AimVisualPoint pts[3];
+                for (int k = 0; k < n && all; ++k) {
+                    const float p[3] = { palm[k][0]+across[0], palm[k][1]+across[1], palm[k][2]+across[2] };
+                    all = dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, p, pts[k].pos);
+                    if (all) dvr::blade::scale_about_head(cal.headPos, cal.handToWorldScale, pts[k].pos);
+                    pts[k].sizeDeg = size[k]; pts[k].dot = true;
+                }
+                if (!all) why = "the palm transport refused";
+                else {
+                    if (!out.enabled || !out.valid) {
+                        out = {}; out.generation = hs.generation; out.sampleMs = hs.stampMs;
+                    }
+                    out.enabled = out.valid = true;
+                    int put = 0;
+                    for (int k = 0; k < n; ++k)
+                        if (out.count < dvr::vr::kAimVisualPoints) { out.points[out.count++] = pts[k]; ++put; }
+                    why = put == n ? "drawn" : "the point budget is full";
+                    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000,
+                        "blade/marker: tip (%.3f %.3f %.3f) base (%.3f %.3f %.3f) XR LOCAL m, offset %.3f m across the "
+                        "blade, hand travel against camera scale %.4f, %d point(s) of %d, blade revision %u",
+                        pts[0].pos[0], pts[0].pos[1], pts[0].pos[2], pts[1].pos[0], pts[1].pos[1], pts[1].pos[2],
+                        offsetM, cal.handToWorldScale, put, n, blade.revision);
+                }
+            }
+        }
+        if (std::strcmp(why, whyWas)) {
+            DVR_INFO("blade/marker: %s", why);
+            whyWas = why;
+        }
     }
     dvr::vr::set_aim_visual(out);
     if (std::strcmp(g_lastWhy, g_ray.why)) {

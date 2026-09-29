@@ -33,6 +33,8 @@
 //   vrinput on|off|status        the virtual gamepad
 //   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|filter raw|median|sword|output rt|rb|
 //         log|force|sim <peak> [humpMs] [reps]|save   the motion sword (game/dishonored/swing.h) - VR-37
+//   blade status|on|off|forget|marker on|off|marker offset <m>|attack reset|save
+//                                     the held sword's blade, measured from its drawn mesh (hands/blade_axis.cpp) - VR-173
 //   snapturn on|off|angle <deg>|threshold <v>|rearm <v>|repeat <ms>|fire [left|right]|mark|status
 //                                     snap turn (game/dishonored/snap_turn.h) - VR-219
 //   console <text>               run a game console command on the script lane
@@ -83,6 +85,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "rainrecovery") && DvrOnOff(args, &b)) { RainRecoverySet(b); return true; }
     if (!strcmp(cmd, "rainhide") && DvrOnOff(args, &b)) { RainHideSet(b); return true; }   // VR-136
     if (!strcmp(cmd, "swordtrail")) return SwordTrailCommand(args);   // VR-171
+    if (!strcmp(cmd, "blade")) return BlCommand(args);   // VR-173: the held sword's blade
     if (!strcmp(cmd, "camshake")) return CamShakeCommand(args);   // VR-172
     if (!strcmp(cmd, "snapturn")) return dvr::snap::command(args);   // VR-219: snap turn
     if (!strcmp(cmd, "raindistance")) { RainDistanceSet(atoi(args)); return true; }   // VR-136: uu, -1 native
@@ -820,6 +823,7 @@ static void DvrStatusProvider(dvr::status::Writer& w)
     dvr::swing::status(w);
     dvr::drop::status(w);
     SwordTrailStatus(w);   // VR-171
+    BlStatus(w);   // VR-173
     CamShakeStatus(w);   // VR-172
     dvr::snap::status(w);   // VR-219
     w.end_obj();
