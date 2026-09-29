@@ -1,3 +1,14 @@
+## 2026-09-29: DLSS object motion made aliasing crawl (FIXED, host-verified, headset pending)
+
+Surface: the DLSS output with `dlss objmotion` on, on subtly aliased edges.
+- Cause (host): chance whole-pixel matches on aliasing that changes from image to image were handed to
+  DLSS as motion.
+- Fix: a win applies only when confirmed by the same vector in the eye's previous image.
+- Crawling-aliasing test: 0 overrides, against 238144 in the steady control.
+- Four approaches that did not work are in `PLAN-motion-vectors-dlss.md`, "run 10".
+- OPEN: characters still smearing. The new per-tile counters on the `dlss: object motion` line say
+  whether their tiles are overridden at all.
+
 ## 2026-09-29: AFW run 10 - the foreground pass's slot 0 is not the scene target (MEASURED; mask retried via MRT)
 
 Measured with build v1.0.1-178:

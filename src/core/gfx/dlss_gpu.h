@@ -134,7 +134,10 @@ public:
     // VR-39: object motion - the camera vectors corrected where this eye's image and its previous one show
     // something moving on its own or with the camera (characters, a boat). Needs run() and this eye's previous
     // colour (keep()); overwrites motion(). jitShift: current minus previous sample offset (render px).
-    struct ObjParams { float ratio = 0.5f, minGain = 0.02f, minContrast = 0.04f; bool temporal = true; };
+    struct ObjParams { float ratio = 0.5f, minGain = 0.02f, minContrast = 0.04f, minDeviation = 1.5f, prior = 0.0f; bool temporal = true; };
+    // Counts since the last reset: eye images read back, tiles in them, tiles searched (the camera's vector did not
+    // already match), tiles overridden (a clearly better vector at least minDeviation from the camera's).
+    struct ObjStats { uint64_t images = 0, tiles = 0, searched = 0, overridden = 0; } objStats;
     bool objmotion(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
                    float jitShiftX, float jitShiftY, const ObjParams& op, char* why, size_t cap);
     AuditBin bins[kAuditBins];
@@ -150,6 +153,11 @@ private:
     ID3D11UnorderedAccessView* listUav_ = nullptr;
     ID3D11ShaderResourceView* listSrv_ = nullptr;
     ID3D11Buffer* listArgs_ = nullptr;
+    ID3D11Buffer* stats_ = nullptr;
+    ID3D11UnorderedAccessView* statsUav_ = nullptr;
+    ID3D11Buffer* statStage_[3] = {};
+    bool statPending_[3] = {};
+    int statNext_ = 0;
     ID3D11PixelShader* psObjFix_ = nullptr;
     ID3D11Buffer* cbObj_ = nullptr;
     ID3D11Texture2D* tiles_ = nullptr;

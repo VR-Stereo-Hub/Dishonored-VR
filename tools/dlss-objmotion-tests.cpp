@@ -204,6 +204,7 @@ int main() {
     // Object motion: the eye's previous image first (keep), then the pass on the current one.
     g.keep(dev, ctx, 0, tp);
     GuideGpu::ObjParams op;
+    g.objmotion(dev, ctx, 0, sc0, 0, 0, op, why, sizeof(why));   // the first image: candidates (a win applies from its second image)
     ok = g.objmotion(dev, ctx, 0, sc0, 0, 0, op, why, sizeof(why));
     check(ok, "object motion pass", why);
     const std::vector<float> mv = readMv(g.motion());
@@ -249,6 +250,7 @@ int main() {
         g.forget(0);
         g.run(dev, ctx, p, why, sizeof(why));
         g.keep(dev, ctx, 0, tp2);
+        g.objmotion(dev, ctx, 0, sv2, 0, 0, op, why, sizeof(why));   // candidates first
         ok = g.objmotion(dev, ctx, 0, sv2, 0, 0, op, why, sizeof(why));
         const std::vector<float> mv3 = readMv(g.motion());
         std::vector<float> t3 = truth;
@@ -257,6 +259,41 @@ int main() {
         snprintf(d, sizeof(d), "character mean %.2f px p95 %.2f px (true -2.4,5.7), world mean %.3f px", e3.mean, e3.p95, e3w.mean);
         check(ok && e3.mean < 0.4 && e3.p95 < 0.75 && e3w.mean < 0.05, "a sub-pixel character motion", d);
         sv2->Release(); tc2->Release(); tp2->Release();
+    }
+    {   // Run 10: aliasing slithered with object motion on. A static aliased pattern (hard-edged, 1.5 x 2 px cells) whose
+        // sampled shape changes from image to image, as crawling jaggies do: each previous image is the pattern sampled
+        // at a different sub-pixel offset (0.6, 0.2, 0.9, 0.4, 0.7 px) while the camera's vectors say "still". Whole-pixel
+        // look-alikes fit each image by chance, at a different offset each time: nothing may reach DLSS. The control:
+        // the same offset every image - a stable look-alike is confirmed, so the instrument can see an override.
+        std::vector<uint32_t> ca(W * H), pa(W * H);
+        auto checker = [&](double x, double y) { return (((int)floor(x / 1.5) + (int)floor(y / 2.0)) & 1) ? 0.85 : 0.15; };
+        for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) ca[y * W + x] = rgba(checker(x + 0.5, y + 0.5));
+        ID3D11Texture2D* tca = tex(DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, ca.data(), W * 4);
+        ID3D11ShaderResourceView* sva = nullptr;
+        dev->CreateShaderResourceView(tca, nullptr, &sva);
+        GuideParams ps; ps.w = W; ps.h = H; ps.historyValid = true; ps.tanH = ps.tanV = (float)kTan;   // camera still: vectors 0
+        auto sequence = [&](const double* offs, int count) {
+            g.forget(0);
+            int n = 0;
+            for (int r = 0; r < count; ++r) {
+                for (int y = 0; y < H; ++y) for (int x = 0; x < W; ++x) pa[y * W + x] = rgba(checker(x + 0.5 + offs[r], y + 0.5));
+                ID3D11Texture2D* tpa = tex(DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, pa.data(), W * 4);
+                g.run(dev, ctx, ps, why, sizeof(why));
+                g.keep(dev, ctx, 0, tpa);
+                g.objmotion(dev, ctx, 0, sva, 0, 0, op, why, sizeof(why));
+                const std::vector<float> m = readMv(g.motion());
+                n = 0;
+                for (int y = 12; y < H - 12; ++y) for (int x = 12; x < W - 12; ++x) n += hypot(m[(y * W + x) * 2], m[(y * W + x) * 2 + 1]) > 0.25;
+                tpa->Release();
+            }
+            return n;   // pixels given a non-camera vector in the last image
+        };
+        const double crawl[5] = {0.6, 0.2, 0.9, 0.4, 0.7}, steady[5] = {0.6, 0.6, 0.6, 0.6, 0.6};
+        const int crawling = sequence(crawl, 5), control = sequence(steady, 5);
+        snprintf(d, sizeof(d), "pixels given a non-camera vector: %d with the aliasing changing every image, %d with it steady (the control)",
+                 crawling, control);
+        check(crawling < 500 && control > 1000, "crawling aliasing keeps the camera's vector", d);
+        sva->Release(); tca->Release();
     }
     {   // Cost at the headset's render size (2114x2192, run 8's DLSS Ultra Quality input), timestamped.
         const int RW = 2114, RH = 2192;

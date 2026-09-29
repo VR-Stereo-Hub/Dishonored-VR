@@ -450,10 +450,19 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
                                gp.jitterKnown ? gp.jitter[1] - gp.prevJitter[1] : 0.0f, op, ow, sizeof(ow)))
             ++g_objRuns;
         else { ++g_objRefused; strcpy_s(g_objWhy, ow); }
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-                         "dlss: object motion - %llu eye images corrected, %llu without (last: %s; the first image of each eye "
-                         "after a reset has no previous one)", (unsigned long long)g_objRuns, (unsigned long long)g_objRefused,
-                         g_objWhy[0] ? g_objWhy : "none");
+        static uint64_t nextObjLog = 0;
+        const uint64_t tObj = GetTickCount64();
+        if (tObj >= nextObjLog) {
+            nextObjLog = tObj + 3000;
+            GuideGpu::ObjStats& st = g_guides.objStats;
+            DVR_INFO("dlss: object motion - %llu eye images corrected, %llu without (last: %s) | per image: %.0f tiles searched "
+                     "of %.0f (the camera's vector did not match), %.0f overridden (a clearly better vector at least %.1f px "
+                     "off the camera's: a walking character or a boat should show hundreds, a still scene near 0)",
+                     (unsigned long long)g_objRuns, (unsigned long long)g_objRefused, g_objWhy[0] ? g_objWhy : "none",
+                     st.images ? (double)st.searched / st.images : 0.0, st.images ? (double)st.tiles / st.images : 0.0,
+                     st.images ? (double)st.overridden / st.images : 0.0, op.minDeviation);
+            st = GuideGpu::ObjStats{};
+        }
     }
     if (wantMask || wantAudit || wantFg || wantObj) {
         const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why),
