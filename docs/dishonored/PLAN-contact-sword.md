@@ -3,7 +3,8 @@
 Status: **RESEARCH, in progress since 2026-09-29.** Written 2026-09-21 alongside VR-170.
 Sections 1 to 5 are the plan as written and are left as they were. Section 6 holds what
 turned out to be different by the time the work started, section 7 the verdicts, one per
-prerequisite, in the order they were measured. Prerequisites 1 to 4 have their verdicts.
+prerequisite, in the order they were measured. Prerequisites 1 to 4 have their verdicts
+and 7.5 is the go or no-go: GO, as a default-off detector.
 
 ## 1. What the player would get
 
@@ -520,3 +521,36 @@ detector (section 6).
 **What this does NOT show.** A blade touching a character (the guards are 9 m below the
 ledge, and the simulator cannot walk to them); a moving target; and what the game's own
 melee does with a press that arrives while the target is already at blade range.
+
+### 7.5 Go or no-go: GO, as a default-off detector beside `edge` (2026-09-29)
+
+Every prerequisite that could have stopped the work came back clear:
+
+| Prerequisite | Could have stopped it by | Came back |
+|---|---|---|
+| 1 | the engine dropping the head's pitch in an attack, as the sibling mod's engine does | retained to 0.000 deg; no servo is needed and none is ported |
+| 2 | the blade having no stable line in the hand | one palm-frame constant, 0.0000 m from the live draw at rest, 0.03 deg in physical swings |
+| 3 | the blade landing somewhere else in the world than where it is drawn | 0.24 to 0.27 uu apart over 7 poses |
+| 4 | the engine having no trace the mod may call, or one too dear to call per sample | one verified call, 7 to 8 us, at most one game tick late |
+
+What is NOT settled, and why it does not block building the detector:
+
+* **The wind-up** (section 6). `edge` presses within the first 100 ms of a swing; contact
+  presses when the blade arrives, which for a 200 ms swing is 50 to 150 ms later. The game
+  then needs its own time from the press to the hit (the swing trail appears 260 to 290 ms
+  into an attack, VR-171), so under either detector the hit lands after the arm has
+  passed, and contact lands it later still. That is a question of FEEL and only a headset
+  answers it. The detector therefore carries `ContactLeadMs`: the blade is also traced
+  ahead along the tip's own velocity, so the press can be moved earlier by a measured
+  number of milliseconds. It ships 0.
+* **The blade against a character.** The simulator's save cannot reach one. The trace
+  reports a character as a character at range (7.4); the blade's own segment reporting one
+  is a headset item.
+* **What the game does with a press at blade range.** The attack is still aimed by the
+  game along the view. A blade that touches a guard well off to the side presses an attack
+  the game may swing at nothing. Headset item; the FIRE line carries the contact's class
+  and distance so the log can be read against what was seen.
+
+So: the detector is built, `[Melee] Detector=contact`, **default off, `edge` stays the
+default**, switched live by `swing mode contact` and in F10. Whether it ever becomes the
+default is a headset verdict and is not claimed here.
