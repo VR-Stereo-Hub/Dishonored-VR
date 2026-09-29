@@ -183,3 +183,23 @@ to the grate or fill correction and, if the refusal cause needs one, to the worl
 - The seeded two-source design, the freshness and epoch guards, the matrix checks (a refusal still
   falls back at once), the depth snapshot.
 - Pacing.
+
+## 7. Step 2 result (2026-09-28): classified from the run-6 captures
+
+- **A1 CONFIRMED** in its FOV form: the foreground is projected at the camera FOV (108.07), the world at
+  `ProjectionFov` (103).
+  - A pure depth gain (A3) is refuted: world surfaces from 0.93 to 70 m match within about half a pixel,
+    and the near ratio equals the FOV ratio at every near depth.
+  - A2 and A4 are not needed to explain the data.
+  - The review's point stands: disparity alone could not have separated A1 from A2/A4. The FOV numbers
+    in the log did.
+- **B1 CONFIRMED** for the grate slats, by the replay tint: the fill.
+  - B3 (jitter) is ruled out for this run.
+  - B2 is not dominant: the held-eye dots appear in proportion to its share of the image.
+- **Step 3 as executed:**
+  - two corrections, each with a word and an F10 checkbox, each with a host case and a failing control,
+    each replay-verified on the real captures;
+  - the basis gate widened to 10 deg on the measured cause (rotator lag), not hysteresis.
+  - Both corrections are on by default inside AFW, which is itself opt-in. That departs from "one
+    default-off correction per run": they address two different surfaces, the replay isolates each, and
+    the checkboxes A/B each live.

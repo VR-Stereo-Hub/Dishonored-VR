@@ -70,6 +70,7 @@ const char* kSrc =
     "    float4 tA, tB, tW;\n"           // target clip rows
     "    float4 mD;\n"                   // held camera minus target camera (uu)
     "    float4 prm4;\n"                 // one grid step in uv: fresh x, y, held x, y
+    "    float4 prm5;\n"                 // the foreground's tanH, tanV, its depth limit (units; 0 = one projection)
     "};\n"
     "cbuffer M : register(b1) {\n"
     "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
@@ -81,17 +82,25 @@ const char* kSrc =
     "float3 mc(float4 a, float4 b, float4 c, float3 v) { return a.xyz * v.x + b.xyz * v.y + c.xyz * v.z; }\n"
     "float zH(float2 uv) { float z = heldDepth.SampleLevel(pointSamp, uv, 0).r; return z > 0.0 ? z : 60000.0; }\n"
     "float zF(float2 uv) { float z = freshDepth.SampleLevel(pointSamp, uv, 0).r; return z > 0.0 ? z : 60000.0; }\n"
+    // The foreground (the player's arms and weapon) is drawn with the game camera's own FOV, the world
+    // with the mod's projection: a pixel nearer than the foreground limit is a ray of the foreground's
+    // tangents, in its source AND in the target (the target eye draws it the same way).
+    "float2 tanFor(float z) { return (prm5.z > 0.0 && z < prm5.z) ? prm5.xy : prm.xy; }\n"
+    "float3 viewDirT(float2 uv, float2 tn) { float2 n = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0); return float3(n.x * tn.x, n.y * tn.y, -1.0); }\n"
     // A target-view point (metres) to (ndc x, ndc y, depth units); behind the eye -> far off-screen.
-    "float3 toT(float3 L) { float zt = -L.z; if (!(zt > 1e-5)) return float3(9, 9, -1);\n"
-    "    return float3(L.x / (zt * prm.x), L.y / (zt * prm.y), zt / prm.z); }\n"
-    "float3 mapF(float2 s, float z) { return toT(mr(d0, d1, d2, mr(f0, f1, f2, viewDir(s) * (z * prm.z)) + fp.xyz - dp.xyz)); }\n"
+    "float3 toTT(float3 L, float2 tn) { float zt = -L.z; if (!(zt > 1e-5)) return float3(9, 9, -1);\n"
+    "    return float3(L.x / (zt * tn.x), L.y / (zt * tn.y), zt / prm.z); }\n"
+    "float3 toT(float3 L) { return toTT(L, prm.xy); }\n"
+    "float3 mapF(float2 s, float z) { float2 tn = tanFor(z);\n"
+    "    return toTT(mr(d0, d1, d2, mr(f0, f1, f2, viewDirT(s, tn) * (z * prm.z)) + fp.xyz - dp.xyz), tn); }\n"
     "float3 mapHx(float2 s, float z, bool world) {\n"
-    "    float3 W = mr(s0, s1, s2, viewDir(s) * (z * prm.z)) + sp.xyz;\n"
+    "    float2 tn = tanFor(z);\n"
+    "    float3 W = mr(s0, s1, s2, viewDirT(s, tn) * (z * prm.z)) + sp.xyz;\n"
     "    if (world) W = mr(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
-    "    return toT(mr(d0, d1, d2, W - dp.xyz));\n"
+    "    return toTT(mr(d0, d1, d2, W - dp.xyz), tn);\n"
     "}\n"
     "float3 mapH(float2 s, float z) {\n"
-    "    if (prm2.w > 0.0) {\n"
+    "    if (prm2.w > 0.0 && !(prm5.z > 0.0 && z < prm5.z)) {\n"
     "        float2 n = float2(s.x * 2.0 - 1.0, 1.0 - s.y * 2.0); float w = z * prm2.w;\n"
     "        float3 P = mr(hI0, hI1, hI2, float3(n.x * w - hC.x, n.y * w - hC.y, w - hC.z)) + mD.xyz;\n"
     "        float cw = dot(tW.xyz, P) + tW.w; if (!(cw > 1e-3)) return float3(9, 9, -1);\n"
@@ -126,24 +135,28 @@ const char* kSrc =
     "    float2 c[4] = { s + float2(o.x, 0), s - float2(o.x, 0), s + float2(0, o.y), s - float2(0, o.y) };\n"
     "    [unroll] for (int k = 0; k < 4; ++k) { float z = zH(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
     // Debug tint: green fresh near (hands now), none held world, blue fresh world, red the held fallback,
-    // magenta the disocclusion fill, yellow the temporal body hypothesis (no fresh depth).
+    // magenta the disocclusion fill, cyan the nearer near-miss, yellow the temporal body hypothesis.
     "float4 shade(Texture2D tex, float2 uv, int cls) {\n"
     "    float3 c = tex.SampleLevel(linSamp, uv, 0).rgb;\n"
     "    if (prm3.z > 0.5) {\n"
     "        float3 k = cls == 0 ? float3(0.5, 1.0, 0.5) : cls == 2 ? float3(0.5, 0.6, 1.0) : cls == 3 ? float3(1.0, 0.4, 0.4)\n"
-    "                 : cls == 4 ? float3(1.0, 1.0, 0.4) : cls == 5 ? float3(1.0, 0.4, 1.0) : float3(1.0, 1.0, 1.0);\n"
+    "                 : cls == 4 ? float3(1.0, 1.0, 0.4) : cls == 5 ? float3(1.0, 0.4, 1.0) : cls == 6 ? float3(0.4, 1.0, 1.0)\n"
+    "                 : float3(1.0, 1.0, 1.0);\n"
     "        c *= k;\n"
     "    }\n"
     "    return float4(c, 1.0);\n"
     "}\n"
     // A true disocclusion (no source shows this point): extend the BACKGROUND, never the near object -
-    // the farthest covered seed along the row (the stereo and turn baselines are horizontal), either map.
+    // the farthest covered seed within 128 texels along the row (the stereo and turn baselines are
+    // horizontal), either map. A thin structure no longer reaches here (the near-miss rule above takes
+    // it); a "closest clearly-behind seed" rule was tried and ghosted the hands in the host test.
     "float4 fill(float2 t, bool st, bool tp) {\n"
     "    float best = -1.0; float2 bs = t; bool fromF = st;\n"
     "    [unroll] for (int k = 0; k < 6; ++k) {\n"
     "        float off = (float)(4 << k) / prm2.x;\n"
     "        [unroll] for (int sd = -1; sd <= 1; sd += 2) {\n"
     "            float2 p = float2(t.x + sd * off, t.y);\n"
+    "            if (p.x < 0.0 || p.x > 1.0) continue;\n"
     "            if (st) { float4 a = seedF.SampleLevel(pointSamp, p, 0); if (a.a > 0 && a.z > best) { best = a.z; bs = a.xy; fromF = true; } }\n"
     "            if (tp) { float4 b = seedH.SampleLevel(pointSamp, p, 0); if (b.a > 0 && b.z > best) { best = b.z; bs = b.xy; fromF = false; } }\n"
     "        }\n"
@@ -169,14 +182,21 @@ const char* kSrc =
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
     "        if (okH) {\n"
-    "            float3 Wt = mc(d0, d1, d2, viewDir(t) * (tH * prm.z)) + dp.xyz;\n"
-    "            float3 m = toT(mc(f0, f1, f2, Wt - fp.xyz));\n"
+    "            float2 tn = tanFor(tH);\n"
+    "            float3 Wt = mc(d0, d1, d2, viewDirT(t, tn) * (tH * prm.z)) + dp.xyz;\n"
+    "            float3 m = toTT(mc(f0, f1, f2, Wt - fp.xyz), tn);\n"
     "            float2 uf = ndcUV(m.xy);\n"
     "            if (m.z > 0 && all(uf > 0.0) && all(uf < 1.0)) stale = zF(uf) > m.z * (1.0 + prm3.w) + 0.01;\n"
     "        }\n"
     "        if (okH && tH >= body && !stale && !(okF && tF < tH * (1.0 - prm3.w))) return shade(heldTex, sH, 1);\n"
     "        if (okF) return shade(freshTex, sF, 2);\n"
     "        if (okH && !stale) return shade(heldTex, sH, 3);\n"
+    // Neither is consistent to 1.5 texels. A thin structure (a grate slat 2-3 texels wide) often leaves
+    // both a little over; the nearer miss is still the right surface, where the fill would reach past
+    // the slat to the far background (the run-6 capture: the white dots on a grate were this fill).
+    // World surfaces only: a near miss onto the hands at the edge of a real gap would be a ghost ring.
+    "        float mF = tF >= body ? eF : 1e9, mH = (stale || tH < body) ? 1e9 : eH;\n"
+    "        if (min(mF, mH) < prm5.w) return mF <= mH ? shade(freshTex, sF, 6) : shade(heldTex, sH, 6);\n"
     "        return fill(t, st, tp);\n"
     "    }\n"
     "    if (tp) {\n"
@@ -184,7 +204,7 @@ const char* kSrc =
     "        if (zb < body && eb < tol) return shade(heldTex, sb, 4);\n"
     "        return shade(heldTex, sH, okH ? 1 : 3);\n"
     "    }\n"
-    "    return okF ? shade(freshTex, sF, 2) : fill(t, true, false);\n"
+    "    return okF ? shade(freshTex, sF, 2) : (eF < prm5.w && tF >= body) ? shade(freshTex, sF, 6) : fill(t, true, false);\n"
     "}\n"
     // The seed maps: a grid over the source's depth, carried into the target and depth-tested.
     "struct MOut { float4 pos : SV_Position; float3 src : TEXCOORD0; };\n"
@@ -243,7 +263,11 @@ uint64_t g_seq = 0;
 std::atomic<uint32_t> g_epoch{0};
 uint32_t g_epochSeen = 0;
 
-std::atomic<bool> g_on{false}, g_stereo{true}, g_debug{false}, g_matrices{true};
+std::atomic<bool> g_on{false}, g_stereo{true}, g_debug{false}, g_matrices{true}, g_fgOn{true};
+std::atomic<float> g_fgFov{0.0f};      // the game camera FOV (deg): the foreground's projection; 0 = not read yet
+std::atomic<float> g_fgDepth{0.30f};   // units: nearer pixels are the foreground (run-6 capture: arms/weapon <= 0.2, world >= 0.6)
+uint32_t g_fgUsed = 0;
+std::atomic<float> g_nearMiss{6.0f};   // `afw nearmiss <texels>`; 0 = the fill for every miss (the run-6 behaviour)
 std::atomic<float> g_bodyDepth{0.40f};
 std::atomic<float> g_worldScale{100.0f};
 std::atomic<int> g_matrixVerdict{0};
@@ -280,6 +304,7 @@ uint32_t g_mtxUsed = 0, g_mtxNoVp = 0, g_mtxBasis = 0, g_mtxTurn = 0, g_mtxEye =
 float g_mtxBasisMax = 0, g_mtxTurnMax = 0, g_mtxEyeMax = 0, g_mtxCamMax = 0;
 double g_yawAbs = 0; float g_yawMax = 0;
 uint64_t g_beatMs = 0;
+float g_lastClaimDeg = 0;   // the world projection's horizontal FOV the layer claims, for the beat
 
 // GPU time of the rebuild (both seed maps and the compose): a small ring of timestamp sets.
 struct Ts { ID3D11Query* dis = nullptr; ID3D11Query* a = nullptr; ID3D11Query* b = nullptr; bool pending = false; };
@@ -389,7 +414,7 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdb->GetBufferPointer(), pdb->GetBufferSize(), nullptr, &g_psDepth);
     rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb);
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 28 * 16;   // twenty-eight float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4
+    bd.ByteWidth = 29 * 16;   // twenty-nine float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
@@ -623,7 +648,10 @@ int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg,
         basisWorst = fmax(basisWorst, fmax(ang[k][0], fmax(ang[k][1], ang[k][2])));
     }
     if (basisWorst > g_mtxBasisMax) g_mtxBasisMax = (float)basisWorst;
-    if (basisWorst > 1.0) {
+    // The rotator is the camera the seam WROTE, about 20 ms before the image; the rendered view carries a later
+    // head yaw (run 6: forward and right 1.0 deg apart, up 0.03 - a pure yaw lag while turning). This check is for
+    // conventions (a mirrored or swapped axis is 90-180 deg); the turn, eye and camera checks hold the numbers.
+    if (basisWorst > 10.0) {
         ++g_mtxBasis;
         // Name the disagreement: which record, which axis, the rotator against the angles the matrix implies
         // (UE: yaw from forward x/y, pitch from forward z, roll from right z), and whose camera it was.
@@ -732,11 +760,13 @@ void beat() {
                  "missed: the ring had moved on or its copy was not finished) | world by the GAME matrices %u (walking "
                  "carried), by the XR pose + body yaw otherwise: no matrices %u, refused by basis %u (worst %.2f deg), turn "
                  "%u (%.2f deg), eye %u (%.2f deg), camera %u (worst residual %.1f uu) - each check compares two sources that "
-                 "must agree | GPU %s | body < %.2f units, %.3f m per unit%s",
+                 "must agree | foreground projection %.2f deg below %.2f units on %u (the world's %.2f deg elsewhere; 0 = off) "
+                 "| GPU %s | body < %.2f units, %.3f m per unit%s",
                  warps, g_warpsFull, g_warpsTemporal, g_warpsStereo, warps ? g_yawAbs / warps : 0.0, g_yawMax,
                  g_noHeld, g_notFresh, g_noDepth, g_noRtv, g_noSeed, g_notReady, g_snaps, g_snapLate, g_snapMiss,
                  g_mtxUsed, g_mtxNoVp, g_mtxBasis, g_mtxBasisMax, g_mtxTurn, g_mtxTurnMax, g_mtxEye, g_mtxEyeMax,
-                 g_mtxCam, g_mtxCamMax, gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
+                 g_mtxCam, g_mtxCamMax, g_fgOn.load() ? g_fgFov.load() : 0.0f, g_fgDepth.load(), g_fgUsed, g_lastClaimDeg,
+                 gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
     g_warpsFull = g_warpsTemporal = g_warpsStereo = 0;
@@ -744,6 +774,7 @@ void beat() {
     g_snaps = g_snapLate = g_snapMiss = 0;
     g_mtxUsed = g_mtxNoVp = g_mtxBasis = g_mtxTurn = g_mtxEye = g_mtxCam = 0;
     g_mtxBasisMax = g_mtxTurnMax = g_mtxEyeMax = g_mtxCamMax = 0;
+    g_fgUsed = 0;
     g_yawAbs = 0; g_yawMax = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0;
 }
@@ -786,6 +817,30 @@ void set_matrices(bool on, const char* who) {
                 : " - the XR pose and the body yaw alone: the held eye's world lags a tick of walking");
 }
 bool matrices() { return g_matrices.load(); }
+void set_fg_fov(float deg) {
+    const float was = g_fgFov.exchange(deg);
+    if (fabsf(was - deg) > 0.05f)
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000, "afw/warp: foreground projection %.2f deg (the game camera "
+                         "FOV the arms and weapon are drawn with; was %.2f)", deg, was);
+}
+void set_fg(bool on, const char* who) {
+    g_fgOn.store(on);
+    DVR_INFO("afw/warp: foreground projection %s (%s)%s", on ? "ON" : "OFF", who ? who : "?",
+             on ? " - arms and weapon reprojected with the game camera's FOV" : " - arms and weapon reprojected with the "
+             "world's FOV (their stereo is then off by the ratio of the two)");
+}
+bool fg() { return g_fgOn.load(); }
+void set_near_miss(float texels, const char* who) {
+    if (!(texels >= 0.0f && texels <= 64.0f)) { DVR_WARN("afw/warp: near-miss %.2f refused (0..64 texels)", texels); return; }
+    g_nearMiss.store(texels);
+    DVR_INFO("afw/warp: near-miss %.1f texels (%s)%s", texels, who ? who : "?", texels > 0 ? "" : " - every miss goes to the fill");
+}
+float near_miss() { return g_nearMiss.load(); }
+void set_fg_depth(float units, const char* who) {
+    if (!(units >= 0.0f && units < 2.0f)) { DVR_WARN("afw/warp: foreground depth %.3f refused (0..2 units)", units); return; }
+    g_fgDepth.store(units);
+    DVR_INFO("afw/warp: foreground depth %.2f units (%s)", units, who ? who : "?");
+}
 int matrix_verdict() { return g_matrixVerdict.load(); }
 void set_body_depth(float units, const char* who) {
     if (!(units > 0.0f && units < 5.0f)) { DVR_WARN("afw/warp: body depth %.3f refused (0..5 units)", units); return; }
@@ -913,8 +968,9 @@ void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, con
     _snprintf_s(path, sizeof(path), _TRUNCATE, "%s.txt", base);
     FILE* meta = nullptr;
     if (fopen_s(&meta, path, "w") || !meta) { g_dumpLeft.store(0); DVR_WARN("afw/dump: cannot write %s - capture stopped", path); return; }
+    fprintf(meta, "fgFov=%.4f\nfgOn=%d\nfgDepth=%.4f\n", g_fgFov.load(), g_fgOn.load() ? 1 : 0, g_fgDepth.load());
     fprintf(meta, "present=%u\nheld=%d\nfresh=%d\nhaveHeld=%d\nuseFresh=%d\nuseHeld=%d\nmatrixVerdict=%d\nyawDeg=%.5f\n"
-                  "tanH=%.7f\ntanV=%.7f\ntarget=%ux%u\nmPerUnit=%.6f\nuuPerUnit=%.3f\nworldScale=%.4f\nbodyUnits=%.4f\n"
+                  "tanH=%.7f\ntanV=%.7f\ntargetSize=%ux%u\nmPerUnit=%.6f\nuuPerUnit=%.3f\nworldScale=%.4f\nbodyUnits=%.4f\n"
                   "debug=%d\nstereo=%d\nmatrices=%d\n",
             n, held, 1 - held, haveH ? 1 : 0, useS ? 1 : 0, useT ? 1 : 0, verdict, yawDeg, tanH, tanV, w, h,
             dvr::clarity::depth_scale() / g_worldScale.load(), dvr::clarity::depth_scale(), g_worldScale.load(),
@@ -996,9 +1052,9 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     struct CB {
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
-        float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4];
+        float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4];
     } cb;
-    static_assert(sizeof(CB) == 28 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 29 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     const Pose& hp = haveH ? src.pose : fr.pose;
     rows(hp, cb.s, false);
@@ -1015,6 +1071,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     for (int k = 0; k < 3; ++k) cb.yc[k] = 0.5f * (fr.targets[0].p[k] + fr.targets[1].p[k]);
     const float body = g_bodyDepth.load();
     cb.prm[0] = tanH; cb.prm[1] = tanV;
+    g_lastClaimDeg = 2.0f * atanf(tanH) * 57.29578f;
     cb.prm[2] = dvr::clarity::depth_scale() / g_worldScale.load();
     cb.prm[3] = body;
     cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f; cb.prm2[3] = 0;
@@ -1022,6 +1079,16 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     cb.prm3[3] = 0.03f;
     if (fr.dw && fr.dh) { cb.prm4[0] = (float)kGridStep / fr.dw; cb.prm4[1] = (float)kGridStep / fr.dh; }
     if (haveH && src.dw && src.dh) { cb.prm4[2] = (float)kGridStep / src.dw; cb.prm4[3] = (float)kGridStep / src.dh; }
+    {   // The foreground's projection: the game camera FOV, same aspect as the layer's claim.
+        const float fg = g_fgFov.load();
+        if (g_fgOn.load() && fg > 10.0f && fg < 175.0f) {
+            cb.prm5[0] = tanf(fg * 0.5f / 57.29578f);
+            cb.prm5[1] = cb.prm5[0] * tanV / tanH;
+            cb.prm5[2] = g_fgDepth.load();
+            ++g_fgUsed;
+        }
+    }
+    cb.prm5[3] = g_nearMiss.load();   // texels: the nearer candidate within this beats the fill
     int verdict = kUnused;
     if (useT) {
         verdict = matrix_world(src, fr, tgt, d, tanH, tanV, &cb.hI[0][0], cb.hC, cb.tA, cb.tB, cb.tW, cb.mD);

@@ -1,3 +1,53 @@
+## 2026-09-28: AFW run 6 captures - the hand jitter is a foreground FOV mismatch; the grate dots are the fill (fixed, replay-verified)
+
+Surface: the held eye under `stereo afw`. Build `v1.0.1-165-g75642ec7d`, 144 Hz. Two captures of 16
+consecutive presents each (still hands, a fire-escape grate): one with DLAA, one with the upscaler off.
+Analysed offline with a stereo block match and the new replay tool (`tools/afw-replay.ps1`), which runs
+the production rebuild on a capture and scores it against the next native frame of the same eye.
+
+**MEASURED - the hands.**
+- For hand and weapon pixels (0.12-0.46 m), the native disparity between the two eyes is 0.903-0.935x
+  what their depth predicts, in every present, in both directions, with and without DLAA.
+- World surfaces from 0.93 m to 70 m sit at 0.95-1.07x: within about half a pixel.
+- The ratio is flat across the near depths, so it is a gain, not an offset.
+- 0.911 = tan(103.2/2) / tan(108.07/2): the arms and weapon are drawn with the game camera's FOV (108.07,
+  the FOV lever's write, read back by the 0x53c sensor), while the world uses the mod's projection
+  (`[Screen] ProjectionFov=103`, the layer's claim).
+- Each eye alternated between its own true hands and the other eye's hands reprojected with the world's
+  FOV: the reported smaller copy with a jittering outline.
+
+**MEASURED - the dots.** Replayed with the debug tint, the bright dots along the grate's dark slats are
+the disocclusion fill. Slats 2-3 texels wide leave both candidates just over the 1.5-texel consistency
+tolerance, so the fill reached up to 128 texels along the row to the farthest surface (the sky).
+
+**Not a cause:** jitter (off in the run). Scale: the depth gain for world surfaces is within noise.
+
+**FIX:**
+- Pixels nearer than 0.30 units are reprojected with the game camera's FOV, fed from the sensor
+  (`afw fg on|off`, `afw fgdepth`; the F10 checkbox).
+- A world-surface candidate that misses by under 6 texels beats the fill (`afw nearmiss`; the F10
+  checkbox). Hand candidates are excluded: near misses at the edge of a real gap were a ghost ring in
+  the host test.
+
+**Replay** (15 rebuilds each):
+
+| | upscaler off | DLAA |
+|---|---|---|
+| hand/weapon pixels differing | 7.84% -> 1.54% | 9.04% -> 3.67% |
+| bright world dots per frame | 2278 -> 990 | 5285 -> 3363 |
+
+The remaining dots are mostly in the held eye's own image, in proportion to its share of the image, so
+they are native frame-to-frame change.
+
+**Host test:** 28/28, including a foreground drawn at its own FOV, with a control that fails without the
+correction.
+
+**Also measured:** the basis-check refusals were a 1.0 deg yaw lag of the recorded rotator (up axis
+0.03 deg). The check's limit is now 10 deg, for conventions only.
+
+**Tried and dropped:** a "closest clearly-behind seed" fill. It ghosted the hands in 12 host cases
+(stretched sheets and stale near seeds qualified as background).
+
 ## 2026-09-28: AFW run 5 - hands shrink and jitter while still, grate holes flicker white (OPEN, evidence build)
 
 Surface: the held eye under `stereo afw`, build `v1.0.1-164-g4b8e7a565`, 144 Hz, DLAA, DLSS projection

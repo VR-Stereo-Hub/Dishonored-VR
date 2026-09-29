@@ -1,3 +1,21 @@
+## 2026-09-28 (AFW run 6): cause of the hand jitter found and fixed; grate dots fixed (replay-verified)
+
+**Two captures from run 6, analysed offline:**
+- **The hands.** Their stereo is 0.91x what their depth predicts, exactly tan(103.2/2) / tan(108.07/2).
+  The arms and weapon are drawn with the game camera's FOV (the FOV lever's 108.07), the world with
+  `ProjectionFov=103`. The rebuild reprojected the other eye's hands with the world's FOV, so every
+  other frame showed a mis-scaled copy.
+- **The grate dots.** The disocclusion fill, reaching through 2-3 texel slats to the sky.
+
+**Fixed:**
+- the foreground reprojected with the camera FOV fed from the sensor;
+- a near-miss rule for thin world structures;
+- the basis check (a 1 deg rotator yaw lag was refusing it) turned into a conventions check.
+
+**New:** `tools/afw-replay.ps1` runs the production rebuild on a capture and scores it against the next
+native frame. On the two run-6 captures, hand/weapon mismatch fell from 7.8% to 1.5% (upscaler off) and
+from 9.0% to 3.7% (DLAA); bright dots fell from 2278 to 990 and from 5285 to 3363 per frame. Host test 28/28.
+
 ## 2026-09-28 (AFW run 5): hands jitter, grate dots - evidence build, plan reviewed
 
 Run 5 on `v1.0.1-164-g4b8e7a565`:

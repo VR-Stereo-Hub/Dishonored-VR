@@ -9970,3 +9970,26 @@ The image-orientation log confirms it on reentry: `gen = legacyGen + 1` with 0.0
 `exact eye pose` keeps the last 8 located view sets by label and matches `label + 1 == record gen`.
 Bend Time's GameInfo `m_fCurrentWorldTimeDilation` / `m_fCurrentPlayerTimeDilation` writes did not
 move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta lever.
+
+### The foreground is drawn with the game camera's FOV, the world with the mod's projection (2026-09-28)
+
+**Evidence:**
+- Measured from two AFW captures (VR-39) by stereo block matching of the two native eyes against
+  their depth.
+- Arms and weapon pixels carry 0.903-0.935x the disparity their depth predicts; world surfaces carry
+  0.95-1.07x.
+- 0.911 = tan(103.2/2) / tan(108.07/2).
+
+**The two projections:**
+- The player mesh (`SDPG_Foreground`, arms and body in one component, see "There is no separate arms
+  mesh") and the held weapon are projected with the camera's FOV. That is the value the FOV lever writes
+  and the 0x53c sensor reads back (108.07 on the dev headset, headset-derived).
+- The world is projected with `[Screen] ProjectionFov` (103), which is also what the XR layer claims.
+
+**Consequences:**
+- In the headset the arms appear about 9% nearer the image centre than a world-consistent projection
+  would put them. Both eyes agree, so the stereo of the arms is self-consistent.
+- Anything that reprojects foreground pixels between views (the AFW rebuild) must use the camera's
+  tangents for them, not the claim's.
+- The depth in the scene target's alpha is linear view depth for both passes, as far as the
+  measurement can tell: the ratio is flat over 0.28-0.46 m.

@@ -60,6 +60,16 @@ bool matrices();
 // The last rebuild's matrix verdict: 0 unused, 1 used, 2 no matrices, 3-6 refused by the basis,
 // turn, eye or camera check, 7 switched off (diagnostics and the host test).
 int matrix_verdict();
+// The foreground (the player's arms and weapon) is drawn with the game camera's FOV while the world
+// uses the mod's projection; the rebuild reprojects pixels nearer than the foreground depth with the
+// former. `set_fg_fov` is fed from the camera's FOV sensor; `afw fg on|off`, `afw fgdepth <units>`.
+void set_fg_fov(float deg);
+void set_fg(bool on, const char* who);
+bool fg();
+void set_fg_depth(float units, const char* who);
+// A pixel whose nearer candidate misses by less than this (texels) takes it instead of the fill; `afw nearmiss`.
+void set_near_miss(float texels, const char* who);
+float near_miss();
 // Tints the held eye by source; `afw debug on|off`.
 void set_debug(bool on, const char* who);
 bool debug();

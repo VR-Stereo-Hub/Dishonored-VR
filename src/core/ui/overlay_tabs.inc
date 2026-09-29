@@ -1164,6 +1164,14 @@ static void OvlTabDisplay()
             ImGui::EndDisabled();
             ImGui::TextDisabled("Active: %s", dvr::stereo::active_name());
             if (isAfw) {
+                // VR-39: the two run-6 corrections as live A/Bs.
+                bool fgOn = dvr::afw::fg();
+                if (dvr::ovl::checkbox("AFW: hands and weapon at the game camera's FOV", &fgOn)) dvr::afw::set_fg(fgOn, "F10");
+                OvlTip("The arms and weapon are drawn with the game camera's FOV, the world with the mod's projection. Off "
+                       "rebuilds them with the world's, which makes them jitter every other frame.");
+                bool nm = dvr::afw::near_miss() > 0.0f;
+                if (dvr::ovl::checkbox("AFW: keep thin structures (grates, railings)", &nm)) dvr::afw::set_near_miss(nm ? 6.0f : 0.0f, "F10");
+                OvlTip("Off lets thin structures fall back to the background fill, which shows up as bright dots on grates.");
                 // VR-39: the diagnostic capture - close this panel after pressing and hold the pose to be captured.
                 if (dvr::ovl::button("Capture AFW frames for diagnosis")) dvr::afw::request_dump(16, 5000, dvr::paths::dumps_dir(), "F10");
                 OvlTip("Starts 5 seconds after you press it: close this panel and hold still (hands in view). Saves 16 "

@@ -70,6 +70,7 @@ struct State {
     double bodyYawDeg, handX, headYawDeg; V3 headPos;
     double handZ = kHandZ; V3 bodyPos = {0, 0, 0}; double handW = kHandW;
     double barZ = 0, barX0 = 0, barX1 = 0;   // a thin world bar (barZ 0 = none)
+    double fgTan = 0;   // > 0: the hand is the FOREGROUND, drawn on top with its own projection (the game: its camera FOV)
 };
 struct Eye { V3 pos; double yawRad; };
 static Eye eyeOf(const State& s, int eye) {   // eye 0 left, 1 right
@@ -85,7 +86,19 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
     const V3 dv = {(u * 2 - 1) * kTan, (1 - v * 2) * kTan, -1};
     const V3 d = ry(dv, e.yawRad);
     double best = 1e30; float c[4] = {0, 0, 0, 0};
-    if (d.z < 0) {   // the hand, fixed in tracking space
+    if (s.fgTan > 0) {   // the foreground pass: its own rays, drawn over the world whatever the world's depth
+        const V3 df = ry({(u * 2 - 1) * s.fgTan, (1 - v * 2) * s.fgTan, -1}, e.yawRad);
+        const double t = (s.handZ - e.pos.z) / df.z;
+        const V3 p = add(e.pos, mul(df, t));
+        const double lu = (p.x - (s.handX - s.handW / 2)) / s.handW, lv = (p.y - (kHandY - kHandH / 2)) / kHandH;
+        if (df.z < 0 && t > 0 && lu >= 0 && lu <= 1 && lv >= 0 && lv <= 1) {
+            const V3 local = ry(mul(df, t), -e.yawRad);
+            const float o[4] = {(float)lu, (float)lv, 1, (float)(-local.z / kMPerUnit)};
+            memcpy(out, o, sizeof(o));
+            return;
+        }
+    }
+    if (d.z < 0 && s.fgTan <= 0) {   // the hand, fixed in tracking space
         const double t = (s.handZ - e.pos.z) / d.z;
         const V3 p = add(e.pos, mul(d, t));
         const double lu = (p.x - (s.handX - s.handW / 2)) / s.handW, lv = (p.y - (kHandY - kHandH / 2)) / kHandH;
@@ -154,7 +167,8 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
 }
 
 struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
-struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false; };
+struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false;
+             double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
 // the fresh serial; the caller warps.
@@ -179,6 +193,8 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     dvr::afw::set_body_depth(0.40f, "test");
     dvr::afw::set_world_scale((float)kScale);
     dvr::afw::set_matrices(o.matrices, "test");
+    dvr::afw::set_fg_fov((float)o.fgFovDeg); dvr::afw::set_fg(o.fgFovDeg > 0, "test"); dvr::afw::set_fg_depth(0.30f, "test");
+    dvr::afw::set_near_miss(6.0f, "test");
     const Rec mh = recordOf(s0, held0, o.mirrored, o.flipC5), mf = recordOf(s1, fresh1, o.mirrored, o.flipC5);
     const dvr::afw::Pose tg0[2] = {poseOf(held0), poseOf(right0)}, tg1[2] = {poseOf(held1), poseOf(fresh1)};
     if (!o.noHeld)
@@ -312,6 +328,13 @@ int main() {
     Opt mirrored; mirrored.mirrored = true;
     Opt flip; flip.flipC5 = true;
     Opt noHeld; noHeld.noHeld = true;
+    // The run-6 fault: the foreground drawn at a wider FOV than the world. The game's 108 against 103
+    // degrees is a 1.098 tangent ratio; 1.25 here, so the fault clears this test's 2-pixel edge band at 512.
+    const double kFgTan = 1.25;
+    State fgStill = still; fgStill.fgTan = kFgTan;
+    State fgTurn = turn;   fgTurn.fgTan = kFgTan;
+    State fgMoved = moved; fgMoved.fgTan = kFgTan;
+    Opt fgOn; fgOn.fgFovDeg = 2 * atan(kFgTan) * 57.29577951;
 
     { Result r = run(g, still, still);   report("still: the other eye's stereo only", r, clean(r) && r.verdict == 1); }
     { Result r = run(g, still, turn);    report("stick turn 5 deg: no hand ghost, world turned", r, clean(r) && r.verdict == 1); }
@@ -370,6 +393,11 @@ int main() {
         check("diagnostic capture writes both presents", ok == 10 && !strncmp(st, "done", 4), d);
         release(sc);
     }
+    { Result r = run(g, fgStill, fgStill, fgOn); report("foreground at its own FOV, still: hands exact", r, clean(r)); }
+    { Result r = run(g, still, fgTurn, fgOn);    report("foreground at its own FOV, turn", r, clean(r)); }
+    { Result r = run(g, still, fgMoved, fgOn);   report("foreground at its own FOV, hand moved", r, clean(r)); }
+    { Result r = run(g, fgStill, fgStill);
+      report("control: foreground FOV not applied -> the hands misplaced", r, r.ok && (r.ghost + r.missing) * 20 > r.handTruth); }
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
     { Result r = run(g, still, walk, noMtx);
       report("control: no matrices, walking -> the pillar lags", r, r.ok && r.errP95 > 3.0); }
