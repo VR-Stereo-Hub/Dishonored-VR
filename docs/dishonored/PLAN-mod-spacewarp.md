@@ -152,6 +152,30 @@ the flow at 50-75% resolution to save GPU.
 - Lock on: `msw: ~72 slots/s synthesized beside ~72/s from the game`, 144 in all.
 - The hands steady while turning, with the prediction on.
 
+## 3d. Run 11 (2026-09-29, build v1.0.1-184)
+
+**Reported:**
+- Better in many ways.
+- Trails behind world geometry, worst while turning.
+- Nearby objects' textures pulled along with the hands.
+
+**Measured:**
+- The foreground mask never engages: the arms pass binds the scene target in no render-target slot. The
+  foreground is therefore "nearer than the depth limit" (about 0.7 m), which takes in nearby walls and
+  tables.
+- With the hands following their controllers, those moved with the hands.
+- The trails while turning: see FLICKER_REFERENCE, AFW run 11 (the matrices refused in fast turns).
+
+**Fixed:**
+- A foreground point follows a grip only within 30 cm of it.
+- Host: without the mask, a bar 0.3 m away and 0.4 m from the grip stays put, with the hand still 100%
+  right. The control (no radius) moves the bar: 0% of it stays.
+- The AFW turn fixes are merged in.
+
+**Open:** the hands at the game camera's FOV (108 deg against the world's 103). The mask exists partly to
+reproject them with their own FOV. Drawing them at the world's FOV would remove that class of fault;
+not changed yet.
+
 ## 4. What to expect and how to read it
 
 - **Pacing:** a 90-capable game on a 144 Hz display is paced to the slots it can make. Expect roughly 72
