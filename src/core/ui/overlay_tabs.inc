@@ -1020,6 +1020,13 @@ static void OvlTabDisplay()
         }
         OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
         if (dvr::dlss::mode() != dvr::dlss::ModeOff) {
+            bool om = dvr::dlss::object_motion();   // VR-39
+            if (dvr::ovl::checkbox("Follow moving characters and vehicles", &om)) {
+                dvr::dlss::set_object_motion(om, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssObjectMotion", om ? "1" : "0", "F10 Display");
+            }
+            OvlTip("The upscaler is told how things that move on their own (people, animals) and things you ride "
+                   "(a boat) really moved, by matching each frame against the last. Costs a little GPU time.");
             bool m = dvr::dlss::mask_on();
             if (dvr::ovl::checkbox("Reduce smearing", &m)) {
                 dvr::dlss::set_mask(m, "F10 Display");

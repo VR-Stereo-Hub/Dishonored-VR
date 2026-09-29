@@ -1,3 +1,14 @@
+## 2026-09-29: DLSS smears moving characters and the view from a vehicle (built, host-verified, headset pending)
+
+Surface: the DLSS output, on anything that moves on its own or with the camera.
+- Cause: the vectors are the camera's only (no velocity buffer in the game).
+- Fix: `dlss objmotion` (default off, F10 "Follow moving characters and vehicles"). It block-matches each eye
+  image against its previous one and corrects the vectors where something moved differently.
+- Host: a character within 0.14 px (sub-pixel), a riding boat 0.00 px, the static world unchanged. The
+  control is 13-16 px wrong. Details in `PLAN-motion-vectors-dlss.md`.
+- Counter-prediction: if characters still smear with the box on, check the `dlss: object motion` log line
+  (images corrected versus refused) before the thresholds.
+
 ## 2026-09-28: AFW run 8 - a far sword tip and near walls turn flat and doubled; running blurs; DLSS smears the hands (fixed, host-verified, headset pending)
 
 Surface: the held eye under `stereo afw`, build `v1.0.1-169` (#158 merged).

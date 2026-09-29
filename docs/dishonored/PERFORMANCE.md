@@ -1,3 +1,12 @@
+## 2026-09-29: DLSS object motion cost (VR-39, host)
+
+Measured on the host at 2114x2192 per eye image (RTX 4070 Ti SUPER, 20 frames between timestamps after a
+warm-up, the camera vectors' own time subtracted):
+- 0.25 ms with a still camera and one moving character;
+- 2.05 ms when every tile disagrees with the camera.
+
+The static world costs one early-exit pass (about 0.15 ms with no character). Method and traps:
+`PLAN-motion-vectors-dlss.md`, "Object motion".
 ## 2026-09-28: AFW slot fill rate and the mod spacewarp's cost (MSW, estimate)
 
 - **Measured (run 8, AFW at 3012x3122, 144 Hz):** 87-91 presents and submits per second; the

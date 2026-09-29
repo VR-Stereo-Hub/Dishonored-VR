@@ -198,3 +198,56 @@ Sep 26 17:47:48. Full original INI restored, diagnostics off. No merge. All rese
 threshold experiment, timing data and limitations are in PERFORMANCE.md, TAA audit fixes.
 Next: headset fine-detail/walking A/B. Jitter needs reliable projection-pass ownership before
 implementation; animated-object vectors and exact depth calibration remain open research.
+
+## Object motion (VR-39, 2026-09-29) - host-verified, headset pending
+
+**Reported:** under DLSS, moving characters and the view from a moving vehicle smear. The vectors are the
+camera's only: right for the static world, wrong for anything moving on its own (characters) or with the
+camera (a boat). The game draws no velocity buffer (`MotionBlur=False`).
+
+**Built: `dlss objmotion on|off`, `[Clarity] DlssObjectMotion` (default 0), F10 "Follow moving characters
+and vehicles".** Each eye image is block-matched against that eye's previous image (`GuideGpu::objmotion`,
+after the camera vectors, before the mask and the audit).
+- `cs_objpre`, one thread per 8x8 tile:
+  - the contrast test;
+  - the camera match;
+  - an exact early exit: a tile needs the camera SAD minus the best to exceed the minimum gain, so a camera
+    match within it can never lose. The static world exits here.
+  - Tiles left go on an append list.
+- `cs_objsearch`, one 64-thread group per listed tile (an indirect dispatch):
+  - the candidates: camera, zero (riding along), rotation-only (a turning vehicle), and last frame's tile
+    and its four neighbours;
+  - a 9x9 two-pixel coarse grid around the best and around zero;
+  - two rounds of +-1, then a parabola for sub-pixel.
+  - It wins only at best < 0.5 x camera AND camera - best > 0.02.
+- `ps_objfix`, per pixel: the camera vector, or a winning neighbour tile's, whichever matches a 3x3 patch
+  best. The camera is weighted x0.7, so the static world keeps its exact vectors.
+- Jitter: the previous image is sampled at + (jitter - prevJitter), the flow check's convention.
+
+**Host (`tools\dlss-objmotion-host.ps1`, 10/10), a 2.5 deg yaw with a textured panorama:**
+
+| Case | Result |
+|---|---|
+| Static world | 0.000 px change |
+| Character, integer motion | 0.00 px |
+| Character, sub-pixel (2.4, -5.7) | mean 0.14 px, p95 0.25 px |
+| Boat riding along | 0.00 px |
+| Flat patch | camera kept |
+| Temporal candidates | kept |
+| Control (camera vectors alone) | character 16.4 px, boat 13.6 px wrong |
+
+**Cost at 2114x2192** (per eye image, camera vectors subtracted, 20 frames between timestamps after a
+warm-up): 0.25 ms with a still camera and one 400x500 character; 2.05 ms when every tile disagrees.
+
+**Measurement traps paid for:**
+- A single spaced-out pass reads the GPU's idle clock (the same work measured 8 ms, then 1.5 ms).
+- Repeating the pass without the camera pass in between finds the vectors already corrected.
+- A one-thread-per-tile search is latency-bound (1.7 ms).
+- A per-pixel loop with dynamic array indexing spills out of registers.
+- fxc refuses a barrier inside data-dependent flow (X3663), hence the list and the indirect dispatch.
+
+**Open:**
+- Untextured surfaces keep the camera vector. There is nothing to match, and DLSS cannot smear what has
+  no detail.
+- A character's first frame after it starts moving uses no temporal candidate.
+- Headset A/B: F10 box on/off with a walking NPC in view and on the boat.
