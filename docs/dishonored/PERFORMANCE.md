@@ -1,3 +1,14 @@
+## 2026-09-28: AFW slot fill rate and the mod spacewarp's cost (MSW, estimate)
+
+- **Measured (run 8, AFW at 3012x3122, 144 Hz):** 87-91 presents and submits per second; the
+  `stereo: rate` line says 0.60-0.63x of display slots filled.
+- **Estimated, not measured in the game:** MSW's cost is one seed map and a compose per eye per
+  synthesized slot. That is about 1 ms per eye (from the host's 1.54 ms full rebuild at 2750x2850), about
+  2 ms per slot, and about 110 ms of GPU per second at 54 slots/s.
+- **Expected pacing:** a game that manages about 90 on a 144 Hz display is paced to the slots it can make
+  (about 72 real plus 72 synthesized).
+- The `msw:` log line prints both rates. See `PLAN-mod-spacewarp.md`.
+
 ## 2026-09-27: sharp-marker overlay resource budget, unmeasured candidate
 
 MarkersSharp defaults off. Six output-sized RGBA8 shared images and one D24S8

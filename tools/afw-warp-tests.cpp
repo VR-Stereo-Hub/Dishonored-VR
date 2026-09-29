@@ -460,6 +460,85 @@ int main() {
         release(sc2);
         dvr::afw::set_xr_depth_wanted(false);
     }
+    {   // MSW: the mod's own spacewarp. Running at 5 m/s: the left image at t = 0, the right at 10 ms, and display slots
+        // at 20 ms (left, from a 20 ms old image) and 20 ms (right, 10 ms old) that the game did not fill. Each eye is
+        // rebuilt from its OWN image at the slot's eye position, the walk extrapolated from the two images' cameras.
+        // Scored on world and hand pixels off the outline bands against the scene traced at 20 ms. The control: the
+        // same slots with the extrapolation off must show the world a whole run step behind.
+        State r0 = still, r1 = still, r2 = still;
+        r1.bodyPos = {0.03, 0, -0.04};   // 5 cm in 10 ms
+        r2.bodyPos = {0.06, 0, -0.08};
+        auto synthCase = [&](bool extrap, int eye, double* within, double* p95, int* wrongOut, double* handOk) -> bool {
+            dvr::afw::set_enabled(true, "test");
+            dvr::afw::set_stereo(true, "test");
+            dvr::afw::set_body_depth(0.40f, "test");
+            dvr::afw::set_world_scale((float)kScale);
+            dvr::afw::set_matrices(true, "test");
+            dvr::afw::set_fg(false, "test"); dvr::afw::set_fg_fov(0);
+            dvr::afw::set_synth_extrapolate(extrap);
+            g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
+            const Eye e0 = eyeOf(r0, 0), e1 = eyeOf(r1, 1), t2 = eyeOf(r2, eye);
+            auto i0 = image(r0, e0, N, N), i1 = image(r1, e1, N, N), truth = image(r2, t2, N, N);
+            ID3D11Texture2D* x0 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i0.data());
+            ID3D11Texture2D* x1 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i1.data());
+            ID3D11ShaderResourceView *v0 = nullptr, *v1 = nullptr;
+            g.dev->CreateShaderResourceView(x0, nullptr, &v0); g.dev->CreateShaderResourceView(x1, nullptr, &v1);
+            for (auto*& q : g_depthBySerial) q = nullptr;
+            g_depthBySerial[3] = v0; g_depthBySerial[4] = v1; g_depthW = N; g_depthH = N;
+            const Rec m0 = recordOf(r0, e0, false, false), m1 = recordOf(r1, e1, false, false);
+            const dvr::afw::Pose tg0[2] = {poseOf(eyeOf(r0, 0)), poseOf(eyeOf(r0, 1))}, tg1[2] = {poseOf(eyeOf(r1, 0)), poseOf(eyeOf(r1, 1))};
+            dvr::afw::CaptureMeta c0, c1; c0.captureMs = 1000.0; c1.captureMs = 1010.0;
+            dvr::afw::note_capture(g.dev, g.ctx, 0, x0, 3, poseOf(e0), true, 0.0f, tg0, m0.vp, m0.c5, m0.rot, &c0);
+            dvr::afw::note_capture(g.dev, g.ctx, 1, x1, 4, poseOf(e1), true, 0.0f, tg1, m1.vp, m1.c5, m1.rot, &c1);
+            const float tp[3] = {(float)t2.pos.x, (float)t2.pos.y, (float)t2.pos.z};
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            const bool ok = dvr::afw::synth_eye(g.dev, g.ctx, eye, g.dst, N, N, (float)kTan, (float)kTan, tp, 1020.0, &out, &why);
+            if (!ok) printf("  synth refused: %s\n", why ? why : "?");
+            std::vector<float> px(N * N * 4);
+            if (ok) {
+                g.ctx->CopyResource(g.stage, g.dst);
+                D3D11_MAPPED_SUBRESOURCE m;
+                if (SUCCEEDED(g.ctx->Map(g.stage, 0, D3D11_MAP_READ, 0, &m))) {
+                    for (int y = 0; y < N; ++y) memcpy(&px[y * N * 4], (const uint8_t*)m.pData + y * m.RowPitch, N * 16);
+                    g.ctx->Unmap(g.stage, 0);
+                }
+            }
+            v0->Release(); v1->Release(); x0->Release(); x1->Release();
+            if (!ok) return false;
+            std::vector<double> errs; int wrong = 0, hn = 0, hg = 0;
+            const double k = N / (2 * kTan);
+            for (int y = 3; y < N - 3; ++y)
+                for (int x = 3; x < N - 3; ++x) {
+                    const int ts = surfOf(&truth[(y * N + x) * 4]);
+                    bool edge = false;
+                    for (int dy = -3; dy <= 3 && !edge; ++dy)
+                        for (int dx = -3; dx <= 3; ++dx) if (surfOf(&truth[((y + dy) * N + x + dx) * 4]) != ts) { edge = true; break; }
+                    if (edge) continue;
+                    const float* o = &px[(y * N + x) * 4];
+                    const float* t = &truth[(y * N + x) * 4];
+                    if (ts == 2) { ++hn; hg += (o[2] > 0.5f && fabs(o[0] - t[0]) * kHandW / -kHandZ * k < 1.5); continue; }
+                    if (surfOf(o) != ts || o[2] > 0.02f) { ++wrong; continue; }
+                    const double sx = ts == 1 ? (kPillarX1 - kPillarX0) / -kPillarZ * k : 40.0 / 8.0 * k;
+                    const double sy = ts == 1 ? 3.0 / -kPillarZ * k : sx;
+                    errs.push_back(hypot((o[0] - t[0]) * sx, (o[1] - t[1]) * sy));
+                }
+            std::sort(errs.begin(), errs.end());
+            int in = 0; for (double e : errs) in += e < 1.5;
+            *within = errs.empty() ? 0 : (double)in / errs.size();
+            *p95 = errs.empty() ? 1e9 : errs[errs.size() * 95 / 100];
+            *wrongOut = wrong; *handOk = hn ? (double)hg / hn : 0;
+            return true;
+        };
+        double w0, p0, h0, w1, p1, h1, wc, pc, hc; int x0, x1, xc;
+        const bool a0 = synthCase(true, 0, &w0, &p0, &x0, &h0), a1 = synthCase(true, 1, &w1, &p1, &x1, &h1);
+        const bool ac = synthCase(false, 0, &wc, &pc, &xc, &hc);
+        dvr::afw::set_synth_extrapolate(true);
+        char d[240];
+        snprintf(d, sizeof(d), "left (20 ms old): world within 1.5 px %.3f p95 %.2f px, wrong %d, hands %.3f | right (10 ms old): %.3f p95 %.2f, "
+                 "wrong %d, hands %.3f | control, no extrapolation: %.3f p95 %.2f", w0, p0, x0, h0, w1, p1, x1, h1, wc, pc);
+        check("msw: a slot the game missed, running, rebuilt from each eye's own image", a0 && a1 && ac && w0 > 0.97 && w1 > 0.97 &&
+              h0 > 0.97 && h1 > 0.97 && p0 < 1.5 && p1 < 1.5 && pc > 3.0, d);
+    }
     {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.
         const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);
         auto hImg = image(still, h0, N, N), fImg = image(turn, f1, N, N);

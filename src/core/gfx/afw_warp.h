@@ -124,6 +124,17 @@ void request_dump(int presents, uint32_t delayMs, const char* dumpsRoot, const c
 // depth format, w x h) with what `eye`'s layer shows: the rebuild's depth when `rebuilt`, else the eye's own
 // depth snapshot (the image shown as captured). Standard depth: 0 at nearM, 1 at farM (metres).
 void set_xr_depth_wanted(bool on);
+
+// The mod's own spacewarp (MSW, `[VR] ModSpacewarp`): rebuild `eye` for a display slot the game did not fill, from
+// its own last image and depth, at the slot's eye position (tracking, metres). The image keeps its own orientation;
+// the body's walking and turning since the image (measured between the last two images) are extrapolated to nowMs
+// (the dvr::clock of CaptureMeta::captureMs): walking into the image, turning into *outPose. Writes dst (w x h).
+bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, uint32_t w, uint32_t h,
+               float tanH, float tanV, const float targetPos[3], double nowMs, Pose* outPose, const char** why);
+void set_synth_extrapolate(bool on);
+// An eye's own last image copied as it is into dst, and the pose it was rendered from (MSW's fallback).
+bool copy_own(ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, Pose* pose);
+bool synth_extrapolate();
 bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool rebuilt, ID3D11Texture2D* dst,
                     uint32_t dxgiFormat, uint32_t w, uint32_t h, float nearM, float farM, const char** why);
 const char* dump_status();

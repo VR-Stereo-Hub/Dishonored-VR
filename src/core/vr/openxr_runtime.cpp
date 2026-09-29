@@ -37,6 +37,7 @@
 
 #include <windows.h>
 #include <d3d11.h>
+#include <d3d11_4.h>   // VR-39 (MSW): ID3D11Multithread
 #include <dxgi.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
@@ -55,6 +56,7 @@
 #include <vector>
 
 namespace dvr::vr {
+void msw_stop();   // VR-39: the MSW thread (defined below), stopped by the session teardown
 namespace {
 
 XrInstance g_instance = XR_NULL_HANDLE;
@@ -88,6 +90,32 @@ int64_t g_depthFmt = 0;
 constexpr float kDepthNearM = 0.05f, kDepthFarM = 1000.0f;
 uint32_t g_depthChained = 0, g_depthDropped = 0;   // submits with / without depth while it was on (per beat)
 const char* g_depthDropWhy = "";
+
+// VR-39 (Dishonored): THE MOD'S OWN SPACEWARP (MSW). The frame loop runs inside the game's Present hook, so a
+// display slot the game is too slow for goes unfilled (run 8: 88-91 presents/s against 144 slots/s, "UNDER-
+// SUBMITTING 0.60x") and the runtime's own spacewarp synthesizes it from colour alone - blur when running, the
+// HUD warped with the world. MSW fills those slots itself: a thread that, when no present has ended for most of a
+// period, takes the frame loop (g_cycleMx, which the Present hook holds for its whole XR and D3D11 span), waits
+// for the slot, rebuilds both eyes from their own last images and depth at the slot's eye positions with the
+// body's walk and turn extrapolated (dvr::afw::synth_eye), and submits them with the last real frame's HUD and
+// aim quads, which the compositor keeps crisp at their own poses. DEFAULT OFF: `[VR] ModSpacewarp=1`,
+// `vrpace msw on|off` live, F10. Needs AFW (the per-eye images and depth are AFW's).
+std::recursive_mutex g_cycleMx;              // who owns the frame loop: the Present hook or the MSW thread (recursive: a nested Present must not deadlock)
+std::atomic<bool> g_mswWanted{false};
+std::atomic<bool> g_mswRun{false};
+HANDLE g_mswThread = nullptr;
+std::atomic<int64_t> g_lastEndUs{0};         // dvr::clock of the last successful xrEndFrame, either thread
+constexpr int kMswMaxQuads = 20;
+XrCompositionLayerQuad g_mswQuads[kMswMaxQuads] = {};   // the last real frame's quads (under g_cycleMx)
+uint32_t g_mswQuadN = 0;
+bool g_mswBankOk = false;                    // the last real frame was a stereo projection
+XrFovf g_mswFov{};
+XrRect2Di g_mswRect{};
+std::atomic<float> g_mswLead{0.75f};         // fill a slot when no frame ended for this share of a period
+std::atomic<uint32_t> g_mswFrames{0}, g_mswSynthEyes{0}, g_mswCopyEyes{0}, g_mswBusy{0}, g_mswNotReady{0},
+    g_mswFails{0};
+const char* g_mswNotReadyWhy = "";
+ID3D11Multithread* g_mt = nullptr;
 uint32_t g_swapW = 0, g_swapH = 0;
 uint32_t g_backbufferFmt = 0; // DXGI format the live swapchains were built for
 // Set by on_resize (which runs inside the game's ResizeBuffersDetour, at an
@@ -2175,6 +2203,7 @@ void composite_hud() {
 }
 
 void teardown_session(const char* why) {
+    msw_stop();   // VR-39: the thread must not reach for a session that is going away
     g_detachedNow = false;
 
     // SESSION 28: never call xrDestroySession while the pace thread is parked
@@ -5596,6 +5625,24 @@ void on_present_end(ID3D11Texture2D* frame) {
     log_layer_alignment(projViews, g_lastLayer == 2, g_lastClaimHfov, g_lastClaimSrc,
                         controlDots);
 
+    // VR-39 (MSW): bank what a synthesized slot re-submits beside its own projection - the quads (HUD, aim,
+    // dots: their swapchains keep their last released image) - and the projection's claim.
+    g_mswBankOk = false;
+    if (layerCount && layers[0]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
+        const auto* pj = reinterpret_cast<const XrCompositionLayerProjection*>(layers[0]);
+        if (pj->viewCount == 2 && pj->views[0].subImage.swapchain == g_swapchains[0] &&
+            pj->views[1].subImage.swapchain == g_swapchains[1]) {
+            g_mswFov = pj->views[0].fov;
+            g_mswRect = pj->views[0].subImage.imageRect;
+            g_mswQuadN = 0;
+            for (uint32_t i = 1; i < layerCount && g_mswQuadN < (uint32_t)kMswMaxQuads; ++i)
+                if (layers[i]->type == XR_TYPE_COMPOSITION_LAYER_QUAD) {
+                    g_mswQuads[g_mswQuadN] = *reinterpret_cast<const XrCompositionLayerQuad*>(layers[i]);
+                    g_mswQuads[g_mswQuadN++].next = nullptr;
+                }
+            g_mswBankOk = true;
+        }
+    }
     XrFrameEndInfo fei{XR_TYPE_FRAME_END_INFO};
     fei.displayTime = g_frameState.predictedDisplayTime;
     fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
@@ -5607,6 +5654,7 @@ void on_present_end(ID3D11Texture2D* frame) {
         PhaseMark mark(kPhEndFrame); // the measured pacer - name it while in flight
         r = xrEndFrame(g_session, &fei);
     }
+    if (XR_SUCCEEDED(r)) g_lastEndUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
     // Successful stereo submissions, never Present parity or held-layer call counts.
     bool measuredStereo = false;
     if (XR_SUCCEEDED(r) && layerCount && layers[0]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION) {
@@ -6144,6 +6192,229 @@ void set_pair_strict(bool on) {
 
 bool pair_strict() { return g_pairStrict.load(std::memory_order_relaxed); }
 
+// ---- VR-39 (Dishonored): the MSW thread ------------------------------------------------------------------
+void cycle_enter() { g_cycleMx.lock(); }
+void cycle_leave() { g_cycleMx.unlock(); }
+
+// Why a slot cannot be synthesized now (nullptr = it can). Under g_cycleMx.
+const char* msw_blocker() {
+    if (g_session == XR_NULL_HANDLE || !g_device || !g_context) return "no session";
+    if (g_state != XR_SESSION_STATE_FOCUSED) return "session not FOCUSED";
+    if (g_detachedNow) return "detached";
+    if (g_frameOpen) return "a frame is open";
+    if (g_paceOutstanding) return "a pace wait is outstanding";
+    if (!g_mswBankOk) return "the last frame was not a stereo projection";
+    if (!dvr::afw::enabled()) return "not AFW";
+    if (g_swapchains[0] == XR_NULL_HANDLE || g_swapchains[1] == XR_NULL_HANDLE) return "no swapchains";
+    return nullptr;
+}
+
+// One synthesized slot: wait, begin, locate, rebuild both eyes, end. Under g_cycleMx.
+void msw_cycle() {
+    XrFrameWaitInfo fwi{XR_TYPE_FRAME_WAIT_INFO};
+    XrFrameState fs{XR_TYPE_FRAME_STATE};
+    XrResult r = xrWaitFrame(g_session, &fwi, &fs);
+    if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrWaitFrame failed: %s", res_str(r)); return; }
+    XrFrameBeginInfo fbi{XR_TYPE_FRAME_BEGIN_INFO};
+    r = xrBeginFrame(g_session, &fbi);
+    if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrBeginFrame failed: %s", res_str(r)); return; }
+    const XrTime locateTime =
+        fs.predictedDisplayTime +
+        static_cast<XrTime>(g_paceAhead.load(std::memory_order_relaxed)) * fs.predictedDisplayPeriod;
+    XrViewLocateInfo vli{XR_TYPE_VIEW_LOCATE_INFO};
+    vli.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    vli.displayTime = locateTime;
+    vli.space = g_space;
+    XrViewState vs{XR_TYPE_VIEW_STATE};
+    XrView v[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
+    uint32_t n = 0;
+    const bool located = XR_SUCCEEDED(xrLocateViews(g_session, &vli, &vs, 2, &n, v)) && n == 2 &&
+                         (vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT);
+    XrCompositionLayerProjection proj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
+                                              {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
+    XrCompositionLayerDepthInfoKHR di[2] = {{XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR},
+                                            {XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR}};
+    const float tanH = tanf(g_mswFov.angleRight), tanV = tanf(g_mswFov.angleUp);
+    const double nowMs = MaimNowMs();
+    const bool depthOn = g_depthExt && g_depthFmt && g_depthLive.load(std::memory_order_relaxed);
+    int wroteEyes = 0, depthEyes = 0;
+    if (fs.shouldRender && located) {
+        for (int e = 0; e < 2; ++e) {
+            uint32_t idx = 0;
+            XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+            if (XR_FAILED(xrAcquireSwapchainImage(g_swapchains[e], &ai, &idx))) break;
+            XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+            wi.timeout = XR_INFINITE_DURATION;
+            bool wrote = false, synth = false;
+            dvr::afw::Pose pose{};
+            if (XR_SUCCEEDED(xrWaitSwapchainImage(g_swapchains[e], &wi))) {
+                ID3D11Texture2D* dst = g_images[e][idx].texture;
+                const float tp[3] = {v[e].pose.position.x, v[e].pose.position.y, v[e].pose.position.z};
+                const char* why = nullptr;
+                if (g_mt) g_mt->Enter();
+                synth = dvr::afw::synth_eye(g_device, g_context, e, dst, g_swapW, g_swapH, tanH, tanV, tp, nowMs, &pose, &why);
+                wrote = synth || dvr::afw::copy_own(g_context, e, dst, &pose);
+                if (g_mt) g_mt->Leave();
+            }
+            XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+            xrReleaseSwapchainImage(g_swapchains[e], &ri);
+            if (!wrote) break;
+            (synth ? g_mswSynthEyes : g_mswCopyEyes).fetch_add(1, std::memory_order_relaxed);
+            pv[e].pose.orientation = {pose.q[0], pose.q[1], pose.q[2], pose.q[3]};
+            pv[e].pose.position = {pose.p[0], pose.p[1], pose.p[2]};
+            pv[e].fov = g_mswFov;
+            pv[e].subImage.swapchain = g_swapchains[e];
+            pv[e].subImage.imageRect = g_mswRect;
+            ++wroteEyes;
+            if (depthOn) {   // this eye's depth: the synthesis's own output, or the copied image's snapshot
+                uint32_t didx = 0;
+                XrSwapchainImageAcquireInfo dai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+                if (XR_SUCCEEDED(xrAcquireSwapchainImage(g_depthSc[e], &dai, &didx))) {
+                    XrSwapchainImageWaitInfo dwi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                    dwi.timeout = XR_INFINITE_DURATION;
+                    bool ok = false;
+                    if (XR_SUCCEEDED(xrWaitSwapchainImage(g_depthSc[e], &dwi))) {
+                        if (g_mt) g_mt->Enter();
+                        ok = dvr::afw::write_xr_depth(g_device, g_context, e, synth, g_depthImages[e][didx].texture,
+                                                      (uint32_t)g_depthFmt, g_swapW, g_swapH, kDepthNearM, kDepthFarM, nullptr);
+                        if (g_mt) g_mt->Leave();
+                    }
+                    XrSwapchainImageReleaseInfo dri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                    xrReleaseSwapchainImage(g_depthSc[e], &dri);
+                    if (ok) {
+                        di[e].subImage.swapchain = g_depthSc[e];
+                        di[e].subImage.imageRect = g_mswRect;
+                        di[e].minDepth = 0.0f; di[e].maxDepth = 1.0f;
+                        di[e].nearZ = kDepthNearM; di[e].farZ = kDepthFarM;
+                        ++depthEyes;
+                    }
+                }
+            }
+        }
+    }
+    const XrCompositionLayerBaseHeader* layers[1 + kMswMaxQuads] = {};
+    uint32_t count = 0;
+    if (wroteEyes == 2) {
+        if (depthEyes == 2) { pv[0].next = &di[0]; pv[1].next = &di[1]; }
+        proj.space = g_space;
+        proj.viewCount = 2;
+        proj.views = pv;
+        layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&proj);
+        for (uint32_t i = 0; i < g_mswQuadN; ++i)
+            layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&g_mswQuads[i]);
+    } else {
+        // Nothing new for one eye: the last real layer set as it was (never an empty frame, which shows black).
+        FeedSnap snap;
+        { std::lock_guard<std::mutex> lk(g_feedSnapMutex); snap = g_feedSnap; }
+        if (snap.valid && snap.isProj) {
+            proj = snap.proj;
+            proj.views = snap.views;
+            layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&proj);
+            for (uint32_t i = 0; i < g_mswQuadN; ++i)
+                layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&g_mswQuads[i]);
+        }
+        g_mswFails.fetch_add(1, std::memory_order_relaxed);
+    }
+    XrFrameEndInfo fei{XR_TYPE_FRAME_END_INFO};
+    fei.displayTime = fs.predictedDisplayTime;
+    fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    fei.layerCount = count;
+    fei.layers = count ? layers : nullptr;
+    r = xrEndFrame(g_session, &fei);
+    if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrEndFrame failed: %s", res_str(r)); return; }
+    g_lastEndUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
+    g_mswFrames.fetch_add(1, std::memory_order_relaxed);
+}
+
+DWORD WINAPI msw_thread_proc(void*) {
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002 /* HIGH_RESOLUTION */, TIMER_ALL_ACCESS);
+    if (!timer) timer = CreateWaitableTimerW(nullptr, TRUE, nullptr);
+    auto sleep_us = [&](int64_t us) {
+        if (us <= 0) return;
+        LARGE_INTEGER due; due.QuadPart = -us * 10;
+        if (timer && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) WaitForSingleObject(timer, 50);
+        else Sleep((DWORD)(us / 1000 + 1));
+    };
+    uint64_t nextLog = GetTickCount64() + 3000;
+    uint32_t lastFrames = 0, lastSynth = 0, lastCopy = 0, lastBusy = 0, lastNR = 0, lastFails = 0;
+    uint32_t lastEnds = g_endFrames.load(std::memory_order_relaxed);
+    while (g_mswRun.load(std::memory_order_relaxed)) {
+        const int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
+        if (periodNs <= 0) { sleep_us(5000); continue; }
+        const int64_t last = g_lastEndUs.load(std::memory_order_relaxed);
+        const int64_t due = last + (int64_t)(periodNs / 1000 * g_mswLead.load());
+        const int64_t now = (int64_t)(dvr::clock::now_ms() * 1000.0);
+        if (now < due) sleep_us(due - now);
+        if (!g_mswRun.load(std::memory_order_relaxed)) break;
+        if (g_lastEndUs.load(std::memory_order_relaxed) != last) continue;   // a frame ended meanwhile: re-arm
+        if (!g_cycleMx.try_lock()) { g_mswBusy.fetch_add(1, std::memory_order_relaxed); sleep_us(500); continue; }
+        if (const char* no = msw_blocker()) {
+            g_cycleMx.unlock();
+            g_mswNotReady.fetch_add(1, std::memory_order_relaxed);
+            g_mswNotReadyWhy = no;
+            sleep_us(2000);
+        } else {
+            msw_cycle();
+            g_cycleMx.unlock();
+        }
+        const uint64_t t = GetTickCount64();
+        if (t >= nextLog) {
+            const uint32_t fr = g_mswFrames.load(), sy = g_mswSynthEyes.load(), cp = g_mswCopyEyes.load(),
+                           bz = g_mswBusy.load(), nr = g_mswNotReady.load(), fl = g_mswFails.load(),
+                           en = g_endFrames.load(std::memory_order_relaxed);
+            const double secs = (t - nextLog + 3000) / 1000.0;
+            XRLOG("msw: %.0f slots/s synthesized beside %.0f/s from the game (%.0f Hz display) | eyes rebuilt %u, copied %u | "
+                  "skipped: game present in progress %u, not ready %u (last: %s), failures %u",
+                  (fr - lastFrames) / secs, (en - lastEnds) / secs, periodNs > 0 ? 1e9 / periodNs : 0.0,
+                  sy - lastSynth, cp - lastCopy, bz - lastBusy, nr - lastNR, g_mswNotReadyWhy[0] ? g_mswNotReadyWhy : "none",
+                  fl - lastFails);
+            lastFrames = fr; lastSynth = sy; lastCopy = cp; lastBusy = bz; lastNR = nr; lastFails = fl; lastEnds = en;
+            nextLog = t + 3000;
+        }
+    }
+    if (timer) CloseHandle(timer);
+    return 0;
+}
+
+void msw_stop() {
+    if (!g_mswThread) return;
+    g_mswRun.store(false);
+    WaitForSingleObject(g_mswThread, 2000);
+    CloseHandle(g_mswThread);
+    g_mswThread = nullptr;
+    XRLOG("msw: stopped - the runtime's own reprojection fills any slot the game misses");
+}
+
+void msw_start() {
+    if (g_mswThread) return;
+    if (!g_context) { XRLOG("msw: wanted, waiting for the D3D11 device"); return; }
+    if (!g_mt && FAILED(g_context->QueryInterface(__uuidof(ID3D11Multithread), (void**)&g_mt))) g_mt = nullptr;
+    if (!g_mt) { XRLOG("msw: REFUSED - ID3D11Multithread unavailable (Windows 10+ D3D11 runtime needed); the runtime's reprojection stays"); return; }
+    g_mt->SetMultithreadProtected(TRUE);
+    g_mswRun.store(true);
+    g_mswThread = CreateThread(nullptr, 0, msw_thread_proc, nullptr, 0, nullptr);
+    if (!g_mswThread) { g_mswRun.store(false); XRLOG("msw: REFUSED - the thread did not start"); return; }
+    SetThreadPriority(g_mswThread, THREAD_PRIORITY_ABOVE_NORMAL);
+    XRLOG("msw: ON - a slot with no frame ended for %.0f%% of a period is filled here: both eyes rebuilt from their own last "
+          "image and depth at the slot's eye positions, the body's walk and turn extrapolated, the HUD and aim quads re-submitted "
+          "at their own poses (the Present hook owns the frame loop while it runs; the D3D11 context is multithread-protected)",
+          g_mswLead.load() * 100.0f);
+}
+
+void set_mod_spacewarp(bool on) {
+    if (g_mswWanted.exchange(on) != on)
+        XRLOG("msw: [VR] ModSpacewarp %s", on ? "ON (starts with the session, AFW only)" : "off");
+    if (!on) msw_stop();
+}
+bool mod_spacewarp() { return g_mswWanted.load(); }
+// Present thread: start or stop the thread as the wish and the device allow (called each present).
+void msw_tick() {
+    const bool want = g_mswWanted.load(std::memory_order_relaxed) && g_session != XR_NULL_HANDLE;
+    if (want && !g_mswThread) msw_start();
+    else if (!want && g_mswThread) msw_stop();
+}
+
 void set_submit_depth(bool on) {
     g_depthWanted.store(on, std::memory_order_relaxed);
     XRLOG("xr: [VR] SubmitDepth=%d - %s", on ? 1 : 0,
@@ -6358,6 +6629,20 @@ void handle_pace_command(const char* args) {
             XRLOG("xr: pose attribution lag %d generation(s) (0 fresh, 1 one back = the default, 2 two back) | "
                     "poseGenDelta %.2f deg | usage: vrpace lag 0|1|2",
                     g_poseLag.load(std::memory_order_relaxed), g_poseGenDeltaDeg.load(std::memory_order_relaxed));
+    } else if (strcmp(verb, "msw") == 0) {
+        // VR-39: the mod's own spacewarp. `vrpace msw on|off`, `vrpace msw extrap on|off`, `vrpace msw lead <0.3..0.95>`.
+        float lead = 0;
+        if (strncmp(rest, "extrap on", 9) == 0) dvr::afw::set_synth_extrapolate(true);
+        else if (strncmp(rest, "extrap off", 10) == 0) dvr::afw::set_synth_extrapolate(false);
+        else if (sscanf_s(rest, "lead %f", &lead) == 1 && lead >= 0.3f && lead <= 0.95f) {
+            g_mswLead.store(lead);
+            XRLOG("msw: lead %.2f of a period", lead);
+        } else if (strncmp(rest, "on", 2) == 0) set_mod_spacewarp(true);
+        else if (strncmp(rest, "off", 3) == 0) set_mod_spacewarp(false);
+        else
+            XRLOG("msw: %s, thread %s, extrapolation %s, lead %.2f | usage: vrpace msw on|off, vrpace msw extrap on|off, "
+                  "vrpace msw lead <0.3..0.95>", g_mswWanted.load() ? "ON" : "off", g_mswThread ? "running" : "stopped",
+                  dvr::afw::synth_extrapolate() ? "on" : "off", g_mswLead.load());
     } else if (strcmp(verb, "depth") == 0) {
         // VR-39: the depth layer's live A/B (the extension itself is [VR] SubmitDepth, at instance creation).
         if (strncmp(rest, "on", 2) == 0) set_depth_live(true);
@@ -7110,6 +7395,7 @@ bool eye_separation_m(float* out) {
 void haptic(int hand, float amp, float durSec) { input_haptic(hand, amp, durSec); }
 
 void shutdown(const char* why) {
+    msw_stop();   // VR-39: before anything it uses comes down
     g_enabled.store(false, std::memory_order_relaxed);
     if (g_session != XR_NULL_HANDLE) teardown_session(why);
     if (g_session != XR_NULL_HANDLE) {
@@ -7186,6 +7472,11 @@ void set_pair_strict(bool) {}
 bool pair_strict() { return false; }
 void set_submit_depth(bool) {}
 bool submit_depth() { return false; }
+void cycle_enter() {}
+void cycle_leave() {}
+void msw_tick() {}
+void set_mod_spacewarp(bool) {}
+bool mod_spacewarp() { return false; }
 void set_depth_live(bool) {}
 bool depth_live() { return false; }
 bool depth_active() { return false; }

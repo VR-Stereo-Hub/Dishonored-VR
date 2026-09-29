@@ -318,6 +318,14 @@ bool pair_strict();
 // switch (`vrpace depth on|off`, F10) chains or drops the depth per submit; depth_active says the extension
 // and the depth swapchains are up.
 void set_submit_depth(bool on);
+// VR-39: the mod's own spacewarp (MSW) - see openxr_runtime.cpp. DEFAULT OFF ([VR] ModSpacewarp, `vrpace msw`).
+// cycle_enter/cycle_leave bracket the Present hook's XR and D3D11 span: while it holds them the MSW thread
+// cannot take the frame loop.
+void set_mod_spacewarp(bool on);
+bool mod_spacewarp();
+void cycle_enter();
+void cycle_leave();
+void msw_tick();   // the Present hook, each present: starts or stops the MSW thread
 bool submit_depth();
 void set_depth_live(bool on);
 bool depth_live();

@@ -1180,6 +1180,12 @@ static void OvlTabDisplay()
                     dvr::vr::set_submit_depth(sd);
                     OverlaySaveDefaults();   // the key is read at the next start
                 }
+                // VR-39: the mod's own spacewarp - fills the display slots the game misses (live).
+                bool msw = dvr::vr::mod_spacewarp();
+                if (dvr::ovl::checkbox("AFW: the mod's own spacewarp (fills missed frames; turn off SSW in Virtual Desktop)", &msw)) {
+                    dvr::vr::set_mod_spacewarp(msw);
+                    OverlaySaveDefaults();
+                }
                 if (dvr::vr::depth_active()) {
                     bool dl = dvr::vr::depth_live();
                     if (dvr::ovl::checkbox("AFW: depth layer live (A/B)", &dl)) dvr::vr::set_depth_live(dl);

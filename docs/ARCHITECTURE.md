@@ -1426,3 +1426,14 @@ The new lever defaults off, and without reduced upscaling draws remain native.
     eyes or neither.
   - It is default off because enabling it is an instance-creation choice and whether VD's SSW uses it is
     unmeasured.
+
+- **2026-09-28 - The mod fills missed display slots itself (MSW, VR-39).**
+  - A thread owns the frame loop whenever the Present hook does not; `g_cycleMx` spans the hook's XR and
+    D3D11 work.
+  - It rebuilds each eye from its own image at the slot's eye position. Only translation is
+    synthesized: rotation rides the submitted pose, which the compositor reprojects exactly.
+  - The HUD stays as layers, so the compositor keeps it crisp.
+  - Chosen over the runtime's SSW because that runs on the headset from video block motion, with no
+    depth, no game matrices and no separate HUD.
+  - Chosen over a whole-loop compositor thread because real frames stay on the proven present path;
+    only the gaps are new.

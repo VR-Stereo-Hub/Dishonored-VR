@@ -1314,6 +1314,208 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     return true;
 }
 
+// ---- the mod's own spacewarp (MSW): a display slot the game did not fill --------------------------------
+// An eye rebuilt from its OWN last image and depth for a later slot. What the runtime cannot do exactly is the
+// translation (it needs depth), so the image keeps its own ORIENTATION and only its position moves: the head's
+// translation to the slot's located eye position, plus the body's walking extrapolated from the last two
+// images (the camera displacement their c5 pair shows, less what the XR eye poses explain, per millisecond).
+// The body's turn is extrapolated the same way and applied to the SUBMITTED pose (a rotation the compositor
+// reprojects exactly at every depth); the head's own rotation to the slot is the compositor's as always.
+// The hands are held fixed in tracking space (the body hypothesis): a controller that moves inside one slot
+// lags that slot. Disocclusions keep the image's own nearest sample (a few cm of translation per slot).
+std::atomic<bool> g_synthExtrap{true};     // `vrpace msw extrap on|off`: the walking/turning extrapolation (off = head only)
+uint32_t g_synths = 0, g_synthMtx = 0, g_synthRefused = 0;
+float g_synthStepMax = 0, g_synthYawMax = 0;
+const char* g_synthWhy = "";
+
+// The body's motion between the two newest images: walking (uu per ms, UE world) and turning (deg per ms).
+bool body_motion(double v[3], double* yawPerMs, double* dtMs) {
+    Held& a = g_held[0];
+    Held& b = g_held[1];
+    if (!a.valid || !b.valid || !a.vpOk || !b.vpOk) return false;
+    const Held& N = a.seq > b.seq ? a : b;
+    const Held& O = a.seq > b.seq ? b : a;
+    const double dt = N.meta.captureMs - O.meta.captureMs;
+    if (!(dt > 0.5 && dt < 100.0)) return false;
+    double fwd[3], right[3], up[3];
+    if (!axes_of(lin_of(N.vp), fwd, right, up)) return false;
+    const double scale = g_worldScale.load();
+    const double de[3] = {N.pose.p[0] - O.pose.p[0], N.pose.p[1] - O.pose.p[1], N.pose.p[2] - O.pose.p[2]};
+    double ev[3]; rot(N.pose, de, ev, true);
+    for (int k = 0; k < 3; ++k) {
+        const double xr = scale * (-ev[2] * fwd[k] + ev[0] * right[k] + ev[1] * up[k]);
+        v[k] = ((-N.c5[k]) - (-O.c5[k]) - xr) / dt;
+    }
+    double dy = (N.bodyOk && O.bodyOk) ? N.bodyYaw - O.bodyYaw : 0.0;
+    while (dy > 180.0) dy -= 360.0;
+    while (dy < -180.0) dy += 360.0;
+    *yawPerMs = dy / dt;
+    *dtMs = dt;
+    return true;
+}
+
+void set_synth_extrapolate(bool on) {
+    if (g_synthExtrap.exchange(on) != on)
+        DVR_INFO("msw: body extrapolation %s (off: the synthesized slot follows the head only)", on ? "ON" : "off");
+}
+bool synth_extrapolate() { return g_synthExtrap.load(); }
+
+bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, uint32_t w, uint32_t h,
+               float tanH, float tanV, const float targetPos[3], double nowMs, Pose* outPose, const char** why) {
+    if (why) *why = nullptr;
+    auto refuse = [&](const char* r) { ++g_synthRefused; g_synthWhy = r; if (why) *why = r; return false; };
+    if (!g_on.load()) return refuse("AFW off");
+    if (eye < 0 || eye > 1 || !dst || !ctx || !dev) return refuse("bad call");
+    sync_epoch();
+    if (!init(dev)) return refuse("not ready");
+    Held& own = g_held[eye];
+    if (!own.valid || !own.srv || !own.depthOk || !own.dsrv) return refuse("no own image with depth");
+    if (!ensure_seeds(dev, w, h)) return refuse("no seed maps");
+    D3D11_TEXTURE2D_DESC dd;
+    dst->GetDesc(&dd);
+    D3D11_RENDER_TARGET_VIEW_DESC rv = {};
+    rv.Format = typed(dd.Format);
+    rv.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    ID3D11RenderTargetView* rtv = nullptr;
+    if (FAILED(dev->CreateRenderTargetView(dst, &rv, &rtv)) || !rtv) return refuse("no render target");
+
+    // The target: the image's own orientation at the slot's eye position.
+    Pose tgt = own.pose;
+    tgt.p[0] = targetPos[0]; tgt.p[1] = targetPos[1]; tgt.p[2] = targetPos[2];
+    const double dtOwn = nowMs - own.meta.captureMs;
+    double v[3] = {0, 0, 0}, yawPerMs = 0, motionDt = 0;
+    const bool extrap = g_synthExtrap.load() && dtOwn > 0.0 && dtOwn < 60.0 && body_motion(v, &yawPerMs, &motionDt);
+    const double turn = extrap ? yawPerMs * dtOwn : 0.0;
+
+    struct CB {
+        float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
+        float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
+        float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
+    } cb;
+    static_assert(sizeof(CB) == 30 * 16, "afw cbuffer layout");
+    memset(&cb, 0, sizeof(cb));
+    rows(own.pose, cb.s, false);
+    cb.sp[0] = own.pose.p[0]; cb.sp[1] = own.pose.p[1]; cb.sp[2] = own.pose.p[2];
+    rows(own.pose, cb.f, false);
+    cb.fp[0] = own.pose.p[0]; cb.fp[1] = own.pose.p[1]; cb.fp[2] = own.pose.p[2];
+    rows(tgt, cb.d, true);
+    cb.dp[0] = tgt.p[0]; cb.dp[1] = tgt.p[1]; cb.dp[2] = tgt.p[2];
+    const float yr[3][4] = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}};   // the turn rides the submitted pose
+    memcpy(cb.y, yr, sizeof(yr));
+    cb.prm[0] = tanH; cb.prm[1] = tanV;
+    cb.prm[2] = dvr::clarity::depth_scale() / g_worldScale.load();
+    cb.prm[3] = g_bodyDepth.load();
+    const float depthTexel = own.dw ? fmaxf(1.0f, (float)w / (float)own.dw) : 1.0f;
+    cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f * depthTexel; cb.prm2[3] = 0;
+    cb.prm3[0] = 0.0f; cb.prm3[1] = 1.0f; cb.prm3[2] = g_debug.load() ? 1.0f : 0.0f; cb.prm3[3] = 0.03f;
+    if (own.dw && own.dh) { cb.prm4[2] = (float)kGridStep / own.dw; cb.prm4[3] = (float)kGridStep / own.dh; }
+    {
+        const float fg = g_fgFov.load();
+        if (g_fgOn.load() && fg > 10.0f && fg < 175.0f) {
+            cb.prm5[0] = tanf(fg * 0.5f / 57.29578f);
+            cb.prm5[1] = cb.prm5[0] * tanV / tanH;
+            cb.prm5[2] = g_fgDepth.load();
+        }
+    }
+    cb.prm5[3] = g_nearMiss.load();
+    cb.prm6[2] = (g_fgMask.load() && own.maskOk) ? 1.0f : 0.0f;
+    // The world by the game's matrices: the same camera-relative projection (the orientation is the image's
+    // own), the camera moved by the head's translation and the extrapolated walk.
+    double step = 0;
+    if (g_matrices.load() && !g_camFlipLatched && own.vpOk) {
+        const Lin l = lin_of(own.vp);
+        double I[3][3], fwd[3], right[3], up[3];
+        if (inverse_rows(l, I) && axes_of(l, fwd, right, up)) {
+            const double scale = g_worldScale.load();
+            const double de[3] = {tgt.p[0] - own.pose.p[0], tgt.p[1] - own.pose.p[1], tgt.p[2] - own.pose.p[2]};
+            double ev[3]; rot(own.pose, de, ev, true);
+            double D[3];
+            for (int k = 0; k < 3; ++k) {
+                const double walk = extrap ? v[k] * dtOwn : 0.0;
+                D[k] = -(scale * (-ev[2] * fwd[k] + ev[0] * right[k] + ev[1] * up[k]) + walk);   // held camera - target camera
+                step += walk * walk;
+            }
+            step = sqrt(step);
+            for (int k = 0; k < 3; ++k) {
+                for (int j = 0; j < 3; ++j) cb.hI[k][j] = (float)I[k][j];
+                cb.hI[k][3] = 0;
+            }
+            cb.hC[0] = (float)l.A[3]; cb.hC[1] = (float)l.B[3]; cb.hC[2] = (float)l.W[3];
+            for (int j = 0; j < 4; ++j) { cb.tA[j] = (float)l.A[j]; cb.tB[j] = (float)l.B[j]; cb.tW[j] = (float)l.W[j]; }
+            for (int k = 0; k < 3; ++k) cb.mD[k] = (float)D[k];
+            cb.prm2[3] = dvr::clarity::depth_scale();
+            ++g_synthMtx;
+        }
+    }
+    ctx->UpdateSubresource(g_cb, 0, nullptr, &cb, 0, 0);
+
+    Saved sv; sv.save(ctx);
+    ID3D11ShaderResourceView* none[6] = {};
+    ctx->PSSetShaderResources(0, 6, none);
+    // One seed map: the image's own grid carried into the slot.
+    const float clearSeed[4] = {0, 0, 0, 0};
+    ctx->ClearRenderTargetView(g_seed[0].rtv, clearSeed);
+    ctx->ClearRenderTargetView(g_seed[1].rtv, clearSeed);
+    ctx->ClearDepthStencilView(g_seedDsv, D3D11_CLEAR_DEPTH, 1.0f, 0);
+    const uint32_t gw = (own.dw - 1 + kGridStep - 1) / kGridStep, gh = (own.dh - 1 + kGridStep - 1) / kGridStep;
+    const float mcb[8] = {1.0f, (float)kGridStep, (float)own.dw, (float)own.dh, (float)gw, (float)g_seedW, (float)g_seedH, kStretchArea};
+    ctx->UpdateSubresource(g_cbMesh, 0, nullptr, mcb, 0, 0);
+    setup_draw(ctx, g_seed[1].rtv, g_seedDsv, g_seedW, g_seedH, g_vsMesh, g_psMesh);
+    ID3D11Buffer* cbs[2] = {g_cb, g_cbMesh};
+    ctx->VSSetConstantBuffers(0, 2, cbs);
+    ctx->PSSetConstantBuffers(0, 2, cbs);
+    ID3D11ShaderResourceView* vsrv[4] = {nullptr, own.dsrv, nullptr, nullptr};
+    ctx->VSSetShaderResources(0, 4, vsrv);
+    ctx->Draw(6 * gw * gh, 0);
+    ctx->VSSetShaderResources(0, 4, none);
+    // The compose (and its depth, for the depth layer).
+    setup_draw(ctx, rtv, nullptr, w, h, g_vs, g_ps);
+    if (g_xrDepthWanted.load() && ensure_zout(dev, w, h)) {
+        ID3D11RenderTargetView* two[2] = {rtv, g_zOutRtv};
+        ctx->OMSetRenderTargets(2, two, nullptr);
+        g_zOutSeq = g_seq;
+    }
+    ctx->PSSetConstantBuffers(0, 2, cbs);
+    ID3D11ShaderResourceView* srvs[6] = {own.srv, own.dsrv, own.srv, nullptr, g_seed[0].srv, g_seed[1].srv};
+    ctx->PSSetShaderResources(0, 6, srvs);
+    ctx->Draw(3, 0);
+    ctx->PSSetShaderResources(0, 6, none);
+    sv.restore(ctx);
+    rtv->Release();
+
+    // The submitted pose: the image's orientation turned by the extrapolated body yaw (as the held-eye fallback
+    // turns a held image: Ry(+d)), at the slot's eye position.
+    Pose out = tgt;
+    if (turn != 0.0) {
+        const float hh = (float)(turn * 0.5 / 57.29578), sy = sinf(hh), cy = cosf(hh);
+        const float* q = tgt.q;
+        out.q[0] = cy * q[0] + sy * q[2]; out.q[1] = cy * q[1] + sy * q[3];
+        out.q[2] = cy * q[2] - sy * q[0]; out.q[3] = cy * q[3] - sy * q[1];
+    }
+    if (outPose) *outPose = out;
+    ++g_synths;
+    if (step > g_synthStepMax) g_synthStepMax = (float)step;
+    if (fabs(turn) > g_synthYawMax) g_synthYawMax = (float)fabs(turn);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+        "msw: beat - %u eyes synthesized (%u with the game's matrices), %u refused (last: %s); extrapolation %s: walk up to "
+        "%.1f uu and turn up to %.2f deg per synthesized eye (0 while standing still)",
+        g_synths, g_synthMtx, g_synthRefused, g_synthWhy[0] ? g_synthWhy : "none", g_synthExtrap.load() ? "on" : "off",
+        g_synthStepMax, g_synthYawMax);
+    return true;
+}
+
+bool copy_own(ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, Pose* pose) {
+    if (!ctx || !dst || eye < 0 || eye > 1) return false;
+    const Held& h = g_held[eye];
+    if (!h.valid || !h.tex) return false;
+    D3D11_TEXTURE2D_DESC a, b;
+    h.tex->GetDesc(&a); dst->GetDesc(&b);
+    if (a.Width != b.Width || a.Height != b.Height) return false;
+    ctx->CopyResource(dst, h.tex);
+    if (pose) *pose = h.pose;
+    return true;
+}
+
 bool has_held(int held) {
     // The fresh image is what a rebuild needs; the held one is optional (without it: the fresh eye alone).
     return g_on.load() && held >= 0 && held <= 1 && g_held[1 - held].valid && g_held[1 - held].tex;

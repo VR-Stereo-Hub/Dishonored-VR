@@ -177,6 +177,14 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::bridge_profile::present();
     dvr::perf::stamp(dvr::perf::kEntry);
     dvr::perf::part_begin();    // VR-160: `perf parts on` names what the present path spends
+    // VR-39 (MSW): this hook owns the frame loop and the D3D11 context from here to the end of the runtime's
+    // present tail; the mod's spacewarp thread fills a display slot only while nothing holds it.
+    struct CycleGuard {
+        bool held = true;
+        CycleGuard() { dvr::vr::cycle_enter(); }
+        void release() { if (held) { held = false; dvr::vr::cycle_leave(); } }
+        ~CycleGuard() { release(); }
+    } cycleGuard;
 
     dvr::depthprobe::tick(self, dvr::capture::width(), dvr::capture::height());   // read-only; off by default
     if (dvr::depthprobe::share_tick_needed() && g_cb.d3d11) {   // diagnostics or active depth-vector TAA
@@ -294,6 +302,8 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::etw::begin(dvr::etw::kXrEnd, out.eyeSign);
     dvr::vr::on_present_end(out.tex);
     dvr::etw::end(dvr::etw::kXrEnd, out.eyeSign);
+    dvr::vr::msw_tick();          // VR-39: start or stop the spacewarp thread with the session and the wish
+    cycleGuard.release();
     dvr::perf::part_mark("hk.xrEnd");
     dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
     dvr::perf::stamp(dvr::perf::kBeforeGamePresent);

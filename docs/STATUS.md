@@ -1,3 +1,20 @@
+## 2026-09-28 (MSW): the mod's own spacewarp - rung 1 built, host-verified, not yet run
+
+Branch `claude/vr-39-mod-spacewarp`, on top of #159.
+
+**Measured (run 8):** 88-91 presents/s against 144 slots/s, so about 40% of slots went to VD's
+headset-side SSW. SSW guesses motion from the video, which smears when running and warps the HUD.
+
+**Built:**
+- A thread fills those slots itself. Each eye is rebuilt from its own image and depth at the slot's eye
+  position, with the body's walk and turn extrapolated.
+- The HUD and aim quads are re-submitted as layers.
+- Default off: `[VR] ModSpacewarp`, `vrpace msw`, F10.
+
+**Host:** a synthesized slot while running is 99.8% within 1.5 px; with extrapolation off it is 19.9%.
+**Next:** `docs/dishonored/PLAN-mod-spacewarp.md`: a simulator run (needs a yes), then the headset A/B with
+VD SSW off.
+
 ## 2026-09-28 (AFW run 8): foreground mask, running, DLSS hands, and the depth layer for SSW - host-verified, headset pending
 
 Branch `claude/vr-39-afw-polish` (after #158 merged). From the run-8 report:
