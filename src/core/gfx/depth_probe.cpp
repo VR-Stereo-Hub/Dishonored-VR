@@ -479,18 +479,28 @@ void try_pre_copy(IDirect3DDevice9* dev) {
     if (!g_preWanted.load() || !g_sceneSurf || !dev) return;
     const uint32_t key = dvr::capture::serial() + 1;   // this frame's grab, as the depth ring keys it
     if (key == g_preKey) return;                       // once per frame: the first foreground draw
+    // Run 10: slot 0 of the foreground pass is a 2750x2850 A8R8G8B8 target, never the RGBA16F scene target, yet the
+    // arms' depth reaches the scene target's alpha - so it is bound in another slot (MRT). Every slot is checked.
     IDirect3DSurface9* rt = nullptr;
     if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) return;
-    const bool scene = rt == g_sceneSurf;
+    bool scene = rt == g_sceneSurf;
+    int sceneSlot = scene ? 0 : -1;
+    for (DWORD i = 1; i < 4 && !scene; ++i) {
+        IDirect3DSurface9* o = nullptr;
+        if (SUCCEEDED(dev->GetRenderTarget(i, &o)) && o) { if (o == g_sceneSurf) { scene = true; sceneSlot = (int)i; } o->Release(); }
+    }
+    if (scene && sceneSlot > 0)
+        DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Info, "depthshare: the foreground pass writes the scene target in render-target "
+                     "slot %d (slot 0 is its colour target): the AFW foreground mask is armed there", sceneSlot);
     if (!scene && !g_preRtLogged && g_preNotScene > 2000 && g_preCopies == 0) {
         // Name the target the foreground actually draws into, once, if it never is the scene target.
         g_preRtLogged = true;
         D3DSURFACE_DESC a = {}, b = {};
         rt->GetDesc(&a); g_sceneSurf->GetDesc(&b);
-        DVR_WARN("depthshare: the foreground pass's draws render into %ux%u fmt %d usage 0x%lx, never the scene target "
-                 "%ux%u fmt %d (%llu refusals, 0 copies) - the AFW foreground mask is unavailable, the depth limit is used",
-                 a.Width, a.Height, (int)a.Format, (unsigned long)a.Usage, b.Width, b.Height, (int)b.Format,
-                 (unsigned long long)g_preNotScene);
+        DVR_WARN("depthshare: the foreground pass's draws render into %ux%u fmt %d usage 0x%lx (slots 1-3 hold no scene target "
+                 "either), never the scene target %ux%u fmt %d (%llu refusals, 0 copies) - the AFW foreground mask is unavailable, "
+                 "the depth limit is used", a.Width, a.Height, (int)a.Format, (unsigned long)a.Usage, b.Width, b.Height,
+                 (int)b.Format, (unsigned long long)g_preNotScene);
     }
     rt->Release();
     if (!scene) { ++g_preNotScene; return; }
