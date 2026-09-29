@@ -337,6 +337,21 @@ static void DvrConsumePoses()
 // binocular-scope squeeze in the headset. On the quad screen the lever is the
 // manual [Screen] FovLever (default off) and no claim is made. The derived
 // numbers print on every change so a complaint is arithmetic.
+// VR-39: the hands and weapon at the world's FOV. The player mesh and the held weapon are projected with the camera's
+// FOV (the lever's target, headset-derived: 108.07 on the dev rig) while the world is drawn at [Screen] ProjectionFov
+// (103): the arms sat about 9% nearer the image centre than the world around them (ENGINE_NOTES, "The foreground is
+// drawn with the game camera's FOV"), and every view rebuild had to tell them apart to reproject them differently -
+// which this game cannot do reliably (the AFW foreground mask never engages). With this on, the camera's own target IS
+// ProjectionFov, so the arms draw at it and the scoped world override becomes a no-op. [Screen] HandsAtWorldFov
+// (default 1), F10 Comfort; 0 restores the headset-derived camera FOV.
+static std::atomic<bool> g_handsWorldFov{true};
+static bool HandsWorldFovGet() { return g_handsWorldFov.load(); }
+static void HandsWorldFovSet(bool on, const char* who) {
+    if (g_handsWorldFov.exchange(on) != on)
+        Log("fov: hands and weapon %s (%s)", on ? "at the WORLD's FOV ([Screen] ProjectionFov): the camera's target follows it"
+                                                  : "at the headset-derived camera FOV (the pre-VR-39 behaviour)", who ? who : "?");
+}
+
 static void DvrFovHandoff()
 {
     static bool  wasProj = false;
@@ -344,7 +359,9 @@ static void DvrFovHandoff()
     static uint32_t saidW = 0, saidH = 0;
     const bool proj = dvr::stereo::wants_projection();
     if (proj) {
-        const float target = dvr::vr::suggested_hfov_deg();   // 0 until the views are located
+        const float headset = dvr::vr::suggested_hfov_deg();   // 0 until the views are located
+        const float world = ProjectionFovGet();
+        const float target = (HandsWorldFovGet() && world > 0.0f && headset > 0.0f) ? world : headset;
         dvr::camera::set_fov_deg(target);
         const float scoped=CineFovClaim();
         const float sensor = scoped>0 ? scoped : dvr::camera::rendered_fov_deg();
@@ -357,9 +374,10 @@ static void DvrFovHandoff()
                                    ? 2.0f * atanf(tanf(target * 0.5f * 0.0174533f) / aspect) * 57.29578f : 0.0f;
             uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
             float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
-            Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f); "
-                "FOV %.1f deg = the layer's claim%s; eye %ux%u",
-                aspect, w, h, target, vfov, hh, hv, sensor,
+            Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f; headset-derived "
+                "%.1f, %s); FOV %.1f deg = the layer's claim%s; eye %ux%u",
+                aspect, w, h, target, vfov, hh, hv, headset,
+                target != headset ? "the hands and weapon at the world's FOV" : "the camera at the headset-derived FOV", sensor,
                 scoped>0 ? " (scoped draw override)" : sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : " (sensor)",
                 ew, eh);
         }

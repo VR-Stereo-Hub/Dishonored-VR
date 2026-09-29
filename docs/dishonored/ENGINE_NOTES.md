@@ -9994,6 +9994,29 @@ move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta
 - The depth in the scene target's alpha is linear view depth for both passes, as far as the
   measurement can tell: the ratio is flat over 0.28-0.46 m.
 
+### The hands and weapon at the world's FOV: `[Screen] HandsAtWorldFov` (2026-09-29, headset pending)
+
+- **Why they differed.** The camera's FOV target was the headset-derived value
+  (`dvr::vr::suggested_hfov_deg`, 108.07 on the dev rig), and the FOV lever writes it every dispatch.
+  The world is drawn at `ProjectionFov` (103) only through the draw-scoped override of
+  `Camera.CameraCache.POV.FOV` (`CineFovBegin`/`CineFovEnd` around the viewport draw). The player mesh
+  and the held weapon are projected from the camera's own FOV, which that override does not touch.
+- **The switch.** With `HandsAtWorldFov=1` (default), `DvrFovHandoff` sets the lever's target to
+  `ProjectionFov`, so the camera renders at 103.
+  - The scoped override then maps 103 to 103: `gameplay_target(103, 103, 103)`, and a zoom keeps its ratio.
+  - The layer's claim stays 103.
+  - `0` restores the headset-derived target.
+- **Why it matters.** Every view rebuild (AFW, MSW) needs the arms told apart from the world to
+  reproject them with their own tangents. This game cannot do that reliably: the foreground mask never
+  engages (the arms pass binds the scene target in no slot). With one FOV there is nothing to tell apart
+  for projection.
+- **To verify in the headset:**
+  - the arms and weapon look about 9% larger and farther from the centre, at their true place against
+    the world;
+  - hand placement and the aim ray still line up with the controllers;
+  - the log line `fov: ... lever target 103.0 deg (... headset-derived 108.1, the hands and weapon at
+    the world's FOV)`.
+
 ### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
 
 In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->

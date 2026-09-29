@@ -677,6 +677,13 @@ static void OvlTabComfort()
         OvlSaveOnRelease("Screen", "ProjectionFov", ProjectionFovGet(), "%.2f");
         if (ImGui::SmallButton("Reset FOV to 103")) { ProjectionFovSet(103.0f); ConfigWriteKey("Screen", "ProjectionFov", "103.00", "F10 Comfort"); }
         ImGui::EndDisabled();
+        bool handsWorld = HandsWorldFovGet();   // VR-39
+        if (dvr::ovl::checkbox("Hands and weapon at the gameplay FOV", &handsWorld)) {
+            HandsWorldFovSet(handsWorld, "F10 Comfort");
+            ConfigWriteKey("Screen", "HandsAtWorldFov", handsWorld ? "1" : "0", "F10 Comfort");
+        }
+        OvlTip("On: your arms and weapon are drawn with the same field of view as the world, at their true size and "
+               "place. Off: the older look, where they were drawn slightly smaller and nearer the centre.");
     }
     if (OvlSec("Crouch", kOvlB, "Crouching for real crouches Corvo.")) {
         bool pc = g_crouchOn;

@@ -290,6 +290,8 @@ static void CinePitchPublish();
 static void CinePitchEnd();
 static bool ProjectionFovScopeActive();
 static float ProjectionFovGet();
+static bool HandsWorldFovGet();
+static void HandsWorldFovSet(bool on, const char* who);
 static void ProjectionFovSet(float fov);
 static bool CineFovEnabled();
 static void CineFovSet(bool on);
