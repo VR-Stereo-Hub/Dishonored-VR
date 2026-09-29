@@ -1,3 +1,18 @@
+## 2026-09-29: AFW run 14 - the hands' FOV flicker with the arms' lens forced to the world's FOV (OPEN, instrument built)
+
+Surface: the held eye's hands and weapon under `stereo afw`, build v1.0.1-200.
+- MEASURED (log): the player mesh and all six weapon view models have `m_bUseFOV=0` in plain gameplay.
+  The game sets the arms' lens itself only during a zoom (`m_FOV=103` while the world was at 79).
+- Force test: `HandsLensForce=1` put `m_bUseFOV=1, m_FOV=103` on the arms and weapons. Reported as looking
+  identical to off. AFW was fed 103 for the foreground (`foreground projection 103.00` on every beat) and
+  the hands' FOV flicker was still reported. Before it, AFW was fed 108.07.
+- Not settled: "identical" fits the arms already drawn at 103 (the lever writes `m_fCurFOV_Arms`, ENGINE_NOTES),
+  but the flicker at 103 fits them not being at 103. The run-6 disparity measurement (0.911) was taken
+  with the lever at 108.07, so it does not decide the current build.
+- Next: the `fgproj:` line reads the FOV from the draws' own projection matrices, foreground against world.
+  If they agree, the hands' flicker is not an FOV mismatch and AFW's foreground reprojection (the 0.30-unit
+  depth limit) should use the world's FOV. If they differ, the foreground number is what AFW must be fed.
+
 ## 2026-09-29: AFW run 11 - trails while turning; the matrices refused in fast turns (FIXED, replay-verified)
 
 Surface: the held eye under `stereo afw` (with MSW), build v1.0.1-184.
