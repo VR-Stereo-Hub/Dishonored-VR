@@ -7,6 +7,7 @@
 #include "core/gfx/shared_capture_texture.h"
 #include "core/util/log.h"
 #include "core/framework/perf.h"
+#include "core/framework/frame_hooks.h"
 
 #include <d3d11.h>
 
@@ -196,7 +197,9 @@ void note_texture(IDirect3DTexture9* tex, UINT w, UINT h, DWORD usage, D3DFORMAT
              g_on.load() ? "will be probed" : "probe off");
 }
 
+void fgproj_tick_fwd();
 void tick(IDirect3DDevice9* dev, UINT backW, UINT backH) {
+    fgproj_tick_fwd();   // VR-39: the arms-FOV instrument's log (render thread, every present)
     const bool now = g_now.exchange(false);
     if (!dev || (!g_on.load() && !now)) return;
     const DWORD t = GetTickCount();
@@ -525,12 +528,100 @@ void try_pre_copy(IDirect3DDevice9* dev) {
     g_lastPreCopyMs = GetTickCount64();
 }
 
+// VR-39: WHICH FOV ARE THE ARMS DRAWN WITH? The question two instruments answered two ways (the run-6 stereo
+// disparity said 108.07; the run-13 force test and the scripts' m_fCurFOV_Arms said the lever's 103). This reads
+// it off the draws themselves: the horizontal half-angle tangent of the view-projection in c0..c3 (the game's
+// upload, before our jitter) is 1 / |column 0 of rows 0..2|, the same arithmetic that gives the capture's tanH
+// from fresh.vp. Draws under a crushed-depth viewport (MaxZ < 0.5: the foreground DPG, the arms and weapon) are
+// binned apart from the rest (the world), each into 0.1-degree bins, and the busiest bins of each class are
+// logged. It CAN say the unwelcome thing: a foreground peak that is not the world's peak is an arms FOV of its
+// own, and it says so with the number. c0..c3 is re-uploaded per pass and object, so not every sample is a view
+// projection: only perspective matrices (column 3 non-zero) at 20-160 deg count, and the histogram shows the rest
+// as separate peaks rather than averaging them in. World draws are sampled 1 in 8 (cost); foreground draws all.
+namespace {
+constexpr int kFpBins = 1400;                 // 20.0 .. 160.0 deg in 0.1
+uint32_t g_fpHist[2][kFpBins];
+uint64_t g_fpSeen[2], g_fpRefused[2];
+bool     g_fpCrushed = false;
+DWORD    g_fpVpW = 0;
+uint32_t g_fpTick = 0;
+DWORD    g_fpNextLogMs = 0;
+int      g_fpSaidFg = -1, g_fpSaidWorld = -1;
+std::atomic<bool> g_fpOn{true};
+void fp_sample() {
+    const int cls = g_fpCrushed ? 1 : 0;
+    if (!cls && (++g_fpTick & 7)) return;
+    if (g_fpVpW < 512) return;                                    // shadow maps, small targets
+    const float* r0 = ::dvr::frame::vs_const_shadow_row(0);
+    const float* r1 = ::dvr::frame::vs_const_shadow_row(1);
+    const float* r2 = ::dvr::frame::vs_const_shadow_row(2);
+    if (!r0 || !r1 || !r2) return;
+    const float w = fabsf(r0[3]) + fabsf(r1[3]) + fabsf(r2[3]);   // perspective: w depends on position
+    const float n2 = r0[0] * r0[0] + r1[0] * r1[0] + r2[0] * r2[0];
+    if (!(w > 1e-4f) || !(n2 > 1e-8f) || !(n2 < 1e8f)) { ++g_fpRefused[cls]; return; }
+    const float deg = 2.0f * atanf(1.0f / sqrtf(n2)) * 57.2957795f;
+    const int b = (int)((deg - 20.0f) * 10.0f + 0.5f);
+    if (b < 0 || b >= kFpBins) { ++g_fpRefused[cls]; return; }
+    ++g_fpHist[cls][b]; ++g_fpSeen[cls];
+}
+// The three busiest bins, "103.0 x812 (61%)".
+void fp_peaks(int cls, char* out, size_t n, int* top) {
+    int best[3] = {-1, -1, -1};
+    for (int b = 0; b < kFpBins; ++b) {
+        const uint32_t c = g_fpHist[cls][b];
+        if (!c) continue;
+        for (int k = 0; k < 3; ++k)
+            if (best[k] < 0 || c > g_fpHist[cls][best[k]]) { for (int j = 2; j > k; --j) best[j] = best[j - 1]; best[k] = b; break; }
+    }
+    *top = best[0];
+    size_t used = 0; out[0] = 0;
+    for (int k = 0; k < 3 && best[k] >= 0; ++k)
+        used += _snprintf(out + used, n - used, "%s%.1f x%u (%.0f%%)", k ? ", " : "", 20.0f + best[k] * 0.1f,
+                          g_fpHist[cls][best[k]], 100.0 * g_fpHist[cls][best[k]] / (double)(g_fpSeen[cls] ? g_fpSeen[cls] : 1));
+    if (!out[0]) _snprintf(out, n, "none");
+    out[n - 1] = 0;
+}
+void fp_tick() {
+    if (!g_fpOn.load()) return;
+    const DWORD t = GetTickCount();
+    if (t < g_fpNextLogMs) return;
+    const bool first = g_fpNextLogMs == 0;
+    g_fpNextLogMs = t + 5000;
+    if (first) return;
+    if (!g_fpSeen[0] && !g_fpSeen[1]) return;                 // menus, loads: nothing drawn in perspective
+    char world[160], fg[160]; int tw = -1, tf = -1;
+    fp_peaks(0, world, sizeof(world), &tw);
+    fp_peaks(1, fg, sizeof(fg), &tf);
+    const float wDeg = tw >= 0 ? 20.0f + tw * 0.1f : 0.0f, fDeg = tf >= 0 ? 20.0f + tf * 0.1f : 0.0f;
+    const bool changed = tw != g_fpSaidWorld || tf != g_fpSaidFg;
+    static DWORD nextBeat = 0;
+    if (changed || t >= nextBeat) {
+        nextBeat = t + 30000;
+        g_fpSaidWorld = tw; g_fpSaidFg = tf;
+        DVR_INFO("fgproj: the draws' own projection over 5 s - WORLD hfov %s [%llu samples, %llu not a projection] | "
+                 "FOREGROUND (MaxZ<0.5: arms, weapon) hfov %s [%llu, %llu] -> %s", world,
+                 (unsigned long long)g_fpSeen[0], (unsigned long long)g_fpRefused[0], fg,
+                 (unsigned long long)g_fpSeen[1], (unsigned long long)g_fpRefused[1],
+                 tf < 0 ? "NO foreground draw seen in perspective: the arms FOV is unmeasured this window"
+                 : fabsf(fDeg - wDeg) < 0.25f ? "the arms are drawn at the WORLD's FOV: AFW should reproject them with it"
+                 : "the arms have their OWN FOV (the foreground peak): AFW must reproject them with that number");
+    }
+    memset(g_fpHist, 0, sizeof(g_fpHist));
+    memset(g_fpSeen, 0, sizeof(g_fpSeen));
+    memset(g_fpRefused, 0, sizeof(g_fpRefused));
+}
+} // namespace
+
 void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp) {
     if (!vp) return;
     g_crushArmed = vp->MaxZ < 0.5f;
+    g_fpCrushed = vp->MaxZ < 0.5f; g_fpVpW = vp->Width;
     if (g_crushArmed) try_pre_copy(dev);
 }
-void note_draw(IDirect3DDevice9* dev) { if (g_crushArmed) try_pre_copy(dev); }
+void note_draw(IDirect3DDevice9* dev) {
+    if (g_fpOn.load(std::memory_order_relaxed)) fp_sample();
+    if (g_crushArmed) try_pre_copy(dev);
+}
 
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground) {
     if (sawForeground) *sawForeground = false;
@@ -569,7 +660,10 @@ void set_enabled(bool on, const char* who) {
 }
 bool enabled() { return g_on.load(); }
 void request(const char* who) { g_now.store(true); DVR_INFO("depthprobe: one read asked (%s)", who ? who : "?"); }
+void fgproj_tick_fwd() { fp_tick(); }
 bool command(const char* args) {
+    if (args && !_stricmp(args, "fgproj on"))  { g_fpOn = true;  DVR_INFO("fgproj: ON (the seam)"); return true; }
+    if (args && !_stricmp(args, "fgproj off")) { g_fpOn = false; DVR_INFO("fgproj: off (the seam)"); return true; }
     if (args && !_stricmp(args, "share on")) { set_share(true, "the seam"); return true; }
     if (args && !_stricmp(args, "share off")) { set_share(false, "the seam"); return true; }
     if (args && !_stricmp(args, "on")) set_enabled(true, "the seam");

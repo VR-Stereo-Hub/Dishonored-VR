@@ -10048,6 +10048,30 @@ move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta
 - Nothing in the script corpus sets `m_bUseFOV` or `m_FOV` (no defaultproperties, no writes), so the
   likely reading is `m_bUseFOV=0`. If so, the arms' 108.07 comes from somewhere other than this lens and
   the camera FOV, and the force test and `propwatch` on the pawn are the next instruments.
+### Which FOV the arms are drawn with: the scripts, the force test, and the draw instrument (VR-39, 2026-09-29)
+
+**From the decompiled scripts** (declarations only, no function bodies):
+- `DishonoredPlayerCamera` declares `m_fCurFOV` then `m_fCurFOV_Arms`, seven config floats, then
+  `m_fDefaultFOVSettings`. By declaration order these are 0x53c (the FOV sensor), 0x540 and 0x564, three of
+  the offsets the FOV lever (`kLevCam`) has written every dispatch since 30.50. So the lever already writes the
+  arms' camera FOV. INFERRED from order, not resolved by name.
+- `DisCamFOVTarget { m_fTarget, m_bLockArms, m_fBlendSpeed }`, five priorities (Locomotion, Locomotion_Jump,
+  Action, Item, ControllerLook): a FOV request can hold the arms' FOV while the world's changes.
+- No viewmodel, weapon or foreground FOV exists anywhere else in the scripts or the 21 config files.
+
+**Observed (build v1.0.1-200 log).**
+- During a zoom (world at 79 deg), the game itself set the player mesh's `m_bUseFOV=1, m_FOV=103` for about
+  0.7 s, then cleared it. 103 is the lever's `m_fCurFOV_Arms` write. So the component's lens is how the game
+  holds the arms during a lock-arms zoom; in plain gameplay it is off (`m_bUseFOV=0`, `m_FOV=0`), on the arms
+  and on all six weapon view models.
+- Forcing that lens on at 103 (`HandsLensForce`) looked identical in the headset. AFW fed 103 for the
+  foreground still showed the hands' FOV flicker (reported). Not settled by either.
+
+**The instrument: `fgproj:`** (`depthprobe fgproj on|off`, on by default, render thread). Every draw under a
+crushed-depth viewport (MaxZ < 0.5, the foreground DPG) and 1 in 8 of the rest are binned by the horizontal
+FOV of the c0..c3 view-projection in effect (`2 atan(1 / |column 0|)`, the capture's tanH arithmetic).
+The log line gives the three busiest bins of each class every 5 s (on change, else every 30 s) and says which
+case it is: foreground peak = world peak, a foreground FOV of its own, or no foreground draw seen.
 
 ### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
 
