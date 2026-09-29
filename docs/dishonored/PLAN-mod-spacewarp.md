@@ -103,6 +103,55 @@ own draws with `Enter`/`Leave` and restores the pipeline state it touched. XR ca
 **Prediction:** with DLAA off (about 120 fps) MSW stands by, and the game keeps its rate. With DLAA on
 (about 90 fps) it engages, and the game runs about 72 real plus 72 synthesized frames.
 
+## 3c. Run 10 (2026-09-29, build v1.0.1-178) and what it changed
+
+**Reported:**
+- MSW works, with visual issues.
+- The reticle does not ghost (it does under VD's SSW).
+- With the walking/turning prediction on, the world is smoother but the hands jitter while turning.
+  With it off, the hands are normal and the world judders while turning.
+- About 125-130 fps with MSW, against 140-144 with VD's SSW.
+
+**MEASURED (log):**
+- Engaged, the game made 76-93 presents/s and MSW synthesized 36-60 slots/s: 118-136 in all, never 144.
+- The game's own frame time was 7.9 ms standing by and 9.1 ms engaged. MSW's GPU work cost the game
+  about 1.2 ms a frame, which moved it across the 1.3/1.15 thresholds: the policy flapped about once a
+  second.
+
+**Why VD's SSW reaches 144:** it runs on the headset, so it costs the PC nothing. When engaged, it
+locks the application to half the refresh. OFXR-Bridge (an OpenXR layer doing colour-only optical-flow
+frame generation) does the same: the application runs at half rate and the layer inserts the rest, with
+the flow at 50-75% resolution to save GPU.
+
+**Changed:**
+1. **The turn goes into the image.** Before, the extrapolated body turn rode the submitted pose and
+   turned the hands with the world. Now the world turns in the image (a rotation of the camera-relative
+   point on the matrix path, the yaw rows on the XR path), and the foreground ignores it.
+   - Host: a 2 deg/10 ms turn, slot at 20 ms, image-space score:
+     - matrices: world 92.4%, hands 100%;
+     - XR model: world 92.4%, hands 100%;
+     - control (no extrapolation): world 0%.
+   - About 7% of that world is unseen by a 20 ms old image.
+2. **The half-rate lock (default on under MSW).** After every real frame, the thread takes the next slot
+   at once. The game settles at half the refresh with 13.9 ms per frame, and every other slot is
+   synthesized; the missed-slot filler stays underneath. The adaptive policy (lock off) gains a 3 s dwell.
+   - `[VR] ModSpacewarpHalfRate`, `vrpace msw half on|off`, F10.
+3. **A cheaper synthesis.** The seed grid for a slot goes from 2 to 4 texels (`vrpace msw grid <n>`).
+   Host at 2750x2850, 20 back to back:
+
+   | Seed grid | Per eye |
+   |---|---|
+   | 2 | 1.02 ms |
+   | 4 (default) | 0.74 ms |
+   | 8 | 0.61 ms |
+   | 16 | 0.56 ms |
+
+   The full two-source AFW rebuild is 1.50 ms. The accuracy cases pass at 4.
+
+**Prediction:**
+- Lock on: `msw: ~72 slots/s synthesized beside ~72/s from the game`, 144 in all.
+- The hands steady while turning, with the prediction on.
+
 ## 4. What to expect and how to read it
 
 - **Pacing:** a 90-capable game on a 144 Hz display is paced to the slots it can make. Expect roughly 72

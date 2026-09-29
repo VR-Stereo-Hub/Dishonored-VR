@@ -322,6 +322,8 @@ void set_submit_depth(bool on);
 // cycle_enter/cycle_leave bracket the Present hook's XR and D3D11 span: while it holds them the MSW thread
 // cannot take the frame loop.
 void set_mod_spacewarp(bool on);
+void set_msw_half_rate(bool on);   // the half-rate lock (default on): the game at half the refresh, every other slot synthesized
+bool msw_half_rate();
 bool mod_spacewarp();
 void cycle_enter();
 void cycle_leave();

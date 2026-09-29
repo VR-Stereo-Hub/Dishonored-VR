@@ -123,6 +123,15 @@ std::atomic<float> g_mswLead{1.15f};         // periods after the last xrWaitFra
 std::atomic<int64_t> g_lastWaitRetUs{0};     // dvr::clock of the last xrWaitFrame return, any thread
 std::atomic<int64_t> g_gameNaturalUs{0};     // EMA of the game's own frame time (see above)
 std::atomic<bool> g_mswEngaged{false};
+// HALF-RATE LOCK (default): what Virtual Desktop's SSW does. Run 10 measured the adaptive policy: the game ran
+// 76-93 presents/s with 36-60 slots/s synthesized, 118-136 in all, never 144 - MSW's own GPU cost slowed the game
+// by about 1.2 ms a frame, and the engage/stand-by decision flapped about once a second at the boundary. With the
+// lock, after every real frame the thread takes the NEXT slot at once: the game settles at half the refresh (72 at
+// 144 Hz), every other slot is synthesized, and the game gets 13.9 ms per frame instead of racing the display.
+// The missed-slot filler stays on underneath (a game below half rate). `vrpace msw half on|off`, [VR]
+// ModSpacewarpHalfRate, F10.
+std::atomic<bool> g_mswHalfRate{true};
+uint64_t g_mswEngageChangeMs = 0;            // the adaptive policy's last change (a 3 s dwell against flapping)
 int64_t g_hookEnterUs = 0, g_hookPrevEnterUs = 0, g_hookBlockedUs = 0, g_hookPrevBlockedUs = 0;   // Present thread
 std::atomic<uint32_t> g_mswFrames{0}, g_mswSynthEyes{0}, g_mswCopyEyes{0}, g_mswBusy{0}, g_mswNotReady{0},
     g_mswFails{0};
@@ -6431,12 +6440,53 @@ DWORD WINAPI msw_thread_proc(void*) {
     while (g_mswRun.load(std::memory_order_relaxed)) {
         const int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
         if (periodNs <= 0) { sleep_us(5000); continue; }
-        {   // whether: the game's own frame time against the period, with hysteresis
+        {   // the 3 s rate line, whichever path the loop takes
+            const uint64_t t = GetTickCount64();
+            if (t >= nextLog) {
+                const uint32_t fr = g_mswFrames.load(), sy = g_mswSynthEyes.load(), cp = g_mswCopyEyes.load(),
+                               bz = g_mswBusy.load(), nr = g_mswNotReady.load(), fl = g_mswFails.load(),
+                               en = g_endFrames.load(std::memory_order_relaxed);
+                const double secs = (t - nextLog + 3000) / 1000.0;
+                XRLOG("msw: %.0f slots/s synthesized beside %.0f/s from the game (%.0f Hz display) | eyes rebuilt %u, copied %u | "
+                      "skipped: game present in progress %u, not ready %u (last: %s), failures %u | hands %s (grips matched to "
+                      "images %u, unmatched %u; hand-held quads moved %u)",
+                      (fr - lastFrames) / secs, (en - lastEnds) / secs, periodNs > 0 ? 1e9 / periodNs : 0.0,
+                      sy - lastSynth, cp - lastCopy, bz - lastBusy, nr - lastNR, g_mswNotReadyWhy[0] ? g_mswNotReadyWhy : "none",
+                      fl - lastFails, dvr::afw::synth_hands() ? "follow" : "held", g_mswHandHit, g_mswHandMiss, g_mswQuadsMoved);
+                lastFrames = fr; lastSynth = sy; lastCopy = cp; lastBusy = bz; lastNR = nr; lastFails = fl; lastEnds = en;
+                nextLog = t + 3000;
+            }
+        }
+        if (g_mswHalfRate.load(std::memory_order_relaxed)) {
+            // The lock: a real frame just ended -> take the next slot now (the game renders its next frame
+            // meanwhile, outside the frame loop, and its own wait lands on the slot after).
+            static uint32_t seenEnds = 0;
+            const uint32_t ends = g_endFrames.load(std::memory_order_relaxed);
+            if (!g_mswEngaged.exchange(true)) XRLOG("msw: ENGAGED - half-rate lock (every slot after a real frame is synthesized)");
+            if (ends != seenEnds) {
+                seenEnds = ends;
+                if (g_cycleMx.try_lock()) {
+                    if (const char* no = msw_blocker()) {
+                        g_mswNotReady.fetch_add(1, std::memory_order_relaxed);
+                        g_mswNotReadyWhy = no;
+                    } else {
+                        msw_cycle();
+                    }
+                    g_cycleMx.unlock();
+                } else {
+                    g_mswBusy.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        }
+        if (!g_mswHalfRate.load(std::memory_order_relaxed)) {   // whether: the game's own frame time, with hysteresis
             const int64_t nat = g_gameNaturalUs.load(std::memory_order_relaxed);
             const double ratio = nat > 0 ? (double)nat * 1000.0 / (double)periodNs : 0.0;
             const bool was = g_mswEngaged.load(std::memory_order_relaxed);
-            const bool now = was ? ratio > 1.15 : ratio > 1.3;
+            bool now = was ? ratio > 1.15 : ratio > 1.3;
+            const uint64_t tNow = GetTickCount64();
+            if (now != was && tNow - g_mswEngageChangeMs < 3000) now = was;   // dwell: MSW's own cost moves the ratio
             if (now != was) {
+                g_mswEngageChangeMs = tNow;
                 g_mswEngaged.store(now, std::memory_order_relaxed);
                 XRLOG("msw: %s - the game's own frame time is %.2f ms, %.2f periods (engages over 1.30, disengages under "
                       "1.15)%s", now ? "ENGAGED" : "standing by", nat / 1000.0, ratio,
@@ -6447,7 +6497,11 @@ DWORD WINAPI msw_thread_proc(void*) {
         const int64_t last = g_lastWaitRetUs.load(std::memory_order_relaxed);
         const int64_t due = last + (int64_t)(periodNs / 1000 * g_mswLead.load());
         const int64_t now = (int64_t)(dvr::clock::now_ms() * 1000.0);
-        if (now < due) sleep_us(due - now);
+        if (now < due) {
+            // Under the lock, wake early to catch the next real frame's end; the missed-slot fill waits for `due`.
+            sleep_us(g_mswHalfRate.load(std::memory_order_relaxed) ? (due - now < 300 ? due - now : 300) : due - now);
+            if (g_mswHalfRate.load(std::memory_order_relaxed) && (int64_t)(dvr::clock::now_ms() * 1000.0) < due) continue;
+        }
         if (!g_mswRun.load(std::memory_order_relaxed)) break;
         if (g_lastWaitRetUs.load(std::memory_order_relaxed) != last) continue;   // a frame loop woke meanwhile: re-arm
         if (!g_cycleMx.try_lock()) { g_mswBusy.fetch_add(1, std::memory_order_relaxed); sleep_us(500); continue; }
@@ -6459,21 +6513,6 @@ DWORD WINAPI msw_thread_proc(void*) {
         } else {
             msw_cycle();
             g_cycleMx.unlock();
-        }
-        const uint64_t t = GetTickCount64();
-        if (t >= nextLog) {
-            const uint32_t fr = g_mswFrames.load(), sy = g_mswSynthEyes.load(), cp = g_mswCopyEyes.load(),
-                           bz = g_mswBusy.load(), nr = g_mswNotReady.load(), fl = g_mswFails.load(),
-                           en = g_endFrames.load(std::memory_order_relaxed);
-            const double secs = (t - nextLog + 3000) / 1000.0;
-            XRLOG("msw: %.0f slots/s synthesized beside %.0f/s from the game (%.0f Hz display) | eyes rebuilt %u, copied %u | "
-                  "skipped: game present in progress %u, not ready %u (last: %s), failures %u | hands %s (grips matched to "
-                  "images %u, unmatched %u; hand-held quads moved %u)",
-                  (fr - lastFrames) / secs, (en - lastEnds) / secs, periodNs > 0 ? 1e9 / periodNs : 0.0,
-                  sy - lastSynth, cp - lastCopy, bz - lastBusy, nr - lastNR, g_mswNotReadyWhy[0] ? g_mswNotReadyWhy : "none",
-                  fl - lastFails, dvr::afw::synth_hands() ? "follow" : "held", g_mswHandHit, g_mswHandMiss, g_mswQuadsMoved);
-            lastFrames = fr; lastSynth = sy; lastCopy = cp; lastBusy = bz; lastNR = nr; lastFails = fl; lastEnds = en;
-            nextLog = t + 3000;
         }
     }
     if (timer) CloseHandle(timer);
@@ -6505,6 +6544,15 @@ void msw_start() {
           "at their own poses (the Present hook owns the frame loop while it runs; the D3D11 context is multithread-protected)",
           (g_mswLead.load() - 1.0f) * 100.0f);
 }
+
+void set_msw_half_rate(bool on) {
+    if (g_mswHalfRate.exchange(on) != on) {
+        g_mswEngaged.store(false);
+        XRLOG("msw: half-rate lock %s", on ? "ON (the game at half the refresh, every other slot synthesized: like Virtual Desktop's SSW)"
+                                          : "off (only the slots the game misses are synthesized, while its frame time exceeds 1.3 periods)");
+    }
+}
+bool msw_half_rate() { return g_mswHalfRate.load(); }
 
 void set_mod_spacewarp(bool on) {
     if (g_mswWanted.exchange(on) != on)
@@ -6738,6 +6786,9 @@ void handle_pace_command(const char* args) {
         float lead = 0; int hg = 0;
         if (strncmp(rest, "extrap on", 9) == 0) dvr::afw::set_synth_extrapolate(true);
         else if (strncmp(rest, "extrap off", 10) == 0) dvr::afw::set_synth_extrapolate(false);
+        else if (strncmp(rest, "half on", 7) == 0) set_msw_half_rate(true);
+        else if (strncmp(rest, "half off", 8) == 0) set_msw_half_rate(false);
+        else if (sscanf_s(rest, "grid %d", &hg) == 1) { dvr::afw::set_synth_grid(hg); XRLOG("msw: seed grid %d", dvr::afw::synth_grid()); }
         else if (strncmp(rest, "hands on", 8) == 0) dvr::afw::set_synth_hands(true);
         else if (strncmp(rest, "hands off", 9) == 0) dvr::afw::set_synth_hands(false);
         else if (sscanf_s(rest, "handgen %d", &hg) == 1 && hg >= -2 && hg <= 2) {
@@ -7587,6 +7638,8 @@ void cycle_enter() {}
 void cycle_leave() {}
 void msw_tick() {}
 void set_mod_spacewarp(bool) {}
+void set_msw_half_rate(bool) {}
+bool msw_half_rate() { return false; }
 bool mod_spacewarp() { return false; }
 void set_depth_live(bool) {}
 bool depth_live() { return false; }
