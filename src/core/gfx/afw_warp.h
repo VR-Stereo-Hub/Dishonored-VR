@@ -40,6 +40,9 @@ struct ID3D11Texture2D;
 namespace dvr::afw {
 
 struct Pose { float q[4]; float p[3]; };   // OpenXR convention, LOCAL space, metres; q = x y z w
+// Where an image came from, for the diagnostics: its pose record, that record's camera writer, when the
+// camera was written and when the image was captured (GetTickCount64-style ms), and its DLSS jitter.
+struct CaptureMeta { uint32_t recId = 0; int writer = 0; double writeMs = 0, captureMs = 0; float jitter[2] = {0, 0}; uint32_t jitterDraws = 0; };
 
 // On by the AFW method; `afw warp on|off`. Off = the rotation-only held eye (the runtime's
 // pose-yaw fallback).
@@ -74,7 +77,8 @@ void set_world_scale(float uuPerM);
 // (pitch, yaw, roll in degrees); nullptr when the record has none.
 void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* frame,
                   uint32_t grabSerial, const Pose& pose, bool bodyOk, float bodyYawDeg,
-                  const Pose targets[2], const float* vp16, const float* c5, const float* rotator);
+                  const Pose targets[2], const float* vp16, const float* c5, const float* rotator,
+                  const CaptureMeta* meta);
 
 // RENDER thread, before the frame's layer is built: rebuild the held eye into `dst` (that eye's
 // acquired swapchain image, w x h). `fresh` is the eye captured this present and `freshSerial` the
@@ -92,6 +96,11 @@ bool has_held(int held);
 // The fallback after an acquire: the held image copied as it is (rotation-only, its own pose), or
 // the fresh one when the held eye has none.
 bool copy_held(ID3D11DeviceContext* ctx, int held, ID3D11Texture2D* dst);
+
+// Diagnostics: capture `presents` consecutive rebuilds (1..32) starting `delayMs` from now into a new
+// folder under `dumpsRoot` (`afw dump`, the F10 button). Game output, local only.
+void request_dump(int presents, uint32_t delayMs, const char* dumpsRoot, const char* who);
+const char* dump_status();
 
 void shutdown();
 

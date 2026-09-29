@@ -101,6 +101,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (!strcmp(sub, "stereo") && DvrOnOff(v, &b)) { dvr::afw::set_stereo(b, "the seam"); return true; }
         if (!strcmp(sub, "debug") && DvrOnOff(v, &b)) { dvr::afw::set_debug(b, "the seam"); return true; }
         if (!strcmp(sub, "matrices") && DvrOnOff(v, &b)) { dvr::afw::set_matrices(b, "the seam"); return true; }
+        if (!strcmp(sub, "dump")) { dvr::afw::request_dump(v[0] ? atoi(v) : 16, 0, dvr::paths::dumps_dir(), "the seam"); return true; }
         Log("afw: warp on|off (now %s) | stereo on|off (now %s, the hands from the fresh eye) | matrices on|off (now "
             "%s, walking in the held eye's world) | debug on|off (now %s, tint the held eye by source) | body <depth "
             "units> (now %.2f) | yaw on|off (now %s, the rotation-only fallback) - the method is `stereo afw`, active "

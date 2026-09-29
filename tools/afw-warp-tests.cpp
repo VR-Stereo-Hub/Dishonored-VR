@@ -182,8 +182,8 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     const Rec mh = recordOf(s0, held0, o.mirrored, o.flipC5), mf = recordOf(s1, fresh1, o.mirrored, o.flipC5);
     const dvr::afw::Pose tg0[2] = {poseOf(held0), poseOf(right0)}, tg1[2] = {poseOf(held1), poseOf(fresh1)};
     if (!o.noHeld)
-        dvr::afw::note_capture(g.dev, g.ctx, 0, sc.ht, sh, poseOf(held0), true, (float)s0.bodyYawDeg, tg0, mh.vp, mh.c5, mh.rot);
-    dvr::afw::note_capture(g.dev, g.ctx, 1, sc.ft, sc.sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5, mf.rot);
+        dvr::afw::note_capture(g.dev, g.ctx, 0, sc.ht, sh, poseOf(held0), true, (float)s0.bodyYawDeg, tg0, mh.vp, mh.c5, mh.rot, nullptr);
+    dvr::afw::note_capture(g.dev, g.ctx, 1, sc.ft, sc.sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5, mf.rot, nullptr);
     return sc;
 }
 static void release(Scene& sc) {
@@ -343,6 +343,31 @@ int main() {
         const bool toggled = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, 1, 1, &out, &why);
         char d[128]; snprintf(d, sizeof(d), "this present %d, a later present with no capture %d, after a toggle %d", now, later, toggled);
         check("freshness: only this present's capture is rebuilt from", now && !later && !toggled, d);
+        release(sc);
+    }
+    {   // The diagnostic capture: two consecutive presents, every file present and the right size.
+        char root[MAX_PATH]; GetTempPathA(MAX_PATH, root);
+        strcat_s(root, "afw-dump-test");
+        CreateDirectoryA(root, nullptr);
+        const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);
+        auto hImg = image(still, h0, N, N), fImg = image(turn, f1, N, N);
+        Scene sc = capture(g, still, turn, Opt(), N, N, hImg, fImg);
+        dvr::afw::request_dump(2, 0, root, "test");
+        dvr::afw::Pose out{}; const char* why = nullptr;
+        for (int i = 0; i < 3; ++i) dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, 1, 1, &out, &why);
+        const char* st = dvr::afw::dump_status();
+        const char* dir = strstr(st, " in ") ? strstr(st, " in ") + 4 : "";
+        int ok = 0;
+        const char* names[5] = {"_fresh.raw", "_fresh_depth.raw", "_held.raw", "_held_depth.raw", "_rebuilt.raw"};
+        const long sizes[5] = {N * N * 16, N * N * 2, N * N * 16, N * N * 2, N * N * 16};
+        for (int p = 0; p < 2; ++p)
+            for (int k = 0; k < 5; ++k) {
+                char path[MAX_PATH]; snprintf(path, sizeof(path), "%s\\p%02d%s", dir, p, names[k]);
+                WIN32_FILE_ATTRIBUTE_DATA fa = {};
+                if (GetFileAttributesExA(path, GetFileExInfoStandard, &fa) && (long)fa.nFileSizeLow == sizes[k]) ++ok;
+            }
+        char d[300]; snprintf(d, sizeof(d), "%d of 10 files with the right size | status: %s", ok, st);
+        check("diagnostic capture writes both presents", ok == 10 && !strncmp(st, "done", 4), d);
         release(sc);
     }
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.

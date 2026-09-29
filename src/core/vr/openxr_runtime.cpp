@@ -4614,12 +4614,16 @@ void on_present_end(ID3D11Texture2D* frame) {
                                         }
                                         const bool vpOk = rec.renderVpOk && rec.renderPosOk;
                                         const float rotator[3] = {rec.cam.pitchDeg, rec.cam.yawDeg, rec.cam.rollDeg};
+                                        dvr::afw::CaptureMeta cm;
+                                        cm.recId = rec.id; cm.writer = rec.cam.writer; cm.writeMs = rec.cam.writeMs;
+                                        cm.captureMs = MaimNowMs();   // the camera write clock (dvr::clock), so the two subtract
+                                        cm.jitter[0] = rec.jitter[0]; cm.jitter[1] = rec.jitter[1]; cm.jitterDraws = rec.jitterDraws;
                                         dvr::afw::note_capture(g_device, g_context, srEye, backbuffer,
                                                                dvr::capture::delivered_serial(), pose,
                                                                rec.cam.bodyOk, rec.cam.bodyYawDeg, tg,
                                                                vpOk ? rec.renderVp : nullptr,
                                                                vpOk ? rec.renderPos : nullptr,
-                                                               rec.cam.ok ? rotator : nullptr);
+                                                               rec.cam.ok ? rotator : nullptr, &cm);
                                     }
                                     g_eyePoseGen[srEye] = rec.track.gen;
                                     g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag

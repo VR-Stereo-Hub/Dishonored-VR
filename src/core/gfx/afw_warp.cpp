@@ -125,13 +125,13 @@ const char* kSrc =
     "float2 nearH(float2 s) { float2 b = s; float bz = zH(s); float2 o = prm4.zw;\n"
     "    float2 c[4] = { s + float2(o.x, 0), s - float2(o.x, 0), s + float2(0, o.y), s - float2(0, o.y) };\n"
     "    [unroll] for (int k = 0; k < 4; ++k) { float z = zH(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
-    // Debug tint: green fresh near (hands now), none held world, blue fresh world, red last resort,
-    // yellow the temporal body hypothesis (no fresh depth).
+    // Debug tint: green fresh near (hands now), none held world, blue fresh world, red the held fallback,
+    // magenta the disocclusion fill, yellow the temporal body hypothesis (no fresh depth).
     "float4 shade(Texture2D tex, float2 uv, int cls) {\n"
     "    float3 c = tex.SampleLevel(linSamp, uv, 0).rgb;\n"
     "    if (prm3.z > 0.5) {\n"
     "        float3 k = cls == 0 ? float3(0.5, 1.0, 0.5) : cls == 2 ? float3(0.5, 0.6, 1.0) : cls == 3 ? float3(1.0, 0.4, 0.4)\n"
-    "                 : cls == 4 ? float3(1.0, 1.0, 0.4) : float3(1.0, 1.0, 1.0);\n"
+    "                 : cls == 4 ? float3(1.0, 1.0, 0.4) : cls == 5 ? float3(1.0, 0.4, 1.0) : float3(1.0, 1.0, 1.0);\n"
     "        c *= k;\n"
     "    }\n"
     "    return float4(c, 1.0);\n"
@@ -148,7 +148,7 @@ const char* kSrc =
     "            if (tp) { float4 b = seedH.SampleLevel(pointSamp, p, 0); if (b.a > 0 && b.z > best) { best = b.z; bs = b.xy; fromF = false; } }\n"
     "        }\n"
     "    }\n"
-    "    return fromF ? shade(freshTex, bs, 3) : shade(heldTex, bs, 3);\n"
+    "    return fromF ? shade(freshTex, bs, 5) : shade(heldTex, bs, 5);\n"
     "}\n"
     "float4 psmain(VSOut i) : SV_Target {\n"
     "    float2 t = i.uv;\n"
@@ -228,6 +228,7 @@ struct Held {
     bool vpOk = false;
     float rot[3] = {};                       // the camera rotator it was drawn with (pitch, yaw, roll, degrees)
     bool rotOk = false;
+    CaptureMeta meta{};                      // the pose record's identity, writer, write time and DLSS jitter
     // Its own depth, taken from the shared ring at capture (the ring moves on; this does not).
     ID3D11Texture2D* dtex = nullptr;
     ID3D11ShaderResourceView* dsrv = nullptr;
@@ -613,15 +614,30 @@ int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg,
     double I[3][3];
     if (!axes_of(lt, fwd, right, up) || !axes_of(lh, hf, hr, hu) || !inverse_rows(lh, I)) { ++g_mtxNoVp; return kNoVp; }
     // Check 1, the basis: each matrix against its own rotator.
-    double basisWorst = 0;
+    double basisWorst = 0, ang[2][3] = {};
     for (int k = 0; k < 2; ++k) {
         const Held& e = k ? src : fr;
         const double* f = k ? hf : fwd; const double* r = k ? hr : right; const double* u = k ? hu : up;
         const dvr::clarity::Basis b = dvr::clarity::basis_from_rotator(e.rot[0], e.rot[1], e.rot[2]);
-        basisWorst = fmax(basisWorst, fmax(axis_angle(f, b.f), fmax(axis_angle(r, b.r), axis_angle(u, b.u))));
+        ang[k][0] = axis_angle(f, b.f); ang[k][1] = axis_angle(r, b.r); ang[k][2] = axis_angle(u, b.u);
+        basisWorst = fmax(basisWorst, fmax(ang[k][0], fmax(ang[k][1], ang[k][2])));
     }
     if (basisWorst > g_mtxBasisMax) g_mtxBasisMax = (float)basisWorst;
-    if (basisWorst > 1.0) { ++g_mtxBasis; return kBasis; }
+    if (basisWorst > 1.0) {
+        ++g_mtxBasis;
+        // Name the disagreement: which record, which axis, the rotator against the angles the matrix implies
+        // (UE: yaw from forward x/y, pitch from forward z, roll from right z), and whose camera it was.
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+            "afw/warp: basis refused %.2f deg | fresh rec %u writer %d written %.1f ms before its capture: fwd %.2f right %.2f "
+            "up %.2f deg, rotator p/y/r %.2f/%.2f/%.2f, matrix p/y/r %.2f/%.2f/%.2f | held rec %u writer %d: fwd %.2f right %.2f "
+            "up %.2f deg, rotator p/y/r %.2f/%.2f/%.2f, matrix p/y/r %.2f/%.2f/%.2f",
+            basisWorst, fr.meta.recId, fr.meta.writer, fr.meta.captureMs - fr.meta.writeMs, ang[0][0], ang[0][1], ang[0][2],
+            fr.rot[0], fr.rot[1], fr.rot[2], asin(fwd[2]) * 57.29578, atan2(fwd[1], fwd[0]) * 57.29578,
+            asin(-right[2]) * 57.29578, src.meta.recId, src.meta.writer, ang[1][0], ang[1][1], ang[1][2],
+            src.rot[0], src.rot[1], src.rot[2], asin(hf[2]) * 57.29578, atan2(hf[1], hf[0]) * 57.29578,
+            asin(-hr[2]) * 57.29578);
+        return kBasis;
+    }
     // The eye offset: tracking (fresh eye -> held eye) into the fresh XR view, then into the game world.
     auto to_world = [&](const double tr[3], double out[3]) {
         double ev[3]; rot(fr.pose, tr, ev, true);
@@ -781,7 +797,7 @@ void set_world_scale(float uuPerM) { if (uuPerM >= 1.0f && uuPerM <= 400.0f) g_w
 
 void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* frame,
                   uint32_t grabSerial, const Pose& pose, bool bodyOk, float bodyYawDeg, const Pose targets[2],
-                  const float* vp16, const float* c5, const float* rotator) {
+                  const float* vp16, const float* c5, const float* rotator, const CaptureMeta* meta) {
     if (!g_on.load() || eye < 0 || eye > 1 || !dev || !ctx || !frame) return;
     sync_epoch();
     if (!init(dev)) return;
@@ -816,11 +832,129 @@ void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Te
     if (h.vpOk) { memcpy(h.vp, vp16, sizeof(h.vp)); memcpy(h.c5, c5, sizeof(h.c5)); }
     h.rotOk = rotator != nullptr;
     if (h.rotOk) memcpy(h.rot, rotator, sizeof(h.rot));
+    h.meta = meta ? *meta : CaptureMeta{};
     h.seq = ++g_seq;
     h.depthOk = false;
     h.valid = true;
     if (snapshot_depth(dev, ctx, h)) ++g_snaps;   // a miss is retried at the warp, this same present
 }
+
+// ---- the diagnostic capture (`afw dump`, F10): a bounded run of consecutive presents -----------------
+// Per present: the fresh eye's image and depth (the native frame), the held eye's image and depth, the
+// rebuilt held eye, and both records. Raw rows, tightly packed, with a text header per present. Written
+// to the data dir's dumps\ only on request (game output: never committed). Each present stalls the
+// render thread on the readbacks - the capture is announced and bounded.
+namespace {
+std::atomic<int> g_dumpLeft{0};
+std::atomic<uint64_t> g_dumpAtMs{0};
+char g_dumpDir[MAX_PATH] = "";
+uint32_t g_dumpIndex = 0;
+char g_dumpStatus[160] = "no capture yet";
+
+uint32_t bytes_per_pixel(DXGI_FORMAT f) {
+    switch (f) {
+        case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+        case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: return 4;
+        case DXGI_FORMAT_R16_FLOAT: return 2;
+        case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return 8;
+        case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT: return 16;
+        default: return 0;
+    }
+}
+bool dump_texture(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* t, const char* path, FILE* meta, const char* key) {
+    if (!t) { fprintf(meta, "%s=absent\n", key); return false; }
+    D3D11_TEXTURE2D_DESC d; t->GetDesc(&d);
+    const uint32_t bpp = bytes_per_pixel(d.Format);
+    if (!bpp || d.SampleDesc.Count != 1) { fprintf(meta, "%s=unsupported fmt %u samples %u\n", key, (unsigned)d.Format, d.SampleDesc.Count); return false; }
+    D3D11_TEXTURE2D_DESC sd = d;
+    sd.MipLevels = 1; sd.ArraySize = 1; sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ; sd.MiscFlags = 0;
+    ID3D11Texture2D* st = nullptr;
+    if (FAILED(dev->CreateTexture2D(&sd, nullptr, &st)) || !st) { fprintf(meta, "%s=staging refused\n", key); return false; }
+    ctx->CopySubresourceRegion(st, 0, 0, 0, 0, t, 0, nullptr);
+    D3D11_MAPPED_SUBRESOURCE m = {};
+    bool ok = false;
+    if (SUCCEEDED(ctx->Map(st, 0, D3D11_MAP_READ, 0, &m))) {
+        FILE* f = nullptr;
+        if (!fopen_s(&f, path, "wb") && f) {
+            for (uint32_t y = 0; y < d.Height; ++y) fwrite((const uint8_t*)m.pData + (size_t)y * m.RowPitch, bpp, d.Width, f);
+            fclose(f); ok = true;
+        }
+        ctx->Unmap(st, 0);
+    }
+    st->Release();
+    fprintf(meta, "%s=%s %ux%u fmt %u bpp %u\n", key, ok ? "ok" : "write failed", d.Width, d.Height, (unsigned)d.Format, bpp);
+    return ok;
+}
+void meta_pose(FILE* f, const char* key, const Pose& p) {
+    fprintf(f, "%s=%.7f %.7f %.7f %.7f | %.6f %.6f %.6f\n", key, p.q[0], p.q[1], p.q[2], p.q[3], p.p[0], p.p[1], p.p[2]);
+}
+void meta_record(FILE* f, const char* who, const Held& e) {
+    fprintf(f, "%s.serial=%u\n%s.seq=%llu\n%s.rec=%u\n%s.writer=%d\n%s.writeMs=%.3f\n%s.captureMs=%.3f\n", who, e.serial, who,
+            (unsigned long long)e.seq, who, e.meta.recId, who, e.meta.writer, who, e.meta.writeMs, who, e.meta.captureMs);
+    fprintf(f, "%s.jitter=%.5f %.5f draws %u\n%s.bodyOk=%d\n%s.bodyYaw=%.5f\n", who, e.meta.jitter[0], e.meta.jitter[1],
+            e.meta.jitterDraws, who, e.bodyOk ? 1 : 0, who, e.bodyYaw);
+    char k[48];
+    _snprintf_s(k, sizeof(k), _TRUNCATE, "%s.pose", who); meta_pose(f, k, e.pose);
+    _snprintf_s(k, sizeof(k), _TRUNCATE, "%s.target0", who); meta_pose(f, k, e.targets[0]);
+    _snprintf_s(k, sizeof(k), _TRUNCATE, "%s.target1", who); meta_pose(f, k, e.targets[1]);
+    fprintf(f, "%s.vpOk=%d\n%s.vp=", who, e.vpOk ? 1 : 0, who);
+    for (int i = 0; i < 16; ++i) fprintf(f, "%.9g%s", e.vp[i], i < 15 ? " " : "\n");
+    fprintf(f, "%s.c5=%.4f %.4f %.4f\n%s.rotOk=%d\n%s.rot=%.5f %.5f %.5f\n", who, e.c5[0], e.c5[1], e.c5[2], who, e.rotOk ? 1 : 0,
+            who, e.rot[0], e.rot[1], e.rot[2]);
+}
+void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, const Held& fr, bool haveH, int held,
+               ID3D11Texture2D* dst, uint32_t w, uint32_t h, float tanH, float tanV, float yawDeg, bool useS, bool useT,
+               int verdict, const Pose& tgt) {
+    if (g_dumpLeft.load() <= 0 || GetTickCount64() < g_dumpAtMs.load() || !g_dumpDir[0]) return;
+    const uint32_t n = g_dumpIndex++;
+    char base[MAX_PATH], path[MAX_PATH];
+    _snprintf_s(base, sizeof(base), _TRUNCATE, "%s\\p%02u", g_dumpDir, n);
+    _snprintf_s(path, sizeof(path), _TRUNCATE, "%s.txt", base);
+    FILE* meta = nullptr;
+    if (fopen_s(&meta, path, "w") || !meta) { g_dumpLeft.store(0); DVR_WARN("afw/dump: cannot write %s - capture stopped", path); return; }
+    fprintf(meta, "present=%u\nheld=%d\nfresh=%d\nhaveHeld=%d\nuseFresh=%d\nuseHeld=%d\nmatrixVerdict=%d\nyawDeg=%.5f\n"
+                  "tanH=%.7f\ntanV=%.7f\ntarget=%ux%u\nmPerUnit=%.6f\nuuPerUnit=%.3f\nworldScale=%.4f\nbodyUnits=%.4f\n"
+                  "debug=%d\nstereo=%d\nmatrices=%d\n",
+            n, held, 1 - held, haveH ? 1 : 0, useS ? 1 : 0, useT ? 1 : 0, verdict, yawDeg, tanH, tanV, w, h,
+            dvr::clarity::depth_scale() / g_worldScale.load(), dvr::clarity::depth_scale(), g_worldScale.load(),
+            g_bodyDepth.load(), g_debug.load() ? 1 : 0, g_stereo.load() ? 1 : 0, g_matrices.load() ? 1 : 0);
+    meta_pose(meta, "target", tgt);
+    meta_record(meta, "fresh", fr);
+    if (haveH) meta_record(meta, "heldrec", src);
+    _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_fresh.raw", base);      dump_texture(dev, ctx, fr.tex, path, meta, "freshColor");
+    _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_fresh_depth.raw", base); dump_texture(dev, ctx, fr.dtex, path, meta, "freshDepth");
+    if (haveH) {
+        _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held.raw", base);      dump_texture(dev, ctx, src.tex, path, meta, "heldColor");
+        _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held_depth.raw", base); dump_texture(dev, ctx, src.dtex, path, meta, "heldDepth");
+    }
+    _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_rebuilt.raw", base);    dump_texture(dev, ctx, dst, path, meta, "rebuilt");
+    fclose(meta);
+    const int left = g_dumpLeft.fetch_sub(1) - 1;
+    if (left > 0) _snprintf_s(g_dumpStatus, sizeof(g_dumpStatus), _TRUNCATE, "capturing: %u of %u presents", n + 1, n + 1 + (uint32_t)left);
+    else _snprintf_s(g_dumpStatus, sizeof(g_dumpStatus), _TRUNCATE, "done: %u presents in %s", n + 1, g_dumpDir);
+    if (left <= 0) DVR_INFO("afw/dump: %u consecutive presents written to %s (native fresh eye, held eye, rebuilt held eye, "
+                            "both depths and both records per present)", n + 1, g_dumpDir);
+}
+} // namespace
+
+void request_dump(int presents, uint32_t delayMs, const char* dumpsRoot, const char* who) {
+    if (presents <= 0 || presents > 32 || !dumpsRoot || !dumpsRoot[0]) {
+        DVR_WARN("afw/dump: refused (%d presents, root %s) - 1..32 presents and a dumps folder", presents, dumpsRoot ? dumpsRoot : "none");
+        return;
+    }
+    SYSTEMTIME t; GetLocalTime(&t);
+    _snprintf_s(g_dumpDir, sizeof(g_dumpDir), _TRUNCATE, "%s\\afw-%04u%02u%02u-%02u%02u%02u", dumpsRoot, t.wYear, t.wMonth, t.wDay,
+                t.wHour, t.wMinute, t.wSecond);
+    CreateDirectoryA(g_dumpDir, nullptr);
+    g_dumpIndex = 0;
+    g_dumpAtMs.store(GetTickCount64() + delayMs);
+    g_dumpLeft.store(presents);
+    _snprintf_s(g_dumpStatus, sizeof(g_dumpStatus), _TRUNCATE, "armed: %d presents in %.1f s", presents, delayMs / 1000.0);
+    DVR_INFO("afw/dump: armed (%s) - %d consecutive presents from %.1f s from now into %s; each stalls the frame on its "
+             "readbacks (about 80 MB per present)", who ? who : "?", presents, delayMs / 1000.0, g_dumpDir);
+}
+const char* dump_status() { return g_dumpStatus; }
 
 bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh, uint32_t freshSerial,
                ID3D11Texture2D* dst, uint32_t w, uint32_t h, float tanH, float tanV, Pose* outPose, const char** why) {
@@ -938,6 +1072,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     g_yawAbs += fabsf(d);
     if (fabsf(d) > g_yawMax) g_yawMax = fabsf(d);
     if (outPose) *outPose = tgt;
+    dump_tick(dev, ctx, src, fr, haveH, held, dst, w, h, tanH, tanV, d, useS, useT, verdict, tgt);
     return true;
 }
 

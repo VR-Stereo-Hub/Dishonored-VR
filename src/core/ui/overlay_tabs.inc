@@ -1163,6 +1163,13 @@ static void OvlTabDisplay()
                    "Stops moving things doubling between the eyes. AER only.");
             ImGui::EndDisabled();
             ImGui::TextDisabled("Active: %s", dvr::stereo::active_name());
+            if (isAfw) {
+                // VR-39: the diagnostic capture - close this panel after pressing and hold the pose to be captured.
+                if (dvr::ovl::button("Capture AFW frames for diagnosis")) dvr::afw::request_dump(16, 5000, dvr::paths::dumps_dir(), "F10");
+                OvlTip("Starts 5 seconds after you press it: close this panel and hold still (hands in view). Saves 16 "
+                       "frames to the mod's dumps folder for analysis; the game hitches for about a second while it saves.");
+                ImGui::TextDisabled("Capture: %s", dvr::afw::dump_status());
+            }
         }
     }
     if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {

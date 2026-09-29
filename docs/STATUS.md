@@ -1,3 +1,20 @@
+## 2026-09-28 (AFW run 5): hands jitter, grate dots - evidence build, plan reviewed
+
+Run 5 on `v1.0.1-164-g4b8e7a565`:
+- motion is smooth and the micro-stutter is gone;
+- still hands and weapon jitter as a smaller copy inside a full-size outline, near objects jitter a
+  little, and grate holes flicker white.
+
+The fix plan (`docs/dishonored/PLAN-afw-run5.md`) went through an adversarial review first. Its
+discriminators could not separate the candidate causes, jitter was off in the run, and it changed too
+many render behaviours in one build. The corrected order: evidence first, offline classification, then
+one default-off correction per headset question.
+
+Built: `afw dump [n]` and the F10 button "Capture AFW frames for diagnosis" (16 consecutive presents,
+from 5 s after the press, into the data dir's `dumps\`, local only). Also a detailed basis-refusal line
+and a separate fill tint. The host test is 24/24, including the capture's files; it also caught a crash
+in the capture's status line before shipping.
+
 ## 2026-09-28 (AFW review): an adversarial review of 145c03b5d, and the rebuild reworked
 
 An adversarial review of the two-source rebuild found six faults, each reproduced on the host:

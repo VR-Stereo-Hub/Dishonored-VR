@@ -1,3 +1,40 @@
+## 2026-09-28: AFW run 5 - hands shrink and jitter while still, grate holes flicker white (OPEN, evidence build)
+
+Surface: the held eye under `stereo afw`, build `v1.0.1-164-g4b8e7a565`, 144 Hz, DLAA, DLSS projection
+jitter OFF (`DlssJitter=0`).
+
+Reported:
+- the hands and weapon jitter constantly with nothing moving: a smaller copy inside a jittering
+  full-size outline;
+- near world objects jitter a little;
+- grate holes flicker as an array of white dots, with light lines at some edges;
+- worse without DLSS;
+- motion otherwise smooth, micro-stutter gone.
+
+Measured:
+- every present rebuilt from both sources, 0 fallbacks;
+- basis-check refusals in bursts (up to 77 of 424, worst 6.73 deg), each a one-present switch of the
+  world model;
+- rebuild GPU cost 1.75-2.57 ms mean, 5.39 ms max.
+
+Leading reading (NOT established): each eye alternates between its own true render and a rebuild whose
+near content comes from the other eye through depth, so any reprojection error of near content flashes
+at 72 Hz.
+
+An adversarial review of the fix plan (`PLAN-afw-run5.md`, section 4) showed the planned discriminators
+could not tell a depth gain, an eye offset and a foreground projection apart. It RETRACTED these parts
+of the plan:
+- jitter as a run-5 cause;
+- world-model hysteresis;
+- a live automatic gain;
+- pixel-class pinning;
+- the rebuild-to-rebuild flicker metric.
+
+Evidence build `v1.0.1-165`: `afw dump` / the F10 capture button writes 16 consecutive presents (native,
+held and rebuilt images, both depths, both full records); the basis refusal names its axis and records;
+the fill has its own debug tint (magenta). No rendering change. Next: offline classification from two
+captures (still hands with the grate, DLAA and upscaler off), then one default-off correction at a time.
+
 ## 2026-09-28: AFW rebuild - adversarial review findings, fixed (host-verified)
 
 Surface: the held eye under `stereo afw`. Build `145c03b5d` (the two-source rebuild), not yet
