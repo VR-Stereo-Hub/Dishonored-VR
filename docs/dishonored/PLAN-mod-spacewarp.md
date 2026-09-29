@@ -78,6 +78,31 @@ own draws with `Enter`/`Leave` and restores the pipeline state it touched. XR ca
 - **Not yet run:** the thread and the frame-loop handoff. The simulator can answer "does it run, fill the
   slots and never go black" without a headset; that launch needs a yes.
 
+## 3b. Run 9 - the first run against a runtime (2026-09-29, build v1.0.1-173)
+
+**MEASURED.**
+- The thread ran for about 20 s: no crash, no failure, no black frame, 0 refusals.
+- It throttled the game. Before MSW the game made 106-135 presents/s (DLAA off). With MSW on:
+  - `msw: 68 slots/s synthesized beside 76/s from the game`;
+  - `70 beside 71`;
+  - `72 beside 72`.
+- Cause: the thread filled any slot with no frame ended for 0.75 of a period (5.2 ms at 144 Hz). A game
+  at 7.4-8.4 ms per frame always arrived just after, and then waited for the next slot.
+- One window read `15 synthesized beside 16/s from the game` with 3568 "game present in progress"
+  skips, just before MSW was turned off. Unexplained (the F10 panel open?).
+
+**FIX (host-untested; needs the next run).**
+- **Whether:** only while the game's own frame time exceeds 1.3 periods, going off again under 1.15.
+  The frame time is the Present hook's start-to-start interval, less the time it spent blocked on the
+  frame loop and in `xrWaitFrame`.
+- **When:** a slot is filled only when the runtime's wake-up for it (the last `xrWaitFrame` return plus
+  one period) has passed by 0.15 of a period and no game frame has begun.
+- `vrpace msw lead <1.0..1.8>` sets that margin.
+- New log lines: `msw: ENGAGED` and `msw: standing by`, each with the frame time in ms and in periods.
+
+**Prediction:** with DLAA off (about 120 fps) MSW stands by, and the game keeps its rate. With DLAA on
+(about 90 fps) it engages, and the game runs about 72 real plus 72 synthesized frames.
+
 ## 4. What to expect and how to read it
 
 - **Pacing:** a 90-capable game on a 144 Hz display is paced to the slots it can make. Expect roughly 72

@@ -111,7 +111,19 @@ uint32_t g_mswQuadN = 0;
 bool g_mswBankOk = false;                    // the last real frame was a stereo projection
 XrFovf g_mswFov{};
 XrRect2Di g_mswRect{};
-std::atomic<float> g_mswLead{0.75f};         // fill a slot when no frame ended for this share of a period
+// When to fill, and whether at all (run 9 measured the first version, which filled any slot with no frame ended
+// for 0.75 of a period: a game making 106-135 presents/s was throttled to exactly 72 real + 72 synthesized,
+// because every slot it would have filled a moment later was taken first).
+//   whether  only while the GAME'S OWN frame time (the Present hook's start-to-start interval less what it
+//            spent blocked on the frame loop and in xrWaitFrame) exceeds 1.3 periods; off again under 1.15.
+//            A game near the refresh rate misses the odd slot, which the runtime's reprojection covers.
+//   when     a slot is taken only after the runtime's wake-up for it (the last xrWaitFrame return + one
+//            period) has passed by `lead` - 1 of a period with no game frame begun.
+std::atomic<float> g_mswLead{1.15f};         // periods after the last xrWaitFrame return (1.0..1.8)
+std::atomic<int64_t> g_lastWaitRetUs{0};     // dvr::clock of the last xrWaitFrame return, any thread
+std::atomic<int64_t> g_gameNaturalUs{0};     // EMA of the game's own frame time (see above)
+std::atomic<bool> g_mswEngaged{false};
+int64_t g_hookEnterUs = 0, g_hookPrevEnterUs = 0, g_hookBlockedUs = 0, g_hookPrevBlockedUs = 0;   // Present thread
 std::atomic<uint32_t> g_mswFrames{0}, g_mswSynthEyes{0}, g_mswCopyEyes{0}, g_mswBusy{0}, g_mswNotReady{0},
     g_mswFails{0};
 const char* g_mswNotReadyWhy = "";
@@ -1290,6 +1302,7 @@ DWORD WINAPI pace_thread_proc(void*) {
             } else {
                 XrFrameWaitInfo fwi{XR_TYPE_FRAME_WAIT_INFO};
                 r = xrWaitFrame(s, &fwi, &fs);
+                g_lastWaitRetUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
             }
             if ((kind == kPaceReqFeedCycle || kind == kPaceReqFeedFinish) &&
                 XR_SUCCEEDED(r))
@@ -3279,6 +3292,7 @@ void on_present_begin() {
         g_frameState = {XR_TYPE_FRAME_STATE};
         uint64_t waitStart = GetTickCount64();
         r = xrWaitFrame(g_session, &fwi, &g_frameState);
+        g_lastWaitRetUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
         uint32_t waitMs = static_cast<uint32_t>(GetTickCount64() - waitStart);
         g_lastWaitMs.store(waitMs, std::memory_order_relaxed);
         // Telemetry for the disconnect stall: a healthy wait is one display
@@ -6217,8 +6231,25 @@ void set_pair_strict(bool on) {
 bool pair_strict() { return g_pairStrict.load(std::memory_order_relaxed); }
 
 // ---- VR-39 (Dishonored): the MSW thread ------------------------------------------------------------------
-void cycle_enter() { g_cycleMx.lock(); }
-void cycle_leave() { g_cycleMx.unlock(); }
+void cycle_enter() {
+    const int64_t t0 = (int64_t)(dvr::clock::now_ms() * 1000.0);
+    g_cycleMx.lock();
+    const int64_t t1 = (int64_t)(dvr::clock::now_ms() * 1000.0);
+    // The game's own frame time: the interval since the last hook, less what that hook spent blocked.
+    if (g_hookPrevEnterUs) {
+        const int64_t natural = (t0 - g_hookPrevEnterUs) - g_hookPrevBlockedUs;
+        if (natural > 0 && natural < 200000) {
+            const int64_t was = g_gameNaturalUs.load(std::memory_order_relaxed);
+            g_gameNaturalUs.store(was ? (was * 7 + natural) / 8 : natural, std::memory_order_relaxed);
+        }
+    }
+    g_hookPrevEnterUs = t0;
+    g_hookBlockedUs = t1 - t0;
+}
+void cycle_leave() {
+    g_hookPrevBlockedUs = g_hookBlockedUs + (int64_t)g_phaseLastUs[kPhWait].load(std::memory_order_relaxed);
+    g_cycleMx.unlock();
+}
 
 // Why a slot cannot be synthesized now (nullptr = it can). Under g_cycleMx.
 const char* msw_blocker() {
@@ -6239,6 +6270,7 @@ void msw_cycle() {
     XrFrameState fs{XR_TYPE_FRAME_STATE};
     XrResult r = xrWaitFrame(g_session, &fwi, &fs);
     if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrWaitFrame failed: %s", res_str(r)); return; }
+    g_lastWaitRetUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
     XrFrameBeginInfo fbi{XR_TYPE_FRAME_BEGIN_INFO};
     r = xrBeginFrame(g_session, &fbi);
     if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrBeginFrame failed: %s", res_str(r)); return; }
@@ -6399,12 +6431,25 @@ DWORD WINAPI msw_thread_proc(void*) {
     while (g_mswRun.load(std::memory_order_relaxed)) {
         const int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
         if (periodNs <= 0) { sleep_us(5000); continue; }
-        const int64_t last = g_lastEndUs.load(std::memory_order_relaxed);
+        {   // whether: the game's own frame time against the period, with hysteresis
+            const int64_t nat = g_gameNaturalUs.load(std::memory_order_relaxed);
+            const double ratio = nat > 0 ? (double)nat * 1000.0 / (double)periodNs : 0.0;
+            const bool was = g_mswEngaged.load(std::memory_order_relaxed);
+            const bool now = was ? ratio > 1.15 : ratio > 1.3;
+            if (now != was) {
+                g_mswEngaged.store(now, std::memory_order_relaxed);
+                XRLOG("msw: %s - the game's own frame time is %.2f ms, %.2f periods (engages over 1.30, disengages under "
+                      "1.15)%s", now ? "ENGAGED" : "standing by", nat / 1000.0, ratio,
+                      now ? "" : ": the game fills nearly every slot, the runtime covers the odd miss");
+            }
+            if (!now) { sleep_us(5000); continue; }
+        }
+        const int64_t last = g_lastWaitRetUs.load(std::memory_order_relaxed);
         const int64_t due = last + (int64_t)(periodNs / 1000 * g_mswLead.load());
         const int64_t now = (int64_t)(dvr::clock::now_ms() * 1000.0);
         if (now < due) sleep_us(due - now);
         if (!g_mswRun.load(std::memory_order_relaxed)) break;
-        if (g_lastEndUs.load(std::memory_order_relaxed) != last) continue;   // a frame ended meanwhile: re-arm
+        if (g_lastWaitRetUs.load(std::memory_order_relaxed) != last) continue;   // a frame loop woke meanwhile: re-arm
         if (!g_cycleMx.try_lock()) { g_mswBusy.fetch_add(1, std::memory_order_relaxed); sleep_us(500); continue; }
         if (const char* no = msw_blocker()) {
             g_cycleMx.unlock();
@@ -6454,10 +6499,11 @@ void msw_start() {
     g_mswThread = CreateThread(nullptr, 0, msw_thread_proc, nullptr, 0, nullptr);
     if (!g_mswThread) { g_mswRun.store(false); XRLOG("msw: REFUSED - the thread did not start"); return; }
     SetThreadPriority(g_mswThread, THREAD_PRIORITY_ABOVE_NORMAL);
-    XRLOG("msw: ON - a slot with no frame ended for %.0f%% of a period is filled here: both eyes rebuilt from their own last "
+    XRLOG("msw: ON - while the game's own frame time exceeds 1.3 periods, a slot whose wake-up passed %.0f%% of a period ago "
+          "with no game frame begun is filled here: both eyes rebuilt from their own last "
           "image and depth at the slot's eye positions, the body's walk and turn extrapolated, the HUD and aim quads re-submitted "
           "at their own poses (the Present hook owns the frame loop while it runs; the D3D11 context is multithread-protected)",
-          g_mswLead.load() * 100.0f);
+          (g_mswLead.load() - 1.0f) * 100.0f);
 }
 
 void set_mod_spacewarp(bool on) {
@@ -6688,7 +6734,7 @@ void handle_pace_command(const char* args) {
                     "poseGenDelta %.2f deg | usage: vrpace lag 0|1|2",
                     g_poseLag.load(std::memory_order_relaxed), g_poseGenDeltaDeg.load(std::memory_order_relaxed));
     } else if (strcmp(verb, "msw") == 0) {
-        // VR-39: the mod's own spacewarp. `vrpace msw on|off`, `vrpace msw extrap on|off`, `vrpace msw lead <0.3..0.95>`.
+        // VR-39: the mod's own spacewarp. `vrpace msw on|off`, `vrpace msw extrap on|off`, `vrpace msw lead <1.0..1.8>`.
         float lead = 0; int hg = 0;
         if (strncmp(rest, "extrap on", 9) == 0) dvr::afw::set_synth_extrapolate(true);
         else if (strncmp(rest, "extrap off", 10) == 0) dvr::afw::set_synth_extrapolate(false);
@@ -6699,14 +6745,14 @@ void handle_pace_command(const char* args) {
             XRLOG("msw: the image's grips are matched %d generation(s) from its head sample (hits %u, misses %u so far)",
                   hg, g_mswHandHit, g_mswHandMiss);
         }
-        else if (sscanf_s(rest, "lead %f", &lead) == 1 && lead >= 0.3f && lead <= 0.95f) {
+        else if (sscanf_s(rest, "lead %f", &lead) == 1 && lead >= 1.0f && lead <= 1.8f) {
             g_mswLead.store(lead);
-            XRLOG("msw: lead %.2f of a period", lead);
+            XRLOG("msw: a slot is filled %.2f periods after the last xrWaitFrame return with no game frame begun", lead);
         } else if (strncmp(rest, "on", 2) == 0) set_mod_spacewarp(true);
         else if (strncmp(rest, "off", 3) == 0) set_mod_spacewarp(false);
         else
             XRLOG("msw: %s, thread %s, extrapolation %s, lead %.2f | usage: vrpace msw on|off, vrpace msw extrap on|off, "
-                  "vrpace msw lead <0.3..0.95>", g_mswWanted.load() ? "ON" : "off", g_mswThread ? "running" : "stopped",
+                  "vrpace msw lead <1.0..1.8>", g_mswWanted.load() ? "ON" : "off", g_mswThread ? "running" : "stopped",
                   dvr::afw::synth_extrapolate() ? "on" : "off", g_mswLead.load());
     } else if (strcmp(verb, "depth") == 0) {
         // VR-39: the depth layer's live A/B (the extension itself is [VR] SubmitDepth, at instance creation).
