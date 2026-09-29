@@ -1345,6 +1345,41 @@ path. The runtime layer stays physical (the recenter / panel chord is resolved t
 pointer and the thumbrest D-pad modifier stay physical on purpose. The game's own
 `DishonoredInput.ini` is not the route: the game rewrites it at exit and the mod's systems would
 not know the mapping. Details: `docs/dishonored/CONTROLLER_BINDS.md`.
+### 2026-09-29: the contact sword asks the world's line check directly, not through ProcessEvent (VR-173)
+
+The held blade is traced with the function the game's own script-callable trace runs
+(`kWorldLineCheck`, `patterns.h`), called the way that thunk calls it, on the script lane. The
+route every other outbound call takes, ProcessEvent, was built first and cannot work: the engine
+leaves ProcessEvent at once for a function that carries a native index, and `Actor.Trace` is
+number 277. The direct call is the second in the mod and is held to the rule the first set: the
+target's first 24 bytes, the thunk's world load and the thunk's call are verified at first use,
+and the address is tied to the NAME by finding the function object called `Actor.Trace` and
+requiring it to hold the thunk. Any mismatch is a refusal that is kept, and the sword then runs by
+edge rules. Nothing is written to the engine. Derivation: `docs/dishonored/ENGINE_NOTES.md`.
+
+### 2026-09-29: the blade is a palm-frame constant, measured once, and it follows the DRAWN hand (VR-173)
+
+The sword's blade is measured from its own drawn mesh while the body is at rest and then kept as
+two points in the palm frame. It is not read from a socket (the component matrix is 11 degrees off
+the draw) and not re-measured per frame (at rest and in physical swings the live tip is within
+0.0000 m and 0.03 degrees of the constant; while the game plays a clip on the hand it is up to
+1.45 m away, and that distance is what tells the two apart). It is carried into the world through
+the pose the DRAW uses, so a contact is where the player sees the blade. The cost is one hand
+sample of latency (11 ms) against the controller's own pose.
+
+### 2026-09-29: the contact detector falls back to the hand, after a pause in which nobody decides (VR-173)
+
+`[Melee] Detector=contact` has three owners, settled per sample and named in the log: the blade
+(a usable answer about the blade exists), nobody (the answer went missing less than 250 ms ago),
+the hand (no answer for 250 ms, or never one: edge rules). Falling back to edge is fail soft: a
+broken blade reading leaves the sword that ships. The pause exists because without it a single
+dropped sample inside a swing handed that swing to the hand, whose speed was already over the edge
+threshold, and an air swing attacked. While the detector is in use it holds a standing request
+that measures and traces the blade whatever `[Blade] Measure` and `Trace` say, so the detector is
+the player's only switch and the two instruments stay instruments. The decision core stays pure
+(`swing_core.h`): the engine's answer goes in with the sample as three fields, and the adapter
+owns which classes count as a target.
+
 ## 2026-09-27: native markers bypass temporal reconstruction
 
 Decision: compose classified native markers after DLSS/FSR, at output resolution,

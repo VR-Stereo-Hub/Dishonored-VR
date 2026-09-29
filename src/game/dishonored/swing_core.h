@@ -7,7 +7,7 @@
 // exactly the code the headset does. Everything that knows the game (the gates,
 // the trigger pulse, the haptic, the log) lives in the adapter, melee.cpp.
 //
-// Three detectors share one arm latch and one cooldown:
+// Four detectors share one arm latch and one cooldown:
 //
 //   kEdge     the feel of the sibling BioShock mod's wrench swing. Raw 2-sample
 //             speed, the head's own movement subtracted, and the attack fires the
@@ -28,6 +28,16 @@
 //             forward, and only while the adapter says it is armed (sneaking).
 //             The game has no separate input for the kill; it is the attack in
 //             context, so a thrust presses what a slash presses.
+//   kContact  the contact-timed sword (VR-173), the live A/B against kEdge. The
+//             attack is pressed when the BLADE reaches something, not when the hand
+//             is fast: the adapter asks the engine what lies along the held blade
+//             and hands the answer in with the sample. The speed that decides is the
+//             blade TIP's, which is the hand's velocity plus the wrist's turning
+//             carried out along the blade, so a flick of the wrist counts and a fast
+//             hand with a trailing blade does not. A swing through empty air does
+//             nothing. When the answer is missing or old the hand's own speed
+//             decides exactly as kEdge would, so a broken blade reading leaves the
+//             sword that ships, never a dead one.
 //
 // POSITION in, not speed in. The simulated swing (`swing sim`) synthesises
 // positions too, so the differencing, the dt window and the head-relative
@@ -38,7 +48,9 @@
 
 namespace dvr::swing {
 
-enum Detector : int { kSustain = 0, kEdge = 1 };
+enum Detector : int { kSustain = 0, kEdge = 1, kContact = 2 };
+// Who decided a slash. Speed is kEdge and kSustain; the other three are kContact's.
+enum Owner : int { kOwnerSpeed = 0, kOwnerContact = 1, kOwnerAir = 2, kOwnerFallback = 3 };
 enum Fired : int { kFiredNone = 0, kFiredSlash = 1, kFiredStab = 2 };
 enum StabReject : int { kStabOk = 0, kStabTravel, kStabRatio, kStabForward, kStabStart };
 // The sneak kill has two shapes, because it depends how the blade sits in the hand.
@@ -62,7 +74,8 @@ enum Gate : uint32_t {
     kGateUiMute   = 1u << 7,   // sustain only: a UI event in the last 3 s
 };
 
-enum Block : int { kBlockNone = 0, kBlockGate, kBlockRearm, kBlockCooldown };
+enum Block : int { kBlockNone = 0, kBlockGate, kBlockRearm, kBlockCooldown,
+                   kBlockHold };   // contact: fast enough for edge, but the blade's answer has only just gone missing
 
 // A sample pair closer than this amplifies millimetre jitter into metres per
 // second; one further apart than this belongs to two different situations (an
@@ -106,12 +119,30 @@ struct Config {
     float shoulder[3]  = { 0.17f, 0.22f, 0.04f };   // right, down, back of the head, metres
     int   stabStyle    = kPlunge;
     float stabStartBelowM = 0.05f; // plunge: how far BELOW the shoulder line the hand may start
+    // contact (VR-173). ContactSpeed is the blade TIP's speed, not the hand's. 2.0 is a
+    // starting value and NOT a measured one: a blade laid against something and a slow
+    // turn of the wrist (2 rad/s along 0.62 m of blade is 1.2 m/s) stay under it, any
+    // deliberate cut is over it. The contact census is what moves it.
+    float contactSpeed    = 2.0f;
+    float contactMaxAgeMs = 100.0f;  // an answer older than this is no answer: kEdge decides
+    float contactAirSpeed = 0.0f;    // tip speed at which a swing that touches NOTHING still attacks; 0 = never
+    // How long the blade's answer may be MISSING, once it has been there, before the hand
+    // takes the decision. Inside it nobody decides and nothing attacks. Without it one
+    // dropped sample in the middle of a swing handed that swing to the hand, whose speed
+    // was already over EdgeSpeed, and a swing through the air attacked (simulator,
+    // 2026-09-29: a hitch inside a swing changed the owner for exactly one sample).
+    float contactGraceMs  = 250.0f;
 };
 
 // The two levels can be typed in either order without the latch becoming
 // unreachable: the re-arm level is never above 0.9 x the threshold.
 inline float effective_rearm(const Config& c) {
     const float cap = 0.9f * c.edgeSpeed;
+    return c.rearmSpeed < cap ? c.rearmSpeed : cap;
+}
+// The same, for the blade tip's speed against ContactSpeed.
+inline float effective_contact_rearm(const Config& c) {
+    const float cap = 0.9f * c.contactSpeed;
     return c.rearmSpeed < cap ? c.rearmSpeed : cap;
 }
 
@@ -124,6 +155,15 @@ struct Sample {
     uint32_t closed = 0;         // Gate bits that are closed right now
     float    headFwd[2] = { 0.0f, -1.0f };   // where the head faces, flattened: (x, z), unit
     bool     stabArmed = false;  // the adapter's verdict that a thrust may count (sneaking)
+    // contact: where the blade's tip is, the same space and the same instant as `hand`,
+    // and what the engine said lies along the blade. contactValid = an answer exists for
+    // this blade at all; contact = it is a target that counts (the adapter owns which
+    // classes do); contactAgeMs = how old the hand sample it was traced for is.
+    float    tip[3] = {};
+    bool     tipValid = false;
+    bool     contactValid = false;
+    bool     contact = false;
+    float    contactAgeMs = 0.0f;
 };
 
 struct Verdict {
@@ -163,6 +203,18 @@ struct Verdict {
     // measured on the simulator 2026-09-21, a 135 ms game-thread stall landed inside
     // a swing and the movement vanished from the census without a line.
     bool     humpCut = false;
+    // contact. `known` = the blade's answer was usable for this sample, so the blade
+    // decided; false under kContact = the hand's speed decided, as kEdge (the fallback).
+    // Under `known` the decision speed and every hump number are the TIP's.
+    bool     known = false;
+    bool     fallback = false;
+    bool     hold = false;       // the answer went missing less than ContactGraceMs ago: nobody decides
+    bool     touch = false;      // the blade touches a target that counts, this sample
+    int      owner = kOwnerSpeed;
+    float    tipSpeed = 0.0f;    // median of three, head movement subtracted when HeadRel is on
+    float    handSpeed = 0.0f;   // the hand's own decision speed, beside it
+    bool     humpTip = false;    // the hump's numbers are the tip's
+    bool     humpTouched = false;   // the blade touched a target at some sample inside the hump
 };
 
 inline bool finite3(const float* v) {
@@ -179,7 +231,7 @@ public:
         Verdict v{};
         if (!s.handValid || !finite3(s.hand) || !std::isfinite(s.tMs)) {
             cut_hump(v);
-            have_ = false; forget(); stabRun_ = false;   // lost tracking: re-seed
+            have_ = false; tipHave_ = false; forget(); stabRun_ = false;   // lost tracking: re-seed
             return v;
         }
         const bool headOk = s.headValid && finite3(s.head);
@@ -195,9 +247,11 @@ public:
                     cut_hump(v);
                     forget();
                     seed(s, headOk);
+                    tipHave_ = false;                 // the tip's next step would span the jump too
                     return v;
                 }
-                if (c.headRel && headOk && lastHeadOk_) {
+                const bool rel = c.headRel && headOk && lastHeadOk_;
+                if (rel) {
                     d[0] -= s.head[0] - lastHead_[0];
                     d[1] -= s.head[1] - lastHead_[1];
                     d[2] -= s.head[2] - lastHead_[2];
@@ -205,15 +259,18 @@ public:
                 const float sec = (float)(dt * 0.001);
                 v.sampled = true;
                 v.roomSpeed = roomStep / sec;
-                if (c.detector == kEdge) {
+                if (c.detector == kSustain) sustain(s, c, roomStep, v);
+                else {
+                    // kEdge, kContact, and any value that is neither: an unknown detector
+                    // is the one that ships, never the retired one.
                     v.rawSpeed = len(d) / sec;
                     v.speed = c.median ? median3(v.rawSpeed) : v.rawSpeed;
-                    edge(s, c, len(d), v);
+                    if (c.detector == kContact) contact(s, c, len(d), rel, sec, v);
+                    else                        edge(s, c, len(d), v);
                     if (c.stab && headOk) thrust(s, c, d, v); else stabRun_ = false;
                     if (hump_ && v.fired) humpFired_ = v.fired;   // a thrust inside the hump counts as its fire
                     if (hump_ && v.block) { humpBlock_ = v.block; humpClosed_ = v.closed; }
                 }
-                else                     sustain(s, c, roomStep, v);
             }
             else { cut_hump(v); forget(); }   // a gap beyond kMaxDtMs, or time running backwards: re-seed below
         }
@@ -229,7 +286,8 @@ private:
     // three speeds ignores any single outlier and costs one sample of latency
     // (11 ms at 90 Hz). A re-seed zeroes the history, so the first reading after
     // one can never fire by itself.
-    void forget() { ring_[0] = ring_[1] = ring_[2] = 0.0f; sring_[0] = sring_[1] = sring_[2] = 0.0f; }
+    void forget() { ring_[0] = ring_[1] = ring_[2] = 0.0f; sring_[0] = sring_[1] = sring_[2] = 0.0f;
+                    tring_[0] = tring_[1] = tring_[2] = 0.0f; }
     // A re-seed ends the hump in progress where the hand was last SEEN: its travel
     // must not be measured across a gap, and it must not vanish either.
     void cut_hump(Verdict& v) {
@@ -238,6 +296,7 @@ private:
         v.humpEnd = true; v.humpCut = true; v.humpPeak = humpPeak_; v.humpTravel = humpPath_;
         v.humpMs = (float)(lastMs_ - humpStartMs_);
         v.humpFired = humpFired_; v.humpBlock = humpBlock_; v.humpClosed = humpClosed_;
+        v.humpTip = humpTip_; v.humpTouched = humpTouched_;
     }
     float median3(float x) {
         ring_[ringI_] = x; ringI_ = (ringI_ + 1) % 3;
@@ -250,6 +309,8 @@ private:
         if (headOk) { lastHead_[0] = s.head[0]; lastHead_[1] = s.head[1]; lastHead_[2] = s.head[2]; }
         lastMs_ = s.tMs;
         have_ = true;
+        tipHave_ = s.tipValid && finite3(s.tip);
+        if (tipHave_) { lastTip_[0] = s.tip[0]; lastTip_[1] = s.tip[1]; lastTip_[2] = s.tip[2]; }
     }
     static float len(const float* d) { return std::sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]); }
 
@@ -270,10 +331,12 @@ private:
         v.block = why; v.closed = s.closed;
     }
 
-    void edge(const Sample& s, const Config& c, float step, Verdict& v) {
+    // The latch and the hump, on the decision speed: shared by kEdge (the hand's
+    // speed) and kContact (the tip's).
+    void track(const Sample& s, float rearm, float step, bool tip, Verdict& v) {
         // Re-arm on the way down, UNCONDITIONALLY: a gate that closes mid-swing
         // must not leave the latch stuck and eat the next swing too.
-        if (v.speed < effective_rearm(c)) {
+        if (v.speed < rearm) {
             if (++slow_ >= kRearmSamples) {
                 armed_ = true; blockLatched_ = false;
                 if (hump_) {                          // the hump ends where the latch re-arms
@@ -281,6 +344,7 @@ private:
                     v.humpEnd = true; v.humpPeak = humpPeak_; v.humpTravel = humpPath_;
                     v.humpMs = (float)(s.tMs - humpStartMs_);
                     v.humpFired = humpFired_; v.humpBlock = humpBlock_; v.humpClosed = humpClosed_;
+                    v.humpTip = humpTip_; v.humpTouched = humpTouched_;
                 }
             }
         } else {
@@ -288,18 +352,83 @@ private:
             if (!hump_) {
                 hump_ = true; humpStartMs_ = lastMs_; humpPath_ = 0.0f; humpPeak_ = 0.0f;
                 humpFired_ = kFiredNone; humpBlock_ = kBlockNone; humpClosed_ = 0;
+                humpTip_ = tip; humpTouched_ = false;
             }
         }
         if (hump_) { humpPath_ += step; if (v.speed > humpPeak_) humpPeak_ = v.speed; }
-        if (v.speed < c.edgeSpeed) return;
-        // The travel guard: fast enough, but not far enough YET. No verdict and no
-        // latch - the same swing fires a sample or two later once it has the distance.
-        if (c.edgeTravelM > 0.0f && humpPath_ < c.edgeTravelM) return;
+    }
+    void decide(const Sample& s, const Config& c, Verdict& v) {
         v.cooldownLeftMs = cooldown_left(s, c);
         if (s.closed)                      block(kBlockGate, s, v);
         else if (!armed_)                  block(kBlockRearm, s, v);
         else if (v.cooldownLeftMs > 0.0f)  block(kBlockCooldown, s, v);
         else                             { fire(s, v); v.travelAtFire = humpPath_; }
+    }
+
+    void edge(const Sample& s, const Config& c, float step, Verdict& v) {
+        track(s, effective_rearm(c), step, false, v);
+        if (v.speed < c.edgeSpeed) return;
+        // The travel guard: fast enough, but not far enough YET. No verdict and no
+        // latch - the same swing fires a sample or two later once it has the distance.
+        if (c.edgeTravelM > 0.0f && humpPath_ < c.edgeTravelM) return;
+        decide(s, c, v);
+    }
+
+    // The contact-timed sword. `handStep` is the hand's displacement this sample (head
+    // movement already subtracted when HeadRel is on), for the fallback.
+    //
+    // WHO OWNS THE DECISION is settled first and reported on every verdict: with a
+    // usable answer about the blade the BLADE decides and the speed is the tip's; with
+    // none the HAND decides, exactly as kEdge. A hump that was being counted under one
+    // owner is cut where the owner changes, because its peak and travel are not
+    // comparable across the two.
+    void contact(const Sample& s, const Config& c, float handStep, bool rel, float sec, Verdict& v) {
+        v.handSpeed = v.speed;
+        const bool tipNow = s.tipValid && finite3(s.tip);
+        float tipStep = 0.0f;
+        bool tipOk = false;
+        if (tipNow && tipHave_) {
+            float t[3] = { s.tip[0] - lastTip_[0], s.tip[1] - lastTip_[1], s.tip[2] - lastTip_[2] };
+            if (rel) { t[0] -= s.head[0] - lastHead_[0]; t[1] -= s.head[1] - lastHead_[1]; t[2] -= s.head[2] - lastHead_[2]; }
+            tipStep = len(t);
+            // The hand passed the jump guard, so the tip can only exceed it by turning:
+            // a blade of 0.62 m turning fast enough to add 20 m/s is 32 rad/s, which no
+            // wrist does. It is a blade that was re-measured between two samples.
+            tipOk = tipStep / sec <= 2.0f * kMaxSpeed;
+        }
+        const float tipRaw = tipOk ? tipStep / sec : 0.0f;
+        tring_[tringI_] = tipRaw; tringI_ = (tringI_ + 1) % 3;
+        const float a = tring_[0], b = tring_[1], e = tring_[2];
+        v.tipSpeed = c.median ? (a > b ? (b > e ? b : a > e ? e : a) : (a > e ? a : b > e ? e : b)) : tipRaw;
+
+        const bool known = tipOk && s.contactValid && s.contactAgeMs >= 0.0f && s.contactAgeMs <= c.contactMaxAgeMs;
+        if (known != known_) { cut_hump(v); known_ = known; if (!known) lostMs_ = s.tMs; }
+        if (known) everKnown_ = true;
+        v.known = known;
+        if (!known) {
+            if (everKnown_ && s.tMs - lostMs_ < (double)c.contactGraceMs) {
+                // The latch and the hump go on, on the hand's speed, so the swing that is
+                // under way is spent by the time the hand may decide.
+                v.hold = true;
+                track(s, effective_rearm(c), handStep, false, v);
+                if (v.speed >= c.edgeSpeed) { block(kBlockHold, s, v); armed_ = false; }
+                return;
+            }
+            v.fallback = true;
+            edge(s, c, handStep, v);
+            if (v.fired) v.owner = kOwnerFallback;
+            return;
+        }
+        v.speed = v.tipSpeed;
+        v.touch = s.contact;
+        track(s, effective_contact_rearm(c), tipStep, true, v);
+        if (hump_ && s.contact) humpTouched_ = true;
+        int owner = kOwnerSpeed;
+        if (s.contact && v.speed >= c.contactSpeed) owner = kOwnerContact;
+        else if (c.contactAirSpeed > 0.0f && v.speed >= c.contactAirSpeed) owner = kOwnerAir;
+        if (owner == kOwnerSpeed) return;
+        decide(s, c, v);
+        if (v.fired) v.owner = owner;
     }
 
     // The thrust. `d` is this sample's hand displacement, head movement already
@@ -428,6 +557,12 @@ private:
     uint32_t humpClosed_ = 0;
     float  ring_[3] = {};
     int    ringI_ = 0;
+    float  tring_[3] = {};          // contact: the tip's own speed history
+    int    tringI_ = 0;
+    bool   tipHave_ = false, known_ = false, everKnown_ = false;
+    double lostMs_ = 0.0;
+    float  lastTip_[3] = {};
+    bool   humpTip_ = false, humpTouched_ = false;
     float  sring_[3] = {};
     int    sringI_ = 0;
     bool   stabRun_ = false, stabDone_ = false;

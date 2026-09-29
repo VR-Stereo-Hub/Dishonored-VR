@@ -229,6 +229,11 @@ void sample(uint8_t* pawn, const dvr::anim::Snapshot& s) {
     }
 }
 
+bool airborne_now() {
+    const Pub d = published();
+    return d.stamp && GetTickCount64() - d.stamp <= kFreshMs && d.known && d.airborne;
+}
+
 Gate gate(bool attack, bool swingPulse, long padPolls) {
     const double now = MaimNowMs();
     const bool rise = attack && !g.prev;

@@ -291,6 +291,173 @@ int main() {
       r = body(tc, 900, true, plunge(400, 2.2f));
       check(r.stab == 0, "and under the thrust style a plunge is not a thrust: the style lever is a real A/B"); }
 
+    // ---- The contact-timed sword (VR-173) ---------------------------------------
+    // A hand AND a blade. The hand moves along +X; the blade is 0.62 m long, lies in
+    // the horizontal plane and points away from the player (-Z) turned by `angle`
+    // towards +X, so the tip is hand + L (sin a, 0, -cos a) and its velocity is the
+    // hand's plus the turning carried out along the blade. `touch` is the engine's
+    // answer, given the tip: the adapter's trace, stood in for by a slab of space.
+    struct Blade { int fires = 0, blocks = 0, gate = 0, rearm = 0, cooldown = 0, humps = 0, touched = 0, tipHumps = 0, cuts = 0;
+                   int owner = -1, known = 0, fallback = 0, jumps = 0; float tipPeak = 0, handPeak = 0, humpPeak = 0;
+                   double fireMs = -1, touchMs = -1; };
+    const float L = 0.62f;
+    auto blade = [L](const Config& c, double ms, const std::function<float(double)>& handSpeed,
+                     const std::function<float(double)>& angle, const std::function<bool(const float*, double)>& touch,
+                     bool valid = true, float ageMs = 11.0f, uint32_t closed = 0, bool tipValid = true,
+                     const std::function<float(double)>& tipJump = nullptr) {
+        Core k; Blade r; const double dt = 1000.0 / 90.0; float x = 0.0f;
+        for (double at = 0.0; at <= ms; at += dt) {
+            Sample s; s.handValid = s.headValid = true; s.tMs = at; s.closed = closed;
+            s.hand[0] = x; s.hand[1] = 1.2f; s.hand[2] = -0.4f; s.head[1] = 1.6f;
+            const float a = angle ? angle(at) : 0.0f;
+            s.tip[0] = x + L * std::sin(a) + (tipJump ? tipJump(at) : 0.0f); s.tip[1] = 1.2f; s.tip[2] = -0.4f - L * std::cos(a);
+            s.tipValid = tipValid; s.contactValid = valid; s.contactAgeMs = ageMs;
+            s.contact = touch ? touch(s.tip, at) : false;
+            if (s.contact && r.touchMs < 0) r.touchMs = at;
+            const Verdict v = k.feed(s, c);
+            if (v.fired) { ++r.fires; r.owner = v.owner; if (r.fireMs < 0) r.fireMs = at; }
+            if (v.block) { ++r.blocks; if (v.block == kBlockGate) ++r.gate; if (v.block == kBlockRearm) ++r.rearm;
+                           if (v.block == kBlockCooldown) ++r.cooldown; }
+            if (v.known) ++r.known;
+            if (v.fallback) ++r.fallback;
+            if (v.jump) ++r.jumps;
+            if (v.tipSpeed > r.tipPeak) r.tipPeak = v.tipSpeed;
+            if (v.handSpeed > r.handPeak) r.handPeak = v.handSpeed;
+            if (v.humpEnd) { ++r.humps; r.humpPeak = v.humpPeak; if (v.humpTouched) ++r.touched; if (v.humpTip) ++r.tipHumps;
+                             if (v.humpCut) ++r.cuts; }
+            x += handSpeed(at) * (float)(dt * 0.001);
+        }
+        return r; };
+    auto still = [](double) { return 0.0f; };
+    auto slab = [](float x0, float x1) { return [=](const float* tip, double) { return tip[0] >= x0 && tip[0] <= x1; }; };
+    auto always = [](const float*, double) { return true; };
+    Config con; con.detector = kContact;
+
+    { const Blade r = blade(con, 399, humps(6.0f, 200), nullptr, nullptr);
+      check(r.fires == 0 && r.blocks == 0, "contact: a 6 m/s swing through empty air is nothing: no attack, no block");
+      check(r.humps == 1 && r.tipHumps == 1 && r.touched == 0 && r.humpPeak > 5.7f,
+            "and it is still counted, as a blade movement that touched nothing");
+      Core k; check(drive(k, edge, 399, 90, humps(6.0f, 200)).fires == 1, "the same swing under edge attacks: the detector is what decided it"); }
+    { const Blade r = blade(con, 399, humps(6.0f, 200), nullptr, slab(0.30f, 0.50f));
+      check(r.fires == 1 && r.owner == kOwnerContact, "contact: the same swing with something in its path is one attack, owned by the contact");
+      check(r.touchMs > 80.0 && r.fireMs >= r.touchMs && r.fireMs - r.touchMs <= 1000.0 / 90.0 + 0.01,
+            "pressed when the blade ARRIVES (86 ms into this swing), at most one sample after the touch");
+      check(r.humps == 1 && r.touched == 1, "and its hump says the blade touched"); }
+    { const Blade r = blade(con, 1500, [](double) { return 0.5f; }, nullptr, always);
+      check(r.fires == 0 && r.blocks == 0 && r.known > 100, "contact: a blade resting against a guard while the hand drifts at 0.5 m/s is not an attack"); }
+    { // The wrist: the hand does not move at all, the blade turns 6 rad/s for 150 ms.
+      auto flick = [](double t) { return t < 100 ? -0.45f : t < 250 ? -0.45f + 6.0f * (float)(t - 100) * 0.001f : 0.45f; };
+      const Blade r = blade(con, 600, still, flick, always);
+      check(r.fires == 1 && r.owner == kOwnerContact, "contact: a flick of the wrist with the hand still is an attack: the speed is the TIP's");
+      check(r.tipPeak > 3.5f && r.tipPeak < 3.9f && r.handPeak < 0.01f, "6 rad/s along 0.62 m of blade is 3.7 m/s at the tip and 0 at the hand");
+      Config e = edge; e.edgeSpeed = 1.0f;
+      Core k; check(drive(k, e, 600, 90, still).fires == 0, "edge cannot see it at any threshold: the hand never moved"); }
+    { // The opposite: the hand sweeps at 3 m/s while the wrist lets the blade trail.
+      auto sweep = [](double t) { return t < 200 ? 3.0f : 0.0f; };
+      auto trail = [](double t) { return t < 200 ? 0.4f - 4.0f * (float)t * 0.001f : -0.4f; };
+      const Blade r = blade(con, 500, sweep, trail, always);
+      check(r.fires == 0 && r.tipPeak < 1.3f && r.handPeak > 2.9f, "contact: a fast hand with a trailing blade is not a cut: 3 m/s at the hand, under 1.3 at the tip");
+      Config e = edge; e.edgeSpeed = 2.5f;
+      Core k; check(drive(k, e, 500, 90, sweep).fires == 1, "edge at 2.5 attacks on that hand: tip speed is not hand speed"); }
+    { const Blade r = blade(con, 1199, humps(6.0f, 200), nullptr, always);
+      check(r.fires == 3 && r.blocks == 0, "contact: a blade that stays inside the target is one attack per swing, not one per sample"); }
+    { Config c = con; c.cooldownMs = 600;
+      const Blade r = blade(c, 1199, humps(6.0f, 200), nullptr, always);
+      check(r.fires == 2 && r.cooldown == 1, "contact: the cooldown is the one edge has"); }
+    { const Blade r = blade(con, 399, humps(6.0f, 200), nullptr, slab(0.30f, 0.50f), true, 11.0f, kGateSword);
+      check(r.fires == 0 && r.gate == 1 && r.blocks == 1, "contact: a closed gate blocks once per swing and is named"); }
+    { // A hand held still while the wrist shakes the blade inside a target, 6.7 times a second.
+      auto shake = [](double t) { return 0.4f * (float)std::sin(2.0 * 3.14159265358979 * t / 150.0); };
+      const Blade r = blade(con, 2000, still, shake, always);
+      check(r.fires == 1 && r.blocks <= 1, "contact: a shaking blade that never slows is one attack and at most one line, not one per sample");
+      auto slow = [](double t) { return 0.4f * (float)std::sin(2.0 * 3.14159265358979 * t / 600.0); };
+      const Blade q = blade(con, 3000, still, slow, always);
+      std::printf("contact: a blade rocked 10 times in 3 s inside a target: %d attack(s), %d block line(s), tip peak %.2f m/s\n", q.fires, q.blocks, q.tipPeak);
+      check(q.fires >= 1 && q.fires <= 10 && q.blocks <= 10,
+            "contact: rocked slowly, at most one attack and one line per rock (a rock that crosses inside the cooldown is named, then attacks when it ends, as under edge)"); }
+
+    // Who owns the decision when the blade's answer is missing: the hand, as edge.
+    { const Blade old = blade(con, 399, humps(6.0f, 200), nullptr, nullptr, true, 150.0f);
+      check(old.fires == 1 && old.owner == kOwnerFallback && old.known == 0 && old.fallback > 0,
+            "contact: an answer 150 ms old (the limit is 100) is no answer: the hand's speed decides, as edge, and says so");
+      const Blade none = blade(con, 399, humps(6.0f, 200), nullptr, always, false);
+      check(none.fires == 1 && none.owner == kOwnerFallback, "contact: with no answer at all, the same");
+      const Blade noTip = blade(con, 399, humps(6.0f, 200), nullptr, always, true, 11.0f, 0, false);
+      check(noTip.fires == 1 && noTip.owner == kOwnerFallback, "contact: with no blade measured, the same");
+      Config c = con; c.edgeSpeed = 7.0f;
+      const Blade under = blade(c, 399, humps(6.0f, 200), nullptr, always, false);
+      check(under.fires == 0, "and the fallback obeys EdgeSpeed, not ContactSpeed: 6 m/s under a 7.0 threshold is nothing");
+      Config m = con; m.contactMaxAgeMs = 200.0f;
+      const Blade lever = blade(m, 399, humps(6.0f, 200), nullptr, nullptr, true, 150.0f);
+      check(lever.fires == 0 && lever.known > 0, "ContactMaxAgeMs is the lever: at 200 the 150 ms answer counts, and empty air is nothing again"); }
+    { // The answer arrives halfway through the swing.
+      Core k; int fires = 0, cuts = 0, owner = -1; const double dt = 1000.0 / 90.0; float x = 0;
+      for (double at = 0; at <= 500; at += dt) { Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x; s.hand[1] = 1.2f;
+          s.tip[0] = x; s.tip[1] = 1.2f; s.tip[2] = -0.62f; s.tipValid = true; s.contactValid = at > 60.0; s.contactAgeMs = 11.0f;
+          const Verdict v = k.feed(s, con); if (v.fired) { ++fires; owner = v.owner; } if (v.humpEnd && v.humpCut) ++cuts;
+          x += humps(3.2f, 200)(at) * (float)(dt * 0.001); }
+      check(fires == 0 && cuts == 1, "contact: a hump is cut where the owner changes, and a 3.2 m/s swing in the air under both owners attacks under neither");
+      (void)owner; }
+
+    // A dropped sample is not a change of owner.
+    { auto dropout = [&](float graceMs, double from, double to) { Core k; int fires = 0, holds = 0, owner = -1; const double dt = 1000.0 / 90.0; float x = 0;
+          Config c = con; c.contactGraceMs = graceMs;
+          for (double at = 0; at <= 399; at += dt) { Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x; s.hand[1] = 1.2f;
+              s.tip[0] = x; s.tip[1] = 1.2f; s.tip[2] = -0.62f; s.tipValid = true; s.contactValid = !(at >= from && at < to); s.contactAgeMs = 11.0f;
+              const Verdict v = k.feed(s, c); if (v.fired) { ++fires; owner = v.owner; } if (v.hold) ++holds;
+              x += humps(6.0f, 200)(at) * (float)(dt * 0.001); }
+          return fires * 100 + holds; };
+      { Core k; Config c = con; int holdBlocks = 0, blocks = 0; const double dt = 1000.0 / 90.0; float x = 0;
+        for (double at = 0; at <= 399; at += dt) { Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x; s.hand[1] = 1.2f;
+            s.tip[0] = x; s.tip[1] = 1.2f; s.tip[2] = -0.62f; s.tipValid = true; s.contactValid = at < 60.0; s.contactAgeMs = 11.0f;
+            const Verdict v = k.feed(s, c); if (v.block) { ++blocks; if (v.block == kBlockHold) ++holdBlocks; }
+            x += humps(6.0f, 200)(at) * (float)(dt * 0.001); }
+        check(holdBlocks == 1 && blocks == 1, "contact: a swing that would have attacked under edge while nobody decides is named once, as held"); }
+      check(dropout(250.0f, 95.0, 106.0) == 1, "contact: one missing answer in the middle of a swing through the air attacks nothing: nobody decides for that sample");
+      check(dropout(0.0f, 95.0, 106.0) / 100 == 1, "and with no grace that one sample hands the swing to the hand, which attacks: the grace is what decided it");
+      check(dropout(250.0f, 0.0, 1.0e9) / 100 == 1, "an answer that was NEVER there is not held for: the hand decides from the first sample"); }
+    { // The answer goes missing for good, mid-session: the hand takes over after the grace.
+      Core k; int fires = 0, owner = -1, holds = 0; const double dt = 1000.0 / 90.0; float x = 0;
+      for (double at = 0; at <= 1199; at += dt) { Sample s; s.handValid = true; s.tMs = at; s.hand[0] = x; s.hand[1] = 1.2f;
+          s.tip[0] = x; s.tip[1] = 1.2f; s.tip[2] = -0.62f; s.tipValid = true; s.contactValid = at < 300.0; s.contactAgeMs = 11.0f;
+          const Verdict v = k.feed(s, con); if (v.fired) { ++fires; owner = v.owner; } if (v.hold) ++holds;
+          x += humps(6.0f, 200)(at) * (float)(dt * 0.001); }
+      check(fires == 1 && owner == kOwnerFallback && holds > 15 && holds < 30,
+            "contact: three swings, the answer lost at 300 ms: the first touches nothing, the second falls in the 250 ms nobody decides, the third is the hand's"); }
+
+    // The air swing lever.
+    { Config c = con; c.contactAirSpeed = 8.0f;
+      const Blade fast = blade(c, 399, humps(10.0f, 200), nullptr, nullptr);
+      check(fast.fires == 1 && fast.owner == kOwnerAir, "ContactAirSpeed=8: a 10 m/s swing in the air attacks, owned by the air rule");
+      const Blade soft = blade(c, 399, humps(6.0f, 200), nullptr, nullptr);
+      check(soft.fires == 0, "and a 6 m/s one does not");
+      const Blade off = blade(con, 399, humps(10.0f, 200), nullptr, nullptr);
+      check(off.fires == 0, "at 0, which is what ships, no swing in the air ever attacks"); }
+
+    // Sample hygiene for the tip.
+    { // The blade is re-measured between two samples: the tip alone moves 0.5 m in one frame.
+      const Blade r = blade(con, 500, still, nullptr, always, true, 11.0f, 0, true, [](double t) { return t > 200 ? 0.5f : 0.0f; });
+      check(r.fires == 0 && r.tipPeak < 0.01f, "contact: a tip that moves 45 m/s in one sample is a re-measured blade, not a cut"); }
+    { // The controller is re-acquired somewhere else while the blade touches.
+      Core k; int fires = 0, jumps = 0; const double dt = 1000.0 / 90.0; int i = 0;
+      for (double at = 0; at <= 300; at += dt, ++i) { Sample s; s.handValid = true; s.tMs = at; s.hand[0] = i >= 10 ? 1.0f : 0.0f;
+          s.tip[0] = s.hand[0]; s.tip[2] = -0.62f; s.tipValid = true; s.contactValid = true; s.contact = true; s.contactAgeMs = 11.0f;
+          const Verdict v = k.feed(s, con); if (v.fired) ++fires; if (v.jump) ++jumps; }
+      check(fires == 0 && jumps == 1, "contact: a tracking jump re-seeds the tip with the hand, and the blade it carried attacks nothing"); }
+    { Config c = con; c.rearmSpeed = 5.0f;
+      check(std::fabs(effective_contact_rearm(c) - 1.8f) < 1e-4f, "contact: the re-arm level is capped at 0.9 x ContactSpeed");
+      check(blade(c, 1199, humps(6.0f, 200), nullptr, always).fires == 3, "so a re-arm level typed above it still re-arms"); }
+
+    // The sneak kill runs under contact as it does under edge.
+    { Config c = con; c.stab = true; c.stabStyle = kThrust;
+      const Stab r = body(c, 500, true, [&](double t) { return V3{ 0, 0, -hump(2.2f, 200, t) }; });
+      check(r.stab == 1 && r.slash == 0, "contact: a thrust while sneaking is still the sneak kill"); }
+
+    // A detector value nobody defined is the detector that ships.
+    { Config c; c.detector = 7; Core k;
+      const Tally t = drive(k, c, 400, 90, [](double ms) { return ms < 50.0 ? 5.0f : 0.0f; });
+      check(t.fires == 1 && t.flicks == 0, "an unknown detector value decides as edge does (a 50 ms flick at 5 m/s attacks), never as the retired sustain"); }
+
     // The pre-VR-37 detector, kept as the live A/B.
     Config sus; sus.detector = kSustain;
     { Core k; const Tally t = drive(k, sus, 600, 90, humps(4.0f, 300));

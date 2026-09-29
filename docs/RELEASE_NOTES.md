@@ -57,6 +57,22 @@ No release/tag is declared by this staging integration.
 
 ## Unreleased
 
+### The sword can attack when the blade arrives (VR-173, 2026-09-29, experimental, not yet judged in the headset)
+
+A new way for the motion sword to decide, off by default. With it the sword attacks when the
+blade you are holding reaches something, not when your hand is fast: a swing through empty air
+does nothing at all, and a flick of the wrist against a guard is a cut. Your usual sword is
+unchanged until you switch. F10 > Controls > Motion sword, with the panel's detail level at Debug:
+"Swing detector" > "contact (fires when the blade arrives)". Then "Blade speed needed", "The blade
+attacks" (characters only, characters and things that break, or anything), and in Advanced "Press
+this early (ms)", which attacks a little before the blade arrives so the game's own wind-up lands
+with your arm. New keys in `[Melee]`: `ContactSpeed=2.0`, `ContactTargets=breakables`,
+`ContactLeadMs=0`, `ContactAirSpeed=0`, `ContactMaxAgeMs=100`; they do nothing unless
+`Detector=contact`. Live: `swing mode contact|edge`, `swing contact ...`. If the mod cannot
+follow the blade it attacks the way the usual sword does and says so in the log. New section
+`[Blade]` (`Measure`, `Marker`, `World`, `Trace`, all 0) holds the instruments behind it; they are
+for looking and nothing needs them switched on.
+
 ### Snap turn (VR-219, 2026-09-25, not yet judged in the headset)
 
 A push of the right stick can turn you by a fixed step (45 degrees by default) instead of

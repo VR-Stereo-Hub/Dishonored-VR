@@ -18,6 +18,9 @@ void sample(uint8_t* pawn, const dvr::anim::Snapshot& s);   // script lane, ever
 // Present lane: `attack` is the attack input as composed so far (trigger or swing
 // pulse). Hold = withhold it this build, Press = press it, Pass = leave it alone.
 Gate gate(bool attack, bool swingPulse, long padPolls);
+// Present lane: the player is in the air, by a record no older than the assist itself
+// accepts. False when the record is stale or the stance is unknown: unknown is not airborne.
+bool airborne_now();
 void configure(const char* ini);
 void save(const char* ini);
 bool command(const char* args);   // the `drop` word

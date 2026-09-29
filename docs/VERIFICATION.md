@@ -93,6 +93,31 @@ published to the answer. `blade trace view [uu]` is one trace along the view and
 [deg]` a fan of 1681 about it, both by hand only: they name the classes in front of the player, which
 is how a character was confirmed from a ledge. `features.bladeTrace` in `status.json` carries the same.
 
+VR-173 the contact-timed sword: `tools\swing-core-host.ps1` (111 checks; the contact ones drive a
+hand AND a blade: an air swing is nothing, the same swing with a slab in its path is one attack
+pressed at most one sample after the touch, a wrist flick with a still hand attacks and `edge`
+cannot see it, a fast hand with a trailing blade does not, a missing answer hands over to the hand
+only after 250 ms, an unknown detector value is `edge`). In the game:
+`tools\xrsim-run.ps1 -Path tools\xrsim\swing-contact.xrs -Dir <sim dir>` from GAMEPLAY on the
+sewer save, 64 steps. It uses the FLOOR as the thing the blade reaches (`ContactTargets=any`),
+because the guards are 9 m below the ledge: a blade reaching a CHARACTER is a headset item
+(`PHYSICAL_SWING.md` 9.6). Read, in order: `swing: contact - the BLADE owns the decision`; the air
+swing's `swing: blade movement ... no attack: the blade reached nothing that counts` with no FIRE;
+the same swing under `edge` FIRE and HONOURED; `blade/trace: the blade touches the WORLD` with no
+FIRE while the blade is lowered over three seconds; the cut's `FIRE ... the BLADE reached the WORLD
+... owner=contact` then HONOURED; the three simulated blades (`swing contact sim 5 200 3 hit`, `miss`,
+`stale`) finishing 3, 0 and 3 fires, the last with `owner=FALLBACK`. It ends with
+`features.swing.detector eq edge` and `features.bladeTrace.demanded eq false`: nothing is saved.
+`swing log on` adds one `swing: blade sample` line per hand sample (owner, tip speed, hand speed,
+touch and on which segment, the answer's age). A `@modassert` compares ONE word: assert on
+`touchingClass`, not on `touching`, whose values have spaces. Passed 2026-09-29, RelWithDebInfo.
+The shipped sequences on the same build: swing-edge, swing-gates, swing-soft, swing-anim and
+swing-plunge pass; swing-stab stops at step 29 on this build AND on the staging tip `5997c5952`
+(its 0.12 m jab in 120 ms peaks at 1.36 m/s through the median, under the 1.5 m/s that starts a
+thrust, so nothing is rejected because nothing began; at 100 ms it peaks at 1.61 and is rejected
+on travel as the step expects. Not fixed here; the ticket text is on VR-173, because the
+workspace could not take a new ticket that day).
+
 VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
 trail's particle component is found on the pawn by its template, the native hide takes
 `HiddenGame 0 -> 1`, three more attacks do not show it again, the lever shows and re-hides

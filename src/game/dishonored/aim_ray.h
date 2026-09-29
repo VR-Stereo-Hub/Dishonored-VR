@@ -86,6 +86,9 @@ struct BladeFrame {
     bool  ok = false;
     const char* why = "not published";
     float baseXr[3] = {}, tipXr[3] = {}, liveTipXr[3] = {};
+    // The tip where the PLAYER's hand carries it, before the scale about the head: tracking
+    // space, metres. What a speed in metres per second is taken from (the motion sword).
+    float tipRawXr[3] = {};
     bool  liveOk = false;
     float liveApartM = 0;        // latched tip against the live one, palm frame, metres
     uint64_t liveMs = 0;
@@ -97,6 +100,41 @@ struct BladeFrame {
     uint32_t revision = 0;       // the blade's
 };
 BladeFrame blade_frame();
+// WHAT THE ENGINE SAID LIES ALONG THE BLADE (blade_contact.cpp, script lane), for the motion
+// sword's contact detector on the present lane. Three segments are asked about per hand
+// sample, each one line trace:
+//   blade  base to tip: what the blade is IN, now
+//   sweep  the tip's path since the last hand sample: what a fast blade passed THROUGH
+//          between two samples
+//   ahead  the tip's path over the next LeadMs at its present velocity: what it is ABOUT to
+//          reach. Asked only while a lead is set (the wind-up lever, 0 as shipped)
+// Nothing here holds a pointer: a class is a name and a kind, read once while the actor was
+// known to be live.
+enum BladeTouchKind : int { kTouchNothing = 0, kTouchCharacter, kTouchWorld, kTouchOther, kTouchUnverified };
+struct BladeHit {
+    bool  asked = false;         // this segment was traced for this sample
+    int   kind = kTouchNothing;
+    bool  breakable = false;     // its class, or one it derives from, is named as something that breaks
+    float distUU = 0;            // along the segment, from its start
+    char  cls[64] = "";
+};
+struct BladeTouch {
+    bool  ok = false;            // the blade was traced for the hand sample below
+    const char* why = "the blade trace is off";
+    BladeHit blade, sweep, ahead;
+    float bladeUU = 0, sweepUU = 0, aheadUU = 0;   // the length of each segment
+    float leadMs = 0;            // the lead `ahead` was traced with
+    uint32_t handGen = 0;
+    uint64_t sampleMs = 0;       // the hand sample the blade came from (GetTickCount64)
+    uint64_t tracedMs = 0;       // when the answer was written
+};
+BladeTouch blade_touch();
+// The contact detector's standing request. While it is set the blade is measured and traced
+// whatever [Blade] Measure and Trace say, so choosing the detector is the only switch a
+// player needs; while it is clear those two instruments are their own levers again.
+void blade_demand(bool on, float leadMs);
+bool blade_demanded();
+float blade_lead_ms();
 // The acceptance marker's lever and its deliberate offset (metres, across the blade): the
 // offset exists so the check that reads the marker against the drawn blade can be shown
 // to FAIL. Present lane.

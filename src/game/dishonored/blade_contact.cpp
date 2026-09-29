@@ -315,13 +315,30 @@ static const char* BtKindName(int k) {
     static const char* n[] = { "nothing", "a CHARACTER", "the WORLD", "another actor", "an actor that could NOT be verified as live" };
     return k >= 0 && k <= kBtUnverified ? n[k] : "?";
 }
-struct BtClass { uint8_t* cls; int kind; char name[64]; LONG hits; };
+struct BtClass { uint8_t* cls; int kind; bool breakable; char name[64]; LONG hits; };
 static BtClass g_btClass[48]; static int g_btClassN = 0;
 static double  g_btLastRebuildMs = 0;
 
-static int BtClassify(uint8_t* actor, const char** nameOut)
+// Does the class, or one it derives from, carry `part` in its name? The walk PossIsA makes,
+// asked a different question. Once per class, never per trace.
+static bool BtAncestryNamed(uint8_t* actor, const char* part, char* which, size_t cap)
+{
+    if (!actor || !RangeReadable(actor + kClassOff, 4)) return false;
+    uint8_t* cls = *(uint8_t**)(actor + kClassOff);
+    for (int depth = 0; cls && depth < 32; ++depth) {
+        const char* n = PossStructName(cls);
+        if (!n || !strcmp(n, "Object")) return false;
+        if (strstr(n, part)) { _snprintf_s(which, cap, _TRUNCATE, "%s", n); return true; }
+        if (!RangeReadable(cls + kSuperFieldOff, 4)) return false;
+        cls = *(uint8_t**)(cls + kSuperFieldOff);
+    }
+    return false;
+}
+
+static int BtClassify(uint8_t* actor, const char** nameOut, bool* breakableOut = nullptr)
 {
     *nameOut = "?";
+    if (breakableOut) *breakableOut = false;
     if (!actor) return kBtMiss;
     if (!IsLiveObject(actor)) {
         // A pawn spawned since the table was built is a live object the table has not seen.
@@ -331,22 +348,34 @@ static int BtClassify(uint8_t* actor, const char** nameOut)
     }
     if (!RangeReadable(actor + kClassOff, 4)) return kBtUnverified;
     uint8_t* cls = *(uint8_t**)(actor + kClassOff);
-    for (int i = 0; i < g_btClassN; ++i) if (g_btClass[i].cls == cls) { InterlockedIncrement(&g_btClass[i].hits); *nameOut = g_btClass[i].name; return g_btClass[i].kind; }
+    for (int i = 0; i < g_btClassN; ++i) if (g_btClass[i].cls == cls) {
+        InterlockedIncrement(&g_btClass[i].hits); *nameOut = g_btClass[i].name;
+        if (breakableOut) *breakableOut = g_btClass[i].breakable;
+        return g_btClass[i].kind;
+    }
     const char* cn = ObjClassName(actor);
     int kind = kBtOther;
+    // WHAT BREAKS. The only evidence so far is the vocabulary (PLAN-contact-sword 7.4): the
+    // planks that block a doorway are 'DishonoredBreakableNavBlock'. So a class counts as
+    // something that breaks when it, or a class it derives from, says so in its name. That
+    // is a rule about names and is reported as one: the line below prints which name.
+    char by[64] = "";
+    const bool breakable = BtAncestryNamed(actor, "Breakable", by, sizeof(by));
+    if (breakableOut) *breakableOut = breakable;
     const int pawn = PossIsA(actor, "Pawn");
     if (pawn == 1) kind = kBtCharacter;
     else if (cn && (!strcmp(cn, "WorldInfo") || PossIsA(actor, "Brush") == 1 || PossIsA(actor, "StaticMeshActor") == 1 ||
                     PossIsA(actor, "StaticMeshCollectionActor") == 1 || PossIsA(actor, "InterpActor") == 1)) kind = kBtWorld;
     if (g_btClassN < (int)(sizeof(g_btClass) / sizeof(g_btClass[0]))) {
         BtClass& c = g_btClass[g_btClassN++];
-        c.cls = cls; c.kind = kind; c.hits = 1;
+        c.cls = cls; c.kind = kind; c.hits = 1; c.breakable = breakable;
         _snprintf_s(c.name, sizeof(c.name), _TRUNCATE, "%s", cn ? cn : "?");
         *nameOut = c.name;
         // THE VOCABULARY: every class the blade has ever touched, once, with what it was
         // taken for. "Breakable" is defined from this list and not before it.
-        Log("blade/trace: first contact with class '%s' -> %s (Pawn ancestry %d; class %d of %d kept)",
-            c.name, BtKindName(kind), pawn, g_btClassN, (int)(sizeof(g_btClass) / sizeof(g_btClass[0])));
+        Log("blade/trace: first contact with class '%s' -> %s%s%s%s (Pawn ancestry %d; class %d of %d kept)",
+            c.name, BtKindName(kind), breakable ? ", something that BREAKS (its class chain names '" : "", by, breakable ? "')" : "",
+            pawn, g_btClassN, (int)(sizeof(g_btClass) / sizeof(g_btClass[0])));
     } else *nameOut = cn ? cn : "?";
     return kind;
 }
@@ -498,23 +527,22 @@ static void BtViewScan(int halfDeg)
 }
 
 // ---- the blade, traced ------------------------------------------------------------
-struct BladeContact {
-    bool  ok = false;             // the trace ran for this blade frame
-    int   kind = kBtMiss;
-    float distUU = 0, bladeUU = 0;
-    uint32_t handGen = 0;
-    uint64_t sampleMs = 0;        // the hand sample the blade came from
-    uint64_t tracedMs = 0;        // when the answer was written
-    char  cls[64] = "";
-    const char* why = "the blade trace is off";
-};
+// The published answer is dvr::hands::BladeTouch (aim_ray.h): the motion sword reads it on
+// the present lane. Its kinds are this file's, value for value.
+static_assert((int)dvr::hands::kTouchNothing == (int)kBtMiss && (int)dvr::hands::kTouchCharacter == (int)kBtCharacter &&
+              (int)dvr::hands::kTouchWorld == (int)kBtWorld && (int)dvr::hands::kTouchOther == (int)kBtOther &&
+              (int)dvr::hands::kTouchUnverified == (int)kBtUnverified, "the published kinds are the trace's kinds");
+typedef dvr::hands::BladeTouch BladeContact;
 static SRWLOCK g_bcLock = SRWLOCK_INIT;
 static BladeContact g_bcPub;
 static BladeContact BladeContactSnapshot() {
     BladeContact c; AcquireSRWLockShared(&g_bcLock); c = g_bcPub; ReleaseSRWLockShared(&g_bcLock); return c;
 }
+namespace dvr::hands { BladeTouch blade_touch() { return BladeContactSnapshot(); } }
+static bool BtWanted() { return g_btOn.load(std::memory_order_relaxed) || dvr::hands::blade_demanded(); }
 struct BtStats {
     unsigned traces = 0, hits[kBtUnverified + 1] = {}, refused = 0, apart = 0;
+    unsigned sweeps = 0, sweepHits = 0, aheads = 0, aheadHits = 0;   // the two extra segments, and how often each found something the blade's own had not
     float us[256] = {}; unsigned usN = 0;
     float lagMs[256] = {}; unsigned lagN = 0;     // hand sample to answer
     char  why[160] = "off";
@@ -534,15 +562,20 @@ static float BtPercentile(const float* v, unsigned n, float p) {
 // populations, not a tuned number.
 static const float kBtLiveAgreeM = 0.02f;
 
+// A tip cannot travel further than this between two hand samples, or over a lead: 400 uu is
+// 4 m, which at 90 samples a second would be 360 m/s. Longer is a blade that was re-placed.
+static const float kBtMaxStepUU = 400.0f;
+
 static void BtTick()
 {
     static uint32_t lastGen = 0;
+    static bool havePrev = false; static float prevTipW[3] = {}; static int64_t prevQpc = 0;
     const dvr::hands::BladeFrame bf = dvr::hands::blade_frame();
-    if (bf.ok && bf.handGen == lastGen) return;        // one trace per hand sample
+    if (bf.ok && bf.handGen == lastGen) return;        // one blade per hand sample
     lastGen = bf.handGen;
     BladeContact c; c.handGen = bf.handGen; c.sampleMs = bf.sampleMs;
     auto refuse = [&](const char* why) {
-        ++g_btS.refused; c.why = why;
+        ++g_btS.refused; c.why = why; havePrev = false;
         _snprintf_s(g_btS.why, sizeof(g_btS.why), _TRUNCATE, "%s", why);
         AcquireSRWLockExclusive(&g_bcLock); g_bcPub = c; ReleaseSRWLockExclusive(&g_bcLock);
     };
@@ -557,14 +590,50 @@ static void BtTick()
     uint8_t* pawn = PawnForCollision();
     BtHit h;
     if (!BtTrace(pawn, baseW, tipW, &h, &why)) { refuse(why); return; }
-    const char* cn = "";
-    c.kind = h.hit ? BtClassify(h.actor, &cn) : kBtMiss;
-    c.ok = true; c.distUU = h.hit ? h.dist : 0.0f;
+    auto fill = [](const BtHit& hit, dvr::hands::BladeHit& out) {
+        const char* cn = ""; bool breakable = false;
+        out.asked = true;
+        out.kind = hit.hit ? BtClassify(hit.actor, &cn, &breakable) : kBtMiss;
+        out.breakable = breakable; out.distUU = hit.hit ? hit.dist : 0.0f;
+        _snprintf_s(out.cls, sizeof(out.cls), _TRUNCATE, "%s", cn);
+    };
+    fill(h, c.blade);
+    const char* cn = c.blade.cls;
+    c.ok = true;
     { const float d[3] = { tipW[0]-baseW[0], tipW[1]-baseW[1], tipW[2]-baseW[2] }; c.bladeUU = dvr::blade::len3(d); }
+    // THE TWO EXTRA SEGMENTS, from the tip's own step since the last hand sample. Each is
+    // one more line check (7 to 8 us). Either failing to run leaves the blade's answer
+    // standing: they add to it, they never replace it.
+    {
+        const double dtMs = havePrev && g_qpcFreq ? (double)(bf.pubQpc - prevQpc) * 1000.0 / (double)g_qpcFreq : 0.0;
+        if (havePrev && dtMs >= 4.0 && dtMs <= 100.0) {
+            const float d[3] = { tipW[0]-prevTipW[0], tipW[1]-prevTipW[1], tipW[2]-prevTipW[2] };
+            const float step = dvr::blade::len3(d);
+            const char* w2 = "";
+            if (step > 1.0f && step < kBtMaxStepUU) {
+                BtHit s;
+                if (BtTrace(pawn, prevTipW, tipW, &s, &w2)) {
+                    fill(s, c.sweep); c.sweepUU = step; ++g_btS.sweeps;
+                    if (c.sweep.kind != kBtMiss && c.blade.kind == kBtMiss) ++g_btS.sweepHits;
+                }
+                const float lead = dvr::hands::blade_lead_ms();
+                const float reach = step * (float)(lead / dtMs);
+                if (lead > 0.0f && reach > 1.0f && reach < kBtMaxStepUU) {
+                    const float k = (float)(lead / dtMs);
+                    const float end[3] = { tipW[0] + d[0]*k, tipW[1] + d[1]*k, tipW[2] + d[2]*k };
+                    BtHit a;
+                    if (BtTrace(pawn, tipW, end, &a, &w2)) {
+                        fill(a, c.ahead); c.aheadUU = reach; c.leadMs = lead; ++g_btS.aheads;
+                        if (c.ahead.kind != kBtMiss && c.blade.kind == kBtMiss && c.sweep.kind == kBtMiss) ++g_btS.aheadHits;
+                    }
+                }
+            }
+        }
+        memcpy(prevTipW, tipW, sizeof(prevTipW)); prevQpc = bf.pubQpc; havePrev = true;
+    }
     c.tracedMs = GetTickCount64();
-    _snprintf_s(c.cls, sizeof(c.cls), _TRUNCATE, "%s", cn);
     c.why = "traced";
-    ++g_btS.traces; ++g_btS.hits[c.kind];
+    ++g_btS.traces; ++g_btS.hits[c.blade.kind];
     g_btS.us[g_btS.usN++ % 256] = (float)h.us;
     {   // from the present lane publishing this blade to the script lane holding its answer
         LARGE_INTEGER q; QueryPerformanceCounter(&q);
@@ -573,12 +642,13 @@ static void BtTick()
     }
     _snprintf_s(g_btS.why, sizeof(g_btS.why), _TRUNCATE, "tracing");
     static int kindWas = -1; static char clsWas[64] = "";
-    if (c.kind != kindWas || strcmp(clsWas, c.cls)) {
-        kindWas = c.kind; strncpy_s(clsWas, c.cls, _TRUNCATE);
+    if (c.blade.kind != kindWas || strcmp(clsWas, cn)) {
+        kindWas = c.blade.kind; strncpy_s(clsWas, cn, _TRUNCATE);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 200,
-            "blade/trace: the blade touches %s%s%s%s - %.1f uu from its base along %.1f uu of blade, the hit %.2f uu off the blade's "
+            "blade/trace: the blade touches %s%s%s%s%s - %.1f uu from its base along %.1f uu of blade, the hit %.2f uu off the blade's "
             "line, normal (%.2f %.2f %.2f); base (%.1f %.1f %.1f) tip (%.1f %.1f %.1f); %.0f us, %u ms after the hand sample",
-            BtKindName(c.kind), h.hit ? " '" : "", c.cls, h.hit ? "'" : "", c.distUU, c.bladeUU, h.offLine, h.normal[0], h.normal[1],
+            BtKindName(c.blade.kind), h.hit ? " '" : "", cn, h.hit ? "'" : "", c.blade.breakable ? " (it breaks)" : "", c.blade.distUU,
+            c.bladeUU, h.offLine, h.normal[0], h.normal[1],
             h.normal[2], baseW[0], baseW[1], baseW[2], tipW[0], tipW[1], tipW[2], h.us, (unsigned)(c.tracedMs - c.sampleMs));
     }
     AcquireSRWLockExclusive(&g_bcLock); g_bcPub = c; ReleaseSRWLockExclusive(&g_bcLock);
@@ -587,18 +657,23 @@ static void BtTick()
 static void BtReport()
 {
     const unsigned n = g_btS.usN < 256 ? g_btS.usN : 256, m = g_btS.lagN < 256 ? g_btS.lagN : 256;
-    Log("blade/trace: %s, %s | %u trace(s): nothing %u, a character %u, the world %u, another actor %u, unverified %u | refused %u "
+    Log("blade/trace: %s, %s | %u blade(s) traced: nothing %u, a character %u, the world %u, another actor %u, unverified %u | the "
+        "tip's path since the last sample traced %u time(s) and found something the blade had not %u time(s); the path ahead "
+        "(lead %.0f ms, 0 = never asked) %u and %u | refused %u "
         "(%u because the drawn sword had left the hand's blade) | cost per call: median %.0f p95 %.0f max %.0f us over the last %u | "
         "blade published to answer: median %.1f p95 %.1f max %.1f ms over the last %u | engine calls %ld, unanswered %ld | %s. Every "
         "count is 0 while the trace is off or the blade is not latched",
-        g_btOn.load() ? "ON" : "off", g_btL.ok ? "function resolved" : g_btL.why, g_btS.traces, g_btS.hits[kBtMiss],
-        g_btS.hits[kBtCharacter], g_btS.hits[kBtWorld], g_btS.hits[kBtOther], g_btS.hits[kBtUnverified], g_btS.refused, g_btS.apart,
+        g_btOn.load() ? "ON" : dvr::hands::blade_demanded() ? "ON for the motion sword (Detector=contact)" : "off",
+        g_btL.ok ? "function resolved" : g_btL.why, g_btS.traces, g_btS.hits[kBtMiss],
+        g_btS.hits[kBtCharacter], g_btS.hits[kBtWorld], g_btS.hits[kBtOther], g_btS.hits[kBtUnverified],
+        g_btS.sweeps, g_btS.sweepHits, dvr::hands::blade_lead_ms(), g_btS.aheads, g_btS.aheadHits, g_btS.refused, g_btS.apart,
         BtPercentile(g_btS.us, n, 0.5f), BtPercentile(g_btS.us, n, 0.95f), BtPercentile(g_btS.us, n, 1.0f), n,
         BtPercentile(g_btS.lagMs, m, 0.5f), BtPercentile(g_btS.lagMs, m, 0.95f), BtPercentile(g_btS.lagMs, m, 1.0f), m,
         g_btCalls, g_btNoReturn, g_btS.why);
     char line[900]; int at = 0;
     for (int i = 0; i < g_btClassN && at < (int)sizeof(line) - 100; ++i)
-        at += _snprintf_s(line + at, sizeof(line) - at, _TRUNCATE, " %s=%s x%ld;", g_btClass[i].name, BtKindName(g_btClass[i].kind), g_btClass[i].hits);
+        at += _snprintf_s(line + at, sizeof(line) - at, _TRUNCATE, " %s=%s%s x%ld;", g_btClass[i].name, BtKindName(g_btClass[i].kind),
+                          g_btClass[i].breakable ? " that breaks" : "", g_btClass[i].hits);
     Log("blade/trace: classes touched so far (%d):%s", g_btClassN, g_btClassN ? line : " none");
 }
 
@@ -606,7 +681,7 @@ static void BtReport()
 // at most (TRAPS, VR-182).
 static void BladeContactTick()
 {
-    if (!g_bwOn.load(std::memory_order_relaxed) && !g_btOn.load(std::memory_order_relaxed) &&
+    if (!g_bwOn.load(std::memory_order_relaxed) && !BtWanted() &&
         !g_btSelfTestReq.load(std::memory_order_relaxed) && !g_btViewReq.load(std::memory_order_relaxed) &&
         !g_btScanReq.load(std::memory_order_relaxed)) return;
     // Our own engine call re-enters the script tick. Everything this file does stops here.
@@ -621,7 +696,7 @@ static void BladeContactTick()
     if (g_btSelfTestReq.load() && DvrGameplayVerdict() && BtResolve()) { g_btSelfTestReq.store(0); BtSelfTest(); }
     if (g_btViewReq.load() && DvrGameplayVerdict() && BtResolve()) { BtViewProbe(g_btViewReq.exchange(0)); }
     if (g_btScanReq.load() && DvrGameplayVerdict() && BtResolve()) { BtViewScan(g_btScanReq.exchange(0)); }
-    if (g_btOn.load() && DvrGameplayVerdict()) BtTick();
+    if (BtWanted() && DvrGameplayVerdict()) BtTick();
     inside = false;
 }
 
@@ -710,7 +785,10 @@ static void BladeContactStatus(dvr::status::Writer& w)
     const BladeContact c = BladeContactSnapshot();
     const unsigned n = g_btS.usN < 256 ? g_btS.usN : 256, m = g_btS.lagN < 256 ? g_btS.lagN : 256;
     w.obj("bladeTrace");
-    w.kv("on", g_btOn.load()); w.kv("resolved", g_btL.ok); w.kv("nativeIndex", (unsigned long)g_btL.nativeIndex);
+    w.kv("on", g_btOn.load()); w.kv("demanded", dvr::hands::blade_demanded());
+    w.kv("resolved", g_btL.ok); w.kv("nativeIndex", (unsigned long)g_btL.nativeIndex);
+    w.kv("sweeps", (unsigned long)g_btS.sweeps); w.kv("sweepFoundMore", (unsigned long)g_btS.sweepHits);
+    w.kv("aheads", (unsigned long)g_btS.aheads); w.kv("aheadFoundMore", (unsigned long)g_btS.aheadHits);
     w.kv("traces", (unsigned long)g_btS.traces); w.kv("refused", (unsigned long)g_btS.refused);
     w.kv("swordNotOnTheHand", (unsigned long)g_btS.apart);
     w.kv("nothing", (unsigned long)g_btS.hits[kBtMiss]); w.kv("character", (unsigned long)g_btS.hits[kBtCharacter]);
@@ -719,8 +797,9 @@ static void BladeContactStatus(dvr::status::Writer& w)
     w.kv("usMedian", (double)BtPercentile(g_btS.us, n, 0.5f)); w.kv("usP95", (double)BtPercentile(g_btS.us, n, 0.95f));
     w.kv("lagMsMedian", (double)BtPercentile(g_btS.lagMs, m, 0.5f)); w.kv("lagMsP95", (double)BtPercentile(g_btS.lagMs, m, 0.95f));
     w.kv("lagMsMax", (double)BtPercentile(g_btS.lagMs, m, 1.0f));
-    w.kv("touching", BtKindName(c.ok ? c.kind : kBtMiss)); w.kv("touchingClass", c.cls);
-    w.kv("touchingAtUU", (double)c.distUU);
+    w.kv("touching", BtKindName(c.ok ? c.blade.kind : kBtMiss)); w.kv("touchingClass", c.blade.cls);
+    w.kv("touchingBreaks", c.blade.breakable);
+    w.kv("touchingAtUU", (double)c.blade.distUU);
     w.kv("why", g_btS.why);
     w.end_obj();
 }

@@ -1,0 +1,111 @@
+# swing-contact.xrs - the contact-timed sword (VR-173): does the sword attack when the
+# BLADE reaches something, and only then?
+#
+# `[Melee] Detector=contact` presses the attack when the engine says something lies along
+# the held blade and the blade's tip is moving at ContactSpeed or more. A swing through
+# empty air does nothing. `edge` stays the default; this sequence switches live and
+# switches back, and saves nothing.
+#
+# What can be shown without a headset, and is shown here:
+#   1. a fast swing in the air does NOT attack under contact
+#   2. the very same swing DOES attack under edge (the A/B: the detector is what decided)
+#   3. a blade lowered slowly onto the floor touches it and does not attack
+#   4. a cut along the floor attacks, and the game is SEEN starting the attack
+#   5. with characters as the only targets the same cut does nothing
+#   6. simulated blades through the real decision core and the real gates: one that
+#      reaches a target, one that reaches nothing, one whose answer never comes (the
+#      hand then decides, as edge, and the line says so)
+#
+# What it cannot show: the blade reaching a CHARACTER. The sewer save stands on a ledge
+# and the guards are 9 m below it; steps 3 to 5 use the floor, with ContactTargets=any,
+# as the thing the blade reaches. A character is a headset item.
+#
+# Needs: a loaded level in GAMEPLAY on the dev PC's sewer save (standing or crouched),
+# [Mode] GamepadOnly=0. Run:
+#   .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-contact.xrs -Dir <sim dir>
+#
+# How to read a failure: `swing contact status` names who owns the decision (the blade or
+# the hand) and why; `blade trace status` says what the blade has been touching;
+# `swing log on` prints one `swing: blade sample` line per hand sample with the tip's
+# speed, the hand's, and whether the blade touched.
+#
+# The hand is only ever MOVED, never placed: a teleport is a tracking jump.
+
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
+@wait 1500
+trigger r pull 300
+@wait 2500
+@mark
+@mod swing on; swing mode contact; swing contact targets any; swing contact speed 2.0; swing contact lead 0; swing contact air 0; swing contact age 100; swing cooldown 300; swing rel on; swing filter median; swing sword on; swing output rt
+@log swing: detector=contact 5s
+@log swing: contact - the BLADE owns the decision 10s
+@wait 500
+
+# 1. A swing through the air: 0.68 m in 200 ms, near 5 m/s. Nothing.
+@mark
+hand r to grip -0.35 1.00 -0.45 0 0 0 200
+@log swing: blade movement \(live\) the TIP peaked [3-9]\.\d+ m/s .* no attack: the blade reached nothing that counts 5s
+@wait 800
+@nolog swing: FIRE
+@modassert features.swing.contact.owner eq blade
+@modassert features.swing.contact.firesByContact eq 0
+@modassert features.swing.contact.firesByFallback eq 0
+
+# 2. The same swing, back the other way, under edge: one attack, and honoured.
+@mod swing mode edge
+@mark
+hand r to grip 0.25 1.30 -0.40 0 0 0 200
+@log swing: FIRE #\d+ slash .* detector=edge
+@log swing: HONOURED slash
+@wait 1500
+@mark
+@mod swing mode contact; swing contact targets any
+@log swing: contact - the BLADE owns the decision 10s
+
+# 3. The blade lowered onto the floor over three seconds: it touches, it does not attack.
+@mark
+hand r to grip 0.20 0.30 -0.40 0 60 0 3000
+@log blade/trace: the blade touches the WORLD 6s
+@wait 1500
+@nolog swing: FIRE
+@modassert features.bladeTrace.touchingClass eq StaticMeshCollectionActor
+
+# 4. A cut along the floor, 0.5 m in 200 ms: one attack, owned by the contact, honoured.
+@mark
+hand r to grip -0.30 0.30 -0.40 0 60 0 200
+@log swing: FIRE #\d+ slash, the BLADE reached the WORLD .* owner=contact
+@log swing: HONOURED slash
+@wait 1500
+@modassert features.swing.contact.firesByContact eq 1
+@modassert features.swing.notHonoured eq 0
+
+# 5. Characters only: the floor is not a target, and the same cut is nothing.
+@mod swing contact targets pawns
+@mark
+hand r to grip 0.20 0.30 -0.40 0 60 0 200
+@log swing: blade movement \(live\) the TIP peaked [2-9]\.\d+ m/s .* no attack: the blade reached nothing that counts 5s
+@wait 800
+@nolog swing: FIRE
+
+# 6. Simulated blades, through the real core and the real gates.
+@mark
+@mod swing contact targets any; swing contact sim 5 200 3 hit
+@log swing: FIRE #\d+ slash, the BLADE reached a CHARACTER 'a simulated target' 8s
+@log swing: sim window finished: 3 fire 8s
+@mark
+@mod swing contact sim 5 200 3 miss
+@log swing: sim window finished: 0 fire 8s
+@nolog swing: FIRE
+@mark
+@mod swing contact sim 5 200 3 stale
+@log swing: FIRE #\d+ slash .* owner=FALLBACK 8s
+@log swing: sim window finished: 3 fire 8s
+
+# 7. Put it back: edge, and the contact levers where they ship. Nothing was saved.
+@mark
+@mod swing mode edge; swing contact targets breakables; swing contact speed 2.0
+@log swing: detector=edge 5s
+hand r to grip 0.25 1.30 -0.40 0 0 0 1200
+@wait 1500
+@modassert features.swing.detector eq edge
+@modassert features.bladeTrace.demanded eq false

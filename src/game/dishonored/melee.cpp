@@ -77,6 +77,11 @@ struct Settings : Config {
     bool  iniEnabled    = true;     // what [Melee] Enabled asked for, before any veto
     int   stabArm       = 0;        // [Melee] StabArm: 0 sneak (crouched), 1 always
     bool  detectorFromIni = false;
+    // VR-173, the contact detector. What counts as a target is the adapter's, because it
+    // is a rule about the game's classes: 0 characters only, 1 characters and things that
+    // break, 2 anything the blade reaches (walls too).
+    int   contactTargets = 1;       // [Melee] ContactTargets=pawns|breakables|any
+    float contactLeadMs  = 0.0f;    // [Melee] ContactLeadMs: also ask what the tip reaches this far ahead
     // VR-170: what ships. The core's own 3.6 stays, because the host tests pin it;
     // the shipped number is the adapter's, and configure() reads the same default.
     Settings() { edgeSpeed = kShippedEdgeSpeed; }
@@ -98,7 +103,22 @@ std::atomic<unsigned> pubFires{0};
 std::atomic<bool> pubRealTrig{false};
 
 struct Sim { bool on = false; double startMs = 0; float peak = 0, humpMs = 200; int reps = 1;
-             unsigned fires0 = 0, blocked0 = 0; } sim;
+             unsigned fires0 = 0, blocked0 = 0;
+             int blade = 0; } sim;   // `swing contact sim`: 0 no blade, 1 hit, 2 miss, 3 stale
+// VR-173: the contact detector's own record. `owner` is who decided the LAST sample.
+enum ContactOwner { kCoNone = 0, kCoBlade, kCoHand };
+struct Contact {
+    int owner = kCoNone; char why[200] = "the detector is not contact";
+    unsigned bladeSamples = 0, handSamples = 0, heldSamples = 0, touching = 0, flips = 0;
+    unsigned fires[4] = {};          // by dvr::swing::Owner
+    unsigned bySegment[3] = {};      // fires owned by the contact: found on the blade, on the tip's path, on the path ahead
+    float lastTip = 0, lastHand = 0, peakTip[2] = {}; double bucketMs = 0;
+    dvr::hands::BladeTouch touch;    // the answer the last sample was decided on
+    int   segment = -1;              // which of its segments counted: 0 blade, 1 sweep, 2 ahead, -1 none
+    unsigned ageMs = 0, genLag = 0;
+    double lastLogMs = 0;
+    int   said = kCoNone;            // the owner the LOG last named
+} co;
 struct Pulse { double openMs = 0, untilMs = 0; LONG polls0 = 0; int minPolls = 0; } pulse;
 struct Honour { bool on = false; unsigned long long fireTick = 0; double fireMs = 0;
                 bool upper0Attack = false, valid0 = false, realTrig = false; LONG polls0 = 0;
@@ -116,11 +136,29 @@ struct Stats { unsigned samples = 0, dups = 0, still = 0, fires = 0, blocked = 0
 constexpr int kCensusBins = 13;
 struct Census { unsigned fired[kCensusBins] = {}, quiet[kCensusBins] = {}, humps = 0, nearMiss = 0;
                 float lastPeak = 0, lastTravel = 0, lastMs = 0; int lastFired = 0;
-                float minFirePeak = 0, minFireTravel = 0, maxQuietPeak = 0; double printedAt = 0; unsigned printedHumps = 0; } cen;
+                float minFirePeak = 0, minFireTravel = 0, maxQuietPeak = 0; double printedAt = 0; unsigned printedHumps = 0;
+                unsigned touched = 0, touchedQuiet = 0; } cen, cenTip;
+// cenTip is the BLADE's census (VR-173): the movements counted while the contact detector's
+// blade owned the decision, by the tip's peak speed. It is kept apart because a tip speed
+// and a hand speed are different quantities, and EdgeSpeed must never be set from a list
+// that mixes them. touched = movements in which the blade reached a target; touchedQuiet =
+// the ones of those that did not attack (too slow): what ContactSpeed is lowered from.
 dvr::anim::Snapshot body; double bodyMs = 0;
 float realTrigger = 0.0f;
 
-const char* detector_name() { return st.detector == kEdge ? "edge" : "sustain"; }
+const char* detector_name() { return st.detector == kContact ? "contact" : st.detector == kSustain ? "sustain" : "edge"; }
+const char* targets_name()  { return st.contactTargets == 0 ? "pawns" : st.contactTargets == 2 ? "any" : "breakables"; }
+const char* owner_name(int o) { return o == kOwnerContact ? "contact" : o == kOwnerAir ? "air" : o == kOwnerFallback ? "fallback" : "speed"; }
+const char* segment_name(int s) { return s == 0 ? "on the blade" : s == 1 ? "on the tip's path since the last sample" : s == 2 ? "on the tip's path AHEAD" : "nowhere"; }
+// Does what the engine found count as a target, under [Melee] ContactTargets? An actor
+// that could not be verified as live never does.
+bool counts(const dvr::hands::BladeHit& h) {
+    if (!h.asked || h.kind == dvr::hands::kTouchNothing || h.kind == dvr::hands::kTouchUnverified) return false;
+    if (h.kind == dvr::hands::kTouchCharacter) return true;
+    if (st.contactTargets == 2) return true;
+    return st.contactTargets == 1 && h.breakable;
+}
+float peak_tip10s() { return co.peakTip[0] > co.peakTip[1] ? co.peakTip[0] : co.peakTip[1]; }
 const char* output_name()   { return st.outputRb ? "rb" : "rt"; }
 const char* veto() {
     if (g_meleeOn) return "";
@@ -294,7 +332,7 @@ void honour_poll(double now) {
 }
 
 bool live_src(const char* src) { return src && !strcmp(src, "live"); }
-void census_text(char* out, size_t cap) {
+void census_text(const Census& cen, char* out, size_t cap) {
     int at = _snprintf_s(out, cap, _TRUNCATE, "no attack by peak m/s:");
     for (int i = 0; i < kCensusBins && at > 0 && (size_t)at < cap; ++i)
         if (cen.quiet[i]) at += _snprintf_s(out + at, cap - at, _TRUNCATE, " %.1f%s:%u", i * 0.5f, i == kCensusBins - 1 ? "+" : "", cen.quiet[i]);
@@ -303,7 +341,17 @@ void census_text(char* out, size_t cap) {
         if (cen.fired[i]) at += _snprintf_s(out + at, cap - at, _TRUNCATE, " %.1f%s:%u", i * 0.5f, i == kCensusBins - 1 ? "+" : "", cen.fired[i]);
 }
 void census_report(const char* who) {
-    char t[512]; census_text(t, sizeof(t));
+    char t[512];
+    if (cenTip.humps || st.detector == kContact) {
+        census_text(cenTip, t, sizeof(t));
+        Log("swing: census of the BLADE (%s) %u blade movement(s) counted while the contact detector's blade owned the decision, by "
+            "the TIP's peak speed - %s | the blade reached a target in %u of them, and %u of those did NOT attack (the tip was "
+            "under the %.2f m/s ContactSpeed, the gates were closed, or the latch was down) | slowest attack peaked %.2f m/s, "
+            "fastest non-attack %.2f m/s. Under contact a fast movement that attacked nothing is the detector working: it "
+            "touched nothing. This list is tip speed and is never to be read against EdgeSpeed",
+            who, cenTip.humps, t, cenTip.touched, cenTip.touchedQuiet, st.contactSpeed, cenTip.minFirePeak, cenTip.maxQuietPeak);
+    }
+    census_text(cen, t, sizeof(t));
     Log("swing: census (%s) %u hand movement(s) above the %.2f m/s re-arm level since launch - %s | slowest attack peaked "
         "%.2f m/s (least travel at a fire %.2f m), fastest non-attack %.2f m/s, %u near miss(es) (gates open, peak "
         "within 20 %% under the %.2f threshold). Bins are 0.5 m/s wide and named by their lower edge; 0.00 means none yet. "
@@ -311,7 +359,35 @@ void census_report(const char* who) {
         "guard is the next lever",
         who, cen.humps, effective_rearm(st), t, cen.minFirePeak, cen.minFireTravel, cen.maxQuietPeak, cen.nearMiss, st.edgeSpeed);
 }
+// A blade movement (VR-173): a hump counted on the tip's speed, under the contact detector.
+void note_blade_hump(const Verdict& v, const Sample& s, const char* src) {
+    const bool open = !v.humpBlock && !s.closed;
+    if (live_src(src)) {
+        ++cenTip.humps;
+        int bin = (int)(v.humpPeak * 2.0f); if (bin < 0) bin = 0; if (bin >= kCensusBins) bin = kCensusBins - 1;
+        cenTip.lastPeak = v.humpPeak; cenTip.lastTravel = v.humpTravel; cenTip.lastMs = v.humpMs; cenTip.lastFired = v.humpFired;
+        if (v.humpTouched) ++cenTip.touched;
+        if (v.humpFired) {
+            ++cenTip.fired[bin];
+            if (cenTip.minFirePeak == 0.0f || v.humpPeak < cenTip.minFirePeak) cenTip.minFirePeak = v.humpPeak;
+        } else {
+            ++cenTip.quiet[bin];
+            if (v.humpTouched) ++cenTip.touchedQuiet;
+            if (open && v.humpPeak > cenTip.maxQuietPeak) cenTip.maxQuietPeak = v.humpPeak;
+        }
+    }
+    if (v.humpPeak >= 0.5f * st.contactSpeed)
+        Log("swing: blade movement (%s%s) the TIP peaked %.2f m/s over %.2f m in %.0f ms%s -> %s (ContactSpeed %.2f, targets=%s)",
+            src, live_src(src) ? "" : ", not counted in the census", v.humpPeak, v.humpTravel, v.humpMs,
+            v.humpCut ? " (CUT SHORT: tracking was lost or jumped, no sample arrived for 100 ms, or the decision changed owner)" : "",
+            v.humpFired == kFiredStab ? "STAB" : v.humpFired ? "ATTACK"
+                : v.humpBlock == kBlockGate ? "no attack: a gate was closed" : v.humpBlock == kBlockRearm ? "no attack: not re-armed"
+                : v.humpBlock == kBlockCooldown ? "no attack: cooldown"
+                : !v.humpTouched ? "no attack: the blade reached nothing that counts" : "no attack: the blade reached a target, under ContactSpeed",
+            st.contactSpeed, targets_name());
+}
 void note_hump(const Verdict& v, const Sample& s, const char* src) {
+    if (v.humpTip) { note_blade_hump(v, s, src); return; }
     const bool open = !v.humpBlock && !s.closed;
     // A near miss is UNDER the threshold by less than 20 %. A cut hump's peak is a
     // lower bound, so it cannot be called one; a hump at or over the threshold that
@@ -342,6 +418,7 @@ void note_hump(const Verdict& v, const Sample& s, const char* src) {
             v.humpFired == kFiredStab ? "STAB" : v.humpFired ? "ATTACK"
                 : v.humpBlock == kBlockGate ? "no attack: a gate was closed" : v.humpBlock == kBlockRearm ? "no attack: not re-armed"
                 : v.humpBlock == kBlockCooldown ? "no attack: cooldown"
+                : v.humpBlock == kBlockHold ? "no attack: the blade's answer had only just gone missing (contact)"
                 : v.humpPeak >= st.edgeSpeed ? "no attack: fast enough, the travel guard held it" : "no attack: under the threshold",
             st.edgeSpeed, st.edgeTravelM,
             nearMiss ? " - a NEAR MISS: if this was meant as a swing, the threshold is too high for this player" : "");
@@ -392,7 +469,9 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
     }
     if (v.fired) {
         ++n.fires; g_meleeCount++; g_meleeLastMs = now;
-        const bool edgeMode = st.detector == kEdge;
+        // Everything after the decision is the edge detector's for contact too: the press,
+        // the polls it waits for, the honoured-check.
+        const bool edgeMode = st.detector != kSustain;
         const double len = edgeMode ? (double)st.pulseMs : (double)g_meleeHoldMs;
         pulse.openMs = now; pulse.untilMs = now + len;
         pulse.polls0 = InterlockedCompareExchange(&padPollsTotal, 0, 0);
@@ -405,14 +484,35 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
         const double h0 = MaimNowMs();
         if (g_meleeHaptic) MaimHaptic(1, 0.7f, 0.08f);
         const double h1 = MaimNowMs();
-        if (edgeMode)
-            Log("swing: FIRE #%u %s %.2f m/s after %.2f m of travel (%s, detector=edge, threshold %.2f, travel guard %.2f) -> %s %.0f ms, polls>=%d, haptic=%.1fms",
-                n.fires, v.fired == kFiredStab ? "stab" : "slash", v.speed, v.travelAtFire, src, st.edgeSpeed, st.edgeTravelM,
+        if (st.detector == kContact && v.fired == kFiredSlash) {
+            const int o = v.owner >= 0 && v.owner < 4 ? v.owner : 0;
+            ++co.fires[o];
+            if (o == kOwnerContact && co.segment >= 0 && co.segment < 3) ++co.bySegment[co.segment];
+            const dvr::hands::BladeHit& h = co.segment == 1 ? co.touch.sweep : co.segment == 2 ? co.touch.ahead : co.touch.blade;
+            if (o == kOwnerContact)
+                Log("swing: FIRE #%u slash, the BLADE reached %s '%s'%s %s, %.1f uu along it (%s, detector=contact, owner=contact, "
+                    "targets=%s): tip %.2f m/s (needs %.2f), hand %.2f m/s, the answer is for a hand sample %u ms old and %u "
+                    "sample(s) back, lead %.0f ms -> %s %.0f ms, polls>=%d, haptic=%.1fms",
+                    n.fires, h.kind == dvr::hands::kTouchCharacter ? "a CHARACTER" : h.kind == dvr::hands::kTouchWorld ? "the WORLD" : "an actor",
+                    h.cls, h.breakable ? " (it breaks)" : "", segment_name(co.segment), h.distUU, src, targets_name(), v.tipSpeed,
+                    st.contactSpeed, v.handSpeed, co.ageMs, co.genLag, co.touch.leadMs, output_name(), len, pulse.minPolls, h1 - h0);
+            else if (o == kOwnerAir)
+                Log("swing: FIRE #%u slash in the AIR (%s, detector=contact, owner=air): the blade reached nothing and the tip did "
+                    "%.2f m/s, at or over ContactAirSpeed %.2f; hand %.2f m/s -> %s %.0f ms, polls>=%d, haptic=%.1fms",
+                    n.fires, src, v.tipSpeed, st.contactAirSpeed, v.handSpeed, output_name(), len, pulse.minPolls, h1 - h0);
+            else
+                Log("swing: FIRE #%u slash %.2f m/s after %.2f m of travel (%s, detector=contact, owner=FALLBACK: the HAND decided, as "
+                    "edge, threshold %.2f - %s) -> %s %.0f ms, polls>=%d, haptic=%.1fms",
+                    n.fires, v.speed, v.travelAtFire, src, st.edgeSpeed, co.why, output_name(), len, pulse.minPolls, h1 - h0);
+        }
+        else if (edgeMode)
+            Log("swing: FIRE #%u %s %.2f m/s after %.2f m of travel (%s, detector=%s, threshold %.2f, travel guard %.2f) -> %s %.0f ms, polls>=%d, haptic=%.1fms",
+                n.fires, v.fired == kFiredStab ? "stab" : "slash", v.speed, v.travelAtFire, src, detector_name(), st.edgeSpeed, st.edgeTravelM,
                 output_name(), len, pulse.minPolls, h1 - h0);
         else
             Log("swing: FIRE #%u slash %.2f m/s (%s, detector=sustain, run %.0f ms %.2f m) -> %s %.0f ms, haptic=%.1fms",
                 n.fires, v.speed, src, v.runMs, v.runDistM, output_name(), len, h1 - h0);
-        if (live_src(src) && v.fired == kFiredSlash && (cen.minFireTravel == 0.0f || v.travelAtFire < cen.minFireTravel))
+        if (live_src(src) && v.fired == kFiredSlash && !v.known && (cen.minFireTravel == 0.0f || v.travelAtFire < cen.minFireTravel))
             cen.minFireTravel = v.travelAtFire;
         honour_begin(now);
     } else if (v.block) {
@@ -421,6 +521,8 @@ void handle(const Verdict& v, const Sample& s, double now, const char* src) {
         if (v.block == kBlockGate) closed_text(v.closed, now, why, sizeof(why));
         else if (v.block == kBlockRearm)
             _snprintf_s(why, sizeof(why), _TRUNCATE, "not re-armed (the hand never slowed below %.2f m/s since the last attack)", effective_rearm(st));
+        else if (v.block == kBlockHold)
+            _snprintf_s(why, sizeof(why), _TRUNCATE, "the blade's answer went missing less than %.0f ms ago, so nobody decides yet (%s)", st.contactGraceMs, co.why);
         else _snprintf_s(why, sizeof(why), _TRUNCATE, "cooldown (%.0f of %.0f ms left)", v.cooldownLeftMs, st.cooldownMs);
         _snprintf_s(n.lastBlock, sizeof(n.lastBlock), _TRUNCATE, "%s", why);
         Log("swing: BLOCKED %.2f m/s (%s, detector=%s%s): %s", v.speed, src, detector_name(),
@@ -442,8 +544,17 @@ void beat(double now) {
         "honoured=%u notHonoured=%u inconclusive=%u - fires stay 0 while a gate is closed, and the gate named is the owner; "
         "dup = presents inside one locate (about half of all presents under stereo reentry, by design), still=%u = new "
         "locates whose hand had not moved at all",
-        detector_name(), peak10s(), st.detector == kEdge ? st.edgeSpeed : st.sustainSpeed, n.samples, n.dups,
-        why, n.fires, n.blocked, n.honoured, n.notHonoured, n.inconclusive, n.still);
+        detector_name(), peak10s(), st.detector == kSustain ? st.sustainSpeed : co.owner == kCoBlade ? st.contactSpeed : st.edgeSpeed,
+        n.samples, n.dups, why, n.fires, n.blocked, n.honoured, n.notHonoured, n.inconclusive, n.still);
+    if (st.detector == kContact)
+        Log("swing: contact beat owner=%s (%s) | samples decided by the blade %u, by the hand %u, by nobody %u (the answer was "
+            "missing for less than the %.0f ms grace), owner changes %u | the blade was "
+            "reaching a target (targets=%s) on %u of the blade's samples | tip peak10s=%.2f m/s (needs %.2f) | attacks: by contact "
+            "%u (on the blade %u, on the tip's path %u, ahead %u), in the air %u, by the hand's fallback %u - under contact "
+            "'by contact' stays 0 while the blade reaches nothing, and that is the detector working, not failing",
+            co.owner == kCoBlade ? "BLADE" : co.owner == kCoHand ? "HAND (edge rules)" : "none yet", co.why, co.bladeSamples,
+            co.handSamples, co.heldSamples, st.contactGraceMs, co.flips, targets_name(), co.touching, peak_tip10s(), st.contactSpeed, co.fires[kOwnerContact],
+            co.bySegment[0], co.bySegment[1], co.bySegment[2], co.fires[kOwnerAir], co.fires[kOwnerFallback]);
     if (now - cen.printedAt >= 60000.0 && cen.humps != cen.printedHumps) {
         cen.printedAt = now; cen.printedHumps = cen.humps;
         census_report("once a minute while it grows");
@@ -463,6 +574,13 @@ void report() {
         why, (int)live.armed(), n.samples, n.dups, n.fires, n.blocked, n.lastBlock, n.honoured, n.kills,
         n.notHonoured, n.inconclusive, n.lastSpeed, n.peak);
     n.peak = 0.0f;
+    Log("swing: contact: ContactSpeed %.2f m/s at the TIP (re-arm %.2f) targets=%s lead %.0f ms air %.2f m/s (0 = an air swing "
+        "never attacks) answer good for %.0f ms | %s: owner=%s (%s) | decided by the blade %u sample(s), by the hand %u | attacks "
+        "by contact %u, in the air %u, by the fallback %u | last tip %.2f m/s, hand %.2f m/s",
+        st.contactSpeed, effective_contact_rearm(st), targets_name(), st.contactLeadMs, st.contactAirSpeed, st.contactMaxAgeMs,
+        st.detector == kContact ? "IN USE" : "not in use (the detector is not contact)",
+        co.owner == kCoBlade ? "BLADE" : co.owner == kCoHand ? "HAND (edge rules)" : "none yet", co.why, co.bladeSamples,
+        co.handSamples, co.fires[kOwnerContact], co.fires[kOwnerAir], co.fires[kOwnerFallback], co.lastTip, co.lastHand);
     census_report("status");
 }
 float clampf(float v, float lo, float hi) { return !(v == v) ? lo : v < lo ? lo : v > hi ? hi : v; }
@@ -502,8 +620,65 @@ bool pulse_active() {
     return false;
 }
 
+namespace {
+// VR-173: fill the blade's half of a live sample, and say who will own the decision and
+// why. The answer was traced on the script lane for an EARLIER hand sample (at most a
+// game tick back, measured); its age is taken from that sample's own stamp.
+void blade_sample(Sample& s, uint32_t gen, double now) {
+    char why[200] = "";
+    const dvr::hands::BladeFrame bf = dvr::hands::blade_frame();
+    const dvr::hands::BladeTouch t = dvr::hands::blade_touch();
+    const uint64_t tick = GetTickCount64();
+    co.segment = -1;
+    if (dvr::drop::airborne_now())
+        _snprintf_s(why, sizeof(why), _TRUNCATE, "the player is in the air: a drop takedown needs its press before the landing, which a blade cannot reach in time");
+    else if (!bf.ok) _snprintf_s(why, sizeof(why), _TRUNCATE, "no blade to follow: %s", bf.why);
+    else if (bf.handGen != gen) _snprintf_s(why, sizeof(why), _TRUNCATE, "the blade published is for hand sample %u and this one is %u", bf.handGen, gen);
+    else {
+        s.tipValid = true;
+        s.tip[0] = bf.tipRawXr[0]; s.tip[1] = bf.tipRawXr[1]; s.tip[2] = bf.tipRawXr[2];
+        if (!t.ok) _snprintf_s(why, sizeof(why), _TRUNCATE, "the engine has no answer for the blade: %s", t.why);
+        else {
+            co.ageMs = tick >= t.sampleMs ? (unsigned)(tick - t.sampleMs) : 0u;
+            co.genLag = gen - t.handGen;
+            s.contactValid = true; s.contactAgeMs = (float)co.ageMs;
+            co.segment = counts(t.blade) ? 0 : counts(t.sweep) ? 1 : counts(t.ahead) ? 2 : -1;
+            s.contact = co.segment >= 0;
+            if (s.contactAgeMs > st.contactMaxAgeMs)
+                _snprintf_s(why, sizeof(why), _TRUNCATE, "the engine's answer is %u ms old (the limit is %.0f): the script lane has stopped answering", co.ageMs, st.contactMaxAgeMs);
+        }
+    }
+    if (*why) s.contactValid = false;
+    co.touch = t;
+    _snprintf_s(co.why, sizeof(co.why), _TRUNCATE, "%s", *why ? why : "the blade is followed and the engine answers for it");
+}
+void contact_note(const Verdict& v, const Sample& s, double now) {
+    if (!v.sampled) return;
+    // A held sample has no owner: the one before it stands until the hand really takes over.
+    const int owner = v.known ? kCoBlade : v.hold ? co.owner : kCoHand;
+    if (v.known) { ++co.bladeSamples; if (s.contact) ++co.touching; } else if (v.hold) ++co.heldSamples; else ++co.handSamples;
+    co.lastTip = v.tipSpeed; co.lastHand = v.handSpeed;
+    if (now - co.bucketMs > 5000.0) { co.bucketMs = now; co.peakTip[1] = co.peakTip[0]; co.peakTip[0] = 0.0f; }
+    if (v.known && v.tipSpeed > co.peakTip[0]) co.peakTip[0] = v.tipSpeed;
+    if (owner != co.owner) { ++co.flips; co.owner = owner; }
+    // NAME THE OWNER. A healthy contact sword and one that has silently become the edge
+    // sword attack alike on a fast swing; this line is what tells them apart. Bounded to
+    // twice a second, and a change inside that half second is said LATE, never dropped:
+    // the first build dropped it, and a log that read "the HAND owns the decision" sat
+    // above 868 samples decided by the blade (simulator, 2026-09-29).
+    if (co.owner != co.said && now - co.lastLogMs >= 500.0) {
+        co.lastLogMs = now; co.said = co.owner;
+        if (co.owner == kCoBlade) Log("swing: contact - the BLADE owns the decision (%s; owner change %u)", co.why, co.flips);
+        else DVR_WARN("swing: contact - the HAND owns the decision, by edge rules, until the blade can: %s (owner change %u)", co.why, co.flips);
+    }
+}
+} // namespace
+
 void tick() {
     const double now = MaimNowMs();
+    // The standing request for the blade: measured and traced only while this detector
+    // is the one in use and the gesture is on.
+    dvr::hands::blade_demand(st.detector == kContact && g_meleeOn, st.contactLeadMs);
     // The sustain detector's numbers are the pre-VR-37 keys, read into their own
     // globals further down the config load than configure() runs.
     st.sustainSpeed = g_meleeSpeed; st.sustainMs = g_meleeSwingMs; st.sustainDistM = g_meleeSwingDist;
@@ -531,7 +706,21 @@ void tick() {
             else                         { s.hand[0] = 0.20f; s.hand[1] = 1.25f;              s.hand[2] = -0.25f - o; }
             s.stabArmed = stab_armed(now);
         } else { s.hand[0] = sim_offset(sim.peak, sim.humpMs, phase); s.hand[1] = 1.2f; s.hand[2] = -0.4f; }
-        handle(simCore.feed(s, st), s, now, "sim");
+        if (sim.blade) {
+            // A simulated BLADE: 0.62 m straight out from the simulated hand, and the
+            // engine's answer stood in for. The decision, the gates and everything
+            // after them are the real ones.
+            s.tipValid = true; s.tip[0] = s.hand[0]; s.tip[1] = s.hand[1]; s.tip[2] = s.hand[2] - 0.62f;
+            s.contactValid = sim.blade != 3; s.contact = sim.blade == 1; s.contactAgeMs = 11.0f;
+            co.segment = sim.blade == 1 ? 0 : -1; co.ageMs = 11; co.genLag = 1;
+            co.touch = dvr::hands::BladeTouch{};
+            co.touch.blade.asked = true; co.touch.blade.kind = sim.blade == 1 ? dvr::hands::kTouchCharacter : dvr::hands::kTouchNothing;
+            _snprintf_s(co.touch.blade.cls, sizeof(co.touch.blade.cls), _TRUNCATE, "%s", sim.blade == 1 ? "a simulated target" : "");
+            _snprintf_s(co.why, sizeof(co.why), _TRUNCATE, "%s", sim.blade == 3 ? "a simulated blade whose answer never came" : "a simulated blade");
+        }
+        const Verdict sv = simCore.feed(s, st);
+        if (st.detector == kContact) contact_note(sv, s, now);
+        handle(sv, s, now, "sim");
         return;
     }
     if (!g_meleeOn) return;
@@ -550,7 +739,7 @@ void tick() {
         if (fl > 0.2f) { headFwd[0] = fx / fl; headFwd[1] = fz / fl; }
     }
     s.headFwd[0] = headFwd[0]; s.headFwd[1] = headFwd[1];
-    s.stabArmed = st.detector == kEdge && stab_armed(now);
+    s.stabArmed = st.detector != kSustain && stab_armed(now);
     // One sample per LOCATE: the render presents twice per game tick, and the
     // second present carries the pose the first one did. Read as a zero step, that
     // repeat is what kept the old detector from ever completing a run. A pose that
@@ -566,12 +755,18 @@ void tick() {
     const int64_t predicted = dvr::vr::last_predicted_time();
     s.tMs = predicted > 0 ? (double)predicted * 1e-6 : now;
     s.closed = gates(now);
+    if (st.detector == kContact) blade_sample(s, gen, now);
     const Verdict v = live.feed(s, st);
+    if (st.detector == kContact) contact_note(v, s, now);
     // `swing log on`, per sample while the hand is moving: the cadence itself is
     // the thing under test (which generation, how far, over how long).
     if (speedLog && v.roomSpeed > 0.5f)
         Log("swing: sample handGen=%u (+%u) locateGen=%u t=%.2f ms speed=%.2f raw=%.2f room=%.2f jump=%d x=%.3f y=%.3f z=%.3f",
             gen, genStep, dvr::vr::locate_gen(), s.tMs, v.speed, v.rawSpeed, v.roomSpeed, (int)v.jump, s.hand[0], s.hand[1], s.hand[2]);
+    if (speedLog && st.detector == kContact && (v.tipSpeed > 0.5f || v.roomSpeed > 0.5f))
+        Log("swing: blade sample handGen=%u owner=%s tip=%.2f m/s hand=%.2f m/s touch=%d (%s) answer %u ms old, %u sample(s) back, "
+            "tip (%.3f %.3f %.3f)", gen, v.known ? "blade" : "hand", v.tipSpeed, v.handSpeed, (int)s.contact, segment_name(co.segment),
+            co.ageMs, co.genLag, s.tip[0], s.tip[1], s.tip[2]);
     if (speedLog && st.stab && v.radial > 0.5f)
         Log("stab: sample extension=%.2f m/s armed=%d fwd=(%.2f,%.2f) travel=%.2f ratio=%.2f", v.radial, (int)s.stabArmed,
             s.headFwd[0], s.headFwd[1], v.stabTravel, v.stabRatio);
@@ -583,7 +778,19 @@ void configure(const char* ini) {
     st.iniEnabled = IniFloat(ini, "Melee", "Enabled", 1) != 0.0f;
     GetPrivateProfileStringA("Melee", "Detector", "", buf, sizeof(buf), ini);
     st.detectorFromIni = buf[0] != 0;
-    st.detector = !_stricmp(buf, "sustain") ? kSustain : kEdge;   // edge since the 2026-09-20 headset verdict
+    st.detector = !_stricmp(buf, "sustain") ? kSustain : !_stricmp(buf, "contact") ? kContact : kEdge;   // edge since the 2026-09-20 headset verdict
+    if (buf[0] && _stricmp(buf, "sustain") && _stricmp(buf, "contact") && _stricmp(buf, "edge"))
+        DVR_WARN("config: [Melee] Detector=%s is not a detector (edge, contact or sustain): edge is used", buf);
+    st.contactSpeed    = clampf(IniFloat(ini, "Melee", "ContactSpeed", 2.0f), 0.3f, 15.0f);
+    st.contactMaxAgeMs = clampf(IniFloat(ini, "Melee", "ContactMaxAgeMs", 100.0f), 20.0f, 500.0f);
+    st.contactAirSpeed = clampf(IniFloat(ini, "Melee", "ContactAirSpeed", 0.0f), 0.0f, 30.0f);
+    st.contactLeadMs   = clampf(IniFloat(ini, "Melee", "ContactLeadMs", 0.0f), 0.0f, 300.0f);
+    GetPrivateProfileStringA("Melee", "ContactTargets", "breakables", buf, sizeof(buf), ini);
+    st.contactTargets = !_stricmp(buf, "pawns") ? 0 : !_stricmp(buf, "any") ? 2 : 1;
+    Log("config: [Melee] ContactSpeed=%.2f (the blade TIP's speed, m/s) ContactTargets=%s ContactLeadMs=%.0f ContactAirSpeed=%.2f "
+        "ContactMaxAgeMs=%.0f - the contact-timed sword (VR-173); these do nothing until Detector=contact, which is %s",
+        st.contactSpeed, targets_name(), st.contactLeadMs, st.contactAirSpeed, st.contactMaxAgeMs,
+        st.detector == kContact ? "SET" : "not set");
     st.edgeSpeed  = clampf(IniFloat(ini, "Melee", "EdgeSpeed", kShippedEdgeSpeed), 0.3f, 10.0f);
     st.edgeTravelM = clampf(IniFloat(ini, "Melee", "EdgeTravelM", 0.0f), 0.0f, 1.0f);
     // VR-170: the old default is WRITTEN in every installed ini, so a new compiled
@@ -629,7 +836,7 @@ void configure(const char* ini) {
     Log("config: [Melee] StabStyle=%s StabStartBelowM=%.2f - plunge = a raised fist driven down (the blade in a reverse "
         "grip), thrust = straight out from the shoulder", style_name(), st.stabStartBelowM);
     Log("config: [Melee] Stab=%d StabArm=%s StabSpeed=%.2f StabTravelM=%.2f StabRatio=%.2f StabForward=%.2f "
-        "StabWindowMs=%.0f Shoulder R/D/B=%.2f/%.2f/%.2f - the sneak-kill thrust; it needs Detector=edge, and "
+        "StabWindowMs=%.0f Shoulder R/D/B=%.2f/%.2f/%.2f - the sneak-kill thrust; it needs Detector=edge or contact, and "
         "'stab: ARMED' in the log says when a thrust can count", (int)st.stab, st.stabArm ? "always" : "sneak",
         st.stabSpeed, st.stabTravelM, st.stabRatio, st.stabForward, st.stabWindowMs, st.shoulder[0], st.shoulder[1],
         st.shoulder[2]);
@@ -670,6 +877,11 @@ void save(const char* ini) {
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.shoulder[0]);  WritePrivateProfileStringA("Melee", "ShoulderRightM", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.shoulder[1]);  WritePrivateProfileStringA("Melee", "ShoulderDownM", v, ini);
     _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.shoulder[2]);  WritePrivateProfileStringA("Melee", "ShoulderBackM", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.contactSpeed);    WritePrivateProfileStringA("Melee", "ContactSpeed", v, ini);
+    WritePrivateProfileStringA("Melee", "ContactTargets", targets_name(), ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.contactLeadMs);   WritePrivateProfileStringA("Melee", "ContactLeadMs", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.contactAirSpeed); WritePrivateProfileStringA("Melee", "ContactAirSpeed", v, ini);
+    _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.contactMaxAgeMs); WritePrivateProfileStringA("Melee", "ContactMaxAgeMs", v, ini);
 }
 
 bool command(const char* args) {
@@ -683,7 +895,7 @@ bool command(const char* args) {
         if (!strcmp(a, "on") || !strcmp(a, "off")) {
             st.stab = !strcmp(a, "on"); live.reset();
             Log("stab: %s (live; 'swing save' or F10 writes it)%s", st.stab ? "ON" : "OFF",
-                st.stab && st.detector != kEdge ? " - it needs 'swing mode edge' and does nothing under sustain" : "");
+                st.stab && st.detector == kSustain ? " - it needs 'swing mode edge' or 'swing mode contact' and does nothing under sustain" : "");
         }
         else if (!strcmp(a, "style") && (!strcmp(b, "plunge") || !strcmp(b, "thrust"))) {
             st.stabStyle = !strcmp(b, "thrust") ? kThrust : kPlunge; live.reset();
@@ -732,19 +944,62 @@ bool command(const char* args) {
     }
     if (!strcmp(sub, "on"))  { set_on(true);  return true; }
     if (!strcmp(sub, "off")) { set_on(false); return true; }
-    if (!strcmp(sub, "mode") && (!strcmp(a, "edge") || !strcmp(a, "sustain"))) {
-        st.detector = !strcmp(a, "edge") ? kEdge : kSustain; live.reset(); close_pulse();
+    if (!strcmp(sub, "contact")) {
+        const float g = (float)atof(b);
+        bool saidC = true;
+        if (!strcmp(a, "speed") && *b)       { st.contactSpeed = clampf(g, 0.3f, 15.0f); live.reset(); Log("swing: ContactSpeed=%.2f m/s at the blade's TIP, effective re-arm %.2f (live)", st.contactSpeed, effective_contact_rearm(st)); }
+        else if (!strcmp(a, "targets") && (!strcmp(b, "pawns") || !strcmp(b, "breakables") || !strcmp(b, "any"))) {
+            st.contactTargets = !strcmp(b, "pawns") ? 0 : !strcmp(b, "any") ? 2 : 1;
+            Log("swing: ContactTargets=%s (live) - %s", targets_name(), st.contactTargets == 0 ? "characters only"
+                : st.contactTargets == 1 ? "characters, and actors whose class chain is named as something that breaks"
+                : "anything the blade reaches, walls and floors too");
+        }
+        else if (!strcmp(a, "lead") && *b)   { st.contactLeadMs = clampf(g, 0.0f, 300.0f); Log("swing: ContactLeadMs=%.0f (live) - %s", st.contactLeadMs, st.contactLeadMs > 0.0f ? "the engine is also asked what the tip reaches this far ahead at its present velocity, so the press comes that much EARLIER than the touch" : "the press comes when the blade arrives"); }
+        else if (!strcmp(a, "air") && *b)    { st.contactAirSpeed = clampf(g, 0.0f, 30.0f); Log("swing: ContactAirSpeed=%.2f m/s at the tip (live) - %s", st.contactAirSpeed, st.contactAirSpeed > 0.0f ? "a swing this fast attacks even when the blade reaches nothing" : "a swing that reaches nothing never attacks"); }
+        else if (!strcmp(a, "age") && *b)    { st.contactMaxAgeMs = clampf(g, 20.0f, 500.0f); Log("swing: ContactMaxAgeMs=%.0f (live) - an answer older than this is no answer and the hand decides", st.contactMaxAgeMs); }
+        else if (!strcmp(a, "grace") && *b)  { st.contactGraceMs = clampf(g, 0.0f, 2000.0f); Log("swing: the contact grace is %.0f ms (live, never saved) - an answer missing for less than this is waited for, and nothing attacks meanwhile", st.contactGraceMs); }
+        else if (!strcmp(a, "sim") && *b) {
+            char d4[24] = {}, d5[24] = {}; sscanf(args, "%*s %*s %*s %*s %23s %23s", d4, d5);
+            const char* how = *d5 ? d5 : *d4 && !atof(d4) ? d4 : *c && !atof(c) ? c : "hit";
+            sim = Sim{}; sim.on = true; simStab = false; sim.startMs = MaimNowMs();
+            sim.peak = clampf(g, 0.0f, kMaxSpeed - 1.0f);
+            sim.humpMs = *c && atof(c) ? clampf((float)atof(c), 20.0f, 2000.0f) : 200.0f;
+            sim.reps = *d4 && atof(d4) ? (int)clampf((float)atof(d4), 1.0f, 10.0f) : 1;
+            sim.blade = !strcmp(how, "miss") ? 2 : !strcmp(how, "stale") ? 3 : 1;
+            sim.fires0 = n.fires; sim.blocked0 = n.blocked; simCore.reset();
+            Log("swing: contact sim %d swing(s) peaking at %.1f m/s, %.0f ms each, a simulated blade whose answer is '%s' (hit = it "
+                "reaches a target all the way, miss = it reaches nothing, stale = no answer ever comes), through the real decision "
+                "core and the real gates (detector=%s%s)", sim.reps, sim.peak, sim.humpMs,
+                sim.blade == 2 ? "miss" : sim.blade == 3 ? "stale" : "hit", detector_name(),
+                st.detector == kContact ? "" : " - NOT contact, so the blade is ignored and this is an ordinary 'swing sim'");
+            return true;
+        }
+        else {
+            saidC = false;
+            if (*a && strcmp(a, "status"))
+                Log("swing contact: status | speed <m/s at the tip> | targets pawns|breakables|any | lead <ms> | air <m/s, 0 = never> | "
+                    "age <ms> | grace <ms> | sim <peak m/s> [humpMs] [reps] hit|miss|stale   (the detector itself is 'swing mode contact')");
+        }
+        if (!saidC) report();
+        return true;
+    }
+    if (!strcmp(sub, "mode") && (!strcmp(a, "edge") || !strcmp(a, "sustain") || !strcmp(a, "contact"))) {
+        st.detector = !strcmp(a, "edge") ? kEdge : !strcmp(a, "contact") ? kContact : kSustain; live.reset(); close_pulse();
+        co = Contact{};
         Log("swing: detector=%s (live; 'swing save' or F10 writes it). %s", detector_name(),
             st.detector == kEdge ? "Fires on the crossing of EdgeSpeed, gated on a gameplay view and the sword in hand"
+            : st.detector == kContact ? "Fires when the BLADE reaches a target with its tip at or over ContactSpeed; a swing through "
+                                        "the air does nothing. The gates are edge's. While the blade cannot be followed the hand "
+                                        "decides by edge rules, and 'swing: contact' lines name the owner"
                                  : "The pre-VR-37 detector and its own gates (handMesh, wheel, the 3 s UI mute)");
         said = true;
     }
     else if (!strcmp(sub, "threshold") && *a) { st.edgeSpeed = clampf(f, 0.3f, 10.0f); Log("swing: EdgeSpeed=%.2f m/s, effective re-arm %.2f (live)", st.edgeSpeed, effective_rearm(st)); said = true; }
     else if (!strcmp(sub, "travel") && *a)    { st.edgeTravelM = clampf(f, 0.0f, 1.0f); Log("swing: EdgeTravelM=%.2f m (live) - %s", st.edgeTravelM, st.edgeTravelM > 0.0f ? "a crossing fires only once the hand has covered this much in the same movement; it delays, it never blocks. Read 'least travel at a fire' in the census before choosing a value" : "the travel guard is off"); said = true; }
-    else if (!strcmp(sub, "census"))          { if (!strcmp(a, "reset")) { cen = Census{}; Log("swing: census cleared"); } census_report("asked"); return true; }
+    else if (!strcmp(sub, "census"))          { if (!strcmp(a, "reset")) { cen = Census{}; cenTip = Census{}; Log("swing: census cleared"); } census_report("asked"); return true; }
     else if (!strcmp(sub, "rearm") && *a)     { st.rearmSpeed = clampf(f, 0.05f, 9.0f); Log("swing: RearmSpeed=%.2f m/s, effective %.2f - capped at 0.9 x the threshold (live)", st.rearmSpeed, effective_rearm(st)); said = true; }
     else if (!strcmp(sub, "cooldown") && *a)  { g_meleeCoolMs = clampf(f, 0.0f, 2000.0f); Log("swing: CooldownMs=%.0f (live, both detectors)", g_meleeCoolMs); said = true; }
-    else if (!strcmp(sub, "pulse") && *a)     { st.pulseMs = clampf(f, 20.0f, 500.0f); Log("swing: PulseMs=%.0f (live, edge detector; sustain keeps HoldMs=%.0f)", st.pulseMs, g_meleeHoldMs); said = true; }
+    else if (!strcmp(sub, "pulse") && *a)     { st.pulseMs = clampf(f, 20.0f, 500.0f); Log("swing: PulseMs=%.0f (live, edge and contact; sustain keeps HoldMs=%.0f)", st.pulseMs, g_meleeHoldMs); said = true; }
     else if (!strcmp(sub, "polls") && *a)     { st.pulseMinPolls = (int)clampf(f, 0.0f, 10.0f); Log("swing: PulseMinPolls=%d (live; 0 = time only)", st.pulseMinPolls); said = true; }
     else if (!strcmp(sub, "rel") && (on || off))   { st.headRel = on; live.reset(); Log("swing: HeadRel=%d (live) - %s", (int)on, on ? "the head's own movement is subtracted, so turning the body is not a swing" : "raw room-space hand speed"); said = true; }
     else if (!strcmp(sub, "filter") && (!strcmp(a, "raw") || !strcmp(a, "median"))) {
@@ -771,9 +1026,10 @@ bool command(const char* args) {
     }
     else if (!strcmp(sub, "save")) { char ini[MAX_PATH]; ini_path(ini); save(ini); Log("swing: [Melee] written to %s", ini); said = true; }
     else if (*sub && strcmp(sub, "status"))
-        Log("swing: status | on|off | mode edge|sustain | threshold <m/s> | travel <m> | census [reset] | rearm <m/s> | cooldown <ms> | pulse <ms> | "
+        Log("swing: status | on|off | mode edge|contact|sustain | threshold <m/s> | travel <m> | census [reset] | rearm <m/s> | cooldown <ms> | pulse <ms> | "
             "polls <n> | rel on|off | filter raw|median | sword on|off | output rt|rb | honour <ms> | log on|off | force on|off | "
-            "sim <peak m/s> [humpMs] [reps] | save | stab ... (the sneak-kill thrust: 'swing stab' lists it)");
+            "sim <peak m/s> [humpMs] [reps] | save | stab ... (the sneak-kill thrust: 'swing stab' lists it) | contact ... (the "
+            "contact-timed sword: 'swing contact' lists it)");
     if (!said || !strcmp(sub, "status")) report();
     return true;
 }
@@ -785,9 +1041,9 @@ void status(dvr::status::Writer& w) {
     w.obj("swing");
     w.kv("on", (bool)g_meleeOn); w.kv("vetoedBy", veto());
     w.kv("detector", detector_name()); w.kv("output", output_name());
-    w.kv("threshold", (double)(st.detector == kEdge ? st.edgeSpeed : g_meleeSpeed));
+    w.kv("threshold", (double)(st.detector == kSustain ? g_meleeSpeed : st.edgeSpeed));
     w.kv("rearmEffective", (double)effective_rearm(st));
-    w.kv("cooldownMs", (double)g_meleeCoolMs); w.kv("pulseMs", (double)(st.detector == kEdge ? st.pulseMs : g_meleeHoldMs));
+    w.kv("cooldownMs", (double)g_meleeCoolMs); w.kv("pulseMs", (double)(st.detector == kSustain ? g_meleeHoldMs : st.pulseMs));
     w.kv("headRel", st.headRel); w.kv("median", st.median); w.kv("requireSword", st.requireSword); w.kv("forced", force);
     w.kv("gateOpen", m == 0); w.kv("closedBy", why);
     w.kv("armed", live.armed()); w.kv("pulse", pulse_active());
@@ -804,6 +1060,21 @@ void status(dvr::status::Writer& w) {
     w.kv("lastFired", cen.lastFired != 0);
     w.kv("slowestAttackPeak", (double)cen.minFirePeak); w.kv("leastTravelAtFireM", (double)cen.minFireTravel);
     w.kv("fastestNonAttackPeak", (double)cen.maxQuietPeak);
+    w.end_obj();
+    w.obj("contact");
+    w.kv("inUse", st.detector == kContact);
+    w.kv("owner", co.owner == kCoBlade ? "blade" : co.owner == kCoHand ? "hand" : "none"); w.kv("why", co.why);
+    w.kv("speed", (double)st.contactSpeed); w.kv("targets", targets_name()); w.kv("leadMs", (double)st.contactLeadMs);
+    w.kv("airSpeed", (double)st.contactAirSpeed); w.kv("maxAgeMs", (double)st.contactMaxAgeMs);
+    w.kv("bladeSamples", (unsigned long)co.bladeSamples); w.kv("handSamples", (unsigned long)co.handSamples);
+    w.kv("heldSamples", (unsigned long)co.heldSamples); w.kv("graceMs", (double)st.contactGraceMs);
+    w.kv("ownerChanges", (unsigned long)co.flips); w.kv("touchingSamples", (unsigned long)co.touching);
+    w.kv("firesByContact", (unsigned long)co.fires[kOwnerContact]); w.kv("firesInAir", (unsigned long)co.fires[kOwnerAir]);
+    w.kv("firesByFallback", (unsigned long)co.fires[kOwnerFallback]);
+    w.kv("lastTipSpeed", (double)co.lastTip); w.kv("lastHandSpeed", (double)co.lastHand); w.kv("peakTipSpeed10s", (double)peak_tip10s());
+    w.kv("answerAgeMs", (unsigned long)co.ageMs); w.kv("answerSamplesBack", (unsigned long)co.genLag);
+    w.kv("bladeMovements", (unsigned long)cenTip.humps); w.kv("bladeMovementsTouched", (unsigned long)cenTip.touched);
+    w.kv("bladeTouchedNoAttack", (unsigned long)cenTip.touchedQuiet);
     w.end_obj();
     w.obj("stab");
     w.kv("on", st.stab); w.kv("style", style_name()); w.kv("arm", st.stabArm ? "always" : "sneak"); w.kv("armed", sb.armed); w.kv("armedBy", sb.armedBy);
@@ -828,15 +1099,39 @@ void draw_ui() {
     ov::tip("Off: attack with the trigger only.");
     if (*veto()) ImGui::TextDisabled("off: vetoed by %s", veto());
     if (ov::show(ov::Debug)) {
-        int det = st.detector == kEdge ? 1 : 0;
-        const char* dets[] = { "sustain (the old detector)", "edge (fires on the crossing)" };
-        if (ImGui::Combo("Swing detector", &det, dets, 2)) {
-            st.detector = det ? kEdge : kSustain; live.reset(); close_pulse();
+        int det = st.detector == kContact ? 2 : st.detector == kSustain ? 0 : 1;
+        const char* dets[] = { "sustain (the old detector)", "edge (fires on the crossing)", "contact (fires when the blade arrives)" };
+        if (ImGui::Combo("Swing detector", &det, dets, 3)) {
+            st.detector = det == 2 ? kContact : det ? kEdge : kSustain; live.reset(); close_pulse(); co = Contact{};
             ConfigWriteKey("Melee", "Detector", detector_name(), "F10 Controls");
         }
-        ov::tip("Edge is the tested detector. Sustain is the old one, kept for comparison.");
+        ov::tip("Edge is the tested detector. Contact attacks only when the blade reaches something (experimental). "
+                "Sustain is the old one, kept for comparison.");
     }
-    if (st.detector == kEdge) {
+    if (st.detector == kContact) {
+        ImGui::SliderFloat("Blade speed needed (m/s at the tip)", &st.contactSpeed, 0.5f, 10.0f, "%.2f");
+        ov::tip("How fast the tip of the blade must be moving when it reaches something. "
+                "Lower if cuts are ignored, higher if brushing past something attacks.");
+        if (ImGui::IsItemDeactivatedAfterEdit()) { live.reset(); _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.contactSpeed); ConfigWriteKey("Melee", "ContactSpeed", v, "F10 Controls"); }
+        const char* tgs[] = { "characters only", "characters and things that break", "anything the blade reaches" };
+        if (ImGui::Combo("The blade attacks", &st.contactTargets, tgs, 3))
+            ConfigWriteKey("Melee", "ContactTargets", targets_name(), "F10 Controls");
+        if (ov::show(ov::Advanced)) {
+            ImGui::SliderFloat("Press this early (ms)", &st.contactLeadMs, 0.0f, 200.0f, "%.0f");
+            ov::tip("Attacks a little before the blade arrives, so the game's own wind-up lands with your arm. 0 = on arrival.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.0f", st.contactLeadMs); ConfigWriteKey("Melee", "ContactLeadMs", v, "F10 Controls"); }
+            ImGui::SliderFloat("A swing in the air attacks above (m/s, 0 = never)", &st.contactAirSpeed, 0.0f, 20.0f, "%.2f");
+            ov::tip("A very fast swing attacks even when it reaches nothing. 0 = a swing in the air does nothing.");
+            if (ImGui::IsItemDeactivatedAfterEdit()) { _snprintf_s(v, sizeof(v), _TRUNCATE, "%.2f", st.contactAirSpeed); ConfigWriteKey("Melee", "ContactAirSpeed", v, "F10 Controls"); }
+        }
+        if (ov::show(ov::Debug)) {
+            ImGui::TextDisabled("decided by: %s", co.owner == kCoBlade ? "the blade" : co.owner == kCoHand ? "the hand (edge rules)" : "nothing yet");
+            ImGui::TextDisabled("%s", co.why);
+            ImGui::TextDisabled("tip %.2f m/s  PEAK (10 s) %.2f   hand %.2f m/s", co.lastTip, peak_tip10s(), co.lastHand);
+            ImGui::TextDisabled("attacks: contact %u  air %u  fallback %u", co.fires[kOwnerContact], co.fires[kOwnerAir], co.fires[kOwnerFallback]);
+        }
+    }
+    if (st.detector != kSustain) {
         ImGui::SliderFloat("Swing speed needed (m/s)", &st.edgeSpeed, 0.5f, 8.0f, "%.2f");
         ov::tip("How fast the controller must move to count as a swing. Lower if swings are missed, "
                 "higher if walking or reaching attacks.");
@@ -886,7 +1181,7 @@ void draw_ui() {
         }
         ov::tip("The game's swoosh follows its own animation, not your hand (VR-171). Leave on.");
     }
-    if (st.detector == kEdge) {
+    if (st.detector != kSustain) {
         if (ImGui::Checkbox("A stab while sneaking is the stealth kill", &st.stab)) {
             live.reset(); ConfigWriteKey("Melee", "Stab", st.stab ? "1" : "0", "F10 Controls");
         }

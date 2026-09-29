@@ -359,6 +359,7 @@ void tick(bool gameplay, bool projectionWanted) {
                      !dvr::blade::palm_point_to_xr(rc, g, cal.p0, cal.trimRdeg, cal.trimTm, blade.tipPalm, bf.tipXr))
                 bf.why = "the palm transport refused";
             else {
+                for (int i = 0; i < 3; ++i) bf.tipRawXr[i] = bf.tipXr[i];
                 dvr::blade::scale_about_head(cal.headPos, cal.handToWorldScale, bf.baseXr);
                 dvr::blade::scale_about_head(cal.headPos, cal.handToWorldScale, bf.tipXr);
                 bf.liveOk = blade.liveOk &&

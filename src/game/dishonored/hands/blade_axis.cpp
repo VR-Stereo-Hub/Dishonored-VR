@@ -31,12 +31,28 @@ static SRWLOCK g_blLock = SRWLOCK_INIT;
 static dvr::hands::BladeSnapshot g_blPub;           // under g_blLock
 
 namespace dvr::hands {
+static std::atomic<bool>  g_blDemand{false};        // the contact detector's standing request (melee.cpp)
+static std::atomic<float> g_blLeadMs{0.0f};
 BladeSnapshot blade_snapshot(int hand) {
     BladeSnapshot r;
     if (hand != g_waSwordHand) { r.why = "not the sword hand"; return r; }
     AcquireSRWLockShared(&g_blLock); r = g_blPub; ReleaseSRWLockShared(&g_blLock);
+    // Nothing has been published, and the measurement is ON: then no sword draw has
+    // reached it, which is the weapon path's doing and not a lever's. A whole simulator
+    // session ran like that (2026-09-29: the sword out, `wa: ... matched 0`), and the
+    // reason given was "the blade measurement is off", which it was not.
+    if (!r.ok && !strcmp(r.why, BladeSnapshot().why) && (g_blOn.load(std::memory_order_relaxed) || g_blDemand.load(std::memory_order_relaxed)))
+        r.why = "no sword draw has reached the blade measurement: the weapon path has placed no sword in this hand (the log's 'wa:' lines say what it has placed)";
     return r;
 }
+void blade_demand(bool on, float leadMs) {
+    g_blLeadMs.store(leadMs, std::memory_order_relaxed);
+    if (g_blDemand.exchange(on) != on)
+        Log("blade: %s", on ? "measured and traced on the motion sword's request (Detector=contact), whatever [Blade] Measure and Trace say"
+                                 : "the motion sword's request is withdrawn; [Blade] Measure and Trace are their own levers again");
+}
+bool blade_demanded() { return g_blDemand.load(std::memory_order_relaxed); }
+float blade_lead_ms() { return g_blLeadMs.load(std::memory_order_relaxed); }
 bool blade_marker(float* offsetM) {
     if (offsetM) *offsetM = g_blMarkerOffsetM.load();
     return g_blMarker.load();
@@ -217,7 +233,7 @@ static void BlBeat() {
 }
 
 static void BlMeasure(IDirect3DDevice9* dev, WaMesh* w, const float* palette, UINT regs, const dvr::hf::Xform& delta) {
-    if (!g_blOn.load(std::memory_order_relaxed)) return;
+    if (!g_blOn.load(std::memory_order_relaxed) && !dvr::hands::blade_demanded()) return;
     if (w->hand != g_waSwordHand) return;
     if (g_blForget.exchange(false)) BlDrop("asked for (`blade forget`)");
     // The ENGINE says what is equipped; the asset name is for the log only.

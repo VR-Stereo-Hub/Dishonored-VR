@@ -200,6 +200,19 @@ items below are superseded by the negative quality report and this continuation 
 - [ ] Headset: walking, firing, landing; and the three the simulator could not reach - damage taken, a sword landing on an enemy, explosions. A knockdown and camera collision near walls must still behave with `Landing` removed.
 - [ ] The 1.5 uu walking swing and 0.4 uu idle sway that no handle owns (the animated body the camera rides on): VR-175.
 
+## The contact-timed sword (VR-173, 2026-09-29)
+
+- [x] Prerequisite 1: the engine keeps the head's pitch through a sword attack (0.000 deg retained); no servo is ported.
+- [x] Prerequisite 2: the held sword's blade measured from its drawn mesh, a palm-frame constant; the marker sits on the drawn blade in both eyes at three poses, and a deliberate 10 cm error is caught.
+- [x] Prerequisite 3: the blade carried into world units; two independent routes agree to 0.25 uu at seven poses, and two deliberate errors are read at their predicted size.
+- [x] Prerequisite 4: the engine's own line check answers along the blade; five-part self-test in both stances; 7 to 8 us a call.
+- [x] Go, as a default-off detector beside `edge`.
+- [x] `[Melee] Detector=contact`: pure core with 111 host checks (36 new), adapter, levers, words, F10, status; `swing-contact.xrs` passes 64 steps; the shipped sequences pass as before.
+- [x] The wind-up measured on the simulator: on arrival contact presses 110 to 125 ms after `edge`; `ContactLeadMs` 100 to 150 puts the press back.
+- [x] Performance: no measurable cost with the detector off or on (PERFORMANCE, 2026-09-29).
+- [ ] Headset: the checklist in `PHYSICAL_SWING.md` 9.6. A blade reaching a CHARACTER has never been seen; the values are starting values until it has.
+- [ ] `swing-stab.xrs` step 29 fails on staging too (its jab is under the thrust's start speed); `tools/aim-ray-host.ps1` does not compile on staging; `CooldownMs` ships 200 against a compiled 300. Found, not fixed, ticket text on VR-173.
+
 ## Motion sword (VR-37, 2026-09-20)
 
 - [x] Measure the old detector on the simulator: 0 attacks from three swings, every gate open.

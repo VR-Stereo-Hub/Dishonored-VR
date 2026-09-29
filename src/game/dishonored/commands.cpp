@@ -31,8 +31,10 @@
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
-//   swing status|on|off|mode edge|sustain|threshold|rearm|cooldown|pulse|polls|rel|filter raw|median|sword|output rt|rb|
+//   swing status|on|off|mode edge|contact|sustain|threshold|rearm|cooldown|pulse|polls|rel|filter raw|median|sword|output rt|rb|
 //         log|force|sim <peak> [humpMs] [reps]|save   the motion sword (game/dishonored/swing.h) - VR-37
+//   swing contact status|speed|targets pawns|breakables|any|lead <ms>|air <m/s>|age <ms>|sim <peak> [humpMs] [reps] hit|miss|stale
+//                                     the contact-timed sword (VR-173)
 //   blade status|on|off|forget|marker on|off|marker offset <m>|attack reset|save
 //                                     the held sword's blade, measured from its drawn mesh (hands/blade_axis.cpp) - VR-173
 //   snapturn on|off|angle <deg>|threshold <v>|rearm <v>|repeat <ms>|fire [left|right]|mark|status

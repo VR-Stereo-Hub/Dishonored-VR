@@ -4,6 +4,8 @@ Swing the right controller and Corvo swings the sword. This file is the design,
 every lever and word, how to read the log, what was measured, and the guide for
 tuning it in the headset. Section 7 is the sneak-kill thrust (VR-155). The search
 for a readable kill-available signal is VR-156.
+Section 9 is the contact detector (VR-173): an attack timed by the blade reaching
+something, default off, the live A/B against `edge`.
 
 ## 1. What the player gets
 
@@ -242,7 +244,7 @@ keys have new names and resolve from compiled defaults when absent, so there is 
 | Key | Default | Range | Meaning |
 |---|---|---|---|
 | `Enabled` | 1 | | the gesture |
-| `Detector` | `edge` | edge, sustain | see section 2 |
+| `Detector` | `edge` | edge, contact, sustain | see section 2; `contact` is section 9 and has its own keys there |
 | `EdgeSpeed` | 3.0 (3.6 until VR-170) | 0.3-10 | edge: the hand speed (m/s) that is a swing |
 | `EdgeSpeedRev` | 1 | | marks that the one-time 3.6 -> 3.0 migration has run on this ini (section 2b) |
 | `EdgeTravelM` | 0 (off) | 0-1 | edge: metres the hand must cover in the same movement before a crossing may attack; delays, never blocks |
@@ -264,7 +266,7 @@ a second data point, and the PEAK readout is how it would be taken.
 
 ## 4. Words, status, F10
 
-`swing status | on | off | mode edge|sustain | threshold <m/s> | rearm <m/s> |
+`swing status | on | off | mode edge|contact|sustain | threshold <m/s> | rearm <m/s> |
 cooldown <ms> | pulse <ms> | polls <n> | rel on|off | filter raw|median |
 sword on|off | output rt|rb | honour <ms> | log on|off | force on|off |
 sim <peak m/s> [humpMs] [reps] | save`
@@ -293,10 +295,11 @@ attack's verdict.
 
 | Intent | Command | Read |
 |---|---|---|
-| the decision core | `tools\swing-core-host.ps1` | `swing-core: 75 checks passed`, and the measured `census: a 6.0 m/s, 200 ms swing had travelled 0.150 m when it fired` |
+| the decision core | `tools\swing-core-host.ps1` | `swing-core: 111 checks passed` (75 before VR-173), and the measured `census: a 6.0 m/s, 200 ms swing had travelled 0.150 m when it fired` |
 | a soft swing attacks at 3.0 and not at 3.6; the travel guard delays and never refuses; the census counts the hand and not the sim | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-soft.xrs -Dir <sim dir>` | six legs, each an A/B on one lever; the header says why the swings are `swing sim` and not the simulated hand |
 | a swing fires, a reach and a body turn do not | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` | FIRE then HONOURED; `peakSpeed10s lt 2.2` on the reach; `sim window finished: 3 fire(s)` |
 | every gate blocks once and says why | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-gates.xrs` | four BLOCKED reasons, then the same swing fires |
+| the contact detector: an air swing is nothing, a cut that reaches something is one attack | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-contact.xrs -Dir <sim dir>` | section 9.5; 64 steps, the floor standing in for a target |
 
 Both need a loaded level in GAMEPLAY and `GamepadOnly=0`. The sequences only ever
 MOVE the hand (`hand r to ...`): `hand r grip pose` teleports it, and a teleport is
@@ -448,3 +451,183 @@ line to look for is `swing: HONOURED kill (master=StatePlayerMasterAssassinate)`
 - **A floor reach in 250 ms as the "not a thrust" case.** 0.45 m in 250 ms peaks at
   3.65 m/s, which IS a slash, and the slash detector took it. The realistic reach
   (450 ms, 1.9 m/s) starts a thrust run and is rejected for not going forward.
+
+## 9. The contact detector (VR-173, default off)
+
+`[Melee] Detector=contact`. `edge` stays the default. The research behind it, prerequisite
+by prerequisite, is [PLAN-contact-sword](PLAN-contact-sword.md) section 7; this section is
+the detector as built.
+
+### 9.1 What the player gets
+
+The sword attacks when the BLADE reaches something, and only then. A swing through empty
+air does nothing: no attack, no canned animation, no swoosh. The attack itself is still the
+game's, because what is delivered is still the attack input, so damage, parry, combos and
+kills are the game's as before.
+
+### 9.2 How it decides
+
+Once per hand sample:
+
+1. **Where the blade is.** The held sword's blade is a constant in the palm frame, measured
+   from the sword's own drawn mesh (PLAN 7.2). It follows the pose the DRAW uses, so it is
+   where the player sees it.
+2. **What lies along it.** On the script lane the engine's own line check is asked about up
+   to three segments (PLAN 7.4), and the answer is published for the present lane:
+
+   | Segment | From, to | Asked when | What it is for |
+   |---|---|---|---|
+   | blade | base to tip | always | what the blade is IN |
+   | sweep | the tip a sample ago to the tip now | the tip moved more than 1 uu | what a fast blade passed THROUGH between two samples |
+   | ahead | the tip now to where it will be in `ContactLeadMs` at its present velocity | `ContactLeadMs` is over 0 | what it is ABOUT to reach: the wind-up lever (9.5) |
+
+   The first of the three that found a target that counts is the touch.
+3. **What counts** is `ContactTargets`: `pawns` (a class that derives from `Pawn`),
+   `breakables` (those, and any actor whose class chain names itself as something that
+   breaks: the vocabulary so far has `DishonoredBreakableNavBlock`), or `any` (whatever the
+   line check returns, walls and floors too). An actor that cannot be verified as a live
+   object never counts.
+4. **How fast the blade is.** The speed that decides is the TIP's: the finite difference
+   of the tip's position, head movement subtracted, median of three. That is the hand's
+   velocity plus the wrist's turning carried out along 0.62 m of blade. A flick of the
+   wrist with the hand still is an attack; a fast hand with a trailing blade is not.
+5. **The press.** Touch AND tip speed at or over `ContactSpeed` AND the gates open AND the
+   latch armed AND the cooldown over. Everything after the decision is the edge detector's,
+   unchanged: the gates, the press (`PulseMs`, `PulseMinPolls`), the honoured-check, the
+   latch (it re-arms when the TIP slows below the re-arm level), the cooldown.
+
+**Who owns the decision** is settled before anything else and is on every line:
+
+| Owner | When | What decides |
+|---|---|---|
+| the blade | the blade is followed and the engine's answer is no older than `ContactMaxAgeMs` | touch and tip speed |
+| nobody | the answer was there and went missing less than 250 ms ago | nothing attacks; the latch and the hump go on |
+| the hand | there has been no usable answer for 250 ms, or there never was one | hand speed against `EdgeSpeed`, exactly as `edge` |
+
+The hand takes over on purpose: a blade reading that breaks must leave the sword that
+ships, never a dead one. The answer goes missing for ordinary reasons too, and these are
+the ones the `swing: contact` line names: the sword is not latched yet (it needs about
+300 ms at rest after the detector is chosen); the game is playing a clip on the hand (a
+trigger attack, VR-220), so the drawn sword has left the hand's blade; the player is in
+the air, where the drop takedown needs its press before the landing and the drop assist
+(VR-203) owns it.
+
+**The sneak kill** (section 7) runs under `contact` as it does under `edge`, on the hand.
+
+### 9.3 Levers (`[Melee]`), all inert unless `Detector=contact`
+
+| Key | Default | Range | Meaning |
+|---|---|---|---|
+| `Detector` | `edge` | edge, contact, sustain | anything else is `edge`, with a warning |
+| `ContactSpeed` | 2.0 | 0.3-15 | the TIP's speed (m/s) a touch needs. **A starting value, not a measured one** |
+| `ContactTargets` | `breakables` | pawns, breakables, any | what the blade attacks |
+| `ContactLeadMs` | 0 | 0-300 | press this long BEFORE the blade arrives (9.5) |
+| `ContactAirSpeed` | 0 | 0-30 | tip speed at which a swing that reaches nothing attacks anyway; 0 = never |
+| `ContactMaxAgeMs` | 100 | 20-500 | how old the engine's answer may be before the hand takes over |
+
+Choosing the detector is the only switch: while it is in use the blade is measured and
+traced whatever `[Blade] Measure` and `Trace` say, and when another detector is chosen
+those two are their own levers again.
+
+### 9.4 Words, status, F10, and the lines to read
+
+`swing mode contact` and `swing mode edge` are the A/B. `swing contact status | speed <m/s>
+| targets pawns|breakables|any | lead <ms> | air <m/s> | age <ms> | grace <ms> |
+sim <peak m/s> [humpMs] [reps] hit|miss|stale`.
+
+- `swing contact sim` drives a simulated hand AND a simulated blade through the real
+  decision core and the real gates: `hit` reaches a target all the way, `miss` reaches
+  nothing, `stale` never gets an answer (the hand decides).
+- F10 > Controls > Motion sword, with the panel's detail level at Debug: **Swing detector**
+  is the toggle (sustain, edge, contact). Under contact: "Blade speed needed", "The blade
+  attacks", and in Advanced "Press this early (ms)" and "A swing in the air attacks above".
+- `status.json` `features.swing.contact`: inUse, owner, why, the levers, bladeSamples,
+  handSamples, heldSamples, ownerChanges, touchingSamples, firesByContact, firesInAir,
+  firesByFallback, lastTipSpeed, peakTipSpeed10s, answerAgeMs, answerSamplesBack,
+  bladeMovements, bladeMovementsTouched, bladeTouchedNoAttack.
+
+| Line | Says |
+|---|---|
+| `swing: contact - the BLADE owns the decision (...)` | the detector is working as contact |
+| `swing: contact - the HAND owns the decision, by edge rules, until the blade can: <why>` | it is working as edge, and why. A warning |
+| `swing: FIRE #n slash, the BLADE reached a CHARACTER '<class>' on the blade, 31.0 uu along it (... owner=contact ...): tip 4.95 m/s (needs 2.00), hand 2.91 m/s, the answer is for a hand sample 15 ms old and 1 sample(s) back, lead 0 ms` | what was reached, on which segment, how fast, and how old the answer was |
+| `swing: FIRE ... owner=FALLBACK: the HAND decided, as edge ...` | an attack that contact did not time |
+| `swing: blade movement (live) the TIP peaked 5.02 m/s over 0.65 m in 200 ms -> no attack: the blade reached nothing that counts` | an air swing, doing what it should |
+| `... -> no attack: the blade reached a target, under ContactSpeed` | a touch that was too slow: what `ContactSpeed` is lowered from |
+| `swing: contact beat owner=...` (5 s) | samples decided by the blade, by the hand, by nobody; attacks by owner. `by contact` stays 0 while the blade reaches nothing, and that is the detector working |
+| `swing: census of the BLADE` | the blade's own census, by TIP speed. Never read it against `EdgeSpeed` |
+
+### 9.5 What was measured (simulator, 2026-09-29, build `c36226342` plus this work, RelWithDebInfo, legacy off)
+
+`tools\xrsim\swing-contact.xrs`, 64 steps, passes: a 5 m/s swing in the air attacks nothing
+(and the same swing under `edge` attacks, so the detector is what decided); a blade lowered
+onto the floor over three seconds touches and does not attack; a cut along the floor is
+one attack owned by the contact and HONOURED by the game 16 to 31 ms later; with
+`ContactTargets=pawns` the same cut is nothing; the three simulated blades give 3, 0 and 3
+attacks, the last three owned by the fallback.
+
+**The wind-up, measured.** One swing, 0.7 m and 60 degrees of wrist in 250 ms, from the
+air DOWN onto the floor, so the blade ARRIVES partway through. Times are from the first
+moving sample:
+
+| Detector | Press | The game starts the attack | Found on |
+|---|---|---|---|
+| `edge` (3.0 m/s) | +47 to +62 ms | +63 to +78 ms | - |
+| `contact`, lead 0 | +172 ms | +188 ms | the blade |
+| `contact`, lead 50 | +109 ms | +125 ms | the path ahead |
+| `contact`, lead 100 | +78 ms | +94 ms | the path ahead |
+| `contact`, lead 150 | +47 ms | +62 ms | the path ahead |
+
+So on arrival contact presses 110 to 125 ms after `edge` would have, and a lead of 100 to
+150 ms puts the press back where `edge` has it while still pressing only for a blade that
+is about to reach something. Which of these FEELS right is the headset's to say.
+
+**Where the milliseconds go**, from the log: the blade rides the pose the draw uses, which
+is one hand sample (11 ms) behind the controller; the engine's answer is for the sample
+before the one being decided (0 to 16 ms old, none or one sample back); the median of
+three costs one sample. About 35 ms in all, before any lead.
+
+### 9.6 What the simulator could not show: the headset checklist
+
+The simulator's save stands on a ledge with the guards 9 m below, so a blade has never
+reached a CHARACTER. That, and everything about feel, is here. Copy the log out before
+each relaunch.
+
+1. Draw the sword. F10 > Controls > Motion sword (detail level Debug) > **Swing detector**:
+   choose "contact". Close F10: the panel closes the gate while it is up.
+2. Swing hard in the air, five times. Nothing should happen. If it attacks, the log's
+   `swing: contact -` line says who owned the decision and why.
+3. Cut at a hostile guard at your usual pace, five times. One attack per cut. Judge ONE
+   thing: does the hit land with your arm, or after it has passed?
+4. Lay the blade against him and push slowly. No attack.
+5. Hold the hand still against him and flick the wrist. One attack.
+6. Cut the planks that board up a doorway. They should break. Cut a wall: nothing. Then set
+   "The blade attacks" to "anything the blade reaches" and cut the wall again: an attack.
+7. If 3 felt late: Advanced > "Press this early (ms)". Try 50, 100, 150, five cuts each, and
+   keep the one where the hit lands with the arm.
+8. A guard well off to one side, the blade reaching him while you look ahead: does the
+   game's attack hit him or the air in front of you?
+9. Crouch behind an unaware guard and plunge: the sneak kill, as under `edge`. Drop on a
+   guard from above and swing on the way down: the drop kill, as under `edge`.
+10. Set the detector back to "edge (fires on the crossing)" and cut at the same guard, for
+    the comparison.
+
+What to send back: the log. The lines that answer the open questions are `swing: FIRE`
+(class, segment, tip speed, age), `swing: HONOURED` or `NOT HONOURED`, `swing: contact
+beat`, `swing: census of the BLADE`, and `blade/trace: first contact with class` (every new
+class the blade touches is named once: doors, ropes and planks are not in the vocabulary
+yet).
+
+### 9.7 Traps this detector paid for
+
+- **A rate-limited line about a change of owner was dropped, not delayed.** The first build
+  printed "the HAND owns the decision" and then suppressed the change back that came one
+  sample later. The log said hand above 868 samples decided by the blade. The line is now
+  said late, never dropped.
+- **One missing answer handed a swing to the hand.** A hitch inside a simulated swing
+  changed the owner for exactly one sample. With the hand's speed already over `EdgeSpeed`
+  that one sample is an attack in the air. Hence the 250 ms in which nobody decides.
+- **The blade follows the DRAWN hand.** Lowering the simulated controller from 0.60 m to
+  0.30 m moved the blade's base 2 uu, not 30: where the hand is drawn has its own limits.
+  A contact is where the player SEES the blade, which is the point, but a simulator pose
+  is not a blade position until the log says where the blade is.
