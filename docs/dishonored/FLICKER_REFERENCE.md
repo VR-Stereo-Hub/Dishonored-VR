@@ -1,3 +1,29 @@
+## 2026-09-29: AFW run 11 - trails while turning; the matrices refused in fast turns (FIXED, replay-verified)
+
+Surface: the held eye under `stereo afw` (with MSW), build v1.0.1-184.
+Reported: trails behind world geometry, worst while turning.
+
+**MEASURED (log).**
+- `afw/warp: basis refused 11-23 deg` (up to 58-67 deg around snap turns) in fast stick turns. The rotator
+  it compares against is written 20-30 ms before the image, so at 500-600 deg/s that lag alone exceeds the
+  10 deg limit.
+- `turn` refusals at 5.7-8.1 deg against the 5 deg limit, for the same reason (the body yaw lags with the
+  rotator).
+- Each refusal dropped the held eye's world to the XR model for that present.
+
+**FIX.**
+- The basis limit is 75 deg: it exists for conventions, and a mirrored or swapped axis is 90-180 deg.
+- The turn limit is 5 + 2 x the per-present yaw.
+- A one-source rebuild's disocclusion (a synthesized slot, or no fresh depth) extends the background
+  instead of stretching the nearest sample into a streak.
+
+**Replay** of the run-11 turn captures (afw-20260929-115413, -115427): basis refusals went from most
+rebuilds to 0. Capture 115413 spans a snap turn (the next native frame faces elsewhere), so its
+difference score cannot judge a turn.
+
+**OPEN.** In the rebuilt turn frame, most of the world came from the fresh eye (judged stale) and the old
+hands left a background-filled area. Both read as doubling. Next: the stale test during turns, and
+filling a vacated hand area from the fresh eye's view of the background.
 ## 2026-09-29: DLSS object motion made aliasing crawl (FIXED, host-verified, headset pending)
 
 Surface: the DLSS output with `dlss objmotion` on, on subtly aliased edges.
