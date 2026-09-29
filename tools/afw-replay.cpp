@@ -138,7 +138,7 @@ int main(int argc, char** argv) {
         dvr::afw::set_world_scale(strtof(m["worldScale"].c_str(), nullptr));
         dvr::afw::set_body_depth(strtof(m["bodyUnits"].c_str(), nullptr), "replay");
         // The foreground FOV: the capture's own, or (older captures) the -Fg argument.
-        dvr::afw::set_fg_fov(m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : g_fgArg);
+        dvr::afw::set_fg_fov(g_fgArg > 0.0f ? g_fgArg : (m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : 0.0f));   // the argument overrides the recording (an A/B of the arms lens)
         dvr::afw::set_fg(g_fgOn, "replay");
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
         dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
