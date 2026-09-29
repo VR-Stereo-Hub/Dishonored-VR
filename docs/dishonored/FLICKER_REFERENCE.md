@@ -1,3 +1,35 @@
+## 2026-09-29: AFW run 9 - small hands inside a larger ghost, again: the foreground mask was empty (FIXED, replay-verified)
+
+Surface: the held eye's hands and weapon under `stereo afw`, build `v1.0.1-173-g64163aa6c` (#159 + #161 + #162).
+Reported: the run-5 symptom returned - the hands and weapon drawn small inside a larger flickering ghost.
+
+**MEASURED (log).** `afw/warp: beat ... foreground MASK on 415 rebuilds (images with a foreground pass 0,
+without 415)`, and `depthshare: ... pre-foreground copies 0, not the scene target 870720`.
+- The pre-foreground snapshot is taken at the first crushed-depth viewport. The game SETS that viewport
+  while another target is still bound: about 48 crushed viewports a frame, none with the scene target.
+- The detector never copied, and the rebuild read "no copy" as "no foreground pass this frame". Every
+  image was treated as having no arms, so the hands were rebuilt at the world's FOV instead of the
+  foreground FOV: the run-6 cause (the 5 deg FOV mismatch), re-entered through a new door.
+
+**MEASURED (replay of the run-9 capture `afw-20260929-091638`, 15 rebuilds).**
+
+| Mode | Near band differs | World differs | Bright dots |
+|---|---|---|---|
+| As installed (empty mask) | 9.51% | 2.97% | 40265 |
+| Mask off (the depth limit) | 6.67% | 2.57% | 19177 |
+
+**FIX.**
+- The crushed viewport now only ARMS the snapshot. It is taken at the first draw under it that renders
+  into the scene target (`depthprobe::note_draw` from both draw hooks).
+- The mask is trusted only while the detector has produced a copy within 2 s (`prefg_ready`). Otherwise
+  the depth limit runs, as in run 7.
+- If the foreground never draws into the scene target, one `depthshare:` warning names the target it
+  does draw into.
+
+**Instrument lesson** (also in TRAPS): absence of a copy was evidence of nothing, because the detector
+had never once proved it could produce one. The beat line printed the unwelcome answer (0 with, 415
+without); it was read only after a headset run.
+
 ## 2026-09-28: AFW run 8 - a far sword tip and near walls turn flat and doubled; running blurs; DLSS smears the hands (fixed, host-verified, headset pending)
 
 Surface: the held eye under `stereo afw`, build `v1.0.1-169` (#158 merged).

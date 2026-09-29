@@ -57,6 +57,7 @@ ID3D11ShaderResourceView* depth_srv_for(uint32_t grabSerial, UINT* w, UINT* h);
 void set_prefg_wanted(unsigned owner, bool on);   // owner bit: 1 AFW, 2 DLSS; the ring runs while any wants it
 bool prefg_ready();
 void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp);
+void note_draw(IDirect3DDevice9* dev);   // every draw (render thread): takes the armed snapshot at the first scene-target draw
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground);
 
 } // namespace dvr::depthprobe
