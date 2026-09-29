@@ -10017,6 +10017,20 @@ move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta
   - the log line `fov: ... lever target 103.0 deg (... headset-derived 108.1, the hands and weapon at
     the world's FOV)`.
 
+**Run 12 correction (2026-09-29).**
+- Moving the camera's FOV target 103 <-> 108 (the switch above, toggled live) left the hands exactly as
+  they were.
+- With it on, AFW was fed 103 for the foreground while the arms stayed at their own projection, and the
+  hands oscillated (the run-6 mismatch, from the other side).
+- So the arms are not projected with the camera's FOV. The player mesh is a
+  `DishonoredPlayerSkeletalComponent`, whose `m_bUseFOV` / `m_FOV` (already resolved by arm follow, VR-30)
+  give it its own lens.
+- The switch now writes `m_FOV` to `ProjectionFov` every dispatch while `m_bUseFOV` is set, and hands the
+  game's value back when turned off. AFW's foreground FOV is that lens.
+- `armslens:` log lines record `m_bUseFOV`, the game's `m_FOV`, our write, and how often the game rewrites
+  it.
+- UNVERIFIED which of the two lenses the 108.07 measurement was; the next log answers it.
+
 ### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
 
 In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->
