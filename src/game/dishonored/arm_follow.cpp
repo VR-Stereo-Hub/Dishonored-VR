@@ -524,9 +524,33 @@ static bool ArmsLensFind()
     g_afVmScan = (end >= onum) ? 1 : end;
     return g_afVmComp != NULL;
 }
+// Run 13: this search ran on every 128th ProcessEvent dispatch - hundreds of 4096-object slices a second, each with a
+// class-name lookup - never found the component (none of its instances matched), so it never stopped: the game thread
+// lost about half its frame rate (reentry 233-250 presents/s -> 180 in the same place, the only change between the
+// builds). Now: only while the switch is on, one slice per second at most, and after one full sweep without a match
+// it stops and says so.
+static uint32_t g_armsLensSweepStart = 0;
+static bool g_armsLensGaveUp = false;
+static uint64_t g_armsLensNextSliceMs = 0;
 static void ArmsLensTick(bool slow)
 {
-    if (slow && !ArmsLensFind()) { g_armsLensFov.store(0.0f); return; }
+    if (!g_afVmComp) {
+        if (!slow || !HandsWorldFovGet() || g_armsLensGaveUp) { g_armsLensFov.store(0.0f); return; }
+        const uint64_t t = GetTickCount64();
+        if (t < g_armsLensNextSliceMs) return;
+        g_armsLensNextSliceMs = t + 1000;
+        if (!g_armsLensSweepStart) g_armsLensSweepStart = g_afVmScan ? g_afVmScan : 1;
+        const uint32_t before = g_afVmScan;
+        if (!ArmsLensFind()) {
+            if (g_afVmScan <= before && before != 0) {   // wrapped: one full sweep without a match
+                g_armsLensGaveUp = true;
+                Log("armslens: no DishonoredPlayerSkeletalComponent instance found in a full GObjects sweep - the arms' "
+                    "own lens cannot be written; the hands switch moves the camera only (search stopped)");
+            }
+            g_armsLensFov.store(0.0f);
+            return;
+        }
+    } else if (slow && !ArmsLensFind()) { g_armsLensFov.store(0.0f); return; }
     uint8_t* c = g_afVmComp;
     if (!c || !g_afFovOff || !RangeReadable(c + g_afFovOff, 4)) return;
     float* fov = (float*)(c + g_afFovOff);
