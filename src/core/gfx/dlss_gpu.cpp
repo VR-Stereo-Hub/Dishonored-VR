@@ -170,7 +170,7 @@ const char* kSrc =
     // displacements current -> previous in render pixels, jitter-free: the previous image is sampled at
     // + gOm.zw, the jitter's own shift (current minus previous sample offset, as the flow check subtracts it).
     // t0 current colour, t1 previous colour, t2 camera motion (uv), t3 guide depth, t4 previous tiles / tiles.
-    "cbuffer OM : register(b1) { float4 gOm; float4 gOm2; };\n"   // tiles w, h, jitter shift x, y | ratio, min gain, min contrast, temporal
+    "cbuffer OM : register(b1) { float4 gOm; float4 gOm2; float4 gOm3; };\n"   // tiles w, h, jitter shift x, y | ratio, min gain, min contrast, temporal | min deviation (px), prior (SAD per px)
     "Texture2D tTiles : register(t4);\n"
     "float BlockSad(int2 o, float2 v, int stride) {\n"
     // A block whose match would lie outside the previous image cannot be compared: never a winner.
@@ -220,6 +220,7 @@ const char* kSrc =
     "RWTexture2D<float4> uTiles : register(u0);\n"
     "AppendStructuredBuffer<uint> uList : register(u1);\n"
     "StructuredBuffer<uint> tList : register(t5);\n"
+    "RWStructuredBuffer<uint> uStats : register(u1);\n"
     "[numthreads(8, 8, 1)]\n"
     "void cs_objpre(uint3 id : SV_DispatchThreadID) {\n"
     "    int2 t = int2(id.xy);\n"
@@ -254,8 +255,14 @@ const char* kSrc =
     "    float s = GroupSum(d, gi) / 64.0;\n"
     "    return ok ? s : 1e9;\n"
     "}\n"
+    // The motion prior: a candidate costs its SAD plus gOm3.y per pixel of distance from the camera's vector (gCam).
+    // A repeating texture (a grate, the host test's checker) matches itself at whole-period shifts; without a prior one
+    // of them beats a camera vector that is only a little off, and the edges crawl (the host test: 1230 of 4096 tiles
+    // overridden per image). A character or a boat, where the camera's vector is badly wrong, still wins easily.
+    "static float2 gCam = float2(0, 0);\n"
     "void TryG(int2 o, int2 q, float lc, float2 v, uint gi, inout float2 best, inout float bs) {\n"
-    "    float s = Eval(o, q, lc, v, gi); if (s < bs) { bs = s; best = v; }\n"
+    "    float s = Eval(o, q, lc, v, gi);\n"
+    "    if (s + gOm3.y * length(v - gCam) < bs + gOm3.y * length(best - gCam)) { bs = s; best = v; }\n"
     "}\n"
     "[numthreads(64, 1, 1)]\n"
     "void cs_objsearch(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex) {\n"
@@ -265,7 +272,22 @@ const char* kSrc =
     "    float2 c = float2(o) + 4.0;\n"
     "    float2 cam = tMv.Load(int3(min(o + 4, int2(gSize.xy) - 1), 0)).xy * gSize.xy;\n"
     "    float lc = LumaCur(q);\n"
+    "    gCam = cam;\n"
     "    float camSad = Eval(o, q, lc, cam, gi);\n"
+    // The camera's NEIGHBOURHOOD: its vector refined by +-1 and a sub-pixel parabola. A camera vector a little wrong
+    // (a depth-scale error, shading) still explains the tile there; on a repeating texture (a grate, the host test's
+    // checker) a whole-period shift otherwise beats it by chance and the edges crawl. Candidates must beat THIS.
+    "    float2 cb0 = cam; float cbs0 = camSad;\n"
+    "    [unroll] for (int s0 = 0; s0 < 9; ++s0) { if (s0 == 4) continue; TryG(o, q, lc, cam + float2(s0 % 3 - 1, s0 / 3 - 1), gi, cb0, cbs0); }\n"
+    "    {\n"
+    "        float cl = Eval(o, q, lc, cb0 - float2(1, 0), gi), cr = Eval(o, q, lc, cb0 + float2(1, 0), gi);\n"
+    "        float cu = Eval(o, q, lc, cb0 - float2(0, 1), gi), cd = Eval(o, q, lc, cb0 + float2(0, 1), gi);\n"
+    "        float ddx = cl - 2 * cbs0 + cr, ddy = cu - 2 * cbs0 + cd;\n"
+    "        float2 cf = float2(ddx > 1e-6 && cl < 1e8 && cr < 1e8 ? clamp(0.5 * (cl - cr) / ddx, -0.5, 0.5) : 0.0,\n"
+    "                           ddy > 1e-6 && cu < 1e8 && cd < 1e8 ? clamp(0.5 * (cu - cd) / ddy, -0.5, 0.5) : 0.0);\n"
+    "        TryG(o, q, lc, cb0 + cf, gi, cb0, cbs0);\n"
+    "    }\n"
+    "    float camNear = cbs0;\n"
     "    float2 best = cam; float bs = camSad;\n"
     "    TryG(o, q, lc, float2(0, 0), gi, best, bs);\n"
     "    TryG(o, q, lc, RotOnlyPx(c), gi, best, bs);\n"
@@ -273,7 +295,7 @@ const char* kSrc =
     "    [unroll] for (int k = 0; k < 5; ++k) {\n"
     "        int2 n = clamp(t + (k == 0 ? int2(0,0) : k == 1 ? int2(1,0) : k == 2 ? int2(-1,0) : k == 3 ? int2(0,1) : int2(0,-1)), int2(0,0), lim);\n"
     "        float4 pv = tTiles.Load(int3(n, 0));\n"
-    "        TryG(o, q, lc, (gOm2.w > 0.5 && pv.z > 0.5) ? pv.xy : cam, gi, best, bs);\n"
+    "        TryG(o, q, lc, (gOm2.w > 0.5 && pv.z > 0.25) ? pv.xy : cam, gi, best, bs);\n"
     "    }\n"
     // Coarse: a 9x9 grid of 2-pixel steps (+-8) around the best AND around zero motion (the best of wrong candidates
     // can sit far from the truth: the host test's character), each on a quarter of the block (4-pixel steps miss fine
@@ -289,6 +311,7 @@ const char* kSrc =
     "            acc += abs(LumaCur(p2) - LumaPrev(float2(p2) + 0.5 + v + gOm.zw));\n"
     "        }\n"
     "        bool use = idx < 162 && Inside(o, v);\n"
+    "        acc = acc / 16.0 + gOm3.y * length(v - cam);\n"
     "        if (use && acc < ms) { ms = acc; mi = idx; }\n"
     "    }\n"
     "    GroupMemoryBarrierWithGroupSync();\n"
@@ -315,8 +338,23 @@ const char* kSrc =
     "    float2 f = float2(dx > 1e-6 && el < 1e8 && er < 1e8 ? clamp(0.5 * (el - er) / dx, -0.5, 0.5) : 0.0,\n"
     "                      dy > 1e-6 && eu < 1e8 && ed < 1e8 ? clamp(0.5 * (eu - ed) / dy, -0.5, 0.5) : 0.0);\n"
     "    TryG(o, q, lc, b1 + f, gi, best, bs);\n"
-    "    bool win = bs < camSad * gOm2.x && camSad - bs > gOm2.y;\n"
-    "    if (gi == 0) uTiles[t] = float4(win ? best : cam, win ? 1 : 0, bs);\n"
+    // A win must also move the tile clearly away from the camera's vector: aliased edges and shading change a little
+    // between frames and a sub-pixel "motion" fits them better by chance; handed to DLSS it drags the history by that
+    // much, and the edges crawl (run 10: aliasing that slithered with object motion on).
+    "    bool win = bs < camNear * gOm2.x && camNear - bs > gOm2.y && length(best - cam) >= gOm3.x;\n"
+    // Confirmation: a win applies only when this tile or a neighbour found the same vector (within 1 px) in the eye's
+    // previous image. A real mover keeps its vector; aliasing whose sampled shape changes from frame to frame fits some
+    // other offset by chance and that offset jumps - applied at once, the edges crawled (run 10). A first-frame win is
+    // kept as a candidate (z 0.5): not applied, but next frame's evidence. z: 1 applied, 0.5 candidate, 0 camera.
+    "    bool confirmed = false;\n"
+    "    [unroll] for (int k3 = 0; k3 < 5; ++k3) {\n"
+    "        int2 n = clamp(t + (k3 == 0 ? int2(0,0) : k3 == 1 ? int2(1,0) : k3 == 2 ? int2(-1,0) : k3 == 3 ? int2(0,1) : int2(0,-1)), int2(0,0), lim);\n"
+    "        float4 pv = tTiles.Load(int3(n, 0));\n"
+    "        confirmed = confirmed || (gOm2.w > 0.5 && pv.z > 0.25 && length(pv.xy - best) < 1.0);\n"
+    "    }\n"
+    "    if (win && confirmed && gi == 0) InterlockedAdd(uStats[1], 1);\n"
+    "    if (gi == 0) InterlockedAdd(uStats[0], 1);\n"
+    "    if (gi == 0) uTiles[t] = float4(win ? best : cam, win ? (confirmed ? 1.0 : 0.5) : 0.0, bs);\n"
     "}\n"
     "float PatchSad(float c[9], int2 p, float2 v) {\n"
     "    float acc = 0;\n"
@@ -332,7 +370,7 @@ const char* kSrc =
     "    float4 tv[9]; bool any = false;\n"
     "    [unroll] for (int k = 0; k < 9; ++k) {\n"
     "        tv[k] = tTiles.Load(int3(clamp(t + int2(k % 3 - 1, k / 3 - 1), int2(0,0), lim), 0));\n"
-    "        any = any || tv[k].z > 0.5;\n"
+    "        any = any || tv[k].z > 0.75;\n"
     "    }\n"
     "    [branch] if (!any) return cam;\n"
     "    float c[9];\n"
@@ -340,7 +378,7 @@ const char* kSrc =
     "    float2 camPx = cam * gSize.xy, best = camPx;\n"
     "    float bs = PatchSad(c, p, camPx) * 0.7 + 1e-3;\n"
     "    [unroll] for (int k2 = 0; k2 < 9; ++k2) {\n"
-    "        [branch] if (tv[k2].z > 0.5) { float s = PatchSad(c, p, tv[k2].xy); if (s < bs) { bs = s; best = tv[k2].xy; } }\n"
+    "        [branch] if (tv[k2].z > 0.75) { float s = PatchSad(c, p, tv[k2].xy); if (s < bs) { bs = s; best = tv[k2].xy; } }\n"
     "    }\n"
     "    return best / gSize.xy;\n"
     "}\n";
@@ -398,7 +436,7 @@ bool GuideGpu::init(ID3D11Device* dev, char* why, size_t cap) {
     D3D11_BUFFER_DESC bd = {};
     bd.ByteWidth = sizeof(g_cb); bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     dev->CreateBuffer(&bd, nullptr, &cb_);
-    bd.ByteWidth = 32;
+    bd.ByteWidth = 48;
     dev->CreateBuffer(&bd, nullptr, &cbObj_);
     D3D11_RASTERIZER_DESC rd = {};
     rd.FillMode = D3D11_FILL_SOLID; rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
@@ -676,7 +714,7 @@ void GuideGpu::audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D1
 bool GuideGpu::ensure_obj(ID3D11Device* dev) {
     const uint32_t tw = (w_ + 7) / 8, th = (h_ + 7) / 8;
     if (tiles_ && motion2_ && tilesW_ == tw && tilesH_ == th && obj2W_ == w_ && obj2H_ == h_) return true;
-    rel(tilesUav_); rel(listUav_); rel(listSrv_); rel(list_); rel(listArgs_); rel(tilesSrv_); rel(tiles_); rel(motion2Rtv_); rel(motion2_);
+    rel(tilesUav_); rel(listUav_); rel(listSrv_); rel(list_); rel(listArgs_); rel(statsUav_); rel(stats_); for (auto& b : statStage_) rel(b); rel(tilesSrv_); rel(tiles_); rel(motion2Rtv_); rel(motion2_);
     for (int e = 0; e < 2; ++e) { rel(tilePrevSrv_[e]); rel(tilePrev_[e]); tilePrevOk_[e] = false; }
     tilesW_ = tilesH_ = obj2W_ = obj2H_ = 0;
     D3D11_TEXTURE2D_DESC td = {};
@@ -706,6 +744,16 @@ bool GuideGpu::ensure_obj(ID3D11Device* dev) {
         const UINT init[3] = {0, 1, 1};
         D3D11_SUBRESOURCE_DATA id = {init, 0, 0};
         if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&ad, &id, &listArgs_);
+        D3D11_BUFFER_DESC sb = {};
+        sb.ByteWidth = 16; sb.Usage = D3D11_USAGE_DEFAULT; sb.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+        sb.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED; sb.StructureByteStride = 4;
+        if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&sb, nullptr, &stats_);
+        D3D11_UNORDERED_ACCESS_VIEW_DESC su = {};
+        su.Format = DXGI_FORMAT_UNKNOWN; su.ViewDimension = D3D11_UAV_DIMENSION_BUFFER; su.Buffer.NumElements = 4;
+        if (SUCCEEDED(hr)) hr = dev->CreateUnorderedAccessView(stats_, &su, &statsUav_);
+        D3D11_BUFFER_DESC st = {};
+        st.ByteWidth = 16; st.Usage = D3D11_USAGE_STAGING; st.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        for (int k = 0; k < 3 && SUCCEEDED(hr); ++k) { hr = dev->CreateBuffer(&st, nullptr, &statStage_[k]); statPending_[k] = false; }
     }
     td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     for (int e = 0; e < 2 && SUCCEEDED(hr); ++e) {
@@ -716,7 +764,7 @@ bool GuideGpu::ensure_obj(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreateTexture2D(&td, nullptr, &motion2_);
     if (SUCCEEDED(hr)) hr = dev->CreateRenderTargetView(motion2_, nullptr, &motion2Rtv_);
     if (FAILED(hr)) {
-        rel(tilesUav_); rel(listUav_); rel(listSrv_); rel(list_); rel(listArgs_); rel(tilesSrv_); rel(tiles_); rel(motion2Rtv_); rel(motion2_);
+        rel(tilesUav_); rel(listUav_); rel(listSrv_); rel(list_); rel(listArgs_); rel(statsUav_); rel(stats_); for (auto& b : statStage_) rel(b); rel(tilesSrv_); rel(tiles_); rel(motion2Rtv_); rel(motion2_);
         for (int e = 0; e < 2; ++e) { rel(tilePrevSrv_[e]); rel(tilePrev_[e]); }
         return false;
     }
@@ -729,8 +777,9 @@ bool GuideGpu::objmotion(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, I
     if (!ready_ || !motion_ || !color || (eye != 0 && eye != 1)) { say(why, cap, "objmotion: not ready"); return false; }
     if (!prevOk_[eye] || !prevSrv_[eye]) { say(why, cap, "objmotion: no previous image of this eye"); return false; }
     if (!ensure_obj(dev)) { say(why, cap, "objmotion: targets failed"); return false; }
-    const float om[8] = {(float)tilesW_, (float)tilesH_, jitShiftX, jitShiftY,
-                         op.ratio, op.minGain, op.minContrast, (op.temporal && tilePrevOk_[eye]) ? 1.0f : 0.0f};
+    const float om[12] = {(float)tilesW_, (float)tilesH_, jitShiftX, jitShiftY,
+                          op.ratio, op.minGain, op.minContrast, (op.temporal && tilePrevOk_[eye]) ? 1.0f : 0.0f,
+                          op.minDeviation, op.prior, 0, 0};
     ctx->UpdateSubresource(cbObj_, 0, nullptr, om, 0, 0);
     ID3D11Buffer* cbs[2] = {cb_, cbObj_};
     // The tiles: the early exits and the list (one thread per tile), then the search over the listed tiles (one
@@ -750,10 +799,30 @@ bool GuideGpu::objmotion(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, I
     ctx->CSSetUnorderedAccessViews(0, 2, noUav, nullptr);
     srvs[5] = listSrv_;
     ctx->CSSetShaderResources(0, 6, srvs);
-    ctx->CSSetUnorderedAccessViews(0, 1, &tilesUav_, nullptr);
+    {   // the search's counters: tiles searched, tiles overridden (read back two images later, never waited on)
+        const UINT zero[4] = {0, 0, 0, 0};
+        ctx->ClearUnorderedAccessViewUint(statsUav_, zero);
+    }
+    ID3D11UnorderedAccessView* su[2] = {tilesUav_, statsUav_};
+    ctx->CSSetUnorderedAccessViews(0, 2, su, nullptr);
     ctx->CSSetShader(csObjTile_, nullptr, 0);
     ctx->DispatchIndirect(listArgs_, 0);
-    ctx->CSSetUnorderedAccessViews(0, 1, noUav, nullptr);
+    ctx->CSSetUnorderedAccessViews(0, 2, noUav, nullptr);
+    {
+        const int s = statNext_; statNext_ = (statNext_ + 1) % 3;
+        if (statPending_[s]) {
+            D3D11_MAPPED_SUBRESOURCE m = {};
+            if (ctx->Map(statStage_[s], 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m) == S_OK) {
+                const uint32_t* v = (const uint32_t*)m.pData;
+                objStats.images++; objStats.searched += v[0]; objStats.overridden += v[1];
+                objStats.tiles += (uint64_t)tilesW_ * tilesH_;
+                ctx->Unmap(statStage_[s], 0);
+            }
+            statPending_[s] = false;
+        }
+        ctx->CopyResource(statStage_[s], stats_);
+        statPending_[s] = true;
+    }
     ctx->CSSetShaderResources(0, 6, none);
     ctx->CSSetShader(nullptr, nullptr, 0);
     ID3D11Buffer* noCs[2] = {};
@@ -790,7 +859,7 @@ void GuideGpu::shutdown() {
     for (int s = 0; s < 2; ++s) { rel(auditStage_[s]); auditPending_[s] = false; }
     rel(linear_); rel(ds_); rel(blend_); rel(raster_); rel(cb_);
     rel(psAudit_); rel(psMask_); rel(ps_); rel(vs_);
-    rel(tilesUav_); rel(listUav_); rel(listSrv_); rel(list_); rel(listArgs_); rel(tilesSrv_); rel(tiles_); rel(motion2Rtv_); rel(motion2_); rel(csObjTile_); rel(csObjPre_); rel(psObjFix_); rel(cbObj_);
+    rel(tilesUav_); rel(listUav_); rel(listSrv_); rel(list_); rel(listArgs_); rel(statsUav_); rel(stats_); for (auto& b : statStage_) rel(b); rel(tilesSrv_); rel(tiles_); rel(motion2Rtv_); rel(motion2_); rel(csObjTile_); rel(csObjPre_); rel(psObjFix_); rel(cbObj_);
     for (int e = 0; e < 2; ++e) { rel(tilePrevSrv_[e]); rel(tilePrev_[e]); tilePrevOk_[e] = false; }
     tilesW_ = tilesH_ = obj2W_ = obj2H_ = 0;
     ready_ = false; w_ = h_ = 0;

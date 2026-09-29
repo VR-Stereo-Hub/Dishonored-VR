@@ -251,3 +251,36 @@ warm-up): 0.25 ms with a still camera and one 400x500 character; 2.05 ms when ev
   no detail.
 - A character's first frame after it starts moving uses no temporal candidate.
 - Headset A/B: F10 box on/off with a walking NPC in view and on the boat.
+
+## Object motion, run 10 (2026-09-29) - crawling aliasing fixed, host-verified
+
+**Reported:** with the object-motion box on, subtly aliased things crawled ("slithered") instead of aliasing
+normally, and moving characters still smeared.
+
+**MEASURED (log):** 4347 eye images corrected in about 45 s of DLAA (53 eye images/s per eye), so the pass
+ran. There was no per-tile count, so how many tiles it overrode is unknown.
+
+**Mechanism (host).** On a hard-edged 1-2 px pattern whose sampled shape changes between images (crawling
+jaggies), the camera's vector stops matching. A whole-pixel look-alike then fits better by chance, at a
+different offset each image. Handed to DLSS, the history is dragged by that offset: the crawl.
+
+What did NOT fix it, measured on the host checker:
+- A minimum deviation from the camera (1.5 px): the look-alikes are whole periods away.
+- Comparing against the camera's refined neighbourhood.
+- A motion prior of 0.005 per px: it also broke the sub-pixel character case (10 px error).
+- A 3x3 tent blur before matching: the overrides stayed, and the cost quadrupled to 1.03 ms.
+
+**FIX: temporal confirmation.** A win applies only when this tile or a neighbour found the same vector
+(within 1 px) in the eye's previous image. A first win is kept as a candidate (not applied), which is
+next image's evidence. A real mover keeps its vector; chance matches jump.
+
+**Host 11/11:**
+- Crawling aliasing (offsets 0.6, 0.2, 0.9, 0.4, 0.7 px): 0 pixels given a non-camera vector.
+- The same offset every image (the control): 238144.
+- Characters, the boat and the sub-pixel case (0.10 px) still pass, from their second image.
+- The minimum deviation (1.5 px) and the refined camera neighbourhood stay as extra guards.
+- Cost 0.31 ms per eye image.
+
+**New log field:** `dlss: object motion - ... per image: N tiles searched of M, K overridden`. A walking
+character or a boat should show hundreds of overridden tiles and a still scene near 0; this answers
+whether the smear on characters is a vector problem at all.
