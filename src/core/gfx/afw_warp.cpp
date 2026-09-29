@@ -106,7 +106,9 @@ const char* kSrc =
     // MSW: a foreground point moves rigidly with the nearer controller's grip (from the image's pose to the slot's).
     "float3 handMove(float3 W) {\n"
     "    float da = hOa.w > 0.5 ? dot(W - hOa.xyz, W - hOa.xyz) : 1e9, db = hOb.w > 0.5 ? dot(W - hOb.xyz, W - hOb.xyz) : 1e9;\n"
-    "    if (da >= 1e9 && db >= 1e9) return W;\n"
+    // Only within 30 cm of a grip (prm7.w, squared metres): without the foreground mask the foreground is "nearer than
+    // the depth limit" (about 0.7 m), which takes in nearby walls and tables - run 11: they moved with the hands.
+    "    if (min(da, db) > prm7.w) return W;\n"
     "    if (da <= db) { float3 r = W - hOa.xyz; return float3(dot(hRa0.xyz, r), dot(hRa1.xyz, r), dot(hRa2.xyz, r)) + hNa.xyz; }\n"
     "    float3 r = W - hOb.xyz; return float3(dot(hRb0.xyz, r), dot(hRb1.xyz, r), dot(hRb2.xyz, r)) + hNb.xyz;\n"
     "}\n"
@@ -1490,7 +1492,7 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
         bool any = false;
         for (int k = 0; k < 2; ++k)
             if (own.hands[k].ok && slotHands[k].ok) { hand_motion(own.hands[k], slotHands[k], cb.hand[k]); any = true; }
-        if (any) { cb.prm7[0] = 1.0f; ++g_synthHandsUsed; }
+        if (any) { cb.prm7[0] = 1.0f; cb.prm7[3] = 0.30f * 0.30f; ++g_synthHandsUsed; }   // within 30 cm of a grip
     }
     // The world by the game's matrices: the same camera-relative projection (the orientation is the image's
     // own), the camera moved by the head's translation and the extrapolated walk.

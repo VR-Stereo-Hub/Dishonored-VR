@@ -542,14 +542,18 @@ int main() {
     {   // MSW hands: standing still, the controller moves 3 cm right between the image and the slot. With the hands
         // following their controllers the hand pixels must land where the scene at the slot has them; off, they lag
         // (the control). The hand is the foreground (the mask), its grip at the quad's centre.
-        auto handCase = [&](bool follow, double* handOk, double* worldOk) -> bool {
+        // depthMode: no foreground mask (run 11's case), the foreground is "nearer than the depth limit", and a near world
+        // bar 40 cm from the grip falls inside that limit: it must stay where it is (barOk: its pixels still the bar).
+        auto handCase = [&](bool follow, double* handOk, double* worldOk, bool depthMode = false, double* barOk = nullptr) -> bool {
             State h0 = still, h1 = still; h1.handX = 0.03;
+            if (depthMode) { h0.handX = 0.10; h1.handX = 0.13; h0.barZ = h1.barZ = -0.30; h0.barX0 = h1.barX0 = -0.28; h0.barX1 = h1.barX1 = -0.25; }
             dvr::afw::set_enabled(true, "test"); dvr::afw::set_stereo(true, "test");
             dvr::afw::set_body_depth(0.40f, "test"); dvr::afw::set_world_scale((float)kScale);
             dvr::afw::set_matrices(true, "test"); dvr::afw::set_fg(false, "test"); dvr::afw::set_fg_fov(0);
             dvr::afw::set_fg_mask(true, "test");
             dvr::afw::set_synth_hands(follow);
-            g_signForeground = true; dvr::depthprobe::g_prefgReady = true;
+            g_signForeground = !depthMode; dvr::depthprobe::g_prefgReady = !depthMode;
+            if (depthMode) { dvr::afw::set_fg_fov(90.0f); dvr::afw::set_fg(true, "test"); dvr::afw::set_fg_depth(0.30f, "test"); }
             const Eye e0 = eyeOf(h0, 0), e1 = eyeOf(h0, 1);
             auto i0 = image(h0, e0, N, N), i1 = image(h0, e1, N, N), truth = image(h1, e0, N, N);
             ID3D11Texture2D* x0 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i0.data());
@@ -584,7 +588,7 @@ int main() {
             g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
             dvr::afw::set_synth_hands(false);
             if (!ok) return false;
-            int hn = 0, hg = 0, wn = 0, wg = 0;
+            int hn = 0, hg = 0, wn = 0, wg = 0, bn = 0, bg = 0;
             const double k = N / (2 * kTan);
             for (int y = 3; y < N - 3; ++y)
                 for (int x = 3; x < N - 3; ++x) {
@@ -595,11 +599,14 @@ int main() {
                     if (edge) continue;
                     const float* o = &px[(y * N + x) * 4];
                     const float* t = &truth[(y * N + x) * 4];
+                    if (ts == 3) { ++bn; bg += surfOf(o) == 3; }
                     if (ts == 2) { ++hn; hg += (o[2] > 0.5f && fabs(o[0] - t[0]) * kHandW / -kHandZ * k < 1.5 && fabs(o[1] - t[1]) * kHandH / -kHandZ * k < 1.5); }
                     else if (o[2] < 0.5f) { ++wn; ++wg; }   // world where the truth is world (the uncovered strip excepted below)
                     else ++wn;
                 }
             *handOk = hn ? (double)hg / hn : 0; *worldOk = wn ? (double)wg / wn : 0;
+            if (barOk) *barOk = bn ? (double)bg / bn : 0;
+            if (depthMode) { dvr::afw::set_fg(false, "test"); dvr::afw::set_fg_fov(0); }
             return true;
         };
         double hf = 0, wf = 0, hc = 0, wc = 0;
@@ -607,6 +614,10 @@ int main() {
         char d[200];
         snprintf(d, sizeof(d), "hands on: hand %.3f, world free of hand %.3f | control, off: hand %.3f, world free of hand %.3f", hf, wf, hc, wc);
         check("msw: the hands follow their controllers into a synthesized slot", a && b && hf > 0.97 && wf > 0.99 && hc < 0.7, d);
+        double hd = 0, wd = 0, bd = 0;
+        const bool e = handCase(true, &hd, &wd, true, &bd);
+        snprintf(d, sizeof(d), "no mask (depth limit): hand %.3f, the near bar (0.3 m away, 0.4 m from the grip) still the bar %.3f", hd, bd);
+        check("msw: without the mask, near world geometry does not follow the hand", e && hd > 0.97 && bd > 0.97, d);
     }
     {   // MSW turning (run 10: the turn rode the submitted pose and turned the hands with the world). A stick turn of
         // 2 deg per 10 ms: the left image at 0 ms (yaw 0), the right at 10 ms (yaw 2), the slot at 20 ms (yaw 4). The
