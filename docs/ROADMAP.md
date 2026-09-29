@@ -453,7 +453,9 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 ## S2a - AlternateEye (rung 2; developer A)
 
-`core/gfx/aer.cpp` carries the design. Acceptance, in order:
+`core/gfx/aer.cpp` carries the design; built 2026-09-28 (VR-39) as a port of BioShock
+Remastered VR's AER on reentry's present side, with the delta clamp. Host-verified only.
+Acceptance, in order:
 
 - [ ] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
       `L/s == R/s == out/s / 2`

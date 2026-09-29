@@ -1,3 +1,222 @@
+## 2026-09-28: AFW run 7 - a 1-texel light outline, sword shading, the merchant FOV, a crash (fixed except the sword, replay-verified)
+
+Surface: the held eye under `stereo afw`, build `v1.0.1-166-g737af7773`.
+- Reported: the hand jitter is gone. Left over:
+  - a flickering 1-texel light outline around some objects;
+  - a subtle shading shimmer on the sword;
+  - a large fault in a merchant conversation;
+  - a crash after a resolution change.
+- Two captures, both with DLSS Ultra Quality: depth at the render size (2114x2192) under the output
+  (2750x2850).
+
+**MEASURED - the outline.**
+- The dots sit on depth edges: roofs and trees against the sky.
+- They come from the fresh-eye world source (tint blue) and the fill.
+- Cause: the stale test projected the held eye's silhouette texel into the fresh view. There it landed
+  a texel past the edge, where the fresh eye sees sky, so the test called it "moved". The fresh eye then
+  supplied sky, which is parallax.
+- Fix, three parts:
+  - the stale test takes the nearest fresh depth of 1-2 texels along the baseline and 1 across;
+  - the consistency tolerance scales with the depth texel (x1.3 under Ultra Quality);
+  - a held near-miss beats a farther fresh surface.
+- Edge dots per frame 2786 -> 2159 (fresh-world 676 -> 390, fill 414 -> 0). Run-6 captures also
+  improved: dots 990 -> 791 and 3363 -> 3166.
+- The remaining edge dots are mostly held-eye, i.e. native frame-to-frame change of the upscaled edges.
+
+**MEASURED - replay caveat.** The replay score compares against the NEXT native frame, one tick later.
+With the head moving 0.05-0.15 deg per tick it reads 2-15% "world differ", which is real motion, not
+error. Only still frames are comparable. Measured on a capture: rebuild offsets equal the pose deltas.
+
+**MEASURED - the merchant.**
+- In a conversation the game zooms its camera to 23.4 deg (sensor), while `cine/fov` keeps the scene at
+  `ProjectionFov` 103.
+- The foreground FOV followed the sensor, so every texel nearer than 0.30 units (the counter, the
+  merchant) was reprojected with 23-degree tangents.
+- Fix: the foreground FOV is fed only while the FOV lever owns plain gameplay: no cinematic recovery, no
+  scope, and the sensor reads back the lever's own write. Otherwise 0 (the world's FOV throughout).
+
+**MEASURED - the crash.**
+- `ObjClassName` <- `LooksLikeObj` <- `FpAssetName` <- `FpCollect` <- `ApplyHandToMesh` <- the
+  ProcessEvent hook, right after a device Reset to 3012x3122.
+- It read 0xBF800030 after `RangeReadable` had passed: the range check and the read are two moments,
+  and the reset unmapped the page in between.
+- Fix: those reads are SEH-guarded (`ObjClassNameIndex`, `FpRead32`).
+- Not AFW.
+
+**OPEN - the sword shading.** The held eye takes the hands and weapon from the fresh eye, whose
+view-dependent highlights differ. An "own hands" option was built and tested:
+- It keeps the held eye's own hands where the fresh eye agrees on depth and colour.
+- It gained only 1.64% -> 1.60% hand mismatch at a safe colour limit (1.30% at a loose one).
+- The host test caught it showing a 2 cm-moved weapon 25 px late.
+- It ships OFF: `afw ownhands`, and an F10 checkbox as experimental.
+
+## 2026-09-28: AFW run 6 captures - the hand jitter is a foreground FOV mismatch; the grate dots are the fill (fixed, replay-verified)
+
+Surface: the held eye under `stereo afw`. Build `v1.0.1-165-g75642ec7d`, 144 Hz. Two captures of 16
+consecutive presents each (still hands, a fire-escape grate): one with DLAA, one with the upscaler off.
+Analysed offline with a stereo block match and the new replay tool (`tools/afw-replay.ps1`), which runs
+the production rebuild on a capture and scores it against the next native frame of the same eye.
+
+**MEASURED - the hands.**
+- For hand and weapon pixels (0.12-0.46 m), the native disparity between the two eyes is 0.903-0.935x
+  what their depth predicts, in every present, in both directions, with and without DLAA.
+- World surfaces from 0.93 m to 70 m sit at 0.95-1.07x: within about half a pixel.
+- The ratio is flat across the near depths, so it is a gain, not an offset.
+- 0.911 = tan(103.2/2) / tan(108.07/2): the arms and weapon are drawn with the game camera's FOV (108.07,
+  the FOV lever's write, read back by the 0x53c sensor), while the world uses the mod's projection
+  (`[Screen] ProjectionFov=103`, the layer's claim).
+- Each eye alternated between its own true hands and the other eye's hands reprojected with the world's
+  FOV: the reported smaller copy with a jittering outline.
+
+**MEASURED - the dots.** Replayed with the debug tint, the bright dots along the grate's dark slats are
+the disocclusion fill. Slats 2-3 texels wide leave both candidates just over the 1.5-texel consistency
+tolerance, so the fill reached up to 128 texels along the row to the farthest surface (the sky).
+
+**Not a cause:** jitter (off in the run). Scale: the depth gain for world surfaces is within noise.
+
+**FIX:**
+- Pixels nearer than 0.30 units are reprojected with the game camera's FOV, fed from the sensor
+  (`afw fg on|off`, `afw fgdepth`; the F10 checkbox).
+- A world-surface candidate that misses by under 6 texels beats the fill (`afw nearmiss`; the F10
+  checkbox). Hand candidates are excluded: near misses at the edge of a real gap were a ghost ring in
+  the host test.
+
+**Replay** (15 rebuilds each):
+
+| | upscaler off | DLAA |
+|---|---|---|
+| hand/weapon pixels differing | 7.84% -> 1.54% | 9.04% -> 3.67% |
+| bright world dots per frame | 2278 -> 990 | 5285 -> 3363 |
+
+The remaining dots are mostly in the held eye's own image, in proportion to its share of the image, so
+they are native frame-to-frame change.
+
+**Host test:** 28/28, including a foreground drawn at its own FOV, with a control that fails without the
+correction.
+
+**Also measured:** the basis-check refusals were a 1.0 deg yaw lag of the recorded rotator (up axis
+0.03 deg). The check's limit is now 10 deg, for conventions only.
+
+**Tried and dropped:** a "closest clearly-behind seed" fill. It ghosted the hands in 12 host cases
+(stretched sheets and stale near seeds qualified as background).
+
+## 2026-09-28: AFW run 5 - hands shrink and jitter while still, grate holes flicker white (OPEN, evidence build)
+
+Surface: the held eye under `stereo afw`, build `v1.0.1-164-g4b8e7a565`, 144 Hz, DLAA, DLSS projection
+jitter OFF (`DlssJitter=0`).
+
+Reported:
+- the hands and weapon jitter constantly with nothing moving: a smaller copy inside a jittering
+  full-size outline;
+- near world objects jitter a little;
+- grate holes flicker as an array of white dots, with light lines at some edges;
+- worse without DLSS;
+- motion otherwise smooth, micro-stutter gone.
+
+Measured:
+- every present rebuilt from both sources, 0 fallbacks;
+- basis-check refusals in bursts (up to 77 of 424, worst 6.73 deg), each a one-present switch of the
+  world model;
+- rebuild GPU cost 1.75-2.57 ms mean, 5.39 ms max.
+
+Leading reading (NOT established): each eye alternates between its own true render and a rebuild whose
+near content comes from the other eye through depth, so any reprojection error of near content flashes
+at 72 Hz.
+
+An adversarial review of the fix plan (`PLAN-afw-run5.md`, section 4) showed the planned discriminators
+could not tell a depth gain, an eye offset and a foreground projection apart. It RETRACTED these parts
+of the plan:
+- jitter as a run-5 cause;
+- world-model hysteresis;
+- a live automatic gain;
+- pixel-class pinning;
+- the rebuild-to-rebuild flicker metric.
+
+Evidence build `v1.0.1-165`: `afw dump` / the F10 capture button writes 16 consecutive presents (native,
+held and rebuilt images, both depths, both full records); the basis refusal names its axis and records;
+the fill has its own debug tint (magenta). No rendering change. Next: offline classification from two
+captures (still hands with the grate, DLAA and upscaler off), then one default-off correction at a time.
+
+## 2026-09-28: AFW rebuild - adversarial review findings, fixed (host-verified)
+
+Surface: the held eye under `stereo afw`. Build `145c03b5d` (the two-source rebuild), not yet
+headset-run. An external review reproduced on the host:
+- a thin bar in front of the hand replaced by the hand (the first near candidate won);
+- a 2 cm object at 0.75 m lost entirely (fixed seed depths skip thin geometry);
+- a moved weapon at 1.1 m ghosting at 42% of its area (beyond the body threshold, no stale test);
+- stale records accepted (the freshness guard compared record order, not the present);
+- mixed-camera depth ranking;
+- matrix checks blind to shared faults.
+
+RETRACTED: the claim that the 16/16 suite established the rebuild's correctness. Its scenes had no
+thin or near world occluders and no stale-record case.
+
+Fix: depth-tested seed maps (a mesh of each source in the held eye's view), refine per pixel, compare in
+target depth, a stale test by the fresh eye's depth, background-only disocclusion fill, serial+epoch
+freshness, and basis and camera checks from independent sources.
+
+Host: 23/23 with the review cases. Prediction for the headset:
+- no hand or weapon ghost on turns or hand motion;
+- `afw/warp: beat` shows `full` rebuilds, 0 NOT rebuilt, matrices used with no refusals;
+- a GPU figure near 1.5 ms.
+
+A basis refusal on every present would mean the rotator convention differs from the matrix in the game
+(read the worst-degree figure).
+
+## 2026-09-28: AFW run 4 - hands still ghost on turns, uneven motion - rebuilt from both eyes (host-verified)
+
+Surface: the held eye under `stereo afw`, the hands and weapon (a trailing copy on stick turns) and the
+whole image (an uneven feel at a high frame rate). Build `v1.0.1-162-g71e98fcae`, run 4, 144 Hz.
+Measured: long stretches with 60-70% of warps falling back to the rotation-only held eye (`afw/warp: beat
+... no depth for its grab 240-287`), the shared depth ring's `unavailable/busy` climbing with it. Cause 1:
+the held image's depth was looked up one present late in a 3-deep ring, and a slot still being read made
+the ring overwrite the next one needed. Cause 2 (the ghost even when the warp ran): a held-eye-only rebuild
+cannot see behind the old hand - where a turn uncovers the world the hand hid, the world search lands on
+the hand again. RETRACTED: the run-3 entry's 7/7 host test as evidence for the ghost; its flat synthetic
+scene had no occlusion, so it could not fail on this (an instrument that could not fail its hypothesis).
+Fix: per-eye depth copied at capture; the held eye rebuilt from both images (hands from the fresh eye at
+this instant, world from the held eye by the game's matrices, uncovered world from the fresh eye, nearest
+surface wins). Ray-traced host test 16/16 with negative controls that reproduce both faults.
+Prediction: `afw/warp: beat` shows `full` rebuilds with 0 NOT rebuilt and `world by the GAME matrices` for
+almost all; no hand ghost on turns; `afw stereo off` brings the trail back; `afw debug on` tints the hands
+green in the held eye. Not carried: an NPC that moved between the images keeps a tick of lag in the held
+eye's world; translucent effects over the hands take the hand's depth.
+
+## 2026-09-28: AFW hands/weapon ghost on stick turns and drift on head turns - depth warp (host-verified)
+
+Surface: the hands and weapon only, under `stereo afw`: a trailing ghost while stick turning (after the
+whole-image yaw fix), and a drift against head turns that settles. Build `v1.0.1-161-gca40321fc`, run 3.
+Cause: both are the held eye's near content - the yaw fix rotates body-attached content that should
+not rotate, and rotation-only reprojection ignores the eye's translation. Fix: the per-pixel depth warp
+(`core/gfx/afw_warp`), world and body pixels moved by different rules. Host GPU test 7/7 including the
+negative control. Prediction: no ghost while stick turning, no drift on head turns; `afw warp off` brings
+both back; the `afw/warp: beat` line shows warps with no fallbacks. Walking parallax still lags a tick.
+
+## 2026-09-28: AFW held-eye artifacts - stick-turn "zoom" (fix built) and weapon drift (open)
+
+Surface: the whole view during stick/snap turns under `stereo afw` (reads as zooming); and near
+weapons/hands drifting opposite to head motion, subtly. Build `v1.0.1-160-g90136b7cf`, run 2.
+Measured: the fresh eye's pose is exact (posesub 0.000 deg, hv gap +0), so neither is pose
+attribution. Both are the held eye. Stick turn: the held image lacks the last tick's game yaw, which
+the compositor cannot know; fix = rotate the held eye's submitted pose by the body-yaw difference
+between the two images' records (exact for rotation). Prediction: the zoom feel disappears; the
+`xr: afw held-eye yaw` line shows mean |d| near 0 while only the head turns and near the per-tick
+stick yaw while stick turning; `afw yaw off` brings the zoom back. Weapon drift: eye translation
+parallax that rotation-only reprojection cannot fix. OPEN; next step is a depth warp of the held eye.
+
+## 2026-09-28: hands and weapon grow and shrink on fast head turns under AER (VR-39, fixed, headset pending)
+
+Surface: the mod's hands and the held weapon, both eyes, only under `stereo aer`, only while turning
+the head quickly; direction-dependent. Routes to the pose-attribution class, not a draw fault.
+Build `v1.0.1-159-g167065275`, run archived at build/playtest-candidates/vr-39-aer/run1.
+Measured: under AER the right eye's image record read locate gen 9970 while the numeric lag
+selected 9968 (reentry: gen = lag + 1 for both eyes, the same data). Orientation is taken from the
+record (ImageOrientation=1) but position from the lag, so the right eye was submitted one locate
+stale in position: a disparity error that flips sign with turn direction and reads as depth on
+near objects. Fix: AER/AFW submit each image with its own generation's view pose (8-deep history).
+Prediction: the swing disappears; the `xr: exact-eye-pose` line shows hits, no misses. Reentry is
+untouched. Headset confirmation pending.
+
 ## 2026-09-27: run137 submenu result, non-reproduction
 
 Verified banner v1.0.1-137-gb91ec4fef and installed DLL SHA256

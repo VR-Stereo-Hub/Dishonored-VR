@@ -159,6 +159,7 @@ void set_camera_mode(bool on);
 // adapter's VR-preset flow arms them programmatically (session 16 part 3).
 void set_enabled(bool on);
 void set_sr_pair_pacing(bool on);
+bool sr_pair_pacing();   // VR-39: AFW turns pair pacing off while it runs and puts it back
 
 // AlternateEye stereo: one eye per frame, the compositor reprojecting the other.
 // Judders, but it is REAL stereo and it never re-enters the engine's draw -
@@ -324,6 +325,9 @@ bool pair_strict();
 void set_pose_lag(int lag);
 void set_image_orientation(bool on);
 bool image_orientation_enabled();
+void set_exact_eye_pose(bool on);
+void set_held_body_yaw(bool on);   // VR-39 (AFW): rotate the held eye by the stick/snap yaw since its image
+bool held_body_yaw();   // VR-39: submit each tagged image with its own locate generation's view pose
 // VR-65: run the announced lag comparison - baseline, alternative, baseline
 // again, alternative - and restore the baseline at the end. Segment length in
 // milliseconds; 0 disables.

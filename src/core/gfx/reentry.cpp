@@ -40,6 +40,8 @@
 #include "core/gfx/clarity.h"
 #include "core/gfx/dlss_jitter.h"
 #include "core/gfx/blit_quad.h"
+#include "core/gfx/afw_warp.h"
+#include "core/gfx/depth_probe.h"
 #include "core/framework/bridge_profile.h"
 #include "core/gfx/capture.h"
 #include "core/gfx/flicker_diagnostic.h"
@@ -233,9 +235,17 @@ void ledger_reconcile() {
 class SequentialReentry : public IStereo {
 
 public:
-    const char* name() const override { return "reentry"; }
+    // VR-39: the same present side serves AlternateEye. `alternate` = the game
+    // side draws once per tick and alternates the eye (core/gfx/aer.cpp has
+    // the design); the ring, the pairing and the capture are shared.
+    // VR-39 (AFW): `warp` = alternate frame warping - the same one-eye-per-tick game side, but
+    // EVERY present is its own XR frame: the fresh eye plus the other eye's last image at the
+    // pose it was rendered from, which the compositor reprojects (pair pacing off while it runs).
+    explicit SequentialReentry(bool alternate = false, bool warp = false) : alternate_(alternate), warp_(warp) {}
+    const char* name() const override { return warp_ ? "afw" : alternate_ ? "aer" : "reentry"; }
     bool implemented() const override {
         char why[160] = "";
+        if (alternate_ && !g_hooks.set_alternate) { strncpy(note_, "aer: the game side has no alternation hook", sizeof(note_) - 1); return false; }
         if (!g_hooks.available) { strncpy(note_, "reentry: the game side has not registered (no scene_draw hooks)", sizeof(note_) - 1); return false; }
         if (!g_hooks.available(why, sizeof(why))) {
             _snprintf(note_, sizeof(note_), "reentry: the scene-draw root does not verify on this exe - %s", why);
@@ -246,15 +256,52 @@ public:
     }
     const char* note() const override { return note_; }
     bool wants_projection() const override { return true; }
-    int  presents_per_tick() const override { return 2; }
-    int  eye_for_next_frame() const override { return -1; }   // pass 1 is always the left eye
+    // Presents per XR frame, which is what the pacing and the HUD hold key on: two under
+    // both, from one tick (reentry) or from two consecutive ticks (aer).
+    int  presents_per_tick() const override { return warp_ ? 1 : 2; }
+    // The seam's own eye is left under both: aer's right tick is written through the
+    // pass-2 thread latch, never by flipping the seam's eye from this (present) thread.
+    int  eye_for_next_frame() const override { return -1; }
 
     void begin_frame(const FrameInput& in) override {
         if (!armed_) {
             armed_ = true;
+            if (g_hooks.set_alternate) g_hooks.set_alternate(warp_ ? 2 : alternate_ ? 1 : 0);
+            if (alternate_) {
+                // The c5 arbitration and both repairs are built on the WITHIN-tick invariant (pass 2's
+                // camera sits exactly one IPD right of pass 1's, same tick). Under aer the two presents
+                // of a pair are two ticks apart, the head moves between them, and a repair would act on
+                // a disagreement that is only head motion. The ring's order is the claim, as in BRVR's
+                // eye FIFO; the player's settings come back when aer stops.
+                savedC5_ = g_c5Pair; savedLate_ = g_lateTagRepair; savedSingle_ = g_singleTagRepair;
+                g_c5Pair = false; g_lateTagRepair = false; g_singleTagRepair = false;
+                // The two eyes are rendered on different ticks, so each is submitted with the locate
+                // generation its own head sample came from (the numeric lag landed the right eye one
+                // locate stale in position: the hands/weapon scale swing on fast head turns).
+                dvr::vr::set_exact_eye_pose(true);
+                if (warp_) {
+                    savedPairPacing_ = dvr::vr::sr_pair_pacing(); dvr::vr::set_sr_pair_pacing(false);
+                    dvr::vr::set_held_body_yaw(true);
+                    // The held eye's warp needs each image's depth: the shared depth ring runs while AFW does.
+                    savedDepthShare_ = dvr::depthprobe::share_on(); dvr::depthprobe::set_share(true, "afw");
+                    dvr::afw::set_enabled(true, "afw armed");
+                }
+            }
             if (g_hooks.set_armed) g_hooks.set_armed(true);
-            DVR_INFO("stereo: reentry ARMED - two draws per tick, the second under an SEH guard; the beat "
-                     "line must read L/s == R/s == out/s / 2 (%ux%u eye recommended)", in.eyeW, in.eyeH);
+            if (warp_)
+                DVR_INFO("stereo: afw ARMED - one draw per tick, the eye alternating left/right, and EVERY present is "
+                         "an XR frame: the fresh eye plus the other eye's last image at its rendered pose, reprojected "
+                         "by the compositor (pair pacing off while it runs, exact eye pose on); the beat line reads "
+                         "L/s == R/s == out/s / 2 with out/s up to the headset rate (%ux%u eye recommended)",
+                         in.eyeW, in.eyeH);
+            else if (alternate_)
+                DVR_INFO("stereo: aer ARMED - one draw per tick, the eye alternating left/right, two ticks per XR "
+                         "frame; c5 pairing, late-tag and single-tag repair held OFF while it runs (the ring's order "
+                         "pairs); the beat line must read L/s == R/s == out/s / 2 (%ux%u eye recommended)",
+                         in.eyeW, in.eyeH);
+            else
+                DVR_INFO("stereo: reentry ARMED - two draws per tick, the second under an SEH guard; the beat "
+                         "line must read L/s == R/s == out/s / 2 (%ux%u eye recommended)", in.eyeW, in.eyeH);
         }
     }
 
@@ -339,7 +386,8 @@ public:
         if (led) ledger_reconcile();
         if (g_hooks.poisoned && g_hooks.poisoned()) {
             ++g_exitPoisoned;
-            DVR_ERROR("stereo: reentry POISONED by a second-draw fault - dropping to mono");
+            DVR_ERROR("stereo: %s POISONED by a scene-draw fault - dropping to mono", name());
+            if (armed_) release_alternate();   // shutdown() below sees armed_ false and would skip it
             armed_ = false;
             select("mono");
             return false;
@@ -672,7 +720,9 @@ public:
         if (armed_) {
             armed_ = false;
             if (g_hooks.set_armed) g_hooks.set_armed(false);
-            DVR_INFO("stereo: reentry disarmed - the call site is restored at the next script dispatch");
+            release_alternate();
+            DVR_INFO("stereo: %s disarmed - the call site is restored at the next script dispatch%s", name(),
+                     alternate_ ? "; c5 pairing and the tag repairs are back to the player's settings" : "");
         }
         {   // VR-80: a lifecycle clear is a removal the ledger must account for
             const LONG head = InterlockedCompareExchange(&g_ringHead, 0, 0);
@@ -755,6 +805,22 @@ private:
         w_ = h_ = 0;
     }
 
+    // VR-39: the game side back to two draws per tick and the player's pairing settings back.
+    void release_alternate() {
+        if (!alternate_) return;
+        if (g_hooks.set_alternate) g_hooks.set_alternate(0);
+        g_c5Pair = savedC5_; g_lateTagRepair = savedLate_; g_singleTagRepair = savedSingle_;
+        dvr::vr::set_exact_eye_pose(false);
+        if (warp_) {
+            dvr::vr::set_sr_pair_pacing(savedPairPacing_); dvr::vr::set_held_body_yaw(false);
+            dvr::afw::set_enabled(false, "afw disarmed");
+            if (!savedDepthShare_) dvr::depthprobe::set_share(false, "afw disarmed");
+        }
+    }
+
+    const bool              alternate_;
+    const bool              warp_;
+    bool savedC5_ = true, savedLate_ = false, savedSingle_ = false, savedPairPacing_ = true, savedDepthShare_ = false;
     mutable char            note_[240] = "";
     dvr::gfx::BlitQuad      blit_;
     ID3D11Texture2D*        tex_ = nullptr;
@@ -782,8 +848,16 @@ private:
 };
 
 SequentialReentry g_reentry;
+SequentialReentry g_alternateEye(true);   // VR-39: `stereo aer`
+SequentialReentry g_alternateWarp(true, true);   // VR-39: `stereo afw`
 
 } // namespace
+
+IStereo* create_alternate_eye() { return &g_alternateEye; }
+IStereo* create_alternate_warp() { return &g_alternateWarp; }
+bool reentry_family_active() {
+    return active() == &g_reentry || active() == &g_alternateEye || active() == &g_alternateWarp;
+}
 
 void set_reentry_hooks(const ReentryHooks& h) { g_hooks = h; }
 

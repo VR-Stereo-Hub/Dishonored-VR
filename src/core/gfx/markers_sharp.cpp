@@ -57,7 +57,7 @@ void prepare(IDirect3DDevice9* d9,ID3D11Device* d11,ID3D11DeviceContext* ctx,uin
     uint32_t x=0,y=0;
     if(!wanted.load() || dvr::dlss::mode()==dvr::dlss::ModeOff ||
        !dvr::dlss::sr_output_for(w,h,&x,&y) || x<=w || y<=h ||
-       strcmp(dvr::stereo::active_name(),"reentry")) {
+       !dvr::stereo::reentry_family_active()) {   // VR-39: aer shares the reentry path
         if(wanted.load()) refuse("no reduced reentry upscaler");
         return;
     }

@@ -1,3 +1,223 @@
+## 2026-09-28 (AFW run 7): outline, merchant FOV and crash fixed; sword shading left as an option
+
+Run 7 on `v1.0.1-166-g737af7773`: the hand jitter is gone. Fixed from two captures and the log:
+- **The 1-texel light outline.** The stale test misfired at silhouettes. Edge dots per frame
+  2786 -> 2159, the fill's share went to 0.
+- **The merchant conversation.** The camera FOV sensor reads 23 deg there. The foreground FOV is now
+  fed only in plain gameplay.
+- **A crash after a resolution change.** A reset raced a range-checked read in the hand-mesh scan; the
+  reads are now SEH-guarded.
+
+**Left:** the sword's subtle shading shimmer (the other eye's highlights). An "own hands" option exists,
+off by default: it gained little and can lag a slowly moving weapon.
+
+**Host test:** 28/28. The replay tool now handles upscaled captures (depth at the render size).
+
+## 2026-09-28 (AFW run 6): cause of the hand jitter found and fixed; grate dots fixed (replay-verified)
+
+**Two captures from run 6, analysed offline:**
+- **The hands.** Their stereo is 0.91x what their depth predicts, exactly tan(103.2/2) / tan(108.07/2).
+  The arms and weapon are drawn with the game camera's FOV (the FOV lever's 108.07), the world with
+  `ProjectionFov=103`. The rebuild reprojected the other eye's hands with the world's FOV, so every
+  other frame showed a mis-scaled copy.
+- **The grate dots.** The disocclusion fill, reaching through 2-3 texel slats to the sky.
+
+**Fixed:**
+- the foreground reprojected with the camera FOV fed from the sensor;
+- a near-miss rule for thin world structures;
+- the basis check (a 1 deg rotator yaw lag was refusing it) turned into a conventions check.
+
+**New:** `tools/afw-replay.ps1` runs the production rebuild on a capture and scores it against the next
+native frame. On the two run-6 captures, hand/weapon mismatch fell from 7.8% to 1.5% (upscaler off) and
+from 9.0% to 3.7% (DLAA); bright dots fell from 2278 to 990 and from 5285 to 3363 per frame. Host test 28/28.
+
+## 2026-09-28 (AFW run 5): hands jitter, grate dots - evidence build, plan reviewed
+
+Run 5 on `v1.0.1-164-g4b8e7a565`:
+- motion is smooth and the micro-stutter is gone;
+- still hands and weapon jitter as a smaller copy inside a full-size outline, near objects jitter a
+  little, and grate holes flicker white.
+
+The fix plan (`docs/dishonored/PLAN-afw-run5.md`) went through an adversarial review first. Its
+discriminators could not separate the candidate causes, jitter was off in the run, and it changed too
+many render behaviours in one build. The corrected order: evidence first, offline classification, then
+one default-off correction per headset question.
+
+Built: `afw dump [n]` and the F10 button "Capture AFW frames for diagnosis" (16 consecutive presents,
+from 5 s after the press, into the data dir's `dumps\`, local only). Also a detailed basis-refusal line
+and a separate fill tint. The host test is 24/24, including the capture's files; it also caught a crash
+in the capture's status line before shipping.
+
+## 2026-09-28 (AFW review): an adversarial review of 145c03b5d, and the rebuild reworked
+
+An adversarial review of the two-source rebuild found six faults, each reproduced on the host:
+- The first near candidate won even when a nearer surface existed (a thin world bar in front of the hand
+  was replaced by the hand).
+- Fixed seed depths could miss thin near geometry entirely (a 2 cm object at 0.75 m vanished).
+- The freshness guard accepted a record from an earlier present, and a toggle did not drop the records.
+- Candidates were ranked by depths from two different cameras, with a 4% band favouring the held eye.
+- The per-pixel matrix inverse cost about 20%. The pass measured 3.05 ms on this machine's RTX 4070 Ti
+  SUPER.
+- The matrix checks could not see a mirrored axis or a flipped c5 when both records shared the fault.
+
+Also found: a weapon beyond the body threshold still ghosted; a missing held record refused the
+fresh-only route; `afw::shutdown` had no caller.
+
+Rework, in `core/gfx/afw_warp`:
+- **Seed maps.** Each source is carried into the held eye's view as a depth-tested mesh (grid step 2,
+  half resolution), so every texel knows its nearest surface. It is then refined per pixel, with an edge
+  rescue.
+- **One depth space.** Candidates are compared in the held eye's own view depth.
+- **Stale test.** A held point that the fresh eye sees through is dropped, whatever its distance.
+- **Disocclusions** extend the background, never the near object.
+- **Freshness.** The fresh record must carry this present's delivered serial; an epoch drops the records
+  on a toggle.
+- **Matrix inverse** is computed on the CPU.
+- **Two independent matrix checks.** A basis check against each image's camera rotator, and a camera
+  check (the c5 displacement less the XR head motion, bounded).
+- **Fresh-only route.** It no longer needs a held record.
+- **Teardown.** `afw::shutdown` now runs at the runtime's device teardown.
+
+Host test (`tools/afw-warp-host.ps1`): 23/23, including every review counterexample and a freshness
+test. The cost is measured at 2750x2850 on this machine: about 1.5 ms per rebuild, seed maps plus
+compose. Grid step 4 measured 1.0 ms but missed a one-pixel ring of the hand and is recorded, not used.
+
+## 2026-09-28 (AFW run 4): the held eye rebuilt from both eyes - host-verified, headset pending
+
+Run 4 on `v1.0.1-162-g71e98fcae` (reported): the hands still ghosted while stick turning, and the
+picture felt uneven although the frame rate stayed high. Measured in its log: for long stretches 60-70%
+of held-eye warps fell back to the rotation-only image (`not warped: no depth for its grab 240-287` of
+~400 per 3 s): the held image's depth was looked up in the 3-deep shared ring one present after its
+capture, and a slot still being read by D3D11 made the ring overwrite the one the next warp needed. Each
+fallback swaps to a differently posed image for one frame. Also measured: 113-126 presents/s on the
+144 Hz headset (`UNDER-SUBMITTING 0.78-0.87x`) and 155 frame gaps, some in xrEndFrame (30-90 ms).
+
+Research (PERFORMANCE.md, same date): PureDark's AFW (UEVR, RE Engine) rebuilds the held eye from the
+OTHER eye's current frame plus the eye's previous frame; Oculus Stereo Shading Reprojection reprojects one
+eye into the other with depth and fills the holes. A new ray-traced host test showed why run 4 still
+ghosted even when every warp ran: the held-eye-only rebuild cannot see behind the old hand, so a turn
+leaves a trailing copy (26% of the hand at 5 deg) - the first test's flat scene could not show it.
+
+Built (`core/gfx/afw_warp`): each eye's depth is copied at its own capture (R16F, per eye), so the warp
+never depends on the ring again; the held eye is rebuilt per pixel from BOTH images - the hands/weapon
+from the fresh eye (this instant; searched from two near seeds), the world from the held eye's own image,
+the uncovered world from the fresh eye, nearest consistent surface winning (z-buffer rule). The held eye's
+world moves by the game's own camera-relative view-projection matrices (the DLSS vector route), so walking
+is carried; two per-present checks against the XR pose model (far directions, and the eye offset at 0.5 m)
+refuse the matrices and fall back to the XR pose + body yaw model. GPU timestamp of the pass on the beat.
+Seam words: `afw stereo|matrices|debug on|off` (debug tints the held eye by source).
+Host test `tools/afw-warp-host.ps1`: 16/16 on the production shader - no hand ghost or loss in any motion
+case (turn 5 and 15 deg, hand moved 6 cm, head turn and shift, weapon at 0.2 m, walking), walking parallax
+p95 0.01 px against 6.2 px without matrices, a mirrored matrix refused; the controls reproduce the old
+faults (40% ghost with a moving hand, 26% trail on a turn).
+
+## 2026-09-28 (AFW run 3): the held-eye depth warp - host-verified, headset pending
+
+Run 3 on `v1.0.1-161-gca40321fc` (reported): stick turning corrected the world, but the hands and
+weapon left a ghost while turning, and head turns still moved them against the head before they
+settled. Both are near content in the held eye: the whole-image yaw rotation is right for the world
+and wrong for the hands (they turn WITH the body), and rotation-only reprojection cannot move a near
+object for the eye's own translation when the head moves or turns (it settles when the head stops).
+
+Built: `core/gfx/afw_warp` re-renders the held eye every present from its own image and depth, as seen
+from the FRESH eye's head pose. Per pixel it solves two hypotheses back into the source through depth
+(a short fixed-point search): world (head change plus the body yaw since the image) and body (head
+change only; nearer than 0.40 depth units, the hands and weapon), and the nearer consistent one wins.
+The warped eye is submitted with the fresh generation's pose, so both eyes claim one head pose. The
+depth ring runs while AFW does. Fallbacks: no held image or depth -> the rotation-only held eye with
+the body-yaw pose; an acquired swapchain image is always written. `afw warp on|off`, `afw body <units>`.
+GPU host test `tools/afw-warp-host.ps1` (the production shader, synthetic scene): 7 of 7 - identity,
+the world under a 5 deg turn (0.55 px worst), the sign, the hand staying, the NEGATIVE CONTROL (without
+the body test the hand moves: the ghost), hand parallax for a 2 cm head move (0.4907 vs 0.4900), the far
+wall still. Not carried yet: walking (the body's translation) - the held eye's world lags a tick of
+walking parallax, as before.
+
+## 2026-09-28 (AFW run 2): AFW reaches the headset rate; stick-turn and weapon findings
+
+Run 2 on `v1.0.1-160-g90136b7cf` (archived at build/playtest-candidates/vr-39-aer/run2-afw):
+`stereo: beat method=afw out/s=144 L/s=72 R/s=72` - every headset frame at 144 Hz, against about
+110 pairs/s under reentry. Reported: DLAA preset K without SSW at about 120 fps where it had been
+50-70. The exact eye pose held: `posesub` 0.000 deg difference, `exact-eye-pose` hits with no misses,
+and the hands normalised against the camera's own locate (`hv` gap +0).
+
+Two reported artifacts, both on the HELD eye (the other eye's previous image, which the compositor
+reprojects for head motion only):
+- Stick turning felt like zooming. The held image was rendered before the game added the last
+  tick's stick yaw, so its whole view is rotated by that yaw against the fresh eye: a horizontal
+  disparity shift across the scene, read as the world moving in depth. Fix built: the camera record
+  carries the body yaw (camera yaw minus the head's), and AFW submits the held eye rotated by the body
+  yaw between its image and the fresh one (`afw yaw on|off`, on under AFW). A pure turn about the eye is
+  corrected exactly at any depth. Headset pending.
+- Weapons drift opposite to head motion, subtly. Not a pose mismatch (the logs above). The eyes
+  TRANSLATE when the head moves or turns (they sit off the neck's axis), and rotation-only
+  reprojection cannot correct the held eye's parallax, largest on near objects. Not fixed. The route:
+  warp the held eye with its own depth into the current camera (the depth ring and camera
+  reconstruction built for TAA already exist), or submit a depth layer if the runtime offers
+  XR_KHR_composition_layer_depth (now logged at startup). The same warp would also carry walking.
+
+## 2026-09-28 (later): AER run 1 measured; AFW built; the per-eye pose fixed
+
+Headset run 1 on build `v1.0.1-159-g167065275` (log archived at build/playtest-candidates/
+vr-39-aer/run1). Same spot, reentry then AER:
+
+- Reentry: 106-116 pairs/s, one tick 8.6-9.7 ms, render thread idle 0.4-0.6 ms per present.
+- AER: 99-115 pairs/s (about 10% fewer), one tick 4.4-4.9 ms so a pair is 9-10 ms, render
+  thread idle 0.9-1.3 ms per present. The game thread is the limit under AER: each pair needs
+  two world ticks. Not an implementation fault; the GPU side has about 1 ms per present of slack
+  (resolution headroom under AER), the game thread has none.
+- The delta clamp stood itself down after two beats: with the bendtime lever, clamped right ticks
+  advanced the world as far as left ones (R/L 1.010 and 1.024; world/real 1.000). Bend Time's
+  GameInfo fields do not scale WorldInfo.DeltaSeconds. The timedilation lever was not tried.
+- Hands and weapons grew and shrank on fast head turns under AER (reported). Cause, from the
+  image-orientation log: each eye's ORIENTATION comes from its image's record, but its POSITION
+  from the numeric lag. Under reentry record gen = lag gen + 1 for both eyes (the same view data);
+  under AER the right eye read record 9970 against lag 9968: position one locate stale, an error
+  that flips sign with turn direction and reads as depth on near objects. Fix: `exact eye pose` -
+  an 8-deep history of located view sets, and AER/AFW submit each tagged image with the view pose
+  of the generation its head sample came from (orientation and position). Reentry is unchanged.
+
+AFW (`stereo afw`, F10 "Alternate frame warping"): the same one-eye-per-tick game side, but every
+present is its own XR frame - the fresh eye plus the other eye's last image at its rendered pose,
+reprojected by the compositor. It is the runtime's existing held-eye path (pair pacing off while
+AFW runs, restored after). One tick per headset frame instead of two, so on this PC's 4.4-4.9 ms
+ticks it can reach 144 Hz where reentry reached about 110; each eye refreshes at half the rate and
+moving objects are a tick apart between the eyes. The delta clamp never runs under AFW.
+
+## 2026-09-28: AlternateEye (VR-39) built with the delta clamp - host-verified, headset pending
+
+Branch `claude/vr-39-aer-stereo` off staging (1.0.2 plus the takedown-arms default). `stereo aer`
+is no longer a stub: F10 Advanced > Display > Stereo rendering chooses "Both eyes every frame"
+(reentry, unchanged default) or "Alternate eyes (AER)", and "Delta clamp" (default off) makes both
+eyes of a pair one instant. Port of BioShock Remastered VR's AER: game-thread eye alternation, one
+tag per draw through reentry's ring, two ticks per XR frame, one world advance per pair. The clamp
+scales the game's own time-dilation fields by name (Bend Time's transient GameInfo world/player
+dilation by default, WorldInfo.TimeDilation as the fallback), banks the right tick's time and pays
+it back on the left, and stands itself down if the engine does not honour the lever.
+`aer clamp on|off`, `aer lever bendtime|timedilation`. No new address or offset.
+
+Verified: Release build, lint, golden and default-profile byte identity, 16 clamp arithmetic
+checks including a negative control (tools/delta-clamp-host.ps1), occlusion owner 19, frame_test.
+The first host run of the clamp caught a real defect (predicting the left tick from the last tick
+overshot to the 4x cap under jitter); the predictor is now smoothed. Not verified: anything in the
+game. Headset questions in order: does AER hold fusion with no swim; pairs/s against reentry on
+the same spot; with the clamp, does the `aer/clamp: beat` line show clamped R/L well under 0.5
+and INTEREYE near 0, and is audio or physics disturbed. See PERFORMANCE.md and ENGINE_NOTES VR-39.
+
+Adversarial audit before commit, fixed: (1) switching away from AER restores the hooked call
+site on the game thread, and no stub runs after that, so a clamped value could stay in the field
+(a world stuck at 1% or doubled) - the restore path now releases the clamp first; (2) a quicksave
+mid-pair could store a clamped WorldInfo.TimeDilation (not transient, no SaveGame flags in the
+game) - the default lever moved to Bend Time's transient fields; (3) a field the game rewrites
+every tick read as a new base each tick and would have dropped every bank (the world at half
+speed) - the game's own value coming back now keeps the pair; (4) a script restoring a value the
+clamp wrote would have become the base - recognised and refused; (5) a UI edge on the same world
+forgot the clamp's last write; (6) a poisoned reentry would have left AER's alternation armed and
+c5 pairing off for the session; (7) the left-tick predictor overshot under jitter (host test).
+Open, unmeasured, named for the headset: audio pitch following the dilation per tick, PhysX
+under alternating 1%/double steps, the carried-object centre eye (VR-181) and the palette eye
+classifier (VR-95) under one eye per tick, TAA/DLSS history refreshing at half rate per eye, and
+the perf line's P1/P2 split (it assumes two presents per tick; under AER they are two ticks).
+
 ## Controller bind remapping (2026-09-27) - host-verified, PR open, not merged
 
 Branch `claude/controller-remap` (on staging after #144). Each game action can be moved to any

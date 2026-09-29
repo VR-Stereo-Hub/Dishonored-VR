@@ -9933,3 +9933,69 @@ Telemetry is cumulative: attempts count every pereye pass2; swapped counts succe
 installs; restored counts successful restores. Begin logs before the matching End, so
 restored may trail swaps by one. Refusals identify the guard. These counters establish
 scope coverage, not that downstream queries or reconstructed pixels are correct.
+
+## VR-39: AlternateEye and the delta clamp's levers (2026-09-28)
+
+No new address, IAT slot or offset: every field below is resolved by NAME at runtime
+(FindPropOffsetChecked) and every write validates its owner's identity (IsLiveObject against a
+live set rebuilt on a load/UI edge, GObjects slot, class and FName).
+
+- The decompiled class dump (local, not committed) declares `WorldInfo.TimeDilation`,
+  `DemoPlayTimeDilation`, `DeltaSeconds` and `RealtimeDeltaSeconds`; `GameInfo.SetGameSpeed`
+  writes `WorldInfo.TimeDilation` (the Slomo cheat's route). TimeDilation is NOT transient.
+- Engine `GameInfo` carries Arkane's `m_fCurrentWorldTimeDilation`, `m_fCurrentPlayerTimeDilation`,
+  `m_fCurrentPlayerTimeDilation_Input` and the `m_fPrevious*` pair, all `transient`.
+  `DishonoredGameInfo` adds the Bend Time channels (`m_BendTimeInfo[EBendTimeChannel]`, each with
+  current/target/velocity world, player and player-input dilation) and `DisTweaks_BendTime`
+  carries its warmup/cooldown times. The inference, not yet measured: Bend Time's native tick
+  blends the channels into the GameInfo `m_fCurrent*` fields, and the world tick scales the
+  world's and the player's time by them, which is how Corvo moves at speed while the world slows.
+- Dishonored's scripts declare no `SaveGame` property flag anywhere (zero matches across the
+  dump), so its saves do not select properties by that flag; whether `TimeDilation` is saved is
+  unknown. The clamp therefore defaults to the transient Bend Time fields.
+- Acceptance instrument: `WorldInfo.DeltaSeconds` read after each tick. UE3 clamps the dilated
+  delta to a small floor, so a frozen right tick is expected to read near that floor, not 0.
+  The `aer/clamp: beat` line prints both eyes' ranges; the clamp stands itself down when clamped
+  right ticks advance more than half as far as left ones, or world/real time leaves 0.6..1.5,
+  for two beats while every base reads 1.
+- Unmeasured risks to read first in the headset log: whether audio pitch follows either lever
+  per tick (a warble would say it does), and whether PhysX tolerates alternating 1% and double
+  steps (jittering ragdolls or carried bodies would say it does not).
+
+### VR-39 addendum: locate generations and the exact eye pose (2026-09-28)
+
+The head sample a camera write uses carries `locate_gen()` read after the locate, which is the
+located view set's label + 1 (the rotation assigns g_viewsGen before incrementing g_locateGen).
+The image-orientation log confirms it on reentry: `gen = legacyGen + 1` with 0.000 deg difference.
+`exact eye pose` keeps the last 8 located view sets by label and matches `label + 1 == record gen`.
+Bend Time's GameInfo `m_fCurrentWorldTimeDilation` / `m_fCurrentPlayerTimeDilation` writes did not
+move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta lever.
+
+### The foreground is drawn with the game camera's FOV, the world with the mod's projection (2026-09-28)
+
+**Evidence:**
+- Measured from two AFW captures (VR-39) by stereo block matching of the two native eyes against
+  their depth.
+- Arms and weapon pixels carry 0.903-0.935x the disparity their depth predicts; world surfaces carry
+  0.95-1.07x.
+- 0.911 = tan(103.2/2) / tan(108.07/2).
+
+**The two projections:**
+- The player mesh (`SDPG_Foreground`, arms and body in one component, see "There is no separate arms
+  mesh") and the held weapon are projected with the camera's FOV. That is the value the FOV lever writes
+  and the 0x53c sensor reads back (108.07 on the dev headset, headset-derived).
+- The world is projected with `[Screen] ProjectionFov` (103), which is also what the XR layer claims.
+
+**Consequences:**
+- In the headset the arms appear about 9% nearer the image centre than a world-consistent projection
+  would put them. Both eyes agree, so the stereo of the arms is self-consistent.
+- Anything that reprojects foreground pixels between views (the AFW rebuild) must use the camera's
+  tangents for them, not the claim's.
+- The depth in the scene target's alpha is linear view depth for both passes, as far as the
+  measurement can tell: the ratio is flat over 0.28-0.46 m.
+
+### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
+
+In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->
+52 -> 23.4 deg while `cine/fov` keeps the drawn scene at `[Screen] ProjectionFov` (103). The sensor only
+names the foreground's projection in plain gameplay, when it reads back the FOV lever's own write.

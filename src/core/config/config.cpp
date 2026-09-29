@@ -44,11 +44,13 @@ static bool WriteDefaultIni(const char* ini)
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
         "; occlusion culling (correct, but pays for every hidden draw). Live: `occlusion <mode>`.\n"
         "Occlusion=pereye\n"
-        "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
+        "; Method=mono|aer|afw|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
         "; shows the game on a head-locked screen in both eyes (the fallback, and what a\n"
-        "; refused method leaves running); aer is a design stub and refuses with a note.\n"
+        "; refused method leaves running); aer (VR-39, experimental A/B) draws ONE eye per\n"
+        "; tick, alternating left/right, and pairs two ticks into one headset frame; afw\n"
+        "; draws the same way but sends every tick as its own frame, the other eye warped.\n"
         "; `stereo <name>` switches live and fails soft. Armed=1|0: whether the selected method\n"
         "; RUNS (the F10 Display tickbox, `stereo arm on|off`); 0 parks the game on the mono\n"
         "; screen without forgetting the selection. C5Pair=1 (41.1, session 9): each present's\n"
@@ -59,6 +61,17 @@ static bool WriteDefaultIni(const char* ini)
         "Method=reentry\n"
         "Armed=1\n"
         "C5Pair=1\n"
+        "; DeltaClamp=0|1 (VR-39, aer only): 1 advances the world once per eye PAIR - the\n"
+        "; right-eye tick runs at 1%% time and the left-eye tick pays the rest back, through\n"
+        "; the Bend Time power's own dilation fields, so both eyes of a pair show one instant.\n"
+        "; 0 = every tick advances (the right eye is a tick later). Live: `aer clamp on|off`,\n"
+        "; F10 Advanced > Display > Stereo rendering. DeltaClampLever=bendtime|timedilation:\n"
+        "; bendtime scales Bend Time's world and player dilation (transient, never saved);\n"
+        "; timedilation scales WorldInfo.TimeDilation (the Slomo lever; NOT transient, a save\n"
+        "; may keep a clamped value - the fallback). A lever the engine does not honour\n"
+        "; stands itself down (`aer lever <name>` switches live).\n"
+        "DeltaClamp=0\n"
+        "DeltaClampLever=bendtime\n"
         "; HoldUntagged=N (41.1): a tick that fails the second draw gates presents\n"
         "; UNTAGGED, and an untagged present is the mono path - the same image in BOTH\n"
         "; eyes. The error scales with disparity, so it is invisible on distant geometry\n"
@@ -2849,6 +2862,7 @@ static void LoadConfig()
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
     OcclusionConfigure(ini);    // VR-79
+    DeltaClampConfigure(ini);   // VR-39
     SwordTrailConfigure(ini);   // VR-171
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn

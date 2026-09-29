@@ -120,6 +120,19 @@ static uint64_t       g_sdBeatMs = 0;
 static uint32_t       g_sdBeatDraws = 0, g_sdBeatSecond = 0, g_sdBeatPresents = 0;
 static uint8_t        g_sdSaved[7];
 static char           g_sdRefuse[160] = "";
+// VR-39: AlternateEye (`stereo aer`), ported from BioShock Remastered VR. The aer method arms
+// this same call site with g_sdAlternate set: a gameplay tick draws ONCE, and the eye alternates
+// left, right, left... owned HERE, on the game thread, by strict alternation (BRVR's producer
+// index). A left tick is pass 1 as it always was; a right tick is pass 2's setup with no pass 1
+// before it (the seam writes +1 on this thread, the tag rides the same ring, the right eye culls
+// with its own view state). The runtime pairs the two presents into one XR frame, so each
+// submitted pair is two consecutive ticks - the delta clamp (delta_clamp.cpp) makes them one
+// instant. A tick that fails the gates restarts the alternation on the left, so a pair can
+// never open on a right image.
+static volatile LONG  g_sdAlternate = 0;       // 0 off, 1 aer, 2 afw (present thread writes)
+static int            g_sdAerNext = -1;        // the eye the next stereo tick draws (game thread)
+static uint32_t       g_sdAerL = 0, g_sdAerR = 0, g_sdAerBroken = 0, g_sdAerRefused = 0;
+static uint32_t       g_sdBeatAerL = 0, g_sdBeatAerR = 0, g_sdBeatAerBroken = 0;
 
 // Byte-verify the root's prologue and the call site; false = a different exe
 // build, and the reason is the refusal the seam prints.
@@ -210,6 +223,13 @@ static void SceneDrawBeat()
         g_sdSumCall2Us / 1000.0 / n, g_sdCall2MaxUs / 1000.0, g_sdProgressInside, g_sdProgressGrace, g_sdSumOutsideUs / 1000.0 / n,
         g_sdCall1MaxUs >= 5000 ? " (call1 large: the game thread blocks INSIDE its own draw - render-command "
                                  "back-pressure)" : "");
+    if (InterlockedCompareExchange(&g_sdAlternate, 0, 0) || g_sdBeatAerL || g_sdBeatAerR)
+        Log("aer: beat L/s=%.0f R/s=%.0f pairs/s=%.0f broken=%u (a left tick whose right never came: the gates "
+            "closed mid-pair) | lifetime L=%u R=%u broken=%u right-eye writes refused=%u | one draw per tick, "
+            "2nd/s reads 0 by design; the stereo beat line's L/s and R/s must match these",
+            g_sdBeatAerL / s, g_sdBeatAerR / s, g_sdBeatAerR / s, g_sdBeatAerBroken, g_sdAerL, g_sdAerR, g_sdAerBroken,
+            g_sdAerRefused);
+    g_sdBeatAerL = g_sdBeatAerR = g_sdBeatAerBroken = 0;
     g_sdBeatMs = now;
     // 41.2: THE STAND-DOWN IS GONE, and the reason is worth keeping.
     //
@@ -446,6 +466,54 @@ static void SceneDrawMaybeSecond(void* self, int b, const SdDecision& d)
             wrote ? "into the camera field" : "NOT WRITTEN (no camera/field)", wrotePos[0], wrotePos[1], wrotePos[2]);
 }
 
+// VR-39: the RIGHT-eye tick under AER - pass 2's setup with no pass 1 before it. The tick's
+// dispatches wrote the left eye; the seam's writer re-bases the field onto +1 on this thread
+// (its per-thread fork keeps in-draw dispatches on +1), exactly as it does before pass 2, and the
+// draw that follows is the engine's own call, not a second one. The pair id is the left tick's,
+// so the pose records of the two ticks read as one pair.
+static void SceneDrawAerRightBegin()
+{
+    float wrotePos[3] = {0, 0, 0};
+    dvr::camera::set_second_pass(true);
+    const bool wrote = dvr::camera::apply_offsets(g_camObj) && dvr::camera::last_written_pos(wrotePos);
+    if (!wrote) {
+        ++g_sdP2WriteRefused; ++g_sdBeatP2Refused; ++g_sdAerRefused;
+        DVR_LOG_EVERY_MS(dvr::log::Cat::present, dvr::log::Level::Warn, 3000,
+                         "aer: the right-eye write was REFUSED by the camera seam (cam=%p, field %s) - this tick draws "
+                         "from the left eye's camera: the pair carries one view (counted on the aer beat line)",
+                         (void*)g_camObj, dvr::camera::eye_field());
+    }
+    CineHeadPublish();
+    CinePitchPublish();
+    MenuHeadPublish();
+    if (wrote) LensFollowEye(+1);   // VR-137: the lens effects from this eye's camera
+    const uint32_t acct = dvr::zacct::pin_for_tag(wrote ? wrotePos : NULL);
+    dvr::stereo::reentry_push_tag_draw(+1, wrote ? wrotePos : NULL,
+                                       SdOpenPoseRecord(+1, g_sdPairId, false, wrote ? wrotePos : NULL), acct, ++g_sdDrawAttempt);
+    g_sdEyeNow = +1;
+    dvr::vr::set_draw_stage("aerRight");
+    OcclusionPass2Begin();          // VR-79: the right eye culls with its own view state, as under reentry
+}
+static void SceneDrawAerRightEnd()
+{
+    OcclusionPass2End();
+    dvr::vr::set_draw_stage(NULL);
+    dvr::camera::set_second_pass(false);
+}
+
+// The aer method arms and disarms the alternation (present thread); the game thread reads it
+// once per tick. Off restarts the next arm on the left.
+static void SceneDrawSetAlternate(int mode)
+{
+    if (mode < 0 || mode > 2) mode = 0;
+    if (InterlockedExchange(&g_sdAlternate, mode) == mode) return;
+    Log("aer: alternation %s - %s", mode == 2 ? "ON (afw)" : mode ? "ON (aer)" : "off",
+        mode == 2 ? "one draw per gameplay tick, the eye alternating left/right; every present is its own XR frame "
+                    "with the other eye's last image reprojected (the delta clamp never runs under afw)"
+        : mode ? "one draw per gameplay tick, the eye alternating left/right; the runtime pairs two ticks into one XR frame"
+               : "two draws per tick again (reentry) or none (mono)");
+}
+
 // The stub the patched call site reaches: ecx = the viewport, one stack arg.
 static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPresent)
 {
@@ -453,6 +521,9 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
     const uint32_t callerRet = (uint32_t)(uintptr_t)_ReturnAddress();
     const LONG depth = InterlockedIncrement(&g_sdDepth) - 1;
     LARGE_INTEGER t0 = {}, t1 = {};
+    // VR-39: read once per tick; the eye this tick draws under AER (0 = not an AER stereo tick).
+    const bool alt = depth == 0 && InterlockedCompareExchange(&g_sdAlternate, 0, 0) != 0;
+    int aerEye = 0;
     if (depth == 0) {
         // Route 2: the heavy script-lane writers run at most every PeHeavyMs during the tick, so
         // they run HERE once more, after the tick's last script event and before pass 1 reads
@@ -482,17 +553,20 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
             !UiSurfaceOwnsPresentation() && dvr::vr::session_live() && !g_gameExiting,
             UiSurfaceContext(),UiSurfaceEpoch(),(uint32_t)g_mkLoadEvents);
         g_sdTick = SceneDrawDecide(callerRet);
+        if (alt && g_sdTick.doubleIt) aerEye = g_sdAerNext;
         MenuHeadBegin(g_sdTick.gameplay,g_sdTick.doubleIt);
         CineHeadBegin(g_sdTick.gameplay, g_sdTick.doubleIt);
         CinePitchBegin(g_sdTick.gameplay,g_sdTick.doubleIt);
         CineFovBegin(g_sdTick.gameplay);
-        if (g_sdTick.gameplay) LensFollowEye(g_sdTick.doubleIt ? -1 : 0);   // VR-137: after this tick's camera writes
+        if (g_sdTick.gameplay && aerEye <= 0) LensFollowEye(g_sdTick.doubleIt ? -1 : 0);   // VR-137: after this tick's camera writes (an AER right tick follows +1 after its own write)
         if (callerRet == kViewportDrawGameplayRet) SceneDrawDecisionLog(g_sdTick);
         g_sdEyeNow = g_sdTick.doubleIt ? -1 : 0;   // pass 1 is the LEFT eye
         InterlockedExchange(&g_sdInDrawTid,
                             g_sdTick.doubleIt ? (LONG)GetCurrentThreadId() : 0);
         InterlockedExchange(&g_sdDoublingNow, g_sdTick.doubleIt ? 1 : 0);
-        if (g_sdTick.doubleIt) {
+        if (g_sdTick.doubleIt && aerEye > 0) {
+            SceneDrawAerRightBegin();   // VR-39: the right-eye tick, on the left tick's pair id
+        } else if (g_sdTick.doubleIt) {
             float pos[3];
             const bool posOk = dvr::camera::last_written_pos(pos);
             g_sdPairId = dvr::pose::next_pair();   // both passes of this tick share it
@@ -521,7 +595,21 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
         if (g_sdCall1Us > g_sdCall1MaxUs) g_sdCall1MaxUs = g_sdCall1Us;
         g_sdSumCall1Us += g_sdCall1Us;
         const uint32_t call2Before = g_sdSecondDraws;
-        SceneDrawMaybeSecond(self, bShouldPresent, g_sdTick);
+        if (aerEye > 0) SceneDrawAerRightEnd();
+        if (!alt) SceneDrawMaybeSecond(self, bShouldPresent, g_sdTick);   // AER never draws twice
+        if (alt) {
+            g_sdEyeNow = 0;   // no draw owns an eye between ticks
+            if (aerEye < 0) { ++g_sdAerL; ++g_sdBeatAerL; }
+            else if (aerEye > 0) { ++g_sdAerR; ++g_sdBeatAerR; }
+            if (g_sdTick.doubleIt) g_sdAerNext = -aerEye;
+            else {
+                // A left tick whose right never came: restart on the left so no pair opens on a right image.
+                if (g_sdAerNext > 0 && g_sdTick.gameplay) { ++g_sdAerBroken; ++g_sdBeatAerBroken; }
+                g_sdAerNext = -1;
+            }
+        } else {
+            g_sdAerNext = -1;
+        }
         CineFovEnd();
         CinePitchEnd();
         CineHeadEnd();
@@ -537,6 +625,12 @@ static void __fastcall DvrViewportDrawStub(void* self, void* edx, int bShouldPre
            g_sdMenuScene.load==(uint32_t)g_mkLoadEvents)
             g_sdMenuScene.complete(g_sdDrawEntryC5,g_sdLastDrawC5Serial,MaimNowMs());
         SceneDrawBeat();
+        // VR-39: the delta clamp sets the NEXT tick's world time from the eye it will draw
+        // (and measures the one that just ran); off or outside AER it only hands the game's
+        // own time dilation back.
+        // Under afw every tick is shown on its own: freezing right ticks would halve the motion rate.
+        const bool clampMode = alt && InterlockedCompareExchange(&g_sdAlternate, 0, 0) == 1;
+        DeltaClampAfterDraw(clampMode ? aerEye : 0, clampMode ? g_sdAerNext : 0, g_camObj);
     }
     if (depth == 0) InterlockedExchange(&g_sdInDrawTid, 0);
     InterlockedDecrement(&g_sdDepth);
@@ -567,6 +661,10 @@ static void SceneDrawApply()
             "(bytes verified; doubling %s)", (unsigned)kViewportDrawCallSite, (unsigned)kViewportDraw,
             g_sdArmed ? "ARMED" : "OFF until stereo reentry arms");
     } else {
+        // VR-39: the stub is the only place the delta clamp gets to hand the game's time back.
+        // Once the site is original no stub runs again, so a clamped value (a frozen or a
+        // doubled tick) must go back HERE, on this (the game) thread, before the restore.
+        DeltaClampRelease("the scene-draw hook was removed");
         DWORD op;
         if (!VirtualProtect(site, 7, PAGE_EXECUTE_READWRITE, &op)) { Log("reentry: VirtualProtect failed restoring the call site"); return; }
         memcpy(site, g_sdSaved, 7);
@@ -787,6 +885,13 @@ static void SceneDrawStatus(dvr::status::Writer& w)
     w.kv("rearms", (unsigned long)g_sdRearms);
 
     w.kv("lastExc", (unsigned long)g_sdLastExcCode);
+    // VR-39: AlternateEye
+    w.kv("aer", (bool)(g_sdAlternate != 0));
+    w.kv("aerLeft", (unsigned long)g_sdAerL);
+    w.kv("aerRight", (unsigned long)g_sdAerR);
+    w.kv("aerBroken", (unsigned long)g_sdAerBroken);
+    w.kv("aerRightRefused", (unsigned long)g_sdAerRefused);
+    DeltaClampStatus(w);
 }
 
 static bool SceneDrawCommand(const char* args)

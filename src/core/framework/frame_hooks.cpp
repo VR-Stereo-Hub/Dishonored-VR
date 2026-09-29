@@ -304,7 +304,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     const bool desktopXrReady = out.tex && deliveredCapture && deliveredCapture != priorCapture &&
         dvr::vr::session_live();
     const bool desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
-        !strcmp(dvr::stereo::active_name(), "reentry");
+        dvr::stereo::reentry_family_active();   // VR-39: aer tags every present too
     dvr::etw::begin(dvr::etw::kDeskPresent);
     const HRESULT hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
         desktopStereoReady, desktopXrReady, dvr::vr::session_running());

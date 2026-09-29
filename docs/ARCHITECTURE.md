@@ -1363,3 +1363,55 @@ unknown readiness omits the overlay with a diagnostic, never reuses stale pixels
 Pure D3D9 device state is restored from original setters and shadows; no engine
 D3D object is retained with AddRef in a draw detour. No engine-memory writer.
 The new lever defaults off, and without reduced upscaling draws remain native.
+
+- **2026-09-28 - AlternateEye built on reentry's present side, not as a separate pipeline (VR-39).**
+  The runtime layer carries BioShock's own AER path (`g_aerEnabled`, one fresh eye per submit), but
+  Dishonored's proven stereo is the tagged SR path: an eye tag per present from the game side's
+  ring, the pair held open across two presents, each eye submitted with its own rendered pose.
+  AER reuses all of it. The game side draws once per tick and alternates the eye by strict
+  alternation on the game thread (BRVR's producer index); a right tick is pass 2's setup with no
+  pass 1 before it, so the right eye keeps its own occlusion view state (VR-79) and the pass-2
+  thread latch for in-draw writes. The runtime pairs two consecutive ticks into one XR frame
+  (BRVR's XR_SubmitPair). c5 arbitration and the late- and single-tag repairs are held off while
+  AER runs: all three encode reentry's within-tick invariant, which two ticks do not satisfy; the
+  ring's order is the claim, as BRVR's FIFO is. BRVR's per-pair head latch is not ported because
+  the runtime already submits each eye with its own rendered pose.
+  The delta clamp (BRVR's one world advance per pair) uses the game's own time-dilation fields,
+  resolved by name, instead of a hook: Bend Time's transient GameInfo world/player dilation by
+  default, WorldInfo.TimeDilation as a fallback. The fallback is not transient and Dishonored's
+  scripts declare no SaveGame flags, so a save taken mid-pair may keep a clamped value; that is
+  why the transient pair is the default. A lever the engine does not honour (measured on
+  WorldInfo.DeltaSeconds) stands itself down. Both levers default off.
+
+- **2026-09-28 - AFW is the runtime's held-eye path, and every alternate-eye image carries its own
+  generation's pose (VR-39).** AFW needed no new compositor code: with pair pacing off, each tagged
+  present already submits a stereo frame from both eyes' last released images with their stored
+  poses. The fault was the stored pose: the numeric lag suits reentry (both eyes from one head
+  sample) but not two ticks, so AER/AFW now submit the exact located generation of each image's
+  head sample, from a short history. Reentry keeps the lag it was tuned with.
+
+- **2026-09-28 - AFW's held eye is re-rendered by a depth warp with a body/world split (VR-39).** The
+  compositor's reprojection is rotation-only and knows nothing of the game's own yaw; a whole-image
+  pose correction fixes the world and ghosts the hands. The held eye is therefore re-rendered each
+  present from its image and the shared depth: world pixels follow head change plus body yaw, pixels
+  nearer than a body threshold follow head change only. It reuses the depth ring and the depth-scale
+  calibration built for TAA; the runtime only acquires the held image, calls the warp, and falls back
+  to the rotation-only path when there is nothing to warp.
+
+- **2026-09-28 - AFW rebuilds the held eye from BOTH images, nearest surface wins (VR-39).** A held-eye-only
+  depth warp cannot see behind content that moved (the hands, and anything a turn uncovers behind them),
+  so it leaves a trail; the other eye's current image has that content at this instant. The hands come
+  from the fresh eye, the world from the held eye's own image (its own viewpoint and shading), the
+  uncovered world from the fresh eye, each found by a fixed-point search from more than one seed depth
+  with the nearest consistent answer kept. The world moves by the game's own view-projection matrices
+  (walking included), gated each present by two checks against the XR pose model. Prior art: PureDark's
+  AFW (alternate eye plus previous frame), Oculus Stereo Shading Reprojection. Each eye's depth is copied
+  at its own capture: the shared ring is a transport, not storage.
+
+- **2026-09-28 - AFW seeds each per-pixel search from a depth-tested mesh of the source (VR-39).**
+  A fixed-point search settles on whichever surface its seed leads to, so fixed seed depths miss thin or
+  near geometry and cannot rank occluders. Each source is first carried into the held eye's view as a
+  grid mesh with a depth buffer (the z-buffer names the nearest surface at every texel). The search then
+  only refines it, and both sources are ranked in the held eye's own depth. The fresh eye decides
+  staleness: a held point it sees through has moved. Grid step 2 at half resolution is the measured
+  trade-off (about 1.5 ms at 2750x2850 on an RTX 4070 Ti SUPER; step 4 misses a one-pixel edge ring).

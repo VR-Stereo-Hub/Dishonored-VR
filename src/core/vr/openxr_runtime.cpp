@@ -23,6 +23,7 @@
 #include "core/gfx/capture.h"    // VR-65: the record that rode the delivered texture
 #include "core/vr/pose_record.h"
 #include "core/vr/image_orientation.h"
+#include "core/gfx/afw_warp.h"   // VR-39: the AFW held-eye warp
 #include "core/framework/perf.h"
 
 // The runtime layer logs under the openxr category at Info; every per-frame
@@ -422,6 +423,29 @@ bool g_eyeValid[2] = {false, false};     // eye slot holds a released image + po
 // apply_eye_offset baked into the render.
 std::atomic<bool> g_eyeTagRendered{false};
 std::atomic<bool> g_imageOrientation{false}; // VR-116, default-off A/B
+// 41.x (Dishonored, VR-39): the EXACT eye pose. Under AlternateEye / AFW the two eyes are
+// rendered on different ticks, so the numeric lag that suits reentry lands the right eye one
+// locate stale in POSITION (measured: record gen 9970 against lag gen 9968 on right-eye
+// images, where reentry reads gen = lag + 1 for both eyes). With this on, a tagged image whose
+// record names its locate generation is submitted with THAT generation's view pose, orientation
+// and position, from a short history. Off (default) = the shipped lag + image-orientation path.
+std::atomic<bool> g_exactEyePose{false};
+struct ViewGen { uint32_t label = 0; bool valid = false; XrView v[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}}; };
+constexpr int kViewHist = 8;
+ViewGen g_viewHist[kViewHist];
+uint32_t g_viewHistAt = 0;
+std::atomic<uint32_t> g_exactHit{0}, g_exactMiss{0}, g_exactNoRec{0};
+// VR-39 (AFW): the held eye's stick/snap yaw. The compositor reprojects a held image for HEAD
+// motion only; yaw the GAME added since it was rendered (a stick or snap turn) leaves that eye's
+// whole view rotated against the fresh one - a disparity shift the eyes read as the world moving in
+// depth. With this on (AFW turns it on, `afw yaw on|off`), the held eye is submitted rotated by the
+// body yaw between its image and the fresh one. Rotation about the eye is depth-independent, so
+// this is exact for a pure turn.
+std::atomic<bool> g_heldBodyYaw{false};
+float g_eyeBodyYaw[2] = {};
+bool  g_eyeBodyOk[2] = {};
+std::atomic<uint32_t> g_heldYawApplied{0}, g_heldYawSkipped{0};
+float g_heldYawAbsSum = 0, g_heldYawMax = 0;
 std::atomic<float> g_eyeTagIpdMm{63.0f};
 
 // Rebuild one eye's layer tag as the PARALLEL camera the game rendered:
@@ -2026,6 +2050,7 @@ void mirror_present(int eyeSign) {
 
 void reset_aer() {
     g_eyeValid[0] = g_eyeValid[1] = false;
+    g_eyeBodyOk[0] = g_eyeBodyOk[1] = false;   // VR-39: a held body heading dies with its image
     g_eyeContentSerial[0] = g_eyeContentSerial[1] = 0;
 #ifdef DVR_FLICKER_DIAGNOSTICS
     g_flickerRelease[0]=FlickerRelease{};g_flickerRelease[1]=FlickerRelease{};
@@ -2171,6 +2196,7 @@ void teardown_session(const char* why) {
     if (g_space != XR_NULL_HANDLE) { xrDestroySpace(g_space); g_space = XR_NULL_HANDLE; }
     if (g_session != XR_NULL_HANDLE) { xrDestroySession(g_session); g_session = XR_NULL_HANDLE; }
     dvr::bridge_profile::reset();
+    dvr::afw::shutdown();   // VR-39: its D3D11 objects belong to this device
     if (g_context) { g_context->Release(); g_context = nullptr; }
     if (g_device) { g_device->Release(); g_device = nullptr; }
     g_sessionBegun = false;
@@ -2686,6 +2712,13 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
         // 41.1 (Dishonored): the runtime's clock, for the pair phase instrument.
         if (strcmp(e.extensionName, XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME) == 0)
             hasQpcTime = true;
+    }
+    {   // VR-39: can this runtime take a depth layer (positional reprojection of AFW's held eye)?
+        bool hasDepthLayer = false;
+        for (const auto& e : exts)
+            if (strcmp(e.extensionName, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME) == 0) hasDepthLayer = true;
+        XRLOG("xr: [%s] %s %s (not enabled by this build; recorded for AFW's positional reprojection plan)",
+              label, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME, hasDepthLayer ? "OFFERED" : "not offered");
     }
     if (!hasD3D11) {
         XRLOG("xr: [%s] runtime lacks XR_KHR_D3D11_enable", label);
@@ -3267,6 +3300,11 @@ void on_present_begin() {
     g_viewsValid =
         XR_SUCCEEDED(xrLocateViews(g_session, &vli, &vs, 2, &viewCount, g_views)) &&
         viewCount == 2 && (vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT);
+    {   // VR-39: the exact-pose history. This set is labelled g_viewsGen; a head sample read
+        // after this locate carries locate_gen() == label + 1 (the lag audit's gen = lag + 1).
+        ViewGen& h = g_viewHist[g_viewHistAt++ % kViewHist];
+        h.label = g_viewsGen; h.valid = g_viewsValid; h.v[0] = g_views[0]; h.v[1] = g_views[1];
+    }
     // VR-146: compare independent head/eye locates before changing images.
     // Bounded to six minutes, one sample per three seconds, native SteamVR only.
     if (strncmp(g_runtimeName, "SteamVR/OpenXR", 14) == 0) {
@@ -4551,6 +4589,61 @@ void on_present_end(ID3D11Texture2D* frame) {
                                   appliedCount[srEye],refusedCount[srEye],lagUsed);
                         }
                     }
+                    if (g_exactEyePose.load(std::memory_order_relaxed)) {
+                        // VR-39: the view set this image's head sample came from, whole pose.
+                        dvr::pose::Record rec={};
+                        const int eye=srEye==0?-1:1;
+                        const bool copied=dvr::pose::copy(dvr::capture::delivered_rec(),&rec) &&
+                                          rec.eye==eye && rec.track.ok && rec.track.gen;
+                        bool hit=false;
+                        if (copied) {
+                            for (const ViewGen& h : g_viewHist) {
+                                if (h.valid && h.label + 1 == rec.track.gen) {
+                                    g_eyePose[srEye] = h.v[srEye].pose;
+                                    g_eyeBodyOk[srEye] = rec.cam.bodyOk;
+                                    g_eyeBodyYaw[srEye] = rec.cam.bodyYawDeg;
+                                    if (dvr::afw::enabled()) {   // VR-39: keep this image for next present's warp
+                                        const XrPosef& ep = g_eyePose[srEye];
+                                        const dvr::afw::Pose pose = {{ep.orientation.x, ep.orientation.y, ep.orientation.z, ep.orientation.w},
+                                                                     {ep.position.x, ep.position.y, ep.position.z}};
+                                        dvr::afw::Pose tg[2];
+                                        for (int e = 0; e < 2; ++e) {
+                                            const XrPosef& vp = h.v[e].pose;
+                                            tg[e] = {{vp.orientation.x, vp.orientation.y, vp.orientation.z, vp.orientation.w},
+                                                     {vp.position.x, vp.position.y, vp.position.z}};
+                                        }
+                                        const bool vpOk = rec.renderVpOk && rec.renderPosOk;
+                                        const float rotator[3] = {rec.cam.pitchDeg, rec.cam.yawDeg, rec.cam.rollDeg};
+                                        dvr::afw::CaptureMeta cm;
+                                        cm.recId = rec.id; cm.writer = rec.cam.writer; cm.writeMs = rec.cam.writeMs;
+                                        cm.captureMs = MaimNowMs();   // the camera write clock (dvr::clock), so the two subtract
+                                        cm.jitter[0] = rec.jitter[0]; cm.jitter[1] = rec.jitter[1]; cm.jitterDraws = rec.jitterDraws;
+                                        dvr::afw::note_capture(g_device, g_context, srEye, backbuffer,
+                                                               dvr::capture::delivered_serial(), pose,
+                                                               rec.cam.bodyOk, rec.cam.bodyYawDeg, tg,
+                                                               vpOk ? rec.renderVp : nullptr,
+                                                               vpOk ? rec.renderPos : nullptr,
+                                                               rec.cam.ok ? rotator : nullptr, &cm);
+                                    }
+                                    g_eyePoseGen[srEye] = rec.track.gen;
+                                    g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag
+                                    hit=true;
+                                    break;
+                                }
+                            }
+                        }
+                        (copied ? (hit ? g_exactHit : g_exactMiss) : g_exactNoRec).fetch_add(1, std::memory_order_relaxed);
+                        static uint64_t nextExactLog=0;
+                        const auto nowExact=GetTickCount64();
+                        if (nowExact>=nextExactLog) {
+                            nextExactLog=nowExact+3000;
+                            XRLOG("xr: exact-eye-pose eye=%d rec gen=%u lag gen=%u -> %s | hits %u misses %u (the "
+                                  "generation left the %d-deep history: the lag pose stands) no-record %u",
+                                  eye, copied?rec.track.gen:0u, genId, hit?"the rendered generation's view pose":
+                                  copied?"MISS, lag pose kept":"no record, lag pose kept",
+                                  g_exactHit.load(), g_exactMiss.load(), kViewHist, g_exactNoRec.load());
+                        }
+                    }
                     g_eyeValid[srEye] = true;
                     g_pmCap[srEye].fetch_add(1, std::memory_order_relaxed);
                     g_pmLastCapMs[srEye].store(GetTickCount64(),
@@ -4696,6 +4789,80 @@ void on_present_end(ID3D11Texture2D* frame) {
                             projViews[eye].subImage = sub;
                         }
                         projViews[eye].fov = {-halfH, halfH, halfV, -halfV};
+                    }
+                    // VR-39 (AFW): re-render the HELD eye from its own image and depth at the fresh eye's
+                    // head pose (core/gfx/afw_warp.h). The image is acquired only when there is a held image,
+                    // and an acquired image is always written: warped, or the held image copied as it is.
+                    bool heldWarped = false;
+                    if (stereo && srFrame && dvr::afw::enabled() &&
+                        !g_srPairPacing.load(std::memory_order_relaxed)) {
+                        const int fresh = srSign < 0 ? 0 : 1, held = 1 - fresh;
+                        if (dvr::afw::has_held(held)) {
+                            uint32_t hIdx = 0;
+                            XrSwapchainImageAcquireInfo hai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+                            if (XR_SUCCEEDED(xrAcquireSwapchainImage(g_swapchains[held], &hai, &hIdx))) {
+                                XrSwapchainImageWaitInfo hwi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                                hwi.timeout = XR_INFINITE_DURATION;
+                                if (XR_SUCCEEDED(xrWaitSwapchainImage(g_swapchains[held], &hwi))) {
+                                    ID3D11Texture2D* hdst = g_images[held][hIdx].texture;
+                                    dvr::afw::Pose tp{};
+                                    const char* why = nullptr;
+                                    heldWarped = dvr::afw::warp_held(g_device, g_context, held, fresh,
+                                                                     dvr::capture::delivered_serial(), hdst, g_swapW,
+                                                                     g_swapH, tanClaimH, tanClaimV, &tp, &why);
+                                    if (heldWarped) {
+                                        projViews[held].pose.orientation = {tp.q[0], tp.q[1], tp.q[2], tp.q[3]};
+                                        projViews[held].pose.position = {tp.p[0], tp.p[1], tp.p[2]};
+                                    } else if (!dvr::afw::copy_held(g_context, held, hdst)) {
+                                        XRLOG("xr: afw held eye - warp refused (%s) and the plain copy failed too; the "
+                                              "released image may be stale", why ? why : "?");
+                                    }
+                                }
+                                XrSwapchainImageReleaseInfo hri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                                xrReleaseSwapchainImage(g_swapchains[held], &hri);
+                            }
+                        }
+                    }
+                    // VR-39 (AFW): rotate the HELD eye by the body yaw since its image (see the state). The
+                    // fallback when the warp did not run.
+                    if (!heldWarped && stereo && srFrame && g_heldBodyYaw.load(std::memory_order_relaxed) &&
+                        !g_srPairPacing.load(std::memory_order_relaxed)) {
+                        const int fresh = srSign < 0 ? 0 : 1, held = 1 - fresh;
+                        if (g_eyeBodyOk[fresh] && g_eyeBodyOk[held]) {
+                            float d = g_eyeBodyYaw[fresh] - g_eyeBodyYaw[held];
+                            while (d > 180.0f) d -= 360.0f;
+                            while (d < -180.0f) d += 360.0f;
+                            // UE yaw is turn-right positive; an XR rotation about +Y is turn-LEFT
+                            // positive. Content the body has turned away from lies to the LEFT of the
+                            // fresh view, so the held image is shown rotated left by d: Ry(+d).
+                            const float h = d * 0.5f / 57.29578f, sy = sinf(h), cy = cosf(h);
+                            XrPosef& pz = projViews[held].pose;
+                            const XrQuaternionf q = pz.orientation;
+                            pz.orientation = {cy * q.x + sy * q.z, cy * q.y + sy * q.w,
+                                              cy * q.z - sy * q.x, cy * q.w - sy * q.y};
+                            const XrVector3f c = projViews[fresh].pose.position;
+                            const float dx = pz.position.x - c.x, dz = pz.position.z - c.z;
+                            const float cs = cosf(2 * h), sn = sinf(2 * h);
+                            pz.position.x = c.x + cs * dx + sn * dz;
+                            pz.position.z = c.z - sn * dx + cs * dz;
+                            g_heldYawApplied.fetch_add(1, std::memory_order_relaxed);
+                            g_heldYawAbsSum += fabsf(d);
+                            if (fabsf(d) > g_heldYawMax) g_heldYawMax = fabsf(d);
+                        } else {
+                            g_heldYawSkipped.fetch_add(1, std::memory_order_relaxed);
+                        }
+                        static uint64_t nextYawLog = 0;
+                        const uint64_t nowYaw = GetTickCount64();
+                        if (nowYaw >= nextYawLog) {
+                            nextYawLog = nowYaw + 3000;
+                            const uint32_t n = g_heldYawApplied.load();
+                            XRLOG("xr: afw held-eye yaw - %u submits rotated (mean |d| %.3f deg, max %.3f: the stick/snap "
+                                  "yaw between the held image and the fresh one; near 0 while only the head turns), "
+                                  "%u skipped (a record without a body heading: an authored camera)",
+                                  n, n ? g_heldYawAbsSum / n : 0.0f, g_heldYawMax, g_heldYawSkipped.load());
+                            g_heldYawApplied.store(0); g_heldYawSkipped.store(0);
+                            g_heldYawAbsSum = 0; g_heldYawMax = 0;
+                        }
                     }
                     // s51: bank the edge-telemetry snapshot (armed only; the
                     // game-thread sampler copies it out - see the header).
@@ -5832,6 +5999,7 @@ void arm_view_log(int frames) {
 void set_sr_pair_pacing(bool on) {
     g_srPairPacing.store(on, std::memory_order_relaxed);
 }
+bool sr_pair_pacing() { return g_srPairPacing.load(std::memory_order_relaxed); }
 
 void set_pair_strict(bool on) {
     const bool was = g_pairStrict.exchange(on, std::memory_order_relaxed);
@@ -5902,6 +6070,17 @@ void set_image_orientation(bool on) {
     XRLOG("xr: image-linked orientation %s; invalid/missing eye records retain numeric lag",on?"ON":"off");
 }
 bool image_orientation_enabled() { return g_imageOrientation.load(std::memory_order_relaxed); }
+void set_held_body_yaw(bool on) {
+    if (g_heldBodyYaw.exchange(on, std::memory_order_relaxed) == on) return;
+    XRLOG("xr: afw held-eye yaw correction %s (VR-39)", on ? "ON" : "off");
+}
+bool held_body_yaw() { return g_heldBodyYaw.load(std::memory_order_relaxed); }
+void set_exact_eye_pose(bool on) {
+    if (g_exactEyePose.exchange(on, std::memory_order_relaxed) == on) return;
+    XRLOG("xr: exact eye pose %s (VR-39) - %s", on ? "ON" : "off",
+          on ? "each tagged image is submitted with the view pose of the locate generation its head sample came from"
+             : "the numeric pose lag and image orientation (the reentry path)");
+}
 
 
 float get_pose_gen_delta_deg() {
@@ -6847,6 +7026,7 @@ void set_edge_snapshot(bool) {}
 bool get_edge_snapshot(EdgeViewSnapshot&) { return false; }
 void set_enabled(bool) {}
 void set_sr_pair_pacing(bool) {}
+bool sr_pair_pacing() { return true; }
 void set_pair_strict(bool) {}
 bool pair_strict() { return false; }
 void handle_pace_command(const char*) {}
@@ -6860,6 +7040,9 @@ void set_spike_trace(bool) {}
 void set_pose_lag(int) {}
 int get_pose_lag() { return 1; }
 void set_image_orientation(bool) {}
+void set_exact_eye_pose(bool) {}
+void set_held_body_yaw(bool) {}
+bool held_body_yaw() { return false; }
 bool image_orientation_enabled() { return false; }
 void set_pace_ahead(int) {}
 int pace_ahead() { return 0; }

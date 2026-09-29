@@ -3466,3 +3466,93 @@ entry points).
   FSR 4 (AMD restricts it to RDNA 4), so FSR 4 itself is untested here: an RX 9000 rig should log
   `[ffx] offers 1: 4.1.1` and `using 4.1.1` in `<data>\dlss\dlss_host.log`. Costs unchanged (native AA
   1.86 ms, Quality 1.20, Performance 0.96 per eye at 2750x2850).
+
+## 2026-09-28: AlternateEye (VR-39) - an A/B, not yet measured
+
+Built, host-verified, not yet run. `stereo aer` (F10 Advanced > Display > Stereo rendering)
+draws ONE scene per game tick, alternating the eye, and pairs two ticks into one XR frame. The
+prediction to test against reentry on the same save, spot and settings:
+
+- Reentry: per displayed pair, one game tick and two scene renders. The headset traces measured
+  the GPU about 97 % occupied under reentry (the uncap deep dive above), so if the GPU is the
+  limit, AER renders the same two scenes per pair and should NOT raise pairs/s.
+- AER without the clamp: per pair, two game ticks and two scene renders, with the engine's
+  game-thread, render-thread and GPU stages overlapping as designed. If serialisation between
+  those stages is the limit (the BioShock result: BRVR's AER ran 10-20 fps above the trilogy's
+  re-entry on the same PC), pairs/s rises.
+- AER with the clamp: the same work as without, plus the dilation writes (negligible).
+- Falsifier: `stereo: beat` out/s and the `aer: beat` pairs/s at the same spot, reentry then aer
+  then reentry again. A gain that does not return when reentry returns is not real.
+- Read with it: `aer/clamp: beat` INTEREYE (the world's slide between the eyes of a pair),
+  ghosting on walking NPCs with the clamp off and on, and judder (each eye refreshes at half the
+  tick rate).
+
+## 2026-09-28: AER measured (run 1) and AFW built
+
+- Reentry 106-116 pairs/s against AER 99-115 at the same spot, 144 Hz, 2688x2880. AER's pair costs
+  two world ticks (4.4-4.9 ms each); the render thread's idle per present rose from 0.4-0.6 to
+  0.9-1.3 ms. The game thread is the limit under AER; the GPU side has about 1 ms per present of
+  slack, so a higher resolution under AER costs little until that slack is spent.
+- AFW sends every tick as its own XR frame (fresh eye plus the other eye's last image, reprojected by
+  the compositor). Prediction: displayed frames per second rise toward the tick rate (about
+  200/s available on this PC, capped at 144 by the headset) because one tick, not two, makes a
+  frame; GPU work per displayed frame halves. Falsifier: `stereo: beat` out/s and the pair/frame
+  rate at the same spot, reentry then afw then reentry.
+
+## 2026-09-28: AFW headset run 2 - the headset rate reached
+
+`stereo: beat method=afw out/s=144 L/s=72 R/s=72` at 144 Hz (reentry about 110 pairs/s at the same
+settings). Reported: DLAA preset K without SSW at about 120 fps against 50-70 before. The
+prediction held: one game tick and one scene render per headset frame. Each eye refreshes at half
+the display rate; moving objects are a tick apart between the eyes; the held eye's parallax is not
+corrected yet (FLICKER_REFERENCE, 2026-09-28 AFW entry).
+
+## 2026-09-28: AFW run 4 - pacing and fallbacks measured, prior art, the two-source rebuild
+
+Run 4 (`v1.0.1-162-g71e98fcae`, 144 Hz, VirtualDesktopXR, 2750x2850): `stereo: beat method=afw` 113-143
+presents/s; `stereo: rate ... UNDER-SUBMITTING 0.78-0.87x` in the heavier stretches (display slots going
+unfilled, not a throttled surplus); 155 `perf: frame gap` lines over the session, most waiting for the game
+thread, some inside xrEndFrame (30-90 ms, `present-tail`). The held-eye warp itself fell back for 60-70% of
+presents in long stretches (the depth ring, FLICKER_REFERENCE same date): each fallback is a one-frame swap
+to a differently posed image, which reads as unevenness at any frame rate. `perf/depth: D3D9 copy mean
+0.311 ms, peak 8.380 ms` for the shared depth.
+
+Prior art read (online):
+- PureDark's AFW (UEVR fork and RE Engine builds): renders one eye per frame and rebuilds the other from the
+  alternate eye plus the previous frame; about 500 MB extra VRAM; the release notes say to aim for the
+  headset refresh rate (frames below it make everything look worse) and not to run SteamVR Motion
+  Smoothing, ASW or SSW with it; known artifacts are volumetrics between the eyes and hair edges
+  (translucency without depth of its own). https://github.com/PureDark/UEVR/releases ,
+  https://newreleases.io/project/github/PureDark/REFramework/release/RE9_AFW_v1.0-beta.4
+- UEVR AFR/AFW ghosting-fix guide: under alternate eyes an eye's history is two game frames old while object
+  motion vectors span one, so moving objects get half their motion; the fix doubles the object residual.
+  https://gist.github.com/elliotttate/d0985ed09167529d7c04ea0c6679ecf6
+- Oculus Stereo Shading Reprojection: one eye's colour reprojected into the other through depth by a
+  backward full-screen pass, disocclusion holes re-rendered; about 20% saved in suitable scenes.
+  https://developer.oculus.com/blog/introducing-stereo-shading-reprojection-for-unity/
+
+Built from it: the two-source rebuild (FLICKER_REFERENCE and ARCHITECTURE, same date). Its cost is one
+full-screen pass over the eye with up to six short searches per pixel in two R16F depth copies; the beat
+line now carries its GPU time (`afw/warp: beat ... GPU x ms mean, y max`), to be read against the 6.94 ms
+slot. Not built: submitting depth to the runtime (`XR_KHR_composition_layer_depth` is OFFERED by
+VirtualDesktopXR) so its own reprojection could be positional; a slot filler for presents the game misses.
+
+## 2026-09-28: AFW rebuild cost - review measurement and the seeded rework
+
+The adversarial review measured the fixed-seed rebuild (145c03b5d) at 3.05 ms mean per present (4.13 ms
+in an earlier batch) on this machine's RTX 4070 Ti SUPER, at 2750x2850. That is 34 dependent depth
+fetches per world pixel. Moving the matrix inverse out of the shader alone saved about 20%.
+
+The seeded rework, measured by the host test's cost case (GPU timestamps, 35 rebuilds at 2750x2850,
+excluding the per-eye depth copies):
+
+| Grid step | Seed maps | Mean per rebuild | Suite |
+|---|---|---|---|
+| 2 | half | 1.48-1.52 ms | 23/23 |
+| 4 | half | 0.97-1.02 ms | misses a one-pixel hand ring |
+| 4 | full | 1.32-1.65 ms | misses a one-pixel hand ring |
+| 3 | full | 1.84 ms | misses a one-pixel hand ring |
+| 2 | full | 2.47 ms | 23/23 |
+
+Step 2 at half resolution is used. One reading of 2.43 ms at the same setting was taken while the GPU
+clock was low, so read the in-game `afw/warp: beat ... GPU` figure for the real cost.

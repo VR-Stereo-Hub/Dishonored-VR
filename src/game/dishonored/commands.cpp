@@ -92,6 +92,37 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "rainstrength")) { LensRainPctSet(atoi(args)); return true; }                 // VR-137: %, 100 native
     if (!strcmp(cmd, "mirror")) return WmCommand(args);   // VR-138
     if (!strcmp(cmd, "occlusion")) return OcclusionCommand(args);   // VR-79
+    if (!strcmp(cmd, "afw")) {   // VR-39: the held eye's stick/snap yaw correction, live A/B
+        char sub[16] = "", v[8] = "";
+        sscanf(args, "%15s %7s", sub, v);
+        if (!strcmp(sub, "yaw") && DvrOnOff(v, &b)) { dvr::vr::set_held_body_yaw(b); return true; }
+        if (!strcmp(sub, "warp") && DvrOnOff(v, &b)) { dvr::afw::set_enabled(b, "the seam"); return true; }
+        if (!strcmp(sub, "body") && v[0]) { dvr::afw::set_body_depth((float)atof(v), "the seam"); return true; }
+        if (!strcmp(sub, "stereo") && DvrOnOff(v, &b)) { dvr::afw::set_stereo(b, "the seam"); return true; }
+        if (!strcmp(sub, "debug") && DvrOnOff(v, &b)) { dvr::afw::set_debug(b, "the seam"); return true; }
+        if (!strcmp(sub, "matrices") && DvrOnOff(v, &b)) { dvr::afw::set_matrices(b, "the seam"); return true; }
+        if (!strcmp(sub, "fg") && DvrOnOff(v, &b)) { dvr::afw::set_fg(b, "the seam"); return true; }
+        if (!strcmp(sub, "ownhands") && v[0]) { dvr::afw::set_own_hands((float)atof(v), "the seam"); return true; }
+        if (!strcmp(sub, "nearmiss") && v[0]) { dvr::afw::set_near_miss((float)atof(v), "the seam"); return true; }
+        if (!strcmp(sub, "fgdepth") && v[0]) { dvr::afw::set_fg_depth((float)atof(v), "the seam"); return true; }
+        if (!strcmp(sub, "dump")) { dvr::afw::request_dump(v[0] ? atoi(v) : 16, 0, dvr::paths::dumps_dir(), "the seam"); return true; }
+        Log("afw: warp on|off (now %s) | stereo on|off (now %s, the hands from the fresh eye) | matrices on|off (now "
+            "%s, walking in the held eye's world) | debug on|off (now %s, tint the held eye by source) | body <depth "
+            "units> (now %.2f) | yaw on|off (now %s, the rotation-only fallback) - the method is `stereo afw`, active "
+            "'%s'", dvr::afw::enabled() ? "on" : "off", dvr::afw::stereo() ? "on" : "off",
+            dvr::afw::matrices() ? "on" : "off", dvr::afw::debug() ? "on" : "off", dvr::afw::body_depth(),
+            dvr::vr::held_body_yaw() ? "on" : "off", dvr::stereo::active_name());
+        return true;
+    }
+    if (!strcmp(cmd, "aer")) {   // VR-39: `stereo aer` selects the method; this word drives its clamp
+        char sub[16] = "", v[16] = "";
+        sscanf(args, "%15s %15s", sub, v);
+        if (!strcmp(sub, "clamp") && DvrOnOff(v, &b)) { DeltaClampSet(b, "the seam"); return true; }
+        if (DeltaClampCommand(sub, v)) return true;
+        Log("aer: clamp on|off | lever bendtime|timedilation (clamp now %s; the method is `stereo aer`, active '%s') - "
+            "the delta clamp: one world advance per eye pair", DeltaClampEnabled() ? "on" : "off", dvr::stereo::active_name());
+        return true;
+    }
     if (!strcmp(cmd, "cineborders") && DvrOnOff(args, &b)) { CineBordersSet(b); return true; }
     if (!strcmp(cmd, "uiguard") && DvrOnOff(args, &b)) { UiSurfaceSet(b); return true; }
     if (!strcmp(cmd, "monoanchor")) {
@@ -277,9 +308,9 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         float uu = 0.0f;
         if (sscanf(args, "%31s", sub) == 1 && !strcmp(sub, "eyetest")) {
             if (strstr(args, "stop")) { dvr::camera::eyetest_stop("seam"); return true; }
-            if (!strcmp(dvr::stereo::active_name(), "reentry")) {
-                Log("camera/eyetest: refused while the reentry method is active (two presents per tick with "
-                    "different eyes would destroy the verdict) - `stereo mono` first");
+            if (dvr::stereo::reentry_family_active()) {
+                Log("camera/eyetest: refused while the %s method is active (presents with different eyes would "
+                    "destroy the verdict) - `stereo mono` first", dvr::stereo::active_name());
                 return true;
             }
             sscanf(args, "%*s %f %15s", &uu, fld);
