@@ -39,6 +39,10 @@ ID3D11ShaderResourceView* depth_srv_for(uint32_t serial, UINT* w, UINT* h) {
     if (w) *w = g_dw; if (h) *h = g_dh; return it->second;
 }
 void read_done(ID3D11DeviceContext*) {}
+void set_prefg_wanted(unsigned, bool) {}
+bool g_prefgReady = false;
+bool prefg_ready() { return g_prefgReady; }   // a capture with signed (masked) depths replays in mask mode
+ID3D11ShaderResourceView* prefg_srv_for(uint32_t, bool* saw) { if (saw) *saw = false; return nullptr; }
 }
 
 typedef std::map<std::string, std::string> Meta;
@@ -135,6 +139,7 @@ int main(int argc, char** argv) {
         dvr::afw::set_fg_fov(m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : g_fgArg);
         dvr::afw::set_fg(g_fgOn, "replay");
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
+        dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1";   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
         for (int k = 0; k < 2; ++k) {
             const char* who = k == 0 ? "heldrec" : "fresh";

@@ -1174,6 +1174,16 @@ static void OvlTabDisplay()
                 OvlTip("Off lets thin structures fall back to the background fill, which shows up as bright dots on grates.");
                 bool own = dvr::afw::own_hands() > 0.0f;
                 if (dvr::ovl::checkbox("AFW: still hands keep their own shading (experimental)", &own)) dvr::afw::set_own_hands(own ? 0.3f : 0.0f, "F10");
+                // VR-39: the depth layer. The ini key takes effect at the next start; the live switch needs it.
+                bool sd = dvr::vr::submit_depth();
+                if (dvr::ovl::checkbox("AFW: send depth to the headset runtime (SSW, positional reprojection; restart)", &sd)) {
+                    dvr::vr::set_submit_depth(sd);
+                    OverlaySaveDefaults();   // the key is read at the next start
+                }
+                if (dvr::vr::depth_active()) {
+                    bool dl = dvr::vr::depth_live();
+                    if (dvr::ovl::checkbox("AFW: depth layer live (A/B)", &dl)) dvr::vr::set_depth_live(dl);
+                }
                 OvlTip("A still hand or weapon keeps each eye's own lighting instead of the other eye's. Can show a slowly "
                        "moving weapon one frame late.");
                 // VR-39: the diagnostic capture - close this panel after pressing and hold the pose to be captured.

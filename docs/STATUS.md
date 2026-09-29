@@ -1,3 +1,26 @@
+## 2026-09-28 (AFW run 8): foreground mask, running, DLSS hands, and the depth layer for SSW - host-verified, headset pending
+
+Branch `claude/vr-39-afw-polish` (after #158 merged). From the run-8 report:
+
+- **Sword tip far away / geometry very close: flat and doubled.**
+  - The foreground (arms, weapon) is now the texels the foreground pass drew (a pre-foreground copy of
+    the scene target), not "nearer than 0.30 units".
+  - `afw fgmask`.
+- **Running blur.**
+  - The camera check dropped the game matrices at running speed; now it is a latched vote over still
+    presents plus a 150 uu jump bound.
+  - The turn check went from 0.5 to 5 deg.
+- **DLSS smearing hands.**
+  - The foreground mask now feeds DLSS's "trust the current colour" mask (`dlss fgbias`, on).
+  - Moving NPCs still smear: the game draws no velocity buffer. Try `DlssMask=1`. Research: see the brief.
+- **SSW while running: the depth layer.**
+  - `[VR] SubmitDepth=1` (default 0, F10 checkbox, restart) sends each eye's depth under AFW.
+  - `vrpace depth on|off` is the live A/B.
+  - Whether VD's SSW uses depth is the headset question.
+
+**Host:** 34/34 (new: depth layer per eye within 3% on every pixel, with a control that fails).
+**Next:** `docs/dishonored/BRIEF-afw-next-session.md`.
+
 ## 2026-09-28 (AFW run 7): outline, merchant FOV and crash fixed; sword shading left as an option
 
 Run 7 on `v1.0.1-166-g737af7773`: the hand jitter is gone. Fixed from two captures and the log:

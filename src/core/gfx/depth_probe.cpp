@@ -11,6 +11,7 @@
 #include <d3d11.h>
 
 #include <atomic>
+#include <initializer_list>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -236,13 +237,36 @@ struct Slot {
 };
 Slot g_ring[kRing];
 int g_ringNext = 0;
+// VR-39: the scene target as it was when the FOREGROUND pass (the player's arms and weapon, drawn with a
+// crushed viewport depth range) began. A texel whose depth changed after that was drawn by the foreground:
+// the AFW rebuild's foreground mask, whatever the distance (the depth threshold it replaces put a far sword
+// tip into the world and a near wall into the foreground). Keyed like the depth ring.
+Slot g_pre[kRing];
+int g_preNext = 0;
+std::atomic<bool> g_preWanted{false};
+uint32_t g_preKey = 0;            // the serial the current frame's snapshot went to (once per frame)
+uint64_t g_preCopies = 0, g_preMissed = 0, g_preNotScene = 0, g_preFailed = 0;
+IDirect3DSurface9* g_sceneSurf = nullptr;   // the scene target's level 0, owned (released with the ring)
 ID3D11Texture2D* g_depthStage = nullptr;           // 5x5 staging for the check
 UINT g_depthW = 0, g_depthH = 0;
 bool g_shareFailed = false;
 uint64_t g_shareCopies = 0, g_shareChecks = 0, g_shareAgree = 0, g_shareMissed = 0;
 DWORD g_shareNextMs = 0;
 
+void pre_release() {
+    for (Slot& r : g_pre) {
+        if (r.srv) r.srv->Release();
+        if (r.fence) r.fence->Release();
+        if (r.readFence) r.readFence->Release();
+        r.readFence = nullptr; r.reading = r.borrowed = false;
+        r.img.reset();
+        r.srv = nullptr; r.fence = nullptr; r.serial = 0; r.fenced = false;
+    }
+    if (g_sceneSurf) { g_sceneSurf->Release(); g_sceneSurf = nullptr; }
+    g_preKey = 0;
+}
 void share_release() {
+    pre_release();
     if (g_depthStage) { g_depthStage->Release(); g_depthStage = nullptr; }
     for (Slot& r : g_ring) {
         if (r.srv) r.srv->Release();
@@ -291,7 +315,7 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
                          "depthshare: no eye-size RGBA16F target (%ux%u) seen yet - nothing to share", backW, backH);
         return;
     }
-    if (g_depthW != scene->w || g_depthH != scene->h || !g_ring[0].img.texture) {
+    if (g_depthW != scene->w || g_depthH != scene->h || !g_ring[0].img.texture || (g_preWanted.load() && !g_pre[0].img.texture)) {
         share_release();
         HRESULT hr = S_OK; const char* step = "";
         for (Slot& r : g_ring) {
@@ -302,6 +326,16 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
             D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
             if (FAILED(hr = dev11->CreateQuery(&qd, &r.readFence))) { step = "read fence"; break; }
         }
+        if (SUCCEEDED(hr) && g_preWanted.load())
+            for (Slot& r : g_pre) {
+                const auto cr = dvr::capture::interop::create(dev, dev11, scene->w, scene->h, D3DFMT_A16B16G16R16F, r.img);
+                if (FAILED(cr.hr)) { hr = cr.hr; step = "foreground ring"; break; }
+                if (FAILED(hr = dev->CreateQuery(D3DQUERYTYPE_EVENT, &r.fence))) { step = "foreground fence"; break; }
+                if (FAILED(hr = dev11->CreateShaderResourceView(r.img.texture, nullptr, &r.srv))) { step = "foreground SRV"; break; }
+                D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
+                if (FAILED(hr = dev11->CreateQuery(&qd, &r.readFence))) { step = "foreground read fence"; break; }
+            }
+        if (SUCCEEDED(hr) && g_preWanted.load()) scene->tex->GetSurfaceLevel(0, &g_sceneSurf);
         D3D11_TEXTURE2D_DESC sd = {};
         sd.Width = kGrid; sd.Height = kGrid; sd.MipLevels = 1; sd.ArraySize = 1;
         sd.Format = DXGI_FORMAT_R16G16B16A16_FLOAT; sd.SampleDesc.Count = 1;
@@ -314,14 +348,18 @@ void share_tick(IDirect3DDevice9* dev, ID3D11Device* dev11, ID3D11DeviceContext*
         }
         g_depthW = scene->w; g_depthH = scene->h; g_ringNext = 0;
         DVR_INFO("depthshare: shared depth %ux%u RGBA16F live (target #%d), a ring of %d keyed by the colour grab's "
-                 "serial; copied at every present, fenced", g_depthW, g_depthH, scene->serial, kRing);
+                 "serial; copied at every present, fenced%s", g_depthW, g_depthH, scene->serial, kRing,
+                 g_sceneSurf ? "; plus the pre-foreground ring (the AFW foreground mask)" : "");
     }
     // A present which cannot copy must not expose a previous copy with the same
     // speculative serial (capture off/refusal does not advance capture::serial).
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 5000,
-        "depthshare: copies %llu, unavailable/busy %llu, ring %.1f MiB; nonblocking fences",
+        "depthshare: copies %llu, unavailable/busy %llu, ring %.1f MiB; nonblocking fences | pre-foreground copies %llu, "
+        "ring busy %llu, not the scene target %llu, refused %llu (0 copies with the arms in view = no foreground pass seen)",
         (unsigned long long)g_shareCopies, (unsigned long long)g_shareMissed,
-        (double)g_depthW*g_depthH*8*kRing/(1024*1024));
+        (double)g_depthW*g_depthH*8*kRing*(g_sceneSurf ? 2 : 1)/(1024*1024),
+        (unsigned long long)g_preCopies, (unsigned long long)g_preMissed, (unsigned long long)g_preNotScene,
+        (unsigned long long)g_preFailed);
     const uint32_t serial = dvr::capture::serial() + 1;
     for (Slot& s : g_ring) if (s.serial == serial) s.serial = 0;
     Slot* freeSlot = nullptr;
@@ -418,12 +456,71 @@ ID3D11ShaderResourceView* depth_srv_for(uint32_t grabSerial, UINT* w, UINT* h) {
     return best->srv;
 }
 
+std::atomic<unsigned> g_preOwners{0};
+void set_prefg_wanted(unsigned owner, bool on) {
+    const unsigned was = on ? g_preOwners.fetch_or(owner) : g_preOwners.fetch_and(~owner);
+    const unsigned now = on ? (was | owner) : (was & ~owner);
+    const bool want = now != 0;
+    if (g_preWanted.exchange(want) != want) {
+        DVR_INFO("depthshare: pre-foreground ring %s (owners: AFW %d, DLSS %d)", want ? "wanted" : "released",
+                 (now & 1) ? 1 : 0, (now & 2) ? 1 : 0);
+        if (!want) g_retry.store(true);
+    }
+}
+
+void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp) {
+    // The foreground pass draws with a crushed depth range (MaxZ 0.001; the hands code keys on the same).
+    if (!vp || vp->MaxZ >= 0.5f || !g_preWanted.load() || !g_sceneSurf || !dev) return;
+    const uint32_t key = dvr::capture::serial() + 1;   // this frame's grab, as the depth ring keys it
+    if (key == g_preKey) return;                       // once per frame: the first foreground viewport
+    IDirect3DSurface9* rt = nullptr;
+    if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) return;
+    const bool scene = rt == g_sceneSurf;
+    rt->Release();
+    if (!scene) { ++g_preNotScene; return; }
+    g_preKey = key;
+    for (Slot& s : g_pre) if (s.serial == key) s.serial = 0;
+    Slot* slot = nullptr;
+    for (int i = 0; i < kRing; ++i) {
+        Slot& s = g_pre[(g_preNext + i) % kRing];
+        if (s.borrowed || s.reading) continue;   // the D3D11 side still reads it: never overwritten under it
+        slot = &s; g_preNext = (g_preNext + i + 1) % kRing; break;
+    }
+    if (!slot) { ++g_preMissed; return; }
+    slot->serial = 0;
+    if (FAILED(dev->StretchRect(g_sceneSurf, nullptr, slot->img.surface, nullptr, D3DTEXF_POINT))) {
+        ++g_preFailed;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "depthshare: the pre-foreground copy was refused");
+        return;
+    }
+    if (FAILED(slot->fence->Issue(D3DISSUE_END))) { ++g_preFailed; return; }
+    slot->serial = key; slot->fenced = true;
+    ++g_preCopies;
+}
+
+ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground) {
+    if (sawForeground) *sawForeground = false;
+    Slot* best = nullptr;
+    for (Slot& r : g_pre) if (r.srv && r.serial == grabSerial) best = &r;
+    if (!best) return nullptr;
+    if (sawForeground) *sawForeground = true;
+    if (best->fenced) {
+        if (best->fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_OK) return nullptr;
+        best->fenced = false;
+    }
+    best->borrowed = true;
+    return best->srv;
+}
+bool prefg_ready() { return g_sceneSurf != nullptr; }
+
 void read_done(ID3D11DeviceContext* ctx) {
     if (!ctx) return;
     bool issued = false;
-    for (Slot& s : g_ring) if (s.borrowed) {
-        ctx->End(s.readFence); s.reading = true; s.borrowed = false; issued = true;
-    }
+    for (Slot* ring : {g_ring, g_pre})
+        for (int i = 0; i < kRing; ++i) {
+            Slot& s = ring[i];
+            if (s.borrowed) { ctx->End(s.readFence); s.reading = true; s.borrowed = false; issued = true; }
+        }
     if (issued) ctx->Flush();
 }
 

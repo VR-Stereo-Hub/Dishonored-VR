@@ -49,4 +49,14 @@ bool share_tick_needed();
 // Temporal + MotionVectors requests the copy independently of diagnostic readbacks.
 ID3D11ShaderResourceView* depth_srv_for(uint32_t grabSerial, UINT* w, UINT* h);
 
+// VR-39: the AFW foreground mask. While wanted, the scene target is copied once per frame at the first
+// foreground viewport (MaxZ < 0.5: the player's arms and weapon) into a second ring keyed like the depth ring.
+// `note_viewport` is called from the device's SetViewport hook (render thread). `prefg_srv_for` hands the
+// copy for a grab (nullptr when none; `sawForeground` false then means no foreground pass was seen that frame);
+// its read is closed by read_done like the depth ring's.
+void set_prefg_wanted(unsigned owner, bool on);   // owner bit: 1 AFW, 2 DLSS; the ring runs while any wants it
+bool prefg_ready();
+void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp);
+ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground);
+
 } // namespace dvr::depthprobe

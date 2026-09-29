@@ -91,6 +91,9 @@ int  preset();
 // lo/hi: the colour excess (0..1) where the mask starts and saturates.
 void set_mask(bool on, const char* who);
 bool mask_on();
+// VR-39: the hands and weapon (the foreground mask) always in the bias mask: `dlss fgbias on|off`, default on.
+void set_fg_bias(bool on, const char* who);
+bool fg_bias();
 void set_mask_range(float lo, float hi, const char* who);
 float mask_lo();
 float mask_hi();

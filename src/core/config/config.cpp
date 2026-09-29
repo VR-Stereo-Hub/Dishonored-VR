@@ -3612,6 +3612,8 @@ static void LoadConfig()
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
             dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",1,ini)!=0);
+            // VR-39: the depth layer under AFW (read here, before the runtime creates its instance). Default off.
+            dvr::vr::set_submit_depth(GetPrivateProfileIntA("VR", "SubmitDepth", 0, ini) != 0);
             // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
             // tests were wasted shipping a changed compiled default to a machine
             // whose ini names the key: the loader reads a default only when the key
@@ -4398,6 +4400,7 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%d", dvr::vr::get_pose_lag());
     WritePrivateProfileStringA("Pace", "Lag", v, ini);
     WritePrivateProfileStringA("Pace","ImageOrientation",dvr::vr::image_orientation_enabled()?"1":"0",ini);
+    WritePrivateProfileStringA("VR", "SubmitDepth", dvr::vr::submit_depth() ? "1" : "0", ini);   // VR-39
     // Sync OFF saves as 0 whatever the target was, so a SAVE AS DEFAULTS taken
     // after an A/B that ended on `off` does not resurrect the rate next launch.
     _snprintf(v, 64, "%u", dvr::vr::pace_sync() ? dvr::vr::pace_sync_hz() : 0u);

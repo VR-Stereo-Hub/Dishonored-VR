@@ -81,28 +81,33 @@ const char* kSrc =
     "float2 ndcUV(float2 n) { return float2(n.x * 0.5 + 0.5, 0.5 - n.y * 0.5); }\n"
     "float3 mr(float4 a, float4 b, float4 c, float3 v) { return float3(dot(a.xyz, v), dot(b.xyz, v), dot(c.xyz, v)); }\n"
     "float3 mc(float4 a, float4 b, float4 c, float3 v) { return a.xyz * v.x + b.xyz * v.y + c.xyz * v.z; }\n"
-    "float zH(float2 uv) { float z = heldDepth.SampleLevel(pointSamp, uv, 0).r; return z > 0.0 ? z : 60000.0; }\n"
-    "float zF(float2 uv) { float z = freshDepth.SampleLevel(pointSamp, uv, 0).r; return z > 0.0 ? z : 60000.0; }\n"
+    // Signed depth: NEGATIVE marks a texel the foreground pass drew (the mask, when prm6.z is on); 0 is the sky.
+    "float zH(float2 uv) { float z = heldDepth.SampleLevel(pointSamp, uv, 0).r; return z != 0.0 ? z : 60000.0; }\n"
+    "float zF(float2 uv) { float z = freshDepth.SampleLevel(pointSamp, uv, 0).r; return z != 0.0 ? z : 60000.0; }\n"
+    "float aH(float2 uv) { return abs(zH(uv)); }\n"
+    "float aF(float2 uv) { return abs(zF(uv)); }\n"
+    // Is this (signed) depth the foreground? The mask when on, else the old depth limit.
+    "bool isFg(float z) { return prm6.z > 0.5 ? z < 0.0 : (prm5.z > 0.0 && abs(z) < prm5.z); }\n"
     // The foreground (the player's arms and weapon) is drawn with the game camera's own FOV, the world
     // with the mod's projection: a pixel nearer than the foreground limit is a ray of the foreground's
     // tangents, in its source AND in the target (the target eye draws it the same way).
-    "float2 tanFor(float z) { return (prm5.z > 0.0 && z < prm5.z) ? prm5.xy : prm.xy; }\n"
+    "float2 tanFor(float z) { return (prm5.x > 0.0 && isFg(z)) ? prm5.xy : prm.xy; }\n"
     "float3 viewDirT(float2 uv, float2 tn) { float2 n = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0); return float3(n.x * tn.x, n.y * tn.y, -1.0); }\n"
     // A target-view point (metres) to (ndc x, ndc y, depth units); behind the eye -> far off-screen.
     "float3 toTT(float3 L, float2 tn) { float zt = -L.z; if (!(zt > 1e-5)) return float3(9, 9, -1);\n"
     "    return float3(L.x / (zt * tn.x), L.y / (zt * tn.y), zt / prm.z); }\n"
     "float3 toT(float3 L) { return toTT(L, prm.xy); }\n"
-    "float3 mapF(float2 s, float z) { float2 tn = tanFor(z);\n"
+    "float3 mapF(float2 s, float z) { float2 tn = tanFor(z); z = abs(z);\n"
     "    return toTT(mr(d0, d1, d2, mr(f0, f1, f2, viewDirT(s, tn) * (z * prm.z)) + fp.xyz - dp.xyz), tn); }\n"
     "float3 mapHx(float2 s, float z, bool world) {\n"
-    "    float2 tn = tanFor(z);\n"
+    "    float2 tn = tanFor(z); z = abs(z);\n"
     "    float3 W = mr(s0, s1, s2, viewDirT(s, tn) * (z * prm.z)) + sp.xyz;\n"
     "    if (world) W = mr(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
     "    return toTT(mr(d0, d1, d2, W - dp.xyz), tn);\n"
     "}\n"
     "float3 mapH(float2 s, float z) {\n"
-    "    if (prm2.w > 0.0 && !(prm5.z > 0.0 && z < prm5.z)) {\n"
-    "        float2 n = float2(s.x * 2.0 - 1.0, 1.0 - s.y * 2.0); float w = z * prm2.w;\n"
+    "    if (prm2.w > 0.0 && !isFg(z)) {\n"
+    "        float2 n = float2(s.x * 2.0 - 1.0, 1.0 - s.y * 2.0); float w = abs(z) * prm2.w;\n"
     "        float3 P = mr(hI0, hI1, hI2, float3(n.x * w - hC.x, n.y * w - hC.y, w - hC.z)) + mD.xyz;\n"
     "        float cw = dot(tW.xyz, P) + tW.w; if (!(cw > 1e-3)) return float3(9, 9, -1);\n"
     "        return float3((dot(tA.xyz, P) + tA.w) / cw, (dot(tB.xyz, P) + tB.w) / cw, cw / prm2.w);\n"
@@ -129,15 +134,18 @@ const char* kSrc =
     // An edge rescue: a seed from a sheet (a grid cell across a depth break) sits between the two sides,
     // and a search from it that lands FARTHER than the seed said slid off the near side: the nearest of
     // its four grid neighbours is the near side, searched as a second candidate.
-    "float2 nearF(float2 s) { float2 b = s; float bz = zF(s); float2 o = prm4.xy;\n"
+    "float2 nearF(float2 s) { float2 b = s; float bz = aF(s); float2 o = prm4.xy;\n"
     "    float2 c[4] = { s + float2(o.x, 0), s - float2(o.x, 0), s + float2(0, o.y), s - float2(0, o.y) };\n"
-    "    [unroll] for (int k = 0; k < 4; ++k) { float z = zF(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
-    "float2 nearH(float2 s) { float2 b = s; float bz = zH(s); float2 o = prm4.zw;\n"
+    "    [unroll] for (int k = 0; k < 4; ++k) { float z = aF(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
+    "float2 nearH(float2 s) { float2 b = s; float bz = aH(s); float2 o = prm4.zw;\n"
     "    float2 c[4] = { s + float2(o.x, 0), s - float2(o.x, 0), s + float2(0, o.y), s - float2(0, o.y) };\n"
-    "    [unroll] for (int k = 0; k < 4; ++k) { float z = zH(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
+    "    [unroll] for (int k = 0; k < 4; ++k) { float z = aH(c[k]); if (z < bz) { bz = z; b = c[k]; } } return b; }\n"
     // Debug tint: green fresh near (hands now), none held world, blue fresh world, red the held fallback,
     // magenta the disocclusion fill, cyan the nearer near-miss, yellow the temporal body hypothesis.
-    "float4 shade(Texture2D tex, float2 uv, int cls) {\n"
+    // zt: the chosen candidate's depth in the TARGET view (units), kept for the second output (the depth layer).
+    "static float g_outZ = 0.0;\n"
+    "float4 shade(Texture2D tex, float2 uv, int cls, float zt) {\n"
+    "    g_outZ = zt;\n"
     "    float3 c = tex.SampleLevel(linSamp, uv, 0).rgb;\n"
     "    if (prm3.z > 0.5) {\n"
     "        float3 k = cls == 0 ? float3(0.5, 1.0, 0.5) : cls == 2 ? float3(0.5, 0.6, 1.0) : cls == 3 ? float3(1.0, 0.4, 0.4)\n"
@@ -162,9 +170,10 @@ const char* kSrc =
     "            if (tp) { float4 b = seedH.SampleLevel(pointSamp, p, 0); if (b.a > 0 && b.z > best) { best = b.z; bs = b.xy; fromF = false; } }\n"
     "        }\n"
     "    }\n"
-    "    return fromF ? shade(freshTex, bs, 5) : shade(heldTex, bs, 5);\n"
+    "    float zf = best > 0.0 ? best / max(1.0 - best, 1e-5) : 60000.0;\n"
+    "    return fromF ? shade(freshTex, bs, 5, zf) : shade(heldTex, bs, 5, zf);\n"
     "}\n"
-    "float4 psmain(VSOut i) : SV_Target {\n"
+    "float4 compose(VSOut i) {\n"
     "    float2 t = i.uv;\n"
     "    float tol = prm2.z, body = prm.w;\n"
     "    bool st = prm3.x > 0.5, tp = prm3.y > 0.5;\n"
@@ -178,24 +187,27 @@ const char* kSrc =
     "        if (kH.a > 0 && (kH.a < 0.75 || tH > kH.z / max(1.0 - kH.z, 1e-4) * 1.05 + 0.01)) { float ta, ea; float2 sa = refineH(t, nearH(kH.xy), ta, ea);\n"
     "            if (ea < prm2.z && (!(eH < prm2.z) || ta < tH)) { sH = sa; tH = ta; eH = ea; } } }\n"
     "    bool okF = eF < tol, okH = eH < tol;\n"
+    // Which candidates are the player's own arms and weapon: the mask where it is on, else nearer than the body limit.
+    "    bool bF = prm6.z > 0.5 ? (st && zF(sF) < 0.0) : tF < body;\n"
+    "    bool bH = prm6.z > 0.5 ? (tp && zH(sH) < 0.0) : tH < body;\n"
     // The hands and weapon from the held eye's OWN image where they have not moved: its own shading (a
     // blade's highlight is view-dependent, and the other eye's every other frame reads as a shimmer). Held
     // as fixed in tracking space (the body hypothesis), accepted only where the fresh eye puts the same
     // surface at the same depth now AND the colours agree; anything moving takes the fresh eye as before.
-    "    if (st && tp && prm6.x > 0.5 && okF && tF < body) {\n"
+    "    if (st && tp && prm6.x > 0.5 && okF && bF) {\n"
     "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
-    "        if (eb < tol && zb < body && abs(zb - tF) < 0.03 * tF + 0.005) {\n"
+    "        if (eb < tol && (prm6.z > 0.5 ? zH(sb) < 0.0 : zb < body) && abs(zb - tF) < 0.03 * tF + 0.005) {\n"
     "            float3 ch = heldTex.SampleLevel(linSamp, sb, 0).rgb, cf = freshTex.SampleLevel(linSamp, sF, 0).rgb;\n"
     "            float3 dc = abs(ch - cf);\n"
-    "            if (max(dc.r, max(dc.g, dc.b)) < prm6.y) return shade(heldTex, sb, 7);\n"
+    "            if (max(dc.r, max(dc.g, dc.b)) < prm6.y) return shade(heldTex, sb, 7, zb);\n"
     "        }\n"
     "    }\n"
-    "    if (okF && tF < body) return shade(freshTex, sF, 0);\n"
+    "    if (okF && bF) return shade(freshTex, sF, 0, tF);\n"
     "    if (st && tp) {\n"
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
     "        if (eH < prm5.w) {\n"
-    "            float2 tn = tanFor(tH);\n"
+    "            float2 tn = tanFor(zH(sH));\n"
     "            float3 Wt = mc(d0, d1, d2, viewDirT(t, tn) * (tH * prm.z)) + dp.xyz;\n"
     "            float3 m = toTT(mc(f0, f1, f2, Wt - fp.xyz), tn);\n"
     "            float2 uf = ndcUV(m.xy);\n"
@@ -204,34 +216,46 @@ const char* kSrc =
     // is parallax, not motion (run 7: the silhouette fringe). A moved object leaves the whole neighbourhood behind it.
     "            if (m.z > 0 && all(uf > 0.0) && all(uf < 1.0)) {\n"
     "                float2 o = prm4.xy * 0.5;\n"
-    "                float zn = min(min(zF(uf), min(zF(uf + float2(o.x, 0)), zF(uf - float2(o.x, 0)))),\n"
-    "                               min(min(zF(uf + float2(2.0 * o.x, 0)), zF(uf - float2(2.0 * o.x, 0))),\n"
-    "                                   min(zF(uf + float2(0, o.y)), zF(uf - float2(0, o.y)))));\n"
+    "                float zn = min(min(aF(uf), min(aF(uf + float2(o.x, 0)), aF(uf - float2(o.x, 0)))),\n"
+    "                               min(min(aF(uf + float2(2.0 * o.x, 0)), aF(uf - float2(2.0 * o.x, 0))),\n"
+    "                                   min(aF(uf + float2(0, o.y)), aF(uf - float2(0, o.y)))));\n"
     "                stale = zn > m.z * (1.0 + prm3.w) + 0.01;\n"
     "            }\n"
     "        }\n"
-    "        if (okH && tH >= body && !stale && !(okF && tF < tH * (1.0 - prm3.w))) return shade(heldTex, sH, 1);\n"
+    "        if (okH && !bH && !stale && !(okF && tF < tH * (1.0 - prm3.w))) return shade(heldTex, sH, 1, tH);\n"
     // A silhouette: the held eye's own sample just misses (the edge texel's depth is coarse, most of all
     // under an upscaler) while the fresh eye, 6 cm aside, sees PAST the edge to something farther. That
     // farther surface is parallax, not the answer: keep the held eye's nearer near-miss (run 7: a 1-texel
     // light fringe on roofs and trees against the sky was this).
-    "        if (!okH && !stale && tH >= body && eH < prm5.w && okF && tF > tH * (1.0 + prm3.w)) return shade(heldTex, sH, 6);\n"
-    "        if (okF) return shade(freshTex, sF, 2);\n"
-    "        if (okH && !stale) return shade(heldTex, sH, 3);\n"
+    "        if (!okH && !stale && !bH && eH < prm5.w && okF && tF > tH * (1.0 + prm3.w)) return shade(heldTex, sH, 6, tH);\n"
+    "        if (okF) return shade(freshTex, sF, 2, tF);\n"
+    "        if (okH && !stale) return shade(heldTex, sH, 3, tH);\n"
     // Neither is consistent to 1.5 texels. A thin structure (a grate slat 2-3 texels wide) often leaves
     // both a little over; the nearer miss is still the right surface, where the fill would reach past
     // the slat to the far background (the run-6 capture: the white dots on a grate were this fill).
     // World surfaces only: a near miss onto the hands at the edge of a real gap would be a ghost ring.
-    "        float mF = tF >= body ? eF : 1e9, mH = (stale || tH < body) ? 1e9 : eH;\n"
-    "        if (min(mF, mH) < prm5.w) return mF <= mH ? shade(freshTex, sF, 6) : shade(heldTex, sH, 6);\n"
+    "        float mF = !bF ? eF : 1e9, mH = (stale || bH) ? 1e9 : eH;\n"
+    "        if (min(mF, mH) < prm5.w) return mF <= mH ? shade(freshTex, sF, 6, tF) : shade(heldTex, sH, 6, tH);\n"
     "        return fill(t, st, tp);\n"
     "    }\n"
     "    if (tp) {\n"
     "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
-    "        if (zb < body && eb < tol) return shade(heldTex, sb, 4);\n"
-    "        return shade(heldTex, sH, okH ? 1 : 3);\n"
+    "        if ((prm6.z > 0.5 ? zH(sb) < 0.0 : zb < body) && eb < tol) return shade(heldTex, sb, 4, zb);\n"
+    "        return shade(heldTex, sH, okH ? 1 : 3, tH);\n"
     "    }\n"
-    "    return okF ? shade(freshTex, sF, 2) : (eF < prm5.w && tF >= body) ? shade(freshTex, sF, 6) : fill(t, true, false);\n"
+    "    return okF ? shade(freshTex, sF, 2, tF) : (eF < prm5.w && !bF) ? shade(freshTex, sF, 6, tF) : fill(t, true, false);\n"
+    "}\n"
+    // The rebuilt colour and, in a second target when one is bound, its depth in the target view (units, 0 = none).
+    "struct PSO { float4 c : SV_Target0; float z : SV_Target1; };\n"
+    "PSO psmain(VSOut i) { PSO o; o.c = compose(i); o.z = (g_outZ > 0.0 && g_outZ < 1e8) ? g_outZ : 60000.0; return o; }\n"
+    // The depth layer: an eye's depth (units, signed: the mask is negative; 0 or >= 59999 the sky) to the
+    // runtime's device depth for [near, far] metres, standard (not reversed) D3D convention.
+    "cbuffer X : register(b2) { float4 xp; };\n"   // metres per unit, near, far (metres), unused
+    "float psxrdepth(VSOut i) : SV_Depth {\n"
+    "    float z = abs(heldTex.SampleLevel(pointSamp, i.uv, 0).r);\n"
+    "    float m = (z > 0.0 && z < 59999.0) ? z * xp.x : xp.z;\n"
+    "    m = clamp(m, xp.y, xp.z);\n"
+    "    return saturate(xp.z / (xp.z - xp.y) * (1.0 - xp.y / m));\n"
     "}\n"
     // The seed maps: a grid over the source's depth, carried into the target and depth-tested.
     "struct MOut { float4 pos : SV_Position; float3 src : TEXCOORD0; };\n"
@@ -257,7 +281,13 @@ const char* kSrc =
     "    return float4(i.src.xy, i.src.z / (i.src.z + 1.0), area < nominal * mp2.w ? 0.5 : 1.0);\n"
     "}\n"
     // The depth snapshot: the scene target's alpha (linear view depth) into the eye's own R16F.
-    "float psdepth(VSOut i) : SV_Target { return heldTex.Load(int3(i.pos.xy, 0)).a; }\n";
+    // With the pre-foreground copy bound (t1), a texel whose depth changed after the foreground pass began was
+    // drawn by it: its depth is stored NEGATIVE (the mask). Without it, plain depth.
+    "float psdepth(VSOut i) : SV_Target { return heldTex.Load(int3(i.pos.xy, 0)).a; }\n"
+    "float psdepthm(VSOut i) : SV_Target {\n"
+    "    float a = heldTex.Load(int3(i.pos.xy, 0)).a, p = heldDepth.Load(int3(i.pos.xy, 0)).a;\n"
+    "    return (a > 0.0 && abs(a - p) > 1e-4 * max(a, 1e-3)) ? -a : a;\n"
+    "}\n";
 
 struct Held {
     ID3D11Texture2D* tex = nullptr;
@@ -282,6 +312,7 @@ struct Held {
     ID3D11RenderTargetView* drtv = nullptr;
     uint32_t dw = 0, dh = 0;
     bool depthOk = false;
+    bool maskOk = false;                     // its depth carries the foreground mask (or no foreground pass was drawn)
 };
 Held g_held[2];
 uint64_t g_seq = 0;
@@ -295,6 +326,8 @@ std::atomic<float> g_fgFov{0.0f};      // the game camera FOV (deg): the foregro
 std::atomic<float> g_fgDepth{0.30f};   // units: nearer pixels are the foreground (run-6 capture: arms/weapon <= 0.2, world >= 0.6)
 uint32_t g_fgUsed = 0;
 std::atomic<float> g_nearMiss{6.0f};
+std::atomic<bool> g_fgMask{true};      // `afw fgmask on|off`: the foreground from what the foreground pass drew, not depth
+uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0;
 std::atomic<float> g_ownHands{0.0f};   // `afw ownhands <0..1>`: the colour agreement for the held eye's own hands; 0 = off (default: a slowly moving
                                        // weapon can pass the colour test - the host test caught 25 px of lag - and on the run-7 captures it gained 1.64% -> 1.60%)   // `afw nearmiss <texels>`; 0 = the fill for every miss (the run-6 behaviour)
 std::atomic<float> g_bodyDepth{0.40f};
@@ -306,6 +339,7 @@ ID3D11VertexShader* g_vsMesh = nullptr;
 ID3D11PixelShader* g_ps = nullptr;
 ID3D11PixelShader* g_psMesh = nullptr;
 ID3D11PixelShader* g_psDepth = nullptr;
+ID3D11PixelShader* g_psDepthMask = nullptr;
 ID3D11Buffer* g_cb = nullptr;
 ID3D11Buffer* g_cbMesh = nullptr;
 ID3D11SamplerState* g_lin = nullptr;
@@ -314,6 +348,19 @@ ID3D11RasterizerState* g_rs = nullptr;
 ID3D11BlendState* g_bs = nullptr;
 ID3D11DepthStencilState* g_ds = nullptr;
 ID3D11DepthStencilState* g_dsTest = nullptr;
+ID3D11DepthStencilState* g_dsAlways = nullptr;
+// VR-39: the depth layer (XR_KHR_composition_layer_depth). The compose writes the rebuilt eye's depth (units, in
+// the target view) to g_zOut while it is wanted; psxrdepth turns an eye's depth into the runtime's device depth.
+ID3D11PixelShader* g_psXrDepth = nullptr;
+ID3D11Buffer* g_cbXr = nullptr;
+std::atomic<bool> g_xrDepthWanted{false};
+ID3D11Texture2D* g_zOut = nullptr;
+ID3D11RenderTargetView* g_zOutRtv = nullptr;
+ID3D11ShaderResourceView* g_zOutSrv = nullptr;
+uint32_t g_zOutW = 0, g_zOutH = 0;
+uint64_t g_zOutSeq = 0;                  // the fresh record's seq the last compose wrote it for (0 = never)
+uint32_t g_xrWrites[2] = {}, g_xrRebuilt = 0, g_xrRefused = 0;
+const char* g_xrLastWhy = "";
 
 // The seed maps (the target size divided by kSeedDiv per axis) and their shared depth buffer.
 struct SeedMap { ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv = nullptr; ID3D11RenderTargetView* rtv = nullptr; };
@@ -331,6 +378,10 @@ uint32_t g_noHeld = 0, g_notFresh = 0, g_noDepth = 0, g_noRtv = 0, g_notReady = 
 uint32_t g_snaps = 0, g_snapLate = 0, g_snapMiss = 0;
 uint32_t g_mtxUsed = 0, g_mtxNoVp = 0, g_mtxBasis = 0, g_mtxTurn = 0, g_mtxEye = 0, g_mtxCam = 0;
 float g_mtxBasisMax = 0, g_mtxTurnMax = 0, g_mtxEyeMax = 0, g_mtxCamMax = 0;
+uint32_t g_camVoteGood = 0, g_camVoteFlip = 0;   // session-long: the c5 reading, voted while still
+bool g_camFlipLatched = false;
+std::atomic<bool> g_camVoteReset{false};
+uint32_t g_camHist = 0, g_camHistN = 0;   // the last 32 still votes, 1 = flipped
 double g_yawAbs = 0; float g_yawMax = 0;
 uint64_t g_beatMs = 0;
 float g_lastClaimDeg = 0;   // the world projection's horizontal FOV the layer claims, for the beat
@@ -427,12 +478,13 @@ bool init(ID3D11Device* dev) {
     HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
     PFN_D3DCompile compile = compiler ? (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile") : nullptr;
     if (!compile) { g_failed = true; DVR_ERROR("afw/warp: d3dcompiler_47.dll missing - the held eye stays rotation-only"); return false; }
-    ID3DBlob *vsb = nullptr, *vmb = nullptr, *psb = nullptr, *pmb = nullptr, *pdb = nullptr;
+    ID3DBlob *vsb = nullptr, *vmb = nullptr, *psb = nullptr, *pmb = nullptr, *pdb = nullptr, *pdm = nullptr, *pxd = nullptr;
     if (!compile_one(compile, "vsmain", "vs_4_0", &vsb) || !compile_one(compile, "vsmesh", "vs_4_0", &vmb) ||
         !compile_one(compile, "psmain", "ps_4_0", &psb) || !compile_one(compile, "psmesh", "ps_4_0", &pmb) ||
-        !compile_one(compile, "psdepth", "ps_4_0", &pdb)) {
+        !compile_one(compile, "psdepth", "ps_4_0", &pdb) || !compile_one(compile, "psdepthm", "ps_4_0", &pdm) ||
+        !compile_one(compile, "psxrdepth", "ps_4_0", &pxd)) {
         g_failed = true;
-        rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb);
+        rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
         return false;
     }
     const char* step = "shaders";
@@ -441,7 +493,9 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), nullptr, &g_ps);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pmb->GetBufferPointer(), pmb->GetBufferSize(), nullptr, &g_psMesh);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdb->GetBufferPointer(), pdb->GetBufferSize(), nullptr, &g_psDepth);
-    rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb);
+    if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdm->GetBufferPointer(), pdm->GetBufferSize(), nullptr, &g_psDepthMask);
+    if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pxd->GetBufferPointer(), pxd->GetBufferSize(), nullptr, &g_psXrDepth);
+    rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
     D3D11_BUFFER_DESC bd = {};
     bd.ByteWidth = 30 * 16;   // thirty float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6
     bd.Usage = D3D11_USAGE_DEFAULT;
@@ -449,6 +503,8 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
     bd.ByteWidth = 2 * 16;
     if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&bd, nullptr, &g_cbMesh);
+    bd.ByteWidth = 16;
+    if (SUCCEEDED(hr)) hr = dev->CreateBuffer(&bd, nullptr, &g_cbXr);
     D3D11_SAMPLER_DESC sd = {};
     sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -467,6 +523,8 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) { step = "depth state"; hr = dev->CreateDepthStencilState(&dd, &g_ds); }
     dd.DepthEnable = TRUE; dd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc = D3D11_COMPARISON_LESS;
     if (SUCCEEDED(hr)) hr = dev->CreateDepthStencilState(&dd, &g_dsTest);
+    dd.DepthFunc = D3D11_COMPARISON_ALWAYS;
+    if (SUCCEEDED(hr)) hr = dev->CreateDepthStencilState(&dd, &g_dsAlways);
     if (FAILED(hr)) {
         g_failed = true;
         DVR_ERROR("afw/warp: D3D11 objects failed at %s (0x%08lx) - the held eye stays rotation-only", step, (unsigned long)hr);
@@ -571,9 +629,15 @@ bool snapshot_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, Held& h) {
         h.dw = dw; h.dh = dh;
         DVR_INFO("afw/warp: per-eye depth copy %ux%u R16F (the ring moves on each present; this stays with its image)", dw, dh);
     }
+    // The foreground mask: the pre-foreground copy of the same frame. No copy for this grab while the ring runs =
+    // no foreground pass was drawn (nothing is foreground); a copy not yet finished = the mask is unknown.
+    bool saw = false;
+    ID3D11ShaderResourceView* pre = g_fgMask.load() ? dvr::depthprobe::prefg_srv_for(h.serial, &saw) : nullptr;
+    h.maskOk = g_fgMask.load() && dvr::depthprobe::prefg_ready() && (pre || !saw);
+    if (h.maskOk) (pre ? g_maskFg : g_maskNone)++; else if (g_fgMask.load()) ++g_maskMissing;
     Saved sv; sv.save(ctx);
-    setup_draw(ctx, h.drtv, nullptr, dw, dh, g_vs, g_psDepth);
-    ID3D11ShaderResourceView* srvs[6] = {src, nullptr, nullptr, nullptr, nullptr, nullptr};
+    setup_draw(ctx, h.drtv, nullptr, dw, dh, g_vs, pre ? g_psDepthMask : g_psDepth);
+    ID3D11ShaderResourceView* srvs[6] = {src, pre, nullptr, nullptr, nullptr, nullptr};
     ctx->PSSetShaderResources(0, 6, srvs);
     ctx->Draw(3, 0);
     ID3D11ShaderResourceView* none[6] = {};
@@ -660,6 +724,7 @@ bool axes_of(const Lin& l, double fwd[3], double right[3], double up[3]) {
 enum Verdict { kUnused = 0, kUsed = 1, kNoVp = 2, kBasis = 3, kTurn = 4, kEye = 5, kCamera = 6, kOff = 7 };
 int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg, float tanH, float tanV,
                  float* hI, float* hC, float* tA, float* tB, float* tW, float* mD) {
+    if (g_camVoteReset.exchange(false)) { g_camVoteGood = g_camVoteFlip = 0; g_camFlipLatched = false; g_camHist = g_camHistN = 0; }
     if (!g_matrices.load()) return kOff;
     if (!src.vpOk || !fr.vpOk || !src.rotOk || !fr.rotOk) { ++g_mtxNoVp; return kNoVp; }
     const Lin lh = lin_of(src.vp), lt = lin_of(fr.vp);
@@ -717,7 +782,10 @@ int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg,
         turnWorst = fmax(turnWorst, angle_deg(dS[0] / -dS[2] / tanH, dS[1] / -dS[2] / tanV, mx, my, tanH, tanV));
     }
     if (turnWorst > g_mtxTurnMax) g_mtxTurnMax = (float)turnWorst;
-    if (turnWorst > 0.5) { ++g_mtxTurn; return kTurn; }
+    // 5 deg, not 0.5: the recorded body yaw lags the rendered view by up to 3 deg in a fast stick turn (run 7),
+    // and each refusal drops the held eye to the XR model for one present - a jump while turning. Axis and
+    // convention mistakes (90-180 deg) are the basis check's.
+    if (turnWorst > 5.0) { ++g_mtxTurn; return kTurn; }
     // Check 3, the eye: the same instant, half a metre out, the target seen from the fresh eye.
     for (const auto& pt : pts) {
         const double v[3] = {pt[0] * tanH * 0.5, pt[1] * tanV * 0.5, -0.5};
@@ -740,9 +808,30 @@ int matrix_world(const Held& src, const Held& fr, const Pose& tgt, float yawDeg,
     double Dx[3]; to_world(dh, Dx);
     const double res[3] = {D[0] - Dx[0], D[1] - Dx[1], D[2] - Dx[2]};
     const double camResid = sqrt(dot3(res, res));
-    const double camLimit = 0.6 * scale * 0.063 + 2.0;   // well under the ~2 x eye separation a flipped c5 leaves
+    // What is left is the body's own motion, which running makes large (run 7: 8-28 uu in a present); a fixed
+    // bound refused the matrices exactly while running and the held eye's world then lagged the run. The check
+    // exists for a flipped c5, which would be a permanent fault, not a per-present one - so it is a VOTE over
+    // presents where the body is nearly still (either reading under 8 uu): a flip leaves about twice the eye
+    // separation, so there the as-is reading must be clearly the better one. Per present only a jump past 150 uu
+    // (a Blink, a teleport) refuses.
+    double Df[3];
+    for (int k = 0; k < 3; ++k) Df[k] = src.c5[k] - (fr.c5[k] + O[k]);
+    const double rf[3] = {Df[0] - Dx[0], Df[1] - Dx[1], Df[2] - Dx[2]};
+    const double flipResid = sqrt(dot3(rf, rf));
     if (camResid > g_mtxCamMax) g_mtxCamMax = (float)camResid;
-    if (camResid > camLimit) { ++g_mtxCam; return kCamera; }
+    if (fmin(camResid, flipResid) < 8.0) {
+        // The last 32 still votes: 28 of them for a flip latches (a session-long count let a long correct history
+        // outvote a fault that began later).
+        if (camResid < 0.5 * flipResid) { ++g_camVoteGood; g_camHist <<= 1; if (g_camHistN < 32) ++g_camHistN; }
+        else if (flipResid < 0.5 * camResid) { ++g_camVoteFlip; g_camHist = (g_camHist << 1) | 1u; if (g_camHistN < 32) ++g_camHistN; }
+        int flips = 0; for (uint32_t m = g_camHist; m; m &= m - 1) ++flips;
+        if (!g_camFlipLatched && g_camHistN >= 32 && flips >= 28) {
+            g_camFlipLatched = true;
+            DVR_WARN("afw/warp: the camera check says c5 reads FLIPPED (%u presents for, %u against, while still) - the "
+                     "matrices are refused for the session; walking in the held eye lags a tick", g_camVoteFlip, g_camVoteGood);
+        }
+    }
+    if (camResid > 150.0 || g_camFlipLatched) { ++g_mtxCam; return kCamera; }
     for (int k = 0; k < 3; ++k) {
         for (int j = 0; j < 3; ++j) hI[k * 4 + j] = (float)I[k][j];
         hI[k * 4 + 3] = 0;
@@ -789,12 +878,13 @@ void beat() {
                  "missed: the ring had moved on or its copy was not finished) | world by the GAME matrices %u (walking "
                  "carried), by the XR pose + body yaw otherwise: no matrices %u, refused by basis %u (worst %.2f deg), turn "
                  "%u (%.2f deg), eye %u (%.2f deg), camera %u (worst residual %.1f uu) - each check compares two sources that "
-                 "must agree | foreground projection %.2f deg below %.2f units on %u (the world's %.2f deg elsewhere; 0 = off) "
+                 "must agree | foreground MASK on %u rebuilds (images with a foreground pass %u, without %u, mask unknown %u: "
+                 "those fall back to the depth limit) | foreground projection %.2f deg below %.2f units on %u (the world's %.2f deg elsewhere; 0 = off) "
                  "| GPU %s | body < %.2f units, %.3f m per unit%s",
                  warps, g_warpsFull, g_warpsTemporal, g_warpsStereo, warps ? g_yawAbs / warps : 0.0, g_yawMax,
                  g_noHeld, g_notFresh, g_noDepth, g_noRtv, g_noSeed, g_notReady, g_snaps, g_snapLate, g_snapMiss,
                  g_mtxUsed, g_mtxNoVp, g_mtxBasis, g_mtxBasisMax, g_mtxTurn, g_mtxTurnMax, g_mtxEye, g_mtxEyeMax,
-                 g_mtxCam, g_mtxCamMax, g_fgOn.load() ? g_fgFov.load() : 0.0f, g_fgDepth.load(), g_fgUsed, g_lastClaimDeg,
+                 g_mtxCam, g_mtxCamMax, g_maskUsed, g_maskFg, g_maskNone, g_maskMissing, g_fgOn.load() ? g_fgFov.load() : 0.0f, g_fgDepth.load(), g_fgUsed, g_lastClaimDeg,
                  gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
@@ -804,6 +894,7 @@ void beat() {
     g_mtxUsed = g_mtxNoVp = g_mtxBasis = g_mtxTurn = g_mtxEye = g_mtxCam = 0;
     g_mtxBasisMax = g_mtxTurnMax = g_mtxEyeMax = g_mtxCamMax = 0;
     g_fgUsed = 0;
+    g_maskFg = g_maskNone = g_maskMissing = g_maskUsed = 0;
     g_yawAbs = 0; g_yawMax = 0;
     g_gpuSum = 0; g_gpuMax = 0; g_gpuN = 0;
 }
@@ -820,6 +911,7 @@ void sync_epoch() {
 
 void set_enabled(bool on, const char* who) {
     g_epoch.fetch_add(1);   // the records stop meaning anything either way
+    dvr::depthprobe::set_prefg_wanted(1, on && g_fgMask.load());
     if (g_on.exchange(on) == on) return;
     DVR_INFO("afw/warp: %s (%s)%s", on ? "ON" : "off", who ? who : "?",
              on ? "" : " - the held eye is the compositor's rotation-only reprojection (plus the body-yaw pose)");
@@ -840,7 +932,7 @@ void set_debug(bool on, const char* who) {
 }
 bool debug() { return g_debug.load(); }
 void set_matrices(bool on, const char* who) {
-    g_matrices.store(on);
+    if (g_matrices.exchange(on) != on) g_camVoteReset.store(true);   // a fresh vote, taken on the render thread
     DVR_INFO("afw/warp: world by the game's matrices %s (%s)%s", on ? "ON" : "OFF", who ? who : "?",
              on ? " - head, stick yaw and walking, checked each present (basis, turn, eye, camera)"
                 : " - the XR pose and the body yaw alone: the held eye's world lags a tick of walking");
@@ -865,6 +957,14 @@ void set_near_miss(float texels, const char* who) {
     DVR_INFO("afw/warp: near-miss %.1f texels (%s)%s", texels, who ? who : "?", texels > 0 ? "" : " - every miss goes to the fill");
 }
 float near_miss() { return g_nearMiss.load(); }
+void set_fg_mask(bool on, const char* who) {
+    g_fgMask.store(on);
+    dvr::depthprobe::set_prefg_wanted(1, on && g_on.load());
+    DVR_INFO("afw/warp: foreground mask %s (%s)%s", on ? "ON" : "off", who ? who : "?", on ?
+             " - the arms and weapon are what the foreground pass drew (a copy of the scene target when it begins)" :
+             " - the arms and weapon are whatever is nearer than the foreground depth limit");
+}
+bool fg_mask() { return g_fgMask.load(); }
 void set_own_hands(float limit, const char* who) {
     if (!(limit >= 0.0f && limit <= 1.0f)) { DVR_WARN("afw/warp: own hands %.3f refused (0..1)", limit); return; }
     g_ownHands.store(limit);
@@ -1004,7 +1104,8 @@ void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, con
     _snprintf_s(path, sizeof(path), _TRUNCATE, "%s.txt", base);
     FILE* meta = nullptr;
     if (fopen_s(&meta, path, "w") || !meta) { g_dumpLeft.store(0); DVR_WARN("afw/dump: cannot write %s - capture stopped", path); return; }
-    fprintf(meta, "fgFov=%.4f\nfgOn=%d\nfgDepth=%.4f\n", g_fgFov.load(), g_fgOn.load() ? 1 : 0, g_fgDepth.load());
+    fprintf(meta, "fgFov=%.4f\nfgOn=%d\nfgDepth=%.4f\nfgMask=%d\nfreshMaskOk=%d\nheldMaskOk=%d\n", g_fgFov.load(), g_fgOn.load() ? 1 : 0,
+            g_fgDepth.load(), g_fgMask.load() ? 1 : 0, fr.maskOk ? 1 : 0, src.maskOk ? 1 : 0);
     fprintf(meta, "present=%u\nheld=%d\nfresh=%d\nhaveHeld=%d\nuseFresh=%d\nuseHeld=%d\nmatrixVerdict=%d\nyawDeg=%.5f\n"
                   "tanH=%.7f\ntanV=%.7f\ntargetSize=%ux%u\nmPerUnit=%.6f\nuuPerUnit=%.3f\nworldScale=%.4f\nbodyUnits=%.4f\n"
                   "debug=%d\nstereo=%d\nmatrices=%d\n",
@@ -1047,6 +1148,27 @@ void request_dump(int presents, uint32_t delayMs, const char* dumpsRoot, const c
              "readbacks (about 80 MB per present)", who ? who : "?", presents, delayMs / 1000.0, g_dumpDir);
 }
 const char* dump_status() { return g_dumpStatus; }
+
+// The compose's depth output, sized for a target of w x h.
+bool ensure_zout(ID3D11Device* dev, uint32_t w, uint32_t h) {
+    if (g_zOutRtv && g_zOutW == w && g_zOutH == h) return true;
+    rel(g_zOutRtv); rel(g_zOutSrv); rel(g_zOut); g_zOutW = g_zOutH = 0; g_zOutSeq = 0;
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = w; td.Height = h; td.MipLevels = 1; td.ArraySize = 1; td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT;
+    td.Format = DXGI_FORMAT_R32_FLOAT; td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    HRESULT hr = dev->CreateTexture2D(&td, nullptr, &g_zOut);
+    if (SUCCEEDED(hr)) hr = dev->CreateRenderTargetView(g_zOut, nullptr, &g_zOutRtv);
+    if (SUCCEEDED(hr)) hr = dev->CreateShaderResourceView(g_zOut, nullptr, &g_zOutSrv);
+    if (FAILED(hr)) {
+        rel(g_zOutRtv); rel(g_zOutSrv); rel(g_zOut);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "afw/xrdepth: the rebuilt eye's depth target %ux%u failed (0x%08lx) - no depth layer",
+                         w, h, (unsigned long)hr);
+        return false;
+    }
+    g_zOutW = w; g_zOutH = h;
+    DVR_INFO("afw/xrdepth: the rebuilt eye's depth target %ux%u (R32F, about %.1f MB)", w, h, w * h * 4.0 / 1048576.0);
+    return true;
+}
 
 bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh, uint32_t freshSerial,
                ID3D11Texture2D* dst, uint32_t w, uint32_t h, float tanH, float tanV, Pose* outPose, const char** why) {
@@ -1128,7 +1250,10 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
         }
     }
     cb.prm5[3] = g_nearMiss.load();
-    cb.prm6[0] = g_ownHands.load() > 0.0f ? 1.0f : 0.0f; cb.prm6[1] = g_ownHands.load();   // texels: the nearer candidate within this beats the fill
+    cb.prm6[0] = g_ownHands.load() > 0.0f ? 1.0f : 0.0f; cb.prm6[1] = g_ownHands.load();
+    const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
+    cb.prm6[2] = maskOn ? 1.0f : 0.0f;
+    if (maskOn) ++g_maskUsed;   // texels: the nearer candidate within this beats the fill
     int verdict = kUnused;
     if (useT) {
         verdict = matrix_world(src, fr, tgt, d, tanH, tanV, &cb.hI[0][0], cb.hC, cb.tA, cb.tB, cb.tW, cb.mD);
@@ -1162,8 +1287,14 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
         ctx->Draw(6 * gw * gh, 0);
         ctx->VSSetShaderResources(0, 4, none);
     }
-    // The compose.
+    // The compose (and, for the depth layer, the rebuilt eye's depth as a second target).
     setup_draw(ctx, rtv, nullptr, w, h, g_vs, g_ps);
+    const bool zOut = g_xrDepthWanted.load() && ensure_zout(dev, w, h);
+    if (zOut) {
+        ID3D11RenderTargetView* two[2] = {rtv, g_zOutRtv};
+        ctx->OMSetRenderTargets(2, two, nullptr);
+        g_zOutSeq = fr.seq;
+    }
     ID3D11Buffer* cbs[2] = {g_cb, g_cbMesh};
     ctx->PSSetConstantBuffers(0, 2, cbs);
     ID3D11ShaderResourceView* srvs[6] = {haveH ? src.srv : fr.srv, useT ? src.dsrv : nullptr, fr.srv, useS ? fr.dsrv : nullptr,
@@ -1199,13 +1330,71 @@ bool copy_held(ID3D11DeviceContext* ctx, int held, ID3D11Texture2D* dst) {
     return true;
 }
 
+void set_xr_depth_wanted(bool on) {
+    if (g_xrDepthWanted.exchange(on) != on)
+        DVR_INFO("afw/xrdepth: the rebuilt eye's depth %s (the depth layer for the runtime's reprojection)", on ? "WRITTEN" : "not written");
+}
+
+bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool rebuilt, ID3D11Texture2D* dst,
+                    uint32_t dxgiFormat, uint32_t w, uint32_t h, float nearM, float farM, const char** why) {
+    if (why) *why = nullptr;
+    auto refuse = [&](const char* r) { ++g_xrRefused; g_xrLastWhy = r; if (why) *why = r; return false; };
+    if (!g_on.load()) return refuse("AFW off");
+    if (!dev || !ctx || !dst || eye < 0 || eye > 1) return refuse("bad call");
+    if (!init(dev)) return refuse("not ready");
+    ID3D11ShaderResourceView* src = nullptr;
+    if (rebuilt) {
+        // The rebuilt eye: the compose's own output, written for THIS present's fresh record.
+        if (!g_zOutSrv || g_zOutSeq != g_seq || g_zOutW != w || g_zOutH != h) return refuse("no rebuilt depth this present");
+        src = g_zOutSrv;
+    } else {
+        // An eye shown as captured: its own depth snapshot (copy_held's choice of record for a held eye).
+        Held& e = g_held[eye].valid && g_held[eye].tex ? g_held[eye] : g_held[1 - eye];
+        if (!e.valid) return refuse("no image record");
+        if (!e.depthOk && !snapshot_depth(dev, ctx, e)) return refuse("no depth snapshot");
+        if (!e.dsrv) return refuse("no depth snapshot");
+        src = e.dsrv;
+    }
+    D3D11_DEPTH_STENCIL_VIEW_DESC dv = {};
+    dv.Format = (DXGI_FORMAT)dxgiFormat;
+    dv.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+    ID3D11DepthStencilView* dsv = nullptr;
+    if (FAILED(dev->CreateDepthStencilView(dst, &dv, &dsv)) || !dsv) return refuse("no depth view on the swapchain image");
+    const float xp[4] = {dvr::clarity::depth_scale() / g_worldScale.load(), nearM, farM, 0};
+    ctx->UpdateSubresource(g_cbXr, 0, nullptr, xp, 0, 0);
+    Saved sv; sv.save(ctx);
+    ID3D11ShaderResourceView* none[6] = {};
+    ctx->PSSetShaderResources(0, 6, none);
+    setup_draw(ctx, nullptr, dsv, w, h, g_vs, g_psXrDepth);
+    ctx->OMSetRenderTargets(0, nullptr, dsv);
+    ctx->OMSetDepthStencilState(g_dsAlways, 0);
+    ID3D11Buffer* cbs[3] = {g_cb, g_cbMesh, g_cbXr};
+    ctx->PSSetConstantBuffers(0, 3, cbs);
+    ctx->PSSetShaderResources(0, 1, &src);
+    ctx->Draw(3, 0);
+    ctx->PSSetShaderResources(0, 6, none);
+    ID3D11Buffer* nocb[3] = {};
+    ctx->PSSetConstantBuffers(0, 3, nocb);
+    sv.restore(ctx);
+    dsv->Release();
+    ++g_xrWrites[eye];
+    if (rebuilt) ++g_xrRebuilt;
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000, "afw/xrdepth: beat - depth layer written L %u R %u (rebuilt eye %u), refused %u (last: %s); "
+                     "%.3f m per unit, near %.2f m, far %.0f m (the sky and anything farther sit at far)",
+                     g_xrWrites[0], g_xrWrites[1], g_xrRebuilt, g_xrRefused, g_xrLastWhy[0] ? g_xrLastWhy : "none",
+                     xp[0], nearM, farM);
+    return true;
+}
+
 void shutdown() {
     for (Held& h : g_held) { rel(h.srv); rel(h.tex); rel(h.drtv); rel(h.dsrv); rel(h.dtex); h = Held{}; }
     for (Ts& s : g_ts) { rel(s.dis); rel(s.a); rel(s.b); s.pending = false; }
     for (SeedMap& m : g_seed) { rel(m.rtv); rel(m.srv); rel(m.tex); }
     rel(g_seedDsv); rel(g_seedDepth); g_seedW = g_seedH = 0;
-    rel(g_vs); rel(g_vsMesh); rel(g_ps); rel(g_psMesh); rel(g_psDepth); rel(g_cb); rel(g_cbMesh);
+    rel(g_vs); rel(g_vsMesh); rel(g_ps); rel(g_psMesh); rel(g_psDepth); rel(g_psDepthMask); rel(g_cb); rel(g_cbMesh);
     rel(g_lin); rel(g_point); rel(g_rs); rel(g_bs); rel(g_ds); rel(g_dsTest);
+    rel(g_dsAlways); rel(g_psXrDepth); rel(g_cbXr); rel(g_zOutRtv); rel(g_zOutSrv); rel(g_zOut);
+    g_zOutW = g_zOutH = 0; g_zOutSeq = 0;
     g_ready = false; g_failed = false; g_tsOk = false; g_seq = 0;
 }
 

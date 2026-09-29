@@ -73,6 +73,21 @@ XrFrameState g_frameState{XR_TYPE_FRAME_STATE};
 // only for the AlternateEye right eye. Both live and die together.
 XrSwapchain g_swapchains[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
 std::vector<XrSwapchainImageD3D11KHR> g_images[2];
+// VR-39 (Dishonored): THE DEPTH LAYER (XR_KHR_composition_layer_depth). Each eye's projection view carries the
+// depth of what it shows, so a runtime that reprojects with depth (VDXR forwards it to OVR as EyeFovDepth) can
+// move the image positionally instead of guessing motion from colour - the SSW-while-running case. AFW only:
+// the per-eye depth snapshots and the rebuilt eye's depth come from core/gfx/afw_warp. DEFAULT OFF:
+// `[VR] SubmitDepth=1` enables the extension at instance creation (it cannot be enabled later);
+// `vrpace depth on|off` is the live A/B once it is.
+std::atomic<bool> g_depthWanted{false};   // [VR] SubmitDepth (read before the instance is created)
+bool g_depthExt = false;                  // the extension is enabled on the live instance
+std::atomic<bool> g_depthLive{true};      // the live A/B (effective only with the extension)
+XrSwapchain g_depthSc[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
+std::vector<XrSwapchainImageD3D11KHR> g_depthImages[2];
+int64_t g_depthFmt = 0;
+constexpr float kDepthNearM = 0.05f, kDepthFarM = 1000.0f;
+uint32_t g_depthChained = 0, g_depthDropped = 0;   // submits with / without depth while it was on (per beat)
+const char* g_depthDropWhy = "";
 uint32_t g_swapW = 0, g_swapH = 0;
 uint32_t g_backbufferFmt = 0; // DXGI format the live swapchains were built for
 // Set by on_resize (which runs inside the game's ResizeBuffersDetour, at an
@@ -2084,6 +2099,7 @@ void destroy_hud_swapchains() {
     for (int i = 0; i < kMaxHudQuads; ++i) destroy_hud_swapchain(i);
 }
 
+void destroy_depth_swapchains(); // VR-39: defined beside create_swapchains
 void destroy_swapchains() {
     // Session 54: the feed snapshot references these swapchains - drop it
     // BEFORE they die so a feed cycle can never submit a dead handle. (Feed
@@ -2102,6 +2118,7 @@ void destroy_swapchains() {
     }
     destroy_laser();
     destroy_hud_swapchains();
+    destroy_depth_swapchains();
     g_swapW = g_swapH = 0;
     g_backbufferFmt = 0;
     // Whatever a queued rebuild was for, it has just happened.
@@ -2292,6 +2309,52 @@ void create_laser(int64_t format) {
     XRLOG("xr: aim laser ready (%ux%u dot, %u images)", kLaserTexSize, kLaserTexSize, count);
 }
 
+void destroy_depth_swapchains() {
+    for (int i = 0; i < 2; ++i) {
+        if (g_depthSc[i] != XR_NULL_HANDLE) { xrDestroySwapchain(g_depthSc[i]); g_depthSc[i] = XR_NULL_HANDLE; }
+        g_depthImages[i].clear();
+    }
+    g_depthFmt = 0;
+}
+
+// VR-39: one depth swapchain per eye, the colour pair's size, in the first depth format the runtime lists
+// that we can write (D32 float preferred: the sky at 1000 m keeps its precision).
+void create_depth_swapchains(const std::vector<int64_t>& formats, uint32_t width, uint32_t height) {
+    destroy_depth_swapchains();
+    if (!g_depthExt) return;
+    int64_t pick = 0;
+    for (int64_t want : {(int64_t)DXGI_FORMAT_D32_FLOAT, (int64_t)DXGI_FORMAT_D24_UNORM_S8_UINT,
+                         (int64_t)DXGI_FORMAT_D32_FLOAT_S8X24_UINT, (int64_t)DXGI_FORMAT_D16_UNORM}) {
+        for (int64_t f : formats) if (f == want) { pick = f; break; }
+        if (pick) break;
+    }
+    if (!pick) { XRLOG("xr: depth layer - the runtime lists no D3D11 depth swapchain format: no depth layer"); return; }
+    XrSwapchainCreateInfo sci{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+    sci.usageFlags = XR_SWAPCHAIN_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    sci.format = pick; sci.sampleCount = 1; sci.width = width; sci.height = height;
+    sci.faceCount = 1; sci.arraySize = 1; sci.mipCount = 1;
+    uint32_t count = 0;
+    for (int i = 0; i < 2; ++i) {
+        XrResult r = xrCreateSwapchain(g_session, &sci, &g_depthSc[i]);
+        if (XR_SUCCEEDED(r)) {
+            xrEnumerateSwapchainImages(g_depthSc[i], 0, &count, nullptr);
+            g_depthImages[i].assign(count, {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
+            r = xrEnumerateSwapchainImages(g_depthSc[i], count, &count,
+                                           reinterpret_cast<XrSwapchainImageBaseHeader*>(g_depthImages[i].data()));
+        }
+        if (XR_FAILED(r)) {
+            XRLOG("xr: depth layer - the depth swapchain failed (%s): no depth layer", res_str(r));
+            if (g_depthSc[i] == XR_NULL_HANDLE) g_depthImages[i].clear();
+            destroy_depth_swapchains();
+            return;
+        }
+    }
+    g_depthFmt = pick;
+    XRLOG("xr: depth layer - a depth swapchain per eye %ux%u, format %lld (%u images each), near %.2f m, far %.0f m%s",
+          width, height, (long long)pick, count, kDepthNearM, kDepthFarM,
+          g_depthLive.load(std::memory_order_relaxed) ? "" : " (the live switch is OFF: `vrpace depth on`)");
+}
+
 bool create_swapchains(uint32_t width, uint32_t height, uint32_t format) {
 
     // Pick a swapchain format CopyResource-compatible with the backbuffer
@@ -2342,6 +2405,8 @@ bool create_swapchains(uint32_t width, uint32_t height, uint32_t format) {
             return false;
         }
     }
+
+    create_depth_swapchains(formats, width, height); // VR-39: fail-soft, no depth layer on a refusal
 
     g_swapW = width;
     g_swapH = height;
@@ -2713,28 +2778,36 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
         if (strcmp(e.extensionName, XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME) == 0)
             hasQpcTime = true;
     }
-    {   // VR-39: can this runtime take a depth layer (positional reprojection of AFW's held eye)?
-        bool hasDepthLayer = false;
+    bool hasDepthLayer = false;
+    {   // VR-39: can this runtime take a depth layer (positional reprojection, SSW with depth)?
         for (const auto& e : exts)
             if (strcmp(e.extensionName, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME) == 0) hasDepthLayer = true;
-        XRLOG("xr: [%s] %s %s (not enabled by this build; recorded for AFW's positional reprojection plan)",
-              label, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME, hasDepthLayer ? "OFFERED" : "not offered");
+        const bool want = g_depthWanted.load(std::memory_order_relaxed);
+        XRLOG("xr: [%s] %s %s - %s", label, XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME,
+              hasDepthLayer ? "OFFERED" : "not offered",
+              !want ? "not enabled ([VR] SubmitDepth=0, the default)"
+                    : hasDepthLayer ? "ENABLED ([VR] SubmitDepth=1: each eye's depth rides its projection view under AFW)"
+                                    : "WANTED but the runtime does not offer it: no depth layer");
     }
     if (!hasD3D11) {
         XRLOG("xr: [%s] runtime lacks XR_KHR_D3D11_enable", label);
         return XR_ERROR_EXTENSION_NOT_PRESENT;
     }
 
-    const char* enabled[2] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME,
-                              XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME};
+    const char* enabled[3] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME, nullptr, nullptr};
+    uint32_t nEnabled = 1;
+    if (hasQpcTime) enabled[nEnabled++] = XR_KHR_WIN32_CONVERT_PERFORMANCE_COUNTER_TIME_EXTENSION_NAME;
+    const bool depthExt = hasDepthLayer && g_depthWanted.load(std::memory_order_relaxed);
+    if (depthExt) enabled[nEnabled++] = XR_KHR_COMPOSITION_LAYER_DEPTH_EXTENSION_NAME;
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
     strcpy_s(ici.applicationInfo.applicationName, "dishonored-vr");
     ici.applicationInfo.applicationVersion = 1;
     strcpy_s(ici.applicationInfo.engineName, "dishonored-vr");
     ici.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-    ici.enabledExtensionCount = hasQpcTime ? 2 : 1;
+    ici.enabledExtensionCount = nEnabled;
     ici.enabledExtensionNames = enabled;
     r = xrCreateInstance(&ici, &g_instance);
+    g_depthExt = XR_SUCCEEDED(r) && depthExt;
     g_pfnQpcToXrTime = nullptr;
     if (XR_SUCCEEDED(r) && hasQpcTime) {
         PFN_xrVoidFunction fn = nullptr;
@@ -4147,6 +4220,8 @@ void on_present_end(ID3D11Texture2D* frame) {
     XrCompositionLayerProjectionView projViews[2] = {
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
         {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
+    XrCompositionLayerDepthInfoKHR depthInfo[2] = {{XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR},
+                                                   {XR_TYPE_COMPOSITION_LAYER_DEPTH_INFO_KHR}};   // VR-39
     XrCompositionLayerQuad laserQuads[kMaxLaserDots] = {};
     XrCompositionLayerQuad aimVisualQuads[kAimVisualPoints] = {};
     XrCompositionLayerQuad controlDotQuads[2] = {};
@@ -4821,6 +4896,60 @@ void on_present_end(ID3D11Texture2D* frame) {
                                 XrSwapchainImageReleaseInfo hri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
                                 xrReleaseSwapchainImage(g_swapchains[held], &hri);
                             }
+                        }
+                    }
+                    // VR-39: the depth layer. Each eye's depth in the view its layer claims: the rebuilt eye's
+                    // from the compose, the fresh eye's from its own snapshot. Both eyes or neither: a layer with
+                    // depth on one eye only would be reprojected two different ways.
+                    const bool depthOn = g_depthExt && g_depthFmt && g_depthLive.load(std::memory_order_relaxed);
+                    dvr::afw::set_xr_depth_wanted(depthOn && dvr::afw::enabled());
+                    if (depthOn && stereo) {
+                        const char* dwhy = nullptr;
+                        const bool afwLive = srFrame && dvr::afw::enabled() && !g_srPairPacing.load(std::memory_order_relaxed);
+                        const int fresh = srSign < 0 ? 0 : 1, held = 1 - fresh;
+                        int wrote = 0;
+                        if (!afwLive) dwhy = "not AFW (the depth layer is AFW's)";
+                        else if (!heldWarped && !dvr::afw::has_held(held)) dwhy = "no held image yet";
+                        else
+                            for (int e = 0; e < 2; ++e) {
+                                uint32_t di = 0;
+                                XrSwapchainImageAcquireInfo dai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+                                if (XR_FAILED(xrAcquireSwapchainImage(g_depthSc[e], &dai, &di))) { dwhy = "depth acquire failed"; break; }
+                                XrSwapchainImageWaitInfo dwi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+                                dwi.timeout = XR_INFINITE_DURATION;
+                                bool ok = false;
+                                if (XR_SUCCEEDED(xrWaitSwapchainImage(g_depthSc[e], &dwi)))
+                                    ok = dvr::afw::write_xr_depth(g_device, g_context, e, e == held && heldWarped,
+                                                                  g_depthImages[e][di].texture, (uint32_t)g_depthFmt,
+                                                                  g_swapW, g_swapH, kDepthNearM, kDepthFarM, &dwhy);
+                                else dwhy = "depth wait failed";
+                                XrSwapchainImageReleaseInfo dri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+                                xrReleaseSwapchainImage(g_depthSc[e], &dri);
+                                if (!ok) break;
+                                ++wrote;
+                            }
+                        if (wrote == 2) {
+                            for (int e = 0; e < 2; ++e) {
+                                depthInfo[e].subImage.swapchain = g_depthSc[e];
+                                depthInfo[e].subImage.imageRect = projViews[e].subImage.imageRect;
+                                depthInfo[e].subImage.imageArrayIndex = 0;
+                                depthInfo[e].minDepth = 0.0f; depthInfo[e].maxDepth = 1.0f;
+                                depthInfo[e].nearZ = kDepthNearM; depthInfo[e].farZ = kDepthFarM;
+                                projViews[e].next = &depthInfo[e];
+                            }
+                            ++g_depthChained;
+                        } else {
+                            ++g_depthDropped;
+                            g_depthDropWhy = dwhy ? dwhy : "?";
+                        }
+                        static uint64_t nextDepthLog = 0;
+                        const uint64_t nowD = GetTickCount64();
+                        if (nowD >= nextDepthLog) {
+                            nextDepthLog = nowD + 3000;
+                            XRLOG("xr: depth layer - %u submits carried both eyes' depth, %u without (last reason: %s; "
+                                  "a submit without depth is reprojected from colour alone)",
+                                  g_depthChained, g_depthDropped, g_depthDropped ? g_depthDropWhy : "none");
+                            g_depthChained = g_depthDropped = 0;
                         }
                     }
                     // VR-39 (AFW): rotate the HELD eye by the body yaw since its image (see the state). The
@@ -5561,6 +5690,9 @@ void on_present_end(ID3D11Texture2D* frame) {
             g_feedSnap.proj = proj;
             g_feedSnap.views[0] = projViews[0];
             g_feedSnap.views[1] = projViews[1];
+            // VR-39: the depth info lives on this stack frame; a re-submitted snapshot goes without depth.
+            g_feedSnap.views[0].next = nullptr;
+            g_feedSnap.views[1].next = nullptr;
         } else {
             g_feedSnap.quad = quad;
         }
@@ -6012,6 +6144,21 @@ void set_pair_strict(bool on) {
 
 bool pair_strict() { return g_pairStrict.load(std::memory_order_relaxed); }
 
+void set_submit_depth(bool on) {
+    g_depthWanted.store(on, std::memory_order_relaxed);
+    XRLOG("xr: [VR] SubmitDepth=%d - %s", on ? 1 : 0,
+          on ? "the depth layer is requested at instance creation (AFW; the runtime's reprojection gets each eye's depth)"
+             : "no depth layer (the default)");
+}
+bool submit_depth() { return g_depthWanted.load(std::memory_order_relaxed); }
+void set_depth_live(bool on) {
+    if (g_depthLive.exchange(on) != on)
+        XRLOG("xr: depth layer live switch %s%s", on ? "ON" : "off",
+              g_depthExt ? "" : " (no effect: the extension was not enabled at startup - [VR] SubmitDepth=1 and a restart)");
+}
+bool depth_live() { return g_depthLive.load(std::memory_order_relaxed); }
+bool depth_active() { return g_depthExt && g_depthFmt != 0; }
+
 void set_pace_sync(bool on) {
     bool was = g_paceSync.exchange(on, std::memory_order_relaxed);
     if (was != on)
@@ -6211,6 +6358,14 @@ void handle_pace_command(const char* args) {
             XRLOG("xr: pose attribution lag %d generation(s) (0 fresh, 1 one back = the default, 2 two back) | "
                     "poseGenDelta %.2f deg | usage: vrpace lag 0|1|2",
                     g_poseLag.load(std::memory_order_relaxed), g_poseGenDeltaDeg.load(std::memory_order_relaxed));
+    } else if (strcmp(verb, "depth") == 0) {
+        // VR-39: the depth layer's live A/B (the extension itself is [VR] SubmitDepth, at instance creation).
+        if (strncmp(rest, "on", 2) == 0) set_depth_live(true);
+        else if (strncmp(rest, "off", 3) == 0) set_depth_live(false);
+        else
+            XRLOG("xr: depth layer %s, extension %s, swapchains %s | usage: vrpace depth on|off",
+                  g_depthLive.load() ? "ON" : "off", g_depthExt ? "enabled" : "NOT enabled ([VR] SubmitDepth=1 and a restart)",
+                  g_depthFmt ? "ready" : "none");
     } else if (strcmp(verb, "strict") == 0) {
         // 41.1 (Dishonored): the stale-eye fail-soft A/B (state at g_pairStrict).
         if (strncmp(rest, "on", 2) == 0) set_pair_strict(true);
@@ -7029,6 +7184,11 @@ void set_sr_pair_pacing(bool) {}
 bool sr_pair_pacing() { return true; }
 void set_pair_strict(bool) {}
 bool pair_strict() { return false; }
+void set_submit_depth(bool) {}
+bool submit_depth() { return false; }
+void set_depth_live(bool) {}
+bool depth_live() { return false; }
+bool depth_active() { return false; }
 void handle_pace_command(const char*) {}
 void set_pace_detach(bool) {}
 void set_pace_sync(bool) {}

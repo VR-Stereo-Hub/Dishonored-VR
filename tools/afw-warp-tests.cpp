@@ -45,6 +45,10 @@ ID3D11ShaderResourceView* depth_srv_for(uint32_t serial, UINT* w, UINT* h) {
     if (w) *w = g_depthW; if (h) *h = g_depthH; return g_depthBySerial[serial];
 }
 void read_done(ID3D11DeviceContext*) {}
+void set_prefg_wanted(unsigned, bool) {}
+bool g_prefgReady = false;
+bool prefg_ready() { return g_prefgReady; }   // a capture with signed (masked) depths replays in mask mode
+ID3D11ShaderResourceView* prefg_srv_for(uint32_t, bool* saw) { if (saw) *saw = false; return nullptr; }
 }
 
 // ---- the scene ----------------------------------------------------------------------------------
@@ -147,10 +151,17 @@ static Rec recordOf(const State& s, const Eye& e, bool mirrored, bool flipC5) {
     m.rot[0] = (float)(asin(fwd.z) * 57.29577951); m.rot[1] = (float)(atan2(fwd.y, fwd.x) * 57.29577951); m.rot[2] = 0;
     return m;
 }
+// The foreground mask as the production snapshot writes it: a texel the foreground pass drew carries NEGATIVE
+// depth. On for the mask cases (the hand is the foreground there).
+static bool g_signForeground = false;
 static std::vector<float> image(const State& s, const Eye& e, int w, int h) {
     std::vector<float> px((size_t)w * h * 4);
     for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x) trace(s, e, (x + 0.5) / w, (y + 0.5) / h, &px[((size_t)y * w + x) * 4]);
+        for (int x = 0; x < w; ++x) {
+            float* q = &px[((size_t)y * w + x) * 4];
+            trace(s, e, (x + 0.5) / w, (y + 0.5) / h, q);
+            if (g_signForeground && q[2] > 0.5f) q[3] = -q[3];
+        }
     return px;
 }
 
@@ -167,7 +178,8 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
 }
 
 struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
-struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false;
+struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false,
+             mask = false;
              double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
@@ -209,6 +221,8 @@ static void release(Scene& sc) {
 
 static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
     Result r = {};
+    g_signForeground = o.mask; dvr::depthprobe::g_prefgReady = o.mask;
+    dvr::afw::set_fg_mask(true, "test");
     const Eye held0 = eyeOf(s0, 0), held1 = eyeOf(s1, 0), fresh1 = eyeOf(s1, 1);
     auto hImg = image(s0, held0, N, N), fImg = image(s1, fresh1, N, N), truth = image(s1, held1, N, N);
     Scene sc = capture(g, s0, s1, o, N, N, hImg, fImg);
@@ -353,8 +367,99 @@ int main() {
       report("no held image: the fresh eye alone", r, r.ok && r.ghost * 100 <= r.handTruth && r.missing * 100 <= r.handTruth); }
     { Result r = run(g, still, walk, mirrored);
       report("a mirrored matrix, walking: refused by the basis check", r, r.ok && r.verdict == 3); }
-    { Result r = run(g, still, walk, flip);
-      report("a flipped c5, walking: refused by the camera check", r, r.ok && r.verdict == 6); }
+    {   // A flipped c5 is a permanent fault: the camera check votes over still presents and latches. One walking
+        // present is carried; after enough still ones the matrices are refused for good. Then a toggle resets it.
+        Result r = run(g, still, walk, flip);
+        const bool carried = r.ok && r.verdict == 1;
+        for (int i = 0; i < 34; ++i) r = run(g, still, still, flip);
+        const bool latched = r.ok && r.verdict == 6;
+        r = run(g, still, walk, flip);
+        const bool stays = r.ok && r.verdict == 6;
+        dvr::afw::set_matrices(false, "test"); dvr::afw::set_matrices(true, "test");
+        Result ok = run(g, still, walk);
+        char d[160]; snprintf(d, sizeof(d), "first present carried %d, latched after 35 still %d, stays latched %d, a toggle clears it %d",
+                             carried, latched, stays, ok.verdict == 1);
+        check("a flipped c5: the still-present vote latches the refusal", carried && latched && stays && ok.verdict == 1, d); }
+    {   // Running: a large body step with a correct c5 is carried, not refused (the run-7 blur).
+        State run1 = still; run1.bodyPos = {0.20, 0, -0.15};   // 25 cm in one tick
+        Result r = run(g, still, run1);
+        report("running 25 cm in a tick: the matrices carry it", r, r.ok && r.verdict == 1 && r.errP95 < 2.0); }
+    {   // VR-39: the depth layer. Each eye's XR depth must say how far what it SHOWS is: the rebuilt eye's from the
+        // compose (scored against the truth traced at the new instant), the fresh eye's from its own image. Standard
+        // depth for [0.05, 1000] m, written through a typeless D32 image as a runtime's swapchain hands it over.
+        // The control: the held eye's OWN depth (what a layer without the compose output would carry) against the
+        // same truth must fail - the hand moved and the body walked and turned.
+        State s1 = walkTurn; s1.handX = 0.03;
+        const Eye h0 = eyeOf(still, 0), h1 = eyeOf(s1, 0), f1 = eyeOf(s1, 1);
+        auto hImg = image(still, h0, N, N), fImg = image(s1, f1, N, N), truth = image(s1, h1, N, N);
+        Scene sc = capture(g, still, s1, Opt(), N, N, hImg, fImg);
+        dvr::afw::set_xr_depth_wanted(true);
+        dvr::afw::Pose out{}; const char* why = nullptr;
+        const bool warped = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, (float)kTan, (float)kTan, &out, &why);
+        const float nearM = 0.05f, farM = 1000.0f;
+        auto depthOf = [&](int eye, bool rebuilt, std::vector<float>& m) -> bool {
+            D3D11_TEXTURE2D_DESC td = {};
+            td.Width = N; td.Height = N; td.MipLevels = td.ArraySize = 1; td.Format = DXGI_FORMAT_R32_TYPELESS;
+            td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+            ID3D11Texture2D *dt = nullptr, *st = nullptr;
+            g.dev->CreateTexture2D(&td, nullptr, &dt);
+            td.Usage = D3D11_USAGE_STAGING; td.BindFlags = 0; td.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            g.dev->CreateTexture2D(&td, nullptr, &st);
+            const char* w = nullptr;
+            bool ok = dt && st && dvr::afw::write_xr_depth(g.dev, g.ctx, eye, rebuilt, dt, DXGI_FORMAT_D32_FLOAT, N, N, nearM, farM, &w);
+            if (ok) {
+                g.ctx->CopyResource(st, dt);
+                D3D11_MAPPED_SUBRESOURCE mm;
+                ok = SUCCEEDED(g.ctx->Map(st, 0, D3D11_MAP_READ, 0, &mm));
+                if (ok) {
+                    m.resize(N * N);
+                    for (int y = 0; y < N; ++y)
+                        for (int x = 0; x < N; ++x) {
+                            const float d = ((const float*)((const uint8_t*)mm.pData + y * mm.RowPitch))[x];
+                            m[y * N + x] = nearM / (1.0f - d * (farM - nearM) / farM);   // standard depth back to metres
+                        }
+                    g.ctx->Unmap(st, 0);
+                }
+            } else printf("  depth write refused: %s\n", w ? w : "?");
+            if (dt) dt->Release(); if (st) st->Release();
+            return ok;
+        };
+        // The fraction of hand and of world pixels (off the 2-pixel outline bands) within 3% of the reference.
+        auto score = [&](const std::vector<float>& m, const std::vector<float>& ref, double* hand, double* world) {
+            int hn = 0, hg = 0, wn = 0, wg = 0;
+            for (int y = 2; y < N - 2; ++y)
+                for (int x = 2; x < N - 2; ++x) {
+                    const int ts = surfOf(&ref[(y * N + x) * 4]);
+                    bool edge = false;
+                    for (int dy = -2; dy <= 2 && !edge; ++dy)
+                        for (int dx = -2; dx <= 2; ++dx) if (surfOf(&ref[((y + dy) * N + x + dx) * 4]) != ts) { edge = true; break; }
+                    if (edge) continue;
+                    const double want = fabs(ref[(y * N + x) * 4 + 3]) * kMPerUnit;
+                    const bool good = fabs(m[y * N + x] - want) < 0.03 * want;
+                    if (ts == 2) { ++hn; hg += good; } else { ++wn; wg += good; }
+                }
+            *hand = hn ? (double)hg / hn : 0; *world = wn ? (double)wg / wn : 0;
+        };
+        std::vector<float> mR, mF, mO;
+        const bool okR = warped && depthOf(0, true, mR), okF = depthOf(1, false, mF), okO = depthOf(0, false, mO);
+        double rh = 0, rw = 0, fh = 0, fw = 0, oh = 0, ow = 0;
+        if (okR) score(mR, truth, &rh, &rw);
+        if (okF) score(mF, fImg, &fh, &fw);
+        if (okO) score(mO, truth, &oh, &ow);
+        char d[220];
+        snprintf(d, sizeof(d), "within 3%%: rebuilt hand %.3f world %.3f | fresh hand %.3f world %.3f | control (held's own) hand %.3f world %.3f",
+                 rh, rw, fh, fw, oh, ow);
+        check("depth layer: each eye's depth is what it shows", okR && okF && okO && rh > 0.97 && rw > 0.97 && fh > 0.99 && fw > 0.99 &&
+              (oh < 0.9 || ow < 0.9), d);
+        release(sc);
+        // A new present's capture with no rebuild yet: the rebuilt eye's depth is refused, never last present's.
+        Scene sc2 = capture(g, still, s1, Opt(), N, N, hImg, fImg);
+        std::vector<float> mS;
+        const bool stale = depthOf(0, true, mS);
+        check("depth layer: no rebuilt depth before this present's rebuild", !stale, stale ? "a stale depth was written" : "refused");
+        release(sc2);
+        dvr::afw::set_xr_depth_wanted(false);
+    }
     {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.
         const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);
         auto hImg = image(still, h0, N, N), fImg = image(turn, f1, N, N);
@@ -398,6 +503,23 @@ int main() {
     { Result r = run(g, still, fgMoved, fgOn);   report("foreground at its own FOV, hand moved", r, clean(r)); }
     { Result r = run(g, fgStill, fgStill);
       report("control: foreground FOV not applied -> the hands misplaced", r, r.ok && (r.ghost + r.missing) * 20 > r.handTruth); }
+    // The run-8 faults: a foreground farther than the depth limit (a sword pointed away), and a WORLD surface
+    // nearer than it (a wall close by). The mask tells them apart by what the foreground pass drew.
+    {   State tip0 = still; tip0.fgTan = kFgTan; tip0.handZ = -1.2; tip0.handX = 0.45; tip0.handW = 0.3;   // 1.2 m, off-centre like a sword tip: 0.48 units, past the 0.30 limit
+        State tip1 = tip0; tip1.bodyYawDeg = 3; tip1.handX = 0.47;
+        Opt m = fgOn; m.mask = true;
+        Result r = run(g, tip0, tip1, m); report("mask: a foreground at 1.2 m keeps its projection", r, clean(r, 100));
+        // No control here: a flat foreground wholly past the limit is carried well by the held eye even without the
+        // mask. The headset fault was a sword CROSSING the limit along its length (half fresh, half held), which a
+        // fronto-parallel quad cannot model; the near-wall control below does fail without the mask.
+    }
+    {   State wall0 = still; wall0.fgTan = kFgTan; wall0.barZ = -0.35; wall0.barX0 = -0.30; wall0.barX1 = -0.10;   // a world bar at 0.35 m
+        State wall1 = wall0; wall1.bodyYawDeg = 3;
+        Opt m = fgOn; m.mask = true;
+        Result r = run(g, wall0, wall1, m); report("mask: a world surface at 0.35 m stays world", r, clean(r, 100));
+        Opt c = fgOn;
+        r = run(g, wall0, wall1, c); report("control: depth limit, the near wall misprojected", r, r.ok && r.errP95 > 2.0); }
+    g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
     { Result r = run(g, still, walk, noMtx);
       report("control: no matrices, walking -> the pillar lags", r, r.ok && r.errP95 > 3.0); }

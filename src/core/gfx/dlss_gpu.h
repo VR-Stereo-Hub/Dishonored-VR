@@ -47,6 +47,7 @@ struct ID3D11SamplerState;
 namespace dvr::dlss {
 
 struct GuideParams {
+    ID3D11ShaderResourceView* preFg = nullptr;   // VR-39: the scene target when the foreground pass began (the hands mask)
     uint32_t w = 0, h = 0;                // the eye image (and guide) size
     bool historyValid = false;            // false: vectors are zero (DLSS is also reset)
     dvr::clarity::Mat3 prevFromCur = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
@@ -115,8 +116,10 @@ public:
     // The bias mask for this eye image, from run()'s vectors and this eye's previous colour.
     // historyValid false (or no previous colour yet) writes zero. lo/hi: the colour excess
     // outside the 3x3 range (0..1, gamma) where the mask starts and saturates.
+    // colourPart: the colour-change mask; sceneDepth + preFg (both or neither): the foreground always masked.
     bool mask(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
-              bool historyValid, float lo, float hi, char* why, size_t cap);
+              bool historyValid, float lo, float hi, char* why, size_t cap, bool colourPart = true,
+              ID3D11ShaderResourceView* sceneDepth = nullptr, ID3D11ShaderResourceView* preFg = nullptr);
     ID3D11Texture2D* bias() const { return bias_; }
     // Keeps this eye image as the eye's previous colour (after mask() and the audit read it).
     bool keep(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* color);

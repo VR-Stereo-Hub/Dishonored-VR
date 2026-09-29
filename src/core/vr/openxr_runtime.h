@@ -313,6 +313,16 @@ uint32_t pace_sync_delays(); // Cumulative pair-opening delay events for A/B val
 void set_pair_strict(bool on);
 bool pair_strict();
 
+// VR-39: the depth layer (XR_KHR_composition_layer_depth) under AFW. set_submit_depth is [VR] SubmitDepth and
+// must be called before the instance is created (the extension is enabled there); DEFAULT OFF. The live
+// switch (`vrpace depth on|off`, F10) chains or drops the depth per submit; depth_active says the extension
+// and the depth swapchains are up.
+void set_submit_depth(bool on);
+bool submit_depth();
+void set_depth_live(bool on);
+bool depth_live();
+bool depth_active();
+
 // Session 43b (the Infinite "jumpy camera"): which locate generation the
 // SequentialReentry capture attributes its eyes to. 0 = the fresh locate,
 // 1 = one generation back (the historical default - calibrated on BS1's

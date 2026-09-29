@@ -1,3 +1,69 @@
+## 2026-09-28: AFW run 8 - a far sword tip and near walls turn flat and doubled; running blurs; DLSS smears the hands (fixed, host-verified, headset pending)
+
+Surface: the held eye under `stereo afw`, build `v1.0.1-169` (#158 merged).
+- Reported:
+  - the tip of a sword pointed away, and any geometry very close to the eye, turn into a flat,
+    doubled-looking texture;
+  - SSW is clean standing and walking but blurs when running, and the world blurs slightly when
+    running without it;
+  - under DLSS, moving characters and the hands smear.
+
+**MEASURED (host) - the flat tip and the near wall.**
+- Cause: the foreground was told apart by depth alone (under 0.30 units). A sword tip past that limit
+  was rebuilt as world at the world's FOV. A wall nearer than it was rebuilt as foreground at the
+  camera's FOV. Either way, a texel got the other layer's projection: a flattened, doubled patch.
+- Fix: a foreground MASK that does not depend on depth.
+  - At the first crushed-depth viewport of a frame (MaxZ < 0.5, the arms-and-weapon pass), the scene
+    target is copied (`depthprobe::note_viewport`).
+  - Each eye's depth copy marks texels whose depth changed after that point as negative.
+  - The rebuild classifies by the sign, with the depth limit only as a fallback when a copy is
+    missing.
+- Host:
+  - a world bar at 0.35 m stays world, and its control fails without the mask;
+  - a foreground at 1.2 m keeps its FOV.
+- Words: `afw fgmask`.
+- Log: `afw/warp: beat ... foreground MASK on N`; `depthshare: ... pre-foreground copies`.
+
+**MEASURED (code reading) - running.**
+- Cause: the camera check refused the game matrices whenever the body moved more than about 6 uu in a
+  present. It compared c5 against the rotator translation, and that disagrees in proportion to speed.
+  While running, the held eye's world fell back to the XR model with no walking on many presents:
+  blur, and a jump each time it switched.
+- Fix: the flipped-c5 fault is permanent, so it is now voted over still presents (28 of the last 32)
+  and latched. Per present, only a jump past 150 uu refuses.
+- The turn check was 0.5 deg against a recorded body yaw that lags up to 3 deg in fast turns. It is
+  now 5 deg.
+- Host: a 25 cm step in one tick is carried; the vote latches on a flipped c5; a toggle clears it.
+
+**BUILT (host-verified, headset pending) - SSW while running: the depth layer.**
+- Hypothesis: without depth, VD's SSW estimates motion from the images alone, and running defeats that.
+  VDXR forwards `XR_KHR_composition_layer_depth` to OVR (`EyeFovDepth`). Whether VD's SSW USES that
+  depth is not documented anywhere found; the headset A/B is the test.
+- Built, default off: `[VR] SubmitDepth=1` (read before the instance is created; F10 checkbox, needs a
+  restart), then `vrpace depth on|off` or the F10 "depth layer live" box as the A/B.
+- Each eye's depth is what that eye shows:
+  - the rebuilt eye's comes from the compose (a second render target holding the chosen candidate's
+    target-view depth);
+  - the fresh eye's comes from its own snapshot.
+  - Both eyes carry depth or neither does.
+- Format: standard D3D depth for 0.05..1000 m; the sky sits at far.
+- Host: within 3% on 100% of hand and world pixels for both eyes. The control (the held eye's own depth
+  against the new instant) is at 71% hand and 81% world. A new capture with no rebuild refuses the
+  rebuilt eye's depth.
+- Log: `xr: ... XR_KHR_composition_layer_depth OFFERED - ENABLED`; `xr: depth layer - a depth swapchain
+  per eye`; `xr: depth layer - N submits carried both eyes' depth, M without (last reason)`;
+  `afw/xrdepth: beat`.
+- Counter-prediction: if SSW-while-running is unchanged with depth on, VD's SSW ignores depth. The next
+  route is then fewer fast-motion artefacts at the source (a higher pair rate while running).
+
+**BUILT (host-untested: the NGX SDK is missing here) - the DLSS hands.**
+- Cause: the mod's vectors are the camera's only, so the hands' history is wrong whenever they move.
+- Fix: the foreground mask goes into DLSS's bias mask ("trust the current colour"; FSR's reactive
+  mask). Word: `dlss fgbias`, default on.
+
+**OPEN - moving characters under DLSS.** The game draws no velocity buffer (`MotionBlur=False`). The
+options are `DlssMask`, and velocity rendering; see the brief.
+
 ## 2026-09-28: AFW run 7 - a 1-texel light outline, sword shading, the merchant FOV, a crash (fixed except the sword, replay-verified)
 
 Surface: the held eye under `stereo afw`, build `v1.0.1-166-g737af7773`.

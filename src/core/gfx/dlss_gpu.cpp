@@ -104,7 +104,20 @@ const char* kSrc =
     "    float3 ex = max(mn - h, h - mx);\n"
     "    return smoothstep(gMask.x, gMask.y, max(ex.r, max(ex.g, ex.b)));\n"
     "}\n"
-    "float ps_mask(VSOut i) : SV_Target { return MaskAt(int2(i.pos.xy)); }\n"
+    // VR-39: the player's arms and weapon (the foreground pass's texels: scene depth changed after it began, t5
+    // against t6) are always "trust the current colour" - the vectors are the camera's only, so their history is
+    // wrong whenever the hands move. gBody.z: the foreground part on; gBody.w: the colour part on.
+    "Texture2D tScene : register(t5);\n"
+    "Texture2D tPreFg : register(t6);\n"
+    "float ps_mask(VSOut i) : SV_Target {\n"
+    "    float m = gBody.w > 0.5 ? MaskAt(int2(i.pos.xy)) : 0.0;\n"
+    "    if (gBody.z > 0.5) {\n"
+    "        int2 dp = clamp(int2(i.pos.xy / gSize.xy * gSize.zw), int2(0, 0), int2(gSize.zw) - 1);\n"
+    "        float a = tScene.Load(int3(dp, 0)).a, p = tPreFg.Load(int3(dp, 0)).a;\n"
+    "        if (a > 0.0 && abs(a - p) > 1e-4 * max(a, 1e-3)) m = 1.0;\n"
+    "    }\n"
+    "    return m;\n"
+    "}\n"
     "float4 ps_audit(VSOut i) : SV_Target {\n"
     "    int2 p = int2((floor(i.pos.xy) + 0.5) / gMask.w * gSize.xy);\n"
     "    float2 uv = (float2(p) + 0.5) / gSize.xy;\n"
@@ -308,20 +321,22 @@ bool GuideGpu::run(ID3D11Device* dev, ID3D11DeviceContext* ctx, const GuideParam
 }
 
 bool GuideGpu::mask(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
-                    bool historyValid, float lo, float hi, char* why, size_t cap) {
+                    bool historyValid, float lo, float hi, char* why, size_t cap, bool colourPart,
+                    ID3D11ShaderResourceView* sceneDepth, ID3D11ShaderResourceView* preFg) {
     (void)dev;
     if (!ready_ || !bias_ || !color || (eye != 0 && eye != 1)) { say(why, cap, "mask: not ready"); return false; }
     const bool have = historyValid && prevOk_[eye] && prevSrv_[eye];
     g_cb[24] = lo; g_cb[25] = hi > lo ? hi : lo + 0.001f; g_cb[26] = have ? 1.0f : 0.0f; g_cb[27] = (float)kAuditGrid;
+    g_cb[30] = (sceneDepth && preFg) ? 1.0f : 0.0f; g_cb[31] = colourPart ? 1.0f : 0.0f;
     ctx->UpdateSubresource(cb_, 0, nullptr, g_cb, 0, 0);
     full_screen(ctx, raster_, blend_, ds_, vs_, psMask_, cb_, w_, h_);
     ctx->OMSetRenderTargets(1, &biasRtv_, nullptr);
-    ID3D11ShaderResourceView* srvs[3] = {color, have ? prevSrv_[eye] : nullptr, motionSrv_};
-    ctx->PSSetShaderResources(0, 3, srvs);
+    ID3D11ShaderResourceView* srvs[7] = {color, have ? prevSrv_[eye] : nullptr, motionSrv_, nullptr, nullptr, sceneDepth, preFg};
+    ctx->PSSetShaderResources(0, 7, srvs);
     ctx->PSSetSamplers(0, 1, &linear_);
     ctx->Draw(3, 0);
-    ID3D11ShaderResourceView* none[3] = {};
-    ctx->PSSetShaderResources(0, 3, none);
+    ID3D11ShaderResourceView* none[7] = {};
+    ctx->PSSetShaderResources(0, 7, none);
     ID3D11RenderTargetView* noRt = nullptr;
     ctx->OMSetRenderTargets(1, &noRt, nullptr);
     return true;

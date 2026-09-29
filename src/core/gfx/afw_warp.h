@@ -70,6 +70,10 @@ void set_fg_depth(float units, const char* who);
 // A pixel whose nearer candidate misses by less than this (texels) takes it instead of the fill; `afw nearmiss`.
 void set_near_miss(float texels, const char* who);
 float near_miss();
+// The foreground (arms and weapon) from what the foreground pass drew (default on): `afw fgmask on|off`.
+// Off = nearer than `afw fgdepth`.
+void set_fg_mask(bool on, const char* who);
+bool fg_mask();
 // Still hands and weapon from the held eye's own image (its own shading) when the fresh eye agrees on their
 // depth and colour within `limit` (0..1; 0 = off); `afw ownhands <limit>`.
 void set_own_hands(float limit, const char* who);
@@ -114,6 +118,14 @@ bool copy_held(ID3D11DeviceContext* ctx, int held, ID3D11Texture2D* dst);
 // Diagnostics: capture `presents` consecutive rebuilds (1..32) starting `delayMs` from now into a new
 // folder under `dumpsRoot` (`afw dump`, the F10 button). Game output, local only.
 void request_dump(int presents, uint32_t delayMs, const char* dumpsRoot, const char* who);
+
+// VR-39: the depth layer (XR_KHR_composition_layer_depth, `[VR] SubmitDepth`). While wanted, each rebuild also
+// writes the rebuilt eye's depth in its target view. write_xr_depth fills an XR depth swapchain image (a D3D11
+// depth format, w x h) with what `eye`'s layer shows: the rebuild's depth when `rebuilt`, else the eye's own
+// depth snapshot (the image shown as captured). Standard depth: 0 at nearM, 1 at farM (metres).
+void set_xr_depth_wanted(bool on);
+bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool rebuilt, ID3D11Texture2D* dst,
+                    uint32_t dxgiFormat, uint32_t w, uint32_t h, float nearM, float farM, const char** why);
 const char* dump_status();
 
 void shutdown();

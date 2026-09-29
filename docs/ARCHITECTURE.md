@@ -1415,3 +1415,14 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   only refines it, and both sources are ranked in the held eye's own depth. The fresh eye decides
   staleness: a held point it sees through has moved. Grid step 2 at half resolution is the measured
   trade-off (about 1.5 ms at 2750x2850 on an RTX 4070 Ti SUPER; step 4 misses a one-pixel edge ring).
+
+- **2026-09-28 - AFW's foreground is a mask, not a depth band; the depth layer rides only AFW (VR-39).**
+  - The arms and weapon are the texels whose depth changed after the first crushed-depth viewport
+    (MaxZ < 0.5) of the frame. That is the pass that draws them, so the classification survives a sword
+    tip past any depth limit and a wall nearer than it. It costs one scene-target copy per frame while
+    AFW or the DLSS hands bias wants it.
+  - The XR depth layer is AFW's only: it needs the per-eye depth snapshots and the rebuilt eye's own
+    depth, and a layer whose two eyes disagree about depth would be reprojected two ways, so it is both
+    eyes or neither.
+  - It is default off because enabling it is an instance-creation choice and whether VD's SSW uses it is
+    unmeasured.
