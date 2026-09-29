@@ -207,7 +207,7 @@ items below are superseded by the negative quality report and this continuation 
 - [x] Prerequisite 3: the blade carried into world units; two independent routes agree to 0.25 uu at seven poses, and two deliberate errors are read at their predicted size.
 - [x] Prerequisite 4: the engine's own line check answers along the blade; five-part self-test in both stances; 7 to 8 us a call.
 - [x] Go, as a default-off detector beside `edge`.
-- [x] `[Melee] Detector=contact`: pure core with 111 host checks (36 new), adapter, levers, words, F10, status; `swing-contact.xrs` passes 64 steps; the shipped sequences pass as before.
+- [x] `[Melee] Detector=contact`: pure core with 112 host checks (37 new), adapter, levers, words, F10, status; `swing-contact.xrs` passes 64 steps; the shipped sequences pass as before.
 - [x] The wind-up measured on the simulator: on arrival contact presses 110 to 125 ms after `edge`; `ContactLeadMs` 100 to 150 puts the press back.
 - [x] Performance: no measurable cost with the detector off or on (PERFORMANCE, 2026-09-29).
 - [ ] Headset: the checklist in `PHYSICAL_SWING.md` 9.6. A blade reaching a CHARACTER has never been seen; the values are starting values until it has.

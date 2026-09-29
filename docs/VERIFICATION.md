@@ -93,7 +93,7 @@ published to the answer. `blade trace view [uu]` is one trace along the view and
 [deg]` a fan of 1681 about it, both by hand only: they name the classes in front of the player, which
 is how a character was confirmed from a ledge. `features.bladeTrace` in `status.json` carries the same.
 
-VR-173 the contact-timed sword: `tools\swing-core-host.ps1` (111 checks; the contact ones drive a
+VR-173 the contact-timed sword: `tools\swing-core-host.ps1` (112 checks; the contact ones drive a
 hand AND a blade: an air swing is nothing, the same swing with a slab in its path is one attack
 pressed at most one sample after the touch, a wrist flick with a still hand attacks and `edge`
 cannot see it, a fast hand with a trailing blade does not, a missing answer hands over to the hand

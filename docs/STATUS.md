@@ -1,3 +1,45 @@
+## The contact-timed sword (VR-173, 2026-09-29) - researched, built default off, simulator-proven, PR open, not merged
+
+Branch `claude/vr-173-contact-sword` off staging `5997c5952`. The research question is answered
+with a go, and the detector is built: `[Melee] Detector=contact` presses the attack when the held
+blade reaches something and its tip is fast enough. `edge` stays the default.
+
+Current state: prerequisites 1 to 4 each have a measured verdict in
+[PLAN-contact-sword](dishonored/PLAN-contact-sword.md) section 7 (the engine keeps the head's
+pitch; the blade is a palm-frame constant that sits on the drawn blade; the world bridge holds to
+0.25 uu; the engine's line check answers in 7 to 8 us). The detector passes 112 host checks and
+`tools/xrsim/swing-contact.xrs` (64 steps). Five of the six shipped sword sequences pass on the
+branch build; `swing-stab.xrs` stops at step 29 on the branch AND on the staging tip. Frame rate
+and tick cost are unchanged with the detector off and on ([PERFORMANCE](dishonored/PERFORMANCE.md),
+2026-09-29). Reference: [PHYSICAL_SWING](dishonored/PHYSICAL_SWING.md) section 9.
+
+Two things differ from the brief and are the reviewer's to veto: the blade is traced by calling
+the world's line check directly, because the engine refuses a numbered native through
+ProcessEvent (ARCHITECTURE decision log, TRAPS); and the blade follows the pose the DRAW uses,
+one hand sample behind the controller.
+
+Not shown anywhere yet: a blade reaching a CHARACTER. The simulator's save stands on a ledge, so
+the floor stood in for the target.
+
+Next steps:
+1. Headset: the ten-step checklist in PHYSICAL_SWING 9.6, then the values the detector should
+   carry (`ContactSpeed`, `ContactTargets`, `ContactLeadMs`) or the verdict that it should not ship.
+2. File the five tickets whose text is on VR-173 (the workspace was at its issue limit on
+   2026-09-29): the headset verdict itself, `swing-stab.xrs` step 29, `tools/aim-ray-host.ps1` not
+   compiling, `CooldownMs` 200 against 300, and the weapon path placing no weapon in one
+   simulator session of eight (`wa: ... matched 0`; log kept as `p5-no-weapon-placed.log`).
+3. Doors, ropes and planks are not in the blade's class vocabulary yet: the log names each new
+   class once (`blade/trace: first contact with class`), and "something that breaks" is so far a
+   rule about one class name.
+
+Session log, 2026-09-29: eight sessions on the simulator (sewer save, 2064x2208, RelWithDebInfo,
+legacy off). Faults found while building and fixed in the same work: a rate-limited owner line
+that was dropped instead of delayed; one dropped answer handing a swing to the hand; a pitch-probe
+sequence that saved three camera-shake keys to the ini on its way out; a marker check that read
+the picture wrong three ways. One session was cut by a power failure with the simulator's
+runtime line still in the ini; the ini was restored from the backup before the next launch. The dev PC was put back to the build and ini it had before the
+session (`v1.0.1-9-g1e948fac4`, byte-compared).
+
 ## Controller bind remapping (2026-09-27) - host-verified, PR open, not merged
 
 Branch `claude/controller-remap` (on staging after #144). Each game action can be moved to any

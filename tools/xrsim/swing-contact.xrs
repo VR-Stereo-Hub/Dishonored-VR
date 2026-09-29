@@ -20,8 +20,9 @@
 # and the guards are 9 m below it; steps 3 to 5 use the floor, with ContactTargets=any,
 # as the thing the blade reaches. A character is a headset item.
 #
-# Needs: a loaded level in GAMEPLAY on the dev PC's sewer save (standing or crouched),
-# [Mode] GamepadOnly=0. Run:
+# Needs: a loaded level in GAMEPLAY on the dev PC's sewer save, the player CROUCHED as
+# that save loads (standing, the lowest pose here puts the tip 3 uu into the floor and a
+# cut can leave it), and [Mode] GamepadOnly=0. Run:
 #   .\tools\xrsim-run.ps1 -Path .\tools\xrsim\swing-contact.xrs -Dir <sim dir>
 #
 # How to read a failure: `swing contact status` names who owns the decision (the blade or

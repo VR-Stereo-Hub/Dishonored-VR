@@ -295,7 +295,7 @@ attack's verdict.
 
 | Intent | Command | Read |
 |---|---|---|
-| the decision core | `tools\swing-core-host.ps1` | `swing-core: 111 checks passed` (75 before VR-173), and the measured `census: a 6.0 m/s, 200 ms swing had travelled 0.150 m when it fired` |
+| the decision core | `tools\swing-core-host.ps1` | `swing-core: 112 checks passed` (75 before VR-173), and the measured `census: a 6.0 m/s, 200 ms swing had travelled 0.150 m when it fired` |
 | a soft swing attacks at 3.0 and not at 3.6; the travel guard delays and never refuses; the census counts the hand and not the sim | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-soft.xrs -Dir <sim dir>` | six legs, each an A/B on one lever; the header says why the swings are `swing sim` and not the simulated hand |
 | a swing fires, a reach and a body turn do not | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-edge.xrs` | FIRE then HONOURED; `peakSpeed10s lt 2.2` on the reach; `sim window finished: 3 fire(s)` |
 | every gate blocks once and says why | `tools\xrsim-run.ps1 -Path tools\xrsim\swing-gates.xrs` | four BLOCKED reasons, then the same swing fires |
@@ -627,7 +627,17 @@ yet).
 - **One missing answer handed a swing to the hand.** A hitch inside a simulated swing
   changed the owner for exactly one sample. With the hand's speed already over `EdgeSpeed`
   that one sample is an attack in the air. Hence the 250 ms in which nobody decides.
-- **The blade follows the DRAWN hand.** Lowering the simulated controller from 0.60 m to
-  0.30 m moved the blade's base 2 uu, not 30: where the hand is drawn has its own limits.
-  A contact is where the player SEES the blade, which is the point, but a simulator pose
-  is not a blade position until the log says where the blade is.
+- **Two sessions are not one measurement.** A blade base read at a hand height of 0.60 m
+  in one session and at 0.30 m in another differed by 2 uu, and for an hour the record
+  said the drawn hand must have limits of its own. Read in ONE session the base stands at
+  2902.0, 2871.7 and 2841.9 uu for 0.90, 0.60 and 0.30 m: 100 uu to the metre, exactly the
+  hand's travel scale. The second reading of the pair had been taken from the log's last
+  `the blade touches` line, which is the last CHANGE and was written while the hand was
+  still on its way down.
+- **When no sword draw reaches the measurement, the detector is the edge sword.** In one
+  simulator session of eight the mod's weapon path placed no weapon at all (`wa: routed
+  ... matched 0 ... contracts 0/64`, the sword and the crossbow both out and both drawn
+  where the game put them). There was no blade to measure, the hand owned every sample,
+  and the log said so, but with the wrong reason ("the blade measurement is off"). The
+  reason now names the weapon path. The weapon path's own fault is not this detector's
+  and is recorded on VR-173.

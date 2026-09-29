@@ -1,3 +1,58 @@
+## A line about a change of state, rate-limited, must be said late, never dropped (VR-173, 2026-09-29)
+
+The contact sword names who owns the decision, the blade or the hand, on every change, and
+the line was limited to twice a second. On the switch to `contact` the hand owned the first
+sample (the engine's answer was one sample away) and the blade every sample after it. The
+first change was printed; the second fell inside the half second and was dropped. The log
+read "the HAND owns the decision" above 868 samples decided by the blade, and the
+simulator sequence waited ten seconds for a line that was never coming.
+
+* **A limit on a state line delays it.** Keep what the log last SAID beside what is true,
+  and say the truth as soon as the limit allows. A dropped change leaves the log holding
+  the opposite of the state for as long as the state lasts.
+* The counters on the beat line were right throughout. That is what found it: the line
+  and the counters disagreed, and the counters cannot be rate-limited into a lie.
+
+## One dropped sample must not change who decides (VR-173, 2026-09-29)
+
+The contact sword falls back to edge rules when the blade cannot be followed, so that a
+broken reading leaves the sword that ships. In the first build that took effect on the
+very sample the answer went missing. A hitch inside a simulated swing dropped one answer;
+the hand's speed was already over the edge threshold; one sample under edge rules is an
+attack. A swing through the air would have attacked, which is the one thing the detector
+exists to stop.
+
+* **Fail soft needs a pause before it takes over.** For 250 ms after the answer goes
+  missing nobody decides and nothing attacks, and the latch is spent if the hand crosses
+  the edge threshold meanwhile, so the swing under way cannot fire late either. An answer
+  that was NEVER there is not waited for.
+* The host test drives the same swing with the pause at 250 and at 0: nothing, and one
+  attack. The lever is what decided it.
+
+## A performance leg on the sewer save measures the scene's state before it measures the build (VR-173, 2026-09-29)
+
+The scene below the ledge has two states and the frame rate follows them: quiet (129 to 136
+pairs/s, tick p90 within 0.3 ms of the median, the script lane at 240 to 270 ms per second)
+and busy (97 to 122 by leg, single lines 69 to 139, p90 12 to 14 ms, the script lane at 360
+to 600). One session was busy for seven minutes and then quiet, one quiet throughout, one
+busy for twelve minutes, one busy for all of its legs. What moves it is not known. VR-173's
+first performance table was taken in the busy state and recorded "each leg swings 67 to 132
+by itself" as if it were noise.
+
+* **Judge every leg by its own p90 and its script-lane cost before reading its rate.** A leg
+  whose p90 is 5 ms over its median is a busy leg and says nothing about a build.
+* **Compare inside one session, with a live toggle.** Off and on read 129 and 129 there.
+* **Quiet is not identical.** Two quiet sessions of the SAME build read 129 and 136, and the
+  staging tip 131. One session a build cannot show 2 %.
+* The numbers and the builds' hashes are in PERFORMANCE, 2026-09-29.
+
+## `@modassert` compares one word (VR-173, 2026-09-29)
+
+`@modassert features.bladeTrace.touching eq "the WORLD"` fails with the actual value
+printed as `the WORLD`: the sequence runner splits the line on spaces and compares against
+`"the`. Assert on a field whose value is one word (`touchingClass eq
+StaticMeshCollectionActor`), or give a status field a one-word value when it is written.
+
 ## A numbered native cannot be called through ProcessEvent (VR-173, 2026-09-29)
 
 The plan, the ticket and the brief all said: call the engine's `Actor.Trace` through the

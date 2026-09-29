@@ -1,10 +1,11 @@
 # The contact-timed sword: research and a next-session brief (VR-173)
 
-Status: **RESEARCH, in progress since 2026-09-29.** Written 2026-09-21 alongside VR-170.
+Status: **RESEARCHED AND BUILT (2026-09-29), default off; the headset verdict is owed.** Written 2026-09-21 alongside VR-170.
 Sections 1 to 5 are the plan as written and are left as they were. Section 6 holds what
 turned out to be different by the time the work started, section 7 the verdicts, one per
 prerequisite, in the order they were measured. Prerequisites 1 to 4 have their verdicts
-and 7.5 is the go or no-go: GO, as a default-off detector.
+and 7.5 is the go or no-go: GO, as a default-off detector. 7.6 is the detector as built
+and what the open questions came to.
 
 ## 1. What the player would get
 
@@ -554,3 +555,51 @@ What is NOT settled, and why it does not block building the detector:
 So: the detector is built, `[Melee] Detector=contact`, **default off, `edge` stays the
 default**, switched live by `swing mode contact` and in F10. Whether it ever becomes the
 default is a headset verdict and is not claimed here.
+
+### 7.6 Prerequisite 5, the detector: BUILT, default off, and proven as far as a simulator can (2026-09-29)
+
+`[Melee] Detector=contact`. What it is, every lever, word and log line, the measurements
+and the headset checklist are in [PHYSICAL_SWING](PHYSICAL_SWING.md) section 9. This is
+the verdict and what the open questions of section 4 came to.
+
+**Built as the plan said, with four things the plan did not have.**
+
+| The plan | As built |
+|---|---|
+| tip speed is hand velocity plus angular velocity crossed with the blade vector | the finite difference of the tip's position, which is that sum. Pinned by two host checks: a wrist flick with a still hand attacks and `edge` cannot see it at any threshold; a 3 m/s hand with a trailing blade reads under 1.3 m/s at the tip and does not |
+| press when the trace reports a pawn or a breakable | `ContactTargets=pawns|breakables|any`, `breakables` as shipped. "Breaks" is so far a rule about a class NAME, from a vocabulary of four classes |
+| reuse everything after the decision | the gates, the press, the honoured-check, the latch and the cooldown are the edge detector's code, shared, not copied. The census is kept TWICE, because a tip speed and a hand speed are different quantities and `EdgeSpeed` must never be set from a list that mixes them |
+| (not in the plan) | **three segments** are traced, not one: the blade, the tip's path since the last sample, and the tip's path ahead |
+| (not in the plan) | **the owner of the decision** is settled per sample and named in the log: the blade, nobody (for 250 ms after the answer goes missing), or the hand by edge rules |
+| (not in the plan) | **`ContactLeadMs`**, for the wind-up |
+| (not in the plan) | the detector **requests** the blade measurement and the trace while it is in use, so it is the only switch |
+
+**The open questions.**
+
+| Question | Answer | How it was measured |
+|---|---|---|
+| the lane hop against the honoured latency | the answer used is for the same hand sample or the one before: 0 to 16 ms old. The game starts the attack 15 to 31 ms after the press, as under `edge` | the FIRE line carries the answer's age and how many samples back it is; HONOURED carries the rest |
+| what counts as a target | characters by ancestry; breakables by class name; the world only under `any`. Doors, ropes and planks: NOT KNOWN, the blade has not touched one | the class vocabulary, 7.4 |
+| should a very fast air swing attack | it can (`ContactAirSpeed`), and ships 0: never. Nothing measured says it should | host checks at 8 m/s; no headset opinion yet |
+| what the game's melee does with a target already at blade range | NOT KNOWN. Headset item 8 | - |
+| the stab and the plunge | they run under `contact` as under `edge`, on the hand. Simulator: `swing-plunge.xrs` passes on this build | host check and sequence |
+| the drop takedown | while the player is in the air the hand decides, so the drop assist (VR-203) holds the press exactly as it does today | the owner line names the reason; not run in the air on the simulator, where the save stands on a ledge |
+| VR-220, the attack source | unchanged: the rule is relative to the press, and the press is the same code | `swing-anim.xrs` passes on this build |
+| the wind-up | on arrival `contact` presses 110 to 125 ms after `edge` would have; a lead of 100 to 150 ms puts it back | PHYSICAL_SWING 9.5, one swing under five settings |
+
+**What it costs.** Nothing that can be measured: the frame rate and the tick are the same
+with the detector off and on, inside one session
+([PERFORMANCE](PERFORMANCE.md), 2026-09-29). Per hand sample it is one to three line
+checks at 7 to 9 us each.
+
+**What this does NOT show.** A blade reaching a character. Whether the hit FEELS on time
+at any lead. What a cut at a guard off to one side does. Any class the blade has not
+touched. Those are the headset checklist, and until it is run `ContactSpeed=2.0` and
+`ContactTargets=breakables` are starting values and are written down as such.
+
+**Faults found on the way and not fixed here**, because they are not this work's: the
+shipped `swing-stab.xrs` stops at step 29 on the staging tip too; `tools/aim-ray-host.ps1`
+does not compile on staging; `[Melee] CooldownMs` is 200 in the packaged ini and 300 in
+the code and the docs; and in one simulator session of eight the weapon path placed no
+weapon (the contact sword then ran by edge rules and said so). The ticket text for each
+is on VR-173.

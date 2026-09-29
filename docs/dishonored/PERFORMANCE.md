@@ -1,3 +1,67 @@
+## 2026-09-29: the contact-timed sword (VR-173) - no measurable cost, off or on (simulator)
+
+**Identity.** Dev PC (RTX 4060), simulator (`dvr_xrsim32`), the game rendering 2064x2208 per
+eye, simulator refresh 240 so the cap is lifted, RelWithDebInfo, banner `legacy off`, the sewer
+save, crouched, head level, right hand at (0.20, 0.60, -0.40) with the blade in the floor,
+40 s legs read with `tools/perf-tick-stats.py`.
+
+| Build | Commit | `d3d9.dll` sha256 |
+|---|---|---|
+| staging tip | `5997c5952` | DD5C528E73F8EDBC |
+| branch, detector built | `c36226342` plus the detector | 4316BB31ECB2F5A5 |
+| branch, as committed | `e8ff334d6` | D469AC2118157FD7 |
+
+**Prediction, from the trace's measured cost and made before the legs were run:** one to
+three line checks a hand sample at 7 to 9 us, 85 samples a second, is at most 2 ms of the
+game thread per second, under 0.3 %. The legs cannot resolve that, so off and on should read
+the same.
+
+**Inside one session, the scene quiet, the detector switched live:**
+
+| Leg (build 4316BB31) | pairs/s (`stereo: beat`) | tick median / p90 (`perf: tick`) | script lane, ms per second |
+|---|---|---|---|
+| `edge`, hand still | 129 | 7.8 / 7.8 | 249 |
+| `contact`, blade in the floor, hand still | 129 | 7.8 / 7.8 | 252 |
+| `edge`, hand moving | 129 | 7.8 / 7.8 | 245 |
+| `contact`, lead 100, hand moving | 129 | 7.8 / 7.8 | 248 |
+| `edge`, hand still, again | 130 | 7.7 / 7.8 | 251 |
+
+The prediction held: no difference. 12,820 blades were traced in those legs; one call cost
+9 us at the median, 16 at p95, 22 at the worst; the answer was held 1.5 ms (median) after the
+blade was published, 10.8 ms at the worst.
+
+**Against the staging tip, the scene quiet:**
+
+| Build | Session | pairs/s | tick median / p90 | script lane, ms per second |
+|---|---|---|---|---|
+| staging tip | one, four legs in a row | 131, 131, 131, 131 | 7.6 / 7.7 each | 240 to 255 |
+| branch 4316BB31 | one, five legs (above) | 129 to 130 | 7.7 to 7.8 / 7.8 | 245 to 252 |
+| branch 4316BB31 | another, its one quiet leg | 136 | 7.3 / 7.6 | 271 |
+
+The branch reads 2 pairs/s under the staging tip in one session and 5 over it in another.
+Two sessions of the SAME build differ by more (129 against 136) than the two builds do, so
+these sessions cannot resolve a difference between the builds, and none is claimed in
+either direction. What they do show is that the branch with every new lever off is inside
+the spread of the build it started from.
+
+**The scene has two states, and most legs were taken in the busy one.** The rate follows
+the script lane's own cost:
+
+| State | pairs/s | tick median / p90 | script lane, ms per second |
+|---|---|---|---|
+| quiet | 129 to 136, single lines within 3 of each other | 7.3 to 7.8 / 7.6 to 7.8 | 240 to 271 |
+| busy | 97 to 122 by leg, single lines 69 to 139 | 8.2 to 10.3 / 11.9 to 13.8 | 364 to 606 |
+
+The staging session was busy for about seven minutes and then quiet; one branch session was
+quiet throughout; one was busy for twelve minutes with one quiet minute in it; the last
+(build D469AC21) was busy for all five of its legs (112, 119, 117, 113, 130 with the detector
+off, on, off, on, off: no pattern). What moves the scene between the two is not known. The
+first performance table of this work (PLAN-contact-sword 7.4: 107, 108, 106, 112) was taken
+in the busy state and its "each leg swings 67 to 132 by itself" was this.
+
+**Not measured:** a headset. The headset is GPU-bound at its own resolution (2026-09-27), so
+these game-thread-bound rates are not predictions for it; the cost per hand sample is.
+
 ## 2026-09-27: sharp-marker overlay resource budget, unmeasured candidate
 
 MarkersSharp defaults off. Six output-sized RGBA8 shared images and one D24S8
