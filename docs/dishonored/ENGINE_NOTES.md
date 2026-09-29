@@ -10049,6 +10049,21 @@ move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta
   likely reading is `m_bUseFOV=0`. If so, the arms' 108.07 comes from somewhere other than this lens and
   the camera FOV, and the force test and `propwatch` on the pawn are the next instruments.
 
+**Run 14 (build v1.0.1-203, 2026-09-29): the arms are drawn at the world's FOV; AFW's correction is a gain.**
+- `fgproj:` (the draws' own c0..c3 projection): WORLD 103.0 and FOREGROUND 103.0 in every window, about
+  1300-1500 foreground samples per 5 s, with the arms' lens forced on and with it off. So with
+  `HandsAtWorldFov=1` the arms render at the world's FOV, and writing their lens changes nothing drawn.
+- The game sets the lens itself only in a zoom (`m_bUseFOV=1, m_FOV=103` while the world was at 79).
+- The force lever's real effect was on AFW's feed: on, AFW got 103 for the foreground and the hands'
+  FOV flicker was reported; off, it got 108.07 and the hands looked normal.
+- Replay of the run-12 capture (arms drawn at 103), hand band differing: 12.46% at 103, 8.34 at 105,
+  5.29 at 106.5, 2.10 at 108.07, 2.93 at 109.5, 5.43 at 111. Run 6 measured the same 0.911 disparity gain
+  with the camera at 108. The correction does not follow the camera's FOV, so it is not a FOV. Most
+  likely the foreground pass's depth (alpha) is about 9% off its geometry. Not proven.
+- Shipped: AFW's foreground is the world's FOV widened by `[Stereo] AfwForegroundGain` (0.911:
+  `tan(fg/2) = tan(world/2) / gain`), independent of the headset and the lens. The lens write and
+  `HandsLensForce` were removed; `armslens:` now only logs.
+
 ### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
 
 In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->

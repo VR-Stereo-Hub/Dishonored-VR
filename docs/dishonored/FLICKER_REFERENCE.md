@@ -1,3 +1,19 @@
+## 2026-09-29: AFW run 14 result - the hands' FOV flicker came from AFW's foreground number, not the game (FIXED, replay-measured, headset pending)
+
+Surface: the held eye's hands and weapon under `stereo afw`, build v1.0.1-203.
+- MEASURED: `fgproj:` puts the arms and the world at 103.0 in every window, force on or off.
+- The force switch only changed AFW's foreground feed: 103 flickered (reported), 108.07 looked normal
+  (reported).
+- Replay (run-12 capture) is best at 108.07 (2.10% of the hand band) and worst at the true 103 (12.46%).
+  Run 6 needed the same gain with the camera at 108. So it is a constant gain on the foreground pass,
+  not an FOV.
+- FIX: the feed is the world's FOV widened by `[Stereo] AfwForegroundGain=0.911` (F10 "AFW hands
+  correction", `armslens gain`). It no longer depends on the headset (the old fallback was the
+  headset-derived 108.07, right on this rig only by the arithmetic) or on the removed force switch.
+- Still in place: the 0.30-unit depth limit that decides which pixels get the foreground treatment. It is
+  the likely cause of a weapon held straight ahead rendering oddly, and it cannot go while the
+  foreground needs a different projection. OPEN.
+
 ## 2026-09-29: AFW run 13 - a general flicker in build 195, not reported in build 198 (NOT REPRODUCED, cause not isolated)
 
 Surface: the whole AFW image (hands no longer flickering), build v1.0.1-195.
