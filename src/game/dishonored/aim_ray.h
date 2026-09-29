@@ -92,6 +92,8 @@ struct BladeFrame {
     float headPos[3] = {}, headQuat[4] = {0, 0, 0, 1};
     uint32_t handGen = 0;        // the sword hand's own sample generation
     uint64_t sampleMs = 0;       // that sample's stamp (GetTickCount64)
+    int64_t  pubQpc = 0;         // QueryPerformanceCounter at this publication: GetTickCount64 steps
+                                 // in 15.6 ms, which is the size of the thing being measured
     uint32_t revision = 0;       // the blade's
 };
 BladeFrame blade_frame();

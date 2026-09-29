@@ -81,6 +81,17 @@ compared). Healthy is 0.25 uu; the floor is the half unit between the two eyes' 
 tens of uu: if either reads 0.25 the comparison is not comparing. Both are deliberate errors, never
 saved; `blade world skew 0` and `blade world anchor game` put them back. Host: `tools\blade-host.ps1`
 (542 checks with the bridge: a point bit-equal to the ray solver's origin at 60 head poses).
+Asking the ENGINE: `tools\xrsim-run.ps1 -Path tools\xrsim\trace-selftest.xrs` from GAMEPLAY. The first
+`blade trace selftest` prints `blade/trace: RESOLVED - the function object named Actor.Trace ... Native
+index 277` (a `NOT RESOLVED` line names which byte check or which name failed, and nothing is called),
+then one line per test: the floor under the feet, a trace stopping 10 uu short of it (NO hit), the
+player's own capsule (NO hit), the floor from 50 uu higher (50 further), and from the second run on the
+same floor from the other stance. `SELFTEST PASSED - 5 passed, 0 failed, 0 skipped`. Then
+`blade on; blade trace on` and `blade trace status`: traces by what they touched, `refused N (M because
+the drawn sword had left the hand's blade)`, the cost per call and the delay from the blade being
+published to the answer. `blade trace view [uu]` is one trace along the view and `blade trace scan
+[deg]` a fan of 1681 about it, both by hand only: they name the classes in front of the player, which
+is how a character was confirmed from a ledge. `features.bladeTrace` in `status.json` carries the same.
 
 VR-171 the sword's swing trail: `tools\xrsim-run.ps1 -Path tools\xrsim\trail-hide.xrs` (the
 trail's particle component is found on the pawn by its template, the native hide takes

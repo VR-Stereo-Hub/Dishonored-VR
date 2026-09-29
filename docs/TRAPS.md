@@ -1,3 +1,43 @@
+## A numbered native cannot be called through ProcessEvent (VR-173, 2026-09-29)
+
+The plan, the ticket and the brief all said: call the engine's `Actor.Trace` through the
+outbound ProcessEvent path, as the mod calls everything else. It was built, with the
+function found by class and name and the block laid out by reflection, and every call
+came back unanswered. ProcessEvent leaves at once for a function that carries a native
+index (its test of the word at function +0x84); `Trace` is number 277. Nothing crashes
+and nothing is logged by the engine: the block simply comes back as it went in.
+
+* **A sentinel in the return value is what found it.** Without one a zeroed block reads
+  "no hit" for ever, which is a plausible answer on a ledge in free air.
+* **A self-test that can fail is worth more than the call it tests.** It printed four
+  FAILs on its first run, which is the only reason this cost one build and not a week.
+* **What works for one native says nothing about another.** `SetHidden` and
+  `TransformFromBoneSpace` go through ProcessEvent because they have no number.
+* **The way in is the function the thunk calls.** ENGINE_NOTES has the derivation. It is
+  the second precedent for calling an engine function directly, and like the first it
+  verifies its target's bytes, and that the address belongs to the NAME, before it calls.
+
+## A known answer has to be known for where the player stands (VR-173, 2026-09-29)
+
+"The floor is at the capsule's half height under the pawn" is true on flat ground. The
+sewer save stands on a ledge that leans: the first floor test read 76.0 against 65.0
+crouched and 99.2 against 87.5 standing and called the trace wrong. The trace was
+right. **Eleven units the same in both stances is a property of the place, not of the
+instrument**; an instrument fault does not know which stance the player is in. The test
+now pins what no slope can move (50 uu higher is 50 uu further; the same floor from
+both stances is at one height in the world).
+
+## `| Select-Object -First 1` stops the script it reads from (VR-173, 2026-09-29)
+
+Two simulator sessions ran with the sword never drawn: the setup script was piped
+through `Select-Object -First 1` to shorten its output, PowerShell ended the pipeline
+after the first line, and the script's remaining steps (pose the hand, draw the sword,
+switch the instrument on) never ran. Every later number in those sessions was taken with
+empty hands, and the instrument said so on every line (`the blade measurement is off`,
+`draws measured 0`) while it was read as a refusal to be explained. **Capture a
+script's output into a variable and cut that.** And read the owner's line before the
+result: `no sword draw has reached the measurement` was the answer.
+
 ## "Leave it as shipped" is not "leave it as found" (VR-173, 2026-09-29)
 
 The pitch probe ended, as `camshake.xrs` does, with a line that sets every camera-shake

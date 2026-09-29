@@ -1,0 +1,63 @@
+# trace-selftest.xrs - VR-173 prerequisite 4: can the mod ask the ENGINE what lies along a
+# line, and is the answer true?
+#
+# The mod calls the world's line check, the function the game's own script-callable trace
+# (Actor.Trace) runs, on the script lane. Before the held blade is traced with it, the call
+# has to give known answers, and each of them has to be able to come out wrong. It has: the
+# first build called Actor.Trace through ProcessEvent, the engine refuses that for a
+# numbered native, and this sequence failed all four with "did not write its return value".
+#
+#   floor under the feet       straight down past the feet: a hit facing up, on the
+#                              traced line, at about the capsule's half height (never
+#                              less; up to 25 uu more where the ground leans, and the
+#                              sewer save's ledge does: 11 uu)
+#   stops short of the floor   the same line ending 10 uu above that floor: NO hit. A call
+#                              that answers "hit" to everything passes the first and
+#                              fails this one
+#   the player is not a target upward inside the player's own capsule: the pawn the
+#                              trace is made for must not be its own obstacle
+#   the floor from 50 uu up    50 uu further, to the unit
+#   the floor across stances   crouched and standing, the pawn's own location differs by
+#                              the capsule (65 against 87.5) and the floor must not move
+#
+# Needs: a loaded level in GAMEPLAY on the dev PC's sewer save, [Mode] GamepadOnly=0.
+# Run:   .\tools\xrsim-run.ps1 -Path .\tools\xrsim\trace-selftest.xrs -Dir <sim dir>
+#
+# The player may be standing or crouched when this starts (the sewer save loads crouched).
+# Nothing here is written to the ini.
+
+hand r grip pos 0.25 1.30 -0.40; hand r grip rot 0 0 0; head rot 0 0 0
+@wait 1500
+
+# 1. The first use verifies the code and the name, once. The stance test has nothing to
+#    compare with yet and says SKIP.
+@mark
+@mod blade trace selftest
+@log blade/trace: RESOLVED - the function object named Actor.Trace .* Native index [1-9]\d* 10s
+@log blade/trace: selftest floor under the feet\s+PASS 5s
+@log blade/trace: selftest stops short of the floor\s+PASS 5s
+@log blade/trace: selftest the player is not a target\s+PASS 5s
+@log blade/trace: selftest the floor from 50 uu up\s+PASS 5s
+@log blade/trace: SELFTEST PASSED - 4 passed, 0 failed, 1 skipped 5s
+
+# 2. The other stance: all five.
+btn b press 150
+@wait 3000
+@mark
+@mod blade trace selftest
+@log blade/trace: selftest floor under the feet\s+PASS 8s
+@log blade/trace: selftest stops short of the floor\s+PASS 5s
+@log blade/trace: selftest the player is not a target\s+PASS 5s
+@log blade/trace: selftest the floor from 50 uu up\s+PASS 5s
+@log blade/trace: selftest the floor across stances\s+PASS 5s
+@log blade/trace: SELFTEST PASSED - 5 passed, 0 failed, 0 skipped 5s
+@nolog blade/trace: RESOLVED
+
+# 3. Back to the stance it started in, and the function was looked up exactly once.
+btn b press 150
+@wait 3000
+@mark
+@mod blade trace selftest; blade trace status
+@log blade/trace: SELFTEST PASSED - 5 passed, 0 failed, 0 skipped 8s
+@nolog blade/trace: RESOLVED
+@modassert features.bladeTrace.resolved eq true

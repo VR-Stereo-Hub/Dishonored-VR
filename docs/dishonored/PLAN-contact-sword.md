@@ -3,7 +3,7 @@
 Status: **RESEARCH, in progress since 2026-09-29.** Written 2026-09-21 alongside VR-170.
 Sections 1 to 5 are the plan as written and are left as they were. Section 6 holds what
 turned out to be different by the time the work started, section 7 the verdicts, one per
-prerequisite, in the order they were measured. Prerequisites 1 to 3 have their verdicts.
+prerequisite, in the order they were measured. Prerequisites 1 to 4 have their verdicts.
 
 ## 1. What the player would get
 
@@ -407,3 +407,116 @@ times one game tick, and belongs to the detector's latency measurement.
 point is scaled about the head by hand travel over the camera's scale and then carried
 at the camera's scale, so the camera's scale cancels and the blade is carried at hand
 travel, as it is drawn.
+
+### 7.4 Prerequisite 4, the engine's own trace: IT ANSWERS, but not by the route the plan named (2026-09-29)
+
+**Verdict: the mod can ask the engine what lies along the held blade, on the script lane,
+read-only, for about 8 microseconds a question, and the answer names characters,
+breakables and the world. The route is the world's line check, called the way the
+script-callable `Actor.Trace` calls it. `Actor.Trace` itself cannot be reached through
+ProcessEvent, and that was measured, not assumed.**
+
+Build `v1.0.1-163-g835160123` plus this commit's code, RelWithDebInfo, legacy off, the
+simulator, the sewer save. `[Blade] Trace`, default 0, live through `blade trace`.
+
+**What the plan asked for, and what happened.** Section 4.4 routes the call through the
+outbound ProcessEvent path. It was built exactly so: the function object named `Trace`,
+declared on `Actor`, found once by class and name; its nine parameters by their outer
+pointer (the block is 100 bytes and is stock: vectors at +0, +12, +24, +36, the bool at
++48, the extent at +52, a 28 byte hit record at +64, the flags at +92, the returned
+actor at +96); a zeroed block, every optional set, a sentinel in the return value. The
+self-test then FAILED four of four with `the call did not write its return value`, in
+both stances. It could print the unwelcome answer, and did.
+
+**Why.** Read from the game's own ProcessEvent (`tools/disasm-rva.py`): after the
+function-flags test and the pending-kill test it compares the word at function +0x84
+with zero and leaves when it is not. That word is the native index. `Trace` carries one:
+the runtime read of the function object says **277**. The natives the mod has always
+called this way (`SetHidden`, `TransformFromBoneSpace`, `GetProfileSettings`) carry
+none. So every numbered native is closed to this path, `FastTrace` and `TraceActors`
+with it.
+
+**The route that works.** The thunk the native registration table gives for
+`AActor::execTrace` reads its parameters and then calls one function, on the world
+object, with seven stack arguments: a hit record, the source actor, the end, the start,
+the flags, the extent and a light. That function returns with `ret 0x1C`, which is
+seven. It is the world's single line check, the same one 196 call sites in the game use.
+The mod calls it directly, on the script lane, with the flags the thunk composes for
+"trace actors too" (0x20BF) and the player's pawn as the source actor, and reads the
+same three fields the thunk reads back.
+
+Before the first call, and refused on any mismatch:
+
+* the line check begins with the 24 bytes it had when it was read;
+* the thunk loads the world pointer and calls the line check at the two places the
+  disassembly says, byte for byte;
+* **the function object NAMED `Actor.Trace` holds the thunk's address** (found at +0x9C
+  of it). The address is tied to a name at runtime, not only to an offline table.
+
+Five addresses and two offsets, all in `patterns.h`, derivation in ENGINE_NOTES.
+
+**Known answers** (`tools/xrsim/trace-selftest.xrs`, `blade trace selftest`):
+
+| Test | Crouched (half height 65.0) | Standing (87.5) |
+|---|---|---|
+| floor under the feet: a hit, facing up, on the line | 76.0 uu, normal z 0.98, 0.00 off the line | 99.2 uu, 0.98, 0.00 |
+| the same line stopping 10 uu short of that floor | no hit | no hit |
+| upward inside the player's own capsule | no hit: the player is not a target | no hit |
+| the same floor from 50 uu higher | 126.0 (want 126.0) | 149.2 (want 149.2) |
+| the same floor from the other stance | z 2829.1 | z 2829.1 |
+
+The first version of the floor test demanded the capsule's half height within 4 uu and
+failed by 11 in both stances. The trace was right and the expectation was wrong: the
+save stands on a ledge whose surface leans (normal z 0.98), the capsule rests on its
+rim, and the floor under its centre is lower. What a slope cannot move is that the same
+floor is 50 uu further from 50 uu higher, and at the same height in the world from
+either stance while the pawn's own location moved 23.2 uu. Those are the tests now; the
+half height is a band (never less, up to 25 more).
+
+**The held blade, traced** (`blade trace on`, one trace per hand sample, base to tip):
+
+| Hand | Blade | Answer |
+|---|---|---|
+| free air, five poses | 62.0 uu | nothing, every trace (230 to 361 per 3 s) |
+| lowered, blade down, tip 2.3 uu above the floor | 62.0 | nothing |
+| 10 cm lower | 62.0 | the world, 54.31 uu from the base |
+| 10 cm lower again | 62.0 | the world, 44.10: 10.21 nearer, 10.40 predicted from the floor's own normal |
+| and again | 62.0 | the world, 34.16: 9.94 nearer, 9.89 predicted |
+
+The hit lies 0.00 uu off the blade's line every time.
+
+**What it names** (`blade trace scan`, a one-shot fan of 1681 traces about the view, an
+instrument only):
+
+| Class | Taken for | Pawn ancestry |
+|---|---|---|
+| `DishonoredNPCPawn` | a character (guards, at 911 to 2089 uu) | yes |
+| `StaticMeshCollectionActor` | the world | no |
+| `DishonoredBreakableNavBlock` | another actor: a breakable | no |
+| `DishonoredMovable` | another actor: something that can be carried | no |
+
+That answers one open question as far as the simulator can: a character is reported as
+a character, and breakables are told apart from the world by class. Doors, ropes and
+planks the sword cuts have not been touched yet; the vocabulary line prints each new
+class once.
+
+**Cost and delay.**
+
+| | |
+|---|---|
+| one trace | median 7 to 8 us, p95 10 to 11, worst 22 (256 samples each) |
+| in bulk | 6.2 us each (1681 in 10.4 ms) |
+| traces a second | the hand sample rate, about 85 |
+| finding the function | one pass over 101,130 objects, 113 ms, ONCE per launch, at the first use |
+| blade published (present lane) to answer held (script lane) | median 0.1 ms, p95 10.3 to 11.3, worst 13.9 |
+| pairs a second, cap lifted, same pose, 40 s legs | levers off 107 and 108; measure, world and trace on 106 and 112. Each leg swings 67 to 132 by itself (the scene's own cycle) |
+
+The lane hop is at most one game tick. The honoured-check sees the game start an attack
+15 to 16 ms after a press on the simulator and 31 ms (median) in the headset, so the hop
+adds up to two thirds of a simulator tick to that and is not the delay that matters. The
+delay that matters is the game's own wind-up after the press, and it belongs to the
+detector (section 6).
+
+**What this does NOT show.** A blade touching a character (the guards are 9 m below the
+ledge, and the simulator cannot walk to them); a moving target; and what the game's own
+melee does with a press that arrives while the target is already at blade range.

@@ -1,3 +1,68 @@
+## VR-173: asking the engine what lies along a line (2026-09-29)
+
+**What the player gets from knowing this.** A sword that hits because its blade reached
+something has to ask the game what the blade reached, by the game's own rules.
+
+### ProcessEvent refuses a numbered native
+
+Read from ProcessEvent (`kProcessEvent`, `tools/disasm-rva.py <exe> dis 70640`). Before
+it runs anything it makes four tests and leaves on any of them:
+
+1. `test dword ptr [function + 0x80], 0x402` - the function flags: defined or native.
+2. the probe mask, for names in the probe range.
+3. a virtual call on the object (slot +0x34): pending kill.
+4. **`cmp word ptr [function + 0x84], 0` - the native index. Non-zero leaves.**
+
+`Actor.Trace` is declared with a number. Read at runtime off the function object found
+by class and name: **277**. Called through ProcessEvent with a correct 100 byte block
+it returned with nothing written, eight calls of eight. The natives the mod calls this
+way (`SetHidden`, `TransformFromBoneSpace`, `GetProfileSettings`,
+`GetProfileSettingName`) have no number. **Do not try a numbered native through
+ProcessEvent again**: `FastTrace`, `TraceActors`, `LineOfSightTo` and their kind.
+`kUFuncFlagsOff` 0x80 and `kUFuncNativeIdxOff` 0x84 are in `patterns.h`.
+
+`Actor.Trace`'s parameter block, by reflection (properties whose outer POINTER is the
+function): HitLocation +0, HitNormal +12, TraceEnd +24, TraceStart +36, bTraceActors
++48 (mask 1), Extent +52, HitInfo +64 (28 bytes), ExtraTraceFlags +92, ReturnValue +96.
+Kept for the record; nothing uses it.
+
+### The world's line check
+
+| What | Address | How it was derived |
+|---|---|---|
+| `AActor::execTrace`, the thunk | `0x006D0ED0` | `tools/ue3-natives.py <exe> --verify natives --grep AActorexecTrace` (the verify step re-derives the published crossbow numbers first) |
+| the thunk loads the world pointer | `0x006D1278`: `8B 0D 88 98 44 01` | `disasm-rva.py dis 2D0ED0`, the last call in the thunk |
+| the thunk calls the line check | `0x006D1282`: `E8 19 D5 F7 FF` | the same listing; the target works out to `0x0064E7A0` |
+| the world's single line check | `0x0064E7A0` | thiscall on the world, seven stack arguments, `ret 0x1C` at `0x0064E914`; 196 static callers (`disasm-rva.py calls 24E7A0`) |
+| the world object's pointer | `0x01449888` | 1808 references (`disasm-rva.py xref 1049888`) |
+
+The seven arguments, in the order the thunk pushes them last to first: the hit record,
+the source actor, the end, the start, the flags, the extent, a light (null). The flags
+are composed in the thunk: `0x20BF` when actors are traced too, `0x2086` for the world
+alone, `0x20` more with extra flag 8, `0x800` when a hit-info record is asked for, and
+three more bits from the extra flags. The source actor is the actor the trace is made
+for, or the pointer at its +0x248 when the bit 0x10 at its +0x10A is set.
+
+The hit record as the thunk builds it, 0x4C bytes: next +0, **actor +4**, **location
++8**, **normal +0x14**, time +0x20 (1.0 going in), item +0x24 (-1 going in), seven
+zeroed dwords from +0x28, then -1 at +0x44 and zero at +0x48. A null actor coming back
+is "nothing was hit".
+
+Verified at runtime before the first call (`blade_contact.cpp`, `BtResolve`), each a
+refusal with its reason: the 24 entry bytes of the line check, the two thunk sites, and
+that the function object named `Actor.Trace` holds the thunk's address. It does, at
++0x9C of the function object.
+
+Exe: the SHA256 this file already records (`66443f3d...e17e`).
+
+### What it answers with
+
+Classes seen so far (`blade/trace: first contact with class` prints each once):
+`StaticMeshCollectionActor` for level geometry, `DishonoredNPCPawn` for a guard (its
+class chain reaches `Pawn`), `DishonoredBreakableNavBlock` for a breakable,
+`DishonoredMovable` for something that can be carried. The player's own pawn is not
+returned when it is the source actor.
+
 ## VR-173: a hand-frame point in the world, and the half unit between the eyes (2026-09-29)
 
 **What the player gets from knowing this.** Anything that asks the engine what the held

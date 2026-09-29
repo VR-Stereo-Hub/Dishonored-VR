@@ -375,6 +375,7 @@ void tick(bool gameplay, bool projectionWanted) {
                 for (int i = 0; i < 3; ++i) bf.headPos[i] = cal.headPos[i];
                 bf.headQuat[0] = head.qx; bf.headQuat[1] = head.qy; bf.headQuat[2] = head.qz; bf.headQuat[3] = head.qw;
                 bf.handGen = hs.generation; bf.sampleMs = hs.stampMs; bf.revision = blade.revision;
+                { LARGE_INTEGER q; QueryPerformanceCounter(&q); bf.pubQpc = q.QuadPart; }
                 bf.ok = true; bf.why = "ready";
             }
         }

@@ -149,6 +149,31 @@ static const uintptr_t kFaceRotation = 0x00AB0D40;
 static const uint8_t   kFaceRotationBytes[5] = { 0x55, 0x8B, 0xEC, 0x51, 0x53 };
 
 static const uintptr_t kProcessEvent = 0x00470640;
+
+// VR-173: THE WORLD'S LINE CHECK, the function the script-callable Actor.Trace runs.
+// Derived offline (ENGINE_NOTES "VR-173: asking the engine what lies along a line"):
+//   the native registration table names AActorexecTrace and gives its thunk
+//   (tools/ue3-natives.py <exe> --verify natives --grep AActorexecTrace); the thunk, read
+//   with tools/disasm-rva.py, loads the world pointer and calls the line check with seven
+//   stack arguments (hit record, source actor, end, start, flags, extent, light); the line
+//   check returns with `ret 0x1C`, which is seven.
+// blade_contact.cpp verifies all of it before the first call and refuses on a mismatch:
+// the entry's 24 bytes, the two thunk sites, and that the function object NAMED
+// Actor.Trace holds kTraceThunk.
+static const uintptr_t kTraceThunk          = 0x006D0ED0;   // AActor::execTrace
+static const uintptr_t kTraceThunkWorldLoad = 0x006D1278;   // 8B 0D <kGWorldPtr>      mov ecx, [world]
+static const uintptr_t kTraceThunkCall      = 0x006D1282;   // E8 <rel32>              call kWorldLineCheck
+static const uintptr_t kWorldLineCheck      = 0x0064E7A0;   // __thiscall on the world, 7 stack arguments, ret 0x1C
+static const uintptr_t kGWorldPtr           = 0x01449888;   // the world object's pointer
+// What the thunk composes for "trace actors too" with no extra flag and no hit-info request
+// (its other branch, world only, is 0x2086).
+static const uint32_t  kTraceFlagsActors    = 0x000020BF;
+// UFunction: the word ProcessEvent tests before it runs anything. Non-zero = a numbered
+// native, and ProcessEvent returns without calling it (kProcessEvent + 0xA5: cmp word ptr
+// [function + 0x84], 0; jne to the exit). Beside it at +0x80, the function flags it tests
+// first (0x402: defined or native).
+static const uint32_t  kUFuncFlagsOff       = 0x80;
+static const uint32_t  kUFuncNativeIdxOff   = 0x84;
 static const uintptr_t kCamHookAt = 0x56dd36; // epilogue (5 bytes: 5E 8B E5 5D C3)
 static const uintptr_t kBlkAimHook = 0x00bf595f;   // the first movss, 5 bytes
 static const uintptr_t kBlkAimBack = 0x00bf5964;   // resume at the second
