@@ -72,6 +72,9 @@ const char* kSrc =
     "    float4 prm4;\n"                 // one grid step in uv: fresh x, y, held x, y
     "    float4 prm5;\n"                 // the foreground's tanH, tanV, its depth limit (units; 0 = one projection)
     "    float4 prm6;\n"                 // own hands on, their colour agreement limit (0..1)
+    "    float4 hRa0, hRa1, hRa2, hOa, hNa;\n"   // MSW: hand a's rotation since the image (rows), its grip then, now
+    "    float4 hRb0, hRb1, hRb2, hOb, hNb;\n"   // hand b's (hOx.w > 0.5: that hand is tracked)
+    "    float4 prm7;\n"                 // MSW: the hands follow their controllers
     "};\n"
     "cbuffer M : register(b1) {\n"
     "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
@@ -99,10 +102,18 @@ const char* kSrc =
     "float3 toT(float3 L) { return toTT(L, prm.xy); }\n"
     "float3 mapF(float2 s, float z) { float2 tn = tanFor(z); z = abs(z);\n"
     "    return toTT(mr(d0, d1, d2, mr(f0, f1, f2, viewDirT(s, tn) * (z * prm.z)) + fp.xyz - dp.xyz), tn); }\n"
+    // MSW: a foreground point moves rigidly with the nearer controller's grip (from the image's pose to the slot's).
+    "float3 handMove(float3 W) {\n"
+    "    float da = hOa.w > 0.5 ? dot(W - hOa.xyz, W - hOa.xyz) : 1e9, db = hOb.w > 0.5 ? dot(W - hOb.xyz, W - hOb.xyz) : 1e9;\n"
+    "    if (da >= 1e9 && db >= 1e9) return W;\n"
+    "    if (da <= db) { float3 r = W - hOa.xyz; return float3(dot(hRa0.xyz, r), dot(hRa1.xyz, r), dot(hRa2.xyz, r)) + hNa.xyz; }\n"
+    "    float3 r = W - hOb.xyz; return float3(dot(hRb0.xyz, r), dot(hRb1.xyz, r), dot(hRb2.xyz, r)) + hNb.xyz;\n"
+    "}\n"
     "float3 mapHx(float2 s, float z, bool world) {\n"
-    "    float2 tn = tanFor(z); z = abs(z);\n"
+    "    float2 tn = tanFor(z); bool fgp = isFg(z); z = abs(z);\n"
     "    float3 W = mr(s0, s1, s2, viewDirT(s, tn) * (z * prm.z)) + sp.xyz;\n"
-    "    if (world) W = mr(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
+    "    if (prm7.x > 0.5 && fgp) W = handMove(W);\n"
+    "    else if (world) W = mr(y0, y1, y2, W - yc.xyz) + yc.xyz;\n"
     "    return toTT(mr(d0, d1, d2, W - dp.xyz), tn);\n"
     "}\n"
     "float3 mapH(float2 s, float z) {\n"
@@ -313,6 +324,7 @@ struct Held {
     uint32_t dw = 0, dh = 0;
     bool depthOk = false;
     bool maskOk = false;                     // its depth carries the foreground mask (or no foreground pass was drawn)
+    HandPose hands[2]{};                     // MSW: the grip poses its hands were posed from (note_hands)
 };
 Held g_held[2];
 uint64_t g_seq = 0;
@@ -497,7 +509,7 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pxd->GetBufferPointer(), pxd->GetBufferSize(), nullptr, &g_psXrDepth);
     rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 30 * 16;   // thirty float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6
+    bd.ByteWidth = 41 * 16;   // s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, the hands (10), prm7
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
@@ -1211,8 +1223,9 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
+        float hand[2][5][4]; float prm7[4];
     } cb;
-    static_assert(sizeof(CB) == 30 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 41 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     const Pose& hp = haveH ? src.pose : fr.pose;
     rows(hp, cb.s, false);
@@ -1323,6 +1336,8 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
 // reprojects exactly at every depth); the head's own rotation to the slot is the compositor's as always.
 // The hands are held fixed in tracking space (the body hypothesis): a controller that moves inside one slot
 // lags that slot. Disocclusions keep the image's own nearest sample (a few cm of translation per slot).
+std::atomic<bool> g_synthHands{false};     // `vrpace msw hands on|off`: the hands follow their controllers in a synthesized slot
+uint32_t g_synthHandsUsed = 0;
 std::atomic<bool> g_synthExtrap{true};     // `vrpace msw extrap on|off`: the walking/turning extrapolation (off = head only)
 uint32_t g_synths = 0, g_synthMtx = 0, g_synthRefused = 0;
 float g_synthStepMax = 0, g_synthYawMax = 0;
@@ -1354,6 +1369,30 @@ bool body_motion(double v[3], double* yawPerMs, double* dtMs) {
     return true;
 }
 
+void note_hands(int eye, const HandPose hands[2]) {
+    if (eye < 0 || eye > 1 || !hands) return;
+    g_held[eye].hands[0] = hands[0]; g_held[eye].hands[1] = hands[1];
+}
+void set_synth_hands(bool on) {
+    if (g_synthHands.exchange(on) != on)
+        DVR_INFO("msw: hands %s", on ? "FOLLOW their controllers in a synthesized slot (each hand's pixels move rigidly with the "
+                                     "nearer grip, from the image's pose to the slot's)" : "held where the image drew them (off)");
+}
+bool synth_hands() { return g_synthHands.load(); }
+
+// The rigid motion of a grip from `a` to `b`, as the shader's rows: R = Rb Ra^T, origin a, destination b.
+void hand_motion(const HandPose& a, const HandPose& b, float out[5][4]) {
+    float ra[3][4], rb[3][4];
+    Pose pa{{a.q[0], a.q[1], a.q[2], a.q[3]}, {a.p[0], a.p[1], a.p[2]}}, pb{{b.q[0], b.q[1], b.q[2], b.q[3]}, {b.p[0], b.p[1], b.p[2]}};
+    rows(pa, ra, false); rows(pb, rb, false);
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) out[r][c] = rb[r][0] * ra[c][0] + rb[r][1] * ra[c][1] + rb[r][2] * ra[c][2];
+        out[r][3] = 0;
+    }
+    out[3][0] = a.p[0]; out[3][1] = a.p[1]; out[3][2] = a.p[2]; out[3][3] = 1;
+    out[4][0] = b.p[0]; out[4][1] = b.p[1]; out[4][2] = b.p[2]; out[4][3] = 1;
+}
+
 void set_synth_extrapolate(bool on) {
     if (g_synthExtrap.exchange(on) != on)
         DVR_INFO("msw: body extrapolation %s (off: the synthesized slot follows the head only)", on ? "ON" : "off");
@@ -1361,7 +1400,8 @@ void set_synth_extrapolate(bool on) {
 bool synth_extrapolate() { return g_synthExtrap.load(); }
 
 bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, uint32_t w, uint32_t h,
-               float tanH, float tanV, const float targetPos[3], double nowMs, Pose* outPose, const char** why) {
+               float tanH, float tanV, const float targetPos[3], double nowMs, Pose* outPose, const char** why,
+               const HandPose* slotHands) {
     if (why) *why = nullptr;
     auto refuse = [&](const char* r) { ++g_synthRefused; g_synthWhy = r; if (why) *why = r; return false; };
     if (!g_on.load()) return refuse("AFW off");
@@ -1391,8 +1431,9 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
+        float hand[2][5][4]; float prm7[4];
     } cb;
-    static_assert(sizeof(CB) == 30 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 41 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     rows(own.pose, cb.s, false);
     cb.sp[0] = own.pose.p[0]; cb.sp[1] = own.pose.p[1]; cb.sp[2] = own.pose.p[2];
@@ -1419,6 +1460,12 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     }
     cb.prm5[3] = g_nearMiss.load();
     cb.prm6[2] = (g_fgMask.load() && own.maskOk) ? 1.0f : 0.0f;
+    if (g_synthHands.load() && slotHands) {   // the hands: each tracked grip's motion from the image to the slot
+        bool any = false;
+        for (int k = 0; k < 2; ++k)
+            if (own.hands[k].ok && slotHands[k].ok) { hand_motion(own.hands[k], slotHands[k], cb.hand[k]); any = true; }
+        if (any) { cb.prm7[0] = 1.0f; ++g_synthHandsUsed; }
+    }
     // The world by the game's matrices: the same camera-relative projection (the orientation is the image's
     // own), the camera moved by the head's translation and the extrapolated walk.
     double step = 0;
@@ -1497,10 +1544,11 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     if (step > g_synthStepMax) g_synthStepMax = (float)step;
     if (fabs(turn) > g_synthYawMax) g_synthYawMax = (float)fabs(turn);
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
-        "msw: beat - %u eyes synthesized (%u with the game's matrices), %u refused (last: %s); extrapolation %s: walk up to "
-        "%.1f uu and turn up to %.2f deg per synthesized eye (0 while standing still)",
-        g_synths, g_synthMtx, g_synthRefused, g_synthWhy[0] ? g_synthWhy : "none", g_synthExtrap.load() ? "on" : "off",
-        g_synthStepMax, g_synthYawMax);
+        "msw: beat - %u eyes synthesized (%u with the game's matrices, %u with the hands moved by their controllers), %u "
+        "refused (last: %s); extrapolation %s: walk up to %.1f uu and turn up to %.2f deg per synthesized eye (0 while "
+        "standing still)",
+        g_synths, g_synthMtx, g_synthHandsUsed, g_synthRefused, g_synthWhy[0] ? g_synthWhy : "none",
+        g_synthExtrap.load() ? "on" : "off", g_synthStepMax, g_synthYawMax);
     return true;
 }
 

@@ -539,6 +539,75 @@ int main() {
         check("msw: a slot the game missed, running, rebuilt from each eye's own image", a0 && a1 && ac && w0 > 0.97 && w1 > 0.97 &&
               h0 > 0.97 && h1 > 0.97 && p0 < 1.5 && p1 < 1.5 && pc > 3.0, d);
     }
+    {   // MSW hands: standing still, the controller moves 3 cm right between the image and the slot. With the hands
+        // following their controllers the hand pixels must land where the scene at the slot has them; off, they lag
+        // (the control). The hand is the foreground (the mask), its grip at the quad's centre.
+        auto handCase = [&](bool follow, double* handOk, double* worldOk) -> bool {
+            State h0 = still, h1 = still; h1.handX = 0.03;
+            dvr::afw::set_enabled(true, "test"); dvr::afw::set_stereo(true, "test");
+            dvr::afw::set_body_depth(0.40f, "test"); dvr::afw::set_world_scale((float)kScale);
+            dvr::afw::set_matrices(true, "test"); dvr::afw::set_fg(false, "test"); dvr::afw::set_fg_fov(0);
+            dvr::afw::set_fg_mask(true, "test");
+            dvr::afw::set_synth_hands(follow);
+            g_signForeground = true; dvr::depthprobe::g_prefgReady = true;
+            const Eye e0 = eyeOf(h0, 0), e1 = eyeOf(h0, 1);
+            auto i0 = image(h0, e0, N, N), i1 = image(h0, e1, N, N), truth = image(h1, e0, N, N);
+            ID3D11Texture2D* x0 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i0.data());
+            ID3D11Texture2D* x1 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i1.data());
+            ID3D11ShaderResourceView *v0 = nullptr, *v1 = nullptr;
+            g.dev->CreateShaderResourceView(x0, nullptr, &v0); g.dev->CreateShaderResourceView(x1, nullptr, &v1);
+            for (auto*& q : g_depthBySerial) q = nullptr;
+            g_depthBySerial[5] = v0; g_depthBySerial[6] = v1; g_depthW = N; g_depthH = N;
+            const Rec m0 = recordOf(h0, e0, false, false), m1 = recordOf(h0, e1, false, false);
+            const dvr::afw::Pose tg[2] = {poseOf(e0), poseOf(e1)};
+            dvr::afw::CaptureMeta c0, c1; c0.captureMs = 2000.0; c1.captureMs = 2010.0;
+            dvr::afw::note_capture(g.dev, g.ctx, 0, x0, 5, poseOf(e0), true, 0.0f, tg, m0.vp, m0.c5, m0.rot, &c0);
+            dvr::afw::note_capture(g.dev, g.ctx, 1, x1, 6, poseOf(e1), true, 0.0f, tg, m1.vp, m1.c5, m1.rot, &c1);
+            dvr::afw::HandPose then[2], now[2];
+            then[1].ok = now[1].ok = true;   // the right grip at the hand quad's centre
+            then[1].p[0] = (float)h0.handX; then[1].p[1] = (float)kHandY; then[1].p[2] = (float)kHandZ;
+            now[1] = then[1]; now[1].p[0] = (float)h1.handX;
+            dvr::afw::note_hands(0, then); dvr::afw::note_hands(1, then);
+            const float tp[3] = {(float)e0.pos.x, (float)e0.pos.y, (float)e0.pos.z};
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            const bool ok = dvr::afw::synth_eye(g.dev, g.ctx, 0, g.dst, N, N, (float)kTan, (float)kTan, tp, 2020.0, &out, &why, now);
+            std::vector<float> px(N * N * 4);
+            if (ok) {
+                g.ctx->CopyResource(g.stage, g.dst);
+                D3D11_MAPPED_SUBRESOURCE m;
+                if (SUCCEEDED(g.ctx->Map(g.stage, 0, D3D11_MAP_READ, 0, &m))) {
+                    for (int y = 0; y < N; ++y) memcpy(&px[y * N * 4], (const uint8_t*)m.pData + y * m.RowPitch, N * 16);
+                    g.ctx->Unmap(g.stage, 0);
+                }
+            } else printf("  synth refused: %s\n", why ? why : "?");
+            v0->Release(); v1->Release(); x0->Release(); x1->Release();
+            g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
+            dvr::afw::set_synth_hands(false);
+            if (!ok) return false;
+            int hn = 0, hg = 0, wn = 0, wg = 0;
+            const double k = N / (2 * kTan);
+            for (int y = 3; y < N - 3; ++y)
+                for (int x = 3; x < N - 3; ++x) {
+                    const int ts = surfOf(&truth[(y * N + x) * 4]);
+                    bool edge = false;
+                    for (int dy = -3; dy <= 3 && !edge; ++dy)
+                        for (int dx = -3; dx <= 3; ++dx) if (surfOf(&truth[((y + dy) * N + x + dx) * 4]) != ts) { edge = true; break; }
+                    if (edge) continue;
+                    const float* o = &px[(y * N + x) * 4];
+                    const float* t = &truth[(y * N + x) * 4];
+                    if (ts == 2) { ++hn; hg += (o[2] > 0.5f && fabs(o[0] - t[0]) * kHandW / -kHandZ * k < 1.5 && fabs(o[1] - t[1]) * kHandH / -kHandZ * k < 1.5); }
+                    else if (o[2] < 0.5f) { ++wn; ++wg; }   // world where the truth is world (the uncovered strip excepted below)
+                    else ++wn;
+                }
+            *handOk = hn ? (double)hg / hn : 0; *worldOk = wn ? (double)wg / wn : 0;
+            return true;
+        };
+        double hf = 0, wf = 0, hc = 0, wc = 0;
+        const bool a = handCase(true, &hf, &wf), b = handCase(false, &hc, &wc);
+        char d[200];
+        snprintf(d, sizeof(d), "hands on: hand %.3f, world free of hand %.3f | control, off: hand %.3f, world free of hand %.3f", hf, wf, hc, wc);
+        check("msw: the hands follow their controllers into a synthesized slot", a && b && hf > 0.97 && wf > 0.99 && hc < 0.7, d);
+    }
     {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.
         const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);
         auto hImg = image(still, h0, N, N), fImg = image(turn, f1, N, N);

@@ -66,6 +66,8 @@ void input_draw_debug_ui();
 // points") over the GRIP pose (the handle, what a hand model wants). False
 // while that hand is not tracked. Meters + quaternion, XR convention.
 bool input_get_hand_pose(int hand, bool aimPose, float* pos3, float* quat4);
+// VR-39 (MSW): a grip located at an arbitrary display time (a synthesized slot's). Any thread.
+bool input_locate_grip(int hand, XrTime when, float pos3[3], float quat4[4]);
 // VR-224 (Index tuning): extra pitch (degrees, + = up) applied to a hand's AIM pose.
 void input_set_aim_pitch_extra(int hand, float deg);
 

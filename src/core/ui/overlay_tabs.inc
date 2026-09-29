@@ -1186,6 +1186,18 @@ static void OvlTabDisplay()
                     dvr::vr::set_mod_spacewarp(msw);
                     OverlaySaveDefaults();
                 }
+                if (msw) {
+                    bool mh = dvr::afw::synth_hands();
+                    if (dvr::ovl::checkbox("Spacewarp: hands follow the controllers in filled frames", &mh)) {
+                        dvr::afw::set_synth_hands(mh);
+                        OverlaySaveDefaults();
+                    }
+                    bool mx = dvr::afw::synth_extrapolate();
+                    if (dvr::ovl::checkbox("Spacewarp: predict walking and turning in filled frames", &mx)) {
+                        dvr::afw::set_synth_extrapolate(mx);
+                        OverlaySaveDefaults();
+                    }
+                }
                 if (dvr::vr::depth_active()) {
                     bool dl = dvr::vr::depth_live();
                     if (dvr::ovl::checkbox("AFW: depth layer live (A/B)", &dl)) dvr::vr::set_depth_live(dl);

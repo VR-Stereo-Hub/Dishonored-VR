@@ -64,7 +64,7 @@ own draws with `Enter`/`Leave` and restores the pipeline state it touched. XR ca
 
 ## 3. Evidence
 
-- Host (`tools\afw-warp-host.ps1`, 35/35). New case: running 5 cm per 10 ms, the left image at 0 ms, the
+- Host (`tools\afw-warp-host.ps1`, 36/36 with the hands case). New case: running 5 cm per 10 ms, the left image at 0 ms, the
   right at 10 ms, slots at 20 ms.
 
   | Case | World within 1.5 px | p95 | Hands correct |
@@ -98,15 +98,23 @@ own draws with `Enter`/`Leave` and restores the pipeline state it touched. XR ca
 
 1. **(built)** Own-image synthesis with walk and turn extrapolation, HUD layers re-submitted, depth layer.
 2. Disocclusion from the other eye's image (the AFW two-source compose with the synth target).
-3. Hands: each hand's pixels moved by its controller's pose delta to the slot (the mask names the pixels;
-   the projected controller positions split left and right).
+3. **(built 2026-09-29)** Hands: each foreground pixel moves rigidly with the nearer grip, from the image's
+   grip pose to the slot's.
+   - Each image carries the grips of the view set its head sample came from (`note_hands`, a 16-entry
+     history keyed like `g_viewHist`; `vrpace msw handgen <n>` shifts the match).
+   - The slot's grips are located at its display time.
+   - Quads placed within 30 cm of a grip (wrist HUD, the aim dot at the hand) move with it.
+   - Default off: `[VR] ModSpacewarpHands`, `vrpace msw hands on|off`, F10.
+   - Host: the controller moved 3 cm; hand pixels 100% right with it on, 0% with it off (the control).
+   - Unverified: whether the image's hands were drawn from exactly that generation's grip. A
+     one-generation mismatch would show as hand judder at the game's rate; `handgen` is the lever.
 4. Moving characters: object motion. The game draws no velocity buffer (`MotionBlur=False`). The routes:
    - enable UE3's velocity pass with the blur amount at 0;
    - optical flow in the x64 helper: NVIDIA Optical Flow SDK on RTX, or FidelityFX's MIT-licensed optical
      flow from FSR 3.
    - The same vectors fix DLSS's smearing of moving characters.
-5. HUD quads re-posed for the slot (hand- and body-anchored quads are one slot old today; head-locked
-   ones are exact).
+5. HUD quads re-posed for the slot. Head-locked ones are exact; hand-held ones follow their grip (with rung
+   3). Body-anchored ones are still one slot old.
 6. Cost: synthesize at a reduced size, or reuse the seed map across both eyes.
 
 ## 6. Risks recorded before the first run

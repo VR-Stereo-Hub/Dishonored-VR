@@ -116,6 +116,16 @@ std::atomic<uint32_t> g_mswFrames{0}, g_mswSynthEyes{0}, g_mswCopyEyes{0}, g_msw
     g_mswFails{0};
 const char* g_mswNotReadyWhy = "";
 ID3D11Multithread* g_mt = nullptr;
+// MSW's hands: the grips of each located view set (labelled as g_viewHist is), so a captured image can carry the
+// grips of the generation its head sample came from; `vrpace msw handgen <n>` shifts that match by n generations.
+struct HandGen { uint32_t label = 0; bool valid = false; dvr::afw::HandPose g[2]; };
+constexpr int kHandHist = 16;
+HandGen g_handHist[kHandHist];
+uint32_t g_handHistAt = 0;
+std::atomic<int> g_mswHandGen{0};
+uint32_t g_mswHandMiss = 0, g_mswHandHit = 0;
+dvr::afw::HandPose g_mswQuadGrips[2];        // the grips when the banked quads were placed (hand-held HUD follows them)
+uint32_t g_mswQuadsMoved = 0;
 uint32_t g_swapW = 0, g_swapH = 0;
 uint32_t g_backbufferFmt = 0; // DXGI format the live swapchains were built for
 // Set by on_resize (which runs inside the game's ResizeBuffersDetour, at an
@@ -3543,6 +3553,11 @@ void on_present_begin() {
     // M5: one action sync per XR frame (with pair pacing that is once per eye
     // pair == once per game tick). Composes and publishes the synthetic pad.
     input_sync(g_session, g_frameState.predictedDisplayTime);
+    {   // VR-39 (MSW): this view set's grips, for the image the game draws from it
+        HandGen& hg = g_handHist[g_handHistAt++ % kHandHist];
+        hg.label = g_viewsGen; hg.valid = true;
+        for (int k = 0; k < 2; ++k) hg.g[k].ok = input_get_hand_pose(k, false, hg.g[k].p, hg.g[k].q);
+    }
 
     // Single readiness gate for projection mode (and, through vr_camera_mode,
     // for the camera drive): never let a head-driven camera show on the quad.
@@ -4728,6 +4743,13 @@ void on_present_end(ID3D11Texture2D* frame) {
                                                                vpOk ? rec.renderVp : nullptr,
                                                                vpOk ? rec.renderPos : nullptr,
                                                                rec.cam.ok ? rotator : nullptr, &cm);
+                                        dvr::afw::HandPose hp[2];   // VR-39 (MSW): the grips of the same generation
+                                        const uint32_t want = rec.track.gen + (uint32_t)g_mswHandGen.load(std::memory_order_relaxed);
+                                        bool found = false;
+                                        for (const HandGen& hg : g_handHist)
+                                            if (hg.valid && hg.label + 1 == want) { hp[0] = hg.g[0]; hp[1] = hg.g[1]; found = true; break; }
+                                        (found ? g_mswHandHit : g_mswHandMiss)++;
+                                        dvr::afw::note_hands(srEye, hp);
                                     }
                                     g_eyePoseGen[srEye] = rec.track.gen;
                                     g_eyePoseLag[srEye] = -2;   // exact generation, not numeric lag
@@ -5640,6 +5662,8 @@ void on_present_end(ID3D11Texture2D* frame) {
                     g_mswQuads[g_mswQuadN] = *reinterpret_cast<const XrCompositionLayerQuad*>(layers[i]);
                     g_mswQuads[g_mswQuadN++].next = nullptr;
                 }
+            for (int k = 0; k < 2; ++k)
+                g_mswQuadGrips[k].ok = input_get_hand_pose(k, false, g_mswQuadGrips[k].p, g_mswQuadGrips[k].q);
             g_mswBankOk = true;
         }
     }
@@ -6239,6 +6263,9 @@ void msw_cycle() {
     const double nowMs = MaimNowMs();
     const bool depthOn = g_depthExt && g_depthFmt && g_depthLive.load(std::memory_order_relaxed);
     int wroteEyes = 0, depthEyes = 0;
+    dvr::afw::HandPose slotHands[2];   // the grips at the slot's display time (the hands follow them when on)
+    if (dvr::afw::synth_hands() && located)
+        for (int k = 0; k < 2; ++k) slotHands[k].ok = input_locate_grip(k, fs.predictedDisplayTime, slotHands[k].p, slotHands[k].q);
     if (fs.shouldRender && located) {
         for (int e = 0; e < 2; ++e) {
             uint32_t idx = 0;
@@ -6253,7 +6280,8 @@ void msw_cycle() {
                 const float tp[3] = {v[e].pose.position.x, v[e].pose.position.y, v[e].pose.position.z};
                 const char* why = nullptr;
                 if (g_mt) g_mt->Enter();
-                synth = dvr::afw::synth_eye(g_device, g_context, e, dst, g_swapW, g_swapH, tanH, tanV, tp, nowMs, &pose, &why);
+                synth = dvr::afw::synth_eye(g_device, g_context, e, dst, g_swapW, g_swapH, tanH, tanV, tp, nowMs, &pose, &why,
+                                            slotHands);
                 wrote = synth || dvr::afw::copy_own(g_context, e, dst, &pose);
                 if (g_mt) g_mt->Leave();
             }
@@ -6293,6 +6321,35 @@ void msw_cycle() {
             }
         }
     }
+    // The quads: head-locked ones are exact as banked (VIEW space); one within 30 cm of a grip when it was placed
+    // (a wrist HUD element, the aim dot at the hand) moves rigidly with that grip to the slot, with the hands on.
+    XrCompositionLayerQuad quads[kMswMaxQuads];
+    for (uint32_t i = 0; i < g_mswQuadN; ++i) {
+        quads[i] = g_mswQuads[i];
+        if (!dvr::afw::synth_hands() || quads[i].space != g_space) continue;
+        const XrVector3f qp = quads[i].pose.position;
+        int grip = -1; float bestD = 0.09f;
+        for (int k = 0; k < 2; ++k) {
+            if (!g_mswQuadGrips[k].ok || !slotHands[k].ok) continue;
+            const float dx = qp.x - g_mswQuadGrips[k].p[0], dy = qp.y - g_mswQuadGrips[k].p[1], dz = qp.z - g_mswQuadGrips[k].p[2];
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < bestD) { bestD = d2; grip = k; }
+        }
+        if (grip < 0) continue;
+        // delta = qNow * conj(qThen): rotate the offset from the old grip, re-anchor at the new one.
+        const float* a = g_mswQuadGrips[grip].q; const float* b = slotHands[grip].q;
+        const XrQuaternionf qa{-a[0], -a[1], -a[2], a[3]}, qb{b[0], b[1], b[2], b[3]};
+        auto mul = [](const XrQuaternionf& x, const XrQuaternionf& y) {
+            return XrQuaternionf{x.w * y.x + x.x * y.w + x.y * y.z - x.z * y.y, x.w * y.y - x.x * y.z + x.y * y.w + x.z * y.x,
+                                 x.w * y.z + x.x * y.y - x.y * y.x + x.z * y.w, x.w * y.w - x.x * y.x - x.y * y.y - x.z * y.z};
+        };
+        const XrQuaternionf d = mul(qb, qa);
+        const XrQuaternionf off{qp.x - g_mswQuadGrips[grip].p[0], qp.y - g_mswQuadGrips[grip].p[1], qp.z - g_mswQuadGrips[grip].p[2], 0};
+        const XrQuaternionf r = mul(mul(d, off), XrQuaternionf{-d.x, -d.y, -d.z, d.w});
+        quads[i].pose.position = {r.x + slotHands[grip].p[0], r.y + slotHands[grip].p[1], r.z + slotHands[grip].p[2]};
+        quads[i].pose.orientation = mul(d, quads[i].pose.orientation);
+        ++g_mswQuadsMoved;
+    }
     const XrCompositionLayerBaseHeader* layers[1 + kMswMaxQuads] = {};
     uint32_t count = 0;
     if (wroteEyes == 2) {
@@ -6302,7 +6359,7 @@ void msw_cycle() {
         proj.views = pv;
         layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&proj);
         for (uint32_t i = 0; i < g_mswQuadN; ++i)
-            layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&g_mswQuads[i]);
+            layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&quads[i]);
     } else {
         // Nothing new for one eye: the last real layer set as it was (never an empty frame, which shows black).
         FeedSnap snap;
@@ -6365,10 +6422,11 @@ DWORD WINAPI msw_thread_proc(void*) {
                            en = g_endFrames.load(std::memory_order_relaxed);
             const double secs = (t - nextLog + 3000) / 1000.0;
             XRLOG("msw: %.0f slots/s synthesized beside %.0f/s from the game (%.0f Hz display) | eyes rebuilt %u, copied %u | "
-                  "skipped: game present in progress %u, not ready %u (last: %s), failures %u",
+                  "skipped: game present in progress %u, not ready %u (last: %s), failures %u | hands %s (grips matched to "
+                  "images %u, unmatched %u; hand-held quads moved %u)",
                   (fr - lastFrames) / secs, (en - lastEnds) / secs, periodNs > 0 ? 1e9 / periodNs : 0.0,
                   sy - lastSynth, cp - lastCopy, bz - lastBusy, nr - lastNR, g_mswNotReadyWhy[0] ? g_mswNotReadyWhy : "none",
-                  fl - lastFails);
+                  fl - lastFails, dvr::afw::synth_hands() ? "follow" : "held", g_mswHandHit, g_mswHandMiss, g_mswQuadsMoved);
             lastFrames = fr; lastSynth = sy; lastCopy = cp; lastBusy = bz; lastNR = nr; lastFails = fl; lastEnds = en;
             nextLog = t + 3000;
         }
@@ -6631,9 +6689,16 @@ void handle_pace_command(const char* args) {
                     g_poseLag.load(std::memory_order_relaxed), g_poseGenDeltaDeg.load(std::memory_order_relaxed));
     } else if (strcmp(verb, "msw") == 0) {
         // VR-39: the mod's own spacewarp. `vrpace msw on|off`, `vrpace msw extrap on|off`, `vrpace msw lead <0.3..0.95>`.
-        float lead = 0;
+        float lead = 0; int hg = 0;
         if (strncmp(rest, "extrap on", 9) == 0) dvr::afw::set_synth_extrapolate(true);
         else if (strncmp(rest, "extrap off", 10) == 0) dvr::afw::set_synth_extrapolate(false);
+        else if (strncmp(rest, "hands on", 8) == 0) dvr::afw::set_synth_hands(true);
+        else if (strncmp(rest, "hands off", 9) == 0) dvr::afw::set_synth_hands(false);
+        else if (sscanf_s(rest, "handgen %d", &hg) == 1 && hg >= -2 && hg <= 2) {
+            g_mswHandGen.store(hg);
+            XRLOG("msw: the image's grips are matched %d generation(s) from its head sample (hits %u, misses %u so far)",
+                  hg, g_mswHandHit, g_mswHandMiss);
+        }
         else if (sscanf_s(rest, "lead %f", &lead) == 1 && lead >= 0.3f && lead <= 0.95f) {
             g_mswLead.store(lead);
             XRLOG("msw: lead %.2f of a period", lead);
