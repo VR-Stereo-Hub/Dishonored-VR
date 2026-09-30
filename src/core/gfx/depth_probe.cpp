@@ -622,7 +622,13 @@ void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp) {
     g_fpCrushed = vp->MaxZ < 0.5f; g_fpVpW = vp->Width;
     if (g_crushArmed) try_pre_copy(dev);
 }
+// Run 19: whether the GAME's draw now entering the hook is a foreground draw, decided here, before the mod's hands code
+// runs: the mesh split and the weapon attachment widen the crushed viewport to the full depth range before they draw
+// (the depth-range lever), so at orig_draw_* the draw no longer looks like one (run 18: 0 candidates in 5 s while
+// fgproj counted about 1000). Every piece drawn inside this game draw is a candidate; note_draw_end clears it.
+static bool g_fgGameDraw = false;
 void note_draw(IDirect3DDevice9* dev) {
+    g_fgGameDraw = g_fpCrushed && g_fpVpW >= 512;
     if (g_fpOn.load(std::memory_order_relaxed)) fp_sample();
     if (g_crushArmed) try_pre_copy(dev);
 }
@@ -814,7 +820,7 @@ void fgmask_prepare(IDirect3DDevice9* d9, ID3D11Device* d11, ID3D11DeviceContext
 }
 
 bool fgmask_begin(IDirect3DDevice9* dev) {
-    if (!g_fpCrushed || g_fpVpW < 512 || !dev || !fgmask_wanted()) return false;
+    if (!g_fgGameDraw || !dev || !fgmask_wanted()) return false;   // run 19: decided at the game's draw (note_draw)
     ++g_maskCand;
     if (g_maskIn) { ++g_maskRejIn; return false; }
     if (g_maskCur < 0) {
@@ -875,6 +881,7 @@ void fgmask_end(IDirect3DDevice9* dev, HRESULT drawn) {
     g_maskIn = false;
 }
 bool fgmask_in_draw() { return g_maskIn; }
+void note_draw_end() { g_fgGameDraw = false; }
 
 void fgmask_seal(uint32_t serial) {
     for (MaskSlot& s : g_mask) if (s.serial == serial) s.serial = 0;

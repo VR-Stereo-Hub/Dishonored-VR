@@ -366,10 +366,11 @@ HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, I
     dvr::native_profile::Scope timing(dvr::native_profile::IndexedHook);
     ++g_actDraws;
     dvr::depthprobe::note_draw(self);   // VR-39: the foreground mask's snapshot, before the pass's first draw
-    if (g_cb.draw_indexed)
-        return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
-                                 startIndex, primCount);
-    return orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    const HRESULT hr = g_cb.draw_indexed
+        ? g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount)
+        : orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    dvr::depthprobe::note_draw_end();   // run 19: the game's draw is over (the mask's candidate window)
+    return hr;
 }
 
 HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
@@ -377,8 +378,10 @@ HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT
     dvr::native_profile::Scope timing(dvr::native_profile::PrimitiveHook);
     ++g_actDraws;
     dvr::depthprobe::note_draw(self);
-    if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
-    return orig_draw_prim(self, type, startVertex, primCount);
+    const HRESULT hr = g_cb.draw_prim ? g_cb.draw_prim(self, type, startVertex, primCount)
+                                      : orig_draw_prim(self, type, startVertex, primCount);
+    dvr::depthprobe::note_draw_end();   // run 19
+    return hr;
 }
 
 // The texture-filter levers (core/gfx/sampler_force): off, every call passes

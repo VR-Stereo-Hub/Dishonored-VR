@@ -68,6 +68,8 @@ void fgmask_prepare(IDirect3DDevice9* d9, ID3D11Device* d11, ID3D11DeviceContext
 bool fgmask_begin(IDirect3DDevice9* dev);
 void fgmask_end(IDirect3DDevice9* dev, HRESULT drawn);
 bool fgmask_in_draw();
+// Run 19: the game draw that note_draw opened has returned (frame_hooks, after the callbacks).
+void note_draw_end();
 void fgmask_seal(uint32_t serial);
 // The mask of a grab (R = 1 where a foreground draw covered the texel), nullptr when none or not finished; `draws` the
 // foreground draws it holds (0 = no foreground pass that frame: nothing is foreground). Closed by read_done.
