@@ -175,6 +175,14 @@ int main(int argc, char** argv) {
                                    key("bodyOk") == "1", strtof(key("bodyYaw").c_str(), nullptr), tg,
                                    key("vpOk") == "1" ? vp : nullptr, key("vpOk") == "1" ? c5 : nullptr,
                                    key("rotOk") == "1" ? rot : nullptr, &cm);
+            // Run 25: the grips the image was drawn with, when the capture recorded them (older captures: none).
+            dvr::afw::HandPose hp[2];
+            for (int h = 0; h < 2; ++h) {
+                float v8[8] = {};
+                const std::string hk = key(h ? "hand1" : "hand0");
+                if (!hk.empty()) { vec(hk, v8, 8); hp[h].ok = v8[0] > 0.5f; for (int i = 0; i < 3; ++i) hp[h].p[i] = v8[1 + i]; for (int i = 0; i < 4; ++i) hp[h].q[i] = v8[4 + i]; }
+            }
+            dvr::afw::note_hands(k == 0 ? held : fresh, hp);
         }
         dvr::afw::Pose outPose{}; const char* why = nullptr;
         const bool ok = dvr::afw::warp_held(g.dev, g.ctx, held, fresh, sf, dst, w, h, strtof(m["tanH"].c_str(), nullptr),

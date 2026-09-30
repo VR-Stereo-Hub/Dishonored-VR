@@ -186,7 +186,7 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
 
 struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
 struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false,
-             mask = false, drawnMask = false;
+             mask = false, drawnMask = false, grips = false;   // grips: record each image's hand grip (run 25)
              double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
@@ -244,6 +244,15 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     }
     clean(fClean, sc.sf);
     dvr::afw::note_capture(g.dev, g.ctx, 1, sc.ft, sc.sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5, mf.rot, nullptr);
+    {   // run 25: the grip each image was drawn with (the hand's centre, tracking space); none unless the case asks
+        dvr::afw::HandPose g0[2], g1[2];
+        if (o.grips) {
+            g0[0].ok = g1[0].ok = true;
+            g0[0].p[0] = (float)s0.handX; g0[0].p[1] = (float)kHandY; g0[0].p[2] = (float)s0.handZ;
+            g1[0].p[0] = (float)s1.handX; g1[0].p[1] = (float)kHandY; g1[0].p[2] = (float)s1.handZ;
+        }
+        dvr::afw::note_hands(0, g0); dvr::afw::note_hands(1, g1);
+    }
     return sc;
 }
 static void release(Scene& sc) {
@@ -765,6 +774,19 @@ int main() {
     { Result r = run(g, fgStill, fgStill, fgOn); report("foreground at its own FOV, still: hands exact", r, clean(r)); }
     { Result r = run(g, still, fgTurn, fgOn);    report("foreground at its own FOV, turn", r, clean(r)); }
     { Result r = run(g, still, fgMoved, fgOn);   report("foreground at its own FOV, hand moved", r, clean(r)); }
+    {   // Run 25: a hand moving 3 cm left at the left edge of view. Its left strip is outside the fresh (right) eye's frame,
+        // and the held image drew it 3 cm to the right: with the grips, the held eye's own hand is moved to where the hand is
+        // NOW and fills the strip; without them (the control), the strip is missing.
+        State e0 = still; e0.handX = -0.33;
+        State e1 = still; e1.handX = -0.36;
+        Opt gOn; gOn.grips = true; gOn.mask = true;   // the foreground known from the mask, as in the game
+        Opt gOff; gOff.mask = true;
+        Result a = run(g, e0, e1, gOn), b = run(g, e0, e1, gOff);
+        char d[200]; snprintf(d, sizeof(d), "with grips: hand %d, missing %d, ghost %d | control (no grips): missing %d, ghost %d",
+                              a.handTruth, a.missing, a.ghost, b.missing, b.ghost);
+        check("held hands follow the controllers: a moving hand's edge strip fills", a.ok && b.ok && a.handTruth > 500 &&
+              a.missing < b.missing / 3 && a.ghost < 50 && b.missing > 100, d);
+    }
     { Result r = run(g, fgStill, fgStill);
       report("control: foreground FOV not applied -> the hands misplaced", r, r.ok && (r.ghost + r.missing) * 20 > r.handTruth); }
     // The run-8 faults: a foreground farther than the depth limit (a sword pointed away), and a WORLD surface

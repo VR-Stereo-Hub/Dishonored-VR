@@ -17,6 +17,7 @@
 #include <string.h>
 
 namespace dvr::afw {
+void hand_motion(const HandPose& a, const HandPose& b, float out[5][4]);   // run 25: defined with the MSW code, used by warp_held
 namespace {
 
 typedef HRESULT (WINAPI *PFN_D3DCompile)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR,
@@ -325,9 +326,16 @@ const char* kSrc =
     "    uint2 off = k == 0 ? uint2(0, 0) : k == 1 ? uint2(1, 0) : k == 2 ? uint2(0, 1) : k == 3 ? uint2(1, 0) : k == 4 ? uint2(1, 1) : uint2(0, 1);\n"
     "    float2 px = min(float2(c + off) * mp.y, mp.zw - 1.0) + 0.5;\n"
     "    float2 s = px / mp.zw;\n"
-    "    float3 m = mp.x < 0.5 ? mapF(s, zF(s)) : mapH(s, zH(s));\n"
+    "    float zs = mp.x < 0.5 ? zF(s) : zH(s);\n"
+    "    float3 m = mp.x < 0.5 ? mapF(s, zs) : mapH(s, zs);\n"
     "    MOut o;\n"
-    "    o.pos = (m.z > 0 && all(abs(m.xy) < 8.0)) ? float4(m.xy, m.z / (m.z + 1.0), 1.0) : float4(0, 0, -1, 1);\n"
+    // Run 24: the hands and weapon are drawn ON TOP of the world (the crushed depth range), even where they are
+    // geometrically behind it - a blade pushed into a wall right in front of the face. Nearest-wins let the wall's
+    // seed beat the blade and the blade fell to the fill (a flicker). Foreground seeds take the near half of the
+    // depth range, the world the far half, so the foreground always wins, as the game draws it.
+    "    float dz = m.z / (m.z + 1.0);\n"
+    "    dz = isFg(zs) ? 0.5 * dz : 0.5 + 0.5 * dz;\n"
+    "    o.pos = (m.z > 0 && all(abs(m.xy) < 8.0)) ? float4(m.xy, dz, 1.0) : float4(0, 0, -1, 1);\n"
     "    o.src = float3(s, m.z);\n"
     "    return o;\n"
     "}\n"
@@ -399,6 +407,9 @@ std::atomic<bool> g_stillShade{true}, g_handsStill{false};
 // Run 22: `afw edgehands on|off` - within a quarter of the width from either edge, the held eye's own hands where the
 // fresh eye's frame does not contain them.
 std::atomic<bool> g_edgeHands{true};
+// Run 25: `afw heldhands on|off` - the held eye's hands moved by their controllers (see warp_held).
+std::atomic<bool> g_heldHandsFollow{true};
+uint32_t g_heldHandsUsed = 0, g_heldHandsNoPose = 0;
 uint32_t g_stillUsed = 0;
 std::atomic<float> g_staleTol{0.015f};   // run 18 replay: 0.03 left a walking NPC doubled; 0.015 no worse on still captures
 std::atomic<bool> g_cleanOn{true};       // `afw clean on|off`: the fresh eye's hands from its clean image, the held eye's UI kept
@@ -1008,6 +1019,11 @@ void beat() {
                  "still); controllers %s now", g_stillShade.load() ? "ON" : "off", g_stillUsed,
                  g_handsStill.load() ? "STILL" : "moving");
     g_stillUsed = 0;
+    if (g_heldHandsUsed + g_heldHandsNoPose)
+        DVR_INFO("afw/warp: held hands %s - %u rebuilds moved the held eye's hands by their controllers, %u had no grip pose "
+                 "for both images (their held hands stay where the image drew them)", g_heldHandsFollow.load() ? "FOLLOW" : "off",
+                 g_heldHandsUsed, g_heldHandsNoPose);
+    g_heldHandsUsed = g_heldHandsNoPose = 0;
     if (g_cleanTaken + g_cleanMissed + g_cleanUsed)
         DVR_INFO("afw/warp: clean sources %s - %u captures took their clean game image, %u did not (no pending copy for "
                  "that grab: the method did not provide one, or its serial or size differed), %u rebuilds took the fresh "
@@ -1161,6 +1177,13 @@ void set_edge_hands(bool on, const char* who) {
                     : " - parts of the arms at the frame's edges can vanish every other frame");
 }
 bool edge_hands() { return g_edgeHands.load(); }
+void set_held_hands(bool on, const char* who) {
+    if (g_heldHandsFollow.exchange(on) != on)
+        DVR_INFO("afw/warp: held hands %s (%s)%s", on ? "FOLLOW their controllers" : "off", who ? who : "?",
+                 on ? " - the held eye's own hands move with the grips to now, so they can fill what the other eye cannot see"
+                    : " - the held eye's own hands stay where its image drew them (used only while the controllers are still)");
+}
+bool held_hands() { return g_heldHandsFollow.load(); }
 void set_stale(float rel, const char* who) {
     if (!(rel >= 0.005f && rel <= 0.1f)) return;
     g_staleTol.store(rel);
@@ -1286,6 +1309,9 @@ void meta_record(FILE* f, const char* who, const Held& e) {
     for (int i = 0; i < 16; ++i) fprintf(f, "%.9g%s", e.vp[i], i < 15 ? " " : "\n");
     fprintf(f, "%s.c5=%.4f %.4f %.4f\n%s.rotOk=%d\n%s.rot=%.5f %.5f %.5f\n", who, e.c5[0], e.c5[1], e.c5[2], who, e.rotOk ? 1 : 0,
             who, e.rot[0], e.rot[1], e.rot[2]);
+    for (int k = 0; k < 2; ++k)   // run 25: the grips the image was drawn with (ok px py pz qx qy qz qw), for the replay
+        fprintf(f, "%s.hand%d=%d %.6f %.6f %.6f %.7f %.7f %.7f %.7f\n", who, k, e.hands[k].ok ? 1 : 0, e.hands[k].p[0], e.hands[k].p[1],
+                e.hands[k].p[2], e.hands[k].q[0], e.hands[k].q[1], e.hands[k].q[2], e.hands[k].q[3]);
 }
 void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, const Held& fr, bool haveH, int held,
                ID3D11Texture2D* dst, uint32_t w, uint32_t h, float tanH, float tanV, float yawDeg, bool useS, bool useT,
@@ -1456,9 +1482,22 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     cb.prm8[0] = freshClean ? 1.0f : 0.0f; cb.prm8[1] = heldClean ? 1.0f : 0.0f; cb.prm8[2] = g_cleanUi.load();
     if (freshClean) ++g_cleanUsed;
     cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;
-    cb.prm9[2] = (g_edgeHands.load() && g_handsStill.load()) ? 1.0f : 0.0f;   // run 23: hidden-from-the-fresh-eye hand parts, controllers still   // run 22: the held eye's own hands where the fresh eye cannot see them
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
     cb.prm6[2] = maskOn ? 1.0f : 0.0f;
+    // Run 25: the held eye's hands FOLLOW THEIR CONTROLLERS. Each image carries the grips it was drawn with (note_hands);
+    // the held eye's foreground moves rigidly with the nearer grip from the held image's pose to the fresh image's
+    // (MSW's handMove), so its own hands are where the hands are NOW and can fill what the fresh eye cannot see (a thumb
+    // behind the palm, a finger's side, a blade's far side) while the hands move, not only while they are still. With the
+    // drawn mask the foreground is known exactly, so the reach is the whole weapon (1.2 m), not MSW's 30 cm guard.
+    bool heldHandsMoved = false;
+    if (g_heldHandsFollow.load() && haveH) {
+        for (int k = 0; k < 2; ++k)
+            if (src.hands[k].ok && fr.hands[k].ok) { hand_motion(src.hands[k], fr.hands[k], cb.hand[k]); heldHandsMoved = true; }
+        if (heldHandsMoved) { cb.prm7[0] = 1.0f; cb.prm7[3] = maskOn ? 1.2f * 1.2f : 0.30f * 0.30f; ++g_heldHandsUsed; }
+        else ++g_heldHandsNoPose;
+    }
+    // Run 23 (still) / run 25 (moved by the controllers): hand parts the fresh eye cannot see keep the held eye's own.
+    cb.prm9[2] = (g_edgeHands.load() && (g_handsStill.load() || heldHandsMoved)) ? 1.0f : 0.0f;
     if (maskOn) ++g_maskUsed;   // texels: the nearer candidate within this beats the fill
     int verdict = kUnused;
     if (useT) {
