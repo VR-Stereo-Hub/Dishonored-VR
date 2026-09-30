@@ -17,9 +17,20 @@ per present: a faint edge of the hands and sword trails the turn, opposite to it
     the fresh eye): the face became a salt-and-pepper patchwork, worse than before;
   - a hand-edge halo (texels next to the foreground refused as world or fill): identical output. The trail
     is not an edge; it is the far part of the blade.
-- NEXT: a real foreground mask. Each draw under the crushed-depth viewport (the foreground pass,
-  `fgproj:`) is drawn again into a mask target with a constant pixel shader. The mask travels with the
-  capture serial and replaces the depth limit.
+- BUILT (host-verified, headset pending): the DRAWN foreground mask (`depth_probe.cpp`, fgmask). Each draw
+  under the crushed-depth viewport (MaxZ < 0.5, at least 512 wide) is issued a second time, from inside
+  `orig_draw_*` so the state is what was drawn (the weapon attachment sets its own constants), into a
+  shared mask slot with the game's vertex shader and depth test (ZFUNC LESSEQUAL), a constant pixel
+  shader, and no depth or stencil writes. Six fenced slots, keyed by the capture serial; AFW signs its
+  depth snapshot with it (`psdepthk`) and falls back to the depth limit only when no mask is ready.
+  - Host test (`afw-warp-tests`, 37/37): with the drawn mask, a far foreground keeps its projection and a
+    world surface at 0.35 m stays world; the depth-limit control misprojects the wall (3072 wrong texels).
+  - The D3D9 redraw itself is not host-tested. The log says whether it ran: `fgmask: ... N foreground
+    draws drawn again into the mask ... M masks served to AFW`, and `afw/warp: foreground from the DRAWN
+    mask on N images ... mask unknown on M`.
+  - Switches: F10 "AFW: hands and weapon from the game's own draws", `depthprobe fgmask on|off`.
+  - Expected in the headset: a close NPC's face in one piece; a blade pointed away no longer turning
+    flat or trailing a turn.
 - Tool: `afw-replay` now feeds the capture's clean images (`DVR_AFW_CLEAN=0` ignores them), so a replay
   matches the installed rebuild.
 

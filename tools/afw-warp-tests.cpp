@@ -49,6 +49,13 @@ void set_prefg_wanted(unsigned, bool) {}
 bool g_prefgReady = false;
 bool prefg_ready() { return g_prefgReady; }   // a capture with signed (masked) depths replays in mask mode
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t, bool* saw) { if (saw) *saw = false; return nullptr; }
+// Run 17: the drawn foreground mask, per serial (R = 1 where the hand is), when a case asks for it.
+ID3D11ShaderResourceView* g_maskBySerial[16] = {};
+ID3D11ShaderResourceView* fgmask_srv_for(uint32_t serial, uint32_t* draws, uint32_t* w, uint32_t* h) {
+    if (draws) *draws = 0;
+    if (serial >= 16 || !g_maskBySerial[serial]) return nullptr;
+    if (draws) *draws = 1; if (w) *w = g_depthW; if (h) *h = g_depthH; return g_maskBySerial[serial];
+}
 }
 
 // ---- the scene ----------------------------------------------------------------------------------
@@ -179,7 +186,7 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
 
 struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
 struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false,
-             mask = false;
+             mask = false, drawnMask = false;
              double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
@@ -195,11 +202,24 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     g.dev->CreateShaderResourceView(sc.ht, nullptr, &sc.hs);
     g.dev->CreateShaderResourceView(sc.ft, nullptr, &sc.fs);
     for (auto*& p : g_depthBySerial) p = nullptr;
+    for (auto*& p : dvr::depthprobe::g_maskBySerial) if (p) { p->Release(); p = nullptr; }
     static uint32_t serial = 0;
     const uint32_t sh = (serial = (serial + 2) % 12) + 1;
     sc.sf = sh + 1;
     if (o.heldDepth) g_depthBySerial[sh] = sc.hs;
     if (o.freshDepth) g_depthBySerial[sc.sf] = sc.fs;
+    if (o.drawnMask) {   // run 17: what the foreground draws covered, as the production redraw writes it (R = 1)
+        auto maskOf = [&](const std::vector<float>& img) {
+            std::vector<float> m((size_t)w * h * 4, 0.0f);
+            for (size_t i = 0; i < (size_t)w * h; ++i) if (img[i * 4 + 2] > 0.5f) m[i * 4] = 1.0f;
+            ID3D11Texture2D* t = tex(g.dev, w, h, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, m.data());
+            ID3D11ShaderResourceView* v = nullptr;
+            if (t) { g.dev->CreateShaderResourceView(t, nullptr, &v); t->Release(); }
+            return v;
+        };
+        dvr::depthprobe::g_maskBySerial[sh] = maskOf(hImg);
+        dvr::depthprobe::g_maskBySerial[sc.sf] = maskOf(fImg);
+    }
     g_depthW = w; g_depthH = h;
     dvr::afw::set_enabled(true, "test");   // also drops the previous case's records
     dvr::afw::set_stereo(o.stereo, "test");
@@ -531,6 +551,15 @@ int main() {
         Result r = run(g, wall0, wall1, m); report("mask: a world surface at 0.35 m stays world", r, clean(r, 100));
         Opt c = fgOn;
         r = run(g, wall0, wall1, c); report("control: depth limit, the near wall misprojected", r, r.ok && r.errP95 > 2.0); }
+    {   // Run 17: the same two cases classified by the DRAWN mask (every foreground draw drawn again into it), with the
+        // depths unsigned: a close world surface stays world and a far foreground keeps the foreground's projection.
+        State tip0 = still; tip0.fgTan = kFgTan; tip0.handZ = -1.2; tip0.handX = 0.45; tip0.handW = 0.3;
+        State tip1 = tip0; tip1.bodyYawDeg = 3; tip1.handX = 0.47;
+        Opt m = fgOn; m.drawnMask = true;
+        Result r = run(g, tip0, tip1, m); report("drawn mask: a foreground at 1.2 m keeps its projection", r, clean(r, 100));
+        State wall0 = still; wall0.fgTan = kFgTan; wall0.barZ = -0.35; wall0.barX0 = -0.30; wall0.barX1 = -0.10;
+        State wall1 = wall0; wall1.bodyYawDeg = 3;
+        r = run(g, wall0, wall1, m); report("drawn mask: a world surface at 0.35 m stays world", r, clean(r, 100)); }
     g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
     { Result r = run(g, still, walk, noMtx);

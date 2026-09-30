@@ -272,6 +272,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::etw::begin(dvr::etw::kMethod);
     dvr::stereo::end_frame(devs, out);
     dvr::markersharp::prepare(self,devs.dev11,devs.ctx11,dvr::capture::width(),dvr::capture::height());
+    dvr::depthprobe::fgmask_prepare(self, devs.dev11, devs.ctx11, dvr::capture::width(), dvr::capture::height());   // VR-39 run 17
     dvr::etw::end(dvr::etw::kMethod, out.eyeSign);
     dvr::perf::part_mark("hk.method(capture+fence)");
     dvr::perf::stamp(dvr::perf::kAfterEnd);
@@ -514,15 +515,22 @@ HRESULT raw_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVe
 
 HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                           UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
-    if (g_innerDrawIndexed)
-        return g_innerDrawIndexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
-    return raw_draw_indexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    const HRESULT hr = g_innerDrawIndexed
+        ? g_innerDrawIndexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount)
+        : raw_draw_indexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    // VR-39 run 17: a foreground draw, drawn again into AFW's mask with the state it was just drawn with.
+    if (SUCCEEDED(hr) && dvr::depthprobe::fgmask_begin(dev))
+        dvr::depthprobe::fgmask_end(dev, raw_draw_indexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount));
+    return hr;
 }
 
 HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
                        UINT primCount) {
-    if (g_innerDrawPrim) return g_innerDrawPrim(dev, type, startVertex, primCount);
-    return raw_draw_prim(dev, type, startVertex, primCount);
+    const HRESULT hr = g_innerDrawPrim ? g_innerDrawPrim(dev, type, startVertex, primCount)
+                                       : raw_draw_prim(dev, type, startVertex, primCount);
+    if (SUCCEEDED(hr) && dvr::depthprobe::fgmask_begin(dev))   // VR-39 run 17
+        dvr::depthprobe::fgmask_end(dev, raw_draw_prim(dev, type, startVertex, primCount));
+    return hr;
 }
 
 void set_inner_draw_hooks(DrawIndexedFn drawIndexed, DrawPrimFn drawPrim) {

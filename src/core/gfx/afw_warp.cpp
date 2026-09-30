@@ -306,6 +306,11 @@ const char* kSrc =
     // With the pre-foreground copy bound (t1), a texel whose depth changed after the foreground pass began was
     // drawn by it: its depth is stored NEGATIVE (the mask). Without it, plain depth.
     "float psdepth(VSOut i) : SV_Target { return heldTex.Load(int3(i.pos.xy, 0)).a; }\n"
+    // Run 17: the drawn foreground mask (t1, R = 1 where a foreground draw covered the texel) signs the depth.
+    "float psdepthk(VSOut i) : SV_Target {\n"
+    "    float a = heldTex.Load(int3(i.pos.xy, 0)).a, k = heldDepth.Load(int3(i.pos.xy, 0)).r;\n"
+    "    return (a > 0.0 && k > 0.5) ? -a : a;\n"
+    "}\n"
     "float psdepthm(VSOut i) : SV_Target {\n"
     "    float a = heldTex.Load(int3(i.pos.xy, 0)).a, p = heldDepth.Load(int3(i.pos.xy, 0)).a;\n"
     "    return (a > 0.0 && abs(a - p) > 1e-4 * max(a, 1e-3)) ? -a : a;\n"
@@ -360,7 +365,7 @@ std::atomic<float> g_fgDepth{0.30f};   // units: nearer pixels are the foregroun
 uint32_t g_fgUsed = 0;
 std::atomic<float> g_nearMiss{6.0f};
 std::atomic<bool> g_fgMask{true};      // `afw fgmask on|off`: the foreground from what the foreground pass drew, not depth
-uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0;
+uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0, g_maskDrawn = 0;   // g_maskDrawn: from the drawn mask (run 17)
 std::atomic<float> g_ownHands{0.0f};   // `afw ownhands <0..1>`: the colour agreement for the held eye's own hands; 0 = off (default: a slowly moving
                                        // weapon can pass the colour test - the host test caught 25 px of lag - and on the run-7 captures it gained 1.64% -> 1.60%)   // `afw nearmiss <texels>`; 0 = the fill for every miss (the run-6 behaviour)
 std::atomic<float> g_bodyDepth{0.40f};
@@ -373,6 +378,7 @@ ID3D11PixelShader* g_ps = nullptr;
 ID3D11PixelShader* g_psMesh = nullptr;
 ID3D11PixelShader* g_psDepth = nullptr;
 ID3D11PixelShader* g_psDepthMask = nullptr;
+ID3D11PixelShader* g_psDepthK = nullptr;   // run 17: signed by the drawn mask
 ID3D11Buffer* g_cb = nullptr;
 ID3D11Buffer* g_cbMesh = nullptr;
 ID3D11SamplerState* g_lin = nullptr;
@@ -511,13 +517,13 @@ bool init(ID3D11Device* dev) {
     HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
     PFN_D3DCompile compile = compiler ? (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile") : nullptr;
     if (!compile) { g_failed = true; DVR_ERROR("afw/warp: d3dcompiler_47.dll missing - the held eye stays rotation-only"); return false; }
-    ID3DBlob *vsb = nullptr, *vmb = nullptr, *psb = nullptr, *pmb = nullptr, *pdb = nullptr, *pdm = nullptr, *pxd = nullptr;
+    ID3DBlob *vsb = nullptr, *vmb = nullptr, *psb = nullptr, *pmb = nullptr, *pdb = nullptr, *pdm = nullptr, *pxd = nullptr, *pdk = nullptr;
     if (!compile_one(compile, "vsmain", "vs_4_0", &vsb) || !compile_one(compile, "vsmesh", "vs_4_0", &vmb) ||
         !compile_one(compile, "psmain", "ps_4_0", &psb) || !compile_one(compile, "psmesh", "ps_4_0", &pmb) ||
         !compile_one(compile, "psdepth", "ps_4_0", &pdb) || !compile_one(compile, "psdepthm", "ps_4_0", &pdm) ||
-        !compile_one(compile, "psxrdepth", "ps_4_0", &pxd)) {
+        !compile_one(compile, "psxrdepth", "ps_4_0", &pxd) || !compile_one(compile, "psdepthk", "ps_4_0", &pdk)) {
         g_failed = true;
-        rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
+        rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd); rel(pdk);
         return false;
     }
     const char* step = "shaders";
@@ -528,7 +534,8 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdb->GetBufferPointer(), pdb->GetBufferSize(), nullptr, &g_psDepth);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdm->GetBufferPointer(), pdm->GetBufferSize(), nullptr, &g_psDepthMask);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pxd->GetBufferPointer(), pxd->GetBufferSize(), nullptr, &g_psXrDepth);
-    rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
+    if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdk->GetBufferPointer(), pdk->GetBufferSize(), nullptr, &g_psDepthK);
+    rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd); rel(pdk);
     D3D11_BUFFER_DESC bd = {};
     bd.ByteWidth = 31 * 16;   // 31 float4s: s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, prm8
     bd.Usage = D3D11_USAGE_DEFAULT;
@@ -664,13 +671,21 @@ bool snapshot_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, Held& h) {
     }
     // The foreground mask: the pre-foreground copy of the same frame. No copy for this grab while the ring runs =
     // no foreground pass was drawn (nothing is foreground); a copy not yet finished = the mask is unknown.
+    // Run 17: the DRAWN mask first (depth_probe's fgmask: every foreground draw drawn again into it). A mask of this
+    // grab with no draws in it is a frame without a foreground pass: valid, nothing is foreground.
+    uint32_t kDraws = 0, kw = 0, kh = 0;
+    ID3D11ShaderResourceView* drawn = g_fgMask.load() ? dvr::depthprobe::fgmask_srv_for(h.serial, &kDraws, &kw, &kh) : nullptr;
+    if (drawn && (kw != dw || kh != dh)) { drawn = nullptr; ++g_maskMissing; }
     bool saw = false;
-    ID3D11ShaderResourceView* pre = g_fgMask.load() ? dvr::depthprobe::prefg_srv_for(h.serial, &saw) : nullptr;
-    h.maskOk = g_fgMask.load() && dvr::depthprobe::prefg_ready() && (pre || !saw);
-    if (h.maskOk) (pre ? g_maskFg : g_maskNone)++; else if (g_fgMask.load()) ++g_maskMissing;
+    ID3D11ShaderResourceView* pre = (g_fgMask.load() && !drawn) ? dvr::depthprobe::prefg_srv_for(h.serial, &saw) : nullptr;
+    if (drawn) { h.maskOk = true; (kDraws ? g_maskFg : g_maskNone)++; ++g_maskDrawn; }
+    else {
+        h.maskOk = g_fgMask.load() && dvr::depthprobe::prefg_ready() && (pre || !saw);
+        if (h.maskOk) (pre ? g_maskFg : g_maskNone)++; else if (g_fgMask.load()) ++g_maskMissing;
+    }
     Saved sv; sv.save(ctx);
-    setup_draw(ctx, h.drtv, nullptr, dw, dh, g_vs, pre ? g_psDepthMask : g_psDepth);
-    ID3D11ShaderResourceView* srvs[6] = {src, pre, nullptr, nullptr, nullptr, nullptr};
+    setup_draw(ctx, h.drtv, nullptr, dw, dh, g_vs, drawn ? g_psDepthK : pre ? g_psDepthMask : g_psDepth);
+    ID3D11ShaderResourceView* srvs[6] = {src, drawn ? drawn : pre, nullptr, nullptr, nullptr, nullptr};
     ctx->PSSetShaderResources(0, 6, srvs);
     ctx->Draw(3, 0);
     ID3D11ShaderResourceView* none[8] = {};
@@ -927,6 +942,13 @@ void beat() {
                  gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
+    // Run 17: which classification the hands and weapon got (the beat line above is cut in the log before its end).
+    if (g_maskDrawn + g_maskMissing + g_maskFg + g_maskNone)
+        DVR_INFO("afw/warp: foreground from the DRAWN mask on %u images (%u with a foreground pass, %u without: nothing "
+                 "foreground), mask unknown on %u (those use the depth limit, %.2f units: a close face becomes hands, a far "
+                 "blade becomes world); rebuilds with the mask on %u", g_maskDrawn, g_maskFg, g_maskNone, g_maskMissing,
+                 g_fgDepth.load(), g_maskUsed);
+    g_maskDrawn = 0;
     if (g_cleanTaken + g_cleanMissed + g_cleanUsed)
         DVR_INFO("afw/warp: clean sources %s - %u captures took their clean game image, %u did not (no pending copy for "
                  "that grab: the method did not provide one, or its serial or size differed), %u rebuilds took the fresh "
@@ -1491,7 +1513,7 @@ void shutdown() {
     for (Ts& s : g_ts) { rel(s.dis); rel(s.a); rel(s.b); s.pending = false; }
     for (SeedMap& m : g_seed) { rel(m.rtv); rel(m.srv); rel(m.tex); }
     rel(g_seedDsv); rel(g_seedDepth); g_seedW = g_seedH = 0;
-    rel(g_vs); rel(g_vsMesh); rel(g_ps); rel(g_psMesh); rel(g_psDepth); rel(g_psDepthMask); rel(g_cb); rel(g_cbMesh);
+    rel(g_vs); rel(g_vsMesh); rel(g_ps); rel(g_psMesh); rel(g_psDepth); rel(g_psDepthMask); rel(g_psDepthK); rel(g_cb); rel(g_cbMesh);
     rel(g_lin); rel(g_point); rel(g_rs); rel(g_bs); rel(g_ds); rel(g_dsTest);
     rel(g_dsAlways); rel(g_psXrDepth); rel(g_cbXr); rel(g_zOutRtv); rel(g_zOutSrv); rel(g_zOut);
     g_zOutW = g_zOutH = 0; g_zOutSeq = 0;

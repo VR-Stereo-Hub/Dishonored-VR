@@ -43,6 +43,8 @@ void set_prefg_wanted(unsigned, bool) {}
 bool g_prefgReady = false;
 bool prefg_ready() { return g_prefgReady; }   // a capture with signed (masked) depths replays in mask mode
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t, bool* saw) { if (saw) *saw = false; return nullptr; }
+// Run 17: a capture's depths already carry the drawn mask in their sign; the replay serves none of its own.
+ID3D11ShaderResourceView* fgmask_srv_for(uint32_t, uint32_t* draws, uint32_t*, uint32_t*) { if (draws) *draws = 0; return nullptr; }
 }
 
 typedef std::map<std::string, std::string> Meta;
