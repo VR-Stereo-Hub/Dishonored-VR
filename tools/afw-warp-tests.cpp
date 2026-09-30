@@ -608,6 +608,14 @@ int main() {
         release(sc);
         if (dj) dj->Release(); if (qa) qa->Release(); if (qb) qb->Release(); if (big) big->Release();
     }
+    {   // Run 26: a render-size change first (DLSS on/off), as the headset session did: three captures with clean images at
+        // another size, so the clean textures that rotate between the pending slot and the two records hold the old size.
+        // The UI case below must still hold; before the fix a stale wrong-size clean image kept circulating.
+        const int S = 256;
+        State elsewhere = still; elsewhere.handX = 0.25;   // a stale image would put the hand somewhere else
+        auto a = image(elsewhere, eyeOf(elsewhere, 0), S, S), b = image(elsewhere, eyeOf(elsewhere, 1), S, S);
+        for (int i = 0; i < 3; ++i) { Scene sc = capture(g, elsewhere, elsewhere, Opt(), S, S, a, b, &a, &b); release(sc); }
+    }
     {   // Run 15: the mod's own layers (objective markers, the F10 panel) are drawn into each eye's image AFTER the game.
         // The held eye's hands come from the fresh eye; from its COMPOSED image they carried that eye's UI into the other
         // eye (text on the sword). The fresh eye's hand carries a UI stamp (colour 99) in its composed image only; the held
@@ -655,7 +663,7 @@ int main() {
         snprintf(d, sizeof(d), "clean: hand %d px, other eye's UI %d, own UI %d of %d | control (off): other eye's UI %d",
                  ah, a99, a77, heldUi, b99);
         check("the other eye's UI stays off the rebuilt sword, the held eye's own UI stays",
-              on && off && ah > 500 && a99 == 0 && a77 > heldUi * 9 / 10 && b99 > 500, d);
+              on && off && ah > 6000 && a99 == 0 && a77 > heldUi * 9 / 10 && b99 > 500, d);   // 6108 hand texels when right
     }
     {   // Run 21: a still weapon keeps each eye's own shine. The held eye's hand carries a marker (+100 in channel 1: its own,
         // view-dependent shading); with the controllers reported still, the rebuilt hand must be the held eye's own; reported

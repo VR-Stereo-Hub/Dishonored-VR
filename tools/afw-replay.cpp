@@ -161,7 +161,9 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> hcc, fcc;
         char ce[8] = "";
         const bool useClean = !(GetEnvironmentVariableA("DVR_AFW_CLEAN", ce, sizeof(ce)) && ce[0] == '0');
-        const bool haveHc = useClean && read_file(path(p, "held_clean"), hcc), haveFc = useClean && read_file(path(p, "fresh_clean"), fcc);
+        // A clean image of another size (run 26: a stale one after a render-size change) is ignored, never read past its end.
+        const bool haveHc = useClean && read_file(path(p, "held_clean"), hcc) && hcc.size() == (size_t)w * h * 4;
+        const bool haveFc = useClean && read_file(path(p, "fresh_clean"), fcc) && fcc.size() == (size_t)w * h * 4;
         ID3D11Texture2D* hct = haveHc ? tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, hcc.data(), w * 4) : nullptr;
         ID3D11Texture2D* fct = haveFc ? tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, fcc.data(), w * 4) : nullptr;
         for (int k = 0; k < 2; ++k) {
