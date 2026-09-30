@@ -352,6 +352,13 @@ struct CleanCopy { ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv
 CleanCopy g_clean;
 // Run 18: the stale test's relative depth tolerance. A held point the fresh eye now sees PAST by more than this moved.
 // 0.03 let an NPC walking 10-20 cm in front of a wall keep her one-tick-old pixels (a trail). `afw stale <0.005..0.1>`.
+// Run 21: a still weapon keeps each eye's own shine. The held eye took the hands and weapon from the fresh eye, whose
+// view-dependent highlights differ: a shiny blade swapped its reflection every frame in both eyes (the hand, matte,
+// did not). While the game side reports both controllers still (note_hands_still), the held eye's own weapon is
+// kept wherever the fresh eye puts the same surface at the same depth - no colour test, which a shiny blade never
+// passes. Moving, the fresh eye supplies it as before (the colour-free rule would lag a moving weapon).
+std::atomic<bool> g_stillShade{true}, g_handsStill{false};
+uint32_t g_stillUsed = 0;
 std::atomic<float> g_staleTol{0.015f};   // run 18 replay: 0.03 left a walking NPC doubled; 0.015 no worse on still captures
 std::atomic<bool> g_cleanOn{true};       // `afw clean on|off`: the fresh eye's hands from its clean image, the held eye's UI kept
 std::atomic<float> g_cleanUi{0.006f};    // a held texel whose composed and clean colours differ by more than this is its UI
@@ -955,6 +962,11 @@ void beat() {
                  "face becomes hands, a far blade becomes world); rebuilds with the mask on %u",
                  g_maskDrawn, g_maskEmpty, g_maskFg, g_maskNone, g_maskMissing, g_fgDepth.load(), g_maskUsed);
     g_maskDrawn = g_maskEmpty = 0;
+    if (g_stillUsed || g_stillShade.load())
+        DVR_INFO("afw/warp: still-weapon shading %s - %u rebuilds kept the held eye's own weapon shading (both controllers "
+                 "still); controllers %s now", g_stillShade.load() ? "ON" : "off", g_stillUsed,
+                 g_handsStill.load() ? "STILL" : "moving");
+    g_stillUsed = 0;
     if (g_cleanTaken + g_cleanMissed + g_cleanUsed)
         DVR_INFO("afw/warp: clean sources %s - %u captures took their clean game image, %u did not (no pending copy for "
                  "that grab: the method did not provide one, or its serial or size differed), %u rebuilds took the fresh "
@@ -1093,6 +1105,14 @@ void set_clean(bool on, const char* who) {
                     : " - the composed images: the fresh eye's markers and F10 panel ride its hands into the held eye");
 }
 bool clean_on() { return g_cleanOn.load(); }
+void note_hands_still(bool still) { g_handsStill.store(still); }
+void set_still_shade(bool on, const char* who) {
+    if (g_stillShade.exchange(on) != on)
+        DVR_INFO("afw/warp: still-weapon shading %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+                 on ? " - with both controllers still, each eye keeps its own shine on the weapon"
+                    : " - the other eye's shine on the rebuilt weapon (a shiny blade flickers)");
+}
+bool still_shade() { return g_stillShade.load(); }
 void set_stale(float rel, const char* who) {
     if (!(rel >= 0.005f && rel <= 0.1f)) return;
     g_staleTol.store(rel);
@@ -1380,6 +1400,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     }
     cb.prm5[3] = g_nearMiss.load();
     cb.prm6[0] = g_ownHands.load() > 0.0f ? 1.0f : 0.0f; cb.prm6[1] = g_ownHands.load();
+    if (g_stillShade.load() && g_handsStill.load()) { cb.prm6[0] = 1.0f; cb.prm6[1] = 1e6f; ++g_stillUsed; }   // run 21: no colour limit
     // Run 15: the clean images (the fresh eye's hands without its UI; the held eye's UI found by difference).
     const bool freshClean = g_cleanOn.load() && fr.cleanOk && fr.csrv;
     const bool heldClean = g_cleanOn.load() && haveH && src.cleanOk && src.csrv;

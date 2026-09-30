@@ -1177,6 +1177,9 @@ static void OvlTabDisplay()
                 bool clean = dvr::afw::clean_on();   // VR-39 run 15
                 if (dvr::ovl::checkbox("AFW: hands without the other eye's markers and panel", &clean)) dvr::afw::set_clean(clean, "F10");
                 OvlTip("Off shows the old fault: objective text and the F10 panel from one eye appear on the sword in the other.");
+                bool ss = dvr::afw::still_shade();   // VR-39 run 21
+                if (dvr::ovl::checkbox("AFW: a still weapon keeps each eye's own shine", &ss)) dvr::afw::set_still_shade(ss, "F10");
+                OvlTip("Off shows the old fault: a shiny blade flickers its reflection even when held still.");
                 bool km = dvr::depthprobe::fgmask_on();   // VR-39 run 17
                 if (dvr::ovl::checkbox("AFW: hands and weapon from the game's own draws", &km)) dvr::depthprobe::fgmask_set(km, "F10");
                 OvlTip("Off falls back to a distance limit: a close face is treated as your hands, a far blade tip as the world.");

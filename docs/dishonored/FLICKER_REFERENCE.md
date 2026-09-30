@@ -1,3 +1,24 @@
+## 2026-09-29: AFW run 21 - a still sword flickers its shine; hand and world steady (FIXED in build, headset pending)
+
+Surface: the blade of the held weapon under `stereo afw`, build v1.0.1-219. Reported: the spot flicker and the far
+blade are fixed. The weapon's colour or shading flickers rapidly even held completely still; the world's
+lighting and the hand stay steady. Capture `afw-20260929-211856`.
+- MEASURED (log): the mask is complete (`6768 foreground candidates, 6768 drawn again, 6768 pieces marked`).
+- MEASURED (capture, each eye's displayed sequence): the blade's highlight alternates between the eye's native
+  frames and its rebuilt frames. The rebuilt blade comes from the fresh eye, whose reflection on a shiny
+  blade is its own view's. The matte hand does not show it. This is run 7's "subtle shading shimmer on the
+  sword", now isolated.
+- Replay (mean colour difference on the weapon against the same eye's next native frame): as installed 59.2;
+  `afw ownhands 0.3` 51.6 (the colour test refuses most of a shiny blade); no colour limit 28.6.
+- FIX: while the game side reports both controllers still (50 ms window, under 6 cm/s and 12 deg/s, in
+  tracking space), the held eye keeps its own weapon pixels wherever the fresh eye puts the same surface at
+  the same depth, with no colour test. Moving, the fresh eye supplies them as before (the colour-free rule
+  lagged a moving weapon in the run-7 host test). `afw stillshade on|off`, F10 "AFW: a still weapon keeps
+  each eye's own shine".
+- Host test (38/38): with the controllers still, 6108 of 6108 hand texels are the held eye's own; reported
+  moving (the control), 68 of 6108.
+- Remaining by design: a MOVING shiny blade still shows the other eye's reflection for a frame.
+
 ## 2026-09-29: AFW run 20 - the weapon flickers in certain spots and on landing: the game draws it with the full depth range there (FIXED in build, headset pending)
 
 Surface: the held eye's weapon (and hands) under `stereo afw`, build v1.0.1-217. Reported: mostly fixed, and the

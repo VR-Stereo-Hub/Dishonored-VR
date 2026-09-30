@@ -71,6 +71,11 @@ bool clean_wanted();
 void note_clean(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t grabSerial);
 void set_clean(bool on, const char* who);
 bool clean_on();
+// Run 21: the game side reports whether both controllers are still (present thread, once per present); while they
+// are, the held eye keeps its own shading on the weapon. `afw stillshade on|off` (default on).
+void note_hands_still(bool still);
+void set_still_shade(bool on, const char* who);
+bool still_shade();
 // Run 18: the stale test's relative tolerance, `afw stale <0.005..0.1>`.
 void set_stale(float rel, const char* who);
 float stale();
