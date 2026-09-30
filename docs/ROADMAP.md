@@ -1,3 +1,13 @@
+## AFW wall fill follow-up (2026-09-30)
+
+- [x] Identify the two build-233 captures and verify installed DLL/log identity.
+- [x] Reproduce foreground copied by background fill with an old-code failing host case.
+- [x] Exclude foreground fill seeds; 45/45 host tests, large wall duplicate removed in replay.
+- [ ] Headset: large duplicate no longer grows with wall penetration; residual strips separate.
+- [ ] Head-sway: establish native/rebuilt motion and image/pose alignment before another correction.
+
+Evidence and next test: `docs/dishonored/FLICKER_REFERENCE.md`, 2026-09-30 entry.
+
 ## Pause submenu hand investigation (2026-09-27)
 
 - [x] Trace earlier pause fixes and reject absent Journal freshness from supplied evidence.

@@ -814,6 +814,15 @@ int main() {
         State wall0 = still; wall0.fgTan = kFgTan; wall0.barZ = -0.35; wall0.barX0 = -0.30; wall0.barX1 = -0.10;
         State wall1 = wall0; wall1.bodyYawDeg = 3;
         r = run(g, wall0, wall1, m); report("drawn mask: a world surface at 0.35 m stays world", r, clean(r, 100)); }
+    {   // A foreground hand is drawn over a closer wall. Moving toward the wall must not make the
+        // disocclusion fill stretch the geometrically farther hand into a second copy.
+        State a = still; a.fgTan = kFgTan; a.barZ = -0.28; a.barX0 = -2.0; a.barX1 = 2.0;
+        State b = a; b.bodyPos = {0, 0, -0.05};
+        Opt m = fgOn; m.drawnMask = true;
+        Result r = run(g, a, b, m);
+        report("foreground inside a wall: background fill does not duplicate the hand", r,
+               r.ok && r.handTruth > 500 && r.ghost < r.handTruth / 100 && r.missing < r.handTruth / 100);
+    }
     g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
     {   // At the pre-run-18 stale tolerance: the tighter test (0.015) already catches this lag through the fresh eye, which

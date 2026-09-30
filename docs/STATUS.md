@@ -1,3 +1,19 @@
+## 2026-09-30 (AFW): wall duplicate traced to background fill; headset pending
+
+Current state: continued `claude/vr-39-mod-spacewarp` from `9cadca4e8`. Both unanalysed captures
+are now identified: `-234412` wall, `-234706` head sway. Build 233 and its installed DLL verified;
+DLL, INI and both logs archived. The large wall duplicate comes from fill selecting a foreground
+sample behind the wall as background. Both fill sources now exclude foreground. Synthetic old-code
+control: 1,970 ghost pixels; fixed: zero, 45/45 host tests. Replay removes the large duplicate;
+thin disocclusion strips remain. Gain 1.0 and edge-hands-off do not cure the sway capture.
+
+Next steps: build/install the combined candidate through the existing `aer` checkout, retaining the
+compatible INI byte-for-byte. One wall-only headset question: does the large extra copy stop growing
+with penetration? Head-sway timing/depth remains open, as do turn disocclusion and MSW turn ghosts.
+Detailed measured evidence, limitations and continuation plan:
+`docs/dishonored/FLICKER_REFERENCE.md` top entry and `HANDOFF-afw-runs-13-27.md`.
+No merge to staging or VR-Main.
+
 ## 2026-09-29 (run 14): the arms' FOV measured; AFW's hands correction is a fixed gain - built, headset pending
 
 - `fgproj:` measured the arms at the world's FOV (103), so the hands-at-world-FOV switch works.
@@ -33,6 +49,7 @@ one, so moving characters and anything the player rides get their own motion vec
 - The F10 box is "Follow moving characters and vehicles" (default off).
 - Host 10/10: a character 0.14 px, a boat 0.00 px, the static world unchanged.
 - Cost 0.25 ms per eye image.
+
 ## 2026-09-28 (MSW): the mod's own spacewarp - rung 1 built, host-verified, not yet run
 
 Branch `claude/vr-39-mod-spacewarp`, on top of #159.

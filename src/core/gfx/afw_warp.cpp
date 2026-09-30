@@ -186,6 +186,9 @@ const char* kSrc =
     // the farthest covered seed within 128 texels along the row (the stereo and turn baselines are
     // horizontal), either map. A thin structure no longer reaches here (the near-miss rule above takes
     // it); a "closest clearly-behind seed" rule was tried and ghosted the hands in the host test.
+    // A weapon can be geometrically behind a wall while drawing on top. Farthest alone then
+    // selects the weapon as background and stretches a second copy across the disocclusion.
+    // Only world samples may extend the background; foreground identity outranks metric depth.
     "float4 fill(float2 t, bool st, bool tp) {\n"
     "    float best = -1.0; float2 bs = t; bool fromF = st;\n"
     "    [unroll] for (int k = 0; k < 6; ++k) {\n"
@@ -193,8 +196,8 @@ const char* kSrc =
     "        [unroll] for (int sd = -1; sd <= 1; sd += 2) {\n"
     "            float2 p = float2(t.x + sd * off, t.y);\n"
     "            if (p.x < 0.0 || p.x > 1.0) continue;\n"
-    "            if (st) { float4 a = seedF.SampleLevel(pointSamp, p, 0); if (a.a > 0 && a.z > best) { best = a.z; bs = a.xy; fromF = true; } }\n"
-    "            if (tp) { float4 b = seedH.SampleLevel(pointSamp, p, 0); if (b.a > 0 && b.z > best) { best = b.z; bs = b.xy; fromF = false; } }\n"
+    "            if (st) { float4 a = seedF.SampleLevel(pointSamp, p, 0); if (a.a > 0 && a.z > best && !isFg(zF(a.xy))) { best = a.z; bs = a.xy; fromF = true; } }\n"
+    "            if (tp) { float4 b = seedH.SampleLevel(pointSamp, p, 0); if (b.a > 0 && b.z > best && !isFg(zH(b.xy))) { best = b.z; bs = b.xy; fromF = false; } }\n"
     "        }\n"
     "    }\n"
     "    float zf = best > 0.0 ? best / max(1.0 - best, 1e-5) : 60000.0;\n"
