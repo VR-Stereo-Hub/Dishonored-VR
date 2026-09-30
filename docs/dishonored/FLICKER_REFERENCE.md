@@ -1,3 +1,23 @@
+## 2026-09-29: AFW run 23 - hand parts invisible at some angles; ghosting and gaps beside the hands while turning (PARTLY ADDRESSED, headset pending)
+
+Surface: the held eye's hands under `stereo afw` without MSW, build v1.0.1-223. Reported: without spacewarp, turning is
+smooth. Parts of a hand are still invisible at certain orientations, and there is ghosting or missing
+content while turning, even slowly. Captures `afw-20260929-221337` (hands) and `afw-20260929-221552` (a turn).
+- MEASURED (221337): the texels that are hand in the eye's next native frame but not in the rebuild are at the
+  right hand's thumb and along the finger edges. The fresh eye sees the thumb hidden behind the palm, or the
+  finger's side edge-on. The hands MOVE across this capture.
+- BUILT: with the controllers still (run 21's gate), the edge rule of run 22 also applies anywhere near the held
+  eye's own hands. Where the fresh eye sees that point HIDDEN behind something nearer, the held eye's own hand
+  is kept (class 4). Replay with the gate forced on while the hands moved doubled a thumbnail, which is why it
+  is gated on stillness. The capture cannot verify it: the hands were moving.
+- MEASURED (221552): the body turned 19.5 deg between the two eyes' images. Tint: fill (magenta) and held
+  fallback (red) in the bands the turn uncovers beside the hands. That world was hidden behind the hands in the
+  held image and behind the fresh eye's own hands, so no source has it and the fill stretches the background: the
+  smear by the sleeve and the tear at the left hand.
+- OPEN: turning disocclusion beside the hands. It is inherent to two sources. Candidate: move the held eye's
+  hands by their controllers (MSW's `handMove`, which has the per-image grip poses) so the held eye's own
+  hands, and the world behind them, stay usable during motion.
+
 ## 2026-09-29: AFW run 22 - parts of an arm near the edge of view vanish every other frame (FIXED in build, headset pending)
 
 Surface: the held eye's arms near the left and right edges of the frame under `stereo afw`, build v1.0.1-221.

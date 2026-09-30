@@ -145,6 +145,10 @@ int main(int argc, char** argv) {
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
         dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
+        {   // run 23: the controllers still or moving (DVR_AFW_STILL=0|1; a capture does not record them)
+            char e[8] = "";
+            dvr::afw::note_hands_still(GetEnvironmentVariableA("DVR_AFW_STILL", e, sizeof(e)) && e[0] == '1');
+        }
         {   // run 22: the edge hands under test (DVR_AFW_EDGE=0|1)
             char e[8] = "";
             dvr::afw::set_edge_hands(!(GetEnvironmentVariableA("DVR_AFW_EDGE", e, sizeof(e)) && e[0] == '0'), "replay");
