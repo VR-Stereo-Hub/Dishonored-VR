@@ -6,6 +6,7 @@
 #include "core/gfx/dlss.h"
 #include "core/gfx/stereo.h"
 #include "core/gfx/blit_quad.h"
+#include "core/gfx/afw_warp.h"
 #include "core/framework/frame_hooks.h"
 #include "core/util/log.h"
 #include <atomic>
@@ -38,6 +39,17 @@ void refuse(const char* why,HRESULT hr=E_FAIL) {
 }
 }
 bool enabled(){return wanted.load();}
+// VR-39 run 15: AFW rebuilds one eye's hands from the other eye's CLEAN game image, and the game draws its objective
+// markers INTO that image. Without an upscaler this redirect refused ("no reduced reentry upscaler"), so the markers
+// stayed in the game image and rode the rebuilt sword into the other eye. With AFW's clean sources on, the markers are
+// redirected at the render size too and composited after the clean copy is taken, as under DLSS Super Resolution.
+bool active_wanted(){return wanted.load() || dvr::afw::clean_wanted();}
+bool output_for(uint32_t w,uint32_t h,uint32_t* x,uint32_t* y) {
+    if(wanted.load() && dvr::dlss::mode()!=dvr::dlss::ModeOff && dvr::dlss::sr_output_for(w,h,x,y) && *x>w && *y>h)
+        return true;
+    if(dvr::afw::clean_wanted()) {*x=w;*y=h;return true;}
+    return false;
+}
 void set_enabled(bool on,const char* owner) {
     wanted.store(on);
     DVR_INFO("hud/markers-sharp: MarkersSharp=%d owner=%s; native marker overlay after reconstruction, default on",(int)on,owner?owner:"?");
@@ -55,10 +67,8 @@ void reset() {
 void prepare(IDirect3DDevice9* d9,ID3D11Device* d11,ID3D11DeviceContext* ctx,uint32_t w,uint32_t h) {
     current=-1;
     uint32_t x=0,y=0;
-    if(!wanted.load() || dvr::dlss::mode()==dvr::dlss::ModeOff ||
-       !dvr::dlss::sr_output_for(w,h,&x,&y) || x<=w || y<=h ||
-       !dvr::stereo::reentry_family_active()) {   // VR-39: aer shares the reentry path
-        if(wanted.load()) refuse("no reduced reentry upscaler");
+    if(!output_for(w,h,&x,&y) || !dvr::stereo::reentry_family_active()) {   // VR-39: aer and afw share the reentry path
+        if(active_wanted()) refuse("no reduced reentry upscaler and AFW clean sources off");
         return;
     }
     if(!d9 || !d11 || !ctx || !w || !h) {refuse("missing device or dimensions");return;}
@@ -94,7 +104,7 @@ void prepare(IDirect3DDevice9* d9,ID3D11Device* d11,ID3D11DeviceContext* ctx,uin
     current=next;next=(next+1)%6;
 }
 bool begin(IDirect3DDevice9* dev,IDirect3DSurface9* rt,const D3DVIEWPORT9& vp) {
-    if(!wanted.load())return false;
+    if(!active_wanted())return false;
     if(current<0 || inDraw || !rt || vp.Width!=fw || vp.Height!=fh) {refuse("target unavailable or viewport mismatch");return false;}
     bool known=false;savedDs=dvr::frame::game_depth_stencil(&known);
     if(!known){refuse("depth-stencil shadow unknown");return false;}

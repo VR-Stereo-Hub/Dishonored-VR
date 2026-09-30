@@ -19,7 +19,9 @@ namespace dvr::dlss {
 int mode(){return reduced?ModeDlaa:ModeOff;}
 bool sr_output_for(uint32_t w,uint32_t h,uint32_t* x,uint32_t* y){*x=w*2;*y=h*2;return reduced;}
 }
-namespace dvr::stereo {const char* active_name(){return "reentry";}}
+namespace dvr::stereo {const char* active_name(){return "reentry";} bool reentry_family_active(){return true;}}
+static bool afwClean=false;   // VR-39 run 15: AFW's clean sources, which redirect the markers at the render size
+namespace dvr::afw {bool clean_wanted(){return afwClean;}}
 namespace dvr::frame {
 HRESULT orig_set_render_target(IDirect3DDevice9* d,DWORD i,IDirect3DSurface9* rt){return d->SetRenderTarget(i,rt);}
 HRESULT orig_set_depth_stencil(IDirect3DDevice9* d,IDirect3DSurface9* ds){return d->SetDepthStencilSurface(ds);}
@@ -98,6 +100,12 @@ int main() {
     }
     set_enabled(true,"test");reduced=false;prepare(dev,dev11,ctx,64,64);
     require(!begin(dev,game,vp),"no reduced upscaler retains native target");
+    afwClean=true;prepare(dev,dev11,ctx,64,64);
+    require(begin(dev,game,vp),"AFW clean sources redirect the markers at the render size");
+    end(dev,game,vp);dev->SetViewport(&vp);seal(201,1);
+    set_enabled(false,"test");prepare(dev,dev11,ctx,64,64);
+    require(begin(dev,game,vp),"AFW clean sources redirect even with MarkersSharp off");
+    end(dev,game,vp);dev->SetViewport(&vp);seal(202,-1);afwClean=false;
     reset();game->Release();fence->Release();check(dev->ResetEx(&pp,nullptr),"DEFAULT resources released before reset");
     rtv->Release();cpu->Release();output->Release();ctx->ClearState();ctx->Flush();ctx->Release();dev11->Release();
     dev->Release();api->Release();adapter->Release();factory->Release();DestroyWindow(wnd);FreeLibrary(lib);
