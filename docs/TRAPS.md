@@ -1,3 +1,12 @@
+## 2026-09-30: AFW replay defaults do not reproduce the recorded foreground settings
+
+`afw-replay` loads the capture's `fgFov` but enables the foreground projection only when an explicit
+positive `-Fg` argument is passed. Thus its default `-Fg 0` disables a correction recorded as on.
+For the build-233 captures, pass `-Fg 108.1427` and choose `DVR_AFW_STILL` explicitly (stillness is
+not recorded). Its built-in near/world scores predate signed depth: masked hand pixels are counted
+as world. Use an independent `depth < 0` mask and inspect source tint for ghost pixels outside it.
+These tool limitations remain open; do not describe an unqualified default replay as the installed build.
+
 ## 2026-09-30: farthest depth is not always background (AFW)
 
 The weapon draws on top of a wall even when its geometric depth is farther away. A background

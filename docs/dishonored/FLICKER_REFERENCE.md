@@ -41,6 +41,14 @@ Routing: a new AFW foreground/disocclusion case, separate from the older untagge
   35.094 -> 36.597 on 0..255. Disabling edge hands gives 35.098. Neither is a demonstrated cure.
   Capture readbacks stall the game; assess native hand motion and source/pose timing separately before
   using these next-frame differences as a parallax measurement.
+- INSTALLED: fix `f9d14889d` in combined `v1.0.1-236-g9d8af5b0f`. Release build, nine exports,
+  combined host 45/45, and lint pass. Installed DLL SHA256
+  `228C7B30D224CA005D6E403EC56BE9BE525D34E2A1C7A7C279D8D37BC60A8C73` equals build output.
+  Full INI byte comparison against backup and expected target: identical, 73,303 bytes, CRLF only.
+  Configuration interpretation is unchanged: the only production diff from 233 is `fill()`.
+  Existing DLSS helper retained; no helper code changes. Runtime banner and headset verdict await
+  the next user launch. Pre-install DLL/INI/log pair saved together under the main checkout's
+  `build/afw-resume-analysis/pre-install-236-20260930-001201`.
 - Next headset question: does the large extra hand/sword copy stop growing as the weapon is pushed
   farther into the wall? Same settings, MSW off. Improvement supports the measured fill cause;
   persistence means another source still duplicates it. Report remaining thin strips separately.

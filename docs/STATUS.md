@@ -7,9 +7,15 @@ sample behind the wall as background. Both fill sources now exclude foreground. 
 control: 1,970 ghost pixels; fixed: zero, 45/45 host tests. Replay removes the large duplicate;
 thin disocclusion strips remain. Gain 1.0 and edge-hands-off do not cure the sway capture.
 
-Next steps: build/install the combined candidate through the existing `aer` checkout, retaining the
-compatible INI byte-for-byte. One wall-only headset question: does the large extra copy stop growing
-with penetration? Head-sway timing/depth remains open, as do turn disocclusion and MSW turn ghosts.
+Installed: `v1.0.1-236-g9d8af5b0f` from the existing combined `aer` checkout, carrying fix `f9d14889d`.
+Release build, nine exports and combined host suite (45/45) pass. Installed DLL SHA256
+`228C7B30D224CA005D6E403EC56BE9BE525D34E2A1C7A7C279D8D37BC60A8C73` matches the build.
+The entire 73,303-byte INI matches both its backup and expected target, with CRLF verified:
+no keys changed, gain 0.911 and MSW off. Existing DLSS helper retained (this shader-only build
+does not rebuild it). Backup: main checkout `build/afw-resume-analysis/pre-install-236-20260930-001201`.
+
+Next steps: user launches once for the wall-only question: does the large extra copy stop growing
+with penetration? First verify the new runtime banner; the archived/current old log is build 233. Head-sway timing/depth remains open, as do turn disocclusion and MSW turn ghosts.
 Detailed measured evidence, limitations and continuation plan:
 `docs/dishonored/FLICKER_REFERENCE.md` top entry and `HANDOFF-afw-runs-13-27.md`.
 No merge to staging or VR-Main.
