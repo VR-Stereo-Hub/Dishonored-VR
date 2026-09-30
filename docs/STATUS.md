@@ -1,3 +1,26 @@
+## 2026-09-30 (AFW build 239): wall accepted; view-matched hands help, position ties remain
+
+Current state: the headset playtest accepts the wall correction. Enabling `PoseFromView` greatly
+reduces the opposite-direction hand/sword drift but leaves a smaller residual. Build 239 banner
+and installed DLL hash verified; DLL, whole INI and both logs archived under the main checkout's
+`build/afw-run29-analysis`. The tester toggled on/off/on and left PoseFromView=1.
+
+Measured: the first on segment has 3,463 matched hand draws, 2,527 position ties and 36 misses.
+Matched draws corrected up to 2.751 deg of head-sample offset. Ties fall back to PoseLag=2;
+their causal contribution to the residual is a candidate, not a headset-proven finding.
+
+Change: behind the existing checkbox, resolve a position tie only when the draw's rotation also
+identifies a safe view. Conflicting head samples, eyes, cameras or level generations still refuse.
+30/30 host checks and existing palette-eye tests pass; old-control head-turn cases fail as intended.
+The heartbeat now reports rotation-resolved ties and prints even if every draw is refused.
+No engine-memory writes, AFW shader change or setting migration. Building the combined candidate.
+
+Next single-launch question: with the same checkbox left on, is the smaller head-sweep drift gone
+or reduced further? Verify the new banner and compare resolved ties with remaining refusals.
+If useful matches do not increase, the candidate has not exercised its intended correction;
+if they increase but the residual stays, investigate placement/projection separately. No dump needed.
+Detailed evidence and limitations: `docs/dishonored/FLICKER_REFERENCE.md` top entry.
+
 ## 2026-09-30 (AFW build 236 follow-up): striped wall outline measured; native-hand head timing suspect
 
 Current state: build 236 headset report leaves a changed wall artifact and the opposite-direction
@@ -5,6 +28,13 @@ head-sweep drift. The one usable new capture (`-001558`, five complete frames) e
 bug: fresh foreground behind the wall falsely invalidates held world pixels as stale. The shader
 now treats that foreground as an occluder. Old-code regression: max 4.531 px wall error; fixed
 0.014 px, 46/46 host tests. The striped blade/hand outline disappears in replay.
+
+Installed: `v1.0.1-239-g8cf208663`, fix `b63da9a34`, local combined candidate only. Release build,
+exports and combined 46/46 host tests pass. DLL SHA256
+`7270FAD2E95B7094633B6E7C17B05D8197926A99AB747AF99DA37B95D64C6F5D` matches build output.
+Entire INI unchanged against backup and expected bytes, CRLF verified; PoseFromView=0 for the
+off baseline, gain 0.911, MSW off. Backup: main checkout
+`build/afw-run28-analysis/pre-install-239-20260930-003926`. Runtime banner awaits user launch.
 
 The other two captures are unusable after C: filled. All originals and logs preserved; 4.89 GB of
 regenerable session replay output removed. Capture short-write handling needs a ticket, but Linear

@@ -14,6 +14,7 @@
 // Nothing about that was safe, and it is replaced rather than patched.
 
 #include "core/vr/pose_record.h"
+#include "core/gfx/clarity_math.h"
 #include "core/util/log.h"
 #include "core/util/clock.h"
 
@@ -226,6 +227,75 @@ bool find_view(const float c5[3], float tol, double maxAgeMs, Record* out, float
     return true;
 }
 
+
+bool resolve_view_tie(const float c5[3], const float f[3], const float right[3], const float u[3],
+                      double maxAgeMs, const Record& anchor, Record* out)
+{
+    if (!c5 || !f || !right || !u || !out) return false;
+    ensure_cs();
+    Lock lk;
+    const double now = dvr::clock::now_ms();
+    // Chord distance avoids acos(float dot), whose roundoff obscures hundredths
+    // of a degree. These are tight correspondence tolerances, not tuned gains.
+    auto angle = [&](const Record& rec) {
+        if (!rec.cam.ok) return 1.0e30;
+        const auto b = dvr::clarity::basis_from_rotator(rec.cam.pitchDeg, rec.cam.yawDeg, rec.cam.rollDeg);
+        const float* a[3] = {f, right, u}; const float* v[3] = {b.f, b.r, b.u};
+        double sum = 0;
+        for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) {
+            const double d = (double)a[i][j] - v[i][j]; sum += d*d;
+        }
+        // Frobenius chord squared = 8 sin(angle/2)^2 for orthonormal bases.
+        return sum;
+    };
+    auto distance = [&](const Record& rec) {
+        double sum = 0;
+        for (int j = 0; j < 3; ++j) { const double d = (double)c5[j] - rec.eyePos[j]; sum += d*d; }
+        return sum;
+    };
+    auto recent = [&](const Record& rec) {
+        const double age = now - rec.openedMs;
+        return rec.id && rec.eyePosOk && age >= 0 && age <= maxAgeMs;
+    };
+    auto sameHead = [](const Record& a, const Record& b) {
+        if (a.eye != b.eye || a.cameraIdentity != b.cameraIdentity || a.sceneEpoch != b.sceneEpoch ||
+            !a.track.ok || !b.track.ok) return false;
+        // Equivalent samples are acceptable even when their generation differs.
+        // Require <=0.01 deg and <=0.05 mm, well below the placement fault.
+        const double qa[4] = {a.track.qx,a.track.qy,a.track.qz,a.track.qw};
+        const double qb[4] = {b.track.qx,b.track.qy,b.track.qz,b.track.qw};
+        double na=0, nb=0, dot=0;
+        for (int j=0;j<4;++j) {na+=qa[j]*qa[j];nb+=qb[j]*qb[j];dot+=qa[j]*qb[j];}
+        if (!(na>0.99 && na<1.01 && nb>0.99 && nb<1.01)) return false;
+        const double sign = dot < 0 ? -1.0 : 1.0;
+        double chord=0;
+        for (int j=0;j<4;++j) {const double d=qa[j]/sqrt(na)-sign*qb[j]/sqrt(nb);chord+=d*d;}
+        const double dx=(double)a.track.px-b.track.px, dy=(double)a.track.py-b.track.py, dz=(double)a.track.pz-b.track.pz;
+        return chord <= 7.61544e-9 && dx*dx+dy*dy+dz*dz <= 2.5e-9;
+    };
+    int best = -1; double bestAngle = 1.0e30;
+    for (uint32_t k=0;k<kRing;++k) {
+        const Record& rec=g_ring[k];
+        if (!recent(rec) || !(distance(rec)<=0.05*0.05) || !sameHead(rec,rec) ||
+            rec.cameraIdentity != anchor.cameraIdentity || rec.sceneEpoch != anchor.sceneEpoch) continue;
+        const double a=angle(rec);
+        if (!(a<=5.48312e-7)) continue; // 0.03 deg
+        if (best<0 || a<bestAngle || (a==bestAngle && rec.id>g_ring[best].id)) {best=(int)k;bestAngle=a;}
+    }
+    if (best<0) return false;
+    for (uint32_t k=0;k<kRing;++k) {
+        const Record& rec=g_ring[k];
+        if (!recent(rec) || !(distance(rec)<=0.10*0.10) || (int)k==best) continue;
+        // Unknown metadata cannot disprove a rival. A different level/camera at
+        // the same position also refuses instead of trusting a retained identity.
+        if (!rec.cam.ok || rec.cameraIdentity != anchor.cameraIdentity || rec.sceneEpoch != anchor.sceneEpoch) return false;
+        const double a=angle(rec);
+        if (!isfinite(a)) return false;
+        if (a<=2.19325e-6 && !sameHead(rec,g_ring[best])) return false; // 0.06 deg
+    }
+    *out=g_ring[best];
+    return true;
+}
 
 bool note_render_pos(uint32_t id, const float c5[3])
 {
