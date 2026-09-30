@@ -65,6 +65,13 @@ int matrix_verdict();
 // uses the mod's projection; the rebuild reprojects pixels nearer than the foreground depth with the
 // former. `set_fg_fov` is fed from the camera's FOV sensor; `afw fg on|off`, `afw fgdepth <units>`.
 void set_fg_fov(float deg);
+// Run 15: the game image of this grab BEFORE the mod's own layers (objective markers, the aim laser, the F10 panel), from
+// the stereo method, once per present. The held eye's hands and weapon come from the fresh eye; from its composed image
+// they carried that eye's UI into the other eye (text on the sword). `afw clean on|off` (default on).
+bool clean_wanted();
+void note_clean(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t grabSerial);
+void set_clean(bool on, const char* who);
+bool clean_on();
 void set_fg(bool on, const char* who);
 bool fg();
 void set_fg_depth(float units, const char* who);

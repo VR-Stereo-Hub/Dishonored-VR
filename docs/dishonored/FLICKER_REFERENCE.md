@@ -1,3 +1,22 @@
+## 2026-09-29: AFW run 15 - one eye's objective text and F10 panel appear on the sword in the other eye (FIXED, host-verified, headset pending)
+
+Surface: the held eye's weapon (and hands) under `stereo afw`, build v1.0.1-205.
+- Reported: an objective marker's text lined up behind the sword in the left eye shows on the sword in the
+  right eye, where that text is not visible. F10 hover highlights do the same.
+- Cause (code, confirmed by host test): AFW keeps each eye's FINISHED image to rebuild the other eye, and
+  the stereo method draws the mod's own layers into it first (objective markers, the aim laser, the F10
+  panel: reentry's end_frame, after the game image). The held eye takes its hands and weapon from the fresh
+  eye's image, so that eye's UI came with them, at that eye's screen position.
+- This is also the likely source of the run-7 "subtle shading shimmer on the sword" (UI and marker
+  pixels changing on the blade). Not separately confirmed.
+- FIX: the stereo method hands AFW a clean copy of each grab before our layers (`note_clean`). The fresh
+  eye's pixels come from it, and where the held eye's own composed image differs from its clean one (its
+  UI), that is laid back on top. `afw clean on|off`, F10 "AFW: hands without the other eye's markers and
+  panel", default on (AFW itself is opt-in).
+- Host test (`afw-warp-tests`, 35/35): a UI stamp over the fresh eye's hand and another over half the held
+  eye's hand. With the fix, 0 of the other eye's UI texels reach the rebuilt hand and 1904 of 1904 of
+  its own are kept. The control (off) shows 6040 foreign texels.
+- Cost: one image copy per present (texture swap, no second copy at capture).
 ## 2026-09-29: AFW run 14 result - the hands' FOV flicker came from AFW's foreground number, not the game (FIXED, replay-measured, headset pending)
 
 Surface: the held eye's hands and weapon under `stereo afw`, build v1.0.1-203.
