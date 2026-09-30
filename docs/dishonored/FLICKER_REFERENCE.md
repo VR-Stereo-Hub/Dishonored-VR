@@ -1,3 +1,28 @@
+## 2026-09-29: AFW run 18 - the drawn mask was always empty (hands flicker); a walking NPC trails (FIXED in build, headset pending)
+
+Surface: the held eye under `stereo afw`, build v1.0.1-212. Reported: the sword pointed away is fixed; a
+constant flicker on the hands and weapon; a slight trail on moving NPCs. Capture `afw-20260929-202257`.
+- MEASURED (log): `fgmask: ON - 654 frames armed, 0 foreground draws drawn again into the mask ... 654 masks
+  served to AFW`, and `afw/warp: foreground from the DRAWN mask on 400 images (0 with a foreground pass, 400
+  without: nothing foreground)`. `fgproj:` counted about 280 foreground draws a second in the same run.
+  Every mask was EMPTY and was trusted as "no hands": the hands and weapon were rebuilt as world (the
+  flicker). The far blade looked right only because everything was world. Replay tint agrees: no green on
+  the hands.
+- Cause not yet proven. The redraw's gate refused every candidate; its first conditions were an armed slot,
+  the crushed viewport and the width. The marker layer arms the same way and works, so the leading
+  suspect is that the arm draws fall between the grab's seal and the re-arm. Not confirmed.
+- FIX:
+  - A slot is armed at the first candidate when none is armed, and kept until the grab seals it.
+  - An empty drawn mask is no longer trusted. The depth limit decides there, so a failed redraw degrades to
+    the run-16 behaviour, not a flicker.
+  - The `fgmask:` line counts candidates and each refusal reason (no slot, size, no target, shader, re-entry).
+- The NPC trail: she walks 10-20 cm in front of a wall. The stale test calls a held point moved only when
+  the fresh eye sees more than 3% + 0.01 units past it, so her one-tick-old pixels survived beside her
+  (doubled legs in the replay).
+  - `afw stale <relative>`, default 0.015. Replay: the doubled legs mostly gone. Still captures unchanged:
+    world differ 0.249% -> 0.248%, 2.022% -> 2.023%.
+  - A residue remains by design: the held eye shows its own one-tick-old image of a moving character.
+
 ## 2026-09-29: AFW run 17 - a close NPC's face splits, the far half of the blade trails turns: both are the depth limit (MEASURED, fix in progress)
 
 Surface: the held eye under `stereo afw`, build v1.0.1-209. Captures `afw-20260929-194905` (an NPC close in

@@ -708,6 +708,10 @@ IDirect3DPixelShader9* g_maskPs2 = nullptr;
 IDirect3DPixelShader9* g_maskPs3 = nullptr;
 std::atomic<bool> g_maskOn{true};           // `depthprobe fgmask on|off`
 uint64_t g_maskDraws = 0, g_maskSizeSkip = 0, g_maskFrames = 0, g_maskServed = 0, g_maskNotReady = 0, g_maskNoSlot = 0;
+// Run 18: every candidate (a draw under the crushed viewport, at least 512 wide) and why one was not drawn again;
+// slots armed at the first candidate because none was armed (the arming after Present missed the draw).
+uint64_t g_maskCand = 0, g_maskRejIn = 0, g_maskRejNoSlot = 0, g_maskRejPs = 0, g_maskRejRt = 0, g_maskLateArm = 0;
+ID3D11DeviceContext* g_maskCtx = nullptr;   // from fgmask_prepare (present thread, same device and thread as the draws)
 // Saved across the redraw.
 IDirect3DSurface9* g_mSavedRt[4] = {};
 IDirect3DPixelShader9* g_mSavedPs = nullptr;
@@ -745,7 +749,7 @@ void mask_release_all() {
     }
     if (g_maskPs2) { g_maskPs2->Release(); g_maskPs2 = nullptr; }
     if (g_maskPs3) { g_maskPs3->Release(); g_maskPs3 = nullptr; }
-    g_maskCur = -1; g_maskNext = 0; g_maskW = g_maskH = 0; g_maskIn = false;
+    g_maskCur = -1; g_maskNext = 0; g_maskW = g_maskH = 0; g_maskIn = false; g_maskCtx = nullptr;
 }
 } // namespace
 
@@ -759,8 +763,29 @@ void fgmask_set(bool on, const char* who) {
                     : " - AFW falls back to the depth limit (a close face is rebuilt as hands, a far blade as world)");
 }
 
+// Arm the next slot: free of readers and of the D3D9 writer, cleared. False = none free this time.
+static bool mask_arm(IDirect3DDevice9* d9) {
+    if (!g_maskW || !g_maskCtx || !d9) return false;
+    MaskSlot& s = g_mask[g_maskNext];
+    if (s.borrowed) { ++g_maskNoSlot; return false; }
+    if (s.reading) {
+        if (g_maskCtx->GetData(s.read, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) { ++g_maskNoSlot; return false; }
+        s.reading = false;
+    }
+    if (s.pending) {
+        if (s.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_OK) { ++g_maskNoSlot; return false; }
+        s.pending = false;
+    }
+    s.serial = s.draws = 0;
+    if (FAILED(d9->ColorFill(s.image.surface, nullptr, 0))) { ++g_maskNoSlot; return false; }
+    g_maskCur = g_maskNext; g_maskNext = (g_maskNext + 1) % 6;
+    ++g_maskFrames;
+    return true;
+}
 void fgmask_prepare(IDirect3DDevice9* d9, ID3D11Device* d11, ID3D11DeviceContext* ctx, uint32_t w, uint32_t h) {
-    g_maskCur = -1;
+    // A slot the first candidate armed itself (the re-entered draw ran before this) keeps its draws until the grab seals it.
+    const bool keep = g_maskCur >= 0 && g_mask[g_maskCur].draws > 0 && w == g_maskW && h == g_maskH;
+    if (!keep) g_maskCur = -1;
     if (!fgmask_wanted() || !d9 || !d11 || !ctx || !w || !h || g_maskFailed) return;
     if (w != g_maskW || h != g_maskH) {
         mask_release_all();
@@ -784,27 +809,21 @@ void fgmask_prepare(IDirect3DDevice9* d9, ID3D11Device* d11, ID3D11DeviceContext
         g_maskW = w; g_maskH = h;
         DVR_INFO("fgmask: six %ux%u mask slots (shared D3D9 -> D3D11, fenced, keyed by the capture serial)", w, h);
     }
-    MaskSlot& s = g_mask[g_maskNext];
-    if (s.borrowed) { ++g_maskNoSlot; return; }
-    if (s.reading) {
-        if (ctx->GetData(s.read, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) { ++g_maskNoSlot; return; }
-        s.reading = false;
-    }
-    if (s.pending) {
-        if (s.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_OK) { ++g_maskNoSlot; return; }
-        s.pending = false;
-    }
-    s.serial = s.draws = 0;
-    if (FAILED(d9->ColorFill(s.image.surface, nullptr, 0))) { ++g_maskNoSlot; return; }
-    g_maskCur = g_maskNext; g_maskNext = (g_maskNext + 1) % 6;
-    ++g_maskFrames;
+    g_maskCtx = ctx;
+    if (!keep) mask_arm(d9);
 }
 
 bool fgmask_begin(IDirect3DDevice9* dev) {
-    if (g_maskIn || g_maskCur < 0 || !g_fpCrushed || g_fpVpW < 512 || !dev) return false;
+    if (!g_fpCrushed || g_fpVpW < 512 || !dev || !fgmask_wanted()) return false;
+    ++g_maskCand;
+    if (g_maskIn) { ++g_maskRejIn; return false; }
+    if (g_maskCur < 0) {
+        if (!mask_arm(dev)) { ++g_maskRejNoSlot; return false; }
+        ++g_maskLateArm;
+    }
     MaskSlot& s = g_mask[g_maskCur];
     IDirect3DSurface9* rt = nullptr;
-    if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) return false;
+    if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) { ++g_maskRejRt; return false; }
     D3DSURFACE_DESC d = {};
     rt->GetDesc(&d);
     if (d.Width != g_maskW || d.Height != g_maskH) { rt->Release(); ++g_maskSizeSkip; return false; }
@@ -827,7 +846,7 @@ bool fgmask_begin(IDirect3DDevice9* dev) {
         vs->Release();
     }
     IDirect3DPixelShader9* ps = mask_ps(dev, version);
-    if (!ps) { rt->Release(); return false; }
+    if (!ps) { rt->Release(); ++g_maskRejPs; return false; }
     g_mSavedRt[0] = rt;
     for (DWORD i = 1; i < 4; ++i) { g_mSavedRt[i] = nullptr; dev->GetRenderTarget(i, &g_mSavedRt[i]); }
     dev->GetPixelShader(&g_mSavedPs);
@@ -898,13 +917,18 @@ void fgmask_beat() {
     if (t < next) return;
     next = t + 5000;
     if (!fgmask_wanted() && !g_maskFrames) return;
-    DVR_INFO("fgmask: %s - %llu frames armed, %llu foreground draws drawn again into the mask, %llu skipped (the target "
-             "was not the render size), %llu masks served to AFW, %llu not finished in time, %llu frames without a free slot "
-             "(served 0 while AFW runs = the depth limit is still deciding)",
-             fgmask_wanted() ? "ON" : "off", (unsigned long long)g_maskFrames, (unsigned long long)g_maskDraws,
-             (unsigned long long)g_maskSizeSkip, (unsigned long long)g_maskServed, (unsigned long long)g_maskNotReady,
+    DVR_INFO("fgmask: %s - %llu foreground candidates (crushed viewport, >= 512 wide), %llu drawn again into the mask | "
+             "NOT drawn: %llu no free slot, %llu the target was not the render size, %llu no render target, %llu shader "
+             "refused, %llu already inside a redraw | %llu frames armed (%llu armed late, at the first candidate), %llu "
+             "masks served to AFW, %llu not finished in time, %llu slot busy (0 drawn while AFW runs = the hands are world "
+             "to the rebuild)",
+             fgmask_wanted() ? "ON" : "off", (unsigned long long)g_maskCand, (unsigned long long)g_maskDraws,
+             (unsigned long long)g_maskRejNoSlot, (unsigned long long)g_maskSizeSkip, (unsigned long long)g_maskRejRt,
+             (unsigned long long)g_maskRejPs, (unsigned long long)g_maskRejIn, (unsigned long long)g_maskFrames,
+             (unsigned long long)g_maskLateArm, (unsigned long long)g_maskServed, (unsigned long long)g_maskNotReady,
              (unsigned long long)g_maskNoSlot);
     g_maskFrames = g_maskDraws = g_maskSizeSkip = g_maskServed = g_maskNotReady = g_maskNoSlot = 0;
+    g_maskCand = g_maskRejIn = g_maskRejNoSlot = g_maskRejPs = g_maskRejRt = g_maskLateArm = 0;
 }
 
 } // namespace dvr::depthprobe

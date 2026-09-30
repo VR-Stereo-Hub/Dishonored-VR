@@ -350,6 +350,9 @@ Held g_held[2];
 // Run 15: the pending clean copy (note_clean, once per present before the mod's own layers are drawn), and the switch.
 struct CleanCopy { ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv = nullptr; uint32_t w = 0, h = 0, fmt = 0, serial = 0; bool full = false; };
 CleanCopy g_clean;
+// Run 18: the stale test's relative depth tolerance. A held point the fresh eye now sees PAST by more than this moved.
+// 0.03 let an NPC walking 10-20 cm in front of a wall keep her one-tick-old pixels (a trail). `afw stale <0.005..0.1>`.
+std::atomic<float> g_staleTol{0.015f};   // run 18 replay: 0.03 left a walking NPC doubled; 0.015 no worse on still captures
 std::atomic<bool> g_cleanOn{true};       // `afw clean on|off`: the fresh eye's hands from its clean image, the held eye's UI kept
 std::atomic<float> g_cleanUi{0.006f};    // a held texel whose composed and clean colours differ by more than this is its UI
 uint32_t g_cleanTaken = 0, g_cleanMissed = 0, g_cleanUsed = 0;
@@ -365,7 +368,7 @@ std::atomic<float> g_fgDepth{0.30f};   // units: nearer pixels are the foregroun
 uint32_t g_fgUsed = 0;
 std::atomic<float> g_nearMiss{6.0f};
 std::atomic<bool> g_fgMask{true};      // `afw fgmask on|off`: the foreground from what the foreground pass drew, not depth
-uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0, g_maskDrawn = 0;   // g_maskDrawn: from the drawn mask (run 17)
+uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0, g_maskDrawn = 0, g_maskEmpty = 0;   // g_maskDrawn: from the drawn mask (run 17)
 std::atomic<float> g_ownHands{0.0f};   // `afw ownhands <0..1>`: the colour agreement for the held eye's own hands; 0 = off (default: a slowly moving
                                        // weapon can pass the colour test - the host test caught 25 px of lag - and on the run-7 captures it gained 1.64% -> 1.60%)   // `afw nearmiss <texels>`; 0 = the fill for every miss (the run-6 behaviour)
 std::atomic<float> g_bodyDepth{0.40f};
@@ -676,6 +679,9 @@ bool snapshot_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, Held& h) {
     uint32_t kDraws = 0, kw = 0, kh = 0;
     ID3D11ShaderResourceView* drawn = g_fgMask.load() ? dvr::depthprobe::fgmask_srv_for(h.serial, &kDraws, &kw, &kh) : nullptr;
     if (drawn && (kw != dw || kh != dh)) { drawn = nullptr; ++g_maskMissing; }
+    // Run 18: an EMPTY drawn mask is not evidence of "no hands" - run 17's redraw never ran, every mask was empty, and
+    // the hands became world (a constant flicker). With no draw in it the mask is unknown: the fallbacks decide.
+    if (drawn && kDraws == 0) { drawn = nullptr; ++g_maskEmpty; }
     bool saw = false;
     ID3D11ShaderResourceView* pre = (g_fgMask.load() && !drawn) ? dvr::depthprobe::prefg_srv_for(h.serial, &saw) : nullptr;
     if (drawn) { h.maskOk = true; (kDraws ? g_maskFg : g_maskNone)++; ++g_maskDrawn; }
@@ -943,12 +949,12 @@ void beat() {
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
     // Run 17: which classification the hands and weapon got (the beat line above is cut in the log before its end).
-    if (g_maskDrawn + g_maskMissing + g_maskFg + g_maskNone)
-        DVR_INFO("afw/warp: foreground from the DRAWN mask on %u images (%u with a foreground pass, %u without: nothing "
-                 "foreground), mask unknown on %u (those use the depth limit, %.2f units: a close face becomes hands, a far "
-                 "blade becomes world); rebuilds with the mask on %u", g_maskDrawn, g_maskFg, g_maskNone, g_maskMissing,
-                 g_fgDepth.load(), g_maskUsed);
-    g_maskDrawn = 0;
+    if (g_maskDrawn + g_maskMissing + g_maskFg + g_maskNone + g_maskEmpty)
+        DVR_INFO("afw/warp: foreground from the DRAWN mask on %u images, %u drawn masks EMPTY (not trusted: the depth "
+                 "limit decides there); signed images %u, unsigned %u, mask unknown %u (the depth limit, %.2f units: a close "
+                 "face becomes hands, a far blade becomes world); rebuilds with the mask on %u",
+                 g_maskDrawn, g_maskEmpty, g_maskFg, g_maskNone, g_maskMissing, g_fgDepth.load(), g_maskUsed);
+    g_maskDrawn = g_maskEmpty = 0;
     if (g_cleanTaken + g_cleanMissed + g_cleanUsed)
         DVR_INFO("afw/warp: clean sources %s - %u captures took their clean game image, %u did not (no pending copy for "
                  "that grab: the method did not provide one, or its serial or size differed), %u rebuilds took the fresh "
@@ -1087,6 +1093,13 @@ void set_clean(bool on, const char* who) {
                     : " - the composed images: the fresh eye's markers and F10 panel ride its hands into the held eye");
 }
 bool clean_on() { return g_cleanOn.load(); }
+void set_stale(float rel, const char* who) {
+    if (!(rel >= 0.005f && rel <= 0.1f)) return;
+    g_staleTol.store(rel);
+    DVR_INFO("afw/warp: stale tolerance %.3f (%s) - a held-eye point the fresh eye now sees more than %.1f%% past was moved",
+             rel, who ? who : "?", rel * 100.0f);
+}
+float stale() { return g_staleTol.load(); }
 
 void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* frame,
                   uint32_t grabSerial, const Pose& pose, bool bodyOk, float bodyYawDeg, const Pose targets[2],
@@ -1353,7 +1366,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     const float depthTexel = fr.dw ? fmaxf(1.0f, (float)w / (float)fr.dw) : 1.0f;
     cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f * depthTexel; cb.prm2[3] = 0;
     cb.prm3[0] = useS ? 1.0f : 0.0f; cb.prm3[1] = useT ? 1.0f : 0.0f; cb.prm3[2] = g_debug.load() ? 1.0f : 0.0f;
-    cb.prm3[3] = 0.03f;
+    cb.prm3[3] = g_staleTol.load();   // run 18: `afw stale <relative>`
     if (fr.dw && fr.dh) { cb.prm4[0] = (float)kGridStep / fr.dw; cb.prm4[1] = (float)kGridStep / fr.dh; }
     if (haveH && src.dw && src.dh) { cb.prm4[2] = (float)kGridStep / src.dw; cb.prm4[3] = (float)kGridStep / src.dh; }
     {   // The foreground's projection: the game camera FOV, same aspect as the layer's claim.
