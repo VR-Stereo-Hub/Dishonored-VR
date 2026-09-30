@@ -233,14 +233,21 @@ const char* kSrc =
     // should show (at hand distance the two frames are offset by about a tenth of the width), and those texels fell to
     // the world or the fill: parts of the arm invisible every other frame. Where the held eye's own hands (as fixed in
     // tracking space) land here and the fresh eye CANNOT see that point (it projects outside its frame), keep them.
-    "    if (st && tp && prm9.x > 0.5 && (t.x < prm9.y || t.x > 1.0 - prm9.y)) {\n"
+    // Run 23: and, with the controllers still, anywhere near the held eye's own hands where the fresh eye sees that point
+    // HIDDEN behind something nearer (a thumb behind the palm from the other eye): run 22's capture showed the thumb
+    // missing at some hand angles. Near = the held image has foreground within four grid steps of the target texel.
+    "    bool nearHeldFg = prm9.z > 0.5 && (isFg(zH(t)) || isFg(zH(t + float2(prm4.z * 4.0, 0))) || isFg(zH(t - float2(prm4.z * 4.0, 0)))\n"
+    "                      || isFg(zH(t + float2(0, prm4.w * 4.0))) || isFg(zH(t - float2(0, prm4.w * 4.0))));\n"
+    "    if (st && tp && prm9.x > 0.5 && (t.x < prm9.y || t.x > 1.0 - prm9.y || nearHeldFg)) {\n"
     "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
     "        if (eb < tol && (prm6.z > 0.5 ? zH(sb) < 0.0 : zb < body)) {\n"
     "            float2 tn = tanFor(zH(sb));\n"
     "            float3 Wt = mc(d0, d1, d2, viewDirT(t, tn) * (zb * prm.z)) + dp.xyz;\n"
     "            float3 m = toTT(mc(f0, f1, f2, Wt - fp.xyz), tn);\n"
     "            float2 uf = ndcUV(m.xy);\n"
-    "            if (!(m.z > 0.0 && all(uf > 0.0) && all(uf < 1.0))) return shade(heldTex, sb, 4, zb);\n"
+    "            bool outside = !(m.z > 0.0 && all(uf > 0.0) && all(uf < 1.0));\n"
+    "            bool hidden = !outside && prm9.z > 0.5 && aF(uf) < m.z * (1.0 - prm3.w) - 0.005;\n"
+    "            if (outside || hidden) return shade(heldTex, sb, 4, zb);\n"
     "        }\n"
     "    }\n"
     "    if (st && tp) {\n"
@@ -1448,7 +1455,8 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     const bool heldClean = g_cleanOn.load() && haveH && src.cleanOk && src.csrv;
     cb.prm8[0] = freshClean ? 1.0f : 0.0f; cb.prm8[1] = heldClean ? 1.0f : 0.0f; cb.prm8[2] = g_cleanUi.load();
     if (freshClean) ++g_cleanUsed;
-    cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;   // run 22: the held eye's own hands where the fresh eye cannot see them
+    cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;
+    cb.prm9[2] = (g_edgeHands.load() && g_handsStill.load()) ? 1.0f : 0.0f;   // run 23: hidden-from-the-fresh-eye hand parts, controllers still   // run 22: the held eye's own hands where the fresh eye cannot see them
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
     cb.prm6[2] = maskOn ? 1.0f : 0.0f;
     if (maskOn) ++g_maskUsed;   // texels: the nearer candidate within this beats the fill
