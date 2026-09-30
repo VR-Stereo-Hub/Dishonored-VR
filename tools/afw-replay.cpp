@@ -145,6 +145,10 @@ int main(int argc, char** argv) {
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
         dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
+        {   // run 18: the stale tolerance under test (DVR_AFW_STALE=<relative>)
+            char e[32] = "";
+            if (GetEnvironmentVariableA("DVR_AFW_STALE", e, sizeof(e))) dvr::afw::set_stale(strtof(e, nullptr), "replay");
+        }
         // Run 15: the clean images the rebuild compared, when the capture saved them (DVR_AFW_CLEAN=0 ignores them).
         std::vector<uint8_t> hcc, fcc;
         char ce[8] = "";
