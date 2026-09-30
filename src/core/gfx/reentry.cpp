@@ -580,6 +580,8 @@ public:
                                         fresh ? dvr::capture::delivered_rec() : 0u))
                     blit_.draw(d.ctx11, src, rtv_, ow, oh);
             }
+            // VR-39 run 15: AFW's clean source - the game image alone, before the markers, our hands and the panel.
+            if (fresh && dvr::afw::clean_wanted()) dvr::afw::note_clean(d.dev11, d.ctx11, tex_, dvr::capture::delivered_serial());
             // 41.2 (VR-31): our own hands, over the game image and under the
             // F10 panel. The eye is the tag of the pixels JUST blitted, which
             // is NOT `eye` (the eye of the current D3D9 backbuffer) - one line

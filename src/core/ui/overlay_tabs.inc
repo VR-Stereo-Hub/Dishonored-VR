@@ -1174,6 +1174,9 @@ static void OvlTabDisplay()
                 OvlTip("Off lets thin structures fall back to the background fill, which shows up as bright dots on grates.");
                 bool own = dvr::afw::own_hands() > 0.0f;
                 if (dvr::ovl::checkbox("AFW: still hands keep their own shading (experimental)", &own)) dvr::afw::set_own_hands(own ? 0.3f : 0.0f, "F10");
+                bool clean = dvr::afw::clean_on();   // VR-39 run 15
+                if (dvr::ovl::checkbox("AFW: hands without the other eye's markers and panel", &clean)) dvr::afw::set_clean(clean, "F10");
+                OvlTip("Off shows the old fault: objective text and the F10 panel from one eye appear on the sword in the other.");
                 // VR-39: the depth layer. The ini key takes effect at the next start; the live switch needs it.
                 bool sd = dvr::vr::submit_depth();
                 if (dvr::ovl::checkbox("AFW: send depth to the headset runtime (SSW, positional reprojection; restart)", &sd)) {
