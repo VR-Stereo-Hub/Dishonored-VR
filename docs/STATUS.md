@@ -1,3 +1,29 @@
+## 2026-09-30: build 248 improves MSW; residual hitches and foreground jitter remain
+
+Current state: headset report substantially improves the mod-spacewarp experience, with small
+hitches and hand/weapon jitter during head sweeps remaining, mainly with MSW on. Build 248's
+banner and DLL hash verified; its DLL, entire INI and logs are archived together in the main
+checkout at `build/msw-run31-analysis/baseline-248`. The tester ended with ModSpacewarp=0.
+
+Measured: 386 steady three-second MSW windows have zero repeated display targets and zero
+consecutive real submits, but 484 target gaps exceeding 1.5 display periods. The ordering fix
+is exercised successfully; deadline misses remain. Existing FrameId readback was on and
+per-slot controller following was off. Neither fact alone proves the remaining symptom's cause.
+See `dishonored/PERFORMANCE.md` for populations, earlier negative tests and the next decision.
+
+Next candidate retains the accepted prediction, wall logic and hand/view matcher. It adds
+lightweight CPU wall timings for synthetic wait, locate, eye construction and submit, and fixes
+the first rate sample after MSW restarts. Intended installed changes only: ModSpacewarp 0 -> 1,
+ModSpacewarpHands 0 -> 1, and Perf FrameId 1 -> 0. Other diagnostics and 144 Hz remain unchanged.
+Shipped defaults are unchanged. Build/install verification follows below when complete.
+
+One question next launch: during the same left/right head sweep with controllers held still,
+does F10 Display's "Spacewarp: hands follow the controllers in filled frames" reduce the jitter
+ON versus OFF, returning on a final ON? Improvement supports grip/source timing; unchanged
+leaves that candidate unsupported; worse means leave it off. Read the matching banner and
+timing log separately for hitch localization. No capture or tester command is needed.
+No staging/release merge. Work remains on draft PR #165 under the verified VR-39 parent.
+
 ## 2026-09-30: mod-spacewarp turn prediction and half-rate scheduling candidate
 
 Current state: implemented both requested corrections on `codex/vr-39-spacewarp-turn-pacing`

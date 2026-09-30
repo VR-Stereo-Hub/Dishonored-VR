@@ -1,3 +1,47 @@
+## 2026-09-30: build 248 live slot ordering succeeds; residual deadline misses (MEASURED)
+
+Identity: installed DLL and log `v1.0.1-248-gdc57a1c05`, SHA256
+`5B02B32615DDF859CC4030C6FA18CA01C14E3D0F06E2E792056436DAF4CCA4F8`. The full run and
+previous log, DLL and INI are retained in main `build/msw-run31-analysis/baseline-248`.
+Headset report: large improvement, residual small hitches and foreground jitter during head
+sweeps, mainly with MSW on. This is not final acceptance of smoothness.
+
+The approximately 49-minute session contains two active MSW intervals, log ms
+59619796-60477593 and 60852703-61316421. Of 439 slot-order windows, 386 have at least 60
+real and 60 synthetic submissions/s and zero not-ready counts. This operational steady-window
+filter excludes startup/loading stalls but cannot prove every remaining sample is gameplay.
+Those windows contain 484 target gaps over 1.5 display periods, zero non-increasing targets,
+zero consecutive real submits, and zero Present assists. 129 windows have no target gaps.
+Mean rates are 71 real and 71.583 synthetic submissions/s. Alternation works live; average
+rate alone still hides deadline misses. CSVs remain local in `build/msw-run31-analysis`.
+
+During active MSW intervals, existing gap classifications include 127 pre_tick, 113 present-tail
+(XR end), 41 out/idle, ten capture, and one each gameTick, out/R and desktop. Some include
+loading/resolution changes and are not a steady-gameplay ranking. One 44 ms gap near a bad
+steady window contains 32.5 ms pre_tick; MSW owns the same frame mutex there. The old budget
+cannot distinguish the worker's XR wait, eye work and submit from ordinary real-frame work.
+Low sampled VRAM usage and small streaming reads there do not establish a GPU paging cause.
+
+Instrumentation now measures CPU wall time for the synthetic cycle's wait, view locate,
+eye construction, XR end and total. Eye time includes swapchain acquire/release, context lock
+and GPU command submission; it is explicitly NOT GPU execution time. Rate-limited mean/max
+snapshots use try_lock between complete cycles, so logging does not wait on Present or mix
+part of an assisted cycle. Counter baselines initialize at thread start, avoiding inflated
+first-window rates when MSW is toggled back on. No new GPU query or engine memory writer.
+
+Configuration candidate: enable existing ModSpacewarpHands, disable Perf FrameId and re-enable
+MSW, preserving all other settings. FrameId was performing synchronous D3D9 image readback
+every eight pairs. Removing it reduces diagnostic work, but earlier FrameId-off/diagnostic A/B
+tests found NO repeatable FPS/tail benefit (see the prior experiment records below). That failed
+prediction remains valid evidence; removal is a low-overhead baseline for the newer MSW path,
+not a proven hitch fix. Leave GPU-memory polling and other diagnostics unchanged.
+
+Next decision: first obtain the single hand-follow ON/OFF/ON perceptual comparison described
+in FLICKER_REFERENCE. Read stage timing and target gaps from that run to choose the next
+hitch investigation. A large XR end tail, eye-build tail or wait tail requires different follow-up;
+do not infer GPU cost from CPU wall time or change prediction clamps from lifetime maxima
+that include loading. Remaining smoothness is open, and no new performance gain is claimed.
+
 ## 2026-09-30: half-rate slot ownership and prediction timeline (HOST-VERIFIED candidate)
 
 The request concerns ModSpacewarp in F10. Build 242 remains the headset-accepted AFW baseline

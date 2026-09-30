@@ -1,3 +1,33 @@
+## 2026-09-30: build 248 improves MSW; hand/weapon jitter during head sweeps remains (REPORTED)
+
+Surface/route: foreground hand and weapon edges during left/right HEAD sweeps, mainly with
+the MOD's spacewarp enabled. Keep separate from the prior right-stick WORLD echo and the
+accepted AFW wall correction. The tester reports substantial overall improvement, with residual
+small hitches; no controlled verdict isolates the remaining foreground cause yet.
+
+- Identity: build 248 banner and installed DLL hash verified; DLL, full INI, log and previous log
+  archived in main `build/msw-run31-analysis/baseline-248`. PoseFromView=1, gain=0.911,
+  ModSpacewarpHands=0 during the MSW run. MSW was toggled off at session end.
+- Measured: live slot ordering has no repeated targets or consecutive real submits in the
+  386 steady windows, but deadline gaps remain. Full pacing evidence and the FrameId-off
+  hypothesis's earlier negative results are maintained in PERFORMANCE.md.
+- Hand-motion counter is zero because per-slot hand following is off; grip matching is
+  119,147 matched / zero unmatched. This identifies the selected path, not proof that grip
+  motion causes HEAD-only jitter. Pose-view ties also remain, but are not time-correlated to
+  the reported symptom. Preserve the accepted matcher rather than guessing a new fallback.
+- Candidate: use the existing default-off per-slot controller-follow lever, with its live F10
+  A/B toggle. The same candidate removes the FrameId readback diagnostic and adds CPU wall
+  stage timings for hitch localization. It does not change prediction, foreground gain, the
+  AFW shader or hand/view matching. Existing host hand-follow checks establish the transform
+  executes; they do not establish this headset symptom's cause.
+- One question next launch: controllers held still, repeat the same head sweep with F10
+  Display's "Spacewarp: hands follow the controllers in filled frames" ON, OFF, then ON.
+  Repeatable improvement supports grip/source timing; unchanged leaves the hypothesis
+  unsupported; worse means leave OFF. Verify the new build banner and actual follow counters
+  before interpreting the result. Read timing separately; do not ask a second pacing question.
+- Remaining: headset comparison and hitch root cause are open. No game launch by the agent,
+  no new shader/math/matcher behavior, and no staging/release merge.
+
 ## 2026-09-30: MSW stick-turn echo - rendered motion and display-slot prediction (HOST-VERIFIED candidate)
 
 Surface/route: one-frame WORLD geometry echo while right-stick turning with the MOD's F10

@@ -137,6 +137,29 @@ std::atomic<uint32_t> g_mswHalfWorker{0}, g_mswHalfAssist{0};
 std::atomic<uint32_t> g_mswSlotGaps{0}, g_mswSlotRepeats{0}, g_mswRealRuns{0};
 XrTime g_mswPreviousSlot = 0;              // under g_cycleMx, successful stereo submissions only
 bool g_mswPreviousReal = false;
+// CPU wall time, not GPU execution time. Kept separate from the real Present budget:
+// a worker holding g_cycleMx otherwise appears merely as a long real-frame pre_tick.
+enum MswCostStage { kMswWait, kMswLocate, kMswEyes, kMswEnd, kMswTotal, kMswCosts };
+struct MswCost {
+    std::atomic<uint64_t> sumUs{0};
+    std::atomic<uint32_t> count{0}, maxUs{0};
+};
+MswCost g_mswCost[kMswCosts];
+struct MswCostScope {
+    MswCostStage stage;
+    double started;
+    explicit MswCostScope(MswCostStage s) : stage(s), started(dvr::clock::now_ms()) {}
+    ~MswCostScope() {
+        const double elapsed = (dvr::clock::now_ms() - started) * 1000.0;
+        if (!(elapsed >= 0 && elapsed < 1e9)) return;
+        const uint32_t us = (uint32_t)elapsed;
+        MswCost& cost = g_mswCost[stage];
+        cost.sumUs.fetch_add(us, std::memory_order_relaxed);
+        cost.count.fetch_add(1, std::memory_order_relaxed);
+        uint32_t was = cost.maxUs.load(std::memory_order_relaxed);
+        while (us > was && !cost.maxUs.compare_exchange_weak(was, us, std::memory_order_relaxed)) {}
+    }
+};
 void msw_note_slot(bool real, XrTime time, XrDuration period) {
     if (!g_mswRun.load() || !g_mswWanted.load() || !g_mswHalfRate.load()) { g_mswPreviousSlot = 0; return; }
     if (g_mswPreviousSlot && period > 0) {
@@ -6318,9 +6341,11 @@ const char* msw_blocker() {
 
 // One synthesized slot: wait, begin, locate, rebuild both eyes, end. Under g_cycleMx.
 void msw_cycle() {
+    MswCostScope totalCost(kMswTotal);
     XrFrameWaitInfo fwi{XR_TYPE_FRAME_WAIT_INFO};
     XrFrameState fs{XR_TYPE_FRAME_STATE};
-    XrResult r = xrWaitFrame(g_session, &fwi, &fs);
+    XrResult r;
+    { MswCostScope waitCost(kMswWait); r = xrWaitFrame(g_session, &fwi, &fs); }
     if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrWaitFrame failed: %s", res_str(r)); return; }
     g_lastWaitRetUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
     XrFrameBeginInfo fbi{XR_TYPE_FRAME_BEGIN_INFO};
@@ -6336,8 +6361,12 @@ void msw_cycle() {
     XrViewState vs{XR_TYPE_VIEW_STATE};
     XrView v[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
     uint32_t n = 0;
-    const bool located = XR_SUCCEEDED(xrLocateViews(g_session, &vli, &vs, 2, &n, v)) && n == 2 &&
-                         (vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT);
+    bool located = false;
+    {
+        MswCostScope locateCost(kMswLocate);
+        located = XR_SUCCEEDED(xrLocateViews(g_session, &vli, &vs, 2, &n, v)) && n == 2 &&
+                  (vs.viewStateFlags & XR_VIEW_STATE_POSITION_VALID_BIT);
+    }
     XrCompositionLayerProjection proj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
                                               {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
@@ -6351,6 +6380,7 @@ void msw_cycle() {
     if (dvr::afw::synth_hands() && located)
         for (int k = 0; k < 2; ++k) slotHands[k].ok = input_locate_grip(k, fs.predictedDisplayTime, slotHands[k].p, slotHands[k].q);
     if (fs.shouldRender && located) {
+        MswCostScope eyeCost(kMswEyes);
         for (int e = 0; e < 2; ++e) {
             uint32_t idx = 0;
             XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
@@ -6462,7 +6492,7 @@ void msw_cycle() {
     fei.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
     fei.layerCount = count;
     fei.layers = count ? layers : nullptr;
-    r = xrEndFrame(g_session, &fei);
+    { MswCostScope endCost(kMswEnd); r = xrEndFrame(g_session, &fei); }
     if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrEndFrame failed: %s", res_str(r)); return; }
     g_lastEndUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
     g_mswFrames.fetch_add(1, std::memory_order_relaxed);
@@ -6480,7 +6510,8 @@ DWORD WINAPI msw_thread_proc(void*) {
         else Sleep((DWORD)(us / 1000 + 1));
     };
     uint64_t nextLog = GetTickCount64() + 3000;
-    uint32_t lastFrames = 0, lastSynth = 0, lastCopy = 0, lastBusy = 0, lastNR = 0, lastFails = 0;
+    uint32_t lastFrames = g_mswFrames.load(), lastSynth = g_mswSynthEyes.load(), lastCopy = g_mswCopyEyes.load(),
+             lastBusy = g_mswBusy.load(), lastNR = g_mswNotReady.load(), lastFails = g_mswFails.load();
     uint32_t lastEnds = g_endFrames.load(std::memory_order_relaxed);
     uint32_t lastWorker = g_mswHalfWorker.load(), lastAssist = g_mswHalfAssist.load(), lastGaps = g_mswSlotGaps.load(),
              lastRepeats = g_mswSlotRepeats.load(), lastRealRuns = g_mswRealRuns.load();
@@ -6510,6 +6541,24 @@ DWORD WINAPI msw_thread_proc(void*) {
                       g_mswHalfRate.load() ? 1 : 0, worker - lastWorker, assist - lastAssist, gaps - lastGaps,
                       repeats - lastRepeats, realRuns - lastRealRuns);
                 lastWorker = worker; lastAssist = assist; lastGaps = gaps; lastRepeats = repeats; lastRealRuns = realRuns;
+                double mean[kMswCosts] = {}, maximum[kMswCosts] = {};
+                uint32_t samples[kMswCosts] = {};
+                // Present can assist a synthetic cycle. Snapshot only between complete cycles,
+                // without blocking either producer merely to print a diagnostic.
+                const bool haveCosts = g_cycleMx.try_lock();
+                if (haveCosts) for (int k = 0; k < kMswCosts; ++k) {
+                    samples[k] = g_mswCost[k].count.exchange(0);
+                    const uint64_t sum = g_mswCost[k].sumUs.exchange(0);
+                    maximum[k] = g_mswCost[k].maxUs.exchange(0) / 1000.0;
+                    mean[k] = samples[k] ? sum / (1000.0 * samples[k]) : 0.0;
+                }
+                if (haveCosts) g_cycleMx.unlock();
+                if (haveCosts) XRLOG("msw: CPU wall ms mean/max - wait %.3f/%.3f locate %.3f/%.3f eyes %.3f/%.3f "
+                      "end %.3f/%.3f total %.3f/%.3f over %u cycles (%u eye builds); "
+                      "eyes includes acquire, context lock, GPU command submission and release; not GPU time",
+                      mean[kMswWait], maximum[kMswWait], mean[kMswLocate], maximum[kMswLocate],
+                      mean[kMswEyes], maximum[kMswEyes], mean[kMswEnd], maximum[kMswEnd],
+                      mean[kMswTotal], maximum[kMswTotal], samples[kMswTotal], samples[kMswEyes]);
             }
         }
         if (g_mswHalfRate.load(std::memory_order_relaxed)) {
