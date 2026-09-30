@@ -1,3 +1,11 @@
+## 2026-09-30: farthest depth is not always background (AFW)
+
+The weapon draws on top of a wall even when its geometric depth is farther away. A background
+fill that picks the farthest seed without rejecting foreground copies the weapon into gaps.
+The build-233 wall capture and a synthetic old-code control reproduce this: 1,970 ghost pixels,
+zero after excluding foreground from both fill sources. Seed depth priority alone did not fix it.
+Use surface identity before depth ordering. Details: `dishonored/FLICKER_REFERENCE.md`.
+
 ## 2026-09-29: "no snapshot" read as "no foreground" (AFW run 9)
 
 The foreground mask treated a frame without a pre-foreground copy as a frame without arms. The detector

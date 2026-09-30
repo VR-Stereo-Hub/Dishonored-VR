@@ -1,3 +1,52 @@
+## 2026-09-30: AFW wall penetration - foreground copied by background fill (MEASURED, host/replay verified; headset pending)
+
+Surface: the rebuilt eye's hands and sword while moving into a close wall, AFW with MSW off.
+Routing: a new AFW foreground/disocclusion case, separate from the older untagged-mono and eye-tag rows.
+
+- Identity: capture `afw-20260929-234412` is the wall; `afw-20260929-234706` is the head-sway capture.
+  Log banner `v1.0.1-233-g6320bc59b` matches the installed DLL and the local combined build byte-for-byte.
+  DLL SHA256 `A31206A717ECF38A3269862D8124858510A1013B07D25AAB160E2E74EF1819F3`.
+  INI SHA256 `30DEF045327E2B5FDF631E824FA2E80A52C37341CF2032372EF9EEE1A47E29EE`; AFW, foreground gain 0.911, MSW off;
+  colour 2750x2850, depth 2114x2192. Original DLL/INI/log and previous log archived together under
+  `build/afw-resume-analysis/installed-233-evidence` in the main checkout. No game launch by the agent.
+- MEASURED: p08's recorded rebuild has a large second blade and repeated hand parts. A tinted replay
+  places those copies in the disocclusion fill. The sample blade patch's median signed-depth magnitude
+  changes only 0.23352 -> 0.23096 units from p00 to p12, while the neighbouring wall moves
+  0.19971 -> 0.11639. This does not support the simple hypothesis that the blade inherits the wall's depth.
+  It does not establish the blade's absolute depth calibration.
+- CAUSE: `fill()` chooses the farthest seed as background but did not exclude foreground. The game
+  draws the weapon on top even when its geometric depth is behind the wall. There the farthest seed
+  can be the weapon, so filling the gap copies and stretches it. Run 24 fixed seed priority, not this
+  later choice. Counterprediction: excluding foreground from fill would leave the duplicate unchanged
+  if incorrect foreground projection alone caused it.
+- FIX: both fresh and held fill candidates must be world according to the existing foreground
+  classifier. The foreground source mapping, depth, projection gain and controller transforms are unchanged.
+  No engine-memory writes or new setting. Remaining no-source fallback behavior is unchanged.
+- HOST: synthetic hand at 0.45 m drawn over a wall at 0.28 m, followed by a 5 cm approach. Old shader:
+  1,970 ghost pixels for 3,519 true hand pixels, no missing hand pixels, 44 PASS / 1 FAIL. Fixed shader:
+  zero ghost and zero missing pixels, 45 PASS / 0 FAIL. This is an old-code negative control.
+- REPLAY: the large solid duplicate is removed in the wall capture. Thin disocclusion strips and
+  texture discontinuities remain, so this is not a claim that all wall flicker is fixed. The next native
+  frame is a later instant, not exact ground truth during movement. Foreground-only colour MAE is not
+  a ghost metric: it excludes precisely the background pixels carrying the extra hand.
+- Instrument trap: replay's default `-Fg 0` disables foreground correction even when the header has
+  `fgOn=1` and `fgFov=108.1427`. These comparisons explicitly pass `-Fg 108.1427` and
+  `DVR_AFW_STILL=1`. Stillness is not recorded per frame, so the replay is not claimed byte-identical:
+  sampled recorded/replay differing-byte fractions are 0.11-0.51%. Old near-band/world scores also
+  misclassify signed foreground; independent analysis uses `depth < 0` for the foreground.
+- HEAD-SWAY remains OPEN: target-eye position spans 15.296 mm laterally, 1.790 mm vertically and
+  5.865 mm forward/back across the capture. Held-to-fresh grip translation is at most 0.365 mm left,
+  0.302 mm right. This supplies a near-still-controller case, but does not prove generation alignment.
+  Removing the 0.911 correction (`-Fg 103`) worsens foreground RGB MAE against the next native frame:
+  35.094 -> 36.597 on 0..255. Disabling edge hands gives 35.098. Neither is a demonstrated cure.
+  Capture readbacks stall the game; assess native hand motion and source/pose timing separately before
+  using these next-frame differences as a parallax measurement.
+- Next headset question: does the large extra hand/sword copy stop growing as the weapon is pushed
+  farther into the wall? Same settings, MSW off. Improvement supports the measured fill cause;
+  persistence means another source still duplicates it. Report remaining thin strips separately.
+  Head-sway, turn disocclusion and MSW turn ghosts remain outside this fix. See
+  `HANDOFF-afw-runs-13-27.md` sections 3.2 and 6 for the remaining work.
+
 ## 2026-09-29: AFW run 26 - after turning DLSS off and on: heavy aliasing, white dots, flicker, a doubled sword, until restart (FIXED, host-verified, headset pending)
 
 Surface: the whole AFW image after a render-size change, build v1.0.1-229. Reported: turning DLSS off made
@@ -2672,6 +2721,8 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30: foreground excluded from fill, 45/45 host tests and wall replay; headset pending. Thin disocclusion strips remain |
+| AFW hands slide opposite lateral head motion while world stays stable | Foreground depth/projection or image/pose association; distinguish native motion from rebuilt motion | 2026-09-30: sway capture identified, grip deltas small; gain 1.0 and edge-hands-off replays do not cure it. OPEN |
 | Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 callback coverage observed, tentative smooth run; cause and fix open; see top entry |
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
 | Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |
