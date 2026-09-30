@@ -210,6 +210,20 @@ void locate_hand(XrSession session, XrAction poseAction, XrSpace space, XrTime w
     slot.valid.store(true, std::memory_order_relaxed);
 }
 
+}   // namespace (reopened below)
+// VR-39 (MSW): a grip located at an arbitrary display time (a synthesized slot's), outside input_sync's slots.
+bool input_locate_grip(int hand, XrTime when, float pos3[3], float quat4[4]) {
+    const XrSpace space = hand == 0 ? g_gripSpaceL : hand == 1 ? g_gripSpaceR : XR_NULL_HANDLE;
+    if (space == XR_NULL_HANDLE || g_baseSpace == XR_NULL_HANDLE) return false;
+    XrSpaceLocation sl{XR_TYPE_SPACE_LOCATION};
+    if (XR_FAILED(xrLocateSpace(space, g_baseSpace, when, &sl)) ||
+        !(sl.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) ||
+        !(sl.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT)) return false;
+    pos3[0] = sl.pose.position.x; pos3[1] = sl.pose.position.y; pos3[2] = sl.pose.position.z;
+    quat4[0] = sl.pose.orientation.x; quat4[1] = sl.pose.orientation.y; quat4[2] = sl.pose.orientation.z; quat4[3] = sl.pose.orientation.w;
+    return true;
+}
+namespace {
 void invalidate_hand_slots() {
     g_handStampMs = 0;
     for (int i = 0; i < 2; ++i) {

@@ -10,6 +10,7 @@ static bool OvlAt(int tier) { return dvr::ovl::show(tier); }
 static void OvlTip(const char* text) { dvr::ovl::tip(text); }
 // Every section starts collapsed (2026-09-25); ImGui keeps what the player opens for the session.
 static bool OvlSec(const char* name, int tier, const char* tipText) { return dvr::ovl::section(name, tier, tipText, false); }
+static void OvlHandsFovControls(const char* who);   // VR-39, defined before the Comfort tab
 // Save the slider just submitted when it is released (VR-196: every Basic and Advanced control
 // saves on change, so SAVE AS DEFAULTS is never needed to keep a player's setting).
 static void OvlSaveOnRelease(const char* section, const char* key, float value, const char* fmt)
@@ -133,6 +134,7 @@ static void OvlTabHands()
                "Saved when you let go.");
         OvlSaveOnRelease("Hands", "ModelScale", g_mpModelScale, "%.2f");
         MpTrimPanel();   // left, right and powers position steps
+        OvlHandsFovControls("F10 Hands");   // VR-39
     }
     if (OvlSec("Sleeve", kOvlB, "How much of the arm is drawn with each hand.")) {
         const int cur = dvr::sleeve::match(g_msCutRel[1], g_msCutRel[2], g_msRoundDepth);
@@ -657,27 +659,30 @@ static void OvlTabControls()
     dvr::drop::draw_ui();    // drop takedowns (its own section)
 }
 
+// VR-39: the hands-at-the-world's-FOV switch, its force lever and what they can actually move. Shown under
+// Display > Field of view and at the top of the Hands tab (run 13: hard to find under Comfort).
+static void OvlHandsFovControls(const char* who)
+{
+    bool handsWorld = HandsWorldFovGet();
+    if (dvr::ovl::checkbox("Hands and weapon at the gameplay FOV", &handsWorld)) {
+        HandsWorldFovSet(handsWorld, who);
+        ConfigWriteKey("Screen", "HandsAtWorldFov", handsWorld ? "1" : "0", who);
+    }
+    OvlTip("On: your arms and weapon are drawn with the same field of view as the world, at their true size and "
+           "place. Off: the older look, where they were drawn slightly smaller and nearer the centre.");
+    float gain = AfwFgGainGet();
+    if (dvr::ovl::slider_float("AFW hands correction", &gain, 0.85f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+        AfwFgGainSet(gain, who);
+    OvlTip("Only for the AFW stereo method. How AFW rebuilds the hands and weapon for the held eye. 0.911 is measured; "
+           "1.000 treats them like the world. Wrong values make the hands flicker in size. Saved when you let go.");
+    OvlSaveOnRelease("Stereo", "AfwForegroundGain", AfwFgGainGet(), "%.3f");
+    char st[160]; ArmsLensStatus(st, sizeof(st));
+    ImGui::TextDisabled("%s", st);
+}
+
 // ---- Comfort --------------------------------------------------------------------------------
 static void OvlTabComfort()
 {
-    if (OvlSec("Field of view", kOvlB, "How much of the game world the view covers.")) {
-        float projectionFov = ProjectionFovGet();
-        bool customFov = projectionFov > 0;
-        if (dvr::ovl::checkbox("Custom gameplay FOV", &customFov)) {
-            projectionFov = customFov ? 103.0f : 0.0f;
-            ProjectionFovSet(projectionFov);
-            char fv[16]; _snprintf(fv, sizeof(fv), "%.2f", ProjectionFovGet()); ConfigWriteKey("Screen", "ProjectionFov", fv, "F10 Comfort");
-        }
-        OvlTip("Off uses the automatic FOV. Saved at once.");
-        ImGui::BeginDisabled(!customFov);
-        float degrees = customFov ? projectionFov : 103.0f;
-        if (dvr::ovl::slider_float("Gameplay FOV (degrees)", &degrees, 60.0f, 120.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp))
-            ProjectionFovSet(degrees);
-        OvlTip("Lower is sharper with a smaller view. Higher covers more. Saved when you let go.");
-        OvlSaveOnRelease("Screen", "ProjectionFov", ProjectionFovGet(), "%.2f");
-        if (ImGui::SmallButton("Reset FOV to 103")) { ProjectionFovSet(103.0f); ConfigWriteKey("Screen", "ProjectionFov", "103.00", "F10 Comfort"); }
-        ImGui::EndDisabled();
-    }
     if (OvlSec("Crouch", kOvlB, "Crouching for real crouches Corvo.")) {
         bool pc = g_crouchOn;
         if (dvr::ovl::checkbox("Real crouching crouches Corvo", &pc)) {
@@ -865,6 +870,25 @@ static void OvlTabHud()
 // ---- Display --------------------------------------------------------------------------------
 static void OvlTabDisplay()
 {
+    if (OvlSec("Field of view", kOvlB, "How much of the game world the view covers.")) {
+        float projectionFov = ProjectionFovGet();
+        bool customFov = projectionFov > 0;
+        if (dvr::ovl::checkbox("Custom gameplay FOV", &customFov)) {
+            projectionFov = customFov ? 103.0f : 0.0f;
+            ProjectionFovSet(projectionFov);
+            char fv[16]; _snprintf(fv, sizeof(fv), "%.2f", ProjectionFovGet()); ConfigWriteKey("Screen", "ProjectionFov", fv, "F10 Display");
+        }
+        OvlTip("Off uses the automatic FOV. Saved at once.");
+        ImGui::BeginDisabled(!customFov);
+        float degrees = customFov ? projectionFov : 103.0f;
+        if (dvr::ovl::slider_float("Gameplay FOV (degrees)", &degrees, 60.0f, 120.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp))
+            ProjectionFovSet(degrees);
+        OvlTip("Lower is sharper with a smaller view. Higher covers more. Saved when you let go.");
+        OvlSaveOnRelease("Screen", "ProjectionFov", ProjectionFovGet(), "%.2f");
+        if (ImGui::SmallButton("Reset FOV to 103")) { ProjectionFovSet(103.0f); ConfigWriteKey("Screen", "ProjectionFov", "103.00", "F10 Display"); }
+        ImGui::EndDisabled();
+        OvlHandsFovControls("F10 Display");
+    }
     const int resizeState = ResLiveState();
     const bool busy = resizeState == 1 || resizeState == 2 || resizeState == 4;
     if (OvlSec("Resolution", kOvlB, "How many pixels the game renders for the headset.")) {
@@ -1020,6 +1044,13 @@ static void OvlTabDisplay()
         }
         OvlTip("Removes the visible line where a texture switches to a lower detail level on floors and walls.");
         if (dvr::dlss::mode() != dvr::dlss::ModeOff) {
+            bool om = dvr::dlss::object_motion();   // VR-39
+            if (dvr::ovl::checkbox("Follow moving characters and vehicles", &om)) {
+                dvr::dlss::set_object_motion(om, "F10 Display");
+                ConfigWriteKey("Clarity", "DlssObjectMotion", om ? "1" : "0", "F10 Display");
+            }
+            OvlTip("The upscaler is told how things that move on their own (people, animals) and things you ride "
+                   "(a boat) really moved, by matching each frame against the last. Costs a little GPU time.");
             bool m = dvr::dlss::mask_on();
             if (dvr::ovl::checkbox("Reduce smearing", &m)) {
                 dvr::dlss::set_mask(m, "F10 Display");
@@ -1174,6 +1205,54 @@ static void OvlTabDisplay()
                 OvlTip("Off lets thin structures fall back to the background fill, which shows up as bright dots on grates.");
                 bool own = dvr::afw::own_hands() > 0.0f;
                 if (dvr::ovl::checkbox("AFW: still hands keep their own shading (experimental)", &own)) dvr::afw::set_own_hands(own ? 0.3f : 0.0f, "F10");
+                bool clean = dvr::afw::clean_on();   // VR-39 run 15
+                if (dvr::ovl::checkbox("AFW: hands without the other eye's markers and panel", &clean)) dvr::afw::set_clean(clean, "F10");
+                OvlTip("Off shows the old fault: objective text and the F10 panel from one eye appear on the sword in the other.");
+                bool ss = dvr::afw::still_shade();   // VR-39 run 21
+                if (dvr::ovl::checkbox("AFW: a still weapon keeps each eye's own shine", &ss)) dvr::afw::set_still_shade(ss, "F10");
+                OvlTip("Off shows the old fault: a shiny blade flickers its reflection even when held still.");
+                bool eh = dvr::afw::edge_hands();   // VR-39 run 22
+                if (dvr::ovl::checkbox("AFW: hands at the frame's edges stay whole", &eh)) dvr::afw::set_edge_hands(eh, "F10");
+                OvlTip("Off shows the old fault: parts of an arm near the edge of view vanish every other frame.");
+                bool hh = dvr::afw::held_hands();   // VR-39 run 25
+                if (dvr::ovl::checkbox("AFW: each eye's own hands follow the controllers", &hh)) dvr::afw::set_held_hands(hh, "F10");
+                OvlTip("Lets each eye fill hand parts the other eye cannot see (a thumb, a finger's side) while your hands move.");
+                bool km = dvr::depthprobe::fgmask_on();   // VR-39 run 17
+                if (dvr::ovl::checkbox("AFW: hands and weapon from the game's own draws", &km)) dvr::depthprobe::fgmask_set(km, "F10");
+                OvlTip("Off falls back to a distance limit: a close face is treated as your hands, a far blade tip as the world.");
+                // VR-39: the depth layer. The ini key takes effect at the next start; the live switch needs it.
+                bool sd = dvr::vr::submit_depth();
+                if (dvr::ovl::checkbox("AFW: send depth to the headset runtime (SSW, positional reprojection; restart)", &sd)) {
+                    dvr::vr::set_submit_depth(sd);
+                    OverlaySaveDefaults();   // the key is read at the next start
+                }
+                // VR-39: the mod's own spacewarp - fills the display slots the game misses (live).
+                bool msw = dvr::vr::mod_spacewarp();
+                if (dvr::ovl::checkbox("AFW: the mod's own spacewarp (fills missed frames; turn off SSW in Virtual Desktop)", &msw)) {
+                    dvr::vr::set_mod_spacewarp(msw);
+                    OverlaySaveDefaults();
+                }
+                if (msw) {
+                    bool hr = dvr::vr::msw_half_rate();
+                    if (dvr::ovl::checkbox("Spacewarp: lock the game to half rate (like Virtual Desktop SSW)", &hr)) {
+                        dvr::vr::set_msw_half_rate(hr);
+                        OverlaySaveDefaults();
+                    }
+                    bool mh = dvr::afw::synth_hands();
+                    if (dvr::ovl::checkbox("Spacewarp: hands follow the controllers in filled frames", &mh)) {
+                        dvr::afw::set_synth_hands(mh);
+                        OverlaySaveDefaults();
+                    }
+                    bool mx = dvr::afw::synth_extrapolate();
+                    if (dvr::ovl::checkbox("Spacewarp: predict walking and turning in filled frames", &mx)) {
+                        dvr::afw::set_synth_extrapolate(mx);
+                        OverlaySaveDefaults();
+                    }
+                }
+                if (dvr::vr::depth_active()) {
+                    bool dl = dvr::vr::depth_live();
+                    if (dvr::ovl::checkbox("AFW: depth layer live (A/B)", &dl)) dvr::vr::set_depth_live(dl);
+                }
                 OvlTip("A still hand or weapon keeps each eye's own lighting instead of the other eye's. Can show a slowly "
                        "moving weapon one frame late.");
                 // VR-39: the diagnostic capture - close this panel after pressing and hold the pose to be captured.

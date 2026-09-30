@@ -1,3 +1,27 @@
+## AFW wall stale-test and hand timing follow-up (2026-09-30)
+
+- [x] Preserve build-236 evidence and identify five complete wall-capture frames.
+- [x] Reproduce false stale rejection of wall pixels behind foreground; 4.531 -> 0.014 px worst
+  coordinate error, 46/46 host tests, striped outline removed in replay.
+- [x] Headset: build 239 wall correction accepted.
+- [x] Head-drift live A/B: view-following greatly reduces drift, smaller residual remains.
+- [x] Host: resolve position ties with independently observed rotation; 30/30 checks.
+- [x] Headset: build 242 accepted with negligible residual; rotation-resolved ties verified live.
+- [ ] Follow-up: mod-spacewarp right-stick world ghosts and uneven display-slot pacing.
+- [ ] Capture short-write/capacity handling: Linear ticket creation blocked by free issue limit.
+
+Details: `docs/dishonored/FLICKER_REFERENCE.md`, build-236 follow-up.
+
+## AFW wall fill follow-up (2026-09-30)
+
+- [x] Identify the two build-233 captures and verify installed DLL/log identity.
+- [x] Reproduce foreground copied by background fill with an old-code failing host case.
+- [x] Exclude foreground fill seeds; 45/45 host tests, large wall duplicate removed in replay.
+- [x] Headset: build 239 accepts the combined fill/stale wall correction.
+- [ ] Head-sway: establish native/rebuilt motion and image/pose alignment before another correction.
+
+Evidence and next test: `docs/dishonored/FLICKER_REFERENCE.md`, 2026-09-30 entry.
+
 ## Pause submenu hand investigation (2026-09-27)
 
 - [x] Trace earlier pause fixes and reject absent Journal freshness from supplied evidence.

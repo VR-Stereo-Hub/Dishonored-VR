@@ -1904,6 +1904,7 @@ static void LoadConfig()
             dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
+            dvr::dlss::set_object_motion(IniFloat(ini, "Clarity", "DlssObjectMotion", 0) != 0.0f, "ini");   // VR-39
             dvr::dlss::jitter::set_enabled(IniFloat(ini, "Clarity", "DlssJitter", 0) != 0.0f, "ini");
             dvr::dlss::jitter::set_wide(IniFloat(ini, "Clarity", "DlssJitterWide", 1) != 0.0f, "ini");
             dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
@@ -2881,6 +2882,8 @@ static void LoadConfig()
     CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
+    HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
+    AfwFgGainSet(IniFloat(ini, "Stereo", "AfwForegroundGain", 0.911f), "ini");   // VR-39 run 14
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
@@ -3612,6 +3615,13 @@ static void LoadConfig()
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
             dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",1,ini)!=0);
+            // VR-39: the depth layer under AFW (read here, before the runtime creates its instance). Default off.
+            dvr::vr::set_submit_depth(GetPrivateProfileIntA("VR", "SubmitDepth", 0, ini) != 0);
+            // VR-39: the mod's own spacewarp under AFW. Default off.
+            dvr::vr::set_mod_spacewarp(GetPrivateProfileIntA("VR", "ModSpacewarp", 0, ini) != 0);
+            dvr::afw::set_synth_hands(GetPrivateProfileIntA("VR", "ModSpacewarpHands", 0, ini) != 0);
+            dvr::vr::set_msw_half_rate(GetPrivateProfileIntA("VR", "ModSpacewarpHalfRate", 1, ini) != 0);
+            dvr::afw::set_synth_extrapolate(GetPrivateProfileIntA("VR", "ModSpacewarpExtrapolate", 1, ini) != 0);
             // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
             // tests were wasted shipping a changed compiled default to a machine
             // whose ini names the key: the loader reads a default only when the key
@@ -3847,6 +3857,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen", "FovLever", v, ini);
     _snprintf(v,64,"%.2f",ProjectionFovGet());
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
+    WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
+    _snprintf(v,64,"%.3f",AfwFgGainGet());
+    WritePrivateProfileStringA("Stereo","AfwForegroundGain",v,ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);
@@ -4330,6 +4343,7 @@ static void OverlaySaveDefaults()
             _snprintf(v, 64, "%u", doh); WritePrivateProfileStringA("Clarity", "DlssOutputHeight", v, ini);
         }
         WritePrivateProfileStringA("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DlssObjectMotion", dvr::dlss::object_motion() ? "1" : "0", ini);   // VR-39
         WritePrivateProfileStringA("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", ini);
         WritePrivateProfileStringA("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", ini);
         _snprintf(v, 64, "%.3f", dvr::dlss::mask_lo());
@@ -4398,6 +4412,11 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%d", dvr::vr::get_pose_lag());
     WritePrivateProfileStringA("Pace", "Lag", v, ini);
     WritePrivateProfileStringA("Pace","ImageOrientation",dvr::vr::image_orientation_enabled()?"1":"0",ini);
+    WritePrivateProfileStringA("VR", "SubmitDepth", dvr::vr::submit_depth() ? "1" : "0", ini);   // VR-39
+    WritePrivateProfileStringA("VR", "ModSpacewarp", dvr::vr::mod_spacewarp() ? "1" : "0", ini);   // VR-39
+    WritePrivateProfileStringA("VR", "ModSpacewarpHands", dvr::afw::synth_hands() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpHalfRate", dvr::vr::msw_half_rate() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpExtrapolate", dvr::afw::synth_extrapolate() ? "1" : "0", ini);
     // Sync OFF saves as 0 whatever the target was, so a SAVE AS DEFAULTS taken
     // after an A/B that ended on `off` does not resurrect the rate next launch.
     _snprintf(v, 64, "%u", dvr::vr::pace_sync() ? dvr::vr::pace_sync_hz() : 0u);

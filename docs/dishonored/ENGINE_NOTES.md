@@ -9994,6 +9994,100 @@ move WorldInfo.DeltaSeconds in run 1 (clamped R/L 1.01-1.02): not a global delta
 - The depth in the scene target's alpha is linear view depth for both passes, as far as the
   measurement can tell: the ratio is flat over 0.28-0.46 m.
 
+### The hands and weapon at the world's FOV: `[Screen] HandsAtWorldFov` (2026-09-29, headset pending)
+
+- **Why they differed.** The camera's FOV target was the headset-derived value
+  (`dvr::vr::suggested_hfov_deg`, 108.07 on the dev rig), and the FOV lever writes it every dispatch.
+  The world is drawn at `ProjectionFov` (103) only through the draw-scoped override of
+  `Camera.CameraCache.POV.FOV` (`CineFovBegin`/`CineFovEnd` around the viewport draw). The player mesh
+  and the held weapon are projected from the camera's own FOV, which that override does not touch.
+- **The switch.** With `HandsAtWorldFov=1` (default), `DvrFovHandoff` sets the lever's target to
+  `ProjectionFov`, so the camera renders at 103.
+  - The scoped override then maps 103 to 103: `gameplay_target(103, 103, 103)`, and a zoom keeps its ratio.
+  - The layer's claim stays 103.
+  - `0` restores the headset-derived target.
+- **Why it matters.** Every view rebuild (AFW, MSW) needs the arms told apart from the world to
+  reproject them with their own tangents. This game cannot do that reliably: the foreground mask never
+  engages (the arms pass binds the scene target in no slot). With one FOV there is nothing to tell apart
+  for projection.
+- **To verify in the headset:**
+  - the arms and weapon look about 9% larger and farther from the centre, at their true place against
+    the world;
+  - hand placement and the aim ray still line up with the controllers;
+  - the log line `fov: ... lever target 103.0 deg (... headset-derived 108.1, the hands and weapon at
+    the world's FOV)`.
+
+**Run 12 correction (2026-09-29).**
+- Moving the camera's FOV target 103 <-> 108 (the switch above, toggled live) left the hands exactly as
+  they were.
+- With it on, AFW was fed 103 for the foreground while the arms stayed at their own projection, and the
+  hands oscillated (the run-6 mismatch, from the other side).
+- So the arms are not projected with the camera's FOV. The player mesh is a
+  `DishonoredPlayerSkeletalComponent`, whose `m_bUseFOV` / `m_FOV` (already resolved by arm follow, VR-30)
+  give it its own lens.
+- The switch now writes `m_FOV` to `ProjectionFov` every dispatch while `m_bUseFOV` is set, and hands the
+  game's value back when turned off. AFW's foreground FOV is that lens.
+- `armslens:` log lines record `m_bUseFOV`, the game's `m_FOV`, our write, and how often the game rewrites
+  it.
+- UNVERIFIED which of the two lenses the 108.07 measurement was; the next log answers it.
+
+**Run 13 (build 195/198, 2026-09-29).**
+- The component was never found: a full GObjects sweep for a `PlayerSkeletalComponent` instance matched
+  nothing (`armslens: no DishonoredPlayerSkeletalComponent instance found`). Most likely cause: the search
+  skipped objects whose FName number is 0 as class defaults, and the instance is named `pMesh` with number
+  0 (a component created from its template keeps the template's name). Not proven.
+- The search itself cost the game thread about a quarter of its frame rate (re-entry 233-250 -> 180
+  presents/s) until it was bounded.
+- The component is now read from the pawn: `Pawn.Mesh` (resolved by name, 0x3dc from the Stage 26 dump as
+  the fallback), class-checked for `PlayerSkeletalComponent`. No search.
+- The held weapons are `DishonoredItemSkeletalComponent`, a subclass, so they carry the same
+  `m_bUseFOV` / `m_FOV`. They are read from the hands' view-model list (FpCollect) and logged
+  (`armslens: weapon view model ...`); a lens that is on is written with the arms.
+- `[Screen] HandsLensForce` (default 0) sets `m_bUseFOV` too when it is off. It tests whether the native
+  projection honours `m_FOV` for a component the game never gave a lens. Handed back on release.
+- Nothing in the script corpus sets `m_bUseFOV` or `m_FOV` (no defaultproperties, no writes), so the
+  likely reading is `m_bUseFOV=0`. If so, the arms' 108.07 comes from somewhere other than this lens and
+  the camera FOV, and the force test and `propwatch` on the pawn are the next instruments.
+### Which FOV the arms are drawn with: the scripts, the force test, and the draw instrument (VR-39, 2026-09-29)
+
+**From the decompiled scripts** (declarations only, no function bodies):
+- `DishonoredPlayerCamera` declares `m_fCurFOV` then `m_fCurFOV_Arms`, seven config floats, then
+  `m_fDefaultFOVSettings`. By declaration order these are 0x53c (the FOV sensor), 0x540 and 0x564, three of
+  the offsets the FOV lever (`kLevCam`) has written every dispatch since 30.50. So the lever already writes the
+  arms' camera FOV. INFERRED from order, not resolved by name.
+- `DisCamFOVTarget { m_fTarget, m_bLockArms, m_fBlendSpeed }`, five priorities (Locomotion, Locomotion_Jump,
+  Action, Item, ControllerLook): a FOV request can hold the arms' FOV while the world's changes.
+- No viewmodel, weapon or foreground FOV exists anywhere else in the scripts or the 21 config files.
+
+**Observed (build v1.0.1-200 log).**
+- During a zoom (world at 79 deg), the game itself set the player mesh's `m_bUseFOV=1, m_FOV=103` for about
+  0.7 s, then cleared it. 103 is the lever's `m_fCurFOV_Arms` write. So the component's lens is how the game
+  holds the arms during a lock-arms zoom; in plain gameplay it is off (`m_bUseFOV=0`, `m_FOV=0`), on the arms
+  and on all six weapon view models.
+- Forcing that lens on at 103 (`HandsLensForce`) looked identical in the headset. AFW fed 103 for the
+  foreground still showed the hands' FOV flicker (reported). Not settled by either.
+
+**The instrument: `fgproj:`** (`depthprobe fgproj on|off`, on by default, render thread). Every draw under a
+crushed-depth viewport (MaxZ < 0.5, the foreground DPG) and 1 in 8 of the rest are binned by the horizontal
+FOV of the c0..c3 view-projection in effect (`2 atan(1 / |column 0|)`, the capture's tanH arithmetic).
+The log line gives the three busiest bins of each class every 5 s (on change, else every 30 s) and says which
+case it is: foreground peak = world peak, a foreground FOV of its own, or no foreground draw seen.
+
+**Run 14 (build v1.0.1-203, 2026-09-29): the arms are drawn at the world's FOV; AFW's correction is a gain.**
+- `fgproj:` (the draws' own c0..c3 projection): WORLD 103.0 and FOREGROUND 103.0 in every window, about
+  1300-1500 foreground samples per 5 s, with the arms' lens forced on and with it off. So with
+  `HandsAtWorldFov=1` the arms render at the world's FOV, and writing their lens changes nothing drawn.
+- The game sets the lens itself only in a zoom (`m_bUseFOV=1, m_FOV=103` while the world was at 79).
+- The force lever's real effect was on AFW's feed: on, AFW got 103 for the foreground and the hands'
+  FOV flicker was reported; off, it got 108.07 and the hands looked normal.
+- Replay of the run-12 capture (arms drawn at 103), hand band differing: 12.46% at 103, 8.34 at 105,
+  5.29 at 106.5, 2.10 at 108.07, 2.93 at 109.5, 5.43 at 111. Run 6 measured the same 0.911 disparity gain
+  with the camera at 108. The correction does not follow the camera's FOV, so it is not a FOV. Most
+  likely the foreground pass's depth (alpha) is about 9% off its geometry. Not proven.
+- Shipped: AFW's foreground is the world's FOV widened by `[Stereo] AfwForegroundGain` (0.911:
+  `tan(fg/2) = tan(world/2) / gain`), independent of the headset and the lens. The lens write and
+  `HandsLensForce` were removed; `armslens:` now only logs.
+
 ### A conversation zooms the camera FOV while the scene stays at ProjectionFov (2026-09-28)
 
 In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->

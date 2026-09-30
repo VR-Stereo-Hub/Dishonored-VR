@@ -188,8 +188,6 @@ static uint32_t g_afFovOff = 0, g_afUseFovOff = 0, g_afUseFovMask = 0;
 static uint8_t* g_afVmComp       = NULL;    // a live DishonoredPlayerSkeletalComponent
 static uint32_t g_afVmIdx        = 0;
 static void*    g_afVmCls        = NULL;
-static uint32_t g_afVmNextFindMs = 0;
-static uint32_t g_afVmScan       = 1;    // incremental search cursor - a full sweep per try was the lag spike
 static bool     g_afSaidFov      = false;
 
 // The body-yaw hold is GONE (VR-30, 2026-09-05). It wrote the pawn's own

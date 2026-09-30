@@ -408,6 +408,8 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
     // DLAA (dlss.h) replaces the capture as this draw's source when it runs. Its guides use the
     // same view the custom TAA reprojects with; the custom TAA then does not also accumulate.
     ID3D11ShaderResourceView* dlaa = nullptr;
+    // VR-39: the pre-foreground copy (the hands mask) runs while DLSS does and wants it.
+    dvr::depthprobe::set_prefg_wanted(2, dvr::dlss::mode() != dvr::dlss::ModeOff && dvr::dlss::fg_bias());
     if (dvr::dlss::mode() != dvr::dlss::ModeOff && dev && ctx && src && dst) {
         if (eyeSign == -1 || eyeSign == 1) {
             const int e = eyeSign < 0 ? 0 : 1;
@@ -433,6 +435,7 @@ bool draw(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11ShaderResourceView*
                 if (auto* depth = dvr::depthprobe::depth_srv_for(dvr::capture::delivered_serial(), &dw, &dh)) {
                     gp.sceneDepth = depth; gp.depthW = dw; gp.depthH = dh; gp.depthScale = g_depthScale.load();
                     gp.bodyDepth = g_bodyDepth.load();
+                    if (dvr::dlss::fg_bias()) gp.preFg = dvr::depthprobe::prefg_srv_for(dvr::capture::delivered_serial(), nullptr);
                 }
                 {   // the matrices the game drew this and the previous image of the eye with
                     dvr::pose::Record rc = {};

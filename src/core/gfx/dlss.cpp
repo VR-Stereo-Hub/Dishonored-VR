@@ -48,6 +48,10 @@ const char* const kQualityName[QCount] = {"DLAA", "Quality", "Balanced", "Perfor
 const char* mode_name(int q) { return (q == QDlaa && g_backend.load() == BackendFsr) ? "Native AA" : kQualityName[q]; }
 const char* const kQualityWord[QCount] = {"dlaa", "quality", "balanced", "performance", "ultraperformance", "ultraquality"};
 std::atomic<bool> g_mask{false};
+std::atomic<bool> g_fgBias{true};   // `dlss fgbias on|off`: the hands and weapon always trust the current colour
+std::atomic<bool> g_objMotion{false};   // `dlss objmotion on|off`, [Clarity] DlssObjectMotion: vectors for what moves on its own
+uint64_t g_objRuns = 0, g_objRefused = 0;
+char g_objWhy[128] = "";
 std::atomic<float> g_maskLo{0.03f}, g_maskHi{0.12f};
 std::atomic<int> g_state{Idle};
 std::atomic<bool> g_retry{false};
@@ -63,7 +67,7 @@ ID3D11Device* g_dev = nullptr;
 bool g_helperStarted = false;
 bool g_guideFailed = false;
 
-struct Window { uint64_t eyes[2] = {}, fallback = 0, resets = 0, masked = 0; };
+struct Window { uint64_t eyes[2] = {}, fallback = 0, resets = 0, masked = 0, fgMasked = 0; };
 Window g_win;
 uint64_t g_winMs = 0;
 
@@ -138,13 +142,15 @@ void status_tick() {
     const double cr = st.frames[1] ? st.cpuMsSum[1] / (st.frames[1] + st.refused[1]) : 0;
     DVR_INFO("dlss: %s %ux%u -> %ux%u: %.0f/s L %.0f/s R, fallback %.0f/s, history resets %llu | helper GPU evaluate L %.2f R %.2f ms "
              "(-1 = not sampled), present-thread cost L %.2f R %.2f ms max %.2f | refused L %llu R %llu | %.1f MiB shared + %.1f MiB guides "
-             "| camera-only vectors, projection jitter %s",
+             "| camera-only vectors, projection jitter %s | bias mask on %.0f/s (hands/weapon mask on %.0f/s: 0 with DLSS "
+             "on = no foreground copy - the hands then smear when they move)",
              g_backend.load() == BackendFsr ? g_runtime
                  : (g_wantW == g_wantOw && g_wantH == g_wantOh) ? "DLAA" : kQualityName[g_quality.load()],
              g_wantW, g_wantH, g_wantOw, g_wantOh, g_win.eyes[0] / s, g_win.eyes[1] / s, g_win.fallback / s, (unsigned long long)g_win.resets, gl, gr, cl, cr,
              st.cpuMsMax[0] > st.cpuMsMax[1] ? st.cpuMsMax[0] : st.cpuMsMax[1],
              (unsigned long long)st.refused[0], (unsigned long long)st.refused[1],
-             g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0), jitter::summary());
+             g_client.bytes() / (1024.0 * 1024.0), g_guides.bytes() / (1024.0 * 1024.0), jitter::summary(),
+             g_win.masked / s, g_win.fgMasked / s);
     {   // The vector audit (dlss_gpu.h): per depth band, how much of the frame-to-frame change the
         // camera vectors explain. vec well below zero = explained; vec near zero = not (it smears).
         char t[512]; int m = 0;
@@ -336,6 +342,19 @@ void set_mask(bool on, const char* who) {
     DVR_INFO("dlss: anti-smear mask %s (live, %s)", on ? "ON" : "off", who ? who : "?");
 }
 bool mask_on() { return g_mask.load(); }
+void set_fg_bias(bool on, const char* who) {
+    if (g_fgBias.exchange(on) == on) return;
+    DVR_INFO("dlss: the hands and weapon always trust the current colour %s (live, %s)", on ? "ON" : "off", who ? who : "?");
+}
+bool fg_bias() { return g_fgBias.load(); }
+void set_object_motion(bool on, const char* who) {
+    if (g_objMotion.exchange(on) == on) return;
+    DVR_INFO("dlss: object motion %s (live, %s) - %s", on ? "ON" : "off", who ? who : "?",
+             on ? "each eye image is block-matched against the eye's previous one; moving characters and anything riding "
+                  "with the camera get their own vectors, the static world keeps the camera's"
+                : "the camera's vectors only (moving characters and vehicles smear)");
+}
+bool object_motion() { return g_objMotion.load(); }
 void set_mask_range(float lo, float hi, const char* who) {
     if (!(lo >= 0.0f && lo < 1.0f)) lo = 0.03f;
     if (!(hi > lo && hi <= 1.0f)) hi = lo + 0.09f;
@@ -396,7 +415,6 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     // the input copy (and the optional mask/audit before it). Releasing them there instead of
     // after the DLSS wait lets the game's next frame reuse them while DLSS still runs; before,
     // the CPU waited ~2.6 ms per eye image on the capture slot for the previous DLSS.
-    dvr::depthprobe::read_done(ctx);
     EyeInputs in;
     in.color = color; in.depth = g_guides.depth(); in.motion = g_guides.motion();
     in.afterCopy = [](ID3D11DeviceContext* c) { dvr::capture::read_done(c); };
@@ -421,9 +439,35 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     // The mask, the audit and the previous-image copy they read cost GPU time on every eye image,
     // so they run only when the mask or the audit is on.
     const bool wantMask = g_mask.load(), wantAudit = g_audit.load();
-    if (wantMask || wantAudit) {
-        const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why));
-        if (masked && wantMask) { in.bias = g_guides.bias(); ++g_win.masked; }
+    // VR-39: the hands and weapon always "trust the current colour" (their vectors are the camera's only).
+    const bool wantFg = g_fgBias.load() && gp.preFg && gp.sceneDepth;
+    if (wantFg) ++g_win.fgMasked;
+    const bool wantObj = g_objMotion.load();
+    if (wantObj && gp.historyValid) {   // before the mask and the audit: they read the corrected vectors
+        GuideGpu::ObjParams op;
+        char ow[128] = "";
+        if (g_guides.objmotion(dev, ctx, eye, src, gp.jitterKnown ? gp.jitter[0] - gp.prevJitter[0] : 0.0f,
+                               gp.jitterKnown ? gp.jitter[1] - gp.prevJitter[1] : 0.0f, op, ow, sizeof(ow)))
+            ++g_objRuns;
+        else { ++g_objRefused; strcpy_s(g_objWhy, ow); }
+        static uint64_t nextObjLog = 0;
+        const uint64_t tObj = GetTickCount64();
+        if (tObj >= nextObjLog) {
+            nextObjLog = tObj + 3000;
+            GuideGpu::ObjStats& st = g_guides.objStats;
+            DVR_INFO("dlss: object motion - %llu eye images corrected, %llu without (last: %s) | per image: %.0f tiles searched "
+                     "of %.0f (the camera's vector did not match), %.0f overridden (a clearly better vector at least %.1f px "
+                     "off the camera's: a walking character or a boat should show hundreds, a still scene near 0)",
+                     (unsigned long long)g_objRuns, (unsigned long long)g_objRefused, g_objWhy[0] ? g_objWhy : "none",
+                     st.images ? (double)st.searched / st.images : 0.0, st.images ? (double)st.tiles / st.images : 0.0,
+                     st.images ? (double)st.overridden / st.images : 0.0, op.minDeviation);
+            st = GuideGpu::ObjStats{};
+        }
+    }
+    if (wantMask || wantAudit || wantFg || wantObj) {
+        const bool masked = g_guides.mask(dev, ctx, eye, src, gp.historyValid, g_maskLo.load(), g_maskHi.load(), why, sizeof(why),
+                                          wantMask, wantFg ? gp.sceneDepth : nullptr, wantFg ? gp.preFg : nullptr);
+        if (masked && (wantMask || wantFg)) { in.bias = g_guides.bias(); ++g_win.masked; }
         if (wantAudit)
             g_guides.audit(dev, ctx, eye, src, gp.jitterKnown ? gp.jitter[0] - gp.prevJitter[0] : 0.0f,
                            gp.jitterKnown ? gp.jitter[1] - gp.prevJitter[1] : 0.0f);
@@ -431,6 +475,7 @@ ID3D11ShaderResourceView* run(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D1
     } else {
         g_guides.forget(eye);
     }
+    dvr::depthprobe::read_done(ctx);   // the scene depth's (and the foreground copy's) last reader was the mask above
     if (!g_client.evaluate(ctx, eye, in, why, sizeof(why))) {
         ++g_win.fallback;
         if (!g_client.running()) {
@@ -523,6 +568,8 @@ bool command(const char* args) {
         jitter::set_enabled(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true;
     }
     if (n >= 2 && !_stricmp(sub, "mask")) { set_mask(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "objmotion")) { set_object_motion(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
+    if (n >= 2 && !_stricmp(sub, "fgbias")) { set_fg_bias(!_stricmp(val, "on") || !strcmp(val, "1"), "the seam"); return true; }
     if (n >= 2 && !_stricmp(sub, "maskrange")) {
         float lo = 0, hi = 0;
         if (sscanf(args, "%*s %f %f", &lo, &hi) == 2) { set_mask_range(lo, hi, "the seam"); return true; }

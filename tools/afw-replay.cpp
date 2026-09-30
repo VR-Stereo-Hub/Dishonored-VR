@@ -39,6 +39,12 @@ ID3D11ShaderResourceView* depth_srv_for(uint32_t serial, UINT* w, UINT* h) {
     if (w) *w = g_dw; if (h) *h = g_dh; return it->second;
 }
 void read_done(ID3D11DeviceContext*) {}
+void set_prefg_wanted(unsigned, bool) {}
+bool g_prefgReady = false;
+bool prefg_ready() { return g_prefgReady; }   // a capture with signed (masked) depths replays in mask mode
+ID3D11ShaderResourceView* prefg_srv_for(uint32_t, bool* saw) { if (saw) *saw = false; return nullptr; }
+// Run 17: a capture's depths already carry the drawn mask in their sign; the replay serves none of its own.
+ID3D11ShaderResourceView* fgmask_srv_for(uint32_t, uint32_t* draws, uint32_t*, uint32_t*) { if (draws) *draws = 0; return nullptr; }
 }
 
 typedef std::map<std::string, std::string> Meta;
@@ -86,6 +92,7 @@ static void vec(const std::string& s, float* out, int n) {
     const char* p = s.c_str(); for (int i = 0; i < n; ++i) { out[i] = strtof(p, (char**)&p); }
 }
 
+static int g_maskArg = 1;
 int main(int argc, char** argv) {
     if (argc < 3) { printf("usage: afw-replay <capture dir> <out dir> [debug 0|1] [stereo 0|1] [matrices 0|1]\n"); return 2; }
     setvbuf(stdout, nullptr, _IONBF, 0);
@@ -95,6 +102,7 @@ int main(int argc, char** argv) {
     g_fgOn = g_fgArg > 0.0f;
     g_nearMissArg = argc > 7 ? strtof(argv[7], nullptr) : 6.0f;
     g_ownArg = argc > 8 ? strtof(argv[8], nullptr) : 0.0f;
+    g_maskArg = argc > 9 ? atoi(argv[9]) : 1;   // 0: replay with the foreground mask off (the depth limit)
     CreateDirectoryA(out.c_str(), nullptr);
     Gpu g;
     const D3D_FEATURE_LEVEL fl[] = {D3D_FEATURE_LEVEL_11_0};
@@ -132,20 +140,53 @@ int main(int argc, char** argv) {
         dvr::afw::set_world_scale(strtof(m["worldScale"].c_str(), nullptr));
         dvr::afw::set_body_depth(strtof(m["bodyUnits"].c_str(), nullptr), "replay");
         // The foreground FOV: the capture's own, or (older captures) the -Fg argument.
-        dvr::afw::set_fg_fov(m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : g_fgArg);
+        dvr::afw::set_fg_fov(g_fgArg > 0.0f ? g_fgArg : (m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : 0.0f));   // the argument overrides the recording (an A/B of the arms lens)
         dvr::afw::set_fg(g_fgOn, "replay");
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
+        dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
+        {   // run 23: the controllers still or moving (DVR_AFW_STILL=0|1; a capture does not record them)
+            char e[8] = "";
+            dvr::afw::note_hands_still(GetEnvironmentVariableA("DVR_AFW_STILL", e, sizeof(e)) && e[0] == '1');
+        }
+        {   // run 22: the edge hands under test (DVR_AFW_EDGE=0|1)
+            char e[8] = "";
+            dvr::afw::set_edge_hands(!(GetEnvironmentVariableA("DVR_AFW_EDGE", e, sizeof(e)) && e[0] == '0'), "replay");
+        }
+        {   // run 18: the stale tolerance under test (DVR_AFW_STALE=<relative>)
+            char e[32] = "";
+            if (GetEnvironmentVariableA("DVR_AFW_STALE", e, sizeof(e))) dvr::afw::set_stale(strtof(e, nullptr), "replay");
+        }
+        // Run 15: the clean images the rebuild compared, when the capture saved them (DVR_AFW_CLEAN=0 ignores them).
+        std::vector<uint8_t> hcc, fcc;
+        char ce[8] = "";
+        const bool useClean = !(GetEnvironmentVariableA("DVR_AFW_CLEAN", ce, sizeof(ce)) && ce[0] == '0');
+        // A clean image of another size (run 26: a stale one after a render-size change) is ignored, never read past its end.
+        const bool haveHc = useClean && read_file(path(p, "held_clean"), hcc) && hcc.size() == (size_t)w * h * 4;
+        const bool haveFc = useClean && read_file(path(p, "fresh_clean"), fcc) && fcc.size() == (size_t)w * h * 4;
+        ID3D11Texture2D* hct = haveHc ? tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, hcc.data(), w * 4) : nullptr;
+        ID3D11Texture2D* fct = haveFc ? tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, fcc.data(), w * 4) : nullptr;
         for (int k = 0; k < 2; ++k) {
             const char* who = k == 0 ? "heldrec" : "fresh";
             auto key = [&](const char* s) { return m[std::string(who) + "." + s]; };
             dvr::afw::Pose tg[2] = {pose_of(key("target0")), pose_of(key("target1"))};
             float vp[16], c5[3], rot[3]; vec(key("vp"), vp, 16); vec(key("c5"), c5, 3); vec(key("rot"), rot, 3);
             dvr::afw::CaptureMeta cm; cm.recId = (uint32_t)atoi(key("rec").c_str());
+            if (ID3D11Texture2D* ct = k == 0 ? hct : fct) dvr::afw::note_clean(g.dev, g.ctx, ct, k == 0 ? sh : sf);
             dvr::afw::note_capture(g.dev, g.ctx, k == 0 ? held : fresh, k == 0 ? ht : ft, k == 0 ? sh : sf, pose_of(key("pose")),
                                    key("bodyOk") == "1", strtof(key("bodyYaw").c_str(), nullptr), tg,
                                    key("vpOk") == "1" ? vp : nullptr, key("vpOk") == "1" ? c5 : nullptr,
                                    key("rotOk") == "1" ? rot : nullptr, &cm);
+            // Run 25: the grips the image was drawn with, when the capture recorded them (older captures: none).
+            dvr::afw::HandPose hp[2];
+            for (int h = 0; h < 2; ++h) {
+                float v8[8] = {};
+                const std::string hk = key(h ? "hand1" : "hand0");
+                if (!hk.empty()) { vec(hk, v8, 8); hp[h].ok = v8[0] > 0.5f; for (int i = 0; i < 3; ++i) hp[h].p[i] = v8[1 + i]; for (int i = 0; i < 4; ++i) hp[h].q[i] = v8[4 + i]; }
+            }
+            {   char e[8] = "";   // DVR_AFW_HELDHANDS=0|1: the controller-moved held hands under test
+                if (GetEnvironmentVariableA("DVR_AFW_HELDHANDS", e, sizeof(e))) dvr::afw::set_held_hands(e[0] == '1', "replay"); }
+            dvr::afw::note_hands(k == 0 ? held : fresh, hp);
         }
         dvr::afw::Pose outPose{}; const char* why = nullptr;
         const bool ok = dvr::afw::warp_held(g.dev, g.ctx, held, fresh, sf, dst, w, h, strtof(m["tanH"].c_str(), nullptr),
@@ -187,7 +228,7 @@ int main(int argc, char** argv) {
             sumDots += (double)dots;
             sumNear += nearN ? 100.0 * nearBad / nearN : 0; sumWorld += worldN ? 100.0 * worldBad / worldN : 0; ++scored;
         }
-        for (ID3D11Texture2D* t : {ht, ft, dst, st}) if (t) t->Release();
+        for (ID3D11Texture2D* t : {ht, ft, dst, st, hct, fct}) if (t) t->Release();
     }
     if (scored) printf("MEAN over %d rebuilds: near band %.2f%% differ, world %.3f%% differ (luminance > 40 against the next native frame), bright dots %.0f\n",
                        scored, sumNear / scored, sumWorld / scored, sumDots / scored);

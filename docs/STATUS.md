@@ -1,3 +1,188 @@
+## 2026-09-30: build 242 accepted; consolidate the tested source for staging
+
+Current state: the headset playtest accepts `v1.0.1-242-g11dcf7db9`; hand/head drift is now
+negligible in the reported test, and the wall correction remains accepted. Runtime banner and
+installed DLL SHA256 `9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0`
+match the build. The verified log, previous log, DLL and full INI are archived in the main
+checkout at `build/integration-242`. The live matcher resolved 4,297 position ties in the final
+beat; total matched draws 22,495, remaining ties 11,547, misses 1,043. Counts are draws and
+include the full session; acceptance does not imply every draw matched.
+
+Integration: `codex/vr-39-integrate-build-242` starts at staging `89537fef7`, advances to the
+exact tested commit `11dcf7db9`, and adds only installation/acceptance documentation. All
+non-documentation tracked content matches build 242. Included PR heads: #159 AFW polish,
+#161 mod spacewarp plus wall/hand fixes, #162 DLSS object motion, #163 foreground FOV work.
+The local test branch's integration fixes are preserved too. Existing 30/30 pose-view,
+46/46 AFW, palette-eye, release build and nine-export validation apply to this identical source.
+No game launch, reinstallation, new default, release tag or VR-Main change is part of consolidation.
+
+Recent PR disposition: #118 version preparation is superseded by released 1.0.2; #140 extra
+pairs is parked after a negative headset verdict; #151 animation origin is parked outside
+the accepted build, with acceptance still incomplete. Preserve their branches and evidence.
+Other contributors' PRs and older unrelated PRs are outside this cleanup.
+
+Next work: create a fresh staging-based branch for the MOD's F10 spacewarp (ModSpacewarp),
+not the external runtime's SSW. Remaining reported faults are a one-frame world-geometry ghost
+during right-stick turning and uneven pacing despite high reported frame rates. MSW remains
+off in the accepted baseline. Geometry evidence stays in FLICKER_REFERENCE; timing research,
+the test plan and the parked extra-pair result stay in PERFORMANCE.md. A dedicated Linear
+Bug creation was attempted and refused by the free issue limit; retain VR-39 as the parent
+investigation without inventing an identifier. One question per future user-launched test.
+
+## 2026-09-30 (AFW build 239): wall accepted; view-matched hands help, position ties remain
+
+Current state: the headset playtest accepts the wall correction. Enabling `PoseFromView` greatly
+reduces the opposite-direction hand/sword drift but leaves a smaller residual. Build 239 banner
+and installed DLL hash verified; DLL, whole INI and both logs archived under the main checkout's
+`build/afw-run29-analysis`. The tester toggled on/off/on and left PoseFromView=1.
+
+Measured: the first on segment has 3,463 matched hand draws, 2,527 position ties and 36 misses.
+Matched draws corrected up to 2.751 deg of head-sample offset. Ties fall back to PoseLag=2;
+their causal contribution to the residual is a candidate, not a headset-proven finding.
+
+Change: behind the existing checkbox, resolve a position tie only when the draw's rotation also
+identifies a safe view. Conflicting head samples, eyes, cameras or level generations still refuse.
+30/30 host checks and existing palette-eye tests pass; old-control head-turn cases fail as intended.
+The heartbeat now reports rotation-resolved ties and prints even if every draw is refused.
+No engine-memory writes, AFW shader change or setting migration.
+
+Installed: `v1.0.1-242-g11dcf7db9`, fix `a27c715f9`, local combined candidate. Release build,
+nine exports, 30/30 pose-view and 46/46 AFW host checks pass. DLL SHA256
+`9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0` matches build output.
+Entire INI identical to pre-install backup and expected target, CRLF verified; PoseFromView=1,
+gain 0.911 and MSW off. Backup: `build/afw-run29-analysis/pre-install-242-20260930-010059`
+in the main checkout. New runtime banner and residual-drift verdict await the user's launch.
+
+Next single-launch question: with the same checkbox left on, is the smaller head-sweep drift gone
+or reduced further? Verify the new banner and compare resolved ties with remaining refusals.
+If useful matches do not increase, the candidate has not exercised its intended correction;
+if they increase but the residual stays, investigate placement/projection separately. No dump needed.
+Detailed evidence and limitations: `docs/dishonored/FLICKER_REFERENCE.md` top entry.
+
+## 2026-09-30 (AFW build 236 follow-up): striped wall outline measured; native-hand head timing suspect
+
+Current state: build 236 headset report leaves a changed wall artifact and the opposite-direction
+head-sweep drift. The one usable new capture (`-001558`, five complete frames) exposes a second wall
+bug: fresh foreground behind the wall falsely invalidates held world pixels as stale. The shader
+now treats that foreground as an occluder. Old-code regression: max 4.531 px wall error; fixed
+0.014 px, 46/46 host tests. The striped blade/hand outline disappears in replay.
+
+Installed: `v1.0.1-239-g8cf208663`, fix `b63da9a34`, local combined candidate only. Release build,
+exports and combined 46/46 host tests pass. DLL SHA256
+`7270FAD2E95B7094633B6E7C17B05D8197926A99AB747AF99DA37B95D64C6F5D` matches build output.
+Entire INI unchanged against backup and expected bytes, CRLF verified; PoseFromView=0 for the
+off baseline, gain 0.911, MSW off. Backup: main checkout
+`build/afw-run28-analysis/pre-install-239-20260930-003926`. Runtime banner awaits user launch.
+
+The other two captures are unusable after C: filled. All originals and logs preserved; 4.89 GB of
+regenerable session replay output removed. Capture short-write handling needs a ticket, but Linear
+creation was refused by the free issue limit. No new ticket number exists.
+
+Head-sway: native feature motion suggests a preceding head sample; PoseFromView is off. Next launch
+has one live A/B question, in open space: does `Hands follow each eye's own view` remove the opposite
+drift, with off bringing it back? Read `hands/poseview` to verify matches. No capture needed. Keep
+the 0.911 gain and other settings. Wall shader fix will be built/installed separately from this
+existing live feature toggle; its headset verdict remains pending.
+Evidence, rejected readings and next steps: `docs/dishonored/FLICKER_REFERENCE.md` top entry.
+
+## 2026-09-30 (AFW): wall duplicate traced to background fill; headset pending
+
+Current state: continued `claude/vr-39-mod-spacewarp` from `9cadca4e8`. Both unanalysed captures
+are now identified: `-234412` wall, `-234706` head sway. Build 233 and its installed DLL verified;
+DLL, INI and both logs archived. The large wall duplicate comes from fill selecting a foreground
+sample behind the wall as background. Both fill sources now exclude foreground. Synthetic old-code
+control: 1,970 ghost pixels; fixed: zero, 45/45 host tests. Replay removes the large duplicate;
+thin disocclusion strips remain. Gain 1.0 and edge-hands-off do not cure the sway capture.
+
+Installed: `v1.0.1-236-g9d8af5b0f` from the existing combined `aer` checkout, carrying fix `f9d14889d`.
+Release build, nine exports and combined host suite (45/45) pass. Installed DLL SHA256
+`228C7B30D224CA005D6E403EC56BE9BE525D34E2A1C7A7C279D8D37BC60A8C73` matches the build.
+The entire 73,303-byte INI matches both its backup and expected target, with CRLF verified:
+no keys changed, gain 0.911 and MSW off. Existing DLSS helper retained (this shader-only build
+does not rebuild it). Backup: main checkout `build/afw-resume-analysis/pre-install-236-20260930-001201`.
+
+Next steps: user launches once for the wall-only question: does the large extra copy stop growing
+with penetration? First verify the new runtime banner; the archived/current old log is build 233. Head-sway timing/depth remains open, as do turn disocclusion and MSW turn ghosts.
+Detailed measured evidence, limitations and continuation plan:
+`docs/dishonored/FLICKER_REFERENCE.md` top entry and `HANDOFF-afw-runs-13-27.md`.
+No merge to staging or VR-Main.
+
+## 2026-09-29 (run 14): the arms' FOV measured; AFW's hands correction is a fixed gain - built, headset pending
+
+- `fgproj:` measured the arms at the world's FOV (103), so the hands-at-world-FOV switch works.
+- The hands' flicker under AFW came from AFW's foreground number. It is now the world's FOV widened by
+  `[Stereo] AfwForegroundGain=0.911` (F10 "AFW hands correction"). Measured by replay; needs the headset.
+- `HandsLensForce` and the lens writes are gone (measured to change nothing drawn); `armslens:` logs only.
+
+## 2026-09-29 (run 13 follow-up): the arms' lens read from the pawn, the switch moved - built, headset pending
+
+Branch `claude/vr-39-hands-world-fov`; installed from `local/test-vr39-msw-objmotion`.
+- Run 13 confirmed (build 198 log): re-entry 232-267 presents/s again, one `armslens:` line (the search
+  gave up). No general flicker reported under AFW in the same run.
+- The arms' component is now the pawn's `Mesh` (Pawn.Mesh by name, 0x3dc fallback). No GObjects search is
+  left in arm follow (ArmFovTick's slice search went too).
+- The held weapons' lenses are read from the hands' view-model list and written with the arms.
+- `[Screen] HandsLensForce` (default 0): switch a lens that is off on, at the world's FOV. The test for
+  `m_bUseFOV=0`.
+- F10: the Field of view section moved to Display (first section); the switch, the force test and a
+  status line are also at the top of Hands > Hand size and position.
+- Next log: the `armslens: the player mesh ... m_bUseFOV=` line decides the next step (BRIEF section 2).
+
+## 2026-09-29: hands and weapon at the world FOV - built, headset pending
+
+Branch `claude/vr-39-hands-world-fov` (off staging).
+- The camera's FOV target follows `[Screen] ProjectionFov`, so the arms and weapon draw at 103 like the
+  world, instead of the headset-derived 108.
+- `[Screen] HandsAtWorldFov` (default 1), F10 Comfort. See ENGINE_NOTES.
+- To check first under the 1.0.2 stereo method (reentry): that hands, aiming and cinematics still work.
+## 2026-09-29: DLSS object motion - built, host-verified, headset pending
+
+Branch `claude/vr-39-dlss-object-motion` (on #159). Each eye image is block-matched against its previous
+one, so moving characters and anything the player rides get their own motion vectors.
+- The F10 box is "Follow moving characters and vehicles" (default off).
+- Host 10/10: a character 0.14 px, a boat 0.00 px, the static world unchanged.
+- Cost 0.25 ms per eye image.
+
+## 2026-09-28 (MSW): the mod's own spacewarp - rung 1 built, host-verified, not yet run
+
+Branch `claude/vr-39-mod-spacewarp`, on top of #159.
+
+**Measured (run 8):** 88-91 presents/s against 144 slots/s, so about 40% of slots went to VD's
+headset-side SSW. SSW guesses motion from the video, which smears when running and warps the HUD.
+
+**Built:**
+- A thread fills those slots itself. Each eye is rebuilt from its own image and depth at the slot's eye
+  position, with the body's walk and turn extrapolated.
+- The HUD and aim quads are re-submitted as layers.
+- Default off: `[VR] ModSpacewarp`, `vrpace msw`, F10.
+
+**Host:** a synthesized slot while running is 99.8% within 1.5 px; with extrapolation off it is 19.9%.
+**Next:** `docs/dishonored/PLAN-mod-spacewarp.md`: a simulator run (needs a yes), then the headset A/B with
+VD SSW off.
+
+## 2026-09-28 (AFW run 8): foreground mask, running, DLSS hands, and the depth layer for SSW - host-verified, headset pending
+
+Branch `claude/vr-39-afw-polish` (after #158 merged). From the run-8 report:
+
+- **Sword tip far away / geometry very close: flat and doubled.**
+  - The foreground (arms, weapon) is now the texels the foreground pass drew (a pre-foreground copy of
+    the scene target), not "nearer than 0.30 units".
+  - `afw fgmask`.
+- **Running blur.**
+  - The camera check dropped the game matrices at running speed; now it is a latched vote over still
+    presents plus a 150 uu jump bound.
+  - The turn check went from 0.5 to 5 deg.
+- **DLSS smearing hands.**
+  - The foreground mask now feeds DLSS's "trust the current colour" mask (`dlss fgbias`, on).
+  - Moving NPCs still smear: the game draws no velocity buffer. Try `DlssMask=1`. Research: see the brief.
+- **SSW while running: the depth layer.**
+  - `[VR] SubmitDepth=1` (default 0, F10 checkbox, restart) sends each eye's depth under AFW.
+  - `vrpace depth on|off` is the live A/B.
+  - Whether VD's SSW uses depth is the headset question.
+
+**Host:** 34/34 (new: depth layer per eye within 3% on every pixel, with a control that fails).
+**Next:** `docs/dishonored/BRIEF-afw-next-session.md`.
+
 ## 2026-09-28 (AFW run 7): outline, merchant FOV and crash fixed; sword shading left as an option
 
 Run 7 on `v1.0.1-166-g737af7773`: the hand jitter is gone. Fixed from two captures and the log:

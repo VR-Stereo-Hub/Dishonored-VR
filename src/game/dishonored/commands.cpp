@@ -102,7 +102,13 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (!strcmp(sub, "debug") && DvrOnOff(v, &b)) { dvr::afw::set_debug(b, "the seam"); return true; }
         if (!strcmp(sub, "matrices") && DvrOnOff(v, &b)) { dvr::afw::set_matrices(b, "the seam"); return true; }
         if (!strcmp(sub, "fg") && DvrOnOff(v, &b)) { dvr::afw::set_fg(b, "the seam"); return true; }
+        if (!strcmp(sub, "fgmask") && DvrOnOff(v, &b)) { dvr::afw::set_fg_mask(b, "the seam"); return true; }
         if (!strcmp(sub, "ownhands") && v[0]) { dvr::afw::set_own_hands((float)atof(v), "the seam"); return true; }
+        if (!strcmp(sub, "clean") && DvrOnOff(v, &b)) { dvr::afw::set_clean(b, "the seam"); return true; }
+        if (!strcmp(sub, "stillshade") && DvrOnOff(v, &b)) { dvr::afw::set_still_shade(b, "the seam"); return true; }
+        if (!strcmp(sub, "edgehands") && DvrOnOff(v, &b)) { dvr::afw::set_edge_hands(b, "the seam"); return true; }
+        if (!strcmp(sub, "heldhands") && DvrOnOff(v, &b)) { dvr::afw::set_held_hands(b, "the seam"); return true; }
+        if (!strcmp(sub, "stale") && v[0]) { dvr::afw::set_stale((float)atof(v), "the seam"); return true; }
         if (!strcmp(sub, "nearmiss") && v[0]) { dvr::afw::set_near_miss((float)atof(v), "the seam"); return true; }
         if (!strcmp(sub, "fgdepth") && v[0]) { dvr::afw::set_fg_depth((float)atof(v), "the seam"); return true; }
         if (!strcmp(sub, "dump")) { dvr::afw::request_dump(v[0] ? atoi(v) : 16, 0, dvr::paths::dumps_dir(), "the seam"); return true; }
@@ -490,6 +496,15 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         bool on;
         if (DvrOnOff(args,&on)) FireAimSet(on,"command seam");
         else Log("fireaim: %s; use fireaim on|off",FireAimEnabled()?"ON":"off");
+        return true;
+    }
+    if (!strcmp(cmd, "armslens")) {   // VR-39: armslens [gain <x>]
+        const char* a = args ? args : "";
+        while (*a == ' ') ++a;
+        if (!strncmp(a, "gain", 4)) { const float g = (float)atof(a + 4); if (g > 0.0f) AfwFgGainSet(g, "command seam"); }
+        char st[160]; ArmsLensStatus(st, sizeof(st));
+        Log("armslens: hands switch %s, AFW foreground gain %.3f | %s (armslens gain <0.80-1.00>)",
+            HandsWorldFovGet() ? "ON" : "off", AfwFgGainGet(), st);
         return true;
     }
     if (!strcmp(cmd, "propwatch")) {

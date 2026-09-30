@@ -1415,3 +1415,25 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   only refines it, and both sources are ranked in the held eye's own depth. The fresh eye decides
   staleness: a held point it sees through has moved. Grid step 2 at half resolution is the measured
   trade-off (about 1.5 ms at 2750x2850 on an RTX 4070 Ti SUPER; step 4 misses a one-pixel edge ring).
+
+- **2026-09-28 - AFW's foreground is a mask, not a depth band; the depth layer rides only AFW (VR-39).**
+  - The arms and weapon are the texels whose depth changed after the first crushed-depth viewport
+    (MaxZ < 0.5) of the frame. That is the pass that draws them, so the classification survives a sword
+    tip past any depth limit and a wall nearer than it. It costs one scene-target copy per frame while
+    AFW or the DLSS hands bias wants it.
+  - The XR depth layer is AFW's only: it needs the per-eye depth snapshots and the rebuilt eye's own
+    depth, and a layer whose two eyes disagree about depth would be reprojected two ways, so it is both
+    eyes or neither.
+  - It is default off because enabling it is an instance-creation choice and whether VD's SSW uses it is
+    unmeasured.
+
+- **2026-09-28 - The mod fills missed display slots itself (MSW, VR-39).**
+  - A thread owns the frame loop whenever the Present hook does not; `g_cycleMx` spans the hook's XR and
+    D3D11 work.
+  - It rebuilds each eye from its own image at the slot's eye position. Only translation is
+    synthesized: rotation rides the submitted pose, which the compositor reprojects exactly.
+  - The HUD stays as layers, so the compositor keeps it crisp.
+  - Chosen over the runtime's SSW because that runs on the headset from video block motion, with no
+    depth, no game matrices and no separate HUD.
+  - Chosen over a whole-loop compositor thread because real frames stay on the proven present path;
+    only the gaps are new.

@@ -313,6 +313,26 @@ uint32_t pace_sync_delays(); // Cumulative pair-opening delay events for A/B val
 void set_pair_strict(bool on);
 bool pair_strict();
 
+// VR-39: the depth layer (XR_KHR_composition_layer_depth) under AFW. set_submit_depth is [VR] SubmitDepth and
+// must be called before the instance is created (the extension is enabled there); DEFAULT OFF. The live
+// switch (`vrpace depth on|off`, F10) chains or drops the depth per submit; depth_active says the extension
+// and the depth swapchains are up.
+void set_submit_depth(bool on);
+// VR-39: the mod's own spacewarp (MSW) - see openxr_runtime.cpp. DEFAULT OFF ([VR] ModSpacewarp, `vrpace msw`).
+// cycle_enter/cycle_leave bracket the Present hook's XR and D3D11 span: while it holds them the MSW thread
+// cannot take the frame loop.
+void set_mod_spacewarp(bool on);
+void set_msw_half_rate(bool on);   // the half-rate lock (default on): the game at half the refresh, every other slot synthesized
+bool msw_half_rate();
+bool mod_spacewarp();
+void cycle_enter();
+void cycle_leave();
+void msw_tick();   // the Present hook, each present: starts or stops the MSW thread
+bool submit_depth();
+void set_depth_live(bool on);
+bool depth_live();
+bool depth_active();
+
 // Session 43b (the Infinite "jumpy camera"): which locate generation the
 // SequentialReentry capture attributes its eyes to. 0 = the fresh locate,
 // 1 = one generation back (the historical default - calibrated on BS1's

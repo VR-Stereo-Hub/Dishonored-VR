@@ -1,3 +1,56 @@
+## 2026-09-30: accepted build 242 baseline; mod-spacewarp pacing follow-up
+
+AFW wall and hand/head-motion corrections are headset-accepted on `11dcf7db9`, with
+ModSpacewarp off. The next request explicitly concerns the mod's F10 spacewarp, whose remaining
+reported faults are one-frame world ghosts during right-stick turning and uneven pacing even
+when the reported frame rate is high. A high average rate does not establish even slot delivery.
+No new timing cause or fix is claimed from this acceptance run.
+
+Plan after the staging consolidation, one behavioral change and one headset question at a time:
+
+1. Preserve build 242's DLL/INI pair and accepted AFW source. Confirm MSW owns synthesized slots
+   in the next evidence run, including half-rate lock, extrapolation and lead settings. Keep 144 Hz.
+2. Inspect existing `msw:`/XR timing and identity instruments before adding diagnostics. Correlate
+   real and synthesized submissions, display targets, source-image age, lock/wait ownership and
+   skipped or repeated slots. Quantify interval distributions rather than only mean FPS.
+3. For stick turns, distinguish one-frame stale world/turn prediction from disocclusion by comparing
+   the synthetic slot with its identified real source and target. Preserve independent controls for
+   extrapolation and scheduling; do not infer that AFW's hand-side fill explains all MSW ghosts.
+4. Validate scheduling and geometry candidates on the host with failing old-code controls. The
+   tester launches; no agent-launched game. Judge turn geometry and perceived pacing separately.
+
+New Bug creation was refused by Linear's free issue limit; this remains under parent VR-39.
+Visual evidence and acceptance identity are in `FLICKER_REFERENCE.md`.
+
+### Parked extra-pair experiment (#140), retained when closing the old PR
+
+Source branch `claude/extra-pairs-per-tick`, verdict commit `7cda0c54b`, is retained. Its headset
+test on `v1.0.1-106-g10f9cd0ab` at 144 Hz with DLSS Quality SR showed 120-126 pairs/s with or
+without the extra pair, world ticks around 60/s and increased hand/weapon judder. The earlier
+simulator gain of about 18% used DLSS off; each extra pair duplicated DLSS's per-image cost in
+the headset configuration. The experiment is not part of build 242 and is not being merged.
+Do not reopen it as a pacing remedy without evidence addressing those failed predictions.
+
+## 2026-09-29: DLSS object motion cost (VR-39, host)
+
+Measured on the host at 2114x2192 per eye image (RTX 4070 Ti SUPER, 20 frames between timestamps after a
+warm-up, the camera vectors' own time subtracted):
+- 0.25 ms with a still camera and one moving character;
+- 2.05 ms when every tile disagrees with the camera.
+
+The static world costs one early-exit pass (about 0.15 ms with no character). Method and traps:
+`PLAN-motion-vectors-dlss.md`, "Object motion".
+## 2026-09-28: AFW slot fill rate and the mod spacewarp's cost (MSW, estimate)
+
+- **Measured (run 8, AFW at 3012x3122, 144 Hz):** 87-91 presents and submits per second; the
+  `stereo: rate` line says 0.60-0.63x of display slots filled.
+- **Estimated, not measured in the game:** MSW's cost is one seed map and a compose per eye per
+  synthesized slot. That is about 1 ms per eye (from the host's 1.54 ms full rebuild at 2750x2850), about
+  2 ms per slot, and about 110 ms of GPU per second at 54 slots/s.
+- **Expected pacing:** a game that manages about 90 on a 144 Hz display is paced to the slots it can make
+  (about 72 real plus 72 synthesized).
+- The `msw:` log line prints both rates. See `PLAN-mod-spacewarp.md`.
+
 ## 2026-09-27: sharp-marker overlay resource budget, unmeasured candidate
 
 MarkersSharp defaults off. Six output-sized RGBA8 shared images and one D24S8
