@@ -1,3 +1,22 @@
+## 2026-09-29: AFW run 25 - the held eye's hands follow their controllers (BUILT, host-verified, headset pending)
+
+Follow-up to run 23 (hand parts the fresh eye cannot see) and run 24 (the blade's far side in a wall). Captures
+`afw-20260929-224111` and `-224122` (a stick turn).
+- Each image already carried the controller grips it was drawn with (`note_hands`, MSW). The AFW rebuild did
+  not use them: the held eye's own hands stayed where its image drew them, so they could fill only while the
+  controllers were still (runs 21 and 23).
+- BUILT: `warp_held` moves the held eye's foreground rigidly with the nearer grip, from the held image's
+  pose to the fresh image's (MSW's `handMove`, reach 1.2 m with the drawn mask, 30 cm without). Run 23's
+  hidden/outside rule now also applies while the hands move. `afw heldhands on|off`, F10 "AFW: each eye's
+  own hands follow the controllers". The `afw/warp: held hands` beat line counts it. The capture records
+  each image's grips and the replay feeds them (older captures have none).
+- Host test (44/44): a hand moving 3 cm at the left edge of view. The strip outside the fresh eye's frame is
+  0 texels missing with the grips, 512 without (the control), no ghost.
+- NOT addressed, and why: in a stick turn the controllers do not move in tracking space (the game camera
+  turns), so this changes nothing there. The turn's band beside the hands is WORLD that was behind the
+  hands in the held image. Replay of `-224122` (17-20 deg per present) shows that band as fill (magenta)
+  and held fallback (red). OPEN.
+
 ## 2026-09-29: AFW run 24 - the weapon flickers when pushed into a wall (FIXED in build, headset pending)
 
 Surface: the held eye's weapon inside a wall right in front of the face, `stereo afw`, build v1.0.1-225. Capture

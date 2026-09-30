@@ -1183,6 +1183,9 @@ static void OvlTabDisplay()
                 bool eh = dvr::afw::edge_hands();   // VR-39 run 22
                 if (dvr::ovl::checkbox("AFW: hands at the frame's edges stay whole", &eh)) dvr::afw::set_edge_hands(eh, "F10");
                 OvlTip("Off shows the old fault: parts of an arm near the edge of view vanish every other frame.");
+                bool hh = dvr::afw::held_hands();   // VR-39 run 25
+                if (dvr::ovl::checkbox("AFW: each eye's own hands follow the controllers", &hh)) dvr::afw::set_held_hands(hh, "F10");
+                OvlTip("Lets each eye fill hand parts the other eye cannot see (a thumb, a finger's side) while your hands move.");
                 bool km = dvr::depthprobe::fgmask_on();   // VR-39 run 17
                 if (dvr::ovl::checkbox("AFW: hands and weapon from the game's own draws", &km)) dvr::depthprobe::fgmask_set(km, "F10");
                 OvlTip("Off falls back to a distance limit: a close face is treated as your hands, a far blade tip as the world.");

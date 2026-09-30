@@ -107,6 +107,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (!strcmp(sub, "clean") && DvrOnOff(v, &b)) { dvr::afw::set_clean(b, "the seam"); return true; }
         if (!strcmp(sub, "stillshade") && DvrOnOff(v, &b)) { dvr::afw::set_still_shade(b, "the seam"); return true; }
         if (!strcmp(sub, "edgehands") && DvrOnOff(v, &b)) { dvr::afw::set_edge_hands(b, "the seam"); return true; }
+        if (!strcmp(sub, "heldhands") && DvrOnOff(v, &b)) { dvr::afw::set_held_hands(b, "the seam"); return true; }
         if (!strcmp(sub, "stale") && v[0]) { dvr::afw::set_stale((float)atof(v), "the seam"); return true; }
         if (!strcmp(sub, "nearmiss") && v[0]) { dvr::afw::set_near_miss((float)atof(v), "the seam"); return true; }
         if (!strcmp(sub, "fgdepth") && v[0]) { dvr::afw::set_fg_depth((float)atof(v), "the seam"); return true; }
