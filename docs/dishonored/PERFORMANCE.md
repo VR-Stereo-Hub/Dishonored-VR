@@ -1,3 +1,48 @@
+## 2026-09-30: half-rate slot ownership and prediction timeline (HOST-VERIFIED candidate)
+
+The request concerns ModSpacewarp in F10. Build 242 remains the headset-accepted AFW baseline
+with this feature off; the current work has no new headset verdict yet.
+
+Code finding: the half-rate worker assigned `seenEnds = ends` before trying `g_cycleMx`. A lost
+try_lock consumed the only notification of that real frame. Also, a fast next Present could win
+the recursive mutex repeatedly; Windows mutex fairness does not reserve an alternating slot.
+The overdue filler sometimes hid the loss, but could not guarantee real/synthetic alternation.
+
+Correction: under the existing mutex, a successful real stereo end records one pending synthetic
+slot. The worker consumes it only with the lock. If Present wins first, its outermost entry
+services it before any real XR cycle; nested Present cannot do so. The overdue filler consumes
+the same pending slot, preventing duplicate service. Off, stopped, adaptive, and blocked runtime
+states cancel it without adding a wait on the worker. No engine memory writer is introduced.
+The synthetic work in Present assistance is included in the existing blocked-time accounting.
+
+Host evidence: `tools/msw-slot-host.ps1` extracts the production service and cycle entry/exit.
+12/12 checks pass, including 200 frames alternating worker wins and Present wins with deliberate
+contention before every unlock. `-OldControl` models build 242's consumed-before-lock sequence:
+8 pass / 4 fail, including loss of the token and broken alternation. This proves the ownership
+correction on the host, not XR driver deadlines or end-to-end headset cadence.
+
+New three-second `msw: slot order` line reports worker/Present-assist counts, target intervals
+over 1.5 display periods, non-increasing display targets and consecutive real submits. A steady
+half-rate run should have roughly 72 real + 72 synthesized slots/s at 144 Hz, and zero in the
+last three counters. Missing GPU/runtime deadlines may still produce target gaps even with
+correct ordering. Counts use successful stereo submissions, with the chain reset on non-stereo
+frames; warm-up, focus changes and loading are not steady-state pacing evidence.
+
+Prediction also had a timing mismatch: capture arrival intervals measured delivery stalls,
+while the synthesized head pose targeted an XR display slot. Native images now carry the XrTime
+of their real submission. Body motion is measured per submission interval and advanced to the
+synthetic display time, retaining the native pipeline's fixed latency instead of treating a late
+readback as later game motion. Both eyes share that target even though one native image is older.
+Missing/reversed timing refuses prediction; the old wall-clock path is retained only for callers
+that explicitly supply no display timestamp (host/replay compatibility).
+
+55/55 GPU warp checks pass, including unchanged accepted wall/hand checks and new independent
+capture-clock and stale-camera-writer controls. Build 242 fails six of the 53-case suite before
+the off-origin pivot cases were added. Final host informational cost: grid-4 synthesis 0.703 ms
+per eye, full AFW rebuild 1.444 ms at 2750x2850; this is not an in-game performance comparison.
+Geometry details and perceptual limits are in FLICKER_REFERENCE. Next user launch asks only
+about stick-turn geometry; read pacing counters from that run without conflating the verdicts.
+
 ## 2026-09-30: accepted build 242 baseline; mod-spacewarp pacing follow-up
 
 AFW wall and hand/head-motion corrections are headset-accepted on `11dcf7db9`, with

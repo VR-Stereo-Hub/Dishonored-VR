@@ -1,3 +1,12 @@
+## 2026-09-30: half-rate enabled does not prove alternating slot delivery
+
+Build 242's MSW worker consumed the real-frame notification before acquiring the frame lock.
+A lost try_lock could therefore skip its synthetic slot, despite HalfRate=1. Inspect successful
+display-target order, not only the configured toggle or aggregate FPS. The correction retains
+the obligation under the mutex and allows the next outermost Present to service it. Also keep
+capture-arrival time separate from the native image's submission XrTime when predicting motion.
+Host controls and remaining headset limits: `dishonored/PERFORMANCE.md`, 2026-09-30.
+
 ## 2026-09-30: a view-following option can be on while many draws fall back
 
 Build 239's initial PoseFromView on segment matches 3,463 hand draws but refuses 2,527 position

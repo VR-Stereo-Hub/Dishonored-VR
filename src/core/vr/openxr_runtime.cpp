@@ -131,6 +131,23 @@ std::atomic<bool> g_mswEngaged{false};
 // The missed-slot filler stays on underneath (a game below half rate). `vrpace msw half on|off`, [VR]
 // ModSpacewarpHalfRate, F10.
 std::atomic<bool> g_mswHalfRate{true};
+bool g_mswHalfPending = false;             // under g_cycleMx: a successful real frame owes one synthetic slot
+thread_local unsigned g_cycleDepth = 0;   // nested Present must not service a slot inside its parent's frame
+std::atomic<uint32_t> g_mswHalfWorker{0}, g_mswHalfAssist{0};
+std::atomic<uint32_t> g_mswSlotGaps{0}, g_mswSlotRepeats{0}, g_mswRealRuns{0};
+XrTime g_mswPreviousSlot = 0;              // under g_cycleMx, successful stereo submissions only
+bool g_mswPreviousReal = false;
+void msw_note_slot(bool real, XrTime time, XrDuration period) {
+    if (!g_mswRun.load() || !g_mswWanted.load() || !g_mswHalfRate.load()) { g_mswPreviousSlot = 0; return; }
+    if (g_mswPreviousSlot && period > 0) {
+        const XrDuration gap = time - g_mswPreviousSlot;
+        if (gap <= 0) ++g_mswSlotRepeats;
+        else if (gap > period + period / 2) ++g_mswSlotGaps;
+        if (real && g_mswPreviousReal) ++g_mswRealRuns;
+    }
+    g_mswPreviousSlot = time;
+    g_mswPreviousReal = real;
+}
 uint64_t g_mswEngageChangeMs = 0;            // the adaptive policy's last change (a 3 s dwell against flapping)
 int64_t g_hookEnterUs = 0, g_hookPrevEnterUs = 0, g_hookBlockedUs = 0, g_hookPrevBlockedUs = 0;   // Present thread
 std::atomic<uint32_t> g_mswFrames{0}, g_mswSynthEyes{0}, g_mswCopyEyes{0}, g_mswBusy{0}, g_mswNotReady{0},
@@ -4759,6 +4776,7 @@ void on_present_end(ID3D11Texture2D* frame) {
                                         dvr::afw::CaptureMeta cm;
                                         cm.recId = rec.id; cm.writer = rec.cam.writer; cm.writeMs = rec.cam.writeMs;
                                         cm.captureMs = MaimNowMs();   // the camera write clock (dvr::clock), so the two subtract
+                                        cm.displayTime = g_frameState.predictedDisplayTime;
                                         cm.jitter[0] = rec.jitter[0]; cm.jitter[1] = rec.jitter[1]; cm.jitterDraws = rec.jitterDraws;
                                         dvr::afw::note_capture(g_device, g_context, srEye, backbuffer,
                                                                dvr::capture::delivered_serial(), pose,
@@ -5724,6 +5742,9 @@ void on_present_end(ID3D11Texture2D* frame) {
     }
 #endif
     dvr::perf::desktop_ab_submit(measuredStereo, g_eyeContentSerial[0], g_eyeContentSerial[1]);
+    g_mswHalfPending = measuredStereo && g_mswRun.load() && g_mswWanted.load() && g_mswHalfRate.load();
+    if (measuredStereo) msw_note_slot(true, fei.displayTime, g_frameState.predictedDisplayPeriod);
+    else g_mswPreviousSlot = 0;
     dvr::diag_ab::submit(measuredStereo,g_eyeContentSerial[0],g_eyeContentSerial[1]);
     note_aim_visual(XR_FAILED(r) && visualResult == AimVisualResult::Submitted
                        ? AimVisualResult::EndFailed : visualResult,
@@ -6240,9 +6261,30 @@ void set_pair_strict(bool on) {
 bool pair_strict() { return g_pairStrict.load(std::memory_order_relaxed); }
 
 // ---- VR-39 (Dishonored): the MSW thread ------------------------------------------------------------------
+const char* msw_blocker();
+void msw_cycle();
+
+// Called only with g_cycleMx held. A failed try_lock never consumes this obligation. If the
+// next Present wins the mutex before the worker, it fills the owed slot before beginning a
+// real frame. That makes half-rate ordering independent of Windows mutex wake-up fairness.
+bool msw_half_slot(bool fromPresent) {
+    if (!g_mswHalfPending) return false;
+    g_mswHalfPending = false;
+    if (!g_mswRun.load() || !g_mswWanted.load() || !g_mswHalfRate.load()) return false;
+    if (const char* no = msw_blocker()) {
+        ++g_mswNotReady;
+        g_mswNotReadyWhy = no;
+        return false;
+    }
+    (fromPresent ? g_mswHalfAssist : g_mswHalfWorker).fetch_add(1, std::memory_order_relaxed);
+    msw_cycle();
+    return true;
+}
+
 void cycle_enter() {
     const int64_t t0 = (int64_t)(dvr::clock::now_ms() * 1000.0);
     g_cycleMx.lock();
+    if (++g_cycleDepth == 1) msw_half_slot(true);
     const int64_t t1 = (int64_t)(dvr::clock::now_ms() * 1000.0);
     // The game's own frame time: the interval since the last hook, less what that hook spent blocked.
     if (g_hookPrevEnterUs) {
@@ -6257,6 +6299,7 @@ void cycle_enter() {
 }
 void cycle_leave() {
     g_hookPrevBlockedUs = g_hookBlockedUs + (int64_t)g_phaseLastUs[kPhWait].load(std::memory_order_relaxed);
+    --g_cycleDepth;
     g_cycleMx.unlock();
 }
 
@@ -6322,7 +6365,7 @@ void msw_cycle() {
                 const char* why = nullptr;
                 if (g_mt) g_mt->Enter();
                 synth = dvr::afw::synth_eye(g_device, g_context, e, dst, g_swapW, g_swapH, tanH, tanV, tp, nowMs, &pose, &why,
-                                            slotHands);
+                                            slotHands, fs.predictedDisplayTime);
                 wrote = synth || dvr::afw::copy_own(g_context, e, dst, &pose);
                 if (g_mt) g_mt->Leave();
             }
@@ -6423,6 +6466,8 @@ void msw_cycle() {
     if (XR_FAILED(r)) { g_mswFails.fetch_add(1); XRLOG("msw: xrEndFrame failed: %s", res_str(r)); return; }
     g_lastEndUs.store((int64_t)(dvr::clock::now_ms() * 1000.0), std::memory_order_relaxed);
     g_mswFrames.fetch_add(1, std::memory_order_relaxed);
+    if (wroteEyes == 2) msw_note_slot(false, fei.displayTime, fs.predictedDisplayPeriod);
+    else g_mswPreviousSlot = 0;
 }
 
 DWORD WINAPI msw_thread_proc(void*) {
@@ -6437,6 +6482,8 @@ DWORD WINAPI msw_thread_proc(void*) {
     uint64_t nextLog = GetTickCount64() + 3000;
     uint32_t lastFrames = 0, lastSynth = 0, lastCopy = 0, lastBusy = 0, lastNR = 0, lastFails = 0;
     uint32_t lastEnds = g_endFrames.load(std::memory_order_relaxed);
+    uint32_t lastWorker = g_mswHalfWorker.load(), lastAssist = g_mswHalfAssist.load(), lastGaps = g_mswSlotGaps.load(),
+             lastRepeats = g_mswSlotRepeats.load(), lastRealRuns = g_mswRealRuns.load();
     while (g_mswRun.load(std::memory_order_relaxed)) {
         const int64_t periodNs = g_displayPeriodNs.load(std::memory_order_relaxed);
         if (periodNs <= 0) { sleep_us(5000); continue; }
@@ -6455,27 +6502,22 @@ DWORD WINAPI msw_thread_proc(void*) {
                       fl - lastFails, dvr::afw::synth_hands() ? "follow" : "held", g_mswHandHit, g_mswHandMiss, g_mswQuadsMoved);
                 lastFrames = fr; lastSynth = sy; lastCopy = cp; lastBusy = bz; lastNR = nr; lastFails = fl; lastEnds = en;
                 nextLog = t + 3000;
+                const uint32_t worker = g_mswHalfWorker.load(), assist = g_mswHalfAssist.load(), gaps = g_mswSlotGaps.load(),
+                               repeats = g_mswSlotRepeats.load(), realRuns = g_mswRealRuns.load();
+                XRLOG("msw: slot order (this window) half=%d worker=%u present-assist=%u | target gaps over 1.5 periods=%u, "
+                      "non-increasing targets=%u, consecutive real=%u (steady half-rate expects all three zero; "
+                      "gaps can also mean the GPU/game missed its deadline)",
+                      g_mswHalfRate.load() ? 1 : 0, worker - lastWorker, assist - lastAssist, gaps - lastGaps,
+                      repeats - lastRepeats, realRuns - lastRealRuns);
+                lastWorker = worker; lastAssist = assist; lastGaps = gaps; lastRepeats = repeats; lastRealRuns = realRuns;
             }
         }
         if (g_mswHalfRate.load(std::memory_order_relaxed)) {
-            // The lock: a real frame just ended -> take the next slot now (the game renders its next frame
-            // meanwhile, outside the frame loop, and its own wait lands on the slot after).
-            static uint32_t seenEnds = 0;
-            const uint32_t ends = g_endFrames.load(std::memory_order_relaxed);
             if (!g_mswEngaged.exchange(true)) XRLOG("msw: ENGAGED - half-rate lock (every slot after a real frame is synthesized)");
-            if (ends != seenEnds) {
-                seenEnds = ends;
-                if (g_cycleMx.try_lock()) {
-                    if (const char* no = msw_blocker()) {
-                        g_mswNotReady.fetch_add(1, std::memory_order_relaxed);
-                        g_mswNotReadyWhy = no;
-                    } else {
-                        msw_cycle();
-                    }
-                    g_cycleMx.unlock();
-                } else {
-                    g_mswBusy.fetch_add(1, std::memory_order_relaxed);
-                }
+            if (g_cycleMx.try_lock()) {
+                const bool serviced = msw_half_slot(false);
+                g_cycleMx.unlock();
+                if (serviced) continue;
             }
         }
         if (!g_mswHalfRate.load(std::memory_order_relaxed)) {   // whether: the game's own frame time, with hysteresis
@@ -6511,6 +6553,9 @@ DWORD WINAPI msw_thread_proc(void*) {
             g_mswNotReadyWhy = no;
             sleep_us(2000);
         } else {
+            // The overdue-slot path can win the mutex just after a real end too. It must consume
+            // that same obligation, or the half-rate path would submit a second synthetic slot.
+            g_mswHalfPending = false;
             msw_cycle();
             g_cycleMx.unlock();
         }

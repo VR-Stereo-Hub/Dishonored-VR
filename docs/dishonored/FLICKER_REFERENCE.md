@@ -1,3 +1,38 @@
+## 2026-09-30: MSW stick-turn echo - rendered motion and display-slot prediction (HOST-VERIFIED candidate)
+
+Surface/route: one-frame WORLD geometry echo while right-stick turning with the MOD's F10
+spacewarp on. Distinct from accepted foreground/wall penetration and head-following corrections.
+No current headset evidence establishes that every reported echo has the same cause.
+
+- Code finding: `synth_eye` used capture arrival time to extrapolate body yaw taken from the camera
+  writer. The existing AFW record already documents that written rotation can precede rendered
+  rotation. Delivery jitter also changes that predictor's slope/horizon independently of display
+  timing. The two eyes have differently aged native sources and need one common target moment.
+- Change: record the real submission's XrTime with each native image, and predict at the synthetic
+  submission's XrTime. Derive body heading from rendered camera axes after removing that source's
+  own tracking rotation. Derive body translation after removing each eye offset in its own basis;
+  rotate the target eye offset around the predicted body origin. Body turn remains in world pixels,
+  never in foreground pixels or the layer's claimed head orientation. Accepted AFW shader logic
+  and PoseFromView matching are unchanged.
+- Host: 55/55 GPU checks pass. With deliberately irregular capture clocks and stale writer yaw,
+  both eyes match the ray-traced target within 1.5 px on over 92% / 96% of scored world pixels;
+  hands remain exact. Independent head turns and an off-origin head are covered too. Missing
+  background exposed by a turn is outside the one-source image's information and keeps the
+  existing fallback, so the score threshold is not a claim that every world pixel is recovered.
+- Negative control: accepted build 242, with only its function signature adapted to accept and
+  ignore the display timestamp, fails six of the 53 cases before off-origin cases were added.
+  Perturbing only capture timing or only written yaw each independently fails. Scheduling's
+  separate old-code control also fails; its mechanism and 12/12 corrected checks are recorded
+  in PERFORMANCE.md. This is host causality, not yet a headset verdict for the user's scene.
+- Diagnostics: `msw: beat` adds display-clock eye count, unavailable prediction count, maximum
+  source-to-slot age and maximum rendered/written turn-step disagreement. `msw: slot order`
+  exposes target gaps, repeat targets and consecutive real submits. All are rate-limited Info.
+- Next launch: candidate MSW enabled, half-rate and extrapolation retained, head still, steady
+  right-stick sweep across a fixed wall corner/door frame. Sole question: is the one-frame world
+  echo gone, reduced or unchanged? Gone supports the timing/motion correction; a remaining echo
+  with regular slots redirects to disocclusion/source content, while slot gaps leave pacing open.
+  No image dump or user command is required. Check the installed candidate banner first.
+
 ## 2026-09-30: build 242 accepted; mod-spacewarp turning remains separate (HEADSET-CONFIRMED AFW baseline)
 
 Surface/route: AFW hands sliding opposite head motion with a stable world. The tester now accepts

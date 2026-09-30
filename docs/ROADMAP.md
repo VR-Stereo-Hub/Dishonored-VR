@@ -7,7 +7,9 @@
 - [x] Head-drift live A/B: view-following greatly reduces drift, smaller residual remains.
 - [x] Host: resolve position ties with independently observed rotation; 30/30 checks.
 - [x] Headset: build 242 accepted with negligible residual; rotation-resolved ties verified live.
-- [ ] Follow-up: mod-spacewarp right-stick world ghosts and uneven display-slot pacing.
+- [x] Host: MSW rendered turn/display-time prediction and deterministic half-slot ownership;
+  55/55 GPU and 12/12 scheduling checks, with failing old-code controls.
+- [ ] Headset: mod-spacewarp right-stick world ghosts and uneven display-slot pacing resolved.
 - [ ] Capture short-write/capacity handling: Linear ticket creation blocked by free issue limit.
 
 Details: `docs/dishonored/FLICKER_REFERENCE.md`, build-236 follow-up.

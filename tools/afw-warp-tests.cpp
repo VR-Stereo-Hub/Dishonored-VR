@@ -666,16 +666,22 @@ int main() {
         // image as submitted at the image's own orientation. Both world models: the game's matrices and the XR one.
         // The control: the extrapolation off leaves the world 4 deg behind. About 7% of the world is unseen by the
         // 20 ms old image (4 deg of new view at the edge, the strip behind the pillar): 0.9 is the bar.
-        auto turnCase = [&](bool extrap, bool mtx, double* worldOk, double* handOk) -> bool {
+        auto turnCase = [&](bool extrap, bool mtx, double* worldOk, double* handOk,
+                            bool slotClock = false, int eye = 0, bool headMotion = false, bool staleWriter = false,
+                            int64_t slotTime = 1020000000, bool offOrigin = false) -> bool {
             State t0 = still, t1 = still, t2 = still;
             t1.bodyYawDeg = 2.0; t2.bodyYawDeg = 4.0;
+            if (headMotion) { t0.headYawDeg = 8.0; t1.headYawDeg = -3.0; }
+            if (offOrigin) t0.headPos = t1.headPos = t2.headPos = {1.0, 0, 0.3};
+            // Synthesis preserves the source orientation; the compositor supplies the remaining head turn.
+            t2.headYawDeg = eye == 0 ? t0.headYawDeg : t1.headYawDeg;
             dvr::afw::set_enabled(true, "test"); dvr::afw::set_stereo(true, "test");
             dvr::afw::set_body_depth(0.40f, "test"); dvr::afw::set_world_scale((float)kScale);
             dvr::afw::set_matrices(mtx, "test"); dvr::afw::set_fg(false, "test"); dvr::afw::set_fg_fov(0);
             dvr::afw::set_fg_mask(true, "test"); dvr::afw::set_synth_hands(false);
             dvr::afw::set_synth_extrapolate(extrap);
             g_signForeground = true; dvr::depthprobe::g_prefgReady = true;
-            const Eye e0 = eyeOf(t0, 0), e1 = eyeOf(t1, 1), e2 = eyeOf(t2, 0);
+            const Eye e0 = eyeOf(t0, 0), e1 = eyeOf(t1, 1), e2 = eyeOf(t2, eye);
             auto i0 = image(t0, e0, N, N), i1 = image(t1, e1, N, N), truth = image(t2, e2, N, N);
             ID3D11Texture2D* x0 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i0.data());
             ID3D11Texture2D* x1 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i1.data());
@@ -686,11 +692,13 @@ int main() {
             const Rec m0 = recordOf(t0, e0, false, false), m1 = recordOf(t1, e1, false, false);
             const dvr::afw::Pose tg0[2] = {poseOf(eyeOf(t0, 0)), poseOf(eyeOf(t0, 1))}, tg1[2] = {poseOf(eyeOf(t1, 0)), poseOf(eyeOf(t1, 1))};
             dvr::afw::CaptureMeta c0, c1; c0.captureMs = 3000.0; c1.captureMs = 3010.0;
-            dvr::afw::note_capture(g.dev, g.ctx, 0, x0, 7, poseOf(e0), true, (float)t0.bodyYawDeg, tg0, m0.vp, m0.c5, m0.rot, &c0);
-            dvr::afw::note_capture(g.dev, g.ctx, 1, x1, 8, poseOf(e1), true, (float)t1.bodyYawDeg, tg1, m1.vp, m1.c5, m1.rot, &c1);
+            if (slotClock) { c0.displayTime = 1000000000; c1.displayTime = 1010000000; c1.captureMs = 3002.0; }
+            dvr::afw::note_capture(g.dev, g.ctx, 0, x0, 7, poseOf(e0), true, staleWriter ? -20.0f : (float)t0.bodyYawDeg, tg0, m0.vp, m0.c5, m0.rot, &c0);
+            dvr::afw::note_capture(g.dev, g.ctx, 1, x1, 8, poseOf(e1), true, staleWriter ? -20.0f : (float)t1.bodyYawDeg, tg1, m1.vp, m1.c5, m1.rot, &c1);
             const float tp[3] = {(float)e2.pos.x, (float)e2.pos.y, (float)e2.pos.z};
             dvr::afw::Pose out{}; const char* why = nullptr;
-            const bool ok = dvr::afw::synth_eye(g.dev, g.ctx, 0, g.dst, N, N, (float)kTan, (float)kTan, tp, 3020.0, &out, &why);
+            const bool ok = dvr::afw::synth_eye(g.dev, g.ctx, eye, g.dst, N, N, (float)kTan, (float)kTan, tp,
+                                              slotClock ? 3075.0 : 3020.0, &out, &why, nullptr, slotClock ? slotTime : 0);
             std::vector<float> px(N * N * 4);
             if (ok) {
                 g.ctx->CopyResource(g.stage, g.dst);
@@ -732,6 +740,30 @@ int main() {
                  wm, hm, wx, hx, wc, hc);
         check("msw: a stick turn turns the world in the image, the hands stay", a && b && c && wm > 0.9 && hm > 0.97 && wx > 0.9 &&
               hx > 0.97 && wc < 0.5, d);
+        for (int eye = 0; eye < 2; ++eye) {
+            double w = 0, h = 0;
+            const bool ok = turnCase(true, true, &w, &h, true, eye, false, true);
+            snprintf(d, sizeof(d), "eye %d world %.3f hands %.3f: irregular capture times, stale writer, common display slot", eye, w, h);
+            check("msw: stick turn follows the display timeline and rendered yaw", ok && w > 0.9 && h > 0.97, d);
+            const bool head = turnCase(true, true, &w, &h, true, eye, true, true);
+            snprintf(d, sizeof(d), "eye %d world %.3f hands %.3f: 11 deg head change must not become extra body motion", eye, w, h);
+            check("msw: rendered turn prediction removes the source head rotation", head && w > 0.9 && h > 0.97, d);
+        }
+        double wb = 0, hb = 0;
+        const bool clockOnly = turnCase(true, true, &wb, &hb, true);
+        check("msw: irregular readback timing cannot change the predicted display slot", clockOnly && wb > 0.9 && hb > 0.97,
+              "correct camera-writer yaw; only the capture clock is perturbed");
+        const bool writerOnly = turnCase(true, true, &wb, &hb, false, 0, false, true);
+        check("msw: stale camera-writer yaw cannot suppress a rendered stick turn", writerOnly && wb > 0.9 && hb > 0.97,
+              "regular timing; only the camera-writer yaw is perturbed");
+        const bool bad = turnCase(true, true, &wb, &hb, true, 0, false, true, 999000000);
+        check("msw: a target before the source refuses backward prediction", bad && wb < 0.5 && hb > 0.97,
+              "invalid display order keeps the original body motion; no clock-domain fallback");
+        for (int eye = 0; eye < 2; ++eye) {
+            const bool off = turnCase(true, true, &wb, &hb, true, eye, true, true, 1020000000, true);
+            snprintf(d, sizeof(d), "eye %d world %.3f: head 1 metre from tracking origin must orbit with the turn, not walk", eye, wb);
+            check("msw: off-centre stick turn keeps the body pivot", off && wb > 0.9, d);
+        }
     }
     {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.
         const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);

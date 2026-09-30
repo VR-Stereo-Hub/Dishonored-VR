@@ -1,3 +1,33 @@
+## 2026-09-30: mod-spacewarp turn prediction and half-rate scheduling candidate
+
+Current state: implemented both requested corrections on `codex/vr-39-spacewarp-turn-pacing`
+from accepted staging/build 242. Headset acceptance is pending. No staging or release merge.
+
+Half-rate scheduling now retains one owed synthetic slot after a successful real stereo submit.
+Losing the frame mutex does not consume it. If the next Present wins first, its outermost entry
+services that slot before a real frame begins. The overdue filler consumes the same obligation.
+12/12 production-service host checks pass; the old lost-obligation control fails four checks,
+including 200 contended frames. New log counters distinguish target gaps and consecutive real
+submissions from average FPS. See `dishonored/PERFORMANCE.md` for interpretation and limits.
+
+Prediction uses native images' real-submission XrTime and the synthetic slot's XrTime, not capture
+arrival intervals. Body turn comes from rendered matrices with each source's head rotation removed;
+eye offsets use their own body bases, and the target eye follows the predicted body pivot. The
+camera writer's older body yaw no longer drives synthesis. World-only motion and the accepted
+wall/hand code remain intact. 55/55 GPU host checks pass. Accepted build 242 fails six of the
+53-case pre-pivot regression suite; unchanged capture timing and unchanged writer yaw controls
+separately expose both causes. GPU tests do not establish headset smoothness or unseen-background
+recovery. No game was launched by the agent.
+
+Next: install optimized candidate with the entire compatible INI preserved except ModSpacewarp
+0 -> 1; retain half-rate=1, extrapolation=1, hands=0, PoseFromView=1 and 144 Hz. Verify installed
+DLL/INI bytes and CRLF, then check that build's banner on the user-launched run. One question:
+with the head still and a steady right-stick turn past fixed geometry, is the one-frame world
+echo gone, reduced or unchanged? Pacing is measured from the same run's slot-order counters;
+its separate perceptual acceptance remains open. No capture dump is required for this first run.
+Dedicated Linear Bug creation was previously refused by the free issue limit; verified VR-39
+remains the parent. The build-242 DLL/INI/log baseline is retained for rollback.
+
 ## 2026-09-30: staging integration complete; mod-spacewarp follow-up branch ready
 
 Current state: PR #164 merged into staging as `b4b1cb5ec` with explicit user authorization.
