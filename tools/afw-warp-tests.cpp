@@ -919,6 +919,40 @@ int main() {
         check("the other eye's UI stays off the rebuilt sword, the held eye's own UI stays",
               on && off && ah > 500 && a99 == 0 && a77 > heldUi * 9 / 10 && b99 > 500, d);
     }
+    {   // Run 21: a still weapon keeps each eye's own shine. The held eye's hand carries a marker (+100 in channel 1: its own,
+        // view-dependent shading); with the controllers reported still, the rebuilt hand must be the held eye's own; reported
+        // moving (the control), the fresh eye's.
+        const Eye h0 = eyeOf(still, 0), f1 = eyeOf(still, 1);
+        auto hImg = image(still, h0, N, N), fImg = image(still, f1, N, N);
+        for (size_t i = 0; i < (size_t)N * N; ++i) if (hImg[i * 4 + 2] > 0.5f) hImg[i * 4 + 1] += 100.0f;
+        auto own = [&](bool stillHands, int* kept, int* hand) {
+            dvr::afw::note_hands_still(stillHands);
+            g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
+            Scene sc = capture(g, still, still, Opt(), N, N, hImg, fImg);
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            const bool ok = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, (float)kTan, (float)kTan, &out, &why);
+            *kept = *hand = 0;
+            if (ok) {
+                g.ctx->CopyResource(g.stage, g.dst);
+                D3D11_MAPPED_SUBRESOURCE m;
+                if (SUCCEEDED(g.ctx->Map(g.stage, 0, D3D11_MAP_READ, 0, &m))) {
+                    for (int y = 0; y < N; ++y)
+                        for (int x = 0; x < N; ++x) {
+                            const float* o = (const float*)((const uint8_t*)m.pData + y * m.RowPitch) + x * 4;
+                            if (o[2] > 0.5f) { ++*hand; if (o[1] > 50.0f) ++*kept; }
+                        }
+                    g.ctx->Unmap(g.stage, 0);
+                }
+            }
+            release(sc);
+            dvr::afw::note_hands_still(false);
+            return ok;
+        };
+        int k1, h1, k2, h2;
+        const bool a = own(true, &k1, &h1), b = own(false, &k2, &h2);
+        char d[160]; snprintf(d, sizeof(d), "still: %d of %d hand texels the held eye's own | moving (control): %d of %d", k1, h1, k2, h2);
+        check("a still weapon keeps the held eye's own shading", a && b && h1 > 500 && k1 > h1 * 8 / 10 && k2 < h2 / 20, d);
+    }
     printf("afw warp: %d PASS, %d FAIL\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

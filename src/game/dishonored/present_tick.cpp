@@ -429,10 +429,60 @@ static bool DvrGameplayVerdict()
     return verdict;
 }
 
+// VR-39 run 21: are both controllers still? AFW keeps each eye's own weapon shading while they are. Measured over
+// about 50 ms (tracking jitter of a fraction of a millimetre over one 7 ms tick would read as motion), in tracking
+// space: 6 cm/s and 12 deg/s. A lost hand counts as moving.
+static void AfwHandsStillTick()
+{
+    if (!dvr::afw::enabled()) return;
+    struct S { double t; float p[2][3]; float q[2][4]; bool ok; };
+    static S ring[32]; static int n = 0, head = 0;
+    S s = {}; s.t = MaimNowMs(); s.ok = true;
+    for (int h = 0; h < 2 && s.ok; ++h) {
+        dvr::vr::HeadPose hp;
+        if (!dvr::vr::get_hand_pose(h, false, hp)) { s.ok = false; break; }
+        s.p[h][0] = hp.px; s.p[h][1] = hp.py; s.p[h][2] = hp.pz;
+        s.q[h][0] = hp.qx; s.q[h][1] = hp.qy; s.q[h][2] = hp.qz; s.q[h][3] = hp.qw;
+    }
+    ring[head] = s; head = (head + 1) % 32; if (n < 32) ++n;
+    bool still = s.ok;
+    float worstV = 0.0f, worstW = 0.0f;
+    if (still) {
+        // the newest sample at least 50 ms old
+        const S* old = nullptr;
+        for (int k = 1; k < n; ++k) {
+            const S& c = ring[(head - 1 - k + 64) % 32];
+            if (s.t - c.t >= 50.0) { old = &c; break; }
+        }
+        if (!old || !old->ok) still = false;
+        else {
+            const float dt = (float)((s.t - old->t) / 1000.0);
+            for (int h = 0; h < 2; ++h) {
+                const float dx = s.p[h][0] - old->p[h][0], dy = s.p[h][1] - old->p[h][1], dz = s.p[h][2] - old->p[h][2];
+                const float v = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
+                float d = fabsf(s.q[h][0] * old->q[h][0] + s.q[h][1] * old->q[h][1] + s.q[h][2] * old->q[h][2] + s.q[h][3] * old->q[h][3]);
+                if (d > 1.0f) d = 1.0f;
+                const float w = 2.0f * acosf(d) * 57.29578f / dt;
+                if (v > worstV) worstV = v;
+                if (w > worstW) worstW = w;
+            }
+            still = worstV < 0.06f && worstW < 12.0f;
+        }
+    }
+    dvr::afw::note_hands_still(still);
+    static bool said = false, last = false;
+    if (!said || still != last) {
+        said = true; last = still;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 1000, "afw: controllers %s (%.3f m/s, %.1f deg/s over 50 ms)",
+                         still ? "still" : "moving", worstV, worstW);
+    }
+}
+
 // Every enabled present, after the runtime located the head for this frame
 // and before the stereo method captures the game's frame.
 static void DvrGameTick(IDirect3DDevice9* self)
 {
+    AfwHandsStillTick();   // VR-39 run 21
     (void)self;
     dvr::perf::part_mark("hk.stereoBegin+verdicts");   // VR-160: `perf parts on`; the run is opened in hkPresent
     g_xrOn = g_vrReady = dvr::frame::xr_live();   // the session, as of this present
