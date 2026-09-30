@@ -1,3 +1,25 @@
+## 2026-09-30: foreground behind a wall is an occluder, not stale-world evidence
+
+The game draws hands over the wall regardless of geometric depth. A stale test that treats a farther
+fresh depth as proof the held wall moved also needs to inspect foreground identity. Otherwise it
+throws away a valid held-eye wall and falls to a striped fill. Build 236's five complete wall frames
+reproduce this; the foreground-aware rejection removes the stripes in replay. Host negative control:
+4.531 px maximum wall-coordinate error, fixed 0.014 px. See `dishonored/FLICKER_REFERENCE.md`.
+
+AFW dumps at 2750x2850 plus 2114x2192 depth take about 2.8 GB per 16 frames, not the old log's 80 MB
+per present. Check free space, metadata and every raw file's length. Current `dump_texture` ignores
+short writes and close failures. A nonempty capture directory is not evidence of a complete capture.
+Preserve original evidence; remove only regenerable scratch or arrange verified archival.
+
+## 2026-09-30: AFW replay defaults do not reproduce the recorded foreground settings
+
+`afw-replay` loads the capture's `fgFov` but enables the foreground projection only when an explicit
+positive `-Fg` argument is passed. Thus its default `-Fg 0` disables a correction recorded as on.
+For the build-233 captures, pass `-Fg 108.1427` and choose `DVR_AFW_STILL` explicitly (stillness is
+not recorded). Its built-in near/world scores predate signed depth: masked hand pixels are counted
+as world. Use an independent `depth < 0` mask and inspect source tint for ghost pixels outside it.
+These tool limitations remain open; do not describe an unqualified default replay as the installed build.
+
 ## 2026-09-30: farthest depth is not always background (AFW)
 
 The weapon draws on top of a wall even when its geometric depth is farther away. A background

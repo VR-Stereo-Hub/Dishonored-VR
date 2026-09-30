@@ -823,6 +823,15 @@ int main() {
         report("foreground inside a wall: background fill does not duplicate the hand", r,
                r.ok && r.handTruth > 500 && r.ghost < r.handTruth / 100 && r.missing < r.handTruth / 100);
     }
+    {   // The foreground draws on top of a nearer wall. In a still scene the held eye already
+        // has the exact wall colour: the other eye's foreground cannot prove that wall moved.
+        State a = still; a.fgTan = kFgTan; a.barZ = -0.28; a.barX0 = -2.0; a.barX1 = 2.0;
+        Opt m = fgOn; m.drawnMask = true;
+        Result r = run(g, a, a, m);
+        report("foreground inside a wall: still background stays exact", r,
+               clean(r) && r.errMax < 2.0);
+        printf("  still wall maximum coordinate error %.3f px\n", r.errMax);
+    }
     g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
     {   // At the pre-run-18 stale tolerance: the tighter test (0.015) already catches this lag through the fresh eye, which

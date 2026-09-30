@@ -1,3 +1,22 @@
+## 2026-09-30 (AFW build 236 follow-up): striped wall outline measured; native-hand head timing suspect
+
+Current state: build 236 headset report leaves a changed wall artifact and the opposite-direction
+head-sweep drift. The one usable new capture (`-001558`, five complete frames) exposes a second wall
+bug: fresh foreground behind the wall falsely invalidates held world pixels as stale. The shader
+now treats that foreground as an occluder. Old-code regression: max 4.531 px wall error; fixed
+0.014 px, 46/46 host tests. The striped blade/hand outline disappears in replay.
+
+The other two captures are unusable after C: filled. All originals and logs preserved; 4.89 GB of
+regenerable session replay output removed. Capture short-write handling needs a ticket, but Linear
+creation was refused by the free issue limit. No new ticket number exists.
+
+Head-sway: native feature motion suggests a preceding head sample; PoseFromView is off. Next launch
+has one live A/B question, in open space: does `Hands follow each eye's own view` remove the opposite
+drift, with off bringing it back? Read `hands/poseview` to verify matches. No capture needed. Keep
+the 0.911 gain and other settings. Wall shader fix will be built/installed separately from this
+existing live feature toggle; its headset verdict remains pending.
+Evidence, rejected readings and next steps: `docs/dishonored/FLICKER_REFERENCE.md` top entry.
+
 ## 2026-09-30 (AFW): wall duplicate traced to background fill; headset pending
 
 Current state: continued `claude/vr-39-mod-spacewarp` from `9cadca4e8`. Both unanalysed captures
@@ -7,9 +26,15 @@ sample behind the wall as background. Both fill sources now exclude foreground. 
 control: 1,970 ghost pixels; fixed: zero, 45/45 host tests. Replay removes the large duplicate;
 thin disocclusion strips remain. Gain 1.0 and edge-hands-off do not cure the sway capture.
 
-Next steps: build/install the combined candidate through the existing `aer` checkout, retaining the
-compatible INI byte-for-byte. One wall-only headset question: does the large extra copy stop growing
-with penetration? Head-sway timing/depth remains open, as do turn disocclusion and MSW turn ghosts.
+Installed: `v1.0.1-236-g9d8af5b0f` from the existing combined `aer` checkout, carrying fix `f9d14889d`.
+Release build, nine exports and combined host suite (45/45) pass. Installed DLL SHA256
+`228C7B30D224CA005D6E403EC56BE9BE525D34E2A1C7A7C279D8D37BC60A8C73` matches the build.
+The entire 73,303-byte INI matches both its backup and expected target, with CRLF verified:
+no keys changed, gain 0.911 and MSW off. Existing DLSS helper retained (this shader-only build
+does not rebuild it). Backup: main checkout `build/afw-resume-analysis/pre-install-236-20260930-001201`.
+
+Next steps: user launches once for the wall-only question: does the large extra copy stop growing
+with penetration? First verify the new runtime banner; the archived/current old log is build 233. Head-sway timing/depth remains open, as do turn disocclusion and MSW turn ghosts.
 Detailed measured evidence, limitations and continuation plan:
 `docs/dishonored/FLICKER_REFERENCE.md` top entry and `HANDOFF-afw-runs-13-27.md`.
 No merge to staging or VR-Main.
