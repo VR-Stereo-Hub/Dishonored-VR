@@ -113,6 +113,13 @@ uint32_t open(int eye, uint32_t pairId, bool secondPassReuse, const float* eyePo
 // single out one view. False when nothing is within tol.
 bool find_view(const float c5[3], float tol, double maxAgeMs, Record* out, float* dist, float* second);
 
+// Resolve a position tie using the draw's independently observed camera axes.
+// Only exact angular matches (0.03 deg) qualify; every nearby competing view
+// within 0.06 deg must imply the same eye and head pose. Written rotations can
+// lag rendering, so no angular match means fallback, never nearest-by-rotation.
+bool resolve_view_tie(const float c5[3], const float f[3], const float r[3], const float u[3],
+                      double maxAgeMs, const Record& anchor, Record* out);
+
 // COPY a record out. The ring can be overwritten while a reader works, so there
 // is no pointer accessor: this takes the lock, checks the id, and copies.
 // False for an id nobody set (missing) or one since overwritten (expired) -

@@ -1,3 +1,26 @@
+## 2026-09-30 (AFW build 239): wall accepted; view-matched hands help, position ties remain
+
+Current state: the headset playtest accepts the wall correction. Enabling `PoseFromView` greatly
+reduces the opposite-direction hand/sword drift but leaves a smaller residual. Build 239 banner
+and installed DLL hash verified; DLL, whole INI and both logs archived under the main checkout's
+`build/afw-run29-analysis`. The tester toggled on/off/on and left PoseFromView=1.
+
+Measured: the first on segment has 3,463 matched hand draws, 2,527 position ties and 36 misses.
+Matched draws corrected up to 2.751 deg of head-sample offset. Ties fall back to PoseLag=2;
+their causal contribution to the residual is a candidate, not a headset-proven finding.
+
+Change: behind the existing checkbox, resolve a position tie only when the draw's rotation also
+identifies a safe view. Conflicting head samples, eyes, cameras or level generations still refuse.
+30/30 host checks and existing palette-eye tests pass; old-control head-turn cases fail as intended.
+The heartbeat now reports rotation-resolved ties and prints even if every draw is refused.
+No engine-memory writes, AFW shader change or setting migration. Building the combined candidate.
+
+Next single-launch question: with the same checkbox left on, is the smaller head-sweep drift gone
+or reduced further? Verify the new banner and compare resolved ties with remaining refusals.
+If useful matches do not increase, the candidate has not exercised its intended correction;
+if they increase but the residual stays, investigate placement/projection separately. No dump needed.
+Detailed evidence and limitations: `docs/dishonored/FLICKER_REFERENCE.md` top entry.
+
 ## 2026-09-30 (AFW build 236 follow-up): striped wall outline measured; native-hand head timing suspect
 
 Current state: build 236 headset report leaves a changed wall artifact and the opposite-direction

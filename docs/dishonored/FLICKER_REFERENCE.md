@@ -1,3 +1,46 @@
+## 2026-09-30: build 239 - walls accepted; view-matched hands improve drift, position ties remain (HEADSET partial acceptance; candidate tie correction)
+
+Surface/route: section 1, AFW hands sliding opposite physical head motion while the world stays
+stable. The wall-penetration surface is now HEADSET-CONFIRMED fixed in this playtest.
+
+- Identity: runtime banner `v1.0.1-239-g8cf208663`; installed DLL SHA256
+  `7270FAD2E95B7094633B6E7C17B05D8197926A99AB747AF99DA37B95D64C6F5D` matches the candidate.
+  Main checkout `build/afw-run29-analysis` preserves DLL, complete INI, log and previous log.
+- HEADSET: the two wall corrections are accepted. The existing view-following checkbox substantially
+  reduces hand/sword drift, but does not eliminate it. The log records off/on/off/on, with final
+  PoseFromView=1. This supports the native-hand head-sample association; it does not clear every
+  foreground projection or placement issue.
+- MEASURED: first on edge 56045937, off edge 56063750. Last beat in that segment: 1,775 left plus
+  1,688 right matches, 2,527 tied draws, 36 misses, zero missing head samples. About 42% of those
+  attempted hand draws still fell back because a different generation was within 0.10 uu of c5.
+  The accepted corrections reached 2.751 deg. Final cumulative beat: 58,251 matches, 48,600 ties,
+  179 misses; this includes subsequent gameplay/menus, not just the initial test. Counters count
+  hand draws, not frames. The off/on/off comparison is observed in the log, not inferred from INI.
+- CAUSAL LIMIT: c5 is position, not a complete camera identity. Two recent views can have almost
+  the same position while their head orientations differ. That makes the current all-ties fallback
+  unnecessary in some cases. The remaining drift is not yet correlated draw-by-draw with these ties.
+- CANDIDATE: retain the existing unique-position path. Only for a position tie, compare all three
+  rendered camera axes with the record's game-space rotator, using the existing UE basis conversion.
+  Require position within 0.05 uu and angular agreement within 0.03 deg. Every competitor within
+  0.10 uu / 0.06 deg must imply the same eye and a head within 0.01 deg / 0.05 mm; quaternion sign
+  is immaterial. Unknown camera metadata, another scene/camera, invalid heads and conflicting
+  samples refuse. Records stay under the existing lock and 400 ms age bound; future records refuse.
+  These are conservative correspondence bounds, not measured tuning gains. Written rotation can
+  lag the render view (run 6): no angular match means fallback, never a nearest-rotation guess.
+- Scope: existing default-off `PoseFromView` checkbox; no new lever, engine memory write or AFW
+  shader change. `hands/poseview` adds cumulative rotation-resolved ties. Its beat runs even when
+  every attempt fails, so silence cannot hide a fully refused window.
+- HOST: production lookup/resolver bodies, 30/30 checks. Covers older/newer rendered views at one
+  position, pitch/roll/yaw wrap, equivalent/negated quaternions, noise, conflicting translations,
+  eyes, scene/camera changes, invalid poses, stale/future records and wrong/no angular matches.
+  The old-control path fails the head-turn selection fixtures. Existing palette-eye suite passes.
+  No simulator/game launch by the agent. This does not prove the new resolver matches live views.
+- NEXT: one head-sweep question in open space, checkbox left on: is the smaller residual gone or
+  reduced further? First verify the installed banner. Resolved ties increasing with improvement
+  supports the candidate; no useful increase means the path did not resolve the live ambiguity;
+  useful matches without visual improvement sends the remaining investigation to placement and
+  foreground projection. If worse, untick the existing checkbox. No capture required.
+
 ## 2026-09-30: build 236 wall follow-up - false stale rejection leaves striped outlines (MEASURED, fixed in host/replay; headset pending)
 
 Surface: AFW rebuilt eye, striped blade/hand-shaped wall distortion after the fill-only fix.
@@ -2794,7 +2837,7 @@ pose metadata without reopening the disproved historical theories.
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
-| AFW hands slide opposite lateral head motion while world stays stable | Foreground depth/projection or image/pose association; distinguish native motion from rebuilt motion | 2026-09-30 follow-up: native hand motion suggests an older head basis; PoseFromView=0. Live view-matched-hand A/B next; gain/depth changes not established. OPEN |
+| AFW hands slide opposite lateral head motion while world stays stable | Foreground depth/projection or image/pose association; distinguish native motion from rebuilt motion | Build 239: PoseFromView substantially improves drift, residual OPEN. Many position ties fall back; rotation-assisted tie candidate is host-tested, headset pending. |
 | Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 callback coverage observed, tentative smooth run; cause and fix open; see top entry |
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
 | Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |

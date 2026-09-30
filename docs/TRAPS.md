@@ -1,3 +1,11 @@
+## 2026-09-30: a view-following option can be on while many draws fall back
+
+Build 239's initial PoseFromView on segment matches 3,463 hand draws but refuses 2,527 position
+ties. c5 alone cannot distinguish recent rotations at nearly the same position. The user reports
+a large reduction in drift, not elimination. Count matches AND refusals; these are draws, not
+frames. A new rotation-assisted tie resolver remains conservative when written and rendered
+rotations disagree. The heartbeat must run on refused windows too. See FLICKER_REFERENCE.
+
 ## 2026-09-30: foreground behind a wall is an occluder, not stale-world evidence
 
 The game draws hands over the wall regardless of geometric depth. A stale test that treats a farther
