@@ -1,3 +1,33 @@
+## 2026-09-30: build 242 accepted; mod-spacewarp turning remains separate (HEADSET-CONFIRMED AFW baseline)
+
+Surface/route: AFW hands sliding opposite head motion with a stable world. The tester now accepts
+the view-matched hand placement with negligible residual in the reported test; the previously
+accepted wall-penetration correction remains good. This is headset acceptance of the tested
+AFW configuration, not a claim that every view matches or that MSW is free of artifacts.
+
+- Identity: log banner `v1.0.1-242-g11dcf7db9`, DLL SHA256
+  `9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0`; verified and archived
+  together with the whole INI and previous log under main checkout `build/integration-242`.
+  PoseFromView=1, foreground gain 0.911, ModSpacewarp=0 in the accepted installed baseline.
+- Measured execution: final `hands/poseview` beat has 11,190 left plus 11,305 right matches,
+  4,297 rotation-resolved ties, 11,547 remaining tied draws, 1,043 misses and zero missing head
+  samples. This proves the new path ran. Totals include the full session and count draws rather
+  than frames; they cannot be compared as a controlled percentage against the preceding run.
+- Integration carries the exact tested production source plus documentation, combining #159,
+  #161, #162 and #163 and local integration fixes. 30/30 pose-view and 46/46 AFW host checks,
+  palette-eye suite, optimized build and nine exports passed on this source. No new headset
+  claim is attached to a later untested source change.
+- Remaining separate surface: with the MOD's F10 spacewarp, right-stick turning reportedly
+  shows a one-frame world-geometry ghost. Uneven pacing is also reported at high frame rates.
+  Keep ownership explicit: this request concerns ModSpacewarp, not VD SSW. The accepted run
+  does not establish the MSW timing cause. Preserve the earlier run-23 disocclusion evidence;
+  do not assume every turn ghost is missing background until native and synthesized frames
+  and source-image/target-slot identities have been separated.
+- Next: fresh branch from the accepted staging integration. Timing plan is maintained in
+  `PERFORMANCE.md`; isolate synthesis geometry and scheduling with independent controls, then
+  ask one perceptual question per launch. Dedicated Bug creation was refused by Linear's issue
+  quota; VR-39 remains the parent investigation. No game launch or setting change for cleanup.
+
 ## 2026-09-30: build 239 - walls accepted; view-matched hands improve drift, position ties remain (HEADSET partial acceptance; candidate tie correction)
 
 Surface/route: section 1, AFW hands sliding opposite physical head motion while the world stays
@@ -2892,7 +2922,7 @@ pose metadata without reopening the disproved historical theories.
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
-| AFW hands slide opposite lateral head motion while world stays stable | Foreground depth/projection or image/pose association; distinguish native motion from rebuilt motion | Build 239: PoseFromView substantially improves drift, residual OPEN. Many position ties fall back; rotation-assisted tie candidate is host-tested, headset pending. |
+| AFW hands slide opposite lateral head motion while world stays stable | Native hand image/pose association, including position ties | Build 242 HEADSET-ACCEPTED with PoseFromView=1 and rotation-assisted ties. Negligible residual reported; do not infer all views matched. |
 | Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 callback coverage observed, tentative smooth run; cause and fix open; see top entry |
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
 | Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |

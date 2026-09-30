@@ -6,7 +6,8 @@
 - [x] Headset: build 239 wall correction accepted.
 - [x] Head-drift live A/B: view-following greatly reduces drift, smaller residual remains.
 - [x] Host: resolve position ties with independently observed rotation; 30/30 checks.
-- [ ] Headset: verify rotation-resolved ties and whether the residual drift improves further.
+- [x] Headset: build 242 accepted with negligible residual; rotation-resolved ties verified live.
+- [ ] Follow-up: mod-spacewarp right-stick world ghosts and uneven display-slot pacing.
 - [ ] Capture short-write/capacity handling: Linear ticket creation blocked by free issue limit.
 
 Details: `docs/dishonored/FLICKER_REFERENCE.md`, build-236 follow-up.

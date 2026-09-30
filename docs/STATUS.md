@@ -1,3 +1,34 @@
+## 2026-09-30: build 242 accepted; consolidate the tested source for staging
+
+Current state: the headset playtest accepts `v1.0.1-242-g11dcf7db9`; hand/head drift is now
+negligible in the reported test, and the wall correction remains accepted. Runtime banner and
+installed DLL SHA256 `9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0`
+match the build. The verified log, previous log, DLL and full INI are archived in the main
+checkout at `build/integration-242`. The live matcher resolved 4,297 position ties in the final
+beat; total matched draws 22,495, remaining ties 11,547, misses 1,043. Counts are draws and
+include the full session; acceptance does not imply every draw matched.
+
+Integration: `codex/vr-39-integrate-build-242` starts at staging `89537fef7`, advances to the
+exact tested commit `11dcf7db9`, and adds only installation/acceptance documentation. All
+non-documentation tracked content matches build 242. Included PR heads: #159 AFW polish,
+#161 mod spacewarp plus wall/hand fixes, #162 DLSS object motion, #163 foreground FOV work.
+The local test branch's integration fixes are preserved too. Existing 30/30 pose-view,
+46/46 AFW, palette-eye, release build and nine-export validation apply to this identical source.
+No game launch, reinstallation, new default, release tag or VR-Main change is part of consolidation.
+
+Recent PR disposition: #118 version preparation is superseded by released 1.0.2; #140 extra
+pairs is parked after a negative headset verdict; #151 animation origin is parked outside
+the accepted build, with acceptance still incomplete. Preserve their branches and evidence.
+Other contributors' PRs and older unrelated PRs are outside this cleanup.
+
+Next work: create a fresh staging-based branch for the MOD's F10 spacewarp (ModSpacewarp),
+not the external runtime's SSW. Remaining reported faults are a one-frame world-geometry ghost
+during right-stick turning and uneven pacing despite high reported frame rates. MSW remains
+off in the accepted baseline. Geometry evidence stays in FLICKER_REFERENCE; timing research,
+the test plan and the parked extra-pair result stay in PERFORMANCE.md. A dedicated Linear
+Bug creation was attempted and refused by the free issue limit; retain VR-39 as the parent
+investigation without inventing an identifier. One question per future user-launched test.
+
 ## 2026-09-30 (AFW build 239): wall accepted; view-matched hands help, position ties remain
 
 Current state: the headset playtest accepts the wall correction. Enabling `PoseFromView` greatly
