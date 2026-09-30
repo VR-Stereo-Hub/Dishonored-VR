@@ -182,6 +182,8 @@ int main(int argc, char** argv) {
                 const std::string hk = key(h ? "hand1" : "hand0");
                 if (!hk.empty()) { vec(hk, v8, 8); hp[h].ok = v8[0] > 0.5f; for (int i = 0; i < 3; ++i) hp[h].p[i] = v8[1 + i]; for (int i = 0; i < 4; ++i) hp[h].q[i] = v8[4 + i]; }
             }
+            {   char e[8] = "";   // DVR_AFW_HELDHANDS=0|1: the controller-moved held hands under test
+                if (GetEnvironmentVariableA("DVR_AFW_HELDHANDS", e, sizeof(e))) dvr::afw::set_held_hands(e[0] == '1', "replay"); }
             dvr::afw::note_hands(k == 0 ? held : fresh, hp);
         }
         dvr::afw::Pose outPose{}; const char* why = nullptr;
