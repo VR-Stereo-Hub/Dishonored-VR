@@ -1180,6 +1180,9 @@ static void OvlTabDisplay()
                 bool ss = dvr::afw::still_shade();   // VR-39 run 21
                 if (dvr::ovl::checkbox("AFW: a still weapon keeps each eye's own shine", &ss)) dvr::afw::set_still_shade(ss, "F10");
                 OvlTip("Off shows the old fault: a shiny blade flickers its reflection even when held still.");
+                bool eh = dvr::afw::edge_hands();   // VR-39 run 22
+                if (dvr::ovl::checkbox("AFW: hands at the frame's edges stay whole", &eh)) dvr::afw::set_edge_hands(eh, "F10");
+                OvlTip("Off shows the old fault: parts of an arm near the edge of view vanish every other frame.");
                 bool km = dvr::depthprobe::fgmask_on();   // VR-39 run 17
                 if (dvr::ovl::checkbox("AFW: hands and weapon from the game's own draws", &km)) dvr::depthprobe::fgmask_set(km, "F10");
                 OvlTip("Off falls back to a distance limit: a close face is treated as your hands, a far blade tip as the world.");

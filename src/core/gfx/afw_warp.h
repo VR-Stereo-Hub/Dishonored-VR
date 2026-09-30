@@ -76,6 +76,9 @@ bool clean_on();
 void note_hands_still(bool still);
 void set_still_shade(bool on, const char* who);
 bool still_shade();
+// Run 22: `afw edgehands on|off` (on).
+void set_edge_hands(bool on, const char* who);
+bool edge_hands();
 // Run 18: the stale test's relative tolerance, `afw stale <0.005..0.1>`.
 void set_stale(float rel, const char* who);
 float stale();
