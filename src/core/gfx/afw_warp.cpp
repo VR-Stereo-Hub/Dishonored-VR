@@ -82,6 +82,7 @@ const char* kSrc =
     "    float4 prm7;\n"                 // MSW: the hands follow their controllers, the world turns in the image (matrices), the foreground ignores the world yaw
     "    float4 mY0, mY1, mY2;\n"        // MSW: the extrapolated body turn, as a rotation of the camera-relative point (UE world axes)
     "    float4 prm8;\n"                 // run 15: fresh clean bound, held clean bound, UI difference threshold (0..1)
+    "    float4 prm9;\n"                 // run 22: edge hands on, the edge band (uv from each side)
     "};\n"
     "cbuffer M : register(b1) {\n"
     "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
@@ -228,6 +229,20 @@ const char* kSrc =
     "        }\n"
     "    }\n"
     "    if (okF && bF) return shadeF(sF, 0, tF);\n"
+    // Run 22: near the left and right edges the fresh eye's frame does not contain every part of the hands the held eye
+    // should show (at hand distance the two frames are offset by about a tenth of the width), and those texels fell to
+    // the world or the fill: parts of the arm invisible every other frame. Where the held eye's own hands (as fixed in
+    // tracking space) land here and the fresh eye CANNOT see that point (it projects outside its frame), keep them.
+    "    if (st && tp && prm9.x > 0.5 && (t.x < prm9.y || t.x > 1.0 - prm9.y)) {\n"
+    "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
+    "        if (eb < tol && (prm6.z > 0.5 ? zH(sb) < 0.0 : zb < body)) {\n"
+    "            float2 tn = tanFor(zH(sb));\n"
+    "            float3 Wt = mc(d0, d1, d2, viewDirT(t, tn) * (zb * prm.z)) + dp.xyz;\n"
+    "            float3 m = toTT(mc(f0, f1, f2, Wt - fp.xyz), tn);\n"
+    "            float2 uf = ndcUV(m.xy);\n"
+    "            if (!(m.z > 0.0 && all(uf > 0.0) && all(uf < 1.0))) return shade(heldTex, sb, 4, zb);\n"
+    "        }\n"
+    "    }\n"
     "    if (st && tp) {\n"
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
@@ -374,6 +389,9 @@ CleanCopy g_clean;
 // kept wherever the fresh eye puts the same surface at the same depth - no colour test, which a shiny blade never
 // passes. Moving, the fresh eye supplies it as before (the colour-free rule would lag a moving weapon).
 std::atomic<bool> g_stillShade{true}, g_handsStill{false};
+// Run 22: `afw edgehands on|off` - within a quarter of the width from either edge, the held eye's own hands where the
+// fresh eye's frame does not contain them.
+std::atomic<bool> g_edgeHands{true};
 uint32_t g_stillUsed = 0;
 std::atomic<float> g_staleTol{0.015f};   // run 18 replay: 0.03 left a walking NPC doubled; 0.015 no worse on still captures
 std::atomic<bool> g_cleanOn{true};       // `afw clean on|off`: the fresh eye's hands from its clean image, the held eye's UI kept
@@ -563,7 +581,7 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdk->GetBufferPointer(), pdk->GetBufferSize(), nullptr, &g_psDepthK);
     rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd); rel(pdk);
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 45 * 16;   // s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, the hands (10), prm7, mY (3), prm8
+    bd.ByteWidth = 46 * 16;   // s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, the hands (10), prm7, mY (3), prm8, prm9
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
@@ -1129,6 +1147,13 @@ void set_still_shade(bool on, const char* who) {
                     : " - the other eye's shine on the rebuilt weapon (a shiny blade flickers)");
 }
 bool still_shade() { return g_stillShade.load(); }
+void set_edge_hands(bool on, const char* who) {
+    if (g_edgeHands.exchange(on) != on)
+        DVR_INFO("afw/warp: edge hands %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+                 on ? " - near the frame's edges the held eye keeps its own hands where the other eye cannot see them"
+                    : " - parts of the arms at the frame's edges can vanish every other frame");
+}
+bool edge_hands() { return g_edgeHands.load(); }
 void set_stale(float rel, const char* who) {
     if (!(rel >= 0.005f && rel <= 0.1f)) return;
     g_staleTol.store(rel);
@@ -1376,9 +1401,9 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
         float hand[2][5][4]; float prm7[4]; float mY[3][4];
-        float prm8[4];
+        float prm8[4]; float prm9[4];
     } cb;
-    static_assert(sizeof(CB) == 45 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 46 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     const Pose& hp = haveH ? src.pose : fr.pose;
     rows(hp, cb.s, false);
@@ -1423,6 +1448,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     const bool heldClean = g_cleanOn.load() && haveH && src.cleanOk && src.csrv;
     cb.prm8[0] = freshClean ? 1.0f : 0.0f; cb.prm8[1] = heldClean ? 1.0f : 0.0f; cb.prm8[2] = g_cleanUi.load();
     if (freshClean) ++g_cleanUsed;
+    cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;   // run 22: the held eye's own hands where the fresh eye cannot see them
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
     cb.prm6[2] = maskOn ? 1.0f : 0.0f;
     if (maskOn) ++g_maskUsed;   // texels: the nearer candidate within this beats the fill
@@ -1597,9 +1623,9 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
         float hand[2][5][4]; float prm7[4]; float mY[3][4];
-        float prm8[4];   // run 15: zero here - the synthesized slot keeps its own composed image
+        float prm8[4]; float prm9[4];   // run 15/22: zero here - the synthesized slot keeps its own composed image, no edge hands
     } cb;
-    static_assert(sizeof(CB) == 45 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 46 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     rows(own.pose, cb.s, false);
     cb.sp[0] = own.pose.p[0]; cb.sp[1] = own.pose.p[1]; cb.sp[2] = own.pose.p[2];

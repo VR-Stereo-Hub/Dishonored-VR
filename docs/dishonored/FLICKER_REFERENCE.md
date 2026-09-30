@@ -1,3 +1,19 @@
+## 2026-09-29: AFW run 22 - parts of an arm near the edge of view vanish every other frame (FIXED in build, headset pending)
+
+Surface: the held eye's arms near the left and right edges of the frame under `stereo afw`, build v1.0.1-221.
+Reported: at some angles parts of the hands do not render every frame, mostly at the edges. Capture
+`afw-20260929-213856`.
+- MEASURED (replay tint): the left forearm and sleeve at the frame's left edge are tinted blue (the fresh
+  eye's world) and a striped fill. The fresh eye's frame does not contain that part of the arm: at hand
+  distance the two eyes' frames are offset by about a tenth of the width. So the held eye had no hand source
+  there.
+- FIX: within a quarter of the width from either edge, where the held eye's own hands (as fixed in tracking
+  space, the body hypothesis) land and the point projects OUTSIDE the fresh eye's frame, the held eye keeps
+  them (tint cyan). `afw edgehands on|off`, F10 "AFW: hands at the frame's edges stay whole".
+- Replay: the forearm and sleeve drawn whole in every rebuilt frame, matching the next native frame. With
+  it off, the striped fill. A moving arm at the edge shows its one-tick-old position there. Host test
+  38/38.
+
 ## 2026-09-29: AFW run 21 - a still sword flickers its shine; hand and world steady (FIXED in build, headset pending)
 
 Surface: the blade of the held weapon under `stereo afw`, build v1.0.1-219. Reported: the spot flicker and the far
