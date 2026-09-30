@@ -716,6 +716,7 @@ std::atomic<bool> g_maskOn{true};           // `depthprobe fgmask on|off`
 uint64_t g_maskDraws = 0, g_maskSizeSkip = 0, g_maskFrames = 0, g_maskServed = 0, g_maskNotReady = 0, g_maskNoSlot = 0;
 // Run 18: every candidate (a draw under the crushed viewport, at least 512 wide) and why one was not drawn again;
 // slots armed at the first candidate because none was armed (the arming after Present missed the draw).
+uint64_t g_maskMarked = 0;   // run 20: pieces the hands code marked as the player's
 uint64_t g_maskCand = 0, g_maskRejIn = 0, g_maskRejNoSlot = 0, g_maskRejPs = 0, g_maskRejRt = 0, g_maskLateArm = 0;
 ID3D11DeviceContext* g_maskCtx = nullptr;   // from fgmask_prepare (present thread, same device and thread as the draws)
 // Saved across the redraw.
@@ -882,6 +883,7 @@ void fgmask_end(IDirect3DDevice9* dev, HRESULT drawn) {
 }
 bool fgmask_in_draw() { return g_maskIn; }
 void note_draw_end() { g_fgGameDraw = false; }
+void fgmask_mark_piece() { g_fgGameDraw = true; ++g_maskMarked; }
 
 void fgmask_seal(uint32_t serial) {
     for (MaskSlot& s : g_mask) if (s.serial == serial) s.serial = 0;
@@ -928,12 +930,13 @@ void fgmask_beat() {
              "NOT drawn: %llu no free slot, %llu the target was not the render size, %llu no render target, %llu shader "
              "refused, %llu already inside a redraw | %llu frames armed (%llu armed late, at the first candidate), %llu "
              "masks served to AFW, %llu not finished in time, %llu slot busy (0 drawn while AFW runs = the hands are world "
-             "to the rebuild)",
+             "to the rebuild) | %llu pieces marked by the hands code (the held weapon and the split hands)",
              fgmask_wanted() ? "ON" : "off", (unsigned long long)g_maskCand, (unsigned long long)g_maskDraws,
              (unsigned long long)g_maskRejNoSlot, (unsigned long long)g_maskSizeSkip, (unsigned long long)g_maskRejRt,
              (unsigned long long)g_maskRejPs, (unsigned long long)g_maskRejIn, (unsigned long long)g_maskFrames,
              (unsigned long long)g_maskLateArm, (unsigned long long)g_maskServed, (unsigned long long)g_maskNotReady,
-             (unsigned long long)g_maskNoSlot);
+             (unsigned long long)g_maskNoSlot, (unsigned long long)g_maskMarked);
+    g_maskMarked = 0;
     g_maskFrames = g_maskDraws = g_maskSizeSkip = g_maskServed = g_maskNotReady = g_maskNoSlot = 0;
     g_maskCand = g_maskRejIn = g_maskRejNoSlot = g_maskRejPs = g_maskRejRt = g_maskLateArm = 0;
 }

@@ -3671,6 +3671,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 }
                 InterlockedIncrement(&g_mpDraws);
             }
+            dvr::depthprobe::fgmask_mark_piece();   // VR-39 run 20: the player's arms and hands, as the split draws them
             if (boundVb)
                 dvr::frame::orig_draw_indexed(dev, type, 0, 0,
                                               (UINT)(g_msVerts + g_msClipN),
