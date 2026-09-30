@@ -562,8 +562,12 @@ int main() {
         r = run(g, wall0, wall1, m); report("drawn mask: a world surface at 0.35 m stays world", r, clean(r, 100)); }
     g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
-    { Result r = run(g, still, walk, noMtx);
-      report("control: no matrices, walking -> the pillar lags", r, r.ok && r.errP95 > 3.0); }
+    {   // At the pre-run-18 stale tolerance: the tighter test (0.015) already catches this lag through the fresh eye, which
+        // would leave the matrices lever without a control.
+        dvr::afw::set_stale(0.03f, "test");
+        Result r = run(g, still, walk, noMtx);
+        dvr::afw::set_stale(0.015f, "test");
+        report("control: no matrices, walking -> the pillar lags", r, r.ok && r.errP95 > 3.0); }
     { Result r = run(g, still, moved, noStereo);
       report("control: held eye alone, hand moved -> ghost", r, r.ok && r.ghost > r.handTruth / 5); }
     { Result r = run(g, still, all, noStereo);
