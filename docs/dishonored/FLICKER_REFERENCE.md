@@ -48,6 +48,12 @@ The wall symptom persists in a changed form; the opposite-direction hand drift r
   A depth-only replacement for the FOV gain does not explain the large timing error, so it was
   not implemented. Existing `PoseFromView` is off: native hands use fixed PoseLag=2 instead of the
   matched view's head. Its implementation and 2026-09-26 reference are the next test route.
+- INSTALLED: `v1.0.1-239-g8cf208663`, fix `b63da9a34`; release build, nine exports and combined
+  46/46 host tests pass. DLL SHA256
+  `7270FAD2E95B7094633B6E7C17B05D8197926A99AB747AF99DA37B95D64C6F5D` matches build output.
+  Entire INI matches backup and expected bytes, CRLF verified, no key changes. PoseFromView remains
+  0 for the live A/B baseline, gain 0.911, MSW off. Backup in main checkout:
+  `build/afw-run28-analysis/pre-install-239-20260930-003926`. Runtime banner awaits user launch.
 - Next single-launch question: away from the wall, does the live F10 Hands > Head-turn smoothing
   option `Hands follow each eye's own view` stop the opposite-direction drift, and does turning
   it off restore it? Start at the unchanged off baseline, toggle on, then off for the control.

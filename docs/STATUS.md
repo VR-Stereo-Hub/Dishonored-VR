@@ -6,6 +6,13 @@ bug: fresh foreground behind the wall falsely invalidates held world pixels as s
 now treats that foreground as an occluder. Old-code regression: max 4.531 px wall error; fixed
 0.014 px, 46/46 host tests. The striped blade/hand outline disappears in replay.
 
+Installed: `v1.0.1-239-g8cf208663`, fix `b63da9a34`, local combined candidate only. Release build,
+exports and combined 46/46 host tests pass. DLL SHA256
+`7270FAD2E95B7094633B6E7C17B05D8197926A99AB747AF99DA37B95D64C6F5D` matches build output.
+Entire INI unchanged against backup and expected bytes, CRLF verified; PoseFromView=0 for the
+off baseline, gain 0.911, MSW off. Backup: main checkout
+`build/afw-run28-analysis/pre-install-239-20260930-003926`. Runtime banner awaits user launch.
+
 The other two captures are unusable after C: filled. All originals and logs preserved; 4.89 GB of
 regenerable session replay output removed. Capture short-write handling needs a ticket, but Linear
 creation was refused by the free issue limit. No new ticket number exists.
