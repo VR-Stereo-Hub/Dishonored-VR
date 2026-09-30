@@ -1229,7 +1229,17 @@ void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Te
         g_clean.fmt == (uint32_t)fd.Format) {
         ID3D11Texture2D* t = h.ctex; ID3D11ShaderResourceView* v = h.csrv;
         h.ctex = g_clean.tex; h.csrv = g_clean.srv; g_clean.tex = t; g_clean.srv = v;
-        if (!g_clean.tex) g_clean.w = g_clean.h = g_clean.fmt = 0;   // the next note_clean allocates again
+        // Run 26: the pending slot now holds whatever this record held before - after a render-size change (DLSS on/off),
+        // a texture of the OLD size. Its size is read from the texture itself: keeping the pending slot's old numbers made
+        // note_clean copy into a wrong-size texture (CopyResource refuses silently), a stale image went round the three
+        // textures for the rest of the session, and the held-UI rule pasted it over the rebuild (a doubled sword, white
+        // dots, flicker, until restart).
+        g_clean.w = g_clean.h = g_clean.fmt = 0;
+        if (g_clean.tex) {
+            D3D11_TEXTURE2D_DESC cd;
+            g_clean.tex->GetDesc(&cd);
+            g_clean.w = cd.Width; g_clean.h = cd.Height; g_clean.fmt = (uint32_t)cd.Format;
+        }
         g_clean.full = false;
         h.cleanOk = true; ++g_cleanTaken;
     } else if (g_cleanOn.load()) ++g_cleanMissed;

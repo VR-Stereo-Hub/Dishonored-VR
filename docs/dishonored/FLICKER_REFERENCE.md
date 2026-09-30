@@ -1,3 +1,23 @@
+## 2026-09-29: AFW run 26 - after turning DLSS off and on: heavy aliasing, white dots, flicker, a doubled sword, until restart (FIXED, host-verified, headset pending)
+
+Surface: the whole AFW image after a render-size change, build v1.0.1-229. Reported: turning DLSS off made
+everything heavily aliased with many white dots and flicker, and it persisted after turning DLSS back on. The wall
+fault was reported unfixed. Captures `afw-20260929-232600` and `-232618`, both after DLSS was turned back on.
+- MEASURED (log): DLSS off reset the device from 2114x2192 to 2750x2850, and DLSS on reset it back. No AFW
+  warnings; every capture took its clean image.
+- MEASURED (capture): the rebuilt sword is DOUBLED in both captures. `p00_held_clean.raw` is 2114x2192 while the
+  frame is 2750x2850.
+- Cause (code, run 15's clean sources): the clean textures rotate between the pending slot and the two eye
+  records by swapping. After a swap the pending slot kept its OLD size numbers although it now held the
+  record's previous texture, of the old size after a render-size change. note_clean then copied into a
+  wrong-size texture (CopyResource refuses silently), and a stale image circulated for the rest of the
+  session. The held-UI rule saw "UI" wherever the stale image differed and pasted the held image unwarped
+  over the rebuild: the doubled sword, the dots, the flicker.
+- FIX: after the swap the pending slot's size is read from the texture itself. The replay ignores a
+  wrong-size clean image instead of reading past it (it crashed on these captures).
+- Host test: the UI case now runs after a render-size change. Without the fix it fails (1904 hand texels,
+  the stale image's hand elsewhere); with it, 6108 of 6108. 38/38.
+- The wall report came from this state (after the DLSS toggle). The run-24 wall fix is untested against it.
 ## 2026-09-29: AFW run 25 - the held eye's hands follow their controllers (BUILT, host-verified, headset pending)
 
 Follow-up to run 23 (hand parts the fresh eye cannot see) and run 24 (the blade's far side in a wall). Captures
