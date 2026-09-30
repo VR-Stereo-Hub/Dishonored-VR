@@ -25,6 +25,10 @@ small hitches; no controlled verdict isolates the remaining foreground cause yet
   Repeatable improvement supports grip/source timing; unchanged leaves the hypothesis
   unsupported; worse means leave OFF. Verify the new build banner and actual follow counters
   before interpreting the result. Read timing separately; do not ask a second pacing question.
+- Installed candidate: `v1.0.1-250-ga0979694c`, optimized build, lint, nine exports and 12/12
+  scheduling checks pass. DLL hash matches the build; full 73,303-byte INI differs by exactly
+  MSW 0 -> 1, ModSpacewarpHands 0 -> 1 and FrameId 1 -> 0. Expected file and CRLF verified.
+  Backup/verification location and full DLL hash are in STATUS. Existing DLSS helper retained.
 - Remaining: headset comparison and hitch root cause are open. No game launch by the agent,
   no new shader/math/matcher behavior, and no staging/release merge.
 

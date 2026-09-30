@@ -15,7 +15,13 @@ Next candidate retains the accepted prediction, wall logic and hand/view matcher
 lightweight CPU wall timings for synthetic wait, locate, eye construction and submit, and fixes
 the first rate sample after MSW restarts. Intended installed changes only: ModSpacewarp 0 -> 1,
 ModSpacewarpHands 0 -> 1, and Perf FrameId 1 -> 0. Other diagnostics and 144 Hz remain unchanged.
-Shipped defaults are unchanged. Build/install verification follows below when complete.
+Shipped defaults are unchanged. Installed `v1.0.1-250-ga0979694c`, optimized build; nine exports,
+lint and the 12 scheduling checks pass. DLL SHA256
+`4DD7C2978D8799D59380F666D009FA3A664737B8BE53A840DD89FC37D48F6EE7` matches the build.
+The complete 73,303-byte INI matches the prepared expected file, with exactly the three intended
+byte changes and CRLF verified. Backup: main
+`build/msw-run31-analysis/pre-install-250-20260930-025359`; verification `installed-250.json`
+in that analysis directory. Existing DLSS helper retained. Log stays build 248 until user launch.
 
 One question next launch: during the same left/right head sweep with controllers held still,
 does F10 Display's "Spacewarp: hands follow the controllers in filled frames" reduce the jitter

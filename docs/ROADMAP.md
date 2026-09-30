@@ -10,6 +10,12 @@
 - [x] Host: MSW rendered turn/display-time prediction and deterministic half-slot ownership;
   55/55 GPU and 12/12 scheduling checks, with failing old-code controls.
 - [ ] Headset: mod-spacewarp right-stick world ghosts and uneven display-slot pacing resolved.
+- [x] Live build 248: ordering fix exercised with zero repeated targets/consecutive real submits
+  in 386 steady windows; overall experience improved, residual deadline gaps remain.
+- [x] Install build 250 with stage timing, existing per-slot hands ON and FrameId readback OFF;
+  whole-INI three-byte diff and CRLF verified. No new synthesis or matcher change.
+- [ ] Headset: isolate residual head-sweep hand jitter with the hand-follow ON/OFF/ON control;
+  use stage timings to select the next hitch investigation.
 - [ ] Capture short-write/capacity handling: Linear ticket creation blocked by free issue limit.
 
 Details: `docs/dishonored/FLICKER_REFERENCE.md`, build-236 follow-up.
