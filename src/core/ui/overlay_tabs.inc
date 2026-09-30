@@ -1208,6 +1208,9 @@ static void OvlTabDisplay()
                 bool clean = dvr::afw::clean_on();   // VR-39 run 15
                 if (dvr::ovl::checkbox("AFW: hands without the other eye's markers and panel", &clean)) dvr::afw::set_clean(clean, "F10");
                 OvlTip("Off shows the old fault: objective text and the F10 panel from one eye appear on the sword in the other.");
+                bool km = dvr::depthprobe::fgmask_on();   // VR-39 run 17
+                if (dvr::ovl::checkbox("AFW: hands and weapon from the game's own draws", &km)) dvr::depthprobe::fgmask_set(km, "F10");
+                OvlTip("Off falls back to a distance limit: a close face is treated as your hands, a far blade tip as the world.");
                 // VR-39: the depth layer. The ini key takes effect at the next start; the live switch needs it.
                 bool sd = dvr::vr::submit_depth();
                 if (dvr::ovl::checkbox("AFW: send depth to the headset runtime (SSW, positional reprojection; restart)", &sd)) {

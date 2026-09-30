@@ -1,3 +1,39 @@
+## 2026-09-29: AFW run 17 - a close NPC's face splits, the far half of the blade trails turns: both are the depth limit (MEASURED, fix in progress)
+
+Surface: the held eye under `stereo afw`, build v1.0.1-209. Captures `afw-20260929-194905` (an NPC close in
+front, parts of the face shifting at different times) and `afw-20260929-195020` (a stick turn at about 4 deg
+per present: a faint edge of the hands and sword trails the turn, opposite to its direction).
+- MEASURED (replay with `-Tint`, clean images fed): the middle of the NPC's face (nose, cheek) is tinted
+  GREEN, "hands from the fresh eye". It is nearer than the foreground depth limit (0.30 units, about 0.69 m),
+  so it is rebuilt as the player's hands, with the foreground's 0.911 gain, and shifts against the rest of
+  her face (held-eye world).
+- MEASURED (same, the turn): the trailing blade is UNTINTED, the held eye's own world. The parts of the
+  sword beyond the depth limit are world to the rebuild, and a turn leaves them behind. The same limit is
+  the "sword pointed away at a certain distance" fault.
+- The foreground mask never engages: `pre-foreground copies 0 ... not the scene target 536491` (the game's
+  foreground pass draws into its A8R8G8B8 target, never the scene target, run 10).
+- TRIED AND DROPPED (replay A/B on these captures):
+  - a colour test for moved surfaces (a held texel matching nothing the fresh eye sees there comes from
+    the fresh eye): the face became a salt-and-pepper patchwork, worse than before;
+  - a hand-edge halo (texels next to the foreground refused as world or fill): identical output. The trail
+    is not an edge; it is the far part of the blade.
+- BUILT (host-verified, headset pending): the DRAWN foreground mask (`depth_probe.cpp`, fgmask). Each draw
+  under the crushed-depth viewport (MaxZ < 0.5, at least 512 wide) is issued a second time, from inside
+  `orig_draw_*` so the state is what was drawn (the weapon attachment sets its own constants), into a
+  shared mask slot with the game's vertex shader and depth test (ZFUNC LESSEQUAL), a constant pixel
+  shader, and no depth or stencil writes. Six fenced slots, keyed by the capture serial; AFW signs its
+  depth snapshot with it (`psdepthk`) and falls back to the depth limit only when no mask is ready.
+  - Host test (`afw-warp-tests`, 37/37): with the drawn mask, a far foreground keeps its projection and a
+    world surface at 0.35 m stays world; the depth-limit control misprojects the wall (3072 wrong texels).
+  - The D3D9 redraw itself is not host-tested. The log says whether it ran: `fgmask: ... N foreground
+    draws drawn again into the mask ... M masks served to AFW`, and `afw/warp: foreground from the DRAWN
+    mask on N images ... mask unknown on M`.
+  - Switches: F10 "AFW: hands and weapon from the game's own draws", `depthprobe fgmask on|off`.
+  - Expected in the headset: a close NPC's face in one piece; a blade pointed away no longer turning
+    flat or trailing a turn.
+- Tool: `afw-replay` now feeds the capture's clean images (`DVR_AFW_CLEAN=0` ignores them), so a replay
+  matches the installed rebuild.
+
 ## 2026-09-29: AFW run 16 - the objective text still on the sword: the game draws the markers into its own image (FIXED, host-verified, headset pending)
 
 Surface: the held eye's weapon under `stereo afw` with the clean sources on, build v1.0.1-207, DLAA on.
