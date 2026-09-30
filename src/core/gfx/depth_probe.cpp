@@ -7,6 +7,8 @@
 #include "core/gfx/shared_capture_texture.h"
 #include "core/util/log.h"
 #include "core/framework/perf.h"
+#include "core/framework/frame_hooks.h"
+#include "core/gfx/shared_capture_texture.h"
 
 #include <d3d11.h>
 
@@ -15,6 +17,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <vector>
 
 namespace dvr::depthprobe {
 namespace {
@@ -196,7 +199,10 @@ void note_texture(IDirect3DTexture9* tex, UINT w, UINT h, DWORD usage, D3DFORMAT
              g_on.load() ? "will be probed" : "probe off");
 }
 
+void fgproj_tick_fwd();
 void tick(IDirect3DDevice9* dev, UINT backW, UINT backH) {
+    fgproj_tick_fwd();   // VR-39: the arms-FOV instrument's log (render thread, every present)
+    fgmask_beat();       // VR-39 run 17: the foreground mask's counters
     const bool now = g_now.exchange(false);
     if (!dev || (!g_on.load() && !now)) return;
     const DWORD t = GetTickCount();
@@ -280,6 +286,7 @@ void share_release() {
 }
 
 void on_reset() {
+    fgmask_reset();   // VR-39 run 17: DEFAULT-pool shared slots (the hkReset LAW)
     share_release();
     g_shareFailed = false;
     for (Cand& c : g_c) { if (c.tex) c.tex->Release(); c = Cand{}; }
@@ -525,12 +532,106 @@ void try_pre_copy(IDirect3DDevice9* dev) {
     g_lastPreCopyMs = GetTickCount64();
 }
 
+// VR-39: WHICH FOV ARE THE ARMS DRAWN WITH? The question two instruments answered two ways (the run-6 stereo
+// disparity said 108.07; the run-13 force test and the scripts' m_fCurFOV_Arms said the lever's 103). This reads
+// it off the draws themselves: the horizontal half-angle tangent of the view-projection in c0..c3 (the game's
+// upload, before our jitter) is 1 / |column 0 of rows 0..2|, the same arithmetic that gives the capture's tanH
+// from fresh.vp. Draws under a crushed-depth viewport (MaxZ < 0.5: the foreground DPG, the arms and weapon) are
+// binned apart from the rest (the world), each into 0.1-degree bins, and the busiest bins of each class are
+// logged. It CAN say the unwelcome thing: a foreground peak that is not the world's peak is an arms FOV of its
+// own, and it says so with the number. c0..c3 is re-uploaded per pass and object, so not every sample is a view
+// projection: only perspective matrices (column 3 non-zero) at 20-160 deg count, and the histogram shows the rest
+// as separate peaks rather than averaging them in. World draws are sampled 1 in 8 (cost); foreground draws all.
+namespace {
+constexpr int kFpBins = 1400;                 // 20.0 .. 160.0 deg in 0.1
+uint32_t g_fpHist[2][kFpBins];
+uint64_t g_fpSeen[2], g_fpRefused[2];
+bool     g_fpCrushed = false;
+DWORD    g_fpVpW = 0;
+uint32_t g_fpTick = 0;
+DWORD    g_fpNextLogMs = 0;
+int      g_fpSaidFg = -1, g_fpSaidWorld = -1;
+std::atomic<bool> g_fpOn{true};
+void fp_sample() {
+    const int cls = g_fpCrushed ? 1 : 0;
+    if (!cls && (++g_fpTick & 7)) return;
+    if (g_fpVpW < 512) return;                                    // shadow maps, small targets
+    const float* r0 = ::dvr::frame::vs_const_shadow_row(0);
+    const float* r1 = ::dvr::frame::vs_const_shadow_row(1);
+    const float* r2 = ::dvr::frame::vs_const_shadow_row(2);
+    if (!r0 || !r1 || !r2) return;
+    const float w = fabsf(r0[3]) + fabsf(r1[3]) + fabsf(r2[3]);   // perspective: w depends on position
+    const float n2 = r0[0] * r0[0] + r1[0] * r1[0] + r2[0] * r2[0];
+    if (!(w > 1e-4f) || !(n2 > 1e-8f) || !(n2 < 1e8f)) { ++g_fpRefused[cls]; return; }
+    const float deg = 2.0f * atanf(1.0f / sqrtf(n2)) * 57.2957795f;
+    const int b = (int)((deg - 20.0f) * 10.0f + 0.5f);
+    if (b < 0 || b >= kFpBins) { ++g_fpRefused[cls]; return; }
+    ++g_fpHist[cls][b]; ++g_fpSeen[cls];
+}
+// The three busiest bins, "103.0 x812 (61%)".
+void fp_peaks(int cls, char* out, size_t n, int* top) {
+    int best[3] = {-1, -1, -1};
+    for (int b = 0; b < kFpBins; ++b) {
+        const uint32_t c = g_fpHist[cls][b];
+        if (!c) continue;
+        for (int k = 0; k < 3; ++k)
+            if (best[k] < 0 || c > g_fpHist[cls][best[k]]) { for (int j = 2; j > k; --j) best[j] = best[j - 1]; best[k] = b; break; }
+    }
+    *top = best[0];
+    size_t used = 0; out[0] = 0;
+    for (int k = 0; k < 3 && best[k] >= 0; ++k)
+        used += _snprintf(out + used, n - used, "%s%.1f x%u (%.0f%%)", k ? ", " : "", 20.0f + best[k] * 0.1f,
+                          g_fpHist[cls][best[k]], 100.0 * g_fpHist[cls][best[k]] / (double)(g_fpSeen[cls] ? g_fpSeen[cls] : 1));
+    if (!out[0]) _snprintf(out, n, "none");
+    out[n - 1] = 0;
+}
+void fp_tick() {
+    if (!g_fpOn.load()) return;
+    const DWORD t = GetTickCount();
+    if (t < g_fpNextLogMs) return;
+    const bool first = g_fpNextLogMs == 0;
+    g_fpNextLogMs = t + 5000;
+    if (first) return;
+    if (!g_fpSeen[0] && !g_fpSeen[1]) return;                 // menus, loads: nothing drawn in perspective
+    char world[160], fg[160]; int tw = -1, tf = -1;
+    fp_peaks(0, world, sizeof(world), &tw);
+    fp_peaks(1, fg, sizeof(fg), &tf);
+    const float wDeg = tw >= 0 ? 20.0f + tw * 0.1f : 0.0f, fDeg = tf >= 0 ? 20.0f + tf * 0.1f : 0.0f;
+    const bool changed = tw != g_fpSaidWorld || tf != g_fpSaidFg;
+    static DWORD nextBeat = 0;
+    if (changed || t >= nextBeat) {
+        nextBeat = t + 30000;
+        g_fpSaidWorld = tw; g_fpSaidFg = tf;
+        DVR_INFO("fgproj: the draws' own projection over 5 s - WORLD hfov %s [%llu samples, %llu not a projection] | "
+                 "FOREGROUND (MaxZ<0.5: arms, weapon) hfov %s [%llu, %llu] -> %s", world,
+                 (unsigned long long)g_fpSeen[0], (unsigned long long)g_fpRefused[0], fg,
+                 (unsigned long long)g_fpSeen[1], (unsigned long long)g_fpRefused[1],
+                 tf < 0 ? "NO foreground draw seen in perspective: the arms FOV is unmeasured this window"
+                 : fabsf(fDeg - wDeg) < 0.25f ? "the arms are drawn at the WORLD's FOV: AFW should reproject them with it"
+                 : "the arms have their OWN FOV (the foreground peak): AFW must reproject them with that number");
+    }
+    memset(g_fpHist, 0, sizeof(g_fpHist));
+    memset(g_fpSeen, 0, sizeof(g_fpSeen));
+    memset(g_fpRefused, 0, sizeof(g_fpRefused));
+}
+} // namespace
+
 void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp) {
-    if (!vp) return;
+    if (!vp || fgmask_in_draw()) return;   // our own mask redraw restoring the game's viewport
     g_crushArmed = vp->MaxZ < 0.5f;
+    g_fpCrushed = vp->MaxZ < 0.5f; g_fpVpW = vp->Width;
     if (g_crushArmed) try_pre_copy(dev);
 }
-void note_draw(IDirect3DDevice9* dev) { if (g_crushArmed) try_pre_copy(dev); }
+// Run 19: whether the GAME's draw now entering the hook is a foreground draw, decided here, before the mod's hands code
+// runs: the mesh split and the weapon attachment widen the crushed viewport to the full depth range before they draw
+// (the depth-range lever), so at orig_draw_* the draw no longer looks like one (run 18: 0 candidates in 5 s while
+// fgproj counted about 1000). Every piece drawn inside this game draw is a candidate; note_draw_end clears it.
+static bool g_fgGameDraw = false;
+void note_draw(IDirect3DDevice9* dev) {
+    g_fgGameDraw = g_fpCrushed && g_fpVpW >= 512;
+    if (g_fpOn.load(std::memory_order_relaxed)) fp_sample();
+    if (g_crushArmed) try_pre_copy(dev);
+}
 
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground) {
     if (sawForeground) *sawForeground = false;
@@ -552,6 +653,7 @@ bool prefg_ready() { return g_sceneSurf != nullptr && g_lastPreCopyMs && GetTick
 
 void read_done(ID3D11DeviceContext* ctx) {
     if (!ctx) return;
+    fgmask_read_done(ctx);
     bool issued = false;
     for (Slot* ring : {g_ring, g_pre})
         for (int i = 0; i < kRing; ++i) {
@@ -569,13 +671,274 @@ void set_enabled(bool on, const char* who) {
 }
 bool enabled() { return g_on.load(); }
 void request(const char* who) { g_now.store(true); DVR_INFO("depthprobe: one read asked (%s)", who ? who : "?"); }
+void fgproj_tick_fwd() { fp_tick(); }
 bool command(const char* args) {
+    if (args && !_stricmp(args, "fgmask on"))  { fgmask_set(true, "the seam"); return true; }
+    if (args && !_stricmp(args, "fgmask off")) { fgmask_set(false, "the seam"); return true; }
+    if (args && !_stricmp(args, "fgproj on"))  { g_fpOn = true;  DVR_INFO("fgproj: ON (the seam)"); return true; }
+    if (args && !_stricmp(args, "fgproj off")) { g_fpOn = false; DVR_INFO("fgproj: off (the seam)"); return true; }
     if (args && !_stricmp(args, "share on")) { set_share(true, "the seam"); return true; }
     if (args && !_stricmp(args, "share off")) { set_share(false, "the seam"); return true; }
     if (args && !_stricmp(args, "on")) set_enabled(true, "the seam");
     else if (args && !_stricmp(args, "off")) set_enabled(false, "the seam");
     else request("the seam");
     return true;
+}
+
+
+// ---- VR-39 run 17: THE FOREGROUND MASK, DRAWN ----------------------------------------------------------------------
+// AFW told the player's hands and weapon from the world by depth alone (nearer than 0.30 units, about 0.69 m): a close
+// NPC's face was rebuilt as hands and split against the rest of it, and the far half of a blade pointed away was world
+// and trailed every turn. The pre-foreground copy that was meant to replace the limit never engaged: the foreground
+// pass draws into the game's A8R8G8B8 target, never the scene target (run 10).
+//
+// So each foreground draw (a crushed-depth viewport, MaxZ < 0.5, at least 512 wide: the draws `fgproj:` measures) is
+// issued a SECOND time, from inside orig_draw_* so the state is exactly what was drawn (the weapon attachment sets its
+// own constants), into a mask target: the game's vertex shader and depth test, a constant pixel shader, no depth or
+// stencil writes, no blending. The mask is at the render size, keyed by the capture serial like the marker layer
+// (six fenced shared slots), and AFW signs its depth snapshot with it instead of the depth limit.
+namespace {
+struct MaskSlot {
+    dvr::capture::interop::Image image;
+    IDirect3DQuery9* fence = nullptr;
+    ID3D11ShaderResourceView* srv = nullptr;
+    ID3D11Query* read = nullptr;
+    bool pending = false, reading = false, borrowed = false;
+    uint32_t serial = 0, draws = 0;
+};
+MaskSlot g_mask[6];
+int g_maskCur = -1, g_maskNext = 0;
+uint32_t g_maskW = 0, g_maskH = 0;
+bool g_maskFailed = false, g_maskIn = false;
+IDirect3DPixelShader9* g_maskPs2 = nullptr;
+IDirect3DPixelShader9* g_maskPs3 = nullptr;
+std::atomic<bool> g_maskOn{true};           // `depthprobe fgmask on|off`
+uint64_t g_maskDraws = 0, g_maskSizeSkip = 0, g_maskFrames = 0, g_maskServed = 0, g_maskNotReady = 0, g_maskNoSlot = 0;
+// Run 18: every candidate (a draw under the crushed viewport, at least 512 wide) and why one was not drawn again;
+// slots armed at the first candidate because none was armed (the arming after Present missed the draw).
+uint64_t g_maskMarked = 0;   // run 20: pieces the hands code marked as the player's
+uint64_t g_maskCand = 0, g_maskRejIn = 0, g_maskRejNoSlot = 0, g_maskRejPs = 0, g_maskRejRt = 0, g_maskLateArm = 0;
+ID3D11DeviceContext* g_maskCtx = nullptr;   // from fgmask_prepare (present thread, same device and thread as the draws)
+// Saved across the redraw.
+IDirect3DSurface9* g_mSavedRt[4] = {};
+IDirect3DPixelShader9* g_mSavedPs = nullptr;
+D3DVIEWPORT9 g_mSavedVp = {};
+DWORD g_mSavedRs[9] = {};
+// ZFUNC LESSEQUAL: the draw already wrote its depth, and the identical draw lands on it exactly.
+const D3DRENDERSTATETYPE kMaskRs[9] = {D3DRS_ZWRITEENABLE, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE,
+                                       D3DRS_SRGBWRITEENABLE, D3DRS_STENCILWRITEMASK, D3DRS_SEPARATEALPHABLENDENABLE, D3DRS_FOGENABLE,
+                                       D3DRS_ZFUNC};
+const DWORD kMaskRsVal[9] = {FALSE, FALSE, FALSE, 0xF, FALSE, 0, FALSE, FALSE, D3DCMP_LESSEQUAL};
+// def c0, 1, 1, 1, 1 ; mov oC0, c0 - hand-assembled (ps_2_0 and ps_3_0 differ only in the version token): a vs_3_0 must
+// be paired with a ps_3_0, anything older with ps_2_0.
+const DWORD kMaskPsBody[] = {0x05000051, 0xA00F0000, 0x3F800000, 0x3F800000, 0x3F800000, 0x3F800000,
+                             0x02000001, 0x800F0800, 0xA0E40000, 0x0000FFFF};
+IDirect3DPixelShader9* mask_ps(IDirect3DDevice9* dev, DWORD version) {
+    IDirect3DPixelShader9*& ps = version == 0xFFFF0300 ? g_maskPs3 : g_maskPs2;
+    if (!ps) {
+        DWORD code[1 + sizeof(kMaskPsBody) / sizeof(DWORD)];
+        code[0] = version;
+        memcpy(code + 1, kMaskPsBody, sizeof(kMaskPsBody));
+        const HRESULT hr = dev->CreatePixelShader(code, &ps);
+        if (FAILED(hr)) {
+            ps = nullptr;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "fgmask: the constant pixel shader (version %08lx) was refused "
+                             "(0x%08lx) - AFW keeps the depth limit", (unsigned long)version, (unsigned long)hr);
+        }
+    }
+    return ps;
+}
+void mask_release_all() {
+    for (MaskSlot& s : g_mask) {
+        if (s.srv) s.srv->Release(); if (s.fence) s.fence->Release(); if (s.read) s.read->Release();
+        s.srv = nullptr; s.fence = nullptr; s.read = nullptr; s.image.reset();
+        s.pending = s.reading = s.borrowed = false; s.serial = s.draws = 0;
+    }
+    if (g_maskPs2) { g_maskPs2->Release(); g_maskPs2 = nullptr; }
+    if (g_maskPs3) { g_maskPs3->Release(); g_maskPs3 = nullptr; }
+    g_maskCur = -1; g_maskNext = 0; g_maskW = g_maskH = 0; g_maskIn = false; g_maskCtx = nullptr;
+}
+} // namespace
+
+bool fgmask_on() { return g_maskOn.load(); }
+void fgmask_reset() { mask_release_all(); g_maskFailed = false; }
+bool fgmask_wanted() { return g_maskOn.load() && (g_preOwners.load() & 1u) != 0; }   // AFW's owner bit (its foreground mask on)
+void fgmask_set(bool on, const char* who) {
+    if (g_maskOn.exchange(on) != on)
+        DVR_INFO("fgmask: %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+                 on ? " - the foreground draws are drawn again into a mask; AFW takes the hands and weapon from it"
+                    : " - AFW falls back to the depth limit (a close face is rebuilt as hands, a far blade as world)");
+}
+
+// Arm the next slot: free of readers and of the D3D9 writer, cleared. False = none free this time.
+static bool mask_arm(IDirect3DDevice9* d9) {
+    if (!g_maskW || !g_maskCtx || !d9) return false;
+    MaskSlot& s = g_mask[g_maskNext];
+    if (s.borrowed) { ++g_maskNoSlot; return false; }
+    if (s.reading) {
+        if (g_maskCtx->GetData(s.read, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK) { ++g_maskNoSlot; return false; }
+        s.reading = false;
+    }
+    if (s.pending) {
+        if (s.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_OK) { ++g_maskNoSlot; return false; }
+        s.pending = false;
+    }
+    s.serial = s.draws = 0;
+    if (FAILED(d9->ColorFill(s.image.surface, nullptr, 0))) { ++g_maskNoSlot; return false; }
+    g_maskCur = g_maskNext; g_maskNext = (g_maskNext + 1) % 6;
+    ++g_maskFrames;
+    return true;
+}
+void fgmask_prepare(IDirect3DDevice9* d9, ID3D11Device* d11, ID3D11DeviceContext* ctx, uint32_t w, uint32_t h) {
+    // A slot the first candidate armed itself (the re-entered draw ran before this) keeps its draws until the grab seals it.
+    const bool keep = g_maskCur >= 0 && g_mask[g_maskCur].draws > 0 && w == g_maskW && h == g_maskH;
+    if (!keep) g_maskCur = -1;
+    if (!fgmask_wanted() || !d9 || !d11 || !ctx || !w || !h || g_maskFailed) return;
+    if (w != g_maskW || h != g_maskH) {
+        mask_release_all();
+        HRESULT hr = S_OK;
+        const char* step = "";
+        for (MaskSlot& s : g_mask) {
+            const auto cr = dvr::capture::interop::create(d9, d11, w, h, D3DFMT_A8R8G8B8, s.image);
+            hr = cr.hr; step = cr.step;
+            if (SUCCEEDED(hr)) { step = "fence"; hr = d9->CreateQuery(D3DQUERYTYPE_EVENT, &s.fence); }
+            if (SUCCEEDED(hr)) { step = "view"; hr = d11->CreateShaderResourceView(s.image.texture, nullptr, &s.srv); }
+            D3D11_QUERY_DESC q = {D3D11_QUERY_EVENT, 0};
+            if (SUCCEEDED(hr)) { step = "read query"; hr = d11->CreateQuery(&q, &s.read); }
+            if (FAILED(hr)) break;
+        }
+        if (FAILED(hr)) {
+            mask_release_all(); g_maskFailed = true;
+            DVR_WARN("fgmask: the mask slots %ux%u were refused at %s (0x%08lx) - AFW keeps the depth limit until a reset",
+                     w, h, step, (unsigned long)hr);
+            return;
+        }
+        g_maskW = w; g_maskH = h;
+        DVR_INFO("fgmask: six %ux%u mask slots (shared D3D9 -> D3D11, fenced, keyed by the capture serial)", w, h);
+    }
+    g_maskCtx = ctx;
+    if (!keep) mask_arm(d9);
+}
+
+bool fgmask_begin(IDirect3DDevice9* dev) {
+    if (!g_fgGameDraw || !dev || !fgmask_wanted()) return false;   // run 19: decided at the game's draw (note_draw)
+    ++g_maskCand;
+    if (g_maskIn) { ++g_maskRejIn; return false; }
+    if (g_maskCur < 0) {
+        if (!mask_arm(dev)) { ++g_maskRejNoSlot; return false; }
+        ++g_maskLateArm;
+    }
+    MaskSlot& s = g_mask[g_maskCur];
+    IDirect3DSurface9* rt = nullptr;
+    if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) { ++g_maskRejRt; return false; }
+    D3DSURFACE_DESC d = {};
+    rt->GetDesc(&d);
+    if (d.Width != g_maskW || d.Height != g_maskH) { rt->Release(); ++g_maskSizeSkip; return false; }
+    IDirect3DVertexShader9* vs = nullptr;
+    DWORD version = 0xFFFF0200;
+    if (SUCCEEDED(dev->GetVertexShader(&vs)) && vs) {
+        static IDirect3DVertexShader9* lastVs = nullptr;   // identity only (never dereferenced): the version of the last one read
+        static DWORD lastVersion = 0xFFFF0200;
+        if (vs != lastVs) {
+            UINT n = 0;
+            std::vector<DWORD> f;
+            if (SUCCEEDED(vs->GetFunction(nullptr, &n)) && n >= 4) {
+                f.resize((n + 3) / 4);
+                if (SUCCEEDED(vs->GetFunction(f.data(), &n)))
+                    lastVersion = (f[0] & 0xFFFFFF00) == 0xFFFE0300 ? 0xFFFF0300 : 0xFFFF0200;
+            }
+            lastVs = vs;
+        }
+        version = lastVersion;
+        vs->Release();
+    }
+    IDirect3DPixelShader9* ps = mask_ps(dev, version);
+    if (!ps) { rt->Release(); ++g_maskRejPs; return false; }
+    g_mSavedRt[0] = rt;
+    for (DWORD i = 1; i < 4; ++i) { g_mSavedRt[i] = nullptr; dev->GetRenderTarget(i, &g_mSavedRt[i]); }
+    dev->GetPixelShader(&g_mSavedPs);
+    dev->GetViewport(&g_mSavedVp);
+    for (int i = 0; i < 9; ++i) dev->GetRenderState(kMaskRs[i], &g_mSavedRs[i]);
+    g_maskIn = true;   // our own SetViewport and SetRenderState pass through the viewport hook: it must ignore them
+    dvr::frame::orig_set_render_target(dev, 0, s.image.surface);
+    for (DWORD i = 1; i < 4; ++i) if (g_mSavedRt[i]) dvr::frame::orig_set_render_target(dev, i, nullptr);
+    dev->SetViewport(&g_mSavedVp);   // a render-target change resets it
+    dev->SetPixelShader(ps);
+    for (int i = 0; i < 9; ++i) dev->SetRenderState(kMaskRs[i], kMaskRsVal[i]);
+    return true;
+}
+void fgmask_end(IDirect3DDevice9* dev, HRESULT drawn) {
+    if (!g_maskIn) return;
+    MaskSlot& s = g_mask[g_maskCur];
+    if (SUCCEEDED(drawn)) { ++s.draws; ++g_maskDraws; }
+    for (int i = 0; i < 9; ++i) dev->SetRenderState(kMaskRs[i], g_mSavedRs[i]);
+    dev->SetPixelShader(g_mSavedPs);
+    for (DWORD i = 0; i < 4; ++i) {
+        if (i == 0 || g_mSavedRt[i]) dvr::frame::orig_set_render_target(dev, i, g_mSavedRt[i]);
+        if (g_mSavedRt[i]) { g_mSavedRt[i]->Release(); g_mSavedRt[i] = nullptr; }
+    }
+    if (g_mSavedPs) { g_mSavedPs->Release(); g_mSavedPs = nullptr; }
+    dev->SetViewport(&g_mSavedVp);
+    g_maskIn = false;
+}
+bool fgmask_in_draw() { return g_maskIn; }
+void note_draw_end() { g_fgGameDraw = false; }
+void fgmask_mark_piece() { g_fgGameDraw = true; ++g_maskMarked; }
+
+void fgmask_seal(uint32_t serial) {
+    for (MaskSlot& s : g_mask) if (s.serial == serial) s.serial = 0;
+    if (g_maskCur < 0) return;
+    MaskSlot& s = g_mask[g_maskCur];
+    s.serial = serial;
+    s.pending = s.fence && SUCCEEDED(s.fence->Issue(D3DISSUE_END));
+    if (!s.pending) s.serial = 0;
+    g_maskCur = -1;
+}
+
+ID3D11ShaderResourceView* fgmask_srv_for(uint32_t serial, uint32_t* draws, uint32_t* w, uint32_t* h) {
+    if (draws) *draws = 0;
+    if (!serial) return nullptr;
+    for (MaskSlot& s : g_mask) {
+        if (s.serial != serial || !s.srv) continue;
+        if (s.pending) {
+            if (s.fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_OK) { ++g_maskNotReady; return nullptr; }
+            s.pending = false;
+        }
+        if (draws) *draws = s.draws;
+        if (w) *w = g_maskW;
+        if (h) *h = g_maskH;
+        s.borrowed = true;
+        ++g_maskServed;
+        return s.srv;
+    }
+    return nullptr;
+}
+void fgmask_read_done(ID3D11DeviceContext* ctx) {
+    if (!ctx) return;
+    bool issued = false;
+    for (MaskSlot& s : g_mask)
+        if (s.borrowed) { ctx->End(s.read); s.reading = true; s.borrowed = false; issued = true; }
+    if (issued) ctx->Flush();
+}
+void fgmask_beat() {
+    static DWORD next = 0;
+    const DWORD t = GetTickCount();
+    if (t < next) return;
+    next = t + 5000;
+    if (!fgmask_wanted() && !g_maskFrames) return;
+    DVR_INFO("fgmask: %s - %llu foreground candidates (crushed viewport, >= 512 wide), %llu drawn again into the mask | "
+             "NOT drawn: %llu no free slot, %llu the target was not the render size, %llu no render target, %llu shader "
+             "refused, %llu already inside a redraw | %llu frames armed (%llu armed late, at the first candidate), %llu "
+             "masks served to AFW, %llu not finished in time, %llu slot busy (0 drawn while AFW runs = the hands are world "
+             "to the rebuild) | %llu pieces marked by the hands code (the held weapon and the split hands)",
+             fgmask_wanted() ? "ON" : "off", (unsigned long long)g_maskCand, (unsigned long long)g_maskDraws,
+             (unsigned long long)g_maskRejNoSlot, (unsigned long long)g_maskSizeSkip, (unsigned long long)g_maskRejRt,
+             (unsigned long long)g_maskRejPs, (unsigned long long)g_maskRejIn, (unsigned long long)g_maskFrames,
+             (unsigned long long)g_maskLateArm, (unsigned long long)g_maskServed, (unsigned long long)g_maskNotReady,
+             (unsigned long long)g_maskNoSlot, (unsigned long long)g_maskMarked);
+    g_maskMarked = 0;
+    g_maskFrames = g_maskDraws = g_maskSizeSkip = g_maskServed = g_maskNotReady = g_maskNoSlot = 0;
+    g_maskCand = g_maskRejIn = g_maskRejNoSlot = g_maskRejPs = g_maskRejRt = g_maskLateArm = 0;
 }
 
 } // namespace dvr::depthprobe

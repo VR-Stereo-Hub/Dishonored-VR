@@ -49,6 +49,13 @@ void set_prefg_wanted(unsigned, bool) {}
 bool g_prefgReady = false;
 bool prefg_ready() { return g_prefgReady; }   // a capture with signed (masked) depths replays in mask mode
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t, bool* saw) { if (saw) *saw = false; return nullptr; }
+// Run 17: the drawn foreground mask, per serial (R = 1 where the hand is), when a case asks for it.
+ID3D11ShaderResourceView* g_maskBySerial[16] = {};
+ID3D11ShaderResourceView* fgmask_srv_for(uint32_t serial, uint32_t* draws, uint32_t* w, uint32_t* h) {
+    if (draws) *draws = 0;
+    if (serial >= 16 || !g_maskBySerial[serial]) return nullptr;
+    if (draws) *draws = 1; if (w) *w = g_depthW; if (h) *h = g_depthH; return g_maskBySerial[serial];
+}
 }
 
 // ---- the scene ----------------------------------------------------------------------------------
@@ -179,14 +186,15 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
 
 struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
 struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false,
-             mask = false;
+             mask = false, drawnMask = false;
              double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
 // the fresh serial; the caller warps.
 struct Scene { ID3D11Texture2D *ht = nullptr, *ft = nullptr; ID3D11ShaderResourceView *hs = nullptr, *fs = nullptr; uint32_t sf = 0; };
 static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int w, int h,
-                     const std::vector<float>& hImg, const std::vector<float>& fImg) {
+                     const std::vector<float>& hImg, const std::vector<float>& fImg,
+                     const std::vector<float>* hClean = nullptr, const std::vector<float>* fClean = nullptr) {
     Scene sc;
     const Eye held0 = eyeOf(s0, 0), right0 = eyeOf(s0, 1), held1 = eyeOf(s1, 0), fresh1 = eyeOf(s1, 1);
     sc.ht = tex(g.dev, w, h, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, hImg.data());
@@ -194,11 +202,24 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     g.dev->CreateShaderResourceView(sc.ht, nullptr, &sc.hs);
     g.dev->CreateShaderResourceView(sc.ft, nullptr, &sc.fs);
     for (auto*& p : g_depthBySerial) p = nullptr;
+    for (auto*& p : dvr::depthprobe::g_maskBySerial) if (p) { p->Release(); p = nullptr; }
     static uint32_t serial = 0;
     const uint32_t sh = (serial = (serial + 2) % 12) + 1;
     sc.sf = sh + 1;
     if (o.heldDepth) g_depthBySerial[sh] = sc.hs;
     if (o.freshDepth) g_depthBySerial[sc.sf] = sc.fs;
+    if (o.drawnMask) {   // run 17: what the foreground draws covered, as the production redraw writes it (R = 1)
+        auto maskOf = [&](const std::vector<float>& img) {
+            std::vector<float> m((size_t)w * h * 4, 0.0f);
+            for (size_t i = 0; i < (size_t)w * h; ++i) if (img[i * 4 + 2] > 0.5f) m[i * 4] = 1.0f;
+            ID3D11Texture2D* t = tex(g.dev, w, h, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, m.data());
+            ID3D11ShaderResourceView* v = nullptr;
+            if (t) { g.dev->CreateShaderResourceView(t, nullptr, &v); t->Release(); }
+            return v;
+        };
+        dvr::depthprobe::g_maskBySerial[sh] = maskOf(hImg);
+        dvr::depthprobe::g_maskBySerial[sc.sf] = maskOf(fImg);
+    }
     g_depthW = w; g_depthH = h;
     dvr::afw::set_enabled(true, "test");   // also drops the previous case's records
     dvr::afw::set_stereo(o.stereo, "test");
@@ -209,8 +230,19 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     dvr::afw::set_near_miss(6.0f, "test");
     const Rec mh = recordOf(s0, held0, o.mirrored, o.flipC5), mf = recordOf(s1, fresh1, o.mirrored, o.flipC5);
     const dvr::afw::Pose tg0[2] = {poseOf(held0), poseOf(right0)}, tg1[2] = {poseOf(held1), poseOf(fresh1)};
-    if (!o.noHeld)
+    // Run 15: each image's clean copy (before the mod's own layers), handed over as the stereo method does, just before
+    // the runtime captures that grab.
+    auto clean = [&](const std::vector<float>* img, uint32_t serial) {
+        if (!img) return;
+        ID3D11Texture2D* t = tex(g.dev, w, h, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, img->data());
+        dvr::afw::note_clean(g.dev, g.ctx, t, serial);
+        if (t) t->Release();
+    };
+    if (!o.noHeld) {
+        clean(hClean, sh);
         dvr::afw::note_capture(g.dev, g.ctx, 0, sc.ht, sh, poseOf(held0), true, (float)s0.bodyYawDeg, tg0, mh.vp, mh.c5, mh.rot, nullptr);
+    }
+    clean(fClean, sc.sf);
     dvr::afw::note_capture(g.dev, g.ctx, 1, sc.ft, sc.sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5, mf.rot, nullptr);
     return sc;
 }
@@ -751,10 +783,23 @@ int main() {
         Result r = run(g, wall0, wall1, m); report("mask: a world surface at 0.35 m stays world", r, clean(r, 100));
         Opt c = fgOn;
         r = run(g, wall0, wall1, c); report("control: depth limit, the near wall misprojected", r, r.ok && r.errP95 > 2.0); }
+    {   // Run 17: the same two cases classified by the DRAWN mask (every foreground draw drawn again into it), with the
+        // depths unsigned: a close world surface stays world and a far foreground keeps the foreground's projection.
+        State tip0 = still; tip0.fgTan = kFgTan; tip0.handZ = -1.2; tip0.handX = 0.45; tip0.handW = 0.3;
+        State tip1 = tip0; tip1.bodyYawDeg = 3; tip1.handX = 0.47;
+        Opt m = fgOn; m.drawnMask = true;
+        Result r = run(g, tip0, tip1, m); report("drawn mask: a foreground at 1.2 m keeps its projection", r, clean(r, 100));
+        State wall0 = still; wall0.fgTan = kFgTan; wall0.barZ = -0.35; wall0.barX0 = -0.30; wall0.barX1 = -0.10;
+        State wall1 = wall0; wall1.bodyYawDeg = 3;
+        r = run(g, wall0, wall1, m); report("drawn mask: a world surface at 0.35 m stays world", r, clean(r, 100)); }
     g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
-    { Result r = run(g, still, walk, noMtx);
-      report("control: no matrices, walking -> the pillar lags", r, r.ok && r.errP95 > 3.0); }
+    {   // At the pre-run-18 stale tolerance: the tighter test (0.015) already catches this lag through the fresh eye, which
+        // would leave the matrices lever without a control.
+        dvr::afw::set_stale(0.03f, "test");
+        Result r = run(g, still, walk, noMtx);
+        dvr::afw::set_stale(0.015f, "test");
+        report("control: no matrices, walking -> the pillar lags", r, r.ok && r.errP95 > 3.0); }
     { Result r = run(g, still, moved, noStereo);
       report("control: held eye alone, hand moved -> ghost", r, r.ok && r.ghost > r.handTruth / 5); }
     { Result r = run(g, still, all, noStereo);
@@ -824,6 +869,89 @@ int main() {
         check("cost: a synthesized eye at 2750x2850 (informational)", c[1] > 0, dsc);
         release(sc);
         if (dj) dj->Release(); if (qa) qa->Release(); if (qb) qb->Release(); if (big) big->Release();
+    }
+    {   // Run 15: the mod's own layers (objective markers, the F10 panel) are drawn into each eye's image AFTER the game.
+        // The held eye's hands come from the fresh eye; from its COMPOSED image they carried that eye's UI into the other
+        // eye (text on the sword). The fresh eye's hand carries a UI stamp (colour 99) in its composed image only; the held
+        // eye has its own UI stamp (colour 77) over part of its hand. With the clean sources, the rebuilt hand must show
+        // no 99 and must keep the 77 where the held eye drew it. The control (clean off) must show the 99.
+        const Eye h0 = eyeOf(still, 0), f1 = eyeOf(still, 1);
+        auto hClean = image(still, h0, N, N), fClean = image(still, f1, N, N);
+        auto hComp = hClean, fComp = fClean;
+        int heldUi = 0;
+        for (int y = 0; y < N; ++y)
+            for (int x = 0; x < N; ++x) {
+                float* q = &fComp[((size_t)y * N + x) * 4];
+                if (q[2] > 0.5f) { q[0] = 99.0f; q[1] = 99.0f; }                 // the fresh eye's UI over its whole hand
+                float* r = &hComp[((size_t)y * N + x) * 4];
+                if (r[2] > 0.5f && x < N / 2) { r[0] = 77.0f; r[1] = 77.0f; ++heldUi; }   // the held eye's UI over half of its hand
+            }
+        auto count = [&](bool cleanOn, int* stamp99, int* stamp77, int* hand) {
+            dvr::afw::set_clean(cleanOn, "test");
+            g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
+            Scene sc = capture(g, still, still, Opt(), N, N, hComp, fComp, &hClean, &fClean);
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            const bool ok = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, (float)kTan, (float)kTan, &out, &why);
+            *stamp99 = *stamp77 = *hand = 0;
+            if (ok) {
+                g.ctx->CopyResource(g.stage, g.dst);
+                D3D11_MAPPED_SUBRESOURCE m;
+                if (SUCCEEDED(g.ctx->Map(g.stage, 0, D3D11_MAP_READ, 0, &m))) {
+                    for (int y = 0; y < N; ++y)
+                        for (int x = 0; x < N; ++x) {
+                            const float* o = (const float*)((const uint8_t*)m.pData + y * m.RowPitch) + x * 4;
+                            if (o[2] > 0.5f) ++*hand;
+                            if (fabsf(o[0] - 99.0f) < 0.5f) ++*stamp99;
+                            if (fabsf(o[0] - 77.0f) < 0.5f) ++*stamp77;
+                        }
+                    g.ctx->Unmap(g.stage, 0);
+                }
+            }
+            release(sc);
+            return ok;
+        };
+        int a99, a77, ah, b99, b77, bh;
+        const bool on = count(true, &a99, &a77, &ah), off = count(false, &b99, &b77, &bh);
+        dvr::afw::set_clean(true, "test");
+        char d[200];
+        snprintf(d, sizeof(d), "clean: hand %d px, other eye's UI %d, own UI %d of %d | control (off): other eye's UI %d",
+                 ah, a99, a77, heldUi, b99);
+        check("the other eye's UI stays off the rebuilt sword, the held eye's own UI stays",
+              on && off && ah > 500 && a99 == 0 && a77 > heldUi * 9 / 10 && b99 > 500, d);
+    }
+    {   // Run 21: a still weapon keeps each eye's own shine. The held eye's hand carries a marker (+100 in channel 1: its own,
+        // view-dependent shading); with the controllers reported still, the rebuilt hand must be the held eye's own; reported
+        // moving (the control), the fresh eye's.
+        const Eye h0 = eyeOf(still, 0), f1 = eyeOf(still, 1);
+        auto hImg = image(still, h0, N, N), fImg = image(still, f1, N, N);
+        for (size_t i = 0; i < (size_t)N * N; ++i) if (hImg[i * 4 + 2] > 0.5f) hImg[i * 4 + 1] += 100.0f;
+        auto own = [&](bool stillHands, int* kept, int* hand) {
+            dvr::afw::note_hands_still(stillHands);
+            g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
+            Scene sc = capture(g, still, still, Opt(), N, N, hImg, fImg);
+            dvr::afw::Pose out{}; const char* why = nullptr;
+            const bool ok = dvr::afw::warp_held(g.dev, g.ctx, 0, 1, sc.sf, g.dst, N, N, (float)kTan, (float)kTan, &out, &why);
+            *kept = *hand = 0;
+            if (ok) {
+                g.ctx->CopyResource(g.stage, g.dst);
+                D3D11_MAPPED_SUBRESOURCE m;
+                if (SUCCEEDED(g.ctx->Map(g.stage, 0, D3D11_MAP_READ, 0, &m))) {
+                    for (int y = 0; y < N; ++y)
+                        for (int x = 0; x < N; ++x) {
+                            const float* o = (const float*)((const uint8_t*)m.pData + y * m.RowPitch) + x * 4;
+                            if (o[2] > 0.5f) { ++*hand; if (o[1] > 50.0f) ++*kept; }
+                        }
+                    g.ctx->Unmap(g.stage, 0);
+                }
+            }
+            release(sc);
+            dvr::afw::note_hands_still(false);
+            return ok;
+        };
+        int k1, h1, k2, h2;
+        const bool a = own(true, &k1, &h1), b = own(false, &k2, &h2);
+        char d[160]; snprintf(d, sizeof(d), "still: %d of %d hand texels the held eye's own | moving (control): %d of %d", k1, h1, k2, h2);
+        check("a still weapon keeps the held eye's own shading", a && b && h1 > 500 && k1 > h1 * 8 / 10 && k2 < h2 / 20, d);
     }
     printf("afw warp: %d PASS, %d FAIL\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

@@ -1,3 +1,233 @@
+## 2026-09-29: AFW run 24 - the weapon flickers when pushed into a wall (FIXED in build, headset pending)
+
+Surface: the held eye's weapon inside a wall right in front of the face, `stereo afw`, build v1.0.1-225. Capture
+`afw-20260929-223942`.
+- MEASURED (capture depths, units): wall 0.151-0.155, hands 0.119, blade 0.148-0.205. The mask covers the whole
+  sword. The blade is drawn on top of the wall (the crushed range) though geometrically behind it.
+- Cause: the seed maps keep the NEAREST surface per target texel, so the wall's seed beat the blade and the
+  blade fell to the fill (tint magenta).
+- FIX: foreground seeds take the near half of the seed depth range and the world the far half, so the hands
+  and weapon always win, as the game draws them.
+- Replay: the blade from the hands path (green); world differ 2.437% -> 1.823%. A thin fill strip remains on
+  the blade side only the held eye sees (stereo disocclusion). The controller-moved held hands (next) are
+  meant for that. Host test 38/38.
+
+## 2026-09-29: AFW run 23 - hand parts invisible at some angles; ghosting and gaps beside the hands while turning (PARTLY ADDRESSED, headset pending)
+
+Surface: the held eye's hands under `stereo afw` without MSW, build v1.0.1-223. Reported: without spacewarp, turning is
+smooth. Parts of a hand are still invisible at certain orientations, and there is ghosting or missing
+content while turning, even slowly. Captures `afw-20260929-221337` (hands) and `afw-20260929-221552` (a turn).
+- MEASURED (221337): the texels that are hand in the eye's next native frame but not in the rebuild are at the
+  right hand's thumb and along the finger edges. The fresh eye sees the thumb hidden behind the palm, or the
+  finger's side edge-on. The hands MOVE across this capture.
+- BUILT: with the controllers still (run 21's gate), the edge rule of run 22 also applies anywhere near the held
+  eye's own hands. Where the fresh eye sees that point HIDDEN behind something nearer, the held eye's own hand
+  is kept (class 4). Replay with the gate forced on while the hands moved doubled a thumbnail, which is why it
+  is gated on stillness. The capture cannot verify it: the hands were moving.
+- MEASURED (221552): the body turned 19.5 deg between the two eyes' images. Tint: fill (magenta) and held
+  fallback (red) in the bands the turn uncovers beside the hands. That world was hidden behind the hands in the
+  held image and behind the fresh eye's own hands, so no source has it and the fill stretches the background: the
+  smear by the sleeve and the tear at the left hand.
+- OPEN: turning disocclusion beside the hands. It is inherent to two sources. Candidate: move the held eye's
+  hands by their controllers (MSW's `handMove`, which has the per-image grip poses) so the held eye's own
+  hands, and the world behind them, stay usable during motion.
+
+## 2026-09-29: AFW run 22 - parts of an arm near the edge of view vanish every other frame (FIXED in build, headset pending)
+
+Surface: the held eye's arms near the left and right edges of the frame under `stereo afw`, build v1.0.1-221.
+Reported: at some angles parts of the hands do not render every frame, mostly at the edges. Capture
+`afw-20260929-213856`.
+- MEASURED (replay tint): the left forearm and sleeve at the frame's left edge are tinted blue (the fresh
+  eye's world) and a striped fill. The fresh eye's frame does not contain that part of the arm: at hand
+  distance the two eyes' frames are offset by about a tenth of the width. So the held eye had no hand source
+  there.
+- FIX: within a quarter of the width from either edge, where the held eye's own hands (as fixed in tracking
+  space, the body hypothesis) land and the point projects OUTSIDE the fresh eye's frame, the held eye keeps
+  them (tint cyan). `afw edgehands on|off`, F10 "AFW: hands at the frame's edges stay whole".
+- Replay: the forearm and sleeve drawn whole in every rebuilt frame, matching the next native frame. With
+  it off, the striped fill. A moving arm at the edge shows its one-tick-old position there. Host test
+  38/38.
+
+## 2026-09-29: AFW run 21 - a still sword flickers its shine; hand and world steady (FIXED in build, headset pending)
+
+Surface: the blade of the held weapon under `stereo afw`, build v1.0.1-219. Reported: the spot flicker and the far
+blade are fixed. The weapon's colour or shading flickers rapidly even held completely still; the world's
+lighting and the hand stay steady. Capture `afw-20260929-211856`.
+- MEASURED (log): the mask is complete (`6768 foreground candidates, 6768 drawn again, 6768 pieces marked`).
+- MEASURED (capture, each eye's displayed sequence): the blade's highlight alternates between the eye's native
+  frames and its rebuilt frames. The rebuilt blade comes from the fresh eye, whose reflection on a shiny
+  blade is its own view's. The matte hand does not show it. This is run 7's "subtle shading shimmer on the
+  sword", now isolated.
+- Replay (mean colour difference on the weapon against the same eye's next native frame): as installed 59.2;
+  `afw ownhands 0.3` 51.6 (the colour test refuses most of a shiny blade); no colour limit 28.6.
+- FIX: while the game side reports both controllers still (50 ms window, under 6 cm/s and 12 deg/s, in
+  tracking space), the held eye keeps its own weapon pixels wherever the fresh eye puts the same surface at
+  the same depth, with no colour test. Moving, the fresh eye supplies them as before (the colour-free rule
+  lagged a moving weapon in the run-7 host test). `afw stillshade on|off`, F10 "AFW: a still weapon keeps
+  each eye's own shine".
+- Host test (38/38): with the controllers still, 6108 of 6108 hand texels are the held eye's own; reported
+  moving (the control), 68 of 6108.
+- Remaining by design: a MOVING shiny blade still shows the other eye's reflection for a frame.
+
+## 2026-09-29: AFW run 20 - the weapon flickers in certain spots and on landing: the game draws it with the full depth range there (FIXED in build, headset pending)
+
+Surface: the held eye's weapon (and hands) under `stereo afw`, build v1.0.1-217. Reported: mostly fixed, and the
+blade pointed away is right. But in several spots the sword and weapon flicker constantly, stop when you
+step away, and start again when you return. The same happens briefly when landing from a jump. Capture
+`afw-20260929-210330`: standing in a spot (p00-p02), then walking out (p03-p10).
+- MEASURED (replay tint): in the spot the HAND is green (the drawn mask) and the BLADE untinted (held world). Out
+  of the spot the blade is green too.
+- MEASURED (log): about 3 mask candidates a frame normally, exactly 2 while standing in the spot (`fgmask:`,
+  975-1012 per ~500 frames against ~1500). The weapon attachment's `wa/lens-pass` samples for the weapon's
+  main pass: normally 70 crushed (MaxZ 0.001) against 26 full range; in the spot 4 against 26. There the game
+  draws the held weapon with the full depth range, which the crushed-viewport test cannot see.
+- FIX: the mod's own hands code marks the draws it knows are the player's (`fgmask_mark_piece`): the weapon
+  attachment's held-weapon draws (both paths) and the mesh split's hand and arm pieces. They go into the
+  mask whatever viewport the game used. The `fgmask:` line counts the marked pieces.
+- Landing from a jump: likely the same (the weapon briefly drawn in the full range). Not separately measured.
+
+## 2026-09-29: AFW run 19 - the drawn mask saw no candidates: our hands code widens the viewport first (FIXED in build, headset pending)
+
+Surface: the held eye's hands and weapon under `stereo afw`, build v1.0.1-215. Reported: the far blade fault
+is back, and a slight colour or shadow flicker on the hands and weapon. The NPC trail is reported fixed.
+Capture `afw-20260929-204818`.
+- MEASURED (log): `fgmask: ON - 0 foreground candidates (crushed viewport, >= 512 wide)` every 5 s, while
+  `fgproj:` counted about 1000 foreground draws in the same windows. Every mask was empty, and (run 18's guard)
+  untrusted, so the depth limit decided: the far-blade fault returned.
+- Cause (code): the mod's own hands code widens the crushed viewport to the full depth range before it
+  draws the hands and weapon (`mesh_split.cpp` and `weapon_attach.cpp`, the depth-range lever). fgproj
+  classifies at the game's draw, in `hkDraw*`, before the callbacks. The mask classified at `orig_draw_*`,
+  after the widening, so no draw ever looked like a foreground draw there. This also explains run 18.
+  The arming theory recorded there was wrong.
+- FIX: the draw is classified when the game issues it (`note_draw` sets it, `note_draw_end` clears it after
+  the callbacks). Every piece the hands code draws inside that game draw is redrawn into the mask, with
+  the viewport it was actually drawn with.
+- The flicker in the capture: tinted replay shows thin fill (magenta) and held-fallback (red) bands along the
+  hand's and blade's edges, where the depth limit classifies the colour edge inconsistently. Expected to
+  shrink with a working mask. The fresh eye's view-dependent shading on the rebuilt hands (run 7) remains:
+  `afw ownhands` is the lever for it.
+
+## 2026-09-29: AFW run 18 - the drawn mask was always empty (hands flicker); a walking NPC trails (FIXED in build, headset pending)
+
+Surface: the held eye under `stereo afw`, build v1.0.1-212. Reported: the sword pointed away is fixed; a
+constant flicker on the hands and weapon; a slight trail on moving NPCs. Capture `afw-20260929-202257`.
+- MEASURED (log): `fgmask: ON - 654 frames armed, 0 foreground draws drawn again into the mask ... 654 masks
+  served to AFW`, and `afw/warp: foreground from the DRAWN mask on 400 images (0 with a foreground pass, 400
+  without: nothing foreground)`. `fgproj:` counted about 280 foreground draws a second in the same run.
+  Every mask was EMPTY and was trusted as "no hands": the hands and weapon were rebuilt as world (the
+  flicker). The far blade looked right only because everything was world. Replay tint agrees: no green on
+  the hands.
+- Cause not yet proven. The redraw's gate refused every candidate; its first conditions were an armed slot,
+  the crushed viewport and the width. The marker layer arms the same way and works, so the leading
+  suspect is that the arm draws fall between the grab's seal and the re-arm. Not confirmed.
+- FIX:
+  - A slot is armed at the first candidate when none is armed, and kept until the grab seals it.
+  - An empty drawn mask is no longer trusted. The depth limit decides there, so a failed redraw degrades to
+    the run-16 behaviour, not a flicker.
+  - The `fgmask:` line counts candidates and each refusal reason (no slot, size, no target, shader, re-entry).
+- The NPC trail: she walks 10-20 cm in front of a wall. The stale test calls a held point moved only when
+  the fresh eye sees more than 3% + 0.01 units past it, so her one-tick-old pixels survived beside her
+  (doubled legs in the replay).
+  - `afw stale <relative>`, default 0.015. Replay: the doubled legs mostly gone. Still captures unchanged:
+    world differ 0.249% -> 0.248%, 2.022% -> 2.023%.
+  - A residue remains by design: the held eye shows its own one-tick-old image of a moving character.
+
+## 2026-09-29: AFW run 17 - a close NPC's face splits, the far half of the blade trails turns: both are the depth limit (MEASURED, fix in progress)
+
+Surface: the held eye under `stereo afw`, build v1.0.1-209. Captures `afw-20260929-194905` (an NPC close in
+front, parts of the face shifting at different times) and `afw-20260929-195020` (a stick turn at about 4 deg
+per present: a faint edge of the hands and sword trails the turn, opposite to its direction).
+- MEASURED (replay with `-Tint`, clean images fed): the middle of the NPC's face (nose, cheek) is tinted
+  GREEN, "hands from the fresh eye". It is nearer than the foreground depth limit (0.30 units, about 0.69 m),
+  so it is rebuilt as the player's hands, with the foreground's 0.911 gain, and shifts against the rest of
+  her face (held-eye world).
+- MEASURED (same, the turn): the trailing blade is UNTINTED, the held eye's own world. The parts of the
+  sword beyond the depth limit are world to the rebuild, and a turn leaves them behind. The same limit is
+  the "sword pointed away at a certain distance" fault.
+- The foreground mask never engages: `pre-foreground copies 0 ... not the scene target 536491` (the game's
+  foreground pass draws into its A8R8G8B8 target, never the scene target, run 10).
+- TRIED AND DROPPED (replay A/B on these captures):
+  - a colour test for moved surfaces (a held texel matching nothing the fresh eye sees there comes from
+    the fresh eye): the face became a salt-and-pepper patchwork, worse than before;
+  - a hand-edge halo (texels next to the foreground refused as world or fill): identical output. The trail
+    is not an edge; it is the far part of the blade.
+- BUILT (host-verified, headset pending): the DRAWN foreground mask (`depth_probe.cpp`, fgmask). Each draw
+  under the crushed-depth viewport (MaxZ < 0.5, at least 512 wide) is issued a second time, from inside
+  `orig_draw_*` so the state is what was drawn (the weapon attachment sets its own constants), into a
+  shared mask slot with the game's vertex shader and depth test (ZFUNC LESSEQUAL), a constant pixel
+  shader, and no depth or stencil writes. Six fenced slots, keyed by the capture serial; AFW signs its
+  depth snapshot with it (`psdepthk`) and falls back to the depth limit only when no mask is ready.
+  - Host test (`afw-warp-tests`, 37/37): with the drawn mask, a far foreground keeps its projection and a
+    world surface at 0.35 m stays world; the depth-limit control misprojects the wall (3072 wrong texels).
+  - The D3D9 redraw itself is not host-tested. The log says whether it ran: `fgmask: ... N foreground
+    draws drawn again into the mask ... M masks served to AFW`, and `afw/warp: foreground from the DRAWN
+    mask on N images ... mask unknown on M`.
+  - Switches: F10 "AFW: hands and weapon from the game's own draws", `depthprobe fgmask on|off`.
+  - Expected in the headset: a close NPC's face in one piece; a blade pointed away no longer turning
+    flat or trailing a turn.
+- Tool: `afw-replay` now feeds the capture's clean images (`DVR_AFW_CLEAN=0` ignores them), so a replay
+  matches the installed rebuild.
+
+## 2026-09-29: AFW run 16 - the objective text still on the sword: the game draws the markers into its own image (FIXED, host-verified, headset pending)
+
+Surface: the held eye's weapon under `stereo afw` with the clean sources on, build v1.0.1-207, DLAA on.
+- Reported: objective text still appears on the sword in the other eye. The sword also covers the F10
+  panel in only one eye.
+- MEASURED (log): the clean sources worked on every rebuild ("305 captures took their clean game image,
+  0 did not", every 3 s).
+- MEASURED (capture `afw-20260929-192920`, full-resolution crops): the rebuilt sword carries a whole
+  objective label ("...Havelock [40m]") shifted about 110 px with the blade. In both native frames that
+  label is half-hidden behind the F10 panel. So the label came from a panel-free image: the clean
+  one. The game draws its objective markers into its own image.
+- Cause: the marker redirect (`hud/markers-sharp`, which moves the game's marker draws into their own
+  layer) ran only under a reduced-resolution upscaler. Under DLAA it refused every frame ("no reduced
+  reentry upscaler", over 10,000 times), so the markers stayed in the game image, and so in the clean copy.
+  Removing the F10 panel from the clean copy made it worse: text the panel covered was now exposed on
+  the sword.
+- FIX: with AFW's clean sources on, the marker redirect also runs at the render size (and even with
+  `MarkersSharp=0`). The markers are composited after the clean copy, as under DLSS Super Resolution.
+- Host test (`markers-sharp-native-tests`): the redirect arms at the render size with AFW's clean
+  sources, and with MarkersSharp off.
+- OPEN, the F10 panel in one eye: not explained by this capture. The panel is ours and is drawn after
+  the clean copy; the held eye's own UI is laid back where its composed and clean images differ. The AFW
+  capture now also saves both clean images (`pNN_fresh_clean.raw`, `pNN_held_clean.raw`), so the next
+  capture shows what the rebuild compared.
+
+## 2026-09-29: AFW run 15 - one eye's objective text and F10 panel appear on the sword in the other eye (FIXED, host-verified, headset pending)
+
+Surface: the held eye's weapon (and hands) under `stereo afw`, build v1.0.1-205.
+- Reported: an objective marker's text lined up behind the sword in the left eye shows on the sword in the
+  right eye, where that text is not visible. F10 hover highlights do the same.
+- Cause (code, confirmed by host test): AFW keeps each eye's FINISHED image to rebuild the other eye, and
+  the stereo method draws the mod's own layers into it first (objective markers, the aim laser, the F10
+  panel: reentry's end_frame, after the game image). The held eye takes its hands and weapon from the fresh
+  eye's image, so that eye's UI came with them, at that eye's screen position.
+- This is also the likely source of the run-7 "subtle shading shimmer on the sword" (UI and marker
+  pixels changing on the blade). Not separately confirmed.
+- FIX: the stereo method hands AFW a clean copy of each grab before our layers (`note_clean`). The fresh
+  eye's pixels come from it, and where the held eye's own composed image differs from its clean one (its
+  UI), that is laid back on top. `afw clean on|off`, F10 "AFW: hands without the other eye's markers and
+  panel", default on (AFW itself is opt-in).
+- Host test (`afw-warp-tests`, 35/35): a UI stamp over the fresh eye's hand and another over half the held
+  eye's hand. With the fix, 0 of the other eye's UI texels reach the rebuilt hand and 1904 of 1904 of
+  its own are kept. The control (off) shows 6040 foreign texels.
+- Cost: one image copy per present (texture swap, no second copy at capture).
+
+## 2026-09-29: AFW run 14 - the hands' FOV flicker with the arms' lens forced to the world's FOV (OPEN, instrument built)
+
+Surface: the held eye's hands and weapon under `stereo afw`, build v1.0.1-200.
+- MEASURED (log): the player mesh and all six weapon view models have `m_bUseFOV=0` in plain gameplay.
+  The game sets the arms' lens itself only during a zoom (`m_FOV=103` while the world was at 79).
+- Force test: `HandsLensForce=1` put `m_bUseFOV=1, m_FOV=103` on the arms and weapons. Reported as looking
+  identical to off. AFW was fed 103 for the foreground (`foreground projection 103.00` on every beat) and
+  the hands' FOV flicker was still reported. Before it, AFW was fed 108.07.
+- Not settled: "identical" fits the arms already drawn at 103 (the lever writes `m_fCurFOV_Arms`, ENGINE_NOTES),
+  but the flicker at 103 fits them not being at 103. The run-6 disparity measurement (0.911) was taken
+  with the lever at 108.07, so it does not decide the current build.
+- Next: the `fgproj:` line reads the FOV from the draws' own projection matrices, foreground against world.
+  If they agree, the hands' flicker is not an FOV mismatch and AFW's foreground reprojection (the 0.30-unit
+  depth limit) should use the world's FOV. If they differ, the foreground number is what AFW must be fed.
+
 ## 2026-09-29: AFW run 11 - trails while turning; the matrices refused in fast turns (FIXED, replay-verified)
 
 Surface: the held eye under `stereo afw` (with MSW), build v1.0.1-184.

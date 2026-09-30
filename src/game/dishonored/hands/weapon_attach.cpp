@@ -468,6 +468,7 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
         D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
         changedVp = SUCCEEDED(dev->SetViewport(&full));
     }
+    dvr::depthprobe::fgmask_mark_piece();   // VR-39 run 20: the held weapon, whatever depth range the game drew it with
     InterlockedIncrement(&g_waAttempted);
     const HRESULT drawHr = indexed
         ? dvr::frame::orig_draw_indexed(dev, type, baseVertex, minIndex,
@@ -1514,6 +1515,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         D3DVIEWPORT9 full = savedVp; full.MinZ = 0; full.MaxZ = 1;
         changedVp = SUCCEEDED(dev->SetViewport(&full));
     }
+    dvr::depthprobe::fgmask_mark_piece();   // VR-39 run 20: the held weapon, whatever depth range the game drew it with
     InterlockedIncrement(&g_waAttempted);
     const HRESULT drawHr = dvr::frame::orig_draw_indexed(dev, type, baseVertex,
         minIndex, numVertices, startIndex, primCount);

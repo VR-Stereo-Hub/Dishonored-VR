@@ -56,6 +56,11 @@ const char* kSrc =
     "Texture2D freshDepth : register(t3);\n"
     "Texture2D seedF : register(t4);\n"
     "Texture2D seedH : register(t5);\n"
+    // Run 15: each eye's GAME image before the mod's own layers (objective markers, the aim laser, the F10 panel)
+    // were drawn on it. The hands and weapon taken from the fresh eye come from ITS clean image, or the fresh eye's
+    // UI rides the sword into the held eye; the held eye's own UI is laid back where heldTex and heldClean differ.
+    "Texture2D freshClean : register(t6);\n"
+    "Texture2D heldClean : register(t7);\n"
     "SamplerState linSamp : register(s0);\n"
     "SamplerState pointSamp : register(s1);\n"
     "cbuffer P : register(b0) {\n"
@@ -76,6 +81,8 @@ const char* kSrc =
     "    float4 hRb0, hRb1, hRb2, hOb, hNb;\n"   // hand b's (hOx.w > 0.5: that hand is tracked)
     "    float4 prm7;\n"                 // MSW: the hands follow their controllers, the world turns in the image (matrices), the foreground ignores the world yaw
     "    float4 mY0, mY1, mY2;\n"        // MSW: the extrapolated body turn, as a rotation of the camera-relative point (UE world axes)
+    "    float4 prm8;\n"                 // run 15: fresh clean bound, held clean bound, UI difference threshold (0..1)
+    "    float4 prm9;\n"                 // run 22: edge hands on, the edge band (uv from each side)
     "};\n"
     "cbuffer M : register(b1) {\n"
     "    float4 mp;\n"                   // source (0 fresh, 1 held), grid step (source texels), source w, h
@@ -159,6 +166,7 @@ const char* kSrc =
     // magenta the disocclusion fill, cyan the nearer near-miss, yellow the temporal body hypothesis.
     // zt: the chosen candidate's depth in the TARGET view (units), kept for the second output (the depth layer).
     "static float g_outZ = 0.0;\n"
+    "static bool g_fromFresh = false;\n"
     "float4 shade(Texture2D tex, float2 uv, int cls, float zt) {\n"
     "    g_outZ = zt;\n"
     "    float3 c = tex.SampleLevel(linSamp, uv, 0).rgb;\n"
@@ -170,6 +178,9 @@ const char* kSrc =
     "    }\n"
     "    return float4(c, 1.0);\n"
     "}\n"
+    // Everything taken from the fresh eye: its clean game image when one is bound.
+    "float4 shadeF(float2 uv, int cls, float zt) { g_fromFresh = true;\n"
+    "    return prm8.x > 0.5 ? shade(freshClean, uv, cls, zt) : shade(freshTex, uv, cls, zt); }\n"
     // A true disocclusion (no source shows this point): extend the BACKGROUND, never the near object -
     // the farthest covered seed within 128 texels along the row (the stereo and turn baselines are
     // horizontal), either map. A thin structure no longer reaches here (the near-miss rule above takes
@@ -186,7 +197,7 @@ const char* kSrc =
     "        }\n"
     "    }\n"
     "    float zf = best > 0.0 ? best / max(1.0 - best, 1e-5) : 60000.0;\n"
-    "    return fromF ? shade(freshTex, bs, 5, zf) : shade(heldTex, bs, 5, zf);\n"
+    "    return fromF ? shadeF(bs, 5, zf) : shade(heldTex, bs, 5, zf);\n"
     "}\n"
     "float4 compose(VSOut i) {\n"
     "    float2 t = i.uv;\n"
@@ -212,12 +223,33 @@ const char* kSrc =
     "    if (st && tp && prm6.x > 0.5 && okF && bF) {\n"
     "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
     "        if (eb < tol && (prm6.z > 0.5 ? zH(sb) < 0.0 : zb < body) && abs(zb - tF) < 0.03 * tF + 0.005) {\n"
-    "            float3 ch = heldTex.SampleLevel(linSamp, sb, 0).rgb, cf = freshTex.SampleLevel(linSamp, sF, 0).rgb;\n"
+    "            float3 ch = heldTex.SampleLevel(linSamp, sb, 0).rgb, cf = prm8.x > 0.5 ? freshClean.SampleLevel(linSamp, sF, 0).rgb : freshTex.SampleLevel(linSamp, sF, 0).rgb;\n"
     "            float3 dc = abs(ch - cf);\n"
     "            if (max(dc.r, max(dc.g, dc.b)) < prm6.y) return shade(heldTex, sb, 7, zb);\n"
     "        }\n"
     "    }\n"
-    "    if (okF && bF) return shade(freshTex, sF, 0, tF);\n"
+    "    if (okF && bF) return shadeF(sF, 0, tF);\n"
+    // Run 22: near the left and right edges the fresh eye's frame does not contain every part of the hands the held eye
+    // should show (at hand distance the two frames are offset by about a tenth of the width), and those texels fell to
+    // the world or the fill: parts of the arm invisible every other frame. Where the held eye's own hands (as fixed in
+    // tracking space) land here and the fresh eye CANNOT see that point (it projects outside its frame), keep them.
+    // Run 23: and, with the controllers still, anywhere near the held eye's own hands where the fresh eye sees that point
+    // HIDDEN behind something nearer (a thumb behind the palm from the other eye): run 22's capture showed the thumb
+    // missing at some hand angles. Near = the held image has foreground within four grid steps of the target texel.
+    "    bool nearHeldFg = prm9.z > 0.5 && (isFg(zH(t)) || isFg(zH(t + float2(prm4.z * 4.0, 0))) || isFg(zH(t - float2(prm4.z * 4.0, 0)))\n"
+    "                      || isFg(zH(t + float2(0, prm4.w * 4.0))) || isFg(zH(t - float2(0, prm4.w * 4.0))));\n"
+    "    if (st && tp && prm9.x > 0.5 && (t.x < prm9.y || t.x > 1.0 - prm9.y || nearHeldFg)) {\n"
+    "        float zb, eb; float2 sb = solveHb(t, zb, eb);\n"
+    "        if (eb < tol && (prm6.z > 0.5 ? zH(sb) < 0.0 : zb < body)) {\n"
+    "            float2 tn = tanFor(zH(sb));\n"
+    "            float3 Wt = mc(d0, d1, d2, viewDirT(t, tn) * (zb * prm.z)) + dp.xyz;\n"
+    "            float3 m = toTT(mc(f0, f1, f2, Wt - fp.xyz), tn);\n"
+    "            float2 uf = ndcUV(m.xy);\n"
+    "            bool outside = !(m.z > 0.0 && all(uf > 0.0) && all(uf < 1.0));\n"
+    "            bool hidden = !outside && prm9.z > 0.5 && aF(uf) < m.z * (1.0 - prm3.w) - 0.005;\n"
+    "            if (outside || hidden) return shade(heldTex, sb, 4, zb);\n"
+    "        }\n"
+    "    }\n"
     "    if (st && tp) {\n"
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
@@ -243,14 +275,14 @@ const char* kSrc =
     // farther surface is parallax, not the answer: keep the held eye's nearer near-miss (run 7: a 1-texel
     // light fringe on roofs and trees against the sky was this).
     "        if (!okH && !stale && !bH && eH < prm5.w && okF && tF > tH * (1.0 + prm3.w)) return shade(heldTex, sH, 6, tH);\n"
-    "        if (okF) return shade(freshTex, sF, 2, tF);\n"
+    "        if (okF) return shadeF(sF, 2, tF);\n"
     "        if (okH && !stale) return shade(heldTex, sH, 3, tH);\n"
     // Neither is consistent to 1.5 texels. A thin structure (a grate slat 2-3 texels wide) often leaves
     // both a little over; the nearer miss is still the right surface, where the fill would reach past
     // the slat to the far background (the run-6 capture: the white dots on a grate were this fill).
     // World surfaces only: a near miss onto the hands at the edge of a real gap would be a ghost ring.
     "        float mF = !bF ? eF : 1e9, mH = (stale || bH) ? 1e9 : eH;\n"
-    "        if (min(mF, mH) < prm5.w) return mF <= mH ? shade(freshTex, sF, 6, tF) : shade(heldTex, sH, 6, tH);\n"
+    "        if (min(mF, mH) < prm5.w) return mF <= mH ? shadeF(sF, 6, tF) : shade(heldTex, sH, 6, tH);\n"
     "        return fill(t, st, tp);\n"
     "    }\n"
     "    if (tp) {\n"
@@ -262,11 +294,19 @@ const char* kSrc =
     "        if (!okH && !(eH < prm5.w)) return fill(t, false, true);\n"
     "        return shade(heldTex, sH, okH ? 1 : 3, tH);\n"
     "    }\n"
-    "    return okF ? shade(freshTex, sF, 2, tF) : (eF < prm5.w && !bF) ? shade(freshTex, sF, 6, tF) : fill(t, true, false);\n"
+    "    return okF ? shadeF(sF, 2, tF) : (eF < prm5.w && !bF) ? shadeF(sF, 6, tF) : fill(t, true, false);\n"
     "}\n"
     // The rebuilt colour and, in a second target when one is bound, its depth in the target view (units, 0 = none).
     "struct PSO { float4 c : SV_Target0; float z : SV_Target1; };\n"
-    "PSO psmain(VSOut i) { PSO o; o.c = compose(i); o.z = (g_outZ > 0.0 && g_outZ < 1e8) ? g_outZ : 60000.0; return o; }\n"
+    "PSO psmain(VSOut i) { PSO o; o.c = compose(i);\n"
+    // The held eye's own UI over what came from the fresh eye: where its composed image differs from its clean
+    // one, taken at the target texel itself (the UI is drawn per eye at nearly the same place each present).
+    "    if (g_fromFresh && prm8.y > 0.5) {\n"
+    "        float3 hc = heldTex.SampleLevel(pointSamp, i.uv, 0).rgb, hk = heldClean.SampleLevel(pointSamp, i.uv, 0).rgb;\n"
+    "        float3 dd = abs(hc - hk);\n"
+    "        if (max(dd.r, max(dd.g, dd.b)) > prm8.z) o.c = float4(prm3.z > 0.5 ? hc * float3(1.0, 0.5, 1.0) : hc, 1.0);\n"
+    "    }\n"
+    "    o.z = (g_outZ > 0.0 && g_outZ < 1e8) ? g_outZ : 60000.0; return o; }\n"
     // The depth layer: an eye's depth (units, signed: the mask is negative; 0 or >= 59999 the sky) to the
     // runtime's device depth for [near, far] metres, standard (not reversed) D3D convention.
     "cbuffer X : register(b2) { float4 xp; };\n"   // metres per unit, near, far (metres), unused
@@ -285,9 +325,16 @@ const char* kSrc =
     "    uint2 off = k == 0 ? uint2(0, 0) : k == 1 ? uint2(1, 0) : k == 2 ? uint2(0, 1) : k == 3 ? uint2(1, 0) : k == 4 ? uint2(1, 1) : uint2(0, 1);\n"
     "    float2 px = min(float2(c + off) * mp.y, mp.zw - 1.0) + 0.5;\n"
     "    float2 s = px / mp.zw;\n"
-    "    float3 m = mp.x < 0.5 ? mapF(s, zF(s)) : mapH(s, zH(s));\n"
+    "    float zs = mp.x < 0.5 ? zF(s) : zH(s);\n"
+    "    float3 m = mp.x < 0.5 ? mapF(s, zs) : mapH(s, zs);\n"
     "    MOut o;\n"
-    "    o.pos = (m.z > 0 && all(abs(m.xy) < 8.0)) ? float4(m.xy, m.z / (m.z + 1.0), 1.0) : float4(0, 0, -1, 1);\n"
+    // Run 24: the hands and weapon are drawn ON TOP of the world (the crushed depth range), even where they are
+    // geometrically behind it - a blade pushed into a wall right in front of the face. Nearest-wins let the wall's
+    // seed beat the blade and the blade fell to the fill (a flicker). Foreground seeds take the near half of the
+    // depth range, the world the far half, so the foreground always wins, as the game draws it.
+    "    float dz = m.z / (m.z + 1.0);\n"
+    "    dz = isFg(zs) ? 0.5 * dz : 0.5 + 0.5 * dz;\n"
+    "    o.pos = (m.z > 0 && all(abs(m.xy) < 8.0)) ? float4(m.xy, dz, 1.0) : float4(0, 0, -1, 1);\n"
     "    o.src = float3(s, m.z);\n"
     "    return o;\n"
     "}\n"
@@ -303,6 +350,11 @@ const char* kSrc =
     // With the pre-foreground copy bound (t1), a texel whose depth changed after the foreground pass began was
     // drawn by it: its depth is stored NEGATIVE (the mask). Without it, plain depth.
     "float psdepth(VSOut i) : SV_Target { return heldTex.Load(int3(i.pos.xy, 0)).a; }\n"
+    // Run 17: the drawn foreground mask (t1, R = 1 where a foreground draw covered the texel) signs the depth.
+    "float psdepthk(VSOut i) : SV_Target {\n"
+    "    float a = heldTex.Load(int3(i.pos.xy, 0)).a, k = heldDepth.Load(int3(i.pos.xy, 0)).r;\n"
+    "    return (a > 0.0 && k > 0.5) ? -a : a;\n"
+    "}\n"
     "float psdepthm(VSOut i) : SV_Target {\n"
     "    float a = heldTex.Load(int3(i.pos.xy, 0)).a, p = heldDepth.Load(int3(i.pos.xy, 0)).a;\n"
     "    return (a > 0.0 && abs(a - p) > 1e-4 * max(a, 1e-3)) ? -a : a;\n"
@@ -333,8 +385,32 @@ struct Held {
     bool depthOk = false;
     bool maskOk = false;                     // its depth carries the foreground mask (or no foreground pass was drawn)
     HandPose hands[2]{};                     // MSW: the grip poses its hands were posed from (note_hands)
+    // Run 15: the game image before the mod's own layers (note_clean), swapped in from the pending copy when its
+    // grab serial matches this capture's; cleanOk false = only the composed image (the pre-run-15 behaviour).
+    ID3D11Texture2D* ctex = nullptr;
+    ID3D11ShaderResourceView* csrv = nullptr;
+    bool cleanOk = false;
 };
 Held g_held[2];
+// Run 15: the pending clean copy (note_clean, once per present before the mod's own layers are drawn), and the switch.
+struct CleanCopy { ID3D11Texture2D* tex = nullptr; ID3D11ShaderResourceView* srv = nullptr; uint32_t w = 0, h = 0, fmt = 0, serial = 0; bool full = false; };
+CleanCopy g_clean;
+// Run 18: the stale test's relative depth tolerance. A held point the fresh eye now sees PAST by more than this moved.
+// 0.03 let an NPC walking 10-20 cm in front of a wall keep her one-tick-old pixels (a trail). `afw stale <0.005..0.1>`.
+// Run 21: a still weapon keeps each eye's own shine. The held eye took the hands and weapon from the fresh eye, whose
+// view-dependent highlights differ: a shiny blade swapped its reflection every frame in both eyes (the hand, matte,
+// did not). While the game side reports both controllers still (note_hands_still), the held eye's own weapon is
+// kept wherever the fresh eye puts the same surface at the same depth - no colour test, which a shiny blade never
+// passes. Moving, the fresh eye supplies it as before (the colour-free rule would lag a moving weapon).
+std::atomic<bool> g_stillShade{true}, g_handsStill{false};
+// Run 22: `afw edgehands on|off` - within a quarter of the width from either edge, the held eye's own hands where the
+// fresh eye's frame does not contain them.
+std::atomic<bool> g_edgeHands{true};
+uint32_t g_stillUsed = 0;
+std::atomic<float> g_staleTol{0.015f};   // run 18 replay: 0.03 left a walking NPC doubled; 0.015 no worse on still captures
+std::atomic<bool> g_cleanOn{true};       // `afw clean on|off`: the fresh eye's hands from its clean image, the held eye's UI kept
+std::atomic<float> g_cleanUi{0.006f};    // a held texel whose composed and clean colours differ by more than this is its UI
+uint32_t g_cleanTaken = 0, g_cleanMissed = 0, g_cleanUsed = 0;
 uint64_t g_seq = 0;
 // Bumped by any thread that changes what a held image means (warp toggled, method left); the
 // render thread drops both records when it sees a new value. Records are never touched off-thread.
@@ -347,7 +423,7 @@ std::atomic<float> g_fgDepth{0.30f};   // units: nearer pixels are the foregroun
 uint32_t g_fgUsed = 0;
 std::atomic<float> g_nearMiss{6.0f};
 std::atomic<bool> g_fgMask{true};      // `afw fgmask on|off`: the foreground from what the foreground pass drew, not depth
-uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0;
+uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0, g_maskDrawn = 0, g_maskEmpty = 0;   // g_maskDrawn: from the drawn mask (run 17)
 std::atomic<float> g_ownHands{0.0f};   // `afw ownhands <0..1>`: the colour agreement for the held eye's own hands; 0 = off (default: a slowly moving
                                        // weapon can pass the colour test - the host test caught 25 px of lag - and on the run-7 captures it gained 1.64% -> 1.60%)   // `afw nearmiss <texels>`; 0 = the fill for every miss (the run-6 behaviour)
 std::atomic<float> g_bodyDepth{0.40f};
@@ -360,6 +436,7 @@ ID3D11PixelShader* g_ps = nullptr;
 ID3D11PixelShader* g_psMesh = nullptr;
 ID3D11PixelShader* g_psDepth = nullptr;
 ID3D11PixelShader* g_psDepthMask = nullptr;
+ID3D11PixelShader* g_psDepthK = nullptr;   // run 17: signed by the drawn mask
 ID3D11Buffer* g_cb = nullptr;
 ID3D11Buffer* g_cbMesh = nullptr;
 ID3D11SamplerState* g_lin = nullptr;
@@ -437,7 +514,7 @@ struct Saved {
     ID3D11VertexShader* vs = nullptr; ID3D11PixelShader* ps = nullptr;
     ID3D11Buffer* vcb[2] = {}; ID3D11Buffer* pcb[2] = {};
     ID3D11ShaderResourceView* vsrv[4] = {};
-    ID3D11ShaderResourceView* srv[6] = {};
+    ID3D11ShaderResourceView* srv[8] = {};
     ID3D11SamplerState* vsamp[2] = {};
     ID3D11SamplerState* samp[2] = {};
     void save(ID3D11DeviceContext* c) {
@@ -453,7 +530,7 @@ struct Saved {
         c->VSGetConstantBuffers(0, 2, vcb);
         c->PSGetConstantBuffers(0, 2, pcb);
         c->VSGetShaderResources(0, 4, vsrv);
-        c->PSGetShaderResources(0, 6, srv);
+        c->PSGetShaderResources(0, 8, srv);
         c->VSGetSamplers(0, 2, vsamp);
         c->PSGetSamplers(0, 2, samp);
     }
@@ -470,7 +547,7 @@ struct Saved {
         c->VSSetConstantBuffers(0, 2, vcb);
         c->PSSetConstantBuffers(0, 2, pcb);
         c->VSSetShaderResources(0, 4, vsrv);
-        c->PSSetShaderResources(0, 6, srv);
+        c->PSSetShaderResources(0, 8, srv);
         c->VSSetSamplers(0, 2, vsamp);
         c->PSSetSamplers(0, 2, samp);
         rel(rtv); rel(dsv); rel(rs); rel(bs); rel(ds); rel(il); rel(vs); rel(ps);
@@ -498,13 +575,13 @@ bool init(ID3D11Device* dev) {
     HMODULE compiler = LoadLibraryA("d3dcompiler_47.dll");
     PFN_D3DCompile compile = compiler ? (PFN_D3DCompile)GetProcAddress(compiler, "D3DCompile") : nullptr;
     if (!compile) { g_failed = true; DVR_ERROR("afw/warp: d3dcompiler_47.dll missing - the held eye stays rotation-only"); return false; }
-    ID3DBlob *vsb = nullptr, *vmb = nullptr, *psb = nullptr, *pmb = nullptr, *pdb = nullptr, *pdm = nullptr, *pxd = nullptr;
+    ID3DBlob *vsb = nullptr, *vmb = nullptr, *psb = nullptr, *pmb = nullptr, *pdb = nullptr, *pdm = nullptr, *pxd = nullptr, *pdk = nullptr;
     if (!compile_one(compile, "vsmain", "vs_4_0", &vsb) || !compile_one(compile, "vsmesh", "vs_4_0", &vmb) ||
         !compile_one(compile, "psmain", "ps_4_0", &psb) || !compile_one(compile, "psmesh", "ps_4_0", &pmb) ||
         !compile_one(compile, "psdepth", "ps_4_0", &pdb) || !compile_one(compile, "psdepthm", "ps_4_0", &pdm) ||
-        !compile_one(compile, "psxrdepth", "ps_4_0", &pxd)) {
+        !compile_one(compile, "psxrdepth", "ps_4_0", &pxd) || !compile_one(compile, "psdepthk", "ps_4_0", &pdk)) {
         g_failed = true;
-        rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
+        rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd); rel(pdk);
         return false;
     }
     const char* step = "shaders";
@@ -515,9 +592,10 @@ bool init(ID3D11Device* dev) {
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdb->GetBufferPointer(), pdb->GetBufferSize(), nullptr, &g_psDepth);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdm->GetBufferPointer(), pdm->GetBufferSize(), nullptr, &g_psDepthMask);
     if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pxd->GetBufferPointer(), pxd->GetBufferSize(), nullptr, &g_psXrDepth);
-    rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd);
+    if (SUCCEEDED(hr)) hr = dev->CreatePixelShader(pdk->GetBufferPointer(), pdk->GetBufferSize(), nullptr, &g_psDepthK);
+    rel(vsb); rel(vmb); rel(psb); rel(pmb); rel(pdb); rel(pdm); rel(pxd); rel(pdk);
     D3D11_BUFFER_DESC bd = {};
-    bd.ByteWidth = 44 * 16;   // s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, the hands (10), prm7, mY (3)
+    bd.ByteWidth = 46 * 16;   // s f d y (4 each), prm prm2 prm3, hI0..2 hC, tA tB tW, mD, prm4, prm5, prm6, the hands (10), prm7, mY (3), prm8, prm9
     bd.Usage = D3D11_USAGE_DEFAULT;
     bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     if (SUCCEEDED(hr)) { step = "constants"; hr = dev->CreateBuffer(&bd, nullptr, &g_cb); }
@@ -651,17 +729,28 @@ bool snapshot_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, Held& h) {
     }
     // The foreground mask: the pre-foreground copy of the same frame. No copy for this grab while the ring runs =
     // no foreground pass was drawn (nothing is foreground); a copy not yet finished = the mask is unknown.
+    // Run 17: the DRAWN mask first (depth_probe's fgmask: every foreground draw drawn again into it). A mask of this
+    // grab with no draws in it is a frame without a foreground pass: valid, nothing is foreground.
+    uint32_t kDraws = 0, kw = 0, kh = 0;
+    ID3D11ShaderResourceView* drawn = g_fgMask.load() ? dvr::depthprobe::fgmask_srv_for(h.serial, &kDraws, &kw, &kh) : nullptr;
+    if (drawn && (kw != dw || kh != dh)) { drawn = nullptr; ++g_maskMissing; }
+    // Run 18: an EMPTY drawn mask is not evidence of "no hands" - run 17's redraw never ran, every mask was empty, and
+    // the hands became world (a constant flicker). With no draw in it the mask is unknown: the fallbacks decide.
+    if (drawn && kDraws == 0) { drawn = nullptr; ++g_maskEmpty; }
     bool saw = false;
-    ID3D11ShaderResourceView* pre = g_fgMask.load() ? dvr::depthprobe::prefg_srv_for(h.serial, &saw) : nullptr;
-    h.maskOk = g_fgMask.load() && dvr::depthprobe::prefg_ready() && (pre || !saw);
-    if (h.maskOk) (pre ? g_maskFg : g_maskNone)++; else if (g_fgMask.load()) ++g_maskMissing;
+    ID3D11ShaderResourceView* pre = (g_fgMask.load() && !drawn) ? dvr::depthprobe::prefg_srv_for(h.serial, &saw) : nullptr;
+    if (drawn) { h.maskOk = true; (kDraws ? g_maskFg : g_maskNone)++; ++g_maskDrawn; }
+    else {
+        h.maskOk = g_fgMask.load() && dvr::depthprobe::prefg_ready() && (pre || !saw);
+        if (h.maskOk) (pre ? g_maskFg : g_maskNone)++; else if (g_fgMask.load()) ++g_maskMissing;
+    }
     Saved sv; sv.save(ctx);
-    setup_draw(ctx, h.drtv, nullptr, dw, dh, g_vs, pre ? g_psDepthMask : g_psDepth);
-    ID3D11ShaderResourceView* srvs[6] = {src, pre, nullptr, nullptr, nullptr, nullptr};
+    setup_draw(ctx, h.drtv, nullptr, dw, dh, g_vs, drawn ? g_psDepthK : pre ? g_psDepthMask : g_psDepth);
+    ID3D11ShaderResourceView* srvs[6] = {src, drawn ? drawn : pre, nullptr, nullptr, nullptr, nullptr};
     ctx->PSSetShaderResources(0, 6, srvs);
     ctx->Draw(3, 0);
-    ID3D11ShaderResourceView* none[6] = {};
-    ctx->PSSetShaderResources(0, 6, none);
+    ID3D11ShaderResourceView* none[8] = {};
+    ctx->PSSetShaderResources(0, 8, none);
     sv.restore(ctx);
     dvr::depthprobe::read_done(ctx);
     h.depthOk = true;
@@ -914,6 +1003,24 @@ void beat() {
                  gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
+    // Run 17: which classification the hands and weapon got (the beat line above is cut in the log before its end).
+    if (g_maskDrawn + g_maskMissing + g_maskFg + g_maskNone + g_maskEmpty)
+        DVR_INFO("afw/warp: foreground from the DRAWN mask on %u images, %u drawn masks EMPTY (not trusted: the depth "
+                 "limit decides there); signed images %u, unsigned %u, mask unknown %u (the depth limit, %.2f units: a close "
+                 "face becomes hands, a far blade becomes world); rebuilds with the mask on %u",
+                 g_maskDrawn, g_maskEmpty, g_maskFg, g_maskNone, g_maskMissing, g_fgDepth.load(), g_maskUsed);
+    g_maskDrawn = g_maskEmpty = 0;
+    if (g_stillUsed || g_stillShade.load())
+        DVR_INFO("afw/warp: still-weapon shading %s - %u rebuilds kept the held eye's own weapon shading (both controllers "
+                 "still); controllers %s now", g_stillShade.load() ? "ON" : "off", g_stillUsed,
+                 g_handsStill.load() ? "STILL" : "moving");
+    g_stillUsed = 0;
+    if (g_cleanTaken + g_cleanMissed + g_cleanUsed)
+        DVR_INFO("afw/warp: clean sources %s - %u captures took their clean game image, %u did not (no pending copy for "
+                 "that grab: the method did not provide one, or its serial or size differed), %u rebuilds took the fresh "
+                 "eye's hands from it (the rest from the composed image, UI included); held UI threshold %.3f",
+                 g_cleanOn.load() ? "ON" : "off", g_cleanTaken, g_cleanMissed, g_cleanUsed, g_cleanUi.load());
+    g_cleanTaken = g_cleanMissed = g_cleanUsed = 0;
     g_warpsFull = g_warpsTemporal = g_warpsStereo = 0;
     g_noHeld = g_notFresh = g_noDepth = g_noRtv = g_notReady = g_noSeed = 0;
     g_snaps = g_snapLate = g_snapMiss = 0;
@@ -1012,6 +1119,63 @@ void set_body_depth(float units, const char* who) {
 float body_depth() { return g_bodyDepth.load(); }
 void set_world_scale(float uuPerM) { if (uuPerM >= 1.0f && uuPerM <= 400.0f) g_worldScale.store(uuPerM); }
 
+bool clean_wanted() { return g_on.load() && g_cleanOn.load(); }
+void note_clean(ID3D11Device* dev, ID3D11DeviceContext* ctx, ID3D11Texture2D* frame, uint32_t grabSerial) {
+    if (!clean_wanted() || !dev || !ctx || !frame) return;
+    D3D11_TEXTURE2D_DESC fd;
+    frame->GetDesc(&fd);
+    if (!g_clean.tex || g_clean.w != fd.Width || g_clean.h != fd.Height || g_clean.fmt != (uint32_t)fd.Format) {
+        rel(g_clean.srv); rel(g_clean.tex);
+        D3D11_TEXTURE2D_DESC td = fd;
+        td.MipLevels = 1; td.ArraySize = 1; td.SampleDesc.Count = 1; td.SampleDesc.Quality = 0;
+        td.Usage = D3D11_USAGE_DEFAULT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE; td.CPUAccessFlags = 0; td.MiscFlags = 0;
+        HRESULT hr = dev->CreateTexture2D(&td, nullptr, &g_clean.tex);
+        D3D11_SHADER_RESOURCE_VIEW_DESC sv = {};
+        sv.Format = typed(fd.Format);
+        sv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        sv.Texture2D.MipLevels = 1;
+        if (SUCCEEDED(hr)) hr = dev->CreateShaderResourceView(g_clean.tex, &sv, &g_clean.srv);
+        if (FAILED(hr)) {
+            rel(g_clean.srv); rel(g_clean.tex); g_clean = CleanCopy{};
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 5000, "afw/warp: clean image copy %ux%u fmt %u refused (0x%08lx) - "
+                             "the hands come from the composed image (UI included)", fd.Width, fd.Height, (unsigned)fd.Format, (unsigned long)hr);
+            return;
+        }
+        g_clean.w = fd.Width; g_clean.h = fd.Height; g_clean.fmt = (uint32_t)fd.Format;
+    }
+    ctx->CopyResource(g_clean.tex, frame);
+    g_clean.serial = grabSerial; g_clean.full = true;
+}
+void set_clean(bool on, const char* who) {
+    if (g_cleanOn.exchange(on) != on)
+        DVR_INFO("afw/warp: clean sources %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+                 on ? " - the fresh eye's hands from its game image before our layers; the held eye's own UI kept over them"
+                    : " - the composed images: the fresh eye's markers and F10 panel ride its hands into the held eye");
+}
+bool clean_on() { return g_cleanOn.load(); }
+void note_hands_still(bool still) { g_handsStill.store(still); }
+void set_still_shade(bool on, const char* who) {
+    if (g_stillShade.exchange(on) != on)
+        DVR_INFO("afw/warp: still-weapon shading %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+                 on ? " - with both controllers still, each eye keeps its own shine on the weapon"
+                    : " - the other eye's shine on the rebuilt weapon (a shiny blade flickers)");
+}
+bool still_shade() { return g_stillShade.load(); }
+void set_edge_hands(bool on, const char* who) {
+    if (g_edgeHands.exchange(on) != on)
+        DVR_INFO("afw/warp: edge hands %s (%s)%s", on ? "ON" : "off", who ? who : "?",
+                 on ? " - near the frame's edges the held eye keeps its own hands where the other eye cannot see them"
+                    : " - parts of the arms at the frame's edges can vanish every other frame");
+}
+bool edge_hands() { return g_edgeHands.load(); }
+void set_stale(float rel, const char* who) {
+    if (!(rel >= 0.005f && rel <= 0.1f)) return;
+    g_staleTol.store(rel);
+    DVR_INFO("afw/warp: stale tolerance %.3f (%s) - a held-eye point the fresh eye now sees more than %.1f%% past was moved",
+             rel, who ? who : "?", rel * 100.0f);
+}
+float stale() { return g_staleTol.load(); }
+
 void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* frame,
                   uint32_t grabSerial, const Pose& pose, bool bodyOk, float bodyYawDeg, const Pose targets[2],
                   const float* vp16, const float* c5, const float* rotator, const CaptureMeta* meta) {
@@ -1043,6 +1207,16 @@ void note_capture(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Te
         DVR_INFO("afw/warp: eye %c image copy %ux%u fmt %u", eye ? 'R' : 'L', h.w, h.h, h.fmt);
     }
     ctx->CopyResource(h.tex, frame);
+    // Run 15: this grab's clean image, by swapping textures with the pending copy (no second copy).
+    h.cleanOk = false;
+    if (g_cleanOn.load() && g_clean.full && g_clean.serial == grabSerial && g_clean.w == fd.Width && g_clean.h == fd.Height &&
+        g_clean.fmt == (uint32_t)fd.Format) {
+        ID3D11Texture2D* t = h.ctex; ID3D11ShaderResourceView* v = h.csrv;
+        h.ctex = g_clean.tex; h.csrv = g_clean.srv; g_clean.tex = t; g_clean.srv = v;
+        if (!g_clean.tex) g_clean.w = g_clean.h = g_clean.fmt = 0;   // the next note_clean allocates again
+        g_clean.full = false;
+        h.cleanOk = true; ++g_cleanTaken;
+    } else if (g_cleanOn.load()) ++g_cleanMissed;
     h.serial = grabSerial; h.pose = pose; h.bodyOk = bodyOk; h.bodyYaw = bodyYawDeg;
     h.targets[0] = targets[0]; h.targets[1] = targets[1];
     h.vpOk = vp16 && c5;
@@ -1147,6 +1321,9 @@ void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, con
         _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held.raw", base);      dump_texture(dev, ctx, src.tex, path, meta, "heldColor");
         _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held_depth.raw", base); dump_texture(dev, ctx, src.dtex, path, meta, "heldDepth");
     }
+    // Run 15: the clean game images (before the mod's layers) the rebuild actually sampled, when it had them.
+    if (fr.cleanOk && fr.ctex) { _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_fresh_clean.raw", base); dump_texture(dev, ctx, fr.ctex, path, meta, "freshClean"); }
+    if (haveH && src.cleanOk && src.ctex) { _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held_clean.raw", base); dump_texture(dev, ctx, src.ctex, path, meta, "heldClean"); }
     _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_rebuilt.raw", base);    dump_texture(dev, ctx, dst, path, meta, "rebuilt");
     fclose(meta);
     const int left = g_dumpLeft.fetch_sub(1) - 1;
@@ -1238,8 +1415,9 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
         float hand[2][5][4]; float prm7[4]; float mY[3][4];
+        float prm8[4]; float prm9[4];
     } cb;
-    static_assert(sizeof(CB) == 44 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 46 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     const Pose& hp = haveH ? src.pose : fr.pose;
     rows(hp, cb.s, false);
@@ -1264,7 +1442,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     const float depthTexel = fr.dw ? fmaxf(1.0f, (float)w / (float)fr.dw) : 1.0f;
     cb.prm2[0] = (float)w; cb.prm2[1] = (float)h; cb.prm2[2] = 1.5f * depthTexel; cb.prm2[3] = 0;
     cb.prm3[0] = useS ? 1.0f : 0.0f; cb.prm3[1] = useT ? 1.0f : 0.0f; cb.prm3[2] = g_debug.load() ? 1.0f : 0.0f;
-    cb.prm3[3] = 0.03f;
+    cb.prm3[3] = g_staleTol.load();   // run 18: `afw stale <relative>`
     if (fr.dw && fr.dh) { cb.prm4[0] = (float)kGridStep / fr.dw; cb.prm4[1] = (float)kGridStep / fr.dh; }
     if (haveH && src.dw && src.dh) { cb.prm4[2] = (float)kGridStep / src.dw; cb.prm4[3] = (float)kGridStep / src.dh; }
     {   // The foreground's projection: the game camera FOV, same aspect as the layer's claim.
@@ -1278,6 +1456,14 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     }
     cb.prm5[3] = g_nearMiss.load();
     cb.prm6[0] = g_ownHands.load() > 0.0f ? 1.0f : 0.0f; cb.prm6[1] = g_ownHands.load();
+    if (g_stillShade.load() && g_handsStill.load()) { cb.prm6[0] = 1.0f; cb.prm6[1] = 1e6f; ++g_stillUsed; }   // run 21: no colour limit
+    // Run 15: the clean images (the fresh eye's hands without its UI; the held eye's UI found by difference).
+    const bool freshClean = g_cleanOn.load() && fr.cleanOk && fr.csrv;
+    const bool heldClean = g_cleanOn.load() && haveH && src.cleanOk && src.csrv;
+    cb.prm8[0] = freshClean ? 1.0f : 0.0f; cb.prm8[1] = heldClean ? 1.0f : 0.0f; cb.prm8[2] = g_cleanUi.load();
+    if (freshClean) ++g_cleanUsed;
+    cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;
+    cb.prm9[2] = (g_edgeHands.load() && g_handsStill.load()) ? 1.0f : 0.0f;   // run 23: hidden-from-the-fresh-eye hand parts, controllers still   // run 22: the held eye's own hands where the fresh eye cannot see them
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
     cb.prm6[2] = maskOn ? 1.0f : 0.0f;
     if (maskOn) ++g_maskUsed;   // texels: the nearer candidate within this beats the fill
@@ -1293,8 +1479,8 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     if (g_tsOk) for (Ts& s : g_ts) if (!s.pending) { ts = &s; break; }
     Saved sv; sv.save(ctx);
     if (ts) { ctx->Begin(ts->dis); ctx->End(ts->a); }
-    ID3D11ShaderResourceView* none[6] = {};
-    ctx->PSSetShaderResources(0, 6, none);   // nothing of ours may stay bound while it becomes a target
+    ID3D11ShaderResourceView* none[8] = {};
+    ctx->PSSetShaderResources(0, 8, none);   // nothing of ours may stay bound while it becomes a target
     // The seed maps.
     for (int k = 0; k < 2; ++k) {
         const Held& e = k ? src : fr;
@@ -1324,11 +1510,11 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     }
     ID3D11Buffer* cbs[2] = {g_cb, g_cbMesh};
     ctx->PSSetConstantBuffers(0, 2, cbs);
-    ID3D11ShaderResourceView* srvs[6] = {haveH ? src.srv : fr.srv, useT ? src.dsrv : nullptr, fr.srv, useS ? fr.dsrv : nullptr,
-                                         g_seed[0].srv, g_seed[1].srv};
-    ctx->PSSetShaderResources(0, 6, srvs);
+    ID3D11ShaderResourceView* srvs[8] = {haveH ? src.srv : fr.srv, useT ? src.dsrv : nullptr, fr.srv, useS ? fr.dsrv : nullptr,
+                                         g_seed[0].srv, g_seed[1].srv, freshClean ? fr.csrv : nullptr, heldClean ? src.csrv : nullptr};
+    ctx->PSSetShaderResources(0, 8, srvs);
     ctx->Draw(3, 0);
-    ctx->PSSetShaderResources(0, 6, none);
+    ctx->PSSetShaderResources(0, 8, none);
     if (ts) { ctx->End(ts->b); ctx->End(ts->dis); ts->pending = true; }
     sv.restore(ctx);
     rtv->Release();
@@ -1452,8 +1638,9 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
         float y[3][4]; float yc[4]; float prm[4]; float prm2[4]; float prm3[4];
         float hI[3][4]; float hC[4]; float tA[4], tB[4], tW[4]; float mD[4]; float prm4[4]; float prm5[4]; float prm6[4];
         float hand[2][5][4]; float prm7[4]; float mY[3][4];
+        float prm8[4]; float prm9[4];   // run 15/22: zero here - the synthesized slot keeps its own composed image, no edge hands
     } cb;
-    static_assert(sizeof(CB) == 44 * 16, "afw cbuffer layout");
+    static_assert(sizeof(CB) == 46 * 16, "afw cbuffer layout");
     memset(&cb, 0, sizeof(cb));
     rows(own.pose, cb.s, false);
     cb.sp[0] = own.pose.p[0]; cb.sp[1] = own.pose.p[1]; cb.sp[2] = own.pose.p[2];
@@ -1640,8 +1827,8 @@ bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool r
     const float xp[4] = {dvr::clarity::depth_scale() / g_worldScale.load(), nearM, farM, 0};
     ctx->UpdateSubresource(g_cbXr, 0, nullptr, xp, 0, 0);
     Saved sv; sv.save(ctx);
-    ID3D11ShaderResourceView* none[6] = {};
-    ctx->PSSetShaderResources(0, 6, none);
+    ID3D11ShaderResourceView* none[8] = {};
+    ctx->PSSetShaderResources(0, 8, none);
     setup_draw(ctx, nullptr, dsv, w, h, g_vs, g_psXrDepth);
     ctx->OMSetRenderTargets(0, nullptr, dsv);
     ctx->OMSetDepthStencilState(g_dsAlways, 0);
@@ -1649,7 +1836,7 @@ bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool r
     ctx->PSSetConstantBuffers(0, 3, cbs);
     ctx->PSSetShaderResources(0, 1, &src);
     ctx->Draw(3, 0);
-    ctx->PSSetShaderResources(0, 6, none);
+    ctx->PSSetShaderResources(0, 8, none);
     ID3D11Buffer* nocb[3] = {};
     ctx->PSSetConstantBuffers(0, 3, nocb);
     sv.restore(ctx);
@@ -1664,11 +1851,12 @@ bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool r
 }
 
 void shutdown() {
-    for (Held& h : g_held) { rel(h.srv); rel(h.tex); rel(h.drtv); rel(h.dsrv); rel(h.dtex); h = Held{}; }
+    for (Held& h : g_held) { rel(h.srv); rel(h.tex); rel(h.drtv); rel(h.dsrv); rel(h.dtex); rel(h.csrv); rel(h.ctex); h = Held{}; }
+    rel(g_clean.srv); rel(g_clean.tex); g_clean = CleanCopy{};
     for (Ts& s : g_ts) { rel(s.dis); rel(s.a); rel(s.b); s.pending = false; }
     for (SeedMap& m : g_seed) { rel(m.rtv); rel(m.srv); rel(m.tex); }
     rel(g_seedDsv); rel(g_seedDepth); g_seedW = g_seedH = 0;
-    rel(g_vs); rel(g_vsMesh); rel(g_ps); rel(g_psMesh); rel(g_psDepth); rel(g_psDepthMask); rel(g_cb); rel(g_cbMesh);
+    rel(g_vs); rel(g_vsMesh); rel(g_ps); rel(g_psMesh); rel(g_psDepth); rel(g_psDepthMask); rel(g_psDepthK); rel(g_cb); rel(g_cbMesh);
     rel(g_lin); rel(g_point); rel(g_rs); rel(g_bs); rel(g_ds); rel(g_dsTest);
     rel(g_dsAlways); rel(g_psXrDepth); rel(g_cbXr); rel(g_zOutRtv); rel(g_zOutSrv); rel(g_zOut);
     g_zOutW = g_zOutH = 0; g_zOutSeq = 0;

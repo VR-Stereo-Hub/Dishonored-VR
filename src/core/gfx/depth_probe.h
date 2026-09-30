@@ -60,4 +60,28 @@ void note_viewport(IDirect3DDevice9* dev, const D3DVIEWPORT9* vp);
 void note_draw(IDirect3DDevice9* dev);   // every draw (render thread): takes the armed snapshot at the first scene-target draw
 ID3D11ShaderResourceView* prefg_srv_for(uint32_t grabSerial, bool* sawForeground);
 
+// VR-39 run 17: the foreground mask, DRAWN. Every draw under the crushed-depth viewport is issued again into a mask
+// slot (constant pixel shader, the game's vertex shader and depth test, no depth or stencil writes) from inside
+// orig_draw_* (fgmask_begin, the raw draw, fgmask_end), keyed by the capture serial (fgmask_seal at the grab). AFW
+// signs its depth snapshot with it. Runs while AFW wants its foreground mask; `depthprobe fgmask on|off`.
+void fgmask_prepare(IDirect3DDevice9* d9, ID3D11Device* d11, ID3D11DeviceContext* ctx, uint32_t w, uint32_t h);
+bool fgmask_begin(IDirect3DDevice9* dev);
+void fgmask_end(IDirect3DDevice9* dev, HRESULT drawn);
+bool fgmask_in_draw();
+// Run 19: the game draw that note_draw opened has returned (frame_hooks, after the callbacks).
+void note_draw_end();
+// Run 20: the mod's hands code marks a draw it KNOWS is the player's arms, hands or held weapon as foreground for the
+// mask, whatever viewport the game used (in some places the game draws the held weapon with the full depth range).
+void fgmask_mark_piece();
+void fgmask_seal(uint32_t serial);
+// The mask of a grab (R = 1 where a foreground draw covered the texel), nullptr when none or not finished; `draws` the
+// foreground draws it holds (0 = no foreground pass that frame: nothing is foreground). Closed by read_done.
+ID3D11ShaderResourceView* fgmask_srv_for(uint32_t serial, uint32_t* draws, uint32_t* w, uint32_t* h);
+void fgmask_read_done(ID3D11DeviceContext* ctx);
+void fgmask_reset();
+bool fgmask_wanted();
+bool fgmask_on();   // the switch alone
+void fgmask_set(bool on, const char* who);
+void fgmask_beat();
+
 } // namespace dvr::depthprobe
