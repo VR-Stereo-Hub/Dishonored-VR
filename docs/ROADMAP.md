@@ -1,3 +1,14 @@
+## AFW wall stale-test and hand timing follow-up (2026-09-30)
+
+- [x] Preserve build-236 evidence and identify five complete wall-capture frames.
+- [x] Reproduce false stale rejection of wall pixels behind foreground; 4.531 -> 0.014 px worst
+  coordinate error, 46/46 host tests, striped outline removed in replay.
+- [ ] Headset: accept remaining wall correction independently of head-drift investigation.
+- [ ] Head-drift live A/B: `Hands follow each eye's own view`, successful view matches required.
+- [ ] Capture short-write/capacity handling: Linear ticket creation blocked by free issue limit.
+
+Details: `docs/dishonored/FLICKER_REFERENCE.md`, build-236 follow-up.
+
 ## AFW wall fill follow-up (2026-09-30)
 
 - [x] Identify the two build-233 captures and verify installed DLL/log identity.

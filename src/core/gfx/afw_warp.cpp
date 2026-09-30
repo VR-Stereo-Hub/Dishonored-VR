@@ -270,7 +270,9 @@ const char* kSrc =
     "                float zn = min(min(aF(uf), min(aF(uf + float2(o.x, 0)), aF(uf - float2(o.x, 0)))),\n"
     "                               min(min(aF(uf + float2(2.0 * o.x, 0)), aF(uf - float2(2.0 * o.x, 0))),\n"
     "                                   min(aF(uf + float2(0, o.y)), aF(uf - float2(0, o.y)))));\n"
-    "                stale = zn > m.z * (1.0 + prm3.w) + 0.01;\n"
+    // The foreground draws on top even behind a wall. Seeing it instead of the held world
+    // is occlusion, not evidence that the world moved away. Keep that eye's valid background.
+    "                stale = !isFg(zF(uf)) && zn > m.z * (1.0 + prm3.w) + 0.01;\n"
     "            }\n"
     "        }\n"
     "        if (okH && !bH && !stale && !(okF && tF < tH * (1.0 - prm3.w))) return shade(heldTex, sH, 1, tH);\n"

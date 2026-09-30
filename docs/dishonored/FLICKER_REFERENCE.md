@@ -1,3 +1,61 @@
+## 2026-09-30: build 236 wall follow-up - false stale rejection leaves striped outlines (MEASURED, fixed in host/replay; headset pending)
+
+Surface: AFW rebuilt eye, striped blade/hand-shaped wall distortion after the fill-only fix.
+The wall symptom persists in a changed form; the opposite-direction hand drift remains reported.
+
+- Identity: installed DLL and log banner both verify `v1.0.1-236-g9d8af5b0f`, SHA256
+  `228C7B30D224CA005D6E403EC56BE9BE525D34E2A1C7A7C279D8D37BC60A8C73`. INI
+  `30DEF045327E2B5FDF631E824FA2E80A52C37341CF2032372EF9EEE1A47E29EE`, gain 0.911,
+  MSW off, PoseFromView=0. DLL/INI/current and previous logs archived in the main checkout's
+  `build/afw-run28-analysis/installed-236-evidence`.
+- CAPTURE FAILURE: `afw-20260930-001558` has five complete presents (p00-p04); p05 is partial,
+  later files empty. `-001616` and `-001627` have no usable pairs. Only about 107 MB was free
+  on C:; the log stops on failed metadata opens. Removed 4,890,600,000 bytes of this session's
+  regenerable replay output, retaining p00/p08 examples and all original captures/logs. About
+  5 GB is now free. Replay uses a hard-linked subset of the five complete frames, never partial files.
+  Each present actually writes 175,285,552 raw bytes at these sizes, about 2.8 GB for 16 frames;
+  the old 80 MB/present log estimate is obsolete. `dump_texture` ignores short fwrite/fclose results.
+  This diagnostic fault remains open. Searched Linear and attempted a Bug ticket, but creation
+  was refused by the workspace's free issue limit; no ticket identifier was created or invented.
+- MEASURED: the new striped areas are the fill (magenta in source tint), while the actual sword
+  is kept. The held eye already contains valid wall pixels in this still scene, but `compose()`
+  rejects them as stale where the other eye's foreground has a numerically farther depth.
+- CAUSE: foreground is drawn on top regardless of geometric depth. Seeing a farther foreground
+  at the projected point is occlusion, not evidence that the held world surface moved away.
+  Run 24 fixed seed priority; the previous fix excluded foreground from fill; neither corrected
+  this stale-world test. Counterprediction: if missing world data alone caused the stripes,
+  preserving a valid held-world candidate would not restore the wall texture.
+- FIX: the stale test requires that the fresh sample is not foreground before its farther depth
+  can invalidate a held surface. Existing mask/foreground classifier, all depth/FOV values and
+  controller transforms remain unchanged. No new setting and no engine-memory write.
+- HOST: still foreground quad at 0.45 m, drawn on top of a 0.28 m wall. Before: worst coordinate
+  error 4.531 px (45 PASS, 1 FAIL). After: 0.014 px, no ghost/missing hand pixels, 46 PASS, 0 FAIL.
+  The earlier moving-toward-wall regression and moving-hand negative controls still pass.
+- REPLAY: four valid consecutive pairs; striped blade/hand outline disappears in the corrected
+  p00 comparison, restoring coherent wall texture. The built-in positive near-band score on this
+  capture is mostly WALL (the signed foreground is excluded): 1.11% -> 0.13% differing pixels.
+  It is not a hand score. Same captured FOV 108.1427, stillness forced on in both comparisons.
+  Remaining later-frame differences include movement and sampling; no claim of exact next-frame
+  ground truth or headset acceptance. Local comparison: `build/afw-run28-analysis/wall-stalefix-compare.png`.
+- HEAD DRIFT, separate: native colour and signed foreground mask visually agree in the earlier
+  sway capture `afw-20260929-234706`. Native-hand feature tracks suggest a stale head basis:
+  for p04, 83 high-correlation patches give median model error 153.014 px using its own recorded
+  head versus 3.453 px using the preceding capture's head (same left-eye target). p10: 98.397 vs
+  9.676; p14: 144.263 vs 5.557. These are an exploratory fixed-controller model, not an exact
+  measured pipeline latency. Capture readbacks introduce large stalls; several models and
+  transient/mismatched patches remain. Double-precision NCC is required; float32 integral variance
+  produced false matches in large search windows and those intermediate measurements are discarded.
+  A depth-only replacement for the FOV gain does not explain the large timing error, so it was
+  not implemented. Existing `PoseFromView` is off: native hands use fixed PoseLag=2 instead of the
+  matched view's head. Its implementation and 2026-09-26 reference are the next test route.
+- Next single-launch question: away from the wall, does the live F10 Hands > Head-turn smoothing
+  option `Hands follow each eye's own view` stop the opposite-direction drift, and does turning
+  it off restore it? Start at the unchanged off baseline, toggle on, then off for the control.
+  A repeatable difference supports the head-sample association; unchanged drift with successful
+  `hands/poseview` matches sends investigation back to foreground calibration/placement. No matches
+  makes the option test inconclusive. No new capture needed. The wall change is independently
+  host/replay verified but still needs a later headset verdict. Do not combine two headset questions.
+
 ## 2026-09-30: AFW wall penetration - foreground copied by background fill (MEASURED, host/replay verified; headset pending)
 
 Surface: the rebuilt eye's hands and sword while moving into a close wall, AFW with MSW off.
@@ -2729,8 +2787,8 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
-| AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30: foreground excluded from fill, 45/45 host tests and wall replay; headset pending. Thin disocclusion strips remain |
-| AFW hands slide opposite lateral head motion while world stays stable | Foreground depth/projection or image/pose association; distinguish native motion from rebuilt motion | 2026-09-30: sway capture identified, grip deltas small; gain 1.0 and edge-hands-off replays do not cure it. OPEN |
+| AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
+| AFW hands slide opposite lateral head motion while world stays stable | Foreground depth/projection or image/pose association; distinguish native motion from rebuilt motion | 2026-09-30 follow-up: native hand motion suggests an older head basis; PoseFromView=0. Live view-matched-hand A/B next; gain/depth changes not established. OPEN |
 | Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 callback coverage observed, tentative smooth run; cause and fix open; see top entry |
 | Pause during low-FOV dialogue shrinks world into a box | Cinematic scope rejects menu despite stereo head-look permission | VR-228 candidate, local test pending; see top entry |
 | Reload-dependent cinematic flicker and head-turn eye separation | Scoped stereo offsets and native classification axis disagree; center-eye/tag interruptions also remain | VR-229 previous candidate rejected; scoped-axis replacement under validation; see newest evidence |
