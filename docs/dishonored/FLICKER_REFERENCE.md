@@ -32,6 +32,11 @@ No current headset evidence establishes that every reported echo has the same ca
   echo gone, reduced or unchanged? Gone supports the timing/motion correction; a remaining echo
   with regular slots redirects to disocclusion/source content, while slot gaps leave pacing open.
   No image dump or user command is required. Check the installed candidate banner first.
+- Installed candidate: `v1.0.1-248-gdc57a1c05`; optimized build, nine exports and lint pass.
+  DLL SHA256 `5B02B32615DDF859CC4030C6FA18CA01C14E3D0F06E2E792056436DAF4CCA4F8` verified.
+  Full INI differs from accepted backup by one byte only, ModSpacewarp=0 -> 1; expected file
+  identical and CRLF verified. Baseline DLL/INI/log/previous log retained together under main
+  `build/msw-turn-pacing/pre-install-248-20260930-014038`. No new game launch yet.
 
 ## 2026-09-30: build 242 accepted; mod-spacewarp turning remains separate (HEADSET-CONFIRMED AFW baseline)
 

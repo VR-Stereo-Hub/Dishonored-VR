@@ -19,9 +19,15 @@ wall/hand code remain intact. 55/55 GPU host checks pass. Accepted build 242 fai
 separately expose both causes. GPU tests do not establish headset smoothness or unseen-background
 recovery. No game was launched by the agent.
 
-Next: install optimized candidate with the entire compatible INI preserved except ModSpacewarp
-0 -> 1; retain half-rate=1, extrapolation=1, hands=0, PoseFromView=1 and 144 Hz. Verify installed
-DLL/INI bytes and CRLF, then check that build's banner on the user-launched run. One question:
+Installed: `v1.0.1-248-gdc57a1c05`, optimized build, nine exports and lint passed. DLL SHA256
+`5B02B32615DDF859CC4030C6FA18CA01C14E3D0F06E2E792056436DAF4CCA4F8` matches the build.
+Whole 73,303-byte INI matches the prepared expected file; the only difference from backup is
+ModSpacewarp 0 -> 1 (one byte), CRLF verified. Half-rate=1, extrapolation=1, hands=0,
+PoseFromView=1 and 144 Hz retained. Existing DLSS helper files remain installed. Backup and
+verification: main checkout `build/msw-turn-pacing/pre-install-248-20260930-014038` and
+`build/msw-turn-pacing/installed-248.json`. Current log remains build 242 until the user launches.
+
+Next: verify build 248's banner and resolved settings on the user-launched run. One question:
 with the head still and a steady right-stick turn past fixed geometry, is the one-frame world
 echo gone, reduced or unchanged? Pacing is measured from the same run's slot-order counters;
 its separate perceptual acceptance remains open. No capture dump is required for this first run.
