@@ -1227,6 +1227,9 @@ void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, con
         _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held.raw", base);      dump_texture(dev, ctx, src.tex, path, meta, "heldColor");
         _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held_depth.raw", base); dump_texture(dev, ctx, src.dtex, path, meta, "heldDepth");
     }
+    // Run 15: the clean game images (before the mod's layers) the rebuild actually sampled, when it had them.
+    if (fr.cleanOk && fr.ctex) { _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_fresh_clean.raw", base); dump_texture(dev, ctx, fr.ctex, path, meta, "freshClean"); }
+    if (haveH && src.cleanOk && src.ctex) { _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_held_clean.raw", base); dump_texture(dev, ctx, src.ctex, path, meta, "heldClean"); }
     _snprintf_s(path, sizeof(path), _TRUNCATE, "%s_rebuilt.raw", base);    dump_texture(dev, ctx, dst, path, meta, "rebuilt");
     fclose(meta);
     const int left = g_dumpLeft.fetch_sub(1) - 1;

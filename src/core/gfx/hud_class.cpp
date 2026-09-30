@@ -1150,9 +1150,9 @@ void owner_trace(const Probe& p, int element, int sink) {
 struct SharpMarkerScope {
     IDirect3DDevice9* dev;IDirect3DSurface9* rt;D3DVIEWPORT9 vp;bool active=false;
     SharpMarkerScope(IDirect3DDevice9* d,bool native,const Probe& p):dev(d),rt(g_rt0?g_rt0:g_bbPtr),vp(g_vp) {
-        if(!native || !dvr::markersharp::enabled())return;
+        if(!native || !dvr::markersharp::active_wanted())return;
         uint32_t w=0,h=0;
-        if(dvr::dlss::mode()==dvr::dlss::ModeOff || !dvr::dlss::sr_output_for(vp.Width,vp.Height,&w,&h) || w<=vp.Width || h<=vp.Height)return;
+        if(!dvr::markersharp::output_for(vp.Width,vp.Height,&w,&h))return;
         const bool blend=g_blendOp==D3DBLENDOP_ADD && (g_srcBlend==D3DBLEND_ONE || g_srcBlend==D3DBLEND_SRCALPHA) &&
             (g_dstBlend==D3DBLEND_ONE || g_dstBlend==D3DBLEND_INVSRCALPHA);
         if(!p.ok || p.transformed || g_zEnable!=D3DZB_FALSE || g_markerStencil || g_markerScissor ||

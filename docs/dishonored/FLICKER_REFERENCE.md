@@ -1,3 +1,28 @@
+## 2026-09-29: AFW run 16 - the objective text still on the sword: the game draws the markers into its own image (FIXED, host-verified, headset pending)
+
+Surface: the held eye's weapon under `stereo afw` with the clean sources on, build v1.0.1-207, DLAA on.
+- Reported: objective text still appears on the sword in the other eye. The sword also covers the F10
+  panel in only one eye.
+- MEASURED (log): the clean sources worked on every rebuild ("305 captures took their clean game image,
+  0 did not", every 3 s).
+- MEASURED (capture `afw-20260929-192920`, full-resolution crops): the rebuilt sword carries a whole
+  objective label ("...Havelock [40m]") shifted about 110 px with the blade. In both native frames that
+  label is half-hidden behind the F10 panel. So the label came from a panel-free image: the clean
+  one. The game draws its objective markers into its own image.
+- Cause: the marker redirect (`hud/markers-sharp`, which moves the game's marker draws into their own
+  layer) ran only under a reduced-resolution upscaler. Under DLAA it refused every frame ("no reduced
+  reentry upscaler", over 10,000 times), so the markers stayed in the game image, and so in the clean copy.
+  Removing the F10 panel from the clean copy made it worse: text the panel covered was now exposed on
+  the sword.
+- FIX: with AFW's clean sources on, the marker redirect also runs at the render size (and even with
+  `MarkersSharp=0`). The markers are composited after the clean copy, as under DLSS Super Resolution.
+- Host test (`markers-sharp-native-tests`): the redirect arms at the render size with AFW's clean
+  sources, and with MarkersSharp off.
+- OPEN, the F10 panel in one eye: not explained by this capture. The panel is ours and is drawn after
+  the clean copy; the held eye's own UI is laid back where its composed and clean images differ. The AFW
+  capture now also saves both clean images (`pNN_fresh_clean.raw`, `pNN_held_clean.raw`), so the next
+  capture shows what the rebuild compared.
+
 ## 2026-09-29: AFW run 15 - one eye's objective text and F10 panel appear on the sword in the other eye (FIXED, host-verified, headset pending)
 
 Surface: the held eye's weapon (and hands) under `stereo afw`, build v1.0.1-205.
