@@ -1,3 +1,24 @@
+## 2026-09-29: AFW run 19 - the drawn mask saw no candidates: our hands code widens the viewport first (FIXED in build, headset pending)
+
+Surface: the held eye's hands and weapon under `stereo afw`, build v1.0.1-215. Reported: the far blade fault
+is back, and a slight colour or shadow flicker on the hands and weapon. The NPC trail is reported fixed.
+Capture `afw-20260929-204818`.
+- MEASURED (log): `fgmask: ON - 0 foreground candidates (crushed viewport, >= 512 wide)` every 5 s, while
+  `fgproj:` counted about 1000 foreground draws in the same windows. Every mask was empty, and (run 18's guard)
+  untrusted, so the depth limit decided: the far-blade fault returned.
+- Cause (code): the mod's own hands code widens the crushed viewport to the full depth range before it
+  draws the hands and weapon (`mesh_split.cpp` and `weapon_attach.cpp`, the depth-range lever). fgproj
+  classifies at the game's draw, in `hkDraw*`, before the callbacks. The mask classified at `orig_draw_*`,
+  after the widening, so no draw ever looked like a foreground draw there. This also explains run 18.
+  The arming theory recorded there was wrong.
+- FIX: the draw is classified when the game issues it (`note_draw` sets it, `note_draw_end` clears it after
+  the callbacks). Every piece the hands code draws inside that game draw is redrawn into the mask, with
+  the viewport it was actually drawn with.
+- The flicker in the capture: tinted replay shows thin fill (magenta) and held-fallback (red) bands along the
+  hand's and blade's edges, where the depth limit classifies the colour edge inconsistently. Expected to
+  shrink with a working mask. The fresh eye's view-dependent shading on the rebuilt hands (run 7) remains:
+  `afw ownhands` is the lever for it.
+
 ## 2026-09-29: AFW run 18 - the drawn mask was always empty (hands flicker); a walking NPC trails (FIXED in build, headset pending)
 
 Surface: the held eye under `stereo afw`, build v1.0.1-212. Reported: the sword pointed away is fixed; a
