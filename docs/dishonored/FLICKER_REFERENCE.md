@@ -1,3 +1,20 @@
+## 2026-09-29: AFW run 20 - the weapon flickers in certain spots and on landing: the game draws it with the full depth range there (FIXED in build, headset pending)
+
+Surface: the held eye's weapon (and hands) under `stereo afw`, build v1.0.1-217. Reported: mostly fixed, and the
+blade pointed away is right. But in several spots the sword and weapon flicker constantly, stop when you
+step away, and start again when you return. The same happens briefly when landing from a jump. Capture
+`afw-20260929-210330`: standing in a spot (p00-p02), then walking out (p03-p10).
+- MEASURED (replay tint): in the spot the HAND is green (the drawn mask) and the BLADE untinted (held world). Out
+  of the spot the blade is green too.
+- MEASURED (log): about 3 mask candidates a frame normally, exactly 2 while standing in the spot (`fgmask:`,
+  975-1012 per ~500 frames against ~1500). The weapon attachment's `wa/lens-pass` samples for the weapon's
+  main pass: normally 70 crushed (MaxZ 0.001) against 26 full range; in the spot 4 against 26. There the game
+  draws the held weapon with the full depth range, which the crushed-viewport test cannot see.
+- FIX: the mod's own hands code marks the draws it knows are the player's (`fgmask_mark_piece`): the weapon
+  attachment's held-weapon draws (both paths) and the mesh split's hand and arm pieces. They go into the
+  mask whatever viewport the game used. The `fgmask:` line counts the marked pieces.
+- Landing from a jump: likely the same (the weapon briefly drawn in the full range). Not separately measured.
+
 ## 2026-09-29: AFW run 19 - the drawn mask saw no candidates: our hands code widens the viewport first (FIXED in build, headset pending)
 
 Surface: the held eye's hands and weapon under `stereo afw`, build v1.0.1-215. Reported: the far blade fault

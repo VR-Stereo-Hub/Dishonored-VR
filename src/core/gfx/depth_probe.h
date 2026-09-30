@@ -70,6 +70,9 @@ void fgmask_end(IDirect3DDevice9* dev, HRESULT drawn);
 bool fgmask_in_draw();
 // Run 19: the game draw that note_draw opened has returned (frame_hooks, after the callbacks).
 void note_draw_end();
+// Run 20: the mod's hands code marks a draw it KNOWS is the player's arms, hands or held weapon as foreground for the
+// mask, whatever viewport the game used (in some places the game draws the held weapon with the full depth range).
+void fgmask_mark_piece();
 void fgmask_seal(uint32_t serial);
 // The mask of a grab (R = 1 where a foreground draw covered the texel), nullptr when none or not finished; `draws` the
 // foreground draws it holds (0 = no foreground pass that frame: nothing is foreground). Closed by read_done.
