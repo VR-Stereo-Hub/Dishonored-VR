@@ -1,3 +1,31 @@
+## 2026-09-30: staging integration complete; mod-spacewarp follow-up branch ready
+
+Current state: PR #164 merged into staging as `b4b1cb5ec` with explicit user authorization.
+Every non-documentation tracked file matches accepted build 242 (`11dcf7db9`); the production
+source tree is `90c035197f9e7787447d812f0eda8d6b5694696c`. The installed DLL/INI pair remains
+unchanged. VR-Main remains at `cecdae230`; no release or tag was created.
+
+Reviewed 45 PRs authored by the maintainer from September 24 onward: 32 were already merged,
+six already closed, seven still open. #159 and #163 are now marked merged through #164;
+#161 and #162 were closed as fully consolidated, with their exact heads reachable from staging.
+#118 was closed as superseded; #140 was parked after its negative headset verdict; #151 was
+parked outside the accepted baseline pending animation-origin acceptance. All seven remote
+branches were verified retained. Other contributors' PRs and the older unrelated #62 remain
+untouched. The consolidation branch is retained too.
+
+Active follow-up: `codex/vr-39-spacewarp-turn-pacing`, created from staging `b4b1cb5ec` in the
+existing `build/worktrees/aer` checkout. The user clarified that this means the MOD's F10
+spacewarp. No new runtime change is made yet. Targets: right-stick turns showing a one-frame
+world-geometry ghost, and uneven pacing even at high reported frame rates. Keep the accepted
+AFW wall/hand corrections and 144 Hz configuration. The next investigation must distinguish
+synthesized-slot geometry from source age and slot scheduling before a behavioral fix.
+
+Read the plan at the top of `docs/dishonored/PERFORMANCE.md` and the latest acceptance entry in
+`FLICKER_REFERENCE.md`. Reuse existing `msw:` diagnostics first; one question per user-launched
+test. The installed baseline has ModSpacewarp=0, so do not attribute its accepted-run timing
+to active synthesis. Dedicated Linear Bug creation was refused by the free issue limit; the
+branch uses the verified VR-39 parent. No new test is requested by this integration handoff.
+
 ## 2026-09-30: build 242 accepted; consolidate the tested source for staging
 
 Current state: the headset playtest accepts `v1.0.1-242-g11dcf7db9`; hand/head drift is now
