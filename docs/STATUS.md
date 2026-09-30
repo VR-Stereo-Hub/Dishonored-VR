@@ -13,7 +13,14 @@ Change: behind the existing checkbox, resolve a position tie only when the draw'
 identifies a safe view. Conflicting head samples, eyes, cameras or level generations still refuse.
 30/30 host checks and existing palette-eye tests pass; old-control head-turn cases fail as intended.
 The heartbeat now reports rotation-resolved ties and prints even if every draw is refused.
-No engine-memory writes, AFW shader change or setting migration. Building the combined candidate.
+No engine-memory writes, AFW shader change or setting migration.
+
+Installed: `v1.0.1-242-g11dcf7db9`, fix `a27c715f9`, local combined candidate. Release build,
+nine exports, 30/30 pose-view and 46/46 AFW host checks pass. DLL SHA256
+`9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0` matches build output.
+Entire INI identical to pre-install backup and expected target, CRLF verified; PoseFromView=1,
+gain 0.911 and MSW off. Backup: `build/afw-run29-analysis/pre-install-242-20260930-010059`
+in the main checkout. New runtime banner and residual-drift verdict await the user's launch.
 
 Next single-launch question: with the same checkbox left on, is the smaller head-sweep drift gone
 or reduced further? Verify the new banner and compare resolved ties with remaining refusals.

@@ -35,6 +35,14 @@ stable. The wall-penetration surface is now HEADSET-CONFIRMED fixed in this play
   eyes, scene/camera changes, invalid poses, stale/future records and wrong/no angular matches.
   The old-control path fails the head-turn selection fixtures. Existing palette-eye suite passes.
   No simulator/game launch by the agent. This does not prove the new resolver matches live views.
+- INSTALLED: `v1.0.1-242-g11dcf7db9`, fix `a27c715f9`, local combined candidate. Release build,
+  nine exports, combined pose-view 30/30 and AFW 46/46 pass. DLL SHA256
+  `9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0` matches build output.
+  Whole INI identical to pre-install backup and expected target, CRLF verified; SHA256
+  `3E2B78546CD1007AEF50E5A85D361A516D7E7227CF24C0D2366CF946F78E205D`. Only difference from the
+  previous installation's INI is the tester's persisted PoseFromView=1. No installer edits;
+  gain 0.911 and MSW off. Backup `build/afw-run29-analysis/pre-install-242-20260930-010059`.
+  Existing DLSS helper retained. Runtime banner and headset verdict await the next user launch.
 - NEXT: one head-sweep question in open space, checkbox left on: is the smaller residual gone or
   reduced further? First verify the installed banner. Resolved ties increasing with improvement
   supports the candidate; no useful increase means the path did not resolve the live ambiguity;
