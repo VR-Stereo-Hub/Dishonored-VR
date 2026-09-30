@@ -310,9 +310,16 @@ const char* kSrc =
     "    uint2 off = k == 0 ? uint2(0, 0) : k == 1 ? uint2(1, 0) : k == 2 ? uint2(0, 1) : k == 3 ? uint2(1, 0) : k == 4 ? uint2(1, 1) : uint2(0, 1);\n"
     "    float2 px = min(float2(c + off) * mp.y, mp.zw - 1.0) + 0.5;\n"
     "    float2 s = px / mp.zw;\n"
-    "    float3 m = mp.x < 0.5 ? mapF(s, zF(s)) : mapH(s, zH(s));\n"
+    "    float zs = mp.x < 0.5 ? zF(s) : zH(s);\n"
+    "    float3 m = mp.x < 0.5 ? mapF(s, zs) : mapH(s, zs);\n"
     "    MOut o;\n"
-    "    o.pos = (m.z > 0 && all(abs(m.xy) < 8.0)) ? float4(m.xy, m.z / (m.z + 1.0), 1.0) : float4(0, 0, -1, 1);\n"
+    // Run 24: the hands and weapon are drawn ON TOP of the world (the crushed depth range), even where they are
+    // geometrically behind it - a blade pushed into a wall right in front of the face. Nearest-wins let the wall's
+    // seed beat the blade and the blade fell to the fill (a flicker). Foreground seeds take the near half of the
+    // depth range, the world the far half, so the foreground always wins, as the game draws it.
+    "    float dz = m.z / (m.z + 1.0);\n"
+    "    dz = isFg(zs) ? 0.5 * dz : 0.5 + 0.5 * dz;\n"
+    "    o.pos = (m.z > 0 && all(abs(m.xy) < 8.0)) ? float4(m.xy, dz, 1.0) : float4(0, 0, -1, 1);\n"
     "    o.src = float3(s, m.z);\n"
     "    return o;\n"
     "}\n"

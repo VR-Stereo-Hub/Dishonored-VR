@@ -1,3 +1,17 @@
+## 2026-09-29: AFW run 24 - the weapon flickers when pushed into a wall (FIXED in build, headset pending)
+
+Surface: the held eye's weapon inside a wall right in front of the face, `stereo afw`, build v1.0.1-225. Capture
+`afw-20260929-223942`.
+- MEASURED (capture depths, units): wall 0.151-0.155, hands 0.119, blade 0.148-0.205. The mask covers the whole
+  sword. The blade is drawn on top of the wall (the crushed range) though geometrically behind it.
+- Cause: the seed maps keep the NEAREST surface per target texel, so the wall's seed beat the blade and the
+  blade fell to the fill (tint magenta).
+- FIX: foreground seeds take the near half of the seed depth range and the world the far half, so the hands
+  and weapon always win, as the game draws them.
+- Replay: the blade from the hands path (green); world differ 2.437% -> 1.823%. A thin fill strip remains on
+  the blade side only the held eye sees (stereo disocclusion). The controller-moved held hands (next) are
+  meant for that. Host test 38/38.
+
 ## 2026-09-29: AFW run 23 - hand parts invisible at some angles; ghosting and gaps beside the hands while turning (PARTLY ADDRESSED, headset pending)
 
 Surface: the held eye's hands under `stereo afw` without MSW, build v1.0.1-223. Reported: without spacewarp, turning is
