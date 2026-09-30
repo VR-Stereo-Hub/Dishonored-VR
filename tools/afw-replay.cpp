@@ -143,12 +143,20 @@ int main(int argc, char** argv) {
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
         dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
+        // Run 15: the clean images the rebuild compared, when the capture saved them (DVR_AFW_CLEAN=0 ignores them).
+        std::vector<uint8_t> hcc, fcc;
+        char ce[8] = "";
+        const bool useClean = !(GetEnvironmentVariableA("DVR_AFW_CLEAN", ce, sizeof(ce)) && ce[0] == '0');
+        const bool haveHc = useClean && read_file(path(p, "held_clean"), hcc), haveFc = useClean && read_file(path(p, "fresh_clean"), fcc);
+        ID3D11Texture2D* hct = haveHc ? tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, hcc.data(), w * 4) : nullptr;
+        ID3D11Texture2D* fct = haveFc ? tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, fcc.data(), w * 4) : nullptr;
         for (int k = 0; k < 2; ++k) {
             const char* who = k == 0 ? "heldrec" : "fresh";
             auto key = [&](const char* s) { return m[std::string(who) + "." + s]; };
             dvr::afw::Pose tg[2] = {pose_of(key("target0")), pose_of(key("target1"))};
             float vp[16], c5[3], rot[3]; vec(key("vp"), vp, 16); vec(key("c5"), c5, 3); vec(key("rot"), rot, 3);
             dvr::afw::CaptureMeta cm; cm.recId = (uint32_t)atoi(key("rec").c_str());
+            if (ID3D11Texture2D* ct = k == 0 ? hct : fct) dvr::afw::note_clean(g.dev, g.ctx, ct, k == 0 ? sh : sf);
             dvr::afw::note_capture(g.dev, g.ctx, k == 0 ? held : fresh, k == 0 ? ht : ft, k == 0 ? sh : sf, pose_of(key("pose")),
                                    key("bodyOk") == "1", strtof(key("bodyYaw").c_str(), nullptr), tg,
                                    key("vpOk") == "1" ? vp : nullptr, key("vpOk") == "1" ? c5 : nullptr,
@@ -194,7 +202,7 @@ int main(int argc, char** argv) {
             sumDots += (double)dots;
             sumNear += nearN ? 100.0 * nearBad / nearN : 0; sumWorld += worldN ? 100.0 * worldBad / worldN : 0; ++scored;
         }
-        for (ID3D11Texture2D* t : {ht, ft, dst, st}) if (t) t->Release();
+        for (ID3D11Texture2D* t : {ht, ft, dst, st, hct, fct}) if (t) t->Release();
     }
     if (scored) printf("MEAN over %d rebuilds: near band %.2f%% differ, world %.3f%% differ (luminance > 40 against the next native frame), bright dots %.0f\n",
                        scored, sumNear / scored, sumWorld / scored, sumDots / scored);
