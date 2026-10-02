@@ -36,6 +36,8 @@ head-sweep foreground jitter (top of the 09-30 entries), which this does not tou
    stick stop covers the turn only. The planned luma cut test was not built: a camera cut moves
    the camera or its heading, which the speed and turn ceilings already catch in the same slot,
    and a readback-based test arrives a frame late. Plan: PLAN-mod-spacewarp.md section 7.
+7. **Installed candidate:** `v1.0.1-253-ga964c2ab4`, DLL SHA256 `05488F5D...86451249`, the INI
+   with both levers on (the only change); backup and record in main `build/msw-guards-install/`.
 
 ## 2026-09-30: build 248 improves MSW; hand/weapon jitter during head sweeps remains (REPORTED)
 

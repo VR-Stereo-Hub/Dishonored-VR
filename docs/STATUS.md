@@ -9,6 +9,14 @@ Host 60/60 (five new cases with controls) and slot scheduling 12/12. Not run in 
 headset. Plan item 7.5 is retracted: the smoothing it named is in the legacy drive, not the live
 hand path. Build 250's own question (hands follow, head sweep) is still unanswered.
 
+Installed: `v1.0.1-253-ga964c2ab4`, optimized build, nine exports and lint pass. DLL SHA256
+`05488F5D05EEA99BC9DDA60D982CB9A4C1CD869AFC849979DA7020F786451249` matches the build. The whole
+73,349-byte INI matches the prepared expected file; the only difference from the backup is the two
+new lines `ModSpacewarpGuard=1` and `ModSpacewarpStickStop=1` under `ModSpacewarpHalfRate=1`, CRLF
+verified. ModSpacewarp=1 and ModSpacewarpHands=1 (from build 250) retained; the DLSS helper in
+`dvr_dlss\` is unchanged. Backup of build 250's DLL, INI and logs and the install record: main
+`build/msw-guards-install/`. The log stays build 248 until the user launches.
+
 Next: one headset question with the guards and the stick stop on (F10 Display): during a steady
 right-stick sweep past a door frame, then a release, is the one-frame world echo gone, reduced
 or unchanged? Read the `msw: guards` line for the same run: holds, clamps and stick stops, and the
