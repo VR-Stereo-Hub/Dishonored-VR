@@ -1,3 +1,21 @@
+## 2026-10-02: Cyberpunk VR port frame generation reviewed for MSW (RESEARCH, nothing built)
+
+The Cyberpunk 2077 VR port's 0.1.7 frame generation interpolates (midpoint between two real frames, the
+newer held one slot) with FidelityFX frame interpolation on D3D12, from engine motion vectors, depth and
+optical flow; the game is limited to half the refresh. Their measured cost at 2560x2560 per eye on an RTX
+5070 Ti: FidelityFX about 2.5 ms per frame and 456 MiB, the NVIDIA optical-flow hybrid about 7 ms and 279 MiB;
+45 real plus 45 generated at 90 Hz in the simulator. Their numbers, their GPU: not a prediction for ours.
+What carries over to MSW (discontinuity reset, bounded extrapolation, repeat counters, one pacing schedule,
+no game-rate hand smoothing) and what does not (interpolation latency, the GPU cost on a GPU-bound rig) is the
+integration plan in [PLAN-mod-spacewarp.md](PLAN-mod-spacewarp.md) section 7.
+
+Offloading to the x64 helper, recorded so it is not re-asked: the helper shares the GPU and the CPU with the
+game. Moving the GAME's rendering out of process is not feasible (UE3 issues D3D9 calls from its own render
+thread; streaming them to another process costs more per draw than it saves, and the DXVK route is retired).
+Moving the MOD's own GPU work (synthesis, upscaling, resolve) there only helps where it can overlap the game:
+D3D12 async compute against a D3D11 immediate context that today serializes it. That is a possible gain of
+our post-work's share, not of the game's frame, and it needs shared fences both ways. Unmeasured.
+
 ## 2026-09-30: build 248 live slot ordering succeeds; residual deadline misses (MEASURED)
 
 Identity: installed DLL and log `v1.0.1-248-gdc57a1c05`, SHA256
