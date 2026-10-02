@@ -224,8 +224,123 @@ not changed yet.
 - If the held eye has no AFW image, a real present after a synthesized slot can pair a synthesized image
   with a real pose. This happens only at start-up, before AFW has an image.
 
+## 7. Integration plan: what the Cyberpunk VR port's frame generation teaches MSW (2026-10-02, PLANNED)
+
+Source: the MIT-licensed Cyberpunk 2077 VR port, release 0.1.7 (2026-09-29), `src/Framegen/` and its
+`docs/framegen-*.md`. It INTERPOLATES (a midpoint between two real frames, the newer one held for a slot) with
+the FidelityFX SDK 1.1.4 frame interpolation on D3D12, from the engine's own motion vectors, depth and
+camera constants plus optical flow. MSW EXTRAPOLATES from one image. The core method does not drop in; five of
+its guards do. Read against build 250 (`codex/vr-39-spacewarp-turn-pacing`); concepts only, no code copied.
+
+Order: 1 and 2 together (one behavioural change: what MSW does at a discontinuity), then 3 (log only), then 5,
+then 4 only if the build-250 timings point at the wake. Every new lever default off with a `vrpace msw` word.
+
+### 7.1 Discontinuity reset (Blink, snap turn, cuts)
+
+**Theirs:** an 8x8 luma difference between consecutive frames over 0.45 resets the generator; a reset frame is
+never interpolated across.
+
+**Ours today:** `body_motion` (`afw_warp.cpp`) differentiates the two held images' camera position and rendered
+body yaw over their display-time interval, accepting any interval of 0.5-100 ms, and `synth_eye` multiplies the
+result by the slot's age. A Blink (metres in one frame) reads as a walk of hundreds of m/s; a snap turn reads as
+a turn rate that keeps being applied after it ended. Either is shown for a slot.
+
+**Plan:**
+- Detect from what the mod already knows, before any image test:
+  - the camera-position step between the two held images over a speed ceiling (derive the ceiling from the
+    log: add the per-window maximum walk speed to the `msw:` line first, set the ceiling above sprint);
+  - a snap turn or Blink event from our own input/Blink code, stamped with the frame it happened in;
+  - the existing blockers (menus, cinematics, not stereo projection).
+- Backstop for cuts we cannot see (cutscene camera cuts, death, load): a GPU 8x8 luma reduction of each
+  captured eye, read back one frame later (never a same-frame `GetRenderTargetData`: `[Perf] FrameId`'s
+  readback is what was turned off for cost). Threshold from a capture, not their 0.45.
+- On a discontinuity: no extrapolation for that image pair (head-only synthesis from the NEWEST image), and the
+  velocity history restarts from the next real frame. Count it: `msw: discontinuities N (speed A, turn B,
+  event C, luma D)`.
+- Host case for `tools\afw-warp-tests.cpp`: a 3 m step between held images must produce zero extrapolation;
+  control: the same step with the gate off moves the world.
+
+### 7.2 Bound the extrapolation
+
+**Theirs:** `CanInterpolate` (`FramePolicy.hpp`) requires consecutive frames, the same tracking origin, both eyes
+present, no reset, an interval of at most 100 ms, and the two poses within a quaternion dot of 0.95
+(about 36 degrees).
+
+**Ours today:** `turn = yawPerMs * dtOwn` and the walk `v * dtOwn` are unclamped (HANDOFF-afw-runs-13-27 already
+names the unclamped turn as the suspect for the one-frame world echo on stick turns).
+
+**Plan:**
+- Clamp the per-slot turn and walk (`vrpace msw maxturn <deg>`, `vrpace msw maxwalk <uu>`), limits from the
+  build-250 log's turn distribution; refuse (head-only) rather than clamp when the rate is beyond anything a
+  stick turn produces.
+- Input-aware stop, which their port cannot do: the mod serves the gamepad, so the right-stick yaw and the
+  move stick at the SLOT's time are known. Stick released means the turn is ending: do not extrapolate a turn
+  the stick no longer commands. This is the most direct test of the stick-release echo.
+- Log `extrapolation clamped N, refused M (rate), stick-stopped K` on the existing window line.
+
+### 7.3 Counters that separate repeats from new frames
+
+**Theirs:** real, generated, output and repeated frames are four separate counters, so a repeat never reads as
+a new frame.
+
+**Ours today:** build 250 already counts target gaps, non-increasing targets and consecutive reals. Two gaps
+remain:
+- the "nothing new for one eye: re-submit the last real layer set" path increments `g_mswFails`, the same
+  counter as a failed `xrEndFrame`. Split it: `held` (a repeat of content) vs `failed`;
+- `copy_own` eyes are repeats of content at a new pose and should be stated as such on the line, so "slots/s
+  synthesized" is not read as new content. Also log the refusal REASONS as counts (today only the last `why`
+  is kept).
+
+No behaviour change; ship in the same build as 7.1/7.2 so their counters are readable.
+
+### 7.4 One pacing schedule
+
+**Theirs:** a half-rate limiter whose deadline lived in thread-local storage let a game whose Present jobs move
+between threads run faster than half rate; fixed with one shared schedule, a mutex and a high-resolution
+waitable timer, with a regression test.
+
+**Ours:** the MSW thread already waits on a `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION` timer, the only
+`thread_local` (`g_cycleDepth`) guards nesting, and the half-rate obligation is shared state with 12 host
+checks. Nothing to port. Action: confirm from the build-250 CPU wall timings (wait / locate / eyes / end)
+whether the residual target gaps start at the wake; only then consider pacing the game's Present to two periods
+the way theirs does.
+
+### 7.5 No game-rate smoothing on anything MSW moves
+
+**Theirs:** with generation on, the hand filter is bypassed entirely and its history invalidated; smoothing
+resumes from the current pose when generation is turned off.
+
+**Ours:** `[HandRender] SmoothAlpha` is 0 in the tester's ini, so the literal port changes nothing there. The
+candidate that matters is in `fp_mesh.cpp`: the weapon's live parent motion is recovered one frame late and
+smoothed 50% per frame. With `ModSpacewarpHands=1` the synthesized slot moves the weapon's pixels rigidly with
+the grip while the real frame carries a filtered, one-frame-late weapon, which predicts weapon jitter at the
+game's rate during head sweeps (the open build-248 symptom).
+
+**Plan:**
+- Inventory every game-rate filter on the hands and weapon (`SmoothAlpha`, the `fp_mesh` parent smoothing,
+  `PoseLag`/`PoseFromView` generation matching against `handgen`).
+- Lever `vrpace msw rawhands on|off`: while MSW is engaged, bypass those filters (raw current pose), reseeding
+  them from the current pose when MSW disengages.
+- Headset question, one per run: during a head sweep with the controllers still, is the weapon jitter reduced
+  with the lever on against off? Unchanged means the filter is not the source; record it either way in
+  FLICKER_REFERENCE.
+
+### 7.6 Not taken, and why
+
+- **Interpolation itself.** It would hold each real frame a slot (about 7 ms at 144 Hz) on walking, stick
+  turns and hands; head rotation stays corrected by the compositor. It is the cleaner image (no guessing, both
+  sides of a disocclusion seen), so it stays a candidate lever after 7.1-7.5, built from the AFW two-source
+  compose, with their rule: a midpoint is always followed by its own real endpoint, never a newer one.
+- **FidelityFX frame interpolation in the x64 helper.** Our motion vectors are the mod's own (depth plus the
+  game's camera matrices, with the #162 object-motion correction), the same ones DLSS uses, so the inputs
+  exist. Cost on their RTX 5070 Ti at 2560x2560 per eye: about 2.5 ms per frame and 456 MiB; the NVIDIA
+  optical-flow hybrid about 7 ms and 279 MiB. On a GPU-bound headset rig that comes out of the game's frame.
+  Their own hand-written interpolator was rejected for ghosting; the FidelityFX path was accepted.
+
 ## Sources
 
+- The Cyberpunk 2077 VR port (`cyberpunk-vr-port` on GitHub, MIT), release 0.1.7: `src/Framegen/`,
+  `include/Framegen/FramePolicy.hpp`, `docs/framegen-native-20260923.md`, `docs/framegen-motion-20260923.md`
 - [VD SSW runs on the headset](https://www.uploadvr.com/virtual-desktop-synchronous-spacewarp/)
 - [Khronos: SSW with OpenXR](https://www.khronos.org/news/permalink/a-virtual-boost-in-vr-rendering-performance-with-synchronous-space-warp-using-openxr)
 - [ASW 2.0 positional timewarp from depth](https://developers.meta.com/horizon/blog/developer-guide-to-asw-20/)
