@@ -171,6 +171,23 @@ int synth_grid();
 // An eye's own last image copied as it is into dst, and the pose it was rendered from (MSW's fallback).
 bool copy_own(ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, Pose* pose);
 bool synth_extrapolate();
+// VR-39 MSW guards (PLAN-mod-spacewarp section 7). Off by default: `[VR] ModSpacewarpGuard`, `vrpace msw guard on|off`.
+// On: a slot whose two held images straddle a jump (camera speed over `maxSpeed` uu/s - a Blink, a teleport, a cut - or
+// a body-turn rate over `maxRate` deg/s - a snap turn) re-submits the last real frame instead of synthesizing; below
+// those ceilings the per-eye turn is clamped to `maxTurn` deg. `vrpace msw maxspeed|maxturnrate|maxturn <n>`.
+void set_synth_guard(bool on);
+bool synth_guard();
+void set_synth_limits(float maxSpeedUUs, float maxRateDegS, float maxTurnDeg);   // a non-positive value keeps the current
+void synth_limits(float* maxSpeedUUs, float* maxRateDegS, float* maxTurnDeg);
+// MSW thread, under the frame mutex, before any eye is built: why this slot must re-submit the last real frame (the
+// guard saw a jump between the held images), or nullptr. Always nullptr with the guard off.
+const char* synth_hold_reason(bool displayClock);
+// The stick stop (`[VR] ModSpacewarpStickStop`, `vrpace msw stickstop on|off`, default off): no turn is extrapolated
+// while the right-stick turn the game receives is zero. note_turn_stick: PRESENT lane, the pad bridge's final
+// composed right-stick X (-1..1, zero when a menu, the F10 pointer or snap turn took the stick).
+void set_synth_stick_stop(bool on);
+bool synth_stick_stop();
+void note_turn_stick(float rx);
 bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool rebuilt, ID3D11Texture2D* dst,
                     uint32_t dxgiFormat, uint32_t w, uint32_t h, float nearM, float farM, const char** why);
 const char* dump_status();

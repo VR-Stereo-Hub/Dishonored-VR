@@ -175,6 +175,10 @@ uint64_t g_mswEngageChangeMs = 0;            // the adaptive policy's last chang
 int64_t g_hookEnterUs = 0, g_hookPrevEnterUs = 0, g_hookBlockedUs = 0, g_hookPrevBlockedUs = 0;   // Present thread
 std::atomic<uint32_t> g_mswFrames{0}, g_mswSynthEyes{0}, g_mswCopyEyes{0}, g_mswBusy{0}, g_mswNotReady{0},
     g_mswFails{0};
+// VR-39 (PLAN-mod-spacewarp 7.3): a slot that re-submits the last real layer set is a REPEAT, not a failure. Before,
+// it shared g_mswFails with failed XR calls. Jump = the guard held it; eye = an eye could not be written; other = the
+// runtime asked for no render or the views did not locate.
+std::atomic<uint32_t> g_mswHeldJump{0}, g_mswHeldEye{0}, g_mswHeldOther{0};
 const char* g_mswNotReadyWhy = "";
 ID3D11Multithread* g_mt = nullptr;
 // MSW's hands: the grips of each located view set (labelled as g_viewHist is), so a captured image can carry the
@@ -6379,7 +6383,10 @@ void msw_cycle() {
     dvr::afw::HandPose slotHands[2];   // the grips at the slot's display time (the hands follow them when on)
     if (dvr::afw::synth_hands() && located)
         for (int k = 0; k < 2; ++k) slotHands[k].ok = input_locate_grip(k, fs.predictedDisplayTime, slotHands[k].p, slotHands[k].q);
-    if (fs.shouldRender && located) {
+    // VR-39 guards: the two held images straddle a jump (a Blink, a snap turn, a cut) - building either eye from its own
+    // image would show one eye before the jump and the extrapolation across it; the last real frame is consistent.
+    const char* hold = (fs.shouldRender && located) ? dvr::afw::synth_hold_reason(true) : nullptr;
+    if (fs.shouldRender && located && !hold) {
         MswCostScope eyeCost(kMswEyes);
         for (int e = 0; e < 2; ++e) {
             uint32_t idx = 0;
@@ -6485,7 +6492,7 @@ void msw_cycle() {
             for (uint32_t i = 0; i < g_mswQuadN; ++i)
                 layers[count++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&g_mswQuads[i]);
         }
-        g_mswFails.fetch_add(1, std::memory_order_relaxed);
+        (hold ? g_mswHeldJump : (fs.shouldRender && located) ? g_mswHeldEye : g_mswHeldOther).fetch_add(1, std::memory_order_relaxed);
     }
     XrFrameEndInfo fei{XR_TYPE_FRAME_END_INFO};
     fei.displayTime = fs.predictedDisplayTime;
@@ -6512,6 +6519,7 @@ DWORD WINAPI msw_thread_proc(void*) {
     uint64_t nextLog = GetTickCount64() + 3000;
     uint32_t lastFrames = g_mswFrames.load(), lastSynth = g_mswSynthEyes.load(), lastCopy = g_mswCopyEyes.load(),
              lastBusy = g_mswBusy.load(), lastNR = g_mswNotReady.load(), lastFails = g_mswFails.load();
+    uint32_t lastHJ = g_mswHeldJump.load(), lastHE = g_mswHeldEye.load(), lastHO = g_mswHeldOther.load();
     uint32_t lastEnds = g_endFrames.load(std::memory_order_relaxed);
     uint32_t lastWorker = g_mswHalfWorker.load(), lastAssist = g_mswHalfAssist.load(), lastGaps = g_mswSlotGaps.load(),
              lastRepeats = g_mswSlotRepeats.load(), lastRealRuns = g_mswRealRuns.load();
@@ -6525,13 +6533,18 @@ DWORD WINAPI msw_thread_proc(void*) {
                                bz = g_mswBusy.load(), nr = g_mswNotReady.load(), fl = g_mswFails.load(),
                                en = g_endFrames.load(std::memory_order_relaxed);
                 const double secs = (t - nextLog + 3000) / 1000.0;
-                XRLOG("msw: %.0f slots/s synthesized beside %.0f/s from the game (%.0f Hz display) | eyes rebuilt %u, copied %u | "
+                const uint32_t hj = g_mswHeldJump.load(), he = g_mswHeldEye.load(), ho = g_mswHeldOther.load();
+                XRLOG("msw: %.0f slots/s synthesized beside %.0f/s from the game (%.0f Hz display) | eyes rebuilt %u, copied %u "
+                      "(a copied eye is its last image re-shown at the slot pose: a repeat, not new content) | slots re-submitting "
+                      "the last real frame (repeats): across a jump %u, an eye unwritable %u, not rendered %u | "
                       "skipped: game present in progress %u, not ready %u (last: %s), failures %u | hands %s (grips matched to "
                       "images %u, unmatched %u; hand-held quads moved %u)",
                       (fr - lastFrames) / secs, (en - lastEnds) / secs, periodNs > 0 ? 1e9 / periodNs : 0.0,
-                      sy - lastSynth, cp - lastCopy, bz - lastBusy, nr - lastNR, g_mswNotReadyWhy[0] ? g_mswNotReadyWhy : "none",
+                      sy - lastSynth, cp - lastCopy, hj - lastHJ, he - lastHE, ho - lastHO,
+                      bz - lastBusy, nr - lastNR, g_mswNotReadyWhy[0] ? g_mswNotReadyWhy : "none",
                       fl - lastFails, dvr::afw::synth_hands() ? "follow" : "held", g_mswHandHit, g_mswHandMiss, g_mswQuadsMoved);
                 lastFrames = fr; lastSynth = sy; lastCopy = cp; lastBusy = bz; lastNR = nr; lastFails = fl; lastEnds = en;
+                lastHJ = hj; lastHE = he; lastHO = ho;
                 nextLog = t + 3000;
                 const uint32_t worker = g_mswHalfWorker.load(), assist = g_mswHalfAssist.load(), gaps = g_mswSlotGaps.load(),
                                repeats = g_mswSlotRepeats.load(), realRuns = g_mswRealRuns.load();
@@ -6885,6 +6898,13 @@ void handle_pace_command(const char* args) {
         else if (sscanf_s(rest, "grid %d", &hg) == 1) { dvr::afw::set_synth_grid(hg); XRLOG("msw: seed grid %d", dvr::afw::synth_grid()); }
         else if (strncmp(rest, "hands on", 8) == 0) dvr::afw::set_synth_hands(true);
         else if (strncmp(rest, "hands off", 9) == 0) dvr::afw::set_synth_hands(false);
+        else if (strncmp(rest, "guard on", 8) == 0) dvr::afw::set_synth_guard(true);
+        else if (strncmp(rest, "guard off", 9) == 0) dvr::afw::set_synth_guard(false);
+        else if (strncmp(rest, "stickstop on", 12) == 0) dvr::afw::set_synth_stick_stop(true);
+        else if (strncmp(rest, "stickstop off", 13) == 0) dvr::afw::set_synth_stick_stop(false);
+        else if (sscanf_s(rest, "maxspeed %f", &lead) == 1) dvr::afw::set_synth_limits(lead, 0, 0);
+        else if (sscanf_s(rest, "maxturnrate %f", &lead) == 1) dvr::afw::set_synth_limits(0, lead, 0);
+        else if (sscanf_s(rest, "maxturn %f", &lead) == 1) dvr::afw::set_synth_limits(0, 0, lead);
         else if (sscanf_s(rest, "handgen %d", &hg) == 1 && hg >= -2 && hg <= 2) {
             g_mswHandGen.store(hg);
             XRLOG("msw: the image's grips are matched %d generation(s) from its head sample (hits %u, misses %u so far)",
@@ -6896,9 +6916,11 @@ void handle_pace_command(const char* args) {
         } else if (strncmp(rest, "on", 2) == 0) set_mod_spacewarp(true);
         else if (strncmp(rest, "off", 3) == 0) set_mod_spacewarp(false);
         else
-            XRLOG("msw: %s, thread %s, extrapolation %s, lead %.2f | usage: vrpace msw on|off, vrpace msw extrap on|off, "
-                  "vrpace msw lead <1.0..1.8>", g_mswWanted.load() ? "ON" : "off", g_mswThread ? "running" : "stopped",
-                  dvr::afw::synth_extrapolate() ? "on" : "off", g_mswLead.load());
+            XRLOG("msw: %s, thread %s, extrapolation %s, lead %.2f, guards %s, stick stop %s | usage: vrpace msw on|off, "
+                  "vrpace msw extrap on|off, vrpace msw lead <1.0..1.8>, vrpace msw guard on|off, vrpace msw stickstop on|off, "
+                  "vrpace msw maxspeed <uu/s> | maxturnrate <deg/s> | maxturn <deg>", g_mswWanted.load() ? "ON" : "off",
+                  g_mswThread ? "running" : "stopped", dvr::afw::synth_extrapolate() ? "on" : "off", g_mswLead.load(),
+                  dvr::afw::synth_guard() ? "ON" : "off", dvr::afw::synth_stick_stop() ? "ON" : "off");
     } else if (strcmp(verb, "depth") == 0) {
         // VR-39: the depth layer's live A/B (the extension itself is [VR] SubmitDepth, at instance creation).
         if (strncmp(rest, "on", 2) == 0) set_depth_live(true);

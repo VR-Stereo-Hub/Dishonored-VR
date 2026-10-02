@@ -668,9 +668,11 @@ int main() {
         // 20 ms old image (4 deg of new view at the edge, the strip behind the pillar): 0.9 is the bar.
         auto turnCase = [&](bool extrap, bool mtx, double* worldOk, double* handOk,
                             bool slotClock = false, int eye = 0, bool headMotion = false, bool staleWriter = false,
-                            int64_t slotTime = 1020000000, bool offOrigin = false) -> bool {
+                            int64_t slotTime = 1020000000, bool offOrigin = false, double yawStep = 2.0,
+                            V3 jump = {0, 0, 0}) -> bool {
             State t0 = still, t1 = still, t2 = still;
-            t1.bodyYawDeg = 2.0; t2.bodyYawDeg = 4.0;
+            t1.bodyYawDeg = yawStep; t2.bodyYawDeg = 2 * yawStep;
+            t1.bodyPos = jump; t2.bodyPos = jump;
             if (headMotion) { t0.headYawDeg = 8.0; t1.headYawDeg = -3.0; }
             if (offOrigin) t0.headPos = t1.headPos = t2.headPos = {1.0, 0, 0.3};
             // Synthesis preserves the source orientation; the compositor supplies the remaining head turn.
@@ -763,6 +765,59 @@ int main() {
             const bool off = turnCase(true, true, &wb, &hb, true, eye, true, true, 1020000000, true);
             snprintf(d, sizeof(d), "eye %d world %.3f: head 1 metre from tracking origin must orbit with the turn, not walk", eye, wb);
             check("msw: off-centre stick turn keeps the body pivot", off && wb > 0.9, d);
+        }
+        // VR-39 MSW guards (PLAN-mod-spacewarp section 7). Each case has its control: the same images with the guard
+        // (or the stick stop) off must show the fault the guard exists for.
+        {
+            dvr::afw::set_synth_guard(true);
+            const bool reg = turnCase(true, true, &wb, &hb, true);
+            const char* holdReg = dvr::afw::synth_hold_reason(true);
+            snprintf(d, sizeof(d), "200 deg/s stick turn: hold %s, world %.3f hands %.3f", holdReg ? holdReg : "none", wb, hb);
+            check("msw guard: an ordinary stick turn is neither held nor bent", reg && !holdReg && wb > 0.9 && hb > 0.97, d);
+
+            turnCase(true, true, &wb, &hb, true, 0, false, false, 1020000000, false, 30.0);   // a 30 deg snap in one 10 ms tick
+            const char* holdSnap = dvr::afw::synth_hold_reason(true);
+            dvr::afw::set_synth_guard(false);
+            const char* holdSnapOff = dvr::afw::synth_hold_reason(true);
+            snprintf(d, sizeof(d), "guard on: %s | control, guard off: %s", holdSnap ? holdSnap : "none", holdSnapOff ? holdSnapOff : "none");
+            check("msw guard: a snap turn between the held images holds the slot", holdSnap && !strcmp(holdSnap, "turn jump") && !holdSnapOff, d);
+
+            dvr::afw::set_synth_guard(true);
+            turnCase(true, true, &wb, &hb, true, 0, false, false, 1020000000, false, 0.0, V3{0, 0, -3.0});   // a 3 m Blink step
+            const char* holdBlink = dvr::afw::synth_hold_reason(true);
+            dvr::afw::set_synth_guard(false);
+            const char* holdBlinkOff = dvr::afw::synth_hold_reason(true);
+            snprintf(d, sizeof(d), "guard on: %s | control, guard off: %s", holdBlink ? holdBlink : "none", holdBlinkOff ? holdBlinkOff : "none");
+            check("msw guard: a Blink-sized camera jump holds the slot", holdBlink && !strcmp(holdBlink, "camera jump") && !holdBlinkOff, d);
+
+            // The per-eye clamp: a 4 deg slot turn clamped to 1 deg leaves the world mostly behind (like the control);
+            // the default 25 deg leaves it alone.
+            dvr::afw::set_synth_guard(true);
+            float s0 = 0, r0 = 0, c0 = 0; dvr::afw::synth_limits(&s0, &r0, &c0);
+            dvr::afw::set_synth_limits(0, 0, 1.0f);
+            double wClamp = 0, hClamp = 0;
+            const bool clamp = turnCase(true, true, &wClamp, &hClamp, true);
+            dvr::afw::set_synth_limits(0, 0, c0);
+            const bool unclamped = turnCase(true, true, &wb, &hb, true);
+            dvr::afw::set_synth_guard(false);
+            snprintf(d, sizeof(d), "clamp 1 deg: world %.3f | clamp %.0f deg: world %.3f", wClamp, c0, wb);
+            check("msw guard: the per-eye turn clamp bounds the extrapolated turn", clamp && unclamped && wClamp < 0.5 &&
+                  hClamp > 0.97 && wb > 0.9, d);
+
+            // The stick stop: stick released, the 4 deg slot turn is not extrapolated; held, it is.
+            dvr::afw::set_synth_stick_stop(true);
+            dvr::afw::note_turn_stick(0.0f);
+            double wStop = 0, hStop = 0;
+            const bool stop = turnCase(true, true, &wStop, &hStop, true);
+            dvr::afw::note_turn_stick(1.0f);
+            const bool held = turnCase(true, true, &wb, &hb, true);
+            dvr::afw::set_synth_stick_stop(false);
+            dvr::afw::note_turn_stick(0.0f);
+            const bool off = turnCase(true, true, &wc, &hc, true);
+            snprintf(d, sizeof(d), "stick released: world %.3f | stick held: world %.3f | stick stop off, released: world %.3f",
+                     wStop, wb, wc);
+            check("msw stick stop: a released stick stops the extrapolated turn", stop && held && off && wStop < 0.5 &&
+                  hStop > 0.97 && wb > 0.9 && wc > 0.9, d);
         }
     }
     {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.

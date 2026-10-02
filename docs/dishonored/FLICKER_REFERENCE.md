@@ -1,3 +1,42 @@
+## 2026-10-02: MSW guards - no extrapolation across a jump, a bounded turn, the stick stop (HOST-VERIFIED candidate)
+
+Surface/route: the WORLD in MSW-synthesized slots, both eyes, under right-stick turns, snap turns
+and Blink. Same row as the 2026-09-30 stick-turn echo entry below; that candidate (build 248/250)
+fixed the prediction's clock and source, this one bounds what it may predict. Separate from the
+head-sweep foreground jitter (top of the 09-30 entries), which this does not touch.
+
+1. **Symptom identity:** the one-frame world echo on stick turns (reported before build 248; no
+   verdict on 248/250 yet). The build-248 log's cumulative `msw: beat` maxima read "walk up to
+   155.2 uu and turn up to 382.46 deg per synthesized eye": the turn rate between the two held
+   images times the slot's age is unbounded, so one snap step or a Blink step between them is
+   carried into the slot. 382 deg is no stick turn (run 11 measured 500-600 deg/s).
+2. **Reproduction identity:** host only (`tools\afw-warp-host.ps1`, ray-traced scene). Branch
+   `claude/vr-39-msw-guards` off #165 (`3ad84d398`) plus the plan commit `8ee368641`.
+3. **Hypothesis and counterprediction:** the echo is an extrapolation past what the stick still
+   commands (release) or across a discontinuity. Prediction: guards on, no hold and no clamp in a
+   steady stick turn (`msw: guards ... turn clamped 0`), holds only around snaps and Blinks, and
+   the echo gone or reduced. An echo that stays with zero holds, zero clamps and zero stick stops
+   during the sweep falsifies this cause and points back at disocclusion or slot gaps.
+4. **Change identity (default OFF, F10 and seam A/B):**
+   - `[VR] ModSpacewarpGuard` / `vrpace msw guard on|off`: `synth_hold_reason` re-submits the last
+     real frame for a slot whose two held images show a camera speed over 3000 uu/s or a body turn
+     over 1000 deg/s; below that the per-eye turn is clamped to 25 deg. Ceilings are derived, not
+     measured (GroundSpeed 500 uu/s, Blink step 500 uu, run 11 turn rates); the guard line logs
+     each window's measured maxima so a log can set them (`vrpace msw maxspeed|maxturnrate|maxturn`).
+   - `[VR] ModSpacewarpStickStop` / `vrpace msw stickstop on|off`: no turn is extrapolated while
+     the right-stick X the game receives is zero (the pad bridge's final composed value).
+   - The re-submitted-last-frame slots are counted as repeats (jump / eye unwritable / not
+     rendered), no longer as failures.
+5. **Results:** host 60/60 including five new cases, each with its control: a 200 deg/s stick turn
+   is neither held nor bent (world 0.924); a 30 deg snap holds ("turn jump"; guard off: none); a
+   3 m step holds ("camera jump"; guard off: none); a 1 deg clamp leaves the world behind (0.000)
+   where 25 deg does not (0.924); a released stick stops the turn (0.000) where a held one, or the
+   stop off, does not (0.924). Slot scheduling 12/12. Not run: simulator, headset.
+6. **Status:** HOST-VERIFIED candidate. Not addressed: walking has inertia in the engine, so the
+   stick stop covers the turn only. The planned luma cut test was not built: a camera cut moves
+   the camera or its heading, which the speed and turn ceilings already catch in the same slot,
+   and a readback-based test arrives a frame late. Plan: PLAN-mod-spacewarp.md section 7.
+
 ## 2026-09-30: build 248 improves MSW; hand/weapon jitter during head sweeps remains (REPORTED)
 
 Surface/route: foreground hand and weapon edges during left/right HEAD sweeps, mainly with

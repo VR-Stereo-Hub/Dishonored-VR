@@ -1,3 +1,19 @@
+## 2026-10-02: MSW guards built (Cyberpunk VR frame-generation review); host-verified
+
+Current state: branch `claude/vr-39-msw-guards` (off #165, plus the plan in draft #166) adds two
+default-off MSW levers from the Cyberpunk 2077 VR port review (PLAN-mod-spacewarp section 7):
+`[VR] ModSpacewarpGuard` (no synthesis across a Blink, snap turn or cut; the extrapolated turn
+clamped) and `[VR] ModSpacewarpStickStop` (no turn extrapolated once the right stick is
+released). Slots that re-submit the last real frame are now counted as repeats, not failures.
+Host 60/60 (five new cases with controls) and slot scheduling 12/12. Not run in the simulator or
+headset. Plan item 7.5 is retracted: the smoothing it named is in the legacy drive, not the live
+hand path. Build 250's own question (hands follow, head sweep) is still unanswered.
+
+Next: one headset question with the guards and the stick stop on (F10 Display): during a steady
+right-stick sweep past a door frame, then a release, is the one-frame world echo gone, reduced
+or unchanged? Read the `msw: guards` line for the same run: holds, clamps and stick stops, and the
+window maxima of camera speed and turn rate that set the ceilings.
+
 ## 2026-09-30: build 248 improves MSW; residual hitches and foreground jitter remain
 
 Current state: headset report substantially improves the mod-spacewarp experience, with small

@@ -560,6 +560,8 @@ static void UpdateVirtualPad()
     // is fresh; anywhere else the game's own smooth turn stays live (fail soft).
     if (dvr::snap::present_tick(active ? in.lk[0] : 0.0f, xs.Gamepad.sThumbRX != 0, active, MaimNowMs()))
         xs.Gamepad.sThumbRX = 0;
+    // VR-39 MSW stick stop: the right-stick turn the game will receive, after every block above took its share.
+    dvr::afw::note_turn_stick(active ? xs.Gamepad.sThumbRX / 32767.0f : 0.0f);
     // 38.25 crawlbox: mirror the delivered (post-shaping) movement stick for
     // the crouch/raw diag line. SHORT writes are atomic enough for a log.
     g_dbgOutLx = active ? xs.Gamepad.sThumbLX : 0;

@@ -224,7 +224,23 @@ not changed yet.
 - If the held eye has no AFW image, a real present after a synthesized slot can pair a synthesized image
   with a real pose. This happens only at start-up, before AFW has an image.
 
-## 7. Integration plan: what the Cyberpunk VR port's frame generation teaches MSW (2026-10-02, PLANNED)
+## 7. Integration plan: what the Cyberpunk VR port's frame generation teaches MSW (2026-10-02, BUILT: 7.1-7.3)
+
+**Built on `claude/vr-39-msw-guards` (2026-10-02), host-verified, default off.** 7.1 and 7.2 are `[VR]
+ModSpacewarpGuard` and `[VR] ModSpacewarpStickStop` (F10 Display; `vrpace msw guard|stickstop|maxspeed|maxturnrate|
+maxturn`); 7.3 is in the `msw:` rate line and the new `msw: guards` line. What changed against the plan below:
+- 7.1: no Blink or snap EVENT hook and no luma test. The speed and turn-rate ceilings see a Blink, a snap and a
+  camera cut in the same slot from the images' own matrices; a readback test would arrive a frame late. On a jump
+  the slot re-submits the last real frame (a consistent pair) rather than synthesizing head-only from the newest
+  image: in AFW each eye's own image comes from a different side of the jump.
+- 7.5 RETRACTED: the `fp_mesh.cpp` parent smoothing belongs to the legacy component drive, which stands down
+  whenever the SkelControl drive owns the hands (`skelcontrol.cpp`, "legacy component drive stood down"), and
+  `[HandRender] SmoothAlpha` is read only by `src/legacy/rtd_drive.cpp`. The live hand path has no game-rate pose
+  filter to bypass, so nothing was built; the head-sweep weapon jitter needs another suspect.
+- 7.4: unchanged, as planned.
+
+Evidence and the headset question: FLICKER_REFERENCE, 2026-10-02 entry.
+
 
 Source: the MIT-licensed Cyberpunk 2077 VR port, release 0.1.7 (2026-09-29), `src/Framegen/` and its
 `docs/framegen-*.md`. It INTERPOLATES (a midpoint between two real frames, the newer one held for a slot) with

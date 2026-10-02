@@ -1448,3 +1448,13 @@ The new lever defaults off, and without reduced upscaling draws remain native.
     camera-writer intent. World pixels receive the turn; foreground and submitted head orientation
     keep their existing contracts (supersedes the early MSW pose-turn description above).
   - Host validation and remaining headset limits: PERFORMANCE and FLICKER_REFERENCE, same date.
+
+- **2026-10-02 - MSW holds the last real frame across a jump instead of synthesizing (VR-39 guards).**
+  - When the two held images straddle a Blink, a snap turn or a cut (camera speed or body-turn rate
+    over a ceiling), the slot re-submits the last real layer set rather than rebuilding either eye.
+  - Under AFW the two eyes' own images come from different presents, so after a jump one eye's image
+    is from before it: head-only synthesis would show the eyes on two sides of the jump. The last real
+    frame is a consistent pair, and the compositor still corrects its rotation.
+  - The turn stops with the stick (the pad bridge's composed value), not with the images, because the
+    images still show a turn for a frame after the stick is released. Walking is not stopped the same
+    way: the engine's walk has inertia.
