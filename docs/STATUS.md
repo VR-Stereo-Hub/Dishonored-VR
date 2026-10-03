@@ -1,3 +1,23 @@
+## 2026-10-03: 1.0.3 release preparation authorized
+
+The maintainer authorized integration of the accepted runtime and audited launcher into
+staging, followed by a release PR from staging to VR-Main. Version metadata is now 1.0.3;
+RELEASE_NOTES contains the supplied release copy with launcher/manual-install scope,
+F10 subtitle availability and ReShade mode wording corrected to match the implementation.
+The contributor credit is explicitly approved for these release notes.
+
+Gameplay evidence remains the matching build-266 run. Installed build 267 changes only
+the launcher, build ordering and documentation; its game runtime is identical to 266.
+Release preparation changes version metadata and documentation only. Preserve public
+ReShade-off and full Stereo defaults and the tester's complete personal INI.
+
+The 1.0.3 patch scope does not close the broader Stable milestone or the remaining
+VR-39/VR-133 research. Held-object AFW flicker and mod-spacewarp are known issues;
+HD texture import remains manual. The release PR is for the maintainer to merge.
+Do not merge VR-Main, tag, publish assets, delete feature branches or mark the broader
+milestone complete as part of preparation. Final release artifacts come from the
+maintainer-merged VR-Main tip. Earlier publication authorization is now resolved.
+
 ## 2026-10-03: F10 ReShade accepted; native sidebar launcher audited
 
 Build v1.0.1-266-gf3bd14b91 is headset-accepted for controller operation of the F10

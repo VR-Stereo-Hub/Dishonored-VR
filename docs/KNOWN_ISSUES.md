@@ -1,5 +1,14 @@
 # Known issues
 
+- AFW can still show flicker on held objects (VR-39). Full Stereo remains the default
+  and is available in the launcher or F10 > Display > Stereo rendering.
+- The mod's own spacewarp remains experimental and currently broken; it is limited to
+  F10 Debug mode and ships off (VR-39). This is separate from ordinary AFW.
+- Depth-dependent ReShade presets require `[ReShade] ManualRuntime=0` and a restart.
+  Manual mode is the default; non-manual mode can add desktop presentation overhead.
+- HD texture packs and shader/preset packages remain manual installations. The launcher
+  installs the optional ReShade runtime and links to the other packages' instructions.
+
 - If SteamVR crashes on startup with the default mirror-off setting, enable
   Desktop mirror in the launcher and retry (VR-208). The setting is now honored
   on every runtime. Actual GOG Galaxy launch acceptance remains outstanding

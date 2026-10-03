@@ -1,3 +1,12 @@
+## 2026-10-03: 1.0.3 release PR preparation
+
+The maintainer has authorized merging the accepted runtime and native launcher to staging
+and opening staging -> VR-Main for version 1.0.3. Release metadata/notes are prepared;
+see the top STATUS entry and the attached release PR for actual merge/build state.
+The maintainer merges VR-Main. Afterwards, build/package from that exact tip, tag and
+publish only when authorized. Preserve finalized feature branches. VR-39/VR-133 and
+the broad Stable milestone retain their unfinished work; do not close them wholesale.
+
 ## 2026-10-03: accepted F10 ReShade and native launcher audit
 
 Build 266 passed the tester's F10 ReShade controller usability check. Clean build
