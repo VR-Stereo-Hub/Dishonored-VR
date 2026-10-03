@@ -93,6 +93,21 @@ are optional. The proposed rectangle is not a locally measured universal subtitl
 The resolution limit is 450% (5834x6046), not a new default. The earlier Basic Stereo/AFW
 Display placement is retained from PR #168 without merging that PR.
 
+### Installed candidate identity
+
+Source build `v1.0.1-256-gd98dbcc96`, RelWithDebInfo, legacy off. Installed DLL SHA256
+`2C6CFAD9FDE2090BF37E4934B564049FB03DF6D4FAA43486B90D4F1F5B3CB5BA` matches the built DLL.
+The previous installed/log identity was `v1.0.1-258-g949e1ea8b` (different branch ancestry,
+not a semantic version downgrade). It is archived with the full INI and both logs under
+main `build/texture-reshade-candidate/before-256`. The new log banner is not yet available.
+
+Entire installed INI equals the expected target, SHA256
+`D2112CD2BD961E979D0C3312AC9AAA514291CD3A9543CC200B50395B038804CF`, 73348 bytes,
+1676 CRLF lines and no bare LF. Only Managed=shadow -> paged and ShadowSurfaces=0 -> 1
+changed. Existing Ex=1, ShadowFullCopy=1, AFW and MSW off remain. No ReShade runtime was
+installed for this texture test. Cost diagnostics are automatic at Info in paged mode.
+The earlier Display UI request is retained in this binary despite its separate PR ancestry.
+
 ### Next launch, one question
 
 Install the paged candidate with Ex=1, Managed=paged, ShadowSurfaces=1, ShadowFullCopy=1;

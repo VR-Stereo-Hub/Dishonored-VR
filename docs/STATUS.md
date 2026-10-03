@@ -14,8 +14,17 @@ production subtitle shader checks pass. The game was not launched. Headset accep
 Full source provenance, measurements, limits and ordered next tests are in
 [dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md), 2026-10-02 community integration.
 
-Next steps: install paged mode while preserving the complete current user INI and CRLF;
-archive DLL/INI/current+previous logs together. One question: after loading an existing save
+Installed: `v1.0.1-256-gd98dbcc96`, RelWithDebInfo, legacy off. DLL SHA256
+`2C6CFAD9FDE2090BF37E4934B564049FB03DF6D4FAA43486B90D4F1F5B3CB5BA`.
+Previous DLL/whole INI/both logs are archived in main
+`build/texture-reshade-candidate/before-256`. Full installed INI equals the prepared target:
+only Managed=shadow -> paged and ShadowSurfaces=0 -> 1 changed; 73348 bytes,
+1676 CRLF lines, no bare LF. Ex=1 and ShadowFullCopy=1 were already present. All other
+preferences, including AFW and MSW off, are retained. ReShade is absent. The next run's
+banner is still awaiting the tester's launch. Candidate launcher is in main
+`output/texture-reshade-candidate`.
+
+Next steps, one question: after loading an existing save
 and quickloading it three times, does every load return to gameplay without crashing?
 Verify the new log banner before interpreting it. Do not combine ReShade or subtitle tests
 with this loading question. VR-133's unrelated camera acceptance remains open; new issue
