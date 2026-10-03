@@ -15,9 +15,12 @@ lint is clean. The scratch test verifies locked legacy cleanup refuses before
 replacing d3d9.dll and a later payload failure restores all six legacy files.
 No game launch or rendering change is involved.
 
-Candidate delivery: replace only the stable launcher behind the existing desktop
-shortcut; preserve the installed game DLL and entire INI, compare to backups and
-verify CRLF. Evidence and candidate files: main `build/launcher-fixes/`.
+Installed candidate `v1.0.3-1-g8bc403e9a` behind the existing desktop shortcut.
+Launcher SHA256 `148877b9b4b72ad1446dd128328a075ebb20ea92d936b49250f2f18a7e50781c`.
+Game DLL, current/previous logs and complete INI are byte-identical to their backups.
+INI: 73,497 bytes, 1,685 CRLF, zero lone LF/CR, zero whole-file diff lines;
+SHA256 `6d3e82969765de54327eb40deb8fb3a890037fd8a5c6b23bfe597ccbcf1d5885`.
+Evidence and candidate ZIP: main `build/launcher-fixes/`. PR #171 targets staging.
 Next: review the launcher-only PR against staging. No merge or release is authorized.
 Linear creation was attempted but blocked by the workspace free issue limit;
 no new ticket number is invented. Details: [INSTALLER.md](INSTALLER.md).
