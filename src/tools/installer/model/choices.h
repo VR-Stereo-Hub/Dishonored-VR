@@ -21,7 +21,7 @@ struct Size { uint32_t w = 0, h = 0; bool operator==(const Size& o) const { retu
 constexpr uint32_t kBaseWidth = 2750, kBaseHeight = 2850;   // 100 %, Balanced per-eye resolution
 constexpr float kPerformancePercent = 75.0f, kBalancedPercent = 100.0f, kQualityPercent = 120.0f;
 constexpr float kUltraPercent = 150.0f;       // VR-282: 3368x3491, a step above Quality
-constexpr float kMaxPercent = 300.0f;         // VR-282: the sliders' ceiling (4763x4936), as in F10
+constexpr float kMaxPercent = 450.0f;         // custom: sliders' ceiling (5834x6046), as in F10
 
 // Optional front-page preferences. -1 preserves the existing/shipped key.
 // Values use INI semantics, including DesktopMirrorOff's inverted meaning.
@@ -46,6 +46,7 @@ inline constexpr Preference kPreferences[] = {
 
 struct Choices {
     int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
+    int textureMemory = -1; // -1 preserve, 0 conventional shadows, 1 paged
     bool overwriteSettings = true; // recommended defaults, backed up before replacement
     Runtime runtime = Runtime::Auto;
     Quality quality = Quality::Balanced;

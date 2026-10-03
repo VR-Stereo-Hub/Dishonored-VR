@@ -146,6 +146,12 @@ void track_session() {
     }
 }
 
+// ReShade invokes the callback synchronously inside this thread's native Present.
+// A TLS pending call prevents callbacks from another device/thread finishing this frame.
+volatile LONG g_reshadeActive = 0;
+struct PendingTail { void (*call)(void*) = nullptr; void* context = nullptr; };
+thread_local PendingTail g_pendingTail;
+
 HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT* dst, HWND wnd,
                             const RGNDATA* dirty) {
     g_presentRet = (uintptr_t)_ReturnAddress();   // VR-80: the game's call site of this present
@@ -165,6 +171,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool torn = false;
         if (!torn) {
             torn = true;
+            dvr::d3d9ex::clear_staging();
             dvr::hudclass::shutdown(); dvr::hudcap::shutdown(); dvr::markersharp::reset();   // VR-117: before the method and the runtime
             dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit");
         }
@@ -270,56 +277,72 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::etw::end(dvr::etw::kGameTick);
     dvr::perf::stamp(dvr::perf::kAfterTick);
 
-    // Present-tail: the method produces the eye texture; the runtime shows it.
-    dvr::stereo::FrameDevices devs;
-    devs.dev9 = self;
-    if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
-    dvr::stereo::FrameOutput out;
-    dvr::desktop_eye::begin_present(g_count);
-    const uint32_t priorCapture = dvr::capture::delivered_serial();
-    dvr::etw::begin(dvr::etw::kMethod);
-    dvr::stereo::end_frame(devs, out);
-    dvr::markersharp::prepare(self,devs.dev11,devs.ctx11,dvr::capture::width(),dvr::capture::height());
-    dvr::depthprobe::fgmask_prepare(self, devs.dev11, devs.ctx11, dvr::capture::width(), dvr::capture::height());   // VR-39 run 17
-    dvr::etw::end(dvr::etw::kMethod, out.eyeSign);
-    dvr::perf::part_mark("hk.method(capture+fence)");
-    dvr::perf::stamp(dvr::perf::kAfterEnd);
-    {
-        dvr::desktop_eye::Record record;
-        const bool known = dvr::desktop_eye::record_for(g_count, record);
-        dvr::scene_prepare::end_frame(known ? record.draw : 0,
-            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
-        dvr::query_profile::end_frame(known ? record.draw : 0,
-            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+    bool desktopXrReady = false, desktopStereoReady = false;
+    auto finishTail = [&]() {
+        // Present-tail: the method produces the eye texture; the runtime shows it.
+        dvr::stereo::FrameDevices devs;
+        devs.dev9 = self;
+        if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
+        dvr::stereo::FrameOutput out;
+        dvr::desktop_eye::begin_present(g_count);
+        const uint32_t priorCapture = dvr::capture::delivered_serial();
+        dvr::etw::begin(dvr::etw::kMethod);
+        dvr::stereo::end_frame(devs, out);
+        dvr::markersharp::prepare(self,devs.dev11,devs.ctx11,dvr::capture::width(),dvr::capture::height());
+        dvr::depthprobe::fgmask_prepare(self, devs.dev11, devs.ctx11, dvr::capture::width(), dvr::capture::height());   // VR-39 run 17
+        dvr::etw::end(dvr::etw::kMethod, out.eyeSign);
+        dvr::perf::part_mark("hk.method(capture+fence)");
+        dvr::perf::stamp(dvr::perf::kAfterEnd);
+        {
+            dvr::desktop_eye::Record record;
+            const bool known = dvr::desktop_eye::record_for(g_count, record);
+            dvr::scene_prepare::end_frame(known ? record.draw : 0,
+                g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+            dvr::query_profile::end_frame(known ? record.draw : 0,
+                g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+        }
+        // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
+        // method and the runtime on purpose: they belong to no stereo method.
+        dvr::perf::part_mark("hk.sceneQueryProfiles");
+        dvr::etw::begin(dvr::etw::kHud);
+        dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
+        dvr::etw::end(dvr::etw::kHud);
+        dvr::perf::part_mark("hk.hudRedirectEnd");
+        if (out.tex) ++g_submits;
+        dvr::etw::begin(dvr::etw::kXrEnd, out.eyeSign);
+        dvr::vr::on_present_end(out.tex);
+        dvr::etw::end(dvr::etw::kXrEnd, out.eyeSign);
+        dvr::vr::msw_tick();          // VR-39: start or stop the spacewarp thread with the session and the wish
+        cycleGuard.release();
+        dvr::perf::part_mark("hk.xrEnd");
+        dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
+        dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
+        // VR-115: only desktop delivery can be omitted. All per-eye engine, capture,
+        // XR and hook accounting above runs unchanged. Check the final session state
+        // because xrEndFrame can fail after the runtime's mirror callback.
+        const uint32_t deliveredCapture = dvr::capture::delivered_serial();
+        desktopXrReady = out.tex && deliveredCapture && deliveredCapture != priorCapture &&
+            dvr::vr::session_live();
+        desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
+            dvr::stereo::reentry_family_active();   // VR-39: aer tags every present too
+    };
+    HRESULT hr;
+    if (InterlockedCompareExchange(&g_reshadeActive, 0, 0)) {
+        g_pendingTail = { [](void* context) { (*static_cast<decltype(finishTail)*>(context))(); }, &finishTail };
+        hr = g_origPresent(self, src, dst, wnd, dirty);
+        if (g_pendingTail.call) {
+            g_pendingTail = {};
+            DVR_WARN("reshade: post-effect callback missing; finishing XR once and disabling bridge for this run");
+            InterlockedExchange(&g_reshadeActive, 0);
+            finishTail();
+        }
+    } else {
+        finishTail();
+        dvr::etw::begin(dvr::etw::kDeskPresent);
+        hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
+            desktopStereoReady, desktopXrReady, dvr::vr::session_running());
+        dvr::etw::end(dvr::etw::kDeskPresent);
     }
-    // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
-    // method and the runtime on purpose: they belong to no stereo method.
-    dvr::perf::part_mark("hk.sceneQueryProfiles");
-    dvr::etw::begin(dvr::etw::kHud);
-    dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
-    dvr::etw::end(dvr::etw::kHud);
-    dvr::perf::part_mark("hk.hudRedirectEnd");
-    if (out.tex) ++g_submits;
-    dvr::etw::begin(dvr::etw::kXrEnd, out.eyeSign);
-    dvr::vr::on_present_end(out.tex);
-    dvr::etw::end(dvr::etw::kXrEnd, out.eyeSign);
-    dvr::vr::msw_tick();          // VR-39: start or stop the spacewarp thread with the session and the wish
-    cycleGuard.release();
-    dvr::perf::part_mark("hk.xrEnd");
-    dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
-    dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
-    // VR-115: only desktop delivery can be omitted. All per-eye engine, capture,
-    // XR and hook accounting above runs unchanged. Check the final session state
-    // because xrEndFrame can fail after the runtime's mirror callback.
-    const uint32_t deliveredCapture = dvr::capture::delivered_serial();
-    const bool desktopXrReady = out.tex && deliveredCapture && deliveredCapture != priorCapture &&
-        dvr::vr::session_live();
-    const bool desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
-        dvr::stereo::reentry_family_active();   // VR-39: aer tags every present too
-    dvr::etw::begin(dvr::etw::kDeskPresent);
-    const HRESULT hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
-        desktopStereoReady, desktopXrReady, dvr::vr::session_running());
-    dvr::etw::end(dvr::etw::kDeskPresent);
     dvr::perf::stamp(dvr::perf::kAfterGamePresent);
     // 41.1 (session 8): the codes only a 9Ex device returns (the game never
     // handles them); the first of each is named so a TDR reads as a TDR.
@@ -339,6 +362,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
 }
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
+    dvr::d3d9ex::clear_staging();
     if (g_cb.before_reset) g_cb.before_reset(pp);
     g_gameDs = nullptr; g_gameDsKnown = false;   // Reset rebinds the auto depth-stencil
     DVR_INFO("device Reset (%ux%u windowed=%d)", pp ? pp->BackBufferWidth : 0,
@@ -419,6 +443,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
         dvr::stereo::on_reset();
         dvr::desktop_eye::on_reset();
         dvr::capture::on_reset();
+        dvr::d3d9ex::clear_staging();
         dvr::depthprobe::on_reset();
         dvr::log::flush();
     }
@@ -585,3 +610,13 @@ int present_backtrace(uintptr_t* out, int max) {
 void set_present_backtrace(bool on) { InterlockedExchange(&g_presentBtOn, on ? 1 : 0); if (!on) g_presentBtN = 0; }
 
 } // namespace dvr::frame
+
+extern "C" void __cdecl DvrReShadeAddonSetActive(int active) {
+    InterlockedExchange(&dvr::frame::g_reshadeActive, active ? 1 : 0);
+    DVR_INFO("reshade: post-effect bridge %s (enabled bridge requires native desktop Present)", active ? "active" : "inactive");
+}
+extern "C" void __cdecl DvrReShadePresentCallback() {
+    auto pending = dvr::frame::g_pendingTail;
+    dvr::frame::g_pendingTail = {};
+    if (pending.call) pending.call(pending.context);
+}

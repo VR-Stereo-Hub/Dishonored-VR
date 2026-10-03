@@ -271,6 +271,11 @@ UiAction draw_setup(ViewState& v)
     headset_section(v);
     quality_section(v);
     preferences_section(v);
+    if (heading("Texture packs", "Optional compatibility for large texture packs; applies next launch.")) {
+        bool paged = v.choices.textureMemory == 1;
+        if (ImGui::Checkbox("Reduce texture address space use", &paged)) v.choices.textureMemory = paged ? 1 : 0;
+        dvr::ovl::tip("Keeps CPU texture copies in pagefile-backed mappings. Frees 32-bit address space between locks, but still needs RAM/system commit and adds upload work. May stutter under memory pressure. Does not change Windows pagefile settings.");
+    }
     advanced_section(v);
     ImGui::EndChild();
 
@@ -411,6 +416,8 @@ UiAction draw_manage(ViewState& v)
             ImGui::SameLine();
             if (button("Create Start menu shortcut", false, true, half)) action = UiAction::StartShortcut;
             dvr::ovl::tip("Adds this launcher to your own Start menu. No administrator rights needed.");
+            if (button("Install ReShade 6.8", false, idle, half)) action = UiAction::InstallReShade;
+            dvr::ovl::tip("Downloads the full add-on runtime from reshade.me and verifies it. Keeps the mod and existing presets. Effects are optional and installed separately. ReShade adds GPU work and requires native desktop Present calls.");
             if (button("Uninstall", false, idle, half)) action = UiAction::Uninstall;
             dvr::ovl::tip("Removes the mod's files from the game folder. Your dishonored_vr.ini is kept unless you say otherwise.");
             ImGui::SameLine();

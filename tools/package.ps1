@@ -56,6 +56,9 @@ $stage = "$OutDir\dishonored-vr-v$version"
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
+Assert-DvrX86Dll "$bin\DishonoredVR_ReShade.addon32"
+Copy-Item "$bin\DishonoredVR_ReShade.addon32" $stage
+Copy-Item "$repo\tools\install-reshade.ps1" $stage
 Copy-Item "$bin\d3d9.dll" $stage
 Copy-Item "$bin\dvr_steamvr32.dll" $stage
 Copy-Item $ovrDll $stage

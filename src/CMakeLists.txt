@@ -176,6 +176,17 @@ add_executable(frame_test tools/frame_test/main.cpp
                           game/dishonored/hands/hand_frame.h
                           game/dishonored/hands/hand_frame_test.h)
 
+# --- DishonoredVR_ReShade.addon32 - RESH-XR2 post-effect XR bridge --------------
+    add_library(dvr_reshade_bridge SHARED
+        tools/reshade_bridge/reshade_bridge.cpp
+    )
+    set_target_properties(dvr_reshade_bridge PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "DishonoredVR_ReShade"
+        SUFFIX ".addon32"
+    )
+    target_compile_options(dvr_reshade_bridge PRIVATE /W3 /permissive-)
+
 # --- dvr_xrsim32 - the simulated OpenXR runtime --------------------------------
 # A Quest-3-shaped 32-bit OpenXR runtime so an agent can drive head, hands and
 # controllers and capture per-eye compositor output with no headset. Selected

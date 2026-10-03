@@ -41,6 +41,10 @@ const char* kSrc =
     "    float4 plate;   // backdrop r, g, b, a (straight colour, composed under)\n"
     "    float4 ellipse; // center UV, radii\n"
     "    float4 sourceRect; // source UV bounds\n"
+    "    float4 sub0;    // enabled, colour mode, outline alpha, background alpha\n"
+    "    float4 sub1;    // override RGB, outline width in pixels\n"
+    "    float4 subRect; // subtitle region in full-texture UV\n"
+    "    float4 texel;   // 1/width, 1/height, 0, 0\n"
     "};\n"
     "float4 psalpha(VSOut i) : SV_Target {\n"
     "    float2 uv = lerp(sourceRect.xy, sourceRect.zw, i.uv);\n"
@@ -54,6 +58,29 @@ const char* kSrc =
     // saturation (e.g. pale green becomes strong green at gamma 0.25).
     "    float brightness = p0.w > 0.0 && abs(p0.w - 1.0) > 0.001 && repair > 0.00001 ? pow(repair, 1.0 / p0.w) / repair : 1.0;\n"
     "    float3 rgb = c.rgb * brightness;\n"
+    // SUBREAD1: the subtitles already have an isolated sink, so this branch can\n"
+    "    // improve only that element without touching prompts, objectives or menus.\n"
+    "    if (sub0.x > 0.5) {\n"
+    "        float baseA = a;\n"
+    "        float2 d = texel.xy * max(sub1.w, 0.5);\n"
+    "        float nA = 0.0;\n"
+    "        float4 n; float nr;\n"
+    "        n=srcTex.Sample(samp,uv+float2( d.x,0)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        n=srcTex.Sample(samp,uv+float2(-d.x,0)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        n=srcTex.Sample(samp,uv+float2(0, d.y)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        n=srcTex.Sample(samp,uv+float2(0,-d.y)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        n=srcTex.Sample(samp,uv+float2( d.x, d.y)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        n=srcTex.Sample(samp,uv+float2(-d.x, d.y)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        n=srcTex.Sample(samp,uv+float2( d.x,-d.y)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        n=srcTex.Sample(samp,uv+float2(-d.x,-d.y)); nr=max(n.r,max(n.g,n.b)); nA=max(nA,max(n.a,nr));\n"
+    "        float outlineA = saturate(max(nA - baseA, 0.0) * sub0.z);\n"
+    "        if (sub0.y > 0.5) rgb = sub1.rgb * baseA;\n"
+    "        a = max(baseA, outlineA); // outline is black: alpha grows, RGB does not\n"
+    "        float inBand = step(subRect.x,uv.x)*step(subRect.y,uv.y)*step(uv.x,subRect.z)*step(uv.y,subRect.w);\n"
+    "        float bgA = saturate(sub0.w) * inBand * (1.0 - a);\n"
+    "        // Black background: premultiplied RGB contribution is zero; only alpha grows.\n"
+    "        a += bgA;\n"
+    "    }\n"
     "    float pa = plate.a * (1.0 - a);\n"
     "    float coverage = 1.0;\n"
     "    if (ellipse.z > 0 && ellipse.w > 0) {\n"
@@ -101,7 +128,7 @@ bool BlitQuad::init(ID3D11Device* dev) {
                 DVR_WARN("blit: the alpha-repair pixel shader would not create - the HUD panel would be opaque");
             pab->Release();
             D3D11_BUFFER_DESC bd = {};
-            bd.ByteWidth = 80;   // five float4s
+            bd.ByteWidth = 144;  // nine float4s (VR-119 + SUBREAD1)
             bd.Usage = D3D11_USAGE_DEFAULT;
             bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
             if (FAILED(dev->CreateBuffer(&bd, nullptr, &cb_)) || !cb_) {
@@ -162,11 +189,15 @@ void BlitQuad::draw(ID3D11DeviceContext* ctx, ID3D11ShaderResourceView* src,
     if (composite && (!over_ || !alpha || !alpha_ready())) return;
     const bool alphaRepair = alpha && psAlpha_ && cb_;
     if (alphaRepair) {
-        const float k[20] = { (float)alpha->mode, alpha->gain, alpha->floorA, alpha->gamma,
+        const float k[36] = { (float)alpha->mode, alpha->gain, alpha->floorA, alpha->gamma,
                               alpha->mixK, 0.0f, 0.0f, 0.0f,
                               alpha->backdrop[0], alpha->backdrop[1], alpha->backdrop[2], alpha->backdrop[3],
                               alpha->ellipse[0],alpha->ellipse[1],alpha->ellipse[2],alpha->ellipse[3],
-                              alpha->sourceRect[0],alpha->sourceRect[1],alpha->sourceRect[2],alpha->sourceRect[3] };
+                              alpha->sourceRect[0],alpha->sourceRect[1],alpha->sourceRect[2],alpha->sourceRect[3],
+                              (float)alpha->subtitle, (float)alpha->subtitleColor, alpha->subtitleOutline, alpha->subtitleBackground,
+                              alpha->subtitleColorRgb[0],alpha->subtitleColorRgb[1],alpha->subtitleColorRgb[2],alpha->subtitleOutlinePx,
+                              alpha->subtitleRect[0],alpha->subtitleRect[1],alpha->subtitleRect[2],alpha->subtitleRect[3],
+                              alpha->invSize[0],alpha->invSize[1],0.0f,0.0f };
         ctx->UpdateSubresource(cb_, 0, nullptr, k, 0, 0);
         ctx->PSSetConstantBuffers(0, 1, &cb_);
     }

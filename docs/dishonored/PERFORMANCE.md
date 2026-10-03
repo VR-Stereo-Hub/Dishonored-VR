@@ -1,3 +1,109 @@
+## 2026-10-02: community texture mapping and ReShade integration (HOST MEASURED, headset pending)
+
+Work: `codex/vr-133-texture-reshade`, branched from staging `1c47937a6`. VR-133 already
+tracks the SYSTEMMEM allocation / LockRect crash. A separate issue could not be created
+because the Linear workspace reached its free issue limit; the camera portion of VR-133
+remains separate and must not be closed by this integration.
+
+Source audit: the supplied source archive's Git baseline is released v1.0.2 `cecdae230`.
+Its 14 changed source files plus a new ReShade add-on contain paged CPU texture shadows,
+concurrent mip/face locks, post-effect XR capture, subtitle readability and a 450% ceiling.
+Only reviewed source was ported. Donated binaries and scripts were not executed.
+Archive SHA256: source `442C3889C956A817E26B4F975C9FA85B9FC6E9897094C42E70441429D5424DB8`;
+binary archive `8417C5E93B0725B936478770AB2D869AE8BCBE541583A8B7568238446672FF6E`.
+
+### What pagefile backing does and costs
+
+`Managed=paged` creates a pagefile-backed section for each translated 2D/cube texture,
+maps only currently locked mips, then unmaps on unlock. Distinct mips/faces can overlap.
+Writes copy into a cached full-chain SYSTEMMEM staging texture and use UpdateSurface at
+the corresponding mip. Read-only unlocks skip uploads. Volume textures and formats whose
+layout is not supported retain native SYSTEMMEM twins. The cache has eight slots and a
+128 MiB target; a single larger texture may exceed that target after older entries are dropped.
+
+This trades persistent **32-bit virtual addresses**, not total backing storage. Windows
+reserves system commit for the full mapping. Unmapping does not discard the CPU texture.
+Mapping is not an unconditional disk read, but memory pressure can cause paging and stalls.
+No Windows pagefile setting is changed. See Microsoft's
+[CreateFileMapping documentation](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createfilemappinga)
+and [file mapping overview](https://learn.microsoft.com/en-us/windows/win32/memory/file-mapping).
+
+Native x86 host, same machine, real D3D9Ex HAL, 80 serial 4 MiB fill/upload iterations per
+mode, identical 1024x1024 A8R8G8B8 resource. These are CPU wall times through UnlockRect,
+not GPU completion timestamps or a game-FPS estimate. The constant shape favors cache reuse.
+
+| Run / mode | Median | p95 | Maximum |
+|---|---:|---:|---:|
+| Initial conventional shadow | 0.326 ms | 0.793 ms | 2.780 ms |
+| Initial paged shadow | 1.632 ms | 2.250 ms | 2.375 ms |
+| Final conventional shadow | 0.339 ms | 1.008 ms | 3.057 ms |
+| Final paged shadow | 1.603 ms | 1.927 ms | 2.544 ms |
+
+Separate section-only experiment: 64 mappings of 4 MiB were filled and unmapped while their
+handles stayed open. Persistent available-VA loss was 0.00 MiB; system commit increased by
+262.84 MiB initially and 257.12 MiB in the final run. System commit is machine-wide and can
+move with other processes. This experiment excludes staging/GPU allocations and does not
+prove zero hard page faults in gameplay. Evidence: local `build/paged-tests*.log`;
+reproduction tool `tools/paged-texture-host.ps1`.
+
+Verdict: useful optional mitigation for address exhaustion with large texture packs,
+with a measured per-upload cost. Keep conventional shadows as the public default.
+No claim that all reported crashes are fixed, or that gameplay performance is unchanged.
+
+### Hardening and validation
+
+- Lock bounds, mip counts (including requested zero/full chain), faces, block alignment,
+  duplicate locks and mapping sizes are checked; publication protects section identity.
+- Unlock keeps its subresource claimed during upload; ordinary release no longer scans
+  8192 lock slots when there are no outstanding locks. Staging releases at Reset and PreExit.
+- Failed backing allocation refuses resource creation rather than returning an unusable texture.
+- Host GPU readback confirms pixels from levels 0/1; DXT1/DXT5 full mip chains upload,
+  including tiny tail levels. Concurrent mips and six cube faces, read-only persistence,
+  invalid requests, release and staging cleanup pass.
+- `device/paged` and `device/paged-cost` report backing, mapped/peak bytes, upload totals and
+  maximum, cache hits/misses and available commit/RAM every 60 seconds in paged mode.
+  These counters do not infer disk I/O. Existing streaming bursts still carry upload timings.
+- Launcher unit suite: 86 passed. Scratch installation/update/rollback/uninstall passes,
+  including exact whole-INI comparison for texture selection, omission and invalid flags.
+- Production HUD shader passes existing circle/crop/alpha checks and new subtitle off,
+  color, black-outline and premultiplied-background pixel checks. The initial outline test
+  omitted inverse texture size (supplied by the game); correcting that fixture made it pass.
+
+### ReShade and other integration limits
+
+The launcher optionally downloads the official 6.8.0 full add-on setup from
+[ReShade](https://reshade.me/#download), checks SHA256
+`AFE4C8F13048306307983B8B3D41D5BF00A86820440B0E57DEA10950E1176445`, extracts only the
+PE32 runtime as `ReShade32.dll`, and never executes the setup. Extracted DLL SHA256:
+`DA430E0A9C6EECEFA0D1B27D05E16C426FB5D04E808B194D914EAAC4B31BC0F8`.
+The mod remains `d3d9.dll`. Existing runtime gets a unique backup; existing presets/settings
+are preserved. Download mismatch leaves game files unchanged. Tests cover these cases.
+Runtime/shader binaries are not redistributed; shader packages remain a separate opt-in.
+ReShade is [BSD licensed](https://github.com/crosire/reshade/blob/v6.8.0/LICENSE.md).
+
+The rebuilt add-on uses official API 20, event 75 (`reshade_present`). The pending XR tail
+belongs to the Present thread and can execute only once. It preserves staging's AFW/MSW
+cycle ownership and foreground mask work. A missing callback finishes XR and disables the
+bridge for that run. While active, ReShade needs native Present and bypasses mirror-off
+Present suppression, so its cost must be tested independently. Actual headset effect capture
+and stereo compatibility remain unverified; an extraction test is not a rendering test.
+
+Subtitle color/outline/background controls and the community rectangle/enlargement preset
+are optional. The proposed rectangle is not a locally measured universal subtitle region.
+The resolution limit is 450% (5834x6046), not a new default. The earlier Basic Stereo/AFW
+Display placement is retained from PR #168 without merging that PR.
+
+### Next launch, one question
+
+Install the paged candidate with Ex=1, Managed=paged, ShadowSurfaces=1, ShadowFullCopy=1;
+keep ReShade absent and subtitle effects off. Load an existing save and quickload that same
+save three times. **Does every load return to gameplay without crashing?** Passing supports
+baseline loading stability only (and does not reproduce a texture-pack crash if no pack is
+installed). A crash keeps the mitigation unaccepted and the matching log/dump is the next
+artifact. Verify the installed DLL hash/log banner before reading this run; archive both logs
+before any relaunch. A texture-pack stress run, controlled frame-time A/B, and ReShade/subtitle
+headset checks follow as separate launch questions.
+
 ## 2026-10-02: Cyberpunk VR port frame generation reviewed for MSW (RESEARCH, nothing built)
 
 The Cyberpunk 2077 VR port's 0.1.7 frame generation interpolates (midpoint between two real frames, the

@@ -34,6 +34,7 @@ if(_dvr_prov_hit EQUAL -1)
 endif()
 
 set(DVR_SETUP_STATIC_PAYLOAD
+    "${PROJECT_SOURCE_DIR}/tools/install-reshade.ps1|install-reshade.ps1"
     "${DVR_OPENVR_DLL}|openvr_api.dll"
     "${PROJECT_SOURCE_DIR}/release/dishonored_vr.ini|dishonored_vr.ini"
     "${PROJECT_SOURCE_DIR}/tools/collect-support.ps1|collect-support.ps1"
@@ -89,11 +90,12 @@ add_custom_command(
            ${_stage_outs}
            "${DVR_SETUP_RC}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${DVR_SETUP_PAYLOAD_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:dvr_reshade_bridge>" "${DVR_SETUP_PAYLOAD_DIR}/DishonoredVR_ReShade.addon32"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:dvr_proxy>" "${DVR_SETUP_PAYLOAD_DIR}/d3d9.dll"
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:dvr_ovr_shim>" "${DVR_SETUP_PAYLOAD_DIR}/dvr_steamvr32.dll"
     ${_stage_cmds}
     COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/payload.rc" "${DVR_SETUP_RC}"
-    DEPENDS dvr_proxy dvr_ovr_shim "${CMAKE_CURRENT_SOURCE_DIR}/payload.rc" ${_stage_deps}
+    DEPENDS dvr_proxy dvr_ovr_shim dvr_reshade_bridge "${CMAKE_CURRENT_SOURCE_DIR}/payload.rc" ${_stage_deps}
     COMMENT "Staging the launcher payload ($<CONFIG>)"
     VERBATIM)
 

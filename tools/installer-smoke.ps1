@@ -154,6 +154,19 @@ Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $changed) 'retired modi
 $rc = Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--mirror','off'))
 Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini).Contains("DesktopMirrorOff=1")) 'SteamVR saves the mirror-off choice without a runtime override'
 
+$beforeTexture=[IO.File]::ReadAllText($ini)
+$rc = Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--texture-memory','on'))
+$afterTexture=[IO.File]::ReadAllText($ini)
+Assert ($rc -eq 0 -and $afterTexture.Contains("Managed=paged`r`n") -and $afterTexture.Contains("ShadowSurfaces=1`r`n") -and $afterTexture.Contains("ShadowFullCopy=1`r`n")) 'texture compatibility enables all required keys'
+Assert ($afterTexture -ceq $beforeTexture.Replace("`r`nManaged=shadow`r`n","`r`nManaged=paged`r`n").Replace("`r`nShadowSurfaces=0`r`n","`r`nShadowSurfaces=1`r`n")) 'texture selection changes only Managed and required ShadowSurfaces on this profile'
+$rc = Run ($common + @('--op','change','--runtime','steamvr','--quality','quality'))
+Assert ([IO.File]::ReadAllText($ini) -ceq $afterTexture) 'omitted texture flag preserves paged mode'
+$rc = Run ($common + @('--op','change','--texture-memory','invalid'))
+Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $afterTexture) 'invalid texture option refuses before writing'
+$rc = Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--texture-memory','off'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $beforeTexture.Replace("`r`nShadowSurfaces=0`r`n","`r`nShadowSurfaces=1`r`n")) 'texture off selects conventional shadows and retains the compatible surface redirect'
+Assert ((Sha (Join-Path $game 'DishonoredVR_ReShade.addon32')) -eq (Sha (Join-Path $bin 'DishonoredVR_ReShade.addon32'))) 'launcher embeds this bridge build'
+
 '6. disable / enable'
 $rc = Run ($common + @('--op', 'disable')); Assert ($rc -eq 0 -and (Test-Path (Join-Path $game 'disable_vr.txt'))) 'disable_vr.txt written'
 $rc = Run ($common + @('--op', 'enable')); Assert ($rc -eq 0 -and -not (Test-Path (Join-Path $game 'disable_vr.txt'))) 'disable_vr.txt removed'
@@ -163,7 +176,7 @@ $rc = Run ($common + @('--op', 'uninstall'))
 Assert ($rc -eq 0) "exit 0 (got $rc)"
 Assert ((Get-Item (Join-Path $game 'd3d9.dll')).Length -eq 5) 'the foreign d3d9.dll is back'
 Assert (-not (Test-Path (Join-Path $game 'd3d9.dll.dvr-backup'))) 'the backup was consumed'
-foreach ($n in @('dvr_steamvr32.dll', 'openvr_api.dll', 'dishonored_vr_install.json')) { Assert (-not (Test-Path (Join-Path $game $n))) "$n removed" }
+foreach ($n in @('DishonoredVR_ReShade.addon32', 'dvr_steamvr32.dll', 'openvr_api.dll', 'dishonored_vr_install.json')) { Assert (-not (Test-Path (Join-Path $game $n))) "$n removed" }
 Assert (Test-Path $ini) 'dishonored_vr.ini kept'
 $rc = Run ($common + @('--op', 'uninstall', '--delete-ini'))
 Assert (-not (Test-Path $ini)) 'dishonored_vr.ini deleted when asked'

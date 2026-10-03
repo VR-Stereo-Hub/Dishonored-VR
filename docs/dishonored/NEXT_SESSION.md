@@ -1,3 +1,13 @@
+# Next session: texture-pack candidate
+
+The active candidate is `codex/vr-133-texture-reshade`. Start with the newest STATUS entry
+and the community integration section in [PERFORMANCE.md](PERFORMANCE.md).
+One next-launch question: does loading an existing save and quickloading it three times
+return to gameplay every time without a crash? ReShade stays absent for this test.
+Verify installed build/banner and archive current plus previous logs before another launch.
+The original controller-remapping handoff below is historical; do not replace the active
+texture test with it. No merge is authorized.
+
 # Next session
 
 Controller bind remapping is built on `claude/controller-remap` (PR against staging, not merged):

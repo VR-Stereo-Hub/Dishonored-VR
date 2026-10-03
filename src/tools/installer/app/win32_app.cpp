@@ -216,6 +216,7 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
         s += i == Modifier ? std::to_wstring(c.preferences[i])
             : ((kPreferences[i].inverted ? !c.preferences[i] : c.preferences[i]) ? L"on" : L"off");
     }
+    if (c.textureMemory >= 0) s += c.textureMemory ? L" --texture-memory on" : L" --texture-memory off";
     s += c.overwriteSettings ? L" --overwrite-settings" : L" --keep-settings";
     if (deleteIni) s += L" --delete-ini";
     s += L" --result " + process::quote_arg(resultFile);
@@ -224,6 +225,7 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
 
 Report run_op(const Env& env, const Detection& det, const std::string& op, const Choices& c, bool deleteIni)
 {
+    if (op == "reshade") return do_reshade(env, det);
     if (op == "install") return do_install(env, det, c);
     if (op == "update") return do_update(env, det, c.overwriteSettings);
     if (op == "change") return do_change(env, det, c);
@@ -517,6 +519,7 @@ void dispatch(App& a, UiAction action)
     case UiAction::Uninstall: v.confirmUninstall = true; v.deleteIni = false; break;
     case UiAction::CancelUninstall: v.confirmUninstall = false; break;
     case UiAction::ConfirmUninstall: start_op(a, "uninstall", "Removing the mod..."); break;
+    case UiAction::InstallReShade: start_op(a, "reshade", "Downloading and verifying ReShade..."); break;
     case UiAction::ApplyBaseline: start_op(a, "baseline", "Applying the game settings..."); break;
     case UiAction::OpenReleases: process::open_unelevated(kReleasesUrl); break;
     case UiAction::OpenGameFolder: if (v.det.gameFound) process::open_unelevated(v.det.gameDir); break;

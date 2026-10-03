@@ -1,3 +1,26 @@
+## 2026-10-02: texture-pack/ReShade community integration candidate (VR-133)
+
+Current state: `codex/vr-133-texture-reshade` starts at staging `1c47937a6`. Reviewed community
+v1.0.2 source is ported with lock/resource safeguards, optional paged texture memory,
+ReShade post-effect bridge and hash-checked launcher download, subtitle readability preset,
+and 450% resolution. Existing Basic Stereo/AFW controls remain first in Display (PR #168
+changes retained in this candidate). No staging/release merge is authorized.
+
+Host verification: native D3D9Ex texture uploads/locks/cleanup pass; paged 4 MiB uploads cost
+1.60 ms median versus 0.34 ms conventional on this host. Unmapped 256 MiB backing consumes
+no persistent mapped VA but still about 256 MiB system commit. Paged mode stays optional.
+Launcher 86-unit suite, scratch lifecycle, ReShade extraction/preservation/hash refusal and
+production subtitle shader checks pass. The game was not launched. Headset acceptance is open.
+Full source provenance, measurements, limits and ordered next tests are in
+[dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md), 2026-10-02 community integration.
+
+Next steps: install paged mode while preserving the complete current user INI and CRLF;
+archive DLL/INI/current+previous logs together. One question: after loading an existing save
+and quickloading it three times, does every load return to gameplay without crashing?
+Verify the new log banner before interpreting it. Do not combine ReShade or subtitle tests
+with this loading question. VR-133's unrelated camera acceptance remains open; new issue
+creation was blocked by Linear's free issue limit.
+
 ## 2026-10-02: MSW guards built (Cyberpunk VR frame-generation review); host-verified
 
 Current state: branch `claude/vr-39-msw-guards` (off #165, plus the plan in draft #166) adds two

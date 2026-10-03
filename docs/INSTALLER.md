@@ -1,3 +1,32 @@
+## Candidate additions: texture packs and ReShade (2026-10-02)
+
+Setup/Change settings > Texture packs offers **Reduce texture address space use**.
+Omitting this choice preserves the existing mode. On writes `[Device] Ex=1`, `Managed=paged`,
+`ShadowSurfaces=1`, `ShadowFullCopy=1`; Off selects `Managed=shadow` and keeps the compatible
+surface/full-copy settings. CLI: `--texture-memory on|off`. The elevated worker receives the
+same choice. These apply next launch; Windows pagefile size is never edited. See
+[dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md) for measured costs and limits.
+
+Manage > **Install ReShade 6.8** downloads the official full add-on runtime on request after
+this launcher's mod build is installed. CLI operation: `--apply --op reshade`. The worker
+verifies the pinned official setup SHA256, reads its ZIP payload without executing it,
+validates PE32 x86, and installs only `ReShade32.dll`. Existing ReShade runtime is backed up;
+`d3d9.dll`, `ReShade.ini` and presets stay intact. Download failure or hash mismatch refuses
+the install. No ReShade runtime is embedded in the launcher or release ZIP.
+
+The mod's `DishonoredVR_ReShade.addon32` is built and embedded with every launcher, installed
+by install/update and included in rollback snapshots; it is inactive without ReShade.
+Mod uninstall removes this bridge and preserves ReShade and user presets. Shader packages
+remain a separate installation from the [official ReShade site](https://reshade.me/).
+The Home key opens ReShade to select installed effects. Renaming `ReShade32.dll` to
+`ReShade32.dll.disabled` disables it on the next launch. Its post-effect VR capture has not
+yet passed a headset test. Native desktop Present suppression is bypassed while the bridge
+is active; ReShade costs must be measured separately from paged texture mode.
+
+Verification: `tools/installer-host.ps1`, `tools/installer-smoke.ps1`,
+`tools/reshade-install-tests.ps1 -DownloadFile <official pinned setup>` and launcher render
+fixtures. Tests never execute the downloaded setup or start the game.
+
 # The launcher: DishonoredVR-Launcher-v1.0.1.exe (VR-198)
 
 One exe to install, configure and launch Dishonored VR. Setup offers runtime,

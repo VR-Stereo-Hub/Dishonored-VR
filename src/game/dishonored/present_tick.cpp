@@ -33,7 +33,7 @@ static void DvrPreTick(IDirect3DDevice9*)
             static uint64_t upMs = 0;
             const uint64_t now = GetTickCount64();
             if (upMs == 0) upMs = now;
-            else if (now - upMs >= 60000) { upMs = now; dvr::census::log_upload_if_moved("60 s"); }
+            else if (now - upMs >= 60000) { upMs = now; dvr::census::log_upload_if_moved("60 s"); if (dvr::d3d9ex::paged_active()) dvr::d3d9ex::log_status(); }
         }
     }
 

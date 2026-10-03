@@ -571,6 +571,23 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 ap.mode = a.mode; ap.gain = a.gain; ap.floorA = a.floorA; ap.gamma = a.gamma; ap.mixK = a.mixK;
                 dvr::hudlayout::backdrop_for_sink(i, ap.backdrop);
                 dvr::hudlayout::circle_for_sink(i, s.slotW, s.slotH, ap.ellipse);
+                if (dvr::hudlayout::sink_is_subtitles(i)) {
+                    const auto& sub = dvr::hudlayout::subtitle_readability();
+                    ap.subtitle = sub.colorMode != dvr::hudlayout::SubtitleOriginal || sub.outlineAlpha > 0 || sub.backgroundAlpha > 0;
+                    ap.subtitleColor = sub.colorMode;
+                    ap.subtitleOutline = sub.outlineAlpha;
+                    ap.subtitleOutlinePx = sub.outlinePx;
+                    ap.subtitleBackground = sub.backgroundAlpha;
+                    if (sub.colorMode == dvr::hudlayout::SubtitleWarm) {
+                        ap.subtitleColorRgb[0] = 1.00f; ap.subtitleColorRgb[1] = 0.88f; ap.subtitleColorRgb[2] = 0.28f;
+                    } else {
+                        ap.subtitleColorRgb[0] = ap.subtitleColorRgb[1] = ap.subtitleColorRgb[2] = 1.0f;
+                    }
+                    const auto& ec = dvr::hudlayout::element(dvr::hudlayout::ElSubtitles);
+                    memcpy(ap.subtitleRect, ec.rect, sizeof(ap.subtitleRect));
+                    ap.invSize[0] = s.slotW ? 1.0f / (float)s.slotW : 0.0f;
+                    ap.invSize[1] = s.slotH ? 1.0f / (float)s.slotH : 0.0f;
+                }
                 g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, &ap);
                 // Derive the small side panels from the SAME fenced delayed
                 // slot, before the wheel's circle mask. No extra D3D9 capture.

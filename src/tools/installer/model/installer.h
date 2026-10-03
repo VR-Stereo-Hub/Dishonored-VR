@@ -81,6 +81,7 @@ struct Report {
 };
 
 Detection detect(const Env& env);
+Report do_reshade(const Env& env, const Detection& det);
 Report do_install(const Env& env, const Detection& det, const Choices& choices);
 Report do_update(const Env& env, const Detection& det, bool overwriteSettings = true);
 Report do_change(const Env& env, const Detection& det, const Choices& choices);   // the five keys only

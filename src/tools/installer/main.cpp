@@ -114,6 +114,11 @@ int headless_mode(const Args& args, Env env)
             h.choices.preferences[i] = kPreferences[i].inverted ? !on : on;
         }
     }
+    if (args.has(L"--texture-memory")) {
+        const auto value = args.value(L"--texture-memory");
+        if (value != L"on" && value != L"off") { DVR_ERROR("launcher: --texture-memory requires on or off"); return 1; }
+        h.choices.textureMemory = value == L"on";
+    }
     h.choices.vdxrJson = args.value(L"--vdxr-json");
     h.choices.overwriteSettings = !args.has(L"--keep-settings");
     h.deleteIni = args.has(L"--delete-ini");

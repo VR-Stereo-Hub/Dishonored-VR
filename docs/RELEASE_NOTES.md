@@ -1,3 +1,18 @@
+## Unreleased candidate: community texture-pack and ReShade support
+
+- Optional texture-pack compatibility reduces persistent 32-bit texture address use.
+  Enable in launcher settings or F10 > Display > Texture packs, then restart. Conventional
+  shadows remain the default. This still needs system commit and adds texture-upload cost;
+  Windows pagefile settings are unchanged. Crash prevention awaits headset validation.
+- Launcher offers an optional verified ReShade 6.8 full add-on download. It keeps the mod's
+  DLL and existing presets. Shader packages are installed separately; effects are not enabled
+  automatically. The XR bridge is experimental and requires native desktop Present calls.
+- F10 > HUD offers subtitle color, outline/background and a community enlargement preset.
+  New effects and the candidate subtitle region are off until selected.
+- Custom resolution now extends to 450%; higher settings can substantially increase GPU load.
+- Stereo and experimental AFW are Basic controls at the top of Display. Other experimental
+  stereo controls remain in Debug.
+
 ## 1.0.2 (2026-09-28)
 
 Player-facing summary. The engineering detail for each item is in the sections below.

@@ -56,7 +56,7 @@ const RowDef kRows[ElCount] = {
     { "reticle",      -1, {0.470f, 0.470f, 0.530f, 0.530f},   false, AnchorWindow, "the dot at the centre (it grows when an interactable is focused)" },
     { "prompt",       -1, {0.520f, 0.460f, 0.800f, 0.620f},   false, AnchorWindow, "the interaction label right of the reticle (a plate, a text run, a rule, two icons)" },
     { "equipment",    -1, {0, 0, 0, 0},                       false, AnchorWindow, "the equipped item icons (unmeasured: not drawn where the simulator can reach)" },
-    { "subtitles",    -1, {0, 0, 0, 0},                       false, AnchorWindow, "conversation subtitles (unmeasured)" },
+    { "subtitles",    -1, {0, 0, 0, 0},                       false, AnchorWindow, "conversation subtitles (region can be set with the readability preset)" },
     { "objective",    -1, {0, 0, 0, 0},                       false, AnchorWindow, "the objective marker, a 0.033 square that moves with its target (no rectangle can claim it)" },
     { "toast",        -1, {0, 0, 0, 0},                       false, AnchorWindow, "the pickup toast (unmeasured)" },
     { "tutorial",     -1, {0, 0, 0, 0},                       false, AnchorWindow, "the tutorial window (unmeasured)" },
@@ -83,6 +83,8 @@ const HandCfg   kPresetHand   = { 0.0f, 0.0f, 0.0f, 0.06f, 0.22f, false, 0.0f };
 const char* const kAlphaModeNames[3] = { "repair", "captured", "mix" };
 const AlphaCfg  kPresetAlpha = { AlphaRepair, 1.0f, 0.0f, 1.0f, 1.0f };
 const Backdrop  kPresetBackdrop = { 0.0f, 0.0f, 0.0f, 0.0f };
+const SubtitleReadabilityCfg kPresetSubtitleReadability = { SubtitleOriginal, 0.0f, 1.50f, 0.0f };
+const char* const kSubtitleColorNames[3] = { "original", "white", "warm" };
 const char* const kBackdropKindNames[2] = { "window", "hand" };
 const char* const kHandNames[2] = { "HandL", "HandR" };
 // Pause, Note, Journal, Wheel, Store, MissionStats (dvr::mono::Context bits 3..8).
@@ -133,6 +135,7 @@ WheelVisualLease g_wheelVisual;
 float g_readWidth[2]={.60f,.70f},g_readDistance[2]={-.05f,-.05f},g_readRight[2]={.20f,.20f};
 const char* kReadNames[2]={"Note","Journal"};
 Backdrop   g_backdrop[2] = { kPresetBackdrop, kPresetBackdrop };
+SubtitleReadabilityCfg g_subtitleReadability = kPresetSubtitleReadability;
 bool       g_menuInWindow = true;
 uint32_t   g_menuMask = kPresetMenuMask;
 bool       g_menuRiding = false;
@@ -434,6 +437,32 @@ void backdrop_for_sink(int sink, float rgba[4]) {
     rgba[0] = g_backdrop[kind].r; rgba[1] = g_backdrop[kind].g; rgba[2] = g_backdrop[kind].b; rgba[3] = g_backdrop[kind].a;
 }
 
+
+const SubtitleReadabilityCfg& subtitle_readability() { return g_subtitleReadability; }
+
+bool sink_is_subtitles(int sink) {
+    return sink >= 0 && sink < kMaxSinks && g_sink[sink].element == ElSubtitles;
+}
+
+void set_subtitle_readability(const SubtitleReadabilityCfg& in, const char* who) {
+    SubtitleReadabilityCfg c = in;
+    if (c.colorMode < SubtitleOriginal || c.colorMode > SubtitleWarm) c.colorMode = SubtitleOriginal;
+    if (c.outlineAlpha < 0.0f) c.outlineAlpha = 0.0f;
+    if (c.outlineAlpha > 1.0f) c.outlineAlpha = 1.0f;
+    if (c.outlinePx < 0.5f) c.outlinePx = 0.5f;
+    if (c.outlinePx > 4.0f) c.outlinePx = 4.0f;
+    if (c.backgroundAlpha < 0.0f) c.backgroundAlpha = 0.0f;
+    if (c.backgroundAlpha > 0.8f) c.backgroundAlpha = 0.8f;
+    g_subtitleReadability = c;
+    write_key("SubtitleColor", kSubtitleColorNames[c.colorMode]);
+    write_f("SubtitleOutline", c.outlineAlpha);
+    write_f("SubtitleOutlinePx", c.outlinePx);
+    write_f("SubtitleBackground", c.backgroundAlpha);
+    DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000,
+        "hud/subtitles: colour=%s outline=%.2f width=%.2fpx background=%.2f (%s)",
+        kSubtitleColorNames[c.colorMode], c.outlineAlpha, c.outlinePx, c.backgroundAlpha, who);
+}
+
 // ---- the mutators (each writes its ini key at once) -----------------------
 
 void set_element_anchor(int e, int anchor, const char* who) {
@@ -563,6 +592,7 @@ void reset_presets(const char* who) {
     set_alpha(kPresetAlpha, who);
     set_backdrop(0, kPresetBackdrop, who);
     set_backdrop(1, kPresetBackdrop, who);
+    set_subtitle_readability(kPresetSubtitleReadability, who);
     set_menu_in_window(true, who);
     set_menu_context_mask(kPresetMenuMask, who);
     rebalance();
@@ -1272,6 +1302,22 @@ void configure(const char* ini) {
             g_backdrop[k] = d;
         }
     }
+    {
+        SubtitleReadabilityCfg c = kPresetSubtitleReadability;
+        if (read_s(ini, "SubtitleColor", v, sizeof(v))) {
+            if (!_stricmp(v, "original")) c.colorMode = SubtitleOriginal;
+            else if (!_stricmp(v, "white")) c.colorMode = SubtitleWhite;
+            else if (!_stricmp(v, "warm") || !_stricmp(v, "yellow")) c.colorMode = SubtitleWarm;
+            else DVR_WARN("hud/layout: [Hud] SubtitleColor=%s is not original|white|warm; original stands", v);
+        }
+        c.outlineAlpha = read_f(ini, "SubtitleOutline", c.outlineAlpha);
+        c.outlinePx = read_f(ini, "SubtitleOutlinePx", c.outlinePx);
+        c.backgroundAlpha = read_f(ini, "SubtitleBackground", c.backgroundAlpha);
+        if (c.outlineAlpha < 0) c.outlineAlpha = 0; if (c.outlineAlpha > 1) c.outlineAlpha = 1;
+        if (c.outlinePx < .5f) c.outlinePx = .5f; if (c.outlinePx > 4) c.outlinePx = 4;
+        if (c.backgroundAlpha < 0) c.backgroundAlpha = 0; if (c.backgroundAlpha > .8f) c.backgroundAlpha = .8f;
+        g_subtitleReadability = c;
+    }
     uint32_t headMask=0,blurMask=0;
     for(int i=0;i<kMenuContexts;++i) {
         char key[64];
@@ -1420,6 +1466,7 @@ void save(const char* ini) {
     save_read_rotation();
     set_backdrop(0, g_backdrop[0], "save");
     set_backdrop(1, g_backdrop[1], "save");
+    set_subtitle_readability(g_subtitleReadability, "save");
     for(int i=0;i<kMenuContexts;++i) {
         char key[64];
         _snprintf(key,sizeof(key),"HeadLook%s",kMenuContextNames[i]); write_i(key,menu_head_look(kMenuContextBits[i]));
@@ -1819,6 +1866,36 @@ void draw_ui() {
         }
         if (ch) set_menu_context_mask(mask, "F10 HUD");
         ImGui::TextDisabled("%s", g_menuRiding ? "a screen is riding now" : "no screen riding");
+    }
+    if (ov::section("Subtitle readability", ov::Basic,
+                    "Makes dialogue subtitles easier to read in VR without changing the rest of the HUD.")) {
+        SubtitleReadabilityCfg c = g_subtitleReadability;
+        bool ch = false;
+        const char* colours[] = { "Original game colour", "White", "Warm yellow" };
+        ch |= ImGui::Combo("Text colour", &c.colorMode, colours, 3);
+        ov::tip("Original keeps Dishonored's colour. White and warm yellow replace only subtitle glyph colour.");
+        ch |= dvr::ovl::slider_float("Black outline", &c.outlineAlpha, 0.0f, 1.0f, "%.2f");
+        ov::tip("Adds a dark halo around subtitle glyphs. 0 disables it.");
+        ch |= dvr::ovl::slider_float("Outline width (pixels)", &c.outlinePx, 0.5f, 4.0f, "%.1f");
+        ov::tip("Width in the subtitle output texture; 1.5-2.0 is a good VR range.");
+        ch |= dvr::ovl::slider_float("Black background", &c.backgroundAlpha, 0.0f, 0.8f, "%.2f");
+        ov::tip("Adds a translucent black plate only inside the configured subtitle band. 0 disables it.");
+        if (dvr::ovl::button("Try community subtitle preset")) {
+            const float region[4] = { .260f, .630f, .730f, .720f };
+            set_element_rect(ElSubtitles, region, "F10 subtitle preset");
+            set_element_place(ElSubtitles, false, 0, 0, 1.50f, "F10 subtitle preset");
+            set_element_place(ElPrompt, false, 0, 0, 1.35f, "F10 subtitle preset");
+            c = { SubtitleOriginal, .75f, 1.50f, .30f }; ch = true;
+        }
+        ov::tip("Opt-in candidate region from the community patch. Verify that only dialogue subtitles move; HUD > Elements can adjust the region. Also enlarges interaction prompts.");
+        if (dvr::ovl::button("Restore subtitle readability defaults")) {
+            const float region[4] = {};
+            set_element_rect(ElSubtitles, region, "F10 subtitle reset");
+            set_element_place(ElSubtitles, false, 0, 0, 1.00f, "F10 subtitle reset");
+            set_element_place(ElPrompt, false, 0, 0, 1.17f, "F10 subtitle reset");
+            c = kPresetSubtitleReadability; ch = true;
+        }
+        if (ch) set_subtitle_readability(c, "F10 HUD");
     }
     if (ov::section("HUD elements", ov::Advanced,
                     "Where each part of the HUD floats: off, the window in front of you, the world, or a hand panel.")) {

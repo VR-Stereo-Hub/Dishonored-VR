@@ -27,7 +27,7 @@
 //   device upload                VR-15: the upload census - did the game's texture writes reach the GPU?
 //   device shadowsurfaces on|off VR-15: redirect a GetSurfaceLevel lock to the twin (live A/B, ships off)
 //   device ex on|off             [Device] Ex for the NEXT launch (the 9Ex device, core/gfx/d3d9ex)
-//   device managed <m>           [Device] Managed=none|default|dynamic|shadow for the NEXT launch
+//   device managed <m>           [Device] Managed=none|default|dynamic|shadow|paged for the NEXT launch
 //   vrpace <args>                the runtime layer's pacing seam (on|off|thread|detach|feed|sync|spike|simidle|status)
 //   vrmirror on|off|status       the desktop mirror pin (counted only on D3D9)
 //   vrinput on|off|status        the virtual gamepad
@@ -448,7 +448,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             // VR-15: the per-level push, the candidate fix for black-at-distance
             if (!strcmp(sub, "shadowfullcopy") && DvrOnOff(v, &b)) { dvr::d3d9ex::set_full_copy(b); return true; }
         }
-        Log("device: usage - device census|status|upload | device ex on|off | device managed none|default|dynamic|shadow "
+        Log("device: usage - device census|status|upload | device ex on|off | device managed none|default|dynamic|shadow|paged "
             "| device shadowsurfaces on|off | device shadowfullcopy on|off");
         return true;
     }
