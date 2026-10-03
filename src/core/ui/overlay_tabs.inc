@@ -870,6 +870,119 @@ static void OvlTabHud()
 // ---- Display --------------------------------------------------------------------------------
 static void OvlTabDisplay()
 {
+    if (OvlSec("Stereo rendering", kOvlB, "How the two eyes are rendered. Try both and compare.")) {
+        // VR-39: reentry (both eyes every tick) against AER (one eye per tick, alternating).
+        const char* wanted = dvr::stereo::wanted_name();
+        const bool isAer = !_stricmp(wanted, "aer"), isAfw = !_stricmp(wanted, "afw");
+        if (!isAer && !isAfw && _stricmp(wanted, "reentry")) {
+            ImGui::TextDisabled("Stereo is on the flat screen (%s). Debug > Stereo and capture selects it.", wanted);
+        } else {
+            const int cur = isAfw ? 2 : isAer ? 1 : 0;
+            int sm = cur;
+            static const char* kNames[3] = {"reentry", "aer", "afw"};
+            const bool c0 = dvr::ovl::radio_button("Stereo", &sm, 0);
+            OvlTip("The shipped method: each game frame draws the left eye, then the right.");
+            bool c1 = false;
+            if (OvlAt(kOvlD)) {
+                ImGui::SameLine();
+                c1 = dvr::ovl::radio_button("Alternate eyes (AER)", &sm, 1);
+                OvlTip("Each game frame draws ONE eye, alternating; two game frames make one headset frame.");
+            }
+            ImGui::SameLine();
+            const bool c2 = dvr::ovl::radio_button("Alternate frame warping (AFW) (experimental)", &sm, 2);
+            OvlTip("Each game frame draws ONE eye and is sent to the headset on its own; the other eye is "
+                   "the previous frame, warped to your head. Aims for the headset's full rate. Best when combined with DLSS or DLAA.");
+            if ((c0 || c1 || c2) && sm != cur && dvr::stereo::choose(kNames[sm]))
+                ConfigWriteKey("Stereo", "Method", kNames[sm], "F10 Display");
+            if (OvlAt(kOvlD)) {
+                bool clamp = DeltaClampEnabled();
+                ImGui::BeginDisabled(!isAer);
+                if (dvr::ovl::checkbox("Delta clamp (both eyes show the same moment)", &clamp)) DeltaClampSet(clamp, "F10 Display");
+                OvlTip("Freezes the world on the right-eye frame and catches up on the left, like slowed time. "
+                       "Stops moving things doubling between the eyes. AER only.");
+                ImGui::EndDisabled();
+                ImGui::TextDisabled("Active: %s", dvr::stereo::active_name());
+                if (isAfw) {
+                    // VR-39: the two run-6 corrections as live A/Bs.
+                    bool fgOn = dvr::afw::fg();
+                    if (dvr::ovl::checkbox("AFW: hands and weapon at the game camera's FOV", &fgOn)) dvr::afw::set_fg(fgOn, "F10");
+                    OvlTip("The arms and weapon are drawn with the game camera's FOV, the world with the mod's projection. Off "
+                           "rebuilds them with the world's, which makes them jitter every other frame.");
+                    bool nm = dvr::afw::near_miss() > 0.0f;
+                    if (dvr::ovl::checkbox("AFW: keep thin structures (grates, railings)", &nm)) dvr::afw::set_near_miss(nm ? 6.0f : 0.0f, "F10");
+                    OvlTip("Off lets thin structures fall back to the background fill, which shows up as bright dots on grates.");
+                    bool own = dvr::afw::own_hands() > 0.0f;
+                    if (dvr::ovl::checkbox("AFW: still hands keep their own shading (experimental)", &own)) dvr::afw::set_own_hands(own ? 0.3f : 0.0f, "F10");
+                    bool clean = dvr::afw::clean_on();   // VR-39 run 15
+                    if (dvr::ovl::checkbox("AFW: hands without the other eye's markers and panel", &clean)) dvr::afw::set_clean(clean, "F10");
+                    OvlTip("Off shows the old fault: objective text and the F10 panel from one eye appear on the sword in the other.");
+                    bool ss = dvr::afw::still_shade();   // VR-39 run 21
+                    if (dvr::ovl::checkbox("AFW: a still weapon keeps each eye's own shine", &ss)) dvr::afw::set_still_shade(ss, "F10");
+                    OvlTip("Off shows the old fault: a shiny blade flickers its reflection even when held still.");
+                    bool eh = dvr::afw::edge_hands();   // VR-39 run 22
+                    if (dvr::ovl::checkbox("AFW: hands at the frame's edges stay whole", &eh)) dvr::afw::set_edge_hands(eh, "F10");
+                    OvlTip("Off shows the old fault: parts of an arm near the edge of view vanish every other frame.");
+                    bool hh = dvr::afw::held_hands();   // VR-39 run 25
+                    if (dvr::ovl::checkbox("AFW: each eye's own hands follow the controllers", &hh)) dvr::afw::set_held_hands(hh, "F10");
+                    OvlTip("Lets each eye fill hand parts the other eye cannot see (a thumb, a finger's side) while your hands move.");
+                    bool km = dvr::depthprobe::fgmask_on();   // VR-39 run 17
+                    if (dvr::ovl::checkbox("AFW: hands and weapon from the game's own draws", &km)) dvr::depthprobe::fgmask_set(km, "F10");
+                    OvlTip("Off falls back to a distance limit: a close face is treated as your hands, a far blade tip as the world.");
+                    // VR-39: the depth layer. The ini key takes effect at the next start; the live switch needs it.
+                    bool sd = dvr::vr::submit_depth();
+                    if (dvr::ovl::checkbox("AFW: send depth to the headset runtime (SSW, positional reprojection; restart)", &sd)) {
+                        dvr::vr::set_submit_depth(sd);
+                        OverlaySaveDefaults();   // the key is read at the next start
+                    }
+                    // VR-39: the mod's own spacewarp - fills the display slots the game misses (live).
+                    bool msw = dvr::vr::mod_spacewarp();
+                    if (dvr::ovl::checkbox("AFW: the mod's own spacewarp (fills missed frames; turn off SSW in Virtual Desktop)", &msw)) {
+                        dvr::vr::set_mod_spacewarp(msw);
+                        OverlaySaveDefaults();
+                    }
+                    if (msw) {
+                        bool hr = dvr::vr::msw_half_rate();
+                        if (dvr::ovl::checkbox("Spacewarp: lock the game to half rate (like Virtual Desktop SSW)", &hr)) {
+                            dvr::vr::set_msw_half_rate(hr);
+                            OverlaySaveDefaults();
+                        }
+                        bool mh = dvr::afw::synth_hands();
+                        if (dvr::ovl::checkbox("Spacewarp: hands follow the controllers in filled frames", &mh)) {
+                            dvr::afw::set_synth_hands(mh);
+                            OverlaySaveDefaults();
+                        }
+                        bool mx = dvr::afw::synth_extrapolate();
+                        if (dvr::ovl::checkbox("Spacewarp: predict walking and turning in filled frames", &mx)) {
+                            dvr::afw::set_synth_extrapolate(mx);
+                            OverlaySaveDefaults();
+                        }
+                        bool mg = dvr::afw::synth_guard();
+                        if (dvr::ovl::checkbox("Spacewarp: don't predict across a Blink, snap turn or cut", &mg)) {
+                            dvr::afw::set_synth_guard(mg);
+                            OverlaySaveDefaults();
+                        }
+                        OvlTip("Shows the last real frame for that one filled frame instead, and limits how far a turn is predicted.");
+                        bool ms = dvr::afw::synth_stick_stop();
+                        if (dvr::ovl::checkbox("Spacewarp: stop predicting a turn when the stick is released", &ms)) {
+                            dvr::afw::set_synth_stick_stop(ms);
+                            OverlaySaveDefaults();
+                        }
+                    }
+                    if (dvr::vr::depth_active()) {
+                        bool dl = dvr::vr::depth_live();
+                        if (dvr::ovl::checkbox("AFW: depth layer live (A/B)", &dl)) dvr::vr::set_depth_live(dl);
+                    }
+                    OvlTip("A still hand or weapon keeps each eye's own lighting instead of the other eye's. Can show a slowly "
+                           "moving weapon one frame late.");
+                    // VR-39: the diagnostic capture - close this panel after pressing and hold the pose to be captured.
+                    if (dvr::ovl::button("Capture AFW frames for diagnosis")) dvr::afw::request_dump(16, 5000, dvr::paths::dumps_dir(), "F10");
+                    OvlTip("Starts 5 seconds after you press it: close this panel and hold still (hands in view). Saves 16 "
+                           "frames to the mod's dumps folder for analysis; the game hitches for about a second while it saves.");
+                    ImGui::TextDisabled("Capture: %s", dvr::afw::dump_status());
+                }
+            }
+        }
+    }
     if (OvlSec("Field of view", kOvlB, "How much of the game world the view covers.")) {
         float projectionFov = ProjectionFovGet();
         bool customFov = projectionFov > 0;
@@ -1165,114 +1278,6 @@ static void OvlTabDisplay()
         ImGui::SameLine();
         if (dvr::ovl::radio_button("Off", &oc, 2)) OcclusionModeSet(2, "F10 Display");
         OvlTip("Nothing is ever hidden. Always correct, but slower.");
-    }
-    if (OvlSec("Stereo rendering (experimental)", kOvlA, "How the two eyes are rendered. Try both and compare.")) {
-        // VR-39: reentry (both eyes every tick) against AER (one eye per tick, alternating).
-        const char* wanted = dvr::stereo::wanted_name();
-        const bool isAer = !_stricmp(wanted, "aer"), isAfw = !_stricmp(wanted, "afw");
-        if (!isAer && !isAfw && _stricmp(wanted, "reentry")) {
-            ImGui::TextDisabled("Stereo is on the flat screen (%s). Debug > Stereo and capture selects it.", wanted);
-        } else {
-            const int cur = isAfw ? 2 : isAer ? 1 : 0;
-            int sm = cur;
-            static const char* kNames[3] = {"reentry", "aer", "afw"};
-            const bool c0 = dvr::ovl::radio_button("Both eyes every frame", &sm, 0);
-            OvlTip("The shipped method: each game frame draws the left eye, then the right.");
-            ImGui::SameLine();
-            const bool c1 = dvr::ovl::radio_button("Alternate eyes (AER)", &sm, 1);
-            OvlTip("Each game frame draws ONE eye, alternating; two game frames make one headset frame.");
-            ImGui::SameLine();
-            const bool c2 = dvr::ovl::radio_button("Alternate frame warping (AFW)", &sm, 2);
-            OvlTip("Each game frame draws ONE eye and is sent to the headset on its own; the other eye is "
-                   "the previous frame, warped to your head. Aims for the headset's full rate.");
-            if ((c0 || c1 || c2) && sm != cur && dvr::stereo::choose(kNames[sm]))
-                ConfigWriteKey("Stereo", "Method", kNames[sm], "F10 Display");
-            bool clamp = DeltaClampEnabled();
-            ImGui::BeginDisabled(!isAer);
-            if (dvr::ovl::checkbox("Delta clamp (both eyes show the same moment)", &clamp)) DeltaClampSet(clamp, "F10 Display");
-            OvlTip("Freezes the world on the right-eye frame and catches up on the left, like slowed time. "
-                   "Stops moving things doubling between the eyes. AER only.");
-            ImGui::EndDisabled();
-            ImGui::TextDisabled("Active: %s", dvr::stereo::active_name());
-            if (isAfw) {
-                // VR-39: the two run-6 corrections as live A/Bs.
-                bool fgOn = dvr::afw::fg();
-                if (dvr::ovl::checkbox("AFW: hands and weapon at the game camera's FOV", &fgOn)) dvr::afw::set_fg(fgOn, "F10");
-                OvlTip("The arms and weapon are drawn with the game camera's FOV, the world with the mod's projection. Off "
-                       "rebuilds them with the world's, which makes them jitter every other frame.");
-                bool nm = dvr::afw::near_miss() > 0.0f;
-                if (dvr::ovl::checkbox("AFW: keep thin structures (grates, railings)", &nm)) dvr::afw::set_near_miss(nm ? 6.0f : 0.0f, "F10");
-                OvlTip("Off lets thin structures fall back to the background fill, which shows up as bright dots on grates.");
-                bool own = dvr::afw::own_hands() > 0.0f;
-                if (dvr::ovl::checkbox("AFW: still hands keep their own shading (experimental)", &own)) dvr::afw::set_own_hands(own ? 0.3f : 0.0f, "F10");
-                bool clean = dvr::afw::clean_on();   // VR-39 run 15
-                if (dvr::ovl::checkbox("AFW: hands without the other eye's markers and panel", &clean)) dvr::afw::set_clean(clean, "F10");
-                OvlTip("Off shows the old fault: objective text and the F10 panel from one eye appear on the sword in the other.");
-                bool ss = dvr::afw::still_shade();   // VR-39 run 21
-                if (dvr::ovl::checkbox("AFW: a still weapon keeps each eye's own shine", &ss)) dvr::afw::set_still_shade(ss, "F10");
-                OvlTip("Off shows the old fault: a shiny blade flickers its reflection even when held still.");
-                bool eh = dvr::afw::edge_hands();   // VR-39 run 22
-                if (dvr::ovl::checkbox("AFW: hands at the frame's edges stay whole", &eh)) dvr::afw::set_edge_hands(eh, "F10");
-                OvlTip("Off shows the old fault: parts of an arm near the edge of view vanish every other frame.");
-                bool hh = dvr::afw::held_hands();   // VR-39 run 25
-                if (dvr::ovl::checkbox("AFW: each eye's own hands follow the controllers", &hh)) dvr::afw::set_held_hands(hh, "F10");
-                OvlTip("Lets each eye fill hand parts the other eye cannot see (a thumb, a finger's side) while your hands move.");
-                bool km = dvr::depthprobe::fgmask_on();   // VR-39 run 17
-                if (dvr::ovl::checkbox("AFW: hands and weapon from the game's own draws", &km)) dvr::depthprobe::fgmask_set(km, "F10");
-                OvlTip("Off falls back to a distance limit: a close face is treated as your hands, a far blade tip as the world.");
-                // VR-39: the depth layer. The ini key takes effect at the next start; the live switch needs it.
-                bool sd = dvr::vr::submit_depth();
-                if (dvr::ovl::checkbox("AFW: send depth to the headset runtime (SSW, positional reprojection; restart)", &sd)) {
-                    dvr::vr::set_submit_depth(sd);
-                    OverlaySaveDefaults();   // the key is read at the next start
-                }
-                // VR-39: the mod's own spacewarp - fills the display slots the game misses (live).
-                bool msw = dvr::vr::mod_spacewarp();
-                if (dvr::ovl::checkbox("AFW: the mod's own spacewarp (fills missed frames; turn off SSW in Virtual Desktop)", &msw)) {
-                    dvr::vr::set_mod_spacewarp(msw);
-                    OverlaySaveDefaults();
-                }
-                if (msw) {
-                    bool hr = dvr::vr::msw_half_rate();
-                    if (dvr::ovl::checkbox("Spacewarp: lock the game to half rate (like Virtual Desktop SSW)", &hr)) {
-                        dvr::vr::set_msw_half_rate(hr);
-                        OverlaySaveDefaults();
-                    }
-                    bool mh = dvr::afw::synth_hands();
-                    if (dvr::ovl::checkbox("Spacewarp: hands follow the controllers in filled frames", &mh)) {
-                        dvr::afw::set_synth_hands(mh);
-                        OverlaySaveDefaults();
-                    }
-                    bool mx = dvr::afw::synth_extrapolate();
-                    if (dvr::ovl::checkbox("Spacewarp: predict walking and turning in filled frames", &mx)) {
-                        dvr::afw::set_synth_extrapolate(mx);
-                        OverlaySaveDefaults();
-                    }
-                    bool mg = dvr::afw::synth_guard();
-                    if (dvr::ovl::checkbox("Spacewarp: don't predict across a Blink, snap turn or cut", &mg)) {
-                        dvr::afw::set_synth_guard(mg);
-                        OverlaySaveDefaults();
-                    }
-                    OvlTip("Shows the last real frame for that one filled frame instead, and limits how far a turn is predicted.");
-                    bool ms = dvr::afw::synth_stick_stop();
-                    if (dvr::ovl::checkbox("Spacewarp: stop predicting a turn when the stick is released", &ms)) {
-                        dvr::afw::set_synth_stick_stop(ms);
-                        OverlaySaveDefaults();
-                    }
-                }
-                if (dvr::vr::depth_active()) {
-                    bool dl = dvr::vr::depth_live();
-                    if (dvr::ovl::checkbox("AFW: depth layer live (A/B)", &dl)) dvr::vr::set_depth_live(dl);
-                }
-                OvlTip("A still hand or weapon keeps each eye's own lighting instead of the other eye's. Can show a slowly "
-                       "moving weapon one frame late.");
-                // VR-39: the diagnostic capture - close this panel after pressing and hold the pose to be captured.
-                if (dvr::ovl::button("Capture AFW frames for diagnosis")) dvr::afw::request_dump(16, 5000, dvr::paths::dumps_dir(), "F10");
-                OvlTip("Starts 5 seconds after you press it: close this panel and hold still (hands in view). Saves 16 "
-                       "frames to the mod's dumps folder for analysis; the game hitches for about a second while it saves.");
-                ImGui::TextDisabled("Capture: %s", dvr::afw::dump_status());
-            }
-        }
     }
     if (OvlSec("Fullscreen and vsync", kOvlA, "The game window's mode. Each switch briefly pauses the game.")) {
         ImGui::BeginDisabled(busy);

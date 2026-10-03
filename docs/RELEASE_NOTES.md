@@ -1,3 +1,9 @@
+## Unreleased: stereo settings cleanup
+
+- F10 Basic > Display > Stereo rendering is first in the tab and offers Stereo and experimental AFW.
+- AFW's tooltip recommends combining it with DLSS or DLAA.
+- AER, AFW tuning, SSW/depth, mod-spacewarp and diagnostic controls remain available in Debug.
+
 ## 1.0.2 (2026-09-28)
 
 Player-facing summary. The engineering detail for each item is in the sections below.

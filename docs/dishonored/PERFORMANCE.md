@@ -1,3 +1,16 @@
+## 2026-10-02: spacewarp follow-up shelved for patch preparation
+
+Further SSW/mod-spacewarp experiments are parked by user direction. The installed build-253
+source is integrated into staging through PR #167, including the earlier pacing work and
+optional guards. Existing branches, plans, measurements and unresolved perceptual questions
+remain preserved; integration does not establish a new headset verdict.
+
+The patch UI keeps Stereo and experimental AFW selection in Basic. All remaining stereo
+section controls, including SSW/depth and mod-spacewarp, require Debug. No rendering or
+shipped-default change accompanies this UI gate. The installed patch candidate retains
+ModSpacewarp=0 and SubmitDepth=0. Resume research from the existing evidence below only when
+requested; there is no active spacewarp test queued for this patch.
+
 ## 2026-10-02: Cyberpunk VR port frame generation reviewed for MSW (RESEARCH, nothing built)
 
 The Cyberpunk 2077 VR port's 0.1.7 frame generation interpolates (midpoint between two real frames, the
