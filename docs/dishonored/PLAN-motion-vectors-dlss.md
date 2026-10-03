@@ -198,3 +198,89 @@ Sep 26 17:47:48. Full original INI restored, diagnostics off. No merge. All rese
 threshold experiment, timing data and limitations are in PERFORMANCE.md, TAA audit fixes.
 Next: headset fine-detail/walking A/B. Jitter needs reliable projection-pass ownership before
 implementation; animated-object vectors and exact depth calibration remain open research.
+
+## Object motion (VR-39, 2026-09-29) - host-verified, headset pending
+
+**Reported:** under DLSS, moving characters and the view from a moving vehicle smear. The vectors are the
+camera's only: right for the static world, wrong for anything moving on its own (characters) or with the
+camera (a boat). The game draws no velocity buffer (`MotionBlur=False`).
+
+**Built: `dlss objmotion on|off`, `[Clarity] DlssObjectMotion` (default 0), F10 "Follow moving characters
+and vehicles".** Each eye image is block-matched against that eye's previous image (`GuideGpu::objmotion`,
+after the camera vectors, before the mask and the audit).
+- `cs_objpre`, one thread per 8x8 tile:
+  - the contrast test;
+  - the camera match;
+  - an exact early exit: a tile needs the camera SAD minus the best to exceed the minimum gain, so a camera
+    match within it can never lose. The static world exits here.
+  - Tiles left go on an append list.
+- `cs_objsearch`, one 64-thread group per listed tile (an indirect dispatch):
+  - the candidates: camera, zero (riding along), rotation-only (a turning vehicle), and last frame's tile
+    and its four neighbours;
+  - a 9x9 two-pixel coarse grid around the best and around zero;
+  - two rounds of +-1, then a parabola for sub-pixel.
+  - It wins only at best < 0.5 x camera AND camera - best > 0.02.
+- `ps_objfix`, per pixel: the camera vector, or a winning neighbour tile's, whichever matches a 3x3 patch
+  best. The camera is weighted x0.7, so the static world keeps its exact vectors.
+- Jitter: the previous image is sampled at + (jitter - prevJitter), the flow check's convention.
+
+**Host (`tools\dlss-objmotion-host.ps1`, 10/10), a 2.5 deg yaw with a textured panorama:**
+
+| Case | Result |
+|---|---|
+| Static world | 0.000 px change |
+| Character, integer motion | 0.00 px |
+| Character, sub-pixel (2.4, -5.7) | mean 0.14 px, p95 0.25 px |
+| Boat riding along | 0.00 px |
+| Flat patch | camera kept |
+| Temporal candidates | kept |
+| Control (camera vectors alone) | character 16.4 px, boat 13.6 px wrong |
+
+**Cost at 2114x2192** (per eye image, camera vectors subtracted, 20 frames between timestamps after a
+warm-up): 0.25 ms with a still camera and one 400x500 character; 2.05 ms when every tile disagrees.
+
+**Measurement traps paid for:**
+- A single spaced-out pass reads the GPU's idle clock (the same work measured 8 ms, then 1.5 ms).
+- Repeating the pass without the camera pass in between finds the vectors already corrected.
+- A one-thread-per-tile search is latency-bound (1.7 ms).
+- A per-pixel loop with dynamic array indexing spills out of registers.
+- fxc refuses a barrier inside data-dependent flow (X3663), hence the list and the indirect dispatch.
+
+**Open:**
+- Untextured surfaces keep the camera vector. There is nothing to match, and DLSS cannot smear what has
+  no detail.
+- A character's first frame after it starts moving uses no temporal candidate.
+- Headset A/B: F10 box on/off with a walking NPC in view and on the boat.
+
+## Object motion, run 10 (2026-09-29) - crawling aliasing fixed, host-verified
+
+**Reported:** with the object-motion box on, subtly aliased things crawled ("slithered") instead of aliasing
+normally, and moving characters still smeared.
+
+**MEASURED (log):** 4347 eye images corrected in about 45 s of DLAA (53 eye images/s per eye), so the pass
+ran. There was no per-tile count, so how many tiles it overrode is unknown.
+
+**Mechanism (host).** On a hard-edged 1-2 px pattern whose sampled shape changes between images (crawling
+jaggies), the camera's vector stops matching. A whole-pixel look-alike then fits better by chance, at a
+different offset each image. Handed to DLSS, the history is dragged by that offset: the crawl.
+
+What did NOT fix it, measured on the host checker:
+- A minimum deviation from the camera (1.5 px): the look-alikes are whole periods away.
+- Comparing against the camera's refined neighbourhood.
+- A motion prior of 0.005 per px: it also broke the sub-pixel character case (10 px error).
+- A 3x3 tent blur before matching: the overrides stayed, and the cost quadrupled to 1.03 ms.
+
+**FIX: temporal confirmation.** A win applies only when this tile or a neighbour found the same vector
+(within 1 px) in the eye's previous image. A first win is kept as a candidate (not applied), which is
+next image's evidence. A real mover keeps its vector; chance matches jump.
+
+**Host 11/11:**
+- Crawling aliasing (offsets 0.6, 0.2, 0.9, 0.4, 0.7 px): 0 pixels given a non-camera vector.
+- The same offset every image (the control): 238144.
+- Characters, the boat and the sub-pixel case (0.10 px) still pass, from their second image.
+- The minimum deviation (1.5 px) and the refined camera neighbourhood stay as extra guards.
+- Cost 0.31 ms per eye image.
+
+**New log field:** `dlss: object motion - ... per image: N tiles searched of M, K overridden`. A walking
+character or a boat should show hundreds of overridden tiles and a still scene near 0; this answers
+whether the smear on characters is a vector problem at all.

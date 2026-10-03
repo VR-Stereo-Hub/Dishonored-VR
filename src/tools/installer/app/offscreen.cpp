@@ -1,6 +1,7 @@
 // tools/installer/app/offscreen.cpp - see offscreen.h.
 #include "app/offscreen.h"
 #include "ui/screens.h"
+#include "ui/widgets.h"
 #include "sys/fs.h"
 #include "core/ui/ovl_ui.h"
 #include "imgui.h"
@@ -58,6 +59,7 @@ bool render_offscreen(ViewState& state, float scale, const std::wstring& outBmp,
     dvr::ovl::load_art(dev);
     ui::load_guide(dev);
     dvr::ovl::apply_theme();
+    ui::apply_launcher_style();
     ImGui::GetStyle().ScaleAllSizes(scale);
     ImGui::GetStyle().FontScaleDpi = scale;
     ImGuiIO& io = ImGui::GetIO();

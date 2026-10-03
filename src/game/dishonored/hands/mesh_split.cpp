@@ -2120,7 +2120,12 @@ static void MpPoseFromView(MpDrawCtx* c)
     if (!dvr::camera::render_pos(c5)) { InterlockedIncrement(&g_mpPvNone); return; }
     dvr::pose::Record rec; float dist = 0, second = 0;
     if (!dvr::pose::find_view(c5, 0.05f, 400.0, &rec, &dist, &second)) { InterlockedIncrement(&g_mpPvNone); return; }
-    if (second < 0.10f) { InterlockedIncrement(&g_mpPvAmbig); return; }   // another head sample sits as close
+    if (second < 0.10f) {
+        if (!dvr::pose::resolve_view_tie(c5, c->f, c->r, c->u, 400.0, rec, &rec)) {
+            InterlockedIncrement(&g_mpPvAmbig); return;
+        }
+        InterlockedIncrement(&g_mpPvResolved);
+    }
     // HtSample publishes an identity at the origin when the runtime had no head pose; a real
     // head is never exactly that, so it is refused rather than used.
     if (!rec.track.ok || (rec.track.qw == 1.0f && rec.track.qx == 0.0f && rec.track.qy == 0.0f && rec.track.qz == 0.0f &&
@@ -2146,13 +2151,18 @@ static void MpPoseFromView(MpDrawCtx* c)
     c->viewMatched = true;
     c->viewEye = rec.eye;
     InterlockedIncrement(&g_mpPvMatch[rec.eye < 0 ? 0 : rec.eye > 0 ? 2 : 1]);
+}
+
+// Report refusals even when an entire window has no successful match.
+static void MpPoseViewBeat()
+{
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
         "hands/poseview: ON | draws re-anchored to their own view's head sample: left %ld single %ld right %ld | "
-        "unmatched %ld (no c5 or no record within 0.05 uu: today's path), tied %ld, no head sample %ld | the "
+        "unmatched %ld (no c5 or no record within 0.05 uu: today's path), tied %ld, no head sample %ld | rotation-resolved ties %ld | the "
         "snapshot's head was off by %.3f deg on average, %.3f at most | eyes the jump classifier would have got "
         "wrong or left unknown: %ld. With the head still the offset must read about 0 and grow with turn speed; "
         "unmatched climbing while walking is expected (the camera moves after the write).",
-        g_mpPvMatch[0], g_mpPvMatch[1], g_mpPvMatch[2], g_mpPvNone, g_mpPvAmbig, g_mpPvNoRec,
+        g_mpPvMatch[0], g_mpPvMatch[1], g_mpPvMatch[2], g_mpPvNone, g_mpPvAmbig, g_mpPvNoRec, g_mpPvResolved,
         g_mpPvOffN ? g_mpPvOffSum / (double)g_mpPvOffN : 0.0, (double)g_mpPvOffMax, g_mpPvEyeFixed);
     if (g_mpPvOffN >= 2000) { g_mpPvOffSum = 0; g_mpPvOffN = 0; g_mpPvOffMax = 0; }
 }
@@ -2290,7 +2300,7 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         c->poseOk = (c->pose.gen != 0);
     }
     c->viewMatched = false; c->viewEye = 0;
-    if (g_mpPoseFromView && c->poseOk) MpPoseFromView(c);
+    if (g_mpPoseFromView && c->poseOk) { MpPoseFromView(c); MpPoseViewBeat(); }
     {   // a snapshot older than the previous draw's means publication and
         // consumption have crossed; it is not fatal, but it must be visible
         static uint32_t lastGen = 0;
@@ -3671,6 +3681,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                 }
                 InterlockedIncrement(&g_mpDraws);
             }
+            dvr::depthprobe::fgmask_mark_piece();   // VR-39 run 20: the player's arms and hands, as the split draws them
             if (boundVb)
                 dvr::frame::orig_draw_indexed(dev, type, 0, 0,
                                               (UINT)(g_msVerts + g_msClipN),

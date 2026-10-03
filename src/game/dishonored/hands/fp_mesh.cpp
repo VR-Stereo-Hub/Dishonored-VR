@@ -430,17 +430,26 @@ static uint8_t* FpPawn()
 // So: re-collect on a timer, keep EVERY view model, and drive them all. The
 // item you are not holding is not on screen, so driving it costs nothing and
 // the moment you switch weapons the new one is already being driven.
+// A guarded 32-bit read: the range check and the read are two moments, and a device reset can unmap a
+// page in between (the run-7 crash in this scan, right after a resolution change).
+static bool FpRead32(const void* p, uint32_t* out)
+{
+    __try { *out = *(const uint32_t*)p; return true; }
+    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) { return false; }
+}
 static const char* FpAssetName(uint8_t* comp)
 {
     // the SkeletalMesh asset this component renders - its name tells us
     // whether the arms and the weapon are one mesh or two
     for (uint32_t o = 0x20; o + 4 <= 0x400; o += 4) {
-        if (!RangeReadable(comp + o, 4)) break;
-        uint8_t* a = *(uint8_t**)(comp + o);
+        uint32_t v = 0;
+        if (!RangeReadable(comp + o, 4) || !FpRead32(comp + o, &v)) break;
+        uint8_t* a = (uint8_t*)(uintptr_t)v;
         if (!LooksLikeObj(a)) continue;
         const char* ac = ObjClassName(a);
-        if (ac && !strcmp(ac, "SkeletalMesh"))
-            return RealName(*(uint32_t*)(a + kNameOff));
+        uint32_t nameIdx = 0;
+        if (ac && !strcmp(ac, "SkeletalMesh") && FpRead32(a + kNameOff, &nameIdx))
+            return RealName(nameIdx);
     }
     return NULL;
 }

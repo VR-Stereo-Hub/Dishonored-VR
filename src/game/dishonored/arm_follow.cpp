@@ -51,6 +51,7 @@ static void ArmFollowResolve()
     // VR-30: the viewmodel's own lens (the yaw counter has to be scaled by it)
     g_afFovOff = FindPropOffset("DishonoredPlayerSkeletalComponent", "m_FOV");
     FindBoolProp("DishonoredPlayerSkeletalComponent", "m_bUseFOV", &g_afUseFovOff, &g_afUseFovMask);
+    ArmsLensResolve();   // VR-39: Pawn.Mesh, where the arms' lens is read from
     g_afActorRotOff = FindPropOffset("Actor", "Rotation");   // VR-30: the body-yaw hold
     g_afInfWeightOff = FindPropOffset("DishonoredCameraInfluence", "m_Weight");
     g_afInfTargetOff = FindPropOffset("DishonoredCameraInfluence", "m_TargetWeight");
@@ -89,47 +90,13 @@ static void ArmFollowResolve()
 // stable across probes). Re-validated the same way the look-at node is.
 static void ArmFovTick()
 {
-    // THE LAG SPIKES WERE THIS. The search below is a full GObjects walk - up
-    // to 4M objects with a RangeReadable each - and when it found nothing it
-    // ran again every 5 s, which is a visible hitch every 5 s forever. Two
-    // fixes: it only runs when the lever that needs it is actually on, and the
-    // walk is now INCREMENTAL, a bounded slice per call with a cursor, so a
-    // failed search costs a slice rather than the whole table.
+    // THE LAG SPIKES WERE THIS: a GObjects walk for the component, first whole, then in slices, that never
+    // stopped when it found nothing. It only runs when the lever that needs it is on, and (VR-39) there is no
+    // walk at all now.
     if (g_afCounterYaw < 0.0f) return;
     if (!g_afFovOff && !g_afUseFovOff) return;               // nothing resolved to read
-    const uint32_t now = (uint32_t)GetTickCount64();
-    // liveness: slot identity plus the class pointer, as SkcAlive does
-    if (g_afVmComp) {
-        void**   objs = *(void***)kGObjHdr;
-        uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
-        if (!objs || g_afVmIdx >= num || (uint8_t*)objs[g_afVmIdx] != g_afVmComp ||
-            *(void**)(g_afVmComp + kClassOff) != g_afVmCls)
-            g_afVmComp = NULL;
-    }
-    if (!g_afVmComp) {
-        if (!RangeReadable((void*)kGObjHdr, 12)) return;
-        void**   objs = *(void***)kGObjHdr;
-        uint32_t onum = *(uint32_t*)(kGObjHdr + 4);
-        if (!objs || onum < 1000 || onum > 4000000) return;
-        // A bounded slice per call. 4096 objects is microseconds; the cursor
-        // wraps and tries again rather than stalling the frame for a whole
-        // sweep. Never GObjects order as identity - the cursor is only where
-        // to resume looking (31.4).
-        if (g_afVmScan < 1 || g_afVmScan >= onum) g_afVmScan = 1;
-        const uint32_t end = (g_afVmScan + 4096 < onum) ? g_afVmScan + 4096 : onum;
-        for (uint32_t i = g_afVmScan; i < end; i++) {
-            uint8_t* o = (uint8_t*)objs[i];
-            if (!o || ((uintptr_t)o & 3) || !RangeReadable(o, 0x200)) continue;
-            const uint32_t nnum = *(uint32_t*)(o + kNameOff + 4);
-            if (nnum == 0) continue;                          // want an instance, not the CDO
-            const char* cn = ObjClassName(o);
-            if (!cn || !strstr(cn, "PlayerSkeletalComponent")) continue;
-            g_afVmComp = o; g_afVmIdx = i; g_afVmCls = *(void**)(o + kClassOff);
-            break;
-        }
-        g_afVmScan = (end >= onum) ? 1 : end;
-        if (!g_afVmComp) return;
-    }
+    // VR-39: the component is the pawn's Mesh (ArmsLensFind); the GObjects slice search that was here is gone.
+    if (!ArmsLensFind(true)) return;
     // read the lens
     bool useFov = false;
     if (g_afUseFovOff && g_afUseFovMask && RangeReadable(g_afVmComp + g_afUseFovOff, 4))
@@ -482,6 +449,143 @@ static void ArmLookFind()
 // periodic summary), so a run where nothing moves stays quiet and a run where
 // something moves says so the moment it does.
 static const unsigned kAfChangeLines = 8;   // change lines per field; the counters keep the rest
+// VR-39: THE ARMS' LENS - READ ONLY. The player mesh (DishonoredPlayerSkeletalComponent) and every weapon view model
+// (DishonoredItemSkeletalComponent, a subclass) carry m_bUseFOV / m_FOV. Run 14 measured what they do (ENGINE_NOTES,
+// "Which FOV the arms are drawn with"):
+// - in plain gameplay the lens is off on the arms and all weapons; the game switches it on itself only during a
+//   lock-arms zoom (m_FOV = the camera's m_fCurFOV_Arms, which the FOV lever writes);
+// - the draws' own projection (fgproj:) puts the arms at the WORLD's FOV, with the lens forced on or left off, so
+//   writing the lens changed nothing the game renders. The write and its force lever were removed; what stays is the
+//   log, so a zoom that holds the arms is still visible.
+// Found without any search: the pawn's own Mesh (Pawn.Mesh by name; 0x3dc per ENGINE_NOTES as the fallback), and the
+// weapons from the hands' view-model list (FpCollect). Slow path only.
+static std::atomic<int> g_armsLensUse{-1};   // m_bUseFOV as the game holds it (-1 unknown)
+static float g_armsLensGame = 0.0f;
+static uint32_t g_armsMeshOff = 0;           // Pawn.Mesh
+static const char* g_armsMeshRoute = "unresolved";
+static void ArmsLensResolve()
+{
+    g_armsMeshOff = FindPropOffset("Pawn", "Mesh");
+    g_armsMeshRoute = g_armsMeshOff ? "Pawn.Mesh by name" : "0x3dc (ENGINE_NOTES fallback: Pawn.Mesh did not resolve)";
+    if (!g_armsMeshOff) g_armsMeshOff = g_fpMeshOff;   // 0x3dc, the Stage 26 field dump
+    DVR_INFO("armslens: resolve - Pawn.Mesh +0x%x (%s); lens m_FOV %s+0x%x, m_bUseFOV %s+0x%x mask 0x%x",
+             g_armsMeshOff, g_armsMeshRoute, g_afFovOff ? "" : "NOT FOUND ", g_afFovOff,
+             g_afUseFovOff ? "" : "NOT FOUND ", g_afUseFovOff, g_afUseFovMask);
+}
+// Is c a player/item skeletal component (the lens owners)? Slow path only: a class-name read.
+static bool ArmsLensIsLensOwner(uint8_t* c, const char** clsOut)
+{
+    if (!c || ((uintptr_t)c & 3) || !LooksLikeObj(c)) return false;
+    const char* cn = ObjClassName(c);
+    if (clsOut) *clsOut = cn;
+    return cn && (strstr(cn, "PlayerSkeletalComponent") || strstr(cn, "ItemSkeletalComponent"));
+}
+// The arms: the pawn's Mesh. Validated on the slow path only (VirtualQuery and a class-name read); the per-dispatch
+// path uses what the last slow pass validated, as the arm-follow writers do.
+static bool ArmsLensFind(bool slow)
+{
+    if (!slow) return g_afVmComp != NULL;
+    if (!g_afFovOff || !g_armsMeshOff) return false;
+    uint8_t* pawn = FpPawn();
+    if (!pawn || !RangeReadable(pawn + g_armsMeshOff, 4)) { g_afVmComp = NULL; return false; }
+    uint8_t* m = *(uint8_t**)(pawn + g_armsMeshOff);
+    if (m && m == g_afVmComp && RangeReadable(m, kClassOff + 4) && *(void**)(m + kClassOff) == g_afVmCls) return true;
+    g_afVmComp = NULL;
+    if (!m) return false;
+    const char* cn = NULL;
+    static void* saidRefused = NULL;
+    if (!ArmsLensIsLensOwner(m, &cn) || !RangeReadable(m + g_afFovOff, 4)) {
+        if (saidRefused != (void*)m) {
+            saidRefused = (void*)m;
+            Log("armslens: pawn %p +0x%x holds %p, class '%s' - not a DishonoredPlayerSkeletalComponent, lens not read",
+                (void*)pawn, g_armsMeshOff, (void*)m, cn ? cn : "?");
+        }
+        return false;
+    }
+    g_afVmComp = m; g_afVmCls = *(void**)(m + kClassOff); g_afVmIdx = 0;
+    static void* saidFound = NULL;
+    if (saidFound != (void*)m) {
+        saidFound = (void*)m;
+        int use = -1;
+        if (g_afUseFovOff && g_afUseFovMask && RangeReadable(m + g_afUseFovOff, 4))
+            use = (*(uint32_t*)(m + g_afUseFovOff) & g_afUseFovMask) ? 1 : 0;
+        Log("armslens: the player mesh '%s' @ %p via pawn %p +0x%x (%s) - m_bUseFOV=%d m_FOV=%.2f; the camera renders "
+            "%.2f, the world is drawn at %.2f. m_bUseFOV=0 means the mesh has no lens of its own: then only the camera's "
+            "FOV (or the force lever) can move it", cn ? cn : "?", (void*)m, (void*)pawn, g_armsMeshOff, g_armsMeshRoute,
+            use, *(float*)(m + g_afFovOff), dvr::camera::rendered_fov_deg(), ProjectionFovGet());
+    }
+    return true;
+}
+
+// The held weapons' lenses, read and logged on change (bounded). Each entry is revalidated before every read.
+struct ArmsItemLens { uint8_t* obj; void* cls; int use; float fov; char name[40]; };
+static ArmsItemLens g_armsItems[8];
+static int g_armsItemN = 0;
+static uint32_t g_armsItemLines = 0;
+static void ArmsItemsTick()
+{
+    if (!g_afFovOff) return;
+    for (int i = 0; i < g_fpCandN && i < (int)(sizeof(g_fpCand) / sizeof(g_fpCand[0])); i++) {
+        uint8_t* o = g_fpCand[i].obj;
+        if (!o || !strstr(g_fpCand[i].cls, "ItemSkeletalComponent")) continue;
+        bool have = false;
+        for (int k = 0; k < g_armsItemN; k++) if (g_armsItems[k].obj == o) { have = true; break; }
+        if (have || g_armsItemN >= 8) continue;
+        const char* cn = NULL;
+        if (!ArmsLensIsLensOwner(o, &cn) || !RangeReadable(o + g_afFovOff, 4)) continue;
+        ArmsItemLens& e = g_armsItems[g_armsItemN++];
+        memset(&e, 0, sizeof(e));
+        e.obj = o; e.cls = *(void**)(o + kClassOff); e.use = -2;
+        strncpy(e.name, g_fpCand[i].asset[0] ? g_fpCand[i].asset : g_fpCand[i].name, sizeof(e.name) - 1);
+    }
+    for (int k = 0; k < g_armsItemN; k++) {
+        ArmsItemLens& e = g_armsItems[k];
+        if (!e.obj || !LooksLikeObj(e.obj) || *(void**)(e.obj + kClassOff) != e.cls || !RangeReadable(e.obj + g_afFovOff, 4)) {
+            g_armsItems[k--] = g_armsItems[--g_armsItemN];   // gone with its item: forget it
+            continue;
+        }
+        const int use = (g_afUseFovOff && g_afUseFovMask && RangeReadable(e.obj + g_afUseFovOff, 4))
+                            ? ((*(uint32_t*)(e.obj + g_afUseFovOff) & g_afUseFovMask) ? 1 : 0) : -1;
+        const float fov = *(float*)(e.obj + g_afFovOff);
+        if ((use != e.use || fabsf(fov - e.fov) > 0.05f) && g_armsItemLines < 32) {
+            ++g_armsItemLines;
+            Log("armslens: weapon view model '%s' @ %p - m_bUseFOV=%d m_FOV=%.2f", e.name, (void*)e.obj, use, fov);
+        }
+        e.use = use; e.fov = fov;
+    }
+}
+
+// For the F10 panel: what the arms' lens is doing, in a sentence.
+static void ArmsLensStatus(char* buf, size_t n)
+{
+    const int use = g_armsLensUse.load();
+    if (!g_afFovOff)          _snprintf(buf, n, "Arms lens: not resolved");
+    else if (use < 0)         _snprintf(buf, n, "Arms lens: not read yet (needs a player in the world)");
+    else if (use == 1)        _snprintf(buf, n, "Arms held at %.1f deg by the game (a zoom)", g_armsLensGame);
+    else                      _snprintf(buf, n, "Arms drawn with the view's FOV (the game's lens is off)");
+    buf[n - 1] = 0;
+}
+
+static void ArmsLensTick(bool slow)
+{
+    if (!slow) return;
+    if (!ArmsLensFind(true)) return;
+    uint8_t* c = g_afVmComp;
+    if (!c || !g_afFovOff || !RangeReadable(c + g_afFovOff, 4)) return;
+    const int use = (g_afUseFovOff && g_afUseFovMask && RangeReadable(c + g_afUseFovOff, 4))
+                        ? ((*(uint32_t*)(c + g_afUseFovOff) & g_afUseFovMask) ? 1 : 0) : -1;
+    const float fov = *(float*)(c + g_afFovOff);
+    if (use != g_armsLensUse.load() || fabsf(fov - g_armsLensGame) > 0.05f) {
+        Log("armslens: the player mesh's lens - m_bUseFOV=%d m_FOV=%.2f (was %d / %.2f); the camera renders %.2f, the world "
+            "is drawn at %.2f%s", use, fov, g_armsLensUse.load(), g_armsLensGame, dvr::camera::rendered_fov_deg(),
+            ProjectionFovGet(), use == 1 ? " - the game is holding the arms' FOV (a lock-arms zoom)" : "");
+        g_armsLensUse.store(use); g_armsLensGame = fov;
+    }
+    static uint64_t nextItems = 0;
+    const uint64_t t = GetTickCount64();
+    if (t >= nextItems) { nextItems = t + 1000; ArmsItemsTick(); }
+}
+
 static void ArmFollowTick()
 {
     // THIS RUNS ON EVERY ProcessEvent DISPATCH - thousands per second. The
@@ -516,6 +620,8 @@ static void ArmFollowTick()
     uint8_t* camObj = g_camObj;
 
     if (slow && !CamStillValid()) { g_camObj = NULL; return; }
+
+    ArmsLensTick(slow);   // VR-39: the arms' own lens (every dispatch; its search and log on the slow path)
 
     if (slow) ++g_afTicks;
 

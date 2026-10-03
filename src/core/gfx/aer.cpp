@@ -1,87 +1,57 @@
-// core/gfx/aer.cpp - rung 2 of the stereo ladder: AlternateEye rendering.
-// DESIGN STUB (41.0): registered so `stereo aer` names it and refuses with
-// the note below; nothing here renders. The design is written down so the
-// developer taking this rung starts from the same page as the re-entry one.
+// core/gfx/aer.cpp - rung 2 of the stereo ladder: AlternateEye rendering (VR-39).
 //
-// THE IDEA. The game renders one frame per tick. Alternate which EYE that
-// frame is rendered for: on even ticks the camera sits at the left eye, on
-// odd ticks at the right, and each present carries one fresh eye while the
-// compositor keeps showing the other eye's previous image (reprojected by
-// the runtime for the head motion since). Cheap - the game's cost is
-// unchanged - and geometrically real stereo, at half the temporal rate per
-// eye. BioShock's rung 2 (docs/ARCHITECTURE.md, the ladder) shipped this
-// before re-entry replaced it; the runtime layer still carries its machinery.
+// IMPLEMENTED as a port of BioShock Remastered VR's AER, on top of the machinery
+// SequentialReentry already proved here. The method object is reentry's own
+// (core/gfx/reentry.cpp, `SequentialReentry(true)`): the same tag ring, the same
+// present-side pairing and capture, the same runtime SR path. What differs is
+// the game side (game/dishonored/scene_draw.cpp):
 //
-// WHAT THIS METHOD DOES PER PRESENT:
-//   begin_frame   pick the eye the NEXT game frame renders: alternate the
-//                 sign (-1, +1, -1, ...) and publish it through
-//                 eye_for_next_frame(). The camera seam reads it on the
-//                 script lane (dvr::camera::set_eye is called from the game
-//                 tick each present) and writes +/- IPD/2 along the camera's
-//                 right row into [Camera] EyeField - so this rung is gated on
-//                 the eyetest having found an honoured field (camera.h). With
-//                 no field, refuse: an AER without an eye offset is a mono
-//                 screen with extra latency.
-//   end_frame     capture the game's frame (dvr::capture) into THIS eye's
-//                 texture (two RGBA targets, one per eye) and hand it out with
-//                 eyeSign = the eye that was requested at the PREVIOUS
-//                 begin_frame - the frame the game just presented was rendered
-//                 during the tick that followed that request (one present of
-//                 lag; the BioShock pipeline's lockstep note). The other eye's
-//                 texture keeps its last content; the runtime layer holds the
-//                 other eye's released swapchain image (its AER mode:
-//                 dvr::vr::current_eye_sign / the g_aerEnabled path in
-//                 openxr_runtime.cpp) and submits a projection layer with both.
+//   reentry  every gameplay tick draws twice: pass 1 left, pass 2 right.
+//   aer      every gameplay tick draws ONCE, and the eye alternates. A left
+//            tick is pass 1 as it always was; a right tick is pass 2's setup
+//            (the seam writes +1 through the thread latch, the tag rides the
+//            ring, the right eye culls with its own view state) with no pass 1
+//            before it.
 //
-// THE TAG AUDIT (why an eye tag can lie). The runtime's pair probe
-// (openxr_runtime.cpp, `[pair]`, BioShock s43) exists because an UNTAGGED
-// present - one the game side did not attribute - is captured into the LEFT
-// swapchain by default, which is the "stale left eye" mechanism: the left
-// image stops updating while the right keeps flowing, and every viewer reads
-// it as a black or frozen left eye. The simulator's per-view source stats
-// (tools/xrsim-shot.ps1, VERIFICATION) are the instrument: both eyes'
-// nonBlackPct must move, and eye-check.ps1 leg 0 (the pairing leg) must see
-// L/s and R/s equal on the stereo beat line (`stereo: beat method=aer ...`).
+// BRVR -> DISHONORED, piece by piece:
+//   eye owned by the game thread by strict alternation   -> g_sdAerNext in the
+//       scene-draw stub (the producer index there is g_eyeWr & 1)
+//   eye FIFO game -> render, one tag per frame            -> the reentry ring
+//       (one push per draw, one pop per present)
+//   ~2 presents per XR submit (XR_SubmitPair)             -> presents_per_tick()
+//       stays 2: the runtime's pair pacing holds one XR frame across the pair
+//   DeltaClamp: one world advance per eye pair            -> delta_clamp.cpp,
+//       WorldInfo.TimeDilation (off by default, [Stereo] DeltaClamp)
+//   pair lock / latched pose per pair                     -> not ported: the
+//       runtime already submits each eye with the pose generation it was
+//       rendered from (per present), so a right eye one tick newer is
+//       reprojected from its own pose; the clamp removes the world's travel
 //
-// ACCEPTANCE (ROADMAP S2a): eyetest HONOURED on some field; `stereo aer`
-// accepted; beat line L/s == R/s == presents/2; xrsim-shot both eyes non-black
-// with DIFFERENT content (the bbox and the mean luma differ by the parallax);
-// eye-check.ps1 legs 0-5 on the simulator; then the headset: fusion at the
-// measured IPD, no swim when turning (the tag lag is the first suspect if
-// there is).
-#define DVR_CAT ::dvr::log::Cat::present
+// WHAT IS HELD OFF WHILE IT RUNS: the c5 arbitration and the late-tag and
+// single-tag repairs. All three are built on reentry's within-tick invariant
+// (pass 2's camera exactly one IPD right of pass 1's, same tick); under aer the
+// two presents of a pair are two ticks apart and the head moves between them,
+// so the ring's order is the claim, exactly as BRVR's FIFO is. The player's
+// settings are restored when aer stops.
+//
+// THE TRADE, stated before anyone measures it: aer renders one scene per tick
+// instead of two, so ticks per second can rise, but each eye refreshes at half
+// the tick rate and a pair is two ticks. With the clamp OFF the second eye is a
+// tick later (moving things ghost); with it ON the world advances once per
+// pair (no ghosting) but the game logic runs twice per pair. Whether that nets
+// out faster than reentry on this game is exactly what the A/B is for
+// (docs/dishonored/PERFORMANCE.md).
+//
+// ACCEPTANCE (ROADMAP S2a): `stereo aer` accepted; the `aer: beat` line reads
+// L/s == R/s with broken near 0; the stereo beat line reads L/s == R/s ==
+// out/s / 2; the clamp's beat line reads R world advance near 0 and L near
+// twice the real dt, world/real at the base, INTEREYE near 0 with the clamp on
+// (and non-zero while walking with it off); then the headset: fusion, no swim
+// on head turns, and a verdict on half-rate per eye.
 #include "core/gfx/stereo.h"
 
-#include "core/framework/status.h"
-#include "core/util/log.h"
-
 namespace dvr::stereo {
-namespace {
 
-class AlternateEye : public IStereo {
-public:
-    const char* name() const override { return "aer"; }
-    bool implemented() const override { return false; }
-    const char* note() const override {
-        return "aer is a design stub (core/gfx/aer.cpp): alternate the eye the camera seam "
-               "renders each tick and tag each present; needs `camera eyetest` to have found "
-               "an honoured eye field first (ROADMAP S2a).";
-    }
-    void begin_frame(const FrameInput&) override {}
-    int  eye_for_next_frame() const override { return 0; }
-    bool end_frame(const FrameDevices&, FrameOutput&) override {
-        DVR_LOG_ONCE(DVR_CAT, ::dvr::log::Level::Warn, "stereo: aer end_frame reached - %s", note());
-        return false;
-    }
-    void on_reset() override {}
-    void shutdown() override {}
-    void status(dvr::status::Writer& w) override { w.kv("aer", "design stub"); }
-};
-
-AlternateEye g_aer;
-
-} // namespace
-
-IStereo* create_aer() { return &g_aer; }
+IStereo* create_aer() { return create_alternate_eye(); }
 
 } // namespace dvr::stereo

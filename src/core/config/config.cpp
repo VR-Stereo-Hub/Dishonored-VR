@@ -44,11 +44,13 @@ static bool WriteDefaultIni(const char* ini)
         "; eye gets its own view state, so each eye culls only what IT cannot see; off = no\n"
         "; occlusion culling (correct, but pays for every hidden draw). Live: `occlusion <mode>`.\n"
         "Occlusion=pereye\n"
-        "; Method=mono|aer|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
+        "; Method=mono|aer|afw|reentry: the rung of the stereo ladder (docs/ARCHITECTURE.md).\n"
         "; reentry (ships, 41.1) draws the scene twice per tick, once per eye, into a\n"
         "; projection layer - native stereo, HEADSET-VERIFIED on a Quest 3 (2026-09-03); mono\n"
         "; shows the game on a head-locked screen in both eyes (the fallback, and what a\n"
-        "; refused method leaves running); aer is a design stub and refuses with a note.\n"
+        "; refused method leaves running); aer (VR-39, experimental A/B) draws ONE eye per\n"
+        "; tick, alternating left/right, and pairs two ticks into one headset frame; afw\n"
+        "; draws the same way but sends every tick as its own frame, the other eye warped.\n"
         "; `stereo <name>` switches live and fails soft. Armed=1|0: whether the selected method\n"
         "; RUNS (the F10 Display tickbox, `stereo arm on|off`); 0 parks the game on the mono\n"
         "; screen without forgetting the selection. C5Pair=1 (41.1, session 9): each present's\n"
@@ -59,6 +61,17 @@ static bool WriteDefaultIni(const char* ini)
         "Method=reentry\n"
         "Armed=1\n"
         "C5Pair=1\n"
+        "; DeltaClamp=0|1 (VR-39, aer only): 1 advances the world once per eye PAIR - the\n"
+        "; right-eye tick runs at 1%% time and the left-eye tick pays the rest back, through\n"
+        "; the Bend Time power's own dilation fields, so both eyes of a pair show one instant.\n"
+        "; 0 = every tick advances (the right eye is a tick later). Live: `aer clamp on|off`,\n"
+        "; F10 Advanced > Display > Stereo rendering. DeltaClampLever=bendtime|timedilation:\n"
+        "; bendtime scales Bend Time's world and player dilation (transient, never saved);\n"
+        "; timedilation scales WorldInfo.TimeDilation (the Slomo lever; NOT transient, a save\n"
+        "; may keep a clamped value - the fallback). A lever the engine does not honour\n"
+        "; stands itself down (`aer lever <name>` switches live).\n"
+        "DeltaClamp=0\n"
+        "DeltaClampLever=bendtime\n"
         "; HoldUntagged=N (41.1): a tick that fails the second draw gates presents\n"
         "; UNTAGGED, and an untagged present is the mono path - the same image in BOTH\n"
         "; eyes. The error scales with disparity, so it is invisible on distant geometry\n"
@@ -265,6 +278,14 @@ static bool WriteDefaultIni(const char* ini)
         "; frame drop, which is why this exists. Nothing about what is rendered changes, and\n"
         "; the baseline is restored when the plan ends. `perf ab status|off|restart|seg <ms>`.\n"
         "Ab=0\n"
+        "[ReShade]\n"
+        "; ReShade is optional and off by default. F10 > ReShade enables it for the next launch.\n"
+        "; Install the separate ReShade32.dll runtime with the launcher before enabling.\n"
+        "Enabled=0\n"
+        "; Manual runtime keeps desktop mirror policy and renders effects before VR capture.\n"
+        "; 0 = legacy hooks, 1 = manual runtime (restart required). Depth effects need legacy hooks.\n"
+        "; Scroll Lock toggles effects live. F10 > ReShade adjusts presets and shader settings.\n"
+        "ManualRuntime=1\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -278,6 +299,8 @@ static bool WriteDefaultIni(const char* ini)
         "; (headset-judged 2026-09-03: the Quest 3 size at the headset's rate); Ex=0 is the\n"
         "; plain device and the readback capture, the fallback if the 9Ex device misbehaves.\n"
         "Ex=1\n"
+        "; paged reduces persistent 32-bit address use with temporary mappings; still needs\n"
+        "; system commit and extra upload work. Optional for texture packs; next launch.\n"
         "Managed=shadow\n"
         "; ShadowSurfaces=0|1 (VR-15, the black texture bug). Managed=shadow redirects a lock\n"
         "; taken on the TEXTURE to its system-memory twin, but the game can also take a\n"
@@ -966,12 +989,12 @@ static bool WriteDefaultIni(const char* ini)
         "TrimLRY=7.52\n"
         "TrimLTZ=0.0478\n"
         "TrimLRZ=-1.20\n"
-        "TrimRTX=0.0400\n"
-        "TrimRRX=-42.00\n"
-        "TrimRTY=0.0200\n"
-        "TrimRRY=67.00\n"
-        "TrimRTZ=0.0120\n"
-        "TrimRRZ=3.00\n"
+        "TrimRTX=0.0356\n"
+        "TrimRRX=-36.09\n"
+        "TrimRTY=0.0181\n"
+        "TrimRRY=72.42\n"
+        "TrimRTZ=0.0145\n"
+        "TrimRRZ=17.27\n"
         "; PowerTrim=1: the LEFT hand uses its own trim, TrimLPT*/TrimLPR*, while it holds a power\n"
         "; (seeded from TrimL* when absent). The numpad left modes edit it while a power is out; F10\n"
         "; Hands has sliders for all three. 0 = one left trim for everything.\n"
@@ -1482,6 +1505,12 @@ static bool WriteDefaultIni(const char* ini)
         "Region.vitals=0.000,0.000,0.200,0.270\n"
         "Region.reticle=0.470,0.470,0.530,0.530\n"
         "Region.prompt=0.520,0.460,0.800,0.620\n"
+        "Region.subtitles=0.000,0.000,0.000,0.000\n"
+        "; Custom subtitle readability (SUBREAD1). These affect only the isolated subtitle sink.\n"
+        "SubtitleColor=original\n"
+        "SubtitleOutline=0.000\n"
+        "SubtitleOutlinePx=1.500\n"
+        "SubtitleBackground=0.000\n"
         "; The window (shared by 'window' and 'world'): distance and width in metres; Height 0 =\n"
         "; the texture's aspect, else a centred crop; Up and Lateral offset it in its plane.\n"
         "WindowDistance=1.500\n"
@@ -1891,6 +1920,7 @@ static void LoadConfig()
             dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
+            dvr::dlss::set_object_motion(IniFloat(ini, "Clarity", "DlssObjectMotion", 0) != 0.0f, "ini");   // VR-39
             dvr::dlss::jitter::set_enabled(IniFloat(ini, "Clarity", "DlssJitter", 0) != 0.0f, "ini");
             dvr::dlss::jitter::set_wide(IniFloat(ini, "Clarity", "DlssJitterWide", 1) != 0.0f, "ini");
             dvr::clarity::set_body_depth(IniFloat(ini, "Clarity", "DlssBodyDepth", 0.30f), "ini");
@@ -2175,7 +2205,7 @@ static void LoadConfig()
         char mm[16] = "";
         GetPrivateProfileStringA("Device", "Managed", "shadow", mm, sizeof(mm), ini);
         dvr::d3d9ex::Managed m;
-        if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
+        if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow|paged) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
         dvr::d3d9ex::set_config(ex, m);
         // VR-15: the surface-bypass redirect, default off, live via `device shadowsurfaces`
         dvr::census::set_shadow_surfaces(IniFloat(ini, "Device", "ShadowSurfaces", 0) != 0.0f);
@@ -2849,6 +2879,7 @@ static void LoadConfig()
     PossessionStereoConfigure(ini);
     RainConfigure(ini);
     OcclusionConfigure(ini);    // VR-79
+    DeltaClampConfigure(ini);   // VR-39
     SwordTrailConfigure(ini);   // VR-171
     CamShakeConfigure(ini);   // VR-172
     dvr::snap::configure(ini);   // VR-219: [Turning] snap turn
@@ -2867,6 +2898,8 @@ static void LoadConfig()
     CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand
     PowerAimConfigure(ini);    // VR-44: [Aim] PowersFromHand
     CineFovConfigure(ini);
+    HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
+    AfwFgGainSet(IniFloat(ini, "Stereo", "AfwForegroundGain", 0.911f), "ini");   // VR-39 run 14
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
@@ -3598,6 +3631,18 @@ static void LoadConfig()
             dvr::vr::set_pair_strict(strict != 0);
             dvr::vr::set_pose_lag(lag);
             dvr::vr::set_image_orientation(GetPrivateProfileIntA("Pace","ImageOrientation",1,ini)!=0);
+            // VR-39: the depth layer under AFW (read here, before the runtime creates its instance). Default off.
+            dvr::vr::set_submit_depth(GetPrivateProfileIntA("VR", "SubmitDepth", 0, ini) != 0);
+            // VR-39: the mod's own spacewarp under AFW. Default off.
+            dvr::vr::set_mod_spacewarp(GetPrivateProfileIntA("VR", "ModSpacewarp", 0, ini) != 0);
+            dvr::afw::set_synth_hands(GetPrivateProfileIntA("VR", "ModSpacewarpHands", 0, ini) != 0);
+            dvr::vr::set_msw_half_rate(GetPrivateProfileIntA("VR", "ModSpacewarpHalfRate", 1, ini) != 0);
+            dvr::afw::set_synth_extrapolate(GetPrivateProfileIntA("VR", "ModSpacewarpExtrapolate", 1, ini) != 0);
+            // VR-39 MSW guards (PLAN-mod-spacewarp section 7). New levers: default off.
+            dvr::afw::set_synth_guard(GetPrivateProfileIntA("VR", "ModSpacewarpGuard", 0, ini) != 0);
+            dvr::afw::set_synth_stick_stop(GetPrivateProfileIntA("VR", "ModSpacewarpStickStop", 0, ini) != 0);
+            Log("config: [VR] ModSpacewarpGuard=%d ModSpacewarpStickStop=%d (resolved; absent = 0)",
+                dvr::afw::synth_guard() ? 1 : 0, dvr::afw::synth_stick_stop() ? 1 : 0);
             // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
             // tests were wasted shipping a changed compiled default to a machine
             // whose ini names the key: the loader reads a default only when the key
@@ -3786,7 +3831,7 @@ static void DeviceSetEx(bool on, const char* who)
 static void DeviceSetManaged(const char* name, const char* who)
 {
     dvr::d3d9ex::Managed m;
-    if (!dvr::d3d9ex::parse_managed(name, &m)) { Log("device: managed none|default|dynamic|shadow (asked '%s')", name); return; }
+    if (!dvr::d3d9ex::parse_managed(name, &m)) { Log("device: managed none|default|dynamic|shadow|paged (asked '%s')", name); return; }
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     WritePrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(m), ini);
@@ -3833,6 +3878,9 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen", "FovLever", v, ini);
     _snprintf(v,64,"%.2f",ProjectionFovGet());
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
+    WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
+    _snprintf(v,64,"%.3f",AfwFgGainGet());
+    WritePrivateProfileStringA("Stereo","AfwForegroundGain",v,ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);
     WritePrivateProfileStringA("HandRender", "DriveArms", g_rtdDoArms ? "1" : "0", ini);
@@ -4316,6 +4364,7 @@ static void OverlaySaveDefaults()
             _snprintf(v, 64, "%u", doh); WritePrivateProfileStringA("Clarity", "DlssOutputHeight", v, ini);
         }
         WritePrivateProfileStringA("Clarity", "DlssMask", dvr::dlss::mask_on() ? "1" : "0", ini);
+        WritePrivateProfileStringA("Clarity", "DlssObjectMotion", dvr::dlss::object_motion() ? "1" : "0", ini);   // VR-39
         WritePrivateProfileStringA("Clarity", "DlssJitter", dvr::dlss::jitter::enabled() ? "1" : "0", ini);
         WritePrivateProfileStringA("Clarity", "DlssJitterWide", dvr::dlss::jitter::wide() ? "1" : "0", ini);
         _snprintf(v, 64, "%.3f", dvr::dlss::mask_lo());
@@ -4384,6 +4433,13 @@ static void OverlaySaveDefaults()
     _snprintf(v, 64, "%d", dvr::vr::get_pose_lag());
     WritePrivateProfileStringA("Pace", "Lag", v, ini);
     WritePrivateProfileStringA("Pace","ImageOrientation",dvr::vr::image_orientation_enabled()?"1":"0",ini);
+    WritePrivateProfileStringA("VR", "SubmitDepth", dvr::vr::submit_depth() ? "1" : "0", ini);   // VR-39
+    WritePrivateProfileStringA("VR", "ModSpacewarp", dvr::vr::mod_spacewarp() ? "1" : "0", ini);   // VR-39
+    WritePrivateProfileStringA("VR", "ModSpacewarpHands", dvr::afw::synth_hands() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpHalfRate", dvr::vr::msw_half_rate() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpExtrapolate", dvr::afw::synth_extrapolate() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpGuard", dvr::afw::synth_guard() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpStickStop", dvr::afw::synth_stick_stop() ? "1" : "0", ini);
     // Sync OFF saves as 0 whatever the target was, so a SAVE AS DEFAULTS taken
     // after an A/B that ended on `off` does not resurrect the rate next launch.
     _snprintf(v, 64, "%u", dvr::vr::pace_sync() ? dvr::vr::pace_sync_hz() : 0u);

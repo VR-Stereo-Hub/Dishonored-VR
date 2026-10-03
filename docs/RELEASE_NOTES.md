@@ -1,3 +1,43 @@
+# Dishonored VR 1.0.3
+
+## Alternate Frame Warping (AFW)
+
+- **AFW is a new way of rendering the two eyes,** and it is the big one for this release.
+- The game renders one eye per frame, and the mod rebuilds the other eye from depth, so the game does half the eye-rendering work for every frame you see.
+- **It now looks very close to full stereo, with a massive performance boost:** on our test PC it reached a full 144 fps where full stereo managed about 110, and DLAA went from 50-70 fps to about 120.
+- **Pair it with DLSS Ultra Quality:** no major performance cost and essentially no aliasing on our test setup.
+- **How to turn it on:** Set the rendering mode in the launcher for your next launch, or alternatively, press L3 + R3 in game, go to Display > Stereo rendering, and choose "Alternate frame warping (AFW)". The in-game control switches live, with no restart needed.
+- **Please try it and tell us how it runs on your setup.** The default mode is unchanged for now, and you can switch back the same way at any time.
+
+## New
+
+- **Launcher overhaul:** a new dedicated Mods section that downloads and installs ReShade for you, with links and instructions for manually installing HD textures and presets.
+- **ReShade support:** the launcher can install ReShade 6.8 for you, and Scroll Lock turns effects on and off in game. F10 > ReShade also provides preset and shader controls using the same motion controls. ReShade is off by default.
+- **Texture pack support:** a new option that helps large texture packs load without running out of 32-bit address space.
+- **DLSS follows moving characters:** an option that makes DLSS smear less on people, animals and boats.
+- **Button mapping in the launcher:** remap the controller before you start the game.
+- **Subtitle readability:** color, outline and background options for subtitles, available in F10 > HUD and the INI.
+
+## Improved
+
+- Your arms and weapon now use the same field of view as the world, so they show at their true size.
+- With DLSS on, the hands and weapon smear less when they move.
+- The field of view slider moved to the Display tab and the top of the Hands tab.
+- The launcher's rain option now reads "Rain overlay" (on = rain shown); it works the same as before.
+
+## Fixed
+
+- Fixed a crash that could happen after changing the resolution.
+- Fixed a crash related to texture pack installation.
+
+## Known issues
+
+- **The mod's own spacewarp is currently broken.** It will be improved in a later update; for now it is left in Debug mode only.
+- ReShade presets that need depth require non-manual ReShade mode (`[ReShade] ManualRuntime=0`, then restart). Manual mode is the default; non-manual mode can add desktop presentation overhead.
+- Held objects can flicker with AFW rendering mode enabled.
+
+Shout out to @Martysl1 for his patch that was integrated into this one!
+
 ## 1.0.2 (2026-09-28)
 
 Player-facing summary. The engineering detail for each item is in the sections below.

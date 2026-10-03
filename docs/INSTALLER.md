@@ -1,3 +1,66 @@
+## Candidate additions: texture packs and ReShade (2026-10-02)
+
+Setup/Change settings > Texture packs offers **Reduce texture address space use**.
+Omitting this choice preserves the existing mode. On writes `[Device] Ex=1`, `Managed=paged`,
+`ShadowSurfaces=1`, `ShadowFullCopy=1`; Off selects `Managed=shadow` and keeps the compatible
+surface/full-copy settings. CLI: `--texture-memory on|off`. The elevated worker receives the
+same choice. These apply next launch; Windows pagefile size is never edited. See
+[dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md) for measured costs and limits.
+
+Mods > **Install ReShade 6.8** downloads the official full add-on runtime on request after
+this launcher's mod build is installed. CLI operation: `--apply --op reshade`. The worker
+verifies the pinned official setup SHA256, reads its ZIP payload without executing it,
+validates PE32 x86, and installs only `ReShade32.dll`. Existing ReShade runtime is backed up;
+`d3d9.dll`, `ReShade.ini` and presets stay intact. Download failure or hash mismatch refuses
+the install. No ReShade runtime is embedded in the launcher or release ZIP.
+
+The mod's `DishonoredVR_ReShade.addon32` is built and embedded with every launcher, installed
+by install/update and included in rollback snapshots; it is inactive without ReShade.
+Mod uninstall removes this bridge and preserves ReShade and user presets. Shader packages
+remain a separate installation from the [official ReShade site](https://reshade.me/).
+F10 > ReShade uses the existing panel position and controller input for presets, effects,
+techniques and shader parameters. Turn off Performance mode to edit parameters. Startup
+is off by default (`[ReShade] Enabled=0`). The tested manual runtime (`ManualRuntime=1`)
+renders effects before VR capture and preserves desktop mirror suppression. Builds 264
+and 266 are headset-accepted for appearance/startup and panel controls respectively.
+Mods provides Turn ReShade on/off and Uninstall ReShade runtime. These are next-launch
+operations, refuse while the game runs and require this launcher's installed VR build.
+They back up the complete VR INI; removal moves ReShade32.dll to a unique backup and
+preserves ReShade.ini, shaders and presets. CLI operations: `reshade-on`, `reshade-off`,
+`reshade-remove`. HD Texture Pack 2.0 and the Carinth preset link to their author pages;
+HD installation remains manual, following TFC Installer instructions and retaining backups.
+
+## Native sidebar and readiness audit (2026-10-03)
+
+Overview exposes Collect logs directly. Settings has Display and Controls tabs; runtime
+and Stereo/AFW use dropdowns, render quality and 50-450% resolution remain visible,
+and the full action/source mapping editor is expandable. `--stereo stereo|afw` writes
+only an explicit selection. Omitted selections keep existing modes, including custom
+ones. Play remains at the bottom right on every page. Unsaved settings survive navigation;
+Play asks whether to return to settings or use saved values. Settings Apply never replaces
+an installed DLL. Browsing a different installation resets its draft.
+
+Mods, Bindings, Updates and Help/about use the same native sidebar and artwork. The
+required headset selector remains modal. Running-game or unknown process checks refuse
+settings writes; active operations and downloads block conflicting navigation. Collect
+logs remains a read-only local operation, including while the game runs. Its bounded ZIP
+includes up to ten session logs and stays under the existing 24 MB budget; nothing uploads.
+
+Changing settings preserves the installed DLL's actual hash and recorded build identity,
+rather than recording the launcher's bundled version as installed. Unknown identities
+remain unknown. Build ordering now prepares the 64-bit DLAA/DLSS helper before configuring
+and embedding the launcher payload, including available pinned NVIDIA/AMD runtime files.
+
+Verification includes 175 real-widget interaction checks (`tools/installer-ui-host.ps1`),
+100%/150% native renders, full-INI smoke, running-game refusal, exact helper hashes,
+ReShade on/off/removal backups, installed identity preservation and partial-update rollback.
+Two old smoke assumptions were corrected: ReShade comments can precede Enabled, and
+multiple intentional INI backups can coexist. No game is launched by these tests.
+
+Verification: `tools/installer-host.ps1`, `tools/installer-smoke.ps1`,
+`tools/reshade-install-tests.ps1 -DownloadFile <official pinned setup>` and launcher render
+fixtures. Tests never execute the downloaded setup or start the game.
+
 # The launcher: DishonoredVR-Launcher-v1.0.1.exe (VR-198)
 
 One exe to install, configure and launch Dishonored VR. Setup offers runtime,
@@ -10,9 +73,9 @@ The **Bindings** page embeds the owner-supplied Quest 3 reference. Fit/zoom and
 scrolling keep it readable; maximize the window for more room. Current shortcut
 preferences appear above the image because custom settings can differ.
 
-It is a native 32-bit Windows program (`src/tools/installer/`), drawn with Dear ImGui in
-the F10 panel's own theme (`src/core/ui/ovl_ui.cpp`, VR-197): ink, bone, brass and
-oxblood, Constantia over Segoe UI, the brass rule with the diamond. The mod's files are
+It is a native 32-bit Windows program (`src/tools/installer/`), drawn with Dear ImGui using the selected
+sidebar design: full-width Dishonored artwork, parchment navigation, Perpetua headings,
+Display/Controls settings and a fixed footer. Shared F10 controls retain their own theme. The mod's files are
 embedded in the exe as resources, so there is nothing to unzip and nothing else to
 download. The zip still ships for people who prefer to copy files by hand.
 
@@ -432,3 +495,107 @@ and an ini already at that size reads back as Ultra. The Advanced slider, like t
 Display slider, now reaches 300% (4763x4936 per eye; the live resize accepts up to 16384
 per side). Nothing above Balanced was judged on more than one card; Ultra is for cards with
 clear headroom at Quality.
+
+## Proposed Mods section and launcher layouts (2026-10-02)
+
+Three interactive design previews were prepared: Sidebar, Compact tabs, and Split
+workspace. Each keeps primary action buttons adjacent, separates Settings/Mods/Bindings/
+Support, and exposes AFW/Stereo as a Settings dropdown. Split workspace also shows it
+beside Mods. These are previews only; no production layout or download manager is shipped.
+The proposed lifecycle is Download -> downloaded Off -> On/Off with Uninstall available.
+Turning Off retains the cache; Uninstall restores owned originals and removes managed data.
+All game-file changes must refuse while the game is running and be reversible.
+
+The requested catalog is [HD Texture Pack 2.0](https://www.nexusmods.com/dishonored/mods/51)
+and the current ReShade preset variant of
+[ENB or ReShade with SweetFX](https://www.nexusmods.com/dishonored/mods/5), plus the existing
+optional ReShade runtime. HD 2.0 lists a 4.8 GB download and requires TFC Installer to patch
+game assets; its documented removal restores backups. A reliable toggle needs a tested TFC
+adapter and enough space to retain originals and prepared modded data. It is not a DLL rename.
+The preset variant requires Standard Effects, SweetFX and prod80 effects. Do not copy old
+ENB/SweetFX proxy DLLs over the VR proxy. Download from the authors' sources, not a mirror.
+
+The linked [NexusModsModDownloader](https://github.com/Wedsels/NexusModsModDownloader)
+uses Python, Playwright/Firefox and stealth automation, copies Firefox profile cookies and
+expects an API key. No license file is visible in the repository root reviewed. It is not
+selected for bundling. Prefer native API integration with an Import archive fallback.
+[Nexus's documented download API](https://github.com/Nexus-Mods/node-nexus-api/blob/master/docs/classes/_nexus_.nexus.md#getdownloadurls)
+requires a website-generated nxm key for non-Premium accounts; Premium can obtain direct
+links. Do not promise unattended free-account downloads. Public release of API integration
+requires [application registration](https://help.nexusmods.com/article/114-api-acceptable-use-policy).
+No account credentials were requested or copied during this investigation.
+
+Runtime installation found Get-FileHash discovery can fail in the launcher's inherited
+PowerShell environment. The helper uses .NET SHA256 directly and tests a deliberately
+unavailable hash cmdlet. Verification failure still leaves game files unchanged.
+## Full sidebar design and installed preset validation (2026-10-03)
+
+The user selected Sidebar. The complete interactive preview now uses the existing
+backdrop, parchment strip and binding art, serif typography, slate controls and oxblood
+primary action. **Play stays bottom right**. Overview holds installation/path and shortcut
+actions; Settings separates Display and Controls; Mods owns enable/remove; Bindings retains
+the guide; Updates owns release checking, overwrite policy, reinstall and history; Help/about
+retains log collection, credits and Ko-fi. The actual launcher and updater code are unchanged.
+Display includes headset model, runtime, AFW/Stereo, quality presets, the 50-450% pixel slider,
+mirror, rain and texture compatibility. Controls includes crouch, snap turn, modifier, stick
+swap and pause chord. Other in-game-only controls remain in F10/L3+R3. Preview navigation,
+Apply, mode selection, TFC preparation and update modal interactions pass; 320/360/560px
+layouts fit. The native updater's 57 host checks pass, including invalid size/hash/version,
+replacement refusal/preservation, successful replacement and Steam/GOG discovery.
+
+TFC: the local HD 2.0 pack has GameProfile.xml at its root and mapping/TFC data below
+TexturePack. TFC 2.5.4 exposes GamePath/TFCPath/UpdateSettings in its .NET configuration;
+that is evidence for investigating prefilled setup, not proof of an unattended API. The
+documented flow is selecting folders then Update All. The proposed launcher will import
+and validate the archive, manage its extracted location, check backup capacity, prepare
+the paths and guide the final TFC step. Completion must be verified before showing On.
+Off/Uninstall must restore verified original packages; it cannot be a simple DLL toggle.
+HD textures were not installed during the ReShade test setup. No donor binary was bundled.
+
+The user supplied the current Nexus mod-5 archive in Downloads. Only its sole preset entry
+was extracted, not a legacy ENB proxy. Archive SHA256:
+EC0EC351918B1C1FD0965B8DBA00ED06843FE4E06B10872859708EC98DAD5613.
+Installed DishonoredCarinthPresetv3.ini SHA256:
+BF54F4CA10C3748D9FF4585B3B764410E7ED73D968270C02183D2349E2905D6D.
+Active techniques are SMAA, LiftGammaGain, LumaSharpen, Vibrance, Curves, HDR (FakeHDR.fx),
+and prod80_04_ContrastBrightnessSaturation. Other TechniqueSorting names are inactive.
+
+Official packages, pinned before extraction, retaining source/license files:
+
+| Package | Commit | Download SHA256 |
+|---|---|---|
+| [Standard Effects](https://github.com/crosire/reshade-shaders/tree/slim) | fd0022170615ce0d8162d219bff07232fa6dd84f | a3b110ba5118f3b944d74f0b0746c21280071d389ed98d615bf3c4b3a1778586 |
+| [SweetFX](https://github.com/CeeJayDK/SweetFX) | 93ddf39b357f5da534ed6d34ba4ec8cc7dcfa361 | e1e1d6515d29c65fcf115c9692a1c5f91ffb8d9734e6871bcf67ac48588dbbce |
+| [prod80](https://github.com/prod80/prod80-ReShade-Repository) | 1c2ed5b093b03c558bfa6aea45c2087052e99554 | 15b251a3f99901dda81072c3cb8ffa1eb2144dee5399d459a5dde7a50bbd6132 |
+
+Packages live separately in Win32/dvr-reshade-shaders, with explicit effect/texture search
+paths in the newly created ReShade.ini. PresetPath selects Carinth; PerformanceMode=1 and
+SkipLoadingDisabledEffects=1. Scroll Lock (145) toggles effects; Home (36) opens the overlay.
+There was no prior ReShade.ini/preset/package folder to overwrite. Before copying, verified
+the accepted mod/runtime hashes and that Dishonored was not running; archived DLL, full
+INI, bridge, runtime and both game logs. After copying, full VR INI byte comparison and
+CRLF verification pass, and the VR DLL is unchanged. Main build/texture-reshade-candidate/
+preset contains sources.json, installed-profile.json, validation scripts and before-profile
+backup. Shader/include and texture dependencies are checked locally. Actual compilation,
+headset effect capture and frame-time cost await the user's launch.
+
+## Launcher copy and button mapping follow-up (2026-10-03)
+
+The actual native settings screen now exposes all 11 F10 actions and the same 12 physical
+source choices, stick swap, reset-to-default mappings, and duplicate-source feedback.
+The shared controller_binds header is authoritative. Detection reads existing keys without
+marking them dirty; apply writes only changed actions and SwapSticks. Reset explicitly
+sets all known actions to defaults while retaining unknown keys. `--bind-<Action> <Source>`
+and `--bind-swap-sticks on|off` carry selections into headless/elevated apply. Invalid
+sources are refused before mutation. Button press capture remains in F10 during gameplay.
+
+Both current developers have the same role description. The donation paragraph and link
+label follow the user's requested product copy. Rain overlay is a positive UI checkbox;
+its ON default still writes/reads [Rain] Hide=0. The existing --hide-rain-overlay CLI keeps
+its original meaning. A missing saved headset still requires selection at startup.
+
+The complete sidebar preview now places a collapsible mapping editor under Controls.
+Texture setup says to choose the downloaded pack, let the launcher unpack/find the game,
+then click Update All in the window that opens. That automated preparation remains a
+proposal; the final TFC step and verified restore are still required before enable/off
+management can ship. No texture pack was installed for this ReShade experiment.

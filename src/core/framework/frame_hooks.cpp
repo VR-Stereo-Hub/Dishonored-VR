@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"
 #include "core/framework/render_profile.h"
 // core/framework/frame_hooks.cpp - see frame_hooks.h.
 #define DVR_CAT ::dvr::log::Cat::present
@@ -146,6 +147,12 @@ void track_session() {
     }
 }
 
+// ReShade invokes the callback synchronously inside this thread's native Present.
+// A TLS pending call prevents callbacks from another device/thread finishing this frame.
+volatile LONG g_reshadeActive = 0;
+struct PendingTail { void (*call)(void*) = nullptr; void* context = nullptr; };
+thread_local PendingTail g_pendingTail;
+
 HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT* dst, HWND wnd,
                             const RGNDATA* dirty) {
     g_presentRet = (uintptr_t)_ReturnAddress();   // VR-80: the game's call site of this present
@@ -165,6 +172,8 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool torn = false;
         if (!torn) {
             torn = true;
+            dvr::reshade_runtime::reset();
+            dvr::d3d9ex::clear_staging();
             dvr::hudclass::shutdown(); dvr::hudcap::shutdown(); dvr::markersharp::reset();   // VR-117: before the method and the runtime
             dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit");
         }
@@ -177,6 +186,14 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::bridge_profile::present();
     dvr::perf::stamp(dvr::perf::kEntry);
     dvr::perf::part_begin();    // VR-160: `perf parts on` names what the present path spends
+    // VR-39 (MSW): this hook owns the frame loop and the D3D11 context from here to the end of the runtime's
+    // present tail; the mod's spacewarp thread fills a display slot only while nothing holds it.
+    struct CycleGuard {
+        bool held = true;
+        CycleGuard() { dvr::vr::cycle_enter(); }
+        void release() { if (held) { held = false; dvr::vr::cycle_leave(); } }
+        ~CycleGuard() { release(); }
+    } cycleGuard;
 
     dvr::depthprobe::tick(self, dvr::capture::width(), dvr::capture::height());   // read-only; off by default
     if (dvr::depthprobe::share_tick_needed() && g_cb.d3d11) {   // diagnostics or active depth-vector TAA
@@ -262,53 +279,74 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
     dvr::etw::end(dvr::etw::kGameTick);
     dvr::perf::stamp(dvr::perf::kAfterTick);
 
-    // Present-tail: the method produces the eye texture; the runtime shows it.
-    dvr::stereo::FrameDevices devs;
-    devs.dev9 = self;
-    if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
-    dvr::stereo::FrameOutput out;
-    dvr::desktop_eye::begin_present(g_count);
-    const uint32_t priorCapture = dvr::capture::delivered_serial();
-    dvr::etw::begin(dvr::etw::kMethod);
-    dvr::stereo::end_frame(devs, out);
-    dvr::markersharp::prepare(self,devs.dev11,devs.ctx11,dvr::capture::width(),dvr::capture::height());
-    dvr::etw::end(dvr::etw::kMethod, out.eyeSign);
-    dvr::perf::part_mark("hk.method(capture+fence)");
-    dvr::perf::stamp(dvr::perf::kAfterEnd);
-    {
-        dvr::desktop_eye::Record record;
-        const bool known = dvr::desktop_eye::record_for(g_count, record);
-        dvr::scene_prepare::end_frame(known ? record.draw : 0,
-            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
-        dvr::query_profile::end_frame(known ? record.draw : 0,
-            g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+    bool desktopXrReady = false, desktopStereoReady = false;
+    auto finishTail = [&]() {
+        // Present-tail: the method produces the eye texture; the runtime shows it.
+        dvr::stereo::FrameDevices devs;
+        devs.dev9 = self;
+        if (g_cb.d3d11) devs.dev11 = g_cb.d3d11(&devs.ctx11);
+        dvr::stereo::FrameOutput out;
+        dvr::desktop_eye::begin_present(g_count);
+        const uint32_t priorCapture = dvr::capture::delivered_serial();
+        dvr::etw::begin(dvr::etw::kMethod);
+        dvr::stereo::end_frame(devs, out);
+        dvr::markersharp::prepare(self,devs.dev11,devs.ctx11,dvr::capture::width(),dvr::capture::height());
+        dvr::depthprobe::fgmask_prepare(self, devs.dev11, devs.ctx11, dvr::capture::width(), dvr::capture::height());   // VR-39 run 17
+        dvr::etw::end(dvr::etw::kMethod, out.eyeSign);
+        dvr::perf::part_mark("hk.method(capture+fence)");
+        dvr::perf::stamp(dvr::perf::kAfterEnd);
+        {
+            dvr::desktop_eye::Record record;
+            const bool known = dvr::desktop_eye::record_for(g_count, record);
+            dvr::scene_prepare::end_frame(known ? record.draw : 0,
+                g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+            dvr::query_profile::end_frame(known ? record.draw : 0,
+                g_cb.gameplay_verdict && g_cb.gameplay_verdict());
+        }
+        // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
+        // method and the runtime on purpose: they belong to no stereo method.
+        dvr::perf::part_mark("hk.sceneQueryProfiles");
+        dvr::etw::begin(dvr::etw::kHud);
+        dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
+        dvr::etw::end(dvr::etw::kHud);
+        dvr::perf::part_mark("hk.hudRedirectEnd");
+        if (out.tex) ++g_submits;
+        dvr::etw::begin(dvr::etw::kXrEnd, out.eyeSign);
+        dvr::vr::on_present_end(out.tex);
+        dvr::etw::end(dvr::etw::kXrEnd, out.eyeSign);
+        dvr::vr::msw_tick();          // VR-39: start or stop the spacewarp thread with the session and the wish
+        cycleGuard.release();
+        dvr::perf::part_mark("hk.xrEnd");
+        dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
+        dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
+        // VR-115: only desktop delivery can be omitted. All per-eye engine, capture,
+        // XR and hook accounting above runs unchanged. Check the final session state
+        // because xrEndFrame can fail after the runtime's mirror callback.
+        const uint32_t deliveredCapture = dvr::capture::delivered_serial();
+        desktopXrReady = out.tex && deliveredCapture && deliveredCapture != priorCapture &&
+            dvr::vr::session_live();
+        desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
+            dvr::stereo::reentry_family_active();   // VR-39: aer tags every present too
+    };
+    HRESULT hr;
+    if (!dvr::reshade_runtime::manual() && InterlockedCompareExchange(&g_reshadeActive, 0, 0)) {
+        g_pendingTail = { [](void* context) { (*static_cast<decltype(finishTail)*>(context))(); }, &finishTail };
+        hr = g_origPresent(self, src, dst, wnd, dirty);
+        if (g_pendingTail.call) {
+            g_pendingTail = {};
+            DVR_WARN("reshade: post-effect callback missing; finishing XR once and disabling bridge for this run");
+            InterlockedExchange(&g_reshadeActive, 0);
+            finishTail();
+        }
+    } else {
+        dvr::reshade_runtime::render(self);
+        dvr::perf::part_mark("hk.reshadeEffects");
+        finishTail();
+        dvr::etw::begin(dvr::etw::kDeskPresent);
+        hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
+            desktopStereoReady, desktopXrReady, dvr::vr::session_running());
+        dvr::etw::end(dvr::etw::kDeskPresent);
     }
-    // VR-117: the HUD's redirected pixels, copied and handed over BETWEEN the
-    // method and the runtime on purpose: they belong to no stereo method.
-    dvr::perf::part_mark("hk.sceneQueryProfiles");
-    dvr::etw::begin(dvr::etw::kHud);
-    dvr::hudcap::end_frame(self, devs.dev11, devs.ctx11);
-    dvr::etw::end(dvr::etw::kHud);
-    dvr::perf::part_mark("hk.hudRedirectEnd");
-    if (out.tex) ++g_submits;
-    dvr::etw::begin(dvr::etw::kXrEnd, out.eyeSign);
-    dvr::vr::on_present_end(out.tex);
-    dvr::etw::end(dvr::etw::kXrEnd, out.eyeSign);
-    dvr::perf::part_mark("hk.xrEnd");
-    dvr::perf::stamp(dvr::perf::kAfterPresentEnd);
-    dvr::perf::stamp(dvr::perf::kBeforeGamePresent);
-    // VR-115: only desktop delivery can be omitted. All per-eye engine, capture,
-    // XR and hook accounting above runs unchanged. Check the final session state
-    // because xrEndFrame can fail after the runtime's mirror callback.
-    const uint32_t deliveredCapture = dvr::capture::delivered_serial();
-    const bool desktopXrReady = out.tex && deliveredCapture && deliveredCapture != priorCapture &&
-        dvr::vr::session_live();
-    const bool desktopStereoReady = desktopXrReady && out.eyeSign != 0 && dvr::stereo::wants_projection() &&
-        !strcmp(dvr::stereo::active_name(), "reentry");
-    dvr::etw::begin(dvr::etw::kDeskPresent);
-    const HRESULT hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
-        desktopStereoReady, desktopXrReady, dvr::vr::session_running());
-    dvr::etw::end(dvr::etw::kDeskPresent);
     dvr::perf::stamp(dvr::perf::kAfterGamePresent);
     // 41.1 (session 8): the codes only a 9Ex device returns (the game never
     // handles them); the first of each is named so a TDR reads as a TDR.
@@ -328,6 +366,8 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
 }
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
+    dvr::reshade_runtime::reset();
+    dvr::d3d9ex::clear_staging();
     if (g_cb.before_reset) g_cb.before_reset(pp);
     g_gameDs = nullptr; g_gameDsKnown = false;   // Reset rebinds the auto depth-stencil
     DVR_INFO("device Reset (%ux%u windowed=%d)", pp ? pp->BackBufferWidth : 0,
@@ -350,6 +390,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
+    if (dvr::reshade_runtime::inside) return g_origSetVsConst(self, startReg, data, count);
     dvr::native_profile::Scope timing(dvr::native_profile::ConstHook);
     if (startReg < (UINT)kVsConstShadowRows && data && count) {   // VR-117/118: c0..c31, for the HUD region probe
         const UINT room = (UINT)kVsConstShadowRows - startReg;
@@ -362,26 +403,34 @@ HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const floa
 
 HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex,
                                 UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    if (dvr::reshade_runtime::inside) return g_origDrawIndexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
     dvr::native_profile::Scope timing(dvr::native_profile::IndexedHook);
     ++g_actDraws;
-    if (g_cb.draw_indexed)
-        return g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices,
-                                 startIndex, primCount);
-    return orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    dvr::depthprobe::note_draw(self);   // VR-39: the foreground mask's snapshot, before the pass's first draw
+    const HRESULT hr = g_cb.draw_indexed
+        ? g_cb.draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount)
+        : orig_draw_indexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    dvr::depthprobe::note_draw_end();   // run 19: the game's draw is over (the mask's candidate window)
+    return hr;
 }
 
 HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
                              UINT primCount) {
+    if (dvr::reshade_runtime::inside) return g_origDrawPrim(self, type, startVertex, primCount);
     dvr::native_profile::Scope timing(dvr::native_profile::PrimitiveHook);
     ++g_actDraws;
-    if (g_cb.draw_prim) return g_cb.draw_prim(self, type, startVertex, primCount);
-    return orig_draw_prim(self, type, startVertex, primCount);
+    dvr::depthprobe::note_draw(self);
+    const HRESULT hr = g_cb.draw_prim ? g_cb.draw_prim(self, type, startVertex, primCount)
+                                      : orig_draw_prim(self, type, startVertex, primCount);
+    dvr::depthprobe::note_draw_end();   // run 19
+    return hr;
 }
 
 // The texture-filter levers (core/gfx/sampler_force): off, every call passes
 // through with the game's own value.
 dvr::samplers::PFN_SetSamplerState g_origSetSampler = nullptr;
 HRESULT __stdcall hkSetSamplerState(IDirect3DDevice9* self, DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value) {
+    if (dvr::reshade_runtime::inside) return g_origSetSampler(self, sampler, type, value);
     return dvr::samplers::set_sampler_state(self, sampler, type, value, g_origSetSampler);
 }
 
@@ -403,6 +452,8 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
         dvr::stereo::on_reset();
         dvr::desktop_eye::on_reset();
         dvr::capture::on_reset();
+        dvr::reshade_runtime::reset();
+        dvr::d3d9ex::clear_staging();
         dvr::depthprobe::on_reset();
         dvr::log::flush();
     }
@@ -410,6 +461,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
+    if (dvr::reshade_runtime::inside) return g_origSetRt(self, idx, rt);
     dvr::native_profile::Scope timing(dvr::native_profile::TargetHook);
     ++g_actSrts;
     dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
@@ -424,12 +476,14 @@ HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3D
 // DLSS projection jitter (core/gfx/dlss_jitter.h): the bound depth-stencil surface is how the
 // world passes are told apart. Pointer value only - never dereferenced, never AddRef'd.
 HRESULT __stdcall hkSetDepthStencil(IDirect3DDevice9* self, IDirect3DSurface9* ds) {
+    if (dvr::reshade_runtime::inside) return g_origSetDs(self, ds);
     g_gameDs = ds; g_gameDsKnown = true;
     dvr::dlss::jitter::note_depth_stencil(ds);
     return g_origSetDs(self, ds);
 }
 
 HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
+    if (dvr::reshade_runtime::inside) return g_origBeginScene(self);
     ++g_actBegins;
     if (g_actBegins == 1) dvr::etw::frame_start(g_count);
     dvr::perf::frame_start_marker("BeginScene");
@@ -512,15 +566,22 @@ HRESULT raw_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVe
 
 HRESULT orig_draw_indexed(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                           UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
-    if (g_innerDrawIndexed)
-        return g_innerDrawIndexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
-    return raw_draw_indexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    const HRESULT hr = g_innerDrawIndexed
+        ? g_innerDrawIndexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount)
+        : raw_draw_indexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount);
+    // VR-39 run 17: a foreground draw, drawn again into AFW's mask with the state it was just drawn with.
+    if (SUCCEEDED(hr) && dvr::depthprobe::fgmask_begin(dev))
+        dvr::depthprobe::fgmask_end(dev, raw_draw_indexed(dev, type, baseVertex, minIndex, numVertices, startIndex, primCount));
+    return hr;
 }
 
 HRESULT orig_draw_prim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT startVertex,
                        UINT primCount) {
-    if (g_innerDrawPrim) return g_innerDrawPrim(dev, type, startVertex, primCount);
-    return raw_draw_prim(dev, type, startVertex, primCount);
+    const HRESULT hr = g_innerDrawPrim ? g_innerDrawPrim(dev, type, startVertex, primCount)
+                                       : raw_draw_prim(dev, type, startVertex, primCount);
+    if (SUCCEEDED(hr) && dvr::depthprobe::fgmask_begin(dev))   // VR-39 run 17
+        dvr::depthprobe::fgmask_end(dev, raw_draw_prim(dev, type, startVertex, primCount));
+    return hr;
 }
 
 void set_inner_draw_hooks(DrawIndexedFn drawIndexed, DrawPrimFn drawPrim) {
@@ -562,3 +623,14 @@ int present_backtrace(uintptr_t* out, int max) {
 void set_present_backtrace(bool on) { InterlockedExchange(&g_presentBtOn, on ? 1 : 0); if (!on) g_presentBtN = 0; }
 
 } // namespace dvr::frame
+
+extern "C" void __cdecl DvrReShadeAddonSetActive(int active) {
+    if (dvr::reshade_runtime::manual()) return; // manual runtime owns its own pre-capture call
+    InterlockedExchange(&dvr::frame::g_reshadeActive, active ? 1 : 0);
+    DVR_INFO("reshade: post-effect bridge %s (enabled bridge requires native desktop Present)", active ? "active" : "inactive");
+}
+extern "C" void __cdecl DvrReShadePresentCallback() {
+    auto pending = dvr::frame::g_pendingTail;
+    dvr::frame::g_pendingTail = {};
+    if (pending.call) pending.call(pending.context);
+}

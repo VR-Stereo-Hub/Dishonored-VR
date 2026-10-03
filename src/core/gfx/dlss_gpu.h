@@ -39,6 +39,8 @@ struct ID3D11ShaderResourceView;
 struct ID3D11RenderTargetView;
 struct ID3D11VertexShader;
 struct ID3D11PixelShader;
+struct ID3D11ComputeShader;
+struct ID3D11UnorderedAccessView;
 struct ID3D11RasterizerState;
 struct ID3D11BlendState;
 struct ID3D11DepthStencilState;
@@ -47,6 +49,7 @@ struct ID3D11SamplerState;
 namespace dvr::dlss {
 
 struct GuideParams {
+    ID3D11ShaderResourceView* preFg = nullptr;   // VR-39: the scene target when the foreground pass began (the hands mask)
     uint32_t w = 0, h = 0;                // the eye image (and guide) size
     bool historyValid = false;            // false: vectors are zero (DLSS is also reset)
     dvr::clarity::Mat3 prevFromCur = {{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
@@ -115,8 +118,10 @@ public:
     // The bias mask for this eye image, from run()'s vectors and this eye's previous colour.
     // historyValid false (or no previous colour yet) writes zero. lo/hi: the colour excess
     // outside the 3x3 range (0..1, gamma) where the mask starts and saturates.
+    // colourPart: the colour-change mask; sceneDepth + preFg (both or neither): the foreground always masked.
     bool mask(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
-              bool historyValid, float lo, float hi, char* why, size_t cap);
+              bool historyValid, float lo, float hi, char* why, size_t cap, bool colourPart = true,
+              ID3D11ShaderResourceView* sceneDepth = nullptr, ID3D11ShaderResourceView* preFg = nullptr);
     ID3D11Texture2D* bias() const { return bias_; }
     // Keeps this eye image as the eye's previous colour (after mask() and the audit read it).
     bool keep(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* color);
@@ -126,12 +131,44 @@ public:
     // expX/Y: where the image moved by jitter alone (current minus previous sample offset, render px).
     void audit(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
                float expX = 0, float expY = 0);
+    // VR-39: object motion - the camera vectors corrected where this eye's image and its previous one show
+    // something moving on its own or with the camera (characters, a boat). Needs run() and this eye's previous
+    // colour (keep()); overwrites motion(). jitShift: current minus previous sample offset (render px).
+    struct ObjParams { float ratio = 0.5f, minGain = 0.02f, minContrast = 0.04f, minDeviation = 1.5f, prior = 0.0f; bool temporal = true; };
+    // Counts since the last reset: eye images read back, tiles in them, tiles searched (the camera's vector did not
+    // already match), tiles overridden (a clearly better vector at least minDeviation from the camera's).
+    struct ObjStats { uint64_t images = 0, tiles = 0, searched = 0, overridden = 0; } objStats;
+    bool objmotion(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11ShaderResourceView* color,
+                   float jitShiftX, float jitShiftY, const ObjParams& op, char* why, size_t cap);
     AuditBin bins[kAuditBins];
     FlowStats flow;
     float bodyDepth = 0.3f;   // the arms/weapon band the flow check keeps apart
     uint64_t bytes() const;
 private:
     bool ensure(ID3D11Device* dev, uint32_t w, uint32_t h, char* why, size_t cap);
+    bool ensure_obj(ID3D11Device* dev);
+    ID3D11ComputeShader* csObjTile_ = nullptr;   // the search (cs_objsearch)
+    ID3D11ComputeShader* csObjPre_ = nullptr;    // the early exits and the list
+    ID3D11Buffer* list_ = nullptr;
+    ID3D11UnorderedAccessView* listUav_ = nullptr;
+    ID3D11ShaderResourceView* listSrv_ = nullptr;
+    ID3D11Buffer* listArgs_ = nullptr;
+    ID3D11Buffer* stats_ = nullptr;
+    ID3D11UnorderedAccessView* statsUav_ = nullptr;
+    ID3D11Buffer* statStage_[3] = {};
+    bool statPending_[3] = {};
+    int statNext_ = 0;
+    ID3D11PixelShader* psObjFix_ = nullptr;
+    ID3D11Buffer* cbObj_ = nullptr;
+    ID3D11Texture2D* tiles_ = nullptr;
+    ID3D11UnorderedAccessView* tilesUav_ = nullptr;
+    ID3D11ShaderResourceView* tilesSrv_ = nullptr;
+    ID3D11Texture2D* tilePrev_[2] = {};
+    ID3D11ShaderResourceView* tilePrevSrv_[2] = {};
+    bool tilePrevOk_[2] = {};
+    ID3D11Texture2D* motion2_ = nullptr;
+    ID3D11RenderTargetView* motion2Rtv_ = nullptr;
+    uint32_t tilesW_ = 0, tilesH_ = 0, obj2W_ = 0, obj2H_ = 0;
     bool ready_ = false;
     ID3D11VertexShader* vs_ = nullptr;
     ID3D11PixelShader* ps_ = nullptr;

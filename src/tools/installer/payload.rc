@@ -25,3 +25,6 @@ IDR_DLSS_NOTICE      RCDATA "NOTICE.md"
 #endif
 
 IDR_CONTROLLER_GUIDE RCDATA "assets/ui/launcher/quest3-controls.png"
+
+IDR_RESHADE_BRIDGE RCDATA "DishonoredVR_ReShade.addon32"
+IDR_INSTALL_RESHADE RCDATA "install-reshade.ps1"

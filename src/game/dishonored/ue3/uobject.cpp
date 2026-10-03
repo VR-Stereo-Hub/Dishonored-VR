@@ -53,12 +53,27 @@ static void HexDumpObject(const char* label, uint8_t* o, size_t bytes)
 // ----------------------------------------------------------------------------
 // STEREO: locate the live camera, then offset it per-eye each frame.
 // ----------------------------------------------------------------------------
+// The reads are guarded as well as range-checked: a range check and the read are two moments, and a
+// device reset on the present thread can unmap a driver mapping in between (run 7: a hand-mesh scan read
+// 0xBF800030 right after a resolution change, and the game died on it). A vanished page is "not an
+// object", never a crash. No C++ objects in this function, so __try is legal here.
+static bool ObjClassNameIndex(uint8_t* o, uint32_t* nameIdx)
+{
+    __try {
+        uint8_t* cls = *(uint8_t**)(o + kClassOff);
+        if (!cls || ((uintptr_t)cls & 3) || !RangeReadable(cls, kNameOff + 8)) return false;
+        *nameIdx = *(uint32_t*)(cls + kNameOff);
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
 static const char* ObjClassName(uint8_t* o)
 {
     if (!RangeReadable(o, kClassOff + 4)) return NULL;
-    uint8_t* cls = *(uint8_t**)(o + kClassOff);
-    if (!cls || ((uintptr_t)cls & 3) || !RangeReadable(cls, kNameOff + 8)) return NULL;
-    return RealName(*(uint32_t*)(cls + kNameOff));
+    uint32_t idx = 0;
+    if (!ObjClassNameIndex(o, &idx)) return NULL;
+    return RealName(idx);
 }
 
 

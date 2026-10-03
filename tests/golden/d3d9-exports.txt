@@ -9,3 +9,5 @@ D3DPERF_GetStatus
 D3DPERF_SetMarker
 D3DPERF_SetRegion
 D3DPERF_QueryRepeatFrame
+DvrReShadeAddonSetActive
+DvrReShadePresentCallback

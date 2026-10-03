@@ -33,7 +33,7 @@ static void DvrPreTick(IDirect3DDevice9*)
             static uint64_t upMs = 0;
             const uint64_t now = GetTickCount64();
             if (upMs == 0) upMs = now;
-            else if (now - upMs >= 60000) { upMs = now; dvr::census::log_upload_if_moved("60 s"); }
+            else if (now - upMs >= 60000) { upMs = now; dvr::census::log_upload_if_moved("60 s"); if (dvr::d3d9ex::paged_active()) dvr::d3d9ex::log_status(); }
         }
     }
 
@@ -337,6 +337,21 @@ static void DvrConsumePoses()
 // binocular-scope squeeze in the headset. On the quad screen the lever is the
 // manual [Screen] FovLever (default off) and no claim is made. The derived
 // numbers print on every change so a complaint is arithmetic.
+// VR-39: the hands and weapon at the world's FOV. The player mesh and the held weapon are projected with the camera's
+// FOV (the lever's target, headset-derived: 108.07 on the dev rig) while the world is drawn at [Screen] ProjectionFov
+// (103): the arms sat about 9% nearer the image centre than the world around them (ENGINE_NOTES, "The foreground is
+// drawn with the game camera's FOV"), and every view rebuild had to tell them apart to reproject them differently -
+// which this game cannot do reliably (the AFW foreground mask never engages). With this on, the camera's own target IS
+// ProjectionFov, so the arms draw at it and the scoped world override becomes a no-op. [Screen] HandsAtWorldFov
+// (default 1), F10 Comfort; 0 restores the headset-derived camera FOV.
+static std::atomic<bool> g_handsWorldFov{true};
+static bool HandsWorldFovGet() { return g_handsWorldFov.load(); }
+static void HandsWorldFovSet(bool on, const char* who) {
+    if (g_handsWorldFov.exchange(on) != on)
+        Log("fov: hands and weapon %s (%s)", on ? "at the WORLD's FOV ([Screen] ProjectionFov): the camera's target follows it"
+                                                  : "at the headset-derived camera FOV (the pre-VR-39 behaviour)", who ? who : "?");
+}
+
 static void DvrFovHandoff()
 {
     static bool  wasProj = false;
@@ -344,7 +359,9 @@ static void DvrFovHandoff()
     static uint32_t saidW = 0, saidH = 0;
     const bool proj = dvr::stereo::wants_projection();
     if (proj) {
-        const float target = dvr::vr::suggested_hfov_deg();   // 0 until the views are located
+        const float headset = dvr::vr::suggested_hfov_deg();   // 0 until the views are located
+        const float world = ProjectionFovGet();
+        const float target = (HandsWorldFovGet() && world > 0.0f && headset > 0.0f) ? world : headset;
         dvr::camera::set_fov_deg(target);
         const float scoped=CineFovClaim();
         const float sensor = scoped>0 ? scoped : dvr::camera::rendered_fov_deg();
@@ -357,9 +374,10 @@ static void DvrFovHandoff()
                                    ? 2.0f * atanf(tanf(target * 0.5f * 0.0174533f) / aspect) * 57.29578f : 0.0f;
             uint32_t ew = 0, eh = 0; dvr::vr::recommended_eye_size(&ew, &eh);
             float hh = 0.0f, hv = 0.0f; dvr::vr::headset_half_fov_deg(&hh, &hv);
-            Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f); "
-                "FOV %.1f deg = the layer's claim%s; eye %ux%u",
-                aspect, w, h, target, vfov, hh, hv, sensor,
+            Log("fov: aspect %.3f (%ux%u) -> lever target %.1f deg (vfov %.1f; headset half-angles %.1f/%.1f; headset-derived "
+                "%.1f, %s); FOV %.1f deg = the layer's claim%s; eye %ux%u",
+                aspect, w, h, target, vfov, hh, hv, headset,
+                target != headset ? "the hands and weapon at the world's FOV" : "the camera at the headset-derived FOV", sensor,
                 scoped>0 ? " (scoped draw override)" : sensor <= 0.0f ? " (NOT YET READ: the runtime claims the target meanwhile, fovaudit src=fallback)" : " (sensor)",
                 ew, eh);
         }
@@ -411,10 +429,60 @@ static bool DvrGameplayVerdict()
     return verdict;
 }
 
+// VR-39 run 21: are both controllers still? AFW keeps each eye's own weapon shading while they are. Measured over
+// about 50 ms (tracking jitter of a fraction of a millimetre over one 7 ms tick would read as motion), in tracking
+// space: 6 cm/s and 12 deg/s. A lost hand counts as moving.
+static void AfwHandsStillTick()
+{
+    if (!dvr::afw::enabled()) return;
+    struct S { double t; float p[2][3]; float q[2][4]; bool ok; };
+    static S ring[32]; static int n = 0, head = 0;
+    S s = {}; s.t = MaimNowMs(); s.ok = true;
+    for (int h = 0; h < 2 && s.ok; ++h) {
+        dvr::vr::HeadPose hp;
+        if (!dvr::vr::get_hand_pose(h, false, hp)) { s.ok = false; break; }
+        s.p[h][0] = hp.px; s.p[h][1] = hp.py; s.p[h][2] = hp.pz;
+        s.q[h][0] = hp.qx; s.q[h][1] = hp.qy; s.q[h][2] = hp.qz; s.q[h][3] = hp.qw;
+    }
+    ring[head] = s; head = (head + 1) % 32; if (n < 32) ++n;
+    bool still = s.ok;
+    float worstV = 0.0f, worstW = 0.0f;
+    if (still) {
+        // the newest sample at least 50 ms old
+        const S* old = nullptr;
+        for (int k = 1; k < n; ++k) {
+            const S& c = ring[(head - 1 - k + 64) % 32];
+            if (s.t - c.t >= 50.0) { old = &c; break; }
+        }
+        if (!old || !old->ok) still = false;
+        else {
+            const float dt = (float)((s.t - old->t) / 1000.0);
+            for (int h = 0; h < 2; ++h) {
+                const float dx = s.p[h][0] - old->p[h][0], dy = s.p[h][1] - old->p[h][1], dz = s.p[h][2] - old->p[h][2];
+                const float v = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
+                float d = fabsf(s.q[h][0] * old->q[h][0] + s.q[h][1] * old->q[h][1] + s.q[h][2] * old->q[h][2] + s.q[h][3] * old->q[h][3]);
+                if (d > 1.0f) d = 1.0f;
+                const float w = 2.0f * acosf(d) * 57.29578f / dt;
+                if (v > worstV) worstV = v;
+                if (w > worstW) worstW = w;
+            }
+            still = worstV < 0.06f && worstW < 12.0f;
+        }
+    }
+    dvr::afw::note_hands_still(still);
+    static bool said = false, last = false;
+    if (!said || still != last) {
+        said = true; last = still;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Debug, 1000, "afw: controllers %s (%.3f m/s, %.1f deg/s over 50 ms)",
+                         still ? "still" : "moving", worstV, worstW);
+    }
+}
+
 // Every enabled present, after the runtime located the head for this frame
 // and before the stereo method captures the game's frame.
 static void DvrGameTick(IDirect3DDevice9* self)
 {
+    AfwHandsStillTick();   // VR-39 run 21
     (void)self;
     dvr::perf::part_mark("hk.stereoBegin+verdicts");   // VR-160: `perf parts on`; the run is opened in hkPresent
     g_xrOn = g_vrReady = dvr::frame::xr_live();   // the session, as of this present
@@ -938,6 +1006,7 @@ static void DvrInstallFrameHooks()
     rh.draws     = SceneDrawDraws;
     rh.gates     = SceneDrawGates;
     rh.present_tag = SceneDrawPresentTag;   // VR-78: the accounting probe's join
+    rh.set_alternate = SceneDrawSetAlternate;   // VR-39: `stereo aer`, one draw per tick
     dvr::stereo::set_reentry_hooks(rh);
     dvr::stereo::set_overlay_draw(DvrOverlayDraw);
     // VR-117: the HUD anchors. The census borrows two game counters; the

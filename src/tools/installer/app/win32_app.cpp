@@ -2,6 +2,7 @@
 #include "app/win32_app.h"
 #include "app/offscreen.h"
 #include "ui/screens.h"
+#include "ui/widgets.h"
 #include "model/view_state.h"
 #include "sys/fs.h"
 #include "sys/process.h"
@@ -84,6 +85,7 @@ void apply_scale(App& a, float scale)
     a.scale = scale;
     // ScaleAllSizes is cumulative, so start from the theme's own metrics each time.
     dvr::ovl::apply_theme();
+    ui::apply_launcher_style();
     ImGui::GetStyle().ScaleAllSizes(scale);
     ImGui::GetStyle().FontScaleDpi = scale;
 }
@@ -216,6 +218,13 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
         s += i == Modifier ? std::to_wstring(c.preferences[i])
             : ((kPreferences[i].inverted ? !c.preferences[i] : c.preferences[i]) ? L"on" : L"off");
     }
+    for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+        if (c.bindingEdits & (1u << a)) s += L" --bind-" + fs::widen(dvr::binds::info(a).key) +
+            L" " + fs::widen(dvr::binds::source_key(c.bindings.src[a]));
+    }
+    if (c.swapSticksEdit >= 0) s += c.swapSticksEdit ? L" --bind-swap-sticks on" : L" --bind-swap-sticks off";
+    if (c.stereoEdit >= 0) s += c.stereoEdit ? L" --stereo afw" : L" --stereo stereo";
+    if (c.textureMemory >= 0) s += c.textureMemory ? L" --texture-memory on" : L" --texture-memory off";
     s += c.overwriteSettings ? L" --overwrite-settings" : L" --keep-settings";
     if (deleteIni) s += L" --delete-ini";
     s += L" --result " + process::quote_arg(resultFile);
@@ -224,6 +233,8 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
 
 Report run_op(const Env& env, const Detection& det, const std::string& op, const Choices& c, bool deleteIni)
 {
+    if (op == "reshade") return do_reshade(env, det);
+    if (op == "reshade-on" || op == "reshade-off" || op == "reshade-remove") return do_reshade_manage(env, det, op == "reshade-on", op == "reshade-remove");
     if (op == "install") return do_install(env, det, c);
     if (op == "update") return do_update(env, det, c.overwriteSettings);
     if (op == "change") return do_change(env, det, c);
@@ -239,6 +250,8 @@ Report run_op(const Env& env, const Detection& det, const std::string& op, const
 // current.
 void start_op(App& a, const std::string& op, const char* busyText)
 {
+    if (a.view.busy || a.view.updateDownloading) return;
+    a.view.det.running = process::is_running(kGameExe);
     a.view.busy = true; a.view.busyText = busyText; a.view.notice.clear();
     a.view.lastOp = op;
     const Env env = a.env;
@@ -292,7 +305,7 @@ void browse(App& a)
                 const std::wstring dir = steam::normalise_game_dir(chosen);
                 a.env.gameDirOverride = dir.empty() ? chosen : dir;
                 a.view.det = detect(a.env);
-                if (!a.view.changingSettings) a.view.choices = a.view.det.suggested;
+                a.view.choices = a.view.det.suggested; a.view.settingsDraft = false; a.view.settingsDirty = false; a.view.changingSettings = false;
                 if (a.view.det.gameFound) profile::set(launcher_preferences(),L"Game",L"Directory",a.view.det.gameDir,nullptr);
                 a.view.choices.overwriteSettings=profile::get_int(launcher_preferences(),L"Updates",L"OverwriteSettings",1)!=0;
                 a.view.screen=a.view.det.modInstalled?Screen::Manage:Screen::Setup;
@@ -379,6 +392,11 @@ void finish_worker(App& a)
         return;
     }
     a.view.report = a.workerReport;
+    if (a.workerReport.ok && (a.workerOp == "change" || a.workerOp == "install" || a.workerOp == "update" || a.workerOp == "uninstall")) {
+        const bool overwrite = a.view.choices.overwriteSettings;
+        a.view.choices = a.view.det.suggested; a.view.choices.overwriteSettings = overwrite;
+        a.view.settingsDraft = false; a.view.settingsDirty = false;
+    }
     if (a.workerOp == "disable" || a.workerOp == "enable") {
         a.view.notice = a.workerReport.steps.empty() ? "" : a.workerReport.steps.back().title + ". " + a.workerReport.steps.back().detail;
         a.view.screen = Screen::Manage;
@@ -435,16 +453,16 @@ void dispatch(App& a, UiAction action)
 {
     if (action == UiAction::None) return;
     ViewState& v = a.view;
-    if(v.updateDownloading && action!=UiAction::Close) return;
+    if((v.busy || v.updateDownloading) && action!=UiAction::Close) return;
     switch (action) {
     case UiAction::Install:
-        start_op(a, v.changingSettings ? "change" : "install", v.changingSettings ? "Writing the settings..." : "Installing...");
+        start_op(a, v.det.modInstalled && v.det.iniExists ? "change" : "install", v.det.modInstalled && v.det.iniExists ? "Writing the settings..." : "Installing...");
         break;
     case UiAction::Browse: browse(a); break;
     case UiAction::SelectGame:
         if(v.selectedGame>=0 && v.selectedGame<(int)v.det.games.size()) {
             a.env.gameDirOverride=v.det.games[v.selectedGame].dir;
-            v.det=detect(a.env);v.choices=v.det.suggested;
+            v.det=detect(a.env);v.choices=v.det.suggested;v.settingsDraft=false;v.settingsDirty=false;v.changingSettings=false;
             v.choices.overwriteSettings=profile::get_int(launcher_preferences(),L"Updates",L"OverwriteSettings",1)!=0;
             v.screen=v.det.modInstalled?Screen::Manage:Screen::Setup;
             if(v.det.gameFound)profile::set(launcher_preferences(),L"Game",L"Directory",v.det.gameDir,nullptr);
@@ -495,6 +513,11 @@ void dispatch(App& a, UiAction action)
         }
         break;
     }
+    case UiAction::Overview: v.screen = Screen::Manage; break;
+    case UiAction::ShowMods: v.screen = Screen::Mods; break;
+    case UiAction::ShowUpdates: v.screen = Screen::Updates; break;
+    case UiAction::OpenTextureSource: process::open_unelevated(L"https://www.nexusmods.com/dishonored/mods/51"); break;
+    case UiAction::OpenPresetSource: process::open_unelevated(L"https://www.nexusmods.com/dishonored/mods/5"); break;
     case UiAction::ShowAbout: v.guideReturn = v.screen; v.screen = Screen::About; break;
     case UiAction::OpenKofi: process::open_unelevated(L"https://ko-fi.com/pizzzaparker"); break;
     case UiAction::CreditPizza: process::open_unelevated(L"https://github.com/BioVRDev"); break;
@@ -507,16 +530,20 @@ void dispatch(App& a, UiAction action)
         v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 1) != 0;
         start_op(a, "update", "Updating the mod..."); break;
     case UiAction::ChangeSettings:
-        v.changingSettings = true; v.screen = Screen::Setup; v.choices = v.det.suggested;
+        v.changingSettings = v.det.modInstalled; v.screen = Screen::Setup;
+        if (!v.settingsDraft) { v.choices = v.det.suggested; v.settingsDraft = true; }
         v.choices.overwriteSettings = profile::get_int(launcher_preferences(), L"Updates", L"OverwriteSettings", 1) != 0;
         v.notice.clear(); break;
     case UiAction::CancelChange:
-        v.changingSettings = false; v.screen = Screen::Manage; v.notice.clear(); break;
+        v.changingSettings = false; v.settingsDraft = false; v.settingsDirty = false; v.choices = v.det.suggested; v.screen = Screen::Manage; v.notice.clear(); break;
     case UiAction::ToggleDisable: start_op(a, v.det.disabled ? "enable" : "disable", v.det.disabled ? "Enabling VR..." : "Disabling VR..."); break;
     case UiAction::CollectSupport: collect_support(a); break;
-    case UiAction::Uninstall: v.confirmUninstall = true; v.deleteIni = false; break;
+    case UiAction::Uninstall: v.screen = Screen::Manage; v.confirmUninstall = true; v.deleteIni = false; break;
     case UiAction::CancelUninstall: v.confirmUninstall = false; break;
     case UiAction::ConfirmUninstall: start_op(a, "uninstall", "Removing the mod..."); break;
+    case UiAction::InstallReShade: start_op(a, "reshade", "Downloading and verifying ReShade..."); break;
+    case UiAction::ToggleReShade: start_op(a, v.det.reshadeEnabled ? "reshade-off" : "reshade-on", "Saving ReShade preference..."); break;
+    case UiAction::RemoveReShade: start_op(a, "reshade-remove", "Removing ReShade runtime..."); break;
     case UiAction::ApplyBaseline: start_op(a, "baseline", "Applying the game settings..."); break;
     case UiAction::OpenReleases: process::open_unelevated(kReleasesUrl); break;
     case UiAction::OpenGameFolder: if (v.det.gameFound) process::open_unelevated(v.det.gameDir); break;

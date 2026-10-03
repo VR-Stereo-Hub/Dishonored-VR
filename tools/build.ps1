@@ -25,6 +25,13 @@ if (-not $cmake) { throw "VS-bundled CMake not found - install the 'C++ CMake to
 # cmake presets are resolved relative to the current directory
 Push-Location $repo
 try {
+    # The one 64-bit piece: the DLAA helper (NVIDIA's NGX is x64 only). Built when the SDK is
+    # present (tools\fetch-ngx.ps1); without it DLAA is simply unavailable.
+    if (Test-Path (Join-Path $repo "third_party\ngx\include\nvsdk_ngx.h")) {
+        & (Join-Path $PSScriptRoot "build-dlss-host.ps1")
+    } else {
+        Write-Host "build: NGX SDK not fetched (tools\fetch-ngx.ps1) - the DLAA helper is not built"
+    }
     # VR-180: the legacy switch is decided by THIS call and by nothing else.
     # It used to be passed only on a first configure or with -Legacy, so a build
     # directory that had EVER seen -Legacy kept DVR_WITH_LEGACY=ON in its CMake
@@ -51,6 +58,8 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "CMake reconfigure failed." }
         }
     }
+    & $cmake -S . -B build "-DDVR_WITH_LEGACY=$legacyFlag" "-DDVR_FLICKER_DIAGNOSTICS=$diagnosticFlag" "-DDVR_FLICKER_PIXEL_DIAGNOSTICS=$pixelFlag"
+    if ($LASTEXITCODE -ne 0) { throw "CMake payload refresh failed." }
     if ($Legacy) {
         Write-Host "build: LEGACY code is compiled IN (-Legacy). For the debugger and old diagnostics only - never for playing or for a tester." -ForegroundColor Yellow
     } else {
@@ -60,13 +69,6 @@ try {
     $preset = if ($Release) { "release" } else { "debug" }
     & $cmake --build --preset $preset
     if ($LASTEXITCODE -ne 0) { throw "Build failed." }
-    # The one 64-bit piece: the DLAA helper (NVIDIA's NGX is x64 only). Built when the SDK is
-    # present (tools\fetch-ngx.ps1); without it DLAA is simply unavailable.
-    if (Test-Path (Join-Path $repo "third_party\ngx\include\nvsdk_ngx.h")) {
-        & (Join-Path $PSScriptRoot "build-dlss-host.ps1")
-    } else {
-        Write-Host "build: NGX SDK not fetched (tools\fetch-ngx.ps1) - the DLAA helper is not built"
-    }
     $cfg = if ($Release) { "RelWithDebInfo" } else { "Debug" }
     $versionText = Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw
     if ($versionText -notmatch 'project\(DishonoredVR VERSION ([0-9.]+)') { throw 'Cannot read launcher version' }

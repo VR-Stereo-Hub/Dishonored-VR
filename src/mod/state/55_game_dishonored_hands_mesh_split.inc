@@ -497,6 +497,7 @@ static bool     g_mpEyePredict = false;
 static bool     g_mpPoseFromView = false;
 static LONG     g_mpPvMatch[3] = {0, 0, 0};   // matched views by eye: left, centre/single, right
 static LONG     g_mpPvNone = 0, g_mpPvNoRec = 0, g_mpPvAmbig = 0, g_mpPvEyeFixed = 0;
+static LONG     g_mpPvResolved = 0; // position ties resolved by the rendered camera axes
 static double   g_mpPvOffSum = 0.0; static LONG g_mpPvOffN = 0; static float g_mpPvOffMax = 0.0f;
 static bool     g_mpEyeMenuHalfStep = false;
 static int      g_mpEyePredictRun = 0;   // consecutive predictions, capped at 2

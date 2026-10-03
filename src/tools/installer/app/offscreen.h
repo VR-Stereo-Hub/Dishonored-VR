@@ -8,7 +8,7 @@
 
 namespace dvr::setup::app {
 
-constexpr int kLogicalWidth = 960, kLogicalHeight = 760;
+constexpr int kLogicalWidth = 960, kLogicalHeight = 850;
 
 // scale is the DPI factor (1.0 = 96 dpi, 1.5 = 144 dpi). Returns false with why.
 bool render_offscreen(ViewState& state, float scale, const std::wstring& outBmp, std::string* why);

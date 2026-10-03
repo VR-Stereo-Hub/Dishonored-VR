@@ -1,3 +1,753 @@
+## 2026-10-03: 1.0.3 release preparation authorized
+
+The maintainer authorized integration of the accepted runtime and audited launcher into
+staging, followed by a release PR from staging to VR-Main. Version metadata is now 1.0.3;
+RELEASE_NOTES contains the supplied release copy with launcher/manual-install scope,
+F10 subtitle availability and ReShade mode wording corrected to match the implementation.
+The contributor credit is explicitly approved for these release notes.
+
+Gameplay evidence remains the matching build-266 run. Installed build 267 changes only
+the launcher, build ordering and documentation; its game runtime is identical to 266.
+Release preparation changes version metadata and documentation only. Preserve public
+ReShade-off and full Stereo defaults and the tester's complete personal INI.
+
+The 1.0.3 patch scope does not close the broader Stable milestone or the remaining
+VR-39/VR-133 research. Held-object AFW flicker and mod-spacewarp are known issues;
+HD texture import remains manual. The release PR is for the maintainer to merge.
+Do not merge VR-Main, tag, publish assets, delete feature branches or mark the broader
+milestone complete as part of preparation. Final release artifacts come from the
+maintainer-merged VR-Main tip. Earlier publication authorization is now resolved.
+
+## 2026-10-03: F10 ReShade accepted; native sidebar launcher audited
+
+Build v1.0.1-266-gf3bd14b91 is headset-accepted for controller operation of the F10
+ReShade tab. Installed DLL hash and banner were verified before reading its normal
+shutdown log. Evidence: main build/texture-reshade-candidate/f10-panel/accepted-run.
+Enabled=0 remains the public default; the tester retains Enabled=1, the Carinth preset,
+the accepted right-hand trims and the local height. See PERFORMANCE.md for runtime evidence.
+
+The native launcher now implements the selected sidebar layout, Display/Controls settings,
+fixed bottom-right Play, Overview Collect logs, Mods, Bindings, Updates and Help/about.
+ReShade runtime install/on/off/removal are wired; removal retains a runtime backup and
+all shader/preset files. HD Texture Pack 2.0 remains manual for the planned 1.0.3 patch.
+Stereo/AFW selection saves only an explicit choice. Unsaved settings survive navigation;
+Play offers return to settings or use of saved values. Apply never reinstalls a present
+mod merely because another operation changed the current screen.
+
+Audit fixes: settings writes preserve actual installed build identity, running-game or
+unreadable-process checks refuse writes, operation/download activity blocks conflicting
+navigation, and the DLAA/DLSS helper is built before the launcher payload is assembled.
+The helper and pinned NVIDIA/AMD DLL payloads now match the built files in scratch tests.
+175 native UI interaction checks pass at 100%, 150% and minimum window size; whole-INI
+install/settings/update/rollback smoke passes. Earlier 86 unit, 57 updater and Unicode
+support-bundle checks pass. Native renders were inspected at 100% and 150%.
+
+Installed clean candidate v1.0.1-267-g18ae0b5ca with matching stable launcher. DLL SHA256
+c2e83a95fe615865c94104c0aeec7a81720908bfdcae0f13b1dc64cec0997cac. Full VR INI is
+byte-identical to backup and expected target: 73,497 bytes, 1,685 CRLF, zero lone LF;
+SHA256 6d3e82969765de54327eb40deb8fb3a890037fd8a5c6b23bfe597ccbcf1d5885.
+ReShade runtime, bridge, configuration and both presets are unchanged. Installation
+record now names the actual DLL and retained runtime/dimensions. Backup and manifest:
+main build/texture-reshade-candidate/launcher-audit. Runtime code and defaults are identical
+to headset-accepted build 266; build 267 has not had a new game launch. Launcher checks
+are complete. The next release decision and any additional perceptual tests remain with
+the maintainer; outstanding texture stress/subtitle scope is retained in ROADMAP.
+No game launch, merge, release declaration or 1.0.3 version bump is authorized by this work.
+External publication is still awaiting explicit destination approval after an automatic
+approval rejection; the complete local branch and review text remain available.
+
+## 2026-10-03: accepted ReShade runtime; F10 tab and right-hand defaults
+
+Tester reports build v1.0.1-264-gfbc2bd23e looks and runs well. Installed hash and
+log banner match; current/previous logs and saved configurations are archived in main
+build/texture-reshade-candidate/accepted-264. The run reaches normal PreExit. Sampled
+late gameplay windows show mirror actual=0 with off=1; the ReShade CPU part is about
+0.16-0.18 ms per Present, not a GPU cost or a controlled A/B. See PERFORMANCE.md.
+
+The requested ReShade controls are now an installed-only F10 tab, reusing the exact
+panel placement, pointer, trigger, scroll and relative slider-nudge path. It offers
+preset selection, live effects and technique toggles, parameter editing, reload/save,
+and performance mode. Parameters require performance mode off. Public ReShade API 20
+is negotiated before accessing the vendored v6.8 interface; no foreign ImGui context
+is modified. Effect handles are used only in the frame they are enumerated.
+
+ReShade startup is explicitly optional: Enabled=0 ships; ManualRuntime=1 selects the
+accepted VR integration when enabled. Existing user installation must receive Enabled=1
+and retain its chosen Carinth preset. Repository right-hand defaults now match the six
+saved trim values: T=(0.0356,0.0181,0.0145)m, R=(-36.09,72.42,17.27) degrees.
+Repository HeightOffsetM remains +0.060; the user's local -0.160 is not promoted.
+
+Native host: 791 enabled/UI checks, 759 disabled checks and a default-off no-DLL-load
+check pass. UI events change actual runtime pixels, reload parameters, toggle techniques,
+and use the production F10 relative nudge. The default writer, release INI and golden
+fixture match byte-for-byte; reset/failure coverage passes. Full optimized build passes.
+Installation and headset panel validation are next, then the requested launcher audit and
+Overview Collect logs action. Do not launch the game or merge. No 1.0.3 version bump yet.
+
+## 2026-10-03: build 262 startup crash reproduced; device-hook preservation fix
+
+The tester's startup failure matches installed v1.0.1-262-gabf374ce3. A native GPU host
+reproduces the same DXT5 CreateTexture INVALIDCALL: ReShade's BeginStateBlock causes
+the PURE D3D9 runtime to overwrite the table containing our managed-texture hooks.
+Preserving this module's detours across manual-runtime calls corrects that reproduction.
+Extended host checks pass 759 enabled and 759 disabled, including production texture
+creation/lock/upload after effects and reset/recreation. See dishonored/PERFORMANCE.md
+for evidence, the failed earlier test coverage and limits. The full crash archive is in
+main build/texture-reshade-candidate/crash-262. No game was launched by the agent.
+
+Installed correction: v1.0.1-264-gfbc2bd23e, DLL SHA256
+99941f52ff4df38118f1704300d7c807ea62fa7fff4ee979abc1114f593f7024. Release build,
+export checks and lint pass. The matching embedded-payload launcher is also installed.
+Full VR INI comparison is empty: 73,485 bytes, 1,684 CRLFs, zero lone LFs; it exactly
+matches the prepared expected INI. ReShade configuration and both presets are unchanged.
+Backup DLL/INI/log pair and manifest are under main build/texture-reshade-candidate/
+state-block-fix. No configuration consumers changed relative to the failed build.
+
+The corrected candidate needs a fresh game startup check before returning to ReShade
+performance testing. Keep ManualRuntime=1 and the separate no-effects test preset;
+preserve the entire VR INI and validate against the installed build. One launch question:
+does the existing save load normally? Game/headset acceptance is pending.
+
+## 2026-10-03: manual ReShade candidate and launcher controls (headset check pending)
+
+The build-257 playtest reports severe ReShade slowdown even with effects off and an
+unresponsive mirror-off setting. Matching DLL/banner and archived logs confirm the
+legacy bridge bypasses desktop mirror policy. See dishonored/PERFORMANCE.md for the
+measured timing, source evidence, candidate mechanism and one next-launch question.
+
+A default-off manual ReShade runtime now renders before VR capture while retaining the
+normal desktop policy. Native GPU enabled/disabled controls pass (510 each), including
+state restore and reset/recreation without native Present. Installed v1.0.1-262-gabf374ce3
+with ManualRuntime=1, Perf Parts=1 and a separate empty ReShade preset so the next test
+isolates baseline overhead. The tuned preset and current resolution are preserved.
+The build ID and hashes are recorded in main build/texture-reshade-candidate/manual-runtime/
+install.json. DLL SHA256: 674401fbff3cf93dd98d682d345192ff20876f725108647cf1eac5650a40ceac.
+The full VR INI differs only by the two added settings; 73,485 bytes, 1,684 CRLF, zero lone
+LF. ReShade.ini differs only in PresetPath. The stable local launcher executable was
+updated with an exact backup. No game was launched. Headset result remains pending.
+
+The native launcher now has the same 11 action/source choices as F10, conflict feedback,
+stick swap and reset. Only edited mapping keys are saved; headless/elevated apply carries
+them. Credits give both current developers identical roles; donation copy is the wording
+requested for the product. Rain uses a positive checkbox and remains enabled by default.
+The headset picker still requires a selection when none is saved. The sidebar design
+preview includes the binding editor and simpler texture-installer steps. The sidebar and
+TFC automation are still a design proposal, not a shipped native redesign.
+
+Build, export/lint, 86 launcher unit checks, whole-INI installer smoke, 57 updater checks,
+and preview interaction/layout checks pass. Work remains on the feature branch with
+BioVRDev commit attribution. Earlier publication requests were blocked by automatic
+approval review; no new external publication or merge is performed without resolving
+that pending approval.
+
+## 2026-10-03: Carinth preset installed; full themed sidebar preview (headset test pending)
+
+Installed the user-downloaded current Nexus mod-5 Carinth v3 preset and its seven active
+effects, with pinned official Standard Effects, SweetFX and prod80 packages. ReShade.ini
+selects DishonoredCarinthPresetv3.ini; Scroll Lock toggles effects and Home opens ReShade.
+The complete installed VR INI is byte-identical (73,348 bytes, CRLF), and the accepted
+VR DLL remains v1.0.1-257-g705b282c7. Whole DLL/INI/log pair/bridge/runtime backup is in main
+build/texture-reshade-candidate/preset/before-profile. No game was launched; runtime shader
+compilation and effects appearing in the headset remain unverified. Details and source
+hashes are in INSTALLER.md; performance limits are in dishonored/PERFORMANCE.md.
+
+One next-launch question: after loading the existing save, does Scroll Lock visibly toggle
+the preset inside the headset? Yes supports post-effect capture; no visible change, desktop-
+only change or a failure requires the matching build-257 VR and ReShade logs before another
+test. Archive both VR logs before another launch. Do not infer headset success from files.
+
+User chose Sidebar and corrected Play to the bottom RIGHT. The new interactive preview
+uses the current painted assets, includes all current launcher settings across Display and
+Controls, and covers Overview, Mods, Bindings, Updates and Help/about. It is a design preview,
+not a production UI replacement. No updater code changed; its host suite passes 57/57.
+TFC remains a guided integration proposal: prepare/import the pack and paths, then the
+documented Update All step; no unattended CLI or safe instant texture toggle is proven.
+
+## 2026-10-02: paged candidate stable in headset; ReShade installed; launcher layouts explored
+
+Tester reports the build-257 run was stable. The installed DLL hash and log banner match
+`v1.0.1-257-g705b282c7`. Six periodic device snapshots report zero backing, mapping or
+upload failures; the run reaches normal PreExit. Last periodic sample: 484,530 locks,
+293,683 uploads, 31,800 translated textures, 466.8 MiB live backing, zero mapped MiB.
+The observed maximum single upload is 126.76 ms; this is not proof of zero stalls or disk IO.
+Full evidence remains in `dishonored/PERFORMANCE.md`. Logs and whole INI archived in main
+`build/texture-reshade-candidate/stable-run-257`.
+
+ReShade 6.8.0 full add-on x86 runtime is now installed as `ReShade32.dll`, official SHA256
+`DA430E0A9C6EECEFA0D1B27D05E16C426FB5D04E808B194D914EAAC4B31BC0F8`.
+The first launcher attempt safely refused because Windows PowerShell could not discover
+Get-FileHash in the inherited environment. The helper now uses .NET SHA256 directly;
+extraction/backup/hash refusal/preservation and unavailable-cmdlet regression checks pass.
+Corrected helper completed installation. DLL, bridge and entire installed INI remain byte
+identical to pre-install backup; INI has 73,348 bytes, 1,676 CRLFs and zero bare LFs.
+Backup: main `build/texture-reshade-candidate/before-reshade`. Shaders/presets are not installed.
+Next launch question: does the existing save still load normally in the headset with
+ReShade present? Read bridge registration/callback logs against build 257 before inferring
+post-effect capture works. Never launch the game automatically.
+
+Launcher layout previews cover Sidebar, Compact tabs and Split workspace, each with Mods,
+Download -> Off/On plus Uninstall states, and an AFW/Stereo dropdown in Settings.
+These are design previews, not the installed launcher. Nexus integration still needs native
+account/download handling and a reversible TFC texture installation adapter. Research and
+scope are in `INSTALLER.md`. No staging/release merge authorized.
+
+## 2026-10-02: texture-pack/ReShade community integration candidate (VR-133)
+
+Current state: `codex/vr-133-texture-reshade` starts at staging `1c47937a6`. Reviewed community
+v1.0.2 source is ported with lock/resource safeguards, optional paged texture memory,
+ReShade post-effect bridge and hash-checked launcher download, subtitle readability preset,
+and 450% resolution. Existing Basic Stereo/AFW controls remain first in Display (PR #168
+changes retained in this candidate). No staging/release merge is authorized.
+
+Host verification: native D3D9Ex texture uploads/locks/cleanup pass; paged 4 MiB uploads cost
+1.60 ms median versus 0.34 ms conventional on this host. Unmapped 256 MiB backing consumes
+no persistent mapped VA but still about 256 MiB system commit. Paged mode stays optional.
+Launcher 86-unit suite, scratch lifecycle, ReShade extraction/preservation/hash refusal and
+production subtitle shader checks pass. The game was not launched. Headset acceptance is open.
+Full source provenance, measurements, limits and ordered next tests are in
+[dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md), 2026-10-02 community integration.
+
+Installed: `v1.0.1-257-g705b282c7`, RelWithDebInfo, legacy off. DLL SHA256
+`B469222B1E798715FC4B08A940787CDC096DC98476A05ACE6AFFE61A376FD1C1`.
+Previous DLL/whole INI/both logs are archived in main
+`build/texture-reshade-candidate/before-256`. Full installed INI equals the prepared target:
+only Managed=shadow -> paged and ShadowSurfaces=0 -> 1 changed; 73348 bytes,
+1676 CRLF lines, no bare LF. Ex=1 and ShadowFullCopy=1 were already present. All other
+preferences, including AFW and MSW off, are retained. ReShade is absent. The next run's
+banner is still awaiting the tester's launch. Candidate launcher is in main
+`output/texture-reshade-candidate`.
+
+Next steps, one question: after loading an existing save
+and quickloading it three times, does every load return to gameplay without crashing?
+Verify the new log banner before interpreting it. Do not combine ReShade or subtitle tests
+with this loading question. VR-133's unrelated camera acceptance remains open; new issue
+creation was blocked by Linear's free issue limit.
+
+## 2026-10-02: MSW guards built (Cyberpunk VR frame-generation review); host-verified
+
+Current state: branch `claude/vr-39-msw-guards` (off #165, plus the plan in draft #166) adds two
+default-off MSW levers from the Cyberpunk 2077 VR port review (PLAN-mod-spacewarp section 7):
+`[VR] ModSpacewarpGuard` (no synthesis across a Blink, snap turn or cut; the extrapolated turn
+clamped) and `[VR] ModSpacewarpStickStop` (no turn extrapolated once the right stick is
+released). Slots that re-submit the last real frame are now counted as repeats, not failures.
+Host 60/60 (five new cases with controls) and slot scheduling 12/12. Not run in the simulator or
+headset. Plan item 7.5 is retracted: the smoothing it named is in the legacy drive, not the live
+hand path. Build 250's own question (hands follow, head sweep) is still unanswered.
+
+Installed: `v1.0.1-253-ga964c2ab4`, optimized build, nine exports and lint pass. DLL SHA256
+`05488F5D05EEA99BC9DDA60D982CB9A4C1CD869AFC849979DA7020F786451249` matches the build. The whole
+73,349-byte INI matches the prepared expected file; the only difference from the backup is the two
+new lines `ModSpacewarpGuard=1` and `ModSpacewarpStickStop=1` under `ModSpacewarpHalfRate=1`, CRLF
+verified. ModSpacewarp=1 and ModSpacewarpHands=1 (from build 250) retained; the DLSS helper in
+`dvr_dlss\` is unchanged. Backup of build 250's DLL, INI and logs and the install record: main
+`build/msw-guards-install/`. The log stays build 248 until the user launches.
+
+Next: one headset question with the guards and the stick stop on (F10 Display): during a steady
+right-stick sweep past a door frame, then a release, is the one-frame world echo gone, reduced
+or unchanged? Read the `msw: guards` line for the same run: holds, clamps and stick stops, and the
+window maxima of camera speed and turn rate that set the ceilings.
+
+## 2026-09-30: build 248 improves MSW; residual hitches and foreground jitter remain
+
+Current state: headset report substantially improves the mod-spacewarp experience, with small
+hitches and hand/weapon jitter during head sweeps remaining, mainly with MSW on. Build 248's
+banner and DLL hash verified; its DLL, entire INI and logs are archived together in the main
+checkout at `build/msw-run31-analysis/baseline-248`. The tester ended with ModSpacewarp=0.
+
+Measured: 386 steady three-second MSW windows have zero repeated display targets and zero
+consecutive real submits, but 484 target gaps exceeding 1.5 display periods. The ordering fix
+is exercised successfully; deadline misses remain. Existing FrameId readback was on and
+per-slot controller following was off. Neither fact alone proves the remaining symptom's cause.
+See `dishonored/PERFORMANCE.md` for populations, earlier negative tests and the next decision.
+
+Next candidate retains the accepted prediction, wall logic and hand/view matcher. It adds
+lightweight CPU wall timings for synthetic wait, locate, eye construction and submit, and fixes
+the first rate sample after MSW restarts. Intended installed changes only: ModSpacewarp 0 -> 1,
+ModSpacewarpHands 0 -> 1, and Perf FrameId 1 -> 0. Other diagnostics and 144 Hz remain unchanged.
+Shipped defaults are unchanged. Installed `v1.0.1-250-ga0979694c`, optimized build; nine exports,
+lint and the 12 scheduling checks pass. DLL SHA256
+`4DD7C2978D8799D59380F666D009FA3A664737B8BE53A840DD89FC37D48F6EE7` matches the build.
+The complete 73,303-byte INI matches the prepared expected file, with exactly the three intended
+byte changes and CRLF verified. Backup: main
+`build/msw-run31-analysis/pre-install-250-20260930-025359`; verification `installed-250.json`
+in that analysis directory. Existing DLSS helper retained. Log stays build 248 until user launch.
+
+One question next launch: during the same left/right head sweep with controllers held still,
+does F10 Display's "Spacewarp: hands follow the controllers in filled frames" reduce the jitter
+ON versus OFF, returning on a final ON? Improvement supports grip/source timing; unchanged
+leaves that candidate unsupported; worse means leave it off. Read the matching banner and
+timing log separately for hitch localization. No capture or tester command is needed.
+No staging/release merge. Work remains on draft PR #165 under the verified VR-39 parent.
+
+## 2026-09-30: mod-spacewarp turn prediction and half-rate scheduling candidate
+
+Current state: implemented both requested corrections on `codex/vr-39-spacewarp-turn-pacing`
+from accepted staging/build 242. Headset acceptance is pending. No staging or release merge.
+
+Half-rate scheduling now retains one owed synthetic slot after a successful real stereo submit.
+Losing the frame mutex does not consume it. If the next Present wins first, its outermost entry
+services that slot before a real frame begins. The overdue filler consumes the same obligation.
+12/12 production-service host checks pass; the old lost-obligation control fails four checks,
+including 200 contended frames. New log counters distinguish target gaps and consecutive real
+submissions from average FPS. See `dishonored/PERFORMANCE.md` for interpretation and limits.
+
+Prediction uses native images' real-submission XrTime and the synthetic slot's XrTime, not capture
+arrival intervals. Body turn comes from rendered matrices with each source's head rotation removed;
+eye offsets use their own body bases, and the target eye follows the predicted body pivot. The
+camera writer's older body yaw no longer drives synthesis. World-only motion and the accepted
+wall/hand code remain intact. 55/55 GPU host checks pass. Accepted build 242 fails six of the
+53-case pre-pivot regression suite; unchanged capture timing and unchanged writer yaw controls
+separately expose both causes. GPU tests do not establish headset smoothness or unseen-background
+recovery. No game was launched by the agent.
+
+Installed: `v1.0.1-248-gdc57a1c05`, optimized build, nine exports and lint passed. DLL SHA256
+`5B02B32615DDF859CC4030C6FA18CA01C14E3D0F06E2E792056436DAF4CCA4F8` matches the build.
+Whole 73,303-byte INI matches the prepared expected file; the only difference from backup is
+ModSpacewarp 0 -> 1 (one byte), CRLF verified. Half-rate=1, extrapolation=1, hands=0,
+PoseFromView=1 and 144 Hz retained. Existing DLSS helper files remain installed. Backup and
+verification: main checkout `build/msw-turn-pacing/pre-install-248-20260930-014038` and
+`build/msw-turn-pacing/installed-248.json`. Current log remains build 242 until the user launches.
+
+Next: verify build 248's banner and resolved settings on the user-launched run. One question:
+with the head still and a steady right-stick turn past fixed geometry, is the one-frame world
+echo gone, reduced or unchanged? Pacing is measured from the same run's slot-order counters;
+its separate perceptual acceptance remains open. No capture dump is required for this first run.
+Dedicated Linear Bug creation was previously refused by the free issue limit; verified VR-39
+remains the parent. The build-242 DLL/INI/log baseline is retained for rollback.
+
+## 2026-09-30: staging integration complete; mod-spacewarp follow-up branch ready
+
+Current state: PR #164 merged into staging as `b4b1cb5ec` with explicit user authorization.
+Every non-documentation tracked file matches accepted build 242 (`11dcf7db9`); the production
+source tree is `90c035197f9e7787447d812f0eda8d6b5694696c`. The installed DLL/INI pair remains
+unchanged. VR-Main remains at `cecdae230`; no release or tag was created.
+
+Reviewed 45 PRs authored by the maintainer from September 24 onward: 32 were already merged,
+six already closed, seven still open. #159 and #163 are now marked merged through #164;
+#161 and #162 were closed as fully consolidated, with their exact heads reachable from staging.
+#118 was closed as superseded; #140 was parked after its negative headset verdict; #151 was
+parked outside the accepted baseline pending animation-origin acceptance. All seven remote
+branches were verified retained. Other contributors' PRs and the older unrelated #62 remain
+untouched. The consolidation branch is retained too.
+
+Active follow-up: `codex/vr-39-spacewarp-turn-pacing`, created from staging `b4b1cb5ec` in the
+existing `build/worktrees/aer` checkout. The user clarified that this means the MOD's F10
+spacewarp. No new runtime change is made yet. Targets: right-stick turns showing a one-frame
+world-geometry ghost, and uneven pacing even at high reported frame rates. Keep the accepted
+AFW wall/hand corrections and 144 Hz configuration. The next investigation must distinguish
+synthesized-slot geometry from source age and slot scheduling before a behavioral fix.
+
+Read the plan at the top of `docs/dishonored/PERFORMANCE.md` and the latest acceptance entry in
+`FLICKER_REFERENCE.md`. Reuse existing `msw:` diagnostics first; one question per user-launched
+test. The installed baseline has ModSpacewarp=0, so do not attribute its accepted-run timing
+to active synthesis. Dedicated Linear Bug creation was refused by the free issue limit; the
+branch uses the verified VR-39 parent. No new test is requested by this integration handoff.
+
+## 2026-09-30: build 242 accepted; consolidate the tested source for staging
+
+Current state: the headset playtest accepts `v1.0.1-242-g11dcf7db9`; hand/head drift is now
+negligible in the reported test, and the wall correction remains accepted. Runtime banner and
+installed DLL SHA256 `9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0`
+match the build. The verified log, previous log, DLL and full INI are archived in the main
+checkout at `build/integration-242`. The live matcher resolved 4,297 position ties in the final
+beat; total matched draws 22,495, remaining ties 11,547, misses 1,043. Counts are draws and
+include the full session; acceptance does not imply every draw matched.
+
+Integration: `codex/vr-39-integrate-build-242` starts at staging `89537fef7`, advances to the
+exact tested commit `11dcf7db9`, and adds only installation/acceptance documentation. All
+non-documentation tracked content matches build 242. Included PR heads: #159 AFW polish,
+#161 mod spacewarp plus wall/hand fixes, #162 DLSS object motion, #163 foreground FOV work.
+The local test branch's integration fixes are preserved too. Existing 30/30 pose-view,
+46/46 AFW, palette-eye, release build and nine-export validation apply to this identical source.
+No game launch, reinstallation, new default, release tag or VR-Main change is part of consolidation.
+
+Recent PR disposition: #118 version preparation is superseded by released 1.0.2; #140 extra
+pairs is parked after a negative headset verdict; #151 animation origin is parked outside
+the accepted build, with acceptance still incomplete. Preserve their branches and evidence.
+Other contributors' PRs and older unrelated PRs are outside this cleanup.
+
+Next work: create a fresh staging-based branch for the MOD's F10 spacewarp (ModSpacewarp),
+not the external runtime's SSW. Remaining reported faults are a one-frame world-geometry ghost
+during right-stick turning and uneven pacing despite high reported frame rates. MSW remains
+off in the accepted baseline. Geometry evidence stays in FLICKER_REFERENCE; timing research,
+the test plan and the parked extra-pair result stay in PERFORMANCE.md. A dedicated Linear
+Bug creation was attempted and refused by the free issue limit; retain VR-39 as the parent
+investigation without inventing an identifier. One question per future user-launched test.
+
+## 2026-09-30 (AFW build 239): wall accepted; view-matched hands help, position ties remain
+
+Current state: the headset playtest accepts the wall correction. Enabling `PoseFromView` greatly
+reduces the opposite-direction hand/sword drift but leaves a smaller residual. Build 239 banner
+and installed DLL hash verified; DLL, whole INI and both logs archived under the main checkout's
+`build/afw-run29-analysis`. The tester toggled on/off/on and left PoseFromView=1.
+
+Measured: the first on segment has 3,463 matched hand draws, 2,527 position ties and 36 misses.
+Matched draws corrected up to 2.751 deg of head-sample offset. Ties fall back to PoseLag=2;
+their causal contribution to the residual is a candidate, not a headset-proven finding.
+
+Change: behind the existing checkbox, resolve a position tie only when the draw's rotation also
+identifies a safe view. Conflicting head samples, eyes, cameras or level generations still refuse.
+30/30 host checks and existing palette-eye tests pass; old-control head-turn cases fail as intended.
+The heartbeat now reports rotation-resolved ties and prints even if every draw is refused.
+No engine-memory writes, AFW shader change or setting migration.
+
+Installed: `v1.0.1-242-g11dcf7db9`, fix `a27c715f9`, local combined candidate. Release build,
+nine exports, 30/30 pose-view and 46/46 AFW host checks pass. DLL SHA256
+`9700AD7E9B324DB93808097C2109E8F61BD1C79DC5725F6613B4E0BA0FDABDC0` matches build output.
+Entire INI identical to pre-install backup and expected target, CRLF verified; PoseFromView=1,
+gain 0.911 and MSW off. Backup: `build/afw-run29-analysis/pre-install-242-20260930-010059`
+in the main checkout. New runtime banner and residual-drift verdict await the user's launch.
+
+Next single-launch question: with the same checkbox left on, is the smaller head-sweep drift gone
+or reduced further? Verify the new banner and compare resolved ties with remaining refusals.
+If useful matches do not increase, the candidate has not exercised its intended correction;
+if they increase but the residual stays, investigate placement/projection separately. No dump needed.
+Detailed evidence and limitations: `docs/dishonored/FLICKER_REFERENCE.md` top entry.
+
+## 2026-09-30 (AFW build 236 follow-up): striped wall outline measured; native-hand head timing suspect
+
+Current state: build 236 headset report leaves a changed wall artifact and the opposite-direction
+head-sweep drift. The one usable new capture (`-001558`, five complete frames) exposes a second wall
+bug: fresh foreground behind the wall falsely invalidates held world pixels as stale. The shader
+now treats that foreground as an occluder. Old-code regression: max 4.531 px wall error; fixed
+0.014 px, 46/46 host tests. The striped blade/hand outline disappears in replay.
+
+Installed: `v1.0.1-239-g8cf208663`, fix `b63da9a34`, local combined candidate only. Release build,
+exports and combined 46/46 host tests pass. DLL SHA256
+`7270FAD2E95B7094633B6E7C17B05D8197926A99AB747AF99DA37B95D64C6F5D` matches build output.
+Entire INI unchanged against backup and expected bytes, CRLF verified; PoseFromView=0 for the
+off baseline, gain 0.911, MSW off. Backup: main checkout
+`build/afw-run28-analysis/pre-install-239-20260930-003926`. Runtime banner awaits user launch.
+
+The other two captures are unusable after C: filled. All originals and logs preserved; 4.89 GB of
+regenerable session replay output removed. Capture short-write handling needs a ticket, but Linear
+creation was refused by the free issue limit. No new ticket number exists.
+
+Head-sway: native feature motion suggests a preceding head sample; PoseFromView is off. Next launch
+has one live A/B question, in open space: does `Hands follow each eye's own view` remove the opposite
+drift, with off bringing it back? Read `hands/poseview` to verify matches. No capture needed. Keep
+the 0.911 gain and other settings. Wall shader fix will be built/installed separately from this
+existing live feature toggle; its headset verdict remains pending.
+Evidence, rejected readings and next steps: `docs/dishonored/FLICKER_REFERENCE.md` top entry.
+
+## 2026-09-30 (AFW): wall duplicate traced to background fill; headset pending
+
+Current state: continued `claude/vr-39-mod-spacewarp` from `9cadca4e8`. Both unanalysed captures
+are now identified: `-234412` wall, `-234706` head sway. Build 233 and its installed DLL verified;
+DLL, INI and both logs archived. The large wall duplicate comes from fill selecting a foreground
+sample behind the wall as background. Both fill sources now exclude foreground. Synthetic old-code
+control: 1,970 ghost pixels; fixed: zero, 45/45 host tests. Replay removes the large duplicate;
+thin disocclusion strips remain. Gain 1.0 and edge-hands-off do not cure the sway capture.
+
+Installed: `v1.0.1-236-g9d8af5b0f` from the existing combined `aer` checkout, carrying fix `f9d14889d`.
+Release build, nine exports and combined host suite (45/45) pass. Installed DLL SHA256
+`228C7B30D224CA005D6E403EC56BE9BE525D34E2A1C7A7C279D8D37BC60A8C73` matches the build.
+The entire 73,303-byte INI matches both its backup and expected target, with CRLF verified:
+no keys changed, gain 0.911 and MSW off. Existing DLSS helper retained (this shader-only build
+does not rebuild it). Backup: main checkout `build/afw-resume-analysis/pre-install-236-20260930-001201`.
+
+Next steps: user launches once for the wall-only question: does the large extra copy stop growing
+with penetration? First verify the new runtime banner; the archived/current old log is build 233. Head-sway timing/depth remains open, as do turn disocclusion and MSW turn ghosts.
+Detailed measured evidence, limitations and continuation plan:
+`docs/dishonored/FLICKER_REFERENCE.md` top entry and `HANDOFF-afw-runs-13-27.md`.
+No merge to staging or VR-Main.
+
+## 2026-09-29 (run 14): the arms' FOV measured; AFW's hands correction is a fixed gain - built, headset pending
+
+- `fgproj:` measured the arms at the world's FOV (103), so the hands-at-world-FOV switch works.
+- The hands' flicker under AFW came from AFW's foreground number. It is now the world's FOV widened by
+  `[Stereo] AfwForegroundGain=0.911` (F10 "AFW hands correction"). Measured by replay; needs the headset.
+- `HandsLensForce` and the lens writes are gone (measured to change nothing drawn); `armslens:` logs only.
+
+## 2026-09-29 (run 13 follow-up): the arms' lens read from the pawn, the switch moved - built, headset pending
+
+Branch `claude/vr-39-hands-world-fov`; installed from `local/test-vr39-msw-objmotion`.
+- Run 13 confirmed (build 198 log): re-entry 232-267 presents/s again, one `armslens:` line (the search
+  gave up). No general flicker reported under AFW in the same run.
+- The arms' component is now the pawn's `Mesh` (Pawn.Mesh by name, 0x3dc fallback). No GObjects search is
+  left in arm follow (ArmFovTick's slice search went too).
+- The held weapons' lenses are read from the hands' view-model list and written with the arms.
+- `[Screen] HandsLensForce` (default 0): switch a lens that is off on, at the world's FOV. The test for
+  `m_bUseFOV=0`.
+- F10: the Field of view section moved to Display (first section); the switch, the force test and a
+  status line are also at the top of Hands > Hand size and position.
+- Next log: the `armslens: the player mesh ... m_bUseFOV=` line decides the next step (BRIEF section 2).
+
+## 2026-09-29: hands and weapon at the world FOV - built, headset pending
+
+Branch `claude/vr-39-hands-world-fov` (off staging).
+- The camera's FOV target follows `[Screen] ProjectionFov`, so the arms and weapon draw at 103 like the
+  world, instead of the headset-derived 108.
+- `[Screen] HandsAtWorldFov` (default 1), F10 Comfort. See ENGINE_NOTES.
+- To check first under the 1.0.2 stereo method (reentry): that hands, aiming and cinematics still work.
+## 2026-09-29: DLSS object motion - built, host-verified, headset pending
+
+Branch `claude/vr-39-dlss-object-motion` (on #159). Each eye image is block-matched against its previous
+one, so moving characters and anything the player rides get their own motion vectors.
+- The F10 box is "Follow moving characters and vehicles" (default off).
+- Host 10/10: a character 0.14 px, a boat 0.00 px, the static world unchanged.
+- Cost 0.25 ms per eye image.
+
+## 2026-09-28 (MSW): the mod's own spacewarp - rung 1 built, host-verified, not yet run
+
+Branch `claude/vr-39-mod-spacewarp`, on top of #159.
+
+**Measured (run 8):** 88-91 presents/s against 144 slots/s, so about 40% of slots went to VD's
+headset-side SSW. SSW guesses motion from the video, which smears when running and warps the HUD.
+
+**Built:**
+- A thread fills those slots itself. Each eye is rebuilt from its own image and depth at the slot's eye
+  position, with the body's walk and turn extrapolated.
+- The HUD and aim quads are re-submitted as layers.
+- Default off: `[VR] ModSpacewarp`, `vrpace msw`, F10.
+
+**Host:** a synthesized slot while running is 99.8% within 1.5 px; with extrapolation off it is 19.9%.
+**Next:** `docs/dishonored/PLAN-mod-spacewarp.md`: a simulator run (needs a yes), then the headset A/B with
+VD SSW off.
+
+## 2026-09-28 (AFW run 8): foreground mask, running, DLSS hands, and the depth layer for SSW - host-verified, headset pending
+
+Branch `claude/vr-39-afw-polish` (after #158 merged). From the run-8 report:
+
+- **Sword tip far away / geometry very close: flat and doubled.**
+  - The foreground (arms, weapon) is now the texels the foreground pass drew (a pre-foreground copy of
+    the scene target), not "nearer than 0.30 units".
+  - `afw fgmask`.
+- **Running blur.**
+  - The camera check dropped the game matrices at running speed; now it is a latched vote over still
+    presents plus a 150 uu jump bound.
+  - The turn check went from 0.5 to 5 deg.
+- **DLSS smearing hands.**
+  - The foreground mask now feeds DLSS's "trust the current colour" mask (`dlss fgbias`, on).
+  - Moving NPCs still smear: the game draws no velocity buffer. Try `DlssMask=1`. Research: see the brief.
+- **SSW while running: the depth layer.**
+  - `[VR] SubmitDepth=1` (default 0, F10 checkbox, restart) sends each eye's depth under AFW.
+  - `vrpace depth on|off` is the live A/B.
+  - Whether VD's SSW uses depth is the headset question.
+
+**Host:** 34/34 (new: depth layer per eye within 3% on every pixel, with a control that fails).
+**Next:** `docs/dishonored/BRIEF-afw-next-session.md`.
+
+## 2026-09-28 (AFW run 7): outline, merchant FOV and crash fixed; sword shading left as an option
+
+Run 7 on `v1.0.1-166-g737af7773`: the hand jitter is gone. Fixed from two captures and the log:
+- **The 1-texel light outline.** The stale test misfired at silhouettes. Edge dots per frame
+  2786 -> 2159, the fill's share went to 0.
+- **The merchant conversation.** The camera FOV sensor reads 23 deg there. The foreground FOV is now
+  fed only in plain gameplay.
+- **A crash after a resolution change.** A reset raced a range-checked read in the hand-mesh scan; the
+  reads are now SEH-guarded.
+
+**Left:** the sword's subtle shading shimmer (the other eye's highlights). An "own hands" option exists,
+off by default: it gained little and can lag a slowly moving weapon.
+
+**Host test:** 28/28. The replay tool now handles upscaled captures (depth at the render size).
+
+## 2026-09-28 (AFW run 6): cause of the hand jitter found and fixed; grate dots fixed (replay-verified)
+
+**Two captures from run 6, analysed offline:**
+- **The hands.** Their stereo is 0.91x what their depth predicts, exactly tan(103.2/2) / tan(108.07/2).
+  The arms and weapon are drawn with the game camera's FOV (the FOV lever's 108.07), the world with
+  `ProjectionFov=103`. The rebuild reprojected the other eye's hands with the world's FOV, so every
+  other frame showed a mis-scaled copy.
+- **The grate dots.** The disocclusion fill, reaching through 2-3 texel slats to the sky.
+
+**Fixed:**
+- the foreground reprojected with the camera FOV fed from the sensor;
+- a near-miss rule for thin world structures;
+- the basis check (a 1 deg rotator yaw lag was refusing it) turned into a conventions check.
+
+**New:** `tools/afw-replay.ps1` runs the production rebuild on a capture and scores it against the next
+native frame. On the two run-6 captures, hand/weapon mismatch fell from 7.8% to 1.5% (upscaler off) and
+from 9.0% to 3.7% (DLAA); bright dots fell from 2278 to 990 and from 5285 to 3363 per frame. Host test 28/28.
+
+## 2026-09-28 (AFW run 5): hands jitter, grate dots - evidence build, plan reviewed
+
+Run 5 on `v1.0.1-164-g4b8e7a565`:
+- motion is smooth and the micro-stutter is gone;
+- still hands and weapon jitter as a smaller copy inside a full-size outline, near objects jitter a
+  little, and grate holes flicker white.
+
+The fix plan (`docs/dishonored/PLAN-afw-run5.md`) went through an adversarial review first. Its
+discriminators could not separate the candidate causes, jitter was off in the run, and it changed too
+many render behaviours in one build. The corrected order: evidence first, offline classification, then
+one default-off correction per headset question.
+
+Built: `afw dump [n]` and the F10 button "Capture AFW frames for diagnosis" (16 consecutive presents,
+from 5 s after the press, into the data dir's `dumps\`, local only). Also a detailed basis-refusal line
+and a separate fill tint. The host test is 24/24, including the capture's files; it also caught a crash
+in the capture's status line before shipping.
+
+## 2026-09-28 (AFW review): an adversarial review of 145c03b5d, and the rebuild reworked
+
+An adversarial review of the two-source rebuild found six faults, each reproduced on the host:
+- The first near candidate won even when a nearer surface existed (a thin world bar in front of the hand
+  was replaced by the hand).
+- Fixed seed depths could miss thin near geometry entirely (a 2 cm object at 0.75 m vanished).
+- The freshness guard accepted a record from an earlier present, and a toggle did not drop the records.
+- Candidates were ranked by depths from two different cameras, with a 4% band favouring the held eye.
+- The per-pixel matrix inverse cost about 20%. The pass measured 3.05 ms on this machine's RTX 4070 Ti
+  SUPER.
+- The matrix checks could not see a mirrored axis or a flipped c5 when both records shared the fault.
+
+Also found: a weapon beyond the body threshold still ghosted; a missing held record refused the
+fresh-only route; `afw::shutdown` had no caller.
+
+Rework, in `core/gfx/afw_warp`:
+- **Seed maps.** Each source is carried into the held eye's view as a depth-tested mesh (grid step 2,
+  half resolution), so every texel knows its nearest surface. It is then refined per pixel, with an edge
+  rescue.
+- **One depth space.** Candidates are compared in the held eye's own view depth.
+- **Stale test.** A held point that the fresh eye sees through is dropped, whatever its distance.
+- **Disocclusions** extend the background, never the near object.
+- **Freshness.** The fresh record must carry this present's delivered serial; an epoch drops the records
+  on a toggle.
+- **Matrix inverse** is computed on the CPU.
+- **Two independent matrix checks.** A basis check against each image's camera rotator, and a camera
+  check (the c5 displacement less the XR head motion, bounded).
+- **Fresh-only route.** It no longer needs a held record.
+- **Teardown.** `afw::shutdown` now runs at the runtime's device teardown.
+
+Host test (`tools/afw-warp-host.ps1`): 23/23, including every review counterexample and a freshness
+test. The cost is measured at 2750x2850 on this machine: about 1.5 ms per rebuild, seed maps plus
+compose. Grid step 4 measured 1.0 ms but missed a one-pixel ring of the hand and is recorded, not used.
+
+## 2026-09-28 (AFW run 4): the held eye rebuilt from both eyes - host-verified, headset pending
+
+Run 4 on `v1.0.1-162-g71e98fcae` (reported): the hands still ghosted while stick turning, and the
+picture felt uneven although the frame rate stayed high. Measured in its log: for long stretches 60-70%
+of held-eye warps fell back to the rotation-only image (`not warped: no depth for its grab 240-287` of
+~400 per 3 s): the held image's depth was looked up in the 3-deep shared ring one present after its
+capture, and a slot still being read by D3D11 made the ring overwrite the one the next warp needed. Each
+fallback swaps to a differently posed image for one frame. Also measured: 113-126 presents/s on the
+144 Hz headset (`UNDER-SUBMITTING 0.78-0.87x`) and 155 frame gaps, some in xrEndFrame (30-90 ms).
+
+Research (PERFORMANCE.md, same date): PureDark's AFW (UEVR, RE Engine) rebuilds the held eye from the
+OTHER eye's current frame plus the eye's previous frame; Oculus Stereo Shading Reprojection reprojects one
+eye into the other with depth and fills the holes. A new ray-traced host test showed why run 4 still
+ghosted even when every warp ran: the held-eye-only rebuild cannot see behind the old hand, so a turn
+leaves a trailing copy (26% of the hand at 5 deg) - the first test's flat scene could not show it.
+
+Built (`core/gfx/afw_warp`): each eye's depth is copied at its own capture (R16F, per eye), so the warp
+never depends on the ring again; the held eye is rebuilt per pixel from BOTH images - the hands/weapon
+from the fresh eye (this instant; searched from two near seeds), the world from the held eye's own image,
+the uncovered world from the fresh eye, nearest consistent surface winning (z-buffer rule). The held eye's
+world moves by the game's own camera-relative view-projection matrices (the DLSS vector route), so walking
+is carried; two per-present checks against the XR pose model (far directions, and the eye offset at 0.5 m)
+refuse the matrices and fall back to the XR pose + body yaw model. GPU timestamp of the pass on the beat.
+Seam words: `afw stereo|matrices|debug on|off` (debug tints the held eye by source).
+Host test `tools/afw-warp-host.ps1`: 16/16 on the production shader - no hand ghost or loss in any motion
+case (turn 5 and 15 deg, hand moved 6 cm, head turn and shift, weapon at 0.2 m, walking), walking parallax
+p95 0.01 px against 6.2 px without matrices, a mirrored matrix refused; the controls reproduce the old
+faults (40% ghost with a moving hand, 26% trail on a turn).
+
+## 2026-09-28 (AFW run 3): the held-eye depth warp - host-verified, headset pending
+
+Run 3 on `v1.0.1-161-gca40321fc` (reported): stick turning corrected the world, but the hands and
+weapon left a ghost while turning, and head turns still moved them against the head before they
+settled. Both are near content in the held eye: the whole-image yaw rotation is right for the world
+and wrong for the hands (they turn WITH the body), and rotation-only reprojection cannot move a near
+object for the eye's own translation when the head moves or turns (it settles when the head stops).
+
+Built: `core/gfx/afw_warp` re-renders the held eye every present from its own image and depth, as seen
+from the FRESH eye's head pose. Per pixel it solves two hypotheses back into the source through depth
+(a short fixed-point search): world (head change plus the body yaw since the image) and body (head
+change only; nearer than 0.40 depth units, the hands and weapon), and the nearer consistent one wins.
+The warped eye is submitted with the fresh generation's pose, so both eyes claim one head pose. The
+depth ring runs while AFW does. Fallbacks: no held image or depth -> the rotation-only held eye with
+the body-yaw pose; an acquired swapchain image is always written. `afw warp on|off`, `afw body <units>`.
+GPU host test `tools/afw-warp-host.ps1` (the production shader, synthetic scene): 7 of 7 - identity,
+the world under a 5 deg turn (0.55 px worst), the sign, the hand staying, the NEGATIVE CONTROL (without
+the body test the hand moves: the ghost), hand parallax for a 2 cm head move (0.4907 vs 0.4900), the far
+wall still. Not carried yet: walking (the body's translation) - the held eye's world lags a tick of
+walking parallax, as before.
+
+## 2026-09-28 (AFW run 2): AFW reaches the headset rate; stick-turn and weapon findings
+
+Run 2 on `v1.0.1-160-g90136b7cf` (archived at build/playtest-candidates/vr-39-aer/run2-afw):
+`stereo: beat method=afw out/s=144 L/s=72 R/s=72` - every headset frame at 144 Hz, against about
+110 pairs/s under reentry. Reported: DLAA preset K without SSW at about 120 fps where it had been
+50-70. The exact eye pose held: `posesub` 0.000 deg difference, `exact-eye-pose` hits with no misses,
+and the hands normalised against the camera's own locate (`hv` gap +0).
+
+Two reported artifacts, both on the HELD eye (the other eye's previous image, which the compositor
+reprojects for head motion only):
+- Stick turning felt like zooming. The held image was rendered before the game added the last
+  tick's stick yaw, so its whole view is rotated by that yaw against the fresh eye: a horizontal
+  disparity shift across the scene, read as the world moving in depth. Fix built: the camera record
+  carries the body yaw (camera yaw minus the head's), and AFW submits the held eye rotated by the body
+  yaw between its image and the fresh one (`afw yaw on|off`, on under AFW). A pure turn about the eye is
+  corrected exactly at any depth. Headset pending.
+- Weapons drift opposite to head motion, subtly. Not a pose mismatch (the logs above). The eyes
+  TRANSLATE when the head moves or turns (they sit off the neck's axis), and rotation-only
+  reprojection cannot correct the held eye's parallax, largest on near objects. Not fixed. The route:
+  warp the held eye with its own depth into the current camera (the depth ring and camera
+  reconstruction built for TAA already exist), or submit a depth layer if the runtime offers
+  XR_KHR_composition_layer_depth (now logged at startup). The same warp would also carry walking.
+
+## 2026-09-28 (later): AER run 1 measured; AFW built; the per-eye pose fixed
+
+Headset run 1 on build `v1.0.1-159-g167065275` (log archived at build/playtest-candidates/
+vr-39-aer/run1). Same spot, reentry then AER:
+
+- Reentry: 106-116 pairs/s, one tick 8.6-9.7 ms, render thread idle 0.4-0.6 ms per present.
+- AER: 99-115 pairs/s (about 10% fewer), one tick 4.4-4.9 ms so a pair is 9-10 ms, render
+  thread idle 0.9-1.3 ms per present. The game thread is the limit under AER: each pair needs
+  two world ticks. Not an implementation fault; the GPU side has about 1 ms per present of slack
+  (resolution headroom under AER), the game thread has none.
+- The delta clamp stood itself down after two beats: with the bendtime lever, clamped right ticks
+  advanced the world as far as left ones (R/L 1.010 and 1.024; world/real 1.000). Bend Time's
+  GameInfo fields do not scale WorldInfo.DeltaSeconds. The timedilation lever was not tried.
+- Hands and weapons grew and shrank on fast head turns under AER (reported). Cause, from the
+  image-orientation log: each eye's ORIENTATION comes from its image's record, but its POSITION
+  from the numeric lag. Under reentry record gen = lag gen + 1 for both eyes (the same view data);
+  under AER the right eye read record 9970 against lag 9968: position one locate stale, an error
+  that flips sign with turn direction and reads as depth on near objects. Fix: `exact eye pose` -
+  an 8-deep history of located view sets, and AER/AFW submit each tagged image with the view pose
+  of the generation its head sample came from (orientation and position). Reentry is unchanged.
+
+AFW (`stereo afw`, F10 "Alternate frame warping"): the same one-eye-per-tick game side, but every
+present is its own XR frame - the fresh eye plus the other eye's last image at its rendered pose,
+reprojected by the compositor. It is the runtime's existing held-eye path (pair pacing off while
+AFW runs, restored after). One tick per headset frame instead of two, so on this PC's 4.4-4.9 ms
+ticks it can reach 144 Hz where reentry reached about 110; each eye refreshes at half the rate and
+moving objects are a tick apart between the eyes. The delta clamp never runs under AFW.
+
+## 2026-09-28: AlternateEye (VR-39) built with the delta clamp - host-verified, headset pending
+
+Branch `claude/vr-39-aer-stereo` off staging (1.0.2 plus the takedown-arms default). `stereo aer`
+is no longer a stub: F10 Advanced > Display > Stereo rendering chooses "Both eyes every frame"
+(reentry, unchanged default) or "Alternate eyes (AER)", and "Delta clamp" (default off) makes both
+eyes of a pair one instant. Port of BioShock Remastered VR's AER: game-thread eye alternation, one
+tag per draw through reentry's ring, two ticks per XR frame, one world advance per pair. The clamp
+scales the game's own time-dilation fields by name (Bend Time's transient GameInfo world/player
+dilation by default, WorldInfo.TimeDilation as the fallback), banks the right tick's time and pays
+it back on the left, and stands itself down if the engine does not honour the lever.
+`aer clamp on|off`, `aer lever bendtime|timedilation`. No new address or offset.
+
+Verified: Release build, lint, golden and default-profile byte identity, 16 clamp arithmetic
+checks including a negative control (tools/delta-clamp-host.ps1), occlusion owner 19, frame_test.
+The first host run of the clamp caught a real defect (predicting the left tick from the last tick
+overshot to the 4x cap under jitter); the predictor is now smoothed. Not verified: anything in the
+game. Headset questions in order: does AER hold fusion with no swim; pairs/s against reentry on
+the same spot; with the clamp, does the `aer/clamp: beat` line show clamped R/L well under 0.5
+and INTEREYE near 0, and is audio or physics disturbed. See PERFORMANCE.md and ENGINE_NOTES VR-39.
+
+Adversarial audit before commit, fixed: (1) switching away from AER restores the hooked call
+site on the game thread, and no stub runs after that, so a clamped value could stay in the field
+(a world stuck at 1% or doubled) - the restore path now releases the clamp first; (2) a quicksave
+mid-pair could store a clamped WorldInfo.TimeDilation (not transient, no SaveGame flags in the
+game) - the default lever moved to Bend Time's transient fields; (3) a field the game rewrites
+every tick read as a new base each tick and would have dropped every bank (the world at half
+speed) - the game's own value coming back now keeps the pair; (4) a script restoring a value the
+clamp wrote would have become the base - recognised and refused; (5) a UI edge on the same world
+forgot the clamp's last write; (6) a poisoned reentry would have left AER's alternation armed and
+c5 pairing off for the session; (7) the left-tick predictor overshot under jitter (host test).
+Open, unmeasured, named for the headset: audio pitch following the dilation per tick, PhysX
+under alternating 1%/double steps, the carried-object centre eye (VR-181) and the palette eye
+classifier (VR-95) under one eye per tick, TAA/DLSS history refreshing at half rate per eye, and
+the perf line's P1/P2 split (it assumes two presents per tick; under AER they are two ticks).
+
 ## Controller bind remapping (2026-09-27) - host-verified, PR open, not merged
 
 Branch `claude/controller-remap` (on staging after #144). Each game action can be moved to any

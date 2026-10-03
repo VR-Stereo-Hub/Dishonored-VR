@@ -58,9 +58,12 @@ set(DVR_REAL_SOURCES
     core/gfx/flicker_diagnostic.cpp core/gfx/flicker_diagnostic.h
 
     core/gfx/device_census.cpp core/gfx/device_census.h
+    core/gfx/reshade_runtime.cpp core/gfx/reshade_runtime.h
+    core/ui/reshade_panel.cpp core/ui/reshade_panel.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/gpu_memory.cpp    core/gfx/gpu_memory.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h
+    core/gfx/afw_warp.cpp      core/gfx/afw_warp.h
     core/gfx/depth_probe.cpp   core/gfx/depth_probe.h
     core/gfx/motion_gpu.cpp    core/gfx/motion_gpu.h
     core/gfx/clarity.cpp       core/gfx/clarity.h
@@ -174,6 +177,17 @@ endif()
 add_executable(frame_test tools/frame_test/main.cpp
                           game/dishonored/hands/hand_frame.h
                           game/dishonored/hands/hand_frame_test.h)
+
+# --- DishonoredVR_ReShade.addon32 - RESH-XR2 post-effect XR bridge --------------
+    add_library(dvr_reshade_bridge SHARED
+        tools/reshade_bridge/reshade_bridge.cpp
+    )
+    set_target_properties(dvr_reshade_bridge PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "DishonoredVR_ReShade"
+        SUFFIX ".addon32"
+    )
+    target_compile_options(dvr_reshade_bridge PRIVATE /W3 /permissive-)
 
 # --- dvr_xrsim32 - the simulated OpenXR runtime --------------------------------
 # A Quest-3-shaped 32-bit OpenXR runtime so an agent can drive head, hands and

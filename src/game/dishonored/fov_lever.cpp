@@ -5,6 +5,18 @@
 #include "game/dishonored/fov_lever_policy.h"
 #include "game/dishonored/stereo_state_policy.h"
 
+// VR-39 run 14: AFW's foreground gain (see the feed in FovLeverApply). A live A/B lever: [Stereo] AfwForegroundGain,
+// F10 (the hands' FOV controls), `armslens gain <x>`.
+static std::atomic<float> g_afwFgGain{0.911f};
+static float AfwFgGainGet() { return g_afwFgGain.load(); }
+static void AfwFgGainSet(float g, const char* who)
+{
+    if (!(g >= 0.80f && g <= 1.0f)) { Log("armslens: AFW foreground gain %.3f refused (0.80-1.00) (%s)", g, who ? who : "?"); return; }
+    if (fabsf(g_afwFgGain.exchange(g) - g) > 0.0005f)
+        Log("armslens: AFW foreground gain %.3f (%s): the hands are rebuilt at %.2f deg for a %.2f deg world", g, who ? who : "?",
+            2.0f * atanf(tanf(ProjectionFovGet() * 0.5f * 0.0174533f) / g) * 57.29578f, ProjectionFovGet());
+}
+
 static inline void LevWrite(uint8_t* p, float t)
 {
     if (!PeReadable(p, 4)) return;   // route 2: region-cached (game thread, live engine objects)
@@ -68,7 +80,7 @@ static inline void FovLeverApply()
             if (s > 10.0f && s < 175.0f) { sensor = s; dvr::camera::note_rendered_fov(s); }
         }
         float t = dvr::fov_lever::target(sensor, g_fovNatural, deg);
-        if (t == 0.0f) { recovery = {}; return; }
+        if (t == 0.0f) { recovery = {}; dvr::afw::set_fg_fov(0.0f); return; }   // lever off: the arms' FOV is unknown
         const auto state = dvr::anim::snapshot();
         const bool walking = !strcmp(state.state[0], "StatePlayerMasterWalk") ||
             !strcmp(state.state[0], "StatePlayerMasterFalling") ||
@@ -83,6 +95,18 @@ static inline void FovLeverApply()
         // A dispatch inside an active cinematic draw must preserve that draw's FOV.
         const float scoped=CineFovScopeTarget();
         if (scoped>0) t=scoped;
+        // VR-39 run 14: AFW's foreground projection. The draws put the arms at the WORLD's FOV (fgproj:, with the
+        // arms' lens forced on or off), yet the rebuild matches the next native frame only with the foreground widened
+        // by a fixed gain: replayed on the run-12 capture (arms drawn at 103), 12.46% of the hand band differs at 103,
+        // 5.29 at 106.5, 2.10 at 108.07, 2.93 at 109.5, 5.43 at 111 - and run 6 measured the same 0.911 disparity gain
+        // with the camera at 108. So it is a property of the foreground pass (most likely its depth), not a FOV and
+        // not the headset's: tan(fg/2) = tan(world/2) / [Stereo] AfwForegroundGain (0.911; 1 = like the world). Only in
+        // plain gameplay; a scripted zoom or a scope feeds 0 (the world's FOV throughout).
+        const float worldFov = ProjectionFovGet() > 0.0f ? ProjectionFovGet() : sensor;
+        const float g = AfwFgGainGet();
+        const float fgFov = (worldFov > 5.0f && g > 0.0f)
+            ? 2.0f * atanf(tanf(worldFov * 0.5f * 0.0174533f) / g) * 57.29578f : 0.0f;
+        dvr::afw::set_fg_fov(cinematicTarget <= 0 && scoped <= 0 && fabsf(sensor - lastWrite) < 0.5f ? fgFov : 0.0f);
         if (t < 20.0f)  t = 20.0f;
         if (t > 160.0f) t = 160.0f;
         if (IsLiveObject(g_peCtrl))

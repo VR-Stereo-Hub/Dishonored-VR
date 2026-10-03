@@ -1,3 +1,96 @@
+## 2026-10-03: native D3D9 state-block recording overwrites device hooks
+
+BeginStateBlock on the game's PURE device rewrites the native dispatch table, removing
+in-place vtable detours. Manual ReShade triggered this on its first Present, losing
+MANAGED-to-DEFAULT translation and crashing the next DXT5 creation. A host that tests
+ReShade alone cannot catch it. Use the production resource hooks and game device flags;
+verify the hook entries and post-effect texture creation, lock and upload. Manual runtime
+calls now preserve this module's detours across the native rewrite. Full reproduction
+and limits: dishonored/PERFORMANCE.md, 2026-10-03 startup crash entry.
+
+## 2026-10-03: ReShade's legacy bridge bypasses mirror-off policy
+
+DesktopMirrorOff and DesktopMirrorStrictOff may both resolve to 1 while the old active
+ReShade branch calls g_origPresent directly. Disabling shader effects does not disable
+that hook/presentation path. Fix the consumer path, not another vsync setting. The
+manual runtime candidate preserves desktop_eye policy; evidence and pending headset
+validation are in dishonored/PERFORMANCE.md.
+
+## 2026-09-30: half-rate enabled does not prove alternating slot delivery
+
+Build 242's MSW worker consumed the real-frame notification before acquiring the frame lock.
+A lost try_lock could therefore skip its synthetic slot, despite HalfRate=1. Inspect successful
+display-target order, not only the configured toggle or aggregate FPS. The correction retains
+the obligation under the mutex and allows the next outermost Present to service it. Also keep
+capture-arrival time separate from the native image's submission XrTime when predicting motion.
+Host controls and remaining headset limits: `dishonored/PERFORMANCE.md`, 2026-09-30.
+
+## 2026-09-30: a view-following option can be on while many draws fall back
+
+Build 239's initial PoseFromView on segment matches 3,463 hand draws but refuses 2,527 position
+ties. c5 alone cannot distinguish recent rotations at nearly the same position. The user reports
+a large reduction in drift, not elimination. Count matches AND refusals; these are draws, not
+frames. A new rotation-assisted tie resolver remains conservative when written and rendered
+rotations disagree. The heartbeat must run on refused windows too. See FLICKER_REFERENCE.
+
+## 2026-09-30: foreground behind a wall is an occluder, not stale-world evidence
+
+The game draws hands over the wall regardless of geometric depth. A stale test that treats a farther
+fresh depth as proof the held wall moved also needs to inspect foreground identity. Otherwise it
+throws away a valid held-eye wall and falls to a striped fill. Build 236's five complete wall frames
+reproduce this; the foreground-aware rejection removes the stripes in replay. Host negative control:
+4.531 px maximum wall-coordinate error, fixed 0.014 px. See `dishonored/FLICKER_REFERENCE.md`.
+
+AFW dumps at 2750x2850 plus 2114x2192 depth take about 2.8 GB per 16 frames, not the old log's 80 MB
+per present. Check free space, metadata and every raw file's length. Current `dump_texture` ignores
+short writes and close failures. A nonempty capture directory is not evidence of a complete capture.
+Preserve original evidence; remove only regenerable scratch or arrange verified archival.
+
+## 2026-09-30: AFW replay defaults do not reproduce the recorded foreground settings
+
+`afw-replay` loads the capture's `fgFov` but enables the foreground projection only when an explicit
+positive `-Fg` argument is passed. Thus its default `-Fg 0` disables a correction recorded as on.
+For the build-233 captures, pass `-Fg 108.1427` and choose `DVR_AFW_STILL` explicitly (stillness is
+not recorded). Its built-in near/world scores predate signed depth: masked hand pixels are counted
+as world. Use an independent `depth < 0` mask and inspect source tint for ghost pixels outside it.
+These tool limitations remain open; do not describe an unqualified default replay as the installed build.
+
+## 2026-09-30: farthest depth is not always background (AFW)
+
+The weapon draws on top of a wall even when its geometric depth is farther away. A background
+fill that picks the farthest seed without rejecting foreground copies the weapon into gaps.
+The build-233 wall capture and a synthetic old-code control reproduce this: 1,970 ghost pixels,
+zero after excluding foreground from both fill sources. Seed depth priority alone did not fix it.
+Use surface identity before depth ordering. Details: `dishonored/FLICKER_REFERENCE.md`.
+
+## 2026-09-29: "no snapshot" read as "no foreground" (AFW run 9)
+
+The foreground mask treated a frame without a pre-foreground copy as a frame without arms. The detector
+had never produced a single copy (it checked the render target at SetViewport, before the game bound
+the scene target), so every frame read as "no arms". The hands were rebuilt at the world's FOV: a
+headset run lost to a symptom already solved twice.
+
+Rule: an absence is evidence only from a detector that has recently shown it can see the thing. Gate on
+the detector's own recent success (`prefg_ready`: a copy within 2 s), and fall back to the previous
+method otherwise.
+
+## A range check is not a read guard (hands scan, 2026-09-28)
+
+**What happened:** `RangeReadable` (VirtualQuery) said a page was committed, and the read that followed
+faulted. A device Reset on the present thread unmapped a driver mapping in between, and the game died in
+`ObjClassName` during the hand-mesh scan, right after a resolution change.
+
+**The rule:** any read of an arbitrary engine pointer that can race a reset is SEH-guarded, not only
+range-checked. Guarded so far: `ObjClassNameIndex` and `FpRead32`.
+
+## A shared ring is a transport, not storage (VR-39 AFW, 2026-09-28)
+
+The AFW warp looked up its held image's depth in the 3-deep shared depth ring one present after the
+capture. Under GPU load a slot still being read by D3D11 is skipped, the ring overwrites the next one, and
+the lookup misses: 60-70% of warps fell back in long stretches of a headset run and nothing looked wrong
+on the depth-share line itself. Anything that needs a ring entry LATER copies it out while it is current
+(the warp now copies each eye's depth at its own capture).
+
 ## 2026-09-25: test activation, not only an already enabled reader
 
 36a8d7f95's correct sprite+BC field still did not capture the potion. Its new

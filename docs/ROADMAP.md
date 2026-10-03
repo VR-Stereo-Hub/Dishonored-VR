@@ -1,3 +1,50 @@
+## Community texture-pack compatibility and ReShade (2026-10-02, VR-133)
+
+- [x] Audit supplied v1.0.2 source and port onto staging without using donated binaries.
+- [x] Validate concurrent mip/face mappings, native GPU uploads and cleanup in x86 host.
+- [x] Measure VA/commit tradeoff and upload cost; keep paged mode optional.
+- [x] Add launcher/F10 texture selection, optional verified ReShade download and bridge payload.
+- [x] Preserve existing settings; test installer lifecycle and subtitle shader pixels.
+- [x] Baseline headset run reported stable on paged build 257; matching log has no texture failures.
+- [ ] Texture-pack stress and controlled frame-time comparison.
+- [x] ReShade startup/effect appearance accepted in build 264; F10 controller editing accepted in 266.
+- [x] Native sidebar launcher, Overview log collection, ReShade management and readiness audit.
+- [ ] Separate subtitle region/readability acceptance.
+
+Evidence and next test: [PERFORMANCE.md](dishonored/PERFORMANCE.md), community integration.
+
+## AFW wall stale-test and hand timing follow-up (2026-09-30)
+
+- [x] Preserve build-236 evidence and identify five complete wall-capture frames.
+- [x] Reproduce false stale rejection of wall pixels behind foreground; 4.531 -> 0.014 px worst
+  coordinate error, 46/46 host tests, striped outline removed in replay.
+- [x] Headset: build 239 wall correction accepted.
+- [x] Head-drift live A/B: view-following greatly reduces drift, smaller residual remains.
+- [x] Host: resolve position ties with independently observed rotation; 30/30 checks.
+- [x] Headset: build 242 accepted with negligible residual; rotation-resolved ties verified live.
+- [x] Host: MSW rendered turn/display-time prediction and deterministic half-slot ownership;
+  55/55 GPU and 12/12 scheduling checks, with failing old-code controls.
+- [ ] Headset: mod-spacewarp right-stick world ghosts and uneven display-slot pacing resolved.
+- [x] Live build 248: ordering fix exercised with zero repeated targets/consecutive real submits
+  in 386 steady windows; overall experience improved, residual deadline gaps remain.
+- [x] Install build 250 with stage timing, existing per-slot hands ON and FrameId readback OFF;
+  whole-INI three-byte diff and CRLF verified. No new synthesis or matcher change.
+- [ ] Headset: isolate residual head-sweep hand jitter with the hand-follow ON/OFF/ON control;
+  use stage timings to select the next hitch investigation.
+- [ ] Capture short-write/capacity handling: Linear ticket creation blocked by free issue limit.
+
+Details: `docs/dishonored/FLICKER_REFERENCE.md`, build-236 follow-up.
+
+## AFW wall fill follow-up (2026-09-30)
+
+- [x] Identify the two build-233 captures and verify installed DLL/log identity.
+- [x] Reproduce foreground copied by background fill with an old-code failing host case.
+- [x] Exclude foreground fill seeds; 45/45 host tests, large wall duplicate removed in replay.
+- [x] Headset: build 239 accepts the combined fill/stale wall correction.
+- [ ] Head-sway: establish native/rebuilt motion and image/pose alignment before another correction.
+
+Evidence and next test: `docs/dishonored/FLICKER_REFERENCE.md`, 2026-09-30 entry.
+
 ## Pause submenu hand investigation (2026-09-27)
 
 - [x] Trace earlier pause fixes and reject absent Journal freshness from supplied evidence.
@@ -453,7 +500,9 @@ Done when a tester plays a level on the mono screen and calls it comfortable.
 
 ## S2a - AlternateEye (rung 2; developer A)
 
-`core/gfx/aer.cpp` carries the design. Acceptance, in order:
+`core/gfx/aer.cpp` carries the design; built 2026-09-28 (VR-39) as a port of BioShock
+Remastered VR's AER on reentry's present side, with the delta clamp. Host-verified only.
+Acceptance, in order:
 
 - [ ] `stereo aer` accepted (needs `[Camera] EyeField` from the eyetest); the beat line reads
       `L/s == R/s == out/s / 2`

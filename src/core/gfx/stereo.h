@@ -184,11 +184,17 @@ using HandDrawFn = void (*)(ID3D11Device* dev, ID3D11DeviceContext* ctx,
 void set_hand_draw(HandDrawFn fn);
 HandDrawFn hand_draw();
 
-// The methods (one translation unit each under core/gfx/). aer is a design
-// stub in 41.0: registered, named, refusing with its note.
+// The methods (one translation unit each under core/gfx/). VR-39: aer is no
+// longer a stub - it is reentry's present side (the tag ring, the pairing, the
+// capture) with the game side drawing ONCE per tick and alternating the eye.
 IStereo* create_mono_screen();
 IStereo* create_aer();
 IStereo* create_reentry();
+IStereo* create_alternate_eye();   // reentry.cpp: the aer instance create_aer() hands out
+IStereo* create_alternate_warp();  // reentry.cpp: `afw`, alternate frame warping (VR-39)
+// The scene-draw family (reentry or aer): every present carries an eye tag
+// from the game side's ring. For consumers that keyed on the name "reentry".
+bool reentry_family_active();
 
 // SequentialReentry's game side (game/dishonored/scene_draw.cpp) registers
 // itself here: whether the root's bytes verify (with the refusal text), the
@@ -212,6 +218,10 @@ struct ReentryHooks {
     // position and its upload serial. Present thread; null = nobody listens.
     void (*present_tag)(int ringEye, int finalEye, bool tagged, uint32_t acct, bool haveC5,
                         const float c5[3], uint32_t c5Serial) = nullptr;
+    // VR-39: AlternateEye. 0 = two draws per tick (reentry); 1 = one draw per tick,
+    // the eye alternating, two ticks per XR frame (aer); 2 = the same draws, every
+    // present its own XR frame (afw: the delta clamp never runs). Present thread.
+    void (*set_alternate)(int mode) = nullptr;
 };
 void set_reentry_hooks(const ReentryHooks& h);
 // 41.1 (session 9): the within-tick invariant as the pairing's check ([Stereo]

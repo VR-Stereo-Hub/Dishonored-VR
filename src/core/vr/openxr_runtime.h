@@ -159,6 +159,7 @@ void set_camera_mode(bool on);
 // adapter's VR-preset flow arms them programmatically (session 16 part 3).
 void set_enabled(bool on);
 void set_sr_pair_pacing(bool on);
+bool sr_pair_pacing();   // VR-39: AFW turns pair pacing off while it runs and puts it back
 
 // AlternateEye stereo: one eye per frame, the compositor reprojecting the other.
 // Judders, but it is REAL stereo and it never re-enters the engine's draw -
@@ -312,6 +313,26 @@ uint32_t pace_sync_delays(); // Cumulative pair-opening delay events for A/B val
 void set_pair_strict(bool on);
 bool pair_strict();
 
+// VR-39: the depth layer (XR_KHR_composition_layer_depth) under AFW. set_submit_depth is [VR] SubmitDepth and
+// must be called before the instance is created (the extension is enabled there); DEFAULT OFF. The live
+// switch (`vrpace depth on|off`, F10) chains or drops the depth per submit; depth_active says the extension
+// and the depth swapchains are up.
+void set_submit_depth(bool on);
+// VR-39: the mod's own spacewarp (MSW) - see openxr_runtime.cpp. DEFAULT OFF ([VR] ModSpacewarp, `vrpace msw`).
+// cycle_enter/cycle_leave bracket the Present hook's XR and D3D11 span: while it holds them the MSW thread
+// cannot take the frame loop.
+void set_mod_spacewarp(bool on);
+void set_msw_half_rate(bool on);   // the half-rate lock (default on): the game at half the refresh, every other slot synthesized
+bool msw_half_rate();
+bool mod_spacewarp();
+void cycle_enter();
+void cycle_leave();
+void msw_tick();   // the Present hook, each present: starts or stops the MSW thread
+bool submit_depth();
+void set_depth_live(bool on);
+bool depth_live();
+bool depth_active();
+
 // Session 43b (the Infinite "jumpy camera"): which locate generation the
 // SequentialReentry capture attributes its eyes to. 0 = the fresh locate,
 // 1 = one generation back (the historical default - calibrated on BS1's
@@ -324,6 +345,9 @@ bool pair_strict();
 void set_pose_lag(int lag);
 void set_image_orientation(bool on);
 bool image_orientation_enabled();
+void set_exact_eye_pose(bool on);
+void set_held_body_yaw(bool on);   // VR-39 (AFW): rotate the held eye by the stick/snap yaw since its image
+bool held_body_yaw();   // VR-39: submit each tagged image with its own locate generation's view pose
 // VR-65: run the announced lag comparison - baseline, alternative, baseline
 // again, alternative - and restore the baseline at the end. Segment length in
 // milliseconds; 0 disables.
