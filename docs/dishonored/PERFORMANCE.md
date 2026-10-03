@@ -5,7 +5,7 @@ source is integrated into staging through PR #167, including the earlier pacing 
 optional guards. Existing branches, plans, measurements and unresolved perceptual questions
 remain preserved; integration does not establish a new headset verdict.
 
-The patch UI keeps Stereo and experimental AFW selection in Advanced. All remaining stereo
+The patch UI keeps Stereo and experimental AFW selection in Basic. All remaining stereo
 section controls, including SSW/depth and mod-spacewarp, require Debug. No rendering or
 shipped-default change accompanies this UI gate. The installed patch candidate retains
 ModSpacewarp=0 and SubmitDepth=0. Resume research from the existing evidence below only when
