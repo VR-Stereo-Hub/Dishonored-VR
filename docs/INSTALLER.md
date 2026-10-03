@@ -7,7 +7,7 @@ surface/full-copy settings. CLI: `--texture-memory on|off`. The elevated worker 
 same choice. These apply next launch; Windows pagefile size is never edited. See
 [dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md) for measured costs and limits.
 
-Manage > **Install ReShade 6.8** downloads the official full add-on runtime on request after
+Mods > **Install ReShade 6.8** downloads the official full add-on runtime on request after
 this launcher's mod build is installed. CLI operation: `--apply --op reshade`. The worker
 verifies the pinned official setup SHA256, reads its ZIP payload without executing it,
 validates PE32 x86, and installs only `ReShade32.dll`. Existing ReShade runtime is backed up;
@@ -18,10 +18,44 @@ The mod's `DishonoredVR_ReShade.addon32` is built and embedded with every launch
 by install/update and included in rollback snapshots; it is inactive without ReShade.
 Mod uninstall removes this bridge and preserves ReShade and user presets. Shader packages
 remain a separate installation from the [official ReShade site](https://reshade.me/).
-The Home key opens ReShade to select installed effects. Renaming `ReShade32.dll` to
-`ReShade32.dll.disabled` disables it on the next launch. Its post-effect VR capture has not
-yet passed a headset test. Native desktop Present suppression is bypassed while the bridge
-is active; ReShade costs must be measured separately from paged texture mode.
+F10 > ReShade uses the existing panel position and controller input for presets, effects,
+techniques and shader parameters. Turn off Performance mode to edit parameters. Startup
+is off by default (`[ReShade] Enabled=0`). The tested manual runtime (`ManualRuntime=1`)
+renders effects before VR capture and preserves desktop mirror suppression. Builds 264
+and 266 are headset-accepted for appearance/startup and panel controls respectively.
+Mods provides Turn ReShade on/off and Uninstall ReShade runtime. These are next-launch
+operations, refuse while the game runs and require this launcher's installed VR build.
+They back up the complete VR INI; removal moves ReShade32.dll to a unique backup and
+preserves ReShade.ini, shaders and presets. CLI operations: `reshade-on`, `reshade-off`,
+`reshade-remove`. HD Texture Pack 2.0 and the Carinth preset link to their author pages;
+HD installation remains manual, following TFC Installer instructions and retaining backups.
+
+## Native sidebar and readiness audit (2026-10-03)
+
+Overview exposes Collect logs directly. Settings has Display and Controls tabs; runtime
+and Stereo/AFW use dropdowns, render quality and 50-450% resolution remain visible,
+and the full action/source mapping editor is expandable. `--stereo stereo|afw` writes
+only an explicit selection. Omitted selections keep existing modes, including custom
+ones. Play remains at the bottom right on every page. Unsaved settings survive navigation;
+Play asks whether to return to settings or use saved values. Settings Apply never replaces
+an installed DLL. Browsing a different installation resets its draft.
+
+Mods, Bindings, Updates and Help/about use the same native sidebar and artwork. The
+required headset selector remains modal. Running-game or unknown process checks refuse
+settings writes; active operations and downloads block conflicting navigation. Collect
+logs remains a read-only local operation, including while the game runs. Its bounded ZIP
+includes up to ten session logs and stays under the existing 24 MB budget; nothing uploads.
+
+Changing settings preserves the installed DLL's actual hash and recorded build identity,
+rather than recording the launcher's bundled version as installed. Unknown identities
+remain unknown. Build ordering now prepares the 64-bit DLAA/DLSS helper before configuring
+and embedding the launcher payload, including available pinned NVIDIA/AMD runtime files.
+
+Verification includes 175 real-widget interaction checks (`tools/installer-ui-host.ps1`),
+100%/150% native renders, full-INI smoke, running-game refusal, exact helper hashes,
+ReShade on/off/removal backups, installed identity preservation and partial-update rollback.
+Two old smoke assumptions were corrected: ReShade comments can precede Enabled, and
+multiple intentional INI backups can coexist. No game is launched by these tests.
 
 Verification: `tools/installer-host.ps1`, `tools/installer-smoke.ps1`,
 `tools/reshade-install-tests.ps1 -DownloadFile <official pinned setup>` and launcher render
@@ -39,9 +73,9 @@ The **Bindings** page embeds the owner-supplied Quest 3 reference. Fit/zoom and
 scrolling keep it readable; maximize the window for more room. Current shortcut
 preferences appear above the image because custom settings can differ.
 
-It is a native 32-bit Windows program (`src/tools/installer/`), drawn with Dear ImGui in
-the F10 panel's own theme (`src/core/ui/ovl_ui.cpp`, VR-197): ink, bone, brass and
-oxblood, Constantia over Segoe UI, the brass rule with the diamond. The mod's files are
+It is a native 32-bit Windows program (`src/tools/installer/`), drawn with Dear ImGui using the selected
+sidebar design: full-width Dishonored artwork, parchment navigation, Perpetua headings,
+Display/Controls settings and a fixed footer. Shared F10 controls retain their own theme. The mod's files are
 embedded in the exe as resources, so there is nothing to unzip and nothing else to
 download. The zip still ships for people who prefer to copy files by hand.
 

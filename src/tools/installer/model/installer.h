@@ -53,6 +53,8 @@ struct Detection {
     bool backupPresent = false;      // d3d9.dll.dvr-backup
     std::string installedSha;        // sha256 of the game folder's d3d9.dll, "" when absent
     InstallRecord record;
+    bool reshadeInstalled = false;
+    bool reshadeEnabled = false;
     bool disabled = false;           // disable_vr.txt
     bool iniExists = false; int iniVersion = 0;
     Runtime iniRuntime = Runtime::Auto; std::wstring iniJson; Size iniSize; std::wstring iniDataDir;
@@ -82,6 +84,7 @@ struct Report {
 
 Detection detect(const Env& env);
 Report do_reshade(const Env& env, const Detection& det);
+Report do_reshade_manage(const Env& env, const Detection& det, bool enabled, bool removeRuntime);
 Report do_install(const Env& env, const Detection& det, const Choices& choices);
 Report do_update(const Env& env, const Detection& det, bool overwriteSettings = true);
 Report do_change(const Env& env, const Detection& det, const Choices& choices);   // the five keys only

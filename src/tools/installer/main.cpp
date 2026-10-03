@@ -127,6 +127,11 @@ int headless_mode(const Args& args, Env env)
         if (value != L"on" && value != L"off") { DVR_ERROR("launcher: --bind-swap-sticks requires on or off"); return 1; }
         h.choices.swapSticksEdit = value == L"on";
     }
+    if (args.has(L"--stereo")) {
+        const auto value = args.value(L"--stereo");
+        if (value != L"stereo" && value != L"afw") { DVR_ERROR("launcher: --stereo requires stereo or afw"); return 1; }
+        h.choices.stereoEdit = value == L"afw";
+    }
     if (args.has(L"--texture-memory")) {
         const auto value = args.value(L"--texture-memory");
         if (value != L"on" && value != L"off") { DVR_ERROR("launcher: --texture-memory requires on or off"); return 1; }

@@ -51,6 +51,8 @@ struct Choices {
     int swapSticksEdit = -1;
 
     int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
+    int stereoMethod = 0; // display selection: -1 custom, 0 reentry, 1 afw
+    int stereoEdit = -1; // only an explicit selection writes the method
     int textureMemory = -1; // -1 preserve, 0 conventional shadows, 1 paged
     bool overwriteSettings = true; // recommended defaults, backed up before replacement
     Runtime runtime = Runtime::Auto;

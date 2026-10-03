@@ -1,3 +1,32 @@
+## 2026-10-03: F10 ReShade accepted; native sidebar launcher audited
+
+Build v1.0.1-266-gf3bd14b91 is headset-accepted for controller operation of the F10
+ReShade tab. Installed DLL hash and banner were verified before reading its normal
+shutdown log. Evidence: main build/texture-reshade-candidate/f10-panel/accepted-run.
+Enabled=0 remains the public default; the tester retains Enabled=1, the Carinth preset,
+the accepted right-hand trims and the local height. See PERFORMANCE.md for runtime evidence.
+
+The native launcher now implements the selected sidebar layout, Display/Controls settings,
+fixed bottom-right Play, Overview Collect logs, Mods, Bindings, Updates and Help/about.
+ReShade runtime install/on/off/removal are wired; removal retains a runtime backup and
+all shader/preset files. HD Texture Pack 2.0 remains manual for the planned 1.0.3 patch.
+Stereo/AFW selection saves only an explicit choice. Unsaved settings survive navigation;
+Play offers return to settings or use of saved values. Apply never reinstalls a present
+mod merely because another operation changed the current screen.
+
+Audit fixes: settings writes preserve actual installed build identity, running-game or
+unreadable-process checks refuse writes, operation/download activity blocks conflicting
+navigation, and the DLAA/DLSS helper is built before the launcher payload is assembled.
+The helper and pinned NVIDIA/AMD DLL payloads now match the built files in scratch tests.
+175 native UI interaction checks pass at 100%, 150% and minimum window size; whole-INI
+install/settings/update/rollback smoke passes. Earlier 86 unit, 57 updater and Unicode
+support-bundle checks pass. Native renders were inspected at 100% and 150%.
+
+Next: install the clean candidate with full DLL/INI/log backup and entire-INI comparison.
+No game launch, merge, release declaration or 1.0.3 version bump is authorized by this work.
+External publication is still awaiting explicit destination approval after an automatic
+approval rejection; the complete local branch and review text remain available.
+
 ## 2026-10-03: accepted ReShade runtime; F10 tab and right-hand defaults
 
 Tester reports build v1.0.1-264-gfbc2bd23e looks and runs well. Installed hash and

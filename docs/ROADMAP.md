@@ -7,7 +7,9 @@
 - [x] Preserve existing settings; test installer lifecycle and subtitle shader pixels.
 - [x] Baseline headset run reported stable on paged build 257; matching log has no texture failures.
 - [ ] Texture-pack stress and controlled frame-time comparison.
-- [ ] Separate ReShade effect-capture and subtitle region/readability acceptance.
+- [x] ReShade startup/effect appearance accepted in build 264; F10 controller editing accepted in 266.
+- [x] Native sidebar launcher, Overview log collection, ReShade management and readiness audit.
+- [ ] Separate subtitle region/readability acceptance.
 
 Evidence and next test: [PERFORMANCE.md](dishonored/PERFORMANCE.md), community integration.
 

@@ -80,6 +80,11 @@ $rc = Run ($common + @('--op', 'install', '--runtime', 'steamvr', '--quality', '
 Assert ($rc -eq 0) "exit 0 (got $rc)"
 foreach ($n in @('d3d9.dll', 'dvr_steamvr32.dll')) { Assert ((Sha (Join-Path $game $n)) -eq (Sha (Join-Path $bin $n))) "$n matches the build output" }
 Assert ((Sha (Join-Path $game 'openvr_api.dll')) -eq (Sha (Join-Path $repo 'third_party\openvr_headers\bin\win32\openvr_api.dll'))) 'openvr_api.dll matches the vendored one'
+if (Test-Path (Join-Path $repo 'build/dlss_host/dvr_dlss_host64.exe')) {
+    foreach ($helper in @('dvr_dlss_host64.exe','nvngx_dlss.dll','amd_fidelityfx_loader_dx12.dll','amd_fidelityfx_upscaler_dx12.dll')) {
+        Assert ((Sha (Join-Path $game "dvr_dlss/$helper")) -eq (Sha (Join-Path $repo "build/dlss_host/$helper"))) "embedded $helper matches this build"
+    }
+}
 Assert (Test-Path (Join-Path $game 'd3d9.dll.dvr-backup')) 'the foreign d3d9.dll was backed up'
 $ini = Join-Path $game 'dishonored_vr.ini'
 $diff = IniDiff (Join-Path $repo 'release\dishonored_vr.ini') $ini
@@ -186,6 +191,63 @@ Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $bindAfter) 'invalid st
 $le=LineEndings $ini
 Assert ($le[0] -eq $le[1] -and -not $le[2]) 'binding edits preserve CRLF and encoding'
 
+
+'5c. stereo selection preserves every unrelated setting'
+$stereoBefore=[IO.File]::ReadAllText($ini)
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--stereo','afw'))
+$stereoAfter=[IO.File]::ReadAllText($ini)
+Assert ($rc -eq 0 -and $stereoAfter -ceq $stereoBefore.Replace("`r`nMethod=reentry`r`n","`r`nMethod=afw`r`n")) 'AFW selection changes only Stereo Method in the whole INI'
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $stereoAfter) 'omitted stereo flag preserves AFW'
+$rc=Run ($common + @('--op','change','--stereo','invalid'))
+Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $stereoAfter) 'invalid stereo flag fails before writing'
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--stereo','stereo'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $stereoBefore) 'Stereo restores the complete expected INI'
+
+'5d. ReShade management keeps every unrelated byte and all presets'
+$shadeRuntime=Join-Path $game 'ReShade32.dll'
+$shadePreset=Join-Path $game 'UserPreset.ini'
+[IO.File]::WriteAllBytes($shadeRuntime,[byte[]](77,90,12,34,56))
+[IO.File]::WriteAllText($shadePreset,"[Techniques]`r`nUserSetting=kept`r`n",$ascii)
+$shadeHash=Sha $shadeRuntime; $presetHash=Sha $shadePreset
+$shadeBefore=[IO.File]::ReadAllText($ini)
+$rc=Run ($common + @('--op','reshade-on'))
+$shadeAfter=[IO.File]::ReadAllText($ini)
+$shadeExpected=[regex]::Replace($shadeBefore,'(?ms)(^\[ReShade\]\r\n[^[]*?^Enabled=)0(?=\r?$)','${1}1')
+Assert ($rc -eq 0 -and $shadeAfter -ceq $shadeExpected) 'ReShade enable changes only its Enabled value across whole INI'
+$rc=Run ($common + @('--op','reshade-off'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $shadeBefore) 'ReShade off restores entire expected INI'
+$rc=Run ($common + @('--op','reshade-remove'))
+Assert ($rc -eq 0 -and -not (Test-Path -LiteralPath $shadeRuntime)) 'runtime removed without executing it'
+$shadeBackups=@(Get-ChildItem -LiteralPath $game -Filter 'ReShade32.dll.*.dvr-backup')
+Assert ($shadeBackups.Count -eq 1 -and (Sha $shadeBackups[0].FullName) -eq $shadeHash) 'removed runtime retained as byte-exact backup'
+Assert ((Sha $shadePreset) -eq $presetHash -and [IO.File]::ReadAllText($ini) -ceq $shadeBefore) 'presets and complete settings preserved on removal'
+[IO.File]::WriteAllBytes($shadeRuntime,[byte[]](77,90,12,34,56))
+
+'5d. running-game settings writes are refused'
+$guardIni=Sha $ini
+$guardGame=Sha (Join-Path $cfg 'DishonoredEngine.ini')
+$ping = Start-Process -FilePath (Join-Path $game 'Dishonored.exe') -ArgumentList @('-t', '127.0.0.1') -PassThru -WindowStyle Hidden
+try {
+    Start-Sleep -Milliseconds 300
+    $rc=Run ($common + @('--op','change','--stereo','afw'))
+    Assert ($rc -eq 2 -and (Sha $ini) -eq $guardIni) 'settings change refuses while game runs and whole INI stays exact'
+    $rc=Run ($common + @('--op','reshade-on'))
+    Assert ($rc -eq 2 -and (Sha $ini) -eq $guardIni) 'ReShade refuses writes while game runs'
+    $rc=Run ($common + @('--op','baseline'))
+    Assert ($rc -eq 2 -and (Sha (Join-Path $cfg 'DishonoredEngine.ini')) -eq $guardGame) 'baseline refuses while game runs and game INI stays exact'
+} finally { Stop-Process -Id $ping.Id -Force }
+
+'5e. changing settings retains installed build identity'
+$recordPath=Join-Path $game 'dishonored_vr_install.json'
+$knownRecord=Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+$knownRecord.version='0.8.7'; $knownRecord.buildId='accepted-old-build'
+[IO.File]::WriteAllText($recordPath,($knownRecord | ConvertTo-Json),$ascii)
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality'))
+$identity=Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+Assert ($rc -eq 0 -and $identity.version -eq '0.8.7' -and $identity.buildId -eq 'accepted-old-build') 'settings do not claim the embedded build was installed'
+Assert ($identity.d3d9Sha256 -eq $knownRecord.d3d9Sha256) 'settings record keeps the actual installed DLL hash'
+
 '6. disable / enable'
 $rc = Run ($common + @('--op', 'disable')); Assert ($rc -eq 0 -and (Test-Path (Join-Path $game 'disable_vr.txt'))) 'disable_vr.txt written'
 $rc = Run ($common + @('--op', 'enable')); Assert ($rc -eq 0 -and -not (Test-Path (Join-Path $game 'disable_vr.txt'))) 'disable_vr.txt removed'
@@ -212,7 +274,7 @@ Assert ($after.Contains("RenderWidth=2064`r`n") -and $after.Contains("RenderHeig
 Assert ($after.Contains("Runtime=steamvr`r`n")) 'the old runtime carried over'
 Assert ($after.Contains("DataDir=`r`n")) 'DataDir empty, not the dev drive'
 Assert (-not $after.Contains('HeightOffsetM=0.111')) 'the old tuning is gone (as the mod refresh would have done)'
-Assert ((Get-ChildItem $game -Filter 'dishonored_vr.ini.*.dvr-backup').Count -eq 1) 'the old ini is kept beside it'
+Assert (@(Get-ChildItem $game -Filter 'dishonored_vr.ini.*.dvr-backup' | Where-Object { [IO.File]::ReadAllText($_.FullName) -ceq $old }).Count -ge 1) 'the old ini is kept byte for byte beside it'
 $rc = Run ($common + @('--op', 'uninstall', '--delete-ini'))
 Remove-Item (Join-Path $game 'dishonored_vr.ini.*.dvr-backup') -Force
 

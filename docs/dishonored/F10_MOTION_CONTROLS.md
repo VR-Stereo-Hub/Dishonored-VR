@@ -256,4 +256,5 @@ Turn off Performance mode to edit shader parameters. Parameter/technique changes
 to the selected preset; Reload and Save remain explicit controls. ReShade startup is
 off by default, and changing the next-launch checkbox requires a game restart.
 The standalone native GPU/UI host tests actual pixel changes and the extracted production
-F10 nudge function. Headset usability still needs the tester's launch.
+F10 nudge function. The tester confirmed normal controller toggles and slider editing
+in build v1.0.1-266-gf3bd14b91; matching DLL/banner and normal shutdown were verified.

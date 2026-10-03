@@ -6,7 +6,13 @@
   Windows pagefile settings are unchanged. Crash prevention awaits headset validation.
 - Launcher offers an optional verified ReShade 6.8 full add-on download. It keeps the mod's
   DLL and existing presets. Shader packages are installed separately; effects are not enabled
-  automatically. The XR bridge is experimental and requires native desktop Present calls.
+  automatically. The tested manual runtime preserves desktop mirror-off. F10 > ReShade
+  provides presets, effects and shader settings with the existing motion controls.
+- The native launcher uses sidebar navigation, Display/Controls settings and a fixed Play
+  button. Collect logs is available directly on Overview. Mods provides ReShade runtime
+  install/on/off/removal; HD textures remain a manual installation.
+- Launcher settings preserve the actual installed build identity. Unsaved edits receive a
+  Play confirmation, and the packaged DLAA/DLSS helper is built before payload assembly.
 - F10 > HUD offers subtitle color, outline/background and a community enlargement preset.
   New effects and the candidate subtitle region are off until selected.
 - Custom resolution now extends to 450%; higher settings can substantially increase GPU load.

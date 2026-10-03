@@ -209,6 +209,12 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
     }
     if (c.bindingEdits || c.swapSticksEdit >= 0)
         r->add(StepStatus::Ok, "Button mapping saved", "Applies next game launch.");
+    if (c.stereoEdit >= 0) {
+        if (!profile::set(ini, L"Stereo", L"Method", c.stereoEdit ? L"afw" : L"reentry", &err)) {
+            r->fail("Could not save stereo mode", err); return false;
+        }
+        r->add(StepStatus::Ok, "Stereo mode saved", "Applies next game launch.");
+    }
     if (c.textureMemory >= 0) {
         if (!profile::set(ini, L"Device", L"Managed", c.textureMemory ? L"paged" : L"shadow", &err) ||
             !profile::set(ini, L"Device", L"Ex", L"1", &err) ||
@@ -276,12 +282,20 @@ bool apply_baseline(Report* r, const Detection& det)
     return ok;
 }
 
-bool write_install_record(Report* r, const Detection& det, const Choices* c)
+bool write_install_record(Report* r, const Detection& det, const Choices* c, bool installedPayload = true)
 {
     InstallRecord rec;
     rec.version = det.version; rec.buildId = det.buildId; rec.config = det.config;
     rec.dllSha256 = det.embeddedSha;
     rec.installedUtc = fs::utc_now_iso();
+    if (!installedPayload) {
+        rec.dllSha256 = det.installedSha;
+        const bool known = det.record.valid && det.record.dllSha256 == det.installedSha;
+        rec.version = known ? det.record.version : "unknown";
+        rec.buildId = known ? det.record.buildId : "installed by hand";
+        rec.config = known ? det.record.config : "unknown";
+        rec.installedUtc = known ? det.record.installedUtc : "";
+    }
     rec.elevated = process::is_elevated();
     if (c) {
         rec.runtime = runtime_token(c->runtime); rec.quality = quality_token(c->quality);
@@ -374,6 +388,8 @@ Detection detect(const Env& env)
         const bool trace = d.iniExists || fs::is_file(fs::join(d.gameDir, kLogName)) || fs::is_file(fs::join(d.gameDir, L"dxvk_d3d9.dll"));
         d.modInstalled = d.d3d9Present && (d.record.valid || trace || d.installedSha == d.embeddedSha);
         d.foreignD3d9 = d.d3d9Present && !d.modInstalled && !d.backupPresent;
+        d.reshadeInstalled = fs::is_file(fs::join(d.gameDir, L"ReShade32.dll"));
+        d.reshadeEnabled = profile::get_int(fs::join(d.gameDir, kIniName), L"ReShade", L"Enabled", 0) != 0;
         d.disabled = fs::is_file(fs::join(d.gameDir, kDisableName));
         if (d.iniExists) {
             const std::wstring ini = fs::join(d.gameDir, kIniName);
@@ -385,6 +401,8 @@ Detection detect(const Env& env)
             d.iniDataDir = profile::get(ini, L"Paths", L"DataDir");
             for (int i = 0; i < PreferenceCount; ++i)
                 d.suggested.preferences[i] = profile::get_int(ini, kPreferences[i].section, kPreferences[i].key, -1);
+            const auto stereo = profile::get(ini, L"Stereo", L"Method", L"reentry");
+            d.suggested.stereoMethod = fs::iequals(stereo,L"afw") ? 1 : fs::iequals(stereo,L"reentry") ? 0 : -1;
             const auto managed = profile::get(ini, L"Device", L"Managed");
             for (int a = 0; a < dvr::binds::ActionCount; ++a) {
                 const auto value = profile::get(ini, L"ControllerBinds", fs::widen(dvr::binds::info(a).key).c_str());
@@ -419,7 +437,7 @@ Detection detect(const Env& env)
 Report do_reshade(const Env&, const Detection& det)
 {
     Report r;
-    if (game_running_blocks(&r, det.running)) return r;
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
     if (!det.gameFound || !det.modInstalled || !det.installedIsEmbedded()) {
         r.add(StepStatus::Failed, "Install or update the mod with this launcher first"); return r;
     }
@@ -439,6 +457,28 @@ Report do_reshade(const Env&, const Detection& det)
     std::vector<uint8_t> bytes; fs::read_file(output, &bytes, nullptr);
     const std::string detail(bytes.begin(), bytes.end());
     r.add(code == 0 ? StepStatus::Ok : StepStatus::Failed, code == 0 ? "ReShade installed" : "ReShade download failed", detail);
+    return r;
+}
+
+Report do_reshade_manage(const Env&, const Detection& det, bool enabled, bool removeRuntime)
+{
+    Report r;
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
+    const auto runtime = fs::join(det.gameDir, L"ReShade32.dll");
+    const auto ini = fs::join(det.gameDir, kIniName);
+    if (!det.gameFound || !det.modInstalled || !det.installedIsEmbedded() || !fs::is_file(runtime) || !fs::is_file(ini)) {
+        r.add(StepStatus::Failed, "Install this launcher's VR build and ReShade first"); return r;
+    }
+    DWORD err = 0;
+    const auto suffix = L"." + fs::timestamp_local() + L"-" + std::to_wstring(GetTickCount64()) + L".dvr-backup";
+    if (!fs::copy_file(ini, ini + suffix, &err)) { r.fail("Could not back up settings", err); return r; }
+    if (!profile::set(ini, L"ReShade", L"Enabled", enabled && !removeRuntime ? L"1" : L"0", &err)) {
+        r.fail("Could not save ReShade preference", err); return r;
+    }
+    if (removeRuntime) {
+        if (!fs::move_file(runtime, runtime + suffix, &err)) { r.fail("ReShade is disabled, but its runtime could not be removed", err); return r; }
+        r.add(StepStatus::Ok, "ReShade runtime removed", "A runtime backup was kept beside the game. Presets, shaders and ReShade.ini are unchanged.");
+    } else r.add(StepStatus::Ok, enabled ? "ReShade enabled for the next launch" : "ReShade disabled for the next launch");
     return r;
 }
 
@@ -577,12 +617,11 @@ Report do_change(const Env& env, const Detection& det, const Choices& choices)
     Report r;
     if (!det.gameFound) { r.add(StepStatus::Failed, "Dishonored was not found", det.gameNote); return r; }
     if (!det.iniExists) { r.add(StepStatus::Failed, "There is no dishonored_vr.ini to change", "Install the mod first."); return r; }
-    if (det.running == process::Running::Yes)
-        r.add(StepStatus::Warn, "Dishonored is running", "The new values apply at its next launch.");
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
     if (det.iniVersion < det.embeddedIniVersion && !refresh_outdated_ini(&r, det, payload())) return r;
     if (!apply_choices(&r, det, choices)) return r;
     if (det.configExists) apply_baseline(&r, det);
-    write_install_record(&r, det, &choices);
+    write_install_record(&r, det, &choices, false);
     return r;
 }
 
@@ -590,7 +629,7 @@ Report do_baseline(const Env& env, const Detection& det)
 {
     (void)env;
     Report r;
-    if (det.running == process::Running::Yes) { r.add(StepStatus::Failed, "Dishonored is running", "It rewrites its settings on exit; quit it first."); return r; }
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
     apply_baseline(&r, det);
     return r;
 }

@@ -47,6 +47,6 @@ try {
             [IO.File]::Replace($staged,$target,$backup)
         } else { [IO.File]::Move($staged,$target) }
     } finally { if (Test-Path -LiteralPath $staged) { Remove-Item -LiteralPath $staged } }
-    Write-Output 'Installed ReShade 6.8.0 full add-on runtime. Existing presets and d3d9.dll are unchanged. Add shader packages separately, then press Home in game to choose effects. Rename ReShade32.dll to ReShade32.dll.disabled to disable it.'
+    Write-Output 'Installed ReShade 6.8.0 full add-on runtime. Existing presets and d3d9.dll are unchanged. Add shader packages separately. In F10 > ReShade, enable ReShade for the next launch and restart. Use that tab for presets, effect toggles, shader settings and disabling ReShade. New installs default off.'
     exit 0
 } catch { Write-Output ('ReShade installation failed: '+$_.Exception.Message); exit 1 }

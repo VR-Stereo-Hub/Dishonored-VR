@@ -1,15 +1,15 @@
-## 2026-10-03: F10 ReShade tab, then launcher readiness audit
+## 2026-10-03: accepted F10 ReShade and native launcher audit
 
-Build 264 is headset-accepted. The next candidate adds the installed-only ReShade F10
-tab, default-off startup with the tester enabled, and the six approved right-hand defaults.
-Read the newest STATUS and PERFORMANCE entries. Preserve the user's Carinth selection
-and local height; full INI diff is mandatory on install. Native GPU/UI/default tests pass.
-After installing, give one controller-usability question for the new tab and continue the
-requested launcher audit while the tester plays. Add Collect logs to the main Overview.
-The approved sidebar design remains a preview; compare the native launcher with it and
-resolve missing functionality rather than assuming the preview is shipped. Keep the
-updater and first-run headset gate intact. Do not launch the game, merge or declare 1.0.3.
-Earlier external publication approvals remain pending; local work can continue.
+Build 266 passed the tester's F10 ReShade controller usability check. The native launcher
+now follows the selected sidebar design and exposes Collect logs on Overview. Read the
+newest STATUS and INSTALLER entries for the audit fixes and evidence. ReShade runtime
+install/on/off/removal are implemented; HD texture installation stays manual for 1.0.3.
+Preserve the tester's Enabled=1, Carinth preset and local height; public Enabled=0 and
+HeightOffsetM=+0.060 remain. Right-hand trims are already the approved repository defaults.
+Full INI comparison and CRLF verification are mandatory on any install. No additional
+headset run is needed solely for the launcher layout; do not claim whole-release acceptance.
+No game launch, merge or release declaration. Publication is blocked pending explicit
+approval of the origin destination after automatic approval review rejected the push.
 
 # Next session: texture-pack candidate
 

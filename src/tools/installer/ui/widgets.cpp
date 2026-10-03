@@ -4,6 +4,9 @@
 #include <math.h>
 #include <string.h>
 #include <string>
+#include <d3d11.h>
+#include "sys/resources.h"
+#include "sys/fs.h"
 
 namespace dvr::setup::ui {
 
@@ -19,21 +22,75 @@ ImVec4 col_oxblood()
     return c;
 }
 
-void page_header(const char* subtitle)
-{
-    dvr::ovl::title("Dishonored VR");
-    if (subtitle && *subtitle) {
-        const float tw = ImGui::CalcTextSize(subtitle).x;
-        const float avail = ImGui::GetContentRegionAvail().x;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail > tw ? (avail - tw) * 0.5f : 0.0f));
-        wrapped_faded(subtitle);
-    }
-    ImGui::Spacing();
+namespace {
+ID3D11ShaderResourceView* headerArt = nullptr;
+ImFont* brandFont = nullptr;
+float scale() { return ImGui::GetFontSize() / 16.0f; }
+void header_image(ImVec2 a, ImVec2 b) {
+    auto* dl = ImGui::GetWindowDrawList();
+    if (headerArt) dl->AddImage((ImTextureID)(uintptr_t)headerArt, a, b, ImVec2(0,.29f), ImVec2(1,.71f));
+    else dl->AddRectFilled(a, b, IM_COL32(216,210,190,255));
 }
-
-bool heading(const char* name, const char* tip, bool defaultOpen)
-{
-    return dvr::ovl::section(name, dvr::ovl::Basic, tip, defaultOpen);
+}
+void load_widget_art(ID3D11Device* device) {
+    release_widget_art();
+    unsigned w=0,h=0; headerArt=resources::image(device,204,&w,&h);
+    wchar_t windows[MAX_PATH]{}; GetWindowsDirectoryW(windows,MAX_PATH);
+    const auto font = fs::narrow(std::wstring(windows) + L"\\Fonts\\PERTILI.TTF");
+    if (GetFileAttributesA(font.c_str()) != INVALID_FILE_ATTRIBUTES)
+        brandFont=ImGui::GetIO().Fonts->AddFontFromFileTTF(font.c_str(),36.0f);
+}
+void release_widget_art() { if(headerArt)headerArt->Release();headerArt=nullptr;brandFont=nullptr; }
+void apply_launcher_style() {
+    auto& st=ImGui::GetStyle();
+    st.WindowPadding=ImVec2(24,20); st.FramePadding=ImVec2(13,7); st.ItemSpacing=ImVec2(8,6);
+    st.Colors[ImGuiCol_Text]=ImVec4(216/255.f,210/255.f,190/255.f,1);
+    st.Colors[ImGuiCol_TextDisabled]=ImVec4(178/255.f,173/255.f,156/255.f,1);
+    st.Colors[ImGuiCol_FrameBg]=ImVec4(17/255.f,26/255.f,30/255.f,1);
+    st.Colors[ImGuiCol_CheckMark]=ImVec4(177/255.f,152/255.f,83/255.f,1);
+    st.Colors[ImGuiCol_Border]=ImVec4(87/255.f,96/255.f,94/255.f,1);
+}
+void brand_header(const char* version) {
+    const float factor=scale(); const auto start=ImGui::GetCursorPos();
+    ImGui::PushFont(brandFont ? brandFont : ImGui::GetFont(),36.0f);
+    ImGui::TextUnformatted("DISHONORED VR"); ImGui::PopFont();
+    wrapped_faded("A motion-controlled adventure in Dunwall");
+    const float end=ImGui::GetCursorPosY();
+    ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth()-ImGui::GetStyle().WindowPadding.x-150*factor,start.y+5*factor));
+    ImGui::PushFont(ImGui::GetFont(),13.0f);
+    ImGui::TextDisabled("Dishonored VR %s",version);
+    ImGui::PopFont();
+    ImGui::SetCursorPos(ImVec2(start.x,end+19*factor));
+}
+bool sidebar_button(const char* label,bool selected) {
+    const float factor=scale(); auto at=ImGui::GetCursorScreenPos();
+    const ImVec2 size(ImGui::GetContentRegionAvail().x,43*factor);
+    if(selected)header_image(at,ImVec2(at.x+size.x,at.y+size.y));
+    ImGui::PushFont(ImGui::GetFont(),17.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text,selected?ImVec4(.145f,.145f,.137f,1):col_bone());
+    ImGui::PushStyleColor(ImGuiCol_Button,ImVec4(0,0,0,0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,ImVec4(.65f,.6f,.4f,.16f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,ImVec4(.65f,.6f,.4f,.24f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,0);
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign,ImVec2(0,.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,ImVec2(12*factor,7*factor));
+    const bool clicked=ImGui::Button(label,size);
+    ImGui::PopStyleVar(3);ImGui::PopStyleColor(4);ImGui::PopFont();
+    return clicked;
+}
+void page_header(const char* title,const char* subtitle) {
+    const float factor=scale();
+    ImGui::PushFont(ImGui::GetFont(),26.0f);ImGui::TextUnformatted(title);ImGui::PopFont();
+    if(subtitle) wrapped_faded(subtitle);
+    ImGui::Dummy(ImVec2(0,7*factor));
+}
+bool heading(const char* name,const char* tip,bool defaultOpen) {
+    if(!defaultOpen)return dvr::ovl::section(name,dvr::ovl::Basic,tip,false);
+    const float factor=scale();ImGui::Dummy(ImVec2(0,4*factor));
+    auto at=ImGui::GetCursorScreenPos();const float width=ImGui::GetContentRegionAvail().x;
+    header_image(at,ImVec2(at.x+width,at.y+26*factor));
+    ImGui::GetWindowDrawList()->AddText(ImVec2(at.x+30*factor,at.y+5*factor),IM_COL32(41,42,39,255),name);
+    ImGui::Dummy(ImVec2(width,26*factor));dvr::ovl::tip(tip);return true;
 }
 
 void wrapped(const char* text)
@@ -44,9 +101,11 @@ void wrapped(const char* text)
 }
 void wrapped_faded(const char* text)
 {
+    const float factor=scale();
+    ImGui::PushFont(ImGui::GetFont(),14.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, col_faded());
     wrapped(text);
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(); ImGui::PopFont();
 }
 
 void status_slot(const char* id, int lines, const char* text, const ImVec4* colour)
@@ -143,12 +202,11 @@ void footer_begin(float height)
 
 bool button(const char* label, bool primary, bool enabled, float width)
 {
-    if (primary) dvr::ovl::push_primary();
     ImGui::BeginDisabled(!enabled);
-    const bool hit = dvr::ovl::button(label, ImVec2(width, 0));
-    ImGui::EndDisabled();
-    if (primary) dvr::ovl::pop_primary();
-    return hit;
+    ImGui::PushStyleColor(ImGuiCol_Button,primary?ImVec4(.23f,.105f,.09f,1):ImVec4(.067f,.102f,.118f,1));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,primary?ImVec4(.33f,.15f,.125f,1):ImVec4(.13f,.18f,.20f,1));
+    const bool hit=ImGui::Button(label,ImVec2(width,34*scale()));
+    ImGui::PopStyleColor(2);ImGui::EndDisabled();return hit;
 }
 
 // Right-to-left placement on one row: the first call of a frame starts a new

@@ -1,3 +1,15 @@
+## 2026-10-03: build 266 F10 ReShade controls accepted
+
+The tester confirms normal controller operation of ReShade effects and shader sliders
+inside F10. Installed v1.0.1-266-gf3bd14b91 and DLL SHA256
+44151a462741a90c252e24ef410042256dd990627e5f46a1fe218a4feca874e9 were verified against
+the log before interpretation. Archived current/previous logs, complete VR INI and ReShade
+configuration are in main build/texture-reshade-candidate/f10-panel/accepted-run. The log
+reaches normal PreExit and reports the manual runtime ready. The hook-preservation census
+restores 30 actual device hooks. This confirms usability and the tested startup path, not
+a controlled performance comparison or every ReShade shader. Public Enabled=0 remains;
+the tester uses Enabled=1. Launcher follow-up changes do not alter runtime rendering.
+
 ## 2026-10-03: build 264 accepted; F10 ReShade controls
 
 The tester reports good appearance and smooth operation with the tuned Carinth preset.
