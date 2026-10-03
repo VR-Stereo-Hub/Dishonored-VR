@@ -1,3 +1,5 @@
+#include "core/gfx/reshade_runtime.h"
+#include "core/ui/reshade_panel.h"
 // core/ui/overlay_tabs.inc - VR-196: the F10 panel's tabs, one function per tab.
 // Included by overlay.cpp (unity build) just before OverlayFrame.
 //
@@ -1514,6 +1516,7 @@ static void OvlTabs()
         OvlTabBody("OvlTabLayout-scroll", [] { static float zoom = 1; dvr::ovl::bindings_layout(zoom); });
         ImGui::EndTabItem();
     }
+    if (dvr::reshade_runtime::installed() && dvr::ovl::tab("ReShade")) { OvlTabBody("ReShade-scroll", dvr::reshade_panel::draw); ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Display"))  { OvlTabBody("OvlTabDisplay-scroll", OvlTabDisplay);  ImGui::EndTabItem(); }
     if (OvlAt(kOvlA) && dvr::ovl::tab("Game options")) { OvlTabBody("OvlTabGameOptions-scroll", OvlTabGameOptions); ImGui::EndTabItem(); }
     if (OvlAt(kOvlD) && dvr::ovl::tab("Runtime")) { OvlTabBody("Runtime-scroll", [] { dvr::vr::draw_debug_ui(); }); ImGui::EndTabItem(); }

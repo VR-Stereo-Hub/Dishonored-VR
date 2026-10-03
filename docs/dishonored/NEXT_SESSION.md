@@ -1,21 +1,15 @@
-## 2026-10-03 current test: manual ReShade without forced desktop Present
+## 2026-10-03: F10 ReShade tab, then launcher readiness audit
 
-Read the newest STATUS section and PERFORMANCE.md entry first. Candidate adds optional
-manual ReShade rendering before capture, with classifiers bypassed only during its work.
-Host enabled/disabled pixel checks and reset/recreation pass. Installed build is
-v1.0.1-262-gabf374ce3. The complete VR INI diff adds only ManualRuntime=1 and Parts=1;
-CRLF is verified. ReShade.ini selects the separate empty test preset. Build/config/hash
-manifest is main build/texture-reshade-candidate/manual-runtime/install.json; full previous
-DLL/INI/log pair/ReShade files are beside it under before-install. Confirm banner first.
-One launch question: with all effects disabled in the separate test preset, does the same
-save regain normal headset smoothness? Inspect desktop policy and hk.reshadeEffects in
-the log yourself. Keep current resolution, AFW and remaining user tuning unchanged.
-Restore ReShade.ini's previous PresetPath after the baseline test when appropriate; the
-user-tuned Carinth preset was preserved. Never launch the game or merge independently.
-
-Launcher credits/donation/rain and binding editor are implemented in the native build;
-full sidebar and simplified TFC flow remain an interactive proposal. Prior remote approval
-questions are still pending; keep local progress recoverable meanwhile.
+Build 264 is headset-accepted. The next candidate adds the installed-only ReShade F10
+tab, default-off startup with the tester enabled, and the six approved right-hand defaults.
+Read the newest STATUS and PERFORMANCE entries. Preserve the user's Carinth selection
+and local height; full INI diff is mandatory on install. Native GPU/UI/default tests pass.
+After installing, give one controller-usability question for the new tab and continue the
+requested launcher audit while the tester plays. Add Collect logs to the main Overview.
+The approved sidebar design remains a preview; compare the native launcher with it and
+resolve missing functionality rather than assuming the preview is shipped. Keep the
+updater and first-run headset gate intact. Do not launch the game, merge or declare 1.0.3.
+Earlier external publication approvals remain pending; local work can continue.
 
 # Next session: texture-pack candidate
 

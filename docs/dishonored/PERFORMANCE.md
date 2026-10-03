@@ -1,3 +1,21 @@
+## 2026-10-03: build 264 accepted; F10 ReShade controls
+
+The tester reports good appearance and smooth operation with the tuned Carinth preset.
+Matching installed DLL SHA256 99941f52ff4df38118f1704300d7c807ea62fa7fff4ee979abc1114f593f7024
+and build banner v1.0.1-264-gfbc2bd23e verified before interpretation. Full logs and
+configurations are archived in main build/texture-reshade-candidate/accepted-264.
+The saved ReShade INI selects Carinth again; the game reaches ordinary PreExit.
+Late sampled windows have desktop actual=0/off=1 and hk.reshadeEffects=162..176 us.
+Those are CPU-part means, not GPU timing, frame-time percentiles or a controlled A/B.
+The manual runtime startup correction is headset-accepted by this report.
+
+Follow-up adds an F10 ReShade tab using the public API and the existing panel input.
+Effect handles are re-enumerated each frame. Performance mode must be switched off
+before editing parameters; switching modes queues an effect reload. Native UI event
+checks change shader values and read back the changed pixels; production F10 relative
+nudging passes. Shipped Enabled=0 prevents even loading an installed DLL; the tester
+keeps Enabled=1 and their selected preset. Headset panel acceptance remains pending.
+
 ## 2026-10-03: manual ReShade startup crash reproduced and corrected in native host
 
 Build v1.0.1-262-gabf374ce3 failed on startup creating a 256x256, single-mip DXT5

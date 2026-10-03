@@ -245,3 +245,15 @@ The panel follows Dishonored's own look.
 `tools\ovl-theme-preview.ps1 [-Advanced]` renders a sample panel with the real theme code
 offscreen to `build\ovl-theme-preview\*.png`, so the look can be judged without a headset.
 The palette and metrics live in `src/core/ui/ovl_ui.cpp`.
+
+## 2026-10-03: optional ReShade tab
+
+When ReShade32.dll is installed, F10 includes ReShade controls in the same panel.
+This reuses the existing trigger/pointer/scroll/nudge behavior and gameplay suppression;
+there is no second ImGui context or controller-input path. Presets, technique state and
+uniform values use ReShade's public API 20, with no handles retained across frames.
+Turn off Performance mode to edit shader parameters. Parameter/technique changes save
+to the selected preset; Reload and Save remain explicit controls. ReShade startup is
+off by default, and changing the next-launch checkbox requires a game restart.
+The standalone native GPU/UI host tests actual pixel changes and the extracted production
+F10 nudge function. Headset usability still needs the tester's launch.

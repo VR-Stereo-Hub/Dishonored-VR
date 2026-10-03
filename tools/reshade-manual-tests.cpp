@@ -3,6 +3,10 @@
 #include <d3d9.h>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
+#include <imgui.h>
+#include <imgui_internal.h>
+#include "core/ui/reshade_panel.h"
 #include "../src/core/gfx/reshade_runtime.cpp"
 #undef DVR_CAT
 #include "../src/core/gfx/d3d9ex.cpp"
@@ -24,12 +28,72 @@ static unsigned pixel(IDirect3DDevice9* d, IDirect3DSurface9* cpu) {
     unsigned result=*reinterpret_cast<unsigned*>(static_cast<char*>(lock.pBits)+400*lock.Pitch+400*4)&0xffffff;
     cpu->UnlockRect();return result;
 }
-int main(int argc, char**) {
+static bool g_ovlTweakWant=false;
+static ImGuiID g_ovlTweakId=0;
+static constexpr float kOvlTweakMinPerSec=2, kOvlTweakMaxPerSec=30;
+#include "overlay_slider_tweak.inc"
+static std::map<ImGuiID,ImRect> uiBounds;
+static std::map<std::string,ImRect> uiLabels;
+void ImGuiTestEngineHook_ItemAdd(ImGuiContext*,ImGuiID id,const ImRect& box,const ImGuiLastItemData*) { uiBounds[id]=box; }
+void ImGuiTestEngineHook_ItemInfo(ImGuiContext*,ImGuiID id,const char* label,ImGuiItemStatusFlags) { if(label && uiBounds.count(id))uiLabels[label]=uiBounds[id]; }
+void ImGuiTestEngineHook_Log(ImGuiContext*,const char*,...) {}
+const char* ImGuiTestEngine_FindItemDebugLabel(ImGuiContext*,ImGuiID) { return nullptr; }
+static void panel_frame() {
+    uiLabels.clear();uiBounds.clear();
+    ImGui::NewFrame();OvlUpdateSliderTweak();ImGui::SetNextWindowPos(ImVec2(0,0),ImGuiCond_Always);ImGui::SetNextWindowSize(ImVec2(600,900),ImGuiCond_Always);
+    ImGui::Begin("F10 host");dvr::reshade_panel::draw();ImGui::End();ImGui::Render();
+}
+static void panel_click(const char* label,float fraction=.1f) {
+    require(uiLabels.count(label)!=0,label);
+    const auto box=uiLabels[label];auto& io=ImGui::GetIO();
+    io.AddMousePosEvent(box.Min.x+(box.Max.x-box.Min.x)*fraction,(box.Min.y+box.Max.y)*.5f);panel_frame();
+    io.AddMouseButtonEvent(0,true);panel_frame();io.AddMouseButtonEvent(0,false);panel_frame();
+}
+static void panel_checks(IDirect3DDevice9* dev,IDirect3DSurface9* cpu) {
+    using namespace dvr::reshade_runtime;
+    for(int i=0;i<90;++i) { render(dev);Sleep(10); }
+    auto* ctx=ImGui::CreateContext();ctx->TestEngineHookItems=true;
+    auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DisplaySize=ImVec2(600,900);io.DeltaTime=1.0f/60;io.ConfigInputTrickleEventQueue=false;
+    unsigned char* atlas=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&atlas,&width,&height);
+    panel_frame();panel_frame();
+    require(performance_mode(),"native performance setting read");
+    panel_click("Enable ReShade next launch");require(!enabled_next_start() && api()!=nullptr,"startup disable persists without unloading live runtime");
+    panel_click("Enable ReShade next launch");require(enabled_next_start(),"startup enable persists");
+    panel_click("Effects on");require(!api()->get_effects_state(),"UI disables actual effects");
+    dev->Clear(0,nullptr,D3DCLEAR_TARGET,0xff0000,1,0);render(dev);require(pixel(dev,cpu)==0xff0000,"UI effect off gives native red");
+    panel_click("Effects on");require(api()->get_effects_state(),"UI enables actual effects");
+    panel_click("Performance mode");require(!performance_mode(),"UI enters editable shader mode");
+    for(int i=0;i<150;++i) { render(dev);Sleep(10); }
+    panel_frame();panel_frame();panel_click("Test.fx");panel_frame();
+    panel_click("##value",.25f);
+    const auto uniform=api()->find_uniform_variable("Test.fx","Strength");require(uniform.handle!=0,"fresh uniform handle after reload");
+    float strength=0;api()->get_uniform_value_float(uniform,&strength,1);
+    std::printf("UI-set shader strength=%f\n",strength);require(strength>.15f && strength<.35f,"UI slider edits actual shader uniform");
+    dev->Clear(0,nullptr,D3DCLEAR_TARGET,0xff0000,1,0);render(dev);const auto rgb=pixel(dev,cpu);
+    require((rgb&255)>35 && (rgb&255)<90,"UI uniform changes rendered pixels");
+    const float beforeNudge=strength;
+    g_ovlTweakWant=true;io.AddKeyEvent(ImGuiKey_RightArrow,true);panel_frame();
+    io.AddKeyEvent(ImGuiKey_RightArrow,false);panel_frame();g_ovlTweakWant=false;panel_frame();
+    api()->get_uniform_value_float(api()->find_uniform_variable("Test.fx","Strength"),&strength,1);
+    require(strength>beforeNudge && strength<beforeNudge+.1f,"production F10 nudge changes ReShade slider relatively");
+    panel_click("Reset this setting");api()->get_uniform_value_float(api()->find_uniform_variable("Test.fx","Strength"),&strength,1);require(strength==1,"UI resets actual uniform");
+    panel_click("Invert");require(!api()->get_technique_state(api()->find_technique("Test.fx","Invert")),"UI disables technique");
+    panel_click("Invert");require(api()->get_technique_state(api()->find_technique("Test.fx","Invert")),"UI enables technique");
+    panel_click("Performance mode");require(performance_mode(),"UI restores optimized shader mode");
+    ImGui::DestroyContext(ctx);reset();
+}
+int main(int argc, char** argv) {
     memset(dvr::log::g_levels,2,sizeof(dvr::log::g_levels));
-    const bool noEffects = argc > 1;
+    const bool noEffects = argc > 1 && !strcmp(argv[1],"--disabled");
+    const bool defaultOff = argc > 1 && !strcmp(argv[1],"--default-off");
     using namespace dvr::reshade_runtime;
     SetEnvironmentVariableW(L"RESHADE_DISABLE_GRAPHICS_HOOK",L"host-sentinel");
     load_optional();require(manual(),"manual selected");
+    if(defaultOff) {
+        require(installed(),"installed runtime discovered when disabled");require(!enabled_next_start(),"missing Enabled is off");
+        require(!GetModuleHandleW(L"ReShade32.dll"),"default-off does not load ReShade DLL");require(api()==nullptr,"no public runtime while disabled");
+        puts("PASS: default-off keeps installed ReShade unloaded");return 0;
+    }
     wchar_t restored[64]{};GetEnvironmentVariableW(L"RESHADE_DISABLE_GRAPHICS_HOOK",restored,64);
     require(wcscmp(restored,L"host-sentinel")==0,"environment restored");
     require(createRuntime && updateRuntime && destroyRuntime,"official exports present");
@@ -77,6 +141,7 @@ int main(int argc, char**) {
         reset();require(runtime==nullptr,"runtime released");
         require(SUCCEEDED(dev->ResetEx(&pp,nullptr)),"reset after runtime destruction");
     }
+    if(!noEffects)panel_checks(dev,cpu);
     cpu->Release();dev->Release();api->Release();DestroyWindow(wnd);
     std::printf("PASS: %u checks; effect pixels, state restore, reset/recreate, zero native Present\n",checks);
 }

@@ -1,3 +1,31 @@
+## 2026-10-03: accepted ReShade runtime; F10 tab and right-hand defaults
+
+Tester reports build v1.0.1-264-gfbc2bd23e looks and runs well. Installed hash and
+log banner match; current/previous logs and saved configurations are archived in main
+build/texture-reshade-candidate/accepted-264. The run reaches normal PreExit. Sampled
+late gameplay windows show mirror actual=0 with off=1; the ReShade CPU part is about
+0.16-0.18 ms per Present, not a GPU cost or a controlled A/B. See PERFORMANCE.md.
+
+The requested ReShade controls are now an installed-only F10 tab, reusing the exact
+panel placement, pointer, trigger, scroll and relative slider-nudge path. It offers
+preset selection, live effects and technique toggles, parameter editing, reload/save,
+and performance mode. Parameters require performance mode off. Public ReShade API 20
+is negotiated before accessing the vendored v6.8 interface; no foreign ImGui context
+is modified. Effect handles are used only in the frame they are enumerated.
+
+ReShade startup is explicitly optional: Enabled=0 ships; ManualRuntime=1 selects the
+accepted VR integration when enabled. Existing user installation must receive Enabled=1
+and retain its chosen Carinth preset. Repository right-hand defaults now match the six
+saved trim values: T=(0.0356,0.0181,0.0145)m, R=(-36.09,72.42,17.27) degrees.
+Repository HeightOffsetM remains +0.060; the user's local -0.160 is not promoted.
+
+Native host: 791 enabled/UI checks, 759 disabled checks and a default-off no-DLL-load
+check pass. UI events change actual runtime pixels, reload parameters, toggle techniques,
+and use the production F10 relative nudge. The default writer, release INI and golden
+fixture match byte-for-byte; reset/failure coverage passes. Full optimized build passes.
+Installation and headset panel validation are next, then the requested launcher audit and
+Overview Collect logs action. Do not launch the game or merge. No 1.0.3 version bump yet.
+
 ## 2026-10-03: build 262 startup crash reproduced; device-hook preservation fix
 
 The tester's startup failure matches installed v1.0.1-262-gabf374ce3. A native GPU host
