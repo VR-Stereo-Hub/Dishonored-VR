@@ -1,3 +1,38 @@
+## 2026-10-03: remote Reverb G2 never reached VR - ReShade's OpenXR layer refused (-32)
+
+Remote tester, HP Reverb G2 on SteamVR (WMR driver replacement), RTX 5080, v1.0.3 with the
+repair package's matching DLL hashes. Two support bundles. The first was a stale build 38.74
+DXVK-era proxy (launcher saw sha 8c7c32f6 against an embedded 727e7ac6) - not diagnosed further.
+The second, on the correct v1.0.3 DLL: `[steamvr shim] xrCreateInstance failed: XrResult(-32)`
+twice, status runtime/session `none`, zero stereo pairs. The tester reported a small flat window
+in the SteamVR space, green-tinted with skewed perspective in its left fifth - that is the flat
+fallback in the desktop theatre; the tint and skew are NOT explained and are not addressed here.
+
+Cause, from source rather than inference: the shim negotiated (runtime loaded), and in the
+vendored loader -32 after that has one source, LoadLibrary failing on an implicit layer
+(api_layer_interface.cpp:280). The only enabled 32-bit implicit layer was ReShade's global
+OpenXR layer (C:\ProgramData\ReShade\ReShade32.dll), whose DllMain returns FALSE when no
+ReShade.ini sits beside the exe or another ReShade is loaded (upstream source/dll_main.cpp).
+The guard had called it "loadable here" after reading only the PE header. Also on that machine:
+a vorpX virtual display adapter (not in the log's DXGI list; no evidence it is involved).
+
+Change (TRAPS 2026-10-03, TROUBLESHOOTING -32 section, ARCHITECTURE decision log):
+`[VR] DisableReShadeApiLayer=1` (default ON) skips that layer for this process through its
+manifest's disable_environment; the guard's wording now says only the architecture was checked;
+`core/vr/xr_loader_log.cpp` records the loader's warnings, errors and layer lines as `xr/loader:`
+lines; the "is SteamVR installed?" hint is replaced for -32. Dev-PC validation with a 32-bit
+harness on the statically linked loader and the simulator runtime: a fixture layer whose DllMain
+refuses gives -32 and `error 1114` in the log; the dev PC's real 64-bit OBS implicit layer gives
+-32 with `error 193`; its manifest opt-out gives `Implicit layer ... is disabled` and a created
+instance. The guard's ReShade branch itself has not run in a game - the next tester log decides.
+
+Result: the tester ran the candidate zip (v1.0.1-271-ge6199622a) and reached VR - reported
+through the maintainer; that run's log has not been reviewed here, so the `apilayer: DISABLED`
+and `xr/loader: ... is disabled` lines are expected, not yet read. Whether the green/skewed
+image survives in a working session is not reported; it gets its own investigation if it does.
+Merged to staging with the launcher fixes on codex/launcher-fixes (PR 171), on the maintainer's
+instruction. No Linear ticket: the workspace issue limit blocked creation (see the entry below).
+
 ## 2026-10-03: launcher upscaler controls and ReShade management across builds
 
 Follow-up on `codex/launcher-fixes`, PR #171. Settings > Display now exposes

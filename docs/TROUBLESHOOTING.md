@@ -186,3 +186,31 @@ Two cases it cannot fix on its own, both named in the log:
 Known example: OBS mirror-capture layers such as OpenXR-Layer-OBSMirror install
 a 64-bit-only library under `HKCU` and will stop this game reaching VR until
 they are disabled.
+
+**The second cause: a 32-bit layer that refuses to start.** A layer with the
+right architecture can still fail to load, because its DLL decides for itself
+whether to initialise. The loader treats that refusal exactly like a 64-bit
+library: `-32` for every runtime, SteamVR included. The known case is
+**ReShade's global OpenXR layer** (`XR_APILAYER_reshade`, installed by ReShade's
+own setup as `C:\ProgramData\ReShade\ReShade32.dll`). ReShade refuses to load
+into any game that has no `ReShade.ini` beside its exe, and it also refuses when
+another copy of ReShade is already loaded - which is what the mod's own ReShade
+option ([ReShade] in `dishonored_vr.ini`) puts there.
+
+The mod skips that layer for this game only, by default (`[VR]
+DisableReShadeApiLayer=1`), with the opt-out ReShade's manifest declares
+(`DISABLE_XR_APILAYER_reshade_1`). ReShade itself, its registry entry and every
+other game it is installed for are untouched. Setting the key to 0 hands the
+decision back to ReShade.
+
+What the log says:
+
+- `apilayer: ... 'XR_APILAYER_reshade' is ReShade's global OpenXR layer` - what
+  ReShade's own check will see (`ReShade.ini beside the exe: PRESENT|absent`);
+- `apilayer: DISABLED 'XR_APILAYER_reshade' ...` - the opt-out was set;
+- `xr/loader: [-] Implicit layer ... is disabled` - the loader honoured it.
+
+If VR still does not start, the `xr/loader:` lines name the layer or runtime
+the loader could not load and the Windows error - for example `error 1114`
+(*a DLL initialization routine failed*: the DLL refused) or `error 193` (*not
+a valid Win32 application*: a 64-bit DLL).

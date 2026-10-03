@@ -93,6 +93,7 @@ set(DVR_REAL_SOURCES
     core/vr/openxr_runtime.cpp core/vr/openxr_runtime.h
     core/vr/openxr_input.cpp   core/vr/openxr_input.h
     core/vr/hud_stub.cpp       core/vr/hud_stub.h
+    core/vr/xr_loader_log.cpp  core/vr/xr_loader_log.h
     core/ui/ovl_ui.cpp         core/ui/ovl_ui.h
     core/util/xr_math.h
 )
@@ -126,6 +127,10 @@ if(DVR_WITH_OPENXR)
     # Static loader linked straight into the proxy: no extra DLL ships and the
     # game's import table is untouched (the loader is not a DLL import).
     target_link_libraries(dvr_proxy PRIVATE openxr_loader)
+    # xr_loader_log.cpp adds a recorder to the loader's own logger, so it alone
+    # sees the loader's internal headers (no loader file is edited).
+    set_source_files_properties(core/vr/xr_loader_log.cpp PROPERTIES INCLUDE_DIRECTORIES
+        "${PROJECT_SOURCE_DIR}/third_party/OpenXR-SDK/src/loader;${PROJECT_SOURCE_DIR}/third_party/OpenXR-SDK/src/common;${PROJECT_SOURCE_DIR}/third_party/OpenXR-SDK/src")
     target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_OPENXR=1)
 else()
     target_compile_definitions(dvr_proxy PRIVATE DVR_WITH_OPENXR=0)

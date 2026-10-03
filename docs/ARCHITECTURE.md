@@ -1469,3 +1469,14 @@ The new lever defaults off, and without reduced upscaling draws remain native.
     the bridge, with ordinary XR completion. AFW/MSW cycle ownership stays in the same guard.
   - Launcher downloads pinned upstream ReShade on opt-in and never executes its installer.
     The mod DLL/presets survive; only the rebuilt bridge is distributed with the mod.
+
+- **2026-10-03 - ReShade's global OpenXR layer is skipped by default.**
+  - ReShade's x86 layer refuses LoadLibrary without a ReShade.ini beside the exe, and refuses a
+    second ReShade instance; the loader turns either refusal into xrCreateInstance -32 for every
+    runtime. When it does load it is a second ReShade beside the mod's own D3D9 chain.
+  - So `[VR] DisableReShadeApiLayer` defaults ON, unlike a render lever: it is a compatibility
+    opt-out in the same family as DisableBadApiLayers, and no outcome of leaving it on helps.
+    It uses the manifest's disable_environment in this process only; registry untouched.
+  - The loader's warnings reach the mod log through a recorder added to its internal logger
+    (core/vr/xr_loader_log.cpp). No vendored loader file is edited; the one source file that
+    includes loader internals is the only coupling, and it breaks at compile time if the SDK moves.
