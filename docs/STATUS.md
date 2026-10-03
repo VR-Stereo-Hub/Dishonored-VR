@@ -14,8 +14,8 @@ production subtitle shader checks pass. The game was not launched. Headset accep
 Full source provenance, measurements, limits and ordered next tests are in
 [dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md), 2026-10-02 community integration.
 
-Installed: `v1.0.1-256-gd98dbcc96`, RelWithDebInfo, legacy off. DLL SHA256
-`2C6CFAD9FDE2090BF37E4934B564049FB03DF6D4FAA43486B90D4F1F5B3CB5BA`.
+Installed: `v1.0.1-257-g705b282c7`, RelWithDebInfo, legacy off. DLL SHA256
+`B469222B1E798715FC4B08A940787CDC096DC98476A05ACE6AFFE61A376FD1C1`.
 Previous DLL/whole INI/both logs are archived in main
 `build/texture-reshade-candidate/before-256`. Full installed INI equals the prepared target:
 only Managed=shadow -> paged and ShadowSurfaces=0 -> 1 changed; 73348 bytes,

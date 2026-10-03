@@ -95,8 +95,8 @@ Display placement is retained from PR #168 without merging that PR.
 
 ### Installed candidate identity
 
-Source build `v1.0.1-256-gd98dbcc96`, RelWithDebInfo, legacy off. Installed DLL SHA256
-`2C6CFAD9FDE2090BF37E4934B564049FB03DF6D4FAA43486B90D4F1F5B3CB5BA` matches the built DLL.
+Source build `v1.0.1-257-g705b282c7`, RelWithDebInfo, legacy off. Installed DLL SHA256
+`B469222B1E798715FC4B08A940787CDC096DC98476A05ACE6AFFE61A376FD1C1` matches the built DLL.
 The previous installed/log identity was `v1.0.1-258-g949e1ea8b` (different branch ancestry,
 not a semantic version downgrade). It is archived with the full INI and both logs under
 main `build/texture-reshade-candidate/before-256`. The new log banner is not yet available.
@@ -107,6 +107,10 @@ Entire installed INI equals the expected target, SHA256
 changed. Existing Ex=1, ShadowFullCopy=1, AFW and MSW off remain. No ReShade runtime was
 installed for this texture test. Cost diagnostics are automatic at Info in paged mode.
 The earlier Display UI request is retained in this binary despite its separate PR ancestry.
+
+The first local install had a dirty build stamp caused by unrefreshed Git metadata after
+CRLF normalization. It was not playtested. Refreshed index metadata and rebuilt cleanly;
+the final replacement is archived in `before-257`, with a byte-identical full INI.
 
 ### Next launch, one question
 
