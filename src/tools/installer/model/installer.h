@@ -55,6 +55,7 @@ struct Detection {
     InstallRecord record;
     bool reshadeInstalled = false;
     bool reshadeEnabled = false;
+    bool reshadeSupported = false; // installed proxy implements the manual ReShade integration
     bool disabled = false;           // disable_vr.txt
     bool iniExists = false; int iniVersion = 0;
     Runtime iniRuntime = Runtime::Auto; std::wstring iniJson; Size iniSize; std::wstring iniDataDir;

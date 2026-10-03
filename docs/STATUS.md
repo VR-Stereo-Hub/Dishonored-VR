@@ -1,3 +1,29 @@
+## 2026-10-03: launcher upscaler controls and ReShade management across builds
+
+Follow-up on `codex/launcher-fixes`, PR #171. Settings > Display now exposes
+Off/DLSS/FSR, all six upscaler quality modes, and the six F10 DLSS model/preset
+choices from one shared table. Unknown custom presets remain untouched unless
+explicitly changed. Choices survive the elevated-worker argument path. The launcher
+shows saved upscaler output dimensions instead of treating F10's reduced render
+size as the output; unchanged settings preserve both, and Off restores full size.
+
+The ReShade buttons were gated on exact equality between the installed DLL and the
+launcher's payload. A launcher-only update therefore blocked an otherwise compatible
+1.0.3 installation. Detection now recognizes the installed manual-ReShade capability
+marker. Install/enable require support; disable/remove do not require a matching or
+recognized proxy. All writes still refuse a running game. Runtime removal retains
+its backup, shaders, presets and ReShade.ini.
+
+Validation: 256 native UI checks at 100%, 150% and minimum size; full scratch lifecycle
+passes, including every preset/quality mapping, old INIs without an Upscaler key,
+custom preset preservation, reduced render/output round-trip, different compatible
+DLL hashes, and unsupported-DLL disable/removal. DLSS, FSR and enabled-ReShade screens
+were rendered and inspected. The shared preset-table move changes no rendering values.
+Candidate installation replaces only the launcher behind the desktop shortcut;
+whole-INI/game-DLL verification and backups are under main `build/launcher-upscaler/`.
+No game launch, merge or release. The existing Linear workspace issue-limit block
+still prevents creating a dedicated issue. Next: review the expanded PR #171.
+
 ## 2026-10-03: launcher legacy cleanup and updater dialog
 
 Branch `codex/launcher-fixes` starts at release `VR-Main` commit `7c1cb8a32`,

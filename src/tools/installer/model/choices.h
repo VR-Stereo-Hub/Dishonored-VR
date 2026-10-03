@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string>
 #include "core/input/controller_binds.h"
+#include "core/gfx/upscaler_options.h"
 
 namespace dvr::setup {
 
@@ -53,6 +54,12 @@ struct Choices {
     int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
     int stereoMethod = 0; // display selection: -1 custom, 0 reentry, 1 afw
     int stereoEdit = -1; // only an explicit selection writes the method
+    int upscaler = 0; // display: 0 off, 1 DLSS, 2 FSR; -1 custom
+    int upscalerEdit = -1;
+    int upscalerQuality = 0; // saved DlssQuality value, shared by DLSS and FSR
+    int upscalerQualityEdit = -1;
+    int upscalerPreset = 0; // shared model-choice index; -1 preserves custom presets
+    int upscalerPresetEdit = -1;
     int textureMemory = -1; // -1 preserve, 0 conventional shadows, 1 paged
     bool overwriteSettings = true; // recommended defaults, backed up before replacement
     Runtime runtime = Runtime::Auto;

@@ -224,6 +224,9 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
     }
     if (c.swapSticksEdit >= 0) s += c.swapSticksEdit ? L" --bind-swap-sticks on" : L" --bind-swap-sticks off";
     if (c.stereoEdit >= 0) s += c.stereoEdit ? L" --stereo afw" : L" --stereo stereo";
+    if (c.upscalerEdit >= 0) s += L" --upscaler " + std::to_wstring(c.upscalerEdit);
+    if (c.upscalerQualityEdit >= 0) s += L" --upscaler-quality " + std::to_wstring(c.upscalerQualityEdit);
+    if (c.upscalerPresetEdit >= 0) s += L" --upscaler-preset " + std::to_wstring(c.upscalerPresetEdit);
     if (c.textureMemory >= 0) s += c.textureMemory ? L" --texture-memory on" : L" --texture-memory off";
     s += c.overwriteSettings ? L" --overwrite-settings" : L" --keep-settings";
     if (deleteIni) s += L" --delete-ini";

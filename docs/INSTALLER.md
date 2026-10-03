@@ -1,3 +1,28 @@
+## 2026-10-03: Display upscaler settings and ReShade compatibility
+
+Display now offers Off, NVIDIA DLSS and AMD FSR; Native AA/DLAA, Ultra Quality,
+Quality, Balanced, Performance and Ultra Performance; and the same six DLSS presets
+as F10. `core/gfx/upscaler_options.h` is the shared model/preset table. FSR does not
+use NVIDIA preset numbers; available FSR versions remain runtime-discovered in F10.
+
+Only explicit edits write DLAA/Upscaler, DlssQuality or DlssModel/DlssPreset. Unknown
+custom values display as kept. CLI/elevated-worker flags are `--upscaler 0|1|2`,
+`--upscaler-quality 0..5` (persisted INI order: Ultra Quality is 5), and
+`--upscaler-preset 0..5` (shared F10 model-choice index).
+
+F10 stores the reduced render dimensions in Screen and full resolution in
+Clarity/DlssOutputWidth/Height. Detection preselects the full output. Applying an
+unchanged output preserves the reduced render, and disabling upscaling restores
+full resolution and clears the output latch. This avoids double downscaling and
+prevents a later runtime resize from undoing a launcher resolution selection.
+
+ReShade support no longer means an exact DLL hash match. The installed proxy must
+contain the released manual-runtime-ready marker for install/enable; this covers
+1.0.3 even when the launcher carries a newer build. Disable/removal require the
+runtime and settings file, not support recognition. Running-game guards, settings
+backup and retained shader/preset files are unchanged. Native UI and scratch tests
+exercise both a different compatible proxy and an unrecognized proxy.
+
 ## 2026-10-03 maintenance verification
 
 A support bundle identified launcher 1.0.3 with actual game `BUILD 38.74`, the old

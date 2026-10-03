@@ -19,6 +19,7 @@
 #include <shlobj.h>
 #include <string>
 #include <vector>
+#include <utility>
 #include <stdio.h>
 #include <stdlib.h>
 #include "app/win32_app.h"
@@ -136,6 +137,16 @@ int headless_mode(const Args& args, Env env)
         const auto value = args.value(L"--texture-memory");
         if (value != L"on" && value != L"off") { DVR_ERROR("launcher: --texture-memory requires on or off"); return 1; }
         h.choices.textureMemory = value == L"on";
+    }
+    for (const auto& option : {std::pair<const wchar_t*,int*>{L"--upscaler",&h.choices.upscalerEdit},
+            {L"--upscaler-quality",&h.choices.upscalerQualityEdit}, {L"--upscaler-preset",&h.choices.upscalerPresetEdit}}) {
+        if (!args.has(option.first)) continue;
+        const auto value=args.value(option.first);
+        const int maximum=option.second==&h.choices.upscalerEdit ? 2 : option.second==&h.choices.upscalerQualityEdit ? 5 : dvr::dlss::kModelChoiceCount-1;
+        if(value.size()!=1 || value[0]<L'0' || value[0]>L'0'+maximum) {
+            DVR_ERROR("launcher: invalid value for %s",fs::narrow(option.first).c_str());return 1;
+        }
+        *option.second=int(value[0]-L'0');
     }
     h.choices.vdxrJson = args.value(L"--vdxr-json");
     h.choices.overwriteSettings = !args.has(L"--keep-settings");

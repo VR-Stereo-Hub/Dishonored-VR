@@ -1,3 +1,11 @@
+## Launcher Display and ReShade follow-up (2026-10-03)
+
+- [x] Add explicit upscaler, quality and shared F10 preset controls to Display.
+- [x] Preserve custom values and distinguish saved render size from output size.
+- [x] Recognize ReShade capability across builds; always permit safe disable/removal while game is closed.
+- [x] Verify normal/high DPI, minimum window size and whole-INI persistence in scratch fixtures.
+- [ ] Review expanded PR #171; staging integration still requires explicit authorization.
+
 ## Launcher maintenance (2026-10-03)
 
 - [x] Clean exact legacy artifacts before install/update, with recovery copies and failure reporting.
