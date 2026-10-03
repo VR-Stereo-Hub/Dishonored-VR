@@ -13,8 +13,13 @@ try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $DownloadFile -TimeoutSec 120
     }
-    if ((Get-FileHash -LiteralPath $DownloadFile -Algorithm SHA256).Hash -ne $expected) { throw 'ReShade download hash does not match the pinned official 6.8.0 add-on build. No game files changed.' }
+    # A launcher may inherit a PowerShell Core module path in Windows PowerShell.
+    # Use .NET directly so verification does not depend on Get-FileHash discovery.
     $bytes = [IO.File]::ReadAllBytes($DownloadFile)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try { $actual = [BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace('-', '') }
+    finally { $sha256.Dispose() }
+    if ($actual -ne $expected) { throw 'ReShade download hash does not match the pinned official 6.8.0 add-on build. No game files changed.' }
     $offset = -1
     for ($i=0; $i -lt $bytes.Length-4; $i+=512) {
         if ($bytes[$i] -eq 80 -and $bytes[$i+1] -eq 75 -and $bytes[$i+2] -eq 3 -and $bytes[$i+3] -eq 4) { $offset=$i; break }

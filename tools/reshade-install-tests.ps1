@@ -14,6 +14,15 @@ if($LASTEXITCODE -ne 0){throw 'valid download failed'}
 $runtime=Join-Path $fixture 'ReShade32.dll'
 $hash=(Get-FileHash -LiteralPath $runtime).Hash
 if($hash -ne 'DA430E0A9C6EECEFA0D1B27D05E16C426FB5D04E808B194D914EAAC4B31BC0F8'){throw 'extracted runtime mismatch'}
+# Exercise the launcher environment failure without depending on this host's module path.
+$probe=Join-Path $fixture 'without-hash-cmdlet.ps1'
+$probeText="function Get-FileHash { throw 'Hash cmdlet is unavailable in the launcher environment' }`r`n"
+$probeText += "& '"+$helper.Replace("'","''")+"' -GameDir '"+$fixture.Replace("'","''")+"' -DownloadFile '"+$source.Replace("'","''")+"'"
+[IO.File]::WriteAllText($probe,$probeText)
+# Remove only our extracted fixture runtime so this case does not add a backup.
+Remove-Item -LiteralPath $runtime
+& $ps -NoProfile -ExecutionPolicy Bypass -File $probe
+if($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $runtime).Hash -ne $hash){throw 'launcher hash independence failed'}
 [IO.File]::WriteAllText($runtime,'older runtime fixture')
 & $ps -NoProfile -ExecutionPolicy Bypass -File $helper -GameDir $fixture -DownloadFile $source
 if($LASTEXITCODE -ne 0){throw 'replacement failed'}

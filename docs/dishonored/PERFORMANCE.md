@@ -3842,3 +3842,21 @@ excluding the per-eye depth copies):
 
 Step 2 at half resolution is used. One reading of 2.43 ms at the same setting was taken while the GPU
 clock was low, so read the in-game `afw/warp: beat ... GPU` figure for the real cost.
+
+### 2026-10-02 headset follow-up: paged build 257
+
+Tester reported stable behavior for this run. Installed DLL hash matches the recorded
+candidate and the archived log banner is v1.0.1-257-g705b282c7. Six periodic snapshots
+report zero backing-allocation failures, map failures, lock-table-full events and upload
+failures. Last periodic totals: 31,800 translated textures, 484,530 locks, 293,683 uploads,
+1,183 maximum simultaneous locks, 466.8 MiB live section backing and 0.00 MiB mapped at
+that sample. Peak mapped footprint 327.25 MiB. The run reaches ordinary PreExit/device
+teardown. No independent claim that an HD pack was installed is made from this report.
+
+Last sampled cumulative mapping time is 681.58 ms; uploads total 11,630.74 MiB in
+5,092.33 ms, with one maximum upload of 126.76 ms. These are lifetime totals spanning
+loading and gameplay, not frame-time percentiles. Available system commit in the six
+samples ranges from 1,269.4 to 2,108.2 MiB. Neither disk IO nor paging faults were measured.
+The stability result therefore does not eliminate loading stalls or establish HD-pack
+performance. Logs are archived in main build/texture-reshade-candidate/stable-run-257.
+ReShade was absent in this run and installed afterward, keeping its next test separate.

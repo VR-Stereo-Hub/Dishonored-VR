@@ -5,7 +5,7 @@
 - [x] Measure VA/commit tradeoff and upload cost; keep paged mode optional.
 - [x] Add launcher/F10 texture selection, optional verified ReShade download and bridge payload.
 - [x] Preserve existing settings; test installer lifecycle and subtitle shader pixels.
-- [ ] Headset load/quickload stability with the paged candidate.
+- [x] Baseline headset run reported stable on paged build 257; matching log has no texture failures.
 - [ ] Texture-pack stress and controlled frame-time comparison.
 - [ ] Separate ReShade effect-capture and subtitle region/readability acceptance.
 

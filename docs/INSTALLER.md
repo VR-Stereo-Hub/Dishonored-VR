@@ -461,3 +461,36 @@ and an ini already at that size reads back as Ultra. The Advanced slider, like t
 Display slider, now reaches 300% (4763x4936 per eye; the live resize accepts up to 16384
 per side). Nothing above Balanced was judged on more than one card; Ultra is for cards with
 clear headroom at Quality.
+
+## Proposed Mods section and launcher layouts (2026-10-02)
+
+Three interactive design previews were prepared: Sidebar, Compact tabs, and Split
+workspace. Each keeps primary action buttons adjacent, separates Settings/Mods/Bindings/
+Support, and exposes AFW/Stereo as a Settings dropdown. Split workspace also shows it
+beside Mods. These are previews only; no production layout or download manager is shipped.
+The proposed lifecycle is Download -> downloaded Off -> On/Off with Uninstall available.
+Turning Off retains the cache; Uninstall restores owned originals and removes managed data.
+All game-file changes must refuse while the game is running and be reversible.
+
+The requested catalog is [HD Texture Pack 2.0](https://www.nexusmods.com/dishonored/mods/51)
+and the current ReShade preset variant of
+[ENB or ReShade with SweetFX](https://www.nexusmods.com/dishonored/mods/5), plus the existing
+optional ReShade runtime. HD 2.0 lists a 4.8 GB download and requires TFC Installer to patch
+game assets; its documented removal restores backups. A reliable toggle needs a tested TFC
+adapter and enough space to retain originals and prepared modded data. It is not a DLL rename.
+The preset variant requires Standard Effects, SweetFX and prod80 effects. Do not copy old
+ENB/SweetFX proxy DLLs over the VR proxy. Download from the authors' sources, not a mirror.
+
+The linked [NexusModsModDownloader](https://github.com/Wedsels/NexusModsModDownloader)
+uses Python, Playwright/Firefox and stealth automation, copies Firefox profile cookies and
+expects an API key. No license file is visible in the repository root reviewed. It is not
+selected for bundling. Prefer native API integration with an Import archive fallback.
+[Nexus's documented download API](https://github.com/Nexus-Mods/node-nexus-api/blob/master/docs/classes/_nexus_.nexus.md#getdownloadurls)
+requires a website-generated nxm key for non-Premium accounts; Premium can obtain direct
+links. Do not promise unattended free-account downloads. Public release of API integration
+requires [application registration](https://help.nexusmods.com/article/114-api-acceptable-use-policy).
+No account credentials were requested or copied during this investigation.
+
+Runtime installation found Get-FileHash discovery can fail in the launcher's inherited
+PowerShell environment. The helper uses .NET SHA256 directly and tests a deliberately
+unavailable hash cmdlet. Verification failure still leaves game files unchanged.

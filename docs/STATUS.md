@@ -1,3 +1,31 @@
+## 2026-10-02: paged candidate stable in headset; ReShade installed; launcher layouts explored
+
+Tester reports the build-257 run was stable. The installed DLL hash and log banner match
+`v1.0.1-257-g705b282c7`. Six periodic device snapshots report zero backing, mapping or
+upload failures; the run reaches normal PreExit. Last periodic sample: 484,530 locks,
+293,683 uploads, 31,800 translated textures, 466.8 MiB live backing, zero mapped MiB.
+The observed maximum single upload is 126.76 ms; this is not proof of zero stalls or disk IO.
+Full evidence remains in `dishonored/PERFORMANCE.md`. Logs and whole INI archived in main
+`build/texture-reshade-candidate/stable-run-257`.
+
+ReShade 6.8.0 full add-on x86 runtime is now installed as `ReShade32.dll`, official SHA256
+`DA430E0A9C6EECEFA0D1B27D05E16C426FB5D04E808B194D914EAAC4B31BC0F8`.
+The first launcher attempt safely refused because Windows PowerShell could not discover
+Get-FileHash in the inherited environment. The helper now uses .NET SHA256 directly;
+extraction/backup/hash refusal/preservation and unavailable-cmdlet regression checks pass.
+Corrected helper completed installation. DLL, bridge and entire installed INI remain byte
+identical to pre-install backup; INI has 73,348 bytes, 1,676 CRLFs and zero bare LFs.
+Backup: main `build/texture-reshade-candidate/before-reshade`. Shaders/presets are not installed.
+Next launch question: does the existing save still load normally in the headset with
+ReShade present? Read bridge registration/callback logs against build 257 before inferring
+post-effect capture works. Never launch the game automatically.
+
+Launcher layout previews cover Sidebar, Compact tabs and Split workspace, each with Mods,
+Download -> Off/On plus Uninstall states, and an AFW/Stereo dropdown in Settings.
+These are design previews, not the installed launcher. Nexus integration still needs native
+account/download handling and a reversible TFC texture installation adapter. Research and
+scope are in `INSTALLER.md`. No staging/release merge authorized.
+
 ## 2026-10-02: texture-pack/ReShade community integration candidate (VR-133)
 
 Current state: `codex/vr-133-texture-reshade` starts at staging `1c47937a6`. Reviewed community
