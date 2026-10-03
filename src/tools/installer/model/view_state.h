@@ -15,7 +15,7 @@ enum class UiAction {
     Update, ChangeSettings, CancelChange, ToggleDisable, CollectSupport,
     Uninstall, ConfirmUninstall, CancelUninstall, ApplyBaseline,
     ShowAbout, OpenKofi, CreditPizza, CreditVoid, CreditGingas, SaveUpdatePreference, OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut,
-    InstallReShade, ToggleReShade, RemoveReShade, SaveHeadset, Overview, ShowMods, ShowUpdates, OpenTextureSource, OpenPresetSource
+    InstallReShade, ToggleReShade, RemoveReShade, SaveHeadset, Overview, ShowMods, ShowUpdates, OpenTextureSource, OpenPresetSource, ImportPresets, ChoosePresetFiles
 };
 
 struct ViewState {
@@ -53,6 +53,7 @@ struct ViewState {
     char headsetOther[64] = {};
     bool headsetPicking = false;  // the picker is open (required, or to change a recorded one)
     std::string headsetPending;   // what SaveHeadset records
+    std::vector<std::wstring> importPaths;  // files, folders and archives dropped on the window (ImportPresets)
 };
 
 } // namespace dvr::setup

@@ -657,3 +657,71 @@ Texture setup says to choose the downloaded pack, let the launcher unpack/find t
 then click Update All in the window that opens. That automated preparation remains a
 proposal; the final TFC step and verified restore are still required before enable/off
 management can ship. No texture pack was installed for this ReShade experiment.
+
+## ReShade that starts, a preset drop zone, and a Mods audit (2026-10-03)
+
+A remote 1.0.3 player installed ReShade from the Mods screen, turned it on, and it never
+ran: every launch logged `reshade: load failed error=1114`, no shader folder ever appeared,
+and F10 kept saying a restart would load it. The launcher had installed `ReShade32.dll` and
+nothing else. ReShade's own DllMain refuses to load (error 1114) when it is not loaded under
+a proxy name and no `ReShade.ini` exists beside the exe (upstream `source/dll_main.cpp`, the
+"not enabled for" check). The setup that worked on the dev PC had been laid down by hand
+(the section above) and carried its own `ReShade.ini`, so the launcher path was never tried
+on a clean folder. Reproduced with the real 6.8.0 DLL in a 32-bit test program: no
+`ReShade.ini` gives 1114; the launcher's `ReShade.ini`, or `RESHADE_DISABLE_LOADING_CHECK`,
+loads it.
+
+What Install ReShade does now (`tools/install-reshade.ps1`):
+
+- the pinned runtime as before; an identical runtime is no longer replaced, so a repeat
+  install adds no backup;
+- the three packages of the table above, from the same pinned commits and hashes (checked
+  live on 2026-10-03), each into `Win32\dvr-reshade-shaders\<name>`, staged and moved into
+  place, never over an existing folder;
+- `dvr-reshade-shaders\custom\Shaders` and `\Textures` for the player's own files, searched
+  recursively (`\**`, ReShade `runtime.cpp`);
+- `ReShade.ini` with those search paths, PerformanceMode=1, SkipLoadingDisabledEffects=1,
+  Scroll Lock / Home, and PresetPath only when the Carinth preset is already present - and
+  only when no `ReShade.ini` exists. A player's own file is never rewritten.
+
+A package that fails its hash or download is reported and the rest still installs; the
+operation then reads as incomplete and Repair ReShade retries only what is missing.
+
+The proxy (`core/gfx/reshade_runtime.cpp`) now sets `RESHADE_DISABLE_LOADING_CHECK` for the
+duration of its own `LoadLibrary` - `[ReShade] Enabled=1` is the opt-in that check exists to
+require - and a failed load records why: another ReShade already in the process (it names
+the module), a refusal with whether `ReShade.ini` is present, or a missing dependency. F10 >
+ReShade shows that reason instead of "Restart Dishonored to load", which was the message a
+player saw on every launch while nothing a restart could change was wrong.
+
+**The drop zone.** The ReShade section has a box: drag a preset `.ini`, a preset download
+(`.zip`) or its folder anywhere onto the window, or use Choose files. `tools/import-reshade-
+preset.ps1` copies only preset `.ini` files (a `Techniques=` line) beside the exe, `.fx`/`.fxh`
+below the archive's own `Shaders` folder into `custom\Shaders`, and images from a `Textures`
+folder into `custom\Textures`. It refuses every program file by extension, so the old ReShade
+proxy `d3d9.dll` that preset downloads carry can never replace the VR mod, and says so. A
+download's own `ReShade.ini` is refused. A replaced file is kept as `.dvr-backup`. It names
+the shaders an imported preset uses that no installed package provides, and selects the
+preset when `ReShade.ini` names none yet. The import never elevates (an elevated child cannot
+be handed dropped paths); the window accepts drops from a non-elevated Explorer either way.
+
+**The Mods audit.** Rendered every state (`tools\installer-render.ps1 -State mods-*`):
+
+| Found | Now |
+|---|---|
+| A runtime with no `ReShade.ini` read "Installed and enabled" | "Incomplete: ... Click Repair ReShade", the button becomes Repair (primary) |
+| Nothing said whether ReShade ran | `Last game launch: ReShade ran / was off / did not start (reason)`, read from the head of the game log |
+| The install message pointed at F10 to enable | Points at Turn ReShade on, the button beside it |
+| "Carinth shaders already installed" shown with no ReShade | Install / Repair ReShade first |
+| Copy said to download the preset and keep d3d9.dll | The drop zone does the copying and refuses DLLs |
+| A result's pipe-separated detail was one run-on line | One line per part |
+| A ReShade result returned to Overview | Returns to Mods |
+| A 180 s limit for ~25 MB of downloads | 600 s for the install |
+
+Tests: `tools\reshade-install-tests.ps1 -DownloadFile <setup exe> -PackageDir <folder with
+the three zips>` (existing preservation cases, fresh install, repeat install, Carinth
+selection, tampered package) and `tools\reshade-import-tests.ps1` (zip and folder drops,
+DLL and foreign ReShade.ini refusal, missing shaders, backups, empty drop) both pass. The
+built launcher's `--apply --op reshade` installed everything from the live sources into a
+fixture folder. `tools\reshade-manual-host.ps1` (production runtime on a D3D9Ex device)
+passes 759 checks. Not yet run: a game launch with the new layout.

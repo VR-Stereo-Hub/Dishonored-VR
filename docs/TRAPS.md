@@ -1,3 +1,13 @@
+## 2026-10-03: a dev folder set up by hand hid a launcher install that could never start
+
+The Mods screen's Install ReShade wrote only `ReShade32.dll`. ReShade refuses LoadLibrary
+(error 1114) without a `ReShade.ini` for the exe, so on a clean folder it never started -
+and the launcher said "Installed and enabled" while F10 said a restart would load it. The
+dev PC passed every check because its ReShade.ini, shader packages and preset had been
+installed by hand for the preset test. Reproduced with the real 6.8.0 DLL in a 32-bit test
+program. Test an install path on an empty fixture folder, never only on the machine that
+was prepared by hand. Details: INSTALLER.md, ReShade that starts (2026-10-03).
+
 ## 2026-10-03: a matching architecture is not a loadable API layer
 
 A remote Reverb G2 (SteamVR, the shim) never reached VR: xrCreateInstance -> -32 twice,

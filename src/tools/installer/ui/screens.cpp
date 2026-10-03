@@ -370,7 +370,9 @@ UiAction draw_done(ViewState& v)
         wrapped("Waiting for the game's first run to finish. This window applies the required game settings after you close the game.");
         if (button("Apply now", false, v.det.configExists && v.det.running == process::Running::No)) action = UiAction::ApplyBaseline;
     }
-    if (button("Back to overview")) action = UiAction::Overview;
+    // ReShade work started on the Mods screen returns there.
+    const bool fromMods = v.lastOp.rfind("reshade", 0) == 0 || v.lastOp == "import-presets";
+    if (button(fromMods ? "Back to Mods" : "Back to overview")) action = fromMods ? UiAction::ShowMods : UiAction::Overview;
     return action;
 }
 
@@ -413,8 +415,22 @@ UiAction draw_mods(ViewState& v)
     UiAction action = UiAction::None;
     page_header("Mods", "Optional visual effects and texture packs.");
     if (heading("ReShade", "Optional visual effects. Disabled by default.")) {
-        wrapped(v.det.reshadeInstalled ? (v.det.reshadeEnabled ? "Installed and enabled for the next launch." : "Installed and disabled for the next launch.") : "Download the verified ReShade 6.8 runtime to use optional effects.");
-        if (button(v.det.reshadeInstalled ? "Reinstall ReShade 6.8" : "Install ReShade 6.8", false,
+        // The status names what is missing: a ReShade32.dll alone reads as installed but
+        // never starts (no ReShade.ini) and has nothing to draw (no shader packages).
+        const bool incomplete = v.det.reshadeInstalled && (!v.det.reshadeIniPresent || !v.det.reshadeShadersPresent);
+        if (!v.det.reshadeInstalled) {
+            wrapped("Not installed. Install adds the verified ReShade 6.8 runtime, the Standard Effects, SweetFX and prod80 shaders, and a ReShade.ini.");
+        } else if (incomplete) {
+            ImGui::PushStyleColor(ImGuiCol_Text, col_brass_hi());
+            wrapped(!v.det.reshadeIniPresent && !v.det.reshadeShadersPresent ? "Incomplete: ReShade.ini and the shader packages are missing. Click Repair ReShade."
+                    : !v.det.reshadeIniPresent ? "Incomplete: ReShade.ini is missing, so ReShade cannot start. Click Repair ReShade."
+                    : "Incomplete: the shader packages are missing, so presets have no effects. Click Repair ReShade.");
+            ImGui::PopStyleColor();
+        } else {
+            wrapped(v.det.reshadeEnabled ? "Installed and on for the next game launch." : "Installed and off. Click Turn ReShade on, then start the game.");
+        }
+        if (!v.det.reshadeLastRun.empty()) wrapped_faded(v.det.reshadeLastRun.c_str());
+        if (button(!v.det.reshadeInstalled ? "Install ReShade 6.8" : incomplete ? "Repair ReShade" : "Reinstall ReShade 6.8", incomplete,
             v.det.gameFound && v.det.modInstalled && v.det.reshadeSupported && v.det.running == process::Running::No)) action = UiAction::InstallReShade;
         if (v.det.reshadeInstalled) {
             const bool ready = v.det.gameFound && v.det.iniExists && v.det.running == process::Running::No;
@@ -426,7 +442,17 @@ UiAction draw_mods(ViewState& v)
         if (!v.det.reshadeSupported) wrapped_faded("Install a VR build with ReShade support before installing or enabling effects. Existing effects can still be disabled or removed.");
         wrapped_faded("F10 > ReShade provides preset selection, effects, and shader settings with the same motion controls. Effects add GPU work.");
         if (button("Get the Carinth preset")) action = UiAction::OpenPresetSource;
-        wrapped_faded("Download the ReShade preset variant from its author. Standard Effects, SweetFX and prod80 shaders are separate dependencies. Keep the VR d3d9.dll.");
+        ImGui::SameLine();
+        if (button("Open game folder", false, v.det.gameFound)) action = UiAction::OpenGameFolder;
+        wrapped_faded(v.det.reshadeShadersPresent ? "Opens the preset's Nexus Mods page. Its shaders are already installed: drop the download in the box below and only the preset is taken from it."
+                                                  : incomplete ? "Opens the preset's Nexus Mods page. Repair ReShade first - it brings the shaders this preset needs."
+                                                  : "Opens the preset's Nexus Mods page. Install ReShade first - it brings the shaders this preset needs.");
+        ImGui::Spacing();
+        ImGui::BeginChild("##preset-drop", ImVec2(-1, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+        wrapped("Drop ReShade presets here");
+        wrapped_faded("Drag a preset .ini, a preset download (.zip) or its folder anywhere onto this window. Presets go beside Dishonored.exe; shaders and textures go to dvr-reshade-shaders\\custom. DLLs are never copied, so a d3d9.dll inside a download cannot replace the VR mod. Then pick the preset in F10 > ReShade.");
+        if (button("Choose files...", false, v.det.gameFound && !v.busy)) action = UiAction::ChoosePresetFiles;
+        ImGui::EndChild();
     }
     if (heading("HD Texture Pack 2.0", "Requires the author's pack and TFC Installer.")) {
         if (button("Get HD Texture Pack 2.0")) action = UiAction::OpenTextureSource;

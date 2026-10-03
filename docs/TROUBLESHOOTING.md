@@ -214,3 +214,19 @@ If VR still does not start, the `xr/loader:` lines name the layer or runtime
 the loader could not load and the Windows error - for example `error 1114`
 (*a DLL initialization routine failed*: the DLL refused) or `error 193` (*not
 a valid Win32 application*: a 64-bit DLL).
+
+## ReShade is installed and on, but nothing changes in game
+
+Open the launcher's Mods screen. It says what is wrong:
+
+- **Incomplete** - `ReShade.ini` or the shader packages are missing. Click **Repair
+  ReShade**. The 1.0.3 launcher installed only `ReShade32.dll`, and ReShade refuses to
+  start without a `ReShade.ini` beside the game (the log shows `reshade: load failed
+  error=1114`).
+- **Last game launch: ReShade did not start (...)** - the reason is in the brackets, and in
+  F10 > ReShade. Restarting does not change it.
+- **Last game launch: ReShade ran** - effects are loaded; choose a preset in F10 > ReShade.
+
+To add a preset, drag its download (the `.zip`, its folder, or the preset `.ini`) onto the
+launcher window. Only the preset and its shaders are copied. **Never copy a `d3d9.dll` from
+a preset download into the game folder** - that file is the VR mod.

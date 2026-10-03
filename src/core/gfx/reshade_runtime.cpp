@@ -1,7 +1,9 @@
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/gfx/reshade_runtime.h"
 #include "core/util/log.h"
+#include <memory>
 #include <string>
+#include <psapi.h>
 #include "../../../third_party/reshade/reshade_api.hpp"
 namespace dvr::reshade_runtime {
 namespace {
@@ -14,6 +16,30 @@ bool manualMode = false, attempted = false, failed = false;
 std::string config;
 std::wstring gameDirectory, vrIni;
 bool available = false, controlsCompatible = false;
+char loadFailure[512] = {};
+// Scoped process environment value: set for one call, previous value put back after.
+struct ScopedEnv {
+    const wchar_t* name; std::wstring previous; bool had = false, ok = false;
+    ScopedEnv(const wchar_t* n, const wchar_t* value) : name(n) {
+        const DWORD size = GetEnvironmentVariableW(n, nullptr, 0);
+        had = size != 0;
+        if (had) { previous.assign(size, L'\0'); GetEnvironmentVariableW(n, previous.data(), size); }
+        ok = SetEnvironmentVariableW(n, value) != FALSE;
+    }
+    ~ScopedEnv() { SetEnvironmentVariableW(name, had ? previous.c_str() : nullptr); }
+};
+// A module already in the process that exports ReShadeVersion: ReShade refuses to load a
+// second copy of itself (source/dll_main.cpp), so this names the one in the way.
+std::wstring other_reshade() {
+    HMODULE mods[1024]; DWORD need = 0;
+    if (!K32EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &need)) return {};
+    for (DWORD i = 0; i < need / sizeof(HMODULE) && i < _countof(mods); ++i) {
+        if (!GetProcAddress(mods[i], "ReShadeVersion")) continue;
+        wchar_t path[MAX_PATH] = {}; GetModuleFileNameW(mods[i], path, MAX_PATH);
+        return path;
+    }
+    return {};
+}
 using GetConfig = bool (__cdecl*)(void*, void*, const char*, const char*, char*, size_t*);
 using SetConfig = void (__cdecl*)(void*, void*, const char*, const char*, const char*);
 GetConfig getConfig = nullptr;
@@ -60,6 +86,7 @@ struct Scope { bool prior = inside; Scope() { inside = true; } ~Scope() { inside
 bool manual() { return manualMode; }
 bool installed() { return available; }
 bool controls_supported() { return controlsCompatible; }
+const char* load_failure() { return loadFailure[0] ? loadFailure : nullptr; }
 const wchar_t* directory() { return gameDirectory.c_str(); }
 reshade::api::effect_runtime* api() { return manualMode && controlsCompatible ? static_cast<reshade::api::effect_runtime*>(runtime) : nullptr; }
 bool enabled_next_start() { return !vrIni.empty() && GetPrivateProfileIntW(L"ReShade", L"Enabled", 0, vrIni.c_str()) != 0; }
@@ -101,20 +128,45 @@ void load_optional() {
     }
     available = true;
     if (!enabled_next_start()) { DVR_INFO("reshade: installed but disabled; enable it in F10 > ReShade and restart"); return; }
-    // Official ReShade 6.8 API: include/reshade.hpp and source/addon.cpp.
-    // Disable graphics interception before loading; otherwise it wraps both the
-    // game's D3D9 and the VR compositor's D3D11 devices and forces native Present.
-    constexpr auto env = L"RESHADE_DISABLE_GRAPHICS_HOOK";
-    const DWORD size = GetEnvironmentVariableW(env, nullptr, 0);
-    std::wstring previous(size, L'\0');
-    if (size) GetEnvironmentVariableW(env, previous.data(), size);
-    if (manualMode && !SetEnvironmentVariableW(env, L"1")) {
-        DVR_WARN("reshade: cannot disable graphics hooks; optional effects not loaded"); return;
+    // What ReShade's own DllMain will check, read BEFORE the load so a refusal can be
+    // explained: it refuses (LoadLibrary 1114) when no ReShade.ini exists for the exe and
+    // it is not loaded under a proxy name, and when another ReShade is already loaded.
+    const bool iniHere = GetFileAttributesW((dir + L"ReShade.ini").c_str()) != INVALID_FILE_ATTRIBUTES;
+    const std::wstring other = other_reshade();
+    HMODULE module = nullptr;
+    DWORD error = 0;
+    {
+        // Official ReShade 6.8 API: include/reshade.hpp and source/addon.cpp.
+        // Disable graphics interception before loading; otherwise it wraps both the
+        // game's D3D9 and the VR compositor's D3D11 devices and forces native Present.
+        std::unique_ptr<ScopedEnv> hook;
+        if (manualMode) {
+            hook.reset(new ScopedEnv(L"RESHADE_DISABLE_GRAPHICS_HOOK", L"1"));
+            if (!hook->ok) { DVR_WARN("reshade: cannot disable graphics hooks; optional effects not loaded"); return; }
+        }
+        // [ReShade] Enabled=1 is the explicit opt-in that check exists to require, so skip
+        // it: a ReShade.ini that is missing or deleted must not silently disable ReShade.
+        ScopedEnv loadingCheck(L"RESHADE_DISABLE_LOADING_CHECK", L"1");
+        module = LoadLibraryW(dll.c_str());
+        error = GetLastError();
     }
-    HMODULE module = LoadLibraryW(dll.c_str());
-    const DWORD error = GetLastError();
-    if (manualMode) SetEnvironmentVariableW(env, size ? previous.c_str() : nullptr);
-    if (!module) { DVR_WARN("reshade: load failed error=%lu", error); return; }
+    if (!module) {
+        char why[256];
+        if (!other.empty())
+            _snprintf_s(why, _TRUNCATE, "another ReShade is already loaded from %ls, and ReShade refuses a second copy", other.c_str());
+        else if (error == ERROR_DLL_INIT_FAILED)
+            _snprintf_s(why, _TRUNCATE, "ReShade refused to start (ReShade.ini beside the game: %s)", iniHere ? "present" : "MISSING");
+        else if (error == ERROR_MOD_NOT_FOUND || error == ERROR_FILE_NOT_FOUND)
+            _snprintf_s(why, _TRUNCATE, "a file ReShade32.dll needs is missing");
+        else if (error == ERROR_BAD_EXE_FORMAT)
+            _snprintf_s(why, _TRUNCATE, "ReShade32.dll is not a 32-bit DLL");
+        else
+            _snprintf_s(why, _TRUNCATE, "Windows could not load ReShade32.dll");
+        _snprintf_s(loadFailure, _TRUNCATE, "error %lu: %s", error, why);
+        DVR_WARN("reshade: load failed error=%lu - %s. ReShade stays off this launch; restarting will not change it. "
+                 "Run Install ReShade in the launcher again to repair the ReShade files.", error, why);
+        return;
+    }
     DVR_INFO("reshade: loaded mode=%s", manualMode ? "manual (desktop mirror policy preserved)" : "hook (legacy native Present)");
     getConfig = reinterpret_cast<GetConfig>(GetProcAddress(module,"ReShadeGetConfigValue"));
     setConfig = reinterpret_cast<SetConfig>(GetProcAddress(module,"ReShadeSetConfigValue"));
@@ -131,7 +183,8 @@ void load_optional() {
     updateRuntime = reinterpret_cast<Update>(GetProcAddress(module,"ReShadeUpdateAndPresentEffectRuntime"));
     destroyRuntime = reinterpret_cast<Update>(GetProcAddress(module,"ReShadeDestroyEffectRuntime"));
     if (!createRuntime || !updateRuntime || !destroyRuntime) {
-        failed = true; DVR_WARN("reshade: manual API unavailable; effects disabled"); return;
+        failed = true; _snprintf_s(loadFailure, _TRUNCATE, "this ReShade32.dll lacks the effect-runtime API (ReShade 6.8 add-on build required)");
+        DVR_WARN("reshade: manual API unavailable; effects disabled"); return;
     }
     const auto ini = dir + L"ReShade.ini";
     const int bytes = WideCharToMultiByte(CP_UTF8,0,ini.c_str(),-1,nullptr,0,nullptr,nullptr);
@@ -157,7 +210,11 @@ void render(IDirect3DDevice9* device) {
         // device_api::d3d9 = 0x9000 in ReShade 6.8 reshade_api_device.hpp.
         const bool ok = createRuntime(0x9000, device, nullptr, swap, config.c_str(), &runtime);
         swap->Release();
-        if (!ok) { failed = true; DVR_WARN("reshade: manual runtime creation failed; effects disabled until device reset"); return; }
+        if (!ok) {
+            failed = true; _snprintf_s(loadFailure, _TRUNCATE, "ReShade loaded but could not create its effect runtime (see ReShade.log beside the game)");
+            DVR_WARN("reshade: manual runtime creation failed; effects disabled until device reset"); return;
+        }
+        loadFailure[0] = 0;
         DVR_INFO("reshade: manual runtime ready; effects before VR capture, no native Present required");
     }
     // ReShade's hooked D3D9 path uses the same BeginScene/on_present/EndScene order.
