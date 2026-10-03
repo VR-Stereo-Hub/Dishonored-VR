@@ -106,6 +106,29 @@ $rec = Get-Content (Join-Path $game 'dishonored_vr_install.json') -Raw | Convert
 Assert ($rec.d3d9Sha256 -eq (Sha (Join-Path $bin 'd3d9.dll'))) 'the record carries the installed d3d9.dll sha256'
 Assert ($rec.runtime -eq 'steamvr' -and $rec.renderWidth -eq 2750 -and $rec.renderHeight -eq 2850) 'the record carries the choices'
 
+# Exact original proxy outputs; leave other mods, stock DLLs and diagnostics alone.
+$legacyFiles=@('dxvk_d3d9.dll','dxvk_stereo.txt','vr_actions.json','vr_bindings_knuckles.json','vr_bindings_touch.json','vr_bindings_native.json')
+$untouchedFiles=@('dxgi.dll','dbghelp.dll','vr_custom.json','dxvk.conf','dishonored_vr.log')
+foreach($name in $legacyFiles + $untouchedFiles) { [IO.File]::WriteAllText((Join-Path $game $name),"fixture: $name") }
+[IO.File]::WriteAllBytes((Join-Path $game 'd3d9.dll'),[byte[]](77,90,3,8,7,4))
+$originalProxy=Sha (Join-Path $game 'd3d9.dll')
+'2b. failed legacy cleanup stops before writing the new runtime'
+$locked=[IO.File]::Open((Join-Path $game 'vr_bindings_touch.json'),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+try { $rc=Run ($common + @('--op','install','--result',"`"$(Join-Path $scratch 'cleanup-failed.txt')`"")) } finally { $locked.Dispose() }
+Assert ($rc -ne 0) 'locked legacy file refuses installation'
+Assert ((Sha (Join-Path $game 'd3d9.dll')) -eq $originalProxy) 'old runtime unchanged when cleanup fails'
+foreach($name in $legacyFiles) { Assert ([IO.File]::ReadAllText((Join-Path $game $name)) -ceq "fixture: $name") "$name recovered after failed cleanup" }
+Assert ((Get-Content (Join-Path $scratch 'cleanup-failed.txt') -Raw).Contains('Could not remove vr_bindings_touch.json')) 'cleanup failure identifies the blocked file'
+
+$rc=Run ($common + @('--op','install','--runtime','steamvr','--quality','balanced'))
+Assert ($rc -eq 0) 'legacy reinstall succeeds after releasing the lock'
+Assert ((Sha (Join-Path $game 'd3d9.dll')) -eq (Sha (Join-Path $bin 'd3d9.dll'))) 'legacy proxy replaced with embedded runtime'
+foreach($name in $legacyFiles) { Assert (-not (Test-Path -LiteralPath (Join-Path $game $name))) "$name removed on install" }
+foreach($name in $untouchedFiles) { Assert ([IO.File]::ReadAllText((Join-Path $game $name)) -ceq "fixture: $name") "$name untouched by cleanup" }
+$legacyBackups=@(Get-ChildItem -LiteralPath $game -Directory -Filter 'dvr-legacy-backup-*')
+Assert ($legacyBackups.Count -ge 1) 'legacy installation has a recovery backup'
+
+
 '3. second run: idempotent'
 $before = Get-Content $ini -Raw; $engBefore = $eng
 $rc = Run ($common + @('--op', 'install', '--runtime', 'steamvr', '--quality', 'balanced'))
@@ -280,9 +303,13 @@ Remove-Item (Join-Path $game 'dishonored_vr.ini.*.dvr-backup') -Force
 
 # The default reset must replace all tuning and preserve a byte-identical backup.
 '8b. default update reset uses public defaults and backs up every setting'
+foreach($name in $legacyFiles) { [IO.File]::WriteAllText((Join-Path $game $name),"update fixture: $name") }
+
 [IO.File]::WriteAllText($ini, $changed, $ascii)
 $rc = Run ($common + @('--op','update'))
 Assert ($rc -eq 0) 'overwrite update succeeds'
+foreach($name in $legacyFiles) { Assert (-not (Test-Path -LiteralPath (Join-Path $game $name))) "$name removed on update" }
+
 $reset = [IO.File]::ReadAllText($ini)
 $defaults = [IO.File]::ReadAllText((Join-Path $repo 'release\dishonored_vr.ini')).Replace('DataDir=D:\dvr-data','DataDir=')
 Assert ($reset -ceq $defaults) 'entire reset ini matches shipped defaults with portable data path'
@@ -293,7 +320,9 @@ Assert ($backups.Count -eq 1 -and [IO.File]::ReadAllText($backups[0].FullName) -
 $le = LineEndings $ini
 Assert ($le[0] -eq $le[1] -and -not $le[2]) 'reset preserves CRLF without BOM'
 '8c. failure after a DLL write restores the entire previous version'
-$rollbackFiles=@('d3d9.dll','dvr_steamvr32.dll','openvr_api.dll','dishonored_vr.ini','dishonored_vr_install.json')
+$rollbackFiles=@('d3d9.dll','dvr_steamvr32.dll','openvr_api.dll','dishonored_vr.ini','dishonored_vr_install.json') + $legacyFiles
+foreach($name in $legacyFiles) { [IO.File]::WriteAllText((Join-Path $game $name),"rollback fixture: $name") }
+
 [IO.File]::WriteAllBytes((Join-Path $game 'd3d9.dll'),[byte[]](77,90,7,8,9))
 $beforeHashes=@{}
 foreach($name in $rollbackFiles) { $beforeHashes[$name]=Sha (Join-Path $game $name) }

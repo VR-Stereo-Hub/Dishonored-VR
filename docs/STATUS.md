@@ -1,3 +1,27 @@
+## 2026-10-03: launcher legacy cleanup and updater dialog
+
+Branch `codex/launcher-fixes` starts at release `VR-Main` commit `7c1cb8a32`,
+as explicitly requested. Installation and update now clean the six exact retired
+pre-41.0 files before writing payloads. Recovery copies are retained; a cleanup
+failure stops the operation and restores files removed earlier in that cleanup.
+Update rollback includes all six legacy files. Unrelated DLLs, JSON, logs,
+shader files and compatible retained INI preferences survive.
+
+The updater progress modal now has an explicit DPI-scaled, viewport-bounded width
+and stays centered. Native preview inspected at 100% and 150%; 190 UI interaction
+checks pass, including minimum window size. Installer host 86/86, updater host
+57/57, scratch install/settings/update/rollback and launcher handoff smoke pass;
+lint is clean. The scratch test verifies locked legacy cleanup refuses before
+replacing d3d9.dll and a later payload failure restores all six legacy files.
+No game launch or rendering change is involved.
+
+Candidate delivery: replace only the stable launcher behind the existing desktop
+shortcut; preserve the installed game DLL and entire INI, compare to backups and
+verify CRLF. Evidence and candidate files: main `build/launcher-fixes/`.
+Next: review the launcher-only PR against staging. No merge or release is authorized.
+Linear creation was attempted but blocked by the workspace free issue limit;
+no new ticket number is invented. Details: [INSTALLER.md](INSTALLER.md).
+
 ## 2026-10-03: 1.0.3 release preparation authorized
 
 The maintainer authorized integration of the accepted runtime and audited launcher into

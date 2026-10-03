@@ -600,6 +600,12 @@ UiAction draw(ViewState& v)
     }
     if(v.updateDownloading) {
         ImGui::OpenPopup("Updating Dishonored VR");
+        // Wrapped text cannot establish the width of an auto-sized window.
+        const auto* viewport = ImGui::GetMainViewport();
+        const float width = (viewport->WorkSize.x - 32 * factor < 520 * factor)
+            ? viewport->WorkSize.x - 32 * factor : 520 * factor;
+        ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(viewport->GetWorkCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         if(ImGui::BeginPopupModal("Updating Dishonored VR",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
             wrapped("Downloading and verifying the new launcher. It will restart and install the mod update.");
             ImGui::EndPopup();

@@ -21,6 +21,12 @@ constexpr const wchar_t* kLogName = L"dishonored_vr.log";
 constexpr const wchar_t* kDisableName = L"disable_vr.txt";
 constexpr const wchar_t* kBackupName = L"d3d9.dll.dvr-backup";
 constexpr const char* kLegacyMarker = "legacy code is COMPILED IN";
+// Exact pre-41.0 outputs, verified against the original proxy (824e08d8b).
+// Never glob DLLs, JSON, logs or shader dumps: those can belong to other mods.
+constexpr const wchar_t* kLegacyFiles[] = {
+    L"dxvk_d3d9.dll", L"dxvk_stereo.txt", L"vr_actions.json",
+    L"vr_bindings_knuckles.json", L"vr_bindings_touch.json", L"vr_bindings_native.json"
+};
 constexpr const wchar_t* kDevDataDir = L"D:\\dvr-data";   // the dev PC's drive, shipped by mistake once
 
 std::string n(const std::wstring& w) { return fs::narrow(w); }
@@ -146,6 +152,48 @@ bool remove_if_present(Report* r, const std::wstring& dir, const wchar_t* name, 
     DWORD err = 0;
     if (!fs::delete_file(p, &err)) { r->fail(fs::format("Could not remove %s", n(name).c_str()), err); return false; }
     r->add(StepStatus::Ok, fs::format("Removed %s", n(name).c_str()), why);
+    return true;
+}
+
+// Back up the entire known legacy set before removing any member. A locked or
+// unexpected path stops installation before new payload bytes are written.
+bool clean_legacy_install(Report* r, const std::wstring& gameDir)
+{
+    std::vector<const wchar_t*> present;
+    for (const auto* name : kLegacyFiles) {
+        const DWORD attrs = GetFileAttributesW(fs::join(gameDir, name).c_str());
+        if (attrs == INVALID_FILE_ATTRIBUTES) {
+            const DWORD err = GetLastError();
+            if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) continue;
+            r->fail("Could not inspect legacy mod file " + n(name), err); return false;
+        }
+        if (attrs & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
+            r->add(StepStatus::Failed, "Cannot clean legacy mod file " + n(name),
+                   "Expected a regular file. No replacement files have been installed."); return false;
+        }
+        present.push_back(name);
+    }
+    if (present.empty()) return true;
+    const auto backup = fs::join(gameDir, L"dvr-legacy-backup-" + fs::timestamp_local() + L"-" + std::to_wstring(GetTickCount64()));
+    DWORD err = 0;
+    if (!fs::make_dir(backup, &err)) { r->fail("Could not prepare legacy mod backup", err); return false; }
+    for (const auto* name : present) {
+        if (!fs::copy_file(fs::join(gameDir, name), fs::join(backup, name), &err)) {
+            r->fail("Could not back up legacy mod file " + n(name), err); return false;
+        }
+    }
+    std::vector<const wchar_t*> removed;
+    for (const auto* name : present) {
+        if (!remove_if_present(r, gameDir, name, "Retired pre-41.0 mod component; a recovery copy was saved.")) {
+            for (const auto* restore : removed)
+                if (!fs::copy_file(fs::join(backup, restore), fs::join(gameDir, restore), &err))
+                    r->fail("Could not restore legacy mod file " + n(restore), err);
+            r->add(StepStatus::Warn, "Legacy cleanup stopped before installation", "Backup: " + n(backup));
+            return false;
+        }
+        removed.push_back(name);
+    }
+    r->add(StepStatus::Ok, "Cleaned the old mod installation", "Previous files saved in " + n(backup));
     return true;
 }
 
@@ -502,13 +550,12 @@ Report do_install(const Env& env, const Detection& det, const Choices& choices)
         if (!fs::copy_file(fs::join(det.gameDir, L"d3d9.dll"), fs::join(det.gameDir, kBackupName), &err)) { r.fail("Could not back up the existing d3d9.dll", err); return r; }
         r.add(StepStatus::Ok, "Backed up the existing d3d9.dll", "It was not this mod's. Uninstall puts it back (d3d9.dll.dvr-backup).");
     }
+    if (!clean_legacy_install(&r, det.gameDir)) return r;
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
     if (!write_payload_file(&r, det.gameDir, L"DishonoredVR_ReShade.addon32", resources::rcdata(IDR_RESHADE_BRIDGE))) return r;
     if (!install_dlss_helper(&r, det.gameDir)) return r;
-    remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0; the game renders natively now.");
-    remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
 
     const std::wstring ini = fs::join(det.gameDir, kIniName);
     if (!det.iniExists) {
@@ -535,13 +582,12 @@ static Report update_impl(const Env& env, const Detection& det, bool overwriteSe
     if (!det.gameFound) { r.add(StepStatus::Failed, "Dishonored was not found", det.gameNote); return r; }
     if (game_running_blocks(&r, det.running)) return r;
     if (det.installedIsEmbedded()) r.add(StepStatus::Skipped, "The installed mod is already this build", "Reinstalling the same bytes anyway.");
+    if (!clean_legacy_install(&r, det.gameDir)) return r;
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
     if (!write_payload_file(&r, det.gameDir, L"DishonoredVR_ReShade.addon32", resources::rcdata(IDR_RESHADE_BRIDGE))) return r;
     if (!install_dlss_helper(&r, det.gameDir)) return r;
-    remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0.");
-    remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
     if (overwriteSettings) {
         const std::wstring ini = fs::join(det.gameDir, kIniName);
         DWORD err = 0;
@@ -588,10 +634,17 @@ Report do_update(const Env& env, const Detection& det, bool overwriteSettings) {
     const auto backupDir=fs::join(det.gameDir,L"dvr-update-backup-"+fs::timestamp_local()+L"-"+std::to_wstring(GetTickCount64()));
     DWORD err=0;
     if(!fs::make_dir(backupDir,&err)) {result.fail("Could not prepare the update backup",err);return result;}
-    for(const wchar_t* name:{L"DishonoredVR_ReShade.addon32",L"d3d9.dll",L"dvr_steamvr32.dll",L"openvr_api.dll",L"dishonored_vr.ini",L"dishonored_vr_install.json",L"dxvk_d3d9.dll",L"dxvk_stereo.txt"}) {
+    for(const wchar_t* name:{L"DishonoredVR_ReShade.addon32",L"d3d9.dll",L"dvr_steamvr32.dll",L"openvr_api.dll",L"dishonored_vr.ini",L"dishonored_vr_install.json"}) {
         Saved item;item.path=fs::join(det.gameDir,name);item.backup=fs::join(backupDir,name);item.existed=fs::is_file(item.path);
         if(item.existed && (!fs::sha256_file(item.path,&item.hash,&err) || !fs::copy_file(item.path,item.backup,&err))) {
             result.fail("Could not back up the installed version",err);return result;
+        }
+        saved.push_back(item);
+    }
+    for (const auto* name : kLegacyFiles) {
+        Saved item;item.path=fs::join(det.gameDir,name);item.backup=fs::join(backupDir,name);item.existed=fs::is_file(item.path);
+        if(item.existed && (!fs::sha256_file(item.path,&item.hash,&err) || !fs::copy_file(item.path,item.backup,&err))) {
+            result.fail("Could not back up legacy mod file " + n(name),err);return result;
         }
         saved.push_back(item);
     }

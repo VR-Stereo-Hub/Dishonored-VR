@@ -1,3 +1,14 @@
+## Launcher maintenance (2026-10-03)
+
+- [x] Clean exact legacy artifacts before install/update, with recovery copies and failure reporting.
+- [x] Restore legacy artifacts when a later update step fails.
+- [x] Bound and center update-progress dialog; verify normal/high DPI and minimum size.
+- [x] Installer, updater, native UI, scratch lifecycle and self-update handoff checks.
+- [ ] Create dedicated Linear issue once the workspace issue limit permits it.
+- [ ] Review and explicitly authorize staging integration; no release published.
+
+Evidence: [INSTALLER.md](INSTALLER.md) and latest STATUS entry.
+
 ## Community texture-pack compatibility and ReShade (2026-10-02, VR-133)
 
 - [x] Audit supplied v1.0.2 source and port onto staging without using donated binaries.

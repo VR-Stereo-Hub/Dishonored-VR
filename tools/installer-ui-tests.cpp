@@ -59,7 +59,15 @@ static void suite(float dpi,float width,float height){
  check(click("Uninstall ReShade runtime")==UiAction::RemoveReShade,"ReShade remove action wired");
  v.det.running=process::Running::Yes;frame();check(click("Turn ReShade on")==UiAction::None,"ReShade mutation blocked while running");
  state("about-updates");check(click("Check for updates")==UiAction::CheckUpdates,"update check wired");
- v.updateDownloading=true;frame();check(click("Overview")==UiAction::None,"update modal prevents navigation");
+ v.updateDownloading=true;frame();frame();frame();
+ auto* modal=ImGui::FindWindowByName("Updating Dishonored VR");
+ check(modal && modal->Active,"download progress modal is visible");
+ check(modal->Size.x>=400*dpi && modal->Size.x<io.DisplaySize.x,"progress dialog has readable width within viewport");
+ check(modal->Size.y<200*dpi && modal->ScrollMax.y==0,"progress text fits without vertical scrolling");
+ check(modal->Pos.x>=0 && modal->Pos.y>=0 && modal->Pos.x+modal->Size.x<=io.DisplaySize.x && modal->Pos.y+modal->Size.y<=io.DisplaySize.y,"progress modal remains entirely visible");
+ check(click("Overview")==UiAction::None,"update modal prevents navigation");
+ v.updateDownloading=false;frame();frame();
+ check(!modal->Active,"progress dialog closes on completion or failure");
  ImGui::DestroyContext(ctx);
 }
 int main(){suite(1,960,850);suite(1.5f,960,850);suite(1,760,640);printf("PASS: %d native launcher interaction checks\n",count);}
