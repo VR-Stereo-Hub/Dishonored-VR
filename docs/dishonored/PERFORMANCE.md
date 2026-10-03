@@ -110,7 +110,8 @@ The earlier Display UI request is retained in this binary despite its separate P
 
 The first local install had a dirty build stamp caused by unrefreshed Git metadata after
 CRLF normalization. It was not playtested. Refreshed index metadata and rebuilt cleanly;
-the final replacement is archived in `before-257`, with a byte-identical full INI.
+the pre-reinstall DLL/INI/log pair is archived in `before-257`; final installation
+changed no INI bytes.
 
 ### Next launch, one question
 
