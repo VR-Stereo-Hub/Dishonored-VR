@@ -11,6 +11,43 @@ Update updateRuntime = nullptr, destroyRuntime = nullptr;
 void* runtime = nullptr;
 bool manualMode = false, attempted = false, failed = false;
 std::string config;
+// The native PURE D3D9 device rewrites its dispatch table during BeginStateBlock.
+// ReShade uses that API during setup. Retain only this module's detours, leaving
+// the native runtime's other dispatch changes intact. D3D9 base has 119 methods.
+struct DeviceHooks {
+    IDirect3DDevice9* device = nullptr;
+    void* entries[119] = {};
+    void capture(IDirect3DDevice9* dev) {
+        device = dev;
+        MEMORY_BASIC_INFORMATION own = {};
+        VirtualQuery(reinterpret_cast<const void*>(&render), &own, sizeof(own));
+        void** table = *reinterpret_cast<void***>(dev);
+        for (unsigned i = 0; i < 119; ++i) {
+            MEMORY_BASIC_INFORMATION entry = {};
+            entries[i] = VirtualQuery(table[i], &entry, sizeof(entry)) &&
+                own.AllocationBase && entry.AllocationBase == own.AllocationBase ? table[i] : nullptr;
+        }
+    }
+    void restore() const {
+        if (!device) return;
+        void** table = *reinterpret_cast<void***>(device);
+        unsigned restored = 0;
+        for (unsigned i = 0; i < 119; ++i) {
+            if (!entries[i] || table[i] == entries[i]) continue;
+            DWORD previous = 0;
+            if (!VirtualProtect(&table[i], sizeof(void*), PAGE_EXECUTE_READWRITE, &previous)) {
+                DVR_WARN("reshade: cannot restore device hook slot=%u error=%lu", i, GetLastError());
+                continue;
+            }
+            table[i] = entries[i];
+            DWORD ignored = 0; VirtualProtect(&table[i], sizeof(void*), previous, &ignored);
+            ++restored;
+        }
+        if (restored) DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 4,
+            "reshade: restored %u device hooks after native state-block table rewrite", restored);
+    }
+} deviceHooks;
+struct RestoreHooks { ~RestoreHooks() { deviceHooks.restore(); } };
 struct Scope { bool prior = inside; Scope() { inside = true; } ~Scope() { inside = prior; } };
 }
 bool manual() { return manualMode; }
@@ -59,12 +96,15 @@ void reset() {
     Scope scope;
     // Clear before destruction: releasing runtime resources can reenter device Release.
     void* old = runtime; runtime = nullptr;
-    if (old) destroyRuntime(old);
+    if (old) { destroyRuntime(old); deviceHooks.restore(); }
+    deviceHooks = {};
     failed = false;
 }
 void render(IDirect3DDevice9* device) {
     if (!manualMode || failed || !createRuntime) return;
     Scope scope;
+    if (!deviceHooks.device) deviceHooks.capture(device);
+    RestoreHooks restoreHooks;
     if (!runtime) {
         IDirect3DSwapChain9* swap = nullptr;
         if (FAILED(device->GetSwapChain(0, &swap))) return;

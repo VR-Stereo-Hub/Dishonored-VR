@@ -4,15 +4,6 @@ if (Get-Process -Name Dishonored -ErrorAction SilentlyContinue) { throw 'Do not 
 $repo = Split-Path -Parent $PSScriptRoot
 $desktopOut = Join-Path $repo 'build\reshade-manual-test'
 New-Item -ItemType Directory -Force -Path $desktopOut | Out-Null
-$testStub = Join-Path $desktopOut 'stubs/core/util/log.h'
-New-Item -ItemType Directory -Force -Path (Split-Path $testStub) | Out-Null
-@'
-#pragma once
-#include <cstdio>
-#define DVR_INFO(...) do { std::printf(__VA_ARGS__); std::puts(""); } while(0)
-#define DVR_WARN(...) DVR_INFO(__VA_ARGS__)
-#define DVR_LOG_EVERY_MS(cat,level,ms,...) DVR_INFO(__VA_ARGS__)
-'@ | Set-Content -LiteralPath $testStub
 $runtime = 'C:\Program Files (x86)\Steam\steamapps\common\Dishonored\Binaries\Win32\ReShade32.dll'
 if (!(Test-Path -LiteralPath $runtime)) { throw 'Install official ReShade before running the optional host test.' }
 Copy-Item -LiteralPath $runtime -Destination (Join-Path $desktopOut 'ReShade32.dll')
@@ -38,7 +29,7 @@ Push-Location $desktopOut
 try {
     $env:INCLUDE="$desktopVc\include;$desktopSdk\ucrt;$desktopSdk\shared;$desktopSdk\um"
     $env:LIB="$desktopVc\lib\x86;$desktopLib\ucrt\x86;$desktopLib\um\x86"
-    & "$desktopVc\bin\Hostx64\x86\cl.exe" /nologo /std:c++17 /EHsc /W3 /DNOMINMAX /Istubs "/I$repo\src" /Fe:reshade_manual_test.exe (Join-Path $PSScriptRoot 'reshade-manual-tests.cpp') /link user32.lib
+    & "$desktopVc\bin\Hostx64\x86\cl.exe" /nologo /std:c++17 /EHsc /W3 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS "/I$repo\src" /Fe:reshade_manual_test.exe (Join-Path $PSScriptRoot 'reshade-manual-tests.cpp') /link user32.lib
     if ($LASTEXITCODE -ne 0) { throw 'Native desktop test compile failed.' }
     & .\reshade_manual_test.exe
     if ($LASTEXITCODE -ne 0) { throw 'Native desktop test failed.' }

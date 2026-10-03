@@ -1,3 +1,13 @@
+## 2026-10-03: native D3D9 state-block recording overwrites device hooks
+
+BeginStateBlock on the game's PURE device rewrites the native dispatch table, removing
+in-place vtable detours. Manual ReShade triggered this on its first Present, losing
+MANAGED-to-DEFAULT translation and crashing the next DXT5 creation. A host that tests
+ReShade alone cannot catch it. Use the production resource hooks and game device flags;
+verify the hook entries and post-effect texture creation, lock and upload. Manual runtime
+calls now preserve this module's detours across the native rewrite. Full reproduction
+and limits: dishonored/PERFORMANCE.md, 2026-10-03 startup crash entry.
+
 ## 2026-10-03: ReShade's legacy bridge bypasses mirror-off policy
 
 DesktopMirrorOff and DesktopMirrorStrictOff may both resolve to 1 while the old active

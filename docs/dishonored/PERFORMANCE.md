@@ -1,3 +1,35 @@
+## 2026-10-03: manual ReShade startup crash reproduced and corrected in native host
+
+Build v1.0.1-262-gabf374ce3 failed on startup creating a 256x256, single-mip DXT5
+texture with D3DERR_INVALIDCALL. Installed DLL SHA and log banner match. Archived
+VR current/previous logs, INI and ReShade files are in main build/texture-reshade-candidate/
+crash-262. VRAM was 506/15,293 MiB, with a 2,044.8 MiB largest free address range;
+this evidence does not support an allocation-pressure diagnosis. Mirror-off did skip
+the first native Present, but the run provides no gameplay performance result.
+
+**Measured cause:** the native PURE D3D9 device rewrites its dispatch table when
+BeginStateBlock is called. ReShade uses state-block recording. A native reproduction
+using production device_census, d3d9ex paged backing, official ReShade 6.8 and the game's
+PURE/HWVP/FPU_PRESERVE flags succeeds creating MANAGED DXT5 before ReShade, then fails
+with 0x8876086c afterward. The CreateTexture table entry changes from our hook to the
+native entry, while the census remains at zero failures because the call bypasses it.
+A direct BeginStateBlock/EndStateBlock control reproduces the table rewrite as well.
+The earlier 510-check effect host did not install the game's hooks and missed this.
+
+**Correction:** save this module's 119-slot base-device detours before runtime creation,
+restore overwritten detours on return from manual rendering and runtime destruction,
+and discard the retained device on reset. Native entries and other modules' entries
+are not overwritten. No settings/default or texture-backing policy changes.
+
+The extended native host passes 759 checks with effects enabled and 759 disabled:
+DXT5 creation, lock and upload after each ReShade update; preserved texture hook;
+effect pixels, render state and viewport; runtime destroy/reset/recreate; zero native
+Present calls. Eight creation hooks are observed restored. This confirms the reproduced
+failure is corrected in the host; game startup and headset performance remain unverified.
+Next launch has one question: does the same save load normally with the no-effects
+ReShade preset? Success supports the startup fix; another crash requires its matching
+banner and failure evidence before proceeding to performance testing.
+
 ## 2026-10-03: ReShade lag with effects disabled and forced desktop mirror
 
 **Reported:** build v1.0.1-257-g705b282c7 becomes very slow with ReShade, including

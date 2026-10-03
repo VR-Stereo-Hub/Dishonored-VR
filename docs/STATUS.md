@@ -1,3 +1,19 @@
+## 2026-10-03: build 262 startup crash reproduced; device-hook preservation fix
+
+The tester's startup failure matches installed v1.0.1-262-gabf374ce3. A native GPU host
+reproduces the same DXT5 CreateTexture INVALIDCALL: ReShade's BeginStateBlock causes
+the PURE D3D9 runtime to overwrite the table containing our managed-texture hooks.
+Preserving this module's detours across manual-runtime calls corrects that reproduction.
+Extended host checks pass 759 enabled and 759 disabled, including production texture
+creation/lock/upload after effects and reset/recreation. See dishonored/PERFORMANCE.md
+for evidence, the failed earlier test coverage and limits. The full crash archive is in
+main build/texture-reshade-candidate/crash-262. No game was launched by the agent.
+
+The corrected candidate needs a fresh game startup check before returning to ReShade
+performance testing. Keep ManualRuntime=1 and the separate no-effects test preset;
+preserve the entire VR INI and validate against the installed build. One launch question:
+does the existing save load normally? Game/headset acceptance is pending.
+
 ## 2026-10-03: manual ReShade candidate and launcher controls (headset check pending)
 
 The build-257 playtest reports severe ReShade slowdown even with effects off and an
