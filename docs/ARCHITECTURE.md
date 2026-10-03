@@ -1458,3 +1458,14 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   - The turn stops with the stick (the pad bridge's composed value), not with the images, because the
     images still show a turn for a frame after the stick is released. Walking is not stopped the same
     way: the engine's walk has inertia.
+
+- **2026-10-02 - Optional paged texture shadows and post-ReShade XR tail.**
+  - Paged mode exchanges persistent x86 VA for mapping/staging cost and full system commit.
+    Keep the old default; use native tests plus per-minute costs to validate actual workloads.
+  - Preserve full-chain staging topology for compressed tail-mip UpdateSurface compatibility.
+    Release cached staging at Reset/PreExit; validate mapping identity while publishing locks.
+  - ReShade remains an optional hook module; system D3D9 is still the backend. The add-on
+    finishes only a pending Present-thread tail after effects. Missing callback deactivates
+    the bridge, with ordinary XR completion. AFW/MSW cycle ownership stays in the same guard.
+  - Launcher downloads pinned upstream ReShade on opt-in and never executes its installer.
+    The mod DLL/presets survive; only the rebuilt bridge is distributed with the mod.

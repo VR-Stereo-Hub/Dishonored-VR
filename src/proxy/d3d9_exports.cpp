@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"
 // proxy/d3d9_exports.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -9,18 +10,27 @@
 static bool EnsureRealD3D9()
 {
     if (g_realD3D9) return true;
-    // 41.0: the DXVK fork is gone. The game renders through the system D3D9;
-    // the proxy only hooks it.
+
+    dvr::reshade_runtime::load_optional();
+
+    // The system D3D9 stays the real backend in both optional ReShade modes.
     {
-        char path[MAX_PATH];
+        char path[MAX_PATH] = {};
         GetSystemDirectoryA(path, MAX_PATH);
         strcat(path, "\\d3d9.dll");
         g_realD3D9 = LoadLibraryA(path);
+
+        if (g_realD3D9) {
+            Log("reshade-hook: system d3d9 loaded as real backend %s (module=%p)",
+                path, (void*)g_realD3D9);
+        }
     }
+
     if (!g_realD3D9) {
         Log("FATAL: could not load any d3d9 backend (err %lu)", GetLastError());
         return false;
     }
+
     g_realCreate9    = (PFN_Direct3DCreate9)  GetProcAddress(g_realD3D9, "Direct3DCreate9");
     g_realCreate9Ex  = (PFN_Direct3DCreate9Ex)GetProcAddress(g_realD3D9, "Direct3DCreate9Ex");
     g_realBeginEvent = (PFN_D3DPERF_BeginEvent)GetProcAddress(g_realD3D9, "D3DPERF_BeginEvent");
@@ -30,6 +40,9 @@ static bool EnsureRealD3D9()
     g_realSetMarker  = (PFN_D3DPERF_SetMarker)GetProcAddress(g_realD3D9, "D3DPERF_SetMarker");
     g_realSetRegion  = (PFN_D3DPERF_SetRegion)GetProcAddress(g_realD3D9, "D3DPERF_SetRegion");
     g_realQueryRepeatFrame = (PFN_D3DPERF_QueryRepeatFrame)GetProcAddress(g_realD3D9, "D3DPERF_QueryRepeatFrame");
+
+    Log("reshade-hook: real exports Create9=%p Create9Ex=%p",
+        (void*)g_realCreate9, (void*)g_realCreate9Ex);
     Log("d3d9 backend ready (Create9=%p Create9Ex=%p)",
         (void*)g_realCreate9, (void*)g_realCreate9Ex);
     return true;

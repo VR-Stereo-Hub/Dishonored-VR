@@ -89,6 +89,21 @@ void set_backdrop(int kind, const Backdrop& b, const char* who);
 void backdrop_for_sink(int sink, float rgba[4]);
 void circle_for_sink(int sink, uint32_t width, uint32_t height, float ellipse[4]);
 
+
+// Custom subtitle readability (SUBREAD1): the isolated subtitle sink can be
+// recoloured and given a local dark outline/background without changing the
+// rest of the HUD.
+enum SubtitleColorMode : int { SubtitleOriginal = 0, SubtitleWhite = 1, SubtitleWarm = 2 };
+struct SubtitleReadabilityCfg {
+    int colorMode;          // SubtitleColorMode
+    float outlineAlpha;     // 0..1, black outline opacity
+    float outlinePx;        // output-texture pixels
+    float backgroundAlpha;  // 0..0.8, black plate inside Region.subtitles
+};
+const SubtitleReadabilityCfg& subtitle_readability();
+void set_subtitle_readability(const SubtitleReadabilityCfg& c, const char* who);
+bool sink_is_subtitles(int sink);
+
 const ElementCfg& element(int e);
 const WindowCfg&  window();
 const HandCfg&    hand(int which);   // 0 left, 1 right

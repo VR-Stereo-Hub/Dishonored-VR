@@ -15,6 +15,16 @@ int main() {
     _snprintf(backup, sizeof(backup), "%s.pre-reset", fixture);
     _snprintf(temp, sizeof(temp), "%s.reset-tmp", fixture);
     if (!WriteDefaultIni(fixture)) return 2;
+    if (!equalKey("Hands","TrimRTX","0.0356",fixture) ||
+        !equalKey("Hands","TrimRRX","-36.09",fixture) ||
+        !equalKey("Hands","TrimRTY","0.0181",fixture) ||
+        !equalKey("Hands","TrimRRY","72.42",fixture) ||
+        !equalKey("Hands","TrimRTZ","0.0145",fixture) ||
+        !equalKey("Hands","TrimRRZ","17.27",fixture) ||
+        !equalKey("Tracking","HeightOffsetM","0.060",fixture) ||
+        !equalKey("ReShade","Enabled","0",fixture) ||
+        !equalKey("ReShade","ManualRuntime","1",fixture)) return 6;
+
     WritePrivateProfileStringA("VR", "Runtime", "steamvr", fixture);
     WritePrivateProfileStringA("VR", "XrRuntimeJson", "C:\\test runtime\\runtime.json", fixture);
     WritePrivateProfileStringA("Paths", "DataDir", "D:\\test data", fixture);

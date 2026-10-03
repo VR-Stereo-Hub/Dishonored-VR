@@ -32,6 +32,12 @@
 //            the game keeps its pointer to the real texture for everything
 //            else. What MANAGED did inside the runtime, done here. The shape
 //            Special K's 9Ex upgrade and dgVoodoo use (concepts only).
+//   paged    TEXTURE-MEM1: DEFAULT texture + a pagefile-backed CPU shadow.
+//            The shadow contents persist in a Windows file-mapping object, but
+//            consume NO permanent 32-bit virtual address space. Only the mip
+//            currently being locked is mapped into the process; on a write
+//            unlock a temporary SYSTEMMEM level is uploaded with UpdateSurface.
+//            Volume textures retain the proven legacy SYSTEMMEM twin path.
 // Buffers translate to DEFAULT under every mode but none.
 //
 // [Device] Ex=0|1 is launch-time (the device is created once), default 0;
@@ -48,7 +54,7 @@ namespace dvr::status { class Writer; }
 
 namespace dvr::d3d9ex {
 
-enum class Managed { None = 0, Default, Dynamic, Shadow };
+enum class Managed { None = 0, Default, Dynamic, Shadow, Paged };
 bool        parse_managed(const char* s, Managed* out);
 const char* managed_name(Managed m);
 
@@ -93,6 +99,20 @@ IDirect3DBaseTexture9* shadow_twin(void* real);   // null = not shadowed
 // lock is READONLY on the way past (free - the lookup had to happen anyway).
 // A READONLY lock writes nothing, so its unlock has nothing to push.
 IDirect3DBaseTexture9* shadow_twin_for_lock(void* real, int level, DWORD flags);
+// TEXTURE-MEM1. Paged shadows are tracked even though they do not have a
+// permanent IDirect3DBaseTexture9 twin. Surface handouts use this to keep the
+// GetSurfaceLevel lock redirect alive in Managed=paged.
+bool shadow_tracked(void* real);
+bool paged_active();
+void clear_staging(); // reset/shutdown releases cached upload textures
+// Returns S_FALSE when `real` is not a paged 2D/cube texture, so the caller
+// continues down the legacy twin/original path. S_OK means `lr` now points
+// into a temporarily mapped pagefile-backed mip.
+HRESULT paged_lock_rect(void* real, int level, int face, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags);
+HRESULT paged_unlock_rect(void* real, int level, int face);
+// AddDirtyRect is redundant for the paged path: the write unlock uploads the
+// complete mip that was locked. True means the call was consumed.
+bool paged_dirty(void* real);
 // face = kNoLevelSurface means "no per-level surface exists" (a volume texture),
 // so the per-level push cannot apply and UpdateTexture is the only route.
 constexpr int kNoLevelSurface = -2;

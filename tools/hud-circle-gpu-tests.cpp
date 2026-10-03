@@ -87,5 +87,28 @@ int main() {
    check(p[3]==255,"opaque world alpha retained");ctx->Unmap(cpu,0);
    printf("marker composition mode=%d PASS\n",mode);
  }
+ // Subtitle options must not recolor unrelated pixels, and a cropped source must
+ // use full-texture UV for the backdrop's band.
+ for(auto& pixel:pixels) pixel=0;
+ for(unsigned y=120;y<136;++y) for(unsigned x=120;x<136;++x) pixels[y*size+x]=0xffffffff;
+ ctx->UpdateSubresource(src,0,nullptr,pixels.data(),size*4,0);
+ for(int option=0;option<4;++option) {
+   dvr::gfx::AlphaParams a;a.mode=1;a.subtitle=option!=0;
+   a.subtitleColor=option==1 ? 2 : 0;a.subtitleColorRgb[0]=1;a.subtitleColorRgb[1]=.88f;a.subtitleColorRgb[2]=.28f;
+   a.subtitleOutline=option==2 ? 1.f:0.f;a.subtitleOutlinePx=2.f;a.invSize[0]=a.invSize[1]=1.f/size;
+   a.subtitleBackground=option==3 ? .3f:0.f;
+   a.subtitleRect[0]=.25f;a.subtitleRect[1]=.25f;a.subtitleRect[2]=.75f;a.subtitleRect[3]=.75f;
+   blit.draw(ctx,srv,rtv,size,size,&a);ctx->CopyResource(cpu,dst);
+   D3D11_MAPPED_SUBRESOURCE m{};check(SUCCEEDED(ctx->Map(cpu,0,D3D11_MAP_READ,0,&m)),"subtitle readback");
+   const auto at=[&](unsigned x,unsigned y){return (const unsigned char*)m.pData+y*m.RowPitch+x*4;};
+   const auto glyph=at(128,128), edge=at(119,128), band=at(80,80), outside=at(16,16);
+   check(outside[3]==0,"subtitle background stays in its configured band");
+   if(option==0) check(glyph[0]==255 && glyph[3]==255 && edge[3]==0 && band[3]==0,"disabled options preserve the original glyph");
+   if(option==1) check(glyph[0]==255 && std::abs((int)glyph[1]-224)<2 && std::abs((int)glyph[2]-71)<2,"warm subtitle color");
+   if(option==2) check(edge[0]==0 && edge[3]>240 && band[3]==0,"black glyph outline");
+   if(option==3) check(band[0]==0 && std::abs((int)band[3]-77)<2,"premultiplied black subtitle backdrop");
+   ctx->Unmap(cpu,0);
+ }
+ puts("subtitle disabled/color/outline/backdrop PASS");
  blit.shutdown();rtv->Release();srv->Release();cpu->Release();dst->Release();src->Release();ctx->Release();dev->Release();
 }

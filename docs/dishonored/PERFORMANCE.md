@@ -1,3 +1,246 @@
+## 2026-10-03: build 266 F10 ReShade controls accepted
+
+The tester confirms normal controller operation of ReShade effects and shader sliders
+inside F10. Installed v1.0.1-266-gf3bd14b91 and DLL SHA256
+44151a462741a90c252e24ef410042256dd990627e5f46a1fe218a4feca874e9 were verified against
+the log before interpretation. Archived current/previous logs, complete VR INI and ReShade
+configuration are in main build/texture-reshade-candidate/f10-panel/accepted-run. The log
+reaches normal PreExit and reports the manual runtime ready. The hook-preservation census
+restores 30 actual device hooks. This confirms usability and the tested startup path, not
+a controlled performance comparison or every ReShade shader. Public Enabled=0 remains;
+the tester uses Enabled=1. Launcher follow-up changes do not alter runtime rendering.
+
+## 2026-10-03: build 264 accepted; F10 ReShade controls
+
+The tester reports good appearance and smooth operation with the tuned Carinth preset.
+Matching installed DLL SHA256 99941f52ff4df38118f1704300d7c807ea62fa7fff4ee979abc1114f593f7024
+and build banner v1.0.1-264-gfbc2bd23e verified before interpretation. Full logs and
+configurations are archived in main build/texture-reshade-candidate/accepted-264.
+The saved ReShade INI selects Carinth again; the game reaches ordinary PreExit.
+Late sampled windows have desktop actual=0/off=1 and hk.reshadeEffects=162..176 us.
+Those are CPU-part means, not GPU timing, frame-time percentiles or a controlled A/B.
+The manual runtime startup correction is headset-accepted by this report.
+
+Follow-up adds an F10 ReShade tab using the public API and the existing panel input.
+Effect handles are re-enumerated each frame. Performance mode must be switched off
+before editing parameters; switching modes queues an effect reload. Native UI event
+checks change shader values and read back the changed pixels; production F10 relative
+nudging passes. Shipped Enabled=0 prevents even loading an installed DLL; the tester
+keeps Enabled=1 and their selected preset. Headset panel acceptance remains pending.
+
+## 2026-10-03: manual ReShade startup crash reproduced and corrected in native host
+
+Build v1.0.1-262-gabf374ce3 failed on startup creating a 256x256, single-mip DXT5
+texture with D3DERR_INVALIDCALL. Installed DLL SHA and log banner match. Archived
+VR current/previous logs, INI and ReShade files are in main build/texture-reshade-candidate/
+crash-262. VRAM was 506/15,293 MiB, with a 2,044.8 MiB largest free address range;
+this evidence does not support an allocation-pressure diagnosis. Mirror-off did skip
+the first native Present, but the run provides no gameplay performance result.
+
+**Measured cause:** the native PURE D3D9 device rewrites its dispatch table when
+BeginStateBlock is called. ReShade uses state-block recording. A native reproduction
+using production device_census, d3d9ex paged backing, official ReShade 6.8 and the game's
+PURE/HWVP/FPU_PRESERVE flags succeeds creating MANAGED DXT5 before ReShade, then fails
+with 0x8876086c afterward. The CreateTexture table entry changes from our hook to the
+native entry, while the census remains at zero failures because the call bypasses it.
+A direct BeginStateBlock/EndStateBlock control reproduces the table rewrite as well.
+The earlier 510-check effect host did not install the game's hooks and missed this.
+
+**Correction:** save this module's 119-slot base-device detours before runtime creation,
+restore overwritten detours on return from manual rendering and runtime destruction,
+and discard the retained device on reset. Native entries and other modules' entries
+are not overwritten. No settings/default or texture-backing policy changes.
+
+The extended native host passes 759 checks with effects enabled and 759 disabled:
+DXT5 creation, lock and upload after each ReShade update; preserved texture hook;
+effect pixels, render state and viewport; runtime destroy/reset/recreate; zero native
+Present calls. Eight creation hooks are observed restored. This confirms the reproduced
+failure is corrected in the host; game startup and headset performance remain unverified.
+Installed v1.0.1-264-gfbc2bd23e after release build/export/lint checks. The entire
+VR INI is byte-identical (73,485 bytes, 1,684 CRLFs); ReShade INI and presets are unchanged.
+DLL/INI/log backups, expected INI and installation hashes are in main
+build/texture-reshade-candidate/state-block-fix/install.json.
+Next launch has one question: does the same save load normally with the no-effects
+ReShade preset? Success supports the startup fix; another crash requires its matching
+banner and failure evidence before proceeding to performance testing.
+
+## 2026-10-03: ReShade lag with effects disabled and forced desktop mirror
+
+**Reported:** build v1.0.1-257-g705b282c7 becomes very slow with ReShade, including
+with effects disabled; desktop mirror stays visible despite its off setting.
+The installed DLL hash and log banner were verified before reading the run. Archived
+VR log, previous log, full VR INI, ReShade log/config/preset are under main build/
+texture-reshade-candidate/reshade-lag-257. The tested resolution was 2114x2192.
+
+**Measured/source-confirmed:** ReShade successfully compiled all seven original
+preset effects. The bridge's active branch directly calls native Present and bypasses
+`desktop_eye::present`, including DesktopMirrorOff=1 and DesktopMirrorStrictOff=1.
+Representative late gameplay windows show 13.4-13.8 ms Present intervals, about 7.1 ms
+inside native Present, 3.7-4.3 ms game GPU time and 6.8-7.7 ms D3D9 idle. This supports
+forced presentation as a contributor; it does not isolate total ReShade GPU overhead.
+The native presentation interval was already immediate, so another vsync INI edit
+would not repair the bypass.
+
+**Candidate:** optional [ReShade] ManualRuntime=1 disables ReShade graphics interception
+before loading the DLL, then uses its official create/update/destroy effect-runtime API
+on the raw D3D9 swapchain. Effects run before the existing VR capture and desktop policy.
+The API's update call renders but does not call native Present. Thread-local guards
+keep its draws, state changes and resource creation out of the game classifiers and
+managed-shadow translation. Reset and both PreExit paths destroy the runtime before
+releasing/resetting the device; the runtime pointer is cleared before destruction to
+handle nested Release calls. ManualRuntime ships 0 pending headset validation; changing
+integration mode requires restart. Scroll Lock retains live effects on/off. Manual mode
+does not observe game draw/depth events, so depth-dependent presets need legacy hooks.
+The selected colour/sharpening preset has no active depth-dependent technique.
+
+**Host validation:** tools/reshade-manual-host.ps1 runs the production runtime module
+on a hidden native D3D9Ex device. Enabled effects turn synthetic red pixels cyan;
+disabled effects preserve red. Both modes restore render state and viewport and pass
+reset/recreation, without native Present calls: 510 checks each. The first test shader
+used bitwise operations unavailable in vs_3_0; replacing that test-only arithmetic
+resolved compilation. These checks prove API/capture order, not headset smoothness.
+The RelWithDebInfo build, 11-export check, lint, 86 launcher unit checks, full installer
+smoke (including exact binding edits and CRLF), and 57 updater checks pass.
+
+**Next launch, one question:** with ReShade loaded, its test preset empty, the desktop
+mirror off and the same save/resolution, does headset performance return to its usual
+smoothness? Improvement supports the forced-present/interception cost explanation;
+persistent lag means it is not sufficient. A crash or blank headset is an integration
+failure. Read the matching new build log and ReShade log before another experiment.
+Install changes are limited to [ReShade] ManualRuntime=1 and [Perf] Parts=1 in the VR
+INI, plus selecting a separate empty ReShade test preset. Keep the user's tuned Carinth
+preset unchanged. Archive and byte-diff the complete installed INI on installation.
+
+Official source: [manual runtime API](https://github.com/crosire/reshade/blob/v6.8.0/include/reshade.hpp),
+[implementation](https://github.com/crosire/reshade/blob/v6.8.0/source/addon.cpp),
+[graphics-hook opt-out](https://github.com/crosire/reshade/blob/v6.8.0/source/dll_main.cpp).
+
+## 2026-10-02: community texture mapping and ReShade integration (HOST MEASURED, headset pending)
+
+Work: `codex/vr-133-texture-reshade`, branched from staging `1c47937a6`. VR-133 already
+tracks the SYSTEMMEM allocation / LockRect crash. A separate issue could not be created
+because the Linear workspace reached its free issue limit; the camera portion of VR-133
+remains separate and must not be closed by this integration.
+
+Source audit: the supplied source archive's Git baseline is released v1.0.2 `cecdae230`.
+Its 14 changed source files plus a new ReShade add-on contain paged CPU texture shadows,
+concurrent mip/face locks, post-effect XR capture, subtitle readability and a 450% ceiling.
+Only reviewed source was ported. Donated binaries and scripts were not executed.
+Archive SHA256: source `442C3889C956A817E26B4F975C9FA85B9FC6E9897094C42E70441429D5424DB8`;
+binary archive `8417C5E93B0725B936478770AB2D869AE8BCBE541583A8B7568238446672FF6E`.
+
+### What pagefile backing does and costs
+
+`Managed=paged` creates a pagefile-backed section for each translated 2D/cube texture,
+maps only currently locked mips, then unmaps on unlock. Distinct mips/faces can overlap.
+Writes copy into a cached full-chain SYSTEMMEM staging texture and use UpdateSurface at
+the corresponding mip. Read-only unlocks skip uploads. Volume textures and formats whose
+layout is not supported retain native SYSTEMMEM twins. The cache has eight slots and a
+128 MiB target; a single larger texture may exceed that target after older entries are dropped.
+
+This trades persistent **32-bit virtual addresses**, not total backing storage. Windows
+reserves system commit for the full mapping. Unmapping does not discard the CPU texture.
+Mapping is not an unconditional disk read, but memory pressure can cause paging and stalls.
+No Windows pagefile setting is changed. See Microsoft's
+[CreateFileMapping documentation](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createfilemappinga)
+and [file mapping overview](https://learn.microsoft.com/en-us/windows/win32/memory/file-mapping).
+
+Native x86 host, same machine, real D3D9Ex HAL, 80 serial 4 MiB fill/upload iterations per
+mode, identical 1024x1024 A8R8G8B8 resource. These are CPU wall times through UnlockRect,
+not GPU completion timestamps or a game-FPS estimate. The constant shape favors cache reuse.
+
+| Run / mode | Median | p95 | Maximum |
+|---|---:|---:|---:|
+| Initial conventional shadow | 0.326 ms | 0.793 ms | 2.780 ms |
+| Initial paged shadow | 1.632 ms | 2.250 ms | 2.375 ms |
+| Final conventional shadow | 0.339 ms | 1.008 ms | 3.057 ms |
+| Final paged shadow | 1.603 ms | 1.927 ms | 2.544 ms |
+
+Separate section-only experiment: 64 mappings of 4 MiB were filled and unmapped while their
+handles stayed open. Persistent available-VA loss was 0.00 MiB; system commit increased by
+262.84 MiB initially and 257.12 MiB in the final run. System commit is machine-wide and can
+move with other processes. This experiment excludes staging/GPU allocations and does not
+prove zero hard page faults in gameplay. Evidence: local `build/paged-tests*.log`;
+reproduction tool `tools/paged-texture-host.ps1`.
+
+Verdict: useful optional mitigation for address exhaustion with large texture packs,
+with a measured per-upload cost. Keep conventional shadows as the public default.
+No claim that all reported crashes are fixed, or that gameplay performance is unchanged.
+
+### Hardening and validation
+
+- Lock bounds, mip counts (including requested zero/full chain), faces, block alignment,
+  duplicate locks and mapping sizes are checked; publication protects section identity.
+- Unlock keeps its subresource claimed during upload; ordinary release no longer scans
+  8192 lock slots when there are no outstanding locks. Staging releases at Reset and PreExit.
+- Failed backing allocation refuses resource creation rather than returning an unusable texture.
+- Host GPU readback confirms pixels from levels 0/1; DXT1/DXT5 full mip chains upload,
+  including tiny tail levels. Concurrent mips and six cube faces, read-only persistence,
+  invalid requests, release and staging cleanup pass.
+- `device/paged` and `device/paged-cost` report backing, mapped/peak bytes, upload totals and
+  maximum, cache hits/misses and available commit/RAM every 60 seconds in paged mode.
+  These counters do not infer disk I/O. Existing streaming bursts still carry upload timings.
+- Launcher unit suite: 86 passed. Scratch installation/update/rollback/uninstall passes,
+  including exact whole-INI comparison for texture selection, omission and invalid flags.
+- Production HUD shader passes existing circle/crop/alpha checks and new subtitle off,
+  color, black-outline and premultiplied-background pixel checks. The initial outline test
+  omitted inverse texture size (supplied by the game); correcting that fixture made it pass.
+
+### ReShade and other integration limits
+
+The launcher optionally downloads the official 6.8.0 full add-on setup from
+[ReShade](https://reshade.me/#download), checks SHA256
+`AFE4C8F13048306307983B8B3D41D5BF00A86820440B0E57DEA10950E1176445`, extracts only the
+PE32 runtime as `ReShade32.dll`, and never executes the setup. Extracted DLL SHA256:
+`DA430E0A9C6EECEFA0D1B27D05E16C426FB5D04E808B194D914EAAC4B31BC0F8`.
+The mod remains `d3d9.dll`. Existing runtime gets a unique backup; existing presets/settings
+are preserved. Download mismatch leaves game files unchanged. Tests cover these cases.
+Runtime/shader binaries are not redistributed; shader packages remain a separate opt-in.
+ReShade is [BSD licensed](https://github.com/crosire/reshade/blob/v6.8.0/LICENSE.md).
+
+The rebuilt add-on uses official API 20, event 75 (`reshade_present`). The pending XR tail
+belongs to the Present thread and can execute only once. It preserves staging's AFW/MSW
+cycle ownership and foreground mask work. A missing callback finishes XR and disables the
+bridge for that run. While active, ReShade needs native Present and bypasses mirror-off
+Present suppression, so its cost must be tested independently. Actual headset effect capture
+and stereo compatibility remain unverified; an extraction test is not a rendering test.
+
+Subtitle color/outline/background controls and the community rectangle/enlargement preset
+are optional. The proposed rectangle is not a locally measured universal subtitle region.
+The resolution limit is 450% (5834x6046), not a new default. The earlier Basic Stereo/AFW
+Display placement is retained from PR #168 without merging that PR.
+
+### Installed candidate identity
+
+Source build `v1.0.1-257-g705b282c7`, RelWithDebInfo, legacy off. Installed DLL SHA256
+`B469222B1E798715FC4B08A940787CDC096DC98476A05ACE6AFFE61A376FD1C1` matches the built DLL.
+The previous installed/log identity was `v1.0.1-258-g949e1ea8b` (different branch ancestry,
+not a semantic version downgrade). It is archived with the full INI and both logs under
+main `build/texture-reshade-candidate/before-256`. The new log banner is not yet available.
+
+Entire installed INI equals the expected target, SHA256
+`D2112CD2BD961E979D0C3312AC9AAA514291CD3A9543CC200B50395B038804CF`, 73348 bytes,
+1676 CRLF lines and no bare LF. Only Managed=shadow -> paged and ShadowSurfaces=0 -> 1
+changed. Existing Ex=1, ShadowFullCopy=1, AFW and MSW off remain. No ReShade runtime was
+installed for this texture test. Cost diagnostics are automatic at Info in paged mode.
+The earlier Display UI request is retained in this binary despite its separate PR ancestry.
+
+The first local install had a dirty build stamp caused by unrefreshed Git metadata after
+CRLF normalization. It was not playtested. Refreshed index metadata and rebuilt cleanly;
+the pre-reinstall DLL/INI/log pair is archived in `before-257`; final installation
+changed no INI bytes.
+
+### Next launch, one question
+
+Install the paged candidate with Ex=1, Managed=paged, ShadowSurfaces=1, ShadowFullCopy=1;
+keep ReShade absent and subtitle effects off. Load an existing save and quickload that same
+save three times. **Does every load return to gameplay without crashing?** Passing supports
+baseline loading stability only (and does not reproduce a texture-pack crash if no pack is
+installed). A crash keeps the mitigation unaccepted and the matching log/dump is the next
+artifact. Verify the installed DLL hash/log banner before reading this run; archive both logs
+before any relaunch. A texture-pack stress run, controlled frame-time A/B, and ReShade/subtitle
+headset checks follow as separate launch questions.
+
 ## 2026-10-02: Cyberpunk VR port frame generation reviewed for MSW (RESEARCH, nothing built)
 
 The Cyberpunk 2077 VR port's 0.1.7 frame generation interpolates (midpoint between two real frames, the
@@ -3716,3 +3959,33 @@ excluding the per-eye depth copies):
 
 Step 2 at half resolution is used. One reading of 2.43 ms at the same setting was taken while the GPU
 clock was low, so read the in-game `afw/warp: beat ... GPU` figure for the real cost.
+
+### 2026-10-02 headset follow-up: paged build 257
+
+Tester reported stable behavior for this run. Installed DLL hash matches the recorded
+candidate and the archived log banner is v1.0.1-257-g705b282c7. Six periodic snapshots
+report zero backing-allocation failures, map failures, lock-table-full events and upload
+failures. Last periodic totals: 31,800 translated textures, 484,530 locks, 293,683 uploads,
+1,183 maximum simultaneous locks, 466.8 MiB live section backing and 0.00 MiB mapped at
+that sample. Peak mapped footprint 327.25 MiB. The run reaches ordinary PreExit/device
+teardown. No independent claim that an HD pack was installed is made from this report.
+
+Last sampled cumulative mapping time is 681.58 ms; uploads total 11,630.74 MiB in
+5,092.33 ms, with one maximum upload of 126.76 ms. These are lifetime totals spanning
+loading and gameplay, not frame-time percentiles. Available system commit in the six
+samples ranges from 1,269.4 to 2,108.2 MiB. Neither disk IO nor paging faults were measured.
+The stability result therefore does not eliminate loading stalls or establish HD-pack
+performance. Logs are archived in main build/texture-reshade-candidate/stable-run-257.
+ReShade was absent in this run and installed afterward, keeping its next test separate.
+### 2026-10-03 ReShade preset test armed, no performance result yet
+
+The user-downloaded Carinth v3 preset is installed and selected with its seven active effects
+(SMAA, LiftGammaGain, LumaSharpen, Vibrance, Curves, FakeHDR and prod80 contrast/brightness/
+saturation). Official dependency commits and hashes are recorded in ../INSTALLER.md.
+VR DLL remains accepted build 257; the entire VR INI is byte-identical and retains paged
+texture backing. ReShade runtime/bridge are present; no HD texture pack was installed by
+this work. Scroll Lock toggles effects. No game was launched, so neither shader compilation,
+post-effect headset capture nor performance is accepted yet. The first question is whether
+the toggle visibly changes the headset view. A later timed comparison can measure effect
+cost, keeping the same save, resolution and VR mode; do not mix that with a texture-pack
+install or assume mirror suppression still applies while ReShade is active.

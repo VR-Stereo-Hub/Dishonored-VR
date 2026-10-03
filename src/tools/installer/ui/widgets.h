@@ -6,6 +6,7 @@
 // of the palette.
 #pragma once
 #include "imgui.h"
+struct ID3D11Device;
 #include "model/installer.h"
 
 namespace dvr::setup::ui {
@@ -17,7 +18,12 @@ ImVec4 col_brass_hi();  // ImGuiCol_CheckMark
 ImVec4 col_oxblood();   // the primary action's button colour
 
 // "Dishonored VR" over the brass rule, then a subtitle line in faded ink.
-void page_header(const char* subtitle);
+void load_widget_art(ID3D11Device* device);
+void release_widget_art();
+void apply_launcher_style();
+void brand_header(const char* version);
+bool sidebar_button(const char* label, bool selected);
+void page_header(const char* title, const char* subtitle = nullptr);
 // A collapsing section in the heading serif, open by default.
 bool heading(const char* name, const char* tip = nullptr, bool defaultOpen = true);
 // Wrapped text inside a child of exactly `lines` text lines; longer text scrolls.

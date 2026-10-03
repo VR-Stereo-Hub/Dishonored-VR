@@ -23,6 +23,7 @@ Detection base_detection()
     d.steamvrPresent = true;
     d.activeRuntime = L"virtualdesktop-openxr-32.json";
     d.gpu.name = L"NVIDIA GeForce RTX 4070 Ti SUPER"; d.gpu.budgetBytes = 14ull << 30;
+    d.suggested.stereoMethod = 0;
     d.suggested.runtime = Runtime::Auto; d.suggested.quality = Quality::Balanced; d.suggested.pixelPercent = 100.0f;
     return d;
 }
@@ -64,7 +65,7 @@ Report install_report(bool baselinePending, bool failed)
 
 std::vector<std::string> fake_state_names()
 {
-    return { "update-popup", "about-updates", "update-offline", "update-warning", "gog-home", "win64", "about", "guide", "guide-zoom", "headset-required", "headset-other", "headset-change", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
+    return { "mods-installed", "mods", "updates", "settings-controls", "update-popup", "about-updates", "update-offline", "update-warning", "gog-home", "win64", "about", "guide", "guide-zoom", "headset-required", "headset-other", "headset-change", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
              "done", "done-waiting", "done-failed", "manage", "manage-disabled", "manage-update", "manage-uninstall", "busy" };
 }
 
@@ -73,6 +74,12 @@ bool fake_state(const std::string& name, ViewState* v)
     *v = ViewState();
     v->logPath = "C:\\Users\\player\\AppData\\Local\\DishonoredVR\\dishonored_vr_launcher.log";
     v->headset = "Meta Quest 3 / 3S";   // every other state is past the VR-223 picker
+    if (name == "mods" || name == "mods-installed" || name == "updates" || name == "settings-controls") {
+        v->det = installed_detection(); v->choices = v->det.suggested;
+        if (name == "mods-installed") { v->det.installedSha=v->det.embeddedSha; v->det.reshadeInstalled=true; v->det.reshadeEnabled=true; }
+        v->screen = name == "mods" || name == "mods-installed" ? Screen::Mods : name == "updates" ? Screen::Updates : Screen::Setup;
+        v->settingsPage = 1; v->changingSettings = true; v->controlsOpen = true; return true;
+    }
     if (name == "headset-required" || name == "headset-other") {
         v->det = base_detection(); v->choices = v->det.suggested; v->headset.clear(); v->headsetPicking = true;
         if (name == "headset-other") { v->headsetPick = kHeadsetOther; snprintf(v->headsetOther, sizeof(v->headsetOther), "%s", "HTC Vive Focus Vision"); }
@@ -151,7 +158,7 @@ bool fake_state(const std::string& name, ViewState* v)
         v->updateMessage="Checked GitHub just now.";
         if(name=="update-popup")v->updatePopup=true;
         if(name=="update-warning")v->choices.overwriteSettings=false;
-        if(name=="about-updates" || name=="update-offline")v->screen=Screen::About;
+        if(name=="about-updates" || name=="update-offline" || name=="update-warning")v->screen=Screen::Updates;
         if(name=="update-offline")v->updateMessage="GitHub could not be reached. Showing saved release history.";
         if(name=="gog-home") {v->det.game.store=discovery::Store::Gog;v->det.gameDir=L"C:\\Program Files (x86)\\GOG Galaxy\\Dishonored\\Binaries\\Win32";v->det.game.dir=v->det.gameDir;v->det.gameNote="GOG installation (32-bit)";}
         if(name=="win64") {v->screen=Screen::Setup;v->det.gameFound=false;v->det.game.valid=false;v->det.game.unsupported64=true;v->det.gameNote="INCOMPATIBLE 64-BIT GAME: this VR mod will not work with Win64. Select the original 32-bit Dishonored in Binaries\\Win32.";}

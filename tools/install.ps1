@@ -43,7 +43,11 @@ if ((Test-Path $existing) -and -not (Test-Path $backup)) {
     }
 }
 
+$bridge = Join-Path $outDir "DishonoredVR_ReShade.addon32"
+if (-not (Test-Path -LiteralPath $bridge)) { throw "Missing ReShade bridge; rebuild this candidate." }
+Assert-DvrX86Dll $bridge
 Copy-Item $proxy $existing -Force
+Copy-Item -LiteralPath $bridge -Destination (Join-Path $GamePath "DishonoredVR_ReShade.addon32") -Force
 
 # The SteamVR shim runtime and Valve's 32-bit loader (hash-checked against
 # third_party\openvr_headers\PROVENANCE.txt). SteamVR rigs need both; VDXR and

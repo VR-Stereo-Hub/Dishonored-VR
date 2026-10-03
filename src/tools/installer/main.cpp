@@ -114,6 +114,29 @@ int headless_mode(const Args& args, Env env)
             h.choices.preferences[i] = kPreferences[i].inverted ? !on : on;
         }
     }
+    for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+        const auto flag = L"--bind-" + fs::widen(dvr::binds::info(a).key);
+        if (!args.has(flag.c_str())) continue;
+        if (!dvr::binds::parse_source(fs::narrow(args.value(flag.c_str())).c_str(), &h.choices.bindings.src[a])) {
+            DVR_ERROR("launcher: invalid button mapping for %s", dvr::binds::info(a).key); return 1;
+        }
+        h.choices.bindingEdits |= uint16_t(1u << a);
+    }
+    if (args.has(L"--bind-swap-sticks")) {
+        const auto value = args.value(L"--bind-swap-sticks");
+        if (value != L"on" && value != L"off") { DVR_ERROR("launcher: --bind-swap-sticks requires on or off"); return 1; }
+        h.choices.swapSticksEdit = value == L"on";
+    }
+    if (args.has(L"--stereo")) {
+        const auto value = args.value(L"--stereo");
+        if (value != L"stereo" && value != L"afw") { DVR_ERROR("launcher: --stereo requires stereo or afw"); return 1; }
+        h.choices.stereoEdit = value == L"afw";
+    }
+    if (args.has(L"--texture-memory")) {
+        const auto value = args.value(L"--texture-memory");
+        if (value != L"on" && value != L"off") { DVR_ERROR("launcher: --texture-memory requires on or off"); return 1; }
+        h.choices.textureMemory = value == L"on";
+    }
     h.choices.vdxrJson = args.value(L"--vdxr-json");
     h.choices.overwriteSettings = !args.has(L"--keep-settings");
     h.deleteIni = args.has(L"--delete-ini");

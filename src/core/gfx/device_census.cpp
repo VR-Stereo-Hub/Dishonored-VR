@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"
 #include "core/framework/native_profile.h"
 // core/gfx/device_census.cpp - see device_census.h.
 #define DVR_CAT ::dvr::log::Cat::device
@@ -271,7 +272,7 @@ inline bool translated_managed(void* obj) {
 // surface -> the texture it came off, and where on it. Small and open-addressed;
 // a full map degrades to "not tracked", which the census reports rather than hides.
 constexpr int kSurfMap = 8192;
-struct SurfEnt { void* surf; void* parent; UINT level; int face; IDirect3DSurface9* lockedTwin; };
+struct SurfEnt { void* surf; void* parent; UINT level; int face; IDirect3DSurface9* lockedTwin; bool pagedLocked; };
 SurfEnt g_surf[kSurfMap];
 uint32_t g_surfMapFull = 0;
 SurfEnt* surf_slot(void* surf, bool create) {
@@ -281,7 +282,7 @@ SurfEnt* surf_slot(void* surf, bool create) {
         if (e.surf == surf) return &e;
         if (e.surf == nullptr) {
             if (!create) return nullptr;
-            e.surf = surf; e.parent = nullptr; e.level = 0; e.face = -1; e.lockedTwin = nullptr;
+            e.surf = surf; e.parent = nullptr; e.level = 0; e.face = -1; e.lockedTwin = nullptr; e.pagedLocked = false;
             return &e;
         }
     }
@@ -297,11 +298,10 @@ SurfEnt* surf_slot(void* surf, bool create) {
 HRESULT __stdcall hkTexLockRect(IDirect3DTexture9* self, UINT level, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
     dvr::native_profile::Scope timing(dvr::native_profile::TexLockRectInclusive);
     lock_count(kLcTexture, self, flags, rc != nullptr, level);
+    const HRESULT phr = dvr::d3d9ex::paged_lock_rect(self, (int)level, -1, lr, rc, flags);
+    if (phr != S_FALSE) { ++g_shadowLocks; up_count(kUcTexture, true, false, phr); return phr; }
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
-        ++g_shadowLocks;
-        const HRESULT hr = ((IDirect3DTexture9*)t)->LockRect(level, lr, rc, flags);
-        up_count(kUcTexture, true, false, hr);
-        return hr;
+        ++g_shadowLocks; const HRESULT hr = ((IDirect3DTexture9*)t)->LockRect(level, lr, rc, flags); up_count(kUcTexture, true, false, hr); return hr;
     }
     const bool lost = translated_managed(self);   // VR-15: no twin on a translated texture
     const HRESULT hr = g_origTexLock(self, level, lr, rc, flags);
@@ -310,17 +310,15 @@ HRESULT __stdcall hkTexLockRect(IDirect3DTexture9* self, UINT level, D3DLOCKED_R
 }
 HRESULT __stdcall hkTexUnlockRect(IDirect3DTexture9* self, UINT level) {
     dvr::native_profile::Scope timing(dvr::native_profile::TexUnlockRectInclusive);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
-        ++g_shadowUnlocks;
-        const HRESULT hr = ((IDirect3DTexture9*)t)->UnlockRect(level);
-        dvr::d3d9ex::shadow_unlocked(self, (int)level, -1);
-        return hr;
-    }
+    const HRESULT phr = dvr::d3d9ex::paged_unlock_rect(self, (int)level, -1);
+    if (phr != S_FALSE) { ++g_shadowUnlocks; return phr; }
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowUnlocks; const HRESULT hr = ((IDirect3DTexture9*)t)->UnlockRect(level); dvr::d3d9ex::shadow_unlocked(self, (int)level, -1); return hr; }
     return g_origTexUnlock(self, level);
 }
 HRESULT __stdcall hkTexAddDirtyRect(IDirect3DTexture9* self, const RECT* rc) {
     ++g_dirtyRects;
     if (map_pool(self) == 1) ++g_dirtyRectsOnManaged;
+    if (dvr::d3d9ex::paged_dirty(self)) { ++g_shadowDirty; return D3D_OK; }
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowDirty; return ((IDirect3DTexture9*)t)->AddDirtyRect(rc); }
     return g_origTexDirty(self, rc);
 }
@@ -333,12 +331,9 @@ HRESULT __stdcall hkCubeLockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES f
                                  const RECT* rc, DWORD flags) {
     dvr::native_profile::Scope timing(dvr::native_profile::CubeLockRectInclusive);
     lock_count(kLcCube, self, flags, rc != nullptr, level);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) {
-        ++g_shadowLocks;
-        const HRESULT hr = ((IDirect3DCubeTexture9*)t)->LockRect(face, level, lr, rc, flags);
-        up_count(kUcCube, true, false, hr);
-        return hr;
-    }
+    const HRESULT phr = dvr::d3d9ex::paged_lock_rect(self, (int)level, (int)face, lr, rc, flags);
+    if (phr != S_FALSE) { ++g_shadowLocks; up_count(kUcCube, true, false, phr); return phr; }
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin_for_lock(self, (int)level, flags)) { ++g_shadowLocks; const HRESULT hr = ((IDirect3DCubeTexture9*)t)->LockRect(face, level, lr, rc, flags); up_count(kUcCube, true, false, hr); return hr; }
     const bool lost = translated_managed(self);
     const HRESULT hr = g_origCubeLock(self, face, level, lr, rc, flags);
     up_count(kUcCube, false, lost, hr);
@@ -346,15 +341,13 @@ HRESULT __stdcall hkCubeLockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES f
 }
 HRESULT __stdcall hkCubeUnlockRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level) {
     dvr::native_profile::Scope timing(dvr::native_profile::CubeUnlockRectInclusive);
-    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) {
-        ++g_shadowUnlocks;
-        const HRESULT hr = ((IDirect3DCubeTexture9*)t)->UnlockRect(face, level);
-        dvr::d3d9ex::shadow_unlocked(self, (int)level, (int)face);
-        return hr;
-    }
+    const HRESULT phr = dvr::d3d9ex::paged_unlock_rect(self, (int)level, (int)face);
+    if (phr != S_FALSE) { ++g_shadowUnlocks; return phr; }
+    if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowUnlocks; const HRESULT hr = ((IDirect3DCubeTexture9*)t)->UnlockRect(face, level); dvr::d3d9ex::shadow_unlocked(self, (int)level, (int)face); return hr; }
     return g_origCubeUnlock(self, face, level);
 }
 HRESULT __stdcall hkCubeAddDirtyRect(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, const RECT* rc) {
+    if (dvr::d3d9ex::paged_dirty(self)) { ++g_shadowDirty; return D3D_OK; }
     if (IDirect3DBaseTexture9* t = dvr::d3d9ex::shadow_twin(self)) { ++g_shadowDirty; return ((IDirect3DCubeTexture9*)t)->AddDirtyRect(face, rc); }
     return g_origCubeDirty(self, face, rc);
 }
@@ -460,16 +453,15 @@ HRESULT __stdcall hkSurfLockRect(IDirect3DSurface9* self, D3DLOCKED_RECT* lr, co
     SurfEnt e = {};
     if (!surf_read(self, &e)) return g_origSurfLock(self, lr, rc, flags);
     ++g_surfLock;
-    const bool shadowed = dvr::d3d9ex::shadow_twin(e.parent) != nullptr;
+    const bool shadowed = dvr::d3d9ex::shadow_tracked(e.parent);
     if (shadowed) ++g_surfLockShadowed;
     if (shadowed && g_surfLever) {
+        const HRESULT phr=dvr::d3d9ex::paged_lock_rect(e.parent,(int)e.level,e.face,lr,rc,flags);
+        if(phr!=S_FALSE){ if(SUCCEEDED(phr)){++g_surfRedirect;if(g_csInit)EnterCriticalSection(&g_cs);if(SurfEnt* se=surf_slot(self,false))se->pagedLocked=true;if(g_csInit)LeaveCriticalSection(&g_cs);}else{++g_surfRedirectFail;if(g_surfFirstHr==S_OK)g_surfFirstHr=phr;} return phr; }
         if (IDirect3DSurface9* ts = twin_surface(e)) {
             const HRESULT hr = ts->LockRect(lr, rc, flags);
             if (SUCCEEDED(hr)) { ++g_surfRedirect; surf_set_locked(self, ts); return hr; }
-            ++g_surfRedirectFail;
-            ts->Release();
-            if (g_surfFirstHr == S_OK) g_surfFirstHr = hr;
-            return hr;
+            ++g_surfRedirectFail; ts->Release(); if (g_surfFirstHr == S_OK) g_surfFirstHr = hr; return hr;
         }
     }
     const HRESULT hr = g_origSurfLock(self, lr, rc, flags);
@@ -480,18 +472,13 @@ HRESULT __stdcall hkSurfUnlockRect(IDirect3DSurface9* self) {
     dvr::native_profile::Scope timing(dvr::native_profile::SurfUnlockRectInclusive);
     SurfEnt e = {};
     surf_read(self, &e);
-    if (e.lockedTwin) {
-        surf_set_locked(self, nullptr);
-        const HRESULT hr = e.lockedTwin->UnlockRect();
-        e.lockedTwin->Release();
-        dvr::d3d9ex::shadow_unlocked(e.parent, (int)e.level, e.face);   // the level this surface IS
-        return hr;
-    }
+    if(e.pagedLocked){ if(g_csInit)EnterCriticalSection(&g_cs);if(SurfEnt* se=surf_slot(self,false))se->pagedLocked=false;if(g_csInit)LeaveCriticalSection(&g_cs);return dvr::d3d9ex::paged_unlock_rect(e.parent,(int)e.level,e.face); }
+    if (e.lockedTwin) { surf_set_locked(self, nullptr); const HRESULT hr = e.lockedTwin->UnlockRect(); e.lockedTwin->Release(); dvr::d3d9ex::shadow_unlocked(e.parent, (int)e.level, e.face); return hr; }
     return g_origSurfUnlock ? g_origSurfUnlock(self) : D3DERR_INVALIDCALL;
 }
 HRESULT __stdcall hkTexGetSurfaceLevel(IDirect3DTexture9* self, UINT level, IDirect3DSurface9** out) {
     const HRESULT hr = g_origTexGetSurface(self, level, out);
-    if (SUCCEEDED(hr) && out && *out && dvr::d3d9ex::shadow_twin(self)) {
+    if (SUCCEEDED(hr) && out && *out && dvr::d3d9ex::shadow_tracked(self)) {
         ++g_surfHandout;
         patch_surface_class(*out);
         if (g_csInit) EnterCriticalSection(&g_cs);
@@ -502,7 +489,7 @@ HRESULT __stdcall hkTexGetSurfaceLevel(IDirect3DTexture9* self, UINT level, IDir
 }
 HRESULT __stdcall hkCubeGetSurface(IDirect3DCubeTexture9* self, D3DCUBEMAP_FACES face, UINT level, IDirect3DSurface9** out) {
     const HRESULT hr = g_origCubeGetSurface(self, face, level, out);
-    if (SUCCEEDED(hr) && out && *out && dvr::d3d9ex::shadow_twin(self)) {
+    if (SUCCEEDED(hr) && out && *out && dvr::d3d9ex::shadow_tracked(self)) {
         ++g_surfHandout;
         patch_surface_class(*out);
         if (g_csInit) EnterCriticalSection(&g_cs);
@@ -627,6 +614,7 @@ void record(int call, D3DPOOL pool, DWORD usage, D3DFORMAT fmt, uint64_t bytes, 
 // a translated texture exists.
 HRESULT __stdcall hkCreateTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                   IDirect3DTexture9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateTexture(self, w, h, levels, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateTexture(self, w, h, levels, usage, fmt, pool, out, shared);
@@ -635,12 +623,19 @@ HRESULT __stdcall hkCreateTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT l
     if (SUCCEEDED(hr) && out && *out) {
         map_put(*out, (int)asked, kLcTexture); patch_lock_class(kLcTexture, *out);
         if (translated) dvr::d3d9ex::shadow_register_texture(self, *out, w, h, levels, fmt);
+        if (translated && dvr::d3d9ex::shadow_active() && !dvr::d3d9ex::shadow_tracked(*out)) {
+            (*out)->Release(); *out = nullptr;
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 8,
+                "device: texture creation refused because its managed backing could not be allocated");
+            return D3DERR_OUTOFVIDEOMEMORY;
+        }
         dvr::depthprobe::note_texture(*out, w, h, askedUsage, fmt);
     }
     return hr;
 }
 HRESULT __stdcall hkCreateVolumeTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT d, UINT levels, DWORD usage, D3DFORMAT fmt,
                                         D3DPOOL pool, IDirect3DVolumeTexture9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateVolume(self, w, h, d, levels, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateVolume(self, w, h, d, levels, usage, fmt, pool, out, shared);
@@ -649,11 +644,18 @@ HRESULT __stdcall hkCreateVolumeTexture(IDirect3DDevice9* self, UINT w, UINT h, 
     if (SUCCEEDED(hr) && out && *out) {
         map_put(*out, (int)asked, kLcVolume); patch_lock_class(kLcVolume, *out);
         if (translated) dvr::d3d9ex::shadow_register_volume(self, *out, w, h, d, levels, fmt);
+        if (translated && dvr::d3d9ex::shadow_active() && !dvr::d3d9ex::shadow_tracked(*out)) {
+            (*out)->Release(); *out = nullptr;
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 8,
+                "device: texture creation refused because its managed backing could not be allocated");
+            return D3DERR_OUTOFVIDEOMEMORY;
+        }
     }
     return hr;
 }
 HRESULT __stdcall hkCreateCubeTexture(IDirect3DDevice9* self, UINT edge, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                       IDirect3DCubeTexture9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateCube(self, edge, levels, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateCube(self, edge, levels, usage, fmt, pool, out, shared);
@@ -662,11 +664,18 @@ HRESULT __stdcall hkCreateCubeTexture(IDirect3DDevice9* self, UINT edge, UINT le
     if (SUCCEEDED(hr) && out && *out) {
         map_put(*out, (int)asked, kLcCube); patch_lock_class(kLcCube, *out);
         if (translated) dvr::d3d9ex::shadow_register_cube(self, *out, edge, levels, fmt);
+        if (translated && dvr::d3d9ex::shadow_active() && !dvr::d3d9ex::shadow_tracked(*out)) {
+            (*out)->Release(); *out = nullptr;
+            DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 8,
+                "device: texture creation refused because its managed backing could not be allocated");
+            return D3DERR_OUTOFVIDEOMEMORY;
+        }
     }
     return hr;
 }
 HRESULT __stdcall hkCreateVertexBuffer(IDirect3DDevice9* self, UINT len, DWORD usage, DWORD fvf, D3DPOOL pool,
                                        IDirect3DVertexBuffer9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateVb(self, len, usage, fvf, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_buffer(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateVb(self, len, usage, fvf, pool, out, shared);
@@ -677,6 +686,7 @@ HRESULT __stdcall hkCreateVertexBuffer(IDirect3DDevice9* self, UINT len, DWORD u
 }
 HRESULT __stdcall hkCreateIndexBuffer(IDirect3DDevice9* self, UINT len, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                       IDirect3DIndexBuffer9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateIb(self, len, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_buffer(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateIb(self, len, usage, fmt, pool, out, shared);
@@ -687,6 +697,7 @@ HRESULT __stdcall hkCreateIndexBuffer(IDirect3DDevice9* self, UINT len, DWORD us
 }
 HRESULT __stdcall hkCreateRenderTarget(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q,
                                        BOOL lockable, IDirect3DSurface9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateRt(self, w, h, fmt, ms, q, lockable, out, shared);
     const HRESULT hr = g_origCreateRt(self, w, h, fmt, ms, q, lockable, out, shared);
     note_multisample("render target", w, h, fmt, ms, q, hr);
     char ask[96]; _snprintf(ask, sizeof(ask), "rt %ux%u fmt=%d ms=%d lockable=%d shared=%d", w, h, (int)fmt, (int)ms, (int)lockable, shared ? 1 : 0);
@@ -695,6 +706,7 @@ HRESULT __stdcall hkCreateRenderTarget(IDirect3DDevice9* self, UINT w, UINT h, D
 }
 HRESULT __stdcall hkCreateDepthStencil(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q,
                                        BOOL discard, IDirect3DSurface9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateDs(self, w, h, fmt, ms, q, discard, out, shared);
     const HRESULT hr = g_origCreateDs(self, w, h, fmt, ms, q, discard, out, shared);
     note_multisample("depth surface", w, h, fmt, ms, q, hr);
     char ask[96]; _snprintf(ask, sizeof(ask), "ds %ux%u fmt=%d ms=%d discard=%d", w, h, (int)fmt, (int)ms, (int)discard);
@@ -703,6 +715,7 @@ HRESULT __stdcall hkCreateDepthStencil(IDirect3DDevice9* self, UINT w, UINT h, D
 }
 HRESULT __stdcall hkCreateOffscreenPlain(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DPOOL pool,
                                          IDirect3DSurface9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateOffscreen(self, w, h, fmt, pool, out, shared);
     const HRESULT hr = g_origCreateOffscreen(self, w, h, fmt, pool, out, shared);
     char ask[96]; _snprintf(ask, sizeof(ask), "offscreen %ux%u fmt=%d pool=%d", w, h, (int)fmt, (int)pool);
     record(kOffscreenPlain, pool, 0, fmt, texture_bytes(w, h, 1, 1, fmt, 1), hr, ask);

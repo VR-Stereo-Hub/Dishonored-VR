@@ -37,6 +37,16 @@ struct AlphaParams {
     int   mode = 0;
     float gain = 1.0f, floorA = 0.0f, gamma = 1.0f, mixK = 1.0f;
     float backdrop[4] = {0, 0, 0, 0};   // r, g, b, a (a = 0: no plate)
+
+    // SUBREAD1: only populated for the isolated subtitles sink.
+    int   subtitle = 0;
+    int   subtitleColor = 0;             // 0 original, 1 white, 2 warm yellow
+    float subtitleOutline = 0.0f;        // black outline alpha
+    float subtitleBackground = 0.0f;     // black band alpha
+    float subtitleColorRgb[3] = {1,1,1};
+    float subtitleOutlinePx = 1.5f;
+    float subtitleRect[4] = {0,0,0,0};   // normalised full sink/backbuffer rectangle
+    float invSize[2] = {0,0};            // 1/output width,height
 };
 
 class BlitQuad {

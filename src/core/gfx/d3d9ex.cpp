@@ -7,13 +7,14 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 
 namespace dvr::d3d9ex {
 namespace {
 
 bool    g_exWanted = false;
 Managed g_managed = Managed::Shadow;
-const char* const kManagedNames[4] = {"none", "default", "dynamic", "shadow"};
+const char* const kManagedNames[5] = {"none", "default", "dynamic", "shadow", "paged"};
 
 IDirect3D9Ex* g_exObjects[4] = {};
 int           g_exCount = 0;
@@ -47,6 +48,15 @@ HRESULT  g_shadowLevelFirstHr = S_OK;
 // nothing to push. Pure saved work - this game takes 12408 of them per load.
 uint32_t g_shadowSkippedReadOnly = 0;
 uint64_t g_shadowBytes = 0;
+uint64_t g_pagedBytes = 0;
+uint32_t g_pagedSections = 0, g_pagedLocks = 0, g_pagedMapFailed = 0;
+uint64_t g_pagedMappedBytes = 0, g_pagedMappedPeak = 0, g_pagedUploadBytes = 0;
+uint64_t g_pagedMapUs = 0, g_pagedUploadUs = 0, g_pagedMaxUploadUs = 0;
+uint32_t g_stageHits = 0, g_stageMisses = 0;
+uint64_t elapsed_us(LARGE_INTEGER start) {
+    LARGE_INTEGER now, frequency; QueryPerformanceCounter(&now); QueryPerformanceFrequency(&frequency);
+    return (uint64_t)((now.QuadPart - start.QuadPart) * 1000000 / frequency.QuadPart);
+}
 
 // the twin map: real -> twin, open addressing. Removal leaves a tombstone
 // (real = the map itself, never a texture pointer) that lookups skip and
@@ -59,35 +69,116 @@ constexpr int kProbe = 512;
 // roMask: bit N set = level N's most recent lock was READONLY, so its unlock
 // has nothing to push. surfaceRefused: this texture's format already refused
 // UpdateSurface once; do not pay for the attempt again.
-struct Ent { void* real; IDirect3DBaseTexture9* twin; uint32_t updates; uint16_t roMask; uint8_t surfaceRefused; };
+enum class ShadowKind : uint8_t { Legacy = 0, Paged2D = 1, PagedCube = 2 };
+struct Ent {
+    void* real;
+    IDirect3DBaseTexture9* twin;          // legacy shadow (and paged volume fallback)
+    HANDLE section;                      // TEXTURE-MEM1 pagefile backing for 2D/cube
+    void* activeView;                    // only non-null while a paged mip is locked
+    BYTE* activeLevelBase;               // level start inside activeView
+    SIZE_T activeViewBytes;
+    uint64_t sectionBytes;
+    UINT w, h, d, levels;
+    D3DFORMAT fmt;
+    uint32_t updates;
+    uint16_t roMask;
+    uint8_t surfaceRefused;
+    uint8_t kind;
+    uint16_t activeLocks;
+    int16_t activeLevel;
+    int8_t activeFace;
+    uint8_t activeReadOnly;
+};
 Ent g_map[kMap];
 int g_mapCount = 0;
 int g_mapTombs = 0;
 uint32_t g_mapFull = 0;
-CRITICAL_SECTION g_cs;
-bool g_csInit = false;
 
-void cs_init() { if (!g_csInit) { InitializeCriticalSection(&g_cs); g_csInit = true; } }
+// TEXTURE-MEM1.2: Dishonored may keep more than one mip of the SAME texture
+// locked at once while streaming. TEST1/1.1 stored only one active mapping in
+// Ent, so the second LockRect returned D3DERR_INVALIDCALL even though it was a
+// different mip. Track short-lived mappings independently by texture/face/mip.
+// The table is bounded and holds only currently locked views; it is not a
+// persistent shadow copy and therefore does not recreate the 32-bit VA leak.
+constexpr int kPagedLockMap = 8192;
+constexpr int kPagedLockProbe = 128;
+struct PagedLockEnt {
+    void* real;
+    void* view;
+    BYTE* levelBase;
+    SIZE_T viewBytes;
+    int16_t level;
+    int8_t face;
+    uint8_t readOnly;
+    bool unlocking;
+};
+PagedLockEnt g_pagedLockMap[kPagedLockMap] = {};
+void* const kPagedLockTomb = (void*)&g_pagedLockMap;
+uint32_t g_pagedLockMapFull = 0, g_pagedConcurrent = 0, g_pagedConcurrentMax = 0;
+
+inline uint32_t paged_lock_hash(void* real, int level, int face) {
+    uint32_t h = (uint32_t)((uintptr_t)real >> 4) * 2654435761u;
+    h ^= (uint32_t)(level + 1) * 0x9e3779b9u;
+    h ^= (uint32_t)(face + 2) * 0x85ebca6bu;
+    return h;
+}
+PagedLockEnt* paged_lock_find(void* real, int level, int face) {
+    const uint32_t h = paged_lock_hash(real, level, face);
+    for (int i = 0; i < kPagedLockProbe; ++i) {
+        PagedLockEnt& e = g_pagedLockMap[(h + i) % kPagedLockMap];
+        if (e.real == real && e.level == level && e.face == face) return &e;
+        if (e.real == nullptr) return nullptr;
+    }
+    return nullptr;
+}
+PagedLockEnt* paged_lock_alloc(void* real, int level, int face) {
+    const uint32_t h = paged_lock_hash(real, level, face);
+    PagedLockEnt* tomb = nullptr;
+    for (int i = 0; i < kPagedLockProbe; ++i) {
+        PagedLockEnt& e = g_pagedLockMap[(h + i) % kPagedLockMap];
+        if (e.real == real && e.level == level && e.face == face) return nullptr;
+        if (e.real == kPagedLockTomb) { if (!tomb) tomb = &e; continue; }
+        if (e.real == nullptr) { PagedLockEnt* dst = tomb ? tomb : &e; *dst = {}; dst->real=real; dst->level=(int16_t)level; dst->face=(int8_t)face; return dst; }
+    }
+    if (tomb) { *tomb = {}; tomb->real=real; tomb->level=(int16_t)level; tomb->face=(int8_t)face; return tomb; }
+    ++g_pagedLockMapFull;
+    return nullptr;
+}
+void paged_lock_remove(PagedLockEnt* e) {
+    if (!e) return;
+    e->real = kPagedLockTomb; e->view=nullptr; e->levelBase=nullptr; e->viewBytes=0;
+    e->level=-1; e->face=-1; e->readOnly=0; e->unlocking=false;
+}
+CRITICAL_SECTION g_cs;
+CRITICAL_SECTION g_stageCs;
+bool g_csInit = false;
+bool g_stageCsInit = false;
+
+void cs_init() { if (!g_csInit) { InitializeCriticalSection(&g_cs); g_csInit = true; } if(!g_stageCsInit){InitializeCriticalSection(&g_stageCs);g_stageCsInit=true;} }
 
 inline uint32_t hash_ptr(void* p) { return (uint32_t)((uintptr_t)p >> 4) * 2654435761u; }
 void* const kTomb = (void*)&g_map;
 
+void ent_reset_payload(Ent& e) {
+    e.twin = nullptr; e.section = nullptr; e.activeView = nullptr; e.activeLevelBase = nullptr;
+    e.activeViewBytes = 0; e.sectionBytes = 0; e.w = e.h = e.d = e.levels = 0; e.fmt = D3DFMT_UNKNOWN;
+    e.activeLocks = 0; e.updates = 0; e.roMask = 0; e.surfaceRefused = 0; e.kind = (uint8_t)ShadowKind::Legacy;
+    e.activeLevel = -1; e.activeFace = -1; e.activeReadOnly = 0;
+}
 bool map_put(void* real, IDirect3DBaseTexture9* twin) {
     const uint32_t h = hash_ptr(real);
     Ent* tomb = nullptr;
     for (int i = 0; i < kProbe; ++i) {
         Ent& e = g_map[(h + i) % kMap];
-        if (e.real == real) { e.twin = twin; e.updates = 0; e.roMask = 0; e.surfaceRefused = 0; return true; }
+        if (e.real == real) { ent_reset_payload(e); e.twin = twin; return true; }
         if (e.real == kTomb) { if (!tomb) tomb = &e; continue; }
         if (e.real == nullptr) {
             Ent& slot = tomb ? *tomb : e;
             if (tomb) --g_mapTombs;
-            slot.real = real; slot.twin = twin; slot.updates = 0; slot.roMask = 0; slot.surfaceRefused = 0;
-            ++g_mapCount;
-            return true;
+            slot.real = real; ent_reset_payload(slot); slot.twin = twin; ++g_mapCount; return true;
         }
     }
-    if (tomb) { tomb->real = real; tomb->twin = twin; tomb->updates = 0; tomb->roMask = 0; tomb->surfaceRefused = 0; --g_mapTombs; ++g_mapCount; return true; }
+    if (tomb) { tomb->real = real; ent_reset_payload(*tomb); tomb->twin = twin; --g_mapTombs; ++g_mapCount; return true; }
     ++g_mapFull;
     return false;
 }
@@ -100,7 +191,7 @@ Ent* map_find(void* real) {
     }
     return nullptr;
 }
-void map_remove(Ent* e) { e->real = kTomb; e->twin = nullptr; e->updates = 0; e->roMask = 0; e->surfaceRefused = 0; --g_mapCount; ++g_mapTombs; }
+void map_remove(Ent* e) { e->real = kTomb; ent_reset_payload(*e); --g_mapCount; ++g_mapTombs; }
 
 // PERF (2026-09-18): the streaming time series. The census only counted
 // uploads since load, which cannot say whether uploads line up with a hitch.
@@ -120,6 +211,7 @@ StreamBucket* stream_bucket() {
     return &b;
 }
 // Bytes of one w x h level of fmt (block formats round up to 4x4 blocks).
+uint32_t fmt_bpp(D3DFORMAT fmt);
 uint64_t level_bytes(D3DFORMAT fmt, UINT w, UINT h) {
     if (!w) w = 1; if (!h) h = 1;
     switch ((DWORD)fmt) {
@@ -130,8 +222,8 @@ uint64_t level_bytes(D3DFORMAT fmt, UINT w, UINT h) {
     case D3DFMT_A32B32G32R32F: return (uint64_t)w * h * 16;
     case D3DFMT_L8: case D3DFMT_A8: case D3DFMT_P8: return (uint64_t)w * h;
     case D3DFMT_R5G6B5: case D3DFMT_A1R5G5B5: case D3DFMT_X1R5G5B5: case D3DFMT_A4R4G4B4:
-    case D3DFMT_L16: case D3DFMT_A8L8: case D3DFMT_V8U8: case D3DFMT_R16F: return (uint64_t)w * h * 2;
-    default: return (uint64_t)w * h * 4;
+    case D3DFMT_X4R4G4B4: case D3DFMT_A8R3G3B2: case D3DFMT_A8P8: case D3DFMT_L16: case D3DFMT_A8L8: case D3DFMT_V8U8: case D3DFMT_R16F: return (uint64_t)w * h * 2;
+    default: return (uint64_t)w * h * fmt_bpp(fmt);
     }
 }
 uint64_t chain_bytes(D3DFORMAT fmt, UINT w, UINT h, UINT levels) {
@@ -145,14 +237,235 @@ uint64_t chain_bytes(D3DFORMAT fmt, UINT w, UINT h, UINT levels) {
     return sum;
 }
 
+// ---- TEXTURE-MEM1: pagefile-backed managed texture shadow ----------------------
+// The old SYSTEMMEM twin is correct but permanently maps every copy into this
+// 32-bit process. Large packs can exhaust address ranges even with ample
+// physical/VRAM. Managed=paged keeps the CPU copy in
+// a pagefile section object and maps only the mip currently being locked.
+uint32_t fmt_block_bytes(D3DFORMAT fmt) {
+    switch ((DWORD)fmt) {
+    case D3DFMT_DXT1: return 8;
+    case D3DFMT_DXT2: case D3DFMT_DXT3: case D3DFMT_DXT4: case D3DFMT_DXT5:
+    case MAKEFOURCC('A','T','I','2'): return 16;
+    default: return 0;
+    }
+}
+uint32_t fmt_bpp(D3DFORMAT fmt) {
+    switch ((DWORD)fmt) {
+    case D3DFMT_L8: case D3DFMT_A8: case D3DFMT_P8: case D3DFMT_A4L4: return 1;
+    case D3DFMT_R8G8B8: return 3;
+    case D3DFMT_R5G6B5: case D3DFMT_A1R5G5B5: case D3DFMT_X1R5G5B5: case D3DFMT_A4R4G4B4:
+    case D3DFMT_X4R4G4B4: case D3DFMT_A8R3G3B2: case D3DFMT_A8P8: case D3DFMT_L16: case D3DFMT_A8L8: case D3DFMT_V8U8: case D3DFMT_R16F: return 2;
+    case D3DFMT_A16B16G16R16F: case D3DFMT_A16B16G16R16: case D3DFMT_G32R32F: return 8;
+    case D3DFMT_A32B32G32R32F: return 16;
+    case D3DFMT_A8R8G8B8: case D3DFMT_X8R8G8B8: case D3DFMT_A8B8G8R8: case D3DFMT_X8B8G8R8:
+    case D3DFMT_A2R10G10B10: case D3DFMT_A2B10G10R10: case D3DFMT_G16R16: case D3DFMT_V16U16:
+    case D3DFMT_Q8W8V8U8: case D3DFMT_X8L8V8U8: case D3DFMT_A2W10V10U10: case D3DFMT_R32F: case D3DFMT_G16R16F: return 4;
+    case D3DFMT_R3G3B2: return 1;
+    case D3DFMT_Q16W16V16U16: return 8;
+    default: return 0;
+    }
+}
+void level_layout(D3DFORMAT fmt, UINT w, UINT h, UINT level, UINT* outW, UINT* outH, UINT* pitch, UINT* rows, uint64_t* off, uint64_t* bytes) {
+    uint64_t o = 0;
+    for (UINT i = 0; i < level; ++i) { o += level_bytes(fmt, w, h); w = w > 1 ? w/2 : 1; h = h > 1 ? h/2 : 1; }
+    const uint32_t block = fmt_block_bytes(fmt);
+    const UINT p = block ? ((w + 3) / 4) * block : w * fmt_bpp(fmt);
+    const UINT r = block ? ((h + 3) / 4) : h;
+    if (outW) *outW = w; if (outH) *outH = h; if (pitch) *pitch = p; if (rows) *rows = r;
+    if (off) *off = o; if (bytes) *bytes = (uint64_t)p * r;
+}
+uint64_t paged_total_bytes(ShadowKind kind, D3DFORMAT fmt, UINT w, UINT h, UINT levels) {
+    const uint64_t face = chain_bytes(fmt, w, h, levels);
+    return kind == ShadowKind::PagedCube ? face * 6 : face;
+}
+HANDLE make_page_section(uint64_t bytes) {
+    if (!bytes) bytes = 1;
+    return CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, (DWORD)(bytes >> 32), (DWORD)bytes, nullptr);
+}
+bool paged_register(void* real, ShadowKind kind, UINT w, UINT h, UINT levels, D3DFORMAT fmt) {
+    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Info, 1,
+        "device/paged: TEXTURE-MEM1.2 ACTIVE - pagefile-backed managed textures; concurrent mip/face locks supported; staging cache target 128 MiB (one larger texture may exceed it)");
+    if (!fmt_block_bytes(fmt) && !fmt_bpp(fmt)) {
+        ++g_shadowFailed; DVR_ERROR("device/paged: unsupported texture layout fmt=%u", (unsigned)fmt); return false;
+    }
+    const uint64_t bytes = paged_total_bytes(kind, fmt, w, h, levels);
+    HANDLE sec = make_page_section(bytes);
+    if (!sec) {
+        ++g_shadowFailed;
+        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 5,
+            "device/paged: CreateFileMapping for texture %p %.1f MB refused winerr=%lu", real, bytes/1048576.0, GetLastError());
+        return false;
+    }
+    EnterCriticalSection(&g_cs);
+    const bool ok = map_put(real, nullptr);
+    Ent* e = ok ? map_find(real) : nullptr;
+    if (e) { e->section=sec; e->sectionBytes=bytes; e->kind=(uint8_t)kind; e->w=w; e->h=h; e->d=1; e->levels=levels; e->fmt=fmt; ++g_shadowMade; ++g_pagedSections; g_pagedBytes += bytes; }
+    LeaveCriticalSection(&g_cs);
+    if (!e) { CloseHandle(sec); ++g_shadowFailed; return false; }
+    return true;
+}
+// TEXTURE-MEM1.1: bounded FULL-CHAIN staging cache.
+//
+// The community patch notes describe an earlier one-level SYSTEMMEM texture whose base dimensions were the
+// locked mip dimensions. That looks equivalent, but some D3D9 drivers reject
+// UpdateSurface from that standalone surface into a sublevel of a larger
+// compressed texture (TEST1 failed immediately on level 6 with 0x8876017c).
+// The proven Managed=shadow path uploads from the SAME mip level of a full
+// SYSTEMMEM twin. Mirror that exact topology here, but keep only a small global
+// cache instead of one permanent twin per game texture.
+struct StageEnt {
+    IDirect3DBaseTexture9* tex;
+    ShadowKind kind;
+    UINT w, h, levels;
+    D3DFORMAT fmt;
+    uint64_t bytes;
+    ULONGLONG stamp;
+};
+constexpr int kStageCount = 8;
+constexpr uint64_t kStageCapBytes = 128ull * 1024 * 1024;
+StageEnt g_stage[kStageCount] = {};
+uint64_t g_stageBytes = 0;
+
+void stage_drop(int i) {
+    if (i < 0 || i >= kStageCount || !g_stage[i].tex) return;
+    g_stage[i].tex->Release();
+    if (g_stageBytes >= g_stage[i].bytes) g_stageBytes -= g_stage[i].bytes;
+    g_stage[i] = {};
+}
+
+IDirect3DBaseTexture9* stage_get(ShadowKind kind, UINT w, UINT h, UINT levels, D3DFORMAT fmt) {
+    const ULONGLONG now = GetTickCount64();
+    for (int i = 0; i < kStageCount; ++i) {
+        if (g_stage[i].tex && g_stage[i].kind == kind && g_stage[i].w == w && g_stage[i].h == h &&
+            g_stage[i].levels == levels && g_stage[i].fmt == fmt) {
+            g_stage[i].stamp = now;
+            ++g_stageHits;
+            return g_stage[i].tex;
+        }
+    }
+
+    ++g_stageMisses;
+    const uint64_t need = paged_total_bytes(kind, fmt, w, h, levels);
+    // Keep the cache bounded. A single unusually large texture is allowed, but
+    // all older staging entries are discarded before creating it.
+    while (g_stageBytes && (g_stageBytes + need > kStageCapBytes)) {
+        int oldest = -1; ULONGLONG os = ~0ull;
+        for (int i = 0; i < kStageCount; ++i)
+            if (g_stage[i].tex && g_stage[i].stamp < os) { oldest = i; os = g_stage[i].stamp; }
+        if (oldest < 0) break;
+        stage_drop(oldest);
+    }
+
+    int slot = -1;
+    for (int i = 0; i < kStageCount; ++i) if (!g_stage[i].tex) { slot = i; break; }
+    if (slot < 0) {
+        ULONGLONG os = ~0ull;
+        for (int i = 0; i < kStageCount; ++i) if (g_stage[i].stamp < os) { slot = i; os = g_stage[i].stamp; }
+        if (slot >= 0) stage_drop(slot);
+    }
+    if (slot < 0) return nullptr;
+
+    IDirect3DBaseTexture9* base = nullptr;
+    HRESULT hr = D3DERR_INVALIDCALL;
+    if (kind == ShadowKind::PagedCube) {
+        IDirect3DCubeTexture9* t = nullptr;
+        hr = g_dev->CreateCubeTexture(w, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &t, nullptr);
+        base = t;
+    } else {
+        IDirect3DTexture9* t = nullptr;
+        hr = g_dev->CreateTexture(w, h, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &t, nullptr);
+        base = t;
+    }
+    if (FAILED(hr) || !base) {
+        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 8,
+            "device/paged: full-chain staging create %ux%u levels=%u fmt=%u kind=%u refused 0x%08lx",
+            w, h, levels, (unsigned)fmt, (unsigned)kind, (unsigned long)hr);
+        if (base) base->Release();
+        return nullptr;
+    }
+
+    g_stage[slot].tex = base;
+    g_stage[slot].kind = kind;
+    g_stage[slot].w = w;
+    g_stage[slot].h = h;
+    g_stage[slot].levels = levels;
+    g_stage[slot].fmt = fmt;
+    g_stage[slot].bytes = need;
+    g_stage[slot].stamp = now;
+    g_stageBytes += need;
+    return base;
+}
+
+HRESULT paged_upload_level(Ent& snap) {
+    if (!g_dev || !snap.activeLevelBase || snap.activeLevel < 0) return D3DERR_INVALIDCALL;
+    const ShadowKind kind = (ShadowKind)snap.kind;
+    if (kind != ShadowKind::Paged2D && kind != ShadowKind::PagedCube) return D3DERR_INVALIDCALL;
+
+    UINT lw=0, lh=0, pitch=0, rows=0; uint64_t off=0, bytes=0;
+    level_layout(snap.fmt, snap.w, snap.h, (UINT)snap.activeLevel, &lw, &lh, &pitch, &rows, &off, &bytes);
+
+    EnterCriticalSection(&g_stageCs);
+    IDirect3DBaseTexture9* base = stage_get(kind, snap.w, snap.h, snap.levels, snap.fmt);
+    if (!base) { LeaveCriticalSection(&g_stageCs); return D3DERR_OUTOFVIDEOMEMORY; }
+
+    D3DLOCKED_RECT tr = {};
+    HRESULT hr = D3DERR_INVALIDCALL;
+    if (kind == ShadowKind::PagedCube) {
+        hr = ((IDirect3DCubeTexture9*)base)->LockRect((D3DCUBEMAP_FACES)snap.activeFace,
+                                                      (UINT)snap.activeLevel, &tr, nullptr, 0);
+    } else {
+        hr = ((IDirect3DTexture9*)base)->LockRect((UINT)snap.activeLevel, &tr, nullptr, 0);
+    }
+
+    if (SUCCEEDED(hr)) {
+        const BYTE* src = snap.activeLevelBase;
+        BYTE* dst = (BYTE*)tr.pBits;
+        const UINT copyPitch = (tr.pBits && tr.Pitch >= (INT)pitch) ? pitch : 0;
+        for (UINT y = 0; y < rows; ++y)
+            memcpy(dst + (size_t)y * tr.Pitch, src + (size_t)y * pitch, copyPitch);
+
+        if (kind == ShadowKind::PagedCube)
+            ((IDirect3DCubeTexture9*)base)->UnlockRect((D3DCUBEMAP_FACES)snap.activeFace, (UINT)snap.activeLevel);
+        else
+            ((IDirect3DTexture9*)base)->UnlockRect((UINT)snap.activeLevel);
+
+        if (!copyPitch) { LeaveCriticalSection(&g_stageCs); return D3DERR_INVALIDCALL; }
+        IDirect3DSurface9 *ss = nullptr, *ds = nullptr;
+        if (kind == ShadowKind::PagedCube) {
+            ((IDirect3DCubeTexture9*)base)->GetCubeMapSurface((D3DCUBEMAP_FACES)snap.activeFace,
+                                                              (UINT)snap.activeLevel, &ss);
+            ((IDirect3DCubeTexture9*)snap.real)->GetCubeMapSurface((D3DCUBEMAP_FACES)snap.activeFace,
+                                                                   (UINT)snap.activeLevel, &ds);
+        } else {
+            ((IDirect3DTexture9*)base)->GetSurfaceLevel((UINT)snap.activeLevel, &ss);
+            ((IDirect3DTexture9*)snap.real)->GetSurfaceLevel((UINT)snap.activeLevel, &ds);
+        }
+        if (ss && ds) hr = g_dev->UpdateSurface(ss, nullptr, ds, nullptr);
+        else hr = D3DERR_INVALIDCALL;
+        if (ss) ss->Release();
+        if (ds) ds->Release();
+    }
+
+    LeaveCriticalSection(&g_stageCs);
+    return hr;
+}
+
 } // namespace
+
+void clear_staging() {
+    if (!g_stageCsInit) return;
+    EnterCriticalSection(&g_stageCs);
+    for (int i=0; i<kStageCount; ++i) stage_drop(i);
+    LeaveCriticalSection(&g_stageCs);
+}
 
 bool parse_managed(const char* s, Managed* out) {
     if (!s || !out) return false;
-    for (int i = 0; i < 4; ++i) if (!_stricmp(s, kManagedNames[i])) { *out = (Managed)i; return true; }
+    for (int i = 0; i < 5; ++i) if (!_stricmp(s, kManagedNames[i])) { *out = (Managed)i; return true; }
     return false;
 }
-const char* managed_name(Managed m) { return kManagedNames[(int)m & 3]; }
+const char* managed_name(Managed m) { const int i = (int)m; return kManagedNames[(i >= 0 && i < 5) ? i : 0]; }
 
 void set_config(bool ex, Managed m) {
     g_exWanted = ex;
@@ -264,6 +577,7 @@ HRESULT create_device(IDirect3D9* self, UINT adapter, D3DDEVTYPE type, HWND wnd,
              : g_managed == Managed::None ? "passed through and REFUSED by 9Ex (Managed=none: the measurement)"
              : g_managed == Managed::Default ? "DEFAULT (buffers lockable; textures LOSE their locks: the A/B)"
              : g_managed == Managed::Dynamic ? "DEFAULT + DYNAMIC on textures (READONLY locks read uncached VRAM)"
+             : g_managed == Managed::Paged ? "DEFAULT with TEXTURE-MEM1 pagefile shadow (only the locked mip is mapped)"
                                              : "DEFAULT with a SYSTEMMEM shadow twin per texture (locks redirected)");
     return hr;
 }
@@ -322,7 +636,8 @@ void shadow_put(void* real, IDirect3DBaseTexture9* twin, uint64_t bytes) {
 } // namespace
 
 void shadow_register_texture(IDirect3DDevice9* dev, IDirect3DTexture9* real, UINT w, UINT h, UINT levels, D3DFORMAT fmt) {
-    if (g_managed != Managed::Shadow || !dev || !real) return;
+    if ((g_managed != Managed::Shadow && g_managed != Managed::Paged) || !dev || !real) return;
+    if (g_managed == Managed::Paged && (fmt_block_bytes(fmt) || fmt_bpp(fmt))) { paged_register(real, ShadowKind::Paged2D, w, h, real->GetLevelCount(), fmt); return; }
     IDirect3DTexture9* twin = nullptr;
     const HRESULT hr = dev->CreateTexture(w, h, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &twin, nullptr);
     if (FAILED(hr) || !twin) {
@@ -339,7 +654,8 @@ void shadow_register_texture(IDirect3DDevice9* dev, IDirect3DTexture9* real, UIN
     InterlockedExchangeAdd(&b->createKB, (LONG)(chain_bytes(fmt, w, h, levels) / 1024));
 }
 void shadow_register_cube(IDirect3DDevice9* dev, IDirect3DCubeTexture9* real, UINT edge, UINT levels, D3DFORMAT fmt) {
-    if (g_managed != Managed::Shadow || !dev || !real) return;
+    if ((g_managed != Managed::Shadow && g_managed != Managed::Paged) || !dev || !real) return;
+    if (g_managed == Managed::Paged && (fmt_block_bytes(fmt) || fmt_bpp(fmt))) { paged_register(real, ShadowKind::PagedCube, edge, edge, real->GetLevelCount(), fmt); return; }
     IDirect3DCubeTexture9* twin = nullptr;
     const HRESULT hr = dev->CreateCubeTexture(edge, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &twin, nullptr);
     if (FAILED(hr) || !twin) {
@@ -356,7 +672,9 @@ void shadow_register_cube(IDirect3DDevice9* dev, IDirect3DCubeTexture9* real, UI
     InterlockedExchangeAdd(&b->createKB, (LONG)(chain_bytes(fmt, edge, edge, levels) * 6 / 1024));
 }
 void shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* real, UINT w, UINT h, UINT d, UINT levels, D3DFORMAT fmt) {
-    if (g_managed != Managed::Shadow || !dev || !real) return;
+    // TEXTURE-MEM1 keeps volume textures on the proven legacy twin path: D3D9
+    // has no UpdateSurface equivalent for IDirect3DVolume9 sublevels.
+    if ((g_managed != Managed::Shadow && g_managed != Managed::Paged) || !dev || !real) return;
     IDirect3DVolumeTexture9* twin = nullptr;
     const HRESULT hr = dev->CreateVolumeTexture(w, h, d, levels, 0, fmt, D3DPOOL_SYSTEMMEM, &twin, nullptr);
     if (FAILED(hr) || !twin) {
@@ -368,6 +686,122 @@ void shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* real
         return;
     }
     shadow_put(real, twin, (uint64_t)w * h * d * 4);
+}
+
+bool paged_active() { return translating() && g_managed == Managed::Paged; }
+bool shadow_tracked(void* real) {
+    if (!g_csInit || g_mapCount==0) return false; EnterCriticalSection(&g_cs); const bool yes=map_find(real)!=nullptr; LeaveCriticalSection(&g_cs); return yes;
+}
+bool paged_dirty(void* real) {
+    if (!paged_active() || !g_csInit) return false; EnterCriticalSection(&g_cs); Ent* e=map_find(real);
+    const bool yes=e && ((ShadowKind)e->kind==ShadowKind::Paged2D || (ShadowKind)e->kind==ShadowKind::PagedCube); LeaveCriticalSection(&g_cs); return yes;
+}
+HRESULT paged_lock_rect(void* real, int level, int face, D3DLOCKED_RECT* lr, const RECT* rc, DWORD flags) {
+    if (!paged_active() || !g_csInit) return S_FALSE;
+    EnterCriticalSection(&g_cs);
+    Ent* e = map_find(real);
+    if (!e || ((ShadowKind)e->kind != ShadowKind::Paged2D && (ShadowKind)e->kind != ShadowKind::PagedCube)) {
+        LeaveCriticalSection(&g_cs); return S_FALSE;
+    }
+    if (!lr || level < 0 || (UINT)level >= e->levels ||
+        ((ShadowKind)e->kind == ShadowKind::PagedCube ? (face < 0 || face > 5) : face != -1) ||
+        (flags & (D3DLOCK_DISCARD | D3DLOCK_NOOVERWRITE)) || paged_lock_find(real, level, face)) {
+        LeaveCriticalSection(&g_cs); return D3DERR_INVALIDCALL;
+    }
+    UINT lw=0, lh=0, pitch=0, rows=0; uint64_t offset=0, bytes=0;
+    level_layout(e->fmt, e->w, e->h, (UINT)level, &lw, &lh, &pitch, &rows, &offset, &bytes);
+    const uint32_t block = fmt_block_bytes(e->fmt);
+    if (rc && (rc->left < 0 || rc->top < 0 || rc->right <= rc->left || rc->bottom <= rc->top ||
+        (UINT)rc->right > lw || (UINT)rc->bottom > lh ||
+        (block && ((rc->left % 4) || (rc->top % 4) ||
+            ((rc->right % 4) && (UINT)rc->right != lw) || ((rc->bottom % 4) && (UINT)rc->bottom != lh))))) {
+        LeaveCriticalSection(&g_cs); return D3DERR_INVALIDCALL;
+    }
+    if ((ShadowKind)e->kind == ShadowKind::PagedCube)
+        offset += chain_bytes(e->fmt, e->w, e->h, e->levels) * (uint64_t)face;
+    SYSTEM_INFO si{}; GetSystemInfo(&si);
+    const uint64_t gran = si.dwAllocationGranularity;
+    const uint64_t aligned = offset - offset % gran;
+    const uint64_t viewBytes = offset - aligned + bytes;
+    if (!bytes || offset > e->sectionBytes || bytes > e->sectionBytes - offset ||
+        viewBytes > SIZE_MAX || pitch > INT_MAX) {
+        LeaveCriticalSection(&g_cs); return D3DERR_INVALIDCALL;
+    }
+    PagedLockEnt* le = paged_lock_alloc(real, level, face);
+    if (!le) { LeaveCriticalSection(&g_cs); return D3DERR_OUTOFVIDEOMEMORY; }
+    // Keep identity and the section alive under the map lock through publication.
+    // Only an OS mapping occurs here, never a D3D call while holding this lock.
+    LARGE_INTEGER start; QueryPerformanceCounter(&start);
+    void* view = MapViewOfFile(e->section, FILE_MAP_ALL_ACCESS, (DWORD)(aligned >> 32), (DWORD)aligned, (SIZE_T)viewBytes);
+    g_pagedMapUs += elapsed_us(start);
+    if (!view) {
+        const DWORD error = GetLastError(); ++g_pagedMapFailed; paged_lock_remove(le);
+        LeaveCriticalSection(&g_cs);
+        DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 8,
+            "device/paged: map texture %p level %d face %d bytes=%llu refused winerr=%lu", real, level, face, viewBytes, error);
+        return D3DERR_OUTOFVIDEOMEMORY;
+    }
+    BYTE* base = (BYTE*)view + (SIZE_T)(offset - aligned);
+    const size_t within = !rc ? 0 : block ? (size_t)(rc->top / 4) * pitch + (size_t)(rc->left / 4) * block
+                                                   : (size_t)rc->top * pitch + (size_t)rc->left * fmt_bpp(e->fmt);
+    le->view=view; le->levelBase=base; le->viewBytes=(SIZE_T)viewBytes; le->readOnly=(flags & D3DLOCK_READONLY) != 0;
+    ++e->activeLocks; ++g_pagedLocks; ++g_pagedConcurrent;
+    if (g_pagedConcurrent > g_pagedConcurrentMax) g_pagedConcurrentMax = g_pagedConcurrent;
+    g_pagedMappedBytes += viewBytes;
+    if (g_pagedMappedBytes > g_pagedMappedPeak) g_pagedMappedPeak = g_pagedMappedBytes;
+    lr->Pitch=(INT)pitch; lr->pBits=base+within;
+    LeaveCriticalSection(&g_cs);
+    return S_OK;
+}
+
+HRESULT paged_unlock_rect(void* real, int level, int face) {
+    if (!paged_active() || !g_csInit) return S_FALSE;
+    Ent snap{}; PagedLockEnt lock{};
+    EnterCriticalSection(&g_cs);
+    Ent* e = map_find(real);
+    if (!e || !e->section) { LeaveCriticalSection(&g_cs); return S_FALSE; }
+    PagedLockEnt* le = paged_lock_find(real, level, face);
+    if (!le || !le->view || le->unlocking) { LeaveCriticalSection(&g_cs); return D3DERR_INVALIDCALL; }
+    le->unlocking = true;
+    snap=*e; lock=*le;
+    snap.activeView=lock.view; snap.activeLevelBase=lock.levelBase; snap.activeViewBytes=lock.viewBytes;
+    snap.activeLevel=(int16_t)level; snap.activeFace=(int8_t)face; snap.activeReadOnly=lock.readOnly;
+    LeaveCriticalSection(&g_cs);
+
+    LARGE_INTEGER start; QueryPerformanceCounter(&start);
+    const HRESULT hr = lock.readOnly ? S_OK : paged_upload_level(snap);
+    const uint64_t uploadUs = lock.readOnly ? 0 : elapsed_us(start);
+    // The caller owns the COM texture through UnlockRect. Keep the subresource
+    // claimed until the upload completes, so a second lock cannot race its data.
+    EnterCriticalSection(&g_cs);
+    le=paged_lock_find(real,level,face);
+    if (le && le->view==lock.view) {
+        UnmapViewOfFile(lock.view); paged_lock_remove(le);
+        --g_pagedConcurrent; g_pagedMappedBytes -= lock.viewBytes;
+        e=map_find(real);
+        if (e && e->section==snap.section) {
+            if (e->activeLocks) --e->activeLocks;
+            if (SUCCEEDED(hr) && !lock.readOnly) ++e->updates;
+        }
+    }
+    if (lock.readOnly) ++g_shadowSkippedReadOnly;
+    else {
+        g_pagedUploadUs += uploadUs;
+        if (uploadUs > g_pagedMaxUploadUs) g_pagedMaxUploadUs = uploadUs;
+        if (SUCCEEDED(hr)) {
+            ++g_shadowUpdates;
+            UINT w=0,h=0,p=0,r=0; uint64_t off=0,bytes=0;
+            level_layout(snap.fmt,snap.w,snap.h,(UINT)level,&w,&h,&p,&r,&off,&bytes);
+            g_pagedUploadBytes += bytes;
+            StreamBucket* b=stream_bucket(); InterlockedIncrement(&b->ups);
+            InterlockedExchangeAdd(&b->upKB,(LONG)(bytes/1024));
+            InterlockedExchangeAdd(&b->upUs,(LONG)uploadUs);
+        } else ++g_shadowUpdateFailed;
+    }
+    LeaveCriticalSection(&g_cs);
+    if (FAILED(hr)) DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 8,
+        "device/paged: upload texture %p level %d face %d refused 0x%08lx",real,level,face,(unsigned long)hr);
+    return hr;
 }
 
 // VR-15: the lock hooks already had to look the twin up, so recording what
@@ -502,11 +936,23 @@ void shadow_released(void* real) {
     if (!g_csInit || g_mapCount == 0) return;
     EnterCriticalSection(&g_cs);
     Ent* e = map_find(real);
-    IDirect3DBaseTexture9* twin = e ? e->twin : nullptr;
+    IDirect3DBaseTexture9* twin = e ? e->twin : nullptr; HANDLE sec=e?e->section:nullptr; const uint64_t secBytes=e?e->sectionBytes:0;
+    // Normally COM cannot release a texture while one of its subresources is
+    // locked. Still clean any outstanding MEM1.2 views defensively so a bad
+    // engine path cannot strand VA or a section handle.
+    for(int i=0; e && e->activeLocks && i<kPagedLockMap; ++i){
+        PagedLockEnt& le=g_pagedLockMap[i];
+        if(le.real==real){
+            if(le.view) { UnmapViewOfFile(le.view); g_pagedMappedBytes -= le.viewBytes; }
+            paged_lock_remove(&le); if(g_pagedConcurrent)--g_pagedConcurrent; --e->activeLocks;
+        }
+    }
     if (e && e->updates == 0) ++g_shadowDroppedNeverUpdated;
     if (e) map_remove(e);
+    if(sec){CloseHandle(sec); if(g_pagedSections) --g_pagedSections; if(g_pagedBytes>=secBytes) g_pagedBytes-=secBytes;}
     LeaveCriticalSection(&g_cs);
-    if (twin) { twin->Release(); ++g_shadowReleased; InterlockedIncrement(&stream_bucket()->releases); }
+    if (twin) twin->Release();
+    if(twin||sec){ ++g_shadowReleased; InterlockedIncrement(&stream_bucket()->releases); }
 }
 
 // VR-15: the twin population, walked on demand only (32768 slots is one
@@ -531,7 +977,7 @@ void shadow_population(int* live, int* neverUpdated, uint32_t* droppedNeverUpdat
     if (droppedNeverUpdated) *droppedNeverUpdated = g_shadowDroppedNeverUpdated;
 }
 
-bool shadow_active() { return translating() && g_managed == Managed::Shadow; }
+bool shadow_active() { return translating() && (g_managed == Managed::Shadow || g_managed == Managed::Paged); }
 
 // VR-15: the per-level push lever.
 void set_full_copy(bool on) {
@@ -559,12 +1005,27 @@ void shadow_levels(uint32_t* subLevelUnlocks, int* maxLevel, uint32_t* copies, u
 
 void log_status() {
     DVR_INFO("device: [Device] Ex=%d Managed=%s | Direct3DCreate9 calls %d (Ex objects %d) | device %s (%s) | "
-             "translated tex=%u (dynamic %u) buf=%u | shadow twins made=%u failed=%u live=%d tombstones=%d of %d slots "
+             "translated tex=%u (dynamic %u) buf=%u | shadow backings made=%u failed=%u live=%d tombstones=%d of %d slots "
              "(%.1f MB asked, uncompressed) updates=%u failed=%u released=%u mapFull=%u",
              g_exWanted ? 1 : 0, managed_name(g_managed), g_createCalls, g_exCount,
              !g_deviceLive ? "not created yet" : g_deviceIsEx ? "IS 9Ex" : "is NOT 9Ex", g_route, g_texTranslated,
              g_texDynamic, g_bufTranslated, g_shadowMade, g_shadowFailed, g_mapCount, g_mapTombs, kMap,
              g_shadowBytes / 1048576.0, g_shadowUpdates, g_shadowUpdateFailed, g_shadowReleased, g_mapFull);
+    if (g_managed == Managed::Paged) {
+        // Staging -> map matches uploads/releases; snapshot under both locks so
+        // the x86 64-bit timing counters cannot tear during streaming.
+        if (g_stageCsInit) EnterCriticalSection(&g_stageCs);
+        if (g_csInit) EnterCriticalSection(&g_cs);
+        DVR_INFO("device/paged: TEXTURE-MEM1.2 sections live=%u backing=%.1f MB (pagefile, not permanent VA) locks=%u concurrent=%u maxConcurrent=%u lockMapFull=%u mapFailures=%u fullChainStaging=%.1f MB/%d slots",
+                 g_pagedSections, g_pagedBytes/1048576.0, g_pagedLocks, g_pagedConcurrent, g_pagedConcurrentMax, g_pagedLockMapFull, g_pagedMapFailed, g_stageBytes/1048576.0, kStageCount);
+        MEMORYSTATUSEX memory{}; memory.dwLength=sizeof(memory); GlobalMemoryStatusEx(&memory);
+        DVR_INFO("device/paged-cost: mapped=%.2fMiB peak=%.2fMiB mapTotal=%.2fms upload=%.2fMiB/%.2fms maxUpload=%.2fms stageHits=%u misses=%u availableCommit=%.1fMiB physicalAvailable=%.1fMiB (faults or disk IO not inferred from these totals)",
+            g_pagedMappedBytes/1048576.0, g_pagedMappedPeak/1048576.0, g_pagedMapUs/1000.0,
+            g_pagedUploadBytes/1048576.0, g_pagedUploadUs/1000.0, g_pagedMaxUploadUs/1000.0,
+            g_stageHits,g_stageMisses,memory.ullAvailPageFile/1048576.0,memory.ullAvailPhys/1048576.0);
+        if (g_csInit) LeaveCriticalSection(&g_cs);
+        if (g_stageCsInit) LeaveCriticalSection(&g_stageCs);
+    }
 }
 
 void status(dvr::status::Writer& w) {
@@ -581,6 +1042,11 @@ void status(dvr::status::Writer& w) {
     w.kv("shadowUpdates", (unsigned long)g_shadowUpdates);
     w.kv("shadowUpdateFailed", (unsigned long)g_shadowUpdateFailed);
     w.kv("shadowFailed", (unsigned long)g_shadowFailed);
+    w.kv("pagedSections", (unsigned long)g_pagedSections);
+    w.kv("pagedBackingMB", (double)(g_pagedBytes / 1048576.0));
+    w.kv("pagedLocks", (unsigned long)g_pagedLocks);
+    w.kv("pagedMapFailed", (unsigned long)g_pagedMapFailed);
+    w.kv("pagedStageMB", (double)(g_stageBytes / 1048576.0));
     int live = 0, never = 0; uint32_t dropped = 0;
     shadow_population(&live, &never, &dropped);
     w.kv("shadowLiveNeverUpdated", never);

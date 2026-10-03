@@ -278,6 +278,14 @@ static bool WriteDefaultIni(const char* ini)
         "; frame drop, which is why this exists. Nothing about what is rendered changes, and\n"
         "; the baseline is restored when the plan ends. `perf ab status|off|restart|seg <ms>`.\n"
         "Ab=0\n"
+        "[ReShade]\n"
+        "; ReShade is optional and off by default. F10 > ReShade enables it for the next launch.\n"
+        "; Install the separate ReShade32.dll runtime with the launcher before enabling.\n"
+        "Enabled=0\n"
+        "; Manual runtime keeps desktop mirror policy and renders effects before VR capture.\n"
+        "; 0 = legacy hooks, 1 = manual runtime (restart required). Depth effects need legacy hooks.\n"
+        "; Scroll Lock toggles effects live. F10 > ReShade adjusts presets and shader settings.\n"
+        "ManualRuntime=1\n"
         "[Device]\n"
         "; Ex=1 creates the game's D3D9 device as D3D9Ex (core/gfx/d3d9ex), which is what lets\n"
         "; [Capture] Mode=shared keep the frame in VRAM (the CPU readback owned the tick at the\n"
@@ -291,6 +299,8 @@ static bool WriteDefaultIni(const char* ini)
         "; (headset-judged 2026-09-03: the Quest 3 size at the headset's rate); Ex=0 is the\n"
         "; plain device and the readback capture, the fallback if the 9Ex device misbehaves.\n"
         "Ex=1\n"
+        "; paged reduces persistent 32-bit address use with temporary mappings; still needs\n"
+        "; system commit and extra upload work. Optional for texture packs; next launch.\n"
         "Managed=shadow\n"
         "; ShadowSurfaces=0|1 (VR-15, the black texture bug). Managed=shadow redirects a lock\n"
         "; taken on the TEXTURE to its system-memory twin, but the game can also take a\n"
@@ -979,12 +989,12 @@ static bool WriteDefaultIni(const char* ini)
         "TrimLRY=7.52\n"
         "TrimLTZ=0.0478\n"
         "TrimLRZ=-1.20\n"
-        "TrimRTX=0.0400\n"
-        "TrimRRX=-42.00\n"
-        "TrimRTY=0.0200\n"
-        "TrimRRY=67.00\n"
-        "TrimRTZ=0.0120\n"
-        "TrimRRZ=3.00\n"
+        "TrimRTX=0.0356\n"
+        "TrimRRX=-36.09\n"
+        "TrimRTY=0.0181\n"
+        "TrimRRY=72.42\n"
+        "TrimRTZ=0.0145\n"
+        "TrimRRZ=17.27\n"
         "; PowerTrim=1: the LEFT hand uses its own trim, TrimLPT*/TrimLPR*, while it holds a power\n"
         "; (seeded from TrimL* when absent). The numpad left modes edit it while a power is out; F10\n"
         "; Hands has sliders for all three. 0 = one left trim for everything.\n"
@@ -1495,6 +1505,12 @@ static bool WriteDefaultIni(const char* ini)
         "Region.vitals=0.000,0.000,0.200,0.270\n"
         "Region.reticle=0.470,0.470,0.530,0.530\n"
         "Region.prompt=0.520,0.460,0.800,0.620\n"
+        "Region.subtitles=0.000,0.000,0.000,0.000\n"
+        "; Custom subtitle readability (SUBREAD1). These affect only the isolated subtitle sink.\n"
+        "SubtitleColor=original\n"
+        "SubtitleOutline=0.000\n"
+        "SubtitleOutlinePx=1.500\n"
+        "SubtitleBackground=0.000\n"
         "; The window (shared by 'window' and 'world'): distance and width in metres; Height 0 =\n"
         "; the texture's aspect, else a centred crop; Up and Lateral offset it in its plane.\n"
         "WindowDistance=1.500\n"
@@ -2189,7 +2205,7 @@ static void LoadConfig()
         char mm[16] = "";
         GetPrivateProfileStringA("Device", "Managed", "shadow", mm, sizeof(mm), ini);
         dvr::d3d9ex::Managed m;
-        if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
+        if (!dvr::d3d9ex::parse_managed(mm, &m)) { Log("config: [Device] Managed='%s' unknown (none|default|dynamic|shadow|paged) - shadow", mm); m = dvr::d3d9ex::Managed::Shadow; }
         dvr::d3d9ex::set_config(ex, m);
         // VR-15: the surface-bypass redirect, default off, live via `device shadowsurfaces`
         dvr::census::set_shadow_surfaces(IniFloat(ini, "Device", "ShadowSurfaces", 0) != 0.0f);
@@ -3815,7 +3831,7 @@ static void DeviceSetEx(bool on, const char* who)
 static void DeviceSetManaged(const char* name, const char* who)
 {
     dvr::d3d9ex::Managed m;
-    if (!dvr::d3d9ex::parse_managed(name, &m)) { Log("device: managed none|default|dynamic|shadow (asked '%s')", name); return; }
+    if (!dvr::d3d9ex::parse_managed(name, &m)) { Log("device: managed none|default|dynamic|shadow|paged (asked '%s')", name); return; }
     char ini[MAX_PATH];
     _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
     WritePrivateProfileStringA("Device", "Managed", dvr::d3d9ex::managed_name(m), ini);

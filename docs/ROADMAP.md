@@ -1,3 +1,18 @@
+## Community texture-pack compatibility and ReShade (2026-10-02, VR-133)
+
+- [x] Audit supplied v1.0.2 source and port onto staging without using donated binaries.
+- [x] Validate concurrent mip/face mappings, native GPU uploads and cleanup in x86 host.
+- [x] Measure VA/commit tradeoff and upload cost; keep paged mode optional.
+- [x] Add launcher/F10 texture selection, optional verified ReShade download and bridge payload.
+- [x] Preserve existing settings; test installer lifecycle and subtitle shader pixels.
+- [x] Baseline headset run reported stable on paged build 257; matching log has no texture failures.
+- [ ] Texture-pack stress and controlled frame-time comparison.
+- [x] ReShade startup/effect appearance accepted in build 264; F10 controller editing accepted in 266.
+- [x] Native sidebar launcher, Overview log collection, ReShade management and readiness audit.
+- [ ] Separate subtitle region/readability acceptance.
+
+Evidence and next test: [PERFORMANCE.md](dishonored/PERFORMANCE.md), community integration.
+
 ## AFW wall stale-test and hand timing follow-up (2026-09-30)
 
 - [x] Preserve build-236 evidence and identify five complete wall-capture frames.

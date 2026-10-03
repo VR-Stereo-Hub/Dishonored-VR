@@ -8,14 +8,14 @@
 
 namespace dvr::setup {
 
-enum class Screen { Setup, Done, Manage, Guide, About };
+enum class Screen { Setup, Done, Manage, Guide, About, Mods, Updates };
 
 enum class UiAction {
     None, Install, Browse, SelectGame, Rescan, Launch, Close, CheckUpdates, DownloadUpdate,
     Update, ChangeSettings, CancelChange, ToggleDisable, CollectSupport,
     Uninstall, ConfirmUninstall, CancelUninstall, ApplyBaseline,
     ShowAbout, OpenKofi, CreditPizza, CreditVoid, CreditGingas, SaveUpdatePreference, OpenReleases, OpenGameFolder, OpenLog, ShowGuide, BackFromGuide, DesktopShortcut, StartShortcut,
-    SaveHeadset
+    InstallReShade, ToggleReShade, RemoveReShade, SaveHeadset, Overview, ShowMods, ShowUpdates, OpenTextureSource, OpenPresetSource
 };
 
 struct ViewState {
@@ -32,6 +32,11 @@ struct ViewState {
     bool changingSettings = false;   // Manage -> Set up, for the choices only
     bool confirmUninstall = false;
     bool deleteIni = false;
+    int settingsPage = 0;
+    bool settingsDraft = false;
+    bool settingsDirty = false;
+    bool confirmPlay = false;
+    bool bindingsOpen = false;
     bool advancedOpen = false;
     bool controlsOpen = false;
     int selectedGame=-1;

@@ -1,3 +1,228 @@
+## 2026-10-03: 1.0.3 release preparation authorized
+
+The maintainer authorized integration of the accepted runtime and audited launcher into
+staging, followed by a release PR from staging to VR-Main. Version metadata is now 1.0.3;
+RELEASE_NOTES contains the supplied release copy with launcher/manual-install scope,
+F10 subtitle availability and ReShade mode wording corrected to match the implementation.
+The contributor credit is explicitly approved for these release notes.
+
+Gameplay evidence remains the matching build-266 run. Installed build 267 changes only
+the launcher, build ordering and documentation; its game runtime is identical to 266.
+Release preparation changes version metadata and documentation only. Preserve public
+ReShade-off and full Stereo defaults and the tester's complete personal INI.
+
+The 1.0.3 patch scope does not close the broader Stable milestone or the remaining
+VR-39/VR-133 research. Held-object AFW flicker and mod-spacewarp are known issues;
+HD texture import remains manual. The release PR is for the maintainer to merge.
+Do not merge VR-Main, tag, publish assets, delete feature branches or mark the broader
+milestone complete as part of preparation. Final release artifacts come from the
+maintainer-merged VR-Main tip. Earlier publication authorization is now resolved.
+
+## 2026-10-03: F10 ReShade accepted; native sidebar launcher audited
+
+Build v1.0.1-266-gf3bd14b91 is headset-accepted for controller operation of the F10
+ReShade tab. Installed DLL hash and banner were verified before reading its normal
+shutdown log. Evidence: main build/texture-reshade-candidate/f10-panel/accepted-run.
+Enabled=0 remains the public default; the tester retains Enabled=1, the Carinth preset,
+the accepted right-hand trims and the local height. See PERFORMANCE.md for runtime evidence.
+
+The native launcher now implements the selected sidebar layout, Display/Controls settings,
+fixed bottom-right Play, Overview Collect logs, Mods, Bindings, Updates and Help/about.
+ReShade runtime install/on/off/removal are wired; removal retains a runtime backup and
+all shader/preset files. HD Texture Pack 2.0 remains manual for the planned 1.0.3 patch.
+Stereo/AFW selection saves only an explicit choice. Unsaved settings survive navigation;
+Play offers return to settings or use of saved values. Apply never reinstalls a present
+mod merely because another operation changed the current screen.
+
+Audit fixes: settings writes preserve actual installed build identity, running-game or
+unreadable-process checks refuse writes, operation/download activity blocks conflicting
+navigation, and the DLAA/DLSS helper is built before the launcher payload is assembled.
+The helper and pinned NVIDIA/AMD DLL payloads now match the built files in scratch tests.
+175 native UI interaction checks pass at 100%, 150% and minimum window size; whole-INI
+install/settings/update/rollback smoke passes. Earlier 86 unit, 57 updater and Unicode
+support-bundle checks pass. Native renders were inspected at 100% and 150%.
+
+Installed clean candidate v1.0.1-267-g18ae0b5ca with matching stable launcher. DLL SHA256
+c2e83a95fe615865c94104c0aeec7a81720908bfdcae0f13b1dc64cec0997cac. Full VR INI is
+byte-identical to backup and expected target: 73,497 bytes, 1,685 CRLF, zero lone LF;
+SHA256 6d3e82969765de54327eb40deb8fb3a890037fd8a5c6b23bfe597ccbcf1d5885.
+ReShade runtime, bridge, configuration and both presets are unchanged. Installation
+record now names the actual DLL and retained runtime/dimensions. Backup and manifest:
+main build/texture-reshade-candidate/launcher-audit. Runtime code and defaults are identical
+to headset-accepted build 266; build 267 has not had a new game launch. Launcher checks
+are complete. The next release decision and any additional perceptual tests remain with
+the maintainer; outstanding texture stress/subtitle scope is retained in ROADMAP.
+No game launch, merge, release declaration or 1.0.3 version bump is authorized by this work.
+External publication is still awaiting explicit destination approval after an automatic
+approval rejection; the complete local branch and review text remain available.
+
+## 2026-10-03: accepted ReShade runtime; F10 tab and right-hand defaults
+
+Tester reports build v1.0.1-264-gfbc2bd23e looks and runs well. Installed hash and
+log banner match; current/previous logs and saved configurations are archived in main
+build/texture-reshade-candidate/accepted-264. The run reaches normal PreExit. Sampled
+late gameplay windows show mirror actual=0 with off=1; the ReShade CPU part is about
+0.16-0.18 ms per Present, not a GPU cost or a controlled A/B. See PERFORMANCE.md.
+
+The requested ReShade controls are now an installed-only F10 tab, reusing the exact
+panel placement, pointer, trigger, scroll and relative slider-nudge path. It offers
+preset selection, live effects and technique toggles, parameter editing, reload/save,
+and performance mode. Parameters require performance mode off. Public ReShade API 20
+is negotiated before accessing the vendored v6.8 interface; no foreign ImGui context
+is modified. Effect handles are used only in the frame they are enumerated.
+
+ReShade startup is explicitly optional: Enabled=0 ships; ManualRuntime=1 selects the
+accepted VR integration when enabled. Existing user installation must receive Enabled=1
+and retain its chosen Carinth preset. Repository right-hand defaults now match the six
+saved trim values: T=(0.0356,0.0181,0.0145)m, R=(-36.09,72.42,17.27) degrees.
+Repository HeightOffsetM remains +0.060; the user's local -0.160 is not promoted.
+
+Native host: 791 enabled/UI checks, 759 disabled checks and a default-off no-DLL-load
+check pass. UI events change actual runtime pixels, reload parameters, toggle techniques,
+and use the production F10 relative nudge. The default writer, release INI and golden
+fixture match byte-for-byte; reset/failure coverage passes. Full optimized build passes.
+Installation and headset panel validation are next, then the requested launcher audit and
+Overview Collect logs action. Do not launch the game or merge. No 1.0.3 version bump yet.
+
+## 2026-10-03: build 262 startup crash reproduced; device-hook preservation fix
+
+The tester's startup failure matches installed v1.0.1-262-gabf374ce3. A native GPU host
+reproduces the same DXT5 CreateTexture INVALIDCALL: ReShade's BeginStateBlock causes
+the PURE D3D9 runtime to overwrite the table containing our managed-texture hooks.
+Preserving this module's detours across manual-runtime calls corrects that reproduction.
+Extended host checks pass 759 enabled and 759 disabled, including production texture
+creation/lock/upload after effects and reset/recreation. See dishonored/PERFORMANCE.md
+for evidence, the failed earlier test coverage and limits. The full crash archive is in
+main build/texture-reshade-candidate/crash-262. No game was launched by the agent.
+
+Installed correction: v1.0.1-264-gfbc2bd23e, DLL SHA256
+99941f52ff4df38118f1704300d7c807ea62fa7fff4ee979abc1114f593f7024. Release build,
+export checks and lint pass. The matching embedded-payload launcher is also installed.
+Full VR INI comparison is empty: 73,485 bytes, 1,684 CRLFs, zero lone LFs; it exactly
+matches the prepared expected INI. ReShade configuration and both presets are unchanged.
+Backup DLL/INI/log pair and manifest are under main build/texture-reshade-candidate/
+state-block-fix. No configuration consumers changed relative to the failed build.
+
+The corrected candidate needs a fresh game startup check before returning to ReShade
+performance testing. Keep ManualRuntime=1 and the separate no-effects test preset;
+preserve the entire VR INI and validate against the installed build. One launch question:
+does the existing save load normally? Game/headset acceptance is pending.
+
+## 2026-10-03: manual ReShade candidate and launcher controls (headset check pending)
+
+The build-257 playtest reports severe ReShade slowdown even with effects off and an
+unresponsive mirror-off setting. Matching DLL/banner and archived logs confirm the
+legacy bridge bypasses desktop mirror policy. See dishonored/PERFORMANCE.md for the
+measured timing, source evidence, candidate mechanism and one next-launch question.
+
+A default-off manual ReShade runtime now renders before VR capture while retaining the
+normal desktop policy. Native GPU enabled/disabled controls pass (510 each), including
+state restore and reset/recreation without native Present. Installed v1.0.1-262-gabf374ce3
+with ManualRuntime=1, Perf Parts=1 and a separate empty ReShade preset so the next test
+isolates baseline overhead. The tuned preset and current resolution are preserved.
+The build ID and hashes are recorded in main build/texture-reshade-candidate/manual-runtime/
+install.json. DLL SHA256: 674401fbff3cf93dd98d682d345192ff20876f725108647cf1eac5650a40ceac.
+The full VR INI differs only by the two added settings; 73,485 bytes, 1,684 CRLF, zero lone
+LF. ReShade.ini differs only in PresetPath. The stable local launcher executable was
+updated with an exact backup. No game was launched. Headset result remains pending.
+
+The native launcher now has the same 11 action/source choices as F10, conflict feedback,
+stick swap and reset. Only edited mapping keys are saved; headless/elevated apply carries
+them. Credits give both current developers identical roles; donation copy is the wording
+requested for the product. Rain uses a positive checkbox and remains enabled by default.
+The headset picker still requires a selection when none is saved. The sidebar design
+preview includes the binding editor and simpler texture-installer steps. The sidebar and
+TFC automation are still a design proposal, not a shipped native redesign.
+
+Build, export/lint, 86 launcher unit checks, whole-INI installer smoke, 57 updater checks,
+and preview interaction/layout checks pass. Work remains on the feature branch with
+BioVRDev commit attribution. Earlier publication requests were blocked by automatic
+approval review; no new external publication or merge is performed without resolving
+that pending approval.
+
+## 2026-10-03: Carinth preset installed; full themed sidebar preview (headset test pending)
+
+Installed the user-downloaded current Nexus mod-5 Carinth v3 preset and its seven active
+effects, with pinned official Standard Effects, SweetFX and prod80 packages. ReShade.ini
+selects DishonoredCarinthPresetv3.ini; Scroll Lock toggles effects and Home opens ReShade.
+The complete installed VR INI is byte-identical (73,348 bytes, CRLF), and the accepted
+VR DLL remains v1.0.1-257-g705b282c7. Whole DLL/INI/log pair/bridge/runtime backup is in main
+build/texture-reshade-candidate/preset/before-profile. No game was launched; runtime shader
+compilation and effects appearing in the headset remain unverified. Details and source
+hashes are in INSTALLER.md; performance limits are in dishonored/PERFORMANCE.md.
+
+One next-launch question: after loading the existing save, does Scroll Lock visibly toggle
+the preset inside the headset? Yes supports post-effect capture; no visible change, desktop-
+only change or a failure requires the matching build-257 VR and ReShade logs before another
+test. Archive both VR logs before another launch. Do not infer headset success from files.
+
+User chose Sidebar and corrected Play to the bottom RIGHT. The new interactive preview
+uses the current painted assets, includes all current launcher settings across Display and
+Controls, and covers Overview, Mods, Bindings, Updates and Help/about. It is a design preview,
+not a production UI replacement. No updater code changed; its host suite passes 57/57.
+TFC remains a guided integration proposal: prepare/import the pack and paths, then the
+documented Update All step; no unattended CLI or safe instant texture toggle is proven.
+
+## 2026-10-02: paged candidate stable in headset; ReShade installed; launcher layouts explored
+
+Tester reports the build-257 run was stable. The installed DLL hash and log banner match
+`v1.0.1-257-g705b282c7`. Six periodic device snapshots report zero backing, mapping or
+upload failures; the run reaches normal PreExit. Last periodic sample: 484,530 locks,
+293,683 uploads, 31,800 translated textures, 466.8 MiB live backing, zero mapped MiB.
+The observed maximum single upload is 126.76 ms; this is not proof of zero stalls or disk IO.
+Full evidence remains in `dishonored/PERFORMANCE.md`. Logs and whole INI archived in main
+`build/texture-reshade-candidate/stable-run-257`.
+
+ReShade 6.8.0 full add-on x86 runtime is now installed as `ReShade32.dll`, official SHA256
+`DA430E0A9C6EECEFA0D1B27D05E16C426FB5D04E808B194D914EAAC4B31BC0F8`.
+The first launcher attempt safely refused because Windows PowerShell could not discover
+Get-FileHash in the inherited environment. The helper now uses .NET SHA256 directly;
+extraction/backup/hash refusal/preservation and unavailable-cmdlet regression checks pass.
+Corrected helper completed installation. DLL, bridge and entire installed INI remain byte
+identical to pre-install backup; INI has 73,348 bytes, 1,676 CRLFs and zero bare LFs.
+Backup: main `build/texture-reshade-candidate/before-reshade`. Shaders/presets are not installed.
+Next launch question: does the existing save still load normally in the headset with
+ReShade present? Read bridge registration/callback logs against build 257 before inferring
+post-effect capture works. Never launch the game automatically.
+
+Launcher layout previews cover Sidebar, Compact tabs and Split workspace, each with Mods,
+Download -> Off/On plus Uninstall states, and an AFW/Stereo dropdown in Settings.
+These are design previews, not the installed launcher. Nexus integration still needs native
+account/download handling and a reversible TFC texture installation adapter. Research and
+scope are in `INSTALLER.md`. No staging/release merge authorized.
+
+## 2026-10-02: texture-pack/ReShade community integration candidate (VR-133)
+
+Current state: `codex/vr-133-texture-reshade` starts at staging `1c47937a6`. Reviewed community
+v1.0.2 source is ported with lock/resource safeguards, optional paged texture memory,
+ReShade post-effect bridge and hash-checked launcher download, subtitle readability preset,
+and 450% resolution. Existing Basic Stereo/AFW controls remain first in Display (PR #168
+changes retained in this candidate). No staging/release merge is authorized.
+
+Host verification: native D3D9Ex texture uploads/locks/cleanup pass; paged 4 MiB uploads cost
+1.60 ms median versus 0.34 ms conventional on this host. Unmapped 256 MiB backing consumes
+no persistent mapped VA but still about 256 MiB system commit. Paged mode stays optional.
+Launcher 86-unit suite, scratch lifecycle, ReShade extraction/preservation/hash refusal and
+production subtitle shader checks pass. The game was not launched. Headset acceptance is open.
+Full source provenance, measurements, limits and ordered next tests are in
+[dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md), 2026-10-02 community integration.
+
+Installed: `v1.0.1-257-g705b282c7`, RelWithDebInfo, legacy off. DLL SHA256
+`B469222B1E798715FC4B08A940787CDC096DC98476A05ACE6AFFE61A376FD1C1`.
+Previous DLL/whole INI/both logs are archived in main
+`build/texture-reshade-candidate/before-256`. Full installed INI equals the prepared target:
+only Managed=shadow -> paged and ShadowSurfaces=0 -> 1 changed; 73348 bytes,
+1676 CRLF lines, no bare LF. Ex=1 and ShadowFullCopy=1 were already present. All other
+preferences, including AFW and MSW off, are retained. ReShade is absent. The next run's
+banner is still awaiting the tester's launch. Candidate launcher is in main
+`output/texture-reshade-candidate`.
+
+Next steps, one question: after loading an existing save
+and quickloading it three times, does every load return to gameplay without crashing?
+Verify the new log banner before interpreting it. Do not combine ReShade or subtitle tests
+with this loading question. VR-133's unrelated camera acceptance remains open; new issue
+creation was blocked by Linear's free issue limit.
+
 ## 2026-10-02: MSW guards built (Cyberpunk VR frame-generation review); host-verified
 
 Current state: branch `claude/vr-39-msw-guards` (off #165, plus the plan in draft #166) adds two

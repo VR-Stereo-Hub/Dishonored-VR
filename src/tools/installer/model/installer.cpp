@@ -196,6 +196,35 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
                fs::format("[%s] %s=%d", n(p.section).c_str(), n(p.key).c_str(), value));
     }
 
+    for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+        if (!(c.bindingEdits & (1u << a))) continue;
+        if (!profile::set(ini, L"ControllerBinds", fs::widen(dvr::binds::info(a).key).c_str(),
+            fs::widen(dvr::binds::source_key(c.bindings.src[a])), &err)) {
+            r->fail("Could not save button mapping", err); return false;
+        }
+    }
+    if (c.swapSticksEdit >= 0 && !profile::set(ini, L"ControllerBinds", L"SwapSticks",
+        std::to_wstring(c.swapSticksEdit), &err)) {
+        r->fail("Could not save stick mapping", err); return false;
+    }
+    if (c.bindingEdits || c.swapSticksEdit >= 0)
+        r->add(StepStatus::Ok, "Button mapping saved", "Applies next game launch.");
+    if (c.stereoEdit >= 0) {
+        if (!profile::set(ini, L"Stereo", L"Method", c.stereoEdit ? L"afw" : L"reentry", &err)) {
+            r->fail("Could not save stereo mode", err); return false;
+        }
+        r->add(StepStatus::Ok, "Stereo mode saved", "Applies next game launch.");
+    }
+    if (c.textureMemory >= 0) {
+        if (!profile::set(ini, L"Device", L"Managed", c.textureMemory ? L"paged" : L"shadow", &err) ||
+            !profile::set(ini, L"Device", L"Ex", L"1", &err) ||
+            !profile::set(ini, L"Device", L"ShadowSurfaces", L"1", &err) ||
+            !profile::set(ini, L"Device", L"ShadowFullCopy", L"1", &err)) {
+            r->fail("Could not save texture memory mode", err); return false;
+        }
+        r->add(StepStatus::Ok, c.textureMemory ? "Texture pack compatibility: on" : "Texture pack compatibility: off",
+            "Applies next launch. Windows pagefile settings are unchanged.");
+    }
     // [Paths] DataDir: empty means %LOCALAPPDATA%\DishonoredVR. A value the player
     // set on purpose is kept; the dev PC's drive that a build once shipped is not.
     const std::wstring dd = profile::get(ini, L"Paths", L"DataDir");
@@ -253,12 +282,20 @@ bool apply_baseline(Report* r, const Detection& det)
     return ok;
 }
 
-bool write_install_record(Report* r, const Detection& det, const Choices* c)
+bool write_install_record(Report* r, const Detection& det, const Choices* c, bool installedPayload = true)
 {
     InstallRecord rec;
     rec.version = det.version; rec.buildId = det.buildId; rec.config = det.config;
     rec.dllSha256 = det.embeddedSha;
     rec.installedUtc = fs::utc_now_iso();
+    if (!installedPayload) {
+        rec.dllSha256 = det.installedSha;
+        const bool known = det.record.valid && det.record.dllSha256 == det.installedSha;
+        rec.version = known ? det.record.version : "unknown";
+        rec.buildId = known ? det.record.buildId : "installed by hand";
+        rec.config = known ? det.record.config : "unknown";
+        rec.installedUtc = known ? det.record.installedUtc : "";
+    }
     rec.elevated = process::is_elevated();
     if (c) {
         rec.runtime = runtime_token(c->runtime); rec.quality = quality_token(c->quality);
@@ -351,6 +388,8 @@ Detection detect(const Env& env)
         const bool trace = d.iniExists || fs::is_file(fs::join(d.gameDir, kLogName)) || fs::is_file(fs::join(d.gameDir, L"dxvk_d3d9.dll"));
         d.modInstalled = d.d3d9Present && (d.record.valid || trace || d.installedSha == d.embeddedSha);
         d.foreignD3d9 = d.d3d9Present && !d.modInstalled && !d.backupPresent;
+        d.reshadeInstalled = fs::is_file(fs::join(d.gameDir, L"ReShade32.dll"));
+        d.reshadeEnabled = profile::get_int(fs::join(d.gameDir, kIniName), L"ReShade", L"Enabled", 0) != 0;
         d.disabled = fs::is_file(fs::join(d.gameDir, kDisableName));
         if (d.iniExists) {
             const std::wstring ini = fs::join(d.gameDir, kIniName);
@@ -362,6 +401,15 @@ Detection detect(const Env& env)
             d.iniDataDir = profile::get(ini, L"Paths", L"DataDir");
             for (int i = 0; i < PreferenceCount; ++i)
                 d.suggested.preferences[i] = profile::get_int(ini, kPreferences[i].section, kPreferences[i].key, -1);
+            const auto stereo = profile::get(ini, L"Stereo", L"Method", L"reentry");
+            d.suggested.stereoMethod = fs::iequals(stereo,L"afw") ? 1 : fs::iequals(stereo,L"reentry") ? 0 : -1;
+            const auto managed = profile::get(ini, L"Device", L"Managed");
+            for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+                const auto value = profile::get(ini, L"ControllerBinds", fs::widen(dvr::binds::info(a).key).c_str());
+                dvr::binds::parse_source(fs::narrow(value).c_str(), &d.suggested.bindings.src[a]);
+            }
+            d.suggested.bindings.swapSticks = profile::get_int(ini, L"ControllerBinds", L"SwapSticks", 0) != 0;
+            d.suggested.textureMemory = fs::iequals(managed,L"paged") ? 1 : fs::iequals(managed,L"shadow") ? 0 : -1;
         }
     }
 
@@ -384,6 +432,54 @@ Detection detect(const Env& env)
         DVR_INFO("launcher: saved [%s] %s=%d (-1=use shipped default)",
                  n(kPreferences[i].section).c_str(), n(kPreferences[i].key).c_str(), d.suggested.preferences[i]);
     return d;
+}
+
+Report do_reshade(const Env&, const Detection& det)
+{
+    Report r;
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
+    if (!det.gameFound || !det.modInstalled || !det.installedIsEmbedded()) {
+        r.add(StepStatus::Failed, "Install or update the mod with this launcher first"); return r;
+    }
+    const auto script = resources::rcdata(IDR_INSTALL_RESHADE);
+    DWORD err = 0;
+    const auto dir = fs::join(fs::temp_dir(), L"DishonoredVR-ReShade-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
+    const auto ps1 = fs::join(dir, L"install-reshade.ps1"), output = fs::join(dir, L"result.txt");
+    if (!script.ok() || !fs::make_dirs(dir, &err) || !fs::write_file_atomic(ps1, script.data, script.size, &err)) {
+        r.fail("Could not prepare ReShade download", err); return r;
+    }
+    wchar_t windows[MAX_PATH]{}; GetWindowsDirectoryW(windows, MAX_PATH);
+    auto powershell = fs::join(windows, L"Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe");
+    if (!fs::is_file(powershell)) powershell = fs::join(windows, L"System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    const auto cmd = process::quote_arg(powershell) + L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + process::quote_arg(ps1) + L" -GameDir " + process::quote_arg(det.gameDir);
+    DWORD code = 0;
+    if (!process::run_wait(cmd, &code, &err, 180000, output)) { r.fail("Could not run ReShade download", err); return r; }
+    std::vector<uint8_t> bytes; fs::read_file(output, &bytes, nullptr);
+    const std::string detail(bytes.begin(), bytes.end());
+    r.add(code == 0 ? StepStatus::Ok : StepStatus::Failed, code == 0 ? "ReShade installed" : "ReShade download failed", detail);
+    return r;
+}
+
+Report do_reshade_manage(const Env&, const Detection& det, bool enabled, bool removeRuntime)
+{
+    Report r;
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
+    const auto runtime = fs::join(det.gameDir, L"ReShade32.dll");
+    const auto ini = fs::join(det.gameDir, kIniName);
+    if (!det.gameFound || !det.modInstalled || !det.installedIsEmbedded() || !fs::is_file(runtime) || !fs::is_file(ini)) {
+        r.add(StepStatus::Failed, "Install this launcher's VR build and ReShade first"); return r;
+    }
+    DWORD err = 0;
+    const auto suffix = L"." + fs::timestamp_local() + L"-" + std::to_wstring(GetTickCount64()) + L".dvr-backup";
+    if (!fs::copy_file(ini, ini + suffix, &err)) { r.fail("Could not back up settings", err); return r; }
+    if (!profile::set(ini, L"ReShade", L"Enabled", enabled && !removeRuntime ? L"1" : L"0", &err)) {
+        r.fail("Could not save ReShade preference", err); return r;
+    }
+    if (removeRuntime) {
+        if (!fs::move_file(runtime, runtime + suffix, &err)) { r.fail("ReShade is disabled, but its runtime could not be removed", err); return r; }
+        r.add(StepStatus::Ok, "ReShade runtime removed", "A runtime backup was kept beside the game. Presets, shaders and ReShade.ini are unchanged.");
+    } else r.add(StepStatus::Ok, enabled ? "ReShade enabled for the next launch" : "ReShade disabled for the next launch");
+    return r;
 }
 
 Report do_install(const Env& env, const Detection& det, const Choices& choices)
@@ -409,6 +505,7 @@ Report do_install(const Env& env, const Detection& det, const Choices& choices)
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
+    if (!write_payload_file(&r, det.gameDir, L"DishonoredVR_ReShade.addon32", resources::rcdata(IDR_RESHADE_BRIDGE))) return r;
     if (!install_dlss_helper(&r, det.gameDir)) return r;
     remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0; the game renders natively now.");
     remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
@@ -441,6 +538,7 @@ static Report update_impl(const Env& env, const Detection& det, bool overwriteSe
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
+    if (!write_payload_file(&r, det.gameDir, L"DishonoredVR_ReShade.addon32", resources::rcdata(IDR_RESHADE_BRIDGE))) return r;
     if (!install_dlss_helper(&r, det.gameDir)) return r;
     remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0.");
     remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
@@ -490,7 +588,7 @@ Report do_update(const Env& env, const Detection& det, bool overwriteSettings) {
     const auto backupDir=fs::join(det.gameDir,L"dvr-update-backup-"+fs::timestamp_local()+L"-"+std::to_wstring(GetTickCount64()));
     DWORD err=0;
     if(!fs::make_dir(backupDir,&err)) {result.fail("Could not prepare the update backup",err);return result;}
-    for(const wchar_t* name:{L"d3d9.dll",L"dvr_steamvr32.dll",L"openvr_api.dll",L"dishonored_vr.ini",L"dishonored_vr_install.json",L"dxvk_d3d9.dll",L"dxvk_stereo.txt"}) {
+    for(const wchar_t* name:{L"DishonoredVR_ReShade.addon32",L"d3d9.dll",L"dvr_steamvr32.dll",L"openvr_api.dll",L"dishonored_vr.ini",L"dishonored_vr_install.json",L"dxvk_d3d9.dll",L"dxvk_stereo.txt"}) {
         Saved item;item.path=fs::join(det.gameDir,name);item.backup=fs::join(backupDir,name);item.existed=fs::is_file(item.path);
         if(item.existed && (!fs::sha256_file(item.path,&item.hash,&err) || !fs::copy_file(item.path,item.backup,&err))) {
             result.fail("Could not back up the installed version",err);return result;
@@ -519,12 +617,11 @@ Report do_change(const Env& env, const Detection& det, const Choices& choices)
     Report r;
     if (!det.gameFound) { r.add(StepStatus::Failed, "Dishonored was not found", det.gameNote); return r; }
     if (!det.iniExists) { r.add(StepStatus::Failed, "There is no dishonored_vr.ini to change", "Install the mod first."); return r; }
-    if (det.running == process::Running::Yes)
-        r.add(StepStatus::Warn, "Dishonored is running", "The new values apply at its next launch.");
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
     if (det.iniVersion < det.embeddedIniVersion && !refresh_outdated_ini(&r, det, payload())) return r;
     if (!apply_choices(&r, det, choices)) return r;
     if (det.configExists) apply_baseline(&r, det);
-    write_install_record(&r, det, &choices);
+    write_install_record(&r, det, &choices, false);
     return r;
 }
 
@@ -532,7 +629,7 @@ Report do_baseline(const Env& env, const Detection& det)
 {
     (void)env;
     Report r;
-    if (det.running == process::Running::Yes) { r.add(StepStatus::Failed, "Dishonored is running", "It rewrites its settings on exit; quit it first."); return r; }
+    if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
     apply_baseline(&r, det);
     return r;
 }
@@ -575,6 +672,7 @@ Report do_uninstall(const Env& env, const Detection& det, bool deleteIni)
     remove_if_present(&r, det.gameDir, L"openvr_api.dll", "Valve's OpenVR loader, installed with the shim.");
     remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0.");
     remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
+    remove_if_present(&r, det.gameDir, L"DishonoredVR_ReShade.addon32", "The mod ReShade bridge; ReShade and its presets are kept.");
     remove_if_present(&r, det.gameDir, kDisableName, "The kill switch.");
     remove_if_present(&r, det.gameDir, kRecordName, "The install record.");
     if (det.backupPresent) {
