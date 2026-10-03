@@ -7,11 +7,14 @@ measured timing, source evidence, candidate mechanism and one next-launch questi
 
 A default-off manual ReShade runtime now renders before VR capture while retaining the
 normal desktop policy. Native GPU enabled/disabled controls pass (510 each), including
-state restore and reset/recreation without native Present. This candidate is to be
-installed with ManualRuntime=1, Perf Parts=1 and a separate empty ReShade preset so the
-next test isolates baseline overhead. Preserve the tuned preset and current resolution.
+state restore and reset/recreation without native Present. Installed v1.0.1-262-gabf374ce3
+with ManualRuntime=1, Perf Parts=1 and a separate empty ReShade preset so the next test
+isolates baseline overhead. The tuned preset and current resolution are preserved.
 The build ID and hashes are recorded in main build/texture-reshade-candidate/manual-runtime/
-install.json. No game is launched by the agent. Headset result remains pending.
+install.json. DLL SHA256: 674401fbff3cf93dd98d682d345192ff20876f725108647cf1eac5650a40ceac.
+The full VR INI differs only by the two added settings; 73,485 bytes, 1,684 CRLF, zero lone
+LF. ReShade.ini differs only in PresetPath. The stable local launcher executable was
+updated with an exact backup. No game was launched. Headset result remains pending.
 
 The native launcher now has the same 11 action/source choices as F10, conflict feedback,
 stick swap and reset. Only edited mapping keys are saved; headless/elevated apply carries

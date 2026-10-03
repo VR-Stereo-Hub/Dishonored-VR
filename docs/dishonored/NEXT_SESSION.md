@@ -2,7 +2,9 @@
 
 Read the newest STATUS section and PERFORMANCE.md entry first. Candidate adds optional
 manual ReShade rendering before capture, with classifiers bypassed only during its work.
-Host enabled/disabled pixel checks and reset/recreation pass. Installed build/config/hash
+Host enabled/disabled pixel checks and reset/recreation pass. Installed build is
+v1.0.1-262-gabf374ce3. The complete VR INI diff adds only ManualRuntime=1 and Parts=1;
+CRLF is verified. ReShade.ini selects the separate empty test preset. Build/config/hash
 manifest is main build/texture-reshade-candidate/manual-runtime/install.json; full previous
 DLL/INI/log pair/ReShade files are beside it under before-install. Confirm banner first.
 One launch question: with all effects disabled in the separate test preset, does the same
