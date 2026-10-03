@@ -1314,6 +1314,7 @@ void meta_pose(FILE* f, const char* key, const Pose& p) {
 void meta_record(FILE* f, const char* who, const Held& e) {
     fprintf(f, "%s.serial=%u\n%s.seq=%llu\n%s.rec=%u\n%s.writer=%d\n%s.writeMs=%.3f\n%s.captureMs=%.3f\n", who, e.serial, who,
             (unsigned long long)e.seq, who, e.meta.recId, who, e.meta.writer, who, e.meta.writeMs, who, e.meta.captureMs);
+    fprintf(f, "%s.displayTime=%lld\n", who, (long long)e.meta.displayTime);
     fprintf(f, "%s.jitter=%.5f %.5f draws %u\n%s.bodyOk=%d\n%s.bodyYaw=%.5f\n", who, e.meta.jitter[0], e.meta.jitter[1],
             e.meta.jitterDraws, who, e.bodyOk ? 1 : 0, who, e.bodyYaw);
     char k[48];
@@ -1579,8 +1580,8 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
 // translation (it needs depth), so the image keeps its own ORIENTATION and only its position moves: the head's
 // translation to the slot's located eye position, plus the body's walking extrapolated from the last two
 // images (the camera displacement their c5 pair shows, less what the XR eye poses explain, per millisecond).
-// The body's turn is extrapolated the same way and applied to the SUBMITTED pose (a rotation the compositor
-// reprojects exactly at every depth); the head's own rotation to the slot is the compositor's as always.
+// Walking and rendered body turn are extrapolated on the real submissions' display timeline, into world
+// pixels only; the head's own rotation to the slot is the compositor's as always.
 // The hands are held fixed in tracking space (the body hypothesis): a controller that moves inside one slot
 // lags that slot. Disocclusions keep the image's own nearest sample (a few cm of translation per slot).
 std::atomic<bool> g_synthHands{false};     // `vrpace msw hands on|off`: the hands follow their controllers in a synthesized slot
@@ -1588,7 +1589,33 @@ uint32_t g_synthHandsUsed = 0;
 std::atomic<bool> g_synthExtrap{true};     // `vrpace msw extrap on|off`: the walking/turning extrapolation (off = head only)
 uint32_t g_synths = 0, g_synthMtx = 0, g_synthRefused = 0;
 float g_synthStepMax = 0, g_synthYawMax = 0;
+uint32_t g_synthDisplayClock = 0, g_synthNoMotion = 0;
+double g_synthAgeMax = 0, g_synthWriterDeltaMax = 0;
 const char* g_synthWhy = "";
+// VR-39 MSW guards (PLAN-mod-spacewarp section 7). Build 248 logged a cumulative "turn up to 382.46 deg per synthesized
+// eye": the turn rate between the two held images times the slot's age, unbounded, so one snap turn or a Blink step
+// between them was carried into the slot as a wild extrapolation. The ceilings are NOT measured: 3000 uu/s sits above the
+// player's GroundSpeed (500 uu/s, DishonoredPlayerPawn) with any sprint multiplier and below a Blink step (500 uu in one
+// step); 1000 deg/s sits above the 500-600 deg/s stick turns measured in run 11 and below a 30 deg snap step taken in one
+// frame. The guard line logs each window's maxima so a log can set them.
+std::atomic<bool> g_synthGuard{false};
+std::atomic<float> g_guardSpeed{3000.0f};   // uu/s
+std::atomic<float> g_guardRate{1000.0f};    // deg/s
+std::atomic<float> g_guardTurn{25.0f};      // deg per synthesized eye (a 600 deg/s turn over a 35 ms old image is 21)
+std::atomic<bool> g_stickStop{false};
+std::atomic<float> g_turnStick{0.0f};
+uint32_t g_holdSpeed = 0, g_holdTurn = 0, g_guardRefused = 0, g_guardClamped = 0, g_guardStick = 0;
+double g_winSpeedMax = 0, g_winRateMax = 0;   // this guard window (both MSW-thread only)
+uint64_t g_guardNextLog = 0;
+// Synthesis refusals by reason (every refuse() literal is a static string, so the pointer is the key).
+struct WhyCount { const char* why; uint32_t n; };
+WhyCount g_whyCounts[10] = {};
+void count_why(const char* r) {
+    for (auto& w : g_whyCounts) {
+        if (w.why == r) { ++w.n; return; }
+        if (!w.why) { w.why = r; w.n = 1; return; }
+    }
+}
 
 // The body's motion between the two newest images: walking (uu per ms, UE world) and turning (deg per ms).
 const double kTurnSignMtx = -1.0, kTurnSignXr = 1.0;   // host-verified (the turn case)
@@ -1597,26 +1624,55 @@ const double kTurnSignMtx = -1.0, kTurnSignXr = 1.0;   // host-verified (the tur
 std::atomic<int> g_synthGrid{4};
 void set_synth_grid(int step) { if (step >= 2 && step <= 16) g_synthGrid.store(step); }
 int synth_grid() { return g_synthGrid.load(); }
-bool body_motion(double v[3], double* yawPerMs, double* dtMs) {
+bool body_motion(double v[3], double* yawPerMs, double* dtMs, bool displayClock) {
     Held& a = g_held[0];
     Held& b = g_held[1];
     if (!a.valid || !b.valid || !a.vpOk || !b.vpOk) return false;
     const Held& N = a.seq > b.seq ? a : b;
     const Held& O = a.seq > b.seq ? b : a;
-    const double dt = N.meta.captureMs - O.meta.captureMs;
+    if (displayClock && (N.meta.displayTime <= O.meta.displayTime || O.meta.displayTime <= 0)) return false;
+    const double dt = displayClock ? (N.meta.displayTime - O.meta.displayTime) * 1e-6
+                                   : N.meta.captureMs - O.meta.captureMs;
     if (!(dt > 0.5 && dt < 100.0)) return false;
     double fwd[3], right[3], up[3];
     if (!axes_of(lin_of(N.vp), fwd, right, up)) return false;
     const double scale = g_worldScale.load();
-    const double de[3] = {N.pose.p[0] - O.pose.p[0], N.pose.p[1] - O.pose.p[1], N.pose.p[2] - O.pose.p[2]};
-    double ev[3]; rot(N.pose, de, ev, true);
+    double of[3], oright[3], ou[3];
+    if (!axes_of(lin_of(O.vp), of, oright, ou)) return false;
+    const double np[3] = {N.pose.p[0], N.pose.p[1], N.pose.p[2]}, op[3] = {O.pose.p[0], O.pose.p[1], O.pose.p[2]};
+    double ne[3], oe[3]; rot(N.pose, np, ne, true); rot(O.pose, op, oe, true);
     for (int k = 0; k < 3; ++k) {
-        const double xr = scale * (-ev[2] * fwd[k] + ev[0] * right[k] + ev[1] * up[k]);
-        v[k] = ((-N.c5[k]) - (-O.c5[k]) - xr) / dt;
+        // Each eye offset belongs to its own body orientation. Subtracting both through the
+        // newest basis mistakes the orbit of an off-centre head during a turn for walking.
+        const double newOffset = scale * (-ne[2] * fwd[k] + ne[0] * right[k] + ne[1] * up[k]);
+        const double oldOffset = scale * (-oe[2] * of[k] + oe[0] * oright[k] + oe[1] * ou[k]);
+        v[k] = ((-N.c5[k] - newOffset) - (-O.c5[k] - oldOffset)) / dt;
+        if (!std::isfinite(v[k])) return false;
     }
-    double dy = (N.bodyOk && O.bodyOk) ? N.bodyYaw - O.bodyYaw : 0.0;
+    // Remove each image's OWN head rotation from its rendered basis. Camera-writer bodyYaw can
+    // be a tick older than these pixels; using it predicts alternating stale/current turn speeds.
+    auto rendered_body_yaw = [](const Held& image, double* yaw) {
+        double f[3], r[3], u[3], local[3];
+        if (!axes_of(lin_of(image.vp), f, r, u)) return false;
+        const double trackingForward[3] = {0, 0, -1};
+        rot(image.pose, trackingForward, local, true);
+        double world[3];
+        for (int k = 0; k < 3; ++k) world[k] = -local[2] * f[k] + local[0] * r[k] + local[1] * u[k];
+        if (!(world[0] * world[0] + world[1] * world[1] > 0.5)) return false;
+        *yaw = atan2(world[1], world[0]) * 57.29577951;
+        return std::isfinite(*yaw);
+    };
+    double newYaw = 0, oldYaw = 0;
+    const bool turnOk = N.bodyOk && O.bodyOk && rendered_body_yaw(N, &newYaw) && rendered_body_yaw(O, &oldYaw);
+    double dy = turnOk ? newYaw - oldYaw : 0.0;
     while (dy > 180.0) dy -= 360.0;
     while (dy < -180.0) dy += 360.0;
+    if (turnOk) {
+        double difference = dy - (N.bodyYaw - O.bodyYaw);
+        while (difference > 180.0) difference -= 360.0;
+        while (difference < -180.0) difference += 360.0;
+        g_synthWriterDeltaMax = fmax(g_synthWriterDeltaMax, fabs(difference));
+    }
     *yawPerMs = dy / dt;
     *dtMs = dt;
     return true;
@@ -1652,11 +1708,94 @@ void set_synth_extrapolate(bool on) {
 }
 bool synth_extrapolate() { return g_synthExtrap.load(); }
 
+void set_synth_guard(bool on) {
+    if (g_synthGuard.exchange(on) != on)
+        DVR_INFO("msw: guards %s (ceilings %.0f uu/s camera speed, %.0f deg/s body turn; turn clamp %.1f deg per eye)%s",
+                 on ? "ON" : "off", g_guardSpeed.load(), g_guardRate.load(), g_guardTurn.load(),
+                 on ? " - a slot across a jump re-submits the last real frame" : " - every slot extrapolates whatever the images show");
+}
+bool synth_guard() { return g_synthGuard.load(); }
+void set_synth_limits(float maxSpeedUUs, float maxRateDegS, float maxTurnDeg) {
+    if (maxSpeedUUs > 0 && maxSpeedUUs < 100000) g_guardSpeed.store(maxSpeedUUs);
+    if (maxRateDegS > 0 && maxRateDegS < 100000) g_guardRate.store(maxRateDegS);
+    if (maxTurnDeg > 0 && maxTurnDeg <= 180) g_guardTurn.store(maxTurnDeg);
+    DVR_INFO("msw: guard ceilings %.0f uu/s camera speed, %.0f deg/s body turn, %.1f deg turn per synthesized eye (guards %s)",
+             g_guardSpeed.load(), g_guardRate.load(), g_guardTurn.load(), g_synthGuard.load() ? "ON" : "off");
+}
+void synth_limits(float* s, float* r, float* t) {
+    if (s) *s = g_guardSpeed.load();
+    if (r) *r = g_guardRate.load();
+    if (t) *t = g_guardTurn.load();
+}
+void set_synth_stick_stop(bool on) {
+    if (g_stickStop.exchange(on) != on)
+        DVR_INFO("msw: stick stop %s", on ? "ON (no turn is extrapolated while the game receives no right-stick turn)"
+                                         : "off (the turn is extrapolated from the images alone)");
+}
+bool synth_stick_stop() { return g_stickStop.load(); }
+void note_turn_stick(float rx) { g_turnStick.store(rx, std::memory_order_relaxed); }
+
+namespace {
+void guard_window(double speed, double rate) {
+    if (speed > g_winSpeedMax) g_winSpeedMax = speed;
+    if (rate > g_winRateMax) g_winRateMax = rate;
+}
+}
+
+namespace {
+// The guard line, every 3 s of synthesis (called on every synth_eye, refused or not). MSW thread.
+void guard_log() {
+    const uint64_t nowTick = GetTickCount64();
+    if (nowTick >= g_guardNextLog) {
+        g_guardNextLog = nowTick + 3000;
+        char reasons[256] = "none";
+        size_t at = 0;
+        for (const auto& c : g_whyCounts) {
+            if (!c.why) break;
+            const int n = _snprintf_s(reasons + at, sizeof(reasons) - at, _TRUNCATE, "%s%s %u", at ? ", " : "", c.why, c.n);
+            if (n < 0) break;
+            at += (size_t)n;
+        }
+        DVR_INFO("msw: guards %s, stick stop %s (cumulative) | held across a jump: camera %u, turn %u | extrapolation refused "
+                 "%u, turn clamped %u, turn stopped by the stick %u | this window: max camera speed %.0f uu/s (ceiling %.0f), "
+                 "max body turn %.0f deg/s (ceiling %.0f), clamp %.1f deg | synthesis refusals by reason: %s "
+                 "(held, refused and clamped stay zero with the guards off, stopped with the stick stop off; the maxima and the "
+                 "refusals are measured either way)",
+                 g_synthGuard.load() ? "ON" : "off", g_stickStop.load() ? "ON" : "off", g_holdSpeed, g_holdTurn, g_guardRefused,
+                 g_guardClamped, g_guardStick, g_winSpeedMax, g_guardSpeed.load(), g_winRateMax, g_guardRate.load(),
+                 g_guardTurn.load(), reasons);
+        g_winSpeedMax = g_winRateMax = 0;
+    }
+}
+}
+
+const char* synth_hold_reason(bool displayClock) {
+    if (!g_synthGuard.load()) return nullptr;
+    double v[3] = {0, 0, 0}, yawPerMs = 0, dt = 0;
+    if (!body_motion(v, &yawPerMs, &dt, displayClock)) return nullptr;
+    const double speed = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) * 1000.0, rate = fabs(yawPerMs) * 1000.0;
+    guard_window(speed, rate);
+    if (speed > g_guardSpeed.load()) {
+        ++g_holdSpeed;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000, "msw: HOLD - the camera moved %.0f uu/s between the held images "
+                         "(ceiling %.0f: a Blink, a teleport or a cut); the slot re-submits the last real frame", speed, g_guardSpeed.load());
+        return "camera jump";
+    }
+    if (rate > g_guardRate.load()) {
+        ++g_holdTurn;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 1000, "msw: HOLD - the body turned %.0f deg/s between the held images "
+                         "(ceiling %.0f: a snap turn or a cut); the slot re-submits the last real frame", rate, g_guardRate.load());
+        return "turn jump";
+    }
+    return nullptr;
+}
+
 bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, uint32_t w, uint32_t h,
                float tanH, float tanV, const float targetPos[3], double nowMs, Pose* outPose, const char** why,
-               const HandPose* slotHands) {
+               const HandPose* slotHands, int64_t displayTime) {
     if (why) *why = nullptr;
-    auto refuse = [&](const char* r) { ++g_synthRefused; g_synthWhy = r; if (why) *why = r; return false; };
+    guard_log();
+    auto refuse = [&](const char* r) { ++g_synthRefused; g_synthWhy = r; count_why(r); if (why) *why = r; return false; };
     if (!g_on.load()) return refuse("AFW off");
     if (eye < 0 || eye > 1 || !dst || !ctx || !dev) return refuse("bad call");
     sync_epoch();
@@ -1675,10 +1814,25 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     // The target: the image's own orientation at the slot's eye position.
     Pose tgt = own.pose;
     tgt.p[0] = targetPos[0]; tgt.p[1] = targetPos[1]; tgt.p[2] = targetPos[2];
-    const double dtOwn = nowMs - own.meta.captureMs;
+    const bool displayClock = displayTime > 0;
+    const double dtOwn = displayClock ? (own.meta.displayTime > 0 ? (displayTime - own.meta.displayTime) * 1e-6 : -1.0)
+                                      : nowMs - own.meta.captureMs;
     double v[3] = {0, 0, 0}, yawPerMs = 0, motionDt = 0;
-    const bool extrap = g_synthExtrap.load() && dtOwn > 0.0 && dtOwn < 60.0 && body_motion(v, &yawPerMs, &motionDt);
-    const double turn = extrap ? yawPerMs * dtOwn : 0.0;
+    bool extrap = g_synthExtrap.load() && dtOwn > 0.0 && dtOwn < 60.0 && body_motion(v, &yawPerMs, &motionDt, displayClock);
+    if (displayClock) ++g_synthDisplayClock;
+    if (g_synthExtrap.load() && !extrap) ++g_synthNoMotion;
+    if (dtOwn > 0 && dtOwn < 1000) g_synthAgeMax = fmax(g_synthAgeMax, dtOwn);
+    const bool guard = g_synthGuard.load();
+    if (extrap) {
+        // Measured with the guards off too (the window maxima are how the ceilings get set). With them on, the caller's
+        // synth_hold_reason normally catches a jump first; this keeps synth_eye safe on its own (the host test).
+        const double speed = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) * 1000.0, rate = fabs(yawPerMs) * 1000.0;
+        guard_window(speed, rate);
+        if (guard && (speed > g_guardSpeed.load() || rate > g_guardRate.load())) { extrap = false; ++g_guardRefused; }
+    }
+    double turn = extrap ? yawPerMs * dtOwn : 0.0;
+    if (guard && fabs(turn) > g_guardTurn.load()) { turn = turn > 0 ? g_guardTurn.load() : -g_guardTurn.load(); ++g_guardClamped; }
+    if (turn != 0.0 && g_stickStop.load() && fabsf(g_turnStick.load(std::memory_order_relaxed)) < 1e-3f) { turn = 0.0; ++g_guardStick; }
 
     struct CB {
         float s[3][4]; float sp[4]; float f[3][4]; float fp[4]; float d[3][4]; float dp[4];
@@ -1738,10 +1892,17 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
             const double scale = g_worldScale.load();
             const double de[3] = {tgt.p[0] - own.pose.p[0], tgt.p[1] - own.pose.p[1], tgt.p[2] - own.pose.p[2]};
             double ev[3]; rot(own.pose, de, ev, true);
+            const double targetTracking[3] = {tgt.p[0], tgt.p[1], tgt.p[2]};
+            double targetLocal[3], targetWorld[3]; rot(own.pose, targetTracking, targetLocal, true);
+            for (int k = 0; k < 3; ++k)
+                targetWorld[k] = scale * (-targetLocal[2] * fwd[k] + targetLocal[0] * right[k] + targetLocal[1] * up[k]);
+            const double ca = cos(turn / 57.29577951), sa = sin(turn / 57.29577951);
+            const double orbit[3] = {(ca - 1) * targetWorld[0] - sa * targetWorld[1],
+                                     sa * targetWorld[0] + (ca - 1) * targetWorld[1], 0};
             double D[3];
             for (int k = 0; k < 3; ++k) {
                 const double walk = extrap ? v[k] * dtOwn : 0.0;
-                D[k] = -(scale * (-ev[2] * fwd[k] + ev[0] * right[k] + ev[1] * up[k]) + walk);   // held camera - target camera
+                D[k] = -(scale * (-ev[2] * fwd[k] + ev[0] * right[k] + ev[1] * up[k]) + walk + orbit[k]);
                 step += walk * walk;
             }
             step = sqrt(step);
@@ -1807,9 +1968,11 @@ bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Textu
     DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
         "msw: beat - %u eyes synthesized (%u with the game's matrices, %u with the hands moved by their controllers), %u "
         "refused (last: %s); extrapolation %s: walk up to %.1f uu and turn up to %.2f deg per synthesized eye (0 while "
-        "standing still)",
+        "standing still); display-clock eyes %u, prediction unavailable %u; source-to-slot max %.2f ms, "
+        "rendered/written turn-step difference max %.3f deg (cumulative)",
         g_synths, g_synthMtx, g_synthHandsUsed, g_synthRefused, g_synthWhy[0] ? g_synthWhy : "none",
-        g_synthExtrap.load() ? "on" : "off", g_synthStepMax, g_synthYawMax);
+        g_synthExtrap.load() ? "on" : "off", g_synthStepMax, g_synthYawMax, g_synthDisplayClock, g_synthNoMotion,
+        g_synthAgeMax, g_synthWriterDeltaMax);
     return true;
 }
 

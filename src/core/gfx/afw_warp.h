@@ -43,7 +43,11 @@ struct Pose { float q[4]; float p[3]; };   // OpenXR convention, LOCAL space, me
 // Where an image came from, for the diagnostics: its pose record, that record's camera writer, when the
 // camera was written and when the image was captured (GetTickCount64-style ms), and its DLSS jitter.
 struct HandPose { bool ok = false; float p[3] = {0, 0, 0}; float q[4] = {0, 0, 0, 1}; };   // a grip, tracking space
-struct CaptureMeta { uint32_t recId = 0; int writer = 0; double writeMs = 0, captureMs = 0; float jitter[2] = {0, 0}; uint32_t jitterDraws = 0; };
+struct CaptureMeta {
+    uint32_t recId = 0; int writer = 0; double writeMs = 0, captureMs = 0;
+    float jitter[2] = {0, 0}; uint32_t jitterDraws = 0;
+    int64_t displayTime = 0; // XrTime of the real submission containing this native image, nanoseconds
+};
 
 // On by the AFW method; `afw warp on|off`. Off = the rotation-only held eye (the runtime's
 // pose-yaw fallback).
@@ -149,11 +153,12 @@ void set_xr_depth_wanted(bool on);
 
 // The mod's own spacewarp (MSW, `[VR] ModSpacewarp`): rebuild `eye` for a display slot the game did not fill, from
 // its own last image and depth, at the slot's eye position (tracking, metres). The image keeps its own orientation;
-// the body's walking and turning since the image (measured between the last two images) are extrapolated to nowMs
-// (the dvr::clock of CaptureMeta::captureMs): walking into the image, turning into *outPose. Writes dst (w x h).
+// the body's walking and turning are extrapolated on the images' submission timeline to displayTime (XrTime).
+// Both motions go into the WORLD pixels; hands and submitted orientation do not inherit the body turn.
+// nowMs/captureMs are the legacy host/replay clock, used only when displayTime is zero. Writes dst (w x h).
 bool synth_eye(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, uint32_t w, uint32_t h,
                float tanH, float tanV, const float targetPos[3], double nowMs, Pose* outPose, const char** why,
-               const HandPose* slotHands = nullptr);
+               const HandPose* slotHands = nullptr, int64_t displayTime = 0);
 // The grip poses the eye's last image drew its hands from (after note_capture), and whether a synthesized slot
 // moves the hands by their controllers' motion since (`vrpace msw hands on|off`, default off).
 void note_hands(int eye, const HandPose hands[2]);
@@ -166,6 +171,23 @@ int synth_grid();
 // An eye's own last image copied as it is into dst, and the pose it was rendered from (MSW's fallback).
 bool copy_own(ID3D11DeviceContext* ctx, int eye, ID3D11Texture2D* dst, Pose* pose);
 bool synth_extrapolate();
+// VR-39 MSW guards (PLAN-mod-spacewarp section 7). Off by default: `[VR] ModSpacewarpGuard`, `vrpace msw guard on|off`.
+// On: a slot whose two held images straddle a jump (camera speed over `maxSpeed` uu/s - a Blink, a teleport, a cut - or
+// a body-turn rate over `maxRate` deg/s - a snap turn) re-submits the last real frame instead of synthesizing; below
+// those ceilings the per-eye turn is clamped to `maxTurn` deg. `vrpace msw maxspeed|maxturnrate|maxturn <n>`.
+void set_synth_guard(bool on);
+bool synth_guard();
+void set_synth_limits(float maxSpeedUUs, float maxRateDegS, float maxTurnDeg);   // a non-positive value keeps the current
+void synth_limits(float* maxSpeedUUs, float* maxRateDegS, float* maxTurnDeg);
+// MSW thread, under the frame mutex, before any eye is built: why this slot must re-submit the last real frame (the
+// guard saw a jump between the held images), or nullptr. Always nullptr with the guard off.
+const char* synth_hold_reason(bool displayClock);
+// The stick stop (`[VR] ModSpacewarpStickStop`, `vrpace msw stickstop on|off`, default off): no turn is extrapolated
+// while the right-stick turn the game receives is zero. note_turn_stick: PRESENT lane, the pad bridge's final
+// composed right-stick X (-1..1, zero when a menu, the F10 pointer or snap turn took the stick).
+void set_synth_stick_stop(bool on);
+bool synth_stick_stop();
+void note_turn_stick(float rx);
 bool write_xr_depth(ID3D11Device* dev, ID3D11DeviceContext* ctx, int eye, bool rebuilt, ID3D11Texture2D* dst,
                     uint32_t dxgiFormat, uint32_t w, uint32_t h, float nearM, float farM, const char** why);
 const char* dump_status();

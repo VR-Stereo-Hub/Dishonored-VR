@@ -1,3 +1,123 @@
+## 2026-10-02: MSW guards built (Cyberpunk VR frame-generation review); host-verified
+
+Current state: branch `claude/vr-39-msw-guards` (off #165, plus the plan in draft #166) adds two
+default-off MSW levers from the Cyberpunk 2077 VR port review (PLAN-mod-spacewarp section 7):
+`[VR] ModSpacewarpGuard` (no synthesis across a Blink, snap turn or cut; the extrapolated turn
+clamped) and `[VR] ModSpacewarpStickStop` (no turn extrapolated once the right stick is
+released). Slots that re-submit the last real frame are now counted as repeats, not failures.
+Host 60/60 (five new cases with controls) and slot scheduling 12/12. Not run in the simulator or
+headset. Plan item 7.5 is retracted: the smoothing it named is in the legacy drive, not the live
+hand path. Build 250's own question (hands follow, head sweep) is still unanswered.
+
+Installed: `v1.0.1-253-ga964c2ab4`, optimized build, nine exports and lint pass. DLL SHA256
+`05488F5D05EEA99BC9DDA60D982CB9A4C1CD869AFC849979DA7020F786451249` matches the build. The whole
+73,349-byte INI matches the prepared expected file; the only difference from the backup is the two
+new lines `ModSpacewarpGuard=1` and `ModSpacewarpStickStop=1` under `ModSpacewarpHalfRate=1`, CRLF
+verified. ModSpacewarp=1 and ModSpacewarpHands=1 (from build 250) retained; the DLSS helper in
+`dvr_dlss\` is unchanged. Backup of build 250's DLL, INI and logs and the install record: main
+`build/msw-guards-install/`. The log stays build 248 until the user launches.
+
+Next: one headset question with the guards and the stick stop on (F10 Display): during a steady
+right-stick sweep past a door frame, then a release, is the one-frame world echo gone, reduced
+or unchanged? Read the `msw: guards` line for the same run: holds, clamps and stick stops, and the
+window maxima of camera speed and turn rate that set the ceilings.
+
+## 2026-09-30: build 248 improves MSW; residual hitches and foreground jitter remain
+
+Current state: headset report substantially improves the mod-spacewarp experience, with small
+hitches and hand/weapon jitter during head sweeps remaining, mainly with MSW on. Build 248's
+banner and DLL hash verified; its DLL, entire INI and logs are archived together in the main
+checkout at `build/msw-run31-analysis/baseline-248`. The tester ended with ModSpacewarp=0.
+
+Measured: 386 steady three-second MSW windows have zero repeated display targets and zero
+consecutive real submits, but 484 target gaps exceeding 1.5 display periods. The ordering fix
+is exercised successfully; deadline misses remain. Existing FrameId readback was on and
+per-slot controller following was off. Neither fact alone proves the remaining symptom's cause.
+See `dishonored/PERFORMANCE.md` for populations, earlier negative tests and the next decision.
+
+Next candidate retains the accepted prediction, wall logic and hand/view matcher. It adds
+lightweight CPU wall timings for synthetic wait, locate, eye construction and submit, and fixes
+the first rate sample after MSW restarts. Intended installed changes only: ModSpacewarp 0 -> 1,
+ModSpacewarpHands 0 -> 1, and Perf FrameId 1 -> 0. Other diagnostics and 144 Hz remain unchanged.
+Shipped defaults are unchanged. Installed `v1.0.1-250-ga0979694c`, optimized build; nine exports,
+lint and the 12 scheduling checks pass. DLL SHA256
+`4DD7C2978D8799D59380F666D009FA3A664737B8BE53A840DD89FC37D48F6EE7` matches the build.
+The complete 73,303-byte INI matches the prepared expected file, with exactly the three intended
+byte changes and CRLF verified. Backup: main
+`build/msw-run31-analysis/pre-install-250-20260930-025359`; verification `installed-250.json`
+in that analysis directory. Existing DLSS helper retained. Log stays build 248 until user launch.
+
+One question next launch: during the same left/right head sweep with controllers held still,
+does F10 Display's "Spacewarp: hands follow the controllers in filled frames" reduce the jitter
+ON versus OFF, returning on a final ON? Improvement supports grip/source timing; unchanged
+leaves that candidate unsupported; worse means leave it off. Read the matching banner and
+timing log separately for hitch localization. No capture or tester command is needed.
+No staging/release merge. Work remains on draft PR #165 under the verified VR-39 parent.
+
+## 2026-09-30: mod-spacewarp turn prediction and half-rate scheduling candidate
+
+Current state: implemented both requested corrections on `codex/vr-39-spacewarp-turn-pacing`
+from accepted staging/build 242. Headset acceptance is pending. No staging or release merge.
+
+Half-rate scheduling now retains one owed synthetic slot after a successful real stereo submit.
+Losing the frame mutex does not consume it. If the next Present wins first, its outermost entry
+services that slot before a real frame begins. The overdue filler consumes the same obligation.
+12/12 production-service host checks pass; the old lost-obligation control fails four checks,
+including 200 contended frames. New log counters distinguish target gaps and consecutive real
+submissions from average FPS. See `dishonored/PERFORMANCE.md` for interpretation and limits.
+
+Prediction uses native images' real-submission XrTime and the synthetic slot's XrTime, not capture
+arrival intervals. Body turn comes from rendered matrices with each source's head rotation removed;
+eye offsets use their own body bases, and the target eye follows the predicted body pivot. The
+camera writer's older body yaw no longer drives synthesis. World-only motion and the accepted
+wall/hand code remain intact. 55/55 GPU host checks pass. Accepted build 242 fails six of the
+53-case pre-pivot regression suite; unchanged capture timing and unchanged writer yaw controls
+separately expose both causes. GPU tests do not establish headset smoothness or unseen-background
+recovery. No game was launched by the agent.
+
+Installed: `v1.0.1-248-gdc57a1c05`, optimized build, nine exports and lint passed. DLL SHA256
+`5B02B32615DDF859CC4030C6FA18CA01C14E3D0F06E2E792056436DAF4CCA4F8` matches the build.
+Whole 73,303-byte INI matches the prepared expected file; the only difference from backup is
+ModSpacewarp 0 -> 1 (one byte), CRLF verified. Half-rate=1, extrapolation=1, hands=0,
+PoseFromView=1 and 144 Hz retained. Existing DLSS helper files remain installed. Backup and
+verification: main checkout `build/msw-turn-pacing/pre-install-248-20260930-014038` and
+`build/msw-turn-pacing/installed-248.json`. Current log remains build 242 until the user launches.
+
+Next: verify build 248's banner and resolved settings on the user-launched run. One question:
+with the head still and a steady right-stick turn past fixed geometry, is the one-frame world
+echo gone, reduced or unchanged? Pacing is measured from the same run's slot-order counters;
+its separate perceptual acceptance remains open. No capture dump is required for this first run.
+Dedicated Linear Bug creation was previously refused by the free issue limit; verified VR-39
+remains the parent. The build-242 DLL/INI/log baseline is retained for rollback.
+
+## 2026-09-30: staging integration complete; mod-spacewarp follow-up branch ready
+
+Current state: PR #164 merged into staging as `b4b1cb5ec` with explicit user authorization.
+Every non-documentation tracked file matches accepted build 242 (`11dcf7db9`); the production
+source tree is `90c035197f9e7787447d812f0eda8d6b5694696c`. The installed DLL/INI pair remains
+unchanged. VR-Main remains at `cecdae230`; no release or tag was created.
+
+Reviewed 45 PRs authored by the maintainer from September 24 onward: 32 were already merged,
+six already closed, seven still open. #159 and #163 are now marked merged through #164;
+#161 and #162 were closed as fully consolidated, with their exact heads reachable from staging.
+#118 was closed as superseded; #140 was parked after its negative headset verdict; #151 was
+parked outside the accepted baseline pending animation-origin acceptance. All seven remote
+branches were verified retained. Other contributors' PRs and the older unrelated #62 remain
+untouched. The consolidation branch is retained too.
+
+Active follow-up: `codex/vr-39-spacewarp-turn-pacing`, created from staging `b4b1cb5ec` in the
+existing `build/worktrees/aer` checkout. The user clarified that this means the MOD's F10
+spacewarp. No new runtime change is made yet. Targets: right-stick turns showing a one-frame
+world-geometry ghost, and uneven pacing even at high reported frame rates. Keep the accepted
+AFW wall/hand corrections and 144 Hz configuration. The next investigation must distinguish
+synthesized-slot geometry from source age and slot scheduling before a behavioral fix.
+
+Read the plan at the top of `docs/dishonored/PERFORMANCE.md` and the latest acceptance entry in
+`FLICKER_REFERENCE.md`. Reuse existing `msw:` diagnostics first; one question per user-launched
+test. The installed baseline has ModSpacewarp=0, so do not attribute its accepted-run timing
+to active synthesis. Dedicated Linear Bug creation was refused by the free issue limit; the
+branch uses the verified VR-39 parent. No new test is requested by this integration handoff.
+
 ## 2026-09-30: build 242 accepted; consolidate the tested source for staging
 
 Current state: the headset playtest accepts `v1.0.1-242-g11dcf7db9`; hand/head drift is now

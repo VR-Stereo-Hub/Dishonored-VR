@@ -1,3 +1,110 @@
+## 2026-10-02: Cyberpunk VR port frame generation reviewed for MSW (RESEARCH, nothing built)
+
+The Cyberpunk 2077 VR port's 0.1.7 frame generation interpolates (midpoint between two real frames, the
+newer held one slot) with FidelityFX frame interpolation on D3D12, from engine motion vectors, depth and
+optical flow; the game is limited to half the refresh. Their measured cost at 2560x2560 per eye on an RTX
+5070 Ti: FidelityFX about 2.5 ms per frame and 456 MiB, the NVIDIA optical-flow hybrid about 7 ms and 279 MiB;
+45 real plus 45 generated at 90 Hz in the simulator. Their numbers, their GPU: not a prediction for ours.
+What carries over to MSW (discontinuity reset, bounded extrapolation, repeat counters, one pacing schedule,
+no game-rate hand smoothing) and what does not (interpolation latency, the GPU cost on a GPU-bound rig) is the
+integration plan in [PLAN-mod-spacewarp.md](PLAN-mod-spacewarp.md) section 7.
+
+Offloading to the x64 helper, recorded so it is not re-asked: the helper shares the GPU and the CPU with the
+game. Moving the GAME's rendering out of process is not feasible (UE3 issues D3D9 calls from its own render
+thread; streaming them to another process costs more per draw than it saves, and the DXVK route is retired).
+Moving the MOD's own GPU work (synthesis, upscaling, resolve) there only helps where it can overlap the game:
+D3D12 async compute against a D3D11 immediate context that today serializes it. That is a possible gain of
+our post-work's share, not of the game's frame, and it needs shared fences both ways. Unmeasured.
+
+## 2026-09-30: build 248 live slot ordering succeeds; residual deadline misses (MEASURED)
+
+Identity: installed DLL and log `v1.0.1-248-gdc57a1c05`, SHA256
+`5B02B32615DDF859CC4030C6FA18CA01C14E3D0F06E2E792056436DAF4CCA4F8`. The full run and
+previous log, DLL and INI are retained in main `build/msw-run31-analysis/baseline-248`.
+Headset report: large improvement, residual small hitches and foreground jitter during head
+sweeps, mainly with MSW on. This is not final acceptance of smoothness.
+
+The approximately 49-minute session contains two active MSW intervals, log ms
+59619796-60477593 and 60852703-61316421. Of 439 slot-order windows, 386 have at least 60
+real and 60 synthetic submissions/s and zero not-ready counts. This operational steady-window
+filter excludes startup/loading stalls but cannot prove every remaining sample is gameplay.
+Those windows contain 484 target gaps over 1.5 display periods, zero non-increasing targets,
+zero consecutive real submits, and zero Present assists. 129 windows have no target gaps.
+Mean rates are 71 real and 71.583 synthetic submissions/s. Alternation works live; average
+rate alone still hides deadline misses. CSVs remain local in `build/msw-run31-analysis`.
+
+During active MSW intervals, existing gap classifications include 127 pre_tick, 113 present-tail
+(XR end), 41 out/idle, ten capture, and one each gameTick, out/R and desktop. Some include
+loading/resolution changes and are not a steady-gameplay ranking. One 44 ms gap near a bad
+steady window contains 32.5 ms pre_tick; MSW owns the same frame mutex there. The old budget
+cannot distinguish the worker's XR wait, eye work and submit from ordinary real-frame work.
+Low sampled VRAM usage and small streaming reads there do not establish a GPU paging cause.
+
+Instrumentation now measures CPU wall time for the synthetic cycle's wait, view locate,
+eye construction, XR end and total. Eye time includes swapchain acquire/release, context lock
+and GPU command submission; it is explicitly NOT GPU execution time. Rate-limited mean/max
+snapshots use try_lock between complete cycles, so logging does not wait on Present or mix
+part of an assisted cycle. Counter baselines initialize at thread start, avoiding inflated
+first-window rates when MSW is toggled back on. No new GPU query or engine memory writer.
+
+Configuration candidate: enable existing ModSpacewarpHands, disable Perf FrameId and re-enable
+MSW, preserving all other settings. FrameId was performing synchronous D3D9 image readback
+every eight pairs. Removing it reduces diagnostic work, but earlier FrameId-off/diagnostic A/B
+tests found NO repeatable FPS/tail benefit (see the prior experiment records below). That failed
+prediction remains valid evidence; removal is a low-overhead baseline for the newer MSW path,
+not a proven hitch fix. Leave GPU-memory polling and other diagnostics unchanged.
+
+Next decision: first obtain the single hand-follow ON/OFF/ON perceptual comparison described
+in FLICKER_REFERENCE. Read stage timing and target gaps from that run to choose the next
+hitch investigation. A large XR end tail, eye-build tail or wait tail requires different follow-up;
+do not infer GPU cost from CPU wall time or change prediction clamps from lifetime maxima
+that include loading. Remaining smoothness is open, and no new performance gain is claimed.
+
+## 2026-09-30: half-rate slot ownership and prediction timeline (HOST-VERIFIED candidate)
+
+The request concerns ModSpacewarp in F10. Build 242 remains the headset-accepted AFW baseline
+with this feature off; the current work has no new headset verdict yet.
+
+Code finding: the half-rate worker assigned `seenEnds = ends` before trying `g_cycleMx`. A lost
+try_lock consumed the only notification of that real frame. Also, a fast next Present could win
+the recursive mutex repeatedly; Windows mutex fairness does not reserve an alternating slot.
+The overdue filler sometimes hid the loss, but could not guarantee real/synthetic alternation.
+
+Correction: under the existing mutex, a successful real stereo end records one pending synthetic
+slot. The worker consumes it only with the lock. If Present wins first, its outermost entry
+services it before any real XR cycle; nested Present cannot do so. The overdue filler consumes
+the same pending slot, preventing duplicate service. Off, stopped, adaptive, and blocked runtime
+states cancel it without adding a wait on the worker. No engine memory writer is introduced.
+The synthetic work in Present assistance is included in the existing blocked-time accounting.
+
+Host evidence: `tools/msw-slot-host.ps1` extracts the production service and cycle entry/exit.
+12/12 checks pass, including 200 frames alternating worker wins and Present wins with deliberate
+contention before every unlock. `-OldControl` models build 242's consumed-before-lock sequence:
+8 pass / 4 fail, including loss of the token and broken alternation. This proves the ownership
+correction on the host, not XR driver deadlines or end-to-end headset cadence.
+
+New three-second `msw: slot order` line reports worker/Present-assist counts, target intervals
+over 1.5 display periods, non-increasing display targets and consecutive real submits. A steady
+half-rate run should have roughly 72 real + 72 synthesized slots/s at 144 Hz, and zero in the
+last three counters. Missing GPU/runtime deadlines may still produce target gaps even with
+correct ordering. Counts use successful stereo submissions, with the chain reset on non-stereo
+frames; warm-up, focus changes and loading are not steady-state pacing evidence.
+
+Prediction also had a timing mismatch: capture arrival intervals measured delivery stalls,
+while the synthesized head pose targeted an XR display slot. Native images now carry the XrTime
+of their real submission. Body motion is measured per submission interval and advanced to the
+synthetic display time, retaining the native pipeline's fixed latency instead of treating a late
+readback as later game motion. Both eyes share that target even though one native image is older.
+Missing/reversed timing refuses prediction; the old wall-clock path is retained only for callers
+that explicitly supply no display timestamp (host/replay compatibility).
+
+55/55 GPU warp checks pass, including unchanged accepted wall/hand checks and new independent
+capture-clock and stale-camera-writer controls. Build 242 fails six of the 53-case suite before
+the off-origin pivot cases were added. Final host informational cost: grid-4 synthesis 0.703 ms
+per eye, full AFW rebuild 1.444 ms at 2750x2850; this is not an in-game performance comparison.
+Geometry details and perceptual limits are in FLICKER_REFERENCE. Next user launch asks only
+about stick-turn geometry; read pacing counters from that run without conflating the verdicts.
+
 ## 2026-09-30: accepted build 242 baseline; mod-spacewarp pacing follow-up
 
 AFW wall and hand/head-motion corrections are headset-accepted on `11dcf7db9`, with

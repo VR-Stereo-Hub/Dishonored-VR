@@ -1,3 +1,118 @@
+## 2026-10-02: MSW guards - no extrapolation across a jump, a bounded turn, the stick stop (HOST-VERIFIED candidate)
+
+Surface/route: the WORLD in MSW-synthesized slots, both eyes, under right-stick turns, snap turns
+and Blink. Same row as the 2026-09-30 stick-turn echo entry below; that candidate (build 248/250)
+fixed the prediction's clock and source, this one bounds what it may predict. Separate from the
+head-sweep foreground jitter (top of the 09-30 entries), which this does not touch.
+
+1. **Symptom identity:** the one-frame world echo on stick turns (reported before build 248; no
+   verdict on 248/250 yet). The build-248 log's cumulative `msw: beat` maxima read "walk up to
+   155.2 uu and turn up to 382.46 deg per synthesized eye": the turn rate between the two held
+   images times the slot's age is unbounded, so one snap step or a Blink step between them is
+   carried into the slot. 382 deg is no stick turn (run 11 measured 500-600 deg/s).
+2. **Reproduction identity:** host only (`tools\afw-warp-host.ps1`, ray-traced scene). Branch
+   `claude/vr-39-msw-guards` off #165 (`3ad84d398`) plus the plan commit `8ee368641`.
+3. **Hypothesis and counterprediction:** the echo is an extrapolation past what the stick still
+   commands (release) or across a discontinuity. Prediction: guards on, no hold and no clamp in a
+   steady stick turn (`msw: guards ... turn clamped 0`), holds only around snaps and Blinks, and
+   the echo gone or reduced. An echo that stays with zero holds, zero clamps and zero stick stops
+   during the sweep falsifies this cause and points back at disocclusion or slot gaps.
+4. **Change identity (default OFF, F10 and seam A/B):**
+   - `[VR] ModSpacewarpGuard` / `vrpace msw guard on|off`: `synth_hold_reason` re-submits the last
+     real frame for a slot whose two held images show a camera speed over 3000 uu/s or a body turn
+     over 1000 deg/s; below that the per-eye turn is clamped to 25 deg. Ceilings are derived, not
+     measured (GroundSpeed 500 uu/s, Blink step 500 uu, run 11 turn rates); the guard line logs
+     each window's measured maxima so a log can set them (`vrpace msw maxspeed|maxturnrate|maxturn`).
+   - `[VR] ModSpacewarpStickStop` / `vrpace msw stickstop on|off`: no turn is extrapolated while
+     the right-stick X the game receives is zero (the pad bridge's final composed value).
+   - The re-submitted-last-frame slots are counted as repeats (jump / eye unwritable / not
+     rendered), no longer as failures.
+5. **Results:** host 60/60 including five new cases, each with its control: a 200 deg/s stick turn
+   is neither held nor bent (world 0.924); a 30 deg snap holds ("turn jump"; guard off: none); a
+   3 m step holds ("camera jump"; guard off: none); a 1 deg clamp leaves the world behind (0.000)
+   where 25 deg does not (0.924); a released stick stops the turn (0.000) where a held one, or the
+   stop off, does not (0.924). Slot scheduling 12/12. Not run: simulator, headset.
+6. **Status:** HOST-VERIFIED candidate. Not addressed: walking has inertia in the engine, so the
+   stick stop covers the turn only. The planned luma cut test was not built: a camera cut moves
+   the camera or its heading, which the speed and turn ceilings already catch in the same slot,
+   and a readback-based test arrives a frame late. Plan: PLAN-mod-spacewarp.md section 7.
+7. **Installed candidate:** `v1.0.1-253-ga964c2ab4`, DLL SHA256 `05488F5D...86451249`, the INI
+   with both levers on (the only change); backup and record in main `build/msw-guards-install/`.
+
+## 2026-09-30: build 248 improves MSW; hand/weapon jitter during head sweeps remains (REPORTED)
+
+Surface/route: foreground hand and weapon edges during left/right HEAD sweeps, mainly with
+the MOD's spacewarp enabled. Keep separate from the prior right-stick WORLD echo and the
+accepted AFW wall correction. The tester reports substantial overall improvement, with residual
+small hitches; no controlled verdict isolates the remaining foreground cause yet.
+
+- Identity: build 248 banner and installed DLL hash verified; DLL, full INI, log and previous log
+  archived in main `build/msw-run31-analysis/baseline-248`. PoseFromView=1, gain=0.911,
+  ModSpacewarpHands=0 during the MSW run. MSW was toggled off at session end.
+- Measured: live slot ordering has no repeated targets or consecutive real submits in the
+  386 steady windows, but deadline gaps remain. Full pacing evidence and the FrameId-off
+  hypothesis's earlier negative results are maintained in PERFORMANCE.md.
+- Hand-motion counter is zero because per-slot hand following is off; grip matching is
+  119,147 matched / zero unmatched. This identifies the selected path, not proof that grip
+  motion causes HEAD-only jitter. Pose-view ties also remain, but are not time-correlated to
+  the reported symptom. Preserve the accepted matcher rather than guessing a new fallback.
+- Candidate: use the existing default-off per-slot controller-follow lever, with its live F10
+  A/B toggle. The same candidate removes the FrameId readback diagnostic and adds CPU wall
+  stage timings for hitch localization. It does not change prediction, foreground gain, the
+  AFW shader or hand/view matching. Existing host hand-follow checks establish the transform
+  executes; they do not establish this headset symptom's cause.
+- One question next launch: controllers held still, repeat the same head sweep with F10
+  Display's "Spacewarp: hands follow the controllers in filled frames" ON, OFF, then ON.
+  Repeatable improvement supports grip/source timing; unchanged leaves the hypothesis
+  unsupported; worse means leave OFF. Verify the new build banner and actual follow counters
+  before interpreting the result. Read timing separately; do not ask a second pacing question.
+- Installed candidate: `v1.0.1-250-ga0979694c`, optimized build, lint, nine exports and 12/12
+  scheduling checks pass. DLL hash matches the build; full 73,303-byte INI differs by exactly
+  MSW 0 -> 1, ModSpacewarpHands 0 -> 1 and FrameId 1 -> 0. Expected file and CRLF verified.
+  Backup/verification location and full DLL hash are in STATUS. Existing DLSS helper retained.
+- Remaining: headset comparison and hitch root cause are open. No game launch by the agent,
+  no new shader/math/matcher behavior, and no staging/release merge.
+
+## 2026-09-30: MSW stick-turn echo - rendered motion and display-slot prediction (HOST-VERIFIED candidate)
+
+Surface/route: one-frame WORLD geometry echo while right-stick turning with the MOD's F10
+spacewarp on. Distinct from accepted foreground/wall penetration and head-following corrections.
+No current headset evidence establishes that every reported echo has the same cause.
+
+- Code finding: `synth_eye` used capture arrival time to extrapolate body yaw taken from the camera
+  writer. The existing AFW record already documents that written rotation can precede rendered
+  rotation. Delivery jitter also changes that predictor's slope/horizon independently of display
+  timing. The two eyes have differently aged native sources and need one common target moment.
+- Change: record the real submission's XrTime with each native image, and predict at the synthetic
+  submission's XrTime. Derive body heading from rendered camera axes after removing that source's
+  own tracking rotation. Derive body translation after removing each eye offset in its own basis;
+  rotate the target eye offset around the predicted body origin. Body turn remains in world pixels,
+  never in foreground pixels or the layer's claimed head orientation. Accepted AFW shader logic
+  and PoseFromView matching are unchanged.
+- Host: 55/55 GPU checks pass. With deliberately irregular capture clocks and stale writer yaw,
+  both eyes match the ray-traced target within 1.5 px on over 92% / 96% of scored world pixels;
+  hands remain exact. Independent head turns and an off-origin head are covered too. Missing
+  background exposed by a turn is outside the one-source image's information and keeps the
+  existing fallback, so the score threshold is not a claim that every world pixel is recovered.
+- Negative control: accepted build 242, with only its function signature adapted to accept and
+  ignore the display timestamp, fails six of the 53 cases before off-origin cases were added.
+  Perturbing only capture timing or only written yaw each independently fails. Scheduling's
+  separate old-code control also fails; its mechanism and 12/12 corrected checks are recorded
+  in PERFORMANCE.md. This is host causality, not yet a headset verdict for the user's scene.
+- Diagnostics: `msw: beat` adds display-clock eye count, unavailable prediction count, maximum
+  source-to-slot age and maximum rendered/written turn-step disagreement. `msw: slot order`
+  exposes target gaps, repeat targets and consecutive real submits. All are rate-limited Info.
+- Next launch: candidate MSW enabled, half-rate and extrapolation retained, head still, steady
+  right-stick sweep across a fixed wall corner/door frame. Sole question: is the one-frame world
+  echo gone, reduced or unchanged? Gone supports the timing/motion correction; a remaining echo
+  with regular slots redirects to disocclusion/source content, while slot gaps leave pacing open.
+  No image dump or user command is required. Check the installed candidate banner first.
+- Installed candidate: `v1.0.1-248-gdc57a1c05`; optimized build, nine exports and lint pass.
+  DLL SHA256 `5B02B32615DDF859CC4030C6FA18CA01C14E3D0F06E2E792056436DAF4CCA4F8` verified.
+  Full INI differs from accepted backup by one byte only, ModSpacewarp=0 -> 1; expected file
+  identical and CRLF verified. Baseline DLL/INI/log/previous log retained together under main
+  `build/msw-turn-pacing/pre-install-248-20260930-014038`. No new game launch yet.
+
 ## 2026-09-30: build 242 accepted; mod-spacewarp turning remains separate (HEADSET-CONFIRMED AFW baseline)
 
 Surface/route: AFW hands sliding opposite head motion with a stable world. The tester now accepts

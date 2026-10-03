@@ -1248,6 +1248,17 @@ static void OvlTabDisplay()
                         dvr::afw::set_synth_extrapolate(mx);
                         OverlaySaveDefaults();
                     }
+                    bool mg = dvr::afw::synth_guard();
+                    if (dvr::ovl::checkbox("Spacewarp: don't predict across a Blink, snap turn or cut", &mg)) {
+                        dvr::afw::set_synth_guard(mg);
+                        OverlaySaveDefaults();
+                    }
+                    OvlTip("Shows the last real frame for that one filled frame instead, and limits how far a turn is predicted.");
+                    bool ms = dvr::afw::synth_stick_stop();
+                    if (dvr::ovl::checkbox("Spacewarp: stop predicting a turn when the stick is released", &ms)) {
+                        dvr::afw::set_synth_stick_stop(ms);
+                        OverlaySaveDefaults();
+                    }
                 }
                 if (dvr::vr::depth_active()) {
                     bool dl = dvr::vr::depth_live();

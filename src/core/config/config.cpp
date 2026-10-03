@@ -3622,6 +3622,11 @@ static void LoadConfig()
             dvr::afw::set_synth_hands(GetPrivateProfileIntA("VR", "ModSpacewarpHands", 0, ini) != 0);
             dvr::vr::set_msw_half_rate(GetPrivateProfileIntA("VR", "ModSpacewarpHalfRate", 1, ini) != 0);
             dvr::afw::set_synth_extrapolate(GetPrivateProfileIntA("VR", "ModSpacewarpExtrapolate", 1, ini) != 0);
+            // VR-39 MSW guards (PLAN-mod-spacewarp section 7). New levers: default off.
+            dvr::afw::set_synth_guard(GetPrivateProfileIntA("VR", "ModSpacewarpGuard", 0, ini) != 0);
+            dvr::afw::set_synth_stick_stop(GetPrivateProfileIntA("VR", "ModSpacewarpStickStop", 0, ini) != 0);
+            Log("config: [VR] ModSpacewarpGuard=%d ModSpacewarpStickStop=%d (resolved; absent = 0)",
+                dvr::afw::synth_guard() ? 1 : 0, dvr::afw::synth_stick_stop() ? 1 : 0);
             // PRINT WHAT IT RESOLVED TO, AND WHETHER THE FILE SAID SO. Two headset
             // tests were wasted shipping a changed compiled default to a machine
             // whose ini names the key: the loader reads a default only when the key
@@ -4417,6 +4422,8 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("VR", "ModSpacewarpHands", dvr::afw::synth_hands() ? "1" : "0", ini);
     WritePrivateProfileStringA("VR", "ModSpacewarpHalfRate", dvr::vr::msw_half_rate() ? "1" : "0", ini);
     WritePrivateProfileStringA("VR", "ModSpacewarpExtrapolate", dvr::afw::synth_extrapolate() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpGuard", dvr::afw::synth_guard() ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "ModSpacewarpStickStop", dvr::afw::synth_stick_stop() ? "1" : "0", ini);
     // Sync OFF saves as 0 whatever the target was, so a SAVE AS DEFAULTS taken
     // after an A/B that ended on `off` does not resurrect the rate next launch.
     _snprintf(v, 64, "%u", dvr::vr::pace_sync() ? dvr::vr::pace_sync_hz() : 0u);

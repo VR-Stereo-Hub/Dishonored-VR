@@ -666,16 +666,24 @@ int main() {
         // image as submitted at the image's own orientation. Both world models: the game's matrices and the XR one.
         // The control: the extrapolation off leaves the world 4 deg behind. About 7% of the world is unseen by the
         // 20 ms old image (4 deg of new view at the edge, the strip behind the pillar): 0.9 is the bar.
-        auto turnCase = [&](bool extrap, bool mtx, double* worldOk, double* handOk) -> bool {
+        auto turnCase = [&](bool extrap, bool mtx, double* worldOk, double* handOk,
+                            bool slotClock = false, int eye = 0, bool headMotion = false, bool staleWriter = false,
+                            int64_t slotTime = 1020000000, bool offOrigin = false, double yawStep = 2.0,
+                            V3 jump = {0, 0, 0}) -> bool {
             State t0 = still, t1 = still, t2 = still;
-            t1.bodyYawDeg = 2.0; t2.bodyYawDeg = 4.0;
+            t1.bodyYawDeg = yawStep; t2.bodyYawDeg = 2 * yawStep;
+            t1.bodyPos = jump; t2.bodyPos = jump;
+            if (headMotion) { t0.headYawDeg = 8.0; t1.headYawDeg = -3.0; }
+            if (offOrigin) t0.headPos = t1.headPos = t2.headPos = {1.0, 0, 0.3};
+            // Synthesis preserves the source orientation; the compositor supplies the remaining head turn.
+            t2.headYawDeg = eye == 0 ? t0.headYawDeg : t1.headYawDeg;
             dvr::afw::set_enabled(true, "test"); dvr::afw::set_stereo(true, "test");
             dvr::afw::set_body_depth(0.40f, "test"); dvr::afw::set_world_scale((float)kScale);
             dvr::afw::set_matrices(mtx, "test"); dvr::afw::set_fg(false, "test"); dvr::afw::set_fg_fov(0);
             dvr::afw::set_fg_mask(true, "test"); dvr::afw::set_synth_hands(false);
             dvr::afw::set_synth_extrapolate(extrap);
             g_signForeground = true; dvr::depthprobe::g_prefgReady = true;
-            const Eye e0 = eyeOf(t0, 0), e1 = eyeOf(t1, 1), e2 = eyeOf(t2, 0);
+            const Eye e0 = eyeOf(t0, 0), e1 = eyeOf(t1, 1), e2 = eyeOf(t2, eye);
             auto i0 = image(t0, e0, N, N), i1 = image(t1, e1, N, N), truth = image(t2, e2, N, N);
             ID3D11Texture2D* x0 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i0.data());
             ID3D11Texture2D* x1 = tex(g.dev, N, N, D3D11_BIND_SHADER_RESOURCE, D3D11_USAGE_DEFAULT, 0, i1.data());
@@ -686,11 +694,13 @@ int main() {
             const Rec m0 = recordOf(t0, e0, false, false), m1 = recordOf(t1, e1, false, false);
             const dvr::afw::Pose tg0[2] = {poseOf(eyeOf(t0, 0)), poseOf(eyeOf(t0, 1))}, tg1[2] = {poseOf(eyeOf(t1, 0)), poseOf(eyeOf(t1, 1))};
             dvr::afw::CaptureMeta c0, c1; c0.captureMs = 3000.0; c1.captureMs = 3010.0;
-            dvr::afw::note_capture(g.dev, g.ctx, 0, x0, 7, poseOf(e0), true, (float)t0.bodyYawDeg, tg0, m0.vp, m0.c5, m0.rot, &c0);
-            dvr::afw::note_capture(g.dev, g.ctx, 1, x1, 8, poseOf(e1), true, (float)t1.bodyYawDeg, tg1, m1.vp, m1.c5, m1.rot, &c1);
+            if (slotClock) { c0.displayTime = 1000000000; c1.displayTime = 1010000000; c1.captureMs = 3002.0; }
+            dvr::afw::note_capture(g.dev, g.ctx, 0, x0, 7, poseOf(e0), true, staleWriter ? -20.0f : (float)t0.bodyYawDeg, tg0, m0.vp, m0.c5, m0.rot, &c0);
+            dvr::afw::note_capture(g.dev, g.ctx, 1, x1, 8, poseOf(e1), true, staleWriter ? -20.0f : (float)t1.bodyYawDeg, tg1, m1.vp, m1.c5, m1.rot, &c1);
             const float tp[3] = {(float)e2.pos.x, (float)e2.pos.y, (float)e2.pos.z};
             dvr::afw::Pose out{}; const char* why = nullptr;
-            const bool ok = dvr::afw::synth_eye(g.dev, g.ctx, 0, g.dst, N, N, (float)kTan, (float)kTan, tp, 3020.0, &out, &why);
+            const bool ok = dvr::afw::synth_eye(g.dev, g.ctx, eye, g.dst, N, N, (float)kTan, (float)kTan, tp,
+                                              slotClock ? 3075.0 : 3020.0, &out, &why, nullptr, slotClock ? slotTime : 0);
             std::vector<float> px(N * N * 4);
             if (ok) {
                 g.ctx->CopyResource(g.stage, g.dst);
@@ -732,6 +742,83 @@ int main() {
                  wm, hm, wx, hx, wc, hc);
         check("msw: a stick turn turns the world in the image, the hands stay", a && b && c && wm > 0.9 && hm > 0.97 && wx > 0.9 &&
               hx > 0.97 && wc < 0.5, d);
+        for (int eye = 0; eye < 2; ++eye) {
+            double w = 0, h = 0;
+            const bool ok = turnCase(true, true, &w, &h, true, eye, false, true);
+            snprintf(d, sizeof(d), "eye %d world %.3f hands %.3f: irregular capture times, stale writer, common display slot", eye, w, h);
+            check("msw: stick turn follows the display timeline and rendered yaw", ok && w > 0.9 && h > 0.97, d);
+            const bool head = turnCase(true, true, &w, &h, true, eye, true, true);
+            snprintf(d, sizeof(d), "eye %d world %.3f hands %.3f: 11 deg head change must not become extra body motion", eye, w, h);
+            check("msw: rendered turn prediction removes the source head rotation", head && w > 0.9 && h > 0.97, d);
+        }
+        double wb = 0, hb = 0;
+        const bool clockOnly = turnCase(true, true, &wb, &hb, true);
+        check("msw: irregular readback timing cannot change the predicted display slot", clockOnly && wb > 0.9 && hb > 0.97,
+              "correct camera-writer yaw; only the capture clock is perturbed");
+        const bool writerOnly = turnCase(true, true, &wb, &hb, false, 0, false, true);
+        check("msw: stale camera-writer yaw cannot suppress a rendered stick turn", writerOnly && wb > 0.9 && hb > 0.97,
+              "regular timing; only the camera-writer yaw is perturbed");
+        const bool bad = turnCase(true, true, &wb, &hb, true, 0, false, true, 999000000);
+        check("msw: a target before the source refuses backward prediction", bad && wb < 0.5 && hb > 0.97,
+              "invalid display order keeps the original body motion; no clock-domain fallback");
+        for (int eye = 0; eye < 2; ++eye) {
+            const bool off = turnCase(true, true, &wb, &hb, true, eye, true, true, 1020000000, true);
+            snprintf(d, sizeof(d), "eye %d world %.3f: head 1 metre from tracking origin must orbit with the turn, not walk", eye, wb);
+            check("msw: off-centre stick turn keeps the body pivot", off && wb > 0.9, d);
+        }
+        // VR-39 MSW guards (PLAN-mod-spacewarp section 7). Each case has its control: the same images with the guard
+        // (or the stick stop) off must show the fault the guard exists for.
+        {
+            dvr::afw::set_synth_guard(true);
+            const bool reg = turnCase(true, true, &wb, &hb, true);
+            const char* holdReg = dvr::afw::synth_hold_reason(true);
+            snprintf(d, sizeof(d), "200 deg/s stick turn: hold %s, world %.3f hands %.3f", holdReg ? holdReg : "none", wb, hb);
+            check("msw guard: an ordinary stick turn is neither held nor bent", reg && !holdReg && wb > 0.9 && hb > 0.97, d);
+
+            turnCase(true, true, &wb, &hb, true, 0, false, false, 1020000000, false, 30.0);   // a 30 deg snap in one 10 ms tick
+            const char* holdSnap = dvr::afw::synth_hold_reason(true);
+            dvr::afw::set_synth_guard(false);
+            const char* holdSnapOff = dvr::afw::synth_hold_reason(true);
+            snprintf(d, sizeof(d), "guard on: %s | control, guard off: %s", holdSnap ? holdSnap : "none", holdSnapOff ? holdSnapOff : "none");
+            check("msw guard: a snap turn between the held images holds the slot", holdSnap && !strcmp(holdSnap, "turn jump") && !holdSnapOff, d);
+
+            dvr::afw::set_synth_guard(true);
+            turnCase(true, true, &wb, &hb, true, 0, false, false, 1020000000, false, 0.0, V3{0, 0, -3.0});   // a 3 m Blink step
+            const char* holdBlink = dvr::afw::synth_hold_reason(true);
+            dvr::afw::set_synth_guard(false);
+            const char* holdBlinkOff = dvr::afw::synth_hold_reason(true);
+            snprintf(d, sizeof(d), "guard on: %s | control, guard off: %s", holdBlink ? holdBlink : "none", holdBlinkOff ? holdBlinkOff : "none");
+            check("msw guard: a Blink-sized camera jump holds the slot", holdBlink && !strcmp(holdBlink, "camera jump") && !holdBlinkOff, d);
+
+            // The per-eye clamp: a 4 deg slot turn clamped to 1 deg leaves the world mostly behind (like the control);
+            // the default 25 deg leaves it alone.
+            dvr::afw::set_synth_guard(true);
+            float s0 = 0, r0 = 0, c0 = 0; dvr::afw::synth_limits(&s0, &r0, &c0);
+            dvr::afw::set_synth_limits(0, 0, 1.0f);
+            double wClamp = 0, hClamp = 0;
+            const bool clamp = turnCase(true, true, &wClamp, &hClamp, true);
+            dvr::afw::set_synth_limits(0, 0, c0);
+            const bool unclamped = turnCase(true, true, &wb, &hb, true);
+            dvr::afw::set_synth_guard(false);
+            snprintf(d, sizeof(d), "clamp 1 deg: world %.3f | clamp %.0f deg: world %.3f", wClamp, c0, wb);
+            check("msw guard: the per-eye turn clamp bounds the extrapolated turn", clamp && unclamped && wClamp < 0.5 &&
+                  hClamp > 0.97 && wb > 0.9, d);
+
+            // The stick stop: stick released, the 4 deg slot turn is not extrapolated; held, it is.
+            dvr::afw::set_synth_stick_stop(true);
+            dvr::afw::note_turn_stick(0.0f);
+            double wStop = 0, hStop = 0;
+            const bool stop = turnCase(true, true, &wStop, &hStop, true);
+            dvr::afw::note_turn_stick(1.0f);
+            const bool held = turnCase(true, true, &wb, &hb, true);
+            dvr::afw::set_synth_stick_stop(false);
+            dvr::afw::note_turn_stick(0.0f);
+            const bool off = turnCase(true, true, &wc, &hc, true);
+            snprintf(d, sizeof(d), "stick released: world %.3f | stick held: world %.3f | stick stop off, released: world %.3f",
+                     wStop, wb, wc);
+            check("msw stick stop: a released stick stops the extrapolated turn", stop && held && off && wStop < 0.5 &&
+                  hStop > 0.97 && wb > 0.9 && wc > 0.9, d);
+        }
     }
     {   // Freshness: a record from an earlier present, and a toggle without a capture, are refused.
         const Eye h0 = eyeOf(still, 0), f1 = eyeOf(turn, 1);

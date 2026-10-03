@@ -1437,3 +1437,24 @@ The new lever defaults off, and without reduced upscaling draws remain native.
     depth, no game matrices and no separate HUD.
   - Chosen over a whole-loop compositor thread because real frames stay on the proven present path;
     only the gaps are new.
+
+- **2026-09-30 - Half-rate service is an obligation under the frame mutex; prediction uses display slots.**
+  - A successful real stereo submission owes one synthetic slot. The worker or the next outermost
+    Present services it under the same recursive mutex. This avoids both lost try_lock notifications
+    and reliance on mutex fairness without making Present wait for the worker to acknowledge it.
+  - Native-image body motion is measured and predicted on the submissions' XrTime timeline. Capture
+    arrival time is retained as diagnostic evidence, not a production prediction clock. Rendered
+    matrices with each source's own head rotation removed define body motion, rather than older
+    camera-writer intent. World pixels receive the turn; foreground and submitted head orientation
+    keep their existing contracts (supersedes the early MSW pose-turn description above).
+  - Host validation and remaining headset limits: PERFORMANCE and FLICKER_REFERENCE, same date.
+
+- **2026-10-02 - MSW holds the last real frame across a jump instead of synthesizing (VR-39 guards).**
+  - When the two held images straddle a Blink, a snap turn or a cut (camera speed or body-turn rate
+    over a ceiling), the slot re-submits the last real layer set rather than rebuilding either eye.
+  - Under AFW the two eyes' own images come from different presents, so after a jump one eye's image
+    is from before it: head-only synthesis would show the eyes on two sides of the jump. The last real
+    frame is a consistent pair, and the compositor still corrects its rotation.
+  - The turn stops with the stick (the pad bridge's composed value), not with the images, because the
+    images still show a turn for a frame after the stick is released. Walking is not stopped the same
+    way: the engine's walk has inertia.
