@@ -3860,3 +3860,15 @@ samples ranges from 1,269.4 to 2,108.2 MiB. Neither disk IO nor paging faults we
 The stability result therefore does not eliminate loading stalls or establish HD-pack
 performance. Logs are archived in main build/texture-reshade-candidate/stable-run-257.
 ReShade was absent in this run and installed afterward, keeping its next test separate.
+### 2026-10-03 ReShade preset test armed, no performance result yet
+
+The user-downloaded Carinth v3 preset is installed and selected with its seven active effects
+(SMAA, LiftGammaGain, LumaSharpen, Vibrance, Curves, FakeHDR and prod80 contrast/brightness/
+saturation). Official dependency commits and hashes are recorded in ../INSTALLER.md.
+VR DLL remains accepted build 257; the entire VR INI is byte-identical and retains paged
+texture backing. ReShade runtime/bridge are present; no HD texture pack was installed by
+this work. Scroll Lock toggles effects. No game was launched, so neither shader compilation,
+post-effect headset capture nor performance is accepted yet. The first question is whether
+the toggle visibly changes the headset view. A later timed comparison can measure effect
+cost, keeping the same save, resolution and VR mode; do not mix that with a texture-pack
+install or assume mirror suppression still applies while ReShade is active.

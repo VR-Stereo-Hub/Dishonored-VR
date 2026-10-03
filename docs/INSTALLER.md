@@ -494,3 +494,53 @@ No account credentials were requested or copied during this investigation.
 Runtime installation found Get-FileHash discovery can fail in the launcher's inherited
 PowerShell environment. The helper uses .NET SHA256 directly and tests a deliberately
 unavailable hash cmdlet. Verification failure still leaves game files unchanged.
+## Full sidebar design and installed preset validation (2026-10-03)
+
+The user selected Sidebar. The complete interactive preview now uses the existing
+backdrop, parchment strip and binding art, serif typography, slate controls and oxblood
+primary action. **Play stays bottom right**. Overview holds installation/path and shortcut
+actions; Settings separates Display and Controls; Mods owns enable/remove; Bindings retains
+the guide; Updates owns release checking, overwrite policy, reinstall and history; Help/about
+retains log collection, credits and Ko-fi. The actual launcher and updater code are unchanged.
+Display includes headset model, runtime, AFW/Stereo, quality presets, the 50-450% pixel slider,
+mirror, rain and texture compatibility. Controls includes crouch, snap turn, modifier, stick
+swap and pause chord. Other in-game-only controls remain in F10/L3+R3. Preview navigation,
+Apply, mode selection, TFC preparation and update modal interactions pass; 320/360/560px
+layouts fit. The native updater's 57 host checks pass, including invalid size/hash/version,
+replacement refusal/preservation, successful replacement and Steam/GOG discovery.
+
+TFC: the local HD 2.0 pack has GameProfile.xml at its root and mapping/TFC data below
+TexturePack. TFC 2.5.4 exposes GamePath/TFCPath/UpdateSettings in its .NET configuration;
+that is evidence for investigating prefilled setup, not proof of an unattended API. The
+documented flow is selecting folders then Update All. The proposed launcher will import
+and validate the archive, manage its extracted location, check backup capacity, prepare
+the paths and guide the final TFC step. Completion must be verified before showing On.
+Off/Uninstall must restore verified original packages; it cannot be a simple DLL toggle.
+HD textures were not installed during the ReShade test setup. No donor binary was bundled.
+
+The user supplied the current Nexus mod-5 archive in Downloads. Only its sole preset entry
+was extracted, not a legacy ENB proxy. Archive SHA256:
+EC0EC351918B1C1FD0965B8DBA00ED06843FE4E06B10872859708EC98DAD5613.
+Installed DishonoredCarinthPresetv3.ini SHA256:
+BF54F4CA10C3748D9FF4585B3B764410E7ED73D968270C02183D2349E2905D6D.
+Active techniques are SMAA, LiftGammaGain, LumaSharpen, Vibrance, Curves, HDR (FakeHDR.fx),
+and prod80_04_ContrastBrightnessSaturation. Other TechniqueSorting names are inactive.
+
+Official packages, pinned before extraction, retaining source/license files:
+
+| Package | Commit | Download SHA256 |
+|---|---|---|
+| [Standard Effects](https://github.com/crosire/reshade-shaders/tree/slim) | fd0022170615ce0d8162d219bff07232fa6dd84f | a3b110ba5118f3b944d74f0b0746c21280071d389ed98d615bf3c4b3a1778586 |
+| [SweetFX](https://github.com/CeeJayDK/SweetFX) | 93ddf39b357f5da534ed6d34ba4ec8cc7dcfa361 | e1e1d6515d29c65fcf115c9692a1c5f91ffb8d9734e6871bcf67ac48588dbbce |
+| [prod80](https://github.com/prod80/prod80-ReShade-Repository) | 1c2ed5b093b03c558bfa6aea45c2087052e99554 | 15b251a3f99901dda81072c3cb8ffa1eb2144dee5399d459a5dde7a50bbd6132 |
+
+Packages live separately in Win32/dvr-reshade-shaders, with explicit effect/texture search
+paths in the newly created ReShade.ini. PresetPath selects Carinth; PerformanceMode=1 and
+SkipLoadingDisabledEffects=1. Scroll Lock (145) toggles effects; Home (36) opens the overlay.
+There was no prior ReShade.ini/preset/package folder to overwrite. Before copying, verified
+the accepted mod/runtime hashes and that Dishonored was not running; archived DLL, full
+INI, bridge, runtime and both game logs. After copying, full VR INI byte comparison and
+CRLF verification pass, and the VR DLL is unchanged. Main build/texture-reshade-candidate/
+preset contains sources.json, installed-profile.json, validation scripts and before-profile
+backup. Shader/include and texture dependencies are checked locally. Actual compilation,
+headset effect capture and frame-time cost await the user's launch.

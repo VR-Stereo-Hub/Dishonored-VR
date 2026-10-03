@@ -1,3 +1,26 @@
+## 2026-10-03: Carinth preset installed; full themed sidebar preview (headset test pending)
+
+Installed the user-downloaded current Nexus mod-5 Carinth v3 preset and its seven active
+effects, with pinned official Standard Effects, SweetFX and prod80 packages. ReShade.ini
+selects DishonoredCarinthPresetv3.ini; Scroll Lock toggles effects and Home opens ReShade.
+The complete installed VR INI is byte-identical (73,348 bytes, CRLF), and the accepted
+VR DLL remains v1.0.1-257-g705b282c7. Whole DLL/INI/log pair/bridge/runtime backup is in main
+build/texture-reshade-candidate/preset/before-profile. No game was launched; runtime shader
+compilation and effects appearing in the headset remain unverified. Details and source
+hashes are in INSTALLER.md; performance limits are in dishonored/PERFORMANCE.md.
+
+One next-launch question: after loading the existing save, does Scroll Lock visibly toggle
+the preset inside the headset? Yes supports post-effect capture; no visible change, desktop-
+only change or a failure requires the matching build-257 VR and ReShade logs before another
+test. Archive both VR logs before another launch. Do not infer headset success from files.
+
+User chose Sidebar and corrected Play to the bottom RIGHT. The new interactive preview
+uses the current painted assets, includes all current launcher settings across Display and
+Controls, and covers Overview, Mods, Bindings, Updates and Help/about. It is a design preview,
+not a production UI replacement. No updater code changed; its host suite passes 57/57.
+TFC remains a guided integration proposal: prepare/import the pack and paths, then the
+documented Update All step; no unattended CLI or safe instant texture toggle is proven.
+
 ## 2026-10-02: paged candidate stable in headset; ReShade installed; launcher layouts explored
 
 Tester reports the build-257 run was stable. The installed DLL hash and log banner match
