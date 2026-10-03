@@ -26,6 +26,10 @@ DXT5 creation, lock and upload after each ReShade update; preserved texture hook
 effect pixels, render state and viewport; runtime destroy/reset/recreate; zero native
 Present calls. Eight creation hooks are observed restored. This confirms the reproduced
 failure is corrected in the host; game startup and headset performance remain unverified.
+Installed v1.0.1-264-gfbc2bd23e after release build/export/lint checks. The entire
+VR INI is byte-identical (73,485 bytes, 1,684 CRLFs); ReShade INI and presets are unchanged.
+DLL/INI/log backups, expected INI and installation hashes are in main
+build/texture-reshade-candidate/state-block-fix/install.json.
 Next launch has one question: does the same save load normally with the no-effects
 ReShade preset? Success supports the startup fix; another crash requires its matching
 banner and failure evidence before proceeding to performance testing.

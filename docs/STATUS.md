@@ -9,6 +9,14 @@ creation/lock/upload after effects and reset/recreation. See dishonored/PERFORMA
 for evidence, the failed earlier test coverage and limits. The full crash archive is in
 main build/texture-reshade-candidate/crash-262. No game was launched by the agent.
 
+Installed correction: v1.0.1-264-gfbc2bd23e, DLL SHA256
+99941f52ff4df38118f1704300d7c807ea62fa7fff4ee979abc1114f593f7024. Release build,
+export checks and lint pass. The matching embedded-payload launcher is also installed.
+Full VR INI comparison is empty: 73,485 bytes, 1,684 CRLFs, zero lone LFs; it exactly
+matches the prepared expected INI. ReShade configuration and both presets are unchanged.
+Backup DLL/INI/log pair and manifest are under main build/texture-reshade-candidate/
+state-block-fix. No configuration consumers changed relative to the failed build.
+
 The corrected candidate needs a fresh game startup check before returning to ReShade
 performance testing. Keep ManualRuntime=1 and the separate no-effects test preset;
 preserve the entire VR INI and validate against the installed build. One launch question:
