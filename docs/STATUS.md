@@ -22,7 +22,16 @@ The helper and pinned NVIDIA/AMD DLL payloads now match the built files in scrat
 install/settings/update/rollback smoke passes. Earlier 86 unit, 57 updater and Unicode
 support-bundle checks pass. Native renders were inspected at 100% and 150%.
 
-Next: install the clean candidate with full DLL/INI/log backup and entire-INI comparison.
+Installed clean candidate v1.0.1-267-g18ae0b5ca with matching stable launcher. DLL SHA256
+c2e83a95fe615865c94104c0aeec7a81720908bfdcae0f13b1dc64cec0997cac. Full VR INI is
+byte-identical to backup and expected target: 73,497 bytes, 1,685 CRLF, zero lone LF;
+SHA256 6d3e82969765de54327eb40deb8fb3a890037fd8a5c6b23bfe597ccbcf1d5885.
+ReShade runtime, bridge, configuration and both presets are unchanged. Installation
+record now names the actual DLL and retained runtime/dimensions. Backup and manifest:
+main build/texture-reshade-candidate/launcher-audit. Runtime code and defaults are identical
+to headset-accepted build 266; build 267 has not had a new game launch. Launcher checks
+are complete. The next release decision and any additional perceptual tests remain with
+the maintainer; outstanding texture stress/subtitle scope is retained in ROADMAP.
 No game launch, merge, release declaration or 1.0.3 version bump is authorized by this work.
 External publication is still awaiting explicit destination approval after an automatic
 approval rejection; the complete local branch and review text remain available.

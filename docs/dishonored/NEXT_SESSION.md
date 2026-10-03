@@ -1,6 +1,8 @@
 ## 2026-10-03: accepted F10 ReShade and native launcher audit
 
-Build 266 passed the tester's F10 ReShade controller usability check. The native launcher
+Build 266 passed the tester's F10 ReShade controller usability check. Clean build
+267-g18ae0b5ca and the matching native launcher are now installed with an empty entire-INI
+diff; see main build/texture-reshade-candidate/launcher-audit/install.json. The native launcher
 now follows the selected sidebar design and exposes Collect logs on Overview. Read the
 newest STATUS and INSTALLER entries for the audit fixes and evidence. ReShade runtime
 install/on/off/removal are implemented; HD texture installation stays manual for 1.0.3.
