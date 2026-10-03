@@ -19,8 +19,12 @@ passes, including every preset/quality mapping, old INIs without an Upscaler key
 custom preset preservation, reduced render/output round-trip, different compatible
 DLL hashes, and unsupported-DLL disable/removal. DLSS, FSR and enabled-ReShade screens
 were rendered and inspected. The shared preset-table move changes no rendering values.
-Candidate installation replaces only the launcher behind the desktop shortcut;
-whole-INI/game-DLL verification and backups are under main `build/launcher-upscaler/`.
+Installed and reopened `v1.0.3-3-g7237fbae9` behind the desktop shortcut. Launcher
+SHA256 `d726d2dce2359b482caab519b9f2d3e8a38e466587ec6c8fcf1831c9adfde8d1`.
+The installed 1.0.3 proxy is recognized as ReShade-capable. Game DLL, game logs,
+ReShade DLL/config/bridge and the complete VR INI remain byte-identical to backup.
+INI: 73,497 bytes, 1,685 CRLF, zero lone CR/LF, zero whole-file diff lines. Backups,
+verification JSON and candidate ZIP are under main `build/launcher-upscaler/`.
 No game launch, merge or release. The existing Linear workspace issue-limit block
 still prevents creating a dedicated issue. Next: review the expanded PR #171.
 
