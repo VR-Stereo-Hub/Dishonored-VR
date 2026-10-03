@@ -216,6 +216,11 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
         s += i == Modifier ? std::to_wstring(c.preferences[i])
             : ((kPreferences[i].inverted ? !c.preferences[i] : c.preferences[i]) ? L"on" : L"off");
     }
+    for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+        if (c.bindingEdits & (1u << a)) s += L" --bind-" + fs::widen(dvr::binds::info(a).key) +
+            L" " + fs::widen(dvr::binds::source_key(c.bindings.src[a]));
+    }
+    if (c.swapSticksEdit >= 0) s += c.swapSticksEdit ? L" --bind-swap-sticks on" : L" --bind-swap-sticks off";
     if (c.textureMemory >= 0) s += c.textureMemory ? L" --texture-memory on" : L" --texture-memory off";
     s += c.overwriteSettings ? L" --overwrite-settings" : L" --keep-settings";
     if (deleteIni) s += L" --delete-ini";

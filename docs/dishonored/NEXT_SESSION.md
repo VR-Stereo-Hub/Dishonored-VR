@@ -1,3 +1,20 @@
+## 2026-10-03 current test: manual ReShade without forced desktop Present
+
+Read the newest STATUS section and PERFORMANCE.md entry first. Candidate adds optional
+manual ReShade rendering before capture, with classifiers bypassed only during its work.
+Host enabled/disabled pixel checks and reset/recreation pass. Installed build/config/hash
+manifest is main build/texture-reshade-candidate/manual-runtime/install.json; full previous
+DLL/INI/log pair/ReShade files are beside it under before-install. Confirm banner first.
+One launch question: with all effects disabled in the separate test preset, does the same
+save regain normal headset smoothness? Inspect desktop policy and hk.reshadeEffects in
+the log yourself. Keep current resolution, AFW and remaining user tuning unchanged.
+Restore ReShade.ini's previous PresetPath after the baseline test when appropriate; the
+user-tuned Carinth preset was preserved. Never launch the game or merge independently.
+
+Launcher credits/donation/rain and binding editor are implemented in the native build;
+full sidebar and simplified TFC flow remain an interactive proposal. Prior remote approval
+questions are still pending; keep local progress recoverable meanwhile.
+
 # Next session: texture-pack candidate
 
 The active candidate is `codex/vr-133-texture-reshade`. Start with the newest STATUS entry

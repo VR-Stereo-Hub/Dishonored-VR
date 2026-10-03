@@ -1,3 +1,54 @@
+## 2026-10-03: ReShade lag with effects disabled and forced desktop mirror
+
+**Reported:** build v1.0.1-257-g705b282c7 becomes very slow with ReShade, including
+with effects disabled; desktop mirror stays visible despite its off setting.
+The installed DLL hash and log banner were verified before reading the run. Archived
+VR log, previous log, full VR INI, ReShade log/config/preset are under main build/
+texture-reshade-candidate/reshade-lag-257. The tested resolution was 2114x2192.
+
+**Measured/source-confirmed:** ReShade successfully compiled all seven original
+preset effects. The bridge's active branch directly calls native Present and bypasses
+`desktop_eye::present`, including DesktopMirrorOff=1 and DesktopMirrorStrictOff=1.
+Representative late gameplay windows show 13.4-13.8 ms Present intervals, about 7.1 ms
+inside native Present, 3.7-4.3 ms game GPU time and 6.8-7.7 ms D3D9 idle. This supports
+forced presentation as a contributor; it does not isolate total ReShade GPU overhead.
+The native presentation interval was already immediate, so another vsync INI edit
+would not repair the bypass.
+
+**Candidate:** optional [ReShade] ManualRuntime=1 disables ReShade graphics interception
+before loading the DLL, then uses its official create/update/destroy effect-runtime API
+on the raw D3D9 swapchain. Effects run before the existing VR capture and desktop policy.
+The API's update call renders but does not call native Present. Thread-local guards
+keep its draws, state changes and resource creation out of the game classifiers and
+managed-shadow translation. Reset and both PreExit paths destroy the runtime before
+releasing/resetting the device; the runtime pointer is cleared before destruction to
+handle nested Release calls. ManualRuntime ships 0 pending headset validation; changing
+integration mode requires restart. Scroll Lock retains live effects on/off. Manual mode
+does not observe game draw/depth events, so depth-dependent presets need legacy hooks.
+The selected colour/sharpening preset has no active depth-dependent technique.
+
+**Host validation:** tools/reshade-manual-host.ps1 runs the production runtime module
+on a hidden native D3D9Ex device. Enabled effects turn synthetic red pixels cyan;
+disabled effects preserve red. Both modes restore render state and viewport and pass
+reset/recreation, without native Present calls: 510 checks each. The first test shader
+used bitwise operations unavailable in vs_3_0; replacing that test-only arithmetic
+resolved compilation. These checks prove API/capture order, not headset smoothness.
+The RelWithDebInfo build, 11-export check, lint, 86 launcher unit checks, full installer
+smoke (including exact binding edits and CRLF), and 57 updater checks pass.
+
+**Next launch, one question:** with ReShade loaded, its test preset empty, the desktop
+mirror off and the same save/resolution, does headset performance return to its usual
+smoothness? Improvement supports the forced-present/interception cost explanation;
+persistent lag means it is not sufficient. A crash or blank headset is an integration
+failure. Read the matching new build log and ReShade log before another experiment.
+Install changes are limited to [ReShade] ManualRuntime=1 and [Perf] Parts=1 in the VR
+INI, plus selecting a separate empty ReShade test preset. Keep the user's tuned Carinth
+preset unchanged. Archive and byte-diff the complete installed INI on installation.
+
+Official source: [manual runtime API](https://github.com/crosire/reshade/blob/v6.8.0/include/reshade.hpp),
+[implementation](https://github.com/crosire/reshade/blob/v6.8.0/source/addon.cpp),
+[graphics-hook opt-out](https://github.com/crosire/reshade/blob/v6.8.0/source/dll_main.cpp).
+
 ## 2026-10-02: community texture mapping and ReShade integration (HOST MEASURED, headset pending)
 
 Work: `codex/vr-133-texture-reshade`, branched from staging `1c47937a6`. VR-133 already

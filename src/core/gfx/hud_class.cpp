@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"
 #include "core/framework/native_profile.h"
 // core/gfx/hud_class.cpp - see hud_class.h.
 #define DVR_CAT ::dvr::log::Cat::d3d
@@ -1214,6 +1215,7 @@ struct SharpMarkerScope {
 
 HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT start,
                                   UINT prims) {
+    if (dvr::reshade_runtime::inside) return dvr::frame::raw_draw_prim(self, type, start, prims);
     HUD_DRAW_PROLOGUE(0, type, prims, nullptr, 0, start, verts_for(type, prims))
     if (sink >= 0) {
         IDirect3DSurface9* gameRt = g_rt0;
@@ -1234,6 +1236,7 @@ HRESULT __stdcall hkDrawPrimInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
 
 HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT base,
                                      UINT minIdx, UINT numVerts, UINT startIdx, UINT prims) {
+    if (dvr::reshade_runtime::inside) return dvr::frame::raw_draw_indexed(self, type, base, minIdx, numVerts, startIdx, prims);
     HUD_DRAW_PROLOGUE(1, type, prims, nullptr, 0, (UINT)(base + (INT)minIdx), numVerts)
     if (sink >= 0) {
         IDirect3DSurface9* gameRt = g_rt0;
@@ -1254,6 +1257,7 @@ HRESULT __stdcall hkDrawIndexedInner(IDirect3DDevice9* self, D3DPRIMITIVETYPE ty
 
 HRESULT __stdcall hkDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT prims,
                                     const void* verts, UINT stride) {
+    if (dvr::reshade_runtime::inside) return g_origDpUp(self, type, prims, verts, stride);
     dvr::native_profile::Scope timing(dvr::native_profile::DrawPrimitiveUPInclusive);
     HUD_DRAW_PROLOGUE(2, type, prims, verts, stride, 0, verts_for(type, prims))
     if (sink >= 0) {
@@ -1277,6 +1281,7 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
                                            UINT minIdx, UINT numVerts, UINT prims,
                                            const void* idxData, D3DFORMAT idxFmt,
                                            const void* verts, UINT stride) {
+    if (dvr::reshade_runtime::inside) return g_origDipUp(self, type, minIdx, numVerts, prims, idxData, idxFmt, verts, stride);
     dvr::native_profile::Scope timing(dvr::native_profile::DrawIndexedPrimitiveUPInclusive);
     HUD_DRAW_PROLOGUE(3, type, prims, verts, stride, minIdx, numVerts)
     if (sink >= 0) {
@@ -1301,6 +1306,7 @@ HRESULT __stdcall hkDrawIndexedPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVET
 inline bool shadowing() { return g_track || g_regions || dvr::hudcap::armed() || dvr::hudcap::enabled(); }
 
 HRESULT __stdcall hkSetViewport(IDirect3DDevice9* self, const D3DVIEWPORT9* vp) {
+    if (dvr::reshade_runtime::inside) return g_origSetVp(self, vp);
     dvr::native_profile::Scope timing(dvr::native_profile::SetViewportInclusive);
     if (vp && shadowing()) { g_vp = *vp; g_vpKnown = true; }
     dvr::depthprobe::note_viewport(self, vp);   // VR-39: the AFW foreground mask's snapshot, before the pass draws
@@ -1308,6 +1314,7 @@ HRESULT __stdcall hkSetViewport(IDirect3DDevice9* self, const D3DVIEWPORT9* vp) 
 }
 
 HRESULT __stdcall hkSetRenderState(IDirect3DDevice9* self, D3DRENDERSTATETYPE state, DWORD value) {
+    if (dvr::reshade_runtime::inside) return g_origSetRs(self, state, value);
     dvr::native_profile::Scope timing(dvr::native_profile::SetRenderStateInclusive);
     if (shadowing()) {
         if(state==D3DRS_STENCILENABLE)g_markerStencil=value;
@@ -1329,6 +1336,7 @@ HRESULT __stdcall hkSetRenderState(IDirect3DDevice9* self, D3DRENDERSTATETYPE st
 }
 
 HRESULT __stdcall hkSetTexture(IDirect3DDevice9* self, DWORD stage, IDirect3DBaseTexture9* tex) {
+    if (dvr::reshade_runtime::inside) return g_origSetTex(self, stage, tex);
     dvr::native_profile::Scope timing(dvr::native_profile::SetTextureInclusive);
     if (g_track && stage == 0) g_tex0 = tex;
     return g_origSetTex(self, stage, tex);
@@ -1336,12 +1344,14 @@ HRESULT __stdcall hkSetTexture(IDirect3DDevice9* self, DWORD stage, IDirect3DBas
 
 HRESULT __stdcall hkSetVertexDeclaration(IDirect3DDevice9* self,
                                          IDirect3DVertexDeclaration9* decl) {
+    if (dvr::reshade_runtime::inside) return g_origSetDecl(self, decl);
     dvr::native_profile::Scope timing(dvr::native_profile::SetVertexDeclarationInclusive);
     if (g_track || g_regions) g_vdecl = decl;
     return g_origSetDecl(self, decl);
 }
 
 HRESULT __stdcall hkSetVertexShader(IDirect3DDevice9* self, IDirect3DVertexShader9* vs) {
+    if (dvr::reshade_runtime::inside) return g_origSetVs(self, vs);
     dvr::native_profile::Scope timing(dvr::native_profile::SetVertexShaderInclusive);
     if (shadowing()) g_vs = vs;   // VR-118: the probe needs it too (null = fixed function)
     return g_origSetVs(self, vs);
@@ -1350,6 +1360,7 @@ HRESULT __stdcall hkSetVertexShader(IDirect3DDevice9* self, IDirect3DVertexShade
 // VR-118: the fixed-function transform. Shadowed only while a lever wants it;
 // counted always (one increment) so the 3 s line can say how many arrive.
 HRESULT __stdcall hkSetTransform(IDirect3DDevice9* self, D3DTRANSFORMSTATETYPE state, const D3DMATRIX* m) {
+    if (dvr::reshade_runtime::inside) return g_origSetXf(self, state, m);
     dvr::native_profile::Scope timing(dvr::native_profile::SetTransformInclusive);
     ++g_xfCallsPresent;
     if (m && shadowing()) {
@@ -1361,6 +1372,7 @@ HRESULT __stdcall hkSetTransform(IDirect3DDevice9* self, D3DTRANSFORMSTATETYPE s
 }
 
 HRESULT __stdcall hkSetPixelShader(IDirect3DDevice9* self, IDirect3DPixelShader9* ps) {
+    if (dvr::reshade_runtime::inside) return g_origSetPs(self, ps);
     dvr::native_profile::Scope timing(dvr::native_profile::SetPixelShaderInclusive);
     if (g_track) g_ps = ps;
     return g_origSetPs(self, ps);
@@ -1368,6 +1380,7 @@ HRESULT __stdcall hkSetPixelShader(IDirect3DDevice9* self, IDirect3DPixelShader9
 
 HRESULT __stdcall hkSetStreamSource(IDirect3DDevice9* self, UINT stream, IDirect3DVertexBuffer9* vb,
                                     UINT offset, UINT stride) {
+    if (dvr::reshade_runtime::inside) return g_origSetSs(self, stream, vb, offset, stride);
     dvr::native_profile::Scope timing(dvr::native_profile::SetStreamSourceInclusive);
     if (g_regions && stream == 0) { g_vb0 = vb; g_vb0Offset = offset; g_vb0Stride = stride; }
     return g_origSetSs(self, stream, vb, offset, stride);
@@ -1375,11 +1388,13 @@ HRESULT __stdcall hkSetStreamSource(IDirect3DDevice9* self, UINT stream, IDirect
 
 HRESULT __stdcall hkCreateStateBlock(IDirect3DDevice9* self, D3DSTATEBLOCKTYPE type,
                                      IDirect3DStateBlock9** out) {
+    if (dvr::reshade_runtime::inside) return g_origCreateSb(self, type, out);
     ++g_stateBlocksCreated;
     return g_origCreateSb(self, type, out);
 }
 
 HRESULT __stdcall hkEndStateBlock(IDirect3DDevice9* self, IDirect3DStateBlock9** out) {
+    if (dvr::reshade_runtime::inside) return g_origEndSb(self, out);
     ++g_stateBlocksCreated;
     return g_origEndSb(self, out);
 }

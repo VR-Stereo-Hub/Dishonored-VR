@@ -167,6 +167,25 @@ $rc = Run ($common + @('--op','change','--runtime','steamvr','--quality','qualit
 Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $beforeTexture.Replace("`r`nShadowSurfaces=0`r`n","`r`nShadowSurfaces=1`r`n")) 'texture off selects conventional shadows and retains the compatible surface redirect'
 Assert ((Sha (Join-Path $game 'DishonoredVR_ReShade.addon32')) -eq (Sha (Join-Path $bin 'DishonoredVR_ReShade.addon32'))) 'launcher embeds this bridge build'
 
+# Controller bindings use the same key/source names as F10 and keep untouched data.
+'5b. controller mappings persist exactly the selected edits'
+$bindBefore=[IO.File]::ReadAllText($ini)
+$bindBefore += "`r`n[ControllerBinds]`r`nFutureBinding=KeepMe`r`nJump=A`r`nStealth=B`r`nSwapSticks=0`r`n"
+[IO.File]::WriteAllText($ini,$bindBefore,$ascii)
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--bind-Jump','B','--bind-Stealth','A','--bind-swap-sticks','on'))
+$bindAfter=[IO.File]::ReadAllText($ini)
+$bindExpected=$bindBefore.Replace("`r`nJump=A`r`n","`r`nJump=B`r`n").Replace("`r`nStealth=B`r`n","`r`nStealth=A`r`n").Replace("`r`nSwapSticks=0`r`n","`r`nSwapSticks=1`r`n")
+Assert ($rc -eq 0 -and $bindAfter -ceq $bindExpected) 'whole INI changes only Jump, Stealth and SwapSticks'
+Assert ($bindAfter.Contains('FutureBinding=KeepMe')) 'unknown binding key preserved'
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $bindAfter) 'omitted binding flags preserve remaps'
+$rc=Run ($common + @('--op','change','--bind-Jump','invalid'))
+Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $bindAfter) 'invalid source refuses before writes'
+$rc=Run ($common + @('--op','change','--bind-swap-sticks','invalid'))
+Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $bindAfter) 'invalid stick option refuses before writes'
+$le=LineEndings $ini
+Assert ($le[0] -eq $le[1] -and -not $le[2]) 'binding edits preserve CRLF and encoding'
+
 '6. disable / enable'
 $rc = Run ($common + @('--op', 'disable')); Assert ($rc -eq 0 -and (Test-Path (Join-Path $game 'disable_vr.txt'))) 'disable_vr.txt written'
 $rc = Run ($common + @('--op', 'enable')); Assert ($rc -eq 0 -and -not (Test-Path (Join-Path $game 'disable_vr.txt'))) 'disable_vr.txt removed'

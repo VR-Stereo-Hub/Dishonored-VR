@@ -1,3 +1,32 @@
+## 2026-10-03: manual ReShade candidate and launcher controls (headset check pending)
+
+The build-257 playtest reports severe ReShade slowdown even with effects off and an
+unresponsive mirror-off setting. Matching DLL/banner and archived logs confirm the
+legacy bridge bypasses desktop mirror policy. See dishonored/PERFORMANCE.md for the
+measured timing, source evidence, candidate mechanism and one next-launch question.
+
+A default-off manual ReShade runtime now renders before VR capture while retaining the
+normal desktop policy. Native GPU enabled/disabled controls pass (510 each), including
+state restore and reset/recreation without native Present. This candidate is to be
+installed with ManualRuntime=1, Perf Parts=1 and a separate empty ReShade preset so the
+next test isolates baseline overhead. Preserve the tuned preset and current resolution.
+The build ID and hashes are recorded in main build/texture-reshade-candidate/manual-runtime/
+install.json. No game is launched by the agent. Headset result remains pending.
+
+The native launcher now has the same 11 action/source choices as F10, conflict feedback,
+stick swap and reset. Only edited mapping keys are saved; headless/elevated apply carries
+them. Credits give both current developers identical roles; donation copy is the wording
+requested for the product. Rain uses a positive checkbox and remains enabled by default.
+The headset picker still requires a selection when none is saved. The sidebar design
+preview includes the binding editor and simpler texture-installer steps. The sidebar and
+TFC automation are still a design proposal, not a shipped native redesign.
+
+Build, export/lint, 86 launcher unit checks, whole-INI installer smoke, 57 updater checks,
+and preview interaction/layout checks pass. Work remains on the feature branch with
+BioVRDev commit attribution. Earlier publication requests were blocked by automatic
+approval review; no new external publication or merge is performed without resolving
+that pending approval.
+
 ## 2026-10-03: Carinth preset installed; full themed sidebar preview (headset test pending)
 
 Installed the user-downloaded current Nexus mod-5 Carinth v3 preset and its seven active

@@ -58,6 +58,7 @@ set(DVR_REAL_SOURCES
     core/gfx/flicker_diagnostic.cpp core/gfx/flicker_diagnostic.h
 
     core/gfx/device_census.cpp core/gfx/device_census.h
+    core/gfx/reshade_runtime.cpp core/gfx/reshade_runtime.h
     core/gfx/d3d9ex.cpp        core/gfx/d3d9ex.h
     core/gfx/gpu_memory.cpp    core/gfx/gpu_memory.h
     core/gfx/blit_quad.cpp     core/gfx/blit_quad.h

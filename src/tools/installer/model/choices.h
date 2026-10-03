@@ -3,6 +3,7 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#include "core/input/controller_binds.h"
 
 namespace dvr::setup {
 
@@ -45,6 +46,10 @@ inline constexpr Preference kPreferences[] = {
 };
 
 struct Choices {
+    dvr::binds::Layout bindings;
+    uint16_t bindingEdits = 0; // only changed actions are written
+    int swapSticksEdit = -1;
+
     int preferences[PreferenceCount] = { -1, -1, -1, -1, -1, -1, -1 };
     int textureMemory = -1; // -1 preserve, 0 conventional shadows, 1 paged
     bool overwriteSettings = true; // recommended defaults, backed up before replacement

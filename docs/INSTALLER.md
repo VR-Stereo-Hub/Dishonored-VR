@@ -544,3 +544,24 @@ CRLF verification pass, and the VR DLL is unchanged. Main build/texture-reshade-
 preset contains sources.json, installed-profile.json, validation scripts and before-profile
 backup. Shader/include and texture dependencies are checked locally. Actual compilation,
 headset effect capture and frame-time cost await the user's launch.
+
+## Launcher copy and button mapping follow-up (2026-10-03)
+
+The actual native settings screen now exposes all 11 F10 actions and the same 12 physical
+source choices, stick swap, reset-to-default mappings, and duplicate-source feedback.
+The shared controller_binds header is authoritative. Detection reads existing keys without
+marking them dirty; apply writes only changed actions and SwapSticks. Reset explicitly
+sets all known actions to defaults while retaining unknown keys. `--bind-<Action> <Source>`
+and `--bind-swap-sticks on|off` carry selections into headless/elevated apply. Invalid
+sources are refused before mutation. Button press capture remains in F10 during gameplay.
+
+Both current developers have the same role description. The donation paragraph and link
+label follow the user's requested product copy. Rain overlay is a positive UI checkbox;
+its ON default still writes/reads [Rain] Hide=0. The existing --hide-rain-overlay CLI keeps
+its original meaning. A missing saved headset still requires selection at startup.
+
+The complete sidebar preview now places a collapsible mapping editor under Controls.
+Texture setup says to choose the downloaded pack, let the launcher unpack/find the game,
+then click Update All in the window that opens. That automated preparation remains a
+proposal; the final TFC step and verified restore are still required before enable/off
+management can ship. No texture pack was installed for this ReShade experiment.

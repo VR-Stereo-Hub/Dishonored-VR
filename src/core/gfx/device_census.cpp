@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"
 #include "core/framework/native_profile.h"
 // core/gfx/device_census.cpp - see device_census.h.
 #define DVR_CAT ::dvr::log::Cat::device
@@ -613,6 +614,7 @@ void record(int call, D3DPOOL pool, DWORD usage, D3DFORMAT fmt, uint64_t bytes, 
 // a translated texture exists.
 HRESULT __stdcall hkCreateTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                   IDirect3DTexture9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateTexture(self, w, h, levels, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateTexture(self, w, h, levels, usage, fmt, pool, out, shared);
@@ -633,6 +635,7 @@ HRESULT __stdcall hkCreateTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT l
 }
 HRESULT __stdcall hkCreateVolumeTexture(IDirect3DDevice9* self, UINT w, UINT h, UINT d, UINT levels, DWORD usage, D3DFORMAT fmt,
                                         D3DPOOL pool, IDirect3DVolumeTexture9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateVolume(self, w, h, d, levels, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateVolume(self, w, h, d, levels, usage, fmt, pool, out, shared);
@@ -652,6 +655,7 @@ HRESULT __stdcall hkCreateVolumeTexture(IDirect3DDevice9* self, UINT w, UINT h, 
 }
 HRESULT __stdcall hkCreateCubeTexture(IDirect3DDevice9* self, UINT edge, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                       IDirect3DCubeTexture9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateCube(self, edge, levels, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_texture(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateCube(self, edge, levels, usage, fmt, pool, out, shared);
@@ -671,6 +675,7 @@ HRESULT __stdcall hkCreateCubeTexture(IDirect3DDevice9* self, UINT edge, UINT le
 }
 HRESULT __stdcall hkCreateVertexBuffer(IDirect3DDevice9* self, UINT len, DWORD usage, DWORD fvf, D3DPOOL pool,
                                        IDirect3DVertexBuffer9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateVb(self, len, usage, fvf, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_buffer(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateVb(self, len, usage, fvf, pool, out, shared);
@@ -681,6 +686,7 @@ HRESULT __stdcall hkCreateVertexBuffer(IDirect3DDevice9* self, UINT len, DWORD u
 }
 HRESULT __stdcall hkCreateIndexBuffer(IDirect3DDevice9* self, UINT len, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
                                       IDirect3DIndexBuffer9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateIb(self, len, usage, fmt, pool, out, shared);
     const D3DPOOL asked = pool; const DWORD askedUsage = usage;
     const bool translated = dvr::d3d9ex::translate_buffer(&usage, &pool) == dvr::d3d9ex::Translate::Translated;
     const HRESULT hr = g_origCreateIb(self, len, usage, fmt, pool, out, shared);
@@ -691,6 +697,7 @@ HRESULT __stdcall hkCreateIndexBuffer(IDirect3DDevice9* self, UINT len, DWORD us
 }
 HRESULT __stdcall hkCreateRenderTarget(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q,
                                        BOOL lockable, IDirect3DSurface9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateRt(self, w, h, fmt, ms, q, lockable, out, shared);
     const HRESULT hr = g_origCreateRt(self, w, h, fmt, ms, q, lockable, out, shared);
     note_multisample("render target", w, h, fmt, ms, q, hr);
     char ask[96]; _snprintf(ask, sizeof(ask), "rt %ux%u fmt=%d ms=%d lockable=%d shared=%d", w, h, (int)fmt, (int)ms, (int)lockable, shared ? 1 : 0);
@@ -699,6 +706,7 @@ HRESULT __stdcall hkCreateRenderTarget(IDirect3DDevice9* self, UINT w, UINT h, D
 }
 HRESULT __stdcall hkCreateDepthStencil(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DMULTISAMPLE_TYPE ms, DWORD q,
                                        BOOL discard, IDirect3DSurface9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateDs(self, w, h, fmt, ms, q, discard, out, shared);
     const HRESULT hr = g_origCreateDs(self, w, h, fmt, ms, q, discard, out, shared);
     note_multisample("depth surface", w, h, fmt, ms, q, hr);
     char ask[96]; _snprintf(ask, sizeof(ask), "ds %ux%u fmt=%d ms=%d discard=%d", w, h, (int)fmt, (int)ms, (int)discard);
@@ -707,6 +715,7 @@ HRESULT __stdcall hkCreateDepthStencil(IDirect3DDevice9* self, UINT w, UINT h, D
 }
 HRESULT __stdcall hkCreateOffscreenPlain(IDirect3DDevice9* self, UINT w, UINT h, D3DFORMAT fmt, D3DPOOL pool,
                                          IDirect3DSurface9** out, HANDLE* shared) {
+    if (dvr::reshade_runtime::inside) return g_origCreateOffscreen(self, w, h, fmt, pool, out, shared);
     const HRESULT hr = g_origCreateOffscreen(self, w, h, fmt, pool, out, shared);
     char ask[96]; _snprintf(ask, sizeof(ask), "offscreen %ux%u fmt=%d pool=%d", w, h, (int)fmt, (int)pool);
     record(kOffscreenPlain, pool, 0, fmt, texture_bytes(w, h, 1, 1, fmt, 1), hr, ask);

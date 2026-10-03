@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"
 #include "core/framework/render_profile.h"
 // core/framework/frame_hooks.cpp - see frame_hooks.h.
 #define DVR_CAT ::dvr::log::Cat::present
@@ -171,6 +172,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool torn = false;
         if (!torn) {
             torn = true;
+            dvr::reshade_runtime::reset();
             dvr::d3d9ex::clear_staging();
             dvr::hudclass::shutdown(); dvr::hudcap::shutdown(); dvr::markersharp::reset();   // VR-117: before the method and the runtime
             dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit");
@@ -327,7 +329,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
             dvr::stereo::reentry_family_active();   // VR-39: aer tags every present too
     };
     HRESULT hr;
-    if (InterlockedCompareExchange(&g_reshadeActive, 0, 0)) {
+    if (!dvr::reshade_runtime::manual() && InterlockedCompareExchange(&g_reshadeActive, 0, 0)) {
         g_pendingTail = { [](void* context) { (*static_cast<decltype(finishTail)*>(context))(); }, &finishTail };
         hr = g_origPresent(self, src, dst, wnd, dirty);
         if (g_pendingTail.call) {
@@ -337,6 +339,8 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
             finishTail();
         }
     } else {
+        dvr::reshade_runtime::render(self);
+        dvr::perf::part_mark("hk.reshadeEffects");
         finishTail();
         dvr::etw::begin(dvr::etw::kDeskPresent);
         hr = dvr::desktop_eye::present(g_origPresent, self, src, dst, wnd, dirty,
@@ -362,6 +366,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
 }
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
+    dvr::reshade_runtime::reset();
     dvr::d3d9ex::clear_staging();
     if (g_cb.before_reset) g_cb.before_reset(pp);
     g_gameDs = nullptr; g_gameDsKnown = false;   // Reset rebinds the auto depth-stencil
@@ -385,6 +390,7 @@ HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
 }
 
 HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const float* data, UINT count) {
+    if (dvr::reshade_runtime::inside) return g_origSetVsConst(self, startReg, data, count);
     dvr::native_profile::Scope timing(dvr::native_profile::ConstHook);
     if (startReg < (UINT)kVsConstShadowRows && data && count) {   // VR-117/118: c0..c31, for the HUD region probe
         const UINT room = (UINT)kVsConstShadowRows - startReg;
@@ -397,6 +403,7 @@ HRESULT __stdcall hkSetVsConst(IDirect3DDevice9* self, UINT startReg, const floa
 
 HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, INT baseVertex,
                                 UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
+    if (dvr::reshade_runtime::inside) return g_origDrawIndexed(self, type, baseVertex, minIndex, numVertices, startIndex, primCount);
     dvr::native_profile::Scope timing(dvr::native_profile::IndexedHook);
     ++g_actDraws;
     dvr::depthprobe::note_draw(self);   // VR-39: the foreground mask's snapshot, before the pass's first draw
@@ -409,6 +416,7 @@ HRESULT __stdcall hkDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, I
 
 HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT startVertex,
                              UINT primCount) {
+    if (dvr::reshade_runtime::inside) return g_origDrawPrim(self, type, startVertex, primCount);
     dvr::native_profile::Scope timing(dvr::native_profile::PrimitiveHook);
     ++g_actDraws;
     dvr::depthprobe::note_draw(self);
@@ -422,6 +430,7 @@ HRESULT __stdcall hkDrawPrim(IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT
 // through with the game's own value.
 dvr::samplers::PFN_SetSamplerState g_origSetSampler = nullptr;
 HRESULT __stdcall hkSetSamplerState(IDirect3DDevice9* self, DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value) {
+    if (dvr::reshade_runtime::inside) return g_origSetSampler(self, sampler, type, value);
     return dvr::samplers::set_sampler_state(self, sampler, type, value, g_origSetSampler);
 }
 
@@ -443,6 +452,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
         dvr::stereo::on_reset();
         dvr::desktop_eye::on_reset();
         dvr::capture::on_reset();
+        dvr::reshade_runtime::reset();
         dvr::d3d9ex::clear_staging();
         dvr::depthprobe::on_reset();
         dvr::log::flush();
@@ -451,6 +461,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
 }
 
 HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3DSurface9* rt) {
+    if (dvr::reshade_runtime::inside) return g_origSetRt(self, idx, rt);
     dvr::native_profile::Scope timing(dvr::native_profile::TargetHook);
     ++g_actSrts;
     dvr::perf::frame_start_marker("SRT");   // the fallback frame-start marker
@@ -465,12 +476,14 @@ HRESULT __stdcall hkSetRenderTarget(IDirect3DDevice9* self, DWORD idx, IDirect3D
 // DLSS projection jitter (core/gfx/dlss_jitter.h): the bound depth-stencil surface is how the
 // world passes are told apart. Pointer value only - never dereferenced, never AddRef'd.
 HRESULT __stdcall hkSetDepthStencil(IDirect3DDevice9* self, IDirect3DSurface9* ds) {
+    if (dvr::reshade_runtime::inside) return g_origSetDs(self, ds);
     g_gameDs = ds; g_gameDsKnown = true;
     dvr::dlss::jitter::note_depth_stencil(ds);
     return g_origSetDs(self, ds);
 }
 
 HRESULT __stdcall hkBeginScene(IDirect3DDevice9* self) {
+    if (dvr::reshade_runtime::inside) return g_origBeginScene(self);
     ++g_actBegins;
     if (g_actBegins == 1) dvr::etw::frame_start(g_count);
     dvr::perf::frame_start_marker("BeginScene");
@@ -612,6 +625,7 @@ void set_present_backtrace(bool on) { InterlockedExchange(&g_presentBtOn, on ? 1
 } // namespace dvr::frame
 
 extern "C" void __cdecl DvrReShadeAddonSetActive(int active) {
+    if (dvr::reshade_runtime::manual()) return; // manual runtime owns its own pre-capture call
     InterlockedExchange(&dvr::frame::g_reshadeActive, active ? 1 : 0);
     DVR_INFO("reshade: post-effect bridge %s (enabled bridge requires native desktop Present)", active ? "active" : "inactive");
 }

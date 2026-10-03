@@ -25,7 +25,7 @@ try {
         "$inst\sys\process.cpp", "$inst\sys\install_record.cpp", "$inst\model\choices.cpp",
         "$inst\sys\updates.cpp", "$inst\sys\discovery.cpp",
         "$json\src\lib_json\json_reader.cpp", "$json\src\lib_json\json_value.cpp", "$json\src\lib_json\json_writer.cpp")
-    & "$vc\bin\Hostx64\x86\cl.exe" /nologo /std:c++20 /EHsc /W3 /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN /I $inst /I "$json\include" $srcs `
+    & "$vc\bin\Hostx64\x86\cl.exe" /nologo /std:c++20 /EHsc /W3 /DUNICODE /D_UNICODE /DNOMINMAX /DWIN32_LEAN_AND_MEAN /I $inst /I "$repo\src" /I "$json\include" $srcs `
         /Fe:launcher_checks.exe /link bcrypt.lib shell32.lib ole32.lib oleaut32.lib advapi32.lib user32.lib uuid.lib winhttp.lib version.lib
     if ($LASTEXITCODE -ne 0) { throw 'launcher-update-tests compilation failed' }
     $versionText=Get-Content (Join-Path $repo 'CMakeLists.txt') -Raw

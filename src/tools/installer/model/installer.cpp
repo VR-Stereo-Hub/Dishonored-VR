@@ -196,6 +196,19 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
                fs::format("[%s] %s=%d", n(p.section).c_str(), n(p.key).c_str(), value));
     }
 
+    for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+        if (!(c.bindingEdits & (1u << a))) continue;
+        if (!profile::set(ini, L"ControllerBinds", fs::widen(dvr::binds::info(a).key).c_str(),
+            fs::widen(dvr::binds::source_key(c.bindings.src[a])), &err)) {
+            r->fail("Could not save button mapping", err); return false;
+        }
+    }
+    if (c.swapSticksEdit >= 0 && !profile::set(ini, L"ControllerBinds", L"SwapSticks",
+        std::to_wstring(c.swapSticksEdit), &err)) {
+        r->fail("Could not save stick mapping", err); return false;
+    }
+    if (c.bindingEdits || c.swapSticksEdit >= 0)
+        r->add(StepStatus::Ok, "Button mapping saved", "Applies next game launch.");
     if (c.textureMemory >= 0) {
         if (!profile::set(ini, L"Device", L"Managed", c.textureMemory ? L"paged" : L"shadow", &err) ||
             !profile::set(ini, L"Device", L"Ex", L"1", &err) ||
@@ -373,6 +386,11 @@ Detection detect(const Env& env)
             for (int i = 0; i < PreferenceCount; ++i)
                 d.suggested.preferences[i] = profile::get_int(ini, kPreferences[i].section, kPreferences[i].key, -1);
             const auto managed = profile::get(ini, L"Device", L"Managed");
+            for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+                const auto value = profile::get(ini, L"ControllerBinds", fs::widen(dvr::binds::info(a).key).c_str());
+                dvr::binds::parse_source(fs::narrow(value).c_str(), &d.suggested.bindings.src[a]);
+            }
+            d.suggested.bindings.swapSticks = profile::get_int(ini, L"ControllerBinds", L"SwapSticks", 0) != 0;
             d.suggested.textureMemory = fs::iequals(managed,L"paged") ? 1 : fs::iequals(managed,L"shadow") ? 0 : -1;
         }
     }

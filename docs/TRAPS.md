@@ -1,3 +1,11 @@
+## 2026-10-03: ReShade's legacy bridge bypasses mirror-off policy
+
+DesktopMirrorOff and DesktopMirrorStrictOff may both resolve to 1 while the old active
+ReShade branch calls g_origPresent directly. Disabling shader effects does not disable
+that hook/presentation path. Fix the consumer path, not another vsync setting. The
+manual runtime candidate preserves desktop_eye policy; evidence and pending headset
+validation are in dishonored/PERFORMANCE.md.
+
 ## 2026-09-30: half-rate enabled does not prove alternating slot delivery
 
 Build 242's MSW worker consumed the real-frame notification before acquiring the frame lock.

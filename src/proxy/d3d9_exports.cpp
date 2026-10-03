@@ -1,3 +1,4 @@
+#include "core/gfx/reshade_runtime.h"
 // proxy/d3d9_exports.cpp - included by src/mod/dishonoredvr.cpp (unity build) until this
 // module gets its own header and translation unit. Bodies are verbatim from
 // the original single file; Line numbers in comments and docs refer to the original single file (src/dllmain.cpp at commit 48766c07, proxy build 38.92).
@@ -10,81 +11,9 @@ static bool EnsureRealD3D9()
 {
     if (g_realD3D9) return true;
 
-    // RESH-HOOK2 (1.0.2):
-    // Dishonored VR remains the primary d3d9.dll and the real backend remains
-    // C:\Windows\System32\d3d9.dll. ReShade32.dll is loaded only as a hook
-    // module BEFORE the system D3D9 backend is loaded, so ReShade gets a chance
-    // to install its D3D9/D3D9Ex hooks without being used as g_realD3D9.
-    //
-    // Expected test layout beside Dishonored.exe:
-    //   d3d9.dll        = Dishonored VR (this build)
-    //   ReShade32.dll   = renamed 32-bit ReShade D3D9 DLL
-    //
-    // If ReShade32.dll is absent or fails to load, the original 1.0.1 path is
-    // preserved and the game continues with system D3D9 only.
-    {
-        static bool reshadeAttempted = false;
-        static HMODULE reshadeModule = NULL;
+    dvr::reshade_runtime::load_optional();
 
-        if (!reshadeAttempted) {
-            reshadeAttempted = true;
-
-            wchar_t exePath[MAX_PATH] = {};
-            const DWORD n = GetModuleFileNameW(NULL, exePath, MAX_PATH);
-
-            if (n && n < MAX_PATH) {
-                wchar_t* slash = wcsrchr(exePath, L'\\');
-                if (slash) {
-                    const wchar_t name[] = L"ReShade32.dll";
-                    const size_t used = (size_t)(slash + 1 - exePath);
-
-                    if (used + _countof(name) <= MAX_PATH) {
-                        memcpy(slash + 1, name, sizeof(name));
-
-                        const DWORD attr = GetFileAttributesW(exePath);
-                        if (attr != INVALID_FILE_ATTRIBUTES &&
-                            !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-                            SetLastError(ERROR_SUCCESS);
-                            reshadeModule = LoadLibraryW(exePath);
-
-                            if (reshadeModule) {
-                                const FARPROC rsCreate9 =
-                                    GetProcAddress(reshadeModule, "Direct3DCreate9");
-                                const FARPROC rsCreate9Ex =
-                                    GetProcAddress(reshadeModule, "Direct3DCreate9Ex");
-
-                                Log("reshade-hook: module loaded %ls "
-                                    "(module=%p exports Create9=%p Create9Ex=%p); "
-                                    "NOT used as the backend",
-                                    exePath, (void*)reshadeModule,
-                                    (void*)rsCreate9, (void*)rsCreate9Ex);
-                            } else {
-                                Log("reshade-hook: FAILED to load %ls (err %lu); "
-                                    "continuing with system d3d9 only",
-                                    exePath, (unsigned long)GetLastError());
-                            }
-                        } else {
-                            Log("reshade-hook: ReShade32.dll not present; "
-                                "continuing with system d3d9 only");
-                        }
-                    } else {
-                        Log("reshade-hook: executable path too long; "
-                            "continuing with system d3d9 only");
-                    }
-                } else {
-                    Log("reshade-hook: could not resolve executable directory; "
-                        "continuing with system d3d9 only");
-                }
-            } else {
-                Log("reshade-hook: GetModuleFileNameW failed/truncated (err %lu); "
-                    "continuing with system d3d9 only",
-                    (unsigned long)GetLastError());
-            }
-        }
-    }
-
-    // Original Dishonored VR 1.0.2 backend path: always use Microsoft's
-    // system D3D9 as g_realD3D9. ReShade, if loaded above, is hook-only.
+    // The system D3D9 stays the real backend in both optional ReShade modes.
     {
         char path[MAX_PATH] = {};
         GetSystemDirectoryA(path, MAX_PATH);

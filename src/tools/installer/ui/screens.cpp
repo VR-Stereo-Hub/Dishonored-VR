@@ -200,9 +200,10 @@ void preference_checkbox(ViewState& v, int id, const char* tip)
 {
     const Preference& p = kPreferences[id];
     const int stored = v.choices.preferences[id] < 0 ? p.fallback : v.choices.preferences[id];
-    bool on = p.inverted ? !stored : stored != 0;
-    if (dvr::ovl::checkbox(p.label, &on))
-        v.choices.preferences[id] = p.inverted ? !on : on;
+    const bool inverted = p.inverted || id == Rain;
+    bool on = inverted ? !stored : stored != 0;
+    if (dvr::ovl::checkbox(id == Rain ? "Rain overlay" : p.label, &on))
+        v.choices.preferences[id] = inverted ? !on : on;
     dvr::ovl::tip(tip);
 }
 
@@ -212,7 +213,7 @@ void preferences_section(ViewState& v)
         preference_checkbox(v, Mirror, "Shows the game on your monitor. Off by default on every runtime.");
         ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
         preference_checkbox(v, Crouch, "Duck in your room to crouch. The controller crouch button still works.");
-        preference_checkbox(v, Rain, "Hides only the close rain layer. Sky rain and ground splashes remain.");
+        preference_checkbox(v, Rain, "Shows the close rain layer. On by default; sky rain and ground splashes remain either way.");
         ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.5f);
         preference_checkbox(v, SnapTurn, "The right stick turns you in fixed steps instead of smoothly. Off by default; also in game under Controls > Turning.");
         wrapped_faded("Turning the desktop mirror off can give a huge performance boost with any runtime.");
@@ -238,6 +239,36 @@ void preferences_section(ViewState& v)
         wrapped_faded("Vive / WMR: some face buttons are missing. Remap actions in SteamVR; these layouts are not headset-validated.");
         wrapped_faded("Beyond uses the controller profile you pair. Pico / PSVR2 need a compatible runtime or SteamVR binding; native support is not assumed.");
     }
+}
+
+void bindings_section(ViewState& v)
+{
+    if (!heading("Button mapping", "The same actions as F10 > Controls. Saved for the next game launch.", false)) return;
+    auto& layout = v.choices.bindings;
+    for (int a = 0; a < dvr::binds::ActionCount; ++a) {
+        ImGui::PushID(a);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.45f);
+        if (ImGui::BeginCombo(dvr::binds::info(a).label, dvr::binds::source_label(layout.src[a]))) {
+            for (int b = 0; b < dvr::binds::SourceCount; ++b) {
+                if (ImGui::Selectable(dvr::binds::source_label(b), layout.src[a] == b)) {
+                    layout.src[a] = (dvr::binds::Source)b;
+                    v.choices.bindingEdits |= uint16_t(1u << a);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        dvr::ovl::tip(dvr::binds::info(a).tip);
+        if (dvr::binds::conflicts(layout, a)) ImGui::TextDisabled("Shared button: both actions will activate.");
+        ImGui::PopID();
+    }
+    if (ImGui::Checkbox("Swap move and turn sticks", &layout.swapSticks))
+        v.choices.swapSticksEdit = layout.swapSticks;
+    if (button("Reset button mapping")) {
+        layout = dvr::binds::Layout{};
+        v.choices.bindingEdits = (1u << dvr::binds::ActionCount) - 1;
+        v.choices.swapSticksEdit = 0;
+    }
+    wrapped_faded("To assign a button by pressing it, use the F10 menu while playing.");
 }
 
 void advanced_section(ViewState& v)
@@ -271,6 +302,7 @@ UiAction draw_setup(ViewState& v)
     headset_section(v);
     quality_section(v);
     preferences_section(v);
+    bindings_section(v);
     if (heading("Texture packs", "Optional compatibility for large texture packs; applies next launch.")) {
         bool paged = v.choices.textureMemory == 1;
         if (ImGui::Checkbox("Reduce texture address space use", &paged)) v.choices.textureMemory = paged ? 1 : 0;
@@ -448,7 +480,7 @@ UiAction draw_about(ViewState& v)
     if (button("Pizza Parker / BioVRDev")) action = UiAction::CreditPizza;
     wrapped_faded("Mod development and continued support.");
     if (button("VOID / mohamad-balouza")) action = UiAction::CreditVoid;
-    wrapped_faded("Mod development and contributions.");
+    wrapped_faded("Mod development and continued support.");
     if (button("Gingas / GingasVRFO")) action = UiAction::CreditGingas;
     wrapped_faded("Creator of the original Dishonored VR mod.");
     dvr::ovl::ornament();
@@ -472,9 +504,8 @@ UiAction draw_about(ViewState& v)
     }
     if (button("GitHub releases")) action = UiAction::OpenReleases;
     dvr::ovl::ornament();
-    wrapped("If you're enjoying the mod and feeling generous, you can");
-    if (button("support it on Ko-fi", true)) action = UiAction::OpenKofi;
-    wrapped("Thank you, it genuinely helps. Every donation goes toward the AI bills that make this work possible and into further development of this mod and the ones after it. Donating is never expected, and the mod will always be free.");
+    wrapped("If you like the mod, please consider donating! Donations are never required, but always appreciated! :)");
+    if (button("Pizza Parker on Ko-fi", true)) action = UiAction::OpenKofi;
     ImGui::EndChild();
     dvr::ovl::ornament();
     if (button("Back to launcher")) action = UiAction::BackFromGuide;
