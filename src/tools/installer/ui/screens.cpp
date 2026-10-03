@@ -19,6 +19,7 @@ std::string n(const std::wstring& w) { return fs::narrow(w); }
 bool same_settings(const Choices& a,const Choices& b) {
     if(a.runtime!=b.runtime || a.quality!=b.quality || a.pixelPercent!=b.pixelPercent || !(a.exact==b.exact) ||
         a.textureMemory!=b.textureMemory || a.stereoEdit!=b.stereoEdit || a.swapSticksEdit!=b.swapSticksEdit || a.bindingEdits!=b.bindingEdits)return false;
+    if(a.upscalerEdit!=b.upscalerEdit || a.upscalerQualityEdit!=b.upscalerQualityEdit || a.upscalerPresetEdit!=b.upscalerPresetEdit)return false;
     for(int i=0;i<PreferenceCount;++i)if(a.preferences[i]!=b.preferences[i])return false;
     for(int i=0;i<dvr::binds::ActionCount;++i)if(a.bindings.src[i]!=b.bindings.src[i])return false;
     return a.bindings.swapSticks==b.bindings.swapSticks;
@@ -212,6 +213,45 @@ void quality_section(ViewState& v)
     wrapped_faded("Higher is sharper and slower. Custom range: 50-450%.");
 }
 
+void upscaler_section(ViewState& v)
+{
+    heading("Upscaling & anti-aliasing");
+    const float factor=ImGui::GetFontSize()/16;
+    const auto field=[&](const char* label) {
+        ImGui::AlignTextToFramePadding(); ImGui::TextUnformatted(label);
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x-270*factor);
+        ImGui::SetNextItemWidth(-FLT_MIN);
+    };
+    const char* backends[]={"Off", "NVIDIA DLSS", "AMD FSR"};
+    field("Upscaler");
+    if(ImGui::BeginCombo("##upscaler",v.choices.upscaler>=0 && v.choices.upscaler<3 ? backends[v.choices.upscaler] : "Custom (kept)")) {
+        for(int i=0;i<3;++i) if(ImGui::Selectable(backends[i],i==v.choices.upscaler))v.choices.upscaler=v.choices.upscalerEdit=i;
+        ImGui::EndCombo();
+    }
+    dvr::ovl::tip("DLSS requires an NVIDIA RTX GPU. FSR supports AMD, NVIDIA and Intel GPUs. Applies next launch.");
+    if(v.choices.upscaler>0) {
+        const char* qualities[]={v.choices.upscaler==2 ? "Native AA" : "DLAA (native)", "Quality", "Balanced", "Performance", "Ultra Performance", "Ultra Quality"};
+        const int order[]={0,5,1,2,3,4};
+        field("Upscaler quality");
+        const int q=v.choices.upscalerQuality;
+        if(ImGui::BeginCombo("##upscaler-quality",q>=0 && q<6 ? qualities[q] : "Custom (kept)")) {
+            for(int i:order)if(ImGui::Selectable(qualities[i],i==q))v.choices.upscalerQuality=v.choices.upscalerQualityEdit=i;
+            ImGui::EndCombo();
+        }
+        if(v.choices.upscaler==1) {
+            field("DLSS preset"); const int preset=v.choices.upscalerPreset;
+            if(ImGui::BeginCombo("##upscaler-preset",preset>=0 && preset<dvr::dlss::kModelChoiceCount ? dvr::dlss::kModelChoices[preset].name : "Custom (kept)")) {
+                for(int i=0;i<dvr::dlss::kModelChoiceCount;++i) {
+                    if(ImGui::Selectable(dvr::dlss::kModelChoices[i].name,i==preset))v.choices.upscalerPreset=v.choices.upscalerPresetEdit=i;
+                    dvr::ovl::tip(dvr::dlss::kModelChoices[i].tip);
+                }
+                ImGui::EndCombo();
+            }
+        } else wrapped_faded("FSR uses its own presets. F10 shows the FSR versions available on your GPU.");
+        wrapped_faded("Render quality above sets the output resolution. Upscaler quality controls how small the game renders before rebuilding it.");
+    }
+}
+
 void preference_checkbox(ViewState& v, int id, const char* tip)
 {
     const Preference& p = kPreferences[id];
@@ -310,6 +350,7 @@ UiAction draw_setup(ViewState& v)
     if (v.settingsPage == 0) {
         headset_section(v);
         quality_section(v);
+        upscaler_section(v);
         preferences_section(v);
     } else {
         preferences_section(v, true);
@@ -374,15 +415,15 @@ UiAction draw_mods(ViewState& v)
     if (heading("ReShade", "Optional visual effects. Disabled by default.")) {
         wrapped(v.det.reshadeInstalled ? (v.det.reshadeEnabled ? "Installed and enabled for the next launch." : "Installed and disabled for the next launch.") : "Download the verified ReShade 6.8 runtime to use optional effects.");
         if (button(v.det.reshadeInstalled ? "Reinstall ReShade 6.8" : "Install ReShade 6.8", false,
-            v.det.gameFound && v.det.modInstalled && v.det.installedIsEmbedded() && v.det.running == process::Running::No)) action = UiAction::InstallReShade;
+            v.det.gameFound && v.det.modInstalled && v.det.reshadeSupported && v.det.running == process::Running::No)) action = UiAction::InstallReShade;
         if (v.det.reshadeInstalled) {
-            const bool ready = v.det.installedIsEmbedded() && v.det.running == process::Running::No;
-            if (button(v.det.reshadeEnabled ? "Turn ReShade off" : "Turn ReShade on", false, ready)) action = UiAction::ToggleReShade;
+            const bool ready = v.det.gameFound && v.det.iniExists && v.det.running == process::Running::No;
+            if (button(v.det.reshadeEnabled ? "Turn ReShade off" : "Turn ReShade on", false, ready && (v.det.reshadeEnabled || v.det.reshadeSupported))) action = UiAction::ToggleReShade;
             ImGui::SameLine();
             if (button("Uninstall ReShade runtime", false, ready)) action = UiAction::RemoveReShade;
             wrapped_faded("Uninstall keeps a runtime backup, your presets, shaders and ReShade.ini.");
         }
-        if (!v.det.installedIsEmbedded()) wrapped_faded("Install this launcher's VR build from Updates before managing ReShade.");
+        if (!v.det.reshadeSupported) wrapped_faded("Install a VR build with ReShade support before installing or enabling effects. Existing effects can still be disabled or removed.");
         wrapped_faded("F10 > ReShade provides preset selection, effects, and shader settings with the same motion controls. Effects add GPU work.");
         if (button("Get the Carinth preset")) action = UiAction::OpenPresetSource;
         wrapped_faded("Download the ReShade preset variant from its author. Standard Effects, SweetFX and prod80 shaders are separate dependencies. Keep the VR d3d9.dll.");
@@ -600,6 +641,12 @@ UiAction draw(ViewState& v)
     }
     if(v.updateDownloading) {
         ImGui::OpenPopup("Updating Dishonored VR");
+        // Wrapped text cannot establish the width of an auto-sized window.
+        const auto* viewport = ImGui::GetMainViewport();
+        const float width = (viewport->WorkSize.x - 32 * factor < 520 * factor)
+            ? viewport->WorkSize.x - 32 * factor : 520 * factor;
+        ImGui::SetNextWindowSize(ImVec2(width, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowPos(viewport->GetWorkCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
         if(ImGui::BeginPopupModal("Updating Dishonored VR",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
             wrapped("Downloading and verifying the new launcher. It will restart and install the mod update.");
             ImGui::EndPopup();

@@ -1,3 +1,95 @@
+## 2026-10-03: remote Reverb G2 never reached VR - ReShade's OpenXR layer refused (-32)
+
+Remote tester, HP Reverb G2 on SteamVR (WMR driver replacement), RTX 5080, v1.0.3 with the
+repair package's matching DLL hashes. Two support bundles. The first was a stale build 38.74
+DXVK-era proxy (launcher saw sha 8c7c32f6 against an embedded 727e7ac6) - not diagnosed further.
+The second, on the correct v1.0.3 DLL: `[steamvr shim] xrCreateInstance failed: XrResult(-32)`
+twice, status runtime/session `none`, zero stereo pairs. The tester reported a small flat window
+in the SteamVR space, green-tinted with skewed perspective in its left fifth - that is the flat
+fallback in the desktop theatre; the tint and skew are NOT explained and are not addressed here.
+
+Cause, from source rather than inference: the shim negotiated (runtime loaded), and in the
+vendored loader -32 after that has one source, LoadLibrary failing on an implicit layer
+(api_layer_interface.cpp:280). The only enabled 32-bit implicit layer was ReShade's global
+OpenXR layer (C:\ProgramData\ReShade\ReShade32.dll), whose DllMain returns FALSE when no
+ReShade.ini sits beside the exe or another ReShade is loaded (upstream source/dll_main.cpp).
+The guard had called it "loadable here" after reading only the PE header. Also on that machine:
+a vorpX virtual display adapter (not in the log's DXGI list; no evidence it is involved).
+
+Change (TRAPS 2026-10-03, TROUBLESHOOTING -32 section, ARCHITECTURE decision log):
+`[VR] DisableReShadeApiLayer=1` (default ON) skips that layer for this process through its
+manifest's disable_environment; the guard's wording now says only the architecture was checked;
+`core/vr/xr_loader_log.cpp` records the loader's warnings, errors and layer lines as `xr/loader:`
+lines; the "is SteamVR installed?" hint is replaced for -32. Dev-PC validation with a 32-bit
+harness on the statically linked loader and the simulator runtime: a fixture layer whose DllMain
+refuses gives -32 and `error 1114` in the log; the dev PC's real 64-bit OBS implicit layer gives
+-32 with `error 193`; its manifest opt-out gives `Implicit layer ... is disabled` and a created
+instance. The guard's ReShade branch itself has not run in a game - the next tester log decides.
+
+Result: the tester ran the candidate zip (v1.0.1-271-ge6199622a) and reached VR - reported
+through the maintainer; that run's log has not been reviewed here, so the `apilayer: DISABLED`
+and `xr/loader: ... is disabled` lines are expected, not yet read. Whether the green/skewed
+image survives in a working session is not reported; it gets its own investigation if it does.
+Merged to staging with the launcher fixes on codex/launcher-fixes (PR 171), on the maintainer's
+instruction. No Linear ticket: the workspace issue limit blocked creation (see the entry below).
+
+## 2026-10-03: launcher upscaler controls and ReShade management across builds
+
+Follow-up on `codex/launcher-fixes`, PR #171. Settings > Display now exposes
+Off/DLSS/FSR, all six upscaler quality modes, and the six F10 DLSS model/preset
+choices from one shared table. Unknown custom presets remain untouched unless
+explicitly changed. Choices survive the elevated-worker argument path. The launcher
+shows saved upscaler output dimensions instead of treating F10's reduced render
+size as the output; unchanged settings preserve both, and Off restores full size.
+
+The ReShade buttons were gated on exact equality between the installed DLL and the
+launcher's payload. A launcher-only update therefore blocked an otherwise compatible
+1.0.3 installation. Detection now recognizes the installed manual-ReShade capability
+marker. Install/enable require support; disable/remove do not require a matching or
+recognized proxy. All writes still refuse a running game. Runtime removal retains
+its backup, shaders, presets and ReShade.ini.
+
+Validation: 256 native UI checks at 100%, 150% and minimum size; full scratch lifecycle
+passes, including every preset/quality mapping, old INIs without an Upscaler key,
+custom preset preservation, reduced render/output round-trip, different compatible
+DLL hashes, and unsupported-DLL disable/removal. DLSS, FSR and enabled-ReShade screens
+were rendered and inspected. The shared preset-table move changes no rendering values.
+Installed and reopened `v1.0.3-3-g7237fbae9` behind the desktop shortcut. Launcher
+SHA256 `d726d2dce2359b482caab519b9f2d3e8a38e466587ec6c8fcf1831c9adfde8d1`.
+The installed 1.0.3 proxy is recognized as ReShade-capable. Game DLL, game logs,
+ReShade DLL/config/bridge and the complete VR INI remain byte-identical to backup.
+INI: 73,497 bytes, 1,685 CRLF, zero lone CR/LF, zero whole-file diff lines. Backups,
+verification JSON and candidate ZIP are under main `build/launcher-upscaler/`.
+No game launch, merge or release. The existing Linear workspace issue-limit block
+still prevents creating a dedicated issue. Next: review the expanded PR #171.
+
+## 2026-10-03: launcher legacy cleanup and updater dialog
+
+Branch `codex/launcher-fixes` starts at release `VR-Main` commit `7c1cb8a32`,
+as explicitly requested. Installation and update now clean the six exact retired
+pre-41.0 files before writing payloads. Recovery copies are retained; a cleanup
+failure stops the operation and restores files removed earlier in that cleanup.
+Update rollback includes all six legacy files. Unrelated DLLs, JSON, logs,
+shader files and compatible retained INI preferences survive.
+
+The updater progress modal now has an explicit DPI-scaled, viewport-bounded width
+and stays centered. Native preview inspected at 100% and 150%; 190 UI interaction
+checks pass, including minimum window size. Installer host 86/86, updater host
+57/57, scratch install/settings/update/rollback and launcher handoff smoke pass;
+lint is clean. The scratch test verifies locked legacy cleanup refuses before
+replacing d3d9.dll and a later payload failure restores all six legacy files.
+No game launch or rendering change is involved.
+
+Installed candidate `v1.0.3-1-g8bc403e9a` behind the existing desktop shortcut.
+Launcher SHA256 `148877b9b4b72ad1446dd128328a075ebb20ea92d936b49250f2f18a7e50781c`.
+Game DLL, current/previous logs and complete INI are byte-identical to their backups.
+INI: 73,497 bytes, 1,685 CRLF, zero lone LF/CR, zero whole-file diff lines;
+SHA256 `6d3e82969765de54327eb40deb8fb3a890037fd8a5c6b23bfe597ccbcf1d5885`.
+Evidence and candidate ZIP: main `build/launcher-fixes/`. PR #171 targets staging.
+Next: review the launcher-only PR against staging. No merge or release is authorized.
+Linear creation was attempted but blocked by the workspace free issue limit;
+no new ticket number is invented. Details: [INSTALLER.md](INSTALLER.md).
+
 ## 2026-10-03: 1.0.3 release preparation authorized
 
 The maintainer authorized integration of the accepted runtime and audited launcher into

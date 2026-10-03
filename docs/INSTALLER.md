@@ -1,3 +1,53 @@
+## 2026-10-03: Display upscaler settings and ReShade compatibility
+
+Display now offers Off, NVIDIA DLSS and AMD FSR; Native AA/DLAA, Ultra Quality,
+Quality, Balanced, Performance and Ultra Performance; and the same six DLSS presets
+as F10. `core/gfx/upscaler_options.h` is the shared model/preset table. FSR does not
+use NVIDIA preset numbers; available FSR versions remain runtime-discovered in F10.
+
+Only explicit edits write DLAA/Upscaler, DlssQuality or DlssModel/DlssPreset. Unknown
+custom values display as kept. CLI/elevated-worker flags are `--upscaler 0|1|2`,
+`--upscaler-quality 0..5` (persisted INI order: Ultra Quality is 5), and
+`--upscaler-preset 0..5` (shared F10 model-choice index).
+
+F10 stores the reduced render dimensions in Screen and full resolution in
+Clarity/DlssOutputWidth/Height. Detection preselects the full output. Applying an
+unchanged output preserves the reduced render, and disabling upscaling restores
+full resolution and clears the output latch. This avoids double downscaling and
+prevents a later runtime resize from undoing a launcher resolution selection.
+
+ReShade support no longer means an exact DLL hash match. The installed proxy must
+contain the released manual-runtime-ready marker for install/enable; this covers
+1.0.3 even when the launcher carries a newer build. Disable/removal require the
+runtime and settings file, not support recognition. Running-game guards, settings
+backup and retained shader/preset files are unchanged. Native UI and scratch tests
+exercise both a different compatible proxy and an unrecognized proxy.
+
+## 2026-10-03 maintenance verification
+
+A support bundle identified launcher 1.0.3 with actual game `BUILD 38.74`, the old
+DXVK SBS path and no current SteamVR shim. Changing settings had not installed the
+new binaries. Treat the game log banner and actual DLL hash as authoritative;
+launcher version alone is not the installed mod version. The repair ZIP uses the
+existing 1.0.3 release DLLs; remote headset confirmation remains pending.
+
+Installation and update now remove the exact retired runtime artifacts before
+writing the new payload, retaining recovery copies. Do not remove stock
+`dbghelp.dll`, third-party `dxgi.dll`, arbitrary JSON, user shader files or support
+logs. Tests seed these unrelated files and assert their contents survive.
+
+The download-progress modal previously combined `AlwaysAutoResize` with text wrapped
+to the available width and no initial width. It collapsed to a narrow column. It
+now sets a 520 logical-pixel width capped to the viewport minus margins each frame,
+auto-sizes its height and centers on the working viewport. `update-downloading` is
+a render fixture. UI checks verify readable dimensions, no vertical scrolling,
+viewport containment and closure on completion/failure at 100%, 150% and minimum
+supported window size. Native PNGs were visually inspected at both DPI scales.
+
+Validation: installer host 86/86, updater host 57/57, native UI 190/190, full scratch
+installer lifecycle including cleanup lock/rollback cases, executable handoff smoke,
+and lint. No game launch is needed for these launcher changes.
+
 ## Candidate additions: texture packs and ReShade (2026-10-02)
 
 Setup/Change settings > Texture packs offers **Reduce texture address space use**.
@@ -96,7 +146,15 @@ found. A failed step stops the list; nothing below it runs.
 4. **Writes `d3d9.dll`, `dvr_steamvr32.dll` and `openvr_api.dll`** from the embedded
    copies. Every write is atomic (a `.tmp` beside the target, then a replace), so a
    half-written DLL can never be the one the game loads.
-5. **Deletes `dxvk_d3d9.dll` and `dxvk_stereo.txt`** if a release before 41.0 left them.
+5. **Cleans the known pre-41.0 artifacts before writing replacement payloads:**
+   `dxvk_d3d9.dll`, `dxvk_stereo.txt`, `vr_actions.json`, `vr_bindings_knuckles.json`,
+   `vr_bindings_touch.json` and `vr_bindings_native.json`. Exact names come from
+   original proxy source `824e08d8b`; no wildcard removal is used. Copies go to a
+   timestamped `dvr-legacy-backup-*` folder. Unexpected directories/reparse points
+   and inspection, backup or removal failures stop the operation. A partial cleanup
+   restores already removed members; a later update failure restores all six through
+   the update transaction. Current runtime DLLs are replaced by the payload, and the
+   existing INI migration/preservation policy still applies.
 6. **Writes `dishonored_vr.ini`** as a byte copy of `release/dishonored_vr.ini`, the ini
    this build was tuned and tested with (HANDOFF rule 6), but only when there is none.
    An existing ini at the build's `[Meta] Version` is kept: the F10 settings in it

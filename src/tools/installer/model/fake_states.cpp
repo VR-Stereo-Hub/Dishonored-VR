@@ -65,7 +65,7 @@ Report install_report(bool baselinePending, bool failed)
 
 std::vector<std::string> fake_state_names()
 {
-    return { "mods-installed", "mods", "updates", "settings-controls", "update-popup", "about-updates", "update-offline", "update-warning", "gog-home", "win64", "about", "guide", "guide-zoom", "headset-required", "headset-other", "headset-change", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
+    return { "settings-upscaler", "settings-fsr", "update-downloading", "mods-installed", "mods", "updates", "settings-controls", "update-popup", "about-updates", "update-offline", "update-warning", "gog-home", "win64", "about", "guide", "guide-zoom", "headset-required", "headset-other", "headset-change", "setup-found", "setup-steamvr", "setup-controls", "setup-notfound", "setup-running", "setup-elevate", "setup-advanced", "setup-change",
              "done", "done-waiting", "done-failed", "manage", "manage-disabled", "manage-update", "manage-uninstall", "busy" };
 }
 
@@ -76,7 +76,7 @@ bool fake_state(const std::string& name, ViewState* v)
     v->headset = "Meta Quest 3 / 3S";   // every other state is past the VR-223 picker
     if (name == "mods" || name == "mods-installed" || name == "updates" || name == "settings-controls") {
         v->det = installed_detection(); v->choices = v->det.suggested;
-        if (name == "mods-installed") { v->det.installedSha=v->det.embeddedSha; v->det.reshadeInstalled=true; v->det.reshadeEnabled=true; }
+        if (name == "mods-installed") { v->det.reshadeSupported=true; v->det.reshadeInstalled=true; v->det.reshadeEnabled=true; }
         v->screen = name == "mods" || name == "mods-installed" ? Screen::Mods : name == "updates" ? Screen::Updates : Screen::Setup;
         v->settingsPage = 1; v->changingSettings = true; v->controlsOpen = true; return true;
     }
@@ -163,6 +163,13 @@ bool fake_state(const std::string& name, ViewState* v)
         if(name=="gog-home") {v->det.game.store=discovery::Store::Gog;v->det.gameDir=L"C:\\Program Files (x86)\\GOG Galaxy\\Dishonored\\Binaries\\Win32";v->det.game.dir=v->det.gameDir;v->det.gameNote="GOG installation (32-bit)";}
         if(name=="win64") {v->screen=Screen::Setup;v->det.gameFound=false;v->det.game.valid=false;v->det.game.unsupported64=true;v->det.gameNote="INCOMPATIBLE 64-BIT GAME: this VR mod will not work with Win64. Select the original 32-bit Dishonored in Binaries\\Win32.";}
         return true;
+    }
+    if (name == "settings-upscaler" || name == "settings-fsr") {
+        v->det=installed_detection();v->choices=v->det.suggested;v->changingSettings=true;
+        v->choices.upscaler=name=="settings-fsr" ? 2 : 1;v->choices.upscalerQuality=1;return true;
+    }
+    if (name == "update-downloading") {
+        v->det = installed_detection(); v->screen = Screen::Updates; v->updateDownloading = true; return true;
     }
     if (name == "busy") {
         v->det = base_detection(); v->choices = v->det.suggested; v->busy = true; v->busyText = "Installing..."; return true;

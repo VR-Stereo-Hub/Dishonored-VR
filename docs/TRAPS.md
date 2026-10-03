@@ -1,3 +1,20 @@
+## 2026-10-03: a matching architecture is not a loadable API layer
+
+A remote Reverb G2 (SteamVR, the shim) never reached VR: xrCreateInstance -> -32 twice,
+runtime and session `none`. The API-layer guard had logged the only enabled 32-bit implicit
+layer, ReShade's global OpenXR layer, as "x86, loadable here" - but it had only read the PE
+header. The runtime had loaded (the shim logged its negotiation), and in the vendored loader
+-32 at create time after that has one source: LoadLibrary failing on an implicit layer
+(api_layer_interface.cpp:280), fatal when no other layer loads. ReShade's DllMain returns
+FALSE without a ReShade.ini beside the exe, or when another ReShade is already loaded
+(upstream source/dll_main.cpp). Reproduced on the dev PC with a fixture layer whose DllMain
+refuses: -32, loader message "error 1114: A dynamic link library (DLL) initialization routine
+failed". The guard now says what it checked, skips ReShade's layer through its manifest's
+disable_environment ([VR] DisableReShadeApiLayer=1), and the loader's own warnings reach the
+log as `xr/loader:` lines - before this they went to a stderr a GUI game does not have. The
+"is SteamVR installed?" hint no longer prints for -32. The tester reached VR on the candidate
+build (v1.0.1-271-ge6199622a), reported through the maintainer; that run's log is not yet read.
+
 ## 2026-10-03: native D3D9 state-block recording overwrites device hooks
 
 BeginStateBlock on the game's PURE device rewrites the native dispatch table, removing

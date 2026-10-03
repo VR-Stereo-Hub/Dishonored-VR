@@ -2933,6 +2933,16 @@ XrResult try_create_instance(const char* label, bool quietExplainer) {
                   "The optional SteamVR shim needs dvr_steamvr32.dll and openvr_api.dll "
                   "beside the game executable.");
         }
+        // 41.x (Dishonored): -32 at CREATE time, after this runtime already
+        // enumerated, is the loader failing to LoadLibrary an implicit API
+        // layer (api_layer_interface.cpp:280) - not a missing runtime.
+        if (r == XR_ERROR_FILE_ACCESS_ERROR) {
+            XRLOG("xr: [%s] XR_ERROR_FILE_ACCESS_ERROR after the runtime enumerated: the "
+                  "loader could not load an enabled implicit API layer (a wrong-architecture "
+                  "DLL, a missing dependency, or one whose DllMain refused). The 'apilayer:' "
+                  "lines name the enabled layers; the 'xr/loader:' lines above name the one "
+                  "that failed and the Windows error.", label);
+        }
         g_instance = XR_NULL_HANDLE;
         return r;
     }
@@ -3056,7 +3066,10 @@ void init_instance() {
         r = try_create_instance("steamvr shim", /*quietExplainer=*/true);
         if (XR_FAILED(r))
             XRLOG("xr: SteamVR shim also failed (%s) - VR disabled, game runs "
-                    "flat (is SteamVR installed?)", res_str(r));
+                    "flat (%s)", res_str(r),
+                    r == XR_ERROR_FILE_ACCESS_ERROR
+                        ? "an OpenXR API layer failed to load - see the apilayer: and xr/loader: lines"
+                        : "is SteamVR installed?");
     } else if (XR_FAILED(r) && !shimPresent && _stricmp(mode, "steamvr") == 0) {
         XRLOG("xr: runtime mode 'steamvr' but dvr_steamvr32.dll is not beside "
                 "the mod - VR disabled, game runs flat");

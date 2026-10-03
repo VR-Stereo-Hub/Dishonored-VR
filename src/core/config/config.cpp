@@ -406,6 +406,10 @@ static bool WriteDefaultIni(const char* ini)
         "; Live A/B: desktopeye draw|tag. tag is the legacy pin, which leaks the other eye under shared capture.\n"
         "DesktopEyeSource=draw\n"
         "DisableBadApiLayers=1\n"
+        "; DisableReShadeApiLayer=1 skips ReShade's global OpenXR layer for this game only\n"
+        "; (ReShade refuses to load without a ReShade.ini beside the exe, and that refusal\n"
+        "; stops VR starting at all). 0 leaves it to ReShade. The registry is never touched.\n"
+        "DisableReShadeApiLayer=1\n"
         "[Paths]\n"
         "; DataDir= where the harness files go (command.txt, status.json, dumps, the\n"
         "; shim manifest). Empty = %%LOCALAPPDATA%%\\DishonoredVR. Set it to a folder the\n"
@@ -3616,6 +3620,7 @@ static void LoadConfig()
         // ApiLayerGuard runs before LoadConfig and reads this key itself; the
         // read here only keeps the global in step for the ini rewrite.
         g_algGuard = IniFloat(ini, "VR", "DisableBadApiLayers", 1) != 0.0f;
+        g_algReShade = IniFloat(ini, "VR", "DisableReShadeApiLayer", 1) != 0.0f;
         if (g_fpsCap < 0.0f) g_fpsCap = 0.0f;
         if (g_fpsCap > 0.0f && g_fpsCap < 20.0f)  g_fpsCap = 20.0f;
         if (g_fpsCap > 144.0f) g_fpsCap = 144.0f;
@@ -4141,6 +4146,7 @@ static void OverlaySaveDefaults()
     if (g_msCutSet[2]) { _snprintf(v, 64, "%.2f", g_msCutRel[2]);
                          WritePrivateProfileStringA("Hands", "WristCutB", v, ini); }
     WritePrivateProfileStringA("VR", "DisableBadApiLayers", g_algGuard ? "1" : "0", ini);
+    WritePrivateProfileStringA("VR", "DisableReShadeApiLayer", g_algReShade ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "FromControllers", g_skcLive ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldSpace", g_skcWorld ? "1" : "0", ini);
     WritePrivateProfileStringA("Hands", "WorldRotation", g_skcWorldRot ? "1" : "0", ini);

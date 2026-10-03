@@ -106,6 +106,29 @@ $rec = Get-Content (Join-Path $game 'dishonored_vr_install.json') -Raw | Convert
 Assert ($rec.d3d9Sha256 -eq (Sha (Join-Path $bin 'd3d9.dll'))) 'the record carries the installed d3d9.dll sha256'
 Assert ($rec.runtime -eq 'steamvr' -and $rec.renderWidth -eq 2750 -and $rec.renderHeight -eq 2850) 'the record carries the choices'
 
+# Exact original proxy outputs; leave other mods, stock DLLs and diagnostics alone.
+$legacyFiles=@('dxvk_d3d9.dll','dxvk_stereo.txt','vr_actions.json','vr_bindings_knuckles.json','vr_bindings_touch.json','vr_bindings_native.json')
+$untouchedFiles=@('dxgi.dll','dbghelp.dll','vr_custom.json','dxvk.conf','dishonored_vr.log')
+foreach($name in $legacyFiles + $untouchedFiles) { [IO.File]::WriteAllText((Join-Path $game $name),"fixture: $name") }
+[IO.File]::WriteAllBytes((Join-Path $game 'd3d9.dll'),[byte[]](77,90,3,8,7,4))
+$originalProxy=Sha (Join-Path $game 'd3d9.dll')
+'2b. failed legacy cleanup stops before writing the new runtime'
+$locked=[IO.File]::Open((Join-Path $game 'vr_bindings_touch.json'),[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+try { $rc=Run ($common + @('--op','install','--result',"`"$(Join-Path $scratch 'cleanup-failed.txt')`"")) } finally { $locked.Dispose() }
+Assert ($rc -ne 0) 'locked legacy file refuses installation'
+Assert ((Sha (Join-Path $game 'd3d9.dll')) -eq $originalProxy) 'old runtime unchanged when cleanup fails'
+foreach($name in $legacyFiles) { Assert ([IO.File]::ReadAllText((Join-Path $game $name)) -ceq "fixture: $name") "$name recovered after failed cleanup" }
+Assert ((Get-Content (Join-Path $scratch 'cleanup-failed.txt') -Raw).Contains('Could not remove vr_bindings_touch.json')) 'cleanup failure identifies the blocked file'
+
+$rc=Run ($common + @('--op','install','--runtime','steamvr','--quality','balanced'))
+Assert ($rc -eq 0) 'legacy reinstall succeeds after releasing the lock'
+Assert ((Sha (Join-Path $game 'd3d9.dll')) -eq (Sha (Join-Path $bin 'd3d9.dll'))) 'legacy proxy replaced with embedded runtime'
+foreach($name in $legacyFiles) { Assert (-not (Test-Path -LiteralPath (Join-Path $game $name))) "$name removed on install" }
+foreach($name in $untouchedFiles) { Assert ([IO.File]::ReadAllText((Join-Path $game $name)) -ceq "fixture: $name") "$name untouched by cleanup" }
+$legacyBackups=@(Get-ChildItem -LiteralPath $game -Directory -Filter 'dvr-legacy-backup-*')
+Assert ($legacyBackups.Count -ge 1) 'legacy installation has a recovery backup'
+
+
 '3. second run: idempotent'
 $before = Get-Content $ini -Raw; $engBefore = $eng
 $rc = Run ($common + @('--op', 'install', '--runtime', 'steamvr', '--quality', 'balanced'))
@@ -204,7 +227,64 @@ Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $stereoAfter) 'invalid 
 $rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--stereo','stereo'))
 Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $stereoBefore) 'Stereo restores the complete expected INI'
 
+ '5c. upscaler selections preserve the whole INI and output resolution'
+$upscaleOriginal=[IO.File]::ReadAllText($ini)
+function SetClarity($text,$key,$value) {
+    [regex]::Replace($text,('(?m)^'+[regex]::Escape($key)+'=[^\r\n]*'),($key+'='+$value))
+}
+$expected=SetClarity $upscaleOriginal 'DLAA' '1'
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--upscaler','1'))
+$firstActual=[IO.File]::ReadAllText($ini)
+$firstComparable=$firstActual
+if($upscaleOriginal -notmatch '(?m)^Upscaler=') {
+    Assert ([regex]::Matches($firstActual,'(?m)^Upscaler=0\r?$').Count -eq 1) 'DLSS selection adds its explicit default backend to older INIs'
+    $firstComparable=[regex]::Replace($firstActual,'(?m)^Upscaler=0\r\n','')
+}
+Assert ($rc -eq 0 -and $firstComparable -ceq $expected) 'DLSS native selection only changes enabled state and backend'
+$expected=$firstActual
+$presetModels=@(0,0,0,0,0,1); $presetValues=@(0,10,13,12,16,0)
+for($i=0;$i -lt 6;$i++) {
+    $expected=SetClarity (SetClarity $expected 'DlssModel' $presetModels[$i]) 'DlssPreset' $presetValues[$i]
+    $rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--upscaler-preset',"$i"))
+    Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $expected) "DLSS preset $i writes its exact F10 pair only"
+}
+$renderW=[regex]::Match($expected,'(?m)^RenderWidth=(\d+)').Groups[1].Value
+$renderH=[regex]::Match($expected,'(?m)^RenderHeight=(\d+)').Groups[1].Value
+foreach($qualityMode in @(5,1,2,3,4,0)) {
+    $expected=SetClarity $expected 'DlssQuality' $qualityMode
+    $expected=SetClarity $expected 'DlssOutputWidth' $(if($qualityMode){$renderW}else{'0'})
+    $expected=SetClarity $expected 'DlssOutputHeight' $(if($qualityMode){$renderH}else{'0'})
+    $rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--upscaler-quality',"$qualityMode"))
+    Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $expected) "upscaler quality $qualityMode saves exact output size and keeps other tuning"
+}
+$expected=SetClarity $expected 'Upscaler' '1'
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--upscaler','2'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $expected) 'FSR keeps DLSS presets and native quality'
+# Simulate F10's persisted smaller render plus separate full output, including a custom preset.
+$expected=SetClarity $expected 'DlssPreset' '99'
+$expected=SetClarity $expected 'DlssQuality' '3'
+$expected=SetClarity $expected 'DlssOutputWidth' $renderW
+$expected=SetClarity $expected 'DlssOutputHeight' $renderH
+$expected=$expected.Replace("RenderWidth=$renderW","RenderWidth=1400").Replace("RenderHeight=$renderH","RenderHeight=1450")
+[IO.File]::WriteAllText($ini,$expected,$ascii)
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $expected) 'untouched upscaler keeps reduced render, full output and custom preset exactly'
+$expected=(SetClarity $expected 'DLAA' '0').Replace('RenderWidth=1400',"RenderWidth=$renderW").Replace('RenderHeight=1450',"RenderHeight=$renderH")
+$expected=SetClarity (SetClarity $expected 'DlssOutputWidth' '0') 'DlssOutputHeight' '0'
+$rc=Run ($common + @('--op','change','--runtime','steamvr','--quality','quality','--upscaler','0'))
+Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $expected) 'turning upscaling off restores full resolution without overwriting custom preset'
+foreach($flag in @('--upscaler','--upscaler-quality','--upscaler-preset')) {
+    $rc=Run ($common + @('--op','change',$flag,'99'))
+    Assert ($rc -eq 1 -and [IO.File]::ReadAllText($ini) -ceq $expected) "$flag rejects invalid selection before writing"
+}
+[IO.File]::WriteAllText($ini,$upscaleOriginal,$ascii)
+
 '5d. ReShade management keeps every unrelated byte and all presets'
+$proxyPath=Join-Path $game 'd3d9.dll'
+$proxyBytes=[IO.File]::ReadAllBytes($proxyPath)
+[IO.File]::WriteAllBytes($proxyPath,($proxyBytes+[byte]0))
+Assert ((Sha $proxyPath) -ne (Sha (Join-Path $bin 'd3d9.dll'))) 'ReShade fixture uses a different compatible DLL hash'
+
 $shadeRuntime=Join-Path $game 'ReShade32.dll'
 $shadePreset=Join-Path $game 'UserPreset.ini'
 [IO.File]::WriteAllBytes($shadeRuntime,[byte[]](77,90,12,34,56))
@@ -215,6 +295,8 @@ $rc=Run ($common + @('--op','reshade-on'))
 $shadeAfter=[IO.File]::ReadAllText($ini)
 $shadeExpected=[regex]::Replace($shadeBefore,'(?ms)(^\[ReShade\]\r\n[^[]*?^Enabled=)0(?=\r?$)','${1}1')
 Assert ($rc -eq 0 -and $shadeAfter -ceq $shadeExpected) 'ReShade enable changes only its Enabled value across whole INI'
+# Disabling/removing must remain possible even if support cannot be recognized.
+[IO.File]::WriteAllBytes($proxyPath,[byte[]](77,90,0,0))
 $rc=Run ($common + @('--op','reshade-off'))
 Assert ($rc -eq 0 -and [IO.File]::ReadAllText($ini) -ceq $shadeBefore) 'ReShade off restores entire expected INI'
 $rc=Run ($common + @('--op','reshade-remove'))
@@ -223,6 +305,8 @@ $shadeBackups=@(Get-ChildItem -LiteralPath $game -Filter 'ReShade32.dll.*.dvr-ba
 Assert ($shadeBackups.Count -eq 1 -and (Sha $shadeBackups[0].FullName) -eq $shadeHash) 'removed runtime retained as byte-exact backup'
 Assert ((Sha $shadePreset) -eq $presetHash -and [IO.File]::ReadAllText($ini) -ceq $shadeBefore) 'presets and complete settings preserved on removal'
 [IO.File]::WriteAllBytes($shadeRuntime,[byte[]](77,90,12,34,56))
+
+[IO.File]::WriteAllBytes($proxyPath,$proxyBytes)
 
 '5d. running-game settings writes are refused'
 $guardIni=Sha $ini
@@ -280,9 +364,13 @@ Remove-Item (Join-Path $game 'dishonored_vr.ini.*.dvr-backup') -Force
 
 # The default reset must replace all tuning and preserve a byte-identical backup.
 '8b. default update reset uses public defaults and backs up every setting'
+foreach($name in $legacyFiles) { [IO.File]::WriteAllText((Join-Path $game $name),"update fixture: $name") }
+
 [IO.File]::WriteAllText($ini, $changed, $ascii)
 $rc = Run ($common + @('--op','update'))
 Assert ($rc -eq 0) 'overwrite update succeeds'
+foreach($name in $legacyFiles) { Assert (-not (Test-Path -LiteralPath (Join-Path $game $name))) "$name removed on update" }
+
 $reset = [IO.File]::ReadAllText($ini)
 $defaults = [IO.File]::ReadAllText((Join-Path $repo 'release\dishonored_vr.ini')).Replace('DataDir=D:\dvr-data','DataDir=')
 Assert ($reset -ceq $defaults) 'entire reset ini matches shipped defaults with portable data path'
@@ -293,7 +381,9 @@ Assert ($backups.Count -eq 1 -and [IO.File]::ReadAllText($backups[0].FullName) -
 $le = LineEndings $ini
 Assert ($le[0] -eq $le[1] -and -not $le[2]) 'reset preserves CRLF without BOM'
 '8c. failure after a DLL write restores the entire previous version'
-$rollbackFiles=@('d3d9.dll','dvr_steamvr32.dll','openvr_api.dll','dishonored_vr.ini','dishonored_vr_install.json')
+$rollbackFiles=@('d3d9.dll','dvr_steamvr32.dll','openvr_api.dll','dishonored_vr.ini','dishonored_vr_install.json') + $legacyFiles
+foreach($name in $legacyFiles) { [IO.File]::WriteAllText((Join-Path $game $name),"rollback fixture: $name") }
+
 [IO.File]::WriteAllBytes((Join-Path $game 'd3d9.dll'),[byte[]](77,90,7,8,9))
 $beforeHashes=@{}
 foreach($name in $rollbackFiles) { $beforeHashes[$name]=Sha (Join-Path $game $name) }

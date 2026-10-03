@@ -38,6 +38,31 @@
 // A layer with no `disable_environment` cannot be opted out of, and that is
 // reported as the actionable thing it is rather than swallowed.
 //
+// THE SECOND WAY A LAYER KILLS VR: IT LOADS, AND THEN REFUSES.
+//
+// Remote report, 2026-10-03 (Reverb G2 on SteamVR, the shim): xrCreateInstance
+// -> XrResult(-32) with the only enabled 32-bit implicit layer being ReShade's
+// (XR_APILAYER_reshade -> C:\ProgramData\ReShade\ReShade32.dll), which the
+// architecture check above passes. The runtime had loaded (the shim logged its
+// negotiation) and -32 has exactly one other source in the vendored loader:
+// LoadLibrary failing on an implicit layer (api_layer_interface.cpp:280), which
+// is fatal when no other layer loads. ReShade's own DllMain returns FALSE -
+// making LoadLibrary fail - when it is not loaded under a proxy name and no
+// ReShade.ini exists for the target exe (source/dll_main.cpp, "ReShade was not
+// enabled for ... Aborting initialization", present since at least 5.9), and
+// again when another ReShade is already in the process. Neither shows on the
+// PE header, so this guard names that layer and, behind [VR]
+// DisableReShadeApiLayer (default ON), opts this process out of it through the
+// `disable_environment` its manifest declares (DISABLE_XR_APILAYER_reshade_1 in
+// the official manifest; the value is read from the file, not assumed).
+//
+// What the check here is, stated honestly: the PE machine type. A matching
+// architecture says the loader CAN map the DLL, not that the DLL will agree to
+// initialise. Layer DLLs are never loaded here to find out - that would run
+// their DllMain, which is the very thing under suspicion. The loader's own
+// account of what it loaded and why it skipped anything is in the
+// `xr/loader:` lines (core/vr/xr_loader_log.cpp).
+//
 // LANE: called from EnsureConfig, on the first Direct3DCreate9. That is well
 // before XR bring-up and safely past the loader lock, where advapi32 and the
 // file APIs are usable.
@@ -112,6 +137,82 @@ static bool AlgReadFile(const char* path, char* buf, size_t cap)
 }
 
 
+// ReShade's global OpenXR layer: x86, so the architecture check passes, but its
+// DllMain decides for itself whether to load (see the header). Report what
+// ReShade's own check will see, and skip the layer for this process when [VR]
+// DisableReShadeApiLayer asks.
+static bool AlgIsReShade(const char* name)
+{
+    return _strnicmp(name, "XR_APILAYER_reshade", 19) == 0;
+}
+
+static void AlgReShadeLayer(const char* name, const char* dis, const char* where,
+                            int* stuck)
+{
+    char iniPath[MAX_PATH * 2];
+    _snprintf(iniPath, sizeof(iniPath), "%s\\ReShade.ini", g_dir);
+    iniPath[sizeof(iniPath) - 1] = 0;
+    const bool iniHere = GetFileAttributesA(iniPath) != INVALID_FILE_ATTRIBUTES;
+    const bool checkOff = GetEnvironmentVariableA("RESHADE_DISABLE_LOADING_CHECK", NULL, 0) != 0;
+    const bool baseOver = GetEnvironmentVariableA("RESHADE_BASE_PATH_OVERRIDE", NULL, 0) != 0;
+    const bool willRefuse = !iniHere && !checkOff && !baseOver;
+    DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Info,
+            "apilayer: %s '%s' is ReShade's global OpenXR layer. ReShade.ini beside "
+            "the exe: %s; RESHADE_DISABLE_LOADING_CHECK %s; RESHADE_BASE_PATH_OVERRIDE "
+            "%s. %s", where, name, iniHere ? "PRESENT" : "absent",
+            checkOff ? "set" : "unset", baseOver ? "set" : "unset",
+            willRefuse
+                ? "ReShade's DllMain refuses to load without that file, and the loader "
+                  "turns one refused implicit layer into xrCreateInstance -32 for every "
+                  "runtime."
+                : "It may load, as a second ReShade beside the one this mod chains in "
+                  "([ReShade] in dishonored_vr.ini) - ReShade refuses a second instance, "
+                  "so whichever loads later fails.");
+
+    if (dis[0] && GetEnvironmentVariableA(dis, NULL, 0) != 0) {
+        DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Info,
+                "apilayer: '%s' is already disabled for this process - %s is set in "
+                "the environment it inherited", name, dis);
+        return;
+    }
+    if (!g_algReShade) {
+        DVR_LOG(dvr::log::Cat::openxr,
+                willRefuse ? dvr::log::Level::Warn : dvr::log::Level::Info,
+                "apilayer: [VR] DisableReShadeApiLayer=0 - '%s' is left enabled.%s",
+                name, willRefuse ? " Expect xrCreateInstance XrResult(-32) and the game "
+                                   "to run flat; set the key to 1." : "");
+        return;
+    }
+    if (!dis[0]) {
+        DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Error,
+                "apilayer: '%s' declares no disable_environment, so this process cannot "
+                "opt out of it. %sDisable it in ReShade's setup, or set its registry "
+                "value under %s to 1 - this mod will not edit the registry for you.",
+                name, willRefuse ? "VR will not start while it is enabled. " : "", where);
+        (*stuck)++;
+        return;
+    }
+    const BOOL set = SetEnvironmentVariableA(dis, "1");
+    const DWORD err = set ? 0 : GetLastError();
+    if (!set || GetEnvironmentVariableA(dis, NULL, 0) == 0) {
+        DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Error,
+                "apilayer: could NOT set %s=1 for '%s' (SetEnvironmentVariable %s, err "
+                "%lu) - the layer stays enabled%s", dis, name,
+                set ? "ok but unreadable" : "failed", (unsigned long)err,
+                willRefuse ? " and xrCreateInstance is expected to fail with -32" : "");
+        (*stuck)++;
+        return;
+    }
+    DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Warn,
+            "apilayer: DISABLED '%s' for this process by setting %s=1, the opt-out its "
+            "own manifest declares ([VR] DisableReShadeApiLayer=1). Nothing was written "
+            "to the registry and ReShade is untouched: the layer keeps working for every "
+            "other OpenXR application. The loader confirms it with an 'xr/loader: ... "
+            "is disabled' line; if xrCreateInstance still fails, this was not the cause "
+            "and the xr/loader lines say what is.", name, dis);
+}
+
+
 // One implicit layer: is it loadable here, and if not, can it be switched off?
 static void AlgCheckLayer(const char* manifest, DWORD disabled, const char* where,
                           int* bad, int* stuck)
@@ -160,11 +261,16 @@ static void AlgCheckLayer(const char* manifest, DWORD disabled, const char* wher
     DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Info,
             "apilayer: %s '%s' -> %s (%s)%s", where,
             name[0] ? name : manifest, full,
-            m == IMAGE_FILE_MACHINE_I386  ? "x86, loadable here" :
+            m == IMAGE_FILE_MACHINE_I386  ? "x86 - the architecture matches; only the PE "
+                                            "header was checked, so whether it initialises "
+                                            "is known only when the loader loads it" :
             m == IMAGE_FILE_MACHINE_AMD64 ? "x64 - CANNOT load in this 32-bit process" :
             m == 0 ? "the library could not be read" : "an unexpected machine type",
             loadable ? "" : " <-- this is enough to fail xrCreateInstance");
-    if (loadable) return;
+    if (loadable) {
+        if (AlgIsReShade(name)) AlgReShadeLayer(name, dis, where, stuck);
+        return;
+    }
 
     (*bad)++;
     if (!dis[0]) {
@@ -246,7 +352,11 @@ static void ApiLayerGuard()
         char ini[MAX_PATH];
         _snprintf(ini, MAX_PATH, "%s\\dishonored_vr.ini", g_dir);
         g_algGuard = GetPrivateProfileIntA("VR", "DisableBadApiLayers", 1, ini) != 0;
+        g_algReShade = GetPrivateProfileIntA("VR", "DisableReShadeApiLayer", 1, ini) != 0;
     }
+    // Before any loader call, so the loader's own explanation of a refused
+    // layer or runtime reaches this log instead of a stderr nobody reads.
+    dvr::xr_loader_log::install();
     if (!g_algGuard)
         DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Info,
                 "apilayer: [VR] DisableBadApiLayers=0 - layers will be reported "
@@ -262,8 +372,9 @@ static void ApiLayerGuard()
         return;
     }
     DVR_LOG(dvr::log::Cat::openxr, dvr::log::Level::Info,
-            "apilayer: %d implicit layer(s) registered, %d unloadable in a "
-            "32-bit process, %d of those with no way to opt out. An implicit "
+            "apilayer: %d implicit layer(s) registered, %d of the wrong "
+            "architecture for a 32-bit process, %d left enabled with no way to "
+            "opt out. An implicit "
             "layer is opt-out by design - nothing in this mod's configuration "
             "asks for one - and a single unloadable layer fails xrCreateInstance "
             "for EVERY runtime, which reads as 'no VR at all' rather than as a "

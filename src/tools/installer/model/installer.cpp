@@ -21,6 +21,12 @@ constexpr const wchar_t* kLogName = L"dishonored_vr.log";
 constexpr const wchar_t* kDisableName = L"disable_vr.txt";
 constexpr const wchar_t* kBackupName = L"d3d9.dll.dvr-backup";
 constexpr const char* kLegacyMarker = "legacy code is COMPILED IN";
+// Exact pre-41.0 outputs, verified against the original proxy (824e08d8b).
+// Never glob DLLs, JSON, logs or shader dumps: those can belong to other mods.
+constexpr const wchar_t* kLegacyFiles[] = {
+    L"dxvk_d3d9.dll", L"dxvk_stereo.txt", L"vr_actions.json",
+    L"vr_bindings_knuckles.json", L"vr_bindings_touch.json", L"vr_bindings_native.json"
+};
 constexpr const wchar_t* kDevDataDir = L"D:\\dvr-data";   // the dev PC's drive, shipped by mistake once
 
 std::string n(const std::wstring& w) { return fs::narrow(w); }
@@ -149,6 +155,48 @@ bool remove_if_present(Report* r, const std::wstring& dir, const wchar_t* name, 
     return true;
 }
 
+// Back up the entire known legacy set before removing any member. A locked or
+// unexpected path stops installation before new payload bytes are written.
+bool clean_legacy_install(Report* r, const std::wstring& gameDir)
+{
+    std::vector<const wchar_t*> present;
+    for (const auto* name : kLegacyFiles) {
+        const DWORD attrs = GetFileAttributesW(fs::join(gameDir, name).c_str());
+        if (attrs == INVALID_FILE_ATTRIBUTES) {
+            const DWORD err = GetLastError();
+            if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) continue;
+            r->fail("Could not inspect legacy mod file " + n(name), err); return false;
+        }
+        if (attrs & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) {
+            r->add(StepStatus::Failed, "Cannot clean legacy mod file " + n(name),
+                   "Expected a regular file. No replacement files have been installed."); return false;
+        }
+        present.push_back(name);
+    }
+    if (present.empty()) return true;
+    const auto backup = fs::join(gameDir, L"dvr-legacy-backup-" + fs::timestamp_local() + L"-" + std::to_wstring(GetTickCount64()));
+    DWORD err = 0;
+    if (!fs::make_dir(backup, &err)) { r->fail("Could not prepare legacy mod backup", err); return false; }
+    for (const auto* name : present) {
+        if (!fs::copy_file(fs::join(gameDir, name), fs::join(backup, name), &err)) {
+            r->fail("Could not back up legacy mod file " + n(name), err); return false;
+        }
+    }
+    std::vector<const wchar_t*> removed;
+    for (const auto* name : present) {
+        if (!remove_if_present(r, gameDir, name, "Retired pre-41.0 mod component; a recovery copy was saved.")) {
+            for (const auto* restore : removed)
+                if (!fs::copy_file(fs::join(backup, restore), fs::join(gameDir, restore), &err))
+                    r->fail("Could not restore legacy mod file " + n(restore), err);
+            r->add(StepStatus::Warn, "Legacy cleanup stopped before installation", "Backup: " + n(backup));
+            return false;
+        }
+        removed.push_back(name);
+    }
+    r->add(StepStatus::Ok, "Cleaned the old mod installation", "Previous files saved in " + n(backup));
+    return true;
+}
+
 // Baseline choices plus explicitly selected preferences; all other lines stay.
 bool apply_choices(Report* r, const Detection& det, const Choices& c)
 {
@@ -175,9 +223,47 @@ bool apply_choices(Report* r, const Detection& det, const Choices& c)
            : rt == Runtime::SteamVr ? "[VR] Runtime=steamvr (the bundled dvr_steamvr32.dll shim; start SteamVR before the game)"
            : "[VR] Runtime=auto (the system's 32-bit OpenXR runtime, the shim when there is none)");
 
+    if (c.upscalerEdit >= 0) {
+        if (!profile::set(ini,L"Clarity",L"DLAA",c.upscalerEdit ? L"1" : L"0",&err) ||
+            (c.upscalerEdit && !profile::set(ini,L"Clarity",L"Upscaler",c.upscalerEdit==2 ? L"1" : L"0",&err))) {
+            r->fail("Could not save upscaler",err);return false;
+        }
+    }
+    if (c.upscalerQualityEdit >= 0 && !profile::set(ini,L"Clarity",L"DlssQuality",std::to_wstring(c.upscalerQualityEdit),&err)) {
+        r->fail("Could not save upscaler quality",err);return false;
+    }
+    if (c.upscalerPresetEdit >= 0) {
+        if(c.upscalerPresetEdit >= dvr::dlss::kModelChoiceCount) { r->add(StepStatus::Failed,"Unknown DLSS preset");return false; }
+        const auto& preset=dvr::dlss::kModelChoices[c.upscalerPresetEdit];
+        if (!profile::set(ini,L"Clarity",L"DlssModel",std::to_wstring(preset.model),&err) ||
+            !profile::set(ini,L"Clarity",L"DlssPreset",std::to_wstring(preset.preset),&err)) {
+            r->fail("Could not save DLSS preset",err);return false;
+        }
+    }
+    // F10 persists the smaller render size separately from the intended output.
+    // Preserve that render size when output is unchanged; never use it as a new
+    // output, or the next launch would shrink the image a second time.
     const Size s = c.size();
-    if (!profile::set(ini, L"Screen", L"RenderWidth", std::to_wstring(s.w), &err) ||
-        !profile::set(ini, L"Screen", L"RenderHeight", std::to_wstring(s.h), &err)) {
+    const Size oldOutput={(uint32_t)profile::get_int(ini,L"Clarity",L"DlssOutputWidth",0),
+                          (uint32_t)profile::get_int(ini,L"Clarity",L"DlssOutputHeight",0)};
+    const bool haveOutput=oldOutput.w && oldOutput.h;
+    const bool sr=profile::get_int(ini,L"Clarity",L"DLAA",0)!=0 && profile::get_int(ini,L"Clarity",L"DlssQuality",0)!=0;
+    Size render=s;
+    if(sr && haveOutput && oldOutput==s) {
+        const Size saved={(uint32_t)profile::get_int(ini,L"Screen",L"RenderWidth",0),
+                          (uint32_t)profile::get_int(ini,L"Screen",L"RenderHeight",0)};
+        if(saved.w && saved.h)render=saved;
+    }
+    if(haveOutput || (sr && (c.upscalerEdit>=0 || c.upscalerQualityEdit>=0))) {
+        if(!profile::set(ini,L"Clarity",L"DlssOutputWidth",std::to_wstring(sr?s.w:0),&err) ||
+           !profile::set(ini,L"Clarity",L"DlssOutputHeight",std::to_wstring(sr?s.h:0),&err)) {
+            r->fail("Could not save upscaler output size",err);return false;
+        }
+    }
+    if(c.upscalerEdit>=0 || c.upscalerQualityEdit>=0 || c.upscalerPresetEdit>=0)
+        r->add(StepStatus::Ok,"Saved upscaler settings","Applies next game launch; untouched preset values are kept.");
+    if (!profile::set(ini, L"Screen", L"RenderWidth", std::to_wstring(render.w), &err) ||
+        !profile::set(ini, L"Screen", L"RenderHeight", std::to_wstring(render.h), &err)) {
         r->fail("Could not write the render size", err); return false;
     }
     r->add(StepStatus::Ok, fs::format("Render size: %s, %ux%u per eye", quality_label(c.quality), s.w, s.h),
@@ -388,6 +474,9 @@ Detection detect(const Env& env)
         const bool trace = d.iniExists || fs::is_file(fs::join(d.gameDir, kLogName)) || fs::is_file(fs::join(d.gameDir, L"dxvk_d3d9.dll"));
         d.modInstalled = d.d3d9Present && (d.record.valid || trace || d.installedSha == d.embeddedSha);
         d.foreignD3d9 = d.d3d9Present && !d.modInstalled && !d.backupPresent;
+        std::vector<uint8_t> installedProxy;
+        d.reshadeSupported = d.modInstalled && fs::read_file(dll, &installedProxy, nullptr) &&
+            fs::contains_ascii(installedProxy.data(), installedProxy.size(), "reshade: manual runtime ready; effects before VR capture, no native Present required");
         d.reshadeInstalled = fs::is_file(fs::join(d.gameDir, L"ReShade32.dll"));
         d.reshadeEnabled = profile::get_int(fs::join(d.gameDir, kIniName), L"ReShade", L"Enabled", 0) != 0;
         d.disabled = fs::is_file(fs::join(d.gameDir, kDisableName));
@@ -403,6 +492,15 @@ Detection detect(const Env& env)
                 d.suggested.preferences[i] = profile::get_int(ini, kPreferences[i].section, kPreferences[i].key, -1);
             const auto stereo = profile::get(ini, L"Stereo", L"Method", L"reentry");
             d.suggested.stereoMethod = fs::iequals(stereo,L"afw") ? 1 : fs::iequals(stereo,L"reentry") ? 0 : -1;
+            const int backend=profile::get_int(ini,L"Clarity",L"Upscaler",0);
+            d.suggested.upscaler=profile::get_int(ini,L"Clarity",L"DLAA",0)==0 ? 0 : backend>=0 && backend<=1 ? backend+1 : -1;
+            d.suggested.upscalerQuality=profile::get_int(ini,L"Clarity",L"DlssQuality",0);
+            const int model=profile::get_int(ini,L"Clarity",L"DlssModel",0), preset=profile::get_int(ini,L"Clarity",L"DlssPreset",0);
+            d.suggested.upscalerPreset=-1;
+            for(int i=0;i<dvr::dlss::kModelChoiceCount;++i) {
+                const auto& choice=dvr::dlss::kModelChoices[i];
+                if(preset ? choice.preset==preset : choice.preset==0 && choice.model==model) {d.suggested.upscalerPreset=i;break;}
+            }
             const auto managed = profile::get(ini, L"Device", L"Managed");
             for (int a = 0; a < dvr::binds::ActionCount; ++a) {
                 const auto value = profile::get(ini, L"ControllerBinds", fs::widen(dvr::binds::info(a).key).c_str());
@@ -417,7 +515,11 @@ Detection detect(const Env& env)
     if (d.iniExists) {   // an ini beside the game is the player's, with or without the DLL
         d.suggested.runtime = d.iniRuntime;
         if (d.iniRuntime == Runtime::Vdxr) d.suggested.vdxrJson = d.iniJson;
-        if (d.iniSize.w && d.iniSize.h) d.suggested.keep(d.iniSize);
+        const auto ini=fs::join(d.gameDir,kIniName);
+        const Size output={(uint32_t)profile::get_int(ini,L"Clarity",L"DlssOutputWidth",0),
+                           (uint32_t)profile::get_int(ini,L"Clarity",L"DlssOutputHeight",0)};
+        if(output.w && output.h)d.suggested.keep(output);
+        else if (d.iniSize.w && d.iniSize.h) d.suggested.keep(d.iniSize);
         else d.suggested.choose(Quality::Balanced);
     } else {
         d.suggested.runtime = Runtime::Auto;
@@ -438,7 +540,7 @@ Report do_reshade(const Env&, const Detection& det)
 {
     Report r;
     if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
-    if (!det.gameFound || !det.modInstalled || !det.installedIsEmbedded()) {
+    if (!det.gameFound || !det.modInstalled || !det.reshadeSupported) {
         r.add(StepStatus::Failed, "Install or update the mod with this launcher first"); return r;
     }
     const auto script = resources::rcdata(IDR_INSTALL_RESHADE);
@@ -466,8 +568,8 @@ Report do_reshade_manage(const Env&, const Detection& det, bool enabled, bool re
     if (game_running_blocks(&r, process::is_running(kGameExe))) return r;
     const auto runtime = fs::join(det.gameDir, L"ReShade32.dll");
     const auto ini = fs::join(det.gameDir, kIniName);
-    if (!det.gameFound || !det.modInstalled || !det.installedIsEmbedded() || !fs::is_file(runtime) || !fs::is_file(ini)) {
-        r.add(StepStatus::Failed, "Install this launcher's VR build and ReShade first"); return r;
+    if (!det.gameFound || !fs::is_file(runtime) || !fs::is_file(ini) || (enabled && !removeRuntime && !det.reshadeSupported)) {
+        r.add(StepStatus::Failed, "ReShade runtime/settings are missing, or this VR build cannot enable ReShade"); return r;
     }
     DWORD err = 0;
     const auto suffix = L"." + fs::timestamp_local() + L"-" + std::to_wstring(GetTickCount64()) + L".dvr-backup";
@@ -502,13 +604,12 @@ Report do_install(const Env& env, const Detection& det, const Choices& choices)
         if (!fs::copy_file(fs::join(det.gameDir, L"d3d9.dll"), fs::join(det.gameDir, kBackupName), &err)) { r.fail("Could not back up the existing d3d9.dll", err); return r; }
         r.add(StepStatus::Ok, "Backed up the existing d3d9.dll", "It was not this mod's. Uninstall puts it back (d3d9.dll.dvr-backup).");
     }
+    if (!clean_legacy_install(&r, det.gameDir)) return r;
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
     if (!write_payload_file(&r, det.gameDir, L"DishonoredVR_ReShade.addon32", resources::rcdata(IDR_RESHADE_BRIDGE))) return r;
     if (!install_dlss_helper(&r, det.gameDir)) return r;
-    remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0; the game renders natively now.");
-    remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
 
     const std::wstring ini = fs::join(det.gameDir, kIniName);
     if (!det.iniExists) {
@@ -535,13 +636,12 @@ static Report update_impl(const Env& env, const Detection& det, bool overwriteSe
     if (!det.gameFound) { r.add(StepStatus::Failed, "Dishonored was not found", det.gameNote); return r; }
     if (game_running_blocks(&r, det.running)) return r;
     if (det.installedIsEmbedded()) r.add(StepStatus::Skipped, "The installed mod is already this build", "Reinstalling the same bytes anyway.");
+    if (!clean_legacy_install(&r, det.gameDir)) return r;
     if (!write_payload_file(&r, det.gameDir, L"d3d9.dll", p.d3d9)) return r;
     if (!write_payload_file(&r, det.gameDir, L"dvr_steamvr32.dll", p.shim)) return r;
     if (!write_payload_file(&r, det.gameDir, L"openvr_api.dll", p.openvr)) return r;
     if (!write_payload_file(&r, det.gameDir, L"DishonoredVR_ReShade.addon32", resources::rcdata(IDR_RESHADE_BRIDGE))) return r;
     if (!install_dlss_helper(&r, det.gameDir)) return r;
-    remove_if_present(&r, det.gameDir, L"dxvk_d3d9.dll", "The DXVK layer from releases before 41.0.");
-    remove_if_present(&r, det.gameDir, L"dxvk_stereo.txt", "Its marker file.");
     if (overwriteSettings) {
         const std::wstring ini = fs::join(det.gameDir, kIniName);
         DWORD err = 0;
@@ -588,10 +688,17 @@ Report do_update(const Env& env, const Detection& det, bool overwriteSettings) {
     const auto backupDir=fs::join(det.gameDir,L"dvr-update-backup-"+fs::timestamp_local()+L"-"+std::to_wstring(GetTickCount64()));
     DWORD err=0;
     if(!fs::make_dir(backupDir,&err)) {result.fail("Could not prepare the update backup",err);return result;}
-    for(const wchar_t* name:{L"DishonoredVR_ReShade.addon32",L"d3d9.dll",L"dvr_steamvr32.dll",L"openvr_api.dll",L"dishonored_vr.ini",L"dishonored_vr_install.json",L"dxvk_d3d9.dll",L"dxvk_stereo.txt"}) {
+    for(const wchar_t* name:{L"DishonoredVR_ReShade.addon32",L"d3d9.dll",L"dvr_steamvr32.dll",L"openvr_api.dll",L"dishonored_vr.ini",L"dishonored_vr_install.json"}) {
         Saved item;item.path=fs::join(det.gameDir,name);item.backup=fs::join(backupDir,name);item.existed=fs::is_file(item.path);
         if(item.existed && (!fs::sha256_file(item.path,&item.hash,&err) || !fs::copy_file(item.path,item.backup,&err))) {
             result.fail("Could not back up the installed version",err);return result;
+        }
+        saved.push_back(item);
+    }
+    for (const auto* name : kLegacyFiles) {
+        Saved item;item.path=fs::join(det.gameDir,name);item.backup=fs::join(backupDir,name);item.existed=fs::is_file(item.path);
+        if(item.existed && (!fs::sha256_file(item.path,&item.hash,&err) || !fs::copy_file(item.path,item.backup,&err))) {
+            result.fail("Could not back up legacy mod file " + n(name),err);return result;
         }
         saved.push_back(item);
     }
