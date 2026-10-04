@@ -23,6 +23,21 @@ manual ReShade 791 enabled / 759 disabled checks and default-off refusal.
 Golden/release INIs, 11 exports and lint pass. Blender evidence from #174 is
 unchanged. No game launch or staging push. Combined headset acceptance is
 pending. The same-location sustained FPS regression remains open in PERFORMANCE.
+Installed combined candidate v1.0.3-30-g65af4e61f, proxy SHA256
+2065d556568ca6e943077ea7503a05eed0318fb64507470cb56480146202509f.
+Snapshot DLL, matching launcher and exact PR-head manifest are under
+build/combined-pr-test/168-172-173-174/. The launcher is named
+DishonoredVR-Combined-168-172-173-174.exe; it embeds this candidate proxy.
+Existing installed DLSS/helper, ReShade runtime/presets and local rig retained.
+Backup pair, both logs, ReShade INI and rig: before-20261004-171416/ there.
+Expected INI and full diff verify exactly ArmIK=0 -> 1 for combined testing;
+all other current user values remain byte-identical. 73,714 bytes, 1,693
+CRLF, no lone endings. New #173 absent-key semantics are intentional:
+TimeoutRefuse=0, AutoDepth=1 (unless SharedDepth explicit), C5SameEyeGuard=1.
+First combined launch question: in the same save/location, is sustained FPS
+still about 110 or back toward 125-135? A recovery implicates the combined
+changes but does not isolate a PR; unchanged leaves the baseline regression
+open, and lower FPS is a combined-candidate regression to investigate.
 ## 2026-10-04: finalize IK PR; prepare combined staging-based test
 
 Full-arm activation and basic behavior are headset-accepted. The corrected
