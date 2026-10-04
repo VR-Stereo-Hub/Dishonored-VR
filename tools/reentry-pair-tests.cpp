@@ -425,7 +425,9 @@ int main() {
                 const bool shape = a.firstCycle.size() >= 5 && a.firstCycle[0].find("EMPTY REFUSE") == 0 &&
                                    a.firstCycle[1].find("TOOK") != std::string::npos &&
                                    a.firstCycle[2].find("out +1 true -1") != std::string::npos &&
-                                   a.firstCycle[3].find("TOOK drain") != std::string::npos &&
+                                   // C5SameEyeGuard: the second relabel would repeat the eye just sent, so it
+                                   // defers and the disagreement streak drains instead - same eye, same record
+                                   a.firstCycle[3].find("drain") != std::string::npos &&
                                    a.firstCycle[4].find("agree") != std::string::npos;
                 check(shape, "the model reproduces run 5's four-present cycle (EMPTY/REFUSE, TOOK, left image to the right eye, TOOK + drain)");
             }
@@ -437,6 +439,28 @@ int main() {
             check(b.delivHeld == 0 && b.delivWrong == 0, "F-late on with the slot relabel: every image reaches its own eye, none held");
             check(a.reconciles && b.reconciles, "run 5 schedules reconcile");
         }
+
+    // GTX 1650 field ledger, 2026-10-03: a player moving sideways ~2*ipd per tick makes the
+    // CROSS-tick step (walk + ipd) read like the within-tick -ipd step, and the "robust" arm
+    // relabelled correct left images as right ("TOOK" right after an out +1). The guard
+    // (C5SameEyeGuard) refuses a relabel that would make two images in a row the same eye.
+    printf("\nsideways walk near 2*ipd per tick (the cross-tick step mimics a within-tick one)\n");
+    for (float walk : {-2.0f * kIpd, -2.0f * kIpd + 1.5f, -2.0f * kIpd - 1.5f, 2.0f * kIpd})
+        for (int lead = 0; lead <= 2; ++lead) {
+            Scenario s = {"sideways walk, guard on", lead, walk, F_NONE, 0}; s.lateRepair = true;
+            g_c5Guard = false;
+            const Result off = run(s);
+            g_c5Guard = true;
+            const Result on = run(s);
+            Scenario soff = s; soff.name = "sideways walk, guard OFF";
+            print(soff, off); print(s, on);
+            check(on.wrongEye == 0 && on.wrongRecord == 0, "guard on: sideways walk at ~2 ipd/tick never relabels an image");
+            check(on.wrongEye <= off.wrongEye, "guard on is never worse than off on a walk schedule");
+            check(on.reconciles, "walk schedules reconcile");
+            if (walk == -2.0f * kIpd && lead == 1)
+                check(off.wrongEye > 0, "negative control: without the guard the -2 ipd walk DOES relabel (the test can fail)");
+        }
+    g_c5Guard = true;
 
     // the model resets between runs: the same schedule twice gives the same answer
     const Scenario again = {"repeat", 1, 0.0f, F_REPEAT_PRESENT, 201};

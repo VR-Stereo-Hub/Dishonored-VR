@@ -1,3 +1,84 @@
+## 2026-10-03: one eye starved on a GPU-bound machine since 1.0.2 - capture timeouts refuse (MEASURED cause, candidate built, headset pending)
+
+Surface/route: the WHOLE eye image (world and weapon together), one eye at a time, normal
+render and AFW. Row "One eye appears frozen, swapped, or behind" in section 1, the
+one-sided-tag branch - not the weapon-correction rows, because the environment moves too.
+
+1. **Symptom identity:** remote player, GTX 1650 laptop (4 GB, i7-9750H, iGPU present),
+   Quest 3 on VDXR. Since 1.0.2: the left eye's world and weapon flicker displaced to the
+   left in normal render, both eyes flicker in AFW, and everything reads slower. 1.0.1 on
+   the same machine and INI baseline is reported good. A left eye showing an image older
+   than the head moves exactly that way.
+2. **Reproduction identity:** two support bundles, 2026-10-03 (local only): 1.0.1
+   (`v1.0.0-8-gf5176aeae`) x4 runs, 1.0.2 (`v1.0.2`) x3, 1.0.3 (`v1.0.3`) x1, all 2750x2850
+   or 2382x2468, shared capture, `SharedWait=0`, depth 1 (2 slots), 120 Hz.
+3. **Hypothesis and counterprediction:** commit 1d2ee24a5 (1.0.2, "harden TAA history and
+   depth transport") changed both bounded capture waits from "10 ms, then deliver anyway"
+   to "10 ms, then refuse the grab". On a GPU-bound machine the timeouts are routine; a
+   refused grab makes the present untagged (held), and because the eyes alternate the
+   refusals fall on the same eye, so that eye starves. Counterprediction: if this is
+   wrong, restoring "deliver" leaves `stereo: beat` lopsided and `none/s` high.
+   Measured, `stereo: beat` medians over each run:
+
+   | Build | L/s | R/s | none/s | fence timeouts | read timeouts |
+   |---|---|---|---|---|---|
+   | 1.0.1 (4 runs) | 30-38 | 30-38 | 1-2 | 272 / 2936 lifetime, delivered | 0 |
+   | 1.0.2 normal render, DLAA off | 8-9 | 29-30 | 29-30 | 2640 | 1655 |
+   | 1.0.2 (other runs) | 24 / 17 | 2 / 29 | 24-25 | 823 | 9440 |
+   | 1.0.3 normal render | 4-7 (or 36) | 23 (or 2) | 23-36 | 4988 | 1645 |
+
+   1.0.3 `status.json`: pairs 404 of 2251 stereo submits (1.0.1: 2089 of 2090), aborts
+   1358 of which 1277 untagged, `tagNoFrame` 6629. The frame-identity trace shows both
+   draws of a pair really are different eyes (`#8449 [-1]`, `#8450 [+1]`, distinct c5)
+   while the ring logs `pushed eye -1 TWICE in a row`: the images are right, their
+   delivery is refused. The 1.0.1 runs had fence timeouts too and stayed balanced,
+   which is the negative control for "the GPU alone does this".
+4. **Change identity:** `[Capture] TimeoutRefuse` (absent = 0 = deliver, the 1.0.1
+   behaviour; 1 = refuse) and the live `capture timeout deliver|refuse`. On a read
+   timeout the pending query is dropped, as in 1.0.1, instead of refusing that slot on
+   every later present. A new per-window line counts `delivered anyway` / `refused`.
+5. **Results:** builds; nothing else ran. Not run: simulator (it is not GPU-bound), headset.
+6. **Status:** cause measured from the field logs, fix built, headset pending. Remaining
+   scope: why the D3D11 read timeouts went from 0 (1.0.1) to thousands - more GPU work per
+   present since 1.0.1 is the candidate (PERFORMANCE.md, same date); the TAA history the
+   refusal protected is off by default (`Temporal=0`).
+
+**Follow-up, same day: TimeoutRefuse=0 headset result (REPORTED) and auto depth (candidate).**
+The player ran `v1.0.3-7-gac23de746`: the strong flicker is gone; a small left-eye hitch
+remains, worse when moving. Measured, normal render only: L/s=R/s=27, none/s=0 (was 4-9 /
+23 / 25), 0 refused, but 68-81 of ~177 grabs per 3 s window timed out and were delivered
+anyway (43-50% of grabs; 1.0.1 ran at about 6%), and the capture wait cost 8.6-8.8 ms per
+present (1.0.1: 3-5 ms). A timed-out copy is unfinished; with two slots and alternating
+eyes each slot always holds the same eye, so that eye shows its previous frame - the
+residual one-frame hitch. Lowering the sampler settings (Anisotropy 4, TrilinearMips 0,
+Sharpen 0) was reported smoother but left the hitch and the timeout rate (43%).
+Candidate: `[Capture] AutoDepth` (default on) steps the ring to depth 2 (3 slots) once when
+>=10% of grabs time out for two windows running; an explicit SharedDepth wins. Replayed over
+the player's logs: never on the 1.0.1 runs at 2382x2468 (794 windows) or the good 2750x2850
+run, once late in a 12-minute 1.0.1 run, within ~20 s on both fixed-build runs. Depth 2
+was headset-run on the dev PC for throughput only (no rate change, PERFORMANCE "uncap");
+its effect on a timing-out machine is the prediction: timeouts ~0, wait ~0, no hitch.
+Counterprediction: a hitch that stays with timeouts at ~0 is not this. Built only.
+
+**Follow-up 2, 2026-10-04: auto depth CONFIRMED by measurement; the single left-eye flicker
+is the c5 arm on cross-tick steps (candidate).** Build `v1.0.3-8-g77321d0b0`, then a 1.0.1
+re-run the same evening. Reported: no hitch, performance close to 1.0.1; 1.0.1 a little
+smoother; this build shows a bit more black at the edges on fast turns and, rarely, a single
+left-eye flicker. Measured: auto depth stepped at +41 s; after it L/R 30/30, 30.2 ticks/s
+(1.0.1: 29.7), capture wait 0.0 ms (1.0.1: 4.6), ~0 timeouts. Timeouts split: fence 38-45%
+of grabs, read ~0 - so depth, not slot count, is what they need. Same-eye pushes: 6 in
+191 s (1.0.1) vs 23 in 168 s; c5 `took` 3 vs 11. Ledger at the event: `pop D5554(-1)`,
+`deliv -1`, `c5 along -6.61 ... TOOK | out +1` right after `out +1 D5553` - the image and its
+tag were right and the c5 arm relabelled it. Cause: the inv=+1 arm is robust only WITHIN a
+tick; on a cross-tick present the step is walk + ipd, and a sideways move of ~2 ipd per tick
+reads as -ipd (here -6.61 against 6.73). Host model (`tools/reentry-pair-host.ps1`): a
+-2 ipd/tick walk gives 599 wrong eyes in 1200 presents with the shipped code (negative
+control), 0 with `[Stereo] C5SameEyeGuard` (no relabel into the eye the previous image went
+out as; the streak still realigns a skewed ring), across lead 0-2 and +-1.5 uu; the run-5
+late-tag schedules keep identical wrong-eye/record/realign counts. 1723 checks pass. The black
+edges are not a flicker: the rendered FOV is 103.0 deg against the headset's 102.2 (no
+reprojection margin on any build) and depth 2 adds one present of image age; PERFORMANCE.md.
+
 ## 2026-10-02: MSW guards - no extrapolation across a jump, a bounded turn, the stick stop (HOST-VERIFIED candidate)
 
 Surface/route: the WORLD in MSW-synthesized slots, both eyes, under right-stick turns, snap turns
@@ -3046,6 +3127,8 @@ pose metadata without reopening the disproved historical theories.
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
+| One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | `TimeoutRefuse=0` REPORTED fixing the strong flicker (2026-10-03); `[Capture] AutoDepth` measured removing the hitch (2026-10-04); top entry |
+| Rare single one-eye flicker while moving sideways; ledger `TOOK` right after the same eye, then `pushed eye TWICE` | The c5 within-tick arm misreads a cross-tick step when the walk per tick is ~2 ipd | 2026-10-04 candidate `[Stereo] C5SameEyeGuard`, host-verified (599 -> 0 wrong eyes); headset pending; top entry |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
 | Both near hands/weapons flash or lose disparity for a frame | Untagged mono image enters a stereo stream | `HoldUntagged=3` confirmed mitigation; burst generation remains open |
 | Both eyes go black for one frame | Texture-less present ends an XR frame without a scene layer | Previous-layer fallback implemented and historically confirmed |

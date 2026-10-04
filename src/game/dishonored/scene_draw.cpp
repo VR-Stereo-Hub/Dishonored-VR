@@ -928,6 +928,12 @@ static bool SceneDrawCommand(const char* args)
         Log("reentry: latetag on|off (now %s)", dvr::stereo::reentry_late_tag() ? "on" : "off");
         return true;
     }
+    if (n >= 1 && !strcmp(sub, "c5guard")) {   // the same-eye guard's A/B ([Stereo] C5SameEyeGuard)
+        bool on;
+        if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_c5_guard(on); return true; }
+        Log("reentry: c5guard on|off (now %s)", dvr::stereo::reentry_c5_guard() ? "on" : "off");
+        return true;
+    }
     if (n >= 1 && !strcmp(sub, "c5pair")) {   // 41.1 (session 9): the within-tick invariant's A/B
         bool on;
         if (DvrOnOff(a1, &on)) { dvr::stereo::set_reentry_c5_pair(on); return true; }

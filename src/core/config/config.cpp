@@ -1851,6 +1851,7 @@ static void LoadConfig()
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
+        dvr::stereo::set_reentry_c5_guard(GetPrivateProfileIntA("Stereo", "C5SameEyeGuard", 1, ini) != 0);
         dvr::stereo::set_reentry_single_tag(GetPrivateProfileIntA("Stereo", "SingleTagRepair", 1, ini) != 0);
         dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 1, ini) != 0);   // Confirmed profile default; F10 retains the A/B.
         PeFastSet(GetPrivateProfileIntA("Perf", "PeFast", 1, ini) != 0);   // route 2: the script lane's caches
@@ -1943,6 +1944,16 @@ static void LoadConfig()
         // Uncap deep dive (2026-09-27): not in the default ini on purpose (a missing key is the
         // 41.1 two-slot ring); `capture depth <n>` is the live A/B.
         dvr::capture::set_shared_depth((int)IniFloat(ini, "Capture", "SharedDepth", 1), "ini");
+        {   // A SharedDepth the player wrote always wins over the automatic step.
+            char sd[16] = "";
+            GetPrivateProfileStringA("Capture", "SharedDepth", "", sd, sizeof(sd), ini);
+            dvr::capture::set_auto_depth(IniFloat(ini, "Capture", "AutoDepth", 1) != 0.0f, sd[0] != 0);
+        }
+        // Not in the default ini: a missing key is the 1.0.1 behaviour (deliver). capture.cpp says why.
+        dvr::capture::set_timeout_refuse(IniFloat(ini, "Capture", "TimeoutRefuse", 0) != 0.0f, "ini");
+        DVR_INFO("config: [Capture] TimeoutRefuse=%d - %s", dvr::capture::timeout_refuse() ? 1 : 0,
+                 dvr::capture::timeout_refuse() ? "a capture wait that runs out drops the grab (1.0.2/1.0.3 behaviour)"
+                                                : "a capture wait that runs out still delivers (1.0.1 behaviour, the default)");
         {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
             // Each sample is a full-frame CPU readback on the present thread even
             // in shared mode (capture.h says why), so this is a frame-time knob,

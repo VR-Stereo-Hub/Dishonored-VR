@@ -1,3 +1,41 @@
+## 2026-10-03: GTX 1650 laptop - 1.0.1 vs 1.0.2/1.0.3 (MEASURED from field logs)
+
+Remote player: GTX 1650 (4 GB, 3345 MB budget), i7-9750H, Quest 3 on VDXR at 120 Hz,
+2750x2850 or 2382x2468. GPU-bound in every run (`gpuIdleMs` ~0).
+
+- **The perceived slowdown is mostly one eye refreshing at 4-9 Hz.** Per-tick cost on the
+  clean 1.0.2 normal-render run (25.5 ms) is the same as 1.0.1 (26.7 ms); what changed is
+  that capture-wait timeouts refuse since 1.0.2 and starve one eye (FLICKER_REFERENCE,
+  same date). Candidate `[Capture] TimeoutRefuse=0` restores the 1.0.1 behaviour.
+- **GPU work added since 1.0.1, all active on this machine, none measured separately yet:**
+  forced 16x anisotropic and trilinear on every sampler (`[Clarity] Anisotropy=16
+  TrilinearMips=1`, the game asks for 4x); the depth-share ring (up to 359 MiB) copied
+  every present, wanted by AFW; per-eye occlusion (`[Stereo] Occlusion=pereye`); the
+  sharp-marker composite. VRAM median rose from 1.4-1.7 GB (1.0.1) to 2.05 GB, peak
+  3.07 GB = 92% of budget (1.0.3, with FSR on).
+- **The 1.0.3 run also had FSR native AA turned on in F10:** 18-28 ms of helper GPU time per
+  eye on this card, more than the whole frame budget. FSR native AA and DLAA are not for
+  this class of GPU; the release notes and the launcher should say so.
+- Next: an A/B on this machine, one lever at a time after TimeoutRefuse - Anisotropy 0 /
+  TrilinearMips 0, then Occlusion native - reading `gpuSpanMs` and `stereo: beat`.
+- **Result (reported, then measured):** Sharpen 0 / TrilinearMips 0 / Anisotropy 4 felt
+  smoother; ticks/s median 27.3 vs 27.4, capture timeouts 43% vs 50% of grabs, so the gain
+  is in frame-time spikes, not the median. 1.0.1 at the same size: 29.7 ticks/s. Capture
+  timeouts rose from ~6% of grabs (1.0.1) to 43-50%: the clearest single number for the
+  extra GPU time per present. Auto depth (FLICKER_REFERENCE) removes the wait from the
+  render thread; on a saturated GPU it is not expected to raise the rate (dev-PC result).
+- **2026-10-04, auto depth measured:** after the step to depth 2, 30.2 ticks/s against 1.0.1's
+  29.7 on the same machine and settings, capture wait 0.0 ms against 4.6. The cost is one
+  present of image age (~16.5 ms). The headset's FOV is 102.2 deg (half-angles 51.1/52.1)
+  and every build renders 103.0: reprojection has no margin, so fast turns show black at the
+  edges on 1.0.1 as well, and the extra present shows a little more. Candidates, not
+  defaults: `[Pace] Ahead=2` locates the head pose two display periods later (= the extra
+  present at 120 Hz; never headset-run), or a wider ProjectionFov (margin at a sharpness
+  cost of ~15% for +5 deg per side).
+- Product follow-up, not built: a low-end profile (Anisotropy 4, TrilinearMips 0, Sharpen 0,
+  a smaller render size) offered by the launcher for 4 GB cards, and a 72 Hz recommendation
+  where the GPU cannot reach half the display rate.
+
 ## 2026-10-03: build 266 F10 ReShade controls accepted
 
 The tester confirms normal controller operation of ReShade effects and shader sliders

@@ -704,10 +704,10 @@ public:
                 DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 1000,
                                  "reentry: pushed eye %+d TWICE in a row (%u so far) - the %s eye's swapchain gets no "
                                  "copy this present and goes stale; the runtime counts it as abortLeft one stage later. "
-                                 "c5 pairing %s: agree=%u disagree=%u took=%u held=%u realigned=%u refused=%u untagged=%u",
+                                 "c5 pairing %s: agree=%u disagree=%u took=%u held=%u realigned=%u refused=%u untagged=%u guarded=%u",
                                  delivered, g_pushSameEye, delivered < 0 ? "RIGHT" : "LEFT",
                                  g_c5Pair ? "on" : "off", g_c5Agree, g_c5Disagree, g_c5Took, g_c5Held,
-                                 g_c5Realigned, g_c5Refused, g_c5Untagged);
+                                 g_c5Realigned, g_c5Refused, g_c5Untagged, g_c5Guarded);
             }
             g_lastPushedEye = delivered;
             dvr::vr::sr_push_eye(delivered);
@@ -760,6 +760,7 @@ public:
         w.kv("c5Disagree", (unsigned long)g_c5Disagree);
         w.kv("c5Realigned", (unsigned long)g_c5Realigned);
         w.kv("c5Took", (unsigned long)g_c5Took);
+        w.kv("c5Guarded", (unsigned long)g_c5Guarded);
         w.kv("c5Held", (unsigned long)g_c5Held);
         w.kv("c5Refused", (unsigned long)g_c5Refused);
         w.kv("pushSameEye", (unsigned long)g_pushSameEye);
@@ -873,6 +874,15 @@ void set_reentry_c5_pair(bool on) {
              on ? 1 : 0);
 }
 bool reentry_c5_pair() { return g_c5Pair; }
+
+void set_reentry_c5_guard(bool on) {
+    g_c5Guard = on;
+    DVR_INFO("reentry: c5 same-eye guard %s ([Stereo] C5SameEyeGuard=%d) - %s", on ? "ON" : "off", on ? 1 : 0,
+             on ? "a c5 relabel that would send two images in a row as the same eye defers to the ring (a sideways "
+                  "move of ~2 ipd per tick makes the cross-tick step look like a within-tick one)"
+                : "the within-tick arm overrides the ring whenever it reads -ipd, including on cross-tick steps");
+}
+bool reentry_c5_guard() { return g_c5Guard; }
 
 void set_reentry_single_tag(bool on) {
     g_singleTagRepair = on;

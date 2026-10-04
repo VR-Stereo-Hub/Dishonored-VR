@@ -403,6 +403,11 @@ static bool DvrGameCommand(const char* cmd, const char* args)
             dvr::capture::set_shared_wait(b);
             return true;
         }
+        if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "timeout") &&
+            (!strcmp(m, "deliver") || !strcmp(m, "refuse"))) {   // the live A/B for [Capture] TimeoutRefuse
+            dvr::capture::set_timeout_refuse(!strcmp(m, "refuse"), "the seam");
+            return true;
+        }
         if (sscanf(args, "%15s %15s", sub, m) == 2 && !strcmp(sub, "depth")) {   // uncap deep dive
             dvr::capture::set_shared_depth(atoi(m), "the seam");
             return true;
