@@ -21,6 +21,15 @@ previous pinch angle, using the IK capture button to preserve the sequence?
 Details: [ARM_IK.md](dishonored/ARM_IK.md), [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
 No game launch, subagents, push, PR, ticket or merge. Local work only.
 
+Installed `v1.0.3-13-g1c9252b4e`; proxy SHA256
+`a77743de9903a5d0806919516d12c4333315b1e4832a260c2bdb6691252780ea`.
+Backup DLL/whole INI/both logs/rig, expected INI, empty complete INI diff and
+manifest: `build/arm-ik-install/20261004-145613-roll-history-capture/`.
+All 73,706 INI bytes preserved exactly: 1,693 CRLF, zero lone endings.
+User tuning stays forward 0, up -23 cm, width 36 cm, length 1.2; ArmIK=1.
+No rig or setting-semantics changes. Optimized Win32 build, exports and lint pass.
+Local commit credited to BioVRDev; live capture and headset verdict pending.
+
 ## 2026-10-04: first IK run refused the exported coordinate convention
 
 The installed v1.0.3-9-g012ddce9a banner and hash match. Log: zero IK solves;
