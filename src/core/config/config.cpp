@@ -1851,6 +1851,7 @@ static void LoadConfig()
         dvr::stereo::set_config_method(sm);
         dvr::stereo::set_armed(GetPrivateProfileIntA("Stereo", "Armed", 1, ini) != 0);
         dvr::stereo::set_reentry_c5_pair(GetPrivateProfileIntA("Stereo", "C5Pair", 1, ini) != 0);   // 41.1 (session 9)
+        dvr::stereo::set_reentry_c5_guard(GetPrivateProfileIntA("Stereo", "C5SameEyeGuard", 1, ini) != 0);
         dvr::stereo::set_reentry_single_tag(GetPrivateProfileIntA("Stereo", "SingleTagRepair", 1, ini) != 0);
         dvr::stereo::set_reentry_late_tag(GetPrivateProfileIntA("Stereo", "LateTagRepair", 1, ini) != 0);   // Confirmed profile default; F10 retains the A/B.
         PeFastSet(GetPrivateProfileIntA("Perf", "PeFast", 1, ini) != 0);   // route 2: the script lane's caches

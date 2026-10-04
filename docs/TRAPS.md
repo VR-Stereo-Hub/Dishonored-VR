@@ -1,3 +1,13 @@
+## 2026-10-04: an invariant that holds within a tick, evaluated on every present
+
+The c5 pairing's "robust" arm (a -ipd step means pass 2 after pass 1) was robust only
+because a within-tick step crosses no world motion. It ran on every present; on a
+cross-tick one the step is walk + ipd, and a player moving sideways ~2 ipd per tick (likelier
+at ~30 ticks/s) produced exactly -ipd. The arm then relabelled correct left images as right:
+a rare single-eye flicker while moving, 4x more often on the GTX 1650 run than 1.0.1's. When
+a measurement is valid only under a condition, check the condition where it is used.
+FLICKER_REFERENCE 2026-10-03 entry, follow-up 2.
+
 ## 2026-10-03: a safety hardening verified on a fast machine starved an eye on a slow one
 
 1.0.2 changed the capture waits to refuse a grab after 10 ms instead of delivering it, to

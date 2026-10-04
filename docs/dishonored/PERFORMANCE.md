@@ -24,6 +24,14 @@ Remote player: GTX 1650 (4 GB, 3345 MB budget), i7-9750H, Quest 3 on VDXR at 120
   timeouts rose from ~6% of grabs (1.0.1) to 43-50%: the clearest single number for the
   extra GPU time per present. Auto depth (FLICKER_REFERENCE) removes the wait from the
   render thread; on a saturated GPU it is not expected to raise the rate (dev-PC result).
+- **2026-10-04, auto depth measured:** after the step to depth 2, 30.2 ticks/s against 1.0.1's
+  29.7 on the same machine and settings, capture wait 0.0 ms against 4.6. The cost is one
+  present of image age (~16.5 ms). The headset's FOV is 102.2 deg (half-angles 51.1/52.1)
+  and every build renders 103.0: reprojection has no margin, so fast turns show black at the
+  edges on 1.0.1 as well, and the extra present shows a little more. Candidates, not
+  defaults: `[Pace] Ahead=2` locates the head pose two display periods later (= the extra
+  present at 120 Hz; never headset-run), or a wider ProjectionFov (margin at a sharpness
+  cost of ~15% for +5 deg per side).
 - Product follow-up, not built: a low-end profile (Anisotropy 4, TrilinearMips 0, Sharpen 0,
   a smaller render size) offered by the launcher for 4 GB cards, and a 72 Hz recommendation
   where the GPU cannot reach half the display rate.

@@ -1,3 +1,13 @@
+## 2026-10-04: GTX 1650 - auto depth confirmed; c5 same-eye guard for the last flicker
+
+Auto depth measured at parity with 1.0.1 (30.2 vs 29.7 ticks/s, capture wait 0). Remaining
+reports: rare single left-eye flicker while moving (cause: the c5 within-tick arm relabels on
+a cross-tick step when walking ~2 ipd per tick; ledger-confirmed) and slightly more black at
+the edges on fast turns (no FOV margin: 103 rendered vs 102.2 headset, plus one present of
+image age at depth 2). New on `claude/capture-timeout-deliver`: `[Stereo] C5SameEyeGuard`
+(default on), host model 599 -> 0 wrong eyes, 1723 checks. Black-edge A/B for the tester:
+`[Pace] Ahead=2`. Note: `tools/single-tag-host.ps1` does not compile on the unchanged tree.
+
 ## 2026-10-03 (later): GTX 1650 follow-up - strong flicker gone; auto depth for the residual hitch
 
 The player ran the TimeoutRefuse=0 build: strong flicker gone, eyes balanced (27/27, none 0),
