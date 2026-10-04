@@ -118,6 +118,25 @@ LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
             a->framesPending = 3;
         }
         return 0;
+    case WM_DROPFILES: {
+        // The Mods screen's preset drop zone accepts a drop anywhere on the window.
+        HDROP drop = reinterpret_cast<HDROP>(wp);
+        if (a) {
+            std::vector<std::wstring> files;
+            const UINT n = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+            for (UINT i = 0; i < n; ++i) {
+                const UINT len = DragQueryFileW(drop, i, nullptr, 0);
+                std::wstring f(len, L'\0');
+                if (DragQueryFileW(drop, i, f.data(), len + 1)) files.push_back(f);
+            }
+            a->view.importPaths = files;
+            a->view.screen = Screen::Mods;
+            dispatch(*a, UiAction::ImportPresets);
+            a->framesPending = 3;
+        }
+        DragFinish(drop);
+        return 0;
+    }
     case WM_CLOSE:
         if (a) a->quit = true;
         return 0;
@@ -152,6 +171,11 @@ bool create_window(App& a, HINSTANCE hinst)
     if (a.view.det.config != "RelWithDebInfo") title += L" [" + fs::widen(a.view.det.config) + L"]";
     a.hwnd = CreateWindowExW(0, wc.lpszClassName, title.c_str(), style, x, y, w, h, nullptr, nullptr, hinst, nullptr);
     if (!a.hwnd) return false;
+    DragAcceptFiles(a.hwnd, TRUE);
+    // A launcher that was started elevated still takes a drop from a non-elevated Explorer.
+    ChangeWindowMessageFilterEx(a.hwnd, WM_DROPFILES, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(a.hwnd, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
+    ChangeWindowMessageFilterEx(a.hwnd, 0x0049 /* WM_COPYGLOBALDATA */, MSGFLT_ALLOW, nullptr);
 
     DXGI_SWAP_CHAIN_DESC sd = {};
     sd.BufferCount = 2; sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -234,8 +258,10 @@ std::wstring child_args(const Detection& det, const char* op, const Choices& c, 
     return s;
 }
 
-Report run_op(const Env& env, const Detection& det, const std::string& op, const Choices& c, bool deleteIni)
+Report run_op(const Env& env, const Detection& det, const std::string& op, const Choices& c, bool deleteIni,
+              const std::vector<std::wstring>& paths = {})
 {
+    if (op == "import-presets") return do_import_presets(env, det, paths);
     if (op == "reshade") return do_reshade(env, det);
     if (op == "reshade-on" || op == "reshade-off" || op == "reshade-remove") return do_reshade_manage(env, det, op == "reshade-on", op == "reshade-remove");
     if (op == "install") return do_install(env, det, c);
@@ -261,9 +287,12 @@ void start_op(App& a, const std::string& op, const char* busyText)
     const Detection det = a.view.det;
     const Choices choices = a.view.choices;
     const bool deleteIni = a.view.deleteIni;
-    const bool elevate = det.needsElevation && (op != "baseline" || !det.configWritable);
+    // The preset import never elevates: an elevated child cannot be handed the dropped paths,
+    // and a game folder the player cannot write is reported by the import itself.
+    const bool elevate = det.needsElevation && op != "import-presets" && (op != "baseline" || !det.configWritable);
+    const std::vector<std::wstring> paths = a.view.importPaths;
     if (a.worker.joinable()) a.worker.join();
-    a.worker = std::thread([&a, env, det, op, choices, deleteIni, elevate]() {
+    a.worker = std::thread([&a, env, det, op, choices, deleteIni, elevate, paths]() {
         Report report;
         std::string notice;
         if (elevate) {
@@ -282,13 +311,43 @@ void start_op(App& a, const std::string& op, const char* busyText)
                 }
             }
         } else {
-            report = run_op(env, det, op, choices, deleteIni);
+            report = run_op(env, det, op, choices, deleteIni, paths);
         }
         Detection fresh = detect(env);
         std::lock_guard<std::mutex> lock(a.mu);
         a.workerReport = report; a.workerOp = op; a.workerDet = fresh; a.workerHasDet = true; a.workerNotice = notice;
         a.workerDone = true;
     });
+}
+
+// The drop zone's button: the same import, for players who would rather pick files.
+bool choose_preset_files(App& a)
+{
+    IFileOpenDialog* dlg = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg))) || !dlg) return false;
+    DWORD opts = 0; dlg->GetOptions(&opts);
+    dlg->SetOptions(opts | FOS_ALLOWMULTISELECT | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
+    dlg->SetTitle(L"Choose ReShade presets, preset downloads or shaders");
+    const COMDLG_FILTERSPEC types[] = { { L"ReShade presets and downloads (*.ini, *.zip, *.fx, *.fxh)", L"*.ini;*.zip;*.fx;*.fxh" },
+                                        { L"All files", L"*.*" } };
+    dlg->SetFileTypes(2, types);
+    std::vector<std::wstring> files;
+    IShellItemArray* items = nullptr;
+    if (SUCCEEDED(dlg->Show(a.hwnd)) && SUCCEEDED(dlg->GetResults(&items)) && items) {
+        DWORD n = 0; items->GetCount(&n);
+        for (DWORD i = 0; i < n; ++i) {
+            IShellItem* item = nullptr; PWSTR path = nullptr;
+            if (SUCCEEDED(items->GetItemAt(i, &item)) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                files.push_back(path); CoTaskMemFree(path);
+            }
+            if (item) item->Release();
+        }
+        items->Release();
+    }
+    dlg->Release();
+    if (files.empty()) return false;
+    a.view.importPaths = files;
+    return true;
 }
 
 void browse(App& a)
@@ -547,6 +606,11 @@ void dispatch(App& a, UiAction action)
     case UiAction::InstallReShade: start_op(a, "reshade", "Downloading and verifying ReShade..."); break;
     case UiAction::ToggleReShade: start_op(a, v.det.reshadeEnabled ? "reshade-off" : "reshade-on", "Saving ReShade preference..."); break;
     case UiAction::RemoveReShade: start_op(a, "reshade-remove", "Removing ReShade runtime..."); break;
+    case UiAction::ChoosePresetFiles: if (!choose_preset_files(a)) break; [[fallthrough]];
+    case UiAction::ImportPresets:
+        if (v.busy || v.updateDownloading) { v.notice = "Finish the current operation, then drop the presets again."; break; }
+        start_op(a, "import-presets", "Importing ReShade presets...");
+        break;
     case UiAction::ApplyBaseline: start_op(a, "baseline", "Applying the game settings..."); break;
     case UiAction::OpenReleases: process::open_unelevated(kReleasesUrl); break;
     case UiAction::OpenGameFolder: if (v.det.gameFound) process::open_unelevated(v.det.gameDir); break;

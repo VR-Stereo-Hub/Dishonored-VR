@@ -159,6 +159,12 @@ void draw() {
             if(ImGui::Button("Use VR integration"))saveFailed=!reshade_runtime::set_enabled_next_start(true);
             return;
         }
+        // A load that was tried and failed is not fixed by restarting: say why instead.
+        if(enabled && reshade_runtime::load_failure()) {
+            ImGui::TextWrapped("ReShade did not start this launch (%s).",reshade_runtime::load_failure());
+            ImGui::TextWrapped("Restarting will not fix this. Run Install ReShade in the launcher again - it repairs ReShade.ini and the shader folders - then use Collect logs if it still fails.");
+            return;
+        }
         ImGui::TextWrapped(enabled ? "Restart Dishonored to load the VR ReShade integration." : "ReShade is installed and disabled. Enable it above, then restart Dishonored.");return;
     }
     if(!enabled)ImGui::TextWrapped("ReShade will be disabled next launch. Its controls remain available until you exit.");

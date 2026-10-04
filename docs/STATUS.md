@@ -1,3 +1,19 @@
+## 2026-10-03: launcher ReShade install fixed, preset drop zone, Mods audit
+
+A remote player (Quest 3, VDXR, v1.0.3) installed ReShade from the launcher and it never
+ran: `reshade: load failed error=1114` on every launch, no shader folder, F10 always saying
+to restart. Cause: the launcher installed only `ReShade32.dll`, and ReShade refuses to load
+without a `ReShade.ini` beside the exe; the dev PC's hand-built setup hid it (TRAPS). The
+same player also had ReShade's global OpenXR layer installed; the 41.x guard already skipped
+it and VR worked.
+
+Install ReShade now also installs the three pinned shader packages, `custom` folders and a
+`ReShade.ini` (never over the player's); the proxy loads ReShade with its loading check
+skipped and records why a load failed, which F10 shows. New: a preset drop zone on the Mods
+screen that refuses DLLs. Mods audit fixes: incomplete/Repair state, last-launch result from
+the game log, copy, Back to Mods. Tests and evidence: INSTALLER.md (2026-10-03 section).
+Not run in game yet. No Linear ticket (workspace issue limit).
+
 ## 2026-10-03: remote Reverb G2 never reached VR - ReShade's OpenXR layer refused (-32)
 
 Remote tester, HP Reverb G2 on SteamVR (WMR driver replacement), RTX 5080, v1.0.3 with the

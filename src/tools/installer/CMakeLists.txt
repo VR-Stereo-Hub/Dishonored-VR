@@ -35,6 +35,7 @@ endif()
 
 set(DVR_SETUP_STATIC_PAYLOAD
     "${PROJECT_SOURCE_DIR}/tools/install-reshade.ps1|install-reshade.ps1"
+    "${PROJECT_SOURCE_DIR}/tools/import-reshade-preset.ps1|import-reshade-preset.ps1"
     "${DVR_OPENVR_DLL}|openvr_api.dll"
     "${PROJECT_SOURCE_DIR}/release/dishonored_vr.ini|dishonored_vr.ini"
     "${PROJECT_SOURCE_DIR}/tools/collect-support.ps1|collect-support.ps1"

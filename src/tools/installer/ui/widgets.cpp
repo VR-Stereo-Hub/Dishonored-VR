@@ -146,7 +146,13 @@ void step_row(const StepResult& step)
     if (step.status == StepStatus::Failed) ImGui::PushStyleColor(ImGuiCol_Text, col_brass_hi());
     wrapped(step.title.c_str());
     if (step.status == StepStatus::Failed) ImGui::PopStyleColor();
-    if (!step.detail.empty()) wrapped_faded(step.detail.c_str());
+    // Multi-part results (the ReShade operations) separate their lines with " | ".
+    for (size_t at = 0; at < step.detail.size();) {
+        size_t end = step.detail.find(" | ", at);
+        if (end == std::string::npos) end = step.detail.size();
+        if (end > at) wrapped_faded(step.detail.substr(at, end - at).c_str());
+        at = end + 3;
+    }
     ImGui::EndGroup();
     ImGui::Spacing();
 }

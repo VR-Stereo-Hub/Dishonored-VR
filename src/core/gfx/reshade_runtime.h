@@ -11,6 +11,9 @@ bool enabled_next_start();
 bool set_enabled_next_start(bool enabled);
 bool performance_mode();
 bool set_performance_mode(bool enabled);
+// Why ReShade is not running although it was installed and enabled for this launch, or
+// nullptr. Set by load_optional and by a failed manual runtime creation; F10 shows it.
+const char* load_failure();
 // Render-thread only. Never retain effect/uniform handles across frames or reloads.
 reshade::api::effect_runtime* api();
 const wchar_t* directory();

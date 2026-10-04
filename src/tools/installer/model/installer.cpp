@@ -18,6 +18,38 @@ namespace dvr::setup {
 namespace {
 constexpr const wchar_t* kIniName = L"dishonored_vr.ini";
 constexpr const wchar_t* kLogName = L"dishonored_vr.log";
+// What the last game session's log says about ReShade. The proxy logs its ReShade load in
+// the first seconds of a session, so only the head of a log that can reach 12 MB is read.
+static std::string reshade_last_run(const std::wstring& log)
+{
+    HANDLE f = CreateFileW(log.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return {};
+    std::string head(1u << 20, '\0');
+    DWORD got = 0;
+    const BOOL ok = ReadFile(f, head.data(), (DWORD)head.size(), &got, nullptr);
+    CloseHandle(f);
+    if (!ok) return {};
+    head.resize(got);
+    auto line_after = [&](const char* marker) -> std::string {
+        const size_t at = head.find(marker);
+        if (at == std::string::npos) return {};
+        const size_t start = at + strlen(marker), end = head.find_first_of("\r\n", start);
+        return head.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    };
+    if (head.find("reshade: manual runtime ready") != std::string::npos) return "Last game launch: ReShade ran.";
+    if (head.find("reshade: manual runtime creation failed") != std::string::npos)
+        return "Last game launch: ReShade loaded but could not start its effects (see ReShade.log in the game folder).";
+    const std::string failed = line_after("reshade: load failed error=");
+    if (!failed.empty()) {
+        // 1.0.3 and earlier proxies log only the number; 1114 is ReShade refusing to start.
+        if (failed.find(" - ") == std::string::npos && failed.rfind("1114", 0) == 0)
+            return "Last game launch: ReShade did not start (error 1114: it refused, usually because ReShade.ini was missing).";
+        return "Last game launch: ReShade did not start (error " + failed + ").";
+    }
+    if (head.find("reshade: installed but disabled") != std::string::npos) return "Last game launch: ReShade was off.";
+    return {};
+}
 constexpr const wchar_t* kDisableName = L"disable_vr.txt";
 constexpr const wchar_t* kBackupName = L"d3d9.dll.dvr-backup";
 constexpr const char* kLegacyMarker = "legacy code is COMPILED IN";
@@ -479,6 +511,9 @@ Detection detect(const Env& env)
             fs::contains_ascii(installedProxy.data(), installedProxy.size(), "reshade: manual runtime ready; effects before VR capture, no native Present required");
         d.reshadeInstalled = fs::is_file(fs::join(d.gameDir, L"ReShade32.dll"));
         d.reshadeEnabled = profile::get_int(fs::join(d.gameDir, kIniName), L"ReShade", L"Enabled", 0) != 0;
+        d.reshadeIniPresent = fs::is_file(fs::join(d.gameDir, L"ReShade.ini"));
+        d.reshadeShadersPresent = fs::is_dir(fs::join(d.gameDir, L"dvr-reshade-shaders\\standard\\Shaders"));
+        d.reshadeLastRun = reshade_last_run(fs::join(d.gameDir, kLogName));
         d.disabled = fs::is_file(fs::join(d.gameDir, kDisableName));
         if (d.iniExists) {
             const std::wstring ini = fs::join(d.gameDir, kIniName);
@@ -536,6 +571,48 @@ Detection detect(const Env& env)
     return d;
 }
 
+// Runs one embedded PowerShell payload script with `args` and returns its exit code and
+// the text it wrote. The launcher's ReShade operations are scripts so .NET's ZIP and
+// hashing do the archive work; nothing downloaded is ever executed.
+static bool run_payload_script(Report* r, int id, const wchar_t* name, const wchar_t* tag,
+                               const std::wstring& args, const std::string* listText,
+                               DWORD* code, std::string* detail, DWORD timeoutMs = 180000)
+{
+    const auto script = resources::rcdata(id);
+    DWORD err = 0;
+    const auto dir = fs::join(fs::temp_dir(), std::wstring(L"DishonoredVR-") + tag + L"-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
+    const auto ps1 = fs::join(dir, name), output = fs::join(dir, L"result.txt"), list = fs::join(dir, L"paths.txt");
+    if (!script.ok() || !fs::make_dirs(dir, &err) || !fs::write_file_atomic(ps1, script.data, script.size, &err) ||
+        (listText && !fs::write_file_atomic(list, listText->data(), listText->size(), &err))) {
+        r->fail("Could not prepare the operation", err); return false;
+    }
+    wchar_t windows[MAX_PATH]{}; GetWindowsDirectoryW(windows, MAX_PATH);
+    auto powershell = fs::join(windows, L"Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe");
+    if (!fs::is_file(powershell)) powershell = fs::join(windows, L"System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    std::wstring cmd = process::quote_arg(powershell) + L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + process::quote_arg(ps1) + args;
+    if (listText) cmd += L" -ListFile " + process::quote_arg(list);
+    if (!process::run_wait(cmd, code, &err, timeoutMs, output)) { r->fail("Could not run the operation", err); return false; }
+    std::vector<uint8_t> bytes; fs::read_file(output, &bytes, nullptr);
+    detail->assign(bytes.begin(), bytes.end());
+    while (!detail->empty() && (detail->back() == '\n' || detail->back() == '\r')) detail->pop_back();
+    return true;
+}
+
+Report do_import_presets(const Env&, const Detection& det, const std::vector<std::wstring>& paths)
+{
+    Report r;
+    if (!det.gameFound) { r.add(StepStatus::Failed, "Find the game first", "Presets are copied beside Dishonored.exe."); return r; }
+    if (paths.empty()) { r.add(StepStatus::Failed, "Nothing was dropped"); return r; }
+    std::string list;
+    for (const auto& p : paths) { list += fs::narrow(p); list += "\r\n"; }
+    DVR_INFO("setup: ReShade preset import of %u dropped item(s)", (unsigned)paths.size());
+    DWORD code = 0; std::string detail;
+    if (!run_payload_script(&r, IDR_IMPORT_PRESET, L"import-reshade-preset.ps1", L"Preset",
+                            L" -GameDir " + process::quote_arg(det.gameDir), &list, &code, &detail)) return r;
+    r.add(code == 0 ? StepStatus::Ok : StepStatus::Failed, code == 0 ? "ReShade presets imported" : "Nothing was imported", detail);
+    return r;
+}
+
 Report do_reshade(const Env&, const Detection& det)
 {
     Report r;
@@ -543,22 +620,11 @@ Report do_reshade(const Env&, const Detection& det)
     if (!det.gameFound || !det.modInstalled || !det.reshadeSupported) {
         r.add(StepStatus::Failed, "Install or update the mod with this launcher first"); return r;
     }
-    const auto script = resources::rcdata(IDR_INSTALL_RESHADE);
-    DWORD err = 0;
-    const auto dir = fs::join(fs::temp_dir(), L"DishonoredVR-ReShade-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
-    const auto ps1 = fs::join(dir, L"install-reshade.ps1"), output = fs::join(dir, L"result.txt");
-    if (!script.ok() || !fs::make_dirs(dir, &err) || !fs::write_file_atomic(ps1, script.data, script.size, &err)) {
-        r.fail("Could not prepare ReShade download", err); return r;
-    }
-    wchar_t windows[MAX_PATH]{}; GetWindowsDirectoryW(windows, MAX_PATH);
-    auto powershell = fs::join(windows, L"Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe");
-    if (!fs::is_file(powershell)) powershell = fs::join(windows, L"System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-    const auto cmd = process::quote_arg(powershell) + L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + process::quote_arg(ps1) + L" -GameDir " + process::quote_arg(det.gameDir);
-    DWORD code = 0;
-    if (!process::run_wait(cmd, &code, &err, 180000, output)) { r.fail("Could not run ReShade download", err); return r; }
-    std::vector<uint8_t> bytes; fs::read_file(output, &bytes, nullptr);
-    const std::string detail(bytes.begin(), bytes.end());
-    r.add(code == 0 ? StepStatus::Ok : StepStatus::Failed, code == 0 ? "ReShade installed" : "ReShade download failed", detail);
+    DWORD code = 0; std::string detail;
+    // Up to ~25 MB of downloads (the runtime and three shader packages): allow a slow line.
+    if (!run_payload_script(&r, IDR_INSTALL_RESHADE, L"install-reshade.ps1", L"ReShade",
+                            L" -GameDir " + process::quote_arg(det.gameDir), nullptr, &code, &detail, 600000)) return r;
+    r.add(code == 0 ? StepStatus::Ok : StepStatus::Failed, code == 0 ? "ReShade installed" : "ReShade install incomplete", detail);
     return r;
 }
 
