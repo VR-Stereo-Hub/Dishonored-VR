@@ -101,7 +101,12 @@ def read_psk(path):
 
 def prepare(source, destination):
     bones, points, triangles = read_psk(source)
-    raw = bytearray(struct.pack('<8sIII', b'DVRIK001', len(bones), len(points), triangles))
+    # UModel ExportPsk.cpp MIRROR_MESH reflects Y for both positions and the
+    # reference skeleton. Undo that export boundary after composing joint heads.
+    # DVRIK002 explicitly stores engine mesh coordinates, unlike version 1.
+    bones = [(name, parent, x, -y, z) for name, parent, x, y, z in bones]
+    points = [(p[0], -p[1], *p[2:]) for p in points]
+    raw = bytearray(struct.pack('<8sIII', b'DVRIK002', len(bones), len(points), triangles))
     for bone in bones:
         raw.extend(struct.pack('<64si3f', *bone))
     for point in points:

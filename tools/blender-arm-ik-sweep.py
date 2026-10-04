@@ -33,12 +33,14 @@ if source is None or rig is None:
 # Independently verify the prepared joint locations against the PSK import.
 raw = args.reference.read_bytes()
 magic, bone_count, _, _ = struct.unpack_from('<8sIII', raw)
-assert magic == b'DVRIK001'
+assert magic == b'DVRIK002'
 head_errors = []
 for i in range(bone_count):
     name, _, x, y, z = struct.unpack_from('<64si3f', raw, 20+i*80)
     name = name.split(b'\0', 1)[0].decode()
-    head_errors.append((rig.data.bones[name].head_local-Vector((x, y, z))).length)
+    # The Blender import is in exported PSK space. The runtime reference is
+    # in engine mesh space; compare through the explicit export Y reflection.
+    head_errors.append((rig.data.bones[name].head_local-Vector((x, -y, z))).length)
 assert max(head_errors) < .002, f'Reference joint convention mismatch: {max(head_errors)}'
 
 for collection in bpy.data.collections:
@@ -65,6 +67,7 @@ if working and working.data.materials:
 
 names = {name: i for i, name in enumerate(sweep['bones'])}
 vertices = np.array([v.co[:] for v in source.data.vertices], dtype=np.float64)
+vertices[:, 1] *= -1  # PSK export -> engine mesh, same boundary as the runtime rig.
 weights = np.zeros((len(vertices), 4), dtype=np.float64)
 bones = np.zeros((len(vertices), 4), dtype=np.int32)
 for vertex in source.data.vertices:

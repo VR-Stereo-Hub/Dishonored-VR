@@ -10111,3 +10111,15 @@ after animation blending and empty-hand pose handling. Using the pre-blend
 `g_mpPalmTarget` would disconnect IK from an animated wrist. `RigidWrist` only
 protects clipped fallback geometry; complete arms retain authored weights.
 Details, local-data handling and limits: [ARM_IK.md](ARM_IK.md).
+
+## 2026-10-04: ActorX export coordinates are not engine mesh coordinates
+
+The first IK game run (banner-matched v1.0.3-9-g012ddce9a) refused reference
+positions with zero solves. Native VB Y bounds were -152.5..-87.9 while the
+prepared PSK reference had the opposite sign. UModel ExportPsk.cpp explicitly
+mirrors Y in MIRROR_MESH for vertices and skeletal transforms. Preparation
+now reverses Y on vertices and composed reference heads, with a DVRIK002
+format gate to reject stale files. All three corrected bounds match the
+native log. Runtime still validates every point and active weight field.
+No native memory writer, offsets, or relaxed guard were introduced. Details
+and source: [ARM_IK.md](ARM_IK.md#first-live-run-and-coordinate-boundary-correction-2026-10-04).

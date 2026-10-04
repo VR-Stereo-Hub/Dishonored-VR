@@ -70,7 +70,7 @@ int main(int argc,char** argv){
     Mapping map;
     check(map_skin(rig,runtime,3,3,map)&&map.reference[1]==0&&map.reference[2]==1&&map.reference[0]==2,"map shuffled palette from all weight fields");
     runtime[0].p.y=1;
-    check(!map_skin(rig,runtime,3,3,map),"foreign geometry refused");runtime[0].p.y=0;
+    check(!map_skin(rig,runtime,3,3,map),"foreign geometry refused");check(map.failedVertex==0&&map.nearestDistance>=1,"mapping refusal identifies mismatched vertex and distance");runtime[0].p.y=0;
     runtime[0].bone[0]=2;
     check(!map_skin(rig,runtime,3,3,map),"wrong skin weights refused");
     if(argc>1){
@@ -91,6 +91,17 @@ int main(int argc,char** argv){
             printf("Mapping: %s\n",map.why);
             bool correct=true;for(size_t b=0;b<real.bones.size();++b)if(refToSlot[b]>=0&&map.reference[slots-1-refToSlot[b]]!=(int)b)correct=false;
             check(correct,"all active local reference bones map exactly");
+            // Reproduce an unconverted PSK export against engine coordinates.
+            // The old same-space fixture could never expose this boundary bug.
+            Rig exported=real;
+            for(auto& v:exported.vertices)v.p.y=-v.p.y;
+            for(auto& b:exported.bones)b.head.y=-b.head.y;
+            bool asymmetric=false;for(const auto& v:real.vertices)if(fabsf(v.p.y)>1)asymmetric=true;
+            Mapping reflectedMap;
+            if(asymmetric)check(!map_skin(exported,expanded.data(),(unsigned)expanded.size(),slots,reflectedMap),"unconverted PSK Y reflection is refused");
+            FILE* legacy=nullptr;tmpfile_s(&legacy);
+            if(legacy){fwrite("DVRIK001",1,8,legacy);rewind(legacy);Rig stale;check(!stale.load(legacy),"old PSK-space reference version is rejected");fclose(legacy);}
+
             printf("Local fixture: %zu points, %d active slots, matched %u, max weight error %.7f\n",real.vertices.size(),slots,map.matched,map.worstWeight);
         }
     }

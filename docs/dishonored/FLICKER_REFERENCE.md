@@ -10,9 +10,10 @@ keyed by locate generation: second-eye/pass reuse does not advance elbow or
 yaw smoothing again, and old queued views cannot rewind current history.
 The tracking-to-draw bridge cancels head pitch/roll/yaw exactly once. Host
 checks cover those invariants; Blender validates the pose/skin math only.
-No stereo game launch has run. The first candidate's log must establish a
-successful reference map and active IK before visual results are attributed
-to it. Menu/load and rapid-head-turn acceptance remain separate later tests.
+The first live run on v1.0.3-9-g012ddce9a refused the PSK-space reference
+with zero solves. It provides no live IK stereo evidence. The export-Y fix
+in ARM_IK.md must establish a successful map and active IK before visual
+results are attributed to it. Menu/load and rapid-head-turn acceptance remain separate later tests.
 Implementation/evidence: [ARM_IK.md](ARM_IK.md).
 
 ## 2026-10-02: MSW guards - no extrapolation across a jump, a bounded turn, the stick stop (HOST-VERIFIED candidate)

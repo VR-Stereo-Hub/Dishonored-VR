@@ -26,7 +26,7 @@ struct Rig {
     bool load(FILE* f){
         bones.clear();vertices.clear();triangles=0;
         char magic[8];uint32_t counts[3];
-        if(!f||fread(magic,1,8,f)!=8||memcmp(magic,"DVRIK001",8)||fread(counts,4,3,f)!=3)return false;
+        if(!f||fread(magic,1,8,f)!=8||memcmp(magic,"DVRIK002",8)||fread(counts,4,3,f)!=3)return false;
         if(counts[0]<3||counts[0]>128||counts[1]<3||counts[1]>8192||counts[2]<1||counts[2]>16384)return false;
         bones.resize(counts[0]);vertices.resize(counts[1]);triangles=counts[2];
         if(fread(bones.data(),sizeof(Bone),bones.size(),f)!=bones.size()||
@@ -54,6 +54,9 @@ struct Rig {
 struct Mapping {
     int reference[128];
     unsigned matched=0;
+    int failedVertex=-1;
+    float nearestDistance=0;
+    Vec failedPosition{};
     float worstPosition=0,worstWeight=0;
     const char* why="not mapped";
     Mapping(){std::fill(reference,reference+128,-1);}
@@ -152,12 +155,15 @@ inline bool map_skin(const Rig& rig,const Vertex* vertices,unsigned count,unsign
     for(unsigned v=0;v<count;++v){
         const auto& cur=vertices[v];
         if(!finite(cur.p)){out.why="non-finite runtime vertex";return false;}
-        float closest=.03f*.03f;int nearest=-1;
+        float closest=INFINITY;int nearest=-1;
         for(unsigned p=0;p<rig.vertices.size();++p){
             Vec delta=rig.vertices[p].p-cur.p;float ds=dot(delta,delta);
             if(ds<closest){closest=ds;nearest=(int)p;}
         }
-        if(nearest<0){out.why="runtime position absent from local reference";return false;}
+        if(nearest<0||closest>=.03f*.03f){
+            out.failedVertex=(int)v;out.failedPosition=cur.p;out.nearestDistance=sqrtf(closest);
+            out.why="runtime position absent from local reference";return false;
+        }
         out.worstPosition=std::max(out.worstPosition,sqrtf(closest));++out.matched;
         const auto& ref=rig.vertices[nearest];float sum=0;
         for(int i=0;i<4;++i){

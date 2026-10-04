@@ -35,7 +35,7 @@ static bool IkBuildGeometry(IDirect3DDevice9* dev)
     IkDropGeometry();ikMesh.tried=true;ikMesh.generation=g_mpSrcGen;
     char path[MAX_PATH];dvr::paths::in_data_dir(path,"dishonored_vr_arm_rig.bin");
     FILE* file=nullptr;fopen_s(&file,path,"rb");bool loaded=ikMesh.rig.load(file);if(file)fclose(file);
-    if(!loaded)return IkRefuse("Local arm reference is missing or invalid. Prepare it and use Reload arm reference.");
+    if(!loaded)return IkRefuse("Local arm reference is missing, outdated or invalid. Prepare version 2 and reload it.");
     if(!g_msOwnVb||g_msVerts<1||g_msBones<1||(unsigned)g_msTris!=ikMesh.rig.triangles)
         return IkRefuse("The current mesh does not match the full-arm reference draw.");
     std::vector<Vertex> vertices((size_t)g_msVerts);
@@ -43,7 +43,12 @@ static bool IkBuildGeometry(IDirect3DDevice9* dev)
         vertices[v].p=vec(g_msVert[v].p);
         for(int j=0;j<4;++j){vertices[v].bone[j]=g_msVert[v].bi[j];vertices[v].weight[j]=g_msVert[v].bw[j];}
     }
-    if(!map_skin(ikMesh.rig,vertices.data(),g_msVerts,g_msBones,ikMesh.mapping))return IkRefuse(ikMesh.mapping.why);
+    if(!map_skin(ikMesh.rig,vertices.data(),g_msVerts,g_msBones,ikMesh.mapping)){
+        const auto& m=ikMesh.mapping;
+        Log("ik/map: refused after %u/%u vertices; vertex=%d position=(%.6f %.6f %.6f), nearest reference distance=%.6f (limit 0.03), reason=%s",
+            m.matched,g_msVerts,m.failedVertex,m.failedPosition.x,m.failedPosition.y,m.failedPosition.z,m.nearestDistance,m.why);
+        return IkRefuse(m.why);
+    }
     Chain named[2];
     if(!named[0].build(ikMesh.rig,false)||!named[1].build(ikMesh.rig,true))return IkRefuse("Named arm hierarchy is incomplete or invalid.");
     // Preserve the established hand/controller assignment. Do not infer left
@@ -100,7 +105,8 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     using namespace dvr::ik;
     if(g_ikReload.exchange(false)){IkDropGeometry();ikMesh.rig=Rig{};}
     if(g_menuOpen||g_inMenu||g_mainMenu||UiSurfaceBlocks()){
-        IkResetPose();g_ikStatus="Waiting for gameplay";return false;
+        // Keep the last activation/refusal visible while the settings menu is open.
+        IkResetPose();return false;
     }
     if(!g_mpOn||!g_mpWorld||g_mpPalN==0||g_mpCacheN!=g_mpPalN||g_mpCacheN>256)
         return IkRefuse("Waiting for a complete hand palette and tracked hand placement.");

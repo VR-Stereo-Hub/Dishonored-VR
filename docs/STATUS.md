@@ -1,3 +1,22 @@
+## 2026-10-04: first IK run refused the exported coordinate convention
+
+The installed v1.0.3-9-g012ddce9a banner and hash match. Log: zero IK solves;
+all seven build attempts refused runtime positions absent from the reference.
+Observed clipped arms were the original floating-hand fallback, including
+sleeve-control changes. The initial Blender test did not cover the engine/PSK
+boundary. Reference preparation now undoes UModel's export Y reflection on
+vertices AND joint heads, uses DVRIK002, and rejects old files. Corrected
+bounds match the runtime log on every axis. Full arms automatically bypass
+sleeve cuts when IK activates; sleeve controls are disabled while IK is on.
+Activation/refusal status persists in the menu; failures include coordinates.
+
+Independent conversion regression, 1,052 host checks and repeated 260-frame
+Blender sweep pass. Zero solve failures, wrist error below 0.000034 units;
+extreme compression remains in two transition frames. Corrected live mapping
+is still unverified. Next launch asks only whether complete arms appear and
+bend with a slow left-hand reach. Details: [ARM_IK.md](dishonored/ARM_IK.md).
+Local branch only; no game launch, ticket, push, PR or merge.
+
 ## 2026-10-04: IK candidate installed for the first live reach test
 
 Installed optimized Win32 `v1.0.3-9-g012ddce9a`, proxy SHA256

@@ -3,7 +3,8 @@
 Implemented locally on `codex/ik-full-arms`, based on staging
 `957322031d6c67aebd4f0910261f682501b43074`. Updated 2026-10-04. Host and
 Blender validation pass with the deformation limits below. Runtime palette
-mapping and headset behavior still require the first user-launched run.
+mapping refused in the first live run; the coordinate-boundary fix below awaits
+a follow-up user-launched run.
 No ticket, push or PR: work remains local per maintainer instruction.
 
 ## Behavior and controls
@@ -26,8 +27,10 @@ when reach allows. This supersedes the initial fixed-shoulder design.
 
 Controls save when released; reset changes these six adjustments without
 switching IK off. Reload arm reference retries a missing/changed local rig.
-Hand/grip settings and animation choices remain on Hands. Sleeve cuts and
-RigidWrist apply to the floating-hand fallback.
+Hand/grip settings and animation choices remain on Hands. Full-arm IK draws
+the entire original mesh independently of sleeve cuts. Sleeve controls are
+disabled while IK is enabled; saved cuts and RigidWrist apply only to fallback
+hands or normal IK-off rendering. Arm length changes reach, not visibility.
 
 Nominal anchors share one body frame and center:
 
@@ -88,7 +91,9 @@ The draw saves and restores the original palette, VB, IB and changed viewport.
 `tools/prepare-arm-rig.py` reads a locally extracted PSK and writes
 `dishonored_vr_arm_rig.bin` in the mod's resolved data directory (Paths/DataDir,
 DVR_DATA_DIR, otherwise LocalAppData/DishonoredVR). The file contains named
-reference joint heads/hierarchy and reference vertex positions/weights. This
+reference joint heads/hierarchy and reference vertex positions/weights in
+ENGINE mesh coordinates (`DVRIK002`). Preparation reverses UModel's PSK Y
+reflection for both composed heads and vertices. Version 1 is rejected. This
 local prototype requires preparation; it does not extract installed packages
 automatically. The tool is committed; PSK, binary rig, Blender files, captures
 and other extracted game content are not. Ignore rules protect the rig/PSK.
@@ -122,9 +127,36 @@ history, own-wrist twist input and authored orientation, and stereo replay.
 The runtime writes and bone/helper indices are specific to BioShock and were
 not copied. The MIT notice is in `docs/licenses/bioshock-arm-ik.txt`.
 
+## First live run and coordinate-boundary correction, 2026-10-04
+
+Banner and installed SHA matched `v1.0.3-9-g012ddce9a`. The player reported
+clipped arms and no apparent IK response. The log shows seven mesh-build
+refusals, `runtime position absent from local reference`, and zero solves.
+Changing the sleeve cut from -10 to -30 and other presets only changed the
+fallback mesh. No conclusion about live IK deformation is supported by this run.
+Logs and INI are archived under `build/arm-ik-test/live-first/`.
+
+Cause: the initial preparation retained the PSK export coordinate system.
+[UModel ExportPsk.cpp](https://github.com/gildor2/UEViewer/blob/master/Exporters/ExportPsk.cpp)
+reflects Y on vertices and skeletal transforms (`MIRROR_MESH`, points lines
+95-108, bones lines 386-389). The corrected reference reverses that reflection
+on vertices AND composed joint heads. Its rounded bounds now exactly match
+all three runtime bounds: (-58.4,-152.5,-14.0) to (58.4,-87.9,17.3).
+The Blender check originally compared two PSK-space inputs, so it could not
+expose this engine/export boundary. That limitation is now covered by an
+independent synthetic PSK with explicit expected engine vertices and nested
+rotated joint heads, plus an old-convention negative mapping test.
+
+Full-arm drawing already bypasses cut geometry when IK activates. Sleeve
+controls are now disabled while IK is on and explain this ownership. The IK
+tab keeps the last activation/refusal visible when the menu opens instead of
+overwriting it with a waiting message. Mapping failures report vertex index,
+position, match count and nearest-reference distance. Guard thresholds remain
+unchanged; no unsafe mapping bypass was added.
+
 ## Verification, 2026-10-04
 
-- 1,049 host checks pass using the production headers. Cases include shoulder
+- 1,052 host checks pass using the production headers. Cases include shoulder
   translation/width, near/far/zero reach, preserved lengths, arbitrary frame
   transforms, invalid data, twist wrap, view/head cancellation, separate hand
   history, once-per-pose stereo updates, stale queued views and tracking gaps.
@@ -135,11 +167,11 @@ not copied. The MIT notice is in `docs/licenses/bioshock-arm-ik.txt`.
   close/crossed/raised/wide/down/behind, asymmetric reach, 0..360 wrist roll,
   a finger-only clip, short/long arms, zero shoulder-wrist distance, the installed
   0.85 hand scale, and independently extended arms. Zero solve failures;
-  maximum segment-length error 0.0000211 and wrist-join error 0.0000324 units.
+  maximum segment-length error 0.0000172 and wrist-join error 0.0000335 units.
 - Blender bakes those SAME matrices through the original skin weights into an
   animated local scene. Reference joint heads independently agree with the
   imported PSK within 0.000020 units. All mesh frames are finite; 18 key poses
-  rendered and inspected. No triangle exceeded 10x reference area. Two frames
+  rendered and inspected. No triangle exceeded 10x reference area. Frames 87 and 88
   in a severe transition each compress one triangle below 1% reference area;
   visible sleeve compression at extreme poses remains a deformation limitation.
   There is no collision/torso constraint, so crossed arms may intersect.
@@ -148,11 +180,20 @@ not copied. The MIT notice is in `docs/licenses/bioshock-arm-ik.txt`.
 - Blender is offline verification, not proof of live shader mapping, stereo,
   game animation routing or menu usability. No game was launched by the agent.
 
-Evidence stays under `build/arm-ik-test/`: `sweep.json`, host executables,
-`blender/Arm-IK-Pose-Sweep.blend`, `blender/verification.json`, key renders and
-`blender/IK-pose-contact-sheet.png`. The original Blender workspace is preserved.
+Evidence stays under `build/arm-ik-test/`: `fixed-sweep.json`, host executables,
+`blender-fixed/Arm-IK-Pose-Sweep.blend`, `blender-fixed/verification.json` and
+18 key renders. The first candidate's evidence remains in `blender/`. The original Blender workspace is preserved.
 
-## First headset test
+## Next headset test
+
+One question: with IK enabled, do both full arms appear and bend as the left
+hand moves slowly from close to extended? No sleeve adjustments are needed.
+Full visible articulated arms support activation. Clipped floating hands mean
+inspect mapping/refusal logs; full but rigid or detached arms mean inspect the
+active pose/transform path. This is an activation test; independent-arm,
+menu/load and animation checks follow separately.
+
+## Original first-run question (IK did not activate)
 
 One question: in a loaded save, with the body and right controller stationary,
 does the left sleeve remain connected to its hand through a slow close-to-far
