@@ -18,6 +18,7 @@
 // now only copies the staging texture into a heap buffer (a few ms).
 
 #include <process.h>   // _beginthreadex (the dump thread)
+#include "core/gfx/frame_burst.h"
 
 static int      g_dumpReqCapture = 0;
 static int      g_dumpReqEyes = 0;
@@ -41,120 +42,95 @@ static void FrameDumpRequest(const char* what)
         Log("dump: %s requested -> %s", what, dvr::paths::dumps_dir());
 }
 
-// Four lines of header and no library: top-down BGRA.
-static bool DumpWriteBmp(const char* path, const uint8_t* pixels, uint32_t w, uint32_t h, uint32_t pitch)
-{
-    FILE* f = fopen(path, "wb");
-    if (!f) return false;
-    const uint32_t rowB = w * 4, imgB = rowB * h;
-    uint8_t fh[14] = { 'B', 'M' }, ih[40] = {};
-    uint32_t fsz = 14 + 40 + imgB, off = 54;
-    memcpy(fh + 2, &fsz, 4); memcpy(fh + 10, &off, 4);
-    uint32_t v40 = 40; memcpy(ih, &v40, 4);
-    int32_t iw = (int32_t)w, ih2 = -(int32_t)h;
-    memcpy(ih + 4, &iw, 4); memcpy(ih + 8, &ih2, 4);
-    uint16_t planes = 1, bpp = 32;
-    memcpy(ih + 12, &planes, 2); memcpy(ih + 14, &bpp, 2);
-    memcpy(ih + 20, &imgB, 4);
-    fwrite(fh, 1, 14, f); fwrite(ih, 1, 40, f);
-    for (uint32_t y = 0; y < h; y++) fwrite(pixels + (size_t)y * pitch, 1, rowB, f);
-    fclose(f);
-    return true;
-}
+#include "core/gfx/frame_dump_io.inc"
 
-// The worker's job: the pixels (tight rows), their shape, the file.
-struct DumpPngJob {
-    char     path[MAX_PATH];
-    uint8_t* pixels;
-    uint32_t w, h;
-    bool     bgra;      // the capture is B8G8R8A8/X8; the eye targets are R8G8B8A8
-};
-static volatile LONG g_dumpPngPending = 0;
-
-// Worker thread: WIC encode + write, then one log line with the cost.
-static unsigned __stdcall DumpPngThread(void* arg)
+// The burst consumes last_output at the same point as the established eye
+// dump. That image belongs to the PREVIOUS present, with its delivered record.
+// Queueing uses bounded CPU memory; backpressure is counted, never called
+// consecutive capture. Readback may perturb cadence, even with disk I/O off-lane.
+static dvr::capture::Burst g_frameBurst;
+static char g_frameBurstDir[MAX_PATH]{};
+static unsigned g_frameBurstFailures=0;
+static bool g_frameBurstAfw=false;
+static void FrameBurstRequest()
 {
-    DumpPngJob* job = (DumpPngJob*)arg;
-    const DWORD t0 = GetTickCount();
-    bool ok = false;
-    const HRESULT coHr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    IWICImagingFactory* fac = NULL;
-    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&fac));
-    if (SUCCEEDED(hr) && fac) {
-        IWICStream* stream = NULL; IWICBitmapEncoder* enc = NULL; IWICBitmapFrameEncode* frame = NULL;
-        wchar_t wpath[MAX_PATH];
-        MultiByteToWideChar(CP_ACP, 0, job->path, -1, wpath, MAX_PATH);
-        if (SUCCEEDED(fac->CreateStream(&stream)) &&
-            SUCCEEDED(stream->InitializeFromFilename(wpath, GENERIC_WRITE)) &&
-            SUCCEEDED(fac->CreateEncoder(GUID_ContainerFormatPng, NULL, &enc)) &&
-            SUCCEEDED(enc->Initialize(stream, WICBitmapEncoderNoCache)) &&
-            SUCCEEDED(enc->CreateNewFrame(&frame, NULL)) &&
-            SUCCEEDED(frame->Initialize(NULL)) &&
-            SUCCEEDED(frame->SetSize(job->w, job->h))) {
-            WICPixelFormatGUID fmt = job->bgra ? GUID_WICPixelFormat32bppBGRA : GUID_WICPixelFormat32bppRGBA;
-            if (SUCCEEDED(frame->SetPixelFormat(&fmt)) &&
-                SUCCEEDED(frame->WritePixels(job->h, job->w * 4, job->w * 4 * job->h, (BYTE*)job->pixels)) &&
-                SUCCEEDED(frame->Commit()) && SUCCEEDED(enc->Commit()))
-                ok = true;
-        }
-        if (frame) frame->Release();
-        if (enc) enc->Release();
-        if (stream) stream->Release();
-        fac->Release();
+    if(g_frameBurst.busy()||g_dumpPngPending)return;
+    if(!_stricmp(dvr::stereo::active_name(),"afw")){
+        g_frameBurstAfw=true;
+        dvr::afw::request_dump(16,5000,dvr::paths::dumps_dir(),"F10 frame burst");return;
     }
-    if (SUCCEEDED(coHr)) CoUninitialize();
-    Log("dump: eye %s %s (%lu ms on the dump thread, %u still queued)", job->path, ok ? "written" : "FAILED to encode",
-        (unsigned long)(GetTickCount() - t0), (unsigned)(InterlockedDecrement(&g_dumpPngPending)));
-    free(job->pixels);
-    free(job);
-    return 0;
+    g_frameBurstAfw=false;
+    if(!g_frameBurst.start(GetTickCount64()))return;
+    SYSTEMTIME t;GetLocalTime(&t);
+    _snprintf_s(g_frameBurstDir,sizeof(g_frameBurstDir),_TRUNCATE,"%s\\frames-%04u%02u%02u-%02u%02u%02u-%03u",
+        dvr::paths::dumps_dir(),t.wYear,t.wMonth,t.wDay,t.wHour,t.wMinute,t.wSecond,t.wMilliseconds);
+    if(!CreateDirectoryA(g_frameBurstDir,nullptr)){g_frameBurst.phase=dvr::capture::Burst::Failed;Log("dump/burst: cannot create %s (error %lu)",g_frameBurstDir,GetLastError());return;}
+    g_frameBurstFailures=g_dumpFailures.load();
+    Log("dump/burst: armed 16 native eye images after 5 seconds, method=%s, directory=%s; raw BMP workers, max 96 MiB queued, readback can perturb cadence; gaps are recorded",
+        dvr::stereo::active_name(),g_frameBurstDir);
 }
-
-// A D3D11 texture -> PNG through WIC (already linked for the hand skins): the
-// present thread copies the pixels out, a worker thread encodes them.
-// alphaOnly (VR-119): the A channel as a grey image, so a dump can say whether
-// a stroke's coverage is in the alpha or only in the colour.
-static bool DumpTexturePng(const char* path, ID3D11Texture2D* tex, bool alphaOnly = false)
+static const char* FrameBurstStatus()
 {
-    if (!g_dev11 || !g_ctx11 || !tex) return false;
-    D3D11_TEXTURE2D_DESC d; tex->GetDesc(&d);
-    d.Usage = D3D11_USAGE_STAGING; d.BindFlags = 0; d.MiscFlags = 0;
-    d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D* st = NULL;
-    if (FAILED(g_dev11->CreateTexture2D(&d, NULL, &st)) || !st) return false;
-    g_ctx11->CopyResource(st, tex);
-    D3D11_MAPPED_SUBRESOURCE m;
-    bool ok = false;
-    if (SUCCEEDED(g_ctx11->Map(st, 0, D3D11_MAP_READ, 0, &m))) {
-        DumpPngJob* job = (DumpPngJob*)calloc(1, sizeof(DumpPngJob));
-        uint8_t* px = (uint8_t*)malloc((size_t)d.Width * d.Height * 4);
-        if (job && px) {
-            for (uint32_t y = 0; y < d.Height; y++)
-                memcpy(px + (size_t)y * d.Width * 4, (const uint8_t*)m.pData + (size_t)y * m.RowPitch, (size_t)d.Width * 4);
-            if (alphaOnly) {
-                for (size_t i = 0, n = (size_t)d.Width * d.Height; i < n; ++i) {
-                    uint8_t* p = px + i * 4;
-                    p[0] = p[1] = p[2] = p[3];   // grey = alpha, whatever the channel order
-                    p[3] = 255;
-                }
-            }
-            strncpy(job->path, path, MAX_PATH - 1);
-            job->pixels = px; job->w = d.Width; job->h = d.Height;
-            job->bgra = d.Format == DXGI_FORMAT_B8G8R8A8_UNORM || d.Format == DXGI_FORMAT_B8G8R8X8_UNORM;
-            InterlockedIncrement(&g_dumpPngPending);
-            HANDLE th = (HANDLE)_beginthreadex(NULL, 0, DumpPngThread, job, 0, NULL);
-            if (th) { CloseHandle(th); ok = true; }
-            else { InterlockedDecrement(&g_dumpPngPending); free(px); free(job); }
-        } else { free(px); free(job); }
-        g_ctx11->Unmap(st, 0);
+    if(g_frameBurstAfw)return dvr::afw::dump_status();
+    static char text[192];
+    const auto& b=g_frameBurst;
+    const auto now=GetTickCount64();
+    switch(b.phase){
+    case dvr::capture::Burst::Armed:
+        _snprintf_s(text,sizeof(text),_TRUNCATE,"Starts in %.1f seconds - close the menu and reproduce the issue",b.due>now?(b.due-now)*.001:0.);break;
+    case dvr::capture::Burst::Capturing:case dvr::capture::Burst::Saving:
+        _snprintf_s(text,sizeof(text),_TRUNCATE,"Captured %u / %u; saving images (%u busy frames skipped)",b.captured,b.wanted,b.skipped);break;
+    case dvr::capture::Burst::Done:_snprintf_s(text,sizeof(text),_TRUNCATE,"Saved %u images. Ready for analysis.",b.captured);break;
+    case dvr::capture::Burst::Failed:strcpy_s(text,"Capture incomplete. See the log for saved frames and failures.");break;
+    default:strcpy_s(text,"No capture yet");break;
     }
-    st->Release();
-    return ok;
+    return text;
+}
+static void FrameBurstTick()
+{
+    if(!g_frameBurst.busy())return;
+    const auto previous=g_frameBurst.phase;
+    g_frameBurst.saved(g_dumpPngPending!=0,g_dumpFailures.load()!=g_frameBurstFailures);
+    const auto& o=dvr::stereo::last_output();
+    const uint32_t serial=dvr::capture::delivered_serial();
+    D3D11_TEXTURE2D_DESC desc{};if(o.tex)o.tex->GetDesc(&desc);
+    const size_t bytes=(size_t)desc.Width*desc.Height*4;
+    constexpr size_t budget=96u*1024u*1024u;
+    const bool format=desc.Format==DXGI_FORMAT_R8G8B8A8_UNORM||desc.Format==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB||
+        desc.Format==DXGI_FORMAT_B8G8R8A8_UNORM||desc.Format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+    const bool capacity=bytes<=budget&&g_dumpBytes.load()<=budget-bytes&&g_dumpPngPending<3;
+    if(o.tex&&(!format||desc.SampleDesc.Count!=1||bytes>budget)){
+        g_frameBurst.phase=dvr::capture::Burst::Failed;
+        Log("dump/burst: unsupported image %ux%u format=%u samples=%u bytes=%zu (budget=%zu)",
+            desc.Width,desc.Height,(unsigned)desc.Format,desc.SampleDesc.Count,bytes,budget);
+    }
+    if(g_frameBurst.ready(GetTickCount64(),serial,o.tex&&format&&desc.SampleDesc.Count==1,capacity)){
+        char path[MAX_PATH];
+        _snprintf_s(path,sizeof(path),_TRUNCATE,"%s\\f%02u_p%lu_s%u_%s.bmp",g_frameBurstDir,g_frameBurst.captured,
+            (unsigned long)(g_frame-1),serial,o.eyeSign<0?"left":o.eyeSign>0?"right":"mono");
+        bool ok=DumpTexturePng(path,o.tex,false,true);
+        dvr::pose::Record rec{};bool have=dvr::pose::copy(dvr::capture::delivered_rec(),&rec);
+        Log("dump/burst: image=%u previous-present=%lu serial=%u eye=%d rec=%u pair=%u locate=%u metadata=%d queued=%d busySkipped=%u path=%s",
+            g_frameBurst.captured,(unsigned long)(g_frame-1),serial,o.eyeSign,rec.id,rec.pairId,rec.track.gen,have?1:0,ok?1:0,g_frameBurst.skipped,path);
+        _snprintf_s(path,sizeof(path),_TRUNCATE,"%s\\frames.csv",g_frameBurstDir);
+        FILE* f=nullptr;
+        if(!fopen_s(&f,path,g_frameBurst.captured?"a":"w")&&f){
+            if(!g_frameBurst.captured)fprintf(f,"image,previousPresent,serial,eye,record,pair,headLocate,metadata,queued,timeMs,busySkipped\n");
+            fprintf(f,"%u,%lu,%u,%d,%u,%u,%u,%d,%d,%llu,%u\n",g_frameBurst.captured,(unsigned long)(g_frame-1),serial,o.eyeSign,
+                rec.id,rec.pairId,rec.track.gen,have?1:0,ok?1:0,(unsigned long long)GetTickCount64(),g_frameBurst.skipped);
+            if(ferror(f))ok=false;
+            if(fclose(f)!=0)ok=false;
+        }else ok=false;
+        g_frameBurst.queued(ok);
+    }
+    if(previous!=g_frameBurst.phase&&(g_frameBurst.phase==dvr::capture::Burst::Done||g_frameBurst.phase==dvr::capture::Burst::Failed))
+        Log("dump/burst: %s; %s",FrameBurstStatus(),g_frameBurstDir);
 }
 
 // Present thread, after the eyes are rendered and before they are submitted.
 static void FrameDumpTick(IDirect3DDevice9* dev)
 {
+    FrameBurstTick();
     if (!g_dumpReqCapture && !g_dumpReqEyes && g_dumpReqHud < 0) return;
     char path[MAX_PATH];
     if (g_dumpReqHud >= 0) {

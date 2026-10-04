@@ -2,10 +2,13 @@
 // Output includes local game-derived rig data and must never be committed.
 #include "game/dishonored/hands/arm_rig.h"
 #include <cstdio>
+#include <cstdlib>
 using namespace dvr::ik;
 struct Pose {const char* name;Vec wrist[2];float roll=0,length=1;bool fingers=false;float scale=1;};
 int main(int argc,char** argv){
-    if(argc!=3){puts("usage: arm-ik-sweep reference.bin sweep.json");return 2;}
+    if(argc<3||argc>4){puts("usage: arm-ik-sweep reference.bin sweep.json [length-multiplier]");return 2;}
+    const float multiplier=argc==4?(float)atof(argv[3]):1.f;
+    if(!std::isfinite(multiplier)||multiplier<.5f||multiplier>1.5f)return 2;
     FILE* f=nullptr;fopen_s(&f,argv[1],"rb");Rig rig;bool ok=rig.load(f);if(f)fclose(f);if(!ok)return 3;
     Chain chains[2];if(!chains[0].build(rig,false)||!chains[1].build(rig,true))return 4;
     Pose poses[]={
@@ -49,7 +52,7 @@ int main(int argc,char** argv){
             float t=sub/10.f;Xform palette[128];
             for(auto& m:palette){m.r=dvr::hf::identity3();m.t[0]=m.t[1]=m.t[2]=0;}
             ArmPose arms[2];Vec targets[2];float roll=before.roll+(current.roll-before.roll)*t;
-            float armLength=before.length+(current.length-before.length)*t;
+            float armLength=(before.length+(current.length-before.length)*t)*multiplier;
             float handScale=before.scale+(current.scale-before.scale)*t;
             for(int h=0;h<2;++h){
                 const Chain& c=chains[h];targets[h]=before.wrist[h]+(current.wrist[h]-before.wrist[h])*t;

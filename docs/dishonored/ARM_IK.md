@@ -3,8 +3,8 @@
 Implemented locally on `codex/ik-full-arms`, based on staging
 `957322031d6c67aebd4f0910261f682501b43074`. Updated 2026-10-04. Host and
 Blender validation pass with the deformation limits below. Runtime palette
-mapping refused in the first live run; the coordinate-boundary fix below awaits
-a follow-up user-launched run.
+mapping and basic arm tracking were accepted on v1.0.3-11-g8eee77252.
+Minor flicker and forearm collapse on wrist roll led to the follow-up below.
 No ticket, push or PR: work remains local per maintainer instruction.
 
 ## Behavior and controls
@@ -127,6 +127,74 @@ history, own-wrist twist input and authored orientation, and stereo replay.
 The runtime writes and bone/helper indices are specific to BioShock and were
 not copied. The MIT notice is in `docs/licenses/bioshock-arm-ik.txt`.
 
+## Accepted activation; twist and timing follow-up, 2026-10-04
+
+The v1.0.3-11-g8eee77252 banner and installed proxy hash match. Runtime
+validated all 2,771 vertices, all 48 active palette slots and 4,448 triangles,
+with zero position/weight error. Full articulated arms were accepted. The
+remaining reported issues are a small, not yet classified arm flicker and
+forearm collapse during wrist roll. Whole-arm disappearance was not the
+reported flicker. Controller-tracking-loss fallbacks also exist in the log;
+they do not establish the cause of the smaller visual artifact. The accepted
+DLL, rig, INI and both logs are preserved under `build/arm-ik-test/live-working/`.
+
+**Timing candidate:** the arm path already uses the normal hands' draw-owned
+view matching, eye correction and final animated wrist. Its additional IK
+history used `rec.track.gen` on matched views but `pose.gen` on fallback views.
+The latter counts hand publications, not XR locates. The log alternates values
+around 58,000 and 88,000; one fallback made later matched samples appear old,
+discarding elbow/twist history and the body-yaw filter. Each stored head matrix
+now carries its actual locate generation, including the lagged fallback.
+Both branches use that one domain. A matched/fallback/matched regression
+reproduces history loss in the old control and retains it in the corrected
+path. The log now labels locate/publication separately and counts history
+advance/reuse/old. This is a code/host-confirmed defect; the headset flicker's
+causal attribution remains pending. See FLICKER_REFERENCE for the route.
+
+**Twist candidate:** the mesh blends lower-arm and sleeve bones across much
+of the shaft, including nearly 50/50 vertices. The original zero-roll lower
+arm and position-weighted sleeve roll differed by about 127 degrees, reducing
+shaft radius to 44.5% in the production roll sweep. Forearm bones now share
+70% of axial roll at the elbow and ramp to the wrist. They use the continuous
+post-swivel roll instead of independently clamping only the sleeve/helpers
+while the hand keeps turning. Elbow/wrist positions and native hand/finger
+matrices remain exact. No mesh hiding, reference-asset edits or weight edits.
+
+On the same 260-frame sweep at the player's current 1.2 length multiplier,
+the old control fails an 85% shaft-radius floor (44.5% minimum); the candidate
+passes (88.1%). The radius test separates the shaft from vertices influenced
+by the native wrist, where bending legitimately creases the cuff. Those cuff
+measurements are still reported, not excluded from the evidence. Across all
+260 frames there are zero solve failures, maximum joint-length error 0.000033
+and wrist join error 0.000035 units. Finger-only animation keeps the arms
+stable. One triangle drops below 1% area in an extreme crossed-pose transition
+(frame 48); no triangle exceeds 10x reference area. No collision constraint.
+
+Both versions were simulated in Blender at length 1.2. Baseline: 260 baked
+frames, five comparison renders. Candidate: 260 frames, 18 inspected key
+poses. Evidence: `twist-baseline/length120-sweep.json`,
+`twist-final-length120-sweep.json`, the `*-volume.json` reports,
+`blender-twist-baseline/` and `blender-twist-final/` under `build/arm-ik-test/`.
+The original Blender workspace and accepted installed rig remain unchanged.
+
+**Capture control:** L3+R3/F10 > IK has an always-visible `Capture 16 frames
+(5 second delay)` button; Display > Frame capture exposes it in Basic too.
+It closes the panel. In AFW it calls the existing rich AFW capture. In native
+stereo it writes 16 full-resolution eye BMPs and `frames.csv` under a unique
+`dumps/frames-*` directory. Rows identify the delivered serial/record/eye and
+previous-present source. Source repeats are ignored, worker backpressure gaps
+are counted, the queue is capped at 96 MiB/three jobs and a 15-second capture
+deadline prevents indefinite arming. Worker write errors cannot report success.
+Readback can perturb cadence; these are not guaranteed consecutive presents
+or final compositor/VD images. This is diagnostic pixel evidence, not a
+nonintrusive performance recording. See PERFORMANCE for capture cost notes.
+
+Host checks: 1,083 arm/history/capture-schedule assertions pass. A standalone
+32-bit D3D11 WARP test compiles the same asynchronous image writer, verifies
+32 BMPs pixel-for-pixel in RGBA and BGRA formats, confirms PNG compatibility
+and checks failed-write cleanup. No game was launched for these tests.
+The button's in-game invocation and both visual fixes await the next launch.
+
 ## First live run and coordinate-boundary correction, 2026-10-04
 
 Banner and installed SHA matched `v1.0.3-9-g012ddce9a`. The player reported
@@ -186,12 +254,14 @@ Evidence stays under `build/arm-ik-test/`: `fixed-sweep.json`, host executables,
 
 ## Next headset test
 
-One question: with IK enabled, do both full arms appear and bend as the left
-hand moves slowly from close to extended? No sleeve adjustments are needed.
-Full visible articulated arms support activation. Clipped floating hands mean
-inspect mapping/refusal logs; full but rigid or detached arms mean inspect the
-active pose/transform path. This is an activation test; independent-arm,
-menu/load and animation checks follow separately.
+One question: does the forearm retain its shape through the wrist-roll angle
+that previously pinched it? Hold the arm in view, use IK > Capture 16 frames
+(5 second delay), then slowly roll the left hand palm-up and palm-down after
+the menu closes. A full shaft supports the twist correction. A remaining
+pinch means the captured wrist/reach pose needs another deformation check.
+Use the same sequence to inspect the unclassified flicker offline, without a
+second perceptual question in this launch. A brief capture hitch is expected.
+Verify the installed banner before interpreting the log or images.
 
 ## Original first-run question (IK did not activate)
 

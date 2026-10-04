@@ -1,3 +1,26 @@
+## 2026-10-04: full arms accepted; roll shape/history correction and capture control
+
+On matching v1.0.3-11-g8eee77252, all 2,771 vertices/48 palette slots mapped
+exactly and full articulated arms were accepted. Remaining issues: minor arm
+flicker (surface vs pose subtype unclear) and rolled-forearm collapse. Accepted
+DLL/INI/logs/rig preserved in `build/arm-ik-test/live-working/`.
+
+Candidate: correct mixed locate/publication generations in IK history; retain
+the existing hands' view/eye guards. Share forearm axial roll so the shaft's
+minimum radius in the 1.2-length Blender sweep improves 44.5% -> 88.1%.
+Hands/fingers and endpoints remain exact. Capture 16 frames (5 second delay)
+is now directly on IK and Basic Display; native stereo records eye BMPs and
+frame metadata, AFW reuses its existing diagnostic capture. 96 MiB queue,
+counted omissions, 15-second deadline, no idle readback. Capture can hitch.
+
+1,083 host checks, x86 D3D11 image-writer tests and a new 260-frame Blender
+sweep pass. One extreme crossed-pose triangle still compresses below 1% area.
+In-game capture and perceptual fixes remain unverified. Next launch's sole
+question: does the forearm keep its shape while slowly rolling through the
+previous pinch angle, using the IK capture button to preserve the sequence?
+Details: [ARM_IK.md](dishonored/ARM_IK.md), [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+No game launch, subagents, push, PR, ticket or merge. Local work only.
+
 ## 2026-10-04: first IK run refused the exported coordinate convention
 
 The installed v1.0.3-9-g012ddce9a banner and hash match. Log: zero IK solves;

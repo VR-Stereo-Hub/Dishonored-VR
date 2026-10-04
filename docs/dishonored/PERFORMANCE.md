@@ -3989,3 +3989,24 @@ post-effect headset capture nor performance is accepted yet. The first question 
 the toggle visibly changes the headset view. A later timed comparison can measure effect
 cost, keeping the same save, resolution and VR mode; do not mix that with a texture-pack
 install or assume mirror suppression still applies while ReShade is active.
+
+## 2026-10-04: restored frame burst for native-stereo IK diagnosis
+
+The AFW capture control was nested under Debug and the AFW method; it was not
+visible in the tested reentry configuration. A Basic IK/Display control now
+routes AFW to that existing capture, and other modes to 16 full-resolution
+source-eye BMPs after a five-second delay. Native disk writes run on workers,
+with at most 96 MiB and three outstanding pixel jobs. Busy omissions and
+source identities are recorded, not presented as consecutive real-time frames.
+Readback still waits on the GPU and can perturb the cadence being inspected;
+no nonintrusive timing or throughput claim is made. It allocates/reads nothing
+while idle. Capture times out after 15 seconds if output never becomes usable.
+At 2750x2850x4, 16 raw images use about 478 MiB on disk before tiny headers.
+The richer existing AFW capture remains much larger and retains its known
+readback cost; it is not substituted for native stereo or silently enabled.
+
+A standalone x86 D3D11 WARP host tests the production I/O path: 32 exact BMP
+pixel checks across RGBA/BGRA, PNG compatibility and failed-write cleanup pass.
+Game capture and perceptual effect are pending. Screenshot output is locally
+ignored game-derived data. See ARM_IK and FLICKER_REFERENCE for experiment
+identity and the one-question roll/capture launch. No new performance report.

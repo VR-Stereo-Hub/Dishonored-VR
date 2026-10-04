@@ -1511,3 +1511,14 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   - Independent shoulder reach, shared nominal controls and a dedicated IK tab
     implement the revised design. Native arm animation cannot bypass active IK.
   - `dishonored/ARM_IK.md` records host/Blender evidence and pending live validation.
+
+### 2026-10-04: IK history identity and bounded diagnostic captures
+
+IK temporal state uses the locate generation of the exact selected head matrix,
+including lagged fallback samples. Publication counts are a separate clock and
+cannot order view-matched poses. Forearm roll is distributed across the authored
+overlapping lower-arm/sleeve weights; production skinning is checked in Blender.
+On-demand native frame bursts reuse the existing delivered-eye readback seam,
+with bounded worker memory and recorded gaps. AFW retains its established capture.
+Details and remaining headset verification: docs/dishonored/ARM_IK.md and
+docs/dishonored/FLICKER_REFERENCE.md.

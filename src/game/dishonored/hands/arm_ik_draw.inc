@@ -94,7 +94,9 @@ static bool IkBuildGeometry(IDirect3DDevice9* dev)
 }
 static dvr::ik::PoseFrame& IkFrame(const MpDrawCtx& ctx)
 {
-    unsigned gen=ctx.ikPoseGen?ctx.ikPoseGen:ctx.pose.gen;
+    const unsigned gen=ctx.ikPoseGen;
+    // Both matched and fallback heads carry a runtime locate generation.
+    // pose.gen counts publications and cannot be compared with that clock.
     // XR forward is -Z. Yaw is measured in the tracking frame so a game-side
     // artificial turn is carried once by the established tracking->draw map.
     float yaw=atan2f(-ctx.pose.head[0][2],ctx.pose.head[2][2]);
@@ -115,7 +117,7 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     PcRefreshLayout(dev);
     MpDrawCtx ctx{};
     ++g_mpDrawsEntered;
-    if(!MpAcquireCtx(dev,&ctx)||!ctx.poseOk||!ctx.pose.headOk||!ctx.basisProper)
+    if(!MpAcquireCtx(dev,&ctx)||!ctx.poseOk||!ctx.pose.headOk||!ctx.ikPoseGen||!ctx.basisProper)
         return IkRefuse(ctx.why?ctx.why:"Head tracking is unavailable.");
     ++g_mpDrawsSampled;
     MpDrawCompare(&ctx);
@@ -191,8 +193,9 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     ++g_ikSolves;++g_msDraws;InterlockedIncrement(&g_mpDraws);
     g_msPassThrough=false;g_ikStatus="Active - IK arms, animated hands";
     DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
-        "ik: ACTIVE generation=%u pose=%u eye=%d draws=%u; shoulder reach shift uu L=%.3f R=%.3f; hand blend %.3f/%.3f; native arm animation replaced, original skin weights retained",
-        g_mpSrcGen,temporal.gen,ctx.viewEye,g_ikSolves.load(),solved[0].joints.shoulderShift,solved[1].joints.shoulderShift,
+        "ik: ACTIVE generation=%u headLocate=%u publication=%u matched=%d fresh=%d eye=%d draws=%u; history advance/reuse/old=%u/%u/%u; shoulder reach shift uu L=%.3f R=%.3f; hand blend %.3f/%.3f; native arm animation replaced, original skin weights retained",
+        g_mpSrcGen,temporal.gen,ctx.pose.gen,ctx.viewMatched?1:0,temporal.fresh?1:0,ctx.viewEye,g_ikSolves.load(),
+        ikTime.advanced,ikTime.reused,ikTime.old,solved[0].joints.shoulderShift,solved[1].joints.shoulderShift,
         dvr::anim::weight_for(0),dvr::anim::weight_for(1));
     return true;
 }

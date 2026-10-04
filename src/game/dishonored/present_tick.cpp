@@ -250,6 +250,7 @@ static void DvrConsumePoses()
         // frames), so the hand needs the same sample the view was built from.
         g_headHistIdx = (g_headHistIdx + 1) % DVR_HEAD_HIST;
         memcpy(g_headHist[g_headHistIdx], m, sizeof(g_headHist[0]));
+        g_headHistGen[g_headHistIdx] = dvr::vr::locate_gen();
         g_headHistOk[g_headHistIdx] = true;
         if (g_headHistN < DVR_HEAD_HIST) ++g_headHistN;
         // VR-68: the identity of the head this hand normalisation will use.

@@ -875,9 +875,19 @@ static void OvlTabHud()
     }
 }
 
+static void OvlFrameBurst()
+{
+    if(dvr::ovl::button("Capture 16 frames (5 second delay)")){
+        FrameBurstRequest();g_ovlVisible=false;
+    }
+    OvlTip("Closes this menu, waits five seconds, then saves a short series of eye images. Keep the arms in view and reproduce the issue. Saving can briefly hitch.");
+    ImGui::TextWrapped("Capture: %s",FrameBurstStatus());
+}
+
 // ---- Display --------------------------------------------------------------------------------
 static void OvlTabDisplay()
 {
+    if(OvlSec("Frame capture",kOvlB,"Save a short sequence for diagnosing visual issues."))OvlFrameBurst();
     if (OvlSec("Stereo rendering", kOvlB, "How the two eyes are rendered. Try both and compare.")) {
         // VR-39: reentry (both eyes every tick) against AER (one eye per tick, alternating).
         const char* wanted = dvr::stereo::wanted_name();
@@ -1512,6 +1522,8 @@ static void OvlTabBody(const char* id, void (*draw)())
 
 static void OvlTabIK()
 {
+    OvlFrameBurst();
+    ImGui::Separator();
     bool on=g_ikOn.load();
     if(dvr::ovl::checkbox("Full-arm IK",&on)){
         g_ikOn=on;g_ikReload=true;

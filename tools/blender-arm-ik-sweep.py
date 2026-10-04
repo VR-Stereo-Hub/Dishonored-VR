@@ -19,6 +19,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--sweep', type=Path, required=True)
 parser.add_argument('--reference', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
+parser.add_argument('--render-frames', default='10,20,30,40,50,60,70,80,90,100,130,150,160,200,210,240,250,260')
 args = parser.parse_args(sys.argv[sys.argv.index('--')+1:])
 args.sweep = args.sweep.resolve()
 args.reference = args.reference.resolve()
@@ -185,7 +186,8 @@ scene['IK source'] = str(args.sweep)
 bpy.ops.wm.save_as_mainfile(filepath=str(args.out/'Arm-IK-Pose-Sweep.blend'))
 summary = {'jointImportMaxError': max(head_errors), 'productionSolver': sweep['validation'],
            'meshFrames': reports, 'rendered': []}
-selected = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 130, 150, 160, 200, 210, 240, 250, 260]
+selected = [int(n) for n in args.render_frames.split(',')]
+assert selected and all(1 <= n <= len(sweep['frames']) for n in selected)
 for frame in selected:
     scene.frame_set(frame)
     path = args.out/f'pose-{frame:03d}.png'

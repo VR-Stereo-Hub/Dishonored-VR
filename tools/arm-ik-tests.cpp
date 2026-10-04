@@ -1,5 +1,6 @@
 #include "game/dishonored/hands/arm_rig.h"
 #include <cstdio>
+#include "core/gfx/frame_burst.h"
 #include <limits>
 using namespace dvr::ik;
 static int checks=0,failures=0;
@@ -53,6 +54,19 @@ int main(int argc,char** argv){
     check(history.lastGen==11&&near(history.prior[0],{1,2,3}),"old queued pose cannot rewind live history");
     auto& resumed=history.acquire(12,1,1500);
     check(!resumed.fresh&&near(resumed.prior[0],{})&&resumed.yaw==1,"tracking gap clears elbow and yaw history");
+    // Replay the two counters observed in the accepted live candidate.
+    // View matches used locate ~58000; fallback used publication ~88000.
+    // That old wiring starved subsequent matched draws of body/twist history.
+    PoseHistory mixed, coherent;
+    auto& mf=mixed.acquire(58000,0,1000);mixed.commit(mf,0,{1,0,0},2.6f);
+    auto& cf=coherent.acquire(58000,0,1000);coherent.commit(cf,0,{1,0,0},2.6f);
+    auto& mb=mixed.acquire(88000,.1f,1008);mixed.commit(mb,0,{1,0,0},2.7f);
+    auto& cb=coherent.acquire(58001,.1f,1008);coherent.commit(cb,0,{1,0,0},2.7f);
+    check(!mixed.acquire(58002,.11f,1016).fresh,"old mixed-counter control loses history after a fallback");
+    const auto& current=coherent.acquire(58002,.11f,1016);
+    check(current.fresh&&current.twist[0]==2.7f&&current.yaw<.02f,"matched-fallback-matched locate sequence retains twist and body yaw");
+    const auto& otherEye=coherent.acquire(58002,.12f,1017);
+    check(otherEye.twist[0]==current.twist[0]&&coherent.reused==1&&coherent.old==0,"two eyes share one locate history despite different publication counters");
     Mat3 world=axis_angle({0,0,1},.4f),local=axis_angle({1,0,0},-.9f),flip=dvr::hf::identity3();flip.m[8]=-1;
     for(int i=0;i<20;++i){
         Mat3 head=axis_angle({1,2,3},i*.2f);
@@ -61,6 +75,21 @@ int main(int argc,char** argv){
         check(near(rotate(bridge,{2,3,4}),rotate(dvr::hf::mul3(dvr::hf::transpose3(local),world),{2,3,4})),"tracking bridge cancels head pitch roll and yaw exactly once");
     }
 
+    dvr::capture::Burst burst;
+    check(burst.start(1000)&&!burst.start(1001),"capture ignores a duplicate request during the countdown");
+    check(!burst.ready(5999,1,true,true)&&burst.captured==0,"capture waits five seconds");
+    check(!burst.ready(6000,0,true,true),"capture refuses absent image identity");
+    check(!burst.ready(6000,1,true,false)&&burst.skipped==1,"capture backpressure records a skipped source frame");
+    check(!burst.ready(6001,1,true,true),"capture cannot relabel a repeated source as a new frame");
+    for(unsigned i=0;i<16;++i){check(burst.ready(6002+i,i+2,true,true),"capture accepts new source image");burst.queued(true);}
+    check(burst.phase==dvr::capture::Burst::Saving&&!burst.ready(6100,99,true,true),"capture ends at sixteen and waits for files");
+    burst.saved(true,false);check(burst.phase==dvr::capture::Burst::Saving,"pending disk jobs are not success");
+    burst.saved(false,false);check(burst.phase==dvr::capture::Burst::Done,"all saved files finish capture");
+    check(burst.start(7000),"completed capture can be armed again");
+    burst.ready(27001,99,true,true);check(burst.phase==dvr::capture::Burst::Failed,"missing frames time out instead of leaving capture armed forever");
+    burst.start(30000);burst.ready(35000,100,true,true);burst.queued(false);
+    check(burst.phase==dvr::capture::Burst::Failed,"readback or metadata write failure never reports done");
+    burst.start(40000);burst.saved(false,true);check(burst.phase==dvr::capture::Burst::Failed,"worker write failure reaches capture status");
     Rig rig;rig.bones.resize(3);rig.vertices.resize(3);rig.triangles=1;
     Vertex runtime[3]{};
     for(int i=0;i<3;++i){

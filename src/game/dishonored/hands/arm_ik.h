@@ -131,19 +131,21 @@ struct PoseHistory {
     BodyYaw yaw;
     PoseFrame frames[8];
     uint32_t next=0,lastGen=0;
+    uint32_t advanced=0,reused=0,old=0;
     double stamp=0;
     Vec prior[2];float twist[2]{};
     PoseFrame& acquire(uint32_t gen,float headYaw,double nowMs){
-        for(auto& f:frames)if(f.valid&&f.gen==gen)return f;
+        for(auto& f:frames)if(f.valid&&f.gen==gen){++reused;return f;}
         bool newer=!stamp||(int32_t)(gen-lastGen)>0;
         bool fresh=newer&&stamp&&nowMs>=stamp&&nowMs-stamp<250;
         auto& f=frames[next++%8];f=PoseFrame{};f.valid=true;f.gen=gen;f.fresh=fresh;
         if(newer){
+            ++advanced;
             if(!fresh)yaw.reset();
             f.yaw=yaw.update(headYaw,fresh?(float)(nowMs-stamp)*.001f:0);
             for(int h=0;h<2;++h){f.prior[h]=fresh?prior[h]:Vec{};f.twist[h]=fresh?twist[h]:0;}
             lastGen=gen;stamp=nowMs;
-        }else f.yaw=headYaw; // an old queued view cannot rewind current history
+        }else {++old;f.yaw=headYaw;} // an old queued view cannot rewind current history
         return f;
     }
     void commit(PoseFrame& f,int hand,Vec bodyPole,float angle){

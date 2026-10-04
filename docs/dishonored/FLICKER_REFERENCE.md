@@ -1,3 +1,35 @@
+## 2026-10-04: full-arm IK accepted; minor flicker unclassified, history-domain defect corrected
+
+Surface: complete native player arms under IK; route: hand-palette correction
+and view/pose association in section 1. The report excludes whole-arm loss
+but cannot yet distinguish small pose jitter from missing surface patches.
+This does not establish a recurrence of a resolved weapon/mono issue.
+
+- Build/config: v1.0.3-11-g8eee77252, matching banner/proxy SHA; reentry,
+  PoseFromView=1, MSW off, IK on. Current tuning forward/right/up 0/0/-23 cm,
+  width 36, length 1.2. All 2,771 vertices/48 slots map exactly; full arms and
+  basic tracking are headset-accepted. Raw evidence stays in ignored
+  `build/arm-ik-test/live-working/` with a recoverable DLL/INI/rig pair.
+- The arm path already consumes the hands' view matching and eye correction.
+  Its IK history, however, compares matched-head locate counters with fallback
+  hand-publication counters. Live telemetry alternates about 58k and 88k.
+  Host negative control loses smoothing history after one fallback; corrected
+  samples keep it by carrying the locate identity beside each head matrix.
+- Counterprediction: consistently comparable locate IDs, no false old-sample
+  storm after fallback, retained pole/twist state. If the visible flicker
+  remains with coherent history, inspect per-eye pixel captures for surface,
+  draw-pass, or shading differences rather than claiming this fixed it.
+- The IK and Display tabs now expose a short frame burst in Basic view. Native
+  stereo saves 16 source eye images with delivered record/serial/eye metadata;
+  AFW delegates to its existing richer capture. Readbacks may perturb timing,
+  and worker-backpressure omissions are explicitly recorded. No captures from
+  the affected new run exist yet. Capture cost record: PERFORMANCE.
+- Separate same-arm issue: wrist-roll shaft collapse reproduced in Blender.
+  Shared forearm roll improves the tested 1.2-scale minimum shaft radius from
+  44.5% to 88.1%. It does not prove anything about the flicker. Full evidence,
+  old control, remaining deformation limits and next one-question test:
+  [ARM_IK.md](ARM_IK.md#accepted-activation-twist-and-timing-follow-up-2026-10-04).
+
 ## 2026-10-04: full-arm IK stereo contract (new candidate, headset unverified)
 
 Surface: native player arms/hands, corresponding to the hand-palette and
@@ -3054,6 +3086,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| Small flicker on newly active full IK arms, subtype uncertain | IK history mixed head-locate and hand-publication counters; surface/pose distinction still needs pixels | 2026-10-04 code/host defect corrected; headset effect pending. Basic IK/Display frame burst added; see newest entry |
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
 | AFW hands slide opposite lateral head motion while world stays stable | Native hand image/pose association, including position ties | Build 242 HEADSET-ACCEPTED with PoseFromView=1 and rotation-assisted ties. Negligible residual reported; do not infer all views matched. |
 | Hands jitter in pause child screens while root is smooth | Compare draw-owned submenu, repeated pose, correction and scene cadence; context 3 alone cannot distinguish these screens | 2026-09-27 callback coverage observed, tentative smooth run; cause and fix open; see top entry |

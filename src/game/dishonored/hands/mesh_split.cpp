@@ -2304,6 +2304,7 @@ static bool MpAcquireCtx(IDirect3DDevice9* dev, MpDrawCtx* c)
         c->poseOk = (c->pose.gen != 0);
     }
     c->viewMatched = false; c->viewEye = 0;
+    c->ikPoseGen = c->pose.headLocateGen; // same counter domain as rec.track.gen
     if (g_mpPoseFromView && c->poseOk) { MpPoseFromView(c); MpPoseViewBeat(); }
     {   // a snapshot older than the previous draw's means publication and
         // consumption have crossed; it is not fatal, but it must be visible
@@ -3813,6 +3814,7 @@ static void MpDriveTick(void)
     MpPoseSnap snap;
     memset(&snap, 0, sizeof(snap));
     snap.headOk = g_devPoseOk[0];
+    snap.headLocateGen = g_headHistOk[hidx] ? g_headHistGen[hidx] : dvr::vr::locate_gen();
     memcpy(snap.head, HEAD, sizeof(snap.head));
     for (int h = 0; h < 2; h++) {
         snap.inHead[h] = dvr::hf::identity3();

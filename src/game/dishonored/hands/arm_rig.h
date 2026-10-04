@@ -135,7 +135,13 @@ inline bool pose_arm(const Rig& rig,const Chain& chain,Vec nominal,Vec pole,Vec 
         if(chain.region[i]==1){m.r=upperM;put(sol.shoulder-rotate(m.r,s0),m.t);}
         else {
             float fraction=std::clamp(dot(rig.bones[i].head-e0,ew)/dot(ew,ew),0.f,1.f);
-            Mat3 turn=axis_angle(axis,std::clamp(roll,-150*rad,150*rad)*fraction);
+            // Authored lower-arm/sleeve weights overlap across most of the
+            // forearm, not just at each helper head. Leaving the lower arm at
+            // zero roll made a 50/50 blend differ by 127 degrees and shrink to
+            // 45% radius. Share 70% of the axial roll at the elbow, then ramp to
+            // the wrist. The elbow/wrist joint positions remain exact.
+            float twistFraction=.7f+.3f*fraction;
+            Mat3 turn=axis_angle(axis,roll*twistFraction);
             m.r=hf::mul3(turn,foreM);
             Vec target=sol.elbow+rotate(foreM,rig.bones[i].head-e0);
             put(target-rotate(m.r,rig.bones[i].head),m.t);
