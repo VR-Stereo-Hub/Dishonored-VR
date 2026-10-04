@@ -38,6 +38,11 @@ it ON. Reduced implicates older world samples; unchanged needs a timed AFW captu
 and DLSS isolation; worse rejects this mode for that scene. No quality settings
 are silently reduced. Headset acceptance remains pending.
 
+Installed test identity: v1.0.3-34-g63a890a76, SHA256
+4a29ae80dd9d4d44410a2639dc7120e97841ea47abaa674d7a75abee27481d30.
+AfwFreshWorld=1 is the only installed INI change; full comparison and CRLF checks
+pass. PERFORMANCE records the backup and unchanged settings. No game launch.
+
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
 Reported weapon-wheel arm loss and uncertain pause-menu arm loss on the

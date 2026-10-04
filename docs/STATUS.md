@@ -18,7 +18,18 @@ Next launch's ONE question: on the same moving boat/ferry, does F10 > Display >
 Stereo rendering > AFW: moving scenery from the current frame OFF then ON reduce
 or remove ghosting? The installed test will be ON. Reduced implicates old world
 samples; unchanged needs captured pixel/DLSS isolation; worse rejects the option.
-Keep all other settings fixed. Install identity and whole-INI verification follow.
+Keep all other settings fixed.
+
+Installed optimized v1.0.3-34-g63a890a76, proxy SHA256
+4a29ae80dd9d4d44410a2639dc7120e97841ea47abaa674d7a75abee27481d30.
+Full backup/expected files/diffs/manifest: build/performance-audit/
+install-20261004-185439-hud-afw/. Verified build 32 banner against its installed
+hash before archiving both logs. Entire installed VR INI differs only by adding
+[Stereo] AfwFreshWorld=1; 73,733 bytes, 1,694 CRLF, zero lone endings, exact
+expected-byte match. All prior settings, ReShade.ini and selected preset retained.
+Golden/release INIs match the source's new default OFF. Full optimized build,
+11 installed exports, lint, HUD shader checks and replay compilation pass.
+New game banner and perceptual result await the tester's launch.
 
 ## 2026-10-04: combined work merged to staging; performance audit and ReShade fix
 

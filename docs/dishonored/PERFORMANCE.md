@@ -84,6 +84,12 @@ old world pixels; unchanged means inspect eye captures and upstream DLSS; worse
 means reject the option for this scene. Hold other settings fixed. Read matching
 banner and logs ourselves. Overall FPS recovery remains open; no staging merge.
 
+Installed test candidate: v1.0.3-34-g63a890a76, SHA256
+4a29ae80dd9d4d44410a2639dc7120e97841ea47abaa674d7a75abee27481d30.
+Only full-INI delta is AfwFreshWorld=1 (default remains OFF), with 1,694 CRLF
+and no lone endings; preset/ReShade config unchanged. Backup and manifest:
+build/performance-audit/install-20261004-185439-hud-afw/. Headset pending.
+
 ## 2026-10-04: full performance audit after combined staging integration
 
 The combined #168/#172/#173/#174 candidate was explicitly authorized and pushed
