@@ -1480,3 +1480,12 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   - The loader's warnings reach the mod log through a recorder added to its internal logger
     (core/vr/xr_loader_log.cpp). No vendored loader file is edited; the one source file that
     includes loader internals is the only coupling, and it breaks at compile time if the SDK moves.
+
+- **2026-10-04 - Full-arm IK uses a paired shoulder frame (design only).**
+  - One forward/right/up center and total width generate both shoulder anchors.
+    No per-hand shoulder offsets or independent reach-driven shoulder sliding.
+  - Reuse each existing driven wrist endpoint. Validate the named skeleton to
+    draw-palette mapping before rendering arms; weighted skin centroids are not
+    joint origins. Keep source weights and the established action handoff.
+  - The reviewed BioShock references, limits and staged verification plan are
+    in `dishonored/ARM_IK.md`. No runtime path is introduced by this decision.

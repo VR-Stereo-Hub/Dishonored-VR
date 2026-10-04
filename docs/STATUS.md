@@ -1,3 +1,20 @@
+## 2026-10-04: local full-arm IK branch and reference design
+
+Local branch `codex/ik-full-arms` starts at staging `957322031`. Reviewed both
+BioShock references at pinned revisions and recorded the implementation design
+in [ARM_IK.md](dishonored/ARM_IK.md). One shared forward/right/up center plus a
+total width keeps shoulders aligned. Independent shoulder sliding at reach
+limits is excluded; preserve existing controller endpoints and fail back to
+floating hands until an explicit reach policy can render them correctly.
+
+The current weighted-centroid hand splitter does not establish named joint
+origins or a reference-skeleton-to-palette map. Next: engine-independent solver
+and host tests, then a read-only runtime map before arm palette writes. Native
+action ownership, per-eye pose ownership and menu/load identity must survive.
+This is a design/research checkpoint: no runtime IK, no new supported settings,
+no build/install or headset test. Work stays local without a Linear ticket per
+maintainer instruction; existing checkout changes remain in their checkout.
+
 ## 2026-10-03: remote Reverb G2 never reached VR - ReShade's OpenXR layer refused (-32)
 
 Remote tester, HP Reverb G2 on SteamVR (WMR driver replacement), RTX 5080, v1.0.3 with the
