@@ -1,3 +1,18 @@
+## 2026-10-04: retain full-arm IK in weapon-wheel and pause menus
+
+Follow-up report: arms disappear in the weapon wheel, possibly also pause.
+Code confirms an IK-only gate rejected every input-owning menu and selected
+the clipped-hands fallback. Remove that broad gate; keep the title-screen
+block and all current draw, source-generation, palette and tracking checks.
+No engine-object identities or engine writes are introduced. Active IK logs
+now identify menu context. This includes the preceding roll/history/capture
+changes; their headset verdict remains pending.
+
+Next launch has one question: do full arms remain visible while opening,
+using and closing the weapon wheel? Remaining disappearance means another
+draw/placement guard or engine visibility path needs diagnosis. Pause-menu
+acceptance is a separate later test. Details: [ARM_IK.md](dishonored/ARM_IK.md).
+
 ## 2026-10-04: full arms accepted; roll shape/history correction and capture control
 
 On matching v1.0.3-11-g8eee77252, all 2,771 vertices/48 palette slots mapped

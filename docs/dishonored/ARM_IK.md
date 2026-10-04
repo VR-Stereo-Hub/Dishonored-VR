@@ -1,3 +1,16 @@
+## Menu visibility correction, 2026-10-04
+
+The weapon-wheel disappearance report exposed a broad IK-only menu gate.
+Input-owning menus are now allowed to use full-arm IK whenever the existing
+qualified arm draw and hand-placement guards succeed. The main title screen
+remains blocked. Mesh-source changes still invalidate the copied rig and
+current palette/view/tracking checks run on every draw; no retained UObject
+identity or engine-memory write is added. Menu context is included in IK
+telemetry. Weapon-wheel and possible pause-menu loss are separate from the
+unclassified minor arm flicker. No new playtest has run. The next launch
+asks only whether full arms stay visible through weapon-wheel open/use/close;
+roll and pause acceptance follow separately.
+
 # Full-arm IK
 
 Implemented locally on `codex/ik-full-arms`, based on staging

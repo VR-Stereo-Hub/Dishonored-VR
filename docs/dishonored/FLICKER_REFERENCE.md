@@ -1,3 +1,16 @@
+## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
+
+Reported weapon-wheel arm loss and uncertain pause-menu arm loss on the
+accepted IK candidate. Code cause: IkTryDraw rejected g_menuOpen/g_inMenu/
+UiSurfaceBlocks, even when the engine still issued a qualified arm draw.
+Those are input-ownership gates; they do not establish invalid geometry.
+The replacement fell back to clipped hands. Remove those three predicates,
+retain the title-screen block and all normal view/palette/tracking/source
+validation. Log menuContext with successful IK draws. No UObject is retained
+or written. Counterprediction: IK remains active in wheel/pause contexts.
+If arms still disappear, inspect missing draws and placement refusals instead.
+Headset confirmation pending; this does not classify or close minor flicker.
+
 ## 2026-10-04: full-arm IK accepted; minor flicker unclassified, history-domain defect corrected
 
 Surface: complete native player arms under IK; route: hand-palette correction

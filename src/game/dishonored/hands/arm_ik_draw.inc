@@ -106,10 +106,11 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
 {
     using namespace dvr::ik;
     if(g_ikReload.exchange(false)){IkDropGeometry();ikMesh.rig=Rig{};}
-    if(g_menuOpen||g_inMenu||g_mainMenu||UiSurfaceBlocks()){
-        // Keep the last activation/refusal visible while the settings menu is open.
-        IkResetPose();return false;
-    }
+    // A menu owning INPUT does not invalidate a rendered player-arm draw.
+    // Wheel/pause menus use the same view-matched hand placement as gameplay.
+    // Keep the title screen blocked; current draw/palette/source-generation
+    // and tracking guards below still validate every replacement.
+    if(g_mainMenu){IkResetPose();return false;}
     if(!g_mpOn||!g_mpWorld||g_mpPalN==0||g_mpCacheN!=g_mpPalN||g_mpCacheN>256)
         return IkRefuse("Waiting for a complete hand palette and tracked hand placement.");
     if(!ikMesh.tried||ikMesh.generation!=g_mpSrcGen){if(!IkBuildGeometry(dev))return false;}
@@ -193,8 +194,8 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     ++g_ikSolves;++g_msDraws;InterlockedIncrement(&g_mpDraws);
     g_msPassThrough=false;g_ikStatus="Active - IK arms, animated hands";
     DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
-        "ik: ACTIVE generation=%u headLocate=%u publication=%u matched=%d fresh=%d eye=%d draws=%u; history advance/reuse/old=%u/%u/%u; shoulder reach shift uu L=%.3f R=%.3f; hand blend %.3f/%.3f; native arm animation replaced, original skin weights retained",
-        g_mpSrcGen,temporal.gen,ctx.pose.gen,ctx.viewMatched?1:0,temporal.fresh?1:0,ctx.viewEye,g_ikSolves.load(),
+        "ik: ACTIVE generation=%u headLocate=%u publication=%u matched=%d fresh=%d eye=%d draws=%u menuContext=%d; history advance/reuse/old=%u/%u/%u; shoulder reach shift uu L=%.3f R=%.3f; hand blend %.3f/%.3f; native arm animation replaced, original skin weights retained",
+        g_mpSrcGen,temporal.gen,ctx.pose.gen,ctx.viewMatched?1:0,temporal.fresh?1:0,ctx.viewEye,g_ikSolves.load(),UiSurfaceContext(),
         ikTime.advanced,ikTime.reused,ikTime.old,solved[0].joints.shoulderShift,solved[1].joints.shoulderShift,
         dvr::anim::weight_for(0),dvr::anim::weight_for(1));
     return true;
