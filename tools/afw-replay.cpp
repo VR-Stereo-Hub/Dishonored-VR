@@ -136,6 +136,10 @@ int main(int argc, char** argv) {
         ID3D11Texture2D* dst = tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0, nullptr, 0);
         ID3D11Texture2D* st = tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D11_USAGE_STAGING, D3D11_CPU_ACCESS_READ, nullptr, 0);
         dvr::afw::set_enabled(true, "replay");
+        { char value[8]={};
+          const bool freshWorld=GetEnvironmentVariableA("DVR_AFW_FRESHWORLD",value,sizeof(value)) ? value[0]=='1' : atoi(m["freshWorld"].c_str())!=0;
+          dvr::afw::set_fresh_world(freshWorld,"replay"); }
+
         dvr::afw::set_debug(dbg, "replay"); dvr::afw::set_stereo(stereo, "replay"); dvr::afw::set_matrices(mtx, "replay");
         dvr::afw::set_world_scale(strtof(m["worldScale"].c_str(), nullptr));
         dvr::afw::set_body_depth(strtof(m["bodyUnits"].c_str(), nullptr), "replay");

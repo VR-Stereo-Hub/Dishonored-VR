@@ -56,6 +56,9 @@ static void panel_checks(IDirect3DDevice9* dev,IDirect3DSurface9* cpu) {
     auto& io=ImGui::GetIO();io.IniFilename=nullptr;io.DisplaySize=ImVec2(600,900);io.DeltaTime=1.0f/60;io.ConfigInputTrickleEventQueue=false;
     unsigned char* atlas=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&atlas,&width,&height);
     panel_frame();panel_frame();
+    require(!uiLabels.count("Unrelated"),"global sorting cannot add unrelated installed effects to preset");
+    panel_click("Show all installed effects");require(uiLabels.count("Unrelated")!=0,"explicit all-effects view remains available");
+    panel_click("Show all installed effects");
     require(performance_mode(),"native performance setting read");
     require(api()->find_technique("Dormant.fx","Dormant").handle!=0,"disabled separate effect loads despite legacy skip setting");
     require(!api()->get_technique_state(api()->find_technique("Dormant.fx","Dormant")),"disabled effect remains unchecked");
@@ -66,6 +69,7 @@ static void panel_checks(IDirect3DDevice9* dev,IDirect3DSurface9* cpu) {
     reset();
     for(int i=0;i<150;++i) { render(dev);Sleep(10); }
     panel_frame();panel_frame();
+    require(!uiLabels.count("Unrelated"),"preset filter survives recreation and save");
     require(uiLabels.count("Dormant")!=0,"disabled effect control survives runtime recreation");
     require(!api()->get_technique_state(api()->find_technique("Dormant.fx","Dormant")),"unchecked selection persists across runtime recreation");
     panel_click("Enable ReShade next launch");require(!enabled_next_start() && api()!=nullptr,"startup disable persists without unloading live runtime");

@@ -1,3 +1,25 @@
+## 2026-10-04: HUD performance candidate and AFW moving-platform option
+
+Continue codex/performance-audit / draft PR #175. ReShade menu now defaults to
+only the selected preset's effects, retaining disabled entries across launches;
+all installed effects are available explicitly. HUD avoids repeated blank copies,
+conversions and clears, batches D3D11 submission, and refuses a still-busy shared
+slot. Native production HUD path: 669 checks pass. ReShade: 815 initial / 803 restart
+checks, 759 disabled, default-off pass. AFW: 71 host checks pass; synthetic boat
+texture error falls from 13.66 to 0.02 pixels with AfwFreshWorld enabled.
+
+The option ships OFF and is available in Basic Display. This is a candidate:
+headset ferry acceptance and steady FPS recovery remain unmeasured. Full performance
+record: [PERFORMANCE](dishonored/PERFORMANCE.md). Surface/routing, controls,
+tradeoffs and recoverable follow-up: [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+No engine memory writer, game launch, staging merge or VR-Main change.
+
+Next launch's ONE question: on the same moving boat/ferry, does F10 > Display >
+Stereo rendering > AFW: moving scenery from the current frame OFF then ON reduce
+or remove ghosting? The installed test will be ON. Reduced implicates old world
+samples; unchanged needs captured pixel/DLSS isolation; worse rejects the option.
+Keep all other settings fixed. Install identity and whole-INI verification follow.
+
 ## 2026-10-04: combined work merged to staging; performance audit and ReShade fix
 
 Explicitly authorized combined push advanced staging to a0c0ca360; PRs #168,

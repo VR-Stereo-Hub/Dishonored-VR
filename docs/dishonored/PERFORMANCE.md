@@ -1,3 +1,89 @@
+## 2026-10-04: HUD transfer optimization, preset filtering and moving-platform AFW
+
+Follow-up to the full audit below, on codex/performance-audit / PR #175.
+The tester reports a small FPS improvement with HUD panels disabled and suspects
+ReShade contributes to the steady loss. Neither observation establishes a full
+10% regression cause. No image-quality setting is reduced in this candidate.
+
+Verified installed v1.0.3-32-gf03ad520f, proxy SHA256
+08e66ed0e8a83e7f0100f81d9963e648da55d0c8b15d9b1e6b0f60e055daa4cb,
+before interpreting the follow-up. DLL, full INI, current/previous logs,
+ReShade config/log and selected preset are archived together locally at
+build/performance-audit/run32-followup/. Last 60 seconds, excluding the final
+3 seconds, contain 20 complete windows: median present 9.2 ms / 109.0 FPS,
+HUD read fence 2.494 ms, HUD flush 0.158 ms, D3D9 blit fence 0.003 ms,
+ReShade CPU submission 0.176 ms, AFW GPU rebuild 1.931 ms. Fence time includes
+other queued work and is not a recoverable CPU-work budget. GPU intervals
+must not be added to overlapping CPU wall times.
+
+HUD toggle segments exist, but are shorter than the proposed 45 seconds and
+other settings/location are not controlled. For example, log ms
+26775546..26800546 OFF has six interior windows with median 141.5 FPS;
+26800546..26840828 ON has eleven with median 129.0 FPS. This supports doing
+HUD work, not an attributable 12.5 FPS claim. Local run32-summary.json records
+the populations. ReShade's live Effects state was not logged, so the archive
+cannot settle its cost; F10 effect changes now log their state explicitly.
+
+### Implemented performance work
+
+- Track successful transparent clears and successful blank copies per shared
+  HUD slot. Unchanged empty slots skip the D3D9 copy and its overwrite wait.
+  The first blank after a widget disappears still travels through the normal
+  delayed ring, so old UI cannot remain displayed. Already-clear targets skip
+  redundant clears; a failed clear or copy never seeds reuse.
+- Reuse a blank D3D11 output only when all alpha/backdrop/crop/subtitle parameters
+  match. Any nonblank output, content invalidation, released/rebuilt resources,
+  resize or reset invalidates reuse. Wheel side panels keep their conversion path.
+- End individual slot read queries as before, then issue one D3D11 Flush after
+  all sinks. Every event is submitted before the next present may overwrite it.
+  A read timeout now retains the pending fence and refuses the overwrite; the
+  older implementation proceeded after 10 ms. A refused copy withholds its slot.
+- Bounded hud/work counters report copiesSaved and conversionsSaved separately
+  from emptyFrames. At the measured three-empty-of-four occupancy, this removes
+  three repeated shared transfers and conversions after warm-up. Actual FPS
+  benefit remains unmeasured; remaining active-sink waits can still dominate.
+
+The native host executes the actual hud_capture.cpp and production shader on
+D3D9Ex/D3D11 without Dishonored: 669 checks pass, including red/green widgets,
+one-frame-delayed disappearance, persistent blank outputs, changed backdrop,
+wheel side panels, content invalidation, hiding, resize, device reset and cache
+refusal. Startup harness compile repairs (gate return type and user32 linkage)
+were test setup issues; no failed product binary was installed.
+
+### ReShade menu correction
+
+Loading disabled definitions fixed persistence but exposed the entire installed
+catalog. TechniqueSorting is global order, not preset membership. F10 now lists
+the preset's configured .fx sections, active effects and its persisted F10
+selections. The selected Carinth preset has seven configured effects; only three
+are enabled. Unchecking does not remove membership. Show all installed effects
+is an explicit opt-in for adding more, and a failed membership save refuses the
+selection change with an error. Native tests include an unrelated installed
+shader in TechniqueSorting: hidden normally, available in the all-effects view,
+and still hidden after save/recreation/new-process restart. 815 checks pass initially / 803 after a new-process restart, 759 with all effects disabled, plus default-off DLL refusal.
+Definitions still load at startup; this is not a claim of reduced ReShade GPU cost.
+
+### AFW vehicle-motion candidate and remaining work
+
+The synthetic moving-platform scene proves depth-only stale rejection misses
+sideways motion at unchanged depth. Current-time world reprojection reduces its
+95th-percentile coordinate error from 13.66 px to 0.02 px with no hand ghosts or
+missing pixels. This is a host result, not a diagnosed cause in the ferry capture.
+The new AfwFreshWorld option prefers current-frame world samples and retains the
+older eye for disocclusions. It does not identify a permanently faulty left/right
+eye. Both eyes alternate being the rebuilt eye. It ships OFF, is exposed in Basic
+Display and by afw freshworld on|off, is persisted and included in capture/replay
+identity. Reflections may differ because current pixels come from the opposite eye;
+unseen areas and upstream DLSS smear are not solved by this mode. Full evidence,
+failed counterprediction and next test are in FLICKER_REFERENCE.md's newest entry.
+
+Next launch has ONE question: on the same moving boat/ferry, does toggling
+"AFW: moving scenery from the current frame" OFF then ON repeatably remove or
+reduce the ghosting? Installed test value will be ON. An improvement implicates
+old world pixels; unchanged means inspect eye captures and upstream DLSS; worse
+means reject the option for this scene. Hold other settings fixed. Read matching
+banner and logs ourselves. Overall FPS recovery remains open; no staging merge.
+
 ## 2026-10-04: full performance audit after combined staging integration
 
 The combined #168/#172/#173/#174 candidate was explicitly authorized and pushed

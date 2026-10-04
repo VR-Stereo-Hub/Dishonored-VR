@@ -254,6 +254,10 @@ const char* kSrc =
     "            if (outside || hidden) return shade(heldTex, sb, 4, zb);\n"
     "        }\n"
     "    }\n"
+    // Tangential object/vehicle motion can change colour without changing depth.
+    // The depth-only stale test cannot detect it. This opt-in uses current-time
+    // stereo samples where available; unseen regions retain the established fill.
+    "    if (prm9.w > 0.5 && okF) return shadeF(sF, 2, tF);\n"
     "    if (st && tp) {\n"
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
@@ -417,6 +421,7 @@ std::atomic<bool> g_heldHandsFollow{true};
 uint32_t g_heldHandsUsed = 0, g_heldHandsNoPose = 0;
 uint32_t g_stillUsed = 0;
 std::atomic<float> g_staleTol{0.015f};   // run 18 replay: 0.03 left a walking NPC doubled; 0.015 no worse on still captures
+std::atomic<bool> g_freshWorld{false};
 std::atomic<bool> g_cleanOn{true};       // `afw clean on|off`: the fresh eye's hands from its clean image, the held eye's UI kept
 std::atomic<float> g_cleanUi{0.006f};    // a held texel whose composed and clean colours differ by more than this is its UI
 uint32_t g_cleanTaken = 0, g_cleanMissed = 0, g_cleanUsed = 0;
@@ -1077,6 +1082,11 @@ void set_stereo(bool on, const char* who) {
              "hypothesis (a moving hand ghosts, a turn leaves a trail)");
 }
 bool stereo() { return g_stereo.load(); }
+void set_fresh_world(bool on,const char* who) {
+    g_freshWorld.store(on);
+    DVR_INFO("afw: current-time world %s by %s; fresh-eye depth reprojection with held-eye hole fill; view-dependent shading may change",on ? "ON" : "off",who);
+}
+bool fresh_world() {return g_freshWorld.load();}
 void set_debug(bool on, const char* who) {
     g_debug.store(on);
     DVR_INFO("afw/warp: debug tint %s (%s)%s", on ? "ON" : "off", who ? who : "?",
@@ -1345,6 +1355,7 @@ void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, con
     _snprintf_s(path, sizeof(path), _TRUNCATE, "%s.txt", base);
     FILE* meta = nullptr;
     if (fopen_s(&meta, path, "w") || !meta) { g_dumpLeft.store(0); DVR_WARN("afw/dump: cannot write %s - capture stopped", path); return; }
+    fprintf(meta,"freshWorld=%d\n",g_freshWorld.load() ? 1 : 0);
     fprintf(meta, "fgFov=%.4f\nfgOn=%d\nfgDepth=%.4f\nfgMask=%d\nfreshMaskOk=%d\nheldMaskOk=%d\n", g_fgFov.load(), g_fgOn.load() ? 1 : 0,
             g_fgDepth.load(), g_fgMask.load() ? 1 : 0, fr.maskOk ? 1 : 0, src.maskOk ? 1 : 0);
     fprintf(meta, "present=%u\nheld=%d\nfresh=%d\nhaveHeld=%d\nuseFresh=%d\nuseHeld=%d\nmatrixVerdict=%d\nyawDeg=%.5f\n"
@@ -1503,6 +1514,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     const bool heldClean = g_cleanOn.load() && haveH && src.cleanOk && src.csrv;
     cb.prm8[0] = freshClean ? 1.0f : 0.0f; cb.prm8[1] = heldClean ? 1.0f : 0.0f; cb.prm8[2] = g_cleanUi.load();
     if (freshClean) ++g_cleanUsed;
+    cb.prm9[3] = g_freshWorld.load() ? 1.0f : 0.0f;
     cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
     cb.prm6[2] = maskOn ? 1.0f : 0.0f;

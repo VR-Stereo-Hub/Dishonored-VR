@@ -13,7 +13,7 @@ if (!(Test-Path -LiteralPath $runtime)) { throw 'Install official ReShade before
 Copy-Item -LiteralPath $runtime -Destination (Join-Path $desktopOut 'ReShade32.dll')
 "[ReShade]`r`nEnabled=1`r`nManualRuntime=1`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'dishonored_vr.ini')
 "[GENERAL]`r`nPresetPath=.\test-preset.ini`r`nEffectSearchPaths=.\`r`nTextureSearchPaths=.\`r`nPerformanceMode=1`r`nSkipLoadingDisabledEffects=1`r`n[OVERLAY]`r`nTutorialProgress=4`r`nShowFPS=0`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'ReShade.ini')
-"Techniques=Invert@Test.fx`r`nTechniqueSorting=Invert@Test.fx,Dormant@Dormant.fx`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'test-preset.ini')
+"Techniques=Invert@Test.fx`r`nTechniqueSorting=Invert@Test.fx,Dormant@Dormant.fx,Unrelated@Unrelated.fx`r`n[Dormant.fx]`r`nStrength=1.0`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'test-preset.ini')
 @'
 uniform float Strength < ui_type="slider"; ui_min=0.0; ui_max=1.0; ui_label="Intensity"; > = 1.0;
 texture BackBufferTex : COLOR;
@@ -27,6 +27,7 @@ technique Invert { pass { VertexShader = Fullscreen; PixelShader = InvertPS; } }
 '@ | Set-Content -LiteralPath (Join-Path $desktopOut 'Test.fx')
 # A separate disabled file reproduces startup skipping; another technique in Test.fx would not.
 (Get-Content -Raw -LiteralPath (Join-Path $desktopOut 'Test.fx')).Replace('technique Invert', 'technique Dormant') | Set-Content -LiteralPath (Join-Path $desktopOut 'Dormant.fx')
+(Get-Content -Raw -LiteralPath (Join-Path $desktopOut 'Test.fx')).Replace('technique Invert', 'technique Unrelated') | Set-Content -LiteralPath (Join-Path $desktopOut 'Unrelated.fx')
 $desktopVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
 $desktopSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' | Sort-Object Name -Descending | Select-Object -First 1).FullName
 $desktopLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' | Sort-Object Name -Descending | Select-Object -First 1).FullName
@@ -43,7 +44,7 @@ try {
     # A second PROCESS reads the preset saved by F10, including its unchecked effect.
     & .\reshade_manual_test.exe
     if ($LASTEXITCODE -ne 0) { throw 'Persisted unchecked-effect restart test failed.' }
-    "Techniques=`r`nTechniqueSorting=Invert@Test.fx,Dormant@Dormant.fx`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'test-preset.ini')
+    "Techniques=`r`nTechniqueSorting=Invert@Test.fx,Dormant@Dormant.fx,Unrelated@Unrelated.fx`r`n[Dormant.fx]`r`nStrength=1.0`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'test-preset.ini')
     & .\reshade_manual_test.exe --disabled
     if ($LASTEXITCODE -ne 0) { throw 'Disabled-effects native test failed.' }
     "[ReShade]`r`nManualRuntime=1`r`n" | Set-Content -LiteralPath (Join-Path $desktopOut 'dishonored_vr.ini')

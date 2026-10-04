@@ -81,6 +81,7 @@ struct State {
     double bodyYawDeg, handX, headYawDeg; V3 headPos;
     double handZ = kHandZ; V3 bodyPos = {0, 0, 0}; double handW = kHandW;
     double barZ = 0, barX0 = 0, barX1 = 0;   // a thin world bar (barZ 0 = none)
+    V3 platformPos = {0,0,0}; // independent motion of the pillar: vehicle surface
     double fgTan = 0;   // > 0: the hand is the FOREGROUND, drawn on top with its own projection (the game: its camera FOV)
 };
 struct Eye { V3 pos; double yawRad; };
@@ -122,8 +123,8 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
             const double t = (kWallZ - ow.z) / dw.z;
             const V3 p = add(ow, mul(dw, t));
             if (t > 0 && t < best) { best = t; c[0] = (float)((p.x + 20) / 40); c[1] = (float)((p.y + 20) / 40); c[2] = 0; }
-            const double tp = (kPillarZ - ow.z) / dw.z;
-            const V3 q = add(ow, mul(dw, tp));
+            const double tp = (kPillarZ + s.platformPos.z - ow.z) / dw.z;
+            const V3 q = sub(add(ow, mul(dw, tp)),s.platformPos);
             if (tp > 0 && tp < best && q.x >= kPillarX0 && q.x <= kPillarX1 && q.y >= -1.5 && q.y <= 1.5) {
                 best = tp; c[0] = (float)((q.x - kPillarX0) / (kPillarX1 - kPillarX0)); c[1] = (float)(2 + (q.y + 1.5) / 3); c[2] = 0;
             }
@@ -186,7 +187,7 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
 
 struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
 struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false,
-             mask = false, drawnMask = false, grips = false;   // grips: record each image's hand grip (run 25)
+             mask = false, drawnMask = false, grips = false, freshWorld = false;   // grips: record each image's hand grip (run 25)
              double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
@@ -223,6 +224,7 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     g_depthW = w; g_depthH = h;
     dvr::afw::set_enabled(true, "test");   // also drops the previous case's records
     dvr::afw::set_stereo(o.stereo, "test");
+    dvr::afw::set_fresh_world(o.freshWorld,"test");
     dvr::afw::set_body_depth(0.40f, "test");
     dvr::afw::set_world_scale((float)kScale);
     dvr::afw::set_matrices(o.matrices, "test");
@@ -398,6 +400,23 @@ int main() {
     { Result r = run(g, still, all);     report("turn + hand move + head turn together", r, clean(r) && r.verdict == 1); }
     { Result r = run(g, still, fast);    report("fast turn 15 deg in one tick", r, clean(r)); }
     { Result r = run(g, close0, close1); report("weapon close (0.2 m), turn + move", r, clean(r)); }
+    { // A boat carries its surface and the player together. Correct camera matrices
+      // still smear a tangentially moving surface because its depth stays unchanged.
+      State boat=still;boat.bodyPos={.08,0,0};boat.platformPos=boat.bodyPos;
+      Opt fresh;fresh.freshWorld=true;
+      Result old=run(g,still,boat);report("moving platform control: old world texture trails",old,old.ok && old.errP95>2);
+      Result now=run(g,still,boat,fresh);report("moving platform: current-time world",now,clean(now));
+      boat.bodyPos={-.08,0,0};boat.platformPos=boat.bodyPos;
+      now=run(g,still,boat,fresh);report("moving platform: opposite travel",now,clean(now));
+      boat=still;boat.platformPos={.08,0,0};
+      now=run(g,still,boat,fresh);report("moving object, stationary player",now,clean(now));
+      now=run(g,still,still,fresh);report("current-time world: static scene",now,clean(now));
+    }
+    { Opt fresh;fresh.freshWorld=true;
+      for(const State* next:{&turn,&head,&all,&walkTurn}) {
+        Result r=run(g,still,*next,fresh);report("current-time world: head/body/controller motion",r,clean(r));
+      }
+    }
     { Result r = run(g, still, walk);    report("walking one tick: the pillar's parallax carried", r, clean(r) && r.verdict == 1); }
     { Result r = run(g, still, walkTurn); report("walking + turning + head turn", r, clean(r) && r.verdict == 1); }
     // The review's counterexamples.
@@ -918,6 +937,10 @@ int main() {
         report("foreground inside a wall: still background stays exact", r,
                clean(r) && r.errMax < 2.0);
         printf("  still wall maximum coordinate error %.3f px\n", r.errMax);
+        m.freshWorld=true;r=run(g,a,a,m);
+        report("current-time world: foreground inside wall",r,clean(r) && r.errMax<2.0);
+        State b=a;b.bodyPos={0,0,-.05};r=run(g,a,b,m);
+        report("current-time world: moving into wall",r,r.ok && r.handTruth>500 && r.ghost<r.handTruth/100 && r.missing<r.handTruth/100);
     }
     g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.

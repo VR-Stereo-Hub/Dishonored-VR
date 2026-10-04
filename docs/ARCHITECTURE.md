@@ -1532,3 +1532,21 @@ second virtual catalog with independent ordering/persistence and reload states.
 HUD timing divides existing work without changing fences or transfer cadence;
 AFW exposes its existing GPU sample before the logger truncation boundary.
 The audit and staged optimization criteria live in dishonored/PERFORMANCE.md.
+
+### 2026-10-04: proven-blank HUD reuse and current-time AFW world
+
+HUD reuse is based on successful clear/copy provenance, not zero draw count alone.
+Per-slot blank identity and the complete conversion parameters guard output reuse;
+content/resource lifetime resets the cache. Per-slot read events remain, with one
+final Flush, and a timed-out read refuses overwrite. The native GPU host tests the
+actual cross-API path, delayed disappearance and invalidations.
+
+AFW optionally chooses valid fresh-eye world samples before temporal world samples.
+Depth-only rejection cannot recognize tangential motion, so a current-time source
+is used without pretending to have an object velocity field. Held-eye hole fill
+and foreground rules remain; opposite-eye shading is an explicit tradeoff. Default
+OFF, live/persisted Basic control, capture metadata and replay support.
+
+ReShade preset membership comes from effect sections, active techniques and F10's
+persisted choices, never the global TechniqueSorting list. Definitions still load;
+an explicit all-effects view is available for adding effects.

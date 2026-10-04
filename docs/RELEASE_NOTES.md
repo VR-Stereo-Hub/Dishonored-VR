@@ -1,3 +1,13 @@
+## Unreleased: HUD performance and AFW moving scenery
+
+- Empty HUD panels avoid repeated transfers and conversions while disappearing
+  widgets, layout changes and menus retain their normal behavior.
+- ReShade lists the selected preset's effects, including disabled effects. Use
+  Show all installed effects to add another shader from the installed packages.
+- Basic Display adds an experimental AFW moving-scenery option for vehicles and
+  moving objects. Off by default; reflections can differ between eyes. Headset
+  validation is pending.
+
 ## Unreleased: ReShade effect controls
 
 - Effects disabled in F10 remain listed and unchecked after restarting. ReShade

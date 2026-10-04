@@ -4,7 +4,11 @@
 - [x] Audit release changes and the verified combined-build trace; rank costs in PERFORMANCE.md.
 - [x] Preserve disabled ReShade controls across native runtime and process restart tests.
 - [x] Add bounded HUD substage timing and a readable AFW GPU-cost summary.
-- [ ] Measure the same-scene HUD panels ON/OFF/ON comparison in the headset.
+- [x] Read HUD toggle follow-up (small gain reported; uncontrolled timing segments).
+- [x] Optimize repeated blank HUD transfers and validate native GPU lifecycle.
+- [x] Filter ReShade to preset-owned effects while retaining disabled selections.
+- [x] Build host-verified current-time AFW world option for moving platforms.
+- [ ] Confirm ferry ghosting response to AfwFreshWorld in the headset.
 - [ ] Isolate and recover the reported steady FPS regression.
 
 ## Full-arm IK (2026-10-04)

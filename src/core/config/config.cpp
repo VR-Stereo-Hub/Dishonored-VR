@@ -35,6 +35,8 @@ static bool WriteDefaultIni(const char* ini)
         "HeightOffsetM=0.060\n"
         "PhysicalCrouch=1\n"
         "[Stereo]\n"
+        "; Experimental current-time world reprojection for moving surfaces; live F10 Display.\n"
+        "AfwFreshWorld=0\n"
         "PairTrace=1\n"
         "DrawCallerTrace=1\n"
         "RingLedger=1\n"
@@ -2938,6 +2940,7 @@ static void LoadConfig()
     CineFovConfigure(ini);
     HandsWorldFovSet(GetPrivateProfileIntA("Screen", "HandsAtWorldFov", 1, ini) != 0, "ini");   // VR-39
     AfwFgGainSet(IniFloat(ini, "Stereo", "AfwForegroundGain", 0.911f), "ini");   // VR-39 run 14
+    dvr::afw::set_fresh_world(GetPrivateProfileIntA("Stereo","AfwFreshWorld",0,ini)!=0,"ini");
     CinePitchConfigure(ini);
     g_rflStateOn = IniFloat(ini, "Hands", "StateFlags", 1) != 0.0f;
     // VR-60: offer the equipped item's own component as a candidate. OFF returns
@@ -3919,6 +3922,7 @@ static void OverlaySaveDefaults()
     WritePrivateProfileStringA("Screen","ProjectionFov",v,ini);
     WritePrivateProfileStringA("Screen","HandsAtWorldFov",HandsWorldFovGet()?"1":"0",ini);   // VR-39
     _snprintf(v,64,"%.3f",AfwFgGainGet());
+    WritePrivateProfileStringA("Stereo","AfwFreshWorld",dvr::afw::fresh_world() ? "1" : "0",ini);
     WritePrivateProfileStringA("Stereo","AfwForegroundGain",v,ini);   // VR-39
     // 30.70: the hand drive's live-tuned values, so a good calibration sticks
     WritePrivateProfileStringA("HandRender", "Enabled", g_rtdEnable ? "1" : "0", ini);

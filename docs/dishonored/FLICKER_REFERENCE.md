@@ -1,3 +1,43 @@
+## 2026-10-04: AFW moving boat/ferry ghosting (HOST-VERIFIED option, headset pending)
+
+Surface: world/moving vehicle in the headset under AFW; the reported lagging eye
+is uncertain. Routing: section 1's eye-behind row, plus the vehicle-motion case
+recorded on 2026-09-29. This is separate from accepted head-follow and wall/weapon
+corrections. Verified run v1.0.3-32-gf03ad520f against installed proxy hash
+08e66ed0e8a83e7f0100f81d9963e648da55d0c8b15d9b1e6b0f60e055daa4cb;
+archived evidence and performance populations are in PERFORMANCE.md's new entry.
+
+- REPORTED: heavy ghosting riding a boat/ferry; suspected one eye a frame behind.
+- MEASURED: archived late AFW windows use game-camera matrices for every rebuild,
+  with no camera-refusal latch. A permanent matrix refusal is not supported by
+  this run. No event-marked boat image burst exists, so exact scene attribution
+  and whether upstream DLSS contributes remain OPEN.
+- HOST-MEASURED defect: AFW's old world selection uses depth disagreement to find
+  stale moving surfaces. A textured surface moving tangentially can keep the same
+  depth and remain stale. A synthetic platform moves 8 cm sideways with the player:
+  matrices accepted, old-path p95 coordinate error 13.66 px. Correct camera motion
+  alone is therefore not sufficient; this is the negative control.
+- CANDIDATE: [Stereo] AfwFreshWorld=0 (default OFF), Basic F10 > Display > Stereo
+  rendering > AFW: moving scenery from the current frame; afw freshworld on|off.
+  Prefer valid current-frame world samples reprojected from the fresh eye. Keep
+  existing foreground rules and older-eye disocclusion fill. Candidate p95 0.02 px;
+  reverse travel 0.01 px, moving object/stationary camera 0.01 px, static 0.01 px;
+  zero hand ghosts or missing hand pixels. All 71 AFW host checks pass, including
+  new head/body/controller motion and foreground-through-wall cases.
+- LIMITS: opposite-eye samples can change view-dependent reflections/shine. An
+  unseen disocclusion can still use older content. The option does not remove
+  ghosting already baked into a DLSS input, predict object motion, or change MSW.
+  It is a source-selection option, not proof that the ferry is fixed. Both eyes
+  alternate being old; no claim of a permanently delayed right eye.
+- CAPTURE: freshWorld is saved in each AFW metadata record; replay honors it and
+  DVR_AFW_FRESHWORLD=0|1 can override it for comparisons.
+
+Next launch's ONE question: while riding the same boat/ferry, does this switch
+OFF then ON repeatably reduce/remove the ghosting? Candidate installation arms
+it ON. Reduced implicates older world samples; unchanged needs a timed AFW capture
+and DLSS isolation; worse rejects this mode for that scene. No quality settings
+are silently reduced. Headset acceptance remains pending.
+
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
 Reported weapon-wheel arm loss and uncertain pause-menu arm loss on the
@@ -3181,6 +3221,7 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| AFW ghosting on a moving boat/ferry; affected eye uncertain | Depth-only stale rejection cannot detect tangential object motion at unchanged depth | 2026-10-04 host-verified opt-in AfwFreshWorld; 13.66 -> 0.02 px synthetic platform error; headset pending |
 | Small flicker on newly active full IK arms, subtype uncertain | IK history mixed head-locate and hand-publication counters; surface/pose distinction still needs pixels | 2026-10-04 code/host defect corrected; headset effect pending. Basic IK/Display frame burst added; see newest entry |
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
 | AFW hands slide opposite lateral head motion while world stays stable | Native hand image/pose association, including position ties | Build 242 HEADSET-ACCEPTED with PoseFromView=1 and rotation-assisted ties. Negligible residual reported; do not infer all views matched. |

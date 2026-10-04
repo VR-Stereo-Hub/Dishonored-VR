@@ -57,6 +57,10 @@ bool enabled();
 // the body hypothesis (the first version, kept as the A/B).
 void set_stereo(bool on, const char* who);
 bool stereo();
+// Prefer current-time world pixels reprojected from the fresh eye. The held eye
+// remains the disocclusion fallback. Off by default: reflections can differ by eye.
+void set_fresh_world(bool on,const char* who);
+bool fresh_world();
 // The held eye's world by the game's own view-projection matrices (default on; head, stick yaw and
 // walking), checked each present against the XR pose model; `afw matrices on|off`. Off = the XR pose
 // and the body yaw alone (walking lags a tick).
