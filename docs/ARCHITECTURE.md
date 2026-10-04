@@ -1483,9 +1483,20 @@ The new lever defaults off, and without reduced upscaling draws remain native.
 
 - **2026-10-04 - Full-arm IK uses a paired shoulder frame (design only).**
   - One forward/right/up center and total width generate both shoulder anchors.
-    No per-hand shoulder offsets or independent reach-driven shoulder sliding.
+    This initial no-slide reach policy is superseded by the revision below.
   - Reuse each existing driven wrist endpoint. Validate the named skeleton to
     draw-palette mapping before rendering arms; weighted skin centroids are not
     joint origins. Keep source weights and the established action handoff.
   - The reviewed BioShock references, limits and staged verification plan are
     in `dishonored/ARM_IK.md`. No runtime path is introduced by this decision.
+
+- **2026-10-04 - IK reach and animation requirements revised (design only).**
+  - Follow the BioShock fork: independently shift each shoulder at its near/far
+    reach limits, starting each solve from the shared center/width anchors.
+    Preserve segment lengths and the final wrist target. No cross-arm coupling.
+  - Add a dedicated IK tab beside Hands in the L3+R3/F10 overlay. Shared baseline
+    controls remain paired; independent reach correction does not rewrite them.
+  - Preserve native hand/finger animation and solve arms to the final animated
+    wrists. Suppress native arm animation while IK owns the pose, including the
+    current native-full-arm draw bypass. Keep RigidWrist for clipped fallback.
+  - Details and independent launch questions are in `dishonored/ARM_IK.md`.

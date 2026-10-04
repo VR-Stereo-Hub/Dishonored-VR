@@ -1,3 +1,18 @@
+## 2026-10-04: IK design revision - independent reach, dedicated tab, hand animation
+
+Updated [ARM_IK.md](dishonored/ARM_IK.md) to follow the BioShock fork's independent
+shoulder reach correction. Shared XYZ and width define nominal shoulders;
+each shoulder can move separately when its wrist is too near or far. This
+supersedes the prior fixed-anchor reach refusal proposal. Add a dedicated IK
+tab beside Hands in the L3+R3/F10 menu when implementing runtime consumers.
+
+Confirmed `RigidWrist=1` protects clipped wrist geometry by remapping forearm
+influences while fingers still animate. Full-arm IK instead needs preserved
+weights and explicit arm/hand pose ownership: native hand animation stays,
+IK controls upper arm/forearm, and the endpoint is the final animated wrist.
+The existing native-full-arms draw bypass must not override active IK. This
+revision changes the design only; no runtime tab, solver or install yet.
+
 ## 2026-10-04: local full-arm IK branch and reference design
 
 Local branch `codex/ik-full-arms` starts at staging `957322031`. Reviewed both

@@ -1,6 +1,6 @@
 # Full-arm IK: reference review and Dishonored implementation design
 
-Reviewed 2026-10-04. Local branch `codex/ik-full-arms`, based on staging
+Reviewed and revised 2026-10-04. Local branch `codex/ik-full-arms`, based on staging
 `957322031d6c67aebd4f0910261f682501b43074`. No Linear ticket: local work was
 requested because the workspace issue quota is exhausted. This document is a
 reviewed implementation design, not an enabled or headset-tested IK feature.
@@ -59,7 +59,8 @@ write functions are not Dishonored interfaces.
 
 ## Paired shoulder controls
 
-Proposed UI group: **Full arms**, with one enable toggle and four controls. These
+Dedicated **IK** tab in the existing L3+R3/F10 menu, beside Hands. It contains
+full-arm enable, shared shoulder position and width, and arm tuning. These
 are proposed keys, not settings supported by the current binary:
 
 | Proposed `[Hands]` key | Meaning |
@@ -80,10 +81,11 @@ S_right = C + k * widthCm/2 * R
 ```
 
 The shared lateral offset is not negated for the left arm. Only the half-width
-changes sign. Thus both shoulders always have the same forward and vertical
-coordinates; their midpoint is C and their separation is exactly the configured
-width. Rotation of the body carries the whole pair. Head pitch/roll and wrist
-motion never independently rotate or translate a shoulder anchor.
+changes sign. These are the nominal anchors: both start at the same forward and vertical
+coordinates, with midpoint C and the configured separation. Rotation of the
+body carries the pair. The reach solve may independently displace either
+shoulder from its nominal anchor, as described below. That runtime correction
+does not alter the saved shared position or width.
 
 No per-hand shoulder trim. Hand/grip calibration remains separate and continues
 to own the controller target. Body origin, physical crouch and room-scale motion
@@ -91,21 +93,88 @@ must use Dishonored's established pose ownership; raw eye position must not
 quietly become the body origin. Numeric defaults require calibration in the
 verified runtime coordinate bridge, not direct reuse of Blender coordinates.
 
-### Reach policy must preserve those invariants
+### Independent shoulder reach correction (revised requirement)
 
-The fork slides each shoulder toward or away from its wrist when reach is
-outside its limits. Do not port that behavior: one hand could move a shoulder
-out of alignment with the other. Nor should the solver silently detach the
-existing controller-aligned hand by clamping its target.
+Follow the fork's reach behavior. The shared controls define each arm's nominal
+anchor; reach correction is independent per arm and may temporarily put the
+shoulders at different forward or vertical coordinates. This supersedes the
+initial design's fixed-shoulder refusal policy.
 
-Initial integration should preserve both shoulder anchors and hand targets.
-For an unreachable target, retain the existing floating-hand rendering for
-that arm and report the reach refusal, instead of rendering a disconnected
-wrist or an independently displaced shoulder. A later bounded arm-extension
-option can extend segment lengths while preserving anchors, but its effect on
-skin and its limit need explicit tests. Ordinary reachable poses keep measured
-segment lengths. Extremely close targets also need an explicit refusal or a
-validated compression policy; unequal segments cannot reach distance zero.
+For segment lengths a and b, nominal shoulder S0, and the final hand wrist W:
+
+```text
+n        = normalize(W - S0)
+maxReach = (a + b) * 0.995
+minReach = max(abs(a - b) * 1.05 + margin, (a + b) * 0.40)
+d        = clamp(length(W - S0), minReach, maxReach)
+S        = W - n * d
+```
+
+When the wrist is within range, S equals S0. Outside the range, move only that
+arm's shoulder along the shoulder-wrist line, then solve the elbow with the
+original segment lengths. The wrist stays at its existing final hand target.
+The fork's margin is 0.5 in its solve units: its conversion to Dishonored's
+units must be explicit, not a copied engine constant. Guard invalid lengths
+and inconsistent bounds; at zero shoulder-wrist distance use a stable previous
+or body-relative direction rather than normalizing zero. Tracking/identity
+loss still refuses safely and resets temporal state.
+
+Neither wrist motion nor reach history may move the other arm's shoulder.
+Recompute correction from nominal anchors each pose generation so it does not
+accumulate or remain after the hand returns to ordinary reach. Log nominal
+and solved shoulder positions separately when diagnosing reach behavior.
+
+### Dedicated IK tab
+
+Use the existing overlay tab system in `src/core/ui/overlay_tabs.inc` so the
+same IK page is accessible through L3+R3 and F10, with controller navigation,
+scrolling and save-on-release controls. Place it beside Hands, including at
+the Basic detail level. Do not bury IK inside the Sleeve group.
+
+Planned contents: full-arm enable; shared forward/right/up offsets and total
+width; shared arm-length tuning and outward elbow bias following the fork;
+reset IK settings; and a concise active/unavailable state with the reason.
+Any further tuning needs a real solver consumer before becoming a saved key.
+Independent shoulder reach adjustment is normal solver behavior, not two
+additional sets of shoulder calibration sliders. Existing hand/grip settings
+stay on Hands. Sleeve cut/cap settings apply to floating-hand fallback, not
+the full-arm mesh. A tab is not considered implemented until its controls
+reach the runtime consumers and survive save/reload.
+
+### Animation ownership: native hands, IK arms
+
+While IK is active, suppress native upper-arm, forearm and sleeve motion in
+the rendered pose. Preserve the existing hand/finger animation and weapon
+behavior, including configured trigger/recoil animation and hand-back blends.
+Use the final wrist after those effects as the IK endpoint, not an earlier
+controller target that the visible hand has already left. IK owns the arm
+bones; the current hand path owns the wrist and fingers. Native arm animation
+must not be multiplied back onto an already solved arm.
+
+The current `RigidWrist=1` path in `MsUpload` remaps forearm influences on the
+clipped hand vertices onto the hand bone. It prevents forearm/twist animation
+from bending the wrist cut and cap while retaining finger animation. This is
+the existing protection relevant to the requirement; it does not provide a
+full-arm IK pose or establish a named bone boundary. Keep it for floating-hand
+fallback. Do not remap the entire full-arm mesh to the wrist.
+
+For full arms, preserve authored skin weights and wrist-relative hand/finger
+animation, then construct the arm palette from reference transforms plus IK.
+Validate sleeve/helper bone membership and blend weights around the wrist.
+`MpWorldTarget` applies `dvr::anim::blend` before publishing the correction
+consumed by weapons; the IK endpoint must reflect that same final correction.
+`g_mpPalmTarget` alone is earlier than the blend and is not sufficient during
+an animation handoff.
+
+`MsDraw` currently returns immediately for `native_full_arms()`, while
+`native_draw()` can bypass controller palette correction for both hands.
+The IK integration must replace the full-arm passthrough while it owns the
+arms: retain the appropriate animated hands and solve arms to their wrists.
+Selected actions must not silently restore animated upper arms. This changes
+rendered arm ownership, not action eligibility, camera animation or gameplay.
+With IK off, the current animation and full-arm action choices retain their
+existing behavior. Invalid IK mapping uses the established hands-only fallback
+and reports the reason; it must not pretend a native full-arm pose is IK.
 
 ## Dishonored integration boundary
 
@@ -114,7 +183,8 @@ The active hand placement is draw-scoped palette correction in
 both hands; `MpWorldTarget` determines their transforms; `MpBuild` applies those
 to the source palette. It restores the original constants after drawing.
 Native full-arm actions and native animated hands already have separate
-ownership rules. Keep those rules ahead of IK selection.
+ownership rules. Integrate them using the animation boundary above: preserve
+hand animation, but prevent native full-arm passthrough while IK owns the arms.
 
 The existing split deliberately works without a skeleton map. `MsBones`
 calculates weighted vertex centroids and co-influence adjacency; `MsWrist`
@@ -152,17 +222,19 @@ Class-name comparisons and unchanged pointers do not establish liveness.
 
 1. Add the shared shoulder-frame and two-bone math as engine-independent code.
    Host tests must check paired translation, symmetric width, arbitrary body
-   yaw, preserved segment lengths, singularities, invalid inputs, reach refusal
-   and left/right independence. Test the exact functions the integration uses.
+   yaw, preserved segment lengths, singularities, invalid inputs, independent
+   near/far shoulder correction, return to nominal and left/right independence.
+   Test the exact functions the integration uses.
 2. Establish the read-only runtime map and pose-space contract. Reuse existing
    reflected property and native query instruments only after checking their
    liveness and ABI guards. Log every refusal with identity and expected values.
    Put newly derived offsets in patterns.h and their evidence in ENGINE_NOTES.
 3. Add complete weighted arm geometry and scoped palette corrections behind the
-   default-off toggle. Solve to each existing driven wrist. Preserve fingers,
-   weapon attachment, empty-hand mirroring and action ownership. Verify exact
+   default-off toggle. Solve to each final animated/driven wrist. Preserve fingers,
+   weapon attachment, empty-hand mirroring and hand animation; suppress native
+   arm animation while IK owns the arm pose. Verify exact
    restoration of the original draw state and no work when the feature is off.
-4. Add F10/config persistence for the four paired controls after their consumers
+4. Add the dedicated L3+R3/F10 IK tab and config persistence after its consumers
    exist. Validate full INI compatibility before installing a candidate; back
    up DLL/INI/logs, compare the entire INI, and verify CRLF byte-wise.
 5. Host/replay checks: no opposite-hand coupling, no extra smoothing advancement
@@ -178,11 +250,18 @@ matching hand endpoints permits the render integration. Missing, ambiguous or
 inconsistent mapping blocks arm palette writes and identifies the next probe.
 
 First visible-IK launch question, after that prerequisite is resolved: with the
-body stationary and one controller moving, do both shoulder roots stay aligned
-while the moving arm bends to its wrist? Aligned roots support the paired-frame
-contract; a moving opposite shoulder or elbow means shared-state/frame leakage;
-a detached wrist means endpoint/scale disagreement. Later launches separately
-cover adjustment controls, wrist roll, action handoff and menu/load lifetime.
+body and one controller stationary, does the other arm remain connected to its
+hand when reaching from close to far? Its own shoulder may move at the reach
+limits. A connected wrist and unchanged stationary arm support the fork's
+reach policy; movement of the other shoulder/elbow indicates cross-arm
+coupling; wrist separation indicates endpoint/scale disagreement.
+
+A separate animation launch asks whether an enabled hand animation still plays
+while its upper arm/forearm remain IK-driven and connected at the final wrist.
+A native arm swing indicates the full-arm bypass or animated arm palette is
+still active. A frozen hand indicates the animation boundary is too broad.
+Later launches independently cover IK tab persistence, wrist roll, menu/load
+lifetime and the shared baseline controls.
 
 ## Current result
 
