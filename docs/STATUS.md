@@ -1,3 +1,22 @@
+## 2026-10-04: full-arm IK implemented locally; host and Blender verified
+
+`codex/ik-full-arms` now contains the fork-style independent shoulder reach
+solver, complete weighted arm mesh/palette replacement, dedicated L3+R3/F10
+IK tab and persisted shared baseline/arm tuning. Native hands/fingers and
+weapon corrections remain; IK replaces arm/sleeve animation. Default off.
+The candidate uses locally prepared reference data and validates the complete
+vertex/weight mapping before drawing. No engine-object memory writes.
+
+1,049 host checks, the existing frame suite and proxy exports pass. A 260-frame
+Blender simulation uses the exact production solver and source weights, including
+0.85 hand size. Zero failed solves; max wrist-join error 0.0000324 model units.
+Extreme sleeve compression remains: two transition frames compress one triangle
+each below 1% area. No collision/torso constraint. See
+[ARM_IK.md](dishonored/ARM_IK.md) for evidence, controls, limits and the first
+one-question headset test. Runtime mapping and headset acceptance are pending.
+No game launch, remote push, PR or merge. Candidate installation follows the
+matching DLL/INI/log backup and whole-INI verification gate.
+
 ## 2026-10-04: IK design revision - independent reach, dedicated tab, hand animation
 
 Updated [ARM_IK.md](dishonored/ARM_IK.md) to follow the BioShock fork's independent

@@ -1500,3 +1500,14 @@ The new lever defaults off, and without reduced upscaling draws remain native.
     wrists. Suppress native arm animation while IK owns the pose, including the
     current native-full-arm draw bypass. Keep RigidWrist for clipped fallback.
   - Details and independent launch questions are in `dishonored/ARM_IK.md`.
+
+- **2026-10-04 - Full-arm IK uses validated local reference data and owned GPU geometry.**
+  - Named joint heads/hierarchy and skin fields come from a locally prepared PSK
+    reference, never from inferred weighted centroids or guessed engine offsets.
+    Match every runtime vertex and every weighted palette slot before solving.
+  - Replace only arm-region skin matrices in a complete copied mesh. Retain the
+    final native hand/finger palette and existing weapon correction publication.
+    No engine-object writes; menu/mesh/reset invalidation clears temporal state.
+  - Independent shoulder reach, shared nominal controls and a dedicated IK tab
+    implement the revised design. Native arm animation cannot bypass active IK.
+  - `dishonored/ARM_IK.md` records host/Blender evidence and pending live validation.

@@ -10093,3 +10093,21 @@ case it is: foreground peak = world peak, a foreground FOV of its own, or no for
 In a merchant conversation (`StatePlayerMasterInDialog`) the camera's FOV sensor (0x53c) reads 88 ->
 52 -> 23.4 deg while `cine/fov` keeps the drawn scene at `[Screen] ProjectionFov` (103). The sensor only
 names the foreground's projection in plain gameplay, when it reads back the FOV lever's own write.
+
+## 2026-10-04: full-arm IK mapping without native bone-bank writes
+
+The local IK candidate uses a PSK-derived reference file outside Git. The tool
+composes named reference joint heads from the hierarchy and local quaternions;
+Blender's independent import agrees within 0.000020 model units. At runtime the
+owned mesh copy must match every reference vertex position and uniquely match
+each active palette slot's weight field across the entire draw. This bridges
+reference bones to the shader palette without equating their indices. Synthetic
+UV-seam/quantized/shuffled mapping recovers all 48 active bones; a game run is
+still required to validate the actual draw's mapping. No native offsets were
+added. The path does not read or write engine bone arrays or retain UObjects.
+
+The endpoint is the named wrist under the final `MpWorldTarget` correction,
+after animation blending and empty-hand pose handling. Using the pre-blend
+`g_mpPalmTarget` would disconnect IK from an animated wrist. `RigidWrist` only
+protects clipped fallback geometry; complete arms retain authored weights.
+Details, local-data handling and limits: [ARM_IK.md](ARM_IK.md).

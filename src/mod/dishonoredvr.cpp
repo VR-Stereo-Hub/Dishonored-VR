@@ -121,6 +121,7 @@
 #include "mod/state/53_core_input_pad_bridge.inc"
 #include "mod/state/54_game_dishonored_arm_follow.inc"
 #include "mod/state/55_game_dishonored_hands_mesh_split.inc"
+#include "mod/state/55_arm_ik.inc"
 #if DVR_WITH_LEGACY
 #include "legacy/vr33/57_game_dishonored_hands_weapon_id.inc"
 #endif

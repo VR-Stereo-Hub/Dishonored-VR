@@ -1,3 +1,20 @@
+## 2026-10-04: full-arm IK stereo contract (new candidate, headset unverified)
+
+Surface: native player arms/hands, corresponding to the hand-palette and
+view/pose-association rows in section 1. This adds a default-off arm renderer;
+it does not change the verdict of an existing flicker investigation.
+
+Both arms share the existing `MpDrawCtx` and view-matched head pose. Each wrist
+uses the final hand correction already published to weapons. IK history is
+keyed by locate generation: second-eye/pass reuse does not advance elbow or
+yaw smoothing again, and old queued views cannot rewind current history.
+The tracking-to-draw bridge cancels head pitch/roll/yaw exactly once. Host
+checks cover those invariants; Blender validates the pose/skin math only.
+No stereo game launch has run. The first candidate's log must establish a
+successful reference map and active IK before visual results are attributed
+to it. Menu/load and rapid-head-turn acceptance remain separate later tests.
+Implementation/evidence: [ARM_IK.md](ARM_IK.md).
+
 ## 2026-10-02: MSW guards - no extrapolation across a jump, a bounded turn, the stick stop (HOST-VERIFIED candidate)
 
 Surface/route: the WORLD in MSW-synthesized slots, both eyes, under right-stick turns, snap turns

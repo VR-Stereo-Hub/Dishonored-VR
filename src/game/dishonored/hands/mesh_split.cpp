@@ -1835,6 +1835,7 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
                     UINT numVertices, UINT startIndex, UINT primCount, uint32_t bones)
 {
     g_msReady = 0;
+    IkDropGeometry();
     Log("ms: ==== deriving the hand/arm split from bone influence ==== "
         "(draw: base %d, min %u, %u verts, start %u, %u tris, palette %u bones)",
         baseVertex, minIndex, numVertices, startIndex, primCount, bones);
@@ -1959,6 +1960,7 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 // was no invalidation at all before - the cache simply kept its last contents.
 static void MpOnReset(void)
 {
+    IkDropGeometry();
     memset(g_waCommon, 0, sizeof(g_waCommon));
     g_waMeshN = 0;
     g_pcLayShader = NULL;
@@ -2074,6 +2076,7 @@ struct MpDrawCtx {
     bool          poseOk;
     bool          viewMatched;  // PoseFromView: this draw's view was found by its c5
     int           viewEye;      // that view's eye: -1 left, +1 right, 0 single
+    uint32_t      ikPoseGen;    // matched view's locate generation, for once-per-pose IK state
 };
 
 
@@ -2150,6 +2153,7 @@ static void MpPoseFromView(MpDrawCtx* c)
     memcpy(c->pose.head, head, sizeof(head));
     c->viewMatched = true;
     c->viewEye = rec.eye;
+    c->ikPoseGen = rec.track.gen;
     InterlockedIncrement(&g_mpPvMatch[rec.eye < 0 ? 0 : rec.eye > 0 ? 2 : 1]);
 }
 
@@ -3464,14 +3468,18 @@ static bool MsQualify(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVert
 }
 
 
+#include "arm_ik_draw.inc"
+
 static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                    UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount)
 {
     const bool nativePose=dvr::anim::native_draw();
-    g_msPassThrough = dvr::anim::native_full_arms();
+    const bool ik=g_ikOn.load();
+    if(!ik)IkResetPose();
+    g_msPassThrough = !ik && dvr::anim::native_full_arms();
     if (g_msPassThrough) return false;
     const bool nativeHands=nativePose && !g_msPassThrough;
-    if (g_msMode == MS_MODE_OFF && !nativeHands) return false;
+    if (g_msMode == MS_MODE_OFF && !nativeHands && !ik) return false;
     MsContract con;
     {
         const char* why = NULL;
@@ -3496,8 +3504,9 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             return false;
         }
     }
+    if(ik && IkTryDraw(dev,type))return true;
     int lo, hi;
-    switch (nativeHands ? MS_MODE_HANDS : g_msMode) {
+    switch ((nativeHands || ik) ? MS_MODE_HANDS : g_msMode) {
     case MS_MODE_HANDS: lo = MS_CLS_HAND_A; hi = MS_CLS_HAND_B; break;
     case MS_MODE_ARMS:  lo = MS_CLS_ARM_A;  hi = MS_CLS_ARM_B;  break;
     case MS_MODE_OTHER: lo = MS_CLS_OTHER;  hi = MS_CLS_OTHER;  break;
@@ -3539,7 +3548,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
     // The palette must be the COMPLETE verified interval for this split, not
     // merely three registers of something. g_mpCacheN is 0 until every
     // register in the interval is valid, so this is a state test.
-    bool perClass = !nativePose && g_mpOn && g_msMode == MS_MODE_HANDS &&
+    bool perClass = !nativePose && g_mpOn && (ik || g_msMode == MS_MODE_HANDS) &&
                     g_mpPalN > 0 && g_mpCacheN == g_mpPalN;
     if (perClass) {
         for (int c = MS_CLS_HAND_A; c <= MS_CLS_HAND_B; c++)
@@ -3551,7 +3560,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             }
         if (!nrng) perClass = false;
     }
-    if (!nativePose && g_mpOn && g_msMode == MS_MODE_HANDS && !perClass)
+    if (!nativePose && g_mpOn && (ik || g_msMode == MS_MODE_HANDS) && !perClass)
         InterlockedIncrement(&g_mpNoCache);
     if (!perClass) {
         rng[0].cls = -1; rng[0].start = start; rng[0].count = count; nrng = 1;
