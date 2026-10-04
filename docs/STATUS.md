@@ -1,3 +1,27 @@
+## 2026-10-04: IK candidate installed for the first live reach test
+
+Installed optimized Win32 `v1.0.3-9-g012ddce9a`, proxy SHA256
+`f68c61b2e8a99c032d33d1e8ab7451980fd48f391fe3cea07f9da5f8411a42e8`.
+Code commit `012ddce9a`; local only, credited to BioVRDev. No game launch.
+Local rig prepared and installed in the resolved data directory; runtime must
+still validate its geometry/weight mapping before the full-arm draw can run.
+
+DLL, complete INI, current and previous logs backed up together under
+`build/arm-ik-install/20261004-134025/`, with manifest and whole-INI diff.
+Exactly seven keys plus one comment added: ArmIK=1, shoulder forward/right/up
+-6/0/-20 cm, width 36 cm, arm length 1, elbow-out 0.6. Existing animation,
+hand-scale (0.85) and other settings unchanged. INI exactly matches expected:
+73,696 bytes, 1,693 CRLF, no lone line endings. The staging baseline also contains
+the default-on ReShade implicit OpenXR layer opt-out; existing INI values remain
+compatible with its configuration semantics.
+
+One launch question: with body/right hand still, does the left arm remain
+connected through a slow close-to-far reach without moving the right arm?
+Own-shoulder reach movement is expected. Only floating hands means inspect the
+explicit mapping/tracking refusal before judging IK. Check the log banner for
+this build first; then read ik/map and ik: ACTIVE/fallback. Host/Blender evidence
+and later independent tests are in [ARM_IK.md](dishonored/ARM_IK.md).
+
 ## 2026-10-04: full-arm IK implemented locally; host and Blender verified
 
 `codex/ik-full-arms` now contains the fork-style independent shoulder reach
