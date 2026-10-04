@@ -1,3 +1,24 @@
+## 2026-10-04: menu fix installed; recurring frame-drop investigation
+
+Installed v1.0.3-15-gca50a5602, SHA256
+35e91c4c51dd6e1e258bc475e055c9fa433e4e244f1fac781c3ec6e72604f8da.
+Backup DLL/INI/current and previous logs/rig, expected INI and complete empty
+diff: build/arm-ik-install/20261004-150657-menu-visibility/. All 73,708 INI
+bytes preserved, 1,693 CRLF and zero lone endings. Current user AFW and
+2114x2192 rendering settings retained. Win32 build, 11 exports and lint pass.
+
+Last run's banner/hash match build 13. No frame burst occurred. A 233-second
+post-transition interval has 110 itemized submission-tail hitches plus 27
+summarized; explicit endFrame cost 28.4..95.6 ms. Prior build 11 has the same
+pattern. Typical game GPU cost is 4.3 ms, excluding DLSS and later GPU work.
+No VRAM exhaustion evidence; some hitches have no recent streaming uploads.
+Runtime/driver/GPU-wait origin remains unproven. Full record and next test:
+[PERFORMANCE.md](dishonored/PERFORMANCE.md). No speculative performance fix.
+
+Next launch's ONE question supersedes the menu/roll test: do hitches stop
+with Full-arm IK OFF and return ON in one stationary scene (ON/OFF/ON,
+about 45 seconds each, no capture or other settings changes)? Menu/roll/
+flicker acceptance remains pending. No game launch, push, PR, merge or agents.
 ## 2026-10-04: retain full-arm IK in weapon-wheel and pause menus
 
 Follow-up report: arms disappear in the weapon wheel, possibly also pause.
