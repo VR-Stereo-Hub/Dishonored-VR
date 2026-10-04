@@ -315,6 +315,34 @@ Verify the new log banner before interpreting it. Do not combine ReShade or subt
 with this loading question. VR-133's unrelated camera acceptance remains open; new issue
 creation was blocked by Linear's free issue limit.
 
+## 2026-10-02: build 253 integrated; stereo settings prepared for the next patch
+
+Current state: PR #167 merged into staging at `1c47937a6` on explicit instruction. Its
+source is the installed `v1.0.1-253-ga964c2ab4`; the branch tip adds installation notes only.
+Installed build 253 was identified by banner and DLL SHA256
+`05488F5D05EEA99BC9DDA60D982CB9A4C1CD869AFC849979DA7020F786451249`. Source branches retained.
+Further spacewarp work is shelved; its record remains in `dishonored/PERFORMANCE.md`.
+
+Patch candidate: `codex/vr-39-stereo-settings` starts from that staging merge. Basic >
+Display > Stereo rendering is first in the tab and offers Stereo and Alternate frame warping (AFW) (experimental).
+AFW's tooltip recommends DLSS or DLAA. AER, delta clamp, AFW tuning, depth/SSW, mod-spacewarp
+including the build-253 guards, and captures require Debug. Rendering and defaults unchanged.
+New Linear ticket creation hit the workspace free issue limit; the verified VR-39 parent
+tracks this limited UI follow-up. No new ticket number was created.
+
+Installed `v1.0.1-258-g949e1ea8b`, optimized, legacy off. Build, lint, golden INI and nine
+exports pass. DLL SHA256 `F77062FF999036C398C4C09143663D9AD9292F37995F9FCA957205EE17A6DE20`
+matches the built DLL. Entire 73,349-byte INI equals backup and expected bytes; zero changes,
+CRLF verified. ModSpacewarp=0, SubmitDepth=0, Method=afw and Level=debug retained. Existing
+DLSS helper retained. DLL/INI/log backup and install record: main checkout
+`build/stereo-settings-install/pre-install-basic/`; verification `installed-258.json` in its parent. No game launch or new runtime banner yet.
+
+Next single-launch question: does F10 Display's Stereo rendering show only Stereo and
+experimental AFW in Basic, with the other controls returning in Debug? Hover AFW to check
+the DLSS/DLAA guidance. Correct separation accepts the UI gate; visible experiments in Basic
+or missing Debug controls reject it. Confirm build 258's banner before reading that run.
+The UI patch needs review and separate merge authorization; VR-Main remains untouched.
+
 ## 2026-10-02: MSW guards built (Cyberpunk VR frame-generation review); host-verified
 
 Current state: branch `claude/vr-39-msw-guards` (off #165, plus the plan in draft #166) adds two

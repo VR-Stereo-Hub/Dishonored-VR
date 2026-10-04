@@ -32,6 +32,17 @@ Evidence: [INSTALLER.md](INSTALLER.md) and latest STATUS entry.
 
 Evidence and next test: [PERFORMANCE.md](dishonored/PERFORMANCE.md), community integration.
 
+## Stereo settings patch preparation (2026-10-02)
+
+- [x] Merge the verified installed build 253 into staging on explicit instruction.
+- [x] Keep Stereo and experimental AFW in Basic; move all other section controls to Debug.
+- [x] Add AFW tooltip guidance for DLSS/DLAA; preserve rendering and configuration defaults.
+- [x] Optimized build, lint, nine exports, golden INI and full installed INI/CRLF verification.
+- [ ] User-launched Basic/Debug panel visibility acceptance on build 258.
+- [ ] Merge the UI follow-up after review and explicit authorization.
+
+Further SSW/mod-spacewarp research is shelved; see `dishonored/PERFORMANCE.md`.
+
 ## AFW wall stale-test and hand timing follow-up (2026-09-30)
 
 - [x] Preserve build-236 evidence and identify five complete wall-capture frames.
