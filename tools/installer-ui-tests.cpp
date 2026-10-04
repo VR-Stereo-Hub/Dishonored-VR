@@ -77,7 +77,7 @@ static void suite(float dpi,float width,float height){
  check(v.choices.upscalerEdit==2 && !labels.count("##upscaler-preset"),"FSR hides NVIDIA-only presets");
  reveal("##upscaler");click("##upscaler");frame();frame();click("Off");frame();frame();
  check(v.choices.upscalerEdit==0 && !labels.count("##upscaler-quality"),"Off hides inactive upscaler options");
- state("mods");check(click("Install ReShade 6.8")==UiAction::None,"runtime download waits for compatible installed build");
+ state("mods");v.det.reshadeSupported=false;frame();check(click("Install ReShade 6.8")==UiAction::None,"runtime download waits for compatible installed build");
  v.det.reshadeSupported=true;frame();check(click("Install ReShade 6.8")==UiAction::InstallReShade,"compatible runtime download works across build hashes");
  v.det.reshadeInstalled=true;frame();check(click("Turn ReShade on")==UiAction::ToggleReShade,"ReShade enable action wired");
  check(click("Uninstall ReShade runtime")==UiAction::RemoveReShade,"ReShade remove action wired");

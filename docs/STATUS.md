@@ -1,3 +1,28 @@
+## 2026-10-04: combined PR candidate prepared locally, staging unchanged
+
+Finalized full-arm IK as PR #174 against staging (branch codex/ik-full-arms,
+7537d883b). Local codex/staging-combined-test starts at staging 957322031 and
+contains merge commits for these exact heads:
+- #168 f61a703cc: Basic Stereo/AFW settings and Debug gates.
+- #172 758eb9124: ReShade installation, preset import and Mods UI.
+- #173 f035d8a8f: timeout delivery, adaptive capture depth and same-eye guard.
+- #174 7537d883b: full-arm IK, menu/roll/history corrections and frame capture.
+
+Staging/VR-Main and all four PR branches remain unmerged and unchanged by
+this test branch. Conflicting additive documentation is retained from both
+sides. Basic Display keeps Stereo rendering first, then accessible frame
+capture; the IK capture remains directly on its tab. Installer UI tests now
+explicitly set unsupported capability for their disabled-install case, since
+#172's updated Mods fixture represents a supported build. No product logic
+was altered to satisfy that old fixture assumption.
+
+Validation: full optimized Win32 build including launcher; 1,083 IK checks;
+1,723 pairing checks; capture BMP/PNG and failure cleanup; 86 installer model
+checks; 256 native UI interaction checks; ReShade install/import fixtures;
+manual ReShade 791 enabled / 759 disabled checks and default-off refusal.
+Golden/release INIs, 11 exports and lint pass. Blender evidence from #174 is
+unchanged. No game launch or staging push. Combined headset acceptance is
+pending. The same-location sustained FPS regression remains open in PERFORMANCE.
 ## 2026-10-04: finalize IK PR; prepare combined staging-based test
 
 Full-arm activation and basic behavior are headset-accepted. The corrected
