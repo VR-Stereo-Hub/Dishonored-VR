@@ -155,6 +155,15 @@ Primary references: [ReShade 6.8 runtime load/save/skip behavior](https://github
 Flush submits work asynchronously; completion needs the query. Replacing a
 cross-device completion check with Flush is not a valid optimization.
 
+Installed optimized v1.0.3-32-gf03ad520f, SHA256
+08e66ed0e8a83e7f0100f81d9963e648da55d0c8b15d9b1e6b0f60e055daa4cb.
+Backup/expected INIs/full diffs/logs/preset and manifest:
+build/performance-audit/install-20261004-181131/.
+VR INI unchanged in all 73,716 bytes, 1,693 CRLF, no lone endings; Parts=1
+already armed. ReShade.ini differs only in SkipLoadingDisabledEffects 1 -> 0
+and matches its expected bytes. Preset unchanged. No game launch. Live
+performance and startup-menu acceptance remain pending.
+
 ### Next launch: one question
 
 In the same fixed save/location, does sustained FPS rise with F10 > HUD >
