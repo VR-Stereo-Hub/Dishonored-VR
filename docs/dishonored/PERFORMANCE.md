@@ -1,3 +1,24 @@
+## 2026-10-03: GTX 1650 laptop - 1.0.1 vs 1.0.2/1.0.3 (MEASURED from field logs)
+
+Remote player: GTX 1650 (4 GB, 3345 MB budget), i7-9750H, Quest 3 on VDXR at 120 Hz,
+2750x2850 or 2382x2468. GPU-bound in every run (`gpuIdleMs` ~0).
+
+- **The perceived slowdown is mostly one eye refreshing at 4-9 Hz.** Per-tick cost on the
+  clean 1.0.2 normal-render run (25.5 ms) is the same as 1.0.1 (26.7 ms); what changed is
+  that capture-wait timeouts refuse since 1.0.2 and starve one eye (FLICKER_REFERENCE,
+  same date). Candidate `[Capture] TimeoutRefuse=0` restores the 1.0.1 behaviour.
+- **GPU work added since 1.0.1, all active on this machine, none measured separately yet:**
+  forced 16x anisotropic and trilinear on every sampler (`[Clarity] Anisotropy=16
+  TrilinearMips=1`, the game asks for 4x); the depth-share ring (up to 359 MiB) copied
+  every present, wanted by AFW; per-eye occlusion (`[Stereo] Occlusion=pereye`); the
+  sharp-marker composite. VRAM median rose from 1.4-1.7 GB (1.0.1) to 2.05 GB, peak
+  3.07 GB = 92% of budget (1.0.3, with FSR on).
+- **The 1.0.3 run also had FSR native AA turned on in F10:** 18-28 ms of helper GPU time per
+  eye on this card, more than the whole frame budget. FSR native AA and DLAA are not for
+  this class of GPU; the release notes and the launcher should say so.
+- Next: an A/B on this machine, one lever at a time after TimeoutRefuse - Anisotropy 0 /
+  TrilinearMips 0, then Occlusion native - reading `gpuSpanMs` and `stereo: beat`.
+
 ## 2026-10-03: build 266 F10 ReShade controls accepted
 
 The tester confirms normal controller operation of ReShade effects and shader sliders

@@ -127,6 +127,16 @@ int                       g_sharedCur = 0;
 int                       g_sharedDepth = 1;        // presents between a slot's blit and its delivery
 int                       g_sharedN = 0;            // slots live now (0 = none built)
 int                       g_sharedDepthWant = 1;
+// What a bounded capture wait does when its 10 ms run out ([Capture] TimeoutRefuse,
+// `capture timeout deliver|refuse`). 1.0.1 delivered anyway; 1.0.2 (1d2ee24a5, a TAA
+// hardening verified only on the simulator) refused the grab instead. On a GPU-bound
+// machine the timeouts are routine, the eyes alternate, so the refusals land on the
+// SAME eye every time: that eye's present goes out untagged and is held, and it
+// refreshes at 6-9 Hz while the other gets 23-30 (GTX 1650 field logs, 2026-10-03,
+// FLICKER_REFERENCE). Deliver is the default again; refuse stays as the A/B.
+bool                      g_timeoutRefuse = false;
+uint32_t                  g_timeoutDelivered = 0, g_timeoutDeliveredWindow = 0;
+uint32_t                  g_timeoutRefused = 0, g_timeoutRefusedWindow = 0;
 uint32_t                  g_fenceWaitUsWindow = 0;  // the fence wait's own sum, for the window line
 int                       g_sharedDelivered = -1;   // the slot texture()/srv() hand out
 bool                      g_sharedWait = false;
@@ -202,6 +212,13 @@ void cost_tick() {
                      g_sharedN, g_fenceWaitsWindow, g_windowGrabs,
                      g_windowGrabs ? (double)g_fenceWaitUsWindow / 1000.0 / g_windowGrabs : 0.0, g_fenceTimeouts,
                      g_readWaitsWindow, g_readTimeouts);
+        if (g_mode == Mode::Shared && (g_timeoutDeliveredWindow || g_timeoutRefusedWindow))
+            DVR_INFO("capture: wait timeouts this window: %u delivered anyway, %u refused (policy %s) | lifetime %u "
+                     "delivered, %u refused. A refused grab goes out untagged and is held; the eyes alternate, so "
+                     "on a GPU-bound machine the refusals starve ONE eye ([Capture] TimeoutRefuse, `capture timeout`)",
+                     g_timeoutDeliveredWindow, g_timeoutRefusedWindow, g_timeoutRefuse ? "refuse" : "deliver",
+                     g_timeoutDelivered, g_timeoutRefused);
+        g_timeoutDeliveredWindow = 0; g_timeoutRefusedWindow = 0;
         g_fenceWaitsWindow = 0; g_readWaitsWindow = 0; g_fenceWaitUsWindow = 0;
     }
     g_sumRtd = g_sumLock = g_sumCopy = g_sumUpload = g_sumBlit = 0;
@@ -472,7 +489,14 @@ bool read_wait(int i, uint64_t* lockUs) {
         if (hr == S_FALSE) ++g_readTimeouts;
     }
     *lockUs += qpc_us(t0, qpc_now());
-    if (hr != S_OK) return false;
+    if (hr == S_FALSE && !g_timeoutRefuse) {
+        // 1.0.1's behaviour: stop waiting on this read and blit anyway. The query is
+        // dropped, not kept pending, or the same slot refuses on every later present.
+        ++g_timeoutDelivered; ++g_timeoutDeliveredWindow;
+        g_readIssued[i] = false;
+        return true;
+    }
+    if (hr != S_OK) { if (hr == S_FALSE) { ++g_timeoutRefused; ++g_timeoutRefusedWindow; } return false; }
     g_readIssued[i] = false;
     return true;
 }
@@ -495,7 +519,14 @@ bool fence_wait(int i, uint64_t* lockUs) {
         if (hr == S_FALSE) ++g_fenceTimeouts;
     }
     *lockUs += qpc_us(t0, qpc_now());
-    if (hr != S_OK) return false;
+    if (hr == S_FALSE && !g_timeoutRefuse) {
+        // 1.0.1's behaviour: deliver the slot anyway. Its eye tag is still the right one,
+        // so the pair stays a pair; at worst the blit is not finished for this present.
+        ++g_timeoutDelivered; ++g_timeoutDeliveredWindow;
+        g_fenceIssued[i] = false;
+        return true;
+    }
+    if (hr != S_OK) { if (hr == S_FALSE) { ++g_timeoutRefused; ++g_timeoutRefusedWindow; } return false; }
     g_fenceIssued[i] = false;
     return true;
 }
@@ -913,6 +944,15 @@ void set_shared_wait(bool on) {
                                                  : "the previous present's slot (SharedWait=0: one present late, no wait in the common case)");
 }
 bool shared_wait() { return g_sharedWait; }
+void set_timeout_refuse(bool refuse, const char* who) {
+    if (refuse == g_timeoutRefuse) return;
+    g_timeoutRefuse = refuse;
+    DVR_INFO("capture: timeout policy -> %s (%s)", refuse
+                 ? "REFUSE: a capture wait that runs out drops the grab; the present goes out untagged (1.0.2/1.0.3 behaviour)"
+                 : "DELIVER: a capture wait that runs out still delivers the slot with its eye tag (1.0.1 behaviour, the default)",
+             who ? who : "?");
+}
+bool timeout_refuse() { return g_timeoutRefuse; }
 void set_shared_depth(int depth, const char* who) {
     if (depth < 1) depth = 1;
     if (depth > kMaxShared - 1) depth = kMaxShared - 1;

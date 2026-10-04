@@ -1943,6 +1943,11 @@ static void LoadConfig()
         // Uncap deep dive (2026-09-27): not in the default ini on purpose (a missing key is the
         // 41.1 two-slot ring); `capture depth <n>` is the live A/B.
         dvr::capture::set_shared_depth((int)IniFloat(ini, "Capture", "SharedDepth", 1), "ini");
+        // Not in the default ini: a missing key is the 1.0.1 behaviour (deliver). capture.cpp says why.
+        dvr::capture::set_timeout_refuse(IniFloat(ini, "Capture", "TimeoutRefuse", 0) != 0.0f, "ini");
+        DVR_INFO("config: [Capture] TimeoutRefuse=%d - %s", dvr::capture::timeout_refuse() ? 1 : 0,
+                 dvr::capture::timeout_refuse() ? "a capture wait that runs out drops the grab (1.0.2/1.0.3 behaviour)"
+                                                : "a capture wait that runs out still delivers (1.0.1 behaviour, the default)");
         {   // [Capture] BboxMs: how often the content-bbox instrument resamples.
             // Each sample is a full-frame CPU readback on the present thread even
             // in shared mode (capture.h says why), so this is a frame-time knob,

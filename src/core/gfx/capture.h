@@ -133,6 +133,11 @@ bool     shared_wait();
 // thread run further ahead of the GPU instead of waiting on the capture fence.
 void     set_shared_depth(int depth, const char* who);
 int      shared_depth();
+// What a bounded capture wait (10 ms) does when it runs out: deliver the slot anyway, as
+// 1.0.1 did (the default), or refuse the grab ([Capture] TimeoutRefuse=1, `capture timeout
+// refuse`), as 1.0.2/1.0.3 did - which starves one eye on a GPU-bound machine (capture.cpp).
+void     set_timeout_refuse(bool refuse, const char* who);
+bool     timeout_refuse();
 
 // 41.1 (Dishonored): the content-bbox cadence, and why it is a lever at all.
 //

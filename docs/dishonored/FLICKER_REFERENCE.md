@@ -1,3 +1,48 @@
+## 2026-10-03: one eye starved on a GPU-bound machine since 1.0.2 - capture timeouts refuse (MEASURED cause, candidate built, headset pending)
+
+Surface/route: the WHOLE eye image (world and weapon together), one eye at a time, normal
+render and AFW. Row "One eye appears frozen, swapped, or behind" in section 1, the
+one-sided-tag branch - not the weapon-correction rows, because the environment moves too.
+
+1. **Symptom identity:** remote player, GTX 1650 laptop (4 GB, i7-9750H, iGPU present),
+   Quest 3 on VDXR. Since 1.0.2: the left eye's world and weapon flicker displaced to the
+   left in normal render, both eyes flicker in AFW, and everything reads slower. 1.0.1 on
+   the same machine and INI baseline is reported good. A left eye showing an image older
+   than the head moves exactly that way.
+2. **Reproduction identity:** two support bundles, 2026-10-03 (local only): 1.0.1
+   (`v1.0.0-8-gf5176aeae`) x4 runs, 1.0.2 (`v1.0.2`) x3, 1.0.3 (`v1.0.3`) x1, all 2750x2850
+   or 2382x2468, shared capture, `SharedWait=0`, depth 1 (2 slots), 120 Hz.
+3. **Hypothesis and counterprediction:** commit 1d2ee24a5 (1.0.2, "harden TAA history and
+   depth transport") changed both bounded capture waits from "10 ms, then deliver anyway"
+   to "10 ms, then refuse the grab". On a GPU-bound machine the timeouts are routine; a
+   refused grab makes the present untagged (held), and because the eyes alternate the
+   refusals fall on the same eye, so that eye starves. Counterprediction: if this is
+   wrong, restoring "deliver" leaves `stereo: beat` lopsided and `none/s` high.
+   Measured, `stereo: beat` medians over each run:
+
+   | Build | L/s | R/s | none/s | fence timeouts | read timeouts |
+   |---|---|---|---|---|---|
+   | 1.0.1 (4 runs) | 30-38 | 30-38 | 1-2 | 272 / 2936 lifetime, delivered | 0 |
+   | 1.0.2 normal render, DLAA off | 8-9 | 29-30 | 29-30 | 2640 | 1655 |
+   | 1.0.2 (other runs) | 24 / 17 | 2 / 29 | 24-25 | 823 | 9440 |
+   | 1.0.3 normal render | 4-7 (or 36) | 23 (or 2) | 23-36 | 4988 | 1645 |
+
+   1.0.3 `status.json`: pairs 404 of 2251 stereo submits (1.0.1: 2089 of 2090), aborts
+   1358 of which 1277 untagged, `tagNoFrame` 6629. The frame-identity trace shows both
+   draws of a pair really are different eyes (`#8449 [-1]`, `#8450 [+1]`, distinct c5)
+   while the ring logs `pushed eye -1 TWICE in a row`: the images are right, their
+   delivery is refused. The 1.0.1 runs had fence timeouts too and stayed balanced,
+   which is the negative control for "the GPU alone does this".
+4. **Change identity:** `[Capture] TimeoutRefuse` (absent = 0 = deliver, the 1.0.1
+   behaviour; 1 = refuse) and the live `capture timeout deliver|refuse`. On a read
+   timeout the pending query is dropped, as in 1.0.1, instead of refusing that slot on
+   every later present. A new per-window line counts `delivered anyway` / `refused`.
+5. **Results:** builds; nothing else ran. Not run: simulator (it is not GPU-bound), headset.
+6. **Status:** cause measured from the field logs, fix built, headset pending. Remaining
+   scope: why the D3D11 read timeouts went from 0 (1.0.1) to thousands - more GPU work per
+   present since 1.0.1 is the candidate (PERFORMANCE.md, same date); the TAA history the
+   refusal protected is off by default (`Temporal=0`).
+
 ## 2026-10-02: MSW guards - no extrapolation across a jump, a bounded turn, the stick stop (HOST-VERIFIED candidate)
 
 Surface/route: the WORLD in MSW-synthesized slots, both eyes, under right-stick turns, snap turns
@@ -3046,6 +3091,7 @@ pose metadata without reopening the disproved historical theories.
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
+| One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | 2026-10-03 candidate `[Capture] TimeoutRefuse=0` (deliver, the 1.0.1 behaviour); headset pending; top entry |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
 | Both near hands/weapons flash or lose disparity for a frame | Untagged mono image enters a stereo stream | `HoldUntagged=3` confirmed mitigation; burst generation remains open |
 | Both eyes go black for one frame | Texture-less present ends an XR frame without a scene layer | Previous-layer fallback implemented and historically confirmed |

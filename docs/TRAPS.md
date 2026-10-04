@@ -1,3 +1,13 @@
+## 2026-10-03: a safety hardening verified on a fast machine starved an eye on a slow one
+
+1.0.2 changed the capture waits to refuse a grab after 10 ms instead of delivering it, to
+keep unfinished data out of TAA history. Verified on the simulator, which is never
+GPU-bound. On a GTX 1650 the timeouts are routine, the eyes alternate, and every refusal
+lands on the same eye: 6-9 Hz in one eye, 23-30 in the other, flicker and "worse
+performance" since 1.0.2. A timeout policy is a behaviour change on the machines that
+time out; judge it there, or by its counters (`stereo: beat` none/s, the capture timeout
+lines) on a GPU-bound run. FLICKER_REFERENCE 2026-10-03.
+
 ## 2026-10-03: a matching architecture is not a loadable API layer
 
 A remote Reverb G2 (SteamVR, the shim) never reached VR: xrCreateInstance -> -32 twice,

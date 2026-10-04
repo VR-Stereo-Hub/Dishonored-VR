@@ -1,3 +1,15 @@
+## 2026-10-03: GTX 1650 eye starvation since 1.0.2 - capture timeouts refuse
+
+A remote player on a GTX 1650 laptop reported left-eye flicker (world and weapon, to the
+left) and worse performance since 1.0.2; 1.0.1 good. Eight logs across 1.0.1/1.0.2/1.0.3:
+from 1.0.2 one eye gets 4-9 tagged presents/s against 23-30, with ~25 untagged/s, where
+1.0.1 is balanced. Cause: 1d2ee24a5 made capture waits refuse on timeout; on this GPU they
+time out routinely and the refusals land on one eye. Candidate on
+`claude/capture-timeout-deliver`: `[Capture] TimeoutRefuse=0` (deliver, as 1.0.1) and
+`capture timeout deliver|refuse`. Built only; not run on the simulator (not GPU-bound) or a
+headset. GPU-cost additions since 1.0.1 are recorded in PERFORMANCE.md for the next A/B.
+No Linear ticket (workspace issue limit).
+
 ## 2026-10-03: remote Reverb G2 never reached VR - ReShade's OpenXR layer refused (-32)
 
 Remote tester, HP Reverb G2 on SteamVR (WMR driver replacement), RTX 5080, v1.0.3 with the
