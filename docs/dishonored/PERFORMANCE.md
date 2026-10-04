@@ -1,3 +1,20 @@
+## 2026-10-04: distinguish steady FPS regression from intermittent spikes
+
+Follow-up report attributes the largest intermittent spikes to a suspected
+network issue, not a confirmed mod fault. Keep the measured XR-submission
+stalls above as observations; their origin was not isolated by that trace.
+The sustained regression is a separate report: approximately 110 FPS in the
+same fixed test location previously reaching 125-135 FPS, possibly since
+1.0.3. Turning Full-arm IK off has no perceptible effect on that average.
+This supersedes the proposed IK ON/OFF/ON experiment: the reported negative
+comparison deprioritizes IK, without establishing a different root cause.
+
+No speculative performance change is included in the IK PR. Next candidate
+combines PRs #168, #172, #173 and full-arm IK on a local staging-based test
+branch, before any staging merge. The capture-timeout correction in #173 is
+included as requested, not asserted to recover this machine's missing FPS.
+Compare the combined build in the same location; retain exact configuration,
+matching banner and separate sustained rate from occasional network spikes.
 ## 2026-10-04: frequent frame drops on IK build 13, XR submission stalls measured
 
 Banner/proxy hash verified before interpretation: v1.0.3-13-g1c9252b4e,

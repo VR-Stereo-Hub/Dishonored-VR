@@ -1,3 +1,11 @@
+# Unreleased
+
+- Experimental full-arm IK is available from the L3+R3/F10 IK tab, with shoulder
+  placement, width, arm length and elbow controls. Native hand/finger animations
+  remain. Off by default; this prototype requires a locally prepared arm reference
+  (see docs/dishonored/ARM_IK.md), which is not bundled with the release.
+- IK and Display expose a 16-frame diagnostic capture with a five-second delay.
+  Saving can briefly hitch. Full arms retain their visibility in in-game menus.
 # Dishonored VR 1.0.3
 
 ## Alternate Frame Warping (AFW)

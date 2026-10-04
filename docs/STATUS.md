@@ -1,3 +1,18 @@
+## 2026-10-04: finalize IK PR; prepare combined staging-based test
+
+Full-arm activation and basic behavior are headset-accepted. The corrected
+roll distribution, pose-history identity, restored frame burst and menu
+visibility gate are included; their individual visual acceptance remains
+pending. Finalize this feature branch as a PR against staging, then combine
+it with #168, #172 and #173 on a separate local test branch. Staging and
+VR-Main must remain untouched until explicitly authorized.
+
+The sustained same-location FPS regression is reported at about 110 versus
+125-135 previously, possibly since 1.0.3; IK off has no reported effect.
+The largest spikes are now suspected to be networking. This replaces the
+proposed IK isolation test. Maintain investigation in PERFORMANCE.md.
+The local reference remains a prototype preparation requirement; no extracted
+asset, binary rig, capture or Blender file is committed or distributed.
 ## 2026-10-04: menu fix installed; recurring frame-drop investigation
 
 Installed v1.0.3-15-gca50a5602, SHA256

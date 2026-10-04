@@ -122,9 +122,10 @@ reference name, maximum errors, counts and source generation.
 
 This is an alternative to reading an unverified native RefSkeleton/BoneMap
 layout. Weighted centroids are not used as joint positions. The complete local
-source match gates use of the reference joint heads. Current runtime mesh and
-palette evidence is still owed; synthetic mapping tests cannot establish that
-the game emits the expected coordinate convention in a launch.
+source match gates use of the reference joint heads. Build 11's verified
+headset run mapped all 2,771 vertices and 48 palette slots with zero position
+and weight error; full articulated arms were accepted. See the live evidence
+below for the initial failed coordinate convention and its correction.
 
 ## Reference versions and adopted behavior
 
