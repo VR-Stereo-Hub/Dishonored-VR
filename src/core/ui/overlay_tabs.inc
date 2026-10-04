@@ -139,6 +139,9 @@ static void OvlTabHands()
         OvlHandsFovControls("F10 Hands");   // VR-39
     }
     if (OvlSec("Sleeve", kOvlB, "How much of the arm is drawn with each hand.")) {
+        const bool fullArmIK=g_ikOn.load();
+        if(fullArmIK)ImGui::TextWrapped("Full-arm IK uses the entire arm mesh. Sleeve cuts are disabled. See the IK tab for activation status.");
+        ImGui::BeginDisabled(fullArmIK);
         const int cur = dvr::sleeve::match(g_msCutRel[1], g_msCutRel[2], g_msRoundDepth);
         if (ImGui::BeginCombo("Sleeve preset", cur >= 0 ? dvr::sleeve::kPresets[cur].name : "Custom")) {
             for (int i = 0; i < dvr::sleeve::kPresetCount; ++i)
@@ -156,10 +159,12 @@ static void OvlTabHands()
         editing = ImGui::IsItemActive();
         if (ImGui::IsItemDeactivatedAfterEdit()) MsSleeveApply(-shownLen, g_msRoundDepth, "F10 Sleeve length");
         OvlTip("How far up the arm is kept. Applies when you let go of the slider (the cut is rebuilt).");
+        ImGui::EndDisabled();
         if (dvr::ovl::checkbox("Open right hand when it is empty", &g_ohOn))
             ConfigWriteKey("Hands", "OpenEmptyRightHand", g_ohOn ? "1" : "0", "F10 Hands");
         OvlTip("With the sword put away, the right hand relaxes open like the left instead of making a fist.");
         if (OvlAt(kOvlA)) {
+            ImGui::BeginDisabled(fullArmIK);
             bool wristChanged = dvr::ovl::checkbox("Rounded wrist ends", &g_msRoundWrist);
             wristChanged |= dvr::ovl::slider_float("Wrist roundness", &g_msRoundDepth, .05f, .8f, "%.2f");
             if (wristChanged) {
@@ -168,6 +173,7 @@ static void OvlTabHands()
                 char amount[32]; _snprintf(amount, sizeof(amount), "%.3f", g_msRoundDepth);
                 ConfigWriteKey("Hands", "RoundedWristDepth", amount, "F10 Hands");
             }
+            ImGui::EndDisabled();
         }
     }
     if (OvlSec("Game arms during actions", kOvlA,
@@ -869,6 +875,15 @@ static void OvlTabHud()
     }
 }
 
+static void OvlFrameBurst()
+{
+    if(dvr::ovl::button("Capture 16 frames (5 second delay)")){
+        FrameBurstRequest();g_ovlVisible=false;
+    }
+    OvlTip("Closes this menu, waits five seconds, then saves a short series of eye images. Keep the arms in view and reproduce the issue. Saving can briefly hitch.");
+    ImGui::TextWrapped("Capture: %s",FrameBurstStatus());
+}
+
 // ---- Display --------------------------------------------------------------------------------
 static void OvlTabDisplay()
 {
@@ -985,6 +1000,7 @@ static void OvlTabDisplay()
             }
         }
     }
+    if(OvlSec("Frame capture",kOvlB,"Save a short sequence for diagnosing visual issues."))OvlFrameBurst();
     if (OvlSec("Field of view", kOvlB, "How much of the game world the view covers.")) {
         float projectionFov = ProjectionFovGet();
         bool customFov = projectionFov > 0;
@@ -1504,10 +1520,48 @@ static void OvlTabBody(const char* id, void (*draw)())
     dvr::ovl::end_body();
 }
 
+static void OvlTabIK()
+{
+    OvlFrameBurst();
+    ImGui::Separator();
+    bool on=g_ikOn.load();
+    if(dvr::ovl::checkbox("Full-arm IK",&on)){
+        g_ikOn=on;g_ikReload=true;
+        ConfigWriteKey("Hands","ArmIK",on?"1":"0","F10 IK");
+    }
+    OvlTip("Connects your hands to IK arms. Hands and fingers keep their animations. Each shoulder adjusts independently at the limits of your reach.");
+    ImGui::TextWrapped("IK status: %s",on?g_ikStatus.load():"Disabled - using your normal hand and sleeve settings.");
+    if(on)ImGui::TextWrapped("Full arms are automatic when IK is active. If unavailable, the status above explains why only fallback hands appear.");
+    if(OvlSec("Shoulder position",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){
+        auto control=[](const char* label,const char* key,std::atomic<float>& value,float lo,float hi,const char* format){
+            float current=value.load();
+            if(dvr::ovl::slider_float(label,&current,lo,hi,format))value=current;
+            OvlSaveOnRelease("Hands",key,current,"%.3f");
+        };
+        control("Forward / backward","ArmShoulderForwardCm",g_ikForward,-50,50,"%+.1f cm");
+        control("Right / left","ArmShoulderRightCm",g_ikRight,-50,50,"%+.1f cm");
+        control("Up / down","ArmShoulderUpCm",g_ikUp,-80,20,"%+.1f cm");
+        control("Shoulder width","ArmShoulderWidthCm",g_ikWidth,10,80,"%.1f cm");
+        control("Arm length","ArmLengthScale",g_ikLength,.5f,2,"%.2f");
+        control("Elbows outward","ArmElbowOut",g_ikElbowOut,0,2,"%.2f");
+    }
+    if(dvr::ovl::button("Reset IK adjustments")){
+        g_ikForward=-6;g_ikRight=0;g_ikUp=-20;g_ikWidth=36;g_ikLength=1;g_ikElbowOut=.6f;
+        const char* keys[]={"ArmShoulderForwardCm","ArmShoulderRightCm","ArmShoulderUpCm","ArmShoulderWidthCm","ArmLengthScale","ArmElbowOut"};
+        const char* values[]={"-6","0","-20","36","1","0.6"};
+        for(int i=0;i<6;++i)ConfigWriteKey("Hands",keys[i],values[i],"F10 IK reset");
+        g_ikReload=true;
+    }
+    ImGui::SameLine();
+    if(dvr::ovl::button("Reload arm reference"))g_ikReload=true;
+    ImGui::TextWrapped("Hand size, grip offsets and hand animation choices remain on Hands. Arm length changes reach, not visibility. Sleeve settings are used again when IK is off.");
+}
+
 static void OvlTabs()
 {
     if (!ImGui::BeginTabBar("vrtabs", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton)) return;
     if (dvr::ovl::tab("Hands"))    { OvlTabBody("OvlTabHands-scroll", OvlTabHands);    ImGui::EndTabItem(); }
+    if (dvr::ovl::tab("IK"))       { OvlTabBody("OvlTabIK-scroll", OvlTabIK); ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Aim"))      { OvlTabBody("OvlTabAim-scroll", OvlTabAim);      ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Controls")) { OvlTabBody("OvlTabControls-scroll", OvlTabControls); ImGui::EndTabItem(); }
     if (dvr::ovl::tab("Comfort"))  { OvlTabBody("OvlTabComfort-scroll", OvlTabComfort);  ImGui::EndTabItem(); }

@@ -1,3 +1,16 @@
+## Full-arm IK (2026-10-04)
+
+- [x] Fork-style independent shoulder reach with shared nominal XYZ/width.
+- [x] Dedicated L3+R3/F10 IK tab and default-off persisted controls.
+- [x] Preserve native hands/fingers while IK replaces arm/sleeve animation.
+- [x] Validated local reference-to-palette mapper and owned complete arm geometry.
+- [x] 1,083 host checks and 260-frame Blender production-solver skin simulation.
+- [x] Confirm all 2,771 runtime vertices/48 slots map and full arms activate in the headset.
+- [ ] Confirm the latest roll, menu visibility and flicker corrections in the combined candidate.
+- [ ] Confirm animation handoff, menu persistence, rapid turns and reload lifetime.
+
+Evidence and deformation limits: [ARM_IK.md](dishonored/ARM_IK.md).
+
 ## Launcher Display and ReShade follow-up (2026-10-03)
 
 - [x] Add explicit upscaler, quality and shared F10 preset controls to Display.

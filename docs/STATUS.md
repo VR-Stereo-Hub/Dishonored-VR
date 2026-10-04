@@ -1,3 +1,188 @@
+## 2026-10-04: finalize IK PR; prepare combined staging-based test
+
+Full-arm activation and basic behavior are headset-accepted. The corrected
+roll distribution, pose-history identity, restored frame burst and menu
+visibility gate are included; their individual visual acceptance remains
+pending. Finalize this feature branch as a PR against staging, then combine
+it with #168, #172 and #173 on a separate local test branch. Staging and
+VR-Main must remain untouched until explicitly authorized.
+
+The sustained same-location FPS regression is reported at about 110 versus
+125-135 previously, possibly since 1.0.3; IK off has no reported effect.
+The largest spikes are now suspected to be networking. This replaces the
+proposed IK isolation test. Maintain investigation in PERFORMANCE.md.
+The local reference remains a prototype preparation requirement; no extracted
+asset, binary rig, capture or Blender file is committed or distributed.
+## 2026-10-04: menu fix installed; recurring frame-drop investigation
+
+Installed v1.0.3-15-gca50a5602, SHA256
+35e91c4c51dd6e1e258bc475e055c9fa433e4e244f1fac781c3ec6e72604f8da.
+Backup DLL/INI/current and previous logs/rig, expected INI and complete empty
+diff: build/arm-ik-install/20261004-150657-menu-visibility/. All 73,708 INI
+bytes preserved, 1,693 CRLF and zero lone endings. Current user AFW and
+2114x2192 rendering settings retained. Win32 build, 11 exports and lint pass.
+
+Last run's banner/hash match build 13. No frame burst occurred. A 233-second
+post-transition interval has 110 itemized submission-tail hitches plus 27
+summarized; explicit endFrame cost 28.4..95.6 ms. Prior build 11 has the same
+pattern. Typical game GPU cost is 4.3 ms, excluding DLSS and later GPU work.
+No VRAM exhaustion evidence; some hitches have no recent streaming uploads.
+Runtime/driver/GPU-wait origin remains unproven. Full record and next test:
+[PERFORMANCE.md](dishonored/PERFORMANCE.md). No speculative performance fix.
+
+Next launch's ONE question supersedes the menu/roll test: do hitches stop
+with Full-arm IK OFF and return ON in one stationary scene (ON/OFF/ON,
+about 45 seconds each, no capture or other settings changes)? Menu/roll/
+flicker acceptance remains pending. No game launch, push, PR, merge or agents.
+## 2026-10-04: retain full-arm IK in weapon-wheel and pause menus
+
+Follow-up report: arms disappear in the weapon wheel, possibly also pause.
+Code confirms an IK-only gate rejected every input-owning menu and selected
+the clipped-hands fallback. Remove that broad gate; keep the title-screen
+block and all current draw, source-generation, palette and tracking checks.
+No engine-object identities or engine writes are introduced. Active IK logs
+now identify menu context. This includes the preceding roll/history/capture
+changes; their headset verdict remains pending.
+
+Next launch has one question: do full arms remain visible while opening,
+using and closing the weapon wheel? Remaining disappearance means another
+draw/placement guard or engine visibility path needs diagnosis. Pause-menu
+acceptance is a separate later test. Details: [ARM_IK.md](dishonored/ARM_IK.md).
+
+## 2026-10-04: full arms accepted; roll shape/history correction and capture control
+
+On matching v1.0.3-11-g8eee77252, all 2,771 vertices/48 palette slots mapped
+exactly and full articulated arms were accepted. Remaining issues: minor arm
+flicker (surface vs pose subtype unclear) and rolled-forearm collapse. Accepted
+DLL/INI/logs/rig preserved in `build/arm-ik-test/live-working/`.
+
+Candidate: correct mixed locate/publication generations in IK history; retain
+the existing hands' view/eye guards. Share forearm axial roll so the shaft's
+minimum radius in the 1.2-length Blender sweep improves 44.5% -> 88.1%.
+Hands/fingers and endpoints remain exact. Capture 16 frames (5 second delay)
+is now directly on IK and Basic Display; native stereo records eye BMPs and
+frame metadata, AFW reuses its existing diagnostic capture. 96 MiB queue,
+counted omissions, 15-second deadline, no idle readback. Capture can hitch.
+
+1,083 host checks, x86 D3D11 image-writer tests and a new 260-frame Blender
+sweep pass. One extreme crossed-pose triangle still compresses below 1% area.
+In-game capture and perceptual fixes remain unverified. Next launch's sole
+question: does the forearm keep its shape while slowly rolling through the
+previous pinch angle, using the IK capture button to preserve the sequence?
+Details: [ARM_IK.md](dishonored/ARM_IK.md), [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+No game launch, subagents, push, PR, ticket or merge. Local work only.
+
+Installed `v1.0.3-13-g1c9252b4e`; proxy SHA256
+`a77743de9903a5d0806919516d12c4333315b1e4832a260c2bdb6691252780ea`.
+Backup DLL/whole INI/both logs/rig, expected INI, empty complete INI diff and
+manifest: `build/arm-ik-install/20261004-145613-roll-history-capture/`.
+All 73,706 INI bytes preserved exactly: 1,693 CRLF, zero lone endings.
+User tuning stays forward 0, up -23 cm, width 36 cm, length 1.2; ArmIK=1.
+No rig or setting-semantics changes. Optimized Win32 build, exports and lint pass.
+Local commit credited to BioVRDev; live capture and headset verdict pending.
+
+## 2026-10-04: first IK run refused the exported coordinate convention
+
+The installed v1.0.3-9-g012ddce9a banner and hash match. Log: zero IK solves;
+all seven build attempts refused runtime positions absent from the reference.
+Observed clipped arms were the original floating-hand fallback, including
+sleeve-control changes. The initial Blender test did not cover the engine/PSK
+boundary. Reference preparation now undoes UModel's export Y reflection on
+vertices AND joint heads, uses DVRIK002, and rejects old files. Corrected
+bounds match the runtime log on every axis. Full arms automatically bypass
+sleeve cuts when IK activates; sleeve controls are disabled while IK is on.
+Activation/refusal status persists in the menu; failures include coordinates.
+
+Independent conversion regression, 1,052 host checks and repeated 260-frame
+Blender sweep pass. Zero solve failures, wrist error below 0.000034 units;
+extreme compression remains in two transition frames. Corrected live mapping
+is still unverified. Next launch asks only whether complete arms appear and
+bend with a slow left-hand reach. Details: [ARM_IK.md](dishonored/ARM_IK.md).
+Local branch only; no game launch, ticket, push, PR or merge.
+
+Installed `v1.0.3-11-g8eee77252` with corrected DVRIK002 local reference.
+Proxy SHA256 `ffc809ce94b00dc3a40a2546d6123b15677fb3b0320fd24d4dab09c3f7588bc2`.
+Backup pair, both logs, old rig, expected INI, complete empty INI diff and
+manifest: `build/arm-ik-install/20261004-140727-coordinate-fix/`.
+No configuration change: all 73,696 bytes match backup and expected INI,
+1,693 CRLF and zero lone line endings. ArmIK remains enabled. Win32 build,
+proxy exports and lint pass; commits are credited to BioVRDev.
+
+## 2026-10-04: IK candidate installed for the first live reach test
+
+Installed optimized Win32 `v1.0.3-9-g012ddce9a`, proxy SHA256
+`f68c61b2e8a99c032d33d1e8ab7451980fd48f391fe3cea07f9da5f8411a42e8`.
+Code commit `012ddce9a`; local only, credited to BioVRDev. No game launch.
+Local rig prepared and installed in the resolved data directory; runtime must
+still validate its geometry/weight mapping before the full-arm draw can run.
+
+DLL, complete INI, current and previous logs backed up together under
+`build/arm-ik-install/20261004-134025/`, with manifest and whole-INI diff.
+Exactly seven keys plus one comment added: ArmIK=1, shoulder forward/right/up
+-6/0/-20 cm, width 36 cm, arm length 1, elbow-out 0.6. Existing animation,
+hand-scale (0.85) and other settings unchanged. INI exactly matches expected:
+73,696 bytes, 1,693 CRLF, no lone line endings. The staging baseline also contains
+the default-on ReShade implicit OpenXR layer opt-out; existing INI values remain
+compatible with its configuration semantics.
+
+One launch question: with body/right hand still, does the left arm remain
+connected through a slow close-to-far reach without moving the right arm?
+Own-shoulder reach movement is expected. Only floating hands means inspect the
+explicit mapping/tracking refusal before judging IK. Check the log banner for
+this build first; then read ik/map and ik: ACTIVE/fallback. Host/Blender evidence
+and later independent tests are in [ARM_IK.md](dishonored/ARM_IK.md).
+
+## 2026-10-04: full-arm IK implemented locally; host and Blender verified
+
+`codex/ik-full-arms` now contains the fork-style independent shoulder reach
+solver, complete weighted arm mesh/palette replacement, dedicated L3+R3/F10
+IK tab and persisted shared baseline/arm tuning. Native hands/fingers and
+weapon corrections remain; IK replaces arm/sleeve animation. Default off.
+The candidate uses locally prepared reference data and validates the complete
+vertex/weight mapping before drawing. No engine-object memory writes.
+
+1,049 host checks, the existing frame suite and proxy exports pass. A 260-frame
+Blender simulation uses the exact production solver and source weights, including
+0.85 hand size. Zero failed solves; max wrist-join error 0.0000324 model units.
+Extreme sleeve compression remains: two transition frames compress one triangle
+each below 1% area. No collision/torso constraint. See
+[ARM_IK.md](dishonored/ARM_IK.md) for evidence, controls, limits and the first
+one-question headset test. Runtime mapping and headset acceptance are pending.
+No game launch, remote push, PR or merge. Candidate installation follows the
+matching DLL/INI/log backup and whole-INI verification gate.
+
+## 2026-10-04: IK design revision - independent reach, dedicated tab, hand animation
+
+Updated [ARM_IK.md](dishonored/ARM_IK.md) to follow the BioShock fork's independent
+shoulder reach correction. Shared XYZ and width define nominal shoulders;
+each shoulder can move separately when its wrist is too near or far. This
+supersedes the prior fixed-anchor reach refusal proposal. Add a dedicated IK
+tab beside Hands in the L3+R3/F10 menu when implementing runtime consumers.
+
+Confirmed `RigidWrist=1` protects clipped wrist geometry by remapping forearm
+influences while fingers still animate. Full-arm IK instead needs preserved
+weights and explicit arm/hand pose ownership: native hand animation stays,
+IK controls upper arm/forearm, and the endpoint is the final animated wrist.
+The existing native-full-arms draw bypass must not override active IK. This
+revision changes the design only; no runtime tab, solver or install yet.
+
+## 2026-10-04: local full-arm IK branch and reference design
+
+Local branch `codex/ik-full-arms` starts at staging `957322031`. Reviewed both
+BioShock references at pinned revisions and recorded the implementation design
+in [ARM_IK.md](dishonored/ARM_IK.md). One shared forward/right/up center plus a
+total width keeps shoulders aligned. Independent shoulder sliding at reach
+limits is excluded; preserve existing controller endpoints and fail back to
+floating hands until an explicit reach policy can render them correctly.
+
+The current weighted-centroid hand splitter does not establish named joint
+origins or a reference-skeleton-to-palette map. Next: engine-independent solver
+and host tests, then a read-only runtime map before arm palette writes. Native
+action ownership, per-eye pose ownership and menu/load identity must survive.
+This is a design/research checkpoint: no runtime IK, no new supported settings,
+no build/install or headset test. Work stays local without a Linear ticket per
+maintainer instruction; existing checkout changes remain in their checkout.
+
 ## 2026-10-04: GTX 1650 - auto depth confirmed; c5 same-eye guard for the last flicker
 
 Auto depth measured at parity with 1.0.1 (30.2 vs 29.7 ticks/s, capture wait 0). Remaining
@@ -44,6 +229,7 @@ skipped and records why a load failed, which F10 shows. New: a preset drop zone 
 screen that refuses DLLs. Mods audit fixes: incomplete/Repair state, last-launch result from
 the game log, copy, Back to Mods. Tests and evidence: INSTALLER.md (2026-10-03 section).
 Not run in game yet. No Linear ticket (workspace issue limit).
+
 
 ## 2026-10-03: remote Reverb G2 never reached VR - ReShade's OpenXR layer refused (-32)
 

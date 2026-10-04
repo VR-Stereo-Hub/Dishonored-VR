@@ -42,6 +42,7 @@ static float g_hmdYaw = 0, g_hmdPitch = 0, g_hmdRoll = 0;
 // again.
 #define DVR_HEAD_HIST 4
 static float g_headHist[DVR_HEAD_HIST][3][4];
+static uint32_t g_headHistGen[DVR_HEAD_HIST]{}; // locate identity of these exact matrices
 static bool  g_headHistOk[DVR_HEAD_HIST] = { false, false, false, false };
 static int   g_headHistIdx = 0;
 static int   g_headHistN = 0;

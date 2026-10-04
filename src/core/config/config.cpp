@@ -944,6 +944,16 @@ static bool WriteDefaultIni(const char* ini)
         "; RigidWrist=1 (VR-184): the wrist cut and cap stay rigid with the hand, so arm animation\n"
         "; cannot bend them; the fingers still animate. 0 = the game's own weights.\n"
         "RigidWrist=1\n"
+        "; Full-arm IK (experimental). Shared resting shoulders, independent reach correction.\n"
+        "; Requires locally prepared dishonored_vr_arm_rig.bin in Paths/DataDir.\n"
+        "; Native hands/fingers still animate; IK replaces the arm pose. L3+R3 / F10: IK tab.\n"
+        "ArmIK=0\n"
+        "ArmShoulderForwardCm=-6\n"
+        "ArmShoulderRightCm=0\n"
+        "ArmShoulderUpCm=-20\n"
+        "ArmShoulderWidthCm=36\n"
+        "ArmLengthScale=1\n"
+        "ArmElbowOut=0.6\n"
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
@@ -2794,6 +2804,19 @@ static void LoadConfig()
     g_mpRotate        = IniFloat(ini, "Hands", "PaletteRotate", 1) != 0.0f;
     g_mpAnchorHandBone = IniFloat(ini, "Hands", "AnchorBone", 1) != 0.0f;   // VR-183: palm frame from the hand bone
     g_msRigidWrist = IniFloat(ini, "Hands", "RigidWrist", 1) != 0.0f;         // VR-184: the wrist cut and cap rigid with the hand
+    g_ikOn = IniFloat(ini, "Hands", "ArmIK", 0) != 0.0f;
+    auto ikFloat = [&](const char* key, float def, float lo, float hi) {
+        const float v=IniFloat(ini,"Hands",key,def);
+        return std::isfinite(v)?std::clamp(v,lo,hi):def;
+    };
+    g_ikForward=ikFloat("ArmShoulderForwardCm",-6,-50,50);
+    g_ikRight=ikFloat("ArmShoulderRightCm",0,-50,50);
+    g_ikUp=ikFloat("ArmShoulderUpCm",-20,-80,20);
+    g_ikWidth=ikFloat("ArmShoulderWidthCm",36,10,80);
+    g_ikLength=ikFloat("ArmLengthScale",1,.5f,2);
+    g_ikElbowOut=ikFloat("ArmElbowOut",.6f,0,2);
+    Log("ik: configured %s; nominal shoulder center cm=(%.2f %.2f %.2f), width=%.2f, length=%.2f, elbow-out=%.2f; independent reach, native hands / IK arms",
+        g_ikOn.load()?"ON":"OFF",g_ikForward.load(),g_ikRight.load(),g_ikUp.load(),g_ikWidth.load(),g_ikLength.load(),g_ikElbowOut.load());
     g_ohOn = IniFloat(ini, "Hands", "OpenEmptyRightHand", 1) != 0.0f;       // the empty right hand opens like the left
     Log("config: [Hands] OpenEmptyRightHand=%d (%s)", g_ohOn ? 1 : 0,
         g_ohOn ? "an empty right hand takes the left hand's open pose, mirrored" : "the empty right hand keeps the game's fist");

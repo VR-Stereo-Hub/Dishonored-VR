@@ -1,4 +1,13 @@
-## Unreleased: stereo settings cleanup
+# Unreleased
+
+- Experimental full-arm IK is available from the L3+R3/F10 IK tab, with shoulder
+  placement, width, arm length and elbow controls. Native hand/finger animations
+  remain. Off by default; this prototype requires a locally prepared arm reference
+  (see docs/dishonored/ARM_IK.md), which is not bundled with the release.
+- IK and Display expose a 16-frame diagnostic capture with a five-second delay.
+  Saving can briefly hitch. Full arms retain their visibility in in-game menus.
+
+## Stereo settings
 
 - F10 Basic > Display > Stereo rendering is first in the tab and offers Stereo and experimental AFW.
 - AFW's tooltip recommends combining it with DLSS or DLAA.

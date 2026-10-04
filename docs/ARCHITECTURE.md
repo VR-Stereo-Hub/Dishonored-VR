@@ -1480,3 +1480,45 @@ The new lever defaults off, and without reduced upscaling draws remain native.
   - The loader's warnings reach the mod log through a recorder added to its internal logger
     (core/vr/xr_loader_log.cpp). No vendored loader file is edited; the one source file that
     includes loader internals is the only coupling, and it breaks at compile time if the SDK moves.
+
+- **2026-10-04 - Full-arm IK uses a paired shoulder frame (design only).**
+  - One forward/right/up center and total width generate both shoulder anchors.
+    This initial no-slide reach policy is superseded by the revision below.
+  - Reuse each existing driven wrist endpoint. Validate the named skeleton to
+    draw-palette mapping before rendering arms; weighted skin centroids are not
+    joint origins. Keep source weights and the established action handoff.
+  - The reviewed BioShock references, limits and staged verification plan are
+    in `dishonored/ARM_IK.md`. No runtime path is introduced by this decision.
+
+- **2026-10-04 - IK reach and animation requirements revised (design only).**
+  - Follow the BioShock fork: independently shift each shoulder at its near/far
+    reach limits, starting each solve from the shared center/width anchors.
+    Preserve segment lengths and the final wrist target. No cross-arm coupling.
+  - Add a dedicated IK tab beside Hands in the L3+R3/F10 overlay. Shared baseline
+    controls remain paired; independent reach correction does not rewrite them.
+  - Preserve native hand/finger animation and solve arms to the final animated
+    wrists. Suppress native arm animation while IK owns the pose, including the
+    current native-full-arm draw bypass. Keep RigidWrist for clipped fallback.
+  - Details and independent launch questions are in `dishonored/ARM_IK.md`.
+
+- **2026-10-04 - Full-arm IK uses validated local reference data and owned GPU geometry.**
+  - Named joint heads/hierarchy and skin fields come from a locally prepared PSK
+    reference, never from inferred weighted centroids or guessed engine offsets.
+    Match every runtime vertex and every weighted palette slot before solving.
+  - Replace only arm-region skin matrices in a complete copied mesh. Retain the
+    final native hand/finger palette and existing weapon correction publication.
+    No engine-object writes; menu/mesh/reset invalidation clears temporal state.
+  - Independent shoulder reach, shared nominal controls and a dedicated IK tab
+    implement the revised design. Native arm animation cannot bypass active IK.
+  - `dishonored/ARM_IK.md` records host/Blender evidence and pending live validation.
+
+### 2026-10-04: IK history identity and bounded diagnostic captures
+
+IK temporal state uses the locate generation of the exact selected head matrix,
+including lagged fallback samples. Publication counts are a separate clock and
+cannot order view-matched poses. Forearm roll is distributed across the authored
+overlapping lower-arm/sleeve weights; production skinning is checked in Blender.
+On-demand native frame bursts reuse the existing delivered-eye readback seam,
+with bounded worker memory and recorded gaps. AFW retains its established capture.
+Details and remaining headset verification: docs/dishonored/ARM_IK.md and
+docs/dishonored/FLICKER_REFERENCE.md.

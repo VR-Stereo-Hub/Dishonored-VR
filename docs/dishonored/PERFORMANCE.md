@@ -1,3 +1,85 @@
+## 2026-10-04: distinguish steady FPS regression from intermittent spikes
+
+Follow-up report attributes the largest intermittent spikes to a suspected
+network issue, not a confirmed mod fault. Keep the measured XR-submission
+stalls above as observations; their origin was not isolated by that trace.
+The sustained regression is a separate report: approximately 110 FPS in the
+same fixed test location previously reaching 125-135 FPS, possibly since
+1.0.3. Turning Full-arm IK off has no perceptible effect on that average.
+This supersedes the proposed IK ON/OFF/ON experiment: the reported negative
+comparison deprioritizes IK, without establishing a different root cause.
+
+No speculative performance change is included in the IK PR. Next candidate
+combines PRs #168, #172, #173 and full-arm IK on a local staging-based test
+branch, before any staging merge. The capture-timeout correction in #173 is
+included as requested, not asserted to recover this machine's missing FPS.
+Compare the combined build in the same location; retain exact configuration,
+matching banner and separate sustained rate from occasional network spikes.
+## 2026-10-04: frequent frame drops on IK build 13, XR submission stalls measured
+
+Banner/proxy hash verified before interpretation: v1.0.3-13-g1c9252b4e,
+A77743DE9903A5D0806919516D12C4333315B1E4832A260C2BDB6691252780EA.
+Archive: build/arm-ik-install/20261004-150657-menu-visibility includes the
+complete current/previous logs, tested DLL/INI/rig, appended pacetrace log and
+VDXR OpenXR.log. Local quantitative extracts are under build/arm-ik-test/
+run13-performance-analysis.json and run13-performance-comparison.json.
+No image burst was requested or saved in this run. The restored capture
+control therefore cannot explain its recurring readback-free hitches.
+
+Configuration changed DURING this run: reentry at 2750x2850, then AFW at
+log ms 14808656, then render resolution 2114x2192 at 14833546. DLSS output
+remained 2750x2850; helper reinitialized and reported ready at 14837265.
+Do not read the final saved INI as the configuration of the whole run.
+The runtime predicted period stayed 6.94 ms; this is not a measured panel rate.
+
+After transitions, interval 14845000..15078000 (233 seconds) contains 110
+individually logged frame gaps, ALL attributed to the submission tail, plus
+27 more tail gaps in suppressed-window summaries. Their measured endFrame
+section takes 28.4..95.6 ms, median 45.35 ms, median 82% of the whole gap.
+The broad tail label also includes other work; inspect its explicit endFrame
+field, not the label alone. A further non-tail summary at the first boundary
+covers preceding time and is excluded from within-window claims. At least
+55 itemized/summarized gaps reach 60 ms in this interval. These are thresholded
+hitch counts, not frame-time percentiles. One-second pacetrace samples remain
+FOCUSED, foreground and attached; this is not evidence of headset-idle throttling.
+
+Typical three-second windows: median present interval 9.2 ms, 108 submits/s,
+game D3D9 GPU mean 4.3 ms. The latter EXCLUDES DLSS/AFW/compositor work:
+DLSS separately reports roughly 2.3..3.6 ms per-eye GPU evaluations in late
+windows; overlapping metrics cannot simply be added. VRAM samples stay
+3023..3354 MB against a 15293 MB budget, system-backed 94..110 MB, largest
+free address range 1660.6 MB. Seven of the 110 gap streaming windows have
+zero uploads in the preceding two seconds. This weakens VRAM exhaustion and
+texture uploads as universal causes, without ruling out driver/GPU waits.
+
+The previous matching build 11 already had the same signature. Its AFW
+2114x2192 interval 11722000..11928000 (206 seconds) has 85 itemized tail gaps
+plus 15 summarized, measured endFrame 30.6..94.8 ms (median 40.9). The earlier
+2026-09-18 periodic-xrEndFrame record also documents it before full-arm IK.
+These sessions differ in scene/movement and settings history, so the rates
+are NOT a controlled regression measurement. The new roll correction did
+not originate the stall pattern; whether IK increases its frequency is open.
+Current IK history ends advance/reuse/old=16766/56832/0, supporting the
+counter-domain repair but not proving any perceptual flicker fix.
+
+Separate 1.7-second and 3.5-second stalls cluster around method/resolution
+changes and helper initialization. The former has endFrame=0.1 ms despite
+its broad tail label; the latter sits in the method/capture stage. Do not
+combine these transition stalls with the recurring 30..96 ms submit stalls.
+VDXR's own log confirms runtime 1.0.10/Streamer 1.34.22 but contains no
+per-frame encode/network/driver timing to identify the blocking component.
+
+Conclusion: recurring delay localized to XR submission; origin inside the
+runtime/driver/GPU completion path remains unproven. No speculative pacing
+or rendering change is applied. Menu fix build 15 is installed with the
+entire INI preserved. Next launch asks ONE question: in the same stationary
+scene, do the large hitches stop with Full-arm IK OFF and return with it ON?
+Use ON/OFF/ON about 45 seconds each after closing the menu, with no captures,
+resolution or stereo changes. Log toggle boundaries and compare stable
+segments. A repeatable difference implicates IK or its downstream rendering;
+unchanged stalls deprioritize it and require runtime-side timing next. The
+wheel, roll and flicker acceptance tests remain pending separately.
+
 ## 2026-10-03: GTX 1650 laptop - 1.0.1 vs 1.0.2/1.0.3 (MEASURED from field logs)
 
 Remote player: GTX 1650 (4 GB, 3345 MB budget), i7-9750H, Quest 3 on VDXR at 120 Hz,
@@ -4040,3 +4122,24 @@ post-effect headset capture nor performance is accepted yet. The first question 
 the toggle visibly changes the headset view. A later timed comparison can measure effect
 cost, keeping the same save, resolution and VR mode; do not mix that with a texture-pack
 install or assume mirror suppression still applies while ReShade is active.
+
+## 2026-10-04: restored frame burst for native-stereo IK diagnosis
+
+The AFW capture control was nested under Debug and the AFW method; it was not
+visible in the tested reentry configuration. A Basic IK/Display control now
+routes AFW to that existing capture, and other modes to 16 full-resolution
+source-eye BMPs after a five-second delay. Native disk writes run on workers,
+with at most 96 MiB and three outstanding pixel jobs. Busy omissions and
+source identities are recorded, not presented as consecutive real-time frames.
+Readback still waits on the GPU and can perturb the cadence being inspected;
+no nonintrusive timing or throughput claim is made. It allocates/reads nothing
+while idle. Capture times out after 15 seconds if output never becomes usable.
+At 2750x2850x4, 16 raw images use about 478 MiB on disk before tiny headers.
+The richer existing AFW capture remains much larger and retains its known
+readback cost; it is not substituted for native stereo or silently enabled.
+
+A standalone x86 D3D11 WARP host tests the production I/O path: 32 exact BMP
+pixel checks across RGBA/BGRA, PNG compatibility and failed-write cleanup pass.
+Game capture and perceptual effect are pending. Screenshot output is locally
+ignored game-derived data. See ARM_IK and FLICKER_REFERENCE for experiment
+identity and the one-question roll/capture launch. No new performance report.

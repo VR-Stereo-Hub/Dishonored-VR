@@ -638,6 +638,7 @@ struct MpPoseSnap {
     bool          ok[2];         // per hand: head AND that hand tracked
     bool          headOk;
     uint32_t      gen;           // bumped on every publication
+    uint32_t      headLocateGen; // runtime locate identity, never the publication counter
     float         head[3][4];    // the head sample the hands above were normalised against
 };
 static MpPoseSnap        g_mpPosePub;          // the published snapshot

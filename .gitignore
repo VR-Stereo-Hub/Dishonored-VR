@@ -31,6 +31,10 @@ tools/uscript/*
 *.upk
 *.tfc
 *.bik
+# Local IK reference derived from the installed player's mesh
+*.psk
+*.pskx
+dishonored_vr_arm_rig.bin
 
 # Python bytecode from the tools
 __pycache__/

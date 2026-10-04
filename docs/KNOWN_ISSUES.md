@@ -1,5 +1,11 @@
 # Known issues
 
+- Experimental full-arm IK requires a locally prepared reference file; automatic
+  extraction/installation is not included. Missing or incompatible references
+  fall back to floating hands and report the reason in the IK tab.
+- Extreme crossed-arm poses can compress the sleeve or intersect the torso.
+  Minor IK arm flicker remains under investigation. Latest roll and menu
+  corrections still await individual headset confirmation.
 - AFW can still show flicker on held objects (VR-39). Full Stereo remains the default
   and is available in the launcher or F10 > Display > Stereo rendering.
 - The mod's own spacewarp remains experimental and currently broken; it is limited to
