@@ -5,6 +5,7 @@
 #include "core/gfx/hud_capture_health.h"
 
 #include "core/framework/frame_hooks.h"
+#include "core/framework/perf.h"
 #include "core/framework/status.h"
 #include "core/gfx/dlss.h"
 #include "core/gfx/blit_quad.h"
@@ -543,7 +544,9 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             }
             if (!s.redirected && g_armed) ++s.winEmpty;
             {
+                dvr::perf::part_mark("hud.prepare");
                 read_wait(s, s.cur);
+                dvr::perf::part_mark("hud.readWait");
                 RECT src = {0, 0, (LONG)g_rtW, (LONG)g_rtH};
                 const HRESULT sr = dev9->StretchRect(s.rt, &src, s.slotRt[s.cur], nullptr, D3DTEXF_LINEAR);
                 s.markers.copied(s.cur,SUCCEEDED(sr));
@@ -559,10 +562,12 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                 // exactly the case the fork got wrong.
                 clear_rt(dev9, s);
             }
+            dvr::perf::part_mark("hud.copyClear");
             // Deliver the OTHER slot: a whole present has passed since its blit.
             const int other = s.cur ^ 1;
             if (s.slotValid[other]) {
                 blit_wait(s, other);
+                dvr::perf::part_mark("hud.blitWait");
                 // VR-119: the alpha mode and the legibility controls are the
                 // layout's; the backdrop plate follows the anchor this sink's
                 // element rides (the window wants one, a hand none).
@@ -618,11 +623,13 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                     g_blit.draw(ctx11,s.slotSrv[other],s.partRtv[part],pw,ph,&side);
                     s.partDelivered[part]=true;
                 }
+                dvr::perf::part_mark("hud.convert");
                 if (s.readFence[other]) {
                     ctx11->End(s.readFence[other]);
                     ctx11->Flush();   // an event query does not complete until the work is submitted
                     s.readIssued[other] = true;
                 }
+                dvr::perf::part_mark("hud.flush");
                 s.markers.delivered(other);
                 s.delivered = true;
                 ++s.winDelivered;
@@ -682,6 +689,16 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                  g_blitWaits, g_blitTimeouts, g_readWaits, g_readTimeouts, g_restoreFails,
                  (int)g_on, (int)dvr::hud::projection_mode(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady,
                  (int)g_failed, (int)dvr::hudlayout::native_gameplay_reference(), wantArm ? "ARMED" : "idle");
+        if (dvr::perf::parts_enabled()) {
+            for (int i = 0; i < dvr::hudlayout::kMaxSinks; ++i) {
+                const Sink& s = g_sink[i];
+                if (!dvr::hudlayout::sink_in_use(i)) continue;
+                DVR_INFO("hud/work: sink=%d presents=%u draws=%u deliveries=%u emptyCopies=%u; "
+                         "empty is a cleared target, not permission to retain stale UI; "
+                         "hud.* perf parts separate CPU submission from fence waits",
+                         i, g_winPresents, s.winRedirected, s.winDelivered, s.winEmpty);
+            }
+        }
         if (!wantArm) {
             g_offReason = g_failed ? "a D3D failure latched this session (the lines above name it)"
                         : !g_handoffReady ? "the hand-off to D3D11 is not ready, so the redirect is held off "

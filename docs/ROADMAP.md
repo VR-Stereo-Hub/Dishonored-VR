@@ -1,3 +1,12 @@
+## Performance audit and persistent ReShade controls (2026-10-04)
+
+- [x] Merge combined PRs #168/#172/#173/#174 to staging on explicit instruction.
+- [x] Audit release changes and the verified combined-build trace; rank costs in PERFORMANCE.md.
+- [x] Preserve disabled ReShade controls across native runtime and process restart tests.
+- [x] Add bounded HUD substage timing and a readable AFW GPU-cost summary.
+- [ ] Measure the same-scene HUD panels ON/OFF/ON comparison in the headset.
+- [ ] Isolate and recover the reported steady FPS regression.
+
 ## Full-arm IK (2026-10-04)
 
 - [x] Fork-style independent shoulder reach with shared nominal XYZ/width.

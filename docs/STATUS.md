@@ -1,3 +1,33 @@
+## 2026-10-04: combined work merged to staging; performance audit and ReShade fix
+
+Explicitly authorized combined push advanced staging to a0c0ca360; PRs #168,
+#172, #173 and #174 are merged. Finalized branches are retained; VR-Main is
+unchanged. New codex/performance-audit starts at that exact staging tip.
+
+Full source/log audit and ranked measurements are maintained only in
+[dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md), newest entry. Verified
+combined build 30's final 60-second window: 113.5 AFW submits/s, HUD wall time
+3.55 ms/present, ReShade CPU 0.183 ms, game D3D9 GPU 3.05 ms, DLSS evaluations
+about 2.35/2.45 ms per eye. Intervals overlap and are not additive. No memory
+exhaustion or native desktop Presents; color capture waits are near zero.
+HUD transfers four sinks while only one receives draws. The 10% regression
+remains unisolated; earlier runs are not a controlled same-location baseline.
+
+Candidate fixes ReShade's skipped disabled effects disappearing from F10:
+load their definitions, retain unchecked state and parameters; more shader
+loading at startup is possible. Native F10/new-process restart regression
+passes. New bounded HUD substage timing and a separate AFW GPU line expose
+previously grouped or truncated costs, without changing synchronization.
+No engine-memory writers or quality reductions are introduced.
+
+Next launch's ONE question: with the same stationary scene/settings, does
+F10 > HUD > HUD on its own panels OFF raise sustained FPS, returning to the
+prior rate ON? ON/OFF/ON about 45 seconds each, F10 closed for measurement.
+OFF puts HUD pixels back into the game image. A repeatable gain implicates
+the HUD route; no gain means the displayed wait is displaced or another
+stage limits throughput. Optimized Win32 build, 11 exports, lint, native ReShade restart checks and
+installer fixtures pass. Install identity follows below.
+
 ## 2026-10-04: combined PR candidate prepared locally, staging unchanged
 
 Finalized full-arm IK as PR #174 against staging (branch codex/ik-full-arms,

@@ -1,3 +1,10 @@
+## Unreleased: ReShade effect controls
+
+- Effects disabled in F10 remain listed and unchecked after restarting. ReShade
+  now loads their definitions too, which can take longer at initial shader load.
+- Shader-package installation briefly retries a transient final folder-rename
+  failure, preserving existing shader folders and reporting persistent failures.
+
 # Unreleased
 
 - Experimental full-arm IK is available from the L3+R3/F10 IK tab, with shoulder

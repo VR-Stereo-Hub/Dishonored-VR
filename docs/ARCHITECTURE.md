@@ -1522,3 +1522,13 @@ On-demand native frame bursts reuse the existing delivered-eye readback seam,
 with bounded worker memory and recorded gaps. AFW retains its established capture.
 Details and remaining headset verification: docs/dishonored/ARM_IK.md and
 docs/dishonored/FLICKER_REFERENCE.md.
+
+### 2026-10-04: complete ReShade controls and performance attribution
+
+The manual runtime loads disabled effect definitions before its first update so
+F10 can enumerate the complete catalog across launches. Enabled techniques and
+shader parameters remain preset-owned. Extra startup loading is accepted over a
+second virtual catalog with independent ordering/persistence and reload states.
+HUD timing divides existing work without changing fences or transfer cadence;
+AFW exposes its existing GPU sample before the logger truncation boundary.
+The audit and staged optimization criteria live in dishonored/PERFORMANCE.md.

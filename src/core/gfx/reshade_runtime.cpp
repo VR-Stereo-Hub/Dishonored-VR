@@ -214,6 +214,12 @@ void render(IDirect3DDevice9* device) {
             failed = true; _snprintf_s(loadFailure, _TRUNCATE, "ReShade loaded but could not create its effect runtime (see ReShade.log beside the game)");
             DVR_WARN("reshade: manual runtime creation failed; effects disabled until device reset"); return;
         }
+        // The F10 editor enumerates runtime techniques. Skipping disabled effect
+        // files removes their unchecked controls after restart (and a preset save
+        // then drops them from TechniqueSorting). Load their definitions too;
+        // ReShade still only renders enabled techniques. Set before first update.
+        if (controlsCompatible && setConfig)
+            setConfig(nullptr, runtime, "GENERAL", "SkipLoadingDisabledEffects", "0");
         loadFailure[0] = 0;
         DVR_INFO("reshade: manual runtime ready; effects before VR capture, no native Present required");
     }

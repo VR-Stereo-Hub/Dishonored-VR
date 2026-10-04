@@ -1012,6 +1012,12 @@ void beat() {
                  gpu, g_bodyDepth.load(), dvr::clarity::depth_scale() / g_worldScale.load(),
                  g_stereo.load() ? "" : " | fresh-eye source OFF (afw stereo off)");
     }
+    // Keep measured cost ahead of the logger's line limit; the long verdict above
+    // can be truncated before its GPU field. No new queries or polling here.
+    if (g_gpuN)
+        DVR_INFO("afw/cost: GPU %.3f ms mean %.3f max, %u resolved rebuild samples; "
+                 "stage interval only, excludes DLSS/game rendering and is not additive GPU busy time",
+                 g_gpuSum / g_gpuN, g_gpuMax, g_gpuN);
     // Run 17: which classification the hands and weapon got (the beat line above is cut in the log before its end).
     if (g_maskDrawn + g_maskMissing + g_maskFg + g_maskNone + g_maskEmpty)
         DVR_INFO("afw/warp: foreground from the DRAWN mask on %u images, %u drawn masks EMPTY (not trusted: the depth "

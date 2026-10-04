@@ -57,6 +57,17 @@ static void panel_checks(IDirect3DDevice9* dev,IDirect3DSurface9* cpu) {
     unsigned char* atlas=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&atlas,&width,&height);
     panel_frame();panel_frame();
     require(performance_mode(),"native performance setting read");
+    require(api()->find_technique("Dormant.fx","Dormant").handle!=0,"disabled separate effect loads despite legacy skip setting");
+    require(!api()->get_technique_state(api()->find_technique("Dormant.fx","Dormant")),"disabled effect remains unchecked");
+    panel_click("Dormant");
+    for(int i=0;i<150;++i) { render(dev);Sleep(10); }
+    require(api()->get_technique_state(api()->find_technique("Dormant.fx","Dormant")),"previously skipped effect can be enabled in F10");
+    panel_click("Dormant");
+    reset();
+    for(int i=0;i<150;++i) { render(dev);Sleep(10); }
+    panel_frame();panel_frame();
+    require(uiLabels.count("Dormant")!=0,"disabled effect control survives runtime recreation");
+    require(!api()->get_technique_state(api()->find_technique("Dormant.fx","Dormant")),"unchecked selection persists across runtime recreation");
     panel_click("Enable ReShade next launch");require(!enabled_next_start() && api()!=nullptr,"startup disable persists without unloading live runtime");
     panel_click("Enable ReShade next launch");require(enabled_next_start(),"startup enable persists");
     panel_click("Effects on");require(!api()->get_effects_state(),"UI disables actual effects");
