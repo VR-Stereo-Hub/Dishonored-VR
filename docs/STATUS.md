@@ -17,6 +17,14 @@ is still unverified. Next launch asks only whether complete arms appear and
 bend with a slow left-hand reach. Details: [ARM_IK.md](dishonored/ARM_IK.md).
 Local branch only; no game launch, ticket, push, PR or merge.
 
+Installed `v1.0.3-11-g8eee77252` with corrected DVRIK002 local reference.
+Proxy SHA256 `ffc809ce94b00dc3a40a2546d6123b15677fb3b0320fd24d4dab09c3f7588bc2`.
+Backup pair, both logs, old rig, expected INI, complete empty INI diff and
+manifest: `build/arm-ik-install/20261004-140727-coordinate-fix/`.
+No configuration change: all 73,696 bytes match backup and expected INI,
+1,693 CRLF and zero lone line endings. ArmIK remains enabled. Win32 build,
+proxy exports and lint pass; commits are credited to BioVRDev.
+
 ## 2026-10-04: IK candidate installed for the first live reach test
 
 Installed optimized Win32 `v1.0.3-9-g012ddce9a`, proxy SHA256
