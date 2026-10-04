@@ -137,6 +137,16 @@ int                       g_sharedDepthWant = 1;
 bool                      g_timeoutRefuse = false;
 uint32_t                  g_timeoutDelivered = 0, g_timeoutDeliveredWindow = 0;
 uint32_t                  g_timeoutRefused = 0, g_timeoutRefusedWindow = 0;
+// [Capture] AutoDepth (default 1). Delivering a timed-out slot keeps the eyes paired, but
+// the copy is not finished, and with two slots and alternating eyes each slot always holds
+// the same eye - so the headset shows that eye's PREVIOUS frame: a one-frame hitch in one
+// eye, worse when moving (GTX 1650, 2026-10-03: 68-81 timeouts per 3 s window, the capture
+// wait 8.6-8.8 ms per present against 3-5 in 1.0.1). When at least 10% of the grabs time
+// out for two windows running, the ring steps once to depth 2 (3 slots): each copy gets one
+// more present to finish. An explicit SharedDepth (ini or `capture depth`) always wins.
+bool                      g_autoDepth = true;
+bool                      g_depthExplicit = false;
+int                       g_autoStrikes = 0;
 uint32_t                  g_fenceWaitUsWindow = 0;  // the fence wait's own sum, for the window line
 int                       g_sharedDelivered = -1;   // the slot texture()/srv() hand out
 bool                      g_sharedWait = false;
@@ -218,6 +228,23 @@ void cost_tick() {
                      "on a GPU-bound machine the refusals starve ONE eye ([Capture] TimeoutRefuse, `capture timeout`)",
                      g_timeoutDeliveredWindow, g_timeoutRefusedWindow, g_timeoutRefuse ? "refuse" : "deliver",
                      g_timeoutDelivered, g_timeoutRefused);
+        {
+            const uint32_t timeouts = g_timeoutDeliveredWindow + g_timeoutRefusedWindow;
+            if (g_mode == Mode::Shared && g_autoDepth && !g_depthExplicit && !g_sharedWait &&
+                g_sharedDepthWant == 1 && g_windowGrabs >= 30) {
+                g_autoStrikes = (timeouts * 10 >= g_windowGrabs) ? g_autoStrikes + 1 : 0;
+                if (g_autoStrikes >= 2) {
+                    g_autoStrikes = 0;
+                    DVR_WARN("capture: AUTO DEPTH - %u of %u grabs (%.0f%%) timed out waiting for the GPU's frame copy, "
+                             "two windows running. A timed-out copy is not finished, so that eye shows its previous "
+                             "frame (a one-frame hitch). Delivery depth 1 -> 2 (3 slots): each copy gets one more "
+                             "present to finish, at one present more latency (the pose travels with the image). "
+                             "[Capture] AutoDepth=0 or an explicit SharedDepth turns this off; `capture depth 1` undoes it live",
+                             timeouts, g_windowGrabs, 100.0 * timeouts / g_windowGrabs);
+                    set_shared_depth(2, "auto: capture timeouts");
+                }
+            }
+        }
         g_timeoutDeliveredWindow = 0; g_timeoutRefusedWindow = 0;
         g_fenceWaitsWindow = 0; g_readWaitsWindow = 0; g_fenceWaitUsWindow = 0;
     }
@@ -953,7 +980,17 @@ void set_timeout_refuse(bool refuse, const char* who) {
              who ? who : "?");
 }
 bool timeout_refuse() { return g_timeoutRefuse; }
+void set_auto_depth(bool on, bool explicitDepth) {
+    g_autoDepth = on;
+    g_depthExplicit = explicitDepth;
+    DVR_INFO("capture: auto depth %s%s", on ? "ON - steps the ring to depth 2 once if >=10%% of grabs time out for two "
+                                              "windows running (a GPU that cannot finish a frame copy in one present)"
+                                            : "OFF ([Capture] AutoDepth=0)",
+             explicitDepth ? "; [Capture] SharedDepth is set explicitly, so it never acts" : "");
+}
 void set_shared_depth(int depth, const char* who) {
+    // Anyone but the automatic step and the ini's default read makes the depth explicit.
+    if (who && strncmp(who, "auto", 4) != 0 && strcmp(who, "ini") != 0) g_depthExplicit = true;
     if (depth < 1) depth = 1;
     if (depth > kMaxShared - 1) depth = kMaxShared - 1;
     if (depth == g_sharedDepthWant) return;

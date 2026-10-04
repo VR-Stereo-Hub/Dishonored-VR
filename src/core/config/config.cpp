@@ -1943,6 +1943,11 @@ static void LoadConfig()
         // Uncap deep dive (2026-09-27): not in the default ini on purpose (a missing key is the
         // 41.1 two-slot ring); `capture depth <n>` is the live A/B.
         dvr::capture::set_shared_depth((int)IniFloat(ini, "Capture", "SharedDepth", 1), "ini");
+        {   // A SharedDepth the player wrote always wins over the automatic step.
+            char sd[16] = "";
+            GetPrivateProfileStringA("Capture", "SharedDepth", "", sd, sizeof(sd), ini);
+            dvr::capture::set_auto_depth(IniFloat(ini, "Capture", "AutoDepth", 1) != 0.0f, sd[0] != 0);
+        }
         // Not in the default ini: a missing key is the 1.0.1 behaviour (deliver). capture.cpp says why.
         dvr::capture::set_timeout_refuse(IniFloat(ini, "Capture", "TimeoutRefuse", 0) != 0.0f, "ini");
         DVR_INFO("config: [Capture] TimeoutRefuse=%d - %s", dvr::capture::timeout_refuse() ? 1 : 0,

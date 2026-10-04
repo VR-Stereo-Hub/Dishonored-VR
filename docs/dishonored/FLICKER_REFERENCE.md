@@ -43,6 +43,23 @@ one-sided-tag branch - not the weapon-correction rows, because the environment m
    present since 1.0.1 is the candidate (PERFORMANCE.md, same date); the TAA history the
    refusal protected is off by default (`Temporal=0`).
 
+**Follow-up, same day: TimeoutRefuse=0 headset result (REPORTED) and auto depth (candidate).**
+The player ran `v1.0.3-7-gac23de746`: the strong flicker is gone; a small left-eye hitch
+remains, worse when moving. Measured, normal render only: L/s=R/s=27, none/s=0 (was 4-9 /
+23 / 25), 0 refused, but 68-81 of ~177 grabs per 3 s window timed out and were delivered
+anyway (43-50% of grabs; 1.0.1 ran at about 6%), and the capture wait cost 8.6-8.8 ms per
+present (1.0.1: 3-5 ms). A timed-out copy is unfinished; with two slots and alternating
+eyes each slot always holds the same eye, so that eye shows its previous frame - the
+residual one-frame hitch. Lowering the sampler settings (Anisotropy 4, TrilinearMips 0,
+Sharpen 0) was reported smoother but left the hitch and the timeout rate (43%).
+Candidate: `[Capture] AutoDepth` (default on) steps the ring to depth 2 (3 slots) once when
+>=10% of grabs time out for two windows running; an explicit SharedDepth wins. Replayed over
+the player's logs: never on the 1.0.1 runs at 2382x2468 (794 windows) or the good 2750x2850
+run, once late in a 12-minute 1.0.1 run, within ~20 s on both fixed-build runs. Depth 2
+was headset-run on the dev PC for throughput only (no rate change, PERFORMANCE "uncap");
+its effect on a timing-out machine is the prediction: timeouts ~0, wait ~0, no hitch.
+Counterprediction: a hitch that stays with timeouts at ~0 is not this. Built only.
+
 ## 2026-10-02: MSW guards - no extrapolation across a jump, a bounded turn, the stick stop (HOST-VERIFIED candidate)
 
 Surface/route: the WORLD in MSW-synthesized slots, both eyes, under right-stick turns, snap turns
@@ -3091,7 +3108,7 @@ pose metadata without reopening the disproved historical theories.
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
-| One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | 2026-10-03 candidate `[Capture] TimeoutRefuse=0` (deliver, the 1.0.1 behaviour); headset pending; top entry |
+| One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | `TimeoutRefuse=0` REPORTED fixing the strong flicker (2026-10-03); a residual one-frame hitch from delivered-unfinished copies has candidate `[Capture] AutoDepth`; top entry |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |
 | Both near hands/weapons flash or lose disparity for a frame | Untagged mono image enters a stereo stream | `HoldUntagged=3` confirmed mitigation; burst generation remains open |
 | Both eyes go black for one frame | Texture-less present ends an XR frame without a scene layer | Previous-layer fallback implemented and historically confirmed |

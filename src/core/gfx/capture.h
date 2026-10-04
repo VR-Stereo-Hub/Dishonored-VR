@@ -137,6 +137,9 @@ int      shared_depth();
 // 1.0.1 did (the default), or refuse the grab ([Capture] TimeoutRefuse=1, `capture timeout
 // refuse`), as 1.0.2/1.0.3 did - which starves one eye on a GPU-bound machine (capture.cpp).
 void     set_timeout_refuse(bool refuse, const char* who);
+// [Capture] AutoDepth (default on): step the ring to depth 2 once when >=10% of grabs time
+// out for two 3 s windows running. `explicitDepth` = [Capture] SharedDepth is in the ini.
+void     set_auto_depth(bool on, bool explicitDepth);
 bool     timeout_refuse();
 
 // 41.1 (Dishonored): the content-bbox cadence, and why it is a lever at all.

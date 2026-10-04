@@ -1,3 +1,12 @@
+## 2026-10-03 (later): GTX 1650 follow-up - strong flicker gone; auto depth for the residual hitch
+
+The player ran the TimeoutRefuse=0 build: strong flicker gone, eyes balanced (27/27, none 0),
+but a small left-eye hitch when moving. 43-50% of capture grabs time out and are delivered
+unfinished; with two slots each slot is one eye, so that eye repeats a frame. New on the same
+branch: `[Capture] AutoDepth` (default on) steps to a 3-slot ring once when >=10% of grabs
+time out two windows running; replayed over his logs it never fires on his 1.0.1 runs. Lower
+sampler settings felt smoother but did not change the timeout rate. Built only.
+
 ## 2026-10-03: GTX 1650 eye starvation since 1.0.2 - capture timeouts refuse
 
 A remote player on a GTX 1650 laptop reported left-eye flicker (world and weapon, to the

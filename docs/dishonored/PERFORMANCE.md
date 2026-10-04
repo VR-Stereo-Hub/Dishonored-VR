@@ -18,6 +18,15 @@ Remote player: GTX 1650 (4 GB, 3345 MB budget), i7-9750H, Quest 3 on VDXR at 120
   this class of GPU; the release notes and the launcher should say so.
 - Next: an A/B on this machine, one lever at a time after TimeoutRefuse - Anisotropy 0 /
   TrilinearMips 0, then Occlusion native - reading `gpuSpanMs` and `stereo: beat`.
+- **Result (reported, then measured):** Sharpen 0 / TrilinearMips 0 / Anisotropy 4 felt
+  smoother; ticks/s median 27.3 vs 27.4, capture timeouts 43% vs 50% of grabs, so the gain
+  is in frame-time spikes, not the median. 1.0.1 at the same size: 29.7 ticks/s. Capture
+  timeouts rose from ~6% of grabs (1.0.1) to 43-50%: the clearest single number for the
+  extra GPU time per present. Auto depth (FLICKER_REFERENCE) removes the wait from the
+  render thread; on a saturated GPU it is not expected to raise the rate (dev-PC result).
+- Product follow-up, not built: a low-end profile (Anisotropy 4, TrilinearMips 0, Sharpen 0,
+  a smaller render size) offered by the launcher for 4 GB cards, and a 72 Hz recommendation
+  where the GPU cannot reach half the display rate.
 
 ## 2026-10-03: build 266 F10 ReShade controls accepted
 
