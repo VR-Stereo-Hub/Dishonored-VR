@@ -111,7 +111,14 @@ static uint32_t g_abWarmMs = 2000;      // discarded at the head of every segmen
 //
 // Everything below the plan reads rows through these accessors, so the built-in plan
 // and a file plan are measured, verdicted and summarised identically.
-#define DVR_AB_MAX_ROWS 32
+// Pre-release audit (2026-10-04): 64 rows so one plan can hold every lever of a whole audit, and two
+// more directives. `delay <ms>` waits that long in gameplay before the first segment (time to walk
+// to the spot after a load). `atend <seam words>` runs once after the summary: a visible "finished"
+// (`overlay on` opens the F10 panel) and the switching-off of anything a row left on.
+#define DVR_AB_MAX_ROWS 64
+static uint32_t g_abDelayMs = 0;
+static uint64_t g_abFirstGameplayMs = 0;
+static char     g_abAtEnd[200] = "";
 struct AbRow {
     char label[48];
     char apply[200];
@@ -167,12 +174,15 @@ static bool AbLoadPlan(const char* name)
     }
     int n = 0;
     char line[512];
+    g_abDelayMs = 0; g_abAtEnd[0] = 0; g_abFirstGameplayMs = 0;
     while (fgets(line, sizeof(line), f)) {
         AbTrim(line);
         if (!line[0] || line[0] == '#') continue;
         unsigned v = 0;
         if (sscanf(line, "seg %u", &v) == 1) { if (v >= 5000 && v <= 120000) g_abSegMs = v; continue; }
         if (sscanf(line, "warm %u", &v) == 1) { if (v <= 10000) g_abWarmMs = v; continue; }
+        if (sscanf(line, "delay %u", &v) == 1) { if (v <= 600000) g_abDelayMs = v; continue; }
+        if (!strncmp(line, "atend ", 6)) { strncpy(g_abAtEnd, line + 6, sizeof(g_abAtEnd) - 1); g_abAtEnd[sizeof(g_abAtEnd) - 1] = 0; AbTrim(g_abAtEnd); continue; }
         if (n >= DVR_AB_MAX_ROWS) break;
         AbRow& r = g_abRows[n];
         memset(&r, 0, sizeof(r));
@@ -200,8 +210,9 @@ static bool AbLoadPlan(const char* name)
     g_abRowN = n;
     strncpy(g_abPlanName, path, MAX_PATH - 1); g_abPlanName[MAX_PATH - 1] = 0;
     DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
-            "perf/ab: plan LOADED from %s - %d segments (%d baselines) of %u ms, %u ms warm-up each:",
-            path, n, baselines, g_abSegMs, g_abWarmMs);
+            "perf/ab: plan LOADED from %s - %d segments (%d baselines) of %u ms, %u ms warm-up each; it starts %u ms "
+            "after gameplay begins and takes about %.1f minutes; at the end it runs `%s`:",
+            path, n, baselines, g_abSegMs, g_abWarmMs, g_abDelayMs, (g_abDelayMs + (double)n * g_abSegMs) / 60000.0, g_abAtEnd);
     for (int i = 0; i < n; ++i)
         DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info, "perf/ab:   %2d %-24s apply `%s` restore `%s`",
                 i + 1, g_abRows[i].label, g_abRows[i].apply, g_abRows[i].restore);
@@ -476,6 +487,14 @@ void ab_tick(IDirect3DDevice9* dev)
     const double now = dvr::clock::now_ms();
     const uint64_t nowMs = GetTickCount64();
 
+    if (g_abSeg < 0 && g_abRowN && g_abDelayMs) {   // a file plan's start delay, counted in gameplay
+        if (!g_abFirstGameplayMs) {
+            g_abFirstGameplayMs = nowMs;
+            DVR_LOG(dvr::log::Cat::perf, dvr::log::Level::Info,
+                    "perf/ab: gameplay reached - the plan starts in %u ms (get to the spot and stand still)", g_abDelayMs);
+        }
+        if (nowMs - g_abFirstGameplayMs < (uint64_t)g_abDelayMs) return;
+    }
     if (g_abSeg < 0) {   // the plan starts here: remember what to restore
         if (!g_abSamples) {
             g_abSamples = (float*)malloc(DVR_AB_MAX_SAMPLES * sizeof(float));
@@ -526,6 +545,7 @@ void ab_tick(IDirect3DDevice9* dev)
         if (g_abSeg >= AbSegN()) {
             AbRestoreBaseline();
             AbSummary();
+            if (g_abRowN && g_abAtEnd[0]) AbRunCommands(g_abAtEnd, "plan end");
             g_abDone = true;
             g_abOn = false;
             free(g_abSamples); g_abSamples = NULL;

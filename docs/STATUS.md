@@ -19,6 +19,8 @@ Branch `claude/performance-audit` (off staging). Detail: dishonored/PERFORMANCE.
   profile (`stages on|off`, `stages gpu on|off`: CPU, GPU and draws per engine stage) and
   `tools/perf-plans/audit-2-engine.txt` (the engine's own switches as live A/B rows). Neither
   has run.
+- 2026-10-05: `tools/perf-plans/audit-all.txt` runs all of it unattended in one launch (about
+  14 minutes); the planner gained `delay`, `atend` and the one-shot `[Perf] AbPlanOnce` key.
 - Release builds. No game launched. No Linear ticket (no Linear access).
 
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in

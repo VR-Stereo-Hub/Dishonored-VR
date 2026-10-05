@@ -199,6 +199,17 @@ cinematics. Five one-question scripts, `tools/ida/pf1..pf5`; derivations in ENGI
 view (the stage table), then plan 1, then plan 2. The stage table says which of plan 2's rows
 can matter before they are run.
 
+**One unattended run instead (2026-10-05):** `tools/perf-plans/audit-all.txt` holds plans 1 and 2
+and the stage profile in 41 segments of 20 s (about 14 minutes standing still). For it the plan
+file gained two directives and the ini one key: `delay <ms>` (time in gameplay before the first
+segment, to reach the spot), `atend <seam words>` (run once after the summary; here it switches
+the stage profile off and opens the F10 panel as the visible end), and `[Perf] AbPlanOnce=<file>`
+(arms a plan for one launch; the key is emptied as it is read). The plan table holds 64 rows now.
+Part A measures our own levers with nothing else on; the row "stage profile ON" then leaves the
+engine's stage events on, so every later baseline and row has a `perf/stages:` table and carries
+the same profiling overhead. A row is compared with the baselines either side of it; the plan's
+own overall noise floor mixes the two halves and is not the reference. Not run yet.
+
 ### 7. What this audit did NOT do
 
 No game or simulator launch; no GPU timeline; no IDA run (section 5 says why and what for).
