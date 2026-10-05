@@ -449,8 +449,11 @@ uint32_t g_epochSeen = 0;
 
 std::atomic<bool> g_on{false}, g_stereo{true}, g_debug{false}, g_matrices{true}, g_fgOn{true};
 std::atomic<float> g_fgFov{0.0f};      // the game camera FOV (deg): the foreground's projection; 0 = not read yet
+std::atomic<bool> g_cutsceneHands{false};
+std::atomic<float> g_fgGain{0.911f};
 std::atomic<float> g_fgDepth{0.30f};   // units: nearer pixels are the foreground (run-6 capture: arms/weapon <= 0.2, world >= 0.6)
 uint32_t g_fgUsed = 0;
+float g_lastFgFovApplied = 0;
 std::atomic<float> g_nearMiss{6.0f};
 std::atomic<bool> g_fgMask{true};      // `afw fgmask on|off`: the foreground from what the foreground pass drew, not depth
 uint32_t g_maskFg = 0, g_maskNone = 0, g_maskMissing = 0, g_maskUsed = 0, g_maskDrawn = 0, g_maskEmpty = 0;   // g_maskDrawn: from the drawn mask (run 17)
@@ -1127,11 +1130,18 @@ void set_matrices(bool on, const char* who) {
                 : " - the XR pose and the body yaw alone: the held eye's world lags a tick of walking");
 }
 bool matrices() { return g_matrices.load(); }
+void set_cutscene_hands(bool on, const char* who) {
+    g_cutsceneHands.store(on);
+    DVR_INFO("afw/warp: cutscene masked-hand correction %s (%s)", on ? "ON" : "off", who ? who : "?");
+}
+bool cutscene_hands() { return g_cutsceneHands.load(); }
+void set_fg_gain(float gain) {
+    if (gain >= 0.80f && gain <= 1.0f) g_fgGain.store(gain);
+}
 void set_fg_fov(float deg) {
     const float was = g_fgFov.exchange(deg);
     if (fabsf(was - deg) > 0.05f)
-        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000, "afw/warp: foreground projection %.2f deg (the game camera "
-                         "FOV the arms and weapon are drawn with; was %.2f)", deg, was);
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 2000, "afw/warp: foreground correction feed %.2f deg (0 disables the ordinary gain feed; was %.2f)", deg, was);
 }
 void set_fg(bool on, const char* who) {
     g_fgOn.store(on);
@@ -1382,6 +1392,7 @@ void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, con
     FILE* meta = nullptr;
     if (fopen_s(&meta, path, "w") || !meta) { g_dumpLeft.store(0); DVR_WARN("afw/dump: cannot write %s - capture stopped", path); return; }
     fprintf(meta,"freshWorld=%d\ndepthMotion=%d\n",g_freshWorld.load() ? 1 : 0,g_depthMotion.load() ? 1 : 0);
+    fprintf(meta,"cutsceneHands=%d\nfgGain=%.6f\nappliedFgFov=%.4f\n",g_cutsceneHands.load() ? 1 : 0,g_fgGain.load(),g_lastFgFovApplied);
     fprintf(meta, "fgFov=%.4f\nfgOn=%d\nfgDepth=%.4f\nfgMask=%d\nfreshMaskOk=%d\nheldMaskOk=%d\n", g_fgFov.load(), g_fgOn.load() ? 1 : 0,
             g_fgDepth.load(), g_fgMask.load() ? 1 : 0, fr.maskOk ? 1 : 0, src.maskOk ? 1 : 0);
     fprintf(meta, "present=%u\nheld=%d\nfresh=%d\nhaveHeld=%d\nuseFresh=%d\nuseHeld=%d\nmatrixVerdict=%d\nyawDeg=%.5f\n"
@@ -1545,6 +1556,23 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);
     cb.prm6[2] = maskOn ? 1.0f : 0.0f;
+    // The old cinematic guard disabled a sensor-derived FOV. The feed has since
+    // become a measured foreground gain, yet the guard still drops it. Apply
+    // that gain to the actual rendered projection, never the suppressed sensor.
+    // Require known masks and authored source records: no near-world heuristic,
+    // no gameplay/scope change, and no mixed camera-owner transition.
+    if (g_cutsceneHands.load() && g_fgOn.load() && maskOn && g_fgFov.load() <= 0.0f &&
+        fr.meta.writer == 3 && (!haveH || src.meta.writer == 3)) {
+        const float gain = g_fgGain.load();
+        cb.prm5[0] = tanH / gain; cb.prm5[1] = tanV / gain;
+        cb.prm5[2] = g_fgDepth.load();
+        ++g_fgUsed;
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 3000,
+            "afw/warp: cutscene hands applied gain %.3f, rendered %.2f -> correction %.2f deg, masks %d/%d writers %d/%d",
+            gain, g_lastClaimDeg, 2.0f * atanf(cb.prm5[0]) * 57.29578f,
+            fr.maskOk, haveH ? src.maskOk : 0, fr.meta.writer, haveH ? src.meta.writer : 0);
+    }
+    g_lastFgFovApplied = cb.prm5[0] > 0 ? 2.0f * atanf(cb.prm5[0]) * 57.29578f : 0.0f;
     // Run 25: the held eye's hands FOLLOW THEIR CONTROLLERS. Each image carries the grips it was drawn with (note_hands);
     // the held eye's foreground moves rigidly with the nearer grip from the held image's pose to the fresh image's
     // (MSW's handMove), so its own hands are where the hands are NOW and can fill what the fresh eye cannot see (a thumb

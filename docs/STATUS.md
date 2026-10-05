@@ -1,3 +1,65 @@
+## 2026-10-04: AFW cutscene hand correction candidate
+
+Focus moved to cutscene hand flicker. The verified build-46 boat capture has
+103-degree world projection, authored camera records and valid hand masks, but
+AFW's ordinary foreground feed is zero. A cinematic guard still disables the
+foreground gain introduced after that guard was written. Existing hand-FOV
+instrument misses full-depth hand submissions; extend it read-only to marked
+hands so the next run can distinguish an actual lens change.
+
+New default-off AfwCutsceneHands restores the existing gain only to masked hands
+in authored-camera records, using rendered projection. Native GPU: 90 pass;
+hand-specific control 3.205 -> 0.014 px. Unknown masks, mixed camera owners,
+gameplay, near walls and world reconstruction controls pass. Existing depth
+snapshot misses remain a separate possible source of flicker. Headset unverified.
+See [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md) for evidence, limitations
+and the one-switch cutscene test. No game launch or integration/release merge.
+
+## 2026-10-04: build 46 ghosting regression rejected; correction disabled
+
+Matched the new 20:47:47 capture/log to installed v1.0.3-46-g4c34beb46.
+The headset reports substantially worse ghosting; all capture records show the
+option ON and accepted matrices. DLAA was active, unlike the previous burst.
+Same-input replay ON/OFF changes 9.21% of pixels over one byte; restoring only
+the two tightened general visibility thresholds reduces that to 3.97%.
+This identifies broad side effects, not acceptance of the remaining variant.
+
+Archived DLL, whole INI and both logs in build/performance-audit/boat-204747/.
+Installed AfwDepthMotion is now 0. Full INI comparison has exactly that one
+change, byte match and CRLF verified. Build 46 and all other settings retained.
+No new build or game launch. Original boat trails remain unresolved.
+
+Next: resolve capture/replay parity and construct a real-edge regression fixture
+before another source-selection candidate. No new headset run requested. See
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md) for ablation evidence,
+metric failures and limits. Draft PR remains unmerged; no staging/VR-Main change.
+
+## 2026-10-04: AFW depth-motion candidate installed with latest animation fixes
+
+Installed optimized v1.0.3-46-g4c34beb46 from codex/afw-character-test. The
+previous install had advanced to v1.0.3-37-g01b763971 after build 44 was prepared;
+merged that exact animation update into the isolated test branch first, preserving
+ArmIKGameArmInAnim=1 and the cinematic-motion settings and semantics. AFW shader
+and host suite are identical to feature f5cb38628 (82 checks already passed).
+Full build and 11 built/installed exports pass; legacy remains OFF.
+
+Proxy SHA256 b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+Backup of previous DLL, full INI, both logs, ReShade configuration/presets and
+bridge: build/performance-audit/install-20261004-204533-afw-depth-motion/.
+Whole INI comparison has exactly two changes: [Stereo] Method=reentry -> afw,
+and AfwDepthMotion=1 added. Exact expected-byte match, 1,700 CRLF, no lone endings.
+All other preferences retained, including current DLAA/native resolution and
+shoulder height. ReShade config/bridge unchanged. Existing AfwFreshWorld=1 is
+retained but refused by normal builds; it cannot reactivate the failed mode.
+No game launch or staging/release merge.
+
+Next launch's ONE question: on the same boat, does AFW: reduce moving-character
+trails ON/OFF/ON reduce the people's ghosting without worsening scenery? Starts
+ON; Basic Display > Stereo rendering. Reduced supports the depth-dead-band
+correction; unchanged leaves unchanged-depth motion/fill open; worse means leave
+it OFF and reject the candidate. Hold other settings fixed. Read the new banner
+and log ourselves before interpreting the result.
+
 ## 2026-10-04: new depth-based AFW character-motion candidate, build only
 
 Latest boat burst 19:43:31 is matched to installed v1.0.3-36-g65b278d04 and
@@ -18,6 +80,16 @@ Do not install or write the game INI. Detailed evidence, failed experiments and
 one eventual launch question are in [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
 After installation is authorized, test only whether OFF/ON/OFF improves the people
 on the same boat without worsening scenery. No staging/release merge.
+
+Built optimized v1.0.3-44-g8899df7de on codex/afw-character-test, combining
+feature f5cb38628 with installed animation baseline 65b278d04. Only the isolated
+test branch was combined; staging and VR-Main were not merged. Both source
+branches remain. Proxy SHA256:
+8904c5220ff70c496505854a2ccc113ae26890b97b67bfee841874e16768adbe.
+Versioned local DLL, matching launcher and manifest:
+build/afw-character-candidate-v1.0.3-44/. Full build, 11 exports, lint and
+golden/release INI equality pass. Installed DLL/INI hashes still equal this
+follow-up's baseline; INI retains 1,698 CRLF with no lone endings. Not installed.
 
 ## 2026-10-04: AFW fresh-world regression withdrawn; candidate not installed
 
