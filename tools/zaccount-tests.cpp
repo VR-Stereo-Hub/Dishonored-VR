@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+namespace dvr::diag_ab { bool reduced() { return false; } }   // VR-124's diagnostic mask: never reduced on the host
 using namespace dvr::zacct;
 
 static std::vector<std::string> g_lines;

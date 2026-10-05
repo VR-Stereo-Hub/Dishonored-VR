@@ -26,6 +26,16 @@ uint8_t kRuneParentCallBytes[5]={0xe8,0,0,0,0};
 uint8_t kTaskParentCallBytes[5]={0xe8,0,0,0,0};
 #define _ReturnAddress() ((void*)currentReturn)
 #define DVR_LOG_EVERY_MS(...) ((void)0)
+// 2026-10-05: the production wrappers grew three calls after this harness was written (the identity trace,
+// the ownership publication and the once-a-second census clock). Without these the suite did not compile and
+// guarded nothing; they are counted so the wrapper's publication is itself checked.
+unsigned g_traceCalls=0,g_ownerCalls=0;void* g_ownerLast=nullptr;
+void MarkerIdentityTrace(void*,unsigned){++g_traceCalls;}
+namespace dvr::hudowner {void marker(void* native,float,float,int,int){++g_ownerCalls;g_ownerLast=native;}}
+unsigned g_taskPublished=0;uint32_t g_taskPublishedFlags=0;
+namespace dvr::objectivemarkers {void publish_task(uintptr_t,float,float,int,int,uint32_t flags){++g_taskPublished;g_taskPublishedFlags=flags;}
+ void task_report(float*,float*,unsigned& i,unsigned& t,unsigned& a){i=t=a=0;}}
+double MaimNowMs(){return 0.0;}
 #include "objective_stub.inc"
 #include "objective_fingerprint.inc"
 #include "rune_stub.inc"
@@ -46,8 +56,10 @@ int main(){
  x=500;y=400;check(!inset_position(x,y,1000,800,9,.12f),"center unchanged");
  auto call=[](){TaskParentStub((void*)123,nullptr,990,400,0x12345678,0x87654321,2500,9);};
  call();check(captured.calls==1 && captured.x==880 && captured.y==400,"production wrapper forwards moved parent once");
+ check(g_taskPublished==1 && g_taskPublishedFlags==9 && g_ownerCalls==1 && g_ownerLast==(void*)123 && g_traceCalls==1,"a valid visible marker is published and owned once");
  check(captured.marker==(void*)123&&captured.a==0x12345678&&captured.b==0x87654321&&captured.distance==2500&&captured.flags==9,"opaque ABI arguments retained");
- liveOwner=false;call();check(captured.x==990 && g_taskRefused==1,"unvalidated owner forwards native unchanged");liveOwner=true;
+ liveOwner=false;call();check(captured.x==990 && g_taskRefused==1,"unvalidated owner forwards native unchanged");
+ check(g_taskPublished==2 && g_taskPublishedFlags==0 && g_ownerCalls==1,"a refused marker withdraws its sample and is not owned");liveOwner=true;
  dvr::objectivemarkers::active=false;call();check(captured.x==990,"live off retains native");dvr::objectivemarkers::active=true;
  dvr::vr::live=false;call();check(captured.x==990,"session loss retains native");dvr::vr::live=true;
  riding=true;call();check(captured.x==990,"menus retain native");riding=false;

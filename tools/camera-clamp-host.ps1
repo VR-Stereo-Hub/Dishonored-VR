@@ -7,6 +7,14 @@ $eyeOut = Join-Path $repo 'build\camera-clamp-test'
 New-Item -ItemType Directory -Force -Path $eyeOut | Out-Null
 $eyeText = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Source))
 $eyeBody = [regex]::Match($eyeText, '(?ms)^struct Writer \{.*?^\};').Value
+# VR-229: current_base consults the draw-scoped camera owner. The scope's type, its one
+# instance and its thread test come from production too (no scope is ever open here).
+$scopeType = [regex]::Match($eyeText, '(?ms)^struct ViewScope \{.*?^\} g_viewScope;')
+$scopeTest = [regex]::Match($eyeText, '(?m)^bool scoped\(\) \{.*\}\s*$')
+if (-not $LegacyClamp -or $eyeText.Contains('g_viewScope')) {
+    if (-not $scopeType.Success -or -not $scopeTest.Success) { throw 'Production ViewScope or scoped() not found.' }
+    $eyeBody += "`n" + $scopeType.Value + "`n" + $scopeTest.Value.TrimEnd() + "`n"
+}
 foreach ($camFn in @('current_base', 'write_offset', 'clamp_written_z', 'restore')) {
     $camMatch = [regex]::Match($eyeText, ('(?ms)^(?:bool|void) ' + $camFn + '\(.*?^\}'))
     if (-not $camMatch.Success) { throw "Production function not found: $camFn" }

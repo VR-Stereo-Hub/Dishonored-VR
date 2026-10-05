@@ -24,6 +24,7 @@ static double MaimNowMs() { return nowMs; }
 static void Log(const char*, ...) {}
 static void UiObjName(uint8_t*, char* out, size_t n) { strcpy_s(out, n, "pNote"); }
 static const char* ObjClassName(uint8_t*) { return "DisGFxMoviePlayerNote"; }
+static bool CineHeadDispatchFresh() { return false; }   // VR-109's yielded-dispatch term: not under test here
 #include "note_observer_body.inc"
 static int failed = 0, checked = 0;
 static void check(bool ok, const char* why) {
