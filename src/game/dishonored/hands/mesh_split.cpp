@@ -3722,7 +3722,7 @@ static std::atomic<double> g_grReadyUntil[2] = { {0.0}, {0.0} };  // eligible un
 static int                 g_grReadyRun[2] = { 0, 0 };             // consecutive ready game frames (game thread)
 static std::atomic<bool>   g_grHide[2] = { {false}, {false} };
 static std::atomic<double> g_grHideStamp[2] = { {0.0}, {0.0} };
-static const float         kGrReadyEaseMs = 100.0f;
+static float               g_grReadyEaseMs = 100.0f;      // `grab readyease <ms>` (a capture's slow motion; not saved)
 
 // Game thread, once per pickup tick: bit h of `mask` = hand h may take the focused target now.
 static void GrabReadyPublish(uint32_t mask)
@@ -3758,7 +3758,7 @@ static void GrReadyApply(float* buf, const float* src, UINT regs, int cls)
     if (frame != latchFrame[h]) {                                // advance once per frame, both eyes alike
         const float dt = lastMs[h] > 0 ? (float)(now - lastMs[h]) : 0.0f;
         lastMs[h] = now; latchFrame[h] = frame;
-        const float step = dt / kGrReadyEaseMs;
+        const float step = dt / g_grReadyEaseMs;
         wgt[h] = (ready || busy) ? (wgt[h] + step > 1 ? 1 : wgt[h] + step) : (wgt[h] - step < 0 ? 0 : wgt[h] - step);
         if (owned) wgt[h] = 0;
         if (ready != wasReady[h]) {
@@ -3872,6 +3872,11 @@ static bool GrabAnimCommand(const char* args)
 {
     bool b = false; float t[5];
     if (DvrOnOff(args, &b)) { GrabAnimSet(b, "seam"); ConfigWriteKey("Hands", "GrabAnim", b ? "1" : "0", "the seam"); return true; }
+    if (sscanf(args, "readyease %f", &t[0]) == 1) {
+        g_grReadyEaseMs = GrabAnimClampMs(t[0], 20, 1000);
+        Log("hands/ready: the open/close ease is %.0f ms (this session only)", g_grReadyEaseMs);
+        return true;
+    }
     if (!strncmp(args, "ready open ", 11) && DvrOnOff(args + 11, &b)) {
         GrabReadySet(b, g_grReadyHideOn.load(), "seam"); ConfigWriteKey("Hands", "GrabReadyOpen", b ? "1" : "0", "the seam");
         return true;

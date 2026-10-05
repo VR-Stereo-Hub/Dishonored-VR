@@ -432,6 +432,60 @@ static void PpCarryGate(bool* carryingMovable, bool handFree[2])
     }
 }
 
+// `pickup near`: the nearest listed things to the camera, with where they sit in the HEAD's frame
+// (metres right, up and forward of the camera, yaw only) and how far each hand is, so a test can
+// put a hand on a real item. Game thread, on request; a diagnostic, never per frame.
+static std::atomic<bool> g_ppNearReq{false};
+struct PpNearRow { uint8_t* obj; uint32_t kind; float d2; float loc[3]; };
+static uint32_t PpNearCollect(void** objs, uint32_t num, const float* camera, uint32_t locOff, uint32_t collOff,
+                              uint32_t boundsOff, PpNearRow* out, uint32_t maxOut)
+{
+    uint32_t n = 0;
+    __try {
+        for (uint32_t k = 0; k < g_ppListN; ++k) {
+            const PpEntry& e = g_ppList[k];
+            if (e.idx >= num || (uint8_t*)objs[e.idx] != e.obj || *(uint8_t**)(e.obj + kClassOff) != e.cls) continue;
+            float loc[3]; memcpy(loc, e.obj + locOff, 12);
+            if (e.kind >= kPpDoor && collOff && boundsOff) {        // the box centre for box-measured kinds
+                uint8_t* comp = *(uint8_t**)(e.obj + collOff);
+                if (comp && !((uintptr_t)comp & 3) && (uintptr_t)comp >= 0x10000) memcpy(loc, comp + boundsOff, 12);
+            }
+            const float dx = loc[0] - camera[0], dy = loc[1] - camera[1], dz = loc[2] - camera[2];
+            const float d2 = dx * dx + dy * dy + dz * dz;
+            // keep the nearest maxOut (insertion into a small sorted array)
+            uint32_t at = n < maxOut ? n : maxOut;
+            while (at > 0 && out[at - 1].d2 > d2) { if (at < maxOut) out[at] = out[at - 1]; --at; }
+            if (at < maxOut) { out[at].obj = e.obj; out[at].kind = e.kind; out[at].d2 = d2; memcpy(out[at].loc, loc, 12); if (n < maxOut) ++n; }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return n;
+}
+static void PpLogNear(void** objs, uint32_t num, const float* camera, uint32_t locOff, uint32_t collOff, uint32_t boundsOff,
+                      const float (*hand)[3], const bool* handOk)
+{
+    PpNearRow rows[10];
+    dvr::crash::probe_begin();
+    const uint32_t n = PpNearCollect(objs, num, camera, locOff, collOff, boundsOff, rows, 10);
+    dvr::crash::probe_end();
+    const float cy = cosf(g_viewYawRad), sy = sinf(g_viewYawRad), m = g_posScaleUU > 1 ? g_posScaleUU : 50.0f;
+    Log("pickup/near: %u listed, the %u nearest to the camera (%.0f %.0f %.0f), view yaw %.1f deg, %.1f uu per m - "
+        "head frame in metres (right, up, forward), and each hand's distance:", g_ppListN, n, camera[0], camera[1], camera[2],
+        g_viewYawRad * 57.2958f, m);
+    for (uint32_t i = 0; i < n; ++i) {
+        const float dx = rows[i].loc[0] - camera[0], dy = rows[i].loc[1] - camera[1], dz = rows[i].loc[2] - camera[2];
+        const float fwd = (dx * cy + dy * sy) / m, right = (-dx * sy + dy * cy) / m, up = dz / m;
+        float dh[2] = { -1, -1 };
+        for (int h = 0; h < 2; ++h) if (handOk[h]) {
+            const float hx = rows[i].loc[0] - hand[h][0], hy = rows[i].loc[1] - hand[h][1], hz = rows[i].loc[2] - hand[h][2];
+            dh[h] = sqrtf(hx * hx + hy * hy + hz * hz) / m;
+        }
+        const char* cn = ObjClassName(rows[i].obj);
+        Log("pickup/near: #%u %s [%s] %.2f m - right %+.2f up %+.2f forward %+.2f | left hand %.2f m, right hand %.2f m%s",
+            i, cn ? cn : "?", rows[i].kind < kPpKinds ? kPpKindName[rows[i].kind] : "?", sqrtf(rows[i].d2) / m, right, up, fwd,
+            dh[0], dh[1], rows[i].obj == g_ppTarget ? " (the TARGET)" : "");
+    }
+}
+
 // Script lane, once a frame.
 static void PhysicalPickupTick()
 {
@@ -540,6 +594,31 @@ static void PhysicalPickupTick()
     dvr::crash::probe_end();
     if (pick.fault) ++g_ppFaults;
 
+    // The beat, every 10 s of gameplay whether or not anything is in reach (it sat after the
+    // "nothing within reach" return, so a run that never came near loot printed no cost at all).
+    static double nextBeat = 0;
+    if (now >= nextBeat) {
+        nextBeat = now + 10000;
+        uint32_t byKind[kPpKinds] = {};
+        for (uint32_t k = 0; k < g_ppListN; ++k) if (g_ppList[k].kind < kPpKinds) ++byKind[g_ppList[k].kind];
+        Log("pickup: beat - %u interactable actor(s) listed (loot %u, books %u, doors %u, carry %u, usable %u; %u within 2.5 m), "
+            "sweep %u took %.0f ms of game time, trace driven %ld time(s), targets taken loot %u books %u doors %u carry %u usable %u, "
+            "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame, max %.0f, over 250 us in %u and "
+            "over 1000 us in %u of %u frames (a frame of several ms on the game thread alone is what starves an eye: both "
+            "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u | doors %s, carry %s, "
+            "usables %s | pawn or talk targets refused %u (%u this run; counts targets whose class chain names a pawn or a talk "
+            "class, read by text: must read 0)",
+            g_ppListN, byKind[0], byKind[1], byKind[2], byKind[3], byKind[4], g_ppNearN, g_ppSweeps, g_ppLastSweepMs,
+            (long)g_ppRayDriven, g_ppTargetsByKind[0], g_ppTargetsByKind[1], g_ppTargetsByKind[2], g_ppTargetsByKind[3],
+            g_ppTargetsByKind[4], g_ppSwallowed.load(), g_ppFired.load(),
+            g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostOver250,
+            g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults, g_ppDoorsOn.load() ? "ON" : "off",
+            g_ppCarryOn.load() ? "ON" : "off", g_ppUsablesOn.load() ? "ON" : "off", g_ppPawnTargets, g_ppPawnTargetsTotal);
+        g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0; g_ppCostOver250 = 0; g_ppCostOver1000 = 0; g_ppSliceCut = 0;
+        memset(g_ppTargetsByKind, 0, sizeof(g_ppTargetsByKind)); g_ppPawnTargets = 0;
+    }
+    if (g_ppNearReq.exchange(false)) PpLogNear(objs, num, camera, locOff, collOff, boundsOff, hand, handOk);
+
     const PpCand* c = pick.best.obj ? &pick.best : NULL;
     if (!c) { if (g_ppTarget) PpDropTarget("nothing within reach", now, false); return; }
 
@@ -592,27 +671,6 @@ static void PhysicalPickupTick()
     g_ppReadyMs.store(GetTickCount64());
     GrabReadyPublish(mask);                                  // the ready hand (mesh_split.cpp): eligibility with hysteresis
 
-    static double nextBeat = 0;
-    if (now >= nextBeat) {
-        nextBeat = now + 10000;
-        uint32_t byKind[kPpKinds] = {};
-        for (uint32_t k = 0; k < g_ppListN; ++k) if (g_ppList[k].kind < kPpKinds) ++byKind[g_ppList[k].kind];
-        Log("pickup: beat - %u interactable actor(s) listed (loot %u, books %u, doors %u, carry %u, usable %u; %u within 2.5 m), "
-            "sweep %u took %.0f ms of game time, trace driven %ld time(s), targets taken loot %u books %u doors %u carry %u usable %u, "
-            "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame, max %.0f, over 250 us in %u and "
-            "over 1000 us in %u of %u frames (a frame of several ms on the game thread alone is what starves an eye: both "
-            "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u | doors %s, carry %s, "
-            "usables %s | pawn or talk targets refused %u (%u this run; counts targets whose class chain names a pawn or a talk "
-            "class, read by text: must read 0)",
-            g_ppListN, byKind[0], byKind[1], byKind[2], byKind[3], byKind[4], g_ppNearN, g_ppSweeps, g_ppLastSweepMs,
-            (long)g_ppRayDriven, g_ppTargetsByKind[0], g_ppTargetsByKind[1], g_ppTargetsByKind[2], g_ppTargetsByKind[3],
-            g_ppTargetsByKind[4], g_ppSwallowed.load(), g_ppFired.load(),
-            g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostOver250,
-            g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults, g_ppDoorsOn.load() ? "ON" : "off",
-            g_ppCarryOn.load() ? "ON" : "off", g_ppUsablesOn.load() ? "ON" : "off", g_ppPawnTargets, g_ppPawnTargetsTotal);
-        g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0; g_ppCostOver250 = 0; g_ppCostOver1000 = 0; g_ppSliceCut = 0;
-        memset(g_ppTargetsByKind, 0, sizeof(g_ppTargetsByKind)); g_ppPawnTargets = 0;
-    }
 }
 
 // Pad bridge (present thread). `raw` is the PHYSICAL snapshot about to be remapped: a grip that
@@ -736,6 +794,7 @@ static bool PickupCommand(const char* args)
         ConfigWriteKey("Aim", "PhysicalDoors", b ? "1" : "0", "the seam");
         return true;
     }
+    if (!strcmp(args, "near")) { g_ppNearReq.store(true); Log("pickup: near - the next gameplay tick lists the nearest things"); return true; }
     if (!strncmp(args, "carry ", 6) && DvrOnOff(args + 6, &b)) {
         PickupSetCarry(b, "seam");
         ConfigWriteKey("Aim", "PhysicalCarry", b ? "1" : "0", "the seam");
