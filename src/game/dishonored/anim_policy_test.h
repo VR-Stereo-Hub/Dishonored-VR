@@ -50,6 +50,55 @@ inline int AnimPolicyTests() {
     const auto world=dvr::hf::xform_mul(weapon,local);
     const auto expected=dvr::hf::xform_mul(half,weapon);
     check("shared-hand-weapon-delta",fabsf(world.t[0]-expected.t[0])<0.001f && fabsf(world.t[1]-expected.t[1])<0.001f);
+
+    // ---- SmoothBlend --------------------------------------------------------------
+    check("ease-endpoints",smootherstep(0)==0 && smootherstep(1)==1 && fabsf(smootherstep(0.5f)-0.5f)<1e-6f);
+    check("ease-flat-ends",smootherstep(0.01f)<0.0001f && smootherstep(0.99f)>0.9999f);
+    bool monotonic=true; float last=0;
+    for(int i=1;i<=100;++i){const float v=smootherstep(i/100.0f); if(v<last) monotonic=false; last=v;}
+    check("ease-monotonic",monotonic);
+    Handoff s; s.smooth=true; s.inMs=200; s.outMs=400;
+    s.update(true,true,true,1000,250,150);                       // blendMs ignored when smooth
+    check("smooth-entry-start",s.value(1000,150)==1);
+    check("smooth-entry-mid",fabsf(s.value(1100,150)-0.5f)<0.0001f);
+    check("smooth-entry-slow-start",s.value(1010,150)>0.99f);     // linear would be 0.95
+    check("smooth-entry-end",s.value(1200,150)==0);
+    s.update(true,false,true,1300,0,150);                        // release, return begins
+    check("smooth-exit-uses-out-ms",fabsf(s.value(1500,150)-0.5f)<0.0001f && s.value(1700,150)==1);
+    s.update(true,true,true,1500,0,150);                         // reversal at the return's midpoint
+    check("smooth-reversal-continuous",fabsf(s.value(1500,150)-0.5f)<0.0001f);
+    check("smooth-reversal-share",s.value(1600,150)==0);          // 0.5 of the 200 ms entry
+    s.update(false,true,true,1700,0,150);
+    check("smooth-reset-keeps-shape",s.smooth && s.inMs==200 && s.outMs==400 && s.value(1700,150)==1);
+    // The palm path: a correction that rotates 120 degrees about a far axis while moving.
+    dvr::hf::Xform c={dvr::hf::euler_xyz_deg_to_mat(10,-35,120),{-30,55,12}};
+    const float palm[3]={40,-12,25};
+    float palmTarget[3]; dvr::hf::apply_point(c,palm,palmTarget);
+    float worstNew=0, worstOld=0;
+    for(int i=1;i<20;++i){
+        const float w=i/20.0f; float line[3], pn[3], po[3];
+        for(int k=0;k<3;++k) line[k]=palm[k]+(palmTarget[k]-palm[k])*w;
+        dvr::hf::apply_point(blend_transform_palm(c,w,palm),palm,pn);
+        dvr::hf::apply_point(blend_transform(c,w),palm,po);
+        float dn=0, d0=0; for(int k=0;k<3;++k){dn+=(pn[k]-line[k])*(pn[k]-line[k]); d0+=(po[k]-line[k])*(po[k]-line[k]);}
+        worstNew=fmaxf(worstNew,sqrtf(dn)); worstOld=fmaxf(worstOld,sqrtf(d0));
+    }
+    check("palm-straight-line",worstNew<0.001f);
+    check("palm-negative-control",worstOld>5.0f);   // the old blend arcs: proves the test can fail
+    const auto pe0=blend_transform_palm(c,0,palm), pe1=blend_transform_palm(c,1,palm);
+    check("palm-endpoints",pe0.t[0]==0 && pe0.r.m[0]==1 && pe1.t[0]==c.t[0] && pe1.r.m[4]==c.r.m[4]);
+    const auto pmid=blend_transform_palm(c,0.5f,palm), omid=blend_transform(c,0.5f);
+    bool sameRot=true; for(int k=0;k<9;++k) if(fabsf(pmid.r.m[k]-omid.r.m[k])>1e-6f) sameRot=false;
+    check("palm-same-rotation",sameRot);
+    dvr::hf::Xform sheared=c; sheared.r.m[0]=99;
+    const auto ps=blend_transform_palm(sheared,0.5f,palm);
+    check("palm-shear-refused",ps.r.m[0]==1 && ps.t[0]==0);
+    // Ownership through the return.
+    check("mask-held-while-returning",render_hand_mask(true,true,0,2,false,0.4f)==2);
+    check("mask-dropped-at-controller",render_hand_mask(true,true,0,2,false,1.0f)==0);
+    check("mask-held-in-hysteresis",render_hand_mask(true,true,0,3,true,0.0f)==3);
+    check("mask-new-match-wins",render_hand_mask(true,true,3,2,true,0.2f)==3);
+    check("mask-invalid-clears",render_hand_mask(false,true,3,3,true,0.0f)==0);
     return failures;
 }
 

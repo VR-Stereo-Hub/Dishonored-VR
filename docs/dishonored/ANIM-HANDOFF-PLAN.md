@@ -1,3 +1,73 @@
+## Smooth hand-backs, IK arms and cutscene arms (2026-10-04, built, not headset-run)
+
+Branch `claude/anim-blend-ik`. Two levers, both default OFF with a live F10 toggle
+(Advanced > Hands > Game arms during actions) and a seam word.
+
+**Why the hand-back snapped (read from the code, not a run).**
+1. *Snap out.* When the release hysteresis ended, `tick()` dropped `handMask` to 0 on the
+   same tick the return blend began, and `weight_for()` answers 1 for an unmasked hand. The
+   150 ms return was computed and never shown: the hand jumped to the controller.
+   `ownedMask` dropped at the same moment, so the base pose under the hand changed too.
+2. *Corners.* The blend was a linear 150 ms ramp both ways: full speed from the first frame
+   and a dead stop at the last.
+3. *Arc.* The correction's translation was interpolated about the mesh origin, so a palm far
+   from it swings through an arc and overshoots. The retired HandOrigin branch measured it
+   (run155: median 8.9 uu, max 98 uu off the straight path).
+
+**`[Anim] SmoothBlend=1`** (seam `anim smooth on|off`, `anim blendms <entry> <return>`):
+smootherstep easing (zero speed and acceleration at both ends), separate
+`HandBackBlendInMs` (250) and `HandBackBlendOutMs` (350), a reversal mid-blend covers only
+the remaining distance; the palm moves on the straight line between its native and its
+controller position (`blend_transform_palm`); the hands and `ownedMask` stay with the game
+until the return reaches the controller (`render_hand_mask`). From the retired branch only
+the two measured defect fixes were taken (mask hold, palm path). Its HandOrigin entry
+translation, never accepted in a headset, was not. Off = the original code path exactly.
+The IK arm needs nothing extra: its endpoint is the wrist under the final, blended hand
+correction, so a smoothed hand gives a smoothed arm.
+
+**IK and the arm-hiding rules.** With full-arm IK active the draw already replaces the arm
+mesh with the whole IK-solved arm before any split or hide is consulted (`MsDraw`), so
+HideTakedownArms and the split-hand geometry choices have no visible effect. F10 now says so
+and greys the takedown option while IK is on; the rules still apply if IK falls back to hands.
+Per-state "Show game arms" still decides WHO poses the hand (the game or the controller), so
+it stays live under IK.
+
+**`[Anim] CinematicArms=1`** (seam `anim cinearms on|off`): in a cinematic master state the
+state no longer hands the arms back by itself. The game takes them, through the same blend,
+only while it animates them: an upper or left-arm action (the conversation's unequip, an item
+use) or `m_pMatineeBlender.m_bEnabled` (a matinee posing the pawn). The lane-0 rule and
+`Arms.0.<cinematic state>` are bypassed while it is on; CinematicHandBack is greyed.
+Visibility: a hide-player cinematic hides the whole pawn (ENGINE_NOTES, "a hide-player
+cinematic hides the whole pawn"), so with the lever on and the body in arms-only mode the
+pawn is unhidden through the game's own setter (`kActorSetHidden`), on the script lane, after
+reflection resolves `Actor.bHidden` to exactly the statically read +0x120/0x2 and the setter's
+prologue matches. It is re-hidden if the lever goes off or the body leaves arms-only while the
+cinematic runs; the game unhides it itself when the cinematic ends.
+With the lever on, `cine/arms:` logs every cinematic transition (bCinematicMode, pawn bHidden,
+body mode, matinee blend, how long since the arm mesh last drew; off, nothing runs at all) and reports one
+second after an unhide whether the arm mesh actually drew (HONOURED / NOT honoured).
+
+**Not established.** Whether conversations (`InDialog`) hide the pawn or only lower the arms
+out of view: the dev-PC log shows no arm draw in dialogue, nothing more. If a conversation
+does not set bHidden, CinematicArms gives the hands to the player but there may be nothing
+drawn; the first `cine/arms:` line answers it. Body mode FULL_BODY (seen in dialogue) is
+never unhidden: that would show the third-person body at the camera.
+
+Host: 138 animation checks (24 new: easing ends and monotonicity, entry/return durations,
+reversal share, shape survives a reset, palm on the straight line within 0.001 uu with a
+negative control in which the old blend leaves it by more than 5 uu, mask held through the
+return). Default writer, packaged profile and golden ini byte-identical; 11 exports; lint.
+Release builds. No game launched.
+
+**Next launch, one question each:**
+1. SmoothBlend on (IK on): does a trigger sword attack and a takedown now ease in and come
+   back to the controller without a jump? A jump at the END is the mask/owner path
+   (`anim: ... reason=returning to tracked hands` should appear between release and
+   controller); a jump at the START is the entry, judged with the In slider.
+2. CinematicArms on, in the first conversation or cutscene: read `cine/arms:`. pawnHidden=1
+   then an UNHIDDEN line and HONOURED = the hide was the cause and the arms are back;
+   pawnHidden=0 with no recent arm draw = the arms are lowered or culled, a different cause.
+
 ## The player's sequence vocabulary, by name (2026-10-04)
 
 Source: `tools\model-export.ps1` (UModel) over the cooked packages, plus the `anim: gen=...

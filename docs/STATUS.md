@@ -1,3 +1,25 @@
+## 2026-10-04: smooth hand-backs, IK arm rules, cutscene arms (built, not run)
+
+Branch `claude/anim-blend-ik` (off `claude/tools-workflows`). Two default-off levers with F10
+toggles; detail and launch questions in dishonored/ANIM-HANDOFF-PLAN.md (top section).
+- `[Anim] SmoothBlend`: eased entry/return with their own durations (250/350 ms), palm on a
+  straight path, hands held through the return. Found in the code: the return blend was
+  never shown, because the hand mask dropped on the tick the return began (an instant snap).
+- Full-arm IK already draws whole arms past every hide/split rule; F10 now says so and greys
+  the takedown hide option while IK is on.
+- `[Anim] CinematicArms`: tracked arms in cinematics, the game takes them only while it
+  animates them (upper/left action or matinee blend). Static IDA reading (cm1..cm4,
+  ENGINE_NOTES): a hide-player cinematic hides the whole pawn through Actor.bHidden; the
+  lever unhides an arms-only pawn through the game's own setter after reflection agrees
+  with the static offset. Whether conversations use that hide is not established; the
+  `cine/arms:` line answers it on the first run.
+- Host: 138 animation checks (24 new, with a negative control), golden/release/default
+  writer byte-identical, 11 exports, lint, Release build. Not installed: the game folder
+  held another session's performance candidate. No game launch.
+- Headless IDA (previous commit's workflow) verified on the dev PC: first analysis of
+  Dishonored.exe 38 min, 63,921 functions, x86 decompiler licensed, the ProcessEvent
+  known-good matches and decompiles; each later script opens the saved .i64 in 4 s.
+
 ## 2026-10-04: headless IDA and Blender workflows, local tool file
 
 Branch `claude/tools-workflows` (off staging). Tools only; no mod code, no game launch.

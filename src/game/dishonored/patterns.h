@@ -26,6 +26,19 @@ static const uint8_t kAnimRequestStateBytes[]={0x55,0x8b,0xec,0x6a,0xff};
 static const uint8_t kAnimRequestStatePrefix[]={0x55,0x8b,0xec,0x6a,0xff,0x68,0xc0,0xf0,0xf4,0x00,0x64,0xa1,0,0,0,0};
 static const uint32_t kAnimRequestClassOff=4;
 
+// Cinematic arms: what a hide-player cinematic hides, read statically (tools/ida cm1..cm4,
+// ENGINE_NOTES "Cinematic mode hides the pawn"). PreSetCinematicMode(bNew,bHidePlayer)
+// calls this setter on the live DishonoredPlayerPawn: thiscall(actor, bool), ret4. It flips
+// bit 1 of +0x120 (Actor.bHidden; reflection must agree before use) and re-attaches the
+// actor's components. The prologue carries the +0x120 read, so the check re-verifies it.
+static const uintptr_t kActorSetHidden=0x00587FA0;
+static const uint8_t kActorSetHiddenBytes[]={0x55,0x8b,0xec,0x8b,0x91,0x20,0x01,0x00,0x00,0x8b,0x45,0x08};
+static const uint32_t kActorHiddenOff=0x120, kActorHiddenMask=0x2;
+// The live player pawn: written by the DishonoredPlayerPawn constructor body (0x00ABF830,
+// non-template instances only) and cleared at 0x00AB5320. Read only, compared with the pawn
+// the controller reaches; never trusted alone.
+static const uintptr_t kPlayerPawnGlobal=0x0145F628;
+
 // VR-125: D3D9 query-read helper, thiscall + four stack args, ret16.
 // Complete polling loop preserved by diagnostic; ENGINE_NOTES derivation.
 static const uintptr_t kD3D9QueryRead = 0x009bcf50;

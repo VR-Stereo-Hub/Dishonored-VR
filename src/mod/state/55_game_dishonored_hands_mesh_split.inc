@@ -921,6 +921,7 @@ static volatile int  g_msReady = 0;            // a validated split exists
 static volatile int  g_msRefused = 0;          // a read was tried and rejected
 static volatile uint32_t g_msDraws = 0;        // draws served from our buffer
 static volatile uint32_t g_msFallback = 0;     // draws that fell through to the game's
+static volatile unsigned long long g_msLastArmDrawMs = 0; // GetTickCount64 of the last qualified arm draw (cine/arms reads it)
 
 // AUTO-ARM. The mesh lock was armed by hand from a censused row, so a level
 // load that recreates the buffers left it pointing at freed pointers and

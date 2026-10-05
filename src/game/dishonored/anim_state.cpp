@@ -49,6 +49,17 @@ float viewRightCm=0;
 dvr::hooks::Detour actionDetour;
 uintptr_t actionResume=kAnimRequestState+sizeof(kAnimRequestStateBytes);
 unsigned releaseMs = 250, blendMs = 150;
+// [Anim] SmoothBlend: the hand-back eases in and out (smootherstep) over its own entry and
+// return durations, the palm travels a straight line, and the hands stay owned until the
+// return reaches the controller. Off = the original linear HandBackBlendMs ramp, exactly.
+std::atomic<bool> smoothBlend{false};
+unsigned blendInMs = 250, blendOutMs = 350;
+// [Anim] CinematicArms: in a cinematic the player keeps tracked arms; the game takes them
+// (with the same blend) only while it animates them - an upper/left action or the matinee
+// pose blend. A hide-player cinematic (Kismet bHidePlayer) also has the pawn unhidden while
+// the body mode is arms-only, through the game's own setter. Off = CinematicHandBack rules.
+bool cinematicArms = false;
+void apply_shape() { handoff.smooth=smoothBlend.load(); handoff.inMs=blendInMs; handoff.outMs=blendOutMs; }
 // Mantle is controlled independently by MantleHandBack. The previous controller
 // preference remains the default; the current cinematic-comfort test enables it.
 char masterRules[1024] = "StatePlayerMasterAssassinate,StatePlayerMasterChoke,StatePlayerMasterClimb,StatePlayerMasterStunned,StatePlayerMasterDead,StatePlayerMasterPrePossess,StatePlayerMasterPossess,StatePlayerMasterMinigame";
@@ -180,6 +191,115 @@ __declspec(naked) void action_stub() {
         ret 12
     }
 }
+// ---- CinematicArms ---------------------------------------------------------------------
+// Names resolved once, in one object-table walk (~100 ms), the first time a cinematic is seen.
+// Actor.bHidden must land where the static reading put it (+0x120, bit 1: patterns.h), or the
+// pawn is never touched: a route that cannot reproduce a known answer is not evidence.
+struct CineProps {
+    bool tried=false, hiddenAgrees=false, setterOk=false;
+    uint32_t matineeOff=0, enabledOff=0, enabledMask=0, hiddenOff=0, hiddenMask=0, modeOff=0, modeMask=0;
+} cineProps;
+void cine_resolve() {
+    if (cineProps.tried || !RflNamesReady()) return;
+    cineProps.tried=true;
+    RflWant w[4]={{"DishonoredPlayerPawn","m_pMatineeBlender",false,0,0,false},{"ArkAnimNodeBlendPose","m_bEnabled",true,0,0,false},
+                  {"Actor","bHidden",true,0,0,false},{"PlayerController","bCinematicMode",true,0,0,false}};
+    RflResolveBatch(w,4);
+    if (w[0].found) cineProps.matineeOff=w[0].off;
+    if (w[1].found) { cineProps.enabledOff=w[1].off; cineProps.enabledMask=w[1].mask; }
+    if (w[2].found) { cineProps.hiddenOff=w[2].off; cineProps.hiddenMask=w[2].mask; }
+    if (w[3].found) { cineProps.modeOff=w[3].off; cineProps.modeMask=w[3].mask; }
+    cineProps.hiddenAgrees=w[2].found && w[2].off==kActorHiddenOff && w[2].mask==kActorHiddenMask;
+    cineProps.setterOk=RangeReadable((void*)kActorSetHidden,sizeof(kActorSetHiddenBytes)) &&
+        !memcmp((void*)kActorSetHidden,kActorSetHiddenBytes,sizeof(kActorSetHiddenBytes));
+    Log("cine/arms: resolved m_pMatineeBlender=%s+0x%x m_bEnabled=%s+0x%x/0x%x bCinematicMode=%s+0x%x/0x%x | "
+        "Actor.bHidden=%s+0x%x/0x%x vs static +0x%x/0x%x: %s | SetHidden 0x%08X bytes %s",
+        w[0].found?"":"MISSING ",w[0].off,w[1].found?"":"MISSING ",w[1].off,w[1].mask,w[3].found?"":"MISSING ",w[3].off,w[3].mask,
+        w[2].found?"":"MISSING ",w[2].off,w[2].mask,kActorHiddenOff,kActorHiddenMask,
+        cineProps.hiddenAgrees?"AGREE":"DISAGREE - the pawn will not be unhidden",(unsigned)kActorSetHidden,
+        cineProps.setterOk?"verified":"MISMATCH - the pawn will not be unhidden");
+}
+bool lane_idle(const char* st) { return !strcmp(st,"StatePlayerUpperIdle") || !strcmp(st,"StatePlayerUpperNav"); }
+int read_flag(uint8_t* obj,uint32_t off,uint32_t mask) {
+    uint32_t bits=0;
+    return obj && mask && read(obj,off,&bits,4) ? ((bits & mask)?1:0) : -1;
+}
+// The game animates the arms inside a cinematic: an upper or left-arm action (the unequip at
+// a conversation's start, an item use), or the matinee pose blend driving the pawn's mesh.
+bool cine_animating(const Snapshot& s,uint8_t* pawn) {
+    if (!lane_idle(s.state[1]) || !lane_idle(s.state[2])) return true;
+    // No cine_resolve() here: this runs under the hand-back lock that weight() takes on the
+    // render thread, and the name walk costs ~100 ms. cine_visibility resolves, outside it.
+    if (!pawn || !cineProps.matineeOff) return false;
+    return read_flag(object(pawn,cineProps.matineeOff),cineProps.enabledOff,cineProps.enabledMask)==1;
+}
+struct CineVis {
+    uint8_t* unhid=nullptr; unsigned long long unhidAt=0; bool honourLogged=true;
+    unsigned unhides=0, rehides=0; int lastMode=-2, lastHidden=-2, lastMatinee=-2; bool lastCine=false;
+} cineVis;
+// Kept trivial: __try cannot share a frame with objects that need unwinding.
+bool cine_set_hidden(uint8_t* pawn,int hide) {
+    __try { ((void(__thiscall*)(void*,int))kActorSetHidden)(pawn,hide); return true; }
+    __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+// Script lane, after the snapshot is published and outside the lock. With the lever on it logs
+// the facts of every cinematic transition (the instrument) and unhides a hidden arms-only pawn
+// for the cinematic, re-hiding it if the lever goes off or the body leaves arms-only while the
+// cinematic still runs. The game's own PreSetCinematicMode(false) unhides it at the end, so
+// nothing is restored then.
+void cine_visibility(uint8_t* pawn,const Snapshot& s,bool leverOn,uint8_t* ctrl) {
+    const bool cineState=s.valid && dvr::scene_state::cinematic(s.state[0]);
+    // Lever off: nothing at all (no name walk, no reads), unless a pawn we unhid must be put back.
+    // Lever on: one name walk (~100 ms, once per session, on the game thread), then plain reads.
+    if (!leverOn && !cineVis.unhid) return;
+    cine_resolve();
+    const int mode=read_flag(ctrl,cineProps.modeOff,cineProps.modeMask);
+    const int hidden=read_flag(pawn,cineProps.hiddenOff,cineProps.hiddenMask);
+    const int matinee=pawn && cineProps.matineeOff ? read_flag(object(pawn,cineProps.matineeOff),cineProps.enabledOff,cineProps.enabledMask) : -1;
+    const unsigned long long now=GetTickCount64(), drawn=g_msLastArmDrawMs;
+    if (pawn!=cineVis.unhid) cineVis.unhid=nullptr;   // a new pawn or none: nothing of ours to undo
+    if (mode!=cineVis.lastMode || hidden!=cineVis.lastHidden || cineState!=cineVis.lastCine || matinee!=cineVis.lastMatinee) {
+        char ago[32]; if (!drawn) text(ago,sizeof(ago),"never"); else _snprintf_s(ago,sizeof(ago),_TRUNCATE,"%llu ms ago",now-drawn);
+        Log("cine/arms: master=%s cinematicMode=%d pawnHidden=%d body=%d matineeBlend=%d upper=%s left=%s | arm mesh last drawn %s | "
+            "CinematicArms=%d unhid-by-us=%d (-1 = unreadable; the arms draw only while the pawn is visible and arms-only)",
+            s.state[0],mode,hidden,s.bodyMode,matinee,s.state[1],s.state[2],ago,(int)leverOn,cineVis.unhid?1:0);
+        cineVis.lastMode=mode; cineVis.lastHidden=hidden; cineVis.lastCine=cineState; cineVis.lastMatinee=matinee;
+    }
+    if (cineVis.unhid && !cineVis.honourLogged && now-cineVis.unhidAt>=1000) {
+        cineVis.honourLogged=true;
+        const bool honoured=drawn>=cineVis.unhidAt;
+        Log("cine/arms: unhide %s - the arm mesh %s in the second after it (a verified write is not an honoured one)",
+            honoured?"HONOURED":"NOT honoured",honoured?"drew":"did NOT draw");
+    }
+    if (mode!=1) { cineVis.unhid=nullptr; return; }   // no cinematic, or it ended: the game unhides its own pawn
+    if (!leverOn || s.bodyMode!=0) {
+        if (cineVis.unhid && hidden==0 && cine_set_hidden(cineVis.unhid,1)) {
+            ++cineVis.rehides;
+            Log("cine/arms: pawn hidden again (CinematicArms=%d body=%d) - the cinematic still runs and wanted it hidden",(int)leverOn,s.bodyMode);
+        }
+        cineVis.unhid=nullptr;
+        return;
+    }
+    if (hidden!=1) return;
+    if (!cineProps.hiddenAgrees || !cineProps.setterOk) {
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Warn,10000,"cine/arms: hidden pawn left hidden - %s",
+            !cineProps.hiddenAgrees?"Actor.bHidden did not resolve to the statically read +0x120/0x2":"the SetHidden prologue does not match patterns.h");
+        return;
+    }
+    uint8_t* global=RangeReadable((void*)kPlayerPawnGlobal,4) ? *(uint8_t**)kPlayerPawnGlobal : nullptr;
+    if (!pawn || pawn!=global || !IsLiveObject(pawn)) {
+        DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Warn,10000,"cine/arms: hidden pawn left hidden - the controller's pawn %p is not the live player pawn %p",(void*)pawn,(void*)global);
+        return;
+    }
+    if (!cine_set_hidden(pawn,0)) {
+        Log("cine/arms: SetHidden(0) FAULTED - CinematicArms switched off for this session");
+        AcquireSRWLockExclusive(&lock); cinematicArms=false; ReleaseSRWLockExclusive(&lock); return;
+    }
+    ++cineVis.unhides; cineVis.unhid=pawn; cineVis.unhidAt=now; cineVis.honourLogged=false;
+    if (cineVis.unhides>5) DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,5000,"cine/arms: the game hid the pawn again and it was unhidden again (#%u)",cineVis.unhides);
+    else Log("cine/arms: pawn UNHIDDEN for the cinematic (#%u; bHidden now %d, master=%s body=0) - tracked arms visible; the game takes them while it animates",
+        cineVis.unhides,read_flag(pawn,cineProps.hiddenOff,cineProps.hiddenMask),s.state[0]);
+}
 void report(const Snapshot& s) {
     Log("anim: gen=%u %s master=%s upper=%s left=%s pending=%s body=%d seq=%s picker=%d reason=%s age=%llu ms",
         s.generation,!s.valid?"UNKNOWN":s.game?"GAME":"PLAYER",s.state[0],s.state[1],s.state[2],s.pending,s.bodyMode,s.sequence,s.picker,s.reason,GetTickCount64()-s.stamp);
@@ -276,6 +396,35 @@ void set_cinematic(bool on) {
     AcquireSRWLockExclusive(&lock); cinematicHandback=on; ReleaseSRWLockExclusive(&lock);
     Log("anim: CinematicHandBack=%d (live; native hands/arms for cinematic states)",on?1:0);
 }
+bool smooth_blend() { return smoothBlend.load(); }
+unsigned blend_in_ms() { AcquireSRWLockShared(&lock); unsigned v=blendInMs; ReleaseSRWLockShared(&lock); return v; }
+unsigned blend_out_ms() { AcquireSRWLockShared(&lock); unsigned v=blendOutMs; ReleaseSRWLockShared(&lock); return v; }
+void set_smooth_blend(bool on) {
+    AcquireSRWLockExclusive(&lock); smoothBlend.store(on); apply_shape();
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);const unsigned i=blendInMs,o=blendOutMs;ReleaseSRWLockExclusive(&lock);
+    if(*ini)WritePrivateProfileStringA("Anim","SmoothBlend",on?"1":"0",ini);
+    Log("anim: SmoothBlend=%d (live, saved; %s)",on?1:0,on?"eased entry/return, palm on a straight path, hands held through the return":
+        "original linear HandBackBlendMs ramp, instant return");
+    if(on)Log("anim: SmoothBlend durations: entry %u ms, return %u ms",i,o);
+}
+void set_blend_ms(unsigned in,unsigned out,bool save) {
+    in=in>2000?2000:in; out=out>2000?2000:out;
+    AcquireSRWLockExclusive(&lock); blendInMs=in; blendOutMs=out; apply_shape();
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    if (!save) return;   // a slider being dragged: live only
+    char v[16];
+    _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",in); if(*ini)WritePrivateProfileStringA("Anim","HandBackBlendInMs",v,ini);
+    _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",out); if(*ini)WritePrivateProfileStringA("Anim","HandBackBlendOutMs",v,ini);
+    Log("anim: SmoothBlend durations entry=%u ms return=%u ms (live, saved; used only while SmoothBlend=1)",in,out);
+}
+bool cinematic_arms() { AcquireSRWLockShared(&lock); bool on=cinematicArms; ReleaseSRWLockShared(&lock); return on; }
+void set_cinematic_arms(bool on) {
+    AcquireSRWLockExclusive(&lock); cinematicArms=on;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    if(*ini)WritePrivateProfileStringA("Anim","CinematicArms",on?"1":"0",ini);
+    Log("anim: CinematicArms=%d (live, saved; %s)",on?1:0,on?"tracked arms in cinematics, the game takes them while it animates them; "
+        "a hidden arms-only pawn is unhidden":"cinematics follow CinematicHandBack and the per-state rules; the game's hiding is left alone");
+}
 bool enabled() { AcquireSRWLockShared(&lock); bool on=handback; ReleaseSRWLockShared(&lock); return on; }
 void set_enabled(bool on) {
     AcquireSRWLockExclusive(&lock); handback=on; handoff=Handoff{};
@@ -349,7 +498,9 @@ float weight_for(int hand) {
     AcquireSRWLockShared(&lock); const unsigned char m=frameMask; ReleaseSRWLockShared(&lock);
     return (hand>=0 && hand<2 && (m & (1u<<hand))) ? w : 1.0f;
 }
-bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.game; }
+// Ownership including the release hysteresis and, with SmoothBlend, the return blend: the
+// mask is non-zero exactly while the game (or a return from it) owns a hand.
+bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.handMask!=0; }
 // Cheap on purpose: SkcRotApply asks per control on every ProcessEvent dispatch. The mask
 // is published by tick() as (handback && valid && game) ? handMask : 0, the same test active() makes.
 bool hand_owned(int hand) { return hand>=0 && hand<2 && (ownedMask.load() & (1u<<hand)); }
@@ -448,6 +599,8 @@ void tick() {
     }
     AcquireSRWLockExclusive(&lock);
     if (pawnChanged || !previous.valid || !fresh(previous.stamp,now)) { handoff=Handoff{}; classifier=Handoff{}; cameraClassifier=Handoff{}; }
+    apply_shape();
+    const bool smooth=smoothBlend.load();
     const bool cinematic=cinematicHandback && dvr::scene_state::cinematic(s.state[0]);
     const bool mantle=mantle_pose_requested(mantleHandback,s.state[0]);
     cameraClassifier.update(s.valid,mantle || cinematic || listed(masterRules,s.state[0]) || listed(upperRules,s.state[1]),watch,now,releaseMs,0);
@@ -477,8 +630,13 @@ void tick() {
     const int fireLane=!strcmp(s.state[1],"StatePlayerAction")?1:!strcmp(s.state[2],"StatePlayerAction")?2:-1;
     const bool fire=handAnimFire && fireLane>0 && has_fire_clip(s.sequence);
     const bool handPose=swing || fire;
-    const bool rules=resolve_arm_rule(0,s.state[0]) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
-    const bool match=mantle || handPose || rules;
+    // CinematicArms: inside a cinematic the master state no longer hands the arms back by
+    // itself; only the game animating them does (cine_animating: an upper/left action, or
+    // the matinee pose blend enabled). Its lane-0 rule and Arms.0.<cinematic> are bypassed.
+    const bool cineArms=cinematicArms && dvr::scene_state::cinematic(s.state[0]);
+    const bool cineAnim=cineArms && s.valid && cine_animating(s,pawn);
+    const bool rules=(!cineArms && resolve_arm_rule(0,s.state[0])) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
+    const bool match=mantle || handPose || rules || cineAnim;
     // VR-283: a takedown the rules hand back draws split hands, not full arms, while the
     // toggle is on. Only when the rule would hand it back at all: an Arms.<lane>.<state>=0
     // override (controller hands) still wins.
@@ -487,19 +645,26 @@ void tick() {
     // VR-220: which hands this hand-back owns. A trigger sword attack alone owns the right
     // hand (the clip is right-handed); anything else owns both. Held through the release
     // hysteresis so the blend out finishes on the same hands it blended in on.
-    s.handMask=!s.valid ? 0 : match ? ((swing && !mantle && !fire && !rules && !handAnimMeleeBoth) ? 2 : 3)
-                        : classifier.game ? previous.handMask : 0;
+    handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
+    const unsigned char matchedMask=match ? ((swing && !mantle && !fire && !rules && !cineAnim && !handAnimMeleeBoth) ? 2 : 3) : 0;
+    // SmoothBlend holds the hands through the return (render_hand_mask); off, the mask
+    // drops with the release and the return is instant (the original behaviour).
+    s.handMask=smooth ? render_hand_mask(s.valid,watch && handback,matchedMask,previous.handMask,classifier.game,handoff.value(now,blendMs))
+                      : !s.valid ? 0 : match ? matchedMask : classifier.game ? previous.handMask : 0;
     s.mantleSplit=s.valid && (mantle ? !resolve_arm_rule(0,s.state[0]) :
         handPose ? !(swing ? resolve_arm_rule(1,s.state[1]) : resolve_arm_rule(fireLane,s.state[fireLane])) :
         takedownSplit ? true :
-        (!match && classifier.game && previous.mantleSplit));
-    handoff.update(s.valid,classifier.game,watch && handback,now,0,blendMs);
+        (!match && (smooth ? s.handMask!=0 : classifier.game) && previous.mantleSplit));
     // StateWatch still reports the classifier with HandBack disabled.
     s.game=s.valid && classifier.game;
-    ownedMask.store((handback && s.valid && s.game) ? s.handMask : 0);   // VR-220: what hand_owned() answers
-    if (s.valid) text(s.reason,sizeof(s.reason),match?(s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":"no selected active action");
+    // VR-220: what hand_owned() answers. SmoothBlend keeps the game's pose under the hand until
+    // the return completes, so the return starts from exactly the pose the game left.
+    ownedMask.store(smooth ? s.handMask : (handback && s.valid && s.game) ? s.handMask : 0);
+    if (s.valid) text(s.reason,sizeof(s.reason),match?(cineAnim?"cinematic: the game animates the arms":s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":s.handMask?"returning to tracked hands":cineArms?"cinematic: tracked arms (CinematicArms)":"no selected active action");
     published=s;
+    const bool cineArmsOn=cinematicArms;
     ReleaseSRWLockExclusive(&lock);
+    cine_visibility(pawn,s,cineArmsOn,ctrlLive?g_peCtrl:nullptr);   // outside the lock: it calls into the engine
     if (s.valid!=previous.valid || s.game!=previous.game || memcmp(s.state,previous.state,sizeof(s.state)) || s.bodyMode!=previous.bodyMode || strcmp(s.sequence,previous.sequence) || now>=nextBeat) {
         report(s); nextBeat=now+5000;
     }
@@ -564,10 +729,16 @@ void configure(const char* ini) {
     Log("config: [Anim] HandAnimMelee=%d HandAnimFire=%d (game animation on the tracked hands, arms hidden)",handAnimMelee,handAnimFire);
     releaseMs=(unsigned)GetPrivateProfileIntA("Anim","ReleaseMs",250,ini); if(releaseMs>5000) releaseMs=5000;
     blendMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendMs",150,ini); if(blendMs>2000) blendMs=2000;
+    smoothBlend.store(GetPrivateProfileIntA("Anim","SmoothBlend",0,ini)!=0);
+    blendInMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendInMs",250,ini); if(blendInMs>2000) blendInMs=2000;
+    blendOutMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendOutMs",350,ini); if(blendOutMs>2000) blendOutMs=2000;
+    cinematicArms=GetPrivateProfileIntA("Anim","CinematicArms",0,ini)!=0;
+    Log("config: [Anim] SmoothBlend=%d HandBackBlendInMs=%u HandBackBlendOutMs=%u (%s) CinematicArms=%d",(int)smoothBlend.load(),blendInMs,blendOutMs,
+        smoothBlend.load()?"eased entry/return, palm on a straight path, hands held through the return":"off: linear HandBackBlendMs, instant return",(int)cinematicArms);
     char buf[1024];
     GetPrivateProfileStringA("Anim","HandBackMaster",masterRules,buf,sizeof(buf),ini); text(masterRules,sizeof(masterRules),buf);
     GetPrivateProfileStringA("Anim","HandBackUpper",upperRules,buf,sizeof(buf),ini); text(upperRules,sizeof(upperRules),buf);
-    handoff=Handoff{};
+    handoff=Handoff{}; apply_shape();
     Log("config: [Anim] StateWatch=%d (%s) HandBack=%d (%s) ReleaseMs=%u HandBackBlendMs=%u",watch,watchSetting<0?"shipped default":"ini",handback,backSetting<0?"shipped default":"ini",releaseMs,blendMs);
     Log("config: [Anim] master rules=%s | upper rules=%s",masterRules,upperRules);
     ReleaseSRWLockExclusive(&lock);
@@ -592,10 +763,17 @@ void save(const char* ini) {
     WritePrivateProfileStringA("Anim","HandAnimFire",hf?"1":"0",ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",r); WritePrivateProfileStringA("Anim","ReleaseMs",v,ini);
     _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",m); WritePrivateProfileStringA("Anim","HandBackBlendMs",v,ini);
+    WritePrivateProfileStringA("Anim","SmoothBlend",smooth_blend()?"1":"0",ini);
+    _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",blend_in_ms()); WritePrivateProfileStringA("Anim","HandBackBlendInMs",v,ini);
+    _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",blend_out_ms()); WritePrivateProfileStringA("Anim","HandBackBlendOutMs",v,ini);
+    WritePrivateProfileStringA("Anim","CinematicArms",cinematic_arms()?"1":"0",ini);
 }
 bool command(const char* args) {
     char sub[24]={}, value[24]={}, extra[24]={}; sscanf(args,"%23s %23s %23s",sub,value,extra);
     if (!strcmp(sub,"handback") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_enabled(!strcmp(value,"on"));
+    else if (!strcmp(sub,"smooth") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_smooth_blend(!strcmp(value,"on"));
+    else if (!strcmp(sub,"blendms") && *value && *extra) set_blend_ms((unsigned)atoi(value),(unsigned)atoi(extra));
+    else if (!strcmp(sub,"cinearms") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_cinematic_arms(!strcmp(value,"on"));
     else if (!strcmp(sub,"watch") && (!strcmp(value,"on") || !strcmp(value,"off"))) {
         AcquireSRWLockExclusive(&lock); watch=!strcmp(value,"on"); published.valid=false; handoff=Handoff{}; ReleaseSRWLockExclusive(&lock);
     } else if (!strcmp(sub,"melee")) {   // VR-220: the sword hand-back and its source rule
@@ -611,7 +789,8 @@ bool command(const char* args) {
             handAnimMeleeSwing?" and for a physical swing":"; a physical swing keeps your arm");
         ReleaseSRWLockShared(&lock);
         return true;
-    } else if (*sub && strcmp(sub,"status")) Log("anim: status | watch on|off | handback on|off | melee on|off | melee swing on|off | melee both on|off | melee status");
+    } else if (*sub && strcmp(sub,"status")) Log("anim: status | watch on|off | handback on|off | smooth on|off | blendms <entry> <return> | cinearms on|off | "
+                                                 "melee on|off | melee swing on|off | melee both on|off | melee status");
     report(snapshot()); return true;
 }
 void status(dvr::status::Writer& w) {
@@ -623,10 +802,17 @@ void status(dvr::status::Writer& w) {
     w.kv("handAnimMelee",handAnimMelee); w.kv("handAnimMeleeSwing",handAnimMeleeSwing); w.kv("handAnimMeleeBothHands",handAnimMeleeBoth);
     w.kv("meleeSource",meleeSource); w.kv("meleeFireDtMs",(int)meleeFireDt);
     w.kv("handMask",(int)s.handMask); w.kv("weightLeft",(double)wl); w.kv("weightRight",(double)wr);
+    w.kv("smoothBlend",smoothBlend.load()); w.kv("blendInMs",(int)blendInMs); w.kv("blendOutMs",(int)blendOutMs);
+    w.kv("cinematicArms",cinematicArms); w.kv("cineUnhides",(int)cineVis.unhides); w.kv("cineRehides",(int)cineVis.rehides);
     ReleaseSRWLockShared(&lock);
     w.end_obj();
 }
 // Rotation interpolation is implemented separately in the pure math helper.
 hf::Xform blend(const hf::Xform& transform) { return blend_transform(transform,weight()); }
 hf::Xform blend(const hf::Xform& transform,int hand) { return blend_transform(transform,weight_for(hand)); }   // VR-220
+// SmoothBlend: the palm (draw-local) travels a straight line; off, exactly the form above.
+hf::Xform blend(const hf::Xform& transform,int hand,const float* palm) {
+    const float w=weight_for(hand);
+    return smoothBlend.load() && palm ? blend_transform_palm(transform,w,palm) : blend_transform(transform,w);
+}
 }
