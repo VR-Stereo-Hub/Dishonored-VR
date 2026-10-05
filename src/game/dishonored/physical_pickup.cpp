@@ -29,10 +29,10 @@
 // its collision box, not its origin (the hinge), and the trace looks at the point of the box
 // nearest the hand.
 //
-// What the GAME highlights is what the grip takes: if the engine focuses another listed item
-// within reach than the one aimed at, that item becomes the target. A book or note opened by a
-// grip is then left alone for a while after reading ends, and the trace tries a few points
-// around the next one, so the lower of two stacked books can be reached.
+// Tried and taken out again (2026-10-05, reported worse in the headset): taking the game's own
+// focus as the target, leaving a grip-opened book out for a while, and walking several aims at
+// an unfocused target, all meant to reach the lower of two stacked books. The lower book is
+// opened by pointing at it. ENGINE_NOTES, "Physical pickup".
 //
 // [Aim] PhysicalPickup (default 1), PhysicalPickupReachCm (30), PhysicalPickupBookReachCm (45),
 // PhysicalDoors (1), PhysicalDoorReachCm (20). F10 > Aim. Seam: `pickup`.
@@ -98,15 +98,6 @@ static double   g_ppTargetSinceMs = 0, g_ppFocusedLastMs = 0;
 static bool     g_ppTargetFocused = false;
 static uint8_t* g_ppBlock = NULL; static double g_ppBlockUntilMs = 0, g_ppBlockForMs = 0;   // doubles while the same item keeps refusing
 static uint32_t g_ppTargetKind = kPpLoot;
-// The aim: which point the trace looks at and from where. Variant 0 is the head looking at the
-// target; while the game has not focused the target the variants are walked, three frames each.
-static int      g_ppAimVariant = 0; static uint32_t g_ppAimFrames = 0;
-static float    g_ppAimHand[3] = {}; static bool g_ppAimHandOk = false;
-// Books and notes opened by a grip, left alone until a while after reading ends.
-struct PpDone { uint8_t* obj; double untilMs; bool reading; };
-static PpDone   g_ppDone[4] = {};
-static uint8_t* g_ppLastTarget = NULL; static uint32_t g_ppLastTargetKind = kPpLoot; static double g_ppLastTargetMs = 0;
-static uint32_t g_ppAdopted = 0;                       // times the game's own focus replaced the aimed target
 static volatile LONG g_ppRayDriven = 0;
 
 static bool PickupEnabled() { return g_ppOn.load(); }
@@ -236,17 +227,16 @@ struct PpQuery {
     uint32_t locOff, hiddenOff, hiddenMask, collOff, boundsOff, focusOff;
     float    reach[3];                 // by kind, game units
     bool     doors;
-    uint8_t* held; uint8_t* blocked; uint8_t* done[4]; uint8_t* pc;
+    uint8_t* held; uint8_t* blocked; uint8_t* pc;
 };
 struct PpCand { uint8_t* obj; uint32_t idx; uint32_t kind; float aim[3]; float d2[2]; int hand; float keep; };
-struct PpPick { PpCand best; PpCand focused; uint8_t* focus; bool fault; };
+struct PpPick { PpCand best; uint8_t* focus; bool fault; };
 
-// The nearest listed item within reach of a hand, the engine's focused actor, and that actor's own
-// entry if it is listed and within reach (so the game's choice can be taken over the aimed one).
+// The nearest listed item within reach of a hand, and the engine's focused actor.
 static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n, const PpQuery* q,
                       const float (*hand)[3], const bool* handOk, PpPick* out)
 {
-    out->best.obj = NULL; out->focused.obj = NULL; out->focus = NULL; out->fault = false;
+    out->best.obj = NULL; out->focus = NULL; out->fault = false;
     float bestScore = 0;
     __try {
         if (q->pc && !((uintptr_t)q->pc & 3)) out->focus = *(uint8_t**)(q->pc + q->focusOff);
@@ -255,8 +245,7 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
             if (e.idx >= num || (uint8_t*)objs[e.idx] != e.obj) continue;      // the slot moved on: not this actor any more
             if (*(uint8_t**)(e.obj + kClassOff) != e.cls) continue;
             if (e.kind == kPpDoor && !q->doors) continue;
-            if (e.obj == q->done[0] || e.obj == q->done[1] || e.obj == q->done[2] || e.obj == q->done[3]) continue;
-            const bool blockedNow = e.obj == q->blocked;        // not aimed at for now; the game's own focus on it still counts
+            if (e.obj == q->blocked) continue;
             if (q->hiddenMask && (*(uint32_t*)(e.obj + q->hiddenOff) & q->hiddenMask)) continue;
             float loc[3]; memcpy(loc, e.obj + q->locOff, 12);
             if (!(loc[0] == loc[0]) || !(loc[1] == loc[1]) || !(loc[2] == loc[2])) continue;   // NaN
@@ -286,19 +275,14 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
                 for (int a = 0; a < 3; ++a) aimh[h][a] = box ? pt[a] + (bo[a] - pt[a]) * 0.08f : pt[a];   // a little inside the box
                 if (nearHand < 0 || d2h[h] < d2h[nearHand]) nearHand = h;
             }
-            if (nearHand < 0 || !(d2h[nearHand] <= lim2)) {
-                // the engine's own focus is taken with the hysteresis reach as well
-                if (e.obj != out->focus || nearHand < 0 || !(d2h[nearHand] <= keep * keep)) continue;
-            }
+            if (nearHand < 0 || !(d2h[nearHand] <= lim2)) continue;
             PpCand c; c.obj = e.obj; c.idx = e.idx; c.kind = e.kind; c.hand = nearHand; c.keep = keep;
             memcpy(c.aim, aimh[nearHand], 12); c.d2[0] = d2h[0]; c.d2[1] = d2h[1];
-            if (e.obj == out->focus) out->focused = c;
-            if (blockedNow || !(d2h[nearHand] <= lim2)) continue;
             // the held target keeps the choice unless another item is clearly nearer
             const float score = d2h[nearHand] * (e.obj == q->held ? 0.6f : 1.0f);
             if (!out->best.obj || score < bestScore) { out->best = c; bestScore = score; }
         }
-    } __except (EXCEPTION_EXECUTE_HANDLER) { out->best.obj = NULL; out->focused.obj = NULL; out->fault = true; }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { out->best.obj = NULL; out->fault = true; }
 }
 
 // A hand's position in game world units: the grip pose, scaled about the head the way the drawn
@@ -331,26 +315,15 @@ static bool PpHandWorld(int hand, const float camera[3], float out[3])
 }
 
 // interact_aim.cpp asks this before its own ray: while a target is held, the engine's
-// interaction trace looks at the target. Variant 0 looks from the head at the target's point;
-// the others (walked only while the game has not focused the target) look from the hand, and at
-// points 7 units to each side and above: enough to find the exposed edge of a book that lies
-// under another one.
+// interaction trace looks from the head at the target's point.
 static bool PickupRay(float* origin, float* dir)
 {
     if (!g_ppTarget || !PpGameplay()) return false;
-    float from[3];
-    if (!GameCameraAnchor(from)) return false;
-    static const float kOff[6][3] = { {0, 0, 0}, {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1} };
-    const int v = g_ppAimVariant;
-    const float* o = kOff[(v >> 1) % 6];
-    const float to[3] = { g_ppTargetLoc[0] + o[0] * 7.0f, g_ppTargetLoc[1] + o[1] * 7.0f, g_ppTargetLoc[2] + o[2] * 7.0f };
-    if ((v & 1) && g_ppAimHandOk) {
-        const float hx = to[0] - g_ppAimHand[0], hy = to[1] - g_ppAimHand[1], hz = to[2] - g_ppAimHand[2];
-        if (hx * hx + hy * hy + hz * hz > 36.0f) memcpy(from, g_ppAimHand, 12);   // not from a hand already on the item
-    }
-    float d[3] = { to[0] - from[0], to[1] - from[1], to[2] - from[2] };
+    float camera[3];
+    if (!GameCameraAnchor(camera)) return false;
+    float d[3] = { g_ppTargetLoc[0] - camera[0], g_ppTargetLoc[1] - camera[1], g_ppTargetLoc[2] - camera[2] };
     if (!dvr::fireaim::normalize(d)) return false;
-    memcpy(origin, from, 12); memcpy(dir, d, 12);
+    memcpy(origin, camera, 12); memcpy(dir, d, 12);
     InterlockedIncrement(&g_ppRayDriven);
     return true;
 }
@@ -396,29 +369,6 @@ static void PhysicalPickupTick()
                 g[(a + 1) & 7], g[(a + 2) & 7], g[(a + 3) & 7], g[(a + 4) & 7], g[(a + 5) & 7], g[(a + 6) & 7], g[(a + 7) & 7], g[a],
                 c[(a + 1) & 7], c[(a + 2) & 7], c[(a + 3) & 7], c[(a + 4) & 7], c[(a + 5) & 7], c[(a + 6) & 7], c[(a + 7) & 7],
                 g_ppOn.load() ? "ON" : "off");
-        }
-    }
-    {   // A grip just opened a book or note: it is not a target again until 15 s after reading ends,
-        // so what lies under it can be reached. Runs outside gameplay too (the page opens at once).
-        static uint32_t firedWas = 0; static double lastGameplayMs = 0;
-        const uint32_t fired = g_ppFired.load();
-        if (fired != firedWas) {
-            firedWas = fired;
-            if (g_ppLastTarget && g_ppLastTargetKind == kPpReadable && now - g_ppLastTargetMs < 600.0) {
-                int slot = 0;
-                for (int i = 1; i < 4; ++i) if (g_ppDone[i].untilMs < g_ppDone[slot].untilMs) slot = i;
-                g_ppDone[slot].obj = g_ppLastTarget; g_ppDone[slot].untilMs = now + 4000.0; g_ppDone[slot].reading = true;
-                Log("pickup: a book or note was opened by a grip - it is not a target again until 15 s after the reading ends, "
-                    "so an item under it can be reached");
-            }
-        }
-        const bool gameplayNow = PpGameplay();
-        if (gameplayNow) {
-            if (now - lastGameplayMs > 300.0)                  // back from a page, a menu or a load
-                for (PpDone& d : g_ppDone) if (d.reading) { d.reading = false; d.untilMs = now + 15000.0; }
-            lastGameplayMs = now;
-        } else {
-            for (PpDone& d : g_ppDone) if (d.reading) d.untilMs = now + 15000.0;   // still reading
         }
     }
     if (!PpGameplay()) { if (g_ppTarget) PpDropTarget("not in gameplay, or off", now, false); g_ppReadyMask.store(0); return; }
@@ -469,7 +419,6 @@ static void PhysicalPickupTick()
     q.reach[kPpDoor] = g_ppDoorReachM.load() * g_posScaleUU;
     q.doors = g_ppDoorsOn.load();
     q.held = g_ppTarget; q.blocked = now < g_ppBlockUntilMs ? g_ppBlock : NULL; q.pc = g_peCtrl;
-    for (int i = 0; i < 4; ++i) q.done[i] = now < g_ppDone[i].untilMs ? g_ppDone[i].obj : NULL;
     PpPick pick;
     dvr::crash::probe_begin();
     {   // the rotating near-list pass: 192 listed items a frame, those within 2.5 m of the camera kept (doors 4 m)
@@ -490,44 +439,32 @@ static void PhysicalPickupTick()
     dvr::crash::probe_end();
     if (pick.fault) ++g_ppFaults;
 
-    // What the game highlights is what the grip takes: its own focus, when that is a listed item
-    // within reach, wins over the item this module would have aimed at.
-    const bool adopt = pick.focused.obj && pick.focused.obj != g_ppTarget;
-    const PpCand* c = pick.focused.obj ? &pick.focused : pick.best.obj ? &pick.best : NULL;
+    const PpCand* c = pick.best.obj ? &pick.best : NULL;
     if (!c) { if (g_ppTarget) PpDropTarget("nothing within reach", now, false); return; }
 
     static const char* const kKind[3] = { "", " (a book or note: its own reach, and the page goes to the hand that opens it)",
                                           " (a door: measured from its collision box)" };
     if (c->obj != g_ppTarget) {
-        if (g_ppTarget) PpDropTarget(adopt ? "the game focused another item within reach: that one is taken" : "a nearer item", now, false);
-        if (adopt) ++g_ppAdopted;
+        if (g_ppTarget) PpDropTarget("a nearer item", now, false);
         g_ppTarget = c->obj; g_ppTargetIdx = c->idx; g_ppTargetSinceMs = now; g_ppFocusedLastMs = 0; g_ppTargetFocused = false;
-        g_ppAimVariant = 0; g_ppAimFrames = 0;
         const char* cn = ObjClassName(c->obj);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 400,
-            "pickup: target %s%s at %.0f uu (%.0f cm) from the %s hand, reach %.0f cm%s - the interaction trace now looks at it; "
+            "pickup: target %s%s at %.0f uu (%.0f cm) from the %s hand, reach %.0f cm - the interaction trace now looks at it; "
             "the grip takes it once the game focuses it",
             cn ? cn : "?", kKind[c->kind], sqrtf(c->d2[c->hand]), sqrtf(c->d2[c->hand]) / g_posScaleUU * 100.0f,
-            c->hand ? "RIGHT" : "LEFT", q.reach[c->kind] / g_posScaleUU * 100.0f,
-            adopt ? " (the game's own choice)" : "");
+            c->hand ? "RIGHT" : "LEFT", q.reach[c->kind] / g_posScaleUU * 100.0f);
     }
     memcpy(g_ppTargetLoc, c->aim, 12);
     g_ppTargetHand = c->hand; g_ppTargetKind = c->kind;
     g_ppTargetReadable.store(c->kind == kPpReadable);
-    g_ppAimHandOk = handOk[c->hand]; if (g_ppAimHandOk) memcpy(g_ppAimHand, hand[c->hand], 12);
-    g_ppLastTarget = c->obj; g_ppLastTargetKind = c->kind; g_ppLastTargetMs = now;
 
     // The engine's verdict: is its focused actor our target?
     uint8_t* focus = pick.focus;
-    if (focus == g_ppTarget) { g_ppFocusedLastMs = now; g_ppTargetFocused = true; g_ppAimFrames = 0; }
-    else {
-        // Not focused: try the next aim (three frames each, twelve of them), then give up for a while.
-        if (++g_ppAimFrames >= 3) { g_ppAimFrames = 0; g_ppAimVariant = (g_ppAimVariant + 1) % 12; }
-        if (now - (g_ppFocusedLastMs > 0 ? g_ppFocusedLastMs : g_ppTargetSinceMs) > 700.0) {
-            PpDropTarget("the game did not focus it from any of the aims (looted, hidden, covered or blocked) - left alone for 3 s, "
-                         "doubling each time", now, true);
-            return;
-        }
+    if (focus == g_ppTarget) { g_ppFocusedLastMs = now; g_ppTargetFocused = true; }
+    else if (now - (g_ppFocusedLastMs > 0 ? g_ppFocusedLastMs : g_ppTargetSinceMs) > 250.0) {
+        // Aimed at it for a quarter second and the game did not take it: not usable now.
+        PpDropTarget("the game did not focus it (looted, hidden, covered or blocked) - left alone for 3 s, doubling each time", now, true);
+        return;
     }
     uint32_t mask = 0;
     if (focus == g_ppTarget)
@@ -541,11 +478,10 @@ static void PhysicalPickupTick()
         Log("pickup: beat - %u lootable actor(s) listed (%u within 2.5 m), sweep %u took %.0f ms of game time, trace driven %ld time(s), "
             "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame, max %.0f, over 250 us in %u and "
             "over 1000 us in %u of %u frames (a frame of several ms on the game thread alone is what starves an eye: both "
-            "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u | doors %s, "
-            "the game's own focus taken over the aimed item %u time(s)",
+            "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u | doors %s",
             g_ppListN, g_ppNearN, g_ppSweeps, g_ppLastSweepMs, (long)g_ppRayDriven, g_ppSwallowed.load(), g_ppFired.load(),
             g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostOver250,
-            g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults, g_ppDoorsOn.load() ? "ON" : "off", g_ppAdopted);
+            g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults, g_ppDoorsOn.load() ? "ON" : "off");
         g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0; g_ppCostOver250 = 0; g_ppCostOver1000 = 0; g_ppSliceCut = 0;
     }
 }

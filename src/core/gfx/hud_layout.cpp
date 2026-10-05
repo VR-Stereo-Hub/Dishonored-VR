@@ -130,9 +130,6 @@ bool g_readHand[2]={false,false};
 std::atomic<int> g_noteAskHand{0};
 std::atomic<uint64_t> g_noteAskMs{0};
 int g_noteHand=0; uint64_t g_noteSeenMs=0;
-// Extra pitch for a note on the RIGHT hand, degrees, added to ReadingTilt. The right-hand pose is
-// the left one mirrored; the first headset session asked for about 45 degrees more toward the reader.
-float g_noteRightTilt=45.f;
 float g_readTilt=0;
 float g_readUp[2]={0,0};
 std::atomic<bool> g_pauseSceneFreshness{false},g_menuExitHeading{false};
@@ -1173,7 +1170,7 @@ int provide(ID3D11DeviceContext* ctx, dvr::vr::HudQuadDesc* out, int max) {
             const float offset[3]={readHand==1?-g_readRight[readPanel]:g_readRight[readPanel],g_readUp[readPanel],0};float worldOffset[3];
             dvr::xrmath::quat_rotate(attached[0],attached[1],attached[2],attached[3],offset,worldOffset);
             for(int k=0;k<3;++k)d.base[k]+=worldOffset[k];
-            dvr::hudanchor::reading_alignment(page,g_readTilt+(readHand==1?g_noteRightTilt:0.f),d.orientation);
+            dvr::hudanchor::reading_alignment(page,g_readTilt,d.orientation);
             DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,1000,
                 "hud/reading-pose: reference=fixed425 panel=%s center=%.4f/%.4f/%.4f gripQ=%.6f/%.6f/%.6f/%.6f panelQ=%.6f/%.6f/%.6f/%.6f manual=%.3f",
                 kReadNames[readPanel],d.base[0],d.base[1],d.base[2],hq[0],hq[1],hq[2],hq[3],
@@ -1392,8 +1389,6 @@ void configure(const char* ini) {
         _snprintf(key,sizeof(key),"%sHandDistance",kReadNames[i]);g_readDistance[i]=fminf(.5f,fmaxf(-.3f,read_f(ini,key,-.05f)));
         _snprintf(key,sizeof(key),"%sHandRight",kReadNames[i]);g_readRight[i]=fminf(.75f,fmaxf(-.75f,read_f(ini,key,.20f)));
     }
-    g_noteRightTilt=read_f(ini,"NoteRightHandTilt",45.f);
-    if(!std::isfinite(g_noteRightTilt) || g_noteRightTilt<-180.f || g_noteRightTilt>180.f) g_noteRightTilt=45.f;
     const bool currentReference=read_i(ini,"ReadingTiltReference",0)==1;
     g_readTilt=dvr::hudanchor::reading_trim(read_f(ini,"ReadingTilt",currentReference?0.f:-31.f),currentReference);
     for(int i=0;i<2;++i){char key[64];_snprintf(key,sizeof(key),"%sHandUp",kReadNames[i]);
@@ -1768,8 +1763,6 @@ void draw_ui() {
     if (ov::section("Notes and journal on the hand", ov::Basic,
                     "Books, notes and the journal attach to your hand while you read them.")) {
         if (dvr::ovl::slider_float("Reading tilt (degrees)", &g_readTilt, -180.f, 180.f, "%.0f")) save_read_rotation();
-        if (dvr::ovl::slider_float("Extra tilt on the right hand (degrees)", &g_noteRightTilt, -90.f, 90.f, "%.0f")) write_f("NoteRightHandTilt", g_noteRightTilt);
-        ov::tip("Added when a note or book is opened with the right hand's grip. Open one that way and adjust.");
         for (int i = 0; i < 2; ++i) {
             ImGui::PushID(kReadNames[i]); ImGui::TextUnformatted(kReadNames[i]);
             bool change = dvr::ovl::checkbox("Follow left hand", &g_readHand[i]);

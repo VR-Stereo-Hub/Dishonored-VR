@@ -1467,8 +1467,6 @@ static bool WriteDefaultIni(const char* ini)
         "InteractionAlphaGamma=0.250\n"
         "InteractionAlphaMix=1.000\n"
         "NoteHandRight=0.320\n"
-        "; NoteRightHandTilt: extra pitch in degrees for a note or book opened with the RIGHT hand by a grip.\n"
-        "NoteRightHandTilt=45\n"
         "JournalHandRight=0.320\n"
         "WeaponDialAlphaGain=0.600\n"
         "WeaponDialAlphaFloor=0.180\n"

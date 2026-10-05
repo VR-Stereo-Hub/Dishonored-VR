@@ -35,6 +35,12 @@ Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
 - Built after it, not run: the game's own focus is taken as the target, a grip-opened book is
   left out for 15 s after reading, the trace tries twelve aims at an unfocused target;
   `NoteRightHandTilt` (45); doors by grabbing (`PhysicalDoors`, `PhysicalDoorReachCm`).
+- Fifth headset session (v1.0.3-68): doors accepted. The stacked-book changes and the right-hand
+  tilt were reported worse and are REMOVED (the code is in commit 111b93de2 if it is ever
+  wanted). What stands: loot, books with their own reach, the page on the opening hand, doors.
+- **Next session:** dishonored/PLAN-physical-interaction.md. The grip for carried and thrown
+  objects and the other interaction prompts (never a pawn: no talking, no takedowns), the
+  held weapon hidden and the hand opened while a hand is eligible. Not started.
 - No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
   decision. Not installed.
 

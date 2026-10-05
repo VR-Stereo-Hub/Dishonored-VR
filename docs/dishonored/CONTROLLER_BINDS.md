@@ -110,4 +110,6 @@ the hand arrived is not taken; the Interact button itself is untouched. Log: `pi
 grip pressed ... grip swallowed, Interact pressed`. Books and notes use
 `PhysicalPickupBookReachCm` (45), and a page opened this way attaches to the hand that opened it.
 With `[Aim] PhysicalDoors=1` (F10 > Aim, `pickup doors on|off`) the same grip opens or closes a
-door within `PhysicalDoorReachCm` (20) of the hand.
+door within `PhysicalDoorReachCm` (20) of the hand. The plan for the rest (carried objects,
+levers and other prompts, the weapon hidden and the hand open while eligible) is
+PLAN-physical-interaction.md.

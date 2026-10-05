@@ -2250,8 +2250,8 @@ Built, host-tested, not run in a headset.
   sits wrong, a right-hand reference has to be recorded the way the left one was.
 - First headset session with it (v1.0.3-66): notes opened on the hand that gripped them (12
   openings, both hands, and the left hand for the two opened with the Interact button). The
-  right-hand page was reported good but needing about 45 degrees more tilt toward the reader.
-  Added: `NoteRightHandTilt` (default 45, F10 "Extra tilt on the right hand"), added to
-  `ReadingTilt` for a right-hand note only. The SIGN is a reading of that report (positive
-  pitch turns the page's face toward its lower edge, the reader's side), not a measurement:
-  if it went the wrong way, the slider goes to -45.
+  right-hand page was reported good but wanting about 45 degrees more tilt toward the reader.
+  A `NoteRightHandTilt` of 45 was built for it and removed again after the next session
+  reported it worse; the sign had been read from the report, not measured. The mirrored
+  reference stands with no extra tilt. A right-hand trim, if wanted, needs the angle found
+  with a live slider in the headset first.
