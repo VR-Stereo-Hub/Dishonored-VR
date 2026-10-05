@@ -259,7 +259,7 @@ closed, restore words fixed first, and rows for DLSS model, DLSS off, HUD off, H
 ReShade effects, the two shadow sizes, and whatever handle switches the depth-of-field and
 MLAA stages off (to be found: the `[SystemSettings]` flags are already off).
 
-### 10. Run 2, prepared the same day (built, not run)
+### 10. Run 2, prepared the same day (run later that day: section 11)
 
 Only what run 1 left open, in the played configuration. `tools/perf-plans/audit-run2.txt`:
 17 segments of 30 s with a 10 s warm-up (a DLSS model change and a DLSS resize need several
@@ -303,6 +303,95 @@ seconds), about 9.5 minutes after a 60 s lead-in.
   dropped this window` on the stage headers of the two shadow rows; the `Shadow Depths` and
   `Shadow Projection` rows of baseline B1 (their CPU, GPU and draws are the split the first
   run could not see); whether an `MLAA` row exists in B1.
+
+### 11. Run 2, read (the played configuration: afw, DLSS Ultra Quality, fast model)
+
+Build v1.0.3-57-g4c552c008, same headset and spot. `perf/ab: plan LOADED` (18 segments, 10
+baselines, 30 s with a 10 s warm-up), the lead-in words ran at `gameplay reached`,
+`configuration at the start: stereo afw, dlss on (mode 1, Ultra Quality), dlssmodel fast
+(model 1 preset 0) | 3 expectation(s) met`, PLAN COMPLETE, 18 DONE, 0 discarded. 179 of 179
+`stereo: beat` lines read `method=afw ... 2750x2850`. The panel hold never fired. No crash, no
+refusal, and after the run the ini differs from the one it started with only by the emptied
+`AbPlanOnce`.
+
+**The run's own instrument cannot be read as printed.** Three bursts of an outside load fell
+inside the first 285 s (44-72 s, 137-164 s, 257-285 s after the start): for about 28 s each,
+every CPU cost rose together (script events 105 us against 54, the render thread 9-10.7 ms
+against 5.5) and so did every GPU interval, including a stage that draws nothing (InitViews,
+0.65 ms against 0.10), while the draws per scene pass FELL. That is the machine being shared
+with something else, not the scene and not a row; what it was is not known. The plan's own
+p50 for baselines A3 and A5 and for `hud off` (21 ms a pair against 15.3) is that load. So
+every figure below is the median of the 3 s `perf: present` windows that start after the
+warm-up and whose `pe/cost` reads under 57.5 us an event (about 375 presents a window). A
+plan should carry such a contamination test itself.
+
+Per PRESENT (one eye image; a pair is two):
+
+| Row | clean windows | present ms | rate /s | flanking baselines | delta | Reading |
+|---|---:|---:|---:|---|---:|---|
+| baselines (A1, A2, A4, B1, B2, B3, B4, B5) | 5,5,6,6,6,6,4,6 | 7.80-8.05 | 124-129 | - | spread 0.25 | - |
+| hud off | 0 | - | - | - | - | no clean window after the warm-up (see below) |
+| hud sharp off | 6 | 7.75 | 129.3 | 7.80 / 7.95 | -0.13 | no change |
+| reshade effects off | 3 | 7.40 | 134.7 | 7.80 (A1, A2) / 7.95 | -0.4 to -0.55 (5-7 %) | faster; `hk.reshadeEffects` 107 us against 203-221 |
+| dlss model k | 6 | 9.05 | 110.3 | 7.95 / 7.85 (B1) | +1.1 (+14 %) | slower; helper 3.85 ms an eye against 1.8-2.3 |
+| stage profile ON | 3 | 7.90 | 127.0 | 7.95 / 7.85 | 0 | no overhead visible here |
+| shadow rows (both) | 6, 3 | 8.10, 7.70 | - | - | - | NOT TESTED: 0 stages and 0 draws dropped |
+| dlss off (native 2750x2850) | 6 | 8.00 | 125.7 | 7.80 / 7.85 | +0.18 (+2 %) | slower by the rule, in practice the same |
+
+- **DLSS model.** Transformer K costs 1.1 ms a present (2.2 ms a pair, 127 -> 110 presents/s)
+  over the fast model at Ultra Quality under AFW; matched, six clean windows each side. The
+  wait at the HUD hand-off doubles with it (`hk.hudRedirectEnd` 1607 us against 780): the GPU is
+  the limit in the played configuration, as the 2026-10-04 entry said.
+- **DLSS Ultra Quality with the fast model buys no frame rate** against native at this output
+  size (7.8 against 8.0 ms). It is an anti-aliasing choice, not a speed one, on this GPU.
+- **ReShade preset:** 0.4-0.55 ms a present, about 1 ms a pair, 6 % of the rate. Three clean
+  windows; agrees with run 1's unbracketed 0.7-0.9 ms a pair at native.
+- **The HUD hand-off (the open question of 2026-10-04, section 3).** No clean window after the
+  warm-up, but the four windows between the switch and the first burst (32-41 s, 375 presents
+  each) read 7.9-8.2 ms against 7.7-8.0 before: the `end` part fell from 0.8 to 0.2-0.4 ms (the
+  wait is gone) and the render thread rose from 5.6 to 6.1-6.3 ms with the D3D9 span 4.4 ->
+  5.5 ms. The wait is backpressure and moves; removing the hand-off returns nothing. Reading
+  (a). Weak (inside the warm-up), but it is the same answer as run 1 under reentry.
+  `hud sharp off` changes nothing. One sink was in use in this view.
+- **MLAA runs with DLSS on.** The stage table of baseline B1: `MLAA` once a present, 3 draws,
+  0.15 ms of GPU an eye image (2 % of the present), before the upscaler sees the image. The
+  cause is in the log of both runs: `gameopts/defaults: ... id=122 ... before=0x00000001
+  target=0x00000000` at EVERY launch. The option is written to 0 after the engine has already
+  taken 1 from the profile, the write does not reach the renderer, and it does not persist.
+  The policy "the game's MLAA is switched off while DLSS is on" has never been in effect.
+- **Shadow sharing: the evidence says there is nothing to share here.** The skip rows matched
+  no stage (`skip: ... 'Shadow Depths', 0 stage(s) and 0 draw(s) dropped` in all 12 windows),
+  and the 56-row table with parents shows why: no `Shadow Depths` or `Shadow Projection` stage
+  is emitted in this view at all. `ShadowedLights` (1.36 ms CPU, 1.32 ms GPU, 563 draws an eye
+  image) is 532 draws sitting directly inside `DominantDirectionalLight_0` with no child
+  stage: the dominant light's own lighting pass over the scene's meshes, which depends on the
+  eye by nature. `ModShadow` has 0 draws. Together with run 1 (all dynamic shadows off: 0.35 ms
+  a pair, 2 % of the draws) the shareable shadow-depth work in this scene is too small to
+  measure. One outdoor view, standing still; a scene full of characters would have more.
+
+The stage table in the played configuration, per eye image (baselines B1 to B3, 11 clean
+tables, 0 stamps skipped with the larger ring): scene (DPG World) 4.40 ms CPU / 3.57 ms GPU /
+2187 draws, of it BasePass 1.90 / 1.27 / 847, the dominant light's pass 1.14 / 1.15 / 532,
+PrePass 0.50 / 0.28 / 418, translucency 0.32 / 0.08; InitViews 0.72 CPU; the scene capture
+0.42 / 0.36; the final post node 0.21 GPU; MLAA 0.15 GPU; bloom 0.21 GPU; fog 0.13 GPU. The
+stages sum to the render thread's 5.3-5.6 ms and to the D3D9 span's 4.2-4.5 ms. On top of the
+D3D9 span the GPU carries the upscaler (1.8-2.3 ms an eye image for the fast model), the
+ReShade preset and the AFW rebuild; D3D9 idle is 0.8-1.0 ms of a 7.8 ms present.
+
+Standing after both runs:
+
+| Question | Evidence | Standing |
+|---|---|---|
+| DLSS fast model as the default | K is 1.1 ms a present (14 %) slower, matched | supported; image quality is the trade |
+| Hidden-area mask | 10.9 % of about 2.9 ms of depth-tested GPU an eye image = at most 0.3 ms (4 %) where the GPU is the limit | small for its risk |
+| Skipping empty HUD sinks | the hand-off wait is backpressure in both methods | nothing to gain |
+| Engine switches | best is 1.5-3 % (run 1, native) | no shipped default |
+| Script-lane gate | 1.6-1.8 ms a tick, the game thread is not the limit | follow-up, not a release lever |
+| Sharing shadow work | no shadow-depth stage of measurable size in the measured scene | ends here unless a character-heavy scene says otherwise |
+| New: MLAA under DLSS | 0.15 ms GPU an eye image, and it filters the image before the upscaler | a defect in an existing policy, worth fixing |
+| New: ReShade preset | about 6 % of the rate | already the player's option |
+
+Not measured: the same rows in a second, character-heavy scene; what the outside load was.
 
 ## 2026-10-04: pre-release audit - where the frame goes in the played configuration, and what is left
 

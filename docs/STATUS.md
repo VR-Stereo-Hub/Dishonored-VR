@@ -28,6 +28,13 @@ timestamp ring (half the intervals skipped) and 28-row cut. The installed ini no
   `Shadow Depths` stage in one eye and in both (`stages skip odd|all <stage>`, new, default off).
   The plan now sets and checks its configuration and holds the F10 panel closed. Built, not run.
   PERFORMANCE.md, top entry, section 10.
+- Run 2 read (afw, DLSS Ultra Quality, fast model; PERFORMANCE.md section 11). Three bursts of an
+  outside load spoiled the plan's own percentiles, so the rows are read from clean 3 s windows.
+  Transformer K costs 1.1 ms a present (14 %) over the fast model; DLSS Ultra Quality is no faster
+  than native; the ReShade preset is about 6 % of the rate; the HUD hand-off wait is backpressure;
+  MLAA still runs under DLSS (the option write at launch never reaches the renderer); no shadow
+  depth stage exists to share in the measured scene (the skip rows dropped nothing).
+  Open: the maintainer's decisions on the fast model as default and on fixing the MLAA policy.
 No game launched by the session. No Linear ticket (no Linear access).
 
 ## 2026-10-04: pre-release performance audit (analysis; probe and plan built, nothing run)
