@@ -58,7 +58,7 @@ struct Choices {
     int upscalerEdit = -1;
     int upscalerQuality = 0; // saved DlssQuality value, shared by DLSS and FSR
     int upscalerQualityEdit = -1;
-    int upscalerPreset = 0; // shared model-choice index; -1 preserves custom presets
+    int upscalerPreset = 5; // shared model-choice index (5 = Fast, the default); -1 preserves custom presets
     int upscalerPresetEdit = -1;
     int textureMemory = -1; // -1 preserve, 0 conventional shadows, 1 paged
     bool overwriteSettings = true; // recommended defaults, backed up before replacement

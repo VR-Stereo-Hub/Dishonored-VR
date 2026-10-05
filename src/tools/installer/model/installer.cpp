@@ -530,7 +530,7 @@ Detection detect(const Env& env)
             const int backend=profile::get_int(ini,L"Clarity",L"Upscaler",0);
             d.suggested.upscaler=profile::get_int(ini,L"Clarity",L"DLAA",0)==0 ? 0 : backend>=0 && backend<=1 ? backend+1 : -1;
             d.suggested.upscalerQuality=profile::get_int(ini,L"Clarity",L"DlssQuality",0);
-            const int model=profile::get_int(ini,L"Clarity",L"DlssModel",0), preset=profile::get_int(ini,L"Clarity",L"DlssPreset",0);
+            const int model=profile::get_int(ini,L"Clarity",L"DlssModel",1), preset=profile::get_int(ini,L"Clarity",L"DlssPreset",0);
             d.suggested.upscalerPreset=-1;
             for(int i=0;i<dvr::dlss::kModelChoiceCount;++i) {
                 const auto& choice=dvr::dlss::kModelChoices[i];

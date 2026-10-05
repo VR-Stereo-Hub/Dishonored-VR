@@ -1551,3 +1551,14 @@ re-attaches the components, which a bare bit write would skip. It is called only
 reflection resolves Actor.bHidden to the statically read +0x120/0x2 and the prologue
 matches, only for an arms-only body, and the game's own end-of-cinematic call restores it.
 See dishonored/ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.
+
+### 2026-10-05: the fast DLSS model is the default
+
+The shipped default was Transformer K, the sharpest model. Measured in the headset in the
+played configuration (afw, Ultra Quality, 2750x2850 output, RTX 4070 Ti SUPER; a matched A/B
+row with six clean windows each side): K costs 1.1 ms an eye image, 14 percent of the frame
+rate, over the fast CNN presets, and that configuration is limited by the GPU. `DlssModel`
+now defaults to 1 in the code, the default ini and the launcher; K stays one click away in
+F10 and the launcher. An existing ini keeps the value it has: the key is written on every
+save, so a stored 0 cannot be told from a choice, and no migration rewrites it. The
+measurement is in dishonored/PERFORMANCE.md (2026-10-05, on the performance audit branch).

@@ -200,10 +200,11 @@ static bool WriteDefaultIni(const char* ini)
         "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
         "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
         "DlssQuality=0\n"
-        "; DlssModel: 0 transformer (preset K, best image, ~2 ms per eye at 2750x2850), 1 fast (CNN presets\n"
-        "; E/F, ~0.9 ms per eye). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
+        "; DlssModel: 1 fast (CNN presets E/F, the default: about 2 ms per eye image in play), 0 transformer\n"
+        "; (preset K, the sharpest image, about 4 ms: measured 14 percent slower at Ultra Quality on an RTX 4070\n"
+        "; Ti SUPER, 2026-10-05). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
         "; 16 NVIDIA's pick per mode (K, M for Performance, L for Ultra Performance). F10: the DLSS model list.\n"
-        "DlssModel=0\n"
+        "DlssModel=1\n"
         "DlssOutputWidth=0\n"
         "DlssOutputHeight=0\n"
         "; DlssMask=1 (A/B, off): pixels the camera vectors cannot explain (arms, weapon, NPCs) take\n"
@@ -1962,7 +1963,7 @@ static void LoadConfig()
             // FSR (2026-09-27): not in the default ini on purpose; a missing key is DLSS.
             dvr::dlss::set_backend((int)IniFloat(ini, "Clarity", "Upscaler", 0), "ini");
             dvr::dlss::set_fsr_version((int)IniFloat(ini, "Clarity", "FsrVersion", 0), "ini");
-            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
+            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 1), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
             dvr::dlss::set_object_motion(IniFloat(ini, "Clarity", "DlssObjectMotion", 0) != 0.0f, "ini");   // VR-39

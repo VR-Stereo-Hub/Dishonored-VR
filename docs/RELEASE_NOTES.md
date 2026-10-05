@@ -6,6 +6,9 @@
   (see docs/dishonored/ARM_IK.md), which is not bundled with the release.
 - IK and Display expose a 16-frame diagnostic capture with a five-second delay.
   Saving can briefly hitch. Full arms retain their visibility in in-game menus.
+- DLSS now defaults to the Fast model: in our tests Transformer K cost about 14 percent of the
+  frame rate at Ultra Quality. K is still in the DLSS model list (F10 > Display, or the launcher).
+  An existing install keeps the model it already has.
 
 ## Stereo settings
 
