@@ -1522,3 +1522,62 @@ On-demand native frame bursts reuse the existing delivered-eye readback seam,
 with bounded worker memory and recorded gaps. AFW retains its established capture.
 Details and remaining headset verification: docs/dishonored/ARM_IK.md and
 docs/dishonored/FLICKER_REFERENCE.md.
+
+### 2026-10-04: complete ReShade controls and performance attribution
+
+The manual runtime loads disabled effect definitions before its first update so
+F10 can enumerate the complete catalog across launches. Enabled techniques and
+shader parameters remain preset-owned. Extra startup loading is accepted over a
+second virtual catalog with independent ordering/persistence and reload states.
+HUD timing divides existing work without changing fences or transfer cadence;
+AFW exposes its existing GPU sample before the logger truncation boundary.
+The audit and staged optimization criteria live in dishonored/PERFORMANCE.md.
+
+### 2026-10-04: proven-blank HUD reuse and current-time AFW world
+
+HUD reuse is based on successful clear/copy provenance, not zero draw count alone.
+Per-slot blank identity and the complete conversion parameters guard output reuse;
+content/resource lifetime resets the cache. Per-slot read events remain, with one
+final Flush, and a timed-out read refuses overwrite. The native GPU host tests the
+actual cross-API path, delayed disappearance and invalidations.
+
+AFW optionally chooses valid fresh-eye world samples before temporal world samples.
+Depth-only rejection cannot recognize tangential motion, so a current-time source
+is used without pretending to have an object velocity field. Held-eye hole fill
+and foreground rules remain; opposite-eye shading is an explicit tradeoff. Default
+OFF, live/persisted Basic control, capture metadata and replay support.
+
+ReShade preset membership comes from effect sections, active techniques and F10's
+persisted choices, never the global TechniqueSorting list. Definitions still load;
+an explicit all-effects view is available for adding effects.
+
+### 2026-10-04: withdraw unconditional fresh-world preference
+
+Build 34's favorable synthetic moving-platform coordinates did not predict its
+reported world-geometry regression. Keep the shader clause in src/legacy for
+explicit offline reproduction; normal builds refuse an ON request, including
+existing INI values, and do not expose a checkbox that cannot work. Captures and
+replay metadata remain readable. The previous world path is byte-identical for
+30 replayed captured frames. No speculative color-based motion classifier is
+introduced. HUD and ReShade changes remain independent of this rejected tradeoff.
+
+### 2026-10-04: depth evidence for AFW moving surfaces
+
+AfwDepthMotion compares current-stereo and temporal world depth with an R16F
+precision allowance and local two-texel variation, avoiding RGB-based motion
+classification and unconditional world replacement. The prior 1.5% plus 0.01-unit
+visibility tolerance can admit about 5 cm of motion at captured NPC depths; the
+opt-in uses the precision bound with existing silhouette neighborhoods. Static
+slopes and per-eye shading are explicit controls, including an all-fresh control
+that must fail. Capture/replay carries the choice. It remains default-off because
+unseen silhouettes and motion at unchanged depth are not solved by this rule.
+
+## 2026-10-04: keep cutscene hand correction separate from camera FOV suppression
+
+The old cinematic foreground-feed guard predates the fixed foreground gain.
+Test restoring that gain only for authored capture records with valid hand masks,
+using the rendered view tangents. Do not feed the suppressed camera sensor back
+into AFW or write the game's camera fields. Require a failing hand-only control;
+whole-frame percentiles can conceal a several-pixel error confined to the hands.
+Keep this default-off and require a headset comparison; incomplete depth delivery
+is a separate cause that the correction cannot eliminate.

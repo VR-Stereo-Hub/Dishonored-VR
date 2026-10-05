@@ -1,10 +1,12 @@
 // core/gfx/hud_capture.cpp - see hud_capture.h.
 #define DVR_CAT ::dvr::log::Cat::hud
 #include "core/gfx/hud_capture.h"
+#include "core/gfx/hud_blank_cache.h"
 #include "core/gfx/markers_sharp.h"
 #include "core/gfx/hud_capture_health.h"
 
 #include "core/framework/frame_hooks.h"
+#include "core/framework/perf.h"
 #include "core/framework/status.h"
 #include "core/gfx/dlss.h"
 #include "core/gfx/blit_quad.h"
@@ -47,7 +49,9 @@ struct Sink {
     ID3D11Query*        readFence[2] = {};
     bool blitIssued[2] = {}, readIssued[2] = {}, slotValid[2] = {};
     dvr::hudmarker::Delivery markers;
-    bool clearBeforeDraw=false;
+    bool clearBeforeDraw=false, rtClear=false;
+    BlankCache blank;
+    uint32_t winCopySaved=0, winConvertSaved=0;
     int  cur = 0;
     ID3D11Texture2D*        outTex = nullptr;
     ID3D11RenderTargetView* outRtv = nullptr;
@@ -121,6 +125,7 @@ void release_slots(Sink& s) {
         s.blitIssued[i] = s.readIssued[i] = s.slotValid[i] = false;
     }
     s.markers.reset();
+    s.blank=BlankCache{};
     s.cur = 0;
     if (s.outRtv) { s.outRtv->Release(); s.outRtv = nullptr; }
     if (s.outTex) { s.outTex->Release(); s.outTex = nullptr; }
@@ -158,11 +163,12 @@ bool wanted_size(IDirect3DDevice9* dev, uint32_t* w, uint32_t* h, uint32_t* fw, 
 // clear that fails quietly leaves a stale frame forever, so the refusal is
 // caught, named once, and answered by binding the target and clearing it.
 void clear_rt(IDirect3DDevice9* dev, Sink& s) {
+    s.rtClear=false;
     if (!dev || !s.rt) return;
     static int mode = 0;   // 0 = try ColorFill, 1 = ColorFill works, 2 = bind+Clear
     if (mode != 2) {
         const HRESULT hr = dev->ColorFill(s.rt, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
-        if (SUCCEEDED(hr)) { mode = 1; return; }
+        if (SUCCEEDED(hr)) { mode = 1; s.rtClear=true; return; }
         mode = 2;
         DVR_WARN("hud: ColorFill on a sink target was refused (0x%08lx) - clearing by binding it and "
                  "calling Clear instead. A clear that failed quietly would leave whatever was in that "
@@ -171,7 +177,7 @@ void clear_rt(IDirect3DDevice9* dev, Sink& s) {
     IDirect3DSurface9* prev = nullptr;
     if (FAILED(dev->GetRenderTarget(0, &prev))) prev = nullptr;
     if (SUCCEEDED(dvr::frame::orig_set_render_target(dev, 0, s.rt))) {
-        dev->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(0, 0, 0, 0), 1.0f, 0);
+        s.rtClear=SUCCEEDED(dev->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(0, 0, 0, 0), 1.0f, 0));
         if (prev) dvr::frame::orig_set_render_target(dev, 0, prev);
     }
     if (prev) prev->Release();   // released inside the call
@@ -299,8 +305,8 @@ void blit_wait(Sink& s, int k) {
     s.blitIssued[k] = false;
 }
 
-void read_wait(Sink& s, int k) {
-    if (!s.readIssued[k] || !s.readFence[k] || !g_lastCtx) return;
+bool read_wait(Sink& s, int k) {
+    if (!s.readIssued[k] || !s.readFence[k] || !g_lastCtx) return true;
     HRESULT hr = g_lastCtx->GetData(s.readFence[k], nullptr, 0, 0);
     if (hr == S_FALSE) {
         ++g_readWaits;
@@ -311,7 +317,9 @@ void read_wait(Sink& s, int k) {
         }
         if (hr == S_FALSE) ++g_readTimeouts;
     }
+    if(hr!=S_OK)return false; // Keep the fence pending; never overwrite a shared texture still being read.
     s.readIssued[k] = false;
+    return true;
 }
 
 void apply_wanted(const char* why) {
@@ -372,7 +380,8 @@ bool armed() { return g_armed; }
 void invalidate_content() {
     for(auto& s:g_sink) {
         s.slotValid[0]=s.slotValid[1]=false;s.delivered=false;
-        s.markers.reset();s.redirected=0;s.clearBeforeDraw=true;
+        s.markers.reset();
+        s.blank=BlankCache{};s.redirected=0;s.clearBeforeDraw=true;
     }
 }
 
@@ -404,6 +413,7 @@ bool begin(IDirect3DDevice9* dev, const D3DVIEWPORT9& vp, int sink) {
         dev->SetViewport(&vp);
     }
     g_inRedirect = sink;
+    s.rtClear=false;
     ++s.redirected;
     return true;
 }
@@ -440,6 +450,7 @@ void end(IDirect3DDevice9* dev, IDirect3DSurface9* gameRt, const D3DVIEWPORT9& v
 }
 
 void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext* ctx11) {
+    bool readsQueued=false;
     // The gate, recomputed for the NEXT present's draws. Both halves must hold:
     // the runtime's own presentation MODE (a projection layer is up; the mono
     // screen, a loading screen and the cinematic quad all drop it) or the menu
@@ -543,30 +554,41 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             }
             if (!s.redirected && g_armed) ++s.winEmpty;
             {
-                read_wait(s, s.cur);
-                RECT src = {0, 0, (LONG)g_rtW, (LONG)g_rtH};
-                const HRESULT sr = dev9->StretchRect(s.rt, &src, s.slotRt[s.cur], nullptr, D3DTEXF_LINEAR);
-                s.markers.copied(s.cur,SUCCEEDED(sr));
-                if (SUCCEEDED(sr)) {
-                    if (s.blitFence[s.cur]) { s.blitFence[s.cur]->Issue(D3DISSUE_END); s.blitIssued[s.cur] = true; }
-                    s.slotValid[s.cur] = true;
+                dvr::perf::part_mark("hud.prepare");
+                const bool empty=!s.redirected && s.rtClear;
+                if(s.blank.copy_needed(s.cur,empty)) {
+                    const bool writable=read_wait(s,s.cur);
+                    dvr::perf::part_mark("hud.readWait");
+                    RECT src = {0, 0, (LONG)g_rtW, (LONG)g_rtH};
+                    const HRESULT sr=writable ? dev9->StretchRect(s.rt,&src,s.slotRt[s.cur],nullptr,D3DTEXF_LINEAR) : E_PENDING;
+                    s.markers.copied(s.cur,SUCCEEDED(sr));
+                    s.blank.copied(s.cur,empty,SUCCEEDED(sr));
+                    s.slotValid[s.cur]=SUCCEEDED(sr);
+                    if(SUCCEEDED(sr)) {
+                        if(s.blitFence[s.cur]) {s.blitFence[s.cur]->Issue(D3DISSUE_END);s.blitIssued[s.cur]=true;}
+                    } else {
+                        DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,3000,
+                            "hud: sink %d slot %d copy refused (0x%08lx), writable=%d; stale slot withheld",
+                            i,s.cur,(unsigned long)sr,(int)writable);
+                    }
                 } else {
-                    DVR_LOG_FIRST_N(DVR_CAT, ::dvr::log::Level::Error, 3,
-                                    "hud: the copy of sink %d's target into slot %d was refused (0x%08lx) - "
-                                    "the panel would show whatever the slot last held", i, s.cur, (unsigned long)sr);
+                    ++s.winCopySaved;
+                    s.markers.copied(s.cur,true);
                 }
-                // Unconditionally, every present: a present with NO HUD draw is
-                // exactly the case the fork got wrong.
-                clear_rt(dev9, s);
+                // The first blank must replace old content. Already-proven clear
+                // targets need neither another clear nor another shared transfer.
+                if(!s.rtClear)clear_rt(dev9, s);
             }
+            dvr::perf::part_mark("hud.copyClear");
             // Deliver the OTHER slot: a whole present has passed since its blit.
             const int other = s.cur ^ 1;
             if (s.slotValid[other]) {
                 blit_wait(s, other);
+                dvr::perf::part_mark("hud.blitWait");
                 // VR-119: the alpha mode and the legibility controls are the
                 // layout's; the backdrop plate follows the anchor this sink's
                 // element rides (the window wants one, a hand none).
-                dvr::gfx::AlphaParams ap;
+                dvr::gfx::AlphaParams ap{};
                 const auto a = dvr::hudlayout::alpha_for_sink(i);
                 ap.mode = a.mode; ap.gain = a.gain; ap.floorA = a.floorA; ap.gamma = a.gamma; ap.mixK = a.mixK;
                 dvr::hudlayout::backdrop_for_sink(i, ap.backdrop);
@@ -588,40 +610,47 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                     ap.invSize[0] = s.slotW ? 1.0f / (float)s.slotW : 0.0f;
                     ap.invSize[1] = s.slotH ? 1.0f / (float)s.slotH : 0.0f;
                 }
-                g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, &ap);
-                // Derive the small side panels from the SAME fenced delayed
-                // slot, before the wheel's circle mask. No extra D3D9 capture.
-                for(int part=0;part<2;++part) {
-                    dvr::gfx::AlphaParams side;
-                    if(!dvr::hudlayout::wheel_part_crop(i,part,s.slotW,s.slotH,side.sourceRect)) continue;
-                    const uint32_t pw=(uint32_t)ceilf((side.sourceRect[2]-side.sourceRect[0])*s.slotW);
-                    const uint32_t ph=(uint32_t)ceilf((side.sourceRect[3]-side.sourceRect[1])*s.slotH);
-                    if(!pw || !ph) continue;
-                    if(s.partW[part]!=pw || s.partH[part]!=ph) {
-                        if(s.partRtv[part]) {s.partRtv[part]->Release();s.partRtv[part]=nullptr;}
-                        if(s.partTex[part]) {s.partTex[part]->Release();s.partTex[part]=nullptr;}
-                        s.partW[part]=s.partH[part]=0;
-                        D3D11_TEXTURE2D_DESC td{};td.Width=pw;td.Height=ph;td.MipLevels=td.ArraySize=1;
-                        td.Format=DXGI_FORMAT_R8G8B8A8_UNORM;td.SampleDesc.Count=1;
-                        td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
-                        if(FAILED(dev11->CreateTexture2D(&td,nullptr,&s.partTex[part])) ||
-                           FAILED(dev11->CreateRenderTargetView(s.partTex[part],nullptr,&s.partRtv[part]))) {
+                const bool parts=dvr::hudlayout::wheel_parts_for_sink(i);
+                if(s.blank.reuse_output(other,ap,parts)) {
+                    ++s.winConvertSaved;
+                } else {
+                    g_blit.draw(ctx11, s.slotSrv[other], s.outRtv, s.slotW, s.slotH, &ap);
+                    // Derive the small side panels from the SAME fenced delayed
+                    // slot, before the wheel's circle mask. No extra D3D9 capture.
+                    for(int part=0;part<2;++part) {
+                        dvr::gfx::AlphaParams side;
+                        if(!dvr::hudlayout::wheel_part_crop(i,part,s.slotW,s.slotH,side.sourceRect)) continue;
+                        const uint32_t pw=(uint32_t)ceilf((side.sourceRect[2]-side.sourceRect[0])*s.slotW);
+                        const uint32_t ph=(uint32_t)ceilf((side.sourceRect[3]-side.sourceRect[1])*s.slotH);
+                        if(!pw || !ph) continue;
+                        if(s.partW[part]!=pw || s.partH[part]!=ph) {
+                            if(s.partRtv[part]) {s.partRtv[part]->Release();s.partRtv[part]=nullptr;}
                             if(s.partTex[part]) {s.partTex[part]->Release();s.partTex[part]=nullptr;}
-                            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,3000,"hud/wheel-parts: allocation failed for part %d %ux%u; main wheel retained",part,pw,ph);
-                            continue;
+                            s.partW[part]=s.partH[part]=0;
+                            D3D11_TEXTURE2D_DESC td{};td.Width=pw;td.Height=ph;td.MipLevels=td.ArraySize=1;
+                            td.Format=DXGI_FORMAT_R8G8B8A8_UNORM;td.SampleDesc.Count=1;
+                            td.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;
+                            if(FAILED(dev11->CreateTexture2D(&td,nullptr,&s.partTex[part])) ||
+                               FAILED(dev11->CreateRenderTargetView(s.partTex[part],nullptr,&s.partRtv[part]))) {
+                                if(s.partTex[part]) {s.partTex[part]->Release();s.partTex[part]=nullptr;}
+                                DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,3000,"hud/wheel-parts: allocation failed for part %d %ux%u; main wheel retained",part,pw,ph);
+                                continue;
+                            }
+                            s.partW[part]=pw;s.partH[part]=ph;
+                            DVR_INFO("hud/wheel-parts: part=%d %ux%u source=%.3f/%.3f/%.3f/%.3f, same delayed slot as wheel",part,pw,ph,side.sourceRect[0],side.sourceRect[1],side.sourceRect[2],side.sourceRect[3]);
                         }
-                        s.partW[part]=pw;s.partH[part]=ph;
-                        DVR_INFO("hud/wheel-parts: part=%d %ux%u source=%.3f/%.3f/%.3f/%.3f, same delayed slot as wheel",part,pw,ph,side.sourceRect[0],side.sourceRect[1],side.sourceRect[2],side.sourceRect[3]);
+                        const auto group=dvr::hudlayout::wheel_parts_alpha();
+                        side.mode=group.mode;side.gain=group.gain;side.floorA=group.floorA;side.gamma=group.gamma;side.mixK=group.mixK;
+                        g_blit.draw(ctx11,s.slotSrv[other],s.partRtv[part],pw,ph,&side);
+                        s.partDelivered[part]=true;
                     }
-                    const auto group=dvr::hudlayout::wheel_parts_alpha();
-                    side.mode=group.mode;side.gain=group.gain;side.floorA=group.floorA;side.gamma=group.gamma;side.mixK=group.mixK;
-                    g_blit.draw(ctx11,s.slotSrv[other],s.partRtv[part],pw,ph,&side);
-                    s.partDelivered[part]=true;
-                }
-                if (s.readFence[other]) {
-                    ctx11->End(s.readFence[other]);
-                    ctx11->Flush();   // an event query does not complete until the work is submitted
-                    s.readIssued[other] = true;
+                    dvr::perf::part_mark("hud.convert");
+                    if (s.readFence[other]) {
+                        ctx11->End(s.readFence[other]);
+                        readsQueued=true; // One submit after all sinks; retain each slot's own event.
+                        s.readIssued[other] = true;
+                    }
+                    s.blank.converted(other,ap,parts);
                 }
                 s.markers.delivered(other);
                 s.delivered = true;
@@ -638,6 +667,8 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
             s.redirected = 0; s.markers.drawing=dvr::hudmarker::Regions{};
         }
     }
+    if(readsQueued)ctx11->Flush(); // Submit every event before a future D3D9 overwrite can wait on it.
+    dvr::perf::part_mark("hud.flush");
     // VR-120: sinks are acquired by the first draw routed to them, and a draw
     // is routed only while armed, so with no sink in use yet the hand-off is
     // "ready" on the blit alone; the first sink proves the rest or latches
@@ -682,6 +713,16 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
                  g_blitWaits, g_blitTimeouts, g_readWaits, g_readTimeouts, g_restoreFails,
                  (int)g_on, (int)dvr::hud::projection_mode(), (int)g_menuOverride, (int)g_gameGate, (int)g_handoffReady,
                  (int)g_failed, (int)dvr::hudlayout::native_gameplay_reference(), wantArm ? "ARMED" : "idle");
+        if (dvr::perf::parts_enabled()) {
+            for (int i = 0; i < dvr::hudlayout::kMaxSinks; ++i) {
+                const Sink& s = g_sink[i];
+                if (!dvr::hudlayout::sink_in_use(i)) continue;
+                DVR_INFO("hud/work: sink=%d presents=%u draws=%u deliveries=%u emptyFrames=%u copiesSaved=%u conversionsSaved=%u; "
+                         "empty is a cleared target, not permission to retain stale UI; "
+                         "hud.* perf parts separate CPU submission from fence waits",
+                         i, g_winPresents, s.winRedirected, s.winDelivered, s.winEmpty,s.winCopySaved,s.winConvertSaved);
+            }
+        }
         if (!wantArm) {
             g_offReason = g_failed ? "a D3D failure latched this session (the lines above name it)"
                         : !g_handoffReady ? "the hand-off to D3D11 is not ready, so the redirect is held off "
@@ -697,7 +738,7 @@ void end_frame(IDirect3DDevice9* dev9, ID3D11Device* dev11, ID3D11DeviceContext*
         g_winStartMs = GetTickCount();
         g_winPresents = g_winArmedPresents = g_winEmptyArmed = g_winEmptyEven = g_winEmptyOdd = 0;
         g_winHeld = 0;
-        for (Sink& s : g_sink) s.winRedirected = s.winDelivered = s.winEmpty = 0;
+        for (Sink& s : g_sink) s.winRedirected = s.winDelivered = s.winEmpty = s.winCopySaved = s.winConvertSaved = 0;
         dvr::hudlayout::log_status();
     }
 }

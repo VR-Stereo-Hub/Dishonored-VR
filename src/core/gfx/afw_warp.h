@@ -57,6 +57,13 @@ bool enabled();
 // the body hypothesis (the first version, kept as the A/B).
 void set_stereo(bool on, const char* who);
 bool stereo();
+// Retired build-34 experiment. Normal builds refuse ON, including retained INI keys.
+// DVR_WITH_LEGACY keeps the source-selection experiment available for offline replay.
+void set_fresh_world(bool on,const char* who);
+bool fresh_world();
+// Opt-in depth agreement for moving world surfaces, preserving static eye-specific shading.
+void set_depth_motion(bool on, const char* who);
+bool depth_motion();
 // The held eye's world by the game's own view-projection matrices (default on; head, stick yaw and
 // walking), checked each present against the XR pose model; `afw matrices on|off`. Off = the XR pose
 // and the body yaw alone (walking lags a tick).
@@ -69,6 +76,11 @@ int matrix_verdict();
 // uses the mod's projection; the rebuild reprojects pixels nearer than the foreground depth with the
 // former. `set_fg_fov` is fed from the camera's FOV sensor; `afw fg on|off`, `afw fgdepth <units>`.
 void set_fg_fov(float deg);
+// Default-off cutscene fallback: the existing foreground gain, from the rendered
+// projection, only with both source masks and authored-camera records (writer 3).
+void set_cutscene_hands(bool on, const char* who);
+bool cutscene_hands();
+void set_fg_gain(float gain);
 // Run 15: the game image of this grab BEFORE the mod's own layers (objective markers, the aim laser, the F10 panel), from
 // the stereo method, once per present. The held eye's hands and weapon come from the fresh eye; from its composed image
 // they carried that eye's UI into the other eye (text on the sword). `afw clean on|off` (default on).

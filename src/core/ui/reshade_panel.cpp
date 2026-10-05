@@ -2,6 +2,7 @@
 // Handles are enumerated and used in this frame only; reloads invalidate them.
 #include "core/ui/reshade_panel.h"
 #include "core/gfx/reshade_runtime.h"
+#include "core/util/log.h"
 #include "../../../third_party/reshade/reshade_api.hpp"
 #include <imgui.h>
 #include <algorithm>
@@ -11,6 +12,9 @@
 #include <vector>
 #include <limits>
 #include <cmath>
+#include <windows.h>
+#include <chrono>
+#include <set>
 
 namespace dvr::reshade_panel {
 namespace {
@@ -65,6 +69,34 @@ std::vector<std::string> presets(const std::string& current) {
         }
     }
     return result;
+}
+// TechniqueSorting is ReShade's global order, including unrelated installed shaders.
+// A preset owns its configured sections, enabled techniques, and selections saved by F10.
+std::set<std::string> preset_effects(const std::string& path) {
+    std::set<std::string> files;
+    std::ifstream input(from_utf8(path)); std::string line;
+    while(std::getline(input,line)) {
+        if(!line.empty() && line.back()=='\r')line.pop_back();
+        if(line.size()>2 && line.front()=='[' && line.back()==']') {
+            auto name=line.substr(1,line.size()-2);
+            if(name.size()>3 && name.substr(name.size()-3)==".fx")files.insert(name);
+        }
+        if(line.rfind("Techniques=",0)==0 || line.rfind("DVRPresetEffects=",0)==0) {
+            size_t at=line.find('=')+1;
+            while(at<line.size()) {
+                auto end=line.find(',',at);auto token=line.substr(at,end-at);
+                auto sep=token.find('@');if(sep!=std::string::npos)token=token.substr(sep+1);
+                if(!token.empty())files.insert(token);
+                if(end==std::string::npos)break;at=end+1;
+            }
+        }
+    }
+    return files;
+}
+bool remember_effect(const std::string& path,const std::string& effect) {
+    auto files=preset_effects(path); files.insert(effect);std::string value;
+    for(const auto& file:files) {if(!value.empty())value+=",";value+=file;}
+    return WritePrivateProfileStringW(L"DVR",L"DVRPresetEffects",from_utf8(value).wstring().c_str(),from_utf8(path).wstring().c_str())!=FALSE;
 }
 void uniform_control(Runtime* runtime, Uniform variable) {
     bool hidden=false, noedit=false;
@@ -169,7 +201,10 @@ void draw() {
     }
     if(!enabled)ImGui::TextWrapped("ReShade will be disabled next launch. Its controls remain available until you exit.");
     bool effects=runtime->get_effects_state();
-    if(ImGui::Checkbox("Effects on",&effects))runtime->set_effects_state(effects);
+    if(ImGui::Checkbox("Effects on",&effects)) {
+        runtime->set_effects_state(effects);
+        DVR_LOG(::dvr::log::Cat::present,::dvr::log::Level::Info,"reshade: effects %s by F10",effects ? "ON" : "off");
+    }
     tip("Live toggle, also available with Scroll Lock. Your preset's effect selections are kept.");
     char path[32768]={};size_t size=sizeof(path);runtime->get_current_preset_path(path,&size);
     const auto title=utf8(from_utf8(path).filename());
@@ -192,18 +227,35 @@ void draw() {
     if(ImGui::Button("Reload effects")) { runtime->save_current_preset();runtime->reload_effect_next_frame(nullptr);return; }
     ImGui::SameLine();if(ImGui::Button("Save preset"))runtime->save_current_preset();
     ImGui::TextWrapped("Changes save to the selected preset. Point and click with the trigger; use the stick to scroll or nudge a value.");
+    static bool showAll=false;
+    ImGui::Checkbox("Show all installed effects",&showAll);
+    static std::string cachedPath;
+    static std::set<std::string> members;
+    static auto checked=std::chrono::steady_clock::time_point{};
+    const auto now=std::chrono::steady_clock::now();
+    if(cachedPath!=path || now-checked>std::chrono::seconds(1)) {
+        cachedPath=path;members=preset_effects(path);checked=now;
+    }
     struct Entry { Technique handle;std::string file,label; };
     std::vector<Entry> entries;
     runtime->enumerate_techniques(nullptr,[&](Runtime* r,Technique t) {
         char file[512]={},label[512]={};r->get_technique_effect_name(t,file);r->get_technique_name(t,label);
-        entries.push_back({t,file,label});
+        if(showAll || members.count(file) || r->get_technique_state(t))entries.push_back({t,file,label});
     });
     if(entries.empty()) { ImGui::TextWrapped("Effects are loading, or no shader packages were found. Check the ReShade log if this message remains.");return; }
+    static bool presetSaveFailed=false;
+    if(presetSaveFailed)ImGui::TextWrapped("Could not save effect membership. Check that the selected preset is writable.");
     std::vector<std::string> drawn;
     for(const auto& entry:entries) {
         ImGui::PushID(entry.file.c_str());ImGui::PushID(entry.label.c_str());
         bool on=runtime->get_technique_state(entry.handle);
-        if(ImGui::Checkbox(entry.label.c_str(),&on)) { runtime->set_technique_state(entry.handle,on);runtime->save_current_preset(); }
+        if(ImGui::Checkbox(entry.label.c_str(),&on)) {
+            presetSaveFailed=!remember_effect(path,entry.file);
+            if(!presetSaveFailed) {
+                members.insert(entry.file);runtime->set_technique_state(entry.handle,on);runtime->save_current_preset();
+                DVR_LOG(::dvr::log::Cat::present,::dvr::log::Level::Info,"reshade: %s@%s %s by F10",entry.label.c_str(),entry.file.c_str(),on ? "ON" : "off");
+            }
+        }
         tip(entry.file);ImGui::PopID();ImGui::PopID();
     }
     ImGui::Separator();

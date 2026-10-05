@@ -81,6 +81,8 @@ struct State {
     double bodyYawDeg, handX, headYawDeg; V3 headPos;
     double handZ = kHandZ; V3 bodyPos = {0, 0, 0}; double handW = kHandW;
     double barZ = 0, barX0 = 0, barX1 = 0;   // a thin world bar (barZ 0 = none)
+    V3 platformPos = {0,0,0}; // independent motion of the pillar: vehicle surface
+    double worldSlope = 0, worldEyeTint = 0;
     double fgTan = 0;   // > 0: the hand is the FOREGROUND, drawn on top with its own projection (the game: its camera FOV)
 };
 struct Eye { V3 pos; double yawRad; };
@@ -119,11 +121,11 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
         const double b = s.bodyYawDeg / 57.29577951;
         const V3 ow = add(ry(e.pos, -b), s.bodyPos), dw = ry(d, -b);
         if (dw.z < 0) {
-            const double t = (kWallZ - ow.z) / dw.z;
+            const double t = (kWallZ + s.worldSlope * ow.x - ow.z) / (dw.z - s.worldSlope * dw.x);
             const V3 p = add(ow, mul(dw, t));
             if (t > 0 && t < best) { best = t; c[0] = (float)((p.x + 20) / 40); c[1] = (float)((p.y + 20) / 40); c[2] = 0; }
-            const double tp = (kPillarZ - ow.z) / dw.z;
-            const V3 q = add(ow, mul(dw, tp));
+            const double tp = (kPillarZ + s.platformPos.z - ow.z) / dw.z;
+            const V3 q = sub(add(ow, mul(dw, tp)),s.platformPos);
             if (tp > 0 && tp < best && q.x >= kPillarX0 && q.x <= kPillarX1 && q.y >= -1.5 && q.y <= 1.5) {
                 best = tp; c[0] = (float)((q.x - kPillarX0) / (kPillarX1 - kPillarX0)); c[1] = (float)(2 + (q.y + 1.5) / 3); c[2] = 0;
             }
@@ -137,6 +139,7 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
         }
     }
     const V3 local = ry(mul(d, best), -e.yawRad);   // back into the eye's view: depth = -z
+    if (c[2] < 0.5f) c[0] += (float)(e.pos.x * s.worldEyeTint);
     c[3] = (float)(-local.z / kMPerUnit);
     memcpy(out, c, sizeof(c));
 }
@@ -184,10 +187,11 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
     return t;
 }
 
-struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
+struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax, handErrP95; };
 struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false,
-             mask = false, drawnMask = false, grips = false;   // grips: record each image's hand grip (run 25)
-             double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
+             mask = false, drawnMask = false, grips = false, freshWorld = false, depthMotion = false;   // grips: record each image's hand grip (run 25)
+             bool cutsceneHands = false, fgEnabled = false; int writer = 0, heldWriter = -1;
+             double fgGain = 0.911, fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
 // the fresh serial; the caller warps.
@@ -223,10 +227,14 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     g_depthW = w; g_depthH = h;
     dvr::afw::set_enabled(true, "test");   // also drops the previous case's records
     dvr::afw::set_stereo(o.stereo, "test");
+    dvr::afw::set_fresh_world(o.freshWorld,"test");
+    dvr::afw::set_depth_motion(o.depthMotion,"test");
+    dvr::afw::set_cutscene_hands(o.cutsceneHands,"test");
+    dvr::afw::set_fg_gain((float)o.fgGain);
     dvr::afw::set_body_depth(0.40f, "test");
     dvr::afw::set_world_scale((float)kScale);
     dvr::afw::set_matrices(o.matrices, "test");
-    dvr::afw::set_fg_fov((float)o.fgFovDeg); dvr::afw::set_fg(o.fgFovDeg > 0, "test"); dvr::afw::set_fg_depth(0.30f, "test");
+    dvr::afw::set_fg_fov((float)o.fgFovDeg); dvr::afw::set_fg(o.fgFovDeg > 0 || o.fgEnabled, "test"); dvr::afw::set_fg_depth(0.30f, "test");
     dvr::afw::set_near_miss(6.0f, "test");
     const Rec mh = recordOf(s0, held0, o.mirrored, o.flipC5), mf = recordOf(s1, fresh1, o.mirrored, o.flipC5);
     const dvr::afw::Pose tg0[2] = {poseOf(held0), poseOf(right0)}, tg1[2] = {poseOf(held1), poseOf(fresh1)};
@@ -238,12 +246,14 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
         dvr::afw::note_clean(g.dev, g.ctx, t, serial);
         if (t) t->Release();
     };
+    dvr::afw::CaptureMeta cm; cm.writer = o.heldWriter >= 0 ? o.heldWriter : o.writer;
     if (!o.noHeld) {
         clean(hClean, sh);
-        dvr::afw::note_capture(g.dev, g.ctx, 0, sc.ht, sh, poseOf(held0), true, (float)s0.bodyYawDeg, tg0, mh.vp, mh.c5, mh.rot, nullptr);
+        dvr::afw::note_capture(g.dev, g.ctx, 0, sc.ht, sh, poseOf(held0), true, (float)s0.bodyYawDeg, tg0, mh.vp, mh.c5, mh.rot, &cm);
     }
+    cm.writer = o.writer;
     clean(fClean, sc.sf);
-    dvr::afw::note_capture(g.dev, g.ctx, 1, sc.ft, sc.sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5, mf.rot, nullptr);
+    dvr::afw::note_capture(g.dev, g.ctx, 1, sc.ft, sc.sf, poseOf(fresh1), true, (float)s1.bodyYawDeg, tg1, mf.vp, mf.c5, mf.rot, &cm);
     {   // run 25: the grip each image was drawn with (the hand's centre, tracking space); none unless the case asks
         dvr::afw::HandPose g0[2], g1[2];
         if (o.grips) {
@@ -286,7 +296,7 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
     release(sc);
     if (!r.ok) return r;
     // Compare, skipping the 2-pixel band around every true outline (sampling there is a blend).
-    std::vector<double> errs;
+    std::vector<double> errs, handErrs;
     auto surf = [&](const std::vector<float>& p, int x, int y) { return surfOf(&p[(y * N + x) * 4]); };
     for (int y = 2; y < N - 2; ++y)
         for (int x = 2; x < N - 2; ++x) {
@@ -317,7 +327,8 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
                     if (X < 0 || Y < 0 || X >= N || Y >= N) return false;
                     const float* q = &img[(Y * N + X) * 4];
                     if (surfOf(q) != ts) return false;
-                    return hypot((q[0] - t[0]) * sx, (q[1] - t[1]) * sy) < 3.0;
+                    // Visibility compares point identity, excluding the synthetic per-eye reflection.
+                    return hypot(((q[0] - e.pos.x * st.worldEyeTint) - (t[0] - held1.pos.x * s1.worldEyeTint)) * sx, (q[1] - t[1]) * sy) < 3.0;
                 };
                 if ((o.noHeld || !seen(hImg, s0, held0)) && !seen(fImg, s1, fresh1)) { ++r.unseen; continue; }
             }
@@ -325,8 +336,12 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
             if (!th && ((ov[1] > 0.6f && ov[1] < 1.9f) || (ov[1] > 3.1f && ov[1] < 3.9f))) continue;  // a blend across a world outline
             if (!th && surfOf(ov) != ts) { ++r.wrong; continue; }
             ++r.agree;
-            errs.push_back(hypot((ov[0] - t[0]) * sx, (ov[1] - t[1]) * sy));
+            const double err = hypot((ov[0] - t[0]) * sx, (ov[1] - t[1]) * sy);
+            errs.push_back(err);
+            if (th) handErrs.push_back(err * kTan / (s1.fgTan > 0 ? s1.fgTan : kTan));
         }
+    std::sort(handErrs.begin(), handErrs.end());
+    if (!handErrs.empty()) r.handErrP95 = handErrs[handErrs.size()*95/100];
     std::sort(errs.begin(), errs.end());
     if (!errs.empty()) {
         r.errP50 = errs[errs.size() / 2]; r.errP95 = errs[errs.size() * 95 / 100]; r.errMax = errs.back();
@@ -398,6 +413,47 @@ int main() {
     { Result r = run(g, still, all);     report("turn + hand move + head turn together", r, clean(r) && r.verdict == 1); }
     { Result r = run(g, still, fast);    report("fast turn 15 deg in one tick", r, clean(r)); }
     { Result r = run(g, close0, close1); report("weapon close (0.2 m), turn + move", r, clean(r)); }
+    { // A boat carries its surface and the player together. Correct camera matrices
+      // still smear a tangentially moving surface because its depth stays unchanged.
+      State boat=still;boat.bodyPos={.08,0,0};boat.platformPos=boat.bodyPos;
+      Opt fresh;fresh.freshWorld=true;
+      Result old=run(g,still,boat);report("moving platform control: old world texture trails",old,old.ok && old.errP95>2);
+#if DVR_WITH_LEGACY
+      Result now=run(g,still,boat,fresh);report("moving platform: current-time world",now,clean(now));
+      boat.bodyPos={-.08,0,0};boat.platformPos=boat.bodyPos;
+      now=run(g,still,boat,fresh);report("moving platform: opposite travel",now,clean(now));
+      boat=still;boat.platformPos={.08,0,0};
+      now=run(g,still,boat,fresh);report("moving object, stationary player",now,clean(now));
+      now=run(g,still,still,fresh);report("current-time world: static scene",now,clean(now));
+#else
+      Result now=run(g,still,boat,fresh);
+      report("retired world option: ON request preserves prior reconstruction",now,
+             !dvr::afw::fresh_world() && now.ok && now.errP95==old.errP95 && now.wrong==old.wrong && now.ghost==old.ghost);
+#endif
+    }
+    { Opt fresh;fresh.freshWorld=true;
+      for(const State* next:{&turn,&head,&all,&walkTurn}) {
+        Result r=run(g,still,*next,fresh);report("current-time world: head/body/controller motion",r,clean(r));
+      }
+    }
+    { Opt motion; motion.depthMotion=true;
+      for (double dz : {0.01, -0.01, 0.03, -0.03}) {
+        State a=still,b=still; b.platformPos={0.005,0,dz};
+        Result old=run(g,a,b), now=run(g,a,b,motion);
+        char name[100]; snprintf(name,sizeof(name),"depth motion: NPC moves %.2f m in depth",dz);
+        report(name,now,now.ok && now.ghost<=old.ghost && now.missing<=old.missing && now.errP95<=old.errP95+0.05);
+        printf("  prior p95 %.3f, candidate %.3f px; wrong surfaces %d -> %d\n",old.errP95,now.errP95,old.wrong,now.wrong);
+      }
+      for(double slope : {0.0,0.6,-0.6}) {
+        State a=still; a.worldSlope=slope; a.worldEyeTint=2.0;
+        Result r=run(g,a,a,motion); report("depth motion: static slope keeps eye-dependent shading",r,clean(r));
+      }
+      { State a=still; a.worldEyeTint=2.0; Opt mono=motion; mono.noHeld=true;
+        Result r=run(g,a,a,mono); report("depth motion control: all-fresh loses eye-dependent shading",r,r.ok && r.errP95>2.0); }
+      for(const State* next : {&turn,&head,&all,&walkTurn}) {
+        Result r=run(g,still,*next,motion);report("depth motion: head/body/controller movement",r,clean(r));
+      }
+    }
     { Result r = run(g, still, walk);    report("walking one tick: the pillar's parallax carried", r, clean(r) && r.verdict == 1); }
     { Result r = run(g, still, walkTurn); report("walking + turning + head turn", r, clean(r) && r.verdict == 1); }
     // The review's counterexamples.
@@ -858,6 +914,29 @@ int main() {
         check("diagnostic capture writes both presents", ok == 10 && !strncmp(st, "done", 4), d);
         release(sc);
     }
+    {   // Cutscene feed is zero even though these masked hands retain their gain.
+        State s0=still, s1=moved; s0.fgTan=s1.fgTan=kTan/0.911;
+        Opt c; c.cutsceneHands=true; c.fgEnabled=true; c.mask=true; c.writer=3;
+        Result stable=run(g,s0,s0,c);
+        report("cutscene masked gain: still hand and world",stable,clean(stable) && stable.handErrP95<0.1);
+        Result moving=run(g,s0,s1,c);
+        report("cutscene masked gain: moving hand",moving,clean(moving) && moving.handErrP95<0.1);
+        Opt old=c; old.cutsceneHands=false; Result bad=run(g,s0,s1,old);
+        char detail[200]; snprintf(detail,sizeof(detail),"hand-only p95: old %.3f px, corrected %.3f px; world p95 %.3f px",bad.handErrP95,moving.handErrP95,moving.errP95);
+        check("control: old zero cutscene feed misplaces hand",bad.ok && bad.handErrP95>1.0 && moving.handErrP95<0.1,detail);
+        Opt gameplay=c; gameplay.writer=1; Result gp=run(g,s0,s1,gameplay);
+        report("cutscene option leaves gameplay zero feed unchanged",gp,gp.ok && gp.ghost==bad.ghost && gp.missing==bad.missing && gp.wrong==bad.wrong && gp.handErrP95==bad.handErrP95);
+        Opt noMask=c; noMask.mask=false; Opt noMaskOld=noMask; noMaskOld.cutsceneHands=false;
+        Result nm=run(g,s0,s1,noMask), nmOld=run(g,s0,s1,noMaskOld);
+        report("cutscene option refuses unknown masks",nm,nm.ok && nm.ghost==nmOld.ghost && nm.missing==nmOld.missing && nm.wrong==nmOld.wrong && nm.handErrP95==nmOld.handErrP95);
+        Opt unity=c; unity.fgGain=1; Result u=run(g,s0,s1,unity);
+        report("cutscene gain one preserves uncorrected control",u,u.ok && u.ghost==bad.ghost && u.missing==bad.missing && fabs(u.handErrP95-bad.handErrP95)<0.001);
+        Opt mixed=c; mixed.heldWriter=1; Result mx=run(g,s0,s1,mixed);
+        report("cutscene option refuses mixed camera owners",mx,mx.ok && mx.handErrP95==bad.handErrP95);
+        s0.barZ=s1.barZ=-0.35; s0.barX0=s1.barX0=-0.30; s0.barX1=s1.barX1=-0.10;
+        Result wall=run(g,s0,s1,c);
+        report("cutscene masked gain keeps near wall at world projection",wall,clean(wall) && wall.handErrP95<0.1);
+    }
     { Result r = run(g, fgStill, fgStill, fgOn); report("foreground at its own FOV, still: hands exact", r, clean(r)); }
     { Result r = run(g, still, fgTurn, fgOn);    report("foreground at its own FOV, turn", r, clean(r)); }
     { Result r = run(g, still, fgMoved, fgOn);   report("foreground at its own FOV, hand moved", r, clean(r)); }
@@ -918,6 +997,12 @@ int main() {
         report("foreground inside a wall: still background stays exact", r,
                clean(r) && r.errMax < 2.0);
         printf("  still wall maximum coordinate error %.3f px\n", r.errMax);
+        m.depthMotion=true; r=run(g,a,a,m);
+        report("depth motion: foreground inside wall",r,clean(r) && r.errMax<2.0);
+        m.depthMotion=false; m.freshWorld=true;r=run(g,a,a,m);
+        report("current-time world: foreground inside wall",r,clean(r) && r.errMax<2.0);
+        State b=a;b.bodyPos={0,0,-.05};r=run(g,a,b,m);
+        report("current-time world: moving into wall",r,r.ok && r.handTruth>500 && r.ghost<r.handTruth/100 && r.missing<r.handTruth/100);
     }
     g_signForeground = false; dvr::depthprobe::g_prefgReady = false;
     // NEGATIVE CONTROLS: the same motion with a lever off must show the fault.
@@ -994,6 +1079,14 @@ int main() {
         snprintf(dsc, sizeof(dsc), "synthesized eye: grid 2 %.3f ms, 4 %.3f, 8 %.3f, 16 %.3f | full rebuild %.3f ms (back to back)",
                  c[0], c[1], c[2], c[3], full);
         check("cost: a synthesized eye at 2750x2850 (informational)", c[1] > 0, dsc);
+        dvr::afw::set_depth_motion(true,"cost");
+        const double moving = timed([&] { dvr::afw::Pose o{}; const char* w=nullptr;
+            dvr::afw::warp_held(g.dev,g.ctx,0,1,sc.sf,big,W,H,1,1,&o,&w); });
+        dvr::afw::set_depth_motion(false,"cost");
+        const double control = timed([&] { dvr::afw::Pose o{}; const char* w=nullptr;
+            dvr::afw::warp_held(g.dev,g.ctx,0,1,sc.sf,big,W,H,1,1,&o,&w); });
+        snprintf(dsc,sizeof(dsc),"OFF %.3f ms, ON %.3f ms, OFF again %.3f ms (2750x2850, host only)",full,moving,control);
+        check("cost: depth-motion A/B/A (informational)",moving>0 && control>0,dsc);
         release(sc);
         if (dj) dj->Release(); if (qa) qa->Release(); if (qb) qb->Release(); if (big) big->Release();
     }

@@ -911,6 +911,20 @@ static void OvlTabDisplay()
                    "the previous frame, warped to your head. Aims for the headset's full rate. Best when combined with DLSS or DLAA.");
             if ((c0 || c1 || c2) && sm != cur && dvr::stereo::choose(kNames[sm]))
                 ConfigWriteKey("Stereo", "Method", kNames[sm], "F10 Display");
+            if (isAfw) {
+                bool ch=dvr::afw::cutscene_hands();
+                if (dvr::ovl::checkbox("AFW: correct cutscene hands",&ch)) {
+                    dvr::afw::set_cutscene_hands(ch,"F10");
+                    ConfigWriteKey("Stereo","AfwCutsceneHands",ch ? "1" : "0","F10 Display");
+                }
+                OvlTip("Keep the usual hand correction during cutscenes. Applies only to identified hands; the cutscene camera framing stays unchanged. Experimental; off by default.");
+                bool dm=dvr::afw::depth_motion();
+                if (dvr::ovl::checkbox("AFW: reduce moving-character trails",&dm)) {
+                    dvr::afw::set_depth_motion(dm,"F10");
+                    ConfigWriteKey("Stereo","AfwDepthMotion",dm ? "1" : "0","F10 Display");
+                }
+                OvlTip("Rejects old pixels when depth shows a surface moved. Keeps static scenery's own eye shading. Experimental; off by default. Sideways motion at unchanged depth and hidden surfaces can still trail.");
+            }
             if (OvlAt(kOvlD)) {
                 bool clamp = DeltaClampEnabled();
                 ImGui::BeginDisabled(!isAer);

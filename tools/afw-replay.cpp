@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <initializer_list>
+#include <exception>
 
 #include "core/util/log.h"
 namespace dvr::log {
@@ -93,7 +94,7 @@ static void vec(const std::string& s, float* out, int n) {
 }
 
 static int g_maskArg = 1;
-int main(int argc, char** argv) {
+static int replay(int argc, char** argv) {
     if (argc < 3) { printf("usage: afw-replay <capture dir> <out dir> [debug 0|1] [stereo 0|1] [matrices 0|1]\n"); return 2; }
     setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string dir = argv[1], out = argv[2];
@@ -136,12 +137,26 @@ int main(int argc, char** argv) {
         ID3D11Texture2D* dst = tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, D3D11_BIND_RENDER_TARGET, D3D11_USAGE_DEFAULT, 0, nullptr, 0);
         ID3D11Texture2D* st = tex(g, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0, D3D11_USAGE_STAGING, D3D11_CPU_ACCESS_READ, nullptr, 0);
         dvr::afw::set_enabled(true, "replay");
+        { char value[8]={};
+          const bool freshWorld=GetEnvironmentVariableA("DVR_AFW_FRESHWORLD",value,sizeof(value)) ? value[0]=='1' : atoi(m["freshWorld"].c_str())!=0;
+          dvr::afw::set_fresh_world(freshWorld,"replay"); }
+
+        { char value[8]={};
+          const bool on=GetEnvironmentVariableA("DVR_AFW_DEPTH_MOTION",value,sizeof(value)) ? value[0]=='1' : atoi(m["depthMotion"].c_str())!=0;
+          dvr::afw::set_depth_motion(on,"replay"); }
+        { char value[8]={};
+          const bool on=GetEnvironmentVariableA("DVR_AFW_CUTSCENE_HANDS",value,sizeof(value)) ? value[0]=='1' : atoi(m["cutsceneHands"].c_str())!=0;
+          dvr::afw::set_cutscene_hands(on,"replay");
+          dvr::afw::set_fg_gain(m.count("fgGain") ? strtof(m["fgGain"].c_str(),nullptr) : 0.911f); }
         dvr::afw::set_debug(dbg, "replay"); dvr::afw::set_stereo(stereo, "replay"); dvr::afw::set_matrices(mtx, "replay");
         dvr::afw::set_world_scale(strtof(m["worldScale"].c_str(), nullptr));
         dvr::afw::set_body_depth(strtof(m["bodyUnits"].c_str(), nullptr), "replay");
         // The foreground FOV: the capture's own, or (older captures) the -Fg argument.
         dvr::afw::set_fg_fov(g_fgArg > 0.0f ? g_fgArg : (m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : 0.0f));   // the argument overrides the recording (an A/B of the arms lens)
-        dvr::afw::set_fg(g_fgOn, "replay");
+        { char value[8]={};
+          const bool on=GetEnvironmentVariableA("DVR_AFW_FG",value,sizeof(value)) ? value[0]=='1' :
+              (m.count("fgOn") ? atoi(m["fgOn"].c_str())!=0 : g_fgOn);
+          dvr::afw::set_fg(on,"replay"); }
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
         dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
@@ -171,7 +186,7 @@ int main(int argc, char** argv) {
             auto key = [&](const char* s) { return m[std::string(who) + "." + s]; };
             dvr::afw::Pose tg[2] = {pose_of(key("target0")), pose_of(key("target1"))};
             float vp[16], c5[3], rot[3]; vec(key("vp"), vp, 16); vec(key("c5"), c5, 3); vec(key("rot"), rot, 3);
-            dvr::afw::CaptureMeta cm; cm.recId = (uint32_t)atoi(key("rec").c_str());
+            dvr::afw::CaptureMeta cm; cm.recId = (uint32_t)atoi(key("rec").c_str()); cm.writer = atoi(key("writer").c_str());
             if (ID3D11Texture2D* ct = k == 0 ? hct : fct) dvr::afw::note_clean(g.dev, g.ctx, ct, k == 0 ? sh : sf);
             dvr::afw::note_capture(g.dev, g.ctx, k == 0 ? held : fresh, k == 0 ? ht : ft, k == 0 ? sh : sf, pose_of(key("pose")),
                                    key("bodyOk") == "1", strtof(key("bodyYaw").c_str(), nullptr), tg,
@@ -234,4 +249,9 @@ int main(int argc, char** argv) {
                        scored, sumNear / scored, sumWorld / scored, sumDots / scored);
     dvr::afw::shutdown();
     return 0;
+}
+
+int main(int argc, char** argv) {
+    try { return replay(argc,argv); }
+    catch (const std::exception& e) { fprintf(stderr,"replay failed: %s\n",e.what()); return 3; }
 }

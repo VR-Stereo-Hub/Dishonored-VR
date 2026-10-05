@@ -16,8 +16,10 @@ function New-Fixture {
     return $f
 }
 function Install([string]$dir,[string]$download=$source,[string]$pkg=$packages) {
-    & $ps -NoProfile -ExecutionPolicy Bypass -File $helper -GameDir $dir -DownloadFile $download -PackageDir $pkg | Out-Null
-    return $LASTEXITCODE
+    $result = & $ps -NoProfile -ExecutionPolicy Bypass -File $helper -GameDir $dir -DownloadFile $download -PackageDir $pkg
+    $code = $LASTEXITCODE
+    if ($code -ne 0) { Write-Host ($result -join "`n") }
+    return $code
 }
 
 # ---- an existing setup: runtime extraction, backups, hash rejection, nothing of the player's changed
@@ -53,7 +55,7 @@ if((Install $fresh) -ne 0){throw 'fresh install failed'}
 $ini=Join-Path $fresh 'ReShade.ini'
 if(-not (Test-Path -LiteralPath $ini)){throw 'fresh install wrote no ReShade.ini - ReShade will refuse to load'}
 $text=[IO.File]::ReadAllText($ini)
-foreach($want in 'EffectSearchPaths=.\dvr-reshade-shaders\standard\Shaders','custom\Shaders\**','KeyEffects=145,0,0,0','PerformanceMode=1'){
+foreach($want in 'EffectSearchPaths=.\dvr-reshade-shaders\standard\Shaders','custom\Shaders\**','KeyEffects=145,0,0,0','PerformanceMode=1','SkipLoadingDisabledEffects=0'){
     if(-not $text.Contains($want)){throw "ReShade.ini lacks $want"}
 }
 if($text.Contains('PresetPath')){throw 'PresetPath written without a preset present'}

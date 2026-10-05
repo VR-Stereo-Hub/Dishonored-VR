@@ -1,5 +1,5 @@
 # Compile and run the AFW held-eye warp (VR-39) on the host. Never launches the game.
-param([switch]$OldMswControl)
+param([switch]$OldMswControl, [switch]$LegacyFreshWorld)
 $ErrorActionPreference = "Stop"
 if (Get-Process Dishonored -ErrorAction SilentlyContinue) { throw "Close game before native GPU checks." }
 $repo = Split-Path -Parent $PSScriptRoot
@@ -26,7 +26,8 @@ try {
         $warpSource = Join-Path $out 'afw_warp_242.cpp'
         [IO.File]::WriteAllText($warpSource, $old, [Text.UTF8Encoding]::new($false))
     }
-    & "$root\bin\Hostx64\x86\cl.exe" /nologo /EHsc /W4 /std:c++17 /I (Join-Path $repo "src") /Fe:afw-warp-tests.exe (Join-Path $PSScriptRoot "afw-warp-tests.cpp") $warpSource /link d3d11.lib
+    $legacyFlag = "/DDVR_WITH_LEGACY=" + [int][bool]$LegacyFreshWorld
+    & "$root\bin\Hostx64\x86\cl.exe" $legacyFlag /nologo /EHsc /W4 /std:c++17 /I (Join-Path $repo "src") /Fe:afw-warp-tests.exe (Join-Path $PSScriptRoot "afw-warp-tests.cpp") $warpSource /link d3d11.lib
     if ($LASTEXITCODE -ne 0) { throw "afw-warp compilation failed." }
     .\afw-warp-tests.exe
     if ($LASTEXITCODE -ne 0) { throw "afw-warp tests failed." }

@@ -1,3 +1,304 @@
+## 2026-10-04: AFW cutscene hands lose the ordinary foreground correction
+
+Surface: the hands during authored cutscenes under AFW; separate from moving NPC
+and boat-world trails. Reported flicker may be related to suppressed authored FOV.
+The latest existing burst afw-20261004-204747 is verified to installed build
+v1.0.3-46-g4c34beb46, SHA256
+b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+
+MEASURED: both camera records use authored writer 3. The rendered world and
+cinematic claim are 103 degrees, but fgFov=0 throughout the burst. Hand masks
+are valid and contain the visible hands. The code in FovLeverApply explicitly
+zeros the ordinary feed while cinematic recovery or the cinematic draw scope
+owns the view. The guard dates to run 7, when the feed followed a narrowed game
+sensor. Run 14 changed it to a fixed foreground gain independent of that sensor,
+but retained the cinematic guard. This is a specific suppressed correction,
+not proof that the game renders its hands at a different optical FOV.
+
+The old fgproj instrument reports no foreground draws here because these hands
+use full viewport depth. It therefore cannot rule out a native hand FOV change.
+The new read-only diagnostic also samples explicitly marked hand submissions;
+it changes no engine fields, render constants or draw decisions.
+
+OFFLINE EVIDENCE: first-pair controllers move under 0.04 mm over 10.008 ms.
+Restoring the existing 0.911 foreground gain using a 108.1427-degree equivalent
+correction reduces masked-hand RGB absolute error against the earlier native
+held eye from 1.818 to 0.959 left and 3.226 to 1.326 right (byte units, selected
+hand regions). This is a local alignment comparison, not same-instant truth,
+not a perceptual flicker score and not proof every cutscene needs the gain.
+Later burst frames stall by 185..654 ms and are not temporal ground truth.
+
+CANDIDATE: default-off [Stereo] AfwCutsceneHands, Basic Display > Stereo rendering
+> AFW: correct cutscene hands; afw cinehands on|off. Only when the ordinary feed
+is zero, both available source records are authored-camera captures and both
+source masks are known, derive hand tangents from the rendered view divided by
+the existing AfwForegroundGain. Unknown masks and mixed camera owners refuse it.
+Only marked foreground pixels use these tangents. Camera FOV suppression,
+gameplay/scope behavior, world selection, MSW, and engine-memory writers are
+unchanged. The rejected depth-motion option remains OFF on the test machine.
+Capture/replay records the switch, gain and applied correction; replay now reads
+the recorded writer and supports DVR_AFW_CUTSCENE_HANDS=0|1.
+
+HOST: 90 native GPU checks pass. Hand-only p95 improves 3.205 -> 0.014 pixels
+in the zero-feed control, with zero incorrect/missing hand pixels and a stable
+world. Controls cover option OFF, unity gain, gameplay writer, mixed owners,
+missing mask and a near world wall. The initial test's whole-frame percentile
+and two-pixel silhouette exclusion hid this small hand-only error; adding a
+separate foreground coordinate percentile makes that negative control fail.
+No product threshold was relaxed to pass the test. Existing world, wall, UI,
+controller-motion and MSW checks remain passing.
+
+FINAL CAPTURE CHECK: replay initially left the candidate inactive because it
+ignored recorded fgOn and treated an omitted override as foreground OFF. Repair
+that tool setting and expose DVR_AFW_FG for an explicit override. The corrected
+first-frame candidate agrees with the explicit 108.1427-degree test to mean RGB
+0.000065/255. All 6,234,796 pixels outside both hand masks plus a 64-pixel margin
+remain byte-exact to OFF. This is a single-pair locality check, not all-scene
+acceptance. The earlier 15-frame OFF check is byte-exact to the preceding OFF
+replay. A later full-resolution replay runs out of allocation space; add explicit
+exception reporting rather than silently losing the process. Full-capture retry
+is pending while the tester has the game running. No runtime allocation was
+added by the candidate. Build/host and capture completion are separate checks.
+
+OPEN: headset confirmation and depth availability. Before the dump, a 295-submit
+window has only 106 full rebuilds, 95 temporal-only and 94 fresh-only. These
+fallbacks may independently flicker; this candidate does not fix depth delivery.
+The projected-gain fix must not be described as solving all cutscene instability.
+One next-launch question after installation: in the same cutscene, does toggling
+AFW: correct cutscene hands ON/OFF/ON reduce the hand flicker? Reduced supports
+the lost-correction explanation; unchanged leaves depth/source fallback or native
+hand projection open; worse rejects the gain for that cutscene and means OFF.
+
+## 2026-10-04: AFW depth-motion headset regression; disabled
+
+REPORTED: build 46 substantially worsens ghosting. This rejects the candidate;
+82 synthetic passes did not predict its perceptual behavior. Capture
+`afw-20261004-204747` matches log banner v1.0.3-46-g4c34beb46 and installed DLL
+SHA256 b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+All 16 records have depthMotion=1 and matrixVerdict=1. DLAA is active in this
+run; the previous 19:43 boat burst had DLSS off. Do not equate those runs.
+
+Surface/route: moving boat/NPC trails in AFW's rebuilt eye, with surrounding
+geometry affected. Same-input ON/OFF replay changes 9.2136% of RGB pixels by
+more than one byte on average (0.7063% by more than 16). This is output footprint,
+not a ghosting score. Visual comparison includes rails, steps and scenery edges.
+The production option changes three decisions: the guarded world-depth test,
+stale visibility rejection, and nearer-fresh preference. Only the first uses
+local surface variation. An OFFLINE-ONLY ablation restores the previous two
+visibility thresholds while retaining the guarded test: changed footprint falls
+to 3.9728% (0.3510% over 16); the visibility rules account for 5.2408 percentage
+points. This isolates an unintended broad effect, not proof the remaining
+variant is acceptable. No altered shader or new build was installed.
+
+Instrument limits: ON replay is not byte-exact to captured rebuilt output.
+Inspected p00/p08 mean RGBA byte differences are 0.1076/0.1913; resolve replay
+parameter/runtime parity before treating it as exact reproduction. Capture
+fresh-minus-held ages are 10.0 ms in p00 and 185..654 ms later due to readbacks.
+Next-native scores favor ON slightly (world 0.198% vs OFF 0.209%) despite the
+headset rejection, another explicit failure of that metric as an acceptance
+measure. Neither different-instant replay scores nor passing synthetic planes
+can overrule the observed regression. DLAA is a contextual difference, not an
+established cause; same-input ablation retains it in every comparison.
+
+ACTION: archive installed DLL, full INI, current/previous logs locally under
+build/performance-audit/boat-204747/. With the game stopped, set only
+AfwDepthMotion=1 -> 0. Entire INI diff confirms that single change; exact expected
+bytes and CRLF validation pass. New INI SHA256
+7e9415619397be2af94c29ee180038e7bc3b08f488de4e11fe41282dcb067d0e.
+Installed DLL, AFW method, DLAA, animation settings and other preferences remain.
+The option remains default-off research code in the draft, not an accepted fix.
+
+Recoverable plan: keep disabled; establish capture/replay parity, then add a
+regression fixture containing the real edge/depth variation that the synthetic
+planes missed. Require independent object-motion evidence and static-scenery
+preservation before another source-selection candidate. Pure tangential motion
+and silhouette fill remain open. No additional launch requested, no game launch,
+no integration/release merge. Retain this rejected result when retiring code.
+
+## 2026-10-04: depth-motion candidate installed (historical; rejected above)
+
+Installed v1.0.3-46-g4c34beb46, preserving the newer installed animation baseline
+01b763971 (build 44's baseline was 65b278d04). Proxy SHA256
+b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+The shader and 82-check suite are unchanged from the candidate below. Full backup
+and exact INI diff are in the STATUS installation entry. Only Method=afw and
+AfwDepthMotion=1 change; other settings stay at their current user values.
+
+The next single comparison is ON/OFF/ON of AFW: reduce moving-character trails
+on the same boat: less ghosting on people without worse scenery supports this
+candidate, unchanged remains open, worse rejects it and should be left OFF.
+Starts ON. No game launch here; matching new banner and headset result pending.
+
+## 2026-10-04: original boat NPC trails; depth-consistency candidate (build only)
+
+Surface: the people on the boat, with lesser boat trails, in AFW's rebuilt eye.
+Route: moving boat/NPC row and run 18's stale-depth limit. New burst
+`afw-20261004-194331` belongs to v1.0.3-36-g65b278d04, compiled 19:39:25,
+installed SHA256 f392dc0e92a53ddd0242ec98fcb7beb31a585819a33a8a83b24aaad515c3dd88.
+The matching captured run is now prev.log (start 31688843); current.log is a later
+launch of the same build. Both logs, DLL and full INI are archived locally under
+build/performance-audit/boat-194331/. The capture has no fresh-world experiment.
+
+- MEASURED: DLSS was switched OFF at 31744937, before the burst at
+  317689xx..31772093; it returns ON at 31888812. Native eye images have intact
+  character outlines; rebuilt-eye images contain broken strips around clothing,
+  limbs and faces. DLSS history is not required for this captured failure.
+- MEASURED: the old rejection threshold is 1.5% of depth plus 0.01 depth units.
+  Four inspected NPC pixels in p08 have depths 0.6523..0.7446 units (1.51..1.72 m),
+  giving 4.58..4.90 cm of tolerated mismatch. This allows small independent
+  character/vehicle movements to survive as old surface pixels. These are
+  inspected points, not a whole-character depth census.
+- TRIED: the minimum supported stale tolerance 0.005 still leaves visible
+  strips and changes some boat edges. A preceding request for 0 was rejected
+  by the existing setter; that output is a default-path control, not a zero
+  tolerance experiment. Do not repeat the prior per-pixel RGB-motion classifier
+  or unconditional fresh-world replacement; their failure is already recorded.
+- CANDIDATE: default-OFF [Stereo] AfwDepthMotion, Basic Display > Stereo rendering
+  > AFW: reduce moving-character trails; afw depthmotion on|off. Compare valid
+  current stereo and temporal world depths. Beyond two R16F relative rounding
+  bounds (1/512), test local two-source-texel depth variation before preferring
+  the fresh sample. Unchanged depths bypass the extra neighborhood fetches.
+  Visibility rejection uses the same precision bound while retaining the
+  existing neighborhood around silhouettes. Foreground rules remain separate.
+  This is depth evidence for moving surfaces, not character recognition or
+  a claim of per-object velocity. No engine objects or memory writes are added.
+- HOST-VERIFIED: 82 checks pass. A synthetic world surface moving +/-1 cm in
+  depth with 5 mm lateral motion improves p95 error from 1.608/1.085 pixels to
+  0.004/0.007; -3 cm improves 2.880 to 0.002; +3 cm stays near 0.001. Static
+  sloped surfaces preserve deliberately different per-eye shading. The all-fresh
+  negative control produces 161.28 px error and proves that test can reject
+  another broad replacement. Head/body/controller motion, foreground through
+  walls, original depth/UI/MSW and refusal tests pass.
+- REPLAY-MEASURED: new boat output changes the affected character interiors but
+  residual silhouette/fill strips remain. No same-instant truth image is captured,
+  so no percentage ghosting improvement is claimed. The prior alley control
+  changes only 1.10% of pixels by more than one byte on average (0.0448% by more
+  than 16; mean absolute RGB change 0.048/255), keeping most static world output.
+  This is a narrower footprint than build 34, not headset acceptance.
+- INSTRUMENT repair: the synthetic reflection control initially marked visible
+  world pixels unseen because its visibility test used the tinted color as point
+  identity. Removing the known synthetic eye tint from that visibility comparison
+  makes the control falsifiable. No product tolerance was relaxed to pass it.
+- LIMITS: pure sideways motion at unchanged depth remains unsolved; unseen regions
+  still need fill; shape changes at silhouettes and other temporal effects can
+  remain. Capture readbacks produce 180..438 ms record gaps in many frames,
+  so next-native-frame replay scores remain unsuitable as same-instant truth.
+  A native skinned-draw mask was considered; it would require a new captured
+  mask and verified occlusion provenance, so it is not silently approximated here.
+
+Capture metadata now records depthMotion; replay honors it or an explicit
+DVR_AFW_DEPTH_MOTION=0|1 override. The experiment ships OFF with a live toggle.
+No installation, INI edit or game launch in this task. Build includes the separately
+installed animation baseline for eventual testing; no integration/release merge.
+After installation is authorized, ONE question: on the same boat, does the new
+switch OFF/ON/OFF reduce the people's trails without making surrounding scenery
+worse? Reduced supports the depth-dead-band correction; unchanged leaves motion
+at unchanged depth or fill as leading scope; worse rejects this candidate.
+Keep other settings fixed. Do not claim the ferry solved before that result.
+
+## 2026-10-04: build 34 fresh-world regression; experiment withdrawn (build only)
+
+Surface: AFW world geometry and the environment around a moving boat in the
+headset. Routing: section 1's moving boat/ferry row. REPORTED: slightly improved
+boat appearance but substantially worse ghosting across surrounding and ordinary
+world geometry. This rejects the previous candidate's tradeoff; the synthetic
+platform result did not establish general image quality.
+
+Identity was checked before interpretation. Both 16-frame bursts (18:59:54 boat,
+19:01:35 alley) belong to v1.0.3-34-g63a890a76, built 18:52:56, with freshWorld=1.
+The historical installed manifest and preserved tested DLL match SHA256
+4a29ae80dd9d4d44410a2639dc7120e97841ea47abaa674d7a75abee27481d30.
+The currently installed DLL had already changed to a separate build-33 candidate
+after this run; it is not the producer of these captures. No game files were
+changed during this follow-up. Local evidence: build/performance-audit/run34-followup/;
+raw bursts remain in their timestamped local AFW dump folders, never committed.
+
+- MEASURED: all recorded rebuilds accept game-camera matrices. The failure is
+  not explained by a permanent matrix-refusal latch.
+- REJECTED hypothesis: the clean/composed RGB difference might mistake broad
+  post-processing for UI and paste stale world back over fresh pixels. Across
+  all 32 source images per burst, boat clean/composed images are identical;
+  alley differences above one byte cover at most 0.0208% of an image. This
+  does not support broad HUD-overlay contamination in either burst.
+- MEASURED: replaying each capture with the option ON/OFF changes normal world
+  detail, including view-dependent reflective surfaces. The first alley frame's
+  mean absolute RGB change is 1.43/255; 1.22% of pixels differ by over 16 in at
+  least one channel. This identifies affected pixels, not a perceptual score or
+  proof that all reported ghosting is caused by reflections.
+- LIMIT: the existing replay score compares a rebuild against the NEXT native
+  frame. Readback stalls and moving boats make that a different instant. Boat
+  world disagreement ON/OFF is 9.871%/10.079%; alley 0.217%/0.211%. These small
+  aggregate differences did not predict the severe reported regression and
+  must not override headset evidence or be called same-instant ground truth.
+- CORRECTION: retire unconditional fresh-world preference to
+  src/legacy/afw_fresh_world.inc, compiled only with DVR_WITH_LEGACY. Normal
+  builds retain the prior held-eye world selection and its existing fresh-eye
+  foreground/disocclusion handling. Refuse/log old INI and command ON requests;
+  remove the player-facing checkbox and new-default/save emission. A retained
+  AfwFreshWorld=1 cannot reactivate it. No new object-motion heuristic is guessed.
+- VALIDATION: 68 normal native AFW checks pass. The explicit ON-request fixture
+  now preserves the old platform error, deliberately documenting that the
+  original tangential-motion limitation remains. All 30 replayed rebuilds from
+  the two captures match the previous option-OFF output byte-for-byte even with
+  ON requested. Legacy host/replay switches retain the failed mode for research; all 71
+  legacy host checks also pass.
+
+OPEN: original boat ghosting, upstream temporal reconstruction and perceptual
+confirmation that this rollback restores ordinary-world quality. Build only per
+request; no installation, INI write, game launch or new headset test requested.
+Recoverable plan: after installation is authorized, one launch asks whether
+ordinary-world ghosting returns to the pre-build-34 level with other settings
+fixed. Improvement supports the regression rollback; unchanged means investigate
+upstream temporal imagery and timing before another source-selection experiment.
+Then isolate the boat separately, keeping geometry motion and DLSS history as
+separate hypotheses with same-instant controls. Do not restore this mode based
+only on the synthetic moving-platform score.
+
+## 2026-10-04: AFW moving boat/ferry ghosting (historical candidate, REJECTED above)
+
+Surface: world/moving vehicle in the headset under AFW; the reported lagging eye
+is uncertain. Routing: section 1's eye-behind row, plus the vehicle-motion case
+recorded on 2026-09-29. This is separate from accepted head-follow and wall/weapon
+corrections. Verified run v1.0.3-32-gf03ad520f against installed proxy hash
+08e66ed0e8a83e7f0100f81d9963e648da55d0c8b15d9b1e6b0f60e055daa4cb;
+archived evidence and performance populations are in PERFORMANCE.md's new entry.
+
+- REPORTED: heavy ghosting riding a boat/ferry; suspected one eye a frame behind.
+- MEASURED: archived late AFW windows use game-camera matrices for every rebuild,
+  with no camera-refusal latch. A permanent matrix refusal is not supported by
+  this run. No event-marked boat image burst exists, so exact scene attribution
+  and whether upstream DLSS contributes remain OPEN.
+- HOST-MEASURED defect: AFW's old world selection uses depth disagreement to find
+  stale moving surfaces. A textured surface moving tangentially can keep the same
+  depth and remain stale. A synthetic platform moves 8 cm sideways with the player:
+  matrices accepted, old-path p95 coordinate error 13.66 px. Correct camera motion
+  alone is therefore not sufficient; this is the negative control.
+- CANDIDATE: [Stereo] AfwFreshWorld=0 (default OFF), Basic F10 > Display > Stereo
+  rendering > AFW: moving scenery from the current frame; afw freshworld on|off.
+  Prefer valid current-frame world samples reprojected from the fresh eye. Keep
+  existing foreground rules and older-eye disocclusion fill. Candidate p95 0.02 px;
+  reverse travel 0.01 px, moving object/stationary camera 0.01 px, static 0.01 px;
+  zero hand ghosts or missing hand pixels. All 71 AFW host checks pass, including
+  new head/body/controller motion and foreground-through-wall cases.
+- LIMITS: opposite-eye samples can change view-dependent reflections/shine. An
+  unseen disocclusion can still use older content. The option does not remove
+  ghosting already baked into a DLSS input, predict object motion, or change MSW.
+  It is a source-selection option, not proof that the ferry is fixed. Both eyes
+  alternate being old; no claim of a permanently delayed right eye.
+- CAPTURE: freshWorld is saved in each AFW metadata record; replay honors it and
+  DVR_AFW_FRESHWORLD=0|1 can override it for comparisons.
+
+Next launch's ONE question: while riding the same boat/ferry, does this switch
+OFF then ON repeatably reduce/remove the ghosting? Candidate installation arms
+it ON. Reduced implicates older world samples; unchanged needs a timed AFW capture
+and DLSS isolation; worse rejects this mode for that scene. No quality settings
+are silently reduced. Headset acceptance remains pending.
+
+Installed test identity: v1.0.3-34-g63a890a76, SHA256
+4a29ae80dd9d4d44410a2639dc7120e97841ea47abaa674d7a75abee27481d30.
+AfwFreshWorld=1 is the only installed INI change; full comparison and CRLF checks
+pass. PERFORMANCE records the backup and unchanged settings. No game launch.
+
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
 Reported weapon-wheel arm loss and uncertain pause-menu arm loss on the
@@ -3181,6 +3482,8 @@ pose metadata without reopening the disproved historical theories.
 
 | Observation | First suspect / distinguishing evidence | Status in reviewed baseline |
 |---|---|---|
+| AFW cutscene hands flicker while world FOV is locked | Ordinary foreground gain is zero during authored ownership despite valid hand masks; actual hand projection was unmeasured | 2026-10-04 masked cutscene correction candidate; 90 host checks, headset pending; depth-source fallback remains separate |
+| AFW moving-boat trails concentrated on people | New DLSS-off capture: old rejection admits about 5 cm of depth mismatch at inspected NPC points; pure tangential motion remains separate | 2026-10-04 build 46 rejected after worse headset ghosting; installed AfwDepthMotion=0. Offline ablation implicates tightened general visibility rules; remaining guarded variant unaccepted. Broad AfwFreshWorld remains rejected |
 | Small flicker on newly active full IK arms, subtype uncertain | IK history mixed head-locate and hand-publication counters; surface/pose distinction still needs pixels | 2026-10-04 code/host defect corrected; headset effect pending. Basic IK/Display frame burst added; see newest entry |
 | AFW rebuilt hand/sword duplicates more deeply inside a wall | Background fill chooses a geometrically farther foreground seed | 2026-09-30 follow-up: fill fixed the solid duplicate; foreground-aware stale rejection removes the striped remainder in replay, 46/46 host tests; headset pending |
 | AFW hands slide opposite lateral head motion while world stays stable | Native hand image/pose association, including position ties | Build 242 HEADSET-ACCEPTED with PoseFromView=1 and rotation-assisted ties. Negligible residual reported; do not infer all views matched. |

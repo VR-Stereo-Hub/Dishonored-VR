@@ -52,7 +52,18 @@ function Expand-Package([byte[]]$bytes, [string]$dest) {
             $in = $entry.Open(); $fs = [IO.File]::Create($out)
             try { $in.CopyTo($fs) } finally { $fs.Dispose(); $in.Dispose() }
         }
-        [IO.Directory]::Move($staged, $dest)
+        # Newly extracted files may still be held briefly by a filesystem scanner.
+        # Retry only the atomic rename; never replace an existing player folder.
+        for ($attempt = 0; ; ++$attempt) {
+            try { [IO.Directory]::Move($staged, $dest); break }
+            catch {
+                $cause = $_.Exception.GetBaseException()
+                if ($attempt -ge 5 -or [IO.Directory]::Exists($dest) -or
+                    -not [IO.Directory]::Exists($staged) -or
+                    -not ($cause -is [IO.IOException] -or $cause -is [UnauthorizedAccessException])) { throw }
+                Start-Sleep -Milliseconds (100 * ($attempt + 1))
+            }
+        }
     } catch {
         if (Test-Path -LiteralPath $staged) { Remove-Item -LiteralPath $staged -Recurse -Force }
         throw
@@ -144,7 +155,7 @@ try {
         $lines = @('[GENERAL]', "EffectSearchPaths=$effects", "TextureSearchPaths=$textures")
         $carinth = Join-Path $targetDir 'DishonoredCarinthPresetv3.ini'
         if (Test-Path -LiteralPath $carinth) { $lines += 'PresetPath=.\DishonoredCarinthPresetv3.ini' }
-        $lines += @('PerformanceMode=1', 'SkipLoadingDisabledEffects=1', '', '[INPUT]', 'KeyEffects=145,0,0,0', 'KeyOverlay=36,0,0,0', '')
+        $lines += @('PerformanceMode=1', 'SkipLoadingDisabledEffects=0', '', '[INPUT]', 'KeyEffects=145,0,0,0', 'KeyOverlay=36,0,0,0', '')
         [IO.File]::WriteAllText($ini, ($lines -join "`r`n"), (New-Object Text.UTF8Encoding $false))
         $report.Add('Created ReShade.ini (ReShade will not start without one).')
     }

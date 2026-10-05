@@ -1,3 +1,23 @@
+## Performance audit and persistent ReShade controls (2026-10-04)
+
+- [x] Merge combined PRs #168/#172/#173/#174 to staging on explicit instruction.
+- [x] Audit release changes and the verified combined-build trace; rank costs in PERFORMANCE.md.
+- [x] Preserve disabled ReShade controls across native runtime and process restart tests.
+- [x] Add bounded HUD substage timing and a readable AFW GPU-cost summary.
+- [x] Read HUD toggle follow-up (small gain reported; uncontrolled timing segments).
+- [x] Optimize repeated blank HUD transfers and validate native GPU lifecycle.
+- [x] Filter ReShade to preset-owned effects while retaining disabled selections.
+- [x] Build host-verified current-time AFW world option for moving platforms.
+- [x] Read build-34 ferry/world captures; reject fresh-world tradeoff and retire it.
+- [ ] Confirm build-only rollback restores prior ordinary-world quality.
+- [x] Use latest DLSS-off boat capture to build a depth-consistency candidate (82 host checks).
+- [x] Reject build-46 AfwDepthMotion after worse headset ghosting; disable installed option.
+- [ ] Resolve replay parity and real-edge regression controls before another AFW motion candidate.
+- [ ] Resolve residual AFW moving-boat silhouette/fill and unchanged-depth motion.
+- [x] Isolate suppressed AFW cutscene-hand gain and build masked candidate with hand-only negative control.
+- [ ] Confirm cutscene hand correction on the headset; distinguish residual depth-source fallback.
+- [ ] Isolate and recover the reported steady FPS regression.
+
 ## Full-arm IK (2026-10-04)
 
 - [x] Fork-style independent shoulder reach with shared nominal XYZ/width.

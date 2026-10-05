@@ -552,8 +552,8 @@ uint32_t g_fpTick = 0;
 DWORD    g_fpNextLogMs = 0;
 int      g_fpSaidFg = -1, g_fpSaidWorld = -1;
 std::atomic<bool> g_fpOn{true};
-void fp_sample() {
-    const int cls = g_fpCrushed ? 1 : 0;
+void fp_sample(int cls = -1) {
+    if (cls < 0) cls = g_fpCrushed ? 1 : 0;
     if (!cls && (++g_fpTick & 7)) return;
     if (g_fpVpW < 512) return;                                    // shadow maps, small targets
     const float* r0 = ::dvr::frame::vs_const_shadow_row(0);
@@ -603,7 +603,7 @@ void fp_tick() {
         nextBeat = t + 30000;
         g_fpSaidWorld = tw; g_fpSaidFg = tf;
         DVR_INFO("fgproj: the draws' own projection over 5 s - WORLD hfov %s [%llu samples, %llu not a projection] | "
-                 "FOREGROUND (MaxZ<0.5: arms, weapon) hfov %s [%llu, %llu] -> %s", world,
+                 "FOREGROUND (crushed or marked hand submission) hfov %s [%llu, %llu] -> %s", world,
                  (unsigned long long)g_fpSeen[0], (unsigned long long)g_fpRefused[0], fg,
                  (unsigned long long)g_fpSeen[1], (unsigned long long)g_fpRefused[1],
                  tf < 0 ? "NO foreground draw seen in perspective: the arms FOV is unmeasured this window"
@@ -883,7 +883,13 @@ void fgmask_end(IDirect3DDevice9* dev, HRESULT drawn) {
 }
 bool fgmask_in_draw() { return g_maskIn; }
 void note_draw_end() { g_fgGameDraw = false; }
-void fgmask_mark_piece() { g_fgGameDraw = true; ++g_maskMarked; }
+void fgmask_mark_piece() {
+    g_fgGameDraw = true; ++g_maskMarked;
+    // Cutscene/IK hands can use full viewport depth. Their explicit hand tag
+    // supplies the foreground identity the crushed-viewport sampler lacks.
+    // Sample the bound projection shadow before this owned piece is submitted.
+    if (g_fpOn.load(std::memory_order_relaxed) && !g_fpCrushed) fp_sample(1);
+}
 
 void fgmask_seal(uint32_t serial) {
     for (MaskSlot& s : g_mask) if (s.serial == serial) s.serial = 0;

@@ -1,3 +1,32 @@
+## Unreleased: experimental AFW cutscene-hand correction
+
+- Optional AFW: correct cutscene hands retains the usual foreground correction
+  during authored scenes when hand masks are available. The cutscene camera
+  framing is unchanged. Default off; headset validation is pending.
+
+## Unreleased: rejected AFW moving-character experiment
+
+- The default-off AFW moving-character experiment worsened headset ghosting and
+  is disabled on the test installation. It remains research code in this draft;
+  do not treat its synthetic checks as evidence of a character-ghosting fix.
+
+## Unreleased: HUD performance and ReShade preset controls
+
+- Empty HUD panels avoid repeated transfers and conversions while disappearing
+  widgets, layout changes and menus retain their normal behavior.
+- ReShade lists the selected preset's effects, including disabled effects. Use
+  Show all installed effects to add another shader from the installed packages.
+- Withdraw the build-34 AFW moving-scenery experiment after reported world
+  ghosting regression. Retained AfwFreshWorld=1 settings are ignored; prior world
+  reconstruction is restored. Original moving-boat ghosting remains under study.
+
+## Unreleased: ReShade effect controls
+
+- Effects disabled in F10 remain listed and unchecked after restarting. ReShade
+  now loads their definitions too, which can take longer at initial shader load.
+- Shader-package installation briefly retries a transient final folder-rename
+  failure, preserving existing shader folders and reporting persistent failures.
+
 # Unreleased
 
 - Experimental full-arm IK is available from the L3+R3/F10 IK tab, with shoulder

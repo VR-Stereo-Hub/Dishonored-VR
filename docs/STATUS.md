@@ -1,3 +1,205 @@
+## 2026-10-04: AFW cutscene hand correction candidate
+
+Optimized candidate v1.0.3-51-gcaed507e4 is built with the installed build-46
+animation baseline preserved on codex/afw-character-test. Proxy SHA256
+55e63e4b35077f36173b5f6933c6e0c942a71fd576c817281a3dd63772575c22.
+Installation pending game closure; no DLL/INI changed for this candidate yet.
+Full build, 11 exports, lint and golden/release INI equality pass. Cutscene hands
+are default OFF in the package and will be armed only for the requested test.
+
+Focus moved to cutscene hand flicker. The verified build-46 boat capture has
+103-degree world projection, authored camera records and valid hand masks, but
+AFW's ordinary foreground feed is zero. A cinematic guard still disables the
+foreground gain introduced after that guard was written. Existing hand-FOV
+instrument misses full-depth hand submissions; extend it read-only to marked
+hands so the next run can distinguish an actual lens change.
+
+New default-off AfwCutsceneHands restores the existing gain only to masked hands
+in authored-camera records, using rendered projection. Native GPU: 90 pass;
+hand-specific control 3.205 -> 0.014 px. Unknown masks, mixed camera owners,
+gameplay, near walls and world reconstruction controls pass. Existing depth
+snapshot misses remain a separate possible source of flicker. Headset unverified.
+See [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md) for evidence, limitations
+and the one-switch cutscene test. No game launch or integration/release merge.
+
+## 2026-10-04: build 46 ghosting regression rejected; correction disabled
+
+Matched the new 20:47:47 capture/log to installed v1.0.3-46-g4c34beb46.
+The headset reports substantially worse ghosting; all capture records show the
+option ON and accepted matrices. DLAA was active, unlike the previous burst.
+Same-input replay ON/OFF changes 9.21% of pixels over one byte; restoring only
+the two tightened general visibility thresholds reduces that to 3.97%.
+This identifies broad side effects, not acceptance of the remaining variant.
+
+Archived DLL, whole INI and both logs in build/performance-audit/boat-204747/.
+Installed AfwDepthMotion is now 0. Full INI comparison has exactly that one
+change, byte match and CRLF verified. Build 46 and all other settings retained.
+No new build or game launch. Original boat trails remain unresolved.
+
+Next: resolve capture/replay parity and construct a real-edge regression fixture
+before another source-selection candidate. No new headset run requested. See
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md) for ablation evidence,
+metric failures and limits. Draft PR remains unmerged; no staging/VR-Main change.
+
+## 2026-10-04: AFW depth-motion candidate installed with latest animation fixes
+
+Installed optimized v1.0.3-46-g4c34beb46 from codex/afw-character-test. The
+previous install had advanced to v1.0.3-37-g01b763971 after build 44 was prepared;
+merged that exact animation update into the isolated test branch first, preserving
+ArmIKGameArmInAnim=1 and the cinematic-motion settings and semantics. AFW shader
+and host suite are identical to feature f5cb38628 (82 checks already passed).
+Full build and 11 built/installed exports pass; legacy remains OFF.
+
+Proxy SHA256 b964a5e46f815141499c9cfcc67d4dd187a38d72085d1c107a3d436bf8e002cc.
+Backup of previous DLL, full INI, both logs, ReShade configuration/presets and
+bridge: build/performance-audit/install-20261004-204533-afw-depth-motion/.
+Whole INI comparison has exactly two changes: [Stereo] Method=reentry -> afw,
+and AfwDepthMotion=1 added. Exact expected-byte match, 1,700 CRLF, no lone endings.
+All other preferences retained, including current DLAA/native resolution and
+shoulder height. ReShade config/bridge unchanged. Existing AfwFreshWorld=1 is
+retained but refused by normal builds; it cannot reactivate the failed mode.
+No game launch or staging/release merge.
+
+Next launch's ONE question: on the same boat, does AFW: reduce moving-character
+trails ON/OFF/ON reduce the people's ghosting without worsening scenery? Starts
+ON; Basic Display > Stereo rendering. Reduced supports the depth-dead-band
+correction; unchanged leaves unchanged-depth motion/fill open; worse means leave
+it OFF and reject the candidate. Hold other settings fixed. Read the new banner
+and log ourselves before interpreting the result.
+
+## 2026-10-04: new depth-based AFW character-motion candidate, build only
+
+Latest boat burst 19:43:31 is matched to installed v1.0.3-36-g65b278d04 and
+its archived prev.log. DLSS was OFF during the burst. Native character outlines
+are intact; the rebuilt eye introduces broken strips. At four inspected NPC
+points the old stale threshold admits 4.58..4.90 cm of depth disagreement.
+
+New default-OFF AfwDepthMotion rejects old world pixels beyond depth precision
+and local surface variation, preserving static eye-specific shading. Basic F10
+Display exposes AFW: reduce moving-character trails. Capture/replay records it.
+82 native GPU checks pass, including a failing all-fresh reflection control;
++/-1 cm motion improves p95 1.608/1.085 to 0.004/0.007 px. Prior alley replay
+changes only 1.10% of pixels by over one byte on average. Residual silhouette
+strips remain; no headset ghosting percentage or full fix is claimed.
+
+Build only and preserve the installed animation baseline in the local test build.
+Do not install or write the game INI. Detailed evidence, failed experiments and
+one eventual launch question are in [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+After installation is authorized, test only whether OFF/ON/OFF improves the people
+on the same boat without worsening scenery. No staging/release merge.
+
+Built optimized v1.0.3-44-g8899df7de on codex/afw-character-test, combining
+feature f5cb38628 with installed animation baseline 65b278d04. Only the isolated
+test branch was combined; staging and VR-Main were not merged. Both source
+branches remain. Proxy SHA256:
+8904c5220ff70c496505854a2ccc113ae26890b97b67bfee841874e16768adbe.
+Versioned local DLL, matching launcher and manifest:
+build/afw-character-candidate-v1.0.3-44/. Full build, 11 exports, lint and
+golden/release INI equality pass. Installed DLL/INI hashes still equal this
+follow-up's baseline; INI retains 1,698 CRLF with no lone endings. Not installed.
+
+## 2026-10-04: AFW fresh-world regression withdrawn; candidate not installed
+
+Build 34 produced a small reported boat improvement with much worse surrounding
+and ordinary-world ghosting. Both 16-frame captures are verified against that
+historical build; the installed DLL has since changed to a separate candidate.
+The broad clean/UI-contamination hypothesis was rejected by all captured source
+pairs. The synthetic platform success did not establish general image quality.
+
+Retired unconditional fresh-world selection under src/legacy, removed the Basic
+checkbox/default key and refuse old AfwFreshWorld=1 requests in normal builds.
+Keep the HUD optimization and ReShade preset filtering. Normal AFW host: 68 pass;
+30 captured rebuilds match the previous OFF path byte-for-byte with ON requested.
+The explicitly enabled legacy research build retains all 71 passing host checks.
+The original boat problem remains open. Full evidence and continuation plan:
+[FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md). Performance record remains
+[PERFORMANCE](dishonored/PERFORMANCE.md); no FPS gain claimed.
+
+Build only, no installation or game-file writes. Do not overwrite the separately
+installed candidate. No launch requested now. After installation is authorized,
+the next single question is whether ordinary-world ghosting returns to its level
+before build 34; improvement supports rollback, unchanged requires upstream
+image/timing investigation. Original boat investigation follows separately.
+
+Built optimized v1.0.3-36-g621cb0b40 without legacy experiments. Proxy SHA256
+308d6421e7309f7809e292f340e6dc7b5fc7fca792ae96c563937ca850970619.
+The matching launcher embeds this candidate. Full build, 11 exports, lint,
+golden/release INI equality and diff checks pass. Local manifest:
+build/performance-audit/run34-followup/build36-manifest.json. Installed DLL and
+INI hashes still match the beginning of this follow-up. Not installed.
+
+## 2026-10-04: HUD performance candidate and AFW moving-platform option
+
+Continue codex/performance-audit / draft PR #175. ReShade menu now defaults to
+only the selected preset's effects, retaining disabled entries across launches;
+all installed effects are available explicitly. HUD avoids repeated blank copies,
+conversions and clears, batches D3D11 submission, and refuses a still-busy shared
+slot. Native production HUD path: 669 checks pass. ReShade: 815 initial / 803 restart
+checks, 759 disabled, default-off pass. AFW: 71 host checks pass; synthetic boat
+texture error falls from 13.66 to 0.02 pixels with AfwFreshWorld enabled.
+
+The option ships OFF and is available in Basic Display. This is a candidate:
+headset ferry acceptance and steady FPS recovery remain unmeasured. Full performance
+record: [PERFORMANCE](dishonored/PERFORMANCE.md). Surface/routing, controls,
+tradeoffs and recoverable follow-up: [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+No engine memory writer, game launch, staging merge or VR-Main change.
+
+Next launch's ONE question: on the same moving boat/ferry, does F10 > Display >
+Stereo rendering > AFW: moving scenery from the current frame OFF then ON reduce
+or remove ghosting? The installed test will be ON. Reduced implicates old world
+samples; unchanged needs captured pixel/DLSS isolation; worse rejects the option.
+Keep all other settings fixed.
+
+Installed optimized v1.0.3-34-g63a890a76, proxy SHA256
+4a29ae80dd9d4d44410a2639dc7120e97841ea47abaa674d7a75abee27481d30.
+Full backup/expected files/diffs/manifest: build/performance-audit/
+install-20261004-185439-hud-afw/. Verified build 32 banner against its installed
+hash before archiving both logs. Entire installed VR INI differs only by adding
+[Stereo] AfwFreshWorld=1; 73,733 bytes, 1,694 CRLF, zero lone endings, exact
+expected-byte match. All prior settings, ReShade.ini and selected preset retained.
+Golden/release INIs match the source's new default OFF. Full optimized build,
+11 installed exports, lint, HUD shader checks and replay compilation pass.
+New game banner and perceptual result await the tester's launch.
+
+## 2026-10-04: combined work merged to staging; performance audit and ReShade fix
+
+Explicitly authorized combined push advanced staging to a0c0ca360; PRs #168,
+#172, #173 and #174 are merged. Finalized branches are retained; VR-Main is
+unchanged. New codex/performance-audit starts at that exact staging tip.
+
+Full source/log audit and ranked measurements are maintained only in
+[dishonored/PERFORMANCE.md](dishonored/PERFORMANCE.md), newest entry. Verified
+combined build 30's final 60-second window: 113.5 AFW submits/s, HUD wall time
+3.55 ms/present, ReShade CPU 0.183 ms, game D3D9 GPU 3.05 ms, DLSS evaluations
+about 2.35/2.45 ms per eye. Intervals overlap and are not additive. No memory
+exhaustion or native desktop Presents; color capture waits are near zero.
+HUD transfers four sinks while only one receives draws. The 10% regression
+remains unisolated; earlier runs are not a controlled same-location baseline.
+
+Candidate fixes ReShade's skipped disabled effects disappearing from F10:
+load their definitions, retain unchecked state and parameters; more shader
+loading at startup is possible. Native F10/new-process restart regression
+passes. New bounded HUD substage timing and a separate AFW GPU line expose
+previously grouped or truncated costs, without changing synchronization.
+No engine-memory writers or quality reductions are introduced.
+
+Next launch's ONE question: with the same stationary scene/settings, does
+F10 > HUD > HUD on its own panels OFF raise sustained FPS, returning to the
+prior rate ON? ON/OFF/ON about 45 seconds each, F10 closed for measurement.
+OFF puts HUD pixels back into the game image. A repeatable gain implicates
+the HUD route; no gain means the displayed wait is displaced or another
+stage limits throughput. Optimized Win32 build, 11 exports, lint, native ReShade restart checks and
+installer fixtures pass. Install identity follows below.
+
+Installed optimized v1.0.3-32-gf03ad520f, SHA256
+08e66ed0e8a83e7f0100f81d9963e648da55d0c8b15d9b1e6b0f60e055daa4cb.
+Backup/expected INIs/full diffs/logs/preset and manifest:
+build/performance-audit/install-20261004-181131/.
+VR INI unchanged in all 73,716 bytes, 1,693 CRLF, no lone endings; Parts=1
+already armed. ReShade.ini differs only in SkipLoadingDisabledEffects 1 -> 0
+and matches its expected bytes. Preset unchanged. No game launch. Live
+performance and startup-menu acceptance remain pending.
+
 ## 2026-10-04: combined PR candidate prepared locally, staging unchanged
 
 Finalized full-arm IK as PR #174 against staging (branch codex/ik-full-arms,
