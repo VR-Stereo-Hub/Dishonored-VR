@@ -21,6 +21,15 @@
 6. **Status and remaining scope:** cause measured, fix headset-pending. Detail and the lost
    ini history: HUD_ANCHORS.md, top entry.
 
+7. **2026-10-05 headset run, log only (MEASURED, not headset-confirmed):** build
+   v1.0.3-54-gd0c57b1b9 (a local merge carrying this change), reentry, DLSS off, 2750x2850,
+   ini `SemanticOwnership=1`. `hud/semantic: hooks=1`, no REFUSED; 0 `hud/why ... CHANGED`
+   lines in a 15 minute session with an objective routed every present; `ambiguous=0` on all
+   300 `hud/semantic:` beat lines. The counterprediction of item 3 (owner changes with the
+   hooks armed) did not occur. Remaining scope: the session stood at one spot with no
+   interaction prompt near the reticle, so the original trigger was not re-created, and no
+   perceptual report came with the log. Status stays: fix headset-pending.
+
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
 Reported weapon-wheel arm loss and uncertain pause-menu arm loss on the
