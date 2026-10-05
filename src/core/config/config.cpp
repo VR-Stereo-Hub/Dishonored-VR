@@ -1263,6 +1263,11 @@ static bool WriteDefaultIni(const char* ini)
         "; DepthShare=1 (motion vectors, step 2): copy that depth to the mod's D3D11 device every\n"
         "; present and prove every 5 s that D3D11 reads what the game wrote. `depthprobe share on|off`.\n"
         "DepthShare=0\n"
+        "; DepthShareChecks=N: how many of those proofs run after the shared ring is built (5 s apart).\n"
+        "; Each one reads the game's target back and maps a D3D11 texture on the present thread, a\n"
+        "; hitch of about a frame, and afw keeps the ring on: so 3, then none. -1 = one every 5 s for\n"
+        "; the whole session (the behaviour before 2026-10-05). `depthprobe share check [n|always]`.\n"
+        "DepthShareChecks=3\n"
         "; MotionCalib=1 (motion vectors, step 3; needs DepthShare=1): whenever the camera moves\n"
         "; between two frames of one eye, measure which depth scale explains the change and log it.\n"
         "MotionCalib=0\n"
@@ -3033,6 +3038,7 @@ static void LoadConfig()
     WmConfigure(ini);
     GameOptsConfigure(ini);   // VR-157: [Diagnostics] GameOptsOnStart
     dvr::depthprobe::set_enabled(IniFloat(ini, "Diagnostics", "DepthProbe", 0) != 0.0f, "ini [Diagnostics] DepthProbe");
+    dvr::depthprobe::set_share_checks((int)IniFloat(ini, "Diagnostics", "DepthShareChecks", 3), "ini [Diagnostics] DepthShareChecks");
     dvr::depthprobe::set_share(IniFloat(ini, "Diagnostics", "DepthShare", 0) != 0.0f, "ini [Diagnostics] DepthShare");
     dvr::clarity::set_calib(IniFloat(ini, "Diagnostics", "MotionCalib", 0) != 0.0f, "ini [Diagnostics] MotionCalib");
     CamModConfigure(ini);     // VR-165: [Diagnostics] CamModProbe

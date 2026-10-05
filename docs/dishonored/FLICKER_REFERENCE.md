@@ -1,3 +1,37 @@
+## 2026-10-05: the depth-share proof check stalls the present thread every 5 s for the whole afw session (CODE-DERIVED, fix built, cost now logged, headset pending)
+
+1. **Symptom identity:** a hitch of about a frame, whole view, both eyes, every 5.000 s,
+   only while the shared depth ring is on (afw keeps it on for its whole session; the
+   `[Diagnostics] DepthShare` key is off, the ring is armed by the method). Not an eye
+   defect: the frame is late, not wrong. Distinct from the 5.66 s xrEndFrame stall of the
+   audit entry (different period, different thread state, present in menus too).
+2. **Reproduction identity:** every afw session: `depthshare: check N ... IDENTICAL to the
+   game's own target this present` 62 times in the newest headset log (build
+   `v1.0.3-85-g4a452e2b2`, 661 s), exactly 5 s apart, agreeing every time since the ring
+   was built (42 of 42 in the earlier session read for the audit).
+3. **Hypothesis and counterprediction:** `depth_probe.cpp` `share_tick`: while the ring
+   is on, every 5 s the PRESENT thread reads a 5x5 grid of the game's depth target back
+   through D3D9 (`StretchRect` + `GetRenderTargetData` + `LockRect`, a pipeline drain),
+   busy-waits on the copy fence for up to 50 ms, and maps a D3D11 staging texture with a
+   blocking `Map`: a CPU/GPU sync of both devices on the present thread, to prove a
+   statement that has never been false once the ring is built. Counterprediction: the
+   check's cost, printed from this build on, reads under a millisecond; then the hitch
+   is elsewhere and the bound is harmless. The 5.66 s stall is NOT this check: its period
+   differs (5.000 s vs 5.664 s), and the stall is inside `xrEndFrame`, which the check
+   does not call.
+4. **Change identity:** `[Diagnostics] DepthShareChecks` (default 3): three proofs after
+   each ring build (and after `depthprobe share on`), then none; -1 restores the old
+   behaviour (one every 5 s all session). Live `depthprobe share check [n|always]`, F10
+   Display "Depth share: prove it every 5 s". The check line now carries its cost:
+   `depthshare: check N (K left) cost X ms on the present thread (max Y)`. The proof
+   itself is unchanged.
+5. **Results:** code-derived; the cost is not yet measured on a headset run (the line
+   that measures it ships in this build). Not run: simulator, headset. A run decides with
+   the three check lines' `cost` figures (expected: several ms each) and the absence of a
+   5.000 s component in the frame-gap census after the third.
+6. **Status:** fix built, default on (a bound on a diagnostic, not a render lever: the
+   proof still runs three times and prints DIFFERS when it fails), headset pending.
+
 ## 2026-10-05: the gameplay camera-silent gate measures from the previous draw's RETURN, so a present stall or a catch-up tick costs a single-eye tick (MEASURED cause, candidate built, headset pending)
 
 1. **Symptom identity:** the generator behind two existing rows, not a new symptom. Under
