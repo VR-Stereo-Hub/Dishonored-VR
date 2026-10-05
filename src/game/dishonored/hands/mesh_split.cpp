@@ -3562,6 +3562,14 @@ static void GrApply(float* buf, const float* src, UINT regs, int cls)
     const double trig = g_grTrigMs[h].load();
     if (trig <= 0) { active[h] = false; return; }
     const bool fresh = trig != seen[h];
+    if (fresh && now - trig > 1000.0) {
+        // A press this draw never saw while it was new (the hands were drawn by a path that did not
+        // run the grab then). Replayed late it showed the fist for one frame (sim run 2026-10-05).
+        seen[h] = trig; active[h] = false;
+        Log("hands/grab: %s hand - ignored a grab %.0f ms old (no draw of this hand ran the grab while it was new)",
+            h ? "RIGHT" : "LEFT", now - trig);
+        return;
+    }
     if (fresh) {                                                 // a new grab
         seen[h] = trig; releaseAt[h] = -1;
         fromLast[h] = active[h];                                 // a grab during a grab starts from where it was

@@ -745,3 +745,19 @@ opening from a fist over the scaled 150 ms, where a fixed 70 ms opening had peak
 give a natural-looking grab on THIS rig (the offline fist was synthetic); how the sword looks while
 its hand opens around it (the weapon is not hidden yet: plan step 4); the inferred tree from a real
 game pose (read the `right finger tree` line and its worst fit).
+
+**First in-game run (simulator, 2026-10-05, Hound Pits Pub save of 2026-09-13).** The grab
+played on the right hand holding the sword: 70 degrees from flat at the worst joint, so the full
+150 ms opening, then the close, hold and release, about 860 ms in all (`hands/grab: RIGHT hand
+plays` and `grab done`). Two faults found and fixed in the commit after it:
+
+1. **Not drawn under full-arm IK.** With `[Hands] ArmIK=1` the hands are drawn by
+   `arm_ik_draw.inc`, which builds its own hand palette; the grab was hooked only into the
+   per-class path, so a grab played nothing (no `plays` line). `GrApply` now runs on the IK
+   hand palette too, next to the open right hand. The run itself was captured with the left
+   controller marked untracked, which makes IK stand down to the per-class path.
+2. **A stale press replayed late.** The press made while IK drew the hands was picked up 245 s
+   later when the per-class path ran, and showed the fist for one frame. A press first seen more
+   than a second old is now ignored and logged.
+
+Also seen: the simulator's eyes alternate exposure frame to frame (FLICKER_REFERENCE, top entry).

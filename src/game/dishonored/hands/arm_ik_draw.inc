@@ -148,6 +148,7 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
         InterlockedIncrement(&g_mpWorldOk);
         float handPalette[4*256];MpBuild(handPalette,g_mpCache,g_mpCacheN,&correction);
         if(h==1&&OhActive())OhApply(handPalette,g_mpCache,g_mpCacheN);
+        GrApply(handPalette,g_mpCache,g_mpCacheN,cls);   // the grab animation (mesh_split.cpp, THE GRAB)
         Xform wrist{};const float* rows=handPalette+ikMesh.wristSlot[h]*12;
         for(int r=0;r<3;++r){for(int c=0;c<3;++c)wrist.r.m[r*3+c]=rows[r*4+c];wrist.t[r]=rows[r*4+3];}
         Vec nominal=shoulder(body,settings,h,k*.01f);
