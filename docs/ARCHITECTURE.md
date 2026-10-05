@@ -1522,3 +1522,19 @@ On-demand native frame bursts reuse the existing delivered-eye readback seam,
 with bounded worker memory and recorded gaps. AFW retains its established capture.
 Details and remaining headset verification: docs/dishonored/ARM_IK.md and
 docs/dishonored/FLICKER_REFERENCE.md.
+
+### 2026-10-04: offline tools resolve through a local, per-user tool file
+
+IDA, Blender, UModel, UE Explorer, FFDec and the debug programs are found through
+`%LOCALAPPDATA%\DishonoredVR\dev-tools.json` (`tools\tool-paths.ps1`,
+`tools\lib\tool-paths.ps1`), never through a path written into a committed script.
+The repo carries only a catalog of default install locations to detect from; what was
+found or set by hand stays on the machine. It does not follow `DVR_DATA_DIR`: that
+directory is the mod's bulk data and may move drives, while tool paths belong to the
+user profile. Paid and third-party programs are referenced, never copied; their
+databases and outputs (the staged exe and `.i64`, decompiles, PSK/PSA, `.blend`) live
+in per-user workspaces outside the tree, and `.gitignore` refuses their file types.
+Headless IDA output is NOT kept in the repo, unlike the workflow it was adapted from:
+here a decompile is game-derived text. The scripts are kept; each output is stamped
+with the md5 it ran against so a game update shows on the first line.
+See `docs/IDA_WORKFLOW.md` and `docs/MODEL_WORKFLOW.md`.

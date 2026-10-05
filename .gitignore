@@ -51,3 +51,32 @@ docs/bsvr-reference/
 third_party/ngx/
 # AMD FidelityFX SDK (tools/fetch-ffx.ps1): MIT, fetched, never committed
 third_party/ffx/
+
+# Offline RE and model tools (docs/IDA_WORKFLOW.md, docs/MODEL_WORKFLOW.md). The tools are
+# paid or third-party software and are referenced by path from the LOCAL tool file
+# (%LOCALAPPDATA%\DishonoredVR\dev-tools.json), never copied in. Their databases and
+# outputs are game-derived. Our own scripts (tools/ida/*.py, tools/blender/*.py) are tracked.
+*.exe
+*.jar
+*.msi
+*.zip
+*.i64
+*.idb
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+*.blend
+*.blend1
+*.psa
+*.fbx
+*.glb
+*.gltf
+*.obj
+*.mtl
+*.tga
+*.dds
+tools/ida/out/
+tools/ida/bin/
+dev-tools.json

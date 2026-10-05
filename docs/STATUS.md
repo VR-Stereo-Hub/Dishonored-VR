@@ -1,3 +1,25 @@
+## 2026-10-04: headless IDA and Blender workflows, local tool file
+
+Branch `claude/tools-workflows` (off staging). Tools only; no mod code, no game launch.
+- `tools\tool-paths.ps1` writes and reads a per-user tool file,
+  `%LOCALAPPDATA%\DishonoredVR\dev-tools.json`. Created on the dev PC: 16 of 19 catalog
+  entries found (x32dbg, RenderDoc, Ghidra absent; none needed).
+- Headless IDA: `tools\ida-run.ps1` stages `Dishonored.exe` (md5 204f3c1a...) into the
+  IDA workspace, runs one-question IDAPython scripts, stamps each output with the md5 and
+  whether it still equals the deployed exe. `tools\ida\template.py` is the 32-bit
+  skeleton; it refuses unless `kProcessEvent` 0x00470640 still has its published prologue.
+  Guide: `docs/IDA_WORKFLOW.md`.
+- UModel + headless Blender: `tools\model-export.ps1`, `tools\blender-run.ps1`,
+  `tools\blender\inspect_model.py`, `export_model.py`. Verified: `Skm_Player` PSK round
+  trip (2,264 points, 4,448 triangles, 79 bones), OBJ/GLB export, and an authored action
+  exported to PSA and re-imported (30 frames). The PSK/PSA add-on was NOT installed in the
+  real Blender profile despite the earlier setup report (its probe could not fail); it is
+  now, and `-Setup` checks it properly. Guide: `docs/MODEL_WORKFLOW.md`.
+- The game's own animations cannot be extracted: every player AnimSet loads with all
+  tracks removed (Sony Edge Animation compression, unsupported by UModel).
+- CLAUDE.md: a Tools section that every prompt checks first, the tool-file rules, and a
+  rule that any CLAUDE.md change needs a yes naming repo or local.
+
 ## 2026-10-04: combined PR candidate prepared locally, staging unchanged
 
 Finalized full-arm IK as PR #174 against staging (branch codex/ik-full-arms,

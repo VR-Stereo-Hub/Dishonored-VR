@@ -1,3 +1,52 @@
+## The player's sequence vocabulary, by name (2026-10-04)
+
+Source: `tools\model-export.ps1` (UModel) over the cooked packages, plus the `anim: gen=...
+master=... seq=...` lines already in the ten rotated logs on the dev PC. Sequence NAMES only:
+the animation data cannot be decoded (Sony Edge Animation, see MODEL_WORKFLOW.md), and the
+full name list stays local (game-derived). Rules still key on the master state; these are
+leads for refining them by `m_AnimSeqHistory`, which `anim_state.cpp` already reads.
+
+**What exists.** All 34 player AnimSets are in `Startup.upk` (always loaded), 422 sequences.
+Largest: `Ply_Head_Locomotion_as` 43, `Ply_Guns_as` 36, `Ply_Sword_Assassination_as` 31,
+`Ply_Generic_as` 27, `Ply_Empty_Locomotion_as` 27, `Ply_Powers_as` 22. Families that matter
+here:
+
+| family | names | why it matters |
+|---|---|---|
+| takedowns | `Sword_Ready_Assassination_{Front,Back,Left,Right,Fast*,Drop*}[_CarryCorpse]_Master`, `Sword_Ready_Fatality_*_Master` | one `_Master`-suffixed family; a prefix rule covers every variant |
+| boss kills | `Sword_DramaticDeath_Front_{Campbell,Daud,Havelock,LadyBoyle,LordRegent,Martin,PendletonA,PendletonB}_Master`, `..._Back_A_Master` | per-target scripted kills; whether each runs under `StatePlayerMasterAssassinate` is NOT measured |
+| chokes | `Sword_Choke_{In,Loop,Win,Lose,Cancel,CarryCorpse}_Master` | matches `DisItemContext_Choke.m_State` one to one |
+| mantles | `{Empty,Sword_Ready,Sword_Sneak,Empty_Sneak}_Mantle{Low,Medium,High}`, `Empty_CrouchMantle*`, `Empty_MantleImpact` | in the locomotion sets |
+| window vault | `Empty_VaultOverWindow` | in `Ply_Empty_FullBody`, NOT with the mantles (open question 1) |
+| forced grabs | `Sword_Weeper_ArmGrab_{In,Loop,Out}`, `Empty_ArmGrab_{Loop,Out}` (`Ply_WeeperAttack_as`) | the game owns the arms; no current rule names them (open question 2) |
+| powers | `Powers_Cast_Blink_{In,Loop,Out}`, `Generic_Powers_Cast_Blink_Travel`, `Powers_Cast_Possession_{In,Loop,Out,Cancel}`, `Powers_Cast_{BendTime,Swarm,Windblast}` | cast phases are visible by name |
+| carry body | `Empty_CarryCorpse_{In,Idle,Walk,Drop*}_Master` | pairs with `StatePlayerCarryCorpseIdle` |
+
+UModel also reports Arkane-specific `m_NotifiesAtAnimStart` / `m_NotifiesAtAnimEnd` arrays on
+the sequences: possible start/end events, not yet looked at.
+
+**Measured from existing logs (no new run):**
+- Blink casts play while master is `StatePlayerMasterWalk` (or `Falling`): `seq=Powers_Cast_
+  Blink_In/Loop/Out` 45/45/101 times under Walk. A master-state rule cannot see a cast; the
+  sequence name can. Possession In/Loop/Cancel also run under Walk; only `Possession_Out`
+  appears under `PrePossess`/`Possess` (body=2).
+- `StatePlayerMasterClimb` logged `seq=unavailable` all 5 times: climbing records no sequence
+  in the history, so climb rules must stay state-only.
+- **The history lags the state.** Under `StatePlayerMasterAssassinate` the logged seq was a
+  takedown sequence most times, but also `Sword_Sneak_JumpLandSmall` (2) and
+  `Powers_Ready_Equip` (1): the newest entry at the state change is still the previous
+  animation. A rule may refine by name only after the new sequence lands, never at entry.
+- Chokes and mantles logged their own family names under their own states.
+
+**Open questions (each answered by grepping the next log, no extra instrument):**
+1. Does `Empty_VaultOverWindow` run under `StatePlayerMasterMantle` or under
+   `StatePlayerMasterAction` ("Full-body action")? If the latter, `MantleHandBack` and the
+   mantle pose rule do not cover window vaults. Not in any of the ten logs on disk yet.
+   Grep: `seq=Empty_VaultOverWindow`.
+2. Which master state runs the Weeper arm grab? Grep: `seq=.*ArmGrab`.
+3. Do all eight boss `DramaticDeath` kills run under `StatePlayerMasterAssassinate`
+   (VR-283 hides arms there)? Grep: `seq=Sword_DramaticDeath`.
+
 ## The sword hand-back is for trigger attacks (VR-220, 2026-09-25)
 
 `HandAnimMelee` matched every `StatePlayerMeleeAttack`; it now matches an attack whose source is
