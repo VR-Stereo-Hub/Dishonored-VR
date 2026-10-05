@@ -3,6 +3,7 @@
 // core/framework/frame_hooks.cpp - see frame_hooks.h.
 #define DVR_CAT ::dvr::log::Cat::present
 #include "core/framework/frame_hooks.h"
+#include "core/framework/stage_profile.h"
 
 #include "core/framework/perf.h"
 #include "core/framework/native_profile.h"
@@ -172,7 +173,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
         static bool torn = false;
         if (!torn) {
             torn = true;
-            dvr::reshade_runtime::reset();
+            dvr::reshade_runtime::reset(); dvr::stageprof::release_gpu("device reset or teardown");
             dvr::d3d9ex::clear_staging();
             dvr::hudclass::shutdown(); dvr::hudcap::shutdown(); dvr::markersharp::reset();   // VR-117: before the method and the runtime
             dvr::stereo::shutdown(); dvr::vr::shutdown("PreExit");
@@ -366,7 +367,7 @@ HRESULT __stdcall hkPresent(IDirect3DDevice9* self, const RECT* src, const RECT*
 }
 
 HRESULT __stdcall hkReset(IDirect3DDevice9* self, D3DPRESENT_PARAMETERS* pp) {
-    dvr::reshade_runtime::reset();
+    dvr::reshade_runtime::reset(); dvr::stageprof::release_gpu("device reset or teardown");
     dvr::d3d9ex::clear_staging();
     if (g_cb.before_reset) g_cb.before_reset(pp);
     g_gameDs = nullptr; g_gameDsKnown = false;   // Reset rebinds the auto depth-stencil
@@ -452,7 +453,7 @@ ULONG __stdcall hkDeviceRelease(IDirect3DDevice9* self) {
         dvr::stereo::on_reset();
         dvr::desktop_eye::on_reset();
         dvr::capture::on_reset();
-        dvr::reshade_runtime::reset();
+        dvr::reshade_runtime::reset(); dvr::stageprof::release_gpu("device reset or teardown");
         dvr::d3d9ex::clear_staging();
         dvr::depthprobe::on_reset();
         dvr::log::flush();

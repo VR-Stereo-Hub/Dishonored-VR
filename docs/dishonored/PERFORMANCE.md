@@ -143,6 +143,62 @@ once-per-tick gate in front of the read-only ones, after the split names which.
 minutes standing still. It needs this branch's build for the `reshade effects` word (other
 builds treat that row as a baseline).
 
+### 8. What the IDA database adds (series pf1..pf5, run the same night)
+
+The staged database (63,921 functions, analysed once on 2026-10-04) had only been asked about
+cinematics. Five one-question scripts, `tools/ida/pf1..pf5`; derivations in ENGINE_NOTES,
+"Scene render stages, the draw-event switch and the SCALE command".
+
+1. **The engine names its own render stages, and sends them through our DLL.** The scene render
+   function (VA 0x0086C060, the one holding the two sampled return addresses of "Representative
+   CPU evidence") brackets every stage with D3DPERF events, and the executable keeps the labels.
+   - The 37 % return address (0x0086C1F4) is the call to the pass function that runs, in order:
+     PrePass, Dominant light shadows, BeginRenderingSceneColor, ClearView, BasePass,
+     FinishRenderingSceneColor, ResolveSceneDepthTexture.
+   - The 33 % return address (0x0086C208) is the call to the function that runs: ShadowedLights
+     (with ModShadow), UnshadowedLights, Translucent / Opaque / Decals, RenderSoftMasked,
+     BeginOcclusionTests, BloomParts, DisFog, Distortion, ResolveSceneColor, Translucency,
+     RadialBlur, LightShafts (Downsample, RadialBlur, Apply), PostProcessEffects.
+   - All of it runs once per eye pass. Shadow depth rendering sits inside the light stages, so it
+     is done per eye although a shadow map does not depend on the eye: a sharing candidate, but
+     only if its measured share is worth it.
+   - The events are gated by ONE dword (UE3's GEmitDrawEvents, VA 0x0141B268): 139 reads in the
+     image, 123 directly in front of an event constructor, one writer, the `TOGGLEDRAWEVENTS`
+     console handler. The game imports D3DPERF_BeginEvent / EndEvent from d3d9.dll, which is the
+     proxy.
+   - **Built: the stage profile** (`core/framework/stage_profile.{h,cpp}`, seam `stages on|off`,
+     `stages gpu on|off`; default off, session only). `stages on` byte-verifies two sites and sets
+     the switch; the proxy then times every named stage: calls, inclusive CPU on the render
+     thread, draws inside it, and GPU time from D3D9 timestamp queries. A `perf/stages:` table
+     every 5 s, costliest first. No hook, no stage address. This is the instrument the record
+     lacked ("later render stages less precisely attributed"): one headset run says how many
+     milliseconds of CPU and GPU each stage costs per eye. Not run yet: built and compiled only.
+2. **The stock `SCALE` console command is in the image** (handler VA 0x00586740: SCALE, SET,
+   TOGGLE, ADJUST, LOWEND, HIGHEND, RESET, DUMP, DUMPINI) with its whole switch table. So the
+   engine's rendering switches can be flipped LIVE through the mod's `console` seam word, one
+   plan row each, with no restart. Whether the seam's console route reaches that handler is not
+   established (an earlier `setres` through it was inert); the plan's first rows show it.
+   The game's current values for the ones that cost GPU time, read from DishonoredEngine.ini:
+
+   | Switch | Now | What a change does |
+   |---|---|---|
+   | `bAllowDownsampledTranslucency` | False | True renders smoke, fog and other translucency at reduced resolution: the usual large saving in particle-heavy views |
+   | `bAllowLightShafts` | True | a downsample, a radial blur and an apply pass per shaft light, per eye |
+   | `UseHighQualityBloom` / `Bloom` | True / True | the cheaper bloom, or none |
+   | `Distortion`, `AllowRadialBlur`, `LensFlares` | True | full-screen passes; radial blur is also a comfort question in VR |
+   | `DynamicShadows`, `LightEnvironmentShadows`, `bAllowWholeSceneDominantShadows` | True | the shadow stages; judged before only in the simulator, which cannot see a GPU saving |
+   | `ShadowTexelsPerPixel` / `MaxShadowResolution` | 1.27324 / 800 | shadow maps are sized by the subject's size in SCREEN pixels, and an eye image has 5.4 times the pixels of 1080p, so shadows are rendered far larger here than the game was tuned for |
+   | `ScreenPercentage` (+ `UpscaleScreenPercentage` True) | 100 | the engine's own render scale with its own upscale: fewer scene pixels with the HUD untouched and none of DLSS's cross-process cost |
+
+   None of these is in the record as a headset measurement. `tools/perf-plans/audit-2-engine.txt`
+   is plan 2: one row each, about nine minutes.
+3. Not found, and said so: no single function to patch for a large gain. The two sampled return
+   addresses are whole halves of the scene render, not a hot spot.
+
+**Order for the next headset session:** `stages on` + `stages gpu on` for a minute in a typical
+view (the stage table), then plan 1, then plan 2. The stage table says which of plan 2's rows
+can matter before they are run.
+
 ### 7. What this audit did NOT do
 
 No game or simulator launch; no GPU timeline; no IDA run (section 5 says why and what for).

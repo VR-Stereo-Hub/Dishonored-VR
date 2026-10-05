@@ -7,6 +7,7 @@
 #include "core/framework/frame_hooks.h"
 #include "core/framework/status.h"
 #include "core/gfx/hud_capture.h"
+#include "core/framework/stage_profile.h"
 #include "core/gfx/depth_probe.h"
 #include "core/gfx/markers_sharp.h"
 #include "core/gfx/dlss.h"
@@ -912,6 +913,7 @@ double   g_candPerPresent = 0.0;
 
 void note_draw() {
     g_lastDrawTid = GetCurrentThreadId();
+    ++dvr::stageprof::g_draws;   // the stage profiler's draw count (one increment; read only while it is on)
 }
 
 // The rule, without the census's bookkeeping: four compares and no lookups.
@@ -1309,6 +1311,7 @@ HRESULT __stdcall hkSetViewport(IDirect3DDevice9* self, const D3DVIEWPORT9* vp) 
     if (dvr::reshade_runtime::inside) return g_origSetVp(self, vp);
     dvr::native_profile::Scope timing(dvr::native_profile::SetViewportInclusive);
     if (vp && shadowing()) { g_vp = *vp; g_vpKnown = true; }
+    if (dvr::stageprof::enabled()) dvr::stageprof::note_device(self);
     dvr::depthprobe::note_viewport(self, vp);   // VR-39: the AFW foreground mask's snapshot, before the pass draws
     return g_origSetVp(self, vp);
 }

@@ -13,6 +13,12 @@ Branch `claude/performance-audit` (off staging). Detail: dishonored/PERFORMANCE.
   eye image. Built: seam word `reshade effects on|off` and `tools/perf-plans/audit-1.txt`, a
   six-minute A/B plan that sizes DLSS model/off, the HUD sinks, ReShade, the texture filter,
   sharpen and names the script lane's statements.
+- Later the same night, from the IDA database (series `tools/ida/pf1..pf5`): the engine brackets
+  every render stage with named events that pass through our d3d9.dll, gated by one dword; the
+  stock `SCALE` console command and its whole switch table are in the image. Built: the stage
+  profile (`stages on|off`, `stages gpu on|off`: CPU, GPU and draws per engine stage) and
+  `tools/perf-plans/audit-2-engine.txt` (the engine's own switches as live A/B rows). Neither
+  has run.
 - Release builds. No game launched. No Linear ticket (no Linear access).
 
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in

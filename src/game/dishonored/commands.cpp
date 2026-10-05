@@ -1,4 +1,5 @@
 #include "core/gfx/reshade_runtime.h"   // the seam's `reshade effects on|off`
+#include "core/framework/stage_profile.h"   // the seam's `stages on|off`
 // game/dishonored/commands.cpp - the game side of the command seam and the
 // status provider. Included by the unity build (it reads the mod's globals).
 //
@@ -626,6 +627,34 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         _snprintf(v, sizeof(v), "%.2f", dvr::clarity::body_depth());
         ConfigWriteKey("Clarity", "DlssBodyDepth", v, "the seam");
         return ok;
+    }
+    if (!strcmp(cmd, "stages")) {   // pre-release audit: the engine's own render stages, timed (core/framework/stage_profile.h)
+        // `stages on|off` sets the engine's draw-event switch (byte-verified) and the collector together;
+        // `stages gpu on|off` adds GPU time from timestamp queries. Session only, nothing is saved.
+        static int verified = 0;
+        if (!verified) {
+            const bool a = RangeReadable((const void*)kEmitDrawEventsReader, sizeof(kEmitDrawEventsReaderBytes)) &&
+                           !memcmp((const void*)kEmitDrawEventsReader, kEmitDrawEventsReaderBytes, sizeof(kEmitDrawEventsReaderBytes));
+            const bool b = RangeReadable((const void*)kEmitDrawEventsToggle, sizeof(kEmitDrawEventsToggleBytes)) &&
+                           !memcmp((const void*)kEmitDrawEventsToggle, kEmitDrawEventsToggleBytes, sizeof(kEmitDrawEventsToggleBytes));
+            const bool g = RangeReadable((const void*)kEmitDrawEvents, 4);
+            verified = a && b && g ? 1 : -1;
+            Log("stages: engine draw-event switch %s (scene-render reader %s, TOGGLEDRAWEVENTS writer %s, switch %s)",
+                verified > 0 ? "verified" : "REFUSED - the stage profile is unavailable on this build",
+                a ? "ok" : "MISMATCH", b ? "ok" : "MISMATCH", g ? "readable" : "UNREADABLE");
+        }
+        if (verified > 0) {
+            if (!strcmp(args, "on") || !strcmp(args, "off")) {
+                const bool on = !strcmp(args, "on");
+                dvr::stageprof::set_enabled(on);
+                *(volatile uint32_t*)kEmitDrawEvents = on ? 1u : 0u;
+            } else if (!strcmp(args, "gpu on")) dvr::stageprof::set_gpu(true);
+            else if (!strcmp(args, "gpu off")) dvr::stageprof::set_gpu(false);
+            Log("stages: collector %s, GPU time %s, engine switch now %u | words: stages on|off, stages gpu on|off | a `perf/stages:` table "
+                "follows every 5 s while on", dvr::stageprof::enabled() ? "ON" : "off", dvr::stageprof::gpu() ? "on" : "off",
+                *(volatile uint32_t*)kEmitDrawEvents);
+        }
+        return true;
     }
     if (!strcmp(cmd, "reshade")) {   // pre-release audit: `reshade effects on|off` for an A/B plan row (session only)
         const int want = !strcmp(args, "effects on") ? 1 : !strcmp(args, "effects off") ? 0 : -1;
