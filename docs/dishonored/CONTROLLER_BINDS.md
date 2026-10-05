@@ -98,3 +98,13 @@ released.
   `binds Jump B`.
 - Headset check: the everyday actions on the shipped layout (nothing should change), one remap
   and back through F10 including "Press to set", physical crouch, and a sword swing.
+
+## Physical pickup takes a grip press when loot is in reach
+
+`[Aim] PhysicalPickup=1` (F10 > Aim, seam `pickup on|off`, `pickup reach <cm>`): while a
+lootable item is within `PhysicalPickupReachCm` (30) of a hand and the game has focused it, a
+press of that hand's PHYSICAL grip is taken before the remap. The grip reads 0 for the rest of
+that press, so the action bound to it (the power wheel or Choke in the shipped layout) does not
+fire, and the logical Interact is held for 130 ms instead. A grip that was already held when
+the hand arrived is not taken; the Interact button itself is untouched. Log: `pickup: LEFT|RIGHT
+grip pressed ... grip swallowed, Interact pressed`.

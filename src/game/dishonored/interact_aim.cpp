@@ -104,11 +104,14 @@ static bool HandRayWorld(float* origin, float* dir, const char** why)
 // Interaction's gates, then the shared ray.
 static bool IaHandRay(uint8_t* self, float* origin, float* dir)
 {
-    if (!g_iaOn.load()) return IaRefuse("head aim selected");
     if (g_gamepadOnly) return IaRefuse("[Mode] GamepadOnly=1 keeps the head");
     if (!CylTruthLive() || g_menuOpen || g_inMenu || g_mainMenu || g_cineNow)
         return IaRefuse("not in gameplay");
     if (!self || self != g_peCtrl) return IaRefuse("not the player's controller");
+    // physical_pickup.cpp: a lootable item within reach of a hand is what the engine looks at,
+    // whichever way the hands point and whether or not interaction is aimed by hand.
+    if (PickupRay(origin, dir)) { g_iaWhy = "driving (physical pickup target)"; return true; }
+    if (!g_iaOn.load()) return IaRefuse("head aim selected");
     const char* why = nullptr;
     if (!HandRayWorld(origin, dir, &why)) return IaRefuse(why);
     g_iaWhy = "driving";

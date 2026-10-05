@@ -296,6 +296,7 @@
 #include "game/dishonored/aim_seam.cpp"
 #include "game/dishonored/fire_aim.cpp"
 #include "game/dishonored/interact_aim.cpp"   // VR-166: interaction aimed by hand
+#include "game/dishonored/physical_pickup.cpp"   // loot picked up by reaching for it (needs interact_aim.cpp)
 #include "game/dishonored/throw_aim.cpp"      // VR-166: grenades aimed by hand
 #include "game/dishonored/hands/fx_follow.cpp" // VR-182: after weapon_attach (its snapshot) and throw_aim (rotator maths)
 #include "game/dishonored/power_aim.cpp"      // VR-44: Windblast, Possession, Swarm by hand

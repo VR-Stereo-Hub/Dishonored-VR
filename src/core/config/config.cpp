@@ -598,6 +598,12 @@ static bool WriteDefaultIni(const char* ini)
         "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
         "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
         "InteractFromHand=1\n"
+        "; PhysicalPickup=1: reach a hand to a lootable item (coins, elixirs, keys, ammunition, bone\n"
+        "; charms, notes, bolts) and squeeze that hand's grip to pick it up. Within PhysicalPickupReachCm\n"
+        "; of a hand the game highlights the item by itself; the Interact button works as before.\n"
+        "; A grip pressed there does not also open the power wheel or block. Live: pickup on|off, pickup reach <cm>.\n"
+        "PhysicalPickup=1\n"
+        "PhysicalPickupReachCm=30\n"
         "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
         "; The spawn point, speed and arc stay the game's; 0 = head.\n"
         "ThrowFromHand=1\n"
@@ -2970,6 +2976,7 @@ static void LoadConfig()
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
+    PickupConfigure(ini);      // [Aim] PhysicalPickup, PhysicalPickupReachCm
     ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
     GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
     CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand

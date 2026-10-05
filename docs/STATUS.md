@@ -1,3 +1,25 @@
+## 2026-10-05: fast DLSS model as the default; physical loot pickup (built, not run)
+
+Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
+- `DlssModel` defaults to 1 (the fast CNN presets) in the code, the default ini and the
+  launcher. Evidence: the performance audit's matched headset row, 14 percent of the frame rate
+  (dishonored/PERFORMANCE.md 2026-10-05 on `claude/performance-audit`). Existing inis are not
+  migrated. Launcher UI tests (256) and model tests (86) pass.
+- Physical pickup: a lootable item within 30 cm of a hand becomes what the game's own
+  interaction trace looks at, and that hand's grip picks it up (the grip's bound action is
+  suppressed for that press). `[Aim] PhysicalPickup`, `PhysicalPickupReachCm`, F10 > Aim, seam
+  `pickup`. Detail: dishonored/ENGINE_NOTES.md "Physical pickup", CONTROLLER_BINDS.md.
+- **Not verified:** nothing here has run in the game, the simulator or a headset; it compiles
+  and the default-ini check passes. First run, read: `pickup: first sweep done` (how many
+  lootables), `pickup: target ...` when a hand nears loot, whether the highlight appears,
+  `pickup: ... grip swallowed, Interact pressed`, and any `target released (the game did not
+  focus it ...)` line, which is the unproven part (the trace reaching the item's origin).
+- No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
+  decision. Not installed.
+
+**Next steps:** a headset or simulator pass of the pickup; tune the reach; decide whether the
+grip should be ignored while a weapon is being blocked with.
+
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 
 Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.

@@ -10157,3 +10157,36 @@ matinee blend and when the arm mesh last drew on every cinematic transition.
 `m_pMatineeBlender` (`ArkAnimNodeBlendPose.m_bEnabled`) is the read-only signal that a
 matinee is posing the pawn's mesh. Runtime use requires reflection to resolve
 `Actor.bHidden` to exactly +0x120 / 0x2 and the prologue to match; otherwise it refuses.
+
+## Physical pickup: the lootable classes and the target ray (2026-10-05)
+
+Built, not yet run in a headset or the simulator. Code: `physical_pickup.cpp`, two lines in
+`interact_aim.cpp`, one filter in `pad_bridge.cpp`.
+
+* **What counts as loot** (from the script declarations, class hierarchy only): everything
+  that derives from `DisPickup_Base` (itself a `DishonoredKActor`): `DisGenericPickup`,
+  `DisStatPickup` and `DishonoredInventoryPickup`, `DisElixirHealth`, `DisElixirMana`,
+  `DisKey_Base`, `DisWhaleBoneCharm`, `DisAbstractItemPickup` (notes, audio logs). Plus
+  `DisProjectile_Arrow`, the class the focus field showed for a recoverable bolt (VR-85).
+  The test is a walk of `UStruct::SuperField` (+0x44) from the object's class, comparing each
+  class object's own name, cached per class pointer.
+* **Finding them without a frame paying for it.** A whole GObjects walk costs milliseconds, so
+  the list is built by an incremental pass: 2000 slots a frame, a full sweep in well under a
+  second. An entry is trusted only while its GObjects slot still holds the same pointer AND
+  that object's class pointer is unchanged; nothing is dereferenced before that check. The
+  position is `Actor.Location` and the hidden test `Actor.bHidden`, both resolved by name.
+* **The engine still chooses.** No field is written and nothing is picked up by the mod. When
+  a listed item is within reach of a hand, the two interaction bridges of VR-166 hand the
+  engine's own trace a ray from the game camera to the item instead of the pointing ray. The
+  engine then focuses it (`m_pCrosshairActor`), highlights it and prompts for it as it would
+  for any item the player looked at, and refuses what it would refuse. The mod only reads the
+  focus back: a grip counts while the focused actor IS the target.
+* **Not established:** that a trace from the camera to `Actor.Location` hits every pickup's
+  collision (a mesh can sit off its actor origin), and what a looted pickup looks like to this
+  list (destroyed, hidden, or neither). The code does not depend on either answer: a target
+  the engine does not focus within 250 ms is dropped and left alone for 3 s, doubling each
+  time up to a minute. The log's `pickup: target released (the game did not focus it ...)`
+  line is where both answers will show.
+* Hand positions: the grip pose, scaled about the head by the drawn hand's own scale, through
+  the same head-to-world mapping as the published aim ray (`fireaim::solve`), anchored on the
+  game camera. Distances are to the actor origin, so the default reach is a generous 30 cm.

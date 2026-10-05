@@ -438,6 +438,14 @@ static void OvlTabAim()
         if (changed) { CarryThrowAimSet(carry, "F10"); ConfigWriteKey("Aim", "CarryThrowFromHand", carry ? "1" : "0", "F10 Aim"); }
         bool powers = row("Windblast, Possession, Swarm", PowerAimEnabled(), &changed, "Where these powers are aimed.");
         if (changed) { PowerAimSet(powers, "F10"); ConfigWriteKey("Aim", "PowersFromHand", powers ? "1" : "0", "F10 Aim"); }
+        {
+            bool grab = PickupEnabled();
+            if (dvr::ovl::checkbox("Pick up loot by reaching for it", &grab)) {
+                PickupSet(grab, "F10"); ConfigWriteKey("Aim", "PhysicalPickup", grab ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Reach a hand to coins, elixirs, keys and other loot and squeeze that hand's grip. The game "
+                   "highlights the item when a hand is close enough. The Interact button works as before.");
+        }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
         if (g_gamepadOnly) ImGui::TextDisabled("[Mode] GamepadOnly=1: everything stays on the head.");
     }
