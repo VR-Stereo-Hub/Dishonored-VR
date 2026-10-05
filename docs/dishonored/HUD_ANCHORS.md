@@ -1,3 +1,60 @@
+## 2026-10-04: widgets came apart again - native ownership had been off since 2026-09-27
+
+Reported on staging-based builds: HUD elements separate onto different layers again, and
+objective markers flicker. Branch `claude/hud-recouple`.
+
+**Cause (MEASURED from inis and logs, not from a headset run of the fix).**
+- The accepted grouping (2026-09-26, "accepted semantic ownership baseline" below) is
+  `[Hud] SemanticOwnership=1`. Its code default stayed 0 and the key was never in the default
+  ini, in 1.0.2 and 1.0.3 alike. It ran only where an ini carried the key by hand.
+- The dev PC's ini carried `SemanticOwnership=1` until 2026-09-27 23:06 (the installer's own
+  backup of that ini still holds it). At 23:30 the installer wrote a fresh packaged ini; the key
+  was gone, and by 2026-09-29 a save had written `SemanticOwnership=0`. No log of the last ten
+  sessions has a `hud/semantic:` line: the hooks were never armed.
+- So since 2026-09-27 gameplay HUD draws were routed by rectangle and position only. In the
+  2026-10-04 log (reentry method): a 17-draw centred text widget
+  (`hud/group ... 0.348,0.354-0.652,0.414 default x17`) had its left-hand glyph runs claimed as
+  an objective's title text because a task marker's published point (0.341/0.427) was within
+  the position window, so part of the widget went into the game image and the rest stayed on
+  the window. An objective title near the reticle changed owner between
+  `prompt on window (interaction group)` and `objective on the game image (task position)`
+  eight times in six seconds: that is the marker flicker, a change of layer, not a stale eye.
+- Not the cause: the HUD sources changed little since v1.0.2 (subtitle readability, the ReShade
+  re-entry guards, the marker overlay's size rule for AFW). The stereo method is not the cause
+  either: the flips above are under `reentry`.
+
+**Change.** `SemanticOwnership` defaults 1 in code and is written in the default ini (so an ini
+rewritten from the packaged profile keeps it). Once per ini a stored 0 becomes 1 and
+`SemanticOwnershipRev=1` is written, because every 0 in the field was written by a save, not
+chosen; after that a 0 set in F10 stays. The F10 checkbox reads "Keep HUD widgets together
+(native ownership)". Startup logs `config: [Hud] SemanticOwnership=` and the hook's own
+`hud/semantic: hooks=1` or its REFUSED line. Host: 97 ownership, 503 route, 123 native-HUD checks.
+
+**Prediction for the next run (falsifiable).** `hud/semantic: hooks=1` at startup; no
+`hud/why ... CHANGED ... because task position` lines for text that belongs to another widget;
+a widget's pieces stay on one layer; an objective title stays with its marker. If widgets
+still split with the hooks armed, the ownership transport is at fault and the entries from
+2026-09-25/26 below are the starting point.
+
+**Also lost in the same ini rewrite, NOT restored (personal placement, now equal to the shipped
+defaults):** default window scale 1.42 -> 1.21 and offset, prompt scale 1.32 -> 1.17, task and
+rune marker edge inset 0.26 -> 0.22, the wheel side panels' alpha set. The 2026-09-27 backup
+holds the old values.
+
+**2026-10-05, first headset run with the change (log only; build v1.0.3-54-gd0c57b1b9, a local
+merge that carries this branch).** `config: [Hud] SemanticOwnership=1`, then
+`hud/semantic: hooks=1; native child ownership copied before queue publication`, no REFUSED
+line. Over a 15 minute session (14 of them standing at one spot in gameplay, reentry, DLSS off,
+an objective routed every present: `hud/layout: routed this window: vitals=11528
+objective=524`): `hud/semantic: roots=31..32 active=1 required=7 ambiguous=0` on all 300 beat
+lines, `hud/task-parent ... moved=2138 refused=0`, and **no `hud/why ... CHANGED` line at
+all** (the 2026-10-04 log had eight owner changes in six seconds). Scope: one view, no
+interaction prompt near the reticle in it, so the prompt-against-objective case that produced
+the flips was not re-created; whether the widgets looked whole is perceptual and was not
+reported with the log. Separate fault seen in the same log: `hud/markers-sharp: REFUSED
+owner=serial-overlay reason=no reduced reentry upscaler and AFW clean sources off` is a Warn
+every second while DLSS is off under reentry (842 lines); it is a state and should log once.
+
 ## 2026-09-27: sharp HUD and markers default on, Advanced controls
 
 After the accepted marker test, both UpscaleSharp and MarkersSharp default to 1

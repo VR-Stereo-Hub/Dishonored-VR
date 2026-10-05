@@ -25,6 +25,17 @@ void Fullscreen(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 
 float4 InvertPS(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target { return float4(lerp(tex2D(BackBuffer, uv).rgb, 1 - tex2D(BackBuffer, uv).rgb, Strength), 1); }
 technique Invert { pass { VertexShader = Fullscreen; PixelShader = InvertPS; } }
 '@ | Set-Content -LiteralPath (Join-Path $desktopOut 'Test.fx')
+# An installed effect the preset does NOT use: it must stay unloaded and unlisted by default.
+@'
+texture BackBufferTex : COLOR;
+sampler BackBuffer { Texture = BackBufferTex; };
+void Fullscreen(uint id : SV_VertexID, out float4 pos : SV_Position, out float2 uv : TEXCOORD) {
+    uv = float2(id == 2 ? 2.0 : 0.0, id == 1 ? 2.0 : 0.0);
+    pos = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+float4 TintPS(float4 pos : SV_Position, float2 uv : TEXCOORD) : SV_Target { return float4(tex2D(BackBuffer, uv).rgb * float3(1, 0.5, 0.5), 1); }
+technique Tint { pass { VertexShader = Fullscreen; PixelShader = TintPS; } }
+'@ | Set-Content -LiteralPath (Join-Path $desktopOut 'Other.fx')
 $desktopVc = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*' -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
 $desktopSdk = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Include' | Sort-Object Name -Descending | Select-Object -First 1).FullName
 $desktopLib = (Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\Lib' | Sort-Object Name -Descending | Select-Object -First 1).FullName

@@ -111,6 +111,7 @@ static void WaCompTick(void)
         WaComp c;
         memset(&c, 0, sizeof(c));
         c.obj = k->obj;
+        MkReadIdentity(c.obj, &c.id);
         _snprintf(c.asset, sizeof(c.asset), "%s", k->asset);
         _snprintf(c.name,  sizeof(c.name),  "%s", k->name);
         c.asset[sizeof(c.asset) - 1] = 0;
@@ -180,6 +181,7 @@ static void WaCompTick(void)
             WaComp c;
             memset(&c, 0, sizeof(c));
             c.obj = comp;
+            MkReadIdentity(c.obj, &c.id);
             const char* as = FpAssetName(comp);
             const char* nm = RealName(RangeReadable(comp + kNameOff, 4)
                                       ? *(uint32_t*)(comp + kNameOff) : 0);
@@ -328,7 +330,9 @@ static void WaPublishCommon(int hand, const MpDrawCtx* c, const dvr::hf::Xform& 
             "swaying, an old snapshot predicts where the weapon WAS.",
             age, (double)g_waSnapMaxMs);
     }
+    AcquireSRWLockExclusive(&g_waCommonLock);
     g_waCommon[hand] = w;
+    ReleaseSRWLockExclusive(&g_waCommonLock);
 }
 
 
@@ -475,6 +479,8 @@ static bool WaPatchAndDraw(IDirect3DDevice9* dev, WaMesh* w,
                                         numVertices, startIndex, primCount)
         : dvr::frame::orig_draw_prim(dev, type, startVertex, primCount);
     if (hr) *hr = drawHr;
+    if (SUCCEEDED(drawHr) && indexed)
+        HbDraw(dev,w,(UINT)cnt/3,type,baseVertex,minIndex,numVertices,startIndex,primCount);
     // VR-138: the sibling passes take the mirror too, so depth and colour agree.
     if (SUCCEEDED(drawHr) && indexed)
         WmDraw(dev, w, source, (UINT)start, (UINT)cnt, delta, type, baseVertex, minIndex,
@@ -554,6 +560,10 @@ static bool WaDrawPrim(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type,
 // at a dead object refuses every draw AND blocks its own re-adoption.
 static void WaInvalidateContracts(const char* why)
 {
+    HbRelease(why);
+    AcquireSRWLockExclusive(&g_waCommonLock);
+    memset(g_waCommon, 0, sizeof(g_waCommon));
+    ReleaseSRWLockExclusive(&g_waCommonLock);
     if (!g_waMeshN) return;
     const int n = g_waMeshN;
     g_waMeshN = 0;
@@ -1521,6 +1531,7 @@ static bool WaDrawInner(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVe
         minIndex, numVertices, startIndex, primCount);
     if (hr) *hr = drawHr;
     if (SUCCEEDED(drawHr)) { InterlockedIncrement(&g_waSucceeded); InterlockedIncrement(&w->placed); BrMeasure(dev,w,source,w->regs,delta); }
+    if (SUCCEEDED(drawHr)) HbDraw(dev,w,w->regs/3,type,baseVertex,minIndex,numVertices,startIndex,primCount);
     // VR-138: the mirrored copy, inside the same patched palette and depth range.
     if (SUCCEEDED(drawHr)) WmDraw(dev, w, source, (UINT)w->boneReg, w->regs, delta, type, baseVertex,
                                   minIndex, numVertices, startIndex, primCount);

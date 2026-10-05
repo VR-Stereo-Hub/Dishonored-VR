@@ -1,3 +1,35 @@
+## 2026-10-04: objective marker text flickers - it changes LAYER, native HUD ownership was off (MEASURED cause, fix built, headset pending)
+
+1. **Symptom identity:** objective marker text flickers in gameplay, and pieces of one HUD
+   widget sit on different layers. Surface: the HUD's layer assignment (game image and marker
+   overlay against the HUD window quad), both eyes. Row worked from: the HUD rows of the
+   section 1 table (added below); not a stale eye, not a black frame.
+2. **Reproduction identity:** v1.0.3-38-ga206226b7, reentry and afw both used in the run,
+   DLSS on, 2750x2850; ini with `[Hud] SemanticOwnership=0`. Log archived locally under
+   `build/playtest-candidates/anim-blend-ik/run4-replaced-20261004-222443/`.
+3. **Hypothesis and counterprediction:** with native ownership off, draws are owned by
+   rectangle and position, so a title near the reticle is claimed in turn by the prompt group
+   and by the task marker's position window. Falsified if the owner changes also occur with
+   `hud/semantic: hooks=1`. The log shows the owner of one title changing eight times in six
+   seconds (`hud/why ... CHANGED prompt on window -> objective on the game image` and back)
+   and no `hud/semantic:` line in ten sessions.
+4. **Change identity:** `SemanticOwnership` default 1, in the default ini, one-time 0 -> 1
+   migration (`SemanticOwnershipRev`). No routing code changed.
+5. **Results:** host suites pass (97 ownership, 503 route, 123 native-HUD). No headset or
+   simulator run of the fix. Not eliminated: the marker overlay's refusals while DLSS is being
+   switched (1236 early refusals in that run, none later).
+6. **Status and remaining scope:** cause measured, fix headset-pending. Detail and the lost
+   ini history: HUD_ANCHORS.md, top entry.
+
+7. **2026-10-05 headset run, log only (MEASURED, not headset-confirmed):** build
+   v1.0.3-54-gd0c57b1b9 (a local merge carrying this change), reentry, DLSS off, 2750x2850,
+   ini `SemanticOwnership=1`. `hud/semantic: hooks=1`, no REFUSED; 0 `hud/why ... CHANGED`
+   lines in a 15 minute session with an objective routed every present; `ambiguous=0` on all
+   300 `hud/semantic:` beat lines. The counterprediction of item 3 (owner changes with the
+   hooks armed) did not occur. Remaining scope: the session stood at one spot with no
+   interaction prompt near the reticle, so the original trigger was not re-created, and no
+   perceptual report came with the log. Status stays: fix headset-pending.
+
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
 Reported weapon-wheel arm loss and uncertain pause-menu arm loss on the
@@ -3217,6 +3249,7 @@ pose metadata without reopening the disproved historical theories.
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
+| Objective marker text flickers, or pieces of one HUD widget sit on different layers (gameplay, both eyes) | `[Hud] SemanticOwnership` off: draws are owned by rectangle and position, and a title near the reticle or another marker changes owner between the prompt group, the default window and the task marker (`hud/why ... CHANGED`). Check `hud/semantic: hooks=1` at startup FIRST | Cause measured 2026-10-04; default now 1; headset pending. Top entry of this file and of HUD_ANCHORS.md |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Instant square contraction at dialogue, retained into gameplay in1.0.1 | Narrow cinematic sensor is retained by persistent writer;3s draw bridge expires | VR-227 candidate; affected-player acceptance open; see top entry |
 | Gameplay projection steadily contracts after load at target below natural FOV | Persistent ratio consumes its own interpolated readback | VR-213: source/host-confirmed; 1.0.1 candidate, headset open; see top entry |

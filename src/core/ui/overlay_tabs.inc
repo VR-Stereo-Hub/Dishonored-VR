@@ -880,6 +880,9 @@ static void OvlTabComfort()
         bool imagePose = dvr::vr::image_orientation_enabled();
         if (dvr::ovl::checkbox("Image-linked head orientation", &imagePose)) dvr::vr::set_image_orientation(imagePose);
         OvlTip("Ties the headset image to the head pose it was rendered with. Leave on.");
+        bool heartBack=HbEnabled();
+        if (dvr::ovl::checkbox("Heart: complete the missing back", &heartBack)) HbSet(heartBack);
+        OvlTip("Uses the locally prepared Heart back model and its animated skin. Off restores the original opening.");
         bool mirror = WmEnabled();
         if (dvr::ovl::checkbox("Mirror pistol/crossbow (fill the missing side)", &mirror)) WmSet(mirror);
         OvlTip("The game models only one side of these weapons; this fills the other. Leave on.");

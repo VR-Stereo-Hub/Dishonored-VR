@@ -1,3 +1,161 @@
+## 2026-10-05: Attached hand effects drift during locomotion, corrected candidate
+
+Scope: the attached Heart glow, not the Heart backing material or a stereo
+flicker. The backing was accepted on v1.0.3-55-gf8f2260ea; its matching run is
+archived locally. The current combined test has a different banner and must
+not be attributed to that Heart build. No game was launched for this fix.
+
+The existing hand-effects entry (VR-182, build 669) established controller-motion
+follow for Heart, Blink and Possession. It did not establish locomotion alignment.
+`FxWorldCorrection` used `inverse(br) * D * br` with `br = L * inverse(N)`;
+N was the native arm transform retained in the render publication. Applying
+that saved world correction to a bone queried at the current world position
+introduces `(R - I) * delta` error during translation. The host harness holds
+the controller correction fixed and varies only body travel to falsify it.
+
+The corrected chain names the parent as well as the arm:
+
+- Published arm frame A, published attached-parent frame P, arm draw frame L.
+- Parent draw frame `Lp = L * inverse(A) * P`.
+- Parent-local correction `Dp = inverse(Lp) * D * Lp`.
+- Current world correction `W = Pnow * Dp * inverse(Pnow)`.
+- Engine TransformFromBoneSpace supplies the native socket pose; W moves it;
+  TransformToBoneSpace returns the new relative to the same parent.
+
+Using only the current ARM world transform is insufficient when the arm and
+held item update at different points in the tick. That intermediate approach
+passed synchronized travel tests but still gives 3.872019 uu error in the
+staggered-parent negative control. Rebase through the actual attachment parent;
+its subsequent engine update then carries the relative along with the mesh.
+No inferred socket from the previously written component matrix is reintroduced.
+
+Static content verification used the existing UModel inventory driver and
+UE Explorer 1.6.2's UELib on decompressed local package copies. Startup contains
+`Vfx_Weapon.Effects.Heart.heart_glow`; its ParticleModuleRequired explicitly has
+`bUseLocalSpace=true`. DishonoredGame contains
+`Vfx_GamePlay.Possession.Possession_HandCast_01`; both required modules explicitly
+have the same flag. Other unsupported array/distribution decompiles were not
+used as evidence. The prior log identifies both as tracked mesh attachments.
+This supports correcting the component's attachment without modifying particles,
+materials, emitter templates or the game packages. Local property dumps remain
+untracked. No new engine address or field offset was introduced.
+
+The writer now uses IsLiveObject and recorded class/FName plus parent and bone
+identity for every destination. It re-reads the live attachment array after the
+engine bone calls, tolerates array relocation, and refuses detached or changed
+relationships. Restore only if the current relative still equals the last write;
+a native reattach wins. Menu transitions refresh the live-object table, load/pawn
+transitions reset bindings and require a new hand draw, and function identities
+are revalidated before ProcessEvent. Hand publications copy under an SRW lock;
+device reset and weapon invalidation clear them under the same lock.
+
+`tools/fx-follow-host.ps1` compiles production fx_follow.cpp against mock UE3
+bone calls and attachment arrays. 733 checks pass: Heart, Possession, separate
+left/right hand routing and a light component, rotations, scale, 77 travel/turn poses, stationary
+parity, repeated application, array relocation, reattach/detach, dead/reused
+objects, menu/load refresh, failed bone calls, stale publications, oversized
+moves and nested ProcessEvent. Straight walking: old 3.872011 uu versus corrected
+0.000275 uu. Staggered update: arm-only 3.872019 uu versus parent-local 0.000246 uu.
+Across 77 poses the final error is at most 0.000741 uu; the old control reaches
+37.274 uu. These are host results, not measured headset distances or frame times.
+
+The heartbeat reports current-parent travel separately from correction distance.
+This measures how far the current parent has advanced since its publication;
+it is not a measurement of visible glow error. Build only per the latest request;
+the in-game locomotion and Possession checks remain pending.
+
+## 2026-10-04: Heart rear shell runtime integration
+
+The preview was approved for implementation. `heart_back.cpp` adds the local
+surface after a successful, instance-validated Heart draw in both weapon_attach
+placement routes, before mirror handling and palette/viewport restoration. It
+does not write engine objects or replace the original Heart vertices. Contract
+invalidation releases its owned buffers, including before the empty-contract
+early return. The body pass has 3,672 triangles; the separate nine-triangle lens
+pass is not duplicated. There are 2,583 vertices in the native body draw window.
+
+Measured on the September 13 Hound Pits Pub save with the xrsim runtime:
+
+- The native declaration uses stride 32: UBYTE4 tangent at 0, UBYTE4 normal at 4,
+  UBYTE4 bone indices at 8, UBYTE4N weights at 12, FLOAT3 position at 16 and
+  FLOAT16_2 UV at 28 (aliased as TEXCOORD0..3). A second stream supplies COLOR0
+  as D3DCOLOR with stride zero, offset zero and one four-byte constant. Refusing
+  every secondary stream prevented the first candidate from drawing. The fixed
+  path supports that color stream and restores it after each addition.
+- All 2,583 positions and skin-weight fields validated against the locally
+  generated reference. The shader declares c6 x225, or 75 palette slots. The
+  maximum relative weight-field error is 0.0000074; 22 reference bones exist.
+- The native vertex dump agrees with the glTF coordinates after the measured
+  transform to engine space: maximum position error 0.00000192 uu, UV error zero.
+  Decoding packed normals as byte/127.5 - 1 agrees within 0.00845 vector length
+  for every vertex. Native tangent W is 128; normal W stores handedness. Tangent
+  seam duplicates make nearest-position/UV tangent comparisons ambiguous, so
+  they are not used as an all-vertex tangent proof.
+- The added surface contains 9,903 vertices and 19,439 triangles. At all 65 rim
+  points, the native reference weights are copied exactly. Interior weights
+  diffuse across the cap adjacency; detail weights interpolate the nearest cap
+  triangle. The new rear bulge is reduced by up to 1.5 cm for finger clearance;
+  the original boundary stays fixed. Screenshots still only cover sampled grips.
+- Final clean candidate v1.0.3-50-g4cdd3b78d (optimized, legacy off) was installed
+  with matching build banner and SHA-256
+  096827320B820E164DBA9A8E848F4489CB5B2C21D4D8445B4CFBADF8191C7F64.
+  Final status sampled 30,714 successful draws and zero failures. All three final
+  screenshots use this build and the September 13 save; its hash is unchanged.
+- Rotated views and the live OFF/ON comparison show the main rear opening filled.
+  A sampled status counted 14,755 successful draws and zero failures. Model reload
+  also rebuilt and validated the fitted version without restarting the game.
+
+`tools/heart-back-export.py` runs in Blender with a local proposal directory and
+the tools directory. It writes `dishonored_vr_heart_rig.bin` (DVRIK002 reference)
+and `dishonored_vr_heart_back.bin` (DVRHRT01 vertices/indices) for the mod data
+directory. These derived assets must not be committed or packaged. The loader
+bounds counts, checks all values/influences/indices, and fails back to the
+original Heart when unavailable or invalid. `tools/heart-back-host.ps1` checks
+valid data plus negative cases. `heartback dump` explicitly requests a local
+native vertex/declaration capture on the next validated rebuild; normal play
+does not create that diagnostic file.
+
+The original material shaders and textures light the backing. Its UVs select
+the original darker flesh patch; the static Blender preview's vertex-color edge
+blend and procedural bump are not native shader features. In-game screenshots,
+not the Blender material preview, determine acceptance. No new engine addresses,
+field offsets, package mutation or UObject writes are involved. The addition is
+inside the tracked weapon route; native-only cinematic rendering remains outside
+the tested scope. No performance improvement is claimed.
+
+## 2026-10-04: Heart rear shell, local modeling preview
+
+UModel's Startup.upk object list identifies SkeletalMesh Heart, materials
+Heart_Mat and Heart_lens_Mat, and Heart_D/N/S/SP/E plus HeartLens_D/N textures.
+Export only that mesh and those textures into an ignored local output directory.
+The glTF import has 2,583 vertices and 3,681 triangles. Welding coincident UV seam
+positions for inspection exposes 249 open edges; the largest connected rear
+opening contains 65. Small separate component and vessel boundaries also remain.
+
+The proposal uses a constrained triangulation of that rear perimeter with a
+rounded posterior surface, shallow vessels, an incision and retaining wires.
+The original mesh and rig stay separate and unchanged. The new wall has 2,173
+vertices and 4,279 triangles. All 65 rim coordinates match exactly; joining copies
+for validation reduces total boundary edges from 249 to 184. Original vertex
+coordinates and polygon indices compare exactly, and the new wall has no
+zero-area triangles. This is not a claim that every original part is watertight.
+
+Color revision: use a darker flesh region of the existing Heart_D atlas, with
+Heart_N detail and matching roughness. Convert sampled sRGB rim colors to linear
+before assigning the vertex color attribute. The initial unconverted edge colors
+made the new material too pale. Blender lighting and a simplified lens material
+are previews, not an exact recreation of UE3's complete material.
+
+Reproduction tools: heart-back-inspect.py then heart-back-preview.py, both run
+inside Blender with `-- <local-output-directory>`. The directory contains
+originals/Startup/SkeletalMesh3/Heart.gltf and its buffer, plus exported textures
+under originals/Startup/Texture2D. Inspection creates heart-original-inspection.blend;
+the preview creates Heart-backside-proposal.blend, paired renders and a report.
+These outputs contain game-derived data and are never committed. Scripts are ours.
+
+Preview scope ends at screenshots. No engine hooks, memory writes, package edits,
+DLL build/install or INI changes. Added parts are not skinned or animation-tested.
+Review the revised color and shape before planning any runtime implementation.
 ## 2026-09-27: read-only pause submenu identity
 
 Local class declarations expose DisGFxMoviePlayerMenuBase.m_bIsInSaveMenu and
@@ -10158,6 +10316,32 @@ matinee blend and when the arm mesh last drew on every cinematic transition.
 matinee is posing the pawn's mesh. Runtime use requires reflection to resolve
 `Actor.bHidden` to exactly +0x120 / 0x2 and the prologue to match; otherwise it refuses.
 
+### 2026-10-05: Heart backing material integration
+
+The approved side-view seam material requires dedicated textures, not a remap
+into the native atlas. DVRHRT02 adds a bounded cap-triangle count; DVRHMT01
+contains five local texture mip chains and native BC1 reference signatures.
+UModel exports the highest mip normally. Lower external mip descriptors are
+reordered only in a decompressed local copy of Startup, then exported through
+UModel; inline mips are copied from that same local package. No shipped package
+is modified. The extracted mip dimensions and data sizes are checked.
+
+The renderer recognizes diffuse/normal/specular/specular-power/emissive textures
+by 64 sampled BC1 blocks per exact native mip. Probe locations include regular
+coverage and high-information texels. No shader sampler index is assumed.
+Resource-incarnation and successful-upload stamps prevent pointer reuse or
+streaming writes from making the bounded recognition cache stale. GetTexture
+references are temporary, with no retained native COM ownership. Weapon-contract
+invalidation also drops all mod-owned buffers, textures and recognition entries.
+
+The backing is drawn first with replacements; all native sampler bindings are
+restored before details and subsequent game draws. Unknown color passes fail
+soft with a rate-limited diagnostic. `heartback status` now reports textured
+passes and material waits separately from draw failures. This path introduces
+no engine-memory writer. Host evidence: 17 model cases, 72 material cases and
+paged GPU upload/incarnation checks pass. These are not an in-game appearance
+claim; the first user launch must confirm the installed build banner and material
+matches before interpreting its visual result.
 ## Scene render stages, the draw-event switch and the SCALE command (2026-10-04)
 
 IDA series `tools/ida/pf1_render_stages.py` .. `pf5_scale_exec.py`, staged md5
