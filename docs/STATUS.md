@@ -1,3 +1,65 @@
+## 2026-10-05: Heart glow locomotion accepted for staging
+
+Headset testing confirms the Heart glow remains aligned during locomotion on
+v1.0.3-58-g3c61de512. The current log banner and installed DLL SHA-256 match
+the candidate; the run and previous logs are archived locally under
+effects-candidate/accepted-run. The log records the current-parent-frame path
+operating during travel, with the existing 120 uu rejection guard still active.
+This is acceptance of the Heart locomotion test; separate Possession casting
+coverage is not claimed. All 733 host checks and the optimized build passed.
+
+Heart backing PR #182 is merged into staging at e222f82a7. Integration into staging is explicitly authorized for the accepted Heart
+backing and shared hand-effect correction. Preserve both finalized feature
+branches. The release branch is outside this integration. The Heart assets
+remain local-only; packaging requires the prepared binary files described in
+the Heart PR. The installed accepted candidate remains unchanged.
+
+## 2026-10-05: Hand-effect locomotion correction installed
+
+Heart backing PR #182 is ready for review against staging and remains unmerged.
+Child branch codex/hand-effects-locomotion starts from its accepted tip. The
+reported follow-up is the Heart glow sliding out during walking; Possession
+has the same shared attachment route. No new Linear issue is created under the
+established workspace-limit exception.
+
+The old script writer applies a render snapshot's world correction to current
+bone positions. Reproduce the resulting travel-dependent displacement in the
+production-code host harness. Carry the correction through each parent's local
+frame, then through that parent's live native transform. This also handles an
+arm update preceding a held-item update. Apply it to the existing shared path
+for hand particle systems and light components, including Heart, Possession
+and Blink. Do not alter particle assets or engine bone animation.
+
+Runtime safety: coherent render publication, parent/component/FName/bone identity
+checks, a refreshed live-object table across menu/load boundaries, re-reading
+the attachment after engine calls, and restoration only while the relative is
+still ours. Fresh post-transition draws are required. The existing movement
+limit and once-per-frame/reentry guards remain.
+
+Validation: 733 production-code host checks pass. A fixed hand with 6/-2 uu
+body translation exposes 3.872011 uu error in the old formula versus 0.000275 uu
+corrected; staggered parent updates also pass. All 77 travel/turn poses remain
+below 0.001 uu position error. UModel and UE Explorer's library confirm the
+Heart required module and both Possession hand-cast required modules use local
+space. Details, rejected arm-only correction and limits: ENGINE_NOTES.
+
+Installed on subsequent user authorization: v1.0.3-58-g3c61de512, DLL SHA-256
+C0AD7618BEBE303209470A8565185D064CA03567C6F9B0F157FAAE0F7031CB18.
+The previous DLL, complete INI, current and previous logs, and Heart assets are
+backed up together under the local effects-candidate/install-20261005-075916.
+The entire installed INI matches both its backup and expected bytes; CRLF is
+verified and there are zero INI changes. Approved Heart assets match hashes.
+Compatibility: explicit DlssModel=0 retains its meaning; AbPlanOnce is empty.
+The newer combined build's physical pickup and VisibilityMaskProbe features
+are absent here; the retained probe key is ignored. Hand animation policy is
+unchanged. No game was launched; headset validation remains pending.
+
+Next launch asks one question: with the
+Heart held still relative to the body, does its glow remain inside while walking
+and strafing? Stable alignment supports the fix; continued drift requires the
+new parent-travel diagnostics before changing another mechanism. Possession
+casting while moving is a separate follow-up launch.
+
 ## 2026-10-05: Heart backing accepted, PR ready for review
 
 The final natural-seam backing is headset-accepted on v1.0.3-55-gf8f2260ea.

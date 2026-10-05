@@ -688,3 +688,15 @@ Hand vertices near the cut are partly weighted to forearm bones, so arm and wris
 **Build 672 moved nothing** (`ms/wrist: 0 hand vertex(es) had 0 forearm influence(s)`). It selected forearm bones as `!g_msBoneHand`, but the hand set is every bone within the wrist radius (30.8 uu) of the hand bone. That radius takes in the forearm-twist bones behind the wrist, which are the ones bending it. The left hand looked better only because of the VR-183 empty-hand wrist anchor. The right hand, holding the sword, was unchanged. Build 673 calls a bone forearm when its centroid lies more than 2 uu BEHIND the hand bone along the limb axis (`g_msAxis`, pointing to the fingers), and logs every bone's position along the axis per side.
 
 **Build 673 result: VR-183 and VR-184 headset-confirmed.** The reticle lines up with a held item again, the hands stay still on the wrist while power animations move the fingers, and the wrist cut and cap no longer bend on either hand.
+
+## Attached effects during locomotion (2026-10-05, host-validated candidate)
+
+Heart, Possession and Blink effects share fx_follow.cpp, which used an older
+world origin to correct current bones. The locomotion correction is now formed
+in each attachment parent's local frame and carried through its live native
+transform. A held item updating after the arm no longer adds body travel to the
+relative. The engine still owns socket animation and particle behavior. The
+733-check host suite covers separate particle/light attachments and lifecycle
+guards; the requested candidate is build-only, with in-game review pending.
+Derivation, content verification and negative controls: ENGINE_NOTES, 2026-10-05
+attached hand effects entry.

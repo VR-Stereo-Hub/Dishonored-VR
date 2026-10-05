@@ -1,3 +1,69 @@
+## 2026-10-05: Attached hand effects drift during locomotion, corrected candidate
+
+Scope: the attached Heart glow, not the Heart backing material or a stereo
+flicker. The backing was accepted on v1.0.3-55-gf8f2260ea; its matching run is
+archived locally. The current combined test has a different banner and must
+not be attributed to that Heart build. No game was launched for this fix.
+
+The existing hand-effects entry (VR-182, build 669) established controller-motion
+follow for Heart, Blink and Possession. It did not establish locomotion alignment.
+`FxWorldCorrection` used `inverse(br) * D * br` with `br = L * inverse(N)`;
+N was the native arm transform retained in the render publication. Applying
+that saved world correction to a bone queried at the current world position
+introduces `(R - I) * delta` error during translation. The host harness holds
+the controller correction fixed and varies only body travel to falsify it.
+
+The corrected chain names the parent as well as the arm:
+
+- Published arm frame A, published attached-parent frame P, arm draw frame L.
+- Parent draw frame `Lp = L * inverse(A) * P`.
+- Parent-local correction `Dp = inverse(Lp) * D * Lp`.
+- Current world correction `W = Pnow * Dp * inverse(Pnow)`.
+- Engine TransformFromBoneSpace supplies the native socket pose; W moves it;
+  TransformToBoneSpace returns the new relative to the same parent.
+
+Using only the current ARM world transform is insufficient when the arm and
+held item update at different points in the tick. That intermediate approach
+passed synchronized travel tests but still gives 3.872019 uu error in the
+staggered-parent negative control. Rebase through the actual attachment parent;
+its subsequent engine update then carries the relative along with the mesh.
+No inferred socket from the previously written component matrix is reintroduced.
+
+Static content verification used the existing UModel inventory driver and
+UE Explorer 1.6.2's UELib on decompressed local package copies. Startup contains
+`Vfx_Weapon.Effects.Heart.heart_glow`; its ParticleModuleRequired explicitly has
+`bUseLocalSpace=true`. DishonoredGame contains
+`Vfx_GamePlay.Possession.Possession_HandCast_01`; both required modules explicitly
+have the same flag. Other unsupported array/distribution decompiles were not
+used as evidence. The prior log identifies both as tracked mesh attachments.
+This supports correcting the component's attachment without modifying particles,
+materials, emitter templates or the game packages. Local property dumps remain
+untracked. No new engine address or field offset was introduced.
+
+The writer now uses IsLiveObject and recorded class/FName plus parent and bone
+identity for every destination. It re-reads the live attachment array after the
+engine bone calls, tolerates array relocation, and refuses detached or changed
+relationships. Restore only if the current relative still equals the last write;
+a native reattach wins. Menu transitions refresh the live-object table, load/pawn
+transitions reset bindings and require a new hand draw, and function identities
+are revalidated before ProcessEvent. Hand publications copy under an SRW lock;
+device reset and weapon invalidation clear them under the same lock.
+
+`tools/fx-follow-host.ps1` compiles production fx_follow.cpp against mock UE3
+bone calls and attachment arrays. 733 checks pass: Heart, Possession, separate
+left/right hand routing and a light component, rotations, scale, 77 travel/turn poses, stationary
+parity, repeated application, array relocation, reattach/detach, dead/reused
+objects, menu/load refresh, failed bone calls, stale publications, oversized
+moves and nested ProcessEvent. Straight walking: old 3.872011 uu versus corrected
+0.000275 uu. Staggered update: arm-only 3.872019 uu versus parent-local 0.000246 uu.
+Across 77 poses the final error is at most 0.000741 uu; the old control reaches
+37.274 uu. These are host results, not measured headset distances or frame times.
+
+The heartbeat reports current-parent travel separately from correction distance.
+This measures how far the current parent has advanced since its publication;
+it is not a measurement of visible glow error. Build only per the latest request;
+the in-game locomotion and Possession checks remain pending.
+
 ## 2026-10-04: Heart rear shell runtime integration
 
 The preview was approved for implementation. `heart_back.cpp` adds the local

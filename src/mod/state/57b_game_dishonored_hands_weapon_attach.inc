@@ -92,6 +92,7 @@ enum {
 // ---- the components, snapshotted on the script lane -------------------------
 struct WaComp {
     uint8_t*      obj;         // identity and lifetime, never dereferenced here
+    dvr::menukeep::Identity id; // script-lane identity; FX writers revalidate it
     char          asset[64];
     char          name[64];
     dvr::hf::Mat3 R;           // native basis, same extraction as the shader's
@@ -118,6 +119,7 @@ struct WaCommon {
     bool     ok;
 };
 static WaCommon g_waCommon[2];        // per hand
+static SRWLOCK g_waCommonLock = SRWLOCK_INIT; // coherent render publication to script FX
 
 
 static SRWLOCK g_waCompLock = SRWLOCK_INIT;
