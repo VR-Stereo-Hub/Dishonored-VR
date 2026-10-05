@@ -1,0 +1,37 @@
+# Pre-release performance audit, plan 2 (2026-10-04): the ENGINE's own rendering switches, live.
+# IDA series pf5 found the stock UE3 `SCALE` console command in this executable, with its whole
+# switch table. Each row flips or sets one switch through the mod's `console` seam word and puts
+# it back; nothing is written to any ini. Whether the command is reached through that route is
+# itself what the first rows show: a row that changes nothing in the picture or the numbers,
+# while `stages` shows its stage still running, means the route does not reach the handler.
+#
+# Arm it with the ABSOLUTE path:  tools\game-cmd.ps1 "perf ab plan <repo>\tools\perf-plans\audit-2-engine.txt"
+# Stand still somewhere typical for the whole plan (about 9 minutes): outdoors, a light source and
+# some smoke or fog in view, because light shafts, bloom and translucency cost only when drawn.
+# The values restored below are the game's shipped ones (ShadowTexelsPerPixel 1.27324,
+# MaxShadowResolution 800, ScreenPercentage 100). ScreenPercentage is last: it reallocates targets.
+seg 20000
+warm 5000
+baseline A
+light shafts off | console scale toggle bAllowLightShafts | console scale toggle bAllowLightShafts
+baseline B
+cheap bloom | console scale toggle UseHighQualityBloom | console scale toggle UseHighQualityBloom
+baseline C
+bloom off | console scale toggle Bloom | console scale toggle Bloom
+baseline D
+half-res translucency | console scale toggle bAllowDownsampledTranslucency | console scale toggle bAllowDownsampledTranslucency
+baseline E
+distortion off | console scale toggle Distortion | console scale toggle Distortion
+baseline F
+dynamic shadows off | console scale toggle DynamicShadows | console scale toggle DynamicShadows
+baseline G
+light env shadows off | console scale toggle LightEnvironmentShadows | console scale toggle LightEnvironmentShadows
+baseline H
+shadow texels half | console scale set ShadowTexelsPerPixel 0.64 | console scale set ShadowTexelsPerPixel 1.27324
+baseline I
+shadow max 400 | console scale set MaxShadowResolution 400 | console scale set MaxShadowResolution 800
+baseline J
+lens flares off | console scale toggle LensFlares | console scale toggle LensFlares
+baseline K
+screen percentage 80 | console scale set ScreenPercentage 80 | console scale set ScreenPercentage 100
+baseline L

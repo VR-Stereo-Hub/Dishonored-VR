@@ -1961,7 +1961,9 @@ static bool MsBuild(IDirect3DDevice9* dev, INT baseVertex, UINT minIndex,
 static void MpOnReset(void)
 {
     IkDropGeometry();
+    AcquireSRWLockExclusive(&g_waCommonLock);
     memset(g_waCommon, 0, sizeof(g_waCommon));
+    ReleaseSRWLockExclusive(&g_waCommonLock);
     g_waMeshN = 0;
     g_pcLayShader = NULL;
     g_pcLayVp = g_pcLayL2W = g_pcLayBones = -1;

@@ -1,3 +1,16 @@
+## Heart backside preview (2026-10-04)
+
+- [x] Branch from staging and locate the shipped Heart mesh and textures.
+- [x] Build a local rear-wall proposal and verify the main opening closes.
+- [x] Preserve original front geometry and prepare before/after screenshots.
+- [x] Revise the overly pale material using the original darker flesh palette.
+- [x] Receive visual approval before skinning or game integration.
+- [x] Transfer skin weights and draw the backing with the native Heart material.
+- [x] Exercise the 9/13 Hound Pits save in the simulator, including live OFF/ON.
+- [x] Accept the final natural-seam backing in the headset; locomotion effects are a separate follow-up.
+
+Evidence: [ENGINE_NOTES](dishonored/ENGINE_NOTES.md), Heart rear shell entry.
+Runtime integration is now a default-off local candidate; prepared game-derived files remain untracked.
 ## Full-arm IK (2026-10-04)
 
 - [x] Fork-style independent shoulder reach with shared nominal XYZ/width.

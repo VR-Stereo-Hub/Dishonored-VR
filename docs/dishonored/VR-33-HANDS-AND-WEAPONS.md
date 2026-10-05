@@ -824,3 +824,14 @@ in use. TRAPS, 2026-10-05.
 halved to 75 / 110 / 90 / 130 / 20 ms (shape, close, hold, release, lag), which read as more of a
 grab than a reach; the offline check scales with them unchanged (every phase scaled alike). Only
 the hand that picked the target is ever ready: the other hand's item stays drawn.
+## Attached effects during locomotion (2026-10-05, host-validated candidate)
+
+Heart, Possession and Blink effects share fx_follow.cpp, which used an older
+world origin to correct current bones. The locomotion correction is now formed
+in each attachment parent's local frame and carried through its live native
+transform. A held item updating after the arm no longer adds body travel to the
+relative. The engine still owns socket animation and particle behavior. The
+733-check host suite covers separate particle/light attachments and lifecycle
+guards; the requested candidate is build-only, with in-game review pending.
+Derivation, content verification and negative controls: ENGINE_NOTES, 2026-10-05
+attached hand effects entry.

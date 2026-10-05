@@ -1,3 +1,5 @@
+#include "core/gfx/reshade_runtime.h"   // the seam's `reshade effects on|off`
+#include "core/framework/stage_profile.h"   // the seam's `stages on|off`
 // game/dishonored/commands.cpp - the game side of the command seam and the
 // status provider. Included by the unity build (it reads the mod's globals).
 //
@@ -90,6 +92,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
     if (!strcmp(cmd, "lenskeepsize") && DvrOnOff(args, &b)) { LensKeepSizeSet(b); return true; }   // VR-137
     if (!strcmp(cmd, "lensfollow") && DvrOnOff(args, &b)) { LensFollowSet(b); return true; }       // VR-137
     if (!strcmp(cmd, "rainstrength")) { LensRainPctSet(atoi(args)); return true; }                 // VR-137: %, 100 native
+    if (!strcmp(cmd, "heartback")) return HbCommand(args);
     if (!strcmp(cmd, "mirror")) return WmCommand(args);   // VR-138
     if (!strcmp(cmd, "occlusion")) return OcclusionCommand(args);   // VR-79
     if (!strcmp(cmd, "afw")) {   // VR-39: the held eye's stick/snap yaw correction, live A/B
@@ -627,6 +630,48 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         _snprintf(v, sizeof(v), "%.2f", dvr::clarity::body_depth());
         ConfigWriteKey("Clarity", "DlssBodyDepth", v, "the seam");
         return ok;
+    }
+    if (!strcmp(cmd, "stages")) {   // pre-release audit: the engine's own render stages, timed (core/framework/stage_profile.h)
+        // `stages on|off` sets the engine's draw-event switch (byte-verified) and the collector together;
+        // `stages gpu on|off` adds GPU time from timestamp queries. Session only, nothing is saved.
+        static int verified = 0;
+        if (!verified) {
+            const bool a = RangeReadable((const void*)kEmitDrawEventsReader, sizeof(kEmitDrawEventsReaderBytes)) &&
+                           !memcmp((const void*)kEmitDrawEventsReader, kEmitDrawEventsReaderBytes, sizeof(kEmitDrawEventsReaderBytes));
+            const bool b = RangeReadable((const void*)kEmitDrawEventsToggle, sizeof(kEmitDrawEventsToggleBytes)) &&
+                           !memcmp((const void*)kEmitDrawEventsToggle, kEmitDrawEventsToggleBytes, sizeof(kEmitDrawEventsToggleBytes));
+            const bool g = RangeReadable((const void*)kEmitDrawEvents, 4);
+            verified = a && b && g ? 1 : -1;
+            Log("stages: engine draw-event switch %s (scene-render reader %s, TOGGLEDRAWEVENTS writer %s, switch %s)",
+                verified > 0 ? "verified" : "REFUSED - the stage profile is unavailable on this build",
+                a ? "ok" : "MISMATCH", b ? "ok" : "MISMATCH", g ? "readable" : "UNREADABLE");
+        }
+        if (verified > 0) {
+            if (!strcmp(args, "on") || !strcmp(args, "off")) {
+                const bool on = !strcmp(args, "on");
+                dvr::stageprof::set_enabled(on);
+                *(volatile uint32_t*)kEmitDrawEvents = on ? 1u : 0u;
+            } else if (!strcmp(args, "gpu on")) dvr::stageprof::set_gpu(true);
+            else if (!strcmp(args, "gpu off")) dvr::stageprof::set_gpu(false);
+            else if (!strncmp(args, "skip ", 5)) {   // `stages skip odd|all <stage name>` / `stages skip off`
+                const char* a = args + 5;
+                const int mode = !strncmp(a, "odd ", 4) ? 1 : !strncmp(a, "all ", 4) ? 2 : 0;
+                wchar_t wname[48] = L"";
+                if (mode) { const char* n = a + 4; int i = 0; for (; n[i] && i < 47; ++i) wname[i] = (wchar_t)(unsigned char)n[i]; wname[i] = 0; }
+                dvr::stageprof::set_skip(mode, wname);
+            }
+            Log("stages: collector %s, GPU time %s, engine switch now %u | words: stages on|off, stages gpu on|off, stages skip odd|all <stage>|off | a `perf/stages:` table "
+                "follows every 5 s while on", dvr::stageprof::enabled() ? "ON" : "off", dvr::stageprof::gpu() ? "on" : "off",
+                *(volatile uint32_t*)kEmitDrawEvents);
+        }
+        return true;
+    }
+    if (!strcmp(cmd, "reshade")) {   // pre-release audit: `reshade effects on|off` for an A/B plan row (session only)
+        const int want = !strcmp(args, "effects on") ? 1 : !strcmp(args, "effects off") ? 0 : -1;
+        const int now = dvr::reshade_runtime::set_effects(want);
+        Log("reshade: effects %s (the seam; session only, the preset is not saved) | words: reshade effects on|off",
+            now < 0 ? "unavailable - no running effect runtime" : now ? "ON" : "OFF");
+        return true;
     }
     if (!strcmp(cmd, "aniso")) {     // the texture-filter levers (core/gfx/sampler_force.h)
         const bool ok = dvr::samplers::command(args);

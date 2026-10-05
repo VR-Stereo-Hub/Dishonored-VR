@@ -81,6 +81,7 @@ struct Ent {
     UINT w, h, d, levels;
     D3DFORMAT fmt;
     uint32_t updates;
+    uint64_t serial; // changes on every resource registration, including pointer reuse
     uint16_t roMask;
     uint8_t surfaceRefused;
     uint8_t kind;
@@ -90,6 +91,7 @@ struct Ent {
     uint8_t activeReadOnly;
 };
 Ent g_map[kMap];
+uint64_t g_resourceSerial=0;
 int g_mapCount = 0;
 int g_mapTombs = 0;
 uint32_t g_mapFull = 0;
@@ -160,6 +162,7 @@ inline uint32_t hash_ptr(void* p) { return (uint32_t)((uintptr_t)p >> 4) * 26544
 void* const kTomb = (void*)&g_map;
 
 void ent_reset_payload(Ent& e) {
+    e.serial=++g_resourceSerial;
     e.twin = nullptr; e.section = nullptr; e.activeView = nullptr; e.activeLevelBase = nullptr;
     e.activeViewBytes = 0; e.sectionBytes = 0; e.w = e.h = e.d = e.levels = 0; e.fmt = D3DFMT_UNKNOWN;
     e.activeLocks = 0; e.updates = 0; e.roMask = 0; e.surfaceRefused = 0; e.kind = (uint8_t)ShadowKind::Legacy;
@@ -688,6 +691,15 @@ void shadow_register_volume(IDirect3DDevice9* dev, IDirect3DVolumeTexture9* real
     shadow_put(real, twin, (uint64_t)w * h * d * 4);
 }
 
+// No native reference is retained. Consumers hold their own short GetTexture
+// reference, then use this incarnation/write stamp to validate a content cache.
+bool texture_stamp(void* real,uint64_t* serial,uint32_t* writes) {
+    if(!g_csInit||!real||!serial||!writes)return false;
+    EnterCriticalSection(&g_cs);Ent* e=map_find(real);
+    const bool ok=e&&e->serial;
+    if(ok){*serial=e->serial;*writes=e->updates;}
+    LeaveCriticalSection(&g_cs);return ok;
+}
 bool paged_active() { return translating() && g_managed == Managed::Paged; }
 bool shadow_tracked(void* real) {
     if (!g_csInit || g_mapCount==0) return false; EnterCriticalSection(&g_cs); const bool yes=map_find(real)!=nullptr; LeaveCriticalSection(&g_cs); return yes;

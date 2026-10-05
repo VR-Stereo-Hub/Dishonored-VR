@@ -1348,7 +1348,28 @@ void configure(const char* ini) {
         if(read_i(ini,key,0)) blurMask|=1u<<kMenuContextBits[i];
     }
     dvr::hudclass::set_owner_trace(read_i(ini,"OwnerTrace",0)!=0);
-    dvr::hudowner::configure(read_i(ini,"SemanticOwnership",0)!=0);
+    {   // Native widget ownership. Accepted in a headset on 2026-09-26, but it stayed default 0
+        // and out of the default ini, so it ran only where an ini carried the key by hand, and
+        // an ini rewritten from the packaged profile lost it (2026-09-27): widgets came apart
+        // again and objective text changed layer. Default 1 now. save() wrote the old default
+        // into every ini as 0, so once per ini a stored 0 becomes 1 and SemanticOwnershipRev=1
+        // is written (the HandAnimMeleeRev precedent); after that a 0 set in F10 stays.
+        int semantic=read_i(ini,"SemanticOwnership",1);
+        if(read_i(ini,"SemanticOwnershipRev",0)<1) {
+            if(!semantic) {
+                semantic=1;write_i("SemanticOwnership",1);
+                DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+                    "hud/semantic: [Hud] SemanticOwnership 0 -> 1 (one-time: the stored 0 was the old shipped default written by a save, "
+                    "not a choice; SemanticOwnershipRev=1 written; set it to 0 in F10 HUD or the ini and it stays)");
+            }
+            write_i("SemanticOwnershipRev",1);
+        }
+        dvr::hudowner::configure(semantic!=0);
+        DVR_LOG(DVR_CAT, ::dvr::log::Level::Info,
+            "config: [Hud] SemanticOwnership=%d (%s; `hud/semantic: hooks=1` must follow, a REFUSED line means the position rules are in use)",
+            semantic,semantic?"each HUD draw is routed by the game widget it belongs to, so a widget's pieces stay on one layer"
+                             :"off: HUD draws are routed by rectangle and position, pieces of one widget can land on different layers");
+    }
     g_groupInteractions=read_i(ini,"GroupInteractions",0)!=0;
     g_routeObjectives=read_i(ini,"RouteObjectives",0)!=0;
     g_objectiveScreen=read_i(ini,"ObjectiveScreenTracking",0)!=0;
@@ -1466,6 +1487,7 @@ void save(const char* ini) {
     write_i("NativeMarkerChildren",g_nativeMarkerChildren);
     write_i("NativeGameplayReference",g_nativeGameplayReference);
     write_i("SemanticOwnership",dvr::hudowner::enabled());
+    write_i("SemanticOwnershipRev",1);   // a saved value is this machine's choice
     write_i("WheelSidePanels",g_wheelParts);
     for(int part=0;part<2;++part) for(int k=0;k<4;++k) {
         char key[64];_snprintf(key,sizeof(key),"%s.Crop%d",kWheelPartKeys[part],k);write_f(key,g_wheelPartCrop[part][k]);
@@ -2073,11 +2095,12 @@ void draw_ui() {
             write_i("NativeRuneMarkers", runeTask); write_f("RuneMarkerEdgeInset", runeInset / 100.f);
         }
         bool semantic=dvr::hudowner::enabled();
-        if(dvr::ovl::checkbox("Native widget ownership (test)",&semantic)) {
-            dvr::hudowner::configure(semantic);write_i("SemanticOwnership",semantic);
+        if(dvr::ovl::checkbox("Keep HUD widgets together (native ownership)",&semantic)) {
+            dvr::hudowner::configure(semantic);write_i("SemanticOwnership",semantic);write_i("SemanticOwnershipRev",1);
             dvr::hudcap::invalidate_content();forget_draw_owners();
         }
-        ov::tip("Keeps each widget together through rendering. Enable before starting the game; then toggle here to compare.");
+        ov::tip("Keeps each widget's pieces on one layer and objective text with its marker. On by default; it arms at game start, "
+                "so after turning it on restart the game. Off uses the older position rules.");
         bool nativeTask = dvr::objectivemarkers::enabled();
         float edgeInset = dvr::objectivemarkers::inset() * 100.f;
         const bool taskChange = dvr::ovl::checkbox("Native objective arrow boundary (test)", &nativeTask);

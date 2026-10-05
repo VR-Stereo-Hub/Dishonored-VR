@@ -329,6 +329,10 @@ void cycle_enter();
 void cycle_leave();
 void msw_tick();   // the Present hook, each present: starts or stops the MSW thread
 bool submit_depth();
+// Pre-release audit: [VR] VisibilityMaskProbe. Read before the instance is created. Probe only: logs the
+// share of each eye image the lenses never show (XR_KHR_visibility_mask); nothing is masked.
+void set_visibility_mask_probe(bool on);
+bool visibility_mask_probe();
 void set_depth_live(bool on);
 bool depth_live();
 bool depth_active();

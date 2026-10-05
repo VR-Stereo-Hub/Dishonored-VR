@@ -460,6 +460,16 @@ static const uintptr_t kOcclReaderViewSetup = 0x008663E5;   // cmp [switch],0 ->
 static const uint8_t kOcclReaderViewSetupBytes[] = {0x83,0x3D,0x54,0xDD,0x44,0x01,0x00,0x75,0x04};
 static const uintptr_t kOcclReaderDepthPass = 0x0086C1CB;   // cmp [switch],esi before the pass-loop call
 static const uint8_t kOcclReaderDepthPassBytes[] = {0x39,0x35,0x54,0xDD,0x44,0x01,0x75,0x0F};
+// Pre-release audit (2026-10-04): UE3's GEmitDrawEvents, the dword the TOGGLEDRAWEVENTS console
+// command flips. 139 reads in the image, 123 of them directly in front of a stage-event
+// constructor; its single writer is that command's handler. While it is set the engine calls
+// D3DPERF_BeginEvent / EndEvent (this proxy's exports) around every render stage. Both sites
+// below are byte-verified before the mod writes it. IDA series pf1..pf4; ENGINE_NOTES.
+static const uintptr_t kEmitDrawEvents = 0x0141B268;
+static const uintptr_t kEmitDrawEventsReader = 0x0086C161;   // scene render: cmp [switch],esi / jz, before the "DPG %s" event
+static const uint8_t kEmitDrawEventsReaderBytes[] = {0x39,0x35,0x68,0xB2,0x41,0x01,0x74,0x5D};
+static const uintptr_t kEmitDrawEventsToggle = 0x006C7BAD;   // TOGGLEDRAWEVENTS: cmp [switch],edx / mov eax,1 / setz dl / mov [switch],edx
+static const uint8_t kEmitDrawEventsToggleBytes[] = {0x39,0x15,0x68,0xB2,0x41,0x01,0xB8,0x01,0x00,0x00,0x00,0x0F,0x94,0xC2,0x89,0x15,0x68,0xB2,0x41,0x01};
 // VR-79 per-eye culling: UE3's AllocateViewState, cdecl, no arguments: appMalloc(0x310, 8)
 // then the FSceneViewState constructor, returns the new state. The LocalPlayer
 // constructor calls it and stores the result at +0x88 (LocalPlayer.ViewState; the

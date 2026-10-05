@@ -137,7 +137,7 @@ try {
     # ---- 3. ReShade.ini, only when there is none ------------------------------------------
     $ini = Join-Path $targetDir 'ReShade.ini'
     if (Test-Path -LiteralPath $ini) {
-        $report.Add('Kept your existing ReShade.ini unchanged (its shader search paths are yours).')
+        $report.Add('Kept your existing ReShade.ini. When the game starts with ReShade on, the VR mod adds these shader folders to its search paths and loads only the selected preset''s effects; nothing else in it changes.')
     } else {
         $effects  = '.\dvr-reshade-shaders\standard\Shaders,.\dvr-reshade-shaders\sweetfx\Shaders\SweetFX,.\dvr-reshade-shaders\prod80\Shaders,.\dvr-reshade-shaders\custom\Shaders\**'
         $textures = '.\dvr-reshade-shaders\standard\Textures,.\dvr-reshade-shaders\sweetfx\Textures\SweetFX,.\dvr-reshade-shaders\prod80\Textures,.\dvr-reshade-shaders\custom\Textures\**'

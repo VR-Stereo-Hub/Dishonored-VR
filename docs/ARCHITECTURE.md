@@ -1255,7 +1255,7 @@ Execute, and retires it at consumption. Synchronous drawing uses the native
 Display scope directly. Queue metadata is fixed-size, generation-bound, refuses
 ambiguous/reused identities and never requires render-thread UObject access.
 Unknown draws retain native rendering. The existing menu context route is separate.
-Default-off SemanticOwnership has an explicit local candidate enable and live A/B.
+SemanticOwnership (default on since 2026-10-04; it was default-off with a local candidate enable until then) keeps a live A/B.
 This is an ownership repair candidate; target depth and headset performance are
 not established by transport host tests. See HUD_ANCHORS, ENGINE_NOTES and PERFORMANCE.
 
@@ -1552,6 +1552,26 @@ reflection resolves Actor.bHidden to the statically read +0x120/0x2 and the prol
 matches, only for an arms-only body, and the game's own end-of-cinematic call restores it.
 See dishonored/ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.
 
+### 2026-10-04: Heart completion uses local draw-owned geometry
+
+The Heart's missing rear wall is supplied as locally prepared skinned geometry
+inside the existing instance-validated weapon draw. Reusing the game's current
+palette and material passes preserves animation, lighting and depth behavior;
+the mod restores the original streams, indices and cull state before returning.
+Reference position and weight-field correspondence derives the palette mapping
+instead of assuming exported bone order equals shader slots. A missing or invalid
+reference leaves the original Heart drawing. Game-derived geometry remains local.
+
+### 2026-10-05: attachment follow carries a parent-local correction
+
+Hand effects consume the same render correction as weapons, but cannot retain
+its old world origin while querying current bones. Convert through the published
+arm/parent relationship into parent-local space, then conjugate by the live
+parent transform. This remains valid when native arm and item updates occur in
+different phases. The script lane continues to write only validated attachment
+relatives using engine bone-space conversion. A locked publication and refreshed
+object identities bound the render-to-script handoff. Host negative controls
+cover old-world and current-arm-only alternatives; in-game acceptance is pending.
 ### 2026-10-05: the fast DLSS model is the default
 
 The shipped default was Transformer K, the sharpest model. Measured in the headset in the
