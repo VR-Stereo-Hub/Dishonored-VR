@@ -18,6 +18,16 @@ the next run's four questions: dishonored/ANIM-HANDOFF-PLAN.md, top section.
 - **Not known yet:** the start/stop speeds in the new instrument's units; whether the default
   stance is the reference pose; the size and direction of the shoulder offset per takedown.
 - TRAPS: an instrument that measured its own side's motion.
+- **Installed for the fourth run:** v1.0.3-38-ga206226b7 (clean banner). The game folder held a
+  different candidate, v1.0.3-46-g4c34beb46 (`codex/afw-character-test`), with `[Stereo]
+  Method=afw` and `AfwDepthMotion=0`; that DLL, its whole ini and all ten logs are backed up with
+  a hash manifest in `build/playtest-candidates/anim-blend-ik/replaced-afw46-20261004-211103/`
+  and restore as a pair. The installed ini is the run-3 ini plus `ArmIKGameArmShoulder=1`, byte
+  for byte (73856 bytes, 1700 CRLF, no bare LF or CR): so `Method=reentry` again, as in run 3,
+  and no `AfwDepthMotion` (this build does not read it). No `CinematicMotion*` key is in the
+  ini, so the compiled 5000 ms hold and the other gate defaults apply. Check on the next run:
+  the banner, and `config: [Anim] CinematicMotionStart=20.0 ... HoldMs=5000`,
+  `config: [Hands] ArmIKGameArmShoulder=1`.
 
 ## 2026-10-04: smooth hand-backs, IK arm rules, cutscene arms (built, not run)
 
