@@ -793,3 +793,21 @@ and `GrabReadyHide` (default 0, render levers), F10 > Hands under "Grab animatio
 **To check in a run:** `hands/ready: RIGHT hand READY`, `held item HIDDEN`, `drawn again`; `wa: '<asset>'
 NOT drawn - the ... hand is in reach`; FLICKER_REFERENCE section 1's rows for a weapon copy at
 the native position and a weapon-shaped hole in AFW's rebuilt eye are the faults to expect.
+
+**Simulator run, 2026-10-05** (build `v1.0.3-80-gefdb9db0a`, full-arm IK on, Hound Pits save of
+2026-09-13, the right hand holding the sword, a real book on the floor reached with `pickup near`):
+
+* Reach: `hands/ready: RIGHT hand READY`, `held item HIDDEN`, `wa: 'Wpn_PlySword01' NOT drawn`;
+  the captures show the sword gone with no copy left at the native position, and the hand open.
+* Grip: grip swallowed, Interact pressed, the grab played from flat (`0 deg from flat ... shape 0
+  ms`), the book's page opened on the right hand; ready ended at once (the note screen) and the
+  item stayed hidden until the grab finished (`a grab is still playing`), then `drawn again`.
+* Still in reach after a grab (a grab played without interacting): the hand stayed ready and the
+  sword hidden (`eligible R 1, hiding R 1`) until the hand moved away, then `drawn again`.
+* The left hand went READY on the same book (it held nothing drawn, so nothing was hidden).
+* Walking past things made a hand ready for half a second and back, cleanly.
+* Pickup beat (now printed without a target): own cost about 21 us a frame, worst 221 us, no
+  frame over 250 us in 12 beats; pawn or talk targets refused 0 (no NPC was near).
+* Not seen in this run: the weapon returning in view after a looted item (a book opens the note
+  screen, during which the game itself shows no weapon), the left hand hiding a held item, the
+  AFW eye under the hide, and a takedown with a hand ready.
