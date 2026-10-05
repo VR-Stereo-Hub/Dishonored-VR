@@ -954,6 +954,9 @@ static bool WriteDefaultIni(const char* ini)
         "ArmShoulderWidthCm=36\n"
         "ArmLengthScale=1\n"
         "ArmElbowOut=0.6\n"
+        "; ArmIKGameArmInAnim=1: while a game animation owns a hand, that arm becomes the game's\n"
+        "; own arm, blended in and out with the hand. 0 = the IK arm follows the animated wrist.\n"
+        "ArmIKGameArmInAnim=0\n"
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
@@ -1335,6 +1338,12 @@ static bool WriteDefaultIni(const char* ini)
         "; shown again) and hands them to the game only while it animates them. Replaces\n"
         "; CinematicHandBack while on.\n"
         "CinematicArms=0\n"
+        "; The game's own arm speed (uu/s) that hands a cutscene's arms to it, and how long they\n"
+        "; must stay still before they come back (a scripted clip can hold a pose for seconds).\n"
+        "CinematicMotionStart=20\n"
+        "CinematicMotionStop=8\n"
+        "CinematicMotionStartMs=120\n"
+        "CinematicMotionHoldMs=1500\n"
         "; Arms.<lane>.<state> and Action.<lane>.<state> are the per-state handback rules\n"
         "; (VR-88). 1 hands the state back to the game's own animation, 0 keeps the VR\n"
         "; hands driving it. Lane 0 is the master state, 1 and 2 the upper-body states.\n"
@@ -2826,6 +2835,10 @@ static void LoadConfig()
     g_ikWidth=ikFloat("ArmShoulderWidthCm",36,10,80);
     g_ikLength=ikFloat("ArmLengthScale",1,.5f,2);
     g_ikElbowOut=ikFloat("ArmElbowOut",.6f,0,2);
+    g_ikGameArmInAnim = IniFloat(ini, "Hands", "ArmIKGameArmInAnim", 0) != 0.0f;
+    Log("config: [Hands] ArmIKGameArmInAnim=%d (%s)", g_ikGameArmInAnim.load() ? 1 : 0, g_ikGameArmInAnim.load()
+        ? "a game animation that owns a hand shows the game's own arm on that side, blended by the hand-back weight"
+        : "the IK arm follows an animated wrist from the tracked shoulder");
     Log("ik: configured %s; nominal shoulder center cm=(%.2f %.2f %.2f), width=%.2f, length=%.2f, elbow-out=%.2f; independent reach, native hands / IK arms",
         g_ikOn.load()?"ON":"OFF",g_ikForward.load(),g_ikRight.load(),g_ikUp.load(),g_ikWidth.load(),g_ikLength.load(),g_ikElbowOut.load());
     g_ohOn = IniFloat(ini, "Hands", "OpenEmptyRightHand", 1) != 0.0f;       // the empty right hand opens like the left

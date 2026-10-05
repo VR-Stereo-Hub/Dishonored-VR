@@ -201,15 +201,24 @@ struct CineProps {
     // Instrument only (which matinee field marks an authored arm clip): ActiveChildIndex,
     // BlendTimeToGo, m_bDoBlend. found* distinguishes a real offset 0 from a miss.
     uint32_t childOff=0, togoOff=0, doBlendOff=0, doBlendMask=0; bool childFound=false, togoFound=false;
+    // Instrument only, the BioShock Infinite mod's two cutscene signals: the input-lock counters
+    // (bytes) and the view target (a cutscene camera vs the pawn).
+    uint32_t ignoreMoveOff=0, ignoreLookOff=0, viewTargetOff=0;
 } cineProps;
 void cine_resolve() {
     if (cineProps.tried || !RflNamesReady()) return;
     cineProps.tried=true;
-    RflWant w[7]={{"DishonoredPlayerPawn","m_pMatineeBlender",false,0,0,false},{"ArkAnimNodeBlendPose","m_bEnabled",true,0,0,false},
+    RflWant w[10]={{"DishonoredPlayerPawn","m_pMatineeBlender",false,0,0,false},{"ArkAnimNodeBlendPose","m_bEnabled",true,0,0,false},
                   {"Actor","bHidden",true,0,0,false},{"PlayerController","bCinematicMode",true,0,0,false},
                   {"ArkAnimNodeBlendPose","ActiveChildIndex",false,0,0,false},{"ArkAnimNodeBlendPose","BlendTimeToGo",false,0,0,false},
-                  {"ArkAnimNodeBlendPose","m_bDoBlend",true,0,0,false}};
-    RflResolveBatch(w,7);
+                  {"ArkAnimNodeBlendPose","m_bDoBlend",true,0,0,false},{"PlayerController","bIgnoreMoveInput",false,0,0,false},
+                  {"PlayerController","bIgnoreLookInput",false,0,0,false},{"Controller","ViewTarget",false,0,0,false}};
+    RflResolveBatch(w,10);
+    if (w[7].found) cineProps.ignoreMoveOff=w[7].off;
+    if (w[8].found) cineProps.ignoreLookOff=w[8].off;
+    if (w[9].found) cineProps.viewTargetOff=w[9].off;
+    Log("cine/arms: input locks bIgnoreMoveInput=%s+0x%x bIgnoreLookInput=%s+0x%x, ViewTarget=%s+0x%x",
+        w[7].found?"":"MISSING ",w[7].off,w[8].found?"":"MISSING ",w[8].off,w[9].found?"":"MISSING ",w[9].off);
     if (w[0].found) cineProps.matineeOff=w[0].off;
     if (w[1].found) { cineProps.enabledOff=w[1].off; cineProps.enabledMask=w[1].mask; }
     if (w[2].found) { cineProps.hiddenOff=w[2].off; cineProps.hiddenMask=w[2].mask; }
@@ -238,8 +247,24 @@ int read_flag(uint8_t* obj,uint32_t off,uint32_t mask) {
 // a conversation's start, an item use). NOT the matinee pose blend: run 2026-10-04 measured
 // m_bEnabled=1 for the whole of every conversation, so it took the hands for the entire scene.
 // Its finer fields are logged by cine_visibility until a run shows which marks a real clip.
+// Run 2 (2026-10-04): a scripted arm clip (picking Emily up) showed no arm action, no change of
+// the matinee node and no distinct state, so the game's own arm MOTION is the signal, as in the
+// BioShock Remastered mod (M7-S4): the speed of its upper-arm/forearm bones (MsSampleArmSpeed),
+// bones the mod never writes, through a gate with hysteresis. The hold is a setting because a
+// scripted clip can freeze a pose for seconds mid-scene (BRVR measured 2.5 and 4.5 s).
+MotionGate cineMotion;
+float cineStartSpeed=20.0f, cineStopSpeed=8.0f;
+unsigned cineStartMs=120, cineHoldMs=1500;
+struct CineMotionStats { unsigned long long since=0; float max=0, sum=0; unsigned n=0, on=0; } cineStats;
 bool cine_animating(const Snapshot& s,uint8_t*) {
-    return !lane_idle(s.state[1]) || !lane_idle(s.state[2]);
+    const unsigned long long now=GetTickCount64();
+    const float raw=g_msArmSpeed.load();
+    const bool fresh=raw>=0 && now-g_msArmSpeedMs<=200;
+    const float speed=fresh ? raw : 0.0f;   // no arm draw (hidden, culled): nothing to measure, read as still
+    const bool moving=cineMotion.update(speed,now,cineStartSpeed,cineStopSpeed,cineStartMs,cineHoldMs);
+    if (!cineStats.since) cineStats.since=now;
+    cineStats.max=fmaxf(cineStats.max,speed); cineStats.sum+=speed; ++cineStats.n; cineStats.on+=moving?1:0;
+    return moving || !lane_idle(s.state[1]) || !lane_idle(s.state[2]);
 }
 struct CineVis {
     uint8_t* unhid=nullptr; unsigned long long unhidAt=0; bool honourLogged=true;
@@ -252,7 +277,7 @@ bool cine_set_hidden(uint8_t* pawn,int hide) {
     __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 // Script lane, after the snapshot is published and outside the lock. With the lever on it logs
-// the facts of every cinematic transition (the instrument) and unhides a hidden arms-only pawn
+// the facts of every cinematic transition (the instrument) and unhides a hidden arms-only or full-body pawn
 // for the cinematic, re-hiding it if the lever goes off or the body leaves arms-only while the
 // cinematic still runs. The game's own PreSetCinematicMode(false) unhides it at the end, so
 // nothing is restored then.
@@ -288,6 +313,20 @@ void cine_visibility(uint8_t* pawn,const Snapshot& s,bool leverOn,uint8_t* ctrl)
             cineVis.lastChild=child; cineVis.lastDoBlend=doBlend; cineVis.lastTogo=togoBucket; cineVis.lastMatineeI=matinee;
         }
     }
+    // Once a second in a cutscene: the motion the gate saw (for setting its thresholds from a
+    // run, as BRVR did), with the two signals the BioShock Infinite mod uses beside it.
+    if (cineStats.n && now-cineStats.since>=1000) {
+        unsigned char lockMove=255, lockLook=255;
+        if (ctrl && cineProps.ignoreMoveOff) read(ctrl,cineProps.ignoreMoveOff,&lockMove,1);
+        if (ctrl && cineProps.ignoreLookOff) read(ctrl,cineProps.ignoreLookOff,&lockLook,1);
+        uint8_t* vt=ctrl && cineProps.viewTargetOff ? object(ctrl,cineProps.viewTargetOff) : nullptr;
+        const char* vtc=vt ? ObjClassName(vt) : nullptr;
+        Log("cine/motion: game arm speed max=%.1f mean=%.1f uu/s, gate open %u/%u samples (opens above %.0f for %u ms, closes below %.0f "
+            "after %u ms) | input locks move=%d look=%d | view target %s%s | master=%s upper=%s left=%s owner=%s",
+            cineStats.max,cineStats.sum/cineStats.n,cineStats.on,cineStats.n,cineStartSpeed,cineStartMs,cineStopSpeed,cineHoldMs,
+            (int)lockMove,(int)lockLook,vtc?vtc:"?",vt && vt==pawn?" (the pawn)":"",s.state[0],s.state[1],s.state[2],s.handMask?"GAME":"PLAYER");
+        cineStats=CineMotionStats{}; cineStats.since=now;
+    }
     if (cineVis.unhid && !cineVis.honourLogged && now-cineVis.unhidAt>=1000) {
         cineVis.honourLogged=true;
         const bool honoured=drawn>=cineVis.unhidAt;
@@ -295,7 +334,10 @@ void cine_visibility(uint8_t* pawn,const Snapshot& s,bool leverOn,uint8_t* ctrl)
             honoured?"HONOURED":"NOT honoured",honoured?"drew":"did NOT draw");
     }
     if (mode!=1) { cineVis.unhid=nullptr; return; }   // no cinematic, or it ended: the game unhides its own pawn
-    if (!leverOn || s.bodyMode!=0) {
+    // Arms-only or full body: the game itself shows the full-body pawn in conversations
+    // (run 1: body=1, pawn visible, arms drawn). The boat ride is body=1 with the pawn hidden;
+    // the first build refused it there and the arms stayed away. HIDDEN (2) is never touched.
+    if (!leverOn || (s.bodyMode!=0 && s.bodyMode!=1)) {
         if (cineVis.unhid && hidden==0 && cine_set_hidden(cineVis.unhid,1)) {
             ++cineVis.rehides;
             Log("cine/arms: pawn hidden again (CinematicArms=%d body=%d) - the cinematic still runs and wanted it hidden",(int)leverOn,s.bodyMode);
@@ -320,8 +362,8 @@ void cine_visibility(uint8_t* pawn,const Snapshot& s,bool leverOn,uint8_t* ctrl)
     }
     ++cineVis.unhides; cineVis.unhid=pawn; cineVis.unhidAt=now; cineVis.honourLogged=false;
     if (cineVis.unhides>5) DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,5000,"cine/arms: the game hid the pawn again and it was unhidden again (#%u)",cineVis.unhides);
-    else Log("cine/arms: pawn UNHIDDEN for the cinematic (#%u; bHidden now %d, master=%s body=0) - tracked arms visible; the game takes them while it animates",
-        cineVis.unhides,read_flag(pawn,cineProps.hiddenOff,cineProps.hiddenMask),s.state[0]);
+    else Log("cine/arms: pawn UNHIDDEN for the cinematic (#%u; bHidden now %d, master=%s body=%d) - tracked arms visible; the game takes them while it animates",
+        cineVis.unhides,read_flag(pawn,cineProps.hiddenOff,cineProps.hiddenMask),s.state[0],s.bodyMode);
 }
 void report(const Snapshot& s) {
     Log("anim: gen=%u %s master=%s upper=%s left=%s pending=%s body=%d seq=%s picker=%d reason=%s age=%llu ms",
@@ -446,7 +488,7 @@ void set_cinematic_arms(bool on) {
     char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
     if(*ini)WritePrivateProfileStringA("Anim","CinematicArms",on?"1":"0",ini);
     Log("anim: CinematicArms=%d (live, saved; %s)",on?1:0,on?"tracked arms in cinematics, the game takes them while it animates them; "
-        "a hidden arms-only pawn is unhidden":"cinematics follow CinematicHandBack and the per-state rules; the game's hiding is left alone");
+        "a hidden arms-only or full-body pawn is unhidden":"cinematics follow CinematicHandBack and the per-state rules; the game's hiding is left alone");
 }
 bool enabled() { AcquireSRWLockShared(&lock); bool on=handback; ReleaseSRWLockShared(&lock); return on; }
 void set_enabled(bool on) {
@@ -656,7 +698,11 @@ void tick() {
     // CinematicArms: inside a cinematic the master state no longer hands the arms back by
     // itself; only the game animating them does (cine_animating: an upper/left action, or
     // the matinee pose blend enabled). Its lane-0 rule and Arms.0.<cinematic> are bypassed.
-    const bool cineArms=cinematicArms && dvr::scene_state::cinematic(s.state[0]);
+    // A cutscene is a cinematic FSM state OR the controller's bCinematicMode: Kismet cutscenes
+    // also run in ordinary states (the intro's walk-in with Emily was StatePlayerMasterWalk).
+    const bool cineMode=cinematicArms && ctrlLive && read_flag(g_peCtrl,cineProps.modeOff,cineProps.modeMask)==1;
+    const bool cineArms=cinematicArms && (dvr::scene_state::cinematic(s.state[0]) || cineMode);
+    if (!cineArms) { cineMotion=MotionGate{}; cineStats=CineMotionStats{}; }
     const bool cineAnim=cineArms && s.valid && cine_animating(s,pawn);
     const bool rules=(!cineArms && resolve_arm_rule(0,s.state[0])) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
     const bool match=mantle || handPose || rules || cineAnim;
@@ -756,6 +802,17 @@ void configure(const char* ini) {
     blendInMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendInMs",250,ini); if(blendInMs>2000) blendInMs=2000;
     blendOutMs=(unsigned)GetPrivateProfileIntA("Anim","HandBackBlendOutMs",350,ini); if(blendOutMs>2000) blendOutMs=2000;
     cinematicArms=GetPrivateProfileIntA("Anim","CinematicArms",0,ini)!=0;
+    {   // CinematicArms motion gate: first guesses, set from the cine/motion lines of a run
+        char v[32];
+        GetPrivateProfileStringA("Anim","CinematicMotionStart","20",v,sizeof(v),ini); cineStartSpeed=(float)atof(v);
+        GetPrivateProfileStringA("Anim","CinematicMotionStop","8",v,sizeof(v),ini); cineStopSpeed=(float)atof(v);
+        if(!std::isfinite(cineStartSpeed)||cineStartSpeed<0.1f) cineStartSpeed=20.0f;
+        if(!std::isfinite(cineStopSpeed)||cineStopSpeed<0||cineStopSpeed>cineStartSpeed) cineStopSpeed=cineStartSpeed*0.4f;
+        cineStartMs=(unsigned)std::clamp((int)GetPrivateProfileIntA("Anim","CinematicMotionStartMs",120,ini),0,5000);
+        cineHoldMs=(unsigned)std::clamp((int)GetPrivateProfileIntA("Anim","CinematicMotionHoldMs",1500,ini),0,10000);
+        Log("config: [Anim] CinematicMotionStart=%.1f Stop=%.1f uu/s StartMs=%u HoldMs=%u (the game's own arm speed that hands a cutscene's arms to it)",
+            cineStartSpeed,cineStopSpeed,cineStartMs,cineHoldMs);
+    }
     Log("config: [Anim] SmoothBlend=%d HandBackBlendInMs=%u HandBackBlendOutMs=%u (%s) CinematicArms=%d",(int)smoothBlend.load(),blendInMs,blendOutMs,
         smoothBlend.load()?"eased entry/return, palm on a straight path, hands held through the return":"off: linear HandBackBlendMs, instant return",(int)cinematicArms);
     char buf[1024];

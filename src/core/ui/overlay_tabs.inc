@@ -1559,6 +1559,14 @@ static void OvlTabIK()
     OvlTip("Connects your hands to IK arms. Hands and fingers keep their animations. Each shoulder adjusts independently at the limits of your reach.");
     ImGui::TextWrapped("IK status: %s",on?g_ikStatus.load():"Disabled - using your normal hand and sleeve settings.");
     if(on)ImGui::TextWrapped("Full arms are automatic when IK is active. If unavailable, the status above explains why only fallback hands appear.");
+    bool gameArm=g_ikGameArmInAnim.load();
+    if(dvr::ovl::checkbox("Game's own arm during game animations",&gameArm)){
+        g_ikGameArmInAnim=gameArm;
+        ConfigWriteKey("Hands","ArmIKGameArmInAnim",gameArm?"1":"0","F10 IK");
+        Log("ik: ArmIKGameArmInAnim=%d (live, saved)",gameArm?1:0);
+    }
+    OvlTip("When a takedown, choke or swing animation takes a hand, that arm becomes the game's own arm, blended in and out with the hand. "
+           "Off: the IK arm reaches from your shoulder to the animated hand, which can twist in poses like the choke.");
     if(OvlSec("Shoulder position",kOvlB,"Moves the resting shoulder pair together. Reach can move either shoulder from this position.")){
         auto control=[](const char* label,const char* key,std::atomic<float>& value,float lo,float hi,const char* format){
             float current=value.load();
