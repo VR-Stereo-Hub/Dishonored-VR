@@ -1,3 +1,24 @@
+## 2026-10-05: Heart seam material preview, original colors carried across join
+
+The v1.0.3-53 pale atlas remap is visually rejected and remains uninstalled.
+Side renders exposed a uniform peach backing against the original Heart's
+pink upper tissue and dark lower tissue. A new Blender-only material study
+uses dedicated 1024x1024 diffuse and tangent-normal textures. Original triangle
+UVs and tangent frames extend the adjacent tissue across all 65 boundary edges;
+a 14 mm transition joins a harmonic regional color field and subtle fine grain.
+The original mesh/material, camera and lighting are unchanged for comparison.
+Both sides and a rear three-quarter view have been rendered and inspected.
+Repeated mirrored source motifs were removed from the central backing texture.
+
+Local files: build/heart-backside-preview/seam-revision/Heart-natural-seam.blend,
+Heart_back_matched_D.png, Heart_back_matched_N.png, right-side.png, left-side.png,
+rear-three-quarter.png, side-comparison.png, and blend-seam.py. These remain
+untracked game-derived artifacts. This is a material preview, not an updated
+runtime build: the current Heart exporter/draw path only uses native textures
+and cannot reproduce this material yet. If approved for integration, implement
+and validate the custom texture path before claiming the build matches it.
+Installed build remains v1.0.3-50-g4cdd3b78d. No installation or game launch.
+
 ## 2026-10-05: Lighter Heart backing candidate, build only
 
 The backing UVs now use a continuous pale flesh patch from the native Heart
