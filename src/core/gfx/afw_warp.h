@@ -61,6 +61,9 @@ bool stereo();
 // DVR_WITH_LEGACY keeps the source-selection experiment available for offline replay.
 void set_fresh_world(bool on,const char* who);
 bool fresh_world();
+// Opt-in depth agreement for moving world surfaces, preserving static eye-specific shading.
+void set_depth_motion(bool on, const char* who);
+bool depth_motion();
 // The held eye's world by the game's own view-projection matrices (default on; head, stick yaw and
 // walking), checked each present against the XR pose model; `afw matrices on|off`. Off = the XR pose
 // and the body yaw alone (walking lags a tick).

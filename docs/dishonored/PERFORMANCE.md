@@ -1,3 +1,18 @@
+## 2026-10-04: targeted AFW depth-motion candidate cost
+
+The new default-off AfwDepthMotion experiment targets old world samples whose
+depth disagrees with the current stereo image, with local slope/precision guards.
+An early depth comparison avoids the eight extra neighbor reads on agreeing
+surfaces. This replaces the rejected broad fresh-world preference; evidence and
+limitations are in FLICKER_REFERENCE.md's newest boat/NPC entry.
+
+Native 2750x2850 host GPU A/B/A, back-to-back warmed rebuilds: OFF 1.685 ms,
+ON 1.714 ms, OFF again 1.696 ms. Observed overhead is about 0.02..0.03 ms in this
+synthetic scene, not a measured game FPS cost or guarantee for dense animation.
+82 host checks pass. The two source images and existing depth snapshots are used;
+there is no extra draw-mask ring, GPU readback or engine-memory traversal.
+No installed files changed and no new game-performance recovery claim.
+
 ## 2026-10-04: build 34 AFW tradeoff rejected; HUD/ReShade work retained
 
 The headset follow-up reports slight boat improvement but much worse world

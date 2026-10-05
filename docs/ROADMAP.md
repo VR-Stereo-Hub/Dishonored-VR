@@ -10,7 +10,9 @@
 - [x] Build host-verified current-time AFW world option for moving platforms.
 - [x] Read build-34 ferry/world captures; reject fresh-world tradeoff and retire it.
 - [ ] Confirm build-only rollback restores prior ordinary-world quality.
-- [ ] Resolve original AFW moving-boat ghosting without broad world regression.
+- [x] Use latest DLSS-off boat capture to build a depth-consistency candidate (82 host checks).
+- [ ] Confirm AfwDepthMotion improves character trails without static-world regression.
+- [ ] Resolve residual AFW moving-boat silhouette/fill and unchanged-depth motion.
 - [ ] Isolate and recover the reported steady FPS regression.
 
 ## Full-arm IK (2026-10-04)

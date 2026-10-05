@@ -98,6 +98,7 @@ static bool DvrGameCommand(const char* cmd, const char* args)
         if (!strcmp(sub, "yaw") && DvrOnOff(v, &b)) { dvr::vr::set_held_body_yaw(b); return true; }
         if (!strcmp(sub, "warp") && DvrOnOff(v, &b)) { dvr::afw::set_enabled(b, "the seam"); return true; }
         if (!strcmp(sub, "body") && v[0]) { dvr::afw::set_body_depth((float)atof(v), "the seam"); return true; }
+        if (!strcmp(sub,"depthmotion") && DvrOnOff(v,&b)) {dvr::afw::set_depth_motion(b,"the seam");return true;}
         if (!strcmp(sub,"freshworld") && DvrOnOff(v,&b)) {dvr::afw::set_fresh_world(b,"the seam");return true;}
         if (!strcmp(sub, "stereo") && DvrOnOff(v, &b)) { dvr::afw::set_stereo(b, "the seam"); return true; }
         if (!strcmp(sub, "debug") && DvrOnOff(v, &b)) { dvr::afw::set_debug(b, "the seam"); return true; }

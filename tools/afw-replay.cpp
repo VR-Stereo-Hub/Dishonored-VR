@@ -140,6 +140,9 @@ int main(int argc, char** argv) {
           const bool freshWorld=GetEnvironmentVariableA("DVR_AFW_FRESHWORLD",value,sizeof(value)) ? value[0]=='1' : atoi(m["freshWorld"].c_str())!=0;
           dvr::afw::set_fresh_world(freshWorld,"replay"); }
 
+        { char value[8]={};
+          const bool on=GetEnvironmentVariableA("DVR_AFW_DEPTH_MOTION",value,sizeof(value)) ? value[0]=='1' : atoi(m["depthMotion"].c_str())!=0;
+          dvr::afw::set_depth_motion(on,"replay"); }
         dvr::afw::set_debug(dbg, "replay"); dvr::afw::set_stereo(stereo, "replay"); dvr::afw::set_matrices(mtx, "replay");
         dvr::afw::set_world_scale(strtof(m["worldScale"].c_str(), nullptr));
         dvr::afw::set_body_depth(strtof(m["bodyUnits"].c_str(), nullptr), "replay");

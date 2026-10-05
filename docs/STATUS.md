@@ -1,3 +1,24 @@
+## 2026-10-04: new depth-based AFW character-motion candidate, build only
+
+Latest boat burst 19:43:31 is matched to installed v1.0.3-36-g65b278d04 and
+its archived prev.log. DLSS was OFF during the burst. Native character outlines
+are intact; the rebuilt eye introduces broken strips. At four inspected NPC
+points the old stale threshold admits 4.58..4.90 cm of depth disagreement.
+
+New default-OFF AfwDepthMotion rejects old world pixels beyond depth precision
+and local surface variation, preserving static eye-specific shading. Basic F10
+Display exposes AFW: reduce moving-character trails. Capture/replay records it.
+82 native GPU checks pass, including a failing all-fresh reflection control;
++/-1 cm motion improves p95 1.608/1.085 to 0.004/0.007 px. Prior alley replay
+changes only 1.10% of pixels by over one byte on average. Residual silhouette
+strips remain; no headset ghosting percentage or full fix is claimed.
+
+Build only and preserve the installed animation baseline in the local test build.
+Do not install or write the game INI. Detailed evidence, failed experiments and
+one eventual launch question are in [FLICKER_REFERENCE](dishonored/FLICKER_REFERENCE.md).
+After installation is authorized, test only whether OFF/ON/OFF improves the people
+on the same boat without worsening scenery. No staging/release merge.
+
 ## 2026-10-04: AFW fresh-world regression withdrawn; candidate not installed
 
 Build 34 produced a small reported boat improvement with much worse surrounding

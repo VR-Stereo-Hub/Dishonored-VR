@@ -82,6 +82,7 @@ struct State {
     double handZ = kHandZ; V3 bodyPos = {0, 0, 0}; double handW = kHandW;
     double barZ = 0, barX0 = 0, barX1 = 0;   // a thin world bar (barZ 0 = none)
     V3 platformPos = {0,0,0}; // independent motion of the pillar: vehicle surface
+    double worldSlope = 0, worldEyeTint = 0;
     double fgTan = 0;   // > 0: the hand is the FOREGROUND, drawn on top with its own projection (the game: its camera FOV)
 };
 struct Eye { V3 pos; double yawRad; };
@@ -120,7 +121,7 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
         const double b = s.bodyYawDeg / 57.29577951;
         const V3 ow = add(ry(e.pos, -b), s.bodyPos), dw = ry(d, -b);
         if (dw.z < 0) {
-            const double t = (kWallZ - ow.z) / dw.z;
+            const double t = (kWallZ + s.worldSlope * ow.x - ow.z) / (dw.z - s.worldSlope * dw.x);
             const V3 p = add(ow, mul(dw, t));
             if (t > 0 && t < best) { best = t; c[0] = (float)((p.x + 20) / 40); c[1] = (float)((p.y + 20) / 40); c[2] = 0; }
             const double tp = (kPillarZ + s.platformPos.z - ow.z) / dw.z;
@@ -138,6 +139,7 @@ static void trace(const State& s, const Eye& e, double u, double v, float* out) 
         }
     }
     const V3 local = ry(mul(d, best), -e.yawRad);   // back into the eye's view: depth = -z
+    if (c[2] < 0.5f) c[0] += (float)(e.pos.x * s.worldEyeTint);
     c[3] = (float)(-local.z / kMPerUnit);
     memcpy(out, c, sizeof(c));
 }
@@ -187,7 +189,7 @@ static ID3D11Texture2D* tex(ID3D11Device* dev, int w, int h, UINT bind, D3D11_US
 
 struct Result { bool ok; int verdict; int handTruth, ghost, missing, agree, wrong, unseen; double errP50, errP95, errMax; };
 struct Opt { bool stereo = true, heldDepth = true, freshDepth = true, matrices = true, mirrored = false, flipC5 = false, noHeld = false,
-             mask = false, drawnMask = false, grips = false, freshWorld = false;   // grips: record each image's hand grip (run 25)
+             mask = false, drawnMask = false, grips = false, freshWorld = false, depthMotion = false;   // grips: record each image's hand grip (run 25)
              double fgFovDeg = 0; };   // > 0: tell the rebuild the foreground FOV (the scene's State.fgTan draws it)
 
 // Captures the two images as the runtime does (the held eye last present, the fresh eye now) and returns
@@ -225,6 +227,7 @@ static Scene capture(Gpu& g, const State& s0, const State& s1, const Opt& o, int
     dvr::afw::set_enabled(true, "test");   // also drops the previous case's records
     dvr::afw::set_stereo(o.stereo, "test");
     dvr::afw::set_fresh_world(o.freshWorld,"test");
+    dvr::afw::set_depth_motion(o.depthMotion,"test");
     dvr::afw::set_body_depth(0.40f, "test");
     dvr::afw::set_world_scale((float)kScale);
     dvr::afw::set_matrices(o.matrices, "test");
@@ -319,7 +322,8 @@ static Result run(Gpu& g, const State& s0, const State& s1, Opt o = Opt()) {
                     if (X < 0 || Y < 0 || X >= N || Y >= N) return false;
                     const float* q = &img[(Y * N + X) * 4];
                     if (surfOf(q) != ts) return false;
-                    return hypot((q[0] - t[0]) * sx, (q[1] - t[1]) * sy) < 3.0;
+                    // Visibility compares point identity, excluding the synthetic per-eye reflection.
+                    return hypot(((q[0] - e.pos.x * st.worldEyeTint) - (t[0] - held1.pos.x * s1.worldEyeTint)) * sx, (q[1] - t[1]) * sy) < 3.0;
                 };
                 if ((o.noHeld || !seen(hImg, s0, held0)) && !seen(fImg, s1, fresh1)) { ++r.unseen; continue; }
             }
@@ -421,6 +425,24 @@ int main() {
     { Opt fresh;fresh.freshWorld=true;
       for(const State* next:{&turn,&head,&all,&walkTurn}) {
         Result r=run(g,still,*next,fresh);report("current-time world: head/body/controller motion",r,clean(r));
+      }
+    }
+    { Opt motion; motion.depthMotion=true;
+      for (double dz : {0.01, -0.01, 0.03, -0.03}) {
+        State a=still,b=still; b.platformPos={0.005,0,dz};
+        Result old=run(g,a,b), now=run(g,a,b,motion);
+        char name[100]; snprintf(name,sizeof(name),"depth motion: NPC moves %.2f m in depth",dz);
+        report(name,now,now.ok && now.ghost<=old.ghost && now.missing<=old.missing && now.errP95<=old.errP95+0.05);
+        printf("  prior p95 %.3f, candidate %.3f px; wrong surfaces %d -> %d\n",old.errP95,now.errP95,old.wrong,now.wrong);
+      }
+      for(double slope : {0.0,0.6,-0.6}) {
+        State a=still; a.worldSlope=slope; a.worldEyeTint=2.0;
+        Result r=run(g,a,a,motion); report("depth motion: static slope keeps eye-dependent shading",r,clean(r));
+      }
+      { State a=still; a.worldEyeTint=2.0; Opt mono=motion; mono.noHeld=true;
+        Result r=run(g,a,a,mono); report("depth motion control: all-fresh loses eye-dependent shading",r,r.ok && r.errP95>2.0); }
+      for(const State* next : {&turn,&head,&all,&walkTurn}) {
+        Result r=run(g,still,*next,motion);report("depth motion: head/body/controller movement",r,clean(r));
       }
     }
     { Result r = run(g, still, walk);    report("walking one tick: the pillar's parallax carried", r, clean(r) && r.verdict == 1); }
@@ -943,7 +965,9 @@ int main() {
         report("foreground inside a wall: still background stays exact", r,
                clean(r) && r.errMax < 2.0);
         printf("  still wall maximum coordinate error %.3f px\n", r.errMax);
-        m.freshWorld=true;r=run(g,a,a,m);
+        m.depthMotion=true; r=run(g,a,a,m);
+        report("depth motion: foreground inside wall",r,clean(r) && r.errMax<2.0);
+        m.depthMotion=false; m.freshWorld=true;r=run(g,a,a,m);
         report("current-time world: foreground inside wall",r,clean(r) && r.errMax<2.0);
         State b=a;b.bodyPos={0,0,-.05};r=run(g,a,b,m);
         report("current-time world: moving into wall",r,r.ok && r.handTruth>500 && r.ghost<r.handTruth/100 && r.missing<r.handTruth/100);
@@ -1023,6 +1047,14 @@ int main() {
         snprintf(dsc, sizeof(dsc), "synthesized eye: grid 2 %.3f ms, 4 %.3f, 8 %.3f, 16 %.3f | full rebuild %.3f ms (back to back)",
                  c[0], c[1], c[2], c[3], full);
         check("cost: a synthesized eye at 2750x2850 (informational)", c[1] > 0, dsc);
+        dvr::afw::set_depth_motion(true,"cost");
+        const double moving = timed([&] { dvr::afw::Pose o{}; const char* w=nullptr;
+            dvr::afw::warp_held(g.dev,g.ctx,0,1,sc.sf,big,W,H,1,1,&o,&w); });
+        dvr::afw::set_depth_motion(false,"cost");
+        const double control = timed([&] { dvr::afw::Pose o{}; const char* w=nullptr;
+            dvr::afw::warp_held(g.dev,g.ctx,0,1,sc.sf,big,W,H,1,1,&o,&w); });
+        snprintf(dsc,sizeof(dsc),"OFF %.3f ms, ON %.3f ms, OFF again %.3f ms (2750x2850, host only)",full,moving,control);
+        check("cost: depth-motion A/B/A (informational)",moving>0 && control>0,dsc);
         release(sc);
         if (dj) dj->Release(); if (qa) qa->Release(); if (qb) qb->Release(); if (big) big->Release();
     }

@@ -257,6 +257,22 @@ const char* kSrc =
 #if DVR_WITH_LEGACY
 #include "legacy/afw_fresh_world.inc"
 #endif
+    // A temporally reprojected point and a current stereo point must agree in depth.
+    // Compare beyond R16F rounding and local two-texel depth variation, so ordinary
+    // static slopes/silhouettes keep the held eye's own shading. No RGB classifier.
+    // 1/512 covers two R16F relative depth roundings. The existing grid step is
+    // two source texels, covering the solver tolerance plus point sampling.
+    "    [branch] if (prm8.w > 0.5 && okF && okH && !bF && !bH && abs(tF-tH) > max(tF,tH)/512.0) {\n"
+    "        float fz = aF(sF), hz = aH(sH);\n"
+    "        float gf = max(max(abs(aF(sF + float2(prm4.x,0)) - fz), abs(aF(sF - float2(prm4.x,0)) - fz)),\n"
+    "                       max(abs(aF(sF + float2(0,prm4.y)) - fz), abs(aF(sF - float2(0,prm4.y)) - fz)));\n"
+    "        float gh = max(max(abs(aH(sH + float2(prm4.z,0)) - hz), abs(aH(sH - float2(prm4.z,0)) - hz)),\n"
+    "                       max(abs(aH(sH + float2(0,prm4.w)) - hz), abs(aH(sH - float2(0,prm4.w)) - hz)));\n"
+    "        float uncertainty = max(tF,tH) / 512.0 + gf * tF / max(fz,1e-5) + gh * tH / max(hz,1e-5);\n"
+    "        if (abs(tF - tH) > uncertainty) return shadeF(sF, 2, tF);\n"
+    "    }\n"
+    // Under the opt-in, the same precision bound replaces the old 1.5% plus
+    // 0.01-unit dead band at visibility changes. Keep the silhouette neighborhood.
     "    if (st && tp) {\n"
     // The stale test: the held point, carried to this instant as static, seen from the fresh eye.
     "        bool stale = false;\n"
@@ -275,10 +291,10 @@ const char* kSrc =
     "                                   min(aF(uf + float2(0, o.y)), aF(uf - float2(0, o.y)))));\n"
     // The foreground draws on top even behind a wall. Seeing it instead of the held world
     // is occlusion, not evidence that the world moved away. Keep that eye's valid background.
-    "                stale = !isFg(zF(uf)) && zn > m.z * (1.0 + prm3.w) + 0.01;\n"
+    "                stale = !isFg(zF(uf)) && zn > m.z * (1.0 + (prm8.w > 0.5 ? 1.0/512.0 : prm3.w)) + (prm8.w > 0.5 ? 0.0 : 0.01);\n"
     "            }\n"
     "        }\n"
-    "        if (okH && !bH && !stale && !(okF && tF < tH * (1.0 - prm3.w))) return shade(heldTex, sH, 1, tH);\n"
+    "        if (okH && !bH && !stale && !(okF && tF < tH * (1.0 - (prm8.w > 0.5 ? 1.0/512.0 : prm3.w)))) return shade(heldTex, sH, 1, tH);\n"
     // A silhouette: the held eye's own sample just misses (the edge texel's depth is coarse, most of all
     // under an upscaler) while the fresh eye, 6 cm aside, sees PAST the edge to something farther. That
     // farther surface is parallax, not the answer: keep the held eye's nearer near-miss (run 7: a 1-texel
@@ -421,6 +437,7 @@ uint32_t g_heldHandsUsed = 0, g_heldHandsNoPose = 0;
 uint32_t g_stillUsed = 0;
 std::atomic<float> g_staleTol{0.015f};   // run 18 replay: 0.03 left a walking NPC doubled; 0.015 no worse on still captures
 std::atomic<bool> g_freshWorld{false};
+std::atomic<bool> g_depthMotion{false};
 std::atomic<bool> g_cleanOn{true};       // `afw clean on|off`: the fresh eye's hands from its clean image, the held eye's UI kept
 std::atomic<float> g_cleanUi{0.006f};    // a held texel whose composed and clean colours differ by more than this is its UI
 uint32_t g_cleanTaken = 0, g_cleanMissed = 0, g_cleanUsed = 0;
@@ -1091,6 +1108,11 @@ void set_fresh_world(bool on,const char* who) {
 #endif
 }
 bool fresh_world() {return g_freshWorld.load();}
+void set_depth_motion(bool on, const char* who) {
+    if (g_depthMotion.exchange(on) != on)
+        DVR_INFO("afw: depth-consistent moving surfaces %s (%s); current pixels only beyond depth precision and local slope", on ? "ON" : "off", who ? who : "?");
+}
+bool depth_motion() { return g_depthMotion.load(); }
 void set_debug(bool on, const char* who) {
     g_debug.store(on);
     DVR_INFO("afw/warp: debug tint %s (%s)%s", on ? "ON" : "off", who ? who : "?",
@@ -1359,7 +1381,7 @@ void dump_tick(ID3D11Device* dev, ID3D11DeviceContext* ctx, const Held& src, con
     _snprintf_s(path, sizeof(path), _TRUNCATE, "%s.txt", base);
     FILE* meta = nullptr;
     if (fopen_s(&meta, path, "w") || !meta) { g_dumpLeft.store(0); DVR_WARN("afw/dump: cannot write %s - capture stopped", path); return; }
-    fprintf(meta,"freshWorld=%d\n",g_freshWorld.load() ? 1 : 0);
+    fprintf(meta,"freshWorld=%d\ndepthMotion=%d\n",g_freshWorld.load() ? 1 : 0,g_depthMotion.load() ? 1 : 0);
     fprintf(meta, "fgFov=%.4f\nfgOn=%d\nfgDepth=%.4f\nfgMask=%d\nfreshMaskOk=%d\nheldMaskOk=%d\n", g_fgFov.load(), g_fgOn.load() ? 1 : 0,
             g_fgDepth.load(), g_fgMask.load() ? 1 : 0, fr.maskOk ? 1 : 0, src.maskOk ? 1 : 0);
     fprintf(meta, "present=%u\nheld=%d\nfresh=%d\nhaveHeld=%d\nuseFresh=%d\nuseHeld=%d\nmatrixVerdict=%d\nyawDeg=%.5f\n"
@@ -1518,6 +1540,7 @@ bool warp_held(ID3D11Device* dev, ID3D11DeviceContext* ctx, int held, int fresh,
     const bool heldClean = g_cleanOn.load() && haveH && src.cleanOk && src.csrv;
     cb.prm8[0] = freshClean ? 1.0f : 0.0f; cb.prm8[1] = heldClean ? 1.0f : 0.0f; cb.prm8[2] = g_cleanUi.load();
     if (freshClean) ++g_cleanUsed;
+    cb.prm8[3] = g_depthMotion.load() ? 1.0f : 0.0f;
     cb.prm9[3] = g_freshWorld.load() ? 1.0f : 0.0f;
     cb.prm9[0] = g_edgeHands.load() ? 1.0f : 0.0f; cb.prm9[1] = 0.25f;
     const bool maskOn = g_fgMask.load() && fr.maskOk && (!haveH || src.maskOk);

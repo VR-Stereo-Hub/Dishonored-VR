@@ -1560,3 +1560,14 @@ existing INI values, and do not expose a checkbox that cannot work. Captures and
 replay metadata remain readable. The previous world path is byte-identical for
 30 replayed captured frames. No speculative color-based motion classifier is
 introduced. HUD and ReShade changes remain independent of this rejected tradeoff.
+
+### 2026-10-04: depth evidence for AFW moving surfaces
+
+AfwDepthMotion compares current-stereo and temporal world depth with an R16F
+precision allowance and local two-texel variation, avoiding RGB-based motion
+classification and unconditional world replacement. The prior 1.5% plus 0.01-unit
+visibility tolerance can admit about 5 cm of motion at captured NPC depths; the
+opt-in uses the precision bound with existing silhouette neighborhoods. Static
+slopes and per-eye shading are explicit controls, including an all-fresh control
+that must fail. Capture/replay carries the choice. It remains default-off because
+unseen silhouettes and motion at unchanged depth are not solved by this rule.
