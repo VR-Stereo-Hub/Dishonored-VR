@@ -3413,6 +3413,52 @@ static void OhApply(float* buf, const float* src, UINT regs)
 }
 
 
+// CinematicArms: how fast the game moves its own arms. The arm bones (behind each wrist, the
+// rigid wrist's forearm test) are never written by the mod - its SkelControls are single-bone
+// controls on the HAND bones - so their native skin matrices move only when the game animates
+// the arms. Each bone's reference centroid is carried through its native skin matrix; the
+// fastest centroid of either arm, per second, is the speed. Once per frame. Render lane.
+static void MsSampleArmSpeed()
+{
+    static unsigned lastFrame = ~0u;
+    static float prev[MS_MAX_BONES][3][3];   // centroid and two 10 uu levers: a bone that turns in place moves its levers
+    static bool have = false;
+    static ULONGLONG prevMs = 0;
+    const unsigned frame = (unsigned)dvr::frame::count();
+    if (frame == lastFrame) return;
+    lastFrame = frame;
+    const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
+    if (g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN || hands[0] < 0 || hands[1] < 0) { have = false; return; }
+    const ULONGLONG now = GetTickCount64();
+    const float dt = have && now > prevMs ? (float)(now - prevMs) * 0.001f : 0.0f;
+    float fastest = 0; int used = 0;
+    for (int b = 0; b < g_msBones && b < MS_MAX_BONES; b++) {
+        const int side = g_msBoneSide[b];
+        if ((side != 1 && side != 2) || g_msBoneW[b] <= 0 || b == hands[side - 1] || (UINT)(b * 3 + 3) > (UINT)g_mpCacheN) continue;
+        float along = 0;
+        for (int a = 0; a < 3; a++) along += (g_msBoneCen[b][a] - g_msBoneCen[hands[side - 1]][a]) * g_msAxis[side][a];
+        if (along >= -2.0f) continue;                       // the hand and fingers: the mod writes those
+        const float* m = g_mpCache + b * 12; const float* c0 = g_msBoneCen[b];
+        // BRVR's lesson: a wrist can rotate without its position moving. Position plus two
+        // points 10 uu off the centroid carry rotation into the same uu/s unit.
+        const float pts[3][3] = { { c0[0], c0[1], c0[2] }, { c0[0] + 10, c0[1], c0[2] }, { c0[0], c0[1] + 10, c0[2] } };
+        for (int k = 0; k < 3; k++) {
+            float p[3]; const float* c = pts[k];
+            for (int r = 0; r < 3; r++) p[r] = m[r * 4] * c[0] + m[r * 4 + 1] * c[1] + m[r * 4 + 2] * c[2] + m[r * 4 + 3];
+            if (have && dt > 0.0f && dt < 0.25f) {
+                const float dx = p[0] - prev[b][k][0], dy = p[1] - prev[b][k][1], dz = p[2] - prev[b][k][2];
+                const float v = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
+                if (std::isfinite(v) && v > fastest) fastest = v;
+            }
+            prev[b][k][0] = p[0]; prev[b][k][1] = p[1]; prev[b][k][2] = p[2];
+        }
+        used++;
+    }
+    const bool valid = used > 0 && dt > 0.0f && dt < 0.25f;
+    have = used > 0; prevMs = now;
+    if (valid) { g_msArmSpeed.store(fastest); g_msArmSpeedMs = now; }
+}
+
 // Emit the classes this mode wants, through OUR index buffer. Returns false if
 // it drew nothing, and the caller then does whatever it would have done - which
 // is the fail-soft: an auto-armed lock with no usable split draws the mesh
@@ -3510,6 +3556,7 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
             return false;
         }
     }
+    MsSampleArmSpeed();   // CinematicArms: the game's own arm motion (cheap, once per frame)
     if(ik && IkTryDraw(dev,type))return true;
     int lo, hi;
     switch ((nativeHands || ik) ? MS_MODE_HANDS : g_msMode) {

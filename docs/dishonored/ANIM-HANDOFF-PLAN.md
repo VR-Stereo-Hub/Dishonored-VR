@@ -1,3 +1,35 @@
+## Second headset run: choke arm, boat ride, scripted arm clips (2026-10-04)
+
+Build v1.0.3-36-g65b278d04, two runs: the intro (boat ride, Dunwall Tower) in
+dishonored_vr.prev.log, takedowns in dishonored_vr.log.
+- **Choke: right hand still turned.** Open hand never ran this time (0 `hands/openright`
+  lines), so that was not the whole cause. `ik: ACTIVE ... hand blend 0.000/0.000` during the
+  choke: the wrist is exactly the game's choke pose, but the arm under it is IK-solved from the
+  tracked shoulder, while the game's arm reaches around the neck from its own shoulder and
+  elbow, so the game's wrist sits twisted on the IK forearm. New lever `[Hands]
+  ArmIKGameArmInAnim` (F10 IK, "Game's own arm during game animations"): the arm slots blend
+  to the game's own arm by the hand-back weight (a skin-matrix lerp; the IK slots carry the
+  length scale, which the proper-rotation blend refuses). At full game ownership the arm is the
+  game's exactly; it eases back to IK with the hand.
+- **Boat ride: no arms.** It is `StatePlayerMasterSoiree`, cinematicMode=1, body mode 1, pawn
+  hidden by the game. The first build only unhid arms-only (body 0) and re-hid it here. The game
+  shows the full-body pawn itself in conversations (pawn visible, arms drawn), so body 1 is now
+  allowed; HIDDEN (2) never. Not yet known: whether a cutscene camera owns the view there (the
+  first-person arms draw only for their owner's view); `cine/motion` now logs the view target.
+- **Scripted arm clips (picking Emily up): no hand-back.** No arm action, no matinee-node
+  change, no distinct state, and it ran with cinematicMode=1 in an ordinary state. The BioShock
+  Remastered mod met the same absence of a flag (its M7-S4) and used MOTION: the model-space
+  movement of a bone the mod does not write, with a hold for poses a clip freezes mid-scene. Here
+  the mod writes only hand bones (single-bone SkelControls), so the game's upper-arm and forearm
+  bones are measured from the native palette (`MsSampleArmSpeed`, centroid plus two 10 uu
+  levers so rotation counts). A gate (`MotionGate`, host-tested) opens above
+  `CinematicMotionStart` (20 uu/s) for `CinematicMotionStartMs` (120) and closes below
+  `CinematicMotionStop` (8) after `CinematicMotionHoldMs` (1500). A cutscene now also includes
+  bCinematicMode in an ordinary state. All four are first guesses: `cine/motion:` logs the speed
+  max/mean per second, the gate, the input locks and the view target, so a run sets them.
+  The BioShock Infinite mod (UE3) hands the arms to the game for the whole of any cutscene camera
+  or input lock; that gives no player control in cutscenes, so here both are logged, not used.
+
 ## First headset run of SmoothBlend / CinematicArms (2026-10-04)
 
 Build banner v1.0.3-33-gdb8d3ced4-dirty (built before the commit; code = df42ff55d), IK on,

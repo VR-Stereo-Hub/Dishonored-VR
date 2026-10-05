@@ -143,7 +143,12 @@ toggles; detail and launch questions in dishonored/ANIM-HANDOFF-PLAN.md (top sec
   from the uncommitted tree before df42ff55d, whose code it matches.
 - First run: transitions reported right. Choke right hand twisted (open-hand mirroring ran
   on a game-owned hand) and no arm control in conversations (matinee flag on for the whole
-  scene): both fixed in the next commit; detail in ANIM-HANDOFF-PLAN. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
+  scene): both fixed in the next commit; detail in ANIM-HANDOFF-PLAN.
+- Second run (v1.0.3-36): choke arm still twisted (IK arm under the game's wrist), no arms in
+  the boat ride (full-body pawn left hidden), no hand-back for scripted arm clips. Next build:
+  `ArmIKGameArmInAnim` (game's own arm while it animates a hand), full-body unhide, and a
+  motion gate on the game's own arm bones (the BioShock Remastered approach), with its
+  thresholds logged per second for tuning. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
   a hash manifest: `build/playtest-candidates/anim-blend-ik/replaced-perf-20261004-191254/`
   (anim-blend worktree). Whole-ini diff is exactly SmoothBlend=1, HandBackBlendInMs=250,
   HandBackBlendOutMs=350, CinematicArms=1; CRLF throughout; DLSS helper kept.

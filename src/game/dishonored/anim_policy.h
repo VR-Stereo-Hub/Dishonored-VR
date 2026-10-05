@@ -75,6 +75,22 @@ inline unsigned char render_hand_mask(bool valid, bool enabled, unsigned char ma
 }
 // Slerp the proper rotation from identity and linearly interpolate uniform
 // scale/translation. Refuse shear/reflection instead of collapsing a limb.
+// CinematicArms: "the game is animating the arms" from the speed of the GAME's own upper-arm and
+// forearm bones (the mod writes only hand bones while the player holds them, so these move only
+// when the game animates them). Opens after `startMs` above `start` uu/s, closes after `stopMs`
+// below `stop` uu/s; in between it keeps its state. A stale or missing speed reads as still.
+struct MotionGate {
+    bool on = false;
+    unsigned long long aboveSince = 0, belowSince = 0;
+    bool update(float speed, unsigned long long now, float start, float stop, unsigned startMs, unsigned stopMs) {
+        if (!(speed >= 0) || !std::isfinite(speed)) speed = 0;
+        if (speed > start) { if (!aboveSince) aboveSince = now; } else aboveSince = 0;
+        if (speed < stop) { if (!belowSince) belowSince = now; } else belowSince = 0;
+        if (!on && aboveSince && now - aboveSince >= startMs) on = true;
+        else if (on && belowSince && now - belowSince >= stopMs) on = false;
+        return on;
+    }
+};
 // A uniformly scaled proper rotation: what blend_transform can interpolate.
 inline bool blendable(const hf::Xform& input, float* scaleOut=nullptr, hf::Mat3* rotOut=nullptr) {
     const float scale=sqrtf(input.r.m[0]*input.r.m[0]+input.r.m[3]*input.r.m[3]+input.r.m[6]*input.r.m[6]);

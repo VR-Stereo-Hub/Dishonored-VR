@@ -99,6 +99,19 @@ inline int AnimPolicyTests() {
     check("mask-held-in-hysteresis",render_hand_mask(true,true,0,3,true,0.0f)==3);
     check("mask-new-match-wins",render_hand_mask(true,true,3,2,true,0.2f)==3);
     check("mask-invalid-clears",render_hand_mask(false,true,3,3,true,0.0f)==0);
+    // CinematicArms motion gate: start 20 uu/s for 120 ms, stop below 8 uu/s for 600 ms.
+    MotionGate g; bool o=false;
+    o=g.update(3,0,20,8,120,600);       check("gate-still-closed",!o);
+    o=g.update(50,100,20,8,120,600);    check("gate-spike-not-yet",!o);
+    o=g.update(50,180,20,8,120,600);    check("gate-short-burst-closed",!o);   // 80 ms above
+    o=g.update(5,200,20,8,120,600);     o=g.update(50,300,20,8,120,600);
+    o=g.update(50,420,20,8,120,600);    check("gate-opens-after-120ms",o);
+    o=g.update(12,500,20,8,120,600);    check("gate-holds-between-thresholds",o);
+    o=g.update(4,600,20,8,120,600);     o=g.update(4,1100,20,8,120,600);
+    check("gate-holds-short-stillness",o);
+    o=g.update(4,1200,20,8,120,600);    check("gate-closes-after-600ms",!o);
+    o=g.update(-1,1300,20,8,120,600);   check("gate-bad-speed-is-still",!o);
+    o=g.update(NAN,1400,20,8,120,600);  check("gate-nan-is-still",!o);
     return failures;
 }
 

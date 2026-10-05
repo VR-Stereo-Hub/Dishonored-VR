@@ -155,6 +155,10 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
         Vec oldPole=body.right*temporal.prior[h].x+body.up*temporal.prior[h].y+body.forward*temporal.prior[h].z;
         if(!pose_arm(ikMesh.rig,ikMesh.chain[h],nominal,pole,body.right*side,oldPole,temporal.twist[h],temporal.fresh,
                      wrist,settings.lengthScale,.5f*k*.01f,solved[h]))return IkRefuse("Arm solve refused invalid wrist, scale or reference lengths.");
+        // ArmIKGameArmInAnim: the game's share of this arm, 1 - the hand-back weight. At 1 the
+        // arm is exactly the game's (its own shoulder and elbow for the clip); a choke's wrist
+        // on an IK forearm from the tracked shoulder twisted the arm (2026-10-04 run).
+        const float gameShare=g_ikGameArmInAnim.load()?1.0f-dvr::anim::weight_for(h):0.0f;
         for(int slot=0;slot<g_msBones;++slot){
             int ref=ikMesh.mapping.reference[slot];if(ref<0)continue;
             int region=ikMesh.chain[h].region[ref];if(!region)continue;
@@ -163,8 +167,16 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
             else {
                 const Xform& m=solved[h].skin[ref];
                 for(int r=0;r<3;++r){for(int c=0;c<3;++c)dst[r*4+c]=m.r.m[r*3+c];dst[r*4+3]=m.t[r];}
+                // Linear blend of the two skin matrices: the arm slots carry the IK length scale,
+                // which the proper-rotation blend refuses; a matrix lerp of one bone's two poses is
+                // what an animation blend does, and it lasts only the hand-back's entry/return.
+                if(gameShare>0.0001f){
+                    const float* native=g_mpCache+slot*12;
+                    for(int i=0;i<12;++i)dst[i]+=(native[i]-dst[i])*gameShare;
+                }
             }
         }
+        g_ikGameShare[h]=gameShare;
     }
     // Preserve all device state even when a bind or draw fails. No engine-owned
     // COM reference survives this scope; only our copied mesh buffers persist.
@@ -194,9 +206,9 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
     ++g_ikSolves;++g_msDraws;InterlockedIncrement(&g_mpDraws);
     g_msPassThrough=false;g_ikStatus="Active - IK arms, animated hands";
     DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,3000,
-        "ik: ACTIVE generation=%u headLocate=%u publication=%u matched=%d fresh=%d eye=%d draws=%u menuContext=%d; history advance/reuse/old=%u/%u/%u; shoulder reach shift uu L=%.3f R=%.3f; hand blend %.3f/%.3f; native arm animation replaced, original skin weights retained",
+        "ik: ACTIVE generation=%u headLocate=%u publication=%u matched=%d fresh=%d eye=%d draws=%u menuContext=%d; history advance/reuse/old=%u/%u/%u; shoulder reach shift uu L=%.3f R=%.3f; hand blend %.3f/%.3f; game arm share L=%.2f R=%.2f (ArmIKGameArmInAnim=%d); original skin weights retained",
         g_mpSrcGen,temporal.gen,ctx.pose.gen,ctx.viewMatched?1:0,temporal.fresh?1:0,ctx.viewEye,g_ikSolves.load(),UiSurfaceContext(),
         ikTime.advanced,ikTime.reused,ikTime.old,solved[0].joints.shoulderShift,solved[1].joints.shoulderShift,
-        dvr::anim::weight_for(0),dvr::anim::weight_for(1));
+        dvr::anim::weight_for(0),dvr::anim::weight_for(1),g_ikGameShare[0],g_ikGameShare[1],(int)g_ikGameArmInAnim.load());
     return true;
 }
