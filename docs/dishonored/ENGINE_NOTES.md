@@ -10249,3 +10249,30 @@ matinee blend and when the arm mesh last drew on every cinematic transition.
 `m_pMatineeBlender` (`ArkAnimNodeBlendPose.m_bEnabled`) is the read-only signal that a
 matinee is posing the pawn's mesh. Runtime use requires reflection to resolve
 `Actor.bHidden` to exactly +0x120 / 0x2 and the prologue to match; otherwise it refuses.
+
+### 2026-10-05: Heart backing material integration
+
+The approved side-view seam material requires dedicated textures, not a remap
+into the native atlas. DVRHRT02 adds a bounded cap-triangle count; DVRHMT01
+contains five local texture mip chains and native BC1 reference signatures.
+UModel exports the highest mip normally. Lower external mip descriptors are
+reordered only in a decompressed local copy of Startup, then exported through
+UModel; inline mips are copied from that same local package. No shipped package
+is modified. The extracted mip dimensions and data sizes are checked.
+
+The renderer recognizes diffuse/normal/specular/specular-power/emissive textures
+by 64 sampled BC1 blocks per exact native mip. Probe locations include regular
+coverage and high-information texels. No shader sampler index is assumed.
+Resource-incarnation and successful-upload stamps prevent pointer reuse or
+streaming writes from making the bounded recognition cache stale. GetTexture
+references are temporary, with no retained native COM ownership. Weapon-contract
+invalidation also drops all mod-owned buffers, textures and recognition entries.
+
+The backing is drawn first with replacements; all native sampler bindings are
+restored before details and subsequent game draws. Unknown color passes fail
+soft with a rate-limited diagnostic. `heartback status` now reports textured
+passes and material waits separately from draw failures. This path introduces
+no engine-memory writer. Host evidence: 17 model cases, 72 material cases and
+paged GPU upload/incarnation checks pass. These are not an in-game appearance
+claim; the first user launch must confirm the installed build banner and material
+matches before interpreting its visual result.

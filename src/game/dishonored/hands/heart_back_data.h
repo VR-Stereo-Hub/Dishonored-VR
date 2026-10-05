@@ -16,11 +16,12 @@ inline uint16_t half(float value){
 struct Vertex {float p[3],n[3],t[3],sign,uv[2];int32_t bone[4];float weight[4];};
 static_assert(sizeof(Vertex)==80,"Heart vertex disk layout");
 struct Model {
-    std::vector<Vertex> vertices;std::vector<uint32_t> indices;
+    std::vector<Vertex> vertices;std::vector<uint32_t> indices;uint32_t capTriangles=0;
     bool load(FILE* f,unsigned bones){
-        vertices.clear();indices.clear();char magic[8];uint32_t count[2];
-        if(!f||!bones||bones>128||fread(magic,1,8,f)!=8||memcmp(magic,"DVRHRT01",8)||fread(count,4,2,f)!=2)return false;
+        vertices.clear();indices.clear();capTriangles=0;char magic[8];uint32_t count[2];
+        if(!f||!bones||bones>128||fread(magic,1,8,f)!=8||(memcmp(magic,"DVRHRT01",8)&&memcmp(magic,"DVRHRT02",8))||fread(count,4,2,f)!=2)return false;
         if(count[0]<3||count[0]>65536||count[1]<1||count[1]>131072)return false;
+        if(!memcmp(magic,"DVRHRT02",8)&&(fread(&capTriangles,4,1,f)!=1||capTriangles<1||capTriangles>count[1]))return false;
         std::vector<Vertex> v(count[0]);std::vector<uint32_t> ix(size_t(count[1])*3);
         if(fread(v.data(),sizeof(Vertex),v.size(),f)!=v.size()||fread(ix.data(),4,ix.size(),f)!=ix.size()||fgetc(f)!=EOF)return false;
         for(const auto& a:v){

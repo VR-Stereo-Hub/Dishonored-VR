@@ -2,6 +2,7 @@
 // Own buffers only: no UObject or engine-memory writes. The weapon router
 // supplies current instance validation, palette and foreground depth marking.
 #include "heart_back_data.h"
+#include "heart_back_material_d3d.h"
 namespace {
 bool g_hbOn=false;std::atomic<bool> g_hbReload{false},g_hbDump{false};
 struct HbEntry {
@@ -9,13 +10,18 @@ struct HbEntry {
     UINT offset=0,stride=0,first=0,count=0,min=0,verts=0;INT base=0;
     std::vector<D3DVERTEXELEMENT9> decl;
     IDirect3DVertexBuffer9* vb=nullptr;IDirect3DVertexBuffer9* colors=nullptr;IDirect3DIndexBuffer9* ib=nullptr;
-    unsigned numVerts=0,numTris=0,slots=0;bool tried=false,ready=false;
+    unsigned numVerts=0,numTris=0,capTris=0,slots=0;bool tried=false,ready=false;
+    dvr::heart::MaterialAsset material;
+    std::array<IDirect3DTexture9*,dvr::heart::kMaterialCount> textures{};
+    struct TextureMatch {void* source=nullptr;uint64_t serial=0;uint32_t writes=0;UINT width=0,height=0;int role=-1;};
+    std::array<TextureMatch,32> matches{};unsigned nextMatch=0;
 } g_hb;
-const char* g_hbWhy="not drawn";unsigned g_hbDraws=0,g_hbFailures=0;
+const char* g_hbWhy="not drawn";unsigned g_hbDraws=0,g_hbFailures=0,g_hbTextured=0,g_hbMaterialWaits=0;
 }
 static void HbRelease(const char* why){
     if(g_hb.vb)g_hb.vb->Release();if(g_hb.ib)g_hb.ib->Release();
     if(g_hb.colors)g_hb.colors->Release();
+    for(auto* t:g_hb.textures)if(t)t->Release();
     g_hb=HbEntry{};g_hbWhy=why;
 }
 static void HbSet(bool on){g_hbOn=on;ConfigWriteKey("Hands","HeartBack",on?"1":"0","Heart back");Log("heartback: %s",on?"ON":"off");}
@@ -25,7 +31,7 @@ static bool HbCommand(const char* args){
     if(!strcmp(args,"on"))HbSet(true);else if(!strcmp(args,"off"))HbSet(false);
     else if(!strcmp(args,"reload"))g_hbReload=true;
     else if(!strcmp(args,"dump")){g_hbDump=true;g_hbReload=true;}
-    Log("heartback: %s, ready=%d, draws=%u, failed=%u, %s (on|off|reload|status|dump)",g_hbOn?"ON":"off",g_hb.ready,g_hbDraws,g_hbFailures,g_hbWhy);return true;
+    Log("heartback: %s, ready=%d, draws=%u, failed=%u, textured=%u, material-waits=%u, %s (on|off|reload|status|dump)",g_hbOn?"ON":"off",g_hb.ready,g_hbDraws,g_hbFailures,g_hbTextured,g_hbMaterialWaits,g_hbWhy);return true;
 }
 static bool HbRefuse(const char* why){g_hbWhy=why;++g_hbFailures;Log("heartback: refused - %s",why);return false;}
 static bool HbBytes(uint8_t* p,int type,const uint8_t b[4]){
@@ -37,6 +43,19 @@ static bool HbVector(uint8_t* p,int type,const float v[3],float sign){
     if(type==D3DDECLTYPE_FLOAT3||type==D3DDECLTYPE_FLOAT4){memcpy(p,v,12);if(type==D3DDECLTYPE_FLOAT4)memcpy(p+12,&sign,4);return true;}
     uint8_t b[4];for(int k=0;k<3;++k)b[k]=(uint8_t)std::clamp((int)lroundf((v[k]+1)*127.5f),0,255);b[3]=(uint8_t)std::clamp((int)lroundf((sign+1)*127.5f),0,255);
     return HbBytes(p,type,b);
+}
+static int HbMaterialRole(IDirect3DTexture9* texture){
+    D3DSURFACE_DESC d{};if(FAILED(texture->GetLevelDesc(0,&d))||d.Format!=D3DFMT_DXT1||d.Width!=d.Height||d.Width<64||d.Width>4096)return -1;
+    uint64_t serial=0;uint32_t writes=0;
+    const bool tracked=dvr::d3d9ex::texture_stamp(texture,&serial,&writes);
+    if(tracked)for(const auto& c:g_hb.matches)if(c.source==texture&&c.serial==serial&&c.writes==writes&&c.width==d.Width&&c.height==d.Height)return c.role;
+    D3DLOCKED_RECT lr{};if(FAILED(texture->LockRect(0,&lr,nullptr,D3DLOCK_READONLY)))return -1;
+    int role=-1;
+    if(lr.Pitch>0)role=dvr::heart::identify_bc1(g_hb.material,d.Width,d.Height,lr.pBits,(size_t)lr.Pitch);
+    if(FAILED(texture->UnlockRect(0)))return -1;
+    if(tracked)g_hb.matches[g_hb.nextMatch++%g_hb.matches.size()]={texture,serial,writes,d.Width,d.Height,role};
+    if(role>=0)DVR_LOG_FIRST_N(DVR_CAT,::dvr::log::Level::Info,20,"heartback/material: exact native role=%d size=%ux%u generation=%llu writes=%u",role,d.Width,d.Height,serial,writes);
+    return role;
 }
 static bool HbBuild(IDirect3DDevice9* dev,IDirect3DVertexBuffer9* source,UINT slots){
     using namespace dvr::ik;
@@ -125,6 +144,17 @@ static bool HbBuild(IDirect3DDevice9* dev,IDirect3DVertexBuffer9* source,UINT sl
            FAILED(g_hb.colors->Lock(0,(UINT)colorPacked.size(),&ptr,0))||!ptr)return HbRefuse("cannot create own color buffer");
         memcpy(ptr,colorPacked.data(),colorPacked.size());g_hb.colors->Unlock();
     }
+    g_hb.capTris=model.capTriangles;
+    if(g_hb.capTris){
+        dvr::paths::in_data_dir(path,"dishonored_vr_heart_material.bin");f=nullptr;fopen_s(&f,path,"rb");ok=g_hb.material.load(f);if(f)fclose(f);
+        if(!ok)return HbRefuse("missing or invalid local Heart material");
+        for(unsigned i=0;i<dvr::heart::kMaterialCount;++i){
+            if(!dvr::heart::upload_image(dev,g_hb.material.images[i],&g_hb.textures[i]))return HbRefuse("cannot upload own Heart material");
+            // References remain small; uploaded pixel copies can leave CPU memory.
+            g_hb.material.images[i].levels.clear();
+        }
+        Log("heartback/material: loaded five matched material channels for %u cap triangles",g_hb.capTris);
+    }
     g_hb.numVerts=(unsigned)model.vertices.size();g_hb.numTris=(unsigned)model.indices.size()/3;g_hb.ready=true;g_hbWhy="validated and drawn";
     Log("heartback: validated ALL %u native vertices, %u palette slots, %.7f max weight error; added %u vertices/%u triangles",map.matched,slots,map.worstWeight,g_hb.numVerts,g_hb.numTris);return true;
 }
@@ -142,6 +172,16 @@ static void HbDraw(IDirect3DDevice9* dev,const WaMesh* w,UINT slots,D3DPRIMITIVE
         HbRelease("current Heart draw changed");g_hb.source=vb;g_hb.sourceIb=ib;g_hb.device=dev;g_hb.offset=off;g_hb.stride=stride;g_hb.first=first;g_hb.count=count;g_hb.min=min;g_hb.verts=verts;g_hb.base=base;g_hb.slots=slots;g_hb.decl.assign(elems,elems+n);
     }
     if(!g_hb.tried&&!HbBuild(dev,vb,slots))return;if(!g_hb.ready)return;
+    dvr::heart::MaterialBinding material;
+    if(g_hb.capTris){
+        if(!material.prepare(dev,g_hb.textures,HbMaterialRole)){++g_hbFailures;DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,3000,"heartback/material: cannot snapshot native textures");return;}
+        DWORD color=0;if(FAILED(dev->GetRenderState(D3DRS_COLORWRITEENABLE,&color)))return;
+        if(!material.roles&&color){
+            ++g_hbMaterialWaits;
+            DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,3000,"heartback/material: color pass has no verified Heart textures; cap refused (waits=%u)",g_hbMaterialWaits);
+            return;
+        }
+    }
     DWORD cull=0;if(FAILED(dev->GetRenderState(D3DRS_CULLMODE,&cull)))return;
     IDirect3DVertexBuffer9* colors=nullptr;UINT colorOffset=0,colorStride=0;
     struct ColorRestore {IDirect3DVertexBuffer9*& p;~ColorRestore(){if(p)p->Release();}} colorRef{colors};
@@ -150,9 +190,17 @@ static void HbDraw(IDirect3DDevice9* dev,const WaMesh* w,UINT slots,D3DPRIMITIVE
     if(SUCCEEDED(hr)&&g_hb.colors)hr=dev->SetStreamSource(1,g_hb.colors,0,4);
     if(SUCCEEDED(hr))hr=dev->SetIndices(g_hb.ib);
     if(SUCCEEDED(hr))hr=dev->SetRenderState(D3DRS_CULLMODE,D3DCULL_NONE);
-    if(SUCCEEDED(hr))hr=dvr::frame::orig_draw_indexed(dev,D3DPT_TRIANGLELIST,0,0,g_hb.numVerts,0,g_hb.numTris);
+    if(SUCCEEDED(hr)&&g_hb.capTris){
+        if(!material.apply())hr=E_FAIL;
+        else hr=dvr::frame::orig_draw_indexed(dev,D3DPT_TRIANGLELIST,0,0,g_hb.numVerts,0,g_hb.capTris);
+        if(SUCCEEDED(hr)&&material.roles)++g_hbTextured;
+    }
+    const bool materialRestored=material.restore();
+    // Preserve cap-then-detail ordering even in passes without depth writes.
+    if(materialRestored&&SUCCEEDED(hr)&&g_hb.numTris>g_hb.capTris)
+        hr=dvr::frame::orig_draw_indexed(dev,D3DPT_TRIANGLELIST,0,0,g_hb.numVerts,g_hb.capTris*3,g_hb.numTris-g_hb.capTris);
     const HRESULT rv=dev->SetStreamSource(0,vb,off,stride),ri=dev->SetIndices(ib),rc=dev->SetRenderState(D3DRS_CULLMODE,cull);
     const HRESULT rcolor=colors?dev->SetStreamSource(1,colors,colorOffset,colorStride):D3D_OK;
-    if(SUCCEEDED(hr)&&SUCCEEDED(rv)&&SUCCEEDED(ri)&&SUCCEEDED(rc)&&SUCCEEDED(rcolor))++g_hbDraws;
+    if(materialRestored&&SUCCEEDED(hr)&&SUCCEEDED(rv)&&SUCCEEDED(ri)&&SUCCEEDED(rc)&&SUCCEEDED(rcolor))++g_hbDraws;
     else {++g_hbFailures;DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Warn,3000,"heartback: draw/restore failed %08lx/%08lx/%08lx/%08lx",hr,rv,ri,rc);}
 }

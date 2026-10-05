@@ -1,3 +1,30 @@
+## 2026-10-05: Approved Heart material integrated, installation authorized
+
+The approved natural-seam Blender appearance now has a runtime material path.
+DVRHRT02 separates the 4,279 backing triangles from native-material details.
+The cap uses its own diffuse, normal, specular, specular-power and emissive
+maps, identified by exact BC1 content signatures for 24 native mip images
+(64 through 2048). Arbitrary sampler locations are supported. All bindings
+are restored before drawing the wires/details, preserving cap-first order.
+Unknown color passes refuse the addition instead of guessing a texture slot.
+
+Texture identity caches include a shadow-resource incarnation and successful
+upload count, and are cleared with weapon contracts on gameplay transitions.
+The code only owns D3D buffers/textures and adds no UObject or engine-memory
+writer. The shader, original Heart geometry and native body materials remain.
+The approved mesh retains 9,903 vertices, 19,439 triangles and its skin weights.
+
+Validation: optimized build passes; 17 model checks and 72 material checks
+pass. Real hidden D3D9 tests exercise five arbitrary sampler slots, duplicate
+bindings, full mip uploads and restoration after a deliberately failed draw.
+Paged D3D9Ex GPU tests pass, including new incarnation/write/read-only checks.
+A fuzzy mip-color matcher was rejected in favor of exact native compressed
+mips recovered with UModel from a reordered, isolated package copy. No game
+package is edited. Local material data and captures remain untracked under
+build/heart-backside-preview/seam-revision. Installation is authorized; copy
+the three data files with the matching DLL, preserve the entire INI, and record
+the final installation manifest there. In-game appearance is not yet verified.
+
 ## 2026-10-05: Heart seam material preview, original colors carried across join
 
 The v1.0.3-53 pale atlas remap is visually rejected and remains uninstalled.

@@ -103,6 +103,8 @@ IDirect3DBaseTexture9* shadow_twin_for_lock(void* real, int level, DWORD flags);
 // permanent IDirect3DBaseTexture9 twin. Surface handouts use this to keep the
 // GetSurfaceLevel lock redirect alive in Managed=paged.
 bool shadow_tracked(void* real);
+// Incarnation plus successful upload count; false means callers must not cache.
+bool texture_stamp(void* real, uint64_t* serial, uint32_t* writes);
 bool paged_active();
 void clear_staging(); // reset/shutdown releases cached upload textures
 // Returns S_FALSE when `real` is not a paged 2D/cube texture, so the caller

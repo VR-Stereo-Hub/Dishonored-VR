@@ -19,6 +19,9 @@ int main(int argc,char** argv){
     bad=valid;put<float>(bad,16+64,.5f);check(!load(bad),"weight normalization");
     bad=valid;put<int32_t>(bad,16+48,3);check(!load(bad),"bone bounds");
     bad=valid;put<float>(bad,16+20,0);check(!load(bad),"invalid normal");
+    auto v2=valid;v2[7]='2';v2.insert(v2.begin()+16,4,0);put<uint32_t>(v2,16,1);
+    check(load(v2),"textured cap version 2");bad=v2;put<uint32_t>(bad,16,0);check(!load(bad),"empty cap refused");
+    bad=v2;put<uint32_t>(bad,16,2);check(!load(bad),"cap range refused");
     check(half(0)==0&&half(1)==0x3c00&&half(-1)==0xbc00&&half(.5f)==0x3800&&half(8)==0x4800,"half encoding known values");
     if(argc>1){FILE* f=nullptr;fopen_s(&f,argv[1],"rb");Model m;check(m.load(f,22),"local authored model");if(f)fclose(f);printf("local model: %zu vertices, %zu triangles\n",m.vertices.size(),m.indices.size()/3);}
     printf("Heart data: %d checks, %d failures\n",checks,failed);return failed?1:0;
