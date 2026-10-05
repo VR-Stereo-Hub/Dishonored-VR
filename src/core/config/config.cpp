@@ -956,11 +956,11 @@ static bool WriteDefaultIni(const char* ini)
         "ArmElbowOut=0.6\n"
         "; ArmIKGameArmInAnim=1: while a game animation owns a hand, that arm becomes the game's\n"
         "; own arm, blended in and out with the hand. 0 = the IK arm follows the animated wrist.\n"
-        "ArmIKGameArmInAnim=0\n"
+        "ArmIKGameArmInAnim=1\n"
         "; ArmIKGameArmShoulder: that game arm re-seated so its shoulder sits on your IK shoulder,\n"
         "; its wrist staying where the animation put it. 0 = off (the arm as the game draws it for\n"
         "; its own camera), 1 = every game animation except the choke, 2 = the choke as well.\n"
-        "ArmIKGameArmShoulder=0\n"
+        "ArmIKGameArmShoulder=1\n"
         "; OpenEmptyRightHand=1: with nothing in the right hand (the sword holstered) its fingers\n"
         "; take the left hand's open pose, mirrored, instead of the game's loose fist. 0 = the fist.\n"
         "OpenEmptyRightHand=1\n"
@@ -1335,7 +1335,7 @@ static bool WriteDefaultIni(const char* ini)
         "; ends), keeps the palm on a straight path and holds the hand through the return, over\n"
         "; HandBackBlendInMs / HandBackBlendOutMs. 0 = the linear HandBackBlendMs ramp above and\n"
         "; an instant return. F10 Advanced > Hands > Game arms during actions.\n"
-        "SmoothBlend=0\n"
+        "SmoothBlend=1\n"
         "HandBackBlendInMs=250\n"
         "HandBackBlendOutMs=350\n"
         "; CinematicArms=1 (experimental, F10 Advanced > Hands) keeps your tracked arms in\n"
@@ -2845,11 +2845,11 @@ static void LoadConfig()
     g_ikWidth=ikFloat("ArmShoulderWidthCm",36,10,80);
     g_ikLength=ikFloat("ArmLengthScale",1,.5f,2);
     g_ikElbowOut=ikFloat("ArmElbowOut",.6f,0,2);
-    g_ikGameArmInAnim = IniFloat(ini, "Hands", "ArmIKGameArmInAnim", 0) != 0.0f;
+    g_ikGameArmInAnim = IniFloat(ini, "Hands", "ArmIKGameArmInAnim", 1) != 0.0f;
     Log("config: [Hands] ArmIKGameArmInAnim=%d (%s)", g_ikGameArmInAnim.load() ? 1 : 0, g_ikGameArmInAnim.load()
         ? "a game animation that owns a hand shows the game's own arm on that side, blended by the hand-back weight"
         : "the IK arm follows an animated wrist from the tracked shoulder");
-    g_ikGameArmShoulder = (int)std::clamp(IniFloat(ini, "Hands", "ArmIKGameArmShoulder", 0), 0.0f, 2.0f);
+    g_ikGameArmShoulder = (int)std::clamp(IniFloat(ini, "Hands", "ArmIKGameArmShoulder", 1), 0.0f, 2.0f);
     Log("config: [Hands] ArmIKGameArmShoulder=%d (%s)", g_ikGameArmShoulder.load(), g_ikGameArmShoulder.load() == 0
         ? "off: the game's arm as it is drawn for the game's own camera" : g_ikGameArmShoulder.load() == 1
         ? "the game's arm is re-seated on the IK shoulder, wrist kept; not in the choke" : "the game's arm is re-seated on the IK shoulder, wrist kept; the choke too");

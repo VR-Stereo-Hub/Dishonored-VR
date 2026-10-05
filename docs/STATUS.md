@@ -1,3 +1,14 @@
+## 2026-10-04: accepted takedown arm levers on by default
+
+Branch `claude/hud-recouple`. `[Anim] SmoothBlend`, `[Hands] ArmIKGameArmInAnim` and `[Hands]
+ArmIKGameArmShoulder` (1 = not the choke) now default ON in the code and the default ini: all
+three were headset-confirmed in run 4. The two IK keys do nothing unless `[Hands] ArmIK=1`,
+which still defaults 0. `[Anim] CinematicArms` stays 0.
+- No release carries these keys, so an upgrade from 1.0.3 takes the new defaults. An ini that ran
+  a staging build after #177 has `SmoothBlend=0` and `ArmIKGameArmInAnim=0` written and keeps
+  them (TRAPS section 1): set them in F10 or delete the lines.
+- Default writer = packaged = golden ini; animation host checks pass.
+
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 
 Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.
