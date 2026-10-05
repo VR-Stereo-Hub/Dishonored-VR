@@ -1,3 +1,28 @@
+## 2026-10-04: a setting written where its reader never looks again (ReShade)
+
+F10's ReShade "Performance mode" wrote the value with `ReShadeSetConfigValue` and queued an
+effect reload. ReShade reads its configuration once, when a runtime object is constructed, and
+writes its own copy back when the object is destroyed, so the value changed nothing during the
+session and was overwritten at exit. The checkbox still looked right, because it was read back
+from the same ini cache it had just been written to, and the host test asserted exactly that.
+- A read-back from the place you wrote is not evidence. Ask the consumer what it holds (here:
+  the rebuilt runtime's own configuration), or measure the effect.
+- For a third-party component, find WHEN it reads a setting before choosing how to change it.
+
+## 2026-10-04: an accepted lever that lived in one ini only
+
+`[Hud] SemanticOwnership=1` was accepted in a headset and merged with its code default at 0 and
+no line in the default ini. It worked on the one machine whose ini had the key. When the
+installer rewrote that ini from the packaged profile the key vanished, a later save wrote 0,
+and the regression (HUD widgets splitting, marker text changing layer) was looked for in the
+code for a week of builds. The code had not changed.
+- Accepting a lever is not finished until the default ini and the code default carry it. A key
+  that exists only in an installed ini does not survive the installer.
+- `save()` writes the current value of every key, so an old default is materialised in every
+  ini and a new compiled default reaches nobody (section 1). A default change needs a one-time
+  migration key.
+- When something that worked breaks, diff the INI against the last accepted one as well as the
+  code: `tools` keep every ini backup, and the answer here was one line of that diff.
 ## 2026-10-05: a per-object readability check that was assumed free
 
 The physical pickup's first build walked 2000 GObjects entries a frame and asked
@@ -1654,3 +1679,15 @@ interval where LEFT labels disappear. The remote flight recorder uses recurring
 rate limits and label-independent bursts, with all-frame populations and explicit
 missing-stage masks. Camera-side SWAPPED and low image difference are observations,
 not independent proof of swapped or mono imagery during moving/dark cinematics.
+
+## A saved world correction cannot be applied to current attachment bones (2026-10-05)
+
+Controller-motion acceptance did not establish body-motion acceptance for hand
+effects. Reusing the native arm origin from an earlier render snapshot adds a
+travel-dependent offset to the current bone result. Rebasing only through the
+current arm still fails if a held item updates later. Keep the correction in
+the attached parent's local frame, then use that parent's live native transform.
+The production host tests reproduce both failures with fixed controller poses.
+Do not change particle local-space flags to hide this mismatch: the Heart and
+Possession hand-cast modules already use local space. ENGINE_NOTES records the
+asset evidence, equations, negative controls and pending headset validation.

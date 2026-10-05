@@ -57,13 +57,21 @@ static void panel_checks(IDirect3DDevice9* dev,IDirect3DSurface9* cpu) {
     unsigned char* atlas=nullptr;int width=0,height=0;io.Fonts->GetTexDataAsRGBA32(&atlas,&width,&height);
     panel_frame();panel_frame();
     require(performance_mode(),"native performance setting read");
+    // The preset has Invert only. Tint (Other.fx) is installed but not in the preset.
+    require(!load_all_effects(),"only the preset's effects are loaded by default");
+    require(uiLabels.count("Invert")!=0,"the preset's effect is listed");
+    require(uiLabels.count("Tint")==0,"an installed effect outside the preset is NOT listed");
+    require(api()->find_technique("Other.fx","Tint").handle==0,"ReShade did not load the effect outside the preset");
     panel_click("Enable ReShade next launch");require(!enabled_next_start() && api()!=nullptr,"startup disable persists without unloading live runtime");
     panel_click("Enable ReShade next launch");require(enabled_next_start(),"startup enable persists");
     panel_click("Effects on");require(!api()->get_effects_state(),"UI disables actual effects");
     dev->Clear(0,nullptr,D3DCLEAR_TARGET,0xff0000,1,0);render(dev);require(pixel(dev,cpu)==0xff0000,"UI effect off gives native red");
     panel_click("Effects on");require(api()->get_effects_state(),"UI enables actual effects");
-    panel_click("Performance mode");require(!performance_mode(),"UI enters editable shader mode");
+    // ReShade reads its settings when a runtime is built: the change lands after the rebuild.
+    panel_click("Performance mode");
     for(int i=0;i<150;++i) { render(dev);Sleep(10); }
+    require(api()!=nullptr && !performance_mode(),"UI enters editable shader mode on the rebuilt runtime");
+    require(live_note()==nullptr,"performance mode change honoured live");
     panel_frame();panel_frame();panel_click("Test.fx");panel_frame();
     panel_click("##value",.25f);
     const auto uniform=api()->find_uniform_variable("Test.fx","Strength");require(uniform.handle!=0,"fresh uniform handle after reload");
@@ -79,14 +87,51 @@ static void panel_checks(IDirect3DDevice9* dev,IDirect3DSurface9* cpu) {
     panel_click("Reset this setting");api()->get_uniform_value_float(api()->find_uniform_variable("Test.fx","Strength"),&strength,1);require(strength==1,"UI resets actual uniform");
     panel_click("Invert");require(!api()->get_technique_state(api()->find_technique("Test.fx","Invert")),"UI disables technique");
     panel_click("Invert");require(api()->get_technique_state(api()->find_technique("Test.fx","Invert")),"UI enables technique");
-    panel_click("Performance mode");require(performance_mode(),"UI restores optimized shader mode");
+    panel_frame();panel_click("Show all installed effects");
+    for(int i=0;i<200;++i) { render(dev);Sleep(10); }
+    panel_frame();panel_frame();
+    require(load_all_effects() && live_note()==nullptr,"show-all honoured live by the rebuilt runtime");
+    require(api()->find_technique("Other.fx","Tint").handle!=0,"ReShade now loads the effect outside the preset");
+    require(uiLabels.count("Tint")!=0 && uiLabels.count("Invert")!=0,"show-all lists every installed effect");
+    require(api()->get_technique_state(api()->find_technique("Test.fx","Invert")),"the preset's effect stays on across the rebuild");
+    panel_click("Show all installed effects");
+    for(int i=0;i<200;++i) { render(dev);Sleep(10); }
+    panel_frame();panel_frame();
+    require(!load_all_effects() && uiLabels.count("Tint")==0 && uiLabels.count("Invert")!=0,"back to the preset's effects only");
+    panel_click("Performance mode");
+    for(int i=0;i<150;++i) { render(dev);Sleep(10); }
+    require(performance_mode() && live_note()==nullptr,"UI restores optimized shader mode");
     ImGui::DestroyContext(ctx);reset();
+}
+static void ini_checks() {
+    using namespace dvr::reshade_ini;
+    std::string t="[ADDON]\r\nX=1\r\n\r\n[GENERAL]\r\nEffectSearchPaths=.\\mine,C:\\a,,b\\fx\r\nPerformanceMode=0\r\n\r\n[INPUT]\r\nKeyEffects=145,0,0,0\r\n";
+    std::string v;
+    require(get(t,"general","performancemode",&v) && v=="0","ini get is case-insensitive");
+    require(!get(t,"INPUT","PerformanceMode",&v),"ini get stays inside its section");
+    const std::string before=t;
+    require(!set(t,"GENERAL","PerformanceMode","0") && t==before,"ini set of the same value changes nothing");
+    require(set(t,"GENERAL","PerformanceMode","1") && get(t,"GENERAL","PerformanceMode",&v) && v=="1","ini set replaces a value");
+    require(set(t,"GENERAL","SkipLoadingDisabledEffects","1"),"ini set adds a missing key");
+    require(t.find("SkipLoadingDisabledEffects=1\r\n\r\n[INPUT]")!=std::string::npos,"the new key lands at the end of its own section");
+    require(t.find("[ADDON]\r\nX=1\r\n")==0 && t.find("KeyEffects=145,0,0,0\r\n")!=std::string::npos,"other sections are untouched");
+    require(add_list_items(t,"GENERAL","EffectSearchPaths",{"mine\\",".\\dvr\\Shaders"})==1,"a path already present (any spelling) is not added twice");
+    require(get(t,"GENERAL","EffectSearchPaths",&v) && v==".\\mine,C:\\a,,b\\fx,.\\dvr\\Shaders","the player's paths stay first and an escaped comma survives");
+    require(split_list(v).size()==3 && split_list(v)[1]=="C:\\a,b\\fx","a doubled comma is one item");
+    std::string lf="[GENERAL]\nA=1\n";
+    require(set(lf,"OVERLAY","B","2") && lf=="[GENERAL]\nA=1\n[OVERLAY]\nB=2\n","a missing section is added with the file's own line ending");
+    std::string utf="[GENERAL]\r\nEffectSearchPaths=.\\caf\xC3\xA9\r\n";
+    require(add_list_items(utf,"GENERAL","EffectSearchPaths",{".\\x"})==1 && utf.find("caf\xC3\xA9,.\\x")!=std::string::npos,"non-ASCII bytes are kept exactly");
+    const auto tech=preset_techniques("PreprocessorDefinitions=\r\nTechniques=LumaSharpen@LumaSharpen.fx, HDR@FakeHDR.fx,SMAA@SMAA.fx\r\nTechniqueSorting=A@B.fx\r\n[Curves.fx]\r\nTechniques=No@No.fx\r\n");
+    require(tech.size()==3 && tech[1]=="HDR@FakeHDR.fx" && tech[2]=="SMAA@SMAA.fx","preset techniques come from the global Techniques line only");
+    require(preset_techniques("Techniques=\r\n").empty(),"an empty preset has no techniques");
 }
 int main(int argc, char** argv) {
     memset(dvr::log::g_levels,2,sizeof(dvr::log::g_levels));
     const bool noEffects = argc > 1 && !strcmp(argv[1],"--disabled");
     const bool defaultOff = argc > 1 && !strcmp(argv[1],"--default-off");
     using namespace dvr::reshade_runtime;
+    ini_checks();
     SetEnvironmentVariableW(L"RESHADE_DISABLE_GRAPHICS_HOOK",L"host-sentinel");
     load_optional();require(manual(),"manual selected");
     if(defaultOff) {

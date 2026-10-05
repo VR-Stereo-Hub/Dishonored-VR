@@ -1,3 +1,622 @@
+## 2026-10-05: the unattended audit run - measured, and in which configuration
+
+One headset run of `tools/perf-plans/audit-all.txt` (41 segments of 20 s, 4 s warm-up each) on
+build v1.0.3-54-gd0c57b1b9 (a local merge of #178, #179 and #180; RelWithDebInfo), VDXR at
+144 Hz, RTX 4070 Ti SUPER. Parsed from the log with a throwaway script; every number below
+names its population. Tools: the A/B plan (`perf/ab`), the stage profile (`perf/stages`),
+`pe fn`, the `perf: tick / parts / gpu/present` lines, the helper's own `dlss:` line.
+
+### 1. Identity of the run - read this before any number
+
+- Plan LOADED (41 segments, 21 baselines), armed by `[Perf] AbPlanOnce` (the key emptied
+  itself), `gameplay reached`, PLAN STARTED 60 s later, PLAN COMPLETE. 40 segments DONE; segment
+  41 (baseline B13) DISCARDED: the restore word of row 40 resized the device inside it.
+- **The plan did not run in the played configuration.** The session started as `afw` with DLSS
+  Ultra Quality (2114x2192 -> 2750x2850) and the fast CNN model (the ini had `DlssModel=1`).
+  Six seconds into the 60 s lead-in the F10 panel was opened by the controller chord, and F10
+  Display wrote `[Stereo] Method=reentry` and then `[Clarity] DLAA=0` (DLSS off, the engine
+  resized to 2750x2850, one device reset) 41 s before the first segment.
+  **Every plan row is therefore: reentry, native 2750x2850, DLSS OFF.** 273 of 273
+  `stereo: beat` lines inside the plan read `method=reentry ... 2750x2850`.
+- Consequences inside the plan: row 14 (`dlss model fast`) and row 40 (`dlss off`) were no-ops.
+  Their RESTORE words were not: after row 14 the live model was Transformer K, after row 40
+  DLSS was ON (Ultra Quality, K). The plan's restore words assume the state its header
+  describes; this session was in neither. `hud sharp off` was a no-op as well (with no
+  upscaler reducing the render the sharp path and the old path are the same size).
+- A pair is one tick here (two presents); 1296 to 1584 pairs per segment, 86 to 102 pairs/s.
+- **Baseline drift is larger than most rows.** Baseline p50: 9.76, 9.77, 10.08 | 10.82, 11.08,
+  11.04, 11.01, 11.26 | (profiler on) 11.53, 11.41, 11.61, 11.35, 11.51, 11.46, 11.25 | 10.44,
+  10.51, 10.51, 10.59, 10.33. Two steps, neither a drift:
+  1. +0.74 ms between baselines A3 and A4: the restore `reshade effects on` (section 3).
+  2. -0.8 ms between baselines B7 and B8, across the `LightEnvironmentShadows` toggle pair:
+     BasePass GPU fell from 1.65 to 1.3 ms a pair at an unchanged draw count (1665 -> 1670)
+     and stayed there. Head yaw moved less than 2 degrees. Either the toggle pair does not
+     return the engine to the state it found, or the scene changed. Not identified; that row
+     has no verdict.
+  Head yaw per segment stayed within -19..-25 degrees for the whole plan.
+
+### 2. Hidden area (XR_KHR_visibility_mask, probe only)
+
+`xr/vismask: eye 0|1 HIDDEN MESH 52 triangles, 52 vertices | hidden area 0.5789 of the eye
+image's 5.3035 (tangent units squared) = 10.9 %`, both eyes, 0 vertices outside the FOV
+rectangle, 0 bad triangles. The extension is offered and the share is **10.9 % of the pixels**
+on this headset through VDXR (the audit's working figure was 15 %).
+
+### 3. Every row against the baselines either side of it
+
+p50 of the pair interval, ms. "Spread" is the difference between the two flanking baselines; a
+row inside it is "no change". The tail (p99) floor over the 20 baselines was 12.5 to 21.5 ms,
+so no row has a tail verdict.
+
+| # | Row | pairs | p50 | flanking baselines | delta | spread | Verdict |
+|---|---|---:|---:|---|---:|---:|---|
+| 2 | hud off | 1520 | 10.28 | 9.76 / 9.77 | +0.51 (+5.3 %) | 0.01 | SLOWER: under reentry the redirect is cheaper than the HUD drawn into both eye passes |
+| 4 | hud sharp off | 1547 | 9.82 | 9.77 / 10.08 | -0.11 | 0.31 | no-op in this configuration (no upscaler) |
+| 6 | reshade effects off | 1546 | 9.94 | 10.08 / 10.82 | -0.51 | 0.74 | not measured by the row, see below |
+| 8 | aniso 4, no trilinear | 1472 | 10.83 | 10.82 / 11.08 | -0.12 | 0.26 | no change (11653 sampler binds were being raised) |
+| 10 | sharpen 0 | 1432 | 11.08 | 11.08 / 11.04 | +0.02 | 0.04 | no change |
+| 12 | script lane named | 1444 | 11.00 | 11.04 / 11.01 | -0.02 | 0.03 | no change: `pe fn` costs nothing measurable |
+| 14 | dlss fast model | 1425 | 11.18 | 11.01 / 11.26 | +0.04 | 0.25 | NOT TESTED (DLSS was off) |
+| 16 | stage profile ON | 1296 | 11.74 | 11.26 / 11.53 | +0.35 (+3.0 %) | 0.27 | the profiler's own overhead; p95 17.3 in the switch-on segment only |
+| 18 | light shafts off | 1392 | 11.42 | 11.53 / 11.41 | -0.05 | 0.12 | no change; no LightShafts stage in any table of this view |
+| 20 | cheap bloom | 1359 | 11.63 | 11.41 / 11.61 | +0.12 | 0.20 | no change; BloomParts untouched |
+| 22 | bloom off | 1375 | 11.57 | 11.61 / 11.35 | +0.09 | 0.26 | no change; BloomParts untouched |
+| 24 | half-res translucency | 1371 | 11.43 | 11.35 / 11.51 | 0.00 | 0.16 | no change; nothing translucent of size in this view |
+| 26 | distortion off | 1365 | 11.54 | 11.51 / 11.46 | +0.05 | 0.05 | honoured (the stage is gone), no gain |
+| 28 | dynamic shadows off | 1433 | 11.01 | 11.46 / 11.25 | -0.35 (-3.0 %) | 0.21 | faster |
+| 30 | light env shadows off | 1477 | 10.56 | 11.25 / 10.44 | -0.28 | 0.81 | no verdict (the step of section 1) |
+| 32 | shadow texels 0.64 | 1512 | 10.26 | 10.44 / 10.51 | -0.21 (-2.1 %) | 0.07 | faster |
+| 34 | shadow max 400 | 1507 | 10.35 | 10.51 / 10.51 | -0.16 (-1.5 %) | 0.00 | faster |
+| 36 | lens flares off | 1495 | 10.36 | 10.51 / 10.59 | -0.19 (-1.8 %) | 0.08 | faster by the rule, but no flare stage is identified: weak |
+| 38 | screen percentage 80 | 1529 | 10.26 | 10.59 / 10.33 | -0.20 | 0.26 | honoured in the post chain only, no change in the pair |
+| 40 | dlss off | 1490 | 10.44 | 10.33 / discarded | +0.11 | - | NOT TESTED (DLSS was already off) |
+
+Cross-checks from the lines inside each segment (medians of 5 or 6 lines):
+
+- `perf: tick`: render thread `R` 4.7-5.3 ms (first eye) + 4.0-5.1 ms (second), idle 0.1-0.2 /
+  0.0, our present path `in` 0.4-0.7 ms a present. `perf: parts` sum 450-640 us a present
+  (`hk.method` 78-97, `hk.hudRedirectEnd` 30, 2 with `hud off`). `gpu/present`: span 7.4-9.8 ms
+  a tick, D3D9 idle 0.0-0.3.
+- **ReShade.** `hk.reshadeEffects` was 80-97 us a present in baselines A1 to A3 AND in the
+  `reshade effects off` row, then 148-175 us from the restore `reshade effects on` to the end.
+  So the effects were not being drawn when the plan started, the row changed nothing, and the
+  restore switched them on. The pair p50 stepped 10.08 -> 10.82 across that restore and stayed
+  (11.0-11.3 for the next four baselines). **One unbracketed step: the bundled preset costs
+  about 0.7 to 0.9 ms a pair (7 to 8 %) at native 2750x2850.** Why the effects were off at the
+  start is not established (the runtime was recreated by the device reset 40 s earlier).
+- The engine switches: every reply was `console: 'scale ...' -> 0 (empty reply)`, so the reply
+  is no evidence. The stages are: `scale toggle Distortion` removed the Distortion stage (0.39
+  ms GPU, 16 draws a pair) and `scale set ScreenPercentage 80` cut the depth-of-field stage's
+  GPU time from 1.9 to 0.42 ms a pair, both back at the restore. **The console route reaches
+  the SCALE handler for TOGGLE and for SET.** The three shadow rows moved the dominant light's
+  stage. `Bloom` and `UseHighQualityBloom` moved nothing: the bloom here is the game's own
+  BloomParts stage (0.45 ms GPU, 108 draws a pair, identical in both rows).
+- `ScreenPercentage 80` did not shrink the scene passes (BasePass GPU 1.36 against 1.36 / 1.29),
+  only the post chain. It is not a render scale for this renderer.
+
+### 4. The stage profile (plain baselines B1 to B7, profiler on, 86 pairs/s)
+
+Per PAIR: both eye images plus the once-a-tick scene capture (DPG World runs 3 times a pair).
+Halve for one eye image. Inclusive times; mean of 7 baselines, 3 tables each (min..max over the
+baselines in brackets where it matters).
+
+| Stage | calls | render-thread CPU ms | GPU ms | draws |
+|---|---:|---:|---:|---:|
+| DPG World (the scene, both halves) | 3 | 8.00 (7.93..8.08) | 4.97 (4.89..5.06) | 4356 |
+| - BasePass | 5 | 3.36 | 1.66 | 1670 |
+| - ShadowedLights | 5 | 2.49 | 1.62 | 1125 |
+| -- of it DominantDirectionalLight_0 | 5 | 2.09 | 1.47 (1.32..1.56) | 1063 |
+| - PrePass | 5 | 0.92 | 0.27 | 824 |
+| - Distortion | 5 | 0.11 | 0.39 | 16 |
+| PostProcessEffects | 8 | 0.08 | 2.64 (2.51..2.81) | 26 |
+| - depth of field (ArkPpNodeDof) | 2 | 0.06 | 1.86 (1.67..2.06) | 20 |
+| - MLAA (edge detect, edge length, blend) | 2 | 0.02 | 0.82 (0.64..1.10) | 6 |
+| InitViews | 3 | 1.27 | 0.17 | 0 |
+| Scene Captures | 2 | 0.73 | 0.15 | 159 |
+| BloomParts | 2 | 0.23 | 0.45 | 108 |
+| DisFog | 2 | 0.08 | 0.39 | 10 |
+| DPG Foreground (arms, weapon) | 2 | 0.34 | 0.11 | 18 |
+| ResolveSceneColor | 5 | 0.03 | 0.33 | 5 |
+
+The indentation is a reading of the names and of which GPU figures add up, not the profiler's
+tree (limit 3 below).
+
+- **What the render thread's time is made of:** the stages above sum to about 10.6 ms of an
+  11.5 ms pair. The scene is 8.0 ms of it (BasePass 3.4, shadowed lights 2.5, PrePass 0.9),
+  InitViews 1.3, the scene capture 0.7. It is draw submission: 4356 draws a pair.
+- **GPU, ranked:** scene 5.0 (BasePass 1.7, shadowed lights 1.6), post-process 2.6 (depth of
+  field 1.9, MLAA 0.8), bloom 0.45, fog 0.39, resolve 0.33. Sum about 8.8 ms against a measured
+  GPU span of 8.4-8.7 ms a tick.
+- **Shadows:** 2.49 ms CPU (22 % of the pair) and 1.62 ms GPU, 1125 draws (26 %), almost all
+  one dominant directional light. The stage does not split the shadow DEPTH render (the part
+  that does not depend on the eye) from its projection onto each eye's scene, so the share
+  that sharing could save is unknown; half of the stage (1.2 ms CPU, 0.8 ms GPU a pair) is the
+  upper bound.
+- **Two stages run that the settings say are off.** DishonoredEngine.ini `[SystemSettings]
+  DepthOfField=False`, yet the depth-of-field node costs 1.86 ms GPU a pair, the largest single
+  post stage. The game's Antialiasing option read 0 (off) at the automatic read
+  (`gameopts: id 122 ... VALUE 0`), yet MLAA runs its three passes per eye (0.82 ms GPU a
+  pair). Neither was a plan row. Both are full-screen GPU work, so they matter most where the
+  GPU is the limit (DLSS, AFW). (The depth-of-field half of this bullet is corrected in section 10.)
+- **Which limit this configuration is on.** Cutting 0.6 ms of GPU a pair (`ScreenPercentage 80`,
+  `gpu/present` 4.0 -> 3.7 ms a present) returned 0.2 ms; cutting 2 % of the draws and 0.35 ms
+  of GPU (`DynamicShadows`) returned 0.35 ms. Native without DLSS is nearer the render thread's
+  limit than the GPU's. That is the opposite of the played configuration (2026-10-04 entry).
+- What each Part B row changed, stage by stage (ms a pair, row against the two baselines):
+  dynamic shadows off: dominant light GPU 1.15 against 1.53 / 1.47, CPU 1.98 against 2.11 /
+  2.06, draws 1044 against 1071 / 1053. Shadow texels 0.64: dominant light GPU 1.10 against
+  1.46 / 1.37, CPU -0.12. Shadow max 400: dominant light GPU 0.96 against 1.37 / 1.17, CPU
+  -0.10. Distortion off: its stage gone (0.39 GPU), but DisFog +0.31 and post-process +0.33 in
+  the same row (the GPU interval of the next stage absorbs it), net nothing. Screen percentage
+  80: depth of field 0.42 against 1.96 / 1.72, post-process 1.67 against 2.56 / 2.69, scene
+  unchanged. Light shafts, both bloom rows, half-res translucency: no stage moved.
+
+Instrument limits found in this run (all in `stage_profile.cpp`, none fixed here):
+
+1. The timestamp ring is too small: 46,000 to 62,000 stamps skipped per 5 s window, so only
+   half of the intervals are sampled (uniformly: 0.49-0.50 for every stage at a fixed depth).
+   The printed `gpu ms/s` is the sampled half. The GPU figures above are scaled by the scene
+   stage's sampled share per table. 0 refused, 0 dropped, 0 unbalanced.
+2. The table prints the 28 costliest stages; a small stage (light shafts, translucency) cannot
+   be told from an absent one.
+3. A stage's depth is the depth it was first seen at, so the `d` column is not a tree.
+4. Its own cost: +0.35 ms a pair (3 %).
+
+### 5. The script lane, named (row 12, 3 windows of 5 s, 90 ticks/s)
+
+`pe/cost` over the whole plan: 2,780-3,080 events/s at 52-58 us, 143-171 ms/s, 1.6-1.8 ms a
+tick. By section (ms/s): camera/aim 57-64, mid ticks 54-59, view rotation + hands 23-25, name
+tests 14-16, front ticks 7-8. The 14 costliest statements, median ms/s (us a tick):
+
+FovLeverApply 32.0 (355), CarryHoldTick 20.2 (224), SkcRotApply 18.8 (208), CamShakeTick 16.2
+(180), camera::apply_offsets 6.1 (68), FxFollowTick 5.6 (62), anim::tick 5.3 (59), UiPeLatch
+3.8 (42), CamModTick 3.0 (33), PossessionStateTick 1.5, InteractAimTick 1.1, PawnCollisionTick
+0.9, ArmFollowTick 0.9, UiSurfaceTick 0.8. Together 116 of about 160 ms/s; the first four are
+87 ms/s, 0.97 ms a tick. The game thread was not the limit in this run (the render thread's
+idle was 0.0-0.2 ms).
+
+### 6. DLSS: what this run can and cannot say
+
+- Fast against K as plan rows: NOT measured (section 1).
+- The helper's own GPU timer, same session: fast CNN (preset 5) at Ultra Quality 0.85-1.10 ms
+  per eye image (3 lines in the lead-in, another spot, afw then reentry); Transformer K at
+  Ultra Quality 3.34-3.86 ms per eye image (2 lines, the plan's spot, segment 41). **K costs
+  2.4 to 2.8 ms more per eye image, about 5 ms of GPU a pair.**
+- K against native at the same spot: the steady tail of the discarded segment 41 (3 `perf:
+  tick` lines of 216-234 ticks, DLSS Ultra Quality K, 12.9-13.5 ms, 72-78 pairs/s) against
+  baseline B12 forty seconds earlier (native, 10.33 ms, 96.8 pairs/s). **Ultra Quality with K
+  was 2.6 to 3.2 ms a pair slower than native without DLSS**, while shading 59 % of the pixels.
+  Not a plan segment (the instrument discarded it for the resize inside it): indicative.
+
+### 7. HUD and ReShade checks, from the log only
+
+- HUD (#178): `config: [Hud] SemanticOwnership=1`, `hud/semantic: hooks=1`, no REFUSED line;
+  `roots=31..32 active=1 required=7 ambiguous=0` on all 300 beat lines; 0 `hud/why ... CHANGED`
+  lines; `hud/task-parent ... moved=2138 refused=0`. Whether the widgets stayed in one piece is
+  perceptual and not in the log.
+- ReShade (#179): `reshade: ReShade.ini already as asked (before ReShade loads): every
+  installed effect is loaded` - this ini carries `[ReShade] LoadAllEffects=1`, so the run did
+  not exercise the preset-only list. 62 effects compiled per runtime, three runtimes (start and
+  the two device resets), 0 errors, PerformanceMode 0. `reshade effects off|on` honoured. The
+  log has no line for what the F10 tab listed.
+
+### 8. Faults
+
+- No crash (the crash file on disk is from 2026-10-03). No stage-profile refusal, no timestamp
+  query refused. Two device resets, both from a DLSS resize (the lead-in, and the last restore).
+- `hud/markers-sharp: REFUSED owner=serial-overlay reason=no reduced reentry upscaler and AFW
+  clean sources off` is a Warn once a SECOND for as long as the state holds (842 lines). A
+  state, not a change: it should log once.
+- The plan's restore words are fixed text, not "the state found". On a session that differs
+  from the plan's header they CHANGE the state (here: the model to K, then DLSS on). The plan
+  should refuse to start, or record and restore what it found.
+- The F10 panel can be opened by the controller chord during the lead-in and its Display tab
+  then rewrites the configuration under the plan. A plan should hold the overlay closed, or
+  log the configuration it starts in on the PLAN STARTED line and refuse a mismatch.
+- The installed ini after the run differs from the one the run started with in two keys, both
+  written by F10 Display in the lead-in: `[Stereo] Method=afw -> reentry`, `[Clarity] DLAA=1 ->
+  0`. `AbPlanOnce` is empty as designed. `[Screen] RenderWidth/Height` and the launch file
+  still say 2114x2192, so the next launch as it stands is DLSS off at 2114x2192.
+
+### 9. Ranked, in THIS configuration (reentry, native 2750x2850, no DLSS)
+
+| # | Lever | Measured | Visual cost | Standing |
+|---|---|---|---|---|
+| 1 | ReShade preset off | about 0.7-0.9 ms a pair (7-8 %), one unbracketed step | the preset's look | option (it already is); needs a bracketed row |
+| 2 | DynamicShadows off | 0.35 ms (3.0 %) | all dynamic shadows gone | not worth it |
+| 3 | ShadowTexelsPerPixel 0.64 | 0.21 ms (2.1 %) | softer shadow edges | at most an option |
+| 4 | MaxShadowResolution 400 | 0.16 ms (1.5 %) | softer large shadows | at most an option |
+| 5 | LensFlares off | 0.19 ms (1.8 %), no stage identified | flares gone | not worth it |
+| - | anisotropy 4 / no trilinear, sharpen 0, Distortion, Bloom, UseHighQualityBloom, ScreenPercentage 80 | no change | - | not worth it |
+| - | HUD redirect off | 0.51 ms SLOWER | - | keep the redirect |
+
+Still unmeasured, and why: **everything in the played configuration (afw, DLSS on)** - no row
+ran there; DLSS fast against K as a matched pair; the AFW HUD hand-off (the `hud off` question
+of the 2026-10-04 entry was an AFW question and this run was reentry); `hud sharp off` (no
+upscaler); light shafts and half-res translucency (the view had neither at a measurable size);
+`LightEnvironmentShadows`; depth of field and MLAA off (found by the profile, not rows); the
+hidden-area mask's real saving (only its 10.9 % share is known); the shadow depth share.
+
+Standing of the six questions the audit asked, on this evidence (decisions are the
+maintainer's; nothing was changed):
+
+- Hidden-area mask: 10.9 % of the pixels, depth-tested passes only (about 3.3 of the 8.8 ms of
+  GPU a pair here; the post chain is not covered), so at most about 0.35 ms of GPU a pair at
+  native size. Against a build that needs the eye at pass start and touches every depth
+  consumer, the evidence does not support building it now.
+- DLSS fast model as the default: the helper's timer supports it (K costs about 5 ms of GPU a
+  pair more), the matched pair row is still owed.
+- Skipping empty HUD sinks: no evidence either way (an AFW question, a reentry run).
+- Engine switches: none earns a shipped default. The two shadow sizes are a possible quality
+  option at 1.5-2 % each.
+- Script-lane gate: named, 0.97 ms a tick in four statements, no frame-time gain while the
+  render thread is the limit.
+- Sharing shadow work between the eyes: the stage is the second largest on the render thread
+  (2.5 ms a pair); how much of it is shareable needs a static read before anything else.
+
+Next run, if one is wanted: the same spot in the played configuration with the panel left
+closed, restore words fixed first, and rows for DLSS model, DLSS off, HUD off, HUD sharp off,
+ReShade effects, the two shadow sizes, and whatever handle switches the depth-of-field and
+MLAA stages off (to be found: the `[SystemSettings]` flags are already off).
+
+### 10. Run 2, prepared the same day (run later that day: section 11)
+
+Only what run 1 left open, in the played configuration. `tools/perf-plans/audit-run2.txt`:
+17 segments of 30 s with a 10 s warm-up (a DLSS model change and a DLSS resize need several
+seconds), about 9.5 minutes after a 60 s lead-in.
+
+- Rows: `hud off`, `hud sharp off`, `reshade effects off`, `dlss model k` (restore `fast`),
+  then the stage profile on (so the played configuration gets its own stage table, and it says
+  whether MLAA runs with DLSS on), the two shadow rows below, and `dlss off` last with a
+  settling baseline after its restore.
+- **Correction to section 4.** The stage called ArkPpNodeDof / `D.O.F.us` is not a depth-of-field
+  pass that ignores `DepthOfField=False`. The class's parameter block carries depth of field,
+  colour balance and HDR overrides together: it is the game's combined final post-process node
+  (the tone map and colour grade live in it). It cannot be switched off for a row, and its 1.9
+  ms of GPU a pair is the price of the final image, not a stray effect. No row for it.
+- **Shadow sharing, sized before anything is built.** The engine labels its shadow depth
+  render as a stage of its own (`Shadow Depths`; `Shadow Projection` is the per-eye half; both
+  labels are in the image). New, default off, session only: `stages skip odd|all <stage name>`
+  drops the game's draws inside one named stage (a prefix, any case) on every second present
+  or on all, from the draw hooks; it needs `stages on`. `Shadow Depths` dropped on every
+  second present is one eye without its shadow depth render: **the upper bound of what sharing
+  it between the eyes can return**, measured, at the cost of moving shadows missing in one eye
+  for 30 s. The second row drops it in both eyes as the cross-check (it should be about twice
+  the first). The clear still runs, so the eye reads an empty shadow buffer; reusing the other
+  eye's buffer (the actual sharing) would also need the clear held back, which needs a hook
+  on Clear and is not built. If the bound is small the idea ends here. The table's header
+  counts the dropped stages and draws; 0 dropped means the name matched nothing and the row is
+  a baseline.
+- The plan runner (`perf_ab.cpp`) gained what run 1 showed was missing: `atstart <words>` (run
+  when gameplay is first reached, so a resize settles in the lead-in; here it sets afw, DLSS
+  on, the fast model and the ReShade effects on), `expect <key> <value>` (keys `stereo`,
+  `dlss`, `dlssmodel`; checked at the start, the found configuration is logged on its own line
+  and a mismatch REFUSES the plan and runs `atend`, so a wrong run ends after a minute),
+  `holdpanel` (the F10 panel is closed again if it is opened between first gameplay and the
+  plan's end, with a Warn), and gameplay lost inside a segment's WARM-UP no longer discards the
+  segment (a DLSS resize drops the gameplay flag for a moment; that is the lever's own
+  switching cost).
+- The stage profile's three limits of section 4: the timestamp ring is 8192 (was 2048) and is
+  resolved at every top-level stage end (was every sixteenth), the table prints 56 rows (was
+  28), and each row names the stage it was first seen inside (`in <parent>`).
+- Read in run 2, in this order: the `perf/ab: configuration at the start:` line; `skip: ...
+  dropped this window` on the stage headers of the two shadow rows; the `Shadow Depths` and
+  `Shadow Projection` rows of baseline B1 (their CPU, GPU and draws are the split the first
+  run could not see); whether an `MLAA` row exists in B1.
+
+### 11. Run 2, read (the played configuration: afw, DLSS Ultra Quality, fast model)
+
+Build v1.0.3-57-g4c552c008, same headset and spot. `perf/ab: plan LOADED` (18 segments, 10
+baselines, 30 s with a 10 s warm-up), the lead-in words ran at `gameplay reached`,
+`configuration at the start: stereo afw, dlss on (mode 1, Ultra Quality), dlssmodel fast
+(model 1 preset 0) | 3 expectation(s) met`, PLAN COMPLETE, 18 DONE, 0 discarded. 179 of 179
+`stereo: beat` lines read `method=afw ... 2750x2850`. The panel hold never fired. No crash, no
+refusal, and after the run the ini differs from the one it started with only by the emptied
+`AbPlanOnce`.
+
+**The run's own instrument cannot be read as printed.** Three bursts of an outside load fell
+inside the first 285 s (44-72 s, 137-164 s, 257-285 s after the start): for about 28 s each,
+every CPU cost rose together (script events 105 us against 54, the render thread 9-10.7 ms
+against 5.5) and so did every GPU interval, including a stage that draws nothing (InitViews,
+0.65 ms against 0.10), while the draws per scene pass FELL. That is the machine being shared
+with something else, not the scene and not a row; what it was is not known. The plan's own
+p50 for baselines A3 and A5 and for `hud off` (21 ms a pair against 15.3) is that load. So
+every figure below is the median of the 3 s `perf: present` windows that start after the
+warm-up and whose `pe/cost` reads under 57.5 us an event (about 375 presents a window). A
+plan should carry such a contamination test itself.
+
+Per PRESENT (one eye image; a pair is two):
+
+| Row | clean windows | present ms | rate /s | flanking baselines | delta | Reading |
+|---|---:|---:|---:|---|---:|---|
+| baselines (A1, A2, A4, B1, B2, B3, B4, B5) | 5,5,6,6,6,6,4,6 | 7.80-8.05 | 124-129 | - | spread 0.25 | - |
+| hud off | 0 | - | - | - | - | no clean window after the warm-up (see below) |
+| hud sharp off | 6 | 7.75 | 129.3 | 7.80 / 7.95 | -0.13 | no change |
+| reshade effects off | 3 | 7.40 | 134.7 | 7.80 (A1, A2) / 7.95 | -0.4 to -0.55 (5-7 %) | faster; `hk.reshadeEffects` 107 us against 203-221 |
+| dlss model k | 6 | 9.05 | 110.3 | 7.95 / 7.85 (B1) | +1.1 (+14 %) | slower; helper 3.85 ms an eye against 1.8-2.3 |
+| stage profile ON | 3 | 7.90 | 127.0 | 7.95 / 7.85 | 0 | no overhead visible here |
+| shadow rows (both) | 6, 3 | 8.10, 7.70 | - | - | - | NOT TESTED: 0 stages and 0 draws dropped |
+| dlss off (native 2750x2850) | 6 | 8.00 | 125.7 | 7.80 / 7.85 | +0.18 (+2 %) | slower by the rule, in practice the same |
+
+- **DLSS model.** Transformer K costs 1.1 ms a present (2.2 ms a pair, 127 -> 110 presents/s)
+  over the fast model at Ultra Quality under AFW; matched, six clean windows each side. The
+  wait at the HUD hand-off doubles with it (`hk.hudRedirectEnd` 1607 us against 780): the GPU is
+  the limit in the played configuration, as the 2026-10-04 entry said.
+- **DLSS Ultra Quality with the fast model buys no frame rate** against native at this output
+  size (7.8 against 8.0 ms). It is an anti-aliasing choice, not a speed one, on this GPU.
+- **ReShade preset:** 0.4-0.55 ms a present, about 1 ms a pair, 6 % of the rate. Three clean
+  windows; agrees with run 1's unbracketed 0.7-0.9 ms a pair at native.
+- **The HUD hand-off (the open question of 2026-10-04, section 3).** No clean window after the
+  warm-up, but the four windows between the switch and the first burst (32-41 s, 375 presents
+  each) read 7.9-8.2 ms against 7.7-8.0 before: the `end` part fell from 0.8 to 0.2-0.4 ms (the
+  wait is gone) and the render thread rose from 5.6 to 6.1-6.3 ms with the D3D9 span 4.4 ->
+  5.5 ms. The wait is backpressure and moves; removing the hand-off returns nothing. Reading
+  (a). Weak (inside the warm-up), but it is the same answer as run 1 under reentry.
+  `hud sharp off` changes nothing. One sink was in use in this view.
+- **MLAA runs with DLSS on.** The stage table of baseline B1: `MLAA` once a present, 3 draws,
+  0.15 ms of GPU an eye image (2 % of the present), before the upscaler sees the image. The
+  cause is in the log of both runs: `gameopts/defaults: ... id=122 ... before=0x00000001
+  target=0x00000000` at EVERY launch. The option is written to 0 after the engine has already
+  taken 1 from the profile, the write does not reach the renderer, and it does not persist.
+  The policy "the game's MLAA is switched off while DLSS is on" has never been in effect.
+- **Shadow sharing: the evidence says there is nothing to share here.** The skip rows matched
+  no stage (`skip: ... 'Shadow Depths', 0 stage(s) and 0 draw(s) dropped` in all 12 windows),
+  and the 56-row table with parents shows why: no `Shadow Depths` or `Shadow Projection` stage
+  is emitted in this view at all. `ShadowedLights` (1.36 ms CPU, 1.32 ms GPU, 563 draws an eye
+  image) is 532 draws sitting directly inside `DominantDirectionalLight_0` with no child
+  stage: the dominant light's own lighting pass over the scene's meshes, which depends on the
+  eye by nature. `ModShadow` has 0 draws. Together with run 1 (all dynamic shadows off: 0.35 ms
+  a pair, 2 % of the draws) the shareable shadow-depth work in this scene is too small to
+  measure. One outdoor view, standing still; a scene full of characters would have more.
+
+The stage table in the played configuration, per eye image (baselines B1 to B3, 11 clean
+tables, 0 stamps skipped with the larger ring): scene (DPG World) 4.40 ms CPU / 3.57 ms GPU /
+2187 draws, of it BasePass 1.90 / 1.27 / 847, the dominant light's pass 1.14 / 1.15 / 532,
+PrePass 0.50 / 0.28 / 418, translucency 0.32 / 0.08; InitViews 0.72 CPU; the scene capture
+0.42 / 0.36; the final post node 0.21 GPU; MLAA 0.15 GPU; bloom 0.21 GPU; fog 0.13 GPU. The
+stages sum to the render thread's 5.3-5.6 ms and to the D3D9 span's 4.2-4.5 ms. On top of the
+D3D9 span the GPU carries the upscaler (1.8-2.3 ms an eye image for the fast model), the
+ReShade preset and the AFW rebuild; D3D9 idle is 0.8-1.0 ms of a 7.8 ms present.
+
+Standing after both runs:
+
+| Question | Evidence | Standing |
+|---|---|---|
+| DLSS fast model as the default | K is 1.1 ms a present (14 %) slower, matched | supported; image quality is the trade |
+| Hidden-area mask | 10.9 % of about 2.9 ms of depth-tested GPU an eye image = at most 0.3 ms (4 %) where the GPU is the limit | small for its risk |
+| Skipping empty HUD sinks | the hand-off wait is backpressure in both methods | nothing to gain |
+| Engine switches | best is 1.5-3 % (run 1, native) | no shipped default |
+| Script-lane gate | 1.6-1.8 ms a tick, the game thread is not the limit | follow-up, not a release lever |
+| Sharing shadow work | no shadow-depth stage of measurable size in the measured scene | ends here unless a character-heavy scene says otherwise |
+| New: MLAA under DLSS | 0.15 ms GPU an eye image, and it filters the image before the upscaler | a defect in an existing policy, worth fixing |
+| New: ReShade preset | about 6 % of the rate | already the player's option |
+
+Not measured: the same rows in a second, character-heavy scene; what the outside load was.
+
+Decisions taken on this evidence (2026-10-05): the fast model becomes the shipped default
+(`claude/fast-dlss-physical-pickup`, #181); MLAA under DLSS is left as it is, its cost being
+small; the hidden-area mask, the HUD sink skip, the engine switches and shadow sharing are not
+pursued. The outside load was most likely another session's offline render on the same PC
+(reported, not measured).
+
+## 2026-10-04: pre-release audit - where the frame goes in the played configuration, and what is left
+
+Branch `claude/performance-audit` (off staging). No game launched: every number is from logs
+already on disk (the 2026-10-04 headset sessions, builds v1.0.3-36..38, VDXR, RTX 4070 Ti SUPER,
+Ryzen 5 5600X) or from this record. Parsed with a throwaway script over every `perf: tick`,
+`perf: present`, `perf: parts`, `perf: gpu/present` and `pe/cost` line; medians per regime.
+
+### 1. The played configuration is not the one this record measured
+
+The uncap deep dive (2026-09-27) measured native 2750x2850 without DLSS: 8.6 ms per pair, 115
+pairs/s, GPU full. Every 2026-10-04 session ran with DLSS on (DLAA at start, then Ultra Quality
+and Quality, transformer model K), and the last one mostly with `stereo afw`.
+
+| Regime (headset, 2750x2850 output) | n | per tick / present | rate | render thread `R` | our present path `in` | of it GPU fence wait | D3D9 GPU span |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| reentry, DLAA K, 144 Hz (builds 36/37) | 49 / 167 | 13.5 / 15.8 ms | 74 / 63 ticks/s | 6.9 | 5.7 / 8.2 | 3.3 / 5.6 | - |
+| reentry, Ultra Quality K, 144 Hz | 23 | 12.6 ms | 79 ticks/s | 7.6 | 6.0 | 3.7 | 8.2 |
+| reentry, Quality K, 72 Hz | 149 | 14.8 ms | 68 ticks/s | 7.3 | 7.3 | 3.8 | 6.2 |
+| afw, Quality K, 144 Hz (one eye a present) | - | 9.6-9.8 ms a present | 102-104 presents/s | 4.2-4.7 | 4.7-4.9 | 2.0-3.5 (at the HUD hand-off, see 3) | 2.8 |
+| for reference: reentry, native, no DLSS (2026-09-27) | - | 8.6 ms a pair | 115 pairs/s | - | - | 1.1-1.9 | 6.9 |
+
+- The render thread is saturated in every DLSS regime (idle 0.3-0.5 ms). The game thread is not
+  the limit there, with one exception: `RENDER THREAD STARVED` appears in 1-4 % of the windows.
+- **The largest single cost in the played configuration is DLSS model K itself.** This record
+  already measured it in the simulator (DLAA K: the game's render 2.7 -> 4.4 ms per eye, DLSS
+  2.2 -> ~5 ms contended; the fast model 86 against 70 pairs/s). The headset now agrees in size:
+  reentry with DLSS K runs 12.6-15.8 ms a pair against 8.6 ms native. Under AFW the budget closes
+  the same way: 2.8 ms of D3D9 span plus about 5 ms of DLSS per eye image is the 9.6 ms present.
+  Not a matched scene (different spots and builds), so the size is indicative, not exact.
+- At 144 Hz the budget is 6.94 ms a present. AFW with DLSS K reaches 102-104 presents/s.
+
+### 2. The script lane (the mod's ProcessEvent hook) in the headset
+
+| Regime | hook cost | per tick | front | mid ticks | camera/aim | name tests | view+hands |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| reentry, Quality (68 ticks/s) | 184 ms/s | 2.7 ms | 0.13 | 1.09 | 0.83 | 0.21 | 0.22 |
+| reentry, Ultra Quality (54 ticks/s) | 184 ms/s | 3.4 ms | 0.15 | 1.91 | 0.81 | 0.26 | 0.26 |
+| reentry, DLAA (63-74 ticks/s) | 191-198 ms/s | 2.7-3.0 ms | 0.14 | 1.2-1.4 | 0.8-1.0 | 0.23 | 0.23 |
+| afw (about 100 ticks/s) | 158 ms/s | 1.5 ms | - | - | - | - | - |
+
+2,000-3,500 script events a second at 60-73 us each. The simulator figure after route 2 was
+about 0.9 ms a tick at 172 ticks/s, so a headset tick pays three times the simulator's: the cost
+is per second, not per tick, and the headset ticks slower. It is not the limit today (the render
+thread is). It becomes the limit the moment the render thread's wait is removed, so it is second
+in line. `pe fn on` names the statements; no log on disk has that split for a headset run, which
+is why plan 1 below has a row for it. The 29 "mid tick" statements run on EVERY dispatch (each
+behind its own timer or lock), not once a tick: the cheap structural fix is one shared
+once-per-tick gate in front of the read-only ones, after the split names which.
+
+### 3. Our own work inside the present, per present (`perf: parts`)
+
+| Part | reentry | afw |
+|---|---:|---:|
+| `hk.method` (capture + its GPU fence) | 2.2-3.2 ms | 0.6-0.7 ms |
+| `hk.hudRedirectEnd` (the HUD sinks' copy, fences and five D3D11 flushes) | 0.04-0.11 ms | **2.0-3.5 ms** |
+| `hk.xrEnd` | 0.08-0.24 ms | 0.29-0.32 ms |
+| `hk.reshadeEffects` (CPU side only) | 0.10-0.20 ms | 0.11-0.12 ms |
+| everything else together | about 0.3 ms | about 0.3 ms |
+
+- Under AFW the wait that reentry pays in the capture moved to the HUD hand-off: with the eye
+  capture at depth 2 its fence no longer blocks, and the first fence after it is the HUD's
+  (`read_wait` / `blit_wait`, `hud/beat ... read waits 14641 timeouts 36`). Two readings, as in the
+  uncap deep dive: (a) the GPU is full (game + DLSS helper + Virtual Desktop) and this wait is the
+  only backpressure, so removing it moves it; (b) the GPU has room (`idle(d3d9)=1.5 ms` a present)
+  and the HUD's synchronous hand-off is what serialises the frame. The `hud off` row of plan 1
+  decides: (b) predicts the present falls toward 6-7 ms, (a) predicts no change.
+- Found in the code (`hud_capture.cpp`, `end_frame`): every sink in use does its full work every
+  present whether or not anything was drawn into it: a fence wait, a StretchRect of the whole
+  target, a clear, a D3D11 alpha blit, a second fence and a `Flush`. With `[Hud] UpscaleSharp=1`
+  the target is the output size (2750x2850). In the measured window five sinks were in use and
+  three of them received 0.0-0.2 draws a present. Unmeasured GPU cost; the `hud sharp off` and
+  `hud off` rows size it. Candidate: skip a sink whose target has had no draw since its last two
+  copies (both slots already hold the empty image). Not built: the unconditional copy exists
+  because an earlier design showed stale panels, so it needs its own run.
+
+### 4. What is new in this audit (not in the record before)
+
+1. **The hidden-area mask (XR_KHR_visibility_mask). Never considered here; the standard VR
+   saving for a pixel-bound renderer.** The lenses never show the corners of the eye image. The
+   runtime publishes that region per eye as a triangle mesh; drawing it into the scene depth at
+   the near plane right after the depth clear makes every depth-tested scene pass skip those
+   pixels (it is how SteamVR and Oculus titles save 10-20 % of shading; D3D9 needs nothing more
+   than a depth write). It attacks P, the 6.1 ms a pair that follows pixels at native size.
+   - Verified: the installed Virtual Desktop runtime (`virtualdesktop-openxr-32.dll`) carries the
+     extension name; the vendored OpenXR header has `xrGetVisibilityMaskKHR`.
+   - NOT known: how much of a Quest 3 eye image is hidden. Built on this branch, default off:
+     `[VR] VisibilityMaskProbe=1` enables the extension and logs once per session
+     `xr/vismask: eye N HIDDEN MESH ... = X % of the pixels the lenses never show`. Probe only,
+     nothing is masked. That percentage is the go / no-go.
+   - Design if it is worth it: hook `IDirect3DDevice9::Clear` (not hooked today); on a depth
+     clear of the scene depth target (the depth probe already identifies it) at the full render
+     viewport, draw the eye's mesh with pre-transformed vertices, colour writes off, Z write on,
+     Z func ALWAYS, z = 0. Hard parts: the eye must be known on the render thread at the START
+     of a pass (today it is settled at the present); a wrong eye hides visible pixels, so an
+     unknown eye must use the intersection of both meshes. Post-process full-screen passes are
+     not depth-tested and stay at full cost. Depth consumers (DLSS guides, AFW's foreground and
+     depth layer, the depth share) will read z = 0 in the corners and need the mask excluded.
+     Occlusion queries behind the mask report hidden, which is correct. Default OFF, live A/B.
+2. **The DLSS model is the release decision with the largest measured effect.** Not new as a
+   measurement, new as a consequence: the shipped default model (K) is the expensive one, and the
+   played configuration pays for it on every eye image. Plan 1 measures K against the fast model
+   and against DLSS off in the headset, in one run.
+3. **The HUD sinks' per-present cost** (section 3). New as a finding.
+4. **ReShade's GPU cost** has never been measured in the headset (only its CPU side, 0.1-0.2 ms a
+   present). The bundled preset runs LumaSharpen, FakeHDR and SMAA on every eye image. New seam
+   word `reshade effects on|off` (session only, the preset is not saved) so a plan row can size it.
+5. **Texture filter override.** The mod forces 16x anisotropy and trilinear mips (the game's own
+   maximum is 4x). On the GTX 1650 the lower setting felt smoother with the same median. Never
+   sized on this GPU; a plan row does.
+
+### 5. Deep-rooted angles, and what a static look at the engine can and cannot add
+
+- Checked against the record before proposing anything: one engine view for both eyes (route 3),
+  shared view-independent passes, InitViews sharing (1.3 ms a pair, VR-79 forbids copying the
+  result), the driver's threaded optimisation (route 4, still unmeasured, no code), DXVK
+  (forbidden by CLAUDE.md), capture depth (no gain when the GPU is full; auto depth ships).
+- IDA cannot find a "big switch": the cost is not one function. It is pixels shaded twice (GPU)
+  and two full scene submissions (render thread). What static analysis CAN do next, in order of
+  expected value: (1) name the render thread's stages behind the two return addresses that hold
+  37 % and 33 % of its samples (RVAs 0046C1F4 / 0046C208, "Representative CPU evidence") so a
+  duplicated view-independent stage (shadow depth, scene captures) can be recognised and counted;
+  (2) find where the scene depth is cleared per view, to place the hidden-area draw in the engine
+  rather than at the D3D9 call if the D3D9 route proves fragile. Neither was run tonight: both
+  need a hypothesis the plan's numbers will supply (how much of the frame is GPU at each setting).
+- A settings-level angle the record judged with an instrument that could not see it: "dynamic
+  shadows via the game INI: no gain" was measured in the SIMULATOR, which is game-thread-bound and
+  cannot show a GPU saving. In the headset the GPU is the limit at native size, so that test, and
+  light shafts / bloom, are unmeasured there. Worth one plan after plan 1, with the game's own
+  settings (GAME_CONFIG_MAP), not new code.
+
+### 6. Ranked, with what each needs
+
+| # | Lever | Expected | Evidence | Cost / risk | Next step |
+|---|---|---|---|---|---|
+| 1 | DLSS fast model as the default (K as the quality option) | large in the played config: toward the native rate (the simulator: Quality SR fast = native) | measured (simulator), sized (headset, unmatched) | image quality is the trade; no code | plan 1 rows 1-2, then a headset look |
+| 2 | Hidden-area mask | P x hidden share: at 15 % about 0.9 ms a pair at native size | standard technique; extension offered; share unknown | medium build, needs the eye at pass start; default off | read `xr/vismask` after one run |
+| 3 | HUD sinks: defer or skip the empty ones | up to 2-3.5 ms a present under AFW if reading (b) holds | measured wait, cause open | touches code with flicker history | plan 1 `hud off`, `hud sharp off` |
+| 4 | Script lane once-per-tick gate | 1-2 ms a tick of the game thread, visible only once the render thread is freed | measured cost, statements unnamed in the headset | low, per statement | plan 1 `pe fn on` |
+| 5 | ReShade preset cost, texture filter, sharpen | unknown, each a plan row | unmeasured | none | plan 1 |
+| 6 | Game shadow / post settings in the headset | unknown | prior test could not see it | none | a second plan |
+
+`tools/perf-plans/audit-1.txt` is plan 1: nine baselines around eight rows, 20 s each, about six
+minutes standing still. It needs this branch's build for the `reshade effects` word (other
+builds treat that row as a baseline).
+
+### 8. What the IDA database adds (series pf1..pf5, run the same night)
+
+The staged database (63,921 functions, analysed once on 2026-10-04) had only been asked about
+cinematics. Five one-question scripts, `tools/ida/pf1..pf5`; derivations in ENGINE_NOTES,
+"Scene render stages, the draw-event switch and the SCALE command".
+
+1. **The engine names its own render stages, and sends them through our DLL.** The scene render
+   function (VA 0x0086C060, the one holding the two sampled return addresses of "Representative
+   CPU evidence") brackets every stage with D3DPERF events, and the executable keeps the labels.
+   - The 37 % return address (0x0086C1F4) is the call to the pass function that runs, in order:
+     PrePass, Dominant light shadows, BeginRenderingSceneColor, ClearView, BasePass,
+     FinishRenderingSceneColor, ResolveSceneDepthTexture.
+   - The 33 % return address (0x0086C208) is the call to the function that runs: ShadowedLights
+     (with ModShadow), UnshadowedLights, Translucent / Opaque / Decals, RenderSoftMasked,
+     BeginOcclusionTests, BloomParts, DisFog, Distortion, ResolveSceneColor, Translucency,
+     RadialBlur, LightShafts (Downsample, RadialBlur, Apply), PostProcessEffects.
+   - All of it runs once per eye pass. Shadow depth rendering sits inside the light stages, so it
+     is done per eye although a shadow map does not depend on the eye: a sharing candidate, but
+     only if its measured share is worth it.
+   - The events are gated by ONE dword (UE3's GEmitDrawEvents, VA 0x0141B268): 139 reads in the
+     image, 123 directly in front of an event constructor, one writer, the `TOGGLEDRAWEVENTS`
+     console handler. The game imports D3DPERF_BeginEvent / EndEvent from d3d9.dll, which is the
+     proxy.
+   - **Built: the stage profile** (`core/framework/stage_profile.{h,cpp}`, seam `stages on|off`,
+     `stages gpu on|off`; default off, session only). `stages on` byte-verifies two sites and sets
+     the switch; the proxy then times every named stage: calls, inclusive CPU on the render
+     thread, draws inside it, and GPU time from D3D9 timestamp queries. A `perf/stages:` table
+     every 5 s, costliest first. No hook, no stage address. This is the instrument the record
+     lacked ("later render stages less precisely attributed"): one headset run says how many
+     milliseconds of CPU and GPU each stage costs per eye. Not run yet: built and compiled only.
+2. **The stock `SCALE` console command is in the image** (handler VA 0x00586740: SCALE, SET,
+   TOGGLE, ADJUST, LOWEND, HIGHEND, RESET, DUMP, DUMPINI) with its whole switch table. So the
+   engine's rendering switches can be flipped LIVE through the mod's `console` seam word, one
+   plan row each, with no restart. Whether the seam's console route reaches that handler is not
+   established (an earlier `setres` through it was inert); the plan's first rows show it.
+   The game's current values for the ones that cost GPU time, read from DishonoredEngine.ini:
+
+   | Switch | Now | What a change does |
+   |---|---|---|
+   | `bAllowDownsampledTranslucency` | False | True renders smoke, fog and other translucency at reduced resolution: the usual large saving in particle-heavy views |
+   | `bAllowLightShafts` | True | a downsample, a radial blur and an apply pass per shaft light, per eye |
+   | `UseHighQualityBloom` / `Bloom` | True / True | the cheaper bloom, or none |
+   | `Distortion`, `AllowRadialBlur`, `LensFlares` | True | full-screen passes; radial blur is also a comfort question in VR |
+   | `DynamicShadows`, `LightEnvironmentShadows`, `bAllowWholeSceneDominantShadows` | True | the shadow stages; judged before only in the simulator, which cannot see a GPU saving |
+   | `ShadowTexelsPerPixel` / `MaxShadowResolution` | 1.27324 / 800 | shadow maps are sized by the subject's size in SCREEN pixels, and an eye image has 5.4 times the pixels of 1080p, so shadows are rendered far larger here than the game was tuned for |
+   | `ScreenPercentage` (+ `UpscaleScreenPercentage` True) | 100 | the engine's own render scale with its own upscale: fewer scene pixels with the HUD untouched and none of DLSS's cross-process cost |
+
+   None of these is in the record as a headset measurement. `tools/perf-plans/audit-2-engine.txt`
+   is plan 2: one row each, about nine minutes.
+3. Not found, and said so: no single function to patch for a large gain. The two sampled return
+   addresses are whole halves of the scene render, not a hot spot.
+
+**Order for the next headset session:** `stages on` + `stages gpu on` for a minute in a typical
+view (the stage table), then plan 1, then plan 2. The stage table says which of plan 2's rows
+can matter before they are run.
+
+**One unattended run instead (2026-10-05):** `tools/perf-plans/audit-all.txt` holds plans 1 and 2
+and the stage profile in 41 segments of 20 s (about 14 minutes standing still). For it the plan
+file gained two directives and the ini one key: `delay <ms>` (time in gameplay before the first
+segment, to reach the spot), `atend <seam words>` (run once after the summary; here it switches
+the stage profile off and opens the F10 panel as the visible end), and `[Perf] AbPlanOnce=<file>`
+(arms a plan for one launch; the key is emptied as it is read). The plan table holds 64 rows now.
+Part A measures our own levers with nothing else on; the row "stage profile ON" then leaves the
+engine's stage events on, so every later baseline and row has a `perf/stages:` table and carries
+the same profiling overhead. A row is compared with the baselines either side of it; the plan's
+own overall noise floor mixes the two halves and is not the reference. Not run yet.
+
+### 7. What this audit did NOT do
+
+No game or simulator launch; no GPU timeline; no IDA run (section 5 says why and what for).
+The regime table mixes scenes and builds. The DLSS cost per eye image under AFW (about 5 ms) is
+inferred from the budget and the simulator figure, not measured in the headset.
+
 ## 2026-10-04: distinguish steady FPS regression from intermittent spikes
 
 Follow-up report attributes the largest intermittent spikes to a suspected

@@ -1,0 +1,27 @@
+# Pre-release performance audit, plan 1 (2026-10-04): what each of our own costs is worth in the
+# headset, in the configuration that is actually played (PERFORMANCE.md, "pre-release audit").
+# One segment per line: label | apply (seam words, ';' between) | restore. No apply = a baseline.
+# Arm it with the ABSOLUTE path:  tools\game-cmd.ps1 "perf ab plan <repo>\tools\perf-plans\audit-1.txt"
+# It starts at the first gameplay present. Stand still in one place, hands at rest, for the whole
+# plan (about 6 minutes). Nothing is written to any ini while a row runs.
+# The restore words below are the dev PC's settings of 2026-10-04 (DLSS on, model K, HUD sharp on,
+# anisotropy 16 with trilinear, sharpen 0.40, ReShade effects on). Edit them if yours differ.
+seg 20000
+warm 5000
+baseline A
+dlss fast model | dlss model fast | dlss model k
+baseline B
+dlss off | dlss off | dlss on
+baseline C
+hud off | hud off | hud on
+baseline D
+hud sharp off | hud sharp off | hud sharp on
+baseline E
+reshade effects off | reshade effects off | reshade effects on
+baseline F
+aniso 4 no trilinear | aniso 4; aniso trilinear off | aniso 16; aniso trilinear on
+baseline G
+sharpen 0 | clarity sharpen 0 | clarity sharpen 0.40
+baseline H
+script lane named | pe fn on | pe fn off
+baseline I

@@ -30,6 +30,7 @@ int main(){
  cs_init();g_dev=dev;g_deviceLive=g_deviceIsEx=g_deviceFromEx=g_exWanted=true;g_managed=Managed::Paged;
  IDirect3DTexture9* tex=nullptr;CHECK(SUCCEEDED(dev->CreateTexture(64,64,0,0,D3DFMT_A8R8G8B8,D3DPOOL_DEFAULT,&tex,nullptr)));
  shadow_register_texture(dev,tex,64,64,0,D3DFMT_A8R8G8B8);CHECK(shadow_tracked(tex));
+ uint64_t incarnation=0,afterSerial=0;uint32_t writes=0;CHECK(texture_stamp(tex,&incarnation,&writes)&&incarnation&&writes==0);
  D3DLOCKED_RECT a{},b{};CHECK(paged_lock_rect(tex,0,-1,&a,nullptr,0)==S_OK);CHECK(paged_lock_rect(tex,1,-1,&b,nullptr,0)==S_OK);
  for(int y=0;y<64;y++)for(int x=0;x<64;x++)((DWORD*)((BYTE*)a.pBits+y*a.Pitch))[x]=0xff123456;
  for(int y=0;y<32;y++)for(int x=0;x<32;x++)((DWORD*)((BYTE*)b.pBits+y*b.Pitch))[x]=0xff654321;
@@ -37,9 +38,14 @@ int main(){
  CHECK(paged_unlock_rect(tex,1,-1)==S_OK);CHECK(paged_unlock_rect(tex,0,-1)==S_OK);
  check_readback(dev,tex,0,0xff123456);check_readback(dev,tex,1,0xff654321);
  CHECK(g_pagedConcurrent==0 && g_pagedMappedBytes==0);
+ CHECK(texture_stamp(tex,&afterSerial,&writes)&&afterSerial==incarnation&&writes==2);
  RECT bad{-1,0,2,2};CHECK(FAILED(paged_lock_rect(tex,0,-1,&a,&bad,0)));CHECK(FAILED(paged_lock_rect(tex,7,-1,&a,nullptr,0)));
  auto uploads=g_shadowUpdates;CHECK(paged_lock_rect(tex,0,-1,&a,nullptr,D3DLOCK_READONLY)==S_OK);CHECK(*(DWORD*)a.pBits==0xff123456);CHECK(paged_unlock_rect(tex,0,-1)==S_OK);CHECK(g_shadowUpdates==uploads);
- CHECK(FAILED(paged_unlock_rect(tex,0,-1)));shadow_released(tex);tex->Release();
+ CHECK(FAILED(paged_unlock_rect(tex,0,-1)));CHECK(texture_stamp(tex,&afterSerial,&writes)&&afterSerial==incarnation&&writes==2);
+ shadow_released(tex);CHECK(!texture_stamp(tex,&afterSerial,&writes));
+ shadow_register_texture(dev,tex,64,64,0,D3DFMT_A8R8G8B8);
+ CHECK(texture_stamp(tex,&afterSerial,&writes)&&afterSerial!=incarnation&&writes==0);
+ shadow_released(tex);tex->Release();
  for(auto fmt:{D3DFMT_DXT1,D3DFMT_DXT5}) {
  CHECK(SUCCEEDED(dev->CreateTexture(64,64,0,0,fmt,D3DPOOL_DEFAULT,&tex,nullptr)));
  shadow_register_texture(dev,tex,64,64,0,fmt);
