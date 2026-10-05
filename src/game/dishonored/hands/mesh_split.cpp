@@ -3388,7 +3388,14 @@ static bool OhActive()
     return s_ohOpenAtMenu;
 }
 
+// The sheathed open pose: the left hand's fingers against its wrist (THE GRAB, GrCaptureLeftOpen).
+static float    g_grLrel[MS_MAX_BONES][12];                      // the left hand's open fingers, against the left wrist
+static bool     g_grLrelOk = false;
+
 // buf: the palette about to be uploaded for the RIGHT hand (already placed); src: the game's own.
+// The left hand's LIVE fingers when it is empty; the saved sheathed pose (THE GRAB, GrCaptureLeftOpen)
+// when it holds a power or the Heart, whose grip the mirror used to copy onto the empty right hand.
+static bool GrCaptureLeftOpen(const float* src, UINT regs);
 static void OhApply(float* buf, const float* src, UINT regs)
 {
     OhBuildPairs();
@@ -3398,11 +3405,18 @@ static void OhApply(float* buf, const float* src, UINT regs)
     const float n[3] = { 1, 0, 0 }, c[3] = { g_ohMidX, 0, 0 };
     dvr::hf::reflection_3x4(n, c, X);
     if (!dvr::hf::invert_3x4(src + hl * 12, invL)) return;
+    GrCaptureLeftOpen(src, regs);
+    const bool leftEmpty = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0) == 0;
+    const bool saved = !leftEmpty && g_grLrelOk;
     for (int r = 0; r < MS_MAX_BONES; r++) {
         const int l = g_ohPair[r];
         if (l < 0 || (UINT)(r * 3 + 3) > regs || (UINT)(l * 3 + 3) > regs) continue;
-        // the left finger against its wrist, reflected, on the (placed) right wrist
-        dvr::hf::mirror_finger_3x4(buf + hr * 12, invL, src + l * 12, X, out);
+        if (saved) {                                         // the saved open fingers, reflected, on the right wrist
+            float t1[12], t2[12];
+            dvr::hf::mul_3x4(X, g_grLrel[l], t1); dvr::hf::mul_3x4(t1, X, t2);
+            dvr::hf::mul_3x4(buf + hr * 12, t2, out);
+        } else                                               // the left finger against its wrist, reflected, on the (placed) right wrist
+            dvr::hf::mirror_finger_3x4(buf + hr * 12, invL, src + l * 12, X, out);
         memcpy(buf + r * 12, out, sizeof(float) * 12);
     }
     InterlockedIncrement(&g_ohApplied);
@@ -3448,8 +3462,6 @@ static dvr::grab::Timing   g_grT = { 150.0f, 220.0f, 180.0f, 260.0f, 40.0f };
 static std::atomic<double> g_grTrigMs[2] = { {0.0}, {0.0} };    // the press, clock::now_ms; 0 = never
 static std::atomic<bool>   g_grGrip[2] = { {false}, {false} };   // the grip that started it is still held
 static volatile LONG       g_grPlayed = 0, g_grRefused = 0;
-static float    g_grLrel[MS_MAX_BONES][12];                      // the left hand's open fingers, against the left wrist
-static bool     g_grLrelOk = false;
 // The right hand's finger tree: g_grParR[r] = the parent of right finger bone r (a palette index:
 // another right finger bone or the right wrist), -1 for a bone outside the tree; g_grOrderR lists
 // the right finger bones parents first. The left hand uses the same tree through the pairing.
@@ -3521,22 +3533,84 @@ static void GrInferParents(const float* src, UINT regs)
     }
 }
 
-// Keep the left hand's open fingers whenever the left hand is open (empty or on a power), so a
-// grab or a ready hand while it holds the crossbow still has a flat pose. True when seen live now.
+// THE OPEN POSE: the left hand's fingers (against its wrist) as the game poses them with BOTH hands
+// empty - the sword sheathed and nothing in the left - which is the sheathed look the ready hand
+// and the open right hand should show. Sampled only then: "empty or on a power" also matched the
+// Heart (the left hand counts as holding a power with it out), and the Heart grip was copied onto
+// both hands (headset, 2026-10-05). Saved to the data dir (dishonored_vr_open_hand.bin, keyed to
+// the finger pairing) so it is there from the first frame of the next session. True when seen live.
+static bool g_grLrelLoadTried = false;
+static int  g_grLrelSource = 0;                          // 0 none, 1 the mesh's reference pose, 2 loaded, 3 sampled
+static ULONGLONG g_grEmptySince = 0;                     // both hands empty since (0 = not now)
+// The fallback until the sheathed pose is known: the reference (bind) pose, every finger exactly
+// where the mesh was modelled against its wrist - an open hand (the rest pose grab_verify renders).
+static void GrUseReferencePose()
+{
+    for (int b = 0; b < MS_MAX_BONES; b++) {
+        float* m = g_grLrel[b]; memset(m, 0, 48); m[0] = m[5] = m[10] = 1.0f;
+    }
+    g_grLrelOk = true; g_grLrelSource = 1;
+    Log("hands/openpose: using the hand mesh's reference pose (open) until the sheathed pose is sampled");
+}
+static const char* GrOpenPosePath(char* out) { return dvr::paths::in_data_dir(out, "dishonored_vr_open_hand.bin"); }
+static void GrSaveOpenPose()
+{
+    char path[MAX_PATH]; GrOpenPosePath(path);
+    FILE* f = fopen(path, "wb");
+    if (!f) { Log("hands/openpose: could not write %s", path); return; }
+    uint32_t hdr[4] = { 0x484F5644u /* DVOH */, 1u, (uint32_t)g_ohHash, 0u };
+    for (int r = 0; r < MS_MAX_BONES; r++) if (g_ohPair[r] >= 0) ++hdr[3];
+    fwrite(hdr, sizeof(hdr), 1, f);
+    for (int r = 0; r < MS_MAX_BONES; r++) {
+        const int l = g_ohPair[r]; if (l < 0) continue;
+        const int32_t b = l; fwrite(&b, 4, 1, f); fwrite(g_grLrel[l], sizeof(float), 12, f);
+    }
+    fclose(f);
+    Log("hands/openpose: the sheathed open pose saved (%u finger bones, pairing %08X) to %s", hdr[3], hdr[2], path);
+}
+static void GrLoadOpenPose()
+{
+    if (g_grLrelLoadTried || g_grLrelOk || g_ohN <= 0) return;
+    g_grLrelLoadTried = true;
+    char path[MAX_PATH]; GrOpenPosePath(path);
+    FILE* f = fopen(path, "rb");
+    if (!f) { Log("hands/openpose: no saved open pose yet (%s) - it is sampled the first time both hands are empty", path); GrUseReferencePose(); return; }
+    uint32_t hdr[4] = {};
+    bool ok = fread(hdr, sizeof(hdr), 1, f) == 1 && hdr[0] == 0x484F5644u && hdr[1] == 1u && hdr[2] == (uint32_t)g_ohHash && hdr[3] <= MS_MAX_BONES;
+    static float tmp[MS_MAX_BONES][12];
+    for (uint32_t i = 0; ok && i < hdr[3]; ++i) {
+        int32_t b = -1;
+        ok = fread(&b, 4, 1, f) == 1 && b >= 0 && b < MS_MAX_BONES && fread(tmp[b], sizeof(float), 12, f) == 12;
+        for (int k = 0; ok && k < 12; ++k) ok = std::isfinite(tmp[b][k]);
+    }
+    fclose(f);
+    if (!ok) { Log("hands/openpose: the saved open pose does not fit this hand mesh (pairing %08X, file %08X) - ignored", (unsigned)g_ohHash, hdr[2]); GrUseReferencePose(); return; }
+    memcpy(g_grLrel, tmp, sizeof(tmp));
+    g_grLrelOk = true; g_grLrelSource = 2;
+    Log("hands/openpose: loaded the sheathed open pose (%u finger bones) from %s", hdr[3], path);
+}
 static bool GrCaptureLeftOpen(const float* src, UINT regs)
 {
+    GrLoadOpenPose();
     const int hl = g_msHandBone[1];
     float invSrcL[12];
     if (g_ohN <= 0 || (UINT)(hl * 3 + 3) > regs || !dvr::hf::invert_3x4(src + hl * 12, invSrcL)) return false;
     const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
     const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
     const LONG left = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0);
-    if (!(age <= 1000u && (left == 0 || left == 1) && !dvr::anim::hand_owned(0))) return false;
+    const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);
+    if (!(age <= 1000u && left == 0 && right == 0 && !dvr::anim::hand_owned(0) && !dvr::anim::hand_owned(1))) { g_grEmptySince = 0; return false; }
     for (int r = 0; r < MS_MAX_BONES; r++) {
         const int l = g_ohPair[r];
         if (l >= 0 && (UINT)(l * 3 + 3) <= regs) dvr::hf::mul_3x4(invSrcL, src + l * 12, g_grLrel[l]);
     }
-    g_grLrelOk = true;
+    // saved once a session, once both hands have been empty for a second (not mid-holster)
+    static bool saved = false; static unsigned savedFor = 0;
+    const ULONGLONG t = GetTickCount64();
+    if (!g_grEmptySince) g_grEmptySince = t;
+    if (g_grLrelSource != 3) Log("hands/openpose: sampling the sheathed open pose live (both hands empty)");
+    g_grLrelOk = true; g_grLrelSource = 3;
+    if ((!saved || savedFor != g_ohHash) && t - g_grEmptySince > 1000) { GrSaveOpenPose(); saved = true; savedFor = g_ohHash; }
     return true;
 }
 

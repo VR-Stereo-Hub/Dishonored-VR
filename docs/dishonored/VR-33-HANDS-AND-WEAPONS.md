@@ -811,3 +811,11 @@ the native position and a weapon-shaped hole in AFW's rebuilt eye are the faults
 * Not seen in this run: the weapon returning in view after a looted item (a book opens the note
   screen, during which the game itself shows no weapon), the left hand hiding a held item, the
   AFW eye under the hide, and a takedown with a hand ready.
+
+**The open pose, fixed (2026-10-05, after a headset report of the Heart grip on both hands).** The
+open pose is now the left hand's fingers sampled ONLY with both hands empty (the sheathed look),
+saved to `dishonored_vr_open_hand.bin` in the data dir (keyed to the finger pairing) and loaded at
+the start of the next session; until one exists, the mesh's reference pose (an open hand). The
+existing open right hand uses the same saved pose whenever the left hand is not empty (a power,
+the Heart), instead of mirroring the left hand's grip. `hands/openpose:` lines say which source is
+in use. TRAPS, 2026-10-05.
