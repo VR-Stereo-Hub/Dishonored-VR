@@ -1,3 +1,42 @@
+## 2026-10-05: the simulator's per-eye exposure alternation is the afw rebuild written through a typed sRGB swapchain view (MEASURED cause, fix built, host-verified; no headset effect expected)
+
+1. **Symptom identity:** the top open entry of this morning: in simulator captures one
+   eye is bright and neutral (mean luma about 93) and the other darker (35-42), and which
+   eye is bright swaps between captures. Whole view, one eye at a time, no geometry
+   difference. Resolved here; the entry below it is kept as the observation.
+2. **Reproduction identity:** the captures already on disk (`%LOCALAPPDATA%\DishonoredVR\
+   xrsim\capture\q1`, `q2`, `q3`, from the 2026-10-05 grab-animation simulator run, build
+   `v1.0.3-74-g1c564a6ad`, `dvr-xrsim` at about 93 Hz, afw). No new run was made.
+3. **Hypothesis and counterprediction:** the simulator creates its swapchain images TYPED
+   `R8G8B8A8_UNORM_SRGB` (`src/tools/xrsim/xrsim_session.cpp`); VDXR and the SteamVR shim
+   (`ovrshim_main.cpp`) hand out TYPELESS images. Under afw the FRESH eye reaches its image
+   by `CopyResource` (raw bytes, the game's own gamma-encoded output) while the HELD eye is
+   re-rendered through a render-target view of the same format as the image, and a view
+   of a typed sRGB image encodes on write: the rebuilt eye is encoded twice, one gamma
+   step brighter, and it is a different eye every present. Falsifiable prediction: the
+   bright eye of a capture equals the dark eye of the same capture encoded once more.
+   Measured on the three captures: encoding the dark eye reproduces the bright one, mean
+   absolute error 52.2 -> 4.5 of 255, in both eyes. The engine-side candidates of the
+   morning entry (a per-eye eye-adaptation or tonemap state, a capture artifact) predict
+   no such relation and are retracted.
+4. **Change identity:** `afw_warp.cpp`: `typed_srgb()` recognises a typed sRGB target
+   view; `warp_held` and `synth_eye` (the MSW path writes the same way) pass it to the
+   compose, which decodes before the view encodes, so the bytes that land equal the
+   fresh eye's copy. `prm9.w` carries the flag (a spare constant, no buffer change). One
+   line names the path once: `afw/warp: the rebuilt eye is written through a format-N
+   view of a format-M swapchain image - ...`. Live A/B `afw typedsrgb on|off` (on). The
+   typeless path is untouched: through a UNORM view the shader's bytes land as they are.
+5. **Results:** `tools\afw-warp-host.ps1` 61 PASS incl. the new case: a typed sRGB
+   target gets the same rebuilt bytes as a typeless one (mean 0.036 LSB, worst 1 of 255),
+   and the control with the handling off shows the step (mean 65.5). Not run: the
+   simulator (a capture after this build should read both eyes within a few luma of each
+   other and the `format-29 view of a format-29` line), the headset (no effect expected:
+   VDXR's images are typeless, so the new line must read `format-28 view of a format-27`
+   or similar and say `raw bytes`).
+6. **Status:** RESOLVED by measurement as a simulator-only artifact; fix built so a
+   runtime that hands out typed sRGB images cannot alternate; headset check is the one
+   line. The top entry below it is superseded.
+
 ## 2026-10-05: the depth-share proof check stalls the present thread every 5 s for the whole afw session (CODE-DERIVED, fix built, cost now logged, headset pending)
 
 1. **Symptom identity:** a hitch of about a frame, whole view, both eyes, every 5.000 s,
@@ -87,7 +126,7 @@
    aer pair rule), so one single tick costs the right eye up to 4 ticks of content age
    where continuing the alternation would cost 3. A lower-priority lever of its own.
 
-## 2026-10-05: the simulator's left eye alternates between two exposures, frame to frame (OBSERVED in the simulator, not investigated, no headset report)
+## 2026-10-05: the simulator's left eye alternates between two exposures, frame to frame (OBSERVED in the simulator; RESOLVED the same day: a typed sRGB swapchain view, see the entry above)
 
 1. **Symptom identity:** seen while capturing the grab animation, not reported by a player.
    Every simulator capture had one eye bright and neutral and the other darker and orange
@@ -107,7 +146,9 @@
    re-entry pair order rather than the capture schedule.
 4. **Change identity:** none.
 5. **Results:** simulator only; no desktop or headset check ran.
-6. **Status:** OPEN, unclassified. Recorded so the next per-eye brightness report starts here.
+6. **Status:** RESOLVED 2026-10-05 (see the typed-sRGB entry above): the rebuilt eye was
+   written through a typed sRGB view, which encodes. The engine-side candidates in 3 are
+   retracted. Kept as the observation record.
 
 ## 2026-10-04: objective marker text flickers - it changes LAYER, native HUD ownership was off (MEASURED cause, fix built, headset pending)
 
@@ -3446,6 +3487,7 @@ pose metadata without reopening the disproved historical theories.
 | Arms/weapon jump sideways in ONE eye during a head roll | Palette eye classifier held the previous eye on an unreadable jump | VR-95, section 3.11. Cause measured and confirmed; the shipped correction is OFF and its own regression is open |
 | Arms/weapon flicker while standing still, after enabling `PaletteEyePredictToggle` | The same correction firing on genuine repeats | VR-95 open; lever ships OFF, live A/B in F10 Hands |
 | Stereo "reloads" (the world drops to the screen and comes straight back) on every pause-menu RESUME, and the same on the menu OPEN | The scene verdict falls for a few presents at both edges: on open the owner read publishes 50 ms after the menu flag, on resume the view pipeline is silent until its first dispatch; the runtime's 3-present fallback fires in the gap | VR-117: a ride stand-in (300 ms open gap, 1500 ms resume grace) and the HUD quads built after the hold path; simulator-confirmed (`pause-ride.xrs`), headset pending |
+| One eye a gamma step brighter than the other, the bright eye swapping every present (SIMULATOR captures; not reported from a headset) | The afw/MSW rebuild written through a render-target view of a TYPED sRGB swapchain image, which encodes once more; the fresh eye arrives by a raw copy. VDXR and the SteamVR shim give typeless images, so the headset never showed it | 2026-10-05 MEASURED (encoding the dark eye reproduces the bright one, 52.2 -> 4.5 of 255) and fixed: the compose decodes for a typed sRGB target, `afw typedsrgb on\|off`, host case PASS; the `afw/warp: the rebuilt eye is written through a format-...` line names the path |
 | Objective marker text flickers, or pieces of one HUD widget sit on different layers (gameplay, both eyes) | `[Hud] SemanticOwnership` off: draws are owned by rectangle and position, and a title near the reticle or another marker changes owner between the prompt group, the default window and the task marker (`hud/why ... CHANGED`). Check `hud/semantic: hooks=1` at startup FIRST | Cause measured 2026-10-04; default now 1; headset pending. Top entry of this file and of HUD_ANCHORS.md |
 | The HUD flickers between the HUD window and the frame (both eyes, gameplay, about 10 Hz); `frame` mode does not | The HUD redirect's gate followed the per-present eye tag, and re-entry leaves 6 to 21 presents a second untagged by design (`none/s`); each one disarmed the redirect for the next present (`hud/beat presents=441 armed=400`) | VR-117: gate on the runtime's projection MODE (`dvr::hud::projection_mode`); headset-measured cause; the fix simulator-verified (`hud/beat presents=467 armed=467` in every 3 s window with `stereo: beat none/s=1`); headset-confirmed on the second run (2026-09-15): no window/frame flicker reported |
 | Instant square contraction at dialogue, retained into gameplay in1.0.1 | Narrow cinematic sensor is retained by persistent writer;3s draw bridge expires | VR-227 candidate; affected-player acceptance open; see top entry |
