@@ -3430,6 +3430,8 @@ static void MsSampleArmSpeed()
     const unsigned frame = (unsigned)dvr::frame::count();
     if (frame == lastFrame) return;
     lastFrame = frame;
+    // Only CinematicArms reads this. With the lever off nothing is measured at all.
+    if (!dvr::anim::cinematic_arms()) { if (have) { have = false; g_msArmSpeed.store(-1.0f); g_msArmRefPose.store(-1.0f); } return; }
     const int hands[2] = { g_msHandBone[1], g_msHandBone[2] };
     if (g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN || hands[0] < 0 || hands[1] < 0) { have = false; return; }
     const ULONGLONG now = GetTickCount64();

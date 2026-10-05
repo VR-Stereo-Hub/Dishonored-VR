@@ -1,3 +1,34 @@
+## Fourth headset run: takedowns accepted, cutscene arms shelved behind the toggle (2026-10-04)
+
+Build v1.0.3-38-ga206226b7 (banner and both config lines confirmed in the log), ini = run 3 plus
+`ArmIKGameArmShoulder=1`.
+- **Takedowns: reported correct.** Two front fatalities, two chokes (one into a carry). The
+  re-seat ran in the fatalities and stood down in the chokes (`choke=1 ... not applied`), as
+  designed. `ik/gamearm:` (54 lines): the IK shoulder and the game's shoulder were 8 to 27 uu
+  apart in most samples (up to 47 on one arm mid-clip); the steadiest part is height, the IK
+  shoulder 5 to 14 uu above the game's, while the forward part swings from -18 to +25 through a
+  clip. So the game's shoulder is mostly LOWER, and in front or behind by turns. HEADSET-CONFIRMED:
+  SmoothBlend, ArmIKGameArmInAnim, ArmIKGameArmShoulder=1.
+- **Cutscene arms: not accepted; `[Anim] CinematicArms` stays an opt-in.** It ships 0, sits in
+  F10 Advanced > Hands > Game arms during actions as "Your arms in cutscenes (experimental)",
+  and with it off nothing of the feature runs: no unhide, no gate, no name walk, and the arm
+  motion sampler does not measure. Cutscenes and conversations are then exactly the game's
+  (`CinematicHandBack` and the per-state rules, as before this branch).
+- **What the log says about the new gate (MEASURED, cause OPEN).** 6 openings instead of 15,
+  at 30 to 183 uu/s between bones with the arms 7 to 20 uu from the reference pose, so the
+  openings were not the reference pose. All 6 lasted 5.4 s: every one closed on the 5 s hold
+  again. At each close the line reads motion 0.0 and reference-pose distance -1 (not
+  measurable): while the game owned the arms the new instrument measured nothing. Either the
+  sampler is not reached or the palette cannot be inverted in that state; not established.
+  Equal-length episodes are a timer (TRAPS), so the gate still cannot tell a held pose from an
+  ended clip. The reference-pose veto fired on 937 samples, so some stance in the run IS within
+  1 uu of the reference pose. Player-owned seconds still show between-bones motion up to 760
+  uu/s: either real game motion under the player's hands or the single-rigid-write assumption
+  does not hold; not separated.
+- **If this is picked up again:** first make the instrument report while the game owns the
+  arms (log why `arm_motion` returned no bones there), then decide from a per-joint log whether
+  the player's write is one rigid move.
+
 ## Third headset run: the gate was watching the player (2026-10-04)
 
 Build v1.0.3-37-g01b763971, SmoothBlend=1, CinematicArms=1, ArmIK=1, ArmIKGameArmInAnim=1.

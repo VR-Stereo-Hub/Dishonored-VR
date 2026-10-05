@@ -305,5 +305,7 @@ of it in every takedown but the choke. 1 re-seats the game's arm on the IK shoul
 game's own wrist (`shoulder_fit`: a stretch along the shoulder-wrist line within 0.80..1.25,
 then the smallest rotation within 45 degrees), in every game animation except the choke; 2
 includes the choke. The hand stays where the clip put it. `ik/gamearm:` logs the offset between
-the two shoulders in body axes and what the re-seat did, with the lever on or off. Not yet
-judged in a headset. Detail: ANIM-HANDOFF-PLAN.md, "Third headset run".
+the two shoulders in body axes and what the re-seat did, with the lever on or off.
+Headset-confirmed at 1 on 2026-10-04 (two front fatalities re-seated, two chokes left alone;
+the shoulders measured 8 to 27 uu apart, the IK shoulder 5 to 14 uu higher). Detail:
+ANIM-HANDOFF-PLAN.md, "Third headset run" and "Fourth headset run".

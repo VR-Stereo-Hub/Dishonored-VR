@@ -216,9 +216,10 @@ static void OvlTabHands()
                       : "Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
                         "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
         bool cineArms = dvr::anim::cinematic_arms();
-        if (dvr::ovl::checkbox("Your arms in cutscenes", &cineArms)) dvr::anim::set_cinematic_arms(cineArms);
-        OvlTip("Cutscenes keep your tracked arms visible and movable. When the game animates the arms during the cutscene "
-               "it takes them, blended in and out like a takedown. Replaces the option below while on.");
+        if (dvr::ovl::checkbox("Your arms in cutscenes (experimental)", &cineArms)) dvr::anim::set_cinematic_arms(cineArms);
+        OvlTip("Off: cutscenes and conversations are left exactly as the game shows them. On: your tracked arms stay visible and "
+               "movable, a hidden body is shown again, and the game takes the arms when it animates them. Not reliable yet: "
+               "the arms can be taken or returned at the wrong moment. Replaces the option below while on.");
         if (cineArms) {   // the gate that decides "the game is animating the arms": live while dragged, saved on release
             ImGui::Indent();
             dvr::anim::CineGate g = dvr::anim::cine_gate();

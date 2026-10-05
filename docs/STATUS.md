@@ -1,3 +1,16 @@
+## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
+
+Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md, top section.
+- Headset-confirmed on v1.0.3-38-ga206226b7: smooth hand-backs, the game's own arm in game
+  animations, and that arm re-seated on the IK shoulder (not in the choke).
+- `[Anim] CinematicArms` (tracked arms in cutscenes) was not accepted. It stays default 0,
+  labelled experimental in F10 Advanced > Hands, and with it off nothing of it runs (the arm
+  motion sampler is now gated on it too). The gate's open fault is recorded: it measured
+  nothing while the game owned the arms, so every opening closed on the hold.
+- Shipped defaults are unchanged: SmoothBlend, ArmIKGameArmInAnim and ArmIKGameArmShoulder
+  are still 0 in the default ini (on in the dev PC's ini). Turning them on for players is a
+  separate decision.
+
 ## 2026-10-04: run 3 read - the cutscene gate followed the player; game arm re-seated
 
 Branch `claude/anim-blend-ik`, draft PR #177 (stacked on #176), not merged. Detail, numbers and
