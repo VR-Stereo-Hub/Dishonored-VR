@@ -1,3 +1,17 @@
+## 2026-10-04: ReShade - F10 lists the preset's effects; settings that apply; ini prepared at start
+
+Branch `claude/reshade-f10-audit`, stacked on `claude/hud-recouple` (PR #178, HUD test pending).
+Detail: INSTALLER.md, top entry.
+- F10 > ReShade listed every installed effect because ReShade loaded them all: an existing
+  ReShade.ini is never rewritten by the launcher and the dev PC's had
+  `SkipLoadingDisabledEffects=0`. The proxy now prepares ReShade.ini before ReShade loads
+  (preset-only loading, the mod's shader folders in the search paths) and F10 lists the preset's
+  effects, with "Show all installed effects" to add one.
+- "Performance mode" could not take effect from F10 (ReShade reads its config only when a runtime
+  is built). It and show-all now rebuild the runtime and verify what the new one read.
+- Host-verified against the real ReShade 6.8.0 DLL (817 checks). Not run in the game.
+- No Linear ticket: this session has no Linear access.
+
 ## 2026-10-04: HUD widgets splitting and marker flicker - native ownership restored
 
 Branch `claude/hud-recouple`. Detail: dishonored/HUD_ANCHORS.md and FLICKER_REFERENCE.md, top

@@ -1,3 +1,14 @@
+## 2026-10-04: a setting written where its reader never looks again (ReShade)
+
+F10's ReShade "Performance mode" wrote the value with `ReShadeSetConfigValue` and queued an
+effect reload. ReShade reads its configuration once, when a runtime object is constructed, and
+writes its own copy back when the object is destroyed, so the value changed nothing during the
+session and was overwritten at exit. The checkbox still looked right, because it was read back
+from the same ini cache it had just been written to, and the host test asserted exactly that.
+- A read-back from the place you wrote is not evidence. Ask the consumer what it holds (here:
+  the rebuilt runtime's own configuration), or measure the effect.
+- For a third-party component, find WHEN it reads a setting before choosing how to change it.
+
 ## 2026-10-04: an accepted lever that lived in one ini only
 
 `[Hud] SemanticOwnership=1` was accepted in a headset and merged with its code default at 0 and
