@@ -21,6 +21,13 @@ the next single question is whether ordinary-world ghosting returns to its level
 before build 34; improvement supports rollback, unchanged requires upstream
 image/timing investigation. Original boat investigation follows separately.
 
+Built optimized v1.0.3-36-g621cb0b40 without legacy experiments. Proxy SHA256
+308d6421e7309f7809e292f340e6dc7b5fc7fca792ae96c563937ca850970619.
+The matching launcher embeds this candidate. Full build, 11 exports, lint,
+golden/release INI equality and diff checks pass. Local manifest:
+build/performance-audit/run34-followup/build36-manifest.json. Installed DLL and
+INI hashes still match the beginning of this follow-up. Not installed.
+
 ## 2026-10-04: HUD performance candidate and AFW moving-platform option
 
 Continue codex/performance-audit / draft PR #175. ReShade menu now defaults to
