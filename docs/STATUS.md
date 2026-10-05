@@ -1,3 +1,20 @@
+## 2026-10-05: Heart backing accepted, PR ready for review
+
+The final natural-seam backing is headset-accepted on v1.0.3-55-gf8f2260ea.
+The archived previous-session log matches that build and confirms the five
+custom material channels loaded with exact native texture matches. The current
+log belongs to another combined test, v1.0.3-60-g35decd986, so it is not evidence
+for the backing. No new launch or installation was performed for this review.
+
+Finalize the Heart branch against staging without merging. The branch carries
+its existing HUD ownership, takedown defaults and ReShade prerequisite commits;
+the PR names those explicitly. Game-derived assets remain local and are not
+part of the PR. The backing requires the prepared model, rig and material files.
+
+Separate follow-up: the Heart's attached glow reportedly trails the mesh while
+walking. Inspect the shared particle/light follow path, including Possession
+and Blink, on a child branch. Hand motion alone was covered by the earlier
+attachment fix; locomotion alignment is not yet established.
 ## 2026-10-05: Approved Heart material installed, awaiting in-game review
 
 The approved natural-seam Blender appearance now has a runtime material path.

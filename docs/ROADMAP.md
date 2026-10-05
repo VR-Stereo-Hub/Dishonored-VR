@@ -7,7 +7,7 @@
 - [x] Receive visual approval before skinning or game integration.
 - [x] Transfer skin weights and draw the backing with the native Heart material.
 - [x] Exercise the 9/13 Hound Pits save in the simulator, including live OFF/ON.
-- [ ] Review the final in-game screenshots; headset and broader animation checks remain open.
+- [x] Accept the final natural-seam backing in the headset; locomotion effects are a separate follow-up.
 
 Evidence: [ENGINE_NOTES](dishonored/ENGINE_NOTES.md), Heart rear shell entry.
 Runtime integration is now a default-off local candidate; prepared game-derived files remain untracked.
