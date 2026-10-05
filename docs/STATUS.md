@@ -1,3 +1,30 @@
+## 2026-10-05: the unattended audit run, read (nothing built, no default changed)
+
+Branch `claude/performance-audit`. Detail: dishonored/PERFORMANCE.md, top entry (sections 1-9).
+- The plan completed (40 of 41 segments) on build v1.0.3-54-gd0c57b1b9, but **not in the played
+  configuration**: the F10 panel was opened in the lead-in and its Display tab wrote
+  `Method=reentry` and `DLAA=0` before the first segment. Every row is reentry, native
+  2750x2850, DLSS off; the two DLSS rows and `hud sharp off` were no-ops.
+- Hidden area: 10.9 % of each eye image (the extension is offered).
+- Rows: nothing our own costs more than its noise except the ReShade preset (about 0.7-0.9 ms
+  a pair, one unbracketed step) and the HUD redirect, which is 0.5 ms a pair CHEAPER than no
+  redirect under reentry. Engine switches reach the SCALE handler; the best are the shadow
+  ones at 1.5-3 %.
+- Stage profile: the scene is 8.0 of the render thread's 10.6 ms a pair (BasePass 3.4, shadowed
+  lights 2.5); on the GPU depth of field is 1.9 ms and MLAA 0.8 ms a pair although both
+  settings read off.
+- DLSS from the helper's own timer: K 3.3-3.9 ms against fast 0.85-1.1 ms per eye image; Ultra
+  Quality with K ran 2.6-3.2 ms a pair slower than native at the same spot (indicative).
+- Script lane named: four statements are 0.97 ms of a 1.6-1.8 ms tick.
+
+**Next steps:** the six go / no-go answers are the maintainer's (PERFORMANCE.md section 9 has
+the evidence for each). If a second run is wanted it must be in the played configuration, with
+the plan's restore words fixed first and the panel left closed. Faults to file: the once-a-
+second `hud/markers-sharp: REFUSED` Warn, the plan's fixed restore words, the stage profile's
+timestamp ring (half the intervals skipped) and 28-row cut. The installed ini now reads
+`Method=reentry`, `DLAA=0` (written by F10 in that session) with a 2114x2192 render ask.
+No game launched by the session. No Linear ticket (no Linear access).
+
 ## 2026-10-04: pre-release performance audit (analysis; probe and plan built, nothing run)
 
 Branch `claude/performance-audit` (off staging). Detail: dishonored/PERFORMANCE.md, top entry.
