@@ -3458,7 +3458,7 @@ static void OhApply(float* buf, const float* src, UINT regs)
 // GrabAnimCloseMs, GrabAnimHoldMs, GrabAnimReleaseMs, GrabAnimLagMs. Seam: `grab`. F10 > Hands.
 #include "game/dishonored/hands/grab_pose.h"
 static std::atomic<bool>   g_grOn{false};
-static dvr::grab::Timing   g_grT = { 150.0f, 220.0f, 180.0f, 260.0f, 40.0f };
+static dvr::grab::Timing   g_grT = { 75.0f, 110.0f, 90.0f, 130.0f, 20.0f };   // halved 2026-10-05: grabbier
 static std::atomic<double> g_grTrigMs[2] = { {0.0}, {0.0} };    // the press, clock::now_ms; 0 = never
 static std::atomic<bool>   g_grGrip[2] = { {false}, {false} };   // the grip that started it is still held
 static volatile LONG       g_grPlayed = 0, g_grRefused = 0;
@@ -3915,11 +3915,11 @@ static void GrabAnimSet(bool on, const char* who)
 static float GrabAnimClampMs(float v, float lo, float hi) { return !std::isfinite(v) ? lo : v < lo ? lo : v > hi ? hi : v; }
 static void GrabAnimConfigure(const char* ini)
 {
-    g_grT.shapeMs   = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimShapeMs", 150), 0, 400);
-    g_grT.closeMs   = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimCloseMs", 220), 40, 1000);
-    g_grT.holdMs    = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimHoldMs", 180), 0, 2000);
-    g_grT.releaseMs = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimReleaseMs", 260), 40, 1000);
-    g_grT.lagMs     = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimLagMs", 40), 0, 200);
+    g_grT.shapeMs   = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimShapeMs", 75), 0, 400);
+    g_grT.closeMs   = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimCloseMs", 110), 40, 1000);
+    g_grT.holdMs    = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimHoldMs", 90), 0, 2000);
+    g_grT.releaseMs = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimReleaseMs", 130), 40, 1000);
+    g_grT.lagMs     = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimLagMs", 20), 0, 200);
     GrabAnimSet(IniFloat(ini, "Hands", "GrabAnim", 0) != 0.0f, "ini [Hands] GrabAnim");
     GrabReadySet(IniFloat(ini, "Hands", "GrabReadyOpen", 0) != 0.0f, IniFloat(ini, "Hands", "GrabReadyHide", 0) != 0.0f,
                  "ini [Hands] GrabReadyOpen / GrabReadyHide");

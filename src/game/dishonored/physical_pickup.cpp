@@ -307,8 +307,7 @@ struct PpQuery {
     uint8_t* blocked[8];
 };
 struct PpCand { uint8_t* obj; uint32_t idx; uint32_t kind; float aim[3]; float d2[2]; int hand; float keep; };
-// best: the overall pick; bothHands: it is ALSO the other hand's own nearest (both hands on one door)
-struct PpPick { PpCand best; uint8_t* focus; bool fault; bool bothHands; };
+struct PpPick { PpCand best; uint8_t* focus; bool fault; };
 
 // EACH HAND'S nearest listed thing within reach, the better of the two as the pick, and the
 // engine's focused actor. Distances run from the PALM to the nearest point of the thing's
@@ -317,7 +316,7 @@ struct PpPick { PpCand best; uint8_t* focus; bool fault; bool bothHands; };
 static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n, const PpQuery* q,
                       const float (*hand)[3], const bool* handOk, PpPick* out)
 {
-    out->best.obj = NULL; out->focus = NULL; out->fault = false; out->bothHands = false;
+    out->best.obj = NULL; out->focus = NULL; out->fault = false;
     PpCand bestH[2]; float scoreH[2] = { 1e30f, 1e30f }; bestH[0].obj = bestH[1].obj = NULL;
     __try {
         if (q->pc && !((uintptr_t)q->pc & 3)) out->focus = *(uint8_t**)(q->pc + q->focusOff);
@@ -373,7 +372,6 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
     const int w = !bestH[0].obj ? 1 : !bestH[1].obj ? 0 : scoreH[0] <= scoreH[1] ? 0 : 1;
     if (!bestH[w].obj) return;
     out->best = bestH[w];
-    out->bothHands = bestH[0].obj && bestH[0].obj == bestH[1].obj;
 }
 
 // A hand's PALM in game world units: the grip pose, scaled about the head the way the drawn hand
@@ -699,15 +697,12 @@ static void PhysicalPickupTick()
         PpDropTarget("the game did not focus it (looted, hidden, covered or not usable) - left out for 1 s, the next nearest is tried", now, true);
         return;
     }
-    // ONLY the hand that picked it, and the other hand only when this is also ITS nearest thing
-    // (both hands on one door). Every hand within 1.25 reach used to qualify, so a second hand
-    // near the first hid its own item too.
+    // ONLY the hand that picked it. Every hand within 1.25 reach used to qualify, and then (one
+    // build later) the other hand whenever the thing was its nearest too: with the longer reach
+    // that was most grabs, and reaching with the right hand hid the crossbow in the left (headset,
+    // 2026-10-05, both hands READY in the same millisecond in the log).
     uint32_t mask = 0;
-    if (focus == g_ppTarget) {
-        mask |= 1u << c->hand;
-        const int o = 1 - c->hand;
-        if (pick.bothHands && handOk[o] && c->d2[o] <= c->keep * c->keep) mask |= 1u << o;
-    }
+    if (focus == g_ppTarget) mask |= 1u << c->hand;
     g_ppReadyMask.store(mask);
     g_ppReadyMs.store(GetTickCount64());
     GrabReadyPublish(mask);                                  // the ready hand (mesh_split.cpp): eligibility with hysteresis

@@ -10262,6 +10262,7 @@ First headset session 2026-10-05: targets were found from both hands, the game f
   the target; this is a different mechanism, still to be judged in a headset). A refusal leaves
   that one object out for 1 s (it was 3 s doubling to a minute) and the next nearest is tried.
   Reach defaults went up: loot 45 cm, books 55, doors, carried things and usables 35. Only the
-  picking hand is marked ready (every hand within 1.25 reach used to be, which hid both hands'
-  items); both are when the thing is each hand's own nearest. Pointing is unchanged: with no hand
+  picking hand is marked ready: every hand within 1.25 reach used to be, and a later "both hands
+  when it is each hand's nearest" exception still hid the crossbow in the left hand during a
+  right-hand grab (headset, 2026-10-05: both hands READY in the same millisecond), so it went too. Pointing is unchanged: with no hand
   near anything, the engine's own cursor trace runs as before.

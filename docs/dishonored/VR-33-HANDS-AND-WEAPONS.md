@@ -819,3 +819,8 @@ the start of the next session; until one exists, the mesh's reference pose (an o
 existing open right hand uses the same saved pose whenever the left hand is not empty (a power,
 the Heart), instead of mirroring the left hand's grip. `hands/openpose:` lines say which source is
 in use. TRAPS, 2026-10-05.
+
+**Faster, and one hand only (2026-10-05, after a headset session).** The grab's default times are
+halved to 75 / 110 / 90 / 130 / 20 ms (shape, close, hold, release, lag), which read as more of a
+grab than a reach; the offline check scales with them unchanged (every phase scaled alike). Only
+the hand that picked the target is ever ready: the other hand's item stays drawn.
