@@ -8,7 +8,7 @@ operating during travel, with the existing 120 uu rejection guard still active.
 This is acceptance of the Heart locomotion test; separate Possession casting
 coverage is not claimed. All 733 host checks and the optimized build passed.
 
-Integration into staging is explicitly authorized for the accepted Heart
+Heart backing PR #182 is merged into staging at e222f82a7. Integration into staging is explicitly authorized for the accepted Heart
 backing and shared hand-effect correction. Preserve both finalized feature
 branches. The release branch is outside this integration. The Heart assets
 remain local-only; packaging requires the prepared binary files described in
