@@ -9,6 +9,9 @@ entries; TRAPS.md, top entry.
 - Change: default 1, written in the default ini, one-time 0 -> 1 migration. No routing code
   changed. Host suites pass. NOT yet run in a headset.
 - Next run: `hud/semantic: hooks=1` at startup, widgets in one piece, objective titles steady.
+- Installed on the dev PC: v1.0.3-45-g16881bd46; ini = the previous ini with
+  `SemanticOwnership=1` and `SemanticOwnershipRev=1` only, byte for byte (73882 bytes, 1701
+  CRLF). Backup pair and logs: `build/playtest-candidates/hud-recouple/replaced-20261004-224724/`.
 - No Linear ticket: this session has no Linear access.
 
 ## 2026-10-04: accepted takedown arm levers on by default
