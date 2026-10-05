@@ -705,6 +705,12 @@ static void GrabAnimConfigure(const char* ini);
 static bool GrabAnimCommand(const char* args);
 static void GrabAnimWriteTimes(const char* who);
 static void GrabAnimTimes(float* t5);
+// The ready hand (hands/mesh_split.cpp, THE READY HAND).
+static void GrabReadyPublish(uint32_t mask);
+static bool GrabHideHeld(int hand);
+static bool GrabReadyOpenEnabled();
+static bool GrabReadyHideEnabled();
+static void GrabReadySet(bool open, bool hide, const char* who);
 static void GrabAnimSetTimes(const float* t5);
 static void PickupSet(bool on, const char* who);
 static void PickupSetReachCm(float cm);

@@ -169,6 +169,15 @@ static void OvlTabHands()
                 GrabAnimSet(grab, "F10"); ConfigWriteKey("Hands", "GrabAnim", grab ? "1" : "0", "F10 Hands");
             }
             OvlTip("When a grip picks something up or uses it, that hand opens flat and closes into a fist, and stays closed while you hold the grip.");
+            bool rOpen = GrabReadyOpenEnabled(), rHide = GrabReadyHideEnabled();
+            if (dvr::ovl::checkbox("Open the hand when in reach", &rOpen)) {
+                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyOpen", rOpen ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("A hand close enough to grab something opens like the sheathed hand, so you can see the grip will work.");
+            if (dvr::ovl::checkbox("Hide what the hand holds when in reach", &rHide)) {
+                GrabReadySet(rOpen, rHide, "F10"); ConfigWriteKey("Hands", "GrabReadyHide", rHide ? "1" : "0", "F10 Hands");
+            }
+            OvlTip("The weapon or item in that hand disappears while it can grab, and comes back when it moves away.");
             if (grab) {
                 ImGui::SameLine();
                 if (ImGui::Button("Try it")) GrabAnimCommand("test right");

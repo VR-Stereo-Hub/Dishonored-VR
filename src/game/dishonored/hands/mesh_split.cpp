@@ -3456,6 +3456,8 @@ static bool     g_grLrelOk = false;
 static int      g_grParR[MS_MAX_BONES];
 static int      g_grOrderR[MS_MAX_BONES], g_grOrderN = 0;
 static unsigned g_grTreeHash = 0;
+static unsigned g_grTreeForPairs = 0;                            // g_ohHash the tree was inferred for
+static std::atomic<bool> g_grBusy[2] = { {false}, {false} };     // a grab is playing on this hand
 
 static void GrabAnimNotify(int hand, const char* who)
 {
@@ -3519,8 +3521,27 @@ static void GrInferParents(const float* src, UINT regs)
     }
 }
 
-// buf: the palette about to be uploaded for one hand (placed, and opened if the right hand is
-// empty); src: the game's own. Render lane, once per range of a hand class.
+// Keep the left hand's open fingers whenever the left hand is open (empty or on a power), so a
+// grab or a ready hand while it holds the crossbow still has a flat pose. True when seen live now.
+static bool GrCaptureLeftOpen(const float* src, UINT regs)
+{
+    const int hl = g_msHandBone[1];
+    float invSrcL[12];
+    if (g_ohN <= 0 || (UINT)(hl * 3 + 3) > regs || !dvr::hf::invert_3x4(src + hl * 12, invSrcL)) return false;
+    const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
+    const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
+    const LONG left = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0);
+    if (!(age <= 1000u && (left == 0 || left == 1) && !dvr::anim::hand_owned(0))) return false;
+    for (int r = 0; r < MS_MAX_BONES; r++) {
+        const int l = g_ohPair[r];
+        if (l >= 0 && (UINT)(l * 3 + 3) <= regs) dvr::hf::mul_3x4(invSrcL, src + l * 12, g_grLrel[l]);
+    }
+    g_grLrelOk = true;
+    return true;
+}
+
+// buf: the palette about to be uploaded for one hand (placed, opened if the right hand is empty,
+// and opened by the ready hand); src: the game's own. Render lane, once per range of a hand class.
 static void GrApply(float* buf, const float* src, UINT regs, int cls)
 {
     const int h = cls == MS_CLS_HAND_B ? 1 : 0;                  // 1 = the right hand
@@ -3540,26 +3561,14 @@ static void GrApply(float* buf, const float* src, UINT regs, int cls)
     for (int b = 0; b < MS_MAX_BONES; b++) pairL[b] = -1;
     for (int r = 0; r < MS_MAX_BONES; r++) if (g_ohPair[r] >= 0) pairL[g_ohPair[r]] = r;
 
-    // Keep the left hand's open fingers whenever the left hand is open (empty or on a power), so a
-    // grab while it holds the crossbow still has a flat pose to shape to.
-    bool liveFlat = false;
-    float invSrcL[12];
-    if (pairsOk && dvr::hf::invert_3x4(src + hl * 12, invSrcL)) {
-        const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
-        const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
-        const LONG left = InterlockedCompareExchange(&g_rflSecondaryKind, 0, 0);
-        if (age <= 1000u && (left == 0 || left == 1) && !dvr::anim::hand_owned(0)) {
-            for (int l = 0; l < MS_MAX_BONES; l++)
-                if (pairL[l] >= 0 && (UINT)(l * 3 + 3) <= regs) dvr::hf::mul_3x4(invSrcL, src + l * 12, g_grLrel[l]);
-            g_grLrelOk = true; liveFlat = true;
-        }
-    }
+    const bool liveFlat = pairsOk && GrCaptureLeftOpen(src, regs);
 
     static double seen[2] = { 0, 0 }, releaseAt[2] = { -1, -1 };
     static bool active[2] = { false, false }, fromLast[2] = { false, false };
     static float last[2][MS_MAX_BONES][12], from[2][MS_MAX_BONES][12];   // parent-relative
     static dvr::grab::Timing tim[2];
     const double trig = g_grTrigMs[h].load();
+    struct BusyOut { int h; bool* a; ~BusyOut() { g_grBusy[h].store(*a); } } busyOut{ h, &active[h] };
     if (trig <= 0) { active[h] = false; return; }
     const bool fresh = trig != seen[h];
     if (fresh && now - trig > 1000.0) {
@@ -3581,7 +3590,7 @@ static void GrApply(float* buf, const float* src, UINT regs, int cls)
                 "its pose", h ? "RIGHT" : "LEFT", g_ohWhy, hl, hr);
             active[h] = false; return;
         }
-        GrInferParents(src, regs);
+        GrInferParents(src, regs); g_grTreeForPairs = g_ohHash;
         if (!g_grOrderN) {
             InterlockedIncrement(&g_grRefused);
             Log("hands/grab: %s hand NOT animated - no finger bones in the tree", h ? "RIGHT" : "LEFT");
@@ -3694,6 +3703,134 @@ static void GrApply(float* buf, const float* src, UINT regs, int cls)
         g_grGrip[h].load() ? "held" : "up");
 }
 
+// ---- THE READY HAND -------------------------------------------------------------------------
+// While a hand is close enough that its grip would interact (physical_pickup.cpp: the game has
+// focused the thing that hand can take), that hand shows it: whatever it holds is not drawn
+// (weapon_attach.cpp asks GrabHideHeld) and its fingers ease open to the sheathed hand's open
+// pose. A grab then closes it from flat, and afterwards it opens again if still in reach, or
+// goes back to the game's pose with its item if not. PLAN-physical-interaction.md steps 3-5.
+//
+// ELIGIBILITY has time hysteresis, so the edge of reach does not blink the weapon: ready after 2
+// consecutive ready game frames, kept 150 ms after the last one. The hide follows the fingers:
+// the item comes back only once the fingers have closed again (and never mid-grab), and it fails
+// OPEN - a hide flag nobody has refreshed for 100 ms is ignored, so a hand that stops being drawn
+// cannot strand a hidden weapon. A game animation owning the hand (takedown, choke) is never
+// touched. [Hands] GrabReadyOpen (fingers) and GrabReadyHide (the held item), default 0 (render
+// levers), F10 > Hands under "Grab animation". Seam: `grab ready open|hide on|off`.
+static std::atomic<bool>   g_grReadyOpenOn{false}, g_grReadyHideOn{false};
+static std::atomic<double> g_grReadyUntil[2] = { {0.0}, {0.0} };  // eligible until (clock::now_ms)
+static int                 g_grReadyRun[2] = { 0, 0 };             // consecutive ready game frames (game thread)
+static std::atomic<bool>   g_grHide[2] = { {false}, {false} };
+static std::atomic<double> g_grHideStamp[2] = { {0.0}, {0.0} };
+static const float         kGrReadyEaseMs = 100.0f;
+
+// Game thread, once per pickup tick: bit h of `mask` = hand h may take the focused target now.
+static void GrabReadyPublish(uint32_t mask)
+{
+    const double now = ::dvr::clock::now_ms();
+    for (int h = 0; h < 2; h++) {
+        if (mask & (1u << h)) { if (++g_grReadyRun[h] >= 2) g_grReadyUntil[h].store(now + 150.0); }
+        else g_grReadyRun[h] = 0;
+    }
+}
+static bool GrabHandEligible(int hand) { return hand >= 0 && hand <= 1 && ::dvr::clock::now_ms() < g_grReadyUntil[hand].load(); }
+
+// weapon_attach.cpp, render lane: do not draw what this hand holds.
+static bool GrabHideHeld(int hand)
+{
+    if (hand < 0 || hand > 1 || !g_grReadyHideOn.load() || !g_grHide[hand].load()) return false;
+    return ::dvr::clock::now_ms() - g_grHideStamp[hand].load() < 100.0;
+}
+
+// buf/src as GrApply; runs before it, so a grab's "base" pose is the opened hand.
+static void GrReadyApply(float* buf, const float* src, UINT regs, int cls)
+{
+    const int h = cls == MS_CLS_HAND_B ? 1 : 0;
+    static uint32_t latchFrame[2] = { 0xffffffffu, 0xffffffffu };
+    static double lastMs[2] = { 0, 0 }, readySince[2] = { 0, 0 };
+    static float wgt[2] = { 0, 0 };
+    static bool wasReady[2] = { false, false }, wasHide[2] = { false, false };
+    const double now = ::dvr::clock::now_ms();
+    const uint32_t frame = (uint32_t)dvr::frame::count();
+    const bool owned = dvr::anim::hand_owned(h);
+    const bool ready = (g_grReadyOpenOn.load() || g_grReadyHideOn.load()) && !owned && GrabHandEligible(h);
+    const bool busy = g_grOn.load() && g_grBusy[h].load();
+    if (frame != latchFrame[h]) {                                // advance once per frame, both eyes alike
+        const float dt = lastMs[h] > 0 ? (float)(now - lastMs[h]) : 0.0f;
+        lastMs[h] = now; latchFrame[h] = frame;
+        const float step = dt / kGrReadyEaseMs;
+        wgt[h] = (ready || busy) ? (wgt[h] + step > 1 ? 1 : wgt[h] + step) : (wgt[h] - step < 0 ? 0 : wgt[h] - step);
+        if (owned) wgt[h] = 0;
+        if (ready != wasReady[h]) {
+            wasReady[h] = ready;
+            if (ready) readySince[h] = now;
+            Log("hands/ready: %s hand %s%s", h ? "RIGHT" : "LEFT",
+                ready ? "READY - in reach of something its grip will take: " : "no longer ready after ",
+                ready ? (g_grReadyHideOn.load() ? (g_grReadyOpenOn.load() ? "held item hidden, fingers opening" : "held item hidden")
+                                                 : "fingers opening")
+                      : "");
+            if (!ready) Log("hands/ready: %s hand was ready %.0f ms%s", h ? "RIGHT" : "LEFT", now - readySince[h],
+                            busy ? " (a grab is still playing: the item stays hidden until it ends)" : "");
+        }
+        const bool hide = !owned && (wgt[h] > 0.0f || busy || ready);
+        g_grHide[h].store(hide); g_grHideStamp[h].store(now);
+        if (hide != wasHide[h]) {
+            wasHide[h] = hide;
+            Log("hands/ready: %s hand's held item %s", h ? "RIGHT" : "LEFT",
+                hide ? (g_grReadyHideOn.load() ? "HIDDEN" : "would hide (GrabReadyHide off)") : "drawn again");
+        }
+    }
+    if (!g_grReadyOpenOn.load() || wgt[h] <= 0.0f) return;
+
+    // The open fingers, joint by joint from the wrist, eased by wgt (min-jerk).
+    OhBuildPairs();
+    const int hl = g_msHandBone[1], hr = g_msHandBone[2];
+    if (g_ohN <= 0 || (UINT)(hl * 3 + 3) > regs || (UINT)(hr * 3 + 3) > regs) return;
+    GrCaptureLeftOpen(src, regs);
+    if (!g_grLrelOk) {
+        DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 10000,
+            "hands/ready: %s hand NOT opened - the left hand has not been seen open yet this session (empty or on a power)",
+            h ? "RIGHT" : "LEFT");
+        return;
+    }
+    if (!g_grOrderN || g_grTreeForPairs != g_ohHash) { GrInferParents(src, regs); g_grTreeForPairs = g_ohHash; }
+    float X[12];
+    { const float n[3] = { 1, 0, 0 }, c[3] = { g_ohMidX, 0, 0 }; dvr::hf::reflection_3x4(n, c, X); }
+    const int w = h ? hr : hl;
+    static float baseM[MS_MAX_BONES][12], flatM[MS_MAX_BONES][12];
+    memcpy(baseM[w], buf + w * 12, 48); memcpy(flatM[w], buf + w * 12, 48);
+    for (int i = 0; i < g_grOrderN; i++) {
+        const int r = g_grOrderR[i], l = g_ohPair[r], b = h ? r : l;
+        if ((UINT)(b * 3 + 3) > regs) continue;
+        float t2[12], rel[12];
+        memcpy(baseM[b], buf + b * 12, 48);
+        if (h) { dvr::hf::mul_3x4(X, g_grLrel[l], t2); dvr::hf::mul_3x4(t2, X, rel); } else memcpy(rel, g_grLrel[l], 48);
+        dvr::hf::mul_3x4(buf + w * 12, rel, flatM[b]);
+    }
+    const float s = dvr::grab::min_jerk(wgt[h]);
+    for (int i = 0; i < g_grOrderN; i++) {
+        const int r = g_grOrderR[i], b = h ? r : g_ohPair[r];
+        const int pr = g_grParR[r], p = pr < 0 ? -1 : pr == hr ? w : (h ? pr : g_ohPair[pr]);
+        if (p < 0 || (UINT)(b * 3 + 3) > regs) continue;
+        float inv[12], qBase[12], qFlat[12], q[12];
+        if (!dvr::hf::invert_3x4(baseM[p], inv)) continue;
+        dvr::hf::mul_3x4(inv, baseM[b], qBase);
+        if (!dvr::hf::invert_3x4(flatM[p], inv)) continue;
+        dvr::hf::mul_3x4(inv, flatM[b], qFlat);
+        dvr::grab::screw_blend_3x4(qBase, qFlat, s, q);
+        dvr::hf::mul_3x4(buf + p * 12, q, buf + b * 12);         // the parent's OUTPUT (parents first)
+    }
+}
+
+static bool GrabReadyOpenEnabled() { return g_grReadyOpenOn.load(); }
+static bool GrabReadyHideEnabled() { return g_grReadyHideOn.load(); }
+static void GrabReadySet(bool open, bool hide, const char* who)
+{
+    g_grReadyOpenOn.store(open); g_grReadyHideOn.store(hide);
+    Log("hands/ready: in reach of a grab, the hand %s and its held item %s (%s)", open ? "OPENS" : "keeps its pose",
+        hide ? "is HIDDEN" : "stays drawn", who);
+}
+
 static bool GrabAnimEnabled() { return g_grOn.load(); }
 static void GrabAnimSet(bool on, const char* who)
 {
@@ -3710,6 +3847,8 @@ static void GrabAnimConfigure(const char* ini)
     g_grT.releaseMs = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimReleaseMs", 260), 40, 1000);
     g_grT.lagMs     = GrabAnimClampMs(IniFloat(ini, "Hands", "GrabAnimLagMs", 40), 0, 200);
     GrabAnimSet(IniFloat(ini, "Hands", "GrabAnim", 0) != 0.0f, "ini [Hands] GrabAnim");
+    GrabReadySet(IniFloat(ini, "Hands", "GrabReadyOpen", 0) != 0.0f, IniFloat(ini, "Hands", "GrabReadyHide", 0) != 0.0f,
+                 "ini [Hands] GrabReadyOpen / GrabReadyHide");
 }
 // The five times in ms: shape, close, hold, release, lag (F10 and the seam).
 static void GrabAnimTimes(float* t5)
@@ -3733,6 +3872,14 @@ static bool GrabAnimCommand(const char* args)
 {
     bool b = false; float t[5];
     if (DvrOnOff(args, &b)) { GrabAnimSet(b, "seam"); ConfigWriteKey("Hands", "GrabAnim", b ? "1" : "0", "the seam"); return true; }
+    if (!strncmp(args, "ready open ", 11) && DvrOnOff(args + 11, &b)) {
+        GrabReadySet(b, g_grReadyHideOn.load(), "seam"); ConfigWriteKey("Hands", "GrabReadyOpen", b ? "1" : "0", "the seam");
+        return true;
+    }
+    if (!strncmp(args, "ready hide ", 11) && DvrOnOff(args + 11, &b)) {
+        GrabReadySet(g_grReadyOpenOn.load(), b, "seam"); ConfigWriteKey("Hands", "GrabReadyHide", b ? "1" : "0", "the seam");
+        return true;
+    }
     if (!strncmp(args, "test", 4)) {
         const int hand = strstr(args, "left") ? 0 : 1;
         if (!g_grOn.load()) { Log("hands/grab: test refused - the grab animation is off (grab on)"); return true; }
@@ -3744,8 +3891,12 @@ static bool GrabAnimCommand(const char* args)
         GrabAnimSetTimes(t);
         GrabAnimWriteTimes("the seam");
     }
-    Log("hands/grab: on|off, test [left|right], time <shape> <close> <hold> <release> <lag> (now %s; %.0f %.0f %.0f %.0f %.0f ms) | "
+    Log("hands/grab: on|off, test [left|right], time <shape> <close> <hold> <release> <lag>, ready open|hide on|off "
+        "(ready hand: open %s, hide %s) | eligible now L %d R %d, hiding L %d R %d | "
+        "(now %s; %.0f %.0f %.0f %.0f %.0f ms) | "
         "played %ld, refused %ld, flat pose %s",
+        g_grReadyOpenOn.load() ? "ON" : "off", g_grReadyHideOn.load() ? "ON" : "off", (int)GrabHandEligible(0), (int)GrabHandEligible(1),
+        (int)GrabHideHeld(0), (int)GrabHideHeld(1),
         g_grOn.load() ? "ON" : "off", g_grT.shapeMs, g_grT.closeMs, g_grT.holdMs, g_grT.releaseMs, g_grT.lagMs,
         (long)g_grPlayed, (long)g_grRefused, g_grLrelOk ? "captured" : "NOT yet seen (the left hand has not been open)");
     return true;
@@ -4089,8 +4240,10 @@ static bool MsDraw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, INT baseVertex,
                     MpBuild(buf, g_mpCache, g_mpCacheN, &T);
                     if (rng[r].cls == MS_CLS_HAND_B && OhActive())
                         OhApply(buf, g_mpCache, g_mpCacheN);   // the empty right hand opens like the left
-                    if (rng[r].cls == MS_CLS_HAND_A || rng[r].cls == MS_CLS_HAND_B)
-                        GrApply(buf, g_mpCache, g_mpCacheN, rng[r].cls);   // a grab closes the hand flat -> fist
+                    if (rng[r].cls == MS_CLS_HAND_A || rng[r].cls == MS_CLS_HAND_B) {
+                        GrReadyApply(buf, g_mpCache, g_mpCacheN, rng[r].cls);   // in reach of a grab: the hand opens
+                        GrApply(buf, g_mpCache, g_mpCacheN, rng[r].cls);        // a grab closes the hand flat -> fist
+                    }
                     dvr::frame::orig_set_vs_const(dev, 6, buf, g_mpCacheN);
                 } else {
                     dvr::frame::orig_set_vs_const(dev, 6, g_mpCache, g_mpCacheN);

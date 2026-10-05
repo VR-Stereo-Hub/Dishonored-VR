@@ -590,6 +590,7 @@ static void PhysicalPickupTick()
         for (int h = 0; h < 2; ++h) if (handOk[h] && c->d2[h] <= c->keep * c->keep) mask |= 1u << h;
     g_ppReadyMask.store(mask);
     g_ppReadyMs.store(GetTickCount64());
+    GrabReadyPublish(mask);                                  // the ready hand (mesh_split.cpp): eligibility with hysteresis
 
     static double nextBeat = 0;
     if (now >= nextBeat) {

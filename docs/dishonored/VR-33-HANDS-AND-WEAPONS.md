@@ -761,3 +761,35 @@ plays` and `grab done`). Two faults found and fixed in the commit after it:
    than a second old is now ignored and logged.
 
 Also seen: the simulator's eyes alternate exposure frame to frame (FLICKER_REFERENCE, top entry).
+
+## The ready hand (2026-10-05, branch `claude/grab-hand-anim`, built, not yet run)
+
+While a hand is close enough that its grip would pick something up or use it, the hand shows
+it: what it holds is not drawn and its fingers ease open (100 ms, min-jerk) to the sheathed
+hand's open pose. A grip then plays the grab from flat; afterwards the hand opens again if it
+is still in reach, or closes back to the game's pose with its item drawn again if not (a looted
+item is gone, so its target is). Code: "THE READY HAND" in `hands/mesh_split.cpp`, the eligibility
+publish in `physical_pickup.cpp`, `WaReadyHide` in `weapon_attach.cpp`. `[Hands] GrabReadyOpen`
+and `GrabReadyHide` (default 0, render levers), F10 > Hands under "Grab animation", seam
+`grab ready open|hide on|off`; `grab` with no word prints the per-hand state.
+
+* **Eligible** = the pickup's ready mask (the game has focused the target and that hand is in
+  reach), with time hysteresis: ready after 2 consecutive ready game frames, kept 150 ms after
+  the last. A game animation owning the hand (takedown, choke) is never touched.
+* **What is hidden.** Every held model is a weapon contract with a hand (`WaHandFor`: the sword
+  in the right hand; the crossbow, pistol, grenade, spring razor and the Heart in the left), and
+  a held weapon is drawn at exactly two places: the placed contract draw and `WaPatchAndDraw`
+  (its sibling passes). Both ask `GrabHideHeld(w->hand)` before drawing, AFTER the contract's
+  delta is published, so all passes of that weapon drop together. A pass the module does not
+  place is already suppressed (`AttachSuppressUnplaced=1`), and a world instance on the same
+  buffers (a fired bolt, a placed razor) is vetoed before either site and stays drawn. Not
+  hidden in this build: the power and Heart glow effects (`fx_follow.cpp`, separate draws).
+* **The item comes back** only once the fingers have closed again and no grab is playing, and
+  the hide fails OPEN: a flag not refreshed for 100 ms (the hands stopped being drawn) is ignored.
+* **The left hand** opens to its own open pose as last seen (empty or on a power); until it has
+  been seen open this session it is not opened (logged) but its item is still hidden.
+* Both draw paths (per-class and full-arm IK) run it, ahead of the grab.
+
+**To check in a run:** `hands/ready: RIGHT hand READY`, `held item HIDDEN`, `drawn again`; `wa: '<asset>'
+NOT drawn - the ... hand is in reach`; FLICKER_REFERENCE section 1's rows for a weapon copy at
+the native position and a weapon-shaped hole in AFW's rebuilt eye are the faults to expect.
