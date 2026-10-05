@@ -112,6 +112,71 @@ inline int AnimPolicyTests() {
     o=g.update(4,1200,20,8,120,600);    check("gate-closes-after-600ms",!o);
     o=g.update(-1,1300,20,8,120,600);   check("gate-bad-speed-is-still",!o);
     o=g.update(NAN,1400,20,8,120,600);  check("gate-nan-is-still",!o);
+    // A pose snap is ONE measurement, however long the reader keeps seeing it (run 3).
+    MotionGate snap; bool so=false;
+    for (unsigned long long t=0;t<=200;t+=10) so=snap.update(900,t,20,8,120,5000,7,3);
+    check("gate-one-stale-spike-stays-closed",!so);
+    MotionGate real; bool ro=false;
+    for (unsigned long long t=0;t<=200;t+=10) ro=real.update(60,t,20,8,120,5000,1+t/15,3);
+    check("gate-distinct-samples-open",ro);
+    MotionGate brief; bool bo=false;
+    bo=brief.update(60,0,20,8,120,5000,1,3); bo=brief.update(60,10,20,8,120,5000,2,3);
+    bo=brief.update(2,20,20,8,120,5000,3,3); for (unsigned long long t=30;t<=200;t+=10) bo=brief.update(60,t,20,8,120,5000,4,3);
+    check("gate-count-restarts-after-a-gap",!bo);
+    // The arm motion estimator: a 4-bone arm along X (collar, upper arm, forearm, sleeve).
+    {
+        const float probe[4][3]={{0,0,0},{15,0,0},{40,0,0},{55,0,0}};
+        auto ident=[](float* m){ for(int i=0;i<12;++i) m[i]=(i%5==0)?1.0f:0.0f; };
+        auto rotZ=[](float* m,float deg,float px,float py){   // rotate about the Z axis through (px,py,0)
+            const float a=deg*3.14159265f/180,c=cosf(a),s=sinf(a);
+            const float r[12]={c,-s,0,px-c*px+s*py, s,c,0,py-s*px-c*py, 0,0,1,0};
+            float out[12];
+            for(int row=0;row<3;++row){ for(int col=0;col<3;++col){ out[row*4+col]=0; for(int k=0;k<3;++k) out[row*4+col]+=r[row*4+k]*m[k*4+col]; }
+                out[row*4+3]=r[row*4+3]; for(int k=0;k<3;++k) out[row*4+3]+=r[row*4+k]*m[k*4+3]; }
+            memcpy(m,out,sizeof(out));
+        };
+        auto shift=[](float* m,float x,float y,float z){ m[3]+=x; m[7]+=y; m[11]+=z; };
+        float a[48],b[48];
+        for(int i=0;i<4;++i){ ident(a+i*12); ident(b+i*12); }
+        ArmMotion m=arm_motion(b,a,probe,4,0.01f);
+        check("arm-still-reads-zero",m.bones==4 && m.joint==0 && m.fastest==0 && m.refPose>=0 && m.refPose<0.001f);
+        // The mod's write: one rigid move of the forearm and everything below it.
+        for(int i=2;i<4;++i) shift(b+i*12,0.6f,0.3f,-0.2f);
+        m=arm_motion(b,a,probe,4,0.01f);
+        check("arm-mod-write-seen-by-the-old-instrument",m.fastest>50);
+        check("arm-mod-write-is-not-game-motion",m.joint<0.01f);
+        check("arm-mod-write-keeps-reference-pose",m.refPose<0.001f);
+        // ...also when it turns the bone it moves, and when it moves the whole arm.
+        for(int i=0;i<4;++i){ ident(b+i*12); } for(int i=1;i<4;++i){ rotZ(b+i*12,3,15,0); shift(b+i*12,0.4f,0,0.2f); }
+        m=arm_motion(b,a,probe,4,0.01f);
+        check("arm-mod-rotation-is-not-game-motion",m.fastest>50 && m.joint<0.01f);
+        for(int i=0;i<4;++i){ ident(b+i*12); shift(b+i*12,1,1,1); }
+        m=arm_motion(b,a,probe,4,0.01f);
+        check("arm-whole-move-is-not-game-motion",m.fastest>50 && m.joint<0.01f);
+        // The game's animation: shoulder and elbow both turn.
+        for(int i=0;i<4;++i){ ident(b+i*12); } for(int i=1;i<4;++i) rotZ(b+i*12,2,15,0); for(int i=2;i<4;++i) rotZ(b+i*12,3,40,0);
+        m=arm_motion(b,a,probe,4,0.01f);
+        check("arm-two-joints-is-game-motion",m.joint>20);
+        check("arm-posed-is-off-reference",m.refPose>0.3f);
+        // ...and it is still seen under the mod's write on top.
+        shift(b+3*12,0.5f,0.5f,0);
+        ArmMotion both=arm_motion(b,a,probe,4,0.01f);
+        check("arm-game-motion-survives-mod-write",both.joint>20);
+        // The stated limit: exactly one joint reads as still.
+        for(int i=0;i<4;++i){ ident(b+i*12); } for(int i=2;i<4;++i) rotZ(b+i*12,3,40,0);
+        m=arm_motion(b,a,probe,4,0.01f);
+        check("arm-one-joint-reads-still",m.joint<0.01f && m.fastest>20);
+        // Refusals: a collapsed palette and too few bones.
+        float zero[48]={}; m=arm_motion(zero,a,probe,4,0.01f);
+        check("arm-collapsed-palette-unmeasured",m.bones==0 && m.joint==0 && m.refPose<0);
+        m=arm_motion(b,a,probe,2,0.01f);
+        check("arm-two-bones-cannot-separate",m.bones==2 && m.joint==0 && m.refPose<0);
+        m=arm_motion(b,nullptr,probe,4,0);
+        check("arm-one-bent-joint-counts-as-reference",m.joint==0 && m.refPose>=0 && m.refPose<0.001f);
+        for(int i=1;i<4;++i) rotZ(b+i*12,2,15,0);
+        m=arm_motion(b,nullptr,probe,4,0);
+        check("arm-untimed-still-measures-reference",m.joint==0 && m.refPose>0.3f);
+    }
     return failures;
 }
 

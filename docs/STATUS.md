@@ -1,3 +1,24 @@
+## 2026-10-04: run 3 read - the cutscene gate followed the player; game arm re-seated
+
+Branch `claude/anim-blend-ik`, draft PR #177 (stacked on #176), not merged. Detail, numbers and
+the next run's four questions: dishonored/ANIM-HANDOFF-PLAN.md, top section.
+- **Found in the run-3 log:** the CinematicArms motion gate measured the player's own hand (it
+  tracked the controller's speed; exactly 0.0 uu/s whenever the game owned the arms in a
+  conversation; all 15 openings closed on the hold after 1.8..2.2 s). The mod's hand control
+  moves palette bones behind the wrist too. This is the conversation reset AND the short hold.
+- **Changed:** the game's arm motion is measured between the bones of an arm with the mod's
+  single rigid write excluded (host-tested); an opening needs 3 different measurements; arms in
+  the reference pose are never handed over (1.0 uu, a guess, logged); hold 1500 -> 5000 ms. All
+  six values are in F10 Hands > Your arms in cutscenes with a live readout.
+- **New lever `[Hands] ArmIKGameArmShoulder`** (default 0; 1 = not the choke; 2 = always): the
+  game's arm is re-seated on the IK shoulder about the game's own wrist. `ik/gamearm:` logs the
+  shoulder offset in body axes whether it is on or off.
+- Host: animation 138 catalog checks plus the new gate/estimator cases, arm IK 1085, default
+  writer = packaged = golden ini, lint, 11 exports. Release builds. No game launched.
+- **Not known yet:** the start/stop speeds in the new instrument's units; whether the default
+  stance is the reference pose; the size and direction of the shoulder offset per takedown.
+- TRAPS: an instrument that measured its own side's motion.
+
 ## 2026-10-04: smooth hand-backs, IK arm rules, cutscene arms (built, not run)
 
 Branch `claude/anim-blend-ik` (off `claude/tools-workflows`). Two default-off levers with F10

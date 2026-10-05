@@ -12,6 +12,7 @@ struct IkGeometry {
     int wristSlot[2]={-1,-1};
 } ikMesh;
 dvr::ik::PoseHistory ikTime;
+struct IkSeat {bool measured,applied;float fwd,right,up,apart,turnDeg,stretch,left;} g_ikSeat[2]={};
 }
 
 static void IkResetPose(){ikTime=dvr::ik::PoseHistory{};}
@@ -159,6 +160,26 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
         // arm is exactly the game's (its own shoulder and elbow for the clip); a choke's wrist
         // on an IK forearm from the tracked shoulder twisted the arm (2026-10-04 run).
         const float gameShare=g_ikGameArmInAnim.load()?1.0f-dvr::anim::weight_for(h):0.0f;
+        // ArmIKGameArmShoulder: the game's arm is drawn for the game's own camera and body, the IK
+        // shoulder hangs from the tracked head. Re-seat the game's arm on the IK shoulder, about
+        // the game's own wrist, so the hand stays where the clip put it (shoulder_fit, arm_rig.h).
+        ShoulderFit fit;bool seated=false;Vec nativeShoulder{},nativeWrist{};
+        const int seatMode=g_ikGameArmShoulder.load();
+        if(gameShare>0.0001f){
+            int upperSlot=-1;
+            for(int slot=0;slot<g_msBones;++slot)if(ikMesh.mapping.reference[slot]==ikMesh.chain[h].upper){upperSlot=slot;break;}
+            if(upperSlot>=0){
+                auto native=[&](int slot,Vec p){const float* m=g_mpCache+slot*12;
+                    return Vec{m[0]*p.x+m[1]*p.y+m[2]*p.z+m[3],m[4]*p.x+m[5]*p.y+m[6]*p.z+m[7],m[8]*p.x+m[9]*p.y+m[10]*p.z+m[11]};};
+                nativeShoulder=native(upperSlot,ikMesh.rig.bones[ikMesh.chain[h].upper].head);
+                nativeWrist=native(ikMesh.wristSlot[h],ikMesh.rig.bones[ikMesh.chain[h].wrist].head);
+                // Measured whatever the lever says, so a log of the lever OFF still carries the numbers.
+                fit=shoulder_fit(nativeShoulder,nativeWrist,solved[h].joints.shoulder,.8f,1.25f,45*3.14159265359f/180);
+                seated=fit.ok&&(seatMode==2||(seatMode==1&&!dvr::anim::choke_owns_arms()));
+                const Vec off=solved[h].joints.shoulder-nativeShoulder;
+                g_ikSeat[h]={fit.ok,seated,dot(off,body.forward),dot(off,body.right),dot(off,body.up),fit.offset,fit.angle*180/3.14159265359f,fit.stretch,seated?fit.residual:fit.offset};
+            }
+        }
         for(int slot=0;slot<g_msBones;++slot){
             int ref=ikMesh.mapping.reference[slot];if(ref<0)continue;
             int region=ikMesh.chain[h].region[ref];if(!region)continue;
@@ -171,13 +192,30 @@ static bool IkTryDraw(IDirect3DDevice9* dev,D3DPRIMITIVETYPE type)
                 // which the proper-rotation blend refuses; a matrix lerp of one bone's two poses is
                 // what an animation blend does, and it lasts only the hand-back's entry/return.
                 if(gameShare>0.0001f){
-                    const float* native=g_mpCache+slot*12;
+                    const float* native=g_mpCache+slot*12;float moved[12];
+                    if(seated){   // move * native, row by row
+                        for(int r=0;r<3;++r){
+                            for(int col=0;col<4;++col)moved[r*4+col]=fit.move.r.m[r*3]*native[col]+fit.move.r.m[r*3+1]*native[4+col]+fit.move.r.m[r*3+2]*native[8+col];
+                            moved[r*4+3]+=fit.move.t[r];
+                        }
+                        native=moved;
+                    }
                     for(int i=0;i<12;++i)dst[i]+=(native[i]-dst[i])*gameShare;
                 }
             }
         }
         g_ikGameShare[h]=gameShare;
     }
+    // The derived numbers, while the game has an arm: where the game's shoulder is against the IK
+    // shoulder (in body axes, so "too far forward" is arithmetic) and what the re-seat did with it.
+    if(g_ikGameShare[0]>.5f||g_ikGameShare[1]>.5f)DVR_LOG_EVERY_MS(DVR_CAT,::dvr::log::Level::Info,500,
+        "ik/gamearm: ArmIKGameArmShoulder=%d choke=%d share L=%.2f R=%.2f | IK shoulder minus the game's shoulder, uu forward/right/up: "
+        "L %+.1f %+.1f %+.1f (%.1f apart) R %+.1f %+.1f %+.1f (%.1f apart); negative forward = the game's shoulder is in front | re-seat about the game's wrist: "
+        "L %s turn %.1f deg stretch %.3f left over %.1f uu | R %s turn %.1f deg stretch %.3f left over %.1f uu (bounds: stretch 0.80..1.25, turn 45 deg)",
+        g_ikGameArmShoulder.load(),(int)dvr::anim::choke_owns_arms(),g_ikGameShare[0],g_ikGameShare[1],
+        g_ikSeat[0].fwd,g_ikSeat[0].right,g_ikSeat[0].up,g_ikSeat[0].apart,g_ikSeat[1].fwd,g_ikSeat[1].right,g_ikSeat[1].up,g_ikSeat[1].apart,
+        !g_ikSeat[0].measured?"not measured":g_ikSeat[0].applied?"APPLIED":"not applied",g_ikSeat[0].turnDeg,g_ikSeat[0].stretch,g_ikSeat[0].left,
+        !g_ikSeat[1].measured?"not measured":g_ikSeat[1].applied?"APPLIED":"not applied",g_ikSeat[1].turnDeg,g_ikSeat[1].stretch,g_ikSeat[1].left);
     // Preserve all device state even when a bind or draw fails. No engine-owned
     // COM reference survives this scope; only our copied mesh buffers persist.
     struct Saved {

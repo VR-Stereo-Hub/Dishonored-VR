@@ -3413,15 +3413,18 @@ static void OhApply(float* buf, const float* src, UINT regs)
 }
 
 
-// CinematicArms: how fast the game moves its own arms. The arm bones (behind each wrist, the
-// rigid wrist's forearm test) are never written by the mod - its SkelControls are single-bone
-// controls on the HAND bones - so their native skin matrices move only when the game animates
-// the arms. Each bone's reference centroid is carried through its native skin matrix; the
-// fastest centroid of either arm, per second, is the speed. Once per frame. Render lane.
+// CinematicArms: how fast the GAME moves its own arms, from the native palette, once per frame.
+// Render lane. Run 3 (2026-10-04) measured the first version of this (the fastest arm-bone
+// point in the palette) following the player's own controller: the mod's hand control moves
+// palette bones behind the wrist too. dvr::anim::arm_motion measures BETWEEN the bones of one
+// arm and grants the mod its single rigid write (anim_policy.h); the old number is kept as
+// `fastest` so a log shows both, and the pose's distance from the reference pose rides along.
+#include "game/dishonored/anim_policy.h"
 static void MsSampleArmSpeed()
 {
     static unsigned lastFrame = ~0u;
-    static float prev[MS_MAX_BONES][3][3];   // centroid and two 10 uu levers: a bone that turns in place moves its levers
+    static float prev[2][dvr::anim::kArmMotionMaxBones * 12];
+    static int prevBone[2][dvr::anim::kArmMotionMaxBones], prevN[2] = { 0, 0 };
     static bool have = false;
     static ULONGLONG prevMs = 0;
     const unsigned frame = (unsigned)dvr::frame::count();
@@ -3431,32 +3434,40 @@ static void MsSampleArmSpeed()
     if (g_mpCacheN <= 0 || g_mpCacheN != g_mpPalN || hands[0] < 0 || hands[1] < 0) { have = false; return; }
     const ULONGLONG now = GetTickCount64();
     const float dt = have && now > prevMs ? (float)(now - prevMs) * 0.001f : 0.0f;
-    float fastest = 0; int used = 0;
-    for (int b = 0; b < g_msBones && b < MS_MAX_BONES; b++) {
-        const int side = g_msBoneSide[b];
-        if ((side != 1 && side != 2) || g_msBoneW[b] <= 0 || b == hands[side - 1] || (UINT)(b * 3 + 3) > (UINT)g_mpCacheN) continue;
-        float along = 0;
-        for (int a = 0; a < 3; a++) along += (g_msBoneCen[b][a] - g_msBoneCen[hands[side - 1]][a]) * g_msAxis[side][a];
-        if (along >= -2.0f) continue;                       // the hand and fingers: the mod writes those
-        const float* m = g_mpCache + b * 12; const float* c0 = g_msBoneCen[b];
-        // BRVR's lesson: a wrist can rotate without its position moving. Position plus two
-        // points 10 uu off the centroid carry rotation into the same uu/s unit.
-        const float pts[3][3] = { { c0[0], c0[1], c0[2] }, { c0[0] + 10, c0[1], c0[2] }, { c0[0], c0[1] + 10, c0[2] } };
-        for (int k = 0; k < 3; k++) {
-            float p[3]; const float* c = pts[k];
-            for (int r = 0; r < 3; r++) p[r] = m[r * 4] * c[0] + m[r * 4 + 1] * c[1] + m[r * 4 + 2] * c[2] + m[r * 4 + 3];
-            if (have && dt > 0.0f && dt < 0.25f) {
-                const float dx = p[0] - prev[b][k][0], dy = p[1] - prev[b][k][1], dz = p[2] - prev[b][k][2];
-                const float v = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
-                if (std::isfinite(v) && v > fastest) fastest = v;
-            }
-            prev[b][k][0] = p[0]; prev[b][k][1] = p[1]; prev[b][k][2] = p[2];
+    const bool timed = dt > 0.0f && dt < 0.25f;
+    float joint = 0, fastest = 0, refPose = -1; int bones = 0, used = 0;
+    for (int side = 1; side <= 2; side++) {
+        int idx[dvr::anim::kArmMotionMaxBones], n = 0;
+        float cur[dvr::anim::kArmMotionMaxBones * 12], probe[dvr::anim::kArmMotionMaxBones][3];
+        for (int b = 0; b < g_msBones && b < MS_MAX_BONES && n < dvr::anim::kArmMotionMaxBones; b++) {
+            if (g_msBoneSide[b] != side || g_msBoneW[b] <= 0 || b == hands[side - 1] || (UINT)(b * 3 + 3) > (UINT)g_mpCacheN) continue;
+            float along = 0;
+            for (int a = 0; a < 3; a++) along += (g_msBoneCen[b][a] - g_msBoneCen[hands[side - 1]][a]) * g_msAxis[side][a];
+            if (along >= -2.0f) continue;                       // the hand and fingers: the mod places those
+            memcpy(cur + n * 12, g_mpCache + b * 12, 12 * sizeof(float));
+            for (int a = 0; a < 3; a++) probe[n][a] = g_msBoneCen[b][a];
+            idx[n++] = b;
         }
-        used++;
+        const bool same = have && n == prevN[side - 1] && !memcmp(idx, prevBone[side - 1], n * sizeof(int));
+        const dvr::anim::ArmMotion m = dvr::anim::arm_motion(cur, same && timed ? prev[side - 1] : nullptr, probe, n, dt);
+        if (m.bones) {
+            used += m.bones;
+            if (m.joint > joint) joint = m.joint;
+            if (m.fastest > fastest) fastest = m.fastest;
+            if (m.refPose >= 0 && (refPose < 0 || m.refPose > refPose)) refPose = m.refPose;   // the arm farther from its reference
+            if (m.bones > bones) bones = m.bones;
+        }
+        memcpy(prev[side - 1], cur, n * 12 * sizeof(float));
+        memcpy(prevBone[side - 1], idx, n * sizeof(int)); prevN[side - 1] = n;
     }
-    const bool valid = used > 0 && dt > 0.0f && dt < 0.25f;
+    const bool valid = used > 0 && timed;
     have = used > 0; prevMs = now;
-    if (valid) { g_msArmSpeed.store(fastest); g_msArmSpeedMs = now; }
+    g_msArmRefPose.store(used > 0 ? refPose : -1.0f);
+    g_msArmBones.store(bones);
+    if (valid) {
+        g_msArmSpeed.store(joint); g_msArmFastest.store(fastest);
+        g_msArmSpeedMs = now; g_msArmSampleGen.fetch_add(1);
+    }
 }
 
 // Emit the classes this mode wants, through OUR index buffer. Returns false if

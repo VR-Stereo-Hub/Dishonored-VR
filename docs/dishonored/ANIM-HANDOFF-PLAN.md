@@ -1,3 +1,92 @@
+## Third headset run: the gate was watching the player (2026-10-04)
+
+Build v1.0.3-37-g01b763971, SmoothBlend=1, CinematicArms=1, ArmIK=1, ArmIKGameArmInAnim=1.
+Log: 323 `cine/motion:` lines, 15 gate openings, 3 takedowns. Reported: cutscenes close to
+right and the choke right; in conversations the arms were taken by the game into still default
+stances (one with the arms pointing backwards) and the player's arm position reset; the arms
+came back to the player while a scene still held them; in every takedown but the choke the
+game's arm showed its shoulder too far forward.
+
+**1. The motion gate measured the player's own hand. MEASURED, from the log.**
+- `swing: beat peak10s` (the controller's peak speed per 10 s) against `cine/motion` in the
+  same windows, player-owned: controller 0.01 m/s -> arm speed max 0.6..1.6 uu/s; 0.07 m/s ->
+  7..17; 0.14 m/s -> 1..7; 0.48..0.71 m/s -> 17..340; 1.2..1.9 m/s -> 50..87. The instrument
+  follows the controller. Against the cinematic camera's rotation rate the same seconds
+  correlate at 0.10 (authored) and 0.25 (composed with the head), so it is not the camera.
+- In every whole second the game owned the arms in a conversation, the speed is exactly 0.0 in
+  16 of 21; the other 5 are real game motion (max 24..213 uu/s). The game's arms in a
+  conversation are a still stance.
+- All 15 openings lasted 1.78 to 2.19 s: the opening delay, a hold of 1500 ms that started at
+  once because the measured speed fell to 0 the moment the game took the arms, the release.
+  Not one opening was kept open by motion.
+- Each change of owner is one frame of 600..2700 uu/s (the mod's write starting or stopping).
+So: the mod's hand control moves palette bones behind the wrist as well as the hand (the first
+design assumed it wrote hand bones only), any hand movement above 0.2 m/s for 120 ms opened the
+gate, the game showed its still stance, and the hold gave the arms back 1.5 s later. Both
+complaints (the reset in conversations, the short hold) are this one fault. Hypotheses checked:
+"a snap is one huge spike" is true of the owner changes but they did not open the gate (it
+already needed 120 ms); what opened it was sustained player motion. "The stance is the
+reference pose" could NOT be measured from this log: it carries no palette. The new build logs it.
+
+**The new instrument** (`arm_motion`, anim_policy.h; `MsSampleArmSpeed`). What the mod writes is
+one rigid move of one bone and everything below it, per arm, whichever bone the control sits on
+(not established which; the design does not need it). That leaves an arm's bones in at most two
+groups that are rigid inside themselves. An animation bends more than one joint. The speed is
+therefore measured between the bones of one arm (bone b's points in bone a's frame, which no
+common rigid move changes), and the answer is the largest relative speed left once the single
+fastest split is granted to the mod: the second-largest edge of the minimum spanning tree over
+the pairwise speeds. Limit, by construction: a clip that moves exactly one joint reads as
+still. Host checks: the mod's translation, its rotation and a whole-arm move read 0 while the
+old instrument reads over 50; two joints read as motion, also under the mod's write on top.
+- An opening also needs `CinematicMotionSamples` (3) DIFFERENT measurements above the
+  threshold: a pose snap is one measurement, however long a stalled sampler keeps showing it.
+- `CinematicRefPoseUu` (1.0): arms within that distance of the reference pose (measured the
+  same way, the mod's write excluded) are never handed over, and an open gate closes at once.
+  The 1.0 is a guess, not a measurement: `cine/motion` now logs the distance's range a second.
+- `CinematicMotionHoldMs` 1500 -> 5000. Run 3 cannot supply this number: no opening was ever
+  kept open by game motion, so no frozen-pose duration was recorded. 5 s covers the 2.5 and 4.5 s
+  the BioShock Remastered mod measured. The start/stop speeds (20/8) are unchanged and are
+  NOT yet measured in the new instrument's units; the only game-motion numbers run 3 has are the
+  old instrument's 24..213 uu/s.
+- F10 Hands > Your arms in cutscenes: hold, both speeds, duration, frame count, default-stance
+  distance, live while dragged and saved on release, with a live readout (motion, distance,
+  who has the arms). Seam: `anim cinegate [<start> <stop> <startMs> <holdMs> [samples] [refPoseUu]]`.
+- Log: `cine/gate:` on every opening and closing with the numbers that caused it; `cine/motion`
+  now carries the new motion, the old fastest point beside it, the reference-pose distance,
+  the veto count and the openings.
+
+**2. The game's arm and the IK shoulder (`[Hands] ArmIKGameArmShoulder`, default 0).**
+Why, from the code: at full game ownership the arm slots are the game's palette exactly, and
+the game poses that arm for its own camera and body. The IK shoulder is the tracked head plus
+the F10 shoulder offsets in an upright body frame. Nothing ties the two, so the shoulder jumps
+by their difference as the hand-back blends in. Run 3's log does not carry that difference
+(only the IK's own reach shift: 17.8 / 20.1 uu in the choke, 0 in the drop assassination, where
+the head was pitched 45 degrees down and the neck model had moved the eye 22 uu forward).
+The fix (`shoulder_fit`, arm_rig.h): one transform for the game's arm, about the game's own
+wrist: a stretch along the shoulder-wrist line (so the cross-section at the wrist still meets
+the hand), then the smallest rotation that puts the shoulder on the IK shoulder. The hand stays
+exactly where the clip put it; the elbow's bend and side stay the game's. Bounded (stretch
+0.80..1.25, 45 degrees); what the bounds leave is logged. It blends in with the hand-back
+weight like the arm itself, and the IK arm it blends from already has that shoulder.
+1 = every game animation except the choke, which was judged right as it was and is kept
+byte-for-byte (latched from the choke state until its hand-back has returned); 2 = the choke
+too. `ik/gamearm:` logs, twice a second while the game has an arm, the IK shoulder minus the
+game's shoulder in body axes (forward/right/up, uu) and the turn, stretch and left-over of the
+re-seat, with the lever on or off. Not chosen: moving the whole arm rigidly with its hand,
+which takes the hand off the clip's contact point by the same distance.
+
+**Next run, one question each.**
+1. A conversation, hands moving freely: do the arms stay with the player? `cine/gate:` should
+   not appear; `cine/motion` should read motion near 0 with the fastest point high.
+2. A scripted arm clip (the walk-in, the boat): does the game take the arms and keep them while
+   it holds a pose? `cine/gate: OPEN` then no CLOSED until 5 s after the last motion. If the
+   clip is NOT taken, read the `between bones` max in those seconds against the 20 uu/s start.
+3. A default stance shown after a clip: read `reference-pose distance` there. Under 1 and
+   vetoed = the stance is the reference pose; well above = it is an authored pose and the veto
+   cannot see it.
+4. A stab takedown and the choke: is the shoulder where the IK shoulder is, and is the choke
+   unchanged? `ik/gamearm:` gives the offset the re-seat removed.
+
 ## Second headset run: choke arm, boat ride, scripted arm clips (2026-10-04)
 
 Build v1.0.3-36-g65b278d04, two runs: the intro (boat ride, Dunwall Tower) in

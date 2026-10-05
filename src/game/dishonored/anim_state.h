@@ -42,8 +42,15 @@ void set_smooth_blend(bool on);
 unsigned blend_in_ms();              // [Anim] HandBackBlendInMs / HandBackBlendOutMs (SmoothBlend only)
 unsigned blend_out_ms();
 void set_blend_ms(unsigned in, unsigned out, bool save = true);   // save=false: live only (a slider mid-drag)
+bool choke_owns_arms();              // the choke state, held until its hand-back has returned (cheap: one atomic)
 bool cinematic_arms();               // [Anim] CinematicArms: tracked arms in cinematics; the game takes them while it animates them
 void set_cinematic_arms(bool on);
+// The motion gate that hands a cutscene's arms to the game (F10 Hands > Your arms in cutscenes).
+struct CineGate { float start, stop, refPoseUu; unsigned startMs, holdMs, samples; };
+struct CineGateLive { float joint=0, fastest=0, refPose=-1; bool open=false, veto=false, fresh=false; };
+CineGate cine_gate();
+void set_cine_gate(CineGate g,bool save=true);   // save=false: live only (a slider being dragged)
+CineGateLive cine_gate_live();
 void set_enabled(bool on);
 bool arm_rule_enabled(int index);
 void set_arm_rule(int index,bool on);

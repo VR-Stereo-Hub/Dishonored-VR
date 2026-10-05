@@ -75,22 +75,104 @@ inline unsigned char render_hand_mask(bool valid, bool enabled, unsigned char ma
 }
 // Slerp the proper rotation from identity and linearly interpolate uniform
 // scale/translation. Refuse shear/reflection instead of collapsing a limb.
-// CinematicArms: "the game is animating the arms" from the speed of the GAME's own upper-arm and
-// forearm bones (the mod writes only hand bones while the player holds them, so these move only
-// when the game animates them). Opens after `startMs` above `start` uu/s, closes after `stopMs`
-// below `stop` uu/s; in between it keeps its state. A stale or missing speed reads as still.
+// CinematicArms: "the game is animating the arms" from the motion of the GAME's own arm bones.
+// Opens after `startMs` above `start` uu/s, closes after `stopMs` below `stop` uu/s; in between
+// it keeps its state. A stale or missing speed reads as still.
+// `stamp` names the measurement the speed came from (0 = unknown, every call counts as new) and
+// `minSamples` is how many DIFFERENT measurements above `start` an opening needs: a pose snap is
+// one measurement, however long the reader keeps seeing it (run 3: one 700..2700 uu/s frame,
+// then a stalled sampler, read as 200 ms of motion).
 struct MotionGate {
     bool on = false;
-    unsigned long long aboveSince = 0, belowSince = 0;
-    bool update(float speed, unsigned long long now, float start, float stop, unsigned startMs, unsigned stopMs) {
+    unsigned long long aboveSince = 0, belowSince = 0, aboveStamp = 0;
+    unsigned aboveSamples = 0;
+    bool update(float speed, unsigned long long now, float start, float stop, unsigned startMs, unsigned stopMs,
+                unsigned long long stamp = 0, unsigned minSamples = 1) {
         if (!(speed >= 0) || !std::isfinite(speed)) speed = 0;
-        if (speed > start) { if (!aboveSince) aboveSince = now; } else aboveSince = 0;
+        if (speed > start) {
+            if (!aboveSince) { aboveSince = now; aboveSamples = 0; aboveStamp = 0; }
+            if (!stamp || stamp != aboveStamp) { ++aboveSamples; aboveStamp = stamp; }
+        } else { aboveSince = 0; aboveSamples = 0; }
         if (speed < stop) { if (!belowSince) belowSince = now; } else belowSince = 0;
-        if (!on && aboveSince && now - aboveSince >= startMs) on = true;
+        if (!on && aboveSince && now - aboveSince >= startMs && aboveSamples >= minSamples) on = true;
         else if (on && belowSince && now - belowSince >= stopMs) on = false;
         return on;
     }
 };
+// The game's own arm motion, blind to the mod's. Run 3 (2026-10-04) measured the old instrument
+// (the fastest arm-bone point in the native palette) following the PLAYER's controller: the
+// mod's hand control moves palette bones too, so any hand movement above 0.2 m/s opened the gate.
+// What the mod writes is ONE rigid move of one bone and everything below it, per arm. That splits
+// an arm's bones into at most two groups that stay rigid inside themselves, whichever bone the
+// control sits on. An animation bends more than one joint. So the motion is measured BETWEEN
+// bones (bone b's points in bone a's frame, which no common rigid move changes), and the answer
+// is the largest relative speed that is left after the single fastest split is granted to the
+// mod: the second-largest edge of the minimum spanning tree over the pairwise speeds.
+// Limit, by construction: a clip that moves exactly one joint reads as still.
+constexpr int kArmMotionMaxBones = 10;
+struct ArmMotion {
+    float joint = 0;      // uu/s between bones, the mod's one rigid write excluded: the gate's input
+    float fastest = 0;    // uu/s of the fastest bone point in the palette (the run-3 instrument; log only)
+    float refPose = -1;   // uu the pose is from the reference pose, same exclusion; -1 = not measurable
+    int bones = 0;        // bones measured; under 3 nothing can be separated and joint stays 0
+};
+inline float second_split(const float (*w)[kArmMotionMaxBones], int n) {
+    if (n < 3) return 0;
+    bool in[kArmMotionMaxBones] = {}; float best[kArmMotionMaxBones]; float e1 = 0, e2 = 0;
+    in[0] = true; for (int i = 0; i < n; ++i) best[i] = w[0][i];
+    for (int k = 1; k < n; ++k) {
+        int pick = -1;
+        for (int i = 0; i < n; ++i) if (!in[i] && (pick < 0 || best[i] < best[pick])) pick = i;
+        const float e = best[pick];
+        if (e > e1) { e2 = e1; e1 = e; } else if (e > e2) e2 = e;
+        in[pick] = true;
+        for (int i = 0; i < n; ++i) if (!in[i] && w[pick][i] < best[i]) best[i] = w[pick][i];
+    }
+    return e2;
+}
+// `cur`/`prev`: n skin matrices, 12 floats each (3 rows of 4, translation last), reference to
+// draw-local. `probe`: one reference-space point per bone (its vertex centroid). prev may be
+// null or dt <= 0: speeds read 0, the reference distance is still measured.
+inline ArmMotion arm_motion(const float* cur, const float* prev, const float (*probe)[3], int n, float dt) {
+    ArmMotion out;
+    if (!cur || !probe || n < 1 || n > kArmMotionMaxBones) return out;
+    float invCur[kArmMotionMaxBones][12], invPrev[kArmMotionMaxBones][12];
+    const bool timed = prev && dt > 0;
+    for (int b = 0; b < n; ++b) {
+        if (!hf::invert_3x4(cur + b * 12, invCur[b])) return out;      // collapsed (hidden) palette: nothing to measure
+        if (timed && !hf::invert_3x4(prev + b * 12, invPrev[b])) return out;
+    }
+    auto at = [](const float* m, const float* p, float* q) {
+        for (int r = 0; r < 3; ++r) q[r] = m[r * 4] * p[0] + m[r * 4 + 1] * p[1] + m[r * 4 + 2] * p[2] + m[r * 4 + 3];
+    };
+    float speed[kArmMotionMaxBones][kArmMotionMaxBones] = {}, away[kArmMotionMaxBones][kArmMotionMaxBones] = {};
+    for (int b = 0; b < n; ++b) {
+        // The centroid and two 10 uu levers: a bone that turns in place moves its levers.
+        const float pts[3][3] = { { probe[b][0], probe[b][1], probe[b][2] }, { probe[b][0] + 10, probe[b][1], probe[b][2] },
+                                  { probe[b][0], probe[b][1] + 10, probe[b][2] } };
+        for (int k = 0; k < 3; ++k) {
+            float wc[3], wp[3] = {}; at(cur + b * 12, pts[k], wc);
+            if (timed) {
+                at(prev + b * 12, pts[k], wp);
+                const float v = sqrtf((wc[0]-wp[0])*(wc[0]-wp[0]) + (wc[1]-wp[1])*(wc[1]-wp[1]) + (wc[2]-wp[2])*(wc[2]-wp[2])) / dt;
+                if (std::isfinite(v) && v > out.fastest) out.fastest = v;
+            }
+            for (int a = 0; a < n; ++a) {
+                if (a == b) continue;
+                float rc[3], rp[3]; at(invCur[a], wc, rc);
+                const float d = sqrtf((rc[0]-pts[k][0])*(rc[0]-pts[k][0]) + (rc[1]-pts[k][1])*(rc[1]-pts[k][1]) + (rc[2]-pts[k][2])*(rc[2]-pts[k][2]));
+                if (std::isfinite(d)) { if (d > away[a][b]) away[a][b] = d; if (d > away[b][a]) away[b][a] = d; }
+                if (!timed) continue;
+                at(invPrev[a], wp, rp);
+                const float v = sqrtf((rc[0]-rp[0])*(rc[0]-rp[0]) + (rc[1]-rp[1])*(rc[1]-rp[1]) + (rc[2]-rp[2])*(rc[2]-rp[2])) / dt;
+                if (std::isfinite(v)) { if (v > speed[a][b]) speed[a][b] = v; if (v > speed[b][a]) speed[b][a] = v; }
+            }
+        }
+    }
+    out.bones = n;
+    if (n >= 3) { out.joint = second_split(speed, n); out.refPose = second_split(away, n); }
+    return out;
+}
 // A uniformly scaled proper rotation: what blend_transform can interpolate.
 inline bool blendable(const hf::Xform& input, float* scaleOut=nullptr, hf::Mat3* rotOut=nullptr) {
     const float scale=sqrtf(input.r.m[0]*input.r.m[0]+input.r.m[3]*input.r.m[3]+input.r.m[6]*input.r.m[6]);

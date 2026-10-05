@@ -1,3 +1,19 @@
+## 2026-10-04: a motion detector that measured the mod's own motion
+
+CinematicArms handed a cutscene's arms to the game when "the game's arm bones move", read from
+the native skin palette on the belief that the mod writes hand bones only. The mod's hand
+control moves palette bones behind the wrist as well, so the detector followed the player's
+controller: it opened on any hand movement, fell to exactly 0 the moment the mod stopped writing,
+and closed on its hold. Its per-second log line looked healthy (plausible speeds, a gate that
+opened and closed). What gave it away: the speed was exactly 0.0 in every second the other side
+owned the arms, every opening had the same length, and the speed tracked an unrelated signal
+(the controller's peak speed in `swing: beat`).
+- Before trusting "X moves, so the game is doing it", list everything of ours that can move X
+  and find a log window where only that moves.
+- A detector's line should carry a second, independent signal beside it (here: the old fastest
+  point next to the between-bones motion), so a reader can see which one a spike belongs to.
+- Equal-length episodes are a timer, not a measurement.
+
 ## 2026-10-04: an invariant that holds within a tick, evaluated on every present
 
 The c5 pairing's "robust" arm (a -ipd step means pass 2 after pass 1) was robust only

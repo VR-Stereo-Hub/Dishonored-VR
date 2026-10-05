@@ -36,7 +36,11 @@ bool handAnimMeleeSwing = false;
 // the left stays on the controller (free to point, Blink, hold an item). 1 = both hands.
 bool handAnimMeleeBoth = false;
 unsigned char frameMask = 0;         // the mask the frame's weight was cached with
-std::atomic<unsigned char> ownedMask{0};   // hands the game owns right now (tick() publishes it; hand_owned reads it)
+std::atomic<unsigned char> ownedMask{0};
+// The choke owns the arms, from its state until its hand-back has fully returned (the IK draw
+// keeps the game's arm exactly as drawn for it: ArmIKGameArmShoulder=1). Latched so the rule
+// cannot change under a blend that is still running when the state has already moved on.
+std::atomic<bool> chokeArms{false};   // hands the game owns right now (tick() publishes it; hand_owned reads it)
 unsigned long long meleeKey = 0;     // the attack classified: max(entered[1], a combo clip's sequenceAt)
 bool meleeTrigger = false;           // its verdict, latched: true = TRIGGER, false = SWING
 char meleeSource[8] = "none";        // for status.json
@@ -252,18 +256,47 @@ int read_flag(uint8_t* obj,uint32_t off,uint32_t mask) {
 // BioShock Remastered mod (M7-S4): the speed of its upper-arm/forearm bones (MsSampleArmSpeed),
 // bones the mod never writes, through a gate with hysteresis. The hold is a setting because a
 // scripted clip can freeze a pose for seconds mid-scene (BRVR measured 2.5 and 4.5 s).
+// Run 3 (2026-10-04): the first instrument (the fastest arm-bone point) followed the PLAYER's
+// controller, because the mod's hand control moves palette bones behind the wrist: in a
+// conversation any hand movement above 0.2 m/s opened the gate, the game's arms turned out to be
+// a still stance (0.0 uu/s in every second the game owned them), and the gate closed on the hold:
+// all 15 openings lasted 1.8 to 2.2 s. The speed is now measured between the bones of one arm with
+// the mod's single rigid write excluded (arm_motion, anim_policy.h); an opening also needs
+// cineMinSamples different measurements (a pose snap is one), and a pose within cineRefPoseUu of
+// the reference pose is never the game animating (the default stance of an unposed arm mesh).
+// The thresholds are in the units of the NEW instrument and are not yet set from a run; the hold
+// is 5 s because the sibling mod measured scripted poses frozen for 2.5 and 4.5 s mid-clip.
 MotionGate cineMotion;
-float cineStartSpeed=20.0f, cineStopSpeed=8.0f;
-unsigned cineStartMs=120, cineHoldMs=1500;
-struct CineMotionStats { unsigned long long since=0; float max=0, sum=0; unsigned n=0, on=0; } cineStats;
+float cineStartSpeed=20.0f, cineStopSpeed=8.0f, cineRefPoseUu=1.0f;
+unsigned cineStartMs=120, cineHoldMs=5000, cineMinSamples=3;
+std::atomic<bool> cineGateOpen{false}, cineRefVeto{false};
+struct CineMotionStats {
+    unsigned long long since=0; float max=0, sum=0, fastest=0, refMin=-1, refMax=-1;
+    unsigned n=0, on=0, veto=0, stale=0, openings=0; int bones=0;
+} cineStats;
 bool cine_animating(const Snapshot& s,uint8_t*) {
     const unsigned long long now=GetTickCount64();
     const float raw=g_msArmSpeed.load();
     const bool fresh=raw>=0 && now-g_msArmSpeedMs<=200;
     const float speed=fresh ? raw : 0.0f;   // no arm draw (hidden, culled): nothing to measure, read as still
-    const bool moving=cineMotion.update(speed,now,cineStartSpeed,cineStopSpeed,cineStartMs,cineHoldMs);
+    const float ref=fresh ? g_msArmRefPose.load() : -1.0f;
+    // The reference pose is what an arm mesh shows when nothing poses it. Never the game's clip.
+    const bool veto=cineRefPoseUu>0 && ref>=0 && ref<cineRefPoseUu;
+    const bool was=cineMotion.on;
+    if (veto) cineMotion=MotionGate{};
+    const bool moving=!veto && cineMotion.update(speed,now,cineStartSpeed,cineStopSpeed,cineStartMs,cineHoldMs,
+                                                 1ull+g_msArmSampleGen.load(),cineMinSamples);
+    cineGateOpen.store(moving); cineRefVeto.store(veto);
     if (!cineStats.since) cineStats.since=now;
     cineStats.max=fmaxf(cineStats.max,speed); cineStats.sum+=speed; ++cineStats.n; cineStats.on+=moving?1:0;
+    cineStats.fastest=fmaxf(cineStats.fastest,fresh?g_msArmFastest.load():0.0f);
+    cineStats.veto+=veto?1:0; cineStats.stale+=fresh?0:1; cineStats.openings+=(moving && !was)?1:0;
+    cineStats.bones=g_msArmBones.load();
+    if (ref>=0) { cineStats.refMin=cineStats.refMin<0?ref:fminf(cineStats.refMin,ref); cineStats.refMax=fmaxf(cineStats.refMax,ref); }
+    if (moving!=was) Log("cine/gate: %s - game arm motion %.1f uu/s between bones (palette's fastest point %.1f, which also follows your "
+        "controller), reference-pose distance %.2f uu%s | opens above %.0f for %u ms over %u measurements, closes below %.0f after %u ms",
+        moving?"OPEN, the game takes the arms":veto?"CLOSED at once, the arms are in the reference pose":"CLOSED, the hold ran out",
+        speed,g_msArmFastest.load(),ref,ref<0?" (not measurable)":"",cineStartSpeed,cineStartMs,cineMinSamples,cineStopSpeed,cineHoldMs);
     return moving || !lane_idle(s.state[1]) || !lane_idle(s.state[2]);
 }
 struct CineVis {
@@ -321,9 +354,14 @@ void cine_visibility(uint8_t* pawn,const Snapshot& s,bool leverOn,uint8_t* ctrl)
         if (ctrl && cineProps.ignoreLookOff) read(ctrl,cineProps.ignoreLookOff,&lockLook,1);
         uint8_t* vt=ctrl && cineProps.viewTargetOff ? object(ctrl,cineProps.viewTargetOff) : nullptr;
         const char* vtc=vt ? ObjClassName(vt) : nullptr;
-        Log("cine/motion: game arm speed max=%.1f mean=%.1f uu/s, gate open %u/%u samples (opens above %.0f for %u ms, closes below %.0f "
-            "after %u ms) | input locks move=%d look=%d | view target %s%s | master=%s upper=%s left=%s owner=%s",
-            cineStats.max,cineStats.sum/cineStats.n,cineStats.on,cineStats.n,cineStartSpeed,cineStartMs,cineStopSpeed,cineHoldMs,
+        Log("cine/motion: game arm motion max=%.1f mean=%.1f uu/s between bones (%d bones an arm; 0 with the fastest point high = your own "
+            "hand, or one joint only) | palette fastest point max=%.1f uu/s (the run-3 instrument, follows your controller) | reference-pose "
+            "distance %.2f..%.2f uu (-1 = not measurable; under %.2f is vetoed: %u of %u samples) | gate open %u/%u samples, %u opening(s), "
+            "%u sample(s) with no fresh measurement (opens above %.0f for %u ms over %u measurements, closes below %.0f after %u ms) | "
+            "input locks move=%d look=%d | view target %s%s | master=%s upper=%s left=%s owner=%s",
+            cineStats.max,cineStats.sum/cineStats.n,cineStats.bones,cineStats.fastest,cineStats.refMin,cineStats.refMax,cineRefPoseUu,
+            cineStats.veto,cineStats.n,cineStats.on,cineStats.n,cineStats.openings,cineStats.stale,cineStartSpeed,cineStartMs,cineMinSamples,
+            cineStopSpeed,cineHoldMs,
             (int)lockMove,(int)lockLook,vtc?vtc:"?",vt && vt==pawn?" (the pawn)":"",s.state[0],s.state[1],s.state[2],s.handMask?"GAME":"PLAYER");
         cineStats=CineMotionStats{}; cineStats.since=now;
     }
@@ -490,6 +528,40 @@ void set_cinematic_arms(bool on) {
     Log("anim: CinematicArms=%d (live, saved; %s)",on?1:0,on?"tracked arms in cinematics, the game takes them while it animates them; "
         "a hidden arms-only or full-body pawn is unhidden":"cinematics follow CinematicHandBack and the per-state rules; the game's hiding is left alone");
 }
+CineGate cine_gate() {
+    AcquireSRWLockShared(&lock);
+    CineGate g{cineStartSpeed,cineStopSpeed,cineRefPoseUu,cineStartMs,cineHoldMs,cineMinSamples};
+    ReleaseSRWLockShared(&lock); return g;
+}
+void set_cine_gate(CineGate g,bool save) {
+    if(!std::isfinite(g.start)||!std::isfinite(g.stop)||!std::isfinite(g.refPoseUu))return;
+    g.start=std::clamp(g.start,0.1f,500.0f); g.stop=std::clamp(g.stop,0.0f,g.start);
+    g.refPoseUu=std::clamp(g.refPoseUu,0.0f,50.0f);
+    g.startMs=std::min(g.startMs,5000u); g.holdMs=std::min(g.holdMs,30000u); g.samples=std::clamp(g.samples,1u,20u);
+    AcquireSRWLockExclusive(&lock);
+    cineStartSpeed=g.start; cineStopSpeed=g.stop; cineRefPoseUu=g.refPoseUu; cineStartMs=g.startMs; cineHoldMs=g.holdMs; cineMinSamples=g.samples;
+    char ini[MAX_PATH];text(ini,sizeof(ini),rulesIni);ReleaseSRWLockExclusive(&lock);
+    if (!save) return;   // a slider being dragged: live only
+    char v[32];
+    if(*ini){
+        _snprintf_s(v,sizeof(v),_TRUNCATE,"%.1f",g.start); WritePrivateProfileStringA("Anim","CinematicMotionStart",v,ini);
+        _snprintf_s(v,sizeof(v),_TRUNCATE,"%.1f",g.stop); WritePrivateProfileStringA("Anim","CinematicMotionStop",v,ini);
+        _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",g.startMs); WritePrivateProfileStringA("Anim","CinematicMotionStartMs",v,ini);
+        _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",g.holdMs); WritePrivateProfileStringA("Anim","CinematicMotionHoldMs",v,ini);
+        _snprintf_s(v,sizeof(v),_TRUNCATE,"%u",g.samples); WritePrivateProfileStringA("Anim","CinematicMotionSamples",v,ini);
+        _snprintf_s(v,sizeof(v),_TRUNCATE,"%.2f",g.refPoseUu); WritePrivateProfileStringA("Anim","CinematicRefPoseUu",v,ini);
+    }
+    Log("anim: cutscene arm gate start=%.1f stop=%.1f uu/s startMs=%u samples=%u holdMs=%u refPoseUu=%.2f (live, saved)",
+        g.start,g.stop,g.startMs,g.samples,g.holdMs,g.refPoseUu);
+}
+CineGateLive cine_gate_live() {
+    const unsigned long long now=GetTickCount64();
+    CineGateLive l; const float raw=g_msArmSpeed.load();
+    l.fresh=raw>=0 && now-g_msArmSpeedMs<=200;
+    l.joint=l.fresh?raw:0.0f; l.fastest=l.fresh?g_msArmFastest.load():0.0f; l.refPose=l.fresh?g_msArmRefPose.load():-1.0f;
+    l.open=cineGateOpen.load(); l.veto=cineRefVeto.load();
+    return l;
+}
 bool enabled() { AcquireSRWLockShared(&lock); bool on=handback; ReleaseSRWLockShared(&lock); return on; }
 void set_enabled(bool on) {
     AcquireSRWLockExclusive(&lock); handback=on; handoff=Handoff{};
@@ -569,6 +641,7 @@ bool active() { const Snapshot s=snapshot(); return enabled() && s.valid && s.ha
 // Cheap on purpose: SkcRotApply asks per control on every ProcessEvent dispatch. The mask
 // is published by tick() as (handback && valid && game) ? handMask : 0, the same test active() makes.
 bool hand_owned(int hand) { return hand>=0 && hand<2 && (ownedMask.load() & (1u<<hand)); }
+bool choke_owns_arms() { return chokeArms.load(); }
 // The whole-draw native path (the split draws the game's own pose, the weapons fall back to
 // their native draw) is for a hand-back that owns BOTH hands. A right-hand-only hand-back keeps
 // the normal per-hand path: the right hand's correction blends to identity, the left keeps its own.
@@ -702,7 +775,7 @@ void tick() {
     // also run in ordinary states (the intro's walk-in with Emily was StatePlayerMasterWalk).
     const bool cineMode=cinematicArms && ctrlLive && read_flag(g_peCtrl,cineProps.modeOff,cineProps.modeMask)==1;
     const bool cineArms=cinematicArms && (dvr::scene_state::cinematic(s.state[0]) || cineMode);
-    if (!cineArms) { cineMotion=MotionGate{}; cineStats=CineMotionStats{}; }
+    if (!cineArms) { cineMotion=MotionGate{}; cineStats=CineMotionStats{}; cineGateOpen.store(false); cineRefVeto.store(false); }
     const bool cineAnim=cineArms && s.valid && cine_animating(s,pawn);
     const bool rules=(!cineArms && resolve_arm_rule(0,s.state[0])) || resolve_arm_rule(1,s.state[1]) || resolve_arm_rule(2,s.state[2]);
     const bool match=mantle || handPose || rules || cineAnim;
@@ -729,6 +802,8 @@ void tick() {
     // VR-220: what hand_owned() answers. SmoothBlend keeps the game's pose under the hand until
     // the return completes, so the return starts from exactly the pose the game left.
     ownedMask.store(smooth ? s.handMask : (handback && s.valid && s.game) ? s.handMask : 0);
+    if (s.valid && !strcmp(s.state[0],"StatePlayerMasterChoke")) chokeArms.store(true);
+    else if (!s.valid || !s.handMask) chokeArms.store(false);
     if (s.valid) text(s.reason,sizeof(s.reason),match?(cineAnim?"cinematic: the game animates the arms":s.mantleSplit?(swing?"swing native pose with split hands (trigger attack)":fire?"shot native pose with split hands":takedownSplit?"takedown native pose with split hands":"mantle native pose with split hands"):"selected animation arms"):classifier.game?"release hysteresis":s.handMask?"returning to tracked hands":cineArms?"cinematic: tracked arms (CinematicArms)":"no selected active action");
     published=s;
     const bool cineArmsOn=cinematicArms;
@@ -809,9 +884,14 @@ void configure(const char* ini) {
         if(!std::isfinite(cineStartSpeed)||cineStartSpeed<0.1f) cineStartSpeed=20.0f;
         if(!std::isfinite(cineStopSpeed)||cineStopSpeed<0||cineStopSpeed>cineStartSpeed) cineStopSpeed=cineStartSpeed*0.4f;
         cineStartMs=(unsigned)std::clamp((int)GetPrivateProfileIntA("Anim","CinematicMotionStartMs",120,ini),0,5000);
-        cineHoldMs=(unsigned)std::clamp((int)GetPrivateProfileIntA("Anim","CinematicMotionHoldMs",1500,ini),0,10000);
-        Log("config: [Anim] CinematicMotionStart=%.1f Stop=%.1f uu/s StartMs=%u HoldMs=%u (the game's own arm speed that hands a cutscene's arms to it)",
-            cineStartSpeed,cineStopSpeed,cineStartMs,cineHoldMs);
+        cineHoldMs=(unsigned)std::clamp((int)GetPrivateProfileIntA("Anim","CinematicMotionHoldMs",5000,ini),0,30000);
+        cineMinSamples=(unsigned)std::clamp((int)GetPrivateProfileIntA("Anim","CinematicMotionSamples",3,ini),1,20);
+        GetPrivateProfileStringA("Anim","CinematicRefPoseUu","1",v,sizeof(v),ini); cineRefPoseUu=(float)atof(v);
+        if(!std::isfinite(cineRefPoseUu)||cineRefPoseUu<0||cineRefPoseUu>50) cineRefPoseUu=1.0f;
+        Log("config: [Anim] CinematicMotionStart=%.1f Stop=%.1f uu/s StartMs=%u Samples=%u HoldMs=%u CinematicRefPoseUu=%.2f (the game's own arm "
+            "motion, measured between the bones of an arm so your own hand cannot open it; a pose within RefPoseUu of the reference pose is "
+            "never handed over, 0 = off; F10 Hands > Your arms in cutscenes)",
+            cineStartSpeed,cineStopSpeed,cineStartMs,cineMinSamples,cineHoldMs,cineRefPoseUu);
     }
     Log("config: [Anim] SmoothBlend=%d HandBackBlendInMs=%u HandBackBlendOutMs=%u (%s) CinematicArms=%d",(int)smoothBlend.load(),blendInMs,blendOutMs,
         smoothBlend.load()?"eased entry/return, palm on a straight path, hands held through the return":"off: linear HandBackBlendMs, instant return",(int)cinematicArms);
@@ -854,6 +934,16 @@ bool command(const char* args) {
     else if (!strcmp(sub,"smooth") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_smooth_blend(!strcmp(value,"on"));
     else if (!strcmp(sub,"blendms") && *value && *extra) set_blend_ms((unsigned)atoi(value),(unsigned)atoi(extra));
     else if (!strcmp(sub,"cinearms") && (!strcmp(value,"on") || !strcmp(value,"off"))) set_cinematic_arms(!strcmp(value,"on"));
+    else if (!strcmp(sub,"cinegate")) {   // anim cinegate <start> <stop> <startMs> <holdMs> [samples] [refPoseUu]
+        CineGate g=cine_gate(); float a=0,b=0,r=-1; unsigned c=0,d=0,e=0;
+        const int n=sscanf(args,"%*s %f %f %u %u %u %f",&a,&b,&c,&d,&e,&r);
+        if (n>=4) { g.start=a; g.stop=b; g.startMs=c; g.holdMs=d; if(n>=5)g.samples=e; if(n>=6)g.refPoseUu=r; set_cine_gate(g,true); }
+        const CineGateLive l=cine_gate_live(); g=cine_gate();
+        Log("anim: cinegate start=%.1f stop=%.1f startMs=%u holdMs=%u samples=%u refPoseUu=%.2f | now: motion %.1f uu/s, fastest point %.1f, "
+            "reference-pose distance %.2f, gate %s%s%s",g.start,g.stop,g.startMs,g.holdMs,g.samples,g.refPoseUu,l.joint,l.fastest,l.refPose,
+            l.open?"OPEN":"closed",l.veto?" (reference-pose veto)":"",l.fresh?"":" (no fresh measurement)");
+        return true;
+    }
     else if (!strcmp(sub,"watch") && (!strcmp(value,"on") || !strcmp(value,"off"))) {
         AcquireSRWLockExclusive(&lock); watch=!strcmp(value,"on"); published.valid=false; handoff=Handoff{}; ReleaseSRWLockExclusive(&lock);
     } else if (!strcmp(sub,"melee")) {   // VR-220: the sword hand-back and its source rule
@@ -869,7 +959,7 @@ bool command(const char* args) {
             handAnimMeleeSwing?" and for a physical swing":"; a physical swing keeps your arm");
         ReleaseSRWLockShared(&lock);
         return true;
-    } else if (*sub && strcmp(sub,"status")) Log("anim: status | watch on|off | handback on|off | smooth on|off | blendms <entry> <return> | cinearms on|off | "
+    } else if (*sub && strcmp(sub,"status")) Log("anim: status | watch on|off | handback on|off | smooth on|off | blendms <entry> <return> | cinearms on|off | cinegate [<start> <stop> <startMs> <holdMs> [samples] [refPoseUu]] | "
                                                  "melee on|off | melee swing on|off | melee both on|off | melee status");
     report(snapshot()); return true;
 }
