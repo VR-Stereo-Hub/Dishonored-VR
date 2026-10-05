@@ -1,3 +1,31 @@
+## 2026-10-05: staging integrated (#178-#181, #184 on top of #182/#183); next: full stereo/AFW flicker audit
+
+**Merged to staging today, with the maintainer's yes:** #178 (HUD ownership records; its code was
+already on staging), #179 (ReShade F10 records; same), #180 (pre-release performance audit, tools
+and decisions), #181 (fast DLSS default, grip pickup, books, doors, carry, usables, traps) and #184
+(Alyx-style per-hand palm reach, the ready hand that hides the held item and opens, the grab
+animation). Each branch had staging merged in first; every conflict was additive (docs sections and
+one pair of new functions in `reshade_runtime.cpp`), kept both sides, and each merge result built in
+Release with the golden ini, lint and the grab host tests passing. Staging tip `6329ae552`.
+
+**Installed for testing:** `v1.0.3-96-g6329ae552`, a Release build of that staging tip, the first
+build to carry the Heart backing (#182), the hand-effect locomotion fix (#183) and the grab work
+together. The previous test build (`v1.0.3-85`) came from a local branch that never took #182/#183,
+which is why neither Heart fix showed in it. The installed ini is byte-identical to the one the
+grab work was accepted with (`HeartBack=1`, `GrabAnim=1`, `GrabReadyOpen=1`, `GrabReadyHide=1`);
+the three Heart data files are in the data dir. Not yet run: the first launch should show
+`build v1.0.3-96-g6329ae552` in the banner, then check the Heart back and glow and the grab.
+
+**Open, carried:** several highlights at once needs the native per-object highlight entry (not
+found); the Heart and power glow stay drawn on a ready hand; an unexplained per-eye exposure
+alternation seen only in simulator captures (FLICKER_REFERENCE top entry); no Linear tickets exist
+for #181/#184. Still open as drafts: #175, #166.
+
+**Next session:** an exhaustive audit of the stereo and AFW rendering pipeline against
+FLICKER_REFERENCE (every row of its section 1, every path of section 2, every elimination of
+section 4 re-checked against today's code), aimed at eliminating every remaining flicker source and
+making frame delivery as smooth as possible. The prompt is kept locally.
+
 ## 2026-10-05: Heart glow locomotion accepted for staging
 
 Headset testing confirms the Heart glow remains aligned during locomotion on
