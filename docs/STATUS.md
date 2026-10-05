@@ -17,6 +17,10 @@ Detail: INSTALLER.md, top entry.
   `build/playtest-candidates/hud-recouple/replaced-20261004-230947/`.
 - No Linear ticket: this session has no Linear access.
 
+- 2026-10-05, first headset log with the change: ReShade.ini needed no edit, but the ini had
+  `LoadAllEffects=1`, so the preset-only list and the Performance mode rebuild were not
+  exercised. 62 effects compiled per runtime, 0 errors. Detail in INSTALLER.md, top entry.
+
 ## 2026-10-04: HUD widgets splitting and marker flicker - native ownership restored
 
 Branch `claude/hud-recouple`. Detail: dishonored/HUD_ANCHORS.md and FLICKER_REFERENCE.md, top
