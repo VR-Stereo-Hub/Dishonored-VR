@@ -10,6 +10,10 @@ Branch `claude/anim-blend-ik`, PR #177. Detail: dishonored/ANIM-HANDOFF-PLAN.md,
 - Shipped defaults are unchanged: SmoothBlend, ArmIKGameArmInAnim and ArmIKGameArmShoulder
   are still 0 in the default ini (on in the dev PC's ini). Turning them on for players is a
   separate decision.
+- Installed: v1.0.3-40-gb6a256aca; ini = the run-4 ini with `CinematicArms=0` only, byte for
+  byte (73858 bytes, 1700 CRLF). Settings changed in F10 during run 4 are kept (`Method=afw`,
+  DLSS quality 5 at 2114x2192). Backup of the run-4 pair and its logs:
+  `build/playtest-candidates/anim-blend-ik/run4-replaced-20261004-222443/`.
 
 ## 2026-10-04: run 3 read - the cutscene gate followed the player; game arm re-seated
 
