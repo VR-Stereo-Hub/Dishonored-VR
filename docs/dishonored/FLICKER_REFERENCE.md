@@ -1,3 +1,50 @@
+## 2026-10-05: right-eye flicker on the hands and weapons with physical pickup - the pickup scan starved the game thread (MEASURED cause, fix built, headset pending)
+
+1. **Symptom identity:** a strong flicker on the hands and the weapons, reported in the right
+   eye, sideways. Surface: the eye image itself (the right eye's swapchain misses a present),
+   seen first on the near objects. Row worked from: "One eye lags and flickers sideways" in
+   the section 1 table, by its signature (`pushed eye ... TWICE`), not by its cause.
+2. **Reproduction identity:** headset, VDXR 144 Hz, build v1.0.3-60-g35decd986 (a local merge
+   carrying the first physical pickup build), `stereo afw`, DLSS Quality with Transformer K,
+   2750x2850. One session of 132 s. The three sessions before it on the same PC and scene,
+   without the pickup code, are the comparison.
+3. **Hypothesis and counterprediction:** the pickup's per-frame work made the game tick slow
+   enough that a draw found no camera upload since the previous one, the camera-silent gate
+   issued a single untagged draw, and the next present pushed the same eye twice. Falsified
+   if the gate's rate and the script lane's cost are the same as in the sessions without the
+   pickup code.
+4. **Measured:**
+
+   | Session | build | length | `gates -> SINGLE draw (camera silent ...)` | `pe/cost` |
+   |---|---|---:|---:|---|
+   | this one | 60 (pickup) | 132 s (about 95 s of gameplay) | 49 | 130-163 us an event, 280-475 ms/s, mid ticks 176-374 ms/s |
+   | previous | 55 | 907 s | 10 | not compared |
+   | run 2 of the audit | 57 | 659 s | 2 | 52-58 us an event, 143-171 ms/s, mid ticks 54-59 ms/s |
+
+   Each firing reads, in order: `reentry: gates -> SINGLE draw (camera silent (no c5 upload
+   since the previous draw))`, `xr: present handed in NO frame - re-submitted the previous
+   layer`, `reentry: pushed eye -1 TWICE in a row - the RIGHT eye's swapchain gets no copy this
+   present and goes stale`. The counter on that last line reached 75 in the session. The
+   stale eye is always the right one because the eye pushed twice is always the left.
+   The cost: the scan asked whether each object was readable through `RegionMemo`, which
+   makes a VirtualQuery whenever the next object lies in another memory region, and GObjects
+   entries nearly always do. 2000 objects a frame came to about 2.4 ms of every game tick.
+   The author's estimate had been 0.06 ms and was not measured before it shipped to a
+   headset.
+5. **Change:** the scan and the per-frame distance pass read GObjects directly under a
+   structured exception handler (plain data, `crash::probe_begin/end` around them), 1000
+   slots a frame, a direct-mapped class cache instead of a hash map. The module now times
+   itself: `pickup: beat ... own cost N us a frame (max M ...)`.
+6. **Results:** built; not run. Prediction for the next session with pickup on: `pe/cost`
+   back near 55 us an event, `own cost` in the tens of microseconds, and the camera-silent
+   gate back to a few firings in ten minutes. If the gate still fires about once every two
+   seconds with the cost back to normal, this entry's cause is wrong and the pickup's ray
+   override or pad filter is next.
+7. **Status and remaining scope:** cause measured, fix headset-pending. Not explained and
+   not new: why a slow game tick produces a camera-silent draw at all under AFW (VR-77's
+   scheduling question), and the baseline rate of 2 to 10 firings a session without the
+   pickup code.
+
 ## 2026-10-04: menu-triggered full-arm disappearance, separate from minor flicker
 
 Reported weapon-wheel arm loss and uncertain pause-menu arm loss on the
@@ -3192,6 +3239,7 @@ pose metadata without reopening the disproved historical theories.
 | World FOV rectangle remains fixed while turning behind Wheel/Note | Menu blocks camera writers despite riding stereo; distinguish fixed camera from stale pair with scoped pose and capture identities | VR-126 scoped head-look candidate, headset pending |
 | Desktop window alternates left/right views throughout stereo | Each eye draw reaches the game's Present; missing desktop pin | Original VR-53 pin implemented; later VR-76 correction confirmed |
 | Single-frame rightward hand/weapon jump, clearest in desktop window | Current D3D9 pixels classified by a previous-present capture tag; single-draw bursts trigger raw leaks | VR-76 confirmed, `DesktopEyeSource=draw` default |
+| Hands and weapons flicker sideways in the RIGHT eye about once every second or two under AFW, after a new per-frame feature was added; `gates -> SINGLE draw (camera silent ...)` then `pushed eye -1 TWICE` at that rate | The game tick got slower: read `pe/cost` (us an event, mid ticks) against a session without the feature BEFORE looking at the eye path | 2026-10-05: the physical pickup scan cost 2.4 ms a tick; fix built, headset pending; top entry |
 | One eye lags and flickers sideways (world AND weapon) all the time on a slow GPU, since 1.0.2; `stereo: beat` lopsided with `none/s` ~25 | Capture waits time out and REFUSE (1.0.2, 1d2ee24a5); the refusals land on one eye | `TimeoutRefuse=0` REPORTED fixing the strong flicker (2026-10-03); `[Capture] AutoDepth` measured removing the hitch (2026-10-04); top entry |
 | Rare single one-eye flicker while moving sideways; ledger `TOOK` right after the same eye, then `pushed eye TWICE` | The c5 within-tick arm misreads a cross-tick step when the walk per tick is ~2 ipd | 2026-10-04 candidate `[Stereo] C5SameEyeGuard`, host-verified (599 -> 0 wrong eyes); headset pending; top entry |
 | One eye appears frozen, swapped, or behind after pause/load/rearm | Tag-ring skew, capture freshness, c5 arbitration, or one-sided tag generation | VR-80 late-tag repair confirmed; distinct reload R/0 capture repair headset-confirmed on build 215 (18:01:15), latest record below. Residual generation/timing remains open |

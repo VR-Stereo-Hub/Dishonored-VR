@@ -10160,7 +10160,7 @@ matinee is posing the pawn's mesh. Runtime use requires reflection to resolve
 
 ## Physical pickup: the lootable classes and the target ray (2026-10-05)
 
-Built, not yet run in a headset or the simulator. Code: `physical_pickup.cpp`, two lines in
+First headset session 2026-10-05: targets were found from both hands, the game focused every one of them and the grip picked them up (three pickups, no refusal); that build's scan was too slow and has been rewritten. Code: `physical_pickup.cpp`, two lines in
 `interact_aim.cpp`, one filter in `pad_bridge.cpp`.
 
 * **What counts as loot** (from the script declarations, class hierarchy only): everything
@@ -10171,10 +10171,14 @@ Built, not yet run in a headset or the simulator. Code: `physical_pickup.cpp`, t
   The test is a walk of `UStruct::SuperField` (+0x44) from the object's class, comparing each
   class object's own name, cached per class pointer.
 * **Finding them without a frame paying for it.** A whole GObjects walk costs milliseconds, so
-  the list is built by an incremental pass: 2000 slots a frame, a full sweep in well under a
-  second. An entry is trusted only while its GObjects slot still holds the same pointer AND
-  that object's class pointer is unchanged; nothing is dereferenced before that check. The
-  position is `Actor.Location` and the hidden test `Actor.bHidden`, both resolved by name.
+  the list is built by an incremental pass: 1000 slots a frame, a full sweep in about a
+  second. The entries are read directly under a structured exception handler, not checked
+  for readability one by one: the first build did that through `RegionMemo`, which is a
+  VirtualQuery per object here, and cost 2.4 ms a tick (TRAPS, 2026-10-05). An entry is
+  trusted only while its GObjects slot still holds the same pointer AND that object's class
+  pointer is unchanged. The position is `Actor.Location` (+0xC4 at run time) and the hidden
+  test `Actor.bHidden`, both resolved by name. First headset session: 167 lootable actors
+  among 100086 objects.
 * **The engine still chooses.** No field is written and nothing is picked up by the mod. When
   a listed item is within reach of a hand, the two interaction bridges of VR-166 hand the
   engine's own trace a ray from the game camera to the item instead of the pointing ray. The

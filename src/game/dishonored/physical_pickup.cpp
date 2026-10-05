@@ -33,10 +33,19 @@ static std::atomic<uint64_t> g_ppReadyMs{0};          // when the mask was last 
 static std::atomic<uint32_t> g_ppFired{0}, g_ppSwallowed{0};
 
 struct PpEntry { uint8_t* obj; uint32_t idx; uint8_t* cls; };
-static std::vector<PpEntry> g_ppList, g_ppBuild;
-static std::unordered_map<uint8_t*, uint8_t> g_ppClassVerdict;   // class pointer -> 1 lootable, 0 not
-static uint32_t g_ppCursor = 0, g_ppSweeps = 0;
+// Two fixed arrays, swapped when a sweep completes. Plain data on purpose: the loops that fill
+// and read them run under a structured exception handler (see PpSweepSlice), which cannot share
+// a function with C++ objects that unwind.
+constexpr uint32_t kPpMax = 4096;
+static PpEntry  g_ppArrA[kPpMax], g_ppArrB[kPpMax];
+static PpEntry* g_ppList = g_ppArrA; static uint32_t g_ppListN = 0;
+static PpEntry* g_ppBuild = g_ppArrB; static uint32_t g_ppBuildN = 0;
+// class pointer -> lootable, direct mapped; a collision only recomputes.
+struct PpClassSlot { uint8_t* cls; uint8_t verdict; };
+static PpClassSlot g_ppClass[2048];
+static uint32_t g_ppCursor = 0, g_ppSweeps = 0, g_ppFaults = 0;
 static double   g_ppSweepStartMs = 0, g_ppLastSweepMs = 0;
+static double   g_ppCostUsSum = 0, g_ppCostUsMax = 0; static uint32_t g_ppCostN = 0;   // this module's own cost a frame
 
 // The target (game thread only).
 static uint8_t* g_ppTarget = NULL;
@@ -55,55 +64,111 @@ static bool PpGameplay()
     return g_ppOn.load() && !g_gamepadOnly && CylTruthLive() && !g_menuOpen && !g_inMenu && !g_mainMenu && !g_cineNow;
 }
 
-// Does this class derive from a lootable base? Walks the SuperField chain once per class.
-static bool PpClassLootable(uint8_t* cls)
+// WHY THESE LOOPS ARE GUARDED INSTEAD OF CHECKED. The first build asked "is this readable"
+// once per object (RegionMemo, which costs a VirtualQuery whenever the next object lies in
+// another memory region - nearly always). 2000 objects a frame came to about 2.4 ms of the
+// game thread every tick (pe/cost 160 us an event against 54), the camera-silent gate fired
+// about once every two seconds instead of once in five minutes, and each firing left the
+// RIGHT eye without an image for a present: a visible flicker (FLICKER_REFERENCE, 2026-10-05).
+// GObjects entries are live objects on this thread - the collector runs on it too - so the
+// loops read them directly and a structured exception handler is the backstop for a pointer
+// that is not. Plain data only inside them.
+
+// Does this class derive from a lootable base? Walks the SuperField chain, cached per class.
+// Called only from inside the guarded loops.
+static bool PpClassLootableRaw(uint8_t* cls)
 {
-    auto it = g_ppClassVerdict.find(cls);
-    if (it != g_ppClassVerdict.end()) return it->second != 0;
+    PpClassSlot& slot = g_ppClass[((uintptr_t)cls >> 4) & 2047];
+    if (slot.cls == cls) return slot.verdict != 0;
     bool yes = false;
     uint8_t* c = cls;
     for (int depth = 0; c && depth < 32; ++depth) {
-        if (((uintptr_t)c & 3) || !RangeReadable(c, kSuperFieldOff + 4)) break;
+        if (((uintptr_t)c & 3) || (uintptr_t)c < 0x10000) break;
         const char* n = RealName(*(uint32_t*)(c + kNameOff));
         if (n && (!strcmp(n, "DisPickup_Base") || !strcmp(n, "DisProjectile_Arrow"))) { yes = true; break; }
         c = *(uint8_t**)(c + kSuperFieldOff);
     }
-    if (g_ppClassVerdict.size() < 20000) g_ppClassVerdict.emplace(cls, (uint8_t)(yes ? 1 : 0));
+    slot.cls = cls; slot.verdict = (uint8_t)(yes ? 1 : 0);
     return yes;
 }
 
-// A slice of the incremental sweep. `budget` GObjects slots a call.
-static void PpSweep(uint32_t budget, double nowMs)
+// One slice of the sweep. Returns the new count; *fault says the handler ran.
+static uint32_t PpSweepSlice(void** objs, uint32_t from, uint32_t to, PpEntry* out, uint32_t n, bool* fault)
 {
-    if (!RangeReadable((void*)kGObjHdr, 12)) return;
-    void**   objs = *(void***)kGObjHdr;
-    uint32_t num  = *(uint32_t*)(kGObjHdr + 4);
-    if (!objs || ((uintptr_t)objs & 3) || num < 1000 || num > 4000000) return;
-    if (g_ppCursor == 0) { g_ppBuild.clear(); g_ppSweepStartMs = nowMs; }
-    ::dvr::mem::RegionMemo rt, ro;
-    uint32_t i = g_ppCursor;
-    const uint32_t end = (num - i > budget) ? i + budget : num;
-    for (; i < end; ++i) {
-        if (!rt.ok(objs + i, sizeof(void*))) { i = num; break; }
-        uint8_t* o = (uint8_t*)objs[i];
-        if (!o || ((uintptr_t)o & 3) || !ro.ok(o, kClassOff + 4)) continue;
-        uint8_t* cls = *(uint8_t**)(o + kClassOff);
-        if (!cls || !PpClassLootable(cls)) continue;
-        if (g_ppBuild.size() < 8192) g_ppBuild.push_back({o, i, cls});
-    }
-    g_ppCursor = i;
+    __try {
+        for (uint32_t i = from; i < to; ++i) {
+            uint8_t* o = (uint8_t*)objs[i];
+            if (!o || ((uintptr_t)o & 3) || (uintptr_t)o < 0x10000) continue;
+            uint8_t* cls = *(uint8_t**)(o + kClassOff);
+            if (!cls || ((uintptr_t)cls & 3) || (uintptr_t)cls < 0x10000) continue;
+            if (!PpClassLootableRaw(cls)) continue;
+            if (n < kPpMax) { out[n].obj = o; out[n].idx = i; out[n].cls = cls; ++n; }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { *fault = true; }
+    return n;
+}
+
+// The incremental sweep: `budget` GObjects slots a call.
+static void PpSweep(void** objs, uint32_t num, uint32_t budget, double nowMs)
+{
+    if (g_ppCursor >= num) g_ppCursor = 0;
+    if (g_ppCursor == 0) { g_ppBuildN = 0; g_ppSweepStartMs = nowMs; }
+    const uint32_t end = (num - g_ppCursor > budget) ? g_ppCursor + budget : num;
+    bool fault = false;
+    g_ppBuildN = PpSweepSlice(objs, g_ppCursor, end, g_ppBuild, g_ppBuildN, &fault);
+    if (fault) ++g_ppFaults;                             // the rest of this slice is skipped until the next sweep
+    g_ppCursor = end;
     if (g_ppCursor >= num) {
         g_ppCursor = 0;
-        g_ppList.swap(g_ppBuild);
+        PpEntry* t = g_ppList; g_ppList = g_ppBuild; g_ppBuild = t;
+        g_ppListN = g_ppBuildN; g_ppBuildN = 0;
         g_ppLastSweepMs = nowMs - g_ppSweepStartMs;
-        // A class pointer can be reused by another class after a level change; the verdicts are
-        // cheap to rebuild, so they do not outlive a few dozen sweeps.
-        if ((g_ppSweeps & 63u) == 63u) g_ppClassVerdict.clear();
+        // A class pointer can be reused by another class after a level change; the verdicts
+        // are cheap to rebuild, so they do not outlive a few dozen sweeps.
+        if ((g_ppSweeps & 63u) == 63u) memset(g_ppClass, 0, sizeof(g_ppClass));
         if (++g_ppSweeps == 1)
             Log("pickup: first sweep done - %u lootable actor(s) among %u objects in %.0f ms of game time "
-                "(%u slots a frame; class verdicts cached for %u classes)",
-                (unsigned)g_ppList.size(), num, g_ppLastSweepMs, budget, (unsigned)g_ppClassVerdict.size());
+                "(%u slots a frame, guarded direct reads, %u fault(s))",
+                g_ppListN, num, g_ppLastSweepMs, budget, g_ppFaults);
     }
+}
+
+// The nearest listed item within reach of a hand, and the engine's focused actor. Plain data.
+struct PpPick { uint8_t* obj; uint32_t idx; float loc[3]; float d2[2]; int hand; uint8_t* focus; bool fault; };
+static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n, uint32_t locOff,
+                      uint32_t hiddenOff, uint32_t hiddenMask, const float (*hand)[3], const bool* handOk,
+                      float reach, float keep, uint8_t* held, uint8_t* blocked, uint8_t* pc, uint32_t focusOff, PpPick* out)
+{
+    out->obj = NULL; out->idx = 0; out->hand = -1; out->focus = NULL; out->fault = false;
+    out->d2[0] = out->d2[1] = 1e30f;
+    float bestScore = 0;
+    __try {
+        if (pc && !((uintptr_t)pc & 3)) out->focus = *(uint8_t**)(pc + focusOff);
+        for (uint32_t k = 0; k < n; ++k) {
+            const PpEntry& e = list[k];
+            if (e.idx >= num || (uint8_t*)objs[e.idx] != e.obj) continue;      // the slot moved on: not this actor any more
+            if (*(uint8_t**)(e.obj + kClassOff) != e.cls) continue;
+            if (e.obj == blocked) continue;
+            if (hiddenMask && (*(uint32_t*)(e.obj + hiddenOff) & hiddenMask)) continue;
+            float loc[3]; memcpy(loc, e.obj + locOff, 12);
+            if (!(loc[0] == loc[0]) || !(loc[1] == loc[1]) || !(loc[2] == loc[2])) continue;   // NaN
+            const float lim = (e.obj == held ? keep : reach), lim2 = lim * lim;
+            float d2h[2] = { 1e30f, 1e30f }; int nearHand = -1;
+            for (int h = 0; h < 2; ++h) {
+                if (!handOk[h]) continue;
+                const float dx = loc[0] - hand[h][0], dy = loc[1] - hand[h][1], dz = loc[2] - hand[h][2];
+                d2h[h] = dx * dx + dy * dy + dz * dz;
+                if (nearHand < 0 || d2h[h] < d2h[nearHand]) nearHand = h;
+            }
+            if (nearHand < 0 || !(d2h[nearHand] <= lim2)) continue;
+            // the held target keeps the choice unless another item is clearly nearer
+            const float score = d2h[nearHand] * (e.obj == held ? 0.6f : 1.0f);
+            if (!out->obj || score < bestScore) {
+                out->obj = e.obj; out->idx = e.idx; out->hand = nearHand; bestScore = score;
+                memcpy(out->loc, loc, 12); out->d2[0] = d2h[0]; out->d2[1] = d2h[1];
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { out->obj = NULL; out->fault = true; }
 }
 
 // A hand's position in game world units: the grip pose, scaled about the head the way the drawn
@@ -174,7 +239,23 @@ static void PhysicalPickupTick()
     const double now = MaimNowMs();
     if (!PpGameplay()) { if (g_ppTarget) PpDropTarget("not in gameplay, or off", now, false); g_ppReadyMask.store(0); return; }
 
-    PpSweep(2000, now);
+    // This module's own cost, every frame it does work: the number the first build lacked.
+    struct PpCost {
+        LARGE_INTEGER f, a;
+        PpCost() { QueryPerformanceFrequency(&f); QueryPerformanceCounter(&a); }
+        ~PpCost() {
+            LARGE_INTEGER b; QueryPerformanceCounter(&b);
+            const double us = (double)(b.QuadPart - a.QuadPart) * 1e6 / (double)f.QuadPart;
+            g_ppCostUsSum += us; ++g_ppCostN; if (us > g_ppCostUsMax) g_ppCostUsMax = us;
+        }
+    } cost;
+
+    void** objs = *(void***)kGObjHdr;                       // the image's own data: always readable
+    const uint32_t num = *(uint32_t*)(kGObjHdr + 4);
+    if (!objs || ((uintptr_t)objs & 3) || num < 1000 || num > 4000000) { if (g_ppTarget) PpDropTarget("no object table", now, false); return; }
+    dvr::crash::probe_begin();                              // a fault inside the guarded loops is not a crash
+    PpSweep(objs, num, 1000, now);
+    dvr::crash::probe_end();
 
     static uint32_t locOff = 0, focusOff = 0, hiddenOff = 0, hiddenMask = 0; static bool hiddenAsked = false;
     if (!locOff)   locOff   = RflOffsetOf("Actor", "Location");
@@ -191,38 +272,17 @@ static void PhysicalPickupTick()
     for (int h = 0; h < 2; ++h) handOk[h] = PpHandWorld(h, camera, hand[h]);
     if (!handOk[0] && !handOk[1]) { if (g_ppTarget) PpDropTarget("no tracked hand", now, false); return; }
 
-    void** objs = RangeReadable((void*)kGObjHdr, 12) ? *(void***)kGObjHdr : NULL;
-    const uint32_t num = objs ? *(uint32_t*)(kGObjHdr + 4) : 0;
     const float reach = g_ppReachM.load() * g_posScaleUU;         // game units
     const float keep  = reach * 1.25f;                            // the held target's hysteresis
-    ::dvr::mem::RegionMemo rt, ro;
-    uint8_t* best = NULL; uint32_t bestIdx = 0; float bestD2 = 0, bestLoc[3] = {}; int bestHand = -1;
-    float dist2[2] = { 1e30f, 1e30f };                            // of the chosen item, per hand
-    if (objs && !((uintptr_t)objs & 3)) {
-        for (const PpEntry& e : g_ppList) {
-            if (e.idx >= num || !rt.ok(objs + e.idx, sizeof(void*)) || (uint8_t*)objs[e.idx] != e.obj) continue;
-            if (!ro.ok(e.obj, locOff + 12) || *(uint8_t**)(e.obj + kClassOff) != e.cls) continue;
-            if (e.obj == g_ppBlock && now < g_ppBlockUntilMs) continue;
-            if (hiddenMask && ro.ok(e.obj + hiddenOff, 4) && (*(uint32_t*)(e.obj + hiddenOff) & hiddenMask)) continue;
-            float loc[3]; memcpy(loc, e.obj + locOff, 12);
-            if (!std::isfinite(loc[0]) || !std::isfinite(loc[1]) || !std::isfinite(loc[2])) continue;
-            const float lim = (e.obj == g_ppTarget ? keep : reach); const float lim2 = lim * lim;
-            float d2h[2] = { 1e30f, 1e30f }; int nearHand = -1;
-            for (int h = 0; h < 2; ++h) {
-                if (!handOk[h]) continue;
-                const float dx = loc[0] - hand[h][0], dy = loc[1] - hand[h][1], dz = loc[2] - hand[h][2];
-                d2h[h] = dx * dx + dy * dy + dz * dz;
-                if (nearHand < 0 || d2h[h] < d2h[nearHand]) nearHand = h;
-            }
-            if (nearHand < 0 || d2h[nearHand] > lim2) continue;
-            // the held target keeps the choice unless another item is clearly nearer
-            const float score = d2h[nearHand] * (e.obj == g_ppTarget ? 0.6f : 1.0f);
-            if (!best || score < bestD2) {
-                best = e.obj; bestIdx = e.idx; bestD2 = score; bestHand = nearHand;
-                memcpy(bestLoc, loc, 12); dist2[0] = d2h[0]; dist2[1] = d2h[1];
-            }
-        }
-    }
+    PpPick pick;
+    dvr::crash::probe_begin();
+    PpNearest(objs, num, g_ppList, g_ppListN, locOff, hiddenOff, hiddenMask, hand, handOk, reach, keep, g_ppTarget,
+              now < g_ppBlockUntilMs ? g_ppBlock : NULL, g_peCtrl, focusOff, &pick);
+    dvr::crash::probe_end();
+    if (pick.fault) ++g_ppFaults;
+    uint8_t* best = pick.obj; const uint32_t bestIdx = pick.idx; const int bestHand = pick.hand;
+    float bestLoc[3] = { pick.loc[0], pick.loc[1], pick.loc[2] };
+    float dist2[2] = { pick.d2[0], pick.d2[1] };                  // of the chosen item, per hand
     if (!best) { if (g_ppTarget) PpDropTarget("no lootable within reach", now, false); return; }
 
     if (best != g_ppTarget) {
@@ -239,8 +299,7 @@ static void PhysicalPickupTick()
     g_ppTargetHand = bestHand;
 
     // The engine's verdict: is its focused actor our target?
-    uint8_t* pc = g_peCtrl; uint8_t* focus = NULL;
-    if (pc && LooksLikeObj(pc) && RangeReadable(pc + focusOff, 4)) focus = *(uint8_t**)(pc + focusOff);
+    uint8_t* focus = pick.focus;
     if (focus == g_ppTarget) { g_ppFocusedLastMs = now; g_ppTargetFocused = true; }
     else if (now - (g_ppFocusedLastMs > 0 ? g_ppFocusedLastMs : g_ppTargetSinceMs) > 250.0) {
         // Aimed at it for a quarter second and the game did not take it: not usable now.
@@ -257,9 +316,11 @@ static void PhysicalPickupTick()
     if (now >= nextBeat) {
         nextBeat = now + 30000;
         Log("pickup: beat - %u lootable actor(s) listed, sweep %u took %.0f ms of game time, trace driven %ld time(s), "
-            "grips swallowed %u, Interact pressed %u, reach %.0f cm",
-            (unsigned)g_ppList.size(), g_ppSweeps, g_ppLastSweepMs, (long)g_ppRayDriven, g_ppSwallowed.load(), g_ppFired.load(),
-            g_ppReachM.load() * 100.0f);
+            "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame (max %.0f over %u frames; "
+            "it must stay in the tens: the first build cost 2400 and starved an eye), guarded-read faults %u",
+            g_ppListN, g_ppSweeps, g_ppLastSweepMs, (long)g_ppRayDriven, g_ppSwallowed.load(), g_ppFired.load(),
+            g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostN, g_ppFaults);
+        g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0;
     }
 }
 
@@ -329,7 +390,7 @@ static bool PickupCommand(const char* args)
     }
     Log("pickup: on|off, reach <cm> (now %s, reach %.0f cm) | listed %u, sweeps %u (last %.0f ms), target %s (hand %d, focused %s), "
         "trace driven %ld, grips swallowed %u, Interact pressed %u, ready mask %u",
-        g_ppOn.load() ? "ON" : "off", PickupReachCm(), (unsigned)g_ppList.size(), g_ppSweeps, g_ppLastSweepMs,
+        g_ppOn.load() ? "ON" : "off", PickupReachCm(), g_ppListN, g_ppSweeps, g_ppLastSweepMs,
         g_ppTarget ? "held" : "none", g_ppTargetHand, g_ppTargetFocused ? "yes" : "no", (long)g_ppRayDriven,
         g_ppSwallowed.load(), g_ppFired.load(), g_ppReadyMask.load());
     return true;

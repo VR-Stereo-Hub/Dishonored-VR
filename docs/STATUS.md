@@ -14,6 +14,11 @@ Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
   lootables), `pickup: target ...` when a hand nears loot, whether the highlight appears,
   `pickup: ... grip swallowed, Interact pressed`, and any `target released (the game did not
   focus it ...)` line, which is the unproven part (the trace reaching the item's origin).
+- First headset session (2026-10-05, pickup merged into the local test build): the pickup
+  worked from both hands, and it caused a right-eye flicker on the hands and weapons: the scan
+  cost 2.4 ms of every game tick and the camera-silent gate starved the right eye about once
+  every two seconds. Rewritten to guarded direct reads with its own cost in the log; that fix
+  is built and not yet run. FLICKER_REFERENCE and TRAPS, top entries.
 - No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
   decision. Not installed.
 

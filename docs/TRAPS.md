@@ -1,3 +1,17 @@
+## 2026-10-05: a per-object readability check that was assumed free
+
+The physical pickup's first build walked 2000 GObjects entries a frame and asked
+`RegionMemo::ok` about each. The memo holds ONE memory region, and consecutive GObjects
+entries almost never share one, so nearly every check was a VirtualQuery: about 2.4 ms of
+every game tick, estimated beforehand at 0.06 ms and not measured. It reached a headset and
+starved the right eye about once every two seconds (FLICKER_REFERENCE, 2026-10-05).
+- `RegionMemo` pays for itself only on reads that stay inside a region (an array, one
+  object's fields). Across objects it is a system call each.
+- Anything added to the script lane states its cost from a measurement before a headset run:
+  `pe/cost` before and after (us an event, mid ticks), or a timer of its own in its beat line.
+- For a walk over live objects on the game thread, read directly and guard the loop with a
+  structured exception handler between `crash::probe_begin` and `probe_end`.
+
 ## 2026-10-04: a motion detector that measured the mod's own motion
 
 CinematicArms handed a cutscene's arms to the game when "the game's arm bones move", read from
