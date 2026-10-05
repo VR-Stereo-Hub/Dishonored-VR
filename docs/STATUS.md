@@ -19,6 +19,16 @@ one eventual launch question are in [FLICKER_REFERENCE](dishonored/FLICKER_REFER
 After installation is authorized, test only whether OFF/ON/OFF improves the people
 on the same boat without worsening scenery. No staging/release merge.
 
+Built optimized v1.0.3-44-g8899df7de on codex/afw-character-test, combining
+feature f5cb38628 with installed animation baseline 65b278d04. Only the isolated
+test branch was combined; staging and VR-Main were not merged. Both source
+branches remain. Proxy SHA256:
+8904c5220ff70c496505854a2ccc113ae26890b97b67bfee841874e16768adbe.
+Versioned local DLL, matching launcher and manifest:
+build/afw-character-candidate-v1.0.3-44/. Full build, 11 exports, lint and
+golden/release INI equality pass. Installed DLL/INI hashes still equal this
+follow-up's baseline; INI retains 1,698 CRLF with no lone endings. Not installed.
+
 ## 2026-10-04: AFW fresh-world regression withdrawn; candidate not installed
 
 Build 34 produced a small reported boat improvement with much worse surrounding
