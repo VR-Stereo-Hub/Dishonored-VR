@@ -1,3 +1,32 @@
+## First headset run of SmoothBlend / CinematicArms (2026-10-04)
+
+Build banner v1.0.3-33-gdb8d3ced4-dirty (built before the commit; code = df42ff55d), IK on,
+SmoothBlend=1, CinematicArms=1. Two runs (dishonored_vr.prev.log, dishonored_vr.log).
+- **SmoothBlend: transitions reported as right**, entry and return, takedowns and trigger
+  swings.
+- **Choke: the right hand looked turned about 180 degrees at its target and the IK arm
+  twisted.** The log shows the sword unequipped at the choke (`rfl/state: equipment CHANGED
+  ... -> none`) and `hands/openright: right hand OPEN ... 15 finger bone(s) posed from the
+  left` during it: the empty-right-hand mirroring ran on a hand the game owned, replacing
+  the choke grip with the left hand's mirrored pose, and the IK arm follows that wrist.
+  Fixed: `OhActive()` stands down while `hand_owned(1)` (through the return too). Open hand
+  is for the player's own empty hand, never a game animation's.
+- **Cutscenes: no control.** In every conversation the matinee pose blend reads
+  `m_bEnabled=1` from entry to exit (`cine/arms: master=StatePlayerMasterInDialog ...
+  matineeBlend=1`), so the game kept the hands the whole scene (`reason=cinematic: the game
+  animates the arms`). The arms WERE drawn (`arm mesh last drawn 16 ms ago`, pawn not
+  hidden, body mode 1). Fixed: the matinee flag no longer triggers a hand-back; only an
+  upper/left arm action does. `cine/matinee:` now logs ActiveChildIndex, BlendTimeToGo and
+  m_bDoBlend on change inside cinematics, next to the actions and the sequence, to find what
+  marks an authored arm clip (a matinee-driven gesture would currently stay with the player).
+  The mod's own SkelControl writes the game's hand bones while the player owns them, so
+  "the native pose moves" cannot be the signal: it would detect the player.
+- **Hide-player cinematic (level start): unhidden, NOT honoured.** bHidden went 1 -> 0
+  through the setter, but the arm mesh did not draw in the second after. Likely cause, not
+  measured: the first-person mesh is `bOnlyOwnerSee`, so it does not render while the view
+  target is a cinematic camera rather than the pawn. The pawn then became unreadable
+  (level transition). No visible fault reported from it.
+
 ## Smooth hand-backs, IK arms and cutscene arms (2026-10-04, built, not headset-run)
 
 Branch `claude/anim-blend-ik`. Two levers, both default OFF with a live F10 toggle

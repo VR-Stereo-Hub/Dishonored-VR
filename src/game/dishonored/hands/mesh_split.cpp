@@ -3357,6 +3357,10 @@ static void OhBuildPairs()
 static bool OhActive()
 {
     if (!g_ohOn) { g_ohEmptySince = 0; return false; }
+    // A game animation owns the right hand (a takedown, a choke, a cinematic action, and with
+    // SmoothBlend its return): its fingers are the game's. Mirroring the left hand onto them
+    // replaced the choke's grip with the left hand's pose and twisted the IK arm (2026-10-04).
+    if (dvr::anim::hand_owned(1)) return false;
     const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
     const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
     const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);

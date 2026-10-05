@@ -198,17 +198,27 @@ __declspec(naked) void action_stub() {
 struct CineProps {
     bool tried=false, hiddenAgrees=false, setterOk=false;
     uint32_t matineeOff=0, enabledOff=0, enabledMask=0, hiddenOff=0, hiddenMask=0, modeOff=0, modeMask=0;
+    // Instrument only (which matinee field marks an authored arm clip): ActiveChildIndex,
+    // BlendTimeToGo, m_bDoBlend. found* distinguishes a real offset 0 from a miss.
+    uint32_t childOff=0, togoOff=0, doBlendOff=0, doBlendMask=0; bool childFound=false, togoFound=false;
 } cineProps;
 void cine_resolve() {
     if (cineProps.tried || !RflNamesReady()) return;
     cineProps.tried=true;
-    RflWant w[4]={{"DishonoredPlayerPawn","m_pMatineeBlender",false,0,0,false},{"ArkAnimNodeBlendPose","m_bEnabled",true,0,0,false},
-                  {"Actor","bHidden",true,0,0,false},{"PlayerController","bCinematicMode",true,0,0,false}};
-    RflResolveBatch(w,4);
+    RflWant w[7]={{"DishonoredPlayerPawn","m_pMatineeBlender",false,0,0,false},{"ArkAnimNodeBlendPose","m_bEnabled",true,0,0,false},
+                  {"Actor","bHidden",true,0,0,false},{"PlayerController","bCinematicMode",true,0,0,false},
+                  {"ArkAnimNodeBlendPose","ActiveChildIndex",false,0,0,false},{"ArkAnimNodeBlendPose","BlendTimeToGo",false,0,0,false},
+                  {"ArkAnimNodeBlendPose","m_bDoBlend",true,0,0,false}};
+    RflResolveBatch(w,7);
     if (w[0].found) cineProps.matineeOff=w[0].off;
     if (w[1].found) { cineProps.enabledOff=w[1].off; cineProps.enabledMask=w[1].mask; }
     if (w[2].found) { cineProps.hiddenOff=w[2].off; cineProps.hiddenMask=w[2].mask; }
     if (w[3].found) { cineProps.modeOff=w[3].off; cineProps.modeMask=w[3].mask; }
+    if (w[4].found) { cineProps.childOff=w[4].off; cineProps.childFound=true; }
+    if (w[5].found) { cineProps.togoOff=w[5].off; cineProps.togoFound=true; }
+    if (w[6].found) { cineProps.doBlendOff=w[6].off; cineProps.doBlendMask=w[6].mask; }
+    Log("cine/arms: matinee instrument fields ActiveChildIndex=%s+0x%x BlendTimeToGo=%s+0x%x m_bDoBlend=%s+0x%x/0x%x",
+        w[4].found?"":"MISSING ",w[4].off,w[5].found?"":"MISSING ",w[5].off,w[6].found?"":"MISSING ",w[6].off,w[6].mask);
     cineProps.hiddenAgrees=w[2].found && w[2].off==kActorHiddenOff && w[2].mask==kActorHiddenMask;
     cineProps.setterOk=RangeReadable((void*)kActorSetHidden,sizeof(kActorSetHiddenBytes)) &&
         !memcmp((void*)kActorSetHidden,kActorSetHiddenBytes,sizeof(kActorSetHiddenBytes));
@@ -225,17 +235,16 @@ int read_flag(uint8_t* obj,uint32_t off,uint32_t mask) {
     return obj && mask && read(obj,off,&bits,4) ? ((bits & mask)?1:0) : -1;
 }
 // The game animates the arms inside a cinematic: an upper or left-arm action (the unequip at
-// a conversation's start, an item use), or the matinee pose blend driving the pawn's mesh.
-bool cine_animating(const Snapshot& s,uint8_t* pawn) {
-    if (!lane_idle(s.state[1]) || !lane_idle(s.state[2])) return true;
-    // No cine_resolve() here: this runs under the hand-back lock that weight() takes on the
-    // render thread, and the name walk costs ~100 ms. cine_visibility resolves, outside it.
-    if (!pawn || !cineProps.matineeOff) return false;
-    return read_flag(object(pawn,cineProps.matineeOff),cineProps.enabledOff,cineProps.enabledMask)==1;
+// a conversation's start, an item use). NOT the matinee pose blend: run 2026-10-04 measured
+// m_bEnabled=1 for the whole of every conversation, so it took the hands for the entire scene.
+// Its finer fields are logged by cine_visibility until a run shows which marks a real clip.
+bool cine_animating(const Snapshot& s,uint8_t*) {
+    return !lane_idle(s.state[1]) || !lane_idle(s.state[2]);
 }
 struct CineVis {
     uint8_t* unhid=nullptr; unsigned long long unhidAt=0; bool honourLogged=true;
     unsigned unhides=0, rehides=0; int lastMode=-2, lastHidden=-2, lastMatinee=-2; bool lastCine=false;
+    int lastChild=-2, lastDoBlend=-2, lastTogo=-2, lastMatineeI=-2;
 } cineVis;
 // Kept trivial: __try cannot share a frame with objects that need unwinding.
 bool cine_set_hidden(uint8_t* pawn,int hide) {
@@ -264,6 +273,20 @@ void cine_visibility(uint8_t* pawn,const Snapshot& s,bool leverOn,uint8_t* ctrl)
             "CinematicArms=%d unhid-by-us=%d (-1 = unreadable; the arms draw only while the pawn is visible and arms-only)",
             s.state[0],mode,hidden,s.bodyMode,matinee,s.state[1],s.state[2],ago,(int)leverOn,cineVis.unhid?1:0);
         cineVis.lastMode=mode; cineVis.lastHidden=hidden; cineVis.lastCine=cineState; cineVis.lastMatinee=matinee;
+    }
+    // Instrument: inside a cinematic, every change of the matinee node's child/blend fields,
+    // beside the arm actions and the newest sequence, so a run shows which one marks a clip.
+    if (cineState || mode==1) {
+        uint8_t* blender=pawn && cineProps.matineeOff ? object(pawn,cineProps.matineeOff) : nullptr;
+        int child=-1, doBlend=read_flag(blender,cineProps.doBlendOff,cineProps.doBlendMask); float togo=-1;
+        if (blender && cineProps.childFound) read(blender,cineProps.childOff,&child,4);
+        if (blender && cineProps.togoFound) read(blender,cineProps.togoOff,&togo,4);
+        const int togoBucket=togo>0 ? 1 : togo==0 ? 0 : -1;   // moving vs settled, not every float step
+        if (child!=cineVis.lastChild || doBlend!=cineVis.lastDoBlend || togoBucket!=cineVis.lastTogo || matinee!=cineVis.lastMatineeI) {
+            DVR_LOG_EVERY_MS(DVR_CAT,dvr::log::Level::Info,250,"cine/matinee: enabled=%d ActiveChildIndex=%d doBlend=%d BlendTimeToGo=%.3f | upper=%s left=%s seq=%s | owner=%s",
+                matinee,child,doBlend,togo,s.state[1],s.state[2],s.sequence,s.handMask?"GAME":"PLAYER");
+            cineVis.lastChild=child; cineVis.lastDoBlend=doBlend; cineVis.lastTogo=togoBucket; cineVis.lastMatineeI=matinee;
+        }
     }
     if (cineVis.unhid && !cineVis.honourLogged && now-cineVis.unhidAt>=1000) {
         cineVis.honourLogged=true;

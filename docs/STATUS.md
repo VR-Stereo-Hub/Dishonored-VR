@@ -15,9 +15,12 @@ toggles; detail and launch questions in dishonored/ANIM-HANDOFF-PLAN.md (top sec
   `cine/arms:` line answers it on the first run.
 - Host: 138 animation checks (24 new, with a negative control), golden/release/default
   writer byte-identical, 11 exports, lint, Release build. No game launch.
-- Installed v1.0.3-34-g49808413d (d3d9.dll sha256 3dd87455...) over the performance
-  candidate v1.0.3-34-g63a890a76, at the maintainer's request. The same "-34" count: read
-  the hash in the banner. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
+- Installed d3d9.dll sha256 3dd87455... over the performance candidate v1.0.3-34-g63a890a76,
+  at the maintainer's request. Its banner reads v1.0.3-33-gdb8d3ced4-dirty: it was built
+  from the uncommitted tree before df42ff55d, whose code it matches.
+- First run: transitions reported right. Choke right hand twisted (open-hand mirroring ran
+  on a game-owned hand) and no arm control in conversations (matinee flag on for the whole
+  scene): both fixed in the next commit; detail in ANIM-HANDOFF-PLAN. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
   a hash manifest: `build/playtest-candidates/anim-blend-ik/replaced-perf-20261004-191254/`
   (anim-blend worktree). Whole-ini diff is exactly SmoothBlend=1, HandBackBlendInMs=250,
   HandBackBlendOutMs=350, CinematicArms=1; CRLF throughout; DLSS helper kept.
