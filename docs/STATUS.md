@@ -14,8 +14,17 @@ toggles; detail and launch questions in dishonored/ANIM-HANDOFF-PLAN.md (top sec
   with the static offset. Whether conversations use that hide is not established; the
   `cine/arms:` line answers it on the first run.
 - Host: 138 animation checks (24 new, with a negative control), golden/release/default
-  writer byte-identical, 11 exports, lint, Release build. Not installed: the game folder
-  held another session's performance candidate. No game launch.
+  writer byte-identical, 11 exports, lint, Release build. No game launch.
+- Installed v1.0.3-34-g49808413d (d3d9.dll sha256 3dd87455...) over the performance
+  candidate v1.0.3-34-g63a890a76, at the maintainer's request. The same "-34" count: read
+  the hash in the banner. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
+  a hash manifest: `build/playtest-candidates/anim-blend-ik/replaced-perf-20261004-191254/`
+  (anim-blend worktree). Whole-ini diff is exactly SmoothBlend=1, HandBackBlendInMs=250,
+  HandBackBlendOutMs=350, CinematicArms=1; CRLF throughout; DLSS helper kept.
+  Not carried by this build: `[Stereo] AfwFreshWorld=1` stays in the ini but is not read
+  (that lever lives only on codex/performance-audit), nor its ReShade fix that keeps
+  disabled effects loaded (saving a ReShade preset from F10 here can drop disabled effects
+  from it) or its HUD transfer savings.
 - Headless IDA (previous commit's workflow) verified on the dev PC: first analysis of
   Dishonored.exe 38 min, 63,921 functions, x86 decompiler licensed, the ProcessEvent
   known-good matches and decompiles; each later script opens the saved .i64 in 4 s.
