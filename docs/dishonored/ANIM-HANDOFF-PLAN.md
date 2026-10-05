@@ -1,3 +1,151 @@
+## First headset run of SmoothBlend / CinematicArms (2026-10-04)
+
+Build banner v1.0.3-33-gdb8d3ced4-dirty (built before the commit; code = df42ff55d), IK on,
+SmoothBlend=1, CinematicArms=1. Two runs (dishonored_vr.prev.log, dishonored_vr.log).
+- **SmoothBlend: transitions reported as right**, entry and return, takedowns and trigger
+  swings.
+- **Choke: the right hand looked turned about 180 degrees at its target and the IK arm
+  twisted.** The log shows the sword unequipped at the choke (`rfl/state: equipment CHANGED
+  ... -> none`) and `hands/openright: right hand OPEN ... 15 finger bone(s) posed from the
+  left` during it: the empty-right-hand mirroring ran on a hand the game owned, replacing
+  the choke grip with the left hand's mirrored pose, and the IK arm follows that wrist.
+  Fixed: `OhActive()` stands down while `hand_owned(1)` (through the return too). Open hand
+  is for the player's own empty hand, never a game animation's.
+- **Cutscenes: no control.** In every conversation the matinee pose blend reads
+  `m_bEnabled=1` from entry to exit (`cine/arms: master=StatePlayerMasterInDialog ...
+  matineeBlend=1`), so the game kept the hands the whole scene (`reason=cinematic: the game
+  animates the arms`). The arms WERE drawn (`arm mesh last drawn 16 ms ago`, pawn not
+  hidden, body mode 1). Fixed: the matinee flag no longer triggers a hand-back; only an
+  upper/left arm action does. `cine/matinee:` now logs ActiveChildIndex, BlendTimeToGo and
+  m_bDoBlend on change inside cinematics, next to the actions and the sequence, to find what
+  marks an authored arm clip (a matinee-driven gesture would currently stay with the player).
+  The mod's own SkelControl writes the game's hand bones while the player owns them, so
+  "the native pose moves" cannot be the signal: it would detect the player.
+- **Hide-player cinematic (level start): unhidden, NOT honoured.** bHidden went 1 -> 0
+  through the setter, but the arm mesh did not draw in the second after. Likely cause, not
+  measured: the first-person mesh is `bOnlyOwnerSee`, so it does not render while the view
+  target is a cinematic camera rather than the pawn. The pawn then became unreadable
+  (level transition). No visible fault reported from it.
+
+## Smooth hand-backs, IK arms and cutscene arms (2026-10-04, built, not headset-run)
+
+Branch `claude/anim-blend-ik`. Two levers, both default OFF with a live F10 toggle
+(Advanced > Hands > Game arms during actions) and a seam word.
+
+**Why the hand-back snapped (read from the code, not a run).**
+1. *Snap out.* When the release hysteresis ended, `tick()` dropped `handMask` to 0 on the
+   same tick the return blend began, and `weight_for()` answers 1 for an unmasked hand. The
+   150 ms return was computed and never shown: the hand jumped to the controller.
+   `ownedMask` dropped at the same moment, so the base pose under the hand changed too.
+2. *Corners.* The blend was a linear 150 ms ramp both ways: full speed from the first frame
+   and a dead stop at the last.
+3. *Arc.* The correction's translation was interpolated about the mesh origin, so a palm far
+   from it swings through an arc and overshoots. The retired HandOrigin branch measured it
+   (run155: median 8.9 uu, max 98 uu off the straight path).
+
+**`[Anim] SmoothBlend=1`** (seam `anim smooth on|off`, `anim blendms <entry> <return>`):
+smootherstep easing (zero speed and acceleration at both ends), separate
+`HandBackBlendInMs` (250) and `HandBackBlendOutMs` (350), a reversal mid-blend covers only
+the remaining distance; the palm moves on the straight line between its native and its
+controller position (`blend_transform_palm`); the hands and `ownedMask` stay with the game
+until the return reaches the controller (`render_hand_mask`). From the retired branch only
+the two measured defect fixes were taken (mask hold, palm path). Its HandOrigin entry
+translation, never accepted in a headset, was not. Off = the original code path exactly.
+The IK arm needs nothing extra: its endpoint is the wrist under the final, blended hand
+correction, so a smoothed hand gives a smoothed arm.
+
+**IK and the arm-hiding rules.** With full-arm IK active the draw already replaces the arm
+mesh with the whole IK-solved arm before any split or hide is consulted (`MsDraw`), so
+HideTakedownArms and the split-hand geometry choices have no visible effect. F10 now says so
+and greys the takedown option while IK is on; the rules still apply if IK falls back to hands.
+Per-state "Show game arms" still decides WHO poses the hand (the game or the controller), so
+it stays live under IK.
+
+**`[Anim] CinematicArms=1`** (seam `anim cinearms on|off`): in a cinematic master state the
+state no longer hands the arms back by itself. The game takes them, through the same blend,
+only while it animates them: an upper or left-arm action (the conversation's unequip, an item
+use) or `m_pMatineeBlender.m_bEnabled` (a matinee posing the pawn). The lane-0 rule and
+`Arms.0.<cinematic state>` are bypassed while it is on; CinematicHandBack is greyed.
+Visibility: a hide-player cinematic hides the whole pawn (ENGINE_NOTES, "a hide-player
+cinematic hides the whole pawn"), so with the lever on and the body in arms-only mode the
+pawn is unhidden through the game's own setter (`kActorSetHidden`), on the script lane, after
+reflection resolves `Actor.bHidden` to exactly the statically read +0x120/0x2 and the setter's
+prologue matches. It is re-hidden if the lever goes off or the body leaves arms-only while the
+cinematic runs; the game unhides it itself when the cinematic ends.
+With the lever on, `cine/arms:` logs every cinematic transition (bCinematicMode, pawn bHidden,
+body mode, matinee blend, how long since the arm mesh last drew; off, nothing runs at all) and reports one
+second after an unhide whether the arm mesh actually drew (HONOURED / NOT honoured).
+
+**Not established.** Whether conversations (`InDialog`) hide the pawn or only lower the arms
+out of view: the dev-PC log shows no arm draw in dialogue, nothing more. If a conversation
+does not set bHidden, CinematicArms gives the hands to the player but there may be nothing
+drawn; the first `cine/arms:` line answers it. Body mode FULL_BODY (seen in dialogue) is
+never unhidden: that would show the third-person body at the camera.
+
+Host: 138 animation checks (24 new: easing ends and monotonicity, entry/return durations,
+reversal share, shape survives a reset, palm on the straight line within 0.001 uu with a
+negative control in which the old blend leaves it by more than 5 uu, mask held through the
+return). Default writer, packaged profile and golden ini byte-identical; 11 exports; lint.
+Release builds. No game launched.
+
+**Next launch, one question each:**
+1. SmoothBlend on (IK on): does a trigger sword attack and a takedown now ease in and come
+   back to the controller without a jump? A jump at the END is the mask/owner path
+   (`anim: ... reason=returning to tracked hands` should appear between release and
+   controller); a jump at the START is the entry, judged with the In slider.
+2. CinematicArms on, in the first conversation or cutscene: read `cine/arms:`. pawnHidden=1
+   then an UNHIDDEN line and HONOURED = the hide was the cause and the arms are back;
+   pawnHidden=0 with no recent arm draw = the arms are lowered or culled, a different cause.
+
+## The player's sequence vocabulary, by name (2026-10-04)
+
+Source: `tools\model-export.ps1` (UModel) over the cooked packages, plus the `anim: gen=...
+master=... seq=...` lines already in the ten rotated logs on the dev PC. Sequence NAMES only:
+the animation data cannot be decoded (Sony Edge Animation, see MODEL_WORKFLOW.md), and the
+full name list stays local (game-derived). Rules still key on the master state; these are
+leads for refining them by `m_AnimSeqHistory`, which `anim_state.cpp` already reads.
+
+**What exists.** All 34 player AnimSets are in `Startup.upk` (always loaded), 422 sequences.
+Largest: `Ply_Head_Locomotion_as` 43, `Ply_Guns_as` 36, `Ply_Sword_Assassination_as` 31,
+`Ply_Generic_as` 27, `Ply_Empty_Locomotion_as` 27, `Ply_Powers_as` 22. Families that matter
+here:
+
+| family | names | why it matters |
+|---|---|---|
+| takedowns | `Sword_Ready_Assassination_{Front,Back,Left,Right,Fast*,Drop*}[_CarryCorpse]_Master`, `Sword_Ready_Fatality_*_Master` | one `_Master`-suffixed family; a prefix rule covers every variant |
+| boss kills | `Sword_DramaticDeath_Front_{Campbell,Daud,Havelock,LadyBoyle,LordRegent,Martin,PendletonA,PendletonB}_Master`, `..._Back_A_Master` | per-target scripted kills; whether each runs under `StatePlayerMasterAssassinate` is NOT measured |
+| chokes | `Sword_Choke_{In,Loop,Win,Lose,Cancel,CarryCorpse}_Master` | matches `DisItemContext_Choke.m_State` one to one |
+| mantles | `{Empty,Sword_Ready,Sword_Sneak,Empty_Sneak}_Mantle{Low,Medium,High}`, `Empty_CrouchMantle*`, `Empty_MantleImpact` | in the locomotion sets |
+| window vault | `Empty_VaultOverWindow` | in `Ply_Empty_FullBody`, NOT with the mantles (open question 1) |
+| forced grabs | `Sword_Weeper_ArmGrab_{In,Loop,Out}`, `Empty_ArmGrab_{Loop,Out}` (`Ply_WeeperAttack_as`) | the game owns the arms; no current rule names them (open question 2) |
+| powers | `Powers_Cast_Blink_{In,Loop,Out}`, `Generic_Powers_Cast_Blink_Travel`, `Powers_Cast_Possession_{In,Loop,Out,Cancel}`, `Powers_Cast_{BendTime,Swarm,Windblast}` | cast phases are visible by name |
+| carry body | `Empty_CarryCorpse_{In,Idle,Walk,Drop*}_Master` | pairs with `StatePlayerCarryCorpseIdle` |
+
+UModel also reports Arkane-specific `m_NotifiesAtAnimStart` / `m_NotifiesAtAnimEnd` arrays on
+the sequences: possible start/end events, not yet looked at.
+
+**Measured from existing logs (no new run):**
+- Blink casts play while master is `StatePlayerMasterWalk` (or `Falling`): `seq=Powers_Cast_
+  Blink_In/Loop/Out` 45/45/101 times under Walk. A master-state rule cannot see a cast; the
+  sequence name can. Possession In/Loop/Cancel also run under Walk; only `Possession_Out`
+  appears under `PrePossess`/`Possess` (body=2).
+- `StatePlayerMasterClimb` logged `seq=unavailable` all 5 times: climbing records no sequence
+  in the history, so climb rules must stay state-only.
+- **The history lags the state.** Under `StatePlayerMasterAssassinate` the logged seq was a
+  takedown sequence most times, but also `Sword_Sneak_JumpLandSmall` (2) and
+  `Powers_Ready_Equip` (1): the newest entry at the state change is still the previous
+  animation. A rule may refine by name only after the new sequence lands, never at entry.
+- Chokes and mantles logged their own family names under their own states.
+
+**Open questions (each answered by grepping the next log, no extra instrument):**
+1. Does `Empty_VaultOverWindow` run under `StatePlayerMasterMantle` or under
+   `StatePlayerMasterAction` ("Full-body action")? If the latter, `MantleHandBack` and the
+   mantle pose rule do not cover window vaults. Not in any of the ten logs on disk yet.
+   Grep: `seq=Empty_VaultOverWindow`.
+2. Which master state runs the Weeper arm grab? Grep: `seq=.*ArmGrab`.
+3. Do all eight boss `DramaticDeath` kills run under `StatePlayerMasterAssassinate`
+   (VR-283 hides arms there)? Grep: `seq=Sword_DramaticDeath`.
+
 ## The sword hand-back is for trigger attacks (VR-220, 2026-09-25)
 
 `HandAnimMelee` matched every `StatePlayerMeleeAttack`; it now matches an attack whose source is

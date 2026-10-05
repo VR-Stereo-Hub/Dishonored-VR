@@ -3081,7 +3081,8 @@ static bool MpWorldTarget(const MpDrawCtx* c, int hand, int cls,
         // out of the hand's local space into the draw's camera-relative world
         // so any other member of the same view can consume it. Published here,
         // AFTER the model scale, so that factor is carried exactly once.
-        D = dvr::anim::blend(D, hand); // blend once, PER HAND (VR-220); weapons inherit this same correction
+        D = dvr::anim::blend(D, hand, palmLocal); // blend once, PER HAND (VR-220); weapons inherit this same correction.
+                                                  // SmoothBlend moves the palm on a straight line (anim_policy.h)
         WaPublishCommon(hand, c, D);
     } else {
         D = dvr::hf::delta_local(c->R_L, c->t, O_C, Guse, dcam, R_src, qLocal,
@@ -3356,6 +3357,10 @@ static void OhBuildPairs()
 static bool OhActive()
 {
     if (!g_ohOn) { g_ohEmptySince = 0; return false; }
+    // A game animation owns the right hand (a takedown, a choke, a cinematic action, and with
+    // SmoothBlend its return): its fingers are the game's. Mirroring the left hand onto them
+    // replaced the choke's grip with the left hand's pose and twisted the IK arm (2026-10-04).
+    if (dvr::anim::hand_owned(1)) return false;
     const LONG tick = InterlockedCompareExchange(&g_rflPrimaryKindTick, 0, 0);
     const unsigned age = tick ? (unsigned)(GetTickCount() - (DWORD)tick) : 0xffffffffu;
     const LONG right = InterlockedCompareExchange(&g_rflPrimaryKind, 0, 0);

@@ -291,6 +291,7 @@ static HRESULT __stdcall DcDrawIndexed(IDirect3DDevice9* self, D3DPRIMITIVETYPE 
     // residual arm is not this mesh at all and the hunt moves elsewhere.
     if (g_dcOn && self && g_dcHideVb && DcIsLocked(self, true)) {
         g_msLockFrame = dvr::frame::count();
+        g_msLastArmDrawMs = GetTickCount64();   // any draw of the arm buffers, whatever path serves it (cine/arms)
 
         // VR-31 STEP 2, ahead of the slice mask because it supersedes it.
         //

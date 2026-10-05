@@ -10123,3 +10123,37 @@ format gate to reject stale files. All three corrected bounds match the
 native log. Runtime still validates every point and active weight field.
 No native memory writer, offsets, or relaxed guard were introduced. Details
 and source: [ARM_IK.md](ARM_IK.md#first-live-run-and-coordinate-boundary-correction-2026-10-04).
+
+## 2026-10-04: a hide-player cinematic hides the whole pawn (static, IDA)
+
+Read from our own `Dishonored.exe` (md5 204f3c1a..., staged copy == deployed), headless IDA
+scripts `tools/ida/cm1..cm4` plus `ue3-natives.py --verify`. Static only; the runtime check
+is the `cine/arms:` log line below.
+
+- `ADishonoredPlayerControllerexecPreSetCinematicMode_Native` (thunk 0x009EE960) and
+  `...execSetCinematicMode_Native` (thunk 0x009EEA00) unpack their bools and dispatch
+  through the controller vtable 0x01118738 at +0x580 -> 0x00AA33A0 and +0x584 -> 0x00AAF150.
+- `PreSetCinematicMode(bNew, bHidePlayer)` (0x00AA33A0): `bNew && bHidePlayer` calls
+  0x00587FA0(1), `!bNew` calls 0x00587FA0(0), on `ecx = [0x0145F628]`.
+- 0x00587FA0 is a thiscall(actor, bool), `ret 4`: if bit 1 of `[ecx+0x120]` differs it sets
+  it (and 0x200000), then calls 0x00585CE0, which walks the actor's components and
+  re-attaches or detaches them. That is UE3 `SetHidden`; bit 1 of +0x120 is `bHidden`.
+  Prologue `55 8B EC 8B 91 20 01 00 00 8B 45 08` (`kActorSetHidden` in patterns.h).
+- 0x0145F628 is the live `DishonoredPlayerPawn`: the pawn constructor 0x00ABF9A0 jumps to
+  0x00ABF830, which stores `this` there unless an outer carries the template/CDO flags
+  (0x600); 0x00AB5320 clears it. 592 references, 2 writers.
+- `SetCinematicMode_Native` (0x00AAF150) writes controller flag bits (+0x610 bits 12/17,
+  and +0x4E0 masks through 0x009EA0A0/0x009EA0C0 on an object whose `ecx` was not traced)
+  and calls helpers not traced here; none
+  of its direct callees is 0x00587FA0. The HIDE is the Pre call.
+
+So a Kismet `ToggleCinematicMode` with bHidePlayer hides the pawn and every component,
+the first-person arms included; there is no arm draw to correct while it lasts. Measured
+on a dialogue (dev PC log, 2026-10-04): in `StatePlayerMasterInDialog` the arm mesh
+(4,448 triangles, census row 0) was not drawn at all. Whether a conversation uses this
+hide or only lowers the arms out of view is NOT established; the `cine/arms:` line
+(CinematicArms, ANIM-HANDOFF-PLAN) logs bCinematicMode, pawn bHidden, body mode, the
+matinee blend and when the arm mesh last drew on every cinematic transition.
+`m_pMatineeBlender` (`ArkAnimNodeBlendPose.m_bEnabled`) is the read-only signal that a
+matinee is posing the pawn's mesh. Runtime use requires reflection to resolve
+`Actor.bHidden` to exactly +0x120 / 0x2 and the prologue to match; otherwise it refuses.

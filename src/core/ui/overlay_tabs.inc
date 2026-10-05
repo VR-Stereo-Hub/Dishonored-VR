@@ -187,18 +187,45 @@ static void OvlTabHands()
             dvr::anim::set_mantle(mantleHands);
             ConfigWriteKey("Anim", "MantleHandBack", mantleHands ? "1" : "0", "F10 Hands");
         }
+        bool smooth = dvr::anim::smooth_blend();
+        if (dvr::ovl::checkbox("Smooth transitions in and out of game animations", &smooth)) dvr::anim::set_smooth_blend(smooth);
+        OvlTip("Eases your hand into a game animation (takedowns, trigger sword swings, mantles) and back to the controller, "
+               "with the palm on a straight path. Off: the original quick linear blend and an instant return.");
+        if (smooth) {
+            ImGui::Indent();
+            float inMs = (float)dvr::anim::blend_in_ms(), outMs = (float)dvr::anim::blend_out_ms();
+            bool a = dvr::ovl::slider_float("Into the animation (ms)", &inMs, 0.0f, 1000.0f, "%.0f");
+            bool done = ImGui::IsItemDeactivatedAfterEdit();
+            a |= dvr::ovl::slider_float("Back to your hand (ms)", &outMs, 0.0f, 1000.0f, "%.0f");
+            done |= ImGui::IsItemDeactivatedAfterEdit();
+            if (a || done) dvr::anim::set_blend_ms((unsigned)(inMs + .5f), (unsigned)(outMs + .5f), done);   // live; saved on release
+            OvlTip("Longer feels softer but lags the animation's start; the return can usually be longer than the entry.");
+            ImGui::Unindent();
+        }
+        const bool ikArms = g_ikOn.load();
+        if (ikArms)
+            ImGui::TextDisabled("Full-arm IK is on: your arms are always drawn whole, so arm hiding does not apply.");
+        ImGui::BeginDisabled(ikArms);
         bool takedownArms = dvr::anim::takedown_arms_hidden();
         if (dvr::ovl::checkbox("Hide arms in takedowns (hands still animate)", &takedownArms)) {
             dvr::anim::set_takedown_arms_hidden(takedownArms);
             ConfigWriteKey("Anim", "HideTakedownArms", takedownArms ? "1" : "0", "F10 Hands");
         }
-        OvlTip("Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
-               "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
+        ImGui::EndDisabled();
+        OvlTip(ikArms ? "Not used while full-arm IK draws the arms; it applies again if IK is off or falls back to hands."
+                      : "Assassinations on the ground and from the air, chokes and combat kills show the game's animated hands "
+                        "without forearms, cut at your Sleeve length, like mantling. Off shows the game's full arms.");
+        bool cineArms = dvr::anim::cinematic_arms();
+        if (dvr::ovl::checkbox("Your arms in cutscenes", &cineArms)) dvr::anim::set_cinematic_arms(cineArms);
+        OvlTip("Cutscenes keep your tracked arms visible and movable. When the game animates the arms during the cutscene "
+               "it takes them, blended in and out like a takedown. Replaces the option below while on.");
+        ImGui::BeginDisabled(cineArms);
         bool cineHands = dvr::anim::cinematic_enabled();
         if (dvr::ovl::checkbox("Game hands and arms in cinematics", &cineHands)) {
             dvr::anim::set_cinematic(cineHands);
             ConfigWriteKey("Anim", "CinematicHandBack", cineHands ? "1" : "0", "F10 Hands");
         }
+        ImGui::EndDisabled();
         bool melee = dvr::anim::hand_anim_melee();
         if (dvr::ovl::checkbox("Sword swing animation on the tracked hand", &melee)) dvr::anim::set_hand_anim_melee(melee);
         OvlTip("A TRIGGER sword attack plays the game's swing clip on the hand, then returns it to the controller. "

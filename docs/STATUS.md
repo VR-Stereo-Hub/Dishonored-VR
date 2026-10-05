@@ -121,6 +121,62 @@ already armed. ReShade.ini differs only in SkipLoadingDisabledEffects 1 -> 0
 and matches its expected bytes. Preset unchanged. No game launch. Live
 performance and startup-menu acceptance remain pending.
 
+## 2026-10-04: smooth hand-backs, IK arm rules, cutscene arms (built, not run)
+
+Branch `claude/anim-blend-ik` (off `claude/tools-workflows`). Two default-off levers with F10
+toggles; detail and launch questions in dishonored/ANIM-HANDOFF-PLAN.md (top section).
+- `[Anim] SmoothBlend`: eased entry/return with their own durations (250/350 ms), palm on a
+  straight path, hands held through the return. Found in the code: the return blend was
+  never shown, because the hand mask dropped on the tick the return began (an instant snap).
+- Full-arm IK already draws whole arms past every hide/split rule; F10 now says so and greys
+  the takedown hide option while IK is on.
+- `[Anim] CinematicArms`: tracked arms in cinematics, the game takes them only while it
+  animates them (upper/left action or matinee blend). Static IDA reading (cm1..cm4,
+  ENGINE_NOTES): a hide-player cinematic hides the whole pawn through Actor.bHidden; the
+  lever unhides an arms-only pawn through the game's own setter after reflection agrees
+  with the static offset. Whether conversations use that hide is not established; the
+  `cine/arms:` line answers it on the first run.
+- Host: 138 animation checks (24 new, with a negative control), golden/release/default
+  writer byte-identical, 11 exports, lint, Release build. No game launch.
+- Installed d3d9.dll sha256 3dd87455... over the performance candidate v1.0.3-34-g63a890a76,
+  at the maintainer's request. Its banner reads v1.0.3-33-gdb8d3ced4-dirty: it was built
+  from the uncommitted tree before df42ff55d, whose code it matches.
+- First run: transitions reported right. Choke right hand twisted (open-hand mirroring ran
+  on a game-owned hand) and no arm control in conversations (matinee flag on for the whole
+  scene): both fixed in the next commit; detail in ANIM-HANDOFF-PLAN. Backup of DLL, addon, shim, loader, whole ini and all ten logs with
+  a hash manifest: `build/playtest-candidates/anim-blend-ik/replaced-perf-20261004-191254/`
+  (anim-blend worktree). Whole-ini diff is exactly SmoothBlend=1, HandBackBlendInMs=250,
+  HandBackBlendOutMs=350, CinematicArms=1; CRLF throughout; DLSS helper kept.
+  Not carried by this build: `[Stereo] AfwFreshWorld=1` stays in the ini but is not read
+  (that lever lives only on codex/performance-audit), nor its ReShade fix that keeps
+  disabled effects loaded (saving a ReShade preset from F10 here can drop disabled effects
+  from it) or its HUD transfer savings.
+- Headless IDA (previous commit's workflow) verified on the dev PC: first analysis of
+  Dishonored.exe 38 min, 63,921 functions, x86 decompiler licensed, the ProcessEvent
+  known-good matches and decompiles; each later script opens the saved .i64 in 4 s.
+
+## 2026-10-04: headless IDA and Blender workflows, local tool file
+
+Branch `claude/tools-workflows` (off staging). Tools only; no mod code, no game launch.
+- `tools\tool-paths.ps1` writes and reads a per-user tool file,
+  `%LOCALAPPDATA%\DishonoredVR\dev-tools.json`. Created on the dev PC: 16 of 19 catalog
+  entries found (x32dbg, RenderDoc, Ghidra absent; none needed).
+- Headless IDA: `tools\ida-run.ps1` stages `Dishonored.exe` (md5 204f3c1a...) into the
+  IDA workspace, runs one-question IDAPython scripts, stamps each output with the md5 and
+  whether it still equals the deployed exe. `tools\ida\template.py` is the 32-bit
+  skeleton; it refuses unless `kProcessEvent` 0x00470640 still has its published prologue.
+  Guide: `docs/IDA_WORKFLOW.md`.
+- UModel + headless Blender: `tools\model-export.ps1`, `tools\blender-run.ps1`,
+  `tools\blender\inspect_model.py`, `export_model.py`. Verified: `Skm_Player` PSK round
+  trip (2,264 points, 4,448 triangles, 79 bones), OBJ/GLB export, and an authored action
+  exported to PSA and re-imported (30 frames). The PSK/PSA add-on was NOT installed in the
+  real Blender profile despite the earlier setup report (its probe could not fail); it is
+  now, and `-Setup` checks it properly. Guide: `docs/MODEL_WORKFLOW.md`.
+- The game's own animations cannot be extracted: every player AnimSet loads with all
+  tracks removed (Sony Edge Animation compression, unsupported by UModel).
+- CLAUDE.md: a Tools section that every prompt checks first, the tool-file rules, and a
+  rule that any CLAUDE.md change needs a yes naming repo or local.
+
 ## 2026-10-04: combined PR candidate prepared locally, staging unchanged
 
 Finalized full-arm IK as PR #174 against staging (branch codex/ik-full-arms,

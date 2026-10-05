@@ -1571,3 +1571,32 @@ opt-in uses the precision bound with existing silhouette neighborhoods. Static
 slopes and per-eye shading are explicit controls, including an all-fresh control
 that must fail. Capture/replay carries the choice. It remains default-off because
 unseen silhouettes and motion at unchanged depth are not solved by this rule.
+
+### 2026-10-04: offline tools resolve through a local, per-user tool file
+
+IDA, Blender, UModel, UE Explorer, FFDec and the debug programs are found through
+`%LOCALAPPDATA%\DishonoredVR\dev-tools.json` (`tools\tool-paths.ps1`,
+`tools\lib\tool-paths.ps1`), never through a path written into a committed script.
+The repo carries only a catalog of default install locations to detect from; what was
+found or set by hand stays on the machine. It does not follow `DVR_DATA_DIR`: that
+directory is the mod's bulk data and may move drives, while tool paths belong to the
+user profile. Paid and third-party programs are referenced, never copied; their
+databases and outputs (the staged exe and `.i64`, decompiles, PSK/PSA, `.blend`) live
+in per-user workspaces outside the tree, and `.gitignore` refuses their file types.
+Headless IDA output is NOT kept in the repo, unlike the workflow it was adapted from:
+here a decompile is game-derived text. The scripts are kept; each output is stamped
+with the md5 it ran against so a game update shows on the first line.
+See `docs/IDA_WORKFLOW.md` and `docs/MODEL_WORKFLOW.md`.
+
+### 2026-10-04: hand-back smoothing takes only the measured fixes; cutscene arms use the game's setter
+
+SmoothBlend ports two fixes from the retired HandOrigin branch, the mask/owner hold through
+the return and the straight palm path, because each fixes a defect that branch measured;
+its entry translation (moving the clip to start at the tracked palm) was never accepted and
+is not ported. Easing and the separate durations are new. All of it sits behind one lever
+so SmoothBlend=0 is the previous code path exactly. CinematicArms unhides the pawn by
+calling the engine's own SetHidden (0x00587FA0), not by writing the bit: the setter also
+re-attaches the components, which a bare bit write would skip. It is called only after
+reflection resolves Actor.bHidden to the statically read +0x120/0x2 and the prologue
+matches, only for an arms-only body, and the game's own end-of-cinematic call restores it.
+See dishonored/ANIM-HANDOFF-PLAN.md and ENGINE_NOTES.
