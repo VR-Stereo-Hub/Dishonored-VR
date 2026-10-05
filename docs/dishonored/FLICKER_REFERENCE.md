@@ -48,6 +48,18 @@ separate foreground coordinate percentile makes that negative control fail.
 No product threshold was relaxed to pass the test. Existing world, wall, UI,
 controller-motion and MSW checks remain passing.
 
+FINAL CAPTURE CHECK: replay initially left the candidate inactive because it
+ignored recorded fgOn and treated an omitted override as foreground OFF. Repair
+that tool setting and expose DVR_AFW_FG for an explicit override. The corrected
+first-frame candidate agrees with the explicit 108.1427-degree test to mean RGB
+0.000065/255. All 6,234,796 pixels outside both hand masks plus a 64-pixel margin
+remain byte-exact to OFF. This is a single-pair locality check, not all-scene
+acceptance. The earlier 15-frame OFF check is byte-exact to the preceding OFF
+replay. A later full-resolution replay runs out of allocation space; add explicit
+exception reporting rather than silently losing the process. Full-capture retry
+is pending while the tester has the game running. No runtime allocation was
+added by the candidate. Build/host and capture completion are separate checks.
+
 OPEN: headset confirmation and depth availability. Before the dump, a 295-submit
 window has only 106 full rebuilds, 95 temporal-only and 94 fresh-only. These
 fallbacks may independently flicker; this candidate does not fix depth delivery.

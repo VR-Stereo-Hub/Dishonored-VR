@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <initializer_list>
+#include <exception>
 
 #include "core/util/log.h"
 namespace dvr::log {
@@ -93,7 +94,7 @@ static void vec(const std::string& s, float* out, int n) {
 }
 
 static int g_maskArg = 1;
-int main(int argc, char** argv) {
+static int replay(int argc, char** argv) {
     if (argc < 3) { printf("usage: afw-replay <capture dir> <out dir> [debug 0|1] [stereo 0|1] [matrices 0|1]\n"); return 2; }
     setvbuf(stdout, nullptr, _IONBF, 0);
     const std::string dir = argv[1], out = argv[2];
@@ -152,7 +153,10 @@ int main(int argc, char** argv) {
         dvr::afw::set_body_depth(strtof(m["bodyUnits"].c_str(), nullptr), "replay");
         // The foreground FOV: the capture's own, or (older captures) the -Fg argument.
         dvr::afw::set_fg_fov(g_fgArg > 0.0f ? g_fgArg : (m.count("fgFov") ? strtof(m["fgFov"].c_str(), nullptr) : 0.0f));   // the argument overrides the recording (an A/B of the arms lens)
-        dvr::afw::set_fg(g_fgOn, "replay");
+        { char value[8]={};
+          const bool on=GetEnvironmentVariableA("DVR_AFW_FG",value,sizeof(value)) ? value[0]=='1' :
+              (m.count("fgOn") ? atoi(m["fgOn"].c_str())!=0 : g_fgOn);
+          dvr::afw::set_fg(on,"replay"); }
         dvr::afw::set_near_miss(g_nearMissArg, "replay");
         dvr::depthprobe::g_prefgReady = m["freshMaskOk"] == "1" && g_maskArg != 0;   // the dumped depths carry the mask in their sign
         dvr::afw::set_own_hands(g_ownArg, "replay");
@@ -245,4 +249,9 @@ int main(int argc, char** argv) {
                        scored, sumNear / scored, sumWorld / scored, sumDots / scored);
     dvr::afw::shutdown();
     return 0;
+}
+
+int main(int argc, char** argv) {
+    try { return replay(argc,argv); }
+    catch (const std::exception& e) { fprintf(stderr,"replay failed: %s\n",e.what()); return 3; }
 }

@@ -1,5 +1,12 @@
 ## 2026-10-04: AFW cutscene hand correction candidate
 
+Optimized candidate v1.0.3-51-gcaed507e4 is built with the installed build-46
+animation baseline preserved on codex/afw-character-test. Proxy SHA256
+55e63e4b35077f36173b5f6933c6e0c942a71fd576c817281a3dd63772575c22.
+Installation pending game closure; no DLL/INI changed for this candidate yet.
+Full build, 11 exports, lint and golden/release INI equality pass. Cutscene hands
+are default OFF in the package and will be armed only for the requested test.
+
 Focus moved to cutscene hand flicker. The verified build-46 boat capture has
 103-degree world projection, authored camera records and valid hand masks, but
 AFW's ordinary foreground feed is zero. A cinematic guard still disables the
