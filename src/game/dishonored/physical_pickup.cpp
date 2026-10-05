@@ -29,13 +29,28 @@
 // its collision box, not its origin (the hinge), and the trace looks at the point of the box
 // nearest the hand.
 //
+// The wider list (step 2 of PLAN-physical-interaction.md): every class that declares the game's
+// DisInteractableInterface, in groups, each found by its base name on the class chain:
+//   loot      DisPickup_Base, DisProjectile (bolts and darts to recover), DisRiverKrust, DisUpgrade
+//   carry     DishonoredMovable, DisGrenade, DisWhiskeyBottle, DisMovableLimb, DisDLC07SkeletalMovable
+//   usable    DishonoredUsableObject (levers, valves, switches; DisDoor keeps its own group),
+//             DisProjectileLauncher, DisClimbable (chains), the placed traps (spring razor, arc
+//             mine, tripwire)
+// and NEVER a pawn or a talk target: DishonoredPawn, Pawn, DisDialogInanimateDummy, DisSpeaker_PA,
+// GameCrowdAgent and DisTrigger stop the chain walk with a "no", so talking, chokes and takedowns
+// cannot be offered. Carry and usable things are measured from their collision box, like doors.
+// While a movable is carried nothing is targeted (the grip goes back to its own action); while a
+// body is carried only the hand on the free lane is (the upper-body lane holds the body).
+// A lever or valve that wants Interact HELD gets it for as long as the grip stays down on it.
+//
 // Tried and taken out again (2026-10-05, reported worse in the headset): taking the game's own
 // focus as the target, leaving a grip-opened book out for a while, and walking several aims at
 // an unfocused target, all meant to reach the lower of two stacked books. The lower book is
 // opened by pointing at it. ENGINE_NOTES, "Physical pickup".
 //
 // [Aim] PhysicalPickup (default 1), PhysicalPickupReachCm (30), PhysicalPickupBookReachCm (45),
-// PhysicalDoors (1), PhysicalDoorReachCm (20). F10 > Aim. Seam: `pickup`.
+// PhysicalDoors (1), PhysicalDoorReachCm (20), PhysicalCarry (1), PhysicalUsables (1); carry and
+// usable things share the door reach. F10 > Aim. Seam: `pickup`.
 // Script lane for 1 and 2 (the interaction bridges run on the same game thread); the pad
 // bridge reads two atomics.
 
@@ -47,11 +62,20 @@ static std::atomic<float>    g_ppBookReachM{0.45f};   // books, notes, audio log
 static std::atomic<bool>     g_ppTargetReadable{false};   // the target is one of those (for the pad bridge)
 static std::atomic<bool>     g_ppDoorsOn{true};       // [Aim] PhysicalDoors
 static std::atomic<float>    g_ppDoorReachM{0.20f};   // from the hand to the door's collision box
+static std::atomic<bool>     g_ppCarryOn{true};       // [Aim] PhysicalCarry: things carried and thrown
+static std::atomic<bool>     g_ppUsablesOn{true};     // [Aim] PhysicalUsables: levers, switches, chains, traps
+static std::atomic<uintptr_t> g_ppTargetId{0};        // the target (for the pad bridge's hold)
+static std::atomic<bool>     g_ppTargetHold{false};   // the target is a usable: Interact follows the grip
 static std::atomic<uint32_t> g_ppReadyMask{0};        // bit h: hand h may pick the target up now
 static std::atomic<uint64_t> g_ppReadyMs{0};          // when the mask was last written
 static std::atomic<uint32_t> g_ppFired{0}, g_ppSwallowed{0};
 
-enum : uint32_t { kPpLoot = 0, kPpReadable = 1, kPpDoor = 2 };   // readable: a book, note or audio log
+// readable: a book, note or audio log. Kinds from kPpDoor on are measured from their collision box.
+enum : uint32_t { kPpLoot = 0, kPpReadable = 1, kPpDoor = 2, kPpCarry = 3, kPpUsable = 4, kPpKinds = 5 };
+static const char* const kPpKindName[kPpKinds] = { "loot", "book", "door", "carry", "usable" };
+static uint32_t g_ppTargetsByKind[kPpKinds] = {};      // targets taken, by kind, since the last beat
+static uint32_t g_ppPawnTargets = 0;                   // targets whose class chain names a pawn or talk class: must stay 0
+static uint32_t g_ppPawnTargetsTotal = 0;
 struct PpEntry { uint8_t* obj; uint32_t idx; uint8_t* cls; uint32_t kind; };
 // Two fixed arrays, swapped when a sweep completes. Plain data on purpose: the loops that fill
 // and read them run under a structured exception handler (see PpSweepSlice), which cannot share
@@ -64,7 +88,8 @@ static PpEntry* g_ppBuild = g_ppArrB; static uint32_t g_ppBuildN = 0;
 struct PpClassSlot { uint8_t* cls; uint8_t verdict; };
 static PpClassSlot g_ppClass[8192];
 // name index -> "is one of the base names", direct mapped (0 = empty, 1 = no, 2 = loot,
-// 3 = readable loot: DisAbstractItemPickup, 4 = a door: DisDoor).
+// 3 = readable loot: DisAbstractItemPickup, 4 = a door: DisDoor, 5 = carry, 6 = usable,
+// 7 = EXCLUDED: a pawn or talk class, which ends the walk with a no). Kind = verdict - 2.
 // A class name is turned into text ONCE; after that the chain walk compares integers.
 struct PpNameSlot { uint32_t idx; uint8_t verdict; };
 static PpNameSlot g_ppName[8192];
@@ -117,23 +142,60 @@ static bool PpGameplay()
 // loops read them directly and a structured exception handler is the backstop for a pointer
 // that is not. Plain data only inside them.
 
-// Is this name one of the lootable base names? 3 yes and readable, 2 yes, 1 no, 0 not known yet
-// (the frame's budget of text lookups is spent: ask again in a later sweep).
+// The base names, by verdict (see g_ppName): the classes that declare DisInteractableInterface in
+// the script corpus, grouped. The first base met walking UP the chain wins, so DisDoor is met
+// before DishonoredUsableObject and DisAbstractItemPickup before DisPickup_Base.
+static uint8_t PpBaseVerdict(const char* n)
+{
+    if (!n) return 1;
+    static const char* const kExcluded[] = { "DishonoredPawn", "Pawn", "DisDialogInanimateDummy", "DisSpeaker_PA",
+                                             "GameCrowdAgent", "DisTrigger" };
+    for (const char* x : kExcluded) if (!strcmp(n, x)) return 7;
+    if (!strcmp(n, "DisAbstractItemPickup")) return 3;
+    if (!strcmp(n, "DisDoor")) return 4;
+    static const char* const kLoot[] = { "DisPickup_Base", "DisProjectile", "DisRiverKrust", "DisUpgrade" };
+    for (const char* x : kLoot) if (!strcmp(n, x)) return 2;
+    static const char* const kCarry[] = { "DishonoredMovable", "DisGrenade", "DisWhiskeyBottle", "DisMovableLimb",
+                                          "DisDLC07SkeletalMovable" };
+    for (const char* x : kCarry) if (!strcmp(n, x)) return 5;
+    static const char* const kUsable[] = { "DishonoredUsableObject", "DisProjectileLauncher", "DisClimbable",
+                                           "DisGadget_SpringRazorPlaced", "DisDLC06Gadget_ArcMinePlaced", "DisTripwire" };
+    for (const char* x : kUsable) if (!strcmp(n, x)) return 6;
+    return 1;
+}
+
+// Is this name one of the base names? The verdict above, or 0 not known yet (the frame's budget of
+// text lookups is spent: ask again in a later sweep).
 static uint8_t PpNameVerdict(uint32_t nameIdx)
 {
     PpNameSlot& slot = g_ppName[(nameIdx * 2654435761u) >> 19];
     if (slot.idx == nameIdx && slot.verdict) return slot.verdict;
     if (!g_ppNameBudget) return 0;
     --g_ppNameBudget;
-    const char* n = RealName(nameIdx);
-    const uint8_t v = !n ? 1 : !strcmp(n, "DisAbstractItemPickup") ? 3 : !strcmp(n, "DisDoor") ? 4
-                    : (!strcmp(n, "DisPickup_Base") || !strcmp(n, "DisProjectile_Arrow")) ? 2 : 1;
+    const uint8_t v = PpBaseVerdict(RealName(nameIdx));
     slot.idx = nameIdx; slot.verdict = v;
     return v;
 }
 
-// Does this class derive from a lootable base? Walks the SuperField chain, cached per class.
-// 3 yes and readable, 2 yes, 1 no, 0 not known yet. Called only from inside the guarded loops.
+// The independent check behind the pawn counter: does any class on this chain have "Pawn" in its
+// name, or is it a talk class? Text compares, so it does not share the verdict table it checks.
+// Called once per new target. Returns the name that matched, or NULL.
+static const char* PpChainNamesPawnRaw(uint8_t* cls)
+{
+    __try {
+        for (int depth = 0; cls && depth < 32; ++depth) {
+            if (((uintptr_t)cls & 3) || (uintptr_t)cls < 0x10000) break;
+            const char* n = RealName(*(uint32_t*)(cls + kNameOff));
+            if (n && (strstr(n, "Pawn") || !strcmp(n, "DisDialogInanimateDummy") || !strcmp(n, "DisSpeaker_PA"))) return n;
+            cls = *(uint8_t**)(cls + kSuperFieldOff);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return NULL;
+}
+
+// Does this class derive from a listed base? Walks the SuperField chain, cached per class.
+// The verdict of the first base met (2..6 listed, 7 excluded), 1 no, 0 not known yet. Called only
+// from inside the guarded loops.
 static uint8_t PpClassLootableRaw(uint8_t* cls)
 {
     PpClassSlot& slot = g_ppClass[(((uintptr_t)cls >> 4) * 2654435761u) >> 19];
@@ -144,7 +206,7 @@ static uint8_t PpClassLootableRaw(uint8_t* cls)
         if (((uintptr_t)c & 3) || (uintptr_t)c < 0x10000) break;
         const uint8_t nv = PpNameVerdict(*(uint32_t*)(c + kNameOff));
         if (nv == 0) return 0;                          // unknown: not cached, asked again next sweep
-        if (nv >= 2) { v = nv; break; }                 // the readable base is met before DisPickup_Base on the way up
+        if (nv >= 2) { v = nv; break; }                 // the first base met on the way up decides (an excluded one says no)
         c = *(uint8_t**)(c + kSuperFieldOff);
     }
     slot.cls = cls; slot.verdict = v;
@@ -168,8 +230,8 @@ static uint32_t PpSweepSlice(void** objs, uint32_t from, uint32_t to, PpEntry* o
             uint8_t* cls = *(uint8_t**)(o + kClassOff);
             if (!cls || ((uintptr_t)cls & 3) || (uintptr_t)cls < 0x10000) continue;
             const uint8_t v = PpClassLootableRaw(cls);
-            if (v < 2) continue;
-            if (n < kPpMax) { out[n].obj = o; out[n].idx = i; out[n].cls = cls; out[n].kind = v == 3 ? kPpReadable : v == 4 ? kPpDoor : kPpLoot; ++n; }
+            if (v < 2 || v > 6) continue;
+            if (n < kPpMax) { out[n].obj = o; out[n].idx = i; out[n].cls = cls; out[n].kind = v - 2u; ++n; }
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { *fault = true; i = to; }
     *next = i;
@@ -196,7 +258,7 @@ static void PpSweep(void** objs, uint32_t num, uint32_t budget, double nowMs, in
         // are cheap to rebuild, so they do not outlive a few dozen sweeps.
         if ((g_ppSweeps & 63u) == 63u) { memset(g_ppClass, 0, sizeof(g_ppClass)); memset(g_ppName, 0, sizeof(g_ppName)); }
         if (++g_ppSweeps == 1)
-            Log("pickup: first sweep done - %u lootable actor(s) among %u objects in %.0f ms of game time "
+            Log("pickup: first sweep done - %u interactable actor(s) among %u objects in %.0f ms of game time "
                 "(up to %u slots and 60 us a frame, guarded direct reads, %u fault(s); a first sweep is slow on purpose: "
                 "it may turn only 24 class names into text a frame)",
                 g_ppListN, num, g_ppLastSweepMs, budget, g_ppFaults);
@@ -204,7 +266,7 @@ static void PpSweep(void** objs, uint32_t num, uint32_t budget, double nowMs, in
 }
 
 // One chunk of the rotating near-list pass: entries still alive and within `radius2` of the camera
-// (doors by their origin, the hinge, so they get `doorRadius2`).
+// (box-measured kinds by their origin, which can be a hinge or an end, so they get `doorRadius2`).
 static uint32_t PpNearSlice(void** objs, uint32_t num, const PpEntry* list, uint32_t from, uint32_t to, uint32_t locOff,
                             const float* camera, float radius2, float doorRadius2, PpEntry* out, uint32_t n, bool* fault)
 {
@@ -215,7 +277,7 @@ static uint32_t PpNearSlice(void** objs, uint32_t num, const PpEntry* list, uint
             if (*(uint8_t**)(e.obj + kClassOff) != e.cls) continue;
             float loc[3]; memcpy(loc, e.obj + locOff, 12);
             const float dx = loc[0] - camera[0], dy = loc[1] - camera[1], dz = loc[2] - camera[2];
-            if (!(dx * dx + dy * dy + dz * dz <= (e.kind == kPpDoor ? doorRadius2 : radius2))) continue;
+            if (!(dx * dx + dy * dy + dz * dz <= (e.kind >= kPpDoor ? doorRadius2 : radius2))) continue;
             if (n < kPpNearMax) out[n++] = e;
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) { *fault = true; }
@@ -225,8 +287,8 @@ static uint32_t PpNearSlice(void** objs, uint32_t num, const PpEntry* list, uint
 // What the per-frame pass needs to know, and what it found. Plain data.
 struct PpQuery {
     uint32_t locOff, hiddenOff, hiddenMask, collOff, boundsOff, focusOff;
-    float    reach[3];                 // by kind, game units
-    bool     doors;
+    float    reach[kPpKinds];          // by kind, game units
+    bool     kindOn[kPpKinds];         // by kind: its F10 switch
     uint8_t* held; uint8_t* blocked; uint8_t* pc;
 };
 struct PpCand { uint8_t* obj; uint32_t idx; uint32_t kind; float aim[3]; float d2[2]; int hand; float keep; };
@@ -244,14 +306,15 @@ static void PpNearest(void** objs, uint32_t num, const PpEntry* list, uint32_t n
             const PpEntry& e = list[k];
             if (e.idx >= num || (uint8_t*)objs[e.idx] != e.obj) continue;      // the slot moved on: not this actor any more
             if (*(uint8_t**)(e.obj + kClassOff) != e.cls) continue;
-            if (e.kind == kPpDoor && !q->doors) continue;
+            if (e.kind >= kPpKinds || !q->kindOn[e.kind]) continue;
             if (e.obj == q->blocked) continue;
             if (q->hiddenMask && (*(uint32_t*)(e.obj + q->hiddenOff) & q->hiddenMask)) continue;
             float loc[3]; memcpy(loc, e.obj + q->locOff, 12);
             if (!(loc[0] == loc[0]) || !(loc[1] == loc[1]) || !(loc[2] == loc[2])) continue;   // NaN
-            // A door is its collision box (the origin is the hinge); everything else is its origin.
+            // A door, a carried thing or a usable is its collision box (a door's origin is the hinge);
+            // loot and books are their origin. A missing box degrades to the origin.
             bool box = false; float bo[3] = {}, be[3] = {};
-            if (e.kind == kPpDoor && q->collOff && q->boundsOff) {
+            if (e.kind >= kPpDoor && q->collOff && q->boundsOff) {
                 uint8_t* comp = *(uint8_t**)(e.obj + q->collOff);
                 if (comp && !((uintptr_t)comp & 3) && (uintptr_t)comp >= 0x10000) {
                     memcpy(bo, comp + q->boundsOff, 12); memcpy(be, comp + q->boundsOff + 12, 12);
@@ -340,7 +403,33 @@ static void PpDropTarget(const char* why, double nowMs, bool block)
         }
     }
     g_ppTarget = NULL; g_ppTargetHand = -1; g_ppTargetFocused = false;
+    g_ppTargetId.store(0); g_ppTargetHold.store(false);
     g_ppReadyMask.store(0);
+}
+
+// What the player's own animation lanes say the hands may do. A carried movable: nothing (the
+// grip is the game's again: throw or drop). A carried body: only the hand whose lane is free
+// (lane 1 is the upper body and right arm, lane 2 the left arm).
+static void PpCarryGate(bool* carryingMovable, bool handFree[2])
+{
+    *carryingMovable = false; handFree[0] = handFree[1] = true;
+    const auto s = dvr::anim::snapshot();
+    if (!s.valid) return;
+    for (int i = 0; i < 3; ++i) if (!strcmp(s.state[i], "StatePlayerGrabMovable")) *carryingMovable = true;
+    auto corpse = [](const char* st) { return !strcmp(st, "StatePlayerGrabCorpse") || !strcmp(st, "StatePlayerCarryCorpseIdle"); };
+    if (corpse(s.state[1])) handFree[1] = false;
+    if (corpse(s.state[2])) handFree[0] = false;
+    static int was = -1;
+    const int now = (*carryingMovable ? 4 : 0) | (handFree[0] ? 0 : 1) | (handFree[1] ? 0 : 2);
+    if (now != was) {
+        was = now;
+        Log("pickup: carry gate - %s (lanes: upper %s, arm %s)",
+            *carryingMovable ? "carrying an object: nothing is targeted and the grip keeps its own action (throw, drop)"
+            : (!handFree[0] && !handFree[1]) ? "a body on both lanes: no hand may interact"
+            : !handFree[1] ? "carrying a body: only the LEFT hand may interact (the upper-body lane holds it)"
+            : !handFree[0] ? "carrying a body: only the RIGHT hand may interact (the arm lane holds it)"
+            : "hands free", s.state[1], s.state[2]);
+    }
 }
 
 // Script lane, once a frame.
@@ -411,17 +500,29 @@ static void PhysicalPickupTick()
     if (!locOff || !focusOff || !GameCameraAnchor(camera)) { if (g_ppTarget) PpDropTarget("no camera or offsets", now, false); return; }
     for (int h = 0; h < 2; ++h) handOk[h] = PpHandWorld(h, camera, hand[h]);
     if (!handOk[0] && !handOk[1]) { if (g_ppTarget) PpDropTarget("no tracked hand", now, false); return; }
+    {
+        bool carrying = false, free[2];
+        PpCarryGate(&carrying, free);
+        if (carrying) { if (g_ppTarget) PpDropTarget("an object is carried", now, false); g_ppReadyMask.store(0); return; }
+        for (int h = 0; h < 2; ++h) handOk[h] = handOk[h] && free[h];
+        if (!handOk[0] && !handOk[1]) { if (g_ppTarget) PpDropTarget("no free hand (a body is carried)", now, false); g_ppReadyMask.store(0); return; }
+    }
 
     PpQuery q;
     q.locOff = locOff; q.hiddenOff = hiddenOff; q.hiddenMask = hiddenMask; q.collOff = collOff; q.boundsOff = boundsOff; q.focusOff = focusOff;
     q.reach[kPpLoot] = g_ppReachM.load() * g_posScaleUU;          // game units
     q.reach[kPpReadable] = g_ppBookReachM.load() * g_posScaleUU;
     q.reach[kPpDoor] = g_ppDoorReachM.load() * g_posScaleUU;
-    q.doors = g_ppDoorsOn.load();
+    q.reach[kPpCarry] = q.reach[kPpDoor];                          // box-measured: the door reach
+    q.reach[kPpUsable] = q.reach[kPpDoor];
+    q.kindOn[kPpLoot] = q.kindOn[kPpReadable] = true;
+    q.kindOn[kPpDoor] = g_ppDoorsOn.load();
+    q.kindOn[kPpCarry] = g_ppCarryOn.load();
+    q.kindOn[kPpUsable] = g_ppUsablesOn.load();
     q.held = g_ppTarget; q.blocked = now < g_ppBlockUntilMs ? g_ppBlock : NULL; q.pc = g_peCtrl;
     PpPick pick;
     dvr::crash::probe_begin();
-    {   // the rotating near-list pass: 192 listed items a frame, those within 2.5 m of the camera kept (doors 4 m)
+    {   // the rotating near-list pass: 192 listed items a frame, those within 2.5 m of the camera kept (box kinds 4 m)
         if (g_ppNearSrc != g_ppList || g_ppNearCursor > g_ppListN) { g_ppNearSrc = g_ppList; g_ppNearCursor = 0; g_ppNearBuildN = 0; }
         const uint32_t to = (g_ppListN - g_ppNearCursor > 192u) ? g_ppNearCursor + 192u : g_ppListN;
         const float radius = 2.5f * g_posScaleUU, doorRadius = 4.0f * g_posScaleUU;
@@ -442,21 +543,39 @@ static void PhysicalPickupTick()
     const PpCand* c = pick.best.obj ? &pick.best : NULL;
     if (!c) { if (g_ppTarget) PpDropTarget("nothing within reach", now, false); return; }
 
-    static const char* const kKind[3] = { "", " (a book or note: its own reach, and the page goes to the hand that opens it)",
-                                          " (a door: measured from its collision box)" };
+    static const char* const kKind[kPpKinds] = { "", " (a book or note: its own reach, and the page goes to the hand that opens it)",
+                                                 " (a door: measured from its collision box)",
+                                                 " (carry or throw: measured from its collision box)",
+                                                 " (a lever, switch, chain or trap: measured from its collision box; a held grip holds Interact)" };
     if (c->obj != g_ppTarget) {
         if (g_ppTarget) PpDropTarget("a nearer item", now, false);
+        // The pawn check, by a different route than the list (text, not the verdict table). It must
+        // read 0; a hit is refused and blocked for a minute, and says which name matched.
+        dvr::crash::probe_begin();
+        const char* pawn = PpChainNamesPawnRaw(*(uint8_t**)(c->obj + kClassOff));
+        dvr::crash::probe_end();
+        if (pawn) {
+            ++g_ppPawnTargets; ++g_ppPawnTargetsTotal;
+            DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Warn, 2000, "pickup: REFUSED a target whose class chain names %s (%s) - a pawn or talk target must never be offered; "
+                 "the list should have excluded it", pawn, ObjClassName(c->obj));
+            g_ppBlock = c->obj; g_ppBlockForMs = 60000.0; g_ppBlockUntilMs = now + 60000.0;
+            g_ppReadyMask.store(0);
+            return;
+        }
         g_ppTarget = c->obj; g_ppTargetIdx = c->idx; g_ppTargetSinceMs = now; g_ppFocusedLastMs = 0; g_ppTargetFocused = false;
+        ++g_ppTargetsByKind[c->kind];
         const char* cn = ObjClassName(c->obj);
         DVR_LOG_EVERY_MS(DVR_CAT, ::dvr::log::Level::Info, 400,
-            "pickup: target %s%s at %.0f uu (%.0f cm) from the %s hand, reach %.0f cm - the interaction trace now looks at it; "
+            "pickup: target %s [%s]%s at %.0f uu (%.0f cm) from the %s hand, reach %.0f cm - the interaction trace now looks at it; "
             "the grip takes it once the game focuses it",
-            cn ? cn : "?", kKind[c->kind], sqrtf(c->d2[c->hand]), sqrtf(c->d2[c->hand]) / g_posScaleUU * 100.0f,
+            cn ? cn : "?", kPpKindName[c->kind], kKind[c->kind], sqrtf(c->d2[c->hand]), sqrtf(c->d2[c->hand]) / g_posScaleUU * 100.0f,
             c->hand ? "RIGHT" : "LEFT", q.reach[c->kind] / g_posScaleUU * 100.0f);
     }
     memcpy(g_ppTargetLoc, c->aim, 12);
     g_ppTargetHand = c->hand; g_ppTargetKind = c->kind;
     g_ppTargetReadable.store(c->kind == kPpReadable);
+    g_ppTargetHold.store(c->kind == kPpUsable);
+    g_ppTargetId.store((uintptr_t)c->obj);
 
     // The engine's verdict: is its focused actor our target?
     uint8_t* focus = pick.focus;
@@ -475,24 +594,37 @@ static void PhysicalPickupTick()
     static double nextBeat = 0;
     if (now >= nextBeat) {
         nextBeat = now + 10000;
-        Log("pickup: beat - %u lootable actor(s) listed (%u within 2.5 m), sweep %u took %.0f ms of game time, trace driven %ld time(s), "
+        uint32_t byKind[kPpKinds] = {};
+        for (uint32_t k = 0; k < g_ppListN; ++k) if (g_ppList[k].kind < kPpKinds) ++byKind[g_ppList[k].kind];
+        Log("pickup: beat - %u interactable actor(s) listed (loot %u, books %u, doors %u, carry %u, usable %u; %u within 2.5 m), "
+            "sweep %u took %.0f ms of game time, trace driven %ld time(s), targets taken loot %u books %u doors %u carry %u usable %u, "
             "grips swallowed %u, Interact pressed %u, reach %.0f cm | own cost %.1f us a frame, max %.0f, over 250 us in %u and "
             "over 1000 us in %u of %u frames (a frame of several ms on the game thread alone is what starves an eye: both "
-            "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u | doors %s",
-            g_ppListN, g_ppNearN, g_ppSweeps, g_ppLastSweepMs, (long)g_ppRayDriven, g_ppSwallowed.load(), g_ppFired.load(),
+            "counts must read 0 or close to it), slices cut by the 60 us budget %u, guarded-read faults %u | doors %s, carry %s, "
+            "usables %s | pawn or talk targets refused %u (%u this run; counts targets whose class chain names a pawn or a talk "
+            "class, read by text: must read 0)",
+            g_ppListN, byKind[0], byKind[1], byKind[2], byKind[3], byKind[4], g_ppNearN, g_ppSweeps, g_ppLastSweepMs,
+            (long)g_ppRayDriven, g_ppTargetsByKind[0], g_ppTargetsByKind[1], g_ppTargetsByKind[2], g_ppTargetsByKind[3],
+            g_ppTargetsByKind[4], g_ppSwallowed.load(), g_ppFired.load(),
             g_ppReachM.load() * 100.0f, g_ppCostN ? g_ppCostUsSum / g_ppCostN : 0.0, g_ppCostUsMax, g_ppCostOver250,
-            g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults, g_ppDoorsOn.load() ? "ON" : "off");
+            g_ppCostOver1000, g_ppCostN, g_ppSliceCut, g_ppFaults, g_ppDoorsOn.load() ? "ON" : "off",
+            g_ppCarryOn.load() ? "ON" : "off", g_ppUsablesOn.load() ? "ON" : "off", g_ppPawnTargets, g_ppPawnTargetsTotal);
         g_ppCostUsSum = 0; g_ppCostUsMax = 0; g_ppCostN = 0; g_ppCostOver250 = 0; g_ppCostOver1000 = 0; g_ppSliceCut = 0;
+        memset(g_ppTargetsByKind, 0, sizeof(g_ppTargetsByKind)); g_ppPawnTargets = 0;
     }
 }
 
 // Pad bridge (present thread). `raw` is the PHYSICAL snapshot about to be remapped: a grip that
 // starts a pickup is zeroed in it until released, so whatever is bound to that grip does not
-// fire. Returns true while Interact should be held down.
+// fire. Returns true while Interact should be held down: 130 ms for a press, and on a usable (a
+// valve, a lever that wants Interact held) for as long as the grip stays down AND the same target
+// is still focused and in that hand's reach. The hold ends the moment the target is lost, because
+// Interact held with nothing focused sheathes the weapon in this game.
 static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
 {
-    static bool was[2] = { false, false }, swallow[2] = { false, false };
-    static uint64_t pressUntil = 0;
+    static bool was[2] = { false, false }, swallow[2] = { false, false }, holding[2] = { false, false };
+    static uintptr_t pressedOn[2] = { 0, 0 };
+    static uint64_t pressUntil = 0, holdSince[2] = { 0, 0 };
     const uint64_t now = GetTickCount64();
     const bool fresh = now - g_ppReadyMs.load() <= 250;
     const uint32_t mask = (g_ppOn.load() && !blocked && fresh) ? g_ppReadyMask.load() : 0;
@@ -501,6 +633,8 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
         const bool down = *grip[h] > (was[h] ? 0.7f : 0.9f);
         if (down && !was[h] && (mask & (1u << h))) {
             swallow[h] = true; pressUntil = now + 130;
+            pressedOn[h] = g_ppTargetHold.load() ? g_ppTargetId.load() : 0;
+            holding[h] = pressedOn[h] != 0; holdSince[h] = now;
             g_ppSwallowed.fetch_add(1); g_ppFired.fetch_add(1);
             const bool page = g_ppTargetReadable.load();
             if (page) dvr::hudlayout::note_opened_by_hand(h);     // the reading panel attaches to this hand
@@ -510,8 +644,18 @@ static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked)
         if (!down) swallow[h] = false;
         was[h] = down;
         if (swallow[h]) *grip[h] = 0.0f;
+        if (holding[h]) {
+            const bool keep = swallow[h] && (mask & (1u << h)) && g_ppTargetId.load() == pressedOn[h];
+            if (!keep) {
+                holding[h] = false;
+                if (now - holdSince[h] > 130)
+                    Log("pickup: %s grip held Interact on a usable for %llu ms - ended by %s", h ? "RIGHT" : "LEFT",
+                        (unsigned long long)(now - holdSince[h]), !swallow[h] ? "the grip's release"
+                        : g_ppTargetId.load() != pressedOn[h] ? "the target changing or being lost" : "the hand leaving reach or the focus");
+            }
+        }
     }
-    return now < pressUntil;
+    return now < pressUntil || holding[0] || holding[1];
 }
 
 static void PickupSet(bool on, const char* who)
@@ -553,6 +697,22 @@ static void PickupSetDoorReachCm(float cm)
     g_ppDoorReachM.store(cm / 100.0f);
 }
 static float PickupDoorReachCm() { return g_ppDoorReachM.load() * 100.0f; }
+static bool PickupCarryEnabled() { return g_ppCarryOn.load(); }
+static void PickupSetCarry(bool on, const char* who)
+{
+    g_ppCarryOn.store(on);
+    Log("pickup: carry and throw by grabbing %s (%s) - bottles, tanks, grenades, limbs: a hand within %.0f cm of the "
+        "collision box and a grip picks it up; needs physical pickup on (now %s)", on ? "ON" : "off", who,
+        g_ppDoorReachM.load() * 100.0f, g_ppOn.load() ? "ON" : "off");
+}
+static bool PickupUsablesEnabled() { return g_ppUsablesOn.load(); }
+static void PickupSetUsables(bool on, const char* who)
+{
+    g_ppUsablesOn.store(on);
+    Log("pickup: levers, switches, chains and traps by grabbing %s (%s) - a hand within %.0f cm of the collision box and "
+        "a grip uses it, held for as long as the grip is; needs physical pickup on (now %s)", on ? "ON" : "off", who,
+        g_ppDoorReachM.load() * 100.0f, g_ppOn.load() ? "ON" : "off");
+}
 
 static void PickupConfigure(const char* ini)
 {
@@ -560,6 +720,8 @@ static void PickupConfigure(const char* ini)
     PickupSetBookReachCm(IniFloat(ini, "Aim", "PhysicalPickupBookReachCm", 45));
     PickupSetDoorReachCm(IniFloat(ini, "Aim", "PhysicalDoorReachCm", 20));
     PickupSetDoors(IniFloat(ini, "Aim", "PhysicalDoors", 1) != 0.0f, "ini [Aim] PhysicalDoors");
+    PickupSetCarry(IniFloat(ini, "Aim", "PhysicalCarry", 1) != 0.0f, "ini [Aim] PhysicalCarry");
+    PickupSetUsables(IniFloat(ini, "Aim", "PhysicalUsables", 1) != 0.0f, "ini [Aim] PhysicalUsables");
     PickupSet(IniFloat(ini, "Aim", "PhysicalPickup", 1) != 0.0f, "ini [Aim] PhysicalPickup");
 }
 
@@ -569,6 +731,16 @@ static bool PickupCommand(const char* args)
     if (!strncmp(args, "doors ", 6) && DvrOnOff(args + 6, &b)) {
         PickupSetDoors(b, "seam");
         ConfigWriteKey("Aim", "PhysicalDoors", b ? "1" : "0", "the seam");
+        return true;
+    }
+    if (!strncmp(args, "carry ", 6) && DvrOnOff(args + 6, &b)) {
+        PickupSetCarry(b, "seam");
+        ConfigWriteKey("Aim", "PhysicalCarry", b ? "1" : "0", "the seam");
+        return true;
+    }
+    if (!strncmp(args, "usables ", 8) && DvrOnOff(args + 8, &b)) {
+        PickupSetUsables(b, "seam");
+        ConfigWriteKey("Aim", "PhysicalUsables", b ? "1" : "0", "the seam");
         return true;
     }
     if (sscanf(args, "doorreach %f", &cm) == 1) {
@@ -591,12 +763,15 @@ static bool PickupCommand(const char* args)
         char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupBookReachCm()); v[sizeof(v) - 1] = 0;
         ConfigWriteKey("Aim", "PhysicalPickupBookReachCm", v, "the seam");
     }
-    Log("pickup: on|off, reach <cm>, bookreach <cm>, doors on|off, doorreach <cm> (now %s, reach %.0f cm, books and notes %.0f cm, "
-        "doors %s at %.0f cm) | listed %u, sweeps %u (last %.0f ms), target %s (hand %d, focused %s), "
-        "trace driven %ld, grips swallowed %u, Interact pressed %u, ready mask %u",
+    Log("pickup: on|off, reach <cm>, bookreach <cm>, doors on|off, doorreach <cm>, carry on|off, usables on|off (now %s, reach "
+        "%.0f cm, books and notes %.0f cm, doors %s at %.0f cm, carry %s, usables %s, both at the door reach) | listed %u, "
+        "sweeps %u (last %.0f ms), target %s [%s] (hand %d, focused %s), trace driven %ld, grips swallowed %u, Interact "
+        "pressed %u, ready mask %u, pawn or talk targets refused this run %u",
         g_ppOn.load() ? "ON" : "off", PickupReachCm(), PickupBookReachCm(), g_ppDoorsOn.load() ? "ON" : "off", PickupDoorReachCm(),
+        g_ppCarryOn.load() ? "ON" : "off", g_ppUsablesOn.load() ? "ON" : "off",
         g_ppListN, g_ppSweeps, g_ppLastSweepMs,
-        g_ppTarget ? "held" : "none", g_ppTargetHand, g_ppTargetFocused ? "yes" : "no", (long)g_ppRayDriven,
-        g_ppSwallowed.load(), g_ppFired.load(), g_ppReadyMask.load());
+        g_ppTarget ? "held" : "none", g_ppTarget && g_ppTargetKind < kPpKinds ? kPpKindName[g_ppTargetKind] : "-",
+        g_ppTargetHand, g_ppTargetFocused ? "yes" : "no", (long)g_ppRayDriven,
+        g_ppSwallowed.load(), g_ppFired.load(), g_ppReadyMask.load(), g_ppPawnTargetsTotal);
     return true;
 }

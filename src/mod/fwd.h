@@ -705,6 +705,10 @@ static bool PickupDoorsEnabled();
 static void PickupSetDoors(bool on, const char* who);
 static void PickupSetDoorReachCm(float cm);
 static float PickupDoorReachCm();
+static bool PickupCarryEnabled();
+static void PickupSetCarry(bool on, const char* who);
+static bool PickupUsablesEnabled();
+static void PickupSetUsables(bool on, const char* who);
 static void PickupConfigure(const char* ini);
 static bool PickupCommand(const char* args);
 // VR-166: grenades and other throws aimed by hand (throw_aim.cpp).

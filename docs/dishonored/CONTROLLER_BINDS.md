@@ -110,6 +110,13 @@ the hand arrived is not taken; the Interact button itself is untouched. Log: `pi
 grip pressed ... grip swallowed, Interact pressed`. Books and notes use
 `PhysicalPickupBookReachCm` (45), and a page opened this way attaches to the hand that opened it.
 With `[Aim] PhysicalDoors=1` (F10 > Aim, `pickup doors on|off`) the same grip opens or closes a
-door within `PhysicalDoorReachCm` (20) of the hand. The plan for the rest (carried objects,
-levers and other prompts, the weapon hidden and the hand open while eligible) is
-PLAN-physical-interaction.md.
+door within `PhysicalDoorReachCm` (20) of the hand. `[Aim] PhysicalCarry=1` (`pickup carry
+on|off`) does the same for things carried and thrown, and `[Aim] PhysicalUsables=1` (`pickup
+usables on|off`) for levers, switches, valves, chains and placed traps, both at the door reach
+from the object's collision box. On a usable the grip HOLDS Interact for as long as it stays
+down on the same focused target (130 ms at least), and lets go the moment the target is lost,
+because Interact held with nothing focused sheathes the weapon. People are never a target, so
+the grip's own Choke is untouched. While an object is carried the grip is never taken (it
+throws or drops as bound); while a body is carried only the free hand can interact. The
+Interact button works on every one of these exactly as before. The plan for the rest (the
+weapon hidden and the hand open while eligible) is PLAN-physical-interaction.md.

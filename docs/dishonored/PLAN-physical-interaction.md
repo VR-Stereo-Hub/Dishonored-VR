@@ -1,8 +1,9 @@
 # Plan: the grip as the interaction button, and a hand that shows it
 
-Status: NOT BUILT. This is the brief for the session that builds it. Written 2026-10-05 on
-`claude/fast-dlss-physical-pickup` (draft PR #181), after four headset sessions of the first
-part. Read it top to bottom before touching code; section 9 is the order of work.
+Status: step 2 BUILT (2026-10-05, compiles, not yet run in the simulator or the headset); steps
+3 onward not built. Written 2026-10-05 on `claude/fast-dlss-physical-pickup` (draft PR #181),
+after four headset sessions of the first part. Read it top to bottom before touching code;
+section 9 is the order of work, section 10 has the maintainer's answers.
 
 ## 1. What is asked
 
@@ -64,10 +65,10 @@ declarations (class hierarchy only), the classes that declare it:
 | `DishonoredMovable` (and `DisWhaleOilBattery`) | things carried and thrown: bottles, tanks | yes |
 | `DisGrenade`, `DisWhiskeyBottle`, `DisMovableLimb`, `DisDLC07SkeletalMovable` | loose throwables and physics props | yes |
 | `DisProjectile` (`DisProjectile_Arrow` done) | bolts and darts to recover | yes |
-| `DisGadget_SpringRazorPlaced`, `DisDLC06Gadget_ArcMinePlaced`, `DisTripwire` | placed traps (take back, disarm) | yes, see risk 3 |
+| `DisGadget_SpringRazorPlaced`, `DisDLC06Gadget_ArcMinePlaced`, `DisTripwire` | placed traps (take back, disarm) | yes (maintainer, 2026-10-05) |
 | `DisProjectileLauncher` | wall-mounted launchers, rewire points | yes |
 | `DisRiverKrust`, `DisUpgrade` | pearl, upgrade pickups | yes |
-| `DisClimbable` | chains | decide in the headset (a grip on a chain is natural; it also changes movement) |
+| `DisClimbable` | chains | yes (maintainer, 2026-10-05) |
 | `DishonoredNPCPawn` | talk, choke, pick up a body | **NO** |
 | `DisDialogInanimateDummy`, `DisSpeaker_PA` | talk targets that are not pawns | **NO** |
 | `DisGameCrowdAgentSkeletalRat`, `DisTrigger` | rats, volume triggers | no |
@@ -226,13 +227,34 @@ eligibility flag, or the hand shows a fist with no sword, or an open hand throug
    hide and what it had to drop), FLICKER_REFERENCE (every flicker result), CONTROLLER_BINDS,
    STATUS.
 
-## 10. Open questions for the maintainer
+## 10. Open questions for the maintainer - ANSWERED 2026-10-05
 
-- Chains (`DisClimbable`): grip or not?
-- Should the hand open for doors too, or only for things that end up in the hand?
-- Placed traps: taking back the player's own razor by grip is convenient; a grip near an
-  armed enemy trap is not. Leave traps to the Interact button at first?
-- While a body is carried, should the free hand still interact?
+- Chains (`DisClimbable`): **the grip grabs chains.** In the usable group.
+- Should the hand open for doors too? **Yes: the hand opens for doors** (step 5 and 6 treat a
+  door like any other target).
+- Placed traps: **the grip takes traps too**, in the usable group. Everything the grip reaches
+  keeps working with the Interact button exactly as before.
+- While a body is carried: **the free hand can still interact.** Built as: the hand whose
+  animation lane holds the body is not offered a target; the other is (section 4, ENGINE_NOTES
+  "The carry states, per lane").
+- Combat guard (section 8): **none for now.** Step 7 stays unbuilt unless the headset asks.
+
+## 10b. What step 2 built (2026-10-05)
+
+- The class table of section 4 as five kinds (loot, book, door, carry, usable) plus an
+  excluded set that ends the class walk with a no (pawns, talk targets, rats, triggers). Carry
+  and usable are box-measured with the door reach; F10 switches "Pick up things you can carry
+  or throw by grabbing" (`[Aim] PhysicalCarry`, 1) and "Use levers, switches, chains and traps
+  by grabbing" (`[Aim] PhysicalUsables`, 1); seam `pickup carry|usables on|off`.
+- The pawn counter: each new target's class chain is read again as text; a name containing
+  `Pawn` (or a talk class) is refused, blocked for a minute, and counted in the beat line.
+- Hold-to-use, for usables only: loot, books and doors keep the accepted 130 ms tap.
+- The carry gate: nothing targeted while a movable is carried; while a body is carried only
+  the free lane's hand.
+- What the first run must show (simulator first): the beat line's per-kind list counts and
+  `own cost` with its over-250/over-1000 counts at zero; `pickup: target ... [carry]` and
+  `[usable]` lines; `pawn or talk targets refused 0` after standing next to NPCs; a
+  `pickup: carry gate` line when a bottle and when a body is picked up; a usable's hold line.
 
 ## 11. Tools to use before deriving anything
 

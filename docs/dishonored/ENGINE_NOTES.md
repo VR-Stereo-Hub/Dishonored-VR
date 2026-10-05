@@ -10215,3 +10215,27 @@ First headset session 2026-10-05: targets were found from both hands, the game f
 * Hand positions: the grip pose, scaled about the head by the drawn hand's own scale, through
   the same head-to-world mapping as the published aim ray (`fireaim::solve`), anchored on the
   game camera. Distances are to the actor origin, so the default reach is a generous 30 cm.
+* **The wider list** (PLAN-physical-interaction.md step 2, built 2026-10-05, not yet run). The
+  script corpus has 21 actor classes that declare `DisInteractableInterface`; their parents, from the
+  same declarations, put them in four groups by the first base name met walking up the chain:
+  loot (`DisPickup_Base`, `DisProjectile` - every bolt and dart, not only `DisProjectile_Arrow` -,
+  `DisRiverKrust`, `DisUpgrade`), carry (`DishonoredMovable` and its `DisWhaleOilBattery`,
+  `DisGrenade`, `DisWhiskeyBottle`, `DisMovableLimb`, `DisDLC07SkeletalMovable`; the last four
+  are `DishonoredKAsset`s, not movables), usable (`DishonoredUsableObject`, which `DisDoor`
+  extends and is met before, `DisProjectileLauncher`, `DisClimbable` - the chains, a
+  `DishonoredKAsset` -, and the placed traps `DisGadget_SpringRazorPlaced`,
+  `DisDLC06Gadget_ArcMinePlaced`, `DisTripwire`, all `SkeletalMeshActor`s), and EXCLUDED
+  (`DishonoredPawn` - which declares the interface itself, so every NPC does -, `Pawn`,
+  `DisDialogInanimateDummy` (an `Actor`), `DisSpeaker_PA` (a `DishonoredBreakable`, a sibling of
+  the movables, not one), `GameCrowdAgent` (the rats), `DisTrigger`). An excluded name ends the
+  walk with a no, so no pawn subclass can be listed whatever its parents; a second check reads
+  the chosen target's chain as text and refuses any name containing `Pawn` (the beat line's
+  `pawn or talk targets refused`, expected 0). Carry and usable things are measured from the
+  collision box with the door reach. `DisUseState_AltInteract` also names the interface but is a
+  use state, not an actor.
+* **The carry states, per lane** (`dvr::anim::snapshot`, the player's three state machines). A
+  carried movable is `StatePlayerGrabMovable` on any lane (the same read VR-181 uses); a body is
+  `StatePlayerGrabCorpse` then `StatePlayerCarryCorpseIdle` on lane 1, the upper body and right
+  arm, while lane 2, the left arm, stays free (powers, Blink). So while a body is carried only
+  the hand on the free lane is offered a target; the module reads which lane holds it rather
+  than assuming the side, and logs `pickup: carry gate` on every change. Not yet seen in a log.

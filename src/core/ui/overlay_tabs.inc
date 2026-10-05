@@ -471,8 +471,18 @@ static void OvlTabAim()
                         char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupDoorReachCm()); v[sizeof(v) - 1] = 0;
                         ConfigWriteKey("Aim", "PhysicalDoorReachCm", v, "F10 Aim");
                     }
-                    OvlTip("How close a hand must be to the door.");
+                    OvlTip("How close a hand must be to the door. Things you carry and levers use the same distance.");
                 }
+                bool carry = PickupCarryEnabled();
+                if (dvr::ovl::checkbox("Pick up things you can carry or throw by grabbing", &carry)) {
+                    PickupSetCarry(carry, "F10"); ConfigWriteKey("Aim", "PhysicalCarry", carry ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Bottles, tanks, grenades and other loose objects. While one is carried the grip does its own job again.");
+                bool usables = PickupUsablesEnabled();
+                if (dvr::ovl::checkbox("Use levers, switches, chains and traps by grabbing", &usables)) {
+                    PickupSetUsables(usables, "F10"); ConfigWriteKey("Aim", "PhysicalUsables", usables ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Holding the grip holds the button for things that need it. People are never grabbed this way.");
             }
         }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
