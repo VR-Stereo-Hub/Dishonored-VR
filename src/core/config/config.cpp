@@ -200,10 +200,11 @@ static bool WriteDefaultIni(const char* ini)
         "; taken from the current resolution when SR is first turned on; the F10 resolution sets it while SR is\n"
         "; on). [Screen] RenderWidth/Height then hold the reduced size. Live: dlss quality <n>, dlss output <w> <h>.\n"
         "DlssQuality=0\n"
-        "; DlssModel: 0 transformer (preset K, best image, ~2 ms per eye at 2750x2850), 1 fast (CNN presets\n"
-        "; E/F, ~0.9 ms per eye). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
+        "; DlssModel: 1 fast (CNN presets E/F, the default: about 2 ms per eye image in play), 0 transformer\n"
+        "; (preset K, the sharpest image, about 4 ms: measured 14 percent slower at Ultra Quality on an RTX 4070\n"
+        "; Ti SUPER, 2026-10-05). DlssPreset nonzero overrides it: 10 J, 11 K, 12 L, 13 M (NVIDIA presets),\n"
         "; 16 NVIDIA's pick per mode (K, M for Performance, L for Ultra Performance). F10: the DLSS model list.\n"
-        "DlssModel=0\n"
+        "DlssModel=1\n"
         "DlssOutputWidth=0\n"
         "DlssOutputHeight=0\n"
         "; DlssMask=1 (A/B, off): pixels the camera vectors cannot explain (arms, weapon, NPCs) take\n"
@@ -601,6 +602,25 @@ static bool WriteDefaultIni(const char* ini)
         "; InteractFromHand=1 (VR-166): what you can pick up, open or use is chosen along the\n"
         "; weapon ray instead of your view. The engine still traces and validates; 0 = head.\n"
         "InteractFromHand=1\n"
+        "; PhysicalPickup=1: reach a hand to a lootable item (coins, elixirs, keys, ammunition, bone\n"
+        "; charms, notes, bolts) and squeeze that hand's grip to pick it up. Within PhysicalPickupReachCm\n"
+        "; of a hand the game highlights the item by itself; the Interact button works as before.\n"
+        "; A grip pressed there does not also open the power wheel or block. Live: pickup on|off, pickup reach <cm>.\n"
+        "; Books, notes and audio logs have their own, longer reach (they are measured from their middle),\n"
+        "; and one opened by a grip shows its page on the hand that opened it.\n"
+        "PhysicalPickup=1\n"
+        "PhysicalPickupReachCm=30\n"
+        "PhysicalPickupBookReachCm=45\n"
+        "; PhysicalDoors=1: with PhysicalPickup on, a hand within PhysicalDoorReachCm of a door and a grip\n"
+        "; opens or closes it. Live: pickup doors on|off, pickup doorreach <cm>.\n"
+        "PhysicalDoors=1\n"
+        "PhysicalDoorReachCm=20\n"
+        "; PhysicalCarry=1: the same grip picks up things you can carry and throw (bottles, tanks, grenades,\n"
+        "; limbs). PhysicalUsables=1: levers, switches, valves, chains and placed traps; a held grip holds\n"
+        "; Interact. Both use PhysicalDoorReachCm from the object's collision box, never act on people,\n"
+        "; and the Interact button works on all of them as before. Live: pickup carry|usables on|off.\n"
+        "PhysicalCarry=1\n"
+        "PhysicalUsables=1\n"
         "; ThrowFromHand=1 (VR-166): grenades leave along the weapon ray instead of your view.\n"
         "; The spawn point, speed and arc stay the game's; 0 = head.\n"
         "ThrowFromHand=1\n"
@@ -1972,7 +1992,7 @@ static void LoadConfig()
             // FSR (2026-09-27): not in the default ini on purpose; a missing key is DLSS.
             dvr::dlss::set_backend((int)IniFloat(ini, "Clarity", "Upscaler", 0), "ini");
             dvr::dlss::set_fsr_version((int)IniFloat(ini, "Clarity", "FsrVersion", 0), "ini");
-            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 0), "ini");
+            dvr::dlss::set_model((int)IniFloat(ini, "Clarity", "DlssModel", 1), "ini");
             dvr::dlss::set_output((uint32_t)IniFloat(ini, "Clarity", "DlssOutputWidth", 0), (uint32_t)IniFloat(ini, "Clarity", "DlssOutputHeight", 0), "ini");
             dvr::dlss::set_mask(IniFloat(ini, "Clarity", "DlssMask", 0) != 0.0f, "ini");
             dvr::dlss::set_object_motion(IniFloat(ini, "Clarity", "DlssObjectMotion", 0) != 0.0f, "ini");   // VR-39
@@ -2990,6 +3010,7 @@ static void LoadConfig()
     SwingTraceConfigure(ini); // VR-165: [Diagnostics] SwingTrace
     AimSourceConfigure(ini);  // VR-166: [Aim] SourceProbe
     InteractAimConfigure(ini); // VR-166: [Aim] InteractFromHand
+    PickupConfigure(ini);      // [Aim] PhysicalPickup, PhysicalPickupReachCm
     ThrowAimConfigure(ini);    // VR-166: [Aim] ThrowFromHand
     GadgetAimConfigure(ini);   // VR-166: [Aim] GadgetFromHand
     CarryThrowAimConfigure(ini); // VR-181: [Aim] CarryThrowFromHand

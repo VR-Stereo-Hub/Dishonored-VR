@@ -1572,3 +1572,27 @@ different phases. The script lane continues to write only validated attachment
 relatives using engine bone-space conversion. A locked publication and refreshed
 object identities bound the render-to-script handoff. Host negative controls
 cover old-world and current-arm-only alternatives; in-game acceptance is pending.
+### 2026-10-05: the fast DLSS model is the default
+
+The shipped default was Transformer K, the sharpest model. Measured in the headset in the
+played configuration (afw, Ultra Quality, 2750x2850 output, RTX 4070 Ti SUPER; a matched A/B
+row with six clean windows each side): K costs 1.1 ms an eye image, 14 percent of the frame
+rate, over the fast CNN presets, and that configuration is limited by the GPU. `DlssModel`
+now defaults to 1 in the code, the default ini and the launcher; K stays one click away in
+F10 and the launcher. An existing ini keeps the value it has: the key is written on every
+save, so a stored 0 cannot be told from a choice, and no migration rewrites it. The
+measurement is in dishonored/PERFORMANCE.md (2026-10-05, on the performance audit branch).
+
+### 2026-10-05: physical pickup lets the engine choose, and finds loot by a slow sweep
+
+Reaching for an item cannot use the pointing ray: a hand that hovers over a coin does not point
+at it. Three routes were weighed. Calling the engine's line check or its usable selector as a
+probe would answer exactly, but it is an engine call that could not be run before shipping the
+change. Alternating the interaction trace between the hands shows as a flickering highlight.
+The route taken reads only: an incremental GObjects pass lists the pickup actors, the nearest
+one within reach of a hand becomes the target, and the existing VR-166 bridges point the
+engine's own trace at it. The engine keeps every decision (focus, highlight, prompt, refusal)
+and the mod presses Interact only when the engine's focused actor is that target. A grip is
+taken before the bind remap so that whatever the player bound to it stays quiet. Default on:
+it is a requested interaction, not a render lever, and it changes nothing until a hand is
+within reach of loot. See dishonored/ENGINE_NOTES.md, "Physical pickup".

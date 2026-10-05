@@ -438,6 +438,53 @@ static void OvlTabAim()
         if (changed) { CarryThrowAimSet(carry, "F10"); ConfigWriteKey("Aim", "CarryThrowFromHand", carry ? "1" : "0", "F10 Aim"); }
         bool powers = row("Windblast, Possession, Swarm", PowerAimEnabled(), &changed, "Where these powers are aimed.");
         if (changed) { PowerAimSet(powers, "F10"); ConfigWriteKey("Aim", "PowersFromHand", powers ? "1" : "0", "F10 Aim"); }
+        {
+            bool grab = PickupEnabled();
+            if (dvr::ovl::checkbox("Pick up loot by reaching for it", &grab)) {
+                PickupSet(grab, "F10"); ConfigWriteKey("Aim", "PhysicalPickup", grab ? "1" : "0", "F10 Aim");
+            }
+            OvlTip("Reach a hand to coins, elixirs, keys and other loot and squeeze that hand's grip. The game "
+                   "highlights the item when a hand is close enough. The Interact button works as before.");
+            if (grab) {
+                float reach = PickupReachCm(), book = PickupBookReachCm();
+                if (dvr::ovl::slider_float("Reach (cm)", &reach, 10.f, 80.f, "%.0f")) {
+                    PickupSetReachCm(reach);
+                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupReachCm()); v[sizeof(v) - 1] = 0;
+                    ConfigWriteKey("Aim", "PhysicalPickupReachCm", v, "F10 Aim");
+                }
+                OvlTip("How close a hand must be to an item.");
+                if (dvr::ovl::slider_float("Reach for books and notes (cm)", &book, 10.f, 100.f, "%.0f")) {
+                    PickupSetBookReachCm(book);
+                    char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupBookReachCm()); v[sizeof(v) - 1] = 0;
+                    ConfigWriteKey("Aim", "PhysicalPickupBookReachCm", v, "F10 Aim");
+                }
+                OvlTip("Books and notes are larger, so they have their own distance. A page opened by a grip attaches to that hand.");
+                bool doors = PickupDoorsEnabled();
+                if (dvr::ovl::checkbox("Open doors by grabbing them", &doors)) {
+                    PickupSetDoors(doors, "F10"); ConfigWriteKey("Aim", "PhysicalDoors", doors ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Bring a hand to a door and squeeze that hand's grip to open or close it.");
+                if (doors) {
+                    float door = PickupDoorReachCm();
+                    if (dvr::ovl::slider_float("Reach for doors (cm)", &door, 5.f, 80.f, "%.0f")) {
+                        PickupSetDoorReachCm(door);
+                        char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupDoorReachCm()); v[sizeof(v) - 1] = 0;
+                        ConfigWriteKey("Aim", "PhysicalDoorReachCm", v, "F10 Aim");
+                    }
+                    OvlTip("How close a hand must be to the door. Things you carry and levers use the same distance.");
+                }
+                bool carry = PickupCarryEnabled();
+                if (dvr::ovl::checkbox("Pick up things you can carry or throw by grabbing", &carry)) {
+                    PickupSetCarry(carry, "F10"); ConfigWriteKey("Aim", "PhysicalCarry", carry ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Bottles, tanks, grenades and other loose objects. While one is carried the grip does its own job again.");
+                bool usables = PickupUsablesEnabled();
+                if (dvr::ovl::checkbox("Use levers, switches, chains and traps by grabbing", &usables)) {
+                    PickupSetUsables(usables, "F10"); ConfigWriteKey("Aim", "PhysicalUsables", usables ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Holding the grip holds the button for things that need it. People are never grabbed this way.");
+            }
+        }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");
         if (g_gamepadOnly) ImGui::TextDisabled("[Mode] GamepadOnly=1: everything stays on the head.");
     }

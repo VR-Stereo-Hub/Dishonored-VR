@@ -128,7 +128,12 @@ static void UpdateVirtualPad()
     const auto binds=dvr::binds::layout();
     const dvr::binds::Source bindMuted=(!binds.is_default() && g_ovlVisible && g_ovlPtrEnable)
         ? (g_ovlPtrHand ? dvr::binds::RightTrigger : dvr::binds::LeftTrigger) : dvr::binds::None;
-    dvr::vr::InputSnapshot in=dvr::binds::apply(raw,binds,bindMuted);
+    // Physical pickup: a grip pressed with loot in reach is swallowed BEFORE the remap (so whatever
+    // is bound to that grip does not fire) and Interact is pressed for a moment instead.
+    dvr::vr::InputSnapshot rawForBinds=raw;
+    const bool pickupPress=PickupPadFilter(rawForBinds,g_ovlVisible || g_menuOpen || g_inMenu || UiSurfaceBlocks() || CineActive());
+    dvr::vr::InputSnapshot in=dvr::binds::apply(rawForBinds,binds,bindMuted);
+    if (pickupPress) in.x=true;
     if (controller.modifier==dvr::controller::R3) in.clkR=raw.clkR;
     if (g_ovlVisible && dvr::binds::capture_active(GetTickCount64())) {   // F10 press-to-bind owns the press
         in.a=in.b=in.x=in.y=in.clkL=in.clkR=in.menu=false;

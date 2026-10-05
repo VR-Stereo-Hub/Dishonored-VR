@@ -71,7 +71,7 @@ static void suite(float dpi,float width,float height){
  check(v.choices.upscalerEdit==1 && v.settingsDirty,"DLSS selection marks draft dirty");
  reveal("##upscaler-quality");click("##upscaler-quality");frame();frame();click("Ultra Quality");
  check(v.choices.upscalerQualityEdit==5,"Ultra Quality retains saved value 5");
- reveal("##upscaler-preset");click("##upscaler-preset");frame();frame();click("Fast (older CNN)");
+ reveal("##upscaler-preset");click("##upscaler-preset");frame();frame();click("Fast (default)");
  check(v.choices.upscalerPresetEdit==5,"DLSS preset selection uses shared F10 model choice");
  reveal("##upscaler");click("##upscaler");frame();frame();click("AMD FSR");frame();frame();
  check(v.choices.upscalerEdit==2 && !labels.count("##upscaler-preset"),"FSR hides NVIDIA-only presets");

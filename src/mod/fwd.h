@@ -694,6 +694,27 @@ static void InteractAimSet(bool on, const char* who);
 static void InteractAimConfigure(const char* ini);
 static void InteractAimTick();
 static bool InteractAimCommand(const char* args);
+static void InteractAimInstall();
+// Loot picked up by reaching for it (physical_pickup.cpp).
+static bool PickupEnabled();
+static bool PickupRay(float* origin, float* dir);
+static void PhysicalPickupTick();
+static bool PickupPadFilter(dvr::vr::InputSnapshot& raw, bool blocked);
+static void PickupSet(bool on, const char* who);
+static void PickupSetReachCm(float cm);
+static float PickupReachCm();
+static void PickupSetBookReachCm(float cm);
+static float PickupBookReachCm();
+static bool PickupDoorsEnabled();
+static void PickupSetDoors(bool on, const char* who);
+static void PickupSetDoorReachCm(float cm);
+static float PickupDoorReachCm();
+static bool PickupCarryEnabled();
+static void PickupSetCarry(bool on, const char* who);
+static bool PickupUsablesEnabled();
+static void PickupSetUsables(bool on, const char* who);
+static void PickupConfigure(const char* ini);
+static bool PickupCommand(const char* args);
 // VR-166: grenades and other throws aimed by hand (throw_aim.cpp).
 static bool ThrowAimEnabled();
 static void ThrowAimSet(bool on, const char* who);

@@ -4,9 +4,9 @@ namespace dvr::dlss {
 struct ModelChoice { const char* name; int model; int preset; const char* tip; };
 inline constexpr int kPresetPerMode = 16;
 inline constexpr ModelChoice kModelChoices[] = {
-    {"Transformer K (default)", 0, 0,
-     "NVIDIA's best all-round model: sharp, stable, little ghosting. About 2 ms per eye at 2750x2850, "
-     "the same in every mode."},
+    {"Transformer K", 0, 0,
+     "NVIDIA's best all-round model: sharp, stable, little ghosting. About twice the cost of Fast: "
+     "measured 14 percent fewer frames at Ultra Quality on an RTX 4070 Ti SUPER."},
     {"Transformer J", 0, 10,
      "A sibling of K: slightly less ghosting behind moving things, slightly more flicker on fine "
      "detail. Same cost as K. NVIDIA recommends K over J."},
@@ -20,9 +20,9 @@ inline constexpr ModelChoice kModelChoices[] = {
     {"NVIDIA recommended per mode", 0, kPresetPerMode,
      "What NVIDIA picks for each mode: K for DLAA, Ultra Quality, Quality and Balanced; M for "
      "Performance; L for Ultra Performance."},
-    {"Fast (older CNN)", 1, 0,
-     "The older, lighter models (E for the smaller modes, F for DLAA): under 1 ms per eye, a little "
-     "softer, more ghosting and shimmer. Pick it when frame rate matters more than detail."},
+    {"Fast (default)", 1, 0,
+     "The older, lighter models (E for the smaller modes, F for DLAA): about half the cost of "
+     "Transformer K, a little softer, more ghosting and shimmer."},
 };
 inline constexpr int kModelChoiceCount = (int)(sizeof(kModelChoices) / sizeof(kModelChoices[0]));
 

@@ -10400,3 +10400,84 @@ ShadowFilterRadius). The same names are referenced from two other functions (0x0
 0x00581250), taken to be the ini load and save; not read further.
 NOT established: that the mod's `console` seam word reaches this handler, and which switches
 take effect without a restart. Both are runtime questions.
+## Physical pickup: the lootable classes and the target ray (2026-10-05)
+
+First headset session 2026-10-05: targets were found from both hands, the game focused every one of them and the grip picked them up (three pickups, no refusal); that build's scan was too slow and has been rewritten. Code: `physical_pickup.cpp`, two lines in
+`interact_aim.cpp`, one filter in `pad_bridge.cpp`.
+
+* **What counts as loot** (from the script declarations, class hierarchy only): everything
+  that derives from `DisPickup_Base` (itself a `DishonoredKActor`): `DisGenericPickup`,
+  `DisStatPickup` and `DishonoredInventoryPickup`, `DisElixirHealth`, `DisElixirMana`,
+  `DisKey_Base`, `DisWhaleBoneCharm`, `DisAbstractItemPickup` (notes, audio logs). Plus
+  `DisProjectile_Arrow`, the class the focus field showed for a recoverable bolt (VR-85).
+  The test is a walk of `UStruct::SuperField` (+0x44) from the object's class, comparing each
+  class object's own name, cached per class pointer.
+* **Finding them without a frame paying for it.** A whole GObjects walk costs milliseconds, so
+  the list is built by an incremental pass: up to 500 slots and 60 us a frame, a full sweep
+  in a few seconds. Class tests compare name indices (text once per name). The entries are read directly under a structured exception handler, not checked
+  for readability one by one: the first build did that through `RegionMemo`, which is a
+  VirtualQuery per object here, and cost 2.4 ms a tick (TRAPS, 2026-10-05). An entry is
+  trusted only while its GObjects slot still holds the same pointer AND that object's class
+  pointer is unchanged. The position is `Actor.Location` (+0xC4 at run time) and the hidden
+  test `Actor.bHidden`, both resolved by name. First headset session: 167 lootable actors
+  among 100086 objects.
+* **The engine still chooses.** No field is written and nothing is picked up by the mod. When
+  a listed item is within reach of a hand, the two interaction bridges of VR-166 hand the
+  engine's own trace a ray from the game camera to the item instead of the pointing ray. The
+  engine then focuses it (`m_pCrosshairActor`), highlights it and prompts for it as it would
+  for any item the player looked at, and refuses what it would refuse. The mod only reads the
+  focus back: a grip counts while the focused actor IS the target.
+* **Not established:** that a trace from the camera to `Actor.Location` hits every pickup's
+  collision (a mesh can sit off its actor origin), and what a looted pickup looks like to this
+  list (destroyed, hidden, or neither). The code does not depend on either answer: a target
+  the engine does not focus within 250 ms is dropped and left alone for 3 s, doubling each
+  time up to a minute. The log's `pickup: target released (the game did not focus it ...)`
+  line is where both answers will show.
+* **Books and notes** are `DisAbstractItemPickup` and its children (`...Note`, `...AudioLog`).
+  The class walk meets that name before `DisPickup_Base` and marks the entry readable. A
+  readable entry has its own reach (`PhysicalPickupBookReachCm`, 45): with the common 30 cm,
+  measured to the actor origin, the first headset sessions needed the hand almost on the
+  book. When a readable target is opened by a grip, `hudlayout::note_opened_by_hand` asks the
+  reading panel onto that hand (HUD_ANCHORS, "the reading panel on either hand").
+* **Stacked books: tried, reported worse, removed** (2026-10-05). Of two stacked books only the
+  upper one opens by hand: the trace to the lower book's origin passes through the upper one.
+  Three changes were built together (commit 111b93de2) and taken out again in the next commit
+  after one headset session reported the result worse: the engine's focused actor taken as the
+  target, a grip-opened book left out for 15 s after reading, and twelve aim variants (from
+  the head and the hand, at the origin and 7 units to each side and above) walked while the
+  target was not focused. Which of the three did the harm was not isolated. The lower book is
+  opened by pointing at it. Not to be rebuilt as one change.
+* **Doors** are `DisDoor` (a `DishonoredUsableObject`, a skeletal breakable; its origin is the
+  hinge). A door is measured from its collision box: `Actor.CollisionComponent` ->
+  `PrimitiveComponent.Bounds` (origin and box extent, both by name), the distance being from
+  the hand to the nearest point of that axis-aligned box, and the trace looks at that point
+  (moved 8 % toward the box centre). The box of a door standing open at an angle is larger
+  than the door, so a hand can read as "in reach" beside it; the engine's focus still decides.
+  `[Aim] PhysicalDoors` (1), `PhysicalDoorReachCm` (20). Headset-accepted 2026-10-05.
+* Hand positions: the grip pose, scaled about the head by the drawn hand's own scale, through
+  the same head-to-world mapping as the published aim ray (`fireaim::solve`), anchored on the
+  game camera. Distances are to the actor origin, so the default reach is a generous 30 cm.
+* **The wider list** (PLAN-physical-interaction.md step 2, built 2026-10-05, not yet run). The
+  script corpus has 21 actor classes that declare `DisInteractableInterface`; their parents, from the
+  same declarations, put them in four groups by the first base name met walking up the chain:
+  loot (`DisPickup_Base`, `DisProjectile` - every bolt and dart, not only `DisProjectile_Arrow` -,
+  `DisRiverKrust`, `DisUpgrade`), carry (`DishonoredMovable` and its `DisWhaleOilBattery`,
+  `DisGrenade`, `DisWhiskeyBottle`, `DisMovableLimb`, `DisDLC07SkeletalMovable`; the last four
+  are `DishonoredKAsset`s, not movables), usable (`DishonoredUsableObject`, which `DisDoor`
+  extends and is met before, `DisProjectileLauncher`, `DisClimbable` - the chains, a
+  `DishonoredKAsset` -, and the placed traps `DisGadget_SpringRazorPlaced`,
+  `DisDLC06Gadget_ArcMinePlaced`, `DisTripwire`, all `SkeletalMeshActor`s), and EXCLUDED
+  (`DishonoredPawn` - which declares the interface itself, so every NPC does -, `Pawn`,
+  `DisDialogInanimateDummy` (an `Actor`), `DisSpeaker_PA` (a `DishonoredBreakable`, a sibling of
+  the movables, not one), `GameCrowdAgent` (the rats), `DisTrigger`). An excluded name ends the
+  walk with a no, so no pawn subclass can be listed whatever its parents; a second check reads
+  the chosen target's chain as text and refuses any name containing `Pawn` (the beat line's
+  `pawn or talk targets refused`, expected 0). Carry and usable things are measured from the
+  collision box with the door reach. `DisUseState_AltInteract` also names the interface but is a
+  use state, not an actor.
+* **The carry states, per lane** (`dvr::anim::snapshot`, the player's three state machines). A
+  carried movable is `StatePlayerGrabMovable` on any lane (the same read VR-181 uses); a body is
+  `StatePlayerGrabCorpse` then `StatePlayerCarryCorpseIdle` on lane 1, the upper body and right
+  arm, while lane 2, the left arm, stays free (powers, Blink). So while a body is carried only
+  the hand on the free lane is offered a target; the module reads which lane holds it rather
+  than assuming the side, and logs `pickup: carry gate` on every change. Not yet seen in a log.

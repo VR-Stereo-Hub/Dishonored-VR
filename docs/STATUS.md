@@ -334,6 +334,54 @@ Branch `claude/performance-audit` (off staging). Detail: dishonored/PERFORMANCE.
 - 2026-10-05: `tools/perf-plans/audit-all.txt` runs all of it unattended in one launch (about
   14 minutes); the planner gained `delay`, `atend` and the one-shot `[Perf] AbPlanOnce` key.
 - Release builds. No game launched. No Linear ticket (no Linear access).
+## 2026-10-05: fast DLSS model as the default; physical loot pickup (built, not run)
+
+Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
+- `DlssModel` defaults to 1 (the fast CNN presets) in the code, the default ini and the
+  launcher. Evidence: the performance audit's matched headset row, 14 percent of the frame rate
+  (dishonored/PERFORMANCE.md 2026-10-05 on `claude/performance-audit`). Existing inis are not
+  migrated. Launcher UI tests (256) and model tests (86) pass.
+- Physical pickup: a lootable item within 30 cm of a hand becomes what the game's own
+  interaction trace looks at, and that hand's grip picks it up (the grip's bound action is
+  suppressed for that press). `[Aim] PhysicalPickup`, `PhysicalPickupReachCm`, F10 > Aim, seam
+  `pickup`. Detail: dishonored/ENGINE_NOTES.md "Physical pickup", CONTROLLER_BINDS.md.
+- **Not verified:** nothing here has run in the game, the simulator or a headset; it compiles
+  and the default-ini check passes. First run, read: `pickup: first sweep done` (how many
+  lootables), `pickup: target ...` when a hand nears loot, whether the highlight appears,
+  `pickup: ... grip swallowed, Interact pressed`, and any `target released (the game did not
+  focus it ...)` line, which is the unproven part (the trace reaching the item's origin).
+- First headset session (2026-10-05, pickup merged into the local test build): the pickup
+  worked from both hands, and it caused a right-eye flicker on the hands and weapons: the scan
+  cost 2.4 ms of every game tick and the camera-silent gate starved the right eye about once
+  every two seconds. Rewritten to guarded direct reads with its own cost in the log; that fix
+  is built and not yet run. FLICKER_REFERENCE and TRAPS, top entries.
+- Second headset session on that fix: the flicker remained. Script cost was back to normal but
+  the camera-silent rate only halved (16.7 a minute against 0.2 to 0.7 without the pickup code).
+  OPEN. A third build bounds the scan to 60 us a frame and logs the frames before every
+  camera-silent draw (`pickup/silent`); toggling the F10 checkbox in one session is the A/B.
+- Third headset session (v1.0.3-64): no flicker reported; 1.1 camera-silent draws a minute, the
+  module at 16 us a frame. HEADSET-CONFIRMED fixed. Reported in the same session: items are
+  comfortable to take, books needed the hand almost touching them.
+- Built after it, not run: books and notes get their own reach (`PhysicalPickupBookReachCm`,
+  45), and a note opened by a grip attaches to the hand that opened it (the right-hand page
+  pose is the left one mirrored: derived and host-tested, not measured). Not installed.
+- Fourth headset session (v1.0.3-66): accepted as good. Reported: of two stacked books only the
+  upper one could be opened by hand; the right-hand page needs about 45 degrees more tilt.
+  0.8 camera-silent draws a minute, the module at 16-20 us a frame.
+- Built after it, not run: the game's own focus is taken as the target, a grip-opened book is
+  left out for 15 s after reading, the trace tries twelve aims at an unfocused target;
+  `NoteRightHandTilt` (45); doors by grabbing (`PhysicalDoors`, `PhysicalDoorReachCm`).
+- Fifth headset session (v1.0.3-68): doors accepted. The stacked-book changes and the right-hand
+  tilt were reported worse and are REMOVED (the code is in commit 111b93de2 if it is ever
+  wanted). What stands: loot, books with their own reach, the page on the opening hand, doors.
+- **Next session:** dishonored/PLAN-physical-interaction.md. The grip for carried and thrown
+  objects and the other interaction prompts (never a pawn: no talking, no takedowns), the
+  held weapon hidden and the hand opened while a hand is eligible. Not started.
+- No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
+  decision. Not installed.
+
+**Next steps:** a headset or simulator pass of the pickup; tune the reach; decide whether the
+grip should be ignored while a weapon is being blocked with.
 
 ## 2026-10-04: run 4 - takedown arms accepted; cutscene arms left as an opt-in
 

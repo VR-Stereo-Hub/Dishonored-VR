@@ -39,7 +39,7 @@ char g_offered[128] = "";
 uint64_t g_lastEyeQpc[2] = {};
 std::atomic<int> g_preset{0};
 std::atomic<int> g_quality{QDlaa};
-std::atomic<int> g_model{0};
+std::atomic<int> g_model{1};   // the fast model is the default (PERFORMANCE.md 2026-10-05: K costs 14 % of the rate)
 std::atomic<bool> g_audit{false};
 std::atomic<uint32_t> g_outW{0}, g_outH{0};
 const float kRatio[QCount] = {1.0f, 1.5f, 1.7241f, 2.0f, 3.0f, 1.3f};
