@@ -30,6 +30,11 @@ Measured on the September 13 Hound Pits Pub save with the xrsim runtime:
   diffuse across the cap adjacency; detail weights interpolate the nearest cap
   triangle. The new rear bulge is reduced by up to 1.5 cm for finger clearance;
   the original boundary stays fixed. Screenshots still only cover sampled grips.
+- Final clean candidate v1.0.3-50-g4cdd3b78d (optimized, legacy off) was installed
+  with matching build banner and SHA-256
+  096827320B820E164DBA9A8E848F4489CB5B2C21D4D8445B4CFBADF8191C7F64.
+  Final status sampled 30,714 successful draws and zero failures. All three final
+  screenshots use this build and the September 13 save; its hash is unchanged.
 - Rotated views and the live OFF/ON comparison show the main rear opening filled.
   A sampled status counted 14,755 successful draws and zero failures. Model reload
   also rebuilt and validated the fitted version without restarting the game.

@@ -21,7 +21,12 @@ local under build/heart-backside-preview. The installation changed only
 HeartBack=1; later candidate installs preserved the entire INI byte for byte.
 CRLF is verified. Assets and captures are game-derived and remain untracked.
 
-Next: finish the final clean-build verification and deliver simulator screenshots.
+Final candidate: `v1.0.3-50-g4cdd3b78d`, optimized, legacy off, installed and
+verified against its own log banner. Exports (11) and lint pass. The final run
+reported 30,714 successful backing draws and zero failures before the last
+angle capture. `final-rear`, `final-original` and `final-three-quarter` are the
+actual compositor captures. The selected save matches its backup hash.
+Next: review the delivered in-game screenshots.
 Headset perception, extreme animated grip poses and content distribution remain
 unverified. This is a local installed candidate, not a release. AFW stays shelved.
 Details: [Heart runtime evidence](dishonored/ENGINE_NOTES.md).
