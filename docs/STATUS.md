@@ -1,3 +1,19 @@
+## 2026-10-05: Heart glow locomotion accepted for staging
+
+Headset testing confirms the Heart glow remains aligned during locomotion on
+v1.0.3-58-g3c61de512. The current log banner and installed DLL SHA-256 match
+the candidate; the run and previous logs are archived locally under
+effects-candidate/accepted-run. The log records the current-parent-frame path
+operating during travel, with the existing 120 uu rejection guard still active.
+This is acceptance of the Heart locomotion test; separate Possession casting
+coverage is not claimed. All 733 host checks and the optimized build passed.
+
+Integration into staging is explicitly authorized for the accepted Heart
+backing and shared hand-effect correction. Preserve both finalized feature
+branches. The release branch is outside this integration. The Heart assets
+remain local-only; packaging requires the prepared binary files described in
+the Heart PR. The installed accepted candidate remains unchanged.
+
 ## 2026-10-05: Hand-effect locomotion correction installed
 
 Heart backing PR #182 is ready for review against staging and remains unmerged.
