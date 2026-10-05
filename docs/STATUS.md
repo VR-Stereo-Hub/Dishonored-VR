@@ -1,3 +1,16 @@
+## 2026-10-04: HUD widgets splitting and marker flicker - native ownership restored
+
+Branch `claude/hud-recouple`. Detail: dishonored/HUD_ANCHORS.md and FLICKER_REFERENCE.md, top
+entries; TRAPS.md, top entry.
+- Cause, measured from the ini backups and logs: `[Hud] SemanticOwnership` (the accepted widget
+  grouping of 2026-09-26) was default 0 and absent from the default ini; the dev PC's ini lost
+  the key when the installer rewrote it on 2026-09-27, and no session since armed the hooks.
+  HUD code is close to unchanged since v1.0.2.
+- Change: default 1, written in the default ini, one-time 0 -> 1 migration. No routing code
+  changed. Host suites pass. NOT yet run in a headset.
+- Next run: `hud/semantic: hooks=1` at startup, widgets in one piece, objective titles steady.
+- No Linear ticket: this session has no Linear access.
+
 ## 2026-10-04: accepted takedown arm levers on by default
 
 Branch `claude/hud-recouple`. `[Anim] SmoothBlend`, `[Hands] ArmIKGameArmInAnim` and `[Hands]
