@@ -13,6 +13,7 @@
   pickup and squeeze that hand's grip. The game highlights the item when a hand is close.
   The Interact button works as before. F10 > Aim > "Pick up loot by reaching for it".
   A book or note opened this way shows its page on the hand that opened it.
+  Doors open and close the same way (F10 > Aim > "Open doors by grabbing them").
 
 ## Stereo settings
 

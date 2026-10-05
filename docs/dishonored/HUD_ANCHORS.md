@@ -2248,3 +2248,10 @@ Built, host-tested, not run in a headset.
   test checks that a mirrored grip gives the mirrored page and placement (922 checks pass),
   which says the mirror is consistent, not that it is comfortable. If the right-hand page
   sits wrong, a right-hand reference has to be recorded the way the left one was.
+- First headset session with it (v1.0.3-66): notes opened on the hand that gripped them (12
+  openings, both hands, and the left hand for the two opened with the Interact button). The
+  right-hand page was reported good but needing about 45 degrees more tilt toward the reader.
+  Added: `NoteRightHandTilt` (default 45, F10 "Extra tilt on the right hand"), added to
+  `ReadingTilt` for a right-hand note only. The SIGN is a reading of that report (positive
+  pitch turns the page's face toward its lower edge, the reader's side), not a measurement:
+  if it went the wrong way, the slider goes to -45.

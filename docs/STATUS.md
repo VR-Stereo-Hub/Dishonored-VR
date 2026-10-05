@@ -29,6 +29,12 @@ Branch `claude/fast-dlss-physical-pickup` (off staging), two commits.
 - Built after it, not run: books and notes get their own reach (`PhysicalPickupBookReachCm`,
   45), and a note opened by a grip attaches to the hand that opened it (the right-hand page
   pose is the left one mirrored: derived and host-tested, not measured). Not installed.
+- Fourth headset session (v1.0.3-66): accepted as good. Reported: of two stacked books only the
+  upper one could be opened by hand; the right-hand page needs about 45 degrees more tilt.
+  0.8 camera-silent draws a minute, the module at 16-20 us a frame.
+- Built after it, not run: the game's own focus is taken as the target, a grip-opened book is
+  left out for 15 s after reading, the trace tries twelve aims at an unfocused target;
+  `NoteRightHandTilt` (45); doors by grabbing (`PhysicalDoors`, `PhysicalDoorReachCm`).
 - No Linear ticket (no Linear access in this session). MLAA under DLSS is left as it is by
   decision. Not installed.
 

@@ -109,3 +109,5 @@ fire, and the logical Interact is held for 130 ms instead. A grip that was alrea
 the hand arrived is not taken; the Interact button itself is untouched. Log: `pickup: LEFT|RIGHT
 grip pressed ... grip swallowed, Interact pressed`. Books and notes use
 `PhysicalPickupBookReachCm` (45), and a page opened this way attaches to the hand that opened it.
+With `[Aim] PhysicalDoors=1` (F10 > Aim, `pickup doors on|off`) the same grip opens or closes a
+door within `PhysicalDoorReachCm` (20) of the hand.

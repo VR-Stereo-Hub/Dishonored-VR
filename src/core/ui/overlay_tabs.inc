@@ -459,6 +459,20 @@ static void OvlTabAim()
                     ConfigWriteKey("Aim", "PhysicalPickupBookReachCm", v, "F10 Aim");
                 }
                 OvlTip("Books and notes are larger, so they have their own distance. A page opened by a grip attaches to that hand.");
+                bool doors = PickupDoorsEnabled();
+                if (dvr::ovl::checkbox("Open doors by grabbing them", &doors)) {
+                    PickupSetDoors(doors, "F10"); ConfigWriteKey("Aim", "PhysicalDoors", doors ? "1" : "0", "F10 Aim");
+                }
+                OvlTip("Bring a hand to a door and squeeze that hand's grip to open or close it.");
+                if (doors) {
+                    float door = PickupDoorReachCm();
+                    if (dvr::ovl::slider_float("Reach for doors (cm)", &door, 5.f, 80.f, "%.0f")) {
+                        PickupSetDoorReachCm(door);
+                        char v[16]; _snprintf(v, sizeof(v), "%.0f", PickupDoorReachCm()); v[sizeof(v) - 1] = 0;
+                        ConfigWriteKey("Aim", "PhysicalDoorReachCm", v, "F10 Aim");
+                    }
+                    OvlTip("How close a hand must be to the door.");
+                }
             }
         }
         ImGui::TextDisabled("Not aimed by the mod: the sword (motion swing), carried bodies, the Heart.");

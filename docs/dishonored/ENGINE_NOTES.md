@@ -10197,6 +10197,23 @@ First headset session 2026-10-05: targets were found from both hands, the game f
   measured to the actor origin, the first headset sessions needed the hand almost on the
   book. When a readable target is opened by a grip, `hudlayout::note_opened_by_hand` asks the
   reading panel onto that hand (HUD_ANCHORS, "the reading panel on either hand").
+* **What the game highlights is what the grip takes** (2026-10-05, after a headset report that
+  only the upper of two stacked books could be opened). The trace to the lower book's origin
+  passes through the upper one, so the engine focused the upper book while the module waited
+  for the lower. Now the engine's focused actor, when it is a listed item within reach, becomes
+  the target. A book or note opened by a grip is left out for 15 s after the reading ends, and
+  while the target is not focused the trace walks twelve aims, three frames each: from the
+  head and from the hand, at the origin and at points 7 units to each side and above. An aim
+  that never finds it drops the target after 0.7 s (3 s, doubling); a dropped item is still
+  taken if the player points at it. Built, not run: whether an offset aim reaches the exposed
+  edge of a covered book is for the headset.
+* **Doors** are `DisDoor` (a `DishonoredUsableObject`, a skeletal breakable; its origin is the
+  hinge). A door is measured from its collision box: `Actor.CollisionComponent` ->
+  `PrimitiveComponent.Bounds` (origin and box extent, both by name), the distance being from
+  the hand to the nearest point of that axis-aligned box, and the trace looks at that point
+  (moved 8 % toward the box centre). The box of a door standing open at an angle is larger
+  than the door, so a hand can read as "in reach" beside it; the engine's focus still decides.
+  `[Aim] PhysicalDoors` (1), `PhysicalDoorReachCm` (20). Built, not run.
 * Hand positions: the grip pose, scaled about the head by the drawn hand's own scale, through
   the same head-to-world mapping as the published aim ray (`fireaim::solve`), anchored on the
   game camera. Distances are to the actor origin, so the default reach is a generous 30 cm.
